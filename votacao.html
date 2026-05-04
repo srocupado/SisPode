@@ -1,0 +1,810 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Plenário — Votação · Podemos</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="libs/html2canvas.min.js"></script>
+<style>
+  :root {
+    --bg: #0e1c1f;
+    --card: #142a2f;
+    --header: #17373e;
+    --accent: #1fa5a5;
+    --accent-light: #26c9c9;
+    --text: #e8ecec;
+    --text-dim: #8da3a8;
+    --sim: #3ad97d;
+    --nao: #f05454;
+    --abstencao: #f0c040;
+    --art17: #6eaaff;
+    --obstrucao: #c084fc;
+    --absent: #5a6f74;
+    --border: rgba(255,255,255,0.06);
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── TOP BAR ── */
+  .top-bar {
+    background: linear-gradient(135deg, #17373e 0%, #1a4a4a 100%);
+    padding: 14px 20px 0;
+    border-bottom: 2px solid var(--accent);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .top-bar-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding-bottom: 10px;
+  }
+
+  .top-bar-title {
+    font-weight: 700;
+    font-size: 15px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+  }
+
+  .top-bar-back {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    letter-spacing: 0.3px;
+  }
+  .top-bar-back:hover { background: rgba(255,255,255,0.14); color: var(--text); }
+
+  /* ── TABS ── */
+  .tab-bar {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    padding-top: 2px;
+  }
+
+  .tab-btn {
+    background: none;
+    border: none;
+    border-bottom: 3px solid transparent;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    padding: 8px 20px 10px;
+    cursor: pointer;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .tab-btn.active {
+    color: var(--accent-light);
+    border-bottom-color: var(--accent-light);
+  }
+
+  .tab-btn:hover:not(.active) { color: var(--text); }
+
+  /* ── CONTAINER ── */
+  .container {
+    max-width: 520px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  /* ── INPUT SECTION ── */
+  .input-section {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .input-section label {
+    display: block;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 10px;
+  }
+
+  .input-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .field {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .field:focus { border-color: var(--accent); }
+  .field::placeholder { color: #4a6268; }
+
+  input[type="date"].field {
+    color-scheme: dark;
+    cursor: pointer;
+  }
+
+  input[type="date"].field::-webkit-calendar-picker-indicator {
+    filter: invert(0.7) sepia(1) saturate(3) hue-rotate(140deg);
+    cursor: pointer;
+  }
+
+  select.field {
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238da3a8' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 5.5l6.5 6 6.5-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+    cursor: pointer;
+  }
+
+  select.field option {
+    background: #0e1c1f;
+    color: #e8ecec;
+  }
+
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 20px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    white-space: nowrap;
+  }
+
+  .btn:hover { background: var(--accent-light); }
+  .btn:active { transform: scale(0.97); }
+  .btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-sm { padding: 10px 16px; font-size: 12px; }
+
+  .party-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    align-items: center;
+  }
+
+  .party-row label { margin-bottom: 0; white-space: nowrap; }
+
+  .party-input {
+    flex: 1;
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--accent-light);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    outline: none;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    transition: border-color 0.2s;
+  }
+
+  .party-input:focus { border-color: var(--accent); }
+
+  .voting-select-area {
+    margin-top: 12px;
+    display: none;
+  }
+
+  .voting-select-area.show { display: block; }
+
+  .help-text {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 10px;
+    line-height: 1.5;
+    text-align: center;
+  }
+
+  /* ── STATUS ── */
+  .status {
+    text-align: center;
+    padding: 24px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  .status.error { color: var(--nao); }
+  .status.info  { color: var(--accent-light); }
+
+  .spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-bottom: 10px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── LATENCY PANEL ── */
+  .latency-panel {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .latency-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--accent);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 10px;
+  }
+
+  .latency-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    font-size: 12px;
+  }
+
+  .latency-source {
+    font-weight: 600;
+    color: var(--text);
+    min-width: 120px;
+  }
+
+  .latency-time {
+    color: var(--accent-light);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    min-width: 48px;
+  }
+
+  .latency-tag {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+
+  .latency-tag.ok      { background: rgba(58,217,125,0.15);  color: var(--sim); }
+  .latency-tag.miss    { background: rgba(240,84,84,0.15);   color: var(--nao); }
+  .latency-tag.pending { background: rgba(240,192,64,0.15);  color: var(--abstencao); }
+
+  .latency-note {
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 11px;
+    color: var(--text-dim);
+    font-style: italic;
+  }
+
+  /* ── VOTE HEADER ── */
+  .vote-header {
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .vote-title-bar {
+    background: linear-gradient(135deg, #17373e, #1a4a4a);
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .vote-party-badge {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    padding: 3px 10px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+  }
+
+  .vote-source-badge {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 4px;
+    margin-bottom: 8px;
+    margin-left: 6px;
+    letter-spacing: 0.3px;
+  }
+
+  .vote-source-badge.ws { background: rgba(58,217,125,0.15);  color: var(--sim); }
+  .vote-source-badge.da { background: rgba(31,165,165,0.15);   color: var(--accent-light); }
+
+  .vote-description {
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.4;
+    color: var(--text);
+  }
+
+  .vote-dates {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-top: 6px;
+  }
+
+  .quorum-big {
+    text-align: center;
+    padding: 12px 16px 4px;
+  }
+
+  .quorum-big .q-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+
+  .quorum-big .q-value {
+    font-size: 48px;
+    font-weight: 700;
+    color: var(--text);
+    line-height: 1.1;
+  }
+
+  .result-title {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    padding: 8px 16px 4px;
+  }
+
+  .result-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 6px 16px;
+    align-items: center;
+  }
+
+  .result-row .r-label { font-size: 14px; color: var(--text-dim); }
+  .result-row .r-value { font-size: 15px; font-weight: 700; }
+  .result-row .r-value.sim       { color: var(--sim); }
+  .result-row .r-value.nao       { color: var(--nao); }
+  .result-row .r-value.abstencao { color: var(--abstencao); }
+  .result-row .r-value.art17     { color: var(--art17); }
+  .result-row .r-value.obstrucao { color: var(--obstrucao); }
+  .result-row .r-value.absent    { color: var(--absent); }
+
+  .result-divider {
+    height: 1px;
+    background: var(--border);
+    margin: 4px 16px;
+  }
+
+  .result-total {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 16px 14px;
+    font-weight: 700;
+    font-size: 14px;
+  }
+
+  .orientation-banner {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 16px;
+    background: rgba(255,255,255,0.03);
+    border-top: 1px solid var(--border);
+  }
+
+  .orientation-banner .ob-label { font-size: 12px; color: var(--text-dim); }
+  .orientation-banner .ob-party { font-size: 13px; font-weight: 700; color: var(--accent-light); }
+
+  .orientation-banner .ob-vote {
+    margin-left: auto;
+    font-size: 13px;
+    font-weight: 700;
+  }
+
+  /* ── DEPUTY LIST ── */
+  .deputy-list {
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .deputy-list-header {
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  .deputy-list-header h3 {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .deputy-count {
+    font-size: 12px;
+    color: var(--accent-light);
+    font-weight: 600;
+  }
+
+  .deputy-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    transition: background 0.15s;
+  }
+
+  .deputy-item:last-child { border-bottom: none; }
+  .deputy-item:hover { background: rgba(255,255,255,0.02); }
+
+  .deputy-name  { font-size: 14px; font-weight: 500; color: var(--text); }
+  .deputy-party { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+
+  .deputy-vote {
+    font-size: 14px;
+    font-weight: 700;
+    min-width: 50px;
+    text-align: right;
+  }
+
+  .deputy-vote.sim       { color: var(--sim); }
+  .deputy-vote.nao       { color: var(--nao); }
+  .deputy-vote.abstencao { color: var(--abstencao); }
+  .deputy-vote.art17     { color: var(--art17); }
+  .deputy-vote.obstrucao { color: var(--obstrucao); }
+  .deputy-vote.absent    { color: var(--absent); font-weight: 500; font-style: italic; }
+
+  /* ── PIE CHART ── */
+  .chart-section {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 20px;
+    padding: 16px;
+    flex-wrap: wrap;
+  }
+
+  .chart-legend {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    color: var(--text-dim);
+  }
+
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .legend-value {
+    font-weight: 700;
+    color: var(--text);
+    margin-left: auto;
+    padding-left: 12px;
+  }
+
+  /* ── GROUPED DEPUTY TABLES ── */
+  .dep-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 4px;
+  }
+
+  .dep-group {
+    background: var(--card);
+    border-radius: var(--radius);
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .dep-group-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .dep-group-header h4 {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .dep-group-header .group-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+
+  .dep-group-header .group-count { font-size: 12px; font-weight: 600; }
+
+  .dep-group-body {
+    display: flex;
+    flex-wrap: wrap;
+    padding: 8px 10px;
+  }
+
+  .dep-compact {
+    font-size: 12px;
+    padding: 3px 8px;
+    color: var(--text);
+    white-space: nowrap;
+  }
+
+  .dep-compact .dep-uf { color: var(--text-dim); font-size: 10px; }
+
+  /* ── SIGNATURE ── */
+  .signature {
+    text-align: center;
+    padding: 20px 16px 16px;
+    border-top: 1px solid var(--border);
+    margin-top: 16px;
+  }
+
+  .signature-line {
+    width: 200px;
+    height: 1px;
+    background: rgba(255,255,255,0.15);
+    margin: 0 auto 10px;
+  }
+
+  .signature-text {
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--accent-light);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+  }
+
+  .signature-sub {
+    font-size: 10px;
+    color: var(--text-dim);
+    margin-top: 4px;
+    letter-spacing: 0.5px;
+  }
+
+  /* ── GENERATE IMAGE BUTTON ── */
+  .generate-area {
+    display: none;
+    margin-top: 20px;
+    margin-bottom: 32px;
+    text-align: center;
+  }
+
+  .generate-area.show { display: block; }
+
+  .btn-generate {
+    background: linear-gradient(135deg, #1fa5a5, #178080);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 14px 28px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 700;
+    cursor: pointer;
+    letter-spacing: 0.5px;
+    transition: transform 0.15s, box-shadow 0.2s;
+    box-shadow: 0 4px 20px rgba(31, 165, 165, 0.25);
+  }
+
+  .btn-generate:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 28px rgba(31, 165, 165, 0.35);
+  }
+
+  .btn-generate:active  { transform: translateY(0); }
+  .btn-generate:disabled { opacity: 0.6; cursor: wait; }
+
+  .btn-generate svg { vertical-align: middle; margin-right: 8px; }
+
+  /* ── LIVE: refresh row ── */
+  .refresh-row {
+    display: flex;
+    gap: 8px;
+    margin-top: 10px;
+    align-items: center;
+  }
+
+  .refresh-row select { flex: 1; }
+
+  .btn-refresh {
+    background: rgba(31,165,165,0.15);
+    border: 1px solid var(--accent);
+    color: var(--accent-light);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+
+  .btn-refresh:hover    { background: rgba(31,165,165,0.25); }
+  .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <div class="top-bar-row">
+    <button class="top-bar-back" id="btn-voltar-home">← Início</button>
+    <span class="top-bar-title">Plenário — Votação</span>
+    <div style="width:80px"></div>
+  </div>
+  <div class="tab-bar">
+    <button class="tab-btn active" id="tabHistorico">📂 Dados abertos</button>
+    <button class="tab-btn" id="tabPortal">🌐 Link Portal</button>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ══ TAB: DADOS ABERTOS ══ -->
+  <div id="tab-historico">
+    <div class="input-section">
+      <label>Data da votação</label>
+      <div class="input-row">
+        <input type="date" class="field" id="dateInput" />
+        <button class="btn" id="loadBtn">Carregar</button>
+      </div>
+
+      <div class="voting-select-area" id="votingSelectArea">
+        <label>Selecione a votação</label>
+        <div class="input-row">
+          <select class="field" id="votingSelect"></select>
+        </div>
+      </div>
+
+      <div class="party-row">
+        <label>Partido:</label>
+        <input type="text" class="party-input" id="partyInput" value="Podemos" />
+        <button class="btn btn-sm" id="filterBtn" style="display:none;">Filtrar</button>
+      </div>
+
+      <p class="help-text">
+        Dados via API Dados Abertos da Câmara — votações do Plenário
+      </p>
+    </div>
+
+    <div id="statusArea"></div>
+    <div id="resultsArea"></div>
+    <div class="generate-area" id="generateArea">
+      <button class="btn-generate" id="generateBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Gerar imagem da votação
+      </button>
+      <p class="help-text" id="generateStatus" style="margin-top:10px;"></p>
+    </div>
+  </div>
+
+  <!-- ══ TAB: LINK PORTAL ══ -->
+  <div id="tab-portal" style="display:none">
+    <div class="input-section">
+      <label>Sessão em andamento</label>
+      <button class="btn" id="detectPlenarioBtn" style="width:100%;margin-bottom:14px;">
+        🔍 Detectar sessão em andamento
+      </button>
+
+      <label>Ou cole o link manualmente</label>
+      <div class="input-row">
+        <input type="text" class="field" id="portalUrlInput"
+          placeholder="https://www.camara.leg.br/presenca-comissoes/votacao-portal?reuniao=..." />
+        <button class="btn" id="loadPortalBtn">Carregar</button>
+      </div>
+
+      <div class="voting-select-area" id="portalVotingSelectArea">
+        <label>Selecione a votação</label>
+        <div class="refresh-row">
+          <select class="field" id="portalVotingSelect"></select>
+          <button class="btn-refresh" id="refreshPortalBtn" title="Atualizar — busca nova votação na sessão">↺</button>
+        </div>
+      </div>
+
+      <div class="party-row">
+        <label>Partido:</label>
+        <input type="text" class="party-input" id="portalPartyInput" value="Podemos" />
+        <button class="btn btn-sm" id="portalFilterBtn" style="display:none;">Filtrar</button>
+      </div>
+
+      <div id="portalFallbackSection" style="display:none;margin-top:12px;">
+        <p class="help-text" style="text-align:left;margin-bottom:8px;">
+          Proxy bloqueado. Abra o link no navegador → <b>Ctrl+U</b> → copie tudo (<b>Ctrl+A, Ctrl+C</b>) e cole abaixo:
+        </p>
+        <textarea class="field" id="portalHtmlSource"
+          style="height:90px;font-size:11px;font-family:monospace;resize:vertical;"
+          placeholder="Cole aqui o HTML da página da Câmara..."></textarea>
+        <button class="btn" id="portalParseBtn" style="width:100%;margin-top:6px;">Processar código-fonte</button>
+      </div>
+
+      <p class="help-text">Cole o link direto de uma votação do portal da Câmara</p>
+    </div>
+
+    <div id="portalStatusArea"></div>
+    <div id="portalResultsArea"></div>
+    <div class="generate-area" id="portalGenerateArea">
+      <button class="btn-generate" id="portalGenerateBtn">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+        Gerar imagem da votação
+      </button>
+      <p class="help-text" id="portalGenerateStatus" style="margin-top:10px;"></p>
+    </div>
+  </div>
+
+</div><!-- /container -->
+
+<script src="votacao.js"></script>
+
+</body>
+</html>

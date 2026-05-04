@@ -1,0 +1,49 @@
+{
+  "manifest_version": 3,
+  "name": "Sistemas Legislativos – Podemos",
+  "version": "2.0.0",
+  "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
+
+  "permissions": ["storage", "tabs"],
+
+  "host_permissions": [
+    "https://dadosabertos.camara.leg.br/*",
+    "https://www.camara.leg.br/*",
+    "https://generativelanguage.googleapis.com/*",
+    "https://plenario-podemos-default-rtdb.firebaseio.com/*",
+    "https://shrill-resonance-4d17.vinicius-const.workers.dev/*",
+    "https://api.codetabs.com/*",
+    "https://unpkg.com/*",
+    "https://legis.camara.leg.br/*"
+  ],
+
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'self'; img-src 'self' data: blob:"
+  },
+
+  "action": {
+    "default_title": "Sistemas Legislativos – Podemos",
+    "default_icon": {
+      "16":  "icons/icon16.png",
+      "48":  "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+
+  "background": {
+    "service_worker": "background.js"
+  },
+
+  "icons": {
+    "16":  "icons/icon16.png",
+    "48":  "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+
+  "web_accessible_resources": [
+    {
+      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js"],
+      "matches": ["<all_urls>"]
+    }
+  ]
+}
