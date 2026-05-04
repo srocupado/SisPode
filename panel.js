@@ -296,15 +296,17 @@ async function extrairTextoPDF(file) {
 }
 
 function extrairProposicoes(texto) {
-  const regex = /\b(PL|PLP|PEC|PRC|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR)\s+(\d{1,5})\/(\d{4})\b/gi;
+  // Aceita: "PL 1234/2024", "PL nº 1234/2024", "PL n.º 1.234/2024", etc.
+  const regex = /\b(PL|PLP|PEC|PRC|PDL|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR|INC|RCP)\s*(?:n[º°o]?\.?\s*)?(\d{1,2}\.\d{3}|\d{1,5})\/(\d{4})\b/gi;
   const encontrados = new Map();
   let match;
   while ((match = regex.exec(texto)) !== null) {
-    const chave = `${match[1].toUpperCase()} ${match[2]}/${match[3]}`;
+    const numero = parseInt(match[2].replace(/\./g, ''));
+    const chave = `${match[1].toUpperCase()} ${numero}/${match[3]}`;
     if (!encontrados.has(chave)) {
       encontrados.set(chave, {
         sigla:  match[1].toUpperCase(),
-        numero: parseInt(match[2]),
+        numero,
         ano:    parseInt(match[3]),
         chave,
       });
