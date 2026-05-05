@@ -175,51 +175,98 @@
 
   <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
   <div id="modal-configuracoes" class="modal-overlay" style="display:none">
-    <div class="modal">
+    <div class="modal" style="max-width:520px">
       <div class="modal-header">
-        <h3>Configurações</h3>
+        <h3>Configurações de IA</h3>
         <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
       </div>
       <div class="modal-body">
+
+        <!-- PROVEDOR 1: GEMINI -->
         <div class="config-section">
           <div class="config-section-title">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2">
-              <circle cx="12" cy="12" r="10"/>
-              <line x1="12" y1="8" x2="12" y2="12"/>
-              <line x1="12" y1="16" x2="12.01" y2="16"/>
-            </svg>
-            Integração com Inteligência Artificial
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
+            Google Gemini
+            <span id="badge-gemini" class="ccjc-provider-badge inativo">○ Não configurado</span>
           </div>
           <p class="config-desc">
-            O Gemini gera automaticamente resumos e análises dos projetos.<br>
-            Obtenha sua chave em
+            Gratuito · 1.500 req/dia · Suporta PDFs nativamente ·
             <a href="https://aistudio.google.com" target="_blank" class="link">aistudio.google.com</a>
-            → <em>Get API key → Create API key</em>.
           </p>
-          <div class="form-group" style="margin-top:14px">
-            <label>Chave de API do Gemini</label>
+          <div class="form-group" style="margin-top:10px">
+            <label>Chave de API</label>
             <div style="display:flex;gap:8px">
-              <input type="password" id="config-gemini-key" class="form-input" placeholder="Cole aqui sua chave (AIzaSy...)">
-              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+              <input type="password" id="config-gemini-key" class="form-input" placeholder="AIzaSy...">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
             </div>
           </div>
           <div id="config-status-ia" class="config-status" style="display:none"></div>
           <div class="form-group">
             <label style="display:flex;align-items:center;justify-content:space-between">
               Modelo
-              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">
-                ↻ Carregar disponíveis
-              </button>
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
             </label>
             <select id="config-modelo" class="form-input">
-              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
+              <option value="">— cole a chave e clique em Carregar —</option>
             </select>
             <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
           </div>
+          <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar Gemini</button>
         </div>
+
+        <!-- PROVEDOR 2: GROQ -->
+        <div class="config-section" style="margin-top:4px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="config-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+            Groq
+            <span id="badge-groq" class="ccjc-provider-badge inativo">○ Não configurado</span>
+          </div>
+          <p class="config-desc">
+            Gratuito · 1.000 req/dia · Llama 3.3 70B · Inferência muito rápida ·
+            <a href="https://console.groq.com" target="_blank" class="link">console.groq.com</a>
+          </p>
+          <div class="form-group" style="margin-top:10px">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-groq-key" class="form-input" placeholder="gsk_...">
+              <button id="btn-toggle-groq-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
+            </div>
+          </div>
+          <div id="config-status-groq" class="config-status" style="display:none"></div>
+          <div class="form-group">
+            <label>Modelo</label>
+            <select id="config-groq-modelo" class="form-input">
+              <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (recomendado)</option>
+              <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (mais rápido, +RPD)</option>
+              <option value="llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B</option>
+              <option value="deepseek-r1-distill-llama-70b">DeepSeek R1 Distill 70B</option>
+              <option value="qwen/qwen3-32b">Qwen3 32B</option>
+            </select>
+          </div>
+          <button id="btn-testar-groq" class="btn btn-outline btn-sm">Testar Groq</button>
+        </div>
+
+        <!-- ESTRATÉGIA -->
+        <div class="config-section" style="margin-top:4px;padding-top:16px;border-top:1px solid var(--border)">
+          <div class="config-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f0c040" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
+            Estratégia de Distribuição
+          </div>
+          <div class="form-group" style="margin-top:8px">
+            <select id="config-estrategia" class="form-input">
+              <option value="auto">Automático – round-robin entre provedores configurados</option>
+              <option value="gemini">Usar apenas Gemini</option>
+              <option value="groq">Usar apenas Groq</option>
+            </select>
+            <p class="config-desc" style="margin-top:6px">
+              No modo automático, os projetos alternam entre os provedores disponíveis.
+              Se um falhar, o outro assume automaticamente.
+            </p>
+          </div>
+        </div>
+
       </div>
       <div class="modal-footer">
-        <button id="btn-testar-ia" class="btn btn-outline">Testar conexão</button>
         <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
         <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
       </div>

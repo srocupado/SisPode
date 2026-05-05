@@ -1,7 +1,7 @@
 /* ============================================================
    PAUTAS CCJC – PODEMOS
-   Módulo de análise de projetos da Comissão de Constituição e
-   Justiça e de Cidadania com suporte a Gemini AI.
+   Módulo de análise de projetos da CCJC com suporte a múltiplos
+   provedores de IA: Google Gemini e Groq (ambos gratuitos).
    ============================================================ */
 
 'use strict';
@@ -9,7 +9,16 @@
 // ---------- CONSTANTES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GROQ_BASE    = 'https://api.groq.com/openai/v1/chat/completions';
 const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
+
+const GROQ_MODELOS = [
+  { id: 'llama-3.3-70b-versatile',       label: 'Llama 3.3 70B Versatile (recomendado)' },
+  { id: 'llama-3.1-8b-instant',          label: 'Llama 3.1 8B Instant (mais rápido, +RPD)' },
+  { id: 'llama-4-scout-17b-16e-instruct',label: 'Llama 4 Scout 17B'                      },
+  { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill 70B'                },
+  { id: 'qwen/qwen3-32b',                label: 'Qwen3 32B'                               },
+];
 
 // Órgãos administrativos que não devem ser listados como comissões de mérito
 const ORGAOS_ADMIN = new Set([
@@ -23,9 +32,13 @@ let app = {
   projetoAtivo: null,
   processando:  false,
   toastTimer:   null,
+  providerRR:   0,   // índice para round-robin entre provedores
   config: {
-    geminiKey: '',
-    modelo:    'gemini-2.5-flash-preview-04-17',
+    geminiKey:    '',
+    modelo:       'gemini-2.5-flash-preview-04-17',
+    groqKey:      '',
+    groqModelo:   'llama-3.3-70b-versatile',
+    iaEstrategia: 'auto', // 'auto' | 'gemini' | 'groq'
   },
 };
 
@@ -61,6 +74,17 @@ function registrarEventos() {
   document.getElementById('btn-analisar-todos').addEventListener('click', analisarTodos);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
+  document.getElementById('btn-testar-groq').addEventListener('click', testarGroq);
+  document.getElementById('btn-toggle-groq-key').addEventListener('click', () => {
+    const input = document.getElementById('config-groq-key');
+    input.type = input.type === 'password' ? 'text' : 'password';
+  });
+
+  // Atualiza badges em tempo real ao digitar as chaves
+  ['config-gemini-key','config-groq-key'].forEach(id => {
+    document.getElementById(id)
+      ?.addEventListener('input', atualizarBadgesProvedores);
+  });
 
   // PDF no modal
   document.getElementById('input-pdf-modal-ccjc').addEventListener('change', async e => {
@@ -288,24 +312,75 @@ function extrairComissoesDaTramitacao(tramitacoes) {
 }
 
 // ============================================================
-//  GEMINI AI
+//  CAMADA DE IA – MULTI-PROVEDOR (Gemini + Groq)
 // ============================================================
-async function geminiCall(prompt, docUrl = null) {
+
+/** Retorna provedores disponíveis conforme chaves configuradas e estratégia. */
+function provedoresDisponiveis() {
+  const { geminiKey, groqKey, iaEstrategia } = app.config;
+  if (iaEstrategia === 'gemini') return geminiKey ? ['gemini'] : [];
+  if (iaEstrategia === 'groq')   return groqKey   ? ['groq']   : [];
+  // auto: todos os que têm chave
+  const p = [];
+  if (geminiKey) p.push('gemini');
+  if (groqKey)   p.push('groq');
+  return p;
+}
+
+/**
+ * Ponto de entrada principal para chamadas de IA.
+ * Faz round-robin entre provedores disponíveis e aplica fallback automático.
+ * @param {string}      prompt  - Prompt de texto
+ * @param {string|null} docUrl  - URL opcional de documento para contexto
+ * @returns {Promise<string>}
+ */
+async function aiCall(prompt, docUrl = null) {
+  const provedores = provedoresDisponiveis();
+  if (!provedores.length) {
+    throw new Error('Nenhum provedor de IA configurado. Configure Gemini ou Groq em ⚙ Configurações.');
+  }
+
+  // Round-robin: escolhe o próximo provedor
+  const idx      = app.providerRR % provedores.length;
+  app.providerRR = (app.providerRR + 1) % provedores.length;
+  const primario = provedores[idx];
+  const reserva  = provedores.find(p => p !== primario) || null;
+
+  try {
+    return await _despacharIA(primario, prompt, docUrl);
+  } catch (err) {
+    if (reserva) {
+      const motivo = err.message?.slice(0, 80);
+      console.warn(`[IA] ${primario} falhou (${motivo}). Tentando ${reserva}…`);
+      mostrarToast(`${primario} indisponível, usando ${reserva} como fallback.`, 'aviso');
+      return await _despacharIA(reserva, prompt, docUrl);
+    }
+    throw err;
+  }
+}
+
+async function _despacharIA(provedor, prompt, docUrl) {
+  if (provedor === 'gemini') return _callGemini(prompt, docUrl);
+  if (provedor === 'groq')   return _callGroq(prompt, docUrl);
+  throw new Error(`Provedor desconhecido: ${provedor}`);
+}
+
+// ---------- GEMINI ----------
+async function _callGemini(prompt, docUrl = null) {
   const { geminiKey, modelo } = app.config;
-  if (!geminiKey) throw new Error('Chave Gemini não configurada. Acesse ⚙ Configurações.');
+  if (!geminiKey) throw new Error('Chave Gemini não configurada.');
 
   const parts = [{ text: prompt }];
 
-  // Tenta buscar e anexar o documento como inline_data
   if (docUrl) {
     try {
       const res = await fetch(docUrl);
       if (res.ok) {
         const ct = res.headers.get('content-type') || '';
         if (ct.includes('pdf')) {
-          const buf = await res.arrayBuffer();
-          const u8  = new Uint8Array(buf);
-          // Converte para base64 sem estourar a call stack com buffers grandes
+          // Gemini suporta PDF como inline_data (base64)
+          const buf   = await res.arrayBuffer();
+          const u8    = new Uint8Array(buf);
           let bin = '';
           const CHUNK = 8192;
           for (let i = 0; i < u8.length; i += CHUNK) {
@@ -313,38 +388,69 @@ async function geminiCall(prompt, docUrl = null) {
           }
           parts.push({ inline_data: { mime_type: 'application/pdf', data: btoa(bin) } });
         } else {
-          // HTML: extrai texto, limita a 40 KB para não exceder tokens
-          const html  = await res.text();
-          const clean = html
-            .replace(/<script[\s\S]*?<\/script>/gi, '')
-            .replace(/<style[\s\S]*?<\/style>/gi, '')
-            .replace(/<[^>]+>/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim()
-            .slice(0, 40000);
-          if (clean.length > 200) {
-            parts.push({ text: `\n\n---\nTexto do documento:\n${clean}` });
-          }
+          const clean = _extrairTextoHTML(await res.text());
+          if (clean.length > 200) parts.push({ text: `\n\n---\nTexto do documento:\n${clean}` });
         }
       }
-    } catch (e) {
-      console.warn('Não foi possível buscar o documento para IA:', e.message);
-    }
+    } catch (e) { console.warn('Gemini: erro ao buscar doc:', e.message); }
   }
 
   const url = `${GEMINI_BASE}/${modelo}:generateContent?key=${geminiKey}`;
   const res  = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 1024 } }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
+  return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+}
+
+// ---------- GROQ ----------
+async function _callGroq(prompt, docUrl = null) {
+  const { groqKey, groqModelo } = app.config;
+  if (!groqKey) throw new Error('Chave Groq não configurada.');
+
+  let fullPrompt = prompt;
+
+  if (docUrl) {
+    try {
+      const res = await fetch(docUrl);
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (!ct.includes('pdf')) {
+          // Groq aceita apenas texto — extrai HTML e anexa ao prompt
+          const clean = _extrairTextoHTML(await res.text());
+          if (clean.length > 200) fullPrompt += `\n\n---\nTexto do documento:\n${clean}`;
+        }
+        // PDFs são ignorados no Groq (sem inline_data); o contexto textual da tramitação é suficiente
+      }
+    } catch (e) { console.warn('Groq: erro ao buscar doc:', e.message); }
+  }
+
+  const res = await fetch(GROQ_BASE, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
     body: JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: { maxOutputTokens: 1024 },
+      model:      groqModelo || 'llama-3.3-70b-versatile',
+      messages:   [{ role: 'user', content: fullPrompt }],
+      max_tokens: 1024,
     }),
   });
-
   const json = await res.json();
-  if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-  return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  if (!res.ok) throw new Error(json.error?.message || `Groq HTTP ${res.status}`);
+  return json.choices?.[0]?.message?.content?.trim() || '';
+}
+
+// ---------- Utilidade compartilhada ----------
+function _extrairTextoHTML(html) {
+  return html
+    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 40000);
 }
 
 async function gerarResumoOriginal(proj, textoUrl) {
@@ -359,7 +465,7 @@ Com base no texto integral do projeto${textoUrl ? ' (documento anexado)' : ''}, 
 
 Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou marcadores.`;
 
-  return geminiCall(prompt, textoUrl);
+  return aiCall(prompt, textoUrl);
 }
 
 async function gerarAnaliseComissao(proj, comissao, tramitacoesCom, docUrl) {
@@ -384,7 +490,7 @@ Descreva em 2 parágrafos:
 
 Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.`;
 
-  return geminiCall(prompt, docUrl);
+  return aiCall(prompt, docUrl);
 }
 
 async function gerarArgumentos(proj) {
@@ -407,7 +513,7 @@ Liste de 3 a 4 argumentos principais contra o projeto, um por linha, iniciando c
 
 Não tome posição. Seja factual, objetivo e equilibrado.`;
 
-  return geminiCall(prompt);
+  return aiCall(prompt);
 }
 
 function splitArgumentos(texto) {
@@ -536,11 +642,13 @@ async function analisarTodos() {
   }
 
   app.processando = true;
+  app.providerRR  = 0; // reinicia round-robin para distribuição uniforme
   const btn = document.getElementById('btn-analisar-todos');
   btn.disabled  = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Analisando...';
 
-  mostrarToast(`Iniciando análise de ${pendentes.length} projetos com até 5 simultâneos...`, '');
+  const nomes = provedoresDisponiveis().join(' + ') || 'nenhum';
+  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · provedores: ${nomes}`, '');
 
   // Usa concorrência limitada: 5 projetos simultâneos, mas cada projeto faz
   // suas chamadas Gemini sequencialmente para não sobrecarregar a API.
@@ -1079,31 +1187,49 @@ async function carregarConfiguracao() {
 }
 
 async function salvarConfiguracao() {
-  const key    = document.getElementById('config-gemini-key').value.trim();
-  const modelo = document.getElementById('config-modelo').value;
-  const status = document.getElementById('config-status-ia');
+  const geminiKey    = document.getElementById('config-gemini-key').value.trim();
+  const modelo       = document.getElementById('config-modelo').value;
+  const groqKey      = document.getElementById('config-groq-key').value.trim();
+  const groqModelo   = document.getElementById('config-groq-modelo').value;
+  const iaEstrategia = document.getElementById('config-estrategia').value;
+  const status       = document.getElementById('config-status-ia');
 
-  if (key && !key.startsWith('AIza')) {
-    status.textContent   = '⚠ A chave deve começar com "AIza". Verifique se copiou corretamente.';
+  if (geminiKey && !geminiKey.startsWith('AIza')) {
+    status.textContent   = '⚠ Chave Gemini deve começar com "AIza".';
     status.className     = 'config-status erro';
     status.style.display = 'block';
     return;
   }
 
-  app.config.geminiKey = key;
-  if (modelo) app.config.modelo = modelo;
+  app.config.geminiKey    = geminiKey;
+  if (modelo)     app.config.modelo       = modelo;
+  app.config.groqKey      = groqKey;
+  app.config.groqModelo   = groqModelo   || 'llama-3.3-70b-versatile';
+  app.config.iaEstrategia = iaEstrategia || 'auto';
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
-  mostrarToast('Configurações salvas!', 'sucesso');
+
+  const provedores = provedoresDisponiveis();
+  mostrarToast(
+    provedores.length
+      ? `Configurações salvas! Provedores ativos: ${provedores.join(' + ')}`
+      : 'Configurações salvas. Configure ao menos uma chave de IA para analisar.',
+    provedores.length ? 'sucesso' : 'aviso'
+  );
 }
 
 async function abrirConfiguracoes() {
-  document.getElementById('config-gemini-key').value        = app.config.geminiKey || '';
-  document.getElementById('config-status-ia').style.display = 'none';
-  document.getElementById('modelos-status').style.display   = 'none';
-  document.getElementById('modal-configuracoes').style.display = 'flex';
+  document.getElementById('config-gemini-key').value        = app.config.geminiKey    || '';
+  document.getElementById('config-groq-key').value          = app.config.groqKey      || '';
+  document.getElementById('config-groq-modelo').value       = app.config.groqModelo   || 'llama-3.3-70b-versatile';
+  document.getElementById('config-estrategia').value        = app.config.iaEstrategia || 'auto';
+  document.getElementById('config-status-ia').style.display    = 'none';
+  document.getElementById('config-status-groq').style.display  = 'none';
+  document.getElementById('modelos-status').style.display       = 'none';
+  document.getElementById('modal-configuracoes').style.display  = 'flex';
   if (app.config.geminiKey) await carregarModelosDisponiveis();
+  atualizarBadgesProvedores();
 }
 
 async function carregarModelosDisponiveis() {
@@ -1161,13 +1287,13 @@ async function testarConexaoIA() {
   const status = document.getElementById('config-status-ia');
 
   if (!key) {
-    status.textContent   = 'Cole a chave de API antes de testar.';
-    status.className     = 'config-status erro';
+    status.textContent = 'Cole a chave do Gemini antes de testar.';
+    status.className   = 'config-status erro';
     status.style.display = 'block';
     return;
   }
 
-  status.textContent   = '⏳ Testando conexão com o Gemini...';
+  status.textContent   = '⏳ Testando Gemini...';
   status.className     = 'config-status teste';
   status.style.display = 'block';
 
@@ -1179,11 +1305,63 @@ async function testarConexaoIA() {
     });
     const json = await res.json();
     if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-    status.textContent = '✓ Conexão bem-sucedida! A IA está pronta.';
+    status.textContent = '✓ Gemini conectado e pronto.';
     status.className   = 'config-status ok';
   } catch (err) {
     status.textContent = `✗ Erro: ${err.message}`;
     status.className   = 'config-status erro';
+  }
+}
+
+async function testarGroq() {
+  const key    = document.getElementById('config-groq-key').value.trim();
+  const modelo = document.getElementById('config-groq-modelo').value || 'llama-3.3-70b-versatile';
+  const status = document.getElementById('config-status-groq');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave do Groq antes de testar.';
+    status.className     = 'config-status erro';
+    status.style.display = 'block';
+    return;
+  }
+
+  status.textContent   = '⏳ Testando Groq...';
+  status.className     = 'config-status teste';
+  status.style.display = 'block';
+
+  try {
+    const res = await fetch(GROQ_BASE, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+      body: JSON.stringify({
+        model:    modelo,
+        messages: [{ role: 'user', content: 'Responda apenas: OK' }],
+        max_tokens: 5,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+    status.textContent = '✓ Groq conectado e pronto.';
+    status.className   = 'config-status ok';
+  } catch (err) {
+    status.textContent = `✗ Erro: ${err.message}`;
+    status.className   = 'config-status erro';
+  }
+}
+
+function atualizarBadgesProvedores() {
+  const gemini = document.getElementById('badge-gemini');
+  const groq   = document.getElementById('badge-groq');
+  const geminiKey = document.getElementById('config-gemini-key').value.trim();
+  const groqKey   = document.getElementById('config-groq-key').value.trim();
+
+  if (gemini) {
+    gemini.textContent = geminiKey ? '● Configurado' : '○ Não configurado';
+    gemini.className   = `ccjc-provider-badge ${geminiKey ? 'ativo' : 'inativo'}`;
+  }
+  if (groq) {
+    groq.textContent = groqKey ? '● Configurado' : '○ Não configurado';
+    groq.className   = `ccjc-provider-badge ${groqKey ? 'ativo' : 'inativo'}`;
   }
 }
 

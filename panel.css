@@ -1264,3 +1264,15 @@ body {
   color: #a78bfa;
   border: 1px solid rgba(139, 92, 246, 0.25);
 }
+
+/* Badge de status do provedor de IA nas configurações */
+.ccjc-provider-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 20px;
+  margin-left: auto;
+  letter-spacing: 0.2px;
+}
+.ccjc-provider-badge.ativo  { background: rgba(58,217,125,0.12); color: #3ad97d; border: 1px solid rgba(58,217,125,0.25); }
+.ccjc-provider-badge.inativo{ background: rgba(255,255,255,0.05); color: var(--text-dim); border: 1px solid var(--border); }
