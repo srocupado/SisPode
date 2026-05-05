@@ -80,16 +80,53 @@
 
       <!-- TELA UPLOAD -->
       <div id="tela-upload" class="tela active">
-        <div class="upload-area" id="upload-area">
-          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="1.5">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-            <polyline points="17 8 12 3 7 8"/>
-            <line x1="12" y1="3" x2="12" y2="15"/>
-          </svg>
-          <h2>Carregar Pauta CCJC</h2>
-          <p>Arraste o PDF da pauta aqui ou clique em Nova Pauta</p>
-          <button id="btn-nova-pauta-upload" class="btn btn-outline" style="cursor:pointer">Nova Pauta</button>
+
+        <div class="ccjc-upload-tabs">
+          <button class="ccjc-upload-tab active" data-painel="painel-pdf">📄 Via PDF</button>
+          <button class="ccjc-upload-tab" data-painel="painel-calendario">📅 Via Calendário</button>
         </div>
+
+        <!-- Painel PDF -->
+        <div id="painel-pdf" class="ccjc-painel-upload">
+          <div class="upload-area" id="upload-area">
+            <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="1.5">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <h2>Carregar Pauta CCJC</h2>
+            <p>Arraste o PDF da pauta aqui ou clique em Nova Pauta</p>
+            <button id="btn-nova-pauta-upload" class="btn btn-outline" style="cursor:pointer">Nova Pauta</button>
+          </div>
+        </div>
+
+        <!-- Painel Calendário -->
+        <div id="painel-calendario" class="ccjc-painel-upload" style="display:none">
+          <div class="cal-layout">
+            <div class="cal-wrap">
+              <div class="cal-nav">
+                <button id="cal-prev" class="btn btn-outline btn-sm">‹</button>
+                <span id="cal-titulo" class="cal-titulo"></span>
+                <button id="cal-next" class="btn btn-outline btn-sm">›</button>
+              </div>
+              <div class="cal-dow-grid">
+                <span>Dom</span><span>Seg</span><span>Ter</span><span>Qua</span><span>Qui</span><span>Sex</span><span>Sáb</span>
+              </div>
+              <div class="cal-grade" id="cal-grade"></div>
+              <div id="cal-status" class="cal-status"></div>
+            </div>
+            <div id="cal-card-reuniao" class="cal-card-reuniao" style="display:none">
+              <div class="cal-card-badge" id="cal-card-tipo"></div>
+              <div class="cal-card-data" id="cal-card-data"></div>
+              <div class="cal-card-info" id="cal-card-info"></div>
+              <div class="cal-card-situacao" id="cal-card-situacao"></div>
+              <button id="btn-carregar-pauta-cal" class="btn btn-primary" style="margin-top:16px;width:100%">
+                Carregar Proposições desta Reunião
+              </button>
+            </div>
+          </div>
+        </div>
+
       </div>
 
       <!-- TELA REVISÃO -->

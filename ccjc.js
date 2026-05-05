@@ -10,7 +10,10 @@
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
 const GROQ_BASE    = 'https://api.groq.com/openai/v1/chat/completions';
-const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
+const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
+const CCJC_ORGAO_ID  = 2003;
+const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+                   'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
 const GROQ_MODELOS = [
   { id: 'llama-3.3-70b-versatile',       label: 'Llama 3.3 70B Versatile (recomendado)' },
@@ -32,7 +35,14 @@ let app = {
   projetoAtivo: null,
   processando:  false,
   toastTimer:   null,
-  providerRR:   0,   // índice para round-robin entre provedores
+  providerRR:   0,
+  cal: {
+    ano:              new Date().getFullYear(),
+    mes:              new Date().getMonth(),
+    eventos:          {},   // { 'YYYY-MM-DD': { id, dataHoraInicio, ... } }
+    carregando:       false,
+    diaSelecionado:   null,
+  },
   config: {
     geminiKey:    '',
     modelo:       'gemini-2.5-flash-preview-04-17',
@@ -85,6 +95,14 @@ function registrarEventos() {
     document.getElementById(id)
       ?.addEventListener('input', atualizarBadgesProvedores);
   });
+
+  // Abas PDF / Calendário
+  document.querySelectorAll('.ccjc-upload-tab').forEach(btn => {
+    btn.addEventListener('click', () => alternarPainelUpload(btn.dataset.painel));
+  });
+  document.getElementById('cal-prev').addEventListener('click', () => navCalendario(-1));
+  document.getElementById('cal-next').addEventListener('click', () => navCalendario(1));
+  document.getElementById('btn-carregar-pauta-cal').addEventListener('click', carregarPautaDoCalendario);
 
   // PDF no modal
   document.getElementById('input-pdf-modal-ccjc').addEventListener('change', async e => {
@@ -1539,6 +1557,275 @@ function mostrarToast(msg, tipo = '') {
   toast.style.display = 'block';
   clearTimeout(app.toastTimer);
   app.toastTimer = setTimeout(() => { toast.style.display = 'none'; }, 4500);
+}
+
+// ============================================================
+//  CALENDÁRIO – Via Calendário CCJC
+// ============================================================
+
+function alternarPainelUpload(painelId) {
+  document.querySelectorAll('.ccjc-upload-tab').forEach(t =>
+    t.classList.toggle('active', t.dataset.painel === painelId)
+  );
+  document.getElementById('painel-pdf').style.display       = painelId === 'painel-pdf'        ? '' : 'none';
+  document.getElementById('painel-calendario').style.display = painelId === 'painel-calendario' ? '' : 'none';
+  if (painelId === 'painel-calendario') inicializarCalendario();
+}
+
+async function inicializarCalendario() {
+  if (Object.keys(app.cal.eventos).length > 0) { renderizarCalendario(); return; }
+  await atualizarCalendario();
+}
+
+async function navCalendario(delta) {
+  app.cal.mes += delta;
+  if (app.cal.mes < 0)  { app.cal.mes = 11; app.cal.ano--; }
+  if (app.cal.mes > 11) { app.cal.mes = 0;  app.cal.ano++; }
+  app.cal.eventos        = {};
+  app.cal.diaSelecionado = null;
+  document.getElementById('cal-card-reuniao').style.display = 'none';
+  await atualizarCalendario();
+}
+
+async function atualizarCalendario() {
+  if (app.cal.carregando) return;
+  app.cal.carregando = true;
+  const status = document.getElementById('cal-status');
+  status.textContent = 'Buscando reuniões deliberativas...';
+  renderizarCalendario();
+  try {
+    app.cal.eventos = await buscarEventosMes(app.cal.ano, app.cal.mes);
+    renderizarCalendario();
+    const n = Object.keys(app.cal.eventos).length;
+    status.textContent = n > 0
+      ? `${n} reunião${n > 1 ? 'ões' : ''} deliberativa${n > 1 ? 's' : ''} neste mês`
+      : 'Nenhuma reunião deliberativa neste mês';
+  } catch (e) {
+    status.textContent = `Erro ao buscar reuniões: ${e.message}`;
+  } finally {
+    app.cal.carregando = false;
+  }
+}
+
+async function buscarEventosMes(ano, mes) {
+  const mm         = String(mes + 1).padStart(2, '0');
+  const dataInicio = `${ano}-${mm}-01`;
+  const dataFim    = `${ano}-${mm}-${new Date(ano, mes + 1, 0).getDate()}`;
+  const cacheKey   = `cal_${ano}_${mes}`;
+
+  const cached = await new Promise(r => chrome.storage.local.get(cacheKey, r));
+  if (cached[cacheKey] && Date.now() - cached[cacheKey].ts < 3_600_000) {
+    return cached[cacheKey].data;
+  }
+
+  const url = `${API_BASE}/orgaos/${CCJC_ORGAO_ID}/eventos?dataInicio=${dataInicio}&dataFim=${dataFim}&itens=50`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const json = await res.json();
+
+  const mapa = {};
+  for (const ev of (json.dados || [])) {
+    if (ev.descricaoTipo !== 'Reunião Deliberativa') continue;
+    const data = (ev.dataHoraInicio || '').split('T')[0];
+    if (!data) continue;
+    mapa[data] = {
+      id:             ev.id,
+      dataHoraInicio: ev.dataHoraInicio  || '',
+      dataHoraFim:    ev.dataHoraFim     || '',
+      descricao:      ev.descricao       || '',
+      situacao:       ev.situacao        || '',
+      local:          ev.localCamara?.nome || ev.localExterno || '',
+    };
+  }
+
+  await new Promise(r => chrome.storage.local.set({ [cacheKey]: { data: mapa, ts: Date.now() } }, r));
+  return mapa;
+}
+
+function renderizarCalendario() {
+  const { ano, mes, eventos, diaSelecionado } = app.cal;
+  document.getElementById('cal-titulo').textContent = `${MESES_PT[mes]} ${ano}`;
+
+  const grade      = document.getElementById('cal-grade');
+  const hoje       = new Date().toISOString().split('T')[0];
+  const primeiroDia = new Date(ano, mes, 1).getDay();
+  const totalDias   = new Date(ano, mes + 1, 0).getDate();
+
+  let html = '';
+  for (let i = 0; i < primeiroDia; i++) html += '<div class="cal-dia vazio"></div>';
+
+  for (let d = 1; d <= totalDias; d++) {
+    const mm      = String(mes + 1).padStart(2, '0');
+    const dd      = String(d).padStart(2, '0');
+    const dataStr = `${ano}-${mm}-${dd}`;
+    const classes = [
+      'cal-dia',
+      eventos[dataStr]  ? 'tem-reuniao' : '',
+      dataStr === hoje  ? 'hoje'        : '',
+      dataStr === diaSelecionado ? 'selecionado' : '',
+    ].filter(Boolean).join(' ');
+    html += `<div class="${classes}" data-data="${dataStr}">${d}${eventos[dataStr] ? '<span class="cal-dot"></span>' : ''}</div>`;
+  }
+
+  grade.innerHTML = html;
+  grade.querySelectorAll('.cal-dia.tem-reuniao').forEach(el => {
+    el.addEventListener('click', () => selecionarDiaCalendario(el.dataset.data));
+  });
+}
+
+function selecionarDiaCalendario(dataStr) {
+  app.cal.diaSelecionado = dataStr;
+  renderizarCalendario();
+
+  const ev   = app.cal.eventos[dataStr];
+  const card = document.getElementById('cal-card-reuniao');
+  if (!ev) { card.style.display = 'none'; return; }
+
+  const [aStr, mStr, dStr] = dataStr.split('-');
+  const horaI = (ev.dataHoraInicio || '').split('T')[1]?.slice(0, 5) || '';
+  const horaF = (ev.dataHoraFim   || '').split('T')[1]?.slice(0, 5) || '';
+
+  document.getElementById('cal-card-tipo').textContent     = 'Reunião Deliberativa';
+  document.getElementById('cal-card-data').textContent     = `${dStr}/${mStr}/${aStr}${horaI ? ` · ${horaI}${horaF ? '–' + horaF : ''}` : ''}`;
+  document.getElementById('cal-card-info').textContent     = ev.local    || '';
+  document.getElementById('cal-card-situacao').textContent = ev.situacao || 'Agendada';
+  card.style.display = '';
+}
+
+async function buscarPautaEvento(eventoId) {
+  const res = await fetch(`${API_BASE}/eventos/${eventoId}/pauta`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const text = await res.text();
+  try {
+    // API retorna JSON quando chamada pela extensão (sem Accept: text/html)
+    const json = JSON.parse(text);
+    return _parsearPautaJSON(json.dados || []);
+  } catch {
+    // Fallback: XML (comportamento do browser)
+    return _parsearPautaXML(text);
+  }
+}
+
+function _parsearPautaJSON(itens) {
+  const vistos = new Set();
+  return itens.reduce((acc, item) => {
+    const rel = item.proposicaoRelacionada_;
+    if (!rel?.id || vistos.has(rel.id)) return acc;
+    vistos.add(rel.id);
+    acc.push({
+      chave:                item.titulo || `${rel.siglaTipo} ${rel.numero}/${rel.ano}`,
+      sigla:                rel.siglaTipo || '',
+      numero:               parseInt(rel.numero, 10) || 0,
+      ano:                  parseInt(rel.ano,    10) || 0,
+      idCamara:             parseInt(rel.id,     10),
+      ementa:               rel.ementa || '',
+      autores:              [],
+      relator:              item.relator?.nome || '',
+      topico:               item.topico  || '',
+      statusApi:            '',
+      resumoOriginal:       '',
+      comissoes:            [],
+      argumentosFavoraveis: '',
+      argumentosContrarios: '',
+      statusAnalise:        'pendente',
+      erroAnalise:          '',
+    });
+    return acc;
+  }, []);
+}
+
+function _parsearPautaXML(xmlText) {
+  const doc    = new DOMParser().parseFromString(xmlText, 'text/xml');
+  const itens  = Array.from(doc.querySelectorAll('itemPauta'));
+  const vistos = new Set();
+  const result = [];
+
+  for (const item of itens) {
+    const propRel = item.querySelector('proposicaoRelacionada_');
+    const id      = propRel?.querySelector('id')?.textContent?.trim();
+    if (!id || vistos.has(id)) continue;
+    vistos.add(id);
+
+    const siglaTipo = propRel.querySelector('siglaTipo')?.textContent || '';
+    const numero    = propRel.querySelector('numero')?.textContent    || '0';
+    const ano       = propRel.querySelector('ano')?.textContent       || '0';
+    const ementa    = propRel.querySelector('ementa')?.textContent    || '';
+    const titulo    = item.querySelector('titulo')?.textContent       || `${siglaTipo} ${numero}/${ano}`;
+    const relNome   = item.querySelector('relator nome')?.textContent || '';
+    const topico    = item.querySelector('topico')?.textContent       || '';
+
+    result.push({
+      chave:                titulo,
+      sigla:                siglaTipo,
+      numero:               parseInt(numero, 10) || 0,
+      ano:                  parseInt(ano,    10) || 0,
+      idCamara:             parseInt(id,     10),
+      ementa,
+      autores:              [],
+      relator:              relNome,
+      topico,
+      statusApi:            '',
+      resumoOriginal:       '',
+      comissoes:            [],
+      argumentosFavoraveis: '',
+      argumentosContrarios: '',
+      statusAnalise:        'pendente',
+      erroAnalise:          '',
+    });
+  }
+  return result;
+}
+
+async function carregarPautaDoCalendario() {
+  const dia = app.cal.diaSelecionado;
+  const ev  = app.cal.eventos[dia];
+  if (!ev) return;
+
+  const btn = document.getElementById('btn-carregar-pauta-cal');
+  btn.disabled    = true;
+  btn.textContent = '⏳ Carregando...';
+
+  try {
+    mostrarToast('Buscando pauta da reunião na API da Câmara...', '');
+    const projetos = await buscarPautaEvento(ev.id);
+
+    if (!projetos.length) {
+      mostrarToast('Nenhuma proposição encontrada na pauta desta reunião.', 'aviso');
+      return;
+    }
+
+    const [aStr, mStr, dStr] = dia.split('-');
+    const titulo = `CCJC – ${dStr}/${mStr}/${aStr}`;
+
+    const pauta = {
+      id:      `ccjc-${Date.now()}`,
+      titulo,
+      criada:  new Date().toISOString(),
+      origem:  { tipo: 'calendario', eventoId: ev.id, data: dia },
+      projetos,
+    };
+
+    app.pautaAtual   = pauta;
+    app.projetoAtivo = null;
+
+    atualizarSidebar();
+    renderizarListaProjetos();
+    mostrarTela('tela-revisao');
+    document.getElementById('ccjc-action-bar').style.display = 'flex';
+    document.getElementById('revisao-conteudo').innerHTML =
+      '<div class="empty-state" style="margin-top:80px"><p>Selecione um projeto na lista ao lado</p></div>';
+
+    mostrarToast(`${projetos.length} projetos carregados. Buscando dados adicionais na API...`, '');
+    await buscarMetadadosTodos(projetos);
+    renderizarListaProjetos();
+    mostrarToast('Pauta carregada. Clique em "Analisar Todos" para gerar as análises via IA.', 'sucesso');
+
+  } catch (e) {
+    mostrarToast(`Erro ao carregar pauta: ${e.message}`, 'erro');
+  } finally {
+    btn.disabled    = false;
+    btn.textContent = 'Carregar Proposições desta Reunião';
+  }
 }
 
 function esc(str) {

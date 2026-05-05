@@ -1276,3 +1276,141 @@ body {
 }
 .ccjc-provider-badge.ativo  { background: rgba(58,217,125,0.12); color: #3ad97d; border: 1px solid rgba(58,217,125,0.25); }
 .ccjc-provider-badge.inativo{ background: rgba(255,255,255,0.05); color: var(--text-dim); border: 1px solid var(--border); }
+
+/* ── CALENDÁRIO ─────────────────────────────────────────────── */
+.ccjc-upload-tabs {
+  display: flex;
+  gap: 4px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 10px;
+  padding: 4px;
+  margin-bottom: 24px;
+  max-width: 340px;
+}
+.ccjc-upload-tab {
+  flex: 1;
+  padding: 8px 16px;
+  border: none;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text-dim);
+  font-family: var(--font);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.ccjc-upload-tab.active {
+  background: rgba(255,255,255,0.1);
+  color: var(--text);
+}
+.ccjc-upload-tab:hover:not(.active) { color: var(--text); }
+
+.ccjc-painel-upload { width: 100%; }
+
+.cal-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.cal-wrap { flex: 1; min-width: 280px; max-width: 380px; }
+
+.cal-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.cal-titulo {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+}
+.cal-dow-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  text-align: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  margin-bottom: 6px;
+}
+.cal-grade {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 3px;
+}
+.cal-dia {
+  position: relative;
+  aspect-ratio: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-dim);
+  user-select: none;
+}
+.cal-dia.vazio { pointer-events: none; }
+.cal-dia.tem-reuniao {
+  background: rgba(139,92,246,0.12);
+  color: var(--text);
+  cursor: pointer;
+  font-weight: 600;
+}
+.cal-dia.tem-reuniao:hover { background: rgba(139,92,246,0.24); }
+.cal-dia.hoje { outline: 1px solid rgba(255,255,255,0.2); }
+.cal-dia.selecionado { background: rgba(139,92,246,0.45) !important; color: #fff !important; }
+.cal-dot {
+  display: block;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+.cal-dia.selecionado .cal-dot { background: rgba(255,255,255,0.6); }
+.cal-status {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-top: 10px;
+  text-align: center;
+  min-height: 18px;
+}
+.cal-card-reuniao {
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 20px;
+  min-width: 220px;
+  max-width: 280px;
+}
+.cal-card-badge {
+  display: inline-block;
+  background: rgba(139,92,246,0.15);
+  color: #a78bfa;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 20px;
+  letter-spacing: .04em;
+  margin-bottom: 12px;
+}
+.cal-card-data {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+.cal-card-info, .cal-card-situacao {
+  font-size: 12px;
+  color: var(--text-dim);
+  margin-bottom: 4px;
+}
