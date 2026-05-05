@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pautas CCJC – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ===== CABEÇALHO ===== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Pautas CCJC</span>
+        <span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar-home" class="btn btn-outline btn-sm" title="Voltar ao início">← Início</button>
+      <button id="btn-nova-pauta" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/>
+          <line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Nova Pauta
+      </button>
+      <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Configurações">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Configurações
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== LAYOUT PRINCIPAL ===== -->
+  <div class="app-body">
+
+    <!-- SIDEBAR ESQUERDA -->
+    <aside class="sidebar">
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">PAUTA ATUAL</div>
+        <div id="pauta-info" class="sessao-info empty">
+          <span>Nenhuma pauta carregada</span>
+        </div>
+        <div id="ccjc-progresso-wrap" style="display:none">
+          <div class="ccjc-progresso">
+            <div class="ccjc-progresso-bar" id="ccjc-progresso-bar"></div>
+          </div>
+          <div class="ccjc-progresso-label" id="ccjc-progresso-label"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section" id="sidebar-projetos-section" style="display:none">
+        <div class="sidebar-label">PROJETOS</div>
+        <div id="lista-projetos" class="lista-proposicoes"></div>
+      </div>
+
+      <div class="sidebar-section">
+        <div class="sidebar-label">HISTÓRICO</div>
+        <div id="lista-historico-ccjc" class="lista-historico">
+          <div class="empty-state"><p>Nenhuma pauta anterior</p></div>
+        </div>
+      </div>
+
+    </aside>
+
+    <!-- CONTEÚDO PRINCIPAL -->
+    <main class="main-content">
+
+      <!-- TELA UPLOAD -->
+      <div id="tela-upload" class="tela active">
+        <div class="upload-area" id="upload-area">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/>
+            <line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <h2>Carregar Pauta CCJC</h2>
+          <p>Arraste o PDF da pauta aqui ou clique em Nova Pauta</p>
+          <button id="btn-nova-pauta-upload" class="btn btn-outline" style="cursor:pointer">Nova Pauta</button>
+        </div>
+      </div>
+
+      <!-- TELA REVISÃO -->
+      <div id="tela-revisao" class="tela">
+        <div id="revisao-conteudo">
+          <div class="empty-state" style="margin-top:80px">
+            <p>Selecione um projeto na lista ao lado</p>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ===== BARRA DE AÇÕES ===== -->
+  <div class="ccjc-action-bar" id="ccjc-action-bar" style="display:none">
+    <div class="ccjc-action-bar-left">
+      <span id="ccjc-action-status"></span>
+    </div>
+    <div class="ccjc-action-bar-right">
+      <button id="btn-analisar-todos" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/>
+          <path d="M12 8v4l3 3"/>
+        </svg>
+        Analisar Todos
+      </button>
+      <button id="btn-salvar-pauta" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/>
+          <polyline points="7 3 7 8 15 8"/>
+        </svg>
+        Salvar
+      </button>
+      <button id="btn-gerar-pdf" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/>
+          <line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        Gerar PDF
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: NOVA PAUTA ===== -->
+  <div id="modal-nova-pauta" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nova Pauta CCJC</h3>
+        <button class="modal-close" data-fecha="modal-nova-pauta">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Título da Pauta</label>
+          <input type="text" id="pauta-titulo" placeholder="Ex: Pauta CCJC – 05/05/2026" class="form-input">
+        </div>
+        <div class="form-group">
+          <label>PDF da Pauta CCJC</label>
+          <label for="input-pdf-modal-ccjc" class="upload-inline" id="upload-inline-ccjc">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/>
+              <line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span id="upload-inline-ccjc-text">Clique para selecionar o PDF</span>
+          </label>
+          <input type="file" id="input-pdf-modal-ccjc" accept=".pdf" style="display:none">
+        </div>
+        <div id="projetos-encontrados" style="display:none">
+          <label>Projetos encontrados no PDF</label>
+          <div id="lista-projetos-modal" class="proposicoes-modal-lista"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-nova-pauta">Cancelar</button>
+        <button id="btn-criar-pauta" class="btn btn-primary" disabled>Criar Pauta</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Configurações</h3>
+        <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2">
+              <circle cx="12" cy="12" r="10"/>
+              <line x1="12" y1="8" x2="12" y2="12"/>
+              <line x1="12" y1="16" x2="12.01" y2="16"/>
+            </svg>
+            Integração com Inteligência Artificial
+          </div>
+          <p class="config-desc">
+            O Gemini gera automaticamente resumos e análises dos projetos.<br>
+            Obtenha sua chave em
+            <a href="https://aistudio.google.com" target="_blank" class="link">aistudio.google.com</a>
+            → <em>Get API key → Create API key</em>.
+          </p>
+          <div class="form-group" style="margin-top:14px">
+            <label>Chave de API do Gemini</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-gemini-key" class="form-input" placeholder="Cole aqui sua chave (AIzaSy...)">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+            </div>
+          </div>
+          <div id="config-status-ia" class="config-status" style="display:none"></div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">
+                ↻ Carregar disponíveis
+              </button>
+            </label>
+            <select id="config-modelo" class="form-input">
+              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
+            </select>
+            <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-testar-ia" class="btn btn-outline">Testar conexão</button>
+        <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
+        <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TOAST ===== -->
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== SCRIPTS ===== -->
+  <script src="libs/pdf.min.js"></script>
+  <script src="ccjc.js"></script>
+
+</body>
+</html>

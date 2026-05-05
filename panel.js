@@ -234,6 +234,9 @@ function registrarEventos() {
 
   document.getElementById('btn-go-aderencia')
     .addEventListener('click', abrirAderencia);
+
+  document.getElementById('btn-go-ccjc')
+    .addEventListener('click', abrirCCJC);
 }
 
 // ---------- UPLOAD E PARSING DO PDF ----------
@@ -2305,6 +2308,11 @@ function abrirVotacao() {
 
 function abrirAderencia() {
   const url = chrome.runtime.getURL('aderencia.html');
+  chrome.tabs.create({ url });
+}
+
+function abrirCCJC() {
+  const url = chrome.runtime.getURL('ccjc.html');
   chrome.tabs.create({ url });
 }
 
