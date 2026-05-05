@@ -319,49 +319,108 @@ function _parsearPaginaPareceres(html) {
   const doc  = new DOMParser().parseFromString(html, 'text/html');
   const mapa = {};
 
-  // Coleta todos os links para integras de documentos (pareceres e substitutivos)
+  // Passo 1: constrói mapa sigla→nome completo a partir de cabeçalhos e células
+  // A página da Câmara usa padrões como "COMISSÃO DE AGRICULTURA... (CAPADR)" ou
+  // "CAPADR - Comissão de Agricultura..."
+  const nomeCompleto = {};
+  const textoTotal = doc.body?.textContent || '';
+  // Padrão: texto maiúsculo seguido de (SIGLA) — ex: "... RURAL (CAPADR)"
+  const rNome = /([A-ZÀÁÂÃÉÊÍÓÔÕÚ][A-ZÀÁÂÃÉÊÍÓÔÕÚ,\s]+?)\s*[\(—–-]\s*([A-Z]{3,8})\s*\)?/g;
+  let mm;
+  while ((mm = rNome.exec(textoTotal)) !== null) {
+    const sigla = mm[2].trim();
+    if (!_siglaIgnorada(sigla)) nomeCompleto[sigla] = mm[1].trim();
+  }
+
+  // Passo 2: coleta todos os links de documentos (amplo para cobrir variações)
   const links = Array.from(doc.querySelectorAll(
-    'a[href*="prop_mostrarintegra"], a[href*="prop_GetPublicacoes"]'
-  ));
+    'a[href*="prop_mostrarintegra"], a[href*="prop_GetPublicacoes"], ' +
+    'a[href*="codteor"], a[href*="fileserv"], a[href*=".pdf"], a[href*=".doc"]'
+  )).filter(a => {
+    const h = a.getAttribute('href') || '';
+    // Exclui links de navegação / externos sem relação com documentos
+    return h && !h.startsWith('#') && !h.includes('javascript:');
+  });
 
   for (const link of links) {
     const rawHref = link.getAttribute('href') || '';
-    if (!rawHref) continue;
 
     const docUrl = rawHref.startsWith('http')
       ? rawHref
       : `https://www.camara.leg.br${rawHref.startsWith('/') ? rawHref : '/proposicoesWeb/' + rawHref}`;
 
-    // Estratégia 1: sigla no atributo filename da URL (mais confiável)
-    //   ex: ?codteor=XXXXX&filename=Parecer-CAPADR-PL+1737...
+    // Estratégia 1: sigla no parâmetro filename da URL (mais confiável)
+    //   ex: ?codteor=XXXXX&filename=Parecer-CAPADR-PL+1737%2F2023.docx
     const filenameMatch = rawHref.match(/[?&]filename=([^&]+)/i);
     if (filenameMatch) {
-      const filename = decodeURIComponent(filenameMatch[1]);
-      const siglaNoNome = _extrairSiglaDeTexto(filename);
-      if (siglaNoNome && !mapa[siglaNoNome]) {
-        mapa[siglaNoNome] = { nome: siglaNoNome, url: docUrl };
+      const filename = decodeURIComponent(filenameMatch[1].replace(/\+/g, ' '));
+      const sigla = _extrairSiglaDeTexto(filename);
+      if (sigla && !mapa[sigla]) {
+        mapa[sigla] = { nome: nomeCompleto[sigla] || sigla, url: docUrl };
         continue;
       }
     }
 
-    // Estratégia 2: sigla no contexto DOM próximo ao link (até 6 níveis)
+    // Estratégia 2: texto do próprio link
+    const textoLink = (link.textContent || '').trim();
+    if (textoLink.length > 2) {
+      const sigla = _extrairSiglaDeTexto(textoLink);
+      if (sigla && !mapa[sigla]) {
+        mapa[sigla] = { nome: nomeCompleto[sigla] || textoLink.slice(0, 100), url: docUrl };
+        continue;
+      }
+    }
+
+    // Estratégia 3: sigla no contexto DOM próximo ao link (até 8 níveis)
     let ancestor = link.parentElement;
-    for (let d = 0; d < 6 && ancestor; d++) {
-      // Usa apenas nós de texto imediatos para evitar capturar texto de outros links
+    for (let d = 0; d < 8 && ancestor; d++) {
       const textoLocal = Array.from(ancestor.childNodes)
-        .filter(n => n.nodeType === 3 /* TEXT_NODE */ || /^(TD|TH|H[1-6]|STRONG|B|SPAN)$/i.test(n.nodeName))
+        .filter(n => n.nodeType === 3 || /^(TD|TH|H[1-6]|STRONG|B|SPAN|CAPTION|LABEL)$/i.test(n.nodeName))
         .map(n => n.textContent || '')
         .join(' ');
 
       const sigla = _extrairSiglaDeTexto(textoLocal);
       if (sigla && !mapa[sigla]) {
-        mapa[sigla] = { nome: textoLocal.trim().slice(0, 100), url: docUrl };
+        mapa[sigla] = { nome: nomeCompleto[sigla] || textoLocal.trim().slice(0, 100), url: docUrl };
         break;
       }
       ancestor = ancestor.parentElement;
     }
   }
 
+  // Passo 3: se ainda não encontramos comissões mas temos nomes, tenta associar
+  // qualquer link de documento ao nome de comissão mais próximo na página
+  if (Object.keys(mapa).length === 0 && Object.keys(nomeCompleto).length > 0) {
+    const todoLinks = Array.from(doc.querySelectorAll('a[href]'))
+      .filter(a => {
+        const h = a.getAttribute('href') || '';
+        return h && !h.startsWith('#') && !h.includes('javascript:');
+      });
+    for (const [sigla, nome] of Object.entries(nomeCompleto)) {
+      // Busca link próximo a qualquer menção da sigla
+      const els = Array.from(doc.querySelectorAll('*')).filter(el =>
+        el.children.length === 0 && (el.textContent || '').includes(sigla)
+      );
+      for (const el of els) {
+        let parent = el.parentElement;
+        for (let d = 0; d < 6 && parent; d++) {
+          const linkProximo = parent.querySelector('a[href]');
+          if (linkProximo) {
+            const h = linkProximo.getAttribute('href');
+            if (h && !h.startsWith('#')) {
+              const url = h.startsWith('http') ? h : `https://www.camara.leg.br${h.startsWith('/') ? h : '/proposicoesWeb/' + h}`;
+              if (!mapa[sigla]) mapa[sigla] = { nome, url };
+            }
+            break;
+          }
+          parent = parent.parentElement;
+        }
+        if (mapa[sigla]) break;
+      }
+    }
+  }
+
+  console.debug('[CCJC] pareceresMap:', mapa);
   return mapa;
 }
 
@@ -663,8 +722,13 @@ async function analisarProjeto(proj) {
     );
     const teorUrl = teorEntry?.url || null;
 
-    // Comissões identificadas na tramitação
+    // Comissões: une tramitação + página de pareceres (fonte mais confiável)
     const comissoes = extrairComissoesDaTramitacao(tramitacoes);
+    for (const [sigla, info] of Object.entries(pareceresMap)) {
+      if (!comissoes.find(c => c.sigla === sigla) && !ORGAOS_ADMIN.has(sigla)) {
+        comissoes.push({ sigla, nome: info.nome || sigla });
+      }
+    }
 
     // 1. Resumo do projeto original
     proj.resumoOriginal = await gerarResumoOriginal(proj, teorUrl);
