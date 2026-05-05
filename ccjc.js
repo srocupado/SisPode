@@ -298,6 +298,89 @@ async function buscarTramitacoes(idCamara) {
   } catch (_) { return []; }
 }
 
+/**
+ * Busca os documentos (pareceres, substitutivos) de cada comissão
+ * na página específica da Câmara, que é a única fonte confiável.
+ * Retorna mapa: siglaComissao → { nome, url }
+ */
+async function buscarPareceresComissoes(idCamara) {
+  const url = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idCamara}`;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return {};
+    return _parsearPaginaPareceres(await res.text());
+  } catch (e) {
+    console.warn('Erro ao buscar pareceres das comissões:', e.message);
+    return {};
+  }
+}
+
+function _parsearPaginaPareceres(html) {
+  const doc  = new DOMParser().parseFromString(html, 'text/html');
+  const mapa = {};
+
+  // Coleta todos os links para integras de documentos (pareceres e substitutivos)
+  const links = Array.from(doc.querySelectorAll(
+    'a[href*="prop_mostrarintegra"], a[href*="prop_GetPublicacoes"]'
+  ));
+
+  for (const link of links) {
+    const rawHref = link.getAttribute('href') || '';
+    if (!rawHref) continue;
+
+    const docUrl = rawHref.startsWith('http')
+      ? rawHref
+      : `https://www.camara.leg.br${rawHref.startsWith('/') ? rawHref : '/proposicoesWeb/' + rawHref}`;
+
+    // Estratégia 1: sigla no atributo filename da URL (mais confiável)
+    //   ex: ?codteor=XXXXX&filename=Parecer-CAPADR-PL+1737...
+    const filenameMatch = rawHref.match(/[?&]filename=([^&]+)/i);
+    if (filenameMatch) {
+      const filename = decodeURIComponent(filenameMatch[1]);
+      const siglaNoNome = _extrairSiglaDeTexto(filename);
+      if (siglaNoNome && !mapa[siglaNoNome]) {
+        mapa[siglaNoNome] = { nome: siglaNoNome, url: docUrl };
+        continue;
+      }
+    }
+
+    // Estratégia 2: sigla no contexto DOM próximo ao link (até 6 níveis)
+    let ancestor = link.parentElement;
+    for (let d = 0; d < 6 && ancestor; d++) {
+      // Usa apenas nós de texto imediatos para evitar capturar texto de outros links
+      const textoLocal = Array.from(ancestor.childNodes)
+        .filter(n => n.nodeType === 3 /* TEXT_NODE */ || /^(TD|TH|H[1-6]|STRONG|B|SPAN)$/i.test(n.nodeName))
+        .map(n => n.textContent || '')
+        .join(' ');
+
+      const sigla = _extrairSiglaDeTexto(textoLocal);
+      if (sigla && !mapa[sigla]) {
+        mapa[sigla] = { nome: textoLocal.trim().slice(0, 100), url: docUrl };
+        break;
+      }
+      ancestor = ancestor.parentElement;
+    }
+  }
+
+  return mapa;
+}
+
+/** Extrai a sigla de uma comissão de um trecho de texto (ex: "CAPADR", "CCJC"). */
+function _extrairSiglaDeTexto(texto) {
+  // Padrão "SIGLA - " ou "SIGLA:" é o mais confiável; fallback para sigla isolada
+  const comTraco = texto.match(/\b([A-Z]{3,8})\s*[-–—:]/);
+  if (comTraco && !_siglaIgnorada(comTraco[1])) return comTraco[1];
+
+  const isolada = texto.match(/\b(C[A-Z]{2,7})\b/);
+  if (isolada && !_siglaIgnorada(isolada[1])) return isolada[1];
+
+  return null;
+}
+
+function _siglaIgnorada(s) {
+  return ['PDF','DOC','XLS','COM','HTTP','HTML','URL','LINK','CPF','CEP','CNPJ'].includes(s);
+}
+
 function extrairComissoesDaTramitacao(tramitacoes) {
   const vistas   = new Set();
   const comissoes = [];
@@ -470,7 +553,13 @@ Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou ma
 
 async function gerarAnaliseComissao(proj, comissao, tramitacoesCom, docUrl) {
   const historico = tramitacoesCom
-    .map(t => `[${(t.dataHora || '').split('T')[0]}] ${t.descricaoTramitacao || ''}: ${t.descricaoSituacao || ''}`)
+    .map(t => {
+      const data    = (t.dataHora || '').split('T')[0];
+      const tipo    = t.descricaoTramitacao || '';
+      const situac  = t.descricaoSituacao  || '';
+      const despacho = t.despacho ? ` — Despacho: ${t.despacho}` : '';
+      return `[${data}] ${tipo}: ${situac}${despacho}`;
+    })
     .filter(s => s.trim().length > 5)
     .join('\n');
 
@@ -559,10 +648,11 @@ async function analisarProjeto(proj) {
       throw new Error('Projeto não encontrado na API da Câmara. Verifique a referência no PDF.');
     }
 
-    // Busca textos e tramitações simultaneamente
-    const [textos, tramitacoes] = await Promise.all([
+    // Busca textos, tramitações e pareceres de comissões simultaneamente
+    const [textos, tramitacoes, pareceresMap] = await Promise.all([
       buscarTextos(proj.idCamara),
       buscarTramitacoes(proj.idCamara),
+      buscarPareceresComissoes(proj.idCamara),
     ]);
 
     // URL do inteiro teor
@@ -586,19 +676,18 @@ async function analisarProjeto(proj) {
         (t.siglaOrgao || '').toUpperCase() === com.sigla
       );
 
-      // Documento mais relevante da comissão (substitutivo > parecer > qualquer)
-      const docCom = textos.find(t => {
-        const desc = (t.descricao || '').toLowerCase();
-        const tipo = (t.tipo      || '').toLowerCase();
-        return (
-          desc.includes(com.sigla.toLowerCase()) ||
-          desc.includes(com.nome.toLowerCase().slice(0, 15)) ||
-          (tipo.includes('substitut') && tramCom.length > 0) ||
-          (tipo.includes('parecer')   && tramCom.length > 0)
-        );
-      });
+      // Usa página de pareceres como fonte primária (mais confiável que /textos)
+      // Fallback: busca em /textos pela sigla da comissão na descrição
+      const docUrl = pareceresMap[com.sigla]?.url || (() => {
+        const entry = textos.find(t => {
+          const desc = (t.descricao || '').toLowerCase();
+          return desc.includes(com.sigla.toLowerCase()) ||
+                 desc.includes(com.nome.toLowerCase().slice(0, 15));
+        });
+        return entry?.url || null;
+      })();
 
-      const resumoCom = await gerarAnaliseComissao(proj, com, tramCom, docCom?.url || null);
+      const resumoCom = await gerarAnaliseComissao(proj, com, tramCom, docUrl);
       proj.comissoes.push({ sigla: com.sigla, nome: com.nome, resumo: resumoCom });
     }
 
