@@ -216,9 +216,10 @@ function registrarEventos() {
   // Delegação: botões dentro do modal de destaque (dinâmico)
   document.getElementById('modal-destaque-body')
     .addEventListener('click', e => {
-      if (e.target.closest('#btn-gerar-ia'))       gerarExplicacaoIA();
-      if (e.target.closest('#btn-toggle-manual'))  toggleManualIA();
-      if (e.target.closest('#btn-limpar-manual'))  limparManualIA();
+      if (e.target.closest('#btn-gerar-ia'))        gerarExplicacaoIA();
+      if (e.target.closest('#btn-salvar-destaque')) salvarDestaqueManual();
+      if (e.target.closest('#btn-toggle-manual'))   toggleManualIA();
+      if (e.target.closest('#btn-limpar-manual'))   limparManualIA();
     });
 
   // Botão sincronização manual Firebase
@@ -696,7 +697,10 @@ function renderizarCardCompleto(d, prop) {
     </div>
 
     <div class="ia-toolbar">
-      <div></div>
+      <button id="btn-salvar-destaque" class="btn btn-outline btn-sm">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+        Salvar
+      </button>
       ${app.config.geminiKey
         ? `<button id="btn-gerar-ia" class="btn btn-ia btn-sm">
              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
@@ -2068,6 +2072,42 @@ async function salvarSessao(sessao) {
       console.warn('Firebase indisponível:', e.message);
       atualizarStatusSync('offline');
     });
+}
+
+/** Salva explicitamente o destaque ativo (campos do modal → Firebase) */
+async function salvarDestaqueManual() {
+  const d = app.destinqueAtivo;
+  if (!d || !app.sessaoAtual) return;
+
+  const iconeSalvar = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>`;
+  const btn = document.getElementById('btn-salvar-destaque');
+  if (btn) { btn.disabled = true; btn.innerHTML = `<span class="loading-spinner"></span> Salvando...`; }
+
+  d.votoSim    = document.getElementById('campo-voto-sim')?.value   ?? d.votoSim;
+  d.votoNao    = document.getElementById('campo-voto-nao')?.value   ?? d.votoNao;
+  d.explicacao = document.getElementById('campo-explicacao')?.value ?? d.explicacao;
+  d.orientacao = document.getElementById('campo-orientacao')?.value ?? d.orientacao;
+
+  try {
+    await salvarSessaoLocal(app.sessaoAtual);
+    await fbSalvar(app.sessaoAtual);
+    atualizarStatusSync('ok');
+    mostrarToast('Destaque salvo com sucesso!', 'sucesso');
+    const badge = document.getElementById('badge-salvo');
+    if (badge) {
+      badge.classList.add('visivel');
+      setTimeout(() => badge.classList.remove('visivel'), 2000);
+    }
+  } catch (err) {
+    console.error('Erro ao salvar destaque:', err);
+    atualizarStatusSync('offline');
+    mostrarToast('Salvo localmente. Firebase indisponível.', 'aviso');
+  } finally {
+    if (btn) {
+      btn.disabled  = false;
+      btn.innerHTML = `${iconeSalvar} Salvar`;
+    }
+  }
 }
 
 /** Persiste sessão no chrome.storage.local (cache offline) */
