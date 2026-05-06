@@ -2201,25 +2201,26 @@ function iniciarSyncAutomatico() {
   pararSyncAutomatico();
   app.syncTimer = setInterval(async () => {
     if (!app.sessaoAtual) return;
-    // Não atualiza se o modal de destaque está aberto (usuário pode estar editando)
-    const modalAberto = document.getElementById('modal-destaque').style.display !== 'none';
+    // Se o modal de destaque está aberto o usuário pode estar editando — adia o sync
+    // para evitar substituir app.sessaoAtual/proposicaoAtiva e tornar destinqueAtivo órfão
+    if (document.getElementById('modal-destaque').style.display !== 'none') return;
     try {
       const nova = await fbCarregarUma(app.sessaoAtual.id);
       if (!nova) return;
 
-      // Atualiza sessão na memória e cache local
+      // Confirma que o modal continua fechado após o await (pode ter aberto durante o fetch)
+      if (document.getElementById('modal-destaque').style.display !== 'none') return;
+
       app.sessaoAtual = nova;
       await salvarSessaoLocal(nova);
 
-      // Atualiza referência da proposição ativa
       if (app.proposicaoAtiva) {
         const atualizada = nova.proposicoes.find(p => p.chave === app.proposicaoAtiva.chave);
         if (atualizada) app.proposicaoAtiva = atualizada;
       }
 
       renderizarProposicoesSidebar();
-      if (!modalAberto) renderizarDestaques();
-
+      renderizarDestaques();
       atualizarStatusSync('ok');
     } catch (e) {
       atualizarStatusSync('offline');
@@ -2240,6 +2241,12 @@ async function sincronizarAgora() {
   if (btn) btn.classList.add('girando');
   atualizarStatusSync('sincronizando');
 
+  // Salva o destaque ativo antes de sincronizar para não perder dados em edição
+  const modalAberto = document.getElementById('modal-destaque').style.display !== 'none';
+  if (modalAberto && app.destinqueAtivo) {
+    await salvarDestaqueManual();
+  }
+
   try {
     const nova = await fbCarregarUma(app.sessaoAtual.id);
     if (nova) {
@@ -2249,7 +2256,7 @@ async function sincronizarAgora() {
         const atualizada = nova.proposicoes.find(p => p.chave === app.proposicaoAtiva.chave);
         if (atualizada) {
           app.proposicaoAtiva = atualizada;
-          renderizarDestaques();
+          if (!modalAberto) renderizarDestaques();
         }
       }
       renderizarProposicoesSidebar();
