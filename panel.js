@@ -461,7 +461,7 @@ function parseDestaques(html) {
       if (cells.length < 3) return;
 
       const textos = cells.map(c => c.textContent.trim());
-      if (!/^(DTQ|VN|EMC|DVT)\s*\d+/i.test(textos[0])) return;
+      if (!/^(DTQ|EMC|DVT)\s*\d+/i.test(textos[0])) return;
 
       const situacaoRaw  = textos[textos.length - 1] || '';
       const situacaoNorm = situacaoRaw.toLowerCase();
@@ -1543,32 +1543,26 @@ async function gerarExplicacaoIA() {
     function formatarExplicacao(texto) {
       if (!texto) return '';
 
-      // Caso 1: separador explícito por pipe "|"
+      // Caso 1: separador explícito por pipe "|" → une em parágrafo
       if (texto.includes('|')) {
-        return texto.split('|')
-          .map(s => s.trim().replace(/^[•\-\*]\s*/, ''))
-          .filter(Boolean)
-          .map(s => `• ${s}`)
-          .join('\n');
+        const frases = texto.split('|')
+          .map(s => s.trim().replace(/^[•\-\*]\s*/, '').replace(/\.\s*$/, ''))
+          .filter(Boolean);
+        return frases.join('. ') + '.';
       }
 
-      // Caso 2: bullets implícitos separados por ".,Verbo" (padrão que a IA retornou)
-      // Ex: "...no esporte.,Altera o Art. 11..."
+      // Caso 2: bullets implícitos separados por ".,Verbo"
       if (/\.,\s*[A-Z]/.test(texto)) {
-        return texto.split(/\.,\s*(?=[A-Z])/)
+        const frases = texto.split(/\.,\s*(?=[A-Z])/)
           .map(s => s.trim())
-          .filter(Boolean)
-          .map(s => `• ${s.endsWith('.') ? s : s + '.'}`)
-          .join('\n');
+          .filter(Boolean);
+        return frases.join('. ') + '.';
       }
 
-      // Caso 3: newlines já presentes (modelo usou \n diretamente)
-      const linhas = texto.split(/\n+/).map(s => s.trim()).filter(Boolean);
+      // Caso 3: múltiplas linhas → une em parágrafo
+      const linhas = texto.split(/\n+/).map(s => s.trim().replace(/^[•\-\*]\s*/, '')).filter(Boolean);
       if (linhas.length > 1) {
-        return linhas
-          .map(s => s.replace(/^[•\-\*]\s*/, ''))
-          .map(s => `• ${s}`)
-          .join('\n');
+        return linhas.join(' ');
       }
 
       return texto;
@@ -1608,12 +1602,12 @@ async function gerarExplicacaoIA() {
 
 function montarPrompt(d, prop, infoEmenda) {
   const instrucaoExplicacao = {
-    resumo: `lista de 3 a 5 itens descrevendo as alterações materiais concretas da emenda. Cada item deve dizer exatamente o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, novos direitos, novas obrigações, supressões, ajustes com impacto prático real. Mencione grupos afetados, condutas reguladas, verbos normativos ("proíbe", "determina", "veda", "amplia", "restringe", "exige"). IMPORTANTE: separe cada item com o caractere | (barra vertical/pipe), sem nenhuma outra pontuação entre eles. Exemplo de formato: "Altera o Art. X para proibir Y | Define que Z passa a ser obrigatório | Veda a conduta W".`,
+    resumo: `parágrafo único de 3 a 5 frases descrevendo as alterações materiais concretas da emenda. Cada frase deve dizer exatamente o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, novos direitos, novas obrigações, supressões, ajustes com impacto prático real. Mencione grupos afetados, condutas reguladas, verbos normativos ("proíbe", "determina", "veda", "amplia", "restringe", "exige"). Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
 
-    completo: `lista completa de itens cobrindo TODAS as alterações materiais da emenda. Para cada item: descreva o que o texto da lei passará a dizer, o que deixará de existir, e quem/o quê é afetado. Use verbos normativos e seja específico. IMPORTANTE: separe cada item com | (pipe). Exemplo: "Altera o Art. X para Y | Suprime o inciso Z | Determina que W".`,
+    completo: `parágrafo único cobrindo TODAS as alterações materiais da emenda. Para cada alteração: descreva o que o texto da lei passará a dizer, o que deixará de existir, e quem/o quê é afetado. Use verbos normativos e seja específico. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
 
-    argumentos: `lista de itens com as principais alterações materiais, mais dois itens finais obrigatórios começando com "Favorável:" e "Contrário:". Total: 4 a 6 itens. IMPORTANTE: separe com | (pipe). Exemplo: "Altera X | Define Y | Favorável: argumento | Contrário: argumento".`,
-  }[app.config.profundidade] || `lista de itens das alterações materiais concretas, separados por | (pipe).`;
+    argumentos: `parágrafo único com as principais alterações materiais, seguido de "Favorável: [argumento]" e "Contrário: [argumento]" ao final do parágrafo. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
+  }[app.config.profundidade] || `parágrafo único com as alterações materiais concretas da emenda, escrito de forma corrida sem marcadores ou listas.`;
 
   // ── Determina o modo de operação ─────────────────────────────────────
   const temTexto      = !!(infoEmenda?.textoCompleto);
@@ -1656,7 +1650,7 @@ O arquivo PDF anexado a esta mensagem é o texto integral da Subemenda Substitut
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Localize o ${referenciaLeg.toUpperCase()} no ${fonteRef}
 → Descreva EXATAMENTE o que esse trecho diz: quem é afetado, o que é autorizado/proibido/determinado, quais condições e exceções existem
-→ Cada bullet deve descrever um aspecto concreto do conteúdo normativo desse trecho
+→ Cada frase deve descrever um aspecto concreto do conteúdo normativo desse trecho
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`
     : temTexto && infoEmenda?.tipo === 'emenda'
       ? `
@@ -1669,7 +1663,7 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
         ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Cite APENAS o que está ESCRITO no ${temPDFInline ? 'PDF' : 'documento fonte acima'}
-→ Para cada bullet, identifique o artigo/inciso alterado e descreva o que o texto PASSOU A DIZER
+→ Para cada alteração, identifique o artigo/inciso e descreva o que o texto PASSOU A DIZER
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${temPDFInline ? 'PDF' : 'texto fornecido'}`
         : '';
