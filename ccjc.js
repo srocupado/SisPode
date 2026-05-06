@@ -8,7 +8,9 @@
 
 // ---------- CONSTANTES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
-const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
+const GEMINI_BASE     = 'https://generativelanguage.googleapis.com/v1beta/models';
+const ANTHROPIC_BASE  = 'https://api.anthropic.com/v1/messages';
+const ANTHROPIC_VER   = '2023-06-01';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
@@ -34,8 +36,10 @@ let app = {
     diaSelecionado:   null,
   },
   config: {
-    geminiKey: '',
-    modelo:    'gemini-2.5-flash-preview-04-17',
+    geminiKey:      '',
+    modelo:         'gemini-2.5-flash-preview-04-17',
+    anthropicKey:   '',
+    anthropicModelo:'claude-opus-4-7',
   },
 };
 
@@ -73,6 +77,15 @@ function registrarEventos() {
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
   document.getElementById('config-gemini-key')
     ?.addEventListener('input', atualizarBadgeGemini);
+  document.getElementById('config-anthropic-key')
+    ?.addEventListener('input', atualizarBadgeClaude);
+  document.getElementById('btn-toggle-anthropic-key')
+    ?.addEventListener('click', () => {
+      const input = document.getElementById('config-anthropic-key');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+  document.getElementById('btn-testar-anthropic')
+    ?.addEventListener('click', testarConexaoAnthropic);
 
   // Abas PDF / Calendário
   document.querySelectorAll('.ccjc-upload-tab').forEach(btn => {
@@ -454,10 +467,9 @@ function extrairComissoesDaTramitacao(tramitacoes) {
 // ============================================================
 
 async function aiCall(prompt, docUrl = null) {
-  if (!app.config.geminiKey) {
-    throw new Error('Chave Gemini não configurada. Configure em ⚙ Configurações.');
-  }
-  return _callGemini(prompt, docUrl);
+  if (app.config.geminiKey) return _callGemini(prompt, docUrl);
+  if (app.config.anthropicKey) return _callAnthropic(prompt, docUrl);
+  throw new Error('Nenhuma chave de IA configurada. Configure em ⚙ Configurações.');
 }
 
 // ---------- GEMINI ----------
@@ -499,6 +511,59 @@ async function _callGemini(prompt, docUrl = null) {
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
   return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+}
+
+// ---------- ANTHROPIC ----------
+async function _callAnthropic(prompt, docUrl = null) {
+  const { anthropicKey, anthropicModelo } = app.config;
+  if (!anthropicKey) throw new Error('Chave Anthropic não configurada.');
+
+  const content = [];
+
+  if (docUrl) {
+    try {
+      const res = await fetch(docUrl);
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('pdf')) {
+          const buf  = await res.arrayBuffer();
+          const u8   = new Uint8Array(buf);
+          let bin = '';
+          const CHUNK = 8192;
+          for (let i = 0; i < u8.length; i += CHUNK) {
+            bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+          }
+          content.push({
+            type: 'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: btoa(bin) },
+          });
+        } else {
+          const clean = _extrairTextoHTML(await res.text());
+          if (clean.length > 200) content.push({ type: 'text', text: `Texto do documento:\n${clean}` });
+        }
+      }
+    } catch (e) { console.warn('Anthropic: erro ao buscar doc:', e.message); }
+  }
+
+  content.push({ type: 'text', text: prompt });
+
+  const res = await fetch(ANTHROPIC_BASE, {
+    method: 'POST',
+    headers: {
+      'Content-Type':                          'application/json',
+      'x-api-key':                             anthropicKey,
+      'anthropic-version':                     ANTHROPIC_VER,
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model:      anthropicModelo,
+      max_tokens: 1024,
+      messages:   [{ role: 'user', content }],
+    }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `Anthropic HTTP ${res.status}`);
+  return json.content?.[0]?.text?.trim() || '';
 }
 
 // ---------- Utilidade compartilhada ----------
@@ -696,8 +761,9 @@ async function analisarProjeto(proj) {
 async function analisarTodos() {
   if (!app.pautaAtual || app.processando) return;
 
-  if (!app.config.geminiKey) {
-    mostrarToast('Configure a chave Gemini em ⚙ Configurações antes de analisar.', 'aviso');
+  const provedor = app.config.geminiKey ? 'Gemini' : (app.config.anthropicKey ? 'Claude' : '');
+  if (!provedor) {
+    mostrarToast('Configure uma chave de IA em ⚙ Configurações antes de analisar.', 'aviso');
     abrirConfiguracoes();
     return;
   }
@@ -716,7 +782,7 @@ async function analisarTodos() {
   btn.disabled  = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Analisando...';
 
-  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · Gemini`, '');
+  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · ${provedor}`, '');
 
   // Usa concorrência limitada: 5 projetos simultâneos, mas cada projeto faz
   // suas chamadas Gemini sequencialmente para não sobrecarregar a API.
@@ -733,8 +799,8 @@ async function analisarTodos() {
 async function analisarEsteProjetoHandler() {
   const proj = app.projetoAtivo;
   if (!proj || app.processando) return;
-  if (!app.config.geminiKey) {
-    mostrarToast('Configure a chave Gemini em ⚙ Configurações.', 'aviso');
+  if (!app.config.geminiKey && !app.config.anthropicKey) {
+    mostrarToast('Configure uma chave de IA em ⚙ Configurações.', 'aviso');
     abrirConfiguracoes();
     return;
   }
@@ -1105,7 +1171,7 @@ function renderizarRevisao() {
   }
 
   const analisando  = proj.statusAnalise === 'analisando';
-  const temGemini   = !!app.config.geminiKey;
+  const temGemini   = !!(app.config.geminiKey || app.config.anthropicKey);
   const roDisabled  = analisando ? 'readonly' : '';
 
   const comissoesHtml = (proj.comissoes || []).map((com, i) => `
@@ -1255,9 +1321,11 @@ async function carregarConfiguracao() {
 }
 
 async function salvarConfiguracao() {
-  const geminiKey = document.getElementById('config-gemini-key').value.trim();
-  const modelo    = document.getElementById('config-modelo').value;
-  const status    = document.getElementById('config-status-ia');
+  const geminiKey    = document.getElementById('config-gemini-key').value.trim();
+  const modelo       = document.getElementById('config-modelo').value;
+  const anthropicKey = document.getElementById('config-anthropic-key').value.trim();
+  const antModelo    = document.getElementById('config-anthropic-modelo').value;
+  const status       = document.getElementById('config-status-ia');
 
   if (geminiKey && !geminiKey.startsWith('AIza')) {
     status.textContent   = '⚠ Chave Gemini deve começar com "AIza".';
@@ -1266,24 +1334,38 @@ async function salvarConfiguracao() {
     return;
   }
 
-  app.config.geminiKey = geminiKey;
-  if (modelo) app.config.modelo = modelo;
+  if (anthropicKey && !anthropicKey.startsWith('sk-ant-')) {
+    document.getElementById('config-status-anthropic').textContent   = '⚠ Chave Anthropic deve começar com "sk-ant-".';
+    document.getElementById('config-status-anthropic').className     = 'config-status erro';
+    document.getElementById('config-status-anthropic').style.display = 'block';
+    return;
+  }
+
+  app.config.geminiKey    = geminiKey;
+  if (modelo)    app.config.modelo          = modelo;
+  app.config.anthropicKey   = anthropicKey;
+  if (antModelo) app.config.anthropicModelo = antModelo;
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
+  const temIa = geminiKey || anthropicKey;
   mostrarToast(
-    geminiKey ? 'Configurações salvas!' : 'Configurações salvas. Configure a chave Gemini para analisar.',
-    geminiKey ? 'sucesso' : 'aviso'
+    temIa ? 'Configurações salvas!' : 'Configurações salvas. Configure uma chave de IA para analisar.',
+    temIa ? 'sucesso' : 'aviso'
   );
 }
 
 async function abrirConfiguracoes() {
-  document.getElementById('config-gemini-key').value       = app.config.geminiKey || '';
-  document.getElementById('config-status-ia').style.display   = 'none';
-  document.getElementById('modelos-status').style.display      = 'none';
-  document.getElementById('modal-configuracoes').style.display = 'flex';
+  document.getElementById('config-gemini-key').value           = app.config.geminiKey    || '';
+  document.getElementById('config-anthropic-key').value        = app.config.anthropicKey || '';
+  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-7';
+  document.getElementById('config-status-ia').style.display        = 'none';
+  document.getElementById('config-status-anthropic').style.display = 'none';
+  document.getElementById('modelos-status').style.display           = 'none';
+  document.getElementById('modal-configuracoes').style.display      = 'flex';
   if (app.config.geminiKey) await carregarModelosDisponiveis();
   atualizarBadgeGemini();
+  atualizarBadgeClaude();
 }
 
 async function carregarModelosDisponiveis() {
@@ -1373,6 +1455,55 @@ function atualizarBadgeGemini() {
   const key = document.getElementById('config-gemini-key').value.trim();
   badge.textContent = key ? '● Configurado' : '○ Não configurado';
   badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
+}
+
+function atualizarBadgeClaude() {
+  const badge = document.getElementById('badge-anthropic');
+  if (!badge) return;
+  const key = document.getElementById('config-anthropic-key').value.trim();
+  badge.textContent = key ? '● Configurado' : '○ Não configurado';
+  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
+}
+
+async function testarConexaoAnthropic() {
+  const key    = document.getElementById('config-anthropic-key').value.trim();
+  const modelo = document.getElementById('config-anthropic-modelo').value || app.config.anthropicModelo;
+  const status = document.getElementById('config-status-anthropic');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave Anthropic antes de testar.';
+    status.className     = 'config-status erro';
+    status.style.display = 'block';
+    return;
+  }
+
+  status.textContent   = '⏳ Testando Claude...';
+  status.className     = 'config-status teste';
+  status.style.display = 'block';
+
+  try {
+    const res = await fetch(ANTHROPIC_BASE, {
+      method: 'POST',
+      headers: {
+        'Content-Type':                          'application/json',
+        'x-api-key':                             key,
+        'anthropic-version':                     ANTHROPIC_VER,
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model:      modelo,
+        max_tokens: 16,
+        messages:   [{ role: 'user', content: 'Responda apenas: OK' }],
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+    status.textContent = '✓ Claude conectado e pronto.';
+    status.className   = 'config-status ok';
+  } catch (err) {
+    status.textContent = `✗ Erro: ${err.message}`;
+    status.className   = 'config-status erro';
+  }
 }
 
 // ============================================================

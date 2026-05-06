@@ -251,6 +251,35 @@
           <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar Gemini</button>
         </div>
 
+        <!-- PROVEDOR 2: ANTHROPIC -->
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><polygon points="12 2 22 20 2 20"/></svg>
+            Anthropic Claude
+            <span id="badge-anthropic" class="ccjc-provider-badge inativo">○ Não configurado</span>
+          </div>
+          <p class="config-desc">
+            Pago · Alta capacidade · Suporta PDFs nativamente ·
+            <a href="https://console.anthropic.com" target="_blank" class="link">console.anthropic.com</a>
+          </p>
+          <div class="form-group" style="margin-top:10px">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-anthropic-key" class="form-input" placeholder="sk-ant-...">
+              <button id="btn-toggle-anthropic-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
+            </div>
+          </div>
+          <div id="config-status-anthropic" class="config-status" style="display:none"></div>
+          <div class="form-group">
+            <label>Modelo</label>
+            <select id="config-anthropic-modelo" class="form-input">
+              <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido)</option>
+              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (equilibrado)</option>
+              <option value="claude-opus-4-7" selected>Claude Opus 4.7 (máxima qualidade)</option>
+            </select>
+          </div>
+          <button id="btn-testar-anthropic" class="btn btn-outline btn-sm">Testar Claude</button>
+        </div>
 
       </div>
       <div class="modal-footer">
