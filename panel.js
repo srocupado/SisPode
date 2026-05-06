@@ -1262,9 +1262,61 @@ async function buscarTextoEmenda(d, prop) {
       return null; // não cai em casos de emenda: seria documento errado
     }
 
-    // ── CASO 1: DVS no substitutivo SSP → busca SSP na página de emendas ──
+    // ── CASO 1: DVS no substitutivo ──────────────────────────────────────
     if (isDVSSubstitutivo) {
-      console.log('[IA] Caso 1: DVS substitutivo — buscando SSP');
+      const isRelator = /relator/i.test(descricao);
+
+      // ── CASO 1a: substitutivo do relator → pareceres page diretamente ──
+      if (isRelator) {
+        console.log('[IA] Caso 1a: substitutivo do relator — buscando em pareceres');
+        const urlPar1a = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
+        const htmlPar1a = await fetchCamara(urlPar1a);
+        if (htmlPar1a) {
+          const docPar1a = new DOMParser().parseFromString(htmlPar1a, 'text/html');
+          let link1a = null;
+
+          // 1ª tentativa: linha com "relator" + link de documento
+          for (const row of docPar1a.querySelectorAll('tr, li, p')) {
+            if (/relator/i.test(row.textContent)) {
+              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+              if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+            }
+          }
+          // 2ª tentativa: qualquer linha com "substitut"
+          if (!link1a) {
+            for (const row of docPar1a.querySelectorAll('tr, li, p')) {
+              if (/substitut/i.test(row.textContent)) {
+                const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+                if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+              }
+            }
+          }
+
+          console.log('[IA] Caso 1a link:', link1a);
+          if (link1a) {
+            const r1a = await fetchCamaraResponse(link1a);
+            if (r1a) {
+              const texto1a = await fetchTextoIntegra(link1a, r1a.clone());
+              if (texto1a) {
+                console.log('[IA] Caso 1a: texto extraído,', texto1a.length, 'chars');
+                return { textoCompleto: texto1a, tipo: 'substitutivo', numArtigo, referenciaLeg };
+              }
+              try {
+                const pdfBuffer = await r1a.arrayBuffer();
+                if (pdfBuffer.byteLength > 0) {
+                  console.log('[IA] Caso 1a: buffer', (pdfBuffer.byteLength / 1024).toFixed(0), 'KB');
+                  return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo, referenciaLeg };
+                }
+              } catch (e) { console.warn('[IA] erro buffer Caso 1a:', e); }
+            }
+          }
+        }
+        console.warn('[IA] Caso 1a falhou — substitutivo do relator não encontrado.');
+        return null;
+      }
+
+      // ── CASO 1b: SSP → busca na página de emendas ────────────────────
+      console.log('[IA] Caso 1b: DVS SSP — buscando SSP na página de emendas');
 
       const urlPag = `https://www.camara.leg.br/proposicoesWeb/prop_emendas?idProposicao=${prop.idCamara}&subst=0`;
       const htmlPag = await fetchCamara(urlPag);
@@ -1308,7 +1360,6 @@ async function buscarTextoEmenda(d, prop) {
           const rSSP = await fetchCamaraResponse(linkSSP);
 
           if (rSSP) {
-            // Clone preserva o body original para leitura como buffer logo abaixo
             const textoPDF = await fetchTextoIntegra(linkSSP, rSSP.clone());
 
             if (textoPDF) {
@@ -1316,8 +1367,6 @@ async function buscarTextoEmenda(d, prop) {
               return { textoCompleto: textoPDF, tipo: 'substitutivo', numArtigo, referenciaLeg };
             }
 
-            // Extração de texto falhou (PDF baseado em imagem ou CMap não resolvido).
-            // Lê o buffer e devolve para o Gemini processar nativamente via inline_data.
             console.log('[IA] PDF sem texto → preparando buffer para Gemini inline_data');
             try {
               const pdfBuffer = await rSSP.arrayBuffer();
@@ -1331,55 +1380,6 @@ async function buscarTextoEmenda(d, prop) {
           }
 
           console.warn('[IA] SSP: fetch falhou completamente.');
-        }
-      }
-
-      // ── Fallback: substitutivo do relator na página de pareceres ─────
-      console.log('[IA] Caso 1 fallback: buscando substitutivo do relator em prop_pareceres');
-      const urlParFb = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
-      const htmlParFb = await fetchCamara(urlParFb);
-      if (htmlParFb) {
-        const docParFb = new DOMParser().parseFromString(htmlParFb, 'text/html');
-        const temRelator = /relator/i.test(descricao);
-        let linkSubstFb = null;
-
-        // 1ª tentativa: linha que menciona "relator" (se o destaque cita relator)
-        if (temRelator) {
-          for (const row of docParFb.querySelectorAll('tr, li, p')) {
-            if (/relator/i.test(row.textContent)) {
-              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-              if (a) { linkSubstFb = resolverUrlCamara(a.getAttribute('href')); break; }
-            }
-          }
-        }
-
-        // 2ª tentativa: qualquer linha com "substitut"
-        if (!linkSubstFb) {
-          for (const row of docParFb.querySelectorAll('tr, li, p')) {
-            if (/substitut/i.test(row.textContent)) {
-              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-              if (a) { linkSubstFb = resolverUrlCamara(a.getAttribute('href')); break; }
-            }
-          }
-        }
-
-        console.log('[IA] Caso 1 fallback link:', linkSubstFb);
-        if (linkSubstFb) {
-          const rFb = await fetchCamaraResponse(linkSubstFb);
-          if (rFb) {
-            const textoFb = await fetchTextoIntegra(linkSubstFb, rFb.clone());
-            if (textoFb) {
-              console.log('[IA] substitutivo relator: texto extraído,', textoFb.length, 'chars');
-              return { textoCompleto: textoFb, tipo: 'substitutivo', numArtigo, referenciaLeg };
-            }
-            try {
-              const pdfBuffer = await rFb.arrayBuffer();
-              if (pdfBuffer.byteLength > 0) {
-                console.log('[IA] substitutivo relator: buffer', (pdfBuffer.byteLength / 1024).toFixed(0), 'KB');
-                return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo, referenciaLeg };
-              }
-            } catch (e) { console.warn('[IA] erro buffer subst relator:', e); }
-          }
         }
       }
     }
