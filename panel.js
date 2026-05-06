@@ -1658,14 +1658,21 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Descreva EXATAMENTE o que esse trecho diz: quem é afetado, o que é autorizado/proibido/determinado, quais condições e exceções existem
 → Cada bullet deve descrever um aspecto concreto do conteúdo normativo desse trecho
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`
-    : (temTexto || temPDFInline)
+    : temTexto && infoEmenda?.tipo === 'emenda'
       ? `
+REGRA CRÍTICA PARA A EXPLICAÇÃO:
+→ PRIORIDADE 1 — Se o documento contiver uma seção "JUSTIFICATIVA" (ou "Justificação"): baseie a explicação PRINCIPALMENTE nessa seção, pois ela articula diretamente os objetivos e efeitos práticos da emenda
+→ PRIORIDADE 2 — Se não houver seção de justificativa: analise o DISPOSITIVO (corpo normativo) e descreva o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, direitos, obrigações, supressões
+→ Mencione artigos/incisos afetados quando relevante e use verbos normativos: "proíbe", "determina", "veda", "amplia", "suprime", "restringe"
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao documento fonte acima`
+      : (temTexto || temPDFInline)
+        ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Cite APENAS o que está ESCRITO no ${temPDFInline ? 'PDF' : 'documento fonte acima'}
 → Para cada bullet, identifique o artigo/inciso alterado e descreva o que o texto PASSOU A DIZER
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${temPDFInline ? 'PDF' : 'texto fornecido'}`
-      : '';
+        : '';
 
   return `Você é um assessor legislativo da Câmara dos Deputados do Brasil.
 ${blocoFonte}${avisPDF}
