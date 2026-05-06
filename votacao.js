@@ -1009,26 +1009,42 @@ async function processPortalDoc(doc) {
     });
   });
 
-  // Filtrar pelo partido
-  var partyLower = party.toLowerCase();
-  var filtered   = allDeps.filter(function (d) {
-    var sp = d.siglaPartido.toLowerCase();
-    return sp.includes(partyLower) || partyLower.includes(sp);
+  // Resolve sigla oficial antes de filtrar (evita PODE ⊂ PODEMOS)
+  var siglaAPI = party.toUpperCase();
+  try {
+    var resolvedSigla = await resolvePartySigla(party);
+    if (resolvedSigla) siglaAPI = resolvedSigla.toUpperCase();
+  } catch (e) {}
+
+  // Filtrar pelo partido — comparação exata com sigla normalizada
+  var partyLower   = party.toLowerCase();
+  var siglaAPILower = siglaAPI.toLowerCase();
+  var filtered = allDeps.filter(function (d) {
+    var sp = d.siglaPartido.toUpperCase();
+    if (sp === siglaAPI || sp.toLowerCase() === partyLower) return true;
+    // Normaliza via cache (ex: "Podemos" no HTML → sigla "PODE" na API)
+    if (partiesCache && partiesCache[sp]) {
+      return partiesCache[sp].sigla.toUpperCase() === siglaAPI;
+    }
+    return false;
   });
 
   // Completar com roster da API (para ausentes não listados)
-  var siglaAPI = party.toUpperCase();
   try {
-    var sigla = await resolvePartySigla(party);
-    if (sigla) siglaAPI = sigla;
     var dResp = await fetch(API + '/deputados?siglaPartido=' + siglaAPI + '&itens=100&ordem=ASC&ordenarPor=nome');
     if (dResp.ok) {
       var dData   = await dResp.json();
       var roster  = dData.dados || [];
       var existing = {};
-      filtered.forEach(function (d) { existing[d.nome.toUpperCase()] = true; });
+      filtered.forEach(function (d) {
+        var n = d.nome.toUpperCase();
+        existing[n] = true;
+        // Indexa prefixo de 12 chars para deduplar nomes abreviados do HTML
+        if (n.length >= 10) existing[n.substring(0, 12)] = true;
+      });
       roster.forEach(function (dep) {
-        if (!existing[dep.nome.toUpperCase()]) {
+        var depName = dep.nome.toUpperCase();
+        if (!existing[depName] && !(depName.length >= 10 && existing[depName.substring(0, 12)])) {
           filtered.push({
             nome: dep.nome, siglaPartido: dep.siglaPartido, siglaUf: dep.siglaUf,
             tipoVoto: null, votoClass: 'absent'
@@ -1036,7 +1052,7 @@ async function processPortalDoc(doc) {
         }
       });
     }
-  } catch (e) { /* API pode estar lenta — usa só os dados do portal */ }
+  } catch (e) { /* API lenta — usa só dados do portal */ }
 
   filtered.sort(function (a, b) { return (a.nome || '').localeCompare(b.nome || ''); });
 
