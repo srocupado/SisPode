@@ -9,19 +9,10 @@
 // ---------- CONSTANTES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const GEMINI_BASE  = 'https://generativelanguage.googleapis.com/v1beta/models';
-const GROQ_BASE    = 'https://api.groq.com/openai/v1/chat/completions';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
-
-const GROQ_MODELOS = [
-  { id: 'llama-3.3-70b-versatile',       label: 'Llama 3.3 70B Versatile (recomendado)' },
-  { id: 'llama-3.1-8b-instant',          label: 'Llama 3.1 8B Instant (mais rápido, +RPD)' },
-  { id: 'llama-4-scout-17b-16e-instruct',label: 'Llama 4 Scout 17B'                      },
-  { id: 'deepseek-r1-distill-llama-70b', label: 'DeepSeek R1 Distill 70B'                },
-  { id: 'qwen/qwen3-32b',                label: 'Qwen3 32B'                               },
-];
 
 // Órgãos administrativos que não devem ser listados como comissões de mérito
 const ORGAOS_ADMIN = new Set([
@@ -35,7 +26,6 @@ let app = {
   projetoAtivo: null,
   processando:  false,
   toastTimer:   null,
-  providerRR:   0,
   cal: {
     ano:              new Date().getFullYear(),
     mes:              new Date().getMonth(),
@@ -44,11 +34,8 @@ let app = {
     diaSelecionado:   null,
   },
   config: {
-    geminiKey:    '',
-    modelo:       'gemini-2.5-flash-preview-04-17',
-    groqKey:      '',
-    groqModelo:   'llama-3.3-70b-versatile',
-    iaEstrategia: 'auto', // 'auto' | 'gemini' | 'groq'
+    geminiKey: '',
+    modelo:    'gemini-2.5-flash-preview-04-17',
   },
 };
 
@@ -84,17 +71,8 @@ function registrarEventos() {
   document.getElementById('btn-analisar-todos').addEventListener('click', analisarTodos);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
-  document.getElementById('btn-testar-groq').addEventListener('click', testarGroq);
-  document.getElementById('btn-toggle-groq-key').addEventListener('click', () => {
-    const input = document.getElementById('config-groq-key');
-    input.type = input.type === 'password' ? 'text' : 'password';
-  });
-
-  // Atualiza badges em tempo real ao digitar as chaves
-  ['config-gemini-key','config-groq-key'].forEach(id => {
-    document.getElementById(id)
-      ?.addEventListener('input', atualizarBadgesProvedores);
-  });
+  document.getElementById('config-gemini-key')
+    ?.addEventListener('input', atualizarBadgeGemini);
 
   // Abas PDF / Calendário
   document.querySelectorAll('.ccjc-upload-tab').forEach(btn => {
@@ -472,57 +450,14 @@ function extrairComissoesDaTramitacao(tramitacoes) {
 }
 
 // ============================================================
-//  CAMADA DE IA – MULTI-PROVEDOR (Gemini + Groq)
+//  CAMADA DE IA – GEMINI
 // ============================================================
 
-/** Retorna provedores disponíveis conforme chaves configuradas e estratégia. */
-function provedoresDisponiveis() {
-  const { geminiKey, groqKey, iaEstrategia } = app.config;
-  if (iaEstrategia === 'gemini') return geminiKey ? ['gemini'] : [];
-  if (iaEstrategia === 'groq')   return groqKey   ? ['groq']   : [];
-  // auto: todos os que têm chave
-  const p = [];
-  if (geminiKey) p.push('gemini');
-  if (groqKey)   p.push('groq');
-  return p;
-}
-
-/**
- * Ponto de entrada principal para chamadas de IA.
- * Faz round-robin entre provedores disponíveis e aplica fallback automático.
- * @param {string}      prompt  - Prompt de texto
- * @param {string|null} docUrl  - URL opcional de documento para contexto
- * @returns {Promise<string>}
- */
 async function aiCall(prompt, docUrl = null) {
-  const provedores = provedoresDisponiveis();
-  if (!provedores.length) {
-    throw new Error('Nenhum provedor de IA configurado. Configure Gemini ou Groq em ⚙ Configurações.');
+  if (!app.config.geminiKey) {
+    throw new Error('Chave Gemini não configurada. Configure em ⚙ Configurações.');
   }
-
-  // Round-robin: escolhe o próximo provedor
-  const idx      = app.providerRR % provedores.length;
-  app.providerRR = (app.providerRR + 1) % provedores.length;
-  const primario = provedores[idx];
-  const reserva  = provedores.find(p => p !== primario) || null;
-
-  try {
-    return await _despacharIA(primario, prompt, docUrl);
-  } catch (err) {
-    if (reserva) {
-      const motivo = err.message?.slice(0, 80);
-      console.warn(`[IA] ${primario} falhou (${motivo}). Tentando ${reserva}…`);
-      mostrarToast(`${primario} indisponível, usando ${reserva} como fallback.`, 'aviso');
-      return await _despacharIA(reserva, prompt, docUrl);
-    }
-    throw err;
-  }
-}
-
-async function _despacharIA(provedor, prompt, docUrl) {
-  if (provedor === 'gemini') return _callGemini(prompt, docUrl);
-  if (provedor === 'groq')   return _callGroq(prompt, docUrl);
-  throw new Error(`Provedor desconhecido: ${provedor}`);
+  return _callGemini(prompt, docUrl);
 }
 
 // ---------- GEMINI ----------
@@ -564,42 +499,6 @@ async function _callGemini(prompt, docUrl = null) {
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
   return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
-}
-
-// ---------- GROQ ----------
-async function _callGroq(prompt, docUrl = null) {
-  const { groqKey, groqModelo } = app.config;
-  if (!groqKey) throw new Error('Chave Groq não configurada.');
-
-  let fullPrompt = prompt;
-
-  if (docUrl) {
-    try {
-      const res = await fetch(docUrl);
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (!ct.includes('pdf')) {
-          // Groq aceita apenas texto — extrai HTML e anexa ao prompt
-          const clean = _extrairTextoHTML(await res.text());
-          if (clean.length > 200) fullPrompt += `\n\n---\nTexto do documento:\n${clean}`;
-        }
-        // PDFs são ignorados no Groq (sem inline_data); o contexto textual da tramitação é suficiente
-      }
-    } catch (e) { console.warn('Groq: erro ao buscar doc:', e.message); }
-  }
-
-  const res = await fetch(GROQ_BASE, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${groqKey}` },
-    body: JSON.stringify({
-      model:      groqModelo || 'llama-3.3-70b-versatile',
-      messages:   [{ role: 'user', content: fullPrompt }],
-      max_tokens: 1024,
-    }),
-  });
-  const json = await res.json();
-  if (!res.ok) throw new Error(json.error?.message || `Groq HTTP ${res.status}`);
-  return json.choices?.[0]?.message?.content?.trim() || '';
 }
 
 // ---------- Utilidade compartilhada ----------
@@ -813,13 +712,11 @@ async function analisarTodos() {
   }
 
   app.processando = true;
-  app.providerRR  = 0; // reinicia round-robin para distribuição uniforme
   const btn = document.getElementById('btn-analisar-todos');
   btn.disabled  = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Analisando...';
 
-  const nomes = provedoresDisponiveis().join(' + ') || 'nenhum';
-  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · provedores: ${nomes}`, '');
+  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · Gemini`, '');
 
   // Usa concorrência limitada: 5 projetos simultâneos, mas cada projeto faz
   // suas chamadas Gemini sequencialmente para não sobrecarregar a API.
@@ -1358,12 +1255,9 @@ async function carregarConfiguracao() {
 }
 
 async function salvarConfiguracao() {
-  const geminiKey    = document.getElementById('config-gemini-key').value.trim();
-  const modelo       = document.getElementById('config-modelo').value;
-  const groqKey      = document.getElementById('config-groq-key').value.trim();
-  const groqModelo   = document.getElementById('config-groq-modelo').value;
-  const iaEstrategia = document.getElementById('config-estrategia').value;
-  const status       = document.getElementById('config-status-ia');
+  const geminiKey = document.getElementById('config-gemini-key').value.trim();
+  const modelo    = document.getElementById('config-modelo').value;
+  const status    = document.getElementById('config-status-ia');
 
   if (geminiKey && !geminiKey.startsWith('AIza')) {
     status.textContent   = '⚠ Chave Gemini deve começar com "AIza".';
@@ -1372,35 +1266,24 @@ async function salvarConfiguracao() {
     return;
   }
 
-  app.config.geminiKey    = geminiKey;
-  if (modelo)     app.config.modelo       = modelo;
-  app.config.groqKey      = groqKey;
-  app.config.groqModelo   = groqModelo   || 'llama-3.3-70b-versatile';
-  app.config.iaEstrategia = iaEstrategia || 'auto';
+  app.config.geminiKey = geminiKey;
+  if (modelo) app.config.modelo = modelo;
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
-
-  const provedores = provedoresDisponiveis();
   mostrarToast(
-    provedores.length
-      ? `Configurações salvas! Provedores ativos: ${provedores.join(' + ')}`
-      : 'Configurações salvas. Configure ao menos uma chave de IA para analisar.',
-    provedores.length ? 'sucesso' : 'aviso'
+    geminiKey ? 'Configurações salvas!' : 'Configurações salvas. Configure a chave Gemini para analisar.',
+    geminiKey ? 'sucesso' : 'aviso'
   );
 }
 
 async function abrirConfiguracoes() {
-  document.getElementById('config-gemini-key').value        = app.config.geminiKey    || '';
-  document.getElementById('config-groq-key').value          = app.config.groqKey      || '';
-  document.getElementById('config-groq-modelo').value       = app.config.groqModelo   || 'llama-3.3-70b-versatile';
-  document.getElementById('config-estrategia').value        = app.config.iaEstrategia || 'auto';
-  document.getElementById('config-status-ia').style.display    = 'none';
-  document.getElementById('config-status-groq').style.display  = 'none';
-  document.getElementById('modelos-status').style.display       = 'none';
-  document.getElementById('modal-configuracoes').style.display  = 'flex';
+  document.getElementById('config-gemini-key').value       = app.config.geminiKey || '';
+  document.getElementById('config-status-ia').style.display   = 'none';
+  document.getElementById('modelos-status').style.display      = 'none';
+  document.getElementById('modal-configuracoes').style.display = 'flex';
   if (app.config.geminiKey) await carregarModelosDisponiveis();
-  atualizarBadgesProvedores();
+  atualizarBadgeGemini();
 }
 
 async function carregarModelosDisponiveis() {
@@ -1484,56 +1367,12 @@ async function testarConexaoIA() {
   }
 }
 
-async function testarGroq() {
-  const key    = document.getElementById('config-groq-key').value.trim();
-  const modelo = document.getElementById('config-groq-modelo').value || 'llama-3.3-70b-versatile';
-  const status = document.getElementById('config-status-groq');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave do Groq antes de testar.';
-    status.className     = 'config-status erro';
-    status.style.display = 'block';
-    return;
-  }
-
-  status.textContent   = '⏳ Testando Groq...';
-  status.className     = 'config-status teste';
-  status.style.display = 'block';
-
-  try {
-    const res = await fetch(GROQ_BASE, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-      body: JSON.stringify({
-        model:    modelo,
-        messages: [{ role: 'user', content: 'Responda apenas: OK' }],
-        max_tokens: 5,
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-    status.textContent = '✓ Groq conectado e pronto.';
-    status.className   = 'config-status ok';
-  } catch (err) {
-    status.textContent = `✗ Erro: ${err.message}`;
-    status.className   = 'config-status erro';
-  }
-}
-
-function atualizarBadgesProvedores() {
-  const gemini = document.getElementById('badge-gemini');
-  const groq   = document.getElementById('badge-groq');
-  const geminiKey = document.getElementById('config-gemini-key').value.trim();
-  const groqKey   = document.getElementById('config-groq-key').value.trim();
-
-  if (gemini) {
-    gemini.textContent = geminiKey ? '● Configurado' : '○ Não configurado';
-    gemini.className   = `ccjc-provider-badge ${geminiKey ? 'ativo' : 'inativo'}`;
-  }
-  if (groq) {
-    groq.textContent = groqKey ? '● Configurado' : '○ Não configurado';
-    groq.className   = `ccjc-provider-badge ${groqKey ? 'ativo' : 'inativo'}`;
-  }
+function atualizarBadgeGemini() {
+  const badge = document.getElementById('badge-gemini');
+  if (!badge) return;
+  const key = document.getElementById('config-gemini-key').value.trim();
+  badge.textContent = key ? '● Configurado' : '○ Não configurado';
+  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
 }
 
 // ============================================================
@@ -1706,19 +1545,28 @@ async function buscarPautaEvento(eventoId) {
   }
 }
 
+const _SIGLAS_PARECER = new Set(['PAR', 'PRL', 'VTS', 'VEN', 'VCM']);
+
 function _parsearPautaJSON(itens) {
   const vistos = new Set();
   return itens.reduce((acc, item) => {
-    const rel = item.proposicaoRelacionada_;
-    if (!rel?.id || vistos.has(rel.id)) return acc;
-    vistos.add(rel.id);
+    const rel  = item.proposicaoRelacionada_;
+    const prop = item.proposicao_;
+
+    // Prefer the related proposition; fall back to the item itself if it's not a parecer
+    const src = (rel?.id)
+      ? rel
+      : (!_SIGLAS_PARECER.has(prop?.siglaTipo) && prop?.id ? prop : null);
+
+    if (!src?.id || vistos.has(src.id)) return acc;
+    vistos.add(src.id);
     acc.push({
-      chave:                item.titulo || `${rel.siglaTipo} ${rel.numero}/${rel.ano}`,
-      sigla:                rel.siglaTipo || '',
-      numero:               parseInt(rel.numero, 10) || 0,
-      ano:                  parseInt(rel.ano,    10) || 0,
-      idCamara:             parseInt(rel.id,     10),
-      ementa:               rel.ementa || '',
+      chave:                item.titulo || `${src.siglaTipo} ${src.numero}/${src.ano}`,
+      sigla:                src.siglaTipo || '',
+      numero:               parseInt(src.numero, 10) || 0,
+      ano:                  parseInt(src.ano,    10) || 0,
+      idCamara:             parseInt(src.id,     10),
+      ementa:               src.ementa || '',
       autores:              [],
       relator:              item.relator?.nome || '',
       topico:               item.topico  || '',
@@ -1741,16 +1589,30 @@ function _parsearPautaXML(xmlText) {
   const result = [];
 
   for (const item of itens) {
-    const propRel = item.querySelector('proposicaoRelacionada_');
-    const id      = propRel?.querySelector('id')?.textContent?.trim();
+    const propRel  = item.querySelector('proposicaoRelacionada_');
+    const relId    = propRel?.querySelector('id')?.textContent?.trim();
+
+    // When proposicaoRelacionada_ has no id, fall back to proposicao_ itself
+    // but skip if it's a parecer/voto (PAR, PRL, VTS, VEN, VCM)
+    let srcEl = propRel;
+    let id    = relId;
+    if (!id) {
+      const propEl    = item.querySelector('proposicao_');
+      const propSigla = propEl?.querySelector('siglaTipo')?.textContent?.trim() || '';
+      if (!_SIGLAS_PARECER.has(propSigla)) {
+        srcEl = propEl;
+        id    = propEl?.querySelector('id')?.textContent?.trim();
+      }
+    }
+
     if (!id || vistos.has(id)) continue;
     vistos.add(id);
 
-    const siglaTipo = propRel.querySelector('siglaTipo')?.textContent || '';
-    const numero    = propRel.querySelector('numero')?.textContent    || '0';
-    const ano       = propRel.querySelector('ano')?.textContent       || '0';
-    const ementa    = propRel.querySelector('ementa')?.textContent    || '';
-    const titulo    = item.querySelector('titulo')?.textContent       || `${siglaTipo} ${numero}/${ano}`;
+    const siglaTipo = srcEl?.querySelector('siglaTipo')?.textContent || '';
+    const numero    = srcEl?.querySelector('numero')?.textContent    || '0';
+    const ano       = srcEl?.querySelector('ano')?.textContent       || '0';
+    const ementa    = srcEl?.querySelector('ementa')?.textContent    || '';
+    const titulo    = item.querySelector('titulo')?.textContent      || `${siglaTipo} ${numero}/${ano}`;
     const relNome   = item.querySelector('relator nome')?.textContent || '';
     const topico    = item.querySelector('topico')?.textContent       || '';
 

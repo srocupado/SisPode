@@ -251,56 +251,6 @@
           <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar Gemini</button>
         </div>
 
-        <!-- PROVEDOR 2: GROQ -->
-        <div class="config-section" style="margin-top:4px;padding-top:16px;border-top:1px solid var(--border)">
-          <div class="config-section-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#a78bfa" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-            Groq
-            <span id="badge-groq" class="ccjc-provider-badge inativo">○ Não configurado</span>
-          </div>
-          <p class="config-desc">
-            Gratuito · 1.000 req/dia · Llama 3.3 70B · Inferência muito rápida ·
-            <a href="https://console.groq.com" target="_blank" class="link">console.groq.com</a>
-          </p>
-          <div class="form-group" style="margin-top:10px">
-            <label>Chave de API</label>
-            <div style="display:flex;gap:8px">
-              <input type="password" id="config-groq-key" class="form-input" placeholder="gsk_...">
-              <button id="btn-toggle-groq-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
-            </div>
-          </div>
-          <div id="config-status-groq" class="config-status" style="display:none"></div>
-          <div class="form-group">
-            <label>Modelo</label>
-            <select id="config-groq-modelo" class="form-input">
-              <option value="llama-3.3-70b-versatile">Llama 3.3 70B Versatile (recomendado)</option>
-              <option value="llama-3.1-8b-instant">Llama 3.1 8B Instant (mais rápido, +RPD)</option>
-              <option value="llama-4-scout-17b-16e-instruct">Llama 4 Scout 17B</option>
-              <option value="deepseek-r1-distill-llama-70b">DeepSeek R1 Distill 70B</option>
-              <option value="qwen/qwen3-32b">Qwen3 32B</option>
-            </select>
-          </div>
-          <button id="btn-testar-groq" class="btn btn-outline btn-sm">Testar Groq</button>
-        </div>
-
-        <!-- ESTRATÉGIA -->
-        <div class="config-section" style="margin-top:4px;padding-top:16px;border-top:1px solid var(--border)">
-          <div class="config-section-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#f0c040" stroke-width="2"><polyline points="16 3 21 3 21 8"/><line x1="4" y1="20" x2="21" y2="3"/><polyline points="21 16 21 21 16 21"/><line x1="15" y1="15" x2="21" y2="21"/></svg>
-            Estratégia de Distribuição
-          </div>
-          <div class="form-group" style="margin-top:8px">
-            <select id="config-estrategia" class="form-input">
-              <option value="auto">Automático – round-robin entre provedores configurados</option>
-              <option value="gemini">Usar apenas Gemini</option>
-              <option value="groq">Usar apenas Groq</option>
-            </select>
-            <p class="config-desc" style="margin-top:6px">
-              No modo automático, os projetos alternam entre os provedores disponíveis.
-              Se um falhar, o outro assume automaticamente.
-            </p>
-          </div>
-        </div>
 
       </div>
       <div class="modal-footer">
