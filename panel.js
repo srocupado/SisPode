@@ -516,7 +516,13 @@ async function atualizarDestaques() {
   btn.innerHTML = `<span class="loading-spinner"></span> Atualizando...`;
 
   try {
-    prop.destaques  = await buscarDestaques(prop.idCamara);
+    const novos = await buscarDestaques(prop.idCamara);
+    const existentes = new Map((prop.destaques || []).map(d => [d.numero, d]));
+    prop.destaques = novos.map(d => {
+      const ant = existentes.get(d.numero);
+      if (!ant) return d;
+      return { ...d, votoSim: ant.votoSim, votoNao: ant.votoNao, explicacao: ant.explicacao, orientacao: ant.orientacao };
+    });
     prop.ultimaSync = new Date().toISOString();
     await salvarSessao(app.sessaoAtual);
     renderizarDestaques();
