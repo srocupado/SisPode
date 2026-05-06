@@ -1275,17 +1275,30 @@ async function buscarTextoEmenda(d, prop) {
           const docPar1a = new DOMParser().parseFromString(htmlPar1a, 'text/html');
           let link1a = null;
 
-          // 1ª tentativa: linha com "relator" + link de documento
-          for (const row of docPar1a.querySelectorAll('tr, li, p')) {
-            if (/relator/i.test(row.textContent)) {
-              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-              if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+          // 1ª tentativa: link cujo filename começa com "SBT" (padrão Câmara para substitutivos)
+          for (const a of docPar1a.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
+            const href = a.getAttribute('href') || '';
+            if (/filename[=+%]*SBT/i.test(href)) {
+              link1a = resolverUrlCamara(href);
+              break;
             }
           }
-          // 2ª tentativa: qualquer linha com "substitut"
+
+          // 2ª tentativa: linha que contém "substitut" mas NÃO só "parecer" — evita Parecer do Relator
           if (!link1a) {
             for (const row of docPar1a.querySelectorAll('tr, li, p')) {
-              if (/substitut/i.test(row.textContent)) {
+              const txt = row.textContent;
+              if (/substitut/i.test(txt) && !/^\s*parecer\s*$/i.test(txt)) {
+                const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+                if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+              }
+            }
+          }
+
+          // 3ª tentativa: qualquer linha com "relator" + link (última opção)
+          if (!link1a) {
+            for (const row of docPar1a.querySelectorAll('tr, li, p')) {
+              if (/relator/i.test(row.textContent)) {
                 const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
                 if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
               }
