@@ -976,13 +976,19 @@ async function processPortalDoc(doc) {
     if (!orientGoverno && name === 'GOVERNO')                orientGoverno = voto;
   });
 
-  // Normaliza nome para dedup: remove títulos honoríficos e iniciais abreviadas
+  // Normaliza nome para dedup: remove títulos, iniciais e espaços → só letras
   function normNome(nome) {
     return nome.toUpperCase()
-      .replace(/\b(DR\.?|DRA\.?|DELEGAD[OA]\.?|PROF\.?|PROFESSORA?\.?|DEP\.?)\b\.?\s*/g, '')
-      .replace(/\b[A-Z]\.\s*/g, '')  // remove iniciais como "H." ou "B."
-      .replace(/\s+/g, ' ')
-      .trim();
+      .replace(/\b(DR\.?|DRA\.?|DEL\.?|DELEGAD[OA]\.?|PROF\.?|PROFESSORA?\.?|DEP\.?)\b\.?\s*/g, '')
+      .replace(/\b[A-Z]\.\s*/g, '')       // iniciais como "H.", "B."
+      .replace(/[^A-ZÁÉÍÓÚÀÃÕÇÂÊÎ]/g, ''); // só letras, sem espaços ou pontuação
+  }
+  // Verdadeiro se as chaves normalizadas indicam o mesmo deputado
+  function mesmoDeputado(a, b) {
+    if (a === b) return true;
+    var shorter = a.length <= b.length ? a : b;
+    var longer  = a.length <= b.length ? b : a;
+    return shorter.length >= 6 && longer.startsWith(shorter);
   }
 
   // Deputados presentes na página
@@ -1052,26 +1058,21 @@ async function processPortalDoc(doc) {
     if (dResp.ok) {
       var dData   = await dResp.json();
       var roster  = dData.dados || [];
-      var existingIds  = {};
-      var existingNorm = {};
+      var existingIds   = {};
+      var existingChaves = [];
       filtered.forEach(function (d) {
         if (d.id) existingIds[d.id] = true;
-        var norm = normNome(d.nome);
-        existingNorm[norm] = true;
-        if (norm.length >= 10) existingNorm[norm.substring(0, 12)] = true;
+        existingChaves.push(normNome(d.nome));
       });
       roster.forEach(function (dep) {
-        var depId   = String(dep.id || '');
-        var depNorm = normNome(dep.nome);
-        var isDup = (depId && existingIds[depId]) ||
-                    existingNorm[depNorm] ||
-                    (depNorm.length >= 10 && existingNorm[depNorm.substring(0, 12)]);
-        if (!isDup) {
-          filtered.push({
-            nome: dep.nome, siglaPartido: dep.siglaPartido, siglaUf: dep.siglaUf,
-            tipoVoto: null, votoClass: 'absent'
-          });
-        }
+        var depId    = String(dep.id || '');
+        var depChave = normNome(dep.nome);
+        if (depId && existingIds[depId]) return;
+        if (existingChaves.some(function(c) { return mesmoDeputado(c, depChave); })) return;
+        filtered.push({
+          nome: dep.nome, siglaPartido: dep.siglaPartido, siglaUf: dep.siglaUf,
+          tipoVoto: null, votoClass: 'absent'
+        });
       });
     }
   } catch (e) { /* API lenta — usa só dados do portal */ }
