@@ -1208,32 +1208,72 @@ async function generatePortalImage() {
 
   var off = null;
   try {
-    var resultsArea = document.getElementById('portalResultsArea');
-    if (!resultsArea) throw new Error('Área de resultados não encontrada');
+    var depSim=[], depNao=[], depAbst=[], depArt17=[], depObst=[], depAusente=[];
+    D.merged.forEach(function (d) {
+      var c = d.votoClass || votoClass(d.tipoVoto);
+      if      (c === 'sim')       depSim.push(d);
+      else if (c === 'nao')       depNao.push(d);
+      else if (c === 'abstencao') depAbst.push(d);
+      else if (c === 'art17')     depArt17.push(d);
+      else if (c === 'obstrucao') depObst.push(d);
+      else                        depAusente.push(d);
+    });
 
-    // Clone the rendered HTML exactly as displayed, then append signature
+    var groupsHTML =
+      buildGroupHTML('Votaram Sim',  depSim,     '#3ad97d', '#3ad97d') +
+      buildGroupHTML('Votaram Não',  depNao,     '#f05454', '#f05454') +
+      buildGroupHTML('Abstenção',    depAbst,    '#f0c040', '#f0c040') +
+      buildGroupHTML('Art. 17',      depArt17,   '#6eaaff', '#6eaaff') +
+      buildGroupHTML('Obstrução',    depObst,    '#c084fc', '#c084fc') +
+      buildGroupHTML('Ausentes',     depAusente, '#5a6f74', '#5a6f74');
+
+    var lg = '';
+    if (D.pSim)    lg += '<div class="legend-item"><span class="legend-dot" style="background:#3ad97d"></span>Sim<span class="legend-value" style="color:#3ad97d">'       + D.pSim    + '</span></div>';
+    if (D.pNao)    lg += '<div class="legend-item"><span class="legend-dot" style="background:#f05454"></span>Não<span class="legend-value" style="color:#f05454">'       + D.pNao    + '</span></div>';
+    if (D.pAbst)   lg += '<div class="legend-item"><span class="legend-dot" style="background:#f0c040"></span>Abstenção<span class="legend-value" style="color:#f0c040">' + D.pAbst   + '</span></div>';
+    if (D.pArt17)  lg += '<div class="legend-item"><span class="legend-dot" style="background:#6eaaff"></span>Art. 17<span class="legend-value" style="color:#6eaaff">'   + D.pArt17  + '</span></div>';
+    if (D.pObst)   lg += '<div class="legend-item"><span class="legend-dot" style="background:#c084fc"></span>Obstrução<span class="legend-value" style="color:#c084fc">' + D.pObst   + '</span></div>';
+    if (D.pAusente)lg += '<div class="legend-item"><span class="legend-dot" style="background:#5a6f74"></span>Ausente<span class="legend-value" style="color:#5a6f74">'   + D.pAusente+ '</span></div>';
+
     off = document.createElement('div');
-    off.style.cssText = 'position:fixed;left:-9999px;top:0;width:' + resultsArea.offsetWidth + 'px;background:#0e1c1f;padding:0;font-family:DM Sans,sans-serif;color:#e8ecec;';
-    off.innerHTML = resultsArea.innerHTML +
+    off.style.cssText = 'position:fixed;left:-9999px;top:0;width:500px;background:#0e1c1f;padding:20px;font-family:DM Sans,sans-serif;color:#e8ecec;';
+    off.innerHTML =
+      '<div class="vote-header">' +
+        '<div class="vote-title-bar">' +
+          '<div class="vote-party-badge">partido: ' + D.sigla + '</div>' +
+          '<div class="vote-description">' + D.votingDesc + '</div>' +
+          '<div class="vote-dates">' + D.sessionDate + ' · PLEN</div>' +
+        '</div>' +
+        '<div class="quorum-big"><div class="q-label">Quórum da votação</div><div class="q-value">' + D.quorum + '</div></div>' +
+        '<div class="result-title">Resultado final</div>' +
+        '<div class="result-row"><span class="r-label">Sim</span><span class="r-value sim">'             + D.totalSim   + '</span></div>' +
+        '<div class="result-row"><span class="r-label">Não</span><span class="r-value nao">'             + D.totalNao   + '</span></div>' +
+        '<div class="result-row"><span class="r-label">Abstenção</span><span class="r-value abstencao">' + D.totalAbst  + '</span></div>' +
+        '<div class="result-row"><span class="r-label">Art. 17</span><span class="r-value art17">'       + D.totalArt17 + '</span></div>' +
+        '<div class="result-row"><span class="r-label">Obstrução</span><span class="r-value obstrucao">' + D.totalObst  + '</span></div>' +
+        '<div class="result-divider"></div><div class="result-total"><span>Total</span><span>' + D.totalVotantes + '</span></div>' +
+        D.orientHTML + D.orientGovHTML +
+      '</div>' +
+      '<div class="vote-header" style="margin-top:12px">' +
+        '<div class="result-title" style="padding-top:14px">Bancada ' + D.sigla + '</div>' +
+        '<div class="chart-section"><canvas id="pieChartImgP" width="140" height="140"></canvas>' +
+        '<div class="chart-legend">' + lg + '</div></div>' +
+        '<div class="result-divider"></div><div class="result-total"><span>Total bancada</span><span>' + D.merged.length + '</span></div>' +
+      '</div>' +
+      '<div class="dep-groups" style="margin-top:12px">' + groupsHTML + '</div>' +
       '<div class="signature">' +
         '<div class="signature-line"></div>' +
         '<div class="signature-text">Liderança do Podemos</div>' +
         '<div class="signature-sub">Câmara dos Deputados · ' + D.sessionDate + '</div>' +
       '</div>';
 
-    // Re-draw the pie chart that exists in the cloned HTML
-    var origCanvas = resultsArea.querySelector('canvas.bancada-chart-canvas');
-    var cloneCanvas = off.querySelector('canvas.bancada-chart-canvas');
-    if (origCanvas && cloneCanvas) {
-      cloneCanvas.width  = origCanvas.width;
-      cloneCanvas.height = origCanvas.height;
-      drawPieCanvas(cloneCanvas, D.pSim, D.pNao, D.pAbst, D.pArt17, D.pObst, D.pAusente);
-    }
-
     document.body.appendChild(off);
+    var pc = off.querySelector('#pieChartImgP');
+    if (pc) drawPieCanvas(pc, D.pSim, D.pNao, D.pAbst, D.pArt17, D.pObst, D.pAusente);
+
     await new Promise(function (r) { setTimeout(r, 100); });
 
-    var c2 = await html2canvas(off, { backgroundColor: '#0e1c1f', scale: 2, useCORS: true, logging: false });
+    var c2 = await html2canvas(off, { backgroundColor: '#0e1c1f', scale: 2, useCORS: true, logging: false, windowWidth: 540 });
     document.body.removeChild(off);
     off = null;
 
