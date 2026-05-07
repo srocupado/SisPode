@@ -976,6 +976,15 @@ async function processPortalDoc(doc) {
     if (!orientGoverno && name === 'GOVERNO')                orientGoverno = voto;
   });
 
+  // Normaliza nome para dedup: remove títulos honoríficos e iniciais abreviadas
+  function normNome(nome) {
+    return nome.toUpperCase()
+      .replace(/\b(DR\.?|DRA\.?|DELEGAD[OA]\.?|PROF\.?|PROFESSORA?\.?|DEP\.?)\b\.?\s*/g, '')
+      .replace(/\b[A-Z]\.\s*/g, '')  // remove iniciais como "H." ou "B."
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
   // Deputados presentes na página
   var allDeps = [];
   doc.querySelectorAll('li').forEach(function (li) {
@@ -1000,8 +1009,16 @@ async function processPortalDoc(doc) {
     }
     var ufM  = pFull.match(/-([A-Z]{2})\)/);
     var sigM = pFull.match(/\(([^-)]+)/);
+    // Tenta extrair ID do deputado de link no li (ex: href="/deputados/12345/...")
+    var depId = null;
+    var aEl = li.querySelector('a[href*="/deputados/"]');
+    if (aEl) {
+      var idM = (aEl.getAttribute('href') || '').match(/\/deputados\/(\d+)/);
+      if (idM) depId = idM[1];
+    }
     allDeps.push({
-      nome: nome,
+      id:           depId,
+      nome:         nome,
       siglaPartido: sigM ? sigM[1].trim() : '',
       siglaUf:      ufM  ? ufM[1]         : '',
       tipoVoto:     voto || null,
@@ -1035,16 +1052,21 @@ async function processPortalDoc(doc) {
     if (dResp.ok) {
       var dData   = await dResp.json();
       var roster  = dData.dados || [];
-      var existing = {};
+      var existingIds  = {};
+      var existingNorm = {};
       filtered.forEach(function (d) {
-        var n = d.nome.toUpperCase();
-        existing[n] = true;
-        // Indexa prefixo de 12 chars para deduplar nomes abreviados do HTML
-        if (n.length >= 10) existing[n.substring(0, 12)] = true;
+        if (d.id) existingIds[d.id] = true;
+        var norm = normNome(d.nome);
+        existingNorm[norm] = true;
+        if (norm.length >= 10) existingNorm[norm.substring(0, 12)] = true;
       });
       roster.forEach(function (dep) {
-        var depName = dep.nome.toUpperCase();
-        if (!existing[depName] && !(depName.length >= 10 && existing[depName.substring(0, 12)])) {
+        var depId   = String(dep.id || '');
+        var depNorm = normNome(dep.nome);
+        var isDup = (depId && existingIds[depId]) ||
+                    existingNorm[depNorm] ||
+                    (depNorm.length >= 10 && existingNorm[depNorm.substring(0, 12)]);
+        if (!isDup) {
           filtered.push({
             nome: dep.nome, siglaPartido: dep.siglaPartido, siglaUf: dep.siglaUf,
             tipoVoto: null, votoClass: 'absent'
