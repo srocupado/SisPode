@@ -441,6 +441,20 @@ body {
   border-bottom: 1px solid var(--border);
   background: var(--card);
 }
+.destaque-camara-link {
+  padding: 4px 12px 8px;
+  text-align: right;
+}
+.destaque-camara-link a {
+  font-size: 11px;
+  color: var(--accent);
+  text-decoration: none;
+  opacity: 0.8;
+}
+.destaque-camara-link a:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
 .votos-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;

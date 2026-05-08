@@ -702,6 +702,13 @@ function renderizarCardCompleto(d, prop) {
       ${d.tipo ? `<br><small style="color:var(--cinza-texto)">Tipo regimental: ${d.tipo}</small>` : ''}
     </div>
 
+    ${prop.idCamara
+      ? `<div class="destaque-camara-link">
+           <a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${prop.idCamara}"
+              target="_blank" rel="noopener">Ver proposição na Câmara ↗</a>
+         </div>`
+      : ''}
+
     <div class="ia-toolbar">
       <button id="btn-salvar-destaque" class="btn btn-outline btn-sm">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
