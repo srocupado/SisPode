@@ -94,6 +94,7 @@ const state = {
   membros:       {},          // { sigla: { titulares: [id,...], suplentes: [id,...] } }
   config:        {},          // { sigla: { titular: n, suplente: n } }
   transferencias:{},          // { sigla: { cedidas: {id: entry}, recebidas: {id: entry} } }
+  pedidos:       {},          // { sigla: { id: { depId, obs, data } } }
   busca:         '',
 };
 
@@ -162,16 +163,18 @@ function registrarEventos() {
 
 async function carregarDados() {
   try {
-    const [deps, membros, config, transf] = await Promise.all([
+    const [deps, membros, config, transf, pedidos] = await Promise.all([
       fbGet('/deputados'),
       fbGet('/membros'),
       fbGet('/config'),
       fbGet('/transferencias'),
+      fbGet('/pedidos'),
     ]);
     state.deputados      = deps    || {};
     state.membros        = membros || {};
     state.config         = config  || {};
     state.transferencias = transf  || {};
+    state.pedidos        = pedidos || {};
   } catch (e) {
     mostrarToast('Erro ao carregar dados do Firebase.', 'erro');
   }
@@ -195,8 +198,20 @@ async function removerDeputadoDB(id) {
     if (sIdx >= 0) c.suplentes.splice(sIdx, 1);
     if (tIdx >= 0 || sIdx >= 0) await fbPut(`/membros/${sigla}`, c);
   }
+
+  // Remove pedidos deste deputado em todas as comissões
+  for (const sigla of Object.keys(state.pedidos)) {
+    const p = state.pedidos[sigla] || {};
+    for (const [pid, entry] of Object.entries(p)) {
+      if (entry.depId === id) {
+        delete state.pedidos[sigla][pid];
+        await fbDelete(`/pedidos/${sigla}/${pid}`);
+      }
+    }
+  }
 }
 
+// Retorna true se o membro foi adicionado, false se bloqueado.
 async function adicionarMembro(sigla, depId, tipo) {
   if (!state.membros[sigla]) state.membros[sigla] = { titulares: [], suplentes: [] };
   const c = state.membros[sigla];
@@ -211,7 +226,7 @@ async function adicionarMembro(sigla, depId, tipo) {
       ? `Sem vagas de ${tipo} configuradas para ${sigla}.`
       : `Vagas de ${tipo} esgotadas em ${sigla}.`,
       'erro');
-    return;
+    return false;
   }
 
   if (tipo === 'titular') {
@@ -222,14 +237,15 @@ async function adicionarMembro(sigla, depId, tipo) {
         `${dep ? dep.nome : 'Deputado'} já é titular em ${bloqueio}, comissão inacumulável com ${sigla}.`,
         'erro'
       );
-      return;
+      return false;
     }
   }
 
   const lista = tipo === 'titular' ? c.titulares : c.suplentes;
-  if (lista.includes(depId)) return;
+  if (lista.includes(depId)) return false;
   lista.push(depId);
   await fbPut(`/membros/${sigla}`, c);
+  return true;
 }
 
 async function removerMembro(sigla, depId) {
@@ -240,9 +256,35 @@ async function removerMembro(sigla, depId) {
   await fbPut(`/membros/${sigla}`, c);
 }
 
+// ---------- PEDIDOS ----------
+
+async function adicionarPedido(sigla, depId, obs) {
+  const id    = `p_${Date.now()}`;
+  const entry = { depId, obs, data: new Date().toISOString() };
+
+  if (!state.pedidos[sigla]) state.pedidos[sigla] = {};
+  state.pedidos[sigla][id] = entry;
+  await fbPut(`/pedidos/${sigla}/${id}`, entry);
+  return id;
+}
+
+async function removerPedido(sigla, id) {
+  if (state.pedidos[sigla]) delete state.pedidos[sigla][id];
+  await fbDelete(`/pedidos/${sigla}/${id}`);
+}
+
+async function nomearDePedido(sigla, pedidoId, depId, tipo) {
+  const ok = await adicionarMembro(sigla, depId, tipo);
+  if (ok) {
+    await removerPedido(sigla, pedidoId);
+    renderPainelComissao(sigla);
+    renderSidebarComissoes();
+    mostrarToast(`Deputado nomeado ${tipo} e pedido removido.`);
+  }
+}
+
 // ---------- LÓGICA DE VAGAS ----------
 
-// Vagas brutas = configuradas – cedidas + recebidas
 function vagasEfetivas(sigla, tipo) {
   const cfg  = state.config[sigla] || { titular: 0, suplente: 0 };
   const base = tipo === 'titular' ? (cfg.titular || 0) : (cfg.suplente || 0);
@@ -252,7 +294,6 @@ function vagasEfetivas(sigla, tipo) {
   return base - cedidas + recebidas;
 }
 
-// Vagas disponíveis = efetivas – já nomeados
 function vagasDisponiveis(sigla, tipo) {
   const m      = state.membros[sigla] || {};
   const lista  = tipo === 'titular' ? (m.titulares || []) : (m.suplentes || []);
@@ -329,8 +370,9 @@ function renderSidebarComissoes() {
   );
 
   lista.innerHTML = filtradas.map(c => {
-    const m     = state.membros[c.sigla] || {};
-    const total = (m.titulares || []).length + (m.suplentes || []).length;
+    const m          = state.membros[c.sigla] || {};
+    const total      = (m.titulares || []).length + (m.suplentes || []).length;
+    const nPedidos   = Object.keys(state.pedidos[c.sigla] || {}).length;
 
     const efT = vagasEfetivas(c.sigla, 'titular');
     const efS = vagasEfetivas(c.sigla, 'suplente');
@@ -339,17 +381,15 @@ function renderSidebarComissoes() {
     const dS = vagasDisponiveis(c.sigla, 'suplente');
     const cheias = !semVagas && dT <= 0 && dS <= 0;
 
-    let vagasBadge = '';
-    if (semVagas) {
-      vagasBadge = '<span class="badge-sem-vagas">sem vagas</span>';
-    } else if (cheias) {
-      vagasBadge = '<span class="badge-sem-vagas" style="background:rgba(240,84,84,.15);color:var(--vermelho)">cheias</span>';
-    }
+    const extras = [];
+    if (semVagas) extras.push('<span class="badge-sem-vagas">sem vagas</span>');
+    else if (cheias) extras.push('<span class="badge-sem-vagas" style="background:rgba(240,84,84,.15);color:var(--vermelho)">cheias</span>');
+    if (nPedidos > 0) extras.push(`<span class="badge-pedidos">${nPedidos} pedido${nPedidos > 1 ? 's' : ''}</span>`);
 
     return `
       <div class="com-item${state.comissaoSel === c.sigla ? ' ativo' : ''}" data-sigla="${c.sigla}">
         <span class="com-item-sigla">${c.sigla}</span>
-        <span class="com-item-nome">${c.nome}${vagasBadge ? '<br>' + vagasBadge : ''}</span>
+        <span class="com-item-nome">${c.nome}${extras.length ? '<br>' + extras.join(' ') : ''}</span>
         <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
       </div>`;
   }).join('');
@@ -428,14 +468,14 @@ function renderPainelComissao(sigla) {
   const titulares = m.titulares || [];
   const suplentes = m.suplentes || [];
 
-  const efT  = vagasEfetivas(sigla, 'titular');
-  const efS  = vagasEfetivas(sigla, 'suplente');
+  const efT   = vagasEfetivas(sigla, 'titular');
+  const efS   = vagasEfetivas(sigla, 'suplente');
   const dispT = vagasDisponiveis(sigla, 'titular');
   const dispS = vagasDisponiveis(sigla, 'suplente');
 
   const vagasBadge = (ef, disp) => {
     if (ef <= 0) return `<span class="vagas-counter vagas-zero">sem vagas</span>`;
-    const cls = disp <= 0 ? 'vagas-cheias' : 'vagas-ok';
+    const cls     = disp <= 0 ? 'vagas-cheias' : 'vagas-ok';
     const ocupadas = ef - disp;
     return `<span class="vagas-counter ${cls}">${ocupadas}/${ef} vagas</span>`;
   };
@@ -445,7 +485,7 @@ function renderPainelComissao(sigla) {
     if (!dep) return '';
     const conflito = tipo === 'titular' && verificarConflitosDeputado(depId).includes(sigla);
     return `
-      <div class="com-membro-row" data-dep="${depId}" data-tipo="${tipo}">
+      <div class="com-membro-row">
         <span class="com-membro-nome">${dep.nome}</span>
         <span class="com-membro-uf">${dep.uf}</span>
         ${conflito ? '<span class="com-membro-alerta">⚠ Acúmulo</span>' : ''}
@@ -453,8 +493,65 @@ function renderPainelComissao(sigla) {
       </div>`;
   };
 
+  const renderSecaoPedidos = () => {
+    const p        = state.pedidos[sigla] || {};
+    const entries  = Object.entries(p);
+
+    const fmt = iso => {
+      const d = new Date(iso);
+      return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+    };
+
+    const rows = entries.map(([pid, e]) => {
+      const dep = state.deputados[e.depId];
+      if (!dep) return '';
+      const conflT = comissaoConflitante(e.depId, sigla);
+      const jaT    = (titulares).includes(e.depId);
+      const jaS    = (suplentes).includes(e.depId);
+      const podeT  = !jaT && !conflT && dispT > 0;
+      const podeS  = !jaS && dispS > 0;
+      return `
+        <div class="pedido-row">
+          <div class="pedido-info">
+            <span class="pedido-nome">${dep.nome}</span>
+            <span class="com-membro-uf">${dep.uf}</span>
+            ${e.obs ? `<span class="pedido-obs">${e.obs}</span>` : ''}
+            <span class="pedido-data">${fmt(e.data)}</span>
+          </div>
+          <div class="pedido-acoes">
+            <button class="btn-nomear${podeT ? '' : ' btn-nomear-bloq'}"
+                    data-sigla="${sigla}" data-pid="${pid}" data-dep="${e.depId}" data-tipo="titular"
+                    ${podeT ? '' : 'disabled'}
+                    title="${jaT ? 'Já é titular' : conflT ? 'Inacumulável' : !podeT && efT > 0 ? 'Vagas de titular esgotadas' : 'Sem vagas de titular'}">
+              Nomear Titular
+            </button>
+            <button class="btn-nomear${podeS ? '' : ' btn-nomear-bloq'}"
+                    data-sigla="${sigla}" data-pid="${pid}" data-dep="${e.depId}" data-tipo="suplente"
+                    ${podeS ? '' : 'disabled'}
+                    title="${jaS ? 'Já é suplente' : !podeS && efS > 0 ? 'Vagas de suplente esgotadas' : 'Sem vagas de suplente'}">
+              Nomear Suplente
+            </button>
+            <button class="btn-rejeitar-pedido" data-sigla="${sigla}" data-pid="${pid}">Rejeitar</button>
+          </div>
+        </div>`;
+    }).filter(Boolean);
+
+    return `
+      <div class="com-grupo pedidos-secao">
+        <div class="com-grupo-titulo">
+          Pedidos
+          <span class="badge-count" style="${entries.length > 0 ? 'background:rgba(245,158,11,.2);color:#f5a623' : ''}">${entries.length}</span>
+        </div>
+        ${rows.length ? rows.join('') : '<p style="font-size:12px;color:var(--text-dim)">Nenhum pedido registrado.</p>'}
+        <button class="btn-adicionar-membro" data-sigla="${sigla}" id="btn-add-pedido-painel" style="margin-top:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Registrar pedido
+        </button>
+      </div>`;
+  };
+
   const renderTransferencias = () => {
-    const t      = state.transferencias[sigla] || {};
+    const t       = state.transferencias[sigla] || {};
     const cedidas   = Object.entries(t.cedidas   || {});
     const recebidas = Object.entries(t.recebidas || {});
     if (!cedidas.length && !recebidas.length) return '';
@@ -538,10 +635,12 @@ function renderPainelComissao(sigla) {
       </button>
     </div>
 
+    ${renderSecaoPedidos()}
     ${renderTransferencias()}`;
 
-  // Delegação de eventos do painel
+  // Delegação de eventos
   const painel = document.getElementById('com-painel-conteudo');
+
   painel.querySelectorAll('.btn-remover-membro').forEach(btn => {
     btn.addEventListener('click', async () => {
       await removerMembro(btn.dataset.sigla, btn.dataset.dep);
@@ -551,6 +650,7 @@ function renderPainelComissao(sigla) {
     });
   });
   painel.querySelectorAll('.btn-adicionar-membro:not([disabled])').forEach(btn => {
+    if (btn.id === 'btn-add-pedido-painel') return; // tratado abaixo
     btn.addEventListener('click', () =>
       abrirModalAddMembro(btn.dataset.sigla, btn.dataset.tipo));
   });
@@ -566,6 +666,23 @@ function renderPainelComissao(sigla) {
       mostrarToast('Transferência desfeita.');
     });
   });
+  painel.querySelectorAll('.btn-nomear:not([disabled])').forEach(btn => {
+    btn.addEventListener('click', () =>
+      nomearDePedido(btn.dataset.sigla, btn.dataset.pid, btn.dataset.dep, btn.dataset.tipo));
+  });
+  painel.querySelectorAll('.btn-rejeitar-pedido').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      await removerPedido(btn.dataset.sigla, btn.dataset.pid);
+      renderPainelComissao(sigla);
+      renderSidebarComissoes();
+      mostrarToast('Pedido removido.');
+    });
+  });
+  const btnAddPedido = painel.querySelector('#btn-add-pedido-painel');
+  if (btnAddPedido) {
+    btnAddPedido.addEventListener('click', () =>
+      abrirModalAddPedido(btnAddPedido.dataset.sigla));
+  }
 }
 
 function renderPainelDeputado(depId) {
@@ -573,6 +690,11 @@ function renderPainelDeputado(depId) {
   if (!dep) return;
   const { titulares, suplentes } = comissoesDeDeputado(depId);
   const conflitos = verificarConflitosDeputado(depId);
+
+  // Comissões com pedido pendente deste deputado
+  const pedidosEm = Object.entries(state.pedidos)
+    .filter(([, p]) => Object.values(p).some(e => e.depId === depId))
+    .map(([sigla]) => sigla);
 
   const tagsCom = (siglas, tipo) => siglas.map(s => {
     const com = COMISSOES_PERMANENTES.find(c => c.sigla === s);
@@ -599,6 +721,15 @@ function renderPainelDeputado(depId) {
         ? `<div class="dep-row-tags">${tagsCom(suplentes, 'suplente')}</div>`
         : '<p style="font-size:12px;color:var(--text-dim)">Nenhuma suplência.</p>'}
     </div>
+
+    ${pedidosEm.length ? `
+    <div class="com-grupo">
+      <div class="com-grupo-titulo" style="color:#f5a623">Pedidos pendentes <span class="badge-count" style="background:rgba(245,158,11,.2);color:#f5a623">${pedidosEm.length}</span></div>
+      <div class="dep-row-tags">${pedidosEm.map(s => {
+        const com = COMISSOES_PERMANENTES.find(c => c.sigla === s);
+        return `<span class="dep-tag" style="background:rgba(245,158,11,.15);color:#f5a623" title="${com ? com.nome : s}">${s}</span>`;
+      }).join('')}</div>
+    </div>` : ''}
 
     ${conflitos.length ? `
     <div class="com-grupo">
@@ -698,7 +829,6 @@ async function adicionarDeputado() {
 // ---------- MODAL: ADICIONAR MEMBRO ----------
 
 function abrirModalAddMembro(sigla, tipo) {
-  // Verificação antecipada de vagas
   const disp = vagasDisponiveis(sigla, tipo);
   if (disp <= 0) {
     const ef = vagasEfetivas(sigla, tipo);
@@ -742,15 +872,69 @@ function abrirModalAddMembro(sigla, tipo) {
 
   lista.querySelectorAll('.membro-select-item:not(.ja-membro)').forEach(el => {
     el.addEventListener('click', async () => {
-      await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo);
-      fecharModal('modal-add-membro');
-      renderPainelComissao(el.dataset.sigla);
-      renderSidebarComissoes();
-      mostrarToast('Membro adicionado.');
+      const ok = await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo);
+      if (ok) {
+        fecharModal('modal-add-membro');
+        renderPainelComissao(el.dataset.sigla);
+        renderSidebarComissoes();
+        mostrarToast('Membro adicionado.');
+      }
     });
   });
 
   document.getElementById('modal-add-membro').style.display = 'flex';
+}
+
+// ---------- MODAL: REGISTRAR PEDIDO ----------
+
+function abrirModalAddPedido(sigla) {
+  const com = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  const p   = state.pedidos[sigla] || {};
+  const m   = state.membros[sigla] || {};
+  // Deputados que já têm pedido OU já são membros ficam bloqueados
+  const jaMembroIds = [...(m.titulares || []), ...(m.suplentes || [])];
+  const jaPedidoIds = Object.values(p).map(e => e.depId);
+  const bloqueadoIds = new Set([...jaMembroIds, ...jaPedidoIds]);
+
+  document.getElementById('add-pedido-titulo').textContent = `Registrar Pedido — ${sigla}`;
+  document.getElementById('add-pedido-desc').textContent   = `${com.nome}`;
+  document.getElementById('pedido-obs-input').value = '';
+
+  const deps = Object.entries(state.deputados)
+    .sort(([, a], [, b]) => a.nome.localeCompare(b.nome));
+
+  const lista = document.getElementById('pedido-select-lista');
+  lista.innerHTML = deps.length
+    ? deps.map(([id, d]) => {
+        const bloqueado = bloqueadoIds.has(id);
+        const motivo = jaMembroIds.includes(id)
+          ? '<span class="membro-select-conflito">já membro</span>'
+          : jaPedidoIds.includes(id)
+            ? '<span class="membro-select-conflito">pedido já registrado</span>'
+            : '';
+        return `
+          <div class="membro-select-item${bloqueado ? ' ja-membro' : ''}"
+               data-dep="${id}" data-sigla="${sigla}">
+            <span class="membro-select-nome">${d.nome}</span>
+            <span class="membro-select-uf">${d.uf}</span>
+            ${motivo}
+          </div>`;
+      }).join('')
+    : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">Nenhum deputado cadastrado.</p>`;
+
+  lista.querySelectorAll('.membro-select-item:not(.ja-membro)').forEach(el => {
+    el.addEventListener('click', async () => {
+      const obs = document.getElementById('pedido-obs-input').value.trim();
+      await adicionarPedido(el.dataset.sigla, el.dataset.dep, obs);
+      fecharModal('modal-add-pedido');
+      renderPainelComissao(el.dataset.sigla);
+      renderSidebarComissoes();
+      const dep = state.deputados[el.dataset.dep];
+      mostrarToast(`Pedido de ${dep ? dep.nome : 'deputado'} registrado.`);
+    });
+  });
+
+  document.getElementById('modal-add-pedido').style.display = 'flex';
 }
 
 // ---------- MODAL: CONFIGURAR VAGAS ----------
@@ -778,7 +962,7 @@ function abrirModalConfigVagas() {
 }
 
 async function salvarConfigVagas() {
-  const inputs = document.querySelectorAll('#config-vagas-lista .config-vaga-input');
+  const inputs    = document.querySelectorAll('#config-vagas-lista .config-vaga-input');
   const novoConfig = {};
 
   inputs.forEach(inp => {
@@ -836,9 +1020,9 @@ async function confirmarTransferencia() {
 }
 
 async function salvarTransferencia(sigla, tipo, direcao, partido, obs) {
-  const id       = `t_${Date.now()}`;
-  const subPath  = direcao === 'ceder' ? 'cedidas' : 'recebidas';
-  const entry    = { tipo, partido, obs, data: new Date().toISOString() };
+  const id      = `t_${Date.now()}`;
+  const subPath = direcao === 'ceder' ? 'cedidas' : 'recebidas';
+  const entry   = { tipo, partido, obs, data: new Date().toISOString() };
 
   if (!state.transferencias[sigla]) state.transferencias[sigla] = {};
   if (!state.transferencias[sigla][subPath]) state.transferencias[sigla][subPath] = {};
@@ -862,33 +1046,54 @@ function exportarExcel() {
     return;
   }
 
-  const rows = [['Comissão', 'Sigla', 'Tipo', 'Deputado', 'UF']];
-
+  // Aba 1: membros
+  const rowsMembros = [['Comissão', 'Sigla', 'Tipo', 'Deputado', 'UF']];
   for (const com of COMISSOES_PERMANENTES) {
-    const m        = state.membros[com.sigla] || {};
+    const m         = state.membros[com.sigla] || {};
     const titulares = m.titulares || [];
     const suplentes = m.suplentes || [];
-
     for (const depId of titulares) {
       const dep = state.deputados[depId];
-      if (dep) rows.push([com.nome, com.sigla, 'Titular', dep.nome, dep.uf]);
+      if (dep) rowsMembros.push([com.nome, com.sigla, 'Titular', dep.nome, dep.uf]);
     }
     for (const depId of suplentes) {
       const dep = state.deputados[depId];
-      if (dep) rows.push([com.nome, com.sigla, 'Suplente', dep.nome, dep.uf]);
+      if (dep) rowsMembros.push([com.nome, com.sigla, 'Suplente', dep.nome, dep.uf]);
     }
   }
 
-  if (rows.length === 1) {
-    mostrarToast('Nenhum membro cadastrado para exportar.', 'erro');
-    return;
+  // Aba 2: pedidos
+  const rowsPedidos = [['Comissão', 'Sigla', 'Deputado', 'UF', 'Observação', 'Data']];
+  const fmt = iso => {
+    const d = new Date(iso);
+    return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+  };
+  for (const com of COMISSOES_PERMANENTES) {
+    const p = state.pedidos[com.sigla] || {};
+    for (const e of Object.values(p)) {
+      const dep = state.deputados[e.depId];
+      if (dep) rowsPedidos.push([com.nome, com.sigla, dep.nome, dep.uf, e.obs || '', fmt(e.data)]);
+    }
   }
 
-  const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 58 }, { wch: 10 }, { wch: 10 }, { wch: 34 }, { wch: 5 }];
-
   const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Comissões Podemos');
+
+  if (rowsMembros.length > 1) {
+    const ws1 = XLSX.utils.aoa_to_sheet(rowsMembros);
+    ws1['!cols'] = [{ wch: 58 }, { wch: 10 }, { wch: 10 }, { wch: 34 }, { wch: 5 }];
+    XLSX.utils.book_append_sheet(wb, ws1, 'Membros');
+  }
+
+  if (rowsPedidos.length > 1) {
+    const ws2 = XLSX.utils.aoa_to_sheet(rowsPedidos);
+    ws2['!cols'] = [{ wch: 58 }, { wch: 10 }, { wch: 34 }, { wch: 5 }, { wch: 30 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Pedidos');
+  }
+
+  if (wb.SheetNames.length === 0) {
+    mostrarToast('Nenhum dado para exportar.', 'erro');
+    return;
+  }
 
   const hoje = new Date().toISOString().slice(0, 10);
   XLSX.writeFile(wb, `comissoes-podemos-${hoje}.xlsx`);

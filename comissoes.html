@@ -516,6 +516,103 @@
       pointer-events: none;
     }
 
+    /* ===== PEDIDOS ===== */
+    .pedidos-secao {
+      border-top: 1px solid var(--border);
+      padding-top: 20px;
+    }
+
+    .pedido-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      background: rgba(245,158,11,.05);
+      border: 1px solid rgba(245,158,11,.2);
+      border-radius: 10px;
+      margin-bottom: 6px;
+      flex-wrap: wrap;
+    }
+
+    .pedido-info {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex: 1;
+      min-width: 0;
+      flex-wrap: wrap;
+    }
+
+    .pedido-nome {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text);
+    }
+
+    .pedido-obs {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-style: italic;
+      flex: 1;
+      min-width: 0;
+    }
+
+    .pedido-data {
+      font-size: 10px;
+      color: var(--text-dim);
+      flex-shrink: 0;
+    }
+
+    .pedido-acoes {
+      display: flex;
+      gap: 6px;
+      flex-shrink: 0;
+    }
+
+    .btn-nomear {
+      background: none;
+      border: 1px solid rgba(31,165,165,.4);
+      border-radius: 6px;
+      color: var(--accent-light);
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      white-space: nowrap;
+    }
+    .btn-nomear:hover { background: var(--accent-muted); border-color: var(--accent); }
+    .btn-nomear.btn-nomear-bloq,
+    .btn-nomear[disabled] { opacity: .35; cursor: not-allowed; pointer-events: none; }
+
+    .btn-rejeitar-pedido {
+      background: none;
+      border: 1px solid rgba(240,84,84,.3);
+      border-radius: 6px;
+      color: var(--vermelho);
+      padding: 3px 10px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background .12s;
+      white-space: nowrap;
+    }
+    .btn-rejeitar-pedido:hover { background: rgba(240,84,84,.1); }
+
+    /* badge de pedidos na sidebar */
+    .badge-pedidos {
+      font-size: 9px;
+      font-weight: 700;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(245,158,11,.15);
+      color: #f5a623;
+      letter-spacing: 0.3px;
+    }
+
+    /* obs input no modal de pedido */
+    .pedido-obs-wrap {
+      margin-bottom: 12px;
+    }
+
     /* badge na sidebar para sem vagas */
     .badge-sem-vagas {
       font-size: 9px;
@@ -677,6 +774,24 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-transferencia">Cancelar</button>
         <button id="btn-confirmar-transf" class="btn btn-primary">Confirmar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: REGISTRAR PEDIDO ===== -->
+  <div id="modal-add-pedido" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3 id="add-pedido-titulo">Registrar Pedido</h3>
+        <button class="modal-close" data-fecha="modal-add-pedido">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="add-pedido-desc" style="font-size:12px;color:var(--text-dim);margin-bottom:12px"></p>
+        <div class="pedido-obs-wrap">
+          <input type="text" id="pedido-obs-input" class="form-input"
+                 placeholder="Observação (ex: indicado pela bancada estadual)">
+        </div>
+        <div class="membro-select-lista" id="pedido-select-lista"></div>
       </div>
     </div>
   </div>
