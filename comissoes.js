@@ -122,6 +122,10 @@ function registrarEventos() {
     renderSidebar();
   });
 
+  // Voltar à tela inicial
+  document.getElementById('btn-voltar-home')
+    .addEventListener('click', () => window.close());
+
   // Gerir deputados
   document.getElementById('btn-gerir-deputados')
     .addEventListener('click', () => abrirModalDeputados());
