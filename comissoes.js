@@ -185,6 +185,18 @@ async function adicionarMembro(sigla, depId, tipo) {
   if (!c.titulares) c.titulares = [];
   if (!c.suplentes) c.suplentes = [];
 
+  if (tipo === 'titular') {
+    const bloqueio = comissaoConflitante(depId, sigla);
+    if (bloqueio) {
+      const dep = state.deputados[depId];
+      mostrarToast(
+        `${dep ? dep.nome : 'Deputado'} já é titular em ${bloqueio}, comissão inacumulável com ${sigla}.`,
+        'erro'
+      );
+      return;
+    }
+  }
+
   const lista = tipo === 'titular' ? c.titulares : c.suplentes;
   if (lista.includes(depId)) return;
   lista.push(depId);
@@ -228,13 +240,15 @@ function deputadosComConflito() {
     .filter(x => x.conflitos.length > 0);
 }
 
-function temConflitoPotencial(depId, siglaAlvo) {
+// Retorna a sigla da comissão já ocupada que torna siglaAlvo inacumulável, ou null.
+function comissaoConflitante(depId, siglaAlvo) {
   const { titulares } = comissoesDeDeputado(depId);
   for (const grupo of GRUPOS_INCOMPATIVEIS) {
     if (!grupo.includes(siglaAlvo)) continue;
-    if (titulares.some(s => s !== siglaAlvo && grupo.includes(s))) return true;
+    const bloqueio = titulares.find(s => s !== siglaAlvo && grupo.includes(s));
+    if (bloqueio) return bloqueio;
   }
-  return false;
+  return null;
 }
 
 // ---------- RENDER: SIDEBAR ----------
@@ -555,15 +569,18 @@ function abrirModalAddMembro(sigla, tipo) {
   const lista = document.getElementById('membro-select-lista');
   lista.innerHTML = deps.length
     ? deps.map(([id, d]) => {
-        const jaMembro  = jaMembroIds.includes(id);
-        const conflito  = tipo === 'titular' && !jaMembro && temConflitoPotencial(id, sigla);
+        const jaMembro   = jaMembroIds.includes(id);
+        const conflito   = tipo === 'titular' && !jaMembro ? comissaoConflitante(id, sigla) : null;
+        const bloqueado  = jaMembro || !!conflito;
+        let aviso = '';
+        if (jaMembro)  aviso = '<span class="membro-select-conflito">já membro</span>';
+        if (conflito)  aviso = `<span class="membro-select-conflito">⚠ já é titular em ${conflito} (inacumulável)</span>`;
         return `
-          <div class="membro-select-item${jaMembro ? ' ja-membro' : ''}"
+          <div class="membro-select-item${bloqueado ? ' ja-membro' : ''}"
                data-dep="${id}" data-sigla="${sigla}" data-tipo="${tipo}">
             <span class="membro-select-nome">${d.nome}</span>
             <span class="membro-select-uf">${d.uf}</span>
-            ${jaMembro ? '<span class="membro-select-conflito">já membro</span>' : ''}
-            ${conflito ? '<span class="membro-select-conflito">⚠ acúmulo</span>' : ''}
+            ${aviso}
           </div>`;
       }).join('')
     : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">Nenhum deputado cadastrado.</p>`;
