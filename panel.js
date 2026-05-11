@@ -456,6 +456,15 @@ function parseDestaques(html) {
       const textos = cells.map(c => c.textContent.trim());
       if (!/^(DTQ|EMC|DVT)\s*\d+/i.test(textos[0])) return;
 
+      // [DEBUG] Dump TODAS as colunas + atributos (title/href) — remover após diagnóstico
+      const debugCells = cells.map((c, i) => ({
+        col: i,
+        texto: c.textContent.trim().slice(0, 200),
+        titles: Array.from(c.querySelectorAll('[title]')).map(e => e.getAttribute('title')).filter(Boolean),
+        links: Array.from(c.querySelectorAll('a')).map(a => a.getAttribute('href')).filter(Boolean),
+      }));
+      console.log('[parseDestaques][DEBUG]', textos[0], JSON.stringify(debugCells, null, 2));
+
       const situacaoRaw  = textos[textos.length - 1] || '';
       const situacaoNorm = situacaoRaw.toLowerCase();
       const ativo = !SITUACOES_INATIVAS.some(s => situacaoNorm.includes(s));
@@ -1071,10 +1080,17 @@ function resolverUrlCamara(href) {
 async function buscarTextoEmenda(d, prop) {
   if (!prop.idCamara) return null;
   try {
+    // [DEBUG] Dump dos campos brutos do destaque — remover após diagnóstico
+    console.log('[IA][DEBUG] destaque bruto:', JSON.stringify({
+      numero: d.numero, autoria: d.autoria,
+      descricao: d.descricao, tipo: d.tipo, situacao: d.situacao,
+    }, null, 2));
+
     // Concatena descricao + tipo: na pauta da Câmara, o detalhamento do destaque
     // (ex: "do inciso II do art. 19 do PL...") frequentemente está na coluna "tipo",
     // não na "descricao". Combinar evita falha na detecção de referência legislativa.
     const descricao = `${d.descricao || ''} ${d.tipo || ''}`.trim();
+    console.log('[IA][DEBUG] descricao+tipo combinado:', descricao);
 
     // ── Classificação do tipo de destaque ────────────────────────────
     // Extrai número de emenda (máx 3 dígitos para evitar anos/números de PL)
