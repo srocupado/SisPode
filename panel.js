@@ -1063,7 +1063,10 @@ async function fetchTextoIntegra(url, preResponse = null) {
       console.log('[IA] PDF bruto length:', bruto.length);
       const limpo = limparTextoPDF(bruto);
       console.log('[IA] PDF limpo length:', limpo.length);
-      return limpo.length > 50 ? limpo.slice(0, 8000) : null;
+      // Limite alto: PLs longos têm ~75k chars e dispositivos podem estar bem
+      // no meio do texto. Gemini 2.5 Flash suporta ~1M tokens — 120k chars
+      // (~30k tokens) é seguro e cobre praticamente todos os PLs.
+      return limpo.length > 50 ? limpo.slice(0, 120000) : null;
     } catch (e) {
       console.error('[IA] pdfjsLib ERRO:', e.message, e);
       return null;
@@ -1076,7 +1079,7 @@ async function fetchTextoIntegra(url, preResponse = null) {
     const doc  = new DOMParser().parseFromString(html, 'text/html');
     doc.querySelectorAll('script,style,header,footer,nav,aside,form,.header,.footer').forEach(el => el.remove());
     const texto = (doc.body?.textContent || '').replace(/\s{2,}/g, ' ').trim();
-    return texto.length > 100 ? texto.slice(0, 7000) : null;
+    return texto.length > 100 ? texto.slice(0, 120000) : null;
   } catch (_) { return null; }
 }
 
