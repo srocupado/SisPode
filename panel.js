@@ -1432,9 +1432,33 @@ async function buscarTextoEmenda(d, prop) {
 
     // ── CASO 3: DVS/DTQ de dispositivo do PL original ────────────────
     // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021"
-    // Busca o inteiro teor do projeto original via API da Câmara (urlInteiroTeor).
+    // Estratégia: 1º tenta o PDF do próprio destaque (d.urlLink), que contém a
+    // transcrição literal do dispositivo + justificativa. Se falhar, fallback
+    // para o inteiro teor da proposição (urlInteiroTeor).
     if (isDVSPLOriginal) {
-      console.log('[IA] Caso 3: DVS de dispositivo do PL original — buscando inteiro teor');
+      console.log('[IA] Caso 3: DVS de dispositivo do PL original');
+
+      // Tentativa 1: PDF do próprio destaque (mais preciso)
+      if (d.urlLink) {
+        console.log('[IA] Caso 3 tent. 1 — PDF do destaque:', d.urlLink);
+        try {
+          const textoCompleto = await fetchTextoIntegra(d.urlLink);
+          console.log('[IA] PDF destaque extraído:',
+            textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
+          if (textoCompleto && textoCompleto.length > 100) {
+            return {
+              textoCompleto,
+              tipo: 'pl_original',
+              numArtigo, numInciso, numPar, referenciaLeg,
+            };
+          }
+        } catch (e) {
+          console.warn('[IA] Caso 3 tent. 1 (PDF destaque) falhou:', e);
+        }
+      }
+
+      // Tentativa 2: inteiro teor da proposição via API
+      console.log('[IA] Caso 3 tent. 2 — urlInteiroTeor via API');
       try {
         const respApi = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}`);
         if (respApi.ok) {
@@ -1443,7 +1467,7 @@ async function buscarTextoEmenda(d, prop) {
           console.log('[IA] urlInteiroTeor:', urlInteiroTeor);
           if (urlInteiroTeor) {
             const textoCompleto = await fetchTextoIntegra(urlInteiroTeor);
-            console.log('[IA] PL original texto extraído:',
+            console.log('[IA] inteiro teor extraído:',
               textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
             if (textoCompleto) {
               return {
@@ -1455,10 +1479,10 @@ async function buscarTextoEmenda(d, prop) {
           }
         }
       } catch (e) {
-        console.warn('[IA] Caso 3 falhou:', e);
+        console.warn('[IA] Caso 3 tent. 2 falhou:', e);
       }
-      // Não cai em casos de emenda — seria documento errado
-      console.warn('[IA] Caso 3 falhou — texto do PL original não encontrado.');
+
+      console.warn('[IA] Caso 3 falhou — texto não encontrado.');
       return null;
     }
 
