@@ -161,6 +161,10 @@ function registrarEventos() {
     .addEventListener('click', adicionarDeputado);
   document.getElementById('dep-nome-input')
     .addEventListener('keydown', e => { if (e.key === 'Enter') adicionarDeputado(); });
+
+  // Importar bancada da API da Câmara
+  document.getElementById('btn-importar-camara')
+    .addEventListener('click', importarDeputadosDaCamara);
 }
 
 // ---------- FIREBASE: CRUD ----------
@@ -795,7 +799,7 @@ function renderModalDeputadoLista() {
   lista.innerHTML = deps.length
     ? deps.map(([id, d]) => `
         <div class="dep-modal-item">
-          <span class="dep-modal-nome">${d.nome}</span>
+          <span class="dep-modal-nome">${d.nome}${d.idCamara ? '<span class="badge-api" title="Importado da API da Câmara">API</span>' : ''}</span>
           <span class="dep-modal-uf">${d.uf}</span>
           <button class="btn-remover-membro btn-rem-dep" data-id="${id}">Remover</button>
         </div>`).join('')
@@ -828,6 +832,59 @@ async function adicionarDeputado() {
   renderModalDeputadoLista();
   renderSidebar();
   mostrarToast(`${nome} adicionado.`);
+}
+
+// ---------- IMPORTAR DA API DA CÂMARA ----------
+
+async function importarDeputadosDaCamara() {
+  const btn = document.getElementById('btn-importar-camara');
+  const textoOriginal = btn.innerHTML;
+  btn.disabled = true;
+  btn.textContent = 'Importando...';
+
+  try {
+    let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
+    let importados = 0, atualizados = 0, inalterados = 0;
+
+    while (url) {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const data = await r.json();
+
+      for (const d of data.dados || []) {
+        const id  = `cam_${d.id}`;
+        const dep = { nome: d.nome, uf: d.siglaUf, idCamara: d.id };
+        const exist = state.deputados[id];
+
+        if (!exist) {
+          await salvarDeputado(id, dep);
+          importados++;
+        } else if (exist.nome !== dep.nome || exist.uf !== dep.uf || exist.idCamara !== dep.idCamara) {
+          await salvarDeputado(id, dep);
+          atualizados++;
+        } else {
+          inalterados++;
+        }
+      }
+
+      const next = (data.links || []).find(l => l.rel === 'next');
+      url = next ? next.href : null;
+    }
+
+    const partes = [];
+    if (importados)  partes.push(`${importados} novo${importados > 1 ? 's' : ''}`);
+    if (atualizados) partes.push(`${atualizados} atualizado${atualizados > 1 ? 's' : ''}`);
+    if (inalterados) partes.push(`${inalterados} sem mudança`);
+    mostrarToast(`Importação concluída: ${partes.join(', ') || 'nada a fazer'}.`);
+
+    renderModalDeputadoLista();
+    renderSidebar();
+  } catch (e) {
+    mostrarToast('Falha ao importar da Câmara: ' + e.message, 'erro');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = textoOriginal;
+  }
 }
 
 // ---------- MODAL: ADICIONAR MEMBRO ----------
