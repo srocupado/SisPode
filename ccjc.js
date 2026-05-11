@@ -325,8 +325,104 @@ async function buscarPareceresComissoes(idCamara) {
   }
 }
 
+/**
+ * Estratégia principal: localiza o cabeçalho "Pareceres Aprovados ou Pendentes
+ * de Aprovação" e extrai cada linha da tabela que vem em seguida.
+ * Estrutura típica:
+ *   <h2/h3>Pareceres Aprovados ou Pendentes de Aprovação</h2>
+ *   <table>
+ *     <tr><th>Comissão</th><th>Parecer</th></tr>
+ *     <tr>
+ *       <td>Comissão de Constituição e Justiça e de Cidadania (CCJC)</td>
+ *       <td>10/03/2026 - Parecer da Relatora ... <a href="...">Inteiro teor</a></td>
+ *     </tr>
+ *   </table>
+ */
+function _extrairDaTabelaPareceres(doc) {
+  const mapa = {};
+
+  // Localiza qualquer elemento de texto que seja o cabeçalho da seção
+  const cabecalhos = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6, legend, caption, strong, b, div, span'))
+    .filter(el => {
+      const t = (el.textContent || '').trim();
+      return /pareceres\s+aprovad/i.test(t) &&
+             /pendentes?\s+de\s+aprova/i.test(t) &&
+             t.length < 120;
+    });
+
+  for (const cab of cabecalhos) {
+    // Procura a próxima <table> que apareça depois do cabeçalho
+    let tabela = null;
+    let cursor = cab;
+    for (let i = 0; i < 20 && cursor; i++) {
+      // tenta irmãos seguintes
+      let sib = cursor.nextElementSibling;
+      while (sib) {
+        if (sib.tagName === 'TABLE') { tabela = sib; break; }
+        const innerTbl = sib.querySelector?.('table');
+        if (innerTbl) { tabela = innerTbl; break; }
+        sib = sib.nextElementSibling;
+      }
+      if (tabela) break;
+      cursor = cursor.parentElement;
+    }
+    if (!tabela) continue;
+
+    // Itera linhas (ignora <tr> de cabeçalho que só tem <th>)
+    for (const tr of tabela.querySelectorAll('tr')) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+
+      const textoComissao = (tds[0].textContent || '').trim();
+      const celulaParecer = tds[1];
+
+      // Sigla entre parênteses: "(CCJC)", "(CDHM)", etc.
+      const mSigla = textoComissao.match(/\(([A-Z]{3,8})\)/);
+      if (!mSigla) continue;
+      const sigla = mSigla[1];
+      if (_siglaIgnorada(sigla)) continue;
+
+      // Nome completo: tudo antes do "(SIGLA)"
+      const nome = textoComissao.slice(0, mSigla.index).trim().replace(/\s+/g, ' ');
+
+      // Link "Inteiro teor" — busca por texto, mas também aceita qualquer link
+      // dentro da célula como fallback
+      const links = Array.from(celulaParecer.querySelectorAll('a[href]'));
+      const linkTeor =
+        links.find(a => /inteiro\s+teor/i.test(a.textContent || '')) ||
+        links.find(a => {
+          const h = a.getAttribute('href') || '';
+          return /codteor|mostrarintegra|fileserv|\.pdf|\.doc/i.test(h);
+        }) ||
+        links[0];
+
+      if (!linkTeor) continue;
+      const href = linkTeor.getAttribute('href') || '';
+      if (!href || href.startsWith('#') || href.includes('javascript:')) continue;
+
+      const url = href.startsWith('http')
+        ? href
+        : `https://www.camara.leg.br${href.startsWith('/') ? href : '/proposicoesWeb/' + href}`;
+
+      if (!mapa[sigla]) mapa[sigla] = { nome: nome || sigla, url };
+    }
+  }
+
+  return mapa;
+}
+
 function _parsearPaginaPareceres(html) {
   const doc  = new DOMParser().parseFromString(html, 'text/html');
+
+  // ---------- Passo 0 (preferido): tabela "Pareceres Aprovados ou Pendentes" ----------
+  // A página tem uma tabela com colunas [Comissão | Parecer], onde a primeira
+  // célula traz o nome completo + (SIGLA) e a segunda traz o link "Inteiro teor".
+  // Essa é a fonte autoritativa — usamos antes de qualquer heurística.
+  const mapaTabela = _extrairDaTabelaPareceres(doc);
+  if (Object.keys(mapaTabela).length > 0) {
+    console.debug('[CCJC] pareceresMap (tabela vigente):', mapaTabela);
+    return mapaTabela;
+  }
 
   // ---------- Passo 1: mapa sigla → nome completo ----------
   const nomeCompleto = {};
