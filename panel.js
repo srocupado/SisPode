@@ -1004,6 +1004,37 @@ function limparTextoPDF(texto) {
 /** Extrai texto limpo de uma URL — suporta HTML e PDF (via pdfjsLib).
  *  @param {string} url
  *  @param {Response|null} preResponse  Response já obtida (evita segundo fetch) */
+// Busca documento da Câmara. Default: retorna pdfBuffer (envio inline ao Gemini).
+// Fallback: se for HTML, extrai texto via fetchTextoIntegra.
+// `infoExtra` é mesclado no retorno (tipo, referenciaLeg, etc).
+async function buscarDocumento(url, infoExtra = {}) {
+  if (!url) return null;
+  try {
+    const r = await fetchCamaraResponse(url);
+    if (!r) return null;
+    const ct = (r.headers.get('content-type') || '').toLowerCase();
+    if (/pdf/.test(ct)) {
+      const pdfBuffer = await r.arrayBuffer();
+      if (pdfBuffer.byteLength > 0) {
+        console.log('[IA] PDF inline pronto:',
+          (pdfBuffer.byteLength / 1024).toFixed(0), 'KB | url:', url);
+        return { pdfBuffer, ...infoExtra };
+      }
+      return null;
+    }
+    // HTML: fallback para extração de texto
+    const textoCompleto = await fetchTextoIntegra(url, r.clone());
+    if (textoCompleto && textoCompleto.length > 100) {
+      console.log('[IA] HTML extraído:', textoCompleto.length, 'chars | url:', url);
+      return { textoCompleto, ...infoExtra };
+    }
+    return null;
+  } catch (e) {
+    console.warn('[IA] buscarDocumento falhou:', e);
+    return null;
+  }
+}
+
 async function fetchTextoIntegra(url, preResponse = null) {
   const r = preResponse !== null ? preResponse : await fetchCamaraResponse(url);
   if (!r) return null;
@@ -1275,23 +1306,9 @@ async function buscarTextoEmenda(d, prop) {
       }
 
       if (linkAdotado) {
-        console.log('[IA] buscando documento adotado:', linkAdotado);
-        const rAdot = await fetchCamaraResponse(linkAdotado);
-        if (rAdot) {
-          const textoAdot = await fetchTextoIntegra(linkAdotado, rAdot.clone());
-          if (textoAdot) {
-            console.log('[IA] substitutivo adotado: texto extraído,', textoAdot.length, 'chars');
-            return { textoCompleto: textoAdot, tipo: 'substitutivo', numArtigo, referenciaLeg };
-          }
-          // PDF sem texto → envia buffer ao Gemini
-          try {
-            const pdfBuffer = await rAdot.arrayBuffer();
-            if (pdfBuffer.byteLength > 0) {
-              console.log('[IA] buffer adotado:', (pdfBuffer.byteLength / 1024).toFixed(0), 'KB');
-              return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo, referenciaLeg };
-            }
-          } catch (e) { console.warn('[IA] erro buffer adotado:', e); }
-        }
+        console.log('[IA] Caso 0: buscando documento adotado:', linkAdotado);
+        const info = await buscarDocumento(linkAdotado, { tipo: 'substitutivo', numArtigo, referenciaLeg });
+        if (info) return info;
       }
 
       console.warn('[IA] Caso 0 falhou — documento adotado não encontrado.');
@@ -1343,21 +1360,8 @@ async function buscarTextoEmenda(d, prop) {
 
           console.log('[IA] Caso 1a link:', link1a);
           if (link1a) {
-            const r1a = await fetchCamaraResponse(link1a);
-            if (r1a) {
-              const texto1a = await fetchTextoIntegra(link1a, r1a.clone());
-              if (texto1a) {
-                console.log('[IA] Caso 1a: texto extraído,', texto1a.length, 'chars');
-                return { textoCompleto: texto1a, tipo: 'substitutivo', numArtigo, referenciaLeg };
-              }
-              try {
-                const pdfBuffer = await r1a.arrayBuffer();
-                if (pdfBuffer.byteLength > 0) {
-                  console.log('[IA] Caso 1a: buffer', (pdfBuffer.byteLength / 1024).toFixed(0), 'KB');
-                  return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo, referenciaLeg };
-                }
-              } catch (e) { console.warn('[IA] erro buffer Caso 1a:', e); }
-            }
+            const info = await buscarDocumento(link1a, { tipo: 'substitutivo', numArtigo, referenciaLeg });
+            if (info) return info;
           }
         }
         console.warn('[IA] Caso 1a falhou — substitutivo do relator não encontrado.');
@@ -1405,87 +1409,41 @@ async function buscarTextoEmenda(d, prop) {
         }
 
         if (linkSSP) {
-          console.log('[IA] buscando SSP:', linkSSP);
-          const rSSP = await fetchCamaraResponse(linkSSP);
-
-          if (rSSP) {
-            const textoPDF = await fetchTextoIntegra(linkSSP, rSSP.clone());
-
-            if (textoPDF) {
-              console.log('[IA] SSP texto extraído:', textoPDF.length, 'chars. Primeiros 400:', textoPDF.slice(0, 400));
-              return { textoCompleto: textoPDF, tipo: 'substitutivo', numArtigo, referenciaLeg };
-            }
-
-            console.log('[IA] PDF sem texto → preparando buffer para Gemini inline_data');
-            try {
-              const pdfBuffer = await rSSP.arrayBuffer();
-              if (pdfBuffer.byteLength > 0) {
-                console.log('[IA] buffer pronto:', (pdfBuffer.byteLength / 1024).toFixed(0), 'KB');
-                return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo, referenciaLeg };
-              }
-            } catch (e) {
-              console.warn('[IA] erro ao ler buffer SSP:', e);
-            }
-          }
-
-          console.warn('[IA] SSP: fetch falhou completamente.');
+          console.log('[IA] Caso 1b: buscando SSP:', linkSSP);
+          const info = await buscarDocumento(linkSSP, { tipo: 'substitutivo', numArtigo, referenciaLeg });
+          if (info) return info;
+          console.warn('[IA] Caso 1b: SSP fetch falhou.');
         }
       }
     }
 
     // ── CASO 3: DVS/DTQ de dispositivo do PL original ────────────────
-    // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021"
-    // Estratégia: 1º tenta o PDF do próprio destaque (d.urlLink), que contém a
-    // transcrição literal do dispositivo + justificativa. Se falhar, fallback
-    // para o inteiro teor da proposição (urlInteiroTeor).
+    // 1º tenta PDF do próprio destaque (d.urlLink): contém transcrição literal
+    // do dispositivo + justificativa do partido. Fallback: urlInteiroTeor.
     if (isDVSPLOriginal) {
       console.log('[IA] Caso 3: DVS de dispositivo do PL original');
+      const infoBase = { tipo: 'pl_original', numArtigo, numInciso, numPar, referenciaLeg };
 
-      // Tentativa 1: PDF do próprio destaque (mais preciso)
       if (d.urlLink) {
-        console.log('[IA] Caso 3 tent. 1 — PDF do destaque:', d.urlLink);
-        try {
-          const textoCompleto = await fetchTextoIntegra(d.urlLink);
-          console.log('[IA] PDF destaque extraído:',
-            textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
-          if (textoCompleto && textoCompleto.length > 100) {
-            return {
-              textoCompleto,
-              tipo: 'pl_original',
-              numArtigo, numInciso, numPar, referenciaLeg,
-            };
-          }
-        } catch (e) {
-          console.warn('[IA] Caso 3 tent. 1 (PDF destaque) falhou:', e);
-        }
+        const info = await buscarDocumento(d.urlLink, infoBase);
+        if (info) return info;
       }
 
-      // Tentativa 2: inteiro teor da proposição via API
-      console.log('[IA] Caso 3 tent. 2 — urlInteiroTeor via API');
       try {
         const respApi = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}`);
         if (respApi.ok) {
           const json = await respApi.json();
           const urlInteiroTeor = json?.dados?.urlInteiroTeor;
-          console.log('[IA] urlInteiroTeor:', urlInteiroTeor);
           if (urlInteiroTeor) {
-            const textoCompleto = await fetchTextoIntegra(urlInteiroTeor);
-            console.log('[IA] inteiro teor extraído:',
-              textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
-            if (textoCompleto) {
-              return {
-                textoCompleto,
-                tipo: 'pl_original',
-                numArtigo, numInciso, numPar, referenciaLeg,
-              };
-            }
+            const info = await buscarDocumento(urlInteiroTeor, infoBase);
+            if (info) return info;
           }
         }
       } catch (e) {
-        console.warn('[IA] Caso 3 tent. 2 falhou:', e);
+        console.warn('[IA] Caso 3 — fetch da API falhou:', e);
       }
 
-      console.warn('[IA] Caso 3 falhou — texto não encontrado.');
+      console.warn('[IA] Caso 3 falhou — documento não encontrado.');
       return null;
     }
 
@@ -1527,13 +1485,9 @@ async function buscarTextoEmenda(d, prop) {
       }
 
       if (linkAlvo) {
-        console.log('[IA] buscando texto da emenda em:', linkAlvo);
-        const textoCompleto = await fetchTextoIntegra(linkAlvo);
-        console.log('[IA] texto extraído:', textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
-        if (textoCompleto) {
-          console.log('[IA] primeiros 500 chars:', textoCompleto.slice(0, 500));
-          return { textoCompleto, tipo: 'emenda' };
-        }
+        console.log('[IA] Caso 2: buscando emenda em:', linkAlvo);
+        const info = await buscarDocumento(linkAlvo, { tipo: 'emenda' });
+        if (info) return info;
       }
     }
 
@@ -1578,7 +1532,7 @@ async function lerEntradaManual() {
     console.log('[IA][manual] PDF selecionado:', file.name, file.size, 'bytes');
     try {
       const pdfBuffer = await file.arrayBuffer();
-      return { pdfBuffer, tipo: 'substitutivo_pdf', numArtigo: null, referenciaLeg: null };
+      return { pdfBuffer, tipo: 'substitutivo', numArtigo: null, referenciaLeg: null };
     } catch (e) {
       console.warn('[IA][manual] erro ao ler PDF:', e);
     }
@@ -1771,19 +1725,19 @@ function montarPrompt(d, prop, infoEmenda) {
 
   // ── Determina o modo de operação ─────────────────────────────────────
   const temTexto      = !!(infoEmenda?.textoCompleto);
-  const temPDFInline  = infoEmenda?.tipo === 'substitutivo_pdf';   // PDF enviado via inline_data
+  const temPDFInline  = !!(infoEmenda?.pdfBuffer);   // PDF enviado via inline_data
   // Referência legislativa: "Artigo 20", "Capítulo VIII", "Título III", etc.
   const referenciaLeg = infoEmenda?.referenciaLeg || (infoEmenda?.numArtigo ? `Artigo ${infoEmenda.numArtigo}` : null);
 
-  // ── Bloco fonte: incluído apenas quando o texto foi extraído localmente ──
-  const tipoDoc = infoEmenda?.tipo === 'emenda'      ? 'TEXTO INTEGRAL DA EMENDA'
-               : infoEmenda?.tipo === 'substitutivo' ? 'TEXTO DO SUBSTITUTIVO'
-               : infoEmenda?.tipo === 'pl_original'  ? 'TEXTO INTEGRAL DO PROJETO ORIGINAL'
-               : 'TEXTO DO PROJETO';
+  // Nome amigável do tipo de documento (independente de ser PDF ou texto)
+  const tipoDoc = infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
+               : infoEmenda?.tipo === 'substitutivo' ? 'SUBSTITUTIVO'
+               : infoEmenda?.tipo === 'pl_original'  ? 'PROJETO DE LEI ORIGINAL'
+               : 'DOCUMENTO';
 
   const blocoFonte = temTexto ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-DOCUMENTO FONTE — ${tipoDoc}
+DOCUMENTO FONTE — TEXTO DO ${tipoDoc}
 Leia atentamente antes de responder. Sua análise deve ser baseada EXCLUSIVAMENTE neste texto.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ${infoEmenda.textoCompleto}
@@ -1794,56 +1748,59 @@ FIM DO DOCUMENTO FONTE
 
   // ── Instrução de base para a tarefa ──────────────────────────────────
   const instrucaoBase = temPDFInline
-    ? 'com base EXCLUSIVAMENTE no PDF da Subemenda Substitutiva de Plenário (SSP) fornecido nesta mensagem — NÃO use conhecimento prévio, treinamento ou informações externas ao PDF'
+    ? `com base EXCLUSIVAMENTE no PDF do ${tipoDoc} fornecido nesta mensagem — NÃO use conhecimento prévio, treinamento ou informações externas ao PDF`
     : temTexto
       ? 'EXCLUSIVAMENTE no documento fonte acima — NÃO use conhecimento prévio, treinamento ou informações externas ao texto fornecido'
       : 'no seu conhecimento sobre este projeto';
 
   // ── Aviso de PDF inline (aparece antes da tarefa) ────────────────────
   const avisPDF = temPDFInline ? `
-O arquivo PDF anexado a esta mensagem é o texto integral da Subemenda Substitutiva de Plenário (SSP) referenciada no destaque. Leia o PDF integralmente antes de responder.
+O arquivo PDF anexado a esta mensagem é o texto integral do ${tipoDoc} referenciado no destaque. Leia o PDF integralmente antes de responder.
 ` : '';
 
   // ── Regra crítica da explicação ──────────────────────────────────────
-  const fonteRef  = temPDFInline ? 'PDF' : 'documento fonte acima';
+  const fonteRef     = temPDFInline ? 'PDF anexado' : 'documento fonte acima';
+  const temFonte     = temTexto || temPDFInline;
   const isPLOriginal = infoEmenda?.tipo === 'pl_original';
+  const isSubstitutivo = infoEmenda?.tipo === 'substitutivo';
+  const isEmenda     = infoEmenda?.tipo === 'emenda';
   const eSupressivo  = isPLOriginal && /supress|suprim/i.test(d.descricao || '');
-  const regraExplicacao = isPLOriginal && referenciaLeg
+  const regraExplicacao = !temFonte
+    ? `
+REGRA CRÍTICA — SEM DOCUMENTO FONTE:
+→ Nenhum documento foi anexado/extraído para este destaque.
+→ Se a descrição menciona um dispositivo específico (artigo/inciso/§/capítulo) e você NÃO tem certeza absoluta do conteúdo desse dispositivo no projeto original, retorne em "explicacao": "⚠ Texto do dispositivo não disponível. Cole o texto manualmente para análise precisa."
+→ É preferível admitir falta de informação a alucinar dispositivos inexistentes.
+→ NÃO invente conteúdo normativo, números de artigos, incisos ou parágrafos.`
+    : isPLOriginal && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do PL original):
 → Este destaque trata especificamente do ${referenciaLeg.toUpperCase()} do projeto original.
-→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no documento fonte acima.
+→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no ${fonteRef}.
 → Descreva o conteúdo normativo concreto desse dispositivo: o que determina/autoriza/proíbe/regula, quem é afetado, quais condições e exceções existem.
 → Use verbos normativos: "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
-${eSupressivo ? '→ O destaque é SUPRESSIVO: descreva o conteúdo atual do dispositivo, deixando claro que o destaque propõe REMOVÊ-LO do projeto.\n' : ''}→ Se NÃO conseguir localizar o ${referenciaLeg.toUpperCase()} no documento fonte, retorne em "explicacao": "⚠ Dispositivo ${referenciaLeg} não localizado no texto do PL. Cole o texto manualmente para análise precisa."
-→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao documento fonte acima.`
-    : (temTexto || temPDFInline) && (infoEmenda?.tipo === 'substitutivo' || temPDFInline) && referenciaLeg
+${eSupressivo ? '→ O destaque é SUPRESSIVO: descreva o conteúdo atual do dispositivo, deixando claro que o destaque propõe REMOVÊ-LO do projeto.\n' : ''}→ Se NÃO conseguir localizar o ${referenciaLeg.toUpperCase()} no ${fonteRef}, retorne em "explicacao": "⚠ Dispositivo ${referenciaLeg} não localizado no texto do PL. Cole o texto manualmente para análise precisa."
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}.`
+    : isSubstitutivo && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Localize o ${referenciaLeg.toUpperCase()} no ${fonteRef}
 → Descreva EXATAMENTE o que esse trecho diz: quem é afetado, o que é autorizado/proibido/determinado, quais condições e exceções existem
 → Cada frase deve descrever um aspecto concreto do conteúdo normativo desse trecho
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`
-    : temTexto && infoEmenda?.tipo === 'emenda'
-      ? `
+    : isEmenda
+    ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → PRIORIDADE 1 — Se o documento contiver uma seção "JUSTIFICATIVA" (ou "Justificação"): baseie a explicação PRINCIPALMENTE nessa seção, pois ela articula diretamente os objetivos e efeitos práticos da emenda
 → PRIORIDADE 2 — Se não houver seção de justificativa: analise o DISPOSITIVO (corpo normativo) e descreva o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, direitos, obrigações, supressões
 → Mencione artigos/incisos afetados quando relevante e use verbos normativos: "proíbe", "determina", "veda", "amplia", "suprime", "restringe"
-→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao documento fonte acima`
-      : (temTexto || temPDFInline)
-        ? `
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`
+    : `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
-→ Cite APENAS o que está ESCRITO no ${temPDFInline ? 'PDF' : 'documento fonte acima'}
+→ Cite APENAS o que está ESCRITO no ${fonteRef}
 → Para cada alteração, identifique o artigo/inciso e descreva o que o texto PASSOU A DIZER
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
-→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${temPDFInline ? 'PDF' : 'texto fornecido'}`
-        : `
-REGRA CRÍTICA — SEM DOCUMENTO FONTE:
-→ Nenhum documento foi anexado/extraído para este destaque.
-→ Se a descrição menciona um dispositivo específico (artigo/inciso/§/capítulo) e você NÃO tem certeza absoluta do conteúdo desse dispositivo no projeto original, retorne em "explicacao": "⚠ Texto do dispositivo não disponível. Cole o texto manualmente para análise precisa."
-→ É preferível admitir falta de informação a alucinar dispositivos inexistentes.
-→ NÃO invente conteúdo normativo, números de artigos, incisos ou parágrafos.`;
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`;
 
   return `Você é um assessor legislativo da Câmara dos Deputados do Brasil.
 ${blocoFonte}${avisPDF}
