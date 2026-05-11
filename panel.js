@@ -1116,7 +1116,7 @@ async function buscarTextoEmenda(d, prop) {
     const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/, '°') : null;
 
     // Artigo da lei original sendo alterada (primeiro mencionado na descrição)
-    const artMatch  = descricao.match(/art(?:igo)?\s+(\d+\s*[°º]?)/i);
+    const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)/i);
     const numArtigo = artMatch ? parseInt(artMatch[1]) : null;
 
     // Inciso referenciado (romano)
