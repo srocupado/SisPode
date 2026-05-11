@@ -490,6 +490,25 @@
       border-color: rgba(245,158,11,.25);
       background: rgba(245,158,11,.05);
     }
+    .membro-acordo-toggle {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 8px 10px;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,.02);
+      margin-bottom: 12px;
+      user-select: none;
+    }
+    .membro-acordo-toggle:has(input:checked) {
+      border-color: rgba(245,158,11,.4);
+      background: rgba(245,158,11,.06);
+    }
+    .membro-acordo-toggle input { accent-color: #f5a623; }
     .btn-dep-acordo {
       background: none;
       border: 1px solid rgba(245,158,11,.35);
@@ -801,6 +820,10 @@
       </div>
       <div class="modal-body">
         <p id="add-membro-desc" style="font-size:12px;color:var(--text-dim);margin-bottom:12px"></p>
+        <label class="membro-acordo-toggle" id="membro-acordo-label">
+          <input type="checkbox" id="membro-acordo-check">
+          <span>Vaga de acordo <span style="color:#f5a623">(recebida de outro partido)</span></span>
+        </label>
         <div class="membro-select-lista" id="membro-select-lista"></div>
       </div>
     </div>

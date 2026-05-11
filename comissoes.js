@@ -226,7 +226,7 @@ async function removerDeputadoDB(id) {
 }
 
 // Retorna true se o membro foi adicionado, false se bloqueado.
-async function adicionarMembro(sigla, depId, tipo) {
+async function adicionarMembro(sigla, depId, tipo, isAcordo = false) {
   if (!state.membros[sigla]) state.membros[sigla] = { titulares: [], suplentes: [] };
   const c = state.membros[sigla];
   if (!c.titulares) c.titulares = [];
@@ -258,6 +258,13 @@ async function adicionarMembro(sigla, depId, tipo) {
   const lista = tipo === 'titular' ? c.titulares : c.suplentes;
   if (lista.includes(depId)) return false;
   lista.push(depId);
+
+  if (isAcordo) {
+    const acordoKey = tipo === 'titular' ? 'titulares_acordo' : 'suplentes_acordo';
+    if (!c[acordoKey]) c[acordoKey] = {};
+    c[acordoKey][depId] = true;
+  }
+
   await fbPut(`/membros/${sigla}`, c);
   return true;
 }
@@ -267,6 +274,8 @@ async function removerMembro(sigla, depId) {
   if (!c) return;
   c.titulares = (c.titulares || []).filter(id => id !== depId);
   c.suplentes = (c.suplentes || []).filter(id => id !== depId);
+  if (c.titulares_acordo) delete c.titulares_acordo[depId];
+  if (c.suplentes_acordo) delete c.suplentes_acordo[depId];
   await fbPut(`/membros/${sigla}`, c);
 }
 
@@ -497,18 +506,13 @@ function renderPainelComissao(sigla) {
     return `<span class="vagas-counter ${cls}">${ocupadas}/${ef} vagas${nAcordo > 0 ? ` <span class="badge-acordo-mini">${nAcordo} acordo</span>` : ''}</span>`;
   };
 
-  const renderLinha = (depId, tipo, index) => {
+  const renderLinha = (depId, tipo) => {
     const dep = state.deputados[depId];
     if (!dep) return '';
-    const conflito = tipo === 'titular' && verificarConflitosDeputado(depId).includes(sigla);
-    const sub = [dep.partido, dep.uf].filter(Boolean).join(' · ');
-
-    // Deputados além das vagas base (config - cedidas) preenchem vagas recebidas
-    const cfg = state.config[sigla] || { titular: 0, suplente: 0 };
-    const t2  = state.transferencias[sigla] || {};
-    const nCedidas = Object.values(t2.cedidas || {}).filter(x => x.tipo === tipo).length;
-    const vagasBase = Math.max(0, (tipo === 'titular' ? (cfg.titular || 0) : (cfg.suplente || 0)) - nCedidas);
-    const isAcordo  = index >= vagasBase;
+    const conflito  = tipo === 'titular' && verificarConflitosDeputado(depId).includes(sigla);
+    const sub       = [dep.partido, dep.uf].filter(Boolean).join(' · ');
+    const acordoKey = tipo === 'titular' ? 'titulares_acordo' : 'suplentes_acordo';
+    const isAcordo  = !!(state.membros[sigla]?.[acordoKey]?.[depId]);
 
     return `
       <div class="com-membro-row${isAcordo ? ' com-membro-acordo' : ''}">
@@ -652,7 +656,7 @@ function renderPainelComissao(sigla) {
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="receber">↙ Receber vaga</button>
       </div>
-      ${titulares.map((id, i) => renderLinha(id, 'titular', i)).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum titular.</p>'}
+      ${titulares.map(id => renderLinha(id, 'titular')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum titular.</p>'}
       ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
           .filter(([, e]) => e.tipo === 'titular' && e.depNome)
           .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
@@ -674,7 +678,7 @@ function renderPainelComissao(sigla) {
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="receber">↙ Receber vaga</button>
       </div>
-      ${suplentes.map((id, i) => renderLinha(id, 'suplente', i)).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum suplente.</p>'}
+      ${suplentes.map(id => renderLinha(id, 'suplente')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum suplente.</p>'}
       ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
           .filter(([, e]) => e.tipo === 'suplente' && e.depNome)
           .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
@@ -981,9 +985,12 @@ function abrirModalAddMembro(sigla, tipo) {
       }).join('')
     : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">Nenhum deputado cadastrado.</p>`;
 
+  document.getElementById('membro-acordo-check').checked = false;
+
   lista.querySelectorAll('.membro-select-item:not(.ja-membro)').forEach(el => {
     el.addEventListener('click', async () => {
-      const ok = await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo);
+      const isAcordo = document.getElementById('membro-acordo-check').checked;
+      const ok = await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo, isAcordo);
       if (ok) {
         fecharModal('modal-add-membro');
         renderPainelComissao(el.dataset.sigla);
