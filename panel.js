@@ -1147,8 +1147,16 @@ async function buscarTextoEmenda(d, prop) {
     // Emenda específica numerada
     const isEmendaEspecifica = /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado;
 
+    // DVS/DTQ de dispositivo do PL original (não classificado nos casos acima)
+    // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021, com fins de supressão"
+    const isDVSPLOriginal = !!referenciaLeg
+      && !isSubstColegiado
+      && !isDVSSubstitutivo
+      && !isEmendaEspecifica
+      && /destaque|dvs|dtq|separado|supress|suprim/i.test(descricao);
+
     console.log('[IA] tipo: colegiado=', isSubstColegiado, '| SSP=', isDVSSubstitutivo,
-                '| emenda=', isEmendaEspecifica, '| ref=', referenciaLeg);
+                '| emenda=', isEmendaEspecifica, '| pl_orig=', isDVSPLOriginal, '| ref=', referenciaLeg);
 
     // ── CASO 0: Substitutivo/Emenda adotado por comissão ─────────────
     // Fluxo: prop_pareceres_substitutivos_votos → fichadetramitacao (adotado) → prop_mostrarintegra
@@ -1402,6 +1410,38 @@ async function buscarTextoEmenda(d, prop) {
           console.warn('[IA] SSP: fetch falhou completamente.');
         }
       }
+    }
+
+    // ── CASO 3: DVS/DTQ de dispositivo do PL original ────────────────
+    // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021"
+    // Busca o inteiro teor do projeto original via API da Câmara (urlInteiroTeor).
+    if (isDVSPLOriginal) {
+      console.log('[IA] Caso 3: DVS de dispositivo do PL original — buscando inteiro teor');
+      try {
+        const respApi = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}`);
+        if (respApi.ok) {
+          const json = await respApi.json();
+          const urlInteiroTeor = json?.dados?.urlInteiroTeor;
+          console.log('[IA] urlInteiroTeor:', urlInteiroTeor);
+          if (urlInteiroTeor) {
+            const textoCompleto = await fetchTextoIntegra(urlInteiroTeor);
+            console.log('[IA] PL original texto extraído:',
+              textoCompleto ? `${textoCompleto.length} chars` : 'falhou');
+            if (textoCompleto) {
+              return {
+                textoCompleto,
+                tipo: 'pl_original',
+                numArtigo, numInciso, numPar, referenciaLeg,
+              };
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[IA] Caso 3 falhou:', e);
+      }
+      // Não cai em casos de emenda — seria documento errado
+      console.warn('[IA] Caso 3 falhou — texto do PL original não encontrado.');
+      return null;
     }
 
     // ── CASO 2: Destaque de emenda específica → busca na página de emendas ──
@@ -1691,8 +1731,9 @@ function montarPrompt(d, prop, infoEmenda) {
   const referenciaLeg = infoEmenda?.referenciaLeg || (infoEmenda?.numArtigo ? `Artigo ${infoEmenda.numArtigo}` : null);
 
   // ── Bloco fonte: incluído apenas quando o texto foi extraído localmente ──
-  const tipoDoc = infoEmenda?.tipo === 'emenda'     ? 'TEXTO INTEGRAL DA EMENDA'
+  const tipoDoc = infoEmenda?.tipo === 'emenda'      ? 'TEXTO INTEGRAL DA EMENDA'
                : infoEmenda?.tipo === 'substitutivo' ? 'TEXTO DO SUBSTITUTIVO'
+               : infoEmenda?.tipo === 'pl_original'  ? 'TEXTO INTEGRAL DO PROJETO ORIGINAL'
                : 'TEXTO DO PROJETO';
 
   const blocoFonte = temTexto ? `
@@ -1720,7 +1761,18 @@ O arquivo PDF anexado a esta mensagem é o texto integral da Subemenda Substitut
 
   // ── Regra crítica da explicação ──────────────────────────────────────
   const fonteRef  = temPDFInline ? 'PDF' : 'documento fonte acima';
-  const regraExplicacao = (temTexto || temPDFInline) && (infoEmenda?.tipo === 'substitutivo' || temPDFInline) && referenciaLeg
+  const isPLOriginal = infoEmenda?.tipo === 'pl_original';
+  const eSupressivo  = isPLOriginal && /supress|suprim/i.test(d.descricao || '');
+  const regraExplicacao = isPLOriginal && referenciaLeg
+    ? `
+REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do PL original):
+→ Este destaque trata especificamente do ${referenciaLeg.toUpperCase()} do projeto original.
+→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no documento fonte acima.
+→ Descreva o conteúdo normativo concreto desse dispositivo: o que determina/autoriza/proíbe/regula, quem é afetado, quais condições e exceções existem.
+→ Use verbos normativos: "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
+${eSupressivo ? '→ O destaque é SUPRESSIVO: descreva o conteúdo atual do dispositivo, deixando claro que o destaque propõe REMOVÊ-LO do projeto.\n' : ''}→ Se NÃO conseguir localizar o ${referenciaLeg.toUpperCase()} no documento fonte, retorne em "explicacao": "⚠ Dispositivo ${referenciaLeg} não localizado no texto do PL. Cole o texto manualmente para análise precisa."
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao documento fonte acima.`
+    : (temTexto || temPDFInline) && (infoEmenda?.tipo === 'substitutivo' || temPDFInline) && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Localize o ${referenciaLeg.toUpperCase()} no ${fonteRef}
@@ -1741,7 +1793,12 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Para cada alteração, identifique o artigo/inciso e descreva o que o texto PASSOU A DIZER
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${temPDFInline ? 'PDF' : 'texto fornecido'}`
-        : '';
+        : `
+REGRA CRÍTICA — SEM DOCUMENTO FONTE:
+→ Nenhum documento foi anexado/extraído para este destaque.
+→ Se a descrição menciona um dispositivo específico (artigo/inciso/§/capítulo) e você NÃO tem certeza absoluta do conteúdo desse dispositivo no projeto original, retorne em "explicacao": "⚠ Texto do dispositivo não disponível. Cole o texto manualmente para análise precisa."
+→ É preferível admitir falta de informação a alucinar dispositivos inexistentes.
+→ NÃO invente conteúdo normativo, números de artigos, incisos ou parágrafos.`;
 
   return `Você é um assessor legislativo da Câmara dos Deputados do Brasil.
 ${blocoFonte}${avisPDF}
