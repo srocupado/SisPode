@@ -100,6 +100,8 @@ const state = {
 
 // Contexto do modal de transferência em andamento
 let _transfCtx = null; // { sigla, tipo, direcao }
+// Contexto do modal de deputado de acordo
+let _depAcordoCtx = null; // { sigla, transfId }
 
 // ---------- INICIALIZAÇÃO ----------
 
@@ -165,6 +167,10 @@ function registrarEventos() {
   // Importar bancada da API da Câmara
   document.getElementById('btn-importar-camara')
     .addEventListener('click', importarDeputadosDaCamara);
+
+  // Salvar deputado de acordo em vaga cedida
+  document.getElementById('btn-salvar-dep-acordo')
+    .addEventListener('click', salvarDepAcordo);
 }
 
 // ---------- FIREBASE: CRUD ----------
@@ -424,9 +430,10 @@ function renderSidebarDeputados() {
 
   lista.innerHTML = deps.map(([id, d]) => {
     const conflitos = verificarConflitosDeputado(id);
+    const sub = [d.partido, d.uf].filter(Boolean).join(' · ');
     return `
       <div class="com-item${state.comissaoSel === id ? ' ativo' : ''}" data-sigla="${id}">
-        <span class="com-item-nome">${d.nome}<br><small style="color:var(--text-dim)">${d.uf}</small></span>
+        <span class="com-item-nome">${d.nome}<br><small style="color:var(--text-dim)">${sub}</small></span>
         ${conflitos.length ? '<span class="com-item-badge" style="color:#f0c040">⚠</span>' : ''}
       </div>`;
   }).join('');
@@ -481,25 +488,36 @@ function renderPainelComissao(sigla) {
   const dispT = vagasDisponiveis(sigla, 'titular');
   const dispS = vagasDisponiveis(sigla, 'suplente');
 
-  const vagasBadge = (ef, disp) => {
+  const vagasBadge = (siglaC, tipoC, ef, disp) => {
     if (ef <= 0) return `<span class="vagas-counter vagas-zero">sem vagas</span>`;
-    const cls     = disp <= 0 ? 'vagas-cheias' : 'vagas-ok';
+    const t2 = state.transferencias[siglaC] || {};
+    const nAcordo = Object.values(t2.recebidas || {}).filter(x => x.tipo === tipoC).length;
+    const cls = disp <= 0 ? 'vagas-cheias' : 'vagas-ok';
     const ocupadas = ef - disp;
-    return `<span class="vagas-counter ${cls}">${ocupadas}/${ef} vagas</span>`;
+    return `<span class="vagas-counter ${cls}">${ocupadas}/${ef} vagas${nAcordo > 0 ? ` <span class="badge-acordo-mini">${nAcordo} acordo</span>` : ''}</span>`;
   };
 
   const renderLinha = (depId, tipo) => {
     const dep = state.deputados[depId];
     if (!dep) return '';
     const conflito = tipo === 'titular' && verificarConflitosDeputado(depId).includes(sigla);
+    const sub = [dep.partido, dep.uf].filter(Boolean).join(' · ');
     return `
       <div class="com-membro-row">
         <span class="com-membro-nome">${dep.nome}</span>
-        <span class="com-membro-uf">${dep.uf}</span>
+        <span class="com-membro-uf">${sub}</span>
         ${conflito ? '<span class="com-membro-alerta">⚠ Acúmulo</span>' : ''}
         <button class="btn-remover-membro" data-dep="${depId}" data-tipo="${tipo}" data-sigla="${sigla}">Remover</button>
       </div>`;
   };
+
+  const renderLinhaAcordo = (transfId, e) => `
+    <div class="com-membro-row com-membro-acordo">
+      <span class="com-membro-nome">${e.depNome}</span>
+      <span class="com-membro-uf">${[e.depPartido || e.partido, e.depUf].filter(Boolean).join(' · ')}</span>
+      <span class="badge-acordo">Vaga de Acordo</span>
+      <button class="btn-dep-acordo" data-sigla="${sigla}" data-id="${transfId}" title="Editar deputado">✎</button>
+    </div>`;
 
   const renderSecaoPedidos = () => {
     const p        = state.pedidos[sigla] || {};
@@ -573,12 +591,19 @@ function renderPainelComissao(sigla) {
       ...cedidas.map(([id, e]) => `
         <div class="transf-item">
           <span class="transf-icone">↗</span>
-          <span class="transf-texto">
-            Cedida <strong>${e.tipo}</strong> → ${e.partido}
-            ${e.obs ? `· <em>${e.obs}</em>` : ''}
-          </span>
+          <div class="transf-texto">
+            <div>Cedida <strong>${e.tipo}</strong> → ${e.partido}${e.obs ? ` · <em>${e.obs}</em>` : ''}
+              <span class="badge-acordo" style="margin-left:6px">Vaga de Acordo</span>
+            </div>
+            ${e.depNome ? `<div style="margin-top:4px;font-size:11px;color:var(--text-dim)">
+              Ocupante: <strong style="color:var(--text)">${e.depNome}</strong>${e.depPartido ? ` · ${e.depPartido}` : ''}${e.depUf ? ` · ${e.depUf}` : ''}
+            </div>` : ''}
+          </div>
           <span class="transf-data">${fmt(e.data)}</span>
-          <button class="btn-desfazer" data-sigla="${sigla}" data-direcao="cedidas" data-id="${id}">✕ Desfazer</button>
+          <div class="transf-acoes">
+            <button class="btn-dep-acordo" data-sigla="${sigla}" data-id="${id}">${e.depNome ? '✎ Dep.' : '+ Dep.'}</button>
+            <button class="btn-desfazer" data-sigla="${sigla}" data-direcao="cedidas" data-id="${id}">✕</button>
+          </div>
         </div>`),
       ...recebidas.map(([id, e]) => `
         <div class="transf-item">
@@ -586,9 +611,12 @@ function renderPainelComissao(sigla) {
           <span class="transf-texto">
             Recebida <strong>${e.tipo}</strong> ← ${e.partido}
             ${e.obs ? `· <em>${e.obs}</em>` : ''}
+            <span class="badge-acordo" style="margin-left:6px">Vaga de Acordo</span>
           </span>
           <span class="transf-data">${fmt(e.data)}</span>
-          <button class="btn-desfazer" data-sigla="${sigla}" data-direcao="recebidas" data-id="${id}">✕ Desfazer</button>
+          <div class="transf-acoes">
+            <button class="btn-desfazer" data-sigla="${sigla}" data-direcao="recebidas" data-id="${id}">✕ Desfazer</button>
+          </div>
         </div>`),
     ];
 
@@ -610,12 +638,15 @@ function renderPainelComissao(sigla) {
         <div class="com-grupo-titulo" style="margin-bottom:0">
           Titulares
           <span class="badge-count">${titulares.length}</span>
-          ${vagasBadge(efT, dispT)}
+          ${vagasBadge(sigla, 'titular', efT, dispT)}
         </div>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="receber">↙ Receber vaga</button>
       </div>
       ${titulares.map(id => renderLinha(id, 'titular')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum titular.</p>'}
+      ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
+          .filter(([, e]) => e.tipo === 'titular' && e.depNome)
+          .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
       <button class="btn-adicionar-membro${efT <= 0 ? ' btn-add-bloqueado' : ''}"
               data-tipo="titular" data-sigla="${sigla}" style="margin-top:8px"
               ${efT <= 0 ? 'disabled title="Configure as vagas de titular para esta comissão"' : ''}>
@@ -629,12 +660,15 @@ function renderPainelComissao(sigla) {
         <div class="com-grupo-titulo" style="margin-bottom:0">
           Suplentes
           <span class="badge-count">${suplentes.length}</span>
-          ${vagasBadge(efS, dispS)}
+          ${vagasBadge(sigla, 'suplente', efS, dispS)}
         </div>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="receber">↙ Receber vaga</button>
       </div>
       ${suplentes.map(id => renderLinha(id, 'suplente')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum suplente.</p>'}
+      ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
+          .filter(([, e]) => e.tipo === 'suplente' && e.depNome)
+          .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
       <button class="btn-adicionar-membro${efS <= 0 ? ' btn-add-bloqueado' : ''}"
               data-tipo="suplente" data-sigla="${sigla}" style="margin-top:8px"
               ${efS <= 0 ? 'disabled title="Configure as vagas de suplente para esta comissão"' : ''}>
@@ -673,6 +707,10 @@ function renderPainelComissao(sigla) {
       renderSidebarComissoes();
       mostrarToast('Transferência desfeita.');
     });
+  });
+  painel.querySelectorAll('.btn-dep-acordo').forEach(btn => {
+    btn.addEventListener('click', () =>
+      abrirModalDepAcordo(btn.dataset.sigla, btn.dataset.id));
   });
   painel.querySelectorAll('.btn-nomear:not([disabled])').forEach(btn => {
     btn.addEventListener('click', () =>
@@ -800,6 +838,7 @@ function renderModalDeputadoLista() {
     ? deps.map(([id, d]) => `
         <div class="dep-modal-item">
           <span class="dep-modal-nome">${d.nome}${d.idCamara ? '<span class="badge-api" title="Importado da API da Câmara">API</span>' : ''}</span>
+          ${d.partido ? `<span class="dep-modal-uf">${d.partido}</span>` : ''}
           <span class="dep-modal-uf">${d.uf}</span>
           <button class="btn-remover-membro btn-rem-dep" data-id="${id}">Remover</button>
         </div>`).join('')
@@ -817,17 +856,19 @@ function renderModalDeputadoLista() {
 }
 
 async function adicionarDeputado() {
-  const nome = document.getElementById('dep-nome-input').value.trim();
-  const uf   = document.getElementById('dep-uf-input').value;
+  const nome    = document.getElementById('dep-nome-input').value.trim();
+  const partido = document.getElementById('dep-partido-input').value.trim().toUpperCase();
+  const uf      = document.getElementById('dep-uf-input').value;
   if (!nome) { mostrarToast('Informe o nome do deputado.', 'erro'); return; }
   if (!uf)   { mostrarToast('Selecione a UF.', 'erro'); return; }
 
   const id  = `dep_${Date.now()}`;
-  const dep = { nome, uf };
+  const dep = { nome, uf, ...(partido && { partido }) };
   await salvarDeputado(id, dep);
 
-  document.getElementById('dep-nome-input').value = '';
-  document.getElementById('dep-uf-input').value   = '';
+  document.getElementById('dep-nome-input').value    = '';
+  document.getElementById('dep-partido-input').value = '';
+  document.getElementById('dep-uf-input').value      = '';
   document.getElementById('dep-nome-input').focus();
   renderModalDeputadoLista();
   renderSidebar();
@@ -853,7 +894,7 @@ async function importarDeputadosDaCamara() {
 
       for (const d of data.dados || []) {
         const id  = `cam_${d.id}`;
-        const dep = { nome: d.nome, uf: d.siglaUf, idCamara: d.id };
+        const dep = { nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id };
         const exist = state.deputados[id];
 
         if (!exist) {
@@ -1097,6 +1138,46 @@ async function removerTransferencia(sigla, direcao, id) {
     delete state.transferencias[sigla][direcao][id];
   }
   await fbDelete(`/transferencias/${sigla}/${direcao}/${id}`);
+}
+
+// ---------- MODAL: DEPUTADO DE ACORDO ----------
+
+function abrirModalDepAcordo(sigla, transfId) {
+  const e = state.transferencias[sigla]?.cedidas?.[transfId];
+  _depAcordoCtx = { sigla, transfId };
+
+  const com = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  document.getElementById('dep-acordo-titulo').textContent =
+    `Deputado na Vaga Cedida — ${sigla}`;
+  document.getElementById('dep-acordo-desc').textContent =
+    `Vaga de ${e?.tipo || ''} cedida ao ${e?.partido || ''}${com ? ` · ${com.nome}` : ''}`;
+  document.getElementById('dep-acordo-nome').value    = e?.depNome    || '';
+  document.getElementById('dep-acordo-partido').value = e?.depPartido || '';
+  document.getElementById('dep-acordo-uf').value      = e?.depUf      || '';
+  document.getElementById('modal-dep-acordo').style.display = 'flex';
+  document.getElementById('dep-acordo-nome').focus();
+}
+
+async function salvarDepAcordo() {
+  if (!_depAcordoCtx) return;
+  const { sigla, transfId } = _depAcordoCtx;
+  const nome    = document.getElementById('dep-acordo-nome').value.trim();
+  const partido = document.getElementById('dep-acordo-partido').value.trim().toUpperCase();
+  const uf      = document.getElementById('dep-acordo-uf').value;
+
+  if (!nome) { mostrarToast('Informe o nome do deputado.', 'erro'); return; }
+
+  const entry   = state.transferencias[sigla]?.cedidas?.[transfId];
+  if (!entry) return;
+
+  const updated = { ...entry, depNome: nome, depPartido: partido, depUf: uf };
+  state.transferencias[sigla].cedidas[transfId] = updated;
+  await fbPut(`/transferencias/${sigla}/cedidas/${transfId}`, updated);
+
+  _depAcordoCtx = null;
+  fecharModal('modal-dep-acordo');
+  renderPainelComissao(sigla);
+  mostrarToast('Deputado de acordo registrado.');
 }
 
 // ---------- EXPORTAR EXCEL ----------
