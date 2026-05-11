@@ -327,14 +327,10 @@ async function buscarPareceresComissoes(idCamara) {
 
 function _parsearPaginaPareceres(html) {
   const doc  = new DOMParser().parseFromString(html, 'text/html');
-  const mapa = {};
 
-  // Passo 1: constrói mapa sigla→nome completo a partir de cabeçalhos e células
-  // A página da Câmara usa padrões como "COMISSÃO DE AGRICULTURA... (CAPADR)" ou
-  // "CAPADR - Comissão de Agricultura..."
+  // ---------- Passo 1: mapa sigla → nome completo ----------
   const nomeCompleto = {};
   const textoTotal = doc.body?.textContent || '';
-  // Padrão: texto maiúsculo seguido de (SIGLA) — ex: "... RURAL (CAPADR)"
   const rNome = /([A-ZÀÁÂÃÉÊÍÓÔÕÚ][A-ZÀÁÂÃÉÊÍÓÔÕÚ,\s]+?)\s*[\(—–-]\s*([A-Z]{3,8})\s*\)?/g;
   let mm;
   while ((mm = rNome.exec(textoTotal)) !== null) {
@@ -342,32 +338,70 @@ function _parsearPaginaPareceres(html) {
     if (!_siglaIgnorada(sigla)) nomeCompleto[sigla] = mm[1].trim();
   }
 
-  // Passo 2: coleta todos os links de documentos (amplo para cobrir variações)
+  // ---------- Passo 2: detecta a seção de cada parecer ----------
+  // A página da Câmara separa pareceres em seções como:
+  //   "Pareceres Aprovados ou Pendentes de Aprovação"  → vigentes (preferidos)
+  //   "Pareceres Substituídos / Não Aprovados / Anteriores" → obsoletos
+  // Usamos a posição de cada link no documento (compareDocumentPosition)
+  // para descobrir sob qual cabeçalho ele se encontra.
+  const todosNos = Array.from(doc.querySelectorAll('h1, h2, h3, h4, h5, h6, legend, caption, strong, b'));
+  const secoes = todosNos
+    .map(el => ({ el, texto: (el.textContent || '').trim() }))
+    .filter(s => s.texto.length > 4 && /parecer/i.test(s.texto))
+    .map(s => ({
+      el:     s.el,
+      texto:  s.texto,
+      ativa:  /aprovad|pendente/i.test(s.texto) && !/substitu|não aprovad|nao aprovad|rejeitad|anterior/i.test(s.texto),
+      obsoleta: /substitu|não aprovad|nao aprovad|rejeitad|anterior/i.test(s.texto),
+    }));
+
+  function classificarSecao(link) {
+    // Encontra a última seção que precede o link no DOM
+    let ultima = null;
+    for (const s of secoes) {
+      const pos = s.el.compareDocumentPosition(link);
+      // Node.DOCUMENT_POSITION_FOLLOWING = 4 → s.el vem antes de link
+      if (pos & 4) ultima = s;
+      else break; // secoes está em ordem de documento
+    }
+    if (!ultima)            return { score: 50, secao: '(sem cabeçalho)' };
+    if (ultima.ativa)       return { score: 100, secao: ultima.texto };
+    if (ultima.obsoleta)    return { score: 0,   secao: ultima.texto };
+    return                         { score: 50,  secao: ultima.texto };
+  }
+
+  // ---------- Passo 3: coleta todos os links candidatos ----------
   const links = Array.from(doc.querySelectorAll(
     'a[href*="prop_mostrarintegra"], a[href*="prop_GetPublicacoes"], ' +
     'a[href*="codteor"], a[href*="fileserv"], a[href*=".pdf"], a[href*=".doc"]'
   )).filter(a => {
     const h = a.getAttribute('href') || '';
-    // Exclui links de navegação / externos sem relação com documentos
     return h && !h.startsWith('#') && !h.includes('javascript:');
   });
 
-  for (const link of links) {
-    const rawHref = link.getAttribute('href') || '';
+  // candidatos[sigla] = [ { score, ordem, url, nome, secao, fonte }, ... ]
+  const candidatos = {};
+  function registrar(sigla, dadosBase, link, ordem) {
+    if (!sigla || _siglaIgnorada(sigla)) return;
+    const cls = classificarSecao(link);
+    if (!candidatos[sigla]) candidatos[sigla] = [];
+    candidatos[sigla].push({ ...dadosBase, score: cls.score, secao: cls.secao, ordem });
+  }
 
+  links.forEach((link, ordem) => {
+    const rawHref = link.getAttribute('href') || '';
     const docUrl = rawHref.startsWith('http')
       ? rawHref
       : `https://www.camara.leg.br${rawHref.startsWith('/') ? rawHref : '/proposicoesWeb/' + rawHref}`;
 
-    // Estratégia 1: sigla no parâmetro filename da URL (mais confiável)
-    //   ex: ?codteor=XXXXX&filename=Parecer-CAPADR-PL+1737%2F2023.docx
+    // Estratégia 1: sigla no parâmetro filename da URL
     const filenameMatch = rawHref.match(/[?&]filename=([^&]+)/i);
     if (filenameMatch) {
       const filename = decodeURIComponent(filenameMatch[1].replace(/\+/g, ' '));
       const sigla = _extrairSiglaDeTexto(filename);
-      if (sigla && !mapa[sigla]) {
-        mapa[sigla] = { nome: nomeCompleto[sigla] || sigla, url: docUrl };
-        continue;
+      if (sigla) {
+        registrar(sigla, { url: docUrl, nome: nomeCompleto[sigla] || sigla, fonte: 'filename' }, link, ordem);
+        return;
       }
     }
 
@@ -375,39 +409,41 @@ function _parsearPaginaPareceres(html) {
     const textoLink = (link.textContent || '').trim();
     if (textoLink.length > 2) {
       const sigla = _extrairSiglaDeTexto(textoLink);
-      if (sigla && !mapa[sigla]) {
-        mapa[sigla] = { nome: nomeCompleto[sigla] || textoLink.slice(0, 100), url: docUrl };
-        continue;
+      if (sigla) {
+        registrar(sigla, { url: docUrl, nome: nomeCompleto[sigla] || textoLink.slice(0, 100), fonte: 'textoLink' }, link, ordem);
+        return;
       }
     }
 
-    // Estratégia 3: sigla no contexto DOM próximo ao link (até 8 níveis)
+    // Estratégia 3: contexto DOM próximo
     let ancestor = link.parentElement;
     for (let d = 0; d < 8 && ancestor; d++) {
       const textoLocal = Array.from(ancestor.childNodes)
         .filter(n => n.nodeType === 3 || /^(TD|TH|H[1-6]|STRONG|B|SPAN|CAPTION|LABEL)$/i.test(n.nodeName))
         .map(n => n.textContent || '')
         .join(' ');
-
       const sigla = _extrairSiglaDeTexto(textoLocal);
-      if (sigla && !mapa[sigla]) {
-        mapa[sigla] = { nome: nomeCompleto[sigla] || textoLocal.trim().slice(0, 100), url: docUrl };
-        break;
+      if (sigla) {
+        registrar(sigla, { url: docUrl, nome: nomeCompleto[sigla] || textoLocal.trim().slice(0, 100), fonte: 'contextoDOM' }, link, ordem);
+        return;
       }
       ancestor = ancestor.parentElement;
     }
+  });
+
+  // ---------- Passo 4: escolhe o melhor candidato por sigla ----------
+  // Prioridade: maior score (Aprovado/Pendente > sem seção > Obsoleto).
+  // Empate: maior ordem (último no DOM → mais recente).
+  const mapa = {};
+  for (const [sigla, cands] of Object.entries(candidatos)) {
+    cands.sort((a, b) => (b.score - a.score) || (b.ordem - a.ordem));
+    const escolhido = cands[0];
+    mapa[sigla] = { nome: escolhido.nome, url: escolhido.url };
   }
 
-  // Passo 3: se ainda não encontramos comissões mas temos nomes, tenta associar
-  // qualquer link de documento ao nome de comissão mais próximo na página
+  // ---------- Passo 5: fallback se nenhum candidato foi achado ----------
   if (Object.keys(mapa).length === 0 && Object.keys(nomeCompleto).length > 0) {
-    const todoLinks = Array.from(doc.querySelectorAll('a[href]'))
-      .filter(a => {
-        const h = a.getAttribute('href') || '';
-        return h && !h.startsWith('#') && !h.includes('javascript:');
-      });
     for (const [sigla, nome] of Object.entries(nomeCompleto)) {
-      // Busca link próximo a qualquer menção da sigla
       const els = Array.from(doc.querySelectorAll('*')).filter(el =>
         el.children.length === 0 && (el.textContent || '').includes(sigla)
       );
@@ -430,7 +466,8 @@ function _parsearPaginaPareceres(html) {
     }
   }
 
-  console.debug('[CCJC] pareceresMap:', mapa);
+  console.debug('[CCJC] pareceresMap (com seleção por seção):', mapa);
+  console.debug('[CCJC] candidatos detalhados:', candidatos);
   return mapa;
 }
 
