@@ -336,6 +336,27 @@
       padding: 2px 8px;
       border-radius: 6px;
     }
+    .badge-api {
+      display: inline-block;
+      font-size: 9px;
+      font-weight: 700;
+      letter-spacing: .5px;
+      padding: 1px 6px;
+      border-radius: 4px;
+      background: rgba(102, 187, 106, .18);
+      color: #7bc77f;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .dep-modal-acoes {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 14px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .dep-modal-acoes .btn { flex: 1; }
+    .dep-modal-acoes .btn[disabled] { opacity: .55; cursor: not-allowed; }
 
     /* ===== MODAL ADICIONAR MEMBRO ===== */
     .membro-select-lista {
@@ -696,8 +717,18 @@
         <button class="modal-close" data-fecha="modal-deputados">✕</button>
       </div>
       <div class="modal-body">
+        <div class="dep-modal-acoes">
+          <button id="btn-importar-camara" class="btn btn-primary btn-sm" title="Buscar a bancada Podemos via API dados abertos da Câmara">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align:-2px;margin-right:4px">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Importar da Câmara
+          </button>
+        </div>
         <div class="form-group" style="display:flex;gap:8px;margin-bottom:14px">
-          <input type="text" id="dep-nome-input" class="form-input" placeholder="Nome do deputado" style="flex:1">
+          <input type="text" id="dep-nome-input" class="form-input" placeholder="Adicionar manualmente" style="flex:1">
           <select id="dep-uf-input" class="form-input" style="width:80px">
             <option value="">UF</option>
             <option>AC</option><option>AL</option><option>AM</option><option>AP</option>
@@ -708,7 +739,7 @@
             <option>RO</option><option>RR</option><option>RS</option><option>SC</option>
             <option>SE</option><option>SP</option><option>TO</option>
           </select>
-          <button id="btn-add-deputado" class="btn btn-primary btn-sm">Adicionar</button>
+          <button id="btn-add-deputado" class="btn btn-ghost btn-sm">Adicionar</button>
         </div>
         <div class="dep-modal-lista" id="dep-modal-lista"></div>
       </div>
