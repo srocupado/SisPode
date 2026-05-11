@@ -736,7 +736,27 @@ function renderizarCardCompleto(d, prop) {
       }
     </div>
 
-    ${app.config.geminiKey ? `
+    ${app.config.geminiKey ? (
+      ehDestaquePreferencia(d) ? `
+    <div id="ia-manual-area" class="ia-manual-area ia-manual-preferencia">
+      <p class="ia-manual-hint">
+        <strong>Destaque de Preferência detectado.</strong> Anexe os 2 PDFs abaixo para comparação:
+      </p>
+      <div class="ia-manual-inputs">
+        <label class="ia-manual-label">
+          <span>📄 PDF que recebe preferência no destaque:</span>
+          <input type="file" id="ia-manual-pdf-pref" accept=".pdf" class="ia-manual-file">
+        </label>
+        <label class="ia-manual-label" style="margin-top:8px">
+          <span>📄 PDF a ser comparado com o do destaque:</span>
+          <input type="file" id="ia-manual-pdf-comp" accept=".pdf" class="ia-manual-file">
+        </label>
+        <button id="btn-limpar-manual" class="btn-link-discreto" style="margin-top:4px;font-size:11px">
+          🗑 Limpar entrada manual
+        </button>
+      </div>
+    </div>
+    ` : `
     <div class="ia-manual-toggle">
       <button id="btn-toggle-manual" class="btn-link-discreto">
         ✏️ Inserir texto ou PDF manualmente
@@ -763,7 +783,7 @@ function renderizarCardCompleto(d, prop) {
         </button>
       </div>
     </div>
-    ` : ''}
+    `) : ''}
 
 
     <div class="votos-grid">
@@ -1122,6 +1142,14 @@ function resolverUrlCamara(href) {
   return 'https://www.camara.leg.br/proposicoesWeb/' + href;
 }
 
+// Identifica Destaque de Preferência (comparação entre 2 textos do mesmo art.).
+// Esse caso depende de upload manual de 2 PDFs (não há busca automática confiável).
+function ehDestaquePreferencia(d) {
+  if (!d) return false;
+  const txt = `${d.descricao || ''} ${d.tipo || ''} ${d.tituloLink || ''}`;
+  return /destaque\s+de\s+prefer[êe]ncia/i.test(txt);
+}
+
 async function buscarTextoEmenda(d, prop) {
   if (!prop.idCamara) return null;
   try {
@@ -1430,114 +1458,14 @@ async function buscarTextoEmenda(d, prop) {
       }
     }
 
-    // ── CASO 4: Destaque de Preferência (Senado vs Câmara) ───────────
-    // Prefere art. da "redação final aprovada pelo Senado Federal" sobre o
-    // art. correspondente no substitutivo do relator (de plenário) na Câmara.
-    // Envia 2 PDFs ao Gemini: texto do Senado + substitutivo da Câmara.
+    // ── CASO 4: Destaque de Preferência ─────────────────────────────
+    // Exige upload manual de 2 PDFs (o texto que recebe preferência + o texto
+    // a ser comparado). A busca automática é frágil pois os documentos podem
+    // estar em locais variados (tramitações, pareceres com nomes diferentes).
+    // Retorna sinal específico para que gerarExplicacaoIA mostre toast claro.
     if (isDestaquePreferencia) {
-      console.log('[IA] Caso 4: Destaque de Preferência (Senado vs Câmara)');
-
-      // (a) PDF do Senado: buscado nas tramitações pelo andamento
-      // "Recebido o Ofício ... do Senado Federal"
-      let pdfSenadoBuffer = null;
-      try {
-        const respTram = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}/tramitacoes?itens=200`);
-        if (respTram.ok) {
-          const jsonTram = await respTram.json();
-          const tramitacoes = jsonTram?.dados || [];
-          console.log('[IA] Caso 4: tramitações recebidas:', tramitacoes.length);
-
-          // Procura andamento que recebe ofício do Senado, do mais recente ao mais antigo
-          const candidatos = tramitacoes
-            .filter(t => {
-              const txt = `${t.despacho || ''} ${t.descricaoTramitacao || ''} ${t.descricaoSituacao || ''}`;
-              return /recebid[ao]\s+(?:o\s+)?of[íi]cio/i.test(txt) && /senado\s+federal/i.test(txt);
-            })
-            .sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || ''));
-
-          console.log('[IA] Caso 4: andamentos com ofício do Senado:', candidatos.length);
-
-          for (const t of candidatos) {
-            // A API pode trazer link em `url` ou dentro do despacho
-            const matchesDespacho = (t.despacho || '').match(/https?:\/\/\S+/g) || [];
-            const candidatasUrl   = [t.url, ...matchesDespacho].filter(Boolean);
-            for (const u of candidatasUrl) {
-              const info = await buscarDocumento(u);
-              if (info?.pdfBuffer) {
-                pdfSenadoBuffer = info.pdfBuffer;
-                console.log('[IA] Caso 4: PDF do Senado capturado de:', u);
-                break;
-              }
-            }
-            if (pdfSenadoBuffer) break;
-          }
-        }
-      } catch (e) {
-        console.warn('[IA] Caso 4: erro ao buscar tramitações:', e);
-      }
-
-      // (b) PDF do substitutivo do relator (plenário) — parecer mais recente
-      let pdfCamaraBuffer = null;
-      try {
-        const urlPar = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
-        const htmlPar = await fetchCamara(urlPar);
-        if (htmlPar) {
-          const docPar = new DOMParser().parseFromString(htmlPar, 'text/html');
-
-          // Coleta todas as linhas com link de substitutivo (SBT ou texto "substitut")
-          const candidatosSubst = [];
-          for (const row of docPar.querySelectorAll('tr, li')) {
-            const txt = row.textContent;
-            const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-            if (!a) continue;
-            const href = a.getAttribute('href') || '';
-            const isSBT = /filename[=+%]*SBT/i.test(href);
-            const temSubst = /substitut/i.test(txt);
-            // Exclui pareceres de comissão (destaque menciona apenas "Relator")
-            const ehDeComissao = /\b(CCJC|CFT|CCJR|CCJ|CESP|comiss[ãa]o)\b/i.test(txt);
-            if ((isSBT || temSubst) && !ehDeComissao) {
-              // Extrai data dd/mm/aaaa do texto (publicação)
-              const dataMatch = txt.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-              const dataISO = dataMatch ? `${dataMatch[3]}-${dataMatch[2]}-${dataMatch[1]}` : '';
-              candidatosSubst.push({
-                href: resolverUrlCamara(href),
-                dataISO,
-                texto: txt.slice(0, 120).replace(/\s+/g, ' ').trim(),
-              });
-            }
-          }
-
-          // Ordena por data desc (mais recente primeiro)
-          candidatosSubst.sort((a, b) => b.dataISO.localeCompare(a.dataISO));
-          console.log('[IA] Caso 4: candidatos substitutivo:', candidatosSubst);
-
-          for (const c of candidatosSubst) {
-            const info = await buscarDocumento(c.href);
-            if (info?.pdfBuffer) {
-              pdfCamaraBuffer = info.pdfBuffer;
-              console.log('[IA] Caso 4: PDF do substitutivo da Câmara capturado de:', c.href);
-              break;
-            }
-          }
-        }
-      } catch (e) {
-        console.warn('[IA] Caso 4: erro ao buscar substitutivo da Câmara:', e);
-      }
-
-      if (pdfSenadoBuffer || pdfCamaraBuffer) {
-        return {
-          tipo: 'destaque_preferencia',
-          pdfSenado: pdfSenadoBuffer,
-          pdfCamara: pdfCamaraBuffer,
-          numArtigo,
-          numInciso,
-          numPar,
-          referenciaLeg,
-        };
-      }
-
-      console.warn('[IA] Caso 4 falhou — nenhum PDF (Senado ou Câmara) localizado.');
-      return null;
+      console.log('[IA] Caso 4: Destaque de Preferência — aguardando upload manual de 2 PDFs');
+      return { tipo: 'destaque_preferencia_manual', referenciaLeg };
     }
 
     // ── CASO 3: DVS/DTQ de dispositivo do PL original ────────────────
@@ -1636,17 +1564,48 @@ function toggleManualIA() {
 }
 
 function limparManualIA() {
-  const txt = document.getElementById('ia-manual-texto');
-  const pdf = document.getElementById('ia-manual-pdf');
-  if (txt) txt.value = '';
-  if (pdf) pdf.value = '';
+  ['ia-manual-texto', 'ia-manual-pdf', 'ia-manual-pdf-pref', 'ia-manual-pdf-comp']
+    .forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.value = '';
+    });
   mostrarToast('Entrada manual limpa.', 'info');
 }
 
 /** Retorna a entrada manual do usuário como infoEmenda, ou null se vazia.
- *  Prioridade: PDF > texto colado */
+ *  - Destaque de Preferência: 2 PDFs (preferência + comparado)
+ *  - Demais casos: PDF único OU texto colado (PDF tem prioridade) */
 async function lerEntradaManual() {
-  const pdfInput  = document.getElementById('ia-manual-pdf');
+  // Modo Destaque de Preferência: lê os 2 inputs específicos
+  const pdfPref = document.getElementById('ia-manual-pdf-pref');
+  const pdfComp = document.getElementById('ia-manual-pdf-comp');
+  if (pdfPref || pdfComp) {
+    let pdfPreferencia = null, pdfComparado = null;
+    try {
+      if (pdfPref?.files?.length > 0) {
+        pdfPreferencia = await pdfPref.files[0].arrayBuffer();
+        console.log('[IA][manual] PDF preferência:', pdfPref.files[0].name, pdfPreferencia.byteLength, 'bytes');
+      }
+      if (pdfComp?.files?.length > 0) {
+        pdfComparado = await pdfComp.files[0].arrayBuffer();
+        console.log('[IA][manual] PDF comparado:', pdfComp.files[0].name, pdfComparado.byteLength, 'bytes');
+      }
+    } catch (e) {
+      console.warn('[IA][manual] erro ao ler PDFs de preferência:', e);
+    }
+    if (pdfPreferencia || pdfComparado) {
+      return {
+        tipo: 'destaque_preferencia',
+        pdfPreferencia,
+        pdfComparado,
+        referenciaLeg: null,
+      };
+    }
+    // Inputs existiam mas estavam vazios → cai pelo fluxo abaixo (que provavelmente
+    // também retornará null porque os inputs antigos nem estão no DOM)
+  }
+
+  const pdfInput   = document.getElementById('ia-manual-pdf');
   const textoInput = document.getElementById('ia-manual-texto');
 
   // PDF anexado tem prioridade máxima
@@ -1723,15 +1682,28 @@ async function gerarExplicacaoIA() {
       } else if (infoEmenda?.pdfBuffer) {
         mostrarToast(`✓ PDF capturado (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao Gemini`, 'sucesso');
         console.log('[IA] PDF inline_data pronto:', infoEmenda.pdfBuffer.byteLength, 'bytes | referência:', infoEmenda.referenciaLeg);
-      } else if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfSenado || infoEmenda?.pdfCamara)) {
-        const partes = [];
-        if (infoEmenda.pdfSenado) partes.push(`Senado ${(infoEmenda.pdfSenado.byteLength / 1024).toFixed(0)} KB`);
-        if (infoEmenda.pdfCamara) partes.push(`Câmara ${(infoEmenda.pdfCamara.byteLength / 1024).toFixed(0)} KB`);
-        mostrarToast(`✓ PDFs capturados (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
-        console.log('[IA] PDFs preferência prontos:', { senado: infoEmenda.pdfSenado?.byteLength, camara: infoEmenda.pdfCamara?.byteLength, referência: infoEmenda.referenciaLeg });
+      } else if (infoEmenda?.tipo === 'destaque_preferencia_manual') {
+        mostrarToast('⚠ Destaque de Preferência: anexe os 2 PDFs (preferência + comparado) na entrada manual.', 'aviso');
+        if (btn) {
+          btn.disabled  = false;
+          btn.innerHTML = `${iconeIA} Gerar Análise`;
+        }
+        return;
       } else {
         mostrarToast('⚠ Sem texto da emenda — IA usará conhecimento geral', 'aviso');
       }
+    }
+
+    // Toast informativo quando o usuário forneceu os 2 PDFs de preferência manualmente
+    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfPreferencia || infoEmenda?.pdfComparado)) {
+      const partes = [];
+      if (infoEmenda.pdfPreferencia) partes.push(`preferência ${(infoEmenda.pdfPreferencia.byteLength / 1024).toFixed(0)} KB`);
+      if (infoEmenda.pdfComparado)   partes.push(`comparado ${(infoEmenda.pdfComparado.byteLength / 1024).toFixed(0)} KB`);
+      mostrarToast(`✓ PDFs de preferência (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
+      console.log('[IA] PDFs preferência manuais:', {
+        preferencia: infoEmenda.pdfPreferencia?.byteLength,
+        comparado: infoEmenda.pdfComparado?.byteLength,
+      });
     }
 
     if (btn) btn.innerHTML = `<span class="loading-spinner"></span> Gerando análise...`;
@@ -1741,13 +1713,13 @@ async function gerarExplicacaoIA() {
 
     // Monta parts: PDF(s) inline (substitutivo imagem) ou texto extraído/prompt puro
     let parts;
-    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfSenado || infoEmenda?.pdfCamara)) {
+    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfPreferencia || infoEmenda?.pdfComparado)) {
       parts = [];
-      if (infoEmenda.pdfSenado) {
-        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfSenado) } });
+      if (infoEmenda.pdfPreferencia) {
+        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfPreferencia) } });
       }
-      if (infoEmenda.pdfCamara) {
-        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfCamara) } });
+      if (infoEmenda.pdfComparado) {
+        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfComparado) } });
       }
       parts.push({ text: prompt });
       console.log('[IA] request Gemini: ', parts.length - 1, 'PDF(s) inline +', prompt.length, 'chars de prompt');
@@ -1866,9 +1838,9 @@ function montarPrompt(d, prop, infoEmenda) {
   const temTexto         = !!(infoEmenda?.textoCompleto);
   const temPDFInline     = !!(infoEmenda?.pdfBuffer);          // PDF único inline
   const isPreferencia    = infoEmenda?.tipo === 'destaque_preferencia';
-  const temPDFSenado     = !!(infoEmenda?.pdfSenado);
-  const temPDFCamara     = !!(infoEmenda?.pdfCamara);
-  const tem2PDFs         = isPreferencia && (temPDFSenado || temPDFCamara);
+  const temPDFPreferencia = !!(infoEmenda?.pdfPreferencia);
+  const temPDFComparado   = !!(infoEmenda?.pdfComparado);
+  const tem2PDFs         = isPreferencia && (temPDFPreferencia || temPDFComparado);
   // Referência legislativa: "Artigo 20", "Capítulo VIII", "Título III", etc.
   const referenciaLeg = infoEmenda?.referenciaLeg || (infoEmenda?.numArtigo ? `Artigo ${infoEmenda.numArtigo}` : null);
 
@@ -1892,7 +1864,7 @@ FIM DO DOCUMENTO FONTE
 
   // ── Instrução de base para a tarefa ──────────────────────────────────
   const instrucaoBase = tem2PDFs
-    ? `com base EXCLUSIVAMENTE nos PDFs anexados (Senado Federal + Câmara, quando ambos disponíveis) — NÃO use conhecimento prévio, treinamento ou informações externas`
+    ? `com base EXCLUSIVAMENTE nos PDFs anexados — NÃO use conhecimento prévio, treinamento ou informações externas`
     : temPDFInline
       ? `com base EXCLUSIVAMENTE no PDF do ${tipoDoc} fornecido nesta mensagem — NÃO use conhecimento prévio, treinamento ou informações externas ao PDF`
       : temTexto
@@ -1901,8 +1873,8 @@ FIM DO DOCUMENTO FONTE
 
   // ── Aviso de PDF inline (aparece antes da tarefa) ────────────────────
   const avisPDF = tem2PDFs ? `
-DOIS PDFs estão anexados a esta mensagem:
-${temPDFSenado ? '1) PDF do SENADO FEDERAL — contém a redação final aprovada pelo Senado. Aqui você encontrará o texto integral do ' + (referenciaLeg ? referenciaLeg.toUpperCase() : 'dispositivo destacado') + ' que se quer PREFERIR.\n' : ''}${temPDFCamara ? '2) PDF do SUBSTITUTIVO DA CÂMARA (relator de plenário) — é o texto sobre o qual a preferência seria aplicada (o dispositivo do Senado substituiria o art. correspondente neste substitutivo).\n' : ''}Leia os PDFs integralmente antes de responder.
+DESTAQUE DE PREFERÊNCIA — comparação entre dois textos.
+${temPDFPreferencia ? '1) PDF nº 1 (anexado primeiro) — TEXTO QUE RECEBE A PREFERÊNCIA no destaque. É o texto cuja redação se quer prevalecer.\n' : ''}${temPDFComparado ? '2) PDF nº 2 (anexado em seguida) — TEXTO A SER COMPARADO com o do destaque. É a redação que seria substituída/preterida caso a preferência seja aprovada.\n' : ''}Leia integralmente os PDFs antes de responder e identifique as diferenças entre as duas redações${referenciaLeg ? ` do ${referenciaLeg.toUpperCase()}` : ''}.
 ` : temPDFInline ? `
 O arquivo PDF anexado a esta mensagem é o texto integral do ${tipoDoc} referenciado no destaque. Leia o PDF integralmente antes de responder.
 ` : '';
@@ -1921,14 +1893,15 @@ REGRA CRÍTICA — SEM DOCUMENTO FONTE:
 → Se a descrição menciona um dispositivo específico (artigo/inciso/§/capítulo) e você NÃO tem certeza absoluta do conteúdo desse dispositivo no projeto original, retorne em "explicacao": "⚠ Texto do dispositivo não disponível. Cole o texto manualmente para análise precisa."
 → É preferível admitir falta de informação a alucinar dispositivos inexistentes.
 → NÃO invente conteúdo normativo, números de artigos, incisos ou parágrafos.`
-    : tem2PDFs && referenciaLeg
+    : tem2PDFs
     ? `
-REGRA CRÍTICA PARA A EXPLICAÇÃO (Destaque de Preferência — Senado vs Câmara):
-→ Este destaque pede PREFERÊNCIA pelo ${referenciaLeg.toUpperCase()} da redação final aprovada pelo SENADO FEDERAL, para que ele seja INCLUÍDO no substitutivo da Câmara (em lugar do art. correspondente).
-→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no PDF do SENADO. Esse é o texto cuja preferência se quer aprovar.
-${temPDFCamara ? '→ Em seguida, localize o artigo de mesma matéria/numeração no PDF do SUBSTITUTIVO DA CÂMARA. Esse é o texto que seria substituído caso o destaque seja aprovado.\n→ Sua "explicacao" deve descrever o conteúdo normativo do art. do Senado (o que ele determina/autoriza/proíbe) e, quando houver, contrastar com o que o substitutivo da Câmara dispõe sobre a mesma matéria.\n' : '→ Apenas o PDF do Senado foi capturado. Descreva o conteúdo do art. do Senado normalmente; mencione que não foi possível recuperar o texto correspondente da Câmara para contraste.\n'}→ Use verbos normativos: "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
-→ Se NÃO conseguir localizar o ${referenciaLeg.toUpperCase()} no PDF do Senado, retorne em "explicacao": "⚠ ${referenciaLeg} não localizado no PDF do Senado. Cole o texto manualmente para análise precisa."
-→ NÃO invente, NÃO infira, NÃO use conhecimento externo aos ${fonteRef}.`
+REGRA CRÍTICA PARA A EXPLICAÇÃO (Destaque de Preferência — comparação entre dois textos):
+→ Você recebeu DOIS PDFs. O PDF nº 1 é o TEXTO QUE RECEBE A PREFERÊNCIA (redação que se quer prevalecer). O PDF nº 2 é o TEXTO A SER COMPARADO (redação que seria substituída/preterida).
+${referenciaLeg ? `→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} em AMBOS os PDFs.\n` : '→ Localize o(s) dispositivo(s) destacado(s) em AMBOS os PDFs.\n'}→ Sua "explicacao" deve: (a) descrever o conteúdo normativo concreto do texto que recebe a preferência (PDF nº 1) — o que determina/autoriza/proíbe, quem é afetado, condições e exceções; (b) apontar as DIFERENÇAS em relação ao texto comparado (PDF nº 2) — o que muda, o que se acrescenta, o que se suprime; (c) usar verbos normativos como "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
+${temPDFPreferencia && temPDFComparado ? '' : temPDFPreferencia
+  ? '→ Apenas o PDF nº 1 (que recebe preferência) foi anexado. Descreva apenas o conteúdo desse texto; informe na própria explicação que o PDF comparativo não foi anexado.\n'
+  : '→ Apenas o PDF nº 2 (a comparar) foi anexado. Descreva apenas o conteúdo desse texto; informe na própria explicação que o PDF da preferência não foi anexado.\n'}→ Se NÃO conseguir localizar o dispositivo nos PDFs anexados, retorne em "explicacao": "⚠ Dispositivo não localizado nos PDFs anexados. Verifique se os arquivos corretos foram enviados."
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo aos PDFs anexados.`
     : isPLOriginal && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do PL original):
