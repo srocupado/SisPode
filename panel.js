@@ -1071,7 +1071,10 @@ function resolverUrlCamara(href) {
 async function buscarTextoEmenda(d, prop) {
   if (!prop.idCamara) return null;
   try {
-    const descricao = d.descricao || '';
+    // Concatena descricao + tipo: na pauta da Câmara, o detalhamento do destaque
+    // (ex: "do inciso II do art. 19 do PL...") frequentemente está na coluna "tipo",
+    // não na "descricao". Combinar evita falha na detecção de referência legislativa.
+    const descricao = `${d.descricao || ''} ${d.tipo || ''}`.trim();
 
     // ── Classificação do tipo de destaque ────────────────────────────
     // Extrai número de emenda (máx 3 dígitos para evitar anos/números de PL)
