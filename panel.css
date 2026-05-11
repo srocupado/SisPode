@@ -1414,3 +1414,10 @@ body {
   color: var(--text-dim);
   margin-bottom: 4px;
 }
+.cal-reuniao-opcao {
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 8px 10px;
+  text-align: left !important;
+  white-space: normal;
+}

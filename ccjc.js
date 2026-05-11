@@ -31,9 +31,10 @@ let app = {
   cal: {
     ano:              new Date().getFullYear(),
     mes:              new Date().getMonth(),
-    eventos:          {},   // { 'YYYY-MM-DD': { id, dataHoraInicio, ... } }
+    eventos:          {},   // { 'YYYY-MM-DD': [ { id, dataHoraInicio, ... }, ... ] }
     carregando:       false,
     diaSelecionado:   null,
+    reuniaoSelecionada: null,
   },
   config: {
     geminiKey:      '',
@@ -1551,8 +1552,9 @@ async function navCalendario(delta) {
   app.cal.mes += delta;
   if (app.cal.mes < 0)  { app.cal.mes = 11; app.cal.ano--; }
   if (app.cal.mes > 11) { app.cal.mes = 0;  app.cal.ano++; }
-  app.cal.eventos        = {};
-  app.cal.diaSelecionado = null;
+  app.cal.eventos            = {};
+  app.cal.diaSelecionado     = null;
+  app.cal.reuniaoSelecionada = null;
   document.getElementById('cal-card-reuniao').style.display = 'none';
   await atualizarCalendario();
 }
@@ -1566,9 +1568,9 @@ async function atualizarCalendario() {
   try {
     app.cal.eventos = await buscarEventosMes(app.cal.ano, app.cal.mes);
     renderizarCalendario();
-    const n = Object.keys(app.cal.eventos).length;
+    const n = Object.values(app.cal.eventos).reduce((s, arr) => s + arr.length, 0);
     status.textContent = n > 0
-      ? `${n} reunião${n > 1 ? 'ões' : ''} deliberativa${n > 1 ? 's' : ''} neste mês`
+      ? `${n} reunião${n !== 1 ? 'ões' : ''} deliberativa${n !== 1 ? 's' : ''} neste mês`
       : 'Nenhuma reunião deliberativa neste mês';
   } catch (e) {
     status.textContent = `Erro ao buscar reuniões: ${e.message}`;
@@ -1598,14 +1600,15 @@ async function buscarEventosMes(ano, mes) {
     if (ev.descricaoTipo !== 'Reunião Deliberativa') continue;
     const data = (ev.dataHoraInicio || '').split('T')[0];
     if (!data) continue;
-    mapa[data] = {
+    if (!mapa[data]) mapa[data] = [];
+    mapa[data].push({
       id:             ev.id,
       dataHoraInicio: ev.dataHoraInicio  || '',
       dataHoraFim:    ev.dataHoraFim     || '',
       descricao:      ev.descricao       || '',
       situacao:       ev.situacao        || '',
       local:          ev.localCamara?.nome || ev.localExterno || '',
-    };
+    });
   }
 
   await new Promise(r => chrome.storage.local.set({ [cacheKey]: { data: mapa, ts: Date.now() } }, r));
@@ -1644,13 +1647,23 @@ function renderizarCalendario() {
 }
 
 function selecionarDiaCalendario(dataStr) {
-  app.cal.diaSelecionado = dataStr;
+  app.cal.diaSelecionado     = dataStr;
+  app.cal.reuniaoSelecionada = null;
   renderizarCalendario();
 
-  const ev   = app.cal.eventos[dataStr];
+  const evs  = app.cal.eventos[dataStr];
   const card = document.getElementById('cal-card-reuniao');
-  if (!ev) { card.style.display = 'none'; return; }
+  if (!evs?.length) { card.style.display = 'none'; return; }
 
+  if (evs.length === 1) {
+    _exibirCardReuniao(dataStr, evs[0]);
+  } else {
+    _exibirSeletorReunioes(dataStr, evs);
+  }
+}
+
+function _exibirCardReuniao(dataStr, ev) {
+  app.cal.reuniaoSelecionada = ev;
   const [aStr, mStr, dStr] = dataStr.split('-');
   const horaI = (ev.dataHoraInicio || '').split('T')[1]?.slice(0, 5) || '';
   const horaF = (ev.dataHoraFim   || '').split('T')[1]?.slice(0, 5) || '';
@@ -1659,7 +1672,33 @@ function selecionarDiaCalendario(dataStr) {
   document.getElementById('cal-card-data').textContent     = `${dStr}/${mStr}/${aStr}${horaI ? ` · ${horaI}${horaF ? '–' + horaF : ''}` : ''}`;
   document.getElementById('cal-card-info').textContent     = ev.local    || '';
   document.getElementById('cal-card-situacao').textContent = ev.situacao || 'Agendada';
-  card.style.display = '';
+  document.getElementById('btn-carregar-pauta-cal').style.display = '';
+  document.getElementById('cal-card-reuniao').style.display = '';
+}
+
+function _exibirSeletorReunioes(dataStr, evs) {
+  const [aStr, mStr, dStr] = dataStr.split('-');
+
+  document.getElementById('cal-card-tipo').textContent     = `${evs.length} reuniões neste dia`;
+  document.getElementById('cal-card-data').textContent     = `${dStr}/${mStr}/${aStr} — selecione uma:`;
+  document.getElementById('cal-card-info').textContent     = '';
+  document.getElementById('cal-card-situacao').innerHTML   = evs.map((ev, i) => {
+    const horaI = (ev.dataHoraInicio || '').split('T')[1]?.slice(0, 5) || '??:??';
+    const horaF = (ev.dataHoraFim   || '').split('T')[1]?.slice(0, 5) || '';
+    const local = ev.local ? ` · ${ev.local}` : '';
+    return `<button class="cal-reuniao-opcao btn btn-outline btn-sm" data-idx="${i}" style="display:block;width:100%;margin-bottom:6px;text-align:left">
+      <strong>${horaI}${horaF ? '–' + horaF : ''}</strong>${local}<br>
+      <span style="font-size:11px;opacity:.7">${esc(ev.situacao || 'Agendada')}</span>
+    </button>`;
+  }).join('');
+  document.getElementById('btn-carregar-pauta-cal').style.display = 'none';
+  document.getElementById('cal-card-reuniao').style.display = '';
+
+  document.querySelectorAll('.cal-reuniao-opcao').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _exibirCardReuniao(dataStr, evs[+btn.dataset.idx]);
+    });
+  });
 }
 
 async function buscarPautaEvento(eventoId) {
@@ -1771,7 +1810,7 @@ function _parsearPautaXML(xmlText) {
 
 async function carregarPautaDoCalendario() {
   const dia = app.cal.diaSelecionado;
-  const ev  = app.cal.eventos[dia];
+  const ev  = app.cal.reuniaoSelecionada;
   if (!ev) return;
 
   const btn = document.getElementById('btn-carregar-pauta-cal');
