@@ -1190,25 +1190,38 @@ async function buscarTextoEmenda(d, prop) {
     }
 
     // ── Classificação do tipo de DVS ──────────────────────────────────
+    // Destaque de Preferência (Senado): prefere art. da redação final aprovada pelo Senado
+    // sobre o art. correspondente no substitutivo da Câmara.
+    // Ex: "Destaque de Preferência para o art. 30, constante na redação final aprovada
+    // pelo Senado Federal, com vistas a sua aprovação e inclusão no substitutivo apresentado
+    // pelo Relator ao PL 3278/2021"
+    const isDestaquePreferencia = /destaque\s+de\s+prefer[êe]ncia/i.test(descricao)
+      && /(reda[çc][ãa]o\s+final|senado)/i.test(descricao);
+
     // Substitutivo adotado por comissão: "substitutivo adotado pela CCJC/CFT/..."
-    const isSubstColegiado = /substitutivo\s+adotado|emenda\s+adotada/i.test(descricao);
+    const isSubstColegiado = !isDestaquePreferencia
+      && /substitutivo\s+adotado|emenda\s+adotada/i.test(descricao);
 
     // SSP de plenário: subemenda substitutiva (não é de comissão)
-    const isDVSSubstitutivo = /subst|submenda|subemenda/i.test(descricao) && !isSubstColegiado;
+    const isDVSSubstitutivo = !isDestaquePreferencia
+      && /subst|submenda|subemenda/i.test(descricao) && !isSubstColegiado;
 
     // Emenda específica numerada
-    const isEmendaEspecifica = /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado;
+    const isEmendaEspecifica = !isDestaquePreferencia
+      && /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado;
 
     // DVS/DTQ de dispositivo do PL original (não classificado nos casos acima)
     // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021, com fins de supressão"
     const isDVSPLOriginal = !!referenciaLeg
+      && !isDestaquePreferencia
       && !isSubstColegiado
       && !isDVSSubstitutivo
       && !isEmendaEspecifica
       && /destaque|dvs|dtq|separado|supress|suprim/i.test(descricao);
 
     console.log('[IA] tipo: colegiado=', isSubstColegiado, '| SSP=', isDVSSubstitutivo,
-                '| emenda=', isEmendaEspecifica, '| pl_orig=', isDVSPLOriginal, '| ref=', referenciaLeg);
+                '| emenda=', isEmendaEspecifica, '| pl_orig=', isDVSPLOriginal,
+                '| pref_senado=', isDestaquePreferencia, '| ref=', referenciaLeg);
 
     // ── CASO 0: Substitutivo/Emenda adotado por comissão ─────────────
     // Fluxo: prop_pareceres_substitutivos_votos → fichadetramitacao (adotado) → prop_mostrarintegra
@@ -1417,6 +1430,116 @@ async function buscarTextoEmenda(d, prop) {
       }
     }
 
+    // ── CASO 4: Destaque de Preferência (Senado vs Câmara) ───────────
+    // Prefere art. da "redação final aprovada pelo Senado Federal" sobre o
+    // art. correspondente no substitutivo do relator (de plenário) na Câmara.
+    // Envia 2 PDFs ao Gemini: texto do Senado + substitutivo da Câmara.
+    if (isDestaquePreferencia) {
+      console.log('[IA] Caso 4: Destaque de Preferência (Senado vs Câmara)');
+
+      // (a) PDF do Senado: buscado nas tramitações pelo andamento
+      // "Recebido o Ofício ... do Senado Federal"
+      let pdfSenadoBuffer = null;
+      try {
+        const respTram = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}/tramitacoes?itens=200`);
+        if (respTram.ok) {
+          const jsonTram = await respTram.json();
+          const tramitacoes = jsonTram?.dados || [];
+          console.log('[IA] Caso 4: tramitações recebidas:', tramitacoes.length);
+
+          // Procura andamento que recebe ofício do Senado, do mais recente ao mais antigo
+          const candidatos = tramitacoes
+            .filter(t => {
+              const txt = `${t.despacho || ''} ${t.descricaoTramitacao || ''} ${t.descricaoSituacao || ''}`;
+              return /recebid[ao]\s+(?:o\s+)?of[íi]cio/i.test(txt) && /senado\s+federal/i.test(txt);
+            })
+            .sort((a, b) => (b.dataHora || '').localeCompare(a.dataHora || ''));
+
+          console.log('[IA] Caso 4: andamentos com ofício do Senado:', candidatos.length);
+
+          for (const t of candidatos) {
+            // A API pode trazer link em `url` ou dentro do despacho
+            const matchesDespacho = (t.despacho || '').match(/https?:\/\/\S+/g) || [];
+            const candidatasUrl   = [t.url, ...matchesDespacho].filter(Boolean);
+            for (const u of candidatasUrl) {
+              const info = await buscarDocumento(u);
+              if (info?.pdfBuffer) {
+                pdfSenadoBuffer = info.pdfBuffer;
+                console.log('[IA] Caso 4: PDF do Senado capturado de:', u);
+                break;
+              }
+            }
+            if (pdfSenadoBuffer) break;
+          }
+        }
+      } catch (e) {
+        console.warn('[IA] Caso 4: erro ao buscar tramitações:', e);
+      }
+
+      // (b) PDF do substitutivo do relator (plenário) — parecer mais recente
+      let pdfCamaraBuffer = null;
+      try {
+        const urlPar = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
+        const htmlPar = await fetchCamara(urlPar);
+        if (htmlPar) {
+          const docPar = new DOMParser().parseFromString(htmlPar, 'text/html');
+
+          // Coleta todas as linhas com link de substitutivo (SBT ou texto "substitut")
+          const candidatosSubst = [];
+          for (const row of docPar.querySelectorAll('tr, li')) {
+            const txt = row.textContent;
+            const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+            if (!a) continue;
+            const href = a.getAttribute('href') || '';
+            const isSBT = /filename[=+%]*SBT/i.test(href);
+            const temSubst = /substitut/i.test(txt);
+            // Exclui pareceres de comissão (destaque menciona apenas "Relator")
+            const ehDeComissao = /\b(CCJC|CFT|CCJR|CCJ|CESP|comiss[ãa]o)\b/i.test(txt);
+            if ((isSBT || temSubst) && !ehDeComissao) {
+              // Extrai data dd/mm/aaaa do texto (publicação)
+              const dataMatch = txt.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+              const dataISO = dataMatch ? `${dataMatch[3]}-${dataMatch[2]}-${dataMatch[1]}` : '';
+              candidatosSubst.push({
+                href: resolverUrlCamara(href),
+                dataISO,
+                texto: txt.slice(0, 120).replace(/\s+/g, ' ').trim(),
+              });
+            }
+          }
+
+          // Ordena por data desc (mais recente primeiro)
+          candidatosSubst.sort((a, b) => b.dataISO.localeCompare(a.dataISO));
+          console.log('[IA] Caso 4: candidatos substitutivo:', candidatosSubst);
+
+          for (const c of candidatosSubst) {
+            const info = await buscarDocumento(c.href);
+            if (info?.pdfBuffer) {
+              pdfCamaraBuffer = info.pdfBuffer;
+              console.log('[IA] Caso 4: PDF do substitutivo da Câmara capturado de:', c.href);
+              break;
+            }
+          }
+        }
+      } catch (e) {
+        console.warn('[IA] Caso 4: erro ao buscar substitutivo da Câmara:', e);
+      }
+
+      if (pdfSenadoBuffer || pdfCamaraBuffer) {
+        return {
+          tipo: 'destaque_preferencia',
+          pdfSenado: pdfSenadoBuffer,
+          pdfCamara: pdfCamaraBuffer,
+          numArtigo,
+          numInciso,
+          numPar,
+          referenciaLeg,
+        };
+      }
+
+      console.warn('[IA] Caso 4 falhou — nenhum PDF (Senado ou Câmara) localizado.');
+      return null;
+    }
+
     // ── CASO 3: DVS/DTQ de dispositivo do PL original ────────────────
     // 1º tenta PDF do próprio destaque (d.urlLink): contém transcrição literal
     // do dispositivo + justificativa do partido. Fallback: urlInteiroTeor.
@@ -1600,6 +1723,12 @@ async function gerarExplicacaoIA() {
       } else if (infoEmenda?.pdfBuffer) {
         mostrarToast(`✓ PDF capturado (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao Gemini`, 'sucesso');
         console.log('[IA] PDF inline_data pronto:', infoEmenda.pdfBuffer.byteLength, 'bytes | referência:', infoEmenda.referenciaLeg);
+      } else if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfSenado || infoEmenda?.pdfCamara)) {
+        const partes = [];
+        if (infoEmenda.pdfSenado) partes.push(`Senado ${(infoEmenda.pdfSenado.byteLength / 1024).toFixed(0)} KB`);
+        if (infoEmenda.pdfCamara) partes.push(`Câmara ${(infoEmenda.pdfCamara.byteLength / 1024).toFixed(0)} KB`);
+        mostrarToast(`✓ PDFs capturados (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
+        console.log('[IA] PDFs preferência prontos:', { senado: infoEmenda.pdfSenado?.byteLength, camara: infoEmenda.pdfCamara?.byteLength, referência: infoEmenda.referenciaLeg });
       } else {
         mostrarToast('⚠ Sem texto da emenda — IA usará conhecimento geral', 'aviso');
       }
@@ -1610,9 +1739,19 @@ async function gerarExplicacaoIA() {
     const prompt = montarPrompt(d, prop, infoEmenda);
     const url    = `${GEMINI_BASE}/${app.config.modelo}:generateContent?key=${key}`;
 
-    // Monta parts: PDF inline (substitutivo imagem) ou texto extraído/prompt puro
+    // Monta parts: PDF(s) inline (substitutivo imagem) ou texto extraído/prompt puro
     let parts;
-    if (infoEmenda?.pdfBuffer) {
+    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfSenado || infoEmenda?.pdfCamara)) {
+      parts = [];
+      if (infoEmenda.pdfSenado) {
+        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfSenado) } });
+      }
+      if (infoEmenda.pdfCamara) {
+        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfCamara) } });
+      }
+      parts.push({ text: prompt });
+      console.log('[IA] request Gemini: ', parts.length - 1, 'PDF(s) inline +', prompt.length, 'chars de prompt');
+    } else if (infoEmenda?.pdfBuffer) {
       const base64PDF = arrayBufferToBase64(infoEmenda.pdfBuffer);
       parts = [
         { inline_data: { mime_type: 'application/pdf', data: base64PDF } },
@@ -1724,8 +1863,12 @@ function montarPrompt(d, prop, infoEmenda) {
   }[app.config.profundidade] || `parágrafo único com as alterações materiais concretas da emenda, escrito de forma corrida sem marcadores ou listas.`;
 
   // ── Determina o modo de operação ─────────────────────────────────────
-  const temTexto      = !!(infoEmenda?.textoCompleto);
-  const temPDFInline  = !!(infoEmenda?.pdfBuffer);   // PDF enviado via inline_data
+  const temTexto         = !!(infoEmenda?.textoCompleto);
+  const temPDFInline     = !!(infoEmenda?.pdfBuffer);          // PDF único inline
+  const isPreferencia    = infoEmenda?.tipo === 'destaque_preferencia';
+  const temPDFSenado     = !!(infoEmenda?.pdfSenado);
+  const temPDFCamara     = !!(infoEmenda?.pdfCamara);
+  const tem2PDFs         = isPreferencia && (temPDFSenado || temPDFCamara);
   // Referência legislativa: "Artigo 20", "Capítulo VIII", "Título III", etc.
   const referenciaLeg = infoEmenda?.referenciaLeg || (infoEmenda?.numArtigo ? `Artigo ${infoEmenda.numArtigo}` : null);
 
@@ -1733,6 +1876,7 @@ function montarPrompt(d, prop, infoEmenda) {
   const tipoDoc = infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
                : infoEmenda?.tipo === 'substitutivo' ? 'SUBSTITUTIVO'
                : infoEmenda?.tipo === 'pl_original'  ? 'PROJETO DE LEI ORIGINAL'
+               : isPreferencia                       ? 'DESTAQUE DE PREFERÊNCIA'
                : 'DOCUMENTO';
 
   const blocoFonte = temTexto ? `
@@ -1747,20 +1891,25 @@ FIM DO DOCUMENTO FONTE
 ` : '';
 
   // ── Instrução de base para a tarefa ──────────────────────────────────
-  const instrucaoBase = temPDFInline
-    ? `com base EXCLUSIVAMENTE no PDF do ${tipoDoc} fornecido nesta mensagem — NÃO use conhecimento prévio, treinamento ou informações externas ao PDF`
-    : temTexto
-      ? 'EXCLUSIVAMENTE no documento fonte acima — NÃO use conhecimento prévio, treinamento ou informações externas ao texto fornecido'
-      : 'no seu conhecimento sobre este projeto';
+  const instrucaoBase = tem2PDFs
+    ? `com base EXCLUSIVAMENTE nos PDFs anexados (Senado Federal + Câmara, quando ambos disponíveis) — NÃO use conhecimento prévio, treinamento ou informações externas`
+    : temPDFInline
+      ? `com base EXCLUSIVAMENTE no PDF do ${tipoDoc} fornecido nesta mensagem — NÃO use conhecimento prévio, treinamento ou informações externas ao PDF`
+      : temTexto
+        ? 'EXCLUSIVAMENTE no documento fonte acima — NÃO use conhecimento prévio, treinamento ou informações externas ao texto fornecido'
+        : 'no seu conhecimento sobre este projeto';
 
   // ── Aviso de PDF inline (aparece antes da tarefa) ────────────────────
-  const avisPDF = temPDFInline ? `
+  const avisPDF = tem2PDFs ? `
+DOIS PDFs estão anexados a esta mensagem:
+${temPDFSenado ? '1) PDF do SENADO FEDERAL — contém a redação final aprovada pelo Senado. Aqui você encontrará o texto integral do ' + (referenciaLeg ? referenciaLeg.toUpperCase() : 'dispositivo destacado') + ' que se quer PREFERIR.\n' : ''}${temPDFCamara ? '2) PDF do SUBSTITUTIVO DA CÂMARA (relator de plenário) — é o texto sobre o qual a preferência seria aplicada (o dispositivo do Senado substituiria o art. correspondente neste substitutivo).\n' : ''}Leia os PDFs integralmente antes de responder.
+` : temPDFInline ? `
 O arquivo PDF anexado a esta mensagem é o texto integral do ${tipoDoc} referenciado no destaque. Leia o PDF integralmente antes de responder.
 ` : '';
 
   // ── Regra crítica da explicação ──────────────────────────────────────
-  const fonteRef     = temPDFInline ? 'PDF anexado' : 'documento fonte acima';
-  const temFonte     = temTexto || temPDFInline;
+  const fonteRef     = tem2PDFs ? 'PDFs anexados' : temPDFInline ? 'PDF anexado' : 'documento fonte acima';
+  const temFonte     = temTexto || temPDFInline || tem2PDFs;
   const isPLOriginal = infoEmenda?.tipo === 'pl_original';
   const isSubstitutivo = infoEmenda?.tipo === 'substitutivo';
   const isEmenda     = infoEmenda?.tipo === 'emenda';
@@ -1772,6 +1921,14 @@ REGRA CRÍTICA — SEM DOCUMENTO FONTE:
 → Se a descrição menciona um dispositivo específico (artigo/inciso/§/capítulo) e você NÃO tem certeza absoluta do conteúdo desse dispositivo no projeto original, retorne em "explicacao": "⚠ Texto do dispositivo não disponível. Cole o texto manualmente para análise precisa."
 → É preferível admitir falta de informação a alucinar dispositivos inexistentes.
 → NÃO invente conteúdo normativo, números de artigos, incisos ou parágrafos.`
+    : tem2PDFs && referenciaLeg
+    ? `
+REGRA CRÍTICA PARA A EXPLICAÇÃO (Destaque de Preferência — Senado vs Câmara):
+→ Este destaque pede PREFERÊNCIA pelo ${referenciaLeg.toUpperCase()} da redação final aprovada pelo SENADO FEDERAL, para que ele seja INCLUÍDO no substitutivo da Câmara (em lugar do art. correspondente).
+→ Localize EXATAMENTE o ${referenciaLeg.toUpperCase()} no PDF do SENADO. Esse é o texto cuja preferência se quer aprovar.
+${temPDFCamara ? '→ Em seguida, localize o artigo de mesma matéria/numeração no PDF do SUBSTITUTIVO DA CÂMARA. Esse é o texto que seria substituído caso o destaque seja aprovado.\n→ Sua "explicacao" deve descrever o conteúdo normativo do art. do Senado (o que ele determina/autoriza/proíbe) e, quando houver, contrastar com o que o substitutivo da Câmara dispõe sobre a mesma matéria.\n' : '→ Apenas o PDF do Senado foi capturado. Descreva o conteúdo do art. do Senado normalmente; mencione que não foi possível recuperar o texto correspondente da Câmara para contraste.\n'}→ Use verbos normativos: "estabelece", "determina", "autoriza", "proíbe", "veda", "exige".
+→ Se NÃO conseguir localizar o ${referenciaLeg.toUpperCase()} no PDF do Senado, retorne em "explicacao": "⚠ ${referenciaLeg} não localizado no PDF do Senado. Cole o texto manualmente para análise precisa."
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo aos ${fonteRef}.`
     : isPLOriginal && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO (DVS de dispositivo do PL original):
