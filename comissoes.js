@@ -1204,33 +1204,63 @@ function exportarExcel() {
     return;
   }
 
-  // Aba 1: membros
-  const rowsMembros = [['Comissão', 'Sigla', 'Tipo', 'Deputado', 'UF']];
-  for (const com of COMISSOES_PERMANENTES) {
-    const m         = state.membros[com.sigla] || {};
-    const titulares = m.titulares || [];
-    const suplentes = m.suplentes || [];
-    for (const depId of titulares) {
-      const dep = state.deputados[depId];
-      if (dep) rowsMembros.push([com.nome, com.sigla, 'Titular', dep.nome, dep.uf]);
-    }
-    for (const depId of suplentes) {
-      const dep = state.deputados[depId];
-      if (dep) rowsMembros.push([com.nome, com.sigla, 'Suplente', dep.nome, dep.uf]);
-    }
-  }
-
-  // Aba 2: pedidos
-  const rowsPedidos = [['Comissão', 'Sigla', 'Deputado', 'UF', 'Observação', 'Data']];
   const fmt = iso => {
     const d = new Date(iso);
     return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
   };
+
+  // Aba 1: membros — com flag de acordo e origem
+  const rowsMembros = [['Comissão', 'Sigla', 'Tipo', 'Deputado', 'UF', 'Partido', 'Vaga de Acordo', 'Origem da Vaga']];
+  for (const com of COMISSOES_PERMANENTES) {
+    const m  = state.membros[com.sigla] || {};
+    const t  = state.transferencias[com.sigla] || {};
+
+    // Partidos que cederam vagas para nós (recebidas), por tipo
+    const origemAcordo = tipo => Object.values(t.recebidas || {})
+      .filter(x => x.tipo === tipo)
+      .map(r => r.partido).filter(Boolean).join(', ');
+
+    for (const depId of (m.titulares || [])) {
+      const dep = state.deputados[depId];
+      if (!dep) continue;
+      const isAcordo = !!(m.titulares_acordo?.[depId]);
+      rowsMembros.push([com.nome, com.sigla, 'Titular', dep.nome, dep.uf, dep.partido || '',
+        isAcordo ? 'Sim' : 'Não', isAcordo ? origemAcordo('titular') : '']);
+    }
+    for (const depId of (m.suplentes || [])) {
+      const dep = state.deputados[depId];
+      if (!dep) continue;
+      const isAcordo = !!(m.suplentes_acordo?.[depId]);
+      rowsMembros.push([com.nome, com.sigla, 'Suplente', dep.nome, dep.uf, dep.partido || '',
+        isAcordo ? 'Sim' : 'Não', isAcordo ? origemAcordo('suplente') : '']);
+    }
+  }
+
+  // Aba 2: vagas cedidas — com deputado externo se registrado
+  const rowsCedidas = [['Comissão', 'Sigla', 'Tipo', 'Partido Destinatário', 'Deputado Externo', 'UF', 'Partido Dep.', 'Observação', 'Data']];
+  for (const com of COMISSOES_PERMANENTES) {
+    const t = state.transferencias[com.sigla] || {};
+    for (const e of Object.values(t.cedidas || {})) {
+      rowsCedidas.push([
+        com.nome, com.sigla,
+        e.tipo === 'titular' ? 'Titular' : 'Suplente',
+        e.partido,
+        e.depNome    || '',
+        e.depUf      || '',
+        e.depPartido || '',
+        e.obs        || '',
+        fmt(e.data),
+      ]);
+    }
+  }
+
+  // Aba 3: pedidos
+  const rowsPedidos = [['Comissão', 'Sigla', 'Deputado', 'UF', 'Partido', 'Observação', 'Data']];
   for (const com of COMISSOES_PERMANENTES) {
     const p = state.pedidos[com.sigla] || {};
     for (const e of Object.values(p)) {
       const dep = state.deputados[e.depId];
-      if (dep) rowsPedidos.push([com.nome, com.sigla, dep.nome, dep.uf, e.obs || '', fmt(e.data)]);
+      if (dep) rowsPedidos.push([com.nome, com.sigla, dep.nome, dep.uf, dep.partido || '', e.obs || '', fmt(e.data)]);
     }
   }
 
@@ -1238,14 +1268,20 @@ function exportarExcel() {
 
   if (rowsMembros.length > 1) {
     const ws1 = XLSX.utils.aoa_to_sheet(rowsMembros);
-    ws1['!cols'] = [{ wch: 58 }, { wch: 10 }, { wch: 10 }, { wch: 34 }, { wch: 5 }];
+    ws1['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 10 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 16 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'Membros');
   }
 
+  if (rowsCedidas.length > 1) {
+    const ws2 = XLSX.utils.aoa_to_sheet(rowsCedidas);
+    ws2['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 10 }, { wch: 22 }, { wch: 34 }, { wch: 5 }, { wch: 10 }, { wch: 28 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws2, 'Vagas Cedidas');
+  }
+
   if (rowsPedidos.length > 1) {
-    const ws2 = XLSX.utils.aoa_to_sheet(rowsPedidos);
-    ws2['!cols'] = [{ wch: 58 }, { wch: 10 }, { wch: 34 }, { wch: 5 }, { wch: 30 }, { wch: 12 }];
-    XLSX.utils.book_append_sheet(wb, ws2, 'Pedidos');
+    const ws3 = XLSX.utils.aoa_to_sheet(rowsPedidos);
+    ws3['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 28 }, { wch: 12 }];
+    XLSX.utils.book_append_sheet(wb, ws3, 'Pedidos');
   }
 
   if (wb.SheetNames.length === 0) {
