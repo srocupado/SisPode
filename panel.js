@@ -1667,12 +1667,17 @@ async function gerarExplicacaoIA() {
 
     if (entradaManual) {
       infoEmenda = entradaManual;
-      if (infoEmenda.pdfBuffer) {
+      if (infoEmenda.tipo === 'destaque_preferencia') {
+        const partes = [];
+        if (infoEmenda.pdfPreferencia) partes.push(`preferência ${(infoEmenda.pdfPreferencia.byteLength / 1024).toFixed(0)} KB`);
+        if (infoEmenda.pdfComparado)   partes.push(`comparado ${(infoEmenda.pdfComparado.byteLength / 1024).toFixed(0)} KB`);
+        mostrarToast(`✓ PDFs de preferência (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
+      } else if (infoEmenda.pdfBuffer) {
         mostrarToast(`✓ PDF manual (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao Gemini`, 'sucesso');
       } else {
-        mostrarToast(`✓ Texto manual (${infoEmenda.textoCompleto.length} chars)`, 'sucesso');
+        mostrarToast(`✓ Texto manual (${(infoEmenda.textoCompleto || '').length} chars)`, 'sucesso');
       }
-      console.log('[IA] usando entrada manual, tipo:', infoEmenda.pdfBuffer ? 'PDF' : 'texto');
+      console.log('[IA] usando entrada manual, tipo:', infoEmenda.tipo);
     } else {
       // 2. Busca automática
       infoEmenda = await buscarTextoEmenda(d, prop);
@@ -1692,18 +1697,6 @@ async function gerarExplicacaoIA() {
       } else {
         mostrarToast('⚠ Sem texto da emenda — IA usará conhecimento geral', 'aviso');
       }
-    }
-
-    // Toast informativo quando o usuário forneceu os 2 PDFs de preferência manualmente
-    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfPreferencia || infoEmenda?.pdfComparado)) {
-      const partes = [];
-      if (infoEmenda.pdfPreferencia) partes.push(`preferência ${(infoEmenda.pdfPreferencia.byteLength / 1024).toFixed(0)} KB`);
-      if (infoEmenda.pdfComparado)   partes.push(`comparado ${(infoEmenda.pdfComparado.byteLength / 1024).toFixed(0)} KB`);
-      mostrarToast(`✓ PDFs de preferência (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
-      console.log('[IA] PDFs preferência manuais:', {
-        preferencia: infoEmenda.pdfPreferencia?.byteLength,
-        comparado: infoEmenda.pdfComparado?.byteLength,
-      });
     }
 
     if (btn) btn.innerHTML = `<span class="loading-spinner"></span> Gerando análise...`;
