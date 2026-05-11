@@ -460,11 +460,31 @@ function parseDestaques(html) {
       const situacaoNorm = situacaoRaw.toLowerCase();
       const ativo = !SITUACOES_INATIVAS.some(s => situacaoNorm.includes(s));
 
+      // Captura título completo + URL do destaque: o link na linha contém o nome inteiro
+      // (ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021,
+      // com fins de supressão") tanto no texto da âncora quanto no parâmetro filename= da URL.
+      const linkEl = row.querySelector('a[href]');
+      let tituloLink = '';
+      let urlLink = '';
+      if (linkEl) {
+        urlLink = resolverUrlCamara(linkEl.getAttribute('href'));
+        tituloLink = linkEl.textContent.trim();
+        if (!tituloLink || tituloLink.length < 20) {
+          try {
+            const u = new URL(linkEl.getAttribute('href'), 'https://www.camara.leg.br');
+            const fn = u.searchParams.get('filename');
+            if (fn) tituloLink = decodeURIComponent(fn).replace(/\+/g, ' ');
+          } catch (_) { /* href malformado: ignora */ }
+        }
+      }
+
       destaques.push({
         numero:    textos[0],
         autoria:   textos[1] || '',
         descricao: textos[2] || '',
         tipo:      textos[3] || '',
+        tituloLink,
+        urlLink,
         situacao:  situacaoRaw || 'Pendente',
         ativo,
       });
@@ -1071,10 +1091,12 @@ function resolverUrlCamara(href) {
 async function buscarTextoEmenda(d, prop) {
   if (!prop.idCamara) return null;
   try {
-    // Concatena descricao + tipo: na pauta da Câmara, o detalhamento do destaque
-    // (ex: "do inciso II do art. 19 do PL...") frequentemente está na coluna "tipo",
-    // não na "descricao". Combinar evita falha na detecção de referência legislativa.
-    const descricao = `${d.descricao || ''} ${d.tipo || ''}`.trim();
+    // Concatena descricao + tipo + tituloLink: o detalhamento do destaque
+    // (ex: "do inciso II do art. 19 do PL...") pode estar em qualquer um deles.
+    // O título do link (texto da âncora ou filename= da URL) costuma ter o nome
+    // completo, inclusive quando descricao/tipo são curtos.
+    const descricao = `${d.descricao || ''} ${d.tipo || ''} ${d.tituloLink || ''}`.trim();
+    console.log('[IA] texto combinado p/ classificação:', descricao);
 
     // ── Classificação do tipo de destaque ────────────────────────────
     // Extrai número de emenda (máx 3 dígitos para evitar anos/números de PL)
