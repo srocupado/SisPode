@@ -497,15 +497,24 @@ function renderPainelComissao(sigla) {
     return `<span class="vagas-counter ${cls}">${ocupadas}/${ef} vagas${nAcordo > 0 ? ` <span class="badge-acordo-mini">${nAcordo} acordo</span>` : ''}</span>`;
   };
 
-  const renderLinha = (depId, tipo) => {
+  const renderLinha = (depId, tipo, index) => {
     const dep = state.deputados[depId];
     if (!dep) return '';
     const conflito = tipo === 'titular' && verificarConflitosDeputado(depId).includes(sigla);
     const sub = [dep.partido, dep.uf].filter(Boolean).join(' · ');
+
+    // Deputados além das vagas base (config - cedidas) preenchem vagas recebidas
+    const cfg = state.config[sigla] || { titular: 0, suplente: 0 };
+    const t2  = state.transferencias[sigla] || {};
+    const nCedidas = Object.values(t2.cedidas || {}).filter(x => x.tipo === tipo).length;
+    const vagasBase = Math.max(0, (tipo === 'titular' ? (cfg.titular || 0) : (cfg.suplente || 0)) - nCedidas);
+    const isAcordo  = index >= vagasBase;
+
     return `
-      <div class="com-membro-row">
+      <div class="com-membro-row${isAcordo ? ' com-membro-acordo' : ''}">
         <span class="com-membro-nome">${dep.nome}</span>
         <span class="com-membro-uf">${sub}</span>
+        ${isAcordo ? '<span class="badge-acordo">Vaga de Acordo</span>' : ''}
         ${conflito ? '<span class="com-membro-alerta">⚠ Acúmulo</span>' : ''}
         <button class="btn-remover-membro" data-dep="${depId}" data-tipo="${tipo}" data-sigla="${sigla}">Remover</button>
       </div>`;
@@ -643,7 +652,7 @@ function renderPainelComissao(sigla) {
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="titular" data-direcao="receber">↙ Receber vaga</button>
       </div>
-      ${titulares.map(id => renderLinha(id, 'titular')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum titular.</p>'}
+      ${titulares.map((id, i) => renderLinha(id, 'titular', i)).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum titular.</p>'}
       ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
           .filter(([, e]) => e.tipo === 'titular' && e.depNome)
           .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
@@ -665,7 +674,7 @@ function renderPainelComissao(sigla) {
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="ceder">↗ Ceder vaga</button>
         <button class="btn-transferencia" data-sigla="${sigla}" data-tipo="suplente" data-direcao="receber">↙ Receber vaga</button>
       </div>
-      ${suplentes.map(id => renderLinha(id, 'suplente')).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum suplente.</p>'}
+      ${suplentes.map((id, i) => renderLinha(id, 'suplente', i)).join('') || '<p style="font-size:12px;color:var(--text-dim)">Nenhum suplente.</p>'}
       ${Object.entries((state.transferencias[sigla] || {}).cedidas || {})
           .filter(([, e]) => e.tipo === 'suplente' && e.depNome)
           .map(([tid, e]) => renderLinhaAcordo(tid, e)).join('')}
