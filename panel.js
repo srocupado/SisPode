@@ -82,6 +82,76 @@ const PROVEDORES = {
       return json.error?.message || `Erro HTTP ${status}`;
     },
   },
+
+  openai: {
+    id:    'openai',
+    label: 'OpenAI (ChatGPT)',
+    regexChave:  /^sk-[\w-]{20,}$/,
+    placeholderChave: 'sk-...',
+    hintChave:   'Obtenha em platform.openai.com/api-keys',
+    // Prefixos de modelos relevantes para análise multimodal
+    prefixosModelos: ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4'],
+    modelosFallback: [
+      { id: 'gpt-5',     displayName: 'GPT-5' },
+      { id: 'gpt-4.1',   displayName: 'GPT-4.1' },
+      { id: 'gpt-4o',    displayName: 'GPT-4o' },
+    ],
+    async listarModelos(apiKey) {
+      const res = await fetch('https://api.openai.com/v1/models', {
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
+
+      const lista = (json.data || [])
+        .map(m => m.id)
+        .filter(id => this.prefixosModelos.some(p => id.startsWith(p)));
+
+      if (!lista.length) return this.modelosFallback;
+      return lista.map(id => ({ id, displayName: id }));
+    },
+    montarRequest({ prompt, pdfs, modelo, apiKey }) {
+      const content = [];
+      for (const p of pdfs) {
+        const base64 = arrayBufferToBase64(p.buffer);
+        content.push({
+          type:      'input_file',
+          filename:  'documento.pdf',
+          file_data: `data:${p.mimeType || 'application/pdf'};base64,${base64}`,
+        });
+      }
+      content.push({ type: 'input_text', text: prompt });
+
+      return {
+        url: 'https://api.openai.com/v1/responses',
+        headers: {
+          'Authorization': `Bearer ${apiKey}`,
+          'Content-Type':  'application/json',
+        },
+        body: {
+          model: modelo,
+          input: [{ role: 'user', content }],
+          text:  { format: { type: 'json_object' } },
+          temperature:       0,
+          max_output_tokens: 1500,
+        },
+      };
+    },
+    extrairTexto(json) {
+      // Responses API: output[].content[] com itens type:'output_text'
+      const output = json.output || [];
+      for (const item of output) {
+        for (const c of (item.content || [])) {
+          if (c.type === 'output_text' && c.text) return c.text.trim();
+        }
+      }
+      // Fallback: campo direto "output_text" agregado pela SDK
+      return (json.output_text || '').trim();
+    },
+    extrairErro(json, status) {
+      return json.error?.message || `Erro HTTP ${status}`;
+    },
+  },
 };
 
 // ---------- ESTADO ----------
