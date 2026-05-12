@@ -94,7 +94,8 @@ let app = {
   syncTimer:       null,
   sessaoParaApagar: null,   // ID da sessão aguardando confirmação de exclusão
   config: {
-    geminiKey:   '',
+    provedor:    'gemini',
+    apiKey:      '',
     modelo:      'gemini-2.5-flash-preview-04-17',
     profundidade:'resumo',
   },
@@ -786,7 +787,7 @@ function renderizarCardCompleto(d, prop) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
         Salvar
       </button>
-      ${app.config.geminiKey
+      ${app.config.apiKey
         ? `<button id="btn-gerar-ia" class="btn btn-ia btn-sm">
              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
              Gerar Análise
@@ -795,7 +796,7 @@ function renderizarCardCompleto(d, prop) {
       }
     </div>
 
-    ${app.config.geminiKey ? (
+    ${app.config.apiKey ? (
       ehDestaquePreferencia(d) ? `
     <div id="ia-manual-area" class="ia-manual-area ia-manual-preferencia">
       <p class="ia-manual-hint">
@@ -888,6 +889,17 @@ async function carregarConfiguracao() {
   return new Promise(resolve => {
     chrome.storage.local.get('config', data => {
       if (data.config) Object.assign(app.config, data.config);
+
+      // Migração silenciosa: config legada (geminiKey) → schema atual (apiKey + provedor)
+      // Não removemos `geminiKey` da config nesta etapa para permitir downgrade indolor.
+      if (app.config.geminiKey && !app.config.apiKey) {
+        app.config.apiKey   = app.config.geminiKey;
+        app.config.provedor = app.config.provedor || 'gemini';
+        chrome.storage.local.set({ config: app.config });
+        console.log('[config] migração silenciosa: geminiKey → apiKey (provedor=gemini)');
+      }
+      if (!app.config.provedor) app.config.provedor = 'gemini';
+
       resolve();
     });
   });
@@ -899,16 +911,19 @@ async function salvarConfiguracao() {
   const profund    = document.getElementById('config-profundidade').value;
   const status     = document.getElementById('config-status-ia');
 
-  if (key && !key.startsWith('AIza')) {
-    status.textContent  = '⚠ A chave deve começar com "AIza". Verifique se copiou corretamente.';
+  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
+  if (key && !provedor.regexChave.test(key)) {
+    status.textContent  = `⚠ Formato de chave inválido para ${provedor.label}.`;
     status.className    = 'config-status erro';
     status.style.display = 'block';
     return;
   }
 
-  app.config.geminiKey    = key;
+  app.config.apiKey       = key;
   app.config.modelo       = modelo;
   app.config.profundidade = profund;
+  // Limpa campo legado após salvar pelo novo schema
+  delete app.config.geminiKey;
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
 
@@ -917,23 +932,25 @@ async function salvarConfiguracao() {
 }
 
 async function abrirConfiguracoes() {
-  document.getElementById('config-gemini-key').value   = app.config.geminiKey   || '';
+  document.getElementById('config-gemini-key').value   = app.config.apiKey      || '';
   document.getElementById('config-profundidade').value = app.config.profundidade || 'resumo';
   document.getElementById('config-status-ia').style.display   = 'none';
   document.getElementById('modelos-status').style.display      = 'none';
   document.getElementById('modal-configuracoes').style.display = 'flex';
 
   // Se já tem chave salva, carrega a lista de modelos automaticamente
-  if (app.config.geminiKey) {
+  if (app.config.apiKey) {
     await carregarModelosDisponiveis();
   }
 }
 
 async function carregarModelosDisponiveis() {
-  const key    = document.getElementById('config-gemini-key').value.trim() || app.config.geminiKey;
+  const key    = document.getElementById('config-gemini-key').value.trim() || app.config.apiKey;
   const select = document.getElementById('config-modelo');
   const status = document.getElementById('modelos-status');
   const btn    = document.getElementById('btn-carregar-modelos');
+
+  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
 
   if (!key) {
     status.textContent   = 'Cole sua chave de API primeiro.';
@@ -946,31 +963,16 @@ async function carregarModelosDisponiveis() {
   status.style.display = 'none';
 
   try {
-    const res  = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
-    const json = await res.json();
-
-    if (!res.ok) throw new Error(json.error?.message || `Erro ${res.status}`);
-
-    // Filtra apenas modelos que suportam generateContent e são da família Gemini
-    const modelos = (json.models || [])
-      .filter(m =>
-        (m.supportedGenerationMethods || []).includes('generateContent') &&
-        m.name.includes('gemini')
-      )
-      .sort((a, b) => b.name.localeCompare(a.name)); // mais recentes primeiro
+    const modelos = (await provedor.listarModelos(key))
+      .sort((a, b) => (b.id || '').localeCompare(a.id || '')); // mais recentes primeiro
 
     if (!modelos.length) throw new Error('Nenhum modelo compatível encontrado.');
 
-    // Popular o select com os modelos reais
     const modeloSalvo = app.config.modelo;
     select.innerHTML = modelos.map(m => {
-      const id       = m.name.replace('models/', '');
-      const display  = m.displayName || id;
-      const selected = id === modeloSalvo ? 'selected' : '';
-      return `<option value="${id}" ${selected}>${display}</option>`;
+      const selected = m.id === modeloSalvo ? 'selected' : '';
+      return `<option value="${m.id}" ${selected}>${m.displayName || m.id}</option>`;
     }).join('');
-
-    // Se o modelo salvo não está mais disponível, seleciona o primeiro
     if (!select.value) select.selectedIndex = 0;
 
     status.textContent   = `✓ ${modelos.length} modelos carregados. Selecione o desejado.`;
@@ -992,6 +994,8 @@ async function testarConexaoIA() {
   const modelo = document.getElementById('config-modelo').value;
   const status = document.getElementById('config-status-ia');
 
+  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
+
   if (!key) {
     status.textContent   = 'Cole sua chave de API antes de testar.';
     status.className     = 'config-status erro';
@@ -999,28 +1003,20 @@ async function testarConexaoIA() {
     return;
   }
 
-  status.textContent   = '⏳ Testando conexão com o Gemini...';
+  status.textContent   = `⏳ Testando conexão com ${provedor.label}...`;
   status.className     = 'config-status teste';
   status.style.display = 'block';
 
   try {
-    const url  = `${GEMINI_BASE}/${modelo}:generateContent?key=${key}`;
-    const body = {
-      contents: [{
-        parts: [{ text: 'Responda apenas: OK' }]
-      }]
-    };
-    const res  = await fetch(url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const { url, headers, body } = provedor.montarRequest({
+      prompt: 'Responda apenas: OK',
+      pdfs:   [],
+      modelo,
+      apiKey: key,
     });
+    const res  = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
     const json = await res.json();
-
-    if (!res.ok) {
-      const msg = json.error?.message || `Erro HTTP ${res.status}`;
-      throw new Error(msg);
-    }
+    if (!res.ok) throw new Error(provedor.extrairErro(json, res.status));
 
     status.textContent  = '✓ Conexão bem-sucedida! A IA está pronta para uso.';
     status.className    = 'config-status ok';
@@ -1742,9 +1738,9 @@ async function gerarExplicacaoIA() {
   const prop = app.proposicaoAtiva;
   if (!d || !prop) return;
 
-  const key = app.config.geminiKey;
+  const key = app.config.apiKey;
   if (!key) {
-    mostrarToast('Configure a chave Gemini em ⚙ Configurações.', 'aviso');
+    mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso');
     return;
   }
 
@@ -1803,7 +1799,7 @@ async function gerarExplicacaoIA() {
       infoEmenda,
       modelo:     app.config.modelo,
       apiKey:     key,
-      provedorId: 'gemini',
+      provedorId: app.config.provedor || 'gemini',
     });
 
     // Converte bullets em lista formatada com "• "
