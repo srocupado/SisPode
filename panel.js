@@ -35,7 +35,8 @@ const PROVEDORES = {
     id:    'gemini',
     label: 'Google Gemini',
     regexChave:  /^AIza[\w-]{20,}$/,
-    hintChave:   'Pegue sua chave em aistudio.google.com → Get API key',
+    placeholderChave: 'AIzaSy...',
+    hintChave:   'Obtenha em aistudio.google.com → Get API key',
     modelosFallback: [
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro'   },
@@ -163,6 +164,10 @@ function registrarEventos() {
       const input = document.getElementById('config-gemini-key');
       input.type  = input.type === 'password' ? 'text' : 'password';
     });
+
+  // Troca de provedor: limpa chave/modelo, atualiza hint e placeholder
+  document.getElementById('config-provedor')
+    .addEventListener('change', () => aoTrocarProvedor({ limparChave: true }));
 
   // Fechar modais via data-fecha
   document.querySelectorAll('[data-fecha]').forEach(btn => {
@@ -906,12 +911,13 @@ async function carregarConfiguracao() {
 }
 
 async function salvarConfiguracao() {
+  const provedorId = document.getElementById('config-provedor').value;
   const key        = document.getElementById('config-gemini-key').value.trim();
   const modelo     = document.getElementById('config-modelo').value;
   const profund    = document.getElementById('config-profundidade').value;
   const status     = document.getElementById('config-status-ia');
 
-  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
+  const provedor = PROVEDORES[provedorId] || PROVEDORES.gemini;
   if (key && !provedor.regexChave.test(key)) {
     status.textContent  = `⚠ Formato de chave inválido para ${provedor.label}.`;
     status.className    = 'config-status erro';
@@ -919,6 +925,7 @@ async function salvarConfiguracao() {
     return;
   }
 
+  app.config.provedor     = provedorId;
   app.config.apiKey       = key;
   app.config.modelo       = modelo;
   app.config.profundidade = profund;
@@ -932,16 +939,45 @@ async function salvarConfiguracao() {
 }
 
 async function abrirConfiguracoes() {
+  document.getElementById('config-provedor').value     = app.config.provedor    || 'gemini';
   document.getElementById('config-gemini-key').value   = app.config.apiKey      || '';
   document.getElementById('config-profundidade').value = app.config.profundidade || 'resumo';
   document.getElementById('config-status-ia').style.display   = 'none';
   document.getElementById('modelos-status').style.display      = 'none';
   document.getElementById('modal-configuracoes').style.display = 'flex';
 
+  // Atualiza placeholder e hint conforme o provedor atual (sem limpar a chave salva)
+  aoTrocarProvedor({ limparChave: false });
+
   // Se já tem chave salva, carrega a lista de modelos automaticamente
   if (app.config.apiKey) {
     await carregarModelosDisponiveis();
   }
+}
+
+/** Atualiza UI do modal quando o usuário troca o provedor.
+ *  - Atualiza placeholder do input e hint abaixo.
+ *  - Limpa o select de modelos (precisa carregar de novo).
+ *  - Se `limparChave` (mudança manual), também esvazia o input. */
+function aoTrocarProvedor({ limparChave }) {
+  const id       = document.getElementById('config-provedor').value;
+  const provedor = PROVEDORES[id];
+  if (!provedor) return;
+
+  const input = document.getElementById('config-gemini-key');
+  input.placeholder = provedor.placeholderChave || 'Cole aqui sua chave';
+  if (limparChave) input.value = '';
+
+  const hint = document.getElementById('config-hint-chave');
+  if (hint) hint.textContent = provedor.hintChave || '';
+
+  const select = document.getElementById('config-modelo');
+  select.innerHTML = '<option value="">— clique em "Carregar disponíveis" —</option>';
+
+  const status = document.getElementById('modelos-status');
+  if (status) status.style.display = 'none';
+  const statusIA = document.getElementById('config-status-ia');
+  if (statusIA) statusIA.style.display = 'none';
 }
 
 async function carregarModelosDisponiveis() {
@@ -950,7 +986,8 @@ async function carregarModelosDisponiveis() {
   const status = document.getElementById('modelos-status');
   const btn    = document.getElementById('btn-carregar-modelos');
 
-  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
+  const provedorId = document.getElementById('config-provedor').value || app.config.provedor;
+  const provedor   = PROVEDORES[provedorId] || PROVEDORES.gemini;
 
   if (!key) {
     status.textContent   = 'Cole sua chave de API primeiro.';
@@ -994,7 +1031,8 @@ async function testarConexaoIA() {
   const modelo = document.getElementById('config-modelo').value;
   const status = document.getElementById('config-status-ia');
 
-  const provedor = PROVEDORES[app.config.provedor] || PROVEDORES.gemini;
+  const provedorId = document.getElementById('config-provedor').value || app.config.provedor;
+  const provedor   = PROVEDORES[provedorId] || PROVEDORES.gemini;
 
   if (!key) {
     status.textContent   = 'Cole sua chave de API antes de testar.';

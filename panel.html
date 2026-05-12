@@ -232,19 +232,27 @@
             Integração com Inteligência Artificial
           </div>
           <p class="config-desc">
-            A IA gera automaticamente a explicação de cada destaque com base na descrição e ementa da proposição.<br>
-            Utilize o <strong>Google Gemini</strong> (gratuito). Obtenha sua chave em
-            <a href="https://aistudio.google.com" target="_blank" class="link">aistudio.google.com</a>
-            → <em>Get API key → Create API key</em>.
+            A IA gera automaticamente a explicação de cada destaque com base na descrição e ementa da proposição.
+            Escolha um provedor abaixo e cole sua chave de API.
           </p>
 
           <div class="form-group" style="margin-top:14px">
-            <label>Chave de API do Gemini</label>
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Chave de API</label>
             <div style="display:flex;gap:8px">
               <input type="password" id="config-gemini-key" class="form-input"
-                placeholder="Cole aqui sua chave (AIzaSy...)">
+                placeholder="Cole aqui sua chave">
               <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
             </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--cinza-texto);margin-top:4px;display:block"></small>
           </div>
 
           <div id="config-status-ia" class="config-status" style="display:none"></div>
