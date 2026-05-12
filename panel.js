@@ -152,6 +152,70 @@ const PROVEDORES = {
       return json.error?.message || `Erro HTTP ${status}`;
     },
   },
+
+  anthropic: {
+    id:    'anthropic',
+    label: 'Anthropic (Claude)',
+    regexChave:  /^sk-ant-[\w-]{20,}$/,
+    placeholderChave: 'sk-ant-...',
+    hintChave:   'Obtenha em console.anthropic.com → Settings → API Keys',
+    // Anthropic não tem endpoint público de listagem de modelos —
+    // mantemos lista estática curada (atualizar manualmente quando sair novo).
+    modelosFallback: [
+      { id: 'claude-opus-4-7',           displayName: 'Claude Opus 4.7'   },
+      { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5'  },
+    ],
+    async listarModelos(_apiKey) {
+      return this.modelosFallback;
+    },
+    montarRequest({ prompt, pdfs, modelo, apiKey }) {
+      const content = [];
+      for (const p of pdfs) {
+        content.push({
+          type:   'document',
+          source: {
+            type:       'base64',
+            media_type: p.mimeType || 'application/pdf',
+            data:       arrayBufferToBase64(p.buffer),
+          },
+        });
+      }
+      // Reforça instrução de JSON puro no prompt (Anthropic não tem flag
+      // nativa equivalente a responseMimeType; parsing tolerante cuida do resto)
+      const promptComJSON = prompt
+        + '\n\nIMPORTANTE: responda APENAS com JSON válido no formato'
+        + ' {"votoSim":"","votoNao":"","explicacao":""} — sem markdown,'
+        + ' sem fences ```, sem texto antes ou depois do JSON.';
+      content.push({ type: 'text', text: promptComJSON });
+
+      return {
+        url: 'https://api.anthropic.com/v1/messages',
+        headers: {
+          'x-api-key':         apiKey,
+          'anthropic-version': '2023-06-01',
+          'anthropic-dangerous-direct-browser-access': 'true',
+          'Content-Type':      'application/json',
+        },
+        body: {
+          model:       modelo,
+          max_tokens:  1500,
+          temperature: 0,
+          messages: [{ role: 'user', content }],
+        },
+      };
+    },
+    extrairTexto(json) {
+      // Messages API: content[] com itens type:'text'
+      for (const item of (json.content || [])) {
+        if (item.type === 'text' && item.text) return item.text.trim();
+      }
+      return '';
+    },
+    extrairErro(json, status) {
+      return json.error?.message || json.error?.type || `Erro HTTP ${status}`;
+    },
+  },
 };
 
 // ---------- ESTADO ----------
