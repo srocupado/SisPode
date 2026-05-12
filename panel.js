@@ -24,6 +24,65 @@ const SITUACAO_CLASSES = {
   'nao admitido':    'status-rejeitado',
 };
 
+// ---------- PROVEDORES DE IA ----------
+// Cada provedor encapsula suas particularidades (auth, formato de body,
+// PDF inline, listagem de modelos, extração de texto da resposta).
+// `montarRequest({prompt, pdfs, modelo, apiKey})` retorna {url, headers, body}.
+// `extrairTexto(json)` retorna a string bruta que será passada a JSON.parse
+// (com fallback tolerante na função `gerarAnalise`).
+const PROVEDORES = {
+  gemini: {
+    id:    'gemini',
+    label: 'Google Gemini',
+    regexChave:  /^AIza[\w-]{20,}$/,
+    hintChave:   'Pegue sua chave em aistudio.google.com → Get API key',
+    modelosFallback: [
+      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro'   },
+    ],
+    async listarModelos(apiKey) {
+      const res = await fetch(`${GEMINI_BASE}?key=${apiKey}&pageSize=50`);
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
+      return (json.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent')
+                  && (m.name || '').includes('gemini'))
+        .map(m => ({
+          id:          (m.name || '').replace(/^models\//, ''),
+          displayName: m.displayName || m.name,
+        }));
+    },
+    montarRequest({ prompt, pdfs, modelo, apiKey }) {
+      const parts = [];
+      for (const p of pdfs) {
+        parts.push({ inline_data: {
+          mime_type: p.mimeType || 'application/pdf',
+          data:      arrayBufferToBase64(p.buffer),
+        }});
+      }
+      parts.push({ text: prompt });
+      return {
+        url: `${GEMINI_BASE}/${modelo}:generateContent?key=${apiKey}`,
+        headers: { 'Content-Type': 'application/json' },
+        body: {
+          contents: [{ parts }],
+          generationConfig: {
+            temperature:      0,
+            maxOutputTokens:  1500,
+            responseMimeType: 'application/json',
+          },
+        },
+      };
+    },
+    extrairTexto(json) {
+      return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    },
+    extrairErro(json, status) {
+      return json.error?.message || `Erro HTTP ${status}`;
+    },
+  },
+};
+
 // ---------- ESTADO ----------
 let app = {
   sessaoAtual:     null,
@@ -1641,6 +1700,43 @@ function arrayBufferToBase64(buffer) {
   return btoa(parts.join(''));
 }
 
+/** Chama o provedor de IA ativo e retorna {votoSim, votoNao, explicacao}.
+ *  Normaliza infoEmenda em array de PDFs (0, 1 ou 2) e delega construção
+ *  da request ao provedor. JSON.parse tolerante com fallback para texto puro. */
+async function gerarAnalise({ prompt, infoEmenda, modelo, apiKey, provedorId = 'gemini' }) {
+  const provedor = PROVEDORES[provedorId];
+  if (!provedor) throw new Error(`Provedor desconhecido: ${provedorId}`);
+
+  const pdfs = [];
+  if (infoEmenda?.tipo === 'destaque_preferencia') {
+    if (infoEmenda.pdfPreferencia) pdfs.push({ buffer: infoEmenda.pdfPreferencia, mimeType: 'application/pdf' });
+    if (infoEmenda.pdfComparado)   pdfs.push({ buffer: infoEmenda.pdfComparado,   mimeType: 'application/pdf' });
+  } else if (infoEmenda?.pdfBuffer) {
+    pdfs.push({ buffer: infoEmenda.pdfBuffer, mimeType: 'application/pdf' });
+  }
+
+  const { url, headers, body } = provedor.montarRequest({ prompt, pdfs, modelo, apiKey });
+  console.log(`[IA] request ${provedor.label}: ${pdfs.length} PDF(s) + ${prompt.length} chars de prompt`);
+
+  const res  = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
+  const json = await res.json();
+  if (!res.ok) throw new Error(provedor.extrairErro(json, res.status));
+
+  const textoRaw = provedor.extrairTexto(json);
+  if (!textoRaw) throw new Error('Resposta vazia da IA.');
+
+  try {
+    return JSON.parse(textoRaw);
+  } catch (_) {
+    // Fallback tolerante: extrai primeiro objeto JSON (útil para fences ```json)
+    const match = textoRaw.match(/\{[\s\S]*\}/);
+    if (match) {
+      try { return JSON.parse(match[0]); } catch (_) {}
+    }
+    return { votoSim: '', votoNao: '', explicacao: textoRaw };
+  }
+}
+
 async function gerarExplicacaoIA() {
   const d    = app.destinqueAtivo;
   const prop = app.proposicaoAtiva;
@@ -1701,61 +1797,14 @@ async function gerarExplicacaoIA() {
 
     if (btn) btn.innerHTML = `<span class="loading-spinner"></span> Gerando análise...`;
 
-    const prompt = montarPrompt(d, prop, infoEmenda);
-    const url    = `${GEMINI_BASE}/${app.config.modelo}:generateContent?key=${key}`;
-
-    // Monta parts: PDF(s) inline (substitutivo imagem) ou texto extraído/prompt puro
-    let parts;
-    if (infoEmenda?.tipo === 'destaque_preferencia' && (infoEmenda?.pdfPreferencia || infoEmenda?.pdfComparado)) {
-      parts = [];
-      if (infoEmenda.pdfPreferencia) {
-        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfPreferencia) } });
-      }
-      if (infoEmenda.pdfComparado) {
-        parts.push({ inline_data: { mime_type: 'application/pdf', data: arrayBufferToBase64(infoEmenda.pdfComparado) } });
-      }
-      parts.push({ text: prompt });
-      console.log('[IA] request Gemini: ', parts.length - 1, 'PDF(s) inline +', prompt.length, 'chars de prompt');
-    } else if (infoEmenda?.pdfBuffer) {
-      const base64PDF = arrayBufferToBase64(infoEmenda.pdfBuffer);
-      parts = [
-        { inline_data: { mime_type: 'application/pdf', data: base64PDF } },
-        { text: prompt },
-      ];
-      console.log('[IA] request Gemini: inline_data PDF +', prompt.length, 'chars de prompt');
-    } else {
-      parts = [{ text: prompt }];
-    }
-
-    const body   = {
-      contents: [{ parts }],
-      generationConfig: {
-        temperature:      0,
-        maxOutputTokens:  1500,
-        responseMimeType: 'application/json',
-      },
-    };
-
-    const res  = await fetch(url, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify(body),
+    const prompt    = montarPrompt(d, prop, infoEmenda);
+    const resultado = await gerarAnalise({
+      prompt,
+      infoEmenda,
+      modelo:     app.config.modelo,
+      apiKey:     key,
+      provedorId: 'gemini',
     });
-    const json = await res.json();
-
-    if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
-
-    const textoRaw = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-    if (!textoRaw) throw new Error('Resposta vazia da IA.');
-
-    // Parseia o JSON retornado pela IA
-    let resultado;
-    try {
-      resultado = JSON.parse(textoRaw);
-    } catch (_) {
-      // fallback: trata como texto puro na explicação
-      resultado = { votoSim: '', votoNao: '', explicacao: textoRaw };
-    }
 
     // Converte bullets em lista formatada com "• "
     function formatarExplicacao(texto) {
