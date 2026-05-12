@@ -22,9 +22,9 @@ Analise e oriente a votação de destaques de projetos de lei nas sessões do Pl
 - Campos editáveis por destaque: **Voto Sim**, **Voto Não**, **Explicação** e **Orientação** — com salvamento automático
 - Link direto para a ficha da proposição na Câmara dos Deputados (abre no navegador)
 
-**Análise por IA (Google Gemini)**
+**Análise por IA (Gemini, OpenAI ou Anthropic)**
 
-O sistema classifica automaticamente cada destaque e busca o documento-fonte correto para envio ao Gemini, evitando alucinações:
+O usuário escolhe um dos três provedores (Google Gemini, OpenAI ChatGPT ou Anthropic Claude) e fornece a chave de API correspondente. O sistema classifica automaticamente cada destaque e busca o documento-fonte correto para envio ao modelo, evitando alucinações:
 
 | Tipo de destaque | Documento buscado |
 |---|---|
@@ -35,7 +35,7 @@ O sistema classifica automaticamente cada destaque e busca o documento-fonte cor
 | DVS de dispositivo do PL original (CASO 3) | PDF do próprio destaque ou inteiro teor via API |
 | **Destaque de Preferência (CASO 4)** | **Upload manual de 2 PDFs pelo usuário** |
 
-- Todos os documentos são enviados ao Gemini como **PDF nativo** (`inline_data`), preservando a formatação e evitando truncamento de texto
+- Todos os documentos são enviados ao modelo como **PDF nativo** (no formato específico de cada provedor: `inline_data` no Gemini, `input_file` na Responses API da OpenAI, `document` block no Anthropic), preservando a formatação e evitando truncamento de texto
 - O prompt instrui a IA a localizar o dispositivo exato (artigo, inciso, parágrafo) e descrever seu conteúdo com verbos normativos — sem inventar, sem usar conhecimento externo
 - **Destaque de Preferência**: o modal exibe automaticamente 2 inputs rotulados ("PDF que recebe preferência" / "PDF a ser comparado"); a IA compara as duas redações e aponta as diferenças
 - Suporte a inserção manual de texto ou PDF para substituir a busca automática quando necessário
@@ -89,11 +89,21 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 
 ## Configuração
 
-### Google Gemini (para análise automática de destaques)
+### Provedor de IA (para análise automática de destaques)
 
-1. Acesse [aistudio.google.com](https://aistudio.google.com) → **Get API key** → **Create API key**
-2. Na extensão, abra **⚙ Configurações** → cole a chave no campo **Chave de API do Gemini**
-3. Clique em **Carregar disponíveis** para listar os modelos disponíveis e selecionar o desejado
+O usuário pode escolher entre três provedores. Apenas um fica ativo por vez — ao trocar, é necessário colar a chave do novo provedor.
+
+| Provedor | Onde obter a chave | Formato da chave |
+|---|---|---|
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com) → Get API key | `AIzaSy...` |
+| OpenAI (ChatGPT) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `sk-...` |
+| Anthropic (Claude) | [console.anthropic.com](https://console.anthropic.com) → Settings → API Keys | `sk-ant-...` |
+
+Na extensão:
+
+1. Abra **⚙ Configurações** → selecione o provedor no campo **Provedor de IA**
+2. Cole a chave de API no campo abaixo
+3. Clique em **Carregar disponíveis** para listar os modelos suportados (estática para Anthropic; dinâmica para Gemini e OpenAI)
 4. Escolha a profundidade da análise: **Resumo**, **Completo** ou **Com argumentos**
 5. Use **Testar conexão** para verificar se a chave está funcionando
 
@@ -130,7 +140,9 @@ sispode/
 | [Dados Abertos da Câmara](https://dadosabertos.camara.leg.br) | Proposições, destaques, votações, deputados |
 | [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento e documentos legislativos |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
-| [Google Gemini](https://aistudio.google.com) | Análise automática de destaques por IA |
+| [Google Gemini](https://aistudio.google.com) | Provedor de IA para análise de destaques |
+| [OpenAI](https://platform.openai.com) | Provedor de IA para análise de destaques |
+| [Anthropic](https://console.anthropic.com) | Provedor de IA para análise de destaques |
 | [Codetabs Proxy](https://codetabs.com) | Proxy CORS para acesso a páginas do portal da Câmara |
 
 ---
@@ -147,4 +159,4 @@ sispode/
 
 - Google Chrome (versão compatível com Manifest V3)
 - Conexão com internet para consultar as APIs da Câmara
-- Chave de API do Google Gemini (necessária para geração de análises por IA)
+- Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA

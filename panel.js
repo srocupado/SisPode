@@ -295,7 +295,7 @@ function registrarEventos() {
 
   document.getElementById('btn-toggle-key')
     .addEventListener('click', () => {
-      const input = document.getElementById('config-gemini-key');
+      const input = document.getElementById('config-api-key');
       input.type  = input.type === 'password' ? 'text' : 'password';
     });
 
@@ -931,7 +931,7 @@ function renderizarCardCompleto(d, prop) {
              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
              Gerar Análise
            </button>`
-        : `<span class="ia-sem-chave">Configure a chave Gemini em ⚙ Configurações</span>`
+        : `<span class="ia-sem-chave">Configure a chave de API em ⚙ Configurações</span>`
       }
     </div>
 
@@ -1021,7 +1021,7 @@ function esc(str) {
 }
 
 // ============================================================
-//  CONFIGURAÇÕES E INTEGRAÇÃO GEMINI AI
+//  CONFIGURAÇÕES E INTEGRAÇÃO COM PROVEDORES DE IA
 // ============================================================
 
 async function carregarConfiguracao() {
@@ -1046,7 +1046,7 @@ async function carregarConfiguracao() {
 
 async function salvarConfiguracao() {
   const provedorId = document.getElementById('config-provedor').value;
-  const key        = document.getElementById('config-gemini-key').value.trim();
+  const key        = document.getElementById('config-api-key').value.trim();
   const modelo     = document.getElementById('config-modelo').value;
   const profund    = document.getElementById('config-profundidade').value;
   const status     = document.getElementById('config-status-ia');
@@ -1074,7 +1074,7 @@ async function salvarConfiguracao() {
 
 async function abrirConfiguracoes() {
   document.getElementById('config-provedor').value     = app.config.provedor    || 'gemini';
-  document.getElementById('config-gemini-key').value   = app.config.apiKey      || '';
+  document.getElementById('config-api-key').value   = app.config.apiKey      || '';
   document.getElementById('config-profundidade').value = app.config.profundidade || 'resumo';
   document.getElementById('config-status-ia').style.display   = 'none';
   document.getElementById('modelos-status').style.display      = 'none';
@@ -1098,7 +1098,7 @@ function aoTrocarProvedor({ limparChave }) {
   const provedor = PROVEDORES[id];
   if (!provedor) return;
 
-  const input = document.getElementById('config-gemini-key');
+  const input = document.getElementById('config-api-key');
   input.placeholder = provedor.placeholderChave || 'Cole aqui sua chave';
   if (limparChave) input.value = '';
 
@@ -1115,7 +1115,7 @@ function aoTrocarProvedor({ limparChave }) {
 }
 
 async function carregarModelosDisponiveis() {
-  const key    = document.getElementById('config-gemini-key').value.trim() || app.config.apiKey;
+  const key    = document.getElementById('config-api-key').value.trim() || app.config.apiKey;
   const select = document.getElementById('config-modelo');
   const status = document.getElementById('modelos-status');
   const btn    = document.getElementById('btn-carregar-modelos');
@@ -1161,7 +1161,7 @@ async function carregarModelosDisponiveis() {
 }
 
 async function testarConexaoIA() {
-  const key    = document.getElementById('config-gemini-key').value.trim();
+  const key    = document.getElementById('config-api-key').value.trim();
   const modelo = document.getElementById('config-modelo').value;
   const status = document.getElementById('config-status-ia');
 
