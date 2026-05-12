@@ -2135,10 +2135,12 @@ ${eSupressivo ? '→ O destaque é SUPRESSIVO: descreva o conteúdo atual do dis
     : isSubstitutivo && referenciaLeg
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
-→ Localize o ${referenciaLeg.toUpperCase()} no ${fonteRef}
-→ Descreva EXATAMENTE o que esse trecho diz: quem é afetado, o que é autorizado/proibido/determinado, quais condições e exceções existem
-→ Cada frase deve descrever um aspecto concreto do conteúdo normativo desse trecho
-→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`
+→ ATENÇÃO: o ${fonteRef} pode conter o PARECER DO RELATOR (texto narrativo, análise, justificativa) seguido do SUBSTITUTIVO (texto normativo do projeto). Ignore integralmente a parte narrativa do parecer e analise APENAS o texto do substitutivo. O substitutivo geralmente começa após um cabeçalho como "SUBSTITUTIVO", "SUBSTITUTIVO AO PROJETO DE LEI" ou "PROJETO DE LEI Nº .../...".
+→ Localize o ${referenciaLeg.toUpperCase()} dentro do texto do substitutivo (não nas considerações do relator).
+→ Descreva EXATAMENTE o que esse trecho diz: quem é afetado, o que é autorizado/proibido/determinado, quais condições e exceções existem.
+→ Cada frase deve descrever um aspecto concreto do conteúdo normativo desse trecho.
+→ Se o ${referenciaLeg.toUpperCase()} aparecer apenas no parecer (citado pelo relator) mas NÃO existir no texto do substitutivo, retorne em "explicacao": "⚠ ${referenciaLeg.toUpperCase()} não encontrado no texto do substitutivo. Cole o texto manualmente para análise precisa."
+→ NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}.`
     : isEmenda
     ? `
 REGRA CRÍTICA PARA A EXPLICAÇÃO:
