@@ -1935,9 +1935,9 @@ async function gerarExplicacaoIA() {
         const partes = [];
         if (infoEmenda.pdfPreferencia) partes.push(`preferência ${(infoEmenda.pdfPreferencia.byteLength / 1024).toFixed(0)} KB`);
         if (infoEmenda.pdfComparado)   partes.push(`comparado ${(infoEmenda.pdfComparado.byteLength / 1024).toFixed(0)} KB`);
-        mostrarToast(`✓ PDFs de preferência (${partes.join(' + ')}) — enviando ao Gemini`, 'sucesso');
+        mostrarToast(`✓ PDFs de preferência (${partes.join(' + ')}) — enviando ao ${PROVEDORES[app.config.provedor]?.label || 'IA'}`, 'sucesso');
       } else if (infoEmenda.pdfBuffer) {
-        mostrarToast(`✓ PDF manual (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao Gemini`, 'sucesso');
+        mostrarToast(`✓ PDF manual (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao ${PROVEDORES[app.config.provedor]?.label || 'IA'}`, 'sucesso');
       } else {
         mostrarToast(`✓ Texto manual (${(infoEmenda.textoCompleto || '').length} chars)`, 'sucesso');
       }
@@ -1949,7 +1949,7 @@ async function gerarExplicacaoIA() {
         mostrarToast(`✓ Texto extraído (${infoEmenda.textoCompleto.length} chars, tipo: ${infoEmenda.tipo})`, 'sucesso');
         console.log('[IA] TEXTO ENVIADO À IA (primeiros 600):\n', infoEmenda.textoCompleto.slice(0, 600));
       } else if (infoEmenda?.pdfBuffer) {
-        mostrarToast(`✓ PDF capturado (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao Gemini`, 'sucesso');
+        mostrarToast(`✓ PDF capturado (${(infoEmenda.pdfBuffer.byteLength / 1024).toFixed(0)} KB) — enviando ao ${PROVEDORES[app.config.provedor]?.label || 'IA'}`, 'sucesso');
         console.log('[IA] PDF inline_data pronto:', infoEmenda.pdfBuffer.byteLength, 'bytes | referência:', infoEmenda.referenciaLeg);
       } else if (infoEmenda?.tipo === 'destaque_preferencia_manual') {
         mostrarToast('⚠ Destaque de Preferência: anexe os 2 PDFs (preferência + comparado) na entrada manual.', 'aviso');
@@ -2025,7 +2025,7 @@ async function gerarExplicacaoIA() {
     mostrarToast('Análise gerada com sucesso!', 'sucesso');
 
   } catch (err) {
-    console.error('Erro Gemini:', err);
+    console.error('Erro IA:', err);
     mostrarToast(`Erro ao gerar: ${err.message}`, 'erro');
   } finally {
     if (btn) {
