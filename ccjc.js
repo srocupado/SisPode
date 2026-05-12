@@ -1329,7 +1329,7 @@ function renderizarRevisao() {
     <div class="ccjc-revisao-header">
       <div class="ccjc-revisao-badge-wrap">
         <div class="ccjc-revisao-badge">${esc(proj.chave)}</div>
-        ${proj.idCamara ? `<a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${proj.idCamara}" target="_blank" class="ccjc-link-camara" title="Ver ficha na Câmara">↗ Câmara</a>` : ''}
+        ${proj.idCamara ? `<a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${proj.idCamara}" target="_blank" class="ccjc-link-camara" title="Ver ficha na Câmara">↗ Ficha da proposição</a>` : ''}
       </div>
       <div class="ccjc-revisao-info">
         <div class="ccjc-revisao-ementa">${esc(proj.ementa || 'Buscando dados na API...')}</div>
