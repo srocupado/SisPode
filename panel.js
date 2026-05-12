@@ -1603,34 +1603,59 @@ async function buscarTextoEmenda(d, prop) {
           const docPar1a = new DOMParser().parseFromString(htmlPar1a, 'text/html');
           let link1a = null;
 
-          // 1ª tentativa: link cujo filename começa com "SBT" (padrão Câmara para substitutivos)
+          // Helper: extrai codteor da URL (IDs são sequenciais → maior = mais recente)
+          const extraiCodteor = href => {
+            const m = (href || '').match(/codteor=(\d+)/i);
+            return m ? parseInt(m[1], 10) : 0;
+          };
+          const escolheMaisRecente = candidatos => {
+            if (!candidatos.length) return null;
+            candidatos.sort((a, b) => b.codteor - a.codteor);
+            if (candidatos.length > 1) {
+              console.log(`[IA] Caso 1a: ${candidatos.length} candidatos — usando codteor=${candidatos[0].codteor} (mais recente)`);
+            }
+            return resolverUrlCamara(candidatos[0].href);
+          };
+
+          // 1ª tentativa: links cujo filename casa com SBT ou PRLP (padrão Câmara)
+          const cand1 = [];
           for (const a of docPar1a.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
             const href = a.getAttribute('href') || '';
-            if (/filename[=+%]*SBT/i.test(href)) {
-              link1a = resolverUrlCamara(href);
-              break;
+            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) {
+              cand1.push({ href, codteor: extraiCodteor(href) });
             }
           }
+          link1a = escolheMaisRecente(cand1);
 
           // 2ª tentativa: linha que contém "substitut" mas NÃO só "parecer" — evita Parecer do Relator
           if (!link1a) {
+            const cand2 = [];
             for (const row of docPar1a.querySelectorAll('tr, li, p')) {
               const txt = row.textContent;
               if (/substitut/i.test(txt) && !/^\s*parecer\s*$/i.test(txt)) {
                 const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-                if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+                if (a) {
+                  const href = a.getAttribute('href') || '';
+                  cand2.push({ href, codteor: extraiCodteor(href) });
+                }
               }
             }
+            link1a = escolheMaisRecente(cand2);
           }
 
           // 3ª tentativa: qualquer linha com "relator" + link (última opção)
           if (!link1a) {
+            const cand3 = [];
             for (const row of docPar1a.querySelectorAll('tr, li, p')) {
               if (/relator/i.test(row.textContent)) {
                 const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
-                if (a) { link1a = resolverUrlCamara(a.getAttribute('href')); break; }
+                if (a) {
+                  const href = a.getAttribute('href') || '';
+                  cand3.push({ href, codteor: extraiCodteor(href) });
+                }
               }
             }
+            link1a = escolheMaisRecente(cand3);
           }
 
           console.log('[IA] Caso 1a link:', link1a);
