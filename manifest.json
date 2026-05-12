@@ -10,6 +10,8 @@
     "https://dadosabertos.camara.leg.br/*",
     "https://www.camara.leg.br/*",
     "https://generativelanguage.googleapis.com/*",
+    "https://api.openai.com/*",
+    "https://api.anthropic.com/*",
     "https://plenario-podemos-default-rtdb.firebaseio.com/*",
     "https://shrill-resonance-4d17.vinicius-const.workers.dev/*",
     "https://api.codetabs.com/*",
