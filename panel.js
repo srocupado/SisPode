@@ -1179,11 +1179,18 @@ async function testarConexaoIA() {
   status.className     = 'config-status teste';
   status.style.display = 'block';
 
+  const modeloEfetivo = (modelo && modelo.trim()) || provedor.modelosFallback?.[0]?.id;
+  if (!modeloEfetivo) {
+    status.textContent   = `Nenhum modelo disponível para ${provedor.label}.`;
+    status.className     = 'config-status erro';
+    return;
+  }
+
   try {
     const { url, headers, body } = provedor.montarRequest({
       prompt: 'Responda apenas: OK',
       pdfs:   [],
-      modelo,
+      modelo: modeloEfetivo,
       apiKey: key,
     });
     const res  = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
@@ -1875,6 +1882,10 @@ async function gerarAnalise({ prompt, infoEmenda, modelo, apiKey, provedorId = '
   const provedor = PROVEDORES[provedorId];
   if (!provedor) throw new Error(`Provedor desconhecido: ${provedorId}`);
 
+  // Fallback: usuário trocou de provedor sem escolher modelo no select
+  const modeloEfetivo = (modelo && modelo.trim()) || provedor.modelosFallback?.[0]?.id;
+  if (!modeloEfetivo) throw new Error(`Nenhum modelo disponível para ${provedor.label}.`);
+
   const pdfs = [];
   if (infoEmenda?.tipo === 'destaque_preferencia') {
     if (infoEmenda.pdfPreferencia) pdfs.push({ buffer: infoEmenda.pdfPreferencia, mimeType: 'application/pdf' });
@@ -1883,7 +1894,7 @@ async function gerarAnalise({ prompt, infoEmenda, modelo, apiKey, provedorId = '
     pdfs.push({ buffer: infoEmenda.pdfBuffer, mimeType: 'application/pdf' });
   }
 
-  const { url, headers, body } = provedor.montarRequest({ prompt, pdfs, modelo, apiKey });
+  const { url, headers, body } = provedor.montarRequest({ prompt, pdfs, modelo: modeloEfetivo, apiKey });
   console.log(`[IA] request ${provedor.label}: ${pdfs.length} PDF(s) + ${prompt.length} chars de prompt`);
 
   const res  = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body) });
