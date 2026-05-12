@@ -200,7 +200,6 @@ const PROVEDORES = {
         body: {
           model:       modelo,
           max_tokens:  1500,
-          temperature: 0,
           messages: [{ role: 'user', content }],
         },
       };
