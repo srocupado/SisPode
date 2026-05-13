@@ -536,6 +536,21 @@
           </div>
         </div>
 
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Manutenção do banco
+          </div>
+          <p class="config-desc">
+            A varredura percorre <code>/analises_pauta</code> e remove análises cuja proposição não está em nenhuma pauta atual.
+            A faxina também roda automaticamente quando você abre o painel.
+          </p>
+          <button id="btn-varrer-orfaos" class="btn btn-outline" style="margin-top:8px">
+            Varrer análises órfãs agora
+          </button>
+          <div id="varrer-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>

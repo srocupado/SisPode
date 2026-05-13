@@ -123,10 +123,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const inp = document.getElementById('config-api-key');
     inp.type = inp.type === 'password' ? 'text' : 'password';
   });
+  document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
 
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
   await carregarUltimaPauta();
+
+  // Varredura silenciosa de análises órfãs (sem bloquear UI)
+  varrerAnalisesOrfas(false).catch(() => {});
 });
 
 async function carregarConfig() {
@@ -146,11 +150,7 @@ async function onPdfSelecionado(ev) {
   mostrarToast('Lendo PDF...', 'info');
   try {
     const arrayBuffer = await file.arrayBuffer();
-    // pdf.js transfere/desanexa o ArrayBuffer que recebe — clonamos para
-    // poder também converter em base64 depois (persistência no Firebase).
-    const bufParaPdf  = arrayBuffer.slice(0);
-    const bufParaB64  = arrayBuffer.slice(0);
-    const texto       = await extrairTextoPdf(bufParaPdf);
+    const texto       = await extrairTextoPdf(arrayBuffer);
     const parsed      = parsearPauta(texto);
 
     if (!parsed.itens.length) {
@@ -164,7 +164,6 @@ async function onPdfSelecionado(ev) {
       periodo:    parsed.periodo || '',
       uploadedAt: new Date().toISOString(),
       uploadedBy: state.config?.nomeUsuario || 'equipe',
-      pdfBase64:  arrayBufferToBase64(bufParaB64),
       pdfNome:    file.name,
       itens:      parsed.itens.map(normalizarItem),
     };
@@ -1118,6 +1117,70 @@ function renderMarkdown(md) {
 }
 
 // ============================================================
+//  VARREDURA DE ANÁLISES ÓRFÃS
+// ============================================================
+/**
+ * Lê todas as pautas e todas as análises do Firebase. Para cada análise
+ * em /analises_pauta/{chave}/{parecerKey}, verifica se há ao menos uma
+ * pauta que contenha um item com aquela chave E parecerKey computada.
+ * Se não houver, DELETE.
+ *
+ * @param {boolean} verbose - se true mostra status no modal de Configurações.
+ */
+async function varrerAnalisesOrfas(verbose) {
+  const stEl = document.getElementById('varrer-status');
+  if (verbose && stEl) stEl.textContent = 'Coletando dados...';
+
+  try {
+    const [pautasRes, analisesRes] = await Promise.all([
+      fetch(`${FIREBASE_URL}/pautas.json`),
+      fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=false`),
+    ]);
+    const pautas   = pautasRes.ok   ? (await pautasRes.json())   : {};
+    const analises = analisesRes.ok ? (await analisesRes.json()) : {};
+    if (!analises) {
+      if (verbose && stEl) stEl.textContent = '✓ Nada para limpar.';
+      return { removidas: 0 };
+    }
+
+    // Conjunto de pares "chave|parecerKey" referenciados por alguma pauta
+    const refs = new Set();
+    for (const p of Object.values(pautas || {})) {
+      for (const it of (p?.itens || [])) {
+        if (!it?.chave) continue;
+        refs.add(`${it.chave}|${parecerKey(it)}`);
+      }
+    }
+
+    // Identifica órfãos
+    const deletes = [];
+    for (const [chave, porParecer] of Object.entries(analises)) {
+      if (!porParecer || typeof porParecer !== 'object') continue;
+      for (const pk of Object.keys(porParecer)) {
+        if (!refs.has(`${chave}|${pk}`)) {
+          const url = `${FIREBASE_URL}/analises_pauta/${encodeURIComponent(chave)}/${encodeURIComponent(pk)}.json`;
+          deletes.push(fetch(url, { method: 'DELETE' }).catch(() => {}));
+        }
+      }
+    }
+
+    await Promise.all(deletes);
+
+    if (verbose && stEl) {
+      stEl.textContent = deletes.length
+        ? `✓ ${deletes.length} análise(s) órfã(s) removida(s).`
+        : '✓ Nenhuma análise órfã encontrada.';
+    } else if (deletes.length) {
+      console.log(`[varredura] removidas ${deletes.length} análise(s) órfã(s)`);
+    }
+    return { removidas: deletes.length };
+  } catch (e) {
+    if (verbose && stEl) stEl.textContent = `Erro: ${e.message}`;
+    throw e;
+  }
+}
+
+// ============================================================
 //  SIDEBAR DE PAUTAS
 // ============================================================
 let _pautaParaApagar = null;
@@ -1614,11 +1677,19 @@ function abrirModalRemover(it) {
 
 async function confirmarRemover() {
   if (!_itemParaRemover) return;
-  const idx = state.pauta.itens.findIndex(it => it.chave === _itemParaRemover.chave);
+  const it = _itemParaRemover;
+  const idx = state.pauta.itens.findIndex(x => x.chave === it.chave);
   if (idx >= 0) state.pauta.itens.splice(idx, 1);
   _itemParaRemover = null;
   document.getElementById('modal-remover').style.display = 'none';
   renderizarPauta();
+
+  // Apaga a análise correspondente ao parecer registrado para este item,
+  // evitando deixar entrada órfã em /analises_pauta.
+  const pk = parecerKey(it);
+  fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(it.chave)}/${encodeURIComponent(pk)}.json`, { method: 'DELETE' })
+    .catch(() => {});
+
   fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
   mostrarToast('Item removido da pauta', 'sucesso');
 }
