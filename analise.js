@@ -1995,8 +1995,9 @@ function exportarPdf() {
   h3 { font-size: 11pt; margin: 12px 0 4px; color: #155724; }
   .cabecalho { border-bottom: 2px solid #00A859; padding-bottom: 10px; margin-bottom: 16px; }
   .meta { font-size: 10pt; color: #555; }
-  .item { page-break-inside: avoid; margin-bottom: 24px; padding-bottom: 14px; border-bottom: 1px dashed #ccc; }
+  .item { margin-bottom: 24px; padding-bottom: 14px; border-bottom: 1px dashed #ccc; }
   .item-titulo { font-size: 12pt; font-weight: 700; }
+  .item-cabecalho { page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; }
   .badges { margin: 4px 0 8px; font-size: 9pt; }
   .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; margin-right: 4px; font-weight: 600; }
   .badge-pode { background: #d3f5e2; color: #006633; }
@@ -2014,11 +2015,13 @@ function exportarPdf() {
   ${itens.length === 0 ? '<p class="empty">Pauta vazia.</p>' : ''}
   ${itens.map(it => `
     <div class="item">
-      <div class="item-titulo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano} ${it.ordem ? '· item ' + it.ordem : ''}</div>
-      <div class="meta">${escapeHtml(it.autorTexto || '')}${it.relator ? ' · Relator: Dep. ' + escapeHtml(it.relator.nome) + ' (' + it.relator.partido + '-' + it.relator.uf + ')' : ''}</div>
-      <div class="badges">
-        ${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}
-        ${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}</span>`).join('')}
+      <div class="item-cabecalho">
+        <div class="item-titulo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano} ${it.ordem ? '· item ' + it.ordem : ''}</div>
+        <div class="meta">${escapeHtml(it.autorTexto || '')}${it.relator ? ' · Relator: Dep. ' + escapeHtml(it.relator.nome) + ' (' + it.relator.partido + '-' + it.relator.uf + ')' : ''}</div>
+        <div class="badges">
+          ${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}
+          ${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}</span>`).join('')}
+        </div>
       </div>
       ${it.analise?.markdown
         ? renderMarkdown(it.analise.markdown)
