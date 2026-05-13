@@ -457,9 +457,13 @@ function renderCard(it) {
     <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
         <span class="an-analise-meta" data-role="analise-meta"></span>
+        <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
+        <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
+        <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
+      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
     </div>
   `;
 
@@ -470,6 +474,9 @@ function renderCard(it) {
     painel.classList.toggle('aberto');
   });
   card.querySelector('[data-role=btn-remover]').addEventListener('click', () => abrirModalRemover(it));
+  card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
+  card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
+  card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
   return card;
 }
 
@@ -963,9 +970,61 @@ function renderAnaliseCard(it) {
   painel.classList.add('aberto');
   btnTog.style.display = 'inline-flex';
   btnGer.style.display = 'none';
+  card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
 
-  metaEl.innerHTML = `Gerada em ${formatDataHora(it.analise.geradoEm)} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${it.analise.urlDocumento ? ' · <a href="' + it.analise.urlDocumento + '" target="_blank" rel="noopener">documento analisado</a>' : ''}`;
+  const fonte = it.analise.editadoEm
+    ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
+    : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
+  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${it.analise.urlDocumento ? ' · <a href="' + it.analise.urlDocumento + '" target="_blank" rel="noopener">documento analisado</a>' : ''}`;
   conteudo.innerHTML = renderMarkdown(it.analise.markdown);
+  conteudo.style.display = '';
+  card.querySelector('[data-role=analise-editor]').style.display = 'none';
+}
+
+function entrarEdicaoAnalise(it) {
+  if (!it.analise) return;
+  const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const conteudo = card.querySelector('[data-role=analise-conteudo]');
+  const editor   = card.querySelector('[data-role=analise-editor]');
+  editor.value = it.analise.markdown || '';
+  conteudo.style.display = 'none';
+  editor.style.display   = 'block';
+  card.querySelector('[data-role=btn-editar]').style.display = 'none';
+  card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'inline-flex';
+  card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'inline-flex';
+  editor.focus();
+}
+
+function sairEdicaoAnalise(it) {
+  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  card.querySelector('[data-role=analise-conteudo]').style.display = '';
+  card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
+  card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
+  card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
+}
+
+async function salvarEdicaoAnalise(it) {
+  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const editor = card.querySelector('[data-role=analise-editor]');
+  const novo   = editor.value.trim();
+  if (!novo) { mostrarToast('Análise não pode ficar vazia.', 'aviso'); return; }
+
+  it.analise = {
+    ...it.analise,
+    markdown:    novo,
+    editadoEm:   new Date().toISOString(),
+    editadoPor:  state.config?.nomeUsuario || 'equipe',
+  };
+
+  sairEdicaoAnalise(it);
+  renderAnaliseCard(it);
+  try {
+    await fbSalvarAnalise(it);
+    mostrarToast('✓ Análise atualizada', 'sucesso');
+  } catch (e) {
+    mostrarToast('Erro ao salvar no Firebase: ' + e.message, 'erro');
+  }
 }
 
 // ============================================================
