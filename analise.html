@@ -323,6 +323,24 @@
     }
 
     .an-secao-titulo:not(:first-child) { margin-top: 22px; }
+
+    .an-sync {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .an-sync-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-dim);
+    }
+    .an-sync.ok       .an-sync-dot { background: #2fcf7a; box-shadow: 0 0 0 3px rgba(47,207,122,.18); }
+    .an-sync.salvando .an-sync-dot { background: #ffcc66; animation: anpulse 1s ease-in-out infinite; }
+    .an-sync.offline  .an-sync-dot { background: #ff8e8e; }
+    .an-sync.pendente .an-sync-dot { background: #1fa5a5; }
+    @keyframes anpulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.6); opacity: .5; } }
   </style>
 </head>
 <body>
@@ -369,6 +387,10 @@
       <div class="an-topbar-info">
         <span class="title" id="pauta-titulo">Nenhuma pauta carregada</span>
         <span class="meta"  id="pauta-meta">Carregue o PDF da Pauta da Semana para começar</span>
+        <span class="an-sync" id="an-sync" style="display:none">
+          <span class="an-sync-dot"></span>
+          <span class="an-sync-texto"></span>
+        </span>
       </div>
       <div class="an-topbar-actions">
         <input type="search" id="busca-itens" class="form-input" placeholder="Buscar PL/PLP/PEC... ou ementa" style="min-width:230px;height:32px;font-size:12.5px">

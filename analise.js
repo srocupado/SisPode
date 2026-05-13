@@ -87,7 +87,13 @@ const state = {
   pauta:     null,             // { id, titulo, periodo, uploadedAt, uploadedBy, itens[], pdfBase64 }
   cacheAutoria: new Map(),     // idDeputado → { nome, siglaPartido, isPodemos }
   cacheProposicao: new Map(),  // "PL-488-2019" → { id, urlInteiroTeor, autores, apensados, relator }
+  dirty:     false,            // há mudanças locais não persistidas no Firebase?
+  ultimoSave: null,            // ISO da última gravação bem-sucedida
+  syncTimer: null,             // setInterval do auto-save
+  salvando:  false,            // evita gravações concorrentes
 };
+
+const AUTO_SAVE_INTERVAL_MS = 10000;
 
 // ============================================================
 //  BOOT
@@ -125,6 +131,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     inp.type = inp.type === 'password' ? 'text' : 'password';
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
+
+  iniciarAutoSave();
 
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
@@ -174,13 +182,17 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
+    state.dirty = false;
+    atualizarStatusSync('ok');
 
     mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
 
     // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
     enriquecerItens();
 
-    // Persiste no Firebase em background
+    // Marca como dirty e persiste imediatamente (auto-save tenta de novo se falhar)
+    marcarSujo();
     fbSalvarPauta(state.pauta).catch(e => {
       console.warn('Firebase indisponível:', e.message);
       mostrarToast('⚠ Não foi possível salvar a pauta no Firebase', 'aviso');
@@ -1307,6 +1319,9 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
+    state.dirty = false;
+    atualizarStatusSync('ok');
     atualizarSidebarPautas();
     for (const it of state.pauta.itens) {
       fbCarregarAnalise(it).then(a => {
@@ -1368,6 +1383,8 @@ async function confirmarApagarPauta() {
 //  FIREBASE — PAUTA + ANÁLISES
 // ============================================================
 async function fbSalvarPauta(pauta) {
+  state.salvando = true;
+  atualizarStatusSync('salvando');
   // Atualiza sidebar após salvamento (concorrente, não bloqueia)
   setTimeout(atualizarSidebarPautas, 300);
   // Salva sem o PDF binário inflando demais — guarda em campo separado.
@@ -1387,7 +1404,56 @@ async function fbSalvarPauta(pauta) {
       })),
     }),
   });
-  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  state.salvando = false;
+  if (!res.ok) {
+    atualizarStatusSync('offline');
+    throw new Error(`Firebase HTTP ${res.status}`);
+  }
+  state.dirty = false;
+  state.ultimoSave = new Date().toISOString();
+  atualizarStatusSync('ok');
+}
+
+function marcarSujo() {
+  state.dirty = true;
+  atualizarStatusSync('pendente');
+}
+
+function atualizarStatusSync(estado) {
+  const bar = document.getElementById('an-sync');
+  const txt = bar?.querySelector('.an-sync-texto');
+  if (!bar || !txt) return;
+  if (!state.pauta) { bar.style.display = 'none'; return; }
+  bar.style.display = 'inline-flex';
+  bar.className = 'an-sync ' + estado;
+  if (estado === 'ok') {
+    const hh = new Date(state.ultimoSave || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    txt.textContent = `Sincronizado às ${hh}`;
+  } else if (estado === 'salvando') {
+    txt.textContent = 'Sincronizando…';
+  } else if (estado === 'offline') {
+    txt.textContent = 'Offline — alterações em memória';
+  } else if (estado === 'pendente') {
+    txt.textContent = 'Alterações pendentes…';
+  } else {
+    txt.textContent = '';
+  }
+}
+
+function iniciarAutoSave() {
+  pararAutoSave();
+  state.syncTimer = setInterval(autoSaveTick, AUTO_SAVE_INTERVAL_MS);
+}
+function pararAutoSave() {
+  if (state.syncTimer) { clearInterval(state.syncTimer); state.syncTimer = null; }
+}
+async function autoSaveTick() {
+  if (!state.pauta || !state.dirty || state.salvando) return;
+  try {
+    await fbSalvarPauta(state.pauta);
+  } catch (e) {
+    console.warn('Auto-save falhou:', e.message);
+  }
 }
 
 async function carregarUltimaPauta() {
@@ -1413,6 +1479,9 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
+    state.dirty = false;
+    atualizarStatusSync('ok');
 
     // Carrega análises existentes em paralelo
     for (const it of state.pauta.itens) {
@@ -1716,6 +1785,7 @@ async function confirmarAdicionar() {
     state.pauta.itens.push(novo);
     renderizarPauta();
     enriquecerItem(novo).catch(e => console.warn('Enriquecimento manual falhou:', e));
+    marcarSujo();
     fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
 
     document.getElementById('modal-adicionar').style.display = 'none';
@@ -1749,6 +1819,7 @@ async function confirmarRemover() {
   fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(it.chave)}/${encodeURIComponent(pk)}.json`, { method: 'DELETE' })
     .catch(() => {});
 
+  marcarSujo();
   fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
   mostrarToast('Item removido da pauta', 'sucesso');
 }
