@@ -107,6 +107,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
+  document.getElementById('busca-itens').addEventListener('input', aplicarBuscaItens);
 
   // Modal de configurações: fechamento e ações
   document.querySelectorAll('[data-fecha]').forEach(b => {
@@ -848,7 +849,7 @@ ${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
 Produza a análise em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
 ## Resumo da matéria
-Parágrafo único explicando, em até 6 linhas, o que a proposição/parecer propõe na prática.
+Apresente uma explicação **detalhada** da proposição, de modo que o(a) parlamentar tenha uma percepção completa do que será votado. Use **dois a quatro parágrafos** abordando, obrigatoriamente: (a) o objetivo principal e o problema que pretende endereçar; (b) as principais regras, mecanismos ou obrigações que a proposição cria, altera ou revoga (cite artigos, leis e decretos referenciados, quando presentes no documento); (c) quem é afetado (cidadãos, empresas, setores, entes federativos, órgãos públicos) e como; (d) prazos de vigência, regras de transição e datas relevantes, se previstos; (e) tipo de tramitação/quórum exigido (lei ordinária, complementar, emenda constitucional etc.) quando relevante. Evite frases genéricas — descreva concretamente o que muda na prática. Não use bullets nem listas.
 
 ## Pontos centrais do parecer do relator
 Um ou dois parágrafos descrevendo a posição do relator e as mudanças propostas. **Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.**
@@ -1426,6 +1427,39 @@ async function salvarConfig() {
   await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
   mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  BUSCA NA PAUTA
+// ============================================================
+function aplicarBuscaItens() {
+  const q = (document.getElementById('busca-itens').value || '').toLowerCase().trim();
+  const cards = document.querySelectorAll('.an-card');
+  let visiveis = 0;
+  cards.forEach(card => {
+    if (!q) { card.style.display = ''; visiveis++; return; }
+    const it = (state.pauta?.itens || []).find(x => x.chave === card.dataset.chave);
+    if (!it) { card.style.display = 'none'; return; }
+    const hay = [
+      it.sigla, `${it.sigla} ${it.numero}/${it.ano}`, it.chave,
+      it.numero, it.ano, it.ementa, it.autorTexto,
+      it.relator ? `${it.relator.nome} ${it.relator.partido} ${it.relator.uf}` : '',
+      ...(it.apensadosTexto || []).map(a => `${a.sigla} ${a.numero}/${a.ano}`),
+    ].join(' ').toLowerCase();
+    const match = hay.includes(q);
+    card.style.display = match ? '' : 'none';
+    if (match) visiveis++;
+  });
+  // Esconde também os títulos de seção que ficaram sem itens visíveis
+  document.querySelectorAll('.an-secao-titulo').forEach(h => {
+    let temVisivel = false;
+    let n = h.nextElementSibling;
+    while (n && !n.classList.contains('an-secao-titulo')) {
+      if (n.classList.contains('an-card') && n.style.display !== 'none') { temVisivel = true; break; }
+      n = n.nextElementSibling;
+    }
+    h.style.display = temVisivel || !q ? '' : 'none';
+  });
 }
 
 // ============================================================
