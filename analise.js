@@ -712,42 +712,68 @@ async function fetchApensados(idProp) {
 
 /**
  * Busca os pareceres do Relator de Plenário (PRLP e PRLE) da proposição.
- * Lê tramitações com siglaOrgao = 'PLEN' cuja descrição/despacho fale de
- * "Parecer" e cujo URL aponte para documento com filename contendo "PRLP"
- * ou "PRLE". Retorna o mais recente de cada tipo.
+ * Faz scraping da página "Histórico de Pareceres, Substitutivos e Votos"
+ * (prop_pareceres_substitutivos_votos) — fonte canônica que lista PRLP /
+ * PRLE explicitamente, ao contrário do endpoint /tramitacoes da API REST.
  */
 async function buscarPareceresPlenario(idProp) {
-  const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/tramitacoes`);
-  const lista = (json.dados || []);
+  const url = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idProp}`;
+  let html = null;
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (r.ok) html = await r.text();
+  } catch (_) {}
+  if (!html) {
+    try {
+      const r = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url));
+      if (r.ok) html = await r.text();
+    } catch (_) {}
+  }
+  if (!html) return { prlp: null, prle: null };
 
-  const candidatos = lista
-    .filter(t => (t.siglaOrgao || '').toUpperCase() === 'PLEN')
-    .filter(t => t.url)
-    .filter(t => /parecer/i.test(`${t.descricaoTramitacao || ''} ${t.despacho || ''} ${t.descricaoSituacao || ''}`))
-    .map(t => {
-      // Decodifica o filename do URL para identificar PRLP / PRLE / outro
-      const decodificado = (() => {
-        try { return decodeURIComponent(t.url); } catch (_) { return t.url; }
-      })();
-      const tipoMatch = decodificado.match(/[?&=+\/](PRLP|PRLE|PAR|PRL|PRC)\+?(\d+)?/i);
-      const sigla = tipoMatch ? tipoMatch[1].toUpperCase() : null;
-      const seq   = tipoMatch && tipoMatch[2] ? parseInt(tipoMatch[2], 10) : null;
-      return {
-        sigla,
-        sequencial: seq,
-        data:    (t.dataHora || '').slice(0, 10),
-        dataBR:  (t.dataHora || '').slice(0, 10).split('-').reverse().join('/'),
-        url:     t.url,
-        descricao: t.descricaoTramitacao || t.descricaoSituacao || '',
-      };
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const linhas = doc.querySelectorAll('tr');
+
+  const candidatos = [];
+  for (const tr of linhas) {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length < 3) continue;
+
+    // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023"
+    const siglaCellTxt = (tds[0].textContent || '').trim().replace(/\s+/g, ' ');
+    const siglaMatch = siglaCellTxt.match(/^(PRLP|PRLE)\s+(\d+)/i);
+    if (!siglaMatch) continue;
+
+    // Procura coluna com data dd/mm/yyyy em qualquer célula (geralmente a 3ª)
+    let dataBR = null;
+    for (const td of tds) {
+      const m = (td.textContent || '').match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
+      if (m) { dataBR = m[1]; break; }
+    }
+
+    // Link para inteiro teor — em qualquer célula
+    const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+    let linkUrl = a ? a.getAttribute('href') : null;
+    if (linkUrl && linkUrl.startsWith('/')) linkUrl = 'https://www.camara.leg.br' + linkUrl;
+    if (!linkUrl) continue;
+
+    candidatos.push({
+      sigla:      siglaMatch[1].toUpperCase(),
+      sequencial: parseInt(siglaMatch[2], 10),
+      dataBR,
+      data:       dataBR ? dataBR.split('/').reverse().join('-') : null,
+      url:        linkUrl,
     });
+  }
 
-  // Mais recente primeiro
-  candidatos.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+  // Mais recente primeiro (por data, depois por sequencial como desempate)
+  candidatos.sort((a, b) =>
+    (b.data || '').localeCompare(a.data || '') ||
+    ((b.sequencial || 0) - (a.sequencial || 0))
+  );
 
   const prlp = candidatos.find(c => c.sigla === 'PRLP') || null;
   const prle = candidatos.find(c => c.sigla === 'PRLE') || null;
-
   return { prlp, prle };
 }
 
