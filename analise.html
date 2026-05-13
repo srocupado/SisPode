@@ -1,0 +1,596 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Análise de Pauta de Plenário – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .an-wrap {
+      display: flex;
+      flex-direction: row;
+      flex: 1;
+      overflow: hidden;
+    }
+
+    .an-sidebar {
+      width: 280px;
+      flex-shrink: 0;
+      background: var(--card);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .an-sidebar-head {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .an-sidebar-titulo {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+    }
+    .an-sidebar-lista {
+      flex: 1;
+      overflow-y: auto;
+    }
+    .an-pauta-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid var(--border);
+      transition: background .12s;
+    }
+    .an-pauta-item:hover { background: rgba(31,165,165,.07); }
+    .an-pauta-item.ativo { background: rgba(31,165,165,.18); }
+    .an-pauta-item-info { flex: 1; min-width: 0; }
+    .an-pauta-item-titulo {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      margin-bottom: 2px;
+    }
+    .an-pauta-item-meta {
+      font-size: 10.5px;
+      color: var(--text-dim);
+    }
+    .an-pauta-item-apagar {
+      background: none;
+      border: none;
+      color: var(--text-dim);
+      cursor: pointer;
+      padding: 4px;
+      opacity: 0;
+      transition: opacity .12s, color .12s;
+    }
+    .an-pauta-item:hover .an-pauta-item-apagar { opacity: 1; }
+    .an-pauta-item-apagar:hover { color: #ff8e8e; }
+
+    .an-main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .an-topbar {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      padding: 14px 20px;
+      background: var(--card);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      flex-wrap: wrap;
+    }
+
+    .an-topbar-info {
+      flex: 1;
+      min-width: 240px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+    }
+    .an-topbar-info .title  { font-size: 14px; font-weight: 600; color: var(--text); }
+    .an-topbar-info .meta   { font-size: 12px; color: var(--text-dim); }
+
+    .an-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+    .an-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 18px 20px 40px;
+      background: var(--bg);
+    }
+
+    .an-empty {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--text-dim);
+      font-size: 13px;
+    }
+    .an-empty svg { display: block; margin: 0 auto 14px; opacity: .5; }
+
+    .an-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      margin-bottom: 14px;
+      overflow: hidden;
+      transition: border-color .15s;
+    }
+    .an-card:hover { border-color: var(--border-soft); }
+
+    .an-card-head {
+      display: flex;
+      gap: 12px;
+      padding: 14px 16px;
+      align-items: flex-start;
+    }
+
+    .an-card-num {
+      flex-shrink: 0;
+      min-width: 30px;
+      height: 30px;
+      padding: 0 8px;
+      border-radius: 6px;
+      background: rgba(31,165,165,.15);
+      color: var(--accent-light);
+      font-weight: 700;
+      font-size: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .an-card-info { flex: 1; min-width: 0; }
+
+    .an-card-tipo {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .4px;
+      color: var(--accent-light);
+      margin-bottom: 4px;
+      text-transform: uppercase;
+    }
+
+    .an-card-titulo {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .an-card-ementa {
+      font-size: 12.5px;
+      color: var(--text-dim);
+      line-height: 1.55;
+      margin-bottom: 6px;
+    }
+
+    .an-card-meta {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 14px;
+      font-size: 11.5px;
+      color: var(--text-dim);
+      margin-top: 6px;
+    }
+    .an-card-meta b { color: var(--text); font-weight: 600; }
+
+    .an-badges { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+
+    .an-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 10.5px;
+      font-weight: 600;
+      letter-spacing: .2px;
+    }
+    .an-badge--pode   { background: rgba(0,168,89,.18);   color: #2fcf7a; border: 1px solid rgba(0,168,89,.35); }
+    .an-badge--apens  { background: rgba(31,165,165,.18); color: var(--accent-light); border: 1px solid rgba(31,165,165,.35); }
+    .an-badge--urg    { background: rgba(255,170,0,.16);  color: #ffcc66; border: 1px solid rgba(255,170,0,.35); }
+    .an-badge--neutro { background: rgba(255,255,255,.06);color: var(--text-dim); border: 1px solid var(--border-soft); }
+
+    .an-card-actions {
+      display: flex;
+      gap: 8px;
+      padding: 0 16px 14px;
+      flex-wrap: wrap;
+    }
+
+    .an-analise {
+      border-top: 1px solid var(--border);
+      padding: 14px 16px;
+      background: rgba(255,255,255,.02);
+      display: none;
+    }
+    .an-analise.aberto { display: block; }
+
+    .an-analise-head {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin-bottom: 10px;
+      flex-wrap: wrap;
+    }
+    .an-analise-meta {
+      flex: 1;
+      font-size: 11px;
+      color: var(--text-dim);
+      min-width: 200px;
+    }
+
+    .an-analise-conteudo {
+      font-size: 13px;
+      line-height: 1.65;
+      color: var(--text);
+      max-width: none;
+    }
+    .an-analise-conteudo h1,
+    .an-analise-conteudo h2,
+    .an-analise-conteudo h3 {
+      font-size: 13.5px;
+      font-weight: 700;
+      color: var(--accent-light);
+      margin: 14px 0 6px;
+      letter-spacing: .2px;
+    }
+    .an-analise-conteudo h1:first-child,
+    .an-analise-conteudo h2:first-child,
+    .an-analise-conteudo h3:first-child { margin-top: 0; }
+    .an-analise-conteudo ul { margin: 4px 0 8px 18px; padding: 0; }
+    .an-analise-conteudo li { margin-bottom: 4px; }
+    .an-analise-conteudo p  { margin: 4px 0 8px; }
+    .an-analise-conteudo strong { color: var(--text); }
+    .an-analise-conteudo code   {
+      background: rgba(255,255,255,.07);
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-size: 12px;
+    }
+
+    .an-analise-textarea {
+      width: 100%;
+      min-height: 320px;
+      background: rgba(0,0,0,.25);
+      border: 1px solid var(--border-soft);
+      border-radius: 6px;
+      padding: 10px 12px;
+      font-family: 'DM Sans', monospace;
+      font-size: 12.5px;
+      line-height: 1.55;
+      color: var(--text);
+      resize: vertical;
+      outline: none;
+    }
+    .an-analise-textarea:focus { border-color: var(--accent); }
+
+    .an-analise-erro {
+      color: #ff8e8e;
+      font-size: 12.5px;
+      padding: 10px 12px;
+      background: rgba(255,80,80,.08);
+      border: 1px solid rgba(255,80,80,.25);
+      border-radius: 6px;
+    }
+
+    .an-progress {
+      font-size: 12px;
+      color: var(--text-dim);
+      padding: 8px 0;
+    }
+
+    .an-spinner {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border: 2px solid var(--border-soft);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      vertical-align: middle;
+      margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .an-secao-titulo {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: .8px;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      margin: 6px 0 10px;
+      padding-bottom: 6px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .an-secao-titulo:not(:first-child) { margin-top: 22px; }
+
+    .an-sync {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      margin-top: 4px;
+      font-size: 11px;
+      color: var(--text-dim);
+    }
+    .an-sync-dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--text-dim);
+    }
+    .an-sync.ok       .an-sync-dot { background: #2fcf7a; box-shadow: 0 0 0 3px rgba(47,207,122,.18); }
+    .an-sync.salvando .an-sync-dot { background: #ffcc66; animation: anpulse 1s ease-in-out infinite; }
+    .an-sync.offline  .an-sync-dot { background: #ff8e8e; }
+    .an-sync.pendente .an-sync-dot { background: #1fa5a5; }
+    @keyframes anpulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.6); opacity: .5; } }
+  </style>
+</head>
+<body>
+
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Análise de Pauta de Plenário</span>
+        <span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar" class="btn btn-outline btn-sm" title="Voltar">← Início</button>
+      <button id="btn-exportar-pdf" class="btn btn-primary btn-sm" disabled>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar PDF
+      </button>
+      <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Configurações">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="an-wrap">
+
+    <aside class="an-sidebar">
+      <div class="an-sidebar-head">
+        <div class="an-sidebar-titulo">Pautas salvas</div>
+      </div>
+      <div class="an-sidebar-lista" id="sidebar-pautas">
+        <div style="padding:16px;color:var(--text-dim);font-size:12px">Carregando...</div>
+      </div>
+    </aside>
+
+    <section class="an-main">
+
+    <div class="an-topbar">
+      <div class="an-topbar-info">
+        <span class="title" id="pauta-titulo">Nenhuma pauta carregada</span>
+        <span class="meta"  id="pauta-meta">Carregue o PDF da Pauta da Semana para começar</span>
+        <span class="an-sync" id="an-sync" style="display:none">
+          <span class="an-sync-dot"></span>
+          <span class="an-sync-texto"></span>
+        </span>
+      </div>
+      <div class="an-topbar-actions">
+        <input type="search" id="busca-itens" class="form-input" placeholder="Buscar PL/PLP/PEC... ou ementa" style="min-width:230px;height:32px;font-size:12.5px">
+        <label for="input-pauta-pdf" class="btn btn-outline btn-sm" style="cursor:pointer">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          Carregar pauta (PDF)
+        </label>
+        <input type="file" id="input-pauta-pdf" accept=".pdf" style="display:none">
+        <button id="btn-adicionar-item" class="btn btn-outline btn-sm" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Adicionar projeto
+        </button>
+        <button id="btn-gerar-todas" class="btn btn-outline btn-sm" disabled title="Gera análise para todos os itens da pauta que ainda não foram analisados">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
+          Gerar todas
+        </button>
+        <button id="btn-parar-todas" class="btn btn-outline btn-sm" style="display:none;color:#c0392b;border-color:#c0392b" title="Cancela todas as análises em andamento e aborta as chamadas em voo">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+          Parar tudo
+        </button>
+        <button id="btn-salvar-firebase" class="btn btn-primary btn-sm" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salvar no Firebase
+        </button>
+      </div>
+    </div>
+
+    <main class="an-body">
+      <div id="lista-itens">
+        <div class="an-empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <p>Carregue o PDF da Pauta da Semana para listar projetos e requerimentos.</p>
+        </div>
+      </div>
+    </main>
+    </section>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== MODAL: APAGAR PAUTA ===== -->
+  <div id="modal-apagar-pauta" class="modal-overlay" style="display:none">
+    <div class="modal modal-apagar">
+      <div class="modal-header">
+        <h3>Apagar pauta</h3>
+        <button class="modal-close" data-fecha="modal-apagar-pauta">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="apagar-pauta-nome" style="font-weight:600;font-size:14px;margin-bottom:10px;color:var(--text)"></p>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">A pauta será removida permanentemente do Firebase, junto com o PDF original e <b>todas as análises de IA geradas para os itens desta pauta</b> (parecer atual). Análises de outras pautas que tenham a mesma proposição com parecer diferente não são afetadas.</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-apagar-pauta">Cancelar</button>
+        <button id="btn-confirmar-apagar-pauta" class="btn btn-danger">Apagar definitivamente</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: ADICIONAR PROJETO ===== -->
+  <div id="modal-adicionar" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar projeto à pauta</h3>
+        <button class="modal-close" data-fecha="modal-adicionar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Informe tipo, número e ano. A ementa, o autor e o relator serão buscados na API da Câmara automaticamente.</p>
+        <div class="form-group">
+          <label>Tipo de proposição</label>
+          <select id="add-tipo" class="form-input">
+            <option value="PL">PL — Projeto de Lei</option>
+            <option value="PLP">PLP — Projeto de Lei Complementar</option>
+            <option value="PEC">PEC — Proposta de Emenda à Constituição</option>
+            <option value="PDL">PDL — Projeto de Decreto Legislativo</option>
+            <option value="MPV">MPV — Medida Provisória</option>
+            <option value="PRC">PRC — Projeto de Resolução</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px">
+          <div class="form-group" style="flex:1">
+            <label>Número</label>
+            <input type="text" id="add-numero" class="form-input" placeholder="Ex: 488">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ano</label>
+            <input type="text" id="add-ano" class="form-input" placeholder="Ex: 2019">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ordem (opcional)</label>
+            <input type="text" id="add-ordem" class="form-input" placeholder="Ex: 15">
+          </div>
+        </div>
+        <div id="add-status" style="font-size:11px;color:var(--text-dim);min-height:14px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-adicionar">Cancelar</button>
+        <button id="btn-confirmar-adicionar" class="btn btn-primary">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: REMOVER ITEM ===== -->
+  <div id="modal-remover" class="modal-overlay" style="display:none">
+    <div class="modal modal-apagar">
+      <div class="modal-header">
+        <h3>Remover item</h3>
+        <button class="modal-close" data-fecha="modal-remover">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="remover-nome" style="font-weight:600;font-size:14px;margin-bottom:10px;color:var(--text)"></p>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">O item será removido da pauta. A análise gerada permanece salva no Firebase (caso o item seja readicionado, será recuperada).</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-remover">Cancelar</button>
+        <button id="btn-confirmar-remover" class="btn btn-danger">Remover</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Configurações</h3>
+        <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Integração com Inteligência Artificial
+          </div>
+          <p class="config-desc">
+            A IA gera a análise técnica de cada projeto/requerimento da pauta com base no parecer do relator (ou inteiro teor).
+            Estas configurações são compartilhadas com os outros painéis do SiSPode.
+          </p>
+
+          <div class="form-group" style="margin-top:14px">
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-api-key" class="form-input" placeholder="Cole aqui sua chave">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+            </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block"></small>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">
+                ↻ Carregar disponíveis
+              </button>
+            </label>
+            <select id="config-modelo" class="form-input">
+              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
+            </select>
+            <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+          </div>
+        </div>
+
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+            Manutenção do banco
+          </div>
+          <p class="config-desc">
+            A varredura percorre <code>/analises_pauta</code> e remove análises cuja proposição não está em nenhuma pauta atual.
+            A faxina também roda automaticamente quando você abre o painel.
+          </p>
+          <button id="btn-varrer-orfaos" class="btn btn-outline" style="margin-top:8px">
+            Varrer análises órfãs agora
+          </button>
+          <div id="varrer-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
+        <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="libs/pdf.min.js"></script>
+  <script src="libs/html2canvas.min.js"></script>
+  <script src="analise.js"></script>
+</body>
+</html>
