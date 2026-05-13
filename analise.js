@@ -70,7 +70,11 @@ async function onPdfSelecionado(ev) {
   mostrarToast('Lendo PDF...', 'info');
   try {
     const arrayBuffer = await file.arrayBuffer();
-    const texto       = await extrairTextoPdf(arrayBuffer);
+    // pdf.js transfere/desanexa o ArrayBuffer que recebe — clonamos para
+    // poder também converter em base64 depois (persistência no Firebase).
+    const bufParaPdf  = arrayBuffer.slice(0);
+    const bufParaB64  = arrayBuffer.slice(0);
+    const texto       = await extrairTextoPdf(bufParaPdf);
     const parsed      = parsearPauta(texto);
 
     if (!parsed.itens.length) {
@@ -84,7 +88,7 @@ async function onPdfSelecionado(ev) {
       periodo:    parsed.periodo || '',
       uploadedAt: new Date().toISOString(),
       uploadedBy: state.config?.nomeUsuario || 'equipe',
-      pdfBase64:  arrayBufferToBase64(arrayBuffer),
+      pdfBase64:  arrayBufferToBase64(bufParaB64),
       pdfNome:    file.name,
       itens:      parsed.itens.map(normalizarItem),
     };
