@@ -520,6 +520,7 @@ function renderCard(it) {
     <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
         <span class="an-analise-meta" data-role="analise-meta"></span>
+        <button class="btn btn-outline btn-sm" data-role="btn-completar" style="display:none;color:#ffcc66" title="A análise foi truncada por limite de tokens — clique para continuar">Completar</button>
         <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
@@ -540,6 +541,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
+  card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
   return card;
 }
 
@@ -890,7 +892,7 @@ async function gerarAnaliseItem(it, forcar = false) {
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
     const prompt   = montarPrompt(it, docs);
-    const markdown = await chamarIA({
+    let { text: markdown, truncated } = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
       modelo:     state.config.modelo,
@@ -898,8 +900,29 @@ async function gerarAnaliseItem(it, forcar = false) {
       pdfBuffers,
     });
 
+    // Auto-continuação: se truncou, faz UMA segunda chamada pedindo
+    // para continuar exatamente de onde parou. Se ainda truncar, marca
+    // truncada=true para o usuário usar "Completar" depois.
+    if (truncated) {
+      btnGer.innerHTML = `<span class="an-spinner"></span> Continuando análise truncada...`;
+      try {
+        const cont = await chamarIA({
+          provedorId: state.config.provedor || 'gemini',
+          apiKey:     state.config.apiKey,
+          modelo:     state.config.modelo,
+          prompt:     promptContinuar(markdown),
+          pdfBuffers,
+        });
+        markdown = costurarContinuacao(markdown, cont.text);
+        truncated = cont.truncated;
+      } catch (e) {
+        console.warn('Auto-continuação falhou:', e.message);
+      }
+    }
+
     it.analise = {
       markdown,
+      truncada:    truncated,
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
@@ -927,6 +950,77 @@ async function gerarAnaliseItem(it, forcar = false) {
  * Para requerimentos: inteiro teor da proposição alvo.
  * Fallback: inteiro teor do projeto se nenhum parecer for encontrado.
  */
+function promptContinuar(parcial) {
+  // Pega só o final do texto já gerado para dar contexto sem estourar
+  // o input. Caracteres suficientes para o modelo reconhecer o "onde parou".
+  const trecho = parcial.slice(-3000);
+  return `A análise abaixo foi gerada mas foi truncada por limite de tokens. Continue EXATAMENTE de onde parou, **sem repetir** o que já está escrito. Não reescreva nenhum parágrafo anterior. Comece a continuação na próxima palavra/frase que faltou. Mantenha o mesmo estilo (Markdown, parágrafos corridos, sem bullets) e siga o roteiro de seções original. Não inclua frases de transição como "continuando" ou "como mencionado antes". Responda APENAS com a continuação.
+
+--- TRECHO FINAL DO QUE JÁ FOI GERADO ---
+${trecho}
+--- FIM DO TRECHO ---`;
+}
+
+function costurarContinuacao(parcial, continuacao) {
+  if (!continuacao) return parcial;
+  const c = continuacao.trim();
+  // Une com um espaço/quebra dependendo do contexto. Evita duplicar se
+  // o modelo começou repetindo as últimas palavras.
+  const fimParcial = parcial.slice(-200).toLowerCase();
+  const inicioCont = c.slice(0, 200).toLowerCase();
+  // Se houver overlap longo, recorta o início da continuação
+  for (let n = 200; n >= 30; n -= 10) {
+    if (fimParcial.endsWith(inicioCont.slice(0, n))) {
+      return parcial + c.slice(n);
+    }
+  }
+  return parcial.replace(/\s+$/, '') + (c.startsWith('#') || c.startsWith('-') ? '\n\n' : ' ') + c;
+}
+
+async function completarAnalise(it) {
+  if (!it.analise || !it.analise.truncada) return;
+  await carregarConfig();
+  if (!state.config?.apiKey) {
+    mostrarToast('Configure a chave de API antes (⚙ Configurações).', 'aviso');
+    return;
+  }
+
+  const card    = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const btn     = card.querySelector('[data-role=btn-completar]');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="an-spinner"></span> Continuando...';
+
+  try {
+    // Re-baixar os mesmos documentos (mantém o contexto consistente)
+    const docs = escolherDocumentos(it);
+    const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
+
+    const cont = await chamarIA({
+      provedorId: state.config.provedor || 'gemini',
+      apiKey:     state.config.apiKey,
+      modelo:     state.config.modelo,
+      prompt:     promptContinuar(it.analise.markdown),
+      pdfBuffers,
+    });
+
+    it.analise = {
+      ...it.analise,
+      markdown:   costurarContinuacao(it.analise.markdown, cont.text),
+      truncada:   cont.truncated,
+      editadoEm:  new Date().toISOString(),
+      editadoPor: state.config?.nomeUsuario || 'equipe',
+    };
+    renderAnaliseCard(it);
+    await fbSalvarAnalise(it);
+    mostrarToast(cont.truncated ? 'Continuação ainda truncada — clique de novo se quiser.' : '✓ Análise completada', cont.truncated ? 'aviso' : 'sucesso');
+  } catch (e) {
+    mostrarToast('Erro ao completar: ' + e.message, 'erro');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = 'Completar';
+  }
+}
+
 function escolherDocumentos(it) {
   const enr  = it.enriquecimento || {};
   const docs = [];
@@ -1042,6 +1136,8 @@ REGRAS RÍGIDAS:
 }
 
 // ---------- IA: chamada adaptada para resposta em Markdown ----------
+// Retorna { text, truncated } onde truncated=true sinaliza que o modelo
+// atingiu o limite de tokens de saída (não terminou a resposta).
 async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
 
@@ -1054,10 +1150,12 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       contents: [{ parts }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 12000 },
     };
-    const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
-    return json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    const json = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const cand = json.candidates?.[0];
+    return {
+      text: cand?.content?.parts?.[0]?.text?.trim() || '',
+      truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
+    };
   }
 
   if (provedorId === 'openai') {
@@ -1074,19 +1172,22 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       temperature: 0.2,
       max_output_tokens: 12000,
     };
-    const res = await fetch('https://api.openai.com/v1/responses', {
+    const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
+    let texto = '';
     for (const item of (json.output || [])) {
       for (const c of (item.content || [])) {
-        if (c.type === 'output_text' && c.text) return c.text.trim();
+        if (c.type === 'output_text' && c.text) { texto = c.text.trim(); break; }
       }
+      if (texto) break;
     }
-    return (json.output_text || '').trim();
+    if (!texto) texto = (json.output_text || '').trim();
+    const trunc = (json.status === 'incomplete')
+      || (json.incomplete_details?.reason === 'max_output_tokens');
+    return { text: texto, truncated: trunc };
   }
 
   if (provedorId === 'anthropic') {
@@ -1101,7 +1202,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       max_tokens: 12000,
       messages: [{ role: 'user', content }],
     };
-    const res = await fetch('https://api.anthropic.com/v1/messages', {
+    const json = await fetchIA('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
         'x-api-key': apiKey,
@@ -1111,16 +1212,52 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       },
       body: JSON.stringify(body),
     });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
+    let texto = '';
     for (const item of (json.content || [])) {
-      if (item.type === 'text' && item.text) return item.text.trim();
+      if (item.type === 'text' && item.text) { texto = item.text.trim(); break; }
     }
-    return '';
+    return { text: texto, truncated: json.stop_reason === 'max_tokens' };
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);
 }
+
+/**
+ * Wrapper de fetch para chamadas de IA, com retry/backoff em erros 429
+ * (rate limit) e 5xx transitórios. Tentativas: 1 inicial + 3 retries em
+ * intervalos de 5s, 15s e 30s.
+ */
+async function fetchIA(url, init) {
+  const delays = [0, 5000, 15000, 30000];
+  let ultimaErro = null;
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i] > 0) await sleep(delays[i]);
+    let res;
+    try {
+      res = await fetch(url, init);
+    } catch (e) {
+      ultimaErro = e;
+      continue; // erro de rede → retry
+    }
+    if (res.ok) return await res.json();
+    // 429 ou 5xx: vale tentar de novo
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      try {
+        const txt = await res.text();
+        ultimaErro = new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`);
+      } catch (_) { ultimaErro = new Error(`HTTP ${res.status}`); }
+      continue;
+    }
+    // 4xx (exceto 429): erro permanente
+    let detalhe;
+    try { detalhe = await res.json(); } catch (_) { detalhe = null; }
+    const msg = detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`;
+    throw new Error(msg);
+  }
+  throw ultimaErro || new Error('Falha após retries');
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 async function baixarPdf(url) {
   try {
@@ -1146,6 +1283,7 @@ function renderAnaliseCard(it) {
   btnTog.style.display = 'inline-flex';
   btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
+  card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
 
   const fonte = it.analise.editadoEm
     ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
@@ -1271,7 +1409,7 @@ async function gerarTodasAsAnalises() {
   _gerarTodasState = { rodando: true, cancelar: false };
   const btn = document.getElementById('btn-gerar-todas');
   const labelOriginal = btn.innerHTML;
-  let ok = 0, falhas = 0;
+  let ok = 0, truncadas = 0, falhas = 0;
 
   for (let i = 0; i < pendentes.length; i++) {
     if (_gerarTodasState.cancelar) break;
@@ -1279,17 +1417,29 @@ async function gerarTodasAsAnalises() {
     btn.innerHTML = `<span class="an-spinner"></span> ${i + 1}/${pendentes.length} — Cancelar`;
     try {
       await gerarAnaliseItem(it);
-      if (it.analiseStatus === 'ok') ok++; else falhas++;
+      if (it.analiseStatus === 'ok') {
+        ok++;
+        if (it.analise?.truncada) truncadas++;
+      } else {
+        falhas++;
+      }
     } catch (e) {
       console.warn(`Falha em ${it.chave}:`, e);
       falhas++;
+    }
+    // Throttle 1,5s entre itens para evitar bater rate-limit dos provedores.
+    // Pula a espera se for o último item ou se o usuário cancelou.
+    if (i < pendentes.length - 1 && !_gerarTodasState.cancelar) {
+      await sleep(1500);
     }
   }
 
   _gerarTodasState = { rodando: false, cancelar: false };
   btn.innerHTML = labelOriginal;
-  const msg = `Geração em lote concluída: ${ok} análise(s) gerada(s)${falhas ? ', ' + falhas + ' falha(s)' : ''}.`;
-  mostrarToast(msg, falhas ? 'aviso' : 'sucesso');
+  const partes = [`${ok} gerada(s)`];
+  if (truncadas) partes.push(`${truncadas} truncada(s) — use "Completar"`);
+  if (falhas)    partes.push(`${falhas} falha(s)`);
+  mostrarToast('Lote concluído: ' + partes.join(' · '), falhas || truncadas ? 'aviso' : 'sucesso');
 }
 
 // ============================================================
