@@ -1793,7 +1793,12 @@ function exportarPdf() {
     return;
   }
 
-  const itensAnalisados = state.pauta.itens.filter(it => it.analiseStatus === 'ok');
+  const itens = state.pauta.itens;
+  const placeholderPorStatus = (st) => {
+    if (st === 'erro')    return 'Falha ao gerar análise.';
+    if (st === 'gerando') return 'Análise em processamento.';
+    return 'Análise não gerada.';
+  };
 
   const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8">
@@ -1813,16 +1818,17 @@ function exportarPdf() {
   .badge-pode { background: #d3f5e2; color: #006633; }
   .badge-apens { background: #d8eef0; color: #02484d; }
   ul { margin: 4px 0 6px 18px; padding: 0; }
-  p { margin: 4px 0; }
+  p { margin: 4px 0; text-align: justify; hyphens: auto; }
   .empty { color: #888; font-style: italic; }
+  .pendente { color: #888; font-style: italic; background: #fafafa; border: 1px dashed #ddd; padding: 8px 10px; border-radius: 4px; text-align: left; margin: 6px 0; }
 </style></head><body>
   <div class="cabecalho">
     <h1>${escapeHtml(state.pauta.titulo)}</h1>
     <div class="meta">${escapeHtml(state.pauta.periodo || '')} · Liderança do Podemos – Câmara dos Deputados</div>
     <div class="meta">Gerado em ${formatDataHora(new Date().toISOString())}</div>
   </div>
-  ${itensAnalisados.length === 0 ? '<p class="empty">Nenhuma análise gerada ainda.</p>' : ''}
-  ${itensAnalisados.map(it => `
+  ${itens.length === 0 ? '<p class="empty">Pauta vazia.</p>' : ''}
+  ${itens.map(it => `
     <div class="item">
       <div class="item-titulo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano} ${it.ordem ? '· item ' + it.ordem : ''}</div>
       <div class="meta">${escapeHtml(it.autorTexto || '')}${it.relator ? ' · Relator: Dep. ' + escapeHtml(it.relator.nome) + ' (' + it.relator.partido + '-' + it.relator.uf + ')' : ''}</div>
@@ -1830,14 +1836,20 @@ function exportarPdf() {
         ${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}
         ${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}</span>`).join('')}
       </div>
-      ${renderMarkdown(it.analise.markdown)}
+      ${it.analise?.markdown
+        ? renderMarkdown(it.analise.markdown)
+        : `<div class="pendente">${placeholderPorStatus(it.analiseStatus)}</div>`}
     </div>
   `).join('')}
-  <script>setTimeout(() => window.print(), 400);<\/script>
 </body></html>`;
 
   win.document.write(html);
   win.document.close();
+  // Disparar print() a partir da janela-pai (a nova janela herda a CSP
+  // 'script-src self' do app, que bloqueia <script> inline).
+  const acionarPrint = () => { try { win.focus(); win.print(); } catch (_) {} };
+  win.addEventListener('load', acionarPrint);
+  setTimeout(acionarPrint, 600); // fallback caso 'load' já tenha disparado
 }
 
 // ============================================================
