@@ -28,6 +28,59 @@ if (typeof pdfjsLib !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
 }
 
+// ---------- PROVEDORES DE IA (listagem de modelos) ----------
+const PROVEDORES_META = {
+  gemini: {
+    label: 'Google Gemini',
+    placeholderChave: 'AIzaSy...',
+    hintChave: 'Obtenha em aistudio.google.com → Get API key',
+    regexChave: /^AIza[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
+    ],
+    async listar(key) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=50`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      return (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && (m.name || '').includes('gemini'))
+        .map(m => ({ id: (m.name || '').replace(/^models\//, ''), displayName: m.displayName || m.name }));
+    },
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    placeholderChave: 'sk-...',
+    hintChave: 'Obtenha em platform.openai.com/api-keys',
+    regexChave: /^sk-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'gpt-5',   displayName: 'GPT-5' },
+      { id: 'gpt-4.1', displayName: 'GPT-4.1' },
+      { id: 'gpt-4o',  displayName: 'GPT-4o' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4'];
+      const ids = (j.data || []).map(m => m.id).filter(id => prefs.some(p => id.startsWith(p)));
+      return ids.length ? ids.map(id => ({ id, displayName: id })) : this.modelosFallback;
+    },
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    placeholderChave: 'sk-ant-...',
+    hintChave: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regexChave: /^sk-ant-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'claude-opus-4-7',           displayName: 'Claude Opus 4.7' },
+      { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
+    ],
+    async listar(_key) { return this.modelosFallback; },
+  },
+};
+
 // ---------- ESTADO ----------
 const state = {
   config:    null,             // chrome.storage.local 'config'
@@ -48,6 +101,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('input-pauta-pdf').addEventListener('change', onPdfSelecionado);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
+  document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
+  document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
+
+  // Modal de configurações: fechamento e ações
+  document.querySelectorAll('[data-fecha]').forEach(b => {
+    b.addEventListener('click', () => {
+      const id = b.getAttribute('data-fecha');
+      document.getElementById(id).style.display = 'none';
+    });
+  });
+  document.getElementById('config-provedor').addEventListener('change', onProvedorChange);
+  document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelos);
+  document.getElementById('btn-salvar-config').addEventListener('click', salvarConfig);
+  document.getElementById('btn-toggle-key').addEventListener('click', () => {
+    const inp = document.getElementById('config-api-key');
+    inp.type = inp.type === 'password' ? 'text' : 'password';
+  });
 
   // Tenta carregar a última pauta persistida
   await carregarUltimaPauta();
@@ -95,6 +165,7 @@ async function onPdfSelecionado(ev) {
 
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-salvar-firebase').disabled = false;
 
     mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
 
@@ -120,18 +191,20 @@ async function extrairTextoPdf(arrayBuffer) {
     const page    = await doc.getPage(p);
     const content = await page.getTextContent();
 
-    // Agrupa por linha usando coordenada y (top)
-    const grupos = new Map();
-    for (const it of content.items) {
-      const y = Math.round(it.transform[5]);
-      if (!grupos.has(y)) grupos.set(y, []);
-      grupos.get(y).push(it);
+    // Agrupa por linha usando coordenada y, com tolerância de 2 unidades.
+    // Trechos com sub/sobrescrito ou kerning podem cair em y ligeiramente
+    // diferentes; sem tolerância, isso quebra "(DO SR. LUIZ ...)" em pedaços.
+    const itensOrdenados = content.items.slice().sort((a, b) => b.transform[5] - a.transform[5]);
+    const grupos = []; // [{ y, itens: [] }]
+    for (const it of itensOrdenados) {
+      const y = it.transform[5];
+      let alvo = grupos.find(g => Math.abs(g.y - y) <= 2);
+      if (!alvo) { alvo = { y, itens: [] }; grupos.push(alvo); }
+      alvo.itens.push(it);
     }
-    // Ordena por y desc (topo → base) e por x asc dentro da linha
-    const ys = [...grupos.keys()].sort((a, b) => b - a);
-    for (const y of ys) {
-      const itens = grupos.get(y).sort((a, b) => a.transform[4] - b.transform[4]);
-      const linha = itens.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
+    for (const g of grupos) {
+      g.itens.sort((a, b) => a.transform[4] - b.transform[4]);
+      const linha = g.itens.map(it => it.str).join(' ').replace(/\s+/g, ' ').trim();
       if (linha) linhas.push(linha);
     }
   }
@@ -184,57 +257,77 @@ function parsearPauta(texto) {
   }
 
   // === PROJETOS / OUTRAS PROPOSIÇÕES ===
-  // O PDF coloca o número de ordem isolado em uma linha (ex: "3"), seguido do tipo.
-  // Mais robusto: localizar TODAS as ocorrências de "PROJETO DE LEI Nº ..." e
-  // capturar o bloco até a próxima ocorrência de tipo conhecido OU um cabeçalho
-  // de seção (data ou "SESSÃO").
-  const tiposRegexUnion = TIPOS_PROPOSICAO.map(t => `(?:${t.prefixo})`).join('|');
-  const cabecalhoStop = '\\d{2}/\\d{2}/\\d{4}|SESS[ÃA]O\\s+(?:SOLENE|DELIBERATIVA)|ORDEM\\s+DO\\s+DIA';
-  const propRegex = new RegExp(
-    `(?:^|\\n)\\s*(\\d{1,3})?\\s*\\n?\\s*(${tiposRegexUnion})\\s+N[ºo]\\s*([\\d.]+)(-[A-Z]+)?,?\\s*DE\\s+(\\d{4})([\\s\\S]*?)(?=(?:\\n\\s*\\d{1,3}\\s*\\n\\s*(?:${tiposRegexUnion}))|(?:\\n\\s*(?:${cabecalhoStop}))|\\Z)`,
-    'gi'
+  // Estratégia: localizar TODOS os cabeçalhos "TIPO Nº N, DE AAAA" e fatiar o
+  // texto entre cabeçalhos consecutivos. Mais robusto que uma única regex com
+  // lookahead complexo (que truncava blocos em sinais ambíguos).
+  // Importante: tipos mais longos primeiro (PROJETO DE LEI COMPLEMENTAR antes
+  // de PROJETO DE LEI) para o split por prefixo identificar a sigla correta.
+  const tiposOrdenados = TIPOS_PROPOSICAO.slice().sort((a, b) => b.prefixo.length - a.prefixo.length);
+  // Cabeçalhos no PDF da pauta são SEMPRE em maiúsculas. Usar match case-
+  // sensitive e ancorado ao início da linha evita falsos positivos quando o
+  // mesmo nome aparece em title case dentro da ementa.
+  const headerRegex = new RegExp(
+    `(?:^|\\n)\\s*(${tiposOrdenados.map(t => t.prefixo).join('|')})\\s+N[º]\\s*([\\d.]+)(?:-[A-Z]+)?,?\\s*DE\\s+(\\d{4})`,
+    'g'
   );
+  const headers = [];
+  while ((m = headerRegex.exec(texto)) !== null) {
+    // Posição do prefixo (não do início da linha capturado por `(?:^|\\n)\\s*`)
+    const prefixoIdx = m.index + m[0].indexOf(m[1]);
+    headers.push({
+      idx:     prefixoIdx,
+      end:     m.index + m[0].length,
+      prefixo: m[1],
+      numero:  limpaNumero(m[2]),
+      ano:     m[3],
+    });
+  }
 
-  while ((m = propRegex.exec(texto)) !== null) {
-    const ordemRaw = m[1] ? parseInt(m[1], 10) : null;
-    const prefixo  = m[2];
-    const numero   = limpaNumero(m[3]);
-    const ano      = m[5];
-    const bloco    = m[6];
-
-    // Determina sigla
-    const tipo = TIPOS_PROPOSICAO.find(t => new RegExp('^' + t.prefixo + '$', 'i').test(prefixo));
+  for (let i = 0; i < headers.length; i++) {
+    const h = headers[i];
+    const tipo = tiposOrdenados.find(t => t.prefixo === h.prefixo);
     if (!tipo) continue;
 
-    // Evita duplicar a mesma proposição (acontece quando há "remanescente da sessão anterior")
-    const chave = `${tipo.sigla}-${numero}-${ano}`;
+    const fim = i + 1 < headers.length ? headers[i + 1].idx : texto.length;
+    const bloco = texto.slice(h.end, fim);
+
+    // Ordem: número(s) isolado(s) antes do cabeçalho (na mesma linha ou linha acima)
+    const antes = texto.slice(Math.max(0, h.idx - 60), h.idx);
+    const ordemMatch = antes.match(/(?:^|\n)\s*(\d{1,3})\s*\n[^\n]*$/);
+    const ordemRaw = ordemMatch ? parseInt(ordemMatch[1], 10) : null;
+
+    const chave = `${tipo.sigla}-${h.numero}-${h.ano}`;
     if (resultado.itens.some(it => it.tipoCategoria === 'projeto' && `${it.sigla}-${it.numero}-${it.ano}` === chave)) {
-      continue;
+      continue; // duplicata
     }
 
-    // Autor: linha "(DO SR. X)" / "(DA SRA. X)" / "(DO SENADO FEDERAL)"
-    const autorMatch = bloco.match(/\((D[OA](?:S)?\s+[^)]{2,120})\)/);
-    const autorTexto = autorMatch ? autorMatch[1].trim() : '';
+    // Autor: linha "(DO SR. X)" / "(DA SRA. X)" / "(DO SENADO FEDERAL)".
+    // Permite quebras de linha entre nome e fechamento de parêntese.
+    const autorMatch = bloco.match(/\(\s*(D[OA](?:S)?\s+[^()]{2,180}?)\s*\)/);
+    const autorTexto = autorMatch ? autorMatch[1].replace(/\s+/g, ' ').trim() : '';
 
-    // Ementa: primeira frase explicativa após "Discussão, em turno único"
-    const ementaMatch = bloco.match(/Discuss[ãa]o,\s*em\s*turno\s*[úu]nico[^.]*?,\s*do\s+(?:Projeto|Proposta|Medida)[^.]*?(?:que|para|com|sobre|institui|altera|disp[õo]e|cria|determina|regula|estabelece)[\s\S]*?(?=Pendente|tendo\s+parecer|APROVADO|RELATOR|\Z)/i);
-    const ementa = (ementaMatch?.[0] || bloco.split(/Pendente|APROVADO|RELATOR/i)[0] || '').replace(/\s+/g, ' ').trim().slice(0, 1000);
+    // Ementa: prefere o trecho "Discussão, em turno único..." até a próxima
+    // seção (Pendente/Tendo/APROVADO/RELATOR). Fallback: texto inteiro do
+    // bloco até essas mesmas marcações.
+    let ementa = '';
+    const ementaMatch = bloco.match(/Discuss[ãa]o,\s*em\s*turno[\s\S]*?(?=Pendente|Tendo\s+apens|APROVADO|RELATOR|$)/i);
+    if (ementaMatch) {
+      ementa = ementaMatch[0];
+    } else {
+      // Remove o "(autor)" do início e usa o restante
+      ementa = bloco.replace(/^[\s\n]*\([^)]*\)[\s\n]*/, '').split(/Pendente|Tendo\s+apens|APROVADO|RELATOR/i)[0] || bloco;
+    }
+    ementa = ementa.replace(/\s+/g, ' ').trim().slice(0, 1200);
 
     // Apensados
     const apensadosTexto = [];
-    const apensM = bloco.match(/Tendo\s+apensad[oa]s?\s*(?:\(\d+\)\s*)?(?:os?\s+)?([\s\S]*?)(?:\.\s|\n)/i);
+    const apensM = bloco.match(/Tendo\s+apensad[oa]s?\s*(?:\(\d+\)\s*)?(?:os?\s+)?([\s\S]*?)(?:\.\s|\n\s*APROVADO|\n\s*RELATOR|\n\s*Pendente|\n\s*$)/i);
     if (apensM) {
       const lista = apensM[1];
       const reAp = /(PLs?|PLPs?|PECs?|PDLs?|MPVs?|PRCs?)\s*([\d.]+)\s*\/\s*(\d{2,4})/gi;
       let am;
       while ((am = reAp.exec(lista)) !== null) {
         let sigla = am[1].toUpperCase().replace(/S$/, '');
-        if (sigla === 'PL')  sigla = 'PL';
-        if (sigla === 'PLP') sigla = 'PLP';
-        if (sigla === 'PEC') sigla = 'PEC';
-        if (sigla === 'PDL') sigla = 'PDL';
-        if (sigla === 'MPV') sigla = 'MPV';
-        if (sigla === 'PRC') sigla = 'PRC';
         const ano2dig = am[3];
         const anoF = ano2dig.length === 2 ? (parseInt(ano2dig, 10) > 50 ? '19' + ano2dig : '20' + ano2dig) : ano2dig;
         apensadosTexto.push({ sigla, numero: limpaNumero(am[2]), ano: anoF });
@@ -245,23 +338,17 @@ function parsearPauta(texto) {
     const relRegex = /RELATOR(?:A)?:\s*DEP\.\s*([^()\n]+?)\s*\(([A-ZÁÀÂÃÄÉÊÍÓÔÕÚÇ]+)-([A-Z]{2})\)\s*,?\s*EM\s*(\d{2}\/\d{2}\/\d{4})/gi;
     let relator = null, rm;
     while ((rm = relRegex.exec(bloco)) !== null) {
-      relator = {
-        nome:    rm[1].trim(),
-        partido: rm[2].trim(),
-        uf:      rm[3].trim(),
-        data:    rm[4],
-      };
+      relator = { nome: rm[1].trim(), partido: rm[2].trim(), uf: rm[3].trim(), data: rm[4] };
     }
 
-    // Urgência aprovada?
     const temUrgencia = /APROVADO\s+O\s+REQUERIMENTO\s+DE\s+URG[ÊE]NCIA/i.test(bloco);
 
     resultado.itens.push({
       ordem: ordemRaw,
       tipoCategoria: 'projeto',
       sigla:  tipo.sigla,
-      numero,
-      ano,
+      numero: h.numero,
+      ano:    h.ano,
       ementa,
       autorTexto,
       apensadosTexto,
@@ -928,6 +1015,7 @@ async function carregarUltimaPauta() {
     };
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-salvar-firebase').disabled = false;
 
     // Carrega análises existentes em paralelo
     for (const it of state.pauta.itens) {
@@ -1062,6 +1150,101 @@ function formatDataHora(iso) {
 
 function iconeGerar() {
   return '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>';
+}
+
+// ============================================================
+//  CONFIGURAÇÕES (provedor IA)
+// ============================================================
+function abrirConfig() {
+  const c = state.config || {};
+  document.getElementById('config-provedor').value = c.provedor || 'gemini';
+  document.getElementById('config-api-key').value  = c.apiKey   || '';
+  onProvedorChange();
+  popularSelectModelos(c.modelo);
+  document.getElementById('modal-configuracoes').style.display = 'flex';
+}
+
+function onProvedorChange() {
+  const pid = document.getElementById('config-provedor').value;
+  const p   = PROVEDORES_META[pid];
+  const inp = document.getElementById('config-api-key');
+  inp.placeholder = p.placeholderChave;
+  document.getElementById('config-hint-chave').textContent = p.hintChave;
+  popularSelectModelos();
+}
+
+function popularSelectModelos(selecionado) {
+  const pid = document.getElementById('config-provedor').value;
+  const p   = PROVEDORES_META[pid];
+  const sel = document.getElementById('config-modelo');
+  const modelos = p.modelosFallback;
+  sel.innerHTML = modelos.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
+  if (selecionado && modelos.some(m => m.id === selecionado)) {
+    sel.value = selecionado;
+  } else if (state.config?.modelo && modelos.some(m => m.id === state.config.modelo)) {
+    sel.value = state.config.modelo;
+  }
+}
+
+async function carregarModelos() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim();
+  const p   = PROVEDORES_META[pid];
+  const stEl = document.getElementById('modelos-status');
+  if (!key) {
+    stEl.textContent = 'Informe a chave primeiro.';
+    stEl.style.display = 'block';
+    return;
+  }
+  stEl.textContent = 'Carregando modelos...';
+  stEl.style.display = 'block';
+  try {
+    const lista = await p.listar(key);
+    const sel = document.getElementById('config-modelo');
+    sel.innerHTML = lista.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
+    if (state.config?.modelo && lista.some(m => m.id === state.config.modelo)) sel.value = state.config.modelo;
+    stEl.textContent = `✓ ${lista.length} modelo(s) disponível(is).`;
+  } catch (e) {
+    stEl.textContent = `Erro: ${e.message}`;
+  }
+}
+
+async function salvarConfig() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim();
+  const modelo = document.getElementById('config-modelo').value;
+  const p = PROVEDORES_META[pid];
+  if (!key) { mostrarToast('Informe a chave de API.', 'aviso'); return; }
+  if (!p.regexChave.test(key)) {
+    mostrarToast(`Chave inválida para ${p.label}.`, 'aviso');
+    return;
+  }
+  state.config = { ...(state.config || {}), provedor: pid, apiKey: key, modelo };
+  delete state.config.geminiKey;
+  await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
+  document.getElementById('modal-configuracoes').style.display = 'none';
+  mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  SALVAR PAUTA MANUALMENTE NO FIREBASE
+// ============================================================
+async function salvarPautaManual() {
+  if (!state.pauta) { mostrarToast('Carregue uma pauta primeiro.', 'aviso'); return; }
+  const btn = document.getElementById('btn-salvar-firebase');
+  btn.disabled = true;
+  const originalHtml = btn.innerHTML;
+  btn.innerHTML = '<span class="an-spinner"></span> Salvando...';
+  try {
+    await fbSalvarPauta(state.pauta);
+    mostrarToast('✓ Pauta salva no Firebase', 'sucesso');
+  } catch (e) {
+    console.error(e);
+    mostrarToast('Erro ao salvar: ' + e.message, 'erro');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = originalHtml;
+  }
 }
 
 function mostrarToast(msg, tipo = 'info') {
