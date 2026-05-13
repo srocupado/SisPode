@@ -106,6 +106,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
+  document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
 
   // Modal de configurações: fechamento e ações
   document.querySelectorAll('[data-fecha]').forEach(b => {
@@ -122,7 +123,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     inp.type = inp.type === 'password' ? 'text' : 'password';
   });
 
-  // Tenta carregar a última pauta persistida
+  // Lista pautas no sidebar e carrega a mais recente
+  await atualizarSidebarPautas();
   await carregarUltimaPauta();
 });
 
@@ -1057,9 +1059,123 @@ function renderMarkdown(md) {
 }
 
 // ============================================================
+//  SIDEBAR DE PAUTAS
+// ============================================================
+let _pautaParaApagar = null;
+
+async function atualizarSidebarPautas() {
+  const cont = document.getElementById('sidebar-pautas');
+  try {
+    const res = await fetch(`${FIREBASE_URL}/pautas.json?shallow=false`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const lista = data ? Object.entries(data).map(([id, p]) => ({ id, ...p })) : [];
+    lista.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+
+    if (!lista.length) {
+      cont.innerHTML = '<div style="padding:16px;color:var(--text-dim);font-size:12px">Nenhuma pauta salva. Carregue um PDF para começar.</div>';
+      return;
+    }
+
+    const ativaId = state.pauta?.id;
+    cont.innerHTML = lista.map(p => `
+      <div class="an-pauta-item ${p.id === ativaId ? 'ativo' : ''}" data-pid="${escapeHtml(p.id)}">
+        <div class="an-pauta-item-info">
+          <div class="an-pauta-item-titulo">${escapeHtml(p.periodo || p.titulo || p.id)}</div>
+          <div class="an-pauta-item-meta">${(p.itens || []).length} itens · ${formatDataHora(p.uploadedAt)}</div>
+        </div>
+        <button class="an-pauta-item-apagar" data-pid="${escapeHtml(p.id)}" title="Apagar pauta">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+        </button>
+      </div>
+    `).join('');
+
+    cont.querySelectorAll('.an-pauta-item').forEach(el => {
+      el.addEventListener('click', ev => {
+        if (ev.target.closest('.an-pauta-item-apagar')) return;
+        carregarPautaPorId(el.dataset.pid);
+      });
+    });
+    cont.querySelectorAll('.an-pauta-item-apagar').forEach(btn => {
+      btn.addEventListener('click', ev => {
+        ev.stopPropagation();
+        const p = lista.find(x => x.id === btn.dataset.pid);
+        abrirModalApagarPauta(p);
+      });
+    });
+  } catch (e) {
+    cont.innerHTML = `<div style="padding:16px;color:#ff8e8e;font-size:12px">Erro ao listar: ${escapeHtml(e.message)}</div>`;
+  }
+}
+
+async function carregarPautaPorId(id) {
+  try {
+    const res = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(id)}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const pauta = await res.json();
+    if (!pauta) throw new Error('Pauta não encontrada');
+    state.pauta = {
+      ...pauta,
+      itens: (pauta.itens || []).map(it => ({
+        ...it,
+        enriquecimento: { status: 'pendente' },
+        analise: null,
+        analiseStatus: 'sem_analise',
+      })),
+    };
+    renderizarPauta();
+    document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-salvar-firebase').disabled = false;
+    document.getElementById('btn-adicionar-item').disabled = false;
+    atualizarSidebarPautas();
+    for (const it of state.pauta.itens) {
+      fbCarregarAnalise(it).then(a => {
+        if (a) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); }
+      }).catch(() => {});
+    }
+    enriquecerItens();
+  } catch (e) {
+    mostrarToast('Erro ao carregar pauta: ' + e.message, 'erro');
+  }
+}
+
+function abrirModalApagarPauta(p) {
+  _pautaParaApagar = p;
+  document.getElementById('apagar-pauta-nome').textContent =
+    `"${p.periodo || p.titulo || p.id}" (${(p.itens || []).length} itens)`;
+  document.getElementById('modal-apagar-pauta').style.display = 'flex';
+}
+
+async function confirmarApagarPauta() {
+  if (!_pautaParaApagar) return;
+  const id = _pautaParaApagar.id;
+  document.getElementById('modal-apagar-pauta').style.display = 'none';
+  try {
+    const res = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(id)}.json`, { method: 'DELETE' });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    if (state.pauta?.id === id) {
+      state.pauta = null;
+      document.getElementById('lista-itens').innerHTML = '<div class="an-empty"><p>Pauta removida. Selecione outra ou carregue um novo PDF.</p></div>';
+      document.getElementById('pauta-titulo').textContent = 'Nenhuma pauta carregada';
+      document.getElementById('pauta-meta').textContent   = 'Selecione uma pauta no menu ou carregue um novo PDF';
+      document.getElementById('btn-exportar-pdf').disabled    = true;
+      document.getElementById('btn-salvar-firebase').disabled = true;
+      document.getElementById('btn-adicionar-item').disabled  = true;
+    }
+    _pautaParaApagar = null;
+    await atualizarSidebarPautas();
+    mostrarToast('✓ Pauta apagada do Firebase', 'sucesso');
+  } catch (e) {
+    mostrarToast('Erro ao apagar: ' + e.message, 'erro');
+  }
+}
+
+// ============================================================
 //  FIREBASE — PAUTA + ANÁLISES
 // ============================================================
 async function fbSalvarPauta(pauta) {
+  // Atualiza sidebar após salvamento (concorrente, não bloqueia)
+  setTimeout(atualizarSidebarPautas, 300);
   // Salva sem o PDF binário inflando demais — guarda em campo separado.
   const res = await fetch(`${FIREBASE_URL}/pautas/${pauta.id}.json`, {
     method: 'PUT',
