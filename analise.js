@@ -615,12 +615,13 @@ async function enriquecerItem(it) {
   it.enriquecimento.apensados = apensados;
   it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
 
-  // URL do parecer mais recente do relator (para projetos)
-  if (it.tipoCategoria === 'projeto' && it.relator) {
+  // URLs do(s) parecer(es) do relator de Plenário (para projetos)
+  if (it.tipoCategoria === 'projeto') {
     try {
-      it.enriquecimento.urlParecer = await buscarUrlParecer(prop.id, it.relator);
+      it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
-      console.warn('Não encontrou parecer:', e.message);
+      console.warn('Não encontrou pareceres de plenário:', e.message);
+      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null };
     }
   }
 
@@ -709,25 +710,45 @@ async function fetchApensados(idProp) {
   }));
 }
 
-async function buscarUrlParecer(idProp, relator) {
-  // Busca tramitações ordenadas; procura por descrição de parecer próxima à data do relator.
+/**
+ * Busca os pareceres do Relator de Plenário (PRLP e PRLE) da proposição.
+ * Lê tramitações com siglaOrgao = 'PLEN' cuja descrição/despacho fale de
+ * "Parecer" e cujo URL aponte para documento com filename contendo "PRLP"
+ * ou "PRLE". Retorna o mais recente de cada tipo.
+ */
+async function buscarPareceresPlenario(idProp) {
   const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/tramitacoes`);
-  const lista = (json.dados || []).slice().reverse(); // mais recente primeiro
+  const lista = (json.dados || []);
 
-  const dataAlvo = parseDataBR(relator.data);
-  const candidatos = lista.filter(t => /parecer/i.test(`${t.descricaoTramitacao || ''} ${t.despacho || ''} ${t.descricaoSituacao || ''}`));
+  const candidatos = lista
+    .filter(t => (t.siglaOrgao || '').toUpperCase() === 'PLEN')
+    .filter(t => t.url)
+    .filter(t => /parecer/i.test(`${t.descricaoTramitacao || ''} ${t.despacho || ''} ${t.descricaoSituacao || ''}`))
+    .map(t => {
+      // Decodifica o filename do URL para identificar PRLP / PRLE / outro
+      const decodificado = (() => {
+        try { return decodeURIComponent(t.url); } catch (_) { return t.url; }
+      })();
+      const tipoMatch = decodificado.match(/[?&=+\/](PRLP|PRLE|PAR|PRL|PRC)\+?(\d+)?/i);
+      const sigla = tipoMatch ? tipoMatch[1].toUpperCase() : null;
+      const seq   = tipoMatch && tipoMatch[2] ? parseInt(tipoMatch[2], 10) : null;
+      return {
+        sigla,
+        sequencial: seq,
+        data:    (t.dataHora || '').slice(0, 10),
+        dataBR:  (t.dataHora || '').slice(0, 10).split('-').reverse().join('/'),
+        url:     t.url,
+        descricao: t.descricaoTramitacao || t.descricaoSituacao || '',
+      };
+    });
 
-  // Preferência: mesma data exata
-  let escolhido = candidatos.find(t => {
-    const d = (t.dataHora || '').slice(0, 10);
-    return d === dataAlvo;
-  });
+  // Mais recente primeiro
+  candidatos.sort((a, b) => (b.data || '').localeCompare(a.data || ''));
 
-  // Fallback: tramitação de parecer com URL não-vazia, mais recente
-  if (!escolhido) escolhido = candidatos.find(t => t.url);
-  if (!escolhido) escolhido = candidatos[0];
+  const prlp = candidatos.find(c => c.sigla === 'PRLP') || null;
+  const prle = candidatos.find(c => c.sigla === 'PRLE') || null;
 
-  return escolhido?.url || null;
+  return { prlp, prle };
 }
 
 function parseDataBR(s) {
@@ -828,28 +849,30 @@ async function gerarAnaliseItem(it, forcar = false) {
   conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Carregando documento...</div>';
 
   try {
-    const urlDoc = escolherUrlDocumento(it);
-    if (!urlDoc) throw new Error('Documento (parecer ou inteiro teor) não disponível na API.');
+    const docs = escolherDocumentos(it);
+    if (!docs.length) throw new Error('Documento (PRLP/PRLE ou inteiro teor) não disponível na API.');
 
-    const pdfBuffer = await baixarPdf(urlDoc);
+    // Baixa todos os PDFs em paralelo
+    btnGer.innerHTML = `<span class="an-spinner"></span> Buscando ${docs.length} documento(s)...`;
+    const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
 
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
-    const prompt   = montarPrompt(it);
+    const prompt   = montarPrompt(it, docs);
     const markdown = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
       modelo:     state.config.modelo,
       prompt,
-      pdfBuffer,
+      pdfBuffers,
     });
 
     it.analise = {
       markdown,
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
-      urlDocumento: urlDoc,
+      documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
@@ -868,12 +891,36 @@ async function gerarAnaliseItem(it, forcar = false) {
   }
 }
 
-function escolherUrlDocumento(it) {
-  const enr = it.enriquecimento || {};
-  // Projeto com parecer encontrado
-  if (it.tipoCategoria === 'projeto' && enr.urlParecer) return enr.urlParecer;
-  // Requerimento: inteiro teor do projeto urgenciado se houver
-  return enr.urlInteiroTeor || null;
+/**
+ * Lista de documentos a enviar à IA, com rótulo descritivo.
+ * Para projetos: PRLP mais recente + PRLE mais recente (quando existir).
+ * Para requerimentos: inteiro teor da proposição alvo.
+ * Fallback: inteiro teor do projeto se nenhum parecer for encontrado.
+ */
+function escolherDocumentos(it) {
+  const enr  = it.enriquecimento || {};
+  const docs = [];
+
+  if (it.tipoCategoria === 'projeto') {
+    const par = enr.pareceresPlenario || {};
+    if (par.prlp) docs.push({
+      tipo: 'PRLP',
+      rotulo: `PRLP${par.prlp.sequencial ? ' nº ' + par.prlp.sequencial : ''}${par.prlp.dataBR ? ' de ' + par.prlp.dataBR : ''}`,
+      url: par.prlp.url,
+    });
+    if (par.prle) docs.push({
+      tipo: 'PRLE',
+      rotulo: `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`,
+      url: par.prle.url,
+    });
+    if (!docs.length && enr.urlInteiroTeor) {
+      docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+    }
+  } else {
+    if (enr.urlInteiroTeor) docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+  }
+
+  return docs;
 }
 
 function parecerKey(it) {
@@ -882,7 +929,7 @@ function parecerKey(it) {
   return 'inteiro-teor';
 }
 
-function montarPrompt(it) {
+function montarPrompt(it, docs = []) {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
@@ -901,13 +948,29 @@ function montarPrompt(it) {
     ? `\nPareceres de comissão constantes na pauta (em ordem de tramitação):\n${pareceresLista}\n`
     : '';
 
+  // Lista os documentos efetivamente anexados (PRLP, PRLE ou inteiro teor)
+  const docsLista = docs.map((d, i) => `Documento ${i + 1} — ${d.rotulo}`).join('\n');
+  const blocoDocs = docsLista ? `\nDocumentos anexados a esta análise:\n${docsLista}\n` : '';
+
+  // Para a anotação do título da seção do relator, monta a sigla agregada
+  const docsParaTitulo = docs
+    .filter(d => d.tipo === 'PRLP' || d.tipo === 'PRLE')
+    .map(d => d.rotulo)
+    .join('; ');
+  const anotacaoTitulo = docsParaTitulo
+    ? ` (${docsParaTitulo})`
+    : '';
+
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
-    : `parecer mais recente do(a) relator(a) Dep. ${it.relator?.nome || ''} (${it.relator?.partido || ''}-${it.relator?.uf || ''}), de ${it.relator?.data || ''}`;
+    : (docs.length
+        ? `parecer(es) do relator de plenário anexado(s): ${docs.map(d => d.rotulo).join('; ')}`
+        : 'documento da proposição');
 
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
 
-Analise o documento anexo (${tipoDoc}) referente à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+Analise o(s) documento(s) anexo(s) (${tipoDoc}) referente(s) à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+${blocoDocs}
 
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
@@ -922,8 +985,10 @@ Ao final desta seção, **descreva em parágrafo próprio o trâmite da proposi�
 
 Evite frases genéricas — descreva concretamente o que muda na prática.
 
-## Pontos centrais do parecer do relator
-Um ou dois parágrafos descrevendo a posição do relator e as mudanças propostas. **Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.**
+## Pontos centrais do parecer do relator${anotacaoTitulo}
+Um ou dois parágrafos descrevendo a posição do(a) relator(a) de Plenário e as mudanças propostas. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
+  ? 'Como há PRLP e PRLE anexados, distinga claramente: descreva primeiro o conteúdo do PRLP (parecer original do relator) e em seguida o conteúdo do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro. '
+  : ''}**Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.** Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
 
 ## Argumentos favoráveis à aprovação
 Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação.
@@ -950,17 +1015,16 @@ REGRAS RÍGIDAS:
 }
 
 // ---------- IA: chamada adaptada para resposta em Markdown ----------
-async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffer }) {
-  const base64 = arrayBufferToBase64(pdfBuffer);
+async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
+  const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    const parts = pdfsBase64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } }));
+    parts.push({ text: prompt });
     const body = {
-      contents: [{ parts: [
-        { inline_data: { mime_type: 'application/pdf', data: base64 } },
-        { text: prompt },
-      ]}],
+      contents: [{ parts }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 4000 },
     };
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -971,12 +1035,15 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffer }) {
 
   if (provedorId === 'openai') {
     const m = modelo || 'gpt-4o';
+    const content = pdfsBase64.map((d, i) => ({
+      type: 'input_file',
+      filename: `documento_${i + 1}.pdf`,
+      file_data: `data:application/pdf;base64,${d}`,
+    }));
+    content.push({ type: 'input_text', text: prompt });
     const body = {
       model: m,
-      input: [{ role: 'user', content: [
-        { type: 'input_file', filename: 'documento.pdf', file_data: `data:application/pdf;base64,${base64}` },
-        { type: 'input_text', text: prompt },
-      ]}],
+      input: [{ role: 'user', content }],
       temperature: 0.2,
       max_output_tokens: 4000,
     };
@@ -997,13 +1064,15 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffer }) {
 
   if (provedorId === 'anthropic') {
     const m = modelo || 'claude-sonnet-4-6';
+    const content = pdfsBase64.map(d => ({
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: d },
+    }));
+    content.push({ type: 'text', text: prompt });
     const body = {
       model: m,
       max_tokens: 4000,
-      messages: [{ role: 'user', content: [
-        { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: base64 } },
-        { type: 'text', text: prompt },
-      ]}],
+      messages: [{ role: 'user', content }],
     };
     const res = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -1049,7 +1118,13 @@ function renderAnaliseCard(it) {
   const fonte = it.analise.editadoEm
     ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
     : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
-  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${it.analise.urlDocumento ? ' · <a href="' + it.analise.urlDocumento + '" target="_blank" rel="noopener">documento analisado</a>' : ''}`;
+  // Lista de documentos analisados (PRLP / PRLE / inteiro teor)
+  const docs = it.analise.documentos
+    || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
+  const docsHtml = docs.length
+    ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
+    : '';
+  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}`;
   conteudo.innerHTML = renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
@@ -1427,7 +1502,7 @@ function atualizarStatusSync(estado) {
   bar.style.display = 'inline-flex';
   bar.className = 'an-sync ' + estado;
   if (estado === 'ok') {
-    const hh = new Date(state.ultimoSave || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const hh = new Date(state.ultimoSave || Date.now()).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
     txt.textContent = `Sincronizado às ${hh}`;
   } else if (estado === 'salvando') {
     txt.textContent = 'Sincronizando…';
@@ -1518,6 +1593,10 @@ async function fbSalvarAnalise(it) {
     body: JSON.stringify(it.analise),
   });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  // Atualiza o indicador também para salvamentos de análise individual,
+  // já que o usuário enxerga isso como um "save" do painel.
+  state.ultimoSave = new Date().toISOString();
+  atualizarStatusSync('ok');
 }
 
 // ============================================================
