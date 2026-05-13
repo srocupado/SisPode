@@ -101,6 +101,17 @@ const AUTO_SAVE_INTERVAL_MS = 10000;
 document.addEventListener('DOMContentLoaded', async () => {
   await carregarConfig();
 
+  // Aviso se o usuário tentar sair com autosave pendente ou em voo.
+  window.addEventListener('beforeunload', (e) => {
+    for (const st of _autosaveState.values()) {
+      if (st.debounceId || st.salvando || st.dirty) {
+        e.preventDefault();
+        e.returnValue = '';
+        return;
+      }
+    }
+  });
+
   document.getElementById('btn-voltar').addEventListener('click', () => {
     history.length > 1 ? history.back() : window.close();
   });
@@ -524,6 +535,7 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
+        <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -1300,26 +1312,127 @@ function renderAnaliseCard(it) {
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
 }
 
+// Estado por-item para o autosave durante a edição.
+// Chave: it.chave → { snapshot, debounceId, salvando, dirty, listener }
+const _autosaveState = new Map();
+const AUTOSAVE_DEBOUNCE_MS = 1500;
+
 function entrarEdicaoAnalise(it) {
   if (!it.analise) return;
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
   const editor   = card.querySelector('[data-role=analise-editor]');
+  const statusEl = card.querySelector('[data-role=autosave-status]');
   editor.value = it.analise.markdown || '';
   conteudo.style.display = 'none';
   editor.style.display   = 'block';
   card.querySelector('[data-role=btn-editar]').style.display = 'none';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'inline-flex';
+  statusEl.style.display = 'inline';
+  statusEl.textContent = '';
+  statusEl.style.color = '#888';
+
+  // Snapshot para o "Cancelar" reverter, mesmo após autosaves intermediários.
+  const snapshot = { ...it.analise };
+  const listener = () => agendarAutosave(it);
+  editor.addEventListener('input', listener);
+  _autosaveState.set(it.chave, { snapshot, debounceId: null, salvando: false, dirty: false, listener });
+
   editor.focus();
+}
+
+function agendarAutosave(it) {
+  const st = _autosaveState.get(it.chave);
+  if (!st) return;
+  st.dirty = true;
+  if (st.debounceId) clearTimeout(st.debounceId);
+  setStatusAutosave(it, 'editando…', '#888');
+  st.debounceId = setTimeout(() => executarAutosave(it), AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function executarAutosave(it) {
+  const st = _autosaveState.get(it.chave);
+  if (!st) return;
+  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const editor = card.querySelector('[data-role=analise-editor]');
+  const novo   = (editor.value || '').trim();
+  if (!novo) {
+    setStatusAutosave(it, '⚠ vazio — não salvo', '#c08400');
+    return;
+  }
+  if (st.salvando) {
+    // Já tem um save em voo — reagenda para depois
+    st.debounceId = setTimeout(() => executarAutosave(it), 400);
+    return;
+  }
+  st.salvando = true;
+  st.dirty = false;
+  setStatusAutosave(it, 'salvando…', '#888');
+
+  it.analise = {
+    ...it.analise,
+    markdown:    novo,
+    editadoEm:   new Date().toISOString(),
+    editadoPor:  state.config?.nomeUsuario || 'equipe',
+  };
+
+  try {
+    await fbSalvarAnalise(it);
+    const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    setStatusAutosave(it, `✓ salvo às ${hora}`, '#0a8a3a');
+  } catch (e) {
+    console.warn('Autosave falhou:', e.message);
+    setStatusAutosave(it, '⚠ erro — tentando de novo', '#c0392b');
+    // Reagenda nova tentativa
+    st.debounceId = setTimeout(() => executarAutosave(it), 5000);
+  } finally {
+    st.salvando = false;
+    // Se mudou enquanto estávamos salvando, reagenda flush
+    if (st.dirty && !st.debounceId) {
+      st.debounceId = setTimeout(() => executarAutosave(it), AUTOSAVE_DEBOUNCE_MS);
+    }
+  }
+}
+
+function setStatusAutosave(it, texto, cor) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const el = card.querySelector('[data-role=autosave-status]');
+  if (!el) return;
+  el.textContent = texto;
+  el.style.color = cor || '#888';
+}
+
+function limparEdicao(it) {
+  const st = _autosaveState.get(it.chave);
+  if (!st) return;
+  if (st.debounceId) clearTimeout(st.debounceId);
+  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (card) {
+    const editor = card.querySelector('[data-role=analise-editor]');
+    if (editor && st.listener) editor.removeEventListener('input', st.listener);
+  }
+  _autosaveState.delete(it.chave);
 }
 
 function sairEdicaoAnalise(it) {
   const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  // Cancelar: reverte para o snapshot e re-grava no Firebase (para não
+  // ficar persistido o estado intermediário que o autosave já enviou).
+  const st = _autosaveState.get(it.chave);
+  if (st && st.snapshot && it.analise && it.analise.markdown !== st.snapshot.markdown) {
+    it.analise = { ...st.snapshot };
+    renderAnaliseCard(it);
+    fbSalvarAnalise(it).catch(e => console.warn('Reverter no Firebase falhou:', e.message));
+  }
+  limparEdicao(it);
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
   card.querySelector('[data-role=analise-conteudo]').style.display = '';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
+  card.querySelector('[data-role=autosave-status]').style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
 }
 
@@ -1329,6 +1442,10 @@ async function salvarEdicaoAnalise(it) {
   const novo   = editor.value.trim();
   if (!novo) { mostrarToast('Análise não pode ficar vazia.', 'aviso'); return; }
 
+  // Flush: cancela qualquer autosave pendente e grava agora.
+  const st = _autosaveState.get(it.chave);
+  if (st?.debounceId) { clearTimeout(st.debounceId); st.debounceId = null; }
+
   it.analise = {
     ...it.analise,
     markdown:    novo,
@@ -1336,7 +1453,13 @@ async function salvarEdicaoAnalise(it) {
     editadoPor:  state.config?.nomeUsuario || 'equipe',
   };
 
-  sairEdicaoAnalise(it);
+  limparEdicao(it);
+  card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  card.querySelector('[data-role=analise-conteudo]').style.display = '';
+  card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
+  card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
+  card.querySelector('[data-role=autosave-status]').style.display = 'none';
+  card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
   renderAnaliseCard(it);
   try {
     await fbSalvarAnalise(it);
