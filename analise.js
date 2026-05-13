@@ -1968,7 +1968,27 @@ async function fbSalvarAnalise(it) {
 // ============================================================
 //  EXPORTAR PDF (via window.print da própria página)
 // ============================================================
-function exportarPdf() {
+async function carregarLogoDataUrl() {
+  try {
+    const url = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
+      ? chrome.runtime.getURL('icons/podemos-logo.png')
+      : 'icons/podemos-logo.png';
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(fr.result);
+      fr.onerror   = () => reject(fr.error);
+      fr.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('Logo não carregada:', e.message);
+    return null;
+  }
+}
+
+async function exportarPdf() {
   if (!state.pauta) return;
   // Constrói uma janela "limpa" com cabeçalho + análises
   const win = window.open('', '_blank');
@@ -1984,6 +2004,10 @@ function exportarPdf() {
     return 'Análise não gerada.';
   };
 
+  // Carrega a logo como data-URL para embutir no PDF (a janela aberta é
+  // about:blank, então o caminho do extension precisa virar base64).
+  const logoDataUrl = await carregarLogoDataUrl();
+
   const html = `<!DOCTYPE html>
 <html lang="pt-BR"><head><meta charset="UTF-8">
 <title>${escapeHtml(state.pauta.titulo)} — Análise</title>
@@ -1994,6 +2018,9 @@ function exportarPdf() {
   h2 { font-size: 14pt; margin: 18px 0 6px; color: #003c1f; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
   h3 { font-size: 11pt; margin: 12px 0 4px; color: #155724; }
   .cabecalho { border-bottom: 2px solid #00A859; padding-bottom: 10px; margin-bottom: 16px; }
+  .cab-institucional { display: grid; grid-template-columns: 130px 1fr 130px; align-items: center; margin-bottom: 10px; }
+  .cab-institucional .cab-titulo { text-align: center; font-size: 13pt; font-weight: 700; color: #003c1f; letter-spacing: 0.2px; }
+  .cab-institucional .cab-logo { justify-self: end; height: 48px; width: auto; }
   .meta { font-size: 10pt; color: #555; }
   .item { margin-bottom: 24px; padding-bottom: 14px; border-bottom: 1px dashed #ccc; }
   .item-titulo { font-size: 12pt; font-weight: 700; }
@@ -2008,8 +2035,13 @@ function exportarPdf() {
   .pendente { color: #888; font-style: italic; background: #fafafa; border: 1px dashed #ddd; padding: 8px 10px; border-radius: 4px; text-align: left; margin: 6px 0; }
 </style></head><body>
   <div class="cabecalho">
+    <div class="cab-institucional">
+      <span></span>
+      <div class="cab-titulo">Liderança do Podemos na Câmara dos Deputados</div>
+      ${logoDataUrl ? `<img class="cab-logo" src="${logoDataUrl}" alt="Podemos">` : '<span></span>'}
+    </div>
     <h1>${escapeHtml(state.pauta.titulo)}</h1>
-    <div class="meta">${escapeHtml(state.pauta.periodo || '')} · Liderança do Podemos – Câmara dos Deputados</div>
+    <div class="meta">${escapeHtml(state.pauta.periodo || '')}</div>
     <div class="meta">Gerado em ${formatDataHora(new Date().toISOString())}</div>
   </div>
   ${itens.length === 0 ? '<p class="empty">Pauta vazia.</p>' : ''}
