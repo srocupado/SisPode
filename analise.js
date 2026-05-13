@@ -754,8 +754,12 @@ async function buscarPareceresPlenario(idProp) {
     // Link para inteiro teor — em qualquer célula
     const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
     let linkUrl = a ? a.getAttribute('href') : null;
-    if (linkUrl && linkUrl.startsWith('/')) linkUrl = 'https://www.camara.leg.br' + linkUrl;
-    if (!linkUrl) continue;
+    if (!linkUrl || linkUrl.startsWith('javascript:')) continue;
+    // Resolve URLs relativas (href pode vir como "prop_mostrarintegra?..." ou
+    // "../proposicoesWeb/...") usando a URL da página como base.
+    try {
+      linkUrl = new URL(linkUrl, 'https://www.camara.leg.br/proposicoesWeb/').toString();
+    } catch (_) { continue; }
 
     candidatos.push({
       sigla:      siglaMatch[1].toUpperCase(),
@@ -1122,9 +1126,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
 }
 
 async function baixarPdf(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Falha ao baixar documento (HTTP ${res.status})`);
-  return await res.arrayBuffer();
+  try {
+    const res = await fetch(url, { redirect: 'follow' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return await res.arrayBuffer();
+  } catch (e) {
+    console.error('[baixarPdf] falhou', url, e);
+    throw new Error(`Falha ao baixar documento (${e.message}). URL: ${url.slice(0, 90)}…`);
+  }
 }
 
 function renderAnaliseCard(it) {
