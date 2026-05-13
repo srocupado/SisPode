@@ -280,6 +280,10 @@
           Carregar pauta (PDF)
         </label>
         <input type="file" id="input-pauta-pdf" accept=".pdf" style="display:none">
+        <button id="btn-adicionar-item" class="btn btn-outline btn-sm" disabled>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Adicionar projeto
+        </button>
         <button id="btn-salvar-firebase" class="btn btn-primary btn-sm" disabled>
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
           Salvar no Firebase
@@ -303,6 +307,67 @@
   </div>
 
   <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== MODAL: ADICIONAR PROJETO ===== -->
+  <div id="modal-adicionar" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Adicionar projeto à pauta</h3>
+        <button class="modal-close" data-fecha="modal-adicionar">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Informe tipo, número e ano. A ementa, o autor e o relator serão buscados na API da Câmara automaticamente.</p>
+        <div class="form-group">
+          <label>Tipo de proposição</label>
+          <select id="add-tipo" class="form-input">
+            <option value="PL">PL — Projeto de Lei</option>
+            <option value="PLP">PLP — Projeto de Lei Complementar</option>
+            <option value="PEC">PEC — Proposta de Emenda à Constituição</option>
+            <option value="PDL">PDL — Projeto de Decreto Legislativo</option>
+            <option value="MPV">MPV — Medida Provisória</option>
+            <option value="PRC">PRC — Projeto de Resolução</option>
+          </select>
+        </div>
+        <div style="display:flex; gap:10px">
+          <div class="form-group" style="flex:1">
+            <label>Número</label>
+            <input type="text" id="add-numero" class="form-input" placeholder="Ex: 488">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ano</label>
+            <input type="text" id="add-ano" class="form-input" placeholder="Ex: 2019">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ordem (opcional)</label>
+            <input type="text" id="add-ordem" class="form-input" placeholder="Ex: 15">
+          </div>
+        </div>
+        <div id="add-status" style="font-size:11px;color:var(--text-dim);min-height:14px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-adicionar">Cancelar</button>
+        <button id="btn-confirmar-adicionar" class="btn btn-primary">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: REMOVER ITEM ===== -->
+  <div id="modal-remover" class="modal-overlay" style="display:none">
+    <div class="modal modal-apagar">
+      <div class="modal-header">
+        <h3>Remover item</h3>
+        <button class="modal-close" data-fecha="modal-remover">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="remover-nome" style="font-weight:600;font-size:14px;margin-bottom:10px;color:var(--text)"></p>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6">O item será removido da pauta. A análise gerada permanece salva no Firebase (caso o item seja readicionado, será recuperada).</p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-remover">Cancelar</button>
+        <button id="btn-confirmar-remover" class="btn btn-danger">Remover</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
   <div id="modal-configuracoes" class="modal-overlay" style="display:none">

@@ -103,6 +103,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
+  document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
+  document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
+  document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
 
   // Modal de configurações: fechamento e ações
   document.querySelectorAll('[data-fecha]').forEach(b => {
@@ -166,6 +169,7 @@ async function onPdfSelecionado(ev) {
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
+    document.getElementById('btn-adicionar-item').disabled = false;
 
     mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
 
@@ -441,6 +445,14 @@ function renderCard(it) {
         Gerar Análise
       </button>
       <button class="btn btn-outline btn-sm" data-role="btn-toggle" style="display:none">Ver análise</button>
+      <a class="btn btn-outline btn-sm" data-role="link-portal" target="_blank" rel="noopener" style="display:none" title="Abrir página da proposição na Câmara dos Deputados">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+        Ver no portal
+      </a>
+      <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item da pauta">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        Remover
+      </button>
     </div>
     <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
@@ -457,7 +469,18 @@ function renderCard(it) {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
   });
+  card.querySelector('[data-role=btn-remover]').addEventListener('click', () => abrirModalRemover(it));
   return card;
+}
+
+function atualizarLinkPortal(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const link = card.querySelector('[data-role=link-portal]');
+  const id = it.enriquecimento?.idProposicao;
+  if (!link || !id) return;
+  link.href = `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${id}`;
+  link.style.display = 'inline-flex';
 }
 
 function tipoLabel(sigla) {
@@ -500,6 +523,7 @@ async function enriquecerItem(it) {
   const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
   it.enriquecimento.idProposicao = prop.id;
   it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+  atualizarLinkPortal(it);
 
   // Autoria principal
   const autores = await fetchAutoresProposicao(prop.id);
@@ -1018,6 +1042,7 @@ async function carregarUltimaPauta() {
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
+    document.getElementById('btn-adicionar-item').disabled = false;
 
     // Carrega análises existentes em paralelo
     for (const it of state.pauta.itens) {
@@ -1226,6 +1251,95 @@ async function salvarConfig() {
   await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
   mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  ADICIONAR / REMOVER ITENS DA PAUTA
+// ============================================================
+let _itemParaRemover = null;
+
+function abrirModalAdicionar() {
+  if (!state.pauta) { mostrarToast('Carregue uma pauta primeiro.', 'aviso'); return; }
+  document.getElementById('add-tipo').value = 'PL';
+  document.getElementById('add-numero').value = '';
+  document.getElementById('add-ano').value = '';
+  document.getElementById('add-ordem').value = '';
+  document.getElementById('add-status').textContent = '';
+  document.getElementById('modal-adicionar').style.display = 'flex';
+}
+
+async function confirmarAdicionar() {
+  const sigla  = document.getElementById('add-tipo').value;
+  const numero = limpaNumero(document.getElementById('add-numero').value);
+  const ano    = (document.getElementById('add-ano').value || '').trim();
+  const ordem  = parseInt(document.getElementById('add-ordem').value, 10);
+  const stEl   = document.getElementById('add-status');
+
+  if (!numero || !/^\d{4}$/.test(ano)) {
+    stEl.textContent = 'Informe número e ano (4 dígitos).';
+    return;
+  }
+
+  const chave = `${sigla}-${numero}-${ano}`;
+  if (state.pauta.itens.some(it => it.chave === chave)) {
+    stEl.textContent = 'Este item já está na pauta.';
+    return;
+  }
+
+  const btn = document.getElementById('btn-confirmar-adicionar');
+  btn.disabled = true;
+  stEl.textContent = 'Buscando proposição na API da Câmara...';
+
+  try {
+    const prop = await resolveProposicao(sigla, numero, ano);
+    // Detalhe para ementa e autor
+    const det  = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
+    const dados = det.dados || {};
+
+    const novo = normalizarItem({
+      ordem:         isNaN(ordem) ? null : ordem,
+      tipoCategoria: 'projeto',
+      sigla,
+      numero,
+      ano,
+      ementa:        (dados.ementa || '').trim(),
+      autorTexto:    '',
+      apensadosTexto: [],
+      relator:       null,
+      temUrgencia:   false,
+      adicionadoManualmente: true,
+    });
+
+    state.pauta.itens.push(novo);
+    renderizarPauta();
+    enriquecerItem(novo).catch(e => console.warn('Enriquecimento manual falhou:', e));
+    fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
+
+    document.getElementById('modal-adicionar').style.display = 'none';
+    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta`, 'sucesso');
+  } catch (e) {
+    stEl.textContent = `Erro: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+function abrirModalRemover(it) {
+  _itemParaRemover = it;
+  document.getElementById('remover-nome').textContent =
+    `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${it.ordem ? ' (item ' + it.ordem + ')' : ''}`;
+  document.getElementById('modal-remover').style.display = 'flex';
+}
+
+async function confirmarRemover() {
+  if (!_itemParaRemover) return;
+  const idx = state.pauta.itens.findIndex(it => it.chave === _itemParaRemover.chave);
+  if (idx >= 0) state.pauta.itens.splice(idx, 1);
+  _itemParaRemover = null;
+  document.getElementById('modal-remover').style.display = 'none';
+  renderizarPauta();
+  fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
+  mostrarToast('Item removido da pauta', 'sucesso');
 }
 
 // ============================================================
