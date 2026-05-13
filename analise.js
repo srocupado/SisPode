@@ -1055,7 +1055,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
     parts.push({ text: prompt });
     const body = {
       contents: [{ parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 4000 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: 12000 },
     };
     const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const json = await res.json();
@@ -1075,7 +1075,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       model: m,
       input: [{ role: 'user', content }],
       temperature: 0.2,
-      max_output_tokens: 4000,
+      max_output_tokens: 12000,
     };
     const res = await fetch('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -1101,7 +1101,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
     content.push({ type: 'text', text: prompt });
     const body = {
       model: m,
-      max_tokens: 4000,
+      max_tokens: 12000,
       messages: [{ role: 'user', content }],
     };
     const res = await fetch('https://api.anthropic.com/v1/messages', {
