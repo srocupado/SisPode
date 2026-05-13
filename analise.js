@@ -1208,8 +1208,22 @@ function abrirModalApagarPauta(p) {
 async function confirmarApagarPauta() {
   if (!_pautaParaApagar) return;
   const id = _pautaParaApagar.id;
+  const itens = _pautaParaApagar.itens || [];
   document.getElementById('modal-apagar-pauta').style.display = 'none';
   try {
+    // 1. Apaga as análises de cada item desta pauta no caminho
+    //    /analises_pauta/{chave}/{parecerKey}. Outras versões (outros pareceres
+    //    da mesma proposição vinculadas a outras pautas) são preservadas.
+    const deletes = itens
+      .filter(it => it.chave)
+      .map(it => {
+        const pk = parecerKey(it);
+        const url = `${FIREBASE_URL}/analises_pauta/${encodeURIComponent(it.chave)}/${encodeURIComponent(pk)}.json`;
+        return fetch(url, { method: 'DELETE' }).catch(() => {});
+      });
+    await Promise.all(deletes);
+
+    // 2. Apaga a pauta em si
     const res = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(id)}.json`, { method: 'DELETE' });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     if (state.pauta?.id === id) {
