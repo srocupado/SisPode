@@ -1026,9 +1026,6 @@ Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou d
 ## Argumentos contrários à aprovação
 Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a rejeição.
 
-## Riscos jurídicos / constitucionais
-Parágrafo discutindo riscos identificados no documento. Caso não haja, escreva exatamente: "Sem riscos jurídicos relevantes identificados."
-
 ## Impacto orçamentário-financeiro
 Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva exatamente: "Sem impacto orçamentário-financeiro identificado."
 
