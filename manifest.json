@@ -44,7 +44,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js"],
+      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js"],
       "matches": ["<all_urls>"]
     }
   ]
