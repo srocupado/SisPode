@@ -104,6 +104,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
+  document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
@@ -172,6 +173,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
+    document.getElementById('btn-gerar-todas').disabled = false;
 
     mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
 
@@ -1117,6 +1119,61 @@ function renderMarkdown(md) {
 }
 
 // ============================================================
+//  GERAR ANÁLISE DE TODOS OS ITENS
+// ============================================================
+let _gerarTodasState = { rodando: false, cancelar: false };
+
+function toggleGerarTodas() {
+  if (_gerarTodasState.rodando) {
+    _gerarTodasState.cancelar = true;
+    return;
+  }
+  gerarTodasAsAnalises().catch(e => {
+    console.error(e);
+    mostrarToast('Erro: ' + e.message, 'erro');
+  });
+}
+
+async function gerarTodasAsAnalises() {
+  if (!state.pauta) return;
+  await carregarConfig();
+  if (!state.config?.apiKey) {
+    mostrarToast('Configure a chave de API antes (⚙ Configurações).', 'aviso');
+    return;
+  }
+
+  // Apenas itens ainda sem análise
+  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok');
+  if (!pendentes.length) {
+    mostrarToast('Todos os itens já têm análise.', 'info');
+    return;
+  }
+
+  _gerarTodasState = { rodando: true, cancelar: false };
+  const btn = document.getElementById('btn-gerar-todas');
+  const labelOriginal = btn.innerHTML;
+  let ok = 0, falhas = 0;
+
+  for (let i = 0; i < pendentes.length; i++) {
+    if (_gerarTodasState.cancelar) break;
+    const it = pendentes[i];
+    btn.innerHTML = `<span class="an-spinner"></span> ${i + 1}/${pendentes.length} — Cancelar`;
+    try {
+      await gerarAnaliseItem(it);
+      if (it.analiseStatus === 'ok') ok++; else falhas++;
+    } catch (e) {
+      console.warn(`Falha em ${it.chave}:`, e);
+      falhas++;
+    }
+  }
+
+  _gerarTodasState = { rodando: false, cancelar: false };
+  btn.innerHTML = labelOriginal;
+  const msg = `Geração em lote concluída: ${ok} análise(s) gerada(s)${falhas ? ', ' + falhas + ' falha(s)' : ''}.`;
+  mostrarToast(msg, falhas ? 'aviso' : 'sucesso');
+}
+
+// ============================================================
 //  VARREDURA DE ANÁLISES ÓRFÃS
 // ============================================================
 /**
@@ -1249,6 +1306,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
+    document.getElementById('btn-gerar-todas').disabled = false;
     atualizarSidebarPautas();
     for (const it of state.pauta.itens) {
       fbCarregarAnalise(it).then(a => {
@@ -1354,6 +1412,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-exportar-pdf').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
+    document.getElementById('btn-gerar-todas').disabled = false;
 
     // Carrega análises existentes em paralelo
     for (const it of state.pauta.itens) {
