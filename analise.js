@@ -350,6 +350,13 @@ function parsearPauta(texto) {
 
     const temUrgencia = /APROVADO\s+O\s+REQUERIMENTO\s+DE\s+URG[ÊE]NCIA/i.test(bloco);
 
+    // Pareceres de comissão constantes na pauta.
+    // Padrões reconhecidos no PDF:
+    //   "tendo parecer da Comissão de X, pelo Y (Relator: Dep. Z)"
+    //   "tendo pareceres da Comissão de X..., pelo Y (Relator: Dep. Z); da Comissão de W..."
+    //   "tendo pareceres proferidos em plenário: da Comissão de X..."
+    const pareceresComissao = extrairPareceresComissao(bloco);
+
     resultado.itens.push({
       ordem: ordemRaw,
       tipoCategoria: 'projeto',
@@ -361,6 +368,7 @@ function parsearPauta(texto) {
       apensadosTexto,
       relator,
       temUrgencia,
+      pareceresComissao,
     });
   }
 
@@ -371,6 +379,45 @@ function parsearPauta(texto) {
   });
 
   return resultado;
+}
+
+/**
+ * Extrai a lista de pareceres de comissão do bloco do item da pauta.
+ * Cada parecer tem: comissao, posicao (texto da posição/conclusão) e relator (opcional).
+ */
+function extrairPareceresComissao(bloco) {
+  const pareceres = [];
+  // Recorta a partir de "tendo parecer(es)" até o próximo grande marcador
+  // (Pendente, APROVADO, RELATOR:, fim do bloco).
+  // Terminador "RELATOR:" exige newline antes e "DEP." depois, para não casar
+  // o "(Relator: Dep. X)" inline que aparece dentro de cada parecer.
+  const trechoMatch = bloco.match(/tendo\s+parecer[es]*[\s\S]*?(?=Pendente\s+de\s+parecer|APROVADO\s+O\s+REQUERIMENTO|(?:\n|^)\s*RELATOR(?:A)?:\s*DEP\.|\n\s*Tendo\s+apens|$)/i);
+  if (!trechoMatch) return pareceres;
+
+  const trecho = trechoMatch[0].replace(/\s+/g, ' ');
+  // Quebra a cada ocorrência de "Comissão de"; partes[0] é o prefixo
+  // ("tendo parecer da " ou "; e tendo pareceres proferidos em plenário: ").
+  const partes = trecho.split(/\s*(?:da\s+)?Comiss[ãa]o\s+de\s+/i);
+  // partes[0] = prefixo "tendo parecer"; demais = cada parecer
+  for (let i = 1; i < partes.length; i++) {
+    const t = partes[i].trim();
+    if (!t) continue;
+    // Nome da comissão pode conter vírgulas (ex.: "Indústria, Comércio e
+    // Serviços"). Consome o nome até a vírgula que antecede o conector de
+    // posição ("pela", "pelo", "no mérito", "favorável", etc.).
+    const m = t.match(/^([^;:]{3,200}?),\s+(?=pel[oa]\b|no\s+m[ée]rito|sem\s+m[ée]rito|sem\s+manifesta|favor[áa]vel|contr[áa]rio|por\s+|que)([\s\S]+?)(?=\(Relator(?:a)?:|;|$)/i);
+    if (!m) continue;
+    const comissao = m[1].replace(/\s+/g, ' ').trim();
+    let posicao = m[2].replace(/\s+/g, ' ').trim().replace(/[.,;()]+$/, '');
+    // Captura relator dentro do próprio t (busca explícita pelo padrão)
+    const relMatch = t.match(/\(\s*Relator(?:a)?:\s*([^)]+?)\s*\)/i);
+    pareceres.push({
+      comissao,
+      posicao,
+      relator: relMatch ? relMatch[1].replace(/\s+/g, ' ').trim() : null,
+    });
+  }
+  return pareceres;
 }
 
 function limpaNumero(s) {
@@ -834,6 +881,13 @@ function montarPrompt(it) {
     enr.apensadosPodemos?.length ? `⚠ ATENÇÃO: Há apensado(s) de autoria Podemos:\n${apensadosPodemos}` : null,
   ].filter(Boolean).join('\n');
 
+  const pareceresLista = (it.pareceresComissao || []).map((p, i) =>
+    `${i + 1}. **Comissão de ${p.comissao}** — ${p.posicao}${p.relator ? ` (${p.relator})` : ''}`
+  ).join('\n');
+  const blocoPareceres = pareceresLista
+    ? `\nPareceres de comissão constantes na pauta (em ordem de tramitação):\n${pareceresLista}\n`
+    : '';
+
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
     : `parecer mais recente do(a) relator(a) Dep. ${it.relator?.nome || ''} (${it.relator?.partido || ''}-${it.relator?.uf || ''}), de ${it.relator?.data || ''}`;
@@ -845,11 +899,15 @@ Analise o documento anexo (${tipoDoc}) referente à proposição **${tipoLabel(i
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
 
-${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
+${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}${blocoPareceres}
 Produza a análise em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
 ## Resumo da matéria
-Apresente uma explicação **detalhada** da proposição, de modo que o(a) parlamentar tenha uma percepção completa do que será votado. Use **dois a quatro parágrafos** abordando, obrigatoriamente: (a) o objetivo principal e o problema que pretende endereçar; (b) as principais regras, mecanismos ou obrigações que a proposição cria, altera ou revoga (cite artigos, leis e decretos referenciados, quando presentes no documento); (c) quem é afetado (cidadãos, empresas, setores, entes federativos, órgãos públicos) e como; (d) prazos de vigência, regras de transição e datas relevantes, se previstos; (e) tipo de tramitação/quórum exigido (lei ordinária, complementar, emenda constitucional etc.) quando relevante. Evite frases genéricas — descreva concretamente o que muda na prática. Não use bullets nem listas.
+Apresente uma explicação **detalhada** da proposição, de modo que o(a) parlamentar tenha uma percepção completa do que será votado. Use **três a cinco parágrafos** abordando, obrigatoriamente: (a) o objetivo principal e o problema que pretende endereçar; (b) as principais regras, mecanismos ou obrigações que a proposição cria, altera ou revoga (cite artigos, leis e decretos referenciados, quando presentes no documento); (c) quem é afetado (cidadãos, empresas, setores, entes federativos, órgãos públicos) e como; (d) prazos de vigência, regras de transição e datas relevantes, se previstos; (e) tipo de tramitação/quórum exigido (lei ordinária, complementar, emenda constitucional etc.) quando relevante.
+
+Ao final desta seção, **descreva em parágrafo próprio o trâmite da proposição mencionando obrigatoriamente TODOS os pareceres de comissão listados acima** (na seção "Pareceres de comissão constantes na pauta"). Para cada parecer cite o nome da comissão, a posição/conclusão (aprovação, aprovação com substitutivo, constitucionalidade, compatibilidade financeira etc.) e o(a) relator(a). Se houver substitutivo adotado por alguma comissão, registre. Se a proposição ainda tiver comissões pendentes de parecer, mencione-as também. Não use bullets nem listas — escreva em parágrafo corrido.
+
+Evite frases genéricas — descreva concretamente o que muda na prática.
 
 ## Pontos centrais do parecer do relator
 Um ou dois parágrafos descrevendo a posição do relator e as mudanças propostas. **Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.**
