@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
+  document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
@@ -891,6 +892,8 @@ async function gerarAnaliseItem(it, forcar = false) {
   btnGer.disabled = true;
   btnGer.innerHTML = `<span class="an-spinner"></span> Buscando documento...`;
   conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Carregando documento...</div>';
+  iaInFlightInc();
+  it.analiseStatus = 'gerando';
 
   try {
     const docs = escolherDocumentos(it);
@@ -948,11 +951,18 @@ async function gerarAnaliseItem(it, forcar = false) {
     fbSalvarAnalise(it).catch(e => console.warn('Firebase save falhou:', e.message));
     mostrarToast('✓ Análise gerada', 'sucesso');
   } catch (e) {
-    console.error(e);
-    it.analiseStatus = 'erro';
-    conteudo.innerHTML = `<div class="an-analise-erro">Erro: ${escapeHtml(e.message)}</div>`;
+    if (isAbortError(e)) {
+      it.analiseStatus = 'sem_analise';
+      conteudo.innerHTML = '<div class="an-analise-erro" style="color:#888;font-style:italic">Geração cancelada pelo usuário.</div>';
+    } else {
+      console.error(e);
+      it.analiseStatus = 'erro';
+      conteudo.innerHTML = `<div class="an-analise-erro">Erro: ${escapeHtml(e.message)}</div>`;
+    }
     btnGer.disabled = false;
     btnGer.innerHTML = iconeGerar() + ' Gerar Análise';
+  } finally {
+    iaInFlightDec();
   }
 }
 
@@ -1001,6 +1011,7 @@ async function completarAnalise(it) {
   const btn     = card.querySelector('[data-role=btn-completar]');
   btn.disabled = true;
   btn.innerHTML = '<span class="an-spinner"></span> Continuando...';
+  iaInFlightInc();
 
   try {
     // Re-baixar os mesmos documentos (mantém o contexto consistente)
@@ -1026,8 +1037,13 @@ async function completarAnalise(it) {
     await fbSalvarAnalise(it);
     mostrarToast(cont.truncated ? 'Continuação ainda truncada — clique de novo se quiser.' : '✓ Análise completada', cont.truncated ? 'aviso' : 'sucesso');
   } catch (e) {
-    mostrarToast('Erro ao completar: ' + e.message, 'erro');
+    if (isAbortError(e)) {
+      mostrarToast('Continuação cancelada.', 'aviso');
+    } else {
+      mostrarToast('Erro ao completar: ' + e.message, 'erro');
+    }
   } finally {
+    iaInFlightDec();
     btn.disabled = false;
     btn.innerHTML = 'Completar';
   }
@@ -1242,12 +1258,15 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
 async function fetchIA(url, init) {
   const delays = [0, 5000, 15000, 30000];
   let ultimaErro = null;
+  const signal = _abortAll.signal;
   for (let i = 0; i < delays.length; i++) {
-    if (delays[i] > 0) await sleep(delays[i]);
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (delays[i] > 0) await sleep(delays[i], signal);
     let res;
     try {
-      res = await fetch(url, init);
+      res = await fetch(url, { ...init, signal });
     } catch (e) {
+      if (isAbortError(e)) throw e;
       ultimaErro = e;
       continue; // erro de rede → retry
     }
@@ -1269,14 +1288,50 @@ async function fetchIA(url, init) {
   throw ultimaErro || new Error('Falha após retries');
 }
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+    const id = setTimeout(() => {
+      signal?.removeEventListener?.('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => { clearTimeout(id); reject(new DOMException('Aborted', 'AbortError')); };
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+}
+
+// ---- Cancelamento global de IA ("Parar tudo") ----
+let _abortAll = new AbortController();
+let _iaInFlight = 0;
+
+function iaInFlightInc() { _iaInFlight++; atualizarBotaoParar(); }
+function iaInFlightDec() { _iaInFlight = Math.max(0, _iaInFlight - 1); atualizarBotaoParar(); }
+
+function atualizarBotaoParar() {
+  const btn = document.getElementById('btn-parar-todas');
+  if (!btn) return;
+  btn.style.display = _iaInFlight > 0 ? 'inline-flex' : 'none';
+}
+
+function isAbortError(e) {
+  return e?.name === 'AbortError' || /aborted/i.test(e?.message || '');
+}
+
+function pararTodasAnalises() {
+  if (_iaInFlight === 0 && !_gerarTodasState.rodando) return;
+  _gerarTodasState.cancelar = true;
+  try { _abortAll.abort(); } catch (_) {}
+  _abortAll = new AbortController();
+  mostrarToast('Cancelando análises em andamento...', 'aviso');
+}
 
 async function baixarPdf(url) {
   try {
-    const res = await fetch(url, { redirect: 'follow' });
+    const res = await fetch(url, { redirect: 'follow', signal: _abortAll.signal });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return await res.arrayBuffer();
   } catch (e) {
+    if (isAbortError(e)) throw e;
     console.error('[baixarPdf] falhou', url, e);
     throw new Error(`Falha ao baixar documento (${e.message}). URL: ${url.slice(0, 90)}…`);
   }
@@ -1532,10 +1587,10 @@ async function gerarTodasAsAnalises() {
   _gerarTodasState = { rodando: true, cancelar: false };
   const btn = document.getElementById('btn-gerar-todas');
   const labelOriginal = btn.innerHTML;
-  let ok = 0, truncadas = 0, falhas = 0;
+  let ok = 0, truncadas = 0, falhas = 0, canceladas = 0;
 
   for (let i = 0; i < pendentes.length; i++) {
-    if (_gerarTodasState.cancelar) break;
+    if (_gerarTodasState.cancelar) { canceladas = pendentes.length - i; break; }
     const it = pendentes[i];
     btn.innerHTML = `<span class="an-spinner"></span> ${i + 1}/${pendentes.length} — Cancelar`;
     try {
@@ -1543,26 +1598,32 @@ async function gerarTodasAsAnalises() {
       if (it.analiseStatus === 'ok') {
         ok++;
         if (it.analise?.truncada) truncadas++;
+      } else if (_gerarTodasState.cancelar) {
+        canceladas = pendentes.length - i; break;
       } else {
         falhas++;
       }
     } catch (e) {
+      if (isAbortError(e) || _gerarTodasState.cancelar) {
+        canceladas = pendentes.length - i; break;
+      }
       console.warn(`Falha em ${it.chave}:`, e);
       falhas++;
     }
-    // Throttle 1,5s entre itens para evitar bater rate-limit dos provedores.
-    // Pula a espera se for o último item ou se o usuário cancelou.
     if (i < pendentes.length - 1 && !_gerarTodasState.cancelar) {
-      await sleep(1500);
+      try { await sleep(1500, _abortAll.signal); }
+      catch (e) { if (isAbortError(e)) { canceladas = pendentes.length - i - 1; break; } }
     }
   }
 
   _gerarTodasState = { rodando: false, cancelar: false };
   btn.innerHTML = labelOriginal;
   const partes = [`${ok} gerada(s)`];
-  if (truncadas) partes.push(`${truncadas} truncada(s) — use "Completar"`);
-  if (falhas)    partes.push(`${falhas} falha(s)`);
-  mostrarToast('Lote concluído: ' + partes.join(' · '), falhas || truncadas ? 'aviso' : 'sucesso');
+  if (truncadas)  partes.push(`${truncadas} truncada(s) — use "Completar"`);
+  if (falhas)     partes.push(`${falhas} falha(s)`);
+  if (canceladas) partes.push(`${canceladas} cancelada(s)`);
+  const tom = canceladas ? 'aviso' : (falhas || truncadas ? 'aviso' : 'sucesso');
+  mostrarToast((canceladas ? 'Lote interrompido: ' : 'Lote concluído: ') + partes.join(' · '), tom);
 }
 
 // ============================================================
