@@ -812,33 +812,35 @@ Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
 
 ${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
-Produza a análise em **Português do Brasil**, formato **Markdown**, com as seguintes seções (use exatamente esses títulos com "##"):
+Produza a análise em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
 ## Resumo da matéria
-(até 6 linhas — o que a proposição/parecer propõe na prática)
+Parágrafo único explicando, em até 6 linhas, o que a proposição/parecer propõe na prática.
 
 ## Pontos centrais do parecer do relator
-(bullets curtos com a posição do relator e mudanças propostas)
+Um ou dois parágrafos descrevendo a posição do relator e as mudanças propostas. **Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.**
 
 ## Argumentos favoráveis à aprovação
-(bullets com fundamentação técnica, jurídica ou de mérito)
+Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação.
 
 ## Argumentos contrários à aprovação
-(bullets com fundamentação técnica, jurídica ou de mérito)
+Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a rejeição.
 
 ## Riscos jurídicos / constitucionais
-(somente se identificados no documento; caso contrário, escreva "Sem riscos jurídicos relevantes identificados.")
+Parágrafo discutindo riscos identificados no documento. Caso não haja, escreva exatamente: "Sem riscos jurídicos relevantes identificados."
 
 ## Impacto orçamentário-financeiro
-(somente se houver elementos; caso contrário, escreva "Sem impacto orçamentário-financeiro identificado.")
+Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva exatamente: "Sem impacto orçamentário-financeiro identificado."
 
 ## Pontos de atenção para o Podemos
-(implicações específicas considerando o contexto político acima; se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis da bancada)
+Parágrafo discutindo as implicações específicas considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis da bancada.
 
 REGRAS RÍGIDAS:
 - Use apenas informação contida no documento anexo. Não invente fatos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
-- Seja objetivo: bullets curtos, sem retórica.
+- **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
+- Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
+- Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
 }
 
