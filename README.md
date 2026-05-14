@@ -1,6 +1,6 @@
 # SisPode — Sistemas Legislativos do Podemos
 
-Extensão do Chrome para a equipe de plenário da **Liderança do Podemos** na Câmara dos Deputados. Reúne três ferramentas integradas para acompanhamento de sessões, votações e análise de aderência ao governo.
+Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne cinco ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões e análise técnica da pauta semanal por IA.
 
 ---
 
@@ -73,6 +73,55 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 
 ---
 
+### 4. Controle de Comissões
+
+Gerencie a participação de deputados do partido em comissões permanentes.
+
+- Importa a composição atualizada de comissões via API da Câmara
+- Marca **acordos** (titular/suplente) e exibe badge correspondente
+- Filtros por comissão, por deputado e por status do acordo
+- Exporta o controle completo para **Excel (.xlsx)**
+
+---
+
+### 5. Análise de Pauta de Plenário
+
+Importe a Pauta da Semana e gere análise técnica por IA dos projetos e requerimentos, identificando autoria do Podemos e apensados do partido.
+
+**Importação e enriquecimento**
+- Carregue o PDF da Pauta da Semana — o parser extrai PLs, PLPs, MPVs, PECs, REQs e demais proposições com número/ano/ordem
+- Enriquecimento automático via API da Câmara: autoria, relator, apensados e classificação de **autoria Podemos** / **apensados Podemos** (badge no card)
+- Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
+- Adição/remoção manual de itens da pauta com link direto para a ficha da proposição
+
+**Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
+- Para projetos: envia o **parecer de plenário (PRLP/PRLE)** ou, na ausência, o inteiro teor; para requerimentos: envia o próprio inteiro teor
+- Documento entregue ao modelo como **PDF nativo** (sem conversão de texto), preservando formatação e evitando truncamento
+- **Geração em lote** ("Gerar todas") com throttle de 1,5 s entre itens, contador de progresso e tratamento isolado de falhas por item
+- **Detecção de truncamento** por provedor (`finishReason=MAX_TOKENS` no Gemini, `status=incomplete` na OpenAI, `stop_reason=max_tokens` no Anthropic) com auto-continuação automática que costura a resposta sem duplicar overlap
+- Botão **Completar** (amarelo) aparece quando uma análise ainda fica truncada após a auto-continuação — clique para emendar mais um pedaço
+- **Retry com backoff exponencial** (5 s / 15 s / 30 s) em respostas 429 (rate limit) e 5xx
+- Botão **Parar tudo** (vermelho) aparece quando há qualquer chamada de IA em voo (lote, individual ou Completar) — usa `AbortController` global para abortar fetches em andamento, sleeps de throttle e timers de retry
+
+**Edição manual com autosave**
+- Editor inline de cada análise em Markdown com **autosave** debounceado em 1,5 s
+- Indicador de status: "editando… / salvando… / ✓ salvo às HH:MM:SS / ⚠ erro — tentando de novo"
+- Botão **Salvar** faz flush imediato + fecha o editor; **Cancelar** reverte para o snapshot inicial e re-grava no Firebase
+- Aviso `beforeunload` se o usuário tentar fechar a aba com save pendente
+
+**Persistência e organização**
+- Cada análise é salva no Firebase em `/analises_pauta/{chave}/{parecerKey}`, vinculada à versão exata do parecer
+- **Sidebar de pautas** com alternância entre pautas salvas e exclusão (que limpa também as análises órfãs)
+- Garbage collection de análises órfãs no painel de Configurações
+
+**Exportação em PDF institucional**
+- Cabeçalho com **logo Podemos** à direita e texto "Liderança do Podemos na Câmara dos Deputados" centralizado
+- **Texto justificado** nos parágrafos das análises
+- **Todos os itens** da pauta aparecem no PDF — itens sem análise mostram placeholder ("Análise não gerada", "Falha ao gerar análise" ou "Análise em processamento") preservando o cabeçalho do item, autor, relator e badges
+- Quebras de página respeitam o cabeçalho do item (título + autor + badges seguem junto da primeira linha de análise) mas o corpo flui naturalmente entre páginas, sem espaços em branco
+
+---
+
 ## Instalação
 
 > A extensão não está publicada na Chrome Web Store. Para usar, faça a instalação manual em modo desenvolvedor.
@@ -120,10 +169,12 @@ sispode/
 ├── manifest.json               # Manifesto da extensão (MV3)
 ├── panel.html / panel.js       # Módulo: Destaques Legislativos
 ├── panel.css                   # Estilos do painel principal
-├── votacao.html / votacao.js   # Módulo: Painel de Votação
+├── votacao.html / votacao.js      # Módulo: Painel de Votação
 ├── aderencia.html / aderencia.js  # Módulo: Aderência ao Governo
-├── background.js               # Service worker da extensão
-├── icons/                      # Ícones da extensão (16, 48, 128 px)
+├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
+├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
+├── background.js                  # Service worker da extensão
+├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
     ├── pdf.min.js / pdf.worker.min.js   # PDF.js — leitura de PDFs
     ├── html2canvas.min.js               # Geração de imagens
