@@ -1,6 +1,6 @@
 # SisPode — Sistemas Legislativos do Podemos
 
-Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne cinco ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões e análise técnica da pauta semanal por IA.
+Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne seis ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA e produção de pautas da Comissão de Constituição e Justiça (CCJC).
 
 ---
 
@@ -122,6 +122,29 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos e requeri
 
 ---
 
+### 6. Pautas CCJC
+
+Gere resumos e análises dos projetos de lei da **Comissão de Constituição e Justiça e de Cidadania**, revise os textos e exporte a pauta consolidada em PDF.
+
+**Importação da pauta**
+- **Via PDF**: carregue o PDF da pauta da CCJC — o parser identifica automaticamente os projetos listados
+- **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional
+
+**Geração por IA (Gemini ou Anthropic)**
+- Para cada projeto: envia o inteiro teor ao modelo e gera resumo + análise técnica
+- Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
+- Status visual por item: aguardando · processando · pronto · falha
+
+**Revisão e edição**
+- Editor inline de cada análise com salvamento automático
+- Possibilidade de revisar e reescrever trechos antes da exportação
+- Histórico de pautas anteriores na sidebar
+
+**Exportação**
+- Gera **PDF institucional** da pauta consolidada, com cabeçalho da Liderança e todos os itens revisados
+
+---
+
 ## Instalação
 
 > A extensão não está publicada na Chrome Web Store. Para usar, faça a instalação manual em modo desenvolvedor.
@@ -173,6 +196,7 @@ sispode/
 ├── aderencia.html / aderencia.js  # Módulo: Aderência ao Governo
 ├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
+├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
