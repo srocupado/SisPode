@@ -2854,6 +2854,14 @@ const MODULES = [
     icone:  '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><path d="M9 13h6"/><path d="M9 17h4"/><circle cx="17.5" cy="17.5" r="2.5"/><line x1="19.3" y1="19.3" x2="21.5" y2="21.5"/>',
     acao:   abrirAnalise,
   },
+  {
+    id:     'ccjc',
+    titulo: 'Pautas CCJC',
+    desc:   'Gere resumos e análises dos projetos de lei da CCJC com IA, revise os textos e exporte a pauta em PDF.',
+    cor:    'roxo',
+    icone:  '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
+    acao:   abrirCCJC,
+  },
 ];
 
 function renderHomeGrid() {
@@ -2939,6 +2947,11 @@ function abrirComissoes() {
 
 function abrirAnalise() {
   const url = chrome.runtime.getURL('analise.html');
+  chrome.tabs.create({ url });
+}
+
+function abrirCCJC() {
+  const url = chrome.runtime.getURL('ccjc.html');
   chrome.tabs.create({ url });
 }
 
