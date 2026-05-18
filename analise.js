@@ -247,6 +247,16 @@ async function extrairTextoPdf(arrayBuffer) {
 //  PARSER DA PAUTA
 // ============================================================
 function parsearPauta(texto) {
+  // Detecta o formato do PDF:
+  //  - "compacto": dashboard da Liderança — "1 REQ 1180/2026", "9 PL 1625/2026"
+  //  - "extenso": pauta oficial da Câmara — "PROJETO DE LEI Nº X, DE AAAA"
+  // O padrão compacto é mais específico, então testamos primeiro.
+  const temFormatoCompacto = /(?:^|\n)\s*\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+[\d.]+\/\d{4}\b/.test(texto);
+  if (temFormatoCompacto) return parsearPautaCompacto(texto);
+  return parsearPautaExtenso(texto);
+}
+
+function parsearPautaExtenso(texto) {
   const resultado = { titulo: '', periodo: '', itens: [] };
 
   // Período
@@ -394,6 +404,133 @@ function parsearPauta(texto) {
       relator,
       temUrgencia,
       pareceresComissao,
+    });
+  }
+
+  // Ordena: requerimentos antes (por ordem), depois projetos (por ordem)
+  resultado.itens.sort((a, b) => {
+    if (a.tipoCategoria !== b.tipoCategoria) return a.tipoCategoria === 'requerimento' ? -1 : 1;
+    return (a.ordem || 999) - (b.ordem || 999);
+  });
+
+  return resultado;
+}
+
+// ============================================================
+//  PARSER DA PAUTA — FORMATO COMPACTO (dashboard da Liderança)
+//  Reconhece itens no estilo "1 REQ 1180/2026", "9 PL 1625/2026",
+//  "16 PLP 114/2026" etc., com sumário + blocos detalhados contendo
+//  AUTOR / EMENTA / SITUAÇÃO / RELATOR.
+// ============================================================
+function parsearPautaCompacto(texto) {
+  const resultado = { titulo: '', periodo: '', itens: [] };
+
+  // Data da sessão (ex.: "19/05/2026")
+  const dataMatch = texto.match(/\b(\d{2}\/\d{2}\/\d{4})\b/);
+  if (dataMatch) {
+    resultado.periodo = dataMatch[1];
+    resultado.titulo  = `Pauta — ${dataMatch[1]}`;
+  } else {
+    resultado.titulo = 'Pauta da Semana';
+  }
+
+  // Cabeçalhos de bloco detalhado: "N SIGLA NNN/AAAA [opt sufixo] [opt status]"
+  // O formato sumário usa " - " entre ordem e sigla ("1 - REQ ...") e por isso
+  // NÃO casa com `\d+\s+SIGLA` (hífen não é whitespace).
+  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC', 'PL'];
+  const siglasAlt = SIGLAS.slice().sort((a, b) => b.length - a.length).join('|');
+  const headerRegex = new RegExp(
+    `(?:^|\\n)\\s*(\\d{1,3})\\s+(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})\\b[^\\n]*\\n`,
+    'g'
+  );
+
+  const headers = [];
+  let m;
+  while ((m = headerRegex.exec(texto)) !== null) {
+    headers.push({
+      idx:    m.index + m[0].indexOf(m[1]),
+      end:    m.index + m[0].length,
+      ordem:  parseInt(m[1], 10),
+      sigla:  m[2],
+      numero: m[3].replace(/\./g, ''),
+      ano:    m[4],
+    });
+  }
+
+  for (let i = 0; i < headers.length; i++) {
+    const h     = headers[i];
+    const fim   = i + 1 < headers.length ? headers[i + 1].idx : texto.length;
+    const bloco = texto.slice(h.end, fim);
+
+    // Evita registrar o mesmo item duas vezes (sumário + bloco detalhado)
+    const chave = `${h.sigla}-${h.numero}-${h.ano}`;
+    if (resultado.itens.some(it => `${it.sigla}-${it.numero}-${it.ano}` === chave)) continue;
+
+    // AUTOR
+    const autorMatch = bloco.match(/AUTOR:\s*([^\n]+)/i);
+    const autorTexto = autorMatch ? autorMatch[1].replace(/\s+/g, ' ').trim() : '';
+
+    // EMENTA — até a próxima seção em maiúsculas conhecida ou o fim do bloco
+    const ementaMatch = bloco.match(
+      /EMENTA:\s*([\s\S]*?)(?=\n\s*(?:SITUAÇÃO:|SITUACAO:|RELATOR:|PARECER:|Notas técnicas:|APENSADAS|OUTROS AUTORES:|Acessória|\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+[\d.]+\/\d{4})|$)/i
+    );
+    let ementa = ementaMatch ? ementaMatch[1].replace(/\s+/g, ' ').trim() : '';
+    if (!ementa) {
+      // Fallback: usa o primeiro trecho do bloco
+      ementa = bloco.replace(/\s+/g, ' ').trim().slice(0, 600);
+    }
+    ementa = ementa.slice(0, 1200);
+
+    // RELATOR — ex.: "RELATOR: Merlong Solano (PT/PI)"
+    const relatorMatch = bloco.match(/RELATOR(?:A)?:\s*([^\n(]+?)\s*\(([^/)]+)\/([A-Z]{2})\)/i);
+    const relator = relatorMatch ? {
+      nome:    relatorMatch[1].trim(),
+      partido: relatorMatch[2].trim(),
+      uf:      relatorMatch[3].trim(),
+      data:    null,
+    } : null;
+
+    // Para requerimentos: "Acessória do PL 5900/2025" indica o projeto urgenciado.
+    let projetoUrgenciado = null;
+    const acessMatch = bloco.match(/Acess[óo]ria\s+do\s+(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+([\d.]+)\/(\d{4})/i);
+    if (acessMatch) {
+      projetoUrgenciado = {
+        sigla:  acessMatch[1].toUpperCase(),
+        numero: acessMatch[2].replace(/\./g, ''),
+        ano:    acessMatch[3],
+      };
+    }
+
+    // Apensados — "APENSADAS SEM AUTORIA DA LIDERANÇA\n REC 6/2024" ou "PL 4371/2024"
+    const apensadosTexto = [];
+    const apensBloco = bloco.match(/APENSAD[AO]S?(?:\s+SEM\s+AUTORIA[^\n]*)?\s*\n([\s\S]*?)(?=\n\s*(?:RELATOR:|PARECER:|Notas técnicas:|EMENTA:|SITUAÇÃO:|$))/i);
+    if (apensBloco) {
+      const reAp = /(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+([\d.]+)\/(\d{4})/gi;
+      let am;
+      while ((am = reAp.exec(apensBloco[1])) !== null) {
+        apensadosTexto.push({
+          sigla:  am[1].toUpperCase(),
+          numero: am[2].replace(/\./g, ''),
+          ano:    am[3],
+        });
+      }
+    }
+
+    const tipoCategoria = (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento' : 'projeto';
+
+    resultado.itens.push({
+      ordem:             h.ordem,
+      tipoCategoria,
+      sigla:             h.sigla,
+      numero:            h.numero,
+      ano:               h.ano,
+      ementa,
+      autorTexto,
+      apensadosTexto,
+      relator,
+      temUrgencia:       false,
+      projetoUrgenciado,
+      pareceresComissao: [],
     });
   }
 
