@@ -371,6 +371,12 @@ function registrarEventos() {
       if (item) selecionarProposicao(item.dataset.chave);
     });
 
+  // Adicionar proposição manualmente
+  document.getElementById('btn-add-prop')
+    .addEventListener('click', adicionarProposicaoManual);
+  document.getElementById('add-prop-input')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') adicionarProposicaoManual(); });
+
   // Delegação de eventos: histórico (carregar ou apagar)
   document.getElementById('lista-historico')
     .addEventListener('click', e => {
@@ -607,6 +613,46 @@ async function carregarMetadadosProposicoes() {
   renderizarProposicoesSidebar();
 }
 
+async function adicionarProposicaoManual() {
+  const input = document.getElementById('add-prop-input');
+  const texto = input.value.trim().toUpperCase();
+  const m = texto.match(/^([A-Z]+)\s+(\d+)[\/\s](\d{4})$/);
+  if (!m) {
+    mostrarToast('Formato inválido. Use: PL 1234/2025', 'erro');
+    return;
+  }
+  const [, sigla, numero, ano] = m;
+  const chave = `${sigla} ${numero}/${ano}`;
+  const sess  = app.sessaoAtual;
+  if (!sess) { mostrarToast('Nenhuma sessão ativa.', 'aviso'); return; }
+  if (sess.proposicoes.some(p => p.chave === chave)) {
+    mostrarToast(`${chave} já está na lista.`, 'aviso');
+    return;
+  }
+  const prop = {
+    sigla, numero: parseInt(numero, 10), ano: parseInt(ano, 10), chave,
+    idCamara: null, ementa: null, autor: null, statusDesc: null,
+    destaques: [], ultimaSync: null,
+  };
+  sess.proposicoes.push(prop);
+  input.value = '';
+  renderizarProposicoesSidebar();
+  mostrarToast(`${chave} adicionada. Buscando dados...`, 'sucesso');
+  try {
+    const data = await buscarProposicaoAPI(sigla, parseInt(numero, 10), parseInt(ano, 10));
+    if (data) {
+      prop.idCamara   = data.id;
+      prop.ementa     = data.ementa;
+      prop.autor      = data.autor;
+      prop.statusDesc = data.statusDesc;
+    }
+  } catch (e) {
+    console.warn(`Erro ao buscar ${chave}:`, e.message);
+  }
+  await salvarSessao(sess);
+  renderizarProposicoesSidebar();
+}
+
 // ---------- API CÂMARA ----------
 async function buscarProposicaoAPI(sigla, numero, ano) {
   const url = `${API_BASE}/proposicoes?siglaTipo=${sigla}&numero=${numero}&ano=${ano}&itens=1`;
@@ -756,18 +802,21 @@ async function atualizarDestaques() {
 
 // ---------- RENDERIZAÇÃO ----------
 function renderizarProposicoesSidebar() {
-  const lista  = document.getElementById('lista-proposicoes');
-  const busca  = document.getElementById('busca-wrapper');
-  const sess   = app.sessaoAtual;
+  const lista    = document.getElementById('lista-proposicoes');
+  const busca    = document.getElementById('busca-wrapper');
+  const addProp  = document.getElementById('add-prop-wrapper');
+  const sess     = app.sessaoAtual;
 
   if (!sess?.proposicoes.length) {
     lista.innerHTML = `<div class="empty-state"><p>Nenhuma proposição carregada</p></div>`;
-    busca.style.display = 'none';
+    busca.style.display   = 'none';
+    addProp.style.display = 'none';
     return;
   }
 
-  // Mostrar campo de busca quando há sessão
-  busca.style.display = 'block';
+  // Mostrar campo de busca e campo de adição quando há sessão
+  busca.style.display   = 'block';
+  addProp.style.display = 'block';
 
   // Filtrar pelo termo de busca
   const termo = app.buscaProposicoes;

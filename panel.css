@@ -128,6 +128,45 @@ body {
 .busca-clear:hover { color: var(--text); }
 .busca-nenhum { font-size: 12px; color: var(--text-dim); padding: 8px 4px; text-align: center; }
 
+/* Adicionar proposição manualmente */
+.add-prop-wrapper { padding: 0 0 8px 0; }
+.add-prop-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color .15s;
+}
+.add-prop-input-wrap:focus-within { border-color: var(--accent); }
+.add-prop-input {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  color: var(--text);
+  outline: none;
+  font-family: inherit;
+  padding: 5px 8px;
+}
+.add-prop-input::placeholder { color: #4a6268; }
+.btn-add-prop {
+  flex-shrink: 0;
+  background: var(--accent);
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  line-height: 1;
+  width: 30px;
+  cursor: pointer;
+  padding: 0;
+  align-self: stretch;
+  transition: background .15s;
+}
+.btn-add-prop:hover { background: var(--accent-dark, #178080); }
+
 /* Lista de proposições na sidebar */
 .lista-proposicoes { display: flex; flex-direction: column; gap: 3px; }
 
