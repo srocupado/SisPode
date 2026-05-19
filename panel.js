@@ -698,7 +698,7 @@ function parseDestaques(html) {
       if (cells.length < 3) return;
 
       const textos = cells.map(c => c.textContent.trim());
-      if (!/^(DTQ|EMC|DVT)\s*\d+/i.test(textos[0])) return;
+      if (!/^(DTQ|EMC|DVT|DVS)\s*\d+/i.test(textos[0])) return;
 
       const situacaoRaw  = textos[textos.length - 1] || '';
       const situacaoNorm = situacaoRaw.toLowerCase();
@@ -1454,10 +1454,11 @@ async function buscarTextoEmenda(d, prop) {
 
     // Padrão "constante no Art. X do substitutivo/emenda" → artigo DENTRO do documento
     // Ex: "artigo 92, constante no artigo 2° do substitutivo adotado pela CCJC"
-    const constanteMatch = descricao.match(
-      /constante\s+(?:n[ao]\s+)?art(?:igo)?\s*(\d+\s*[°º]?)/i
-    );
-    const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/, '°') : null;
+    const constanteMatch =
+      descricao.match(/constante\s+(?:n[ao]\s+)?art(?:igo)?\s*(\d+\s*[°º]?)/i) ||
+      descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i) ||
+      descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i);
+    const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/g, '°') : null;
 
     // Artigo da lei original sendo alterada (primeiro mencionado na descrição)
     const artMatch  = descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)/i);
@@ -1762,6 +1763,39 @@ async function buscarTextoEmenda(d, prop) {
           if (info) return info;
           console.warn('[IA] Caso 1b: SSP fetch falhou.');
         }
+      }
+
+      // Fallback: descrição pode não mencionar "relator" mesmo o documento sendo
+      // o substitutivo do relator. Tenta prop_pareceres antes de desistir.
+      if (!linkSSP) {
+        console.log('[IA] Caso 1b fallback → tentando prop_pareceres como substitutivo do relator');
+        const urlFb  = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
+        const htmlFb = await fetchCamara(urlFb);
+        if (htmlFb) {
+          const docFb          = new DOMParser().parseFromString(htmlFb, 'text/html');
+          const extraiCodteorFb = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
+          const candFb = [];
+          for (const a of docFb.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
+            const href = a.getAttribute('href') || '';
+            if (/filename[=+%]*(SBT|PRLP)/i.test(href)) candFb.push({ href, codteor: extraiCodteorFb(href) });
+          }
+          if (!candFb.length) {
+            for (const row of docFb.querySelectorAll('tr, li, p')) {
+              if (/substitut/i.test(row.textContent)) {
+                const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+                if (a) candFb.push({ href: a.getAttribute('href'), codteor: extraiCodteorFb(a.getAttribute('href')) });
+              }
+            }
+          }
+          if (candFb.length) {
+            candFb.sort((a, b) => b.codteor - a.codteor);
+            const linkFb = resolverUrlCamara(candFb[0].href);
+            console.log('[IA] Caso 1b fallback: link =', linkFb);
+            const info = await buscarDocumento(linkFb, { tipo: 'substitutivo', numArtigo, referenciaLeg });
+            if (info) return info;
+          }
+        }
+        console.warn('[IA] Caso 1b fallback falhou — nenhum substitutivo encontrado.');
       }
     }
 
