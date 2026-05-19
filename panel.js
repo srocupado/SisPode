@@ -1724,6 +1724,8 @@ async function buscarTextoEmenda(d, prop) {
       const htmlPag = await fetchCamara(urlPag);
       console.log('[IA] prop_emendas fetch:', htmlPag ? htmlPag.length + ' chars' : 'falhou');
 
+      let linkSSP = null;
+
       if (htmlPag) {
         const docPag  = new DOMParser().parseFromString(htmlPag, 'text/html');
         const linkEls = Array.from(
@@ -1737,7 +1739,7 @@ async function buscarTextoEmenda(d, prop) {
         console.log('[IA] todos os links:', todosLinks);
 
         // 1ª tentativa: link cujo href contém "SSP" no filename
-        let linkSSP = todosLinks.find(l => /[=+]SSP[+%]/i.test(l.href))?.href;
+        linkSSP = todosLinks.find(l => /[=+]SSP[+%]/i.test(l.href))?.href || null;
 
         // 2ª tentativa: procurar "substitut" no texto de cada linha da tabela
         if (!linkSSP) {
@@ -1751,28 +1753,24 @@ async function buscarTextoEmenda(d, prop) {
           }
         }
 
-        // 3ª tentativa: último link da página (SSP costuma ser o último)
-        if (!linkSSP && todosLinks.length > 0) {
-          linkSSP = todosLinks[todosLinks.length - 1].href;
-          console.log('[IA] usando último link como SSP:', linkSSP);
-        }
-
-        if (linkSSP) {
-          console.log('[IA] Caso 1b: buscando SSP:', linkSSP);
-          const info = await buscarDocumento(linkSSP, { tipo: 'substitutivo', numArtigo, referenciaLeg });
-          if (info) return info;
-          console.warn('[IA] Caso 1b: SSP fetch falhou.');
-        }
+        // Sem "3ª tentativa" de último link — link aleatório causaria busca em documento errado
       }
 
-      // Fallback: descrição pode não mencionar "relator" mesmo o documento sendo
-      // o substitutivo do relator. Tenta prop_pareceres antes de desistir.
-      if (!linkSSP) {
-        console.log('[IA] Caso 1b fallback → tentando prop_pareceres como substitutivo do relator');
+      if (linkSSP) {
+        console.log('[IA] Caso 1b: buscando SSP:', linkSSP);
+        const info = await buscarDocumento(linkSSP, { tipo: 'substitutivo', numArtigo, referenciaLeg });
+        if (info) return info;
+        console.warn('[IA] Caso 1b: SSP fetch falhou.');
+      }
+
+      // Fallback: descrição pode não mencionar "relator" mas o substitutivo está nos pareceres.
+      // Também cobre o caso em que não há SSP e o documento correto é o substitutivo do relator.
+      console.log('[IA] Caso 1b fallback → tentando prop_pareceres como substitutivo do relator');
+      {
         const urlFb  = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
         const htmlFb = await fetchCamara(urlFb);
         if (htmlFb) {
-          const docFb          = new DOMParser().parseFromString(htmlFb, 'text/html');
+          const docFb           = new DOMParser().parseFromString(htmlFb, 'text/html');
           const extraiCodteorFb = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
           const candFb = [];
           for (const a of docFb.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
