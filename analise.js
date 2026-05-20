@@ -1279,11 +1279,8 @@ Um ou dois parágrafos descrevendo a posição do(a) relator(a) de Plenário e a
   ? 'Como há PRLP e PRLE anexados, distinga claramente: descreva primeiro o conteúdo do PRLP (parecer original do relator) e em seguida o conteúdo do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro. '
   : ''}**Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.** Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
 
-## Argumentos favoráveis à aprovação
-Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação.
-
-## Argumentos contrários à aprovação
-Parágrafo(s) corrido(s) apresentando a fundamentação técnica, jurídica ou de mérito que sustenta a rejeição.
+## Argumentos favoráveis\contrários à aprovação
+Dois parágrafos corridos: o primeiro apresenta a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação; o segundo apresenta a fundamentação que sustenta a rejeição.
 
 ## Impacto orçamentário-financeiro
 Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva exatamente: "Sem impacto orçamentário-financeiro identificado."
