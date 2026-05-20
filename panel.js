@@ -495,7 +495,7 @@ async function extrairTextoPDF(file) {
 
 function extrairProposicoes(texto) {
   // Aceita: "PL 1234/2024", "PL nº 1234/2024", "PL n.º 1.234/2024", etc.
-  const regex = /\b(PL|PLP|PEC|PRC|PDL|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR|INC|RCP)\s*(?:n[º°o]?\.?\s*)?(\d{1,2}\.\d{3}|\d{1,5})\/(\d{4})\b/gi;
+  const regex = /\b(PL|PLP|PEC|PRC|PDL|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR|INC|RCP|REC)\s*(?:n[º°o]?\.?\s*)?(\d{1,2}\.\d{3}|\d{1,5})\/(\d{4})\b/gi;
   const encontrados = new Map();
   let match;
   while ((match = regex.exec(texto)) !== null) {
