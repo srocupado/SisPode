@@ -1456,7 +1456,9 @@ async function buscarTextoEmenda(d, prop) {
     // Ex: "artigo 92, constante no artigo 2° do substitutivo adotado pela CCJC"
     const constanteMatch =
       descricao.match(/constante\s+(?:n[ao]\s+)?art(?:igo)?\s*(\d+\s*[°º]?)/i) ||
+      descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
       descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i) ||
+      descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
       descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i);
     const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/g, '°') : null;
 
@@ -1513,26 +1515,33 @@ async function buscarTextoEmenda(d, prop) {
     const isSubstColegiado = !isDestaquePreferencia
       && /substitutivo\s+adotado|emenda\s+adotada/i.test(descricao);
 
-    // SSP de plenário: subemenda substitutiva (não é de comissão)
-    const isDVSSubstitutivo = !isDestaquePreferencia
-      && /subst|submenda|subemenda/i.test(descricao) && !isSubstColegiado;
+    // Subemenda Substitutiva de Plenário: referencia explicitamente "SUBEMENDA SUBSTITUTIVA"
+    // O documento correto é o PRLE (Parecer Preliminar às Emendas) mais recente.
+    const isSubemendaSubstitutiva = !isDestaquePreferencia && !isSubstColegiado
+      && /subemenda\s+substitutiva/i.test(descricao);
+
+    // SSP de plenário / DVS genérico no substitutivo (não é subemenda substitutiva)
+    const isDVSSubstitutivo = !isDestaquePreferencia && !isSubstColegiado && !isSubemendaSubstitutiva
+      && /subst|submenda|subemenda/i.test(descricao);
 
     // Emenda específica numerada
     const isEmendaEspecifica = !isDestaquePreferencia
-      && /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado;
+      && /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado && !isSubemendaSubstitutiva;
 
     // DVS/DTQ de dispositivo do PL original (não classificado nos casos acima)
     // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021, com fins de supressão"
     const isDVSPLOriginal = !!referenciaLeg
       && !isDestaquePreferencia
       && !isSubstColegiado
+      && !isSubemendaSubstitutiva
       && !isDVSSubstitutivo
       && !isEmendaEspecifica
       && /destaque|dvs|dtq|separado|supress|suprim/i.test(descricao);
 
-    console.log('[IA] tipo: colegiado=', isSubstColegiado, '| SSP=', isDVSSubstitutivo,
-                '| emenda=', isEmendaEspecifica, '| pl_orig=', isDVSPLOriginal,
-                '| pref_senado=', isDestaquePreferencia, '| ref=', referenciaLeg);
+    console.log('[IA] tipo: colegiado=', isSubstColegiado, '| subemenda_subst=', isSubemendaSubstitutiva,
+                '| SSP=', isDVSSubstitutivo, '| emenda=', isEmendaEspecifica,
+                '| pl_orig=', isDVSPLOriginal, '| pref_senado=', isDestaquePreferencia,
+                '| ref=', referenciaLeg);
 
     // ── CASO 0: Substitutivo/Emenda adotado por comissão ─────────────
     // Fluxo: prop_pareceres_substitutivos_votos → fichadetramitacao (adotado) → prop_mostrarintegra
@@ -1795,6 +1804,47 @@ async function buscarTextoEmenda(d, prop) {
         }
         console.warn('[IA] Caso 1b fallback falhou — nenhum substitutivo encontrado.');
       }
+    }
+
+    // ── CASO 5: Subemenda Substitutiva ──────────────────────────────────
+    // O texto está no PRLE (Parecer Preliminar às Emendas de Plenário) mais recente,
+    // acessível em prop_pareceres_substitutivos_votos.
+    if (isSubemendaSubstitutiva) {
+      console.log('[IA] Caso 5: Subemenda Substitutiva — buscando PRLE mais recente');
+      const urlPar5 = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
+      const htmlPar5 = await fetchCamara(urlPar5);
+      console.log('[IA] Caso 5 prop_pareceres fetch:', htmlPar5 ? htmlPar5.length + ' chars' : 'falhou');
+      if (htmlPar5) {
+        const docPar5 = new DOMParser().parseFromString(htmlPar5, 'text/html');
+        const extraiCodteor5 = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
+        const cands5 = [];
+
+        // 1ª tentativa: link com "PRLE" no filename (Parecer Preliminar às Emendas)
+        for (const a of docPar5.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
+          const href = a.getAttribute('href') || '';
+          if (/filename[=+%]*(PRLE)/i.test(href)) cands5.push({ href, codteor: extraiCodteor5(href) });
+        }
+
+        // 2ª tentativa: linha que menciona "emenda" ou "subemenda" na tabela
+        if (!cands5.length) {
+          for (const row of docPar5.querySelectorAll('tr, li, p')) {
+            if (/emenda[s]?\s+de\s+plen[áa]rio|parecer.*emenda|subemenda/i.test(row.textContent)) {
+              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+              if (a) cands5.push({ href: a.getAttribute('href'), codteor: extraiCodteor5(a.getAttribute('href')) });
+            }
+          }
+        }
+
+        if (cands5.length) {
+          cands5.sort((a, b) => b.codteor - a.codteor); // mais recente primeiro
+          const link5 = resolverUrlCamara(cands5[0].href);
+          console.log('[IA] Caso 5: PRLE encontrado:', link5);
+          const info = await buscarDocumento(link5, { tipo: 'prle', numArtigo, referenciaLeg });
+          if (info) return info;
+        }
+      }
+      console.warn('[IA] Caso 5 falhou — PRLE não encontrado.');
+      return null;
     }
 
     // ── CASO 4: Destaque de Preferência ─────────────────────────────
