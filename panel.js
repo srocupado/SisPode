@@ -1456,7 +1456,9 @@ async function buscarTextoEmenda(d, prop) {
     // Ex: "artigo 92, constante no artigo 2° do substitutivo adotado pela CCJC"
     const constanteMatch =
       descricao.match(/constante\s+(?:n[ao]\s+)?art(?:igo)?\s*(\d+\s*[°º]?)/i) ||
+      descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
       descricao.match(/alterado\s+pelo?\s+art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i) ||
+      descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+da\s+subemenda\s+substitutiva/i) ||
       descricao.match(/art(?:igo)?\.?\s*(\d+\s*[°º]?)\s+do\s+substitutivo/i);
     const artNoDoc = constanteMatch ? constanteMatch[1].trim().replace(/[°º]/g, '°') : null;
 
@@ -1513,26 +1515,33 @@ async function buscarTextoEmenda(d, prop) {
     const isSubstColegiado = !isDestaquePreferencia
       && /substitutivo\s+adotado|emenda\s+adotada/i.test(descricao);
 
-    // SSP de plenário: subemenda substitutiva (não é de comissão)
-    const isDVSSubstitutivo = !isDestaquePreferencia
-      && /subst|submenda|subemenda/i.test(descricao) && !isSubstColegiado;
+    // Subemenda Substitutiva de Plenário: referencia explicitamente "SUBEMENDA SUBSTITUTIVA"
+    // O documento correto é o PRLE (Parecer Preliminar às Emendas) mais recente.
+    const isSubemendaSubstitutiva = !isDestaquePreferencia && !isSubstColegiado
+      && /subemenda\s+substitutiva/i.test(descricao);
+
+    // SSP de plenário / DVS genérico no substitutivo (não é subemenda substitutiva)
+    const isDVSSubstitutivo = !isDestaquePreferencia && !isSubstColegiado && !isSubemendaSubstitutiva
+      && /subst|submenda|subemenda/i.test(descricao);
 
     // Emenda específica numerada
     const isEmendaEspecifica = !isDestaquePreferencia
-      && /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado;
+      && /\bemenda\b/i.test(descricao) && !isDVSSubstitutivo && !isSubstColegiado && !isSubemendaSubstitutiva;
 
     // DVS/DTQ de dispositivo do PL original (não classificado nos casos acima)
     // Ex: "Destaque para Votação em Separado do inciso II do art. 19 do PL 3278/2021, com fins de supressão"
     const isDVSPLOriginal = !!referenciaLeg
       && !isDestaquePreferencia
       && !isSubstColegiado
+      && !isSubemendaSubstitutiva
       && !isDVSSubstitutivo
       && !isEmendaEspecifica
       && /destaque|dvs|dtq|separado|supress|suprim/i.test(descricao);
 
-    console.log('[IA] tipo: colegiado=', isSubstColegiado, '| SSP=', isDVSSubstitutivo,
-                '| emenda=', isEmendaEspecifica, '| pl_orig=', isDVSPLOriginal,
-                '| pref_senado=', isDestaquePreferencia, '| ref=', referenciaLeg);
+    console.log('[IA] tipo: colegiado=', isSubstColegiado, '| subemenda_subst=', isSubemendaSubstitutiva,
+                '| SSP=', isDVSSubstitutivo, '| emenda=', isEmendaEspecifica,
+                '| pl_orig=', isDVSPLOriginal, '| pref_senado=', isDestaquePreferencia,
+                '| ref=', referenciaLeg);
 
     // ── CASO 0: Substitutivo/Emenda adotado por comissão ─────────────
     // Fluxo: prop_pareceres_substitutivos_votos → fichadetramitacao (adotado) → prop_mostrarintegra
@@ -1795,6 +1804,47 @@ async function buscarTextoEmenda(d, prop) {
         }
         console.warn('[IA] Caso 1b fallback falhou — nenhum substitutivo encontrado.');
       }
+    }
+
+    // ── CASO 5: Subemenda Substitutiva ──────────────────────────────────
+    // O texto está no PRLE (Parecer Preliminar às Emendas de Plenário) mais recente,
+    // acessível em prop_pareceres_substitutivos_votos.
+    if (isSubemendaSubstitutiva) {
+      console.log('[IA] Caso 5: Subemenda Substitutiva — buscando PRLE mais recente');
+      const urlPar5 = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`;
+      const htmlPar5 = await fetchCamara(urlPar5);
+      console.log('[IA] Caso 5 prop_pareceres fetch:', htmlPar5 ? htmlPar5.length + ' chars' : 'falhou');
+      if (htmlPar5) {
+        const docPar5 = new DOMParser().parseFromString(htmlPar5, 'text/html');
+        const extraiCodteor5 = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
+        const cands5 = [];
+
+        // 1ª tentativa: link com "PRLE" no filename (Parecer Preliminar às Emendas)
+        for (const a of docPar5.querySelectorAll('a[href*="prop_mostrarintegra"], a[href*="codteor"]')) {
+          const href = a.getAttribute('href') || '';
+          if (/filename[=+%]*(PRLE)/i.test(href)) cands5.push({ href, codteor: extraiCodteor5(href) });
+        }
+
+        // 2ª tentativa: linha que menciona "emenda" ou "subemenda" na tabela
+        if (!cands5.length) {
+          for (const row of docPar5.querySelectorAll('tr, li, p')) {
+            if (/emenda[s]?\s+de\s+plen[áa]rio|parecer.*emenda|subemenda/i.test(row.textContent)) {
+              const a = row.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+              if (a) cands5.push({ href: a.getAttribute('href'), codteor: extraiCodteor5(a.getAttribute('href')) });
+            }
+          }
+        }
+
+        if (cands5.length) {
+          cands5.sort((a, b) => b.codteor - a.codteor); // mais recente primeiro
+          const link5 = resolverUrlCamara(cands5[0].href);
+          console.log('[IA] Caso 5: PRLE encontrado:', link5);
+          const info = await buscarDocumento(link5, { tipo: 'prle', numArtigo, referenciaLeg });
+          if (info) return info;
+        }
+      }
+      console.warn('[IA] Caso 5 falhou — PRLE não encontrado.');
+      return null;
     }
 
     // ── CASO 4: Destaque de Preferência ─────────────────────────────
@@ -2153,12 +2203,12 @@ async function gerarExplicacaoIA() {
 
 function montarPrompt(d, prop, infoEmenda) {
   const instrucaoExplicacao = {
-    resumo: `parágrafo único de 3 a 5 frases descrevendo as alterações materiais concretas da emenda. Cada frase deve dizer exatamente o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, novos direitos, novas obrigações, supressões, ajustes com impacto prático real. Mencione grupos afetados, condutas reguladas, verbos normativos ("proíbe", "determina", "veda", "amplia", "restringe", "exige"). Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
+    resumo: `2 frases no máximo. Diga o que muda na prática: o que a lei passa a proibir, autorizar ou exigir. Sem processo legislativo, sem contexto introdutório.`,
 
-    completo: `parágrafo único cobrindo TODAS as alterações materiais da emenda. Para cada alteração: descreva o que o texto da lei passará a dizer, o que deixará de existir, e quem/o quê é afetado. Use verbos normativos e seja específico. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
+    completo: `3 frases no máximo cobrindo as alterações materiais principais. Para cada mudança: o que o texto passa a dizer e quem é afetado. Sem introduções nem linguagem processual.`,
 
-    argumentos: `parágrafo único com as principais alterações materiais, seguido de "Favorável: [argumento]" e "Contrário: [argumento]" ao final do parágrafo. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
-  }[app.config.profundidade] || `parágrafo único com as alterações materiais concretas da emenda, escrito de forma corrida sem marcadores ou listas.`;
+    argumentos: `2 frases descrevendo a mudança, seguidas de "Favorável: [argumento curto]" e "Contrário: [argumento curto]". Total máximo: 4 linhas.`,
+  }[app.config.profundidade] || `2 frases diretas sobre o que muda na prática, sem linguagem processual.`;
 
   // ── Determina o modo de operação ─────────────────────────────────────
   const temTexto         = !!(infoEmenda?.textoCompleto);
@@ -2260,7 +2310,7 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`;
 
-  return `Você é um assessor legislativo da Câmara dos Deputados do Brasil.
+  return `Você é um assessor legislativo da Câmara dos Deputados do Brasil. Seja direto e objetivo — o deputado precisa entender o essencial em segundos.
 ${blocoFonte}${avisPDF}
 TAREFA: Analise o destaque abaixo ${instrucaoBase}.
 
