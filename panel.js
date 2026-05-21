@@ -2203,12 +2203,12 @@ async function gerarExplicacaoIA() {
 
 function montarPrompt(d, prop, infoEmenda) {
   const instrucaoExplicacao = {
-    resumo: `parágrafo único de 3 a 5 frases descrevendo as alterações materiais concretas da emenda. Cada frase deve dizer exatamente o que o texto da lei PASSA A DIZER ou DEIXA DE DIZER — novas proibições, novos direitos, novas obrigações, supressões, ajustes com impacto prático real. Mencione grupos afetados, condutas reguladas, verbos normativos ("proíbe", "determina", "veda", "amplia", "restringe", "exige"). Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
+    resumo: `2 frases no máximo. Diga o que muda na prática: o que a lei passa a proibir, autorizar ou exigir. Sem processo legislativo, sem contexto introdutório.`,
 
-    completo: `parágrafo único cobrindo TODAS as alterações materiais da emenda. Para cada alteração: descreva o que o texto da lei passará a dizer, o que deixará de existir, e quem/o quê é afetado. Use verbos normativos e seja específico. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
+    completo: `3 frases no máximo cobrindo as alterações materiais principais. Para cada mudança: o que o texto passa a dizer e quem é afetado. Sem introduções nem linguagem processual.`,
 
-    argumentos: `parágrafo único com as principais alterações materiais, seguido de "Favorável: [argumento]" e "Contrário: [argumento]" ao final do parágrafo. Escreva de forma corrida, sem marcadores, sem listas, sem bullets.`,
-  }[app.config.profundidade] || `parágrafo único com as alterações materiais concretas da emenda, escrito de forma corrida sem marcadores ou listas.`;
+    argumentos: `2 frases descrevendo a mudança, seguidas de "Favorável: [argumento curto]" e "Contrário: [argumento curto]". Total máximo: 4 linhas.`,
+  }[app.config.profundidade] || `2 frases diretas sobre o que muda na prática, sem linguagem processual.`;
 
   // ── Determina o modo de operação ─────────────────────────────────────
   const temTexto         = !!(infoEmenda?.textoCompleto);
@@ -2310,7 +2310,7 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`;
 
-  return `Você é um assessor legislativo da Câmara dos Deputados do Brasil.
+  return `Você é um assessor legislativo da Câmara dos Deputados do Brasil. Seja direto e objetivo — o deputado precisa entender o essencial em segundos.
 ${blocoFonte}${avisPDF}
 TAREFA: Analise o destaque abaixo ${instrucaoBase}.
 
