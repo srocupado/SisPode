@@ -30,16 +30,17 @@ O usuário escolhe um dos três provedores (Google Gemini, OpenAI ChatGPT ou Ant
 |---|---|
 | Substitutivo/emenda adotado por comissão (CASO 0) | Inteiro teor do substitutivo adotado, via histórico de pareceres |
 | DVS de substitutivo do relator de plenário (CASO 1a) | Substitutivo do relator (arquivo PRLP/SBT) na página de pareceres |
-| DVS de subemenda substitutiva de plenário — SSP (CASO 1b) | Arquivo SSP na página de emendas |
+| DVS de subemenda substitutiva de plenário — SSP (CASO 1b) | Arquivo SSP na página de emendas; fallback para página de pareceres |
 | DVS de emenda específica numerada (CASO 2) | Texto da emenda via página de emendas da proposição |
 | DVS de dispositivo do PL original (CASO 3) | PDF do próprio destaque ou inteiro teor via API |
-| **Destaque de Preferência (CASO 4)** | **Upload manual de 2 PDFs pelo usuário** |
+| Destaque de Preferência (CASO 4) | Upload manual de 2 PDFs pelo usuário |
+| **DVS de Subemenda Substitutiva (CASO 5)** | **PRLE (Parecer Preliminar às Emendas) mais recente, via histórico de pareceres** |
 
 - Todos os documentos são enviados ao modelo como **PDF nativo** (no formato específico de cada provedor: `inline_data` no Gemini, `input_file` na Responses API da OpenAI, `document` block no Anthropic), preservando a formatação e evitando truncamento de texto
 - O prompt instrui a IA a localizar o dispositivo exato (artigo, inciso, parágrafo) e descrever seu conteúdo com verbos normativos — sem inventar, sem usar conhecimento externo
 - **Destaque de Preferência**: o modal exibe automaticamente 2 inputs rotulados ("PDF que recebe preferência" / "PDF a ser comparado"); a IA compara as duas redações e aponta as diferenças
 - Suporte a inserção manual de texto ou PDF para substituir a busca automática quando necessário
-- Três profundidades de análise configuráveis: **Resumo**, **Completo** e **Com argumentos**
+- Três profundidades de análise configuráveis: **Resumo** (máx. 2 frases), **Completo** (máx. 3 frases) e **Com argumentos** — todas focadas em leitura rápida pelo deputado
 
 **Exportação**
 - Exporta cada destaque para **Word (.docx)** com layout formatado
