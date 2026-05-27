@@ -447,25 +447,47 @@ function parsearPautaCompacto(texto) {
     resultado.titulo = 'Pauta da Semana';
   }
 
-  // Cabeçalhos de bloco detalhado: "N SIGLA NNN/AAAA [opt sufixo] [opt status]"
-  // O formato sumário usa " - " entre ordem e sigla ("1 - REQ ...") e por isso
-  // NÃO casa com `\d+\s+SIGLA` (hífen não é whitespace).
+  // Cabeçalhos de bloco detalhado: "[N] SIGLA NNN/AAAA [cód] STATUS"
   const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC', 'PL'];
   const siglasAlt = SIGLAS.slice().sort((a, b) => b.length - a.length).join('|');
+
+  // Mapa de ordem a partir do SUMÁRIO ("N - SIGLA NUM/AAAA"), que é o índice
+  // confiável da pauta. O pdf.js às vezes joga o número de ordem do cabeçalho
+  // detalhado para uma linha separada; o sumário permite recuperá-lo.
+  const ordemPorChave = {};
+  const sumarioRegex = new RegExp(`(\\d{1,3})\\s*-\\s*(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})`, 'g');
+  let sm;
+  while ((sm = sumarioRegex.exec(texto)) !== null) {
+    const k = `${sm[2]}-${sm[3].replace(/\./g, '')}-${sm[4]}`;
+    if (!(k in ordemPorChave)) ordemPorChave[k] = parseInt(sm[1], 10);
+  }
+
+  // O número de ordem do cabeçalho detalhado é OPCIONAL: quando o pdf.js o
+  // separa para outra linha, o cabeçalho aparece sem ele. Nesse caso exigimos
+  // um marcador de STATUS (em maiúsculas) na mesma linha, para distinguir um
+  // cabeçalho real de referências em apensados, "Notas técnicas:" ou na ementa.
+  // O separador número→sigla é só espaço/tab (nunca \n), para o número jamais
+  // ser "puxado" de uma linha vizinha (ex.: o número órfão do item seguinte).
+  const STATUS_RE = /N[ÃA]O APRECIAD[OA]|APRECIAD[OA]|RETIRAD[OA]|PREJUDICAD[OA]|APROVAD[OA]|REJEITAD[OA]|ADIAD[OA]|DEVOLVID[OA]|SOBRESTAD[OA]|VETAD[OA]/;
   const headerRegex = new RegExp(
-    `(?:^|\\n)\\s*(\\d{1,3})\\s+(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})\\b[^\\n]*\\n`,
+    `(?:^|\\n)[ \\t]*(?:(\\d{1,3})[ \\t]+)?(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})\\b([^\\n]*)`,
     'g'
   );
 
   const headers = [];
   let m;
   while ((m = headerRegex.exec(texto)) !== null) {
+    const temNumero = m[1] != null;
+    const resto     = m[5] || '';
+    if (!temNumero && !STATUS_RE.test(resto)) continue; // não é cabeçalho detalhado
+    const numero = m[3].replace(/\./g, '');
+    const chave  = `${m[2]}-${numero}-${m[4]}`;
     headers.push({
-      idx:    m.index + m[0].indexOf(m[1]),
+      idx:    m.index + m[0].indexOf(m[2]),
       end:    m.index + m[0].length,
-      ordem:  parseInt(m[1], 10),
+      ordem:  temNumero ? parseInt(m[1], 10) : (ordemPorChave[chave] ?? null),
       sigla:  m[2],
-      numero: m[3].replace(/\./g, ''),
+      numero,
       ano:    m[4],
     });
   }
