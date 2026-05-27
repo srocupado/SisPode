@@ -91,6 +91,8 @@ const state = {
   ultimoSave: null,            // ISO da última gravação bem-sucedida
   syncTimer: null,             // setInterval do auto-save
   salvando:  false,            // evita gravações concorrentes
+  promptsBiblioteca: [],       // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
+  promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -144,7 +146,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
 
+  // Modal "Reanalisar com IA" (prompt personalizado + biblioteca compartilhada)
+  document.getElementById('reanalise-select').addEventListener('change', refletirSelecaoPrompt);
+  document.getElementById('reanalise-padrao').addEventListener('change', onReanalisePadraoToggle);
+  document.getElementById('btn-reanalise-salvar').addEventListener('click', salvarPromptNovo);
+  document.getElementById('btn-reanalise-atualizar').addEventListener('click', atualizarPromptSelecionado);
+  document.getElementById('btn-reanalise-excluir').addEventListener('click', excluirPromptSelecionado);
+  document.getElementById('btn-reanalise-executar').addEventListener('click', executarReanalise);
+
   iniciarAutoSave();
+
+  // Carrega a biblioteca de prompts compartilhada (não bloqueia a UI)
+  carregarBibliotecaPrompts().catch(e => console.warn('Falha ao carregar prompts:', e.message));
 
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
@@ -674,6 +687,7 @@ function renderCard(it) {
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
+        <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -683,6 +697,7 @@ function renderCard(it) {
 
   card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
+  card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -987,11 +1002,21 @@ function atualizarBadgesCard(it) {
 // ============================================================
 //  GERAÇÃO DE ANÁLISE VIA IA
 // ============================================================
-async function gerarAnaliseItem(it, forcar = false) {
+async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API no painel principal (Configurações).', 'aviso');
     return;
+  }
+
+  // Instruções extras para a IA: vêm do diálogo "Reanalisar com IA" (opts)
+  // ou, na ausência, do prompt-padrão compartilhado da equipe.
+  let instrucoesExtra = opts.instrucoesExtra;
+  let promptNome      = opts.promptNome || '';
+  if (instrucoesExtra == null) {
+    const pad = instrucoesPromptPadrao();
+    instrucoesExtra = pad.texto;
+    promptNome      = pad.nome;
   }
 
   const card    = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
@@ -1043,7 +1068,7 @@ async function gerarAnaliseItem(it, forcar = false) {
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
-    const prompt   = montarPrompt(it, docs);
+    const prompt   = montarPrompt(it, docs, instrucoesExtra);
     let { text: markdown, truncated } = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
@@ -1081,6 +1106,7 @@ async function gerarAnaliseItem(it, forcar = false) {
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
+      promptCustom: promptNome || null,
     };
     it.analiseStatus = 'ok';
 
@@ -1202,7 +1228,15 @@ function escolherDocumentos(it) {
       rotulo: `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`,
       url: par.prle.url,
     });
-    if (!docs.length && enr.urlInteiroTeor) {
+    if (docs.length) {
+      // Há parecer(es) de plenário: anexa TAMBÉM a redação original para
+      // que a IA consiga cotejar o substitutivo/emendas contra o texto-base
+      // (sem isso, a análise não detalha o que de fato muda).
+      if (enr.urlInteiroTeor) {
+        docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+      }
+    } else if (enr.urlInteiroTeor) {
+      // Sem parecer de plenário: analisa o próprio inteiro teor.
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
   } else {
@@ -1218,7 +1252,7 @@ function parecerKey(it) {
   return 'inteiro-teor';
 }
 
-function montarPrompt(it, docs = []) {
+function montarPrompt(it, docs = [], instrucoesExtra = '') {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
@@ -1250,10 +1284,16 @@ function montarPrompt(it, docs = []) {
     ? ` (${docsParaTitulo})`
     : '';
 
+  const temOriginal = docs.some(d => d.tipo === 'REDACAO_ORIGINAL');
+  const rotulosPareceres = docs
+    .filter(d => d.tipo === 'PRLP' || d.tipo === 'PRLE')
+    .map(d => d.rotulo)
+    .join('; ');
+
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
-    : (docs.length
-        ? `parecer(es) do relator de plenário anexado(s): ${docs.map(d => d.rotulo).join('; ')}`
+    : (rotulosPareceres
+        ? `parecer(es) do relator de plenário: ${rotulosPareceres}${temOriginal ? ', acompanhado(s) da redação original da proposição para cotejo' : ''}`
         : 'documento da proposição');
 
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
@@ -1275,9 +1315,11 @@ Ao final desta seção, **descreva em parágrafo próprio o trâmite da proposi�
 Evite frases genéricas — descreva concretamente o que muda na prática.
 
 ## Pontos centrais do parecer do relator${anotacaoTitulo}
-Um ou dois parágrafos descrevendo a posição do(a) relator(a) de Plenário e as mudanças propostas. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
+Descreva a posição do(a) relator(a) de Plenário e, principalmente, **as mudanças concretas que o parecer promove no texto**. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
   ? 'Como há PRLP e PRLE anexados, distinga claramente: descreva primeiro o conteúdo do PRLP (parecer original do relator) e em seguida o conteúdo do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro. '
-  : ''}**Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.** Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
+  : ''}${temOriginal
+  ? 'A redação original da proposição está anexada (documento "Redação original (inteiro teor)"). **Faça o cotejo entre a redação original e o texto do parecer/substitutivo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando explicitamente o que foi INCLUÍDO, o que foi ALTERADO (registrando o teor antes e depois) e o que foi SUPRIMIDO.** Seja específico e exaustivo quanto aos dispositivos relevantes — não se limite a um resumo genérico das mudanças. '
+  : ''}**Se houver substitutivo, descreva detalhadamente as mudanças em relação ao texto original; se houver emenda(s), descreva o que cada emenda altera.** Escreva em parágrafos corridos (sem listas), mas sem abrir mão da especificidade dispositivo a dispositivo. Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
 
 ## Argumentos favoráveis/contrários à aprovação
 Dois parágrafos corridos: o primeiro apresenta a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação; o segundo apresenta a fundamentação que sustenta a rejeição.
@@ -1287,7 +1329,9 @@ Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva 
 
 ## Pontos de atenção para o Podemos
 Parágrafo discutindo as implicações específicas considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis da bancada.
-
+${instrucoesExtra && instrucoesExtra.trim()
+  ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
+  : ''}
 REGRAS RÍGIDAS:
 - Use apenas informação contida no documento anexo. Não invente fatos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
@@ -1495,7 +1539,10 @@ function renderAnaliseCard(it) {
   const docsHtml = docs.length
     ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
     : '';
-  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}`;
+  const promptHtml = it.analise.promptCustom
+    ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
+    : '';
+  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
   conteudo.innerHTML = renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
@@ -2100,6 +2147,72 @@ async function fbSalvarAnalise(it) {
 }
 
 // ============================================================
+//  FIREBASE — BIBLIOTECA DE PROMPTS (compartilhada pela equipe)
+// ============================================================
+async function fbCarregarPrompts() {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise.json`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data) return [];
+  return Object.entries(data)
+    .map(([id, p]) => ({ ...p, id }))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+}
+
+async function fbSalvarPrompt(p) {
+  const id = p.id || ('p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+  const corpo = {
+    nome:         p.nome,
+    texto:        p.texto,
+    criadoPor:    p.criadoPor || state.config?.nomeUsuario || 'equipe',
+    criadoEm:     p.criadoEm || new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(),
+  };
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise/${encodeURIComponent(id)}.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  return { ...corpo, id };
+}
+
+async function fbApagarPrompt(id) {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise/${encodeURIComponent(id)}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+async function fbCarregarPromptPadrao() {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise_padrao.json`);
+  if (!res.ok) return null;
+  return await res.json(); // string com o id, ou null
+}
+
+async function fbSalvarPromptPadrao(id) {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise_padrao.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(id || null),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+// Carrega a biblioteca + o prompt-padrão (ambos compartilhados) para o estado.
+async function carregarBibliotecaPrompts() {
+  const [lista, padraoId] = await Promise.all([fbCarregarPrompts(), fbCarregarPromptPadrao()]);
+  state.promptsBiblioteca = lista;
+  state.promptPadraoId    = padraoId || null;
+}
+
+// Texto/nome do prompt-padrão atual (ou vazio se não houver).
+function instrucoesPromptPadrao() {
+  const id = state.promptPadraoId;
+  if (!id) return { texto: '', nome: '' };
+  const p = (state.promptsBiblioteca || []).find(x => x.id === id);
+  return p ? { texto: p.texto || '', nome: p.nome || '' } : { texto: '', nome: '' };
+}
+
+// ============================================================
 //  EXPORTAR PDF (via window.print da própria página)
 // ============================================================
 async function carregarLogoDataUrl() {
@@ -2316,6 +2429,172 @@ async function salvarConfig() {
   await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
   mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  REANALISAR COM IA (prompt personalizado + biblioteca)
+// ============================================================
+let _reanaliseItem = null;
+
+function setReanaliseStatus(texto, cor) {
+  const el = document.getElementById('reanalise-status');
+  if (!el) return;
+  el.textContent = texto || '';
+  el.style.color = cor || 'var(--text-dim)';
+}
+
+function popularSelectPrompts(selecionadoId = '') {
+  const sel = document.getElementById('reanalise-select');
+  if (!sel) return;
+  const opcoes = ['<option value="">— Novo / instruções avulsas —</option>'].concat(
+    (state.promptsBiblioteca || []).map(p => {
+      const marca = p.id === state.promptPadraoId ? ' ★ (padrão)' : '';
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome || '(sem nome)')}${marca}</option>`;
+    })
+  );
+  sel.innerHTML = opcoes.join('');
+  sel.value = selecionadoId || '';
+}
+
+// Reflete na UI o prompt selecionado no dropdown (texto, nome, botões, padrão).
+function refletirSelecaoPrompt() {
+  const id     = document.getElementById('reanalise-select').value;
+  const chk    = document.getElementById('reanalise-padrao');
+  const btnAtu = document.getElementById('btn-reanalise-atualizar');
+  const btnExc = document.getElementById('btn-reanalise-excluir');
+  const p = (state.promptsBiblioteca || []).find(x => x.id === id);
+  if (p) {
+    document.getElementById('reanalise-texto').value = p.texto || '';
+    document.getElementById('reanalise-nome').value  = p.nome || '';
+    btnAtu.style.display = 'inline-flex';
+    btnExc.style.display = 'inline-flex';
+    chk.checked = (state.promptPadraoId === p.id);
+  } else {
+    btnAtu.style.display = 'none';
+    btnExc.style.display = 'none';
+    chk.checked = false;
+  }
+}
+
+async function abrirModalReanalise(it) {
+  _reanaliseItem = it;
+  document.getElementById('reanalise-alvo').textContent = `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
+  setReanaliseStatus('');
+  document.getElementById('reanalise-texto').value = '';
+  document.getElementById('reanalise-nome').value  = '';
+  document.getElementById('reanalise-padrao').checked = false;
+  document.getElementById('btn-reanalise-atualizar').style.display = 'none';
+  document.getElementById('btn-reanalise-excluir').style.display = 'none';
+  document.getElementById('modal-reanalise').style.display = 'flex';
+
+  // Recarrega a biblioteca para refletir o que a equipe salvou.
+  try { await carregarBibliotecaPrompts(); } catch (e) { /* usa o que houver em memória */ }
+  // Pré-seleciona o prompt-padrão da equipe, se houver.
+  popularSelectPrompts(state.promptPadraoId || '');
+  refletirSelecaoPrompt();
+}
+
+async function salvarPromptNovo() {
+  const nome  = document.getElementById('reanalise-nome').value.trim();
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!nome)  { setReanaliseStatus('Dê um nome ao prompt para salvá-lo.', '#c08400'); return; }
+  if (!texto) { setReanaliseStatus('Escreva as instruções antes de salvar.', '#c08400'); return; }
+  setReanaliseStatus('Salvando…');
+  try {
+    const salvo = await fbSalvarPrompt({ nome, texto });
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts(salvo.id);
+    refletirSelecaoPrompt();
+    setReanaliseStatus('✓ Prompt salvo na biblioteca.', '#0a8a3a');
+  } catch (e) {
+    setReanaliseStatus('Erro ao salvar: ' + e.message, '#c0392b');
+  }
+}
+
+async function atualizarPromptSelecionado() {
+  const id = document.getElementById('reanalise-select').value;
+  if (!id) return;
+  const nome  = document.getElementById('reanalise-nome').value.trim();
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!nome || !texto) { setReanaliseStatus('Nome e instruções são obrigatórios.', '#c08400'); return; }
+  const atual = (state.promptsBiblioteca || []).find(x => x.id === id);
+  setReanaliseStatus('Atualizando…');
+  try {
+    await fbSalvarPrompt({ id, nome, texto, criadoPor: atual?.criadoPor, criadoEm: atual?.criadoEm });
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts(id);
+    refletirSelecaoPrompt();
+    setReanaliseStatus('✓ Prompt atualizado.', '#0a8a3a');
+  } catch (e) {
+    setReanaliseStatus('Erro ao atualizar: ' + e.message, '#c0392b');
+  }
+}
+
+async function excluirPromptSelecionado() {
+  const id = document.getElementById('reanalise-select').value;
+  if (!id) return;
+  if (!confirm('Excluir este prompt da biblioteca compartilhada? Isso afeta toda a equipe.')) return;
+  setReanaliseStatus('Excluindo…');
+  try {
+    await fbApagarPrompt(id);
+    if (state.promptPadraoId === id) {
+      await fbSalvarPromptPadrao(null);
+      state.promptPadraoId = null;
+    }
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts('');
+    document.getElementById('reanalise-texto').value = '';
+    document.getElementById('reanalise-nome').value  = '';
+    refletirSelecaoPrompt();
+    setReanaliseStatus('Prompt excluído.', '#888');
+  } catch (e) {
+    setReanaliseStatus('Erro ao excluir: ' + e.message, '#c0392b');
+  }
+}
+
+// Define/remove o prompt-padrão compartilhado quando a caixa é marcada.
+async function onReanalisePadraoToggle() {
+  const chk = document.getElementById('reanalise-padrao');
+  const id  = document.getElementById('reanalise-select').value;
+  if (chk.checked) {
+    if (!id) {
+      chk.checked = false;
+      setReanaliseStatus('Salve o prompt na biblioteca antes de defini-lo como padrão.', '#c08400');
+      return;
+    }
+    try {
+      await fbSalvarPromptPadrao(id);
+      state.promptPadraoId = id;
+      popularSelectPrompts(id);
+      setReanaliseStatus('✓ Definido como padrão da equipe.', '#0a8a3a');
+    } catch (e) {
+      chk.checked = false;
+      setReanaliseStatus('Erro ao definir padrão: ' + e.message, '#c0392b');
+    }
+  } else if (state.promptPadraoId && state.promptPadraoId === id) {
+    try {
+      await fbSalvarPromptPadrao(null);
+      state.promptPadraoId = null;
+      popularSelectPrompts(id);
+      setReanaliseStatus('Padrão da equipe removido.', '#888');
+    } catch (e) {
+      chk.checked = true;
+      setReanaliseStatus('Erro ao remover padrão: ' + e.message, '#c0392b');
+    }
+  }
+}
+
+function executarReanalise() {
+  const it = _reanaliseItem;
+  if (!it) return;
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!texto) { setReanaliseStatus('Escreva instruções ou selecione um prompt salvo.', '#c08400'); return; }
+  const id = document.getElementById('reanalise-select').value;
+  const p  = (state.promptsBiblioteca || []).find(x => x.id === id);
+  // Nome registrado na análise: o do prompt salvo (se não foi editado) ou "personalizado".
+  const promptNome = (p && (p.texto || '') === texto) ? p.nome : 'personalizado';
+  document.getElementById('modal-reanalise').style.display = 'none';
+  gerarAnaliseItem(it, true, { instrucoesExtra: texto, promptNome });
 }
 
 // ============================================================
