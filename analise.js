@@ -277,6 +277,46 @@ function parsearPautaExtenso(texto) {
   if (periodoMatch) resultado.periodo = periodoMatch[1].trim().replace(/\s+/g, ' ');
   resultado.titulo = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
 
+  // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
+  // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
+  // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[ºo]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|$)/gi;
+  let rf;
+  while ((rf = rfRegex.exec(texto)) !== null) {
+    const ordem  = parseInt(rf[1], 10);
+    const tipoExt = rf[2].replace(/\s+/g, ' ').trim().toUpperCase();
+    const numero = limpaNumero(rf[3]);
+    const ano    = rf[4];
+    const bloco  = rf[5] || '';
+
+    // Mapeia o tipo por extenso → sigla (ex.: "PROJETO DE LEI" → PL).
+    const tipo = TIPOS_PROPOSICAO.find(t => t.prefixo === tipoExt)
+              || TIPOS_PROPOSICAO.find(t => tipoExt.startsWith(t.prefixo));
+    const sigla = tipo ? tipo.sigla : 'PL';
+
+    const autorMatch = bloco.match(/d[oa]s?\s+(?:Sr\.|Sra\.|Senhora?|Deputad[oa])[^,.]{0,80}/i);
+    // Ementa: prefere o trecho após ", que ..."; corta ruído procedural.
+    const emMatch = bloco.match(/,\s*que\s+([\s\S]+)/i);
+    const ementa = (emMatch ? emMatch[1] : bloco)
+      .replace(/\s+/g, ' ')
+      .split(/\(\*\)|In[íi]cio do recebimento|Republicad[ao]/i)[0]
+      .replace(/^[\s,]+/, '')
+      .trim()
+      .slice(0, 600);
+
+    resultado.itens.push({
+      ordem,
+      tipoCategoria: 'redacao_final',
+      sigla,
+      numero,
+      ano,
+      ementa,
+      autorTexto: (autorMatch?.[0] || '').trim(),
+      apensadosTexto: [],
+      relator: null,
+    });
+  }
+
   // === REQUERIMENTOS DE URGÊNCIA ===
   // Padrão: "1. Requerimento nº 1.180, de 2026, dos Srs. Líderes, ... apreciação do Projeto de Lei nº 5.900, de 2025, do Sr. X..."
   // O número antes do ponto (1, 2...) é o número de ordem na pauta.
@@ -435,7 +475,7 @@ function parsearPautaExtenso(texto) {
 
   // Ordena: requerimentos antes (por ordem), depois projetos (por ordem)
   resultado.itens.sort((a, b) => {
-    if (a.tipoCategoria !== b.tipoCategoria) return a.tipoCategoria === 'requerimento' ? -1 : 1;
+    if (a.tipoCategoria !== b.tipoCategoria) return prioridadeCat(a.tipoCategoria) - prioridadeCat(b.tipoCategoria);
     return (a.ordem || 999) - (b.ordem || 999);
   });
 
@@ -461,8 +501,25 @@ function parsearPautaCompacto(texto) {
   }
 
   // Cabeçalhos de bloco detalhado: "[N] SIGLA NNN/AAAA [cód] STATUS"
-  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC', 'PL'];
+  // PDC (Projeto de Decreto Legislativo, nomenclatura antiga) aparece no
+  // dashboard ao lado de PDL — sem ele, esses decretos somem da importação.
+  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'PDC', 'MPV', 'PRC', 'PL'];
   const siglasAlt = SIGLAS.slice().sort((a, b) => b.length - a.length).join('|');
+
+  // Região "REDAÇÕES FINAIS" (RICD, art. 83, I): os itens listados sob essa
+  // seção são apreciação de texto final, não vão à análise de IA. Marca a faixa
+  // entre o título (ocorrência do bloco detalhado, a última no texto) e o
+  // próximo cabeçalho de seção ("B - Turno único", "DISCUSSÃO", etc.).
+  const rfMarks = [...texto.matchAll(/REDA[ÇC][ÕO]ES?\s+FINA(?:L|IS)/gi)];
+  let rfIni = -1, rfFim = -1;
+  if (rfMarks.length) {
+    const ult = rfMarks[rfMarks.length - 1];
+    rfIni = ult.index;
+    const desde = ult.index + ult[0].length;
+    const prox = texto.slice(desde).search(/(?:^|\n)[ \t]*(?:[A-Z]\s+-\s+\S|DISCUSS[ÃA]O|VOTA[ÇC][ÃA]O|EM\s+TURNO)/);
+    rfFim = prox >= 0 ? desde + prox : texto.length;
+  }
+  const ehRedacaoFinal = (idx) => rfIni >= 0 && idx >= rfIni && idx < rfFim;
 
   // Mapa de ordem a partir do SUMÁRIO ("N - SIGLA NUM/AAAA"), que é o índice
   // confiável da pauta. O pdf.js às vezes joga o número de ordem do cabeçalho
@@ -564,7 +621,9 @@ function parsearPautaCompacto(texto) {
       }
     }
 
-    const tipoCategoria = (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento' : 'projeto';
+    const tipoCategoria = ehRedacaoFinal(h.idx) ? 'redacao_final'
+      : (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento'
+      : 'projeto';
 
     resultado.itens.push({
       ordem:             h.ordem,
@@ -584,7 +643,7 @@ function parsearPautaCompacto(texto) {
 
   // Ordena: requerimentos antes (por ordem), depois projetos (por ordem)
   resultado.itens.sort((a, b) => {
-    if (a.tipoCategoria !== b.tipoCategoria) return a.tipoCategoria === 'requerimento' ? -1 : 1;
+    if (a.tipoCategoria !== b.tipoCategoria) return prioridadeCat(a.tipoCategoria) - prioridadeCat(b.tipoCategoria);
     return (a.ordem || 999) - (b.ordem || 999);
   });
 
@@ -634,6 +693,13 @@ function limpaNumero(s) {
   return (s || '').replace(/[^\d]/g, '');
 }
 
+// Ordem de exibição/agrupamento das categorias na pauta: redações finais
+// (matéria sobre a mesa) primeiro, depois requerimentos de urgência, e por fim
+// os projetos em discussão.
+function prioridadeCat(cat) {
+  return cat === 'redacao_final' ? 0 : cat === 'requerimento' ? 1 : 2;
+}
+
 function normalizarItem(it) {
   return {
     ...it,
@@ -666,10 +732,15 @@ function renderizarPauta() {
   const cont = document.getElementById('lista-itens');
   cont.innerHTML = '';
 
-  // Seção: Requerimentos
+  // Seções, na ordem em que constam na pauta
+  const rfs  = state.pauta.itens.filter(i => i.tipoCategoria === 'redacao_final');
   const reqs = state.pauta.itens.filter(i => i.tipoCategoria === 'requerimento');
   const projs = state.pauta.itens.filter(i => i.tipoCategoria === 'projeto');
 
+  if (rfs.length) {
+    cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Redações Finais (${rfs.length})</h2>`);
+    rfs.forEach(it => cont.appendChild(renderCard(it)));
+  }
   if (reqs.length) {
     cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Requerimentos de Urgência (${reqs.length})</h2>`);
     reqs.forEach(it => cont.appendChild(renderCard(it)));
@@ -681,6 +752,9 @@ function renderizarPauta() {
 }
 
 function renderCard(it) {
+  // Redação Final: apreciação de texto final, sem análise de IA — o card traz
+  // apenas a redação de uma análise manual (escrita pela equipe).
+  const isRF = it.tipoCategoria === 'redacao_final';
   const card = document.createElement('div');
   card.className = 'an-card';
   card.dataset.chave = it.chave;
@@ -688,7 +762,7 @@ function renderCard(it) {
     <div class="an-card-head">
       <div class="an-card-num">${it.ordem ?? '–'}</div>
       <div class="an-card-info">
-        <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}</div>
+        <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${isRF ? ' · Redação Final' : ''}</div>
         <div class="an-card-ementa">${escapeHtml(it.ementa)}</div>
         <div class="an-card-meta">
           ${it.autorTexto ? `<span><b>Autor:</b> ${escapeHtml(it.autorTexto)}</span>` : ''}
@@ -702,10 +776,12 @@ function renderCard(it) {
       </div>
     </div>
     <div class="an-card-actions">
-      <button class="btn btn-primary btn-sm" data-role="btn-gerar">
+      ${isRF
+        ? `<button class="btn btn-primary btn-sm" data-role="btn-analise-manual">Escrever análise</button>`
+        : `<button class="btn btn-primary btn-sm" data-role="btn-gerar">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
         Gerar Análise
-      </button>
+      </button>`}
       <button class="btn btn-outline btn-sm" data-role="btn-toggle" style="display:none">Ver análise</button>
       <a class="btn btn-outline btn-sm" data-role="link-portal" target="_blank" rel="noopener" style="display:none" title="Abrir página da proposição na Câmara dos Deputados">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -719,22 +795,27 @@ function renderCard(it) {
     <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
         <span class="an-analise-meta" data-role="analise-meta"></span>
-        <button class="btn btn-outline btn-sm" data-role="btn-completar" style="display:none;color:#ffcc66" title="A análise foi truncada por limite de tokens — clique para continuar">Completar</button>
+        ${isRF ? '' : `<button class="btn btn-outline btn-sm" data-role="btn-completar" style="display:none;color:#ffcc66" title="A análise foi truncada por limite de tokens — clique para continuar">Completar</button>`}
         <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
-        <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
-        <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
+        ${isRF ? '' : `<button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>`}
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
-      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
+      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none" placeholder="${isRF ? 'Escreva aqui a breve análise da redação final…' : ''}"></textarea>
     </div>
   `;
 
-  card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
-  card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
-  card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
+  if (isRF) {
+    card.querySelector('[data-role=btn-analise-manual]').addEventListener('click', () => iniciarAnaliseManual(it));
+  } else {
+    card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
+    card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
+    card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
+    card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
+  }
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -743,8 +824,24 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
-  card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
   return card;
+}
+
+// Inicia uma análise MANUAL (sem IA) para itens de Redação Final: cria um
+// registro vazio e abre o editor de texto, reusando o autosave/edição padrão.
+function iniciarAnaliseManual(it) {
+  if (!it.analise) {
+    it.analise = {
+      markdown:   '',
+      manual:     true,
+      geradoEm:   new Date().toISOString(),
+      geradoPor:  state.config?.nomeUsuario || 'equipe',
+      parecerKey: parecerKey(it),
+    };
+    it.analiseStatus = 'ok';
+  }
+  renderAnaliseCard(it);
+  entrarEdicaoAnalise(it);
 }
 
 function atualizarLinkPortal(it) {
@@ -1284,6 +1381,7 @@ function escolherDocumentos(it) {
 }
 
 function parecerKey(it) {
+  if (it.tipoCategoria === 'redacao_final') return 'redacao-final';
   if (it.tipoCategoria === 'requerimento') return 'inteiro-teor';
   if (it.relator?.data) return 'parecer-' + (parseDataBR(it.relator.data) || it.relator.data);
   return 'inteiro-teor';
@@ -1555,7 +1653,9 @@ async function baixarPdf(url) {
 function renderAnaliseCard(it) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
-  const btnGer   = card.querySelector('[data-role=btn-gerar]');
+  // Botão de ação primária: "Gerar Análise" (projetos/requerimentos) ou
+  // "Escrever análise" (Redação Final). Apenas um existe por card.
+  const btnGer   = card.querySelector('[data-role=btn-gerar]') || card.querySelector('[data-role=btn-analise-manual]');
   const btnTog   = card.querySelector('[data-role=btn-toggle]');
   const painel   = card.querySelector('[data-role=painel-analise]');
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
@@ -1563,23 +1663,32 @@ function renderAnaliseCard(it) {
 
   painel.classList.add('aberto');
   btnTog.style.display = 'inline-flex';
-  btnGer.style.display = 'none';
+  if (btnGer) btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
-  card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
+  // Botão "Completar" não existe em cards de análise manual (Redação Final).
+  const btnCompletar = card.querySelector('[data-role=btn-completar]');
+  if (btnCompletar) btnCompletar.style.display = it.analise.truncada ? 'inline-flex' : 'none';
 
-  const fonte = it.analise.editadoEm
-    ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
-    : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
-  // Lista de documentos analisados (PRLP / PRLE / inteiro teor)
-  const docs = it.analise.documentos
-    || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
-  const docsHtml = docs.length
-    ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
-    : '';
-  const promptHtml = it.analise.promptCustom
-    ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
-    : '';
-  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
+  if (it.analise.manual) {
+    // Análise manual (Redação Final): sem provedor/modelo/documentos.
+    metaEl.innerHTML = it.analise.editadoEm
+      ? `Análise manual · editada em ${formatDataHora(it.analise.editadoEm)}`
+      : `Análise manual`;
+  } else {
+    const fonte = it.analise.editadoEm
+      ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
+      : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
+    // Lista de documentos analisados (PRLP / PRLE / inteiro teor)
+    const docs = it.analise.documentos
+      || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
+    const docsHtml = docs.length
+      ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
+      : '';
+    const promptHtml = it.analise.promptCustom
+      ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
+      : '';
+    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
+  }
   conteudo.innerHTML = renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
@@ -1795,8 +1904,9 @@ async function gerarTodasAsAnalises() {
     return;
   }
 
-  // Apenas itens ainda sem análise
-  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok');
+  // Apenas itens ainda sem análise. Redações Finais não entram na geração por
+  // IA — sua análise é manual.
+  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok' && it.tipoCategoria !== 'redacao_final');
   if (!pendentes.length) {
     mostrarToast('Todos os itens já têm análise.', 'info');
     return;
