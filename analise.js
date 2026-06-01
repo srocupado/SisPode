@@ -752,8 +752,6 @@ function renderizarPauta() {
 }
 
 function renderCard(it) {
-  // Redação Final: apreciação de texto final, sem análise de IA — o card traz
-  // apenas a redação de uma análise manual (escrita pela equipe).
   const isRF = it.tipoCategoria === 'redacao_final';
   const card = document.createElement('div');
   card.className = 'an-card';
@@ -776,12 +774,10 @@ function renderCard(it) {
       </div>
     </div>
     <div class="an-card-actions">
-      ${isRF
-        ? `<button class="btn btn-primary btn-sm" data-role="btn-analise-manual">Escrever análise</button>`
-        : `<button class="btn btn-primary btn-sm" data-role="btn-gerar">
+      <button class="btn btn-primary btn-sm" data-role="btn-gerar">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
         Gerar Análise
-      </button>`}
+      </button>
       <button class="btn btn-outline btn-sm" data-role="btn-toggle" style="display:none">Ver análise</button>
       <a class="btn btn-outline btn-sm" data-role="link-portal" target="_blank" rel="noopener" style="display:none" title="Abrir página da proposição na Câmara dos Deputados">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
@@ -795,27 +791,22 @@ function renderCard(it) {
     <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
         <span class="an-analise-meta" data-role="analise-meta"></span>
-        ${isRF ? '' : `<button class="btn btn-outline btn-sm" data-role="btn-completar" style="display:none;color:#ffcc66" title="A análise foi truncada por limite de tokens — clique para continuar">Completar</button>`}
+        <button class="btn btn-outline btn-sm" data-role="btn-completar" style="display:none;color:#ffcc66" title="A análise foi truncada por limite de tokens — clique para continuar">Completar</button>
         <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
-        ${isRF ? '' : `<button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
-        <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>`}
+        <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
-      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none" placeholder="${isRF ? 'Escreva aqui a breve análise da redação final…' : ''}"></textarea>
+      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
     </div>
   `;
 
-  if (isRF) {
-    card.querySelector('[data-role=btn-analise-manual]').addEventListener('click', () => iniciarAnaliseManual(it));
-  } else {
-    card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
-    card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
-    card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
-    card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
-  }
+  card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
+  card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
+  card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -824,24 +815,8 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
+  card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
   return card;
-}
-
-// Inicia uma análise MANUAL (sem IA) para itens de Redação Final: cria um
-// registro vazio e abre o editor de texto, reusando o autosave/edição padrão.
-function iniciarAnaliseManual(it) {
-  if (!it.analise) {
-    it.analise = {
-      markdown:   '',
-      manual:     true,
-      geradoEm:   new Date().toISOString(),
-      geradoPor:  state.config?.nomeUsuario || 'equipe',
-      parecerKey: parecerKey(it),
-    };
-    it.analiseStatus = 'ok';
-  }
-  renderAnaliseCard(it);
-  entrarEdicaoAnalise(it);
 }
 
 function atualizarLinkPortal(it) {
@@ -923,6 +898,16 @@ async function enriquecerItem(it) {
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
       it.enriquecimento.pareceresPlenario = { prlp: null, prle: null };
+    }
+  }
+
+  // Documento da Redação Final (para itens dessa categoria)
+  if (it.tipoCategoria === 'redacao_final') {
+    try {
+      it.enriquecimento.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
+    } catch (e) {
+      console.warn('Não encontrou Redação Final:', e.message);
+      it.enriquecimento.urlRedacaoFinal = null;
     }
   }
 
@@ -1090,6 +1075,45 @@ async function buscarPareceresPlenario(idProp) {
   const prlp = candidatos.find(c => c.sigla === 'PRLP') || null;
   const prle = candidatos.find(c => c.sigla === 'PRLE') || null;
   return { prlp, prle };
+}
+
+/**
+ * Localiza o documento da Redação Final na ficha de tramitação da proposição.
+ * Procura na caixa "Documentos Anexos e Referenciados" o link cujo filename
+ * começa com "REDACAO FINAL" (ou variação com Ç/cedilha). Retorna a URL
+ * absoluta ou null se não encontrar.
+ */
+async function buscarRedacaoFinal(idProp) {
+  const url = `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idProp}`;
+  let html = null;
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (r.ok) html = await r.text();
+  } catch (_) {}
+  if (!html) {
+    try {
+      const r = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url));
+      if (r.ok) html = await r.text();
+    } catch (_) {}
+  }
+  if (!html) return null;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const candidatos = doc.querySelectorAll('a[href*="prop_mostrarintegra"]');
+  for (const a of candidatos) {
+    const href = a.getAttribute('href') || '';
+    // O filename do link costuma vir como "REDACAO FINAL <SIGLA> <NUM>/<ANO>".
+    // Casa também variações com Ç/Ã/cedilha e %20 já decodificados.
+    const decoded = (() => { try { return decodeURIComponent(href); } catch (_) { return href; } })();
+    if (!/filename=\s*REDA[ÇC][ÃA]?O\s+FINAL\b/i.test(decoded)) continue;
+    let linkUrl = href;
+    if (linkUrl.startsWith('javascript:')) continue;
+    try {
+      linkUrl = new URL(linkUrl, 'https://www.camara.leg.br/proposicoesWeb/').toString();
+    } catch (_) { continue; }
+    return linkUrl;
+  }
+  return null;
 }
 
 function parseDataBR(s) {
@@ -1383,6 +1407,15 @@ function escolherDocumentos(it) {
       // Sem parecer de plenário: analisa o próprio inteiro teor.
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
+  } else if (it.tipoCategoria === 'redacao_final') {
+    // Redação Final: analisa o documento próprio (raspado da ficha de
+    // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
+    // inteiro teor se a Redação Final ainda não estiver publicada.
+    if (enr.urlRedacaoFinal) {
+      docs.push({ tipo: 'REDACAO_FINAL', rotulo: 'Redação Final', url: enr.urlRedacaoFinal });
+    } else if (enr.urlInteiroTeor) {
+      docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+    }
   } else {
     if (enr.urlInteiroTeor) docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
   }
@@ -1408,6 +1441,36 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
     enr.autoriaPodemos ? '⚠ ATENÇÃO: O projeto principal é de autoria de deputado(a) do Podemos.' : null,
     enr.apensadosPodemos?.length ? `⚠ ATENÇÃO: Há apensado(s) de autoria Podemos:\n${apensadosPodemos}` : null,
   ].filter(Boolean).join('\n');
+
+  // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
+  // final consolidado, não há parecer a resumir. O foco é o que se está
+  // efetivamente votando e os pontos de atenção para a bancada.
+  if (it.tipoCategoria === 'redacao_final') {
+    return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
+
+Analise o documento anexo (Redação Final) referente à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+
+Ementa/descrição extraída da Pauta:
+"${(it.ementa || '').slice(0, 800)}"
+
+${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
+Produza uma **breve análise** em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
+
+## Resumo da Redação Final
+Dois a três parágrafos descrevendo objetivamente o que o texto final consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos. Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.
+
+## Pontos de atenção para o Podemos
+Um parágrafo sobre as implicações específicas para a bancada, considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis.
+${instrucoesExtra && instrucoesExtra.trim()
+  ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
+  : ''}
+REGRAS RÍGIDAS:
+- Use apenas informação contida no documento anexo. Não invente fatos.
+- NÃO inclua recomendação de voto (favorável/contrário/abstenção).
+- **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
+- Mantenha o texto enxuto — é uma breve análise da redação final, não um parecer extenso.
+- Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
+  }
 
   const pareceresLista = (it.pareceresComissao || []).map((p, i) =>
     `${i + 1}. **Comissão de ${p.comissao}** — ${p.posicao}${p.relator ? ` (${p.relator})` : ''}`
@@ -1663,9 +1726,7 @@ async function baixarPdf(url) {
 function renderAnaliseCard(it) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
-  // Botão de ação primária: "Gerar Análise" (projetos/requerimentos) ou
-  // "Escrever análise" (Redação Final). Apenas um existe por card.
-  const btnGer   = card.querySelector('[data-role=btn-gerar]') || card.querySelector('[data-role=btn-analise-manual]');
+  const btnGer   = card.querySelector('[data-role=btn-gerar]');
   const btnTog   = card.querySelector('[data-role=btn-toggle]');
   const painel   = card.querySelector('[data-role=painel-analise]');
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
@@ -1673,14 +1734,13 @@ function renderAnaliseCard(it) {
 
   painel.classList.add('aberto');
   btnTog.style.display = 'inline-flex';
-  if (btnGer) btnGer.style.display = 'none';
+  btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
-  // Botão "Completar" não existe em cards de análise manual (Redação Final).
-  const btnCompletar = card.querySelector('[data-role=btn-completar]');
-  if (btnCompletar) btnCompletar.style.display = it.analise.truncada ? 'inline-flex' : 'none';
+  card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
 
+  // Análises antigas marcadas como manuais (anterior à integração da IA para
+  // Redação Final) — sem provedor/modelo/documentos. Mantido por compat.
   if (it.analise.manual) {
-    // Análise manual (Redação Final): sem provedor/modelo/documentos.
     metaEl.innerHTML = it.analise.editadoEm
       ? `Análise manual · editada em ${formatDataHora(it.analise.editadoEm)}`
       : `Análise manual`;
@@ -1688,7 +1748,7 @@ function renderAnaliseCard(it) {
     const fonte = it.analise.editadoEm
       ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
       : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
-    // Lista de documentos analisados (PRLP / PRLE / inteiro teor)
+    // Lista de documentos analisados (PRLP / PRLE / inteiro teor / Redação Final)
     const docs = it.analise.documentos
       || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
     const docsHtml = docs.length
@@ -1914,9 +1974,8 @@ async function gerarTodasAsAnalises() {
     return;
   }
 
-  // Apenas itens ainda sem análise. Redações Finais não entram na geração por
-  // IA — sua análise é manual.
-  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok' && it.tipoCategoria !== 'redacao_final');
+  // Apenas itens ainda sem análise
+  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok');
   if (!pendentes.length) {
     mostrarToast('Todos os itens já têm análise.', 'info');
     return;
