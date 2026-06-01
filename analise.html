@@ -589,6 +589,59 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: REANALISAR COM IA (prompt personalizado) ===== -->
+  <div id="modal-reanalise" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Reanalisar com IA</h3>
+        <button class="modal-close" data-fecha="modal-reanalise">✕</button>
+      </div>
+      <div class="modal-body">
+        <p id="reanalise-alvo" style="font-weight:600;font-size:14px;margin-bottom:8px;color:var(--text)"></p>
+        <p class="config-desc">
+          Escolha um prompt salvo ou escreva instruções. Elas <b>complementam</b> a análise padrão
+          (estrutura de seções, tom técnico e regras) — não a substituem. A biblioteca é compartilhada com toda a equipe.
+        </p>
+
+        <div class="form-group" style="margin-top:12px">
+          <label>Prompt salvo (biblioteca compartilhada)</label>
+          <select id="reanalise-select" class="form-input">
+            <option value="">— Novo / instruções avulsas —</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label>Instruções para a IA</label>
+          <textarea id="reanalise-texto" class="form-input" rows="7" placeholder="Ex.: Detalhe o cotejo dispositivo a dispositivo entre a redação original e o substitutivo, destacando o que muda para os entes municipais e eventuais aumentos de despesa obrigatória."></textarea>
+        </div>
+
+        <div class="form-group">
+          <label style="display:flex;align-items:center;gap:8px;font-weight:normal;cursor:pointer">
+            <input type="checkbox" id="reanalise-padrao" style="width:auto">
+            Usar este prompt por padrão para toda a equipe nas próximas gerações
+          </label>
+        </div>
+
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
+          <div class="form-group" style="flex:1;min-width:180px;margin-bottom:0">
+            <label>Nome (para salvar na biblioteca)</label>
+            <input type="text" id="reanalise-nome" class="form-input" placeholder="Ex.: Cotejo detalhado p/ municípios">
+          </div>
+          <div style="display:flex;gap:6px;padding-bottom:1px">
+            <button id="btn-reanalise-salvar" class="btn btn-outline btn-sm">Salvar como novo</button>
+            <button id="btn-reanalise-atualizar" class="btn btn-outline btn-sm" style="display:none">Atualizar</button>
+            <button id="btn-reanalise-excluir" class="btn btn-ghost btn-sm" style="display:none;color:#ff8e8e">Excluir</button>
+          </div>
+        </div>
+        <div id="reanalise-status" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-reanalise">Cancelar</button>
+        <button id="btn-reanalise-executar" class="btn btn-primary">Reanalisar</button>
+      </div>
+    </div>
+  </div>
+
   <script src="libs/pdf.min.js"></script>
   <script src="libs/html2canvas.min.js"></script>
   <script src="analise.js"></script>

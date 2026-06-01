@@ -91,6 +91,8 @@ const state = {
   ultimoSave: null,            // ISO da última gravação bem-sucedida
   syncTimer: null,             // setInterval do auto-save
   salvando:  false,            // evita gravações concorrentes
+  promptsBiblioteca: [],       // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
+  promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -144,7 +146,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
 
+  // Modal "Reanalisar com IA" (prompt personalizado + biblioteca compartilhada)
+  document.getElementById('reanalise-select').addEventListener('change', refletirSelecaoPrompt);
+  document.getElementById('reanalise-padrao').addEventListener('change', onReanalisePadraoToggle);
+  document.getElementById('btn-reanalise-salvar').addEventListener('click', salvarPromptNovo);
+  document.getElementById('btn-reanalise-atualizar').addEventListener('click', atualizarPromptSelecionado);
+  document.getElementById('btn-reanalise-excluir').addEventListener('click', excluirPromptSelecionado);
+  document.getElementById('btn-reanalise-executar').addEventListener('click', executarReanalise);
+
   iniciarAutoSave();
+
+  // Carrega a biblioteca de prompts compartilhada (não bloqueia a UI)
+  carregarBibliotecaPrompts().catch(e => console.warn('Falha ao carregar prompts:', e.message));
 
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
@@ -264,16 +277,60 @@ function parsearPautaExtenso(texto) {
   if (periodoMatch) resultado.periodo = periodoMatch[1].trim().replace(/\s+/g, ' ');
   resultado.titulo = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
 
+  // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
+  // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
+  // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[ºo]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|$)/gi;
+  let rf;
+  while ((rf = rfRegex.exec(texto)) !== null) {
+    const ordem  = parseInt(rf[1], 10);
+    const tipoExt = rf[2].replace(/\s+/g, ' ').trim().toUpperCase();
+    const numero = limpaNumero(rf[3]);
+    const ano    = rf[4];
+    const bloco  = rf[5] || '';
+
+    // Mapeia o tipo por extenso → sigla (ex.: "PROJETO DE LEI" → PL).
+    const tipo = TIPOS_PROPOSICAO.find(t => t.prefixo === tipoExt)
+              || TIPOS_PROPOSICAO.find(t => tipoExt.startsWith(t.prefixo));
+    const sigla = tipo ? tipo.sigla : 'PL';
+
+    const autorMatch = bloco.match(/d[oa]s?\s+(?:Sr\.|Sra\.|Senhora?|Deputad[oa])[^,.]{0,80}/i);
+    // Ementa: prefere o trecho após ", que ..."; corta ruído procedural.
+    const emMatch = bloco.match(/,\s*que\s+([\s\S]+)/i);
+    const ementa = (emMatch ? emMatch[1] : bloco)
+      .replace(/\s+/g, ' ')
+      .split(/\(\*\)|In[íi]cio do recebimento|Republicad[ao]/i)[0]
+      .replace(/^[\s,]+/, '')
+      .trim()
+      .slice(0, 600);
+
+    resultado.itens.push({
+      ordem,
+      tipoCategoria: 'redacao_final',
+      sigla,
+      numero,
+      ano,
+      ementa,
+      autorTexto: (autorMatch?.[0] || '').trim(),
+      apensadosTexto: [],
+      relator: null,
+    });
+  }
+
   // === REQUERIMENTOS DE URGÊNCIA ===
   // Padrão: "1. Requerimento nº 1.180, de 2026, dos Srs. Líderes, ... apreciação do Projeto de Lei nº 5.900, de 2025, do Sr. X..."
-  // O número 1, 2... é o número de ordem na pauta.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+n[ºo]\s*([\d.]+),\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|\Z)/gi;
+  // O número antes do ponto (1, 2...) é o número de ordem na pauta.
+  // O requerimento em si pode estar SEM número de protocolo ("Requerimento
+  // s/nº, de 2026") — comum em requerimentos de urgência dos Líderes ainda não
+  // autuados; nesse caso o grupo do número fica indefinido.
+  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[ºo]\s*([\d.]+)|s\/\s*n[ºo]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|\Z)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
-    const ordem = parseInt(m[1], 10);
-    const numero = limpaNumero(m[2]);
-    const ano    = m[3];
-    const bloco  = m[4];
+    const ordem   = parseInt(m[1], 10);
+    const temNum  = m[2] != null;
+    const numero  = temNum ? limpaNumero(m[2]) : 's/nº';
+    const ano     = m[3];
+    const bloco   = m[4];
 
     // Tenta identificar o projeto cujo regime de urgência está sendo pedido
     const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + '\\s+n[ºo]', 'i')));
@@ -284,13 +341,22 @@ function parsearPautaExtenso(texto) {
     }
     const autorMatch = bloco.match(/d[oa]s?\s+(Sr\.|Sra\.|Senhor|Senhora|Srs?\.?\s+L[íi]deres)[^,.]{0,80}/i);
 
+    // Sem número de protocolo, a identidade do requerimento vem do projeto que
+    // ele urgencia (ou, em último caso, da ordem). Gera uma chave estável e
+    // sem caracteres problemáticos (a "/" de "s/nº" não pode entrar na chave,
+    // que vai para seletores de DOM e caminhos do Firebase).
+    const chave = temNum
+      ? undefined
+      : `REQ-sn-${proj ? proj.sigla + proj.numero + '-' + proj.ano : 'ordem' + ordem}-${ano}`;
+
     resultado.itens.push({
       ordem,
       tipoCategoria: 'requerimento',
       sigla:    'REQ',
       numero,
       ano,
-      ementa:   bloco.replace(/\s+/g, ' ').trim().slice(0, 600),
+      chave,
+      ementa:   bloco.replace(/\s+/g, ' ').replace(/^[\s,;.]+/, '').trim().slice(0, 600),
       autorTexto: (autorMatch?.[0] || '').trim(),
       projetoUrgenciado: proj,
       apensadosTexto: [],
@@ -409,7 +475,7 @@ function parsearPautaExtenso(texto) {
 
   // Ordena: requerimentos antes (por ordem), depois projetos (por ordem)
   resultado.itens.sort((a, b) => {
-    if (a.tipoCategoria !== b.tipoCategoria) return a.tipoCategoria === 'requerimento' ? -1 : 1;
+    if (a.tipoCategoria !== b.tipoCategoria) return prioridadeCat(a.tipoCategoria) - prioridadeCat(b.tipoCategoria);
     return (a.ordem || 999) - (b.ordem || 999);
   });
 
@@ -434,25 +500,64 @@ function parsearPautaCompacto(texto) {
     resultado.titulo = 'Pauta da Semana';
   }
 
-  // Cabeçalhos de bloco detalhado: "N SIGLA NNN/AAAA [opt sufixo] [opt status]"
-  // O formato sumário usa " - " entre ordem e sigla ("1 - REQ ...") e por isso
-  // NÃO casa com `\d+\s+SIGLA` (hífen não é whitespace).
-  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC', 'PL'];
+  // Cabeçalhos de bloco detalhado: "[N] SIGLA NNN/AAAA [cód] STATUS"
+  // PDC (Projeto de Decreto Legislativo, nomenclatura antiga) aparece no
+  // dashboard ao lado de PDL — sem ele, esses decretos somem da importação.
+  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'PDC', 'MPV', 'PRC', 'PL'];
   const siglasAlt = SIGLAS.slice().sort((a, b) => b.length - a.length).join('|');
+
+  // Região "REDAÇÕES FINAIS" (RICD, art. 83, I): os itens listados sob essa
+  // seção são apreciação de texto final, não vão à análise de IA. Marca a faixa
+  // entre o título (ocorrência do bloco detalhado, a última no texto) e o
+  // próximo cabeçalho de seção ("B - Turno único", "DISCUSSÃO", etc.).
+  const rfMarks = [...texto.matchAll(/REDA[ÇC][ÕO]ES?\s+FINA(?:L|IS)/gi)];
+  let rfIni = -1, rfFim = -1;
+  if (rfMarks.length) {
+    const ult = rfMarks[rfMarks.length - 1];
+    rfIni = ult.index;
+    const desde = ult.index + ult[0].length;
+    const prox = texto.slice(desde).search(/(?:^|\n)[ \t]*(?:[A-Z]\s+-\s+\S|DISCUSS[ÃA]O|VOTA[ÇC][ÃA]O|EM\s+TURNO)/);
+    rfFim = prox >= 0 ? desde + prox : texto.length;
+  }
+  const ehRedacaoFinal = (idx) => rfIni >= 0 && idx >= rfIni && idx < rfFim;
+
+  // Mapa de ordem a partir do SUMÁRIO ("N - SIGLA NUM/AAAA"), que é o índice
+  // confiável da pauta. O pdf.js às vezes joga o número de ordem do cabeçalho
+  // detalhado para uma linha separada; o sumário permite recuperá-lo.
+  const ordemPorChave = {};
+  const sumarioRegex = new RegExp(`(\\d{1,3})\\s*-\\s*(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})`, 'g');
+  let sm;
+  while ((sm = sumarioRegex.exec(texto)) !== null) {
+    const k = `${sm[2]}-${sm[3].replace(/\./g, '')}-${sm[4]}`;
+    if (!(k in ordemPorChave)) ordemPorChave[k] = parseInt(sm[1], 10);
+  }
+
+  // O número de ordem do cabeçalho detalhado é OPCIONAL: quando o pdf.js o
+  // separa para outra linha, o cabeçalho aparece sem ele. Nesse caso exigimos
+  // um marcador de STATUS (em maiúsculas) na mesma linha, para distinguir um
+  // cabeçalho real de referências em apensados, "Notas técnicas:" ou na ementa.
+  // O separador número→sigla é só espaço/tab (nunca \n), para o número jamais
+  // ser "puxado" de uma linha vizinha (ex.: o número órfão do item seguinte).
+  const STATUS_RE = /N[ÃA]O APRECIAD[OA]|APRECIAD[OA]|RETIRAD[OA]|PREJUDICAD[OA]|APROVAD[OA]|REJEITAD[OA]|ADIAD[OA]|DEVOLVID[OA]|SOBRESTAD[OA]|VETAD[OA]/;
   const headerRegex = new RegExp(
-    `(?:^|\\n)\\s*(\\d{1,3})\\s+(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})\\b[^\\n]*\\n`,
+    `(?:^|\\n)[ \\t]*(?:(\\d{1,3})[ \\t]+)?(${siglasAlt})\\s+([\\d.]+)\\/(\\d{4})\\b([^\\n]*)`,
     'g'
   );
 
   const headers = [];
   let m;
   while ((m = headerRegex.exec(texto)) !== null) {
+    const temNumero = m[1] != null;
+    const resto     = m[5] || '';
+    if (!temNumero && !STATUS_RE.test(resto)) continue; // não é cabeçalho detalhado
+    const numero = m[3].replace(/\./g, '');
+    const chave  = `${m[2]}-${numero}-${m[4]}`;
     headers.push({
-      idx:    m.index + m[0].indexOf(m[1]),
+      idx:    m.index + m[0].indexOf(m[2]),
       end:    m.index + m[0].length,
-      ordem:  parseInt(m[1], 10),
+      ordem:  temNumero ? parseInt(m[1], 10) : (ordemPorChave[chave] ?? null),
       sigla:  m[2],
-      numero: m[3].replace(/\./g, ''),
+      numero,
       ano:    m[4],
     });
   }
@@ -516,7 +621,9 @@ function parsearPautaCompacto(texto) {
       }
     }
 
-    const tipoCategoria = (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento' : 'projeto';
+    const tipoCategoria = ehRedacaoFinal(h.idx) ? 'redacao_final'
+      : (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento'
+      : 'projeto';
 
     resultado.itens.push({
       ordem:             h.ordem,
@@ -536,7 +643,7 @@ function parsearPautaCompacto(texto) {
 
   // Ordena: requerimentos antes (por ordem), depois projetos (por ordem)
   resultado.itens.sort((a, b) => {
-    if (a.tipoCategoria !== b.tipoCategoria) return a.tipoCategoria === 'requerimento' ? -1 : 1;
+    if (a.tipoCategoria !== b.tipoCategoria) return prioridadeCat(a.tipoCategoria) - prioridadeCat(b.tipoCategoria);
     return (a.ordem || 999) - (b.ordem || 999);
   });
 
@@ -586,10 +693,19 @@ function limpaNumero(s) {
   return (s || '').replace(/[^\d]/g, '');
 }
 
+// Ordem de exibição/agrupamento das categorias na pauta: redações finais
+// (matéria sobre a mesa) primeiro, depois requerimentos de urgência, e por fim
+// os projetos em discussão.
+function prioridadeCat(cat) {
+  return cat === 'redacao_final' ? 0 : cat === 'requerimento' ? 1 : 2;
+}
+
 function normalizarItem(it) {
   return {
     ...it,
-    chave: `${it.sigla}-${it.numero}-${it.ano}`,
+    // Respeita uma chave já definida pelo parser (ex.: requerimento s/nº, cuja
+    // identidade deriva do projeto urgenciado); senão usa a chave padrão.
+    chave: it.chave || `${it.sigla}-${it.numero}-${it.ano}`,
     enriquecimento: { status: 'pendente' }, // pendente | carregando | ok | erro
     analise:        null,
     analiseStatus:  'sem_analise',           // sem_analise | gerando | ok | erro
@@ -616,10 +732,15 @@ function renderizarPauta() {
   const cont = document.getElementById('lista-itens');
   cont.innerHTML = '';
 
-  // Seção: Requerimentos
+  // Seções, na ordem em que constam na pauta
+  const rfs  = state.pauta.itens.filter(i => i.tipoCategoria === 'redacao_final');
   const reqs = state.pauta.itens.filter(i => i.tipoCategoria === 'requerimento');
   const projs = state.pauta.itens.filter(i => i.tipoCategoria === 'projeto');
 
+  if (rfs.length) {
+    cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Redações Finais (${rfs.length})</h2>`);
+    rfs.forEach(it => cont.appendChild(renderCard(it)));
+  }
   if (reqs.length) {
     cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Requerimentos de Urgência (${reqs.length})</h2>`);
     reqs.forEach(it => cont.appendChild(renderCard(it)));
@@ -631,6 +752,7 @@ function renderizarPauta() {
 }
 
 function renderCard(it) {
+  const isRF = it.tipoCategoria === 'redacao_final';
   const card = document.createElement('div');
   card.className = 'an-card';
   card.dataset.chave = it.chave;
@@ -638,7 +760,7 @@ function renderCard(it) {
     <div class="an-card-head">
       <div class="an-card-num">${it.ordem ?? '–'}</div>
       <div class="an-card-info">
-        <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}</div>
+        <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${isRF ? ' · Redação Final' : ''}</div>
         <div class="an-card-ementa">${escapeHtml(it.ementa)}</div>
         <div class="an-card-meta">
           ${it.autorTexto ? `<span><b>Autor:</b> ${escapeHtml(it.autorTexto)}</span>` : ''}
@@ -674,6 +796,7 @@ function renderCard(it) {
         <button class="btn btn-primary btn-sm" data-role="btn-salvar-edicao" style="display:none">Salvar</button>
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
+        <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -683,6 +806,7 @@ function renderCard(it) {
 
   card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
+  card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -777,19 +901,39 @@ async function enriquecerItem(it) {
     }
   }
 
+  // Documento da Redação Final (para itens dessa categoria)
+  if (it.tipoCategoria === 'redacao_final') {
+    try {
+      it.enriquecimento.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
+    } catch (e) {
+      console.warn('Não encontrou Redação Final:', e.message);
+      it.enriquecimento.urlRedacaoFinal = null;
+    }
+  }
+
   it.enriquecimento.status = 'ok';
   atualizarBadgesCard(it);
 }
 
 const cacheProp = state.cacheProposicao;
 
+// Siglas equivalentes na API da Câmara (nomenclatura antiga × atual): os
+// decretos legislativos aparecem como PDC (antiga) ou PDL (atual) conforme a
+// época, então tentamos ambas antes de desistir.
+const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
+
 async function resolveProposicao(sigla, numero, ano) {
   const ck = `${sigla}-${numero}-${ano}`;
   if (cacheProp.has(ck)) return cacheProp.get(ck);
 
-  const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`;
-  const json = await fetchJson(url);
-  const hit  = (json.dados || [])[0];
+  const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
+  let hit = null;
+  for (const s of tentativas) {
+    const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
+    const json = await fetchJson(url);
+    hit = (json.dados || [])[0];
+    if (hit) break;
+  }
   if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
 
   // Busca detalhe para pegar urlInteiroTeor
@@ -933,6 +1077,45 @@ async function buscarPareceresPlenario(idProp) {
   return { prlp, prle };
 }
 
+/**
+ * Localiza o documento da Redação Final na ficha de tramitação da proposição.
+ * Procura na caixa "Documentos Anexos e Referenciados" o link cujo filename
+ * começa com "REDACAO FINAL" (ou variação com Ç/cedilha). Retorna a URL
+ * absoluta ou null se não encontrar.
+ */
+async function buscarRedacaoFinal(idProp) {
+  const url = `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idProp}`;
+  let html = null;
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (r.ok) html = await r.text();
+  } catch (_) {}
+  if (!html) {
+    try {
+      const r = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url));
+      if (r.ok) html = await r.text();
+    } catch (_) {}
+  }
+  if (!html) return null;
+
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const candidatos = doc.querySelectorAll('a[href*="prop_mostrarintegra"]');
+  for (const a of candidatos) {
+    const href = a.getAttribute('href') || '';
+    // O filename do link costuma vir como "REDACAO FINAL <SIGLA> <NUM>/<ANO>".
+    // Casa também variações com Ç/Ã/cedilha e %20 já decodificados.
+    const decoded = (() => { try { return decodeURIComponent(href); } catch (_) { return href; } })();
+    if (!/filename=\s*REDA[ÇC][ÃA]?O\s+FINAL\b/i.test(decoded)) continue;
+    let linkUrl = href;
+    if (linkUrl.startsWith('javascript:')) continue;
+    try {
+      linkUrl = new URL(linkUrl, 'https://www.camara.leg.br/proposicoesWeb/').toString();
+    } catch (_) { continue; }
+    return linkUrl;
+  }
+  return null;
+}
+
 function parseDataBR(s) {
   const m = (s || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
@@ -987,11 +1170,21 @@ function atualizarBadgesCard(it) {
 // ============================================================
 //  GERAÇÃO DE ANÁLISE VIA IA
 // ============================================================
-async function gerarAnaliseItem(it, forcar = false) {
+async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API no painel principal (Configurações).', 'aviso');
     return;
+  }
+
+  // Instruções extras para a IA: vêm do diálogo "Reanalisar com IA" (opts)
+  // ou, na ausência, do prompt-padrão compartilhado da equipe.
+  let instrucoesExtra = opts.instrucoesExtra;
+  let promptNome      = opts.promptNome || '';
+  if (instrucoesExtra == null) {
+    const pad = instrucoesPromptPadrao();
+    instrucoesExtra = pad.texto;
+    promptNome      = pad.nome;
   }
 
   const card    = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
@@ -1043,7 +1236,7 @@ async function gerarAnaliseItem(it, forcar = false) {
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
-    const prompt   = montarPrompt(it, docs);
+    const prompt   = montarPrompt(it, docs, instrucoesExtra);
     let { text: markdown, truncated } = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
@@ -1081,6 +1274,7 @@ async function gerarAnaliseItem(it, forcar = false) {
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
+      promptCustom: promptNome || null,
     };
     it.analiseStatus = 'ok';
 
@@ -1202,7 +1396,24 @@ function escolherDocumentos(it) {
       rotulo: `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`,
       url: par.prle.url,
     });
-    if (!docs.length && enr.urlInteiroTeor) {
+    if (docs.length) {
+      // Há parecer(es) de plenário: anexa TAMBÉM a redação original para
+      // que a IA consiga cotejar o substitutivo/emendas contra o texto-base
+      // (sem isso, a análise não detalha o que de fato muda).
+      if (enr.urlInteiroTeor) {
+        docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+      }
+    } else if (enr.urlInteiroTeor) {
+      // Sem parecer de plenário: analisa o próprio inteiro teor.
+      docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+    }
+  } else if (it.tipoCategoria === 'redacao_final') {
+    // Redação Final: analisa o documento próprio (raspado da ficha de
+    // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
+    // inteiro teor se a Redação Final ainda não estiver publicada.
+    if (enr.urlRedacaoFinal) {
+      docs.push({ tipo: 'REDACAO_FINAL', rotulo: 'Redação Final', url: enr.urlRedacaoFinal });
+    } else if (enr.urlInteiroTeor) {
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
   } else {
@@ -1213,12 +1424,13 @@ function escolherDocumentos(it) {
 }
 
 function parecerKey(it) {
+  if (it.tipoCategoria === 'redacao_final') return 'redacao-final';
   if (it.tipoCategoria === 'requerimento') return 'inteiro-teor';
   if (it.relator?.data) return 'parecer-' + (parseDataBR(it.relator.data) || it.relator.data);
   return 'inteiro-teor';
 }
 
-function montarPrompt(it, docs = []) {
+function montarPrompt(it, docs = [], instrucoesExtra = '') {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
@@ -1229,6 +1441,36 @@ function montarPrompt(it, docs = []) {
     enr.autoriaPodemos ? '⚠ ATENÇÃO: O projeto principal é de autoria de deputado(a) do Podemos.' : null,
     enr.apensadosPodemos?.length ? `⚠ ATENÇÃO: Há apensado(s) de autoria Podemos:\n${apensadosPodemos}` : null,
   ].filter(Boolean).join('\n');
+
+  // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
+  // final consolidado, não há parecer a resumir. O foco é o que se está
+  // efetivamente votando e os pontos de atenção para a bancada.
+  if (it.tipoCategoria === 'redacao_final') {
+    return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
+
+Analise o documento anexo (Redação Final) referente à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+
+Ementa/descrição extraída da Pauta:
+"${(it.ementa || '').slice(0, 800)}"
+
+${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
+Produza uma **breve análise** em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
+
+## Resumo da Redação Final
+Dois a três parágrafos descrevendo objetivamente o que o texto final consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos. Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.
+
+## Pontos de atenção para o Podemos
+Um parágrafo sobre as implicações específicas para a bancada, considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis.
+${instrucoesExtra && instrucoesExtra.trim()
+  ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
+  : ''}
+REGRAS RÍGIDAS:
+- Use apenas informação contida no documento anexo. Não invente fatos.
+- NÃO inclua recomendação de voto (favorável/contrário/abstenção).
+- **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
+- Mantenha o texto enxuto — é uma breve análise da redação final, não um parecer extenso.
+- Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
+  }
 
   const pareceresLista = (it.pareceresComissao || []).map((p, i) =>
     `${i + 1}. **Comissão de ${p.comissao}** — ${p.posicao}${p.relator ? ` (${p.relator})` : ''}`
@@ -1250,10 +1492,16 @@ function montarPrompt(it, docs = []) {
     ? ` (${docsParaTitulo})`
     : '';
 
+  const temOriginal = docs.some(d => d.tipo === 'REDACAO_ORIGINAL');
+  const rotulosPareceres = docs
+    .filter(d => d.tipo === 'PRLP' || d.tipo === 'PRLE')
+    .map(d => d.rotulo)
+    .join('; ');
+
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
-    : (docs.length
-        ? `parecer(es) do relator de plenário anexado(s): ${docs.map(d => d.rotulo).join('; ')}`
+    : (rotulosPareceres
+        ? `parecer(es) do relator de plenário: ${rotulosPareceres}${temOriginal ? ', acompanhado(s) da redação original da proposição para cotejo' : ''}`
         : 'documento da proposição');
 
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
@@ -1275,9 +1523,11 @@ Ao final desta seção, **descreva em parágrafo próprio o trâmite da proposi�
 Evite frases genéricas — descreva concretamente o que muda na prática.
 
 ## Pontos centrais do parecer do relator${anotacaoTitulo}
-Um ou dois parágrafos descrevendo a posição do(a) relator(a) de Plenário e as mudanças propostas. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
+Descreva a posição do(a) relator(a) de Plenário e, principalmente, **as mudanças concretas que o parecer promove no texto**. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
   ? 'Como há PRLP e PRLE anexados, distinga claramente: descreva primeiro o conteúdo do PRLP (parecer original do relator) e em seguida o conteúdo do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro. '
-  : ''}**Se houver substitutivo, descreva especificamente as mudanças promovidas pelo substitutivo em relação ao texto original.** **Se houver emenda(s), idem — descreva o que cada emenda altera no texto.** Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
+  : ''}${temOriginal
+  ? 'A redação original da proposição está anexada (documento "Redação original (inteiro teor)"). **Faça o cotejo entre a redação original e o texto do parecer/substitutivo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando explicitamente o que foi INCLUÍDO, o que foi ALTERADO (registrando o teor antes e depois) e o que foi SUPRIMIDO.** Seja específico e exaustivo quanto aos dispositivos relevantes — não se limite a um resumo genérico das mudanças. '
+  : ''}**Se houver substitutivo, descreva detalhadamente as mudanças em relação ao texto original; se houver emenda(s), descreva o que cada emenda altera.** Escreva em parágrafos corridos (sem listas), mas sem abrir mão da especificidade dispositivo a dispositivo. Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
 
 ## Argumentos favoráveis/contrários à aprovação
 Dois parágrafos corridos: o primeiro apresenta a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação; o segundo apresenta a fundamentação que sustenta a rejeição.
@@ -1287,7 +1537,9 @@ Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva 
 
 ## Pontos de atenção para o Podemos
 Parágrafo discutindo as implicações específicas considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis da bancada.
-
+${instrucoesExtra && instrucoesExtra.trim()
+  ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
+  : ''}
 REGRAS RÍGIDAS:
 - Use apenas informação contida no documento anexo. Não invente fatos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
@@ -1486,16 +1738,27 @@ function renderAnaliseCard(it) {
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
 
-  const fonte = it.analise.editadoEm
-    ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
-    : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
-  // Lista de documentos analisados (PRLP / PRLE / inteiro teor)
-  const docs = it.analise.documentos
-    || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
-  const docsHtml = docs.length
-    ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
-    : '';
-  metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}`;
+  // Análises antigas marcadas como manuais (anterior à integração da IA para
+  // Redação Final) — sem provedor/modelo/documentos. Mantido por compat.
+  if (it.analise.manual) {
+    metaEl.innerHTML = it.analise.editadoEm
+      ? `Análise manual · editada em ${formatDataHora(it.analise.editadoEm)}`
+      : `Análise manual`;
+  } else {
+    const fonte = it.analise.editadoEm
+      ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
+      : `Gerada em ${formatDataHora(it.analise.geradoEm)}`;
+    // Lista de documentos analisados (PRLP / PRLE / inteiro teor / Redação Final)
+    const docs = it.analise.documentos
+      || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
+    const docsHtml = docs.length
+      ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
+      : '';
+    const promptHtml = it.analise.promptCustom
+      ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
+      : '';
+    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
+  }
   conteudo.innerHTML = renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
@@ -2100,6 +2363,72 @@ async function fbSalvarAnalise(it) {
 }
 
 // ============================================================
+//  FIREBASE — BIBLIOTECA DE PROMPTS (compartilhada pela equipe)
+// ============================================================
+async function fbCarregarPrompts() {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise.json`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data) return [];
+  return Object.entries(data)
+    .map(([id, p]) => ({ ...p, id }))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+}
+
+async function fbSalvarPrompt(p) {
+  const id = p.id || ('p_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7));
+  const corpo = {
+    nome:         p.nome,
+    texto:        p.texto,
+    criadoPor:    p.criadoPor || state.config?.nomeUsuario || 'equipe',
+    criadoEm:     p.criadoEm || new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(),
+  };
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise/${encodeURIComponent(id)}.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(corpo),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  return { ...corpo, id };
+}
+
+async function fbApagarPrompt(id) {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise/${encodeURIComponent(id)}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+async function fbCarregarPromptPadrao() {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise_padrao.json`);
+  if (!res.ok) return null;
+  return await res.json(); // string com o id, ou null
+}
+
+async function fbSalvarPromptPadrao(id) {
+  const res = await fetch(`${FIREBASE_URL}/prompts_analise_padrao.json`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(id || null),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+// Carrega a biblioteca + o prompt-padrão (ambos compartilhados) para o estado.
+async function carregarBibliotecaPrompts() {
+  const [lista, padraoId] = await Promise.all([fbCarregarPrompts(), fbCarregarPromptPadrao()]);
+  state.promptsBiblioteca = lista;
+  state.promptPadraoId    = padraoId || null;
+}
+
+// Texto/nome do prompt-padrão atual (ou vazio se não houver).
+function instrucoesPromptPadrao() {
+  const id = state.promptPadraoId;
+  if (!id) return { texto: '', nome: '' };
+  const p = (state.promptsBiblioteca || []).find(x => x.id === id);
+  return p ? { texto: p.texto || '', nome: p.nome || '' } : { texto: '', nome: '' };
+}
+
+// ============================================================
 //  EXPORTAR PDF (via window.print da própria página)
 // ============================================================
 async function carregarLogoDataUrl() {
@@ -2316,6 +2645,172 @@ async function salvarConfig() {
   await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
   mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  REANALISAR COM IA (prompt personalizado + biblioteca)
+// ============================================================
+let _reanaliseItem = null;
+
+function setReanaliseStatus(texto, cor) {
+  const el = document.getElementById('reanalise-status');
+  if (!el) return;
+  el.textContent = texto || '';
+  el.style.color = cor || 'var(--text-dim)';
+}
+
+function popularSelectPrompts(selecionadoId = '') {
+  const sel = document.getElementById('reanalise-select');
+  if (!sel) return;
+  const opcoes = ['<option value="">— Novo / instruções avulsas —</option>'].concat(
+    (state.promptsBiblioteca || []).map(p => {
+      const marca = p.id === state.promptPadraoId ? ' ★ (padrão)' : '';
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome || '(sem nome)')}${marca}</option>`;
+    })
+  );
+  sel.innerHTML = opcoes.join('');
+  sel.value = selecionadoId || '';
+}
+
+// Reflete na UI o prompt selecionado no dropdown (texto, nome, botões, padrão).
+function refletirSelecaoPrompt() {
+  const id     = document.getElementById('reanalise-select').value;
+  const chk    = document.getElementById('reanalise-padrao');
+  const btnAtu = document.getElementById('btn-reanalise-atualizar');
+  const btnExc = document.getElementById('btn-reanalise-excluir');
+  const p = (state.promptsBiblioteca || []).find(x => x.id === id);
+  if (p) {
+    document.getElementById('reanalise-texto').value = p.texto || '';
+    document.getElementById('reanalise-nome').value  = p.nome || '';
+    btnAtu.style.display = 'inline-flex';
+    btnExc.style.display = 'inline-flex';
+    chk.checked = (state.promptPadraoId === p.id);
+  } else {
+    btnAtu.style.display = 'none';
+    btnExc.style.display = 'none';
+    chk.checked = false;
+  }
+}
+
+async function abrirModalReanalise(it) {
+  _reanaliseItem = it;
+  document.getElementById('reanalise-alvo').textContent = `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
+  setReanaliseStatus('');
+  document.getElementById('reanalise-texto').value = '';
+  document.getElementById('reanalise-nome').value  = '';
+  document.getElementById('reanalise-padrao').checked = false;
+  document.getElementById('btn-reanalise-atualizar').style.display = 'none';
+  document.getElementById('btn-reanalise-excluir').style.display = 'none';
+  document.getElementById('modal-reanalise').style.display = 'flex';
+
+  // Recarrega a biblioteca para refletir o que a equipe salvou.
+  try { await carregarBibliotecaPrompts(); } catch (e) { /* usa o que houver em memória */ }
+  // Pré-seleciona o prompt-padrão da equipe, se houver.
+  popularSelectPrompts(state.promptPadraoId || '');
+  refletirSelecaoPrompt();
+}
+
+async function salvarPromptNovo() {
+  const nome  = document.getElementById('reanalise-nome').value.trim();
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!nome)  { setReanaliseStatus('Dê um nome ao prompt para salvá-lo.', '#c08400'); return; }
+  if (!texto) { setReanaliseStatus('Escreva as instruções antes de salvar.', '#c08400'); return; }
+  setReanaliseStatus('Salvando…');
+  try {
+    const salvo = await fbSalvarPrompt({ nome, texto });
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts(salvo.id);
+    refletirSelecaoPrompt();
+    setReanaliseStatus('✓ Prompt salvo na biblioteca.', '#0a8a3a');
+  } catch (e) {
+    setReanaliseStatus('Erro ao salvar: ' + e.message, '#c0392b');
+  }
+}
+
+async function atualizarPromptSelecionado() {
+  const id = document.getElementById('reanalise-select').value;
+  if (!id) return;
+  const nome  = document.getElementById('reanalise-nome').value.trim();
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!nome || !texto) { setReanaliseStatus('Nome e instruções são obrigatórios.', '#c08400'); return; }
+  const atual = (state.promptsBiblioteca || []).find(x => x.id === id);
+  setReanaliseStatus('Atualizando…');
+  try {
+    await fbSalvarPrompt({ id, nome, texto, criadoPor: atual?.criadoPor, criadoEm: atual?.criadoEm });
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts(id);
+    refletirSelecaoPrompt();
+    setReanaliseStatus('✓ Prompt atualizado.', '#0a8a3a');
+  } catch (e) {
+    setReanaliseStatus('Erro ao atualizar: ' + e.message, '#c0392b');
+  }
+}
+
+async function excluirPromptSelecionado() {
+  const id = document.getElementById('reanalise-select').value;
+  if (!id) return;
+  if (!confirm('Excluir este prompt da biblioteca compartilhada? Isso afeta toda a equipe.')) return;
+  setReanaliseStatus('Excluindo…');
+  try {
+    await fbApagarPrompt(id);
+    if (state.promptPadraoId === id) {
+      await fbSalvarPromptPadrao(null);
+      state.promptPadraoId = null;
+    }
+    await carregarBibliotecaPrompts();
+    popularSelectPrompts('');
+    document.getElementById('reanalise-texto').value = '';
+    document.getElementById('reanalise-nome').value  = '';
+    refletirSelecaoPrompt();
+    setReanaliseStatus('Prompt excluído.', '#888');
+  } catch (e) {
+    setReanaliseStatus('Erro ao excluir: ' + e.message, '#c0392b');
+  }
+}
+
+// Define/remove o prompt-padrão compartilhado quando a caixa é marcada.
+async function onReanalisePadraoToggle() {
+  const chk = document.getElementById('reanalise-padrao');
+  const id  = document.getElementById('reanalise-select').value;
+  if (chk.checked) {
+    if (!id) {
+      chk.checked = false;
+      setReanaliseStatus('Salve o prompt na biblioteca antes de defini-lo como padrão.', '#c08400');
+      return;
+    }
+    try {
+      await fbSalvarPromptPadrao(id);
+      state.promptPadraoId = id;
+      popularSelectPrompts(id);
+      setReanaliseStatus('✓ Definido como padrão da equipe.', '#0a8a3a');
+    } catch (e) {
+      chk.checked = false;
+      setReanaliseStatus('Erro ao definir padrão: ' + e.message, '#c0392b');
+    }
+  } else if (state.promptPadraoId && state.promptPadraoId === id) {
+    try {
+      await fbSalvarPromptPadrao(null);
+      state.promptPadraoId = null;
+      popularSelectPrompts(id);
+      setReanaliseStatus('Padrão da equipe removido.', '#888');
+    } catch (e) {
+      chk.checked = true;
+      setReanaliseStatus('Erro ao remover padrão: ' + e.message, '#c0392b');
+    }
+  }
+}
+
+function executarReanalise() {
+  const it = _reanaliseItem;
+  if (!it) return;
+  const texto = document.getElementById('reanalise-texto').value.trim();
+  if (!texto) { setReanaliseStatus('Escreva instruções ou selecione um prompt salvo.', '#c08400'); return; }
+  const id = document.getElementById('reanalise-select').value;
+  const p  = (state.promptsBiblioteca || []).find(x => x.id === id);
+  // Nome registrado na análise: o do prompt salvo (se não foi editado) ou "personalizado".
+  const promptNome = (p && (p.texto || '') === texto) ? p.nome : 'personalizado';
+  document.getElementById('modal-reanalise').style.display = 'none';
+  gerarAnaliseItem(it, true, { instrucoesExtra: texto, promptNome });
 }
 
 // ============================================================
