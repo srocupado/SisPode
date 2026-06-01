@@ -87,22 +87,41 @@ Gerencie a participação de deputados do partido em comissões permanentes.
 
 ### 5. Análise de Pauta de Plenário
 
-Importe a Pauta da Semana e gere análise técnica por IA dos projetos e requerimentos, identificando autoria do Podemos e apensados do partido.
+Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerimentos de urgência e redações finais, identificando autoria do Podemos e apensados do partido.
 
 **Importação e enriquecimento**
-- Carregue o PDF da Pauta da Semana — o parser extrai PLs, PLPs, MPVs, PECs, REQs e demais proposições com número/ano/ordem
-- Enriquecimento automático via API da Câmara: autoria, relator, apensados e classificação de **autoria Podemos** / **apensados Podemos** (badge no card)
+- Aceita os dois formatos de pauta: **dashboard compacto** da Liderança e **pauta extensa** oficial da Câmara
+- O parser identifica **PL, PLP, PEC, PDL/PDC, MPV, PRC, REQ e Redações Finais** (categoria própria, RICD art. 83, I), captando ordem, número, ano e ementa
+- Suporte a requerimentos de urgência **sem número de protocolo** ("Requerimento s/nº") — a identidade do item vem do projeto cuja urgência é solicitada
+- Enriquecimento automático via API da Câmara: autoria, relator, apensados e classificação de **autoria Podemos** / **apensados Podemos** (badge no card). Decretos legislativos antigos usam fallback **PDL ↔ PDC** quando a sigla atual não retorna na API
 - Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
+- Para Redações Finais, localiza o documento próprio na caixa "Documentos Anexos e Referenciados" da ficha de tramitação
 - Adição/remoção manual de itens da pauta com link direto para a ficha da proposição
 
 **Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
-- Para projetos: envia o **parecer de plenário (PRLP/PRLE)** ou, na ausência, o inteiro teor; para requerimentos: envia o próprio inteiro teor
-- Documento entregue ao modelo como **PDF nativo** (sem conversão de texto), preservando formatação e evitando truncamento
+
+O sistema seleciona automaticamente o documento mais relevante por categoria e o envia ao modelo como **PDF nativo** (sem conversão de texto), preservando formatação e evitando truncamento:
+
+| Categoria | Documento enviado à IA |
+|---|---|
+| Projeto com parecer de plenário | **PRLP/PRLE + redação original (inteiro teor)** para cotejo dispositivo a dispositivo |
+| Projeto sem parecer | Inteiro teor da proposição |
+| Requerimento de urgência | Inteiro teor da proposição cuja urgência é solicitada |
+| Redação Final | **Documento da Redação Final** (raspado da ficha de tramitação) |
+
 - **Geração em lote** ("Gerar todas") com throttle de 1,5 s entre itens, contador de progresso e tratamento isolado de falhas por item
 - **Detecção de truncamento** por provedor (`finishReason=MAX_TOKENS` no Gemini, `status=incomplete` na OpenAI, `stop_reason=max_tokens` no Anthropic) com auto-continuação automática que costura a resposta sem duplicar overlap
 - Botão **Completar** (amarelo) aparece quando uma análise ainda fica truncada após a auto-continuação — clique para emendar mais um pedaço
 - **Retry com backoff exponencial** (5 s / 15 s / 30 s) em respostas 429 (rate limit) e 5xx
 - Botão **Parar tudo** (vermelho) aparece quando há qualquer chamada de IA em voo (lote, individual ou Completar) — usa `AbortController` global para abortar fetches em andamento, sleeps de throttle e timers de retry
+
+**Biblioteca de prompts personalizados (Reanalisar com IA)**
+- Botão **Reanalisar com IA** em cada card abre o diálogo de prompts: escolha um prompt salvo na biblioteca ou escreva instruções avulsas
+- Os prompts ficam em `/prompts_analise/{id}` no Firebase e são **compartilhados com toda a equipe** — criar, atualizar e excluir disponíveis no próprio diálogo
+- Marque um prompt como **padrão da equipe** (`/prompts_analise_padrao`) — passa a ser aplicado automaticamente na geração inicial e no "Gerar todas"
+- As instruções personalizadas **complementam** o prompt base — moldam ênfase, profundidade e recortes temáticos —, mas **não substituem** a estrutura de seções nem as regras rígidas (sem bullets, sem recomendação de voto, sem informação inventada)
+- Para projetos com parecer + redação original anexada, o prompt base exige **cotejo dispositivo a dispositivo** (artigos, parágrafos, incisos), apontando o que foi incluído, alterado e suprimido
+- Para Redações Finais, o prompt base é mais enxuto (Resumo da Redação Final + Pontos de atenção para o Podemos)
 
 **Edição manual com autosave**
 - Editor inline de cada análise em Markdown com **autosave** debounceado em 1,5 s
@@ -111,7 +130,8 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos e requeri
 - Aviso `beforeunload` se o usuário tentar fechar a aba com save pendente
 
 **Persistência e organização**
-- Cada análise é salva no Firebase em `/analises_pauta/{chave}/{parecerKey}`, vinculada à versão exata do parecer
+- Cada análise é salva no Firebase em `/analises_pauta/{chave}/{parecerKey}`, vinculada à versão exata do parecer (ou ao documento da Redação Final, para itens dessa categoria)
+- Biblioteca de prompts em `/prompts_analise/{id}` e prompt padrão da equipe em `/prompts_analise_padrao` — ambos compartilhados entre todos os membros
 - **Sidebar de pautas** com alternância entre pautas salvas e exclusão (que limpa também as análises órfãs)
 - Garbage collection de análises órfãs no painel de Configurações
 
