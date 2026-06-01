@@ -932,13 +932,23 @@ async function enriquecerItem(it) {
 
 const cacheProp = state.cacheProposicao;
 
+// Siglas equivalentes na API da Câmara (nomenclatura antiga × atual): os
+// decretos legislativos aparecem como PDC (antiga) ou PDL (atual) conforme a
+// época, então tentamos ambas antes de desistir.
+const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
+
 async function resolveProposicao(sigla, numero, ano) {
   const ck = `${sigla}-${numero}-${ano}`;
   if (cacheProp.has(ck)) return cacheProp.get(ck);
 
-  const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`;
-  const json = await fetchJson(url);
-  const hit  = (json.dados || [])[0];
+  const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
+  let hit = null;
+  for (const s of tentativas) {
+    const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
+    const json = await fetchJson(url);
+    hit = (json.dados || [])[0];
+    if (hit) break;
+  }
   if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
 
   // Busca detalhe para pegar urlInteiroTeor
