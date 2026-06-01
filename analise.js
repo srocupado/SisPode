@@ -279,14 +279,18 @@ function parsearPautaExtenso(texto) {
 
   // === REQUERIMENTOS DE URGÊNCIA ===
   // Padrão: "1. Requerimento nº 1.180, de 2026, dos Srs. Líderes, ... apreciação do Projeto de Lei nº 5.900, de 2025, do Sr. X..."
-  // O número 1, 2... é o número de ordem na pauta.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+n[ºo]\s*([\d.]+),\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|\Z)/gi;
+  // O número antes do ponto (1, 2...) é o número de ordem na pauta.
+  // O requerimento em si pode estar SEM número de protocolo ("Requerimento
+  // s/nº, de 2026") — comum em requerimentos de urgência dos Líderes ainda não
+  // autuados; nesse caso o grupo do número fica indefinido.
+  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[ºo]\s*([\d.]+)|s\/\s*n[ºo]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|\Z)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
-    const ordem = parseInt(m[1], 10);
-    const numero = limpaNumero(m[2]);
-    const ano    = m[3];
-    const bloco  = m[4];
+    const ordem   = parseInt(m[1], 10);
+    const temNum  = m[2] != null;
+    const numero  = temNum ? limpaNumero(m[2]) : 's/nº';
+    const ano     = m[3];
+    const bloco   = m[4];
 
     // Tenta identificar o projeto cujo regime de urgência está sendo pedido
     const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + '\\s+n[ºo]', 'i')));
@@ -297,13 +301,22 @@ function parsearPautaExtenso(texto) {
     }
     const autorMatch = bloco.match(/d[oa]s?\s+(Sr\.|Sra\.|Senhor|Senhora|Srs?\.?\s+L[íi]deres)[^,.]{0,80}/i);
 
+    // Sem número de protocolo, a identidade do requerimento vem do projeto que
+    // ele urgencia (ou, em último caso, da ordem). Gera uma chave estável e
+    // sem caracteres problemáticos (a "/" de "s/nº" não pode entrar na chave,
+    // que vai para seletores de DOM e caminhos do Firebase).
+    const chave = temNum
+      ? undefined
+      : `REQ-sn-${proj ? proj.sigla + proj.numero + '-' + proj.ano : 'ordem' + ordem}-${ano}`;
+
     resultado.itens.push({
       ordem,
       tipoCategoria: 'requerimento',
       sigla:    'REQ',
       numero,
       ano,
-      ementa:   bloco.replace(/\s+/g, ' ').trim().slice(0, 600),
+      chave,
+      ementa:   bloco.replace(/\s+/g, ' ').replace(/^[\s,;.]+/, '').trim().slice(0, 600),
       autorTexto: (autorMatch?.[0] || '').trim(),
       projetoUrgenciado: proj,
       apensadosTexto: [],
@@ -624,7 +637,9 @@ function limpaNumero(s) {
 function normalizarItem(it) {
   return {
     ...it,
-    chave: `${it.sigla}-${it.numero}-${it.ano}`,
+    // Respeita uma chave já definida pelo parser (ex.: requerimento s/nº, cuja
+    // identidade deriva do projeto urgenciado); senão usa a chave padrão.
+    chave: it.chave || `${it.sigla}-${it.numero}-${it.ano}`,
     enriquecimento: { status: 'pendente' }, // pendente | carregando | ok | erro
     analise:        null,
     analiseStatus:  'sem_analise',           // sem_analise | gerando | ok | erro
