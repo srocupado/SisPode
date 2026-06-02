@@ -223,6 +223,31 @@ body {
 }
 .prop-item.active .prop-item-count { background: var(--accent); color: white; }
 
+/* Marcador de item de Redação Final (apreciação de texto final, não mérito) */
+.prop-item-rf {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .3px;
+  color: var(--amarelo);
+  background: rgba(240,192,64,0.12);
+  border: 1px solid rgba(240,192,64,0.4);
+  padding: 1px 5px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.aviso-rf {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--amarelo);
+  background: rgba(240,192,64,0.10);
+  border: 1px solid rgba(240,192,64,0.35);
+  border-radius: 6px;
+}
+
 /* Histórico */
 .lista-historico { display: flex; flex-direction: column; gap: 3px; }
 .hist-item {

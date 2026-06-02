@@ -451,8 +451,23 @@ async function processarPdfModal(file) {
   uploadInline.classList.add('tem-arquivo');
 
   try {
-    const texto = await extrairTextoPDF(file);
-    const props  = extrairProposicoes(texto);
+    // Usa o parser de pauta compartilhado (pauta-parser.js) — mesmo do módulo
+    // de Análise. Reconhece os dois formatos (compacto e extenso) e devolve os
+    // itens da pauta sem capturar apensados/citações soltas no texto.
+    const texto = await extrairTextoPdf(await file.arrayBuffer());
+    const parsed = parsearPauta(texto);
+    const props = parsed.itens.map(it => ({
+      sigla:  it.sigla,
+      numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
+      ano:    parseInt(it.ano, 10),
+      chave:  `${it.sigla} ${it.numero}/${it.ano}`,
+      // Categoria do item (ex.: 'redacao_final') para sinalizar na UI.
+      tipoCategoria:     it.tipoCategoria,
+      // Ementa do PDF (exibida de imediato) e, para requerimentos de urgência,
+      // o projeto cuja urgência é pedida — usado para buscar dados na API.
+      ementaPauta:       it.ementa || null,
+      projetoUrgenciado: it.projetoUrgenciado || null,
+    }));
 
     if (props.length === 0) {
       mostrarToast('Nenhuma proposição encontrada no PDF.', 'aviso');
@@ -461,11 +476,12 @@ async function processarPdfModal(file) {
       return;
     }
 
-    // Sugerir título da sessão
-    const dataMatch = texto.match(/(\d{2}\/\d{2}\/\d{4})/);
+    // Sugerir título da sessão pela data extraída pelo parser (cabeçalho da
+    // pauta), e não pela 1ª data avulsa do texto — que no formato extenso é
+    // uma data de tramitação (ex.: aprovação de urgência), não a da sessão.
     const tituloInput = document.getElementById('sessao-titulo');
-    if (dataMatch && !tituloInput.value) {
-      tituloInput.value = `Sessão de ${dataMatch[1]}`;
+    if (parsed.periodo && !tituloInput.value) {
+      tituloInput.value = `Sessão de ${parsed.periodo}`;
     }
 
     uploadText.textContent = `${file.name} — ${props.length} proposição(ões) encontrada(s)`;
@@ -481,37 +497,8 @@ async function processarPdfModal(file) {
   }
 }
 
-async function extrairTextoPDF(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf         = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let texto         = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page    = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    texto += content.items.map(it => it.str).join(' ') + '\n';
-  }
-  return texto;
-}
-
-function extrairProposicoes(texto) {
-  // Aceita: "PL 1234/2024", "PL nº 1234/2024", "PL n.º 1.234/2024", etc.
-  const regex = /\b(PL|PLP|PEC|PRC|PDL|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR|INC|RCP|REC)\s*(?:n[º°o]?\.?\s*)?(\d{1,2}\.\d{3}|\d{1,5})\/(\d{4})\b/gi;
-  const encontrados = new Map();
-  let match;
-  while ((match = regex.exec(texto)) !== null) {
-    const numero = parseInt(match[2].replace(/\./g, ''));
-    const chave = `${match[1].toUpperCase()} ${numero}/${match[3]}`;
-    if (!encontrados.has(chave)) {
-      encontrados.set(chave, {
-        sigla:  match[1].toUpperCase(),
-        numero,
-        ano:    parseInt(match[3]),
-        chave,
-      });
-    }
-  }
-  return Array.from(encontrados.values());
-}
+// A extração de texto e o parsing da pauta vivem em pauta-parser.js
+// (extrairTextoPdf / parsearPauta), compartilhados com o módulo de Análise.
 
 function renderizarProposicoesPDF(props) {
   const lista = document.getElementById('lista-proposicoes-modal');
@@ -598,7 +585,10 @@ async function carregarMetadadosProposicoes() {
   const sess = app.sessaoAtual;
   await Promise.all(sess.proposicoes.map(async prop => {
     try {
-      const data = await buscarProposicaoAPI(prop.sigla, prop.numero, prop.ano);
+      // Requerimento de urgência (ex.: "REQ s/nº") não tem ficha própria;
+      // busca-se o projeto cuja urgência é solicitada.
+      const alvo = prop.projetoUrgenciado || prop;
+      const data = await buscarProposicaoAPI(alvo.sigla, alvo.numero, alvo.ano);
       if (data) {
         prop.idCamara   = data.id;
         prop.ementa     = data.ementa;
@@ -654,13 +644,21 @@ async function adicionarProposicaoManual() {
 }
 
 // ---------- API CÂMARA ----------
-async function buscarProposicaoAPI(sigla, numero, ano) {
-  const url = `${API_BASE}/proposicoes?siglaTipo=${sigla}&numero=${numero}&ano=${ano}&itens=1`;
-  const res  = await fetch(url);
-  if (!res.ok) return null;
+// Decretos legislativos aparecem na API sob a sigla antiga PDC ou a atual PDL
+// conforme a época; tentamos ambas antes de desistir.
+const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
-  const json = await res.json();
-  const item = json.dados?.[0];
+async function buscarProposicaoAPI(sigla, numero, ano) {
+  const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
+  let item = null;
+  for (const s of tentativas) {
+    const url = `${API_BASE}/proposicoes?siglaTipo=${s}&numero=${numero}&ano=${ano}&itens=1`;
+    const res = await fetch(url);
+    if (!res.ok) continue;
+    const json = await res.json();
+    item = json.dados?.[0];
+    if (item) break;
+  }
   if (!item) return null;
 
   let autor = null;
@@ -823,7 +821,7 @@ function renderizarProposicoesSidebar() {
   const filtradas = termo
     ? sess.proposicoes.filter(p =>
         p.chave.toLowerCase().includes(termo) ||
-        (p.ementa || '').toLowerCase().includes(termo) ||
+        (p.ementa || p.ementaPauta || '').toLowerCase().includes(termo) ||
         (p.autor  || '').toLowerCase().includes(termo)
       )
     : sess.proposicoes;
@@ -839,14 +837,18 @@ function renderizarProposicoesSidebar() {
     const nTotal   = dests.length;
     const contagem = nTotal > 0 ? `${nAtivos}/${nTotal}` : (p.idCamara ? '–' : '?');
 
-    // Destacar o termo na ementa se houver busca
-    const ementa = termo
-      ? destacarTermo(p.ementa || 'Carregando...', termo)
-      : (p.ementa || 'Carregando...');
+    // Ementa da API; se ainda não veio, usa a ementa extraída do PDF; só então
+    // "Carregando…". Evita o estado "Carregando…" eterno quando a API não acha.
+    const ementaBase = p.ementa || p.ementaPauta || 'Carregando...';
+    const ementa = termo ? destacarTermo(ementaBase, termo) : ementaBase;
+    // Redação Final: sinaliza que não é votação de mérito de destaque.
+    const rfTag = p.tipoCategoria === 'redacao_final'
+      ? '<span class="prop-item-rf" title="Apreciação do texto final — não é votação de mérito de destaque">Redação Final</span>'
+      : '';
 
     return `
     <div class="prop-item ${app.proposicaoAtiva?.chave === p.chave ? 'active' : ''}" data-chave="${p.chave}">
-      <span class="prop-item-badge">${p.chave}</span>
+      <span class="prop-item-badge">${p.chave}</span>${rfTag}
       <span class="prop-item-nome">${ementa}</span>
       <span class="prop-item-count">${contagem}</span>
     </div>`;
@@ -950,12 +952,18 @@ function renderizarCardCompleto(d, prop) {
   const explicacao = esc(d.explicacao || '');
   const orientacao = esc(d.orientacao || '');
 
+  const isRF = prop.tipoCategoria === 'redacao_final';
+  const avisoRF = isRF
+    ? `<div class="aviso-rf">⚠ Item de <b>Redação Final</b> (RICD, art. 83, I): apreciação do texto final já aprovado — não é votação de mérito de destaque.</div>`
+    : '';
+
   return `
   <div class="card-completo">
     <div class="card-completo-header">
-      <div class="prop-titulo">${prop.chave} – ${prop.ementa || ''}</div>
+      <div class="prop-titulo">${isRF ? '<span class="prop-item-rf">Redação Final</span> ' : ''}${prop.chave} – ${prop.ementa || prop.ementaPauta || ''}</div>
       <div class="dest-subtitulo">${d.numero} – ${d.autoria}</div>
     </div>
+    ${avisoRF}
 
     <div class="card-completo-descricao">
       ${d.descricao || '–'}
