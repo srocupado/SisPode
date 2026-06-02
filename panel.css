@@ -1037,6 +1037,8 @@ body {
   font-size: 11px;
   color: rgba(141, 163, 168, 0.45);
   letter-spacing: 0.5px;
+  text-align: center;
+  line-height: 1.6;
 }
 
 /* ---- BARRA DE SINCRONIZAÇÃO FIREBASE ---- */
