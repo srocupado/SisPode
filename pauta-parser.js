@@ -72,7 +72,20 @@ function parsearPautaExtenso(texto) {
 
   // Período
   const periodoMatch = texto.match(/PAUTA\s+PREVISTA\s+PARA\s+([\s\S]{5,80}?)(?:\(|\n)/i);
-  if (periodoMatch) resultado.periodo = periodoMatch[1].trim().replace(/\s+/g, ' ');
+  if (periodoMatch) {
+    resultado.periodo = periodoMatch[1].trim().replace(/\s+/g, ' ');
+  } else {
+    // Cabeçalho da pauta extensa: "Em 2 de junho de 2026 (Terça-feira)".
+    // A data da sessão vem por extenso — convertê-la para dd/mm/aaaa. (A 1ª
+    // ocorrência é a do cabeçalho; datas posteriores são de tramitação.)
+    const MESES = { janeiro:1, fevereiro:2, marco:3, abril:4, maio:5, junho:6, julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12 };
+    const dataExt = texto.match(/\bEm\s+(\d{1,2})\s+de\s+([A-Za-zçÇãÃéÉ]+)\s+de\s+(\d{4})/i);
+    if (dataExt) {
+      const mesNome = dataExt[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const mesNum  = MESES[mesNome];
+      if (mesNum) resultado.periodo = `${String(dataExt[1]).padStart(2, '0')}/${String(mesNum).padStart(2, '0')}/${dataExt[3]}`;
+    }
+  }
   resultado.titulo = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
 
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===

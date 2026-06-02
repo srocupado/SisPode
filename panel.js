@@ -455,7 +455,8 @@ async function processarPdfModal(file) {
     // de Análise. Reconhece os dois formatos (compacto e extenso) e devolve os
     // itens da pauta sem capturar apensados/citações soltas no texto.
     const texto = await extrairTextoPdf(await file.arrayBuffer());
-    const props = parsearPauta(texto).itens.map(it => ({
+    const parsed = parsearPauta(texto);
+    const props = parsed.itens.map(it => ({
       sigla:  it.sigla,
       numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
       ano:    parseInt(it.ano, 10),
@@ -475,11 +476,12 @@ async function processarPdfModal(file) {
       return;
     }
 
-    // Sugerir título da sessão
-    const dataMatch = texto.match(/(\d{2}\/\d{2}\/\d{4})/);
+    // Sugerir título da sessão pela data extraída pelo parser (cabeçalho da
+    // pauta), e não pela 1ª data avulsa do texto — que no formato extenso é
+    // uma data de tramitação (ex.: aprovação de urgência), não a da sessão.
     const tituloInput = document.getElementById('sessao-titulo');
-    if (dataMatch && !tituloInput.value) {
-      tituloInput.value = `Sessão de ${dataMatch[1]}`;
+    if (parsed.periodo && !tituloInput.value) {
+      tituloInput.value = `Sessão de ${parsed.periodo}`;
     }
 
     uploadText.textContent = `${file.name} — ${props.length} proposição(ões) encontrada(s)`;
