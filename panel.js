@@ -451,8 +451,16 @@ async function processarPdfModal(file) {
   uploadInline.classList.add('tem-arquivo');
 
   try {
-    const texto = await extrairTextoPDF(file);
-    const props  = extrairProposicoes(texto);
+    // Usa o parser de pauta compartilhado (pauta-parser.js) — mesmo do módulo
+    // de Análise. Reconhece os dois formatos (compacto e extenso) e devolve os
+    // itens da pauta sem capturar apensados/citações soltas no texto.
+    const texto = await extrairTextoPdf(await file.arrayBuffer());
+    const props = parsearPauta(texto).itens.map(it => ({
+      sigla:  it.sigla,
+      numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
+      ano:    parseInt(it.ano, 10),
+      chave:  `${it.sigla} ${it.numero}/${it.ano}`,
+    }));
 
     if (props.length === 0) {
       mostrarToast('Nenhuma proposição encontrada no PDF.', 'aviso');
@@ -481,37 +489,8 @@ async function processarPdfModal(file) {
   }
 }
 
-async function extrairTextoPDF(file) {
-  const arrayBuffer = await file.arrayBuffer();
-  const pdf         = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let texto         = '';
-  for (let i = 1; i <= pdf.numPages; i++) {
-    const page    = await pdf.getPage(i);
-    const content = await page.getTextContent();
-    texto += content.items.map(it => it.str).join(' ') + '\n';
-  }
-  return texto;
-}
-
-function extrairProposicoes(texto) {
-  // Aceita: "PL 1234/2024", "PL nº 1234/2024", "PL n.º 1.234/2024", etc.
-  const regex = /\b(PL|PLP|PEC|PRC|PDL|REQ|MPV|PLV|PDC|PDS|PFC|EMC|SBT|EMR|INC|RCP|REC)\s*(?:n[º°o]?\.?\s*)?(\d{1,2}\.\d{3}|\d{1,5})\/(\d{4})\b/gi;
-  const encontrados = new Map();
-  let match;
-  while ((match = regex.exec(texto)) !== null) {
-    const numero = parseInt(match[2].replace(/\./g, ''));
-    const chave = `${match[1].toUpperCase()} ${numero}/${match[3]}`;
-    if (!encontrados.has(chave)) {
-      encontrados.set(chave, {
-        sigla:  match[1].toUpperCase(),
-        numero,
-        ano:    parseInt(match[3]),
-        chave,
-      });
-    }
-  }
-  return Array.from(encontrados.values());
-}
+// A extração de texto e o parsing da pauta vivem em pauta-parser.js
+// (extrairTextoPdf / parsearPauta), compartilhados com o módulo de Análise.
 
 function renderizarProposicoesPDF(props) {
   const lista = document.getElementById('lista-proposicoes-modal');
