@@ -1040,6 +1040,12 @@ body {
   text-align: center;
   line-height: 1.6;
 }
+.home-footer-hash {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0;
+  opacity: 0.7;
+}
 
 /* ---- BARRA DE SINCRONIZAÇÃO FIREBASE ---- */
 .sync-bar {
