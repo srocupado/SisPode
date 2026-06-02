@@ -460,6 +460,12 @@ async function processarPdfModal(file) {
       numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
       ano:    parseInt(it.ano, 10),
       chave:  `${it.sigla} ${it.numero}/${it.ano}`,
+      // Categoria do item (ex.: 'redacao_final') para sinalizar na UI.
+      tipoCategoria:     it.tipoCategoria,
+      // Ementa do PDF (exibida de imediato) e, para requerimentos de urgência,
+      // o projeto cuja urgência é pedida — usado para buscar dados na API.
+      ementaPauta:       it.ementa || null,
+      projetoUrgenciado: it.projetoUrgenciado || null,
     }));
 
     if (props.length === 0) {
@@ -577,7 +583,10 @@ async function carregarMetadadosProposicoes() {
   const sess = app.sessaoAtual;
   await Promise.all(sess.proposicoes.map(async prop => {
     try {
-      const data = await buscarProposicaoAPI(prop.sigla, prop.numero, prop.ano);
+      // Requerimento de urgência (ex.: "REQ s/nº") não tem ficha própria;
+      // busca-se o projeto cuja urgência é solicitada.
+      const alvo = prop.projetoUrgenciado || prop;
+      const data = await buscarProposicaoAPI(alvo.sigla, alvo.numero, alvo.ano);
       if (data) {
         prop.idCamara   = data.id;
         prop.ementa     = data.ementa;
@@ -633,13 +642,21 @@ async function adicionarProposicaoManual() {
 }
 
 // ---------- API CÂMARA ----------
-async function buscarProposicaoAPI(sigla, numero, ano) {
-  const url = `${API_BASE}/proposicoes?siglaTipo=${sigla}&numero=${numero}&ano=${ano}&itens=1`;
-  const res  = await fetch(url);
-  if (!res.ok) return null;
+// Decretos legislativos aparecem na API sob a sigla antiga PDC ou a atual PDL
+// conforme a época; tentamos ambas antes de desistir.
+const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
-  const json = await res.json();
-  const item = json.dados?.[0];
+async function buscarProposicaoAPI(sigla, numero, ano) {
+  const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
+  let item = null;
+  for (const s of tentativas) {
+    const url = `${API_BASE}/proposicoes?siglaTipo=${s}&numero=${numero}&ano=${ano}&itens=1`;
+    const res = await fetch(url);
+    if (!res.ok) continue;
+    const json = await res.json();
+    item = json.dados?.[0];
+    if (item) break;
+  }
   if (!item) return null;
 
   let autor = null;
@@ -802,7 +819,7 @@ function renderizarProposicoesSidebar() {
   const filtradas = termo
     ? sess.proposicoes.filter(p =>
         p.chave.toLowerCase().includes(termo) ||
-        (p.ementa || '').toLowerCase().includes(termo) ||
+        (p.ementa || p.ementaPauta || '').toLowerCase().includes(termo) ||
         (p.autor  || '').toLowerCase().includes(termo)
       )
     : sess.proposicoes;
@@ -818,14 +835,18 @@ function renderizarProposicoesSidebar() {
     const nTotal   = dests.length;
     const contagem = nTotal > 0 ? `${nAtivos}/${nTotal}` : (p.idCamara ? '–' : '?');
 
-    // Destacar o termo na ementa se houver busca
-    const ementa = termo
-      ? destacarTermo(p.ementa || 'Carregando...', termo)
-      : (p.ementa || 'Carregando...');
+    // Ementa da API; se ainda não veio, usa a ementa extraída do PDF; só então
+    // "Carregando…". Evita o estado "Carregando…" eterno quando a API não acha.
+    const ementaBase = p.ementa || p.ementaPauta || 'Carregando...';
+    const ementa = termo ? destacarTermo(ementaBase, termo) : ementaBase;
+    // Redação Final: sinaliza que não é votação de mérito de destaque.
+    const rfTag = p.tipoCategoria === 'redacao_final'
+      ? '<span class="prop-item-rf" title="Apreciação do texto final — não é votação de mérito de destaque">Redação Final</span>'
+      : '';
 
     return `
     <div class="prop-item ${app.proposicaoAtiva?.chave === p.chave ? 'active' : ''}" data-chave="${p.chave}">
-      <span class="prop-item-badge">${p.chave}</span>
+      <span class="prop-item-badge">${p.chave}</span>${rfTag}
       <span class="prop-item-nome">${ementa}</span>
       <span class="prop-item-count">${contagem}</span>
     </div>`;
@@ -929,12 +950,18 @@ function renderizarCardCompleto(d, prop) {
   const explicacao = esc(d.explicacao || '');
   const orientacao = esc(d.orientacao || '');
 
+  const isRF = prop.tipoCategoria === 'redacao_final';
+  const avisoRF = isRF
+    ? `<div class="aviso-rf">⚠ Item de <b>Redação Final</b> (RICD, art. 83, I): apreciação do texto final já aprovado — não é votação de mérito de destaque.</div>`
+    : '';
+
   return `
   <div class="card-completo">
     <div class="card-completo-header">
-      <div class="prop-titulo">${prop.chave} – ${prop.ementa || ''}</div>
+      <div class="prop-titulo">${isRF ? '<span class="prop-item-rf">Redação Final</span> ' : ''}${prop.chave} – ${prop.ementa || prop.ementaPauta || ''}</div>
       <div class="dest-subtitulo">${d.numero} – ${d.autoria}</div>
     </div>
+    ${avisoRF}
 
     <div class="card-completo-descricao">
       ${d.descricao || '–'}
