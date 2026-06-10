@@ -1,6 +1,6 @@
 # SisPode — Sistemas Legislativos do Podemos
 
-Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne seis ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA e produção de pautas da Comissão de Constituição e Justiça (CCJC).
+Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne sete ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC) e acompanhamento dos vetos em tramitação no Congresso Nacional.
 
 ---
 
@@ -166,6 +166,42 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 ---
 
+### 7. Vetos do Congresso Nacional
+
+Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com IA, um resumo de cada dispositivo vetado para a equipe técnica.
+
+**Listagem oficial**
+- Carrega o **Relatório Resumo de Vetos** oficial (`pdfVetosEmTramitacao` do SISCON/Senado) e reproduz suas colunas: nº do veto, matéria vetada, assunto, *sobrestando a pauta?* (Sim/Não) com a data de início, e a quantidade de dispositivos (ou *Veto Total*)
+- **Reproduz fielmente as cores verde/azul** das linhas do relatório, lidas diretamente do PDF (renderização + amostragem de cor), além do tipo (Parcial/Total) e do status de sobrestamento em badges
+- Cache local da lista para abertura instantânea; botão **Atualizar lista** rebaixa o relatório do site oficial
+
+**Detalhamento e resumo por IA (Gemini, OpenAI ou Anthropic)**
+- Ao **abrir** um veto, a extensão busca a página oficial de detalhe e extrai cada dispositivo vetado (código `NN.AA.NNN`, descrição normativa, texto vetado integral e situação)
+- A IA gera automaticamente um **resumo curto (1–2 frases) de cada dispositivo**, explicando em linguagem clara o que ele estabelecia — ou seja, o que deixa de valer com o veto — sem recomendação de voto e sem inventar
+- Abaixo da ementa, a IA também gera um **"Resumo do Projeto"** bem sintético (1–2 linhas; 3–4 linhas para Veto Total), explicando o objetivo geral da proposição
+- **Razões do Veto**: a extensão localiza o PDF da Mensagem de veto (documento da Presidência da República na aba Documentos), lê o texto e a IA resume os motivos do veto — **agrupando os dispositivos que compartilham a mesma justificativa** (1–2 linhas por grupo, abaixo da análise do dispositivo). Em **Veto Total**, gera um resumo único (3–4 linhas) das razões do projeto. Tudo na mesma operação de geração dos resumos
+- Botão para **ver o texto integral** de cada dispositivo vetado e link para a página oficial
+- Os resumos são **compartilhados com toda a equipe via Firebase** (`/vetos_resumos/{veto}`) e cacheados localmente, evitando reprocessamento e gasto de API
+
+**Busca geral**
+- Campo de busca que pesquisa em **todo o conteúdo** — nº, assunto, matéria, lei, códigos, textos dos dispositivos e resumos da IA —, com destaque das ocorrências e expansão automática dos vetos correspondentes
+- Botão **Baixar detalhes** (com barra de progresso) que baixa o detalhamento de todos os vetos em segundo plano para habilitar a busca completa no texto
+
+**Geração em lote, parcelamento e retomada**
+- Botão **Resumir todos** gera os resumos de todos os vetos pendentes, com barra de progresso; **Parar** cancela qualquer operação de IA/download em andamento
+- Vetos grandes (ex.: 340 dispositivos) são processados em **lotes de 15 dispositivos por chamada**, com **persistência incremental** a cada lote — uma falha ou interrupção não perde o que já foi feito
+- Em caso de falha parcial, o card mostra **"Continuar (N restantes)"** para **retomar de onde parou** (só os dispositivos ainda sem resumo)
+
+**Edição, perfis de prompt, sessões e exportação**
+- Cada resumo é **editável inline** (✎) com autosave (Firebase + cache) e indicador de status; marcador de **sincronização com o Firebase** registra o horário do último salvamento
+- **Perfis de prompt** (em ⚙ Configurações): biblioteca de instruções que complementam o prompt base, com um perfil marcado como **padrão da equipe** aplicado automaticamente — compartilhados via Firebase
+- **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
+- **Edição inline** também do Resumo do Projeto e das Razões do Veto (além dos resumos dos dispositivos), com autosave
+- **Seleção de vetos** (checkbox por veto + "selecionar/desmarcar todos") para escolher o que entra na exportação
+- **Exportação para Word (.docx)** dos vetos selecionados (ou de todos os visíveis): cabeçalho do veto e, por dispositivo, `código — Resumo: <análise>` com a `Razões do veto: <motivo>` indentada logo abaixo — entrelinhas 1,5 e espaçamento duplo entre dispositivos
+
+---
+
 ## Instalação
 
 > A extensão não está publicada na Chrome Web Store. Para usar, faça a instalação manual em modo desenvolvedor.
@@ -218,6 +254,7 @@ sispode/
 ├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
+├── congresso.html / congresso.js  # Módulo: Vetos do Congresso Nacional
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
@@ -235,6 +272,8 @@ sispode/
 |---|---|
 | [Dados Abertos da Câmara](https://dadosabertos.camara.leg.br) | Proposições, destaques, votações, deputados |
 | [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento e documentos legislativos |
+| [SISCON – Senado Federal](https://legis.senado.leg.br) | Relatório Resumo de Vetos em tramitação (PDF) |
+| [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
 | [Google Gemini](https://aistudio.google.com) | Provedor de IA para análise de destaques |
 | [OpenAI](https://platform.openai.com) | Provedor de IA para análise de destaques |

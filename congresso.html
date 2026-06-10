@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Vetos do Congresso Nacional – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <!-- ===== CABEÇALHO ===== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Vetos do Congresso Nacional</span>
+        <span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar-home" class="btn btn-outline btn-sm" title="Voltar ao início">← Início</button>
+      <button id="btn-atualizar" class="btn btn-outline btn-sm" title="Rebaixar a lista de vetos do site oficial">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/>
+          <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
+        Atualizar lista
+      </button>
+      <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Configurações de IA">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Configurações
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== CONTEÚDO ===== -->
+  <div class="app-body">
+
+    <!-- SIDEBAR: SESSÕES DE VETO -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">SESSÃO ATUAL</div>
+        <span id="cn-sync" class="cn-sync" style="display:none;margin:6px 0 4px"></span>
+        <div id="cn-sessao-atual" class="sessao-info">Vetos em tramitação (ao vivo)</div>
+        <button id="btn-salvar-sessao" class="btn btn-outline btn-sm" style="width:100%;margin-top:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salvar como sessão
+        </button>
+        <button id="btn-sessao-vivo" class="btn btn-ghost btn-sm" style="width:100%;margin-top:6px;display:none">↺ Voltar aos vetos ao vivo</button>
+      </div>
+      <div class="sidebar-section" style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div class="sidebar-label">SESSÕES SALVAS</div>
+        <div id="cn-sessoes-lista" class="lista-historico" style="flex:1;overflow-y:auto">
+          <div class="empty-state"><p>Nenhuma sessão salva</p></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="cn-main">
+
+    <div class="cn-toolbar">
+      <div class="cn-busca-wrap">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="cn-busca" class="cn-busca-input"
+               placeholder="Buscar por nº, assunto, lei, dispositivo ou termo no texto…" autocomplete="off">
+        <button id="cn-busca-clear" class="cn-busca-clear" style="display:none" title="Limpar">✕</button>
+      </div>
+      <button id="btn-gerar-todos" class="btn btn-primary btn-sm" title="Gerar resumo de IA de todos os vetos">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 9l-4.9 3.6L17 18l-5-3.5L7 18l1.9-5.4L4 9l6.1-.2z"/></svg>
+        Resumir todos
+      </button>
+      <button id="btn-baixar-todos" class="btn btn-outline btn-sm" title="Baixar o detalhamento de todos os vetos para busca completa">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar detalhes
+      </button>
+      <button id="btn-exportar-docx" class="btn btn-outline btn-sm" title="Exportar os vetos para um documento Word (.docx)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Word
+      </button>
+      <button id="btn-parar" class="btn btn-sm cn-btn-parar" style="display:none" title="Cancelar as operações de IA/download em andamento">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Parar
+      </button>
+    </div>
+
+    <div class="cn-subbar">
+      <div class="cn-legenda">
+        <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--verde"></span> Verde</span>
+        <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--azul"></span> Azul</span>
+        <span class="cn-legenda-item">· cores conforme o Relatório Resumo de Vetos do Congresso Nacional</span>
+      </div>
+    </div>
+
+    <div id="cn-stats" class="cn-stats"></div>
+
+    <div id="cn-progress-wrap" style="display:none">
+      <div class="cn-progress"><div id="cn-progress-bar" class="cn-progress-bar"></div></div>
+      <div id="cn-progress-label" class="cn-progress-label"></div>
+    </div>
+
+    <div id="cn-lista" class="cn-lista">
+      <div class="cn-empty" id="cn-empty">
+        <span class="cn-spinner"></span> Carregando vetos em tramitação…
+      </div>
+    </div>
+
+    </main>
+  </div>
+
+  <!-- ===== MODAL: CONFIGURAÇÕES DE IA (3 provedores) ===== -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Configurações de IA</h3>
+        <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Integração com Inteligência Artificial
+          </div>
+          <p class="config-desc">
+            A IA resume, em uma ou duas frases, cada dispositivo vetado.
+            Estas configurações são compartilhadas com os outros painéis do SisPode.
+          </p>
+
+          <div class="form-group" style="margin-top:14px">
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-api-key" class="form-input" placeholder="Cole aqui sua chave">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+            </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block"></small>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">
+                ↻ Carregar disponíveis
+              </button>
+            </label>
+            <select id="config-modelo" class="form-input">
+              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
+            </select>
+            <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+          </div>
+
+          <button id="btn-testar-conexao" class="btn btn-outline btn-sm">Testar conexão</button>
+          <div id="config-status-ia" class="config-status" style="display:none;margin-top:8px"></div>
+        </div>
+
+        <!-- PERFIS DE PROMPT -->
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            Perfis de prompt
+          </div>
+          <p class="config-desc">
+            Crie perfis de instruções que <strong>complementam</strong> o prompt base enviado ao LLM
+            (ênfase, recortes temáticos, tom). O perfil marcado como <strong>padrão da equipe</strong>
+            é aplicado automaticamente ao gerar os resumos. Compartilhados via Firebase.
+          </p>
+
+          <div class="form-group" style="margin-top:10px">
+            <label>Perfil</label>
+            <select id="perfil-select" class="form-input">
+              <option value="">— Novo perfil —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nome do perfil</label>
+            <input type="text" id="perfil-nome" class="form-input" placeholder="Ex: Foco no impacto para municípios">
+          </div>
+          <div class="form-group">
+            <label>Instruções adicionais</label>
+            <textarea id="perfil-texto" class="form-input" rows="5" placeholder="Ex: Destaque sempre os efeitos práticos para a saúde pública e cite a lei alterada."></textarea>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0">
+            <input type="checkbox" id="perfil-padrao"> Usar como padrão da equipe
+          </label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btn-perfil-salvar" class="btn btn-outline btn-sm">Salvar como novo</button>
+            <button id="btn-perfil-atualizar" class="btn btn-outline btn-sm" style="display:none">Atualizar</button>
+            <button id="btn-perfil-excluir" class="btn btn-ghost btn-sm" style="display:none">Excluir</button>
+          </div>
+          <div id="perfil-status" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
+        <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TOAST ===== -->
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== SCRIPTS ===== -->
+  <script src="libs/pdf.min.js"></script>
+  <script src="libs/docx.iife.js"></script>
+  <script src="congresso.js"></script>
+
+</body>
+</html>

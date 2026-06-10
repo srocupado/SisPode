@@ -3001,6 +3001,14 @@ const MODULES = [
     icone:  '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>',
     acao:   abrirCCJC,
   },
+  {
+    id:     'congresso',
+    titulo: 'Vetos do Congresso Nacional',
+    desc:   'Liste os vetos em tramitação no Congresso e gere com IA um resumo de cada dispositivo vetado.',
+    cor:    'ambar',
+    icone:  '<rect x="9.4" y="5" width="2.2" height="11.5" rx="0.3"/><rect x="12.4" y="5" width="2.2" height="11.5" rx="0.3"/><path d="M2 16.5 A 3.5 3.5 0 0 1 9 16.5 Z"/><path d="M15 13 A 3.5 3.5 0 0 0 22 13 Z"/>',
+    acao:   abrirCongresso,
+  },
 ];
 
 function renderHomeGrid() {
@@ -3091,6 +3099,11 @@ function abrirAnalise() {
 
 function abrirCCJC() {
   const url = chrome.runtime.getURL('ccjc.html');
+  chrome.tabs.create({ url });
+}
+
+function abrirCongresso() {
+  const url = chrome.runtime.getURL('congresso.html');
   chrome.tabs.create({ url });
 }
 

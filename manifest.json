@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sistemas Legislativos – Podemos",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
 
   "permissions": ["storage", "tabs"],
@@ -16,7 +16,9 @@
     "https://shrill-resonance-4d17.vinicius-const.workers.dev/*",
     "https://api.codetabs.com/*",
     "https://unpkg.com/*",
-    "https://legis.camara.leg.br/*"
+    "https://legis.camara.leg.br/*",
+    "https://legis.senado.leg.br/*",
+    "https://www.congressonacional.leg.br/*"
   ],
 
   "content_security_policy": {
@@ -44,7 +46,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js", "ccjc.html", "ccjc.js", "icons/podemos-logo.png"],
+      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js", "ccjc.html", "ccjc.js", "congresso.html", "congresso.js", "icons/podemos-logo.png"],
       "matches": ["<all_urls>"]
     }
   ]
