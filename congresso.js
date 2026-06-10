@@ -1878,6 +1878,11 @@ async function exportarDocx() {
       ],
     }));
 
+    // Resumo do projeto (logo abaixo do cabeçalho do veto).
+    if (v.resumoProjeto) {
+      filhos.push(new Paragraph({ spacing: { before: 40, after: 40, ...L15 }, children: [new TextRun({ text: 'Resumo do Projeto: ', bold: true, size: 18 }), new TextRun({ text: v.resumoProjeto, size: 18 })] }));
+    }
+
     // Veto total: as razões valem para o projeto inteiro.
     if (v.tipo === 'Total' && v.razoesProjeto) {
       filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
