@@ -1868,27 +1868,38 @@ async function exportarDocx() {
   }));
 
   vetos.forEach(v => {
+    // Cabeçalho mínimo para identificar o veto.
     filhos.push(new Paragraph({
       spacing: { before: 360, after: 30, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
-      children: [new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 26 })],
+      children: [
+        new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 24 }),
+        new TextRun({ text: v.assunto ? `  ·  ${v.assunto}` : '', size: 20 }),
+      ],
     }));
-    filhos.push(new Paragraph({ spacing: { after: 30, ...L15 }, children: [new TextRun({ text: v.assunto || '', bold: true, size: 22 })] }));
-    const meta = `${v.materia || ''}${v.sobresta ? ' · Sobrestando a pauta: ' + v.sobresta : ''}${v.dataSobresta ? ' (' + v.dataSobresta + ')' : ''}${v.qtdNum != null ? ' · ' + v.qtdNum + ' dispositivo(s)' : (v.tipo === 'Total' ? ' · Veto Total' : '')}`;
-    filhos.push(new Paragraph({ spacing: { after: 60, ...L15 }, children: [new TextRun({ text: meta, size: 18, color: '6b7280' })] }));
-    if (v.ementa) filhos.push(new Paragraph({ spacing: { after: 100, ...L15 }, children: [new TextRun({ text: 'Ementa: ', bold: true, size: 18 }), new TextRun({ text: v.ementa, size: 18, italics: true })] }));
-    if (v.resumoProjeto) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'Resumo do Projeto: ', bold: true, size: 18 }), new TextRun({ text: v.resumoProjeto, size: 18 })] }));
-    if (v.tipo === 'Total' && v.razoesProjeto) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'Razões do Veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
 
+    // Veto total: as razões valem para o projeto inteiro.
+    if (v.tipo === 'Total' && v.razoesProjeto) {
+      filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
+    }
+
+    // Por dispositivo: "código — Resumo: <análise>" e, indentada, "Razões do veto: <motivo>".
     const razIdx = razoesIndex(v);
     (v.dispositivos || []).forEach(d => {
-      filhos.push(new Paragraph({ spacing: { before: GAP_DISP, ...L15 }, children: [new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }), new TextRun({ text: d.descricao || '', size: 18 })] }));
-      if (d.resumo) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, children: [new TextRun({ text: 'Resumo: ', bold: true, size: 18 }), new TextRun({ text: d.resumo, size: 18 })] }));
+      filhos.push(new Paragraph({
+        spacing: { before: GAP_DISP, ...L15 },
+        children: [
+          new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }),
+          new TextRun({ text: 'Resumo: ', bold: true, size: 18 }),
+          new TextRun({ text: d.resumo || '—', size: 18 }),
+        ],
+      }));
       const rz = razIdx.get(d.codigo);
       if (rz) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: rz.resumo, size: 18 })] }));
-      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
     });
-    if (!(v.dispositivos || []).length) filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: '(dispositivos não baixados — use "Baixar detalhes")', size: 16, italics: true, color: '999999' })] }));
+    if (!(v.dispositivos || []).length && !(v.tipo === 'Total' && v.razoesProjeto)) {
+      filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: '(sem resumos — gere a análise antes de exportar)', size: 16, italics: true, color: '999999' })] }));
+    }
   });
 
   try {
