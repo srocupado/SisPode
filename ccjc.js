@@ -38,6 +38,7 @@ let app = {
     reuniaoSelecionada: null,
   },
   config: {
+    provedorAtivo:  '',   // 'gemini' | 'anthropic' | 'openai' (vazio = automático, 1º configurado)
     geminiKey:      '',
     modelo:         'gemini-2.5-flash-preview-04-17',
     anthropicKey:   '',
@@ -615,10 +616,30 @@ function extrairComissoesDaTramitacao(tramitacoes) {
 //  CAMADA DE IA – GEMINI
 // ============================================================
 
+// Resolve o provedor que será usado: respeita a escolha do usuário
+// (config.provedorAtivo); se o escolhido não tiver chave, cai no primeiro
+// configurado (gemini → anthropic → openai). Retorna '' se nenhum tem chave.
+function _provedorEfetivo() {
+  const tem = {
+    gemini:    !!app.config.geminiKey,
+    anthropic: !!app.config.anthropicKey,
+    openai:    !!app.config.openaiKey,
+  };
+  const escolhido = app.config.provedorAtivo;
+  if (escolhido && tem[escolhido]) return escolhido;
+  if (tem.gemini)    return 'gemini';
+  if (tem.anthropic) return 'anthropic';
+  if (tem.openai)    return 'openai';
+  return '';
+}
+
+const NOME_PROVEDOR = { gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' };
+
 async function aiCall(prompt, docUrl = null) {
-  if (app.config.geminiKey) return _callGemini(prompt, docUrl);
-  if (app.config.anthropicKey) return _callAnthropic(prompt, docUrl);
-  if (app.config.openaiKey) return _callOpenAI(prompt, docUrl);
+  const p = _provedorEfetivo();
+  if (p === 'gemini')    return _callGemini(prompt, docUrl);
+  if (p === 'anthropic') return _callAnthropic(prompt, docUrl);
+  if (p === 'openai')    return _callOpenAI(prompt, docUrl);
   throw new Error('Nenhuma chave de IA configurada. Configure em ⚙ Configurações.');
 }
 
@@ -954,7 +975,7 @@ async function analisarProjeto(proj) {
 async function analisarTodos() {
   if (!app.pautaAtual || app.processando) return;
 
-  const provedor = app.config.geminiKey ? 'Gemini' : (app.config.anthropicKey ? 'Claude' : (app.config.openaiKey ? 'ChatGPT' : ''));
+  const provedor = NOME_PROVEDOR[_provedorEfetivo()] || '';
   if (!provedor) {
     mostrarToast('Configure uma chave de IA em ⚙ Configurações antes de analisar.', 'aviso');
     abrirConfiguracoes();
@@ -1522,6 +1543,7 @@ async function salvarConfiguracao() {
   const antModelo    = document.getElementById('config-anthropic-modelo').value;
   const openaiKey    = document.getElementById('config-openai-key').value.trim();
   const openaiModelo = document.getElementById('config-openai-modelo').value;
+  const provedorAtivo = document.getElementById('config-provedor-ativo').value;
   const status       = document.getElementById('config-status-ia');
 
   if (geminiKey && !geminiKey.startsWith('AIza')) {
@@ -1551,6 +1573,7 @@ async function salvarConfiguracao() {
   if (antModelo) app.config.anthropicModelo = antModelo;
   app.config.openaiKey      = openaiKey;
   if (openaiModelo) app.config.openaiModelo = openaiModelo;
+  app.config.provedorAtivo  = provedorAtivo;
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
@@ -1567,6 +1590,7 @@ async function abrirConfiguracoes() {
   document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-8';
   document.getElementById('config-openai-key').value           = app.config.openaiKey || '';
   document.getElementById('config-openai-modelo').value        = app.config.openaiModelo || 'gpt-4o';
+  document.getElementById('config-provedor-ativo').value       = app.config.provedorAtivo || _provedorEfetivo() || 'gemini';
   document.getElementById('config-status-ia').style.display        = 'none';
   document.getElementById('config-status-anthropic').style.display = 'none';
   document.getElementById('config-status-openai').style.display    = 'none';

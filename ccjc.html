@@ -219,6 +219,17 @@
       </div>
       <div class="modal-body">
 
+        <!-- PROVEDOR ATIVO -->
+        <div class="form-group" style="margin-bottom:14px">
+          <label>Provedor ativo para análise</label>
+          <select id="config-provedor-ativo" class="form-input">
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="anthropic">Anthropic Claude</option>
+          </select>
+          <small style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block">Define qual provedor é usado nas análises. Se o escolhido não tiver chave, usa o primeiro configurado abaixo.</small>
+        </div>
+
         <!-- PROVEDOR 1: GEMINI -->
         <div class="config-section">
           <div class="config-section-title">
