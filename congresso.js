@@ -389,14 +389,16 @@ function parseDetalheHtml(html) {
     dispositivos.push({ codigo, descricao, texto, situacao, resumo: '' });
   });
 
-  // Ementa (melhor esforço): item de definição "Ementa" na ficha.
-  let ementa = '';
-  doc.querySelectorAll('dt').forEach(dt => {
-    if (!ementa && /ementa/i.test(dt.textContent)) {
-      const dd = dt.nextElementSibling;
-      if (dd) ementa = dd.textContent.replace(/\s+/g, ' ').trim();
-    }
-  });
+  // Ementa: o portal expõe a ementa completa do projeto na meta sf_ementa.
+  let ementa = (doc.querySelector('meta[name="sf_ementa"]')?.getAttribute('content') || '').replace(/\s+/g, ' ').trim();
+  if (!ementa) {
+    doc.querySelectorAll('dt').forEach(dt => {
+      if (!ementa && /ementa/i.test(dt.textContent)) {
+        const dd = dt.nextElementSibling;
+        if (dd) ementa = dd.textContent.replace(/\s+/g, ' ').trim();
+      }
+    });
+  }
 
   return { ementa, dispositivos };
 }
@@ -435,9 +437,13 @@ async function resumirVeto(veto, { silencioso = false, render = true, apenasFalt
     return false;
   }
   if (!veto.detalheCarregado) await carregarDetalhe(veto);
+
+  // Resumo do projeto (sintético) junto da geração — gera se faltar (ou refaz ao regerar).
+  await resumirProjeto(veto, { silencioso: true, render, force: !apenasFaltantes });
+
   if (!veto.dispositivos.length) {
     if (!silencioso) mostrarToast('Este veto não tem dispositivos para resumir.', 'aviso');
-    return false;
+    return veto.resumoProjeto ? true : false;
   }
 
   const alvo = apenasFaltantes ? veto.dispositivos.filter(d => !d.resumo) : veto.dispositivos.slice();
@@ -623,6 +629,49 @@ function chunk(arr, n) {
   const out = [];
   for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
   return out;
+}
+
+/**
+ * Gera o "Resumo do Projeto" (sintético) a partir da ementa/assunto.
+ * Veto Total → resumo um pouco mais detalhado (3-4 linhas); demais → 1-2 linhas.
+ */
+async function resumirProjeto(veto, { silencioso = false, force = false, render = true } = {}) {
+  if (!app.config?.apiKey) return false;
+  if (veto.resumoProjeto && !force) return true;
+  if (!veto.detalheCarregado) { try { await carregarDetalhe(veto); } catch (_) {} }
+
+  veto.resumindoProjeto = true;
+  iaInc();
+  if (render && !app.editando) renderLista();
+  try {
+    const texto = await chamarIAtexto({ ...app.config, prompt: promptProjeto(veto) });
+    const limpo = (texto || '').replace(/^["“]|["”]$/g, '').trim();
+    if (!limpo) throw new Error('a IA não retornou o resumo do projeto');
+    veto.resumoProjeto = limpo;
+    veto.resumoMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
+    await persistirResumo(veto);
+    return true;
+  } catch (e) {
+    if (isAbort(e)) return false;
+    if (!silencioso) mostrarToast('Erro ao resumir o projeto: ' + e.message, 'erro');
+    return false;
+  } finally {
+    veto.resumindoProjeto = false;
+    iaDec();
+    if (render && !app.editando) renderLista();
+  }
+}
+
+function promptProjeto(veto) {
+  const total = veto.tipo === 'Total';
+  const tam = total ? '3 a 4 linhas' : '1 a 2 linhas';
+  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
+
+Escreva um "Resumo do Projeto" MUITO sintético (${tam}), em português claro e direto, explicando o objetivo geral do projeto ${veto.materia} — o que ele cria/altera e a quem se destina. Foque no PROJETO como um todo (não nos dispositivos vetados). Não recomende voto, não opine e não invente nada além das informações abaixo.
+Responda apenas com o texto do resumo, sem rótulos, sem aspas e sem listas.
+${blocoPerfilPadrao()}
+Assunto: ${veto.assunto || '(não informado)'}
+Ementa: ${veto.ementa || '(ementa não disponível)'}`;
 }
 
 /** Instruções adicionais do perfil de prompt padrão da equipe (se houver). */
@@ -887,6 +936,19 @@ function renderVeto(v, termo) {
     </div>`;
 }
 
+function renderResumoProjeto(v, termo) {
+  if (v.resumindoProjeto) {
+    return `<div class="cn-projeto-resumo"><strong>Resumo do Projeto:</strong> <span class="cn-spinner"></span> gerando…</div>`;
+  }
+  if (!v.detalheCarregado && !v.resumoProjeto) return '';   // ainda sem ementa carregada
+  const val = `${v.key}|__projeto__`;
+  const btnEditar = `<button class="cn-disp-edit-btn" data-editar="${val}" title="Editar o resumo do projeto">✎</button>`;
+  const conteudo = v.resumoProjeto
+    ? `<span class="cn-disp-resumo-txt">${marca(v.resumoProjeto, termo)}</span>`
+    : `<span class="cn-disp-resumo-txt cn-projeto-vazio">${app.config?.apiKey ? '— (abra para gerar ou clique em ✎ para escrever)' : 'configure a IA para gerar, ou clique em ✎ para escrever'}</span>`;
+  return `<div class="cn-projeto-resumo${v.resumoProjeto ? '' : ' vazio'}" data-resumo="${val}"><strong>Resumo do Projeto:</strong> ${conteudo}${btnEditar}</div>`;
+}
+
 function renderCorpo(v, termo) {
   let inner;
   if (v.carregandoDetalhe || (!v.detalheCarregado && !v.dispositivos.length)) {
@@ -936,6 +998,7 @@ function renderCorpo(v, termo) {
 
   return `<div class="cn-veto-body">
     ${v.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(v.ementa, termo)}</div>` : ''}
+    ${renderResumoProjeto(v, termo)}
     <div class="cn-veto-acoes">
       ${botaoResumir}
       ${v.detalheUrl ? `<a class="btn btn-ghost btn-sm" href="${v.detalheUrl}" target="_blank" rel="noopener">Abrir página oficial ↗</a>` : ''}
@@ -993,12 +1056,16 @@ async function toggleVeto(key) {
       await carregarDetalhe(v);
       renderLista();
       salvarCacheLocal();
-      // Resumo automático ao abrir, se a IA estiver configurada e ainda não houver
-      // resumo. Vetos grandes (>25 dispositivos) exigem clique explícito em
-      // "Resumir com IA" para evitar dezenas de chamadas silenciosas.
-      if (app.config?.apiKey && v.dispositivos.length && v.dispositivos.length <= 25
-          && !v.dispositivos.some(d => d.resumo)) {
-        resumirVeto(v, { silencioso: true });
+      // Ao abrir: gera o "Resumo do Projeto" (1 chamada barata, qualquer tamanho).
+      // Os resumos dos dispositivos só são automáticos para vetos pequenos (≤25);
+      // os grandes exigem clique explícito para evitar dezenas de chamadas.
+      if (app.config?.apiKey) {
+        const pequeno = v.dispositivos.length && v.dispositivos.length <= 25;
+        if (pequeno && !v.dispositivos.some(d => d.resumo)) {
+          resumirVeto(v, { silencioso: true });        // inclui o resumo do projeto
+        } else if (!v.resumoProjeto) {
+          resumirProjeto(v, { silencioso: true });     // ao menos o resumo do projeto
+        }
       }
     } catch (e) {
       if (!isAbort(e)) { mostrarToast('Erro ao abrir o veto: ' + e.message, 'erro'); renderLista(); }
@@ -1009,21 +1076,35 @@ async function toggleVeto(key) {
 // ============================================================
 //  EDIÇÃO INLINE DO RESUMO (com autosave no Firebase + cache)
 // ============================================================
+// Alvo da edição: um dispositivo (por código) ou o resumo do projeto ("__projeto__").
+function alvoExiste(veto, codigo) {
+  return codigo === '__projeto__' ? true : !!veto?.dispositivos.find(x => x.codigo === codigo);
+}
+function getResumoAlvo(veto, codigo) {
+  if (codigo === '__projeto__') return veto.resumoProjeto || '';
+  return veto.dispositivos.find(x => x.codigo === codigo)?.resumo || '';
+}
+function setResumoAlvo(veto, codigo, valor) {
+  if (codigo === '__projeto__') { veto.resumoProjeto = valor; return; }
+  const d = veto.dispositivos.find(x => x.codigo === codigo);
+  if (d) d.resumo = valor;
+}
+
 function entrarEdicao(key, codigo) {
   if (app.editando) fecharEdicao(true);
   const veto = app.vetos.find(v => v.key === key);
-  const d = veto?.dispositivos.find(x => x.codigo === codigo);
-  if (!d) return;
+  if (!veto || !alvoExiste(veto, codigo)) return;
   const val = `${key}|${codigo}`;
   const div = document.querySelector(`[data-resumo="${val}"]`);
   if (!div) return;
+  const atual = getResumoAlvo(veto, codigo);
 
-  app.editando = { key, codigo, salvando: false, dirty: false, debounce: null, snapshot: d.resumo || '' };
+  app.editando = { key, codigo, salvando: false, dirty: false, debounce: null, snapshot: atual };
   atualizarBotaoParar();
   div.classList.remove('vazio');
   div.classList.add('editando');
   div.innerHTML = `
-    <textarea class="cn-disp-edit" data-edit="${val}">${escapeHtml(d.resumo || '')}</textarea>
+    <textarea class="cn-disp-edit" data-edit="${val}">${escapeHtml(atual)}</textarea>
     <div class="cn-disp-edit-bar">
       <span class="cn-disp-edit-status" data-edit-status></span>
       <button class="btn btn-ghost btn-sm" data-edit-cancel>Cancelar</button>
@@ -1054,12 +1135,11 @@ async function executarAutosaveEdit() {
   if (!ta) return;
   if (e.salvando) { e.debounce = setTimeout(executarAutosaveEdit, 400); return; }
   const veto = app.vetos.find(v => v.key === e.key);
-  const d = veto?.dispositivos.find(x => x.codigo === e.codigo);
-  if (!d || !veto) return;
+  if (!veto || !alvoExiste(veto, e.codigo)) return;
 
   e.salvando = true; e.dirty = false;
   setEditStatus('salvando…', 'var(--text-dim)');
-  d.resumo = ta.value.trim();
+  setResumoAlvo(veto, e.codigo, ta.value.trim());
   veto.resumoMeta = {
     provedor: veto.resumoMeta?.provedor || app.config?.provedor || 'manual',
     modelo: veto.resumoMeta?.modelo,
@@ -1085,13 +1165,12 @@ function fecharEdicao(salvar) {
   if (e.debounce) { clearTimeout(e.debounce); e.debounce = null; }
   const ta = document.querySelector(`[data-edit="${e.key}|${e.codigo}"]`);
   const veto = app.vetos.find(v => v.key === e.key);
-  const d = veto?.dispositivos.find(x => x.codigo === e.codigo);
   app.editando = null;            // libera antes de re-renderizar
-  if (veto && d) {
+  if (veto && alvoExiste(veto, e.codigo)) {
     if (salvar && ta) {
       const valor = ta.value.trim();
       if (valor !== e.snapshot) {
-        d.resumo = valor;
+        setResumoAlvo(veto, e.codigo, valor);
         veto.resumoMeta = {
           provedor: veto.resumoMeta?.provedor || app.config?.provedor || 'manual',
           modelo: veto.resumoMeta?.modelo,
@@ -1099,8 +1178,8 @@ function fecharEdicao(salvar) {
         };
         persistirResumo(veto);
       }
-    } else if (!salvar && d.resumo !== e.snapshot) {
-      d.resumo = e.snapshot;       // reverte (e re-grava caso o autosave já tenha persistido)
+    } else if (!salvar && getResumoAlvo(veto, e.codigo) !== e.snapshot) {
+      setResumoAlvo(veto, e.codigo, e.snapshot);  // reverte (re-grava caso o autosave já tenha persistido)
       persistirResumo(veto);
     }
   }
@@ -1127,10 +1206,10 @@ function carregarCacheLocal() {
 async function fbSalvarResumo(veto) {
   const resumos = {};
   veto.dispositivos.forEach(d => { if (d.resumo) resumos[d.codigo.replace(/\./g, '_')] = d.resumo; });
-  if (!Object.keys(resumos).length) return;
+  if (!Object.keys(resumos).length && !veto.resumoProjeto) return;
   const body = {
     numero: veto.numero, ano: veto.ano, materia: veto.materia, assunto: veto.assunto,
-    resumos, ...veto.resumoMeta,
+    resumos, resumoProjeto: veto.resumoProjeto || null, ...veto.resumoMeta,
   };
   const res = await fetch(`${FIREBASE_URL}/vetos_resumos/${veto.key}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1148,8 +1227,10 @@ async function mesclarResumosFirebase() {
 
   for (const v of app.vetos) {
     const reg = dados[v.key];
-    if (!reg?.resumos) continue;
+    if (!reg) continue;
     v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
+    if (reg.resumoProjeto && !v.resumoProjeto) v.resumoProjeto = reg.resumoProjeto;
+    if (!reg.resumos) continue;
     // Se ainda não temos os dispositivos (sem detalhe), guarda os resumos para aplicar depois.
     if (v.dispositivos.length) {
       v.dispositivos.forEach(d => {
@@ -1373,7 +1454,7 @@ async function onPerfilPadraoToggle() {
 //  SESSÕES SALVAS (snapshots da lista — compartilhados via Firebase)
 // ============================================================
 function leanVeto(v) {
-  const { aberto, resumindo, carregandoDetalhe, _resumosPendentes, ...rest } = v;
+  const { aberto, resumindo, resumindoProjeto, carregandoDetalhe, _progresso, _resumosPendentes, ...rest } = v;
   return rest;
 }
 function metaDaSessao(corpo) {

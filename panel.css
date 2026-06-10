@@ -1649,6 +1649,15 @@ body {
 /* Corpo expandido */
 .cn-veto-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
 .cn-veto-ementa { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 12px 0; }
+.cn-projeto-resumo {
+  font-size: 13px; color: var(--text); line-height: 1.55;
+  margin: 0 0 12px; padding: 8px 12px;
+  background: rgba(245,158,11,0.07); border-left: 2px solid #fbbf24; border-radius: 0 6px 6px 0;
+}
+.cn-projeto-resumo strong { color: #fbbf24; }
+.cn-projeto-resumo.vazio { background: none; border-left-color: var(--border-soft); }
+.cn-projeto-vazio { color: var(--text-dim); font-style: italic; }
+.cn-projeto-resumo.editando { background: none; border-left-color: var(--accent); padding: 0; }
 .cn-veto-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
 .cn-disp { padding: 12px 0; border-bottom: 1px dashed var(--border); }

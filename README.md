@@ -178,6 +178,7 @@ Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com I
 **Detalhamento e resumo por IA (Gemini, OpenAI ou Anthropic)**
 - Ao **abrir** um veto, a extensão busca a página oficial de detalhe e extrai cada dispositivo vetado (código `NN.AA.NNN`, descrição normativa, texto vetado integral e situação)
 - A IA gera automaticamente um **resumo curto (1–2 frases) de cada dispositivo**, explicando em linguagem clara o que ele estabelecia — ou seja, o que deixa de valer com o veto — sem recomendação de voto e sem inventar
+- Abaixo da ementa, a IA também gera um **"Resumo do Projeto"** bem sintético (1–2 linhas; 3–4 linhas para Veto Total), explicando o objetivo geral da proposição
 - Botão para **ver o texto integral** de cada dispositivo vetado e link para a página oficial
 - Os resumos são **compartilhados com toda a equipe via Firebase** (`/vetos_resumos/{veto}`) e cacheados localmente, evitando reprocessamento e gasto de API
 
