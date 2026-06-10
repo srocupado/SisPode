@@ -43,7 +43,29 @@
   </header>
 
   <!-- ===== CONTEÚDO ===== -->
-  <div class="cn-wrap">
+  <div class="app-body">
+
+    <!-- SIDEBAR: SESSÕES DE VETO -->
+    <aside class="sidebar">
+      <div class="sidebar-section">
+        <div class="sidebar-label">SESSÃO ATUAL</div>
+        <div id="cn-sessao-atual" class="sessao-info">Vetos em tramitação (ao vivo)</div>
+        <button id="btn-salvar-sessao" class="btn btn-outline btn-sm" style="width:100%;margin-top:8px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+          Salvar como sessão
+        </button>
+        <button id="btn-sessao-vivo" class="btn btn-ghost btn-sm" style="width:100%;margin-top:6px;display:none">↺ Voltar aos vetos ao vivo</button>
+      </div>
+      <div class="sidebar-section" style="flex:1;min-height:0;display:flex;flex-direction:column">
+        <div class="sidebar-label">SESSÕES SALVAS</div>
+        <div id="cn-sessoes-lista" class="lista-historico" style="flex:1;overflow-y:auto">
+          <div class="empty-state"><p>Nenhuma sessão salva</p></div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- MAIN -->
+    <main class="cn-main">
 
     <div class="cn-toolbar">
       <div class="cn-busca-wrap">
@@ -61,6 +83,10 @@
       <button id="btn-baixar-todos" class="btn btn-outline btn-sm" title="Baixar o detalhamento de todos os vetos para busca completa">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Baixar detalhes
+      </button>
+      <button id="btn-exportar-docx" class="btn btn-outline btn-sm" title="Exportar os vetos para um documento Word (.docx)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Word
       </button>
       <button id="btn-parar" class="btn btn-sm cn-btn-parar" style="display:none" title="Cancelar as operações de IA/download em andamento">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
@@ -90,6 +116,7 @@
       </div>
     </div>
 
+    </main>
   </div>
 
   <!-- ===== MODAL: CONFIGURAÇÕES DE IA (3 provedores) ===== -->
@@ -146,6 +173,43 @@
           <div id="config-status-ia" class="config-status" style="display:none;margin-top:8px"></div>
         </div>
 
+        <!-- PERFIS DE PROMPT -->
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            Perfis de prompt
+          </div>
+          <p class="config-desc">
+            Crie perfis de instruções que <strong>complementam</strong> o prompt base enviado ao LLM
+            (ênfase, recortes temáticos, tom). O perfil marcado como <strong>padrão da equipe</strong>
+            é aplicado automaticamente ao gerar os resumos. Compartilhados via Firebase.
+          </p>
+
+          <div class="form-group" style="margin-top:10px">
+            <label>Perfil</label>
+            <select id="perfil-select" class="form-input">
+              <option value="">— Novo perfil —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nome do perfil</label>
+            <input type="text" id="perfil-nome" class="form-input" placeholder="Ex: Foco no impacto para municípios">
+          </div>
+          <div class="form-group">
+            <label>Instruções adicionais</label>
+            <textarea id="perfil-texto" class="form-input" rows="5" placeholder="Ex: Destaque sempre os efeitos práticos para a saúde pública e cite a lei alterada."></textarea>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0">
+            <input type="checkbox" id="perfil-padrao"> Usar como padrão da equipe
+          </label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btn-perfil-salvar" class="btn btn-outline btn-sm">Salvar como novo</button>
+            <button id="btn-perfil-atualizar" class="btn btn-outline btn-sm" style="display:none">Atualizar</button>
+            <button id="btn-perfil-excluir" class="btn btn-ghost btn-sm" style="display:none">Excluir</button>
+          </div>
+          <div id="perfil-status" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
@@ -159,6 +223,7 @@
 
   <!-- ===== SCRIPTS ===== -->
   <script src="libs/pdf.min.js"></script>
+  <script src="libs/docx.iife.js"></script>
   <script src="congresso.js"></script>
 
 </body>

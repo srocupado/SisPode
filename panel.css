@@ -1536,13 +1536,27 @@ body {
    MÓDULO: VETOS DO CONGRESSO NACIONAL  (classes cn-*)
    Cores verde/azul replicam o "Relatório Resumo de Vetos" do PDF
    ============================================================ */
-/* cn-wrap preenche a altura restante e delega a rolagem à lista,
-   mantendo busca/legenda/stats fixos no topo. */
-.cn-wrap {
-  flex: 1; min-height: 0;
+/* cn-main preenche a altura restante (ao lado da sidebar) e delega a
+   rolagem à lista, mantendo busca/legenda/stats fixos no topo. */
+.cn-main {
+  flex: 1; min-width: 0; min-height: 0;
   display: flex; flex-direction: column;
-  width: 100%; max-width: 1100px; margin: 0 auto; padding: 18px 22px 0;
+  padding: 18px 22px 0; overflow: hidden;
 }
+
+/* Itens de sessão salva na sidebar */
+.cn-sessao-item {
+  padding: 9px 10px; border-radius: 8px; cursor: pointer;
+  display: flex; align-items: center; gap: 8px;
+  border: 1px solid transparent; transition: background 0.15s, border-color 0.15s;
+}
+.cn-sessao-item:hover { background: rgba(255,255,255,0.04); }
+.cn-sessao-item.ativa { background: var(--accent-muted); border-color: rgba(31,165,165,0.3); }
+.cn-sessao-item-info { flex: 1; min-width: 0; }
+.cn-sessao-item-nome { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cn-sessao-item-data { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.cn-sessao-item-del { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 13px; flex-shrink: 0; padding: 2px 4px; }
+.cn-sessao-item-del:hover { color: #f05454; }
 
 .cn-toolbar {
   display: flex; gap: 10px; align-items: center; flex-wrap: wrap;

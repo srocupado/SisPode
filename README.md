@@ -183,7 +183,18 @@ Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com I
 
 **Busca geral**
 - Campo de busca que pesquisa em **todo o conteúdo** — nº, assunto, matéria, lei, códigos, textos dos dispositivos e resumos da IA —, com destaque das ocorrências e expansão automática dos vetos correspondentes
-- Botão **Baixar todos** (com barra de progresso) que baixa o detalhamento de todos os vetos em segundo plano para habilitar a busca completa no texto
+- Botão **Baixar detalhes** (com barra de progresso) que baixa o detalhamento de todos os vetos em segundo plano para habilitar a busca completa no texto
+
+**Geração em lote, parcelamento e retomada**
+- Botão **Resumir todos** gera os resumos de todos os vetos pendentes, com barra de progresso; **Parar** cancela qualquer operação de IA/download em andamento
+- Vetos grandes (ex.: 340 dispositivos) são processados em **lotes de 15 dispositivos por chamada**, com **persistência incremental** a cada lote — uma falha ou interrupção não perde o que já foi feito
+- Em caso de falha parcial, o card mostra **"Continuar (N restantes)"** para **retomar de onde parou** (só os dispositivos ainda sem resumo)
+
+**Edição, perfis de prompt, sessões e exportação**
+- Cada resumo é **editável inline** (✎) com autosave (Firebase + cache) e indicador de status; marcador de **sincronização com o Firebase** registra o horário do último salvamento
+- **Perfis de prompt** (em ⚙ Configurações): biblioteca de instruções que complementam o prompt base, com um perfil marcado como **padrão da equipe** aplicado automaticamente — compartilhados via Firebase
+- **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
+- **Exportação para Word (.docx)** de todos os vetos visíveis, com cabeçalho, ementa, dispositivos, resumos e o texto integral vetado
 
 ---
 

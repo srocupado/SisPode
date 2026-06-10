@@ -16,6 +16,7 @@ const CODETABS       = 'https://api.codetabs.com/v1/proxy?quest=';
 const ANTHROPIC_VER  = '2023-06-01';
 const CACHE_TTL_MS   = 6 * 60 * 60 * 1000;   // re-baixa o PDF se o cache tiver +6h
 const THROTTLE_MS    = 350;                  // intervalo entre downloads de detalhe
+const CHUNK_DISP     = 15;                   // dispositivos por chamada de IA (parcela vetos grandes)
 
 // Faixas de x (em coordenadas do PDF, página com 595pt de largura) que
 // delimitam cada coluna da tabela do relatório.
@@ -86,9 +87,14 @@ const app = {
   baixandoTodos: false,
   editando: null,      // { key, codigo, salvando, dirty, debounce, snapshot }
   ultimoSync: null,    // ISO da última gravação no Firebase
+  perfis: [],          // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
+  perfilPadraoId: null,// id do perfil de prompt aplicado por padrão (compartilhado pela equipe)
+  sessoes: [],         // [{ id, nome, criadoEm, criadoPor, atualizadoEm, total, comResumo }] (metadados)
+  sessaoAtiva: null,   // { id, nome } quando uma sessão salva está carregada (null = lista ao vivo)
   toastTimer: null,
   buscaTimer: null,
   saveTimer: null,
+  sessaoSaveTimer: null,
 };
 
 let _abort = new AbortController();
@@ -104,6 +110,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   await carregarConfig();
   wireEventos();
+  carregarBibliotecaPerfis().catch(e => console.warn('Perfis indisponíveis:', e.message));
+  carregarSessoes().then(renderSidebar).catch(e => console.warn('Sessões indisponíveis:', e.message));
 
   // Render imediato a partir do cache local (se houver) e refresh em segundo plano.
   const cache = await carregarCacheLocal();
@@ -141,6 +149,18 @@ function wireEventos() {
     const i = document.getElementById('config-api-key');
     i.type = i.type === 'password' ? 'text' : 'password';
   });
+
+  // Perfis de prompt
+  document.getElementById('perfil-select').addEventListener('change', refletirSelecaoPerfil);
+  document.getElementById('btn-perfil-salvar').addEventListener('click', salvarPerfilNovo);
+  document.getElementById('btn-perfil-atualizar').addEventListener('click', atualizarPerfil);
+  document.getElementById('btn-perfil-excluir').addEventListener('click', excluirPerfil);
+  document.getElementById('perfil-padrao').addEventListener('change', onPerfilPadraoToggle);
+
+  // Sessões + exportação
+  document.getElementById('btn-salvar-sessao').addEventListener('click', salvarSessaoAtual);
+  document.getElementById('btn-sessao-vivo').addEventListener('click', voltarAoVivo);
+  document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
 
   // Busca
   const busca = document.getElementById('cn-busca');
@@ -399,7 +419,15 @@ async function baixarArrayBuffer(url) {
 // ============================================================
 //  IA — resumo de cada dispositivo
 // ============================================================
-async function resumirVeto(veto, { silencioso = false, render = true } = {}) {
+/**
+ * Resume os dispositivos de um veto em LOTES (CHUNK_DISP por chamada), para
+ * não estourar o LLM em vetos grandes (ex.: 340 dispositivos). Persiste a cada
+ * lote, então uma interrupção/recarga não perde o progresso.
+ * @param {object} opts.apenasFaltantes  só resume dispositivos ainda sem resumo
+ *   (retomada de onde parou). false = regera todos.
+ * @returns {boolean} true se, ao final, todos os dispositivos têm resumo.
+ */
+async function resumirVeto(veto, { silencioso = false, render = true, apenasFaltantes = true } = {}) {
   if (!app.config?.apiKey) {
     if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso');
     return false;
@@ -409,36 +437,54 @@ async function resumirVeto(veto, { silencioso = false, render = true } = {}) {
     if (!silencioso) mostrarToast('Este veto não tem dispositivos para resumir.', 'aviso');
     return false;
   }
+
+  const alvo = apenasFaltantes ? veto.dispositivos.filter(d => !d.resumo) : veto.dispositivos.slice();
+  if (!alvo.length) { if (!silencioso) mostrarToast('Este veto já está resumido.', 'sucesso'); return true; }
+  const lotes = chunk(alvo, CHUNK_DISP);
+
   veto.resumindo = true;
+  veto._progresso = { feito: 0, total: alvo.length };
   iaInc();
   if (render && !app.editando) renderLista();
+
+  let feitos = 0, interrompido = false, erroMsg = '';
   try {
-    const prompt = promptResumo(veto);
-    const texto = await chamarIAtexto({ ...app.config, prompt });
-    const mapa = extrairJson(texto);
-    let aplicados = 0;
-    veto.dispositivos.forEach(d => {
-      const r = mapa[d.codigo] || mapa[d.codigo.replace(/^0+/, '')];
-      if (r) { d.resumo = String(r).trim(); aplicados++; }
-    });
-    if (!aplicados) throw new Error('A IA não retornou resumos reconhecíveis.');
-    veto.resumoMeta = {
-      provedor: app.config.provedor, modelo: app.config.modelo,
-      atualizadoEm: new Date().toISOString(),
-    };
-    await persistirResumo(veto);
-    if (!silencioso) mostrarToast(`✓ ${aplicados} dispositivo(s) resumido(s)`, 'sucesso');
-    return true;
-  } catch (e) {
-    if (isAbort(e)) return false;
-    console.error('[congresso] resumirVeto', e);
-    if (!silencioso) mostrarToast('Erro ao resumir: ' + e.message, 'erro');
-    return false;
+    for (let li = 0; li < lotes.length; li++) {
+      if (_abort.signal.aborted) { interrompido = true; break; }
+      const lote = lotes[li];
+      let mapa;
+      try {
+        const texto = await chamarIAtexto({ ...app.config, prompt: promptResumo(veto, lote) });
+        mapa = extrairJson(texto);
+      } catch (e) {
+        if (isAbort(e)) { interrompido = true; break; }
+        erroMsg = e.message; break;  // falha de rede/API: para e deixa o restante para retomada
+      }
+      let aplicadosLote = 0;
+      lote.forEach(d => {
+        const r = mapa[d.codigo] || mapa[d.codigo.replace(/^0+/, '')];
+        if (r) { d.resumo = String(r).trim(); aplicadosLote++; feitos++; }
+      });
+      veto.resumoMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
+      veto._progresso = { feito: feitos, total: alvo.length };
+      await persistirResumo(veto);              // persistência incremental (resiste a interrupção)
+      if (render && !app.editando) renderLista();
+      if (aplicadosLote === 0) { erroMsg = 'a IA não retornou resumos reconhecíveis neste lote'; break; }
+    }
   } finally {
     veto.resumindo = false;
+    veto._progresso = null;
     iaDec();
     if (render && !app.editando) renderLista();
   }
+
+  const faltam = veto.dispositivos.filter(d => !d.resumo).length;
+  if (!silencioso) {
+    if (faltam === 0) mostrarToast(`✓ VET ${veto.numero}: ${feitos} dispositivo(s) resumido(s)`, 'sucesso');
+    else if (interrompido) mostrarToast(`Interrompido em VET ${veto.numero}: ${feitos} feito(s), ${faltam} restante(s). Use "Continuar" para retomar.`, 'aviso');
+    else mostrarToast(`⚠ VET ${veto.numero}: ${feitos} feito(s), ${faltam} restante(s)${erroMsg ? ' — ' + erroMsg : ''}. Use "Continuar" para retomar.`, 'aviso');
+  }
+  return faltam === 0;
 }
 
 /** Salva o resumo no Firebase (com marcador de sync) e no cache local.
@@ -447,7 +493,8 @@ async function persistirResumo(veto) {
   atualizarStatusSync('sincronizando');
   let ok = false;
   try {
-    await fbSalvarResumo(veto);
+    if (app.sessaoAtiva) await fbSalvarVetoSessao(app.sessaoAtiva.id, veto);
+    else await fbSalvarResumo(veto);
     atualizarStatusSync('ok');
     ok = true;
   } catch (e) {
@@ -550,23 +597,42 @@ function setBtnGerar(rodando) {
     : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 9l-4.9 3.6L17 18l-5-3.5L7 18l1.9-5.4L4 9l6.1-.2z"/></svg> Resumir todos';
 }
 
-function promptResumo(veto) {
-  const lista = veto.dispositivos.map(d =>
+function promptResumo(veto, dispositivos = veto.dispositivos) {
+  const lista = dispositivos.map(d =>
     `• Código ${d.codigo} — Dispositivo: ${d.descricao}\n  Texto vetado: "${(d.texto || d.descricao).slice(0, 1200)}"`
   ).join('\n\n');
 
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
 
-Abaixo estão os dispositivos vetados do ${veto.tipo === 'Total' ? 'Veto Total' : 'Veto Parcial'} nº ${veto.numero}, referente à matéria ${veto.materia} (${veto.assunto}).
+Abaixo estão dispositivos vetados do ${veto.tipo === 'Total' ? 'Veto Total' : 'Veto Parcial'} nº ${veto.numero}, referente à matéria ${veto.materia} (${veto.assunto}).
 
-Para CADA dispositivo, escreva um resumo curto (1 a 2 frases), em português claro e objetivo, explicando o que o dispositivo vetado estabelecia — ou seja, o que deixa de valer com o veto. Use verbos normativos (estabelece, veda, autoriza, isenta, cria, altera...). Não recomende voto, não opine e não invente nada além do texto fornecido.
+Para CADA dispositivo listado, escreva um resumo curto (1 a 2 frases), em português claro e objetivo, explicando o que o dispositivo vetado estabelecia — ou seja, o que deixa de valer com o veto. Use verbos normativos (estabelece, veda, autoriza, isenta, cria, altera...). Não recomende voto, não opine e não invente nada além do texto fornecido.
 
 Responda EXCLUSIVAMENTE com um objeto JSON válido, sem cercas de código, no formato:
-{"${veto.dispositivos[0]?.codigo || '00.00.000'}": "resumo do dispositivo", ...}
-Use exatamente os códigos abaixo como chaves.
-
+{"${dispositivos[0]?.codigo || '00.00.000'}": "resumo do dispositivo", ...}
+Use exatamente os códigos abaixo como chaves e inclua TODOS eles.
+${blocoPerfilPadrao()}
 Dispositivos:
 ${lista}`;
+}
+
+/** Divide um array em lotes de tamanho n. */
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+/** Instruções adicionais do perfil de prompt padrão da equipe (se houver). */
+function instrucoesPerfilPadrao() {
+  const p = (app.perfis || []).find(x => x.id === app.perfilPadraoId);
+  return p?.texto || '';
+}
+function blocoPerfilPadrao() {
+  const t = instrucoesPerfilPadrao();
+  return t
+    ? `\nINSTRUÇÕES ADICIONAIS DA EQUIPE (orientam a ênfase e o recorte, mas NÃO alteram o formato JSON nem as regras acima):\n${t}\n`
+    : '';
 }
 
 /** Chamada de IA somente-texto (sem PDF), com a mesma matriz de 3 provedores. */
@@ -817,14 +883,25 @@ function renderCorpo(v, termo) {
 
   const metaIA = v.resumoMeta
     ? `<span style="font-size:11px;color:var(--text-dim)">Resumo: ${v.resumoMeta.provedor}${v.resumoMeta.modelo ? ' / ' + v.resumoMeta.modelo : ''}</span>` : '';
-  const temResumo = v.dispositivos.some(d => d.resumo);
+  const feitos = v.dispositivos.filter(d => d.resumo).length;
+  const faltam = v.dispositivos.length - feitos;
+
+  let botaoResumir;
+  if (v.resumindo) {
+    const p = v._progresso;
+    botaoResumir = `<button class="btn btn-outline btn-sm" disabled><span class="cn-spinner"></span> Resumindo…${p ? ` ${p.feito}/${p.total}` : ''}</button>`;
+  } else if (faltam > 0 && feitos > 0) {
+    botaoResumir = `<button class="btn btn-primary btn-sm" data-resumir="${v.key}">↻ Continuar (${faltam} restante${faltam === 1 ? '' : 's'})</button>`;
+  } else if (faltam > 0) {
+    botaoResumir = `<button class="btn btn-outline btn-sm" data-resumir="${v.key}">✨ Resumir com IA</button>`;
+  } else {
+    botaoResumir = `<button class="btn btn-outline btn-sm" data-regerar="${v.key}">↻ Regerar resumos</button>`;
+  }
 
   return `<div class="cn-veto-body">
     ${v.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(v.ementa, termo)}</div>` : ''}
     <div class="cn-veto-acoes">
-      <button class="btn btn-outline btn-sm" data-resumir="${v.key}" ${v.resumindo ? 'disabled' : ''}>
-        ${v.resumindo ? '<span class="cn-spinner"></span> Resumindo…' : (temResumo ? '↻ Regerar resumos' : '✨ Resumir com IA')}
-      </button>
+      ${botaoResumir}
       ${v.detalheUrl ? `<a class="btn btn-ghost btn-sm" href="${v.detalheUrl}" target="_blank" rel="noopener">Abrir página oficial ↗</a>` : ''}
       ${metaIA}
     </div>
@@ -839,7 +916,13 @@ function wireCards() {
     b.addEventListener('click', e => {
       e.stopPropagation();
       const v = app.vetos.find(x => x.key === b.dataset.resumir);
-      if (v) resumirVeto(v);
+      if (v) resumirVeto(v, { apenasFaltantes: true });   // gera/retoma os faltantes
+    }));
+  document.querySelectorAll('[data-regerar]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const v = app.vetos.find(x => x.key === b.dataset.regerar);
+      if (v) resumirVeto(v, { apenasFaltantes: false });  // regera todos
     }));
   document.querySelectorAll('[data-texto]').forEach(b =>
     b.addEventListener('click', e => {
@@ -870,8 +953,11 @@ async function toggleVeto(key) {
       await carregarDetalhe(v);
       renderLista();
       salvarCacheLocal();
-      // Resumo automático ao abrir, se a IA estiver configurada e ainda não houver resumo.
-      if (app.config?.apiKey && v.dispositivos.length && !v.dispositivos.some(d => d.resumo)) {
+      // Resumo automático ao abrir, se a IA estiver configurada e ainda não houver
+      // resumo. Vetos grandes (>25 dispositivos) exigem clique explícito em
+      // "Resumir com IA" para evitar dezenas de chamadas silenciosas.
+      if (app.config?.apiKey && v.dispositivos.length && v.dispositivos.length <= 25
+          && !v.dispositivos.some(d => d.resumo)) {
         resumirVeto(v, { silencioso: true });
       }
     } catch (e) {
@@ -986,6 +1072,7 @@ function fecharEdicao(salvar) {
 //  PERSISTÊNCIA — cache local + Firebase (resumos compartilhados)
 // ============================================================
 function salvarCacheLocal() {
+  if (app.sessaoAtiva) return;   // em sessão salva, o estado vive no Firebase, não no cache da lista viva
   clearTimeout(app.saveTimer);
   app.saveTimer = setTimeout(() => {
     const lean = app.vetos.map(v => ({ ...v, aberto: false, resumindo: false, carregandoDetalhe: false }));
@@ -1049,6 +1136,9 @@ function abrirConfig() {
   onProvedorChange();
   popularModelos(c.modelo);
   document.getElementById('config-status-ia').style.display = 'none';
+  popularSelectPerfis(app.perfilPadraoId || '');
+  refletirSelecaoPerfil();
+  document.getElementById('perfil-status').textContent = '';
   document.getElementById('modal-configuracoes').style.display = 'flex';
 }
 
@@ -1111,6 +1201,324 @@ async function salvarConfig() {
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
   mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+// ============================================================
+//  PERFIS DE PROMPT (biblioteca compartilhada via Firebase)
+// ============================================================
+async function fbCarregarPerfis() {
+  const res = await fetch(`${FIREBASE_URL}/vetos_prompts.json`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data) return [];
+  return Object.entries(data).map(([id, p]) => ({ ...p, id }))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+}
+async function fbSalvarPerfil(p) {
+  const id = p.id || ('vp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const corpo = {
+    nome: p.nome, texto: p.texto,
+    criadoPor: p.criadoPor || 'equipe',
+    criadoEm: p.criadoEm || new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(),
+  };
+  const res = await fetch(`${FIREBASE_URL}/vetos_prompts/${id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  return { ...corpo, id };
+}
+async function fbApagarPerfil(id) {
+  const res = await fetch(`${FIREBASE_URL}/vetos_prompts/${id}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function fbCarregarPerfilPadrao() {
+  const res = await fetch(`${FIREBASE_URL}/vetos_prompt_padrao.json`);
+  if (!res.ok) return null;
+  return await res.json();
+}
+async function fbSalvarPerfilPadrao(id) {
+  const res = await fetch(`${FIREBASE_URL}/vetos_prompt_padrao.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(id || null),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function carregarBibliotecaPerfis() {
+  const [lista, padraoId] = await Promise.all([fbCarregarPerfis(), fbCarregarPerfilPadrao()]);
+  app.perfis = lista;
+  app.perfilPadraoId = padraoId || null;
+}
+
+function popularSelectPerfis(selecionadoId = '') {
+  const sel = document.getElementById('perfil-select');
+  const opts = ['<option value="">— Novo perfil —</option>'].concat(
+    (app.perfis || []).map(p => {
+      const m = p.id === app.perfilPadraoId ? ' ★ (padrão)' : '';
+      return `<option value="${escapeHtml(p.id)}">${escapeHtml(p.nome || '(sem nome)')}${m}</option>`;
+    }));
+  sel.innerHTML = opts.join('');
+  sel.value = selecionadoId || '';
+}
+function refletirSelecaoPerfil() {
+  const id = document.getElementById('perfil-select').value;
+  const p = (app.perfis || []).find(x => x.id === id);
+  const btnAtu = document.getElementById('btn-perfil-atualizar');
+  const btnExc = document.getElementById('btn-perfil-excluir');
+  const chk = document.getElementById('perfil-padrao');
+  document.getElementById('perfil-nome').value = p?.nome || '';
+  document.getElementById('perfil-texto').value = p?.texto || '';
+  btnAtu.style.display = p ? 'inline-flex' : 'none';
+  btnExc.style.display = p ? 'inline-flex' : 'none';
+  chk.checked = !!p && app.perfilPadraoId === p.id;
+}
+function setPerfilStatus(texto, cor) {
+  const el = document.getElementById('perfil-status');
+  if (el) { el.textContent = texto || ''; el.style.color = cor || 'var(--text-dim)'; }
+}
+async function salvarPerfilNovo() {
+  const nome = document.getElementById('perfil-nome').value.trim();
+  const texto = document.getElementById('perfil-texto').value.trim();
+  if (!nome) { setPerfilStatus('Dê um nome ao perfil.', '#f0c040'); return; }
+  if (!texto) { setPerfilStatus('Escreva as instruções.', '#f0c040'); return; }
+  setPerfilStatus('Salvando…');
+  try {
+    const salvo = await fbSalvarPerfil({ nome, texto });
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(salvo.id); refletirSelecaoPerfil();
+    setPerfilStatus('✓ Perfil salvo.', '#3ad97d');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function atualizarPerfil() {
+  const id = document.getElementById('perfil-select').value;
+  if (!id) return;
+  const nome = document.getElementById('perfil-nome').value.trim();
+  const texto = document.getElementById('perfil-texto').value.trim();
+  if (!nome || !texto) { setPerfilStatus('Nome e instruções são obrigatórios.', '#f0c040'); return; }
+  const atual = (app.perfis || []).find(x => x.id === id);
+  setPerfilStatus('Atualizando…');
+  try {
+    await fbSalvarPerfil({ id, nome, texto, criadoPor: atual?.criadoPor, criadoEm: atual?.criadoEm });
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(id); refletirSelecaoPerfil();
+    setPerfilStatus('✓ Perfil atualizado.', '#3ad97d');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function excluirPerfil() {
+  const id = document.getElementById('perfil-select').value;
+  if (!id) return;
+  if (!confirm('Excluir este perfil da biblioteca compartilhada? Isso afeta toda a equipe.')) return;
+  setPerfilStatus('Excluindo…');
+  try {
+    await fbApagarPerfil(id);
+    if (app.perfilPadraoId === id) { await fbSalvarPerfilPadrao(null); app.perfilPadraoId = null; }
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(''); refletirSelecaoPerfil();
+    setPerfilStatus('Perfil excluído.', 'var(--text-dim)');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function onPerfilPadraoToggle() {
+  const chk = document.getElementById('perfil-padrao');
+  const id = document.getElementById('perfil-select').value;
+  if (chk.checked) {
+    if (!id) { chk.checked = false; setPerfilStatus('Salve o perfil antes de defini-lo como padrão.', '#f0c040'); return; }
+    try { await fbSalvarPerfilPadrao(id); app.perfilPadraoId = id; popularSelectPerfis(id); setPerfilStatus('✓ Definido como padrão da equipe.', '#3ad97d'); }
+    catch (e) { chk.checked = false; setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+  } else if (app.perfilPadraoId === id) {
+    try { await fbSalvarPerfilPadrao(null); app.perfilPadraoId = null; popularSelectPerfis(id); setPerfilStatus('Padrão da equipe removido.', 'var(--text-dim)'); }
+    catch (e) { chk.checked = true; setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+  }
+}
+
+// ============================================================
+//  SESSÕES SALVAS (snapshots da lista — compartilhados via Firebase)
+// ============================================================
+function leanVeto(v) {
+  const { aberto, resumindo, carregandoDetalhe, _resumosPendentes, ...rest } = v;
+  return rest;
+}
+async function fbCarregarSessoes() {
+  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes.json`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data) return [];
+  return Object.entries(data).map(([id, s]) => ({
+    id, nome: s.nome, criadoEm: s.criadoEm, criadoPor: s.criadoPor, atualizadoEm: s.atualizadoEm,
+    total: s.vetos ? Object.keys(s.vetos).length : 0,
+  })).sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+}
+async function fbCriarSessao(nome) {
+  const id = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  const vetosMap = {};
+  app.vetos.forEach(v => { vetosMap[v.key] = leanVeto(v); });
+  const corpo = { nome, criadoPor: 'equipe', criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(), vetos: vetosMap };
+  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  return { id, nome };
+}
+async function fbSalvarVetoSessao(id, veto) {
+  const r1 = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/vetos/${veto.key}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(leanVeto(veto)),
+  });
+  if (!r1.ok) throw new Error(`Firebase HTTP ${r1.status}`);
+  fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/atualizadoEm.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(new Date().toISOString()),
+  }).catch(() => {});
+}
+async function fbApagarSessao(id) {
+  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+async function carregarSessoes() {
+  app.sessoes = await fbCarregarSessoes();
+}
+
+function renderSidebar() {
+  const atual = document.getElementById('cn-sessao-atual');
+  const btnVivo = document.getElementById('btn-sessao-vivo');
+  if (app.sessaoAtiva) {
+    atual.textContent = `📁 ${app.sessaoAtiva.nome}`;
+    atual.classList.remove('empty');
+    btnVivo.style.display = 'block';
+  } else {
+    atual.textContent = 'Vetos em tramitação (ao vivo)';
+    btnVivo.style.display = 'none';
+  }
+  const lista = document.getElementById('cn-sessoes-lista');
+  if (!app.sessoes.length) {
+    lista.innerHTML = '<div class="empty-state"><p>Nenhuma sessão salva</p></div>';
+    return;
+  }
+  lista.innerHTML = app.sessoes.map(s => {
+    const d = s.criadoEm ? new Date(s.criadoEm) : null;
+    const data = (d ? `${d.toLocaleDateString('pt-BR')} · ` : '') + `${s.total} veto(s)`;
+    const ativa = app.sessaoAtiva?.id === s.id ? ' ativa' : '';
+    return `<div class="cn-sessao-item${ativa}" data-sessao="${s.id}">
+      <div class="cn-sessao-item-info">
+        <div class="cn-sessao-item-nome">${escapeHtml(s.nome || '(sem nome)')}</div>
+        <div class="cn-sessao-item-data">${data}</div>
+      </div>
+      <button class="cn-sessao-item-del" data-sessao-del="${s.id}" title="Excluir sessão">✕</button>
+    </div>`;
+  }).join('');
+  lista.querySelectorAll('[data-sessao]').forEach(el =>
+    el.addEventListener('click', () => carregarSessao(el.dataset.sessao)));
+  lista.querySelectorAll('[data-sessao-del]').forEach(b =>
+    b.addEventListener('click', e => excluirSessao(b.dataset.sessaoDel, e)));
+}
+
+async function salvarSessaoAtual() {
+  if (!app.vetos.length) { mostrarToast('Nada para salvar ainda.', 'aviso'); return; }
+  const nome = prompt('Nome da sessão:', app.sessaoAtiva ? app.sessaoAtiva.nome : `Vetos em ${new Date().toLocaleDateString('pt-BR')}`);
+  if (!nome || !nome.trim()) return;
+  mostrarToast('Salvando sessão…', '');
+  try {
+    const s = await fbCriarSessao(nome.trim());
+    await carregarSessoes();
+    app.sessaoAtiva = s;
+    renderSidebar();
+    atualizarStatusSync('ok');
+    mostrarToast('✓ Sessão salva e ativada.', 'sucesso');
+  } catch (e) { mostrarToast('Erro ao salvar sessão: ' + e.message, 'erro'); }
+}
+
+async function carregarSessao(id) {
+  if (app.editando) fecharEdicao(true);
+  mostrarToast('Carregando sessão…', '');
+  try {
+    const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`);
+    const s = res.ok ? await res.json() : null;
+    if (!s) throw new Error('Sessão não encontrada.');
+    const arr = s.vetos ? Object.values(s.vetos) : [];
+    arr.sort((a, b) => (b.ano - a.ano) || (b.num - a.num));
+    app.vetos = arr.map(v => ({ ...v, aberto: false, resumindo: false, carregandoDetalhe: false }));
+    app.sessaoAtiva = { id, nome: s.nome };
+    renderSidebar();
+    renderLista();
+    mostrarToast(`Sessão "${s.nome}" carregada.`, 'sucesso');
+  } catch (e) { mostrarToast('Erro ao carregar sessão: ' + e.message, 'erro'); }
+}
+
+async function voltarAoVivo() {
+  if (app.editando) fecharEdicao(true);
+  app.sessaoAtiva = null;
+  renderSidebar();
+  const cache = await carregarCacheLocal();
+  if (cache?.vetos?.length) {
+    app.vetos = cache.vetos.map(v => ({ ...v, aberto: false }));
+    await mesclarResumosFirebase();
+    renderLista();
+    marcarSyncInicial();
+  } else {
+    carregarListaVetos(false);
+  }
+  mostrarToast('Voltou aos vetos em tramitação (ao vivo).', '');
+}
+
+async function excluirSessao(id, ev) {
+  ev?.stopPropagation();
+  const s = app.sessoes.find(x => x.id === id);
+  if (!confirm(`Excluir a sessão "${s?.nome || id}"? Isso afeta toda a equipe.`)) return;
+  try {
+    await fbApagarSessao(id);
+    if (app.sessaoAtiva?.id === id) await voltarAoVivo();
+    await carregarSessoes();
+    renderSidebar();
+    mostrarToast('Sessão excluída.', '');
+  } catch (e) { mostrarToast('Erro ao excluir: ' + e.message, 'erro'); }
+}
+
+// ============================================================
+//  EXPORTAÇÃO PARA WORD (.docx)
+// ============================================================
+async function exportarDocx() {
+  const termo = app.busca;
+  const vetos = app.vetos.filter(v => vetoCasaBusca(v, termo));
+  if (!vetos.length) { mostrarToast('Nenhum veto para exportar.', 'aviso'); return; }
+  if (typeof docx === 'undefined') { mostrarToast('Biblioteca de exportação não carregada.', 'erro'); return; }
+  const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;
+  if (semDetalhe && !confirm(`${semDetalhe} veto(s) ainda não tiveram os detalhes baixados (sairão sem dispositivos). Exportar mesmo assim?\n\nDica: use "Baixar detalhes" antes para um documento completo.`)) return;
+
+  mostrarToast('Gerando documento Word…', '');
+  const { Document, Paragraph, TextRun, Packer, BorderStyle } = docx;
+  const filhos = [];
+  filhos.push(new Paragraph({ children: [new TextRun({ text: 'Vetos do Congresso Nacional', bold: true, size: 32 })], spacing: { after: 60 } }));
+  filhos.push(new Paragraph({
+    spacing: { after: 240 },
+    children: [new TextRun({ text: `Liderança do Podemos · ${app.sessaoAtiva ? 'Sessão: ' + app.sessaoAtiva.nome : 'Vetos em tramitação'} · ${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)`, italics: true, size: 18, color: '6b7280' })],
+  }));
+
+  vetos.forEach(v => {
+    filhos.push(new Paragraph({
+      spacing: { before: 220, after: 30 },
+      border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
+      children: [new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 26 })],
+    }));
+    filhos.push(new Paragraph({ spacing: { after: 30 }, children: [new TextRun({ text: v.assunto || '', bold: true, size: 22 })] }));
+    const meta = `${v.materia || ''}${v.sobresta ? ' · Sobrestando a pauta: ' + v.sobresta : ''}${v.dataSobresta ? ' (' + v.dataSobresta + ')' : ''}${v.qtdNum != null ? ' · ' + v.qtdNum + ' dispositivo(s)' : (v.tipo === 'Total' ? ' · Veto Total' : '')}`;
+    filhos.push(new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: meta, size: 18, color: '6b7280' })] }));
+    if (v.ementa) filhos.push(new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: 'Ementa: ', bold: true, size: 18 }), new TextRun({ text: v.ementa, size: 18, italics: true })] }));
+    (v.dispositivos || []).forEach(d => {
+      filhos.push(new Paragraph({ spacing: { before: 90 }, children: [new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }), new TextRun({ text: d.descricao || '', size: 18 })] }));
+      if (d.resumo) filhos.push(new Paragraph({ spacing: { before: 20 }, children: [new TextRun({ text: 'Resumo: ', bold: true, size: 18 }), new TextRun({ text: d.resumo, size: 18 })] }));
+      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 20 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
+    });
+    if (!(v.dispositivos || []).length) filhos.push(new Paragraph({ children: [new TextRun({ text: '(dispositivos não baixados — use "Baixar detalhes")', size: 16, italics: true, color: '999999' })] }));
+  });
+
+  try {
+    const blob = await Packer.toBlob(new Document({ sections: [{ properties: {}, children: filhos }] }));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const sufixo = app.sessaoAtiva ? '_' + app.sessaoAtiva.nome.replace(/[^\w]+/g, '_') : '';
+    a.download = `Vetos_Congresso${sufixo}_${new Date().toISOString().slice(0, 10)}.docx`;
+    a.click();
+    URL.revokeObjectURL(url);
+    mostrarToast(`✓ Word gerado (${vetos.length} veto(s)).`, 'sucesso');
+  } catch (e) { console.error('[congresso] exportarDocx', e); mostrarToast('Erro ao gerar Word: ' + e.message, 'erro'); }
 }
 
 // ============================================================
