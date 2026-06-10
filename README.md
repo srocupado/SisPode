@@ -173,7 +173,8 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 **Pautas de Sessão Conjunta (importação)**
 - Na sidebar, **importe a pauta** de uma Sessão Conjunta: escolha entre as **sessões recentes** (lidas da agenda oficial, filtrando as deliberativas) ou **cole a URL/ID** da pauta (fallback robusto)
 - O parser extrai os itens deliberativos da Ordem do Dia: **Vetos** (reaproveitam todo o fluxo de dispositivos/razões/resumos) e **PLNs / MPVs de crédito**
-- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer nativamente
+- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer nativamente. A análise é **editável** (autosave) e pode ser escrita manualmente
+- O **export para Word** inclui os PLNs/MPVs da pauta (identificação, autor, ementa e análise), além dos vetos
 - As pautas são **compartilhadas com a equipe** via Firebase (`/congresso_pautas`); a lista viva "Vetos em tramitação" continua como visão padrão (botão "Voltar aos vetos ao vivo")
 
 **Listagem oficial (vetos em tramitação)**
