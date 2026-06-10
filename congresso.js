@@ -1483,29 +1483,31 @@ async function exportarDocx() {
 
   mostrarToast('Gerando documento Word…', '');
   const { Document, Paragraph, TextRun, Packer, BorderStyle } = docx;
+  const L15 = { line: 360, lineRule: 'auto' };  // entrelinhas 1,5 (240 = simples)
+  const GAP_DISP = 480;                          // espaçamento 2,0 (duplo) entre dispositivos
   const filhos = [];
-  filhos.push(new Paragraph({ children: [new TextRun({ text: 'Vetos do Congresso Nacional', bold: true, size: 32 })], spacing: { after: 60 } }));
+  filhos.push(new Paragraph({ children: [new TextRun({ text: 'Vetos do Congresso Nacional', bold: true, size: 32 })], spacing: { after: 60, ...L15 } }));
   filhos.push(new Paragraph({
-    spacing: { after: 240 },
+    spacing: { after: 240, ...L15 },
     children: [new TextRun({ text: `Liderança do Podemos · ${app.sessaoAtiva ? 'Sessão: ' + app.sessaoAtiva.nome : 'Vetos em tramitação'} · ${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)`, italics: true, size: 18, color: '6b7280' })],
   }));
 
   vetos.forEach(v => {
     filhos.push(new Paragraph({
-      spacing: { before: 220, after: 30 },
+      spacing: { before: 360, after: 30, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
       children: [new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 26 })],
     }));
-    filhos.push(new Paragraph({ spacing: { after: 30 }, children: [new TextRun({ text: v.assunto || '', bold: true, size: 22 })] }));
+    filhos.push(new Paragraph({ spacing: { after: 30, ...L15 }, children: [new TextRun({ text: v.assunto || '', bold: true, size: 22 })] }));
     const meta = `${v.materia || ''}${v.sobresta ? ' · Sobrestando a pauta: ' + v.sobresta : ''}${v.dataSobresta ? ' (' + v.dataSobresta + ')' : ''}${v.qtdNum != null ? ' · ' + v.qtdNum + ' dispositivo(s)' : (v.tipo === 'Total' ? ' · Veto Total' : '')}`;
-    filhos.push(new Paragraph({ spacing: { after: 60 }, children: [new TextRun({ text: meta, size: 18, color: '6b7280' })] }));
-    if (v.ementa) filhos.push(new Paragraph({ spacing: { after: 100 }, children: [new TextRun({ text: 'Ementa: ', bold: true, size: 18 }), new TextRun({ text: v.ementa, size: 18, italics: true })] }));
+    filhos.push(new Paragraph({ spacing: { after: 60, ...L15 }, children: [new TextRun({ text: meta, size: 18, color: '6b7280' })] }));
+    if (v.ementa) filhos.push(new Paragraph({ spacing: { after: 100, ...L15 }, children: [new TextRun({ text: 'Ementa: ', bold: true, size: 18 }), new TextRun({ text: v.ementa, size: 18, italics: true })] }));
     (v.dispositivos || []).forEach(d => {
-      filhos.push(new Paragraph({ spacing: { before: 90 }, children: [new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }), new TextRun({ text: d.descricao || '', size: 18 })] }));
-      if (d.resumo) filhos.push(new Paragraph({ spacing: { before: 20 }, children: [new TextRun({ text: 'Resumo: ', bold: true, size: 18 }), new TextRun({ text: d.resumo, size: 18 })] }));
-      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 20 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
+      filhos.push(new Paragraph({ spacing: { before: GAP_DISP, ...L15 }, children: [new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }), new TextRun({ text: d.descricao || '', size: 18 })] }));
+      if (d.resumo) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, children: [new TextRun({ text: 'Resumo: ', bold: true, size: 18 }), new TextRun({ text: d.resumo, size: 18 })] }));
+      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
     });
-    if (!(v.dispositivos || []).length) filhos.push(new Paragraph({ children: [new TextRun({ text: '(dispositivos não baixados — use "Baixar detalhes")', size: 16, italics: true, color: '999999' })] }));
+    if (!(v.dispositivos || []).length) filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: '(dispositivos não baixados — use "Baixar detalhes")', size: 16, italics: true, color: '999999' })] }));
   });
 
   try {
