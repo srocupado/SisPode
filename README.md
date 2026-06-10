@@ -151,7 +151,8 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 - **Via PDF**: carregue o PDF da pauta da CCJC — o parser identifica automaticamente os projetos listados
 - **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional
 
-**Geração por IA (Gemini ou Anthropic)**
+**Geração por IA (Gemini, OpenAI ou Anthropic)**
+- O usuário escolhe o provedor (chave configurada); a lista de modelos pode ser carregada ao vivo da API de cada um
 - Para cada projeto: envia o inteiro teor ao modelo e gera resumo + análise técnica
 - Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
 - Status visual por item: aguardando · processando · pronto · falha
