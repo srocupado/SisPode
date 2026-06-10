@@ -1629,6 +1629,11 @@ body {
 .cn-pln-secao { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .cn-pln-secao-tit { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent); padding: 6px 2px; border-top: 1px solid var(--border); }
 
+/* Ícone do calendário (input date) escuro por padrão some no tema escuro:
+   invert(1) deixa o glyph branco e visível. */
+#import-data::-webkit-calendar-picker-indicator { filter: invert(1); opacity: 0.85; cursor: pointer; }
+#import-data:hover::-webkit-calendar-picker-indicator { opacity: 1; }
+
 .cn-veto-head {
   display: flex; align-items: center; gap: 14px;
   padding: 14px 16px; cursor: pointer; user-select: none;
