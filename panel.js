@@ -159,15 +159,22 @@ const PROVEDORES = {
     regexChave:  /^sk-ant-[\w-]{20,}$/,
     placeholderChave: 'sk-ant-...',
     hintChave:   'Obtenha em console.anthropic.com → Settings → API Keys',
-    // Anthropic não tem endpoint público de listagem de modelos —
-    // mantemos lista estática curada (atualizar manualmente quando sair novo).
+    // Lista de fallback (usada offline ou se a API falhar); o botão
+    // "Carregar modelos" busca a lista ao vivo em GET /v1/models.
     modelosFallback: [
+      { id: 'claude-opus-4-8',           displayName: 'Claude Opus 4.8'   },
       { id: 'claude-opus-4-7',           displayName: 'Claude Opus 4.7'   },
       { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6' },
       { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5'  },
     ],
-    async listarModelos(_apiKey) {
-      return this.modelosFallback;
+    async listarModelos(apiKey) {
+      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const lista = (j.data || []).map(m => ({ id: m.id, displayName: m.display_name || m.id }));
+      return lista.length ? lista : this.modelosFallback;
     },
     montarRequest({ prompt, pdfs, modelo, apiKey }) {
       const content = [];

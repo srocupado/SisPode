@@ -40,7 +40,7 @@ let app = {
     geminiKey:      '',
     modelo:         'gemini-2.5-flash-preview-04-17',
     anthropicKey:   '',
-    anthropicModelo:'claude-opus-4-7',
+    anthropicModelo:'claude-opus-4-8',
   },
 };
 
@@ -1494,7 +1494,7 @@ async function salvarConfiguracao() {
 async function abrirConfiguracoes() {
   document.getElementById('config-gemini-key').value           = app.config.geminiKey    || '';
   document.getElementById('config-anthropic-key').value        = app.config.anthropicKey || '';
-  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-7';
+  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-8';
   document.getElementById('config-status-ia').style.display        = 'none';
   document.getElementById('config-status-anthropic').style.display = 'none';
   document.getElementById('modelos-status').style.display           = 'none';
