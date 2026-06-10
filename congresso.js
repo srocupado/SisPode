@@ -1889,7 +1889,7 @@ async function exportarDocx() {
       ] }),
       new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [
         logoBytes
-          ? new Paragraph({ alignment: AlignmentType.RIGHT, children: [new ImageRun({ data: logoBytes, transformation: { width: 104, height: 47 } })] })
+          ? new Paragraph({ alignment: AlignmentType.RIGHT, children: [new ImageRun({ data: logoBytes, type: 'png', transformation: { width: 104, height: 47 } })] })
           : new Paragraph({}),
       ] }),
     ] })],
