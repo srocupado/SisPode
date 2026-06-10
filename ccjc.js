@@ -68,6 +68,7 @@ function registrarEventos() {
   document.getElementById('btn-salvar-config').addEventListener('click', salvarConfiguracao);
   document.getElementById('btn-testar-ia').addEventListener('click', testarConexaoIA);
   document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelosDisponiveis);
+  document.getElementById('btn-carregar-anthropic-modelos').addEventListener('click', carregarModelosAnthropic);
   document.getElementById('btn-toggle-key').addEventListener('click', () => {
     const input = document.getElementById('config-gemini-key');
     input.type = input.type === 'password' ? 'text' : 'password';
@@ -1549,6 +1550,55 @@ async function carregarModelosDisponiveis() {
     status.style.display = 'block';
   } finally {
     btn.textContent = '↻ Carregar disponíveis';
+    btn.disabled    = false;
+  }
+}
+
+// Lista os modelos da Anthropic ao vivo (GET /v1/models); mantém a lista
+// fixa do <select> como fallback se a API falhar ou a chave estiver vazia.
+async function carregarModelosAnthropic() {
+  const key    = document.getElementById('config-anthropic-key').value.trim() || app.config.anthropicKey;
+  const select = document.getElementById('config-anthropic-modelo');
+  const status = document.getElementById('modelos-status-anthropic');
+  const btn    = document.getElementById('btn-carregar-anthropic-modelos');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave de API primeiro.';
+    status.style.color   = 'var(--text-dim)';
+    status.style.display = 'block';
+    return;
+  }
+
+  btn.textContent      = '↻ Carregando...';
+  btn.disabled         = true;
+  status.style.display = 'none';
+
+  try {
+    const res  = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+      headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+
+    const modelos = json.data || [];
+    if (!modelos.length) throw new Error('Nenhum modelo encontrado.');
+
+    const modeloSalvo = app.config.anthropicModelo;
+    select.innerHTML = modelos.map(m =>
+      `<option value="${m.id}" ${m.id === modeloSalvo ? 'selected' : ''}>${m.display_name || m.id}</option>`
+    ).join('');
+
+    if (!select.value) select.selectedIndex = 0;
+    status.textContent   = `✓ ${modelos.length} modelos carregados.`;
+    status.style.color   = '#3ad97d';
+    status.style.display = 'block';
+
+  } catch (err) {
+    status.textContent   = `✗ ${err.message}`;
+    status.style.color   = 'var(--vermelho)';
+    status.style.display = 'block';
+  } finally {
+    btn.textContent = '↻ Carregar';
     btn.disabled    = false;
   }
 }
