@@ -179,6 +179,7 @@ Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com I
 - Ao **abrir** um veto, a extensão busca a página oficial de detalhe e extrai cada dispositivo vetado (código `NN.AA.NNN`, descrição normativa, texto vetado integral e situação)
 - A IA gera automaticamente um **resumo curto (1–2 frases) de cada dispositivo**, explicando em linguagem clara o que ele estabelecia — ou seja, o que deixa de valer com o veto — sem recomendação de voto e sem inventar
 - Abaixo da ementa, a IA também gera um **"Resumo do Projeto"** bem sintético (1–2 linhas; 3–4 linhas para Veto Total), explicando o objetivo geral da proposição
+- **Razões do Veto**: a extensão localiza o PDF da Mensagem de veto (documento da Presidência da República na aba Documentos), lê o texto e a IA resume os motivos do veto — **agrupando os dispositivos que compartilham a mesma justificativa** (1–2 linhas por grupo, abaixo da análise do dispositivo). Em **Veto Total**, gera um resumo único (3–4 linhas) das razões do projeto. Tudo na mesma operação de geração dos resumos
 - Botão para **ver o texto integral** de cada dispositivo vetado e link para a página oficial
 - Os resumos são **compartilhados com toda a equipe via Firebase** (`/vetos_resumos/{veto}`) e cacheados localmente, evitando reprocessamento e gasto de API
 

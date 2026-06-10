@@ -333,6 +333,10 @@ function construirVeto(d) {
     dispositivos: [],          // [{ codigo, descricao, texto, situacao, resumo }]
     detalheCarregado: false,
     resumoMeta: null,          // { provedor, modelo, atualizadoEm, atualizadoPor }
+    razoesPdfUrl: '',          // PDF "Razões do Veto" (Mensagem, autor Presidência da República)
+    razoesTexto: '',           // texto extraído do PDF (transitório — não persistido)
+    razoesGrupos: [],          // [{ codigos:[...], resumo }] — razões por grupo de dispositivos
+    razoesProjeto: '',         // resumo único das razões (Veto Total)
     aberto: false,
     resumindo: false,
     carregandoDetalhe: false,
@@ -348,11 +352,12 @@ async function carregarDetalhe(veto) {
   veto.carregandoDetalhe = true;
   try {
     const html = await fetchHtml(veto.detalheUrl);
-    const { ementa, dispositivos } = parseDetalheHtml(html);
+    const { ementa, dispositivos, razoesPdfUrl } = parseDetalheHtml(html);
     // Preserva resumos já existentes ao recarregar os textos.
     const resumosPrev = new Map(veto.dispositivos.map(d => [d.codigo, d.resumo]));
     veto.dispositivos = dispositivos.map(d => ({ ...d, resumo: resumosPrev.get(d.codigo) || '' }));
     veto.ementa = ementa || veto.ementa;
+    if (razoesPdfUrl) veto.razoesPdfUrl = razoesPdfUrl;
     veto.detalheCarregado = true;
     // Aplica resumos do Firebase que aguardavam o carregamento dos dispositivos.
     if (veto._resumosPendentes) {
@@ -400,7 +405,23 @@ function parseDetalheHtml(html) {
     });
   }
 
-  return { ementa, dispositivos };
+  // PDF "Razões do Veto": é o documento sdleg-getter da aba Documentos cujo
+  // autor é a Presidência da República (o próprio veto/Mensagem). O outro
+  // documento costuma ser o "Calendário de tramitação" (autor Congresso).
+  let razoesPdfUrl = '';
+  const links = [...doc.querySelectorAll('a[href*="sdleg-getter/documento"]')];
+  for (const a of links) {
+    // Sobe até o "card" do documento (o ancestral que contém o campo "Autor").
+    let ctx = '', el = a.parentElement;
+    for (let k = 0; k < 6 && el; k++, el = el.parentElement) {
+      ctx = el.textContent || '';
+      if (/Autor/i.test(ctx)) break;
+    }
+    if (/Presid[êe]ncia da Rep[úu]blica/i.test(ctx)) { razoesPdfUrl = a.href; break; }
+  }
+  if (!razoesPdfUrl && links.length) razoesPdfUrl = links[0].href;  // fallback: 1º documento
+
+  return { ementa, dispositivos, razoesPdfUrl };
 }
 
 async function fetchHtml(url) {
@@ -438,12 +459,13 @@ async function resumirVeto(veto, { silencioso = false, render = true, apenasFalt
   }
   if (!veto.detalheCarregado) await carregarDetalhe(veto);
 
-  // Resumo do projeto (sintético) junto da geração — gera se faltar (ou refaz ao regerar).
+  // Junto com os resumos: resumo do projeto (sintético) + razões do veto.
   await resumirProjeto(veto, { silencioso: true, render, force: !apenasFaltantes });
+  await resumirRazoes(veto, { silencioso: true, render, force: !apenasFaltantes });
 
   if (!veto.dispositivos.length) {
     if (!silencioso) mostrarToast('Este veto não tem dispositivos para resumir.', 'aviso');
-    return veto.resumoProjeto ? true : false;
+    return (veto.resumoProjeto || veto.razoesProjeto) ? true : false;
   }
 
   const alvo = apenasFaltantes ? veto.dispositivos.filter(d => !d.resumo) : veto.dispositivos.slice();
@@ -686,6 +708,114 @@ function blocoPerfilPadrao() {
     : '';
 }
 
+// ---------- RAZÕES DO VETO (PDF da Mensagem) ----------
+async function extrairTextoPdf(arrayBuffer) {
+  const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
+  let txt = '';
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const tc = await (await pdf.getPage(i)).getTextContent();
+    txt += tc.items.map(it => it.str).join(' ') + '\n';
+  }
+  return txt.replace(/[ \t]{2,}/g, ' ').trim();
+}
+
+async function garantirRazoesTexto(veto) {
+  if (veto.razoesTexto) return true;
+  if (!veto.razoesPdfUrl) return false;
+  const buf = await baixarArrayBuffer(veto.razoesPdfUrl);
+  veto.razoesTexto = await extrairTextoPdf(buf);
+  return !!veto.razoesTexto;
+}
+
+/**
+ * Resume as "Razões do Veto" (do PDF da Mensagem). Para Veto Total, um único
+ * resumo (3-4 linhas). Para parcial, agrupa os dispositivos que compartilham a
+ * mesma justificativa e resume cada grupo (1-2 linhas).
+ */
+async function resumirRazoes(veto, { silencioso = false, render = true, force = false } = {}) {
+  if (!app.config?.apiKey) return false;
+  const jaTem = veto.tipo === 'Total' ? !!veto.razoesProjeto : !!(veto.razoesGrupos && veto.razoesGrupos.length);
+  if (jaTem && !force) return true;
+  if (!veto.detalheCarregado) { try { await carregarDetalhe(veto); } catch (_) {} }
+  if (!veto.razoesPdfUrl) { if (!silencioso) mostrarToast('Razões do veto não localizadas para este veto.', 'aviso'); return false; }
+
+  veto.resumindoRazoes = true;
+  iaInc();
+  if (render && !app.editando) renderLista();
+  try {
+    if (!(await garantirRazoesTexto(veto))) throw new Error('não foi possível ler o PDF de razões');
+    if (veto.tipo === 'Total') {
+      const texto = await chamarIAtexto({ ...app.config, prompt: promptRazoesTotal(veto) });
+      const limpo = (texto || '').replace(/^["“]|["”]$/g, '').trim();
+      if (!limpo) throw new Error('a IA não retornou o resumo das razões');
+      veto.razoesProjeto = limpo;
+    } else {
+      const grupos = [];
+      for (const lote of chunk(veto.dispositivos, CHUNK_DISP)) {
+        if (_abort.signal.aborted) break;
+        const arr = extrairJsonArray(await chamarIAtexto({ ...app.config, prompt: promptRazoesGrupos(veto, lote) }));
+        for (const g of arr) {
+          const codigos = (g.codigos || g.dispositivos || []).map(String);
+          const resumo = String(g.resumo || g.razoes || '').trim();
+          if (codigos.length && resumo) grupos.push({ codigos, resumo });
+        }
+      }
+      if (!grupos.length) throw new Error('a IA não retornou razões reconhecíveis');
+      veto.razoesGrupos = grupos;
+    }
+    veto.resumoMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
+    await persistirResumo(veto);
+    return true;
+  } catch (e) {
+    if (isAbort(e)) return false;
+    if (!silencioso) mostrarToast('Erro ao resumir as razões: ' + e.message, 'erro');
+    return false;
+  } finally {
+    veto.resumindoRazoes = false;
+    iaDec();
+    if (render && !app.editando) renderLista();
+  }
+}
+
+function promptRazoesGrupos(veto, dispositivos) {
+  const lista = dispositivos.map(d => `• ${d.codigo} — ${d.descricao}`).join('\n');
+  const razoes = (veto.razoesTexto || '').slice(0, 60000);
+  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
+
+O documento abaixo (Mensagem de veto) contém as "Razões do veto" do ${veto.numero}. Cada parágrafo "Razões do veto" justifica o veto a UM ou MAIS dispositivos. Associe cada dispositivo da lista (pela descrição legal) ao trecho correspondente do documento.
+
+Tarefa: agrupe os dispositivos que compartilham a MESMA justificativa e, para cada grupo, escreva um resumo de 1 a 2 linhas das razões do veto, em português claro. Mencione "veto por arrastamento" quando o documento assim indicar. Não opine, não recomende voto e não invente nada além do documento.
+
+Responda EXCLUSIVAMENTE com um array JSON válido, sem cercas de código, no formato:
+[{"codigos":["<código>","<código>"],"resumo":"<1 a 2 linhas>"}]
+Use exatamente os códigos da lista abaixo como chaves; inclua todos que tiverem razões no documento.
+${blocoPerfilPadrao()}
+Dispositivos vetados:
+${lista}
+
+Documento (Razões do veto):
+"""${razoes}"""`;
+}
+
+function promptRazoesTotal(veto) {
+  const razoes = (veto.razoesTexto || '').slice(0, 60000);
+  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
+
+O documento abaixo (Mensagem de veto) apresenta as razões do VETO TOTAL ao projeto ${veto.materia} (${veto.assunto}). Escreva um resumo de 3 a 4 linhas explicando, em português claro, os principais motivos do veto. Não opine, não recomende voto e não invente nada além do documento.
+Responda apenas com o texto do resumo, sem rótulos nem aspas.
+${blocoPerfilPadrao()}
+Documento (Razões do veto):
+"""${razoes}"""`;
+}
+
+function extrairJsonArray(texto) {
+  if (!texto) return [];
+  let t = texto.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const i = t.indexOf('['), j = t.lastIndexOf(']');
+  if (i >= 0 && j > i) t = t.slice(i, j + 1);
+  try { const a = JSON.parse(t); return Array.isArray(a) ? a : []; } catch (_) { return []; }
+}
+
 /** Chamada de IA somente-texto (sem PDF), com a mesma matriz de 3 provedores. */
 async function chamarIAtexto({ provedor, apiKey, modelo, prompt }) {
   if (provedor === 'gemini') {
@@ -838,6 +968,8 @@ function onBusca(valor) {
 function vetoCasaBusca(v, termo) {
   if (!termo) return true;
   const campos = [v.numero, v.tipo, v.materia, v.assunto, v.ementa, v.sobresta,
+    v.resumoProjeto, v.razoesProjeto,
+    ...(v.razoesGrupos || []).map(g => g.resumo),
     ...v.dispositivos.flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo])];
   return normalizar(campos.join(' ')).includes(normalizar(termo));
 }
@@ -949,6 +1081,46 @@ function renderResumoProjeto(v, termo) {
   return `<div class="cn-projeto-resumo${v.resumoProjeto ? '' : ' vazio'}" data-resumo="${val}"><strong>Resumo do Projeto:</strong> ${conteudo}${btnEditar}</div>`;
 }
 
+// Indexa as razões por código: code -> { anchor, resumo, codigos }.
+// O "anchor" é o primeiro dispositivo (na ordem da lista) de cada grupo —
+// é nele que a razão (compartilhada) é exibida uma única vez.
+function razoesIndex(veto) {
+  const map = new Map();
+  const ordem = veto.dispositivos.map(d => d.codigo);
+  (veto.razoesGrupos || []).forEach(g => {
+    const cods = (g.codigos || []).filter(Boolean);
+    if (!cods.length || !g.resumo) return;
+    const anchor = cods.slice().sort((a, b) => {
+      const ia = ordem.indexOf(a), ib = ordem.indexOf(b);
+      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+    })[0];
+    cods.forEach(c => map.set(c, { anchor: c === anchor, resumo: g.resumo, codigos: cods }));
+  });
+  return map;
+}
+
+function renderRazoesDisp(v, d, i, razIdx, termo) {
+  const rz = razIdx.get(d.codigo);
+  if (rz && rz.anchor) {
+    const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
+    return `<div class="cn-razoes"><strong>Razões do veto${cobre}:</strong> ${marca(rz.resumo, termo)}</div>`;
+  }
+  // Indicador único de "gerando" (apenas no 1º dispositivo) enquanto não há grupos.
+  if (!razIdx.size && v.resumindoRazoes && i === 0) {
+    return `<div class="cn-razoes vazio"><span class="cn-spinner"></span> Resumindo as razões do veto…</div>`;
+  }
+  return '';
+}
+
+function renderRazoesTotal(v, termo) {
+  if (v.tipo !== 'Total') return '';
+  if (v.resumindoRazoes && !v.razoesProjeto)
+    return `<div class="cn-razoes"><strong>Razões do Veto:</strong> <span class="cn-spinner"></span> gerando…</div>`;
+  if (v.razoesProjeto)
+    return `<div class="cn-razoes"><strong>Razões do Veto:</strong> ${marca(v.razoesProjeto, termo)}</div>`;
+  return '';
+}
+
 function renderCorpo(v, termo) {
   let inner;
   if (v.carregandoDetalhe || (!v.detalheCarregado && !v.dispositivos.length)) {
@@ -956,7 +1128,8 @@ function renderCorpo(v, termo) {
   } else if (!v.dispositivos.length) {
     inner = '<div class="cn-disp-resumo vazio">Nenhum dispositivo vetado encontrado na página oficial.</div>';
   } else {
-    inner = v.dispositivos.map(d => {
+    const razIdx = razoesIndex(v);
+    inner = v.dispositivos.map((d, i) => {
       const val = `${v.key}|${d.codigo}`;
       const btnEditar = `<button class="cn-disp-edit-btn" data-editar="${val}" title="Editar resumo">✎</button>`;
       const resumo = d.resumo
@@ -974,6 +1147,7 @@ function renderCorpo(v, termo) {
           <span class="cn-disp-desc">${marca(d.descricao, termo)}${d.situacao ? `<span class="cn-disp-situacao">${escapeHtml(d.situacao)}</span>` : ''}</span>
         </div>
         ${resumo}
+        ${renderRazoesDisp(v, d, i, razIdx, termo)}
         ${textoBloco}
       </div>`;
     }).join('');
@@ -999,6 +1173,7 @@ function renderCorpo(v, termo) {
   return `<div class="cn-veto-body">
     ${v.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(v.ementa, termo)}</div>` : ''}
     ${renderResumoProjeto(v, termo)}
+    ${renderRazoesTotal(v, termo)}
     <div class="cn-veto-acoes">
       ${botaoResumir}
       ${v.detalheUrl ? `<a class="btn btn-ghost btn-sm" href="${v.detalheUrl}" target="_blank" rel="noopener">Abrir página oficial ↗</a>` : ''}
@@ -1206,10 +1381,15 @@ function carregarCacheLocal() {
 async function fbSalvarResumo(veto) {
   const resumos = {};
   veto.dispositivos.forEach(d => { if (d.resumo) resumos[d.codigo.replace(/\./g, '_')] = d.resumo; });
-  if (!Object.keys(resumos).length && !veto.resumoProjeto) return;
+  const temRazoes = (veto.razoesGrupos && veto.razoesGrupos.length) || veto.razoesProjeto;
+  if (!Object.keys(resumos).length && !veto.resumoProjeto && !temRazoes) return;
   const body = {
     numero: veto.numero, ano: veto.ano, materia: veto.materia, assunto: veto.assunto,
-    resumos, resumoProjeto: veto.resumoProjeto || null, ...veto.resumoMeta,
+    resumos, resumoProjeto: veto.resumoProjeto || null,
+    razoesGrupos: (veto.razoesGrupos && veto.razoesGrupos.length) ? veto.razoesGrupos : null,
+    razoesProjeto: veto.razoesProjeto || null,
+    razoesPdfUrl: veto.razoesPdfUrl || null,
+    ...veto.resumoMeta,
   };
   const res = await fetch(`${FIREBASE_URL}/vetos_resumos/${veto.key}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
@@ -1230,6 +1410,9 @@ async function mesclarResumosFirebase() {
     if (!reg) continue;
     v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
     if (reg.resumoProjeto && !v.resumoProjeto) v.resumoProjeto = reg.resumoProjeto;
+    if (reg.razoesProjeto && !v.razoesProjeto) v.razoesProjeto = reg.razoesProjeto;
+    if (Array.isArray(reg.razoesGrupos) && !(v.razoesGrupos && v.razoesGrupos.length)) v.razoesGrupos = reg.razoesGrupos.filter(Boolean);
+    if (reg.razoesPdfUrl && !v.razoesPdfUrl) v.razoesPdfUrl = reg.razoesPdfUrl;
     if (!reg.resumos) continue;
     // Se ainda não temos os dispositivos (sem detalhe), guarda os resumos para aplicar depois.
     if (v.dispositivos.length) {
@@ -1454,8 +1637,9 @@ async function onPerfilPadraoToggle() {
 //  SESSÕES SALVAS (snapshots da lista — compartilhados via Firebase)
 // ============================================================
 function leanVeto(v) {
-  const { aberto, resumindo, resumindoProjeto, carregandoDetalhe, _progresso, _resumosPendentes, ...rest } = v;
-  return rest;
+  const { aberto, resumindo, resumindoProjeto, resumindoRazoes, carregandoDetalhe,
+          razoesTexto, _progresso, _resumosPendentes, ...rest } = v;
+  return rest;   // razoesTexto (PDF) é transitório — não vai pro Firebase/cache
 }
 function metaDaSessao(corpo) {
   return {

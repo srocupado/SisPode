@@ -1658,6 +1658,13 @@ body {
 .cn-projeto-resumo.vazio { background: none; border-left-color: var(--border-soft); }
 .cn-projeto-vazio { color: var(--text-dim); font-style: italic; }
 .cn-projeto-resumo.editando { background: none; border-left-color: var(--accent); padding: 0; }
+.cn-razoes {
+  font-size: 12px; color: var(--text); line-height: 1.55;
+  margin: 6px 0 0; padding: 7px 11px;
+  background: rgba(240,135,107,0.07); border-left: 2px solid #f0876b; border-radius: 0 6px 6px 0;
+}
+.cn-razoes strong { color: #f0a890; }
+.cn-razoes.vazio { background: none; border-left-color: var(--border-soft); color: var(--text-dim); font-style: italic; }
 .cn-veto-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
 .cn-disp { padding: 12px 0; border-bottom: 1px dashed var(--border); }
