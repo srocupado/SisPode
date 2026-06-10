@@ -96,6 +96,7 @@ const app = {
   buscaTimer: null,
   saveTimer: null,
   sessaoSaveTimer: null,
+  selecionados: new Set(),   // chaves de vetos marcados para exportar (vazio = exporta os visíveis)
 };
 
 let _abort = new AbortController();
@@ -807,6 +808,7 @@ function renderLista() {
   stats.innerHTML = termo
     ? `<strong>${filtrados.length}</strong> veto(s) encontrados para “${escapeHtml(termo)}” · de ${app.vetos.length} no total`
     : `<strong>${app.vetos.length}</strong> vetos em tramitação · ${totDisp} dispositivos · ${comResumo} com resumo de IA`;
+  atualizarBotaoWord();
 
   if (!app.vetos.length) {
     lista.innerHTML = '<div class="cn-empty" id="cn-empty"><span class="cn-spinner"></span> Carregando vetos…</div>';
@@ -825,6 +827,38 @@ function renderLista() {
 
   lista.innerHTML = filtrados.map(v => renderVeto(v, termo)).join('');
   wireCards();
+
+  // Controles de seleção para exportação
+  stats.innerHTML += ` · <a href="#" id="cn-sel-todos">Selecionar todos${termo ? ' (visíveis)' : ''}</a>`
+    + ` · <a href="#" id="cn-sel-limpar">Desmarcar todos</a>`
+    + `<span id="cn-selnum"></span>`;
+  document.getElementById('cn-sel-todos').addEventListener('click', e => {
+    e.preventDefault(); filtrados.forEach(v => app.selecionados.add(v.key)); renderLista();
+  });
+  document.getElementById('cn-sel-limpar').addEventListener('click', e => {
+    e.preventDefault(); app.selecionados.clear(); renderLista();
+  });
+  atualizarSelecaoUI();
+}
+
+function atualizarBotaoWord() {
+  const btn = document.getElementById('btn-exportar-docx');
+  if (!btn) return;
+  const n = app.selecionados.size;
+  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Word${n ? ` (${n})` : ''}`;
+  btn.title = n ? `Exportar ${n} veto(s) selecionado(s) para Word` : 'Exportar os vetos visíveis para Word (.docx)';
+}
+
+function toggleSelecao(key, checked) {
+  if (checked) app.selecionados.add(key); else app.selecionados.delete(key);
+  atualizarSelecaoUI();   // atualiza contador/botão sem re-renderizar toda a lista
+}
+
+function atualizarSelecaoUI() {
+  atualizarBotaoWord();
+  const n = app.selecionados.size;
+  const num = document.getElementById('cn-selnum');
+  if (num) num.innerHTML = n ? ` · <strong>${n}</strong> selecionado(s) p/ Word` : '';
 }
 
 function renderVeto(v, termo) {
@@ -840,6 +874,7 @@ function renderVeto(v, termo) {
   return `
     <div class="cn-veto cn-veto--${v.cor || ''} ${v.aberto ? 'aberto' : ''}" data-key="${v.key}">
       <div class="cn-veto-head" data-toggle="${v.key}">
+        <label class="cn-veto-check" title="Selecionar para exportar"><input type="checkbox" data-sel="${v.key}" ${app.selecionados.has(v.key) ? 'checked' : ''}></label>
         <div class="cn-veto-num">VET ${marca(v.numero, termo)}<small>${v.tipo}</small></div>
         <div class="cn-veto-meta">
           <div class="cn-veto-assunto">${marca(v.assunto, termo)}</div>
@@ -913,6 +948,10 @@ function renderCorpo(v, termo) {
 function wireCards() {
   document.querySelectorAll('.cn-veto-head[data-toggle]').forEach(h =>
     h.addEventListener('click', () => toggleVeto(h.dataset.toggle)));
+  document.querySelectorAll('input[data-sel]').forEach(cb => {
+    cb.addEventListener('click', e => e.stopPropagation());          // não abrir/fechar o card
+    cb.addEventListener('change', e => { e.stopPropagation(); toggleSelecao(cb.dataset.sel, cb.checked); });
+  });
   document.querySelectorAll('[data-resumir]').forEach(b =>
     b.addEventListener('click', e => {
       e.stopPropagation();
@@ -1519,7 +1558,10 @@ async function excluirSessao(id, ev) {
 // ============================================================
 async function exportarDocx() {
   const termo = app.busca;
-  const vetos = app.vetos.filter(v => vetoCasaBusca(v, termo));
+  // Se há vetos marcados, exporta só eles; senão, exporta os visíveis (filtro atual).
+  const vetos = app.selecionados.size
+    ? app.vetos.filter(v => app.selecionados.has(v.key))
+    : app.vetos.filter(v => vetoCasaBusca(v, termo));
   if (!vetos.length) { mostrarToast('Nenhum veto para exportar.', 'aviso'); return; }
   if (typeof docx === 'undefined') { mostrarToast('Biblioteca de exportação não carregada.', 'erro'); return; }
   const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;

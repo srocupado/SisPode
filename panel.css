@@ -1629,6 +1629,8 @@ body {
   padding: 14px 16px; cursor: pointer; user-select: none;
 }
 .cn-veto-head:hover { background: rgba(255,255,255,0.03); }
+.cn-veto-check { display: flex; align-items: center; flex-shrink: 0; cursor: pointer; }
+.cn-veto-check input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); margin: 0; }
 .cn-veto-num { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; }
 .cn-veto-num small { display: block; font-weight: 500; font-size: 11px; color: var(--text-dim); }
 .cn-veto-meta { flex: 1; min-width: 0; }
