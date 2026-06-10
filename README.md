@@ -198,7 +198,7 @@ Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com I
 - **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
 - **Edição inline** também do Resumo do Projeto e das Razões do Veto (além dos resumos dos dispositivos), com autosave
 - **Seleção de vetos** (checkbox por veto + "selecionar/desmarcar todos") para escolher o que entra na exportação
-- **Exportação para Word (.docx)** dos vetos selecionados (ou de todos os visíveis): cabeçalho do veto e, por dispositivo, `código — Resumo: <análise>` com a `Razões do veto: <motivo>` indentada logo abaixo — entrelinhas 1,5 e espaçamento duplo entre dispositivos
+- **Exportação para Word (.docx)** dos vetos selecionados (ou de todos os visíveis): **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde) e, por veto, o Resumo do Projeto e — por dispositivo — `código — Resumo: <análise>` com a `Razões do veto: <motivo>` indentada logo abaixo — entrelinhas 1,5 e espaçamento duplo entre dispositivos
 
 ---
 

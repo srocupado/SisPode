@@ -1845,6 +1845,14 @@ async function excluirSessao(id, ev) {
 // ============================================================
 //  EXPORTAÇÃO PARA WORD (.docx)
 // ============================================================
+async function carregarLogoBytes() {
+  try {
+    const r = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (!r.ok) return null;
+    return new Uint8Array(await r.arrayBuffer());
+  } catch (_) { return null; }
+}
+
 async function exportarDocx() {
   const termo = app.busca;
   // Se há vetos marcados, exporta só eles; senão, exporta os visíveis (filtro atual).
@@ -1857,14 +1865,41 @@ async function exportarDocx() {
   if (semDetalhe && !confirm(`${semDetalhe} veto(s) ainda não tiveram os detalhes baixados (sairão sem dispositivos). Exportar mesmo assim?\n\nDica: use "Baixar detalhes" antes para um documento completo.`)) return;
 
   mostrarToast('Gerando documento Word…', '');
-  const { Document, Paragraph, TextRun, Packer, BorderStyle } = docx;
+  const {
+    Document, Paragraph, TextRun, Packer, BorderStyle,
+    Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
+  } = docx;
   const L15 = { line: 360, lineRule: 'auto' };  // entrelinhas 1,5 (240 = simples)
   const GAP_DISP = 480;                          // espaçamento 2,0 (duplo) entre dispositivos
+  const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
+  const logoBytes = await carregarLogoBytes();
+
   const filhos = [];
-  filhos.push(new Paragraph({ children: [new TextRun({ text: 'Vetos do Congresso Nacional', bold: true, size: 32 })], spacing: { after: 60, ...L15 } }));
+
+  // Cabeçalho institucional: [vazio | título centralizado | logo à direita]
+  filhos.push(new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    borders: SEM_BORDA,
+    rows: [new TableRow({ children: [
+      new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [new Paragraph({})] }),
+      new TableCell({ width: { size: 64, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { ...L15 }, children: [new TextRun({ text: 'Pauta do Congresso Nacional', bold: true, size: 28, color: '003c1f' })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { ...L15 }, children: [new TextRun({ text: 'Liderança do Podemos na Câmara dos Deputados', size: 20, color: '003c1f' })] }),
+      ] }),
+      new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [
+        logoBytes
+          ? new Paragraph({ alignment: AlignmentType.RIGHT, children: [new ImageRun({ data: logoBytes, transformation: { width: 104, height: 47 } })] })
+          : new Paragraph({}),
+      ] }),
+    ] })],
+  }));
+  // Régua verde institucional + linha de metadados.
+  filhos.push(new Paragraph({ spacing: { before: 40, after: 120 }, border: { bottom: { color: '00A859', space: 1, style: BorderStyle.SINGLE, size: 12 } }, children: [] }));
   filhos.push(new Paragraph({
-    spacing: { after: 240, ...L15 },
-    children: [new TextRun({ text: `Liderança do Podemos · ${app.sessaoAtiva ? 'Sessão: ' + app.sessaoAtiva.nome : 'Vetos em tramitação'} · ${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)`, italics: true, size: 18, color: '6b7280' })],
+    alignment: AlignmentType.CENTER,
+    spacing: { after: 220, ...L15 },
+    children: [new TextRun({ text: `${app.sessaoAtiva ? 'Sessão: ' + app.sessaoAtiva.nome + ' · ' : ''}${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)`, italics: true, size: 16, color: '6b7280' })],
   }));
 
   vetos.forEach(v => {
