@@ -17,7 +17,10 @@ const ANTHROPIC_VER  = '2023-06-01';
 const CACHE_TTL_MS   = 6 * 60 * 60 * 1000;   // re-baixa o PDF se o cache tiver +6h
 const THROTTLE_MS    = 350;                  // intervalo entre downloads de detalhe
 const CHUNK_DISP     = 15;                   // dispositivos por chamada de IA (parcela vetos grandes)
-const SESSAO_META    = 'vetos_sessoes_meta'; // índice leve (sem snapshots) p/ a sidebar não baixar tudo
+const PAUTAS_PATH    = 'congresso_pautas';       // pautas de Sessão Conjunta importadas (vetos + PLNs)
+const PAUTAS_META    = 'congresso_pautas_meta';  // índice leve p/ a sidebar (sem baixar as pautas inteiras)
+const PAUTA_BASE_URL = 'https://www.congressonacional.leg.br/sessoes/agenda-do-congresso-nacional/-/pauta/';
+const AGENDA_URL     = 'https://www.congressonacional.leg.br/sessoes/agenda-do-congresso-nacional';
 
 // Faixas de x (em coordenadas do PDF, página com 595pt de largura) que
 // delimitam cada coluna da tabela do relatório.
@@ -160,8 +163,10 @@ function wireEventos() {
   document.getElementById('perfil-padrao').addEventListener('change', onPerfilPadraoToggle);
 
   // Sessões + exportação
-  document.getElementById('btn-salvar-sessao').addEventListener('click', salvarSessaoAtual);
   document.getElementById('btn-sessao-vivo').addEventListener('click', voltarAoVivo);
+  document.getElementById('btn-importar-pauta').addEventListener('click', abrirModalImportar);
+  document.getElementById('btn-importar-url').addEventListener('click', () => importarPauta(document.getElementById('import-url').value.trim()));
+  document.getElementById('btn-recarregar-sessoes').addEventListener('click', listarSessoesRecentes);
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
 
   // Busca
@@ -984,19 +989,23 @@ function renderLista() {
 
   // Stats
   const stats = document.getElementById('cn-stats');
-  const totDisp = app.vetos.reduce((s, v) => s + (v.qtdNum || 0), 0);
-  const comResumo = app.vetos.filter(v => v.dispositivos.some(d => d.resumo)).length;
-  stats.innerHTML = termo
-    ? `<strong>${filtrados.length}</strong> veto(s) encontrados para “${escapeHtml(termo)}” · de ${app.vetos.length} no total`
-    : `<strong>${app.vetos.length}</strong> vetos em tramitação · ${totDisp} dispositivos · ${comResumo} com resumo de IA`;
+  const plnsVisiveis = app.sessaoAtiva ? (app.sessaoAtiva.plns || []).filter(p => plnCasaBusca(p, termo)) : [];
+  if (app.sessaoAtiva) {
+    const nPln = (app.sessaoAtiva.plns || []).length;
+    stats.innerHTML = termo
+      ? `<strong>${filtrados.length + plnsVisiveis.length}</strong> item(ns) para “${escapeHtml(termo)}” · pauta com ${app.vetos.length} veto(s) + ${nPln} PLN/MPV`
+      : `Pauta: <strong>${app.vetos.length}</strong> veto(s) + <strong>${nPln}</strong> PLN/MPV`;
+  } else {
+    const totDisp = app.vetos.reduce((s, v) => s + (v.qtdNum || 0), 0);
+    const comResumo = app.vetos.filter(v => v.dispositivos.some(d => d.resumo)).length;
+    stats.innerHTML = termo
+      ? `<strong>${filtrados.length}</strong> veto(s) encontrados para “${escapeHtml(termo)}” · de ${app.vetos.length} no total`
+      : `<strong>${app.vetos.length}</strong> vetos em tramitação · ${totDisp} dispositivos · ${comResumo} com resumo de IA`;
+  }
   atualizarBotaoWord();
 
-  if (!app.vetos.length) {
+  if (!app.vetos.length && !app.sessaoAtiva) {
     lista.innerHTML = '<div class="cn-empty" id="cn-empty"><span class="cn-spinner"></span> Carregando vetos…</div>';
-    return;
-  }
-  if (!filtrados.length) {
-    lista.innerHTML = '<div class="cn-empty">Nenhum veto corresponde à busca.</div>';
     return;
   }
 
@@ -1006,19 +1015,23 @@ function renderLista() {
       normalizar([d.codigo, d.descricao, d.texto, d.resumo].join(' ')).includes(normalizar(termo)))) v.aberto = true;
   });
 
-  lista.innerHTML = filtrados.map(v => renderVeto(v, termo)).join('');
+  let html = filtrados.map(v => renderVeto(v, termo)).join('');
+  if (app.sessaoAtiva) html += renderPlnsSecao(termo);
+  lista.innerHTML = html || '<div class="cn-empty">Nenhum item corresponde à busca.</div>';
   wireCards();
+  if (app.sessaoAtiva) wirePlnCards();
 
-  // Controles de seleção para exportação
-  stats.innerHTML += ` · <a href="#" id="cn-sel-todos">Selecionar todos${termo ? ' (visíveis)' : ''}</a>`
-    + ` · <a href="#" id="cn-sel-limpar">Desmarcar todos</a>`
-    + `<span id="cn-selnum"></span>`;
-  document.getElementById('cn-sel-todos').addEventListener('click', e => {
-    e.preventDefault(); filtrados.forEach(v => app.selecionados.add(v.key)); renderLista();
-  });
-  document.getElementById('cn-sel-limpar').addEventListener('click', e => {
-    e.preventDefault(); app.selecionados.clear(); renderLista();
-  });
+  // Controles de seleção (só quando há vetos visíveis para exportar)
+  if (filtrados.length) {
+    stats.innerHTML += ` · <a href="#" id="cn-sel-todos">Selecionar todos${termo ? ' (visíveis)' : ''}</a>`
+      + ` · <a href="#" id="cn-sel-limpar">Desmarcar todos</a><span id="cn-selnum"></span>`;
+    document.getElementById('cn-sel-todos').addEventListener('click', e => {
+      e.preventDefault(); filtrados.forEach(v => app.selecionados.add(v.key)); renderLista();
+    });
+    document.getElementById('cn-sel-limpar').addEventListener('click', e => {
+      e.preventDefault(); app.selecionados.clear(); renderLista();
+    });
+  }
   atualizarSelecaoUI();
 }
 
@@ -1658,89 +1671,68 @@ async function onPerfilPadraoToggle() {
 }
 
 // ============================================================
-//  SESSÕES SALVAS (snapshots da lista — compartilhados via Firebase)
+//  PAUTAS DE SESSÃO (agendas do CN: vetos + PLNs + MPVs) — Firebase
 // ============================================================
 function leanVeto(v) {
   const { aberto, resumindo, resumindoProjeto, resumindoRazoes, carregandoDetalhe,
           razoesTexto, _progresso, _resumosPendentes, ...rest } = v;
   return rest;   // razoesTexto (PDF) é transitório — não vai pro Firebase/cache
 }
-function metaDaSessao(corpo) {
-  return {
-    nome: corpo.nome, criadoEm: corpo.criadoEm, criadoPor: corpo.criadoPor,
-    atualizadoEm: corpo.atualizadoEm,
-    total: corpo.vetos ? Object.keys(corpo.vetos).length : (corpo.total || 0),
-  };
+function leanPln(p) {
+  const { resumindoAnalise, aberto, ...rest } = p;
+  return rest;
 }
 
-// Lê SÓ o índice leve de metadados — não baixa os snapshots completos das
-// sessões (que podem ter ~1-2 MB cada). Isso mantém o custo de Firebase baixo.
+// Lê SÓ o índice leve de metadados das pautas (não baixa as pautas inteiras).
 async function fbCarregarSessoes() {
-  const res = await fetch(`${FIREBASE_URL}/${SESSAO_META}.json`);
-  let data = res.ok ? await res.json() : null;
-  if (!data) data = await migrarIndiceSessoes();  // reconstrói o índice de sessões antigas, sem baixar tudo
+  const res = await fetch(`${FIREBASE_URL}/${PAUTAS_META}.json`);
+  const data = res.ok ? await res.json() : null;
   if (!data) return [];
   return Object.entries(data).map(([id, s]) => ({ id, ...s }))
-    .sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+    .sort((a, b) => (b.data || b.criadoEm || '').localeCompare(a.data || a.criadoEm || ''));
 }
 
-// Migração única: se não existir índice mas houver sessões antigas, reconstrói
-// o índice usando leituras "shallow" + campos escalares (sem baixar os vetos).
-async function migrarIndiceSessoes() {
-  try {
-    const r = await fetch(`${FIREBASE_URL}/vetos_sessoes.json?shallow=true`);
-    const keys = r.ok ? await r.json() : null;
-    if (!keys) return null;
-    const meta = {};
-    for (const id of Object.keys(keys)) {
-      const base = `${FIREBASE_URL}/vetos_sessoes/${id}`;
-      const [nome, criadoEm, criadoPor, atualizadoEm, vk] = await Promise.all([
-        fetch(`${base}/nome.json`).then(x => x.ok ? x.json() : null),
-        fetch(`${base}/criadoEm.json`).then(x => x.ok ? x.json() : null),
-        fetch(`${base}/criadoPor.json`).then(x => x.ok ? x.json() : null),
-        fetch(`${base}/atualizadoEm.json`).then(x => x.ok ? x.json() : null),
-        fetch(`${base}/vetos.json?shallow=true`).then(x => x.ok ? x.json() : null),
-      ]);
-      meta[id] = { nome, criadoEm, criadoPor, atualizadoEm, total: vk ? Object.keys(vk).length : 0 };
-    }
-    fetch(`${FIREBASE_URL}/${SESSAO_META}.json`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta),
-    }).catch(() => {});
-    return meta;
-  } catch (_) { return null; }
-}
-
-async function fbCriarSessao(nome) {
-  const id = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
-  const vetosMap = {};
-  app.vetos.forEach(v => { vetosMap[v.key] = leanVeto(v); });
-  const agora = new Date().toISOString();
-  const corpo = { nome, criadoPor: 'equipe', criadoEm: agora, atualizadoEm: agora, vetos: vetosMap };
-  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, {
+async function fbSalvarPauta(pauta) {
+  const vetosMap = {}; (pauta.vetos || []).forEach(v => { vetosMap[v.key] = leanVeto(v); });
+  const plnsMap = {};  (pauta.plns  || []).forEach(p => { plnsMap[p.key]  = leanPln(p);  });
+  const corpo = {
+    nome: pauta.nome, data: pauta.data || '', pautaId: pauta.pautaId || '',
+    criadoPor: 'equipe', criadoEm: pauta.criadoEm || new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(), vetos: vetosMap, plns: plnsMap,
+  };
+  const res = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${pauta.id}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
-  // Índice leve para a sidebar (sem os vetos).
-  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}.json`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaDaSessao(corpo)),
+  fetch(`${FIREBASE_URL}/${PAUTAS_META}/${pauta.id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: corpo.nome, data: corpo.data, criadoEm: corpo.criadoEm, atualizadoEm: corpo.atualizadoEm,
+      totalVetos: Object.keys(vetosMap).length, totalPlns: Object.keys(plnsMap).length }),
   }).catch(() => {});
-  return { id, nome };
 }
 
+// Mantém o nome (usado por persistirResumo) — agora grava o veto na pauta ativa.
 async function fbSalvarVetoSessao(id, veto) {
-  const r1 = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/vetos/${veto.key}.json`, {
+  const r = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}/vetos/${veto.key}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(leanVeto(veto)),
   });
-  if (!r1.ok) throw new Error(`Firebase HTTP ${r1.status}`);
+  if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
   const agora = JSON.stringify(new Date().toISOString());
-  fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
-  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
+  fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
+  fetch(`${FIREBASE_URL}/${PAUTAS_META}/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
 }
 
-async function fbApagarSessao(id) {
-  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, { method: 'DELETE' });
+async function fbSalvarPlnPauta(id, pln) {
+  const r = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}/plns/${pln.key}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(leanPln(pln)),
+  });
+  if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+}
+
+async function fbApagarPauta(id) {
+  const res = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}.json`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
-  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}.json`, { method: 'DELETE' }).catch(() => {});
+  fetch(`${FIREBASE_URL}/${PAUTAS_META}/${id}.json`, { method: 'DELETE' }).catch(() => {});
 }
 
 async function carregarSessoes() {
@@ -1758,59 +1750,47 @@ function renderSidebar() {
     atual.textContent = 'Vetos em tramitação (ao vivo)';
     btnVivo.style.display = 'none';
   }
-  const lista = document.getElementById('cn-sessoes-lista');
+  const lista = document.getElementById('cn-pautas-lista');
+  if (!lista) return;
   if (!app.sessoes.length) {
-    lista.innerHTML = '<div class="empty-state"><p>Nenhuma sessão salva</p></div>';
+    lista.innerHTML = '<div class="empty-state"><p>Nenhuma pauta importada</p></div>';
     return;
   }
   lista.innerHTML = app.sessoes.map(s => {
-    const d = s.criadoEm ? new Date(s.criadoEm) : null;
-    const data = (d ? `${d.toLocaleDateString('pt-BR')} · ` : '') + `${s.total} veto(s)`;
+    const tot = `${s.totalVetos || 0} veto(s) · ${s.totalPlns || 0} PLN/MPV`;
     const ativa = app.sessaoAtiva?.id === s.id ? ' ativa' : '';
-    return `<div class="cn-sessao-item${ativa}" data-sessao="${s.id}">
+    return `<div class="cn-sessao-item${ativa}" data-pauta="${s.id}">
       <div class="cn-sessao-item-info">
         <div class="cn-sessao-item-nome">${escapeHtml(s.nome || '(sem nome)')}</div>
-        <div class="cn-sessao-item-data">${data}</div>
+        <div class="cn-sessao-item-data">${escapeHtml(s.data || '')}${s.data ? ' · ' : ''}${tot}</div>
       </div>
-      <button class="cn-sessao-item-del" data-sessao-del="${s.id}" title="Excluir sessão">✕</button>
+      <button class="cn-sessao-item-del" data-pauta-del="${s.id}" title="Excluir pauta">✕</button>
     </div>`;
   }).join('');
-  lista.querySelectorAll('[data-sessao]').forEach(el =>
-    el.addEventListener('click', () => carregarSessao(el.dataset.sessao)));
-  lista.querySelectorAll('[data-sessao-del]').forEach(b =>
-    b.addEventListener('click', e => excluirSessao(b.dataset.sessaoDel, e)));
+  lista.querySelectorAll('[data-pauta]').forEach(el =>
+    el.addEventListener('click', () => abrirPauta(el.dataset.pauta)));
+  lista.querySelectorAll('[data-pauta-del]').forEach(b =>
+    b.addEventListener('click', e => excluirPauta(b.dataset.pautaDel, e)));
 }
 
-async function salvarSessaoAtual() {
-  if (!app.vetos.length) { mostrarToast('Nada para salvar ainda.', 'aviso'); return; }
-  const nome = prompt('Nome da sessão:', app.sessaoAtiva ? app.sessaoAtiva.nome : `Vetos em ${new Date().toLocaleDateString('pt-BR')}`);
-  if (!nome || !nome.trim()) return;
-  mostrarToast('Salvando sessão…', '');
-  try {
-    const s = await fbCriarSessao(nome.trim());
-    await carregarSessoes();
-    app.sessaoAtiva = s;
-    renderSidebar();
-    atualizarStatusSync('ok');
-    mostrarToast('✓ Sessão salva e ativada.', 'sucesso');
-  } catch (e) { mostrarToast('Erro ao salvar sessão: ' + e.message, 'erro'); }
-}
-
-async function carregarSessao(id) {
+async function abrirPauta(id) {
   if (app.editando) fecharEdicao(true);
-  mostrarToast('Carregando sessão…', '');
+  mostrarToast('Carregando pauta…', '');
   try {
-    const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`);
+    const res = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}.json`);
     const s = res.ok ? await res.json() : null;
-    if (!s) throw new Error('Sessão não encontrada.');
-    const arr = s.vetos ? Object.values(s.vetos) : [];
-    arr.sort((a, b) => (b.ano - a.ano) || (b.num - a.num));
-    app.vetos = arr.map(v => ({ ...v, aberto: false, resumindo: false, carregandoDetalhe: false }));
-    app.sessaoAtiva = { id, nome: s.nome };
+    if (!s) throw new Error('Pauta não encontrada.');
+    const vetos = s.vetos ? Object.values(s.vetos) : [];
+    vetos.sort((a, b) => (b.ano - a.ano) || (b.num - a.num));
+    app.vetos = vetos.map(v => ({ ...v, aberto: false, resumindo: false, carregandoDetalhe: false }));
+    const plns = s.plns ? Object.values(s.plns) : [];
+    plns.sort((a, b) => (a.sigla || '').localeCompare(b.sigla || '') || (a.num - b.num));
+    app.sessaoAtiva = { id, nome: s.nome, data: s.data, plns: plns.map(p => ({ ...p, aberto: false, resumindoAnalise: false })) };
+    app.selecionados.clear();
     renderSidebar();
     renderLista();
-    mostrarToast(`Sessão "${s.nome}" carregada.`, 'sucesso');
-  } catch (e) { mostrarToast('Erro ao carregar sessão: ' + e.message, 'erro'); }
+    mostrarToast(`Pauta "${s.nome}" carregada.`, 'sucesso');
+  } catch (e) { mostrarToast('Erro ao carregar pauta: ' + e.message, 'erro'); }
 }
 
 async function voltarAoVivo() {
@@ -1829,17 +1809,250 @@ async function voltarAoVivo() {
   mostrarToast('Voltou aos vetos em tramitação (ao vivo).', '');
 }
 
-async function excluirSessao(id, ev) {
+async function excluirPauta(id, ev) {
   ev?.stopPropagation();
   const s = app.sessoes.find(x => x.id === id);
-  if (!confirm(`Excluir a sessão "${s?.nome || id}"? Isso afeta toda a equipe.`)) return;
+  if (!confirm(`Excluir a pauta "${s?.nome || id}"? Isso afeta toda a equipe.`)) return;
   try {
-    await fbApagarSessao(id);
+    await fbApagarPauta(id);
     if (app.sessaoAtiva?.id === id) await voltarAoVivo();
     await carregarSessoes();
     renderSidebar();
-    mostrarToast('Sessão excluída.', '');
+    mostrarToast('Pauta excluída.', '');
   } catch (e) { mostrarToast('Erro ao excluir: ' + e.message, 'erro'); }
+}
+
+// ---------- Importação da pauta (agenda do CN) ----------
+function abrirModalImportar() {
+  document.getElementById('import-url').value = '';
+  setImportStatus('');
+  document.getElementById('modal-importar').style.display = 'flex';
+  listarSessoesRecentes();
+}
+function setImportStatus(t, c) {
+  const el = document.getElementById('import-status');
+  if (el) { el.textContent = t || ''; el.style.color = c || 'var(--text-dim)'; }
+}
+
+// Lê a agenda e lista as Sessões Conjuntas (deliberativas) recentes.
+async function listarSessoesRecentes() {
+  const box = document.getElementById('cn-sessoes-recentes');
+  box.innerHTML = '<div class="empty-state"><p><span class="cn-spinner"></span> Buscando sessões…</p></div>';
+  try {
+    const doc = new DOMParser().parseFromString(await fetchHtml(AGENDA_URL), 'text/html');
+    const itens = []; const vistos = new Set();
+    doc.querySelectorAll('a[href*="/-/pauta/"]').forEach(a => {
+      const m = (a.getAttribute('href') || '').match(/\/pauta\/(\d+)/); if (!m) return;
+      const id = m[1]; if (vistos.has(id)) return;
+      const ctx = (a.closest('tr,li,div')?.textContent || a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/Conjunta/i.test(ctx)) return;   // só deliberativas (têm vetos/PLNs)
+      vistos.add(id); itens.push({ id, label: ctx.slice(0, 90) });
+    });
+    if (!itens.length) { box.innerHTML = '<div class="empty-state"><p>Nenhuma Sessão Conjunta recente. Cole a URL abaixo.</p></div>'; return; }
+    box.innerHTML = itens.map(s => `<div class="cn-sessao-item" data-rec="${s.id}"><div class="cn-sessao-item-info"><div class="cn-sessao-item-nome">${escapeHtml(s.label)}</div><div class="cn-sessao-item-data">pauta ${s.id}</div></div></div>`).join('');
+    box.querySelectorAll('[data-rec]').forEach(el => el.addEventListener('click', () => importarPauta(el.dataset.rec)));
+  } catch (e) {
+    box.innerHTML = `<div class="empty-state"><p>Não foi possível listar (${escapeHtml(e.message)}). Cole a URL abaixo.</p></div>`;
+  }
+}
+
+function labelAgenda(corpo) {
+  const m = corpo.match(/^(?:\(MSG[^)]*\)\s*)?(.*?)\s*(?:Vota[çc][aã]o|Discuss[aã]o),\s*em turno/i);
+  return (m ? m[1] : corpo).replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+// Extrai os itens deliberativos (vetos + PLNs + MPVs) da página da pauta.
+function parsePautaHtml(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const titulo = (doc.querySelector('h1')?.textContent || doc.title || 'Sessão Conjunta').replace(/\s+/g, ' ').trim();
+  const data = (doc.body.textContent.match(/\b(\d{2}\/\d{2}\/\d{4})\b/) || [])[1] || '';
+  const vetos = [], plns = []; const vistos = new Set();
+  doc.querySelectorAll('.accordion-group').forEach(g => {
+    const tit = g.querySelector('.titulo-materia'); if (!tit) return;
+    const t = tit.textContent.replace(/\s+/g, ' ').trim();
+    const corpo = (g.querySelector('.accordion-conteudo, .accordion-inner')?.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!/em turno [úu]nico/i.test(corpo)) return;     // ignora sub-acordeões (votação por dispositivo etc.)
+    const mnum = t.match(/N[ºo°]\s*(\d+)[,\s]+DE\s+(\d{4})/i); if (!mnum) return;
+    const num = +mnum[1], ano = +mnum[2];
+    if (/VETO/i.test(t)) {
+      const key = `v${num}-${ano}`; if (vistos.has(key)) return; vistos.add(key);
+      vetos.push({ numero: `${num}/${ano}`, num, ano, tipo: /TOTAL/i.test(t) ? 'Total' : 'Parcial',
+        detalheUrl: g.querySelector('a[href*="veto/detalhe"]')?.href || '', assunto: '' });
+    } else if (/PROJETO DE LEI DO CONGRESSO NACIONAL/i.test(t) || /MEDIDA PROVIS/i.test(t)) {
+      const sigla = /MEDIDA PROVIS/i.test(t) ? 'MPV' : 'PLN';
+      const key = `${sigla.toLowerCase()}-${num}-${ano}`; if (vistos.has(key)) return; vistos.add(key);
+      plns.push({ tipo: sigla.toLowerCase(), sigla, numero: `${num}/${ano}`, num, ano, key,
+        titulo: labelAgenda(corpo), materiaUrl: g.querySelector('a[href*="/materia/"]')?.href || '' });
+    }
+  });
+  return { titulo, data, vetos, plns };
+}
+
+async function parseMateria(url) {
+  const doc = new DOMParser().parseFromString(await fetchHtml(url), 'text/html');
+  const meta = n => (doc.querySelector(`meta[name="${n}"]`)?.getAttribute('content') || '').replace(/\s+/g, ' ').trim();
+  return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), parecerUrl: acharParecerUrl(doc) };
+}
+function acharParecerUrl(doc) {
+  const links = [...doc.querySelectorAll('a[href*="sdleg-getter/documento"]')];
+  const ctx = a => ((a.textContent || '') + ' ' + (a.closest('tr,li,div')?.textContent || '')).toLowerCase();
+  let alvo = links.find(a => /parecer de plen[áa]rio/.test(ctx(a)));
+  if (!alvo) alvo = links.find(a => /\bparecer\b/.test(ctx(a)) && !/reda[çc]/.test(ctx(a)));
+  return alvo ? alvo.href : '';
+}
+
+async function importarPauta(url) {
+  const id = (String(url).match(/\/pauta\/(\d+)/) || String(url).match(/(\d{4,})/) || [])[1];
+  if (!id) { setImportStatus('URL ou ID inválido.', '#f0c040'); return; }
+  setImportStatus('Baixando a pauta…');
+  try {
+    const p = parsePautaHtml(await fetchHtml(PAUTA_BASE_URL + id));
+    if (!p.vetos.length && !p.plns.length) throw new Error('Nenhum veto/PLN encontrado nessa pauta (verifique se é uma Sessão Conjunta).');
+    const total = p.vetos.length + p.plns.length; let feito = 0;
+    const vetos = [];
+    for (const it of p.vetos) {
+      setImportStatus(`Carregando itens… ${++feito}/${total}`);
+      const v = construirVeto({ numero: it.numero, num: it.num, ano: it.ano, materia: '', assunto: it.assunto || '', sobresta: '', data: '', qtdRaw: '', cor: '', detalheUrl: it.detalheUrl });
+      v.tipo = it.tipo;
+      try { await carregarDetalhe(v); } catch (_) {}
+      // Assunto do card derivado da ementa (a agenda não traz um rótulo curto p/ vetos).
+      if (!v.assunto && v.ementa) v.assunto = v.ementa.replace(/^Veto\s+(parcial|total|integral)\s+aposto\s+ao\s+/i, '').slice(0, 140);
+      vetos.push(v);
+    }
+    const plns = [];
+    for (const it of p.plns) {
+      setImportStatus(`Carregando itens… ${++feito}/${total}`);
+      const pln = { ...it, ementa: '', autor: '', parecerUrl: '', analise: '', analiseMeta: null, resumindoAnalise: false, aberto: false };
+      try { Object.assign(pln, await parseMateria(it.materiaUrl)); } catch (_) {}
+      plns.push(pln);
+    }
+    setImportStatus('Salvando…');
+    const pauta = { id: 'p_' + id, pautaId: id, nome: p.titulo + (p.data ? ` — ${p.data}` : ''), data: p.data, vetos, plns, criadoEm: new Date().toISOString() };
+    await fbSalvarPauta(pauta);
+    await carregarSessoes();
+    document.getElementById('modal-importar').style.display = 'none';
+    await abrirPauta(pauta.id);
+    mostrarToast(`✓ Pauta importada: ${p.vetos.length} veto(s) + ${p.plns.length} PLN/MPV.`, 'sucesso');
+  } catch (e) { setImportStatus('Erro: ' + e.message, '#f05454'); }
+}
+
+// ---------- Análise de PLN/MPV por IA (lê o Parecer de Plenário) ----------
+async function resumirPLN(pln, { silencioso = false } = {}) {
+  if (!app.config?.apiKey) { if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso'); return false; }
+  if (!pln.parecerUrl) { if (!silencioso) mostrarToast('Parecer de Plenário não localizado para este item.', 'aviso'); return false; }
+  pln.resumindoAnalise = true; iaInc(); if (!app.editando) renderLista();
+  try {
+    const buf = await baixarArrayBuffer(pln.parecerUrl);
+    const texto = await chamarIApdf({ ...app.config, prompt: promptPLN(pln), pdfBuffers: [buf] });
+    const limpo = (texto || '').trim(); if (!limpo) throw new Error('a IA não retornou a análise');
+    pln.analise = limpo;
+    pln.analiseMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
+    if (app.sessaoAtiva) {
+      atualizarStatusSync('sincronizando');
+      try { await fbSalvarPlnPauta(app.sessaoAtiva.id, pln); atualizarStatusSync('ok'); }
+      catch (_) { atualizarStatusSync('offline'); }
+    }
+    if (!silencioso) mostrarToast(`✓ ${pln.sigla} ${pln.numero} analisado`, 'sucesso');
+    return true;
+  } catch (e) {
+    if (isAbort(e)) return false;
+    if (!silencioso) mostrarToast('Erro ao analisar: ' + e.message, 'erro');
+    return false;
+  } finally { pln.resumindoAnalise = false; iaDec(); if (!app.editando) renderLista(); }
+}
+
+function promptPLN(pln) {
+  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
+
+Analise o documento anexo (Parecer de Plenário) referente ao ${pln.sigla} nº ${pln.numero}${pln.titulo ? ' (' + pln.titulo + ')' : ''}.
+Ementa: ${pln.ementa || '(não disponível)'}
+${blocoPerfilPadrao()}
+Escreva um RESUMO TÉCNICO CURTO (1 a 2 parágrafos corridos, sem listas) explicando, com base no parecer: o que o crédito/alteração faz, os órgãos/programas e valores envolvidos, a fonte de recursos, e o principal ponto de atenção. Não recomende voto, não opine e não invente nada além do documento.
+Responda apenas com o texto do resumo, sem rótulos.`;
+}
+
+async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers }) {
+  const b64 = (pdfBuffers || []).map(arrayBufferToBase64);
+  if (provedor === 'gemini') {
+    const m = modelo || 'gemini-2.5-flash';
+    const parts = b64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })); parts.push({ text: prompt });
+    const j = await fetchIA(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }) });
+    return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  }
+  if (provedor === 'openai') {
+    const m = modelo || 'gpt-4o';
+    const content = b64.map((d, i) => ({ type: 'input_file', filename: `doc_${i + 1}.pdf`, file_data: `data:application/pdf;base64,${d}` })); content.push({ type: 'input_text', text: prompt });
+    const j = await fetchIA('https://api.openai.com/v1/responses',
+      { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: 4000 }) });
+    if (j.output_text) return j.output_text.trim();
+    for (const it of (j.output || [])) for (const c of (it.content || [])) if (c.type === 'output_text' && c.text) return c.text.trim();
+    return '';
+  }
+  if (provedor === 'anthropic') {
+    const m = modelo || 'claude-sonnet-4-6';
+    const content = b64.map(d => ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: d } })); content.push({ type: 'text', text: prompt });
+    const j = await fetchIA('https://api.anthropic.com/v1/messages',
+      { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, max_tokens: 4000, messages: [{ role: 'user', content }] }) });
+    for (const it of (j.content || [])) if (it.type === 'text' && it.text) return it.text.trim();
+    return '';
+  }
+  throw new Error('Provedor desconhecido: ' + provedor);
+}
+
+function arrayBufferToBase64(buf) {
+  let bin = ''; const bytes = new Uint8Array(buf); const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) bin += String.fromCharCode.apply(null, bytes.subarray(i, i + chunk));
+  return btoa(bin);
+}
+
+// ---------- Render dos cards de PLN/MPV ----------
+function plnCasaBusca(p, termo) {
+  if (!termo) return true;
+  return normalizar([p.sigla, p.numero, p.titulo, p.ementa, p.autor, p.analise].join(' ')).includes(normalizar(termo));
+}
+function renderPlnsSecao(termo) {
+  const plns = (app.sessaoAtiva?.plns || []).filter(p => plnCasaBusca(p, termo));
+  if (!plns.length) return '';
+  return `<div class="cn-pln-secao"><div class="cn-pln-secao-tit">Projetos de Lei (PLNs) e MPVs de crédito</div>${plns.map(p => renderPlnCard(p, termo)).join('')}</div>`;
+}
+function renderPlnCard(p, termo) {
+  const temAnalise = !!p.analise;
+  const botao = p.resumindoAnalise
+    ? `<button class="btn btn-outline btn-sm" disabled><span class="cn-spinner"></span> Analisando…</button>`
+    : `<button class="btn btn-outline btn-sm" data-pln-analisar="${p.key}">${temAnalise ? '↻ Regerar análise' : '✨ Analisar com IA'}</button>`;
+  const analiseBloco = p.resumindoAnalise
+    ? `<div class="cn-disp-resumo vazio"><span class="cn-spinner"></span> Lendo o Parecer de Plenário…</div>`
+    : (temAnalise
+        ? `<div class="cn-disp-resumo"><span class="cn-disp-resumo-txt">${marca(p.analise, termo)}</span></div>`
+        : `<div class="cn-disp-resumo vazio">${p.parecerUrl ? 'Sem análise de IA ainda.' : 'Parecer de Plenário não localizado.'}</div>`);
+  const meta = p.analiseMeta ? `<span style="font-size:11px;color:var(--text-dim)">Análise: ${p.analiseMeta.provedor}${p.analiseMeta.modelo ? ' / ' + p.analiseMeta.modelo : ''}</span>` : '';
+  return `<div class="cn-veto cn-veto--ambar" data-key="${p.key}">
+    <div class="cn-veto-head" style="cursor:default">
+      <div class="cn-veto-num">${p.sigla} ${marca(p.numero, termo)}<small>${p.tipo === 'mpv' ? 'MPV de crédito' : 'PLN'}</small></div>
+      <div class="cn-veto-meta">
+        <div class="cn-veto-assunto">${marca(p.titulo || '', termo)}</div>
+        <div class="cn-veto-materia">${marca(p.autor || '', termo)}</div>
+      </div>
+    </div>
+    <div class="cn-veto-body">
+      ${p.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(p.ementa, termo)}</div>` : ''}
+      <div class="cn-veto-acoes">
+        ${botao}
+        ${p.materiaUrl ? `<a class="btn btn-ghost btn-sm" href="${p.materiaUrl}" target="_blank" rel="noopener">Abrir matéria ↗</a>` : ''}
+        ${p.parecerUrl ? `<a class="btn btn-ghost btn-sm" href="${p.parecerUrl}" target="_blank" rel="noopener">Parecer (PDF) ↗</a>` : ''}
+        ${meta}
+      </div>
+      ${analiseBloco}
+    </div>
+  </div>`;
+}
+function wirePlnCards() {
+  document.querySelectorAll('[data-pln-analisar]').forEach(b =>
+    b.addEventListener('click', () => {
+      const p = (app.sessaoAtiva?.plns || []).find(x => x.key === b.dataset.plnAnalisar);
+      if (p) resumirPLN(p);
+    }));
 }
 
 // ============================================================

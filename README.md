@@ -166,11 +166,17 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 ---
 
-### 7. Vetos do Congresso Nacional
+### 7. Pauta do Congresso Nacional
 
-Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com IA, um resumo de cada dispositivo vetado para a equipe técnica.
+Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjunta** (vetos, PLNs e MPVs de crédito), com resumo e análise técnica por IA para a equipe.
 
-**Listagem oficial**
+**Pautas de Sessão Conjunta (importação)**
+- Na sidebar, **importe a pauta** de uma Sessão Conjunta: escolha entre as **sessões recentes** (lidas da agenda oficial, filtrando as deliberativas) ou **cole a URL/ID** da pauta (fallback robusto)
+- O parser extrai os itens deliberativos da Ordem do Dia: **Vetos** (reaproveitam todo o fluxo de dispositivos/razões/resumos) e **PLNs / MPVs de crédito**
+- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer nativamente
+- As pautas são **compartilhadas com a equipe** via Firebase (`/congresso_pautas`); a lista viva "Vetos em tramitação" continua como visão padrão (botão "Voltar aos vetos ao vivo")
+
+**Listagem oficial (vetos em tramitação)**
 - Carrega o **Relatório Resumo de Vetos** oficial (`pdfVetosEmTramitacao` do SISCON/Senado) e reproduz suas colunas: nº do veto, matéria vetada, assunto, *sobrestando a pauta?* (Sim/Não) com a data de início, e a quantidade de dispositivos (ou *Veto Total*)
 - **Reproduz fielmente as cores verde/azul** das linhas do relatório, lidas diretamente do PDF (renderização + amostragem de cor), além do tipo (Parcial/Total) e do status de sobrestamento em badges
 - Cache local da lista para abertura instantânea; botão **Atualizar lista** rebaixa o relatório do site oficial
@@ -254,7 +260,7 @@ sispode/
 ├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
-├── congresso.html / congresso.js  # Módulo: Vetos do Congresso Nacional
+├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
