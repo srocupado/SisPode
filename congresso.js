@@ -21,6 +21,9 @@ const PAUTAS_PATH    = 'congresso_pautas';       // pautas de Sessão Conjunta i
 const PAUTAS_META    = 'congresso_pautas_meta';  // índice leve p/ a sidebar (sem baixar as pautas inteiras)
 const PAUTA_BASE_URL = 'https://www.congressonacional.leg.br/sessoes/agenda-do-congresso-nacional/-/pauta/';
 const AGENDA_URL     = 'https://www.congressonacional.leg.br/sessoes/agenda-do-congresso-nacional';
+// Endpoint AJAX (Liferay) que devolve as sessões do mês; recebe ...&<NS>d=YYYY-MM-DD
+const AGENDA_RESOURCE = AGENDA_URL + '?p_p_id=pautasessao_WAR_atividadeportlet&p_p_lifecycle=2&p_p_state=normal&p_p_mode=view&p_p_resource_id=agendaCongresso&p_p_cacheability=cacheLevelPage&p_p_col_id=column-1&p_p_col_count=1';
+const AGENDA_NS      = '_pautasessao_WAR_atividadeportlet_';
 
 // Faixas de x (em coordenadas do PDF, página com 595pt de largura) que
 // delimitam cada coluna da tabela do relatório.
@@ -166,7 +169,7 @@ function wireEventos() {
   document.getElementById('btn-sessao-vivo').addEventListener('click', voltarAoVivo);
   document.getElementById('btn-importar-pauta').addEventListener('click', abrirModalImportar);
   document.getElementById('btn-importar-url').addEventListener('click', () => importarPauta(document.getElementById('import-url').value.trim()));
-  document.getElementById('btn-recarregar-sessoes').addEventListener('click', listarSessoesRecentes);
+  document.getElementById('import-data').addEventListener('change', e => listarSessoesPorData(e.target.value));
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
 
   // Busca
@@ -1843,29 +1846,59 @@ function abrirModalImportar() {
   document.getElementById('import-url').value = '';
   setImportStatus('');
   document.getElementById('modal-importar').style.display = 'flex';
-  listarSessoesRecentes();
+  const di = document.getElementById('import-data');
+  di.value = new Date().toISOString().slice(0, 10);   // hoje
+  listarSessoesPorData(di.value);
 }
 function setImportStatus(t, c) {
   const el = document.getElementById('import-status');
   if (el) { el.textContent = t || ''; el.style.color = c || 'var(--text-dim)'; }
 }
 
-// Lê a agenda e lista as Sessões Conjuntas (deliberativas) recentes.
-async function listarSessoesRecentes() {
+function mesAnoLabel(iso) {
+  const [a, m] = (iso || '').split('-');
+  const meses = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+  return `${meses[(+m) - 1] || m}/${a}`;
+}
+
+// Lê as sessões do mês da data escolhida (endpoint da agenda) e lista as
+// deliberativas (Conjuntas), destacando a do dia selecionado.
+async function listarSessoesPorData(iso) {
   const box = document.getElementById('cn-sessoes-recentes');
-  box.innerHTML = '<div class="empty-state"><p><span class="cn-spinner"></span> Buscando sessões…</p></div>';
+  if (!iso) { box.innerHTML = '<div class="empty-state"><p>Escolha uma data.</p></div>'; return; }
+  box.innerHTML = `<div class="empty-state"><p><span class="cn-spinner"></span> Buscando sessões de ${mesAnoLabel(iso)}…</p></div>`;
   try {
-    const doc = new DOMParser().parseFromString(await fetchHtml(AGENDA_URL), 'text/html');
+    const doc = new DOMParser().parseFromString(await fetchHtml(`${AGENDA_RESOURCE}&${AGENDA_NS}d=${iso}`), 'text/html');
+    const ano = (iso.match(/^(\d{4})/) || [])[1] || '';
+    const diaSel = iso.slice(5);   // "MM-DD"
     const itens = []; const vistos = new Set();
     doc.querySelectorAll('a[href*="/-/pauta/"]').forEach(a => {
       const m = (a.getAttribute('href') || '').match(/\/pauta\/(\d+)/); if (!m) return;
       const id = m[1]; if (vistos.has(id)) return;
-      const ctx = (a.closest('tr,li,div')?.textContent || a.textContent || '').replace(/\s+/g, ' ').trim();
-      if (!/Conjunta/i.test(ctx)) return;   // só deliberativas (têm vetos/PLNs)
-      vistos.add(id); itens.push({ id, label: ctx.slice(0, 90) });
+      const linktxt = (a.textContent || '').replace(/\s+/g, ' ').trim();
+      if (!/conjunta|deliberativa/i.test(linktxt)) return;   // só deliberativas (têm vetos/PLNs)
+      const btxt = (a.closest('div')?.textContent || linktxt).replace(/\s+/g, ' ').trim();
+      const dm = btxt.match(/\b(\d{2})\/(\d{2})\b/) || [];
+      vistos.add(id);
+      itens.push({
+        id, ddmm: dm[0] || '',
+        tipo: /conjunta/i.test(linktxt) ? 'Sessão Conjunta' : 'Sessão Deliberativa',
+        ordinal: (btxt.match(/(\d+)[^\s\d/]{0,2}\s*Sess/i) || [])[1] || '',
+        status: (linktxt.match(/\b(Encerrada|Em andamento|Convocada|Aberta|Cancelada|Suspensa|Adiada)\b/i) || [])[1] || '',
+        noDia: !!(dm[1] && dm[2] && `${dm[2]}-${dm[1]}` === diaSel),
+      });
     });
-    if (!itens.length) { box.innerHTML = '<div class="empty-state"><p>Nenhuma Sessão Conjunta recente. Cole a URL abaixo.</p></div>'; return; }
-    box.innerHTML = itens.map(s => `<div class="cn-sessao-item" data-rec="${s.id}"><div class="cn-sessao-item-info"><div class="cn-sessao-item-nome">${escapeHtml(s.label)}</div><div class="cn-sessao-item-data">pauta ${s.id}</div></div></div>`).join('');
+    if (!itens.length) {
+      box.innerHTML = `<div class="empty-state"><p>Nenhuma Sessão Conjunta em ${mesAnoLabel(iso)}. Tente outro mês ou cole a URL abaixo.</p></div>`;
+      return;
+    }
+    itens.sort((a, b) => (a.ddmm || '').localeCompare(b.ddmm || ''));
+    box.innerHTML = itens.map(s => `<div class="cn-sessao-item${s.noDia ? ' ativa' : ''}" data-rec="${s.id}">
+      <div class="cn-sessao-item-info">
+        <div class="cn-sessao-item-nome">${s.ordinal ? s.ordinal + 'ª ' : ''}${s.tipo}${s.status ? ' · ' + s.status : ''}</div>
+        <div class="cn-sessao-item-data">${s.ddmm}${ano ? '/' + ano : ''} · pauta ${s.id}</div>
+      </div>
+    </div>`).join('');
     box.querySelectorAll('[data-rec]').forEach(el => el.addEventListener('click', () => importarPauta(el.dataset.rec)));
   } catch (e) {
     box.innerHTML = `<div class="empty-state"><p>Não foi possível listar (${escapeHtml(e.message)}). Cole a URL abaixo.</p></div>`;

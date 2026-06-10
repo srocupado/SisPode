@@ -226,12 +226,12 @@
       </div>
       <div class="modal-body">
         <div class="form-group">
-          <label style="display:flex;align-items:center;justify-content:space-between">
-            Sessões Conjuntas recentes
-            <button id="btn-recarregar-sessoes" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Atualizar</button>
+          <label style="display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap">
+            <span>Sessões Conjuntas por data</span>
+            <input type="date" id="import-data" class="form-input" style="width:auto;padding:4px 8px;font-size:12px" title="Escolha o dia — listo as Sessões Conjuntas do mês">
           </label>
           <div id="cn-sessoes-recentes" class="lista-historico" style="max-height:240px;overflow-y:auto;border:1px solid var(--border-soft);border-radius:8px;padding:4px">
-            <div class="empty-state"><p>Clique em "Atualizar" para listar as sessões</p></div>
+            <div class="empty-state"><p>Escolha uma data para listar as sessões do mês</p></div>
           </div>
         </div>
         <div class="form-group" style="margin-top:12px">
