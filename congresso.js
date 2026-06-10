@@ -17,6 +17,7 @@ const ANTHROPIC_VER  = '2023-06-01';
 const CACHE_TTL_MS   = 6 * 60 * 60 * 1000;   // re-baixa o PDF se o cache tiver +6h
 const THROTTLE_MS    = 350;                  // intervalo entre downloads de detalhe
 const CHUNK_DISP     = 15;                   // dispositivos por chamada de IA (parcela vetos grandes)
+const SESSAO_META    = 'vetos_sessoes_meta'; // índice leve (sem snapshots) p/ a sidebar não baixar tudo
 
 // Faixas de x (em coordenadas do PDF, página com 595pt de largura) que
 // delimitam cada coluna da tabela do relatório.
@@ -1336,39 +1337,82 @@ function leanVeto(v) {
   const { aberto, resumindo, carregandoDetalhe, _resumosPendentes, ...rest } = v;
   return rest;
 }
-async function fbCarregarSessoes() {
-  const res = await fetch(`${FIREBASE_URL}/vetos_sessoes.json`);
-  if (!res.ok) return [];
-  const data = await res.json();
-  if (!data) return [];
-  return Object.entries(data).map(([id, s]) => ({
-    id, nome: s.nome, criadoEm: s.criadoEm, criadoPor: s.criadoPor, atualizadoEm: s.atualizadoEm,
-    total: s.vetos ? Object.keys(s.vetos).length : 0,
-  })).sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+function metaDaSessao(corpo) {
+  return {
+    nome: corpo.nome, criadoEm: corpo.criadoEm, criadoPor: corpo.criadoPor,
+    atualizadoEm: corpo.atualizadoEm,
+    total: corpo.vetos ? Object.keys(corpo.vetos).length : (corpo.total || 0),
+  };
 }
+
+// Lê SÓ o índice leve de metadados — não baixa os snapshots completos das
+// sessões (que podem ter ~1-2 MB cada). Isso mantém o custo de Firebase baixo.
+async function fbCarregarSessoes() {
+  const res = await fetch(`${FIREBASE_URL}/${SESSAO_META}.json`);
+  let data = res.ok ? await res.json() : null;
+  if (!data) data = await migrarIndiceSessoes();  // reconstrói o índice de sessões antigas, sem baixar tudo
+  if (!data) return [];
+  return Object.entries(data).map(([id, s]) => ({ id, ...s }))
+    .sort((a, b) => (b.criadoEm || '').localeCompare(a.criadoEm || ''));
+}
+
+// Migração única: se não existir índice mas houver sessões antigas, reconstrói
+// o índice usando leituras "shallow" + campos escalares (sem baixar os vetos).
+async function migrarIndiceSessoes() {
+  try {
+    const r = await fetch(`${FIREBASE_URL}/vetos_sessoes.json?shallow=true`);
+    const keys = r.ok ? await r.json() : null;
+    if (!keys) return null;
+    const meta = {};
+    for (const id of Object.keys(keys)) {
+      const base = `${FIREBASE_URL}/vetos_sessoes/${id}`;
+      const [nome, criadoEm, criadoPor, atualizadoEm, vk] = await Promise.all([
+        fetch(`${base}/nome.json`).then(x => x.ok ? x.json() : null),
+        fetch(`${base}/criadoEm.json`).then(x => x.ok ? x.json() : null),
+        fetch(`${base}/criadoPor.json`).then(x => x.ok ? x.json() : null),
+        fetch(`${base}/atualizadoEm.json`).then(x => x.ok ? x.json() : null),
+        fetch(`${base}/vetos.json?shallow=true`).then(x => x.ok ? x.json() : null),
+      ]);
+      meta[id] = { nome, criadoEm, criadoPor, atualizadoEm, total: vk ? Object.keys(vk).length : 0 };
+    }
+    fetch(`${FIREBASE_URL}/${SESSAO_META}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(meta),
+    }).catch(() => {});
+    return meta;
+  } catch (_) { return null; }
+}
+
 async function fbCriarSessao(nome) {
   const id = 's_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
   const vetosMap = {};
   app.vetos.forEach(v => { vetosMap[v.key] = leanVeto(v); });
-  const corpo = { nome, criadoPor: 'equipe', criadoEm: new Date().toISOString(), atualizadoEm: new Date().toISOString(), vetos: vetosMap };
+  const agora = new Date().toISOString();
+  const corpo = { nome, criadoPor: 'equipe', criadoEm: agora, atualizadoEm: agora, vetos: vetosMap };
   const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  // Índice leve para a sidebar (sem os vetos).
+  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(metaDaSessao(corpo)),
+  }).catch(() => {});
   return { id, nome };
 }
+
 async function fbSalvarVetoSessao(id, veto) {
   const r1 = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/vetos/${veto.key}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(leanVeto(veto)),
   });
   if (!r1.ok) throw new Error(`Firebase HTTP ${r1.status}`);
-  fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/atualizadoEm.json`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(new Date().toISOString()),
-  }).catch(() => {});
+  const agora = JSON.stringify(new Date().toISOString());
+  fetch(`${FIREBASE_URL}/vetos_sessoes/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
+  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}/atualizadoEm.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: agora }).catch(() => {});
 }
+
 async function fbApagarSessao(id) {
   const res = await fetch(`${FIREBASE_URL}/vetos_sessoes/${id}.json`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  fetch(`${FIREBASE_URL}/${SESSAO_META}/${id}.json`, { method: 'DELETE' }).catch(() => {});
 }
 
 async function carregarSessoes() {
