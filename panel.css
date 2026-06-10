@@ -1665,6 +1665,7 @@ body {
 }
 .cn-razoes strong { color: #f0a890; }
 .cn-razoes.vazio { background: none; border-left-color: var(--border-soft); color: var(--text-dim); font-style: italic; }
+.cn-razoes.editando { background: none; border-left-color: var(--accent); padding: 0; }
 .cn-veto-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
 
 .cn-disp { padding: 12px 0; border-bottom: 1px dashed var(--border); }

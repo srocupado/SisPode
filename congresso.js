@@ -1102,8 +1102,10 @@ function razoesIndex(veto) {
 function renderRazoesDisp(v, d, i, razIdx, termo) {
   const rz = razIdx.get(d.codigo);
   if (rz && rz.anchor) {
+    const val = `${v.key}|__razoesg__${d.codigo}`;
+    const btnEditar = `<button class="cn-disp-edit-btn" data-editar="${val}" title="Editar as razões">✎</button>`;
     const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
-    return `<div class="cn-razoes"><strong>Razões do veto${cobre}:</strong> ${marca(rz.resumo, termo)}</div>`;
+    return `<div class="cn-razoes" data-resumo="${val}"><strong>Razões do veto${cobre}:</strong> <span class="cn-disp-resumo-txt">${marca(rz.resumo, termo)}</span>${btnEditar}</div>`;
   }
   // Indicador único de "gerando" (apenas no 1º dispositivo) enquanto não há grupos.
   if (!razIdx.size && v.resumindoRazoes && i === 0) {
@@ -1116,9 +1118,13 @@ function renderRazoesTotal(v, termo) {
   if (v.tipo !== 'Total') return '';
   if (v.resumindoRazoes && !v.razoesProjeto)
     return `<div class="cn-razoes"><strong>Razões do Veto:</strong> <span class="cn-spinner"></span> gerando…</div>`;
-  if (v.razoesProjeto)
-    return `<div class="cn-razoes"><strong>Razões do Veto:</strong> ${marca(v.razoesProjeto, termo)}</div>`;
-  return '';
+  if (!v.detalheCarregado && !v.razoesProjeto) return '';
+  const val = `${v.key}|__razoes__`;
+  const btnEditar = `<button class="cn-disp-edit-btn" data-editar="${val}" title="Editar as razões do veto">✎</button>`;
+  const conteudo = v.razoesProjeto
+    ? `<span class="cn-disp-resumo-txt">${marca(v.razoesProjeto, termo)}</span>`
+    : `<span class="cn-disp-resumo-txt cn-projeto-vazio">${app.config?.apiKey ? '— (abra para gerar ou clique em ✎)' : 'configure a IA para gerar, ou clique em ✎'}</span>`;
+  return `<div class="cn-razoes${v.razoesProjeto ? '' : ' vazio'}" data-resumo="${val}"><strong>Razões do Veto:</strong> ${conteudo}${btnEditar}</div>`;
 }
 
 function renderCorpo(v, termo) {
@@ -1251,16 +1257,34 @@ async function toggleVeto(key) {
 // ============================================================
 //  EDIÇÃO INLINE DO RESUMO (com autosave no Firebase + cache)
 // ============================================================
-// Alvo da edição: um dispositivo (por código) ou o resumo do projeto ("__projeto__").
+// Alvo da edição: dispositivo (por código), resumo do projeto ("__projeto__"),
+// razões do veto total ("__razoes__") ou razões de um grupo ("__razoesg__<âncora>").
+function grupoRazoesPorAnchor(veto, anchorCode) {
+  const ordem = veto.dispositivos.map(d => d.codigo);
+  return (veto.razoesGrupos || []).find(g => {
+    const cods = (g.codigos || []).filter(Boolean);
+    const anchor = cods.slice().sort((a, b) => {
+      const ia = ordem.indexOf(a), ib = ordem.indexOf(b);
+      return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
+    })[0];
+    return anchor === anchorCode;
+  });
+}
 function alvoExiste(veto, codigo) {
-  return codigo === '__projeto__' ? true : !!veto?.dispositivos.find(x => x.codigo === codigo);
+  if (codigo === '__projeto__' || codigo === '__razoes__') return true;
+  if (codigo.startsWith('__razoesg__')) return !!grupoRazoesPorAnchor(veto, codigo.slice(11));
+  return !!veto?.dispositivos.find(x => x.codigo === codigo);
 }
 function getResumoAlvo(veto, codigo) {
   if (codigo === '__projeto__') return veto.resumoProjeto || '';
+  if (codigo === '__razoes__') return veto.razoesProjeto || '';
+  if (codigo.startsWith('__razoesg__')) return grupoRazoesPorAnchor(veto, codigo.slice(11))?.resumo || '';
   return veto.dispositivos.find(x => x.codigo === codigo)?.resumo || '';
 }
 function setResumoAlvo(veto, codigo, valor) {
   if (codigo === '__projeto__') { veto.resumoProjeto = valor; return; }
+  if (codigo === '__razoes__') { veto.razoesProjeto = valor; return; }
+  if (codigo.startsWith('__razoesg__')) { const g = grupoRazoesPorAnchor(veto, codigo.slice(11)); if (g) g.resumo = valor; return; }
   const d = veto.dispositivos.find(x => x.codigo === codigo);
   if (d) d.resumo = valor;
 }
@@ -1853,10 +1877,16 @@ async function exportarDocx() {
     const meta = `${v.materia || ''}${v.sobresta ? ' · Sobrestando a pauta: ' + v.sobresta : ''}${v.dataSobresta ? ' (' + v.dataSobresta + ')' : ''}${v.qtdNum != null ? ' · ' + v.qtdNum + ' dispositivo(s)' : (v.tipo === 'Total' ? ' · Veto Total' : '')}`;
     filhos.push(new Paragraph({ spacing: { after: 60, ...L15 }, children: [new TextRun({ text: meta, size: 18, color: '6b7280' })] }));
     if (v.ementa) filhos.push(new Paragraph({ spacing: { after: 100, ...L15 }, children: [new TextRun({ text: 'Ementa: ', bold: true, size: 18 }), new TextRun({ text: v.ementa, size: 18, italics: true })] }));
+    if (v.resumoProjeto) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'Resumo do Projeto: ', bold: true, size: 18 }), new TextRun({ text: v.resumoProjeto, size: 18 })] }));
+    if (v.tipo === 'Total' && v.razoesProjeto) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'Razões do Veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
+
+    const razIdx = razoesIndex(v);
     (v.dispositivos || []).forEach(d => {
       filhos.push(new Paragraph({ spacing: { before: GAP_DISP, ...L15 }, children: [new TextRun({ text: `${d.codigo} — `, bold: true, size: 20, color: '178080' }), new TextRun({ text: d.descricao || '', size: 18 })] }));
       if (d.resumo) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, children: [new TextRun({ text: 'Resumo: ', bold: true, size: 18 }), new TextRun({ text: d.resumo, size: 18 })] }));
-      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
+      const rz = razIdx.get(d.codigo);
+      if (rz) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: rz.resumo, size: 18 })] }));
+      if (d.texto) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Texto vetado: ', bold: true, size: 16, color: '6b7280' }), new TextRun({ text: d.texto, size: 16, italics: true, color: '6b7280' })] }));
     });
     if (!(v.dispositivos || []).length) filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: '(dispositivos não baixados — use "Baixar detalhes")', size: 16, italics: true, color: '999999' })] }));
   });
