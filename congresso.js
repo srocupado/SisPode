@@ -213,9 +213,11 @@ async function parsePdfVetos(arrayBuffer) {
         return { str: it.str.trim(), pdfx: it.transform[4], pdfy: it.transform[5], cy: m[5] };
       });
 
-    // Âncoras: tokens "VET" na coluna do veto, de cima para baixo.
+    // Âncoras: o pdf.js agrupa cada célula em um item, então a primeira
+    // célula da linha vem como "VET 28/2026". Detecta esse padrão na coluna
+    // do veto, de cima para baixo.
     const ancoras = itens
-      .filter(it => it.str === 'VET' && it.pdfx < COL.materia)
+      .filter(it => /^VET\s+\d+\s*\/\s*\d{4}/.test(it.str) && it.pdfx < COL.materia)
       .sort((a, b) => b.pdfy - a.pdfy);
 
     for (let i = 0; i < ancoras.length; i++) {
