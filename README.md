@@ -1,6 +1,6 @@
 # SisPode — Sistemas Legislativos do Podemos
 
-Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne seis ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA e produção de pautas da Comissão de Constituição e Justiça (CCJC).
+Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne sete ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC) e acompanhamento dos vetos em tramitação no Congresso Nacional.
 
 ---
 
@@ -166,6 +166,27 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 ---
 
+### 7. Vetos do Congresso Nacional
+
+Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com IA, um resumo de cada dispositivo vetado para a equipe técnica.
+
+**Listagem oficial**
+- Carrega o **Relatório Resumo de Vetos** oficial (`pdfVetosEmTramitacao` do SISCON/Senado) e reproduz suas colunas: nº do veto, matéria vetada, assunto, *sobrestando a pauta?* (Sim/Não) com a data de início, e a quantidade de dispositivos (ou *Veto Total*)
+- **Reproduz fielmente as cores verde/azul** das linhas do relatório, lidas diretamente do PDF (renderização + amostragem de cor), além do tipo (Parcial/Total) e do status de sobrestamento em badges
+- Cache local da lista para abertura instantânea; botão **Atualizar lista** rebaixa o relatório do site oficial
+
+**Detalhamento e resumo por IA (Gemini, OpenAI ou Anthropic)**
+- Ao **abrir** um veto, a extensão busca a página oficial de detalhe e extrai cada dispositivo vetado (código `NN.AA.NNN`, descrição normativa, texto vetado integral e situação)
+- A IA gera automaticamente um **resumo curto (1–2 frases) de cada dispositivo**, explicando em linguagem clara o que ele estabelecia — ou seja, o que deixa de valer com o veto — sem recomendação de voto e sem inventar
+- Botão para **ver o texto integral** de cada dispositivo vetado e link para a página oficial
+- Os resumos são **compartilhados com toda a equipe via Firebase** (`/vetos_resumos/{veto}`) e cacheados localmente, evitando reprocessamento e gasto de API
+
+**Busca geral**
+- Campo de busca que pesquisa em **todo o conteúdo** — nº, assunto, matéria, lei, códigos, textos dos dispositivos e resumos da IA —, com destaque das ocorrências e expansão automática dos vetos correspondentes
+- Botão **Baixar todos** (com barra de progresso) que baixa o detalhamento de todos os vetos em segundo plano para habilitar a busca completa no texto
+
+---
+
 ## Instalação
 
 > A extensão não está publicada na Chrome Web Store. Para usar, faça a instalação manual em modo desenvolvedor.
@@ -218,6 +239,7 @@ sispode/
 ├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
+├── congresso.html / congresso.js  # Módulo: Vetos do Congresso Nacional
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
@@ -235,6 +257,8 @@ sispode/
 |---|---|
 | [Dados Abertos da Câmara](https://dadosabertos.camara.leg.br) | Proposições, destaques, votações, deputados |
 | [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento e documentos legislativos |
+| [SISCON – Senado Federal](https://legis.senado.leg.br) | Relatório Resumo de Vetos em tramitação (PDF) |
+| [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
 | [Google Gemini](https://aistudio.google.com) | Provedor de IA para análise de destaques |
 | [OpenAI](https://platform.openai.com) | Provedor de IA para análise de destaques |

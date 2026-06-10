@@ -1368,6 +1368,13 @@ body {
   border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
+/* Card de home para Vetos do Congresso Nacional */
+.home-card-icon--ambar {
+  background: rgba(245, 158, 11, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(245, 158, 11, 0.25);
+}
+
 /* Badge de status do provedor de IA nas configurações */
 .ccjc-provider-badge {
   font-size: 10px;
@@ -1524,3 +1531,112 @@ body {
   text-align: left !important;
   white-space: normal;
 }
+
+/* ============================================================
+   MÓDULO: VETOS DO CONGRESSO NACIONAL  (classes cn-*)
+   Cores verde/azul replicam o "Relatório Resumo de Vetos" do PDF
+   ============================================================ */
+.cn-wrap { max-width: 1100px; margin: 0 auto; padding: 18px 22px 60px; }
+
+.cn-toolbar {
+  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+.cn-busca-wrap {
+  flex: 1; min-width: 260px;
+  display: flex; align-items: center; gap: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border-soft);
+  border-radius: 10px; padding: 0 12px;
+}
+.cn-busca-wrap:focus-within { border-color: var(--accent); }
+.cn-busca-wrap svg { flex-shrink: 0; color: var(--text-dim); }
+.cn-busca-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-family: inherit; font-size: 14px; padding: 11px 0;
+}
+.cn-busca-clear { background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 16px; }
+.cn-busca-clear:hover { color: var(--text); }
+
+.cn-stats { font-size: 12px; color: var(--text-dim); margin-bottom: 10px; }
+.cn-stats strong { color: var(--text); }
+
+.cn-legenda { display: flex; gap: 18px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; font-size: 12px; color: var(--text-dim); }
+.cn-legenda-item { display: inline-flex; align-items: center; gap: 6px; }
+.cn-legenda-cor { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+.cn-legenda-cor--verde { background: #bcff9b; }
+.cn-legenda-cor--azul  { background: #99ccff; }
+
+/* Barra de progresso (download em massa) */
+.cn-progress { height: 6px; background: rgba(255,255,255,0.07); border-radius: 4px; overflow: hidden; margin: 6px 0; }
+.cn-progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
+.cn-progress-label { font-size: 11px; color: var(--text-dim); }
+
+/* Lista de vetos */
+.cn-lista { display: flex; flex-direction: column; gap: 10px; }
+
+.cn-veto {
+  border: 1px solid var(--border-soft);
+  border-left: 4px solid transparent;
+  border-radius: 10px;
+  background: #142a2f;
+  overflow: hidden;
+  transition: border-color 0.15s;
+}
+.cn-veto--verde { border-left-color: #bcff9b; background: linear-gradient(90deg, rgba(188,255,155,0.07), rgba(188,255,155,0) 18%), #142a2f; }
+.cn-veto--azul  { border-left-color: #99ccff; background: linear-gradient(90deg, rgba(153,204,255,0.08), rgba(153,204,255,0) 18%), #142a2f; }
+.cn-veto.aberto { border-color: var(--accent); }
+
+.cn-veto-head {
+  display: flex; align-items: center; gap: 14px;
+  padding: 14px 16px; cursor: pointer; user-select: none;
+}
+.cn-veto-head:hover { background: rgba(255,255,255,0.03); }
+.cn-veto-num { font-weight: 700; font-size: 14px; color: var(--text); white-space: nowrap; }
+.cn-veto-num small { display: block; font-weight: 500; font-size: 11px; color: var(--text-dim); }
+.cn-veto-meta { flex: 1; min-width: 0; }
+.cn-veto-assunto { font-size: 13px; color: var(--text); line-height: 1.4; }
+.cn-veto-materia { font-size: 11px; color: var(--text-dim); margin-top: 2px; }
+.cn-veto-badges { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.cn-veto-caret { color: var(--text-dim); transition: transform 0.2s; flex-shrink: 0; }
+.cn-veto.aberto .cn-veto-caret { transform: rotate(90deg); }
+
+.cn-badge { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.2px; }
+.cn-badge--sobresta { background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
+.cn-badge--prazo    { background: rgba(34,197,94,0.14); color: #86efac; border: 1px solid rgba(34,197,94,0.28); }
+.cn-badge--qtd      { background: var(--accent-muted); color: var(--accent-light); border: 1px solid rgba(31,165,165,0.3); }
+.cn-badge--total    { background: rgba(245,158,11,0.16); color: #fbbf24; border: 1px solid rgba(245,158,11,0.3); }
+
+/* Corpo expandido */
+.cn-veto-body { padding: 0 16px 16px; border-top: 1px solid var(--border); }
+.cn-veto-ementa { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 12px 0; }
+.cn-veto-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+
+.cn-disp { padding: 12px 0; border-bottom: 1px dashed var(--border); }
+.cn-disp:last-child { border-bottom: none; }
+.cn-disp-top { display: flex; gap: 10px; align-items: baseline; }
+.cn-disp-cod {
+  font-family: ui-monospace, monospace; font-size: 12px; font-weight: 700;
+  color: var(--accent-light); background: var(--accent-muted);
+  padding: 2px 7px; border-radius: 5px; white-space: nowrap;
+}
+.cn-disp-desc { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+.cn-disp-situacao { font-size: 10px; color: var(--text-dim); font-style: italic; margin-left: 6px; }
+.cn-disp-resumo {
+  font-size: 13px; color: var(--text); line-height: 1.55; margin: 8px 0 0;
+  padding: 8px 12px; background: rgba(31,165,165,0.06);
+  border-left: 2px solid var(--accent); border-radius: 0 6px 6px 0;
+}
+.cn-disp-resumo.vazio { color: var(--text-dim); font-style: italic; background: none; border-left-color: var(--border-soft); }
+.cn-disp-toggle { font-size: 11px; color: var(--accent-light); cursor: pointer; background: none; border: none; padding: 6px 0 0; }
+.cn-disp-toggle:hover { text-decoration: underline; }
+.cn-disp-texto { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-top: 6px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px; white-space: pre-wrap; }
+
+.cn-veto-body mark, .cn-veto-assunto mark { background: #fbbf24; color: #14233a; border-radius: 3px; padding: 0 2px; }
+.cn-spinner {
+  display: inline-block; width: 13px; height: 13px; vertical-align: -2px;
+  border: 2px solid rgba(255,255,255,0.25); border-top-color: var(--accent-light);
+  border-radius: 50%; animation: cn-spin 0.7s linear infinite;
+}
+@keyframes cn-spin { to { transform: rotate(360deg); } }
+.cn-empty { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 14px; }
