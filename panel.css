@@ -1536,12 +1536,30 @@ body {
    MÓDULO: VETOS DO CONGRESSO NACIONAL  (classes cn-*)
    Cores verde/azul replicam o "Relatório Resumo de Vetos" do PDF
    ============================================================ */
-.cn-wrap { max-width: 1100px; margin: 0 auto; padding: 18px 22px 60px; }
+/* cn-wrap preenche a altura restante e delega a rolagem à lista,
+   mantendo busca/legenda/stats fixos no topo. */
+.cn-wrap {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  width: 100%; max-width: 1100px; margin: 0 auto; padding: 18px 22px 0;
+}
 
 .cn-toolbar {
-  display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
-  margin-bottom: 14px;
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 10px;
 }
+.cn-btn-parar { background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.35); }
+.cn-btn-parar:hover { background: rgba(239,68,68,0.26); }
+
+.cn-subbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.cn-sync {
+  display: inline-flex; align-items: center; gap: 6px;
+  font-size: 11px; font-weight: 600; padding: 3px 10px; border-radius: 20px;
+  border: 1px solid var(--border-soft); color: var(--text-dim); white-space: nowrap;
+}
+.cn-sync.ok            { color: #3ad97d; border-color: rgba(58,217,125,0.3); background: rgba(58,217,125,0.10); }
+.cn-sync.offline       { color: #f0c040; border-color: rgba(240,192,64,0.3); background: rgba(240,192,64,0.10); }
+.cn-sync.sincronizando { color: #a5b4fc; border-color: rgba(79,70,229,0.3); background: rgba(79,70,229,0.12); }
 .cn-busca-wrap {
   flex: 1; min-width: 260px;
   display: flex; align-items: center; gap: 8px;
@@ -1572,8 +1590,12 @@ body {
 .cn-progress-bar { height: 100%; width: 0; background: var(--accent); transition: width 0.25s; }
 .cn-progress-label { font-size: 11px; color: var(--text-dim); }
 
-/* Lista de vetos */
-.cn-lista { display: flex; flex-direction: column; gap: 10px; }
+/* Lista de vetos — região rolável */
+.cn-lista {
+  display: flex; flex-direction: column; gap: 10px;
+  flex: 1; min-height: 0; overflow-y: auto;
+  padding: 2px 4px 48px 0; margin-top: 4px;
+}
 
 .cn-veto {
   border: 1px solid var(--border-soft);
@@ -1631,6 +1653,26 @@ body {
 .cn-disp-toggle { font-size: 11px; color: var(--accent-light); cursor: pointer; background: none; border: none; padding: 6px 0 0; }
 .cn-disp-toggle:hover { text-decoration: underline; }
 .cn-disp-texto { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-top: 6px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px; white-space: pre-wrap; }
+
+/* Resumo editável */
+.cn-disp-resumo { position: relative; }
+.cn-disp-resumo .cn-disp-resumo-txt { display: block; padding-right: 26px; }
+.cn-disp-edit-btn {
+  position: absolute; top: 5px; right: 6px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text-dim); font-size: 13px; line-height: 1; padding: 2px;
+  opacity: 0; transition: opacity 0.15s, color 0.15s;
+}
+.cn-disp-resumo:hover .cn-disp-edit-btn { opacity: 1; }
+.cn-disp-edit-btn:hover { color: var(--accent-light); }
+.cn-disp-resumo.editando { background: rgba(31,165,165,0.06); border-left-color: var(--accent-light); }
+.cn-disp-edit {
+  width: 100%; box-sizing: border-box; min-height: 70px; resize: vertical;
+  background: var(--bg); color: var(--text); font-family: inherit; font-size: 13px;
+  line-height: 1.55; border: 1px solid var(--accent); border-radius: 6px; padding: 8px 10px;
+}
+.cn-disp-edit-bar { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+.cn-disp-edit-status { font-size: 11px; flex: 1; }
 
 .cn-veto-body mark, .cn-veto-assunto mark { background: #fbbf24; color: #14233a; border-radius: 3px; padding: 0 2px; }
 .cn-spinner {

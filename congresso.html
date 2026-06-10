@@ -32,13 +32,6 @@
         </svg>
         Atualizar lista
       </button>
-      <button id="btn-baixar-todos" class="btn btn-primary" title="Baixar o detalhamento de todos os vetos para busca completa">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-          <polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
-        </svg>
-        Baixar todos
-      </button>
       <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Configurações de IA">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <circle cx="12" cy="12" r="3"/>
@@ -61,12 +54,27 @@
                placeholder="Buscar por nº, assunto, lei, dispositivo ou termo no texto…" autocomplete="off">
         <button id="cn-busca-clear" class="cn-busca-clear" style="display:none" title="Limpar">✕</button>
       </div>
+      <button id="btn-gerar-todos" class="btn btn-primary btn-sm" title="Gerar resumo de IA de todos os vetos">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 9l-4.9 3.6L17 18l-5-3.5L7 18l1.9-5.4L4 9l6.1-.2z"/></svg>
+        Resumir todos
+      </button>
+      <button id="btn-baixar-todos" class="btn btn-outline btn-sm" title="Baixar o detalhamento de todos os vetos para busca completa">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Baixar detalhes
+      </button>
+      <button id="btn-parar" class="btn btn-sm cn-btn-parar" style="display:none" title="Cancelar as operações de IA/download em andamento">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>
+        Parar
+      </button>
     </div>
 
-    <div class="cn-legenda">
-      <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--verde"></span> Verde</span>
-      <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--azul"></span> Azul</span>
-      <span class="cn-legenda-item">· cores conforme o Relatório Resumo de Vetos do Congresso Nacional</span>
+    <div class="cn-subbar">
+      <div class="cn-legenda">
+        <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--verde"></span> Verde</span>
+        <span class="cn-legenda-item"><span class="cn-legenda-cor cn-legenda-cor--azul"></span> Azul</span>
+        <span class="cn-legenda-item">· cores conforme o Relatório Resumo de Vetos do Congresso Nacional</span>
+      </div>
+      <span id="cn-sync" class="cn-sync" style="display:none"></span>
     </div>
 
     <div id="cn-stats" class="cn-stats"></div>

@@ -84,12 +84,16 @@ const app = {
   vetos: [],           // ver shape em construirVeto()
   busca: '',
   baixandoTodos: false,
+  editando: null,      // { key, codigo, salvando, dirty, debounce, snapshot }
+  ultimoSync: null,    // ISO da última gravação no Firebase
   toastTimer: null,
   buscaTimer: null,
   saveTimer: null,
 };
 
 let _abort = new AbortController();
+let _iaInFlight = 0;                              // chamadas de IA em voo
+let _gerarTodos = { rodando: false, cancelar: false };
 function isAbort(e) { return e?.name === 'AbortError' || /aborted/i.test(e?.message || ''); }
 
 // ============================================================
@@ -107,6 +111,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     app.vetos = cache.vetos;
     await mesclarResumosFirebase();
     renderLista();
+    marcarSyncInicial();
     const velho = !cache.atualizadoEm || (Date.now() - new Date(cache.atualizadoEm).getTime() > CACHE_TTL_MS);
     if (velho) carregarListaVetos(false);
   } else {
@@ -120,6 +125,8 @@ function wireEventos() {
   });
   document.getElementById('btn-atualizar').addEventListener('click', () => carregarListaVetos(true));
   document.getElementById('btn-baixar-todos').addEventListener('click', toggleBaixarTodos);
+  document.getElementById('btn-gerar-todos').addEventListener('click', toggleGerarTodos);
+  document.getElementById('btn-parar').addEventListener('click', pararTudo);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
 
   document.querySelectorAll('[data-fecha]').forEach(b =>
@@ -167,6 +174,7 @@ async function carregarListaVetos(forcar) {
 
     await mesclarResumosFirebase();
     renderLista();
+    marcarSyncInicial();
     salvarCacheLocal();
   } catch (e) {
     console.error('[congresso] carregarListaVetos', e);
@@ -391,18 +399,19 @@ async function baixarArrayBuffer(url) {
 // ============================================================
 //  IA — resumo de cada dispositivo
 // ============================================================
-async function resumirVeto(veto, { silencioso = false } = {}) {
+async function resumirVeto(veto, { silencioso = false, render = true } = {}) {
   if (!app.config?.apiKey) {
     if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso');
-    return;
+    return false;
   }
   if (!veto.detalheCarregado) await carregarDetalhe(veto);
   if (!veto.dispositivos.length) {
     if (!silencioso) mostrarToast('Este veto não tem dispositivos para resumir.', 'aviso');
-    return;
+    return false;
   }
   veto.resumindo = true;
-  renderLista();
+  iaInc();
+  if (render && !app.editando) renderLista();
   try {
     const prompt = promptResumo(veto);
     const texto = await chamarIAtexto({ ...app.config, prompt });
@@ -417,17 +426,128 @@ async function resumirVeto(veto, { silencioso = false } = {}) {
       provedor: app.config.provedor, modelo: app.config.modelo,
       atualizadoEm: new Date().toISOString(),
     };
-    fbSalvarResumo(veto).catch(e => console.warn('Firebase resumo falhou:', e.message));
-    salvarCacheLocal();
+    await persistirResumo(veto);
     if (!silencioso) mostrarToast(`✓ ${aplicados} dispositivo(s) resumido(s)`, 'sucesso');
+    return true;
   } catch (e) {
-    if (isAbort(e)) return;
+    if (isAbort(e)) return false;
     console.error('[congresso] resumirVeto', e);
     if (!silencioso) mostrarToast('Erro ao resumir: ' + e.message, 'erro');
+    return false;
   } finally {
     veto.resumindo = false;
-    renderLista();
+    iaDec();
+    if (render && !app.editando) renderLista();
   }
+}
+
+/** Salva o resumo no Firebase (com marcador de sync) e no cache local.
+ *  Retorna true se a gravação no Firebase foi bem-sucedida. */
+async function persistirResumo(veto) {
+  atualizarStatusSync('sincronizando');
+  let ok = false;
+  try {
+    await fbSalvarResumo(veto);
+    atualizarStatusSync('ok');
+    ok = true;
+  } catch (e) {
+    console.warn('Firebase resumo falhou:', e.message);
+    atualizarStatusSync('offline');
+  }
+  salvarCacheLocal();
+  return ok;
+}
+
+// ---------- Controle de IA em voo / botão Parar ----------
+function iaInc() { _iaInFlight++; atualizarBotaoParar(); }
+function iaDec() { _iaInFlight = Math.max(0, _iaInFlight - 1); atualizarBotaoParar(); }
+
+function atualizarBotaoParar() {
+  const b = document.getElementById('btn-parar');
+  if (!b) return;
+  const ativo = _iaInFlight > 0 || app.baixandoTodos || _gerarTodos.rodando;
+  b.style.display = ativo ? 'inline-flex' : 'none';
+}
+
+// ---------- Marcador de sincronização com o Firebase ----------
+function atualizarStatusSync(estado) {
+  const el = document.getElementById('cn-sync');
+  if (!el) return;
+  el.style.display = 'inline-flex';
+  el.className = 'cn-sync';
+  if (estado === 'sincronizando') {
+    el.classList.add('sincronizando');
+    el.textContent = '⟳ Salvando no Firebase…';
+  } else if (estado === 'offline') {
+    el.classList.add('offline');
+    el.textContent = '○ Offline — salvo localmente';
+  } else { // ok
+    app.ultimoSync = new Date().toISOString();
+    el.classList.add('ok');
+    const hora = new Date(app.ultimoSync).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    el.textContent = `● Firebase · salvo às ${hora}`;
+  }
+}
+
+/** Mostra, no boot, o horário do último resumo salvo pela equipe (se houver). */
+function marcarSyncInicial() {
+  const datas = app.vetos.map(v => v.resumoMeta?.atualizadoEm).filter(Boolean).sort();
+  if (!datas.length) return;
+  const el = document.getElementById('cn-sync');
+  if (!el) return;
+  app.ultimoSync = datas[datas.length - 1];
+  el.style.display = 'inline-flex';
+  el.className = 'cn-sync ok';
+  const d = new Date(app.ultimoSync);
+  el.textContent = `● Firebase · equipe · ${d.toLocaleDateString('pt-BR')} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`;
+}
+
+// ---------- Gerar resumos de TODOS os vetos ----------
+function toggleGerarTodos() {
+  if (_gerarTodos.rodando) { pararTudo(); return; }
+  gerarTodosResumos();
+}
+
+async function gerarTodosResumos() {
+  if (!app.config?.apiKey) { mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso'); return; }
+  const pendentes = app.vetos.filter(v =>
+    v.detalheUrl && !(v.detalheCarregado && v.dispositivos.length && v.dispositivos.every(d => d.resumo)));
+  if (!pendentes.length) { mostrarToast('Todos os vetos já estão resumidos.', 'sucesso'); return; }
+
+  _gerarTodos = { rodando: true, cancelar: false };
+  setBtnGerar(true); atualizarBotaoParar();
+  const wrap = document.getElementById('cn-progress-wrap');
+  const bar = document.getElementById('cn-progress-bar');
+  const label = document.getElementById('cn-progress-label');
+  wrap.style.display = 'block';
+
+  let ok = 0, falhas = 0;
+  for (let i = 0; i < pendentes.length; i++) {
+    if (_gerarTodos.cancelar) break;
+    const v = pendentes[i];
+    label.textContent = `Resumindo com IA… ${i + 1}/${pendentes.length} (VET ${v.numero})` + (falhas ? ` · ${falhas} falha(s)` : '');
+    try {
+      const r = await resumirVeto(v, { silencioso: true, render: false });
+      r ? ok++ : falhas++;
+    } catch (e) { if (isAbort(e)) break; falhas++; }
+    bar.style.width = `${Math.round(((i + 1) / pendentes.length) * 100)}%`;
+    if (!app.editando) renderLista();
+    if (i < pendentes.length - 1 && !_gerarTodos.cancelar) await sleep(THROTTLE_MS);
+  }
+
+  _gerarTodos = { rodando: false, cancelar: false };
+  setBtnGerar(false); atualizarBotaoParar();
+  wrap.style.display = 'none';
+  if (!app.editando) renderLista();
+  mostrarToast(`✓ Resumos gerados (${ok})${falhas ? ` · ${falhas} falha(s)` : ''}`, falhas ? 'aviso' : 'sucesso');
+}
+
+function setBtnGerar(rodando) {
+  const b = document.getElementById('btn-gerar-todos');
+  if (!b) return;
+  b.innerHTML = rodando
+    ? '<span class="cn-spinner"></span> Resumindo…'
+    : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 9l-4.9 3.6L17 18l-5-3.5L7 18l1.9-5.4L4 9l6.1-.2z"/></svg> Resumir todos';
 }
 
 function promptResumo(veto) {
@@ -530,12 +650,15 @@ function toggleBaixarTodos() {
 }
 
 function pararTudo() {
+  _gerarTodos.cancelar = true;
   app.baixandoTodos = false;
   try { _abort.abort(); } catch (_) {}
   _abort = new AbortController();
   setBtnBaixar(false);
+  setBtnGerar(false);
   document.getElementById('cn-progress-wrap').style.display = 'none';
-  mostrarToast('Download interrompido.', 'aviso');
+  atualizarBotaoParar();
+  mostrarToast('Operação interrompida.', 'aviso');
 }
 
 async function baixarTodosDetalhes() {
@@ -544,6 +667,7 @@ async function baixarTodosDetalhes() {
 
   app.baixandoTodos = true;
   setBtnBaixar(true);
+  atualizarBotaoParar();
   const wrap = document.getElementById('cn-progress-wrap');
   const bar = document.getElementById('cn-progress-bar');
   const label = document.getElementById('cn-progress-label');
@@ -557,31 +681,32 @@ async function baixarTodosDetalhes() {
     catch (e) { if (isAbort(e)) break; falhas++; console.warn('detalhe falhou', v.numero, e.message); }
     bar.style.width = `${Math.round(((i + 1) / pendentes.length) * 100)}%`;
     label.textContent = `Baixando detalhes… ${i + 1}/${pendentes.length}` + (falhas ? ` · ${falhas} falha(s)` : '');
-    if (app.busca) renderLista();
+    if (app.busca && !app.editando) renderLista();
     if (i < pendentes.length - 1) await sleep(THROTTLE_MS);
   }
 
   app.baixandoTodos = false;
   setBtnBaixar(false);
+  atualizarBotaoParar();
   wrap.style.display = 'none';
   salvarCacheLocal();
-  renderLista();
+  if (!app.editando) renderLista();
   if (ok) mostrarToast(`✓ Detalhes baixados (${ok})${falhas ? ` · ${falhas} falha(s)` : ''}. Busca completa habilitada.`, falhas ? 'aviso' : 'sucesso');
 }
 
 function setBtnBaixar(rodando) {
   const b = document.getElementById('btn-baixar-todos');
+  if (!b) return;
   b.innerHTML = rodando
-    ? '<span class="cn-spinner"></span> Parar download'
-    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Baixar todos`;
-  b.classList.toggle('btn-primary', !rodando);
-  b.classList.toggle('btn-outline', rodando);
+    ? '<span class="cn-spinner"></span> Baixando…'
+    : `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg> Baixar detalhes`;
 }
 
 // ============================================================
 //  BUSCA
 // ============================================================
 function onBusca(valor) {
+  if (app.editando) fecharEdicao(true);  // descarrega a edição em curso
   app.busca = valor.trim();
   document.getElementById('cn-busca-clear').style.display = app.busca ? 'block' : 'none';
 
@@ -668,11 +793,13 @@ function renderCorpo(v, termo) {
     inner = '<div class="cn-disp-resumo vazio">Nenhum dispositivo vetado encontrado na página oficial.</div>';
   } else {
     inner = v.dispositivos.map(d => {
+      const val = `${v.key}|${d.codigo}`;
+      const btnEditar = `<button class="cn-disp-edit-btn" data-editar="${val}" title="Editar resumo">✎</button>`;
       const resumo = d.resumo
-        ? `<div class="cn-disp-resumo">${marca(d.resumo, termo)}</div>`
+        ? `<div class="cn-disp-resumo" data-resumo="${val}"><span class="cn-disp-resumo-txt">${marca(d.resumo, termo)}</span>${btnEditar}</div>`
         : (v.resumindo
             ? '<div class="cn-disp-resumo vazio"><span class="cn-spinner"></span> Resumindo…</div>'
-            : '<div class="cn-disp-resumo vazio">Sem resumo de IA ainda.</div>');
+            : `<div class="cn-disp-resumo vazio" data-resumo="${val}"><span class="cn-disp-resumo-txt">Sem resumo de IA ainda.</span>${btnEditar}</div>`);
       const textoBloco = d.texto
         ? `<button class="cn-disp-toggle" data-texto="${v.key}|${d.codigo}">Ver texto do dispositivo vetado</button>
            <div class="cn-disp-texto" data-texto-box="${v.key}|${d.codigo}" style="display:none">${marca(d.texto, termo)}</div>`
@@ -724,9 +851,16 @@ function wireCards() {
         b.textContent = vis ? 'Ver texto do dispositivo vetado' : 'Ocultar texto do dispositivo vetado';
       }
     }));
+  document.querySelectorAll('[data-editar]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      const [key, codigo] = b.dataset.editar.split('|');
+      entrarEdicao(key, codigo);
+    }));
 }
 
 async function toggleVeto(key) {
+  if (app.editando) fecharEdicao(true);
   const v = app.vetos.find(x => x.key === key);
   if (!v) return;
   v.aberto = !v.aberto;
@@ -744,6 +878,108 @@ async function toggleVeto(key) {
       if (!isAbort(e)) { mostrarToast('Erro ao abrir o veto: ' + e.message, 'erro'); renderLista(); }
     }
   }
+}
+
+// ============================================================
+//  EDIÇÃO INLINE DO RESUMO (com autosave no Firebase + cache)
+// ============================================================
+function entrarEdicao(key, codigo) {
+  if (app.editando) fecharEdicao(true);
+  const veto = app.vetos.find(v => v.key === key);
+  const d = veto?.dispositivos.find(x => x.codigo === codigo);
+  if (!d) return;
+  const val = `${key}|${codigo}`;
+  const div = document.querySelector(`[data-resumo="${val}"]`);
+  if (!div) return;
+
+  app.editando = { key, codigo, salvando: false, dirty: false, debounce: null, snapshot: d.resumo || '' };
+  atualizarBotaoParar();
+  div.classList.remove('vazio');
+  div.classList.add('editando');
+  div.innerHTML = `
+    <textarea class="cn-disp-edit" data-edit="${val}">${escapeHtml(d.resumo || '')}</textarea>
+    <div class="cn-disp-edit-bar">
+      <span class="cn-disp-edit-status" data-edit-status></span>
+      <button class="btn btn-ghost btn-sm" data-edit-cancel>Cancelar</button>
+      <button class="btn btn-primary btn-sm" data-edit-save>Salvar</button>
+    </div>`;
+  const ta = div.querySelector('textarea');
+  ta.addEventListener('input', agendarAutosaveEdit);
+  ta.addEventListener('keydown', e => { if (e.key === 'Escape') { e.preventDefault(); fecharEdicao(false); } });
+  div.querySelector('[data-edit-cancel]').addEventListener('click', e => { e.stopPropagation(); fecharEdicao(false); });
+  div.querySelector('[data-edit-save]').addEventListener('click', e => { e.stopPropagation(); fecharEdicao(true); });
+  ta.focus();
+  ta.setSelectionRange(ta.value.length, ta.value.length);
+}
+
+function agendarAutosaveEdit() {
+  const e = app.editando;
+  if (!e) return;
+  e.dirty = true;
+  if (e.debounce) clearTimeout(e.debounce);
+  setEditStatus('editando…', 'var(--text-dim)');
+  e.debounce = setTimeout(executarAutosaveEdit, 1500);
+}
+
+async function executarAutosaveEdit() {
+  const e = app.editando;
+  if (!e) return;
+  const ta = document.querySelector(`[data-edit="${e.key}|${e.codigo}"]`);
+  if (!ta) return;
+  if (e.salvando) { e.debounce = setTimeout(executarAutosaveEdit, 400); return; }
+  const veto = app.vetos.find(v => v.key === e.key);
+  const d = veto?.dispositivos.find(x => x.codigo === e.codigo);
+  if (!d || !veto) return;
+
+  e.salvando = true; e.dirty = false;
+  setEditStatus('salvando…', 'var(--text-dim)');
+  d.resumo = ta.value.trim();
+  veto.resumoMeta = {
+    provedor: veto.resumoMeta?.provedor || app.config?.provedor || 'manual',
+    modelo: veto.resumoMeta?.modelo,
+    atualizadoEm: new Date().toISOString(), editadoPor: 'equipe',
+  };
+  const ok = await persistirResumo(veto);
+  const hora = new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  setEditStatus(ok ? `✓ salvo às ${hora}` : '⚠ salvo localmente (Firebase offline)', ok ? '#3ad97d' : '#f0c040');
+  e.salvando = false;
+  if (e.dirty && !e.debounce) e.debounce = setTimeout(executarAutosaveEdit, 1500);
+}
+
+function setEditStatus(texto, cor) {
+  const el = document.querySelector('[data-edit-status]');
+  if (!el) return;
+  el.textContent = texto;
+  el.style.color = cor || 'var(--text-dim)';
+}
+
+function fecharEdicao(salvar) {
+  const e = app.editando;
+  if (!e) return;
+  if (e.debounce) { clearTimeout(e.debounce); e.debounce = null; }
+  const ta = document.querySelector(`[data-edit="${e.key}|${e.codigo}"]`);
+  const veto = app.vetos.find(v => v.key === e.key);
+  const d = veto?.dispositivos.find(x => x.codigo === e.codigo);
+  app.editando = null;            // libera antes de re-renderizar
+  if (veto && d) {
+    if (salvar && ta) {
+      const valor = ta.value.trim();
+      if (valor !== e.snapshot) {
+        d.resumo = valor;
+        veto.resumoMeta = {
+          provedor: veto.resumoMeta?.provedor || app.config?.provedor || 'manual',
+          modelo: veto.resumoMeta?.modelo,
+          atualizadoEm: new Date().toISOString(), editadoPor: 'equipe',
+        };
+        persistirResumo(veto);
+      }
+    } else if (!salvar && d.resumo !== e.snapshot) {
+      d.resumo = e.snapshot;       // reverte (e re-grava caso o autosave já tenha persistido)
+      persistirResumo(veto);
+    }
+  }
+  atualizarBotaoParar();
+  renderLista();
 }
 
 // ============================================================
