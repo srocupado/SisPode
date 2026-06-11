@@ -1112,7 +1112,7 @@ function renderResumoProjeto(v, termo) {
 // é nele que a razão (compartilhada) é exibida uma única vez.
 function razoesIndex(veto) {
   const map = new Map();
-  const ordem = veto.dispositivos.map(d => d.codigo);
+  const ordem = (veto.dispositivos || []).map(d => d.codigo);
   (veto.razoesGrupos || []).forEach(g => {
     const cods = (g.codigos || []).filter(Boolean);
     if (!cods.length || !g.resumo) return;
@@ -1286,7 +1286,7 @@ async function toggleVeto(key) {
 // Alvo da edição: dispositivo (por código), resumo do projeto ("__projeto__"),
 // razões do veto total ("__razoes__") ou razões de um grupo ("__razoesg__<âncora>").
 function grupoRazoesPorAnchor(veto, anchorCode) {
-  const ordem = veto.dispositivos.map(d => d.codigo);
+  const ordem = (veto.dispositivos || []).map(d => d.codigo);
   return (veto.razoesGrupos || []).find(g => {
     const cods = (g.codigos || []).filter(Boolean);
     const anchor = cods.slice().sort((a, b) => {
@@ -1809,9 +1809,17 @@ async function abrirPauta(id) {
     const res = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}.json`);
     const s = res.ok ? await res.json() : null;
     if (!s) throw new Error('Pauta não encontrada.');
-    const vetos = s.vetos ? Object.values(s.vetos) : [];
+    // RTDB não guarda arrays vazios (voltam como undefined) e pode devolver
+    // arrays como objeto — normaliza para evitar quebra no render/impressão.
+    const arr = x => Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []);
+    const vetos = (s.vetos ? Object.values(s.vetos) : []).map(v => ({
+      ...v,
+      dispositivos: arr(v.dispositivos),
+      razoesGrupos: arr(v.razoesGrupos),
+      aberto: false, resumindo: false, carregandoDetalhe: false,
+    }));
     vetos.sort((a, b) => (b.ano - a.ano) || (b.num - a.num));
-    app.vetos = vetos.map(v => ({ ...v, aberto: false, resumindo: false, carregandoDetalhe: false }));
+    app.vetos = vetos;
     const plns = s.plns ? Object.values(s.plns) : [];
     plns.sort((a, b) => (a.sigla || '').localeCompare(b.sigla || '') || (a.num - b.num));
     app.sessaoAtiva = { id, nome: s.nome, data: s.data, plns: plns.map(p => ({ ...p, aberto: false, resumindoAnalise: false })) };
