@@ -2196,7 +2196,9 @@ async function exportarDocx() {
       filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
     }
 
-    // Por dispositivo: "código — Resumo: <análise>" e, indentada, "Razões do veto: <motivo>".
+    // Por dispositivo: "código — Resumo: <análise>". A razão (compartilhada por
+    // um grupo) é impressa UMA vez, no 1º dispositivo do grupo (anchor), com a
+    // lista dos dispositivos que ela cobre — espelhando a exibição do card.
     const razIdx = razoesIndex(v);
     (v.dispositivos || []).forEach(d => {
       filhos.push(new Paragraph({
@@ -2208,7 +2210,10 @@ async function exportarDocx() {
         ],
       }));
       const rz = razIdx.get(d.codigo);
-      if (rz) filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: rz.resumo, size: 18 })] }));
+      if (rz && rz.anchor) {
+        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
+        filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: `Razões do veto${cobre}: `, bold: true, size: 18, color: 'b45309' }), new TextRun({ text: rz.resumo, size: 18 })] }));
+      }
     });
     if (!(v.dispositivos || []).length && !(v.tipo === 'Total' && v.razoesProjeto)) {
       filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: '(sem resumos — gere a análise antes de exportar)', size: 16, italics: true, color: '999999' })] }));
