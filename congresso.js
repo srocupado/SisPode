@@ -977,7 +977,7 @@ function onBusca(valor) {
 
   // "Busca em tudo": na primeira busca textual, garante o download de todos os
   // detalhes. Busca por número do veto não precisa (casa direto pelo nº).
-  const ehBuscaNumero = /^\d{1,3}$/.test(app.busca) || /^\d+\s*\/\s*\d{4}$/.test(app.busca);
+  const ehBuscaNumero = /^(?:vet(?:o)?\s*)?\d{1,3}$/i.test(app.busca) || /^(?:vet(?:o)?\s*)?\d+\s*\/\s*\d{4}$/i.test(app.busca);
   if (app.busca && !ehBuscaNumero && !app.baixandoTodos && app.vetos.some(v => !v.detalheCarregado && v.detalheUrl)) {
     mostrarToast('Baixando os detalhes para a busca completa…', '');
     baixarTodosDetalhes();
@@ -988,12 +988,14 @@ function onBusca(valor) {
 function vetoCasaBusca(v, termo) {
   if (!termo) return true;
   const t = termo.trim();
-  // Busca pelo número do veto: "5/2025" (exato) ou "5"/"31" (nº do veto, 1–3 dígitos).
-  const mFull = t.match(/^(\d+)\s*\/\s*(\d{4})$/);
+  // Busca pelo número do veto, aceitando o prefixo "VET"/"VETO":
+  // "VET 5/2025"/"5/2025" (exato) ou "VET 5"/"5"/"31" (nº do veto, 1–3 dígitos).
+  const tn = t.replace(/^vet(?:o)?\s*/i, '');
+  const mFull = tn.match(/^(\d+)\s*\/\s*(\d{4})$/);
   if (mFull) return v.num === +mFull[1] && v.ano === +mFull[2];
-  const mNum = t.match(/^(\d{1,3})$/);
+  const mNum = tn.match(/^(\d{1,3})$/);
   if (mNum) return v.num === +mNum[1];
-  const campos = [v.numero, v.tipo, v.materia, v.assunto, v.ementa, v.sobresta,
+  const campos = [`VET ${v.numero}`, v.numero, v.tipo, v.materia, v.assunto, v.ementa, v.sobresta,
     v.resumoProjeto, v.razoesProjeto,
     ...(v.razoesGrupos || []).map(g => g.resumo),
     ...(v.dispositivos || []).flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo])];
