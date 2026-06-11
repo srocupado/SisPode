@@ -2136,8 +2136,9 @@ function _selecaoExport() {
   return { vetos, plns };
 }
 
-// PDF via impressão da própria janela (mesmo padrão dos módulos Análise/CCJC),
-// com o mesmo conteúdo e formatação do Word. O usuário escolhe "Salvar como PDF".
+// PDF via impressão da própria janela, com o mesmo conteúdo/formato do Word.
+// Usa Paged.js para paginar e calcular os números de página do índice
+// (target-counter). Se a lib falhar, imprime mesmo assim (índice sem nº).
 function exportarPdf() {
   const { vetos, plns } = _selecaoExport();
   if (!vetos.length && !plns.length) { mostrarToast('Nenhum item para exportar.', 'aviso'); return; }
@@ -2147,9 +2148,17 @@ function exportarPdf() {
   if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'aviso'); return; }
   win.document.write(_htmlImpressaoPauta(vetos, plns));
   win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 600);
-  mostrarToast('Na janela de impressão, escolha “Salvar como PDF”.', '');
+
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  // Paged.js chama 'after' quando termina de paginar (números do índice prontos).
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;                 // fallback: imprime sem numeração se a lib não carregar
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 10000);          // rede de segurança
+  mostrarToast('Gerando PDF… escolha “Salvar como PDF” na janela.', '');
 }
 
 function _htmlImpressaoPauta(vetos, plns) {
@@ -2158,12 +2167,13 @@ function _htmlImpressaoPauta(vetos, plns) {
   const logo = chrome.runtime.getURL('icons/podemos-logo.png');
   const meta = `${app.sessaoAtiva ? 'Sessão: ' + esc(app.sessaoAtiva.nome) + ' · ' : ''}${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)${plns.length ? ' · ' + plns.length + ' PLN/MPV' : ''}`;
 
+  const ixItem = (anchor, rotulo, cls) => `<li><a class="${cls}" href="#${anchor}"><span class="t">${rotulo}</span><span class="ld"></span></a></li>`;
   const indice = (vetos.length || plns.length) ? `
     <section class="indice">
       <h2>Índice</h2>
       <ul>
-        ${vetos.map(v => `<li><a href="#${bm(v.key)}">VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}</a></li>`).join('')}
-        ${plns.map(p => `<li><a class="ix-pln" href="#${bm(p.key)}">${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '  ·  ' + esc(p.titulo) : ''}</a></li>`).join('')}
+        ${vetos.map(v => ixItem(bm(v.key), `VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}`, 'ix-veto')).join('')}
+        ${plns.map(p => ixItem(bm(p.key), `${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '  ·  ' + esc(p.titulo) : ''}`, 'ix-pln')).join('')}
       </ul>
     </section>` : '';
 
@@ -2198,7 +2208,8 @@ function _htmlImpressaoPauta(vetos, plns) {
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Pauta do Congresso Nacional</title>
   <style>
-    * { box-sizing:border-box; margin:0; padding:0; }
+    @page { size:A4; margin:16mm; }
+    * { box-sizing:border-box; margin:0; padding:0; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; }
     .cab { display:flex; align-items:center; gap:16px; }
     .cab .tit { flex:1; text-align:center; }
@@ -2208,21 +2219,22 @@ function _htmlImpressaoPauta(vetos, plns) {
     .cab .sp { width:42px; }
     .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
     .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
-    .indice { page-break-after:always; }
+    .indice { break-after:page; page-break-after:always; }
     .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:8px; }
     .indice ul { list-style:none; }
-    .indice li { font-size:10.5pt; line-height:1.95; border-bottom:1px dotted #cbd5e1; }
-    .indice a { color:#178080; text-decoration:none; }
+    .indice li { font-size:10.5pt; margin-bottom:3px; }
+    .indice a { display:flex; align-items:baseline; text-decoration:none; color:#178080; }
     .indice a.ix-pln { color:#b45309; }
-    .item-h { font-size:13pt; font-weight:700; border-bottom:1px solid #ccc; padding-bottom:3px; margin-top:18px; page-break-after:avoid; }
+    .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
+    .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
+    .item-h { font-size:13pt; font-weight:700; border-bottom:1px solid #ccc; padding-bottom:3px; margin-top:18px; page-break-after:avoid; break-after:avoid; }
     .item-h .ass { font-weight:400; font-size:11pt; }
-    .sec { font-size:13pt; color:#003c1f; border-bottom:2px solid #00A859; padding-bottom:3px; margin:26px 0 6px; page-break-after:avoid; }
-    p { font-size:10.5pt; line-height:1.6; margin:8px 0; page-break-inside:avoid; }
+    .sec { font-size:13pt; color:#003c1f; border-bottom:2px solid #00A859; padding-bottom:3px; margin:26px 0 6px; page-break-after:avoid; break-after:avoid; }
+    p { font-size:10.5pt; line-height:1.6; margin:8px 0; page-break-inside:avoid; break-inside:avoid; }
     .disp .cod { font-weight:700; color:#178080; }
     .raz strong { color:#b45309; }
     .vazio { color:#999; font-style:italic; }
     .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
-    @media print { @page { margin:16mm; size:A4; } * { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
   </style></head><body>
     <div class="cab">
       <div class="sp"></div>
