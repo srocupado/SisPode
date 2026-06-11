@@ -10,6 +10,7 @@
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const GEMINI_BASE     = 'https://generativelanguage.googleapis.com/v1beta/models';
 const ANTHROPIC_BASE  = 'https://api.anthropic.com/v1/messages';
+const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
 const ANTHROPIC_VER   = '2023-06-01';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
@@ -37,10 +38,13 @@ let app = {
     reuniaoSelecionada: null,
   },
   config: {
+    provedorAtivo:  '',   // 'gemini' | 'anthropic' | 'openai' (vazio = automático, 1º configurado)
     geminiKey:      '',
     modelo:         'gemini-2.5-flash-preview-04-17',
     anthropicKey:   '',
-    anthropicModelo:'claude-opus-4-7',
+    anthropicModelo:'claude-opus-4-8',
+    openaiKey:      '',
+    openaiModelo:   'gpt-4o',
   },
 };
 
@@ -68,6 +72,7 @@ function registrarEventos() {
   document.getElementById('btn-salvar-config').addEventListener('click', salvarConfiguracao);
   document.getElementById('btn-testar-ia').addEventListener('click', testarConexaoIA);
   document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelosDisponiveis);
+  document.getElementById('btn-carregar-anthropic-modelos').addEventListener('click', carregarModelosAnthropic);
   document.getElementById('btn-toggle-key').addEventListener('click', () => {
     const input = document.getElementById('config-gemini-key');
     input.type = input.type === 'password' ? 'text' : 'password';
@@ -87,6 +92,17 @@ function registrarEventos() {
     });
   document.getElementById('btn-testar-anthropic')
     ?.addEventListener('click', testarConexaoAnthropic);
+  document.getElementById('btn-carregar-openai-modelos')
+    ?.addEventListener('click', carregarModelosOpenAI);
+  document.getElementById('config-openai-key')
+    ?.addEventListener('input', atualizarBadgeOpenai);
+  document.getElementById('btn-toggle-openai-key')
+    ?.addEventListener('click', () => {
+      const input = document.getElementById('config-openai-key');
+      input.type = input.type === 'password' ? 'text' : 'password';
+    });
+  document.getElementById('btn-testar-openai')
+    ?.addEventListener('click', testarConexaoOpenAI);
 
   // Abas PDF / Calendário
   document.querySelectorAll('.ccjc-upload-tab').forEach(btn => {
@@ -600,9 +616,30 @@ function extrairComissoesDaTramitacao(tramitacoes) {
 //  CAMADA DE IA – GEMINI
 // ============================================================
 
+// Resolve o provedor que será usado: respeita a escolha do usuário
+// (config.provedorAtivo); se o escolhido não tiver chave, cai no primeiro
+// configurado (gemini → anthropic → openai). Retorna '' se nenhum tem chave.
+function _provedorEfetivo() {
+  const tem = {
+    gemini:    !!app.config.geminiKey,
+    anthropic: !!app.config.anthropicKey,
+    openai:    !!app.config.openaiKey,
+  };
+  const escolhido = app.config.provedorAtivo;
+  if (escolhido && tem[escolhido]) return escolhido;
+  if (tem.gemini)    return 'gemini';
+  if (tem.anthropic) return 'anthropic';
+  if (tem.openai)    return 'openai';
+  return '';
+}
+
+const NOME_PROVEDOR = { gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' };
+
 async function aiCall(prompt, docUrl = null) {
-  if (app.config.geminiKey) return _callGemini(prompt, docUrl);
-  if (app.config.anthropicKey) return _callAnthropic(prompt, docUrl);
+  const p = _provedorEfetivo();
+  if (p === 'gemini')    return _callGemini(prompt, docUrl);
+  if (p === 'anthropic') return _callAnthropic(prompt, docUrl);
+  if (p === 'openai')    return _callOpenAI(prompt, docUrl);
   throw new Error('Nenhuma chave de IA configurada. Configure em ⚙ Configurações.');
 }
 
@@ -698,6 +735,49 @@ async function _callAnthropic(prompt, docUrl = null) {
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Anthropic HTTP ${res.status}`);
   return json.content?.[0]?.text?.trim() || '';
+}
+
+// ---------- OPENAI ----------
+async function _callOpenAI(prompt, docUrl = null) {
+  const { openaiKey, openaiModelo } = app.config;
+  if (!openaiKey) throw new Error('Chave OpenAI não configurada.');
+
+  const content = [];
+
+  if (docUrl) {
+    try {
+      const res = await fetch(docUrl);
+      if (res.ok) {
+        const ct = res.headers.get('content-type') || '';
+        if (ct.includes('pdf')) {
+          const buf  = await res.arrayBuffer();
+          const u8   = new Uint8Array(buf);
+          let bin = '';
+          const CHUNK = 8192;
+          for (let i = 0; i < u8.length; i += CHUNK) {
+            bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+          }
+          content.push({ type: 'input_file', filename: 'documento.pdf', file_data: `data:application/pdf;base64,${btoa(bin)}` });
+        } else {
+          const clean = _extrairTextoHTML(await res.text());
+          if (clean.length > 200) content.push({ type: 'input_text', text: `Texto do documento:\n${clean}` });
+        }
+      }
+    } catch (e) { console.warn('OpenAI: erro ao buscar doc:', e.message); }
+  }
+
+  content.push({ type: 'input_text', text: prompt });
+
+  const res = await fetch(OPENAI_BASE, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], max_output_tokens: 2048 }),
+  });
+  const json = await res.json();
+  if (!res.ok) throw new Error(json.error?.message || `OpenAI HTTP ${res.status}`);
+  if (json.output_text) return json.output_text.trim();
+  for (const it of (json.output || [])) for (const c of (it.content || [])) if (c.type === 'output_text' && c.text) return c.text.trim();
+  return '';
 }
 
 // ---------- Utilidade compartilhada ----------
@@ -895,7 +975,7 @@ async function analisarProjeto(proj) {
 async function analisarTodos() {
   if (!app.pautaAtual || app.processando) return;
 
-  const provedor = app.config.geminiKey ? 'Gemini' : (app.config.anthropicKey ? 'Claude' : '');
+  const provedor = NOME_PROVEDOR[_provedorEfetivo()] || '';
   if (!provedor) {
     mostrarToast('Configure uma chave de IA em ⚙ Configurações antes de analisar.', 'aviso');
     abrirConfiguracoes();
@@ -933,7 +1013,7 @@ async function analisarTodos() {
 async function analisarEsteProjetoHandler() {
   const proj = app.projetoAtivo;
   if (!proj || app.processando) return;
-  if (!app.config.geminiKey && !app.config.anthropicKey) {
+  if (!app.config.geminiKey && !app.config.anthropicKey && !app.config.openaiKey) {
     mostrarToast('Configure uma chave de IA em ⚙ Configurações.', 'aviso');
     abrirConfiguracoes();
     return;
@@ -1304,7 +1384,7 @@ function renderizarRevisao() {
   }
 
   const analisando  = proj.statusAnalise === 'analisando';
-  const temGemini   = !!(app.config.geminiKey || app.config.anthropicKey);
+  const temGemini   = !!(app.config.geminiKey || app.config.anthropicKey || app.config.openaiKey);
   const roDisabled  = analisando ? 'readonly' : '';
 
   const comissoesHtml = (proj.comissoes || []).map((com, i) => `
@@ -1461,6 +1541,9 @@ async function salvarConfiguracao() {
   const modelo       = document.getElementById('config-modelo').value;
   const anthropicKey = document.getElementById('config-anthropic-key').value.trim();
   const antModelo    = document.getElementById('config-anthropic-modelo').value;
+  const openaiKey    = document.getElementById('config-openai-key').value.trim();
+  const openaiModelo = document.getElementById('config-openai-modelo').value;
+  const provedorAtivo = document.getElementById('config-provedor-ativo').value;
   const status       = document.getElementById('config-status-ia');
 
   if (geminiKey && !geminiKey.startsWith('AIza')) {
@@ -1477,14 +1560,24 @@ async function salvarConfiguracao() {
     return;
   }
 
+  if (openaiKey && !openaiKey.startsWith('sk-')) {
+    document.getElementById('config-status-openai').textContent   = '⚠ Chave OpenAI deve começar com "sk-".';
+    document.getElementById('config-status-openai').className     = 'config-status erro';
+    document.getElementById('config-status-openai').style.display = 'block';
+    return;
+  }
+
   app.config.geminiKey    = geminiKey;
   if (modelo)    app.config.modelo          = modelo;
   app.config.anthropicKey   = anthropicKey;
   if (antModelo) app.config.anthropicModelo = antModelo;
+  app.config.openaiKey      = openaiKey;
+  if (openaiModelo) app.config.openaiModelo = openaiModelo;
+  app.config.provedorAtivo  = provedorAtivo;
 
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
-  const temIa = geminiKey || anthropicKey;
+  const temIa = geminiKey || anthropicKey || openaiKey;
   mostrarToast(
     temIa ? 'Configurações salvas!' : 'Configurações salvas. Configure uma chave de IA para analisar.',
     temIa ? 'sucesso' : 'aviso'
@@ -1494,14 +1587,19 @@ async function salvarConfiguracao() {
 async function abrirConfiguracoes() {
   document.getElementById('config-gemini-key').value           = app.config.geminiKey    || '';
   document.getElementById('config-anthropic-key').value        = app.config.anthropicKey || '';
-  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-7';
+  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-8';
+  document.getElementById('config-openai-key').value           = app.config.openaiKey || '';
+  document.getElementById('config-openai-modelo').value        = app.config.openaiModelo || 'gpt-4o';
+  document.getElementById('config-provedor-ativo').value       = app.config.provedorAtivo || _provedorEfetivo() || 'gemini';
   document.getElementById('config-status-ia').style.display        = 'none';
   document.getElementById('config-status-anthropic').style.display = 'none';
+  document.getElementById('config-status-openai').style.display    = 'none';
   document.getElementById('modelos-status').style.display           = 'none';
   document.getElementById('modal-configuracoes').style.display      = 'flex';
   if (app.config.geminiKey) await carregarModelosDisponiveis();
   atualizarBadgeGemini();
   atualizarBadgeClaude();
+  atualizarBadgeOpenai();
 }
 
 async function carregarModelosDisponiveis() {
@@ -1553,6 +1651,55 @@ async function carregarModelosDisponiveis() {
   }
 }
 
+// Lista os modelos da Anthropic ao vivo (GET /v1/models); mantém a lista
+// fixa do <select> como fallback se a API falhar ou a chave estiver vazia.
+async function carregarModelosAnthropic() {
+  const key    = document.getElementById('config-anthropic-key').value.trim() || app.config.anthropicKey;
+  const select = document.getElementById('config-anthropic-modelo');
+  const status = document.getElementById('modelos-status-anthropic');
+  const btn    = document.getElementById('btn-carregar-anthropic-modelos');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave de API primeiro.';
+    status.style.color   = 'var(--text-dim)';
+    status.style.display = 'block';
+    return;
+  }
+
+  btn.textContent      = '↻ Carregando...';
+  btn.disabled         = true;
+  status.style.display = 'none';
+
+  try {
+    const res  = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+      headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+
+    const modelos = json.data || [];
+    if (!modelos.length) throw new Error('Nenhum modelo encontrado.');
+
+    const modeloSalvo = app.config.anthropicModelo;
+    select.innerHTML = modelos.map(m =>
+      `<option value="${m.id}" ${m.id === modeloSalvo ? 'selected' : ''}>${m.display_name || m.id}</option>`
+    ).join('');
+
+    if (!select.value) select.selectedIndex = 0;
+    status.textContent   = `✓ ${modelos.length} modelos carregados.`;
+    status.style.color   = '#3ad97d';
+    status.style.display = 'block';
+
+  } catch (err) {
+    status.textContent   = `✗ ${err.message}`;
+    status.style.color   = 'var(--vermelho)';
+    status.style.display = 'block';
+  } finally {
+    btn.textContent = '↻ Carregar';
+    btn.disabled    = false;
+  }
+}
+
 async function testarConexaoIA() {
   const key    = document.getElementById('config-gemini-key').value.trim();
   const modelo = document.getElementById('config-modelo').value || app.config.modelo;
@@ -1599,6 +1746,96 @@ function atualizarBadgeClaude() {
   const key = document.getElementById('config-anthropic-key').value.trim();
   badge.textContent = key ? '● Configurado' : '○ Não configurado';
   badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
+}
+
+function atualizarBadgeOpenai() {
+  const badge = document.getElementById('badge-openai');
+  if (!badge) return;
+  const key = document.getElementById('config-openai-key').value.trim();
+  badge.textContent = key ? '● Configurado' : '○ Não configurado';
+  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
+}
+
+// Lista os modelos da OpenAI ao vivo (GET /v1/models), filtrando para as
+// famílias de chat/multimodais; mantém a lista fixa do <select> como fallback.
+async function carregarModelosOpenAI() {
+  const key    = document.getElementById('config-openai-key').value.trim() || app.config.openaiKey;
+  const select = document.getElementById('config-openai-modelo');
+  const status = document.getElementById('modelos-status-openai');
+  const btn    = document.getElementById('btn-carregar-openai-modelos');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave de API primeiro.';
+    status.style.color   = 'var(--text-dim)';
+    status.style.display = 'block';
+    return;
+  }
+
+  btn.textContent      = '↻ Carregando...';
+  btn.disabled         = true;
+  status.style.display = 'none';
+
+  try {
+    const res  = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+
+    const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4', 'o3'];
+    const ids = (json.data || []).map(m => m.id)
+      .filter(id => prefs.some(p => id.startsWith(p)))
+      .sort();
+    if (!ids.length) throw new Error('Nenhum modelo compatível encontrado.');
+
+    const modeloSalvo = app.config.openaiModelo;
+    select.innerHTML = ids.map(id =>
+      `<option value="${id}" ${id === modeloSalvo ? 'selected' : ''}>${id}</option>`
+    ).join('');
+
+    if (!select.value) select.selectedIndex = 0;
+    status.textContent   = `✓ ${ids.length} modelos carregados.`;
+    status.style.color   = '#3ad97d';
+    status.style.display = 'block';
+
+  } catch (err) {
+    status.textContent   = `✗ ${err.message}`;
+    status.style.color   = 'var(--vermelho)';
+    status.style.display = 'block';
+  } finally {
+    btn.textContent = '↻ Carregar';
+    btn.disabled    = false;
+  }
+}
+
+async function testarConexaoOpenAI() {
+  const key    = document.getElementById('config-openai-key').value.trim();
+  const modelo = document.getElementById('config-openai-modelo').value || app.config.openaiModelo;
+  const status = document.getElementById('config-status-openai');
+
+  if (!key) {
+    status.textContent   = 'Cole a chave OpenAI antes de testar.';
+    status.className     = 'config-status erro';
+    status.style.display = 'block';
+    return;
+  }
+
+  status.textContent   = '⏳ Testando ChatGPT...';
+  status.className     = 'config-status teste';
+  status.style.display = 'block';
+
+  try {
+    const res = await fetch(OPENAI_BASE, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelo, input: 'Responda apenas: OK', max_output_tokens: 64 }),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
+    status.textContent = '✓ ChatGPT conectado e pronto.';
+    status.className   = 'config-status ok';
+  } catch (err) {
+    status.textContent = `✗ Erro: ${err.message}`;
+    status.className   = 'config-status erro';
+  }
 }
 
 async function testarConexaoAnthropic() {

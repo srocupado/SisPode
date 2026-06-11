@@ -219,6 +219,17 @@
       </div>
       <div class="modal-body">
 
+        <!-- PROVEDOR ATIVO -->
+        <div class="form-group" style="margin-bottom:14px">
+          <label>Provedor ativo para análise</label>
+          <select id="config-provedor-ativo" class="form-input">
+            <option value="gemini">Google Gemini</option>
+            <option value="openai">OpenAI (ChatGPT)</option>
+            <option value="anthropic">Anthropic Claude</option>
+          </select>
+          <small style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block">Define qual provedor é usado nas análises. Se o escolhido não tiver chave, usa o primeiro configurado abaixo.</small>
+        </div>
+
         <!-- PROVEDOR 1: GEMINI -->
         <div class="config-section">
           <div class="config-section-title">
@@ -271,14 +282,53 @@
           </div>
           <div id="config-status-anthropic" class="config-status" style="display:none"></div>
           <div class="form-group">
-            <label>Modelo</label>
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-anthropic-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
+            </label>
             <select id="config-anthropic-modelo" class="form-input">
               <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido)</option>
               <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (equilibrado)</option>
-              <option value="claude-opus-4-7" selected>Claude Opus 4.7 (máxima qualidade)</option>
+              <option value="claude-opus-4-7">Claude Opus 4.7</option>
+              <option value="claude-opus-4-8" selected>Claude Opus 4.8 (máxima qualidade)</option>
             </select>
+            <div id="modelos-status-anthropic" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
           </div>
           <button id="btn-testar-anthropic" class="btn btn-outline btn-sm">Testar Claude</button>
+        </div>
+
+        <!-- PROVEDOR 3: OPENAI -->
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+            OpenAI (ChatGPT)
+            <span id="badge-openai" class="ccjc-provider-badge inativo">○ Não configurado</span>
+          </div>
+          <p class="config-desc">
+            Pago · Suporta PDFs nativamente ·
+            <a href="https://platform.openai.com/api-keys" target="_blank" class="link">platform.openai.com</a>
+          </p>
+          <div class="form-group" style="margin-top:10px">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-openai-key" class="form-input" placeholder="sk-...">
+              <button id="btn-toggle-openai-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
+            </div>
+          </div>
+          <div id="config-status-openai" class="config-status" style="display:none"></div>
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-openai-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
+            </label>
+            <select id="config-openai-modelo" class="form-input">
+              <option value="gpt-5">GPT-5</option>
+              <option value="gpt-4.1">GPT-4.1</option>
+              <option value="gpt-4o" selected>GPT-4o</option>
+            </select>
+            <div id="modelos-status-openai" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+          </div>
+          <button id="btn-testar-openai" class="btn btn-outline btn-sm">Testar ChatGPT</button>
         </div>
 
       </div>

@@ -151,7 +151,8 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 - **Via PDF**: carregue o PDF da pauta da CCJC — o parser identifica automaticamente os projetos listados
 - **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional
 
-**Geração por IA (Gemini ou Anthropic)**
+**Geração por IA (Gemini, OpenAI ou Anthropic)**
+- O usuário escolhe o provedor (chave configurada); a lista de modelos pode ser carregada ao vivo da API de cada um
 - Para cada projeto: envia o inteiro teor ao modelo e gera resumo + análise técnica
 - Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
 - Status visual por item: aguardando · processando · pronto · falha
@@ -166,11 +167,18 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 ---
 
-### 7. Vetos do Congresso Nacional
+### 7. Pauta do Congresso Nacional
 
-Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com IA, um resumo de cada dispositivo vetado para a equipe técnica.
+Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjunta** (vetos, PLNs e MPVs de crédito), com resumo e análise técnica por IA para a equipe.
 
-**Listagem oficial**
+**Pautas de Sessão Conjunta (importação)**
+- Na sidebar, **importe a pauta** de uma Sessão Conjunta: escolha entre as **sessões recentes** (lidas da agenda oficial, filtrando as deliberativas) ou **cole a URL/ID** da pauta (fallback robusto)
+- O parser extrai os itens deliberativos da Ordem do Dia: **Vetos** (reaproveitam todo o fluxo de dispositivos/razões/resumos) e **PLNs / MPVs de crédito**
+- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer nativamente. A análise é **editável** (autosave) e pode ser escrita manualmente
+- O **export para Word** inclui os PLNs/MPVs da pauta (identificação, autor, ementa e análise), além dos vetos
+- As pautas são **compartilhadas com a equipe** via Firebase (`/congresso_pautas`); a lista viva "Vetos em tramitação" continua como visão padrão (botão "Voltar aos vetos ao vivo")
+
+**Listagem oficial (vetos em tramitação)**
 - Carrega o **Relatório Resumo de Vetos** oficial (`pdfVetosEmTramitacao` do SISCON/Senado) e reproduz suas colunas: nº do veto, matéria vetada, assunto, *sobrestando a pauta?* (Sim/Não) com a data de início, e a quantidade de dispositivos (ou *Veto Total*)
 - **Reproduz fielmente as cores verde/azul** das linhas do relatório, lidas diretamente do PDF (renderização + amostragem de cor), além do tipo (Parcial/Total) e do status de sobrestamento em badges
 - Cache local da lista para abertura instantânea; botão **Atualizar lista** rebaixa o relatório do site oficial
@@ -198,7 +206,8 @@ Liste os vetos presidenciais em tramitação no Congresso Nacional e gere, com I
 - **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
 - **Edição inline** também do Resumo do Projeto e das Razões do Veto (além dos resumos dos dispositivos), com autosave
 - **Seleção de vetos** (checkbox por veto + "selecionar/desmarcar todos") para escolher o que entra na exportação
-- **Exportação para Word (.docx)** dos vetos selecionados (ou de todos os visíveis): **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde) e, por veto, o Resumo do Projeto e — por dispositivo — `código — Resumo: <análise>` com a `Razões do veto: <motivo>` indentada logo abaixo — entrelinhas 1,5 e espaçamento duplo entre dispositivos
+- **Exportação para Word (.docx) e PDF** dos vetos selecionados (ou de todos os visíveis), com o mesmo conteúdo e formatação: **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde), **índice na 1ª página** com a página de cada item (links internos clicáveis), e, por veto, o Resumo do Projeto, os dispositivos (`código — Resumo: <análise>`) e as **razões agrupadas ao final** (uma por grupo, com "aplica-se a art. X, art. Y…"); inclui também a seção de PLNs/MPVs
+  - O **Word** numera o índice via campos (o Word preenche ao abrir); o **PDF** é gerado por impressão paginada com **Paged.js** (numeração de índice via `target-counter`), com "Salvar como PDF"
 
 ---
 
@@ -254,14 +263,15 @@ sispode/
 ├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
-├── congresso.html / congresso.js  # Módulo: Vetos do Congresso Nacional
+├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 └── libs/
     ├── pdf.min.js / pdf.worker.min.js   # PDF.js — leitura de PDFs
     ├── html2canvas.min.js               # Geração de imagens
     ├── xlsx.full.min.js                 # Exportação para Excel
-    └── docx.iife.js / docx.umd.js      # Exportação para Word
+    ├── docx.iife.js / docx.umd.js      # Exportação para Word
+    └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
 ```
 
 ---
