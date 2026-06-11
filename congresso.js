@@ -975,8 +975,10 @@ function onBusca(valor) {
   app.busca = valor.trim();
   document.getElementById('cn-busca-clear').style.display = app.busca ? 'block' : 'none';
 
-  // "Busca em tudo": na primeira busca, garante o download de todos os detalhes.
-  if (app.busca && !app.baixandoTodos && app.vetos.some(v => !v.detalheCarregado && v.detalheUrl)) {
+  // "Busca em tudo": na primeira busca textual, garante o download de todos os
+  // detalhes. Busca por número do veto não precisa (casa direto pelo nº).
+  const ehBuscaNumero = /^\d{1,3}$/.test(app.busca) || /^\d+\s*\/\s*\d{4}$/.test(app.busca);
+  if (app.busca && !ehBuscaNumero && !app.baixandoTodos && app.vetos.some(v => !v.detalheCarregado && v.detalheUrl)) {
     mostrarToast('Baixando os detalhes para a busca completa…', '');
     baixarTodosDetalhes();
   }
@@ -985,11 +987,17 @@ function onBusca(valor) {
 
 function vetoCasaBusca(v, termo) {
   if (!termo) return true;
+  const t = termo.trim();
+  // Busca pelo número do veto: "5/2025" (exato) ou "5"/"31" (nº do veto, 1–3 dígitos).
+  const mFull = t.match(/^(\d+)\s*\/\s*(\d{4})$/);
+  if (mFull) return v.num === +mFull[1] && v.ano === +mFull[2];
+  const mNum = t.match(/^(\d{1,3})$/);
+  if (mNum) return v.num === +mNum[1];
   const campos = [v.numero, v.tipo, v.materia, v.assunto, v.ementa, v.sobresta,
     v.resumoProjeto, v.razoesProjeto,
     ...(v.razoesGrupos || []).map(g => g.resumo),
-    ...v.dispositivos.flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo])];
-  return normalizar(campos.join(' ')).includes(normalizar(termo));
+    ...(v.dispositivos || []).flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo])];
+  return normalizar(campos.join(' ')).includes(normalizar(t));
 }
 
 // ============================================================
@@ -1116,11 +1124,12 @@ function razoesIndex(veto) {
   (veto.razoesGrupos || []).forEach(g => {
     const cods = (g.codigos || []).filter(Boolean);
     if (!cods.length || !g.resumo) return;
-    const anchor = cods.slice().sort((a, b) => {
+    const ord = cods.slice().sort((a, b) => {
       const ia = ordem.indexOf(a), ib = ordem.indexOf(b);
       return (ia < 0 ? 1e9 : ia) - (ib < 0 ? 1e9 : ib);
-    })[0];
-    cods.forEach(c => map.set(c, { anchor: c === anchor, resumo: g.resumo, codigos: cods }));
+    });
+    const anchor = ord[0], tail = ord[ord.length - 1];
+    cods.forEach(c => map.set(c, { anchor: c === anchor, tail: c === tail, resumo: g.resumo, codigos: cods }));
   });
   return map;
 }
@@ -2076,7 +2085,12 @@ function arrayBufferToBase64(buf) {
 // ---------- Render dos cards de PLN/MPV ----------
 function plnCasaBusca(p, termo) {
   if (!termo) return true;
-  return normalizar([p.sigla, p.numero, p.titulo, p.ementa, p.autor, p.analise].join(' ')).includes(normalizar(termo));
+  const t = termo.trim();
+  const mFull = t.match(/^(\d+)\s*\/\s*(\d{4})$/);
+  if (mFull) return p.num === +mFull[1] && p.ano === +mFull[2];
+  const mNum = t.match(/^(\d{1,3})$/);
+  if (mNum) return p.num === +mNum[1];
+  return normalizar([p.sigla, p.numero, p.titulo, p.ementa, p.autor, p.analise].join(' ')).includes(normalizar(t));
 }
 function renderPlnsSecao(termo) {
   const plns = (app.sessaoAtiva?.plns || []).filter(p => plnCasaBusca(p, termo));
@@ -2144,23 +2158,43 @@ function _selecaoExport() {
   return { vetos, plns };
 }
 
+// Garante que os vetos a exportar tenham os detalhes carregados (dispositivos +
+// resumos/razões compartilhados do Firebase) — o mesmo que abrir cada veto faz.
+async function _garantirDetalhes(vetos) {
+  const pend = (vetos || []).filter(v => v.detalheUrl && !v.detalheCarregado);
+  if (!pend.length) return;
+  mostrarToast(`Carregando detalhes de ${pend.length} veto(s)…`, '');
+  for (let i = 0; i < pend.length; i++) {
+    try { await carregarDetalhe(pend[i]); }
+    catch (e) { if (isAbort(e)) throw e; console.warn('detalhe falhou', pend[i].numero, e.message); }
+    if (i < pend.length - 1) await sleep(THROTTLE_MS);
+  }
+  if (!app.editando) renderLista();
+  salvarCacheLocal();
+}
+
 // PDF via impressão da própria janela, com o mesmo conteúdo/formato do Word.
 // Usa Paged.js para paginar e calcular os números de página do índice
 // (target-counter). Se a lib falhar, imprime mesmo assim (índice sem nº).
-function exportarPdf() {
+async function exportarPdf() {
   const { vetos, plns } = _selecaoExport();
   if (!vetos.length && !plns.length) { mostrarToast('Nenhum item para exportar.', 'aviso'); return; }
-  const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;
-  if (semDetalhe && !confirm(`${semDetalhe} veto(s) ainda não tiveram os detalhes baixados (sairão sem dispositivos). Gerar mesmo assim?\n\nDica: use "Baixar detalhes" antes.`)) return;
+  // Abre a janela já no gesto do clique (evita bloqueio de pop-up); carrega os
+  // detalhes em seguida e só então escreve o conteúdo definitivo.
   const win = window.open('', '_blank', 'width=900,height=720');
   if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'aviso'); return; }
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Carregando os dados dos vetos e gerando o PDF…</body></html>');
+  win.document.close();
+  try { await _garantirDetalhes(vetos); } catch (_) {}
+  if (win.closed) return;
+
+  win.document.open();
   win.document.write(_htmlImpressaoPauta(vetos, plns));
   win.document.close();
 
   let impresso = false;
   const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
-  // Paged.js chama 'after' quando termina de paginar (números do índice prontos).
-  win.PagedConfig = { auto: true, after: imprimir };
+  win.PagedConfig = { auto: true, after: imprimir };   // Paged.js chama 'after' ao terminar de paginar
   const s = win.document.createElement('script');
   s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
   s.onerror = imprimir;                 // fallback: imprime sem numeração se a lib não carregar
@@ -2187,12 +2221,14 @@ function _htmlImpressaoPauta(vetos, plns) {
 
   const vetosHtml = vetos.map(v => {
     const razIdx = razoesIndex(v);
-    const disp = (v.dispositivos || []).map(d =>
-      `<p class="disp"><span class="cod">${esc(d.codigo)} — </span><strong>Resumo:</strong> ${esc(d.resumo || '—')}</p>`).join('');
-    const razoes = (v.dispositivos || []).map(d => {
+    const corpo = (v.dispositivos || []).map(d => {
+      let h = `<p class="disp"><span class="cod">${esc(d.codigo)} — </span><strong>Resumo:</strong> ${esc(d.resumo || '—')}</p>`;
       const rz = razIdx.get(d.codigo);
-      return (rz && rz.anchor)
-        ? `<p class="raz"><strong>Razões do veto (aplica-se a ${esc(rz.codigos.join(', '))}):</strong> ${esc(rz.resumo)}</p>` : '';
+      if (rz && rz.tail) {   // razão logo abaixo do último dispositivo do grupo
+        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${esc(rz.codigos.join(', '))})` : '';
+        h += `<p class="raz raz-ind"><strong>Razões do veto${cobre}:</strong> ${esc(rz.resumo)}</p>`;
+      }
+      return h;
     }).join('');
     const resumoProj = v.resumoProjeto ? `<p><strong>Resumo do Projeto:</strong> ${esc(v.resumoProjeto)}</p>` : '';
     const razTotal = (v.tipo === 'Total' && v.razoesProjeto) ? `<p class="raz"><strong>Razões do veto:</strong> ${esc(v.razoesProjeto)}</p>` : '';
@@ -2200,7 +2236,7 @@ function _htmlImpressaoPauta(vetos, plns) {
       ? `<p class="vazio">(sem resumos — gere a análise antes de exportar)</p>` : '';
     return `<div class="bloco" id="${bm(v.key)}">
       <h3 class="item-h">VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '<span class="ass">  ·  ' + esc(v.assunto) + '</span>' : ''}</h3>
-      ${resumoProj}${razTotal}${disp}${razoes}${vazio}
+      ${resumoProj}${razTotal}${corpo}${vazio}
     </div>`;
   }).join('');
 
@@ -2241,6 +2277,7 @@ function _htmlImpressaoPauta(vetos, plns) {
     p { font-size:10.5pt; line-height:1.6; margin:8px 0; page-break-inside:avoid; break-inside:avoid; }
     .disp .cod { font-weight:700; color:#178080; }
     .raz strong { color:#b45309; }
+    .raz-ind { padding-left:16px; }
     .vazio { color:#999; font-style:italic; }
     .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
   </style></head><body>
@@ -2262,8 +2299,7 @@ async function exportarDocx() {
   const { vetos, plns } = _selecaoExport();
   if (!vetos.length && !plns.length) { mostrarToast('Nenhum item para exportar.', 'aviso'); return; }
   if (typeof docx === 'undefined') { mostrarToast('Biblioteca de exportação não carregada.', 'erro'); return; }
-  const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;
-  if (semDetalhe && !confirm(`${semDetalhe} veto(s) ainda não tiveram os detalhes baixados (sairão sem dispositivos). Exportar mesmo assim?\n\nDica: use "Baixar detalhes" antes para um documento completo.`)) return;
+  await _garantirDetalhes(vetos);
 
   mostrarToast('Gerando documento Word…', '');
   const {
@@ -2348,7 +2384,6 @@ async function exportarDocx() {
     }
 
     const razIdx = razoesIndex(v);
-    // 1) Todos os dispositivos (só os resumos).
     (v.dispositivos || []).forEach(d => {
       filhos.push(new Paragraph({
         spacing: { before: GAP_DISP, ...L15 },
@@ -2358,13 +2393,12 @@ async function exportarDocx() {
           new TextRun({ text: d.resumo || '—', size: 18 }),
         ],
       }));
-    });
-    // 2) Razões ao final, uma por grupo, listando os dispositivos que cobre.
-    (v.dispositivos || []).forEach(d => {
+      // Razão logo abaixo do último dispositivo do grupo (indentada).
       const rz = razIdx.get(d.codigo);
-      if (rz && rz.anchor) {
-        filhos.push(new Paragraph({ spacing: { before: 120, ...L15 }, children: [
-          new TextRun({ text: `Razões do veto (aplica-se a ${rz.codigos.join(', ')}): `, bold: true, size: 18, color: 'b45309' }),
+      if (rz && rz.tail) {
+        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
+        filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [
+          new TextRun({ text: `Razões do veto${cobre}: `, bold: true, size: 18, color: 'b45309' }),
           new TextRun({ text: rz.resumo, size: 18 }),
         ] }));
       }
