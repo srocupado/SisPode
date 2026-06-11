@@ -2164,11 +2164,16 @@ async function _garantirDetalhes(vetos) {
   const pend = (vetos || []).filter(v => v.detalheUrl && !v.detalheCarregado);
   if (!pend.length) return;
   mostrarToast(`Carregando detalhes de ${pend.length} veto(s)…`, '');
-  for (let i = 0; i < pend.length; i++) {
-    try { await carregarDetalhe(pend[i]); }
-    catch (e) { if (isAbort(e)) throw e; console.warn('detalhe falhou', pend[i].numero, e.message); }
-    if (i < pend.length - 1) await sleep(THROTTLE_MS);
-  }
+  let i = 0;
+  const worker = async () => {
+    while (i < pend.length) {
+      const v = pend[i++];
+      try { await carregarDetalhe(v); }
+      catch (e) { if (isAbort(e)) return; console.warn('detalhe falhou', v.numero, e.message); }
+    }
+  };
+  // Concorrência limitada (mais rápido que sequencial; sem martelar o servidor).
+  await Promise.all(Array.from({ length: Math.min(5, pend.length) }, worker));
   if (!app.editando) renderLista();
   salvarCacheLocal();
 }
@@ -2199,7 +2204,7 @@ async function exportarPdf() {
   s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
   s.onerror = imprimir;                 // fallback: imprime sem numeração se a lib não carregar
   win.document.head.appendChild(s);
-  setTimeout(imprimir, 10000);          // rede de segurança
+  setTimeout(imprimir, 30000);          // rede de segurança (não corta a paginação de docs grandes)
   mostrarToast('Gerando PDF… escolha “Salvar como PDF” na janela.', '');
 }
 
@@ -2224,9 +2229,8 @@ function _htmlImpressaoPauta(vetos, plns) {
     const corpo = (v.dispositivos || []).map(d => {
       let h = `<p class="disp"><span class="cod">${esc(d.codigo)} — </span><strong>Resumo:</strong> ${esc(d.resumo || '—')}</p>`;
       const rz = razIdx.get(d.codigo);
-      if (rz && rz.tail) {   // razão logo abaixo do último dispositivo do grupo
-        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${esc(rz.codigos.join(', '))})` : '';
-        h += `<p class="raz raz-ind"><strong>Razões do veto${cobre}:</strong> ${esc(rz.resumo)}</p>`;
+      if (rz) {   // razões do veto logo abaixo de cada dispositivo
+        h += `<p class="raz raz-ind"><strong>Razões do veto:</strong> ${esc(rz.resumo)}</p>`;
       }
       return h;
     }).join('');
@@ -2393,12 +2397,11 @@ async function exportarDocx() {
           new TextRun({ text: d.resumo || '—', size: 18 }),
         ],
       }));
-      // Razão logo abaixo do último dispositivo do grupo (indentada).
+      // Razões do veto logo abaixo de cada dispositivo (indentada).
       const rz = razIdx.get(d.codigo);
-      if (rz && rz.tail) {
-        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
+      if (rz) {
         filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [
-          new TextRun({ text: `Razões do veto${cobre}: `, bold: true, size: 18, color: 'b45309' }),
+          new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }),
           new TextRun({ text: rz.resumo, size: 18 }),
         ] }));
       }
