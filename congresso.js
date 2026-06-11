@@ -180,6 +180,7 @@ function wireEventos() {
   document.getElementById('btn-importar-url').addEventListener('click', () => importarPauta(document.getElementById('import-url').value.trim()));
   document.getElementById('import-data').addEventListener('change', e => listarSessoesPorData(e.target.value));
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
+  document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
 
   // Busca
   const busca = document.getElementById('cn-busca');
@@ -2123,15 +2124,122 @@ async function carregarLogoBytes() {
   } catch (_) { return null; }
 }
 
-async function exportarDocx() {
+// Conjunto de itens a exportar (compartilhado por Word e PDF, garantindo
+// paridade): vetos marcados (ou os visíveis pelo filtro) + PLNs/MPVs da pauta.
+function _selecaoExport() {
   const termo = app.busca;
   const temSelecao = app.selecionados.size > 0;
-  // Se há vetos marcados, exporta só eles; senão, exporta os visíveis (filtro atual).
   const vetos = temSelecao
     ? app.vetos.filter(v => app.selecionados.has(v.key))
     : app.vetos.filter(v => vetoCasaBusca(v, termo));
-  // PLNs/MPVs da pauta ativa entram quando não há seleção específica de vetos.
   const plns = (!temSelecao && app.sessaoAtiva) ? (app.sessaoAtiva.plns || []).filter(p => plnCasaBusca(p, termo)) : [];
+  return { vetos, plns };
+}
+
+// PDF via impressão da própria janela (mesmo padrão dos módulos Análise/CCJC),
+// com o mesmo conteúdo e formatação do Word. O usuário escolhe "Salvar como PDF".
+function exportarPdf() {
+  const { vetos, plns } = _selecaoExport();
+  if (!vetos.length && !plns.length) { mostrarToast('Nenhum item para exportar.', 'aviso'); return; }
+  const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;
+  if (semDetalhe && !confirm(`${semDetalhe} veto(s) ainda não tiveram os detalhes baixados (sairão sem dispositivos). Gerar mesmo assim?\n\nDica: use "Baixar detalhes" antes.`)) return;
+  const win = window.open('', '_blank', 'width=900,height=720');
+  if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'aviso'); return; }
+  win.document.write(_htmlImpressaoPauta(vetos, plns));
+  win.document.close();
+  win.focus();
+  setTimeout(() => win.print(), 600);
+  mostrarToast('Na janela de impressão, escolha “Salvar como PDF”.', '');
+}
+
+function _htmlImpressaoPauta(vetos, plns) {
+  const esc = escapeHtml;
+  const bm = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  const logo = chrome.runtime.getURL('icons/podemos-logo.png');
+  const meta = `${app.sessaoAtiva ? 'Sessão: ' + esc(app.sessaoAtiva.nome) + ' · ' : ''}${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)${plns.length ? ' · ' + plns.length + ' PLN/MPV' : ''}`;
+
+  const indice = (vetos.length || plns.length) ? `
+    <section class="indice">
+      <h2>Índice</h2>
+      <ul>
+        ${vetos.map(v => `<li><a href="#${bm(v.key)}">VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}</a></li>`).join('')}
+        ${plns.map(p => `<li><a class="ix-pln" href="#${bm(p.key)}">${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '  ·  ' + esc(p.titulo) : ''}</a></li>`).join('')}
+      </ul>
+    </section>` : '';
+
+  const vetosHtml = vetos.map(v => {
+    const razIdx = razoesIndex(v);
+    const disp = (v.dispositivos || []).map(d =>
+      `<p class="disp"><span class="cod">${esc(d.codigo)} — </span><strong>Resumo:</strong> ${esc(d.resumo || '—')}</p>`).join('');
+    const razoes = (v.dispositivos || []).map(d => {
+      const rz = razIdx.get(d.codigo);
+      return (rz && rz.anchor)
+        ? `<p class="raz"><strong>Razões do veto (aplica-se a ${esc(rz.codigos.join(', '))}):</strong> ${esc(rz.resumo)}</p>` : '';
+    }).join('');
+    const resumoProj = v.resumoProjeto ? `<p><strong>Resumo do Projeto:</strong> ${esc(v.resumoProjeto)}</p>` : '';
+    const razTotal = (v.tipo === 'Total' && v.razoesProjeto) ? `<p class="raz"><strong>Razões do veto:</strong> ${esc(v.razoesProjeto)}</p>` : '';
+    const vazio = (!(v.dispositivos || []).length && !(v.tipo === 'Total' && v.razoesProjeto))
+      ? `<p class="vazio">(sem resumos — gere a análise antes de exportar)</p>` : '';
+    return `<div class="bloco" id="${bm(v.key)}">
+      <h3 class="item-h">VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '<span class="ass">  ·  ' + esc(v.assunto) + '</span>' : ''}</h3>
+      ${resumoProj}${razTotal}${disp}${razoes}${vazio}
+    </div>`;
+  }).join('');
+
+  const plnsHtml = plns.length ? `
+    <h2 class="sec">Projetos de Lei (PLNs) e MPVs de crédito</h2>
+    ${plns.map(p => `
+      <div class="bloco" id="${bm(p.key)}">
+        <h3 class="item-h">${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '<span class="ass">  ·  ' + esc(p.titulo) + '</span>' : ''}</h3>
+        ${p.autor ? `<p><strong>Autor:</strong> ${esc(p.autor)}</p>` : ''}
+        ${p.ementa ? `<p><strong>Ementa:</strong> ${esc(p.ementa)}</p>` : ''}
+        <p class="raz"><strong>Análise:</strong> ${p.analise ? esc(p.analise) : '<span class="vazio">(sem análise — gere ou escreva antes de exportar)</span>'}</p>
+      </div>`).join('')}` : '';
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Pauta do Congresso Nacional</title>
+  <style>
+    * { box-sizing:border-box; margin:0; padding:0; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; }
+    .cab { display:flex; align-items:center; gap:16px; }
+    .cab .tit { flex:1; text-align:center; }
+    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; }
+    .cab .tit p  { font-size:10pt; color:#003c1f; }
+    .cab img { height:42px; }
+    .cab .sp { width:42px; }
+    .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
+    .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    .indice { page-break-after:always; }
+    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:8px; }
+    .indice ul { list-style:none; }
+    .indice li { font-size:10.5pt; line-height:1.95; border-bottom:1px dotted #cbd5e1; }
+    .indice a { color:#178080; text-decoration:none; }
+    .indice a.ix-pln { color:#b45309; }
+    .item-h { font-size:13pt; font-weight:700; border-bottom:1px solid #ccc; padding-bottom:3px; margin-top:18px; page-break-after:avoid; }
+    .item-h .ass { font-weight:400; font-size:11pt; }
+    .sec { font-size:13pt; color:#003c1f; border-bottom:2px solid #00A859; padding-bottom:3px; margin:26px 0 6px; page-break-after:avoid; }
+    p { font-size:10.5pt; line-height:1.6; margin:8px 0; page-break-inside:avoid; }
+    .disp .cod { font-weight:700; color:#178080; }
+    .raz strong { color:#b45309; }
+    .vazio { color:#999; font-style:italic; }
+    .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
+    @media print { @page { margin:16mm; size:A4; } * { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
+  </style></head><body>
+    <div class="cab">
+      <div class="sp"></div>
+      <div class="tit"><h1>Pauta do Congresso Nacional</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
+      <img src="${logo}" alt="">
+    </div>
+    <div class="rule"></div>
+    <div class="meta">${meta}</div>
+    ${indice}
+    ${vetosHtml}
+    ${plnsHtml}
+    <div class="ft">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
+  </body></html>`;
+}
+
+async function exportarDocx() {
+  const { vetos, plns } = _selecaoExport();
   if (!vetos.length && !plns.length) { mostrarToast('Nenhum item para exportar.', 'aviso'); return; }
   if (typeof docx === 'undefined') { mostrarToast('Biblioteca de exportação não carregada.', 'erro'); return; }
   const semDetalhe = vetos.filter(v => v.detalheUrl && !v.detalheCarregado).length;
