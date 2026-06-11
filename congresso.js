@@ -2217,11 +2217,14 @@ function _htmlImpressaoPauta(vetos, plns) {
   const meta = `${app.sessaoAtiva ? 'Sessão: ' + esc(app.sessaoAtiva.nome) + ' · ' : ''}${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)${plns.length ? ' · ' + plns.length + ' PLN/MPV' : ''}`;
 
   const ixItem = (anchor, rotulo, cls) => `<li><a class="${cls}" href="#${anchor}"><span class="t">${rotulo}</span><span class="ld"></span></a></li>`;
+  const clsVeto = v => v.cor === 'verde' ? 'ix-verde' : (v.cor === 'azul' ? 'ix-azul' : 'ix-veto');
+  const temCor = vetos.some(v => v.cor === 'verde' || v.cor === 'azul');
   const indice = (vetos.length || plns.length) ? `
     <section class="indice">
       <h2>Índice</h2>
+      ${temCor ? '<p class="ix-leg"><span class="dot az">●</span> Iniciado no Senado &nbsp;&nbsp; <span class="dot vd">●</span> Iniciado na Câmara</p>' : ''}
       <ul>
-        ${vetos.map(v => ixItem(bm(v.key), `VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}`, 'ix-veto')).join('')}
+        ${vetos.map(v => ixItem(bm(v.key), `VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}`, clsVeto(v))).join('')}
         ${plns.map(p => ixItem(bm(p.key), `${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '  ·  ' + esc(p.titulo) : ''}`, 'ix-pln')).join('')}
       </ul>
     </section>` : '';
@@ -2275,6 +2278,12 @@ function _htmlImpressaoPauta(vetos, plns) {
     .indice li { font-size:10.5pt; margin-bottom:3px; }
     .indice a { display:flex; align-items:baseline; text-decoration:none; color:#178080; }
     .indice a.ix-pln { color:#b45309; }
+    .indice a.ix-verde { color:#108a3c; }
+    .indice a.ix-azul  { color:#155fbf; }
+    .ix-leg { font-size:9pt; color:#6b7280; font-style:italic; margin-bottom:8px; }
+    .ix-leg .dot { font-style:normal; }
+    .ix-leg .dot.az { color:#155fbf; }
+    .ix-leg .dot.vd { color:#108a3c; }
     .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
     .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
     .item-h { font-size:13pt; font-weight:700; border-bottom:1px solid #ccc; padding-bottom:3px; margin-top:18px; page-break-after:avoid; break-after:avoid; }
@@ -2351,7 +2360,15 @@ async function exportarDocx() {
   // pelo Word ao abrir (features.updateFields). Cada entrada é um link interno
   // que salta para o bookmark correspondente.
   if (vetos.length || plns.length) {
-    filhos.push(new Paragraph({ spacing: { before: 60, after: 100, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
+    filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
+    // Legenda das cores (casa iniciadora), quando há vetos classificados.
+    if (vetos.some(v => v.cor === 'verde' || v.cor === 'azul')) {
+      filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [
+        new TextRun({ text: '● ', bold: true, size: 16, color: '155fbf' }), new TextRun({ text: 'Iniciado no Senado     ', italics: true, size: 14, color: '6b7280' }),
+        new TextRun({ text: '● ', bold: true, size: 16, color: '108a3c' }), new TextRun({ text: 'Iniciado na Câmara', italics: true, size: 14, color: '6b7280' }),
+      ] }));
+    }
+    const corVeto = v => v.cor === 'verde' ? '108a3c' : (v.cor === 'azul' ? '155fbf' : '178080');
     const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
     const entradaIndice = (anchor, rotulo, cor) => new Paragraph({
       tabStops: tabIndice, spacing: { after: 40, ...L15 },
@@ -2361,7 +2378,7 @@ async function exportarDocx() {
         new PageReference(anchor),
       ],
     });
-    vetos.forEach(v => filhos.push(entradaIndice(bmId(v.key), `VET ${v.numero} — ${v.tipo}${v.assunto ? '  ·  ' + v.assunto : ''}`, '178080')));
+    vetos.forEach(v => filhos.push(entradaIndice(bmId(v.key), `VET ${v.numero} — ${v.tipo}${v.assunto ? '  ·  ' + v.assunto : ''}`, corVeto(v))));
     plns.forEach(p => filhos.push(entradaIndice(bmId(p.key), `${p.sigla} ${p.numero}${p.titulo ? '  ·  ' + p.titulo : ''}`, 'b45309')));
     filhos.push(new Paragraph({ children: [new PageBreak()] }));
   }
