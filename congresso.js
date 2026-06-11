@@ -2141,11 +2141,13 @@ async function exportarDocx() {
   const {
     Document, Paragraph, TextRun, Packer, BorderStyle,
     Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
+    Bookmark, PageReference, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
   } = docx;
   const L15 = { line: 360, lineRule: 'auto' };  // entrelinhas 1,5 (240 = simples)
   const GAP_DISP = 480;                          // espaçamento 2,0 (duplo) entre dispositivos
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
+  const bmId = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');   // id de bookmark p/ o índice
   const logoBytes = await carregarLogoBytes();
 
   const filhos = [];
@@ -2175,14 +2177,35 @@ async function exportarDocx() {
     children: [new TextRun({ text: `${app.sessaoAtiva ? 'Sessão: ' + app.sessaoAtiva.nome + ' · ' : ''}${new Date().toLocaleDateString('pt-BR')} · ${vetos.length} veto(s)${plns.length ? ' · ' + plns.length + ' PLN/MPV' : ''}`, italics: true, size: 16, color: '6b7280' })],
   }));
 
+  // Índice (sumário) com a página de cada item — os números são preenchidos
+  // pelo Word ao abrir (features.updateFields). Cada entrada é um link interno
+  // que salta para o bookmark correspondente.
+  if (vetos.length || plns.length) {
+    filhos.push(new Paragraph({ spacing: { before: 60, after: 100, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
+    const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
+    const entradaIndice = (anchor, rotulo, cor) => new Paragraph({
+      tabStops: tabIndice, spacing: { after: 40, ...L15 },
+      children: [
+        new InternalHyperlink({ anchor, children: [new TextRun({ text: rotulo, size: 18, color: cor })] }),
+        new TextRun({ text: '\t', size: 18 }),
+        new PageReference(anchor),
+      ],
+    });
+    vetos.forEach(v => filhos.push(entradaIndice(bmId(v.key), `VET ${v.numero} — ${v.tipo}${v.assunto ? '  ·  ' + v.assunto : ''}`, '178080')));
+    plns.forEach(p => filhos.push(entradaIndice(bmId(p.key), `${p.sigla} ${p.numero}${p.titulo ? '  ·  ' + p.titulo : ''}`, 'b45309')));
+    filhos.push(new Paragraph({ children: [new PageBreak()] }));
+  }
+
   vetos.forEach(v => {
     // Cabeçalho mínimo para identificar o veto.
     filhos.push(new Paragraph({
       spacing: { before: 360, after: 30, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
       children: [
-        new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 24 }),
-        new TextRun({ text: v.assunto ? `  ·  ${v.assunto}` : '', size: 20 }),
+        new Bookmark({ id: bmId(v.key), children: [
+          new TextRun({ text: `VET ${v.numero} — ${v.tipo}`, bold: true, size: 24 }),
+          new TextRun({ text: v.assunto ? `  ·  ${v.assunto}` : '', size: 20 }),
+        ] }),
       ],
     }));
 
@@ -2196,10 +2219,8 @@ async function exportarDocx() {
       filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: 'Razões do veto: ', bold: true, size: 18, color: 'b45309' }), new TextRun({ text: v.razoesProjeto, size: 18 })] }));
     }
 
-    // Por dispositivo: "código — Resumo: <análise>". A razão (compartilhada por
-    // um grupo) é impressa UMA vez, no 1º dispositivo do grupo (anchor), com a
-    // lista dos dispositivos que ela cobre — espelhando a exibição do card.
     const razIdx = razoesIndex(v);
+    // 1) Todos os dispositivos (só os resumos).
     (v.dispositivos || []).forEach(d => {
       filhos.push(new Paragraph({
         spacing: { before: GAP_DISP, ...L15 },
@@ -2209,10 +2230,15 @@ async function exportarDocx() {
           new TextRun({ text: d.resumo || '—', size: 18 }),
         ],
       }));
+    });
+    // 2) Razões ao final, uma por grupo, listando os dispositivos que cobre.
+    (v.dispositivos || []).forEach(d => {
       const rz = razIdx.get(d.codigo);
       if (rz && rz.anchor) {
-        const cobre = rz.codigos.length > 1 ? ` (aplica-se a ${rz.codigos.join(', ')})` : '';
-        filhos.push(new Paragraph({ spacing: { before: 60, ...L15 }, indent: { left: 567 }, children: [new TextRun({ text: `Razões do veto${cobre}: `, bold: true, size: 18, color: 'b45309' }), new TextRun({ text: rz.resumo, size: 18 })] }));
+        filhos.push(new Paragraph({ spacing: { before: 120, ...L15 }, children: [
+          new TextRun({ text: `Razões do veto (aplica-se a ${rz.codigos.join(', ')}): `, bold: true, size: 18, color: 'b45309' }),
+          new TextRun({ text: rz.resumo, size: 18 }),
+        ] }));
       }
     });
     if (!(v.dispositivos || []).length && !(v.tipo === 'Total' && v.razoesProjeto)) {
@@ -2232,8 +2258,10 @@ async function exportarDocx() {
         spacing: { before: 300, after: 30, ...L15 },
         border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
         children: [
-          new TextRun({ text: `${p.sigla} ${p.numero}`, bold: true, size: 24 }),
-          new TextRun({ text: p.titulo ? `  ·  ${p.titulo}` : '', size: 20 }),
+          new Bookmark({ id: bmId(p.key), children: [
+            new TextRun({ text: `${p.sigla} ${p.numero}`, bold: true, size: 24 }),
+            new TextRun({ text: p.titulo ? `  ·  ${p.titulo}` : '', size: 20 }),
+          ] }),
         ],
       }));
       if (p.autor)  filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: 'Autor: ', bold: true, size: 18 }), new TextRun({ text: p.autor, size: 18 })] }));
@@ -2249,7 +2277,7 @@ async function exportarDocx() {
   }
 
   try {
-    const blob = await Packer.toBlob(new Document({ sections: [{ properties: {}, children: filhos }] }));
+    const blob = await Packer.toBlob(new Document({ features: { updateFields: true }, sections: [{ properties: {}, children: filhos }] }));
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
