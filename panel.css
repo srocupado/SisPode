@@ -1708,8 +1708,9 @@ body {
 .cn-disp-toggle:hover { text-decoration: underline; }
 .cn-disp-texto { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin-top: 6px; padding: 8px 12px; background: rgba(255,255,255,0.03); border-radius: 6px; white-space: pre-wrap; }
 
-/* Resumo editável */
-.cn-disp-resumo { position: relative; }
+/* Resumo editável (dispositivos, resumo do projeto e razões do veto) */
+.cn-disp-resumo, .cn-projeto-resumo, .cn-razoes { position: relative; }
+.cn-projeto-resumo, .cn-razoes { padding-right: 28px; }
 .cn-disp-resumo .cn-disp-resumo-txt { display: block; padding-right: 26px; }
 .cn-disp-edit-btn {
   position: absolute; top: 5px; right: 6px;
@@ -1717,7 +1718,9 @@ body {
   color: var(--text-dim); font-size: 13px; line-height: 1; padding: 2px;
   opacity: 0; transition: opacity 0.15s, color 0.15s;
 }
-.cn-disp-resumo:hover .cn-disp-edit-btn { opacity: 1; }
+.cn-disp-resumo:hover .cn-disp-edit-btn,
+.cn-projeto-resumo:hover .cn-disp-edit-btn,
+.cn-razoes:hover .cn-disp-edit-btn { opacity: 1; }
 .cn-disp-edit-btn:hover { color: var(--accent-light); }
 .cn-disp-resumo.editando { background: rgba(31,165,165,0.06); border-left-color: var(--accent-light); }
 .cn-disp-edit {
