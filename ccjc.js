@@ -29,6 +29,7 @@ let app = {
   projetoAtivo: null,
   processando:  false,
   toastTimer:   null,
+  selecionados: new Set(),   // chaves de projetos marcados para "Analisar selecionados"
   cal: {
     ano:              new Date().getFullYear(),
     mes:              new Date().getMonth(),
@@ -83,6 +84,7 @@ function registrarEventos() {
   });
 
   document.getElementById('btn-analisar-todos').addEventListener('click', analisarTodos);
+  document.getElementById('btn-analisar-selecionados')?.addEventListener('click', analisarSelecionados);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
   document.getElementById('config-gemini-key')
@@ -226,6 +228,7 @@ async function criarPauta() {
   fecharModal('modal-nova-pauta');
   app.pautaAtual   = pauta;
   app.projetoAtivo = null;
+  app.selecionados.clear();
 
   atualizarSidebar();
   renderizarListaProjetos();
@@ -256,7 +259,38 @@ async function extrairTextoPDF(file) {
   return texto;
 }
 
+// Cabeçalhos de seção típicos das pautas da CCJC. Usados para descobrir sob
+// qual bloco cada proposição aparece no PDF — em especial o bloco de
+// "Redação Final" (apreciação de texto final, não de mérito).
+const _SECOES_PAUTA = [
+  { re: /reda[çc][ãa]o\s+final(?:\s+do\s+vencido)?/gi, rf: true },
+  { re: /requerimentos?/gi, rf: false },
+  { re: /propos[ií][çc][õo]es\s+sujeitas?\s+[àa]\s+aprecia[çc][ãa]o/gi, rf: false },
+  { re: /aprecia[çc][ãa]o\s+(?:conclusiva|do\s+plen[áa]rio)/gi, rf: false },
+  { re: /\bavisos?\b/gi, rf: false },
+  { re: /audi[êe]ncias?\s+p[úu]blicas?/gi, rf: false },
+];
+
 function extrairReferencias(texto) {
+  // Mapeia a posição de cada cabeçalho de seção encontrado no texto.
+  const marcos = [];
+  for (const sec of _SECOES_PAUTA) {
+    const r = new RegExp(sec.re.source, 'gi');
+    let mm;
+    while ((mm = r.exec(texto)) !== null) marcos.push({ idx: mm.index, rf: sec.rf });
+  }
+  marcos.sort((a, b) => a.idx - b.idx);
+
+  // Uma proposição é "Redação Final" quando o cabeçalho de seção mais próximo
+  // ANTES dela é um cabeçalho de Redação Final.
+  const ehRfNaPosicao = pos => {
+    let rf = false;
+    for (const mk of marcos) {
+      if (mk.idx <= pos) rf = mk.rf; else break;
+    }
+    return rf;
+  };
+
   const regex = /\b(PL|PEC|PLN|PLP|PLV|PDC|PRC|MPV|REQ|INC)\s*[nº°.]*\s*(\d{1,5})[,.\/\s]*(?:de\s+)?(\d{4})\b/gi;
   const vistas = new Set();
   const refs   = [];
@@ -268,7 +302,7 @@ function extrairReferencias(texto) {
     const chave  = `${sigla} ${numero}/${ano}`;
     if (!vistas.has(chave) && ano >= 1990 && ano <= new Date().getFullYear() + 1) {
       vistas.add(chave);
-      refs.push({ sigla, numero, ano, chave });
+      refs.push({ sigla, numero, ano, chave, redacaoFinal: ehRfNaPosicao(m.index) });
     }
   }
   return refs;
@@ -986,13 +1020,6 @@ async function analisarProjeto(proj) {
 async function analisarTodos() {
   if (!app.pautaAtual || app.processando) return;
 
-  const provedor = NOME_PROVEDOR[_provedorEfetivo()] || '';
-  if (!provedor) {
-    mostrarToast('Configure uma chave de IA em ⚙ Configurações antes de analisar.', 'aviso');
-    abrirConfiguracoes();
-    return;
-  }
-
   const pendentes = app.pautaAtual.projetos.filter(p =>
     p.statusAnalise === 'pendente' || p.statusAnalise === 'erro'
   );
@@ -1002,20 +1029,51 @@ async function analisarTodos() {
     return;
   }
 
+  await _executarLoteAnalise(pendentes, document.getElementById('btn-analisar-todos'),
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg> Analisar Todos`);
+}
+
+async function analisarSelecionados() {
+  if (!app.pautaAtual || app.processando) return;
+
+  const selecionados = app.pautaAtual.projetos.filter(p => app.selecionados.has(p.chave));
+  if (!selecionados.length) {
+    mostrarToast('Marque ao menos uma proposição na lista para analisar.', 'aviso');
+    return;
+  }
+
+  // Reanalisa também os selecionados já concluídos (escolha explícita do usuário).
+  await _executarLoteAnalise(selecionados, document.getElementById('btn-analisar-selecionados'),
+    `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg> <span data-role="sel-label">Analisar selecionados</span>`);
+}
+
+// Runner comum: valida provedor, processa o lote com concorrência limitada
+// e restaura o botão acionado ao final.
+async function _executarLoteAnalise(projetos, btn, htmlOriginal) {
+  const provedor = NOME_PROVEDOR[_provedorEfetivo()] || '';
+  if (!provedor) {
+    mostrarToast('Configure uma chave de IA em ⚙ Configurações antes de analisar.', 'aviso');
+    abrirConfiguracoes();
+    return;
+  }
+
   app.processando = true;
-  const btn = document.getElementById('btn-analisar-todos');
-  btn.disabled  = true;
-  btn.innerHTML = '<span class="loading-spinner"></span> Analisando...';
+  const btnTodos = document.getElementById('btn-analisar-todos');
+  const btnSel   = document.getElementById('btn-analisar-selecionados');
+  if (btnTodos) btnTodos.disabled = true;
+  if (btnSel)   btnSel.disabled   = true;
+  if (btn) btn.innerHTML = '<span class="loading-spinner"></span> Analisando...';
 
-  mostrarToast(`Iniciando análise de ${pendentes.length} projetos · 5 simultâneos · ${provedor}`, '');
+  mostrarToast(`Iniciando análise de ${projetos.length} projeto(s) · 5 simultâneos · ${provedor}`, '');
 
-  // Usa concorrência limitada: 5 projetos simultâneos, mas cada projeto faz
-  // suas chamadas Gemini sequencialmente para não sobrecarregar a API.
-  await mapLimit(pendentes, 5, proj => analisarProjeto(proj));
+  // Concorrência limitada: 5 projetos simultâneos, mas cada projeto faz suas
+  // chamadas ao provedor sequencialmente para não sobrecarregar a API.
+  await mapLimit(projetos, 5, proj => analisarProjeto(proj));
 
   app.processando = false;
-  btn.disabled = false;
-  btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/></svg> Analisar Todos`;
+  if (btnTodos) btnTodos.disabled = false;
+  if (btn) btn.innerHTML = htmlOriginal;
+  atualizarBotaoSelecionados();
 
   const concluidos = app.pautaAtual.projetos.filter(p => p.statusAnalise === 'concluido').length;
   mostrarToast(`Análise concluída: ${concluidos}/${app.pautaAtual.projetos.length} projetos.`, 'sucesso');
@@ -1294,6 +1352,7 @@ async function restaurarPauta(id) {
   coletarEdicoesAtivas();
   app.pautaAtual   = pauta;
   app.projetoAtivo = null;
+  app.selecionados.clear();
 
   atualizarSidebar();
   renderizarListaProjetos();
@@ -1457,12 +1516,25 @@ function atualizarProgresso() {
   document.getElementById('ccjc-progresso-label').textContent  = `${concluidos}/${total} analisados`;
 }
 
+/**
+ * Detecta se a proposição está no bloco de "Redação Final" da pauta
+ * (apreciação do texto final, não de mérito). Cobre as três origens:
+ * PDF (flag calculada no parse), calendário/API (campo `topico`) e, como
+ * reforço, o status retornado pela API da Câmara (`statusApi`).
+ */
+function ehRedacaoFinal(proj) {
+  if (proj.redacaoFinal) return true;
+  const re = /reda[çc][ãa]o\s+final/i;
+  return re.test(proj.topico || '') || re.test(proj.statusApi || '');
+}
+
 function renderizarListaProjetos() {
   const lista = document.getElementById('lista-projetos');
   const pauta = app.pautaAtual;
 
   if (!pauta?.projetos.length) {
     lista.innerHTML = '<div class="empty-state"><p>Nenhum projeto</p></div>';
+    atualizarBotaoSelecionados();
     return;
   }
 
@@ -1481,12 +1553,18 @@ function renderizarListaProjetos() {
       erro:       '✗',
     }[proj.statusAnalise] || '○';
 
-    const ativo = app.projetoAtivo?.chave === proj.chave ? 'active' : '';
+    const ativo  = app.projetoAtivo?.chave === proj.chave ? 'active' : '';
     const ementa = (proj.ementa || 'Aguardando dados...').slice(0, 65);
+    const rf     = ehRedacaoFinal(proj);
+    const sel    = app.selecionados.has(proj.chave) ? 'checked' : '';
 
     return `<div class="prop-item ${ativo}" data-chave="${esc(proj.chave)}">
+      <label class="ccjc-sel-check" title="Selecionar para análise por IA">
+        <input type="checkbox" data-sel="${esc(proj.chave)}" ${sel}>
+      </label>
       <div class="prop-item-content">
         <span class="prop-item-badge">${esc(proj.chave)}</span>
+        ${rf ? '<span class="prop-item-rf" title="Bloco de Redação Final">Red. Final</span>' : ''}
         <span class="prop-item-ementa">${esc(ementa)}${(proj.ementa || '').length > 65 ? '…' : ''}</span>
       </div>
       <span class="ccjc-status-dot ${statusCls}" title="${proj.statusAnalise}">${statusIcon}</span>
@@ -1496,6 +1574,35 @@ function renderizarListaProjetos() {
   lista.querySelectorAll('.prop-item').forEach(el => {
     el.addEventListener('click', () => selecionarProjeto(el.dataset.chave));
   });
+  // Checkbox de seleção não deve abrir o projeto — só marca/desmarca.
+  lista.querySelectorAll('.ccjc-sel-check').forEach(lbl => {
+    lbl.addEventListener('click', e => e.stopPropagation());
+  });
+  lista.querySelectorAll('input[data-sel]').forEach(cb => {
+    cb.addEventListener('change', e => {
+      e.stopPropagation();
+      toggleSelecao(cb.dataset.sel, cb.checked);
+    });
+  });
+
+  atualizarBotaoSelecionados();
+}
+
+function toggleSelecao(chave, marcado) {
+  if (marcado) app.selecionados.add(chave); else app.selecionados.delete(chave);
+  atualizarBotaoSelecionados();
+}
+
+function atualizarBotaoSelecionados() {
+  const btn = document.getElementById('btn-analisar-selecionados');
+  if (!btn) return;
+  const n = app.selecionados.size;
+  btn.disabled = n === 0 || app.processando;
+  btn.title = n
+    ? `Analisar ${n} proposição(ões) selecionada(s) por IA`
+    : 'Marque proposições na lista para analisar apenas elas';
+  const lbl = btn.querySelector('[data-role=sel-label]');
+  if (lbl) lbl.textContent = n ? `Analisar selecionados (${n})` : 'Analisar selecionados';
 }
 
 function renderizarItemSidebar(proj) {
@@ -1564,6 +1671,7 @@ function renderizarRevisao() {
     <div class="ccjc-revisao-header">
       <div class="ccjc-revisao-badge-wrap">
         <div class="ccjc-revisao-badge">${esc(proj.chave)}</div>
+        ${ehRedacaoFinal(proj) ? '<span class="prop-item-rf" title="Bloco de Redação Final — apreciação do texto final">Redação Final</span>' : ''}
         ${proj.idCamara ? `<a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${proj.idCamara}" target="_blank" class="ccjc-link-camara" title="Ver ficha na Câmara">↗ Ficha da proposição</a>` : ''}
       </div>
       <div class="ccjc-revisao-info">
@@ -1669,6 +1777,7 @@ async function carregarHistorico() {
       if (app.pautaAtual?.id === id) {
         app.pautaAtual   = null;
         app.projetoAtivo = null;
+        app.selecionados.clear();
         atualizarSidebar();
         mostrarTela('tela-upload');
         document.getElementById('ccjc-action-bar').style.display = 'none';
@@ -2370,6 +2479,7 @@ async function carregarPautaDoCalendario() {
 
     app.pautaAtual   = pauta;
     app.projetoAtivo = null;
+    app.selecionados.clear();
 
     atualizarSidebar();
     renderizarListaProjetos();

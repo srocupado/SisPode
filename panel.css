@@ -248,6 +248,20 @@ body {
   border-radius: 6px;
 }
 
+/* Checkbox de seleção de proposição (analisar apenas as marcadas) */
+.ccjc-sel-check {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  cursor: pointer;
+}
+.ccjc-sel-check input {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
 /* Histórico */
 .lista-historico { display: flex; flex-direction: column; gap: 3px; }
 .hist-item {
