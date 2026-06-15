@@ -414,13 +414,23 @@ async function gerarRelatorio() {
         if (cached) return { votacao: v, votos: cached.votos, orientacoes: cached.orientacoes, fromCache: true };
       }
 
-      // Busca da API e salva no cache
-      const [votosJ, orientJ] = await Promise.all([
-        fetchJson(API + '/' + v.id + '/votos').catch(() => ({ dados: [] })),
-        fetchJson(API + '/' + v.id + '/orientacoes').catch(() => ({ dados: [] }))
+      // Busca da API. Marca o sucesso de cada chamada para NÃO cachear
+      // resultado proveniente de falha (evita "envenenar" o cache com vazio
+      // por erro temporário da API, que ficaria preso e seria descartado
+      // silenciosamente nas próximas execuções).
+      const [votosR, orientR] = await Promise.all([
+        fetchJson(API + '/' + v.id + '/votos')
+          .then(j => ({ ok: true, dados: j.dados || [] }))
+          .catch(() => ({ ok: false, dados: [] })),
+        fetchJson(API + '/' + v.id + '/orientacoes')
+          .then(j => ({ ok: true, dados: j.dados || [] }))
+          .catch(() => ({ ok: false, dados: [] }))
       ]);
-      cacheSet(v.id, votosJ.dados, orientJ.dados);
-      return { votacao: v, votos: votosJ.dados || [], orientacoes: orientJ.dados || [], fromCache: false };
+      // Só grava no cache quando ambas as chamadas retornaram com sucesso.
+      // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
+      // cacheado; um vazio por falha de rede/HTTP não.
+      if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
+      return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false };
 
     }, (done, total) => {
       showStatus(
