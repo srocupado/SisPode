@@ -46,6 +46,8 @@ let app = {
     openaiKey:      '',
     openaiModelo:   'gpt-4o',
   },
+  perfis:         [],   // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
+  perfilPadraoId: null, // id do perfil de prompt aplicado por padrão nas análises (compartilhado pela equipe)
 };
 
 // ============================================================
@@ -58,6 +60,8 @@ document.addEventListener('DOMContentLoaded', () => {
   registrarEventos();
   carregarConfiguracao();
   carregarHistorico();
+  // Carrega a biblioteca de perfis de prompt compartilhada (não bloqueia a UI)
+  carregarBibliotecaPerfis().catch(e => console.warn('Falha ao carregar perfis:', e.message));
 });
 
 function registrarEventos() {
@@ -103,6 +107,13 @@ function registrarEventos() {
     });
   document.getElementById('btn-testar-openai')
     ?.addEventListener('click', testarConexaoOpenAI);
+
+  // Perfis de prompt
+  document.getElementById('perfil-select')?.addEventListener('change', refletirSelecaoPerfil);
+  document.getElementById('btn-perfil-salvar')?.addEventListener('click', salvarPerfilNovo);
+  document.getElementById('btn-perfil-atualizar')?.addEventListener('click', atualizarPerfil);
+  document.getElementById('btn-perfil-excluir')?.addEventListener('click', excluirPerfil);
+  document.getElementById('perfil-padrao')?.addEventListener('change', onPerfilPadraoToggle);
 
   // Abas PDF / Calendário
   document.querySelectorAll('.ccjc-upload-tab').forEach(btn => {
@@ -801,7 +812,7 @@ Com base no texto integral do projeto${textoUrl ? ' (documento anexado)' : ''}, 
 2. Principais disposições e mudanças propostas.
 3. Impacto esperado e público afetado.
 
-Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou marcadores.`;
+Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou marcadores.${blocoPerfilPadrao()}`;
 
   return aiCall(prompt, textoUrl);
 }
@@ -832,7 +843,7 @@ Descreva em 2 parágrafos:
 1. A decisão da comissão (aprovação, rejeição, aprovação com substitutivo/emendas).
 2. As principais alterações realizadas ou os argumentos centrais do relator.
 
-Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.`;
+Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.${blocoPerfilPadrao()}`;
 
   return aiCall(prompt, docUrl);
 }
@@ -855,7 +866,7 @@ Liste de 3 a 4 argumentos principais em favor do projeto, um por linha, iniciand
 ARGUMENTOS CONTRÁRIOS À APROVAÇÃO:
 Liste de 3 a 4 argumentos principais contra o projeto, um por linha, iniciando com "-".
 
-Não tome posição. Seja factual, objetivo e equilibrado.`;
+Não tome posição. Seja factual, objetivo e equilibrado.${blocoPerfilPadrao()}`;
 
   return aiCall(prompt);
 }
@@ -1044,6 +1055,151 @@ async function fbCarregarPautas() {
 async function fbApagarPauta(id) {
   const res = await fetch(`${FIREBASE_URL}/ccjc-pautas/${id}.json`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Firebase DELETE HTTP ${res.status}`);
+}
+
+// ============================================================
+//  PERFIS DE PROMPT (biblioteca compartilhada via Firebase)
+// ============================================================
+async function fbCarregarPerfis() {
+  const res = await fetch(`${FIREBASE_URL}/ccjc_prompts.json`);
+  if (!res.ok) return [];
+  const data = await res.json();
+  if (!data) return [];
+  return Object.entries(data).map(([id, p]) => ({ ...p, id }))
+    .sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+}
+async function fbSalvarPerfil(p) {
+  const id = p.id || ('cp_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6));
+  const corpo = {
+    nome: p.nome, texto: p.texto,
+    criadoPor: p.criadoPor || 'equipe',
+    criadoEm: p.criadoEm || new Date().toISOString(),
+    atualizadoEm: new Date().toISOString(),
+  };
+  const res = await fetch(`${FIREBASE_URL}/ccjc_prompts/${id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  return { ...corpo, id };
+}
+async function fbApagarPerfil(id) {
+  const res = await fetch(`${FIREBASE_URL}/ccjc_prompts/${id}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function fbCarregarPerfilPadrao() {
+  const res = await fetch(`${FIREBASE_URL}/ccjc_prompt_padrao.json`);
+  if (!res.ok) return null;
+  return await res.json();
+}
+async function fbSalvarPerfilPadrao(id) {
+  const res = await fetch(`${FIREBASE_URL}/ccjc_prompt_padrao.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(id || null),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function carregarBibliotecaPerfis() {
+  const [lista, padraoId] = await Promise.all([fbCarregarPerfis(), fbCarregarPerfilPadrao()]);
+  app.perfis = lista;
+  app.perfilPadraoId = padraoId || null;
+}
+
+/** Instruções adicionais do perfil de prompt padrão da equipe (se houver). */
+function instrucoesPerfilPadrao() {
+  const p = (app.perfis || []).find(x => x.id === app.perfilPadraoId);
+  return p?.texto || '';
+}
+/** Bloco anexado aos prompts base — orienta ênfase sem alterar o formato pedido. */
+function blocoPerfilPadrao() {
+  const t = instrucoesPerfilPadrao();
+  return t
+    ? `\n\nINSTRUÇÕES ADICIONAIS DA EQUIPE (apenas orientam a ênfase, o recorte temático e o tom). ` +
+      `Estas instruções NÃO substituem nem modificam o prompt acima: mantenha exatamente o mesmo ` +
+      `formato de saída, os mesmos rótulos/títulos, a mesma estrutura e o mesmo número de parágrafos ou itens já pedidos. ` +
+      `Em caso de conflito, as regras de formato acima sempre prevalecem.\n${t}`
+    : '';
+}
+
+function popularSelectPerfis(selecionadoId = '') {
+  const sel = document.getElementById('perfil-select');
+  if (!sel) return;
+  const opts = ['<option value="">— Novo perfil —</option>'].concat(
+    (app.perfis || []).map(p => {
+      const m = p.id === app.perfilPadraoId ? ' ★ (padrão)' : '';
+      return `<option value="${esc(p.id)}">${esc(p.nome || '(sem nome)')}${m}</option>`;
+    }));
+  sel.innerHTML = opts.join('');
+  sel.value = selecionadoId || '';
+}
+function refletirSelecaoPerfil() {
+  const sel = document.getElementById('perfil-select');
+  if (!sel) return;
+  const id = sel.value;
+  const p = (app.perfis || []).find(x => x.id === id);
+  const btnAtu = document.getElementById('btn-perfil-atualizar');
+  const btnExc = document.getElementById('btn-perfil-excluir');
+  const chk = document.getElementById('perfil-padrao');
+  document.getElementById('perfil-nome').value = p?.nome || '';
+  document.getElementById('perfil-texto').value = p?.texto || '';
+  btnAtu.style.display = p ? 'inline-flex' : 'none';
+  btnExc.style.display = p ? 'inline-flex' : 'none';
+  chk.checked = !!p && app.perfilPadraoId === p.id;
+}
+function setPerfilStatus(texto, cor) {
+  const el = document.getElementById('perfil-status');
+  if (el) { el.textContent = texto || ''; el.style.color = cor || 'var(--text-dim)'; }
+}
+async function salvarPerfilNovo() {
+  const nome = document.getElementById('perfil-nome').value.trim();
+  const texto = document.getElementById('perfil-texto').value.trim();
+  if (!nome) { setPerfilStatus('Dê um nome ao perfil.', '#f0c040'); return; }
+  if (!texto) { setPerfilStatus('Escreva as instruções.', '#f0c040'); return; }
+  setPerfilStatus('Salvando…');
+  try {
+    const salvo = await fbSalvarPerfil({ nome, texto });
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(salvo.id); refletirSelecaoPerfil();
+    setPerfilStatus('✓ Perfil salvo.', '#3ad97d');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function atualizarPerfil() {
+  const id = document.getElementById('perfil-select').value;
+  if (!id) return;
+  const nome = document.getElementById('perfil-nome').value.trim();
+  const texto = document.getElementById('perfil-texto').value.trim();
+  if (!nome || !texto) { setPerfilStatus('Nome e instruções são obrigatórios.', '#f0c040'); return; }
+  const atual = (app.perfis || []).find(x => x.id === id);
+  setPerfilStatus('Atualizando…');
+  try {
+    await fbSalvarPerfil({ id, nome, texto, criadoPor: atual?.criadoPor, criadoEm: atual?.criadoEm });
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(id); refletirSelecaoPerfil();
+    setPerfilStatus('✓ Perfil atualizado.', '#3ad97d');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function excluirPerfil() {
+  const id = document.getElementById('perfil-select').value;
+  if (!id) return;
+  if (!confirm('Excluir este perfil da biblioteca compartilhada? Isso afeta toda a equipe.')) return;
+  setPerfilStatus('Excluindo…');
+  try {
+    await fbApagarPerfil(id);
+    if (app.perfilPadraoId === id) { await fbSalvarPerfilPadrao(null); app.perfilPadraoId = null; }
+    await carregarBibliotecaPerfis();
+    popularSelectPerfis(''); refletirSelecaoPerfil();
+    setPerfilStatus('Perfil excluído.', 'var(--text-dim)');
+  } catch (e) { setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+}
+async function onPerfilPadraoToggle() {
+  const chk = document.getElementById('perfil-padrao');
+  const id = document.getElementById('perfil-select').value;
+  if (chk.checked) {
+    if (!id) { chk.checked = false; setPerfilStatus('Salve o perfil antes de defini-lo como padrão.', '#f0c040'); return; }
+    try { await fbSalvarPerfilPadrao(id); app.perfilPadraoId = id; popularSelectPerfis(id); setPerfilStatus('✓ Definido como padrão da equipe.', '#3ad97d'); }
+    catch (e) { chk.checked = false; setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+  } else if (app.perfilPadraoId === id) {
+    try { await fbSalvarPerfilPadrao(null); app.perfilPadraoId = null; popularSelectPerfis(id); setPerfilStatus('Padrão da equipe removido.', 'var(--text-dim)'); }
+    catch (e) { chk.checked = true; setPerfilStatus('Erro: ' + e.message, '#f05454'); }
+  }
 }
 
 // ============================================================
@@ -1597,6 +1753,12 @@ async function abrirConfiguracoes() {
   atualizarBadgeGemini();
   atualizarBadgeClaude();
   atualizarBadgeOpenai();
+
+  // Perfis de prompt (compartilhados pela equipe via Firebase)
+  setPerfilStatus('');
+  try { await carregarBibliotecaPerfis(); } catch (e) { /* usa o que houver em memória */ }
+  popularSelectPerfis(app.perfilPadraoId || '');
+  refletirSelecaoPerfil();
 }
 
 async function carregarModelosDisponiveis() {

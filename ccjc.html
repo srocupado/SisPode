@@ -331,6 +331,43 @@
           <button id="btn-testar-openai" class="btn btn-outline btn-sm">Testar ChatGPT</button>
         </div>
 
+        <!-- PERFIS DE PROMPT -->
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            Perfis de prompt
+          </div>
+          <p class="config-desc">
+            Crie perfis de instruções que <strong>complementam</strong> o prompt base enviado ao LLM
+            (ênfase, recortes temáticos, tom). O perfil marcado como <strong>padrão da equipe</strong>
+            é aplicado automaticamente ao gerar as análises. Compartilhados via Firebase.
+          </p>
+
+          <div class="form-group" style="margin-top:10px">
+            <label>Perfil</label>
+            <select id="perfil-select" class="form-input">
+              <option value="">— Novo perfil —</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Nome do perfil</label>
+            <input type="text" id="perfil-nome" class="form-input" placeholder="Ex: Foco no impacto para municípios">
+          </div>
+          <div class="form-group">
+            <label>Instruções adicionais</label>
+            <textarea id="perfil-texto" class="form-input" rows="5" placeholder="Ex: Destaque sempre os efeitos práticos para a segurança jurídica e cite a norma alterada."></textarea>
+          </div>
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0">
+            <input type="checkbox" id="perfil-padrao"> Usar como padrão da equipe
+          </label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <button id="btn-perfil-salvar" class="btn btn-outline btn-sm">Salvar como novo</button>
+            <button id="btn-perfil-atualizar" class="btn btn-outline btn-sm" style="display:none">Atualizar</button>
+            <button id="btn-perfil-excluir" class="btn btn-ghost btn-sm" style="display:none">Excluir</button>
+          </div>
+          <div id="perfil-status" style="font-size:11px;color:var(--text-dim);margin-top:8px;min-height:14px"></div>
+        </div>
+
       </div>
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
