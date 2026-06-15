@@ -60,6 +60,20 @@ const GRUPOS_INCOMPATIVEIS = [
   ],
 ];
 
+// ---------- API CÂMARA / SINCRONIZAÇÃO DE MPVs ----------
+
+const CAMARA_API = 'https://dadosabertos.camara.leg.br/api/v2';
+// Janela de busca de MPVs: últimos 6 meses (cobre as em vigor, que duram ~60–120 dias).
+const MPV_JANELA_MESES = 6;
+// Cache considerado "velho" após 12h → dispara auto-sync silencioso.
+const MPV_SYNC_TTL_MS  = 12 * 60 * 60 * 1000;
+
+// Situações que indicam que a MPV NÃO está mais em vigor (comissão encerrada).
+const MPV_SITUACOES_TERMINAIS = [
+  'perdeu a efic', 'transformad', 'rejeitad', 'arquivad',
+  'prejudicad', 'retirad', 'devolvid', 'revogad',
+];
+
 // ---------- FIREBASE ----------
 
 const FB_BASE = 'https://plenario-podemos-default-rtdb.firebaseio.com/comissoes-podemos';
@@ -95,6 +109,9 @@ const state = {
   config:        {},          // { sigla: { titular: n, suplente: n } }
   transferencias:{},          // { sigla: { cedidas: {id: entry}, recebidas: {id: entry} } }
   pedidos:       {},          // { sigla: { id: { depId, obs, data } } }
+  mistas:        {},          // { sigla: { sigla, nome, mpvId, numero, ano, situacao } } — sincronizadas da API
+  mistasSyncAt:  null,        // ISO da última sincronização das mistas
+  sincronizando: false,
   busca:         '',
 };
 
@@ -110,6 +127,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   await carregarDados();
   renderSidebar();
   renderPainel();
+  // Auto-sync silencioso se o cache de comissões mistas estiver velho (>12h).
+  if (mistasDesatualizadas()) sincronizarMistasUI({ silencioso: true });
 });
 
 function registrarEventos() {
@@ -171,26 +190,154 @@ function registrarEventos() {
   // Salvar deputado de acordo em vaga cedida
   document.getElementById('btn-salvar-dep-acordo')
     .addEventListener('click', salvarDepAcordo);
+
+  // Sincronizar comissões mistas de MPV (manual)
+  document.getElementById('btn-sync-mpv')
+    .addEventListener('click', () => sincronizarMistasUI({ silencioso: false }));
+}
+
+// ---------- LOOKUP DE COMISSÕES (permanentes + mistas) ----------
+
+// Comissão por sigla, em qualquer das duas camadas.
+function getComissao(sigla) {
+  return COMISSOES_PERMANENTES.find(c => c.sigla === sigla)
+      || state.mistas[sigla]
+      || null;
+}
+
+// 'permanente' | 'mista' | null
+function tipoComissao(sigla) {
+  if (COMISSOES_PERMANENTES.some(c => c.sigla === sigla)) return 'permanente';
+  if (state.mistas[sigla]) return 'mista';
+  return null;
+}
+
+// Mistas ordenadas da mais recente para a mais antiga.
+function listaMistas() {
+  return Object.values(state.mistas)
+    .sort((a, b) => (b.ano - a.ano) || (b.numero - a.numero));
+}
+
+// Todas as comissões com rótulo de tipo (para sidebar/exportação).
+function todasComissoes() {
+  return [
+    ...COMISSOES_PERMANENTES.map(c => ({ ...c, tipo: 'Permanente' })),
+    ...listaMistas().map(c => ({ ...c, tipo: 'Mista' })),
+  ];
+}
+
+// Executa fn sobre items com no máximo `limit` promessas simultâneas.
+async function mapLimit(items, limit, fn) {
+  const results = new Array(items.length);
+  let idx = 0;
+  async function worker() {
+    while (idx < items.length) {
+      const i = idx++;
+      results[i] = await fn(items[i], i);
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
 // ---------- FIREBASE: CRUD ----------
 
 async function carregarDados() {
   try {
-    const [deps, membros, config, transf, pedidos] = await Promise.all([
+    const [deps, membros, config, transf, pedidos, mistas] = await Promise.all([
       fbGet('/deputados'),
       fbGet('/membros'),
       fbGet('/config'),
       fbGet('/transferencias'),
       fbGet('/pedidos'),
+      fbGet('/comissoes-mistas'),
     ]);
     state.deputados      = deps    || {};
     state.membros        = membros || {};
     state.config         = config  || {};
     state.transferencias = transf  || {};
     state.pedidos        = pedidos || {};
+    state.mistas         = mistas?.comissoes || {};
+    state.mistasSyncAt   = mistas?.syncAt    || null;
   } catch (e) {
     mostrarToast('Erro ao carregar dados do Firebase.', 'erro');
+  }
+}
+
+// ---------- SINCRONIZAÇÃO DE COMISSÕES MISTAS (MPV) ----------
+
+function mistasDesatualizadas() {
+  if (!state.mistasSyncAt) return true;
+  return (Date.now() - new Date(state.mistasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
+}
+
+function mpvEmVigor(situacao) {
+  const s = (situacao || '').toLowerCase();
+  return !MPV_SITUACOES_TERMINAIS.some(t => s.includes(t));
+}
+
+// Busca as MPVs apresentadas na janela, mantém as em vigor e deriva a comissão
+// mista de cada uma (sigla MPV{numero}{AA}). Persiste no Firebase (compartilhado).
+async function sincronizarMistas() {
+  const desde = new Date();
+  desde.setMonth(desde.getMonth() - MPV_JANELA_MESES);
+  const dataIni = desde.toISOString().slice(0, 10);
+
+  // 1. Lista de MPVs apresentadas desde `dataIni` (paginada).
+  const mpvs = [];
+  let url = `${CAMARA_API}/proposicoes?siglaTipo=MPV&dataApresentacaoInicio=${dataIni}`
+          + `&ordem=DESC&ordenarPor=id&itens=100`;
+  while (url) {
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    mpvs.push(...(j.dados || []));
+    url = (j.links || []).find(l => l.rel === 'next')?.href || null;
+  }
+
+  // 2. Detalhe de cada MPV (status) com concorrência limitada; mantém as em vigor.
+  const comissoes = {};
+  await mapLimit(mpvs, 5, async (m) => {
+    try {
+      const r = await fetch(`${CAMARA_API}/proposicoes/${m.id}`, { headers: { Accept: 'application/json' } });
+      if (!r.ok) return;
+      const det = await r.json();
+      const situacao = det.dados?.statusProposicao?.descricaoSituacao || '';
+      if (!mpvEmVigor(situacao)) return;
+      const numero = parseInt(m.numero, 10);
+      const ano    = parseInt(m.ano, 10);
+      if (!numero || !ano) return;
+      const sigla = `MPV${numero}${String(ano).slice(-2)}`;
+      comissoes[sigla] = { sigla, nome: `Comissão Mista da MPV ${numero}/${ano}`, mpvId: m.id, numero, ano, situacao };
+    } catch (_) { /* ignora falha pontual */ }
+  });
+
+  const payload = { syncAt: new Date().toISOString(), comissoes };
+  await fbPut('/comissoes-mistas', payload);
+  state.mistas       = comissoes;
+  state.mistasSyncAt = payload.syncAt;
+  return Object.keys(comissoes).length;
+}
+
+// Wrapper de UI: feedback no botão + toasts (silencioso no auto-sync).
+async function sincronizarMistasUI({ silencioso = false } = {}) {
+  if (state.sincronizando) return;
+  state.sincronizando = true;
+  const btn = document.getElementById('btn-sync-mpv');
+  const htmlOrig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Sincronizando…'; }
+  if (!silencioso) mostrarToast('Sincronizando comissões mistas de MPV…');
+
+  try {
+    const n = await sincronizarMistas();
+    if (state.view === 'comissao') renderSidebarComissoes();
+    if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV em vigor.`);
+  } catch (e) {
+    if (!silencioso) mostrarToast('Falha ao sincronizar MPVs: ' + e.message, 'erro');
+    else console.warn('Auto-sync de MPVs falhou:', e.message);
+  } finally {
+    state.sincronizando = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = htmlOrig; }
   }
 }
 
@@ -309,8 +456,14 @@ async function nomearDePedido(sigla, pedidoId, depId, tipo) {
 // ---------- LÓGICA DE VAGAS ----------
 
 function vagasEfetivas(sigla, tipo) {
-  const cfg  = state.config[sigla] || { titular: 0, suplente: 0 };
-  const base = tipo === 'titular' ? (cfg.titular || 0) : (cfg.suplente || 0);
+  // Comissões mistas de MPV: 1 vaga de titular e 1 de suplente fixas (não
+  // configuráveis); ainda assim respeitam ceder/receber por acordo.
+  const base = tipoComissao(sigla) === 'mista'
+    ? 1
+    : (() => {
+        const cfg = state.config[sigla] || { titular: 0, suplente: 0 };
+        return tipo === 'titular' ? (cfg.titular || 0) : (cfg.suplente || 0);
+      })();
   const t    = state.transferencias[sigla] || {};
   const cedidas   = Object.values(t.cedidas   || {}).filter(x => x.tipo === tipo).length;
   const recebidas = Object.values(t.recebidas || {}).filter(x => x.tipo === tipo).length;
@@ -387,15 +540,17 @@ function renderSidebar() {
 
 function renderSidebarComissoes() {
   const lista = document.getElementById('com-lista');
-  const filtradas = COMISSOES_PERMANENTES.filter(c =>
+  const matchBusca = c =>
     c.sigla.toLowerCase().includes(state.busca) ||
-    c.nome.toLowerCase().includes(state.busca)
-  );
+    c.nome.toLowerCase().includes(state.busca);
 
-  lista.innerHTML = filtradas.map(c => {
-    const m          = state.membros[c.sigla] || {};
-    const total      = (m.titulares || []).length + (m.suplentes || []).length;
-    const nPedidos   = Object.keys(state.pedidos[c.sigla] || {}).length;
+  const permanentes = COMISSOES_PERMANENTES.filter(matchBusca);
+  const mistas      = listaMistas().filter(matchBusca);
+
+  const itemHtml = c => {
+    const m        = state.membros[c.sigla] || {};
+    const total    = (m.titulares || []).length + (m.suplentes || []).length;
+    const nPedidos = Object.keys(state.pedidos[c.sigla] || {}).length;
 
     const efT = vagasEfetivas(c.sigla, 'titular');
     const efS = vagasEfetivas(c.sigla, 'suplente');
@@ -415,11 +570,45 @@ function renderSidebarComissoes() {
         <span class="com-item-nome">${c.nome}${extras.length ? '<br>' + extras.join(' ') : ''}</span>
         <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
       </div>`;
-  }).join('');
+  };
+
+  const grupoHeader = (titulo, n) =>
+    `<div class="com-grupo-sidebar">${titulo}<span class="grupo-count">${n}</span></div>`;
+  const vazio = msg => `<div class="com-empty" style="padding:14px;font-size:12px">${msg}</div>`;
+
+  let html = grupoHeader('Permanentes', permanentes.length);
+  html += permanentes.length ? permanentes.map(itemHtml).join('') : vazio('Nenhuma.');
+
+  html += grupoHeader('Mistas (MPV)', mistas.length);
+  html += syncInfoHtml();
+  html += mistas.length
+    ? mistas.map(itemHtml).join('')
+    : vazio(state.busca
+        ? 'Nenhuma corresponde à busca.'
+        : 'Nenhuma sincronizada. Use “Sincronizar MPVs”.');
+
+  lista.innerHTML = html;
 
   lista.querySelectorAll('.com-item').forEach(el => {
     el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
   });
+}
+
+function syncInfoHtml() {
+  if (state.sincronizando) return `<div class="com-sync-info">Sincronizando…</div>`;
+  if (!state.mistasSyncAt)  return `<div class="com-sync-info sync-velho">Nunca sincronizado.</div>`;
+  const velho = mistasDesatualizadas();
+  return `<div class="com-sync-info${velho ? ' sync-velho' : ''}">`
+       + `Atualizado ${fmtSyncAgo(state.mistasSyncAt)}${velho ? ' · desatualizado' : ''}</div>`;
+}
+
+function fmtSyncAgo(iso) {
+  const diffMin = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diffMin < 1)  return 'agora';
+  if (diffMin < 60) return `há ${diffMin} min`;
+  const h = Math.floor(diffMin / 60);
+  if (h < 24) return `há ${h}h`;
+  return `há ${Math.floor(h / 24)}d`;
 }
 
 function renderSidebarDeputados() {
@@ -487,7 +676,12 @@ function renderPainel() {
 }
 
 function renderPainelComissao(sigla) {
-  const com = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  const com = getComissao(sigla);
+  if (!com) {
+    state.comissaoSel = null;
+    renderPainel();
+    return;
+  }
   const m   = state.membros[sigla] || { titulares: [], suplentes: [] };
   const titulares = m.titulares || [];
   const suplentes = m.suplentes || [];
@@ -756,7 +950,7 @@ function renderPainelDeputado(depId) {
     .map(([sigla]) => sigla);
 
   const tagsCom = (siglas, tipo) => siglas.map(s => {
-    const com = COMISSOES_PERMANENTES.find(c => c.sigla === s);
+    const com = getComissao(s);
     const isConflito = tipo === 'titular' && conflitos.includes(s);
     return `<span class="dep-tag ${isConflito ? 'conflito' : tipo}" title="${com ? com.nome : s}">${s}${isConflito ? ' ⚠' : ''}</span>`;
   }).join('');
@@ -785,7 +979,7 @@ function renderPainelDeputado(depId) {
     <div class="com-grupo">
       <div class="com-grupo-titulo" style="color:#f5a623">Pedidos pendentes <span class="badge-count" style="background:rgba(245,158,11,.2);color:#f5a623">${pedidosEm.length}</span></div>
       <div class="dep-row-tags">${pedidosEm.map(s => {
-        const com = COMISSOES_PERMANENTES.find(c => c.sigla === s);
+        const com = getComissao(s);
         return `<span class="dep-tag" style="background:rgba(245,158,11,.15);color:#f5a623" title="${com ? com.nome : s}">${s}</span>`;
       }).join('')}</div>
     </div>` : ''}
@@ -954,7 +1148,7 @@ function abrirModalAddMembro(sigla, tipo) {
     return;
   }
 
-  const com  = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  const com  = getComissao(sigla);
   const m    = state.membros[sigla] || { titulares: [], suplentes: [] };
   const jaMembroIds = [...(m.titulares || []), ...(m.suplentes || [])];
 
@@ -1006,7 +1200,7 @@ function abrirModalAddMembro(sigla, tipo) {
 // ---------- MODAL: REGISTRAR PEDIDO ----------
 
 function abrirModalAddPedido(sigla) {
-  const com = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  const com = getComissao(sigla);
   const p   = state.pedidos[sigla] || {};
   const m   = state.membros[sigla] || {};
   // Deputados que já têm pedido OU já são membros ficam bloqueados
@@ -1162,7 +1356,7 @@ function abrirModalDepAcordo(sigla, transfId) {
   const e = state.transferencias[sigla]?.cedidas?.[transfId];
   _depAcordoCtx = { sigla, transfId };
 
-  const com = COMISSOES_PERMANENTES.find(c => c.sigla === sigla);
+  const com = getComissao(sigla);
   document.getElementById('dep-acordo-titulo').textContent =
     `Deputado na Vaga Cedida — ${sigla}`;
   document.getElementById('dep-acordo-desc').textContent =
@@ -1209,9 +1403,11 @@ function exportarExcel() {
     return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
   };
 
+  const comissoes = todasComissoes();
+
   // Aba 1: membros — com flag de acordo e origem
-  const rowsMembros = [['Comissão', 'Sigla', 'Tipo', 'Deputado', 'UF', 'Partido', 'Vaga de Acordo', 'Origem da Vaga']];
-  for (const com of COMISSOES_PERMANENTES) {
+  const rowsMembros = [['Comissão', 'Sigla', 'Tipo de Comissão', 'Tipo', 'Deputado', 'UF', 'Partido', 'Vaga de Acordo', 'Origem da Vaga']];
+  for (const com of comissoes) {
     const m  = state.membros[com.sigla] || {};
     const t  = state.transferencias[com.sigla] || {};
 
@@ -1224,25 +1420,25 @@ function exportarExcel() {
       const dep = state.deputados[depId];
       if (!dep) continue;
       const isAcordo = !!(m.titulares_acordo?.[depId]);
-      rowsMembros.push([com.nome, com.sigla, 'Titular', dep.nome, dep.uf, dep.partido || '',
+      rowsMembros.push([com.nome, com.sigla, com.tipo, 'Titular', dep.nome, dep.uf, dep.partido || '',
         isAcordo ? 'Sim' : 'Não', isAcordo ? origemAcordo('titular') : '']);
     }
     for (const depId of (m.suplentes || [])) {
       const dep = state.deputados[depId];
       if (!dep) continue;
       const isAcordo = !!(m.suplentes_acordo?.[depId]);
-      rowsMembros.push([com.nome, com.sigla, 'Suplente', dep.nome, dep.uf, dep.partido || '',
+      rowsMembros.push([com.nome, com.sigla, com.tipo, 'Suplente', dep.nome, dep.uf, dep.partido || '',
         isAcordo ? 'Sim' : 'Não', isAcordo ? origemAcordo('suplente') : '']);
     }
   }
 
   // Aba 2: vagas cedidas — com deputado externo se registrado
-  const rowsCedidas = [['Comissão', 'Sigla', 'Tipo', 'Partido Destinatário', 'Deputado Externo', 'UF', 'Partido Dep.', 'Observação', 'Data']];
-  for (const com of COMISSOES_PERMANENTES) {
+  const rowsCedidas = [['Comissão', 'Sigla', 'Tipo de Comissão', 'Tipo', 'Partido Destinatário', 'Deputado Externo', 'UF', 'Partido Dep.', 'Observação', 'Data']];
+  for (const com of comissoes) {
     const t = state.transferencias[com.sigla] || {};
     for (const e of Object.values(t.cedidas || {})) {
       rowsCedidas.push([
-        com.nome, com.sigla,
+        com.nome, com.sigla, com.tipo,
         e.tipo === 'titular' ? 'Titular' : 'Suplente',
         e.partido,
         e.depNome    || '',
@@ -1255,12 +1451,12 @@ function exportarExcel() {
   }
 
   // Aba 3: pedidos
-  const rowsPedidos = [['Comissão', 'Sigla', 'Deputado', 'UF', 'Partido', 'Observação', 'Data']];
-  for (const com of COMISSOES_PERMANENTES) {
+  const rowsPedidos = [['Comissão', 'Sigla', 'Tipo de Comissão', 'Deputado', 'UF', 'Partido', 'Observação', 'Data']];
+  for (const com of comissoes) {
     const p = state.pedidos[com.sigla] || {};
     for (const e of Object.values(p)) {
       const dep = state.deputados[e.depId];
-      if (dep) rowsPedidos.push([com.nome, com.sigla, dep.nome, dep.uf, dep.partido || '', e.obs || '', fmt(e.data)]);
+      if (dep) rowsPedidos.push([com.nome, com.sigla, com.tipo, dep.nome, dep.uf, dep.partido || '', e.obs || '', fmt(e.data)]);
     }
   }
 
@@ -1268,19 +1464,19 @@ function exportarExcel() {
 
   if (rowsMembros.length > 1) {
     const ws1 = XLSX.utils.aoa_to_sheet(rowsMembros);
-    ws1['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 10 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 16 }, { wch: 30 }];
+    ws1['!cols'] = [{ wch: 52 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 16 }, { wch: 30 }];
     XLSX.utils.book_append_sheet(wb, ws1, 'Membros');
   }
 
   if (rowsCedidas.length > 1) {
     const ws2 = XLSX.utils.aoa_to_sheet(rowsCedidas);
-    ws2['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 10 }, { wch: 22 }, { wch: 34 }, { wch: 5 }, { wch: 10 }, { wch: 28 }, { wch: 12 }];
+    ws2['!cols'] = [{ wch: 52 }, { wch: 10 }, { wch: 16 }, { wch: 10 }, { wch: 22 }, { wch: 34 }, { wch: 5 }, { wch: 10 }, { wch: 28 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws2, 'Vagas Cedidas');
   }
 
   if (rowsPedidos.length > 1) {
     const ws3 = XLSX.utils.aoa_to_sheet(rowsPedidos);
-    ws3['!cols'] = [{ wch: 52 }, { wch: 8 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 28 }, { wch: 12 }];
+    ws3['!cols'] = [{ wch: 52 }, { wch: 10 }, { wch: 16 }, { wch: 34 }, { wch: 5 }, { wch: 8 }, { wch: 28 }, { wch: 12 }];
     XLSX.utils.book_append_sheet(wb, ws3, 'Pedidos');
   }
 

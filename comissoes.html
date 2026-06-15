@@ -108,6 +108,30 @@
     }
     .com-item-badge.tem-membro { color: var(--accent-light); }
 
+    /* Cabeçalho de grupo na sidebar (Permanentes / Mistas) */
+    .com-grupo-sidebar {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 11px 14px 5px;
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: .6px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      background: rgba(255,255,255,.02);
+      border-bottom: 1px solid var(--border);
+    }
+    .com-grupo-sidebar .grupo-count { color: var(--accent-light); }
+    .com-sync-info {
+      font-size: 10px;
+      color: var(--text-dim);
+      padding: 6px 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .com-sync-info.sync-velho { color: #f0c040; }
+
     /* ===== PAINEL CENTRAL ===== */
     .com-painel {
       flex: 1;
@@ -732,6 +756,10 @@
       <button id="btn-gerir-deputados" class="btn btn-outline btn-sm">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
         Deputados
+      </button>
+      <button id="btn-sync-mpv" class="btn btn-outline btn-sm" title="Sincronizar comissões mistas de MPV em vigor com a API da Câmara">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+        Sincronizar MPVs
       </button>
       <button id="btn-exportar-excel" class="btn btn-primary btn-sm">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
