@@ -292,17 +292,27 @@ function extrairReferencias(texto) {
   };
 
   const regex = /\b(PL|PEC|PLN|PLP|PLV|PDC|PRC|MPV|REQ|INC)\s*[nº°.]*\s*(\d{1,5})[,.\/\s]*(?:de\s+)?(\d{4})\b/gi;
-  const vistas = new Set();
-  const refs   = [];
+  const porChave = new Map();
+  const refs     = [];
   let m;
   while ((m = regex.exec(texto)) !== null) {
     const sigla  = m[1].toUpperCase();
     const numero = parseInt(m[2], 10);
     const ano    = parseInt(m[3], 10);
-    const chave  = `${sigla} ${numero}/${ano}`;
-    if (!vistas.has(chave) && ano >= 1990 && ano <= new Date().getFullYear() + 1) {
-      vistas.add(chave);
-      refs.push({ sigla, numero, ano, chave, redacaoFinal: ehRfNaPosicao(m.index) });
+    if (ano < 1990 || ano > new Date().getFullYear() + 1) continue;
+    const chave = `${sigla} ${numero}/${ano}`;
+    const rf    = ehRfNaPosicao(m.index);
+
+    const existente = porChave.get(chave);
+    if (existente) {
+      // Uma proposição é Redação Final se QUALQUER ocorrência dela cair no
+      // bloco de Redação Final — não apenas a primeira menção, que pode estar
+      // num sumário/índice no topo do PDF, fora do bloco.
+      if (rf) existente.redacaoFinal = true;
+    } else {
+      const ref = { sigla, numero, ano, chave, redacaoFinal: rf };
+      porChave.set(chave, ref);
+      refs.push(ref);
     }
   }
   return refs;
@@ -1075,8 +1085,10 @@ async function _executarLoteAnalise(projetos, btn, htmlOriginal) {
   if (btn) btn.innerHTML = htmlOriginal;
   atualizarBotaoSelecionados();
 
-  const concluidos = app.pautaAtual.projetos.filter(p => p.statusAnalise === 'concluido').length;
-  mostrarToast(`Análise concluída: ${concluidos}/${app.pautaAtual.projetos.length} projetos.`, 'sucesso');
+  // Conta sobre o LOTE efetivamente processado (não sobre a pauta inteira),
+  // para o "Analisar selecionados" não reportar um total enganoso.
+  const concluidos = projetos.filter(p => p.statusAnalise === 'concluido').length;
+  mostrarToast(`Análise concluída: ${concluidos}/${projetos.length} projeto(s).`, 'sucesso');
 }
 
 async function analisarEsteProjetoHandler() {
