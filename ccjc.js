@@ -1546,12 +1546,9 @@ async function salvarConfiguracao() {
   const provedorAtivo = document.getElementById('config-provedor-ativo').value;
   const status       = document.getElementById('config-status-ia');
 
-  if (geminiKey && !geminiKey.startsWith('AIza')) {
-    status.textContent   = '⚠ Chave Gemini deve começar com "AIza".';
-    status.className     = 'config-status erro';
-    status.style.display = 'block';
-    return;
-  }
+  // Não validamos o formato/prefixo da chave Gemini: o Google mudou o padrão
+  // (ex.: chaves no formato "AQ.xxx" além do antigo "AIza..."). Deixamos a
+  // própria API validar a chave ao carregar os modelos / gerar conteúdo.
 
   if (anthropicKey && !anthropicKey.startsWith('sk-ant-')) {
     document.getElementById('config-status-anthropic').textContent   = '⚠ Chave Anthropic deve começar com "sk-ant-".';

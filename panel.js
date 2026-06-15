@@ -34,8 +34,8 @@ const PROVEDORES = {
   gemini: {
     id:    'gemini',
     label: 'Google Gemini',
-    regexChave:  /^AIza[\w-]{20,}$/,
-    placeholderChave: 'AIzaSy...',
+    regexChave:  /^[\w.-]{20,}$/,
+    placeholderChave: 'AIzaSy... ou AQ....',
     hintChave:   'Obtenha em aistudio.google.com → Get API key',
     modelosFallback: [
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },

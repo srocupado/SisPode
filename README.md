@@ -233,7 +233,7 @@ O usuário pode escolher entre três provedores. Apenas um fica ativo por vez �
 
 | Provedor | Onde obter a chave | Formato da chave |
 |---|---|---|
-| Google Gemini | [aistudio.google.com](https://aistudio.google.com) → Get API key | `AIzaSy...` |
+| Google Gemini | [aistudio.google.com](https://aistudio.google.com) → Get API key | `AIzaSy...` ou `AQ....` |
 | OpenAI (ChatGPT) | [platform.openai.com/api-keys](https://platform.openai.com/api-keys) | `sk-...` |
 | Anthropic (Claude) | [console.anthropic.com](https://console.anthropic.com) → Settings → API Keys | `sk-ant-...` |
 

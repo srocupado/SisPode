@@ -18,9 +18,9 @@ const SIGLA_PODEMOS = 'PODE';
 const PROVEDORES_META = {
   gemini: {
     label: 'Google Gemini',
-    placeholderChave: 'AIzaSy...',
+    placeholderChave: 'AIzaSy... ou AQ....',
     hintChave: 'Obtenha em aistudio.google.com → Get API key',
-    regexChave: /^AIza[\w-]{20,}$/,
+    regexChave: /^[\w.-]{20,}$/,
     modelosFallback: [
       { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
