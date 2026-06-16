@@ -60,11 +60,14 @@ const GRUPOS_INCOMPATIVEIS = [
   ],
 ];
 
-// ---------- API SENADO / SINCRONIZAÇÃO DE MPVs ----------
+// ---------- SENADO / SINCRONIZAÇÃO DE MPVs ----------
 
 // Comissões mistas de MPV são colegiados do Congresso Nacional; o Senado é a
-// fonte autoritativa da existência e da situação delas.
-const SENADO_API = 'https://legis.senado.leg.br/dadosabertos';
+// fonte autoritativa da existência e da situação delas. A página de pesquisa
+// de comissões traz a coluna de situação (a API de dados abertos não a expõe
+// de forma confiável — o histórico de eventos fica defasado).
+const SENADO_BASE = 'https://legis.senado.leg.br';
+const SENADO_PESQUISA_URL = `${SENADO_BASE}/atividade/comissoes/pesquisar/`;
 // Cache considerado "velho" após 12h → dispara auto-sync silencioso.
 const MPV_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
@@ -282,56 +285,45 @@ function mistasDesatualizadas() {
   return (Date.now() - new Date(state.mistasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
 }
 
-// Extrai número e ano de uma comissão mista a partir da sigla/nome do Senado
-// (ex.: "CMMPV 1323/2025" ou "...Medida Provisória n° 1323, de 2025").
-function parseNumeroAnoMpv(sigla, nome) {
-  let m = (sigla || '').match(/(\d+)\s*\/\s*(\d{4})/);
-  if (!m) m = (nome || '').match(/n[°ºo]?\s*(\d+)[,\s]+de\s*(\d{4})/i);
-  if (!m) return null;
-  return { numero: parseInt(m[1], 10), ano: parseInt(m[2], 10) };
-}
+// Extrai as comissões mistas de MPV (e suas situações) da página de pesquisa de
+// comissões do Senado. A página renderiza uma linha por comissão, iniciada por
+// um link /atividade/comissoes/comissao/{codigo}; o corpo até o próximo link
+// contém a sigla (CMMPV n/aaaa) e a célula de situação. Mantém só as ativas.
+function parseMistasDoHtml(html) {
+  const out = {};
+  const blocos = html.split(/<a\s+href="\/atividade\/comissoes\/comissao\/(\d+)"/i);
+  for (let i = 1; i < blocos.length; i += 2) {
+    const codigoSenado = blocos[i];
+    const corpo = blocos[i + 1] || '';
+    const m = corpo.match(/CMMPV\s*(\d+)\s*\/\s*(\d{4})/i);
+    if (!m) continue;
+    const numero = parseInt(m[1], 10);
+    const ano    = parseInt(m[2], 10);
+    if (!numero || !ano) continue;
 
-// Lista os colegiados de MPV em atividade no Congresso Nacional (Senado) e, para
-// cada um, determina a situação pelo histórico de eventos (Instalação ⇒ em
-// funcionamento; caso contrário, aguardando instalação). Persiste no Firebase.
-async function sincronizarMistas() {
-  // 1. Colegiados em atividade no CN → filtra as comissões mistas de MPV.
-  const r = await fetch(`${SENADO_API}/comissao/lista/colegiados`, { headers: { Accept: 'application/json' } });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const j = await r.json();
-  const colegiados = j?.ListaColegiados?.Colegiados?.Colegiado || [];
-  const mpvs = colegiados.filter(c => c.SiglaTipoColegiado === 'MPV' && c.SiglaCasa === 'CN');
+    const sm = corpo.match(/Aguardando\s+instala[çc][ãa]o|Em\s+funcionamento|Encerrada/i);
+    if (!sm || /encerrada/i.test(sm[0])) continue; // só comissões ativas
 
-  // 2. Detalhe de cada comissão (eventos) com concorrência limitada → situação.
-  const daApi = {};
-  await mapLimit(mpvs, 5, async (c) => {
-    const na = parseNumeroAnoMpv(c.Sigla, c.Nome);
-    if (!na) return;
-    const { numero, ano } = na;
     const sigla = `MPV${numero}${String(ano).slice(-2)}`;
-
-    let situacao = MPV_SIT_AGUARDANDO;
-    let dataInstalacao = null;
-    try {
-      const rd = await fetch(`${SENADO_API}/comissao/${c.Codigo}`, { headers: { Accept: 'application/json' } });
-      if (rd.ok) {
-        const det = await rd.json();
-        const col = det?.ComissoesCongressoNacional?.Colegiados?.Colegiado?.[0];
-        const evs = col?.Eventos?.Evento;
-        const lista = Array.isArray(evs) ? evs : (evs ? [evs] : []);
-        const inst = lista.find(e => /instala/i.test(e.TipoEvento || ''));
-        if (inst) { situacao = MPV_SIT_FUNCIONAMENTO; dataInstalacao = inst.DataEvento || null; }
-      }
-    } catch (_) { /* mantém "Aguardando instalação" se o detalhe falhar */ }
-
-    daApi[sigla] = {
+    out[sigla] = {
       sigla, numero, ano,
       nome: `Comissão Mista da MPV ${numero}/${ano}`,
-      situacao, dataInstalacao,
-      codigoSenado: c.Codigo,
+      situacao: /funcionamento/i.test(sm[0]) ? MPV_SIT_FUNCIONAMENTO : MPV_SIT_AGUARDANDO,
+      codigoSenado,
       origem: 'api',
     };
-  });
+  }
+  return out;
+}
+
+// Busca as comissões mistas de MPV ativas no Senado (com a situação real) e
+// persiste no Firebase, preservando as criadas manualmente e as apagadas.
+async function sincronizarMistas() {
+  const r = await fetch(SENADO_PESQUISA_URL, { headers: { Accept: 'text/html' } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const html = await r.text();
+  const daApi = parseMistasDoHtml(html);
+  if (!Object.keys(daApi).length) throw new Error('nenhuma comissão lida da página do Senado');
 
   // 3. Mescla: API (exceto apagadas manualmente) + criadas manualmente (têm prioridade).
   const ocultas   = state.mistasOcultas || {};
@@ -1002,7 +994,7 @@ function renderPainelComissao(sigla) {
     <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
       <div>
         <div class="com-painel-titulo">${com.nome}${ehMista ? ' <span class="tag-mista">Mista</span>' : ''}</div>
-        <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}${com.dataInstalacao ? `<span style="color:var(--text-dim);font-size:11px"> · instalada em ${com.dataInstalacao}</span>` : ''}` : ''}</div>
+        <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}` : ''}</div>
       </div>
       ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
     </div>
