@@ -301,7 +301,7 @@ function mistasDesatualizadas() {
 // recentes, descarta as orçamentárias (CMO) e as já fora da fase de comissão, e
 // classifica cada uma como Em funcionamento (instalada) ou Aguardando instalação.
 // Persiste no Firebase, preservando as criadas manualmente e as apagadas.
-async function sincronizarMistas() {
+async function sincronizarMistas({ reset = false } = {}) {
   // 1. MPVs apresentadas na janela (a resposta já traz a ementa/tema).
   const desde = new Date();
   desde.setMonth(desde.getMonth() - MPV_JANELA_MESES);
@@ -357,20 +357,24 @@ async function sincronizarMistas() {
 
   if (!Object.keys(daApi).length) throw new Error('nenhuma MPV retornada pela API da Câmara');
 
-  // 3. Mescla: API (exceto apagadas manualmente) + criadas manualmente (têm prioridade).
-  const ocultas   = state.mistasOcultas || {};
+  // 3. Mescla. Em reset, descarta tudo (manuais e apagadas) e usa só a API.
+  //    Caso normal: API (exceto apagadas) + criadas manualmente (têm prioridade).
+  const ocultas   = reset ? {} : (state.mistasOcultas || {});
   const comissoes = {};
   for (const [sigla, c] of Object.entries(daApi)) {
     if (!ocultas[sigla]) comissoes[sigla] = c;
   }
-  for (const [sigla, c] of Object.entries(state.mistas)) {
-    if (c.origem === 'manual') comissoes[sigla] = c;
+  if (!reset) {
+    for (const [sigla, c] of Object.entries(state.mistas)) {
+      if (c.origem === 'manual') comissoes[sigla] = c;
+    }
   }
 
   const payload = { syncAt: new Date().toISOString(), comissoes, ocultas };
   await fbPut('/comissoes-mistas', payload);
-  state.mistas       = comissoes;
-  state.mistasSyncAt = payload.syncAt;
+  state.mistas        = comissoes;
+  state.mistasOcultas = ocultas;
+  state.mistasSyncAt  = payload.syncAt;
   return Object.keys(comissoes).length;
 }
 
@@ -460,26 +464,38 @@ async function apagarMista(sigla) {
   }
 }
 
-// Wrapper de UI: feedback no botão + toasts (silencioso no auto-sync).
-async function sincronizarMistasUI({ silencioso = false } = {}) {
+// Wrapper de UI: feedback nos botões + toasts (silencioso no auto-sync).
+async function sincronizarMistasUI({ silencioso = false, reset = false } = {}) {
   if (state.sincronizando) return;
   state.sincronizando = true;
-  const btn = document.getElementById('btn-sync-mpv');
-  const htmlOrig = btn ? btn.innerHTML : '';
-  if (btn) { btn.disabled = true; btn.innerHTML = 'Sincronizando…'; }
-  if (!silencioso) mostrarToast('Sincronizando comissões mistas de MPV…');
+  const botoes = ['btn-sync-mpv', 'btn-reset-mpv'].map(id => document.getElementById(id)).filter(Boolean);
+  const orig = botoes.map(b => b.innerHTML);
+  botoes.forEach(b => { b.disabled = true; });
+  const btnSync = document.getElementById('btn-sync-mpv');
+  if (btnSync) btnSync.innerHTML = 'Sincronizando…';
+  if (!silencioso) mostrarToast(reset ? 'Recarregando comissões mistas de MPV…' : 'Sincronizando comissões mistas de MPV…');
 
   try {
-    const n = await sincronizarMistas();
-    if (state.view === 'comissao') renderSidebarComissoes();
+    const n = await sincronizarMistas({ reset });
+    if (state.comissaoSel && !getComissao(state.comissaoSel)) state.comissaoSel = null;
+    if (state.view === 'comissao') { renderSidebarComissoes(); renderPainel(); }
     if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV em fase de comissão.`);
   } catch (e) {
     if (!silencioso) mostrarToast('Falha ao sincronizar MPVs: ' + e.message, 'erro');
     else console.warn('Auto-sync de MPVs falhou:', e.message);
   } finally {
     state.sincronizando = false;
-    if (btn) { btn.disabled = false; btn.innerHTML = htmlOrig; }
+    botoes.forEach((b, i) => { b.disabled = false; b.innerHTML = orig[i]; });
   }
+}
+
+// Apaga todas as comissões mistas de MPV e puxa os dados novos da Câmara.
+function recarregarMistas() {
+  if (state.sincronizando) return;
+  const temManuais = Object.values(state.mistas).some(c => c.origem === 'manual');
+  const aviso = temManuais ? '\n\nAtenção: as comissões criadas manualmente serão removidas.' : '';
+  if (!confirm(`Apagar todas as comissões mistas de MPV e puxar os dados novos da Câmara?${aviso}`)) return;
+  sincronizarMistasUI({ silencioso: false, reset: true });
 }
 
 async function salvarDeputado(id, dep) {
@@ -748,7 +764,10 @@ function renderSidebarComissoes() {
   if (state.comTab === 'mista') {
     html += `<div class="com-mistas-toolbar">`
           + syncInfoHtml()
+          + `<span class="com-mistas-acoes">`
+          + `<button class="btn-reset-mpv" id="btn-reset-mpv" title="Apagar todas as comissões mistas e puxar os dados novos da Câmara">↻ Recarregar</button>`
           + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
+          + `</span>`
           + `</div>`;
     html += mistas.length
       ? mistas.map(itemHtml).join('')
@@ -764,6 +783,7 @@ function renderSidebarComissoes() {
   lista.innerHTML = html;
 
   lista.querySelector('#btn-nova-mista')?.addEventListener('click', abrirModalNovaMista);
+  lista.querySelector('#btn-reset-mpv')?.addEventListener('click', recarregarMistas);
   lista.querySelectorAll('.com-item').forEach(el => {
     el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
   });

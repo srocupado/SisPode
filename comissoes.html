@@ -176,6 +176,22 @@
     }
     .btn-nova-mista:hover { background: var(--accent-muted); }
 
+    .com-mistas-acoes { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+    .btn-reset-mpv {
+      background: none;
+      border: 1px solid var(--border-soft);
+      color: var(--text-dim);
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+      padding: 5px 9px;
+      cursor: pointer;
+      white-space: nowrap;
+      transition: color .12s, border-color .12s;
+    }
+    .btn-reset-mpv:hover { color: var(--text); border-color: var(--text-dim); }
+    .btn-reset-mpv:disabled { opacity: .5; cursor: default; }
+
     /* Badge de situação das comissões mistas */
     .badge-situacao {
       display: inline-block;
