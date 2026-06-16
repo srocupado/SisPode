@@ -176,6 +176,20 @@
     }
     .btn-nova-mista:hover { background: var(--accent-muted); }
 
+    /* Badge de situação das comissões mistas (Senado) */
+    .badge-situacao {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: .2px;
+      border-radius: 5px;
+      padding: 1px 7px;
+      white-space: nowrap;
+    }
+    .badge-situacao.func   { background: rgba(0,168,89,.18);  color: #3ddc84; }
+    .badge-situacao.aguard { background: rgba(240,192,64,.16); color: #f0c040; }
+    .badge-situacao.manual { background: rgba(255,255,255,.08); color: var(--text-dim); }
+
     /* Etiqueta "Mista" e botão apagar no painel */
     .tag-mista {
       display: inline-block;
@@ -829,7 +843,7 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="23" y1="11" x2="17" y2="11"/><line x1="20" y1="8" x2="20" y2="14"/></svg>
         Deputados
       </button>
-      <button id="btn-sync-mpv" class="btn btn-outline btn-sm" title="Sincronizar comissões mistas de MPV em vigor com a API da Câmara">
+      <button id="btn-sync-mpv" class="btn btn-outline btn-sm" title="Sincronizar comissões mistas de MPV ativas com o Senado Federal">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         Sincronizar MPVs
       </button>

@@ -60,19 +60,16 @@ const GRUPOS_INCOMPATIVEIS = [
   ],
 ];
 
-// ---------- API CÂMARA / SINCRONIZAÇÃO DE MPVs ----------
+// ---------- API SENADO / SINCRONIZAÇÃO DE MPVs ----------
 
-const CAMARA_API = 'https://dadosabertos.camara.leg.br/api/v2';
-// Janela de busca de MPVs: últimos 6 meses (cobre as em vigor, que duram ~60–120 dias).
-const MPV_JANELA_MESES = 6;
+// Comissões mistas de MPV são colegiados do Congresso Nacional; o Senado é a
+// fonte autoritativa da existência e da situação delas.
+const SENADO_API = 'https://legis.senado.leg.br/dadosabertos';
 // Cache considerado "velho" após 12h → dispara auto-sync silencioso.
-const MPV_SYNC_TTL_MS  = 12 * 60 * 60 * 1000;
+const MPV_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
-// Situações que indicam que a MPV NÃO está mais em vigor (comissão encerrada).
-const MPV_SITUACOES_TERMINAIS = [
-  'perdeu a efic', 'transformad', 'rejeitad', 'arquivad',
-  'prejudicad', 'retirad', 'devolvid', 'revogad',
-];
+const MPV_SIT_FUNCIONAMENTO = 'Em funcionamento';
+const MPV_SIT_AGUARDANDO     = 'Aguardando instalação';
 
 // ---------- FIREBASE ----------
 
@@ -285,45 +282,55 @@ function mistasDesatualizadas() {
   return (Date.now() - new Date(state.mistasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
 }
 
-function mpvEmVigor(situacao) {
-  const s = (situacao || '').toLowerCase();
-  return !MPV_SITUACOES_TERMINAIS.some(t => s.includes(t));
+// Extrai número e ano de uma comissão mista a partir da sigla/nome do Senado
+// (ex.: "CMMPV 1323/2025" ou "...Medida Provisória n° 1323, de 2025").
+function parseNumeroAnoMpv(sigla, nome) {
+  let m = (sigla || '').match(/(\d+)\s*\/\s*(\d{4})/);
+  if (!m) m = (nome || '').match(/n[°ºo]?\s*(\d+)[,\s]+de\s*(\d{4})/i);
+  if (!m) return null;
+  return { numero: parseInt(m[1], 10), ano: parseInt(m[2], 10) };
 }
 
-// Busca as MPVs apresentadas na janela, mantém as em vigor e deriva a comissão
-// mista de cada uma (sigla MPV{numero}{AA}). Persiste no Firebase (compartilhado).
+// Lista os colegiados de MPV em atividade no Congresso Nacional (Senado) e, para
+// cada um, determina a situação pelo histórico de eventos (Instalação ⇒ em
+// funcionamento; caso contrário, aguardando instalação). Persiste no Firebase.
 async function sincronizarMistas() {
-  const desde = new Date();
-  desde.setMonth(desde.getMonth() - MPV_JANELA_MESES);
-  const dataIni = desde.toISOString().slice(0, 10);
+  // 1. Colegiados em atividade no CN → filtra as comissões mistas de MPV.
+  const r = await fetch(`${SENADO_API}/comissao/lista/colegiados`, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const j = await r.json();
+  const colegiados = j?.ListaColegiados?.Colegiados?.Colegiado || [];
+  const mpvs = colegiados.filter(c => c.SiglaTipoColegiado === 'MPV' && c.SiglaCasa === 'CN');
 
-  // 1. Lista de MPVs apresentadas desde `dataIni` (paginada).
-  const mpvs = [];
-  let url = `${CAMARA_API}/proposicoes?siglaTipo=MPV&dataApresentacaoInicio=${dataIni}`
-          + `&ordem=DESC&ordenarPor=id&itens=100`;
-  while (url) {
-    const r = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const j = await r.json();
-    mpvs.push(...(j.dados || []));
-    url = (j.links || []).find(l => l.rel === 'next')?.href || null;
-  }
-
-  // 2. Detalhe de cada MPV (status) com concorrência limitada; mantém as em vigor.
+  // 2. Detalhe de cada comissão (eventos) com concorrência limitada → situação.
   const daApi = {};
-  await mapLimit(mpvs, 5, async (m) => {
+  await mapLimit(mpvs, 5, async (c) => {
+    const na = parseNumeroAnoMpv(c.Sigla, c.Nome);
+    if (!na) return;
+    const { numero, ano } = na;
+    const sigla = `MPV${numero}${String(ano).slice(-2)}`;
+
+    let situacao = MPV_SIT_AGUARDANDO;
+    let dataInstalacao = null;
     try {
-      const r = await fetch(`${CAMARA_API}/proposicoes/${m.id}`, { headers: { Accept: 'application/json' } });
-      if (!r.ok) return;
-      const det = await r.json();
-      const situacao = det.dados?.statusProposicao?.descricaoSituacao || '';
-      if (!mpvEmVigor(situacao)) return;
-      const numero = parseInt(m.numero, 10);
-      const ano    = parseInt(m.ano, 10);
-      if (!numero || !ano) return;
-      const sigla = `MPV${numero}${String(ano).slice(-2)}`;
-      daApi[sigla] = { sigla, nome: `Comissão Mista da MPV ${numero}/${ano}`, mpvId: m.id, numero, ano, situacao, origem: 'api' };
-    } catch (_) { /* ignora falha pontual */ }
+      const rd = await fetch(`${SENADO_API}/comissao/${c.Codigo}`, { headers: { Accept: 'application/json' } });
+      if (rd.ok) {
+        const det = await rd.json();
+        const col = det?.ComissoesCongressoNacional?.Colegiados?.Colegiado?.[0];
+        const evs = col?.Eventos?.Evento;
+        const lista = Array.isArray(evs) ? evs : (evs ? [evs] : []);
+        const inst = lista.find(e => /instala/i.test(e.TipoEvento || ''));
+        if (inst) { situacao = MPV_SIT_FUNCIONAMENTO; dataInstalacao = inst.DataEvento || null; }
+      }
+    } catch (_) { /* mantém "Aguardando instalação" se o detalhe falhar */ }
+
+    daApi[sigla] = {
+      sigla, numero, ano,
+      nome: `Comissão Mista da MPV ${numero}/${ano}`,
+      situacao, dataInstalacao,
+      codigoSenado: c.Codigo,
+      origem: 'api',
+    };
   });
 
   // 3. Mescla: API (exceto apagadas manualmente) + criadas manualmente (têm prioridade).
@@ -441,7 +448,7 @@ async function sincronizarMistasUI({ silencioso = false } = {}) {
   try {
     const n = await sincronizarMistas();
     if (state.view === 'comissao') renderSidebarComissoes();
-    if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV em vigor.`);
+    if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV ativa(s) no Senado.`);
   } catch (e) {
     if (!silencioso) mostrarToast('Falha ao sincronizar MPVs: ' + e.message, 'erro');
     else console.warn('Auto-sync de MPVs falhou:', e.message);
@@ -678,15 +685,25 @@ function renderSidebarComissoes() {
     const dS = vagasDisponiveis(c.sigla, 'suplente');
     const cheias = !semVagas && dT <= 0 && dS <= 0;
 
+    const linhas = [];
+
+    // Linha 1 (só mistas): situação no Senado.
+    if (tipoComissao(c.sigla) === 'mista') {
+      const sit = badgeSituacaoMista(c);
+      if (sit) linhas.push(sit);
+    }
+
+    // Linha 2: estado das vagas e pedidos.
     const extras = [];
     if (semVagas) extras.push('<span class="badge-sem-vagas">sem vagas</span>');
     else if (cheias) extras.push('<span class="badge-sem-vagas" style="background:rgba(240,84,84,.15);color:var(--vermelho)">cheias</span>');
     if (nPedidos > 0) extras.push(`<span class="badge-pedidos">${nPedidos} pedido${nPedidos > 1 ? 's' : ''}</span>`);
+    if (extras.length) linhas.push(extras.join(' '));
 
     return `
       <div class="com-item${state.comissaoSel === c.sigla ? ' ativo' : ''}" data-sigla="${c.sigla}">
         <span class="com-item-sigla">${c.sigla}</span>
-        <span class="com-item-nome">${c.nome}${extras.length ? '<br>' + extras.join(' ') : ''}</span>
+        <span class="com-item-nome">${c.nome}${linhas.map(l => '<br>' + l).join('')}</span>
         <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
       </div>`;
   };
@@ -726,6 +743,18 @@ function renderSidebarComissoes() {
   lista.querySelectorAll('.com-item').forEach(el => {
     el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
   });
+}
+
+// Badge de situação (Senado) para uma comissão mista. Retorna '' quando não há
+// situação conhecida (ex.: comissão criada manualmente).
+function badgeSituacaoMista(c) {
+  if (c.situacao === MPV_SIT_FUNCIONAMENTO)
+    return '<span class="badge-situacao func">● Em funcionamento</span>';
+  if (c.situacao === MPV_SIT_AGUARDANDO)
+    return '<span class="badge-situacao aguard">● Aguardando instalação</span>';
+  if (c.origem === 'manual')
+    return '<span class="badge-situacao manual">criada manualmente</span>';
+  return '';
 }
 
 function syncInfoHtml() {
@@ -973,7 +1002,7 @@ function renderPainelComissao(sigla) {
     <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
       <div>
         <div class="com-painel-titulo">${com.nome}${ehMista ? ' <span class="tag-mista">Mista</span>' : ''}</div>
-        <div class="com-painel-sigla">${com.sigla}${ehMista && com.situacao ? ' · ' + com.situacao : ''}</div>
+        <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}${com.dataInstalacao ? `<span style="color:var(--text-dim);font-size:11px"> · instalada em ${com.dataInstalacao}</span>` : ''}` : ''}</div>
       </div>
       ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
     </div>
