@@ -93,8 +93,6 @@ const CAMARA_TIPOS_TEMP = [
 ];
 const TEMP_TIPOS = ['CPI', 'Especial', 'Externa'];
 const TEMP_TIPO_ROTULO = { CPI: 'CPI', Especial: 'Especiais', Externa: 'Externas' };
-// Início da legislatura atual (necessário para o filtro de órgãos, sobretudo CPIs).
-const LEGISLATURA_INI = '2023-02-01';
 
 // ---------- FIREBASE ----------
 
@@ -555,11 +553,23 @@ function temporariasDesatualizadas() {
   return (Date.now() - new Date(state.temporariasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
 }
 
-// Em funcionamento = instalada e dentro do prazo (sem dataFim ou dataFim futura).
-function tempEmFuncionamento(det) {
-  if (!det || !det.dataInstalacao) return false;
-  if (!det.dataFim) return true;
-  return new Date(det.dataFim) >= new Date();
+// Comissões de teste do sistema da Câmara (não devem ser listadas).
+function ehComissaoTeste(o) {
+  return /teste/i.test(o.sigla || '') || /realiza[çc][ãa]o de testes/i.test(o.nome || '');
+}
+
+// Em funcionamento = ativa (sem dataFim ou prazo futuro) e instalada. Quando a
+// API ainda não registrou a data de instalação, considera-se instalada se já
+// houver eventos (reuniões/audiências) — caso de comissões recém-instaladas.
+async function temporariaEmFuncionamento(det, id) {
+  if (!det) return false;
+  if (det.dataFim && new Date(det.dataFim) < new Date()) return false; // encerrada
+  if (det.dataInstalacao && new Date(det.dataInstalacao) <= new Date()) return true;
+  try {
+    const r = await fetch(`${CAMARA_API}/orgaos/${id}/eventos?itens=1`, { headers: { Accept: 'application/json' } });
+    if (r.ok) return ((await r.json()).dados || []).length > 0;
+  } catch (_) { /* ignora */ }
+  return false;
 }
 
 // Lista as comissões temporárias (CPI, Especiais, Externas) em funcionamento na
@@ -569,8 +579,7 @@ async function sincronizarTemporarias() {
   const comissoes = {};
   for (const { cod, tipo } of CAMARA_TIPOS_TEMP) {
     const orgaos = [];
-    let url = `${CAMARA_API}/orgaos?codTipoOrgao=${cod}&dataInicio=${LEGISLATURA_INI}`
-            + `&itens=100&ordem=DESC&ordenarPor=id`;
+    let url = `${CAMARA_API}/orgaos?codTipoOrgao=${cod}&itens=100&ordem=DESC&ordenarPor=id`;
     while (url) {
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
       if (!r.ok) throw new Error('HTTP ' + r.status);
@@ -579,12 +588,13 @@ async function sincronizarTemporarias() {
       url = (j.links || []).find(l => l.rel === 'next')?.href || null;
     }
 
-    await mapLimit(orgaos, 8, async (o) => {
+    await mapLimit(orgaos, 6, async (o) => {
       try {
+        if (ehComissaoTeste(o)) return;
         const r = await fetch(`${CAMARA_API}/orgaos/${o.id}`, { headers: { Accept: 'application/json' } });
         if (!r.ok) return;
         const det = (await r.json()).dados;
-        if (!tempEmFuncionamento(det)) return;
+        if (!(await temporariaEmFuncionamento(det, o.id))) return;
         const sigla = (o.sigla || `ORG${o.id}`).trim();
         comissoes[sigla] = {
           sigla, tipo,
