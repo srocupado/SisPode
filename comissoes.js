@@ -227,8 +227,14 @@ function tipoComissao(sigla) {
 
 // Mistas ordenadas da mais recente para a mais antiga.
 function listaMistas() {
+  // Em funcionamento primeiro; depois as demais. Dentro de cada grupo, da mais
+  // recente para a mais antiga (por ano e número da MPV).
+  const ordemSit = c => (c.situacao === MPV_SIT_FUNCIONAMENTO ? 0 : 1);
   return Object.values(state.mistas)
-    .sort((a, b) => (b.ano - a.ano) || (b.numero - a.numero));
+    .sort((a, b) =>
+      (ordemSit(a) - ordemSit(b)) ||
+      (b.ano - a.ano) ||
+      (b.numero - a.numero));
 }
 
 // Todas as comissões com rótulo de tipo (para sidebar/exportação).
