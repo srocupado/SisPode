@@ -60,19 +60,25 @@ const GRUPOS_INCOMPATIVEIS = [
   ],
 ];
 
-// ---------- SENADO / SINCRONIZAÇÃO DE MPVs ----------
+// ---------- CÂMARA / SINCRONIZAÇÃO DE MPVs ----------
 
-// Comissões mistas de MPV são colegiados do Congresso Nacional; o Senado é a
-// fonte autoritativa da existência e da situação delas. A página de pesquisa
-// de comissões traz a coluna de situação (a API de dados abertos não a expõe
-// de forma confiável — o histórico de eventos fica defasado).
-const SENADO_BASE = 'https://legis.senado.leg.br';
-const SENADO_PESQUISA_URL = `${SENADO_BASE}/atividade/comissoes/pesquisar/`;
+// As comissões mistas de MPV são derivadas das Medidas Provisórias na API de
+// dados abertos da Câmara, que entrega: a ementa (tema), o status real da MP
+// (para descartar as já convertidas em lei / que perderam eficácia) e o evento
+// de instalação da comissão (Em funcionamento × Aguardando instalação). MPVs de
+// crédito extraordinário tramitam na CMO (orçamento) e não geram comissão mista
+// própria — por isso são descartadas.
+const CAMARA_API = 'https://dadosabertos.camara.leg.br/api/v2';
+// Janela de busca: 8 meses cobre toda MP fora de estado terminal (uma MPV perde
+// eficácia em até ~120 dias se não for apreciada).
+const MPV_JANELA_MESES = 8;
 // Cache considerado "velho" após 12h → dispara auto-sync silencioso.
 const MPV_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
 const MPV_SIT_FUNCIONAMENTO = 'Em funcionamento';
-const MPV_SIT_AGUARDANDO     = 'Aguardando instalação';
+const MPV_SIT_AGUARDANDO    = 'Aguardando instalação';
+// Situações que indicam que a MP já saiu da fase de comissão (não listar).
+const MPV_STATUS_TERMINAL = /transformad|norma jur|perdeu a efic|rejeitad|arquivad|retirad|vetad. total|devolvid/i;
 
 // ---------- FIREBASE ----------
 
@@ -291,45 +297,65 @@ function mistasDesatualizadas() {
   return (Date.now() - new Date(state.mistasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
 }
 
-// Extrai as comissões mistas de MPV (e suas situações) da página de pesquisa de
-// comissões do Senado. A página renderiza uma linha por comissão, iniciada por
-// um link /atividade/comissoes/comissao/{codigo}; o corpo até o próximo link
-// contém a sigla (CMMPV n/aaaa) e a célula de situação. Mantém só as ativas.
-function parseMistasDoHtml(html) {
-  const out = {};
-  const blocos = html.split(/<a\s+href="\/atividade\/comissoes\/comissao\/(\d+)"/i);
-  for (let i = 1; i < blocos.length; i += 2) {
-    const codigoSenado = blocos[i];
-    const corpo = blocos[i + 1] || '';
-    const m = corpo.match(/CMMPV\s*(\d+)\s*\/\s*(\d{4})/i);
-    if (!m) continue;
-    const numero = parseInt(m[1], 10);
-    const ano    = parseInt(m[2], 10);
-    if (!numero || !ano) continue;
-
-    const sm = corpo.match(/Aguardando\s+instala[çc][ãa]o|Em\s+funcionamento|Encerrada/i);
-    if (!sm || /encerrada/i.test(sm[0])) continue; // só comissões ativas
-
-    const sigla = `MPV${numero}${String(ano).slice(-2)}`;
-    out[sigla] = {
-      sigla, numero, ano,
-      nome: `Comissão Mista da MPV ${numero}/${ano}`,
-      situacao: /funcionamento/i.test(sm[0]) ? MPV_SIT_FUNCIONAMENTO : MPV_SIT_AGUARDANDO,
-      codigoSenado,
-      origem: 'api',
-    };
-  }
-  return out;
-}
-
-// Busca as comissões mistas de MPV ativas no Senado (com a situação real) e
-// persiste no Firebase, preservando as criadas manualmente e as apagadas.
+// Sincroniza as comissões mistas de MPV a partir da API da Câmara: lista as MPVs
+// recentes, descarta as orçamentárias (CMO) e as já fora da fase de comissão, e
+// classifica cada uma como Em funcionamento (instalada) ou Aguardando instalação.
+// Persiste no Firebase, preservando as criadas manualmente e as apagadas.
 async function sincronizarMistas() {
-  const r = await fetch(SENADO_PESQUISA_URL, { headers: { Accept: 'text/html' } });
-  if (!r.ok) throw new Error('HTTP ' + r.status);
-  const html = await r.text();
-  const daApi = parseMistasDoHtml(html);
-  if (!Object.keys(daApi).length) throw new Error('nenhuma comissão lida da página do Senado');
+  // 1. MPVs apresentadas na janela (a resposta já traz a ementa/tema).
+  const desde = new Date();
+  desde.setMonth(desde.getMonth() - MPV_JANELA_MESES);
+  const dataIni = desde.toISOString().slice(0, 10);
+
+  const mpvs = [];
+  let url = `${CAMARA_API}/proposicoes?siglaTipo=MPV&dataApresentacaoInicio=${dataIni}`
+          + `&itens=100&ordem=DESC&ordenarPor=id`;
+  while (url) {
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    mpvs.push(...(j.dados || []));
+    url = (j.links || []).find(l => l.rel === 'next')?.href || null;
+  }
+
+  // 2. A tramitação de cada MPV dá o status atual + a instalação da comissão.
+  const daApi = {};
+  await mapLimit(mpvs, 8, async (m) => {
+    try {
+      const r = await fetch(`${CAMARA_API}/proposicoes/${m.id}/tramitacoes`, { headers: { Accept: 'application/json' } });
+      if (!r.ok) return;
+      const evs = (await r.json()).dados || [];
+
+      // MPVs de crédito extraordinário tramitam na CMO (orçamento), sem CMMPV própria.
+      if (evs.some(e => (e.siglaOrgao || '') === 'CMO')) return;
+
+      // Status atual = última tramitação com situação preenchida.
+      let status = '';
+      for (let i = evs.length - 1; i >= 0; i--) {
+        const s = (evs[i].descricaoSituacao || '').trim();
+        if (s) { status = s; break; }
+      }
+      if (MPV_STATUS_TERMINAL.test(status)) return; // já saiu da fase de comissão
+
+      const numero = parseInt(m.numero, 10);
+      const ano    = parseInt(m.ano, 10);
+      if (!numero || !ano) return;
+      const sigla = `MPV${numero}${String(ano).slice(-2)}`;
+      const instalada = evs.some(e => /instala[çc][ãa]o de comiss/i.test(e.descricaoTramitacao || ''));
+
+      daApi[sigla] = {
+        sigla, numero, ano,
+        nome: `Comissão Mista da MPV ${numero}/${ano}`,
+        situacao: instalada ? MPV_SIT_FUNCIONAMENTO : MPV_SIT_AGUARDANDO,
+        ementa: (m.ementa || '').trim(),
+        statusMp: status,
+        mpvId: m.id,
+        origem: 'api',
+      };
+    } catch (_) { /* ignora falha pontual */ }
+  });
+
+  if (!Object.keys(daApi).length) throw new Error('nenhuma MPV retornada pela API da Câmara');
 
   // 3. Mescla: API (exceto apagadas manualmente) + criadas manualmente (têm prioridade).
   const ocultas   = state.mistasOcultas || {};
@@ -446,7 +472,7 @@ async function sincronizarMistasUI({ silencioso = false } = {}) {
   try {
     const n = await sincronizarMistas();
     if (state.view === 'comissao') renderSidebarComissoes();
-    if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV ativa(s) no Senado.`);
+    if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV em fase de comissão.`);
   } catch (e) {
     if (!silencioso) mostrarToast('Falha ao sincronizar MPVs: ' + e.message, 'erro');
     else console.warn('Auto-sync de MPVs falhou:', e.message);
@@ -685,7 +711,7 @@ function renderSidebarComissoes() {
 
     const linhas = [];
 
-    // Linha 1 (só mistas): situação no Senado.
+    // Linha 1 (só mistas): situação da comissão.
     if (tipoComissao(c.sigla) === 'mista') {
       const sit = badgeSituacaoMista(c);
       if (sit) linhas.push(sit);
@@ -743,7 +769,7 @@ function renderSidebarComissoes() {
   });
 }
 
-// Badge de situação (Senado) para uma comissão mista. Retorna '' quando não há
+// Badge de situação para uma comissão mista. Retorna '' quando não há
 // situação conhecida (ex.: comissão criada manualmente).
 function badgeSituacaoMista(c) {
   if (c.situacao === MPV_SIT_FUNCIONAMENTO)
@@ -1001,6 +1027,7 @@ function renderPainelComissao(sigla) {
       <div>
         <div class="com-painel-titulo">${com.nome}${ehMista ? ' <span class="tag-mista">Mista</span>' : ''}</div>
         <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}` : ''}</div>
+        ${ehMista && com.ementa ? `<div class="com-painel-ementa"><strong>Tema:</strong> ${com.ementa}</div>` : ''}
       </div>
       ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
     </div>
@@ -1322,8 +1349,12 @@ function abrirModalAddMembro(sigla, tipo) {
 
   document.getElementById('add-membro-titulo').textContent =
     `Adicionar ${tipo === 'titular' ? 'Titular' : 'Suplente'}`;
-  document.getElementById('add-membro-desc').textContent =
-    `${com.nome} (${sigla})`;
+  const ehMistaCom = tipoComissao(sigla) === 'mista';
+  document.getElementById('add-membro-desc').innerHTML =
+    `${com.nome} (${sigla})`
+    + (ehMistaCom && com.ementa
+        ? `<br><span class="add-membro-tema"><strong>Tema:</strong> ${com.ementa}</span>`
+        : '');
 
   const deps = Object.entries(state.deputados)
     .sort(([, a], [, b]) => a.nome.localeCompare(b.nome));
