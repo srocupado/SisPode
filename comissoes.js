@@ -124,8 +124,7 @@ async function fbDelete(path) {
 // ---------- ESTADO ----------
 
 const state = {
-  view:          'comissao',  // 'comissao' | 'temporaria' | 'deputado' | 'alertas'
-  comTab:        'permanente',// sub-aba de "Por Comissão": 'permanente' | 'mista'
+  view:          'permanente',// 'permanente' | 'mpv' | 'temporaria' | 'deputado' | 'alertas'
   tempTab:       'Especial',  // sub-aba de "Temporárias": 'CPI' | 'Especial' | 'Externa'
   comissaoSel:   null,        // sigla da comissão selecionada
   deputados:     {},          // { id: { nome, uf } }
@@ -470,8 +469,7 @@ async function criarMista() {
   try {
     await persistirMistas();
     fecharModal('modal-nova-mista');
-    state.comTab = 'mista';
-    renderSidebarComissoes();
+    mudarView('mpv');
     selecionarComissao(sigla);
     mostrarToast(`Comissão ${sigla} criada.`);
   } catch (e) {
@@ -530,7 +528,7 @@ async function sincronizarMistasUI({ silencioso = false, reset = false } = {}) {
   try {
     const n = await sincronizarMistas({ reset });
     if (state.comissaoSel && !getComissao(state.comissaoSel)) state.comissaoSel = null;
-    if (state.view === 'comissao') { renderSidebarComissoes(); renderPainel(); }
+    if (state.view === 'mpv') { renderSidebar(); renderPainel(); }
     if (!silencioso) mostrarToast(`${n} comissão(ões) mista(s) de MPV em fase de comissão.`);
   } catch (e) {
     if (!silencioso) mostrarToast('Falha ao sincronizar MPVs: ' + e.message, 'erro');
@@ -739,7 +737,7 @@ async function nomearDePedido(sigla, pedidoId, depId, tipo) {
   if (ok) {
     await removerPedido(sigla, pedidoId);
     renderPainelComissao(sigla);
-    renderSidebarComissoes();
+    renderSidebar();
     mostrarToast(`Deputado nomeado ${tipo} e pedido removido.`);
   }
 }
@@ -829,31 +827,23 @@ function mudarView(view) {
   }
 }
 
-// Renderiza as sub-abas conforme a view ('comissao' → Permanentes/Mistas;
-// 'temporaria' → CPI/Especiais/Externas). Oculta nas demais views.
+// Sub-abas existem apenas dentro de "Temporárias" (CPI/Especiais/Externas).
 function renderSubtabs() {
   const cont = document.getElementById('com-subtabs');
-  if (state.view === 'comissao') {
-    cont.style.display = '';
-    cont.innerHTML =
-        `<button class="com-subtab" data-grp="comTab" data-val="permanente">Permanentes <span class="subtab-count">(${COMISSOES_PERMANENTES.length})</span></button>`
-      + `<button class="com-subtab" data-grp="comTab" data-val="mista">Mistas (MPV) <span class="subtab-count">(${Object.keys(state.mistas).length})</span></button>`;
-  } else if (state.view === 'temporaria') {
-    cont.style.display = '';
-    const n = t => listaTemporarias(t).length;
-    cont.innerHTML = TEMP_TIPOS.map(t =>
-      `<button class="com-subtab" data-grp="tempTab" data-val="${t}">${TEMP_TIPO_ROTULO[t]} <span class="subtab-count">(${n(t)})</span></button>`
-    ).join('');
-  } else {
+  if (state.view !== 'temporaria') {
     cont.style.display = 'none';
     cont.innerHTML = '';
     return;
   }
+  cont.style.display = '';
+  const n = t => listaTemporarias(t).length;
+  cont.innerHTML = TEMP_TIPOS.map(t =>
+    `<button class="com-subtab" data-val="${t}">${TEMP_TIPO_ROTULO[t]} <span class="subtab-count">(${n(t)})</span></button>`
+  ).join('');
   cont.querySelectorAll('.com-subtab').forEach(b => {
-    const grp = b.dataset.grp, val = b.dataset.val;
-    b.classList.toggle('ativo', state[grp] === val);
+    b.classList.toggle('ativo', state.tempTab === b.dataset.val);
     b.addEventListener('click', () => {
-      state[grp] = val;
+      state.tempTab = b.dataset.val;
       state.busca = '';
       document.getElementById('com-busca').value = '';
       renderSubtabs();
@@ -866,7 +856,8 @@ function renderSidebar() {
   if (state.view === 'alertas')    { renderSidebarAlertas(); return; }
   if (state.view === 'deputado')   { renderSidebarDeputados(); return; }
   if (state.view === 'temporaria') { renderSidebarTemporarias(); return; }
-  renderSidebarComissoes();
+  if (state.view === 'mpv')        { renderSidebarMistas(); return; }
+  renderSidebarPermanentes();
 }
 
 // Item da sidebar compartilhado por comissões (permanentes/mistas/temporárias).
@@ -936,36 +927,37 @@ function syncInfoTemporariasHtml() {
        + `Atualizado ${fmtSyncAgo(state.temporariasSyncAt)}${velho ? ' · desatualizado' : ''}</div>`;
 }
 
-function renderSidebarComissoes() {
-  const lista = document.getElementById('com-lista');
-  const matchBusca = c =>
-    c.sigla.toLowerCase().includes(state.busca) ||
-    c.nome.toLowerCase().includes(state.busca);
+const _matchBusca = c =>
+  (c.sigla || '').toLowerCase().includes(state.busca) ||
+  (c.nome  || '').toLowerCase().includes(state.busca);
 
-  let html = '';
-  if (state.comTab === 'mista') {
-    const mistas = listaMistas().filter(matchBusca);
-    html += `<div class="com-mistas-toolbar">`
-          + syncInfoHtml()
-          + `<span class="com-mistas-acoes">`
-          + `<button class="btn-reset-mpv" id="btn-reset-mpv" title="Apagar todas as comissões mistas e puxar os dados novos da Câmara">↻ Recarregar</button>`
-          + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
-          + `</span>`
-          + `</div>`;
-    html += mistas.length
-      ? mistas.map(comItemHtml).join('')
-      : _vazioSidebar(state.busca
-          ? 'Nenhuma corresponde à busca.'
-          : 'Nenhuma comissão mista. Use “Sincronizar MPVs” no topo ou “+ Nova”.');
-  } else {
-    const permanentes = COMISSOES_PERMANENTES.filter(matchBusca);
-    html += permanentes.length
-      ? permanentes.map(comItemHtml).join('')
-      : _vazioSidebar(state.busca ? 'Nenhuma corresponde à busca.' : 'Nenhuma.');
-  }
+function renderSidebarPermanentes() {
+  const lista = document.getElementById('com-lista');
+  const permanentes = COMISSOES_PERMANENTES.filter(_matchBusca);
+  lista.innerHTML = permanentes.length
+    ? permanentes.map(comItemHtml).join('')
+    : _vazioSidebar(state.busca ? 'Nenhuma corresponde à busca.' : 'Nenhuma.');
+  lista.querySelectorAll('.com-item').forEach(el => {
+    el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
+  });
+}
+
+function renderSidebarMistas() {
+  const lista = document.getElementById('com-lista');
+  const mistas = listaMistas().filter(_matchBusca);
+  let html = `<div class="com-mistas-toolbar">`
+           + syncInfoHtml()
+           + `<span class="com-mistas-acoes">`
+           + `<button class="btn-reset-mpv" id="btn-reset-mpv" title="Apagar todas as comissões mistas e puxar os dados novos da Câmara">↻ Recarregar</button>`
+           + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
+           + `</span></div>`;
+  html += mistas.length
+    ? mistas.map(comItemHtml).join('')
+    : _vazioSidebar(state.busca
+        ? 'Nenhuma corresponde à busca.'
+        : 'Nenhuma comissão mista. Use “Sincronizar MPVs” no topo ou “+ Nova”.');
 
   lista.innerHTML = html;
-
   lista.querySelector('#btn-nova-mista')?.addEventListener('click', abrirModalNovaMista);
   lista.querySelector('#btn-reset-mpv')?.addEventListener('click', recarregarMistas);
   lista.querySelectorAll('.com-item').forEach(el => {
@@ -1043,7 +1035,8 @@ function renderSidebarAlertas() {
 // ---------- RENDER: PAINEL ----------
 
 function renderPainel() {
-  if ((state.view === 'comissao' || state.view === 'temporaria') && state.comissaoSel) {
+  const ehComissao = ['permanente', 'mpv', 'temporaria'].includes(state.view);
+  if (ehComissao && state.comissaoSel) {
     renderPainelComissao(state.comissaoSel);
   } else if (state.view === 'deputado' && state.comissaoSel) {
     renderPainelDeputado(state.comissaoSel);
