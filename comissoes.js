@@ -77,8 +77,11 @@ const MPV_SYNC_TTL_MS = 12 * 60 * 60 * 1000;
 
 const MPV_SIT_FUNCIONAMENTO = 'Em funcionamento';
 const MPV_SIT_AGUARDANDO    = 'Aguardando instalação';
-// Situações que indicam que a MP já saiu da fase de comissão (não listar).
-const MPV_STATUS_TERMINAL = /transformad|norma jur|perdeu a efic|rejeitad|arquivad|retirad|vetad. total|devolvid/i;
+// Situações que indicam que a MP já saiu da fase de comissão mista — seja por
+// conclusão (virou lei, perdeu eficácia, rejeitada…) ou por ter avançado ao
+// plenário/sanção (aguardando apreciação, pronta para pauta, aguardando sanção).
+// Enquanto está na comissão, a MP não tem situação preenchida na Câmara.
+const MPV_STATUS_FORA_COMISSAO = /transformad|norma jur|perdeu a efic|rejeitad|arquivad|retirad|vetad|devolvid|san[çc]|aguardando aprecia|aguardando promulga|aguardando delibera|pronta para pauta|remetid/i;
 
 // ---------- FIREBASE ----------
 
@@ -335,7 +338,7 @@ async function sincronizarMistas({ reset = false } = {}) {
         const s = (evs[i].descricaoSituacao || '').trim();
         if (s) { status = s; break; }
       }
-      if (MPV_STATUS_TERMINAL.test(status)) return; // já saiu da fase de comissão
+      if (MPV_STATUS_FORA_COMISSAO.test(status)) return; // já saiu da fase de comissão
 
       const numero = parseInt(m.numero, 10);
       const ano    = parseInt(m.ano, 10);
