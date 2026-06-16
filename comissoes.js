@@ -103,6 +103,7 @@ async function fbDelete(path) {
 
 const state = {
   view:          'comissao',  // 'comissao' | 'deputado' | 'alertas'
+  comTab:        'permanente',// sub-aba de "Por Comissão": 'permanente' | 'mista'
   comissaoSel:   null,        // sigla da comissão selecionada
   deputados:     {},          // { id: { nome, uf } }
   membros:       {},          // { sigla: { titulares: [id,...], suplentes: [id,...] } }
@@ -136,6 +137,11 @@ function registrarEventos() {
   // Tabs de view
   document.querySelectorAll('.com-tab').forEach(tab => {
     tab.addEventListener('click', () => mudarView(tab.dataset.view));
+  });
+
+  // Sub-abas de "Por Comissão" (Permanentes / Mistas)
+  document.querySelectorAll('.com-subtab').forEach(tab => {
+    tab.addEventListener('click', () => mudarComTab(tab.dataset.comtab));
   });
 
   // Busca
@@ -377,6 +383,7 @@ async function criarMista() {
   try {
     await persistirMistas();
     fecharModal('modal-nova-mista');
+    state.comTab = 'mista';
     renderSidebarComissoes();
     selecionarComissao(sigla);
     mostrarToast(`Comissão ${sigla} criada.`);
@@ -629,10 +636,19 @@ function mudarView(view) {
   document.querySelectorAll('.com-tab').forEach(t => {
     t.classList.toggle('ativo', t.dataset.view === view);
   });
+  document.getElementById('com-subtabs').style.display =
+    view === 'comissao' ? '' : 'none';
   document.getElementById('busca-wrap').style.display =
     view === 'alertas' ? 'none' : '';
   renderSidebar();
   renderPainel();
+}
+
+function mudarComTab(tab) {
+  state.comTab = tab;
+  state.busca = '';
+  document.getElementById('com-busca').value = '';
+  renderSidebarComissoes();
 }
 
 function renderSidebar() {
@@ -675,24 +691,34 @@ function renderSidebarComissoes() {
       </div>`;
   };
 
-  const grupoHeader = (titulo, n) =>
-    `<div class="com-grupo-sidebar">${titulo}<span class="grupo-count">${n}</span></div>`;
-  const vazio = msg => `<div class="com-empty" style="padding:14px;font-size:12px">${msg}</div>`;
+  const vazio = msg => `<div class="com-empty" style="padding:18px 14px;font-size:12px">${msg}</div>`;
 
-  let html = grupoHeader('Permanentes', permanentes.length);
-  html += permanentes.length ? permanentes.map(itemHtml).join('') : vazio('Nenhuma.');
+  // Contadores totais (independentes da busca) e estado ativo das sub-abas.
+  const totPerm  = COMISSOES_PERMANENTES.length;
+  const totMista = Object.keys(state.mistas).length;
+  const cPerm  = document.getElementById('subtab-count-perm');
+  const cMista = document.getElementById('subtab-count-mista');
+  if (cPerm)  cPerm.textContent  = totPerm  ? `(${totPerm})`  : '';
+  if (cMista) cMista.textContent = totMista ? `(${totMista})` : '';
+  document.querySelectorAll('.com-subtab').forEach(t =>
+    t.classList.toggle('ativo', t.dataset.comtab === state.comTab));
 
-  html += `<div class="com-grupo-sidebar">`
-        + `<span>Mistas (MPV)</span>`
-        + `<span style="display:flex;align-items:center;gap:8px">`
-        + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
-        + `<span class="grupo-count">${mistas.length}</span></span></div>`;
-  html += syncInfoHtml();
-  html += mistas.length
-    ? mistas.map(itemHtml).join('')
-    : vazio(state.busca
-        ? 'Nenhuma corresponde à busca.'
-        : 'Nenhuma sincronizada. Use “Sincronizar MPVs” ou “+ Nova”.');
+  let html = '';
+  if (state.comTab === 'mista') {
+    html += `<div class="com-mistas-toolbar">`
+          + syncInfoHtml()
+          + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
+          + `</div>`;
+    html += mistas.length
+      ? mistas.map(itemHtml).join('')
+      : vazio(state.busca
+          ? 'Nenhuma corresponde à busca.'
+          : 'Nenhuma comissão mista. Use “Sincronizar MPVs” no topo ou “+ Nova”.');
+  } else {
+    html += permanentes.length
+      ? permanentes.map(itemHtml).join('')
+      : vazio(state.busca ? 'Nenhuma corresponde à busca.' : 'Nenhuma.');
+  }
 
   lista.innerHTML = html;
 

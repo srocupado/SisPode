@@ -16,7 +16,7 @@
 
     /* ===== SIDEBAR ===== */
     .com-sidebar {
-      width: 280px;
+      width: 340px;
       flex-shrink: 0;
       background: var(--card);
       border-right: 1px solid var(--border);
@@ -48,6 +48,50 @@
     .com-tab.ativo {
       color: var(--accent-light);
       border-bottom-color: var(--accent);
+    }
+
+    /* Sub-abas (Permanentes / Mistas) dentro de "Por Comissão" */
+    .com-subtabs {
+      display: flex;
+      gap: 6px;
+      padding: 8px 10px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+    .com-subtab {
+      flex: 1;
+      padding: 7px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: .3px;
+      text-align: center;
+      color: var(--text-dim);
+      background: rgba(255,255,255,.04);
+      border: 1px solid var(--border-soft);
+      border-radius: 7px;
+      cursor: pointer;
+      transition: background .12s, color .12s, border-color .12s;
+    }
+    .com-subtab:hover { color: var(--text); }
+    .com-subtab.ativo {
+      color: var(--accent-light);
+      background: var(--accent-muted);
+      border-color: var(--accent);
+    }
+    .com-subtab .subtab-count {
+      margin-left: 5px;
+      font-size: 10px;
+      opacity: .8;
+    }
+
+    /* Barra de ações da aba Mistas (sync + criar) */
+    .com-mistas-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 8px 12px;
+      border-bottom: 1px solid var(--border);
     }
 
     .com-busca-wrap {
@@ -108,40 +152,24 @@
     }
     .com-item-badge.tem-membro { color: var(--accent-light); }
 
-    /* Cabeçalho de grupo na sidebar (Permanentes / Mistas) */
-    .com-grupo-sidebar {
-      display: flex;
-      align-items: baseline;
-      justify-content: space-between;
-      gap: 8px;
-      padding: 11px 14px 5px;
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: .6px;
-      text-transform: uppercase;
-      color: var(--text-dim);
-      background: rgba(255,255,255,.02);
-      border-bottom: 1px solid var(--border);
-    }
-    .com-grupo-sidebar .grupo-count { color: var(--accent-light); }
     .com-sync-info {
       font-size: 10px;
       color: var(--text-dim);
-      padding: 6px 14px;
-      border-bottom: 1px solid var(--border);
+      line-height: 1.3;
     }
     .com-sync-info.sync-velho { color: #f0c040; }
 
-    /* Botão "+ Nova" no cabeçalho da seção Mistas */
+    /* Botão "+ Nova" na barra de ações das Mistas */
     .btn-nova-mista {
+      flex-shrink: 0;
       background: none;
       border: 1px solid var(--accent);
       color: var(--accent-light);
-      border-radius: 5px;
-      font-size: 10px;
+      border-radius: 6px;
+      font-size: 11px;
       font-weight: 700;
       letter-spacing: .3px;
-      padding: 2px 8px;
+      padding: 5px 11px;
       cursor: pointer;
       text-transform: none;
       transition: background .12s;
@@ -821,6 +849,11 @@
         <button class="com-tab ativo" data-view="comissao">Por Comissão</button>
         <button class="com-tab" data-view="deputado">Por Deputado</button>
         <button class="com-tab" data-view="alertas">Alertas</button>
+      </div>
+
+      <div class="com-subtabs" id="com-subtabs">
+        <button class="com-subtab ativo" data-comtab="permanente">Permanentes<span class="subtab-count" id="subtab-count-perm"></span></button>
+        <button class="com-subtab" data-comtab="mista">Mistas (MPV)<span class="subtab-count" id="subtab-count-mista"></span></button>
       </div>
 
       <div class="com-busca-wrap" id="busca-wrap">
