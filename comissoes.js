@@ -183,6 +183,14 @@ function registrarEventos() {
   document.getElementById('btn-exportar-excel')
     .addEventListener('click', exportarExcel);
 
+  // Imprimir lista de membros (PDFs separados)
+  document.getElementById('btn-imprimir')
+    .addEventListener('click', () => { document.getElementById('modal-imprimir').style.display = 'flex'; });
+  document.getElementById('btn-imprimir-permanentes')
+    .addEventListener('click', () => { fecharModal('modal-imprimir'); imprimirMembros('permanente'); });
+  document.getElementById('btn-imprimir-mistas')
+    .addEventListener('click', () => { fecharModal('modal-imprimir'); imprimirMembros('mista'); });
+
   // Fechar modais
   document.querySelectorAll('[data-fecha]').forEach(btn => {
     btn.addEventListener('click', () => fecharModal(btn.dataset.fecha));
@@ -1610,6 +1618,82 @@ async function salvarDepAcordo() {
   fecharModal('modal-dep-acordo');
   renderPainelComissao(sigla);
   mostrarToast('Deputado de acordo registrado.');
+}
+
+// ---------- IMPRIMIR MEMBROS (PDF via navegador) ----------
+
+function imprimirMembros(escopo) {
+  const ehMista   = escopo === 'mista';
+  const comissoes = ehMista ? listaMistas() : COMISSOES_PERMANENTES;
+  const titulo    = ehMista ? 'Comissões Mistas de MPV' : 'Comissões Permanentes';
+
+  const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+  const h   = new Date();
+  const dataStr = `${String(h.getDate()).padStart(2, '0')}/${String(h.getMonth() + 1).padStart(2, '0')}/${h.getFullYear()}`;
+
+  const linhaDep = (id, acordo) => {
+    const d = state.deputados[id];
+    if (!d) return '';
+    const sub = [d.partido, d.uf].filter(Boolean).join(' · ');
+    return `<tr><td>${esc(d.nome)}</td><td>${esc(sub)}</td><td>${acordo ? 'Vaga de acordo' : ''}</td></tr>`;
+  };
+
+  const secao = (rotulo, ids, acMap) => {
+    const rows = ids.map(id => linhaDep(id, !!acMap[id])).filter(Boolean).join('');
+    return `<h4>${rotulo} <span class="cont">(${ids.length})</span></h4>`
+      + (rows
+          ? `<table><thead><tr><th>Deputado</th><th>Partido · UF</th><th>Obs.</th></tr></thead><tbody>${rows}</tbody></table>`
+          : `<p class="vazio">— nenhum designado —</p>`);
+  };
+
+  const blocos = comissoes.map(c => {
+    const m = state.membros[c.sigla] || {};
+    const tema = (ehMista && c.ementa) ? `<p class="tema"><strong>Tema:</strong> ${esc(c.ementa)}</p>` : '';
+    const sit  = (ehMista && c.situacao) ? `<span class="sit">— ${esc(c.situacao)}</span>` : '';
+    return `
+      <section class="com">
+        <h3>${esc(c.sigla)} · ${esc(c.nome)} ${sit}</h3>
+        ${tema}
+        ${secao('Titulares', m.titulares || [], m.titulares_acordo || {})}
+        ${secao('Suplentes', m.suplentes || [], m.suplentes_acordo || {})}
+      </section>`;
+  }).join('');
+
+  const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>${titulo} — Membros</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 28px; font-size: 12px; }
+      .doc-head { border-bottom: 2px solid #00A859; padding-bottom: 10px; margin-bottom: 16px; }
+      .doc-head h1 { font-size: 18px; margin: 0 0 2px; color: #00713c; }
+      .doc-head .sub { font-size: 11px; color: #555; }
+      section.com { margin-bottom: 16px; page-break-inside: avoid; }
+      section.com h3 { font-size: 13px; margin: 0 0 4px; padding: 5px 8px; background: #eef6f0; border-left: 3px solid #00A859; }
+      .sit { font-size: 10px; font-weight: normal; color: #00713c; }
+      .tema { margin: 3px 0 8px; color: #444; }
+      h4 { font-size: 11px; margin: 8px 0 4px; color: #333; }
+      h4 .cont { color: #888; font-weight: normal; }
+      table { width: 100%; border-collapse: collapse; margin-bottom: 4px; }
+      th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; }
+      th { background: #f5f5f5; font-size: 10px; text-transform: uppercase; letter-spacing: .3px; color: #555; }
+      td:nth-child(3) { color: #00713c; }
+      .vazio { color: #999; font-style: italic; margin: 2px 0 6px 8px; }
+      @media print { body { margin: 12mm; } }
+    </style></head>
+    <body>
+      <div class="doc-head">
+        <h1>${titulo} — Lista de Membros</h1>
+        <div class="sub">Liderança do Podemos · Câmara dos Deputados — gerado em ${dataStr}</div>
+      </div>
+      ${blocos || '<p>Nenhuma comissão para listar.</p>'}
+    </body></html>`;
+
+  const win = window.open('', '_blank');
+  if (!win) { mostrarToast('Permita pop-ups para imprimir.', 'erro'); return; }
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  setTimeout(() => { try { win.print(); } catch (_) {} }, 400);
 }
 
 // ---------- EXPORTAR EXCEL ----------

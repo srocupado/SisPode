@@ -874,6 +874,10 @@
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
         Sincronizar MPVs
       </button>
+      <button id="btn-imprimir" class="btn btn-outline btn-sm" title="Imprimir lista de membros (PDF)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
+        Imprimir
+      </button>
       <button id="btn-exportar-excel" class="btn btn-primary btn-sm">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Exportar Excel
@@ -993,6 +997,33 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-config-vagas">Cancelar</button>
         <button id="btn-salvar-vagas" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: IMPRIMIR MEMBROS ===== -->
+  <div id="modal-imprimir" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:420px">
+      <div class="modal-header">
+        <h3>Imprimir lista de membros</h3>
+        <button class="modal-close" data-fecha="modal-imprimir">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-dim);margin-bottom:16px">
+          Abre uma versão para impressão (use “Salvar como PDF” na caixa de impressão).
+          Gere um PDF para cada grupo.
+        </p>
+        <div style="display:flex;flex-direction:column;gap:10px">
+          <button id="btn-imprimir-permanentes" class="btn btn-outline" style="justify-content:flex-start">
+            🖨 Comissões Permanentes
+          </button>
+          <button id="btn-imprimir-mistas" class="btn btn-outline" style="justify-content:flex-start">
+            🖨 Comissões Mistas (MPV)
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-imprimir">Fechar</button>
       </div>
     </div>
   </div>
