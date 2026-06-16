@@ -109,7 +109,8 @@ const state = {
   config:        {},          // { sigla: { titular: n, suplente: n } }
   transferencias:{},          // { sigla: { cedidas: {id: entry}, recebidas: {id: entry} } }
   pedidos:       {},          // { sigla: { id: { depId, obs, data } } }
-  mistas:        {},          // { sigla: { sigla, nome, mpvId, numero, ano, situacao } } — sincronizadas da API
+  mistas:        {},          // { sigla: { sigla, nome, mpvId, numero, ano, situacao, origem } } — sincronizadas/criadas
+  mistasOcultas: {},          // { sigla: true } — mistas apagadas manualmente (sync não readiciona)
   mistasSyncAt:  null,        // ISO da última sincronização das mistas
   sincronizando: false,
   busca:         '',
@@ -194,6 +195,12 @@ function registrarEventos() {
   // Sincronizar comissões mistas de MPV (manual)
   document.getElementById('btn-sync-mpv')
     .addEventListener('click', () => sincronizarMistasUI({ silencioso: false }));
+
+  // Criar comissão mista manualmente
+  document.getElementById('btn-criar-mista')
+    .addEventListener('click', criarMista);
+  document.getElementById('nova-mista-numero')
+    .addEventListener('keydown', e => { if (e.key === 'Enter') criarMista(); });
 }
 
 // ---------- LOOKUP DE COMISSÕES (permanentes + mistas) ----------
@@ -258,6 +265,7 @@ async function carregarDados() {
     state.transferencias = transf  || {};
     state.pedidos        = pedidos || {};
     state.mistas         = mistas?.comissoes || {};
+    state.mistasOcultas  = mistas?.ocultas   || {};
     state.mistasSyncAt   = mistas?.syncAt    || null;
   } catch (e) {
     mostrarToast('Erro ao carregar dados do Firebase.', 'erro');
@@ -296,7 +304,7 @@ async function sincronizarMistas() {
   }
 
   // 2. Detalhe de cada MPV (status) com concorrência limitada; mantém as em vigor.
-  const comissoes = {};
+  const daApi = {};
   await mapLimit(mpvs, 5, async (m) => {
     try {
       const r = await fetch(`${CAMARA_API}/proposicoes/${m.id}`, { headers: { Accept: 'application/json' } });
@@ -308,15 +316,110 @@ async function sincronizarMistas() {
       const ano    = parseInt(m.ano, 10);
       if (!numero || !ano) return;
       const sigla = `MPV${numero}${String(ano).slice(-2)}`;
-      comissoes[sigla] = { sigla, nome: `Comissão Mista da MPV ${numero}/${ano}`, mpvId: m.id, numero, ano, situacao };
+      daApi[sigla] = { sigla, nome: `Comissão Mista da MPV ${numero}/${ano}`, mpvId: m.id, numero, ano, situacao, origem: 'api' };
     } catch (_) { /* ignora falha pontual */ }
   });
 
-  const payload = { syncAt: new Date().toISOString(), comissoes };
+  // 3. Mescla: API (exceto apagadas manualmente) + criadas manualmente (têm prioridade).
+  const ocultas   = state.mistasOcultas || {};
+  const comissoes = {};
+  for (const [sigla, c] of Object.entries(daApi)) {
+    if (!ocultas[sigla]) comissoes[sigla] = c;
+  }
+  for (const [sigla, c] of Object.entries(state.mistas)) {
+    if (c.origem === 'manual') comissoes[sigla] = c;
+  }
+
+  const payload = { syncAt: new Date().toISOString(), comissoes, ocultas };
   await fbPut('/comissoes-mistas', payload);
   state.mistas       = comissoes;
   state.mistasSyncAt = payload.syncAt;
   return Object.keys(comissoes).length;
+}
+
+// Persiste o documento de mistas (comissões + ocultas) mantendo o syncAt atual.
+async function persistirMistas() {
+  await fbPut('/comissoes-mistas', {
+    syncAt:    state.mistasSyncAt,
+    comissoes: state.mistas,
+    ocultas:   state.mistasOcultas,
+  });
+}
+
+// ---------- CRIAR / APAGAR COMISSÃO MISTA (MANUAL) ----------
+
+function abrirModalNovaMista() {
+  document.getElementById('nova-mista-numero').value = '';
+  document.getElementById('nova-mista-ano').value    = new Date().getFullYear();
+  document.getElementById('nova-mista-nome').value   = '';
+  document.getElementById('modal-nova-mista').style.display = 'flex';
+  setTimeout(() => document.getElementById('nova-mista-numero').focus(), 50);
+}
+
+async function criarMista() {
+  const numero = parseInt(document.getElementById('nova-mista-numero').value, 10);
+  const ano    = parseInt(document.getElementById('nova-mista-ano').value, 10);
+  const nomeIn = document.getElementById('nova-mista-nome').value.trim();
+
+  if (!numero || numero <= 0) { mostrarToast('Informe o número da MPV.', 'erro'); return; }
+  if (!ano || ano < 2000 || ano > 2100) { mostrarToast('Informe um ano válido.', 'erro'); return; }
+
+  const sigla = `MPV${numero}${String(ano).slice(-2)}`;
+  if (getComissao(sigla)) { mostrarToast(`${sigla} já existe.`, 'erro'); return; }
+
+  state.mistas[sigla] = {
+    sigla, numero, ano,
+    nome: nomeIn || `Comissão Mista da MPV ${numero}/${ano}`,
+    situacao: '', origem: 'manual',
+  };
+  delete state.mistasOcultas[sigla]; // se havia sido apagada, volta a existir
+
+  try {
+    await persistirMistas();
+    fecharModal('modal-nova-mista');
+    renderSidebarComissoes();
+    selecionarComissao(sigla);
+    mostrarToast(`Comissão ${sigla} criada.`);
+  } catch (e) {
+    delete state.mistas[sigla];
+    mostrarToast('Erro ao criar comissão.', 'erro');
+  }
+}
+
+async function apagarMista(sigla) {
+  const com = state.mistas[sigla];
+  if (!com) return;
+
+  const m        = state.membros[sigla] || {};
+  const nMembros = (m.titulares || []).length + (m.suplentes || []).length;
+  const nPedidos = Object.keys(state.pedidos[sigla] || {}).length;
+  const extra    = (nMembros || nPedidos)
+    ? `\n\nSerão removidos também ${nMembros} membro(s) e ${nPedidos} pedido(s)/transferências vinculados.`
+    : '';
+  if (!confirm(`Apagar a comissão ${com.sigla} — ${com.nome}?${extra}`)) return;
+
+  delete state.mistas[sigla];
+  state.mistasOcultas[sigla] = true; // sync não readiciona uma comissão apagada
+  delete state.membros[sigla];
+  delete state.transferencias[sigla];
+  delete state.pedidos[sigla];
+  delete state.config[sigla];
+  if (state.comissaoSel === sigla) state.comissaoSel = null;
+
+  try {
+    await Promise.all([
+      persistirMistas(),
+      fbDelete(`/membros/${sigla}`),
+      fbDelete(`/transferencias/${sigla}`),
+      fbDelete(`/pedidos/${sigla}`),
+      fbDelete(`/config/${sigla}`),
+    ]);
+    renderSidebar();
+    renderPainel();
+    mostrarToast(`Comissão ${sigla} apagada.`);
+  } catch (e) {
+    mostrarToast('Erro ao apagar comissão.', 'erro');
+  }
 }
 
 // Wrapper de UI: feedback no botão + toasts (silencioso no auto-sync).
@@ -579,16 +682,21 @@ function renderSidebarComissoes() {
   let html = grupoHeader('Permanentes', permanentes.length);
   html += permanentes.length ? permanentes.map(itemHtml).join('') : vazio('Nenhuma.');
 
-  html += grupoHeader('Mistas (MPV)', mistas.length);
+  html += `<div class="com-grupo-sidebar">`
+        + `<span>Mistas (MPV)</span>`
+        + `<span style="display:flex;align-items:center;gap:8px">`
+        + `<button class="btn-nova-mista" id="btn-nova-mista" title="Criar comissão mista de MPV manualmente">+ Nova</button>`
+        + `<span class="grupo-count">${mistas.length}</span></span></div>`;
   html += syncInfoHtml();
   html += mistas.length
     ? mistas.map(itemHtml).join('')
     : vazio(state.busca
         ? 'Nenhuma corresponde à busca.'
-        : 'Nenhuma sincronizada. Use “Sincronizar MPVs”.');
+        : 'Nenhuma sincronizada. Use “Sincronizar MPVs” ou “+ Nova”.');
 
   lista.innerHTML = html;
 
+  lista.querySelector('#btn-nova-mista')?.addEventListener('click', abrirModalNovaMista);
   lista.querySelectorAll('.com-item').forEach(el => {
     el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
   });
@@ -834,10 +942,14 @@ function renderPainelComissao(sigla) {
       </div>`;
   };
 
+  const ehMista = tipoComissao(sigla) === 'mista';
   document.getElementById('com-painel-conteudo').innerHTML = `
-    <div style="margin-bottom:18px">
-      <div class="com-painel-titulo">${com.nome}</div>
-      <div class="com-painel-sigla">${com.sigla}</div>
+    <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+      <div>
+        <div class="com-painel-titulo">${com.nome}${ehMista ? ' <span class="tag-mista">Mista</span>' : ''}</div>
+        <div class="com-painel-sigla">${com.sigla}${ehMista && com.situacao ? ' · ' + com.situacao : ''}</div>
+      </div>
+      ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
     </div>
 
     <div class="com-grupo">
@@ -889,6 +1001,9 @@ function renderPainelComissao(sigla) {
 
   // Delegação de eventos
   const painel = document.getElementById('com-painel-conteudo');
+
+  painel.querySelector('#btn-apagar-mista')
+    ?.addEventListener('click', () => apagarMista(sigla));
 
   painel.querySelectorAll('.btn-remover-membro').forEach(btn => {
     btn.addEventListener('click', async () => {
