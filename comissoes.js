@@ -83,6 +83,19 @@ const MPV_SIT_AGUARDANDO    = 'Aguardando instalação';
 // Enquanto está na comissão, a MP não tem situação preenchida na Câmara.
 const MPV_STATUS_FORA_COMISSAO = /transformad|norma jur|perdeu a efic|rejeitad|arquivad|retirad|vetad|devolvid|san[çc]|aguardando aprecia|aguardando promulga|aguardando delibera|pronta para pauta|remetid/i;
 
+// ---------- CÂMARA / COMISSÕES TEMPORÁRIAS ----------
+
+// Comissões temporárias por tipo de órgão na API da Câmara.
+const CAMARA_TIPOS_TEMP = [
+  { cod: 4, tipo: 'CPI' },
+  { cod: 3, tipo: 'Especial' },
+  { cod: 5, tipo: 'Externa' },
+];
+const TEMP_TIPOS = ['CPI', 'Especial', 'Externa'];
+const TEMP_TIPO_ROTULO = { CPI: 'CPI', Especial: 'Especiais', Externa: 'Externas' };
+// Início da legislatura atual (necessário para o filtro de órgãos, sobretudo CPIs).
+const LEGISLATURA_INI = '2023-02-01';
+
 // ---------- FIREBASE ----------
 
 const FB_BASE = 'https://plenario-podemos-default-rtdb.firebaseio.com/comissoes-podemos';
@@ -111,8 +124,9 @@ async function fbDelete(path) {
 // ---------- ESTADO ----------
 
 const state = {
-  view:          'comissao',  // 'comissao' | 'deputado' | 'alertas'
+  view:          'comissao',  // 'comissao' | 'temporaria' | 'deputado' | 'alertas'
   comTab:        'permanente',// sub-aba de "Por Comissão": 'permanente' | 'mista'
+  tempTab:       'Especial',  // sub-aba de "Temporárias": 'CPI' | 'Especial' | 'Externa'
   comissaoSel:   null,        // sigla da comissão selecionada
   deputados:     {},          // { id: { nome, uf } }
   membros:       {},          // { sigla: { titulares: [id,...], suplentes: [id,...] } }
@@ -122,7 +136,10 @@ const state = {
   mistas:        {},          // { sigla: { sigla, nome, mpvId, numero, ano, situacao, origem } } — sincronizadas/criadas
   mistasOcultas: {},          // { sigla: true } — mistas apagadas manualmente (sync não readiciona)
   mistasSyncAt:  null,        // ISO da última sincronização das mistas
-  sincronizando: false,
+  temporarias:   {},          // { sigla: { sigla, nome, tipo, id, situacao, ... } } — sincronizadas da Câmara
+  temporariasSyncAt: null,    // ISO da última sincronização das temporárias
+  sincronizando: false,       // sincronização de mistas em andamento
+  sincronizandoTemp: false,   // sincronização de temporárias em andamento
   busca:         '',
 };
 
@@ -136,6 +153,7 @@ let _depAcordoCtx = null; // { sigla, transfId }
 document.addEventListener('DOMContentLoaded', async () => {
   registrarEventos();
   await carregarDados();
+  renderSubtabs();
   renderSidebar();
   renderPainel();
   // Auto-sync silencioso se o cache de comissões mistas estiver velho (>12h).
@@ -148,10 +166,7 @@ function registrarEventos() {
     tab.addEventListener('click', () => mudarView(tab.dataset.view));
   });
 
-  // Sub-abas de "Por Comissão" (Permanentes / Mistas)
-  document.querySelectorAll('.com-subtab').forEach(tab => {
-    tab.addEventListener('click', () => mudarComTab(tab.dataset.comtab));
-  });
+  // (sub-abas são renderizadas e ligadas dinamicamente em renderSubtabs)
 
   // Busca
   document.getElementById('com-busca').addEventListener('input', e => {
@@ -183,13 +198,16 @@ function registrarEventos() {
   document.getElementById('btn-exportar-excel')
     .addEventListener('click', exportarExcel);
 
-  // Imprimir lista de membros (PDFs separados)
+  // Imprimir lista de membros (grupos selecionáveis)
   document.getElementById('btn-imprimir')
     .addEventListener('click', () => { document.getElementById('modal-imprimir').style.display = 'flex'; });
-  document.getElementById('btn-imprimir-permanentes')
-    .addEventListener('click', () => { fecharModal('modal-imprimir'); imprimirMembros('permanente'); });
-  document.getElementById('btn-imprimir-mistas')
-    .addEventListener('click', () => { fecharModal('modal-imprimir'); imprimirMembros('mista'); });
+  document.getElementById('btn-imprimir-gerar')
+    .addEventListener('click', () => {
+      const grupos = [...document.querySelectorAll('.print-grp:checked')].map(c => c.value);
+      if (!grupos.length) { mostrarToast('Selecione ao menos um grupo.', 'erro'); return; }
+      fecharModal('modal-imprimir');
+      imprimirMembros(grupos);
+    });
 
   // Fechar modais
   document.querySelectorAll('[data-fecha]').forEach(btn => {
@@ -224,22 +242,41 @@ function registrarEventos() {
     .addEventListener('click', criarMista);
   document.getElementById('nova-mista-numero')
     .addEventListener('keydown', e => { if (e.key === 'Enter') criarMista(); });
+
+  // Configurar vagas de uma comissão (temporárias)
+  document.getElementById('btn-salvar-vagas-com')
+    .addEventListener('click', salvarVagasComissao);
+  const vT = document.getElementById('vagas-com-titular');
+  const vS = document.getElementById('vagas-com-suplente');
+  const igual = document.getElementById('vagas-com-igual');
+  vT.addEventListener('input', () => { if (igual.checked) vS.value = vT.value; });
+  vS.addEventListener('input', () => { if (igual.checked) vT.value = vS.value; });
+  igual.addEventListener('change', () => { if (igual.checked) vS.value = vT.value; });
 }
 
-// ---------- LOOKUP DE COMISSÕES (permanentes + mistas) ----------
+// ---------- LOOKUP DE COMISSÕES (permanentes + mistas + temporárias) ----------
 
-// Comissão por sigla, em qualquer das duas camadas.
+// Comissão por sigla, em qualquer das camadas.
 function getComissao(sigla) {
   return COMISSOES_PERMANENTES.find(c => c.sigla === sigla)
       || state.mistas[sigla]
+      || state.temporarias[sigla]
       || null;
 }
 
-// 'permanente' | 'mista' | null
+// 'permanente' | 'mista' | 'temporaria' | null
 function tipoComissao(sigla) {
   if (COMISSOES_PERMANENTES.some(c => c.sigla === sigla)) return 'permanente';
   if (state.mistas[sigla]) return 'mista';
+  if (state.temporarias[sigla]) return 'temporaria';
   return null;
+}
+
+// Temporárias (opcionalmente filtradas por tipo), ordenadas por nome.
+function listaTemporarias(tipo) {
+  let arr = Object.values(state.temporarias);
+  if (tipo) arr = arr.filter(t => t.tipo === tipo);
+  return arr.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt'));
 }
 
 // Mistas ordenadas da mais recente para a mais antiga.
@@ -254,11 +291,12 @@ function listaMistas() {
       (b.numero - a.numero));
 }
 
-// Todas as comissões com rótulo de tipo (para sidebar/exportação).
+// Todas as comissões com rótulo de tipo (para exportação).
 function todasComissoes() {
   return [
     ...COMISSOES_PERMANENTES.map(c => ({ ...c, tipo: 'Permanente' })),
-    ...listaMistas().map(c => ({ ...c, tipo: 'Mista' })),
+    ...listaMistas().map(c => ({ ...c, tipo: 'Mista (MPV)' })),
+    ...listaTemporarias().map(c => ({ ...c, tipo: `Temporária (${c.tipo})` })),
   ];
 }
 
@@ -280,22 +318,25 @@ async function mapLimit(items, limit, fn) {
 
 async function carregarDados() {
   try {
-    const [deps, membros, config, transf, pedidos, mistas] = await Promise.all([
+    const [deps, membros, config, transf, pedidos, mistas, temp] = await Promise.all([
       fbGet('/deputados'),
       fbGet('/membros'),
       fbGet('/config'),
       fbGet('/transferencias'),
       fbGet('/pedidos'),
       fbGet('/comissoes-mistas'),
+      fbGet('/comissoes-temporarias'),
     ]);
-    state.deputados      = deps    || {};
-    state.membros        = membros || {};
-    state.config         = config  || {};
-    state.transferencias = transf  || {};
-    state.pedidos        = pedidos || {};
-    state.mistas         = mistas?.comissoes || {};
-    state.mistasOcultas  = mistas?.ocultas   || {};
-    state.mistasSyncAt   = mistas?.syncAt    || null;
+    state.deputados        = deps    || {};
+    state.membros          = membros || {};
+    state.config           = config  || {};
+    state.transferencias   = transf  || {};
+    state.pedidos          = pedidos || {};
+    state.mistas           = mistas?.comissoes || {};
+    state.mistasOcultas    = mistas?.ocultas   || {};
+    state.mistasSyncAt     = mistas?.syncAt    || null;
+    state.temporarias      = temp?.comissoes || {};
+    state.temporariasSyncAt = temp?.syncAt   || null;
   } catch (e) {
     mostrarToast('Erro ao carregar dados do Firebase.', 'erro');
   }
@@ -509,6 +550,88 @@ function recarregarMistas() {
   sincronizarMistasUI({ silencioso: false, reset: true });
 }
 
+// ---------- SINCRONIZAÇÃO DE COMISSÕES TEMPORÁRIAS ----------
+
+function temporariasDesatualizadas() {
+  if (!state.temporariasSyncAt) return true;
+  return (Date.now() - new Date(state.temporariasSyncAt).getTime()) > MPV_SYNC_TTL_MS;
+}
+
+// Em funcionamento = instalada e dentro do prazo (sem dataFim ou dataFim futura).
+function tempEmFuncionamento(det) {
+  if (!det || !det.dataInstalacao) return false;
+  if (!det.dataFim) return true;
+  return new Date(det.dataFim) >= new Date();
+}
+
+// Lista as comissões temporárias (CPI, Especiais, Externas) em funcionamento na
+// Câmara e persiste no Firebase. As designações de membros e a configuração de
+// vagas ficam em /membros e /config (por sigla) — preservadas entre sincronizações.
+async function sincronizarTemporarias() {
+  const comissoes = {};
+  for (const { cod, tipo } of CAMARA_TIPOS_TEMP) {
+    const orgaos = [];
+    let url = `${CAMARA_API}/orgaos?codTipoOrgao=${cod}&dataInicio=${LEGISLATURA_INI}`
+            + `&itens=100&ordem=DESC&ordenarPor=id`;
+    while (url) {
+      const r = await fetch(url, { headers: { Accept: 'application/json' } });
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      const j = await r.json();
+      orgaos.push(...(j.dados || []));
+      url = (j.links || []).find(l => l.rel === 'next')?.href || null;
+    }
+
+    await mapLimit(orgaos, 8, async (o) => {
+      try {
+        const r = await fetch(`${CAMARA_API}/orgaos/${o.id}`, { headers: { Accept: 'application/json' } });
+        if (!r.ok) return;
+        const det = (await r.json()).dados;
+        if (!tempEmFuncionamento(det)) return;
+        const sigla = (o.sigla || `ORG${o.id}`).trim();
+        comissoes[sigla] = {
+          sigla, tipo,
+          nome: o.nome || det.nome || sigla,
+          apelido: o.apelido || o.nomeResumido || '',
+          id: o.id,
+          situacao: MPV_SIT_FUNCIONAMENTO,
+          dataInstalacao: det.dataInstalacao || null,
+          dataFim: det.dataFim || null,
+        };
+      } catch (_) { /* ignora falha pontual */ }
+    });
+  }
+
+  if (!Object.keys(comissoes).length) throw new Error('nenhuma comissão temporária retornada pela Câmara');
+
+  const payload = { syncAt: new Date().toISOString(), comissoes };
+  await fbPut('/comissoes-temporarias', payload);
+  state.temporarias       = comissoes;
+  state.temporariasSyncAt = payload.syncAt;
+  return Object.keys(comissoes).length;
+}
+
+async function sincronizarTemporariasUI({ silencioso = false } = {}) {
+  if (state.sincronizandoTemp) return;
+  state.sincronizandoTemp = true;
+  const btn = document.getElementById('btn-sync-temp');
+  const orig = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Sincronizando…'; }
+  if (!silencioso) mostrarToast('Sincronizando comissões temporárias…');
+
+  try {
+    const n = await sincronizarTemporarias();
+    if (state.comissaoSel && !getComissao(state.comissaoSel)) state.comissaoSel = null;
+    if (state.view === 'temporaria') { renderSubtabs(); renderSidebar(); renderPainel(); }
+    if (!silencioso) mostrarToast(`${n} comissão(ões) temporária(s) em funcionamento.`);
+  } catch (e) {
+    if (!silencioso) mostrarToast('Falha ao sincronizar temporárias: ' + e.message, 'erro');
+    else console.warn('Auto-sync de temporárias falhou:', e.message);
+  } finally {
+    state.sincronizandoTemp = false;
+    if (btn) { btn.disabled = false; btn.innerHTML = orig; }
+  }
+}
+
 async function salvarDeputado(id, dep) {
   await fbPut(`/deputados/${id}`, dep);
   state.deputados[id] = dep;
@@ -694,25 +817,123 @@ function mudarView(view) {
   document.querySelectorAll('.com-tab').forEach(t => {
     t.classList.toggle('ativo', t.dataset.view === view);
   });
-  document.getElementById('com-subtabs').style.display =
-    view === 'comissao' ? '' : 'none';
   document.getElementById('busca-wrap').style.display =
     view === 'alertas' ? 'none' : '';
+  renderSubtabs();
   renderSidebar();
   renderPainel();
+
+  // Auto-sync ao abrir a aba Temporárias com cache velho.
+  if (view === 'temporaria' && temporariasDesatualizadas()) {
+    sincronizarTemporariasUI({ silencioso: true });
+  }
 }
 
-function mudarComTab(tab) {
-  state.comTab = tab;
-  state.busca = '';
-  document.getElementById('com-busca').value = '';
-  renderSidebarComissoes();
+// Renderiza as sub-abas conforme a view ('comissao' → Permanentes/Mistas;
+// 'temporaria' → CPI/Especiais/Externas). Oculta nas demais views.
+function renderSubtabs() {
+  const cont = document.getElementById('com-subtabs');
+  if (state.view === 'comissao') {
+    cont.style.display = '';
+    cont.innerHTML =
+        `<button class="com-subtab" data-grp="comTab" data-val="permanente">Permanentes <span class="subtab-count">(${COMISSOES_PERMANENTES.length})</span></button>`
+      + `<button class="com-subtab" data-grp="comTab" data-val="mista">Mistas (MPV) <span class="subtab-count">(${Object.keys(state.mistas).length})</span></button>`;
+  } else if (state.view === 'temporaria') {
+    cont.style.display = '';
+    const n = t => listaTemporarias(t).length;
+    cont.innerHTML = TEMP_TIPOS.map(t =>
+      `<button class="com-subtab" data-grp="tempTab" data-val="${t}">${TEMP_TIPO_ROTULO[t]} <span class="subtab-count">(${n(t)})</span></button>`
+    ).join('');
+  } else {
+    cont.style.display = 'none';
+    cont.innerHTML = '';
+    return;
+  }
+  cont.querySelectorAll('.com-subtab').forEach(b => {
+    const grp = b.dataset.grp, val = b.dataset.val;
+    b.classList.toggle('ativo', state[grp] === val);
+    b.addEventListener('click', () => {
+      state[grp] = val;
+      state.busca = '';
+      document.getElementById('com-busca').value = '';
+      renderSubtabs();
+      renderSidebar();
+    });
+  });
 }
 
 function renderSidebar() {
-  if (state.view === 'alertas') { renderSidebarAlertas(); return; }
-  if (state.view === 'deputado') { renderSidebarDeputados(); return; }
+  if (state.view === 'alertas')    { renderSidebarAlertas(); return; }
+  if (state.view === 'deputado')   { renderSidebarDeputados(); return; }
+  if (state.view === 'temporaria') { renderSidebarTemporarias(); return; }
   renderSidebarComissoes();
+}
+
+// Item da sidebar compartilhado por comissões (permanentes/mistas/temporárias).
+function comItemHtml(c) {
+  const m        = state.membros[c.sigla] || {};
+  const total    = (m.titulares || []).length + (m.suplentes || []).length;
+  const nPedidos = Object.keys(state.pedidos[c.sigla] || {}).length;
+
+  const efT = vagasEfetivas(c.sigla, 'titular');
+  const efS = vagasEfetivas(c.sigla, 'suplente');
+  const semVagas = efT <= 0 && efS <= 0;
+  const dT = vagasDisponiveis(c.sigla, 'titular');
+  const dS = vagasDisponiveis(c.sigla, 'suplente');
+  const cheias = !semVagas && dT <= 0 && dS <= 0;
+
+  const linhas = [];
+  if (tipoComissao(c.sigla) === 'mista') {
+    const sit = badgeSituacaoMista(c);
+    if (sit) linhas.push(sit);
+  }
+  const extras = [];
+  if (semVagas) extras.push('<span class="badge-sem-vagas">sem vagas</span>');
+  else if (cheias) extras.push('<span class="badge-sem-vagas" style="background:rgba(240,84,84,.15);color:var(--vermelho)">cheias</span>');
+  if (nPedidos > 0) extras.push(`<span class="badge-pedidos">${nPedidos} pedido${nPedidos > 1 ? 's' : ''}</span>`);
+  if (extras.length) linhas.push(extras.join(' '));
+
+  return `
+      <div class="com-item${state.comissaoSel === c.sigla ? ' ativo' : ''}" data-sigla="${c.sigla}">
+        <span class="com-item-sigla">${c.sigla}</span>
+        <span class="com-item-nome">${c.nome}${linhas.map(l => '<br>' + l).join('')}</span>
+        <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
+      </div>`;
+}
+
+const _vazioSidebar = msg => `<div class="com-empty" style="padding:18px 14px;font-size:12px">${msg}</div>`;
+
+function renderSidebarTemporarias() {
+  const lista = document.getElementById('com-lista');
+  const matchBusca = c =>
+    (c.sigla || '').toLowerCase().includes(state.busca) ||
+    (c.nome  || '').toLowerCase().includes(state.busca);
+  const itens = listaTemporarias(state.tempTab).filter(matchBusca);
+
+  let html = `<div class="com-mistas-toolbar">`
+           + syncInfoTemporariasHtml()
+           + `<span class="com-mistas-acoes">`
+           + `<button class="btn-reset-mpv" id="btn-sync-temp" title="Sincronizar comissões temporárias com a API da Câmara">↻ Sincronizar</button>`
+           + `</span></div>`;
+  html += itens.length
+    ? itens.map(comItemHtml).join('')
+    : _vazioSidebar(state.busca
+        ? 'Nenhuma corresponde à busca.'
+        : `Nenhuma comissão ${TEMP_TIPO_ROTULO[state.tempTab]} em funcionamento.`);
+
+  lista.innerHTML = html;
+  lista.querySelector('#btn-sync-temp')?.addEventListener('click', () => sincronizarTemporariasUI({ silencioso: false }));
+  lista.querySelectorAll('.com-item').forEach(el => {
+    el.addEventListener('click', () => selecionarComissao(el.dataset.sigla));
+  });
+}
+
+function syncInfoTemporariasHtml() {
+  if (state.sincronizandoTemp) return `<div class="com-sync-info">Sincronizando…</div>`;
+  if (!state.temporariasSyncAt) return `<div class="com-sync-info sync-velho">Nunca sincronizado.</div>`;
+  const velho = temporariasDesatualizadas();
+  return `<div class="com-sync-info${velho ? ' sync-velho' : ''}">`
+       + `Atualizado ${fmtSyncAgo(state.temporariasSyncAt)}${velho ? ' · desatualizado' : ''}</div>`;
 }
 
 function renderSidebarComissoes() {
@@ -721,58 +942,9 @@ function renderSidebarComissoes() {
     c.sigla.toLowerCase().includes(state.busca) ||
     c.nome.toLowerCase().includes(state.busca);
 
-  const permanentes = COMISSOES_PERMANENTES.filter(matchBusca);
-  const mistas      = listaMistas().filter(matchBusca);
-
-  const itemHtml = c => {
-    const m        = state.membros[c.sigla] || {};
-    const total    = (m.titulares || []).length + (m.suplentes || []).length;
-    const nPedidos = Object.keys(state.pedidos[c.sigla] || {}).length;
-
-    const efT = vagasEfetivas(c.sigla, 'titular');
-    const efS = vagasEfetivas(c.sigla, 'suplente');
-    const semVagas = efT <= 0 && efS <= 0;
-    const dT = vagasDisponiveis(c.sigla, 'titular');
-    const dS = vagasDisponiveis(c.sigla, 'suplente');
-    const cheias = !semVagas && dT <= 0 && dS <= 0;
-
-    const linhas = [];
-
-    // Linha 1 (só mistas): situação da comissão.
-    if (tipoComissao(c.sigla) === 'mista') {
-      const sit = badgeSituacaoMista(c);
-      if (sit) linhas.push(sit);
-    }
-
-    // Linha 2: estado das vagas e pedidos.
-    const extras = [];
-    if (semVagas) extras.push('<span class="badge-sem-vagas">sem vagas</span>');
-    else if (cheias) extras.push('<span class="badge-sem-vagas" style="background:rgba(240,84,84,.15);color:var(--vermelho)">cheias</span>');
-    if (nPedidos > 0) extras.push(`<span class="badge-pedidos">${nPedidos} pedido${nPedidos > 1 ? 's' : ''}</span>`);
-    if (extras.length) linhas.push(extras.join(' '));
-
-    return `
-      <div class="com-item${state.comissaoSel === c.sigla ? ' ativo' : ''}" data-sigla="${c.sigla}">
-        <span class="com-item-sigla">${c.sigla}</span>
-        <span class="com-item-nome">${c.nome}${linhas.map(l => '<br>' + l).join('')}</span>
-        <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
-      </div>`;
-  };
-
-  const vazio = msg => `<div class="com-empty" style="padding:18px 14px;font-size:12px">${msg}</div>`;
-
-  // Contadores totais (independentes da busca) e estado ativo das sub-abas.
-  const totPerm  = COMISSOES_PERMANENTES.length;
-  const totMista = Object.keys(state.mistas).length;
-  const cPerm  = document.getElementById('subtab-count-perm');
-  const cMista = document.getElementById('subtab-count-mista');
-  if (cPerm)  cPerm.textContent  = totPerm  ? `(${totPerm})`  : '';
-  if (cMista) cMista.textContent = totMista ? `(${totMista})` : '';
-  document.querySelectorAll('.com-subtab').forEach(t =>
-    t.classList.toggle('ativo', t.dataset.comtab === state.comTab));
-
   let html = '';
   if (state.comTab === 'mista') {
+    const mistas = listaMistas().filter(matchBusca);
     html += `<div class="com-mistas-toolbar">`
           + syncInfoHtml()
           + `<span class="com-mistas-acoes">`
@@ -781,14 +953,15 @@ function renderSidebarComissoes() {
           + `</span>`
           + `</div>`;
     html += mistas.length
-      ? mistas.map(itemHtml).join('')
-      : vazio(state.busca
+      ? mistas.map(comItemHtml).join('')
+      : _vazioSidebar(state.busca
           ? 'Nenhuma corresponde à busca.'
           : 'Nenhuma comissão mista. Use “Sincronizar MPVs” no topo ou “+ Nova”.');
   } else {
+    const permanentes = COMISSOES_PERMANENTES.filter(matchBusca);
     html += permanentes.length
-      ? permanentes.map(itemHtml).join('')
-      : vazio(state.busca ? 'Nenhuma corresponde à busca.' : 'Nenhuma.');
+      ? permanentes.map(comItemHtml).join('')
+      : _vazioSidebar(state.busca ? 'Nenhuma corresponde à busca.' : 'Nenhuma.');
   }
 
   lista.innerHTML = html;
@@ -870,7 +1043,7 @@ function renderSidebarAlertas() {
 // ---------- RENDER: PAINEL ----------
 
 function renderPainel() {
-  if (state.view === 'comissao' && state.comissaoSel) {
+  if ((state.view === 'comissao' || state.view === 'temporaria') && state.comissaoSel) {
     renderPainelComissao(state.comissaoSel);
   } else if (state.view === 'deputado' && state.comissaoSel) {
     renderPainelDeputado(state.comissaoSel);
@@ -1053,14 +1226,18 @@ function renderPainelComissao(sigla) {
   };
 
   const ehMista = tipoComissao(sigla) === 'mista';
+  const ehTemp  = tipoComissao(sigla) === 'temporaria';
+  const tagTipo = ehMista ? ' <span class="tag-mista">Mista</span>'
+                : ehTemp  ? ` <span class="tag-mista tag-temp">${com.tipo}</span>` : '';
   document.getElementById('com-painel-conteudo').innerHTML = `
     <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
       <div>
-        <div class="com-painel-titulo">${com.nome}${ehMista ? ' <span class="tag-mista">Mista</span>' : ''}</div>
+        <div class="com-painel-titulo">${com.nome}${tagTipo}</div>
         <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}` : ''}</div>
         ${ehMista && com.ementa ? `<div class="com-painel-ementa"><strong>Tema:</strong> ${com.ementa}</div>` : ''}
       </div>
       ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
+      ${ehTemp ? `<button class="btn-config-vagas-com" id="btn-config-vagas-com" data-sigla="${sigla}" title="Definir o número de vagas desta comissão">⚙ Configurar vagas</button>` : ''}
     </div>
 
     <div class="com-grupo">
@@ -1115,6 +1292,8 @@ function renderPainelComissao(sigla) {
 
   painel.querySelector('#btn-apagar-mista')
     ?.addEventListener('click', () => apagarMista(sigla));
+  painel.querySelector('#btn-config-vagas-com')
+    ?.addEventListener('click', () => abrirModalVagasComissao(sigla));
 
   painel.querySelectorAll('.btn-remover-membro').forEach(btn => {
     btn.addEventListener('click', async () => {
@@ -1137,7 +1316,7 @@ function renderPainelComissao(sigla) {
     btn.addEventListener('click', async () => {
       await removerTransferencia(btn.dataset.sigla, btn.dataset.direcao, btn.dataset.id);
       renderPainelComissao(sigla);
-      renderSidebarComissoes();
+      renderSidebar();
       mostrarToast('Transferência desfeita.');
     });
   });
@@ -1153,7 +1332,7 @@ function renderPainelComissao(sigla) {
     btn.addEventListener('click', async () => {
       await removerPedido(btn.dataset.sigla, btn.dataset.pid);
       renderPainelComissao(sigla);
-      renderSidebarComissoes();
+      renderSidebar();
       mostrarToast('Pedido removido.');
     });
   });
@@ -1242,7 +1421,7 @@ function renderPainelAlertas() {
 
 function selecionarComissao(sigla) {
   state.comissaoSel = sigla;
-  renderSidebarComissoes();
+  renderSidebar();
   renderPainelComissao(sigla);
 }
 
@@ -1418,7 +1597,7 @@ function abrirModalAddMembro(sigla, tipo) {
       if (ok) {
         fecharModal('modal-add-membro');
         renderPainelComissao(el.dataset.sigla);
-        renderSidebarComissoes();
+        renderSidebar();
         mostrarToast('Membro adicionado.');
       }
     });
@@ -1470,7 +1649,7 @@ function abrirModalAddPedido(sigla) {
       await adicionarPedido(el.dataset.sigla, el.dataset.dep, obs);
       fecharModal('modal-add-pedido');
       renderPainelComissao(el.dataset.sigla);
-      renderSidebarComissoes();
+      renderSidebar();
       const dep = state.deputados[el.dataset.dep];
       mostrarToast(`Pedido de ${dep ? dep.nome : 'deputado'} registrado.`);
     });
@@ -1504,24 +1683,57 @@ function abrirModalConfigVagas() {
 }
 
 async function salvarConfigVagas() {
-  const inputs    = document.querySelectorAll('#config-vagas-lista .config-vaga-input');
-  const novoConfig = {};
+  const inputs = document.querySelectorAll('#config-vagas-lista .config-vaga-input');
+  // Mescla sobre a config existente para não apagar a das temporárias.
+  const novoConfig = { ...state.config };
 
   inputs.forEach(inp => {
     const { sigla, tipo } = inp.dataset;
     if (!novoConfig[sigla]) novoConfig[sigla] = { titular: 0, suplente: 0 };
-    novoConfig[sigla][tipo] = Math.max(0, parseInt(inp.value, 10) || 0);
+    novoConfig[sigla] = { ...novoConfig[sigla], [tipo]: Math.max(0, parseInt(inp.value, 10) || 0) };
   });
 
   try {
     await fbPut('/config', novoConfig);
     state.config = novoConfig;
     fecharModal('modal-config-vagas');
-    renderSidebarComissoes();
-    if (state.comissaoSel && state.view === 'comissao') {
-      renderPainelComissao(state.comissaoSel);
-    }
+    renderSidebar();
+    if (state.comissaoSel) renderPainelComissao(state.comissaoSel);
     mostrarToast('Vagas salvas com sucesso.');
+  } catch (e) {
+    mostrarToast('Erro ao salvar vagas.', 'erro');
+  }
+}
+
+// ---------- MODAL: VAGAS DE UMA COMISSÃO (temporárias) ----------
+
+let _vagasComSigla = null;
+
+function abrirModalVagasComissao(sigla) {
+  _vagasComSigla = sigla;
+  const com = getComissao(sigla);
+  const cfg = state.config[sigla] || { titular: 0, suplente: 0 };
+  document.getElementById('vagas-com-desc').textContent = `${com.nome} (${sigla})`;
+  document.getElementById('vagas-com-titular').value  = cfg.titular  || 0;
+  document.getElementById('vagas-com-suplente').value = cfg.suplente || 0;
+  document.getElementById('vagas-com-igual').checked  = (cfg.titular || 0) === (cfg.suplente || 0);
+  document.getElementById('modal-vagas-comissao').style.display = 'flex';
+  setTimeout(() => document.getElementById('vagas-com-titular').focus(), 50);
+}
+
+async function salvarVagasComissao() {
+  const sigla = _vagasComSigla;
+  if (!sigla) return;
+  const t = Math.max(0, parseInt(document.getElementById('vagas-com-titular').value, 10) || 0);
+  const s = Math.max(0, parseInt(document.getElementById('vagas-com-suplente').value, 10) || 0);
+
+  state.config[sigla] = { ...(state.config[sigla] || {}), titular: t, suplente: s };
+  try {
+    await fbPut(`/config/${sigla}`, state.config[sigla]);
+    fecharModal('modal-vagas-comissao');
+    renderSidebar();
+    if (state.comissaoSel === sigla) renderPainelComissao(sigla);
+    mostrarToast('Vagas configuradas.');
   } catch (e) {
     mostrarToast('Erro ao salvar vagas.', 'erro');
   }
@@ -1557,7 +1769,7 @@ async function confirmarTransferencia() {
   _transfCtx = null;
   fecharModal('modal-transferencia');
   renderPainelComissao(sigla);
-  renderSidebarComissoes();
+  renderSidebar();
   mostrarToast(direcao === 'ceder' ? 'Vaga cedida.' : 'Vaga recebida.');
 }
 
@@ -1622,10 +1834,18 @@ async function salvarDepAcordo() {
 
 // ---------- IMPRIMIR MEMBROS (PDF via navegador) ----------
 
-function imprimirMembros(escopo) {
-  const ehMista   = escopo === 'mista';
-  const comissoes = ehMista ? listaMistas() : COMISSOES_PERMANENTES;
-  const titulo    = ehMista ? 'Comissões Mistas de MPV' : 'Comissões Permanentes';
+// Define os grupos imprimíveis (rótulo + conjunto de comissões).
+function _grupoImprimivel(g) {
+  if (g === 'permanente') return { titulo: 'Comissões Permanentes', itens: COMISSOES_PERMANENTES, tema: true };
+  if (g === 'mista')      return { titulo: 'Comissões Mistas de MPV', itens: listaMistas(), tema: true };
+  if (TEMP_TIPOS.includes(g)) return { titulo: `Comissões Temporárias — ${TEMP_TIPO_ROTULO[g]}`, itens: listaTemporarias(g), tema: false };
+  return null;
+}
+
+// Imprime a lista de membros dos grupos selecionados em um único documento
+// (cada grupo inicia em nova página).
+function imprimirMembros(grupos) {
+  if (!grupos || !grupos.length) { mostrarToast('Selecione ao menos um grupo.', 'erro'); return; }
 
   const esc = s => String(s ?? '').replace(/[&<>]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
   const h   = new Date();
@@ -1637,7 +1857,6 @@ function imprimirMembros(escopo) {
     const sub = [d.partido, d.uf].filter(Boolean).join(' · ');
     return `<tr><td>${esc(d.nome)}</td><td>${esc(sub)}</td><td>${acordo ? 'Vaga de acordo' : ''}</td></tr>`;
   };
-
   const secao = (rotulo, ids, acMap) => {
     const rows = ids.map(id => linhaDep(id, !!acMap[id])).filter(Boolean).join('');
     return `<h4>${rotulo} <span class="cont">(${ids.length})</span></h4>`
@@ -1646,27 +1865,34 @@ function imprimirMembros(escopo) {
           : `<p class="vazio">— nenhum designado —</p>`);
   };
 
-  const blocos = comissoes.map(c => {
-    const m = state.membros[c.sigla] || {};
-    const tema = (ehMista && c.ementa) ? `<p class="tema"><strong>Tema:</strong> ${esc(c.ementa)}</p>` : '';
-    const sit  = (ehMista && c.situacao) ? `<span class="sit">— ${esc(c.situacao)}</span>` : '';
-    return `
-      <section class="com">
-        <h3>${esc(c.sigla)} · ${esc(c.nome)} ${sit}</h3>
-        ${tema}
-        ${secao('Titulares', m.titulares || [], m.titulares_acordo || {})}
-        ${secao('Suplentes', m.suplentes || [], m.suplentes_acordo || {})}
-      </section>`;
+  const secoes = grupos.map(_grupoImprimivel).filter(Boolean).map((grp, i) => {
+    const blocos = grp.itens.map(c => {
+      const m = state.membros[c.sigla] || {};
+      const tema = (grp.tema && c.ementa) ? `<p class="tema"><strong>Tema:</strong> ${esc(c.ementa)}</p>` : '';
+      const sit  = c.situacao ? `<span class="sit">— ${esc(c.situacao)}</span>` : '';
+      return `
+        <section class="com">
+          <h3>${esc(c.sigla)} · ${esc(c.nome)} ${sit}</h3>
+          ${tema}
+          ${secao('Titulares', m.titulares || [], m.titulares_acordo || {})}
+          ${secao('Suplentes', m.suplentes || [], m.suplentes_acordo || {})}
+        </section>`;
+    }).join('');
+    return `<div class="grupo"${i > 0 ? ' style="page-break-before:always"' : ''}>
+        <h2>${esc(grp.titulo)}</h2>
+        ${blocos || '<p class="vazio">Nenhuma comissão neste grupo.</p>'}
+      </div>`;
   }).join('');
 
   const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
-    <title>${titulo} — Membros</title>
+    <title>Lista de Membros — Comissões</title>
     <style>
       * { box-sizing: border-box; }
       body { font-family: Arial, Helvetica, sans-serif; color: #111; margin: 28px; font-size: 12px; }
       .doc-head { border-bottom: 2px solid #00A859; padding-bottom: 10px; margin-bottom: 16px; }
       .doc-head h1 { font-size: 18px; margin: 0 0 2px; color: #00713c; }
       .doc-head .sub { font-size: 11px; color: #555; }
+      .grupo > h2 { font-size: 15px; color: #00713c; margin: 0 0 12px; padding-bottom: 4px; border-bottom: 1px solid #cde7d6; }
       section.com { margin-bottom: 16px; page-break-inside: avoid; }
       section.com h3 { font-size: 13px; margin: 0 0 4px; padding: 5px 8px; background: #eef6f0; border-left: 3px solid #00A859; }
       .sit { font-size: 10px; font-weight: normal; color: #00713c; }
@@ -1682,10 +1908,10 @@ function imprimirMembros(escopo) {
     </style></head>
     <body>
       <div class="doc-head">
-        <h1>${titulo} — Lista de Membros</h1>
+        <h1>Lista de Membros — Comissões</h1>
         <div class="sub">Liderança do Podemos · Câmara dos Deputados — gerado em ${dataStr}</div>
       </div>
-      ${blocos || '<p>Nenhuma comissão para listar.</p>'}
+      ${secoes || '<p>Nenhuma comissão para listar.</p>'}
     </body></html>`;
 
   const win = window.open('', '_blank');
