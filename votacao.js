@@ -744,17 +744,35 @@ function _htmlPortalValido(html) {
   );
 }
 
-// Busca o HTML de uma URL da Câmara: tenta direto (host_permissions) e, em caso
-// de falha, percorre os proxies. `validar(html)` decide se a resposta serve.
+// Busca direta via service worker (host_permissions → sem CORS, sem proxy).
+function fetchViaBackground(url) {
+  return new Promise(function (resolve) {
+    try {
+      chrome.runtime.sendMessage({ type: 'fetchHtml', url: url }, function (resp) {
+        if (chrome.runtime.lastError || !resp || !resp.ok) { resolve(null); return; }
+        resolve(resp.text);
+      });
+    } catch (e) { resolve(null); }
+  });
+}
+
+// Busca o HTML de uma URL da Câmara. Caminho primário: fetch direto pelo service
+// worker (sem CORS, sem proxy). Se falhar, tenta o fetch direto na própria página
+// e, por último, os proxies. `validar(html)` decide se a resposta serve.
 // Todas as tentativas são protegidas — nunca propaga "Failed to fetch" cru.
 async function buscarHtmlPortal(url, validar) {
   validar = validar || function (h) { return !!h && h.length > 500; };
 
+  // 1. Direto via service worker (jeito confiável, sem proxy)
+  try { var hb = await fetchViaBackground(url); if (validar(hb)) return hb; } catch (e) { /* segue */ }
+
+  // 2. Direto na própria página (extensão tem host_permissions)
   try {
     var r = await fetch(url);
     if (r.ok) { var h = await r.text(); if (validar(h)) return h; }
   } catch (e) { /* segue para proxies */ }
 
+  // 3. Proxies (fallback, caso o acesso direto falhe por algum motivo)
   for (var i = 0; i < PROXIES.length; i++) {
     try {
       var rp = await fetch(PROXIES[i](url));
