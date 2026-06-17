@@ -222,9 +222,9 @@ function registrarEventos() {
   document.getElementById('dep-nome-input')
     .addEventListener('keydown', e => { if (e.key === 'Enter') adicionarDeputado(); });
 
-  // Importar bancada da API da Câmara
+  // Importar/atualizar bancada da API da Câmara
   document.getElementById('btn-importar-camara')
-    .addEventListener('click', importarDeputadosDaCamara);
+    .addEventListener('click', e => importarDeputadosDaCamara(e.currentTarget));
 
   // Salvar deputado de acordo em vaga cedida
   document.getElementById('btn-salvar-dep-acordo')
@@ -1502,11 +1502,10 @@ async function adicionarDeputado() {
 
 // ---------- IMPORTAR DA API DA CÂMARA ----------
 
-async function importarDeputadosDaCamara() {
-  const btn = document.getElementById('btn-importar-camara');
-  const textoOriginal = btn.innerHTML;
-  btn.disabled = true;
-  btn.textContent = 'Importando...';
+async function importarDeputadosDaCamara(btnEl) {
+  const btn = btnEl || document.getElementById('btn-importar-camara');
+  const textoOriginal = btn ? btn.innerHTML : '';
+  if (btn) { btn.disabled = true; btn.textContent = 'Atualizando...'; }
 
   try {
     let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
@@ -1541,15 +1540,16 @@ async function importarDeputadosDaCamara() {
     if (importados)  partes.push(`${importados} novo${importados > 1 ? 's' : ''}`);
     if (atualizados) partes.push(`${atualizados} atualizado${atualizados > 1 ? 's' : ''}`);
     if (inalterados) partes.push(`${inalterados} sem mudança`);
-    mostrarToast(`Importação concluída: ${partes.join(', ') || 'nada a fazer'}.`);
+    mostrarToast(`Atualização concluída: ${partes.join(', ') || 'nada a fazer'}.`);
 
     renderModalDeputadoLista();
     renderSidebar();
+    return true;
   } catch (e) {
-    mostrarToast('Falha ao importar da Câmara: ' + e.message, 'erro');
+    mostrarToast('Falha ao atualizar deputados: ' + e.message, 'erro');
+    return false;
   } finally {
-    btn.disabled = false;
-    btn.innerHTML = textoOriginal;
+    if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
 }
 
@@ -1578,45 +1578,68 @@ function abrirModalAddMembro(sigla, tipo) {
     + (ehMistaCom && com.ementa
         ? `<br><span class="add-membro-tema"><strong>Tema:</strong> ${com.ementa}</span>`
         : '');
-
-  const deps = Object.entries(state.deputados)
-    .sort(([, a], [, b]) => a.nome.localeCompare(b.nome));
-
-  const lista = document.getElementById('membro-select-lista');
-  lista.innerHTML = deps.length
-    ? deps.map(([id, d]) => {
-        const jaMembro   = jaMembroIds.includes(id);
-        const conflito   = tipo === 'titular' && !jaMembro ? comissaoConflitante(id, sigla) : null;
-        const bloqueado  = jaMembro || !!conflito;
-        let aviso = '';
-        if (jaMembro)  aviso = '<span class="membro-select-conflito">já membro</span>';
-        if (conflito)  aviso = `<span class="membro-select-conflito">⚠ já é titular em ${conflito} (inacumulável)</span>`;
-        return `
-          <div class="membro-select-item${bloqueado ? ' ja-membro' : ''}"
-               data-dep="${id}" data-sigla="${sigla}" data-tipo="${tipo}">
-            <span class="membro-select-nome">${d.nome}</span>
-            <span class="membro-select-uf">${d.uf}</span>
-            ${aviso}
-          </div>`;
-      }).join('')
-    : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">Nenhum deputado cadastrado.</p>`;
-
   document.getElementById('membro-acordo-check').checked = false;
 
-  lista.querySelectorAll('.membro-select-item:not(.ja-membro)').forEach(el => {
-    el.addEventListener('click', async () => {
-      const isAcordo = document.getElementById('membro-acordo-check').checked;
-      const ok = await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo, isAcordo);
-      if (ok) {
-        fecharModal('modal-add-membro');
-        renderPainelComissao(el.dataset.sigla);
-        renderSidebar();
-        mostrarToast('Membro adicionado.');
-      }
-    });
-  });
+  const lista = document.getElementById('membro-select-lista');
 
+  // Renderiza a lista de deputados, filtrando por nome ou UF.
+  const renderLista = (filtro = '') => {
+    const f = filtro.trim().toLowerCase();
+    const deps = Object.entries(state.deputados)
+      .filter(([, d]) => !f
+        || (d.nome || '').toLowerCase().includes(f)
+        || (d.uf   || '').toLowerCase().includes(f))
+      .sort(([, a], [, b]) => a.nome.localeCompare(b.nome));
+
+    lista.innerHTML = deps.length
+      ? deps.map(([id, d]) => {
+          const jaMembro  = jaMembroIds.includes(id);
+          const conflito  = tipo === 'titular' && !jaMembro ? comissaoConflitante(id, sigla) : null;
+          const bloqueado = jaMembro || !!conflito;
+          let aviso = '';
+          if (jaMembro) aviso = '<span class="membro-select-conflito">já membro</span>';
+          if (conflito) aviso = `<span class="membro-select-conflito">⚠ já é titular em ${conflito} (inacumulável)</span>`;
+          return `
+            <div class="membro-select-item${bloqueado ? ' ja-membro' : ''}"
+                 data-dep="${id}" data-sigla="${sigla}" data-tipo="${tipo}">
+              <span class="membro-select-nome">${d.nome}</span>
+              <span class="membro-select-uf">${d.uf}</span>
+              ${aviso}
+            </div>`;
+        }).join('')
+      : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">${
+          Object.keys(state.deputados).length
+            ? 'Nenhum deputado corresponde à busca.'
+            : 'Nenhum deputado cadastrado. Use “↻ Atualizar”.'
+        }</p>`;
+
+    lista.querySelectorAll('.membro-select-item:not(.ja-membro)').forEach(el => {
+      el.addEventListener('click', async () => {
+        const isAcordo = document.getElementById('membro-acordo-check').checked;
+        const ok = await adicionarMembro(el.dataset.sigla, el.dataset.dep, el.dataset.tipo, isAcordo);
+        if (ok) {
+          fecharModal('modal-add-membro');
+          renderPainelComissao(el.dataset.sigla);
+          renderSidebar();
+          mostrarToast('Membro adicionado.');
+        }
+      });
+    });
+  };
+
+  const busca = document.getElementById('membro-busca');
+  busca.value = '';
+  busca.oninput = () => renderLista(busca.value);
+
+  // Atualizar a bancada do Podemos direto deste modal
+  document.getElementById('btn-atualizar-deps').onclick = async () => {
+    const ok = await importarDeputadosDaCamara(document.getElementById('btn-atualizar-deps'));
+    if (ok) renderLista(busca.value);
+  };
+
+  renderLista('');
   document.getElementById('modal-add-membro').style.display = 'flex';
+  setTimeout(() => busca.focus(), 50);
 }
 
 // ---------- MODAL: REGISTRAR PEDIDO ----------

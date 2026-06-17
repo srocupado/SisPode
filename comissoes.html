@@ -521,6 +521,13 @@
     .dep-modal-acoes .btn[disabled] { opacity: .55; cursor: not-allowed; }
 
     /* ===== MODAL ADICIONAR MEMBRO ===== */
+    .add-membro-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .add-membro-toolbar .form-input { flex: 1; }
+
     .membro-select-lista {
       max-height: 260px;
       overflow-y: auto;
@@ -999,6 +1006,10 @@
           <input type="checkbox" id="membro-acordo-check">
           <span>Vaga de acordo <span style="color:#f5a623">(recebida de outro partido)</span></span>
         </label>
+        <div class="add-membro-toolbar">
+          <input type="text" id="membro-busca" class="form-input" placeholder="Buscar por nome ou UF…">
+          <button id="btn-atualizar-deps" class="btn btn-outline btn-sm" title="Reimportar a bancada do Podemos da API da Câmara">↻ Atualizar</button>
+        </div>
         <div class="membro-select-lista" id="membro-select-lista"></div>
       </div>
     </div>
