@@ -896,10 +896,19 @@ function comItemHtml(c) {
 
   return `
       <div class="com-item${state.comissaoSel === c.sigla ? ' ativo' : ''}" data-sigla="${c.sigla}">
-        <span class="com-item-sigla">${c.sigla}</span>
+        <span class="com-item-sigla">${comSiglaDisplay(c)}</span>
         <span class="com-item-nome">${c.nome}${linhas.map(l => '<br>' + l).join('')}</span>
         <span class="com-item-badge${total > 0 ? ' tem-membro' : ''}">${total > 0 ? total : ''}</span>
       </div>`;
+}
+
+// Sigla para exibição. Nas mistas de MPV, separa número e ano (MPV1343/26) para
+// facilitar a leitura — a sigla interna (chave de armazenamento) continua MPV134326.
+function comSiglaDisplay(c) {
+  if (c && c.numero && c.ano && tipoComissao(c.sigla) === 'mista') {
+    return `MPV${c.numero}/${String(c.ano).slice(-2)}`;
+  }
+  return c.sigla;
 }
 
 const _vazioSidebar = msg => `<div class="com-empty" style="padding:18px 14px;font-size:12px">${msg}</div>`;
@@ -1236,7 +1245,7 @@ function renderPainelComissao(sigla) {
     <div style="margin-bottom:18px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
       <div>
         <div class="com-painel-titulo">${com.nome}${tagTipo}</div>
-        <div class="com-painel-sigla">${com.sigla}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}` : ''}</div>
+        <div class="com-painel-sigla">${comSiglaDisplay(com)}${ehMista ? ` &nbsp;${badgeSituacaoMista(com)}` : ''}</div>
         ${ehMista && com.ementa ? `<div class="com-painel-ementa"><strong>Tema:</strong> ${com.ementa}</div>` : ''}
       </div>
       ${ehMista ? `<button class="btn-apagar-mista" id="btn-apagar-mista" data-sigla="${sigla}" title="Apagar esta comissão mista">🗑 Apagar</button>` : ''}
@@ -1360,7 +1369,8 @@ function renderPainelDeputado(depId) {
   const tagsCom = (siglas, tipo) => siglas.map(s => {
     const com = getComissao(s);
     const isConflito = tipo === 'titular' && conflitos.includes(s);
-    return `<span class="dep-tag ${isConflito ? 'conflito' : tipo}" title="${com ? com.nome : s}">${s}${isConflito ? ' ⚠' : ''}</span>`;
+    const rotulo = com ? comSiglaDisplay(com) : s;
+    return `<span class="dep-tag ${isConflito ? 'conflito' : tipo}" title="${com ? com.nome : s}">${rotulo}${isConflito ? ' ⚠' : ''}</span>`;
   }).join('');
 
   document.getElementById('com-painel-conteudo').innerHTML = `
@@ -1564,7 +1574,7 @@ function abrirModalAddMembro(sigla, tipo) {
     `Adicionar ${tipo === 'titular' ? 'Titular' : 'Suplente'}`;
   const ehMistaCom = tipoComissao(sigla) === 'mista';
   document.getElementById('add-membro-desc').innerHTML =
-    `${com.nome} (${sigla})`
+    `${com.nome} (${comSiglaDisplay(com)})`
     + (ehMistaCom && com.ementa
         ? `<br><span class="add-membro-tema"><strong>Tema:</strong> ${com.ementa}</span>`
         : '');
@@ -1716,7 +1726,7 @@ function abrirModalVagasComissao(sigla) {
   _vagasComSigla = sigla;
   const com = getComissao(sigla);
   const cfg = state.config[sigla] || { titular: 0, suplente: 0 };
-  document.getElementById('vagas-com-desc').textContent = `${com.nome} (${sigla})`;
+  document.getElementById('vagas-com-desc').textContent = `${com.nome} (${comSiglaDisplay(com)})`;
   document.getElementById('vagas-com-titular').value  = cfg.titular  || 0;
   document.getElementById('vagas-com-suplente').value = cfg.suplente || 0;
   document.getElementById('vagas-com-igual').checked  = (cfg.titular || 0) === (cfg.suplente || 0);
@@ -1875,7 +1885,7 @@ function imprimirMembros(grupos) {
       const sit  = c.situacao ? `<span class="sit">— ${esc(c.situacao)}</span>` : '';
       return `
         <section class="com">
-          <h3>${esc(c.sigla)} · ${esc(c.nome)} ${sit}</h3>
+          <h3>${esc(comSiglaDisplay(c))} · ${esc(c.nome)} ${sit}</h3>
           ${tema}
           ${secao('Titulares', m.titulares || [], m.titulares_acordo || {})}
           ${secao('Suplentes', m.suplentes || [], m.suplentes_acordo || {})}
