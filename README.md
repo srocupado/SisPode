@@ -76,12 +76,30 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 
 ### 4. Controle de Comissões
 
-Gerencie a participação de deputados do partido em comissões permanentes.
+Gerencie a participação dos deputados do partido em **comissões permanentes, mistas (MPV) e temporárias**, controlando vagas, acordos e pedidos de designação. O menu superior separa as visões: **Permanentes · Temporárias · MPV · Deputados · Alertas**.
 
-- Importa a composição atualizada de comissões via API da Câmara
-- Marca **acordos** (titular/suplente) e exibe badge correspondente
-- Filtros por comissão, por deputado e por status do acordo
-- Exporta o controle completo para **Excel (.xlsx)**
+**Comissões Permanentes**
+- Lista as 25 comissões permanentes da Câmara
+- Configuração do número de vagas (titulares/suplentes) por comissão
+- Designação de titulares e suplentes, com marcação de **vaga de acordo** e badge correspondente
+
+**Comissões Mistas de MPV**
+- Sincronização automática pela **API da Câmara**: lista as Medidas Provisórias em fase de comissão, descartando as que já viraram lei, perderam eficácia ou avançaram ao plenário (status real da MP), e as orçamentárias (que tramitam na CMO)
+- Situação real da comissão — **Em funcionamento** ou **Aguardando instalação** — derivada do evento de instalação, com badge e ordenação (em funcionamento primeiro)
+- Exibe o **tema (ementa)** da MP na tela de designação
+- Vagas fixas (1 titular + 1 suplente), criação manual de comissão (`+ Nova`), exclusão e **recarregar** (apaga tudo e puxa da Câmara)
+
+**Comissões Temporárias** (sub-abas **CPI / Especiais / Externas**)
+- Sincronização pela API da Câmara, listando apenas as **em funcionamento** (instaladas e dentro do prazo; comissões de teste do sistema são descartadas)
+- Número de vagas **configurável por comissão** (titulares/suplentes, com opção de manter iguais), já que comissões temporárias têm composição variável
+
+**Recursos comuns a todas**
+- **Ceder e receber vagas** por acordo entre partidos, com registro opcional do deputado externo que ocupa a vaga cedida
+- **Pedidos de designação**: registre o interesse de um deputado em uma vaga e depois nomeie-o ou rejeite o pedido
+- Visão **Por Deputado** com as comissões de cada parlamentar e **Alertas** de acúmulo (comissões mutuamente exclusivas como titular)
+- **Impressão da lista de membros em PDF**, com seleção dos grupos a incluir (Permanentes, Mistas, CPI, Especiais, Externas) — cada grupo em nova página
+- Exportação completa para **Excel (.xlsx)** (membros, vagas cedidas e pedidos, com o tipo de cada comissão)
+- Dados sincronizados entre a equipe via **Firebase**, com cache e atualização automática (auto-sync quando o cache passa de 12 h)
 
 ---
 
