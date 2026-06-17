@@ -924,6 +924,40 @@ body {
 
 .tela-home.oculta { display: none; }
 
+/* Aviso de versão desatualizada (faixa no topo da home) */
+.versao-aviso {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 11px 18px;
+  background: var(--amarelo);
+  color: #2a2200;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  box-shadow: 0 2px 10px rgba(0,0,0,.35);
+}
+.versao-aviso-icone { font-size: 15px; }
+.versao-aviso-texto { text-align: center; }
+.versao-aviso-btn {
+  background: #2a2200;
+  color: var(--amarelo);
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.versao-aviso-btn:hover { background: #3d3200; }
+
 .home-brand {
   display: flex;
   align-items: center;

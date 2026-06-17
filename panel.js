@@ -439,6 +439,13 @@ function registrarEventos() {
 
   // ── HOME: navegação entre sistemas ──
   renderHomeGrid();
+
+  // ── Aviso de versão desatualizada ──
+  document.getElementById('btn-recarregar-ext')
+    ?.addEventListener('click', () => {
+      try { chrome.runtime.reload(); } catch (_) { location.reload(); }
+    });
+  verificarVersao();
 }
 
 // ---------- UPLOAD E PARSING DO PDF ----------
@@ -3017,6 +3024,42 @@ const MODULES = [
     acao:   abrirCongresso,
   },
 ];
+
+// Compara duas versões "x.y.z"; retorna >0 se a>b, <0 se a<b, 0 se iguais.
+function compararVersoes(a, b) {
+  const pa = String(a || '').split('.').map(n => parseInt(n, 10) || 0);
+  const pb = String(b || '').split('.').map(n => parseInt(n, 10) || 0);
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const d = (pa[i] || 0) - (pb[i] || 0);
+    if (d) return d;
+  }
+  return 0;
+}
+
+// Compara a versão local da extensão com a "versão atual" publicada no Firebase
+// (/app_versao_atual) e, se a remota for mais nova, exibe o aviso para atualizar.
+async function verificarVersao() {
+  let local;
+  try { local = chrome.runtime.getManifest().version; } catch (_) { return; }
+
+  let remota = null;
+  try {
+    const res = await fetch(`${FIREBASE_URL}/app_versao_atual.json`);
+    if (res.ok) {
+      const v = await res.json();
+      remota = (v && typeof v === 'object') ? (v.versao || v.version) : v;
+    }
+  } catch (_) { return; }
+  if (!remota) return;
+
+  if (compararVersoes(remota, local) > 0) {
+    const el = document.getElementById('versao-aviso');
+    document.getElementById('versao-aviso-texto').textContent =
+      `Nova versão disponível: ${remota}. Você está na ${local}. `
+      + `Atualize os arquivos da extensão e clique em Recarregar (ou em chrome://extensions).`;
+    if (el) el.style.display = 'flex';
+  }
+}
 
 function renderHomeGrid() {
   const grid = document.getElementById('home-grid');
