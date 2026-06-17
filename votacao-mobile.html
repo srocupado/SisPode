@@ -771,6 +771,15 @@
 
   <!-- ══ TAB: LINK PORTAL ══ -->
   <div id="tab-portal" style="display:none">
+    <div class="input-section" id="proxyConfigSection" style="border-color:rgba(31,165,165,0.4)">
+      <label>Proxy CORS (obrigatório nesta aba)</label>
+      <div class="input-row">
+        <input type="url" class="field" id="proxyUrlInput" placeholder="https://seu-worker.workers.dev/" inputmode="url" autocomplete="off" autocapitalize="off" />
+        <button class="btn btn-sm" id="proxySaveBtn">Salvar</button>
+      </div>
+      <p class="help-text" id="proxyStatus" style="text-align:left;margin-top:8px;"></p>
+    </div>
+
     <div class="input-section">
       <label>Sessão em andamento</label>
       <button class="btn" id="detectPlenarioBtn" style="width:100%;margin-bottom:14px;">
@@ -829,7 +838,7 @@
 
 const API        = 'https://dadosabertos.camara.leg.br/api/v2';
 // URL do Cloudflare Worker para contornar CORS quando necessário
-const WORKER_URL = 'https://shrill-resonance-4d17.vinicius-const.workers.dev/';
+const WORKER_URL = (function(){ try { return localStorage.getItem('sispode.workerUrl') || ''; } catch(e) { return ''; } })();
 
 // ── Helpers ──
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -2169,5 +2178,43 @@ document.getElementById('portalUrlInput').addEventListener('keydown', function (
 
 </script>
 
+<script>
+(function () {
+  var KEY = 'sispode.workerUrl';
+  var input  = document.getElementById('proxyUrlInput');
+  var btn    = document.getElementById('proxySaveBtn');
+  var status = document.getElementById('proxyStatus');
+  if (!input || !btn || !status) return;
+
+  function render() {
+    var cur = '';
+    try { cur = localStorage.getItem(KEY) || ''; } catch (e) {}
+    input.value = cur;
+    if (cur) {
+      status.innerHTML = '✅ Proxy configurado: <code style="color:var(--accent-light)">' +
+        cur.replace(/</g, '&lt;') + '</code>';
+    } else {
+      status.innerHTML = '⚠️ Sem proxy esta aba não funciona no celular. ' +
+        'Deploye um Cloudflare Worker (código em <code>cloudflare-worker.js</code>) ' +
+        'e cole a URL acima.';
+    }
+  }
+
+  btn.addEventListener('click', function () {
+    var v = (input.value || '').trim();
+    try {
+      if (v) localStorage.setItem(KEY, v);
+      else localStorage.removeItem(KEY);
+    } catch (e) {
+      status.textContent = 'Falha ao salvar no localStorage: ' + e.message;
+      return;
+    }
+    status.textContent = 'Salvo. Recarregando…';
+    setTimeout(function () { location.reload(); }, 350);
+  });
+
+  render();
+})();
+</script>
 </body>
 </html>
