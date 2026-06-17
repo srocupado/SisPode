@@ -15,6 +15,8 @@
     "https://plenario-podemos-default-rtdb.firebaseio.com/*",
     "https://shrill-resonance-4d17.vinicius-const.workers.dev/*",
     "https://api.codetabs.com/*",
+    "https://corsproxy.io/*",
+    "https://api.allorigins.win/*",
     "https://unpkg.com/*",
     "https://legis.camara.leg.br/*",
     "https://legis.senado.leg.br/*",

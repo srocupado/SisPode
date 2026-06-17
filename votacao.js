@@ -616,29 +616,9 @@ async function detectSessaoEmAndamento() {
   showPortalStatus('<div class="spinner"></div><br>Acessando camara.leg.br/plenario…');
 
   try {
-    // Busca a página do Plenário — mesma cadeia de fallbacks do fetchPortalPage
+    // Busca a página do Plenário (direto + proxies, tudo protegido)
     var plenarioUrl = 'https://www.camara.leg.br/plenario';
-    var html = null;
-
-    try {
-      var r = await fetch(plenarioUrl);
-      if (r.ok) html = await r.text();
-    } catch (e) { /* segue para proxy */ }
-
-    if (!html) {
-      try {
-        var r2 = await fetch(CODETABS + encodeURIComponent(plenarioUrl));
-        if (r2.ok) html = await r2.text();
-      } catch (e) { /* segue para Worker */ }
-    }
-
-    if (!html && WORKER_URL) {
-      var r3 = await fetch(WORKER_URL + '?url=' + encodeURIComponent(plenarioUrl));
-      if (!r3.ok) throw new Error('Proxy HTTP ' + r3.status);
-      html = await r3.text();
-    }
-
-    if (!html) throw new Error('Não foi possível carregar a página do Plenário.');
+    var html = await buscarHtmlPortal(plenarioUrl, function (h) { return !!h && h.length > 2000; });
 
     var doc = new DOMParser().parseFromString(html, 'text/html');
     var reuniaoId    = null;
@@ -747,6 +727,14 @@ function showPortalLoading(msg) {
 
 var CODETABS = 'https://api.codetabs.com/v1/proxy?quest=';
 
+// Proxies CORS (fallbacks quando o fetch direto falha). Ordenados por
+// confiabilidade observada; cada um é tentado de forma protegida.
+var PROXIES = [
+  function (u) { return 'https://corsproxy.io/?url=' + encodeURIComponent(u); },
+  function (u) { return CODETABS + encodeURIComponent(u); },
+  function (u) { return 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u); },
+].concat(WORKER_URL ? [function (u) { return WORKER_URL + '?url=' + encodeURIComponent(u); }] : []);
+
 // Página válida se tiver o dropdown de votações OU os dados dos deputados
 function _htmlPortalValido(html) {
   return html && (
@@ -756,40 +744,32 @@ function _htmlPortalValido(html) {
   );
 }
 
-async function fetchPortalPage(url) {
-  var lastErr;
+// Busca o HTML de uma URL da Câmara: tenta direto (host_permissions) e, em caso
+// de falha, percorre os proxies. `validar(html)` decide se a resposta serve.
+// Todas as tentativas são protegidas — nunca propaga "Failed to fetch" cru.
+async function buscarHtmlPortal(url, validar) {
+  validar = validar || function (h) { return !!h && h.length > 500; };
 
-  // Tentativa 1: direto (extensão tem host_permissions para camara.leg.br)
   try {
     var r = await fetch(url);
-    if (r.ok) {
-      var html = await r.text();
-      if (_htmlPortalValido(html))
-        return new DOMParser().parseFromString(html, 'text/html');
-    }
-  } catch (e) { lastErr = e; }
+    if (r.ok) { var h = await r.text(); if (validar(h)) return h; }
+  } catch (e) { /* segue para proxies */ }
 
-  // Tentativa 2: codetabs (proxy público — confirmado funcional)
-  try {
-    var r2 = await fetch(CODETABS + encodeURIComponent(url));
-    if (!r2.ok) throw new Error('Codetabs HTTP ' + r2.status);
-    var html2 = await r2.text();
-    if (!_htmlPortalValido(html2)) throw new Error('Página sem dados de votação');
-    return new DOMParser().parseFromString(html2, 'text/html');
-  } catch (e2) { lastErr = e2; }
-
-  // Tentativa 3: Cloudflare Worker (fallback)
-  if (WORKER_URL) {
+  for (var i = 0; i < PROXIES.length; i++) {
     try {
-      var r3 = await fetch(WORKER_URL + '?url=' + encodeURIComponent(url));
-      if (!r3.ok) throw new Error('Worker HTTP ' + r3.status);
-      var html3 = await r3.text();
-      if (!_htmlPortalValido(html3)) throw new Error('Página sem dados de votação');
-      return new DOMParser().parseFromString(html3, 'text/html');
-    } catch (e3) { lastErr = e3; }
+      var rp = await fetch(PROXIES[i](url));
+      if (!rp.ok) continue;
+      var hp = await rp.text();
+      if (validar(hp)) return hp;
+    } catch (e2) { /* tenta o próximo proxy */ }
   }
 
-  throw lastErr || new Error('Não foi possível acessar a página da Câmara.');
+  throw new Error('não foi possível acessar a Câmara (rede ou proxies indisponíveis no momento)');
+}
+
+async function fetchPortalPage(url) {
+  var html = await buscarHtmlPortal(url, _htmlPortalValido);
+  return new DOMParser().parseFromString(html, 'text/html');
 }
 
 async function loadFromPortalUrl() {
