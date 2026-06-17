@@ -771,15 +771,6 @@
 
   <!-- ══ TAB: LINK PORTAL ══ -->
   <div id="tab-portal" style="display:none">
-    <div class="input-section" id="proxyConfigSection" style="border-color:rgba(31,165,165,0.4)">
-      <label>Proxy CORS (obrigatório nesta aba)</label>
-      <div class="input-row">
-        <input type="url" class="field" id="proxyUrlInput" placeholder="https://seu-worker.workers.dev/" inputmode="url" autocomplete="off" autocapitalize="off" />
-        <button class="btn btn-sm" id="proxySaveBtn">Salvar</button>
-      </div>
-      <p class="help-text" id="proxyStatus" style="text-align:left;margin-top:8px;"></p>
-    </div>
-
     <div class="input-section">
       <label>Sessão em andamento</label>
       <button class="btn" id="detectPlenarioBtn" style="width:100%;margin-bottom:14px;">
@@ -807,7 +798,7 @@
         <button class="btn btn-sm" id="portalFilterBtn" style="display:none;">Filtrar</button>
       </div>
 
-      <div id="portalFallbackSection" style="display:none;margin-top:12px;">
+      <div id="portalFallbackSection" style="display:none !important">
         <p class="help-text" style="text-align:left;margin-bottom:8px;">
           Proxy bloqueado. Abra o link no navegador → <b>Ctrl+U</b> → copie tudo (<b>Ctrl+A, Ctrl+C</b>) e cole abaixo:
         </p>
@@ -838,7 +829,7 @@
 
 const API        = 'https://dadosabertos.camara.leg.br/api/v2';
 // URL do Cloudflare Worker para contornar CORS quando necessário
-const WORKER_URL = (function(){ try { return localStorage.getItem('sispode.workerUrl') || ''; } catch(e) { return ''; } })();
+const WORKER_URL = 'https://shrill-resonance-4d17.vinicius-const.workers.dev/';
 
 // ── Helpers ──
 function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
@@ -1445,119 +1436,51 @@ async function generateImage(overrideData) {
    DETECÇÃO AUTOMÁTICA — PLENÁRIO EM ANDAMENTO
 ══════════════════════════════════════════ */
 
+
 async function detectSessaoEmAndamento() {
   var btn = document.getElementById('detectPlenarioBtn');
   btn.disabled = true;
   btn.textContent = '🔍 Buscando…';
-  showPortalStatus('<div class="spinner"></div><br>Acessando camara.leg.br/plenario…');
-
+  showPortalStatus('<div class="spinner"></div><br>Procurando sessão de Plenário em andamento…');
   try {
-    // Busca a página do Plenário — mesma cadeia de fallbacks do fetchPortalPage
-    var plenarioUrl = 'https://www.camara.leg.br/plenario';
-    var html = null;
-
-    try {
-      var r = await fetch(plenarioUrl);
-      if (r.ok) html = await r.text();
-    } catch (e) { /* segue para proxy */ }
-
-    if (!html) {
-      try {
-        var r2 = await fetch(CODETABS + encodeURIComponent(plenarioUrl));
-        if (r2.ok) html = await r2.text();
-      } catch (e) { /* segue para Worker */ }
-    }
-
-    if (!html && WORKER_URL) {
-      var r3 = await fetch(WORKER_URL + '?url=' + encodeURIComponent(plenarioUrl));
-      if (!r3.ok) throw new Error('Proxy HTTP ' + r3.status);
-      html = await r3.text();
-    }
-
-    if (!html) throw new Error('Não foi possível carregar a página do Plenário.');
-
-    var doc = new DOMParser().parseFromString(html, 'text/html');
-    var reuniaoId    = null;
-    var itemVotacaoId = null;
-
-    // Estratégia 1: link direto para votacao-portal (pode já ter itemVotacao)
-    var portalLinks = doc.querySelectorAll('a[href*="votacao-portal"]');
-    portalLinks.forEach(function (a) {
-      if (reuniaoId) return;
-      var href = a.getAttribute('href') || '';
-      var rm = href.match(/reuniao=(\d+)/);
-      if (!rm) return;
-      var container = a.closest('li') || a.closest('article') || a.closest('div') || a.parentElement;
-      var textoContainer = container ? container.textContent.toLowerCase() : '';
-      if (textoContainer.includes('em andamento') || a.textContent.toLowerCase().includes('acompanhe')) {
-        reuniaoId = rm[1];
-        var ivm = href.match(/itemVotacao=(\d+)/);
-        if (ivm) itemVotacaoId = ivm[1];
-      }
-    });
-
-    // Estratégia 2: links evento-legislativo próximos de "em andamento"
-    if (!reuniaoId) {
-      var evLinks = doc.querySelectorAll('a[href*="evento-legislativo/"]');
-      evLinks.forEach(function (a) {
-        if (reuniaoId) return;
-        var container = a.closest('li') || a.closest('article') || a.closest('div') || a.parentElement;
-        if (container && container.textContent.toLowerCase().includes('em andamento')) {
-          var m = (a.getAttribute('href') || '').match(/evento-legislativo\/(\d+)/);
-          if (m) reuniaoId = m[1];
-        }
+    var t = new Date();
+    var hojeStr = t.getFullYear() + '-' +
+      String(t.getMonth() + 1).padStart(2, '0') + '-' +
+      String(t.getDate()).padStart(2, '0');
+    // codSituacao=3 (Em Andamento), codTipoEvento=110 (Sessão Deliberativa)
+    var resp = await fetch(API + '/eventos?dataInicio=' + hojeStr +
+      '&codSituacao=3&codTipoEvento=110&itens=30');
+    var evento = null;
+    if (resp.ok) {
+      var data = await resp.json();
+      evento = (data.dados || []).find(function (e) {
+        return (e.orgaos || []).some(function (o) { return o.sigla === 'PLEN'; });
       });
     }
-
-    // Estratégia 3: varredura no HTML bruto ao redor de "em andamento"
-    if (!reuniaoId) {
-      var idx = html.toLowerCase().indexOf('em andamento');
-      if (idx !== -1) {
-        // Janela ampla para capturar links que apareçam antes ou depois do texto
-        var trecho = html.substring(Math.max(0, idx - 1000), idx + 1000);
-        // Tenta pegar votacao-portal com itemVotacao (inclui &amp; do HTML)
-        var mp = trecho.match(/votacao-portal\?reuniao=(\d+)(?:&(?:amp;)?itemVotacao=(\d+))?/);
-        if (mp) {
-          reuniaoId = mp[1];
-          if (mp[2]) itemVotacaoId = mp[2];
-        } else {
-          var m2 = trecho.match(/evento-legislativo\/(\d+)/);
-          if (m2) reuniaoId = m2[1];
-        }
+    if (!evento) {
+      var resp2 = await fetch(API + '/eventos?dataInicio=' + hojeStr +
+        '&codSituacao=3&itens=50');
+      if (resp2.ok) {
+        var data2 = await resp2.json();
+        evento = (data2.dados || []).find(function (e) {
+          return (e.orgaos || []).some(function (o) { return o.sigla === 'PLEN'; });
+        });
       }
     }
-
-    // Estratégia 4: qualquer link votacao-portal no documento (sem exigir "em andamento")
-    if (!reuniaoId) {
-      portalLinks.forEach(function (a) {
-        if (reuniaoId) return;
-        var href = a.getAttribute('href') || '';
-        var rm = href.match(/reuniao=(\d+)/);
-        if (rm) {
-          reuniaoId = rm[1];
-          var ivm = href.match(/itemVotacao=(\d+)/);
-          if (ivm) itemVotacaoId = ivm[1];
-        }
-      });
-    }
-
-    if (!reuniaoId) {
+    if (!evento) {
       showPortalStatus(
-        'Nenhuma sessão "em andamento" encontrada no Plenário agora.<br>' +
-        '<small>Pode não haver sessão no momento. Cole o link manualmente.</small>', true);
+        'Nenhuma sessão de Plenário em andamento agora.<br>' +
+        '<small>Se a Câmara já abriu, cole o link manualmente.</small>', true);
       return;
     }
-
-    var url = 'https://www.camara.leg.br/presenca-comissoes/votacao-portal?reuniao=' + reuniaoId;
-    if (itemVotacaoId) url += '&itemVotacao=' + itemVotacaoId;
-    document.getElementById('portalUrlInput').value = url;
-    showPortalStatus('Sessão detectada — reunião ' + reuniaoId + '. Carregando dados…');
+    document.getElementById('portalUrlInput').value =
+      'https://www.camara.leg.br/presenca-comissoes/votacao-portal?reuniao=' + evento.id;
+    showPortalStatus('Sessão detectada — reunião ' + evento.id + '. Carregando votações…');
     await loadFromPortalUrl();
-
   } catch (e) {
-    showPortalStatus('Erro ao buscar sessão: ' + e.message + '<br><small>Cole o link manualmente.</small>', true);
+    showPortalStatus('Erro ao buscar sessão: ' + e.message +
+      '<br><small>Cole o link manualmente.</small>', true);
   }
-
   btn.disabled = false;
   btn.textContent = '🔍 Detectar sessão em andamento';
 }
@@ -1567,6 +1490,7 @@ async function detectSessaoEmAndamento() {
 ══════════════════════════════════════════ */
 
 var portalCachedDoc     = null;
+var portalCachedVotacoes = null;
 var portalCachedBaseUrl = '';
 var portalCachedVotingId = null;
 var portalLastRenderData = null;
@@ -1628,6 +1552,7 @@ async function fetchPortalPage(url) {
   throw lastErr || new Error('Não foi possível acessar a página da Câmara.');
 }
 
+
 async function loadFromPortalUrl() {
   var url = document.getElementById('portalUrlInput').value.trim();
   if (!url || !url.includes('camara.leg.br')) {
@@ -1639,36 +1564,50 @@ async function loadFromPortalUrl() {
     showPortalStatus('O link deve conter <b>reuniao=XXXXX</b>.', true);
     return;
   }
-  var reuniao = rm[1];
-  var ivm     = url.match(/itemVotacao=(\d+)/);
-  var itemVotacao = ivm ? ivm[1] : null;
+  var eventoId = rm[1];
+  var ivm = url.match(/itemVotacao=(\d+)/);
+  var preferItem = ivm ? ivm[1] : null;
 
   var btn = document.getElementById('loadPortalBtn');
   btn.disabled = true;
-  showPortalLoading('Buscando página do portal (reunião ' + reuniao + ')…');
-
+  showPortalLoading('Carregando votações da reunião ' + eventoId + '…');
   try {
-    portalCachedBaseUrl = 'https://www.camara.leg.br/presenca-comissoes/votacao-portal?reuniao=' + reuniao;
-
-    // Se tiver itemVotacao no link, tenta com ele; se falhar, cai para a URL base
-    var doc = null;
-    if (itemVotacao) {
-      try {
-        doc = await fetchPortalPage(portalCachedBaseUrl + '&itemVotacao=' + itemVotacao);
-      } catch (e) {
-        showPortalLoading('Link com itemVotacao falhou — buscando lista de votações da sessão…');
-        doc = await fetchPortalPage(portalCachedBaseUrl);
-      }
-    } else {
-      doc = await fetchPortalPage(portalCachedBaseUrl);
+    var resp = await fetch(API + '/eventos/' + eventoId + '/votacoes');
+    if (!resp.ok) throw new Error('HTTP ' + resp.status);
+    var data = await resp.json();
+    var lista = (data.dados || []).slice();
+    if (lista.length === 0) {
+      showPortalStatus('Nenhuma votação registrada nesta reunião ainda.<br>' +
+        '<small>A primeira votação aparece após registro pela Mesa.</small>', true);
+      btn.disabled = false;
+      return;
     }
+    lista.sort(function (a, b) {
+      return (b.dataHoraRegistro || '').localeCompare(a.dataHoraRegistro || '');
+    });
+    portalCachedBaseUrl =
+      'https://www.camara.leg.br/presenca-comissoes/votacao-portal?reuniao=' + eventoId;
+    portalCachedVotacoes = lista;
 
-    await _aplicarDocPortal(doc, itemVotacao);
+    var select = document.getElementById('portalVotingSelect');
+    select.innerHTML = '';
+    lista.forEach(function (v) {
+      var opt = document.createElement('option');
+      opt.value = v.id;
+      var hora = v.dataHoraRegistro
+        ? v.dataHoraRegistro.split('T')[1].substring(0, 5) : '';
+      opt.textContent = (hora ? hora + ' — ' : '') + (v.descricao || 'Votação');
+      select.appendChild(opt);
+    });
+    select.value =
+      (preferItem && lista.some(function (v) { return String(v.id) === String(preferItem); }))
+        ? preferItem : String(lista[0].id);
+    document.getElementById('portalVotingSelectArea').classList.add('show');
+    document.getElementById('portalFilterBtn').style.display = '';
+    portalCachedVotingId = select.value;
+    await onPortalVotacaoChange();
   } catch (e) {
-    showPortalStatus(
-      'Erro ao carregar: ' + e.message +
-      '<br><small>Tente colar o código-fonte abaixo (Ctrl+U na página → Ctrl+A → Ctrl+C).</small>', true);
-    document.getElementById('portalFallbackSection').style.display = 'block';
+    showPortalStatus('Erro ao carregar: ' + e.message, true);
   }
   btn.disabled = false;
 }
@@ -1716,28 +1655,20 @@ async function _aplicarDocPortal(doc, preferItemVotacao) {
   await processPortalDoc(doc);
 }
 
+
 async function onPortalVotacaoChange() {
-  var newId = document.getElementById('portalVotingSelect').value;
-  if (newId === portalCachedVotingId && portalCachedDoc) {
-    await processPortalDoc(portalCachedDoc);
-    return;
-  }
-  showPortalLoading('Carregando votação…');
-  try {
-    var doc;
-    try {
-      doc = await fetchPortalPage(portalCachedBaseUrl + '&itemVotacao=' + newId);
-    } catch (e) {
-      // Se falhar com itemVotacao, tenta sem para mostrar o que está disponível
-      showPortalLoading('Erro com itemVotacao — buscando sessão novamente…');
-      doc = await fetchPortalPage(portalCachedBaseUrl);
+  if (!portalCachedVotacoes) return;
+  var id = document.getElementById('portalVotingSelect').value;
+  var votacao = null;
+  for (var i = 0; i < portalCachedVotacoes.length; i++) {
+    if (String(portalCachedVotacoes[i].id) === String(id)) {
+      votacao = portalCachedVotacoes[i];
+      break;
     }
-    portalCachedDoc      = doc;
-    portalCachedVotingId = newId;
-    await processPortalDoc(doc);
-  } catch (e) {
-    showPortalStatus('Erro: ' + e.message, true);
   }
+  if (!votacao) return;
+  portalCachedVotingId = id;
+  await _renderPortalVotacaoApi(votacao);
 }
 
 function parseFromPortalSource() {
@@ -2015,116 +1946,85 @@ async function processPortalDoc(doc) {
   document.getElementById('portalGenerateStatus').textContent = '';
 }
 
+
 async function refreshPortalVotacao() {
-  if (!portalCachedBaseUrl) return;
+  if (!portalCachedBaseUrl) {
+    showPortalStatus('Detecte ou carregue uma sessão antes de atualizar.', true);
+    return;
+  }
   var btn = document.getElementById('refreshPortalBtn');
   btn.disabled = true;
-  showPortalLoading('Buscando nova votação na sessão…');
+  showPortalLoading('Buscando atualização…');
   try {
-    // Sempre busca sem itemVotacao para pegar a lista completa e a votação mais recente
-    var doc = await fetchPortalPage(portalCachedBaseUrl);
-    await _aplicarDocPortal(doc, null);
+    document.getElementById('portalUrlInput').value = portalCachedBaseUrl;
+    await loadFromPortalUrl();
   } catch (e) {
     showPortalStatus('Erro ao atualizar: ' + e.message, true);
   }
   btn.disabled = false;
 }
 
+
 async function refilterPortal() {
-  if (portalCachedDoc) await processPortalDoc(portalCachedDoc);
+  if (!portalCachedVotacoes) return;
+  var id = document.getElementById('portalVotingSelect').value;
+  var votacao = null;
+  for (var i = 0; i < portalCachedVotacoes.length; i++) {
+    if (String(portalCachedVotacoes[i].id) === String(id)) {
+      votacao = portalCachedVotacoes[i];
+      break;
+    }
+  }
+  if (votacao) await _renderPortalVotacaoApi(votacao);
 }
 
+
 async function generatePortalImage() {
-  var D = portalLastRenderData;
-  if (!D) return;
-  var btn    = document.getElementById('portalGenerateBtn');
-  var status = document.getElementById('portalGenerateStatus');
-  btn.disabled = true;
-  status.textContent = 'Gerando imagem, aguarde...';
+  return await generateImage(portalLastRenderData);
+}
 
-  var off = null;
+async function _renderPortalVotacaoApi(votacao) {
+  var rawParty = document.getElementById('portalPartyInput').value.trim();
+  if (!rawParty) { showPortalStatus('Informe o partido.', true); return; }
+  showPortalLoading('Carregando votos e orientações…');
   try {
-    var depSim=[], depNao=[], depAbst=[], depArt17=[], depObst=[], depAusente=[];
-    D.merged.forEach(function (d) {
-      var c = d.votoClass || votoClass(d.tipoVoto);
-      if      (c === 'sim')       depSim.push(d);
-      else if (c === 'nao')       depNao.push(d);
-      else if (c === 'abstencao') depAbst.push(d);
-      else if (c === 'art17')     depArt17.push(d);
-      else if (c === 'obstrucao') depObst.push(d);
-      else                        depAusente.push(d);
-    });
+    var results = await Promise.all([
+      fetch(API + '/votacoes/' + votacao.id + '/votos'),
+      fetch(API + '/votacoes/' + votacao.id + '/orientacoes').catch(function () { return null; })
+    ]);
+    if (!results[0].ok) throw new Error('HTTP ' + results[0].status + ' nos votos');
+    var votosData = await results[0].json();
+    var orientData = (results[1] && results[1].ok)
+      ? await results[1].json() : { dados: [] };
+    var votos = votosData.dados || [];
+    var orient = orientData.dados || [];
 
-    var groupsHTML =
-      buildGroupHTML('Votaram Sim',  depSim,     '#3ad97d', '#3ad97d') +
-      buildGroupHTML('Votaram Não',  depNao,     '#f05454', '#f05454') +
-      buildGroupHTML('Abstenção',    depAbst,    '#f0c040', '#f0c040') +
-      buildGroupHTML('Art. 17',      depArt17,   '#6eaaff', '#6eaaff') +
-      buildGroupHTML('Obstrução',    depObst,    '#c084fc', '#c084fc') +
-      buildGroupHTML('Ausentes',     depAusente, '#5a6f74', '#5a6f74');
+    var sigla = await resolvePartySigla(rawParty);
+    var allDeputados = [];
+    try {
+      var dResp = await fetch(API + '/deputados?siglaPartido=' + sigla +
+        '&itens=100&ordem=ASC&ordenarPor=nome');
+      if (dResp.ok) {
+        var dData = await dResp.json();
+        allDeputados = dData.dados || [];
+      }
+    } catch (e) {}
 
-    var lg = '';
-    if (D.pSim)    lg += '<div class="legend-item"><span class="legend-dot" style="background:#3ad97d"></span>Sim<span class="legend-value" style="color:#3ad97d">'       + D.pSim    + '</span></div>';
-    if (D.pNao)    lg += '<div class="legend-item"><span class="legend-dot" style="background:#f05454"></span>Não<span class="legend-value" style="color:#f05454">'       + D.pNao    + '</span></div>';
-    if (D.pAbst)   lg += '<div class="legend-item"><span class="legend-dot" style="background:#f0c040"></span>Abstenção<span class="legend-value" style="color:#f0c040">' + D.pAbst   + '</span></div>';
-    if (D.pArt17)  lg += '<div class="legend-item"><span class="legend-dot" style="background:#6eaaff"></span>Art. 17<span class="legend-value" style="color:#6eaaff">'   + D.pArt17  + '</span></div>';
-    if (D.pObst)   lg += '<div class="legend-item"><span class="legend-dot" style="background:#c084fc"></span>Obstrução<span class="legend-value" style="color:#c084fc">' + D.pObst   + '</span></div>';
-    if (D.pAusente)lg += '<div class="legend-item"><span class="legend-dot" style="background:#5a6f74"></span>Ausente<span class="legend-value" style="color:#5a6f74">'   + D.pAusente+ '</span></div>';
-
-    off = document.createElement('div');
-    off.style.cssText = 'position:fixed;left:-9999px;top:0;width:500px;background:#0e1c1f;padding:20px;font-family:DM Sans,sans-serif;color:#e8ecec;';
-    off.innerHTML =
-      '<div class="vote-header">' +
-        '<div class="vote-title-bar">' +
-          '<div class="vote-party-badge">partido: ' + D.sigla + '</div>' +
-          '<div class="vote-description">' + D.votingDesc + '</div>' +
-          '<div class="vote-dates">' + D.sessionDate + ' · PLEN</div>' +
-        '</div>' +
-        '<div class="quorum-big"><div class="q-label">Quórum da votação</div><div class="q-value">' + D.quorum + '</div></div>' +
-        '<div class="result-title">Resultado final</div>' +
-        '<div class="result-row"><span class="r-label">Sim</span><span class="r-value sim">'             + D.totalSim   + '</span></div>' +
-        '<div class="result-row"><span class="r-label">Não</span><span class="r-value nao">'             + D.totalNao   + '</span></div>' +
-        '<div class="result-row"><span class="r-label">Abstenção</span><span class="r-value abstencao">' + D.totalAbst  + '</span></div>' +
-        '<div class="result-row"><span class="r-label">Art. 17</span><span class="r-value art17">'       + D.totalArt17 + '</span></div>' +
-        '<div class="result-row"><span class="r-label">Obstrução</span><span class="r-value obstrucao">' + D.totalObst  + '</span></div>' +
-        '<div class="result-divider"></div><div class="result-total"><span>Total</span><span>' + D.totalVotantes + '</span></div>' +
-        D.orientHTML + D.orientGovHTML +
-      '</div>' +
-      '<div class="vote-header" style="margin-top:12px">' +
-        '<div class="result-title" style="padding-top:14px">Bancada ' + D.sigla + '</div>' +
-        '<div class="chart-section"><canvas id="pieChartImgP" width="140" height="140"></canvas>' +
-        '<div class="chart-legend">' + lg + '</div></div>' +
-        '<div class="result-divider"></div><div class="result-total"><span>Total bancada</span><span>' + D.merged.length + '</span></div>' +
-      '</div>' +
-      '<div class="dep-groups" style="margin-top:12px">' + groupsHTML + '</div>' +
-      '<div class="signature">' +
-        '<div class="signature-line"></div>' +
-        '<div class="signature-text">Liderança do Podemos</div>' +
-        '<div class="signature-sub">Câmara dos Deputados · ' + D.sessionDate + '</div>' +
-      '</div>';
-
-    document.body.appendChild(off);
-    var pc = off.querySelector('#pieChartImgP');
-    if (pc) drawPieCanvas(pc, D.pSim, D.pNao, D.pAbst, D.pArt17, D.pObst, D.pAusente);
-
-    await new Promise(function (r) { setTimeout(r, 100); });
-
-    var c2 = await html2canvas(off, { backgroundColor: '#0e1c1f', scale: 2, useCORS: true, logging: false, windowWidth: 540 });
-    document.body.removeChild(off);
-    off = null;
-
-    var link      = document.createElement('a');
-    link.download = 'votacao-' + D.sigla.toLowerCase() + '-' + (D.sessionDate || 'portal').replace(/\//g, '-') + '.png';
-    link.href     = c2.toDataURL('image/png');
-    link.click();
-
-    status.textContent = 'Imagem salva com sucesso!';
-    setTimeout(function () { status.textContent = ''; }, 3000);
+    document.getElementById('portalStatusArea').innerHTML = '';
+    var built = buildVotingHTML(sigla, votos, orient, votacao, allDeputados, 'da');
+    document.getElementById('portalResultsArea').innerHTML = built.resultsHTML;
+    portalLastRenderData = built.renderData;
+    if (built.chartId && built.renderData) {
+      var c = document.getElementById(built.chartId);
+      if (c) drawPieCanvas(c,
+        built.renderData.pSim, built.renderData.pNao, built.renderData.pAbst,
+        built.renderData.pArt17, built.renderData.pObst, built.renderData.pAusente);
+    }
+    document.getElementById('portalGenerateArea').classList.add('show');
+    document.getElementById('portalGenerateStatus').textContent = '';
   } catch (e) {
-    status.textContent = 'Erro ao gerar imagem: ' + e.message;
-    if (off && off.parentNode) off.parentNode.removeChild(off);
+    showPortalStatus('Erro: ' + e.message, true);
   }
-  btn.disabled = false;
 }
 
 /* ══════════════════════════════════════════
@@ -2178,43 +2078,5 @@ document.getElementById('portalUrlInput').addEventListener('keydown', function (
 
 </script>
 
-<script>
-(function () {
-  var KEY = 'sispode.workerUrl';
-  var input  = document.getElementById('proxyUrlInput');
-  var btn    = document.getElementById('proxySaveBtn');
-  var status = document.getElementById('proxyStatus');
-  if (!input || !btn || !status) return;
-
-  function render() {
-    var cur = '';
-    try { cur = localStorage.getItem(KEY) || ''; } catch (e) {}
-    input.value = cur;
-    if (cur) {
-      status.innerHTML = '✅ Proxy configurado: <code style="color:var(--accent-light)">' +
-        cur.replace(/</g, '&lt;') + '</code>';
-    } else {
-      status.innerHTML = '⚠️ Sem proxy esta aba não funciona no celular. ' +
-        'Deploye um Cloudflare Worker (código em <code>cloudflare-worker.js</code>) ' +
-        'e cole a URL acima.';
-    }
-  }
-
-  btn.addEventListener('click', function () {
-    var v = (input.value || '').trim();
-    try {
-      if (v) localStorage.setItem(KEY, v);
-      else localStorage.removeItem(KEY);
-    } catch (e) {
-      status.textContent = 'Falha ao salvar no localStorage: ' + e.message;
-      return;
-    }
-    status.textContent = 'Salvo. Recarregando…';
-    setTimeout(function () { location.reload(); }, 350);
-  });
-
-  render();
-})();
-</script>
 </body>
 </html>
