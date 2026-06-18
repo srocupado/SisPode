@@ -2243,28 +2243,48 @@ function plnResumoCredito(ementa) {
 }
 
 // Resumo curto para alterações de leis orçamentárias (sem IA): reconhece
-// LOA/LDO/PPA e devolve "<verbo> a/o SIGLA <ano>" (ex.: "Altera a LOA 2026").
-// O ano é o do ORÇAMENTO, extraído de frases canônicas ("exercício financeiro
-// de AAAA" / "Lei Orçamentária de AAAA"), nunca a data de sanção da lei — por
-// isso distingue, p.ex., 2026 de 2027. Retorna '' quando não é lei orçamentária.
+// LOA/LDO/PPA e devolve "<verbo> a/o SIGLA <ano> · <o que altera>"
+// (ex.: "Altera a LOA 2026 · calendário de pagamento").
+// - ano: o do ORÇAMENTO, extraído de frases canônicas ("exercício financeiro
+//   de AAAA" / "Lei Orçamentária de AAAA"), nunca a data de sanção da lei —
+//   por isso distingue, p.ex., 2026 de 2027.
+// - detalhe: o trecho APÓS a identificação da lei (onde costuma vir a mudança,
+//   "...para alterar o calendário..."), sem os jargões finais; cai para o
+//   objeto inicial ("Anexo X") quando não há mudança explícita no fim.
+// Retorna '' quando não é lei orçamentária.
 function plnResumoOrcamentario(ementa) {
   const e = (ementa || '').replace(/\s+/g, ' ').trim();
   if (!e) return '';
   const verbo = (e.match(/^([A-Za-zÀ-ú]+)/) || [])[1] || 'Altera';
-  let sigla = '', artigo = 'a', ref = '';
+  let sigla = '', artigo = 'a', ref = '', ancora = null;
   if (/plano plurianual|\bPPA\b/i.test(e)) {
     sigla = 'PPA'; artigo = 'o';
-    const m = e.match(/plano plurianual\D{0,8}(20\d{2})\s*[-–\/a\s]+\s*(20\d{2})/i);
-    if (m) ref = `${m[1]}-${m[2]}`;
+    ancora = e.match(/plano plurianual\D{0,8}(20\d{2})\s*[-–\/a\s]+\s*(20\d{2})/i);
+    if (ancora) ref = `${ancora[1]}-${ancora[2]}`;
   } else if (/diretrizes\b[^.]*\bor[çc]ament|diretrizes para a elabora|\bLDO\b/i.test(e)) {
     sigla = 'LDO';
-    ref = (e.match(/lei or[çc]ament[áa]ria de\s+(20\d{2})/i) || [])[1] || '';
+    ancora = e.match(/lei or[çc]ament[áa]ria de(?:\s+(20\d{2}))?/i); ref = ancora?.[1] || '';
   } else if (/estima a receita e fixa a despesa|lei or[çc]ament[áa]ria anual|\bLOA\b/i.test(e)) {
     sigla = 'LOA';
-    ref = (e.match(/exerc[íi]cio financeiro de\s+(20\d{2})/i) || [])[1] || '';
+    ancora = e.match(/exerc[íi]cio financeiro de(?:\s+(20\d{2}))?/i); ref = ancora?.[1] || '';
   }
   if (!sigla) return '';
-  return [verbo, artigo, sigla, ref].filter(Boolean).join(' ');
+  let det = '';
+  if (ancora) {
+    det = e.slice(ancora.index + ancora[0].length)
+      .replace(/^[\s,;.)]+/, '')
+      .replace(/^(?:para|a fim de|com o objetivo de|de modo a|visando a?)\s+/i, '')
+      .replace(/^(?:alterar|modificar|dispor sobre)\s+(?:o|a|os|as)\s+/i, '')
+      .replace(/\s*,?\s*e d[áa] outras provid[êe]ncias.*$/i, '')
+      .replace(/\s*,?\s*para os? fins? que especifica.*$/i, '')
+      .replace(/[\s,;.]+$/, '').trim();
+  }
+  if (!det || det.length < 4) {
+    const mAnexo = e.match(/\bAnexos?\s+[IVXLCDM\d]+(?:\s*(?:,|e)\s*[IVXLCDM\d]+)*/i);
+    det = mAnexo ? mAnexo[0] : '';
+  }
+  if (det.length > 48) { const c = det.slice(0, 48); const s = c.lastIndexOf(' '); det = (s > 24 ? c.slice(0, s) : c) + '…'; }
+  return [verbo, artigo, sigla, ref].filter(Boolean).join(' ') + (det ? ` · ${det}` : '');
 }
 
 function plnRotulo(p, max = 140) {
