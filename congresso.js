@@ -1044,12 +1044,15 @@ function renderLista() {
   wireCards();
   if (app.sessaoAtiva) wirePlnCards();
 
-  // Controles de seleção (só quando há vetos visíveis para exportar)
-  if (filtrados.length) {
+  // Controles de seleção (quando há vetos ou PLNs visíveis para exportar)
+  if (filtrados.length || plnsVisiveis.length) {
     stats.innerHTML += ` · <a href="#" id="cn-sel-todos">Selecionar todos${termo ? ' (visíveis)' : ''}</a>`
       + ` · <a href="#" id="cn-sel-limpar">Desmarcar todos</a><span id="cn-selnum"></span>`;
     document.getElementById('cn-sel-todos').addEventListener('click', e => {
-      e.preventDefault(); filtrados.forEach(v => app.selecionados.add(v.key)); renderLista();
+      e.preventDefault();
+      filtrados.forEach(v => app.selecionados.add(v.key));
+      plnsVisiveis.forEach(p => app.selecionados.add(p.key));
+      renderLista();
     });
     document.getElementById('cn-sel-limpar').addEventListener('click', e => {
       e.preventDefault(); app.selecionados.clear(); renderLista();
@@ -1063,7 +1066,7 @@ function atualizarBotaoWord() {
   if (!btn) return;
   const n = app.selecionados.size;
   btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg> Word${n ? ` (${n})` : ''}`;
-  btn.title = n ? `Exportar ${n} veto(s) selecionado(s) para Word` : 'Exportar os vetos visíveis para Word (.docx)';
+  btn.title = n ? `Exportar ${n} item(ns) selecionado(s) para Word` : 'Exportar os itens visíveis da pauta para Word (.docx)';
 }
 
 function toggleSelecao(key, checked) {
@@ -1075,7 +1078,7 @@ function atualizarSelecaoUI() {
   atualizarBotaoWord();
   const n = app.selecionados.size;
   const num = document.getElementById('cn-selnum');
-  if (num) num.innerHTML = n ? ` · <strong>${n}</strong> selecionado(s) p/ Word` : '';
+  if (num) num.innerHTML = n ? ` · <strong>${n}</strong> item(ns) selecionado(s) p/ exportar` : '';
 }
 
 function renderVeto(v, termo) {
@@ -2111,6 +2114,7 @@ function renderPlnCard(p, termo) {
   const meta = p.analiseMeta ? `<span style="font-size:11px;color:var(--text-dim)">Análise: ${p.analiseMeta.provedor}${p.analiseMeta.modelo ? ' / ' + p.analiseMeta.modelo : ''}</span>` : '';
   return `<div class="cn-veto cn-veto--ambar" data-key="${p.key}">
     <div class="cn-veto-head" style="cursor:default">
+      <label class="cn-veto-check" title="Selecionar para exportar"><input type="checkbox" data-sel="${p.key}" ${app.selecionados.has(p.key) ? 'checked' : ''}></label>
       <div class="cn-veto-num">${p.sigla} ${marca(p.numero, termo)}<small>${p.tipo === 'mpv' ? 'MPV de crédito' : 'PLN'}</small></div>
       <div class="cn-veto-meta">
         <div class="cn-veto-assunto">${marca(p.titulo || '', termo)}</div>
@@ -2156,12 +2160,11 @@ function _selecaoExport() {
   const vetos = temSelecao
     ? app.vetos.filter(v => app.selecionados.has(v.key))
     : app.vetos.filter(v => vetoCasaBusca(v, termo));
-  // Os PLNs/MPVs não têm seleção individual: quando uma pauta está ativa, eles
-  // sempre acompanham a exportação. Com vetos marcados, a seleção sobrepõe a
-  // busca (igual aos vetos), então exporta todos os PLNs da pauta; sem seleção,
-  // respeita o filtro de busca atual.
+  // PLNs/MPVs têm seleção individual (mesmo Set dos vetos, chaves "pln-"/"mpv-"
+  // não colidem com as dos vetos). Com qualquer item marcado, exporta só os PLNs
+  // marcados; sem seleção, respeita o filtro de busca atual.
   const plns = app.sessaoAtiva
-    ? (app.sessaoAtiva.plns || []).filter(p => temSelecao || plnCasaBusca(p, termo))
+    ? (app.sessaoAtiva.plns || []).filter(p => temSelecao ? app.selecionados.has(p.key) : plnCasaBusca(p, termo))
     : [];
   return { vetos, plns };
 }
