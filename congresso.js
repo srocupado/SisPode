@@ -197,6 +197,13 @@ function wireEventos() {
 //  LISTA — download e parse do PDF oficial
 // ============================================================
 async function carregarListaVetos(forcar) {
+  // Trava de segurança: com uma pauta aberta, atualizar a lista substituiria os
+  // vetos da pauta pelos vetos AO VIVO — e qualquer resumo gerado em seguida
+  // seria gravado na pauta (vazamento). Exige voltar aos vetos ao vivo antes.
+  if (app.sessaoAtiva) {
+    mostrarToast('Você está em uma pauta. Clique em "↺ Voltar aos vetos ao vivo" antes de atualizar a lista.', 'aviso');
+    return;
+  }
   const empty = document.getElementById('cn-empty');
   if (empty) empty.innerHTML = '<span class="cn-spinner"></span> Baixando o relatório de vetos do Congresso Nacional…';
   try {
@@ -538,6 +545,14 @@ async function resumirVeto(veto, { silencioso = false, render = true, apenasFalt
 /** Salva o resumo no Firebase (com marcador de sync) e no cache local.
  *  Retorna true se a gravação no Firebase foi bem-sucedida. */
 async function persistirResumo(veto) {
+  // Defesa contra contaminação da pauta: com sessão ativa, só grava na pauta os
+  // vetos que pertencem a ela; um veto fora da pauta (ex.: da lista ao vivo) não
+  // é escrito no Firebase, apenas no cache local.
+  if (app.sessaoAtiva && app.sessaoAtiva.vetoKeys && !app.sessaoAtiva.vetoKeys.has(veto.key)) {
+    console.warn(`[congresso] veto ${veto.key} não pertence à pauta — não será gravado na sessão.`);
+    salvarCacheLocal();
+    return false;
+  }
   atualizarStatusSync('sincronizando');
   let ok = false;
   try {
@@ -1836,7 +1851,9 @@ async function abrirPauta(id) {
     app.vetos = vetos;
     const plns = s.plns ? Object.values(s.plns) : [];
     plns.sort((a, b) => (a.sigla || '').localeCompare(b.sigla || '') || (a.num - b.num));
-    app.sessaoAtiva = { id, nome: s.nome, data: s.data, plns: plns.map(p => ({ ...p, aberto: false, resumindoAnalise: false })) };
+    app.sessaoAtiva = { id, nome: s.nome, data: s.data,
+      vetoKeys: new Set(vetos.map(v => v.key)),   // só estes vetos podem ser gravados na pauta
+      plns: plns.map(p => ({ ...p, aberto: false, resumindoAnalise: false })) };
     app.selecionados.clear();
     renderSidebar();
     renderLista();
@@ -2009,14 +2026,32 @@ async function importarPauta(url) {
     const p = parsePautaHtml(await fetchHtml(PAUTA_BASE_URL + id));
     if (!p.vetos.length && !p.plns.length) throw new Error('Nenhum veto/PLN encontrado nessa pauta (verifique se é uma Sessão Conjunta).');
     const total = p.vetos.length + p.plns.length; let feito = 0;
+
+    // A página da pauta não expõe a URL de detalhe do veto (só o link da
+    // matéria, com id que NÃO serve ao /veto/detalhe). O Relatório oficial de
+    // Vetos em Tramitação (PDF) é a fonte autoritativa: casamos por número para
+    // obter o detalheUrl correto (+ cor/qtd/sobrestamento) de cada veto pautado.
+    let mapaVivo = new Map();
+    try {
+      const vivos = await parsePdfVetos(await baixarArrayBuffer(PDF_VETOS_URL));
+      mapaVivo = new Map(vivos.map(v => [v.key, v]));
+    } catch (e) { console.warn('[congresso] lista oficial de vetos indisponível no import:', e.message); }
+
     const vetos = [];
     for (const it of p.vetos) {
       setImportStatus(`Carregando itens… ${++feito}/${total}`);
-      const v = construirVeto({ numero: it.numero, num: it.num, ano: it.ano, materia: '', assunto: it.assunto || '', sobresta: '', data: '', qtdRaw: '', cor: '', detalheUrl: it.detalheUrl });
-      v.tipo = it.tipo;
+      const vivo = mapaVivo.get(`${it.num}-${it.ano}`);
+      // Base: o veto da lista oficial (traz detalheUrl/cor/qtd/sobresta). Sem
+      // correspondência, cai no stub mínimo a partir do que a pauta forneceu.
+      const v = vivo
+        ? { ...vivo, aberto: false, resumindo: false, carregandoDetalhe: false }
+        : construirVeto({ numero: it.numero, num: it.num, ano: it.ano, materia: '', assunto: it.assunto || '', sobresta: '', data: '', qtdRaw: '', cor: '', detalheUrl: it.detalheUrl });
+      if (it.tipo) v.tipo = it.tipo;          // a pauta confirma Total/Parcial
+      if (it.assunto) v.assunto = it.assunto;
+      if (it.detalheUrl) v.detalheUrl = it.detalheUrl;   // prefere link explícito, se houver
       try { await carregarDetalhe(v); } catch (_) {}
       // Assunto do card derivado da ementa (a agenda não traz um rótulo curto p/ vetos).
-      if (!v.assunto && v.ementa) v.assunto = v.ementa.replace(/^Veto\s+(parcial|total|integral)\s+aposto\s+ao\s+/i, '').slice(0, 140);
+      if ((!v.assunto || v.assunto === '(sem assunto)') && v.ementa) v.assunto = v.ementa.replace(/^Veto\s+(parcial|total|integral)\s+aposto\s+ao\s+/i, '').slice(0, 140);
       vetos.push(v);
     }
     const plns = [];
