@@ -2156,7 +2156,13 @@ function _selecaoExport() {
   const vetos = temSelecao
     ? app.vetos.filter(v => app.selecionados.has(v.key))
     : app.vetos.filter(v => vetoCasaBusca(v, termo));
-  const plns = (!temSelecao && app.sessaoAtiva) ? (app.sessaoAtiva.plns || []).filter(p => plnCasaBusca(p, termo)) : [];
+  // Os PLNs/MPVs não têm seleção individual: quando uma pauta está ativa, eles
+  // sempre acompanham a exportação. Com vetos marcados, a seleção sobrepõe a
+  // busca (igual aos vetos), então exporta todos os PLNs da pauta; sem seleção,
+  // respeita o filtro de busca atual.
+  const plns = app.sessaoAtiva
+    ? (app.sessaoAtiva.plns || []).filter(p => temSelecao || plnCasaBusca(p, termo))
+    : [];
   return { vetos, plns };
 }
 
