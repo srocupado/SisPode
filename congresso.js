@@ -2242,9 +2242,9 @@ function plnResumoCredito(ementa) {
   return [tipo, orgao, valor].filter(Boolean).join(' · ');
 }
 
-// Resumo de até ~4 palavras para alterações de leis orçamentárias (sem IA):
-// reconhece LOA/LDO/PPA por expressões fixas e devolve "<verbo> a/o SIGLA [ano]"
-// (ex.: "Altera a LOA 2026"). Retorna '' quando não é lei orçamentária.
+// Resumo curto para alterações de leis orçamentárias (sem IA): reconhece
+// LOA/LDO/PPA por expressões fixas e devolve "<verbo> a/o SIGLA"
+// (ex.: "Altera a LOA"). Retorna '' quando não é lei orçamentária.
 function plnResumoOrcamentario(ementa) {
   const e = (ementa || '').replace(/\s+/g, ' ').trim();
   if (!e) return '';
@@ -2254,8 +2254,7 @@ function plnResumoOrcamentario(ementa) {
   else if (/estima a receita e fixa a despesa|lei or[çc]ament[áa]ria anual|\bLOA\b/i.test(e)) { sigla = 'LOA'; }
   if (!sigla) return '';
   const verbo = (e.match(/^([A-Za-zÀ-ú]+)/) || [])[1] || 'Altera';
-  const ano = (e.match(/(?:exerc[íi]cio financeiro|or[çc]ament[áa]ria)\D{0,40}?\b(20\d{2})\b/i) || [])[1] || '';
-  return [verbo, artigo, sigla, ano].filter(Boolean).join(' ');
+  return [verbo, artigo, sigla].join(' ');
 }
 
 function plnRotulo(p, max = 140) {
