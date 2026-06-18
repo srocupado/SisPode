@@ -1974,12 +1974,31 @@ async function parseMateria(url) {
   const meta = n => (doc.querySelector(`meta[name="${n}"]`)?.getAttribute('content') || '').replace(/\s+/g, ' ').trim();
   return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), apelido: meta('sf_apelido'), parecerUrl: acharParecerUrl(doc) };
 }
+// Escolhe, entre os documentos da matéria, o de maior conteúdo de MÉRITO para
+// a IA analisar. Casa pelo rótulo do PRÓPRIO link (limpo: "Relatório
+// Legislativo", "Parecer de Plenário", "Calendário"…), evitando o contexto do
+// container, que "vazava" a palavra "parecer" do Calendário (cuja descrição
+// fala em "encaminhamento do parecer") — causando análises do documento errado.
 function acharParecerUrl(doc) {
   const links = [...doc.querySelectorAll('a[href*="sdleg-getter/documento"]')];
-  const ctx = a => ((a.textContent || '') + ' ' + (a.closest('tr,li,div')?.textContent || '')).toLowerCase();
-  let alvo = links.find(a => /parecer de plen[áa]rio/.test(ctx(a)));
-  if (!alvo) alvo = links.find(a => /\bparecer\b/.test(ctx(a)) && !/reda[çc]/.test(ctx(a)));
-  return alvo ? alvo.href : '';
+  if (!links.length) return '';
+  const txt = a => (a.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
+  // Nunca usar documentos procedimentais/sem mérito.
+  const proibido = a => /calend[áa]rio|quadro comparativo|reda[çc][ãa]o/.test(txt(a));
+  // Preferência decrescente de conteúdo de mérito.
+  const criterios = [
+    t => /parecer de plen[áa]rio/.test(t),
+    t => /\bparecer\b/.test(t),
+    t => /relat[óo]rio/.test(t),
+    t => /nota informativa|nota t[ée]cnica/.test(t),
+    t => /projeto de lei|^pln\b|texto inicial|avulso/.test(t),
+  ];
+  for (const ok of criterios) {
+    const alvo = links.find(a => !proibido(a) && ok(txt(a)));
+    if (alvo) return alvo.href;
+  }
+  const alvo = links.find(a => !proibido(a));
+  return (alvo || links[0]).href;
 }
 
 async function importarPauta(url) {
@@ -2043,10 +2062,11 @@ async function resumirPLN(pln, { silencioso = false } = {}) {
 }
 
 function promptPLN(pln) {
+  const apel = (pln.apelido || '').replace(/\s+/g, ' ').trim();
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
 
-Analise o documento anexo (Parecer de Plenário) referente ao ${pln.sigla} nº ${pln.numero}${pln.titulo ? ' (' + pln.titulo + ')' : ''}.
-Ementa: ${pln.ementa || '(não disponível)'}
+Analise o documento anexo (Parecer/Relatório do relator) referente ao ${pln.sigla} nº ${pln.numero}.
+Ementa: ${pln.ementa || '(não disponível)'}${apel ? `\nApelido/tema da matéria: ${apel}` : ''}
 ${blocoPerfilPadrao()}
 Escreva um RESUMO TÉCNICO CURTO (1 a 2 parágrafos corridos, sem listas) explicando, com base no parecer: o que o crédito/alteração faz, os órgãos/programas e valores envolvidos, a fonte de recursos, e o principal ponto de atenção. Não recomende voto, não opine e não invente nada além do documento.
 Responda apenas com o texto do resumo, sem rótulos.`;
