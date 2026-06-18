@@ -1499,25 +1499,28 @@ async function mesclarResumosFirebase() {
     if (res.ok) dados = await res.json();
   } catch (e) { console.warn('Firebase indisponível:', e.message); }
   if (!dados) return;
+  for (const v of app.vetos) aplicarResumoCompartilhado(v, dados[v.key]);
+}
 
-  for (const v of app.vetos) {
-    const reg = dados[v.key];
-    if (!reg) continue;
-    v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
-    if (reg.resumoProjeto && !v.resumoProjeto) v.resumoProjeto = reg.resumoProjeto;
-    if (reg.razoesProjeto && !v.razoesProjeto) v.razoesProjeto = reg.razoesProjeto;
-    if (Array.isArray(reg.razoesGrupos) && !(v.razoesGrupos && v.razoesGrupos.length)) v.razoesGrupos = reg.razoesGrupos.filter(Boolean);
-    if (reg.razoesPdfUrl && !v.razoesPdfUrl) v.razoesPdfUrl = reg.razoesPdfUrl;
-    if (!reg.resumos) continue;
-    // Se ainda não temos os dispositivos (sem detalhe), guarda os resumos para aplicar depois.
-    if (v.dispositivos.length) {
-      v.dispositivos.forEach(d => {
-        const r = reg.resumos[d.codigo.replace(/\./g, '_')];
-        if (r && !d.resumo) d.resumo = r;
-      });
-    } else {
-      v._resumosPendentes = reg.resumos;
-    }
+// Aplica em um veto o teor já analisado pela equipe (registro de vetos_resumos),
+// sem sobrescrever o que o veto já tiver. Usado tanto na lista ao vivo quanto na
+// importação de pauta (para herdar resumos/razões sem reanalisar).
+function aplicarResumoCompartilhado(v, reg) {
+  if (!reg) return;
+  v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
+  if (reg.resumoProjeto && !v.resumoProjeto) v.resumoProjeto = reg.resumoProjeto;
+  if (reg.razoesProjeto && !v.razoesProjeto) v.razoesProjeto = reg.razoesProjeto;
+  if (Array.isArray(reg.razoesGrupos) && !(v.razoesGrupos && v.razoesGrupos.length)) v.razoesGrupos = reg.razoesGrupos.filter(Boolean);
+  if (reg.razoesPdfUrl && !v.razoesPdfUrl) v.razoesPdfUrl = reg.razoesPdfUrl;
+  if (!reg.resumos) return;
+  // Se ainda não temos os dispositivos (sem detalhe), guarda os resumos para aplicar depois.
+  if (v.dispositivos.length) {
+    v.dispositivos.forEach(d => {
+      const r = reg.resumos[d.codigo.replace(/\./g, '_')];
+      if (r && !d.resumo) d.resumo = r;
+    });
+  } else {
+    v._resumosPendentes = reg.resumos;
   }
 }
 
@@ -2037,6 +2040,14 @@ async function importarPauta(url) {
       mapaVivo = new Map(vivos.map(v => [v.key, v]));
     } catch (e) { console.warn('[congresso] lista oficial de vetos indisponível no import:', e.message); }
 
+    // Teor já analisado pela equipe (resumos/razões dos vetos ao vivo) para
+    // herdar na pauta sem reanalisar — mesma chave (num-ano) dos vetos.
+    let resumosVivos = {};
+    try {
+      const r = await fetch(`${FIREBASE_URL}/vetos_resumos.json`);
+      if (r.ok) resumosVivos = (await r.json()) || {};
+    } catch (e) { console.warn('[congresso] resumos compartilhados indisponíveis no import:', e.message); }
+
     const vetos = [];
     for (const it of p.vetos) {
       setImportStatus(`Carregando itens… ${++feito}/${total}`);
@@ -2050,6 +2061,7 @@ async function importarPauta(url) {
       if (it.assunto) v.assunto = it.assunto;
       if (it.detalheUrl) v.detalheUrl = it.detalheUrl;   // prefere link explícito, se houver
       try { await carregarDetalhe(v); } catch (_) {}
+      aplicarResumoCompartilhado(v, resumosVivos[v.key]);   // herda o teor já analisado
       // Assunto do card derivado da ementa (a agenda não traz um rótulo curto p/ vetos).
       if ((!v.assunto || v.assunto === '(sem assunto)') && v.ementa) v.assunto = v.ementa.replace(/^Veto\s+(parcial|total|integral)\s+aposto\s+ao\s+/i, '').slice(0, 140);
       vetos.push(v);
