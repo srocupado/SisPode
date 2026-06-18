@@ -220,6 +220,7 @@ async function criarPauta() {
       comissoes:            [],
       argumentosFavoraveis: '',
       argumentosContrarios: '',
+      refsSuspeitas:        [],
       statusAnalise:        'pendente',
       erroAnalise:          '',
     })),
@@ -732,7 +733,7 @@ async function _callGemini(prompt, docUrl = null) {
   const res  = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 1024 } }),
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
@@ -782,9 +783,10 @@ async function _callAnthropic(prompt, docUrl = null) {
       'anthropic-dangerous-direct-browser-access': 'true',
     },
     body: JSON.stringify({
-      model:      anthropicModelo,
-      max_tokens: 1024,
-      messages:   [{ role: 'user', content }],
+      model:       anthropicModelo,
+      max_tokens:  1024,
+      temperature: 0.2,
+      messages:    [{ role: 'user', content }],
     }),
   });
   const json = await res.json();
@@ -826,7 +828,7 @@ async function _callOpenAI(prompt, docUrl = null) {
   const res = await fetch(OPENAI_BASE, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], max_output_tokens: 2048 }),
+    body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: 2048 }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `OpenAI HTTP ${res.status}`);
@@ -846,6 +848,58 @@ function _extrairTextoHTML(html) {
     .slice(0, 40000);
 }
 
+// Regras anti-alucinação compartilhadas pelos prompts (grounding + abstenção).
+const _REGRAS_RIGIDAS = `
+
+REGRAS RÍGIDAS (cumprimento obrigatório):
+- Baseie-se EXCLUSIVAMENTE no(s) documento(s) anexado(s) e nos dados factuais fornecidos neste prompt. Não recorra a conhecimento prévio nem pressuponha conteúdo que não esteja no material.
+- Se uma informação solicitada não constar no material disponível, escreva explicitamente "não consta no documento" — NUNCA preencha a lacuna com suposições.
+- Não invente números de lei, artigos, decretos, datas, valores, nomes de relatores ou citações. Só mencione um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente no documento.
+- Não inclua recomendação de voto (favorável, contrário ou abstenção).`;
+
+// ---------- Conferência automática de referências (anti-alucinação) ----------
+// Espelha a heurística do módulo de Plenário: confere se citações de alta
+// confiança (Lei, Decreto, Emenda Constitucional, Medida Provisória) presentes
+// no texto gerado aparecem no texto-fonte. Retorna a lista das não localizadas.
+function _validarReferencias(textoGerado, textoFonte) {
+  if (!textoFonte || textoFonte.length < 100) return []; // fonte indisponivel -> nao sinaliza
+  // Conjunto de numeros presentes na fonte, sem separador de milhar ("9.999" -> "9999").
+  const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
+  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  const suspeitas = [];
+  const vistos = new Set();
+  let m;
+  while ((m = re.exec(textoGerado)) !== null) {
+    const numNorm = m[2].replace(/\./g, '');
+    if (numNorm.length < 4) continue; // ignora numeros curtos (alto risco de falso positivo)
+    if (vistos.has(numNorm)) continue;
+    vistos.add(numNorm);
+    const tipo = m[1].replace(/\s+/g, ' ');
+    if (!numerosFonte.has(numNorm)) suspeitas.push(`${tipo} nº ${m[2].trim()}`);
+  }
+  return suspeitas;
+}
+
+// Baixa uma URL e devolve seu texto puro (PDF via pdf.js, HTML via strip de tags).
+async function _textoFonteDeURL(url) {
+  if (!url) return '';
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return '';
+    const ct = res.headers.get('content-type') || '';
+    if (ct.includes('pdf') && typeof pdfjsLib !== 'undefined') {
+      const pdf = await pdfjsLib.getDocument({ data: await res.arrayBuffer() }).promise;
+      let t = '';
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const c = await (await pdf.getPage(i)).getTextContent();
+        t += c.items.map(it => it.str).join(' ') + '\n';
+      }
+      return t;
+    }
+    return _extrairTextoHTML(await res.text());
+  } catch (_) { return ''; }
+}
+
 async function gerarResumoOriginal(proj, textoUrl) {
   const prompt = `Você é um assessor parlamentar especializado em análise legislativa brasileira.
 
@@ -856,7 +910,7 @@ Com base no texto integral do projeto${textoUrl ? ' (documento anexado)' : ''}, 
 2. Principais disposições e mudanças propostas.
 3. Impacto esperado e público afetado.
 
-Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou marcadores.${blocoPerfilPadrao()}`;
+Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou marcadores.${_REGRAS_RIGIDAS}${blocoPerfilPadrao()}`;
 
   return aiCall(prompt, textoUrl);
 }
@@ -887,12 +941,12 @@ Descreva em 2 parágrafos:
 1. A decisão da comissão (aprovação, rejeição, aprovação com substitutivo/emendas).
 2. As principais alterações realizadas ou os argumentos centrais do relator.
 
-Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.${blocoPerfilPadrao()}`;
+Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.${_REGRAS_RIGIDAS}${blocoPerfilPadrao()}`;
 
   return aiCall(prompt, docUrl);
 }
 
-async function gerarArgumentos(proj) {
+async function gerarArgumentos(proj, textoUrl) {
   const historicoCom = (proj.comissoes || [])
     .filter(c => c.resumo)
     .map(c => `${c.nome}: ${c.resumo.slice(0, 300)}`)
@@ -900,9 +954,9 @@ async function gerarArgumentos(proj) {
 
   const prompt = `Você é um assessor parlamentar especializado em análise legislativa brasileira.
 
-Com base no ${proj.chave}: "${proj.ementa || ''}"${historicoCom ? `\n\nDecisões das comissões:\n${historicoCom}` : ''}
+Com base no ${proj.chave}: "${proj.ementa || ''}"${textoUrl ? ' (texto integral do projeto anexado)' : ''}${historicoCom ? `\n\nDecisões das comissões:\n${historicoCom}` : ''}
 
-Elabore, de forma equilibrada e técnica:
+Elabore, de forma equilibrada e técnica, argumentos fundamentados no teor do projeto e nas decisões das comissões acima:
 
 ARGUMENTOS FAVORÁVEIS À APROVAÇÃO:
 Liste de 3 a 4 argumentos principais em favor do projeto, um por linha, iniciando com "-".
@@ -910,9 +964,9 @@ Liste de 3 a 4 argumentos principais em favor do projeto, um por linha, iniciand
 ARGUMENTOS CONTRÁRIOS À APROVAÇÃO:
 Liste de 3 a 4 argumentos principais contra o projeto, um por linha, iniciando com "-".
 
-Não tome posição. Seja factual, objetivo e equilibrado.${blocoPerfilPadrao()}`;
+Não tome posição. Seja factual, objetivo e equilibrado.${_REGRAS_RIGIDAS}${blocoPerfilPadrao()}`;
 
-  return aiCall(prompt);
+  return aiCall(prompt, textoUrl);
 }
 
 function splitArgumentos(texto) {
@@ -1006,11 +1060,22 @@ async function analisarProjeto(proj) {
       proj.comissoes.push({ sigla: com.sigla, nome: com.nome, resumo: resumoCom });
     }
 
-    // 3. Argumentos favoráveis e contrários
-    const textoArgs = await gerarArgumentos(proj);
+    // 3. Argumentos favoráveis e contrários (ancorados no texto integral)
+    const textoArgs = await gerarArgumentos(proj, teorUrl);
     const [fav, con] = splitArgumentos(textoArgs);
     proj.argumentosFavoraveis  = fav;
     proj.argumentosContrarios  = con;
+
+    // 4. Conferência automática de referências citadas vs. texto-fonte (anti-alucinação).
+    // Confere o conteúdo descritivo do projeto (resumo + argumentos) contra o
+    // inteiro teor. Não bloqueia a análise — apenas sinaliza para revisão manual.
+    try {
+      const fonteTeor = await _textoFonteDeURL(teorUrl);
+      proj.refsSuspeitas = _validarReferencias(
+        `${proj.resumoOriginal || ''}\n${fav || ''}\n${con || ''}`,
+        fonteTeor,
+      );
+    } catch (_) { proj.refsSuspeitas = []; }
 
     proj.statusAnalise = 'concluido';
     mostrarToast(`${proj.chave} analisado com sucesso.`, 'sucesso');
@@ -1699,6 +1764,11 @@ function renderizarRevisao() {
     ${proj.statusAnalise === 'erro' ? `
       <div class="ccjc-erro-banner">
         <strong>Erro na análise:</strong> ${esc(proj.erroAnalise || 'Erro desconhecido.')}
+      </div>` : ''}
+
+    ${proj.refsSuspeitas?.length ? `
+      <div class="ccjc-aviso-refs" style="margin:8px 0 14px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">
+        ⚠ <strong>Conferência automática de referências:</strong> a IA citou ${proj.refsSuspeitas.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${proj.refsSuspeitas.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto-fonte do projeto. Confirme na fonte antes de usar — heurística sujeita a falso positivo: ${proj.refsSuspeitas.map(esc).join('; ')}.
       </div>` : ''}
 
     ${analisando ? `<div class="ccjc-loading-overlay"><span class="loading-spinner"></span> Gerando análise com IA…</div>` : ''}
@@ -2397,6 +2467,7 @@ function _parsearPautaJSON(itens) {
       comissoes:            [],
       argumentosFavoraveis: '',
       argumentosContrarios: '',
+      refsSuspeitas:        [],
       statusAnalise:        'pendente',
       erroAnalise:          '',
     });
@@ -2453,6 +2524,7 @@ function _parsearPautaXML(xmlText) {
       comissoes:            [],
       argumentosFavoraveis: '',
       argumentosContrarios: '',
+      refsSuspeitas:        [],
       statusAnalise:        'pendente',
       erroAnalise:          '',
     });

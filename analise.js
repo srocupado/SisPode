@@ -790,6 +790,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       }
     }
 
+    const refsSuspeitas = await calcularRefsSuspeitas(markdown, pdfBuffers);
+
     it.analise = {
       markdown,
       truncada:    truncated,
@@ -800,6 +802,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
       promptCustom: promptNome || null,
+      refsSuspeitas,
     };
     it.analiseStatus = 'ok';
 
@@ -882,10 +885,13 @@ async function completarAnalise(it) {
       pdfBuffers,
     });
 
+    const markdownCompleto = costurarContinuacao(it.analise.markdown, cont.text);
+    const refsSuspeitas = await calcularRefsSuspeitas(markdownCompleto, pdfBuffers);
     it.analise = {
       ...it.analise,
-      markdown:   costurarContinuacao(it.analise.markdown, cont.text),
+      markdown:   markdownCompleto,
       truncada:   cont.truncated,
+      refsSuspeitas,
       editadoEm:  new Date().toISOString(),
       editadoPor: state.config?.nomeUsuario || 'equipe',
     };
@@ -991,6 +997,8 @@ ${instrucoesExtra && instrucoesExtra.trim()
   : ''}
 REGRAS RÍGIDAS:
 - Use apenas informação contida no documento anexo. Não invente fatos.
+- Se uma informação solicitada não constar no documento, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
+- Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente no documento anexo.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
 - Mantenha o texto enxuto — é uma breve análise da redação final, não um parecer extenso.
@@ -1067,6 +1075,8 @@ ${instrucoesExtra && instrucoesExtra.trim()
   : ''}
 REGRAS RÍGIDAS:
 - Use apenas informação contida no documento anexo. Não invente fatos.
+- Se uma informação solicitada não constar no documento, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
+- Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente no documento anexo.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
@@ -1248,6 +1258,43 @@ async function baixarPdf(url) {
   }
 }
 
+// ---------- Conferência automática de referências (anti-alucinação) ----------
+// Heurística leve: extrai do texto gerado as citações de alta confiança
+// (Lei, Lei Complementar, Decreto, Decreto-Lei, Emenda Constitucional, Medida
+// Provisória) e verifica se o número citado aparece no texto-fonte. Citações
+// não localizadas são sinalizadas para conferência manual. Não valida "art. X"
+// (ruído alto) nem afirmações de mérito — é um filtro de números inventados.
+function validarReferencias(markdown, textoFonte) {
+  if (!textoFonte || textoFonte.length < 100) return []; // fonte indisponivel -> nao sinaliza
+  // Conjunto de numeros presentes na fonte, sem separador de milhar ("9.999" -> "9999").
+  const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
+  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  const suspeitas = [];
+  const vistos = new Set();
+  let m;
+  while ((m = re.exec(markdown)) !== null) {
+    const numNorm = m[2].replace(/\./g, '');
+    if (numNorm.length < 4) continue; // ignora numeros curtos (alto risco de falso positivo)
+    if (vistos.has(numNorm)) continue;
+    vistos.add(numNorm);
+    const tipo = m[1].replace(/\s+/g, ' ');
+    if (!numerosFonte.has(numNorm)) suspeitas.push(`${tipo} nº ${m[2].trim()}`);
+  }
+  return suspeitas;
+}
+
+// Extrai o texto dos PDFs já baixados (cópia do buffer para não interferir
+// com o pdf.js, que pode neutralizar o ArrayBuffer original).
+async function calcularRefsSuspeitas(markdown, pdfBuffers) {
+  try {
+    let fonte = '';
+    for (const buf of (pdfBuffers || [])) {
+      try { fonte += '\n' + await extrairTextoPdf(buf.slice(0)); } catch (_) {}
+    }
+    return validarReferencias(markdown, fonte);
+  } catch (_) { return []; }
+}
+
 function renderAnaliseCard(it) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
@@ -1284,7 +1331,11 @@ function renderAnaliseCard(it) {
       : '';
     metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
   }
-  conteudo.innerHTML = renderMarkdown(it.analise.markdown);
+  const refs = it.analise.refsSuspeitas || [];
+  const avisoRefs = refs.length
+    ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
+    : '';
+  conteudo.innerHTML = avisoRefs + renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
 }
