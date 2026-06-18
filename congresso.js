@@ -2224,7 +2224,27 @@ async function exportarPdf() {
 // suplementar em favor do Ministério X" — então é preferida ao título da
 // agenda (labelAgenda), que costuma vir truncado/ruidoso (ex.: "Presidência
 // da República ("). O corpo do documento mantém a ementa completa abaixo.
+// Resumo compacto de uma ementa de PLN/MPV de crédito (sem IA): essas ementas
+// seguem um padrão fixo, então extrai-se "<tipo de crédito> · <órgão> · <valor>".
+// Ex.: "Crédito suplementar · Ministério da Saúde · R$ 1.234.567,00".
+// Retorna '' quando a ementa não casa o padrão (aí cai no truncamento normal).
+function plnResumoCredito(ementa) {
+  const e = (ementa || '').replace(/\s+/g, ' ').trim();
+  if (!e) return '';
+  const mTipo  = e.match(/cr[ée]ditos?\s+(suplementar|especial|extraordin[áa]rio)/i);
+  const mValor = e.match(/no valor (?:global\s+|total\s+)?de\s+(R\$\s?[\d.][\d.,]*)/i);
+  const mFav   = e.match(/em favor (?:de|do|da|dos|das)\s+(.+?)\s*[,.]?\s*(?:cr[ée]ditos?\b|no valor\b|para\b|$)/i);
+  if (!mTipo && !mValor) return '';   // não parece ementa de crédito
+  let orgao = (mFav?.[1] || '').replace(/[\s,;.]+$/, '').trim();
+  if (orgao.length > 70) { const c = orgao.slice(0, 70); const s = c.lastIndexOf(' '); orgao = (s > 40 ? c.slice(0, s) : c) + '…'; }
+  const tipo  = mTipo  ? 'Crédito ' + mTipo[1].toLowerCase() : '';
+  const valor = mValor ? mValor[1].replace(/^R\$\s*/i, 'R$ ').replace(/[.,]+$/, '').trim() : '';
+  return [tipo, orgao, valor].filter(Boolean).join(' · ');
+}
+
 function plnRotulo(p, max = 140) {
+  const resumoCredito = plnResumoCredito(p.ementa);
+  if (resumoCredito) return resumoCredito;   // ementa de crédito → resumo enxuto
   const ementa = (p.ementa || '').replace(/\s+/g, ' ').trim();
   const titulo = (p.titulo || '').replace(/\s+/g, ' ').trim();
   // Aceita o título da agenda só se parecer uma frase útil (não "...(", etc.).
