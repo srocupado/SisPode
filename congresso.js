@@ -2242,9 +2242,27 @@ function plnResumoCredito(ementa) {
   return [tipo, orgao, valor].filter(Boolean).join(' · ');
 }
 
+// Resumo de até ~4 palavras para alterações de leis orçamentárias (sem IA):
+// reconhece LOA/LDO/PPA por expressões fixas e devolve "<verbo> a/o SIGLA [ano]"
+// (ex.: "Altera a LOA 2026"). Retorna '' quando não é lei orçamentária.
+function plnResumoOrcamentario(ementa) {
+  const e = (ementa || '').replace(/\s+/g, ' ').trim();
+  if (!e) return '';
+  let sigla = '', artigo = 'a';
+  if (/plano plurianual|\bPPA\b/i.test(e)) { sigla = 'PPA'; artigo = 'o'; }
+  else if (/diretrizes\b[^.]*\bor[çc]ament|diretrizes para a elabora|\bLDO\b/i.test(e)) { sigla = 'LDO'; }
+  else if (/estima a receita e fixa a despesa|lei or[çc]ament[áa]ria anual|\bLOA\b/i.test(e)) { sigla = 'LOA'; }
+  if (!sigla) return '';
+  const verbo = (e.match(/^([A-Za-zÀ-ú]+)/) || [])[1] || 'Altera';
+  const ano = (e.match(/(?:exerc[íi]cio financeiro|or[çc]ament[áa]ria)\D{0,40}?\b(20\d{2})\b/i) || [])[1] || '';
+  return [verbo, artigo, sigla, ano].filter(Boolean).join(' ');
+}
+
 function plnRotulo(p, max = 140) {
   const resumoCredito = plnResumoCredito(p.ementa);
   if (resumoCredito) return resumoCredito;   // ementa de crédito → resumo enxuto
+  const resumoOrcam = plnResumoOrcamentario(p.ementa);
+  if (resumoOrcam) return resumoOrcam;        // LOA/LDO/PPA → sigla + ano
   const ementa = (p.ementa || '').replace(/\s+/g, ' ').trim();
   const titulo = (p.titulo || '').replace(/\s+/g, ' ').trim();
   // Aceita o título da agenda só se parecer uma frase útil (não "...(", etc.).
