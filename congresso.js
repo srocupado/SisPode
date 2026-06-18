@@ -2219,6 +2219,24 @@ async function exportarPdf() {
   mostrarToast('Gerando PDF… escolha “Salvar como PDF” na janela.', '');
 }
 
+// Rótulo curto e informativo de um PLN/MPV para índices e cabeçalhos.
+// A ementa (meta sf_ementa) é a fonte confiável — diz, p.ex., "crédito
+// suplementar em favor do Ministério X" — então é preferida ao título da
+// agenda (labelAgenda), que costuma vir truncado/ruidoso (ex.: "Presidência
+// da República ("). O corpo do documento mantém a ementa completa abaixo.
+function plnRotulo(p, max = 140) {
+  const ementa = (p.ementa || '').replace(/\s+/g, ' ').trim();
+  const titulo = (p.titulo || '').replace(/\s+/g, ' ').trim();
+  // Aceita o título da agenda só se parecer uma frase útil (não "...(", etc.).
+  const tituloBom = titulo.length >= 12 && /[a-zà-ú]{4,}/i.test(titulo) && !/\($/.test(titulo);
+  const fonte = ementa || (tituloBom ? titulo : '');
+  if (!fonte) return '';
+  if (fonte.length <= max) return fonte;
+  const corte = fonte.slice(0, max);
+  const esp = corte.lastIndexOf(' ');
+  return (esp > max * 0.6 ? corte.slice(0, esp) : corte).replace(/[\s,;.:-]+$/, '') + '…';
+}
+
 function _htmlImpressaoPauta(vetos, plns) {
   const esc = escapeHtml;
   const bm = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
@@ -2234,7 +2252,7 @@ function _htmlImpressaoPauta(vetos, plns) {
       ${temCor ? '<p class="ix-leg"><span class="dot az">●</span> Iniciado no Senado &nbsp;&nbsp; <span class="dot vd">●</span> Iniciado na Câmara</p>' : ''}
       <ul>
         ${vetos.map(v => ixItem(bm(v.key), `VET ${esc(v.numero)} — ${esc(v.tipo)}${v.assunto ? '  ·  ' + esc(v.assunto) : ''}`, clsVeto(v))).join('')}
-        ${plns.map(p => ixItem(bm(p.key), `${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '  ·  ' + esc(p.titulo) : ''}`, 'ix-pln')).join('')}
+        ${plns.map(p => { const rot = plnRotulo(p); return ixItem(bm(p.key), `${esc(p.sigla)} ${esc(p.numero)}${rot ? '  ·  ' + esc(rot) : ''}`, 'ix-pln'); }).join('')}
       </ul>
     </section>` : '';
 
@@ -2260,13 +2278,13 @@ function _htmlImpressaoPauta(vetos, plns) {
 
   const plnsHtml = plns.length ? `
     <h2 class="sec">Projetos de Lei (PLNs) e MPVs de crédito</h2>
-    ${plns.map(p => `
+    ${plns.map(p => { const rot = plnRotulo(p); return `
       <div class="bloco" id="${bm(p.key)}">
-        <h3 class="item-h">${esc(p.sigla)} ${esc(p.numero)}${p.titulo ? '<span class="ass">  ·  ' + esc(p.titulo) + '</span>' : ''}</h3>
+        <h3 class="item-h">${esc(p.sigla)} ${esc(p.numero)}${rot ? '<span class="ass">  ·  ' + esc(rot) + '</span>' : ''}</h3>
         ${p.autor ? `<p><strong>Autor:</strong> ${esc(p.autor)}</p>` : ''}
         ${p.ementa ? `<p><strong>Ementa:</strong> ${esc(p.ementa)}</p>` : ''}
         <p class="raz"><strong>Análise:</strong> ${p.analise ? esc(p.analise) : '<span class="vazio">(sem análise — gere ou escreva antes de exportar)</span>'}</p>
-      </div>`).join('')}` : '';
+      </div>`; }).join('')}` : '';
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Pauta do Congresso Nacional</title>
   <style>
@@ -2388,7 +2406,7 @@ async function exportarDocx() {
       ],
     });
     vetos.forEach(v => filhos.push(entradaIndice(bmId(v.key), `VET ${v.numero} — ${v.tipo}${v.assunto ? '  ·  ' + v.assunto : ''}`, corVeto(v))));
-    plns.forEach(p => filhos.push(entradaIndice(bmId(p.key), `${p.sigla} ${p.numero}${p.titulo ? '  ·  ' + p.titulo : ''}`, 'b45309')));
+    plns.forEach(p => { const rot = plnRotulo(p); filhos.push(entradaIndice(bmId(p.key), `${p.sigla} ${p.numero}${rot ? '  ·  ' + rot : ''}`, 'b45309')); });
     filhos.push(new Paragraph({ children: [new PageBreak()] }));
   }
 
@@ -2447,13 +2465,14 @@ async function exportarDocx() {
       children: [new TextRun({ text: 'Projetos de Lei (PLNs) e MPVs de crédito', bold: true, size: 22, color: '003c1f' })],
     }));
     plns.forEach(p => {
+      const rot = plnRotulo(p);
       filhos.push(new Paragraph({
         spacing: { before: 300, after: 30, ...L15 },
         border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
         children: [
           new Bookmark({ id: bmId(p.key), children: [
             new TextRun({ text: `${p.sigla} ${p.numero}`, bold: true, size: 24 }),
-            new TextRun({ text: p.titulo ? `  ·  ${p.titulo}` : '', size: 20 }),
+            new TextRun({ text: rot ? `  ·  ${rot}` : '', size: 20 }),
           ] }),
         ],
       }));
