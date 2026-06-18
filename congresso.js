@@ -2243,18 +2243,28 @@ function plnResumoCredito(ementa) {
 }
 
 // Resumo curto para alterações de leis orçamentárias (sem IA): reconhece
-// LOA/LDO/PPA por expressões fixas e devolve "<verbo> a/o SIGLA"
-// (ex.: "Altera a LOA"). Retorna '' quando não é lei orçamentária.
+// LOA/LDO/PPA e devolve "<verbo> a/o SIGLA <ano>" (ex.: "Altera a LOA 2026").
+// O ano é o do ORÇAMENTO, extraído de frases canônicas ("exercício financeiro
+// de AAAA" / "Lei Orçamentária de AAAA"), nunca a data de sanção da lei — por
+// isso distingue, p.ex., 2026 de 2027. Retorna '' quando não é lei orçamentária.
 function plnResumoOrcamentario(ementa) {
   const e = (ementa || '').replace(/\s+/g, ' ').trim();
   if (!e) return '';
-  let sigla = '', artigo = 'a';
-  if (/plano plurianual|\bPPA\b/i.test(e)) { sigla = 'PPA'; artigo = 'o'; }
-  else if (/diretrizes\b[^.]*\bor[çc]ament|diretrizes para a elabora|\bLDO\b/i.test(e)) { sigla = 'LDO'; }
-  else if (/estima a receita e fixa a despesa|lei or[çc]ament[áa]ria anual|\bLOA\b/i.test(e)) { sigla = 'LOA'; }
-  if (!sigla) return '';
   const verbo = (e.match(/^([A-Za-zÀ-ú]+)/) || [])[1] || 'Altera';
-  return [verbo, artigo, sigla].join(' ');
+  let sigla = '', artigo = 'a', ref = '';
+  if (/plano plurianual|\bPPA\b/i.test(e)) {
+    sigla = 'PPA'; artigo = 'o';
+    const m = e.match(/plano plurianual\D{0,8}(20\d{2})\s*[-–\/a\s]+\s*(20\d{2})/i);
+    if (m) ref = `${m[1]}-${m[2]}`;
+  } else if (/diretrizes\b[^.]*\bor[çc]ament|diretrizes para a elabora|\bLDO\b/i.test(e)) {
+    sigla = 'LDO';
+    ref = (e.match(/lei or[çc]ament[áa]ria de\s+(20\d{2})/i) || [])[1] || '';
+  } else if (/estima a receita e fixa a despesa|lei or[çc]ament[áa]ria anual|\bLOA\b/i.test(e)) {
+    sigla = 'LOA';
+    ref = (e.match(/exerc[íi]cio financeiro de\s+(20\d{2})/i) || [])[1] || '';
+  }
+  if (!sigla) return '';
+  return [verbo, artigo, sigla, ref].filter(Boolean).join(' ');
 }
 
 function plnRotulo(p, max = 140) {
