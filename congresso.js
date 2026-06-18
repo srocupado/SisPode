@@ -1972,7 +1972,7 @@ function parsePautaHtml(html) {
 async function parseMateria(url) {
   const doc = new DOMParser().parseFromString(await fetchHtml(url), 'text/html');
   const meta = n => (doc.querySelector(`meta[name="${n}"]`)?.getAttribute('content') || '').replace(/\s+/g, ' ').trim();
-  return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), parecerUrl: acharParecerUrl(doc) };
+  return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), apelido: meta('sf_apelido'), parecerUrl: acharParecerUrl(doc) };
 }
 function acharParecerUrl(doc) {
   const links = [...doc.querySelectorAll('a[href*="sdleg-getter/documento"]')];
@@ -2242,18 +2242,26 @@ function plnResumoCredito(ementa) {
   return [tipo, orgao, valor].filter(Boolean).join(' · ');
 }
 
+// Encurta um trecho num limite de palavra (acrescenta … se cortar).
+function _detalheCurto(s, max = 52) {
+  const t = (s || '').replace(/\s+/g, ' ').trim();
+  if (t.length <= max) return t;
+  const c = t.slice(0, max), sp = c.lastIndexOf(' ');
+  return (sp > max * 0.5 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
+}
+
 // Resumo curto para alterações de leis orçamentárias (sem IA): reconhece
 // LOA/LDO/PPA e devolve "<verbo> a/o SIGLA <ano> · <o que altera>"
-// (ex.: "Altera a LOA 2026 · calendário de pagamento").
+// (ex.: "Altera a LDO 2026 · Copa do Mundo Feminina da FIFA 2027…").
 // - ano: o do ORÇAMENTO, extraído de frases canônicas ("exercício financeiro
 //   de AAAA" / "Lei Orçamentária de AAAA"), nunca a data de sanção da lei —
 //   por isso distingue, p.ex., 2026 de 2027.
-// - detalhe: o trecho APÓS a identificação da lei (onde costuma vir a mudança,
-//   "...para alterar o calendário..."), sem os jargões finais; cai para o
-//   objeto inicial ("Anexo X") quando não há mudança explícita no fim.
+// - detalhe (o que altera): preferência para o "apelido" curado da matéria
+//   (sf_apelido), que traz a substância mesmo quando a ementa é genérica; senão
+//   o trecho após a identificação da lei; senão o objeto inicial ("Anexo X").
 // Retorna '' quando não é lei orçamentária.
-function plnResumoOrcamentario(ementa) {
-  const e = (ementa || '').replace(/\s+/g, ' ').trim();
+function plnResumoOrcamentario(p) {
+  const e = (p.ementa || '').replace(/\s+/g, ' ').trim();
   if (!e) return '';
   const verbo = (e.match(/^([A-Za-zÀ-ú]+)/) || [])[1] || 'Altera';
   let sigla = '', artigo = 'a', ref = '', ancora = null;
@@ -2269,8 +2277,8 @@ function plnResumoOrcamentario(ementa) {
     ancora = e.match(/exerc[íi]cio financeiro de(?:\s+(20\d{2}))?/i); ref = ancora?.[1] || '';
   }
   if (!sigla) return '';
-  let det = '';
-  if (ancora) {
+  let det = (p.apelido || '').replace(/\s+/g, ' ').trim();   // apelido curado = melhor detalhe
+  if (!det && ancora) {
     det = e.slice(ancora.index + ancora[0].length)
       .replace(/^[\s,;.)]+/, '')
       .replace(/^(?:para|a fim de|com o objetivo de|de modo a|visando a?)\s+/i, '')
@@ -2283,15 +2291,17 @@ function plnResumoOrcamentario(ementa) {
     const mAnexo = e.match(/\bAnexos?\s+[IVXLCDM\d]+(?:\s*(?:,|e)\s*[IVXLCDM\d]+)*/i);
     det = mAnexo ? mAnexo[0] : '';
   }
-  if (det.length > 48) { const c = det.slice(0, 48); const s = c.lastIndexOf(' '); det = (s > 24 ? c.slice(0, s) : c) + '…'; }
+  det = _detalheCurto(det);
   return [verbo, artigo, sigla, ref].filter(Boolean).join(' ') + (det ? ` · ${det}` : '');
 }
 
 function plnRotulo(p, max = 140) {
   const resumoCredito = plnResumoCredito(p.ementa);
   if (resumoCredito) return resumoCredito;   // ementa de crédito → resumo enxuto
-  const resumoOrcam = plnResumoOrcamentario(p.ementa);
-  if (resumoOrcam) return resumoOrcam;        // LOA/LDO/PPA → sigla + ano
+  const resumoOrcam = plnResumoOrcamentario(p);
+  if (resumoOrcam) return resumoOrcam;        // LOA/LDO/PPA → sigla + ano + detalhe
+  const apelido = (p.apelido || '').replace(/\s+/g, ' ').trim();
+  if (apelido) return _detalheCurto(apelido, max);  // apelido curado da matéria
   const ementa = (p.ementa || '').replace(/\s+/g, ' ').trim();
   const titulo = (p.titulo || '').replace(/\s+/g, ' ').trim();
   // Aceita o título da agenda só se parecer uma frase útil (não "...(", etc.).
