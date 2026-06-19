@@ -409,6 +409,44 @@ function _rotuloTipoDoc(tipo, numero) {
   return (numero && Number(numero) > 1) ? `${base}${suf} ${numero}` : `${base}${suf}`;
 }
 
+// Famílias de documento que carregam conteúdo material e devem ser analisadas.
+// O PAR (parecer de comissão) é deliberadamente omitido: é peça formal e não
+// traz o teor das alterações (esse conteúdo está no PRL/SBT/CVO).
+const _FAMILIA_DOC = {
+  'PRL':  'parecer',         // Parecer do Relator
+  'PRLP': 'parecer',
+  'PRLE': 'parecer',
+  'REL':  'parecer',
+  'SBT':  'substitutivo',    // Substitutivo (e variantes SBT-A)
+  'CVO':  'complementacao',  // Complementação de Voto
+  'CPR':  'complementacao',
+  'VTS':  'voto_separado',   // Voto em Separado
+  'VOTO': 'voto_separado',
+  'DCR':  'voto_separado',
+};
+
+function _familiaDoc(tipo) {
+  return _FAMILIA_DOC[tipo] || _FAMILIA_DOC[tipo.split('-')[0]] || null;
+}
+
+// Seleciona, por comissão, apenas os documentos VIGENTES: o mais recente
+// (maior codteor) de cada família, descartando versões superadas e o PAR.
+function _selecionarDocsVigentes(docs) {
+  const porFamilia = {};
+  for (const d of docs) {
+    const fam = _familiaDoc(d.tipo);
+    if (!fam) continue; // espécie sem conteúdo material (ex.: PAR) → ignora
+    if (!porFamilia[fam] || d.codteor > porFamilia[fam].codteor) porFamilia[fam] = d;
+  }
+  let sel = Object.values(porFamilia);
+  // Rede de segurança: se nada sobrou (comissão só tem PAR ou tipo desconhecido),
+  // usa o documento mais recente disponível para não deixar a IA sem fonte.
+  if (!sel.length && docs.length) {
+    sel = [docs.slice().sort((a, b) => b.codteor - a.codteor)[0]];
+  }
+  return sel.sort((a, b) => b.codteor - a.codteor);
+}
+
 // Extrai a lista de documentos de parecer da página da Câmara. O nome de cada
 // arquivo segue o padrão "TIPO N ORGAO => PL X/AAAA" (ex.: "SBT-A 1 CICS => PL
 // 4507/2024"), de onde derivamos a espécie do documento E a comissão de origem.
@@ -486,7 +524,8 @@ async function buscarDocumentosComissoes(idCamara) {
     const mapa = _parsearPaginaPareceres(html);
     return Object.entries(mapa)
       .filter(([sigla]) => !_SIGLAS_DOC.has(sigla) && !ORGAOS_ADMIN.has(sigla))
-      .map(([sigla, info]) => ({ tipo: 'PAR', numero: '1', orgao: sigla, url: info.url, codteor: 0, rotulo: 'Parecer' }));
+      // tipo PRL (família "parecer") para que o fallback não seja descartado.
+      .map(([sigla, info]) => ({ tipo: 'PRL', numero: '1', orgao: sigla, url: info.url, codteor: 0, rotulo: 'Parecer' }));
   } catch (e) {
     console.warn('Erro ao buscar documentos das comissões:', e.message);
     return [];
@@ -1139,18 +1178,16 @@ async function analisarProjeto(proj) {
     // 1. Resumo do projeto original
     proj.resumoOriginal = await gerarResumoOriginal(proj, teorUrl);
 
-    // 2. Análise por comissão (sequencial para não saturar a API). Envia TODOS
-    // os documentos da comissão (parecer + substitutivo + complementação de voto),
-    // ordenados do mais recente para o mais antigo (codteor decrescente), até 6.
+    // 2. Análise por comissão (sequencial para não saturar a API). Envia apenas
+    // os documentos VIGENTES: o mais recente de cada família (parecer do relator,
+    // substitutivo, complementação de voto, voto em separado), descartando
+    // versões superadas e o parecer de comissão (PAR), que não traz conteúdo.
     proj.comissoes = [];
     for (const com of comissoes) {
       const tramCom = tramitacoes.filter(t =>
         (t.siglaOrgao || '').toUpperCase() === com.sigla
       );
-      const docsCom = (docsPorOrgao[com.sigla] || [])
-        .slice()
-        .sort((a, b) => b.codteor - a.codteor)
-        .slice(0, 6);
+      const docsCom = _selecionarDocsVigentes(docsPorOrgao[com.sigla] || []);
 
       const resumoCom = await gerarAnaliseComissao(proj, com, tramCom, docsCom);
       proj.comissoes.push({
