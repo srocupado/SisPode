@@ -774,6 +774,24 @@ function _provedorEfetivo() {
 
 const NOME_PROVEDOR = { gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' };
 
+// Identificador do modelo do provedor ativo (para registrar na análise).
+function _modeloAtualLabel() {
+  const p = _provedorEfetivo();
+  if (p === 'gemini')    return app.config.modelo || '';
+  if (p === 'anthropic') return app.config.anthropicModelo || '';
+  if (p === 'openai')    return app.config.openaiModelo || '';
+  return '';
+}
+
+// Formata um ISO timestamp como "DD/MM/AAAA HH:MM" (pt-BR). Vazio se inválido.
+function _formatDataHora(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = n => String(n).padStart(2, '0');
+  return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
 // Limite de tokens de saída. Maior que antes para acomodar a análise detalhada
 // de comissão (cotejo do substitutivo dispositivo a dispositivo).
 const _MAX_OUT_TOKENS = 4096;
@@ -1139,7 +1157,7 @@ async function analisarProjeto(proj) {
         sigla: com.sigla,
         nome:  com.nome,
         resumo: resumoCom,
-        docsRotulos: docsCom.map(d => d.rotulo),
+        docs: docsCom.map(d => ({ rotulo: d.rotulo, url: d.url })),
       });
     }
 
@@ -1159,6 +1177,11 @@ async function analisarProjeto(proj) {
         fonteTeor,
       );
     } catch (_) { proj.refsSuspeitas = []; }
+
+    // Metadados de geração: data e modelo usados (exibidos no cabeçalho).
+    proj.analiseEm       = new Date().toISOString();
+    proj.analiseProvedor = NOME_PROVEDOR[_provedorEfetivo()] || '';
+    proj.analiseModelo   = _modeloAtualLabel();
 
     proj.statusAnalise = 'concluido';
     mostrarToast(`${proj.chave} analisado com sucesso.`, 'sucesso');
@@ -1549,7 +1572,10 @@ function gerarHTMLImpressao(pauta) {
 
     const comissoesHtml = (proj.comissoes || []).map(com => {
       const titulo = com.nome && com.nome !== com.sigla ? `${com.nome} (${com.sigla})` : com.sigla;
-      const docs   = (com.docsRotulos || []).length ? `<p class="pi-comissao-docs"><em>Documentos analisados: ${escHtml(com.docsRotulos.join(', '))}.</em></p>` : '';
+      const docsLinks = (com.docs && com.docs.length)
+        ? com.docs.map(d => `<a href="${escHtml(d.url)}" target="_blank" rel="noopener">${escHtml(d.rotulo)}</a>`).join(', ')
+        : (com.docsRotulos || []).map(r => escHtml(r)).join(', '); // compat análises antigas
+      const docs = docsLinks ? `<p class="pi-comissao-docs"><em>Documentos analisados: ${docsLinks}.</em></p>` : '';
       return `
       <div class="pi-comissao">
         <h4>${escHtml(titulo)}</h4>
@@ -1577,9 +1603,11 @@ function gerarHTMLImpressao(pauta) {
           <span class="pi-chave">${escHtml(proj.chave)}</span>
           ${proj.autores?.length ? `<span class="pi-autores">Autoria: ${escHtml(proj.autores.join(', '))}</span>` : ''}
         </div>
+        ${proj.analiseEm ? `<p class="pi-meta">Análise gerada em ${escHtml(_formatDataHora(proj.analiseEm))}${proj.analiseProvedor ? ` · ${escHtml(proj.analiseProvedor)}` : ''}${proj.analiseModelo ? ` / ${escHtml(proj.analiseModelo)}` : ''}</p>` : ''}
         <p class="pi-ementa">${escHtml(proj.ementa || '')}</p>
 
         <h3>1. Resumo do Projeto Original</h3>
+        ${proj.urlInteiroTeor ? `<p class="pi-comissao-docs"><em>Documento analisado: <a href="${escHtml(proj.urlInteiroTeor)}" target="_blank" rel="noopener">Inteiro teor da proposição</a></em></p>` : ''}
         <p>${escHtml(proj.resumoOriginal || 'Análise não disponível.')}</p>
 
         ${comissoesHtml ? `<h3>2. Tramitação nas Comissões</h3>${comissoesHtml}` : ''}
@@ -1615,6 +1643,9 @@ function gerarHTMLImpressao(pauta) {
     .pi-header { display:flex; align-items:baseline; gap:16px; margin-bottom:6px; }
     .pi-chave  { font-size:15pt; font-weight:800; color:#065f46; }
     .pi-autores{ font-size:9pt; color:#6b7280; }
+    .pi-meta   { font-size:8.5pt; color:#6b7280; margin-bottom:4px; }
+    .pi-comissao-docs { font-size:8.5pt; color:#6b7280; margin:2px 0 6px; }
+    .pi-comissao-docs a { color:#065f46; }
     .pi-ementa { font-size:10pt; color:#374151; font-style:italic; line-height:1.5; margin-bottom:16px; }
     h3 { font-size:10.5pt; font-weight:700; color:#1f2937; margin:16px 0 8px; border-left:3px solid #00A859; padding-left:10px; page-break-after:avoid; page-break-inside:avoid; }
     h4 { font-size:10pt; font-weight:600; color:#374151; margin:8px 0 5px; page-break-after:avoid; page-break-inside:avoid; }
@@ -1819,8 +1850,11 @@ function renderizarRevisao() {
     const titulo = com.nome && com.nome !== com.sigla
       ? `${esc(com.nome)} <span style="opacity:.55">(${esc(com.sigla)})</span>`
       : esc(com.sigla);
-    const docs = (com.docsRotulos || []).length
-      ? `<div class="ccjc-secao-docs" style="font-size:12px;opacity:.7;margin:2px 0 6px">Documentos analisados: ${esc(com.docsRotulos.join(', '))}.</div>`
+    const docsLinks = (com.docs && com.docs.length)
+      ? com.docs.map(d => `<a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.rotulo)}</a>`).join(', ')
+      : (com.docsRotulos || []).map(r => esc(r)).join(', '); // compat análises antigas
+    const docs = docsLinks
+      ? `<div class="ccjc-secao-docs" style="font-size:12px;opacity:.7;margin:2px 0 6px">Documentos analisados: ${docsLinks}</div>`
       : '';
     return `
     <div class="ccjc-secao">
@@ -1852,6 +1886,7 @@ function renderizarRevisao() {
         <div class="ccjc-revisao-ementa">${esc(proj.ementa || 'Buscando dados na API...')}</div>
         ${proj.autores?.length ? `<div class="ccjc-revisao-meta">Autoria: ${esc(proj.autores.join(', '))}</div>` : ''}
         ${proj.statusApi ? `<div class="ccjc-revisao-meta">Situação: ${esc(proj.statusApi)}</div>` : ''}
+        ${proj.analiseEm ? `<div class="ccjc-revisao-meta" style="opacity:.75">Análise gerada em ${esc(_formatDataHora(proj.analiseEm))}${proj.analiseProvedor ? ` · ${esc(proj.analiseProvedor)}` : ''}${proj.analiseModelo ? ` / ${esc(proj.analiseModelo)}` : ''}</div>` : ''}
       </div>
       <button id="btn-analisar-este" class="btn btn-outline btn-sm" ${analisando || !temGemini ? 'disabled' : ''}>
         ${analisando ? '<span class="loading-spinner"></span> Analisando...' : '✦ Analisar'}
@@ -1874,6 +1909,7 @@ function renderizarRevisao() {
       <div class="ccjc-secao-header">
         <span class="ccjc-secao-titulo">1. Resumo do Projeto Original</span>
       </div>
+      ${proj.urlInteiroTeor ? `<div class="ccjc-secao-docs" style="font-size:12px;opacity:.7;margin:2px 0 6px">Documento analisado: <a href="${esc(proj.urlInteiroTeor)}" target="_blank" rel="noopener">Inteiro teor da proposição</a></div>` : ''}
       <textarea id="campo-resumo-original" class="ccjc-textarea" style="min-height:130px"
         placeholder="Resumo gerado pela IA aparecerá aqui. Você pode editar livremente." ${roDisabled}>${esc(proj.resumoOriginal || '')}</textarea>
     </div>
