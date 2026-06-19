@@ -19,7 +19,7 @@ const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
 
 // Órgãos administrativos que não devem ser listados como comissões de mérito
 const ORGAOS_ADMIN = new Set([
-  'PLEN','SGM','MESA','PR','SGL','DETAQ','SPL','CORD',
+  'PLEN','SGM','MESA','PR','SGL','DETAQ','SPL','CORD','CCP',
   'GSIST','CLP','CMO','CVT','SECGER','SECLEG','DRH',
 ]);
 
@@ -216,6 +216,7 @@ async function criarPauta() {
       ementa:               '',
       autores:              [],
       statusApi:            '',
+      urlInteiroTeor:       null,
       resumoOriginal:       '',
       comissoes:            [],
       argumentosFavoraveis: '',
@@ -327,10 +328,11 @@ async function buscarMetadadosTodos(projetos) {
     try {
       const dados = await buscarProposicaoAPI(proj.sigla, proj.numero, proj.ano);
       if (dados) {
-        proj.idCamara  = dados.id;
-        proj.ementa    = dados.ementa;
-        proj.autores   = dados.autores;
-        proj.statusApi = dados.statusDesc;
+        proj.idCamara       = dados.id;
+        proj.ementa         = dados.ementa;
+        proj.autores        = dados.autores;
+        proj.statusApi      = dados.statusDesc;
+        proj.urlInteiroTeor = dados.urlInteiroTeor || null;
       }
     } catch (e) {
       console.warn(`Erro ao buscar ${proj.chave}:`, e.message);
@@ -345,6 +347,14 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
   const item = json.dados?.[0];
   if (!item) return null;
 
+  // O endpoint de LISTA não traz urlInteiroTeor nem statusProposicao; o DETALHE
+  // (/proposicoes/{id}) traz. É de lá que sai o link do inteiro teor.
+  let detalhe = item;
+  try {
+    const resD = await fetch(`${API_BASE}/proposicoes/${item.id}`);
+    if (resD.ok) detalhe = (await resD.json()).dados || item;
+  } catch (_) {}
+
   let autores = [];
   try {
     const resA = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
@@ -355,45 +365,131 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
   } catch (_) {}
 
   return {
-    id:         item.id,
-    ementa:     item.ementa,
+    id:             item.id,
+    ementa:         detalhe.ementa || item.ementa,
     autores,
-    statusDesc: item.statusProposicao?.descricaoSituacao || '',
+    statusDesc:     detalhe.statusProposicao?.descricaoSituacao || '',
+    urlInteiroTeor: detalhe.urlInteiroTeor || null,
   };
-}
-
-async function buscarTextos(idCamara) {
-  try {
-    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/textos`);
-    if (!res.ok) return [];
-    const json = await res.json();
-    return json.dados || [];
-  } catch (_) { return []; }
 }
 
 async function buscarTramitacoes(idCamara) {
   try {
-    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes?ordem=ASC&itens=100`);
+    // Atenção: este endpoint NÃO aceita os parâmetros ?ordem/?itens (retorna 400).
+    // Vem ordenado por sequência ascendente por padrão.
+    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
     if (!res.ok) return [];
     const json = await res.json();
     return json.dados || [];
   } catch (_) { return []; }
 }
 
-/**
- * Busca os documentos (pareceres, substitutivos) de cada comissão
- * na página específica da Câmara, que é a única fonte confiável.
- * Retorna mapa: siglaComissao → { nome, url }
- */
-async function buscarPareceresComissoes(idCamara) {
+// ---------- Documentos de parecer (substitutivo, complementação de voto…) ----------
+// Espécies documentais que NÃO são comissões. Usadas para (a) não confundir o
+// tipo do documento com a sigla do órgão e (b) rotular cada documento.
+const _TIPOS_DOCUMENTO = {
+  'PRL':  'Parecer do Relator',
+  'PRLP': 'Parecer do Relator',
+  'PRLE': 'Parecer do Relator às Emendas',
+  'PAR':  'Parecer',
+  'SBT':  'Substitutivo',
+  'CVO':  'Complementação de Voto',
+  'VTS':  'Voto em Separado',
+  'VOTO': 'Voto em Separado',
+  'DCR':  'Declaração de Voto',
+  'REL':  'Relatório',
+  'CPR':  'Complementação de Parecer',
+};
+// Inclui as variantes com sufixo (ex.: "SBT-A").
+const _SIGLAS_DOC = new Set(Object.keys(_TIPOS_DOCUMENTO).flatMap(k => [k, k.split('-')[0]]));
+
+function _rotuloTipoDoc(tipo, numero) {
+  const base = _TIPOS_DOCUMENTO[tipo] || _TIPOS_DOCUMENTO[tipo.split('-')[0]] || tipo;
+  const suf  = tipo.includes('-') ? ' (adendo)' : '';
+  return (numero && Number(numero) > 1) ? `${base}${suf} ${numero}` : `${base}${suf}`;
+}
+
+// Extrai a lista de documentos de parecer da página da Câmara. O nome de cada
+// arquivo segue o padrão "TIPO N ORGAO => PL X/AAAA" (ex.: "SBT-A 1 CICS => PL
+// 4507/2024"), de onde derivamos a espécie do documento E a comissão de origem.
+// Retorna [{ tipo, numero, orgao, url, codteor, rotulo }].
+function _extrairDocumentosPareceres(html) {
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const links = Array.from(doc.querySelectorAll('a[href*="filename="], a[href*="prop_mostrarintegra"], a[href*="prop_GetPublicacoes"], a[href*="codteor"]'));
+  const docs   = [];
+  const vistos = new Set();
+  for (const a of links) {
+    const rawHref = a.getAttribute('href') || '';
+    if (!rawHref || rawHref.startsWith('#') || rawHref.includes('javascript:')) continue;
+
+    // Nome do documento: parâmetro filename da URL (preferido) ou texto do link.
+    let nomeDoc = '';
+    const mF = rawHref.match(/[?&]filename=([^&]+)/i);
+    if (mF) nomeDoc = decodeURIComponent(mF[1].replace(/\+/g, ' '));
+    if (!nomeDoc) nomeDoc = (a.textContent || '').trim();
+
+    const m = nomeDoc.match(/^\s*([A-Z]{2,5}(?:-[A-Z])?)\s+(\d+)\s+([A-Z]{2,8})\b/);
+    if (!m) continue;
+    const tipo  = m[1].toUpperCase();
+    const orgao = m[3].toUpperCase();
+    // O "órgão" não pode ser, ele mesmo, uma espécie documental nem um órgão administrativo.
+    if (_SIGLAS_DOC.has(orgao) || ORGAOS_ADMIN.has(orgao)) continue;
+
+    const url = rawHref.startsWith('http')
+      ? rawHref
+      : `https://www.camara.leg.br${rawHref.startsWith('/') ? rawHref : '/proposicoesWeb/' + rawHref}`;
+    const codteor = Number((rawHref.match(/codteor=(\d+)/) || [])[1]) || 0;
+
+    const chave = `${tipo}|${m[2]}|${orgao}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    docs.push({ tipo, numero: m[2], orgao, url, codteor, rotulo: _rotuloTipoDoc(tipo, m[2]) });
+  }
+  return docs;
+}
+
+// Resolve nome completo e tipo do órgão via API (com cache). Permite exibir o
+// nome correto da comissão e descartar não-comissões.
+const _orgaoCache = {};
+async function _resolverOrgao(sigla) {
+  if (_orgaoCache[sigla]) return _orgaoCache[sigla];
+  let info = { sigla, nome: sigla, ehComissao: !ORGAOS_ADMIN.has(sigla) };
+  try {
+    const res = await fetch(`${API_BASE}/orgaos?sigla=${encodeURIComponent(sigla)}&itens=1`);
+    if (res.ok) {
+      const o = (await res.json()).dados?.[0];
+      if (o) {
+        // Só comissões de mérito (Permanente/Especial/Mista…). Exclui "Comissão
+        // Diretora" (Mesa) e órgãos como "Coordenação de Comissões Permanentes".
+        const tipo = o.tipoOrgao || '';
+        info = { sigla, nome: o.nome || sigla, ehComissao: /^comiss[ãa]o/i.test(tipo) && !/diretora/i.test(tipo) };
+      }
+    }
+  } catch (_) {}
+  _orgaoCache[sigla] = info;
+  return info;
+}
+
+// Retorna todos os documentos de parecer da página, cada um com sua espécie e
+// órgão. Permite agrupar por comissão e enviar à IA o conjunto completo
+// (parecer + substitutivo + complementação de voto). A página da Câmara é a
+// única fonte confiável desses documentos.
+async function buscarDocumentosComissoes(idCamara) {
   const url = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idCamara}`;
   try {
     const res = await fetch(url);
-    if (!res.ok) return {};
-    return _parsearPaginaPareceres(await res.text());
+    if (!res.ok) return [];
+    const html = await res.text();
+    const docs = _extrairDocumentosPareceres(html);
+    if (docs.length) return docs;
+    // Fallback (estrutura de página antiga): mapa sigla→url, sem espécie documental.
+    const mapa = _parsearPaginaPareceres(html);
+    return Object.entries(mapa)
+      .filter(([sigla]) => !_SIGLAS_DOC.has(sigla) && !ORGAOS_ADMIN.has(sigla))
+      .map(([sigla, info]) => ({ tipo: 'PAR', numero: '1', orgao: sigla, url: info.url, codteor: 0, rotulo: 'Parecer' }));
   } catch (e) {
-    console.warn('Erro ao buscar pareceres das comissões:', e.message);
-    return {};
+    console.warn('Erro ao buscar documentos das comissões:', e.message);
+    return [];
   }
 }
 
@@ -655,19 +751,6 @@ function _siglaIgnorada(s) {
   return ['PDF','DOC','XLS','COM','HTTP','HTML','URL','LINK','CPF','CEP','CNPJ'].includes(s);
 }
 
-function extrairComissoesDaTramitacao(tramitacoes) {
-  const vistas   = new Set();
-  const comissoes = [];
-  for (const t of tramitacoes) {
-    const sigla = (t.siglaOrgao || '').trim().toUpperCase();
-    const nome  = (t.nomeOrgao  || '').trim();
-    if (!sigla || ORGAOS_ADMIN.has(sigla) || vistas.has(sigla)) continue;
-    vistas.add(sigla);
-    comissoes.push({ sigla, nome: nome || sigla });
-  }
-  return comissoes;
-}
-
 // ============================================================
 //  CAMADA DE IA – GEMINI
 // ============================================================
@@ -691,49 +774,66 @@ function _provedorEfetivo() {
 
 const NOME_PROVEDOR = { gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' };
 
-async function aiCall(prompt, docUrl = null) {
+// Limite de tokens de saída. Maior que antes para acomodar a análise detalhada
+// de comissão (cotejo do substitutivo dispositivo a dispositivo).
+const _MAX_OUT_TOKENS = 4096;
+
+// docs aceita uma URL (string) ou uma lista de URLs. Permite enviar o conjunto
+// completo de documentos de uma comissão (parecer + substitutivo + CVO).
+async function aiCall(prompt, docs = null) {
   const p = _provedorEfetivo();
-  if (p === 'gemini')    return _callGemini(prompt, docUrl);
-  if (p === 'anthropic') return _callAnthropic(prompt, docUrl);
-  if (p === 'openai')    return _callOpenAI(prompt, docUrl);
+  const baixados = await _baixarDocs(docs);
+  if (p === 'gemini')    return _callGemini(prompt, baixados);
+  if (p === 'anthropic') return _callAnthropic(prompt, baixados);
+  if (p === 'openai')    return _callOpenAI(prompt, baixados);
   throw new Error('Nenhuma chave de IA configurada. Configure em ⚙ Configurações.');
 }
 
+function _bufParaBase64(buf) {
+  const u8 = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < u8.length; i += CHUNK) bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
+// Baixa cada documento e o normaliza em { kind:'pdf', b64 } ou { kind:'text', texto }.
+async function _baixarDocs(docs) {
+  const urls = Array.isArray(docs) ? docs.filter(Boolean) : (docs ? [docs] : []);
+  const out = [];
+  for (const url of urls) {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) continue;
+      const ct = res.headers.get('content-type') || '';
+      if (ct.includes('pdf')) {
+        out.push({ kind: 'pdf', b64: _bufParaBase64(await res.arrayBuffer()) });
+      } else {
+        const clean = _extrairTextoHTML(await res.text());
+        if (clean.length > 200) out.push({ kind: 'text', texto: clean });
+      }
+    } catch (e) { console.warn('Erro ao baixar doc:', e.message); }
+  }
+  return out;
+}
+
 // ---------- GEMINI ----------
-async function _callGemini(prompt, docUrl = null) {
+async function _callGemini(prompt, baixados = []) {
   const { geminiKey, modelo } = app.config;
   if (!geminiKey) throw new Error('Chave Gemini não configurada.');
 
-  const parts = [{ text: prompt }];
-
-  if (docUrl) {
-    try {
-      const res = await fetch(docUrl);
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('pdf')) {
-          // Gemini suporta PDF como inline_data (base64)
-          const buf   = await res.arrayBuffer();
-          const u8    = new Uint8Array(buf);
-          let bin = '';
-          const CHUNK = 8192;
-          for (let i = 0; i < u8.length; i += CHUNK) {
-            bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
-          }
-          parts.push({ inline_data: { mime_type: 'application/pdf', data: btoa(bin) } });
-        } else {
-          const clean = _extrairTextoHTML(await res.text());
-          if (clean.length > 200) parts.push({ text: `\n\n---\nTexto do documento:\n${clean}` });
-        }
-      }
-    } catch (e) { console.warn('Gemini: erro ao buscar doc:', e.message); }
-  }
+  const parts = [];
+  baixados.forEach((d, i) => {
+    if (d.kind === 'pdf') parts.push({ inline_data: { mime_type: 'application/pdf', data: d.b64 } });
+    else parts.push({ text: `\n\n--- Documento ${i + 1} ---\n${d.texto}` });
+  });
+  parts.push({ text: prompt });
 
   const url = `${GEMINI_BASE}/${modelo}:generateContent?key=${geminiKey}`;
   const res  = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 1024 } }),
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: _MAX_OUT_TOKENS } }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);
@@ -741,37 +841,15 @@ async function _callGemini(prompt, docUrl = null) {
 }
 
 // ---------- ANTHROPIC ----------
-async function _callAnthropic(prompt, docUrl = null) {
+async function _callAnthropic(prompt, baixados = []) {
   const { anthropicKey, anthropicModelo } = app.config;
   if (!anthropicKey) throw new Error('Chave Anthropic não configurada.');
 
   const content = [];
-
-  if (docUrl) {
-    try {
-      const res = await fetch(docUrl);
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('pdf')) {
-          const buf  = await res.arrayBuffer();
-          const u8   = new Uint8Array(buf);
-          let bin = '';
-          const CHUNK = 8192;
-          for (let i = 0; i < u8.length; i += CHUNK) {
-            bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
-          }
-          content.push({
-            type: 'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: btoa(bin) },
-          });
-        } else {
-          const clean = _extrairTextoHTML(await res.text());
-          if (clean.length > 200) content.push({ type: 'text', text: `Texto do documento:\n${clean}` });
-        }
-      }
-    } catch (e) { console.warn('Anthropic: erro ao buscar doc:', e.message); }
-  }
-
+  baixados.forEach((d, i) => {
+    if (d.kind === 'pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: d.b64 } });
+    else content.push({ type: 'text', text: `Documento ${i + 1}:\n${d.texto}` });
+  });
   content.push({ type: 'text', text: prompt });
 
   const res = await fetch(ANTHROPIC_BASE, {
@@ -784,7 +862,7 @@ async function _callAnthropic(prompt, docUrl = null) {
     },
     body: JSON.stringify({
       model:       anthropicModelo,
-      max_tokens:  1024,
+      max_tokens:  _MAX_OUT_TOKENS,
       temperature: 0.2,
       messages:    [{ role: 'user', content }],
     }),
@@ -795,40 +873,21 @@ async function _callAnthropic(prompt, docUrl = null) {
 }
 
 // ---------- OPENAI ----------
-async function _callOpenAI(prompt, docUrl = null) {
+async function _callOpenAI(prompt, baixados = []) {
   const { openaiKey, openaiModelo } = app.config;
   if (!openaiKey) throw new Error('Chave OpenAI não configurada.');
 
   const content = [];
-
-  if (docUrl) {
-    try {
-      const res = await fetch(docUrl);
-      if (res.ok) {
-        const ct = res.headers.get('content-type') || '';
-        if (ct.includes('pdf')) {
-          const buf  = await res.arrayBuffer();
-          const u8   = new Uint8Array(buf);
-          let bin = '';
-          const CHUNK = 8192;
-          for (let i = 0; i < u8.length; i += CHUNK) {
-            bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
-          }
-          content.push({ type: 'input_file', filename: 'documento.pdf', file_data: `data:application/pdf;base64,${btoa(bin)}` });
-        } else {
-          const clean = _extrairTextoHTML(await res.text());
-          if (clean.length > 200) content.push({ type: 'input_text', text: `Texto do documento:\n${clean}` });
-        }
-      }
-    } catch (e) { console.warn('OpenAI: erro ao buscar doc:', e.message); }
-  }
-
+  baixados.forEach((d, i) => {
+    if (d.kind === 'pdf') content.push({ type: 'input_file', filename: `documento_${i + 1}.pdf`, file_data: `data:application/pdf;base64,${d.b64}` });
+    else content.push({ type: 'input_text', text: `Documento ${i + 1}:\n${d.texto}` });
+  });
   content.push({ type: 'input_text', text: prompt });
 
   const res = await fetch(OPENAI_BASE, {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: 2048 }),
+    body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: _MAX_OUT_TOKENS }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `OpenAI HTTP ${res.status}`);
@@ -915,7 +974,7 @@ Escreva em linguagem técnica e objetiva, em prosa contínua, sem títulos ou ma
   return aiCall(prompt, textoUrl);
 }
 
-async function gerarAnaliseComissao(proj, comissao, tramitacoesCom, docUrl) {
+async function gerarAnaliseComissao(proj, comissao, tramitacoesCom, docsComissao = []) {
   const historico = tramitacoesCom
     .map(t => {
       const data    = (t.dataHora || '').split('T')[0];
@@ -927,6 +986,13 @@ async function gerarAnaliseComissao(proj, comissao, tramitacoesCom, docUrl) {
     .filter(s => s.trim().length > 5)
     .join('\n');
 
+  const urls = docsComissao.map(d => d.url);
+  // Inventário dos documentos anexados, para a IA saber o que está lendo e
+  // procurar o conteúdo do substitutivo/complementação de voto no documento certo.
+  const inventario = docsComissao.length
+    ? docsComissao.map((d, i) => `Documento ${i + 1}: ${d.rotulo}${d.numero ? ` (nº ${d.numero})` : ''}`).join('\n')
+    : '(nenhum documento de parecer localizado para esta comissão)';
+
   const prompt = `Você é um assessor parlamentar especializado em análise legislativa brasileira.
 
 Analise a tramitação do ${proj.chave} na ${comissao.nome} (${comissao.sigla}).
@@ -935,15 +1001,17 @@ Ementa: "${proj.ementa || ''}"
 Histórico de eventos nesta comissão:
 ${historico || '(sem registro detalhado disponível)'}
 
-${docUrl ? 'O documento da comissão (parecer/substitutivo) está anexado.' : ''}
+Documentos desta comissão anexados a esta análise (parecer do relator, substitutivo, complementação de voto etc.):
+${inventario}
 
-Descreva em 2 parágrafos:
-1. A decisão da comissão (aprovação, rejeição, aprovação com substitutivo/emendas).
-2. As principais alterações realizadas ou os argumentos centrais do relator.
+Produza uma análise técnica e detalhada, em prosa corrida (sem marcadores), cobrindo obrigatoriamente:
+1. A decisão da comissão (aprovação, rejeição, aprovação com substitutivo/emendas, constitucionalidade etc.) e o(a) relator(a).
+2. **O conteúdo concreto do substitutivo/parecer**: percorra os documentos anexados — inclusive a complementação de voto, quando houver — e descreva, dispositivo a dispositivo (artigos, parágrafos, incisos), o que foi INCLUÍDO, ALTERADO ou SUPRIMIDO em relação ao texto original, registrando o teor relevante. Não se limite a um resumo genérico: garanta que TODO o teor dos documentos seja abordado.
+3. Os argumentos centrais desenvolvidos pelo(a) relator(a) na fundamentação.
 
-Escreva em prosa objetiva e técnica, sem marcadores. Se a comissão aprovou sem alterações substanciais, informe isso claramente.${_REGRAS_RIGIDAS}${blocoPerfilPadrao()}`;
+Atenção: as mudanças concretas e a fundamentação podem estar distribuídas entre os documentos (ex.: o substitutivo traz o texto e a complementação de voto traz os ajustes e a justificativa). Consulte todos antes de concluir que algo "não consta". Use o espaço necessário para esgotar o conteúdo, sem se limitar a um número fixo de parágrafos. Se a comissão aprovou sem alterações substanciais, informe isso claramente.${_REGRAS_RIGIDAS}${blocoPerfilPadrao()}`;
 
-  return aiCall(prompt, docUrl);
+  return aiCall(prompt, urls);
 }
 
 async function gerarArgumentos(proj, textoUrl) {
@@ -1012,52 +1080,67 @@ async function analisarProjeto(proj) {
       throw new Error('Projeto não encontrado na API da Câmara. Verifique a referência no PDF.');
     }
 
-    // Busca textos, tramitações e pareceres de comissões simultaneamente
-    const [textos, tramitacoes, pareceresMap] = await Promise.all([
-      buscarTextos(proj.idCamara),
+    // Tramitações e documentos de parecer (por comissão), em paralelo.
+    const [tramitacoes, documentos] = await Promise.all([
       buscarTramitacoes(proj.idCamara),
-      buscarPareceresComissoes(proj.idCamara),
+      buscarDocumentosComissoes(proj.idCamara),
     ]);
 
-    // URL do inteiro teor
-    const teorEntry = textos.find(t =>
-      (t.tipo  || '').toLowerCase().includes('inteiro') ||
-      (t.descricao || '').toLowerCase().includes('inteiro teor') ||
-      (t.descricao || '').toLowerCase().includes('original')
-    );
-    const teorUrl = teorEntry?.url || null;
+    // Inteiro teor vem do detalhe da proposição (urlInteiroTeor). Se o projeto
+    // foi carregado do histórico sem esse campo, busca o detalhe agora.
+    let teorUrl = proj.urlInteiroTeor || null;
+    if (!teorUrl) {
+      try {
+        const resD = await fetch(`${API_BASE}/proposicoes/${proj.idCamara}`);
+        if (resD.ok) teorUrl = (await resD.json()).dados?.urlInteiroTeor || null;
+      } catch (_) {}
+    }
 
-    // Comissões: une tramitação + página de pareceres (fonte mais confiável)
-    const comissoes = extrairComissoesDaTramitacao(tramitacoes);
-    for (const [sigla, info] of Object.entries(pareceresMap)) {
-      if (!comissoes.find(c => c.sigla === sigla) && !ORGAOS_ADMIN.has(sigla)) {
-        comissoes.push({ sigla, nome: info.nome || sigla });
-      }
+    // Agrupa os documentos por comissão de origem (CCJC, CICS, …).
+    const docsPorOrgao = {};
+    for (const d of documentos) {
+      (docsPorOrgao[d.orgao] = docsPorOrgao[d.orgao] || []).push(d);
+    }
+
+    // Siglas candidatas a comissão: órgãos que emitiram documento + órgãos da
+    // tramitação (exceto administrativos e espécies documentais).
+    const siglasCandidatas = new Set([
+      ...Object.keys(docsPorOrgao),
+      ...tramitacoes.map(t => (t.siglaOrgao || '').trim().toUpperCase()),
+    ].filter(s => s && !ORGAOS_ADMIN.has(s) && !_SIGLAS_DOC.has(s)));
+
+    // Resolve nome/tipo de cada órgão e mantém apenas comissões de mérito.
+    const comissoes = [];
+    for (const sigla of siglasCandidatas) {
+      const info = await _resolverOrgao(sigla);
+      // Sem documento E não confirmada como comissão → ignora (evita ruído).
+      if (!info.ehComissao && !docsPorOrgao[sigla]) continue;
+      comissoes.push({ sigla, nome: info.nome || sigla });
     }
 
     // 1. Resumo do projeto original
     proj.resumoOriginal = await gerarResumoOriginal(proj, teorUrl);
 
-    // 2. Análise por comissão (sequencial para não saturar a API)
+    // 2. Análise por comissão (sequencial para não saturar a API). Envia TODOS
+    // os documentos da comissão (parecer + substitutivo + complementação de voto),
+    // ordenados do mais recente para o mais antigo (codteor decrescente), até 6.
     proj.comissoes = [];
     for (const com of comissoes) {
       const tramCom = tramitacoes.filter(t =>
         (t.siglaOrgao || '').toUpperCase() === com.sigla
       );
+      const docsCom = (docsPorOrgao[com.sigla] || [])
+        .slice()
+        .sort((a, b) => b.codteor - a.codteor)
+        .slice(0, 6);
 
-      // Usa página de pareceres como fonte primária (mais confiável que /textos)
-      // Fallback: busca em /textos pela sigla da comissão na descrição
-      const docUrl = pareceresMap[com.sigla]?.url || (() => {
-        const entry = textos.find(t => {
-          const desc = (t.descricao || '').toLowerCase();
-          return desc.includes(com.sigla.toLowerCase()) ||
-                 desc.includes(com.nome.toLowerCase().slice(0, 15));
-        });
-        return entry?.url || null;
-      })();
-
-      const resumoCom = await gerarAnaliseComissao(proj, com, tramCom, docUrl);
-      proj.comissoes.push({ sigla: com.sigla, nome: com.nome, resumo: resumoCom });
+      const resumoCom = await gerarAnaliseComissao(proj, com, tramCom, docsCom);
+      proj.comissoes.push({
+        sigla: com.sigla,
+        nome:  com.nome,
+        resumo: resumoCom,
+        docsRotulos: docsCom.map(d => d.rotulo),
+      });
     }
 
     // 3. Argumentos favoráveis e contrários (ancorados no texto integral)
@@ -1464,11 +1547,16 @@ function gerarHTMLImpressao(pauta) {
   const html = projetos.map((proj, idx) => {
     const numBase = idx + 1;
 
-    const comissoesHtml = (proj.comissoes || []).map(com => `
+    const comissoesHtml = (proj.comissoes || []).map(com => {
+      const titulo = com.nome && com.nome !== com.sigla ? `${com.nome} (${com.sigla})` : com.sigla;
+      const docs   = (com.docsRotulos || []).length ? `<p class="pi-comissao-docs"><em>Documentos analisados: ${escHtml(com.docsRotulos.join(', '))}.</em></p>` : '';
+      return `
       <div class="pi-comissao">
-        <h4>${escHtml(com.nome)} (${escHtml(com.sigla)})</h4>
+        <h4>${escHtml(titulo)}</h4>
+        ${docs}
         <p>${escHtml(com.resumo || 'Análise não disponível.')}</p>
-      </div>`).join('');
+      </div>`;
+    }).join('');
 
     const toItems = txt => (txt || '')
       .split('\n')
@@ -1727,13 +1815,22 @@ function renderizarRevisao() {
   const temGemini   = !!(app.config.geminiKey || app.config.anthropicKey || app.config.openaiKey);
   const roDisabled  = analisando ? 'readonly' : '';
 
-  const comissoesHtml = (proj.comissoes || []).map((com, i) => `
+  const comissoesHtml = (proj.comissoes || []).map((com, i) => {
+    const titulo = com.nome && com.nome !== com.sigla
+      ? `${esc(com.nome)} <span style="opacity:.55">(${esc(com.sigla)})</span>`
+      : esc(com.sigla);
+    const docs = (com.docsRotulos || []).length
+      ? `<div class="ccjc-secao-docs" style="font-size:12px;opacity:.7;margin:2px 0 6px">Documentos analisados: ${esc(com.docsRotulos.join(', '))}.</div>`
+      : '';
+    return `
     <div class="ccjc-secao">
       <div class="ccjc-secao-header">
-        <span class="ccjc-secao-titulo">${esc(com.nome)} <span style="opacity:.55">(${esc(com.sigla)})</span></span>
+        <span class="ccjc-secao-titulo">${titulo}</span>
       </div>
+      ${docs}
       <textarea id="campo-comissao-${i}" class="ccjc-textarea" placeholder="Análise da ${esc(com.sigla)}..." ${roDisabled}>${esc(com.resumo || '')}</textarea>
-    </div>`).join('');
+    </div>`;
+  }).join('');
 
   const secComissoes = proj.comissoes?.length
     ? `<div class="ccjc-secao-grupo-label">2. Tramitação nas Comissões</div>${comissoesHtml}`
@@ -2463,6 +2560,7 @@ function _parsearPautaJSON(itens) {
       relator:              item.relator?.nome || '',
       topico:               item.topico  || '',
       statusApi:            '',
+      urlInteiroTeor:       null,
       resumoOriginal:       '',
       comissoes:            [],
       argumentosFavoraveis: '',
@@ -2520,6 +2618,7 @@ function _parsearPautaXML(xmlText) {
       relator:              relNome,
       topico,
       statusApi:            '',
+      urlInteiroTeor:       null,
       resumoOriginal:       '',
       comissoes:            [],
       argumentosFavoraveis: '',
