@@ -8,6 +8,7 @@
 
 // ---------- CONSTANTES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
+const CODETABS     = 'https://api.codetabs.com/v1/proxy?quest='; // proxy CORS p/ páginas HTML da Câmara
 const GEMINI_BASE     = 'https://generativelanguage.googleapis.com/v1beta/models';
 const ANTHROPIC_BASE  = 'https://api.anthropic.com/v1/messages';
 const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
@@ -512,12 +513,27 @@ async function _resolverOrgao(sigla) {
 // órgão. Permite agrupar por comissão e enviar à IA o conjunto completo
 // (parecer + substitutivo + complementação de voto). A página da Câmara é a
 // única fonte confiável desses documentos.
+// Busca uma página HTML da Câmara com fallback para proxy CORS. As páginas
+// proposicoesWeb (www.camara.leg.br) nem sempre enviam cabeçalhos CORS, então
+// o fetch direto pode falhar — nesse caso tentamos via codetabs (como os demais
+// módulos do app). Retorna o HTML como string ou '' se tudo falhar.
+async function _fetchCamaraHTML(url) {
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (r.ok) return await r.text();
+  } catch (_) { /* CORS/rede → tenta proxy */ }
+  try {
+    const r = await fetch(CODETABS + encodeURIComponent(url));
+    if (r.ok) return await r.text();
+  } catch (e) { console.warn('Falha ao buscar página da Câmara (direto e via proxy):', url, e.message); }
+  return '';
+}
+
 async function buscarDocumentosComissoes(idCamara) {
   const url = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idCamara}`;
+  const html = await _fetchCamaraHTML(url);
+  if (!html) return [];
   try {
-    const res = await fetch(url);
-    if (!res.ok) return [];
-    const html = await res.text();
     const docs = _extrairDocumentosPareceres(html);
     if (docs.length) return docs;
     // Fallback (estrutura de página antiga): mapa sigla→url, sem espécie documental.
@@ -527,7 +543,7 @@ async function buscarDocumentosComissoes(idCamara) {
       // tipo PRL (família "parecer") para que o fallback não seja descartado.
       .map(([sigla, info]) => ({ tipo: 'PRL', numero: '1', orgao: sigla, url: info.url, codteor: 0, rotulo: 'Parecer' }));
   } catch (e) {
-    console.warn('Erro ao buscar documentos das comissões:', e.message);
+    console.warn('Erro ao interpretar a página de pareceres das comissões:', e.message);
     return [];
   }
 }
@@ -1151,6 +1167,7 @@ async function analisarProjeto(proj) {
         const resD = await fetch(`${API_BASE}/proposicoes/${proj.idCamara}`);
         if (resD.ok) teorUrl = (await resD.json()).dados?.urlInteiroTeor || null;
       } catch (_) {}
+      if (teorUrl) proj.urlInteiroTeor = teorUrl; // persiste p/ exibir o link de conferência
     }
 
     // Agrupa os documentos por comissão de origem (CCJC, CICS, …).
@@ -1174,6 +1191,12 @@ async function analisarProjeto(proj) {
       if (!info.ehComissao && !docsPorOrgao[sigla]) continue;
       comissoes.push({ sigla, nome: info.nome || sigla });
     }
+
+    console.debug('[CCJC] detecção:', {
+      tramitacoes: tramitacoes.length,
+      documentos:  documentos.length,
+      comissoes:   comissoes.map(c => c.sigla),
+    });
 
     // 1. Resumo do projeto original
     proj.resumoOriginal = await gerarResumoOriginal(proj, teorUrl);
@@ -1909,7 +1932,9 @@ function renderizarRevisao() {
         ? `<div class="ccjc-secao"><div class="ccjc-secao-header"><span class="ccjc-secao-titulo">2. Tramitação nas Comissões</span></div><p class="ccjc-empty-secao">Nenhuma comissão identificada na tramitação deste projeto.</p></div>`
         : '');
 
-  const nSecArgs = proj.comissoes?.length ? 3 : 2;
+  // A seção "2. Tramitação nas Comissões" ocupa o nº 2 sempre que for exibida
+  // (mesmo no estado vazio "Nenhuma comissão…"), então os Argumentos viram 3 e 4.
+  const nSecArgs = secComissoes ? 3 : 2;
   const nSecArgsCon = nSecArgs + 1;
 
   cont.innerHTML = `
