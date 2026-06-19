@@ -9,6 +9,7 @@
 // ---------- CONSTANTES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const CODETABS     = 'https://api.codetabs.com/v1/proxy?quest='; // proxy CORS p/ páginas HTML da Câmara
+const WORKER       = 'https://shrill-resonance-4d17.vinicius-const.workers.dev/?url='; // proxy próprio (HTML e PDF)
 const GEMINI_BASE     = 'https://generativelanguage.googleapis.com/v1beta/models';
 const ANTHROPIC_BASE  = 'https://api.anthropic.com/v1/messages';
 const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
@@ -509,23 +510,24 @@ async function _resolverOrgao(sigla) {
   return info;
 }
 
-// Retorna todos os documentos de parecer da página, cada um com sua espécie e
-// órgão. Permite agrupar por comissão e enviar à IA o conjunto completo
-// (parecer + substitutivo + complementação de voto). A página da Câmara é a
-// única fonte confiável desses documentos.
 // Busca uma página HTML da Câmara com fallback para proxy CORS. As páginas
 // proposicoesWeb (www.camara.leg.br) nem sempre enviam cabeçalhos CORS, então
-// o fetch direto pode falhar — nesse caso tentamos via codetabs (como os demais
-// módulos do app). Retorna o HTML como string ou '' se tudo falhar.
+// o fetch direto pode falhar — nesse caso tentamos o codetabs e, por fim, o
+// worker próprio (como os demais módulos do app). Retorna o HTML ou '' se tudo
+// falhar.
 async function _fetchCamaraHTML(url) {
   try {
     const r = await fetch(url, { redirect: 'follow' });
     if (r.ok) return await r.text();
-  } catch (_) { /* CORS/rede → tenta proxy */ }
+  } catch (_) { /* CORS/rede → tenta proxies */ }
   try {
     const r = await fetch(CODETABS + encodeURIComponent(url));
     if (r.ok) return await r.text();
-  } catch (e) { console.warn('Falha ao buscar página da Câmara (direto e via proxy):', url, e.message); }
+  } catch (_) { /* codetabs falhou → tenta o worker */ }
+  try {
+    const r = await fetch(WORKER + encodeURIComponent(url));
+    if (r.ok) return await r.text();
+  } catch (e) { console.warn('Falha ao buscar página da Câmara (direto, codetabs e worker):', url, e.message); }
   return '';
 }
 
@@ -870,22 +872,38 @@ function _bufParaBase64(buf) {
   return btoa(bin);
 }
 
+// Busca um documento da Câmara (PDF ou HTML) com fallback para o worker próprio.
+// O codetabs não é usado aqui porque não lida bem com PDF/binário.
+async function _fetchCamaraDoc(url) {
+  try {
+    const r = await fetch(url, { redirect: 'follow' });
+    if (r.ok) return r;
+  } catch (_) { /* CORS/rede → tenta worker */ }
+  try {
+    const r = await fetch(WORKER + encodeURIComponent(url));
+    if (r.ok) return r;
+  } catch (e) { console.warn('Falha ao baixar documento (direto e worker):', url, e.message); }
+  return null;
+}
+
 // Baixa cada documento e o normaliza em { kind:'pdf', b64 } ou { kind:'text', texto }.
 async function _baixarDocs(docs) {
   const urls = Array.isArray(docs) ? docs.filter(Boolean) : (docs ? [docs] : []);
   const out = [];
   for (const url of urls) {
     try {
-      const res = await fetch(url);
-      if (!res.ok) continue;
+      const res = await _fetchCamaraDoc(url);
+      if (!res) continue;
       const ct = res.headers.get('content-type') || '';
-      if (ct.includes('pdf')) {
+      // content-type pode se perder ao passar pelo proxy → considera também a URL.
+      const ehPdf = ct.includes('pdf') || /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
+      if (ehPdf) {
         out.push({ kind: 'pdf', b64: _bufParaBase64(await res.arrayBuffer()) });
       } else {
         const clean = _extrairTextoHTML(await res.text());
         if (clean.length > 200) out.push({ kind: 'text', texto: clean });
       }
-    } catch (e) { console.warn('Erro ao baixar doc:', e.message); }
+    } catch (e) { console.warn('Erro ao processar doc:', e.message); }
   }
   return out;
 }
@@ -1013,13 +1031,15 @@ function _validarReferencias(textoGerado, textoFonte) {
 }
 
 // Baixa uma URL e devolve seu texto puro (PDF via pdf.js, HTML via strip de tags).
+// Usa o mesmo fallback de proxy (direto → worker) que o envio de documentos.
 async function _textoFonteDeURL(url) {
   if (!url) return '';
   try {
-    const res = await fetch(url);
-    if (!res.ok) return '';
+    const res = await _fetchCamaraDoc(url);
+    if (!res) return '';
     const ct = res.headers.get('content-type') || '';
-    if (ct.includes('pdf') && typeof pdfjsLib !== 'undefined') {
+    const ehPdf = ct.includes('pdf') || /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
+    if (ehPdf && typeof pdfjsLib !== 'undefined') {
       const pdf = await pdfjsLib.getDocument({ data: await res.arrayBuffer() }).promise;
       let t = '';
       for (let i = 1; i <= pdf.numPages; i++) {
