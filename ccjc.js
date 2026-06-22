@@ -407,7 +407,7 @@ const _SIGLAS_DOC = new Set(Object.keys(_TIPOS_DOCUMENTO).flatMap(k => [k, k.spl
 
 function _rotuloTipoDoc(tipo, numero) {
   const base = _TIPOS_DOCUMENTO[tipo] || _TIPOS_DOCUMENTO[tipo.split('-')[0]] || tipo;
-  const suf  = tipo.includes('-') ? ' (adendo)' : '';
+  const suf  = tipo.includes('-') ? ' (adotado)' : '';
   return (numero && Number(numero) > 1) ? `${base}${suf} ${numero}` : `${base}${suf}`;
 }
 
