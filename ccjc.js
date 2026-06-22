@@ -489,11 +489,15 @@ async function _resolverOrgao(sigla) {
 // o fetch direto pode falhar — nesse caso tentamos o codetabs e, por fim, o
 // worker próprio (como os demais módulos do app). Retorna o HTML ou '' se tudo
 // falhar.
-// Considera válida apenas a página HTML real da Câmara — evita aceitar uma
-// página de erro/JSON que um proxy possa devolver com HTTP 200 (o que faria a
-// busca parar antes de tentar a próxima via).
+// Considera válida a resposta se ela parece a página real da Câmara (contém
+// marcadores próprios), e não uma página de erro/JSON que um proxy possa
+// devolver com HTTP 200. Permissivo: qualquer página proposicoesWeb passa.
 function _htmlCamaraValido(html) {
-  return !!html && html.length > 500 && /<(?:!doctype|html)/i.test(html.slice(0, 400));
+  if (!html || html.length < 500) return false;
+  return html.includes('proposicoesWeb')
+      || html.includes('prop_mostrarintegra')
+      || html.includes('filename=')
+      || /<!doctype html|<html[\s>]/i.test(html.slice(0, 600));
 }
 
 async function _fetchCamaraHTML(url) {
@@ -505,11 +509,11 @@ async function _fetchCamaraHTML(url) {
   for (const [nome, tentar] of vias) {
     try {
       const r = await tentar();
-      if (!r.ok) continue;
-      const html = await r.text();
-      if (_htmlCamaraValido(html)) return html;
-      console.debug(`[CCJC] página de pareceres via ${nome}: resposta inválida; tentando próxima via.`);
-    } catch (_) { /* tenta a próxima via */ }
+      const html = r.ok ? await r.text() : '';
+      const ok = r.ok && _htmlCamaraValido(html);
+      console.debug(`[CCJC] pareceres via ${nome}: status=${r.status} len=${html.length} valido=${ok}`);
+      if (ok) return html;
+    } catch (e) { console.debug(`[CCJC] pareceres via ${nome}: erro ${e.message}`); }
   }
   console.warn('[CCJC] não foi possível obter a página de pareceres (direto, codetabs e worker).');
   return '';
@@ -904,34 +908,44 @@ function _bufParaBase64(buf) {
 }
 
 // Busca um documento da Câmara (PDF ou HTML) com fallback para o worker próprio.
-// O codetabs não é usado aqui porque não lida bem com PDF/binário.
-async function _fetchCamaraDoc(url) {
-  try {
-    const r = await fetch(url, { redirect: 'follow' });
-    if (r.ok) return r;
-  } catch (_) { /* CORS/rede → tenta worker */ }
-  try {
-    const r = await fetch(WORKER + encodeURIComponent(url));
-    if (r.ok) return r;
-  } catch (e) { console.warn('Falha ao baixar documento (direto e worker):', url, e.message); }
+// Baixa um PDF da Câmara como ArrayBuffer, tentando todas as vias (direto →
+// worker → codetabs) e validando os bytes iniciais (%PDF) para não aceitar uma
+// página de erro que um proxy devolva no lugar do PDF. Retorna null se nenhuma
+// via entregar um PDF válido.
+async function _baixarPdfCamara(url) {
+  const vias = [
+    ['direto',   () => fetch(url, { redirect: 'follow' })],
+    ['worker',   () => fetch(WORKER + encodeURIComponent(url))],
+    ['codetabs', () => fetch(CODETABS + encodeURIComponent(url))],
+  ];
+  for (const [nome, tentar] of vias) {
+    try {
+      const r = await tentar();
+      if (!r.ok) { console.debug(`[CCJC] pdf via ${nome}: status ${r.status}`); continue; }
+      const buf = await r.arrayBuffer();
+      const h = new Uint8Array(buf.slice(0, 5));
+      if (h[0] === 0x25 && h[1] === 0x50 && h[2] === 0x44 && h[3] === 0x46) return buf; // "%PDF"
+      console.debug(`[CCJC] pdf via ${nome}: resposta não-PDF (${buf.byteLength} bytes)`);
+    } catch (e) { console.debug(`[CCJC] pdf via ${nome}: erro ${e.message}`); }
+  }
   return null;
 }
 
 // Baixa cada documento e o normaliza em { kind:'pdf', b64 } ou { kind:'text', texto }.
+// Documentos de parecer/inteiro teor são sempre PDFs (prop_mostrarintegra).
 async function _baixarDocs(docs) {
   const urls = Array.isArray(docs) ? docs.filter(Boolean) : (docs ? [docs] : []);
   const out = [];
   for (const url of urls) {
     try {
-      const res = await _fetchCamaraDoc(url);
-      if (!res) continue;
-      const ct = res.headers.get('content-type') || '';
-      // content-type pode se perder ao passar pelo proxy → considera também a URL.
-      const ehPdf = ct.includes('pdf') || /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
+      const ehPdf = /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
       if (ehPdf) {
-        out.push({ kind: 'pdf', b64: _bufParaBase64(await res.arrayBuffer()) });
+        const buf = await _baixarPdfCamara(url);
+        if (buf) out.push({ kind: 'pdf', b64: _bufParaBase64(buf) });
+        else console.warn('[CCJC] não foi possível baixar o PDF:', url.slice(0, 90));
       } else {
-        const clean = _extrairTextoHTML(await res.text());
+        const html = await _fetchCamaraHTML(url);
+        const clean = _extrairTextoHTML(html);
         if (clean.length > 200) out.push({ kind: 'text', texto: clean });
       }
     } catch (e) { console.warn('Erro ao processar doc:', e.message); }
@@ -1065,16 +1079,15 @@ function _validarReferencias(textoGerado, textoFonte) {
 }
 
 // Baixa uma URL e devolve seu texto puro (PDF via pdf.js, HTML via strip de tags).
-// Usa o mesmo fallback de proxy (direto → worker) que o envio de documentos.
+// Usa o mesmo download multivia (direto → worker → codetabs) do envio de documentos.
 async function _textoFonteDeURL(url) {
   if (!url) return '';
   try {
-    const res = await _fetchCamaraDoc(url);
-    if (!res) return '';
-    const ct = res.headers.get('content-type') || '';
-    const ehPdf = ct.includes('pdf') || /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
+    const ehPdf = /prop_mostrarintegra|\.pdf(\?|$)/i.test(url);
     if (ehPdf && typeof pdfjsLib !== 'undefined') {
-      const pdf = await pdfjsLib.getDocument({ data: await res.arrayBuffer() }).promise;
+      const buf = await _baixarPdfCamara(url);
+      if (!buf) return '';
+      const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
       let t = '';
       for (let i = 1; i <= pdf.numPages; i++) {
         const c = await (await pdf.getPage(i)).getTextContent();
@@ -1082,7 +1095,7 @@ async function _textoFonteDeURL(url) {
       }
       return t;
     }
-    return _extrairTextoHTML(await res.text());
+    return _extrairTextoHTML(await _fetchCamaraHTML(url));
   } catch (_) { return ''; }
 }
 
