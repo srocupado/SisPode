@@ -41,13 +41,9 @@ let app = {
     reuniaoSelecionada: null,
   },
   config: {
-    provedorAtivo:  '',   // 'gemini' | 'anthropic' | 'openai' (vazio = automático, 1º configurado)
-    geminiKey:      '',
-    modelo:         'gemini-2.5-flash-preview-04-17',
-    anthropicKey:   '',
-    anthropicModelo:'claude-opus-4-8',
-    openaiKey:      '',
-    openaiModelo:   'gpt-4o',
+    provedor:  'gemini',   // 'gemini' | 'openai' | 'anthropic' — provedor único ativo
+    apiKey:    '',         // chave do provedor ativo
+    modelo:    'gemini-2.5-flash',
   },
   perfis:         [],   // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
   perfilPadraoId: null, // id do perfil de prompt aplicado por padrão nas análises (compartilhado pela equipe)
@@ -77,11 +73,11 @@ function registrarEventos() {
   document.getElementById('btn-criar-pauta').addEventListener('click', criarPauta);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfiguracoes);
   document.getElementById('btn-salvar-config').addEventListener('click', salvarConfiguracao);
-  document.getElementById('btn-testar-ia').addEventListener('click', testarConexaoIA);
+  document.getElementById('btn-testar-ia').addEventListener('click', testarConexao);
   document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelosDisponiveis);
-  document.getElementById('btn-carregar-anthropic-modelos').addEventListener('click', carregarModelosAnthropic);
+  document.getElementById('config-provedor').addEventListener('change', onProvedorChange);
   document.getElementById('btn-toggle-key').addEventListener('click', () => {
-    const input = document.getElementById('config-gemini-key');
+    const input = document.getElementById('config-api-key');
     input.type = input.type === 'password' ? 'text' : 'password';
   });
 
@@ -89,28 +85,6 @@ function registrarEventos() {
   document.getElementById('btn-analisar-selecionados')?.addEventListener('click', analisarSelecionados);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
-  document.getElementById('config-gemini-key')
-    ?.addEventListener('input', atualizarBadgeGemini);
-  document.getElementById('config-anthropic-key')
-    ?.addEventListener('input', atualizarBadgeClaude);
-  document.getElementById('btn-toggle-anthropic-key')
-    ?.addEventListener('click', () => {
-      const input = document.getElementById('config-anthropic-key');
-      input.type = input.type === 'password' ? 'text' : 'password';
-    });
-  document.getElementById('btn-testar-anthropic')
-    ?.addEventListener('click', testarConexaoAnthropic);
-  document.getElementById('btn-carregar-openai-modelos')
-    ?.addEventListener('click', carregarModelosOpenAI);
-  document.getElementById('config-openai-key')
-    ?.addEventListener('input', atualizarBadgeOpenai);
-  document.getElementById('btn-toggle-openai-key')
-    ?.addEventListener('click', () => {
-      const input = document.getElementById('config-openai-key');
-      input.type = input.type === 'password' ? 'text' : 'password';
-    });
-  document.getElementById('btn-testar-openai')
-    ?.addEventListener('click', testarConexaoOpenAI);
 
   // Perfis de prompt
   document.getElementById('perfil-select')?.addEventListener('change', refletirSelecaoPerfil);
@@ -812,32 +786,79 @@ function _siglaIgnorada(s) {
 //  CAMADA DE IA – GEMINI
 // ============================================================
 
-// Resolve o provedor que será usado: respeita a escolha do usuário
-// (config.provedorAtivo); se o escolhido não tiver chave, cai no primeiro
-// configurado (gemini → anthropic → openai). Retorna '' se nenhum tem chave.
+// ---------- PROVEDORES DE IA (metadados + listagem de modelos) ----------
+// Mesma estrutura do módulo de Pauta de Plenário, para manter a config unificada.
+const PROVEDORES_META = {
+  gemini: {
+    label: 'Google Gemini',
+    placeholderChave: 'AIzaSy... ou AQ....',
+    hintChave: 'Obtenha em aistudio.google.com → Get API key',
+    regexChave: /^[\w.-]{20,}$/,
+    modelosFallback: [
+      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
+    ],
+    async listar(key) {
+      const res = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      return (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && (m.name || '').includes('gemini'))
+        .map(m => ({ id: (m.name || '').replace(/^models\//, ''), displayName: m.displayName || m.name }));
+    },
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    placeholderChave: 'sk-...',
+    hintChave: 'Obtenha em platform.openai.com/api-keys',
+    regexChave: /^sk-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'gpt-5',   displayName: 'GPT-5' },
+      { id: 'gpt-4.1', displayName: 'GPT-4.1' },
+      { id: 'gpt-4o',  displayName: 'GPT-4o' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4', 'o3'];
+      const ids = (j.data || []).map(m => m.id).filter(id => prefs.some(p => id.startsWith(p))).sort();
+      return ids.length ? ids.map(id => ({ id, displayName: id })) : this.modelosFallback;
+    },
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    placeholderChave: 'sk-ant-...',
+    hintChave: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regexChave: /^sk-ant-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'claude-opus-4-8',   displayName: 'Claude Opus 4.8' },
+      { id: 'claude-opus-4-7',   displayName: 'Claude Opus 4.7' },
+      { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5',  displayName: 'Claude Haiku 4.5' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const lista = (j.data || []).map(m => ({ id: m.id, displayName: m.display_name || m.id }));
+      return lista.length ? lista : this.modelosFallback;
+    },
+  },
+};
+
+// Provedor único ativo (igual ao Plenário): só vale se houver chave configurada.
 function _provedorEfetivo() {
-  const tem = {
-    gemini:    !!app.config.geminiKey,
-    anthropic: !!app.config.anthropicKey,
-    openai:    !!app.config.openaiKey,
-  };
-  const escolhido = app.config.provedorAtivo;
-  if (escolhido && tem[escolhido]) return escolhido;
-  if (tem.gemini)    return 'gemini';
-  if (tem.anthropic) return 'anthropic';
-  if (tem.openai)    return 'openai';
-  return '';
+  return app.config.apiKey ? (app.config.provedor || 'gemini') : '';
 }
 
 const NOME_PROVEDOR = { gemini: 'Gemini', anthropic: 'Claude', openai: 'ChatGPT' };
 
 // Identificador do modelo do provedor ativo (para registrar na análise).
 function _modeloAtualLabel() {
-  const p = _provedorEfetivo();
-  if (p === 'gemini')    return app.config.modelo || '';
-  if (p === 'anthropic') return app.config.anthropicModelo || '';
-  if (p === 'openai')    return app.config.openaiModelo || '';
-  return '';
+  return app.config.modelo || '';
 }
 
 // Formata um ISO timestamp como "DD/MM/AAAA HH:MM" (pt-BR). Vazio se inválido.
@@ -910,8 +931,9 @@ async function _baixarDocs(docs) {
 
 // ---------- GEMINI ----------
 async function _callGemini(prompt, baixados = []) {
-  const { geminiKey, modelo } = app.config;
-  if (!geminiKey) throw new Error('Chave Gemini não configurada.');
+  const apiKey = app.config.apiKey;
+  const modelo = app.config.modelo || 'gemini-2.5-flash';
+  if (!apiKey) throw new Error('Chave de API não configurada.');
 
   const parts = [];
   baixados.forEach((d, i) => {
@@ -920,7 +942,7 @@ async function _callGemini(prompt, baixados = []) {
   });
   parts.push({ text: prompt });
 
-  const url = `${GEMINI_BASE}/${modelo}:generateContent?key=${geminiKey}`;
+  const url = `${GEMINI_BASE}/${modelo}:generateContent?key=${apiKey}`;
   const res  = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -933,8 +955,9 @@ async function _callGemini(prompt, baixados = []) {
 
 // ---------- ANTHROPIC ----------
 async function _callAnthropic(prompt, baixados = []) {
-  const { anthropicKey, anthropicModelo } = app.config;
-  if (!anthropicKey) throw new Error('Chave Anthropic não configurada.');
+  const apiKey = app.config.apiKey;
+  const anthropicModelo = app.config.modelo || 'claude-opus-4-8';
+  if (!apiKey) throw new Error('Chave de API não configurada.');
 
   const content = [];
   baixados.forEach((d, i) => {
@@ -947,7 +970,7 @@ async function _callAnthropic(prompt, baixados = []) {
     method: 'POST',
     headers: {
       'Content-Type':                          'application/json',
-      'x-api-key':                             anthropicKey,
+      'x-api-key':                             apiKey,
       'anthropic-version':                     ANTHROPIC_VER,
       'anthropic-dangerous-direct-browser-access': 'true',
     },
@@ -965,8 +988,9 @@ async function _callAnthropic(prompt, baixados = []) {
 
 // ---------- OPENAI ----------
 async function _callOpenAI(prompt, baixados = []) {
-  const { openaiKey, openaiModelo } = app.config;
-  if (!openaiKey) throw new Error('Chave OpenAI não configurada.');
+  const apiKey = app.config.apiKey;
+  const openaiModelo = app.config.modelo || 'gpt-4o';
+  if (!apiKey) throw new Error('Chave de API não configurada.');
 
   const content = [];
   baixados.forEach((d, i) => {
@@ -977,7 +1001,7 @@ async function _callOpenAI(prompt, baixados = []) {
 
   const res = await fetch(OPENAI_BASE, {
     method: 'POST',
-    headers: { 'Authorization': `Bearer ${openaiKey}`, 'Content-Type': 'application/json' },
+    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: openaiModelo, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: _MAX_OUT_TOKENS }),
   });
   const json = await res.json();
@@ -1345,7 +1369,7 @@ async function _executarLoteAnalise(projetos, btn, htmlOriginal) {
 async function analisarEsteProjetoHandler() {
   const proj = app.projetoAtivo;
   if (!proj || app.processando) return;
-  if (!app.config.geminiKey && !app.config.anthropicKey && !app.config.openaiKey) {
+  if (!app.config.apiKey) {
     mostrarToast('Configure uma chave de IA em ⚙ Configurações.', 'aviso');
     abrirConfiguracoes();
     return;
@@ -1923,7 +1947,7 @@ function renderizarRevisao() {
   }
 
   const analisando  = proj.statusAnalise === 'analisando';
-  const temGemini   = !!(app.config.geminiKey || app.config.anthropicKey || app.config.openaiKey);
+  const temGemini   = !!app.config.apiKey;
   const roDisabled  = analisando ? 'readonly' : '';
 
   const comissoesHtml = (proj.comissoes || []).map((com, i) => {
@@ -2093,355 +2117,153 @@ async function carregarConfiguracao() {
   return new Promise(resolve => {
     chrome.storage.local.get('config', data => {
       if (data.config) Object.assign(app.config, data.config);
+      _migrarConfigUnificada();
       resolve();
     });
   });
 }
 
+// Migra o formato antigo (multi-chave: geminiKey/anthropicKey/openaiKey +
+// provedorAtivo) para o formato unificado { provedor, apiKey, modelo },
+// compartilhado com o módulo de Pauta de Plenário.
+function _migrarConfigUnificada() {
+  const c = app.config;
+  if (c.apiKey) return;                            // já unificado (inclusive vindo do Plenário)
+  if (!c.geminiKey && !c.anthropicKey && !c.openaiKey) return;
+  const ativo = (c.provedorAtivo && c[`${c.provedorAtivo}Key`])
+    ? c.provedorAtivo
+    : (c.geminiKey ? 'gemini' : c.anthropicKey ? 'anthropic' : 'openai');
+  const keys    = { gemini: c.geminiKey, anthropic: c.anthropicKey, openai: c.openaiKey };
+  const modelos = { gemini: c.modelo, anthropic: c.anthropicModelo, openai: c.openaiModelo };
+  c.provedor = ativo;
+  c.apiKey   = keys[ativo] || '';
+  c.modelo   = modelos[ativo] || '';
+}
+
+function onProvedorChange() {
+  const pid = document.getElementById('config-provedor').value;
+  const p   = PROVEDORES_META[pid];
+  const inp = document.getElementById('config-api-key');
+  inp.placeholder = p.placeholderChave;
+  const hint = document.getElementById('config-hint-chave');
+  if (hint) hint.textContent = p.hintChave;
+  popularSelectModelos();
+}
+
+function popularSelectModelos(selecionado) {
+  const pid = document.getElementById('config-provedor').value;
+  const p   = PROVEDORES_META[pid];
+  const sel = document.getElementById('config-modelo');
+  sel.innerHTML = p.modelosFallback.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
+  if (selecionado && p.modelosFallback.some(m => m.id === selecionado)) sel.value = selecionado;
+  else if (app.config?.modelo && p.modelosFallback.some(m => m.id === app.config.modelo)) sel.value = app.config.modelo;
+}
+
+async function carregarModelosDisponiveis() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim() || app.config.apiKey;
+  const p   = PROVEDORES_META[pid];
+  const sel = document.getElementById('config-modelo');
+  const st  = document.getElementById('modelos-status');
+  const btn = document.getElementById('btn-carregar-modelos');
+  if (!key) { st.textContent = 'Cole a chave de API primeiro.'; st.style.color = 'var(--text-dim)'; st.style.display = 'block'; return; }
+  btn.textContent = '↻ Carregando...'; btn.disabled = true; st.style.display = 'none';
+  try {
+    const lista = await p.listar(key);
+    if (!lista.length) throw new Error('Nenhum modelo compatível encontrado.');
+    const salvo = app.config.modelo;
+    sel.innerHTML = lista.map(m => `<option value="${m.id}" ${m.id === salvo ? 'selected' : ''}>${m.displayName}</option>`).join('');
+    if (!sel.value) sel.selectedIndex = 0;
+    st.textContent = `✓ ${lista.length} modelo(s) carregado(s).`; st.style.color = '#3ad97d'; st.style.display = 'block';
+  } catch (e) {
+    st.textContent = `✗ ${e.message}`; st.style.color = 'var(--vermelho)'; st.style.display = 'block';
+  } finally {
+    btn.textContent = '↻ Carregar disponíveis'; btn.disabled = false;
+  }
+}
+
 async function salvarConfiguracao() {
-  const geminiKey    = document.getElementById('config-gemini-key').value.trim();
-  const modelo       = document.getElementById('config-modelo').value;
-  const anthropicKey = document.getElementById('config-anthropic-key').value.trim();
-  const antModelo    = document.getElementById('config-anthropic-modelo').value;
-  const openaiKey    = document.getElementById('config-openai-key').value.trim();
-  const openaiModelo = document.getElementById('config-openai-modelo').value;
-  const provedorAtivo = document.getElementById('config-provedor-ativo').value;
-  const status       = document.getElementById('config-status-ia');
-
-  // Não validamos o formato/prefixo da chave Gemini: o Google mudou o padrão
-  // (ex.: chaves no formato "AQ.xxx" além do antigo "AIza..."). Deixamos a
-  // própria API validar a chave ao carregar os modelos / gerar conteúdo.
-
-  if (anthropicKey && !anthropicKey.startsWith('sk-ant-')) {
-    document.getElementById('config-status-anthropic').textContent   = '⚠ Chave Anthropic deve começar com "sk-ant-".';
-    document.getElementById('config-status-anthropic').className     = 'config-status erro';
-    document.getElementById('config-status-anthropic').style.display = 'block';
+  const pid    = document.getElementById('config-provedor').value;
+  const key    = document.getElementById('config-api-key').value.trim();
+  const modelo = document.getElementById('config-modelo').value;
+  const p      = PROVEDORES_META[pid];
+  const st     = document.getElementById('config-status-ia');
+  if (key && !p.regexChave.test(key)) {
+    st.textContent = `⚠ Chave inválida para ${p.label}.`;
+    st.className = 'config-status erro'; st.style.display = 'block';
     return;
   }
-
-  if (openaiKey && !openaiKey.startsWith('sk-')) {
-    document.getElementById('config-status-openai').textContent   = '⚠ Chave OpenAI deve começar com "sk-".';
-    document.getElementById('config-status-openai').className     = 'config-status erro';
-    document.getElementById('config-status-openai').style.display = 'block';
-    return;
-  }
-
-  app.config.geminiKey    = geminiKey;
-  if (modelo)    app.config.modelo          = modelo;
-  app.config.anthropicKey   = anthropicKey;
-  if (antModelo) app.config.anthropicModelo = antModelo;
-  app.config.openaiKey      = openaiKey;
-  if (openaiModelo) app.config.openaiModelo = openaiModelo;
-  app.config.provedorAtivo  = provedorAtivo;
-
+  app.config = { ...app.config, provedor: pid, apiKey: key, modelo };
+  // remove o formato antigo multi-chave (config passa a ser compartilhada com o Plenário)
+  ['geminiKey','anthropicKey','openaiKey','anthropicModelo','openaiModelo','provedorAtivo'].forEach(k => delete app.config[k]);
   await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
   fecharModal('modal-configuracoes');
-  const temIa = geminiKey || anthropicKey || openaiKey;
-  mostrarToast(
-    temIa ? 'Configurações salvas!' : 'Configurações salvas. Configure uma chave de IA para analisar.',
-    temIa ? 'sucesso' : 'aviso'
-  );
+  mostrarToast(key ? 'Configurações salvas!' : 'Configurações salvas. Configure uma chave de IA para analisar.', key ? 'sucesso' : 'aviso');
+}
+
+async function testarConexao() {
+  const pid    = document.getElementById('config-provedor').value;
+  const key    = document.getElementById('config-api-key').value.trim() || app.config.apiKey;
+  const modelo = document.getElementById('config-modelo').value || app.config.modelo;
+  const st     = document.getElementById('config-status-ia');
+  const btn    = document.getElementById('btn-testar-ia');
+  if (!key) { st.textContent = 'Cole a chave de API antes de testar.'; st.className = 'config-status erro'; st.style.display = 'block'; return; }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Testando...';
+  st.textContent = '⏳ Testando conexão...'; st.className = 'config-status teste'; st.style.display = 'block';
+  try {
+    await _testarProvedor(pid, key, modelo);
+    st.textContent = '✓ Conexão OK — provedor pronto.'; st.className = 'config-status ok';
+  } catch (e) {
+    st.textContent = `✗ Erro: ${e.message}`; st.className = 'config-status erro';
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+async function _testarProvedor(pid, key, modelo) {
+  if (pid === 'gemini') {
+    const res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent?key=${key}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'Responda apenas: OK' }] }] }),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+  } else if (pid === 'anthropic') {
+    const res = await fetch(ANTHROPIC_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: modelo || 'claude-opus-4-8', max_tokens: 16, messages: [{ role: 'user', content: 'Responda apenas: OK' }] }),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+  } else {
+    const res = await fetch(OPENAI_BASE, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelo || 'gpt-4o', input: 'Responda apenas: OK', max_output_tokens: 64 }),
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+  }
 }
 
 async function abrirConfiguracoes() {
-  document.getElementById('config-gemini-key').value           = app.config.geminiKey    || '';
-  document.getElementById('config-anthropic-key').value        = app.config.anthropicKey || '';
-  document.getElementById('config-anthropic-modelo').value     = app.config.anthropicModelo || 'claude-opus-4-8';
-  document.getElementById('config-openai-key').value           = app.config.openaiKey || '';
-  document.getElementById('config-openai-modelo').value        = app.config.openaiModelo || 'gpt-4o';
-  document.getElementById('config-provedor-ativo').value       = app.config.provedorAtivo || _provedorEfetivo() || 'gemini';
-  document.getElementById('config-status-ia').style.display        = 'none';
-  document.getElementById('config-status-anthropic').style.display = 'none';
-  document.getElementById('config-status-openai').style.display    = 'none';
-  document.getElementById('modelos-status').style.display           = 'none';
-  document.getElementById('modal-configuracoes').style.display      = 'flex';
-  if (app.config.geminiKey) await carregarModelosDisponiveis();
-  atualizarBadgeGemini();
-  atualizarBadgeClaude();
-  atualizarBadgeOpenai();
+  const c = app.config || {};
+  document.getElementById('config-provedor').value = c.provedor || 'gemini';
+  document.getElementById('config-api-key').value  = c.apiKey   || '';
+  onProvedorChange();
+  popularSelectModelos(c.modelo);
+  const st = document.getElementById('config-status-ia');
+  if (st) st.style.display = 'none';
+  document.getElementById('modelos-status').style.display = 'none';
+  document.getElementById('modal-configuracoes').style.display = 'flex';
+  if (c.apiKey) carregarModelosDisponiveis();
 
   // Perfis de prompt (compartilhados pela equipe via Firebase)
   setPerfilStatus('');
   try { await carregarBibliotecaPerfis(); } catch (e) { /* usa o que houver em memória */ }
   popularSelectPerfis(app.perfilPadraoId || '');
   refletirSelecaoPerfil();
-}
-
-async function carregarModelosDisponiveis() {
-  const key    = document.getElementById('config-gemini-key').value.trim() || app.config.geminiKey;
-  const select = document.getElementById('config-modelo');
-  const status = document.getElementById('modelos-status');
-  const btn    = document.getElementById('btn-carregar-modelos');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave de API primeiro.';
-    status.style.display = 'block';
-    return;
-  }
-
-  btn.textContent      = '↻ Carregando...';
-  btn.disabled         = true;
-  status.style.display = 'none';
-
-  try {
-    const res  = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-
-    const modelos = (json.models || [])
-      .filter(m => m.supportedGenerationMethods?.includes('generateContent') &&
-                   !m.name.includes('embedding') && !m.name.includes('aqa'))
-      .sort((a, b) => b.name.localeCompare(a.name));
-
-    if (!modelos.length) throw new Error('Nenhum modelo compatível encontrado.');
-
-    const modeloSalvo = app.config.modelo;
-    select.innerHTML = modelos.map(m => {
-      const id = m.name.replace('models/', '');
-      return `<option value="${id}" ${id === modeloSalvo ? 'selected' : ''}>${m.displayName || id}</option>`;
-    }).join('');
-
-    if (!select.value) select.selectedIndex = 0;
-    status.textContent   = `✓ ${modelos.length} modelos carregados.`;
-    status.style.color   = '#3ad97d';
-    status.style.display = 'block';
-
-  } catch (err) {
-    status.textContent   = `✗ ${err.message}`;
-    status.style.color   = 'var(--vermelho)';
-    status.style.display = 'block';
-  } finally {
-    btn.textContent = '↻ Carregar disponíveis';
-    btn.disabled    = false;
-  }
-}
-
-// Lista os modelos da Anthropic ao vivo (GET /v1/models); mantém a lista
-// fixa do <select> como fallback se a API falhar ou a chave estiver vazia.
-async function carregarModelosAnthropic() {
-  const key    = document.getElementById('config-anthropic-key').value.trim() || app.config.anthropicKey;
-  const select = document.getElementById('config-anthropic-modelo');
-  const status = document.getElementById('modelos-status-anthropic');
-  const btn    = document.getElementById('btn-carregar-anthropic-modelos');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave de API primeiro.';
-    status.style.color   = 'var(--text-dim)';
-    status.style.display = 'block';
-    return;
-  }
-
-  btn.textContent      = '↻ Carregando...';
-  btn.disabled         = true;
-  status.style.display = 'none';
-
-  try {
-    const res  = await fetch('https://api.anthropic.com/v1/models?limit=100', {
-      headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-
-    const modelos = json.data || [];
-    if (!modelos.length) throw new Error('Nenhum modelo encontrado.');
-
-    const modeloSalvo = app.config.anthropicModelo;
-    select.innerHTML = modelos.map(m =>
-      `<option value="${m.id}" ${m.id === modeloSalvo ? 'selected' : ''}>${m.display_name || m.id}</option>`
-    ).join('');
-
-    if (!select.value) select.selectedIndex = 0;
-    status.textContent   = `✓ ${modelos.length} modelos carregados.`;
-    status.style.color   = '#3ad97d';
-    status.style.display = 'block';
-
-  } catch (err) {
-    status.textContent   = `✗ ${err.message}`;
-    status.style.color   = 'var(--vermelho)';
-    status.style.display = 'block';
-  } finally {
-    btn.textContent = '↻ Carregar';
-    btn.disabled    = false;
-  }
-}
-
-async function testarConexaoIA() {
-  const key    = document.getElementById('config-gemini-key').value.trim();
-  const modelo = document.getElementById('config-modelo').value || app.config.modelo;
-  const status = document.getElementById('config-status-ia');
-
-  if (!key) {
-    status.textContent = 'Cole a chave do Gemini antes de testar.';
-    status.className   = 'config-status erro';
-    status.style.display = 'block';
-    return;
-  }
-
-  status.textContent   = '⏳ Testando Gemini...';
-  status.className     = 'config-status teste';
-  status.style.display = 'block';
-
-  try {
-    const res  = await fetch(`${GEMINI_BASE}/${modelo}:generateContent?key=${key}`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ contents: [{ parts: [{ text: 'Responda apenas: OK' }] }] }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-    status.textContent = '✓ Gemini conectado e pronto.';
-    status.className   = 'config-status ok';
-  } catch (err) {
-    status.textContent = `✗ Erro: ${err.message}`;
-    status.className   = 'config-status erro';
-  }
-}
-
-function atualizarBadgeGemini() {
-  const badge = document.getElementById('badge-gemini');
-  if (!badge) return;
-  const key = document.getElementById('config-gemini-key').value.trim();
-  badge.textContent = key ? '● Configurado' : '○ Não configurado';
-  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
-}
-
-function atualizarBadgeClaude() {
-  const badge = document.getElementById('badge-anthropic');
-  if (!badge) return;
-  const key = document.getElementById('config-anthropic-key').value.trim();
-  badge.textContent = key ? '● Configurado' : '○ Não configurado';
-  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
-}
-
-function atualizarBadgeOpenai() {
-  const badge = document.getElementById('badge-openai');
-  if (!badge) return;
-  const key = document.getElementById('config-openai-key').value.trim();
-  badge.textContent = key ? '● Configurado' : '○ Não configurado';
-  badge.className   = `ccjc-provider-badge ${key ? 'ativo' : 'inativo'}`;
-}
-
-// Lista os modelos da OpenAI ao vivo (GET /v1/models), filtrando para as
-// famílias de chat/multimodais; mantém a lista fixa do <select> como fallback.
-async function carregarModelosOpenAI() {
-  const key    = document.getElementById('config-openai-key').value.trim() || app.config.openaiKey;
-  const select = document.getElementById('config-openai-modelo');
-  const status = document.getElementById('modelos-status-openai');
-  const btn    = document.getElementById('btn-carregar-openai-modelos');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave de API primeiro.';
-    status.style.color   = 'var(--text-dim)';
-    status.style.display = 'block';
-    return;
-  }
-
-  btn.textContent      = '↻ Carregando...';
-  btn.disabled         = true;
-  status.style.display = 'none';
-
-  try {
-    const res  = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-
-    const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4', 'o3'];
-    const ids = (json.data || []).map(m => m.id)
-      .filter(id => prefs.some(p => id.startsWith(p)))
-      .sort();
-    if (!ids.length) throw new Error('Nenhum modelo compatível encontrado.');
-
-    const modeloSalvo = app.config.openaiModelo;
-    select.innerHTML = ids.map(id =>
-      `<option value="${id}" ${id === modeloSalvo ? 'selected' : ''}>${id}</option>`
-    ).join('');
-
-    if (!select.value) select.selectedIndex = 0;
-    status.textContent   = `✓ ${ids.length} modelos carregados.`;
-    status.style.color   = '#3ad97d';
-    status.style.display = 'block';
-
-  } catch (err) {
-    status.textContent   = `✗ ${err.message}`;
-    status.style.color   = 'var(--vermelho)';
-    status.style.display = 'block';
-  } finally {
-    btn.textContent = '↻ Carregar';
-    btn.disabled    = false;
-  }
-}
-
-async function testarConexaoOpenAI() {
-  const key    = document.getElementById('config-openai-key').value.trim();
-  const modelo = document.getElementById('config-openai-modelo').value || app.config.openaiModelo;
-  const status = document.getElementById('config-status-openai');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave OpenAI antes de testar.';
-    status.className     = 'config-status erro';
-    status.style.display = 'block';
-    return;
-  }
-
-  status.textContent   = '⏳ Testando ChatGPT...';
-  status.className     = 'config-status teste';
-  status.style.display = 'block';
-
-  try {
-    const res = await fetch(OPENAI_BASE, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: modelo, input: 'Responda apenas: OK', max_output_tokens: 64 }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-    status.textContent = '✓ ChatGPT conectado e pronto.';
-    status.className   = 'config-status ok';
-  } catch (err) {
-    status.textContent = `✗ Erro: ${err.message}`;
-    status.className   = 'config-status erro';
-  }
-}
-
-async function testarConexaoAnthropic() {
-  const key    = document.getElementById('config-anthropic-key').value.trim();
-  const modelo = document.getElementById('config-anthropic-modelo').value || app.config.anthropicModelo;
-  const status = document.getElementById('config-status-anthropic');
-
-  if (!key) {
-    status.textContent   = 'Cole a chave Anthropic antes de testar.';
-    status.className     = 'config-status erro';
-    status.style.display = 'block';
-    return;
-  }
-
-  status.textContent   = '⏳ Testando Claude...';
-  status.className     = 'config-status teste';
-  status.style.display = 'block';
-
-  try {
-    const res = await fetch(ANTHROPIC_BASE, {
-      method: 'POST',
-      headers: {
-        'Content-Type':                          'application/json',
-        'x-api-key':                             key,
-        'anthropic-version':                     ANTHROPIC_VER,
-        'anthropic-dangerous-direct-browser-access': 'true',
-      },
-      body: JSON.stringify({
-        model:      modelo,
-        max_tokens: 16,
-        messages:   [{ role: 'user', content: 'Responda apenas: OK' }],
-      }),
-    });
-    const json = await res.json();
-    if (!res.ok) throw new Error(json.error?.message || `HTTP ${res.status}`);
-    status.textContent = '✓ Claude conectado e pronto.';
-    status.className   = 'config-status ok';
-  } catch (err) {
-    status.textContent = `✗ Erro: ${err.message}`;
-    status.className   = 'config-status erro';
-  }
 }
 
 // ============================================================

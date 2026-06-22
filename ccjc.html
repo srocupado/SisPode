@@ -221,121 +221,53 @@
   <div id="modal-configuracoes" class="modal-overlay" style="display:none">
     <div class="modal" style="max-width:520px">
       <div class="modal-header">
-        <h3>Configurações de IA</h3>
+        <h3>Configurações</h3>
         <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
       </div>
       <div class="modal-body">
 
-        <!-- PROVEDOR ATIVO -->
-        <div class="form-group" style="margin-bottom:14px">
-          <label>Provedor ativo para análise</label>
-          <select id="config-provedor-ativo" class="form-input">
-            <option value="gemini">Google Gemini</option>
-            <option value="openai">OpenAI (ChatGPT)</option>
-            <option value="anthropic">Anthropic Claude</option>
-          </select>
-          <small style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block">Define qual provedor é usado nas análises. Se o escolhido não tiver chave, usa o primeiro configurado abaixo.</small>
-        </div>
-
-        <!-- PROVEDOR 1: GEMINI -->
+        <!-- INTEGRAÇÃO COM IA (provedor único, igual ao Plenário) -->
         <div class="config-section">
           <div class="config-section-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M8 14s1.5 2 4 2 4-2 4-2"/><line x1="9" y1="9" x2="9.01" y2="9"/><line x1="15" y1="9" x2="15.01" y2="9"/></svg>
-            Google Gemini
-            <span id="badge-gemini" class="ccjc-provider-badge inativo">○ Não configurado</span>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Integração com Inteligência Artificial
           </div>
           <p class="config-desc">
-            Gratuito · 1.500 req/dia · Suporta PDFs nativamente ·
-            <a href="https://aistudio.google.com" target="_blank" class="link">aistudio.google.com</a>
+            A IA gera o resumo, a análise das comissões e os argumentos de cada proposição da pauta.
+            Estas configurações são compartilhadas com os outros painéis do SisPode.
           </p>
-          <div class="form-group" style="margin-top:10px">
+
+          <div class="form-group" style="margin-top:14px">
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
             <label>Chave de API</label>
             <div style="display:flex;gap:8px">
-              <input type="password" id="config-gemini-key" class="form-input" placeholder="AIzaSy... ou AQ....">
-              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
+              <input type="password" id="config-api-key" class="form-input" placeholder="Cole aqui sua chave">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
             </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block"></small>
           </div>
-          <div id="config-status-ia" class="config-status" style="display:none"></div>
+
           <div class="form-group">
             <label style="display:flex;align-items:center;justify-content:space-between">
               Modelo
-              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar disponíveis</button>
             </label>
             <select id="config-modelo" class="form-input">
-              <option value="">— cole a chave e clique em Carregar —</option>
+              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
             </select>
             <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
           </div>
-          <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar Gemini</button>
-        </div>
 
-        <!-- PROVEDOR 2: ANTHROPIC -->
-        <div class="config-section" style="margin-top:18px">
-          <div class="config-section-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><polygon points="12 2 22 20 2 20"/></svg>
-            Anthropic Claude
-            <span id="badge-anthropic" class="ccjc-provider-badge inativo">○ Não configurado</span>
-          </div>
-          <p class="config-desc">
-            Pago · Alta capacidade · Suporta PDFs nativamente ·
-            <a href="https://console.anthropic.com" target="_blank" class="link">console.anthropic.com</a>
-          </p>
-          <div class="form-group" style="margin-top:10px">
-            <label>Chave de API</label>
-            <div style="display:flex;gap:8px">
-              <input type="password" id="config-anthropic-key" class="form-input" placeholder="sk-ant-...">
-              <button id="btn-toggle-anthropic-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
-            </div>
-          </div>
-          <div id="config-status-anthropic" class="config-status" style="display:none"></div>
-          <div class="form-group">
-            <label style="display:flex;align-items:center;justify-content:space-between">
-              Modelo
-              <button id="btn-carregar-anthropic-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
-            </label>
-            <select id="config-anthropic-modelo" class="form-input">
-              <option value="claude-haiku-4-5">Claude Haiku 4.5 (rápido)</option>
-              <option value="claude-sonnet-4-6">Claude Sonnet 4.6 (equilibrado)</option>
-              <option value="claude-opus-4-7">Claude Opus 4.7</option>
-              <option value="claude-opus-4-8" selected>Claude Opus 4.8 (máxima qualidade)</option>
-            </select>
-            <div id="modelos-status-anthropic" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
-          </div>
-          <button id="btn-testar-anthropic" class="btn btn-outline btn-sm">Testar Claude</button>
-        </div>
-
-        <!-- PROVEDOR 3: OPENAI -->
-        <div class="config-section" style="margin-top:18px">
-          <div class="config-section-title">
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-            OpenAI (ChatGPT)
-            <span id="badge-openai" class="ccjc-provider-badge inativo">○ Não configurado</span>
-          </div>
-          <p class="config-desc">
-            Pago · Suporta PDFs nativamente ·
-            <a href="https://platform.openai.com/api-keys" target="_blank" class="link">platform.openai.com</a>
-          </p>
-          <div class="form-group" style="margin-top:10px">
-            <label>Chave de API</label>
-            <div style="display:flex;gap:8px">
-              <input type="password" id="config-openai-key" class="form-input" placeholder="sk-...">
-              <button id="btn-toggle-openai-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar">👁</button>
-            </div>
-          </div>
-          <div id="config-status-openai" class="config-status" style="display:none"></div>
-          <div class="form-group">
-            <label style="display:flex;align-items:center;justify-content:space-between">
-              Modelo
-              <button id="btn-carregar-openai-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar</button>
-            </label>
-            <select id="config-openai-modelo" class="form-input">
-              <option value="gpt-5">GPT-5</option>
-              <option value="gpt-4.1">GPT-4.1</option>
-              <option value="gpt-4o" selected>GPT-4o</option>
-            </select>
-            <div id="modelos-status-openai" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
-          </div>
-          <button id="btn-testar-openai" class="btn btn-outline btn-sm">Testar ChatGPT</button>
+          <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar conexão</button>
+          <div id="config-status-ia" class="config-status" style="display:none;margin-top:8px"></div>
         </div>
 
         <!-- PERFIS DE PROMPT -->
