@@ -489,19 +489,29 @@ async function _resolverOrgao(sigla) {
 // o fetch direto pode falhar — nesse caso tentamos o codetabs e, por fim, o
 // worker próprio (como os demais módulos do app). Retorna o HTML ou '' se tudo
 // falhar.
+// Considera válida apenas a página HTML real da Câmara — evita aceitar uma
+// página de erro/JSON que um proxy possa devolver com HTTP 200 (o que faria a
+// busca parar antes de tentar a próxima via).
+function _htmlCamaraValido(html) {
+  return !!html && html.length > 500 && /<(?:!doctype|html)/i.test(html.slice(0, 400));
+}
+
 async function _fetchCamaraHTML(url) {
-  try {
-    const r = await fetch(url, { redirect: 'follow' });
-    if (r.ok) return await r.text();
-  } catch (_) { /* CORS/rede → tenta proxies */ }
-  try {
-    const r = await fetch(CODETABS + encodeURIComponent(url));
-    if (r.ok) return await r.text();
-  } catch (_) { /* codetabs falhou → tenta o worker */ }
-  try {
-    const r = await fetch(WORKER + encodeURIComponent(url));
-    if (r.ok) return await r.text();
-  } catch (e) { console.warn('Falha ao buscar página da Câmara (direto, codetabs e worker):', url, e.message); }
+  const vias = [
+    ['direto',   () => fetch(url, { redirect: 'follow' })],
+    ['codetabs', () => fetch(CODETABS + encodeURIComponent(url))],
+    ['worker',   () => fetch(WORKER + encodeURIComponent(url))],
+  ];
+  for (const [nome, tentar] of vias) {
+    try {
+      const r = await tentar();
+      if (!r.ok) continue;
+      const html = await r.text();
+      if (_htmlCamaraValido(html)) return html;
+      console.debug(`[CCJC] página de pareceres via ${nome}: resposta inválida; tentando próxima via.`);
+    } catch (_) { /* tenta a próxima via */ }
+  }
+  console.warn('[CCJC] não foi possível obter a página de pareceres (direto, codetabs e worker).');
   return '';
 }
 
