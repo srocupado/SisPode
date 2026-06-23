@@ -118,14 +118,22 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 
 **Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
 
-O sistema seleciona automaticamente o documento mais relevante por categoria e o envia ao modelo como **PDF nativo** (sem conversão de texto), preservando formatação e evitando truncamento:
+O sistema identifica automaticamente o **cenário de tramitação** da proposição e anexa o(s) documento(s) operativo(s) ao modelo como **PDF nativo** (sem conversão de texto), preservando formatação e evitando truncamento. Os documentos (PRLP/PRLE, SBT-A, SSP e EMS) são raspados das páginas "Histórico de Pareceres" e "Emendas" do portal:
 
-| Categoria | Documento enviado à IA |
+| Cenário | Documento(s) enviado(s) à IA |
 |---|---|
-| Projeto com parecer de plenário | **PRLP/PRLE + redação original (inteiro teor)** para cotejo dispositivo a dispositivo |
-| Projeto sem parecer | Inteiro teor da proposição |
+| 1 — sem parecer de comissão e sem PRLP | Inteiro teor da proposição |
+| 2 — substitutivo adotado por comissão (SBT-A), sem PRLP | **SBT-A** + redação original |
+| 3 — PRLP com substitutivo de plenário | **PRLP (+ PRLE)** + redação original |
+| 4 — PRLP na forma do substitutivo adotado (SBT-A) | **PRLP + SBT-A** + redação original |
+| 5 — PRLP + subemenda substitutiva de plenário (SSP) | **PRLP/PRLE + SSP** + redação original |
+| 6 — retorno do Senado com emendas (EMS) | **EMS** + texto aprovado pela Câmara |
+| 7 — EMS + parecer de comissão/plenário | **EMS + PRLP/PRLE** + texto aprovado pela Câmara |
 | Requerimento de urgência | Inteiro teor da proposição cuja urgência é solicitada |
 | Redação Final | **Documento da Redação Final** (raspado da ficha de tramitação) |
+
+- O prompt-base de projetos/requerimentos produz uma **nota técnica** com as seções **Objetivo · Justificativa · Pareceres e substitutivos · Principais Disposições do último substitutivo apresentado · Argumentos favoráveis e contrários**, sob princípios de clareza, objetividade, imparcialidade e fundamentação
+- A seção "Pareceres e substitutivos" é **moldada ao cenário detectado**: a extensão diz à IA qual é o texto operativo (substitutivo de plenário, SBT-A de comissão, subemenda ou emendas do Senado) a ser descrito
 
 - **Geração em lote** ("Gerar todas") com throttle de 1,5 s entre itens, contador de progresso e tratamento isolado de falhas por item
 - **Detecção de truncamento** por provedor (`finishReason=MAX_TOKENS` no Gemini, `status=incomplete` na OpenAI, `stop_reason=max_tokens` no Anthropic) com auto-continuação automática que costura a resposta sem duplicar overlap
@@ -138,7 +146,7 @@ O sistema seleciona automaticamente o documento mais relevante por categoria e o
 - Os prompts ficam em `/prompts_analise/{id}` no Firebase e são **compartilhados com toda a equipe** — criar, atualizar e excluir disponíveis no próprio diálogo
 - Marque um prompt como **padrão da equipe** (`/prompts_analise_padrao`) — passa a ser aplicado automaticamente na geração inicial e no "Gerar todas"
 - As instruções personalizadas **complementam** o prompt base — moldam ênfase, profundidade e recortes temáticos —, mas **não substituem** a estrutura de seções nem as regras rígidas (sem bullets, sem recomendação de voto, sem informação inventada)
-- Para projetos com parecer + redação original anexada, o prompt base exige **cotejo dispositivo a dispositivo** (artigos, parágrafos, incisos), apontando o que foi incluído, alterado e suprimido
+- Para projetos com substitutivo + redação original anexada, o prompt base exige **cotejo dispositivo a dispositivo** (artigos, parágrafos, incisos), apontando o que foi incluído, alterado e suprimido
 - Para Redações Finais, o prompt base é mais enxuto (Resumo da Redação Final + Pontos de atenção para o Podemos)
 
 **Edição manual com autosave**

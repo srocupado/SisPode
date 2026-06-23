@@ -422,7 +422,7 @@ async function enriquecerItem(it) {
       it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null };
+      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null, sbtA: null };
     }
   }
 
@@ -537,8 +537,9 @@ async function fetchApensados(idProp) {
  * (prop_pareceres_substitutivos_votos) — fonte canônica que lista PRLP /
  * PRLE explicitamente, ao contrário do endpoint /tramitacoes da API REST.
  */
-async function buscarPareceresPlenario(idProp) {
-  const url = `https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idProp}`;
+// Baixa o HTML de uma página do portal da Câmara, tentando acesso direto e,
+// em caso de falha de CORS/rede, o proxy Codetabs. Retorna null se ambos falharem.
+async function fetchHtmlCamara(url) {
   let html = null;
   try {
     const r = await fetch(url, { redirect: 'follow' });
@@ -550,19 +551,24 @@ async function buscarPareceresPlenario(idProp) {
       if (r.ok) html = await r.text();
     } catch (_) {}
   }
-  if (!html) return { prlp: null, prle: null };
+  return html;
+}
+
+async function buscarPareceresPlenario(idProp) {
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
+  if (!html) return { prlp: null, prle: null, sbtA: null };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
-  const linhas = doc.querySelectorAll('tr');
-
   const candidatos = [];
-  for (const tr of linhas) {
+  for (const tr of doc.querySelectorAll('tr')) {
     const tds = tr.querySelectorAll('td');
     if (tds.length < 3) continue;
 
-    // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023"
+    // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023", "SBT-A 1 CCJC => PL .../..."
+    // SBT-A = substitutivo adotado por comissão (cenários 2 e 4).
     const siglaCellTxt = (tds[0].textContent || '').trim().replace(/\s+/g, ' ');
-    const siglaMatch = siglaCellTxt.match(/^(PRLP|PRLE)\s+(\d+)/i);
+    const siglaMatch = siglaCellTxt.match(/^(SBT-A|PRLP|PRLE)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
     if (!siglaMatch) continue;
 
     // Procura coluna com data dd/mm/yyyy em qualquer célula (geralmente a 3ª)
@@ -578,13 +584,17 @@ async function buscarPareceresPlenario(idProp) {
     if (!linkUrl || linkUrl.startsWith('javascript:')) continue;
     // Resolve URLs relativas (href pode vir como "prop_mostrarintegra?..." ou
     // "../proposicoesWeb/...") usando a URL da página como base.
-    try {
-      linkUrl = new URL(linkUrl, 'https://www.camara.leg.br/proposicoesWeb/').toString();
-    } catch (_) { continue; }
+    try { linkUrl = new URL(linkUrl, base).toString(); } catch (_) { continue; }
+
+    // Sigla do colegiado que adotou o SBT-A (ex.: CCJC), quando for uma sigla
+    // de letras (não o próprio tipo da proposição, ex.: "PEC00619").
+    const dono = (siglaMatch[3] || '').toUpperCase();
+    const comissao = /^[A-ZÀ-Ú]{2,6}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ)$/.test(dono) ? dono : null;
 
     candidatos.push({
       sigla:      siglaMatch[1].toUpperCase(),
       sequencial: parseInt(siglaMatch[2], 10),
+      comissao,
       dataBR,
       data:       dataBR ? dataBR.split('/').reverse().join('-') : null,
       url:        linkUrl,
@@ -597,9 +607,53 @@ async function buscarPareceresPlenario(idProp) {
     ((b.sequencial || 0) - (a.sequencial || 0))
   );
 
-  const prlp = candidatos.find(c => c.sigla === 'PRLP') || null;
-  const prle = candidatos.find(c => c.sigla === 'PRLE') || null;
-  return { prlp, prle };
+  return {
+    prlp: candidatos.find(c => c.sigla === 'PRLP')  || null,
+    prle: candidatos.find(c => c.sigla === 'PRLE')  || null,
+    sbtA: candidatos.find(c => c.sigla === 'SBT-A') || null,
+  };
+}
+
+/**
+ * Localiza, na página de emendas da proposição, a Emenda/Substitutivo do
+ * Senado (EMS — cenários 6/7) e a Subemenda Substitutiva de Plenário (SSP —
+ * cenário 5) mais recentes. Retorna { ems, ssp } com a URL do inteiro teor de
+ * cada uma (ou null). Varre subst=0 e subst=1 (as emendas podem estar em
+ * qualquer das duas listas).
+ */
+async function buscarEmendasSenadoESSP(idProp) {
+  const out = { ems: null, ssp: null };
+  if (!idProp) return out;
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  for (const subst of [0, 1]) {
+    const html = await fetchHtmlCamara(`${base}prop_emendas?idProposicao=${idProp}&subst=${subst}`);
+    if (!html) continue;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    for (const tr of doc.querySelectorAll('tr')) {
+      const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+      if (!a) continue;
+      let href = a.getAttribute('href');
+      if (!href || href.startsWith('javascript:')) continue;
+      try { href = new URL(href, base).toString(); } catch (_) { continue; }
+
+      const fn      = decodeURIComponent(href).replace(/\+/g, ' ');
+      const rowTxt  = (tr.textContent || '').replace(/\s+/g, ' ');
+      const codteor = (href.match(/codteor=(\d+)/i) || [])[1];
+      const seq     = codteor ? parseInt(codteor, 10) : 0;
+      const dataBR  = (rowTxt.match(/\b(\d{2}\/\d{2}\/\d{4})\b/) || [])[1] || null;
+
+      // EMS: filename "EMS ..." ou linha com "Senado Federal"/"Emenda/Substitutivo do Senado".
+      const isEMS = /filename=\s*EMS\b/i.test(fn) || /senado\s+federal/i.test(rowTxt)
+                 || /emenda.{0,3}substitutivo\s+do\s+senado/i.test(rowTxt);
+      // SSP: filename "SSP ..." ou linha com "Subemenda Substitutiva".
+      const isSSP = /filename=\s*SSP\b/i.test(fn) || /subemenda\s+substitutiva/i.test(rowTxt);
+
+      if (isEMS && (!out.ems || seq > out.ems.seq)) out.ems = { url: href, seq, dataBR };
+      if (isSSP && (!out.ssp || seq > out.ssp.seq)) out.ssp = { url: href, seq, dataBR };
+    }
+    if (out.ems && out.ssp) break; // ambos achados — não precisa varrer subst=1
+  }
+  return out;
 }
 
 /**
@@ -751,7 +805,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   it.analiseStatus = 'gerando';
 
   try {
-    const docs = escolherDocumentos(it);
+    const docs = await escolherDocumentos(it);
     if (!docs.length) throw new Error('Documento (PRLP/PRLE ou inteiro teor) não disponível na API.');
 
     // Baixa todos os PDFs em paralelo
@@ -874,7 +928,7 @@ async function completarAnalise(it) {
 
   try {
     // Re-baixar os mesmos documentos (mantém o contexto consistente)
-    const docs = escolherDocumentos(it);
+    const docs = await escolherDocumentos(it);
     const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
 
     const cont = await chamarIA({
@@ -911,31 +965,54 @@ async function completarAnalise(it) {
   }
 }
 
-function escolherDocumentos(it) {
+async function escolherDocumentos(it) {
   const enr  = it.enriquecimento || {};
   const docs = [];
 
   if (it.tipoCategoria === 'projeto') {
     const par = enr.pareceresPlenario || {};
-    if (par.prlp) docs.push({
-      tipo: 'PRLP',
-      rotulo: `PRLP${par.prlp.sequencial ? ' nº ' + par.prlp.sequencial : ''}${par.prlp.dataBR ? ' de ' + par.prlp.dataBR : ''}`,
-      url: par.prlp.url,
-    });
-    if (par.prle) docs.push({
-      tipo: 'PRLE',
-      rotulo: `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`,
-      url: par.prle.url,
-    });
-    if (docs.length) {
-      // Há parecer(es) de plenário: anexa TAMBÉM a redação original para
-      // que a IA consiga cotejar o substitutivo/emendas contra o texto-base
-      // (sem isso, a análise não detalha o que de fato muda).
-      if (enr.urlInteiroTeor) {
-        docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
-      }
+
+    // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
+    // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
+    if (enr.emendasSenado === undefined && enr.idProposicao) {
+      try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
+      catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null }; }
+    }
+    const { ems = null, ssp = null } = enr.emendasSenado || {};
+
+    const rotuloPRLP = par.prlp && `PRLP${par.prlp.sequencial ? ' nº ' + par.prlp.sequencial : ''}${par.prlp.dataBR ? ' de ' + par.prlp.dataBR : ''}`;
+    const rotuloPRLE = par.prle && `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`;
+    const rotuloSBTA = par.sbtA && `Substitutivo adotado por comissão (SBT-A${par.sbtA.sequencial ? ' nº ' + par.sbtA.sequencial : ''}${par.sbtA.comissao ? ' — ' + par.sbtA.comissao : ''}${par.sbtA.dataBR ? ' de ' + par.sbtA.dataBR : ''})`;
+    const rotuloEMS  = ems && `Emendas do Senado (EMS)${ems.dataBR ? ' de ' + ems.dataBR : ''}`;
+    const rotuloSSP  = ssp && `Subemenda Substitutiva de Plenário (SSP)${ssp.dataBR ? ' de ' + ssp.dataBR : ''}`;
+
+    if (ems) {
+      // Cenários 6/7: proposição retornando do Senado com emendas. Anexa as
+      // emendas do Senado e, se houver, o parecer do relator de plenário, além
+      // do texto aprovado pela Câmara para cotejo.
+      docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
+      if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
+      if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'TEXTO_CAMARA', rotulo: 'Texto aprovado pela Câmara (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (par.prlp || par.prle) {
+      // Cenários 3/4/5: há parecer preliminar de plenário. Anexa PRLP/PRLE e,
+      // quando existirem, o SBT-A adotado (cenário 4) e a SSP (cenário 5). A
+      // redação original entra para o cotejo dispositivo a dispositivo.
+      if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
+      if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
+      if (par.sbtA) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
+      if (ssp)      docs.push({ tipo: 'SSP',   rotulo: rotuloSSP,  url: ssp.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (par.sbtA) {
+      // Cenário 2: substitutivo adotado por comissão, sem parecer de plenário.
+      docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (ssp) {
+      // Subemenda substitutiva sem PRLP/PRLE detectados.
+      docs.push({ tipo: 'SSP', rotulo: rotuloSSP, url: ssp.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
     } else if (enr.urlInteiroTeor) {
-      // Sem parecer de plenário: analisa o próprio inteiro teor.
+      // Cenário 1: sem parecer de comissão/plenário e sem substitutivo adotado.
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
   } else if (it.tipoCategoria === 'redacao_final') {
@@ -1012,73 +1089,90 @@ REGRAS RÍGIDAS:
     ? `\nPareceres de comissão constantes na pauta (em ordem de tramitação):\n${pareceresLista}\n`
     : '';
 
-  // Lista os documentos efetivamente anexados (PRLP, PRLE ou inteiro teor)
+  // Lista os documentos efetivamente anexados (PRLP, PRLE, SBT-A, SSP, EMS, inteiro teor)
   const docsLista = docs.map((d, i) => `Documento ${i + 1} — ${d.rotulo}`).join('\n');
   const blocoDocs = docsLista ? `\nDocumentos anexados a esta análise:\n${docsLista}\n` : '';
 
-  // Para a anotação do título da seção do relator, monta a sigla agregada
-  const docsParaTitulo = docs
-    .filter(d => d.tipo === 'PRLP' || d.tipo === 'PRLE')
-    .map(d => d.rotulo)
-    .join('; ');
-  const anotacaoTitulo = docsParaTitulo
-    ? ` (${docsParaTitulo})`
-    : '';
+  // Flags dos tipos de documento anexados — orientam o cenário e o cotejo.
+  const has        = t => docs.some(d => d.tipo === t);
+  const hasEMS     = has('EMS');
+  const hasSBTA    = has('SBT_A');
+  const hasPRLP    = has('PRLP');
+  const hasPRLE    = has('PRLE');
+  const hasSSP     = has('SSP');
+  const temOriginal = has('REDACAO_ORIGINAL') || has('TEXTO_CAMARA');
 
-  const temOriginal = docs.some(d => d.tipo === 'REDACAO_ORIGINAL');
-  const rotulosPareceres = docs
-    .filter(d => d.tipo === 'PRLP' || d.tipo === 'PRLE')
-    .map(d => d.rotulo)
-    .join('; ');
+  // Cenário detectado a partir dos documentos efetivamente anexados — diz à IA
+  // qual texto é o "operativo" (o que está sendo votado) em cada caso.
+  let cenarioHint;
+  if (hasEMS) {
+    cenarioHint = `**Cenário identificado: a proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado).** Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado; se ela enumerar emendas, traga um resumo individual de cada uma — cada qual em um parágrafo próprio iniciado por "EMS N – ".${hasPRLP || hasPRLE ? ' Como há também parecer do relator de plenário anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator, pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
+  } else if (hasPRLP && hasSBTA) {
+    cenarioHint = `**Cenário identificado: o parecer preliminar de plenário (PRLP) aprova na forma do substitutivo adotado por comissão (documento "Substitutivo adotado por comissão (SBT-A)" anexado).** Conforme o que o próprio PRLP declara, identifique qual comissão teve o substitutivo adotado e traga o conteúdo do texto desse SBT-A (e não de um substitutivo de plenário, que neste caso não existe).`;
+  } else if (hasSBTA) {
+    cenarioHint = `**Cenário identificado: há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário.** Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
+  } else if (hasSSP) {
+    cenarioHint = `**Cenário identificado: há parecer às emendas com subemenda substitutiva de plenário (SSP anexado).** Traga o conteúdo do texto da subemenda substitutiva.`;
+  } else if (hasPRLP || hasPRLE) {
+    cenarioHint = `**Cenário identificado: há parecer preliminar de plenário (PRLP) com substitutivo de plenário.** Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
+  } else {
+    cenarioHint = `**Cenário identificado: proposição sem pareceres de comissão e sem parecer preliminar de plenário, e sem substitutivo de comissão adotado.** Traga o conteúdo do projeto original.`;
+  }
 
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
-    : (rotulosPareceres
-        ? `parecer(es) do relator de plenário: ${rotulosPareceres}${temOriginal ? ', acompanhado(s) da redação original da proposição para cotejo' : ''}`
-        : 'documento da proposição');
+    : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
 
-  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
+  return `Você é um analista legislativo da Câmara dos Deputados especializado em análise de proposições legislativas. Sua tarefa é elaborar uma nota técnica sucinta, clara e objetiva, destinada a informar Deputados Federais sobre uma proposição legislativa.
 
 Analise o(s) documento(s) anexo(s) (${tipoDoc}) referente(s) à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
 ${blocoDocs}
 
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
+${blocoPareceres}
+Produza a nota técnica em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
-${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}${blocoPareceres}
-Produza a análise em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
+## Objetivo
+Parágrafo único, direto e em linguagem acessível, explicando o que a proposição faz. Deve responder à pergunta: "Do que trata este projeto?".
 
-## Resumo da matéria
-Apresente uma explicação **detalhada** da proposição, de modo que o(a) parlamentar tenha uma percepção completa do que será votado. Use **três a cinco parágrafos** abordando, obrigatoriamente: (a) o objetivo principal e o problema que pretende endereçar; (b) as principais regras, mecanismos ou obrigações que a proposição cria, altera ou revoga (cite artigos, leis e decretos referenciados, quando presentes no documento); (c) quem é afetado (cidadãos, empresas, setores, entes federativos, órgãos públicos) e como; (d) prazos de vigência, regras de transição e datas relevantes, se previstos; (e) tipo de tramitação/quórum exigido (lei ordinária, complementar, emenda constitucional etc.) quando relevante.
+## Justificativa
+Por que o tema é relevante? Qual problema a proposição pretende resolver? Fundamente na justificação do autor ou nos elementos do documento, sem recorrer a conhecimento externo.
 
-Ao final desta seção, **descreva em parágrafo próprio o trâmite da proposição mencionando obrigatoriamente TODOS os pareceres de comissão listados acima** (na seção "Pareceres de comissão constantes na pauta"). Para cada parecer cite o nome da comissão, a posição/conclusão (aprovação, aprovação com substitutivo, constitucionalidade, compatibilidade financeira etc.) e o(a) relator(a). Se houver substitutivo adotado por alguma comissão, registre. Se a proposição ainda tiver comissões pendentes de parecer, mencione-as também. Não use bullets nem listas — escreva em parágrafo corrido.
+## Pareceres e substitutivos
+${cenarioHint}
 
-Evite frases genéricas — descreva concretamente o que muda na prática.
+Para referência, estes são os cenários possíveis e o que cada um exige (use o que se aplica ao caso identificado acima):
+- Cenário 1 — proposição sem pareceres de comissão e sem PRLP: trazer o conteúdo do projeto original.
+- Cenário 2 — substitutivo adotado pela comissão (SBT-A), sem PRLP: trazer o conteúdo do SBT-A da última comissão, citando as comissões pendentes de parecer.
+- Cenário 3 — PRLP com substitutivo de plenário: trazer o conteúdo somente do substitutivo apresentado no último PRLP.
+- Cenário 4 — PRLP aprovando na forma do substitutivo adotado pela comissão (SBT-A): trazer o conteúdo do texto do SBT-A da comissão mencionada no PRLP.
+- Cenário 5 — PRLP e parecer às emendas com subemenda substitutiva de plenário (SSP): trazer o conteúdo do texto da subemenda substitutiva.
+- Cenário 6 — proposição retornando com emendas do Senado (EMS): se for substitutivo, trazer o conteúdo do substitutivo do Senado; se enumerar emendas, trazer um resumo individual de cada uma ("EMS N – ").
+- Cenário 7 — emendas do Senado (EMS) com parecer de comissão (PAR) ou de plenário (PRLP): mencionar quais emendas/dispositivos foram acatados e/ou rejeitados pelo relator (a votação será em globo, por grupos das aprovadas e rejeitadas).
 
-## Pontos centrais do parecer do relator${anotacaoTitulo}
-Descreva a posição do(a) relator(a) de Plenário e, principalmente, **as mudanças concretas que o parecer promove no texto**. ${docs.some(d => d.tipo === 'PRLP') && docs.some(d => d.tipo === 'PRLE')
-  ? 'Como há PRLP e PRLE anexados, distinga claramente: descreva primeiro o conteúdo do PRLP (parecer original do relator) e em seguida o conteúdo do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro. '
-  : ''}${temOriginal
-  ? 'A redação original da proposição está anexada (documento "Redação original (inteiro teor)"). **Faça o cotejo entre a redação original e o texto do parecer/substitutivo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando explicitamente o que foi INCLUÍDO, o que foi ALTERADO (registrando o teor antes e depois) e o que foi SUPRIMIDO.** Seja específico e exaustivo quanto aos dispositivos relevantes — não se limite a um resumo genérico das mudanças. '
-  : ''}**Se houver substitutivo, descreva detalhadamente as mudanças em relação ao texto original; se houver emenda(s), descreva o que cada emenda altera.** Escreva em parágrafos corridos (sem listas), mas sem abrir mão da especificidade dispositivo a dispositivo. Mantenha exatamente a anotação entre parênteses no título desta seção, indicando quais pareceres foram considerados.
+## Principais Disposições do último substitutivo apresentado
+O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o último substitutivo, subemenda ou conjunto de emendas, conforme o cenário identificado)? ${temOriginal
+  ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
+  : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 
-## Argumentos favoráveis/contrários à aprovação
+## Argumentos favoráveis e contrários
 Dois parágrafos corridos: o primeiro apresenta a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação; o segundo apresenta a fundamentação que sustenta a rejeição.
-
-## Impacto orçamentário-financeiro
-Parágrafo discutindo impactos identificados. Caso não haja elementos, escreva exatamente: "Sem impacto orçamentário-financeiro identificado."
-
-## Pontos de atenção para o Podemos
-Parágrafo discutindo as implicações específicas considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis da bancada.
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
   : ''}
+PRINCÍPIOS A SEREM OBSERVADOS:
+- Clareza: evitar termos técnicos sem explicação.
+- Objetividade: focar no essencial para a tomada de decisão.
+- Imparcialidade: apresentar fatos e impactos, sem posicionamento político.
+- Fundamentação: embasar afirmações em normas, dados ou no próprio documento.
+
 REGRAS RÍGIDAS:
-- Use apenas informação contida no documento anexo. Não invente fatos.
-- Se uma informação solicitada não constar no documento, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
-- Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente no documento anexo.
+- Use apenas informação contida nos documentos anexos. Não invente fatos.
+- Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
+- Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
-- **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
+- **NÃO use bullets, listas, "-", "*" ou numeração** no corpo da nota — escreva em parágrafos corridos. Única exceção: no Cenário 6, ao enumerar as emendas do Senado, cada emenda pode iniciar um parágrafo próprio prefixado por "EMS N – ".
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
