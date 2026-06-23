@@ -422,7 +422,7 @@ async function enriquecerItem(it) {
       it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null, sbtA: null };
+      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null, sbtA: null, autografo: null };
     }
   }
 
@@ -565,10 +565,11 @@ async function buscarPareceresPlenario(idProp) {
     const tds = tr.querySelectorAll('td');
     if (tds.length < 3) continue;
 
-    // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023", "SBT-A 1 CCJC => PL .../..."
+    // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023", "SBT-A 1 CCJC => PL .../...",
+    // "AA 1 MESA => PL .../..." (AA = Autógrafo, texto aprovado pela Câmara).
     // SBT-A = substitutivo adotado por comissão (cenários 2 e 4).
     const siglaCellTxt = (tds[0].textContent || '').trim().replace(/\s+/g, ' ');
-    const siglaMatch = siglaCellTxt.match(/^(SBT-A|PRLP|PRLE)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
+    const siglaMatch = siglaCellTxt.match(/^(SBT-A|PRLP|PRLE|AA)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
     if (!siglaMatch) continue;
 
     // Procura coluna com data dd/mm/yyyy em qualquer célula (geralmente a 3ª)
@@ -608,9 +609,10 @@ async function buscarPareceresPlenario(idProp) {
   );
 
   return {
-    prlp: candidatos.find(c => c.sigla === 'PRLP')  || null,
-    prle: candidatos.find(c => c.sigla === 'PRLE')  || null,
-    sbtA: candidatos.find(c => c.sigla === 'SBT-A') || null,
+    prlp:      candidatos.find(c => c.sigla === 'PRLP')  || null,
+    prle:      candidatos.find(c => c.sigla === 'PRLE')  || null,
+    sbtA:      candidatos.find(c => c.sigla === 'SBT-A') || null,
+    autografo: candidatos.find(c => c.sigla === 'AA')    || null,
   };
 }
 
@@ -997,13 +999,16 @@ async function escolherDocumentos(it) {
       //  - "texto aprovado pela Câmara" = o AUTÓGRAFO (sigla "AA ... MESA",
       //    descrição "Autógrafo", na página de Histórico de Pareceres) — é a
       //    redação que efetivamente saiu da Câmara rumo ao Senado, e cujo
-      //    resumo dá ao analista a percepção do que foi enviado. Hoje usamos
-      //    enr.urlInteiroTeor (texto original da proposição) como aproximação;
-      //    o ideal é anexar o Autógrafo (AA) raspado da página de pareceres.
+      //    resumo dá ao analista a percepção do que foi enviado. Quando não
+      //    houver Autógrafo, cai no inteiro teor (texto original) como aproximação.
       // O PRLE NÃO é anexado neste caso (não é o documento operativo).
       docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
       if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
-      if (enr.urlInteiroTeor) docs.push({ tipo: 'TEXTO_CAMARA', rotulo: 'Texto aprovado pela Câmara (inteiro teor)', url: enr.urlInteiroTeor });
+      if (par.autografo) {
+        docs.push({ tipo: 'AUTOGRAFO', rotulo: `Autógrafo — texto aprovado pela Câmara${par.autografo.dataBR ? ' de ' + par.autografo.dataBR : ''}`, url: par.autografo.url });
+      } else if (enr.urlInteiroTeor) {
+        docs.push({ tipo: 'TEXTO_CAMARA', rotulo: 'Texto aprovado pela Câmara (inteiro teor)', url: enr.urlInteiroTeor });
+      }
     } else if (par.prlp || par.prle) {
       // Cenários 3/4/5: há parecer preliminar de plenário. Anexa PRLP/PRLE e,
       // quando existirem, o SBT-A adotado (cenário 4) e a SSP (cenário 5). A
@@ -1110,7 +1115,15 @@ REGRAS RÍGIDAS:
   const hasPRLP    = has('PRLP');
   const hasPRLE    = has('PRLE');
   const hasSSP     = has('SSP');
-  const temOriginal = has('REDACAO_ORIGINAL') || has('TEXTO_CAMARA');
+  const hasRedacaoCamara = has('AUTOGRAFO') || has('TEXTO_CAMARA');
+  const temOriginal = has('REDACAO_ORIGINAL') || hasRedacaoCamara;
+
+  // Seção própria só nos cenários 6/7 (retorno do Senado): resume a redação que
+  // a Câmara aprovou e enviou ao Senado (Autógrafo), dando ao analista a
+  // percepção do que saiu da Câmara antes de descrever o que o Senado alterou.
+  const secaoRedacaoCamara = (hasEMS && hasRedacaoCamara)
+    ? `\n## Redação aprovada pela Câmara\nResuma, em parágrafos corridos, a redação que a Câmara aprovou e enviou ao Senado (documento "${has('AUTOGRAFO') ? 'Autógrafo' : 'Texto aprovado pela Câmara'}" anexado), para que o(a) analista tenha a percepção do que saiu da Câmara. Descreva o objeto e os pontos centrais desse texto-base, sobre o qual incidem as emendas do Senado.\n`
+    : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
   // documentos anexados, diz à IA qual é o texto "operativo" a descrever.
@@ -1159,7 +1172,7 @@ Parágrafo único, direto e em linguagem acessível, explicando o que a proposi�
 
 ## Justificativa
 Por que o tema é relevante? Qual problema a proposição pretende resolver? Fundamente na justificação do autor ou nos elementos do documento, sem recorrer a conhecimento externo.
-
+${secaoRedacaoCamara}
 ## Pareceres e substitutivos
 [INSTRUÇÃO INTERNA — não reproduza este texto, não mencione "cenário" e não classifique a proposição na resposta: ${cenarioHint}]
 
