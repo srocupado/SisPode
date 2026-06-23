@@ -609,14 +609,14 @@ async function buscarPareceresPlenario(idProp) {
     ((b.sequencial || 0) - (a.sequencial || 0))
   );
 
-  // Um parecer por comissão por onde a proposição tramitou: prefere o PAR
-  // (parecer da comissão, aprovado); na ausência, o PRL (parecer do relator)
-  // mais recente. candidatos já está em ordem decrescente de data.
+  // Um parecer por comissão por onde a proposição tramitou: usa o PRL (parecer
+  // do relator) mais recente; só recorre ao PAR quando a comissão não tiver
+  // nenhum PRL. candidatos já está em ordem decrescente de data.
   const porComissao = new Map();
   for (const c of candidatos) {
     if ((c.sigla !== 'PAR' && c.sigla !== 'PRL') || !c.comissao) continue;
     const prev = porComissao.get(c.comissao);
-    if (!prev || (c.sigla === 'PAR' && prev.sigla !== 'PAR')) porComissao.set(c.comissao, c);
+    if (!prev || (c.sigla === 'PRL' && prev.sigla !== 'PRL')) porComissao.set(c.comissao, c);
   }
   const comissoes = Array.from(porComissao.values())
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
