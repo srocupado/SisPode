@@ -889,7 +889,7 @@ function promptContinuar(parcial) {
   // Pega só o final do texto já gerado para dar contexto sem estourar
   // o input. Caracteres suficientes para o modelo reconhecer o "onde parou".
   const trecho = parcial.slice(-3000);
-  return `A análise abaixo foi gerada mas foi truncada por limite de tokens. Continue EXATAMENTE de onde parou, **sem repetir** o que já está escrito. Não reescreva nenhum parágrafo anterior. Comece a continuação na próxima palavra/frase que faltou. Mantenha o mesmo estilo (Markdown, parágrafos corridos, sem bullets) e siga o roteiro de seções original. Não inclua frases de transição como "continuando" ou "como mencionado antes". Responda APENAS com a continuação.
+  return `A análise abaixo foi gerada mas foi truncada por limite de tokens. Continue EXATAMENTE de onde parou, **sem repetir** o que já está escrito. Não reescreva nenhum parágrafo anterior. Comece a continuação na próxima palavra/frase que faltou. Mantenha o mesmo estilo e formato do texto original (Markdown, parágrafos corridos, usando tópicos apenas onde já havia enumeração de emendas/dispositivos) e siga o roteiro de seções original. Não inclua frases de transição como "continuando" ou "como mencionado antes". Responda APENAS com a continuação.
 
 --- TRECHO FINAL DO QUE JÁ FOI GERADO ---
 ${trecho}
@@ -988,11 +988,11 @@ async function escolherDocumentos(it) {
 
     if (ems) {
       // Cenários 6/7: proposição retornando do Senado com emendas. Anexa as
-      // emendas do Senado e, se houver, o parecer do relator de plenário, além
-      // do texto aprovado pela Câmara para cotejo.
+      // emendas do Senado e, se houver, o parecer do relator (PRLP) que indica
+      // o que foi acatado/rejeitado, além do texto aprovado pela Câmara para
+      // cotejo. O PRLE NÃO é anexado neste caso (não é o documento operativo).
       docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
       if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
-      if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
       if (enr.urlInteiroTeor) docs.push({ tipo: 'TEXTO_CAMARA', rotulo: 'Texto aprovado pela Câmara (inteiro teor)', url: enr.urlInteiroTeor });
     } else if (par.prlp || par.prle) {
       // Cenários 3/4/5: há parecer preliminar de plenário. Anexa PRLP/PRLE e,
@@ -1106,7 +1106,7 @@ REGRAS RÍGIDAS:
   // qual texto é o "operativo" (o que está sendo votado) em cada caso.
   let cenarioHint;
   if (hasEMS) {
-    cenarioHint = `**Cenário identificado: a proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado).** Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado; se ela enumerar emendas, traga um resumo individual de cada uma — cada qual em um parágrafo próprio iniciado por "EMS N – ".${hasPRLP || hasPRLE ? ' Como há também parecer do relator de plenário anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator, pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
+    cenarioHint = `**Cenário identificado: a proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado).** Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
   } else if (hasPRLP && hasSBTA) {
     cenarioHint = `**Cenário identificado: o parecer preliminar de plenário (PRLP) aprova na forma do substitutivo adotado por comissão (documento "Substitutivo adotado por comissão (SBT-A)" anexado).** Conforme o que o próprio PRLP declara, identifique qual comissão teve o substitutivo adotado e traga o conteúdo do texto desse SBT-A (e não de um substitutivo de plenário, que neste caso não existe).`;
   } else if (hasSBTA) {
@@ -1148,8 +1148,8 @@ Para referência, estes são os cenários possíveis e o que cada um exige (use 
 - Cenário 3 — PRLP com substitutivo de plenário: trazer o conteúdo somente do substitutivo apresentado no último PRLP.
 - Cenário 4 — PRLP aprovando na forma do substitutivo adotado pela comissão (SBT-A): trazer o conteúdo do texto do SBT-A da comissão mencionada no PRLP.
 - Cenário 5 — PRLP e parecer às emendas com subemenda substitutiva de plenário (SSP): trazer o conteúdo do texto da subemenda substitutiva.
-- Cenário 6 — proposição retornando com emendas do Senado (EMS): se for substitutivo, trazer o conteúdo do substitutivo do Senado; se enumerar emendas, trazer um resumo individual de cada uma ("EMS N – ").
-- Cenário 7 — emendas do Senado (EMS) com parecer de comissão (PAR) ou de plenário (PRLP): mencionar quais emendas/dispositivos foram acatados e/ou rejeitados pelo relator (a votação será em globo, por grupos das aprovadas e rejeitadas).
+- Cenário 6 — proposição retornando com emendas do Senado (EMS): se for substitutivo, trazer o conteúdo do substitutivo do Senado; se enumerar emendas, trazer um resumo individual de cada uma em tópicos ("EMS N – ").
+- Cenário 7 — emendas do Senado (EMS) com parecer de comissão (PAR) ou de plenário (PRLP): mencionar, em tópicos, quais emendas/dispositivos foram acatados e/ou rejeitados pelo relator (a votação será em globo, por grupos das aprovadas e rejeitadas).
 
 ## Principais Disposições do último substitutivo apresentado
 O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o último substitutivo, subemenda ou conjunto de emendas, conforme o cenário identificado)? ${temOriginal
@@ -1172,7 +1172,7 @@ REGRAS RÍGIDAS:
 - Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
-- **NÃO use bullets, listas, "-", "*" ou numeração** no corpo da nota — escreva em parágrafos corridos. Única exceção: no Cenário 6, ao enumerar as emendas do Senado, cada emenda pode iniciar um parágrafo próprio prefixado por "EMS N – ".
+- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator): nesse caso, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
