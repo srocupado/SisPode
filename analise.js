@@ -1102,21 +1102,21 @@ REGRAS RÍGIDAS:
   const hasSSP     = has('SSP');
   const temOriginal = has('REDACAO_ORIGINAL') || has('TEXTO_CAMARA');
 
-  // Cenário detectado a partir dos documentos efetivamente anexados — diz à IA
-  // qual texto é o "operativo" (o que está sendo votado) em cada caso.
+  // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
+  // documentos anexados, diz à IA qual é o texto "operativo" a descrever.
   let cenarioHint;
   if (hasEMS) {
-    cenarioHint = `**Cenário identificado: a proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado).** Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
+    cenarioHint = `A proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado). Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
   } else if (hasPRLP && hasSBTA) {
-    cenarioHint = `**Cenário identificado: o parecer preliminar de plenário (PRLP) aprova na forma do substitutivo adotado por comissão (documento "Substitutivo adotado por comissão (SBT-A)" anexado).** Conforme o que o próprio PRLP declara, identifique qual comissão teve o substitutivo adotado e traga o conteúdo do texto desse SBT-A (e não de um substitutivo de plenário, que neste caso não existe).`;
+    cenarioHint = `O parecer preliminar de plenário (PRLP) aprova na forma do substitutivo adotado por comissão (documento "Substitutivo adotado por comissão (SBT-A)" anexado). Conforme o que o próprio PRLP declara, identifique qual comissão teve o substitutivo adotado e traga o conteúdo do texto desse SBT-A (e não de um substitutivo de plenário, que neste caso não existe).`;
   } else if (hasSBTA) {
-    cenarioHint = `**Cenário identificado: há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário.** Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
+    cenarioHint = `Há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário. Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
   } else if (hasSSP) {
-    cenarioHint = `**Cenário identificado: há parecer às emendas com subemenda substitutiva de plenário (SSP anexado).** Traga o conteúdo do texto da subemenda substitutiva.`;
+    cenarioHint = `Há parecer às emendas com subemenda substitutiva de plenário (SSP anexado). Traga o conteúdo do texto da subemenda substitutiva.`;
   } else if (hasPRLP || hasPRLE) {
-    cenarioHint = `**Cenário identificado: há parecer preliminar de plenário (PRLP) com substitutivo de plenário.** Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
+    cenarioHint = `Há parecer preliminar de plenário (PRLP) com substitutivo de plenário. Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
   } else {
-    cenarioHint = `**Cenário identificado: proposição sem pareceres de comissão e sem parecer preliminar de plenário, e sem substitutivo de comissão adotado.** Traga o conteúdo do projeto original.`;
+    cenarioHint = `A proposição não tem parecer preliminar de plenário nem substitutivo de comissão adotado. Traga o conteúdo do projeto original.`;
   }
 
   const tipoDoc = it.tipoCategoria === 'requerimento'
@@ -1140,19 +1140,12 @@ Parágrafo único, direto e em linguagem acessível, explicando o que a proposi�
 Por que o tema é relevante? Qual problema a proposição pretende resolver? Fundamente na justificação do autor ou nos elementos do documento, sem recorrer a conhecimento externo.
 
 ## Pareceres e substitutivos
-${cenarioHint}
+[INSTRUÇÃO INTERNA — não reproduza este texto, não mencione "cenário" e não classifique a proposição na resposta: ${cenarioHint}]
 
-Para referência, estes são os cenários possíveis e o que cada um exige (use o que se aplica ao caso identificado acima):
-- Cenário 1 — proposição sem pareceres de comissão e sem PRLP: trazer o conteúdo do projeto original.
-- Cenário 2 — substitutivo adotado pela comissão (SBT-A), sem PRLP: trazer o conteúdo do SBT-A da última comissão, citando as comissões pendentes de parecer.
-- Cenário 3 — PRLP com substitutivo de plenário: trazer o conteúdo somente do substitutivo apresentado no último PRLP.
-- Cenário 4 — PRLP aprovando na forma do substitutivo adotado pela comissão (SBT-A): trazer o conteúdo do texto do SBT-A da comissão mencionada no PRLP.
-- Cenário 5 — PRLP e parecer às emendas com subemenda substitutiva de plenário (SSP): trazer o conteúdo do texto da subemenda substitutiva.
-- Cenário 6 — proposição retornando com emendas do Senado (EMS): se for substitutivo, trazer o conteúdo do substitutivo do Senado; se enumerar emendas, trazer um resumo individual de cada uma em tópicos ("EMS N – ").
-- Cenário 7 — emendas do Senado (EMS) com parecer de comissão (PAR) ou de plenário (PRLP): mencionar, em tópicos, quais emendas/dispositivos foram acatados e/ou rejeitados pelo relator (a votação será em globo, por grupos das aprovadas e rejeitadas).
+Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos. Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.
 
 ## Principais Disposições do último substitutivo apresentado
-O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o último substitutivo, subemenda ou conjunto de emendas, conforme o cenário identificado)? ${temOriginal
+O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o último substitutivo, subemenda ou conjunto de emendas)? ${temOriginal
   ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 
@@ -1172,6 +1165,7 @@ REGRAS RÍGIDAS:
 - Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
+- NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
 - Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator): nesse caso, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
