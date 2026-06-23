@@ -1119,6 +1119,17 @@ REGRAS RÍGIDAS:
     cenarioHint = `A proposição não tem parecer preliminar de plenário nem substitutivo de comissão adotado. Traga o conteúdo do projeto original.`;
   }
 
+  // Título da seção de disposições — adaptado ao que está efetivamente em
+  // votação (evita afirmar "substitutivo" quando não há nenhum anexado).
+  let tituloDisposicoes;
+  if (hasEMS) {
+    tituloDisposicoes = 'Principais Disposições do texto em votação (emendas do Senado)';
+  } else if (hasSBTA || hasSSP || hasPRLP || hasPRLE) {
+    tituloDisposicoes = 'Principais Disposições do último substitutivo apresentado';
+  } else {
+    tituloDisposicoes = 'Principais Disposições da proposição';
+  }
+
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
     : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
@@ -1144,8 +1155,8 @@ Por que o tema é relevante? Qual problema a proposição pretende resolver? Fun
 
 Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos. Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.
 
-## Principais Disposições do último substitutivo apresentado
-O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o último substitutivo, subemenda ou conjunto de emendas)? ${temOriginal
+## ${tituloDisposicoes}
+O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)? ${temOriginal
   ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 
