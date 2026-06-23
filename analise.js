@@ -1161,7 +1161,7 @@ O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 
 ## Argumentos favoráveis e contrários
-Dois parágrafos corridos: o primeiro apresenta a fundamentação técnica, jurídica ou de mérito que sustenta a aprovação; o segundo apresenta a fundamentação que sustenta a rejeição.
+Dois parágrafos corridos: o primeiro reúne os argumentos que sustentam a aprovação; o segundo, os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
   : ''}
@@ -1172,8 +1172,8 @@ PRINCÍPIOS A SEREM OBSERVADOS:
 - Fundamentação: embasar afirmações em normas, dados ou no próprio documento.
 
 REGRAS RÍGIDAS:
-- Use apenas informação contida nos documentos anexos. Não invente fatos.
-- Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo.
+- Use apenas informação contida nos documentos anexos. Não invente fatos. (Exceção: a seção "Argumentos favoráveis e contrários", em que você pode usar conhecimento geral para construir a argumentação.)
+- Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo. (Isso NÃO se aplica à seção "Argumentos favoráveis e contrários", que deve sempre trazer os dois lados.)
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
