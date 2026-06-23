@@ -650,8 +650,8 @@ async function buscarEmendasSenadoESSP(idProp) {
       // SSP: filename "SSP ..." ou linha com "Subemenda Substitutiva".
       const isSSP = /filename=\s*SSP\b/i.test(fn) || /subemenda\s+substitutiva/i.test(rowTxt);
 
-      if (isEMS && (!out.ems || seq > out.ems.seq)) out.ems = { url: href, seq, dataBR };
-      if (isSSP && (!out.ssp || seq > out.ssp.seq)) out.ssp = { url: href, seq, dataBR };
+      if (isEMS && (!out.ems || seq > out.ems.seq)) out.ems = { url: href, seq, dataBR, data: parseDataBR(dataBR) };
+      if (isSSP && (!out.ssp || seq > out.ssp.seq)) out.ssp = { url: href, seq, dataBR, data: parseDataBR(dataBR) };
     }
     if (out.ems && out.ssp) break; // ambos achados — não precisa varrer subst=1
   }
@@ -995,15 +995,19 @@ async function escolherDocumentos(it) {
       // Senado. O que a Câmara vota é a aceitação/rejeição dessas alterações.
       // Documentos relevantes:
       //  - EMS  : as emendas/substitutivo do Senado (texto operativo da votação);
-      //  - PRLP : parecer do relator que indica o que foi acatado/rejeitado;
+      //  - PRLP : parecer do relator sobre as emendas do Senado (acatadas ×
+      //    rejeitadas). SÓ é o parecer dessas emendas se for POSTERIOR ao EMS —
+      //    um PRLP da 1ª passagem (anterior ao Senado) nada tem a ver com elas.
+      //    Com PRLP pós-EMS → Cenário 7; sem ele → Cenário 6.
       //  - "texto aprovado pela Câmara" = o AUTÓGRAFO (sigla "AA ... MESA",
       //    descrição "Autógrafo", na página de Histórico de Pareceres) — é a
       //    redação que efetivamente saiu da Câmara rumo ao Senado, e cujo
       //    resumo dá ao analista a percepção do que foi enviado. Quando não
       //    houver Autógrafo, cai no inteiro teor (texto original) como aproximação.
       // O PRLE NÃO é anexado neste caso (não é o documento operativo).
+      const prlpPosEMS = !!(par.prlp && par.prlp.data && ems.data && par.prlp.data > ems.data);
       docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
-      if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
+      if (prlpPosEMS) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
       if (par.autografo) {
         docs.push({ tipo: 'AUTOGRAFO', rotulo: `Autógrafo — texto aprovado pela Câmara${par.autografo.dataBR ? ' de ' + par.autografo.dataBR : ''}`, url: par.autografo.url });
       } else if (enr.urlInteiroTeor) {
