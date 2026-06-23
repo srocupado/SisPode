@@ -1019,7 +1019,7 @@ async function escolherDocumentos(it) {
       // redação original entra para o cotejo dispositivo a dispositivo.
       if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
       if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
-      if (par.sbtA) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
+      if (par.sbtA && !ssp) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
       if (ssp)      docs.push({ tipo: 'SSP',   rotulo: rotuloSSP,  url: ssp.url });
       if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
     } else if (par.sbtA) {
@@ -1134,12 +1134,12 @@ REGRAS RÍGIDAS:
   let cenarioHint;
   if (hasEMS) {
     cenarioHint = `A proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado). Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
+  } else if (hasSSP) {
+    cenarioHint = `Há subemenda substitutiva de plenário (SSP anexada) — é o texto mais recente e operativo (o que está sendo votado). Traga o conteúdo da subemenda substitutiva.${hasPRLE ? ' Use o parecer às emendas de plenário (PRLE) anexado para explicar o que a subemenda consolidou.' : ''}`;
   } else if (hasPRLP && hasSBTA) {
     cenarioHint = `O parecer preliminar de plenário (PRLP) aprova na forma do substitutivo adotado por comissão (documento "Substitutivo adotado por comissão (SBT-A)" anexado). Conforme o que o próprio PRLP declara, identifique qual comissão teve o substitutivo adotado e traga o conteúdo do texto desse SBT-A (e não de um substitutivo de plenário, que neste caso não existe).`;
   } else if (hasSBTA) {
     cenarioHint = `Há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário. Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
-  } else if (hasSSP) {
-    cenarioHint = `Há parecer às emendas com subemenda substitutiva de plenário (SSP anexado). Traga o conteúdo do texto da subemenda substitutiva.`;
   } else if (hasPRLP || hasPRLE) {
     cenarioHint = `Há parecer preliminar de plenário (PRLP) com substitutivo de plenário. Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
   } else {
