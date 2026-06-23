@@ -987,10 +987,20 @@ async function escolherDocumentos(it) {
     const rotuloSSP  = ssp && `Subemenda Substitutiva de Plenário (SSP)${ssp.dataBR ? ' de ' + ssp.dataBR : ''}`;
 
     if (ems) {
-      // Cenários 6/7: proposição retornando do Senado com emendas. Anexa as
-      // emendas do Senado e, se houver, o parecer do relator (PRLP) que indica
-      // o que foi acatado/rejeitado, além do texto aprovado pela Câmara para
-      // cotejo. O PRLE NÃO é anexado neste caso (não é o documento operativo).
+      // ── Cenários 6/7 (retorno do Senado) ──────────────────────────────
+      // Fluxo: o projeto foi aprovado pela Câmara (casa iniciadora), seguiu ao
+      // Senado (casa revisora) e retorna agora com emendas ou substitutivo do
+      // Senado. O que a Câmara vota é a aceitação/rejeição dessas alterações.
+      // Documentos relevantes:
+      //  - EMS  : as emendas/substitutivo do Senado (texto operativo da votação);
+      //  - PRLP : parecer do relator que indica o que foi acatado/rejeitado;
+      //  - "texto aprovado pela Câmara" = o AUTÓGRAFO (sigla "AA ... MESA",
+      //    descrição "Autógrafo", na página de Histórico de Pareceres) — é a
+      //    redação que efetivamente saiu da Câmara rumo ao Senado, e cujo
+      //    resumo dá ao analista a percepção do que foi enviado. Hoje usamos
+      //    enr.urlInteiroTeor (texto original da proposição) como aproximação;
+      //    o ideal é anexar o Autógrafo (AA) raspado da página de pareceres.
+      // O PRLE NÃO é anexado neste caso (não é o documento operativo).
       docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
       if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
       if (enr.urlInteiroTeor) docs.push({ tipo: 'TEXTO_CAMARA', rotulo: 'Texto aprovado pela Câmara (inteiro teor)', url: enr.urlInteiroTeor });
