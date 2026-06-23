@@ -422,7 +422,7 @@ async function enriquecerItem(it) {
       it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { prlp: null, prle: null, sbtA: null, autografo: null };
+      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null };
     }
   }
 
@@ -566,10 +566,11 @@ async function buscarPareceresPlenario(idProp) {
     if (tds.length < 3) continue;
 
     // 1ª coluna: sigla — ex.: "PRLP 3 => PL 699/2023", "SBT-A 1 CCJC => PL .../...",
-    // "AA 1 MESA => PL .../..." (AA = Autógrafo, texto aprovado pela Câmara).
-    // SBT-A = substitutivo adotado por comissão (cenários 2 e 4).
+    // "AA 1 MESA => PL .../..." (AA = Autógrafo, texto aprovado pela Câmara),
+    // "PAR 1 CCJC" (parecer da comissão), "PRL 6 CCJC" (parecer do relator de
+    // comissão). SBT-A = substitutivo adotado por comissão (cenários 2 e 4).
     const siglaCellTxt = (tds[0].textContent || '').trim().replace(/\s+/g, ' ');
-    const siglaMatch = siglaCellTxt.match(/^(SBT-A|PRLP|PRLE|AA)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
+    const siglaMatch = siglaCellTxt.match(/^(SBT-A|PRLP|PRLE|AA|PAR|PRL)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
     if (!siglaMatch) continue;
 
     // Procura coluna com data dd/mm/yyyy em qualquer célula (geralmente a 3ª)
@@ -587,10 +588,10 @@ async function buscarPareceresPlenario(idProp) {
     // "../proposicoesWeb/...") usando a URL da página como base.
     try { linkUrl = new URL(linkUrl, base).toString(); } catch (_) { continue; }
 
-    // Sigla do colegiado que adotou o SBT-A (ex.: CCJC), quando for uma sigla
-    // de letras (não o próprio tipo da proposição, ex.: "PEC00619").
+    // Sigla do colegiado/comissão (ex.: CCJC, CSPCCO) quando for uma sigla de
+    // letras (não o próprio tipo da proposição, ex.: "PEC00619", nem "MESA").
     const dono = (siglaMatch[3] || '').toUpperCase();
-    const comissao = /^[A-ZÀ-Ú]{2,6}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ)$/.test(dono) ? dono : null;
+    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
 
     candidatos.push({
       sigla:      siglaMatch[1].toUpperCase(),
@@ -608,7 +609,20 @@ async function buscarPareceresPlenario(idProp) {
     ((b.sequencial || 0) - (a.sequencial || 0))
   );
 
+  // Um parecer por comissão por onde a proposição tramitou: prefere o PAR
+  // (parecer da comissão, aprovado); na ausência, o PRL (parecer do relator)
+  // mais recente. candidatos já está em ordem decrescente de data.
+  const porComissao = new Map();
+  for (const c of candidatos) {
+    if ((c.sigla !== 'PAR' && c.sigla !== 'PRL') || !c.comissao) continue;
+    const prev = porComissao.get(c.comissao);
+    if (!prev || (c.sigla === 'PAR' && prev.sigla !== 'PAR')) porComissao.set(c.comissao, c);
+  }
+  const comissoes = Array.from(porComissao.values())
+    .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
+
   return {
+    comissoes,
     prlp:      candidatos.find(c => c.sigla === 'PRLP')  || null,
     prle:      candidatos.find(c => c.sigla === 'PRLE')  || null,
     sbtA:      candidatos.find(c => c.sigla === 'SBT-A') || null,
@@ -1034,6 +1048,16 @@ async function escolherDocumentos(it) {
       // Cenário 1: sem parecer de comissão/plenário e sem substitutivo adotado.
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
+
+    // Pareceres das comissões por onde a proposição já tramitou (todos os
+    // publicados) — anexados para resumo próprio, ortogonais ao cenário acima.
+    for (const pc of (par.comissoes || [])) {
+      docs.push({
+        tipo: 'PARECER_COMISSAO',
+        rotulo: `Parecer da Comissão ${pc.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''}`,
+        url: pc.url,
+      });
+    }
   } else if (it.tipoCategoria === 'redacao_final') {
     // Redação Final: analisa o documento próprio (raspado da ficha de
     // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
@@ -1129,6 +1153,13 @@ REGRAS RÍGIDAS:
     ? `\n## Redação aprovada pela Câmara\nResuma, em parágrafos corridos, a redação que a Câmara aprovou e enviou ao Senado (documento "${has('AUTOGRAFO') ? 'Autógrafo' : 'Texto aprovado pela Câmara'}" anexado), para que o(a) analista tenha a percepção do que saiu da Câmara. Descreva o objeto e os pontos centrais desse texto-base, sobre o qual incidem as emendas do Senado.\n`
     : '';
 
+  // Seção própria com o resumo dos pareceres das comissões por onde a
+  // proposição já tramitou (documentos "Parecer da Comissão ..." anexados).
+  const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
+  const secaoPareceresComissoes = docsComissao.length
+    ? `\n## Pareceres das comissões\nResuma o parecer de cada comissão por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados). Dedique **um parágrafo a cada comissão**, indicando o nome da comissão, o(a) relator(a), a conclusão (pela aprovação ou rejeição, com ou sem substitutivo/emendas) e os pontos centrais do mérito analisado. Baseie-se exclusivamente no conteúdo de cada parecer anexado; se algum não estiver disponível, registre "parecer não disponível".\n`
+    : '';
+
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
   // documentos anexados, diz à IA qual é o texto "operativo" a descrever.
   let cenarioHint;
@@ -1176,7 +1207,7 @@ Parágrafo único, direto e em linguagem acessível, explicando o que a proposi�
 
 ## Justificativa
 Por que o tema é relevante? Qual problema a proposição pretende resolver? Fundamente na justificação do autor ou nos elementos do documento, sem recorrer a conhecimento externo.
-${secaoRedacaoCamara}
+${secaoRedacaoCamara}${secaoPareceresComissoes}
 ## Pareceres e substitutivos
 [INSTRUÇÃO INTERNA — não reproduza este texto, não mencione "cenário" e não classifique a proposição na resposta: ${cenarioHint}]
 
