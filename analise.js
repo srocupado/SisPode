@@ -551,27 +551,44 @@ async function fetchApensados(idProp) {
  * (prop_pareceres_substitutivos_votos) — fonte canônica que lista PRLP /
  * PRLE explicitamente, ao contrário do endpoint /tramitacoes da API REST.
  */
-// Baixa o HTML de uma página do portal da Câmara, tentando acesso direto e,
-// em caso de falha de CORS/rede, o proxy Codetabs. Retorna null se ambos falharem.
+// Considera válida a resposta se parece a página real da Câmara (e não uma
+// página de erro/JSON que um proxy possa devolver com HTTP 200).
+function _htmlCamaraValido(html) {
+  if (!html || html.length < 500) return false;
+  return html.includes('proposicoesWeb')
+      || html.includes('prop_mostrarintegra')
+      || html.includes('filename=')
+      || /<!doctype html|<html[\s>]/i.test(html.slice(0, 600));
+}
+
+// Baixa o HTML de uma página do portal da Câmara. As páginas proposicoesWeb
+// nem sempre enviam cabeçalhos CORS, então o fetch direto pode falhar — nesse
+// caso tentamos o codetabs e, por fim, o worker próprio (como os demais
+// módulos do app). Retorna o HTML válido ou null se todas as vias falharem.
 async function fetchHtmlCamara(url) {
-  let html = null;
-  try {
-    const r = await fetch(url, { redirect: 'follow' });
-    if (r.ok) html = await r.text();
-  } catch (_) {}
-  if (!html) {
+  const vias = [
+    ['direto',   () => fetch(url, { redirect: 'follow' })],
+    ['codetabs', () => fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url))],
+    ['worker',   () => fetch('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url))],
+  ];
+  for (const [nome, tentar] of vias) {
     try {
-      const r = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url));
-      if (r.ok) html = await r.text();
-    } catch (_) {}
+      const r = await tentar();
+      const html = r.ok ? await r.text() : '';
+      if (r.ok && _htmlCamaraValido(html)) return html;
+      console.debug(`[análise] página Câmara via ${nome}: status=${r.status} len=${html.length} (inválido)`);
+    } catch (e) {
+      console.debug(`[análise] página Câmara via ${nome}: erro ${e.message}`);
+    }
   }
-  return html;
+  console.warn('[análise] não foi possível obter a página da Câmara (direto, codetabs e worker):', url);
+  return null;
 }
 
 async function buscarPareceresPlenario(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
-  if (!html) return { prlp: null, prle: null, sbtA: null };
+  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const candidatos = [];
@@ -694,17 +711,7 @@ async function buscarEmendasSenadoESSP(idProp) {
  */
 async function buscarRedacaoFinal(idProp) {
   const url = `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idProp}`;
-  let html = null;
-  try {
-    const r = await fetch(url, { redirect: 'follow' });
-    if (r.ok) html = await r.text();
-  } catch (_) {}
-  if (!html) {
-    try {
-      const r = await fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url));
-      if (r.ok) html = await r.text();
-    } catch (_) {}
-  }
+  const html = await fetchHtmlCamara(url);
   if (!html) return null;
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
