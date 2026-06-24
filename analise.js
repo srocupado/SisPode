@@ -466,6 +466,9 @@ async function enriquecerItem(it) {
 }
 
 const cacheProp = state.cacheProposicao;
+// Cache de detalhes de proposição (GET /proposicoes/{id}) reusado na detecção de
+// apensados (cadeia de uriPropPrincipal) e no inteiro teor dos apensados.
+const cacheDetalheProp = new Map();
 
 // Siglas equivalentes na API da Câmara (nomenclatura antiga × atual): os
 // decretos legislativos aparecem como PDC (antiga) ou PDL (atual) conforme a
@@ -542,18 +545,50 @@ async function fetchInfoDeputado(idDep) {
 
 async function fetchApensados(idProp) {
   const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/relacionadas`);
-  // Filtra apenas relações de apensamento
-  const rel = (json.dados || []).filter(r => {
-    const txt = `${r.codTipoRelacionado || ''} ${r.descricaoRelacao || ''} ${r.descricao || ''}`.toLowerCase();
-    return txt.includes('apens');
-  });
-  return rel.map(r => ({
-    id:          r.id,
-    siglaTipo:   r.siglaTipo,
-    numero:      r.numero,
-    ano:         r.ano,
-    ementa:      r.ementa,
-  }));
+  const relacionadas = json.dados || [];
+  if (!relacionadas.length) return [];
+
+  // O endpoint /relacionadas nem sempre traz o tipo de relação (descricaoRelacao
+  // costuma vir vazia), então não dá para filtrar apensamento por texto. A marca
+  // confiável está no DETALHE de cada proposição: situação "Tramitando em
+  // Conjunto" + uriPropPrincipal apontando para a cadeia de apensamento. Como o
+  // apensamento pode ser em cadeia (A apensada a B, B apensada à principal),
+  // resolvemos a RAIZ de cada candidata seguindo uriPropPrincipal até o topo e
+  // só consideramos apensadas as que compartilham a mesma raiz da nossa matéria.
+  const idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
+  const detalhe = async (id) => {
+    if (cacheDetalheProp.has(id)) return cacheDetalheProp.get(id);
+    let d = null;
+    try { d = (await fetchJson(`${API_BASE}/proposicoes/${id}`)).dados || null; }
+    catch (e) { d = null; }
+    cacheDetalheProp.set(id, d);
+    return d;
+  };
+  const raiz = async (id, depth = 0) => {
+    if (depth > 6) return id;
+    const pai = idDaUri((await detalhe(id))?.uriPropPrincipal);
+    return pai ? raiz(pai, depth + 1) : id;
+  };
+
+  const raizAlvo = await raiz(Number(idProp));
+  const apensados = [];
+  for (const r of relacionadas) {
+    const d = await detalhe(r.id);
+    if (!d) continue;
+    const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
+    const temPrincipal = !!d.uriPropPrincipal;
+    if (!temPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
+    if (await raiz(r.id) !== raizAlvo) continue;   // pertence a outra cadeia
+    apensados.push({
+      id:             r.id,
+      siglaTipo:      r.siglaTipo,
+      numero:         r.numero,
+      ano:            r.ano,
+      ementa:         r.ementa || d.ementa,
+      urlInteiroTeor: d.urlInteiroTeor || null,
+    });
+  }
+  return apensados;
 }
 
 /**
@@ -1475,10 +1510,10 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   const apensadoVsTexto = docsApensado.length &&
     docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
-    ? ` Em seguida, **avalie se a ideia central ${plApens ? 'de cada apensado foi incorporada' : 'do apensado foi incorporada'} ao texto que está sendo votado** (o substitutivo, a subemenda ou a redação final): diga se foi acolhida **integralmente**, **parcialmente** ou **rejeitada**, apontando os dispositivos correspondentes. Se o parecer/relatório mencionar expressamente o apensado, cite o que o(a) relator(a) decidiu sobre ele; caso contrário, faça o cotejo entre o conteúdo do apensado e o do texto em votação. Baseie-se apenas nos documentos anexados.`
+    ? ' Como há texto consolidado em votação (substitutivo, subemenda ou redação final), **avalie, ao final de cada tópico, se a ideia central daquele apensado foi incorporada** a esse texto — acolhida **integralmente**, **parcialmente** ou **rejeitada** —, apontando os dispositivos correspondentes; se o parecer/relatório mencionar expressamente o apensado, cite o que o(a) relator(a) decidiu, caso contrário faça o cotejo entre o conteúdo do apensado e o do texto em votação.'
     : '';
   const secaoApensados = docsApensado.length
-    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\n${plApens ? 'Para cada' : 'Para o'} documento "Apensado do Podemos ..." anexado, dedique **um parágrafo** com um **breve resumo** do projeto apensado: identifique a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m), descreva seu objeto e o que propõe criar/alterar, e indique como ela se relaciona com a matéria principal em votação.${instrIncorporacao} Baseie-se exclusivamente no inteiro teor anexado do apensado, sem confundi-lo com o texto operativo principal.\n`
+    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\nApresente **um tópico (item de lista com "-") para cada** projeto apensado de autoria do Podemos cujo inteiro teor foi anexado (documentos "Apensado do Podemos ..."). Em cada tópico: comece identificando a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m); em seguida, faça um **breve resumo** do objeto do projeto, do que ele propõe criar/alterar e de como se relaciona com a matéria principal em votação.${instrIncorporacao} Baseie-se exclusivamente no inteiro teor anexado de cada apensado, sem confundi-lo com o texto operativo principal.\n`
     : '';
 
   // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
@@ -1648,7 +1683,7 @@ REGRAS RÍGIDAS:
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
-- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator): nesse caso, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda.
+- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO (a) quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator) e (b) na seção de projetos apensados de autoria do Podemos: nesses casos, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda/apensado.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
