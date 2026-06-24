@@ -828,6 +828,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       const cached = await fbCarregarAnalise(it);
       if (cached) {
         it.analise = cached;
+        if (!it.apelido && cached.apelido) it.apelido = cached.apelido;
         it.analiseStatus = 'ok';
         renderAnaliseCard(it);
         return;
@@ -886,6 +887,19 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 
     const refsSuspeitas = await calcularRefsSuspeitas(markdown, pdfBuffers);
 
+    // Apelido curto para o índice/títulos do PDF — gerado aqui, junto da nota
+    // (1 chamada leve), e salvo no Firebase com a análise. Assim é computado
+    // uma única vez e compartilhado com a equipe; o export não refaz chamadas.
+    let apelido = '';
+    try {
+      apelido = await gerarApelidoIA(it, {
+        provedorId: state.config.provedor || 'gemini',
+        apiKey:     state.config.apiKey,
+        modelo:     state.config.modelo,
+      });
+    } catch (e) { if (isAbortError(e)) throw e; }
+    if (apelido) it.apelido = apelido;
+
     it.analise = {
       markdown,
       truncada:    truncated,
@@ -893,6 +907,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       modelo:      state.config.modelo,
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
+      apelido:     apelido || it.apelido || '',
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
@@ -2263,9 +2278,10 @@ function tituloVotacao(it) {
   return `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
 }
 
-// Título completo: "o que será votado (apelido)".
+// Título completo: "o que será votado (apelido)". O apelido vem da geração da
+// nota (salvo em it.analise.apelido) ou do cache de sessão (it.apelido).
 function tituloComApelido(it) {
-  const ap = (it.apelido || '').trim();
+  const ap = (it.apelido || it.analise?.apelido || '').trim();
   return tituloVotacao(it) + (ap ? ` (${ap})` : '');
 }
 
@@ -2296,6 +2312,9 @@ async function gerarApelidoIA(it, cfg) {
 // Garante it.apelido para todos os itens: gera por IA quando há chave; senão usa
 // o apelido de reserva da ementa. Cacheia em it.apelido para a sessão.
 async function prepararApelidos(itens) {
+  // Reaproveita o apelido já gerado com a nota (salvo em it.analise.apelido) —
+  // não refaz chamada para esses itens.
+  for (const it of itens) if (!it.apelido && it.analise?.apelido) it.apelido = it.analise.apelido;
   const cfg = { provedorId: state.config?.provedor || 'gemini', apiKey: state.config?.apiKey, modelo: state.config?.modelo };
   if (!cfg.apiKey) {
     for (const it of itens) if (!it.apelido) it.apelido = apelidoFallback(it);
