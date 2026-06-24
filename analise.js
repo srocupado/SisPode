@@ -2212,87 +2212,204 @@ async function carregarLogoDataUrl() {
   }
 }
 
+// ---------- Título "o que será votado" + apelido (para índice e cabeçalhos) ----------
+
+// Normaliza referências legislativas para a forma curta usada no índice/títulos
+// do PDF (NÃO altera o corpo das análises). Ex.:
+//  "Projeto de Lei nº 3.801 de 2024" → "PL 3801/2024"
+//  "Lei nº 7.405, de 12 de novembro de 1985" → "Lei 7405/1985"
+function normalizarReferencias(texto) {
+  if (!texto) return texto || '';
+  let t = texto;
+  t = t.replace(/Projeto de Lei\s+Complementar\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(\d{4})/gi, (m, n, a) => `PLP ${n.replace(/\./g, '')}/${a}`);
+  t = t.replace(/Projeto de Lei\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(\d{4})/gi, (m, n, a) => `PL ${n.replace(/\./g, '')}/${a}`);
+  t = t.replace(/\bLei\s+Complementar\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(?:\d{1,2}[ºo]?\s+de\s+\w+\s+de\s+)?(\d{4})/gi, (m, n, a) => `Lei Complementar ${n.replace(/\./g, '')}/${a}`);
+  t = t.replace(/\bLei\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(?:\d{1,2}[ºo]?\s+de\s+\w+\s+de\s+)?(\d{4})/gi, (m, n, a) => `Lei ${n.replace(/\./g, '')}/${a}`);
+  return t;
+}
+
+// Proposição "alvo" do item (para requerimento, é o projeto cuja urgência se pede).
+function _alvoItem(it) {
+  return (it.tipoCategoria === 'requerimento' && it.projetoUrgenciado) ? it.projetoUrgenciado : it;
+}
+
+// "O que será votado" — sem apelido.
+function tituloVotacao(it) {
+  if (it.tipoCategoria === 'requerimento') {
+    const a = it.projetoUrgenciado;
+    return a ? `Urgência ao ${tipoLabel(a.sigla)} ${a.numero}/${a.ano}` : 'Requerimento de urgência';
+  }
+  if (it.tipoCategoria === 'redacao_final') return `Redação Final do ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
+  return `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
+}
+
+// Título completo: "o que será votado (apelido)".
+function tituloComApelido(it) {
+  const ap = (it.apelido || '').trim();
+  return tituloVotacao(it) + (ap ? ` (${ap})` : '');
+}
+
+// Apelido de reserva (sem IA): primeira oração da ementa, encurtada e normalizada.
+function apelidoFallback(it) {
+  const alvo = _alvoItem(it);
+  let e = normalizarReferencias((alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').trim());
+  if (!e) return '';
+  const corte = (e.split(/[.;]/)[0] || e).trim();
+  const max = 60;
+  if (corte.length <= max) return corte.replace(/[\s,;.:-]+$/, '');
+  const c = corte.slice(0, max), sp = c.lastIndexOf(' ');
+  return (sp > max * 0.6 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
+}
+
+function promptApelido(it) {
+  const alvo = _alvoItem(it);
+  const ementa = (alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o objeto principal da proposição ${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}, para uso entre parênteses num índice de pauta. Comece por um verbo (ex.: "Institui a política Mulheres em Movimento" ou "Altera a Lei 7405/1985 para incluir cota de aprendizes"). Use referências legislativas abreviadas: escreva "PL 3801/2024" (nunca "Projeto de Lei nº 3.801 de 2024") e "Lei 7405/1985 (objeto)" (nunca "Lei nº 7.405, de 12 de novembro de 1985"). Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+}
+
+async function gerarApelidoIA(it, cfg) {
+  const r = await chamarIA({ ...cfg, prompt: promptApelido(it), pdfBuffers: [] });
+  const ap = (r.text || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim();
+  return normalizarReferencias(ap);
+}
+
+// Garante it.apelido para todos os itens: gera por IA quando há chave; senão usa
+// o apelido de reserva da ementa. Cacheia em it.apelido para a sessão.
+async function prepararApelidos(itens) {
+  const cfg = { provedorId: state.config?.provedor || 'gemini', apiKey: state.config?.apiKey, modelo: state.config?.modelo };
+  if (!cfg.apiKey) {
+    for (const it of itens) if (!it.apelido) it.apelido = apelidoFallback(it);
+    return;
+  }
+  const pend = itens.filter(it => !it.apelido);
+  if (!pend.length) return;
+  iaInFlightInc();
+  try {
+    let feitos = 0;
+    await Promise.all(pend.map(async it => {
+      try {
+        it.apelido = (await gerarApelidoIA(it, cfg)) || apelidoFallback(it);
+      } catch (e) {
+        if (isAbortError(e)) throw e;
+        it.apelido = apelidoFallback(it);
+      }
+      mostrarToast(`Gerando apelidos… ${++feitos}/${pend.length}`, 'info');
+    }));
+  } finally {
+    iaInFlightDec();
+  }
+}
+
+// HTML de impressão da pauta — cabeçalho institucional (padrão do módulo do
+// Congresso), índice clicável com nº de página (Paged.js / target-counter) e os
+// itens com título "o que será votado (apelido)".
+function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
+  const esc = escapeHtml;
+  const bm  = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  const itens = pauta.itens || [];
+  const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
+  const meta = `${esc(pauta.titulo || '')}${pauta.periodo ? ' · ' + esc(pauta.periodo) : ''} · Gerado em ${formatDataHora(new Date().toISOString())} · ${itens.length} item(ns)`;
+
+  const indice = itens.length ? `
+    <section class="indice">
+      <h2>Índice</h2>
+      <ul>
+        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(tituloComApelido(it))}</span><span class="ld"></span></a></li>`).join('')}
+      </ul>
+    </section>` : '';
+
+  const itensHtml = itens.map(it => {
+    const autor   = it.autorTexto || '';
+    const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
+    const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
+    const corpo   = it.analise?.markdown ? renderMarkdown(it.analise.markdown) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
+    return `<div class="bloco" id="${bm(it.chave)}">
+      <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
+      ${(autor || relator) ? `<div class="item-meta">${esc(autor)}${relator}</div>` : ''}
+      ${badges ? `<div class="badges">${badges}</div>` : ''}
+      ${corpo}
+    </div>`;
+  }).join('');
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(pauta.titulo || 'Pauta de Plenário')}</title>
+  <style>
+    @page { size:A4; margin:16mm; }
+    * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
+    .cab { display:flex; align-items:center; gap:16px; }
+    .cab .tit { flex:1; text-align:center; }
+    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; }
+    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; }
+    .cab img { height:42px; }
+    .cab .sp { width:42px; }
+    .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
+    .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    .indice { break-after:page; page-break-after:always; }
+    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:8px; }
+    .indice ul { list-style:none; margin:0; padding:0; }
+    .indice li { font-size:10.5pt; margin-bottom:4px; }
+    .indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
+    .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
+    .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
+    .bloco { margin-bottom:8px; }
+    .item-h { font-size:13pt; font-weight:700; color:#003c1f; border-bottom:1px solid #ccc; padding-bottom:3px; margin:18px 0 4px; page-break-after:avoid; break-after:avoid; }
+    .item-meta { font-size:9pt; color:#555; margin-bottom:4px; }
+    .badges { margin:2px 0 6px; font-size:9pt; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
+    .badge-pode { background:#d3f5e2; color:#006633; }
+    .badge-apens { background:#d8eef0; color:#02484d; }
+    h2 { font-size:12pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
+    h3 { font-size:11pt; color:#155724; margin:10px 0 3px; }
+    p { font-size:10.5pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; page-break-inside:avoid; break-inside:avoid; }
+    ul { margin:4px 0 6px 18px; padding:0; }
+    li { font-size:10.5pt; line-height:1.5; }
+    .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
+    .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
+  </style></head><body>
+    <div class="cab">
+      <div class="sp"></div>
+      <div class="tit"><h1>Pauta de Plenário</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
+    </div>
+    <div class="rule"></div>
+    <div class="meta">${meta}</div>
+    ${indice}
+    ${itensHtml || '<p>Pauta vazia.</p>'}
+    <div class="ft">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
+  </body></html>`;
+}
+
 async function exportarPdf() {
   if (!state.pauta) return;
-  // Constrói uma janela "limpa" com cabeçalho + análises
-  const win = window.open('', '_blank');
+  // Abre a janela já no gesto do clique (evita bloqueio de pop-up).
+  const win = window.open('', '_blank', 'width=900,height=720');
   if (!win) {
     mostrarToast('Permita pop-ups para exportar o PDF.', 'aviso');
     return;
   }
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando os apelidos e gerando o PDF…</body></html>');
+  win.document.close();
 
-  const itens = state.pauta.itens;
-  const placeholderPorStatus = (st) => {
-    if (st === 'erro')    return 'Falha ao gerar análise.';
-    if (st === 'gerando') return 'Análise em processamento.';
-    return 'Análise não gerada.';
-  };
-
-  // Carrega a logo como data-URL para embutir no PDF (a janela aberta é
-  // about:blank, então o caminho do extension precisa virar base64).
+  // Gera/cacheia os apelidos (por IA, se houver chave) e carrega a logo.
+  try { await carregarConfig(); } catch (_) {}
+  try { await prepararApelidos(state.pauta.itens); } catch (_) {}
+  if (win.closed) return;
   const logoDataUrl = await carregarLogoDataUrl();
 
-  const html = `<!DOCTYPE html>
-<html lang="pt-BR"><head><meta charset="UTF-8">
-<title>${escapeHtml(state.pauta.titulo)} — Análise</title>
-<style>
-  @page { margin: 18mm 16mm; }
-  body { font-family: 'DM Sans', Arial, sans-serif; color: #1a1a1a; max-width: 780px; margin: 0 auto; line-height: 1.55; font-size: 12pt; }
-  h1 { font-size: 18pt; margin: 0 0 4px; color: #003c1f; }
-  h2 { font-size: 14pt; margin: 18px 0 6px; color: #003c1f; border-bottom: 1px solid #ccc; padding-bottom: 3px; }
-  h3 { font-size: 11pt; margin: 12px 0 4px; color: #155724; }
-  .cabecalho { border-bottom: 2px solid #00A859; padding-bottom: 10px; margin-bottom: 16px; }
-  .cab-institucional { display: grid; grid-template-columns: 130px 1fr 130px; align-items: center; margin-bottom: 10px; }
-  .cab-institucional .cab-titulo { text-align: center; font-size: 13pt; font-weight: 700; color: #003c1f; letter-spacing: 0.2px; }
-  .cab-institucional .cab-logo { justify-self: end; height: 48px; width: auto; }
-  .meta { font-size: 10pt; color: #555; }
-  .item { margin-bottom: 24px; padding-bottom: 14px; border-bottom: 1px dashed #ccc; }
-  .item-titulo { font-size: 12pt; font-weight: 700; }
-  .item-cabecalho { page-break-inside: avoid; break-inside: avoid; page-break-after: avoid; }
-  .badges { margin: 4px 0 8px; font-size: 9pt; }
-  .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; margin-right: 4px; font-weight: 600; }
-  .badge-pode { background: #d3f5e2; color: #006633; }
-  .badge-apens { background: #d8eef0; color: #02484d; }
-  ul { margin: 4px 0 6px 18px; padding: 0; }
-  p { margin: 4px 0; text-align: justify; hyphens: auto; }
-  .empty { color: #888; font-style: italic; }
-  .pendente { color: #888; font-style: italic; background: #fafafa; border: 1px dashed #ddd; padding: 8px 10px; border-radius: 4px; text-align: left; margin: 6px 0; }
-</style></head><body>
-  <div class="cabecalho">
-    <div class="cab-institucional">
-      <span></span>
-      <div class="cab-titulo">Liderança do Podemos na Câmara dos Deputados</div>
-      ${logoDataUrl ? `<img class="cab-logo" src="${logoDataUrl}" alt="Podemos">` : '<span></span>'}
-    </div>
-    <h1>${escapeHtml(state.pauta.titulo)}</h1>
-    <div class="meta">${escapeHtml(state.pauta.periodo || '')}</div>
-    <div class="meta">Gerado em ${formatDataHora(new Date().toISOString())}</div>
-  </div>
-  ${itens.length === 0 ? '<p class="empty">Pauta vazia.</p>' : ''}
-  ${itens.map(it => `
-    <div class="item">
-      <div class="item-cabecalho">
-        <div class="item-titulo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano} ${it.ordem ? '· item ' + it.ordem : ''}</div>
-        <div class="meta">${escapeHtml(it.autorTexto || '')}${it.relator ? ' · Relator: Dep. ' + escapeHtml(it.relator.nome) + ' (' + it.relator.partido + '-' + it.relator.uf + ')' : ''}</div>
-        <div class="badges">
-          ${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}
-          ${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}</span>`).join('')}
-        </div>
-      </div>
-      ${it.analise?.markdown
-        ? renderMarkdown(it.analise.markdown)
-        : `<div class="pendente">${placeholderPorStatus(it.analiseStatus)}</div>`}
-    </div>
-  `).join('')}
-</body></html>`;
-
-  win.document.write(html);
+  win.document.open();
+  win.document.write(_htmlImpressaoPautaPlenario(state.pauta, logoDataUrl));
   win.document.close();
-  // Disparar print() a partir da janela-pai (a nova janela herda a CSP
-  // 'script-src self' do app, que bloqueia <script> inline).
-  const acionarPrint = () => { try { win.focus(); win.print(); } catch (_) {} };
-  win.addEventListener('load', acionarPrint);
-  setTimeout(acionarPrint, 600); // fallback caso 'load' já tenha disparado
+
+  // Paged.js pagina e calcula os nº de página do índice (target-counter).
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;                 // imprime sem numeração se a lib falhar
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 30000);          // rede de segurança para pautas grandes
+  mostrarToast('Gerando PDF… escolha “Salvar como PDF” na janela.', 'info');
 }
 
 // ============================================================
