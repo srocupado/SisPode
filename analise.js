@@ -396,9 +396,12 @@ async function enriquecerItem(it) {
   }
 
   // Rastreia a etapa atual para que uma falha aponte exatamente onde ocorreu.
+  // prop é declarado FORA do try para continuar acessível nas buscas de parecer
+  // de plenário / redação final mais abaixo.
   let etapa = 'resolveProposicao';
+  let prop;
   try {
-    const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
+    prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
     it.enriquecimento.idProposicao = prop.id;
     it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
     atualizarLinkPortal(it);
