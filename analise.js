@@ -367,8 +367,12 @@ function tipoLabel(sigla) {
 async function enriquecerItens() {
   for (const it of state.pauta.itens) {
     enriquecerItem(it).catch(e => {
-      console.warn('Enriquecimento falhou para', it.chave, e);
-      it.enriquecimento = { status: 'erro', erro: e.message };
+      const msg = e?.message || String(e);
+      console.warn(
+        `Enriquecimento falhou para ${it.chave} (${it.sigla} ${it.numero}/${it.ano}): ${msg}`,
+        '\n', e?.stack || ''
+      );
+      it.enriquecimento = { status: 'erro', erro: msg };
       atualizarBadgesCard(it);
     });
   }
@@ -391,30 +395,40 @@ async function enriquecerItem(it) {
     return;
   }
 
-  const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
-  it.enriquecimento.idProposicao = prop.id;
-  it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
-  atualizarLinkPortal(it);
+  // Rastreia a etapa atual para que uma falha aponte exatamente onde ocorreu.
+  let etapa = 'resolveProposicao';
+  try {
+    const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
+    it.enriquecimento.idProposicao = prop.id;
+    it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+    atualizarLinkPortal(it);
 
-  // Autoria principal
-  const autores = await fetchAutoresProposicao(prop.id);
-  it.enriquecimento.autores = autores;
-  it.enriquecimento.autoriaPodemos = autores.some(a => a.isPodemos);
+    // Autoria principal
+    etapa = 'autores';
+    const autores = await fetchAutoresProposicao(prop.id);
+    it.enriquecimento.autores = autores;
+    it.enriquecimento.autoriaPodemos = autores.some(a => a.isPodemos);
 
-  // Apensados via API
-  const apensados = await fetchApensados(prop.id);
-  // Para cada apensado, verificar autoria
-  for (const ap of apensados) {
-    try {
-      const aps = await fetchAutoresProposicao(ap.id);
-      ap.autores = aps;
-      ap.autoriaPodemos = aps.some(a => a.isPodemos);
-    } catch (e) {
-      ap.autoriaPodemos = false;
+    // Apensados via API
+    etapa = 'apensados';
+    const apensados = await fetchApensados(prop.id);
+    // Para cada apensado, verificar autoria
+    for (const ap of apensados) {
+      try {
+        const aps = await fetchAutoresProposicao(ap.id);
+        ap.autores = aps;
+        ap.autoriaPodemos = aps.some(a => a.isPodemos);
+      } catch (e) {
+        ap.autoriaPodemos = false;
+      }
     }
+    it.enriquecimento.apensados = apensados;
+    it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+  } catch (e) {
+    // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
+    e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
+    throw e;
   }
-  it.enriquecimento.apensados = apensados;
-  it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
 
   // URLs do(s) parecer(es) do relator de Plenário (para projetos)
   if (it.tipoCategoria === 'projeto') {
