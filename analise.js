@@ -88,6 +88,7 @@ const state = {
   salvando:  false,            // evita gravações concorrentes
   promptsBiblioteca: [],       // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
   promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
+  interesse: null,             // { lista:[{id,nome}], temas:{idDep:string}, carregado } — Firebase compartilhado
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -140,6 +141,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     inp.type = inp.type === 'password' ? 'text' : 'password';
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
+  document.getElementById('btn-salvar-interesse').addEventListener('click', salvarInteresse);
 
   // Modal "Reanalisar com IA" (prompt personalizado + biblioteca compartilhada)
   document.getElementById('reanalise-select').addEventListener('change', refletirSelecaoPrompt);
@@ -153,6 +155,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Carrega a biblioteca de prompts compartilhada (não bloqueia a UI)
   carregarBibliotecaPrompts().catch(e => console.warn('Falha ao carregar prompts:', e.message));
+
+  // Carrega os temas de interesse dos parlamentares (badge laranja) — não bloqueia
+  carregarInteresse().catch(e => console.warn('Falha ao carregar interesses:', e.message));
 
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
@@ -239,7 +244,7 @@ function normalizarItem(it) {
 
 function gerarIdPauta(periodo, fileName) {
   const semId = (periodo || fileName || 'pauta').toLowerCase()
-    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
@@ -783,6 +788,134 @@ function atualizarBadgesCard(it) {
     badge.dataset.role = 'badge-extra';
     badge.textContent = `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}${auts ? ' — ' + auts : ''}`;
     cont.appendChild(badge);
+  }
+
+  // Badges de interesse de parlamentares (tema conexo à matéria — laranja)
+  for (const nome of deputadosComInteresse(it)) {
+    const badge = document.createElement('span');
+    badge.className = 'an-badge an-badge--interesse';
+    badge.dataset.role = 'badge-extra';
+    badge.textContent = `Matéria com campo de interesse do parlamentar ${nome}`;
+    cont.appendChild(badge);
+  }
+}
+
+// ============================================================
+//  TEMAS DE INTERESSE DOS PARLAMENTARES (badge laranja)
+//  Lista de deputados do Podemos vem da API; os temas (por deputado,
+//  separados por OR) ficam no Firebase, compartilhados com a equipe.
+// ============================================================
+async function fbCarregarTemasInteresse() {
+  const res = await fetch(`${FIREBASE_URL}/deputados_interesse.json`);
+  if (!res.ok) return {};
+  return (await res.json()) || {};
+}
+
+async function fbSalvarTemasInteresse(map) {
+  const res = await fetch(`${FIREBASE_URL}/deputados_interesse.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(map),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+async function carregarDeputadosPodemos() {
+  const out = [];
+  let url = `${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS}&ordem=ASC&ordenarPor=nome&itens=100`;
+  for (let pag = 0; pag < 5 && url; pag++) {   // segue a paginação (links rel=next)
+    const json = await fetchJson(url);
+    for (const d of (json.dados || [])) out.push({ id: String(d.id), nome: d.nome });
+    url = (json.links || []).find(l => l.rel === 'next')?.href || null;
+  }
+  return out;
+}
+
+async function carregarInteresse() {
+  const [lista, temas] = await Promise.all([carregarDeputadosPodemos(), fbCarregarTemasInteresse()]);
+  state.interesse = { lista, temas: temas || {}, carregado: true };
+  atualizarTodosBadgesInteresse();
+}
+
+function _normTxt(s) {
+  return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+// Termos de um campo "tema1 OR tema2 OR ..." (também aceita um por linha).
+function _termosInteresse(temas) {
+  return (temas || '')
+    .split(/\s+OR\s+|\r?\n+/i)
+    .map(t => _normTxt(t).trim())
+    .filter(t => t.length >= 3);
+}
+
+// Texto da matéria onde os temas são procurados: ementa + título + nota gerada.
+function _textoCasavel(it) {
+  const alvo = _alvoItem(it);
+  return _normTxt([alvo.ementa, it.ementa, tituloVotacao(it), it.analise?.markdown].filter(Boolean).join('  \n  '));
+}
+
+// Casa o termo como "palavra" (com fronteiras), evitando casar dentro de palavras.
+function _casaTermo(texto, termo) {
+  const esc = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  try { return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(texto); }
+  catch { return texto.includes(termo); }
+}
+
+// Nomes dos deputados cujos temas de interesse aparecem na matéria.
+function deputadosComInteresse(it) {
+  const cfg = state.interesse;
+  if (!cfg || !cfg.lista?.length) return [];
+  const texto = _textoCasavel(it);
+  if (!texto) return [];
+  const out = [];
+  for (const dep of cfg.lista) {
+    const termos = _termosInteresse(cfg.temas?.[dep.id]);
+    if (termos.length && termos.some(t => _casaTermo(texto, t))) out.push(dep.nome);
+  }
+  return out;
+}
+
+function atualizarTodosBadgesInteresse() {
+  for (const it of (state.pauta?.itens || [])) atualizarBadgesCard(it);
+}
+
+function renderInteresseConfig() {
+  const cont = document.getElementById('config-interesse-lista');
+  if (!cont) return;
+  const cfg = state.interesse;
+  if (!cfg || !cfg.carregado) {
+    cont.innerHTML = '<div class="config-desc">Carregando deputados…</div>';
+    carregarInteresse().then(renderInteresseConfig).catch(() => {
+      cont.innerHTML = '<div class="config-desc">Falha ao carregar a lista de deputados.</div>';
+    });
+    return;
+  }
+  if (!cfg.lista.length) { cont.innerHTML = '<div class="config-desc">Nenhum deputado do Podemos encontrado na API.</div>'; return; }
+  cont.innerHTML = cfg.lista.map(dep => `
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:12px">${escapeHtml(dep.nome)}</label>
+      <textarea class="form-input" data-dep="${escapeHtml(dep.id)}" rows="1"
+        placeholder="temas separados por OR (ex.: saúde OR primeira infância)"
+        style="resize:vertical">${escapeHtml(cfg.temas?.[dep.id] || '')}</textarea>
+    </div>`).join('');
+}
+
+async function salvarInteresse() {
+  const cont = document.getElementById('config-interesse-lista');
+  const stEl = document.getElementById('interesse-status');
+  if (!cont) return;
+  const map = {};
+  cont.querySelectorAll('textarea[data-dep]').forEach(t => {
+    const v = t.value.trim();
+    if (v) map[t.getAttribute('data-dep')] = v;
+  });
+  if (stEl) stEl.textContent = 'Salvando…';
+  try {
+    await fbSalvarTemasInteresse(map);
+    state.interesse = { ...(state.interesse || { lista: [] }), temas: map, carregado: true };
+    atualizarTodosBadgesInteresse();
+    if (stEl) stEl.textContent = '✓ Temas salvos e compartilhados com a equipe.';
+  } catch (e) {
+    if (stEl) stEl.textContent = 'Erro ao salvar: ' + e.message;
   }
 }
 
@@ -1558,6 +1691,9 @@ function renderAnaliseCard(it) {
   conteudo.innerHTML = avisoRefs + renderMarkdown(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
+  // texto da nota recém-gerada/editada).
+  atualizarBadgesCard(it);
 }
 
 // Estado por-item para o autosave durante a edição.
@@ -2499,6 +2635,7 @@ function abrirConfig() {
   document.getElementById('config-api-key').value  = c.apiKey   || '';
   onProvedorChange();
   popularSelectModelos(c.modelo);
+  renderInteresseConfig();
   document.getElementById('modal-configuracoes').style.display = 'flex';
 }
 
