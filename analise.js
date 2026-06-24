@@ -899,9 +899,9 @@ function _pesosIdf(cfg) {
   return idf;
 }
 
-// Top 2 deputados com maior identidade com a matéria (detecção por palavras):
+// Fallback por palavras (usado quando não há embeddings — ex.: Anthropic):
 // soma dos pesos IDF dos temas que casam no texto (ementa + título + nota).
-function deputadosComInteresse(it) {
+function deputadosComInteresseKeyword(it) {
   const cfg = state.interesse;
   if (!cfg || !cfg.lista?.length) return [];
   const texto = _textoCasavel(it);
@@ -917,6 +917,85 @@ function deputadosComInteresse(it) {
   }
   scored.sort((a, b) => b.score - a.score || a.nome.localeCompare(b.nome, 'pt'));
   return scored.slice(0, 2).map(d => d.nome);
+}
+
+// ---------- Similaridade semântica por EMBEDDINGS ----------
+const EMB_MODELO = { gemini: 'text-embedding-004', openai: 'text-embedding-3-small' };
+const INTERESSE_FLOOR = 0.42;   // limiar de cosseno (calibrável após teste)
+
+function embeddingsDisponivel(prov) { return prov === 'gemini' || prov === 'openai'; }
+function embModeloTag(prov) { return `${prov}:${EMB_MODELO[prov] || ''}`; }
+
+// Embeda uma lista de textos (1 chamada) e devolve os vetores na mesma ordem.
+async function embTextos(textos, cfg) {
+  const prov = cfg.provedorId;
+  if (prov === 'gemini') {
+    const m = EMB_MODELO.gemini;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:batchEmbedContents?key=${cfg.apiKey}`;
+    const body = { requests: textos.map(t => ({ model: `models/${m}`, content: { parts: [{ text: t }] } })) };
+    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return (j.embeddings || []).map(e => e.values);
+  }
+  if (prov === 'openai') {
+    const j = await fetchIA('https://api.openai.com/v1/embeddings', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${cfg.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: EMB_MODELO.openai, input: textos }),
+    });
+    return (j.data || []).map(d => d.embedding);
+  }
+  throw new Error('Embeddings indisponíveis para o provedor ' + prov);
+}
+
+function cosseno(a, b) {
+  if (!a || !b || a.length !== b.length) return 0;
+  let dot = 0, na = 0, nb = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; na += a[i] * a[i]; nb += b[i] * b[i]; }
+  return (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
+}
+
+// Vetores dos perfis dos deputados (perfil + temas), em 1 chamada, cacheados em
+// memória por modelo+conteúdo. Recalcula ao trocar de provedor ou editar perfis.
+async function garantirVetoresDeputados(cfg) {
+  const cfgI = state.interesse;
+  if (!cfgI?.lista?.length) return null;
+  const deps = cfgI.lista.filter(d => { const x = cfgI.dados?.[d.id]; return x && ((x.perfil || '').trim() || (x.temas || '').trim()); });
+  if (!deps.length) return null;
+  const textoDe = d => { const x = cfgI.dados[d.id]; return `${(x.perfil || '').trim()} ${(x.temas || '').trim()}`.trim(); };
+  const tag = embModeloTag(cfg.provedorId);
+  const hash = deps.map(d => d.id + ':' + textoDe(d).length).join('|');
+  if (cfgI._vetores && cfgI._vetTag === tag && cfgI._vetHash === hash) return cfgI._vetores;
+  const vets = await embTextos(deps.map(textoDe), cfg);
+  const map = new Map();
+  deps.forEach((d, i) => { if (vets[i]) map.set(d.id, { nome: d.nome, vetor: vets[i] }); });
+  cfgI._vetores = map; cfgI._vetTag = tag; cfgI._vetHash = hash;
+  return map;
+}
+
+// Top 2 deputados por similaridade semântica entre o perfil e a matéria.
+async function determinarInteressados(it, cfg) {
+  if (!state.interesse?.carregado) { try { await carregarInteresse(); } catch (_) {} }
+  if (!embeddingsDisponivel(cfg.provedorId)) return deputadosComInteresseKeyword(it);
+  let mapaVet;
+  try { mapaVet = await garantirVetoresDeputados(cfg); }
+  catch (e) { console.warn('[interesse] vetores falharam, fallback p/ palavras:', e.message); return deputadosComInteresseKeyword(it); }
+  if (!mapaVet || !mapaVet.size) return [];
+  const alvo = _alvoItem(it);
+  const matTexto = [tituloVotacao(it), alvo.ementa || it.ementa || '', it.apelido || ''].filter(Boolean).join('. ').slice(0, 2000);
+  let matVet;
+  try { matVet = (await embTextos([matTexto], cfg))[0]; }
+  catch (e) { console.warn('[interesse] embedding da matéria falhou:', e.message); return deputadosComInteresseKeyword(it); }
+  if (!matVet) return [];
+  const sims = [];
+  for (const [, o] of mapaVet) sims.push({ nome: o.nome, sim: cosseno(matVet, o.vetor) });
+  sims.sort((a, b) => b.sim - a.sim);
+  console.debug('[interesse] similaridades:', sims.slice(0, 8).map(s => `${s.nome}: ${s.sim.toFixed(3)}`).join(' | '));
+  return sims.filter(s => s.sim >= INTERESSE_FLOOR).slice(0, 2).map(s => s.nome);
+}
+
+// Exibido no badge — calculado na geração e salvo em it.analise.interessados.
+function deputadosComInteresse(it) {
+  return it.analise?.interessados || [];
 }
 
 function atualizarTodosBadgesInteresse() {
@@ -1086,6 +1165,17 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     } catch (e) { if (isAbortError(e)) throw e; }
     if (apelido) it.apelido = apelido;
 
+    // Parlamentares com interesse na matéria — similaridade semântica (embeddings)
+    // entre o perfil e a matéria; fallback por palavras quando não há embeddings.
+    let interessados = [];
+    try {
+      interessados = await determinarInteressados(it, {
+        provedorId: state.config.provedor || 'gemini',
+        apiKey:     state.config.apiKey,
+        modelo:     state.config.modelo,
+      });
+    } catch (e) { if (isAbortError(e)) throw e; console.warn('Interesse falhou:', e.message); }
+
     it.analise = {
       markdown,
       truncada:    truncated,
@@ -1094,6 +1184,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
       apelido:     apelido || it.apelido || '',
+      interessados,
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
