@@ -865,7 +865,7 @@ function _normTxt(s) {
 function promptInteresse(it, perfisTxt) {
   const alvo = _alvoItem(it);
   const ementa = (alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').slice(0, 800);
-  return `Você é analista político da bancada do Podemos na Câmara. Abaixo estão os perfis de interesse de deputados do partido. Dada a matéria legislativa, identifique de 0 a 3 deputados cujo PERFIL tenha interesse REAL e direto no tema central da matéria, do mais aderente ao menos aderente. Critérios: inclua somente quem tem conexão temática genuína (não force, não use vínculos tangenciais nem termos genéricos como "segurança pública" quando não forem o foco do parlamentar); se nenhum tiver aderência clara, responda exatamente "NENHUM". Responda APENAS com os nomes, exatamente como aparecem na lista, separados por ponto e vírgula (;), sem números nem comentários.
+  return `Você é analista político da bancada do Podemos na Câmara. Abaixo estão os perfis de interesse de deputados do partido. Dada a matéria legislativa, identifique de 0 a 2 deputados cujo PERFIL tenha interesse REAL e direto no tema central da matéria, do mais aderente ao menos aderente. Critérios: inclua somente quem tem conexão temática genuína (não force, não use vínculos tangenciais nem termos genéricos como "segurança pública" quando não forem o foco do parlamentar); se nenhum tiver aderência clara, responda exatamente "NENHUM". Responda APENAS com os nomes, exatamente como aparecem na lista, separados por ponto e vírgula (;), sem números nem comentários.
 
 MATÉRIA: ${tituloVotacao(it)} — ${ementa}
 
@@ -898,7 +898,7 @@ async function determinarInteressadosIA(it, cfg) {
     const canon = canonPorNome.get(_normTxt(nome));
     if (canon && !out.includes(canon)) out.push(canon);
   }
-  return out.slice(0, 3);
+  return out.slice(0, 2);
 }
 
 // Parlamentares com interesse na matéria — calculados na geração (semântico,
