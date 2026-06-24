@@ -1488,6 +1488,29 @@ REGRAS RÍGIDAS:
   const hasRedacaoCamara = has('AUTOGRAFO') || has('TEXTO_CAMARA');
   const temOriginal = has('REDACAO_ORIGINAL') || hasRedacaoCamara;
 
+  // Documento(s) operativo(s) da seção "Pareceres e substitutivos" — entra(m)
+  // no título da seção para facilitar identificar versão/atualização do doc.
+  // Prioridade: EMS → SSP → SBT-A → PRLP/PRLE → inteiro teor.
+  const rotuloDe = tipo => docs.find(d => d.tipo === tipo)?.rotulo;
+  let rotulosOperativos = [];
+  if (hasEMS) {
+    rotulosOperativos.push(rotuloDe('EMS'));
+    if (hasPRLP) rotulosOperativos.push(rotuloDe('PRLP'));
+  } else if (hasSSP) {
+    rotulosOperativos.push(rotuloDe('SSP'));
+    if (hasPRLE) rotulosOperativos.push(rotuloDe('PRLE'));
+  } else if (hasSBTA) {
+    rotulosOperativos.push(rotuloDe('SBT_A'));
+    if (hasPRLP) rotulosOperativos.unshift(rotuloDe('PRLP'));
+  } else if (hasPRLP || hasPRLE) {
+    if (hasPRLP) rotulosOperativos.push(rotuloDe('PRLP'));
+    if (hasPRLE) rotulosOperativos.push(rotuloDe('PRLE'));
+  } else if (has('INTEIRO_TEOR')) {
+    rotulosOperativos.push(rotuloDe('INTEIRO_TEOR'));
+  }
+  rotulosOperativos = rotulosOperativos.filter(Boolean);
+  const anotacaoPareceres = rotulosOperativos.length ? ` (${rotulosOperativos.join('; ')})` : '';
+
   // Seção própria só nos cenários 6/7 (retorno do Senado): resume a redação que
   // a Câmara aprovou e enviou ao Senado (Autógrafo), dando ao analista a
   // percepção do que saiu da Câmara antes de descrever o que o Senado alterou.
@@ -1552,10 +1575,10 @@ Parágrafo único, direto e em linguagem acessível, explicando o que a proposi�
 ## Justificativa
 Por que o tema é relevante? Qual problema a proposição pretende resolver? Fundamente na justificação do autor ou nos elementos do documento, sem recorrer a conhecimento externo.
 ${secaoRedacaoCamara}${secaoPareceresComissoes}
-## Pareceres e substitutivos
+## Pareceres e substitutivos${anotacaoPareceres}
 [INSTRUÇÃO INTERNA — não reproduza este texto, não mencione "cenário" e não classifique a proposição na resposta: ${cenarioHint}]
 
-Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos. Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.
+Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas que está sendo votado, citando o(a) relator(a) e as comissões quando constarem nos documentos. Escreva a análise normalmente, sem fazer referência a estas instruções nem a números de cenário.${anotacaoPareceres ? ` Mantenha exatamente a anotação entre parênteses no título desta seção (${rotulosOperativos.join('; ')}), indicando qual(is) documento(s) embasou(aram) a análise.` : ''}
 
 ## ${tituloDisposicoes}
 O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)? ${temOriginal
