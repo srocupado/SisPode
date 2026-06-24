@@ -2338,8 +2338,8 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
     .cab { display:flex; align-items:center; gap:16px; }
     .cab .tit { flex:1; text-align:center; }
-    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; }
-    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; }
+    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; text-align:center; }
+    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; text-align:center; }
     .cab img { height:42px; }
     .cab .sp { width:42px; }
     .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
