@@ -881,17 +881,39 @@ function _casaTermo(texto, termo) {
   catch { return texto.includes(termo); }
 }
 
-// Top 3 deputados com maior identidade com a matéria (mais temas casados).
+// Peso IDF de cada termo: termo que muitos deputados têm vale pouco (genérico);
+// termo distintivo vale muito. Cacheado no objeto de config.
+function _pesosIdf(cfg) {
+  if (cfg._idf) return cfg._idf;
+  const df = new Map();
+  let n = 0;
+  for (const dep of cfg.lista) {
+    const termos = new Set(_termosInteresse(cfg.dados?.[dep.id]?.temas));
+    if (!termos.size) continue;
+    n++;
+    for (const t of termos) df.set(t, (df.get(t) || 0) + 1);
+  }
+  const idf = new Map();
+  for (const [t, c] of df) idf.set(t, Math.max(0, Math.log((n || 1) / c)));   // termo presente em todos → peso 0
+  cfg._idf = idf;
+  return idf;
+}
+
+// Top 3 deputados com maior identidade com a matéria. A identidade é a soma dos
+// pesos IDF dos temas que casam — assim termos genéricos (compartilhados por
+// vários parlamentares) quase não contam, e quem só casa genéricos fica de fora.
 function deputadosComInteresse(it) {
   const cfg = state.interesse;
   if (!cfg || !cfg.lista?.length) return [];
   const texto = _textoCasavel(it);
   if (!texto) return [];
+  const idf = _pesosIdf(cfg);
   const scored = [];
   for (const dep of cfg.lista) {
     const termos = _termosInteresse(cfg.dados?.[dep.id]?.temas);
     if (!termos.length) continue;
-    const score = termos.filter(t => _casaTermo(texto, t)).length;
+    let score = 0;
+    for (const t of termos) if (_casaTermo(texto, t)) score += (idf.get(t) ?? 0);
     if (score > 0) scored.push({ nome: dep.nome, score });
   }
   scored.sort((a, b) => b.score - a.score || a.nome.localeCompare(b.nome, 'pt'));
