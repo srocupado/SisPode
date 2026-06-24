@@ -852,15 +852,10 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     btnGer.innerHTML = `<span class="an-spinner"></span> Buscando ${docs.length} documento(s)...`;
     const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
 
-    // Passe leve: resume cada parecer de comissão numa chamada própria (1 PDF
-    // por vez), poupando a chamada principal do peso desses documentos. Só o
-    // texto curto resultante entra na nota (seção "Pareceres das comissões").
-    const resumosComissoes = await resumirPareceresComissao(it, btnGer);
-
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
-    const prompt   = montarPrompt(it, docs, instrucoesExtra, resumosComissoes);
+    const prompt   = montarPrompt(it, docs, instrucoesExtra);
     let { text: markdown, truncated } = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
@@ -896,10 +891,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       truncada:    truncated,
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
-      documentos:  [
-        ...docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
-        ...resumosComissoes.map(r => ({ tipo: 'PARECER_COMISSAO', rotulo: `Parecer da Comissão ${r.comissao}${r.dataBR ? ' de ' + r.dataBR : ''}`, url: r.url })),
-      ],
+      documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
@@ -1013,34 +1005,6 @@ async function completarAnalise(it) {
   }
 }
 
-// Passe leve: para cada comissão por onde a proposição tramitou, baixa o
-// parecer (último PRL, ou PAR na ausência) e o resume numa chamada de IA
-// própria, com apenas aquele PDF. Devolve [{ comissao, dataBR, url, resumo }].
-// Mantém a chamada principal sem o peso de vários pareceres grandes.
-async function resumirPareceresComissao(it, btnGer) {
-  if (it.tipoCategoria !== 'projeto') return [];
-  const comissoes = it.enriquecimento?.pareceresPlenario?.comissoes || [];
-  if (!comissoes.length) return [];
-  if (btnGer) btnGer.innerHTML = `<span class="an-spinner"></span> Resumindo ${comissoes.length} parecer(es) de comissão...`;
-  const cfg = { provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo };
-  return Promise.all(comissoes.map(async pc => {
-    const base = { comissao: pc.comissao, dataBR: pc.dataBR, url: pc.url };
-    try {
-      const buf = await baixarPdf(pc.url);
-      const r = await chamarIA({ ...cfg, prompt: promptResumoComissao(it, pc), pdfBuffers: [buf] });
-      return { ...base, resumo: (r.text || '').trim() };
-    } catch (e) {
-      if (isAbortError(e)) throw e;
-      console.warn(`Resumo do parecer da comissão ${pc.comissao} falhou:`, e.message);
-      return { ...base, resumo: '' };
-    }
-  }));
-}
-
-function promptResumoComissao(it, pc) {
-  return `Você é um analista legislativo da Câmara dos Deputados. Com base APENAS no documento anexo (parecer da Comissão ${pc.comissao} sobre a ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}), escreva de 1 a 3 frases, em parágrafo corrido, indicando o(a) relator(a), a conclusão da comissão e — o foco principal — **o que o parecer/substitutivo desta comissão alterou em relação ao texto original** (dispositivos incluídos, alterados ou suprimidos), conforme o próprio parecer explica. Se a comissão apenas aprovou o projeto sem promover mudanças de mérito, escreva apenas que a comissão aprovou o projeto na forma da redação original. NÃO redescreva o objetivo geral nem o mérito amplo da proposição (isso já é tratado em outra seção da nota) — restrinja-se à contribuição/alteração específica desta comissão. Use só o documento anexo; não invente dados nem recomende voto. Responda apenas com o resumo, sem título.`;
-}
-
 async function escolherDocumentos(it) {
   const enr  = it.enriquecimento || {};
   const docs = [];
@@ -1108,9 +1072,18 @@ async function escolherDocumentos(it) {
       // Cenário 1: sem parecer de comissão/plenário e sem substitutivo adotado.
       docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
     }
-    // Os pareceres das comissões (par.comissoes) NÃO entram aqui: são resumidos
-    // em passes próprios (1 PDF cada), poupando a chamada principal — ver
-    // resumirPareceresComissao() em gerarAnaliseItem.
+
+    // Pareceres das comissões por onde a proposição já tramitou (todos), em
+    // ordem cronológica, anexados à chamada principal para que a IA compare os
+    // substitutivos entre si e isole a contribuição de cada comissão.
+    const comissoesCron = [...(par.comissoes || [])].sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+    for (const pc of comissoesCron) {
+      docs.push({
+        tipo: 'PARECER_COMISSAO',
+        rotulo: `Parecer da Comissão ${pc.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''}`,
+        url: pc.url,
+      });
+    }
   } else if (it.tipoCategoria === 'redacao_final') {
     // Redação Final: analisa o documento próprio (raspado da ficha de
     // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
@@ -1134,7 +1107,7 @@ function parecerKey(it) {
   return 'inteiro-teor';
 }
 
-function montarPrompt(it, docs = [], instrucoesExtra = '', resumosComissoes = []) {
+function montarPrompt(it, docs = [], instrucoesExtra = '') {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
@@ -1207,11 +1180,12 @@ REGRAS RÍGIDAS:
     : '';
 
   // Seção própria com o resumo dos pareceres das comissões por onde a
-  // proposição já tramitou. Os resumos já vêm prontos (gerados em passes
-  // próprios, 1 PDF cada); aqui apenas são reproduzidos na nota.
-  const resumosValidos = (resumosComissoes || []).filter(r => r && r.resumo);
-  const secaoPareceresComissoes = resumosValidos.length
-    ? `\n## Pareceres das comissões\nReproduza nesta seção, **um parágrafo por comissão**, os resumos já elaborados a seguir (ajuste apenas a fluidez do texto; não reanalise, não acrescente nem omita informações):\n\n${resumosValidos.map(r => `**Comissão ${r.comissao}:** ${r.resumo}`).join('\n\n')}\n`
+  // proposição já tramitou (documentos "Parecer da Comissão ..." anexados, em
+  // ordem cronológica). A IA tem todos os pareceres na mesma chamada e deve
+  // compará-los entre si para isolar a contribuição de cada comissão.
+  const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
+  const secaoPareceresComissoes = docsComissao.length
+    ? `\n## Pareceres das comissões\nPara cada comissão por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**, dedique **um parágrafo**. Indique a comissão, o(a) relator(a), a conclusão e — foco principal — **o que aquela comissão alterou em relação ao texto que recebeu** (a redação original, na primeira comissão, ou o substitutivo da comissão anterior): aponte os dispositivos que ela acrescentou, alterou ou suprimiu. Compare os pareceres/substitutivos entre si para isolar a contribuição específica de cada comissão e NÃO repita o conteúdo já descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
