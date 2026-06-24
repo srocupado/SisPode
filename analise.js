@@ -892,6 +892,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
+      cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
@@ -1003,6 +1004,20 @@ async function completarAnalise(it) {
     btn.disabled = false;
     btn.innerHTML = 'Completar';
   }
+}
+
+// Rótulo do cenário de tramitação, derivado dos documentos anexados — espelha
+// a prioridade de escolherDocumentos/cenarioHint. Usado na meta do card (fase
+// de homologação).
+function classificarCenario(docs = []) {
+  const has = t => docs.some(d => d.tipo === t);
+  if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
+  if (has('SSP'))                      return 'Cenário 5 — subemenda substitutiva (SSP)';
+  if (has('PRLP') && has('SBT_A'))     return 'Cenário 4 — PRLP na forma do SBT-A';
+  if (has('SBT_A'))                    return 'Cenário 2 — substitutivo de comissão (SBT-A)';
+  if (has('PRLP') || has('PRLE'))      return 'Cenário 3 — parecer de plenário (PRLP)';
+  if (has('INTEIRO_TEOR') || has('REDACAO_ORIGINAL')) return 'Cenário 1 — inteiro teor (sem parecer)';
+  return '';
 }
 
 async function escolherDocumentos(it) {
@@ -1509,12 +1524,17 @@ function renderAnaliseCard(it) {
     const docs = it.analise.documentos
       || (it.analise.urlDocumento ? [{ rotulo: 'documento analisado', url: it.analise.urlDocumento }] : []);
     const docsHtml = docs.length
-      ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener">${escapeHtml(d.rotulo)}</a>`).join(' · ')
+      ? ' · ' + docs.map(d => `<a href="${escapeHtml(d.url)}" target="_blank" rel="noopener" style="color:#0a6cf0;font-weight:600;text-decoration:underline">${escapeHtml(d.rotulo)}</a>`).join(' · ')
       : '';
     const promptHtml = it.analise.promptCustom
       ? ` · <span title="Prompt personalizado aplicado">prompt: ${escapeHtml(it.analise.promptCustom)}</span>`
       : '';
-    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${docsHtml}${promptHtml}`;
+    // Cenário de tramitação detectado (fase de homologação): entre parênteses,
+    // logo após o provedor/modelo e o horário de geração.
+    const cenarioHtml = it.analise.cenario
+      ? ` <span title="Cenário de tramitação em que a análise foi enquadrada">(${escapeHtml(it.analise.cenario)})</span>`
+      : '';
+    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${docsHtml}${promptHtml}`;
   }
   const refs = it.analise.refsSuspeitas || [];
   const avisoRefs = refs.length
