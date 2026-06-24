@@ -793,12 +793,15 @@ function atualizarBadgesCard(it) {
     cont.appendChild(badge);
   }
 
-  // Badges de interesse de parlamentares (tema conexo à matéria — laranja)
-  for (const nome of deputadosComInteresse(it)) {
+  // Badge único de interesse de parlamentares (tema conexo à matéria — laranja)
+  const interessados = deputadosComInteresse(it);
+  if (interessados.length) {
     const badge = document.createElement('span');
     badge.className = 'an-badge an-badge--interesse';
     badge.dataset.role = 'badge-extra';
-    badge.textContent = `Matéria com campo de interesse do parlamentar ${nome}`;
+    badge.textContent = interessados.length === 1
+      ? `Matéria com campo de interesse do parlamentar ${interessados[0]}`
+      : `Matéria com campo de interesse dos seguintes parlamentares: ${interessados.join(', ')}`;
     cont.appendChild(badge);
   }
 }
