@@ -920,21 +920,26 @@ function deputadosComInteresseKeyword(it) {
 }
 
 // ---------- Similaridade semântica por EMBEDDINGS ----------
-const EMB_MODELO = { gemini: 'text-embedding-004', openai: 'text-embedding-3-small' };
-const INTERESSE_FLOOR = 0.42;   // limiar de cosseno (calibrável após teste)
+const EMB_MODELO = { gemini: 'gemini-embedding-001', openai: 'text-embedding-3-small' };
+const INTERESSE_ZMIN = 1.0;   // z-score mínimo (destaque sobre o conjunto) p/ entrar no badge
 
 function embeddingsDisponivel(prov) { return prov === 'gemini' || prov === 'openai'; }
 function embModeloTag(prov) { return `${prov}:${EMB_MODELO[prov] || ''}`; }
 
-// Embeda uma lista de textos (1 chamada) e devolve os vetores na mesma ordem.
-async function embTextos(textos, cfg) {
+// Embeda uma lista de textos e devolve os vetores na mesma ordem. taskType:
+// 'RETRIEVAL_DOCUMENT' para os perfis, 'RETRIEVAL_QUERY' para a matéria (a
+// assimetria melhora bastante a discriminação no Gemini). OpenAI ignora.
+async function embTextos(textos, cfg, taskType) {
   const prov = cfg.provedorId;
   if (prov === 'gemini') {
     const m = EMB_MODELO.gemini;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:batchEmbedContents?key=${cfg.apiKey}`;
-    const body = { requests: textos.map(t => ({ model: `models/${m}`, content: { parts: [{ text: t }] } })) };
-    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return (j.embeddings || []).map(e => e.values);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:embedContent?key=${cfg.apiKey}`;
+    // O Gemini só expõe embedContent (1 texto por chamada) de forma síncrona.
+    return Promise.all(textos.map(async t => {
+      const body = { content: { parts: [{ text: t }] }, taskType };
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return j?.embedding?.values || null;
+    }));
   }
   if (prov === 'openai') {
     const j = await fetchIA('https://api.openai.com/v1/embeddings', {
@@ -954,8 +959,8 @@ function cosseno(a, b) {
   return (na && nb) ? dot / (Math.sqrt(na) * Math.sqrt(nb)) : 0;
 }
 
-// Vetores dos perfis dos deputados (perfil + temas), em 1 chamada, cacheados em
-// memória por modelo+conteúdo. Recalcula ao trocar de provedor ou editar perfis.
+// Vetores dos perfis dos deputados (perfil + temas), cacheados em memória por
+// modelo+conteúdo. Recalcula ao trocar de provedor ou editar perfis.
 async function garantirVetoresDeputados(cfg) {
   const cfgI = state.interesse;
   if (!cfgI?.lista?.length) return null;
@@ -965,14 +970,16 @@ async function garantirVetoresDeputados(cfg) {
   const tag = embModeloTag(cfg.provedorId);
   const hash = deps.map(d => d.id + ':' + textoDe(d).length).join('|');
   if (cfgI._vetores && cfgI._vetTag === tag && cfgI._vetHash === hash) return cfgI._vetores;
-  const vets = await embTextos(deps.map(textoDe), cfg);
+  const vets = await embTextos(deps.map(textoDe), cfg, 'RETRIEVAL_DOCUMENT');
   const map = new Map();
   deps.forEach((d, i) => { if (vets[i]) map.set(d.id, { nome: d.nome, vetor: vets[i] }); });
   cfgI._vetores = map; cfgI._vetTag = tag; cfgI._vetHash = hash;
   return map;
 }
 
-// Top 2 deputados por similaridade semântica entre o perfil e a matéria.
+// Top 2 deputados por similaridade semântica perfil×matéria, exigindo destaque
+// sobre o conjunto (z-score >= INTERESSE_ZMIN) — evita forçar badge quando
+// ninguém é claramente aderente.
 async function determinarInteressados(it, cfg) {
   if (!state.interesse?.carregado) { try { await carregarInteresse(); } catch (_) {} }
   if (!embeddingsDisponivel(cfg.provedorId)) return deputadosComInteresseKeyword(it);
@@ -983,14 +990,16 @@ async function determinarInteressados(it, cfg) {
   const alvo = _alvoItem(it);
   const matTexto = [tituloVotacao(it), alvo.ementa || it.ementa || '', it.apelido || ''].filter(Boolean).join('. ').slice(0, 2000);
   let matVet;
-  try { matVet = (await embTextos([matTexto], cfg))[0]; }
+  try { matVet = (await embTextos([matTexto], cfg, 'RETRIEVAL_QUERY'))[0]; }
   catch (e) { console.warn('[interesse] embedding da matéria falhou:', e.message); return deputadosComInteresseKeyword(it); }
   if (!matVet) return [];
   const sims = [];
   for (const [, o] of mapaVet) sims.push({ nome: o.nome, sim: cosseno(matVet, o.vetor) });
+  const media = sims.reduce((a, s) => a + s.sim, 0) / sims.length;
+  const dp = Math.sqrt(sims.reduce((a, s) => a + (s.sim - media) ** 2, 0) / sims.length) || 1e-9;
   sims.sort((a, b) => b.sim - a.sim);
-  console.debug('[interesse] similaridades:', sims.slice(0, 8).map(s => `${s.nome}: ${s.sim.toFixed(3)}`).join(' | '));
-  return sims.filter(s => s.sim >= INTERESSE_FLOOR).slice(0, 2).map(s => s.nome);
+  console.debug('[interesse] sims:', sims.slice(0, 6).map(s => `${s.nome}: ${s.sim.toFixed(3)} (z=${((s.sim - media) / dp).toFixed(2)})`).join(' | '));
+  return sims.filter(s => (s.sim - media) / dp >= INTERESSE_ZMIN).slice(0, 2).map(s => s.nome);
 }
 
 // Exibido no badge — calculado na geração e salvo em it.analise.interessados.
