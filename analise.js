@@ -900,8 +900,10 @@ function _pesosIdf(cfg) {
 }
 
 // Top 3 deputados com maior identidade com a matéria. A identidade é a soma dos
-// pesos IDF dos temas que casam — assim termos genéricos (compartilhados por
-// vários parlamentares) quase não contam, e quem só casa genéricos fica de fora.
+// pesos IDF dos temas que casam — termos genéricos (compartilhados por vários
+// parlamentares) quase não contam. Exige pelo menos 2 temas distintos casados,
+// para que um único acerto (sobretudo de termo genérico ou polissêmico, ex.:
+// "trânsito" casando "trânsito em julgado") não qualifique o parlamentar.
 function deputadosComInteresse(it) {
   const cfg = state.interesse;
   if (!cfg || !cfg.lista?.length) return [];
@@ -912,9 +914,9 @@ function deputadosComInteresse(it) {
   for (const dep of cfg.lista) {
     const termos = _termosInteresse(cfg.dados?.[dep.id]?.temas);
     if (!termos.length) continue;
-    let score = 0;
-    for (const t of termos) if (_casaTermo(texto, t)) score += (idf.get(t) ?? 0);
-    if (score > 0) scored.push({ nome: dep.nome, score });
+    let score = 0, hits = 0;
+    for (const t of termos) if (_casaTermo(texto, t)) { score += (idf.get(t) ?? 0); hits++; }
+    if (hits >= 2 && score > 0) scored.push({ nome: dep.nome, score });
   }
   scored.sort((a, b) => b.score - a.score || a.nome.localeCompare(b.nome, 'pt'));
   return scored.slice(0, 3).map(d => d.nome);
