@@ -88,7 +88,7 @@ const state = {
   salvando:  false,            // evita gravações concorrentes
   promptsBiblioteca: [],       // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
   promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
-  interesse: null,             // { lista:[{id,nome}], temas:{idDep:string}, carregado } — Firebase compartilhado
+  interesse: null,             // { lista:[{id,nome}], dados:{idDep:{temas,perfil}}, carregado } — Firebase compartilhado
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -814,7 +814,13 @@ function atualizarBadgesCard(it) {
 async function fbCarregarTemasInteresse() {
   const res = await fetch(`${FIREBASE_URL}/deputados_interesse.json`);
   if (!res.ok) return {};
-  return (await res.json()) || {};
+  const raw = (await res.json()) || {};
+  // Normaliza: aceita o formato antigo (string = só temas) e o novo {temas, perfil}.
+  const out = {};
+  for (const [id, v] of Object.entries(raw)) {
+    out[id] = (typeof v === 'string') ? { temas: v, perfil: '' } : { temas: v?.temas || '', perfil: v?.perfil || '' };
+  }
+  return out;
 }
 
 async function fbSalvarTemasInteresse(map) {
@@ -824,6 +830,12 @@ async function fbSalvarTemasInteresse(map) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
+// Deputados a incluir manualmente além da lista ativa da API (ex.: afastados
+// do mandato que ainda compõem a bancada e devem retomar).
+const DEPUTADOS_EXTRA = [
+  { id: '178989', nome: 'Renata Abreu' },   // SP — afastada, retorna em breve
+];
+
 async function carregarDeputadosPodemos() {
   const out = [];
   let url = `${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS}&ordem=ASC&ordenarPor=nome&itens=100`;
@@ -832,12 +844,15 @@ async function carregarDeputadosPodemos() {
     for (const d of (json.dados || [])) out.push({ id: String(d.id), nome: d.nome });
     url = (json.links || []).find(l => l.rel === 'next')?.href || null;
   }
+  // Acrescenta os extras (sem duplicar) e ordena por nome.
+  for (const ex of DEPUTADOS_EXTRA) if (!out.some(d => d.id === ex.id)) out.push({ ...ex });
+  out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   return out;
 }
 
 async function carregarInteresse() {
-  const [lista, temas] = await Promise.all([carregarDeputadosPodemos(), fbCarregarTemasInteresse()]);
-  state.interesse = { lista, temas: temas || {}, carregado: true };
+  const [lista, dados] = await Promise.all([carregarDeputadosPodemos(), fbCarregarTemasInteresse()]);
+  state.interesse = { lista, dados: dados || {}, carregado: true };
   atualizarTodosBadgesInteresse();
 }
 
@@ -874,7 +889,7 @@ function deputadosComInteresse(it) {
   if (!texto) return [];
   const out = [];
   for (const dep of cfg.lista) {
-    const termos = _termosInteresse(cfg.temas?.[dep.id]);
+    const termos = _termosInteresse(cfg.dados?.[dep.id]?.temas);
     if (termos.length && termos.some(t => _casaTermo(texto, t))) out.push(dep.nome);
   }
   return out;
@@ -896,13 +911,21 @@ function renderInteresseConfig() {
     return;
   }
   if (!cfg.lista.length) { cont.innerHTML = '<div class="config-desc">Nenhum deputado do Podemos encontrado na API.</div>'; return; }
-  cont.innerHTML = cfg.lista.map(dep => `
-    <div class="form-group" style="margin-bottom:10px">
-      <label style="font-size:12px">${escapeHtml(dep.nome)}</label>
-      <textarea class="form-input" data-dep="${escapeHtml(dep.id)}" rows="1"
+  cont.innerHTML = cfg.lista.map(dep => {
+    const d = cfg.dados?.[dep.id] || {};
+    return `
+    <div class="form-group" style="margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:12px">
+      <label style="font-size:13px;font-weight:600;color:var(--text)">${escapeHtml(dep.nome)}</label>
+      <label style="font-size:11px;color:var(--text-dim);margin-top:6px;display:block">Perfil</label>
+      <textarea class="form-input" data-dep-perfil="${escapeHtml(dep.id)}" rows="3"
+        placeholder="perfil de interesse do parlamentar"
+        style="resize:vertical">${escapeHtml(d.perfil || '')}</textarea>
+      <label style="font-size:11px;color:var(--text-dim);margin-top:6px;display:block">Temas de interesse (separados por OR)</label>
+      <textarea class="form-input" data-dep-temas="${escapeHtml(dep.id)}" rows="2"
         placeholder="temas separados por OR (ex.: saúde OR primeira infância)"
-        style="resize:vertical">${escapeHtml(cfg.temas?.[dep.id] || '')}</textarea>
-    </div>`).join('');
+        style="resize:vertical">${escapeHtml(d.temas || '')}</textarea>
+    </div>`;
+  }).join('');
 }
 
 async function salvarInteresse() {
@@ -910,16 +933,16 @@ async function salvarInteresse() {
   const stEl = document.getElementById('interesse-status');
   if (!cont) return;
   const map = {};
-  cont.querySelectorAll('textarea[data-dep]').forEach(t => {
-    const v = t.value.trim();
-    if (v) map[t.getAttribute('data-dep')] = v;
-  });
+  const garante = id => (map[id] || (map[id] = { temas: '', perfil: '' }));
+  cont.querySelectorAll('textarea[data-dep-temas]').forEach(t => { garante(t.getAttribute('data-dep-temas')).temas = t.value.trim(); });
+  cont.querySelectorAll('textarea[data-dep-perfil]').forEach(t => { garante(t.getAttribute('data-dep-perfil')).perfil = t.value.trim(); });
+  for (const [id, v] of Object.entries(map)) if (!v.temas && !v.perfil) delete map[id];   // descarta vazios
   if (stEl) stEl.textContent = 'Salvando…';
   try {
     await fbSalvarTemasInteresse(map);
-    state.interesse = { ...(state.interesse || { lista: [] }), temas: map, carregado: true };
+    state.interesse = { ...(state.interesse || { lista: [] }), dados: map, carregado: true };
     atualizarTodosBadgesInteresse();
-    if (stEl) stEl.textContent = '✓ Temas salvos e compartilhados com a equipe.';
+    if (stEl) stEl.textContent = '✓ Perfis e temas salvos e compartilhados com a equipe.';
   } catch (e) {
     if (stEl) stEl.textContent = 'Erro ao salvar: ' + e.message;
   }
