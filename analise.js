@@ -825,13 +825,15 @@ function atualizarBadgesCard(it) {
     autorLinha.innerHTML = `<b>Autor:</b> ${htmlAutorRealcado(it)}`;
   }
 
-  // Apensados Podemos
+  // Apensados Podemos — com sufixo de acolhimento (status sensível, só na tela)
+  const statusAcolh = it.analise?.apensadosStatus || {};
   for (const ap of (enr.apensadosPodemos || [])) {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
+    const nivel = statusAcolh[`${ap.numero}/${ap.ano}`];
     const badge = document.createElement('span');
-    badge.className = 'an-badge an-badge--apens';
+    badge.className = 'an-badge an-badge--apens' + (nivel ? ' an-badge--apens-' + nivel.toLowerCase() : '');
     badge.dataset.role = 'badge-extra';
-    badge.textContent = `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}${auts ? ' — ' + auts : ''}`;
+    badge.textContent = `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}${auts ? ' — ' + auts : ''}${nivel ? ` (${ACOLHIMENTO_ROTULO[nivel]})` : ''}`;
     cont.appendChild(badge);
   }
 
@@ -1235,6 +1237,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
       apelido:     apelido || it.apelido || '',
+      apensadosStatus: extrairStatusAcolhimento(markdown),
       interessados,
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
@@ -1330,6 +1333,7 @@ async function completarAnalise(it) {
       markdown:   markdownCompleto,
       truncada:   cont.truncated,
       refsSuspeitas,
+      apensadosStatus: extrairStatusAcolhimento(markdownCompleto),
       editadoEm:  new Date().toISOString(),
       editadoPor: state.config?.nomeUsuario || 'equipe',
     };
@@ -1510,7 +1514,7 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   const apensadoVsTexto = docsApensado.length &&
     docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
-    ? ' Como há texto consolidado em votação (substitutivo, subemenda ou redação final), **avalie, ao final de cada tópico, se a ideia central daquele apensado foi incorporada** a esse texto — acolhida **integralmente**, **parcialmente** ou **rejeitada** —, apontando os dispositivos correspondentes; se o parecer/relatório mencionar expressamente o apensado, cite o que o(a) relator(a) decidiu, caso contrário faça o cotejo entre o conteúdo do apensado e o do texto em votação.'
+    ? ' Em seguida, como há texto consolidado em votação (substitutivo, subemenda ou redação final), acrescente para cada apensado **uma NOVA linha (um item de lista próprio, logo abaixo do resumo daquele apensado)** dedicada à avaliação de incorporação. Essa linha deve **começar EXATAMENTE** com o marcador `[[ACOLHIMENTO:NIVEL NUMERO/ANO]]`, em que NIVEL é uma destas três palavras — `ACOLHIDO` (ideia incorporada integralmente), `PARCIAL` (incorporada em parte) ou `NAO` (não incorporada) — e NUMERO/ANO é o número do próprio apensado (ex.: `[[ACOLHIMENTO:PARCIAL 1405/2026]]`). Logo após o marcador, escreva 1 a 2 frases justificando, apontando os dispositivos e, se o parecer/relatório mencionar o apensado, o que o(a) relator(a) decidiu; caso contrário, faça o cotejo entre o apensado e o texto em votação. Reproduza o marcador literalmente, sem alterar o formato, e **não** repita a conclusão de acolhimento na linha de resumo — ela vai apenas nesta linha do marcador.'
     : '';
   const secaoApensados = docsApensado.length
     ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\nApresente **um tópico (item de lista com "-") para cada** projeto apensado de autoria do Podemos cujo inteiro teor foi anexado (documentos "Apensado do Podemos ..."). Em cada tópico: comece identificando a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m); em seguida, faça um **breve resumo** do objeto do projeto, do que ele propõe criar/alterar e de como se relaciona com a matéria principal em votação.${instrIncorporacao} Baseie-se exclusivamente no inteiro teor anexado de cada apensado, sem confundi-lo com o texto operativo principal.\n`
@@ -1945,7 +1949,7 @@ function renderAnaliseCard(it) {
   const avisoRefs = refs.length
     ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
-  conteudo.innerHTML = avisoRefs + renderMarkdown(it.analise.markdown);
+  conteudo.innerHTML = avisoRefs + renderNotaTela(it.analise.markdown);
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
   // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
@@ -2015,6 +2019,7 @@ async function executarAutosave(it) {
   it.analise = {
     ...it.analise,
     markdown:    novo,
+    apensadosStatus: extrairStatusAcolhimento(novo),
     editadoEm:   new Date().toISOString(),
     editadoPor:  state.config?.nomeUsuario || 'equipe',
   };
@@ -2090,6 +2095,7 @@ async function salvarEdicaoAnalise(it) {
   it.analise = {
     ...it.analise,
     markdown:    novo,
+    apensadosStatus: extrairStatusAcolhimento(novo),
     editadoEm:   new Date().toISOString(),
     editadoPor:  state.config?.nomeUsuario || 'equipe',
   };
@@ -2137,6 +2143,41 @@ function renderMarkdown(md) {
     return `<p>${b.trim().replace(/\n/g, '<br>')}</p>`;
   }).join('\n');
   return html;
+}
+
+// ---------- Status de acolhimento dos apensados (marcador da IA) ----------
+// A IA marca, na linha de avaliação de incorporação de cada apensado, um token
+// [[ACOLHIMENTO:NIVEL NUMERO/ANO]] (NIVEL ∈ ACOLHIDO/PARCIAL/NAO). É informação
+// SENSÍVEL: aparece só na tela (selo + chip), nunca no PDF distribuível.
+const ACOLHIMENTO_ROTULO = { ACOLHIDO: 'Acolhido', PARCIAL: 'Acolhido parcialmente', NAO: 'Não acolhido' };
+
+// Regexes tolerantes a espaços/caixa para o marcador não vazar no PDF caso a IA
+// varie levemente o formato.
+const RE_ACOLH = /\[\[\s*ACOLHIMENTO\s*:\s*(ACOLHIDO|PARCIAL|NAO)\s+(\d+)\s*\/\s*(\d{4})\s*\]\]/gi;
+const RE_ACOLH_LINHA = /\[\[\s*ACOLHIMENTO\s*:/i;
+
+function extrairStatusAcolhimento(md) {
+  const out = {};
+  if (!md) return out;
+  const re = new RegExp(RE_ACOLH.source, 'gi');
+  let m;
+  while ((m = re.exec(md))) out[`${m[2]}/${m[3]}`] = m[1].toUpperCase();
+  return out;
+}
+
+// Render para a TELA: o marcador vira um selo colorido "(status)".
+function renderNotaTela(md) {
+  return renderMarkdown(md).replace(new RegExp(RE_ACOLH.source, 'gi'), (m, nivel) => {
+    const n = nivel.toUpperCase();
+    return `<span class="an-acolh an-acolh--${n.toLowerCase()}">(${ACOLHIMENTO_ROTULO[n]})</span> `;
+  });
+}
+
+// Para o PDF: remove integralmente as linhas que contêm o marcador (o status de
+// acolhimento é sensível e não deve constar no documento distribuível).
+function mdSemAcolhimento(md) {
+  if (!md) return md || '';
+  return md.split('\n').filter(l => !RE_ACOLH_LINHA.test(l)).join('\n');
 }
 
 // ============================================================
@@ -2784,7 +2825,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const autorHtml = htmlAutorRealcado(it);
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
-    const corpo   = it.analise?.markdown ? renderMarkdown(it.analise.markdown) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
+    const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(it.analise.markdown)) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
       ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
