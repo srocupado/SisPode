@@ -829,7 +829,7 @@ function atualizarBadgesCard(it) {
   const statusAcolh = it.analise?.apensadosStatus || {};
   for (const ap of (enr.apensadosPodemos || [])) {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
-    const nivel = statusAcolh[`${ap.numero}/${ap.ano}`];
+    const nivel = statusAcolh[`${ap.numero}-${ap.ano}`];
     const badge = document.createElement('span');
     badge.className = 'an-badge an-badge--apens' + (nivel ? ' an-badge--apens-' + nivel.toLowerCase() : '');
     badge.dataset.role = 'badge-extra';
@@ -2161,7 +2161,8 @@ function extrairStatusAcolhimento(md) {
   if (!md) return out;
   const re = new RegExp(RE_ACOLH.source, 'gi');
   let m;
-  while ((m = re.exec(md))) out[`${m[2]}/${m[3]}`] = m[1].toUpperCase();
+  // Chave numero-ano (NÃO usar "/", proibido em chaves do Firebase RTDB → HTTP 400).
+  while ((m = re.exec(md))) out[`${m[2]}-${m[3]}`] = m[1].toUpperCase();
   return out;
 }
 
