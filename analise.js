@@ -1028,7 +1028,7 @@ async function resumirPareceresComissao(it, btnGer) {
 }
 
 function promptResumoComissao(it, pc) {
-  return `Você é um analista legislativo da Câmara dos Deputados. Resuma, em no máximo 4 frases e em parágrafo corrido (sem bullets), o parecer da Comissão ${pc.comissao} sobre a proposição ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}, contido no documento anexo. Indique o(a) relator(a), a conclusão (pela aprovação ou rejeição, com ou sem substitutivo/emendas) e os pontos centrais do mérito analisado. Use apenas o documento anexo; não invente dados nem recomende voto. Responda somente com o resumo, sem título.`;
+  return `Você é um analista legislativo da Câmara dos Deputados. Com base APENAS no documento anexo (parecer da Comissão ${pc.comissao} sobre a ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}), escreva de 1 a 3 frases, em parágrafo corrido, indicando o(a) relator(a), a conclusão da comissão e — o foco principal — **o que o parecer/substitutivo desta comissão alterou em relação ao texto original** (dispositivos incluídos, alterados ou suprimidos), conforme o próprio parecer explica. Se a comissão apenas aprovou o projeto sem promover mudanças de mérito, escreva apenas que a comissão aprovou o projeto na forma da redação original. NÃO redescreva o objetivo geral nem o mérito amplo da proposição (isso já é tratado em outra seção da nota) — restrinja-se à contribuição/alteração específica desta comissão. Use só o documento anexo; não invente dados nem recomende voto. Responda apenas com o resumo, sem título.`;
 }
 
 async function escolherDocumentos(it) {
