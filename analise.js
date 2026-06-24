@@ -1469,8 +1469,16 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // a bancada propôs sobre o mesmo tema.
   const docsApensado = docs.filter(d => d.tipo === 'APENSADO_PODEMOS');
   const plApens = docsApensado.length > 1;
+  // Quando há texto consolidado em votação (substitutivo de comissão/plenário,
+  // subemenda ou redação final), pede-se à IA que avalie se a ideia do apensado
+  // foi incorporada — os dois textos já estão na mesma chamada.
+  const apensadoVsTexto = docsApensado.length &&
+    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL'].includes(d.tipo));
+  const instrIncorporacao = apensadoVsTexto
+    ? ` Em seguida, **avalie se a ideia central ${plApens ? 'de cada apensado foi incorporada' : 'do apensado foi incorporada'} ao texto que está sendo votado** (o substitutivo, a subemenda ou a redação final): diga se foi acolhida **integralmente**, **parcialmente** ou **rejeitada**, apontando os dispositivos correspondentes. Se o parecer/relatório mencionar expressamente o apensado, cite o que o(a) relator(a) decidiu sobre ele; caso contrário, faça o cotejo entre o conteúdo do apensado e o do texto em votação. Baseie-se apenas nos documentos anexados.`
+    : '';
   const secaoApensados = docsApensado.length
-    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\n${plApens ? 'Para cada' : 'Para o'} documento "Apensado do Podemos ..." anexado, dedique **um parágrafo** com um **breve resumo** do projeto apensado: identifique a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m), descreva seu objeto e o que propõe criar/alterar, e indique como ela se relaciona com a matéria principal em votação. Baseie-se exclusivamente no inteiro teor anexado do apensado, sem confundi-lo com o texto operativo principal.\n`
+    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\n${plApens ? 'Para cada' : 'Para o'} documento "Apensado do Podemos ..." anexado, dedique **um parágrafo** com um **breve resumo** do projeto apensado: identifique a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m), descreva seu objeto e o que propõe criar/alterar, e indique como ela se relaciona com a matéria principal em votação.${instrIncorporacao} Baseie-se exclusivamente no inteiro teor anexado do apensado, sem confundi-lo com o texto operativo principal.\n`
     : '';
 
   // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
