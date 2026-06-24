@@ -210,6 +210,11 @@
     .an-badge--neutro { background: rgba(255,255,255,.06);color: var(--text-dim); border: 1px solid var(--border-soft); }
     .an-badge--interesse { background: rgba(255,140,0,.20); color: #ffb04d; border: 1px solid rgba(255,140,0,.45); }
 
+    .config-tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-soft); margin-bottom: 14px; }
+    .config-tab-btn { background: none; border: none; padding: 8px 14px; font-size: 13px; font-weight: 600; color: var(--text-dim); cursor: pointer; border-bottom: 2px solid transparent; }
+    .config-tab-btn:hover { color: var(--text); }
+    .config-tab-btn.is-active { color: var(--accent-light); border-bottom-color: var(--accent-light); }
+
     .an-card-actions {
       display: flex;
       gap: 8px;
@@ -525,6 +530,12 @@
       </div>
       <div class="modal-body">
 
+        <div class="config-tabs">
+          <button type="button" class="config-tab-btn is-active" data-config-tab="ia">Provedor de IA</button>
+          <button type="button" class="config-tab-btn" data-config-tab="interesse">Temas de interesse</button>
+        </div>
+
+        <div data-config-panel="ia">
         <div class="config-section">
           <div class="config-section-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
@@ -581,8 +592,10 @@
           </button>
           <div id="varrer-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
         </div>
+        </div>
 
-        <div class="config-section" style="margin-top:18px">
+        <div data-config-panel="interesse" style="display:none">
+        <div class="config-section">
           <div class="config-section-title">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
             Temas de interesse dos parlamentares
@@ -592,11 +605,12 @@
             (ex.: <code>saúde OR primeira infância OR vacinação</code>). Quando uma nota técnica tocar em
             algum desses temas, o card recebe um aviso em laranja. Compartilhado com a equipe.
           </p>
-          <div id="config-interesse-lista" style="margin-top:10px;max-height:340px;overflow:auto;padding-right:6px">
+          <div id="config-interesse-lista" style="margin-top:10px;max-height:380px;overflow:auto;padding-right:6px">
             <div class="config-desc">Carregando deputados…</div>
           </div>
           <button id="btn-salvar-interesse" class="btn btn-outline" style="margin-top:10px">Salvar temas de interesse</button>
           <div id="interesse-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
+        </div>
         </div>
 
       </div>

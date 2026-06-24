@@ -142,6 +142,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
   document.getElementById('btn-salvar-interesse').addEventListener('click', salvarInteresse);
+  document.querySelectorAll('.config-tab-btn').forEach(b => {
+    b.addEventListener('click', () => selecionarAbaConfig(b.getAttribute('data-config-tab')));
+  });
 
   // Modal "Reanalisar com IA" (prompt personalizado + biblioteca compartilhada)
   document.getElementById('reanalise-select').addEventListener('change', refletirSelecaoPrompt);
@@ -2636,7 +2639,18 @@ function abrirConfig() {
   onProvedorChange();
   popularSelectModelos(c.modelo);
   renderInteresseConfig();
+  selecionarAbaConfig('ia');
   document.getElementById('modal-configuracoes').style.display = 'flex';
+}
+
+// Alterna entre as abas do modal de Configurações (Provedor de IA / Temas).
+function selecionarAbaConfig(aba) {
+  document.querySelectorAll('.config-tab-btn').forEach(b => {
+    b.classList.toggle('is-active', b.getAttribute('data-config-tab') === aba);
+  });
+  document.querySelectorAll('[data-config-panel]').forEach(p => {
+    p.style.display = p.getAttribute('data-config-panel') === aba ? '' : 'none';
+  });
 }
 
 function onProvedorChange() {
