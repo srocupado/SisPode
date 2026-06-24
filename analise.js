@@ -2612,7 +2612,7 @@ function apelidoFallback(it) {
 function promptApelido(it) {
   const alvo = _alvoItem(it);
   const ementa = (alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
-  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o objeto principal da proposição ${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}, para uso entre parênteses num índice de pauta. Comece por um verbo (ex.: "Institui a política Mulheres em Movimento" ou "Altera a Lei 7405/1985 para incluir cota de aprendizes"). Use referências legislativas abreviadas: escreva "PL 3801/2024" (nunca "Projeto de Lei nº 3.801 de 2024") e "Lei 7405/1985 (objeto)" (nunca "Lei nº 7.405, de 12 de novembro de 1985"). Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
 }
 
 async function gerarApelidoIA(it, cfg) {
