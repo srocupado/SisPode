@@ -860,66 +860,51 @@ function _normTxt(s) {
   return (s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 }
 
-// Termos de um campo "tema1 OR tema2 OR ..." (também aceita um por linha).
-function _termosInteresse(temas) {
-  return (temas || '')
-    .split(/\s+OR\s+|\r?\n+/i)
-    .map(t => _normTxt(t).trim())
-    .filter(t => t.length >= 3);
-}
-
-// Texto da matéria onde os temas são procurados: ementa + título + nota gerada.
-function _textoCasavel(it) {
+// Monta o prompt que pede à IA os parlamentares com interesse real na matéria,
+// a partir dos PERFIS (não dos termos) — capta sinonímia e exclui tangenciais.
+function promptInteresse(it, perfisTxt) {
   const alvo = _alvoItem(it);
-  return _normTxt([alvo.ementa, it.ementa, tituloVotacao(it), it.analise?.markdown].filter(Boolean).join('  \n  '));
+  const ementa = (alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').slice(0, 800);
+  return `Você é analista político da bancada do Podemos na Câmara. Abaixo estão os perfis de interesse de deputados do partido. Dada a matéria legislativa, identifique de 0 a 3 deputados cujo PERFIL tenha interesse REAL e direto no tema central da matéria, do mais aderente ao menos aderente. Critérios: inclua somente quem tem conexão temática genuína (não force, não use vínculos tangenciais nem termos genéricos como "segurança pública" quando não forem o foco do parlamentar); se nenhum tiver aderência clara, responda exatamente "NENHUM". Responda APENAS com os nomes, exatamente como aparecem na lista, separados por ponto e vírgula (;), sem números nem comentários.
+
+MATÉRIA: ${tituloVotacao(it)} — ${ementa}
+
+PERFIS DOS PARLAMENTARES:
+${perfisTxt}`;
 }
 
-// Casa o termo como "palavra" (com fronteiras), evitando casar dentro de palavras.
-function _casaTermo(texto, termo) {
-  const esc = termo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  try { return new RegExp(`(^|[^a-z0-9])${esc}([^a-z0-9]|$)`).test(texto); }
-  catch { return texto.includes(termo); }
-}
-
-// Peso IDF de cada termo: termo que muitos deputados têm vale pouco (genérico);
-// termo distintivo vale muito. Cacheado no objeto de config.
-function _pesosIdf(cfg) {
-  if (cfg._idf) return cfg._idf;
-  const df = new Map();
-  let n = 0;
-  for (const dep of cfg.lista) {
-    const termos = new Set(_termosInteresse(cfg.dados?.[dep.id]?.temas));
-    if (!termos.size) continue;
-    n++;
-    for (const t of termos) df.set(t, (df.get(t) || 0) + 1);
+// Determina (via IA, usando os perfis) os até 3 parlamentares com interesse real
+// na matéria. Valida os nomes retornados contra a lista oficial.
+async function determinarInteressadosIA(it, cfg) {
+  if (!state.interesse?.carregado) { try { await carregarInteresse(); } catch (_) {} }
+  const lista = state.interesse?.lista || [];
+  const linhas = [];
+  for (const dep of lista) {
+    const d = state.interesse.dados?.[dep.id] || {};
+    const perfil = (d.perfil || '').trim();
+    const temas  = (d.temas || '').trim();
+    if (!perfil && !temas) continue;
+    linhas.push(`${dep.nome}: ${perfil}${temas ? ` [Temas: ${temas}]` : ''}`);
   }
-  const idf = new Map();
-  for (const [t, c] of df) idf.set(t, Math.max(0, Math.log((n || 1) / c)));   // termo presente em todos → peso 0
-  cfg._idf = idf;
-  return idf;
+  if (!linhas.length) return [];
+  const r = await chamarIA({ ...cfg, prompt: promptInteresse(it, linhas.join('\n')), pdfBuffers: [] });
+  const txt = (r.text || '').trim();
+  if (!txt || /^nenhum\b/i.test(txt)) return [];
+  const canonPorNome = new Map(lista.map(d => [_normTxt(d.nome), d.nome]));
+  const out = [];
+  for (const parte of txt.split(/[;\n]+/)) {
+    const nome = parte.replace(/^[-\d.\s)]+/, '').trim();
+    if (!nome) continue;
+    const canon = canonPorNome.get(_normTxt(nome));
+    if (canon && !out.includes(canon)) out.push(canon);
+  }
+  return out.slice(0, 3);
 }
 
-// Top 3 deputados com maior identidade com a matéria. A identidade é a soma dos
-// pesos IDF dos temas que casam — termos genéricos (compartilhados por vários
-// parlamentares) quase não contam. Exige pelo menos 2 temas distintos casados,
-// para que um único acerto (sobretudo de termo genérico ou polissêmico, ex.:
-// "trânsito" casando "trânsito em julgado") não qualifique o parlamentar.
+// Parlamentares com interesse na matéria — calculados na geração (semântico,
+// via perfil) e salvos em it.analise.interessados.
 function deputadosComInteresse(it) {
-  const cfg = state.interesse;
-  if (!cfg || !cfg.lista?.length) return [];
-  const texto = _textoCasavel(it);
-  if (!texto) return [];
-  const idf = _pesosIdf(cfg);
-  const scored = [];
-  for (const dep of cfg.lista) {
-    const termos = _termosInteresse(cfg.dados?.[dep.id]?.temas);
-    if (!termos.length) continue;
-    let score = 0, hits = 0;
-    for (const t of termos) if (_casaTermo(texto, t)) { score += (idf.get(t) ?? 0); hits++; }
-    if (hits >= 2 && score > 0) scored.push({ nome: dep.nome, score });
-  }
-  scored.sort((a, b) => b.score - a.score || a.nome.localeCompare(b.nome, 'pt'));
-  return scored.slice(0, 3).map(d => d.nome);
+  return it.analise?.interessados || [];
 }
 
 function atualizarTodosBadgesInteresse() {
@@ -1089,6 +1074,17 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     } catch (e) { if (isAbortError(e)) throw e; }
     if (apelido) it.apelido = apelido;
 
+    // Parlamentares com interesse real na matéria (semântico, lê os perfis) —
+    // 1 chamada leve, salva com a análise para o badge (sem custo ao reabrir).
+    let interessados = [];
+    try {
+      interessados = await determinarInteressadosIA(it, {
+        provedorId: state.config.provedor || 'gemini',
+        apiKey:     state.config.apiKey,
+        modelo:     state.config.modelo,
+      });
+    } catch (e) { if (isAbortError(e)) throw e; }
+
     it.analise = {
       markdown,
       truncada:    truncated,
@@ -1097,6 +1093,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
       apelido:     apelido || it.apelido || '',
+      interessados,
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
       parecerKey:  parecerKey(it),
