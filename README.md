@@ -134,6 +134,9 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 
 - O prompt-base de projetos/requerimentos produz uma **nota técnica** com as seções **Objetivo · Justificativa · Pareceres e substitutivos · Principais Disposições do último substitutivo apresentado · Argumentos favoráveis e contrários**, sob princípios de clareza, objetividade, imparcialidade e fundamentação
 - A seção "Pareceres e substitutivos" é **moldada ao cenário detectado**: a extensão diz à IA qual é o texto operativo (substitutivo de plenário, SBT-A de comissão, subemenda ou emendas do Senado) a ser descrito
+- Quando há **projeto apensado de autoria de deputado(a) do Podemos**, a extensão baixa o **inteiro teor** desse apensado e a nota ganha uma seção **"Projeto apensado de autoria do Podemos"** (antes de "Argumentos favoráveis e contrários") com um breve resumo do que a bancada propôs sobre o tema
+- Quando a **matéria é de autoria do Podemos**, o nome do(a) parlamentar aparece em **negrito + sublinhado** na linha de autoria da nota
+- No **índice do PDF**, cada item recebe os sufixos **A** (autoria Podemos) e/ou **AP** (apensado de autoria Podemos) após o apelido — ex.: `PL 1234/2056 (apelido) — A, AP`
 
 - **Geração em lote** ("Gerar todas") com throttle de 1,5 s entre itens, contador de progresso e tratamento isolado de falhas por item
 - **Detecção de truncamento** por provedor (`finishReason=MAX_TOKENS` no Gemini, `status=incomplete` na OpenAI, `stop_reason=max_tokens` no Anthropic) com auto-continuação automática que costura a resposta sem duplicar overlap

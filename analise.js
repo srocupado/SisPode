@@ -296,7 +296,7 @@ function renderCard(it) {
         <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${isRF ? ' · Redação Final' : ''}</div>
         <div class="an-card-ementa">${escapeHtml(it.ementa)}</div>
         <div class="an-card-meta">
-          ${it.autorTexto ? `<span><b>Autor:</b> ${escapeHtml(it.autorTexto)}</span>` : ''}
+          <span data-role="autor-linha">${(it.autorTexto || (it.enriquecimento?.autores || []).length) ? `<b>Autor:</b> ${htmlAutorRealcado(it)}` : ''}</span>
           ${it.relator ? `<span><b>Relator:</b> Dep. ${escapeHtml(it.relator.nome)} (${it.relator.partido}-${it.relator.uf}) — ${it.relator.data}</span>` : ''}
           ${it.projetoUrgenciado ? `<span><b>Urgência p/ </b> ${it.projetoUrgenciado.sigla} ${it.projetoUrgenciado.numero}/${it.projetoUrgenciado.ano}</span>` : ''}
         </div>
@@ -781,6 +781,13 @@ function atualizarBadgesCard(it) {
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
+  }
+
+  // Atualiza a linha "Autor:" com o nome do(s) deputado(s) do Podemos em
+  // negrito + sublinhado (o card inicial é renderizado antes do enriquecimento).
+  const autorLinha = card.querySelector('[data-role=autor-linha]');
+  if (autorLinha && (it.autorTexto || (enr.autores || []).length)) {
+    autorLinha.innerHTML = `<b>Autor:</b> ${htmlAutorRealcado(it)}`;
   }
 
   // Apensados Podemos
@@ -1413,6 +1420,27 @@ async function escolherDocumentos(it) {
     if (enr.urlInteiroTeor) docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
   }
 
+  // Apensado(s) de autoria do Podemos (qualquer cenário): anexa o inteiro teor
+  // de cada um para que a nota traga um resumo próprio (tópico antes de
+  // "Argumentos favoráveis e contrários"). A URL é buscada sob demanda e
+  // cacheada no objeto do apensado, evitando refazer a chamada.
+  for (const ap of (enr.apensadosPodemos || [])) {
+    if (ap.urlInteiroTeor === undefined) {
+      try {
+        const det = await fetchJson(`${API_BASE}/proposicoes/${ap.id}`);
+        ap.urlInteiroTeor = det.dados?.urlInteiroTeor || null;
+      } catch (e) { ap.urlInteiroTeor = null; }
+    }
+    if (ap.urlInteiroTeor) {
+      const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
+      docs.push({
+        tipo: 'APENSADO_PODEMOS',
+        rotulo: `Apensado do Podemos — ${ap.siglaTipo} ${ap.numero}/${ap.ano}${auts ? ' (autoria: ' + auts + ')' : ''} — inteiro teor`,
+        url: ap.urlInteiroTeor,
+      });
+    }
+  }
+
   return docs;
 }
 
@@ -1435,6 +1463,16 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
     enr.apensadosPodemos?.length ? `⚠ ATENÇÃO: Há apensado(s) de autoria Podemos:\n${apensadosPodemos}` : null,
   ].filter(Boolean).join('\n');
 
+  // Seção própria para o(s) projeto(s) apensado(s) de autoria do Podemos, cujo
+  // inteiro teor foi anexado (tipo APENSADO_PODEMOS). Entra ANTES de "Argumentos
+  // favoráveis e contrários". Resume cada apensado para dar visibilidade ao que
+  // a bancada propôs sobre o mesmo tema.
+  const docsApensado = docs.filter(d => d.tipo === 'APENSADO_PODEMOS');
+  const plApens = docsApensado.length > 1;
+  const secaoApensados = docsApensado.length
+    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\n${plApens ? 'Para cada' : 'Para o'} documento "Apensado do Podemos ..." anexado, dedique **um parágrafo** com um **breve resumo** do projeto apensado: identifique a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m), descreva seu objeto e o que propõe criar/alterar, e indique como ela se relaciona com a matéria principal em votação. Baseie-se exclusivamente no inteiro teor anexado do apensado, sem confundi-lo com o texto operativo principal.\n`
+    : '';
+
   // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
   // final consolidado, não há parecer a resumir. O foco é o que se está
   // efetivamente votando e os pontos de atenção para a bancada.
@@ -1451,7 +1489,7 @@ Produza uma **breve análise** em **Português do Brasil**, formato **Markdown**
 
 ## Resumo da Redação Final
 Dois a três parágrafos descrevendo objetivamente o que o texto final consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos. Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.
-
+${secaoApensados}
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações específicas para a bancada, considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis.
 ${instrucoesExtra && instrucoesExtra.trim()
@@ -1584,7 +1622,7 @@ Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas 
 O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)? ${temOriginal
   ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
-
+${secaoApensados}
 ## Argumentos favoráveis e contrários
 Dois parágrafos corridos: o primeiro reúne os argumentos que sustentam a aprovação; o segundo, os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
 ${instrucoesExtra && instrucoesExtra.trim()
@@ -2597,6 +2635,35 @@ function tituloComApelido(it) {
   return tituloVotacao(it) + (ap ? ` (${ap})` : '');
 }
 
+// Sufixo de autoria para o índice do PDF — "A" quando a matéria é de autoria de
+// deputado(a) do Podemos e "AP" quando há apensado de autoria Podemos. Ambos
+// podem aparecer: "PL 1234/2056 (apelido) — A, AP".
+function sufixoAutoriaIndice(it) {
+  const enr = it.enriquecimento || {};
+  const tags = [];
+  if (enr.autoriaPodemos) tags.push('A');
+  if ((enr.apensadosPodemos || []).length) tags.push('AP');
+  return tags.length ? ' — ' + tags.join(', ') : '';
+}
+
+// Realça (negrito + sublinhado) o nome do(s) deputado(s) do Podemos na linha de
+// autoria da nota. Retorna HTML já escapado. Quando não há texto de autoria da
+// pauta, monta a linha a partir dos autores trazidos pela API.
+function htmlAutorRealcado(it) {
+  const enr = it.enriquecimento || {};
+  let base = (it.autorTexto || '').trim();
+  if (!base && (enr.autores || []).length) {
+    base = enr.autores.map(a => a.nome).filter(Boolean).join(', ');
+  }
+  let html = escapeHtml(base);
+  const podeNomes = (enr.autores || []).filter(a => a.isPodemos && a.nome).map(a => a.nome);
+  for (const nome of podeNomes) {
+    const nEsc = escapeHtml(nome).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    html = html.replace(new RegExp('(' + nEsc + ')', 'i'), '<u><strong>$1</strong></u>');
+  }
+  return html;
+}
+
 // Apelido de reserva (sem IA): primeira oração da ementa, encurtada e normalizada.
 function apelidoFallback(it) {
   const alvo = _alvoItem(it);
@@ -2665,18 +2732,19 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     <section class="indice">
       <h2>Índice</h2>
       <ul>
-        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(tituloComApelido(it))}</span><span class="ld"></span></a></li>`).join('')}
+        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
       </ul>
     </section>` : '';
 
   const itensHtml = itens.map(it => {
-    const autor   = it.autorTexto || '';
+    const autor   = it.autorTexto || (it.enriquecimento?.autores || []).length;
+    const autorHtml = htmlAutorRealcado(it);
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
     const corpo   = it.analise?.markdown ? renderMarkdown(it.analise.markdown) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
-      ${(autor || relator) ? `<div class="item-meta">${esc(autor)}${relator}</div>` : ''}
+      ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       ${corpo}
     </div>`;
