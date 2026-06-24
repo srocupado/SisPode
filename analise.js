@@ -881,18 +881,21 @@ function _casaTermo(texto, termo) {
   catch { return texto.includes(termo); }
 }
 
-// Nomes dos deputados cujos temas de interesse aparecem na matéria.
+// Top 3 deputados com maior identidade com a matéria (mais temas casados).
 function deputadosComInteresse(it) {
   const cfg = state.interesse;
   if (!cfg || !cfg.lista?.length) return [];
   const texto = _textoCasavel(it);
   if (!texto) return [];
-  const out = [];
+  const scored = [];
   for (const dep of cfg.lista) {
     const termos = _termosInteresse(cfg.dados?.[dep.id]?.temas);
-    if (termos.length && termos.some(t => _casaTermo(texto, t))) out.push(dep.nome);
+    if (!termos.length) continue;
+    const score = termos.filter(t => _casaTermo(texto, t)).length;
+    if (score > 0) scored.push({ nome: dep.nome, score });
   }
-  return out;
+  scored.sort((a, b) => b.score - a.score || a.nome.localeCompare(b.nome, 'pt'));
+  return scored.slice(0, 3).map(d => d.nome);
 }
 
 function atualizarTodosBadgesInteresse() {
