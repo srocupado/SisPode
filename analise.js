@@ -344,7 +344,16 @@ function renderCard(it) {
     </div>
   `;
 
-  card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
+  // MPV (Cenário 8): a análise é de texto livre — o botão abre o editor em
+  // branco em vez de acionar a IA.
+  const btnGerar = card.querySelector('[data-role=btn-gerar]');
+  if (ehMPV(it)) {
+    btnGerar.innerHTML = `${iconeEditar()} Escrever análise`;
+    btnGerar.title = 'Medida Provisória — escreva a nota livremente (sem IA)';
+    btnGerar.addEventListener('click', () => iniciarAnaliseLivreMPV(it));
+  } else {
+    btnGerar.addEventListener('click', () => gerarAnaliseItem(it));
+  }
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
   card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
@@ -389,6 +398,13 @@ function atualizarLinkPortal(it) {
 
 function tipoLabel(sigla) {
   return ({ PL: 'PL', PLP: 'PLP', PEC: 'PEC', PDL: 'PDL', MPV: 'MPV', PRC: 'PRC', REQ: 'REQ' })[sigla] || sigla;
+}
+
+// Medida Provisória: Cenário 8 — análise de texto livre (escrita manual pelo
+// analista, sem IA e sem estrutura de seções imposta).
+const CENARIO_MPV = 'Cenário 8 — Medida Provisória (edição livre)';
+function ehMPV(it) {
+  return it.tipoCategoria === 'projeto' && it.sigla === 'MPV';
 }
 
 // ============================================================
@@ -1151,10 +1167,39 @@ async function salvarInteresse() {
   }
 }
 
+// Cenário 8 (MPV): cria uma análise de texto livre (manual, sem IA) e abre o
+// editor em branco para o analista escrever. Se já houver análise, apenas
+// reabre o editor. O autosave persiste no Firebase como qualquer outra nota.
+async function iniciarAnaliseLivreMPV(it) {
+  const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const painel   = card?.querySelector('[data-role=painel-analise]');
+  if (painel) { painel.classList.add('aberto'); card.querySelector('[data-role=btn-toggle]').style.display = 'inline-flex'; }
+
+  if (!it.analise) {
+    it.analise = {
+      markdown:    '',
+      manual:      true,
+      cenario:     CENARIO_MPV,
+      apelido:     it.apelido || '',
+      analista:    it.analista || '',
+      geradoEm:    new Date().toISOString(),
+      geradoPor:   state.config?.nomeUsuario || 'equipe',
+      parecerKey:  parecerKey(it),
+    };
+    it.analiseStatus = 'ok';
+    // Grava o esqueleto já, para o autosave da edição ter base no Firebase.
+    fbSalvarAnalise(it).catch(e => console.warn('Firebase save falhou:', e.message));
+  }
+  renderAnaliseCard(it);
+  entrarEdicaoAnalise(it);
+}
+
 // ============================================================
 //  GERAÇÃO DE ANÁLISE VIA IA
 // ============================================================
 async function gerarAnaliseItem(it, forcar = false, opts = {}) {
+  // MPV (Cenário 8) é edição livre — nunca aciona a IA.
+  if (ehMPV(it)) return iniciarAnaliseLivreMPV(it);
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API no painel principal (Configurações).', 'aviso');
@@ -2033,16 +2078,22 @@ function renderAnaliseCard(it) {
   btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
-  // Verificação de desatualização só faz sentido para projeto (texto operativo).
+  // Verificação de desatualização só faz sentido para projeto com texto operativo
+  // (não se aplica à MPV de edição livre, que não tem documento rastreado).
   card.querySelector('[data-role=btn-verificar-item]').style.display =
-    it.tipoCategoria === 'projeto' ? 'inline-flex' : 'none';
+    (it.tipoCategoria === 'projeto' && !ehMPV(it)) ? 'inline-flex' : 'none';
+  // MPV (Cenário 8) é texto livre: os botões de IA (Reanalisar / Regerar) não
+  // se aplicam.
+  card.querySelector('[data-role=btn-reanalisar]').style.display = ehMPV(it) ? 'none' : 'inline-flex';
+  card.querySelector('[data-role=btn-regerar]').style.display    = ehMPV(it) ? 'none' : 'inline-flex';
 
-  // Análises antigas marcadas como manuais (anterior à integração da IA para
-  // Redação Final) — sem provedor/modelo/documentos. Mantido por compat.
+  // Análises manuais (Redação Final antiga ou MPV de edição livre) — sem
+  // provedor/modelo/documentos. Para MPV mostra o rótulo do Cenário 8.
   if (it.analise.manual) {
+    const baseManual = it.analise.cenario || 'Análise manual';
     metaEl.innerHTML = it.analise.editadoEm
-      ? `Análise manual · editada em ${formatDataHora(it.analise.editadoEm)}`
-      : `Análise manual`;
+      ? `${escapeHtml(baseManual)} · editada em ${formatDataHora(it.analise.editadoEm)}`
+      : escapeHtml(baseManual);
   } else {
     const fonte = it.analise.editadoEm
       ? `Editada em ${formatDataHora(it.analise.editadoEm)} (gerada em ${formatDataHora(it.analise.geradoEm)})`
@@ -2400,10 +2451,14 @@ async function gerarTodasAsAnalises() {
     return;
   }
 
-  // Apenas itens ainda sem análise
-  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok');
+  // Apenas itens ainda sem análise. MPVs (Cenário 8) ficam de fora: são de
+  // edição livre, escritas manualmente pelo analista.
+  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok' && !ehMPV(it));
   if (!pendentes.length) {
-    mostrarToast('Todos os itens já têm análise.', 'info');
+    const temMPVPendente = state.pauta.itens.some(it => ehMPV(it) && it.analiseStatus !== 'ok');
+    mostrarToast(temMPVPendente
+      ? 'Itens com IA já analisados. MPVs são de edição livre — use "Escrever análise" em cada uma.'
+      : 'Todos os itens já têm análise.', 'info');
     return;
   }
 
@@ -3154,6 +3209,10 @@ function formatDataHora(iso) {
 
 function iconeGerar() {
   return '<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>';
+}
+
+function iconeEditar() {
+  return '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>';
 }
 
 // ============================================================
