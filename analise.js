@@ -318,6 +318,8 @@ function renderCard(it) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Ver no portal
       </a>
+      <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="Analista responsável" title="Nome do(a) analista responsável pela nota — salvo com a análise e exibido no PDF">
+      <span class="an-analista-ok" data-role="analista-ok" title="Analista salvo">✓</span>
       <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item da pauta">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         Remover
@@ -353,6 +355,23 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
   card.querySelector('[data-role=btn-completar]').addEventListener('click', () => completarAnalise(it));
+
+  // Analista responsável (campo livre ao lado de "Ver no portal"). Persiste no
+  // documento da análise (quando existe) e no item da pauta. O "✓" pisca ao salvar.
+  const inpAnalista = card.querySelector('[data-role=inp-analista]');
+  const okAnalista  = card.querySelector('[data-role=analista-ok]');
+  inpAnalista.value = it.analista || it.analise?.analista || '';
+  inpAnalista.addEventListener('change', () => {
+    const v = inpAnalista.value.trim();
+    it.analista = v;
+    if (it.analise) {
+      it.analise.analista = v;
+      fbSalvarAnalise(it)
+        .then(() => { okAnalista.classList.add('show'); setTimeout(() => okAnalista.classList.remove('show'), 1500); })
+        .catch(e => console.warn('Falha ao salvar analista:', e.message));
+    }
+    marcarSujo();
+  });
   return card;
 }
 
@@ -426,17 +445,7 @@ async function enriquecerItem(it) {
 
     // Apensados via API
     etapa = 'apensados';
-    const apensados = await fetchApensados(prop.id);
-    // Para cada apensado, verificar autoria
-    for (const ap of apensados) {
-      try {
-        const aps = await fetchAutoresProposicao(ap.id);
-        ap.autores = aps;
-        ap.autoriaPodemos = aps.some(a => a.isPodemos);
-      } catch (e) {
-        ap.autoriaPodemos = false;
-      }
-    }
+    const apensados = await resolverApensados(prop.id);
     it.enriquecimento.apensados = apensados;
     it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
   } catch (e) {
@@ -591,6 +600,24 @@ async function fetchApensados(idProp) {
       ementa:         r.ementa || d.ementa,
       urlInteiroTeor: d.urlInteiroTeor || null,
     });
+  }
+  return apensados;
+}
+
+// Resolve os apensados de uma proposição já com a autoria de cada um (para
+// marcar quais são do Podemos). Usado pelo enriquecimento e, sob demanda, por
+// escolherDocumentos — assim o resumo do apensado sai mesmo que a nota seja
+// gerada antes de o enriquecimento assíncrono terminar.
+async function resolverApensados(idProp) {
+  const apensados = await fetchApensados(idProp);
+  for (const ap of apensados) {
+    try {
+      const aps = await fetchAutoresProposicao(ap.id);
+      ap.autores = aps;
+      ap.autoriaPodemos = aps.some(a => a.isPodemos);
+    } catch (e) {
+      ap.autoriaPodemos = false;
+    }
   }
   return apensados;
 }
@@ -1165,6 +1192,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       if (cached) {
         it.analise = cached;
         if (!it.apelido && cached.apelido) it.apelido = cached.apelido;
+        if (!it.analista && cached.analista) it.analista = cached.analista;
         it.analiseStatus = 'ok';
         renderAnaliseCard(it);
         return;
@@ -1259,6 +1287,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       interessados,
       geradoEm:    new Date().toISOString(),
       geradoPor:   state.config?.nomeUsuario || 'equipe',
+      analista:    it.analista || '',   // preenchido manualmente no card
       parecerKey:  parecerKey(it),
       promptCustom: promptNome || null,
       refsSuspeitas,
@@ -1520,6 +1549,18 @@ async function escolherDocumentos(it) {
     if (enr.urlInteiroTeor) docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
   }
 
+  // Apensados podem ainda não ter sido resolvidos pelo enriquecimento assíncrono
+  // (corrida quando a nota é gerada logo após carregar a pauta). Garante a
+  // resolução sob demanda — mesmo padrão de EMS/SSP acima — para que o resumo
+  // do apensado Podemos não fique faltando.
+  if (enr.apensadosPodemos === undefined && enr.idProposicao) {
+    try {
+      const apensados = await resolverApensados(enr.idProposicao);
+      enr.apensados = apensados;
+      enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    } catch (e) { console.warn('Falha ao resolver apensados sob demanda:', e.message); }
+  }
+
   // Apensado(s) de autoria do Podemos (qualquer cenário): anexa o inteiro teor
   // de cada um para que a nota traga um resumo próprio (tópico antes de
   // "Argumentos favoráveis e contrários"). A URL é buscada sob demanda e
@@ -1567,18 +1608,29 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // inteiro teor foi anexado (tipo APENSADO_PODEMOS). Entra ANTES de "Argumentos
   // favoráveis e contrários". Resume cada apensado para dar visibilidade ao que
   // a bancada propôs sobre o mesmo tema.
-  const docsApensado = docs.filter(d => d.tipo === 'APENSADO_PODEMOS');
-  const plApens = docsApensado.length > 1;
+  // Apensados Podemos sem inteiro teor disponível: o resumo é feito pela ementa
+  // (anexada inline no prompt), para nunca ficar "identificado mas sem resumo".
+  const apensadosSemTeor = (enr.apensadosPodemos || []).filter(ap => !ap.urlInteiroTeor);
+  const totalApens = (enr.apensadosPodemos || []).length;
+  const plApens = totalApens > 1;
   // Quando há texto consolidado em votação (substitutivo de comissão/plenário,
   // subemenda ou redação final), pede-se à IA que avalie se a ideia do apensado
   // foi incorporada — os dois textos já estão na mesma chamada.
-  const apensadoVsTexto = docsApensado.length &&
+  const apensadoVsTexto = totalApens &&
     docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
     ? ' Em seguida, como há texto consolidado em votação (substitutivo, subemenda ou redação final), acrescente para cada apensado **uma NOVA linha (um item de lista próprio, logo abaixo do resumo daquele apensado)** dedicada à avaliação de incorporação. Essa linha deve **começar EXATAMENTE** com o marcador `[[ACOLHIMENTO:NIVEL NUMERO/ANO]]`, em que NIVEL é uma destas três palavras — `ACOLHIDO` (ideia incorporada integralmente), `PARCIAL` (incorporada em parte) ou `NAO` (não incorporada) — e NUMERO/ANO é o número do próprio apensado (ex.: `[[ACOLHIMENTO:PARCIAL 1405/2026]]`). Logo após o marcador, escreva 1 a 2 frases justificando, apontando os dispositivos e, se o parecer/relatório mencionar o apensado, o que o(a) relator(a) decidiu; caso contrário, faça o cotejo entre o apensado e o texto em votação. Reproduza o marcador literalmente, sem alterar o formato, e **não** repita a conclusão de acolhimento na linha de resumo — ela vai apenas nesta linha do marcador.'
     : '';
-  const secaoApensados = docsApensado.length
-    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\nApresente **um tópico (item de lista com "-") para cada** projeto apensado de autoria do Podemos cujo inteiro teor foi anexado (documentos "Apensado do Podemos ..."). Em cada tópico: comece identificando a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m); em seguida, faça um **breve resumo** do objeto do projeto, do que ele propõe criar/alterar e de como se relaciona com a matéria principal em votação.${instrIncorporacao} Baseie-se exclusivamente no inteiro teor anexado de cada apensado, sem confundi-lo com o texto operativo principal.\n`
+  // Ementas dos apensados sem inteiro teor, fornecidas como base de resumo.
+  const blocoEmentasApensados = apensadosSemTeor.length
+    ? '\nApensado(s) Podemos SEM inteiro teor disponível — baseie o resumo na ementa abaixo:\n' +
+      apensadosSemTeor.map(ap => {
+        const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
+        return `- ${ap.siglaTipo} ${ap.numero}/${ap.ano}${auts ? ' (' + auts + ')' : ''}: "${(ap.ementa || 'sem ementa disponível').slice(0, 500)}"`;
+      }).join('\n') + '\n'
+    : '';
+  const secaoApensados = totalApens
+    ? `\n## Projeto${plApens ? 's' : ''} apensado${plApens ? 's' : ''} de autoria do Podemos\nApresente **um tópico (item de lista com "-") para cada** projeto apensado de autoria do Podemos. Em cada tópico: comece identificando a proposição (sigla, número/ano) e o(s) deputado(s) do Podemos que a assina(m); em seguida, faça um **breve resumo** do objeto do projeto, do que ele propõe criar/alterar e de como se relaciona com a matéria principal em votação.${instrIncorporacao} Para os apensados cujo inteiro teor foi anexado (documentos "Apensado do Podemos ..."), baseie-se nesse inteiro teor; para os demais, baseie-se na ementa indicada abaixo.${blocoEmentasApensados} Não confunda o texto do apensado com o texto operativo principal.\n`
     : '';
 
   // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
@@ -2009,6 +2061,12 @@ function renderAnaliseCard(it) {
       : '';
     metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${docsHtml}${promptHtml}`;
   }
+  // Analista responsável na meta + sincroniza o campo do card (cache/regeração).
+  const analista = it.analista || it.analise.analista || '';
+  if (analista) metaEl.innerHTML += ` · <span title="Analista responsável pela nota">Analista: <b>${escapeHtml(analista)}</b></span>`;
+  const inpAnalista = card.querySelector('[data-role=inp-analista]');
+  if (inpAnalista && inpAnalista.value !== analista) inpAnalista.value = analista;
+
   const refs = it.analise.refsSuspeitas || [];
   const avisoRefs = refs.length
     ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
@@ -2962,11 +3020,13 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const autor   = it.autorTexto || (it.enriquecimento?.autores || []).length;
     const autorHtml = htmlAutorRealcado(it);
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
+    const analista = it.analista || it.analise?.analista || '';
+    const analistaHtml = analista ? ` · Analista: ${esc(analista)}` : '';
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
     const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(it.analise.markdown)) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
-      ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
+      ${(autor || relator || analistaHtml) ? `<div class="item-meta">${autorHtml}${relator}${analistaHtml}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       ${corpo}
     </div>`;

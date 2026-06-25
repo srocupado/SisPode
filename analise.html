@@ -230,7 +230,32 @@
       gap: 8px;
       padding: 0 16px 14px;
       flex-wrap: wrap;
+      align-items: center;
     }
+    .an-analista-input {
+      height: 28px;
+      padding: 0 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border-soft);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      font-size: 12px;
+      min-width: 160px;
+    }
+    .an-analista-input:focus {
+      outline: none;
+      border-color: var(--accent-light, #1fa5a5);
+      background: rgba(255,255,255,.07);
+    }
+    .an-analista-input::placeholder { color: var(--text-dim); }
+    .an-analista-ok {
+      color: #2fcf7a;
+      font-weight: 700;
+      opacity: 0;
+      transition: opacity .2s;
+      font-size: 14px;
+    }
+    .an-analista-ok.show { opacity: 1; }
 
     .an-analise {
       border-top: 1px solid var(--border);
