@@ -478,7 +478,7 @@ async function enriquecerItem(it) {
       it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null };
+      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
     }
   }
 
@@ -683,7 +683,7 @@ async function fetchHtmlCamara(url) {
 async function buscarPareceresPlenario(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
-  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null };
+  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const candidatos = [];
@@ -760,7 +760,9 @@ async function buscarPareceresPlenario(idProp) {
     sbtA:        candidatos.find(c => c.sigla === 'SBT-A') || null,
     autografo:   candidatos.find(c => c.sigla === 'AA')    || null,
     // Último PRL (parecer do relator) da Comissão Especial — operativo p/ PECs.
-    prlEspecial: candidatos.find(c => c.sigla === 'PRL' && c.especial) || null,
+    prlEspecial:  candidatos.find(c => c.sigla === 'PRL'   && c.especial) || null,
+    // Substitutivo adotado pela Comissão Especial (texto consolidado da PEC).
+    sbtAEspecial: candidatos.find(c => c.sigla === 'SBT-A' && c.especial) || null,
   };
 }
 
@@ -1461,7 +1463,7 @@ async function completarAnalise(it) {
 // de homologação).
 function classificarCenario(docs = []) {
   const has = t => docs.some(d => d.tipo === t);
-  if (has('PRL_ESPECIAL'))             return 'Cenário 9 — PEC (parecer da Comissão Especial)';
+  if (has('PRL_ESPECIAL') || has('SBT_A_ESPECIAL')) return 'Cenário 9 — PEC (parecer da Comissão Especial)';
   if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
   if (has('SSP'))                      return 'Cenário 5 — subemenda substitutiva (SSP)';
   if (has('PRLP') && has('SBT_A'))     return 'Cenário 4 — PRLP na forma do SBT-A';
@@ -1475,7 +1477,7 @@ function classificarCenario(docs = []) {
 // Considera "operativo" o que está em votação: parecer de plenário (PRLP/PRLE),
 // substitutivo adotado por comissão (SBT-A), subemenda (SSP) e emendas do
 // Senado (EMS). Pareceres de comissão e apensados NÃO marcam desatualização.
-const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A', 'PRL_ESPECIAL'];
+const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL'];
 
 // Documentos operativos ATUAIS, lidos do enriquecimento (sem rede no nível
 // automático; o nível "botão" garante que enr.emendasSenado foi buscado antes).
@@ -1489,6 +1491,7 @@ function operativosAtuais(it) {
   add('PRLE', par.prle, 'parecer às emendas (PRLE)');
   add('SBT_A', par.sbtA, 'substitutivo de comissão (SBT-A)');
   add('PRL_ESPECIAL', par.prlEspecial, 'parecer do relator da Comissão Especial (PEC)');
+  add('SBT_A_ESPECIAL', par.sbtAEspecial, 'substitutivo adotado pela Comissão Especial (PEC)');
   add('EMS', es.ems, 'emendas do Senado (EMS)');
   add('SSP', es.ssp, 'subemenda substitutiva (SSP)');
   return out;
@@ -1531,7 +1534,9 @@ async function escolherDocumentos(it) {
     const { ems = null, ssp = null } = enr.emendasSenado || {};
 
     const pe = par.prlEspecial;
-    const rotuloPRLESP = pe && `Parecer do Relator da Comissão Especial (PRL${pe.sequencial ? ' nº ' + pe.sequencial : ''}${pe.dataBR ? ' de ' + pe.dataBR : ''})`;
+    const se = par.sbtAEspecial;
+    const rotuloPRLESP  = pe && `Parecer do Relator da Comissão Especial (PRL${pe.sequencial ? ' nº ' + pe.sequencial : ''}${pe.dataBR ? ' de ' + pe.dataBR : ''})`;
+    const rotuloSBTAESP = se && `Substitutivo adotado pela Comissão Especial (SBT-A${se.sequencial ? ' nº ' + se.sequencial : ''}${se.dataBR ? ' de ' + se.dataBR : ''})`;
     const rotuloPRLP = par.prlp && `PRLP${par.prlp.sequencial ? ' nº ' + par.prlp.sequencial : ''}${par.prlp.dataBR ? ' de ' + par.prlp.dataBR : ''}`;
     const rotuloPRLE = par.prle && `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`;
     const rotuloSBTA = par.sbtA && `Substitutivo adotado por comissão (SBT-A${par.sbtA.sequencial ? ' nº ' + par.sbtA.sequencial : ''}${par.sbtA.comissao ? ' — ' + par.sbtA.comissao : ''}${par.sbtA.dataBR ? ' de ' + par.sbtA.dataBR : ''})`;
@@ -1547,6 +1552,7 @@ async function escolherDocumentos(it) {
       // laço de pareceres das comissões). Sem PRL da Especial ainda (PEC em
       // fase de admissibilidade), restam a CCJC e o inteiro teor.
       if (pe) docs.push({ tipo: 'PRL_ESPECIAL', rotulo: rotuloPRLESP, url: pe.url });
+      if (se) docs.push({ tipo: 'SBT_A_ESPECIAL', rotulo: rotuloSBTAESP, url: se.url });
       if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
     } else if (ems) {
       // ── Cenários 6/7 (retorno do Senado) ──────────────────────────────
@@ -1687,7 +1693,7 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // subemenda ou redação final), pede-se à IA que avalie se a ideia do apensado
   // foi incorporada — os dois textos já estão na mesma chamada.
   const apensadoVsTexto = totalApens &&
-    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL', 'PRL_ESPECIAL'].includes(d.tipo));
+    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
     ? ' Em seguida, como há texto consolidado em votação (substitutivo, subemenda ou redação final), acrescente para cada apensado **uma NOVA linha (um item de lista próprio, logo abaixo do resumo daquele apensado)** dedicada à avaliação de incorporação. Essa linha deve **começar EXATAMENTE** com o marcador `[[ACOLHIMENTO:NIVEL NUMERO/ANO]]`, em que NIVEL é uma destas três palavras — `ACOLHIDO` (ideia incorporada integralmente), `PARCIAL` (incorporada em parte) ou `NAO` (não incorporada) — e NUMERO/ANO é o número do próprio apensado (ex.: `[[ACOLHIMENTO:PARCIAL 1405/2026]]`). Logo após o marcador, escreva 1 a 2 frases justificando, apontando os dispositivos e, se o parecer/relatório mencionar o apensado, o que o(a) relator(a) decidiu; caso contrário, faça o cotejo entre o apensado e o texto em votação. Reproduza o marcador literalmente, sem alterar o formato, e **não** repita a conclusão de acolhimento na linha de resumo — ela vai apenas nesta linha do marcador.'
     : '';
@@ -1753,6 +1759,8 @@ REGRAS RÍGIDAS:
   const hasPRLP    = has('PRLP');
   const hasPRLE    = has('PRLE');
   const hasPRLESP  = has('PRL_ESPECIAL');
+  const hasSBTAESP = has('SBT_A_ESPECIAL');
+  const ehPEC      = hasPRLESP || hasSBTAESP;
   const hasSSP     = has('SSP');
   const hasRedacaoCamara = has('AUTOGRAFO') || has('TEXTO_CAMARA');
   const temOriginal = has('REDACAO_ORIGINAL') || hasRedacaoCamara;
@@ -1774,8 +1782,9 @@ REGRAS RÍGIDAS:
   } else if (hasPRLP || hasPRLE) {
     if (hasPRLP) rotulosOperativos.push(rotuloDe('PRLP'));
     if (hasPRLE) rotulosOperativos.push(rotuloDe('PRLE'));
-  } else if (hasPRLESP) {
-    rotulosOperativos.push(rotuloDe('PRL_ESPECIAL'));
+  } else if (ehPEC) {
+    if (hasPRLESP)  rotulosOperativos.push(rotuloDe('PRL_ESPECIAL'));
+    if (hasSBTAESP) rotulosOperativos.push(rotuloDe('SBT_A_ESPECIAL'));
   } else if (has('INTEIRO_TEOR')) {
     rotulosOperativos.push(rotuloDe('INTEIRO_TEOR'));
   }
@@ -1811,8 +1820,8 @@ REGRAS RÍGIDAS:
     cenarioHint = `Há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário. Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
   } else if (hasPRLP || hasPRLE) {
     cenarioHint = `Há parecer preliminar de plenário (PRLP) com substitutivo de plenário. Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
-  } else if (hasPRLESP) {
-    cenarioHint = `Trata-se de Proposta de Emenda à Constituição (PEC). A PEC recebe parecer apenas da CCJC (admissibilidade) e da Comissão Especial (mérito); o texto que vai a Plenário é o do parecer da Comissão Especial. O documento operativo é o último parecer do relator da Comissão Especial (PRL anexado) — traga o conteúdo do substitutivo/texto por ele aprovado, descrevendo as alterações ao texto constitucional. Quando o parecer da CCJC estiver anexado, trate-o como juízo de admissibilidade, não de mérito.`;
+  } else if (ehPEC) {
+    cenarioHint = `Trata-se de Proposta de Emenda à Constituição (PEC). A PEC recebe parecer apenas da CCJC (admissibilidade) e da Comissão Especial (mérito); o texto que vai a Plenário é o do parecer da Comissão Especial.${hasPRLESP ? ' O parecer do relator da Comissão Especial (PRL) está anexado — traga o conteúdo do voto e do substitutivo por ele aprovado.' : ''}${hasSBTAESP ? ' O substitutivo adotado pela Comissão Especial (SBT-A) está anexado — é o texto consolidado da PEC; baseie nele a descrição das disposições.' : ''} Descreva as alterações ao texto constitucional. Quando o parecer da CCJC estiver anexado, trate-o como juízo de admissibilidade, não de mérito.`;
   } else {
     cenarioHint = `A proposição não tem parecer preliminar de plenário nem substitutivo de comissão adotado. Traga o conteúdo do projeto original.`;
   }
@@ -1822,7 +1831,7 @@ REGRAS RÍGIDAS:
   let tituloDisposicoes;
   if (hasEMS) {
     tituloDisposicoes = 'Principais Disposições do texto em votação (emendas do Senado)';
-  } else if (hasPRLESP) {
+  } else if (ehPEC) {
     tituloDisposicoes = 'Principais Disposições do texto aprovado pela Comissão Especial';
   } else if (hasSBTA || hasSSP || hasPRLP || hasPRLE) {
     tituloDisposicoes = 'Principais Disposições do último substitutivo apresentado';
