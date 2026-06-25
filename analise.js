@@ -332,6 +332,7 @@ function renderCard(it) {
         <button class="btn btn-ghost btn-sm"   data-role="btn-cancelar-edicao" style="display:none">Cancelar</button>
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
         <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-verificar-item" style="display:none" title="Reconsulta a tramitação e indica se o texto operativo (parecer/substitutivo/subemenda/emenda do Senado) foi superado por um documento mais recente">Verificar atualização</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -342,6 +343,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-gerar]').addEventListener('click', () => gerarAnaliseItem(it));
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
   card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
+  card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -1977,6 +1979,9 @@ function renderAnaliseCard(it) {
   btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
+  // Verificação de desatualização só faz sentido para projeto (texto operativo).
+  card.querySelector('[data-role=btn-verificar-item]').style.display =
+    it.tipoCategoria === 'projeto' ? 'inline-flex' : 'none';
 
   // Análises antigas marcadas como manuais (anterior à integração da IA para
   // Redação Final) — sem provedor/modelo/documentos. Mantido por compat.
@@ -2256,9 +2261,50 @@ function toggleGerarTodas() {
   });
 }
 
-// Verificação completa de notas desatualizadas: reconsulta o texto operativo de
-// cada projeto analisado (incl. EMS/SSP da página de emendas, que o nível
-// automático não carrega) e recompõe os badges. Mostra um resumo ao final.
+// Verifica UM item: garante EMS/SSP (cenários 5/6/7, que o enriquecimento padrão
+// não busca), compara o texto operativo salvo com o atual e atualiza o badge.
+// Guarda o resultado em it.desatualizacao. Retorna o resultado (ou null se N/A).
+async function verificarAtualizacaoItem(it) {
+  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
+  const enr = it.enriquecimento || (it.enriquecimento = {});
+  if (enr.emendasSenado === undefined && enr.idProposicao) {
+    try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
+    catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
+  }
+  const desat = desatualizacaoOperativa(it) || { novos: [] };
+  it.desatualizacao = desat;
+  atualizarBadgesCard(it);
+  return desat;
+}
+
+// Resumo legível dos documentos novos detectados.
+function _resumoNovos(novos) {
+  return novos.map(n => `${n.rotulo}${n.data ? ' de ' + n.data.split('-').reverse().join('/') : ''}`).join('; ');
+}
+
+// Botão individual do card.
+async function verificarAtualizacaoItemUI(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const btn  = card?.querySelector('[data-role=btn-verificar-item]');
+  if (!btn) return;
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="an-spinner"></span> Verificando...';
+  try {
+    const desat = await verificarAtualizacaoItem(it);
+    mostrarToast(
+      desat?.novos?.length
+        ? `⚠ Pode estar desatualizada — documento mais recente: ${_resumoNovos(desat.novos)}`
+        : '✓ Nota em dia com o texto operativo.',
+      desat?.novos?.length ? 'aviso' : 'sucesso'
+    );
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
+// Botão global: verifica todos os projetos analisados e mostra um resumo.
 async function verificarAtualizacoesPauta() {
   if (!state.pauta) return;
   const itens = (state.pauta.itens || []).filter(it => it.tipoCategoria === 'projeto' && it.analise?.documentos);
@@ -2271,16 +2317,8 @@ async function verificarAtualizacoesPauta() {
   try {
     for (const it of itens) {
       btn.innerHTML = `<span class="an-spinner"></span> Verificando ${++feitos}/${itens.length}...`;
-      const enr = it.enriquecimento || (it.enriquecimento = {});
-      // Garante EMS/SSP (cenários 5/6/7) — o enriquecimento padrão não os busca.
-      if (enr.emendasSenado === undefined && enr.idProposicao) {
-        try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
-        catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
-      }
-      const desat = desatualizacaoOperativa(it) || { novos: [] };
-      it.desatualizacao = desat;          // resultado da verificação sob demanda
-      if (desat.novos.length) desatualizadas++;
-      atualizarBadgesCard(it);
+      const desat = await verificarAtualizacaoItem(it);
+      if (desat?.novos?.length) desatualizadas++;
     }
     mostrarToast(
       desatualizadas
