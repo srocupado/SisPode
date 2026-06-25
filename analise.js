@@ -478,7 +478,7 @@ async function enriquecerItem(it) {
       it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null };
+      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null };
     }
   }
 
@@ -683,7 +683,7 @@ async function fetchHtmlCamara(url) {
 async function buscarPareceresPlenario(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
-  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null };
+  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const candidatos = [];
@@ -718,11 +718,17 @@ async function buscarPareceresPlenario(idProp) {
     // letras (não o próprio tipo da proposição, ex.: "PEC00619", nem "MESA").
     const dono = (siglaMatch[3] || '').toUpperCase();
     const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
+    // Comissão Especial de PEC: a sigla-dona é o código compacto da própria PEC
+    // (ex.: "PEC00619" = PEC 6/2019). É nela que sai o parecer de mérito que vai
+    // a Plenário — a PEC só recebe parecer da CCJC (admissibilidade) e da
+    // Comissão Especial (mérito).
+    const especial = /^PEC\d{3,}$/.test(dono);
 
     candidatos.push({
       sigla:      siglaMatch[1].toUpperCase(),
       sequencial: parseInt(siglaMatch[2], 10),
       comissao,
+      especial,
       dataBR,
       data:       dataBR ? dataBR.split('/').reverse().join('-') : null,
       url:        linkUrl,
@@ -749,10 +755,12 @@ async function buscarPareceresPlenario(idProp) {
 
   return {
     comissoes,
-    prlp:      candidatos.find(c => c.sigla === 'PRLP')  || null,
-    prle:      candidatos.find(c => c.sigla === 'PRLE')  || null,
-    sbtA:      candidatos.find(c => c.sigla === 'SBT-A') || null,
-    autografo: candidatos.find(c => c.sigla === 'AA')    || null,
+    prlp:        candidatos.find(c => c.sigla === 'PRLP')  || null,
+    prle:        candidatos.find(c => c.sigla === 'PRLE')  || null,
+    sbtA:        candidatos.find(c => c.sigla === 'SBT-A') || null,
+    autografo:   candidatos.find(c => c.sigla === 'AA')    || null,
+    // Último PRL (parecer do relator) da Comissão Especial — operativo p/ PECs.
+    prlEspecial: candidatos.find(c => c.sigla === 'PRL' && c.especial) || null,
   };
 }
 
@@ -1453,6 +1461,7 @@ async function completarAnalise(it) {
 // de homologação).
 function classificarCenario(docs = []) {
   const has = t => docs.some(d => d.tipo === t);
+  if (has('PRL_ESPECIAL'))             return 'Cenário 9 — PEC (parecer da Comissão Especial)';
   if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
   if (has('SSP'))                      return 'Cenário 5 — subemenda substitutiva (SSP)';
   if (has('PRLP') && has('SBT_A'))     return 'Cenário 4 — PRLP na forma do SBT-A';
@@ -1466,7 +1475,7 @@ function classificarCenario(docs = []) {
 // Considera "operativo" o que está em votação: parecer de plenário (PRLP/PRLE),
 // substitutivo adotado por comissão (SBT-A), subemenda (SSP) e emendas do
 // Senado (EMS). Pareceres de comissão e apensados NÃO marcam desatualização.
-const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A'];
+const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A', 'PRL_ESPECIAL'];
 
 // Documentos operativos ATUAIS, lidos do enriquecimento (sem rede no nível
 // automático; o nível "botão" garante que enr.emendasSenado foi buscado antes).
@@ -1479,6 +1488,7 @@ function operativosAtuais(it) {
   add('PRLP', par.prlp, 'parecer do relator (PRLP)');
   add('PRLE', par.prle, 'parecer às emendas (PRLE)');
   add('SBT_A', par.sbtA, 'substitutivo de comissão (SBT-A)');
+  add('PRL_ESPECIAL', par.prlEspecial, 'parecer do relator da Comissão Especial (PEC)');
   add('EMS', es.ems, 'emendas do Senado (EMS)');
   add('SSP', es.ssp, 'subemenda substitutiva (SSP)');
   return out;
@@ -1513,19 +1523,32 @@ async function escolherDocumentos(it) {
 
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
     // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
-    if (enr.emendasSenado === undefined && enr.idProposicao) {
+    // PECs seguem rito próprio (CCJC + Comissão Especial), sem esse retorno.
+    if (it.sigla !== 'PEC' && enr.emendasSenado === undefined && enr.idProposicao) {
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null }; }
     }
     const { ems = null, ssp = null } = enr.emendasSenado || {};
 
+    const pe = par.prlEspecial;
+    const rotuloPRLESP = pe && `Parecer do Relator da Comissão Especial (PRL${pe.sequencial ? ' nº ' + pe.sequencial : ''}${pe.dataBR ? ' de ' + pe.dataBR : ''})`;
     const rotuloPRLP = par.prlp && `PRLP${par.prlp.sequencial ? ' nº ' + par.prlp.sequencial : ''}${par.prlp.dataBR ? ' de ' + par.prlp.dataBR : ''}`;
     const rotuloPRLE = par.prle && `PRLE${par.prle.sequencial ? ' nº ' + par.prle.sequencial : ''}${par.prle.dataBR ? ' de ' + par.prle.dataBR : ''}`;
     const rotuloSBTA = par.sbtA && `Substitutivo adotado por comissão (SBT-A${par.sbtA.sequencial ? ' nº ' + par.sbtA.sequencial : ''}${par.sbtA.comissao ? ' — ' + par.sbtA.comissao : ''}${par.sbtA.dataBR ? ' de ' + par.sbtA.dataBR : ''})`;
     const rotuloEMS  = ems && `Emendas do Senado (EMS)${ems.dataBR ? ' de ' + ems.dataBR : ''}`;
     const rotuloSSP  = ssp && `Subemenda Substitutiva de Plenário (SSP)${ssp.dataBR ? ' de ' + ssp.dataBR : ''}`;
 
-    if (ems) {
+    if (it.sigla === 'PEC') {
+      // ── Cenário 9 (PEC) ───────────────────────────────────────────────
+      // Proposta de Emenda à Constituição: o texto que vai a Plenário é o do
+      // parecer de mérito da Comissão Especial. Anexa o ÚLTIMO PRL (parecer do
+      // relator) dessa comissão como documento operativo e a redação original
+      // para o cotejo. O parecer de admissibilidade da CCJC entra adiante (no
+      // laço de pareceres das comissões). Sem PRL da Especial ainda (PEC em
+      // fase de admissibilidade), restam a CCJC e o inteiro teor.
+      if (pe) docs.push({ tipo: 'PRL_ESPECIAL', rotulo: rotuloPRLESP, url: pe.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (ems) {
       // ── Cenários 6/7 (retorno do Senado) ──────────────────────────────
       // Fluxo: o projeto foi aprovado pela Câmara (casa iniciadora), seguiu ao
       // Senado (casa revisora) e retorna agora com emendas ou substitutivo do
@@ -1664,7 +1687,7 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // subemenda ou redação final), pede-se à IA que avalie se a ideia do apensado
   // foi incorporada — os dois textos já estão na mesma chamada.
   const apensadoVsTexto = totalApens &&
-    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL'].includes(d.tipo));
+    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL', 'PRL_ESPECIAL'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
     ? ' Em seguida, como há texto consolidado em votação (substitutivo, subemenda ou redação final), acrescente para cada apensado **uma NOVA linha (um item de lista próprio, logo abaixo do resumo daquele apensado)** dedicada à avaliação de incorporação. Essa linha deve **começar EXATAMENTE** com o marcador `[[ACOLHIMENTO:NIVEL NUMERO/ANO]]`, em que NIVEL é uma destas três palavras — `ACOLHIDO` (ideia incorporada integralmente), `PARCIAL` (incorporada em parte) ou `NAO` (não incorporada) — e NUMERO/ANO é o número do próprio apensado (ex.: `[[ACOLHIMENTO:PARCIAL 1405/2026]]`). Logo após o marcador, escreva 1 a 2 frases justificando, apontando os dispositivos e, se o parecer/relatório mencionar o apensado, o que o(a) relator(a) decidiu; caso contrário, faça o cotejo entre o apensado e o texto em votação. Reproduza o marcador literalmente, sem alterar o formato, e **não** repita a conclusão de acolhimento na linha de resumo — ela vai apenas nesta linha do marcador.'
     : '';
@@ -1729,6 +1752,7 @@ REGRAS RÍGIDAS:
   const hasSBTA    = has('SBT_A');
   const hasPRLP    = has('PRLP');
   const hasPRLE    = has('PRLE');
+  const hasPRLESP  = has('PRL_ESPECIAL');
   const hasSSP     = has('SSP');
   const hasRedacaoCamara = has('AUTOGRAFO') || has('TEXTO_CAMARA');
   const temOriginal = has('REDACAO_ORIGINAL') || hasRedacaoCamara;
@@ -1750,6 +1774,8 @@ REGRAS RÍGIDAS:
   } else if (hasPRLP || hasPRLE) {
     if (hasPRLP) rotulosOperativos.push(rotuloDe('PRLP'));
     if (hasPRLE) rotulosOperativos.push(rotuloDe('PRLE'));
+  } else if (hasPRLESP) {
+    rotulosOperativos.push(rotuloDe('PRL_ESPECIAL'));
   } else if (has('INTEIRO_TEOR')) {
     rotulosOperativos.push(rotuloDe('INTEIRO_TEOR'));
   }
@@ -1785,6 +1811,8 @@ REGRAS RÍGIDAS:
     cenarioHint = `Há substitutivo adotado por comissão (SBT-A anexado), sem parecer preliminar de plenário. Traga o conteúdo do SBT-A da última comissão e cite, se for o caso, as comissões ainda pendentes de parecer.`;
   } else if (hasPRLP || hasPRLE) {
     cenarioHint = `Há parecer preliminar de plenário (PRLP) com substitutivo de plenário. Traga o conteúdo do substitutivo apresentado no último PRLP.${hasPRLP && hasPRLE ? ' Como há PRLP e PRLE anexados, descreva o conteúdo do PRLP (parecer original do relator) e, em seguida, o do PRLE (parecer reformulado às emendas), apontando o que mudou entre um e outro.' : ''}`;
+  } else if (hasPRLESP) {
+    cenarioHint = `Trata-se de Proposta de Emenda à Constituição (PEC). A PEC recebe parecer apenas da CCJC (admissibilidade) e da Comissão Especial (mérito); o texto que vai a Plenário é o do parecer da Comissão Especial. O documento operativo é o último parecer do relator da Comissão Especial (PRL anexado) — traga o conteúdo do substitutivo/texto por ele aprovado, descrevendo as alterações ao texto constitucional. Quando o parecer da CCJC estiver anexado, trate-o como juízo de admissibilidade, não de mérito.`;
   } else {
     cenarioHint = `A proposição não tem parecer preliminar de plenário nem substitutivo de comissão adotado. Traga o conteúdo do projeto original.`;
   }
@@ -1794,6 +1822,8 @@ REGRAS RÍGIDAS:
   let tituloDisposicoes;
   if (hasEMS) {
     tituloDisposicoes = 'Principais Disposições do texto em votação (emendas do Senado)';
+  } else if (hasPRLESP) {
+    tituloDisposicoes = 'Principais Disposições do texto aprovado pela Comissão Especial';
   } else if (hasSBTA || hasSSP || hasPRLP || hasPRLE) {
     tituloDisposicoes = 'Principais Disposições do último substitutivo apresentado';
   } else {
