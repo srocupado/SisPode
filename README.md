@@ -115,7 +115,7 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 - Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
 - Para Redações Finais, localiza o documento próprio na caixa "Documentos Anexos e Referenciados" da ficha de tramitação
 - Adição/remoção manual de itens da pauta com link direto para a ficha da proposição
-- Campo **"Analista responsável"** em cada card (ao lado de "Ver no portal"): texto livre salvo com a análise, exibido na meta do card e no **PDF** exportado
+- Campo **"Responsável"** em cada card (ao lado de "Ver no portal"): texto livre com o nome do(a) analista, salvo junto da análise (e no item da pauta). Aparece na **meta do card** e, no **PDF** exportado, como linha própria **"Responsável: \<nome\>"** logo após os badges de autoria/apensado
 
 **Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
 
