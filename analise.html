@@ -209,6 +209,7 @@
     .an-badge--urg    { background: rgba(255,170,0,.16);  color: #ffcc66; border: 1px solid rgba(255,170,0,.35); }
     .an-badge--neutro { background: rgba(255,255,255,.06);color: var(--text-dim); border: 1px solid var(--border-soft); }
     .an-badge--interesse { background: rgba(155,110,255,.20); color: #c3a6ff; border: 1px solid rgba(155,110,255,.45); }
+    .an-badge--desatual { background: rgba(214,138,0,.22); color: #ffcc66; border: 1px solid rgba(214,138,0,.55); cursor: help; }
     /* Sufixo de acolhimento no chip do apensado (status sensível — só na tela). */
     .an-badge--apens-acolhido  { background: rgba(0,168,89,.22);  color: #4fe39a; border-color: rgba(0,168,89,.5); }
     .an-badge--apens-parcial   { background: rgba(255,170,0,.20); color: #ffcc66; border-color: rgba(255,170,0,.5); }
@@ -421,6 +422,10 @@
         <button id="btn-gerar-todas" class="btn btn-outline btn-sm" disabled title="Gera análise para todos os itens da pauta que ainda não foram analisados">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm1 17.93V18a1 1 0 0 0-2 0v1.93A8 8 0 0 1 4.07 13H6a1 1 0 0 0 0-2H4.07A8 8 0 0 1 11 4.07V6a1 1 0 0 0 2 0V4.07A8 8 0 0 1 19.93 11H18a1 1 0 0 0 0 2h1.93A8 8 0 0 1 13 19.93z"/></svg>
           Gerar todas
+        </button>
+        <button id="btn-verificar-atualizacoes" class="btn btn-outline btn-sm" disabled title="Reconsulta a tramitação e marca as notas cujo texto operativo (parecer/substitutivo/subemenda/emenda do Senado) foi superado por um documento mais recente">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 4v6h-6"/><path d="M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+          Verificar atualizações
         </button>
         <button id="btn-parar-todas" class="btn btn-outline btn-sm" style="display:none;color:#c0392b;border-color:#c0392b" title="Cancela todas as análises em andamento e aborta as chamadas em voo">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1"/></svg>

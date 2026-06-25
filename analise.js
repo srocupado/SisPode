@@ -120,6 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
+  document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
@@ -210,6 +211,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    document.getElementById('btn-verificar-atualizacoes').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -848,6 +850,21 @@ function atualizarBadgesCard(it) {
       : `Matéria com campo de interesse dos seguintes parlamentares: ${interessados.join(', ')}`;
     cont.appendChild(badge);
   }
+
+  // Badge de nota possivelmente desatualizada: surgiu documento operativo novo
+  // depois da geração da análise. Nível automático (usa dados já carregados no
+  // enriquecimento); o botão "Verificar atualizações" cobre EMS/SSP.
+  const desat = it.analise ? desatualizacaoOperativa(it) : null;
+  if (desat?.novos?.length) {
+    const badge = document.createElement('span');
+    badge.className = 'an-badge an-badge--desatual';
+    badge.dataset.role = 'badge-extra';
+    badge.title = 'Documento(s) mais recente(s) na tramitação: ' +
+      desat.novos.map(n => `${n.rotulo}${n.data ? ' de ' + n.data.split('-').reverse().join('/') : ''}`).join('; ') +
+      '. Considere regerar a análise.';
+    badge.textContent = '⚠ Pode estar desatualizada';
+    cont.appendChild(badge);
+  }
 }
 
 // ============================================================
@@ -1365,6 +1382,48 @@ function classificarCenario(docs = []) {
   if (has('PRLP') || has('PRLE'))      return 'Cenário 3 — parecer de plenário (PRLP)';
   if (has('INTEIRO_TEOR') || has('REDACAO_ORIGINAL')) return 'Cenário 1 — inteiro teor (sem parecer)';
   return '';
+}
+
+// ---------- Detecção de nota desatualizada (texto operativo) ----------
+// Considera "operativo" o que está em votação: parecer de plenário (PRLP/PRLE),
+// substitutivo adotado por comissão (SBT-A), subemenda (SSP) e emendas do
+// Senado (EMS). Pareceres de comissão e apensados NÃO marcam desatualização.
+const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A'];
+
+// Documentos operativos ATUAIS, lidos do enriquecimento (sem rede no nível
+// automático; o nível "botão" garante que enr.emendasSenado foi buscado antes).
+function operativosAtuais(it) {
+  const enr = it.enriquecimento || {};
+  const par = enr.pareceresPlenario || {};
+  const es  = enr.emendasSenado || {};
+  const out = [];
+  const add = (tipo, o, rotulo) => { if (o && o.url) out.push({ tipo, url: o.url, data: o.data || null, rotulo }); };
+  add('PRLP', par.prlp, 'parecer do relator (PRLP)');
+  add('PRLE', par.prle, 'parecer às emendas (PRLE)');
+  add('SBT_A', par.sbtA, 'substitutivo de comissão (SBT-A)');
+  add('EMS', es.ems, 'emendas do Senado (EMS)');
+  add('SSP', es.ssp, 'subemenda substitutiva (SSP)');
+  return out;
+}
+
+// Compara o texto operativo da análise salva com o atual. Retorna { novos: [...] }
+// quando surgiu um documento operativo com URL nova E data posterior à do
+// documento operativo mais recente que embasou a análise (a checagem de data
+// evita falso positivo com documentos antigos não-operativos naquele cenário,
+// ex.: PRLP anterior ao retorno do Senado). novos=[] → em dia. null → N/A.
+function desatualizacaoOperativa(it) {
+  if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
+  const salvos = it.analise.documentos.filter(d => TIPOS_OPERATIVOS.includes(d.tipo));
+  const urlsSalvas = new Set(salvos.map(d => d.url));
+  const datasSalvas = salvos
+    .map(d => { const m = (d.rotulo || '').match(/(\d{2})\/(\d{2})\/(\d{4})/); return m ? `${m[3]}-${m[2]}-${m[1]}` : null; })
+    .filter(Boolean)
+    .sort();
+  const dataMaxSalva = datasSalvas.length ? datasSalvas[datasSalvas.length - 1] : null;
+  const novos = operativosAtuais(it).filter(d =>
+    d.url && !urlsSalvas.has(d.url) && (!dataMaxSalva || (d.data && d.data > dataMaxSalva))
+  );
+  return { novos };
 }
 
 async function escolherDocumentos(it) {
@@ -2197,6 +2256,43 @@ function toggleGerarTodas() {
   });
 }
 
+// Verificação completa de notas desatualizadas: reconsulta o texto operativo de
+// cada projeto analisado (incl. EMS/SSP da página de emendas, que o nível
+// automático não carrega) e recompõe os badges. Mostra um resumo ao final.
+async function verificarAtualizacoesPauta() {
+  if (!state.pauta) return;
+  const itens = (state.pauta.itens || []).filter(it => it.tipoCategoria === 'projeto' && it.analise?.documentos);
+  if (!itens.length) { mostrarToast('Nenhuma análise de projeto para verificar.', 'info'); return; }
+
+  const btn = document.getElementById('btn-verificar-atualizacoes');
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  let feitos = 0, desatualizadas = 0;
+  try {
+    for (const it of itens) {
+      btn.innerHTML = `<span class="an-spinner"></span> Verificando ${++feitos}/${itens.length}...`;
+      const enr = it.enriquecimento || (it.enriquecimento = {});
+      // Garante EMS/SSP (cenários 5/6/7) — o enriquecimento padrão não os busca.
+      if (enr.emendasSenado === undefined && enr.idProposicao) {
+        try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
+        catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
+      }
+      const desat = desatualizacaoOperativa(it);
+      if (desat?.novos?.length) desatualizadas++;
+      atualizarBadgesCard(it);
+    }
+    mostrarToast(
+      desatualizadas
+        ? `⚠ ${desatualizadas} de ${itens.length} nota(s) podem estar desatualizadas.`
+        : `✓ Todas as ${itens.length} notas estão em dia com o texto operativo.`,
+      desatualizadas ? 'aviso' : 'sucesso'
+    );
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = orig;
+  }
+}
+
 async function gerarTodasAsAnalises() {
   if (!state.pauta) return;
   await carregarConfig();
@@ -2388,6 +2484,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    document.getElementById('btn-verificar-atualizacoes').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -2548,6 +2645,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
+    document.getElementById('btn-verificar-atualizacoes').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
