@@ -318,7 +318,9 @@ function renderCard(it) {
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Ver no portal
       </a>
-      <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="Analista responsável" title="Nome do(a) analista responsável pela nota — salvo com a análise e exibido no PDF">
+      <label class="an-analista-label" title="Nome do(a) analista responsável pela nota — salvo com a análise e exibido no PDF">Responsável:
+        <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="nome do analista">
+      </label>
       <span class="an-analista-ok" data-role="analista-ok" title="Analista salvo">✓</span>
       <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item da pauta">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
