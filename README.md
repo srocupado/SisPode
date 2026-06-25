@@ -55,9 +55,10 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 - **Aba Dados Abertos**: busca votações por data via API da Câmara (histórico)
 - **Aba Link Portal**: acompanha sessões em andamento pelo portal da Câmara (tempo real)
 - Exibe placar detalhado com votos individuais de cada deputado: Sim, Não, Abstenção, Art. 17, Obstrução, Ausente
-- Filtra resultados pelo partido informado, com deduplicação robusta de deputados (normalização de nomes entre fontes diferentes)
+- Filtra resultados pelo partido informado, com deduplicação robusta de deputados (normalização de nomes entre fontes diferentes) e **complementa a bancada** com os deputados ausentes da votação consultando a API
 - Mostra a orientação da bancada para cada votação
 - Gera **imagem da votação** em alta resolução para compartilhamento (via html2canvas)
+- **Fallback de código-fonte**: se o proxy CORS falhar ao ler a sessão ao vivo, permite colar o HTML da página manualmente
 
 ---
 
@@ -68,8 +69,9 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
 - **Ranking individual** de deputados ordenável por aderência, divergência ou ausência
-- Permite filtrar e detalhar o histórico de votos de um deputado específico
+- Permite filtrar e detalhar o histórico de votos de um deputado específico, com **gráfico circular (donut)** de aderência por votação no detalhe expandido
 - Gráfico temporal da evolução da aderência no período
+- **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
 - Exporta o relatório completo em **Excel (.xlsx)**
 
 ---
@@ -79,7 +81,7 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 Gerencie a participação dos deputados do partido em **comissões permanentes, mistas (MPV) e temporárias**, controlando vagas, acordos e pedidos de designação. O menu superior separa as visões: **Permanentes · Temporárias · MPV · Deputados · Alertas**.
 
 **Comissões Permanentes**
-- Lista as 25 comissões permanentes da Câmara
+- Lista as 30 comissões permanentes da Câmara
 - Configuração do número de vagas (titulares/suplentes) por comissão
 - Designação de titulares e suplentes, com marcação de **vaga de acordo** e badge correspondente
 
@@ -184,13 +186,17 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 - **Via Calendário**: selecione a reunião da CCJC diretamente do calendário institucional
 
 **Geração por IA (Gemini, OpenAI ou Anthropic)**
-- O usuário escolhe o provedor (chave configurada); a lista de modelos pode ser carregada ao vivo da API de cada um
+- O usuário escolhe **um** provedor ativo por vez (chave configurada, compartilhando a mesma configuração do módulo de Plenário); a lista de modelos pode ser carregada ao vivo da API de cada um
 - Para cada projeto: envia o inteiro teor ao modelo e gera resumo + análise técnica
+- **Análise por comissão**: para projetos com pareceres de mais de uma comissão, considera **apenas os documentos vigentes** (a versão mais recente de cada tipo — PRL, SBT etc. — por comissão), descartando versões superadas
+- **Perfis de prompt** (em ⚙ Configurações): biblioteca de instruções complementares compartilhada via Firebase (`/ccjc_prompts`), com um perfil marcado como **padrão da equipe** (`/ccjc_prompt_padrao`) aplicado automaticamente
+- Botão **Analisar selecionados**: gera análises apenas dos projetos marcados na sidebar (checkbox por item), além de "Analisar todos"
+- **Conferência automática de referências** (anti-alucinação): sinaliza Leis/Decretos/Emendas citados pela IA que não aparecem no documento-fonte
 - Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
-- Status visual por item: aguardando · processando · pronto · falha
+- Status visual por item: aguardando · processando · pronto · falha, com **badge "Redação Final"** nos itens desse bloco
 
 **Revisão e edição**
-- Editor inline de cada análise com salvamento automático
+- Editor inline de cada análise, com gravação ao trocar de projeto ou ao salvar a pauta (Firebase + cache local)
 - Possibilidade de revisar e reescrever trechos antes da exportação
 - Histórico de pautas anteriores na sidebar
 
@@ -206,7 +212,7 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 **Pautas de Sessão Conjunta (importação)**
 - Na sidebar, **importe a pauta** de uma Sessão Conjunta: escolha entre as **sessões recentes** (lidas da agenda oficial, filtrando as deliberativas) ou **cole a URL/ID** da pauta (fallback robusto)
 - O parser extrai os itens deliberativos da Ordem do Dia: **Vetos** (reaproveitam todo o fluxo de dispositivos/razões/resumos) e **PLNs / MPVs de crédito**
-- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer nativamente. A análise é **editável** (autosave) e pode ser escrita manualmente
+- Para cada **PLN/MPV**, a extensão lê a página da matéria (ementa, autor) e localiza o **Parecer de Plenário** (PDF); a IA gera uma **análise técnica curta** (1–2 parágrafos) lendo o parecer como **PDF nativo**. A análise é **editável** (autosave) e pode ser escrita manualmente. Para créditos e leis orçamentárias (LOA/LDO/PPA), um **resumo sintético** da ementa (sem IA) é usado no índice e no cabeçalho do export
 - O **export para Word** inclui os PLNs/MPVs da pauta (identificação, autor, ementa e análise), além dos vetos
 - As pautas são **compartilhadas com a equipe** via Firebase (`/congresso_pautas`); a lista viva "Vetos em tramitação" continua como visão padrão (botão "Voltar aos vetos ao vivo")
 
@@ -219,7 +225,7 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 - Ao **abrir** um veto, a extensão busca a página oficial de detalhe e extrai cada dispositivo vetado (código `NN.AA.NNN`, descrição normativa, texto vetado integral e situação)
 - A IA gera automaticamente um **resumo curto (1–2 frases) de cada dispositivo**, explicando em linguagem clara o que ele estabelecia — ou seja, o que deixa de valer com o veto — sem recomendação de voto e sem inventar
 - Abaixo da ementa, a IA também gera um **"Resumo do Projeto"** bem sintético (1–2 linhas; 3–4 linhas para Veto Total), explicando o objetivo geral da proposição
-- **Razões do Veto**: a extensão localiza o PDF da Mensagem de veto (documento da Presidência da República na aba Documentos), lê o texto e a IA resume os motivos do veto — **agrupando os dispositivos que compartilham a mesma justificativa** (1–2 linhas por grupo, abaixo da análise do dispositivo). Em **Veto Total**, gera um resumo único (3–4 linhas) das razões do projeto. Tudo na mesma operação de geração dos resumos
+- **Razões do Veto**: a extensão localiza o PDF da Mensagem de veto (documento da Presidência da República na aba Documentos), lê o texto e a IA resume os motivos do veto — **agrupando os dispositivos que compartilham a mesma justificativa** (1–2 linhas por grupo, exibidas no primeiro dispositivo do grupo). Em **Veto Total**, gera um resumo único (3–4 linhas) das razões do projeto. Tudo na mesma operação de geração dos resumos
 - Botão para **ver o texto integral** de cada dispositivo vetado e link para a página oficial
 - Os resumos são **compartilhados com toda a equipe via Firebase** (`/vetos_resumos/{veto}`) e cacheados localmente, evitando reprocessamento e gasto de API
 
@@ -238,7 +244,7 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 - **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
 - **Edição inline** também do Resumo do Projeto e das Razões do Veto (além dos resumos dos dispositivos), com autosave
 - **Seleção de vetos** (checkbox por veto + "selecionar/desmarcar todos") para escolher o que entra na exportação
-- **Exportação para Word (.docx) e PDF** dos vetos selecionados (ou de todos os visíveis), com o mesmo conteúdo e formatação: **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde), **índice na 1ª página** com a página de cada item (links internos clicáveis), e, por veto, o Resumo do Projeto, os dispositivos (`código — Resumo: <análise>`) e as **razões agrupadas ao final** (uma por grupo, com "aplica-se a art. X, art. Y…"); inclui também a seção de PLNs/MPVs
+- **Exportação para Word (.docx) e PDF** dos vetos selecionados (ou de todos os visíveis), com o mesmo conteúdo e formatação: **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde), **índice na 1ª página** com a página de cada item (links internos clicáveis e **coloridos por casa iniciadora** — verde para Câmara, azul para Senado, com legenda), e, por veto, o Resumo do Projeto, os dispositivos (`código — Resumo: <análise>`) e as **razões agrupadas** (uma por grupo, exibida no primeiro dispositivo do grupo, com "aplica-se a art. X, art. Y…"); inclui também a seção de PLNs/MPVs
   - O **Word** numera o índice via campos (o Word preenche ao abrir); o **PDF** é gerado por impressão paginada com **Paged.js** (numeração de índice via `target-counter`), com "Salvar como PDF"
 
 ---
