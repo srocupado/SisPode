@@ -105,6 +105,7 @@ const app = {
   ultimoSync: null,    // ISO da última gravação no Firebase
   perfis: [],          // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
   perfilPadraoId: null,// id do perfil de prompt aplicado por padrão (compartilhado pela equipe)
+  deputados: [],       // [{ id, nome, uf, partido, idCamara }] — bancada do partido (compartilhada com Comissões)
   sessoes: [],         // [{ id, nome, criadoEm, criadoPor, atualizadoEm, total, comResumo }] (metadados)
   sessaoAtiva: null,   // { id, nome } quando uma sessão salva está carregada (null = lista ao vivo)
   toastTimer: null,
@@ -129,6 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   wireEventos();
   carregarBibliotecaPerfis().catch(e => console.warn('Perfis indisponíveis:', e.message));
   carregarSessoes().then(renderSidebar).catch(e => console.warn('Sessões indisponíveis:', e.message));
+  carregarDeputados().catch(e => console.warn('Bancada indisponível:', e.message));
 
   // Render imediato a partir do cache local (se houver) e refresh em segundo plano.
   const cache = await carregarCacheLocal();
@@ -362,6 +364,7 @@ function construirVeto(d) {
     razoesTexto: '',           // texto extraído do PDF (transitório — não persistido)
     razoesGrupos: [],          // [{ codigos:[...], resumo }] — razões por grupo de dispositivos
     razoesProjeto: '',         // resumo único das razões (Veto Total)
+    interessados: [],          // [{ id, nome, uf }] — deputados do partido com interesse no veto
     aberto: false,
     resumindo: false,
     carregandoDetalhe: false,
@@ -1021,6 +1024,7 @@ function vetoCasaBusca(v, termo) {
 //  RENDER
 // ============================================================
 function renderLista() {
+  fecharSeletorInteressados();
   const lista = document.getElementById('cn-lista');
   const termo = app.busca;
   const filtrados = app.vetos.filter(v => vetoCasaBusca(v, termo));
@@ -1058,6 +1062,7 @@ function renderLista() {
   lista.innerHTML = html || '<div class="cn-empty">Nenhum item corresponde à busca.</div>';
   wireCards();
   if (app.sessaoAtiva) wirePlnCards();
+  wireInteresse();
 
   // Controles de seleção (quando há vetos ou PLNs visíveis para exportar)
   if (filtrados.length || plnsVisiveis.length) {
@@ -1118,6 +1123,7 @@ function renderVeto(v, termo) {
         <div class="cn-veto-badges">${badgeSobresta}${badgeQtd}</div>
         <svg class="cn-veto-caret" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
       </div>
+      ${renderInteresse(v.key, v.interessados)}
       ${v.aberto ? renderCorpo(v, termo) : ''}
     </div>`;
 }
@@ -1507,7 +1513,9 @@ async function mesclarResumosFirebase() {
 // importação de pauta (para herdar resumos/razões sem reanalisar).
 function aplicarResumoCompartilhado(v, reg) {
   if (!reg) return;
-  v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
+  if (reg.provedor || reg.modelo || reg.atualizadoEm)
+    v.resumoMeta = { provedor: reg.provedor, modelo: reg.modelo, atualizadoEm: reg.atualizadoEm };
+  if (reg.interessados && !(v.interessados && v.interessados.length)) v.interessados = aArray(reg.interessados);
   if (reg.resumoProjeto && !v.resumoProjeto) v.resumoProjeto = reg.resumoProjeto;
   if (reg.razoesProjeto && !v.razoesProjeto) v.razoesProjeto = reg.razoesProjeto;
   if (Array.isArray(reg.razoesGrupos) && !(v.razoesGrupos && v.razoesGrupos.length)) v.razoesGrupos = reg.razoesGrupos.filter(Boolean);
@@ -1848,6 +1856,7 @@ async function abrirPauta(id) {
       ...v,
       dispositivos: arr(v.dispositivos),
       razoesGrupos: arr(v.razoesGrupos),
+      interessados: arr(v.interessados),
       aberto: false, resumindo: false, carregandoDetalhe: false,
     }));
     vetos.sort((a, b) => (b.ano - a.ano) || (b.num - a.num));
@@ -1856,7 +1865,7 @@ async function abrirPauta(id) {
     plns.sort((a, b) => (a.sigla || '').localeCompare(b.sigla || '') || (a.num - b.num));
     app.sessaoAtiva = { id, nome: s.nome, data: s.data,
       vetoKeys: new Set(vetos.map(v => v.key)),   // só estes vetos podem ser gravados na pauta
-      plns: plns.map(p => ({ ...p, aberto: false, resumindoAnalise: false })) };
+      plns: plns.map(p => ({ ...p, interessados: arr(p.interessados), aberto: false, resumindoAnalise: false })) };
     app.selecionados.clear();
     renderSidebar();
     renderLista();
@@ -2069,7 +2078,7 @@ async function importarPauta(url) {
     const plns = [];
     for (const it of p.plns) {
       setImportStatus(`Carregando itens… ${++feito}/${total}`);
-      const pln = { ...it, ementa: '', autor: '', parecerUrl: '', analise: '', analiseMeta: null, resumindoAnalise: false, aberto: false };
+      const pln = { ...it, ementa: '', autor: '', parecerUrl: '', analise: '', analiseMeta: null, interessados: [], resumindoAnalise: false, aberto: false };
       try { Object.assign(pln, await parseMateria(it.materiaUrl)); } catch (_) {}
       plns.push(pln);
     }
@@ -2188,6 +2197,7 @@ function renderPlnCard(p, termo) {
         <div class="cn-veto-materia">${marca(p.autor || '', termo)}</div>
       </div>
     </div>
+    ${renderInteresse(p.key, p.interessados)}
     <div class="cn-veto-body">
       ${p.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(p.ementa, termo)}</div>` : ''}
       <div class="cn-veto-acoes">
@@ -2206,6 +2216,225 @@ function wirePlnCards() {
       const p = (app.sessaoAtiva?.plns || []).find(x => x.key === b.dataset.plnAnalisar);
       if (p) resumirPLN(p);
     }));
+}
+
+// ============================================================
+//  DEPUTADOS INTERESSADOS (por veto e por PLN)
+// ============================================================
+// Bancada do partido — fonte híbrida: lê o cadastro compartilhado /deputados
+// (mantido pelo módulo de Comissões, populado da API da Câmara) e, se estiver
+// vazio, busca direto da API da Câmara e popula. O marcador "interessados" é
+// compartilhado pela equipe (vetos ao vivo) e herdado pela pauta de sessão.
+
+async function fbCarregarDeputados() {
+  try {
+    const r = await fetch(`${FIREBASE_URL}/deputados.json`);
+    if (!r.ok) return [];
+    const data = await r.json();
+    if (!data) return [];
+    return Object.entries(data)
+      .map(([id, d]) => ({ id, nome: d.nome || '(sem nome)', uf: d.uf || '', partido: d.partido || '', idCamara: d.idCamara }))
+      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  } catch { return []; }
+}
+
+async function buscarBancadaCamara() {
+  let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
+  const out = [];
+  while (url) {
+    const r = await fetch(url, { headers: { Accept: 'application/json' } });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const data = await r.json();
+    (data.dados || []).forEach(d => out.push({ id: `cam_${d.id}`, nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id }));
+    url = (data.links || []).find(l => l.rel === 'next')?.href || '';
+  }
+  return out;
+}
+
+// Busca na API e faz upsert no cadastro compartilhado /deputados (preserva
+// inclusões manuais, que têm outro padrão de id).
+async function atualizarBancadaCamara() {
+  const lista = await buscarBancadaCamara();
+  await Promise.all(lista.map(d => fetch(`${FIREBASE_URL}/deputados/${d.id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nome: d.nome, uf: d.uf, partido: d.partido, idCamara: d.idCamara }),
+  }).catch(() => {})));
+  app.deputados = await fbCarregarDeputados();
+  if (!app.deputados.length) app.deputados = lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return app.deputados;
+}
+
+async function carregarDeputados() {
+  app.deputados = await fbCarregarDeputados();
+  if (!app.deputados.length) {
+    try { await atualizarBancadaCamara(); }
+    catch (e) { console.warn('Bancada da Câmara indisponível:', e.message); }
+  }
+}
+
+function aArray(x) { return Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []); }
+
+function itemPorKey(key) {
+  const v = app.vetos.find(x => x.key === key);
+  if (v) return { item: v, tipo: 'veto' };
+  const p = (app.sessaoAtiva?.plns || []).find(x => x.key === key);
+  if (p) return { item: p, tipo: 'pln' };
+  return null;
+}
+
+function chipsInteresse(interessados) {
+  const arr = aArray(interessados);
+  if (!arr.length) return `<span class="cn-interesse-none">ninguém marcado</span>`;
+  return arr.map(d => `<span class="cn-interesse-chip">${escapeHtml(d.nome || '')}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>`).join('');
+}
+
+function renderInteresse(key, interessados) {
+  return `<div class="cn-interesse" data-key="${key}">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    <span class="cn-interesse-titulo">Interessados:</span>
+    <span class="cn-interesse-chips">${chipsInteresse(interessados)}</span>
+    <button class="cn-interesse-btn" data-interesse="${key}" title="Marcar deputados do partido interessados neste item">marcar ▾</button>
+  </div>`;
+}
+
+function wireInteresse() {
+  document.querySelectorAll('[data-interesse]').forEach(b =>
+    b.addEventListener('click', e => {
+      e.stopPropagation();
+      abrirSeletorInteressados(b.dataset.interesse, b);
+    }));
+}
+
+function atualizarChipsInteresse(key) {
+  const el = document.querySelector(`.cn-interesse[data-key="${CSS.escape(key)}"] .cn-interesse-chips`);
+  const found = itemPorKey(key);
+  if (el && found) el.innerHTML = chipsInteresse(found.item.interessados);
+}
+
+// ---------- Popover de seleção ----------
+let _interesseTimers = {};
+
+function fecharSeletorInteressados() {
+  document.getElementById('cn-interesse-pop')?.remove();
+  document.removeEventListener('click', onDocClickInteresse, true);
+  document.removeEventListener('keydown', onKeydownInteresse, true);
+}
+
+function onDocClickInteresse(e) {
+  if (e.target.closest('#cn-interesse-pop') || e.target.closest('[data-interesse]')) return;
+  fecharSeletorInteressados();
+}
+function onKeydownInteresse(e) { if (e.key === 'Escape') fecharSeletorInteressados(); }
+
+function popListaHtml(item, filtro) {
+  const sel = new Set(aArray(item.interessados).map(d => d.id));
+  const f = normalizar(filtro || '');
+  const filtrados = app.deputados.filter(d => !f || normalizar(`${d.nome} ${d.uf} ${d.partido}`).includes(f));
+  if (!filtrados.length) {
+    return `<div class="cn-interesse-vazio">${app.deputados.length ? 'Nenhum nome para o filtro.' : 'Bancada não carregada — clique em “↻ bancada”.'}</div>`;
+  }
+  return filtrados.map(d => `<label class="cn-interesse-opt">
+      <input type="checkbox" data-dep="${escapeHtml(d.id)}" ${sel.has(d.id) ? 'checked' : ''}>
+      <span>${escapeHtml(d.nome)}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>
+    </label>`).join('');
+}
+
+function abrirSeletorInteressados(key, btnEl) {
+  const aberto = document.getElementById('cn-interesse-pop');
+  if (aberto && aberto.dataset.key === key) { fecharSeletorInteressados(); return; }
+  fecharSeletorInteressados();
+  const found = itemPorKey(key);
+  if (!found) return;
+  const item = found.item;
+
+  const pop = document.createElement('div');
+  pop.className = 'cn-interesse-pop';
+  pop.id = 'cn-interesse-pop';
+  pop.dataset.key = key;
+  pop.innerHTML = `
+    <div class="cn-interesse-pop-top">
+      <input type="text" class="cn-interesse-busca" placeholder="Filtrar deputado…" autocomplete="off">
+      <button class="cn-interesse-refresh" title="Atualizar a bancada pela API da Câmara">↻ bancada</button>
+    </div>
+    <div class="cn-interesse-lista">${popListaHtml(item, '')}</div>`;
+  document.body.appendChild(pop);
+
+  const r = btnEl.getBoundingClientRect();
+  pop.style.top = Math.min(r.bottom + 4, window.innerHeight - pop.offsetHeight - 8) + 'px';
+  pop.style.left = Math.min(r.left, window.innerWidth - pop.offsetWidth - 8) + 'px';
+
+  const listaEl = pop.querySelector('.cn-interesse-lista');
+  const buscaEl = pop.querySelector('.cn-interesse-busca');
+  const refreshEl = pop.querySelector('.cn-interesse-refresh');
+
+  buscaEl.addEventListener('input', () => { listaEl.innerHTML = popListaHtml(item, buscaEl.value); });
+  listaEl.addEventListener('change', e => {
+    const cb = e.target.closest('input[data-dep]');
+    if (cb) onInteresseToggle(key, cb.dataset.dep, cb.checked);
+  });
+  refreshEl.addEventListener('click', async () => {
+    refreshEl.disabled = true; refreshEl.textContent = '↻ …';
+    try { await atualizarBancadaCamara(); mostrarToast('Bancada atualizada.', 'sucesso'); }
+    catch (err) { mostrarToast('Não foi possível atualizar a bancada: ' + err.message, 'erro'); }
+    finally { refreshEl.disabled = false; refreshEl.textContent = '↻ bancada'; listaEl.innerHTML = popListaHtml(item, buscaEl.value); }
+  });
+  buscaEl.focus();
+
+  setTimeout(() => {
+    document.addEventListener('click', onDocClickInteresse, true);
+    document.addEventListener('keydown', onKeydownInteresse, true);
+  }, 0);
+}
+
+function onInteresseToggle(key, depId, checked) {
+  const found = itemPorKey(key);
+  if (!found) return;
+  const item = found.item;
+  item.interessados = aArray(item.interessados);
+  if (checked) {
+    if (!item.interessados.some(d => d.id === depId)) {
+      const dep = app.deputados.find(d => d.id === depId);
+      if (dep) item.interessados.push({ id: dep.id, nome: dep.nome, uf: dep.uf || '' });
+    }
+  } else {
+    item.interessados = item.interessados.filter(d => d.id !== depId);
+  }
+  atualizarChipsInteresse(key);
+  agendarPersistInteresse(key);
+}
+
+function agendarPersistInteresse(key) {
+  clearTimeout(_interesseTimers[key]);
+  _interesseTimers[key] = setTimeout(() => persistirInteresse(key), 600);
+}
+
+// Grava SÓ o nó `interessados` (PATCH cirúrgico) para não sobrescrever resumos
+// já existentes. Live → vetos_resumos; sessão → dentro da pauta (veto ou PLN).
+async function persistirInteresse(key) {
+  const found = itemPorKey(key);
+  if (!found) return;
+  const { item, tipo } = found;
+  const valor = aArray(item.interessados);
+  let url;
+  if (tipo === 'pln') {
+    if (!app.sessaoAtiva) return;
+    url = `${FIREBASE_URL}/${PAUTAS_PATH}/${app.sessaoAtiva.id}/plns/${key}/interessados.json`;
+  } else if (app.sessaoAtiva) {
+    if (app.sessaoAtiva.vetoKeys && !app.sessaoAtiva.vetoKeys.has(key)) { salvarCacheLocal(); return; }
+    url = `${FIREBASE_URL}/${PAUTAS_PATH}/${app.sessaoAtiva.id}/vetos/${key}/interessados.json`;
+  } else {
+    url = `${FIREBASE_URL}/vetos_resumos/${key}/interessados.json`;
+  }
+  atualizarStatusSync('sincronizando');
+  try {
+    const r = await fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(valor) });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    atualizarStatusSync('ok');
+  } catch (e) {
+    console.warn('Interessados — gravação falhou:', e.message);
+    atualizarStatusSync('offline');
+  }
+  salvarCacheLocal();
 }
 
 // ============================================================

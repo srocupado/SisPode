@@ -1708,6 +1708,60 @@ body {
 .cn-veto-caret { color: var(--text-dim); transition: transform 0.2s; flex-shrink: 0; }
 .cn-veto.aberto .cn-veto-caret { transform: rotate(90deg); }
 
+/* ---- Deputados interessados (faixa sempre visível no card) ---- */
+.cn-interesse {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: rgba(255,255,255,0.02);
+}
+.cn-interesse > svg { color: var(--text-dim); flex-shrink: 0; }
+.cn-interesse-titulo { font-size: 11px; font-weight: 600; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.3px; flex-shrink: 0; }
+.cn-interesse-chips { display: flex; gap: 6px; flex-wrap: wrap; flex: 1; min-width: 0; }
+.cn-interesse-none { font-size: 12px; color: var(--text-dim); font-style: italic; }
+.cn-interesse-chip {
+  font-size: 11px; font-weight: 600; color: var(--text);
+  background: var(--accent-muted); border: 1px solid rgba(31,165,165,0.35);
+  padding: 2px 8px; border-radius: 20px; white-space: nowrap;
+}
+.cn-interesse-chip small { font-weight: 500; color: var(--text-dim); }
+.cn-interesse-btn {
+  font-size: 11px; font-weight: 600; color: var(--accent);
+  background: transparent; border: 1px solid var(--border-soft);
+  padding: 3px 10px; border-radius: 6px; cursor: pointer; white-space: nowrap; flex-shrink: 0;
+}
+.cn-interesse-btn:hover { border-color: var(--accent); background: var(--accent-muted); }
+
+/* ---- Popover de seleção de deputados ---- */
+.cn-interesse-pop {
+  position: fixed; z-index: 1000; width: 280px; max-height: 320px;
+  display: flex; flex-direction: column;
+  background: var(--card); border: 1px solid var(--accent);
+  border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.45);
+  overflow: hidden;
+}
+.cn-interesse-pop-top { display: flex; gap: 6px; padding: 8px; border-bottom: 1px solid var(--border); }
+.cn-interesse-busca {
+  flex: 1; min-width: 0; font-size: 12px; color: var(--text);
+  background: var(--bg); border: 1px solid var(--border-soft); border-radius: 6px; padding: 5px 8px;
+}
+.cn-interesse-busca:focus { outline: none; border-color: var(--accent); }
+.cn-interesse-refresh {
+  font-size: 11px; color: var(--text-dim); background: transparent;
+  border: 1px solid var(--border-soft); border-radius: 6px; padding: 5px 8px; cursor: pointer; white-space: nowrap;
+}
+.cn-interesse-refresh:hover { border-color: var(--accent); color: var(--accent); }
+.cn-interesse-refresh:disabled { opacity: 0.6; cursor: default; }
+.cn-interesse-lista { overflow-y: auto; padding: 4px; }
+.cn-interesse-opt {
+  display: flex; align-items: center; gap: 8px; padding: 6px 8px;
+  border-radius: 6px; cursor: pointer; font-size: 13px; color: var(--text);
+}
+.cn-interesse-opt:hover { background: rgba(255,255,255,0.05); }
+.cn-interesse-opt input { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); margin: 0; flex-shrink: 0; }
+.cn-interesse-opt small { color: var(--text-dim); }
+.cn-interesse-vazio { padding: 14px 10px; font-size: 12px; color: var(--text-dim); text-align: center; }
+
 .cn-badge { font-size: 10px; font-weight: 600; padding: 3px 8px; border-radius: 20px; white-space: nowrap; letter-spacing: 0.2px; }
 .cn-badge--sobresta { background: rgba(239,68,68,0.16); color: #fca5a5; border: 1px solid rgba(239,68,68,0.3); }
 .cn-badge--prazo    { background: rgba(34,197,94,0.14); color: #86efac; border: 1px solid rgba(34,197,94,0.28); }
