@@ -243,13 +243,17 @@ function parsearPautaExtenso(texto) {
     const apensM = bloco.match(/Tendo\s+apensad[oa]s?\s*(?:\(\d+\)\s*)?(?:os?\s+)?([\s\S]*?)(?:\.\s|\n\s*APROVADO|\n\s*RELATOR|\n\s*Pendente|\n\s*$)/i);
     if (apensM) {
       const lista = apensM[1];
-      const reAp = /(PLs?|PLPs?|PECs?|PDLs?|MPVs?|PRCs?)\s*([\d.]+)\s*\/\s*(\d{2,4})/gi;
-      let am;
+      // A sigla pode vir uma única vez no plural cobrindo vários números
+      // ("os PLs 2.714/23 e 582/24"); por isso é OPCIONAL e, quando ausente,
+      // o número herda a última sigla vista. (PLP antes de PL no alternation.)
+      const reAp = /(PLPs?|PLs?|PECs?|PDLs?|MPVs?|PRCs?)?\s*([\d.]+)\s*\/\s*(\d{2,4})/gi;
+      let am, ultSigla = null;
       while ((am = reAp.exec(lista)) !== null) {
-        let sigla = am[1].toUpperCase().replace(/S$/, '');
+        if (am[1]) ultSigla = am[1].toUpperCase().replace(/S$/, '');
+        if (!ultSigla) continue;
         const ano2dig = am[3];
         const anoF = ano2dig.length === 2 ? (parseInt(ano2dig, 10) > 50 ? '19' + ano2dig : '20' + ano2dig) : ano2dig;
-        apensadosTexto.push({ sigla, numero: limpaNumero(am[2]), ano: anoF });
+        apensadosTexto.push({ sigla: ultSigla, numero: limpaNumero(am[2]), ano: anoF });
       }
     }
 
@@ -474,23 +478,29 @@ function extrairPareceresComissao(bloco) {
   const trechoMatch = bloco.match(/tendo\s+parecer[es]*[\s\S]*?(?=Pendente\s+de\s+parecer|APROVADO\s+O\s+REQUERIMENTO|(?:\n|^)\s*RELATOR(?:A)?:\s*DEP\.|\n\s*Tendo\s+apens|$)/i);
   if (!trechoMatch) return pareceres;
 
-  const trecho = trechoMatch[0].replace(/\s+/g, ' ');
-  // Quebra a cada ocorrência de "Comissão de"; partes[0] é o prefixo
-  // ("tendo parecer da " ou "; e tendo pareceres proferidos em plenário: ").
-  const partes = trecho.split(/\s*(?:da\s+)?Comiss[ãa]o\s+de\s+/i);
-  // partes[0] = prefixo "tendo parecer"; demais = cada parecer
-  for (let i = 1; i < partes.length; i++) {
-    const t = partes[i].trim();
-    if (!t) continue;
+  let trecho = trechoMatch[0].replace(/\s+/g, ' ');
+  // Remove o prefixo "tendo parecer(es) [da Comissão de | das Comissões de:]".
+  trecho = trecho.replace(/^tendo\s+parecer(?:es)?\s+(?:proferidos?\s+em\s+plen[áa]rio:?\s*)?(?:d[ao]s?\s+)?Comiss(?:[ãa]o|[õo]es)\s+de:?\s*/i, '');
+  // Cada comissão da lista é separada por ";". Isso cobre os DOIS formatos:
+  //  (a) singular repetido — "da Comissão de X, pela ...; da Comissão de Y, ...";
+  //  (b) lista plural — "Comissões de: X, ...; Y, ...; e Z, ..." (só a 1ª traz
+  //      "Comissão de"; as demais vêm apenas com o nome).
+  const segs = trecho.split(/;\s*/);
+  for (let seg of segs) {
+    // Limpa conectores/prefixos no início de cada segmento.
+    seg = seg.trim()
+      .replace(/^e\s+/i, '')
+      .replace(/^d[ao]s?\s+(?=Comiss)/i, '')                  // artigo antes de "Comissão"
+      .replace(/^Comiss(?:[ãa]o|[õo]es)\s+de:?\s+/i, '');     // "Comissão de" (mantém "Comissão Especial")
+    if (!seg) continue;
     // Nome da comissão pode conter vírgulas (ex.: "Indústria, Comércio e
     // Serviços"). Consome o nome até a vírgula que antecede o conector de
     // posição ("pela", "pelo", "no mérito", "favorável", etc.).
-    const m = t.match(/^([^;:]{3,200}?),\s+(?=pel[oa]\b|no\s+m[ée]rito|sem\s+m[ée]rito|sem\s+manifesta|favor[áa]vel|contr[áa]rio|por\s+|que)([\s\S]+?)(?=\(Relator(?:a)?:|;|$)/i);
+    const m = seg.match(/^([^;:]{3,200}?),\s+(?=pel[oa]\b|no\s+m[ée]rito|sem\s+m[ée]rito|sem\s+manifesta|favor[áa]vel|contr[áa]rio|por\s+|que)([\s\S]+?)(?=\(Relator(?:a)?:|$)/i);
     if (!m) continue;
     const comissao = m[1].replace(/\s+/g, ' ').trim();
     let posicao = m[2].replace(/\s+/g, ' ').trim().replace(/[.,;()]+$/, '');
-    // Captura relator dentro do próprio t (busca explícita pelo padrão)
-    const relMatch = t.match(/\(\s*Relator(?:a)?:\s*([^)]+?)\s*\)/i);
+    const relMatch = seg.match(/\(\s*Relator(?:a)?:\s*([^)]+?)\s*\)/i);
     pareceres.push({
       comissao,
       posicao,
