@@ -851,10 +851,9 @@ function atualizarBadgesCard(it) {
     cont.appendChild(badge);
   }
 
-  // Badge de nota possivelmente desatualizada: surgiu documento operativo novo
-  // depois da geração da análise. Nível automático (usa dados já carregados no
-  // enriquecimento); o botão "Verificar atualizações" cobre EMS/SSP.
-  const desat = it.analise ? desatualizacaoOperativa(it) : null;
+  // Badge de nota possivelmente desatualizada: só aparece após o analista rodar
+  // "Verificar atualizações" (sob demanda) — o resultado fica em it.desatualizacao.
+  const desat = it.desatualizacao;
   if (desat?.novos?.length) {
     const badge = document.createElement('span');
     badge.className = 'an-badge an-badge--desatual';
@@ -1263,6 +1262,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       refsSuspeitas,
     };
     it.analiseStatus = 'ok';
+    it.desatualizacao = null;   // recém-gerada com os docs atuais — sem alerta
 
     renderAnaliseCard(it);
     fbSalvarAnalise(it).catch(e => console.warn('Firebase save falhou:', e.message));
@@ -2277,8 +2277,9 @@ async function verificarAtualizacoesPauta() {
         try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
         catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
       }
-      const desat = desatualizacaoOperativa(it);
-      if (desat?.novos?.length) desatualizadas++;
+      const desat = desatualizacaoOperativa(it) || { novos: [] };
+      it.desatualizacao = desat;          // resultado da verificação sob demanda
+      if (desat.novos.length) desatualizadas++;
       atualizarBadgesCard(it);
     }
     mostrarToast(
