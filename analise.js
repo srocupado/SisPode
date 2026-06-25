@@ -3023,13 +3023,14 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const autorHtml = htmlAutorRealcado(it);
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
     const analista = it.analista || it.analise?.analista || '';
-    const analistaHtml = analista ? ` · Analista: ${esc(analista)}` : '';
+    const analistaHtml = analista ? `<div class="responsavel">Responsável: <b>${esc(analista)}</b></div>` : '';
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
     const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(it.analise.markdown)) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
-      ${(autor || relator || analistaHtml) ? `<div class="item-meta">${autorHtml}${relator}${analistaHtml}</div>` : ''}
+      ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
+      ${analistaHtml}
       ${corpo}
     </div>`;
   }).join('');
@@ -3058,6 +3059,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .item-h { font-size:13pt; font-weight:700; color:#003c1f; border-bottom:1px solid #ccc; padding-bottom:3px; margin:18px 0 4px; page-break-after:avoid; break-after:avoid; }
     .item-meta { font-size:9pt; color:#555; margin-bottom:4px; }
     .badges { margin:2px 0 6px; font-size:9pt; }
+    .responsavel { font-size:9pt; color:#444; margin:2px 0 6px; }
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
     .badge-pode { background:#d3f5e2; color:#006633; }
     .badge-apens { background:#d8eef0; color:#02484d; }
