@@ -3065,9 +3065,16 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   const meta = `${esc(pauta.titulo || '')}${pauta.periodo ? ' · ' + esc(pauta.periodo) : ''} · Gerado em ${formatDataHora(new Date().toISOString())} · ${itens.length} item(ns)`;
 
+  // Legenda das marcas de autoria — só aparece se algum item de fato tiver A/AP.
+  const temAutoria = itens.some(it => it.enriquecimento?.autoriaPodemos || (it.enriquecimento?.apensadosPodemos || []).length);
+  const legenda = temAutoria
+    ? `<p class="indice-legenda"><b>A</b> = Autoria do Podemos · <b>AP</b> = Autoria do Podemos em apensado</p>`
+    : '';
+
   const indice = itens.length ? `
     <section class="indice">
       <h2>Índice</h2>
+      ${legenda}
       <ul>
         ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
       </ul>
@@ -3104,7 +3111,9 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
     .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
     .indice { break-after:page; page-break-after:always; }
-    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:8px; }
+    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
+    .indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
+    .indice-legenda b { font-style:normal; color:#006633; }
     .indice ul { list-style:none; margin:0; padding:0; }
     .indice li { font-size:10.5pt; margin-bottom:4px; }
     .indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
