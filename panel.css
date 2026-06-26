@@ -1708,6 +1708,19 @@ body {
 .cn-veto-caret { color: var(--text-dim); transition: transform 0.2s; flex-shrink: 0; }
 .cn-veto.aberto .cn-veto-caret { transform: rotate(90deg); }
 
+/* ---- Seleção de itens para o PDF (módulo Análise de Pauta) ---- */
+.an-selbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 8px 12px; margin-bottom: 10px;
+  background: var(--accent-muted); border: 1px solid var(--border-soft);
+  border-radius: 8px; font-size: 12.5px; color: var(--text-dim);
+}
+.an-selbar-info { flex: 1; min-width: 180px; }
+.an-selbar-info b { color: var(--text); }
+.an-card-sel { display: flex; align-items: center; flex-shrink: 0; cursor: pointer; padding-right: 2px; margin-top: 7px; }
+.an-card-sel input { width: 16px; height: 16px; cursor: pointer; accent-color: var(--accent); margin: 0; }
+.an-card.sel-on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent) inset; }
+
 /* ---- Deputados interessados (faixa sempre visível no card) ---- */
 .cn-interesse {
   display: flex; align-items: center; gap: 8px; flex-wrap: wrap;

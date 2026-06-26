@@ -89,6 +89,7 @@ const state = {
   promptsBiblioteca: [],       // [{ id, nome, texto, criadoPor, criadoEm, atualizadoEm }] — Firebase compartilhado
   promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
   interesse: null,             // { lista:[{id,nome}], dados:{idDep:{temas,perfil}}, carregado } — Firebase compartilhado
+  selecionados: new Set(),     // chaves marcadas para o PDF (vazio = exporta todos)
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -260,12 +261,34 @@ function gerarIdPauta(periodo, fileName) {
 //  RENDER
 // ============================================================
 function renderizarPauta() {
+  // Descarta seleções de chaves que não existem mais (troca de pauta, remoção).
+  const chavesAtuais = new Set(state.pauta.itens.map(it => it.chave));
+  for (const k of state.selecionados) if (!chavesAtuais.has(k)) state.selecionados.delete(k);
+
   document.getElementById('pauta-titulo').textContent = state.pauta.titulo;
   document.getElementById('pauta-meta').textContent =
     `${state.pauta.itens.length} itens · carregada em ${formatDataHora(state.pauta.uploadedAt)}`;
 
   const cont = document.getElementById('lista-itens');
   cont.innerHTML = '';
+
+  // Barra de seleção para o PDF (vazio = exporta todos).
+  cont.insertAdjacentHTML('beforeend', `
+    <div class="an-selbar">
+      <span class="an-selbar-info" id="an-selbar-info"></span>
+      <button class="btn btn-ghost btn-sm" id="an-sel-todos">Selecionar todos</button>
+      <button class="btn btn-ghost btn-sm" id="an-sel-limpar">Limpar seleção</button>
+    </div>`);
+  cont.querySelector('#an-sel-todos').addEventListener('click', () => {
+    state.pauta.itens.forEach(it => state.selecionados.add(it.chave));
+    document.querySelectorAll('.an-card').forEach(c => { const cb = c.querySelector('[data-role=sel-pdf]'); if (cb) { cb.checked = true; c.classList.add('sel-on'); } });
+    atualizarSelecaoPdf();
+  });
+  cont.querySelector('#an-sel-limpar').addEventListener('click', () => {
+    state.selecionados.clear();
+    document.querySelectorAll('.an-card').forEach(c => { const cb = c.querySelector('[data-role=sel-pdf]'); if (cb) { cb.checked = false; c.classList.remove('sel-on'); } });
+    atualizarSelecaoPdf();
+  });
 
   // Seções, na ordem em que constam na pauta
   const rfs  = state.pauta.itens.filter(i => i.tipoCategoria === 'redacao_final');
@@ -284,6 +307,22 @@ function renderizarPauta() {
     cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Projetos em Discussão (${projs.length})</h2>`);
     projs.forEach(it => cont.appendChild(renderCard(it)));
   }
+  atualizarSelecaoPdf();
+}
+
+// Atualiza o contador da barra de seleção e o rótulo do botão Exportar PDF.
+// Seleção vazia = todos os itens entram no PDF (comportamento padrão).
+function atualizarSelecaoPdf() {
+  const n = state.selecionados.size;
+  const total = state.pauta?.itens?.length || 0;
+  const info = document.getElementById('an-selbar-info');
+  if (info) {
+    info.innerHTML = n
+      ? `<b>${n}</b> de ${total} item(ns) selecionado(s) para o PDF`
+      : `Nenhum item marcado — o PDF inclui <b>todos</b> os ${total}. Marque itens para exportar só eles.`;
+  }
+  const btn = document.getElementById('btn-exportar-pdf');
+  if (btn) btn.lastChild.textContent = n ? ` Exportar PDF (${n})` : ' Exportar PDF';
 }
 
 function renderCard(it) {
@@ -293,6 +332,7 @@ function renderCard(it) {
   card.dataset.chave = it.chave;
   card.innerHTML = `
     <div class="an-card-head">
+      <label class="an-card-sel" title="Incluir este item no PDF"><input type="checkbox" data-role="sel-pdf"></label>
       <div class="an-card-num">${it.ordem ?? '–'}</div>
       <div class="an-card-info">
         <div class="an-card-tipo">${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${isRF ? ' · Redação Final' : ''}</div>
@@ -382,6 +422,17 @@ function renderCard(it) {
         .catch(e => console.warn('Falha ao salvar analista:', e.message));
     }
     marcarSujo();
+  });
+
+  // Seleção para o PDF (vazio = todos). Reflete o estado e atualiza o contador.
+  const selPdf = card.querySelector('[data-role=sel-pdf]');
+  selPdf.checked = state.selecionados.has(it.chave);
+  card.classList.toggle('sel-on', selPdf.checked);
+  selPdf.addEventListener('change', () => {
+    if (selPdf.checked) state.selecionados.add(it.chave);
+    else state.selecionados.delete(it.chave);
+    card.classList.toggle('sel-on', selPdf.checked);
+    atualizarSelecaoPdf();
   });
   return card;
 }
@@ -3317,6 +3368,15 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
 
 async function exportarPdf() {
   if (!state.pauta) return;
+  // Seleção (vazio = todos). Mantém a ordem original da pauta.
+  const itensExport = state.selecionados.size
+    ? state.pauta.itens.filter(it => state.selecionados.has(it.chave))
+    : state.pauta.itens;
+  if (!itensExport.length) {
+    mostrarToast('Nenhum item selecionado para o PDF.', 'aviso');
+    return;
+  }
+  const pautaExport = { ...state.pauta, itens: itensExport };
   // Abre a janela já no gesto do clique (evita bloqueio de pop-up).
   const win = window.open('', '_blank', 'width=900,height=720');
   if (!win) {
@@ -3328,12 +3388,12 @@ async function exportarPdf() {
 
   // Gera/cacheia os apelidos (por IA, se houver chave) e carrega a logo.
   try { await carregarConfig(); } catch (_) {}
-  try { await prepararApelidos(state.pauta.itens); } catch (_) {}
+  try { await prepararApelidos(itensExport); } catch (_) {}
   if (win.closed) return;
   const logoDataUrl = await carregarLogoDataUrl();
 
   win.document.open();
-  win.document.write(_htmlImpressaoPautaPlenario(state.pauta, logoDataUrl));
+  win.document.write(_htmlImpressaoPautaPlenario(pautaExport, logoDataUrl));
   win.document.close();
 
   // Paged.js pagina e calcula os nº de página do índice (target-counter).
@@ -3760,6 +3820,7 @@ async function confirmarRemover() {
   const it = _itemParaRemover;
   const idx = state.pauta.itens.findIndex(x => x.chave === it.chave);
   if (idx >= 0) state.pauta.itens.splice(idx, 1);
+  state.selecionados.delete(it.chave);
   _itemParaRemover = null;
   document.getElementById('modal-remover').style.display = 'none';
   renderizarPauta();
