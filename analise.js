@@ -949,6 +949,15 @@ function atualizarBadgesCard(it) {
     flag.textContent = 'Autoria: não-Podemos';
   }
 
+  // Relatoria do Podemos em Plenário (badge azul claro)
+  if (relatoriaPodemos(it)) {
+    const badge = document.createElement('span');
+    badge.className = 'an-badge an-badge--rel';
+    badge.dataset.role = 'badge-extra';
+    badge.textContent = 'R · Relatoria Podemos em Plenário';
+    cont.appendChild(badge);
+  }
+
   // Atualiza a linha "Autor:" com o nome do(s) deputado(s) do Podemos em
   // negrito + sublinhado (o card inicial é renderizado antes do enriquecimento).
   const autorLinha = card.querySelector('[data-role=autor-linha]');
@@ -1817,8 +1826,6 @@ Produza uma **breve análise** em **Português do Brasil**, formato **Markdown**
 ## Resumo da Redação Final
 Dois a três parágrafos descrevendo objetivamente o que o texto final consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos. Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.
 ${secaoApensados}
-## Pontos de atenção para o Podemos
-Um parágrafo sobre as implicações específicas para a bancada, considerando o contexto político informado. Se não houver autoria Podemos nem apensado Podemos, mencione brevemente posicionamentos prováveis.
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
   : ''}
@@ -1828,6 +1835,7 @@ REGRAS RÍGIDAS:
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente no documento anexo.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - **NÃO use bullets, listas, "-", "*" ou numeração.** Toda a análise deve ser escrita em parágrafos corridos.
+- Ao se referir à proposição, use SEMPRE a forma curta da sigla (ex.: **PL 1234/2010**, **PLP 41/2026**), nunca "Projeto de Lei nº 1234-G, de 12 de novembro de 2010".
 - Mantenha o texto enxuto — é uma breve análise da redação final, não um parecer extenso.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
   }
@@ -1895,7 +1903,7 @@ REGRAS RÍGIDAS:
   // compará-los entre si para isolar a contribuição de cada comissão.
   const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
   const secaoPareceresComissoes = docsComissao.length
-    ? `\n## Pareceres das comissões\nPara cada comissão por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**, dedique **um parágrafo**. Indique a comissão, o(a) relator(a), a conclusão e — foco principal — **o que aquela comissão alterou em relação ao texto que recebeu** (a redação original, na primeira comissão, ou o substitutivo da comissão anterior): aponte os dispositivos que ela acrescentou, alterou ou suprimiu. Compare os pareceres/substitutivos entre si para isolar a contribuição específica de cada comissão e NÃO repita o conteúdo já descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. Baseie-se exclusivamente nos documentos anexados.\n`
+    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data, no formato: "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>". Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
@@ -1961,7 +1969,7 @@ O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 ${secaoApensados}
 ## Argumentos favoráveis e contrários
-Dois parágrafos corridos: o primeiro reúne os argumentos que sustentam a aprovação; o segundo, os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
+Dois parágrafos corridos. O primeiro **começa exatamente com **Argumentos favoráveis:**** e reúne os argumentos que sustentam a aprovação; o segundo **começa exatamente com **Argumentos contrários:**** e reúne os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
   : ''}
@@ -1977,7 +1985,7 @@ REGRAS RÍGIDAS:
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
-- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO (a) quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator) e (b) na seção de projetos apensados de autoria do Podemos: nesses casos, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda/apensado.
+- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO (a) quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator), (b) na seção de projetos apensados de autoria do Podemos e (c) na seção "Pareceres das comissões": nesses casos, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda/apensado/comissão.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
@@ -2023,7 +2031,7 @@ O que o PDL pretende sustar (qual decreto/portaria/resolução e de qual órgão
 ## O ato que se pretende sustar
 Com base na justificação do PDL (no inteiro teor anexado), descreva o que o ato do Executivo determina e por que o autor entende que ele exorbita o poder regulamentar ou os limites legais.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos: o primeiro com os argumentos a favor da sustação; o segundo, contra. Apresente SEMPRE os dois lados. Nesta seção (e apenas nela) você pode recorrer a conhecimento geral para construir a argumentação, sem inventar fatos sobre o conteúdo do documento.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da sustação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente SEMPRE os dois lados. Nesta seção (e apenas nela) você pode recorrer a conhecimento geral para construir a argumentação, sem inventar fatos sobre o conteúdo do documento.
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -2036,7 +2044,7 @@ O instrumento internacional aprovado (partes e objeto) e o que sua aprovação i
 ## Principais pontos do acordo
 Os compromissos centrais assumidos, conforme o texto/justificação anexados.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos (a favor e contra a aprovação). Apresente sempre os dois lados.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da aprovação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente sempre os dois lados.
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -2049,7 +2057,7 @@ O que o decreto legislativo dispõe e qual o seu efeito prático.
 ## Justificativa
 Por que a matéria é relevante, com base na justificação anexada.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos (a favor e contra). Apresente sempre os dois lados.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:****; o segundo **começa exatamente com **Argumentos contrários:****. Apresente sempre os dois lados.
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -2342,7 +2350,7 @@ function renderAnaliseCard(it) {
   const avisoRefs = refs.length
     ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
-  conteudo.innerHTML = avisoRefs + renderNotaTela(it.analise.markdown);
+  conteudo.innerHTML = avisoRefs + renderNotaTela(notaMd(it));
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
   // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
@@ -2514,6 +2522,9 @@ async function salvarEdicaoAnalise(it) {
 // ============================================================
 function renderMarkdown(md) {
   if (!md) return '';
+  // Encurta referências longas a proposições ("Projeto de Lei nº 1234-G, de 12
+  // de novembro de 2010" → "PL 1234/2010") antes de renderizar.
+  md = encurtarProposicoes(md);
   // Escape básico
   let html = escapeHtml(md);
   // Headings
@@ -3168,6 +3179,42 @@ function normalizarReferencias(texto) {
   return t;
 }
 
+// Encurta referências longas a proposições no corpo da nota — "Projeto de Lei
+// nº 1234-G, de 12 de novembro de 2010" → "PL 1234/2010" — cobrindo sufixo de
+// letra (-A/-G), data por extenso e a forma "nº X/AAAA". NÃO toca em "Lei nº…"
+// (citações de normas vigentes ficam intactas).
+function encurtarProposicoes(t) {
+  if (!t) return t || '';
+  const ano = '(?:\\s*[-–][A-Z]+)?\\s*(?:,?\\s*de\\s+(?:\\d{1,2}[ºo]?\\s+de\\s+[a-zà-ú]+\\s+de\\s+)?|\\/)\\s*(\\d{4})';
+  const sub = (frase, sigla) => { t = t.replace(new RegExp(frase + '\\s+n?[º°o.\\s]*([\\d.]+)' + ano, 'gi'), (m, n, a) => `${sigla} ${n.replace(/\./g, '')}/${a}`); };
+  sub('Projeto\\s+de\\s+Lei\\s+Complementar', 'PLP');
+  sub('Projeto\\s+de\\s+Lei', 'PL');
+  sub('Proposta\\s+de\\s+Emenda\\s+[àaÀA]\\s+Constitui[çc][ãa]o', 'PEC');
+  sub('Projeto\\s+de\\s+Decreto\\s+Legislativo', 'PDL');
+  sub('Medida\\s+Provis[óo]ria', 'MPV');
+  sub('Projeto\\s+de\\s+Resolu[çc][ãa]o', 'PRC');
+  return t;
+}
+
+// Remove uma seção "## <título>" inteira (até o próximo "## " ou o fim).
+function removerSecao(md, tituloRegex) {
+  if (!md) return md || '';
+  return md.replace(new RegExp('(?:^|\\n)\\s*##\\s*' + tituloRegex + '[^\\n]*\\n[\\s\\S]*?(?=\\n##\\s|$)', 'i'), '').trim();
+}
+
+// Markdown da nota pronto para exibição: na Redação Final, retira a seção
+// "Pontos de atenção para o Podemos" (descontinuada nesse tipo).
+function notaMd(it) {
+  let md = it.analise?.markdown || '';
+  if (it.tipoCategoria === 'redacao_final') md = removerSecao(md, 'Pontos\\s+de\\s+aten[çc][ãa]o');
+  return md;
+}
+
+// Relatoria do Podemos em Plenário (o relator do item é deputado(a) do partido).
+function relatoriaPodemos(it) {
+  return /\bPODE\b/i.test(it.relator?.partido || '');
+}
+
 // Proposição "alvo" do item (para requerimento, é o projeto cuja urgência se pede).
 function _alvoItem(it) {
   return (it.tipoCategoria === 'requerimento' && it.projetoUrgenciado) ? it.projetoUrgenciado : it;
@@ -3198,6 +3245,7 @@ function sufixoAutoriaIndice(it) {
   const tags = [];
   if (enr.autoriaPodemos) tags.push('A');
   if ((enr.apensadosPodemos || []).length) tags.push('AP');
+  if (relatoriaPodemos(it)) tags.push('R');
   return tags.length ? ' — ' + tags.join(', ') : '';
 }
 
@@ -3279,22 +3327,24 @@ async function prepararApelidos(itens) {
 function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
   const esc = escapeHtml;
   const bm  = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  const num = it => (it.ordem != null ? it.ordem + '. ' : '');   // mesmo nº da tela
   const itens = pauta.itens || [];
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   const meta = `${esc(pauta.titulo || '')}${pauta.periodo ? ' · ' + esc(pauta.periodo) : ''} · Gerado em ${formatDataHora(new Date().toISOString())} · ${itens.length} item(ns)`;
 
-  // Legenda das marcas de autoria — só aparece se algum item de fato tiver A/AP.
-  const temAutoria = itens.some(it => it.enriquecimento?.autoriaPodemos || (it.enriquecimento?.apensadosPodemos || []).length);
-  const legenda = temAutoria
-    ? `<p class="indice-legenda"><b>A</b> = Autoria do Podemos · <b>AP</b> = Autoria do Podemos em apensado</p>`
-    : '';
+  // Legenda das marcas — só lista as que de fato aparecem em algum item.
+  const legItens = [];
+  if (itens.some(it => it.enriquecimento?.autoriaPodemos)) legItens.push('<b>A</b> = Autoria do Podemos');
+  if (itens.some(it => (it.enriquecimento?.apensadosPodemos || []).length)) legItens.push('<b>AP</b> = Autoria do Podemos em apensado');
+  if (itens.some(it => relatoriaPodemos(it))) legItens.push('<b>R</b> = Relatoria do Podemos em Plenário');
+  const legenda = legItens.length ? `<p class="indice-legenda">${legItens.join(' · ')}</p>` : '';
 
   const indice = itens.length ? `
     <section class="indice">
       <h2>Índice</h2>
       ${legenda}
       <ul>
-        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
+        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(num(it) + tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
       </ul>
     </section>` : '';
 
@@ -3304,10 +3354,10 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
     const analista = it.analista || it.analise?.analista || '';
     const analistaHtml = analista ? `<div class="responsavel">Responsável: <b>${esc(analista)}</b></div>` : '';
-    const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}`;
-    const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(it.analise.markdown)) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
+    const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}${relatoriaPodemos(it) ? '<span class="badge badge-rel">Relatoria Podemos em Plenário</span>' : ''}`;
+    const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(notaMd(it))) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
-      <h3 class="item-h">${esc(tituloComApelido(it))}</h3>
+      <h3 class="item-h">${esc(num(it) + tituloComApelido(it))}</h3>
       ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       ${analistaHtml}
@@ -3317,7 +3367,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(pauta.titulo || 'Pauta de Plenário')}</title>
   <style>
-    @page { size:A4; margin:16mm; }
+    @page { size:A4; margin:16mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
     * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
     .cab { display:flex; align-items:center; gap:16px; }
@@ -3345,11 +3395,12 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
     .badge-pode { background:#d3f5e2; color:#006633; }
     .badge-apens { background:#d8eef0; color:#02484d; }
+    .badge-rel { background:#cfe8ff; color:#0a4a7a; }
     h2 { font-size:12pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
     h3 { font-size:11pt; color:#155724; margin:10px 0 3px; }
     p { font-size:10.5pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; page-break-inside:avoid; break-inside:avoid; }
     ul { margin:4px 0 6px 18px; padding:0; }
-    li { font-size:10.5pt; line-height:1.5; }
+    li { font-size:10.5pt; line-height:1.6; text-align:justify; margin:3px 0; }
     .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
     .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
   </style></head><body>
