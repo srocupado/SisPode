@@ -367,6 +367,26 @@
     .hist-preview-corpo { max-height: 60vh; overflow-y: auto; }
     .hist-preview-meta { font-size: 12px; color: var(--text-dim); font-style: italic; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
 
+    /* Chat "Perguntar à IA" (efêmero, por nota) */
+    .an-chat { margin-top: 10px; border-top: 1px dashed var(--border-soft); padding-top: 10px; }
+    .an-chat-info { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 11.5px; color: var(--text-dim); margin-bottom: 8px; }
+    .an-chat-limpar { background: none; border: none; color: var(--accent-light); font-size: 11.5px; cursor: pointer; padding: 0; }
+    .an-chat-limpar:hover { text-decoration: underline; }
+    .an-chat-msgs { display: flex; flex-direction: column; gap: 8px; max-height: 360px; overflow-y: auto; padding: 4px 2px; }
+    .an-chat-vazio { font-size: 12.5px; color: var(--text-dim); font-style: italic; padding: 6px 2px; }
+    .an-chat-msg { font-size: 13px; line-height: 1.55; padding: 8px 11px; border-radius: 10px; max-width: 88%; }
+    .an-chat-msg--u { align-self: flex-end; background: var(--accent-muted); border: 1px solid rgba(31,165,165,.35); color: var(--text); white-space: pre-wrap; }
+    .an-chat-msg--a { align-self: flex-start; background: rgba(255,255,255,.04); border: 1px solid var(--border-soft); color: var(--text); }
+    .an-chat-msg--a p { margin: 4px 0; }
+    .an-chat-msg--a ul { margin: 4px 0 4px 18px; }
+    .an-chat-input { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+    .an-chat-q {
+      flex: 1; resize: vertical; min-height: 38px;
+      background: rgba(0,0,0,.25); border: 1px solid var(--border-soft); border-radius: 6px;
+      padding: 8px 10px; font-family: 'DM Sans', sans-serif; font-size: 12.5px; color: var(--text); outline: none;
+    }
+    .an-chat-q:focus { border-color: var(--accent); }
+
     .an-analise-erro {
       color: #ff8e8e;
       font-size: 12.5px;

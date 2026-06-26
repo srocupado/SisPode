@@ -383,6 +383,7 @@ function renderCard(it) {
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
         <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
         <button class="btn btn-outline btn-sm" data-role="btn-verificar-item" style="display:none" title="Reconsulta a tramitação e indica se o texto operativo (parecer/substitutivo/subemenda/emenda do Senado) foi superado por um documento mais recente">Verificar atualização</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com a IA, com base na nota e nos documentos">💬 Perguntar à IA</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -396,6 +397,17 @@ function renderCard(it) {
         <button type="button" class="an-fmt-btn" data-size="" title="Tamanho normal (remover marcação)">normal</button>
       </div>
       <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
+      <div class="an-chat" data-role="chat-panel" style="display:none">
+        <div class="an-chat-info">
+          <span>Respostas com base na <b>nota</b> e nos <b>documentos da matéria</b> — confira sempre nos textos oficiais.</span>
+          <button type="button" class="an-chat-limpar" data-role="chat-limpar">Limpar</button>
+        </div>
+        <div class="an-chat-msgs" data-role="chat-msgs"></div>
+        <div class="an-chat-input">
+          <textarea class="an-chat-q" data-role="chat-q" rows="2" placeholder="Pergunte algo sobre a matéria… (Enter envia, Shift+Enter quebra linha)"></textarea>
+          <button class="btn btn-primary btn-sm" data-role="chat-enviar">Enviar</button>
+        </div>
+      </div>
     </div>
   `;
 
@@ -451,6 +463,14 @@ function renderCard(it) {
   }));
   editorEl.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); envolverSelecao(editorEl, '**', '**'); }
+  });
+
+  // Chat "Perguntar à IA"
+  card.querySelector('[data-role=btn-perguntar]').addEventListener('click', () => togglePerguntarIA(it));
+  card.querySelector('[data-role=chat-enviar]').addEventListener('click', () => enviarPerguntaIA(it));
+  card.querySelector('[data-role=chat-limpar]').addEventListener('click', () => limparChat(it));
+  card.querySelector('[data-role=chat-q]').addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarPerguntaIA(it); }
   });
 
   // Seleção para o PDF (vazio = todos). Reflete o estado e atualiza o contador.
@@ -2423,6 +2443,123 @@ function removerTamanhoSelecao(editor) {
   editor.value = novo;
   editor.focus();
   editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// ============================================================
+//  "PERGUNTAR À IA" — chat por nota (efêmero), ancorado na nota + documentos
+// ============================================================
+const CHAT_CTX_MAX = 60000;   // teto de caracteres do contexto (limita tokens)
+
+function togglePerguntarIA(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const panel = card.querySelector('[data-role=chat-panel]');
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  if (!it.analise) { mostrarToast('Gere a nota primeiro para poder perguntar.', 'aviso'); return; }
+  it._chat = it._chat || { mensagens: [], contexto: null };
+  panel.style.display = 'block';
+  renderChat(it);
+  card.querySelector('[data-role=chat-q]').focus();
+}
+
+function limparChat(it) {
+  if (it._chat) it._chat.mensagens = [];
+  renderChat(it);
+}
+
+function renderChat(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const box = card.querySelector('[data-role=chat-msgs]');
+  const msgs = it._chat?.mensagens || [];
+  let html = msgs.map(m => m.role === 'user'
+    ? `<div class="an-chat-msg an-chat-msg--u">${escapeHtml(m.content)}</div>`
+    : `<div class="an-chat-msg an-chat-msg--a">${renderMarkdown(m.content)}</div>`).join('');
+  if (it._chat?.carregando) {
+    html += `<div class="an-chat-msg an-chat-msg--a"><span class="an-spinner"></span> ${escapeHtml(it._chat._status || 'Consultando a IA…')}</div>`;
+  }
+  box.innerHTML = html || '<div class="an-chat-vazio">Faça uma pergunta sobre a matéria.</div>';
+  box.scrollTop = box.scrollHeight;
+}
+
+function setChatStatus(it, s) { if (it._chat) { it._chat._status = s; renderChat(it); } }
+
+// Monta (uma vez) o contexto: nota + texto dos documentos da matéria, truncado.
+async function montarContextoChat(it) {
+  if (it._chat.contexto) return it._chat.contexto;
+  let ctx = `NOTA TÉCNICA JÁ PRODUZIDA:\n${it.analise?.markdown || '(sem nota)'}\n`;
+  const docs = (it.analise?.documentos || []).filter(d => d && d.url);
+  if (docs.length) {
+    ctx += `\n=== DOCUMENTOS DA MATÉRIA ===\n`;
+    for (const d of docs) {
+      if (ctx.length > CHAT_CTX_MAX) break;
+      try {
+        const buf = await baixarPdf(d.url);
+        const txt = await extrairTextoPdf(buf.slice(0));
+        ctx += `\n## ${d.rotulo}\n${txt}\n`;
+      } catch (_) {
+        ctx += `\n## ${d.rotulo}\n(não foi possível ler este documento)\n`;
+      }
+    }
+  }
+  it._chat.truncado = ctx.length > CHAT_CTX_MAX;
+  it._chat.contexto = it._chat.truncado ? ctx.slice(0, CHAT_CTX_MAX) : ctx;
+  return it._chat.contexto;
+}
+
+function montarPromptChat(it, novaPergunta) {
+  const hist = (it._chat.mensagens || []).slice(0, -1)
+    .map(m => `${m.role === 'user' ? 'PERGUNTA' : 'RESPOSTA'}: ${m.content}`).join('\n\n');
+  return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados. Responda à NOVA PERGUNTA do(a) assessor(a) sobre a proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**, baseando-se PRIORITARIAMENTE na nota técnica e nos documentos da matéria fornecidos abaixo.
+
+REGRAS:
+- Cite o dispositivo, artigo ou trecho do documento quando possível.
+- Se a resposta NÃO constar nos documentos/nota, diga "não consta nos documentos" e, se útil, ofereça uma ponderação deixando claro que é inferência, não fato do documento.
+- Não invente números de lei, dispositivos, datas, valores ou nomes.
+- Responda em Português do Brasil, de forma direta e objetiva, em Markdown.${it._chat.truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
+
+=== MATERIAL DA MATÉRIA ===
+${it._chat.contexto}
+${hist ? `\n=== CONVERSA ATÉ AQUI ===\n${hist}\n` : ''}
+=== NOVA PERGUNTA ===
+${novaPergunta}`;
+}
+
+async function enviarPerguntaIA(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const qEl = card.querySelector('[data-role=chat-q]');
+  const q = (qEl.value || '').trim();
+  if (!q) return;
+  if (!state.config?.apiKey) { mostrarToast('Configure a chave de IA em ⚙ Configurações.', 'aviso'); return; }
+  it._chat = it._chat || { mensagens: [], contexto: null };
+  if (it._chat.carregando) return;
+  it._chat.mensagens.push({ role: 'user', content: q });
+  qEl.value = '';
+  it._chat.carregando = true;
+  it._chat._status = it._chat.contexto ? 'Consultando a IA…' : 'Preparando os documentos da matéria…';
+  renderChat(it);
+  iaInFlightInc();
+  try {
+    await montarContextoChat(it);
+    setChatStatus(it, 'Consultando a IA…');
+    const { text } = await chamarIA({
+      provedorId: state.config.provedor || 'gemini',
+      apiKey: state.config.apiKey,
+      modelo: state.config.modelo,
+      prompt: montarPromptChat(it, q),
+      pdfBuffers: [],
+    });
+    it._chat.mensagens.push({ role: 'assistant', content: (text || '').trim() || '(a IA não retornou resposta)' });
+  } catch (e) {
+    if (isAbortError(e)) it._chat.mensagens.push({ role: 'assistant', content: '(consulta cancelada)' });
+    else it._chat.mensagens.push({ role: 'assistant', content: 'Erro ao consultar a IA: ' + e.message });
+  } finally {
+    it._chat.carregando = false;
+    it._chat._status = '';
+    iaInFlightDec();
+    renderChat(it);
+  }
 }
 
 function entrarEdicaoAnalise(it) {
