@@ -383,7 +383,7 @@ function renderCard(it) {
         <span class="an-autosave-status" data-role="autosave-status" style="display:none;font-size:11px;color:#888;margin-left:6px"></span>
         <button class="btn btn-outline btn-sm" data-role="btn-reanalisar" title="Reanalisar aplicando um prompt personalizado da biblioteca">Reanalisar com IA</button>
         <button class="btn btn-outline btn-sm" data-role="btn-verificar-item" style="display:none" title="Reconsulta a tramitação e indica se o texto operativo (parecer/substitutivo/subemenda/emenda do Senado) foi superado por um documento mais recente">Verificar atualização</button>
-        <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com a IA, com base na nota e nos documentos">💬 Perguntar à IA</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com o Revisor (IA), com base na nota e nos documentos">💬 Pergunte ao Revisor</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
