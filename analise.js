@@ -3391,7 +3391,9 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
   const num = it => (it.ordem != null ? it.ordem + '. ' : '');   // mesmo nº da tela
   const itens = pauta.itens || [];
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
-  const meta = `${esc(pauta.titulo || '')}${pauta.periodo ? ' · ' + esc(pauta.periodo) : ''} · Gerado em ${formatDataHora(new Date().toISOString())} · ${itens.length} item(ns)`;
+  // O título já inclui o período ("Pauta — <período>"); não repetir o período
+  // nem o horário de geração.
+  const meta = `${esc(pauta.titulo || '')} · ${itens.length} item(ns)`;
 
   // Legenda das marcas — só lista as que de fato aparecem em algum item.
   const legItens = [];
