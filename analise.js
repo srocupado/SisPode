@@ -90,6 +90,7 @@ const state = {
   promptPadraoId: null,        // id do prompt aplicado por padrão nas gerações (compartilhado pela equipe)
   interesse: null,             // { lista:[{id,nome}], dados:{idDep:{temas,perfil}}, carregado } — Firebase compartilhado
   selecionados: new Set(),     // chaves marcadas para o PDF (vazio = exporta todos)
+  historico: { indice: null, notasShallow: null, notasFull: null },  // busca em pautas anteriores
 };
 
 const AUTO_SAVE_INTERVAL_MS = 10000;
@@ -126,7 +127,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
-  document.getElementById('busca-itens').addEventListener('input', aplicarBuscaItens);
+  document.getElementById('busca-itens').addEventListener('input', () => {
+    aplicarBuscaItens();          // filtra a pauta atual (instantâneo)
+    agendarBuscaHistorico();      // busca nas pautas anteriores (debounce)
+  });
+  document.getElementById('btn-hist-abrir-pauta').addEventListener('click', abrirPautaDeOrigem);
+  document.getElementById('btn-hist-trazer').addEventListener('click', trazerParaPautaAtual);
 
   // Modal de configurações: fechamento e ações
   document.querySelectorAll('[data-fecha]').forEach(b => {
@@ -3021,6 +3027,7 @@ async function fbSalvarPauta(pauta) {
   }
   state.dirty = false;
   state.ultimoSave = new Date().toISOString();
+  state.historico.indice = null;   // invalida o cache da busca no histórico
   atualizarStatusSync('ok');
 }
 
@@ -3848,6 +3855,190 @@ function aplicarBuscaItens() {
     }
     h.style.display = temVisivel || !q ? '' : 'none';
   });
+}
+
+// ============================================================
+//  BUSCA NO HISTÓRICO (pautas anteriores)
+// ============================================================
+let _histTimer = null;
+let _histNoTexto = false;   // toggle "buscar no texto das notas"
+
+function agendarBuscaHistorico() {
+  clearTimeout(_histTimer);
+  _histTimer = setTimeout(executarBuscaHistorico, 300);
+}
+
+// Carrega (uma vez) o índice do histórico: itens de todas as pautas salvas
+// + a lista de chaves que têm nota. As notas completas só são puxadas quando
+// a busca no texto é ativada (carregarNotasCompletas).
+async function carregarHistoricoBase() {
+  if (state.historico.indice) return state.historico.indice;
+  const [rp, rn] = await Promise.all([
+    fetch(`${FIREBASE_URL}/pautas.json?shallow=false`),
+    fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=true`),
+  ]);
+  const pautas = rp.ok ? await rp.json() : null;
+  const notas  = rn.ok ? await rn.json() : null;
+  state.historico.notasShallow = notas || {};
+  state.historico.indice = construirIndiceHistorico(pautas, notas);
+  return state.historico.indice;
+}
+
+function construirIndiceHistorico(pautasMap, notasShallow) {
+  const idx = new Map();   // chave -> { chave, sigla, numero, ano, ementa, autorTexto, tipoCategoria, pautas:[], temNota }
+  for (const [pid, p] of Object.entries(pautasMap || {})) {
+    for (const it of (p.itens || [])) {
+      if (!it.chave) continue;
+      let e = idx.get(it.chave);
+      if (!e) {
+        e = { chave: it.chave, sigla: it.sigla, numero: it.numero, ano: it.ano,
+              ementa: it.ementa || '', autorTexto: it.autorTexto || '', tipoCategoria: it.tipoCategoria || 'projeto', pautas: [] };
+        idx.set(it.chave, e);
+      }
+      if (it.ementa && !e.ementa) e.ementa = it.ementa;
+      e.pautas.push({ id: pid, periodo: p.periodo || p.titulo || pid, uploadedAt: p.uploadedAt });
+    }
+  }
+  for (const e of idx.values()) e.temNota = !!(notasShallow && notasShallow[e.chave]);
+  return idx;
+}
+
+async function carregarNotasCompletas() {
+  if (state.historico.notasFull) return state.historico.notasFull;
+  const r = await fetch(`${FIREBASE_URL}/analises_pauta.json`);
+  state.historico.notasFull = r.ok ? (await r.json()) || {} : {};
+  return state.historico.notasFull;
+}
+
+async function executarBuscaHistorico() {
+  const cont = document.getElementById('an-historico');
+  if (!cont) return;
+  const q = (document.getElementById('busca-itens').value || '').toLowerCase().trim();
+  if (q.length < 2) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+  cont.style.display = '';
+  cont.innerHTML = '<div class="an-hist-loading">Buscando no histórico…</div>';
+  let indice;
+  try {
+    indice = await carregarHistoricoBase();
+    if (_histNoTexto) await carregarNotasCompletas();
+  } catch (e) {
+    cont.innerHTML = `<div class="an-hist-loading">Erro ao carregar o histórico: ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  // Se a busca mudou enquanto carregava, descarta este resultado.
+  if ((document.getElementById('busca-itens').value || '').toLowerCase().trim() !== q) return;
+
+  const naAtual = new Set((state.pauta?.itens || []).map(i => i.chave));
+  const matches = [];
+  for (const e of indice.values()) {
+    if (naAtual.has(e.chave)) continue;   // já está na pauta aberta (listada acima)
+    const metaHay = `${e.sigla} ${e.numero}/${e.ano} ${e.sigla}${e.numero} ${e.ementa} ${e.autorTexto}`.toLowerCase();
+    let hit = metaHay.includes(q);
+    if (!hit && _histNoTexto) {
+      const versoes = state.historico.notasFull?.[e.chave];
+      if (versoes) hit = Object.values(versoes).some(n =>
+        (n?.markdown || '').toLowerCase().includes(q) || (n?.apelido || '').toLowerCase().includes(q));
+    }
+    if (hit) {
+      e._ultima = e.pautas.reduce((m, p) => Math.max(m, new Date(p.uploadedAt || 0).getTime()), 0);
+      matches.push(e);
+    }
+  }
+  matches.sort((a, b) => b._ultima - a._ultima);
+  renderHistorico(matches, q);
+}
+
+function renderHistorico(matches, q) {
+  const cont = document.getElementById('an-historico');
+  const header = `<div class="an-hist-head">
+      <span class="an-hist-titulo">No histórico${matches.length ? ` (${matches.length})` : ''}</span>
+      <label class="an-hist-toggle"><input type="checkbox" id="hist-no-texto" ${_histNoTexto ? 'checked' : ''}> buscar no texto das notas</label>
+    </div>`;
+  let body;
+  if (!matches.length) {
+    body = `<div class="an-hist-vazio">Nenhuma proposição de pautas anteriores corresponde a “${escapeHtml(q)}”.</div>`;
+  } else {
+    body = `<div class="an-hist-lista">${matches.slice(0, 60).map(e => {
+      const quando = [...new Set(e.pautas
+        .slice().sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))
+        .map(p => p.periodo))].slice(0, 3).map(escapeHtml).join(' · ');
+      return `<div class="an-hist-item" data-chave="${escapeHtml(e.chave)}">
+        <div class="an-hist-item-tit">${escapeHtml(tipoLabel(e.sigla) + ' ' + e.numero + '/' + e.ano)}${e.temNota ? '<span class="an-hist-nota">nota</span>' : ''}</div>
+        ${e.ementa ? `<div class="an-hist-item-em">${escapeHtml(e.ementa.slice(0, 150))}</div>` : ''}
+        <div class="an-hist-item-meta">apareceu em: ${quando || '—'}</div>
+      </div>`;
+    }).join('')}${matches.length > 60 ? `<div class="an-hist-vazio">…e mais ${matches.length - 60}. Refine a busca.</div>` : ''}</div>`;
+  }
+  cont.innerHTML = header + body;
+  cont.querySelector('#hist-no-texto').addEventListener('change', ev => { _histNoTexto = ev.target.checked; executarBuscaHistorico(); });
+  cont.querySelectorAll('.an-hist-item').forEach(el => el.addEventListener('click', () => abrirPreviewHistorico(el.dataset.chave)));
+}
+
+// Carrega a nota mais recente (qualquer versão de parecer) de uma proposição.
+async function fbCarregarNotaPorChave(chave) {
+  const r = await fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(chave)}.json`);
+  if (!r.ok) return null;
+  const versoes = await r.json();
+  if (!versoes) return null;
+  const arr = Object.values(versoes).filter(Boolean);
+  arr.sort((a, b) => new Date(b.geradoEm || 0) - new Date(a.geradoEm || 0));
+  return arr[0] || null;
+}
+
+let _histPreviewCtx = null;   // { entry, nota }
+
+async function abrirPreviewHistorico(chave) {
+  const entry = state.historico.indice?.get(chave);
+  if (!entry) return;
+  const corpo = document.getElementById('hist-preview-corpo');
+  const titulo = document.getElementById('hist-preview-titulo');
+  titulo.textContent = `${tipoLabel(entry.sigla)} ${entry.numero}/${entry.ano}`;
+  corpo.innerHTML = '<div class="an-hist-loading">Carregando a nota…</div>';
+  document.getElementById('modal-hist-preview').style.display = 'flex';
+  let nota = null;
+  try { nota = await fbCarregarNotaPorChave(chave); } catch (_) {}
+  _histPreviewCtx = { entry, nota };
+  const meta = nota ? `<div class="hist-preview-meta">${escapeHtml(entry.ementa || '')}</div>` : '';
+  corpo.innerHTML = meta + (nota?.markdown
+    ? renderMarkdown(mdSemAcolhimento(nota.markdown))
+    : `<div class="an-hist-vazio">Esta proposição apareceu em pauta(s) anterior(es), mas não tem nota técnica salva.</div>`);
+  // Habilita "trazer" só se houver pauta aberta e o item ainda não estiver nela
+  const btnTrazer = document.getElementById('btn-hist-trazer');
+  const podeTrazer = !!state.pauta && !(state.pauta.itens || []).some(it => it.chave === chave);
+  btnTrazer.style.display = podeTrazer ? 'inline-flex' : 'none';
+}
+
+function abrirPautaDeOrigem() {
+  const ctx = _histPreviewCtx;
+  if (!ctx) return;
+  const ult = ctx.entry.pautas.slice().sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0))[0];
+  if (!ult) return;
+  document.getElementById('modal-hist-preview').style.display = 'none';
+  carregarPautaPorId(ult.id);
+}
+
+async function trazerParaPautaAtual() {
+  const ctx = _histPreviewCtx;
+  if (!ctx || !state.pauta) return;
+  const e = ctx.entry;
+  if ((state.pauta.itens || []).some(it => it.chave === e.chave)) {
+    mostrarToast('Esta proposição já está na pauta atual.', 'aviso');
+    return;
+  }
+  const novo = normalizarItem({
+    ordem: null, tipoCategoria: e.tipoCategoria || 'projeto',
+    sigla: e.sigla, numero: e.numero, ano: e.ano,
+    ementa: e.ementa || '', autorTexto: e.autorTexto || '',
+    apensadosTexto: [], relator: null, temUrgencia: false, adicionadoManualmente: true,
+  });
+  if (ctx.nota) { novo.analise = ctx.nota; novo.analiseStatus = 'ok'; novo.apelido = ctx.nota.apelido || ''; }
+  state.pauta.itens.push(novo);
+  renderizarPauta();
+  enriquecerItem(novo).catch(() => {});
+  marcarSujo();
+  fbSalvarPauta(state.pauta).catch(err => console.warn('Firebase save falhou:', err.message));
+  document.getElementById('modal-hist-preview').style.display = 'none';
+  mostrarToast(`✓ ${tipoLabel(e.sigla)} ${e.numero}/${e.ano} trazido para a pauta atual`, 'sucesso');
 }
 
 // ============================================================
