@@ -407,6 +407,21 @@ function ehMPV(it) {
   return it.tipoCategoria === 'projeto' && it.sigla === 'MPV';
 }
 
+// Projeto de Decreto Legislativo — Cenário 10. O texto votado é o próprio
+// decreto (inteiro teor + justificação); a comissão dá a recomendação. (PDC é
+// a nomenclatura antiga do PDL e aparece no dashboard compacto.)
+function ehPDL(it) {
+  return it.tipoCategoria === 'projeto' && (it.sigla === 'PDL' || it.sigla === 'PDC');
+}
+// Subtipo do PDL, derivado da ementa, para ajustar a ênfase da nota técnica.
+function subtipoPDL(it) {
+  const e = (it.ementa || '').toLowerCase();
+  if (/\bsust[ae]|sustaç|susta\s+os\s+efeitos/.test(e)) return 'sustacao';
+  if (/acordo|tratado|conven[çc][ãa]o|protocolo|ato\s+internacional/.test(e)) return 'tratado';
+  if (/outorg|concess|permiss|radiodifus|retransmiss|r[áa]dio|televis/.test(e)) return 'outorga';
+  return 'generico';
+}
+
 // ============================================================
 //  ENRIQUECIMENTO VIA API CÂMARA
 //  Para cada item: resolve idProposicao → autores (autoria Podemos?)
@@ -1464,6 +1479,7 @@ async function completarAnalise(it) {
 function classificarCenario(docs = []) {
   const has = t => docs.some(d => d.tipo === t);
   if (has('PRL_ESPECIAL') || has('SBT_A_ESPECIAL')) return 'Cenário 9 — PEC (parecer da Comissão Especial)';
+  if (has('PDL_TEOR'))                 return 'Cenário 10 — PDL (decreto legislativo)';
   if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
   if (has('SSP'))                      return 'Cenário 5 — subemenda substitutiva (SSP)';
   if (has('PRLP') && has('SBT_A'))     return 'Cenário 4 — PRLP na forma do SBT-A';
@@ -1526,8 +1542,8 @@ async function escolherDocumentos(it) {
 
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
     // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
-    // PECs seguem rito próprio (CCJC + Comissão Especial), sem esse retorno.
-    if (it.sigla !== 'PEC' && enr.emendasSenado === undefined && enr.idProposicao) {
+    // PECs e PDLs seguem rito próprio (sem retorno do Senado).
+    if (it.sigla !== 'PEC' && !ehPDL(it) && enr.emendasSenado === undefined && enr.idProposicao) {
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null }; }
     }
@@ -1554,6 +1570,12 @@ async function escolherDocumentos(it) {
       if (pe) docs.push({ tipo: 'PRL_ESPECIAL', rotulo: rotuloPRLESP, url: pe.url });
       if (se) docs.push({ tipo: 'SBT_A_ESPECIAL', rotulo: rotuloSBTAESP, url: se.url });
       if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (ehPDL(it)) {
+      // ── Cenário 10 (PDL) ──────────────────────────────────────────────
+      // Decreto Legislativo: o texto votado é o próprio decreto (inteiro teor,
+      // que inclui a justificação — descreve o ato aprovado/sustado). Os
+      // pareceres das comissões entram adiante (laço de pareceres).
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'PDL_TEOR', rotulo: 'Inteiro teor do Decreto Legislativo (texto e justificação)', url: enr.urlInteiroTeor });
     } else if (ems) {
       // ── Cenários 6/7 (retorno do Senado) ──────────────────────────────
       // Fluxo: o projeto foi aprovado pela Câmara (casa iniciadora), seguiu ao
@@ -1712,6 +1734,10 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // Redação Final tem prompt próprio, mais enxuto: o documento já é o texto
   // final consolidado, não há parecer a resumir. O foco é o que se está
   // efetivamente votando e os pontos de atenção para a bancada.
+  // PDL (Decreto Legislativo) — prompt próprio, com ênfase por subtipo
+  // (sustação × outorga × ato internacional). Cenário 10.
+  if (ehPDL(it)) return promptPDL(it, docs, instrucoesExtra);
+
   if (it.tipoCategoria === 'redacao_final') {
     return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
 
@@ -1890,6 +1916,94 @@ REGRAS RÍGIDAS:
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
+}
+
+// ---------- Prompt do PDL (Cenário 10), com ênfase por subtipo ----------
+function promptPDL(it, docs = [], instrucoesExtra = '') {
+  const enr = it.enriquecimento || {};
+  const sub = subtipoPDL(it);
+  const docsLista = docs.map((d, i) => `Documento ${i + 1} — ${d.rotulo}`).join('\n');
+  const blocoDocs = docsLista ? `\nDocumentos anexados a esta análise:\n${docsLista}\n` : '';
+  const temParecer = docs.some(d => d.tipo === 'PARECER_COMISSAO');
+  const contextoPodemos = enr.autoriaPodemos
+    ? '⚠ ATENÇÃO: O Projeto de Decreto Legislativo é de autoria de deputado(a) do Podemos.\n' : '';
+  const secaoParecer = temParecer
+    ? '\n## Parecer da(s) comissão(ões)\nEm um parágrafo por comissão (documentos "Parecer da Comissão ..." anexados), resuma a conclusão do(a) relator(a) e os fundamentos — em especial se recomenda a aprovação ou a rejeição do decreto legislativo, e eventuais ressalvas.\n'
+    : '';
+  const instr = instrucoesExtra && instrucoesExtra.trim()
+    ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, mas NÃO substituem a estrutura nem as regras abaixo):\n${instrucoesExtra.trim()}\n`
+    : '';
+
+  const cabecalho = `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados. Elabore uma nota técnica para informar Deputados Federais sobre o **Projeto de Decreto Legislativo (PDL) ${it.numero}/${it.ano}**.
+${contextoPodemos}Analise o(s) documento(s) anexo(s) (inteiro teor do decreto, incluindo a justificação${temParecer ? ', e o(s) parecer(es) de comissão' : ''}).
+${blocoDocs}
+Ementa/descrição extraída da Pauta:
+"${(it.ementa || '').slice(0, 800)}"
+`;
+
+  let corpo;
+  if (sub === 'outorga') {
+    corpo = `Trata-se de PDL de OUTORGA de radiodifusão (concessão, permissão, autorização — ou sua renovação), matéria rotineira normalmente votada em bloco. Produza uma nota **CURTA e objetiva**, em **Português do Brasil**, **Markdown**, **parágrafos corridos** (sem bullets), com as seções (títulos com "##"):
+
+## Objetivo
+Em 1 ou 2 frases: a entidade outorgada (nome), o objeto (concessão/permissão/autorização ou renovação; rádio ou TV; tipo de serviço), o município/UF e o prazo, conforme constem do documento.
+${secaoParecer}## Pontos de atenção
+Apenas se houver algo fora do padrão (pendência, controvérsia, prazo já expirado). Sendo outorga de rotina sem ressalvas, registre que é matéria de outorga sem pontos controversos.`;
+  } else if (sub === 'sustacao') {
+    corpo = `Trata-se de PDL de SUSTAÇÃO de ato do Poder Executivo (art. 49, V, da Constituição: compete ao Congresso sustar atos normativos do Executivo que exorbitem do poder regulamentar ou dos limites de delegação legislativa). Produza a nota em **Português do Brasil**, **Markdown**, **parágrafos corridos** (sem bullets), com as seções (títulos "##"):
+
+## Objetivo
+O que o PDL pretende sustar (qual decreto/portaria/resolução e de qual órgão) e qual o efeito prático de sustá-lo.
+
+## O ato que se pretende sustar
+Com base na justificação do PDL (no inteiro teor anexado), descreva o que o ato do Executivo determina e por que o autor entende que ele exorbita o poder regulamentar ou os limites legais.
+${secaoParecer}## Argumentos favoráveis e contrários
+Dois parágrafos: o primeiro com os argumentos a favor da sustação; o segundo, contra. Apresente SEMPRE os dois lados. Nesta seção (e apenas nela) você pode recorrer a conhecimento geral para construir a argumentação, sem inventar fatos sobre o conteúdo do documento.
+
+## Pontos de atenção para o Podemos
+Um parágrafo sobre as implicações para a bancada.`;
+  } else if (sub === 'tratado') {
+    corpo = `Trata-se de PDL que aprova ato internacional (acordo, tratado, convenção ou protocolo). Produza a nota em **Português do Brasil**, **Markdown**, **parágrafos corridos** (sem bullets), com as seções (títulos "##"):
+
+## Objetivo
+O instrumento internacional aprovado (partes e objeto) e o que sua aprovação implica para o Brasil.
+
+## Principais pontos do acordo
+Os compromissos centrais assumidos, conforme o texto/justificação anexados.
+${secaoParecer}## Argumentos favoráveis e contrários
+Dois parágrafos (a favor e contra a aprovação). Apresente sempre os dois lados.
+
+## Pontos de atenção para o Podemos
+Um parágrafo sobre as implicações para a bancada.`;
+  } else {
+    corpo = `Trata-se de Projeto de Decreto Legislativo. Produza a nota em **Português do Brasil**, **Markdown**, **parágrafos corridos** (sem bullets), com as seções (títulos "##"):
+
+## Objetivo
+O que o decreto legislativo dispõe e qual o seu efeito prático.
+
+## Justificativa
+Por que a matéria é relevante, com base na justificação anexada.
+${secaoParecer}## Argumentos favoráveis e contrários
+Dois parágrafos (a favor e contra). Apresente sempre os dois lados.
+
+## Pontos de atenção para o Podemos
+Um parágrafo sobre as implicações para a bancada.`;
+  }
+
+  const regras = `
+PRINCÍPIOS: clareza, objetividade, imparcialidade e fundamentação no próprio documento.
+REGRAS RÍGIDAS:
+- Use apenas informação contida nos documentos anexos. Não invente fatos. (Exceção: a seção "Argumentos favoráveis e contrários", em que pode usar conhecimento geral.)
+- Se uma informação não constar, escreva "não consta no documento" em vez de supor.
+- Não invente números de lei, decreto, portaria, datas, valores ou nomes que não estejam nos documentos.
+- NÃO inclua recomendação de voto (favorável/contrário/abstenção).
+- NÃO mencione "cenário" nem reproduza estas instruções — escreva apenas a nota técnica.
+- Escreva em parágrafos corridos, sem bullets ou listas.
+- Responda em Markdown puro, sem cercas de código \`\`\`.`;
+
+  return `${cabecalho}
+${corpo}
+${instr}${regras}`;
 }
 
 // ---------- IA: chamada adaptada para resposta em Markdown ----------
