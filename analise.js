@@ -380,6 +380,15 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
+      <div class="an-edit-toolbar" data-role="edit-toolbar" style="display:none">
+        <button type="button" class="an-fmt-btn" data-fmt="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
+        <span class="an-fmt-sep"></span>
+        <span class="an-fmt-label">Tamanho</span>
+        <button type="button" class="an-fmt-btn" data-size="12">12</button>
+        <button type="button" class="an-fmt-btn" data-size="14">14</button>
+        <button type="button" class="an-fmt-btn" data-size="16">16</button>
+        <button type="button" class="an-fmt-btn" data-size="" title="Tamanho normal (remover marcação)">normal</button>
+      </div>
       <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
     </div>
   `;
@@ -422,6 +431,20 @@ function renderCard(it) {
         .catch(e => console.warn('Falha ao salvar analista:', e.message));
     }
     marcarSujo();
+  });
+
+  // Barra de formatação do editor (negrito + tamanho de fonte).
+  const editorEl = card.querySelector('[data-role=analise-editor]');
+  const toolbar  = card.querySelector('[data-role=edit-toolbar]');
+  toolbar.querySelectorAll('button').forEach(b => b.addEventListener('mousedown', e => e.preventDefault())); // preserva a seleção no textarea
+  toolbar.querySelector('[data-fmt=bold]').addEventListener('click', () => envolverSelecao(editorEl, '**', '**'));
+  toolbar.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
+    const sz = b.dataset.size;
+    if (sz) envolverSelecao(editorEl, `[[${sz}]]`, '[[/]]');
+    else removerTamanhoSelecao(editorEl);
+  }));
+  editorEl.addEventListener('keydown', e => {
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); envolverSelecao(editorEl, '**', '**'); }
   });
 
   // Seleção para o PDF (vazio = todos). Reflete o estado e atualiza o contador.
@@ -2353,6 +2376,7 @@ function renderAnaliseCard(it) {
   conteudo.innerHTML = avisoRefs + renderNotaTela(notaMd(it));
   conteudo.style.display = '';
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
   // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
   // texto da nota recém-gerada/editada).
   atualizarBadgesCard(it);
@@ -2363,6 +2387,38 @@ function renderAnaliseCard(it) {
 const _autosaveState = new Map();
 const AUTOSAVE_DEBOUNCE_MS = 1500;
 
+// Envolve a seleção do textarea com marcadores (negrito `**…**` ou tamanho
+// `[[N]]…[[/]]`), reposiciona a seleção e dispara o autosave.
+function envolverSelecao(editor, antes, depois) {
+  const s = editor.selectionStart ?? editor.value.length;
+  const e = editor.selectionEnd ?? s;
+  const v = editor.value;
+  editor.value = v.slice(0, s) + antes + v.slice(s, e) + depois + v.slice(e);
+  editor.selectionStart = s + antes.length;
+  editor.selectionEnd   = e + antes.length;
+  editor.focus();
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+// Remove marcadores de tamanho da seleção (botão "normal"): tira o par que
+// envolve a seleção e quaisquer marcadores soltos dentro dela.
+function removerTamanhoSelecao(editor) {
+  let s = editor.selectionStart ?? 0, e = editor.selectionEnd ?? 0;
+  const v = editor.value;
+  const abre = v.slice(0, s).match(/\[\[(?:12|14|16)\]\]$/);
+  const fecha = v.slice(e).match(/^\[\[\/\]\]/);
+  let novo;
+  if (abre && fecha) {
+    novo = v.slice(0, s - abre[0].length) + v.slice(s, e) + v.slice(e + fecha[0].length);
+  } else {
+    const sel = v.slice(s, e).replace(/\[\[(?:12|14|16)\]\]|\[\[\/\]\]/g, '');
+    novo = v.slice(0, s) + sel + v.slice(e);
+  }
+  editor.value = novo;
+  editor.focus();
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function entrarEdicaoAnalise(it) {
   if (!it.analise) return;
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
@@ -2372,6 +2428,7 @@ function entrarEdicaoAnalise(it) {
   editor.value = it.analise.markdown || '';
   conteudo.style.display = 'none';
   editor.style.display   = 'block';
+  card.querySelector('[data-role=edit-toolbar]').style.display = 'flex';
   card.querySelector('[data-role=btn-editar]').style.display = 'none';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'inline-flex';
@@ -2476,6 +2533,7 @@ function sairEdicaoAnalise(it) {
   }
   limparEdicao(it);
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
   card.querySelector('[data-role=analise-conteudo]').style.display = '';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
@@ -2503,6 +2561,7 @@ async function salvarEdicaoAnalise(it) {
 
   limparEdicao(it);
   card.querySelector('[data-role=analise-editor]').style.display = 'none';
+  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
   card.querySelector('[data-role=analise-conteudo]').style.display = '';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
@@ -2534,6 +2593,8 @@ function renderMarkdown(md) {
   // Bold/italic
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
+  // Tamanho de fonte — marcador [[N]]…[[/]] da barra de formatação do editor
+  html = html.replace(/\[\[(12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g, '<span style="font-size:$1pt">$2</span>');
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   // Listas
