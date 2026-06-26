@@ -400,7 +400,10 @@ function renderCard(it) {
       <div class="an-chat" data-role="chat-panel" style="display:none">
         <div class="an-chat-info">
           <span>Respostas com base na <b>nota</b> e nos <b>documentos da matéria</b> — confira sempre nos textos oficiais.</span>
-          <button type="button" class="an-chat-limpar" data-role="chat-limpar">Limpar</button>
+          <span class="an-chat-acoes">
+            <label class="an-chat-web" title="Permite ao Revisor consultar a internet (depende do modelo configurado; custo extra por busca)"><input type="checkbox" data-role="chat-web"> 🌐 acesso à internet</label>
+            <button type="button" class="an-chat-limpar" data-role="chat-limpar">Limpar</button>
+          </span>
         </div>
         <div class="an-chat-msgs" data-role="chat-msgs"></div>
         <div class="an-chat-input">
@@ -469,6 +472,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-perguntar]').addEventListener('click', () => togglePerguntarIA(it));
   card.querySelector('[data-role=chat-enviar]').addEventListener('click', () => enviarPerguntaIA(it));
   card.querySelector('[data-role=chat-limpar]').addEventListener('click', () => limparChat(it));
+  card.querySelector('[data-role=chat-web]').addEventListener('change', e => { (it._chat = it._chat || { mensagens: [], contexto: null }).web = e.target.checked; });
   card.querySelector('[data-role=chat-q]').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarPerguntaIA(it); }
   });
@@ -2131,7 +2135,7 @@ ${instr}${regras}`;
 // ---------- IA: chamada adaptada para resposta em Markdown ----------
 // Retorna { text, truncated } onde truncated=true sinaliza que o modelo
 // atingiu o limite de tokens de saída (não terminou a resposta).
-async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
+async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
 
   if (provedorId === 'gemini') {
@@ -2143,10 +2147,12 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       contents: [{ parts }],
       generationConfig: { temperature: 0.2, maxOutputTokens: 12000 },
     };
+    if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const json = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const cand = json.candidates?.[0];
     return {
-      text: cand?.content?.parts?.[0]?.text?.trim() || '',
+      // Com grounding o texto pode vir em vários parts — concatena todos.
+      text: (cand?.content?.parts || []).map(p => p.text || '').join('').trim(),
       truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
     };
   }
@@ -2165,18 +2171,20 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       temperature: 0.2,
       max_output_tokens: 12000,
     };
+    if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
     const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     });
+    // Concatena todo output_text (com web search há itens extras antes da mensagem final).
     let texto = '';
     for (const item of (json.output || [])) {
       for (const c of (item.content || [])) {
-        if (c.type === 'output_text' && c.text) { texto = c.text.trim(); break; }
+        if (c.type === 'output_text' && c.text) texto += (texto ? '\n' : '') + c.text;
       }
-      if (texto) break;
     }
+    texto = texto.trim();
     if (!texto) texto = (json.output_text || '').trim();
     const trunc = (json.status === 'incomplete')
       || (json.incomplete_details?.reason === 'max_output_tokens');
@@ -2195,6 +2203,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       max_tokens: 12000,
       messages: [{ role: 'user', content }],
     };
+    if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const json = await fetchIA('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -2205,11 +2214,12 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers }) {
       },
       body: JSON.stringify(body),
     });
+    // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
     let texto = '';
     for (const item of (json.content || [])) {
-      if (item.type === 'text' && item.text) { texto = item.text.trim(); break; }
+      if (item.type === 'text' && item.text) texto += (texto ? '\n' : '') + item.text;
     }
-    return { text: texto, truncated: json.stop_reason === 'max_tokens' };
+    return { text: texto.trim(), truncated: json.stop_reason === 'max_tokens' };
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);
@@ -2458,6 +2468,7 @@ function togglePerguntarIA(it) {
   if (!it.analise) { mostrarToast('Gere a nota primeiro para poder perguntar.', 'aviso'); return; }
   it._chat = it._chat || { mensagens: [], contexto: null };
   panel.style.display = 'block';
+  card.querySelector('[data-role=chat-web]').checked = !!it._chat.web;
   renderChat(it);
   card.querySelector('[data-role=chat-q]').focus();
 }
@@ -2516,7 +2527,7 @@ REGRAS:
 - Cite o dispositivo, artigo ou trecho do documento quando possível.
 - Se a resposta NÃO constar nos documentos/nota, diga "não consta nos documentos" e, se útil, ofereça uma ponderação deixando claro que é inferência, não fato do documento.
 - Não invente números de lei, dispositivos, datas, valores ou nomes.
-- Responda em Português do Brasil, de forma direta e objetiva, em Markdown.${it._chat.truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
+- Responda em Português do Brasil, de forma direta e objetiva, em Markdown.${it._chat.web ? '\n- Você PODE consultar a internet para complementar a resposta. Ao usar informação da web, CITE a fonte (URL) e deixe explícito que veio da internet, separando-a do que consta nos documentos da matéria.' : ''}${it._chat.truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
 
 === MATERIAL DA MATÉRIA ===
 ${it._chat.contexto}
@@ -2549,11 +2560,15 @@ async function enviarPerguntaIA(it) {
       modelo: state.config.modelo,
       prompt: montarPromptChat(it, q),
       pdfBuffers: [],
+      web: !!it._chat.web,
     });
     it._chat.mensagens.push({ role: 'assistant', content: (text || '').trim() || '(a IA não retornou resposta)' });
   } catch (e) {
     if (isAbortError(e)) it._chat.mensagens.push({ role: 'assistant', content: '(consulta cancelada)' });
-    else it._chat.mensagens.push({ role: 'assistant', content: 'Erro ao consultar a IA: ' + e.message });
+    else {
+      const dica = it._chat.web ? ' (com acesso à internet ligado — o modelo configurado pode não suportar busca web; tente desligar ou trocar de modelo)' : '';
+      it._chat.mensagens.push({ role: 'assistant', content: 'Erro ao consultar a IA: ' + e.message + dica });
+    }
   } finally {
     it._chat.carregando = false;
     it._chat._status = '';
