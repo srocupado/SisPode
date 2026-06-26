@@ -733,11 +733,11 @@ async function buscarPareceresPlenario(idProp) {
     // letras (não o próprio tipo da proposição, ex.: "PEC00619", nem "MESA").
     const dono = (siglaMatch[3] || '').toUpperCase();
     const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
-    // Comissão Especial de PEC: a sigla-dona é o código compacto da própria PEC
-    // (ex.: "PEC00619" = PEC 6/2019). É nela que sai o parecer de mérito que vai
-    // a Plenário — a PEC só recebe parecer da CCJC (admissibilidade) e da
-    // Comissão Especial (mérito).
-    const especial = /^PEC\d{3,}$/.test(dono);
+    // Comissão Especial: a sigla-dona é o código compacto da própria proposição
+    // (ex.: "PEC00619" = PEC 6/2019; "PL629902" = PL 6299/2002; "PL233823" =
+    // PL 2338/2023). Ocorre em PECs (onde é o parecer de mérito operativo) e em
+    // certos PLs/PLPs (onde é mais uma etapa, ao lado do parecer de plenário).
+    const especial = /^(PEC|PLP|PL)\d{3,}$/.test(dono);
 
     candidatos.push({
       sigla:      siglaMatch[1].toUpperCase(),
@@ -761,9 +761,15 @@ async function buscarPareceresPlenario(idProp) {
   // nenhum PRL. candidatos já está em ordem decrescente de data.
   const porComissao = new Map();
   for (const c of candidatos) {
-    if ((c.sigla !== 'PAR' && c.sigla !== 'PRL') || !c.comissao) continue;
-    const prev = porComissao.get(c.comissao);
-    if (!prev || (c.sigla === 'PRL' && prev.sigla !== 'PRL')) porComissao.set(c.comissao, c);
+    if (c.sigla !== 'PAR' && c.sigla !== 'PRL') continue;
+    // Comissões permanentes (sigla de letras) e a Comissão Especial (sigla =
+    // código compacto da proposição). A Especial entra sob uma chave própria.
+    const chave = c.comissao || (c.especial ? '__especial__' : null);
+    if (!chave) continue;
+    const prev = porComissao.get(chave);
+    if (!prev || (c.sigla === 'PRL' && prev.sigla !== 'PRL')) {
+      porComissao.set(chave, { ...c, comissao: c.comissao || 'Comissão Especial', especial: !!c.especial });
+    }
   }
   const comissoes = Array.from(porComissao.values())
     .sort((a, b) => (b.data || '').localeCompare(a.data || ''));
@@ -1506,8 +1512,10 @@ function operativosAtuais(it) {
   add('PRLP', par.prlp, 'parecer do relator (PRLP)');
   add('PRLE', par.prle, 'parecer às emendas (PRLE)');
   add('SBT_A', par.sbtA, 'substitutivo de comissão (SBT-A)');
-  add('PRL_ESPECIAL', par.prlEspecial, 'parecer do relator da Comissão Especial (PEC)');
-  add('SBT_A_ESPECIAL', par.sbtAEspecial, 'substitutivo adotado pela Comissão Especial (PEC)');
+  // Em PEC a Comissão Especial é o texto operativo; em PL/PLP ela é apenas mais
+  // um parecer (PARECER_COMISSAO) e não dispara desatualização.
+  add('PRL_ESPECIAL', it.sigla === 'PEC' ? par.prlEspecial : null, 'parecer do relator da Comissão Especial (PEC)');
+  add('SBT_A_ESPECIAL', it.sigla === 'PEC' ? par.sbtAEspecial : null, 'substitutivo adotado pela Comissão Especial (PEC)');
   add('EMS', es.ems, 'emendas do Senado (EMS)');
   add('SSP', es.ssp, 'subemenda substitutiva (SSP)');
   return out;
@@ -1625,12 +1633,18 @@ async function escolherDocumentos(it) {
 
     // Pareceres das comissões por onde a proposição já tramitou (todos), em
     // ordem cronológica, anexados à chamada principal para que a IA compare os
-    // substitutivos entre si e isole a contribuição de cada comissão.
-    const comissoesCron = [...(par.comissoes || [])].sort((a, b) => (a.data || '').localeCompare(b.data || ''));
+    // substitutivos entre si e isole a contribuição de cada comissão. Inclui o
+    // parecer da Comissão Especial (em PLs/PLPs) — na PEC, porém, a Especial é o
+    // documento operativo (PRL_ESPECIAL) e não se repete aqui.
+    const comissoesCron = [...(par.comissoes || [])]
+      .filter(pc => !(it.sigla === 'PEC' && pc.especial))
+      .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
     for (const pc of comissoesCron) {
       docs.push({
         tipo: 'PARECER_COMISSAO',
-        rotulo: `Parecer da Comissão ${pc.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''}`,
+        rotulo: pc.especial
+          ? `Parecer da Comissão Especial${pc.dataBR ? ' de ' + pc.dataBR : ''}`
+          : `Parecer da Comissão ${pc.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''}`,
         url: pc.url,
       });
     }
