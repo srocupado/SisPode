@@ -451,9 +451,12 @@ function renderCard(it) {
           <span>Respostas com base na <b>nota</b> e nos <b>documentos da matéria</b> — confira sempre nos textos oficiais.</span>
           <span class="an-chat-acoes">
             <label class="an-chat-web" title="Permite ao Revisor consultar a internet (depende do modelo configurado; custo extra por busca)"><input type="checkbox" data-role="chat-web"> 🌐 acesso à internet</label>
+            <button type="button" class="an-chat-limpar" data-role="chat-docs" title="Incluir no Revisor documentos da proposição que não entraram na nota">📎 Incluir mais documentos</button>
             <button type="button" class="an-chat-limpar" data-role="chat-limpar">Limpar</button>
           </span>
         </div>
+        <div class="an-chat-extras" data-role="chat-extras" style="display:none"></div>
+        <div class="an-chat-docs" data-role="chat-docs-panel" style="display:none"></div>
         <div class="an-chat-msgs" data-role="chat-msgs"></div>
         <div class="an-chat-input">
           <textarea class="an-chat-q" data-role="chat-q" rows="2" placeholder="Pergunte algo sobre a matéria… (Enter envia, Shift+Enter quebra linha)"></textarea>
@@ -521,6 +524,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-perguntar]').addEventListener('click', () => togglePerguntarIA(it));
   card.querySelector('[data-role=chat-enviar]').addEventListener('click', () => enviarPerguntaIA(it));
   card.querySelector('[data-role=chat-limpar]').addEventListener('click', () => limparChat(it));
+  card.querySelector('[data-role=chat-docs]').addEventListener('click', () => toggleSeletorDocs(it));
   card.querySelector('[data-role=chat-web]').addEventListener('change', e => { (it._chat = it._chat || { mensagens: [], contexto: null }).web = e.target.checked; });
   card.querySelector('[data-role=chat-q]').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); enviarPerguntaIA(it); }
@@ -980,6 +984,85 @@ async function buscarEmendasSenadoESSP(idProp) {
     if (out.ems && out.ssp) break; // ambos achados — não precisa varrer subst=1
   }
   return out;
+}
+
+// ---------- Listagem de TODOS os documentos (para o seletor do Revisor) ----------
+// Lista todas as linhas do Histórico de Pareceres (não só as operativas).
+async function listarDocsPareceres(idProp) {
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
+  if (!html) return [];
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  for (const tr of doc.querySelectorAll('tr')) {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length < 3) continue;
+    const m = (tds[0].textContent || '').trim().replace(/\s+/g, ' ')
+      .match(/^(SBT-A|PRLP|PRLE|AA|PAR|PRL)\s+(\d+)(?:\s+([A-Za-zÀ-Ú0-9]+))?/i);
+    if (!m) continue;
+    const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+    let href = a ? a.getAttribute('href') : null;
+    if (!href || href.startsWith('javascript:')) continue;
+    try { href = new URL(href, base).toString(); } catch (_) { continue; }
+    let dataBR = null;
+    for (const td of tds) { const dm = (td.textContent || '').match(/\b(\d{2}\/\d{2}\/\d{4})\b/); if (dm) { dataBR = dm[1]; break; } }
+    const dono = (m[3] || '').toUpperCase();
+    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
+    const especial = /^(PEC|PLP|PL)\d{3,}$/.test(dono);
+    const sigla = m[1].toUpperCase();
+    const nome  = sigla === 'AA' ? 'Autógrafo' : sigla;
+    const orgao = comissao || (especial ? 'Comissão Especial' : (sigla === 'AA' ? 'Mesa' : 'Plenário'));
+    out.push({ rotulo: `${nome} ${m[2]} — ${orgao}${dataBR ? ' · ' + dataBR : ''}`, url: href });
+  }
+  return out;
+}
+
+// Lista todas as emendas (página de emendas, subst=0 e 1).
+async function listarEmendas(idProp) {
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  const out = [], vistos = new Set();
+  for (const subst of [0, 1]) {
+    const html = await fetchHtmlCamara(`${base}prop_emendas?idProposicao=${idProp}&subst=${subst}`);
+    if (!html) continue;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    for (const tr of doc.querySelectorAll('tr')) {
+      const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+      if (!a) continue;
+      let href = a.getAttribute('href');
+      if (!href || href.startsWith('javascript:')) continue;
+      try { href = new URL(href, base).toString(); } catch (_) { continue; }
+      if (vistos.has(href)) continue; vistos.add(href);
+      const fn = (() => { try { return decodeURIComponent(href).replace(/\+/g, ' '); } catch (_) { return href; } })();
+      const fnm = (fn.match(/filename=([^&;]+)/i) || [])[1] || '';
+      const rowTxt = (tr.textContent || '').replace(/\s+/g, ' ').trim();
+      const dataBR = (rowTxt.match(/\b(\d{2}\/\d{2}\/\d{4})\b/) || [])[1] || '';
+      let rotulo = (fnm.trim() || rowTxt.slice(0, 50))
+        .replace(/\.(pdf|docx?|html?)$/i, '')
+        .replace(/\s*=>.*$/, '')          // remove "=> PL .../..." do filename
+        .trim().slice(0, 70) || 'Emenda';
+      out.push({ rotulo: `${rotulo}${dataBR ? ' · ' + dataBR : ''}`, url: href });
+    }
+  }
+  return out;
+}
+
+// Agrega os documentos da proposição que NÃO entraram na nota, por fonte.
+async function listarDocumentosDisponiveis(it) {
+  const enr = it.enriquecimento || {};
+  const usados = new Set((it.analise?.documentos || []).map(d => d.url));
+  const grupos = { Pareceres: [], Emendas: [], Textos: [] };
+  if (enr.urlInteiroTeor)  grupos.Textos.push({ rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+  if (enr.urlRedacaoFinal) grupos.Textos.push({ rotulo: 'Redação Final', url: enr.urlRedacaoFinal });
+  if (enr.idProposicao) {
+    try { grupos.Pareceres = await listarDocsPareceres(enr.idProposicao); } catch (e) { console.warn('listarDocsPareceres:', e.message); }
+    try { grupos.Emendas   = await listarEmendas(enr.idProposicao);     } catch (e) { console.warn('listarEmendas:', e.message); }
+  }
+  // Remove os já usados na nota e duplicatas por URL.
+  const vistos = new Set();
+  for (const k of Object.keys(grupos)) {
+    grupos[k] = grupos[k].filter(d => d.url && !usados.has(d.url) && !vistos.has(d.url) && vistos.add(d.url));
+  }
+  return grupos;
 }
 
 /**
@@ -2519,6 +2602,7 @@ function togglePerguntarIA(it) {
   panel.style.display = 'block';
   card.querySelector('[data-role=chat-web]').checked = !!it._chat.web;
   renderChat(it);
+  renderExtras(it);
   card.querySelector('[data-role=chat-q]').focus();
 }
 
@@ -2580,6 +2664,7 @@ REGRAS:
 
 === MATERIAL DA MATÉRIA ===
 ${it._chat.contexto}
+${(it._chat.extras || []).length ? `\n=== DOCUMENTOS ADICIONAIS (incluídos a pedido — também são da matéria) ===\n${it._chat.extras.map(e => `\n## ${e.rotulo}${e.trunc ? ' (truncado)' : ''}\n${e.texto}`).join('\n')}\n` : ''}
 ${hist ? `\n=== CONVERSA ATÉ AQUI ===\n${hist}\n` : ''}
 === NOVA PERGUNTA ===
 ${novaPergunta}`;
@@ -2624,6 +2709,87 @@ async function enviarPerguntaIA(it) {
     iaInFlightDec();
     renderChat(it);
   }
+}
+
+// ---------- Seletor de documentos extras para o Revisor ----------
+const EXTRA_DOC_MAX = 50000;   // teto de caracteres por documento extra incluído
+
+async function toggleSeletorDocs(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const panel = card.querySelector('[data-role=chat-docs-panel]');
+  if (panel.style.display !== 'none') { panel.style.display = 'none'; return; }
+  panel.style.display = 'block';
+  panel.innerHTML = '<div class="an-chat-vazio"><span class="an-spinner"></span> Buscando documentos da proposição…</div>';
+  let grupos;
+  try { grupos = await listarDocumentosDisponiveis(it); }
+  catch (e) { panel.innerHTML = `<div class="an-chat-vazio">Erro ao listar documentos: ${escapeHtml(e.message)}</div>`; return; }
+  renderSeletorDocs(it, grupos);
+}
+
+function renderSeletorDocs(it, grupos) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const panel = card.querySelector('[data-role=chat-docs-panel]');
+  const total = Object.values(grupos).reduce((n, a) => n + a.length, 0);
+  if (!total) { panel.innerHTML = '<div class="an-chat-vazio">Não há outros documentos além dos já usados na nota.</div>'; return; }
+  const jaAdd = new Set((it._chat?.extras || []).map(e => e.url));
+  let html = '<div class="an-docs-titulo">Documentos da proposição que <b>não</b> entraram na nota — marque para incluir no Revisor:</div>';
+  for (const [grupo, lista] of Object.entries(grupos)) {
+    if (!lista.length) continue;
+    html += `<div class="an-docs-grupo">${grupo}</div>`;
+    html += lista.map(d => {
+      const incl = jaAdd.has(d.url);
+      return `<label class="an-docs-opt"><input type="checkbox" data-doc-url="${escapeHtml(d.url)}" data-doc-rotulo="${escapeHtml(d.rotulo)}" ${incl ? 'checked disabled' : ''}> <span>${escapeHtml(d.rotulo)}${incl ? ' <small>(já incluído)</small>' : ''}</span></label>`;
+    }).join('');
+  }
+  html += `<div class="an-docs-acoes"><button class="btn btn-primary btn-sm" data-role="docs-add">Adicionar selecionados</button><button class="btn btn-ghost btn-sm" data-role="docs-fechar">Fechar</button></div>`;
+  panel.innerHTML = html;
+  panel.querySelector('[data-role=docs-add]').addEventListener('click', () => adicionarDocsExtras(it));
+  panel.querySelector('[data-role=docs-fechar]').addEventListener('click', () => { panel.style.display = 'none'; });
+}
+
+async function adicionarDocsExtras(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const panel = card.querySelector('[data-role=chat-docs-panel]');
+  const checks = [...panel.querySelectorAll('input[data-doc-url]:checked:not(:disabled)')];
+  if (!checks.length) { panel.style.display = 'none'; return; }
+  it._chat = it._chat || { mensagens: [], contexto: null };
+  it._chat.extras = it._chat.extras || [];
+  const btn = panel.querySelector('[data-role=docs-add]');
+  btn.disabled = true; btn.textContent = 'Baixando…';
+  let falhas = 0;
+  for (const cb of checks) {
+    const url = cb.dataset.docUrl, rotulo = cb.dataset.docRotulo;
+    if (it._chat.extras.some(e => e.url === url)) continue;
+    try {
+      const buf = await baixarPdf(url);
+      let texto = await extrairTextoPdf(buf.slice(0));
+      const trunc = texto.length > EXTRA_DOC_MAX;
+      if (trunc) texto = texto.slice(0, EXTRA_DOC_MAX);
+      it._chat.extras.push({ rotulo, url, texto, trunc });
+    } catch (e) { falhas++; console.warn('Falha ao incluir doc extra:', rotulo, e.message); }
+  }
+  panel.style.display = 'none';
+  renderExtras(it);
+  const n = it._chat.extras.length;
+  mostrarToast(`📎 ${n} documento(s) no Revisor${falhas ? ` · ${falhas} falharam` : ''}.`, falhas ? 'aviso' : 'sucesso');
+}
+
+function renderExtras(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (!card) return;
+  const box = card.querySelector('[data-role=chat-extras]');
+  const extras = it._chat?.extras || [];
+  if (!extras.length) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  const chars = extras.reduce((n, e) => n + (e.texto || '').length, 0);
+  box.style.display = '';
+  box.innerHTML = `<span class="an-extras-lbl">📎 Incluídos (${extras.length} · ~${Math.round(chars / 1000)}k car.):</span> `
+    + extras.map(e => `<span class="an-extra-chip" title="${escapeHtml(e.url)}">${escapeHtml(e.rotulo)}${e.trunc ? ' ✂' : ''}<button data-rem-extra="${escapeHtml(e.url)}" title="Remover">✕</button></span>`).join('');
+  box.querySelectorAll('[data-rem-extra]').forEach(b => b.addEventListener('click', () => {
+    it._chat.extras = (it._chat.extras || []).filter(e => e.url !== b.dataset.remExtra);
+    renderExtras(it);
+  }));
+  if (chars > 150000) mostrarToast('Muitos documentos incluídos — as perguntas podem ficar caras/lentas. Remova o que não precisar.', 'aviso');
 }
 
 function entrarEdicaoAnalise(it) {
