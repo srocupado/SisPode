@@ -134,6 +134,18 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-hist-abrir-pauta').addEventListener('click', abrirPautaDeOrigem);
   document.getElementById('btn-hist-trazer').addEventListener('click', trazerParaPautaAtual);
 
+  // Renomear pauta (inline na barra superior)
+  document.getElementById('btn-renomear-pauta').addEventListener('click', abrirRenomearPauta);
+  const renInput = document.getElementById('pauta-rename-input');
+  renInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') { e.preventDefault(); _renameCancel = false; renInput.blur(); }
+    else if (e.key === 'Escape') { e.preventDefault(); _renameCancel = true; renInput.blur(); }
+  });
+  renInput.addEventListener('blur', () => {
+    if (_renameCancel) { _renameCancel = false; fecharRenomearPauta(); }
+    else salvarRenomearPauta();
+  });
+
   // Modal de configurações: fechamento e ações
   document.querySelectorAll('[data-fecha]').forEach(b => {
     b.addEventListener('click', () => {
@@ -271,7 +283,8 @@ function renderizarPauta() {
   const chavesAtuais = new Set(state.pauta.itens.map(it => it.chave));
   for (const k of state.selecionados) if (!chavesAtuais.has(k)) state.selecionados.delete(k);
 
-  document.getElementById('pauta-titulo').textContent = state.pauta.titulo;
+  document.getElementById('pauta-titulo').textContent = state.pauta.nome || state.pauta.titulo;
+  document.getElementById('btn-renomear-pauta').style.display = '';   // pauta carregada → permite renomear
   document.getElementById('pauta-meta').textContent =
     `${state.pauta.itens.length} itens · carregada em ${formatDataHora(state.pauta.uploadedAt)}`;
 
@@ -314,6 +327,42 @@ function renderizarPauta() {
     projs.forEach(it => cont.appendChild(renderCard(it)));
   }
   atualizarSelecaoPdf();
+}
+
+// ---------- Renomear a pauta (nome editável, não-destrutivo) ----------
+let _renameCancel = false;
+
+function abrirRenomearPauta() {
+  if (!state.pauta) return;
+  const input = document.getElementById('pauta-rename-input');
+  input.value = state.pauta.nome || state.pauta.titulo || '';
+  document.getElementById('pauta-titulo').style.display = 'none';
+  document.getElementById('btn-renomear-pauta').style.display = 'none';
+  input.style.display = '';
+  input.focus();
+  input.select();
+}
+
+function fecharRenomearPauta() {
+  document.getElementById('pauta-rename-input').style.display = 'none';
+  document.getElementById('pauta-titulo').style.display = '';
+  document.getElementById('btn-renomear-pauta').style.display = '';
+}
+
+async function salvarRenomearPauta() {
+  if (!state.pauta) { fecharRenomearPauta(); return; }
+  const novo = (document.getElementById('pauta-rename-input').value || '').trim();
+  const atual = state.pauta.nome || state.pauta.titulo || '';
+  if (novo && novo !== atual) {
+    state.pauta.nome = novo;
+    document.getElementById('pauta-titulo').textContent = novo;
+    marcarSujo();
+    try { await fbSalvarPauta(state.pauta); mostrarToast('Pauta renomeada.', 'sucesso'); }
+    catch (e) { mostrarToast('Erro ao salvar o nome: ' + e.message, 'erro'); }
+    atualizarSidebarPautas();
+    state.historico.indice = null;   // invalida o cache da busca no histórico
+  }
+  fecharRenomearPauta();
 }
 
 // Atualiza o contador da barra de seleção e o rótulo do botão Exportar PDF.
@@ -365,7 +414,7 @@ function renderCard(it) {
         Ver no portal
       </a>
       <label class="an-analista-label" title="Nome do(a) analista responsável pela nota — salvo com a análise e exibido no PDF">Responsável:
-        <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="nome do analista">
+        <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="nome do servidor">
       </label>
       <span class="an-analista-ok" data-role="analista-ok" title="Analista salvo">✓</span>
       <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item da pauta">
@@ -2401,7 +2450,7 @@ function renderAnaliseCard(it) {
   }
   // Analista responsável na meta + sincroniza o campo do card (cache/regeração).
   const analista = it.analista || it.analise.analista || '';
-  if (analista) metaEl.innerHTML += ` · <span title="Analista responsável pela nota">Analista: <b>${escapeHtml(analista)}</b></span>`;
+  if (analista) metaEl.innerHTML += ` · <span title="Servidor responsável pela nota">Servidor responsável: <b>${escapeHtml(analista)}</b></span>`;
   const inpAnalista = card.querySelector('[data-role=inp-analista]');
   if (inpAnalista && inpAnalista.value !== analista) inpAnalista.value = analista;
 
@@ -3039,7 +3088,7 @@ async function atualizarSidebarPautas() {
     cont.innerHTML = lista.map(p => `
       <div class="an-pauta-item ${p.id === ativaId ? 'ativo' : ''}" data-pid="${escapeHtml(p.id)}">
         <div class="an-pauta-item-info">
-          <div class="an-pauta-item-titulo">${escapeHtml(p.periodo || p.titulo || p.id)}</div>
+          <div class="an-pauta-item-titulo">${escapeHtml(p.nome || p.periodo || p.titulo || p.id)}</div>
           <div class="an-pauta-item-meta">${(p.itens || []).length} itens · ${formatDataHora(p.uploadedAt)}</div>
         </div>
         <button class="an-pauta-item-apagar" data-pid="${escapeHtml(p.id)}" title="Apagar pauta">
@@ -3105,7 +3154,7 @@ async function carregarPautaPorId(id) {
 function abrirModalApagarPauta(p) {
   _pautaParaApagar = p;
   document.getElementById('apagar-pauta-nome').textContent =
-    `"${p.periodo || p.titulo || p.id}" (${(p.itens || []).length} itens)`;
+    `"${p.nome || p.periodo || p.titulo || p.id}" (${(p.itens || []).length} itens)`;
   document.getElementById('modal-apagar-pauta').style.display = 'flex';
 }
 
@@ -3134,6 +3183,7 @@ async function confirmarApagarPauta() {
       state.pauta = null;
       document.getElementById('lista-itens').innerHTML = '<div class="an-empty"><p>Pauta removida. Selecione outra ou carregue um novo PDF.</p></div>';
       document.getElementById('pauta-titulo').textContent = 'Nenhuma pauta carregada';
+      document.getElementById('btn-renomear-pauta').style.display = 'none';
       document.getElementById('pauta-meta').textContent   = 'Selecione uma pauta no menu ou carregue um novo PDF';
       document.getElementById('btn-exportar-pdf').disabled    = true;
       document.getElementById('btn-salvar-firebase').disabled = true;
@@ -3552,7 +3602,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   // O título já inclui o período ("Pauta — <período>"); não repetir o período
   // nem o horário de geração.
-  const meta = `${esc(pauta.titulo || '')} · ${itens.length} item(ns)`;
+  const meta = `${esc(pauta.nome || pauta.titulo || '')} · ${itens.length} item(ns)`;
 
   // Legenda das marcas — só lista as que de fato aparecem em algum item.
   const legItens = [];
@@ -3587,7 +3637,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     </div>`;
   }).join('');
 
-  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(pauta.titulo || 'Pauta de Plenário')}</title>
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(pauta.nome || pauta.titulo || 'Pauta de Plenário')}</title>
   <style>
     @page { size:A4; margin:16mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
     * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
@@ -4048,7 +4098,7 @@ function construirIndiceHistorico(pautasMap, notasShallow) {
         idx.set(it.chave, e);
       }
       if (it.ementa && !e.ementa) e.ementa = it.ementa;
-      e.pautas.push({ id: pid, periodo: p.periodo || p.titulo || pid, uploadedAt: p.uploadedAt });
+      e.pautas.push({ id: pid, periodo: p.nome || p.periodo || p.titulo || pid, uploadedAt: p.uploadedAt });
     }
   }
   for (const e of idx.values()) e.temNota = !!(notasShallow && notasShallow[e.chave]);

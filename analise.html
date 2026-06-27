@@ -103,6 +103,18 @@
     }
     .an-topbar-info .title  { font-size: 14px; font-weight: 600; color: var(--text); }
     .an-topbar-info .meta   { font-size: 12px; color: var(--text-dim); }
+    .title-row { display: flex; align-items: center; gap: 8px; }
+    .an-rename-btn {
+      background: none; border: 1px solid var(--border-soft); border-radius: 5px;
+      color: var(--text-dim); cursor: pointer; font-size: 12px; line-height: 1;
+      padding: 3px 6px;
+    }
+    .an-rename-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .an-rename-input {
+      font-size: 14px; font-weight: 600; color: var(--text);
+      background: var(--bg); border: 1px solid var(--accent); border-radius: 5px;
+      padding: 3px 8px; min-width: 280px; outline: none;
+    }
 
     .an-topbar-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
 
@@ -492,7 +504,11 @@
 
     <div class="an-topbar">
       <div class="an-topbar-info">
-        <span class="title" id="pauta-titulo">Nenhuma pauta carregada</span>
+        <span class="title-row">
+          <span class="title" id="pauta-titulo">Nenhuma pauta carregada</span>
+          <button id="btn-renomear-pauta" class="an-rename-btn" title="Renomear esta pauta" style="display:none">✎</button>
+          <input type="text" id="pauta-rename-input" class="an-rename-input" maxlength="120" style="display:none">
+        </span>
         <span class="meta"  id="pauta-meta">Carregue o PDF da Pauta da Semana para começar</span>
         <span class="an-sync" id="an-sync" style="display:none">
           <span class="an-sync-dot"></span>
