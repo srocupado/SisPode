@@ -3851,7 +3851,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     <div class="meta">${meta}</div>
     ${indice}
     ${itensHtml || '<p>Pauta vazia.</p>'}
-    <div class="ft">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
+    <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
 }
 
