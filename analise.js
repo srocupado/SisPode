@@ -118,6 +118,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('input-pauta-pdf').addEventListener('change', onPdfSelecionado);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
+  document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
@@ -227,6 +228,7 @@ async function onPdfSelecionado(ev) {
 
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-exportar-docx').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
@@ -3327,6 +3329,7 @@ async function carregarPautaPorId(id) {
     };
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-exportar-docx').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
@@ -3381,6 +3384,7 @@ async function confirmarApagarPauta() {
       document.getElementById('btn-renomear-pauta').style.display = 'none';
       document.getElementById('pauta-meta').textContent   = 'Selecione uma pauta no menu ou carregue um novo PDF';
       document.getElementById('btn-exportar-pdf').disabled    = true;
+      document.getElementById('btn-exportar-docx').disabled   = true;
       document.getElementById('btn-salvar-firebase').disabled = true;
       document.getElementById('btn-adicionar-item').disabled  = true;
     }
@@ -3490,6 +3494,7 @@ async function carregarUltimaPauta() {
     };
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
+    document.getElementById('btn-exportar-docx').disabled = false;
     document.getElementById('btn-salvar-firebase').disabled = false;
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
@@ -3882,6 +3887,172 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     ${itensHtml || '<p>Pauta vazia.</p>'}
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
+}
+
+// ============================================================
+//  EXPORTAÇÃO PARA WORD (.docx) — mesmo conteúdo do PDF
+// ============================================================
+async function carregarLogoBytes() {
+  try {
+    const url = (typeof chrome !== 'undefined' && chrome.runtime?.getURL)
+      ? chrome.runtime.getURL('icons/podemos-logo.png') : 'icons/podemos-logo.png';
+    const r = await fetch(url);
+    if (!r.ok) return null;
+    return new Uint8Array(await r.arrayBuffer());
+  } catch (_) { return null; }
+}
+
+// Converte um trecho (com **negrito** e [[N]]tamanho[[/]]) em TextRuns do Word.
+function runsInlineDocx(texto, baseHalfPt) {
+  const { TextRun } = docx;
+  const runs = [];
+  const pushBold = (txt, sizeHp) => {
+    const re = /\*\*([^*]+)\*\*/g; let l = 0, m;
+    while ((m = re.exec(txt)) !== null) {
+      if (m.index > l) runs.push(new TextRun({ text: txt.slice(l, m.index), size: sizeHp }));
+      runs.push(new TextRun({ text: m[1], bold: true, size: sizeHp }));
+      l = m.index + m[0].length;
+    }
+    if (l < txt.length) runs.push(new TextRun({ text: txt.slice(l), size: sizeHp }));
+  };
+  const sizeRe = /\[\[(12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g;
+  let last = 0, m;
+  while ((m = sizeRe.exec(texto)) !== null) {
+    if (m.index > last) pushBold(texto.slice(last, m.index), baseHalfPt);
+    pushBold(m[2], parseInt(m[1], 10) * 2);   // pt → meios-pontos
+    last = m.index + m[0].length;
+  }
+  if (last < texto.length) pushBold(texto.slice(last), baseHalfPt);
+  if (!runs.length) runs.push(new TextRun({ text: '', size: baseHalfPt }));
+  return runs;
+}
+
+// Converte a nota (Markdown com nossos marcadores) em parágrafos do Word.
+function mdParaDocx(md) {
+  const { Paragraph, TextRun, AlignmentType } = docx;
+  const L15 = { line: 360, lineRule: 'auto' };
+  const BASE = 21;   // ~10,5pt
+  const alinhar = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
+  const texto = encurtarProposicoes(mdSemAcolhimento(md || ''));
+  const out = [];
+  for (const bloco of texto.split(/\n{2,}/)) {
+    let b = bloco.trim();
+    if (!b) continue;
+    const h = b.match(/^(#{1,3})\s+(.+)$/);
+    if (h) {
+      out.push(new Paragraph({ spacing: { before: 220, after: 60, ...L15 }, children: [new TextRun({ text: h[2].replace(/\*\*/g, '').trim(), bold: true, size: 24, color: '155724' })] }));
+      continue;
+    }
+    let alignment = AlignmentType.JUSTIFIED;
+    const am = b.match(/^\[\[(left|center|right|justify)\]\]\s*/i);
+    if (am) { alignment = alinhar[am[1].toLowerCase()]; b = b.slice(am[0].length); }
+    const linhas = b.split(/\n/);
+    if (linhas.length && linhas.every(l => /^\s*[-*]\s+/.test(l))) {
+      for (const l of linhas) out.push(new Paragraph({ bullet: { level: 0 }, spacing: { after: 40, ...L15 }, children: runsInlineDocx(l.replace(/^\s*[-*]\s+/, ''), BASE) }));
+      continue;
+    }
+    out.push(new Paragraph({ alignment, spacing: { after: 140, ...L15 }, children: runsInlineDocx(b.replace(/\n/g, ' '), BASE) }));
+  }
+  if (!out.length) out.push(new Paragraph({ children: [new TextRun({ text: '' })] }));
+  return out;
+}
+
+async function exportarDocx() {
+  if (!state.pauta) return;
+  if (typeof docx === 'undefined') { mostrarToast('Biblioteca de exportação Word não carregada.', 'erro'); return; }
+  const itens = state.selecionados.size
+    ? state.pauta.itens.filter(it => state.selecionados.has(it.chave))
+    : state.pauta.itens;
+  if (!itens.length) { mostrarToast('Nenhum item selecionado para o Word.', 'aviso'); return; }
+
+  mostrarToast('Gerando documento Word…', 'info');
+  try { await carregarConfig(); } catch (_) {}
+  try { await prepararApelidos(itens); } catch (_) {}
+
+  const {
+    Document, Paragraph, TextRun, Packer, BorderStyle,
+    Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
+    Bookmark, PageReference, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
+  } = docx;
+  const L15 = { line: 360, lineRule: 'auto' };
+  const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
+  const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
+  const bmId = ch => 'i_' + String(ch).replace(/[^\w]/g, '_');
+  const num = it => (it.ordem != null ? it.ordem + '. ' : '');
+  const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
+  const logoBytes = await carregarLogoBytes();
+  const nomePauta = state.pauta.nome || state.pauta.titulo || 'Pauta de Plenário';
+  const filhos = [];
+
+  // Cabeçalho institucional: [vazio | título centralizado | logo]
+  filhos.push(new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE }, borders: SEM_BORDA,
+    rows: [new TableRow({ children: [
+      new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [new Paragraph({})] }),
+      new TableCell({ width: { size: 64, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { ...L15 }, children: [new TextRun({ text: 'Pauta de Plenário', bold: true, size: 28, color: '003c1f' })] }),
+        new Paragraph({ alignment: AlignmentType.CENTER, spacing: { ...L15 }, children: [new TextRun({ text: 'Liderança do Podemos na Câmara dos Deputados', size: 20, color: '003c1f' })] }),
+      ] }),
+      new TableCell({ width: { size: 18, type: WidthType.PERCENTAGE }, borders: SEM_BORDA, verticalAlign: VerticalAlign.CENTER, children: [
+        logoBytes ? new Paragraph({ alignment: AlignmentType.RIGHT, children: [new ImageRun({ data: logoBytes, type: 'png', transformation: { width: 104, height: 47 } })] }) : new Paragraph({}),
+      ] }),
+    ] })],
+  }));
+  filhos.push(new Paragraph({ spacing: { before: 40, after: 120 }, border: { bottom: { color: '00A859', space: 1, style: BorderStyle.SINGLE, size: 12 } }, children: [] }));
+  filhos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220, ...L15 }, children: [new TextRun({ text: `${nomePauta} · ${itens.length} item(ns)`, italics: true, size: 16, color: '6b7280' })] }));
+
+  // Índice (números de página preenchidos pelo Word ao abrir)
+  const temMarca = itens.some(it => it.enriquecimento?.autoriaPodemos || (it.enriquecimento?.apensadosPodemos || []).length || relatoriaPodemos(it));
+  filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
+  if (temMarca) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
+  const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
+  itens.forEach(it => filhos.push(new Paragraph({
+    tabStops: tabIndice, spacing: { after: 40, ...L15 },
+    children: [
+      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 18, color: '003c1f' })] }),
+      new TextRun({ text: '\t', size: 18 }),
+      new PageReference(bmId(it.chave)),
+    ],
+  })));
+  filhos.push(new Paragraph({ children: [new PageBreak()] }));
+
+  // Itens
+  itens.forEach(it => {
+    filhos.push(new Paragraph({
+      spacing: { before: 360, after: 40, ...L15 },
+      border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
+      children: [new Bookmark({ id: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' })] })],
+    }));
+    const metaParts = [];
+    const autor = it.autorTexto || (it.enriquecimento?.autores || []).map(a => a.nome).filter(Boolean).join(', ') || '';
+    if (autor) metaParts.push('Autor: ' + autor);
+    if (it.relator) metaParts.push(`Relator: Dep. ${it.relator.nome} (${it.relator.partido}-${it.relator.uf})`);
+    if (metaParts.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: metaParts.join(' · '), size: 16, color: '555555' })] }));
+    const badges = [];
+    if (it.enriquecimento?.autoriaPodemos) badges.push('★ Autoria Podemos');
+    (it.enriquecimento?.apensadosPodemos || []).forEach(ap => badges.push(`Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}`));
+    if (relatoriaPodemos(it)) badges.push('Relatoria Podemos em Plenário');
+    if (badges.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: badges.join('   |   '), bold: true, size: 16, color: '02484d' })] }));
+    const resp = it.analista || it.analise?.analista || '';
+    if (resp) filhos.push(new Paragraph({ spacing: { after: 40, ...L15 }, children: [new TextRun({ text: 'Responsável: ', bold: true, size: 16 }), new TextRun({ text: resp, size: 16 })] }));
+    if (it.analise?.markdown) mdParaDocx(notaMd(it)).forEach(p => filhos.push(p));
+    else filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: placeholder(it.analiseStatus), italics: true, size: 18, color: '999999' })] }));
+  });
+
+  filhos.push(new Paragraph({ spacing: { before: 360 }, alignment: AlignmentType.CENTER, border: { top: { color: 'e5e7eb', space: 1, style: BorderStyle.SINGLE, size: 6 } }, children: [new TextRun({ text: 'Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados', size: 14, color: '9ca3af' })] }));
+
+  try {
+    const blob = await Packer.toBlob(new Document({ features: { updateFields: true }, sections: [{ properties: {}, children: filhos }] }));
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `Pauta_Plenario_${nomePauta.replace(/[^\w]+/g, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.docx`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    mostrarToast('✓ Word gerado — escolha onde salvar.', 'sucesso');
+  } catch (e) {
+    mostrarToast('Erro ao gerar Word: ' + e.message, 'erro');
+  }
 }
 
 async function exportarPdf() {
