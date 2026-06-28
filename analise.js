@@ -163,6 +163,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
   document.getElementById('btn-salvar-interesse').addEventListener('click', salvarInteresse);
+  document.getElementById('config-interesse-ativo').addEventListener('change', onToggleInteresseAtivo);
   document.querySelectorAll('.config-tab-btn').forEach(b => {
     b.addEventListener('click', () => selecionarAbaConfig(b.getAttribute('data-config-tab')));
   });
@@ -1222,6 +1223,22 @@ async function fbSalvarTemasInteresse(map) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
+// Liga/desliga o marcador de interesse para toda a equipe. Desligado por padrão.
+async function fbCarregarInteresseAtivo() {
+  try {
+    const res = await fetch(`${FIREBASE_URL}/deputados_interesse_ativo.json`);
+    if (!res.ok) return false;
+    return (await res.json()) === true;
+  } catch { return false; }
+}
+
+async function fbSalvarInteresseAtivo(v) {
+  const res = await fetch(`${FIREBASE_URL}/deputados_interesse_ativo.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(!!v),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
 // Deputados a incluir manualmente além da lista ativa da API (ex.: afastados
 // do mandato que ainda compõem a bancada e devem retomar).
 const DEPUTADOS_EXTRA = [
@@ -1243,8 +1260,10 @@ async function carregarDeputadosPodemos() {
 }
 
 async function carregarInteresse() {
-  const [lista, dados] = await Promise.all([carregarDeputadosPodemos(), fbCarregarTemasInteresse()]);
-  state.interesse = { lista, dados: dados || {}, carregado: true };
+  const [lista, dados, ativo] = await Promise.all([
+    carregarDeputadosPodemos(), fbCarregarTemasInteresse(), fbCarregarInteresseAtivo(),
+  ]);
+  state.interesse = { lista, dados: dados || {}, ativo: !!ativo, carregado: true };
   atualizarTodosBadgesInteresse();
 }
 
@@ -1395,7 +1414,9 @@ async function determinarInteressados(it, cfg) {
 }
 
 // Exibido no badge — calculado na geração e salvo em it.analise.interessados.
+// Só aparece quando o marcador está ligado nas configurações (desligado por padrão).
 function deputadosComInteresse(it) {
+  if (!state.interesse?.ativo) return [];
   return it.analise?.interessados || [];
 }
 
@@ -1403,7 +1424,27 @@ function atualizarTodosBadgesInteresse() {
   for (const it of (state.pauta?.itens || [])) atualizarBadgesCard(it);
 }
 
+// Liga/desliga o marcador (compartilhado com a equipe) e atualiza os badges.
+async function onToggleInteresseAtivo(e) {
+  const ativo = !!e.target.checked;
+  const stEl = document.getElementById('interesse-status');
+  if (stEl) stEl.textContent = 'Salvando…';
+  try {
+    await fbSalvarInteresseAtivo(ativo);
+    state.interesse = { ...(state.interesse || { lista: [], dados: {}, carregado: true }), ativo };
+    atualizarTodosBadgesInteresse();
+    if (stEl) stEl.textContent = ativo
+      ? '✓ Marcador de interesse ligado para toda a equipe.'
+      : '✓ Marcador de interesse desligado para toda a equipe.';
+  } catch (err) {
+    e.target.checked = !ativo;   // reverte o visual em caso de falha
+    if (stEl) stEl.textContent = 'Erro ao salvar: ' + err.message;
+  }
+}
+
 function renderInteresseConfig() {
+  const chk = document.getElementById('config-interesse-ativo');
+  if (chk) chk.checked = !!state.interesse?.ativo;
   const cont = document.getElementById('config-interesse-lista');
   if (!cont) return;
   const cfg = state.interesse;
@@ -1598,14 +1639,18 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 
     // Parlamentares com interesse na matéria — similaridade semântica (embeddings)
     // entre o perfil e a matéria; fallback por palavras quando não há embeddings.
+    // Só calcula quando o marcador está ligado nas configurações (desligado por padrão).
     let interessados = [];
-    try {
-      interessados = await determinarInteressados(it, {
-        provedorId: state.config.provedor || 'gemini',
-        apiKey:     state.config.apiKey,
-        modelo:     state.config.modelo,
-      });
-    } catch (e) { if (isAbortError(e)) throw e; console.warn('Interesse falhou:', e.message); }
+    if (!state.interesse?.carregado) { try { await carregarInteresse(); } catch (_) {} }
+    if (state.interesse?.ativo) {
+      try {
+        interessados = await determinarInteressados(it, {
+          provedorId: state.config.provedor || 'gemini',
+          apiKey:     state.config.apiKey,
+          modelo:     state.config.modelo,
+        });
+      } catch (e) { if (isAbortError(e)) throw e; console.warn('Interesse falhou:', e.message); }
+    }
 
     it.analise = {
       markdown,
