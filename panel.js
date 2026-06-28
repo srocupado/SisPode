@@ -353,6 +353,11 @@ function registrarEventos() {
       if (e.target.files[0]) processarPdfModal(e.target.files[0]);
     });
 
+  document.getElementById('select-pauta-plenario')
+    ?.addEventListener('change', e => {
+      if (e.target.value) importarPautaPlenario(e.target.value);
+    });
+
   // Busca de proposições
   const inputBusca  = document.getElementById('busca-proposicoes');
   const btnLimpar   = document.getElementById('btn-limpar-busca');
@@ -3175,6 +3180,81 @@ function abrirModalNovaSessao() {
   document.getElementById('input-pdf').value = '';
   window._proposicoesPDF = [];
   document.getElementById('modal-nova-sessao').style.display = 'flex';
+  carregarPautasPlenario();
+}
+
+// ---------- IMPORTAR DE UMA PAUTA DO MÓDULO DE PLENÁRIO ----------
+// As pautas produzidas pelo módulo de Análise de Plenário ficam no Firebase
+// em /pautas. Aqui listamos as disponíveis e importamos seus itens para a
+// criação de uma sessão de destaques (mesma estrutura gerada pelo PDF).
+async function carregarPautasPlenario() {
+  const sel = document.getElementById('select-pauta-plenario');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">Carregando pautas do Plenário…</option>';
+  try {
+    const res = await fetch(`${FIREBASE_URL}/pautas.json?shallow=false`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    const lista = data ? Object.entries(data).map(([id, p]) => ({ id, ...p })) : [];
+    lista.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+    if (!lista.length) {
+      sel.innerHTML = '<option value="">Nenhuma pauta do Plenário encontrada</option>';
+      return;
+    }
+    const opts = ['<option value="">— Selecione uma pauta do Plenário —</option>'];
+    for (const p of lista) {
+      const nome = p.nome || p.periodo || p.titulo || p.id;
+      const n    = (p.itens || []).length;
+      opts.push(`<option value="${esc(p.id)}">${esc(nome)} (${n} ${n === 1 ? 'item' : 'itens'})</option>`);
+    }
+    sel.innerHTML = opts.join('');
+  } catch (e) {
+    sel.innerHTML = '<option value="">Erro ao listar pautas do Plenário</option>';
+    console.warn('[plenario] falha ao listar pautas:', e.message);
+  }
+}
+
+async function importarPautaPlenario(id) {
+  const sel = document.getElementById('select-pauta-plenario');
+  try {
+    const res = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(id)}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const pauta = await res.json();
+    if (!pauta) throw new Error('Pauta não encontrada');
+
+    // Mapeia os itens da pauta de Plenário para a estrutura de proposições
+    // dos destaques — idêntica à produzida ao ler um PDF.
+    const props = (pauta.itens || [])
+      .filter(it => it && it.sigla && it.numero != null && it.ano != null)
+      .map(it => ({
+        sigla:  it.sigla,
+        numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
+        ano:    parseInt(it.ano, 10),
+        chave:  it.chave || `${it.sigla} ${it.numero}/${it.ano}`,
+        tipoCategoria:     it.tipoCategoria,
+        ementaPauta:       it.ementa || null,
+        projetoUrgenciado: it.projetoUrgenciado || null,
+      }));
+
+    if (!props.length) {
+      mostrarToast('Nenhuma proposição encontrada nessa pauta.', 'aviso');
+      return;
+    }
+
+    // Sugere o título da sessão pelo nome/período da pauta importada.
+    const tituloInput = document.getElementById('sessao-titulo');
+    const ref = pauta.nome || pauta.periodo || pauta.titulo;
+    if (ref && !tituloInput.value) tituloInput.value = `Sessão — ${ref}`;
+
+    window._proposicoesPDF = props;
+    renderizarProposicoesPDF(props);
+    document.getElementById('btn-criar-sessao').disabled = false;
+    mostrarToast(`${props.length} proposição(ões) importada(s) da pauta do Plenário.`, 'sucesso');
+  } catch (e) {
+    console.error('Erro ao importar pauta do Plenário:', e);
+    mostrarToast('Erro ao importar a pauta do Plenário.', 'erro');
+    if (sel) sel.value = '';
+  }
 }
 
 function fecharModal(id) {
