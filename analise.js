@@ -444,6 +444,12 @@ function renderCard(it) {
         <button type="button" class="an-fmt-btn" data-size="14">14</button>
         <button type="button" class="an-fmt-btn" data-size="16">16</button>
         <button type="button" class="an-fmt-btn" data-size="" title="Tamanho normal (remover marcação)">normal</button>
+        <span class="an-fmt-sep"></span>
+        <span class="an-fmt-label">Alinhar</span>
+        <button type="button" class="an-fmt-btn" data-align="left" title="Alinhar à esquerda"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
+        <button type="button" class="an-fmt-btn" data-align="center" title="Centralizar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="5" y1="18" x2="19" y2="18"/></svg></button>
+        <button type="button" class="an-fmt-btn" data-align="right" title="Alinhar à direita"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg></button>
+        <button type="button" class="an-fmt-btn" data-align="justify" title="Justificar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
       </div>
       <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
       <div class="an-chat" data-role="chat-panel" style="display:none">
@@ -516,6 +522,7 @@ function renderCard(it) {
     if (sz) envolverSelecao(editorEl, `[[${sz}]]`, '[[/]]');
     else removerTamanhoSelecao(editorEl);
   }));
+  toolbar.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => aplicarAlinhamento(editorEl, b.dataset.align)));
   editorEl.addEventListener('keydown', e => {
     if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); envolverSelecao(editorEl, '**', '**'); }
   });
@@ -2792,6 +2799,23 @@ function renderExtras(it) {
   if (chars > 150000) mostrarToast('Muitos documentos incluídos — as perguntas podem ficar caras/lentas. Remova o que não precisar.', 'aviso');
 }
 
+// Aplica alinhamento (bloco) aos parágrafos tocados pela seleção, via marcador
+// [[left|center|right|justify]] no início de cada parágrafo (substitui o anterior).
+function aplicarAlinhamento(editor, al) {
+  const v = editor.value;
+  const s = editor.selectionStart ?? 0, e = editor.selectionEnd ?? s;
+  let ini = v.lastIndexOf('\n\n', Math.max(0, s - 1)); ini = ini < 0 ? 0 : ini + 2;
+  let fim = v.indexOf('\n\n', e); fim = fim < 0 ? v.length : fim;
+  const novo = v.slice(ini, fim).split(/\n\n/).map(p => {
+    const semMarca = p.replace(/^\s*\[\[(?:left|center|right|justify)\]\]\s*/i, '');
+    return `[[${al}]]${semMarca}`;
+  }).join('\n\n');
+  editor.value = v.slice(0, ini) + novo + v.slice(fim);
+  editor.selectionStart = ini; editor.selectionEnd = ini + novo.length;
+  editor.focus();
+  editor.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 function entrarEdicaoAnalise(it) {
   if (!it.analise) return;
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
@@ -2975,10 +2999,15 @@ function renderMarkdown(md) {
     const itens = bloco.split(/\n/).map(l => l.replace(/^\s*[-*]\s+/, '').trim()).filter(Boolean);
     return `${pre}<ul>${itens.map(i => `<li>${i}</li>`).join('')}</ul>`;
   });
-  // Quebras de parágrafo
+  // Quebras de parágrafo (com alinhamento por marcador [[left|center|right|justify]]
+  // no início do bloco, inserido pela barra de formatação do editor).
   html = html.split(/\n{2,}/).map(b => {
-    if (/^<(h\d|ul|ol|pre|blockquote)/.test(b.trim())) return b;
-    return `<p>${b.trim().replace(/\n/g, '<br>')}</p>`;
+    let t = b.trim();
+    if (/^<(h\d|ul|ol|pre|blockquote)/.test(t)) return b;
+    let style = '';
+    const am = t.match(/^\[\[(left|center|right|justify)\]\]\s*/i);
+    if (am) { style = ` style="text-align:${am[1].toLowerCase()}"`; t = t.slice(am[0].length); }
+    return `<p${style}>${t.replace(/\n/g, '<br>')}</p>`;
   }).join('\n');
   return html;
 }
