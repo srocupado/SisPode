@@ -129,6 +129,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
+  document.getElementById('btn-recategorizar').addEventListener('click', abrirRecategorizar);
+  document.getElementById('btn-recat-auto').addEventListener('click', recatCorrigirAuto);
+  document.getElementById('btn-recat-aplicar').addEventListener('click', aplicarRecategorizar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
   document.getElementById('busca-itens').addEventListener('input', () => {
@@ -240,6 +243,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3598,6 +3602,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3765,6 +3770,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -5378,6 +5384,55 @@ async function confirmarVincular() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// ---------- Recategorizar itens da pauta carregada ----------
+const RECAT_CATS = [['projeto', 'Projeto / Matéria'], ['requerimento', 'Requerimento de Urgência'], ['redacao_final', 'Redação Final']];
+
+function abrirRecategorizar() {
+  if (!state.pauta) { mostrarToast('Carregue uma pauta primeiro.', 'aviso'); return; }
+  const cont = document.getElementById('recat-lista');
+  cont.innerHTML = state.pauta.itens.map(it => {
+    const opts = RECAT_CATS.map(([v, l]) => `<option value="${v}" ${it.tipoCategoria === v ? 'selected' : ''}>${l}</option>`).join('');
+    const urg = it.projetoUrgenciado
+      ? ` <span style="color:var(--text-dim)">(urg. p/ ${escapeHtml(tipoLabel(it.projetoUrgenciado.sigla))} ${escapeHtml(String(it.projetoUrgenciado.numero))}/${escapeHtml(String(it.projetoUrgenciado.ano))})</span>` : '';
+    return `<div style="display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--border-soft)">
+      <span style="flex:1;font-size:13px">${escapeHtml(tipoLabel(it.sigla))} ${escapeHtml(String(it.numero))}/${escapeHtml(String(it.ano))}${urg}</span>
+      <select class="form-input" data-recat="${escapeHtml(it.chave)}" style="width:240px;height:32px">${opts}</select>
+    </div>`;
+  }).join('');
+  document.getElementById('recat-status').textContent = '';
+  document.getElementById('modal-recategorizar').style.display = 'flex';
+}
+
+function recatCorrigirAuto() {
+  let n = 0;
+  document.querySelectorAll('#recat-lista select[data-recat]').forEach(sel => {
+    const it = state.pauta.itens.find(x => x.chave === sel.getAttribute('data-recat'));
+    if (it && (it.sigla === 'REQ' || it.sigla === 'REC') && sel.value !== 'requerimento') { sel.value = 'requerimento'; n++; }
+  });
+  document.getElementById('recat-status').textContent = n ? `${n} requerimento(s) ajustado(s) — revise e clique em Aplicar.` : 'Nenhum requerimento para corrigir.';
+}
+
+async function aplicarRecategorizar() {
+  const mudados = [];
+  document.querySelectorAll('#recat-lista select[data-recat]').forEach(sel => {
+    const it = state.pauta.itens.find(x => x.chave === sel.getAttribute('data-recat'));
+    if (it && it.tipoCategoria !== sel.value) {
+      it.tipoCategoria = sel.value;
+      it.enriquecimento = { status: 'pendente' };   // a categoria muda o "alvo" do enriquecimento
+      mudados.push(it);
+    }
+  });
+  document.getElementById('modal-recategorizar').style.display = 'none';
+  if (!mudados.length) return;
+  // Re-renderiza (reagrupa nas seções) preservando as notas já carregadas.
+  renderizarPauta();
+  for (const it of state.pauta.itens) if (it.analise) renderAnaliseCard(it);
+  marcarSujo();
+  fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
+  mostrarToast(`✓ ${mudados.length} item(ns) recategorizado(s).`, 'sucesso');
+  for (const it of mudados) enriquecerItem(it).catch(() => {});
 }
 
 function abrirModalRemover(it) {
