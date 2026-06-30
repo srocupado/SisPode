@@ -3023,11 +3023,56 @@ async function salvarEdicaoAnalise(it) {
 // ============================================================
 //  RENDER MARKDOWN MÍNIMO
 // ============================================================
+// Reescopa os marcadores de tamanho [[N]]…[[/]] para que sobrevivam às
+// fronteiras de bloco. O marcador é inline (vira <span>/run de Word); quando a
+// seleção abrange vários parágrafos, listas ou um título "##", o tamanho se
+// perdia a partir do bloco seguinte. Aqui reaplicamos o tamanho linha a linha —
+// mantendo os títulos sem tamanho (preservam a hierarquia) e deixando prefixos
+// estruturais (marca de alinhamento e marcador de lista "- ") fora do tamanho,
+// para não quebrar a detecção de lista/alinhamento adiante.
+function reescoparTamanho(md) {
+  if (!md || !/\[\[(?:12|14|16)\]\]/.test(md)) return md || '';
+  const tokenRe = /\[\[(12|14|16)\]\]|\[\[\/\]\]/g;
+  let limpo = '';
+  const sizes = [];
+  let cur = null, last = 0, m;
+  const push = (txt) => { for (let k = 0; k < txt.length; k++) { limpo += txt[k]; sizes.push(cur); } };
+  while ((m = tokenRe.exec(md)) !== null) {
+    if (m.index > last) push(md.slice(last, m.index));
+    cur = (m[0] === '[[/]]') ? null : m[1];
+    last = m.index + m[0].length;
+  }
+  if (last < md.length) push(md.slice(last));
+
+  const reHeading = /^\s*#{1,3}\s+/;
+  const rePrefixo = /^(\s*(?:\[\[(?:left|center|right|justify)\]\]\s*)?(?:[-*]\s+)?)/i;
+  const linhas = limpo.split('\n');
+  let pos = 0;
+  const out = linhas.map((linha) => {
+    const inicio = pos;
+    pos += linha.length + 1;                 // +1 do "\n" consumido pelo split
+    if (reHeading.test(linha)) return linha;  // título: sem tamanho (opção b)
+    const pre = (linha.match(rePrefixo) || [''])[0];
+    let res = pre, i = pre.length;
+    while (i < linha.length) {
+      const sz = sizes[inicio + i];
+      let j = i;
+      while (j < linha.length && sizes[inicio + j] === sz) j++;
+      const trecho = linha.slice(i, j);
+      res += sz ? `[[${sz}]]${trecho}[[/]]` : trecho;
+      i = j;
+    }
+    return res;
+  });
+  return out.join('\n');
+}
+
 function renderMarkdown(md) {
   if (!md) return '';
   // Encurta referências longas a proposições ("Projeto de Lei nº 1234-G, de 12
   // de novembro de 2010" → "PL 1234/2010") antes de renderizar.
   md = encurtarProposicoes(md);
+  md = reescoparTamanho(md);   // tamanho [[N]] sobrevive a títulos/parágrafos/listas
   // Escape básico
   let html = escapeHtml(md);
   // Headings
@@ -3978,7 +4023,7 @@ function mdParaDocx(md) {
   const L15 = { line: 360, lineRule: 'auto' };
   const BASE = 24;   // 12pt (meios-pontos) — fonte padrão da nota
   const alinhar = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
-  const texto = encurtarProposicoes(mdSemAcolhimento(md || ''));
+  const texto = reescoparTamanho(encurtarProposicoes(mdSemAcolhimento(md || '')));
   const out = [];
   for (const bloco of texto.split(/\n{2,}/)) {
     let b = bloco.trim();
