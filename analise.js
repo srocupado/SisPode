@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
   document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
+  document.getElementById('btn-prop-partido').addEventListener('click', copiarPropPartido);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
@@ -235,6 +236,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
+    document.getElementById('btn-prop-partido').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3453,6 +3455,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
+    document.getElementById('btn-prop-partido').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3618,6 +3621,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-adicionar-item').disabled = false;
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
+    document.getElementById('btn-prop-partido').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -4006,6 +4010,95 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     ${itensHtml || '<p>Pauta vazia.</p>'}
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
+}
+
+// ============================================================
+//  "PROPOSIÇÕES DO PARTIDO" — mensagem p/ WhatsApp com os itens da pauta de
+//  autoria do Podemos, com apensado(s) do Podemos ou de relatoria do Podemos.
+// ============================================================
+
+// Item entra na lista quando: é de autoria do Podemos, OU tem apensado(s) do
+// Podemos, OU é de relatoria de deputado(a) do Podemos em Plenário.
+function itemDoPodemos(it) {
+  const enr = it.enriquecimento || {};
+  return !!enr.autoriaPodemos || (enr.apensadosPodemos || []).length > 0 || relatoriaPodemos(it);
+}
+
+// Data curta da pauta p/ o cabeçalho ("30/6/2026"): extrai dd/mm/aaaa do
+// período/nome e remove os zeros à esquerda.
+function dataPautaCurta() {
+  const p = state.pauta || {};
+  const fonte = String(p.periodo || p.nome || p.titulo || '');
+  const m = fonte.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m ? `${+m[1]}/${+m[2]}/${m[3]}` : (fonte.trim() || '—');
+}
+
+// Autoria para a mensagem: se é autoria do Podemos, lista os nomes dos autores
+// do Podemos; senão (ex.: item incluído por relatoria), usa o texto de autoria
+// da pauta — que traz o partido/UF do autor de outra legenda.
+function autoriaMsg(it) {
+  const enr = it.enriquecimento || {};
+  const nomesPode = (enr.autores || []).filter(a => a.isPodemos && a.nome).map(a => a.nome);
+  if (enr.autoriaPodemos && nomesPode.length) return nomesPode.join(', ');
+  if ((it.autorTexto || '').trim()) return it.autorTexto.replace(/\s+/g, ' ').trim();
+  const todos = (enr.autores || []).map(a => a.siglaPartido ? `${a.nome} - ${a.siglaPartido}` : a.nome).filter(Boolean);
+  return todos.join(', ') || '—';
+}
+
+// Autoria de um apensado: nomes do Podemos quando houver, senão todos.
+function autoriaApensadoMsg(ap) {
+  const pode = (ap.autores || []).filter(a => a.isPodemos && a.nome).map(a => a.nome);
+  if (pode.length) return pode.join(', ');
+  return (ap.autores || []).map(a => a.nome).filter(Boolean).join(', ');
+}
+
+function montarMensagemPropPartido() {
+  const itens = (state.pauta?.itens || []).filter(itemDoPodemos);
+  if (!itens.length) return { texto: '', total: 0 };
+  const linhas = [`Itens do Podemos na Pauta de ${dataPautaCurta()}`];
+  for (const it of itens) {
+    const aps = it.enriquecimento?.apensadosPodemos || [];
+    const sufApens = aps.length ? ` (${aps.length} apensado${aps.length > 1 ? 's' : ''})` : '';
+    linhas.push('');
+    linhas.push(`▪️ Item ${it.ordem ?? '–'} – ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${sufApens}`);
+    linhas.push(`Autoria: ${autoriaMsg(it)}`);
+    if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`);
+    const ementa = (it.ementa || '').replace(/\s+/g, ' ').trim();
+    if (ementa) linhas.push(`Ementa: ${ementa}`);
+    if (aps.length) {
+      linhas.push(aps.length > 1 ? 'Apensados:' : 'Apensado:');
+      for (const ap of aps) {
+        linhas.push(`* ${ap.siglaTipo} ${ap.numero}/${ap.ano}`);
+        const autAp = autoriaApensadoMsg(ap);
+        if (autAp) linhas.push(`Autoria: ${autAp}`);
+        const emAp = (ap.ementa || '').replace(/\s+/g, ' ').trim();
+        if (emAp) linhas.push(`Ementa: ${emAp}`);
+      }
+    }
+  }
+  return { texto: linhas.join('\n'), total: itens.length };
+}
+
+async function copiarPropPartido() {
+  if (!state.pauta) return;
+  // Garante que autoria/apensados de todos os itens estejam resolvidos antes de
+  // montar a lista (o enriquecimento é assíncrono; chamadas são cacheadas).
+  const pendentes = (state.pauta.itens || []).filter(it => {
+    const st = it.enriquecimento?.status;
+    return st !== 'ok' && st !== 'erro';
+  });
+  if (pendentes.length) {
+    mostrarToast('Verificando autoria dos itens…', 'info');
+    await Promise.all(pendentes.map(it => enriquecerItem(it).catch(() => {})));
+  }
+  const { texto, total } = montarMensagemPropPartido();
+  if (!total) { mostrarToast('Nenhuma proposição do Podemos (autoria, apensado ou relatoria) nesta pauta.', 'aviso'); return; }
+  try {
+    await navigator.clipboard.writeText(texto);
+    mostrarToast(`✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.`, 'sucesso');
+  } catch (e) {
+    prompt('Copie o texto abaixo e cole no WhatsApp:', texto);   // fallback p/ cópia manual
+  }
 }
 
 // ============================================================
