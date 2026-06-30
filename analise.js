@@ -3900,7 +3900,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
     .indice-legenda b { font-style:normal; color:#006633; }
     .indice ul { list-style:none; margin:0; padding:0; }
-    .indice li { font-size:10.5pt; margin-bottom:4px; }
+    .indice li { font-size:12pt; margin-bottom:4px; }
     .indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
     .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
     .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
@@ -3913,11 +3913,11 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .badge-pode { background:#d3f5e2; color:#006633; }
     .badge-apens { background:#d8eef0; color:#02484d; }
     .badge-rel { background:#cfe8ff; color:#0a4a7a; }
-    h2 { font-size:12pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
-    h3 { font-size:11pt; color:#155724; margin:10px 0 3px; }
-    p { font-size:10.5pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; page-break-inside:avoid; break-inside:avoid; }
+    h2 { font-size:13pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
+    h3 { font-size:12pt; color:#155724; margin:10px 0 3px; }
+    p { font-size:12pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; page-break-inside:avoid; break-inside:avoid; }
     ul { margin:4px 0 6px 18px; padding:0; }
-    li { font-size:10.5pt; line-height:1.6; text-align:justify; margin:3px 0; }
+    li { font-size:12pt; line-height:1.6; text-align:justify; margin:3px 0; }
     .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
     .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
   </style></head><body>
@@ -3976,7 +3976,7 @@ function runsInlineDocx(texto, baseHalfPt) {
 function mdParaDocx(md) {
   const { Paragraph, TextRun, AlignmentType } = docx;
   const L15 = { line: 360, lineRule: 'auto' };
-  const BASE = 21;   // ~10,5pt
+  const BASE = 24;   // 12pt (meios-pontos) — fonte padrão da nota
   const alinhar = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
   const texto = encurtarProposicoes(mdSemAcolhimento(md || ''));
   const out = [];
@@ -3985,7 +3985,7 @@ function mdParaDocx(md) {
     if (!b) continue;
     const h = b.match(/^(#{1,3})\s+(.+)$/);
     if (h) {
-      out.push(new Paragraph({ spacing: { before: 220, after: 60, ...L15 }, children: [new TextRun({ text: h[2].replace(/\*\*/g, '').trim(), bold: true, size: 24, color: '155724' })] }));
+      out.push(new Paragraph({ spacing: { before: 220, after: 60, ...L15 }, children: [new TextRun({ text: h[2].replace(/\*\*/g, '').trim(), bold: true, size: 26, color: '155724' })] }));
       continue;
     }
     let alignment = AlignmentType.JUSTIFIED;
@@ -3993,7 +3993,7 @@ function mdParaDocx(md) {
     if (am) { alignment = alinhar[am[1].toLowerCase()]; b = b.slice(am[0].length); }
     const linhas = b.split(/\n/);
     if (linhas.length && linhas.every(l => /^\s*[-*]\s+/.test(l))) {
-      for (const l of linhas) out.push(new Paragraph({ bullet: { level: 0 }, spacing: { after: 40, ...L15 }, children: runsInlineDocx(l.replace(/^\s*[-*]\s+/, ''), BASE) }));
+      for (const l of linhas) out.push(new Paragraph({ bullet: { level: 0 }, alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, ...L15 }, children: runsInlineDocx(l.replace(/^\s*[-*]\s+/, ''), BASE) }));
       continue;
     }
     out.push(new Paragraph({ alignment, spacing: { after: 140, ...L15 }, children: runsInlineDocx(b.replace(/\n/g, ' '), BASE) }));
@@ -4054,8 +4054,8 @@ async function exportarDocx() {
   itens.forEach(it => filhos.push(new Paragraph({
     tabStops: tabIndice, spacing: { after: 40, ...L15 },
     children: [
-      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 18, color: '003c1f' })] }),
-      new TextRun({ text: '\t', size: 18 }),
+      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 24, color: '003c1f' })] }),
+      new TextRun({ text: '\t', size: 24 }),
       new PageReference(bmId(it.chave)),
     ],
   })));
