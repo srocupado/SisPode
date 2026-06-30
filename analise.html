@@ -681,6 +681,45 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: VINCULAR PROJETO DA URGÊNCIA ===== -->
+  <div id="modal-vincular" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Vincular projeto da urgência</h3>
+        <button class="modal-close" data-fecha="modal-vincular">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Informe o projeto cuja urgência este requerimento pede. Use quando a API da Câmara não localizou o vínculo automaticamente. Ao salvar, os dados (ementa, autoria, apensados) são rebuscados na API.</p>
+        <div style="display:flex; gap:10px">
+          <div class="form-group" style="width:150px">
+            <label>Tipo</label>
+            <select id="vinc-tipo" class="form-input">
+              <option value="PL">PL — Projeto de Lei</option>
+              <option value="PLP">PLP — Projeto de Lei Complementar</option>
+              <option value="PEC">PEC — Proposta de Emenda à Constituição</option>
+              <option value="PDL">PDL — Projeto de Decreto Legislativo</option>
+              <option value="MPV">MPV — Medida Provisória</option>
+              <option value="PRC">PRC — Projeto de Resolução</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Número</label>
+            <input type="text" id="vinc-numero" class="form-input" placeholder="Ex: 2338">
+          </div>
+          <div class="form-group" style="width:120px">
+            <label>Ano</label>
+            <input type="text" id="vinc-ano" class="form-input" placeholder="Ex: 2023">
+          </div>
+        </div>
+        <div id="vinc-status" style="font-size:11px;color:var(--text-dim);min-height:14px"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-vincular">Cancelar</button>
+        <button id="btn-confirmar-vincular" class="btn btn-primary">Vincular e rebuscar</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== MODAL: REMOVER ITEM ===== -->
   <div id="modal-remover" class="modal-overlay" style="display:none">
     <div class="modal modal-apagar">

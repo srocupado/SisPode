@@ -128,6 +128,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-resumo-sessao').addEventListener('click', copiarResumoSessao);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
+  document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
   document.getElementById('btn-confirmar-apagar-pauta').addEventListener('click', confirmarApagarPauta);
   document.getElementById('busca-itens').addEventListener('input', () => {
@@ -417,6 +418,7 @@ function renderCard(it) {
         Gerar Análise
       </button>
       <button class="btn btn-outline btn-sm" data-role="btn-toggle" style="display:none">Ver análise</button>
+      <button class="btn btn-outline btn-sm" data-role="btn-vincular" style="display:none" title="Vincular manualmente o projeto cuja urgência é pedida (útil quando a API da Câmara não resolveu)">🔗 Vincular projeto</button>
       <a class="btn btn-outline btn-sm" data-role="link-portal" target="_blank" rel="noopener" style="display:none" title="Abrir página da proposição na Câmara dos Deputados">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
         Ver no portal
@@ -485,6 +487,10 @@ function renderCard(it) {
     painel.classList.toggle('aberto');
   });
   card.querySelector('[data-role=btn-remover]').addEventListener('click', () => abrirModalRemover(it));
+  // Vínculo manual do projeto da urgência — só faz sentido para requerimentos.
+  const btnVinc = card.querySelector('[data-role=btn-vincular]');
+  if (it.tipoCategoria === 'requerimento') btnVinc.style.display = 'inline-flex';
+  btnVinc.addEventListener('click', () => abrirVincularProjeto(it));
   card.querySelector('[data-role=btn-editar]').addEventListener('click', () => entrarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-salvar-edicao]').addEventListener('click', () => salvarEdicaoAnalise(it));
   card.querySelector('[data-role=btn-cancelar-edicao]').addEventListener('click', () => sairEdicaoAnalise(it));
@@ -4054,10 +4060,12 @@ async function prepararApelidos(itens) {
 // HTML de impressão da pauta — cabeçalho institucional (padrão do módulo do
 // Congresso), índice clicável com nº de página (Paged.js / target-counter) e os
 // itens com título "o que será votado (apelido)".
-function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
+function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
   const esc = escapeHtml;
   const bm  = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
-  const num = it => (it.ordem != null ? it.ordem + '. ' : '');   // mesmo nº da tela
+  // Numeração: ao exportar um subconjunto selecionado, renumera de 1; do
+  // contrário usa o nº da tela (it.ordem).
+  const num = (it, i) => ((renumerar ? i + 1 : (it.ordem ?? i + 1)) + '. ');
   const itens = pauta.itens || [];
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   // O título já inclui o período ("Pauta — <período>"); não repetir o período
@@ -4076,11 +4084,11 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
       <h2>Índice</h2>
       ${legenda}
       <ul>
-        ${itens.map(it => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(num(it) + tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
+        ${itens.map((it, i) => `<li><a href="#${bm(it.chave)}"><span class="t">${esc(num(it, i) + tituloComApelido(it))}${esc(sufixoAutoriaIndice(it))}</span><span class="ld"></span></a></li>`).join('')}
       </ul>
     </section>` : '';
 
-  const itensHtml = itens.map(it => {
+  const itensHtml = itens.map((it, i) => {
     const autor   = it.autorTexto || (it.enriquecimento?.autores || []).length;
     const autorHtml = htmlAutorRealcado(it);
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
@@ -4089,7 +4097,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}${relatoriaPodemos(it) ? '<span class="badge badge-rel">Relatoria Podemos em Plenário</span>' : ''}`;
     const corpo   = temNota(it) ? notaHtmlImpressao(it) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
-      <h3 class="item-h">${esc(num(it) + tituloComApelido(it))}</h3>
+      <h3 class="item-h">${esc(num(it, i) + tituloComApelido(it))}</h3>
       ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       ${analistaHtml}
@@ -4606,7 +4614,8 @@ async function exportarDocx() {
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
   const bmId = ch => 'i_' + String(ch).replace(/[^\w]/g, '_');
-  const num = it => (it.ordem != null ? it.ordem + '. ' : '');
+  const renumerar = itens.length < (state.pauta.itens?.length || 0);   // subconjunto → índice começa em 1
+  const num = (it, i) => ((renumerar ? i + 1 : (it.ordem ?? i + 1)) + '. ');
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   const logoBytes = await carregarLogoBytes();
   const nomePauta = state.pauta.nome || state.pauta.titulo || 'Pauta de Plenário';
@@ -4634,10 +4643,10 @@ async function exportarDocx() {
   filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
   if (temMarca) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
   const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
-  itens.forEach(it => filhos.push(new Paragraph({
+  itens.forEach((it, i) => filhos.push(new Paragraph({
     tabStops: tabIndice, spacing: { after: 40, ...L15 },
     children: [
-      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 24, color: '003c1f' })] }),
+      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it, i) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 24, color: '003c1f' })] }),
       new TextRun({ text: '\t', size: 24 }),
       new PageReference(bmId(it.chave)),
     ],
@@ -4645,11 +4654,11 @@ async function exportarDocx() {
   filhos.push(new Paragraph({ children: [new PageBreak()] }));
 
   // Itens
-  itens.forEach(it => {
+  itens.forEach((it, i) => {
     filhos.push(new Paragraph({
       spacing: { before: 360, after: 40, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
-      children: [new Bookmark({ id: bmId(it.chave), children: [new TextRun({ text: num(it) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' })] })],
+      children: [new Bookmark({ id: bmId(it.chave), children: [new TextRun({ text: num(it, i) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' })] })],
     }));
     const metaParts = [];
     const autor = it.autorTexto || (it.enriquecimento?.autores || []).map(a => a.nome).filter(Boolean).join(', ') || '';
@@ -4698,6 +4707,7 @@ async function exportarPdf() {
     return;
   }
   const pautaExport = { ...state.pauta, itens: itensExport };
+  const renumerar = itensExport.length < (state.pauta.itens?.length || 0);   // subconjunto → índice começa em 1
   // Abre a janela já no gesto do clique (evita bloqueio de pop-up).
   const win = window.open('', '_blank', 'width=900,height=720');
   if (!win) {
@@ -4714,7 +4724,7 @@ async function exportarPdf() {
   const logoDataUrl = await carregarLogoDataUrl();
 
   win.document.open();
-  win.document.write(_htmlImpressaoPautaPlenario(pautaExport, logoDataUrl));
+  win.document.write(_htmlImpressaoPautaPlenario(pautaExport, logoDataUrl, renumerar));
   win.document.close();
 
   // Paged.js pagina e calcula os nº de página do índice (target-counter).
@@ -5310,6 +5320,53 @@ async function confirmarAdicionar() {
     mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta`, 'sucesso');
   } catch (e) {
     stEl.textContent = `Erro: ${e.message}`;
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+// ---------- Vínculo manual do projeto da urgência (requerimentos) ----------
+let _itemParaVincular = null;
+
+function abrirVincularProjeto(it) {
+  _itemParaVincular = it;
+  const alvo = it.projetoUrgenciado || {};
+  document.getElementById('vinc-tipo').value   = alvo.sigla || 'PL';
+  document.getElementById('vinc-numero').value = alvo.numero || '';
+  document.getElementById('vinc-ano').value    = alvo.ano || '';
+  document.getElementById('vinc-status').textContent = '';
+  document.getElementById('modal-vincular').style.display = 'flex';
+}
+
+async function confirmarVincular() {
+  const it = _itemParaVincular;
+  if (!it) return;
+  const sigla  = document.getElementById('vinc-tipo').value;
+  const numero = limpaNumero(document.getElementById('vinc-numero').value);
+  const ano    = (document.getElementById('vinc-ano').value || '').trim();
+  const stEl   = document.getElementById('vinc-status');
+  if (!numero || !/^\d{4}$/.test(ano)) { stEl.textContent = 'Informe número e ano (4 dígitos).'; return; }
+
+  const btn = document.getElementById('btn-confirmar-vincular');
+  btn.disabled = true;
+  stEl.textContent = 'Vinculando e rebuscando na API da Câmara…';
+
+  it.projetoUrgenciado = { sigla, numero, ano };
+  it.enriquecimento = { status: 'pendente' };
+  marcarSujo();
+  fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
+
+  // Recria só este card para refletir o vínculo na linha "Urgência p/".
+  const oldCard = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (oldCard) { const novo = renderCard(it); oldCard.replaceWith(novo); if (it.analise) renderAnaliseCard(it); }
+
+  document.getElementById('modal-vincular').style.display = 'none';
+  try {
+    await enriquecerItem(it);
+    mostrarToast(`✓ Vinculado a ${tipoLabel(sigla)} ${numero}/${ano}`, 'sucesso');
+  } catch (e) {
+    // O vínculo já foi salvo; só o rebusca falhou (ex.: API ainda fora do ar).
+    mostrarToast(`Vínculo salvo, mas a busca na API falhou. Use "Verificar atualizações" quando a API voltar.`, 'aviso');
   } finally {
     btn.disabled = false;
   }
