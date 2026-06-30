@@ -4052,26 +4052,37 @@ function autoriaApensadoMsg(ap) {
   return (ap.autores || []).map(a => a.nome).filter(Boolean).join(', ');
 }
 
+// Limpa a ementa para a mensagem: normaliza espaços e remove um parêntese
+// aberto sem fechamento (e o que vier depois), artefato do recorte da ementa na
+// pauta — ex.: "…pela aprovação, com Substitutivo (".
+function ementaLimpa(t) {
+  let e = (t || '').replace(/\s+/g, ' ').trim();
+  const ab = e.lastIndexOf('(');
+  if (ab !== -1 && e.indexOf(')', ab) === -1) e = e.slice(0, ab);
+  return e.replace(/[\s;,(]+$/, '').trim();
+}
+
 function montarMensagemPropPartido() {
   const itens = (state.pauta?.itens || []).filter(itemDoPodemos);
   if (!itens.length) return { texto: '', total: 0 };
-  const linhas = [`Itens do Podemos na Pauta de ${dataPautaCurta()}`];
+  const b = s => `*${s}*`;   // negrito do WhatsApp
+  const linhas = [b(`Itens do Podemos na Pauta de ${dataPautaCurta()}`)];
   for (const it of itens) {
     const aps = it.enriquecimento?.apensadosPodemos || [];
     const sufApens = aps.length ? ` (${aps.length} apensado${aps.length > 1 ? 's' : ''})` : '';
     linhas.push('');
-    linhas.push(`▪️ Item ${it.ordem ?? '–'} – ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${sufApens}`);
-    linhas.push(`Autoria: ${autoriaMsg(it)}`);
+    linhas.push(b(`▪️ Item ${it.ordem ?? '–'} – ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${sufApens}`));
+    linhas.push(b(`Autoria: ${autoriaMsg(it)}`));
     if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`);
-    const ementa = (it.ementa || '').replace(/\s+/g, ' ').trim();
+    const ementa = ementaLimpa(it.ementa);
     if (ementa) linhas.push(`Ementa: ${ementa}`);
     if (aps.length) {
       linhas.push(aps.length > 1 ? 'Apensados:' : 'Apensado:');
       for (const ap of aps) {
-        linhas.push(`* ${ap.siglaTipo} ${ap.numero}/${ap.ano}`);
+        linhas.push(`* ${b(`${ap.siglaTipo} ${ap.numero}/${ap.ano}`)}`);
         const autAp = autoriaApensadoMsg(ap);
-        if (autAp) linhas.push(`Autoria: ${autAp}`);
-        const emAp = (ap.ementa || '').replace(/\s+/g, ' ').trim();
+        if (autAp) linhas.push(b(`Autoria: ${autAp}`));
+        const emAp = ementaLimpa(ap.ementa);
         if (emAp) linhas.push(`Ementa: ${emAp}`);
       }
     }
@@ -4093,12 +4104,32 @@ async function copiarPropPartido() {
   }
   const { texto, total } = montarMensagemPropPartido();
   if (!total) { mostrarToast('Nenhuma proposição do Podemos (autoria, apensado ou relatoria) nesta pauta.', 'aviso'); return; }
+  const ok = await copiarParaAreaTransferencia(texto);
+  mostrarToast(
+    ok ? `✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.`
+       : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
+    ok ? 'sucesso' : 'erro');
+}
+
+// Copia texto para a área de transferência sem diálogos: tenta a Clipboard API
+// e, se ela falhar (ex.: ativação por gesto expirou após o await), recorre ao
+// textarea oculto + execCommand. Não usa window.prompt (suprimido fora da aba
+// ativa).
+async function copiarParaAreaTransferencia(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; } catch (_) {}
   try {
-    await navigator.clipboard.writeText(texto);
-    mostrarToast(`✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.`, 'sucesso');
-  } catch (e) {
-    prompt('Copie o texto abaixo e cole no WhatsApp:', texto);   // fallback p/ cópia manual
-  }
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed';
+    ta.style.top = '0';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) { return false; }
 }
 
 // ============================================================
