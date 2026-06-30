@@ -2900,6 +2900,7 @@ function entrarEdicaoAnalise(it) {
   statusEl.style.color = '#888';
 
   q.focus();
+  sincronizarSeletorTamanho(card, q);
 }
 
 function agendarAutosave(it) {
@@ -3106,9 +3107,36 @@ function getQuill(card, it) {
   prepararQuill();
   const el = card.querySelector('[data-role=quill-editor]');
   const q = new Quill(el, { theme: 'snow', placeholder: 'Edite a nota…', modules: { toolbar: QUILL_TOOLBAR } });
+  // Garante a reimportação do tamanho (font-size inline) ao recarregar a nota —
+  // mapeia o estilo de volta para o formato "size" do Quill.
+  const SizeAttr = Quill.import('attributors/style/size');
+  q.clipboard.addMatcher(Node.ELEMENT_NODE, (node, delta) => {
+    const fs = node.style && node.style.fontSize;
+    if (fs && SizeAttr.whitelist.includes(fs)) {
+      delta.ops = delta.ops.map(op => (typeof op.insert === 'string'
+        ? { ...op, attributes: { size: fs, ...(op.attributes || {}) } }
+        : op));
+    }
+    return delta;
+  });
   q.on('text-change', () => { if (!card._carregandoQuill && _autosaveState.has(it.chave)) agendarAutosave(it); });
+  // Mantém o rótulo do seletor de tamanho refletindo o tamanho real onde está o
+  // cursor (o <select> interno do Quill cairia na 1ª opção quando o texto está
+  // no tamanho padrão). editor-change cobre digitação E movimentação do cursor.
+  q.on('editor-change', () => sincronizarSeletorTamanho(card, q));
   card._quill = q;
   return q;
+}
+
+// Ajusta o data-value do rótulo do seletor de tamanho ao tamanho da seleção
+// atual; sem tamanho explícito, remove o atributo (a CSS mostra "12pt (padrão)").
+function sincronizarSeletorTamanho(card, q) {
+  const lab = card.querySelector('.ql-picker.ql-size .ql-picker-label');
+  if (!lab) return;
+  const sel = q.getSelection();
+  const size = (sel ? q.getFormat(sel.index, sel.length) : q.getFormat()).size;
+  if (size) lab.setAttribute('data-value', size);
+  else lab.removeAttribute('data-value');
 }
 
 // Carrega HTML no editor sem disparar autosave (durante a carga).
