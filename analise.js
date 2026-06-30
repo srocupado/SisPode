@@ -4073,7 +4073,7 @@ function montarMensagemPropPartido() {
     linhas.push('');
     linhas.push(`${b(`▪️ Item ${it.ordem ?? '–'}. ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`)}${apSuf}`);
     linhas.push(b(`Autoria: ${autoriaMsg(it)}`));
-    if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`);
+    if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(b(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`));
     const aps = it.enriquecimento?.apensadosPodemos || [];
     if (aps.length) {
       linhas.push(aps.length > 1 ? 'Apensados:' : 'Apensado:');
