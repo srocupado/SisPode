@@ -444,22 +444,9 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
-      <div class="an-edit-toolbar" data-role="edit-toolbar" style="display:none">
-        <button type="button" class="an-fmt-btn" data-fmt="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
-        <span class="an-fmt-sep"></span>
-        <span class="an-fmt-label">Tamanho</span>
-        <button type="button" class="an-fmt-btn" data-size="10.5" title="Fonte menor (10,5pt)">10,5</button>
-        <button type="button" class="an-fmt-btn" data-size="14">14</button>
-        <button type="button" class="an-fmt-btn" data-size="16">16</button>
-        <button type="button" class="an-fmt-btn" data-size="" title="Tamanho normal (remover marcação)">normal</button>
-        <span class="an-fmt-sep"></span>
-        <span class="an-fmt-label">Alinhar</span>
-        <button type="button" class="an-fmt-btn" data-align="left" title="Alinhar à esquerda"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="15" y2="12"/><line x1="3" y1="18" x2="18" y2="18"/></svg></button>
-        <button type="button" class="an-fmt-btn" data-align="center" title="Centralizar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="5" y1="18" x2="19" y2="18"/></svg></button>
-        <button type="button" class="an-fmt-btn" data-align="right" title="Alinhar à direita"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="9" y1="12" x2="21" y2="12"/><line x1="6" y1="18" x2="21" y2="18"/></svg></button>
-        <button type="button" class="an-fmt-btn" data-align="justify" title="Justificar"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg></button>
+      <div class="an-quill-wrap" data-role="quill-wrap" style="display:none">
+        <div data-role="quill-editor"></div>
       </div>
-      <textarea class="an-analise-textarea" data-role="analise-editor" style="display:none"></textarea>
       <div class="an-chat" data-role="chat-panel" style="display:none">
         <div class="an-chat-info">
           <span>Respostas com base na <b>nota</b> e nos <b>documentos da matéria</b> — confira sempre nos textos oficiais.</span>
@@ -520,20 +507,7 @@ function renderCard(it) {
     marcarSujo();
   });
 
-  // Barra de formatação do editor (negrito + tamanho de fonte).
-  const editorEl = card.querySelector('[data-role=analise-editor]');
-  const toolbar  = card.querySelector('[data-role=edit-toolbar]');
-  toolbar.querySelectorAll('button').forEach(b => b.addEventListener('mousedown', e => e.preventDefault())); // preserva a seleção no textarea
-  toolbar.querySelector('[data-fmt=bold]').addEventListener('click', () => envolverSelecao(editorEl, '**', '**'));
-  toolbar.querySelectorAll('[data-size]').forEach(b => b.addEventListener('click', () => {
-    const sz = b.dataset.size;
-    if (sz) envolverSelecao(editorEl, `[[${sz}]]`, '[[/]]');
-    else removerTamanhoSelecao(editorEl);
-  }));
-  toolbar.querySelectorAll('[data-align]').forEach(b => b.addEventListener('click', () => aplicarAlinhamento(editorEl, b.dataset.align)));
-  editorEl.addEventListener('keydown', e => {
-    if ((e.ctrlKey || e.metaKey) && (e.key === 'b' || e.key === 'B')) { e.preventDefault(); envolverSelecao(editorEl, '**', '**'); }
-  });
+  // O editor visual (Quill) é criado sob demanda em entrarEdicaoAnalise().
 
   // Chat "Perguntar à IA"
   card.querySelector('[data-role=btn-perguntar]').addEventListener('click', () => togglePerguntarIA(it));
@@ -2628,10 +2602,9 @@ function renderAnaliseCard(it) {
   const avisoRefs = refs.length
     ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
-  conteudo.innerHTML = avisoRefs + renderNotaTela(notaMd(it));
+  conteudo.innerHTML = avisoRefs + notaDisplayHtml(it);
   conteudo.style.display = '';
-  card.querySelector('[data-role=analise-editor]').style.display = 'none';
-  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
+  card.querySelector('[data-role=quill-wrap]').style.display = 'none';
   // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
   // texto da nota recém-gerada/editada).
   atualizarBadgesCard(it);
@@ -2718,7 +2691,7 @@ function setChatStatus(it, s) { if (it._chat) { it._chat._status = s; renderChat
 // Monta (uma vez) o contexto: nota + texto dos documentos da matéria, truncado.
 async function montarContextoChat(it) {
   if (it._chat.contexto) return it._chat.contexto;
-  let ctx = `NOTA TÉCNICA JÁ PRODUZIDA:\n${it.analise?.markdown || '(sem nota)'}\n`;
+  let ctx = `NOTA TÉCNICA JÁ PRODUZIDA:\n${notaTextoPlano(it) || '(sem nota)'}\n`;
   const docs = (it.analise?.documentos || []).filter(d => d && d.url);
   if (docs.length) {
     ctx += `\n=== DOCUMENTOS DA MATÉRIA ===\n`;
@@ -2899,14 +2872,26 @@ function aplicarAlinhamento(editor, al) {
 
 function entrarEdicaoAnalise(it) {
   if (!it.analise) return;
+  if (typeof Quill === 'undefined') { mostrarToast('Editor não carregou — recarregue a extensão.', 'erro'); return; }
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
-  const editor   = card.querySelector('[data-role=analise-editor]');
+  const wrap     = card.querySelector('[data-role=quill-wrap]');
   const statusEl = card.querySelector('[data-role=autosave-status]');
-  editor.value = it.analise.markdown || '';
+
+  // Snapshot ANTES de mexer no estado (Cancelar reverte mesmo após autosaves).
+  const snapshot = { ...it.analise };
+  _autosaveState.set(it.chave, { snapshot, debounceId: null, salvando: false, dirty: false });
+
+  const q = getQuill(card, it);
+  // Conteúdo inicial em HTML: notas novas já são HTML; as antigas (markdown) são
+  // convertidas (sem os marcadores sensíveis de acolhimento).
+  const htmlInicial = notaEhHtml(it)
+    ? sanitizarNotaHtml(it.analise.html || '')
+    : renderMarkdown(mdSemAcolhimento(notaMd(it)));
+  carregarHtmlNoQuill(card, q, htmlInicial);
+
   conteudo.style.display = 'none';
-  editor.style.display   = 'block';
-  card.querySelector('[data-role=edit-toolbar]').style.display = 'flex';
+  wrap.style.display     = 'block';
   card.querySelector('[data-role=btn-editar]').style.display = 'none';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'inline-flex';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'inline-flex';
@@ -2914,13 +2899,7 @@ function entrarEdicaoAnalise(it) {
   statusEl.textContent = '';
   statusEl.style.color = '#888';
 
-  // Snapshot para o "Cancelar" reverter, mesmo após autosaves intermediários.
-  const snapshot = { ...it.analise };
-  const listener = () => agendarAutosave(it);
-  editor.addEventListener('input', listener);
-  _autosaveState.set(it.chave, { snapshot, debounceId: null, salvando: false, dirty: false, listener });
-
-  editor.focus();
+  q.focus();
 }
 
 function agendarAutosave(it) {
@@ -2936,10 +2915,9 @@ async function executarAutosave(it) {
   const st = _autosaveState.get(it.chave);
   if (!st) return;
   const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
-  if (!card) return;
-  const editor = card.querySelector('[data-role=analise-editor]');
-  const novo   = (editor.value || '').trim();
-  if (!novo) {
+  if (!card || !card._quill) return;
+  const html = sanitizarNotaHtml(card._quill.root.innerHTML);
+  if (!card._quill.getText().trim()) {
     setStatusAutosave(it, '⚠ vazio — não salvo', '#c08400');
     return;
   }
@@ -2954,8 +2932,9 @@ async function executarAutosave(it) {
 
   it.analise = {
     ...it.analise,
-    markdown:    novo,
-    apensadosStatus: extrairStatusAcolhimento(novo),
+    formato:     'html',
+    html,
+    markdown:    htmlParaTexto(html),   // espelho em texto puro (busca/Revisor)
     editadoEm:   new Date().toISOString(),
     editadoPor:  state.config?.nomeUsuario || 'equipe',
   };
@@ -2991,27 +2970,11 @@ function limparEdicao(it) {
   const st = _autosaveState.get(it.chave);
   if (!st) return;
   if (st.debounceId) clearTimeout(st.debounceId);
-  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
-  if (card) {
-    const editor = card.querySelector('[data-role=analise-editor]');
-    if (editor && st.listener) editor.removeEventListener('input', st.listener);
-  }
-  _autosaveState.delete(it.chave);
+  _autosaveState.delete(it.chave);   // o handler text-change do Quill só agenda se houver estado
 }
 
-function sairEdicaoAnalise(it) {
-  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
-  // Cancelar: reverte para o snapshot e re-grava no Firebase (para não
-  // ficar persistido o estado intermediário que o autosave já enviou).
-  const st = _autosaveState.get(it.chave);
-  if (st && st.snapshot && it.analise && it.analise.markdown !== st.snapshot.markdown) {
-    it.analise = { ...st.snapshot };
-    renderAnaliseCard(it);
-    fbSalvarAnalise(it).catch(e => console.warn('Reverter no Firebase falhou:', e.message));
-  }
-  limparEdicao(it);
-  card.querySelector('[data-role=analise-editor]').style.display = 'none';
-  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
+function fecharEditorUI(card) {
+  card.querySelector('[data-role=quill-wrap]').style.display = 'none';
   card.querySelector('[data-role=analise-conteudo]').style.display = '';
   card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
   card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
@@ -3019,11 +2982,25 @@ function sairEdicaoAnalise(it) {
   card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
 }
 
+function sairEdicaoAnalise(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  // Cancelar: reverte para o snapshot e re-grava no Firebase (para não
+  // ficar persistido o estado intermediário que o autosave já enviou).
+  const st = _autosaveState.get(it.chave);
+  if (st && st.snapshot && it.analise && (it.analise.html !== st.snapshot.html || it.analise.markdown !== st.snapshot.markdown)) {
+    it.analise = { ...st.snapshot };
+    renderAnaliseCard(it);
+    fbSalvarAnalise(it).catch(e => console.warn('Reverter no Firebase falhou:', e.message));
+  }
+  limparEdicao(it);
+  fecharEditorUI(card);
+}
+
 async function salvarEdicaoAnalise(it) {
-  const card   = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
-  const editor = card.querySelector('[data-role=analise-editor]');
-  const novo   = editor.value.trim();
-  if (!novo) { mostrarToast('Análise não pode ficar vazia.', 'aviso'); return; }
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const q    = card._quill;
+  if (!q || !q.getText().trim()) { mostrarToast('Análise não pode ficar vazia.', 'aviso'); return; }
+  const html = sanitizarNotaHtml(q.root.innerHTML);
 
   // Flush: cancela qualquer autosave pendente e grava agora.
   const st = _autosaveState.get(it.chave);
@@ -3031,20 +3008,15 @@ async function salvarEdicaoAnalise(it) {
 
   it.analise = {
     ...it.analise,
-    markdown:    novo,
-    apensadosStatus: extrairStatusAcolhimento(novo),
+    formato:     'html',
+    html,
+    markdown:    htmlParaTexto(html),
     editadoEm:   new Date().toISOString(),
     editadoPor:  state.config?.nomeUsuario || 'equipe',
   };
 
   limparEdicao(it);
-  card.querySelector('[data-role=analise-editor]').style.display = 'none';
-  card.querySelector('[data-role=edit-toolbar]').style.display = 'none';
-  card.querySelector('[data-role=analise-conteudo]').style.display = '';
-  card.querySelector('[data-role=btn-salvar-edicao]').style.display = 'none';
-  card.querySelector('[data-role=btn-cancelar-edicao]').style.display = 'none';
-  card.querySelector('[data-role=autosave-status]').style.display = 'none';
-  card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
+  fecharEditorUI(card);
   renderAnaliseCard(it);
   try {
     await fbSalvarAnalise(it);
@@ -3100,6 +3072,127 @@ function reescoparTamanho(md) {
   });
   return out.join('\n');
 }
+
+// ============================================================
+//  EDITOR VISUAL (Quill) + NOTAS EM HTML
+//  Notas novas são editadas/salvas em HTML (WYSIWYG). As antigas, em markdown,
+//  continuam sendo exibidas/exportadas via renderMarkdown.
+// ============================================================
+let _quillPronto = false;
+function prepararQuill() {
+  if (_quillPronto || typeof Quill === 'undefined') return;
+  // Tamanho e alinhamento como ESTILO INLINE (não classe) — assim o HTML salvo
+  // já carrega font-size/text-align e renderiza igual na tela, no PDF e no Word.
+  const Size = Quill.import('attributors/style/size');
+  Size.whitelist = ['10.5pt', '12pt', '14pt', '16pt'];
+  Quill.register(Size, true);
+  const Align = Quill.import('attributors/style/align');
+  Quill.register(Align, true);
+  _quillPronto = true;
+}
+
+const QUILL_TOOLBAR = [
+  [{ header: [2, 3, false] }],
+  ['bold', 'italic'],
+  [{ size: ['10.5pt', '12pt', '14pt', '16pt'] }],
+  [{ align: [] }],                                  // esquerda (padrão) / centro / direita / justificado
+  [{ list: 'ordered' }, { list: 'bullet' }],
+  ['clean'],
+];
+
+// Cria (ou reaproveita) a instância do Quill do card.
+function getQuill(card, it) {
+  if (card._quill) return card._quill;
+  prepararQuill();
+  const el = card.querySelector('[data-role=quill-editor]');
+  const q = new Quill(el, { theme: 'snow', placeholder: 'Edite a nota…', modules: { toolbar: QUILL_TOOLBAR } });
+  q.on('text-change', () => { if (!card._carregandoQuill && _autosaveState.has(it.chave)) agendarAutosave(it); });
+  card._quill = q;
+  return q;
+}
+
+// Carrega HTML no editor sem disparar autosave (durante a carga).
+function carregarHtmlNoQuill(card, q, html) {
+  card._carregandoQuill = true;
+  try { q.setContents(q.clipboard.convert({ html: html || '<p></p>' })); }
+  catch (_) { q.root.innerHTML = html || '<p></p>'; }
+  card._carregandoQuill = false;
+}
+
+// Saneamento leve do HTML de uma nota (origem própria, mas a base é compartilhada):
+// remove scripts/handlers e atributos perigosos.
+function sanitizarNotaHtml(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  doc.querySelectorAll('script,style,iframe,object,embed,link,meta,form').forEach(n => n.remove());
+  doc.querySelectorAll('.ql-ui').forEach(n => n.remove());   // elementos auxiliares do Quill
+  // Quill 2.0 usa <ol><li data-list="bullet"> para marcadores. Converte para
+  // <ul>/<ol> padrão, que renderizam na tela, no PDF e no Word sem o CSS do Quill.
+  doc.querySelectorAll('ol').forEach(ol => {
+    const lis = [...ol.querySelectorAll(':scope > li')];
+    const ehBullet = lis.length > 0 && lis.every(li => li.getAttribute('data-list') === 'bullet');
+    if (ehBullet) {
+      const ul = doc.createElement('ul');
+      while (ol.firstChild) ul.appendChild(ol.firstChild);
+      ol.replaceWith(ul);
+    }
+  });
+  doc.querySelectorAll('li[data-list]').forEach(li => li.removeAttribute('data-list'));
+  // Remove handlers/atributos perigosos e classes do Quill.
+  doc.querySelectorAll('*').forEach(el => {
+    [...el.attributes].forEach(a => {
+      const n = a.name.toLowerCase();
+      if (n.startsWith('on') || n === 'src' || n === 'contenteditable'
+          || (n === 'class' && /\bql-/.test(a.value))
+          || (n === 'href' && /^\s*javascript:/i.test(a.value))) el.removeAttribute(a.name);
+    });
+  });
+  return doc.body.innerHTML;
+}
+
+function htmlParaTexto(html) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  doc.querySelectorAll('p,div,h1,h2,h3,li,br').forEach(el => el.append('\n'));
+  return (doc.body.textContent || '').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Remove de um HTML a seção cujo título casa o regex (até o próximo título).
+function removerSecaoHtml(html, tituloRe) {
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+  for (const h of [...doc.body.querySelectorAll('h1,h2,h3')]) {
+    if (!tituloRe.test(h.textContent || '')) continue;
+    let n = h.nextElementSibling; h.remove();
+    while (n && !/^H[1-3]$/.test(n.tagName)) { const x = n.nextElementSibling; n.remove(); n = x; }
+    break;
+  }
+  return doc.body.innerHTML;
+}
+
+function notaEhHtml(it) { return it.analise?.formato === 'html'; }
+
+// HTML para EXIBIR a nota na tela (com selo de acolhimento quando markdown).
+function notaDisplayHtml(it) {
+  if (notaEhHtml(it)) return sanitizarNotaHtml(it.analise.html || '');
+  return renderNotaTela(notaMd(it));
+}
+
+// HTML para IMPRESSÃO (PDF/Word): sem marcadores sensíveis; RF sem "Pontos de atenção".
+function notaHtmlImpressao(it) {
+  if (notaEhHtml(it)) {
+    let h = sanitizarNotaHtml(it.analise.html || '');
+    if (it.tipoCategoria === 'redacao_final') h = removerSecaoHtml(h, /Pontos\s+de\s+aten[çc]/i);
+    return h;
+  }
+  return renderMarkdown(mdSemAcolhimento(notaMd(it)));
+}
+
+// Texto puro da nota (Revisor/chat, busca no histórico).
+function notaTextoPlano(it) {
+  if (notaEhHtml(it)) return htmlParaTexto(it.analise.html || '');
+  return mdSemAcolhimento(it.analise?.markdown || '');
+}
+
+// Há conteúdo de nota? (markdown legado ou HTML novo)
+function temNota(it) { return !!(it.analise && (it.analise.html || it.analise.markdown)); }
 
 function renderMarkdown(md) {
   if (!md) return '';
@@ -3962,7 +4055,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     const analista = it.analista || it.analise?.analista || '';
     const analistaHtml = analista ? `<div class="responsavel">Responsável: <b>${esc(analista)}</b></div>` : '';
     const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}${relatoriaPodemos(it) ? '<span class="badge badge-rel">Relatoria Podemos em Plenário</span>' : ''}`;
-    const corpo   = it.analise?.markdown ? renderMarkdown(mdSemAcolhimento(notaMd(it))) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
+    const corpo   = temNota(it) ? notaHtmlImpressao(it) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(num(it) + tituloComApelido(it))}</h3>
       ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
@@ -4363,6 +4456,70 @@ function runsInlineDocx(texto, baseHalfPt) {
   return runs;
 }
 
+// Converte a nota em HTML (editor Quill) em parágrafos do Word. Anda pelos
+// blocos (p, h2/h3, li) e pelos inline (strong/em/span[font-size]).
+function htmlParaDocx(html) {
+  const { Paragraph, TextRun, AlignmentType } = docx;
+  const L15 = { line: 360, lineRule: 'auto' };
+  const BASE = 24;   // 12pt em meios-pontos
+  const alinhar = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
+  const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+
+  // pt (ex.: "14pt") → meios-pontos; px como reserva (1pt ≈ 1.333px).
+  const tamHalfPt = (styleFontSize) => {
+    if (!styleFontSize) return null;
+    const mpt = styleFontSize.match(/([\d.]+)\s*pt/i);
+    if (mpt) return Math.round(parseFloat(mpt[1]) * 2);
+    const mpx = styleFontSize.match(/([\d.]+)\s*px/i);
+    if (mpx) return Math.round((parseFloat(mpx[1]) / 1.3333) * 2);
+    return null;
+  };
+
+  // Gera TextRuns andando recursivamente nos nós inline, herdando negrito/itálico/tamanho.
+  const runsDe = (node, herda) => {
+    const runs = [];
+    node.childNodes.forEach(ch => {
+      if (ch.nodeType === 3) {   // texto
+        const txt = ch.textContent;
+        if (txt) runs.push(new TextRun({ text: txt, bold: herda.bold, italics: herda.italic, size: herda.size }));
+        return;
+      }
+      if (ch.nodeType !== 1) return;
+      const tag = ch.tagName.toLowerCase();
+      if (tag === 'br') { runs.push(new TextRun({ break: 1 })); return; }
+      const novo = { ...herda };
+      if (tag === 'strong' || tag === 'b') novo.bold = true;
+      if (tag === 'em' || tag === 'i') novo.italic = true;
+      const fs = tamHalfPt(ch.style?.fontSize);
+      if (fs) novo.size = fs;
+      runs.push(...runsDe(ch, novo));
+    });
+    return runs;
+  };
+
+  const alignDe = el => alinhar[(el.style?.textAlign || '').toLowerCase()] || AlignmentType.JUSTIFIED;
+  const out = [];
+  const blocos = doc.body.querySelectorAll(':scope > p, :scope > h1, :scope > h2, :scope > h3, :scope > ul, :scope > ol, :scope > blockquote');
+  blocos.forEach(el => {
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'ul' || tag === 'ol') {
+      el.querySelectorAll(':scope > li').forEach(li => {
+        const runs = runsDe(li, { bold: false, italic: false, size: BASE });
+        out.push(new Paragraph({ bullet: { level: 0 }, alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, ...L15 }, children: runs.length ? runs : [new TextRun({ text: '', size: BASE })] }));
+      });
+      return;
+    }
+    if (tag === 'h1' || tag === 'h2' || tag === 'h3') {
+      out.push(new Paragraph({ spacing: { before: 220, after: 60, ...L15 }, children: [new TextRun({ text: (el.textContent || '').trim(), bold: true, size: 26, color: '155724' })] }));
+      return;
+    }
+    const runs = runsDe(el, { bold: false, italic: false, size: BASE });
+    out.push(new Paragraph({ alignment: alignDe(el), spacing: { after: 140, ...L15 }, children: runs.length ? runs : [new TextRun({ text: '', size: BASE })] }));
+  });
+  if (!out.length) out.push(new Paragraph({ children: [new TextRun({ text: '' })] }));
+  return out;
+}
+
 // Converte a nota (Markdown com nossos marcadores) em parágrafos do Word.
 function mdParaDocx(md) {
   const { Paragraph, TextRun, AlignmentType } = docx;
@@ -4474,8 +4631,12 @@ async function exportarDocx() {
     if (badges.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: badges.join('   |   '), bold: true, size: 16, color: '02484d' })] }));
     const resp = it.analista || it.analise?.analista || '';
     if (resp) filhos.push(new Paragraph({ spacing: { after: 40, ...L15 }, children: [new TextRun({ text: 'Responsável: ', bold: true, size: 16 }), new TextRun({ text: resp, size: 16 })] }));
-    if (it.analise?.markdown) mdParaDocx(notaMd(it)).forEach(p => filhos.push(p));
-    else filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: placeholder(it.analiseStatus), italics: true, size: 18, color: '999999' })] }));
+    if (temNota(it)) {
+      const paras = notaEhHtml(it) ? htmlParaDocx(notaHtmlImpressao(it)) : mdParaDocx(notaMd(it));
+      paras.forEach(p => filhos.push(p));
+    } else {
+      filhos.push(new Paragraph({ spacing: { ...L15 }, children: [new TextRun({ text: placeholder(it.analiseStatus), italics: true, size: 18, color: '999999' })] }));
+    }
   });
 
   filhos.push(new Paragraph({ spacing: { before: 360 }, alignment: AlignmentType.CENTER, border: { top: { color: 'e5e7eb', space: 1, style: BorderStyle.SINGLE, size: 6 } }, children: [new TextRun({ text: 'Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados', size: 14, color: '9ca3af' })] }));
@@ -5006,9 +5167,11 @@ async function abrirPreviewHistorico(chave) {
   try { nota = await fbCarregarNotaPorChave(chave); } catch (_) {}
   _histPreviewCtx = { entry, nota };
   const meta = nota ? `<div class="hist-preview-meta">${escapeHtml(entry.ementa || '')}</div>` : '';
-  corpo.innerHTML = meta + (nota?.markdown
-    ? renderMarkdown(mdSemAcolhimento(nota.markdown))
-    : `<div class="an-hist-vazio">Esta proposição apareceu em pauta(s) anterior(es), mas não tem nota técnica salva.</div>`);
+  const notaCorpo = nota?.formato === 'html'
+    ? sanitizarNotaHtml(nota.html || '')
+    : (nota?.markdown ? renderMarkdown(mdSemAcolhimento(nota.markdown)) : '');
+  corpo.innerHTML = meta + (notaCorpo
+    || `<div class="an-hist-vazio">Esta proposição apareceu em pauta(s) anterior(es), mas não tem nota técnica salva.</div>`);
   // Habilita "trazer" só se houver pauta aberta e o item ainda não estiver nela
   const btnTrazer = document.getElementById('btn-hist-trazer');
   const podeTrazer = !!state.pauta && !(state.pauta.itens || []).some(it => it.chave === chave);

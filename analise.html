@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Análise de Pauta de Plenário – Podemos</title>
   <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="libs/quill.snow.css">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     .an-wrap {
@@ -320,6 +321,18 @@
     .an-analise-conteudo ul { margin: 4px 0 8px 18px; padding: 0; }
     .an-analise-conteudo li { margin-bottom: 4px; }
     .an-analise-conteudo p  { margin: 4px 0 8px; text-align: justify; }
+    /* Editor visual (Quill) */
+    .an-quill-wrap { margin: 6px 0 10px; }
+    .an-quill-wrap .ql-toolbar { border-radius: 6px 6px 0 0; border-color: var(--border-soft); background: #fafafa; }
+    .an-quill-wrap .ql-container { border-radius: 0 0 6px 6px; border-color: var(--border-soft); font-family: inherit; }
+    .an-quill-wrap .ql-editor { min-height: 260px; max-height: 60vh; overflow-y: auto; font-size: 12pt; line-height: 1.6; color: var(--text); }
+    .an-quill-wrap .ql-editor p { text-align: justify; }
+    /* Mostra o valor em pt no seletor de tamanho da barra do Quill */
+    .an-quill-wrap .ql-snow .ql-picker.ql-size .ql-picker-label[data-value]::before,
+    .an-quill-wrap .ql-snow .ql-picker.ql-size .ql-picker-item[data-value]::before { content: attr(data-value); }
+    .an-quill-wrap .ql-snow .ql-picker.ql-size .ql-picker-label:not([data-value])::before,
+    .an-quill-wrap .ql-snow .ql-picker.ql-size .ql-picker-item:not([data-value])::before { content: "12pt (padrão)"; }
+    .an-quill-wrap .ql-snow .ql-picker.ql-size { width: 92px; }
     .an-analise-conteudo strong { color: var(--text); }
     .an-analise-conteudo code   {
       background: rgba(255,255,255,.07);
@@ -850,6 +863,7 @@
   <script src="libs/pdf.min.js"></script>
   <script src="libs/html2canvas.min.js"></script>
   <script src="libs/docx.iife.js"></script>
+  <script src="libs/quill.js"></script>
   <script src="pauta-parser.js"></script>
   <script src="analise.js"></script>
 </body>
