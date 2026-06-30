@@ -3113,6 +3113,9 @@ function renderMarkdown(md) {
   // nota inteira) quebraria a detecção do heading e faria o "##" vazar. Títulos
   // não recebem alinhamento — removemos o marcador nesses casos.
   html = html.replace(/^[ \t]*\[\[(?:left|center|right|justify)\]\][ \t]*(?=#{1,3}\s)/gim, '');
+  // Garante linha em branco após um título: sem ela, o corpo na linha seguinte
+  // fica colado ao heading no mesmo bloco e não vira <p> (logo, não é alinhado).
+  html = html.replace(/^(#{1,3}[ \t].+)\n(?!\n)/gm, '$1\n\n');
   // Headings
   html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
@@ -4366,7 +4369,8 @@ function mdParaDocx(md) {
   const L15 = { line: 360, lineRule: 'auto' };
   const BASE = 24;   // 12pt (meios-pontos) — fonte padrão da nota
   const alinhar = { left: AlignmentType.LEFT, center: AlignmentType.CENTER, right: AlignmentType.RIGHT, justify: AlignmentType.JUSTIFIED };
-  const texto = reescoparTamanho(encurtarProposicoes(mdSemAcolhimento(md || '')));
+  const texto = reescoparTamanho(encurtarProposicoes(mdSemAcolhimento(md || '')))
+    .replace(/^(#{1,3}[ \t].+)\n(?!\n)/gm, '$1\n\n');   // título sempre em bloco próprio
   const out = [];
   for (const bloco of texto.split(/\n{2,}/)) {
     let b = bloco.trim();
