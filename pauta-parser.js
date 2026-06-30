@@ -377,6 +377,17 @@ function parsearPautaCompacto(texto) {
     });
   }
 
+  // Refina o fim da região de "Redações Finais": ela nunca abrange os
+  // requerimentos de urgência (que vêm logo depois). Quando o detector do fim
+  // da seção falha e a região se estende demais, cortamos no 1º REQ/REC após o
+  // início — assim requerimentos e os projetos seguintes não viram "redação final".
+  if (rfIni >= 0) {
+    const primeiroReq = headers
+      .filter(h => (h.sigla === 'REQ' || h.sigla === 'REC') && h.idx >= rfIni)
+      .reduce((min, h) => Math.min(min, h.idx), Infinity);
+    if (primeiroReq < rfFim) rfFim = primeiroReq;
+  }
+
   for (let i = 0; i < headers.length; i++) {
     const h     = headers[i];
     const fim   = i + 1 < headers.length ? headers[i + 1].idx : texto.length;
@@ -436,8 +447,10 @@ function parsearPautaCompacto(texto) {
       }
     }
 
-    const tipoCategoria = ehRedacaoFinal(h.idx) ? 'redacao_final'
-      : (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento'
+    // REQ/REC são sempre requerimentos — redação final é dos projetos, nunca de
+    // requerimento (a checagem de REQ tem prioridade sobre a região de RF).
+    const tipoCategoria = (h.sigla === 'REQ' || h.sigla === 'REC') ? 'requerimento'
+      : ehRedacaoFinal(h.idx) ? 'redacao_final'
       : 'projeto';
 
     resultado.itens.push({
