@@ -2888,6 +2888,7 @@ function aplicarAlinhamento(editor, al) {
   let fim = v.indexOf('\n\n', e); fim = fim < 0 ? v.length : fim;
   const novo = v.slice(ini, fim).split(/\n\n/).map(p => {
     const semMarca = p.replace(/^\s*\[\[(?:left|center|right|justify)\]\]\s*/i, '');
+    if (/^\s*#{1,3}\s/.test(semMarca)) return semMarca;   // títulos não recebem alinhamento
     return `[[${al}]]${semMarca}`;
   }).join('\n\n');
   editor.value = v.slice(0, ini) + novo + v.slice(fim);
@@ -3108,6 +3109,10 @@ function renderMarkdown(md) {
   md = reescoparTamanho(md);   // tamanho [[N]] sobrevive a títulos/parágrafos/listas
   // Escape básico
   let html = escapeHtml(md);
+  // Um marcador de alinhamento colado antes de um título (ex.: ao justificar a
+  // nota inteira) quebraria a detecção do heading e faria o "##" vazar. Títulos
+  // não recebem alinhamento — removemos o marcador nesses casos.
+  html = html.replace(/^[ \t]*\[\[(?:left|center|right|justify)\]\][ \t]*(?=#{1,3}\s)/gim, '');
   // Headings
   html = html.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
   html = html.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
@@ -4366,14 +4371,16 @@ function mdParaDocx(md) {
   for (const bloco of texto.split(/\n{2,}/)) {
     let b = bloco.trim();
     if (!b) continue;
+    // Tira o marcador de alinhamento ANTES de detectar o título — senão um
+    // título justificado (ex.: nota toda justificada) viraria parágrafo com "##".
+    let alignment = AlignmentType.JUSTIFIED;
+    const am = b.match(/^\[\[(left|center|right|justify)\]\]\s*/i);
+    if (am) { alignment = alinhar[am[1].toLowerCase()]; b = b.slice(am[0].length); }
     const h = b.match(/^(#{1,3})\s+(.+)$/);
     if (h) {
       out.push(new Paragraph({ spacing: { before: 220, after: 60, ...L15 }, children: [new TextRun({ text: h[2].replace(/\*\*/g, '').trim(), bold: true, size: 26, color: '155724' })] }));
       continue;
     }
-    let alignment = AlignmentType.JUSTIFIED;
-    const am = b.match(/^\[\[(left|center|right|justify)\]\]\s*/i);
-    if (am) { alignment = alinhar[am[1].toLowerCase()]; b = b.slice(am[0].length); }
     const linhas = b.split(/\n/);
     if (linhas.length && linhas.every(l => /^\s*[-*]\s+/.test(l))) {
       for (const l of linhas) out.push(new Paragraph({ bullet: { level: 0 }, alignment: AlignmentType.JUSTIFIED, spacing: { after: 40, ...L15 }, children: runsInlineDocx(l.replace(/^\s*[-*]\s+/, ''), BASE) }));
