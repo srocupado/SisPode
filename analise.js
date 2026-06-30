@@ -4314,6 +4314,8 @@ function destinoDoDespacho(despachos) {
 // Inferência por regra (fallback do híbrido, quando o despacho ainda não saiu).
 function destinoInferido(sigla, tramitacoes) {
   if (/^(PRC|PDL|PDC)$/i.test(sigla)) return 'Promulgada';
+  if (/^MPV$/i.test(sigla)) return 'Vai ao Senado';     // MPV sempre segue ao Senado
+  if (/^REQ$/i.test(sigla)) return '';                  // requerimento (urgência) não tem encaminhamento
   const passouSenado = (tramitacoes || []).some(t => /\bSenado\b|\bSF\b/i.test(`${t.siglaOrgao || ''} ${t.despacho || ''}`));
   return passouSenado ? 'Vai à sanção' : 'Vai ao Senado';
 }
@@ -4414,11 +4416,17 @@ async function coletarResumoSessao(dataISO) {
   }
   const concluidos = await _mapLimit(baseConcluidos, 4, async c => {
     let ementa = '', destino = '';
-    try {
-      const trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || [];
-      const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
-      destino = destinoDoDespacho(despachos) || destinoInferido(c.sigla, trs);
-    } catch (_) { destino = destinoInferido(c.sigla, []); }
+    if (/^MPV$/i.test(c.sigla)) {
+      destino = 'Vai ao Senado';     // MPV aprovada na Câmara sempre segue ao Senado
+    } else if (/^REQ$/i.test(c.sigla)) {
+      destino = '';                  // requerimento (urgência) não tem encaminhamento
+    } else {
+      try {
+        const trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || [];
+        const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
+        destino = destinoDoDespacho(despachos) || destinoInferido(c.sigla, trs);
+      } catch (_) { destino = destinoInferido(c.sigla, []); }
+    }
     try { ementa = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}`)).dados?.ementa || ''; } catch (_) {}
     return { ...c, ementa, destino };
   });
