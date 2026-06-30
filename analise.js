@@ -4286,13 +4286,14 @@ async function coletarResumoSessao(dataISO) {
 }
 
 function montarMensagemResumo(urgencias, concluidos) {
-  const linhas = [`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()} `, ''];
+  const b = s => `*${s}*`;   // negrito do WhatsApp (o "*" final não pode vir após espaço)
+  const linhas = [`${b(`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()}`)} `, ''];
   for (const u of urgencias) {
-    linhas.push(`▪️ Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano} (${ementaTextoResumo(u.ementa)})`);
+    linhas.push(`▪️ ${b(`Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`)} (${ementaTextoResumo(u.ementa)})`);
   }
   for (const c of concluidos) {
     const seta = c.destino ? `➡️ ${c.destino}` : '';
-    linhas.push(`▪️ ${tipoLabel(c.sigla)} ${c.numero}/${c.ano} (${ementaTextoResumo(c.ementa)})${seta}`);
+    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)} (${ementaTextoResumo(c.ementa)})${seta}`);
   }
   return linhas.join('\n');
 }
