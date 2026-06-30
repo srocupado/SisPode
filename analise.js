@@ -443,7 +443,7 @@ function renderCard(it) {
         <button type="button" class="an-fmt-btn" data-fmt="bold" title="Negrito (Ctrl+B)"><b>B</b></button>
         <span class="an-fmt-sep"></span>
         <span class="an-fmt-label">Tamanho</span>
-        <button type="button" class="an-fmt-btn" data-size="12">12</button>
+        <button type="button" class="an-fmt-btn" data-size="10.5" title="Fonte menor (10,5pt)">10,5</button>
         <button type="button" class="an-fmt-btn" data-size="14">14</button>
         <button type="button" class="an-fmt-btn" data-size="16">16</button>
         <button type="button" class="an-fmt-btn" data-size="" title="Tamanho normal (remover marcação)">normal</button>
@@ -2627,13 +2627,13 @@ function envolverSelecao(editor, antes, depois) {
 function removerTamanhoSelecao(editor) {
   let s = editor.selectionStart ?? 0, e = editor.selectionEnd ?? 0;
   const v = editor.value;
-  const abre = v.slice(0, s).match(/\[\[(?:12|14|16)\]\]$/);
+  const abre = v.slice(0, s).match(/\[\[(?:10\.5|12|14|16)\]\]$/);
   const fecha = v.slice(e).match(/^\[\[\/\]\]/);
   let novo;
   if (abre && fecha) {
     novo = v.slice(0, s - abre[0].length) + v.slice(s, e) + v.slice(e + fecha[0].length);
   } else {
-    const sel = v.slice(s, e).replace(/\[\[(?:12|14|16)\]\]|\[\[\/\]\]/g, '');
+    const sel = v.slice(s, e).replace(/\[\[(?:10\.5|12|14|16)\]\]|\[\[\/\]\]/g, '');
     novo = v.slice(0, s) + sel + v.slice(e);
   }
   editor.value = novo;
@@ -3031,8 +3031,8 @@ async function salvarEdicaoAnalise(it) {
 // estruturais (marca de alinhamento e marcador de lista "- ") fora do tamanho,
 // para não quebrar a detecção de lista/alinhamento adiante.
 function reescoparTamanho(md) {
-  if (!md || !/\[\[(?:12|14|16)\]\]/.test(md)) return md || '';
-  const tokenRe = /\[\[(12|14|16)\]\]|\[\[\/\]\]/g;
+  if (!md || !/\[\[(?:10\.5|12|14|16)\]\]/.test(md)) return md || '';
+  const tokenRe = /\[\[(10\.5|12|14|16)\]\]|\[\[\/\]\]/g;
   let limpo = '';
   const sizes = [];
   let cur = null, last = 0, m;
@@ -3083,7 +3083,7 @@ function renderMarkdown(md) {
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
   html = html.replace(/(?<!\*)\*([^*]+)\*(?!\*)/g, '<em>$1</em>');
   // Tamanho de fonte — marcador [[N]]…[[/]] da barra de formatação do editor
-  html = html.replace(/\[\[(12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g, '<span style="font-size:$1pt">$2</span>');
+  html = html.replace(/\[\[(10\.5|12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g, '<span style="font-size:$1pt">$2</span>');
   // Inline code
   html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
   // Listas
@@ -4005,11 +4005,11 @@ function runsInlineDocx(texto, baseHalfPt) {
     }
     if (l < txt.length) runs.push(new TextRun({ text: txt.slice(l), size: sizeHp }));
   };
-  const sizeRe = /\[\[(12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g;
+  const sizeRe = /\[\[(10\.5|12|14|16)\]\]([\s\S]*?)\[\[\/\]\]/g;
   let last = 0, m;
   while ((m = sizeRe.exec(texto)) !== null) {
     if (m.index > last) pushBold(texto.slice(last, m.index), baseHalfPt);
-    pushBold(m[2], parseInt(m[1], 10) * 2);   // pt → meios-pontos
+    pushBold(m[2], Math.round(parseFloat(m[1]) * 2));   // pt → meios-pontos (10,5 → 21)
     last = m.index + m[0].length;
   }
   if (last < texto.length) pushBold(texto.slice(last), baseHalfPt);
