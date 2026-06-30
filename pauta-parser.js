@@ -578,11 +578,10 @@ function parsearPautaPlenarioExportada(texto) {
       continue;   // linha "N. …" sem proposição reconhecível (não é entrada de pauta)
     }
 
-    // Apelido entre parênteses serve de ementa provisória até a API responder.
-    const apel = resto.match(/\(([^)]+)\)/);
+    // Não importa o apelido entre parênteses: nos Destaques a ementa vem da API.
     porOrdem.set(ordem, {
       sigla, numero, ano, tipoCategoria,
-      ementa: apel ? apel[1].trim() : '',
+      ementa: '',
       projetoUrgenciado,
       ordem,
     });
