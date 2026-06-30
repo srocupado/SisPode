@@ -4059,7 +4059,7 @@ function ementaLimpa(t) {
   let e = (t || '').replace(/\s+/g, ' ').trim();
   const ab = e.lastIndexOf('(');
   if (ab !== -1 && e.indexOf(')', ab) === -1) e = e.slice(0, ab);
-  return e.replace(/[\s;,(]+$/, '').trim();
+  return e.replace(/[\s;,.(]+$/, '').trim();   // tira pontuação solta no fim (inclui ponto final)
 }
 
 function montarMensagemPropPartido() {
@@ -4068,22 +4068,20 @@ function montarMensagemPropPartido() {
   const b = s => `*${s}*`;   // negrito do WhatsApp
   const linhas = [b(`Itens do Podemos na Pauta de ${dataPautaCurta()}`)];
   for (const it of itens) {
-    const aps = it.enriquecimento?.apensadosPodemos || [];
-    const sufApens = aps.length ? ` (${aps.length} apensado${aps.length > 1 ? 's' : ''})` : '';
+    const apelido = (it.apelido || it.analise?.apelido || apelidoFallback(it) || '').trim();
+    const apSuf = apelido ? ` (${apelido})` : '';
     linhas.push('');
-    linhas.push(b(`▪️ Item ${it.ordem ?? '–'} – ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${sufApens}`));
+    linhas.push(`${b(`▪️ Item ${it.ordem ?? '–'}. ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`)}${apSuf}`);
     linhas.push(b(`Autoria: ${autoriaMsg(it)}`));
     if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`);
-    const ementa = ementaLimpa(it.ementa);
-    if (ementa) linhas.push(`Ementa: ${ementa}`);
+    const aps = it.enriquecimento?.apensadosPodemos || [];
     if (aps.length) {
       linhas.push(aps.length > 1 ? 'Apensados:' : 'Apensado:');
       for (const ap of aps) {
-        linhas.push(`* ${b(`${ap.siglaTipo} ${ap.numero}/${ap.ano}`)}`);
+        const emAp = ementaLimpa(ap.ementa);   // apensados não têm apelido — usa a ementa
+        linhas.push(`* ${b(`${ap.siglaTipo} ${ap.numero}/${ap.ano}`)}${emAp ? ` (${emAp})` : ''}`);
         const autAp = autoriaApensadoMsg(ap);
-        if (autAp) linhas.push(b(`Autoria: ${autAp}`));
-        const emAp = ementaLimpa(ap.ementa);
-        if (emAp) linhas.push(`Ementa: ${emAp}`);
+        if (autAp) linhas.push(`    ${b(`Autoria: ${autAp}`)}`);
       }
     }
   }
@@ -4102,6 +4100,9 @@ async function copiarPropPartido() {
     mostrarToast('Verificando autoria dos itens…', 'info');
     await Promise.all(pendentes.map(it => enriquecerItem(it).catch(() => {})));
   }
+  // Garante o apelido dos itens que entrarão na lista (reaproveita o da nota,
+  // gera por IA se configurado, ou usa o fallback a partir da ementa).
+  try { await prepararApelidos((state.pauta.itens || []).filter(itemDoPodemos)); } catch (_) {}
   const { texto, total } = montarMensagemPropPartido();
   if (!total) { mostrarToast('Nenhuma proposição do Podemos (autoria, apensado ou relatoria) nesta pauta.', 'aviso'); return; }
   const ok = await copiarParaAreaTransferencia(texto);
