@@ -3165,6 +3165,10 @@ function sanitizarNotaHtml(html) {
     }
   });
   doc.querySelectorAll('li[data-list]').forEach(li => li.removeAttribute('data-list'));
+  // Remove parágrafos vazios no fim (o Quill deixa um <p><br></p> de sobra).
+  let ultimo;
+  while ((ultimo = doc.body.lastElementChild) && ultimo.tagName === 'P'
+         && !ultimo.textContent.trim() && !ultimo.querySelector('img')) ultimo.remove();
   // Remove handlers/atributos perigosos e classes do Quill.
   doc.querySelectorAll('*').forEach(el => {
     [...el.attributes].forEach(a => {
@@ -4126,7 +4130,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl) {
     .badge-rel { background:#cfe8ff; color:#0a4a7a; }
     h2 { font-size:13pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
     h3 { font-size:12pt; color:#155724; margin:10px 0 3px; }
-    p { font-size:12pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; page-break-inside:avoid; break-inside:avoid; }
+    p { font-size:12pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; orphans:2; widows:2; }
     ul { margin:4px 0 6px 18px; padding:0; }
     li { font-size:12pt; line-height:1.6; text-align:justify; margin:3px 0; }
     .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
