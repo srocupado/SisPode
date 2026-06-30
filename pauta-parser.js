@@ -520,3 +520,74 @@ function limpaNumero(s) {
 function prioridadeCat(cat) {
   return cat === 'redacao_final' ? 0 : cat === 'requerimento' ? 1 : 2;
 }
+
+// ============================================================
+//  PARSER DO PDF EXPORTADO PELO MÓDULO DE PLENÁRIO
+//  O módulo de Análise de Plenário gera um PDF próprio (capa, índice clicável
+//  e notas técnicas) em que as proposições aparecem na forma curta —
+//  "PL 1234/2024", "Urgência ao PL 1234/2024", "Redação Final do PL 999/2020".
+//  Aqui extraímos a lista de itens a partir do índice/cabeçalhos desse PDF,
+//  para que o módulo de Destaques também possa importá-lo como arquivo.
+// ============================================================
+function ehPdfPlenarioExportado(texto) {
+  return /Pauta\s+de\s+Plen[áa]rio/i.test(texto || '') &&
+         /Lideran[çc]a\s+do\s+Podemos/i.test(texto || '');
+}
+
+function parsearPautaPlenarioExportada(texto) {
+  const resultado = { titulo: 'Pauta de Plenário', periodo: '', itens: [] };
+  if (!ehPdfPlenarioExportado(texto)) return resultado;
+
+  const linhas = texto.split('\n');
+
+  // Linha meta logo após o cabeçalho: "<nome da pauta> · N item(ns)".
+  // Dá o nome sugerido da sessão e a contagem (limita falsos positivos vindos
+  // do corpo das notas, que podem ter listas numeradas).
+  let total = null;
+  for (const ln of linhas) {
+    const m = ln.match(/^(.+?)\s+·\s+(\d+)\s+item/i);
+    if (m) { resultado.titulo = m[1].trim(); total = parseInt(m[2], 10); break; }
+  }
+
+  const SIG        = '(PL|PLP|PEC|PDL|MPV|PRC)';
+  const reEntrada  = /^\s*(\d{1,3})\.\s+(.+)$/;                                  // "N. <título>"
+  const reRedacao  = new RegExp('Reda[çc][ãa]o\\s+Final\\s+d[oe]\\s+' + SIG + '\\s+([\\d.]+)\\/(\\d{4})', 'i');
+  const reUrgencia = new RegExp('Urg[êe]ncia\\s+a[oa]\\s+' + SIG + '\\s+([\\d.]+)\\/(\\d{4})', 'i');
+  const rePlano    = new RegExp('\\b' + SIG + '\\s+([\\d.]+)\\/(\\d{4})', 'i');
+
+  // Cada item aparece no índice e como cabeçalho; o índice vem antes das notas,
+  // então a 1ª ocorrência por nº de ordem prevalece (o índice é a fonte limpa).
+  const porOrdem = new Map();
+  for (const ln of linhas) {
+    const mm = reEntrada.exec(ln);
+    if (!mm) continue;
+    const ordem = parseInt(mm[1], 10);
+    if (total != null && (ordem < 1 || ordem > total)) continue;
+    if (porOrdem.has(ordem)) continue;
+    const resto = mm[2];
+
+    let m, tipoCategoria, sigla, numero, ano, projetoUrgenciado = null;
+    if ((m = reRedacao.exec(resto))) {
+      tipoCategoria = 'redacao_final'; sigla = m[1].toUpperCase(); numero = limpaNumero(m[2]); ano = m[3];
+    } else if ((m = reUrgencia.exec(resto))) {
+      tipoCategoria = 'requerimento';  sigla = m[1].toUpperCase(); numero = limpaNumero(m[2]); ano = m[3];
+      projetoUrgenciado = { sigla, numero, ano };
+    } else if ((m = rePlano.exec(resto))) {
+      tipoCategoria = 'projeto';       sigla = m[1].toUpperCase(); numero = limpaNumero(m[2]); ano = m[3];
+    } else {
+      continue;   // linha "N. …" sem proposição reconhecível (não é entrada de pauta)
+    }
+
+    // Apelido entre parênteses serve de ementa provisória até a API responder.
+    const apel = resto.match(/\(([^)]+)\)/);
+    porOrdem.set(ordem, {
+      sigla, numero, ano, tipoCategoria,
+      ementa: apel ? apel[1].trim() : '',
+      projetoUrgenciado,
+      ordem,
+    });
+  }
+
+  resultado.itens = [...porOrdem.values()].sort((a, b) => a.ordem - b.ordem);
+  return resultado;
+}

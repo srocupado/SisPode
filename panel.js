@@ -474,7 +474,14 @@ async function processarPdfModal(file) {
     // de Análise. Reconhece os dois formatos (compacto e extenso) e devolve os
     // itens da pauta sem capturar apensados/citações soltas no texto.
     const texto = await extrairTextoPdf(await file.arrayBuffer());
-    const parsed = parsearPauta(texto);
+    let parsed = parsearPauta(texto);
+    // Também aceita o PDF gerado pelo módulo de Plenário (formato próprio, com
+    // as proposições na forma curta) — fallback quando o parser oficial não
+    // reconhece nenhum item.
+    if (!parsed.itens.length) {
+      const plen = parsearPautaPlenarioExportada(texto);
+      if (plen.itens.length) parsed = plen;
+    }
     const props = parsed.itens.map(it => ({
       sigla:  it.sigla,
       numero: /^\d+$/.test(String(it.numero)) ? parseInt(it.numero, 10) : it.numero,
@@ -499,8 +506,9 @@ async function processarPdfModal(file) {
     // pauta), e não pela 1ª data avulsa do texto — que no formato extenso é
     // uma data de tramitação (ex.: aprovação de urgência), não a da sessão.
     const tituloInput = document.getElementById('sessao-titulo');
-    if (parsed.periodo && !tituloInput.value) {
-      tituloInput.value = `Sessão de ${parsed.periodo}`;
+    if (!tituloInput.value) {
+      if (parsed.periodo) tituloInput.value = `Sessão de ${parsed.periodo}`;
+      else if (parsed.titulo) tituloInput.value = parsed.titulo;   // PDF do Plenário traz o nome da pauta
     }
 
     uploadText.textContent = `${file.name} — ${props.length} proposição(ões) encontrada(s)`;
