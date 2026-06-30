@@ -765,6 +765,11 @@
           <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text);margin:4px 0 12px">
             <input type="checkbox" id="config-interesse-ativo"> Ativar o marcador de interesse dos parlamentares <span style="color:var(--text-dim);font-size:11px">(desligado por padrão; vale para toda a equipe)</span>
           </label>
+          <div style="position:relative;margin-top:4px">
+            <input type="text" id="interesse-busca" class="form-input" autocomplete="off"
+              placeholder="🔎 Buscar deputados por tema (ex.: saúde)">
+            <div id="interesse-busca-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;min-height:14px"></div>
+          </div>
           <div id="config-interesse-lista" style="margin-top:10px;max-height:380px;overflow:auto;padding-right:6px">
             <div class="config-desc">Carregando deputados…</div>
           </div>

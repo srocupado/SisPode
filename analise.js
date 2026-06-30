@@ -164,6 +164,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
   document.getElementById('btn-salvar-interesse').addEventListener('click', salvarInteresse);
   document.getElementById('config-interesse-ativo').addEventListener('change', onToggleInteresseAtivo);
+  document.getElementById('interesse-busca').addEventListener('input', filtrarInteresseBusca);
   document.querySelectorAll('.config-tab-btn').forEach(b => {
     b.addEventListener('click', () => selecionarAbaConfig(b.getAttribute('data-config-tab')));
   });
@@ -1459,7 +1460,7 @@ function renderInteresseConfig() {
   cont.innerHTML = cfg.lista.map(dep => {
     const d = cfg.dados?.[dep.id] || {};
     return `
-    <div class="form-group" style="margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:12px">
+    <div class="form-group" data-dep-bloco="${escapeHtml(dep.id)}" data-dep-nome="${escapeHtml(dep.nome)}" style="margin-bottom:14px;border-bottom:1px solid var(--border-soft);padding-bottom:12px">
       <label style="font-size:13px;font-weight:600;color:var(--text)">${escapeHtml(dep.nome)}</label>
       <label style="font-size:11px;color:var(--text-dim);margin-top:6px;display:block">Perfil</label>
       <textarea class="form-input" data-dep-perfil="${escapeHtml(dep.id)}" rows="3"
@@ -1471,6 +1472,34 @@ function renderInteresseConfig() {
         style="resize:vertical">${escapeHtml(d.temas || '')}</textarea>
     </div>`;
   }).join('');
+  filtrarInteresseBusca();   // reaplica a busca atual (se houver) à lista recém-montada
+}
+
+// Busca na aba de temas de interesse: filtra a lista de deputados pelos que têm
+// o termo nos temas ou no perfil. Ex.: "saúde" → mostra só quem tem esse tema.
+function filtrarInteresseBusca() {
+  const inp  = document.getElementById('interesse-busca');
+  const cont = document.getElementById('config-interesse-lista');
+  const stEl = document.getElementById('interesse-busca-status');
+  if (!cont) return;
+  const termo = (inp?.value || '').trim();
+  const q = _normTxt(termo);
+  let visiveis = 0;
+  const blocos = cont.querySelectorAll('[data-dep-bloco]');
+  blocos.forEach(bloco => {
+    if (!q) { bloco.style.display = ''; return; }
+    const temas  = bloco.querySelector('[data-dep-temas]')?.value || '';
+    const perfil = bloco.querySelector('[data-dep-perfil]')?.value || '';
+    const nome   = bloco.getAttribute('data-dep-nome') || '';
+    const casa = _normTxt(`${temas} ${perfil} ${nome}`).includes(q);
+    bloco.style.display = casa ? '' : 'none';
+    if (casa) visiveis++;
+  });
+  if (stEl) {
+    stEl.textContent = !q ? ''
+      : visiveis ? `${visiveis} deputado(s) com “${termo}”.`
+      : `Nenhum deputado com “${termo}”.`;
+  }
 }
 
 async function salvarInteresse() {
