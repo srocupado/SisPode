@@ -125,6 +125,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
   document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
   document.getElementById('btn-prop-partido').addEventListener('click', copiarPropPartido);
+  document.getElementById('btn-resumo-sessao').addEventListener('click', copiarResumoSessao);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
@@ -237,6 +238,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
+    document.getElementById('btn-resumo-sessao').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3456,6 +3458,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
+    document.getElementById('btn-resumo-sessao').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -3622,6 +3625,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-gerar-todas').disabled = false;
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
+    document.getElementById('btn-resumo-sessao').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
     atualizarStatusSync('ok');
@@ -4131,6 +4135,185 @@ async function copiarParaAreaTransferencia(texto) {
     document.body.removeChild(ta);
     return ok;
   } catch (_) { return false; }
+}
+
+// ============================================================
+//  "RESUMO DA SESSÃO" — mensagem p/ WhatsApp com as matérias apreciadas no
+//  Plenário (urgências aprovadas + projetos concluídos, com o destino). Os
+//  resultados vêm da API de dados abertos: evento → votações → tramitação.
+// ============================================================
+
+// Data da pauta em ISO (AAAA-MM-DD), p/ consultar o evento da sessão.
+function dataPautaISO() {
+  const fonte = String(state.pauta?.periodo || state.pauta?.nome || state.pauta?.titulo || '');
+  const m = fonte.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+}
+
+function _idDeUri(uri) { const m = String(uri || '').match(/(\d+)\s*$/); return m ? m[1] : null; }
+
+// Sessões deliberativas do Plenário na data (pode haver mais de uma no dia).
+async function acharSessoesDeliberativas(dataISO) {
+  const json = await fetchJson(`${API_BASE}/eventos?dataInicio=${dataISO}&dataFim=${dataISO}&itens=100`);
+  return (json.dados || []).filter(e =>
+    /Sess[ãa]o\s+Deliberativa/i.test(e.descricaoTipo || '') &&
+    (e.orgaos || []).some(o => o.sigla === 'PLEN'));
+}
+
+// Destino a partir dos despachos de tramitação (registrados no mesmo dia da
+// sessão na prática). Prioriza promulgação → sanção → Senado.
+function destinoDoDespacho(despachos) {
+  const txt = despachos.join(' \n ');
+  if (/vai\s+(?:à|a)\s+promulga|promulgad/i.test(txt)) return 'Promulgada';
+  if (/vai\s+(?:à|a)\s+san[çc]|à\s+San[çc][ãa]o|remessa[^\n]*san[çc]/i.test(txt)) return 'Vai à sanção';
+  if (/vai\s+ao\s+Senado|remessa[^\n]*Senado/i.test(txt)) return 'Vai ao Senado';
+  return null;
+}
+
+// Inferência por regra (fallback do híbrido, quando o despacho ainda não saiu).
+function destinoInferido(sigla, tramitacoes) {
+  if (/^(PRC|PDL|PDC)$/i.test(sigla)) return 'Promulgada';
+  const passouSenado = (tramitacoes || []).some(t => /\bSenado\b|\bSF\b/i.test(`${t.siglaOrgao || ''} ${t.despacho || ''}`));
+  return passouSenado ? 'Vai à sanção' : 'Vai ao Senado';
+}
+
+// Ementa para a mensagem: normaliza espaços e remove um parêntese aberto sem
+// fechamento (mantém o ponto final, como no padrão deste resumo).
+function ementaTextoResumo(t) {
+  let e = (t || '').replace(/\s+/g, ' ').trim();
+  const ab = e.lastIndexOf('(');
+  if (ab !== -1 && e.indexOf(')', ab) === -1) e = e.slice(0, ab).trim();
+  return e;
+}
+
+const _ascVot = (a, b) => String(a.dataHoraRegistro || '').localeCompare(String(b.dataHoraRegistro || ''));
+
+// fetch da API da Câmara com retry em 429/5xx e erros de rede (a API limita taxa).
+async function fetchJsonCamara(url, tentativas = 4) {
+  let erro = null;
+  for (let i = 0; i < tentativas; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
+    try {
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+      if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
+      throw new Error(`HTTP ${res.status} em ${url}`);
+    } catch (e) { erro = e; }
+  }
+  throw erro || new Error('Falha ao consultar ' + url);
+}
+
+// Executa fn sobre items com no máximo `limite` chamadas simultâneas (evita o
+// rate-limit da API). Preserva a ordem dos resultados.
+async function _mapLimit(items, limite, fn) {
+  const out = new Array(items.length);
+  let i = 0;
+  const worker = async () => { while (i < items.length) { const k = i++; out[k] = await fn(items[k], k); } };
+  await Promise.all(Array.from({ length: Math.min(limite, items.length || 1) }, worker));
+  return out;
+}
+
+// Proposições concluídas numa votação final: usa proposicoesAfetadas (detalhe) e,
+// se vier vazio (acontece em algumas Redações Finais), cai no proposicaoObjeto.
+async function propsDaVotacaoFinal(v) {
+  let afet = [];
+  try { afet = (await fetchJsonCamara(`${API_BASE}/votacoes/${v.id}`)).dados?.proposicoesAfetadas || []; } catch (_) {}
+  if (afet.length) return afet.map(p => ({ sigla: p.siglaTipo, numero: String(p.numero), ano: String(p.ano), id: _idDeUri(p.uri) }));
+  const m = String(v.proposicaoObjeto || '').match(/\b(PL|PLP|PEC|PDL|MPV|PRC|PDC)\s+(\d+)\/(\d{4})\b/);
+  return m ? [{ sigla: m[1], numero: m[2], ano: m[3], id: _idDeUri(v.uriProposicaoObjeto) }] : [];
+}
+
+async function coletarResumoSessao(dataISO) {
+  const sessoes = await acharSessoesDeliberativas(dataISO);
+  if (!sessoes.length) return { encontrouSessao: false };
+
+  // Junta as votações de todas as sessões deliberativas do dia.
+  const votacoes = [];
+  for (const ev of sessoes) {
+    try {
+      const j = await fetchJsonCamara(`${API_BASE}/eventos/${ev.id}/votacoes`);
+      votacoes.push(...(j.dados || []));
+    } catch (_) {}
+  }
+
+  // --- Urgências aprovadas (REQ) → PL correspondente (via ementa do REQ) ---
+  const urgVot = votacoes
+    .filter(v => v.aprovacao === 1 && /Requerimento\s+de\s+Urg[êe]ncia/i.test(v.descricao || '') && /^REQ\b/.test(v.proposicaoObjeto || ''))
+    .sort(_ascVot);
+  const urgRaw = await _mapLimit(urgVot, 4, async v => {
+    try {
+      const det = await fetchJsonCamara(`${API_BASE}/proposicoes/${_idDeUri(v.uriProposicaoObjeto)}`);
+      const m = encurtarProposicoes(det.dados?.ementa || '').match(/\b(PL|PLP|PEC|PDL|MPV|PRC)\s+(\d+)\/(\d{4})\b/);
+      if (!m) return null;
+      const [, sigla, numero, ano] = m;
+      const pl = await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${sigla}&numero=${numero}&ano=${ano}`);
+      return { sigla, numero, ano, ementa: pl.dados?.[0]?.ementa || '' };
+    } catch (_) { return null; }
+  });
+  const urgencias = [];
+  const vistos = new Set();
+  for (const u of urgRaw.filter(Boolean)) {
+    const k = `${u.sigla}-${u.numero}-${u.ano}`;
+    if (!vistos.has(k)) { vistos.add(k); urgencias.push(u); }
+  }
+
+  // --- Projetos concluídos + destino ---
+  // Conclusão = Redação Final aprovada (PL/PLP) ou aprovação do Projeto de
+  // Resolução/Decreto Legislativo (PRC/PDL, que vão à promulgação).
+  const concluiRe = /Reda[çc][ãa]o\s+Final|Aprovad[oa]\s+o\s+Projeto\s+de\s+(?:Resolu[çc][ãa]o|Decreto\s+Legislativo)/i;
+  const finalVot = votacoes.filter(v => v.aprovacao === 1 && concluiRe.test(v.descricao || '')).sort(_ascVot);
+  const propsPorVot = await _mapLimit(finalVot, 4, v => propsDaVotacaoFinal(v));
+  const baseConcluidos = [];
+  const vistosC = new Set();
+  for (const p of propsPorVot.flat()) {
+    const k = `${p.sigla}-${p.numero}-${p.ano}`;
+    if (vistosC.has(k)) continue;
+    vistosC.add(k);
+    baseConcluidos.push(p);
+  }
+  const concluidos = await _mapLimit(baseConcluidos, 4, async c => {
+    let ementa = '', destino = '';
+    try {
+      const trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || [];
+      const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
+      destino = destinoDoDespacho(despachos) || destinoInferido(c.sigla, trs);
+    } catch (_) { destino = destinoInferido(c.sigla, []); }
+    try { ementa = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}`)).dados?.ementa || ''; } catch (_) {}
+    return { ...c, ementa, destino };
+  });
+
+  return { encontrouSessao: true, urgencias, concluidos };
+}
+
+function montarMensagemResumo(urgencias, concluidos) {
+  const linhas = [`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()} `, ''];
+  for (const u of urgencias) {
+    linhas.push(`▪️ Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano} (${ementaTextoResumo(u.ementa)})`);
+  }
+  for (const c of concluidos) {
+    const seta = c.destino ? `➡️ ${c.destino}` : '';
+    linhas.push(`▪️ ${tipoLabel(c.sigla)} ${c.numero}/${c.ano} (${ementaTextoResumo(c.ementa)})${seta}`);
+  }
+  return linhas.join('\n');
+}
+
+async function copiarResumoSessao() {
+  if (!state.pauta) return;
+  const dataISO = dataPautaISO();
+  if (!dataISO) { mostrarToast('Não consegui identificar a data da pauta para buscar a sessão.', 'aviso'); return; }
+  mostrarToast('Buscando resultados da sessão na Câmara…', 'info');
+  let res;
+  try { res = await coletarResumoSessao(dataISO); }
+  catch (e) { mostrarToast('Erro ao buscar os resultados: ' + e.message, 'erro'); return; }
+  if (!res.encontrouSessao) { mostrarToast(`Nenhuma sessão deliberativa do Plenário encontrada em ${dataPautaCurta()}.`, 'aviso'); return; }
+  if (!res.urgencias.length && !res.concluidos.length) { mostrarToast('A sessão não tem matérias apreciadas registradas (ainda).', 'aviso'); return; }
+  const texto = montarMensagemResumo(res.urgencias, res.concluidos);
+  const ok = await copiarParaAreaTransferencia(texto);
+  const tot = res.urgencias.length + res.concluidos.length;
+  mostrarToast(
+    ok ? `✓ Resumo da sessão (${tot} matéria(s)) copiado — cole no WhatsApp.`
+       : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
+    ok ? 'sucesso' : 'erro');
 }
 
 // ============================================================
