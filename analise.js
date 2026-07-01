@@ -4382,15 +4382,25 @@ async function _mapLimit(items, limite, fn) {
   return out;
 }
 
-// Proposições concluídas numa votação final: usa proposicoesAfetadas (detalhe) e,
-// Extrai a 1ª referência de proposição de um texto (ementa do REQ de urgência),
-// tolerando as formas: "Projeto de Lei nº X, de AAAA", "PL nº 2.465/2026",
-// "PL 2465/2026". Não confunde com "Lei nº ..." (norma citada).
+// Extrai a 1ª referência de proposição de um texto (ementa do REQ de urgência).
+// Robusto às formas reais da Câmara, com o ano ligado por "/", ", de" ou " de":
+//   "Projeto de Lei nº X, de AAAA"  ·  "PL nº 2.465/2026"  ·  "PL 2465/2026"
+//   "PL nº 5.196 de 2025"  ·  "PL nº 4674, de 2024"  ·  "PL nº 957, de 2024"
+//   "Mensagem nº 85/2023" (→ MSC)  ·  siglas PL/PLP/PEC/PDL/PDC/PRC/MPV/MSC/PLV/PLN.
+// A âncora na sigla evita confundir com "Lei nº ..." (norma citada, não proposição).
 function extrairRefProposicao(texto) {
   const t = encurtarProposicoes(texto || '');
-  const m = t.match(/\b(PLP|PDL|PDC|PRC|PEC|MPV|PL)\s+n?[º°o.]*\s*([\d.]+)\s*\/\s*(\d{4})\b/i);
+  // separador do ano: "/", ", de", " de " (ou variações de espaço)
+  const sep = '(?:\\s*\\/\\s*|\\s*,?\\s*de\\s+)';
+  const re = new RegExp(
+    '\\b(PLP|PLV|PLN|PDL|PDC|PRC|PEC|MPV|MSC|PL|Mensagem)\\s+n?[º°o.]*\\s*([\\d.]+)(?:-[A-Z]+)?' + sep + '(\\d{4})\\b',
+    'i');
+  const m = t.match(re);
   if (!m) return null;
-  return { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] };
+  let sigla = m[1].toUpperCase();
+  if (sigla === 'MENSAGEM') sigla = 'MSC';   // "Mensagem nº 85/2023" → MSC 85/2023
+  if (sigla === 'PDC') sigla = 'PDL';        // PDC é a nomenclatura antiga do PDL
+  return { sigla, numero: m[2].replace(/\./g, ''), ano: m[3] };
 }
 
 async function coletarResumoSessao(dataISO) {
@@ -4411,13 +4421,30 @@ async function coletarResumoSessao(dataISO) {
     .filter(v => v.aprovacao === 1 && /Requerimento\s+de\s+Urg[êe]ncia/i.test(v.descricao || '') && /^REQ\b/.test(v.proposicaoObjeto || ''))
     .sort(_ascVot);
   const urgRaw = await _mapLimit(urgVot, 4, async v => {
+    // Referência do próprio REQ, para degradação graciosa (nunca perder a urgência).
+    const reqRef = extrairRefProposicao(v.proposicaoObjeto || '') ||
+      (m => m ? { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] } : null)
+        (String(v.proposicaoObjeto || '').match(/\b(REQ|REC)\s+([\d.]+)\/(\d{4})\b/i));
+    let reqEmenta = '';
     try {
       const det = await fetchJsonCamara(`${API_BASE}/proposicoes/${_idDeUri(v.uriProposicaoObjeto)}`);
-      const ref = extrairRefProposicao(det.dados?.ementa || '');
-      if (!ref) return null;
-      const pl = await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`);
-      return { ...ref, ementa: pl.dados?.[0]?.ementa || '' };
-    } catch (_) { return null; }
+      reqEmenta = det.dados?.ementa || '';
+      const ref = extrairRefProposicao(reqEmenta);
+      if (ref) {
+        let ementa = '';
+        try {
+          const pl = await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`);
+          ementa = pl.dados?.[0]?.ementa || '';
+        } catch (_) {}
+        return { ...ref, ementa, resolvido: true };
+      }
+    } catch (_) {}
+    // Não localizamos o projeto alvo: mantemos a urgência na lista, identificada
+    // pelo próprio requerimento e sua ementa (que descreve a matéria).
+    return {
+      sigla: reqRef?.sigla || 'REQ', numero: reqRef?.numero || '', ano: reqRef?.ano || '',
+      ementa: reqEmenta, resolvido: false,
+    };
   });
   const urgencias = [];
   const vistos = new Set();
@@ -4461,12 +4488,16 @@ async function coletarResumoSessao(dataISO) {
 function montarMensagemResumo(urgencias, concluidos) {
   const b = s => `*${s}*`;   // negrito do WhatsApp (o "*" final não pode vir após espaço)
   const linhas = [`${b(`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()}`)} `, ''];
+  const emParens = t => { const e = ementaTextoResumo(t); return e ? ` (${e})` : ''; };
   for (const u of urgencias) {
-    linhas.push(`▪️ ${b(`Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`)} (${ementaTextoResumo(u.ementa)})`);
+    const rotulo = (u.resolvido === false)
+      ? 'Urgência aprovada'                                     // alvo não localizado: não perdemos o item
+      : `Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`;
+    linhas.push(`▪️ ${b(rotulo)}${emParens(u.ementa)}`);
   }
   for (const c of concluidos) {
     const seta = c.destino ? `➡️ ${c.destino}` : '';
-    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)} (${ementaTextoResumo(c.ementa)})${seta}`);
+    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${emParens(c.ementa)}${seta}`);
   }
   return linhas.join('\n');
 }
