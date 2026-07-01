@@ -286,6 +286,36 @@
     }
     .an-analise.aberto { display: block; }
 
+    .an-apelido-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      margin: 0 0 10px;
+      flex-wrap: wrap;
+    }
+    .an-apelido-row label {
+      font-size: 11px;
+      color: var(--text-dim);
+      font-weight: 600;
+    }
+    .an-apelido-input {
+      flex: 1;
+      min-width: 220px;
+      height: 28px;
+      padding: 0 9px;
+      border-radius: 6px;
+      border: 1px solid var(--border-soft);
+      background: rgba(255,255,255,.04);
+      color: var(--text);
+      font-size: 12px;
+    }
+    .an-apelido-input:focus {
+      outline: none;
+      border-color: var(--accent-light, #1fa5a5);
+      background: rgba(255,255,255,.07);
+    }
+    .an-apelido-input::placeholder { color: var(--text-dim); }
+
     .an-analise-head {
       display: flex;
       gap: 8px;

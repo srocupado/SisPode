@@ -451,6 +451,11 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com o Revisor (IA), com base na nota e nos documentos">💬 Pergunte ao Revisor</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
       </div>
+      <div class="an-apelido-row" data-role="apelido-row" style="display:none">
+        <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
+        <input type="text" class="an-apelido-input" data-role="inp-apelido" placeholder="apelido curto da matéria (índice, PDF e WhatsApp)" maxlength="140">
+        <span class="an-analista-ok" data-role="apelido-ok" title="Apelido salvo">✓</span>
+      </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
       <div class="an-quill-wrap" data-role="quill-wrap" style="display:none">
         <div data-role="quill-editor"></div>
@@ -515,6 +520,23 @@ function renderCard(it) {
       fbSalvarAnalise(it)
         .then(() => { okAnalista.classList.add('show'); setTimeout(() => okAnalista.classList.remove('show'), 1500); })
         .catch(e => console.warn('Falha ao salvar analista:', e.message));
+    }
+    marcarSujo();
+  });
+
+  // Apelido da matéria (gerado por IA, editável). É a descrição curta usada no
+  // índice, no PDF e nos botões de WhatsApp. Persiste na nota (it.analise.apelido)
+  // e no item da sessão (it.apelido). O "✓" pisca ao salvar.
+  const inpApelido = card.querySelector('[data-role=inp-apelido]');
+  const okApelido  = card.querySelector('[data-role=apelido-ok]');
+  inpApelido.addEventListener('change', () => {
+    const v = inpApelido.value.trim();
+    it.apelido = v;
+    if (it.analise) {
+      it.analise.apelido = v;
+      fbSalvarAnalise(it)
+        .then(() => { okApelido.classList.add('show'); setTimeout(() => okApelido.classList.remove('show'), 1500); })
+        .catch(e => console.warn('Falha ao salvar apelido:', e.message));
     }
     marcarSujo();
   });
@@ -626,6 +648,12 @@ async function enriquecerItem(it) {
     prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
     it.enriquecimento.idProposicao = prop.id;
     it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+    // Para requerimento de urgência, guarda a ementa do PROJETO-ALVO no
+    // projetoUrgenciado. Sem isso, o apelido era gerado a partir do texto do
+    // próprio requerimento ("Requeiro urgência…") — daí o apelido errado.
+    if (it.tipoCategoria === 'requerimento' && it.projetoUrgenciado && prop.ementa) {
+      it.projetoUrgenciado.ementa = prop.ementa;
+    }
     atualizarLinkPortal(it);
 
     // Autoria principal
@@ -701,10 +729,11 @@ async function resolveProposicao(sigla, numero, ano) {
   }
   if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
 
-  // Busca detalhe para pegar urlInteiroTeor
+  // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
   const det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   const obj = {
     id:             hit.id,
+    ementa:         det.dados?.ementa || hit.ementa || '',
     urlInteiroTeor: det.dados?.urlInteiroTeor || null,
   };
   cacheProp.set(ck, obj);
@@ -2619,6 +2648,15 @@ function renderAnaliseCard(it) {
   if (analista) metaEl.innerHTML += ` · <span title="Servidor responsável pela nota">Servidor responsável: <b>${escapeHtml(analista)}</b></span>`;
   const inpAnalista = card.querySelector('[data-role=inp-analista]');
   if (inpAnalista && inpAnalista.value !== analista) inpAnalista.value = analista;
+  // Campo do apelido (gerado por IA, editável) — mostra e sincroniza sem
+  // atropelar o que o usuário estiver digitando.
+  const inpApelido = card.querySelector('[data-role=inp-apelido]');
+  const apRow = card.querySelector('[data-role=apelido-row]');
+  if (inpApelido) {
+    const apVal = it.apelido || it.analise?.apelido || '';
+    if (document.activeElement !== inpApelido) inpApelido.value = apVal;
+    if (apRow) apRow.style.display = 'flex';
+  }
 
   const refs = it.analise.refsSuspeitas || [];
   const avisoRefs = refs.length
