@@ -4307,25 +4307,43 @@ async function acharSessoesDeliberativas(dataISO) {
     (e.orgaos || []).some(o => o.sigla === 'PLEN'));
 }
 
-// Destino a partir dos despachos de tramitação (registrados no mesmo dia da
-// sessão na prática). Prioriza promulgação → sanção → Senado.
-function destinoDoDespacho(despachos) {
-  const txt = despachos.join(' \n ');
-  if (/vai\s+(?:à|a)\s+promulga|promulgad/i.test(txt)) return 'Promulgada';
-  if (/vai\s+(?:à|a)\s+san[çc]|à\s+San[çc][ãa]o|remessa[^\n]*san[çc]/i.test(txt)) return 'Vai à sanção';
-  if (/vai\s+ao\s+Senado|remessa[^\n]*Senado/i.test(txt)) return 'Vai ao Senado';
-  // Projeto aprovado que segue à comissão (em geral a CCJC) para a Redação Final.
-  if (/elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i.test(txt)) return 'Redação Final na CCJC';
-  return null;
+// Abrevia o nome de uma comissão (para o destino "Redação Final na …").
+function siglaComissao(nome) {
+  const n = (nome || '').replace(/\s+/g, ' ').trim();
+  if (/Constitui[çc][ãa]o\s+e\s+Justi[çc]a/i.test(n)) return 'CCJC';
+  return n.replace(/^Comiss[ãa]o\s+d[eo]\s+/i, '').trim() || 'comissão';
 }
 
-// Inferência por regra (fallback do híbrido, quando o despacho ainda não saiu).
-function destinoInferido(sigla, tramitacoes) {
-  if (/^(PRC|PDL|PDC)$/i.test(sigla)) return 'Promulgada';
-  if (/^MPV$/i.test(sigla)) return 'Vai ao Senado';     // MPV sempre segue ao Senado
-  if (/^REQ$/i.test(sigla)) return '';                  // requerimento (urgência) não tem encaminhamento
-  const passouSenado = (tramitacoes || []).some(t => /\bSenado\b|\bSF\b/i.test(`${t.siglaOrgao || ''} ${t.despacho || ''}`));
-  return passouSenado ? 'Vai à sanção' : 'Vai ao Senado';
+// Destino da matéria a partir dos despachos de tramitação DO DIA. É o sinal
+// oficial de que a apreciação no Plenário concluiu — vale para qualquer rito
+// (PL, PLP, PEC, PDL, PRC, MPV) e para RF votada no Plenário ou remetida a
+// comissão. Retorna null quando não há despacho de conclusão (voto intermediário
+// ou matéria que não concluiu no dia). MPV concluída sempre segue ao Senado.
+function destinoDeConclusao(sigla, despachos) {
+  const txt = despachos.join(' \n ');
+  let destino = null;
+  if (/vai\s+(?:à|a)\s+promulga|(?:^|\s)Promulgad[oa]|Transformad[oa]\s+em\s+Decreto\s+Legislativo/i.test(txt)) destino = 'Promulgada';
+  else if (/vai\s+(?:à|a)\s+san[çc]|remessa[^\n]*san[çc]|Transformad[oa]\s+n[ao]\s+Lei/i.test(txt)) destino = 'Vai à sanção';
+  else if (/vai\s+ao\s+Senado|remessa[^\n]*Senado/i.test(txt)) destino = 'Vai ao Senado';
+  else {
+    const mRF = txt.match(/vai\s+(?:à|a)\s+(.+?),?\s+para\s+elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i);
+    if (mRF) destino = 'Redação Final na ' + siglaComissao(mRF[1]);
+    else if (/elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i.test(txt)) destino = 'Redação Final na CCJC';
+    else if (/vai\s+(?:à|a|ao)\s+/i.test(txt)) destino = 'Encaminhada';   // conclusão genérica não mapeada
+  }
+  if (destino && /^MPV$/i.test(sigla)) destino = 'Vai ao Senado';   // MPV aprovada na Câmara sempre vai ao Senado
+  return destino;
+}
+
+// Proposições afetadas por uma votação: usa proposicaoObjeto quando presente
+// (sem custo) e, quando nulo, o proposicoesAfetadas do detalhe da votação.
+async function propsDaVotacao(v) {
+  const mObj = String(v.proposicaoObjeto || '').match(/\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|REC)\s+([\d.]+)\/(\d{4})\b/i);
+  if (mObj) return [{ sigla: mObj[1].toUpperCase(), numero: mObj[2].replace(/\./g, ''), ano: mObj[3], id: _idDeUri(v.uriProposicaoObjeto) }];
+  try {
+    const af = (await fetchJsonCamara(`${API_BASE}/votacoes/${v.id}`)).dados?.proposicoesAfetadas || [];
+    return af.map(p => ({ sigla: p.siglaTipo, numero: String(p.numero), ano: String(p.ano), id: _idDeUri(p.uri) }));
+  } catch (_) { return []; }
 }
 
 // Ementa para a mensagem: normaliza espaços e remove um parêntese aberto sem
@@ -4365,15 +4383,6 @@ async function _mapLimit(items, limite, fn) {
 }
 
 // Proposições concluídas numa votação final: usa proposicoesAfetadas (detalhe) e,
-// se vier vazio (acontece em algumas Redações Finais), cai no proposicaoObjeto.
-async function propsDaVotacaoFinal(v) {
-  let afet = [];
-  try { afet = (await fetchJsonCamara(`${API_BASE}/votacoes/${v.id}`)).dados?.proposicoesAfetadas || []; } catch (_) {}
-  if (afet.length) return afet.map(p => ({ sigla: p.siglaTipo, numero: String(p.numero), ano: String(p.ano), id: _idDeUri(p.uri) }));
-  const m = String(v.proposicaoObjeto || '').match(/\b(PL|PLP|PEC|PDL|MPV|PRC|PDC)\s+(\d+)\/(\d{4})\b/);
-  return m ? [{ sigla: m[1], numero: m[2], ano: m[3], id: _idDeUri(v.uriProposicaoObjeto) }] : [];
-}
-
 async function coletarResumoSessao(dataISO) {
   const sessoes = await acharSessoesDeliberativas(dataISO);
   if (!sessoes.length) return { encontrouSessao: false };
@@ -4408,39 +4417,34 @@ async function coletarResumoSessao(dataISO) {
     if (!vistos.has(k)) { vistos.add(k); urgencias.push(u); }
   }
 
-  // --- Projetos concluídos + destino ---
-  // Conclusão = Redação Final aprovada (PL/PLP) ou aprovação do Projeto de
-  // Resolução/Decreto Legislativo (PRC/PDL, que vão à promulgação).
-  // Conclusão inclui a aprovação do próprio projeto (ex.: "Aprovado o Projeto de
-  // Lei nº X" — projeto aprovado no Plenário que segue à comissão para a Redação
-  // Final). "Substitutivo ao Projeto de Lei" não casa (não é "Aprovado o Projeto").
-  const concluiRe = /Reda[çc][ãa]o\s+Final|Aprovad[oa]\s+o\s+Projeto\s+de\s+(?:Lei(?:\s+Complementar)?|Resolu[çc][ãa]o|Decreto\s+Legislativo)/i;
-  const finalVot = votacoes.filter(v => v.aprovacao === 1 && concluiRe.test(v.descricao || '')).sort(_ascVot);
-  const propsPorVot = await _mapLimit(finalVot, 4, v => propsDaVotacaoFinal(v));
-  const baseConcluidos = [];
+  // --- Matérias concluídas + destino (DETECÇÃO GUIADA PELO DESPACHO OFICIAL) ---
+  // Candidatas: toda proposição (não-REQ) votada e aprovada no evento. Uma
+  // matéria só entra se sua tramitação registra, no dia, um despacho de
+  // conclusão ("A matéria vai à/ao …", promulgação, sanção, Senado ou à comissão
+  // para Redação Final). Isso é rito-agnóstico: PL, PLP, PEC, PDL, PRC, MPV, com
+  // RF votada no Plenário ou remetida a comissão — sem depender do texto da
+  // votação (que varia por rito).
+  const votadasAsc = votacoes.filter(v => v.aprovacao === 1).sort(_ascVot);
+  const propsPorVot = await _mapLimit(votadasAsc, 4, v => propsDaVotacao(v));
+  const candidatas = [];
   const vistosC = new Set();
   for (const p of propsPorVot.flat()) {
+    if (!p || /^(REQ|REC)$/i.test(p.sigla)) continue;   // urgências são o bloco de cima
     const k = `${p.sigla}-${p.numero}-${p.ano}`;
     if (vistosC.has(k)) continue;
     vistosC.add(k);
-    baseConcluidos.push(p);
+    candidatas.push(p);
   }
-  const concluidos = await _mapLimit(baseConcluidos, 4, async c => {
-    let ementa = '', destino = '';
-    if (/^MPV$/i.test(c.sigla)) {
-      destino = 'Vai ao Senado';     // MPV aprovada na Câmara sempre segue ao Senado
-    } else if (/^REQ$/i.test(c.sigla)) {
-      destino = '';                  // requerimento (urgência) não tem encaminhamento
-    } else {
-      try {
-        const trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || [];
-        const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
-        destino = destinoDoDespacho(despachos) || destinoInferido(c.sigla, trs);
-      } catch (_) { destino = destinoInferido(c.sigla, []); }
-    }
+  const concluidos = (await _mapLimit(candidatas, 4, async c => {
+    let trs = [];
+    try { trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || []; } catch (_) {}
+    const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
+    const destino = destinoDeConclusao(c.sigla, despachos);
+    if (!destino) return null;   // não concluiu a apreciação no dia (voto intermediário)
+    let ementa = '';
     try { ementa = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}`)).dados?.ementa || ''; } catch (_) {}
     return { ...c, ementa, destino };
-  });
+  })).filter(Boolean);
 
   return { encontrouSessao: true, urgencias, concluidos };
 }
