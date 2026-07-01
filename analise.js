@@ -4671,17 +4671,11 @@ async function exportarDocx() {
   const {
     Document, Paragraph, TextRun, Packer, BorderStyle,
     Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
-    BookmarkStart, BookmarkEnd, SimpleField, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
+    TableOfContents, HeadingLevel, PageBreak,
   } = docx;
-  // Contador próprio de w:id de bookmark: a lib docx gera um gerador NOVO por
-  // Bookmark, então todos saíam com w:id="1" — ids duplicados fazem o Word
-  // parear só o 1º start/end e todos os PAGEREF caírem na "página 1". Aqui cada
-  // bookmark recebe um w:id único (start e end compartilham o mesmo).
-  let bmSeq = 0;
   const L15 = { line: 360, lineRule: 'auto' };
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
-  const bmId = ch => 'i_' + String(ch).replace(/[^\w]/g, '_');
   const renumerar = itens.length < (state.pauta.itens?.length || 0);   // subconjunto → índice começa em 1
   const num = (it, i) => ((renumerar ? i + 1 : (it.ordem ?? i + 1)) + '. ');
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
@@ -4706,37 +4700,31 @@ async function exportarDocx() {
   filhos.push(new Paragraph({ spacing: { before: 40, after: 120 }, border: { bottom: { color: '00A859', space: 1, style: BorderStyle.SINGLE, size: 12 } }, children: [] }));
   filhos.push(new Paragraph({ alignment: AlignmentType.CENTER, spacing: { after: 220, ...L15 }, children: [new TextRun({ text: `${nomePauta} · ${itens.length} item(ns)`, italics: true, size: 16, color: '6b7280' })] }));
 
-  // Índice (números de página preenchidos pelo Word ao abrir)
+  // Índice: SUMÁRIO NATIVO DO WORD (campo TOC), não mais um índice "manual".
+  // Por que mudou: o índice manual usava um campo PAGEREF por linha; a Microsoft
+  // documenta que campos PAGEREF avulsos NÃO são recalculados de forma confiável
+  // ao abrir (mostram "1" até um F9) — era a causa do "tudo página 1". Já o campo
+  // TOC é o mecanismo nativo de sumário: o Word o repagina como um bloco só ao
+  // abrir/atualizar e exibe o botão "Atualizar Sumário". Os itens são cabeçalhos
+  // Heading 1; "TOC \o 1-1 \h" monta cada linha (título clicável + nº de página).
+  // Obs.: nº de página no Word depende do motor de layout do Word — nenhum
+  // gerador de .docx (navegador) tem como pré-calcular a paginação do Word; por
+  // isso o índice paginado 100% garantido continua sendo o do PDF.
   const temMarca = itens.some(it => it.enriquecimento?.autoriaPodemos || (it.enriquecimento?.apensadosPodemos || []).length || relatoriaPodemos(it));
   filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
-  if (temMarca) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
-  const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
-  // Nº de página: campo PAGEREF em forma canônica (w:fldSimple + switch \h). É a
-  // forma que o Word/Word Online/Google Docs preenchem de fato ao abrir (via
-  // <w:updateFields/> no settings.xml). O campo "solto" (begin/instr/end sem
-  // 'separate') que a lib gera por padrão não era atualizado por alguns Words,
-  // deixando todos os itens na "página 1". O valor '1' é só o cache inicial,
-  // substituído quando o Word atualiza os campos.
-  itens.forEach((it, i) => filhos.push(new Paragraph({
-    tabStops: tabIndice, spacing: { after: 40, ...L15 },
-    children: [
-      new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it, i) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 24, color: '003c1f' })] }),
-      new TextRun({ text: '\t', size: 24 }),
-      new SimpleField(` PAGEREF ${bmId(it.chave)} \\h `, '1'),
-    ],
-  })));
+  if (temMarca) filhos.push(new Paragraph({ spacing: { after: 40, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
+  filhos.push(new Paragraph({ spacing: { after: 120, ...L15 }, children: [new TextRun({ text: 'Para carregar os números de página: clique com o botão direito no índice → "Atualizar campo" (ou selecione tudo e tecle F9). No PDF o índice já sai paginado.', italics: true, size: 14, color: '6b7280' })] }));
+  filhos.push(new TableOfContents('Índice', { hyperlink: true, headingStyleRange: '1-1' }));
   filhos.push(new Paragraph({ children: [new PageBreak()] }));
 
-  // Itens
+  // Itens — o título é um cabeçalho Heading 1 (é o que o campo TOC coleta).
   itens.forEach((it, i) => {
-    const linkId = ++bmSeq;   // w:id único p/ este bookmark (start e end iguais)
     filhos.push(new Paragraph({
+      heading: HeadingLevel.HEADING_1,
       spacing: { before: 360, after: 40, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
       children: [
-        new BookmarkStart(bmId(it.chave), linkId),
         new TextRun({ text: num(it, i) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' }),
-        new BookmarkEnd(linkId),
       ],
     }));
     const metaParts = [];
@@ -4769,7 +4757,7 @@ async function exportarDocx() {
     a.download = `Pauta_Plenario_${nomePauta.replace(/[^\w]+/g, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.docx`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
-    mostrarToast('✓ Word gerado. Ao abrir, confirme "atualizar os campos" para o índice preencher as páginas (ou selecione tudo e tecle F9).', 'sucesso');
+    mostrarToast('✓ Word gerado. O índice é um Sumário do Word: clique nele com o botão direito → "Atualizar campo" (ou Ctrl+A e F9) para carregar as páginas. Índice já paginado: use o PDF.', 'sucesso');
   } catch (e) {
     mostrarToast('Erro ao gerar Word: ' + e.message, 'erro');
   }
