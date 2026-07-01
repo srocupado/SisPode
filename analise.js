@@ -4430,7 +4430,9 @@ function destinoDeConclusao(sigla, despachos) {
   let destino = null;
   if (/vai\s+(?:à|a)\s+promulga|(?:^|\s)Promulgad[oa]|Transformad[oa]\s+em\s+Decreto\s+Legislativo/i.test(txt)) destino = 'Promulgada';
   else if (/vai\s+(?:à|a)\s+san[çc]|remessa[^\n]*san[çc]|Transformad[oa]\s+n[ao]\s+Lei/i.test(txt)) destino = 'Vai à sanção';
-  else if (/vai\s+ao\s+Senado|remessa[^\n]*Senado/i.test(txt)) destino = 'Vai ao Senado';
+  // Projeto vindo do Senado, emendado pela Câmara: "A matéria retorna ao Senado".
+  else if (/(?:retorna|volta)\s+ao\s+Senado/i.test(txt)) destino = 'Retorna ao Senado';
+  else if (/(?:vai|segue)\s+ao\s+Senado|remess[ao][^\n]*Senado|remetid[oa][^\n]*Senado/i.test(txt)) destino = 'Vai ao Senado';
   else {
     const mRF = txt.match(/vai\s+(?:à|a)\s+(.+?),?\s+para\s+elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i);
     if (mRF) destino = 'Redação Final na ' + siglaComissao(mRF[1]);
