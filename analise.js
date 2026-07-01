@@ -4383,6 +4383,16 @@ async function _mapLimit(items, limite, fn) {
 }
 
 // Proposições concluídas numa votação final: usa proposicoesAfetadas (detalhe) e,
+// Extrai a 1ª referência de proposição de um texto (ementa do REQ de urgência),
+// tolerando as formas: "Projeto de Lei nº X, de AAAA", "PL nº 2.465/2026",
+// "PL 2465/2026". Não confunde com "Lei nº ..." (norma citada).
+function extrairRefProposicao(texto) {
+  const t = encurtarProposicoes(texto || '');
+  const m = t.match(/\b(PLP|PDL|PDC|PRC|PEC|MPV|PL)\s+n?[º°o.]*\s*([\d.]+)\s*\/\s*(\d{4})\b/i);
+  if (!m) return null;
+  return { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] };
+}
+
 async function coletarResumoSessao(dataISO) {
   const sessoes = await acharSessoesDeliberativas(dataISO);
   if (!sessoes.length) return { encontrouSessao: false };
@@ -4403,11 +4413,10 @@ async function coletarResumoSessao(dataISO) {
   const urgRaw = await _mapLimit(urgVot, 4, async v => {
     try {
       const det = await fetchJsonCamara(`${API_BASE}/proposicoes/${_idDeUri(v.uriProposicaoObjeto)}`);
-      const m = encurtarProposicoes(det.dados?.ementa || '').match(/\b(PL|PLP|PEC|PDL|MPV|PRC)\s+(\d+)\/(\d{4})\b/);
-      if (!m) return null;
-      const [, sigla, numero, ano] = m;
-      const pl = await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${sigla}&numero=${numero}&ano=${ano}`);
-      return { sigla, numero, ano, ementa: pl.dados?.[0]?.ementa || '' };
+      const ref = extrairRefProposicao(det.dados?.ementa || '');
+      if (!ref) return null;
+      const pl = await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`);
+      return { ...ref, ementa: pl.dados?.[0]?.ementa || '' };
     } catch (_) { return null; }
   });
   const urgencias = [];
