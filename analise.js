@@ -4302,12 +4302,11 @@ async function copiarPropPartido() {
 // ============================================================
 function montarMensagemApelidos() {
   const itens = state.pauta?.itens || [];
-  // Negrito (WhatsApp) só na referência da proposição — ex.: "*PL 192/2026*".
-  const reRef = /\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ)\s+[\d.]+\/\d{4}\b/;
+  // Negrito (WhatsApp) em todo o título — "Urgência ao PL …", "Redação Final do
+  // PL …", "PL …" — deixando só o apelido (entre parênteses) sem negrito.
   const linhas = itens.map(it => {
     const ap = (it.apelido || it.analise?.apelido || '').trim();
-    const titulo = tituloVotacao(it).replace(reRef, m => `*${m}*`);
-    return `▪️ ${titulo}${ap ? ` (${ap})` : ''}`;
+    return `▪️ *${tituloVotacao(it)}*${ap ? ` (${ap})` : ''}`;
   });
   return { texto: linhas.join('\n'), total: itens.length };
 }
