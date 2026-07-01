@@ -4314,6 +4314,8 @@ function destinoDoDespacho(despachos) {
   if (/vai\s+(?:à|a)\s+promulga|promulgad/i.test(txt)) return 'Promulgada';
   if (/vai\s+(?:à|a)\s+san[çc]|à\s+San[çc][ãa]o|remessa[^\n]*san[çc]/i.test(txt)) return 'Vai à sanção';
   if (/vai\s+ao\s+Senado|remessa[^\n]*Senado/i.test(txt)) return 'Vai ao Senado';
+  // Projeto aprovado que segue à comissão (em geral a CCJC) para a Redação Final.
+  if (/elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i.test(txt)) return 'Redação Final na CCJC';
   return null;
 }
 
@@ -4409,7 +4411,10 @@ async function coletarResumoSessao(dataISO) {
   // --- Projetos concluídos + destino ---
   // Conclusão = Redação Final aprovada (PL/PLP) ou aprovação do Projeto de
   // Resolução/Decreto Legislativo (PRC/PDL, que vão à promulgação).
-  const concluiRe = /Reda[çc][ãa]o\s+Final|Aprovad[oa]\s+o\s+Projeto\s+de\s+(?:Resolu[çc][ãa]o|Decreto\s+Legislativo)/i;
+  // Conclusão inclui a aprovação do próprio projeto (ex.: "Aprovado o Projeto de
+  // Lei nº X" — projeto aprovado no Plenário que segue à comissão para a Redação
+  // Final). "Substitutivo ao Projeto de Lei" não casa (não é "Aprovado o Projeto").
+  const concluiRe = /Reda[çc][ãa]o\s+Final|Aprovad[oa]\s+o\s+Projeto\s+de\s+(?:Lei(?:\s+Complementar)?|Resolu[çc][ãa]o|Decreto\s+Legislativo)/i;
   const finalVot = votacoes.filter(v => v.aprovacao === 1 && concluiRe.test(v.descricao || '')).sort(_ascVot);
   const propsPorVot = await _mapLimit(finalVot, 4, v => propsDaVotacaoFinal(v));
   const baseConcluidos = [];
