@@ -4671,8 +4671,13 @@ async function exportarDocx() {
   const {
     Document, Paragraph, TextRun, Packer, BorderStyle,
     Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
-    Bookmark, SimpleField, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
+    BookmarkStart, BookmarkEnd, SimpleField, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
   } = docx;
+  // Contador próprio de w:id de bookmark: a lib docx gera um gerador NOVO por
+  // Bookmark, então todos saíam com w:id="1" — ids duplicados fazem o Word
+  // parear só o 1º start/end e todos os PAGEREF caírem na "página 1". Aqui cada
+  // bookmark recebe um w:id único (start e end compartilham o mesmo).
+  let bmSeq = 0;
   const L15 = { line: 360, lineRule: 'auto' };
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
@@ -4724,10 +4729,15 @@ async function exportarDocx() {
 
   // Itens
   itens.forEach((it, i) => {
+    const linkId = ++bmSeq;   // w:id único p/ este bookmark (start e end iguais)
     filhos.push(new Paragraph({
       spacing: { before: 360, after: 40, ...L15 },
       border: { bottom: { color: 'cccccc', space: 1, style: BorderStyle.SINGLE, size: 6 } },
-      children: [new Bookmark({ id: bmId(it.chave), children: [new TextRun({ text: num(it, i) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' })] })],
+      children: [
+        new BookmarkStart(bmId(it.chave), linkId),
+        new TextRun({ text: num(it, i) + tituloComApelido(it), bold: true, size: 26, color: '003c1f' }),
+        new BookmarkEnd(linkId),
+      ],
     }));
     const metaParts = [];
     const autor = it.autorTexto || (it.enriquecimento?.autores || []).map(a => a.nome).filter(Boolean).join(', ') || '';
