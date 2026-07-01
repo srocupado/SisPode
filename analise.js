@@ -126,6 +126,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
   document.getElementById('btn-prop-partido').addEventListener('click', copiarPropPartido);
   document.getElementById('btn-resumo-sessao').addEventListener('click', copiarResumoSessao);
+  document.getElementById('btn-apelidos').addEventListener('click', copiarApelidos);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
@@ -243,6 +244,7 @@ async function onPdfSelecionado(ev) {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-apelidos').disabled = false;
     document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
@@ -630,7 +632,15 @@ async function enriquecerItem(it) {
     etapa = 'autores';
     const autores = await fetchAutoresProposicao(prop.id);
     it.enriquecimento.autores = autores;
-    it.enriquecimento.autoriaPodemos = autores.some(a => a.isPodemos);
+    const podeAut = autores.filter(a => a.isPodemos);
+    it.enriquecimento.autoriaPodemos = podeAut.length > 0;
+    // Distingue autor principal (1º signatário, ordemAssinatura = 1) de coautor
+    // (assina depois). Sem info de ordem (dados antigos), mantém o comportamento
+    // antigo (autor).
+    const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+    it.enriquecimento.autoriaPrincipalPodemos = temOrdem
+      ? podeAut.some(a => Number(a.ordem) === 1)
+      : podeAut.length > 0;
 
     // Apensados via API
     etapa = 'apensados';
@@ -718,10 +728,12 @@ async function fetchAutoresProposicao(idProp) {
         siglaPartido: info?.siglaPartido,
         siglaUf:    info?.siglaUf,
         tipo:       a.tipo,
+        ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
+        proponente: a.proponente,
         isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
       });
     } else {
-      out.push({ nome: a.nome, tipo: a.tipo, isPodemos: false });
+      out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
     }
   }
   return out;
@@ -1127,7 +1139,7 @@ function atualizarBadgesCard(it) {
 
   if (enr.autoriaPodemos) {
     flag.className = 'an-badge an-badge--pode';
-    flag.textContent = '★ Autoria Podemos';
+    flag.textContent = `★ ${rotuloAutoriaPodemos(it)} Podemos`;
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
@@ -3602,6 +3614,7 @@ async function carregarPautaPorId(id) {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-apelidos').disabled = false;
     document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
@@ -3770,6 +3783,7 @@ async function carregarUltimaPauta() {
     document.getElementById('btn-verificar-atualizacoes').disabled = false;
     document.getElementById('btn-prop-partido').disabled = false;
     document.getElementById('btn-resumo-sessao').disabled = false;
+    document.getElementById('btn-apelidos').disabled = false;
     document.getElementById('btn-recategorizar').disabled = false;
     state.ultimoSave = state.pauta.uploadedAt || new Date().toISOString();
     state.dirty = false;
@@ -3985,10 +3999,19 @@ function tituloComApelido(it) {
 function sufixoAutoriaIndice(it) {
   const enr = it.enriquecimento || {};
   const tags = [];
-  if (enr.autoriaPodemos) tags.push('A');
+  if (enr.autoriaPodemos) tags.push(enr.autoriaPrincipalPodemos === false ? 'CA' : 'A');
   if ((enr.apensadosPodemos || []).length) tags.push('AP');
   if (relatoriaPodemos(it)) tags.push('R');
   return tags.length ? ' — ' + tags.join(', ') : '';
+}
+
+// Rótulo do vínculo de autoria do Podemos com o projeto: distingue autor
+// principal (1º signatário/proponente) de coautor. Retorna null se não houver.
+// Dados antigos sem 'autoriaPrincipalPodemos' contam como autor (compat.).
+function rotuloAutoriaPodemos(it) {
+  const enr = it.enriquecimento || {};
+  if (!enr.autoriaPodemos) return null;
+  return enr.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria';
 }
 
 // Realça (negrito + sublinhado) o nome do(s) deputado(s) do Podemos na linha de
@@ -4080,7 +4103,8 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
 
   // Legenda das marcas — só lista as que de fato aparecem em algum item.
   const legItens = [];
-  if (itens.some(it => it.enriquecimento?.autoriaPodemos)) legItens.push('<b>A</b> = Autoria do Podemos');
+  if (itens.some(it => it.enriquecimento?.autoriaPodemos && it.enriquecimento?.autoriaPrincipalPodemos !== false)) legItens.push('<b>A</b> = Autoria do Podemos');
+  if (itens.some(it => it.enriquecimento?.autoriaPodemos && it.enriquecimento?.autoriaPrincipalPodemos === false)) legItens.push('<b>CA</b> = Coautoria do Podemos');
   if (itens.some(it => (it.enriquecimento?.apensadosPodemos || []).length)) legItens.push('<b>AP</b> = Autoria do Podemos em apensado');
   if (itens.some(it => relatoriaPodemos(it))) legItens.push('<b>R</b> = Relatoria do Podemos em Plenário');
   const legenda = legItens.length ? `<p class="indice-legenda">${legItens.join(' · ')}</p>` : '';
@@ -4100,13 +4124,19 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
     const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
     const analista = it.analista || it.analise?.analista || '';
     const analistaHtml = analista ? `<div class="responsavel">Responsável: <b>${esc(analista)}</b></div>` : '';
-    const badges  = `${it.enriquecimento?.autoriaPodemos ? '<span class="badge badge-pode">★ Autoria Podemos</span>' : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}${relatoriaPodemos(it) ? '<span class="badge badge-rel">Relatoria Podemos em Plenário</span>' : ''}`;
+    // Link para a ficha da proposição no portal da Câmara (logo abaixo do
+    // Responsável). Usa o id resolvido no enriquecimento (para requerimento, é o
+    // projeto cuja urgência se pede). Só aparece quando o id está disponível.
+    const idProp = it.enriquecimento?.idProposicao;
+    const portalHtml = idProp ? `<div class="portal"><a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idProp}">Ver no portal ↗</a></div>` : '';
+    const badges  = `${it.enriquecimento?.autoriaPodemos ? `<span class="badge badge-pode">★ ${esc(rotuloAutoriaPodemos(it))} Podemos</span>` : ''}${(it.enriquecimento?.apensadosPodemos || []).map(ap => `<span class="badge badge-apens">Apensado Podemos: ${esc(ap.siglaTipo)} ${esc(ap.numero)}/${esc(ap.ano)}</span>`).join('')}${relatoriaPodemos(it) ? '<span class="badge badge-rel">Relatoria Podemos em Plenário</span>' : ''}`;
     const corpo   = temNota(it) ? notaHtmlImpressao(it) : `<div class="pendente">${placeholder(it.analiseStatus)}</div>`;
     return `<div class="bloco" id="${bm(it.chave)}">
       <h3 class="item-h">${esc(num(it, i) + tituloComApelido(it))}</h3>
       ${(autor || relator) ? `<div class="item-meta">${autorHtml}${relator}</div>` : ''}
       ${badges ? `<div class="badges">${badges}</div>` : ''}
       ${analistaHtml}
+      ${portalHtml}
       ${corpo}
     </div>`;
   }).join('');
@@ -4137,7 +4167,9 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
     .item-h { font-size:13pt; font-weight:700; color:#003c1f; border-bottom:1px solid #ccc; padding-bottom:3px; margin:18px 0 4px; page-break-after:avoid; break-after:avoid; }
     .item-meta { font-size:9pt; color:#555; margin-bottom:4px; }
     .badges { margin:2px 0 6px; font-size:9pt; }
-    .responsavel { font-size:9pt; color:#444; margin:2px 0 6px; }
+    .responsavel { font-size:9pt; color:#444; margin:2px 0 2px; }
+    .portal { font-size:9pt; margin:0 0 6px; }
+    .portal a { color:#0a4a7a; text-decoration:none; font-weight:600; }
     .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
     .badge-pode { background:#d3f5e2; color:#006633; }
     .badge-apens { background:#d8eef0; color:#02484d; }
@@ -4259,6 +4291,37 @@ async function copiarPropPartido() {
   const ok = await copiarParaAreaTransferencia(texto);
   mostrarToast(
     ok ? `✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.`
+       : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
+    ok ? 'sucesso' : 'erro');
+}
+
+// ============================================================
+//  "APELIDOS" — lista todos os itens da pauta com seus apelidos, no formato
+//  "▪️ <o que será votado> (apelido)". Reaproveita o apelido da nota; se faltar,
+//  gera por IA/fallback via prepararApelidos.
+// ============================================================
+function montarMensagemApelidos() {
+  const itens = state.pauta?.itens || [];
+  const linhas = itens.map(it => `▪️ ${tituloComApelido(it)}`);
+  return { texto: linhas.join('\n'), total: itens.length };
+}
+
+async function copiarApelidos() {
+  if (!state.pauta) return;
+  const itens = state.pauta.itens || [];
+  if (!itens.length) { mostrarToast('Pauta vazia.', 'aviso'); return; }
+  // Resolve enriquecimento pendente (dá a ementa do projeto alvo às urgências,
+  // o que melhora o apelido) e garante o apelido de cada item.
+  const pend = itens.filter(it => { const st = it.enriquecimento?.status; return st !== 'ok' && st !== 'erro'; });
+  if (pend.length) {
+    mostrarToast('Preparando apelidos…', 'info');
+    await Promise.all(pend.map(it => enriquecerItem(it).catch(() => {})));
+  }
+  try { await prepararApelidos(itens); } catch (_) {}
+  const { texto, total } = montarMensagemApelidos();
+  const ok = await copiarParaAreaTransferencia(texto);
+  mostrarToast(
+    ok ? `✓ ${total} apelido(s) copiados — cole no WhatsApp.`
        : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
     ok ? 'sucesso' : 'erro');
 }
@@ -4718,9 +4781,13 @@ async function exportarDocx() {
   // Obs.: nº de página no Word depende do motor de layout do Word — nenhum
   // gerador de .docx (navegador) tem como pré-calcular a paginação do Word; por
   // isso o índice paginado 100% garantido continua sendo o do PDF.
-  const temMarca = itens.some(it => it.enriquecimento?.autoriaPodemos || (it.enriquecimento?.apensadosPodemos || []).length || relatoriaPodemos(it));
+  const legParts = [];
+  if (itens.some(it => it.enriquecimento?.autoriaPodemos && it.enriquecimento?.autoriaPrincipalPodemos !== false)) legParts.push('A = Autoria do Podemos');
+  if (itens.some(it => it.enriquecimento?.autoriaPodemos && it.enriquecimento?.autoriaPrincipalPodemos === false)) legParts.push('CA = Coautoria do Podemos');
+  if (itens.some(it => (it.enriquecimento?.apensadosPodemos || []).length)) legParts.push('AP = Autoria do Podemos em apensado');
+  if (itens.some(it => relatoriaPodemos(it))) legParts.push('R = Relatoria do Podemos em Plenário');
   filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
-  if (temMarca) filhos.push(new Paragraph({ spacing: { after: 40, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
+  if (legParts.length) filhos.push(new Paragraph({ spacing: { after: 40, ...L15 }, children: [new TextRun({ text: legParts.join(' · '), italics: true, size: 14, color: '6b7280' })] }));
   filhos.push(new Paragraph({ spacing: { after: 120, ...L15 }, children: [new TextRun({ text: 'Para carregar os números de página: clique com o botão direito no índice → "Atualizar campo" (ou selecione tudo e tecle F9). No PDF o índice já sai paginado.', italics: true, size: 14, color: '6b7280' })] }));
   filhos.push(new TableOfContents('Índice', { hyperlink: true, headingStyleRange: '1-1' }));
   filhos.push(new Paragraph({ children: [new PageBreak()] }));
@@ -4741,7 +4808,7 @@ async function exportarDocx() {
     if (it.relator) metaParts.push(`Relator: Dep. ${it.relator.nome} (${it.relator.partido}-${it.relator.uf})`);
     if (metaParts.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: metaParts.join(' · '), size: 16, color: '555555' })] }));
     const badges = [];
-    if (it.enriquecimento?.autoriaPodemos) badges.push('★ Autoria Podemos');
+    if (it.enriquecimento?.autoriaPodemos) badges.push(`★ ${rotuloAutoriaPodemos(it)} Podemos`);
     (it.enriquecimento?.apensadosPodemos || []).forEach(ap => badges.push(`Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}`));
     if (relatoriaPodemos(it)) badges.push('Relatoria Podemos em Plenário');
     if (badges.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: badges.join('   |   '), bold: true, size: 16, color: '02484d' })] }));
