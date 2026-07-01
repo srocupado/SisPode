@@ -91,7 +91,7 @@ function parsearPautaExtenso(texto) {
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
-  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[ºo]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|$)/gi;
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[ºo]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -134,7 +134,7 @@ function parsearPautaExtenso(texto) {
   // O requerimento em si pode estar SEM número de protocolo ("Requerimento
   // s/nº, de 2026") — comum em requerimentos de urgência dos Líderes ainda não
   // autuados; nesse caso o grupo do número fica indefinido.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[ºo]\s*([\d.]+)|s\/\s*n[ºo]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-Z][A-Z\s]{8,}\n|\Z)/gi;
+  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[ºo]\s*([\d.]+)|s\/\s*n[ºo]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);
