@@ -4671,8 +4671,16 @@ async function exportarDocx() {
   const {
     Document, Paragraph, TextRun, Packer, BorderStyle,
     Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
-    TableOfContents, HeadingLevel, PageBreak,
+    TableOfContents, HeadingLevel, PageBreak, Footer, PageNumber,
   } = docx;
+
+  // Rodapé com o número da página (campo PAGE, centralizado — igual ao PDF). O
+  // campo PAGE é recalculado pelo Word a cada renderização, sozinho, sem F9 nem
+  // prompt (diferente dos campos de índice); funciona em qualquer visualizador.
+  const rodapePagina = new Footer({ children: [new Paragraph({
+    alignment: AlignmentType.CENTER,
+    children: [new TextRun({ children: [PageNumber.CURRENT], size: 18, color: '888888' })],
+  })] });
   const L15 = { line: 360, lineRule: 'auto' };
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
   const SEM_BORDA = { top: NB, bottom: NB, left: NB, right: NB, insideHorizontal: NB, insideVertical: NB };
@@ -4750,7 +4758,7 @@ async function exportarDocx() {
   filhos.push(new Paragraph({ spacing: { before: 360 }, alignment: AlignmentType.CENTER, border: { top: { color: 'e5e7eb', space: 1, style: BorderStyle.SINGLE, size: 6 } }, children: [new TextRun({ text: 'Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados', size: 14, color: '9ca3af' })] }));
 
   try {
-    const blob = await Packer.toBlob(new Document({ features: { updateFields: true }, sections: [{ properties: {}, children: filhos }] }));
+    const blob = await Packer.toBlob(new Document({ features: { updateFields: true }, sections: [{ properties: {}, footers: { default: rodapePagina }, children: filhos }] }));
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
