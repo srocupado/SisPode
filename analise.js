@@ -4671,7 +4671,7 @@ async function exportarDocx() {
   const {
     Document, Paragraph, TextRun, Packer, BorderStyle,
     Table, TableRow, TableCell, WidthType, AlignmentType, ImageRun, VerticalAlign,
-    Bookmark, PageReference, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
+    Bookmark, SimpleField, InternalHyperlink, TabStopType, TabStopPosition, LeaderType, PageBreak,
   } = docx;
   const L15 = { line: 360, lineRule: 'auto' };
   const NB = { style: BorderStyle.NONE, size: 0, color: 'FFFFFF' };
@@ -4706,12 +4706,18 @@ async function exportarDocx() {
   filhos.push(new Paragraph({ spacing: { before: 60, after: 40, ...L15 }, children: [new TextRun({ text: 'Índice', bold: true, size: 22, color: '003c1f' })] }));
   if (temMarca) filhos.push(new Paragraph({ spacing: { after: 80, ...L15 }, children: [new TextRun({ text: 'A = Autoria do Podemos · AP = Autoria do Podemos em apensado · R = Relatoria do Podemos em Plenário', italics: true, size: 14, color: '6b7280' })] }));
   const tabIndice = [{ type: TabStopType.RIGHT, position: TabStopPosition.MAX, leader: LeaderType.DOT }];
+  // Nº de página: campo PAGEREF em forma canônica (w:fldSimple + switch \h). É a
+  // forma que o Word/Word Online/Google Docs preenchem de fato ao abrir (via
+  // <w:updateFields/> no settings.xml). O campo "solto" (begin/instr/end sem
+  // 'separate') que a lib gera por padrão não era atualizado por alguns Words,
+  // deixando todos os itens na "página 1". O valor '1' é só o cache inicial,
+  // substituído quando o Word atualiza os campos.
   itens.forEach((it, i) => filhos.push(new Paragraph({
     tabStops: tabIndice, spacing: { after: 40, ...L15 },
     children: [
       new InternalHyperlink({ anchor: bmId(it.chave), children: [new TextRun({ text: num(it, i) + tituloComApelido(it) + sufixoAutoriaIndice(it), size: 24, color: '003c1f' })] }),
       new TextRun({ text: '\t', size: 24 }),
-      new PageReference(bmId(it.chave)),
+      new SimpleField(` PAGEREF ${bmId(it.chave)} \\h `, '1'),
     ],
   })));
   filhos.push(new Paragraph({ children: [new PageBreak()] }));
@@ -4753,7 +4759,7 @@ async function exportarDocx() {
     a.download = `Pauta_Plenario_${nomePauta.replace(/[^\w]+/g, '_').slice(0, 40)}_${new Date().toISOString().slice(0, 10)}.docx`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 4000);
-    mostrarToast('✓ Word gerado — escolha onde salvar.', 'sucesso');
+    mostrarToast('✓ Word gerado. Ao abrir, confirme "atualizar os campos" para o índice preencher as páginas (ou selecione tudo e tecle F9).', 'sucesso');
   } catch (e) {
     mostrarToast('Erro ao gerar Word: ' + e.message, 'erro');
   }
