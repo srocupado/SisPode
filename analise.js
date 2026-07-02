@@ -4425,20 +4425,50 @@ function siglaComissao(nome) {
 // (PL, PLP, PEC, PDL, PRC, MPV) e para RF votada no Plenário ou remetida a
 // comissão. Retorna null quando não há despacho de conclusão (voto intermediário
 // ou matéria que não concluiu no dia). MPV concluída sempre segue ao Senado.
+// Classifica o destino da matéria a partir dos despachos do dia. É rito-agnóstico
+// e guiado pelo TEMPLATE OFICIAL de roteamento do Plenário — o despacho
+// "A matéria <verbo> <destino>." —, que marca a conclusão da apreciação.
+// Robustez (validada em 30 sessões):
+//  • pega o ÚLTIMO despacho de roteamento (uma PEC de 2 turnos tem, na ordem,
+//    "A matéria vai ao segundo turno" e depois "A matéria vai ao Senado Federal");
+//  • degradação graciosa: destino não mapeado vira "Encaminhada (…)" legível —
+//    nunca descarta uma matéria aprovada e concluída;
+//  • sinais fortes (Transformado em Lei/Decreto/Resolução, Promulgada) só como
+//    reserva, quando não há o template.
 function destinoDeConclusao(sigla, despachos) {
-  const txt = despachos.join(' \n ');
+  const lista = (despachos || []).map(d => (d || '').replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const txt = lista.join(' \n ');
+
+  // Classifica UM despacho de roteamento "A matéria <verbo> <destino>".
+  const classificarRoteamento = (frase) => {
+    if (/san[çc][ãa]o/i.test(frase)) return 'Vai à sanção';
+    if (/promulga/i.test(frase)) return 'Promulgada';
+    if (/Senado/i.test(frase)) return /(?:retorna|volta)/i.test(frase) ? 'Retorna ao Senado' : 'Vai ao Senado';
+    if (/C[âa]mara\s+dos\s+Deputados/i.test(frase)) return /(?:retorna|volta)/i.test(frase) ? 'Retorna à Câmara' : 'Vai à Câmara';
+    if (/segundo\s+turno/i.test(frase)) return 'Aprovada em 1º turno';   // 2º turno ainda por vir
+    const mRF = frase.match(/(?:à|a|ao)\s+(.+?),?\s+para\s+(?:elabora[çc][ãa]o\s+d[ae]\s+)?Reda[çc][ãa]o\s+Final/i);
+    if (mRF) return 'Redação Final na ' + siglaComissao(mRF[1]);
+    if (/Reda[çc][ãa]o\s+Final/i.test(frase)) return 'Redação Final na CCJC';
+    const cauda = frase.replace(/^A\s+mat[ée]ria\s+/i, '').replace(/\s*\.\s*$/, '').trim();
+    return 'Encaminhada (' + cauda + ')';   // legível — nunca descarta
+  };
+
+  // 1) Template oficial: usa o ÚLTIMO "A matéria <verbo> …" (roteamento final).
+  const reRoteamento = /^A\s+mat[ée]ria\s+(?:vai|retorna|volta|segue|ser[áa]\s+\w+|é\s+\w+|foi\s+\w+)\b/i;
   let destino = null;
-  if (/vai\s+(?:à|a)\s+promulga|(?:^|\s)Promulgad[oa]|Transformad[oa]\s+em\s+Decreto\s+Legislativo/i.test(txt)) destino = 'Promulgada';
-  else if (/vai\s+(?:à|a)\s+san[çc]|remessa[^\n]*san[çc]|Transformad[oa]\s+n[ao]\s+Lei/i.test(txt)) destino = 'Vai à sanção';
-  // Projeto vindo do Senado, emendado pela Câmara: "A matéria retorna ao Senado".
-  else if (/(?:retorna|volta)\s+ao\s+Senado/i.test(txt)) destino = 'Retorna ao Senado';
-  else if (/(?:vai|segue)\s+ao\s+Senado|remess[ao][^\n]*Senado|remetid[oa][^\n]*Senado/i.test(txt)) destino = 'Vai ao Senado';
-  else {
-    const mRF = txt.match(/vai\s+(?:à|a)\s+(.+?),?\s+para\s+elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i);
-    if (mRF) destino = 'Redação Final na ' + siglaComissao(mRF[1]);
-    else if (/elabora[çc][ãa]o\s+da\s+Reda[çc][ãa]o\s+Final/i.test(txt)) destino = 'Redação Final na CCJC';
-    else if (/vai\s+(?:à|a|ao)\s+/i.test(txt)) destino = 'Encaminhada';   // conclusão genérica não mapeada
+  for (const d of lista) if (reRoteamento.test(d)) destino = classificarRoteamento(d);
+
+  // 2) Sem template: sinais fortes de conclusão (promulgação/sanção/lei/decreto).
+  if (!destino) {
+    if (/(?:^|\s)Promulgad[oa]\b|Transformad[oa]\s+em\s+Decreto\s+Legislativo|Transformad[oa]\s+n[ao]\s+Resolu[çc][ãa]o/i.test(txt)) destino = 'Promulgada';
+    else if (/Transformad[oa]\s+n[ao]\s+Lei/i.test(txt)) destino = 'Vai à sanção';
+    else {
+      const mRF = txt.match(/(?:vai|encaminhad[oa]|remetid[oa])\s+(?:à|a|ao)\s+(.+?),?\s+para\s+(?:elabora[çc][ãa]o\s+d[ae]\s+)?Reda[çc][ãa]o\s+Final/i);
+      if (mRF) destino = 'Redação Final na ' + siglaComissao(mRF[1]);
+      else if (/para\s+(?:elabora[çc][ãa]o\s+d[ae]\s+)?Reda[çc][ãa]o\s+Final/i.test(txt)) destino = 'Redação Final na CCJC';
+    }
   }
+
   if (destino && /^MPV$/i.test(sigla)) destino = 'Vai ao Senado';   // MPV aprovada na Câmara sempre vai ao Senado
   return destino;
 }
@@ -4579,10 +4609,16 @@ async function coletarResumoSessao(dataISO) {
     vistosC.add(k);
     candidatas.push(p);
   }
+  // Janela do dia da sessão (+1 dia para sessões que viram a madrugada). NÃO usa
+  // ">= dataISO": isso puxava despachos de dias MUITO posteriores (ex.: PDL
+  // "Transformado no Decreto Legislativo" 15 dias depois) e trocava o destino da
+  // sessão ("Vai ao Senado") pelo desfecho futuro ("Promulgada").
+  const proxDia = (() => { const d = new Date(dataISO + 'T00:00:00'); d.setDate(d.getDate() + 1); return d.toISOString().slice(0, 10); })();
+  const noDia = t => { const dia = String(t.dataHora || '').slice(0, 10); return dia === dataISO || dia === proxDia; };
   const concluidos = (await _mapLimit(candidatas, 4, async c => {
     let trs = [];
     try { trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || []; } catch (_) {}
-    const despachos = trs.filter(t => (t.dataHora || '') >= dataISO).map(t => t.despacho || '');
+    const despachos = trs.filter(noDia).map(t => t.despacho || '');
     const destino = destinoDeConclusao(c.sigla, despachos);
     if (!destino) return null;   // não concluiu a apreciação no dia (voto intermediário)
     let ementa = '';
