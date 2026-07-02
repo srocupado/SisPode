@@ -4593,19 +4593,40 @@ async function coletarResumoSessao(dataISO) {
   return { encontrouSessao: true, urgencias, concluidos };
 }
 
+// Apelido da matéria a partir do item da pauta correspondente (casado por
+// sigla/número/ano do projeto — para requerimento, o projeto urgenciado). Vazio
+// se a matéria não estiver na pauta ou o item ainda não tiver apelido.
+function apelidoDaPautaPorRef(sigla, numero, ano) {
+  const alvo = `${String(sigla || '').toUpperCase()}-${String(numero || '').replace(/\./g, '')}-${ano}`;
+  for (const it of (state.pauta?.itens || [])) {
+    const a = _alvoItem(it);
+    const k = `${String(a.sigla || '').toUpperCase()}-${String(a.numero || '').replace(/\./g, '')}-${a.ano}`;
+    if (k === alvo) {
+      const ap = (it.apelido || it.analise?.apelido || '').trim();
+      if (ap) return ap;
+    }
+  }
+  return '';
+}
+
 function montarMensagemResumo(urgencias, concluidos) {
   const b = s => `*${s}*`;   // negrito do WhatsApp (o "*" final não pode vir após espaço)
   const linhas = [`${b(`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()}`)} `, ''];
-  const emParens = t => { const e = ementaTextoResumo(t); return e ? ` (${e})` : ''; };
+  // Prefere o APELIDO do item da pauta; só usa a ementa da API como reserva
+  // (matéria fora da pauta ou sem apelido gerado).
+  const descr = (sigla, numero, ano, ementa) => {
+    const t = apelidoDaPautaPorRef(sigla, numero, ano) || ementaTextoResumo(ementa);
+    return t ? ` (${t})` : '';
+  };
   for (const u of urgencias) {
     const rotulo = (u.resolvido === false)
       ? 'Urgência aprovada'                                     // alvo não localizado: não perdemos o item
       : `Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`;
-    linhas.push(`▪️ ${b(rotulo)}${emParens(u.ementa)}`);
+    linhas.push(`▪️ ${b(rotulo)}${descr(u.sigla, u.numero, u.ano, u.ementa)}`);
   }
   for (const c of concluidos) {
     const seta = c.destino ? `➡️ ${c.destino}` : '';
-    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${emParens(c.ementa)}${seta}`);
+    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${descr(c.sigla, c.numero, c.ano, c.ementa)}${seta}`);
   }
   return linhas.join('\n');
 }
@@ -4620,6 +4641,9 @@ async function copiarResumoSessao() {
   catch (e) { mostrarToast('Erro ao buscar os resultados: ' + e.message, 'erro'); return; }
   if (!res.encontrouSessao) { mostrarToast(`Nenhuma sessão deliberativa do Plenário encontrada em ${dataPautaCurta()}.`, 'aviso'); return; }
   if (!res.urgencias.length && !res.concluidos.length) { mostrarToast('A sessão não tem matérias apreciadas registradas (ainda).', 'aviso'); return; }
+  // Garante o apelido dos itens da pauta — o resumo usa o apelido (não a ementa)
+  // quando a matéria está na pauta.
+  try { await prepararApelidos(state.pauta.itens || []); } catch (_) {}
   const texto = montarMensagemResumo(res.urgencias, res.concluidos);
   const ok = await copiarParaAreaTransferencia(texto);
   const tot = res.urgencias.length + res.concluidos.length;
