@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sistemas Legislativos – Podemos",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
 
   "permissions": ["storage", "tabs"],
