@@ -824,12 +824,15 @@ async function atualizarDestaques() {
     });
     // Destaques que sumiram do scraping mas têm anotações da equipe são
     // preservados: uma ausência temporária na página da Câmara (ou mudança de
-    // layout) não pode descartar voto/explicação/orientação já escritos. Se o
-    // destaque reaparecer numa atualização futura, o merge acima os reencontra.
+    // layout) não pode descartar voto/explicação/orientação já escritos.
+    // Entram como INATIVOS (marcador naoLocalizado — saem do filtro "ativos",
+    // ficam em "todos"); se o destaque reaparecer numa atualização futura, o
+    // merge acima o reencontra pelo número e ele volta a ativo (o objeto novo
+    // do scraping não carrega o marcador).
     for (const ant of existentes.values()) {
       if (!numerosNovos.has(ant.numero) &&
           (ant.votoSim || ant.votoNao || ant.explicacao || ant.orientacao)) {
-        prop.destaques.push(ant);
+        prop.destaques.push({ ...ant, ativo: false, naoLocalizado: true });
       }
     }
     prop.ultimaSync = new Date().toISOString();
@@ -946,9 +949,9 @@ function renderizarDestaques() {
   }
 
   lista.innerHTML = exibir.map((d, i) => {
-    const statusClass = SITUACAO_CLASSES[d.situacao.toLowerCase()] || 'status-outro';
+    const statusClass = SITUACAO_CLASSES[(d.situacao || '').toLowerCase()] || 'status-outro';
     const ativoClass  = d.ativo ? '' : 'inativo';
-    const statusLabel = d.ativo ? 'Ativo' : d.situacao;
+    const statusLabel = d.ativo ? 'Ativo' : (d.naoLocalizado ? 'Não localizado' : d.situacao);
 
     return `
     <div class="destaque-card ${ativoClass}" data-index="${i}">
@@ -2740,11 +2743,13 @@ function normalizarSessao(sessao) {
   sessao.proposicoes = sessao.proposicoes.map(prop => {
     if (!prop) return prop;
     if (!Array.isArray(prop.destaques)) prop.destaques = [];
-    // Re-avalia 'ativo' com base na situação para corrigir dados em cache
+    // Re-avalia 'ativo' com base na situação para corrigir dados em cache.
+    // Destaque preservado que não foi localizado no último scraping
+    // (naoLocalizado) permanece inativo até reaparecer na página.
     prop.destaques = prop.destaques.map(d => {
       if (!d) return d;
       const sNorm = (d.situacao || '').toLowerCase();
-      d.ativo = !SITUACOES_INATIVAS.some(s => sNorm.includes(s));
+      d.ativo = !d.naoLocalizado && !SITUACOES_INATIVAS.some(s => sNorm.includes(s));
       return d;
     });
     return prop;
