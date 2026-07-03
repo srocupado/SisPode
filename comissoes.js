@@ -119,6 +119,19 @@ async function fbDelete(path) {
   if (!r.ok) throw new Error('Firebase DELETE ' + r.status);
 }
 
+// PATCH: atualiza apenas as chaves informadas (aceita paths compostos, ex.:
+// { 'CCJC/titular': 2 }). Preferir a PUT de nós agregados — dois usuários com a
+// tela aberta ao mesmo tempo não sobrescrevem as alterações um do outro.
+async function fbPatch(path, data) {
+  const r = await fetch(`${FB_BASE}${path}.json`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+    headers: { 'Content-Type': 'application/json' },
+  });
+  if (!r.ok) throw new Error('Firebase PATCH ' + r.status);
+  return r.json();
+}
+
 // ---------- ESTADO ----------
 
 const state = {
@@ -408,12 +421,22 @@ async function sincronizarMistas({ reset = false } = {}) {
 
   // 3. Mescla. Em reset, descarta tudo (manuais e apagadas) e usa só a API.
   //    Caso normal: API (exceto apagadas) + criadas manualmente (têm prioridade).
-  const ocultas   = reset ? {} : (state.mistasOcultas || {});
+  //    Relê o documento do Firebase antes de gravar: o estado local foi carregado
+  //    na abertura da tela e pode estar velho — sem a releitura, uma mista manual
+  //    criada por outro usuário durante o sync seria perdida no PUT.
+  let remoto = null;
+  if (!reset) {
+    try { remoto = await fbGet('/comissoes-mistas'); } catch (_) { /* usa só o estado local */ }
+  }
+  const ocultas = reset ? {} : { ...(remoto?.ocultas || {}), ...(state.mistasOcultas || {}) };
   const comissoes = {};
   for (const [sigla, c] of Object.entries(daApi)) {
     if (!ocultas[sigla]) comissoes[sigla] = c;
   }
   if (!reset) {
+    for (const [sigla, c] of Object.entries(remoto?.comissoes || {})) {
+      if (c && c.origem === 'manual') comissoes[sigla] = c;
+    }
     for (const [sigla, c] of Object.entries(state.mistas)) {
       if (c.origem === 'manual') comissoes[sigla] = c;
     }
@@ -427,13 +450,21 @@ async function sincronizarMistas({ reset = false } = {}) {
   return Object.keys(comissoes).length;
 }
 
-// Persiste o documento de mistas (comissões + ocultas) mantendo o syncAt atual.
-async function persistirMistas() {
-  await fbPut('/comissoes-mistas', {
-    syncAt:    state.mistasSyncAt,
-    comissoes: state.mistas,
-    ocultas:   state.mistasOcultas,
-  });
+// Persistência granular de uma mista: grava/remove apenas a comissão e sua
+// entrada em "ocultas", sem regravar o documento inteiro (que sobrescreveria
+// alterações concorrentes de outros usuários).
+async function persistirMistaCriada(sigla) {
+  await Promise.all([
+    fbPut(`/comissoes-mistas/comissoes/${sigla}`, state.mistas[sigla]),
+    fbDelete(`/comissoes-mistas/ocultas/${sigla}`), // se havia sido apagada, volta a existir
+  ]);
+}
+
+async function persistirMistaApagada(sigla) {
+  await Promise.all([
+    fbDelete(`/comissoes-mistas/comissoes/${sigla}`),
+    fbPut(`/comissoes-mistas/ocultas/${sigla}`, true), // sync não readiciona uma comissão apagada
+  ]);
 }
 
 // ---------- CRIAR / APAGAR COMISSÃO MISTA (MANUAL) ----------
@@ -465,7 +496,7 @@ async function criarMista() {
   delete state.mistasOcultas[sigla]; // se havia sido apagada, volta a existir
 
   try {
-    await persistirMistas();
+    await persistirMistaCriada(sigla);
     fecharModal('modal-nova-mista');
     mudarView('mpv');
     selecionarComissao(sigla);
@@ -498,7 +529,7 @@ async function apagarMista(sigla) {
 
   try {
     await Promise.all([
-      persistirMistas(),
+      persistirMistaApagada(sigla),
       fbDelete(`/membros/${sigla}`),
       fbDelete(`/transferencias/${sigla}`),
       fbDelete(`/pedidos/${sigla}`),
@@ -1720,17 +1751,22 @@ function abrirModalConfigVagas() {
 
 async function salvarConfigVagas() {
   const inputs = document.querySelectorAll('#config-vagas-lista .config-vaga-input');
-  // Mescla sobre a config existente para não apagar a das temporárias.
+  // PATCH apenas dos campos editados no modal (permanentes): não regrava o nó
+  // /config inteiro, preservando a config das temporárias e alterações feitas
+  // por outro usuário desde que esta tela foi aberta.
   const novoConfig = { ...state.config };
+  const patch      = {};
 
   inputs.forEach(inp => {
     const { sigla, tipo } = inp.dataset;
     if (!novoConfig[sigla]) novoConfig[sigla] = { titular: 0, suplente: 0 };
-    novoConfig[sigla] = { ...novoConfig[sigla], [tipo]: Math.max(0, parseInt(inp.value, 10) || 0) };
+    const valor = Math.max(0, parseInt(inp.value, 10) || 0);
+    novoConfig[sigla] = { ...novoConfig[sigla], [tipo]: valor };
+    patch[`${sigla}/${tipo}`] = valor;
   });
 
   try {
-    await fbPut('/config', novoConfig);
+    await fbPatch('/config', patch);
     state.config = novoConfig;
     fecharModal('modal-config-vagas');
     renderSidebar();

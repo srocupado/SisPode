@@ -608,25 +608,35 @@ async function carregarSessao(sessao) {
   iniciarSyncAutomatico();
 }
 
+// Operações assíncronas que escrevem em app.sessaoAtual: enquanto > 0, o sync
+// automático adia a troca do objeto da sessão (senão a operação em voo gravaria
+// num objeto órfão e o resultado se perderia no próximo salvamento).
+let _opsSessaoEmVoo = 0;
+
 async function carregarMetadadosProposicoes() {
   const sess = app.sessaoAtual;
-  await Promise.all(sess.proposicoes.map(async prop => {
-    try {
-      // Requerimento de urgência (ex.: "REQ s/nº") não tem ficha própria;
-      // busca-se o projeto cuja urgência é solicitada.
-      const alvo = prop.projetoUrgenciado || prop;
-      const data = await buscarProposicaoAPI(alvo.sigla, alvo.numero, alvo.ano);
-      if (data) {
-        prop.idCamara   = data.id;
-        prop.ementa     = data.ementa;
-        prop.autor      = data.autor;
-        prop.statusDesc = data.statusDesc;
+  _opsSessaoEmVoo++;
+  try {
+    await Promise.all(sess.proposicoes.map(async prop => {
+      try {
+        // Requerimento de urgência (ex.: "REQ s/nº") não tem ficha própria;
+        // busca-se o projeto cuja urgência é solicitada.
+        const alvo = prop.projetoUrgenciado || prop;
+        const data = await buscarProposicaoAPI(alvo.sigla, alvo.numero, alvo.ano);
+        if (data) {
+          prop.idCamara   = data.id;
+          prop.ementa     = data.ementa;
+          prop.autor      = data.autor;
+          prop.statusDesc = data.statusDesc;
+        }
+      } catch (e) {
+        console.warn(`Erro ao buscar ${prop.chave}:`, e.message);
       }
-    } catch (e) {
-      console.warn(`Erro ao buscar ${prop.chave}:`, e.message);
-    }
-  }));
-  await salvarSessao(sess);
+    }));
+    await salvarSessao(sess);
+  } finally {
+    _opsSessaoEmVoo--;
+  }
   renderizarProposicoesSidebar();
 }
 
@@ -655,18 +665,23 @@ async function adicionarProposicaoManual() {
   input.value = '';
   renderizarProposicoesSidebar();
   mostrarToast(`${chave} adicionada. Buscando dados...`, 'sucesso');
+  _opsSessaoEmVoo++;
   try {
-    const data = await buscarProposicaoAPI(sigla, parseInt(numero, 10), parseInt(ano, 10));
-    if (data) {
-      prop.idCamara   = data.id;
-      prop.ementa     = data.ementa;
-      prop.autor      = data.autor;
-      prop.statusDesc = data.statusDesc;
+    try {
+      const data = await buscarProposicaoAPI(sigla, parseInt(numero, 10), parseInt(ano, 10));
+      if (data) {
+        prop.idCamara   = data.id;
+        prop.ementa     = data.ementa;
+        prop.autor      = data.autor;
+        prop.statusDesc = data.statusDesc;
+      }
+    } catch (e) {
+      console.warn(`Erro ao buscar ${chave}:`, e.message);
     }
-  } catch (e) {
-    console.warn(`Erro ao buscar ${chave}:`, e.message);
+    await salvarSessao(sess);
+  } finally {
+    _opsSessaoEmVoo--;
   }
-  await salvarSessao(sess);
   renderizarProposicoesSidebar();
 }
 
@@ -797,14 +812,26 @@ async function atualizarDestaques() {
   btn.disabled = true;
   btn.innerHTML = `<span class="loading-spinner"></span> Atualizando...`;
 
+  _opsSessaoEmVoo++;
   try {
     const novos = await buscarDestaques(prop.idCamara);
     const existentes = new Map((prop.destaques || []).map(d => [d.numero, d]));
+    const numerosNovos = new Set(novos.map(d => d.numero));
     prop.destaques = novos.map(d => {
       const ant = existentes.get(d.numero);
       if (!ant) return d;
       return { ...d, votoSim: ant.votoSim, votoNao: ant.votoNao, explicacao: ant.explicacao, orientacao: ant.orientacao };
     });
+    // Destaques que sumiram do scraping mas têm anotações da equipe são
+    // preservados: uma ausência temporária na página da Câmara (ou mudança de
+    // layout) não pode descartar voto/explicação/orientação já escritos. Se o
+    // destaque reaparecer numa atualização futura, o merge acima os reencontra.
+    for (const ant of existentes.values()) {
+      if (!numerosNovos.has(ant.numero) &&
+          (ant.votoSim || ant.votoNao || ant.explicacao || ant.orientacao)) {
+        prop.destaques.push(ant);
+      }
+    }
     prop.ultimaSync = new Date().toISOString();
     await salvarSessao(app.sessaoAtual);
     renderizarDestaques();
@@ -815,6 +842,7 @@ async function atualizarDestaques() {
     console.error(err);
     mostrarToast('Erro ao buscar destaques. Verifique a conexão.', 'erro');
   } finally {
+    _opsSessaoEmVoo--;
     btn.disabled = false;
     btn.innerHTML = `
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -937,7 +965,25 @@ function renderizarDestaques() {
   }).join('');
 }
 
+// ---- Autosave do modal de destaque ----
+// Timer/flush globais: trocar de destaque ou fechar o modal grava imediatamente
+// a edição pendente do destaque ANTERIOR. Antes, o timer de 800 ms lia os campos
+// por getElementById no disparo — se o modal já tivesse sido recriado para outro
+// destaque, os valores do novo eram gravados no objeto antigo (e no Firebase).
+let _destaqueSaveTimer = null;
+let _destaqueSaveFlush = null;
+
+function flushSalvamentoDestaque() {
+  if (_destaqueSaveTimer) { clearTimeout(_destaqueSaveTimer); _destaqueSaveTimer = null; }
+  const gravar = _destaqueSaveFlush;
+  _destaqueSaveFlush = null;
+  if (gravar) gravar();
+}
+
 function abrirDestaque(index) {
+  // Edição pendente do destaque anterior? Grava antes de reaproveitar os IDs do modal.
+  flushSalvamentoDestaque();
+
   const todosRaw = Array.isArray(app.proposicaoAtiva.destaques) ? app.proposicaoAtiva.destaques : [];
   const todos = app.filtroAtual === 'ativos'
     ? todosRaw.filter(d => d.ativo)
@@ -951,26 +997,43 @@ function abrirDestaque(index) {
   body.innerHTML = renderizarCardCompleto(d, app.proposicaoAtiva);
   document.getElementById('modal-destaque').style.display = 'flex';
 
-  // Adiciona listeners de auto-save nos campos editáveis
-  let saveTimer = null;
-  const badge = document.getElementById('badge-salvo');
+  const badge  = document.getElementById('badge-salvo');
+  const sessao = app.sessaoAtual;
+  const prop   = app.proposicaoAtiva;
+  // Referências capturadas AGORA: se o corpo do modal for recriado para outro
+  // destaque, estes nós ficam órfãos mas seguem com os valores deste destaque.
+  const campos = {
+    votoSim:    document.getElementById('campo-voto-sim'),
+    votoNao:    document.getElementById('campo-voto-nao'),
+    explicacao: document.getElementById('campo-explicacao'),
+    orientacao: document.getElementById('campo-orientacao'),
+  };
+
+  const gravar = () => {
+    d.votoSim    = campos.votoSim?.value    ?? d.votoSim;
+    d.votoNao    = campos.votoNao?.value    ?? d.votoNao;
+    d.explicacao = campos.explicacao?.value ?? d.explicacao;
+    d.orientacao = campos.orientacao?.value ?? d.orientacao;
+    salvarDestaque(sessao, prop, d)
+      .then(() => {
+        badge.classList.add('visivel');
+        setTimeout(() => badge.classList.remove('visivel'), 2000);
+      })
+      .catch(() => { /* status offline já sinalizado em salvarDestaque */ });
+  };
 
   function agendarSalvamento() {
-    clearTimeout(saveTimer);
+    clearTimeout(_destaqueSaveTimer);
     badge.classList.remove('visivel');
-    saveTimer = setTimeout(async () => {
-      d.votoSim    = document.getElementById('campo-voto-sim').value;
-      d.votoNao    = document.getElementById('campo-voto-nao').value;
-      d.explicacao = document.getElementById('campo-explicacao').value;
-      d.orientacao = document.getElementById('campo-orientacao').value;
-      await salvarSessao(app.sessaoAtual);
-      badge.classList.add('visivel');
-      setTimeout(() => badge.classList.remove('visivel'), 2000);
+    _destaqueSaveFlush = gravar;
+    _destaqueSaveTimer = setTimeout(() => {
+      _destaqueSaveTimer = null;
+      _destaqueSaveFlush = null;
+      gravar();
     }, 800);
   }
 
-  ['campo-voto-sim', 'campo-voto-nao', 'campo-explicacao', 'campo-orientacao']
-    .forEach(id => document.getElementById(id)?.addEventListener('input', agendarSalvamento));
+  Object.values(campos).forEach(el => el?.addEventListener('input', agendarSalvamento));
 }
 
 function renderizarCardCompleto(d, prop) {
@@ -2616,6 +2679,40 @@ async function fbSalvar(sessao) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
+/** Grava no Firebase APENAS os campos editáveis de um destaque (PATCH granular).
+ *  Um PUT da sessão inteira aqui seria last-write-wins: dois usuários editando
+ *  destaques diferentes ao mesmo tempo sobrescreveriam o trabalho um do outro. */
+async function fbSalvarDestaque(sessao, prop, d) {
+  const pIdx = (sessao.proposicoes || []).indexOf(prop);
+  const dIdx = (prop?.destaques || []).indexOf(d);
+  if (pIdx < 0 || dIdx < 0) return fbSalvar(sessao);   // estrutura mudou — fallback seguro
+  const res = await fetch(
+    `${FIREBASE_URL}/sessoes/${sessao.id}/proposicoes/${pIdx}/destaques/${dIdx}.json`, {
+    method:  'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({
+      votoSim:    d.votoSim    || '',
+      votoNao:    d.votoNao    || '',
+      explicacao: d.explicacao || '',
+      orientacao: d.orientacao || '',
+    }),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+/** Salva localmente + PATCH granular do destaque no Firebase. */
+async function salvarDestaque(sessao, prop, d) {
+  await salvarSessaoLocal(sessao);
+  try {
+    await fbSalvarDestaque(sessao, prop, d);
+    atualizarStatusSync('ok');
+  } catch (e) {
+    console.warn('Firebase indisponível:', e.message);
+    atualizarStatusSync('offline');
+    throw e;
+  }
+}
+
 /** Carrega todas as sessões do Firebase */
 async function fbCarregarTodas() {
   const res = await fetch(`${FIREBASE_URL}/sessoes.json`);
@@ -2768,7 +2865,9 @@ async function salvarDestaqueManual() {
 
   try {
     await salvarSessaoLocal(app.sessaoAtual);
-    await fbSalvar(app.sessaoAtual);
+    // PATCH só dos campos do destaque — não sobrescreve edições concorrentes
+    // de outros usuários em outros destaques/proposições da sessão.
+    await fbSalvarDestaque(app.sessaoAtual, app.proposicaoAtiva, d);
     atualizarStatusSync('ok');
     mostrarToast('Destaque salvo com sucesso!', 'sucesso');
     const badge = document.getElementById('badge-salvo');
@@ -2879,15 +2978,22 @@ function iniciarSyncAutomatico() {
   pararSyncAutomatico();
   app.syncTimer = setInterval(async () => {
     if (!app.sessaoAtual) return;
+    // Operação escrevendo na sessão (atualizar destaques, metadados, adicionar
+    // proposição)? Adia o sync — substituir app.sessaoAtual agora faria a
+    // operação em voo gravar num objeto órfão e o resultado se perder.
+    if (_opsSessaoEmVoo > 0) return;
     // Se o modal de destaque está aberto o usuário pode estar editando — adia o sync
     // para evitar substituir app.sessaoAtual/proposicaoAtiva e tornar destinqueAtivo órfão
     if (document.getElementById('modal-destaque').style.display !== 'none') return;
+    const sessaoAntes = app.sessaoAtual;
     try {
       const nova = await fbCarregarUma(app.sessaoAtual.id);
       if (!nova) return;
 
       // Confirma que o modal continua fechado após o await (pode ter aberto durante o fetch)
       if (document.getElementById('modal-destaque').style.display !== 'none') return;
+      // Sessão trocada ou operação iniciada durante o fetch — descarta esta resposta
+      if (app.sessaoAtual !== sessaoAntes || _opsSessaoEmVoo > 0) return;
 
       app.sessaoAtual = nova;
       await salvarSessaoLocal(nova);
@@ -3097,14 +3203,20 @@ function renderHomeGrid() {
 }
 
 function voltarHome() {
+  // Na home o painel de destaques não está visível — sem isso o setInterval
+  // continuaria baixando a sessão inteira do Firebase a cada 20 s para sempre.
+  pararSyncAutomatico();
   document.getElementById('tela-home').classList.remove('oculta');
 }
 
 async function entrarDestaques() {
   document.getElementById('tela-home').classList.add('oculta');
 
-  // Se já há sessão carregada, não faz nada (usuário voltou da votação etc.)
-  if (app.sessaoAtual) return;
+  // Se já há sessão carregada, só religa o sync (parado ao voltar à home)
+  if (app.sessaoAtual) {
+    iniciarSyncAutomatico();
+    return;
+  }
 
   // Tenta carregar a sessão mais recente automaticamente
   await carregarUltimaSessaoDisponivel();
@@ -3266,6 +3378,9 @@ async function importarPautaPlenario(id) {
 }
 
 function fecharModal(id) {
+  // Fechar o modal de destaque grava imediatamente qualquer edição pendente
+  // (o timer de autosave de 800 ms pode ainda não ter disparado).
+  if (id === 'modal-destaque') flushSalvamentoDestaque();
   const el = document.getElementById(id);
   if (el) el.style.display = 'none';
 }

@@ -120,6 +120,12 @@ let _iaInFlight = 0;                              // chamadas de IA em voo
 let _gerarTodos = { rodando: false, cancelar: false };
 function isAbort(e) { return e?.name === 'AbortError' || /aborted/i.test(e?.message || ''); }
 
+// Renova o AbortController no início de uma nova operação, se o anterior foi
+// abortado pelo "Parar". Chamar apenas em entry points disparados pelo usuário.
+function resetAbort() {
+  if (_abort.signal.aborted) _abort = new AbortController();
+}
+
 // ============================================================
 //  BOOT
 // ============================================================
@@ -485,6 +491,7 @@ async function resumirVeto(veto, { silencioso = false, render = true, apenasFalt
     if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso');
     return false;
   }
+  resetAbort();
   if (!veto.detalheCarregado) await carregarDetalhe(veto);
 
   // Junto com os resumos: resumo do projeto (sintético) + razões do veto.
@@ -623,6 +630,7 @@ function toggleGerarTodos() {
 
 async function gerarTodosResumos() {
   if (!app.config?.apiKey) { mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso'); return; }
+  resetAbort();
   const pendentes = app.vetos.filter(v =>
     v.detalheUrl && !(v.detalheCarregado && v.dispositivos.length && v.dispositivos.every(d => d.resumo)));
   if (!pendentes.length) { mostrarToast('Todos os vetos já estão resumidos.', 'sucesso'); return; }
@@ -645,7 +653,9 @@ async function gerarTodosResumos() {
     } catch (e) { if (isAbort(e)) break; falhas++; }
     bar.style.width = `${Math.round(((i + 1) / pendentes.length) * 100)}%`;
     if (!app.editando) renderLista();
-    if (i < pendentes.length - 1 && !_gerarTodos.cancelar) await sleep(THROTTLE_MS);
+    // .catch: o sleep rejeita se "Parar" for clicado durante o throttle;
+    // o cancelamento é tratado pela checagem de _gerarTodos.cancelar no topo do loop
+    if (i < pendentes.length - 1 && !_gerarTodos.cancelar) await sleep(THROTTLE_MS).catch(() => {});
   }
 
   _gerarTodos = { rodando: false, cancelar: false };
@@ -936,7 +946,9 @@ function pararTudo() {
   _gerarTodos.cancelar = true;
   app.baixandoTodos = false;
   try { _abort.abort(); } catch (_) {}
-  _abort = new AbortController();
+  // NÃO recriar o controller aqui: operações em andamento checam
+  // _abort.signal.aborted entre lotes e precisam ver o sinal abortado.
+  // A renovação acontece em resetAbort(), no início da próxima operação.
   setBtnBaixar(false);
   setBtnGerar(false);
   document.getElementById('cn-progress-wrap').style.display = 'none';
@@ -947,6 +959,7 @@ function pararTudo() {
 async function baixarTodosDetalhes() {
   const pendentes = app.vetos.filter(v => !v.detalheCarregado && v.detalheUrl);
   if (!pendentes.length) { mostrarToast('Todos os detalhes já foram baixados.', 'sucesso'); return; }
+  resetAbort();
 
   app.baixandoTodos = true;
   setBtnBaixar(true);
@@ -965,7 +978,9 @@ async function baixarTodosDetalhes() {
     bar.style.width = `${Math.round(((i + 1) / pendentes.length) * 100)}%`;
     label.textContent = `Baixando detalhes… ${i + 1}/${pendentes.length}` + (falhas ? ` · ${falhas} falha(s)` : '');
     if (app.busca && !app.editando) renderLista();
-    if (i < pendentes.length - 1) await sleep(THROTTLE_MS);
+    // .catch: o sleep rejeita se "Parar" for clicado durante o throttle;
+    // o cancelamento é tratado pela checagem de app.baixandoTodos no topo do loop
+    if (i < pendentes.length - 1) await sleep(THROTTLE_MS).catch(() => {});
   }
 
   app.baixandoTodos = false;
@@ -1294,6 +1309,7 @@ async function toggleVeto(key) {
   v.aberto = !v.aberto;
   renderLista();
   if (v.aberto && !v.detalheCarregado) {
+    resetAbort();
     try {
       await carregarDetalhe(v);
       renderLista();
@@ -2033,6 +2049,7 @@ function acharParecerUrl(doc) {
 async function importarPauta(url) {
   const id = (String(url).match(/\/pauta\/(\d+)/) || String(url).match(/(\d{4,})/) || [])[1];
   if (!id) { setImportStatus('URL ou ID inválido.', '#f0c040'); return; }
+  resetAbort();
   setImportStatus('Baixando a pauta…');
   try {
     const p = parsePautaHtml(await fetchHtml(PAUTA_BASE_URL + id));
@@ -2096,6 +2113,7 @@ async function importarPauta(url) {
 async function resumirPLN(pln, { silencioso = false } = {}) {
   if (!app.config?.apiKey) { if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso'); return false; }
   if (!pln.parecerUrl) { if (!silencioso) mostrarToast('Parecer de Plenário não localizado para este item.', 'aviso'); return false; }
+  resetAbort();
   pln.resumindoAnalise = true; iaInc(); if (!app.editando) renderLista();
   try {
     const buf = await baixarArrayBuffer(pln.parecerUrl);

@@ -128,6 +128,9 @@ var cachedVotos   = null;
 var cachedOrient  = null;
 var cachedVotacao = null;
 var lastRenderData = null;
+// Token de sequência: só a requisição mais recente pode gravar cache e renderizar
+// (evita que uma troca rápida de votação mostre os votos de uma com o título de outra)
+var loadSeq = 0;
 
 function showStatus(msg, isError) {
   var el = document.getElementById('statusArea');
@@ -217,6 +220,7 @@ async function loadVotes() {
   var idx     = document.getElementById('votingSelect').value;
   var votacao = votacoes[idx];
   if (!votacao) return;
+  var seq = ++loadSeq;
 
   showLoading('Carregando votos e orientações...');
 
@@ -231,12 +235,15 @@ async function loadVotes() {
     var votosData   = await results[0].json();
     var orientData  = results[1] ? await results[1].json() : { dados: [] };
 
+    if (seq !== loadSeq) return; // usuário já trocou de votação — descarta esta resposta
+
     cachedVotos   = votosData.dados  || [];
     cachedOrient  = orientData.dados || [];
     cachedVotacao = votacao;
 
-    await renderFiltered();
+    await renderFiltered(seq);
   } catch (e) {
+    if (seq !== loadSeq) return;
     showStatus('Erro ao carregar votos: ' + e.message, true);
   }
 }
@@ -245,7 +252,8 @@ async function refilter() {
   if (cachedVotos) await renderFiltered();
 }
 
-async function renderFiltered() {
+async function renderFiltered(seq) {
+  if (seq === undefined) seq = ++loadSeq;
   var rawParty = document.getElementById('partyInput').value.trim();
   if (!rawParty) { showStatus('Informe o partido.', true); return; }
 
@@ -261,6 +269,8 @@ async function renderFiltered() {
       allDeputados = dData.dados || [];
     }
   } catch (e) {}
+
+  if (seq !== loadSeq) return; // outra votação/filtro foi disparado depois deste
 
   document.getElementById('statusArea').innerHTML = '';
 
@@ -734,6 +744,8 @@ var portalCachedDoc     = null;
 var portalCachedBaseUrl = '';
 var portalCachedVotingId = null;
 var portalLastRenderData = null;
+// Token de sequência do portal — mesma proteção do loadSeq da aba histórico
+var portalSeq = 0;
 
 function showPortalStatus(msg, isError) {
   var el = document.getElementById('portalStatusArea');
@@ -886,6 +898,7 @@ async function onPortalVotacaoChange() {
     await processPortalDoc(portalCachedDoc);
     return;
   }
+  var seq = ++portalSeq;
   showPortalLoading('Carregando votação…');
   try {
     var doc;
@@ -896,10 +909,12 @@ async function onPortalVotacaoChange() {
       showPortalLoading('Erro com itemVotacao — buscando sessão novamente…');
       doc = await fetchPortalPage(portalCachedBaseUrl);
     }
+    if (seq !== portalSeq) return; // usuário já trocou de votação — descarta esta resposta
     portalCachedDoc      = doc;
     portalCachedVotingId = newId;
-    await processPortalDoc(doc);
+    await processPortalDoc(doc, seq);
   } catch (e) {
+    if (seq !== portalSeq) return;
     showPortalStatus('Erro: ' + e.message, true);
   }
 }
@@ -934,7 +949,8 @@ function parseFromPortalSource() {
   processPortalDoc(doc);
 }
 
-async function processPortalDoc(doc) {
+async function processPortalDoc(doc, seq) {
+  if (seq === undefined) seq = ++portalSeq;
   var party = document.getElementById('portalPartyInput').value.trim();
   if (!party) { showPortalStatus('Informe o partido.', true); return; }
   showPortalLoading('Processando dados…');
@@ -1076,6 +1092,8 @@ async function processPortalDoc(doc) {
       });
     }
   } catch (e) { /* API lenta — usa só dados do portal */ }
+
+  if (seq !== portalSeq) return; // outra votação foi selecionada durante os fetches
 
   filtered.sort(function (a, b) { return (a.nome || '').localeCompare(b.nome || ''); });
 
