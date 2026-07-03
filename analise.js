@@ -101,14 +101,19 @@ const AUTO_SAVE_INTERVAL_MS = 10000;
 document.addEventListener('DOMContentLoaded', async () => {
   await carregarConfig();
 
-  // Aviso se o usuário tentar sair com autosave pendente ou em voo.
+  // Aviso se o usuário tentar sair com autosave pendente ou em voo — tanto o
+  // das notas (Quill, _autosaveState) quanto o da própria pauta (state.dirty,
+  // autosave de 10 s: adicionar/remover item, renomear etc.).
   window.addEventListener('beforeunload', (e) => {
-    for (const st of _autosaveState.values()) {
-      if (st.debounceId || st.salvando || st.dirty) {
-        e.preventDefault();
-        e.returnValue = '';
-        return;
+    let pendente = state.dirty || state.salvando;
+    if (!pendente) {
+      for (const st of _autosaveState.values()) {
+        if (st.debounceId || st.salvando || st.dirty) { pendente = true; break; }
       }
+    }
+    if (pendente) {
+      e.preventDefault();
+      e.returnValue = '';
     }
   });
 
@@ -225,8 +230,26 @@ async function onPdfSelecionado(ev) {
       return;
     }
 
+    // O id deriva do período/nome do arquivo: subir um segundo PDF da mesma
+    // semana cai no MESMO id e o PUT sobrescreveria a pauta da equipe (itens
+    // adicionados/removidos, renomeação, responsáveis) sem aviso. Confirma antes.
+    const idPauta = gerarIdPauta(parsed.periodo, file.name);
+    let jaExiste = false;
+    try {
+      const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json?shallow=true`);
+      jaExiste = r.ok && (await r.json()) !== null;
+    } catch (_) { /* Firebase indisponível — segue sem a checagem */ }
+    if (jaExiste && !confirm(
+      `Já existe uma pauta salva para este período/arquivo.\n\n` +
+      `Importar este PDF vai SOBRESCREVER a pauta existente, incluindo edições ` +
+      `feitas pela equipe (itens adicionados/removidos, renomeação, responsáveis).\n\n` +
+      `Continuar e sobrescrever?`)) {
+      mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
+      return;
+    }
+
     state.pauta = {
-      id:         gerarIdPauta(parsed.periodo, file.name),
+      id:         idPauta,
       titulo:     parsed.titulo || 'Pauta da Semana',
       periodo:    parsed.periodo || '',
       uploadedAt: new Date().toISOString(),
@@ -608,6 +631,13 @@ function subtipoPDL(it) {
 //  → relacionadas (apensados, marcar quais são do Podemos)
 //  → tramitações (URL do último parecer do relator).
 // ============================================================
+// O item ainda pertence à pauta em exibição? Trocar de pauta não cancela os
+// fetches do enriquecimento anterior; esta guarda impede que um item órfão
+// continue as etapas caras e escreva badges no card de um homônimo da pauta nova.
+function itemAindaAtivo(it) {
+  return !!state.pauta && state.pauta.itens.includes(it);
+}
+
 async function enriquecerItens() {
   for (const it of state.pauta.itens) {
     enriquecerItem(it).catch(e => {
@@ -623,6 +653,7 @@ async function enriquecerItens() {
 }
 
 async function enriquecerItem(it) {
+  if (!itemAindaAtivo(it)) return;
   it.enriquecimento = { status: 'carregando' };
   atualizarBadgesCard(it);
 
@@ -656,6 +687,8 @@ async function enriquecerItem(it) {
     }
     atualizarLinkPortal(it);
 
+    if (!itemAindaAtivo(it)) return;  // pauta trocada durante o fetch — para aqui
+
     // Autoria principal
     etapa = 'autores';
     const autores = await fetchAutoresProposicao(prop.id);
@@ -672,6 +705,7 @@ async function enriquecerItem(it) {
 
     // Apensados via API
     etapa = 'apensados';
+    if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
     const apensados = await resolverApensados(prop.id);
     it.enriquecimento.apensados = apensados;
     it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
@@ -873,18 +907,23 @@ function _htmlCamaraValido(html) {
 // caso tentamos o codetabs e, por fim, o worker próprio (como os demais
 // módulos do app). Retorna o HTML válido ou null se todas as vias falharem.
 async function fetchHtmlCamara(url) {
+  // Respeita o "Parar tudo": os fetches são abortáveis e, uma vez abortado,
+  // não adianta tentar as demais vias.
+  const signal = _abortAll.signal;
   const vias = [
-    ['direto',   () => fetch(url, { redirect: 'follow' })],
-    ['codetabs', () => fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url))],
-    ['worker',   () => fetch('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url))],
+    ['direto',   () => fetch(url, { redirect: 'follow', signal })],
+    ['codetabs', () => fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), { signal })],
+    ['worker',   () => fetch('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), { signal })],
   ];
   for (const [nome, tentar] of vias) {
+    if (signal.aborted) break;
     try {
       const r = await tentar();
       const html = r.ok ? await r.text() : '';
       if (r.ok && _htmlCamaraValido(html)) return html;
       console.debug(`[análise] página Câmara via ${nome}: status=${r.status} len=${html.length} (inválido)`);
     } catch (e) {
+      if (isAbortError(e)) break;
       console.debug(`[análise] página Câmara via ${nome}: erro ${e.message}`);
     }
   }
@@ -1140,6 +1179,9 @@ function parseDataBR(s) {
 }
 
 function atualizarBadgesCard(it) {
+  // Item de uma pauta que já foi trocada: não escreve no card (o seletor por
+  // data-chave poderia casar com um item homônimo da pauta atual).
+  if (!itemAindaAtivo(it)) return;
   const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
   const cont = card.querySelector('[data-rolebadges]');
@@ -1584,6 +1626,7 @@ async function iniciarAnaliseLivreMPV(it) {
 async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   // MPV (Cenário 8) é edição livre — nunca aciona a IA.
   if (ehMPV(it)) return iniciarAnaliseLivreMPV(it);
+  resetAbortAll();
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API no painel principal (Configurações).', 'aviso');
@@ -1607,11 +1650,14 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
   const metaEl  = card.querySelector('[data-role=analise-meta]');
 
-  // Aguarda enriquecimento concluir (para sabermos parecer/autoria)
+  // Aguarda enriquecimento concluir (para sabermos parecer/autoria).
+  // O polling respeita o "Parar tudo" (senão continuaria por até 30 s
+  // depois de o usuário cancelar, com o botão Parar já escondido).
   if (it.enriquecimento?.status === 'carregando' || it.enriquecimento?.status === 'pendente') {
     mostrarToast('Aguardando verificação de autoria/parecer...', 'info');
     let tries = 0;
     while ((it.enriquecimento?.status === 'carregando' || it.enriquecimento?.status === 'pendente') && tries++ < 60) {
+      if (_abortAll.signal.aborted) return;  // "Parar tudo" — nenhuma UI foi mutada ainda
       await new Promise(r => setTimeout(r, 500));
     }
   }
@@ -1784,6 +1830,7 @@ function costurarContinuacao(parcial, continuacao) {
 
 async function completarAnalise(it) {
   if (!it.analise || !it.analise.truncada) return;
+  resetAbortAll();
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API antes (⚙ Configurações).', 'aviso');
@@ -2540,8 +2587,16 @@ function pararTodasAnalises() {
   if (_iaInFlight === 0 && !_gerarTodasState.rodando) return;
   _gerarTodasState.cancelar = true;
   try { _abortAll.abort(); } catch (_) {}
-  _abortAll = new AbortController();
+  // NÃO recriar o controller aqui: operações em voo leem _abortAll.signal entre
+  // etapas (busca de documentos, polling de enriquecimento, retries) e precisam
+  // ver o sinal abortado. A renovação acontece em resetAbortAll(), no início da
+  // próxima operação disparada pelo usuário.
   mostrarToast('Cancelando análises em andamento...', 'aviso');
+}
+
+// Renova o AbortController abortado pelo "Parar tudo" antes de uma nova operação.
+function resetAbortAll() {
+  if (_abortAll.signal.aborted) _abortAll = new AbortController();
 }
 
 async function baixarPdf(url) {
@@ -2799,6 +2854,7 @@ async function enviarPerguntaIA(it) {
   if (!state.config?.apiKey) { mostrarToast('Configure a chave de IA em ⚙ Configurações.', 'aviso'); return; }
   it._chat = it._chat || { mensagens: [], contexto: null };
   if (it._chat.carregando) return;
+  resetAbortAll();
   it._chat.mensagens.push({ role: 'user', content: q });
   qEl.value = '';
   it._chat.carregando = true;
@@ -3455,6 +3511,7 @@ async function verificarAtualizacoesPauta() {
 
 async function gerarTodasAsAnalises() {
   if (!state.pauta) return;
+  resetAbortAll();
   await carregarConfig();
   if (!state.config?.apiKey) {
     mostrarToast('Configure a chave de API antes (⚙ Configurações).', 'aviso');
@@ -3719,41 +3776,69 @@ async function confirmarApagarPauta() {
 // ============================================================
 //  FIREBASE — PAUTA + ANÁLISES
 // ============================================================
+let _pautaSaveEmVoo = null;  // PUT em andamento — serializa gravações concorrentes
+let _dirtySeq = 0;           // incrementado a cada edição; detecta edição durante o PUT
+
 async function fbSalvarPauta(pauta) {
+  // Serializa: se já há um PUT em voo (autosave × chamada direta), espera-o
+  // terminar antes de gravar — evita dois PUTs do documento inteiro se cruzando.
+  while (_pautaSaveEmVoo) {
+    try { await _pautaSaveEmVoo; } catch (_) { /* o erro pertence à outra chamada */ }
+  }
+  _pautaSaveEmVoo = _fbSalvarPautaExec(pauta);
+  try {
+    await _pautaSaveEmVoo;
+  } finally {
+    _pautaSaveEmVoo = null;
+  }
+}
+
+async function _fbSalvarPautaExec(pauta) {
+  const dirtyAntes = _dirtySeq;   // edições até aqui entram neste PUT
   state.salvando = true;
   atualizarStatusSync('salvando');
   // Atualiza sidebar após salvamento (concorrente, não bloqueia)
   setTimeout(atualizarSidebarPautas, 300);
-  // Salva sem o PDF binário inflando demais — guarda em campo separado.
-  const res = await fetch(`${FIREBASE_URL}/pautas/${pauta.id}.json`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      ...pauta,
-      // Itens enxutos para Firebase (sem campos transientes)
-      itens: pauta.itens.map(it => ({
-        ordem: it.ordem, tipoCategoria: it.tipoCategoria,
-        sigla: it.sigla, numero: it.numero, ano: it.ano,
-        ementa: it.ementa, autorTexto: it.autorTexto,
-        apensadosTexto: it.apensadosTexto, relator: it.relator,
-        temUrgencia: it.temUrgencia, projetoUrgenciado: it.projetoUrgenciado || null,
-        chave: it.chave,
-      })),
-    }),
-  });
+  let res;
+  try {
+    // Salva sem o PDF binário inflando demais — guarda em campo separado.
+    res = await fetch(`${FIREBASE_URL}/pautas/${pauta.id}.json`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        ...pauta,
+        // Itens enxutos para Firebase (sem campos transientes)
+        itens: pauta.itens.map(it => ({
+          ordem: it.ordem, tipoCategoria: it.tipoCategoria,
+          sigla: it.sigla, numero: it.numero, ano: it.ano,
+          ementa: it.ementa, autorTexto: it.autorTexto,
+          apensadosTexto: it.apensadosTexto, relator: it.relator,
+          temUrgencia: it.temUrgencia, projetoUrgenciado: it.projetoUrgenciado || null,
+          chave: it.chave,
+        })),
+      }),
+    });
+  } catch (e) {
+    state.salvando = false;
+    atualizarStatusSync('offline');
+    throw e;
+  }
   state.salvando = false;
   if (!res.ok) {
     atualizarStatusSync('offline');
     throw new Error(`Firebase HTTP ${res.status}`);
   }
-  state.dirty = false;
+  // Só marca como limpo se NÃO houve edição durante o PUT — senão a mudança
+  // ficaria "salva" sem ter sido, até (se) outra edição disparar novo save.
+  if (_dirtySeq === dirtyAntes) state.dirty = false;
   state.ultimoSave = new Date().toISOString();
   state.historico.indice = null;   // invalida o cache da busca no histórico
-  atualizarStatusSync('ok');
+  atualizarStatusSync(state.dirty ? 'pendente' : 'ok');
 }
 
 function marcarSujo() {
   state.dirty = true;
+  _dirtySeq++;
   atualizarStatusSync('pendente');
 }
 
@@ -4107,6 +4192,7 @@ async function prepararApelidos(itens) {
   }
   const pend = itens.filter(it => !it.apelido);
   if (!pend.length) return;
+  resetAbortAll();
   iaInFlightInc();
   try {
     let feitos = 0;

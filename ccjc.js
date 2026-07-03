@@ -1612,13 +1612,17 @@ async function salvarPauta() {
   btn.disabled  = true;
   btn.innerHTML = '<span class="loading-spinner"></span> Salvando...';
 
+  // Serializa uma cópia sem o estado transitório 'analisando' (se o save cair
+  // no meio de um lote), sem mexer nos objetos em memória do lote em andamento.
+  const snapshot = normalizarStatusProjetos(JSON.parse(JSON.stringify(app.pautaAtual)));
+
   try {
-    await localSalvar(app.pautaAtual);
-    await fbSalvarPauta(app.pautaAtual);
+    await localSalvar(snapshot);
+    await fbSalvarPauta(snapshot);
     mostrarToast('Pauta salva com sucesso!', 'sucesso');
     carregarHistorico();
   } catch (_) {
-    await localSalvar(app.pautaAtual);
+    await localSalvar(snapshot);
     mostrarToast('Firebase indisponível. Pauta salva localmente.', 'aviso');
   } finally {
     btn.disabled  = false;
@@ -1645,6 +1649,16 @@ function coletarEdicoesAtivas() {
   });
 }
 
+// 'analisando' é estado transitório de uma análise em andamento: se a pauta foi
+// salva no meio de um lote, o projeto reidrataria com spinner eterno e campos
+// bloqueados. Ao carregar/salvar, volta para 'pendente' (ou 'erro' se já falhou).
+function normalizarStatusProjetos(pauta) {
+  (pauta && pauta.projetos || []).forEach(p => {
+    if (p.statusAnalise === 'analisando') p.statusAnalise = p.erroAnalise ? 'erro' : 'pendente';
+  });
+  return pauta;
+}
+
 async function restaurarPauta(id) {
   let pauta = null;
   try {
@@ -1659,6 +1673,7 @@ async function restaurarPauta(id) {
 
   if (!pauta) { mostrarToast('Pauta não encontrada.', 'erro'); return; }
 
+  normalizarStatusProjetos(pauta);
   coletarEdicoesAtivas();
   app.pautaAtual   = pauta;
   app.projetoAtivo = null;
