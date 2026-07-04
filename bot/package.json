@@ -1,0 +1,18 @@
+{
+  "name": "sispode-bot",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Bot de Telegram do SisPode — Liderança do Podemos na Câmara",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "grammy": "^1.30.0",
+    "pdfjs-dist": "^3.11.174"
+  }
+}
