@@ -185,4 +185,29 @@ async function exportarPdfPauta({ perfil, pautaId }) {
   }
 }
 
-module.exports = { analisarPauta, exportarPdfPauta, fecharNavegador };
+/**
+ * Resumo da sessão — executa no painel o MESMO código do botão "Resultado da
+ * Sessão" (coletarResumoSessao + montarMensagemResumo). Carrega a pauta
+ * importada (se houver) para usar os apelidos dos itens, como no painel.
+ * Retorna { texto } ou { vazio: true } quando a Câmara ainda não registrou
+ * as matérias/despachos do dia.
+ */
+async function resumoSessao({ pautaId, dataISO }) {
+  const { page } = await abrirPainel({});
+  try {
+    if (pautaId) { try { await carregarPauta(page, pautaId); } catch (_) { /* segue sem apelidos */ } }
+    return await page.evaluate(async (data) => {
+      for (const fn of ['coletarResumoSessao', 'montarMensagemResumo']) {
+        if (typeof globalThis[fn] !== 'function') throw new Error(`A extensão mudou — função ${fn} não encontrada.`);
+      }
+      const res = await coletarResumoSessao(data);
+      if (!res.encontrouSessao || (!res.urgencias.length && !res.concluidos.length)) return { vazio: true };
+      try { await prepararApelidos(state.pauta?.itens || []); } catch (_) {}
+      return { texto: montarMensagemResumo(res.urgencias, res.concluidos) };
+    }, dataISO);
+  } finally {
+    await fecharNavegador();
+  }
+}
+
+module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, fecharNavegador };

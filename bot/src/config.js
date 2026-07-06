@@ -33,6 +33,12 @@ module.exports = {
 
   TRANSCRIBE_GEMINI_KEY: (process.env.TRANSCRIBE_GEMINI_KEY || '').trim(),
 
+  // Monitor de sessão ao vivo: MONITOR_ATIVO=0 desliga de vez;
+  // MONITOR_ENSAIO=1 (padrão) manda as mensagens SÓ para o admin — troque
+  // para 0 depois de calibrar numa sessão real para publicar no grupo.
+  MONITOR_ATIVO:  (process.env.MONITOR_ATIVO || '1').trim() !== '0',
+  MONITOR_ENSAIO: (process.env.MONITOR_ENSAIO || '1').trim() !== '0',
+
   // PDF oficial da Pauta da Semana (a Câmara sobrescreve o mesmo arquivo)
   PAUTA_URL: 'https://www.camara.leg.br/internet/plenario/pautadasemana/pauta_s.pdf',
 

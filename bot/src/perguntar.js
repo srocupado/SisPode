@@ -322,5 +322,5 @@ async function agregarDocumentos({ userId, indices }) {
 
 module.exports = {
   perguntar, limparConversa, conversaDe, extrairRefProposicao,
-  listarDocumentos, agregarDocumentos,
+  listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente,
 };

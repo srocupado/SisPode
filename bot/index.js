@@ -2,7 +2,7 @@
 const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
-const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO } = require('./src/config');
+const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
@@ -11,6 +11,7 @@ const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
+const { iniciarMonitor, setMonitorLigado, statusMonitor } = require('./src/monitor');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -26,6 +27,7 @@ const TEXTO_AJUDA =
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
+  '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
@@ -545,6 +547,24 @@ bot.on('message:document', async ctx => {
   }
 });
 
+// ---------- Monitor de sessão: /monitor [on|off] ----------
+bot.command('monitor', async ctx => {
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg === 'on' || arg === 'off') {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga o monitor.');
+    setMonitorLigado(arg === 'on');
+    return ctx.reply(`Monitor de sessão ${arg === 'on' ? 'LIGADO' : 'DESLIGADO'}.`);
+  }
+  const s = statusMonitor();
+  return ctx.reply(
+    `Monitor de sessão: ${s.ligado ? '🟢 ligado' : '🔴 desligado'}` +
+    `${s.ensaio ? ' · MODO ENSAIO (mensagens só p/ admin)' : ' · produção (grupo)'}\n` +
+    `Janela de vigilância: ${s.janelaAtiva ? 'ativa' : 'fora do horário (seg–sex 8h–2h)'}\n` +
+    (s.sessao
+      ? `Sessão em acompanhamento: ${s.sessao.id} (${s.sessao.dataISO}) — ${s.sessao.itens} item(ns) visto(s), ${s.sessao.encerrados} votado(s).`
+      : 'Nenhuma sessão em andamento.'));
+});
+
 // ---------- Votação: placar da bancada como IMAGEM ----------
 function hojeBrasiliaISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -771,6 +791,23 @@ setInterval(tickCron, CRON_MINUTOS * 60 * 1000);
 tickCron(); // primeira checagem ao subir
 
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
+
+// ---------- Monitor de Sessão ao Vivo ----------
+if (MONITOR_ATIVO) {
+  iniciarMonitor({
+    api: bot.api,
+    admin: ADMIN_USER_ID,
+    ensaio: () => MONITOR_ENSAIO,
+    // Ensaio: tudo vai só para o admin. Produção: grupo da equipe.
+    destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
+    ligadoInicial: true,
+  });
+  if (!MONITOR_ENSAIO && !GRUPO_CHAT_ID) {
+    console.warn('Monitor em modo produção sem GRUPO_CHAT_ID — mensagens serão descartadas. Configure o grupo ou ligue MONITOR_ENSAIO=1.');
+  }
+} else {
+  console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
+}
 
 bot.catch(err => console.error('Erro no bot:', err));
 bot.start({
