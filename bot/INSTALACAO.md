@@ -40,12 +40,12 @@ roteador — o bot conecta para fora (long polling), como um navegador.
    ```
 3. Preencha no `.env`:
    - `BOT_TOKEN` — o token do passo 1
-   - `GRUPO_CHAT_ID` — o ID negativo do passo 2
-   - `ADMIN_USER_ID` — o seu user_id (você aprova os analistas)
-   - `ALLOWED_USER_IDS` — IDs já autorizados, separados por vírgula (pode
-     começar só com o seu; os demais entram pelo botão "Autorizar")
-   - `TRANSCRIBE_GEMINI_KEY` — (opcional) chave Gemini usada só para
-     transcrever voz de quem usa Anthropic
+   - `ADMIN_USER_ID` — o seu user_id
+   - `SENHA_ACESSO` — palavra-chave que os analistas enviam para entrar
+   - `GRUPO_CHAT_ID` — (opcional) o aviso de pauta nova vai ao privado de
+     todos os autorizados; preencha só se quiser avisar TAMBÉM num grupo
+   - `TRANSCRIBE_GEMINI_KEY` — (recomendado) chave Gemini do transcritor
+     de voz padrão
 4. Instale as dependências: `npm install`
 
 ## 5. Testar

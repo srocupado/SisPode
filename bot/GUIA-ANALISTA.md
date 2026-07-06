@@ -54,9 +54,10 @@ botão, mesmo em linguagem natural.
 
 ## Avisos automáticos
 
-O bot monitora o site da Câmara em horário útil (seg–sex) e avisa **no grupo
-da equipe** quando sai pauta de semana nova — com o botão
-"📥 Importar para o SisPode" pronto.
+O bot monitora o site da Câmara em horário útil (seg–sex) e, quando sai
+pauta de semana nova, avisa **no privado de cada analista autorizado** —
+com o botão "📥 Importar para o SisPode" pronto. (Basta estar autorizado;
+não precisa ativar nada.)
 
 ## Dicas e limites
 

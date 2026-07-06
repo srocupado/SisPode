@@ -532,13 +532,23 @@ function horarioUtilBrasilia() {
   return !['Sat', 'Sun'].includes(dia) && hora >= 7 && hora <= 21;
 }
 
+// Destinatários do aviso: todos os analistas autorizados, no PRIVADO
+// (admin + IDs fixos do .env + quem entrou pela palavra-chave/aprovação).
+function destinatariosAviso() {
+  const ids = new Set();
+  if (ADMIN_USER_ID) ids.add(ADMIN_USER_ID);
+  for (const id of ALLOWED_USER_IDS) ids.add(id);
+  for (const id of Object.keys(listarAutorizados())) ids.add(id);
+  return [...ids];
+}
+
 async function tickCron() {
-  if (!GRUPO_CHAT_ID || !horarioUtilBrasilia()) return;
+  if (!horarioUtilBrasilia()) return;
   try {
     const r = await verificarPautaNova();
-    // Só vale um aviso no grupo quando: mudou o período E a semana não está
-    // encerrada E a equipe ainda não importou (evita anunciar como "nova" uma
-    // pauta velha ou que alguém já colocou no SisPode — ex.: primeiro boot).
+    // Só vale um aviso quando: mudou o período E a semana não está encerrada
+    // E a equipe ainda não importou (evita anunciar como "nova" uma pauta
+    // velha ou que alguém já colocou no SisPode — ex.: primeiro boot).
     if (r.status !== 'nova') return;
     if (r.situacao === 'encerrada' || r.jaImportada.importada) {
       console.log(`cron: pauta "${r.pauta.periodo}" detectada mas não anunciada ` +
@@ -546,12 +556,25 @@ async function tickCron() {
       return;
     }
     const p = r.pauta;
-    await enviarLongo(
-      bot.api, GRUPO_CHAT_ID,
+    const msg =
       `🆕 📋 Pauta nova da semana${p.periodo ? ` — ${p.periodo}` : ''}\n` +
       `${rotuloSituacao(r.situacao, p.periodo)}\n` +
-      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}`,
-      tecladoImportar());
+      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}`;
+
+    // Privado de cada analista. Quem nunca abriu conversa com o bot não pode
+    // receber DM (regra do Telegram) — a falha individual é só logada.
+    let enviados = 0;
+    for (const id of destinatariosAviso()) {
+      try { await enviarLongo(bot.api, id, msg, tecladoImportar()); enviados++; }
+      catch (e) { console.warn(`cron: não foi possível avisar ${id}: ${e.message}`); }
+    }
+    // Grupo é opcional: se GRUPO_CHAT_ID estiver configurado, avisa lá também.
+    if (GRUPO_CHAT_ID) {
+      try { await enviarLongo(bot.api, GRUPO_CHAT_ID, msg, tecladoImportar()); }
+      catch (e) { console.warn('cron: aviso ao grupo falhou:', e.message); }
+    }
+    console.log(`cron: pauta nova "${p.periodo}" anunciada a ${enviados} analista(s)` +
+      (GRUPO_CHAT_ID ? ' + grupo' : ''));
   } catch (e) {
     // Falha transitória (Câmara fora do ar etc.): só loga; o próximo tick tenta de novo.
     console.warn('cron da pauta falhou:', e.message);
@@ -561,7 +584,6 @@ async function tickCron() {
 setInterval(tickCron, CRON_MINUTOS * 60 * 1000);
 tickCron(); // primeira checagem ao subir
 
-if (!GRUPO_CHAT_ID) console.warn('GRUPO_CHAT_ID vazio — aviso automático de pauta nova DESLIGADO (o /pauta continua funcionando).');
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
 
 bot.catch(err => console.error('Erro no bot:', err));
