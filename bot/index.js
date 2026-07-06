@@ -439,14 +439,21 @@ async function cmdVotacao(ctx, texto) {
       return ctx.reply(`Nenhuma votação nominal do Plenário em ${dataBR}.` +
         (m ? '' : ' Para outra data: /votacao dd/mm/aaaa'));
     }
+    const MAX_BOTOES = 50;   // Telegram aceita até 100; 50 cobre qualquer sessão real
     const kb = new InlineKeyboard();
-    for (const v of lista.slice(0, 10)) {
-      const rotulo = `${v.hora ? v.hora + ' — ' : ''}${(v.proposicao || v.descricao).slice(0, 40)}`;
-      kb.text(rotulo, `vot:${v.id}`).row();
+    for (const v of lista.slice(0, MAX_BOTOES)) {
+      // A DESCRIÇÃO distingue votações da mesma matéria (substitutivo, DVS,
+      // emenda…) — a proposição sozinha geraria botões idênticos. O placar
+      // embutido na descrição ("Sim: 293; Não: …") é cortado do rótulo.
+      const desc = v.descricao.split(/Sim:\s*\d/i)[0].replace(/[\s,;:—-]+$/, '').trim();
+      const rotulo = `${v.hora ? v.hora + ' — ' : ''}${v.proposicao ? v.proposicao + ' · ' : ''}${desc}`
+        .replace(/\s+/g, ' ').slice(0, 60);
+      kb.text(rotulo || `Votação ${v.id}`, `vot:${v.id}`).row();
     }
     return ctx.reply(
       `🗳 Votações nominais do Plenário em ${dataBR} (${lista.length}):\n` +
-      'Escolha uma para gerar a imagem do placar da bancada:',
+      'Escolha uma para gerar a imagem do placar da bancada:' +
+      (lista.length > MAX_BOTOES ? `\n⚠️ Mostrando as ${MAX_BOTOES} primeiras de ${lista.length}.` : ''),
       { reply_markup: kb });
   } catch (e) {
     console.error('/votacao falhou:', e);
