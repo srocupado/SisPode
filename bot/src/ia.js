@@ -103,6 +103,16 @@ async function testarChave(provedor, apiKey) {
   return true;
 }
 
+// Vocabulário do domínio legislativo — orienta o reconhecimento de voz a
+// preferir termos/siglas da Câmara em vez de palavras foneticamente próximas
+// (ex.: "pauta nova" em vez de "pauta corrida").
+const VOCAB_LEGISLATIVO =
+  'pauta, pauta nova, pauta da semana, importar a pauta, plenário, sessão, ' +
+  'votação, urgência, destaque, parecer, substitutivo, emenda, ementa, ' +
+  'relator, comissão, bancada, orientação, veto, redação final, apensado, ' +
+  'nota técnica, tramitação, proposição, Liderança do Podemos, ' +
+  'PL, PLP, PEC, PDL, MPV, PRC, REQ, CCJC, SisPode';
+
 /**
  * Transcreve uma mensagem de voz (buffer OGG/Opus do Telegram).
  * Gemini e OpenAI aceitam áudio nas próprias APIs; Anthropic não — o
@@ -114,7 +124,9 @@ async function transcreverAudio({ provedor, apiKey, buffer, mime = 'audio/ogg' }
     const body = {
       contents: [{
         parts: [
-          { text: 'Transcreva fielmente este áudio em Português do Brasil. Responda APENAS com a transcrição, sem comentários.' },
+          { text: 'Transcreva fielmente este áudio em Português do Brasil. ' +
+                  `Contexto: é um(a) assessor(a) legislativo(a) da Câmara dos Deputados falando com um sistema de acompanhamento de pautas; termos prováveis: ${VOCAB_LEGISLATIVO}. ` +
+                  'Na dúvida entre palavras parecidas, prefira as desse vocabulário. Responda APENAS com a transcrição, sem comentários.' },
           { inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') } },
         ],
       }],
@@ -127,6 +139,8 @@ async function transcreverAudio({ provedor, apiKey, buffer, mime = 'audio/ogg' }
     const form = new FormData();
     form.append('model', 'whisper-1');
     form.append('language', 'pt');
+    // O campo "prompt" do Whisper enviesa o reconhecimento para o vocabulário dado.
+    form.append('prompt', VOCAB_LEGISLATIVO);
     form.append('file', new Blob([buffer], { type: mime }), 'voz.ogg');
     const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
