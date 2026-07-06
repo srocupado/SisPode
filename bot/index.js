@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada } = require('./src/pauta');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa } = require('./src/perguntar');
@@ -35,8 +35,35 @@ const IMPORT_TTL = 10 * 60e3;
 const ehPrivado = ctx => ctx.chat?.type === 'private';
 const nomeDe    = ctx => [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || (ctx.from?.username ? '@' + ctx.from.username : '');
 
-async function responderLongo(ctx, texto) {
-  for (let i = 0; i < texto.length; i += 4000) await ctx.reply(texto.slice(i, i + 4000));
+// Fatia mensagens acima do limite de 4096 do Telegram, quebrando em fim de
+// linha; um teclado inline opcional vai na ÚLTIMA parte.
+function fatiarMensagem(texto, tam = 3900) {
+  const partes = [];
+  let resto = String(texto || '');
+  while (resto.length > tam) {
+    let corte = resto.lastIndexOf('\n', tam);
+    if (corte < tam * 0.5) corte = tam;
+    partes.push(resto.slice(0, corte));
+    resto = resto.slice(corte).replace(/^\n+/, '');
+  }
+  if (resto) partes.push(resto);
+  return partes;
+}
+
+async function responderLongo(ctx, texto, teclado) {
+  const partes = fatiarMensagem(texto);
+  for (let i = 0; i < partes.length; i++) {
+    const ultima = i === partes.length - 1;
+    await ctx.reply(partes[i], ultima && teclado ? { reply_markup: teclado } : undefined);
+  }
+}
+
+async function enviarLongo(api, chatId, texto, teclado) {
+  const partes = fatiarMensagem(texto);
+  for (let i = 0; i < partes.length; i++) {
+    const ultima = i === partes.length - 1;
+    await api.sendMessage(chatId, partes[i], ultima && teclado ? { reply_markup: teclado } : undefined);
+  }
 }
 
 // ============================================================
@@ -83,6 +110,23 @@ bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
 bot.command(['start', 'ajuda'], ctx => ctx.reply(TEXTO_AJUDA));
 
 // ---------- FASE 1: /pauta ----------
+
+/** Cabeçalho com o quadro completo: período, situação da semana e importação. */
+function quadroPauta(r) {
+  const p = r.pauta;
+  const linhas = [
+    `📋 Pauta publicada no site: ${p.periodo || '(período não identificado)'} — ${p.itens.length} itens`,
+    rotuloSituacao(r.situacao, p.periodo),
+    r.jaImportada.importada
+      ? `✅ Já importada no SisPode como "${r.jaImportada.titulo}" (${r.jaImportada.iguais} de ${r.jaImportada.total} itens coincidem)`
+      : '📥 Ainda não importada no SisPode',
+  ];
+  // "🆕" só quando o período realmente mudou desde a checagem anterior —
+  // na primeira checagem após instalar não há base de comparação.
+  if (r.status === 'nova' && !r.primeiraChecagem) linhas.unshift('🆕 Mudança de semana desde a última checagem!');
+  return linhas.join('\n');
+}
+
 async function cmdVerificarPauta(ctx) {
   await ctx.replyWithChatAction('typing');
   try {
@@ -90,13 +134,10 @@ async function cmdVerificarPauta(ctx) {
     if (r.status === 'sem_pauta') {
       return ctx.reply('Nenhuma pauta publicada no momento (o PDF oficial não está disponível).');
     }
-    const p   = r.pauta;
-    const cab = `📋 Pauta ${p.periodo ? `de ${p.periodo}` : '(período não identificado)'} — ${p.itens.length} itens`;
-    if (r.status === 'nova') {
-      return ctx.reply(`🆕 PAUTA NOVA!\n${cab}\n\n${resumoPauta(p)}`,
-        { reply_markup: tecladoImportar() });
-    }
-    return ctx.reply(`${cab}\nSem pauta de semana nova desde a última verificação.`);
+    const texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
+    // Botão de importar só quando faz sentido (não importada e semana não encerrada)
+    const comBotao = !r.jaImportada.importada && r.situacao !== 'encerrada';
+    return responderLongo(ctx, texto, comBotao ? tecladoImportar() : undefined);
   } catch (e) {
     console.error('/pauta falhou:', e);
     return ctx.reply(`Erro ao verificar a pauta: ${e.message}`);
@@ -360,14 +401,22 @@ async function tickCron() {
   if (!GRUPO_CHAT_ID || !horarioUtilBrasilia()) return;
   try {
     const r = await verificarPautaNova();
-    if (r.status === 'nova') {
-      const p = r.pauta;
-      await bot.api.sendMessage(
-        GRUPO_CHAT_ID,
-        `🆕 📋 Pauta nova da semana${p.periodo ? ` — ${p.periodo}` : ''}\n` +
-        `${p.itens.length} itens identificados\n\n${resumoPauta(p)}`,
-        { reply_markup: tecladoImportar() });
+    // Só vale um aviso no grupo quando: mudou o período E a semana não está
+    // encerrada E a equipe ainda não importou (evita anunciar como "nova" uma
+    // pauta velha ou que alguém já colocou no SisPode — ex.: primeiro boot).
+    if (r.status !== 'nova') return;
+    if (r.situacao === 'encerrada' || r.jaImportada.importada) {
+      console.log(`cron: pauta "${r.pauta.periodo}" detectada mas não anunciada ` +
+        `(situação: ${r.situacao}; importada: ${r.jaImportada.importada})`);
+      return;
     }
+    const p = r.pauta;
+    await enviarLongo(
+      bot.api, GRUPO_CHAT_ID,
+      `🆕 📋 Pauta nova da semana${p.periodo ? ` — ${p.periodo}` : ''}\n` +
+      `${rotuloSituacao(r.situacao, p.periodo)}\n` +
+      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}`,
+      tecladoImportar());
   } catch (e) {
     // Falha transitória (Câmara fora do ar etc.): só loga; o próximo tick tenta de novo.
     console.warn('cron da pauta falhou:', e.message);
