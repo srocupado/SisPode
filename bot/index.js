@@ -1,6 +1,6 @@
 'use strict';
 const crypto = require('crypto');
-const { Bot, InlineKeyboard } = require('grammy');
+const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO } = require('./src/config');
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
@@ -8,6 +8,8 @@ const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, li
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
 const { rotear } = require('./src/router');
+const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
+const { imagemVotacao } = require('./src/imagem');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -18,6 +20,7 @@ const TEXTO_AJUDA =
   '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
+  '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
@@ -418,6 +421,55 @@ bot.command('agregar', async ctx => {
   }
 });
 
+// ---------- Votação: placar da bancada como IMAGEM ----------
+function hojeBrasiliaISO() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+}
+
+async function cmdVotacao(ctx, texto) {
+  // Data opcional: "/votacao 02/07/2026" (padrão: hoje)
+  const m = String(texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const dataBR  = dataISO.split('-').reverse().join('/');
+
+  await ctx.replyWithChatAction('typing');
+  try {
+    const lista = await listarVotacoesDia(dataISO);
+    if (!lista.length) {
+      return ctx.reply(`Nenhuma votação nominal do Plenário em ${dataBR}.` +
+        (m ? '' : ' Para outra data: /votacao dd/mm/aaaa'));
+    }
+    const kb = new InlineKeyboard();
+    for (const v of lista.slice(0, 10)) {
+      const rotulo = `${v.hora ? v.hora + ' — ' : ''}${(v.proposicao || v.descricao).slice(0, 40)}`;
+      kb.text(rotulo, `vot:${v.id}`).row();
+    }
+    return ctx.reply(
+      `🗳 Votações nominais do Plenário em ${dataBR} (${lista.length}):\n` +
+      'Escolha uma para gerar a imagem do placar da bancada:',
+      { reply_markup: kb });
+  } catch (e) {
+    console.error('/votacao falhou:', e);
+    return ctx.reply(`Erro ao buscar votações: ${e.message}`);
+  }
+}
+bot.command('votacao', ctx => cmdVotacao(ctx, ctx.match));
+
+bot.callbackQuery(/^vot:(.+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  await ctx.replyWithChatAction('upload_photo');
+  try {
+    const pl = await placarVotacao(ctx.match[1], 'PODE');
+    const png = await imagemVotacao(pl);
+    const cap = `${pl.descricao}`.slice(0, 900) +
+      `\n${pl.data.split('-').reverse().join('/')}${pl.hora ? ' às ' + pl.hora : ''} · quórum ${pl.quorum}`;
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'), { caption: cap });
+  } catch (e) {
+    console.error('imagem de votação falhou:', e);
+    return ctx.reply(`Erro ao gerar a imagem: ${e.message}`);
+  }
+});
+
 // ---------- listar itens (usada pelo roteador da fase 4) ----------
 async function cmdListarItens(ctx) {
   await ctx.replyWithChatAction('typing');
@@ -443,6 +495,7 @@ async function executarDecisao(ctx, decisao) {
     case 'listar_itens':    return cmdListarItens(ctx);
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
+    case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
     case 'responder':       return ctx.reply(decisao.argumentos.texto || 'Certo!');
     default:                return ctx.reply(TEXTO_AJUDA);

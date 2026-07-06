@@ -17,6 +17,7 @@ const FERRAMENTAS = `
 - "listar_itens": listar os itens da pauta importada no SisPode. Use para "o que tem na pauta?", "lista os itens", "quais projetos vão ser votados?".
 - "perguntar": responder pergunta de conteúdo sobre uma proposição da pauta ou sobre a pauta em geral (usa a nota técnica e os documentos da matéria). Use para "o que o PL 1234/2026 muda?", "qual o impacto disso no SUS?", "algum item é de autoria do Podemos?".
 - "listar_documentos": listar os documentos da tramitação de uma proposição que NÃO foram considerados na nota técnica (pareceres, emendas, textos). Use para "quais documentos não entraram na análise do PL 1234/2026?", "que documentos da tramitação faltam?", "lista os documentos do PL X".
+- "votacao": listar as votações nominais do Plenário de um dia e gerar a IMAGEM do placar da bancada. Use para "como foi a votação de hoje?", "placar da votação", "gera a imagem da votação de 02/07/2026".
 - "ajuda": explicar o que o bot faz.
 - "responder": nenhuma das anteriores — responda você mesmo, brevemente (saudação, agradecimento, conversa social).`;
 
@@ -27,7 +28,7 @@ FERRAMENTAS:
 ${FERRAMENTAS}
 
 Responda APENAS com um objeto JSON, sem cercas de código, no formato:
-{"ferramenta": "<nome>", "argumentos": {"pergunta": "<p/ perguntar ou listar_documentos: o pedido, preservando qualquer sigla tipo PL 1234/2026>", "texto": "<apenas p/ responder: sua resposta curta em pt-BR>"}}
+{"ferramenta": "<nome>", "argumentos": {"pergunta": "<p/ perguntar, listar_documentos ou votacao: o pedido, preservando siglas (PL 1234/2026) e datas (dd/mm/aaaa)>", "texto": "<apenas p/ responder: sua resposta curta em pt-BR>"}}
 
 MENSAGEM: ${mensagem}`;
 }
@@ -43,7 +44,7 @@ async function rotear(perfil, mensagem) {
     prompt: montarPromptRoteador(mensagem), maxTokens: 400,
   });
   const j = extrairJson(bruto);
-  const validas = ['verificar_pauta', 'importar_pauta', 'listar_itens', 'perguntar', 'listar_documentos', 'ajuda', 'responder'];
+  const validas = ['verificar_pauta', 'importar_pauta', 'listar_itens', 'perguntar', 'listar_documentos', 'votacao', 'ajuda', 'responder'];
   if (!validas.includes(j.ferramenta)) {
     return { ferramenta: 'perguntar', argumentos: { pergunta: mensagem } };
   }
