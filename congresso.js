@@ -364,7 +364,7 @@ function construirVeto(d) {
     razoesTexto: '',           // texto extraído do PDF (transitório — não persistido)
     razoesGrupos: [],          // [{ codigos:[...], resumo }] — razões por grupo de dispositivos
     razoesProjeto: '',         // resumo único das razões (Veto Total)
-    interessados: [],          // [{ id, nome, uf }] — deputados do partido com interesse no veto
+    interessados: [],          // [{ id, nome, uf, posicao }] — deputados do partido com interesse no veto (posicao: 'derrubada' | 'manutencao' | '')
     aberto: false,
     resumindo: false,
     carregandoDetalhe: false,
@@ -2285,7 +2285,13 @@ function itemPorKey(key) {
 function chipsInteresse(interessados) {
   const arr = aArray(interessados);
   if (!arr.length) return `<span class="cn-interesse-none">ninguém marcado</span>`;
-  return arr.map(d => `<span class="cn-interesse-chip">${escapeHtml(d.nome || '')}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>`).join('');
+  return arr.map(d => {
+    const cls = d.posicao === 'derrubada' ? ' cn-interesse-chip--derrubar'
+              : d.posicao === 'manutencao' ? ' cn-interesse-chip--manter' : '';
+    const tag = d.posicao === 'derrubada' ? '<span class="cn-pos-tag cn-pos-tag--derrubar">derrubar</span>'
+              : d.posicao === 'manutencao' ? '<span class="cn-pos-tag cn-pos-tag--manter">manter</span>' : '';
+    return `<span class="cn-interesse-chip${cls}">${escapeHtml(d.nome || '')}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}${tag}</span>`;
+  }).join('');
 }
 
 function renderInteresse(key, interessados) {
@@ -2326,17 +2332,30 @@ function onDocClickInteresse(e) {
 }
 function onKeydownInteresse(e) { if (e.key === 'Escape') fecharSeletorInteressados(); }
 
-function popListaHtml(item, filtro) {
-  const sel = new Set(aArray(item.interessados).map(d => d.id));
+function popListaHtml(item, filtro, tipo) {
+  const posPorId = new Map(aArray(item.interessados).map(d => [d.id, d.posicao || '']));
   const f = normalizar(filtro || '');
   const filtrados = app.deputados.filter(d => !f || normalizar(`${d.nome} ${d.uf} ${d.partido}`).includes(f));
   if (!filtrados.length) {
     return `<div class="cn-interesse-vazio">${app.deputados.length ? 'Nenhum nome para o filtro.' : 'Bancada não carregada — clique em “↻ bancada”.'}</div>`;
   }
-  return filtrados.map(d => `<label class="cn-interesse-opt">
-      <input type="checkbox" data-dep="${escapeHtml(d.id)}" ${sel.has(d.id) ? 'checked' : ''}>
-      <span>${escapeHtml(d.nome)}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>
-    </label>`).join('');
+  // A posição (derrubar/manter) só faz sentido para vetos — não para PLNs.
+  const comPosicao = tipo === 'veto';
+  return filtrados.map(d => {
+    const marcado = posPorId.has(d.id);
+    const pos = posPorId.get(d.id) || '';
+    const seletorPos = comPosicao && marcado ? `
+      <div class="cn-interesse-pos">
+        <button type="button" class="cn-pos-btn cn-pos-btn--derrubar${pos === 'derrubada' ? ' ativo' : ''}" data-pos-dep="${escapeHtml(d.id)}" data-pos="derrubada">Derrubar</button>
+        <button type="button" class="cn-pos-btn cn-pos-btn--manter${pos === 'manutencao' ? ' ativo' : ''}" data-pos-dep="${escapeHtml(d.id)}" data-pos="manutencao">Manter</button>
+      </div>` : '';
+    return `<div class="cn-interesse-opt-row">
+      <label class="cn-interesse-opt">
+        <input type="checkbox" data-dep="${escapeHtml(d.id)}" ${marcado ? 'checked' : ''}>
+        <span>${escapeHtml(d.nome)}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>
+      </label>${seletorPos}
+    </div>`;
+  }).join('');
 }
 
 function abrirSeletorInteressados(key, btnEl) {
@@ -2346,6 +2365,7 @@ function abrirSeletorInteressados(key, btnEl) {
   const found = itemPorKey(key);
   if (!found) return;
   const item = found.item;
+  const tipo = found.tipo;
 
   const pop = document.createElement('div');
   pop.className = 'cn-interesse-pop';
@@ -2356,7 +2376,7 @@ function abrirSeletorInteressados(key, btnEl) {
       <input type="text" class="cn-interesse-busca" placeholder="Filtrar deputado…" autocomplete="off">
       <button class="cn-interesse-refresh" title="Atualizar a bancada pela API da Câmara">↻ bancada</button>
     </div>
-    <div class="cn-interesse-lista">${popListaHtml(item, '')}</div>`;
+    <div class="cn-interesse-lista">${popListaHtml(item, '', tipo)}</div>`;
   document.body.appendChild(pop);
 
   const r = btnEl.getBoundingClientRect();
@@ -2367,16 +2387,20 @@ function abrirSeletorInteressados(key, btnEl) {
   const buscaEl = pop.querySelector('.cn-interesse-busca');
   const refreshEl = pop.querySelector('.cn-interesse-refresh');
 
-  buscaEl.addEventListener('input', () => { listaEl.innerHTML = popListaHtml(item, buscaEl.value); });
+  buscaEl.addEventListener('input', () => { listaEl.innerHTML = popListaHtml(item, buscaEl.value, tipo); });
   listaEl.addEventListener('change', e => {
     const cb = e.target.closest('input[data-dep]');
-    if (cb) onInteresseToggle(key, cb.dataset.dep, cb.checked);
+    if (cb) { onInteresseToggle(key, cb.dataset.dep, cb.checked); listaEl.innerHTML = popListaHtml(item, buscaEl.value, tipo); }
+  });
+  listaEl.addEventListener('click', e => {
+    const pb = e.target.closest('.cn-pos-btn');
+    if (pb) { e.preventDefault(); onPosicaoToggle(key, pb.dataset.posDep, pb.dataset.pos); listaEl.innerHTML = popListaHtml(item, buscaEl.value, tipo); }
   });
   refreshEl.addEventListener('click', async () => {
     refreshEl.disabled = true; refreshEl.textContent = '↻ …';
     try { await atualizarBancadaCamara(); mostrarToast('Bancada atualizada.', 'sucesso'); }
     catch (err) { mostrarToast('Não foi possível atualizar a bancada: ' + err.message, 'erro'); }
-    finally { refreshEl.disabled = false; refreshEl.textContent = '↻ bancada'; listaEl.innerHTML = popListaHtml(item, buscaEl.value); }
+    finally { refreshEl.disabled = false; refreshEl.textContent = '↻ bancada'; listaEl.innerHTML = popListaHtml(item, buscaEl.value, tipo); }
   });
   buscaEl.focus();
 
@@ -2394,11 +2418,25 @@ function onInteresseToggle(key, depId, checked) {
   if (checked) {
     if (!item.interessados.some(d => d.id === depId)) {
       const dep = app.deputados.find(d => d.id === depId);
-      if (dep) item.interessados.push({ id: dep.id, nome: dep.nome, uf: dep.uf || '' });
+      if (dep) item.interessados.push({ id: dep.id, nome: dep.nome, uf: dep.uf || '', posicao: '' });
     }
   } else {
     item.interessados = item.interessados.filter(d => d.id !== depId);
   }
+  atualizarChipsInteresse(key);
+  agendarPersistInteresse(key);
+}
+
+// Alterna a posição do interessado (derrubada/manutenção do veto). Clicar na
+// posição já ativa a desmarca (volta a "sem posição definida").
+function onPosicaoToggle(key, depId, pos) {
+  const found = itemPorKey(key);
+  if (!found) return;
+  const item = found.item;
+  item.interessados = aArray(item.interessados);
+  const dep = item.interessados.find(d => d.id === depId);
+  if (!dep) return;
+  dep.posicao = (dep.posicao === pos) ? '' : pos;
   atualizarChipsInteresse(key);
   agendarPersistInteresse(key);
 }
