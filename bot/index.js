@@ -6,7 +6,7 @@ const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
-const { perguntar, limparConversa } = require('./src/perguntar');
+const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 
 const bot = new Bot(BOT_TOKEN);
@@ -18,6 +18,8 @@ const TEXTO_AJUDA =
   '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
+  '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
+  '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
@@ -290,7 +292,56 @@ async function fluxoPerguntar(ctx, texto) {
   }
 }
 bot.command('perguntar', ctx => fluxoPerguntar(ctx, ctx.match));
-bot.command('limpar', ctx => { limparConversa(ctx.from.id); return ctx.reply('Conversa zerada.'); });
+bot.command('limpar', ctx => { limparConversa(ctx.from.id); return ctx.reply('Conversa zerada (histórico e documentos agregados).'); });
+
+// ---------- Documentos extras (porte do seletor do painel) ----------
+async function cmdDocumentos(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await listarDocumentos({ userId: ctx.from.id, texto });
+    if (r.erro) return ctx.reply(r.erro);
+    if (!r.docs.length) {
+      return ctx.reply(`Todos os documentos da tramitação de ${r.itemLabel} já foram considerados na nota — não há extras disponíveis.`);
+    }
+    let msg = `📄 Documentos da tramitação de ${r.itemLabel} que NÃO entraram na nota técnica:\n`;
+    let grupoAtual = '';
+    r.docs.forEach((d, i) => {
+      if (d.grupo !== grupoAtual) { grupoAtual = d.grupo; msg += `\n— ${grupoAtual} —\n`; }
+      msg += `${i + 1}. ${d.rotulo}\n`;
+    });
+    msg += `\nPara incluir na conversa: /agregar 1,3 (números da lista acima).`;
+    if (!r.temAnalise) {
+      msg += `\n⚠️ Este item ainda não tem análise no painel — gere a nota primeiro para poder perguntar/agregar.`;
+    } else if (r.usadosNaNota.length) {
+      msg += `\n\nJá considerados na nota: ${r.usadosNaNota.join(' · ')}`;
+    }
+    return responderLongo(ctx, msg);
+  } catch (e) {
+    console.error('/documentos falhou:', e);
+    return ctx.reply(`Erro ao listar documentos: ${e.message}`);
+  }
+}
+bot.command('documentos', ctx => cmdDocumentos(ctx, ctx.match));
+
+bot.command('agregar', async ctx => {
+  const indices = String(ctx.match || '').split(/[,\s]+/).map(n => parseInt(n, 10)).filter(Number.isFinite);
+  if (!indices.length) return ctx.reply('Uso: /agregar 1,3 — com os números listados pelo /documentos.');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await agregarDocumentos({ userId: ctx.from.id, indices });
+    if (r.erro) return ctx.reply(r.erro);
+    let msg = r.ok.length
+      ? `✅ Agregado(s) à conversa sobre ${r.itemLabel}:\n• ${r.ok.join('\n• ')}`
+      : 'Nenhum documento novo agregado (os escolhidos já estavam na conversa).';
+    if (r.falhas.length) msg += `\n⚠️ Falhou a leitura de: ${r.falhas.join(' · ')}`;
+    msg += `\n\nPode perguntar — a IA agora considera também esse(s) documento(s). ` +
+           `(${r.total} extra(s) na conversa; /limpar remove tudo.)`;
+    return ctx.reply(msg);
+  } catch (e) {
+    console.error('/agregar falhou:', e);
+    return ctx.reply(`Erro ao agregar: ${e.message}`);
+  }
+});
 
 // ---------- listar itens (usada pelo roteador da fase 4) ----------
 async function cmdListarItens(ctx) {
@@ -310,8 +361,9 @@ async function executarDecisao(ctx, decisao) {
     case 'verificar_pauta': return cmdVerificarPauta(ctx);
     case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
     case 'listar_itens':    return cmdListarItens(ctx);
-    case 'perguntar':       return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
-    case 'ajuda':           return ctx.reply(TEXTO_AJUDA);
+    case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
+    case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
+    case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
     case 'responder':       return ctx.reply(decisao.argumentos.texto || 'Certo!');
     default:                return ctx.reply(TEXTO_AJUDA);
   }
@@ -365,13 +417,16 @@ bot.on('message:voice', async ctx => {
     if (!res.ok) throw new Error(`download do áudio: HTTP ${res.status}`);
     const buffer = new Uint8Array(await res.arrayBuffer());
 
-    // Anthropic não aceita áudio — usa o transcritor padrão do bot (Gemini).
+    // Transcrição: com TRANSCRIBE_GEMINI_KEY configurada, TODO áudio é
+    // reconhecido pelo Gemini (transcritor padrão do bot, cota gratuita) —
+    // padroniza a qualidade e não consome a chave pessoal do analista.
+    // Sem ela, cai no provedor do próprio usuário (Gemini/OpenAI aceitam
+    // áudio; a API da Anthropic não).
     let texto;
-    if (perfil.provedor === 'anthropic') {
-      if (!TRANSCRIBE_GEMINI_KEY) {
-        return ctx.reply('Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY). Envie por texto.');
-      }
+    if (TRANSCRIBE_GEMINI_KEY) {
       texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, buffer });
+    } else if (perfil.provedor === 'anthropic') {
+      return ctx.reply('Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY no .env). Envie por texto.');
     } else {
       texto = await transcreverAudio({ provedor: perfil.provedor, apiKey: perfil.apiKey, buffer });
     }

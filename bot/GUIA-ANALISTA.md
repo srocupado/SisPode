@@ -28,7 +28,9 @@ as notas técnicas e os documentos oficiais.
 | `/importar` | Importa a pauta atual para o SisPode (pede confirmação; avisa se for sobrescrever uma pauta editada pela equipe) |
 | `/perguntar PL 1234/2026 qual o impacto no SUS?` | Responde com base na **nota técnica** e nos **documentos oficiais** da matéria |
 | `/perguntar algum item é de autoria do Podemos?` | Pergunta sobre a **pauta em geral** |
-| `/limpar` | Zera a conversa atual com a IA |
+| `/documentos PL 1234/2026` | Lista os documentos da tramitação (pareceres, emendas, textos) que **não** foram considerados na nota técnica |
+| `/agregar 1,3` | Inclui na conversa os documentos listados (pelos números) — a IA passa a considerá-los nas próximas respostas |
+| `/limpar` | Zera a conversa atual com a IA (histórico e documentos agregados) |
 | `/ajuda` | Lista os comandos |
 
 Depois da primeira pergunta sobre um item, você pode continuar perguntando

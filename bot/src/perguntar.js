@@ -11,8 +11,10 @@ const { fbGet } = require('./firebase');
 const { extrairTextoPdf } = require('./parser');
 const { pautaAtualImportada } = require('./pauta');
 const { chamarIAtexto } = require('./ia');
+const { resolveProposicao, listarDocumentosDisponiveis } = require('./documentos');
 
 const CHAT_CTX_MAX  = 60000;        // teto de caracteres do contexto (igual ao painel)
+const EXTRA_DOC_MAX = 50000;        // teto por documento extra agregado (igual ao painel)
 const CONVERSA_TTL  = 60 * 60e3;    // 1 h — chat é efêmero, como no painel
 
 // ---------- Estado de conversa por usuário (em memória) ----------
@@ -123,7 +125,7 @@ async function montarContextoPauta() {
 
 // ---------- Prompt (adaptado de montarPromptChat, analise.js) ----------
 
-function montarPromptChat({ rotuloMateria, contexto, truncado, historico, pergunta }) {
+function montarPromptChat({ rotuloMateria, contexto, truncado, historico, pergunta, extras }) {
   const hist = (historico || [])
     .map(m => `${m.role === 'user' ? 'PERGUNTA' : 'RESPOSTA'}: ${m.content}`).join('\n\n');
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados. Responda à NOVA PERGUNTA do(a) assessor(a) sobre ${rotuloMateria}, baseando-se PRIORITARIAMENTE no material fornecido abaixo.
@@ -136,6 +138,7 @@ REGRAS:
 
 === MATERIAL ===
 ${contexto}
+${(extras || []).length ? `\n=== DOCUMENTOS ADICIONAIS (incluídos a pedido — também são da matéria) ===\n${extras.map(e => `\n## ${e.rotulo}${e.trunc ? ' (truncado)' : ''}\n${e.texto}`).join('\n')}\n` : ''}
 ${hist ? `\n=== CONVERSA ATÉ AQUI ===\n${hist}\n` : ''}
 === NOVA PERGUNTA ===
 ${pergunta}`;
@@ -160,16 +163,19 @@ async function perguntar({ userId, perfil, texto }) {
       return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta atual (${pauta.periodo || pauta.titulo}).` };
     }
     const chave = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
-    const analise = await carregarAnaliseMaisRecente(chave);
-    if (!analise) {
-      return { erro: `${item.sigla} ${item.numero}/${item.ano} ainda não tem análise gerada. Gere no painel "Análise de Pauta" do SisPode e pergunte de novo.` };
+    // Já era o item ativo? Mantém a conversa (histórico e documentos agregados).
+    if (!conversa || conversa.chave !== chave) {
+      const analise = await carregarAnaliseMaisRecente(chave);
+      if (!analise) {
+        return { erro: `${item.sigla} ${item.numero}/${item.ano} ainda não tem análise gerada. Gere no painel "Análise de Pauta" do SisPode e pergunte de novo.` };
+      }
+      const { contexto, truncado } = await montarContextoItem(analise);
+      conversa = {
+        chave, itemLabel: `a proposição ${item.sigla} ${item.numero}/${item.ano}`,
+        contexto, truncado, mensagens: [], extras: [], ts: Date.now(),
+      };
+      conversas.set(String(userId), conversa);
     }
-    const { contexto, truncado } = await montarContextoItem(analise);
-    conversa = {
-      chave, itemLabel: `a proposição ${item.sigla} ${item.numero}/${item.ano}`,
-      contexto, truncado, mensagens: [], ts: Date.now(),
-    };
-    conversas.set(String(userId), conversa);
   }
 
   // Sem item ativo → contexto da pauta inteira
@@ -192,6 +198,7 @@ async function perguntar({ userId, perfil, texto }) {
     contexto:      conversa.contexto,
     truncado:      conversa.truncado,
     historico:     conversa.mensagens,
+    extras:        conversa.extras,
     pergunta,
   });
 
@@ -207,4 +214,113 @@ async function perguntar({ userId, perfil, texto }) {
   return { resposta, itemLabel: conversa.itemLabel };
 }
 
-module.exports = { perguntar, limparConversa, conversaDe, extrairRefProposicao };
+// ============================================================
+//  Documentos extras — porte do seletor "documentos adicionais" do painel:
+//  lista o que a tramitação tem e NÃO entrou na nota, e agrega à conversa.
+// ============================================================
+
+// Última listagem por usuário (o /agregar referencia os números dela)
+const docsListados = new Map(); // userId → { chave, itemLabel, docs[], temAnalise, ts }
+
+/**
+ * Lista os documentos da tramitação que NÃO foram considerados na nota do
+ * item. `texto` pode citar a proposição; sem citação, usa o item ativo.
+ * Retorna { itemLabel, docs[{rotulo,url,grupo}], usadosNaNota[], temAnalise } ou { erro }.
+ */
+async function listarDocumentos({ userId, texto }) {
+  const ref = extrairRefProposicao(texto || '');
+  let item = null;
+
+  if (ref) {
+    const r = await acharItemNaPauta(ref);
+    if (!r.pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
+    if (!r.item)  return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta atual.` };
+    item = r.item;
+  } else {
+    const c = conversaDe(userId);
+    if (!c?.chave) return { erro: 'Diga qual proposição: /documentos PL 1234/2026.' };
+    const [sigla, numero, ano] = String(c.chave).split('-');
+    const r = await acharItemNaPauta({ sigla, numero, ano });
+    if (!r.item) return { erro: 'Não localizei o item ativo na pauta atual. Informe: /documentos PL 1234/2026.' };
+    item = r.item;
+  }
+
+  const chave     = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
+  const itemLabel = `${item.sigla} ${item.numero}/${item.ano}`;
+  const analise   = await carregarAnaliseMaisRecente(chave);        // pode não existir
+  const usados    = new Set((analise?.documentos || []).map(d => d.url));
+
+  const prop = await resolveProposicao(item.sigla, item.numero, item.ano);
+  if (!prop) return { erro: `Não encontrei ${itemLabel} na API da Câmara para listar a tramitação.` };
+
+  const grupos = await listarDocumentosDisponiveis({
+    idProp: prop.id,
+    urlInteiroTeor: prop.urlInteiroTeor,
+    usados,
+    incluirRedacaoFinal: item.tipoCategoria === 'redacao_final',
+  });
+
+  const docs = [];
+  for (const [grupo, lista] of Object.entries(grupos)) {
+    for (const d of lista) docs.push({ ...d, grupo });
+  }
+  docsListados.set(String(userId), { chave, itemLabel, docs, temAnalise: !!analise, ts: Date.now() });
+
+  return {
+    itemLabel, docs, temAnalise: !!analise,
+    usadosNaNota: (analise?.documentos || []).map(d => d.rotulo),
+  };
+}
+
+/**
+ * Agrega documentos (pelos números da última listagem) à conversa do item:
+ * baixa cada PDF, extrai o texto (teto de EXTRA_DOC_MAX) e passa a incluí-lo
+ * na seção "DOCUMENTOS ADICIONAIS" das próximas perguntas.
+ * Retorna { ok[], falhas[], total, itemLabel } ou { erro }.
+ */
+async function agregarDocumentos({ userId, indices }) {
+  const listagem = docsListados.get(String(userId));
+  if (!listagem || Date.now() - listagem.ts > CONVERSA_TTL) {
+    return { erro: 'Liste primeiro os documentos: /documentos PL 1234/2026 (a listagem vale 1 hora).' };
+  }
+  if (!listagem.temAnalise) {
+    return { erro: `${listagem.itemLabel} ainda não tem análise no painel — os documentos extras complementam a conversa sobre a nota. Gere a análise primeiro.` };
+  }
+  const escolhidos = indices.map(i => listagem.docs[i - 1]).filter(Boolean);
+  if (!escolhidos.length) return { erro: 'Números inválidos. Use os da listagem do /documentos, ex.: /agregar 1,3.' };
+
+  // Garante a conversa ancorada no item (mesmo fluxo do perguntar)
+  let conversa = conversaDe(userId);
+  if (!conversa || conversa.chave !== listagem.chave) {
+    const analise = await carregarAnaliseMaisRecente(listagem.chave);
+    if (!analise) return { erro: 'A análise deste item não está mais disponível no Firebase.' };
+    const { contexto, truncado } = await montarContextoItem(analise);
+    conversa = {
+      chave: listagem.chave, itemLabel: `a proposição ${listagem.itemLabel}`,
+      contexto, truncado, mensagens: [], extras: [], ts: Date.now(),
+    };
+    conversas.set(String(userId), conversa);
+  }
+  conversa.extras = conversa.extras || [];
+
+  const ok = [], falhas = [];
+  for (const d of escolhidos) {
+    if (conversa.extras.some(e => e.url === d.url)) continue; // já agregado
+    try {
+      const buf = await baixarPdf(d.url);
+      const txt = await extrairTextoPdf(buf);
+      const trunc = txt.length > EXTRA_DOC_MAX;
+      conversa.extras.push({ rotulo: d.rotulo, url: d.url, texto: trunc ? txt.slice(0, EXTRA_DOC_MAX) : txt, trunc });
+      ok.push(d.rotulo);
+    } catch (_) {
+      falhas.push(d.rotulo);
+    }
+  }
+  conversa.ts = Date.now();
+  return { ok, falhas, total: conversa.extras.length, itemLabel: listagem.itemLabel };
+}
+
+module.exports = {
+  perguntar, limparConversa, conversaDe, extrairRefProposicao,
+  listarDocumentos, agregarDocumentos,
+};
