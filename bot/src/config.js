@@ -24,6 +24,11 @@ module.exports = {
   ALLOWED_USER_IDS: (process.env.ALLOWED_USER_IDS || '')
     .split(',').map(s => s.trim()).filter(Boolean),
 
+  // Palavra-chave de acesso: quem acertá-la no privado entra sozinho na
+  // allowlist (sem precisar cadastrar o ID no .env). Vazio = desligado
+  // (fica só a aprovação manual pelo administrador).
+  SENHA_ACESSO: (process.env.SENHA_ACESSO || '').trim(),
+
   CRON_MINUTOS: Math.max(5, parseInt(process.env.CRON_MINUTOS, 10) || 30),
 
   TRANSCRIBE_GEMINI_KEY: (process.env.TRANSCRIBE_GEMINI_KEY || '').trim(),

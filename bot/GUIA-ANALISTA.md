@@ -7,8 +7,10 @@ as notas técnicas e os documentos oficiais.
 ## Primeiros passos (5 minutos)
 
 1. **Encontre o bot** no Telegram (o administrador informa o @username).
-2. Envie **/start**. Se você ainda não for autorizado(a), o bot mostra seu ID
-   e avisa o administrador — aguarde a liberação (você recebe uma mensagem).
+2. Envie **/start**. O bot pede a **palavra-chave de acesso** — peça-a ao
+   administrador, envie no privado e pronto: você entra na hora (a mensagem
+   com a palavra é apagada automaticamente). Se o bot em vez disso mostrar o
+   seu ID, é porque a equipe usa aprovação manual — aguarde a liberação.
 3. **Configure sua chave de IA** (necessária só para perguntas/voz/linguagem
    natural — os comandos básicos funcionam sem ela):
    - No **privado** do bot, envie **/config**;

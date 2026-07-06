@@ -97,9 +97,16 @@ net start SisPodeBot
 
 ## 9. Operação do dia a dia
 
-- **Aprovar analista:** quando alguém envia `/start` ao bot, você recebe no
-  privado "Pedido de acesso … " com o botão **✅ Autorizar** — um toque e
-  pronto (a pessoa é avisada automaticamente).
+- **Entrada de analistas:** com `SENHA_ACESSO` preenchida no `.env`, cada
+  analista entra sozinho — envia `/start` ao bot, o bot pede a palavra-chave,
+  a pessoa responde e pronto (a mensagem com a senha é apagada; 5 erros
+  bloqueiam por 1 hora). Você recebe um aviso a cada entrada, com o comando
+  de revogação pronto. Sem `SENHA_ACESSO`, vale o fluxo antigo: você aprova
+  cada pedido pelo botão **✅ Autorizar**.
+- **Gerenciar acessos:** `/usuarios` lista os autorizados;
+  `/revogar <id>` remove (só o administrador pode usar esses comandos).
+  Trocar a `SENHA_ACESSO` no `.env` (e reiniciar) NÃO desloga quem já entrou
+  — para tirar alguém, use `/revogar`.
 - **Chaves de IA:** cada analista configura a própria chave via `/config`
   no privado do bot. As chaves ficam APENAS no arquivo
   `C:\sispode\bot\dados\usuarios.json` desta máquina — proteja o acesso a ela.

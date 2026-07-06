@@ -2,9 +2,9 @@
 const crypto = require('crypto');
 const { Bot, InlineKeyboard } = require('grammy');
 
-const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY } = require('./src/config');
+const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO } = require('./src/config');
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
-const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar } = require('./src/store');
+const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
 const { rotear } = require('./src/router');
@@ -69,14 +69,34 @@ async function enviarLongo(api, chatId, texto, teclado) {
 }
 
 // ============================================================
-//  Allowlist — só analistas autorizados; /start pede acesso
+//  Acesso — palavra-chave (SENHA_ACESSO) ou aprovação do admin
 // ============================================================
-bot.use(async (ctx, next) => {
-  const id = String(ctx.from?.id || '');
-  if (isAutorizado(id)) return next();
+// Controle antichute: 5 erros de senha → bloqueio de 1 h.
+const tentativasSenha = new Map();  // userId → { erros, bloqueadoAte }
+const MAX_TENTATIVAS  = 5;
+const BLOQUEIO_MS     = 60 * 60e3;
 
-  if (ctx.message?.text?.startsWith('/start')) {
-    const nome = nomeDe(ctx);
+const TEXTO_BOAS_VINDAS =
+  'Você foi autorizado(a) a usar o SisPode Bot! 🎉\n\n%AJUDA%' +
+  '\n\nDica: comece configurando sua chave de IA com /config (aqui no privado).';
+
+async function tratarNaoAutorizado(ctx) {
+  const id   = String(ctx.from?.id || '');
+  const nome = nomeDe(ctx);
+  // Só interage no privado — em grupo, não autorizado é silêncio.
+  if (ctx.chat?.type !== 'private' || !ctx.message?.text) return;
+  const texto = ctx.message.text.trim();
+
+  // Qualquer comando (/start, /ajuda…) de não autorizado → convite/pedido;
+  // só texto livre conta como tentativa de senha.
+  if (texto.startsWith('/') || !SENHA_ACESSO) {
+    if (SENHA_ACESSO) {
+      return ctx.reply(
+        'Este bot é de uso interno da Liderança do Podemos.\n' +
+        '🔑 Envie a palavra-chave de acesso para entrar.');
+    }
+    // Sem senha configurada: fluxo de aprovação manual pelo administrador.
+    if (!texto.startsWith('/start')) return;
     pedidosAcesso.set(id, nome);
     await ctx.reply(
       'Este bot é de uso interno da Liderança do Podemos.\n' +
@@ -88,8 +108,44 @@ bot.use(async (ctx, next) => {
         { reply_markup: new InlineKeyboard().text('✅ Autorizar', `auth:${id}`) }
       ).catch(() => {});
     }
+    return;
   }
-  // Demais mensagens de não autorizados: silêncio.
+
+  // Texto livre de não autorizado com senha configurada = tentativa de senha.
+  const t = tentativasSenha.get(id) || { erros: 0, bloqueadoAte: 0 };
+  if (Date.now() < t.bloqueadoAte) {
+    return ctx.reply('Muitas tentativas erradas — aguarde 1 hora e tente de novo.');
+  }
+  // Apaga a mensagem (certa ou errada): senha não fica no histórico do chat.
+  await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id).catch(() => {});
+
+  if (texto.toLowerCase() === SENHA_ACESSO.toLowerCase()) {
+    autorizar(id, nome, 'senha');
+    tentativasSenha.delete(id);
+    await ctx.reply(TEXTO_BOAS_VINDAS.replace('%AJUDA%', TEXTO_AJUDA));
+    if (ADMIN_USER_ID && id !== ADMIN_USER_ID) {
+      await bot.api.sendMessage(ADMIN_USER_ID,
+        `🔓 Entrou com a palavra-chave: ${nome || '(sem nome)'} — ID ${id}\n` +
+        `(para remover: /revogar ${id})`).catch(() => {});
+    }
+    return;
+  }
+
+  t.erros++;
+  if (t.erros >= MAX_TENTATIVAS) {
+    t.bloqueadoAte = Date.now() + BLOQUEIO_MS;
+    t.erros = 0;
+    tentativasSenha.set(id, t);
+    return ctx.reply('Palavra-chave incorreta. Limite de tentativas atingido — aguarde 1 hora.');
+  }
+  tentativasSenha.set(id, t);
+  return ctx.reply(`Palavra-chave incorreta (${t.erros}/${MAX_TENTATIVAS} tentativas).`);
+}
+
+bot.use(async (ctx, next) => {
+  const id = String(ctx.from?.id || '');
+  if (isAutorizado(id)) return next();
+  return tratarNaoAutorizado(ctx);
 });
 
 bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
@@ -110,6 +166,25 @@ bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
 //  Comandos básicos
 // ============================================================
 bot.command(['start', 'ajuda'], ctx => ctx.reply(TEXTO_AJUDA));
+
+// ---------- Administração (só o ADMIN_USER_ID) ----------
+bot.command('revogar', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = String(ctx.match || '').trim();
+  if (!/^\d+$/.test(id)) return ctx.reply('Uso: /revogar <id do usuário> (veja os IDs com /usuarios).');
+  if (revogar(id)) return ctx.reply(`Acesso do ID ${id} revogado.`);
+  return ctx.reply(`O ID ${id} não está na lista dinâmica (IDs fixos do .env só saem editando o arquivo).`);
+});
+
+bot.command('usuarios', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const din = listarAutorizados();
+  const linhas = Object.entries(din).map(([id, u]) =>
+    `• ${u.nome || '(sem nome)'} — ${id} · via ${u.via || 'admin'} · ${String(u.autorizadoEm || '').slice(0, 10)}`);
+  return ctx.reply(
+    (linhas.length ? `Autorizados (dinâmicos):\n${linhas.join('\n')}` : 'Nenhum autorizado dinâmico ainda.') +
+    '\n\nPara remover: /revogar <id>. IDs fixos do .env não aparecem aqui.');
+});
 
 // ---------- FASE 1: /pauta ----------
 

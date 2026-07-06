@@ -50,10 +50,23 @@ function isAutorizado(userId) {
   return !!extra[id];
 }
 
-function autorizar(userId, nome) {
+function autorizar(userId, nome, via) {
   const extra = carregar('allowlist.json', {});
-  extra[String(userId)] = { nome: nome || '', autorizadoEm: new Date().toISOString() };
+  extra[String(userId)] = { nome: nome || '', via: via || 'admin', autorizadoEm: new Date().toISOString() };
   gravar('allowlist.json', extra);
 }
 
-module.exports = { getPerfil, setPerfil, removerChave, isAutorizado, autorizar };
+/** Remove da allowlist dinâmica. Não alcança IDs fixos do .env. */
+function revogar(userId) {
+  const extra = carregar('allowlist.json', {});
+  const tinha = !!extra[String(userId)];
+  delete extra[String(userId)];
+  gravar('allowlist.json', extra);
+  return tinha;
+}
+
+function listarAutorizados() {
+  return carregar('allowlist.json', {});
+}
+
+module.exports = { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados };
