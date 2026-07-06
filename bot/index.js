@@ -10,6 +10,8 @@ const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = requi
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { imagemVotacao } = require('./src/imagem');
+const { analisarPauta, exportarPdfPauta } = require('./src/worker');
+const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -18,6 +20,9 @@ const TEXTO_AJUDA =
   'Comandos:\n' +
   '/pauta — verifica se há Pauta da Semana nova no site da Câmara\n' +
   '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
+  '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
+  '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
+  '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
@@ -421,6 +426,125 @@ bot.command('agregar', async ctx => {
   }
 });
 
+// ---------- /analisar e /exportar (worker Puppeteer — código do painel) ----------
+let _workerOcupado = false;          // um trabalho de painel por vez
+const analisePendente = new Map();   // token → { pautaId, titulo, ts }
+
+async function cmdAnalisar(ctx) {
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('O /analisar gera as notas na SUA chave de IA — configure com /config no privado.');
+  }
+  if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
+  await ctx.replyWithChatAction('typing');
+  const pauta = await pautaAtualImportada();
+  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+  const token = crypto.randomBytes(6).toString('hex');
+  analisePendente.set(token, { pautaId: pauta.id, titulo: pauta.nome || pauta.titulo || pauta.id, ts: Date.now() });
+  return ctx.reply(
+    `Gerar as análises da pauta "${pauta.nome || pauta.titulo}" (${(pauta.itens || []).length} itens)?\n` +
+    'Itens que já têm nota são pulados; MPVs ficam de fora (edição manual). ' +
+    'As chamadas de IA rodam na SUA chave.',
+    { reply_markup: new InlineKeyboard().text('🤖 Gerar análises', `ana:ok:${token}`).text('Cancelar', `ana:no:${token}`) });
+}
+bot.command('analisar', cmdAnalisar);
+
+bot.callbackQuery(/^ana:(ok|no):([a-f0-9]+)$/, async ctx => {
+  const [, acao, token] = ctx.match;
+  const pend = analisePendente.get(token);
+  analisePendente.delete(token);
+  if (!pend || Date.now() - pend.ts > IMPORT_TTL) {
+    return ctx.answerCallbackQuery({ text: 'Pedido expirado — use /analisar de novo.', show_alert: true });
+  }
+  if (acao === 'no') {
+    await ctx.answerCallbackQuery({ text: 'Cancelado.' });
+    return ctx.editMessageText('Geração cancelada.');
+  }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.answerCallbackQuery({ text: 'Configure sua chave com /config.', show_alert: true });
+  if (_workerOcupado) return ctx.answerCallbackQuery({ text: 'Worker ocupado — tente em instantes.', show_alert: true });
+  await ctx.answerCallbackQuery();
+  _workerOcupado = true;
+  await ctx.editMessageText(`⚙️ Abrindo o painel no worker para "${pend.titulo}"…`);
+  try {
+    const final = await analisarPauta({
+      perfil, pautaId: pend.pautaId,
+      onProgress: p => ctx.editMessageText(
+        `🤖 Gerando análises de "${pend.titulo}"… ${p.ok}/${p.total}` +
+        (p.erro ? ` · ${p.erro} falha(s)` : '') + (p.gerando ? ' (em andamento)' : '')
+      ).catch(() => {}),
+    });
+    await ctx.editMessageText(
+      `✅ Análises de "${pend.titulo}": ${final.ok}/${final.total} prontas` +
+      (final.erro ? ` · ${final.erro} falha(s) — tente de novo mais tarde ou gere no painel` : '') +
+      '.\nJá estão no painel de todos e o /perguntar responde sobre os itens.');
+  } catch (e) {
+    console.error('/analisar falhou:', e);
+    await ctx.editMessageText(`Erro na geração: ${e.message}`).catch(() => {});
+  } finally {
+    _workerOcupado = false;
+  }
+});
+
+async function cmdExportar(ctx) {
+  if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
+  await ctx.replyWithChatAction('typing');
+  const pauta = await pautaAtualImportada();
+  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+  _workerOcupado = true;
+  const aviso = await ctx.reply(`📄 Gerando o PDF institucional de "${pauta.nome || pauta.titulo}"… (1–3 min)`);
+  try {
+    const r = await exportarPdfPauta({ perfil: getPerfil(ctx.from.id), pautaId: pauta.id });
+    await ctx.replyWithChatAction('upload_document');
+    await ctx.replyWithDocument(
+      new InputFile(r.pdf, `${String(r.titulo).replace(/[^\w\- ]+/g, '').trim() || 'pauta'}.pdf`),
+      { caption: `${r.titulo} — ${r.numItens} itens · PDF institucional gerado pelo SisPode Bot` });
+    await ctx.api.deleteMessage(aviso.chat.id, aviso.message_id).catch(() => {});
+  } catch (e) {
+    console.error('/exportar falhou:', e);
+    await ctx.api.editMessageText(aviso.chat.id, aviso.message_id, `Erro ao gerar o PDF: ${e.message}`).catch(() => {});
+  } finally {
+    _workerOcupado = false;
+  }
+}
+bot.command('exportar', cmdExportar);
+
+// ---------- Receber a pauta em PDF pelo chat ----------
+bot.on('message:document', async ctx => {
+  if (!ehPrivado(ctx)) return;   // só no privado
+  const doc = ctx.message.document;
+  const ehPdf = doc.mime_type === 'application/pdf' || /\.pdf$/i.test(doc.file_name || '');
+  if (!ehPdf) return ctx.reply('Só sei importar pautas em PDF.');
+  if (doc.file_size > 20 * 1024 * 1024) return ctx.reply('PDF acima de 20 MB — o Telegram não deixa o bot baixar. Importe pelo painel.');
+
+  await ctx.replyWithChatAction('typing');
+  try {
+    const file = await ctx.getFile();
+    const res = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`);
+    if (!res.ok) throw new Error(`download: HTTP ${res.status}`);
+    const texto  = await extrairTextoPdf(new Uint8Array(await res.arrayBuffer()));
+    const parsed = parsearPauta(texto);
+    if (!parsed.itens.length) {
+      return ctx.reply('Não identifiquei itens nesse PDF — ele está num dos formatos de pauta conhecidos (oficial da Câmara ou dashboard da Liderança)?');
+    }
+    const docFb = montarPautaFirebase(parsed, `bot-telegram (${nomeDe(ctx)})`, doc.file_name || 'pauta.pdf');
+    const token = crypto.randomBytes(6).toString('hex');
+    importPendente.set(token, { doc: docFb, ts: Date.now() });
+
+    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.`;
+    if (await pautaJaExiste(docFb.id)) {
+      return ctx.reply(
+        `${cab}\n⚠️ Já existe pauta com esse período no SisPode (pode ter edições da equipe). Sobrescrever?`,
+        { reply_markup: new InlineKeyboard().text('⚠️ Sobrescrever', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+    }
+    return ctx.reply(`${cab}\nImportar para o SisPode?`,
+      { reply_markup: new InlineKeyboard().text('✅ Importar', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+  } catch (e) {
+    console.error('importação por PDF falhou:', e);
+    return ctx.reply(`Erro ao ler o PDF: ${e.message}`);
+  }
+});
+
 // ---------- Votação: placar da bancada como IMAGEM ----------
 function hojeBrasiliaISO() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
@@ -503,6 +627,8 @@ async function executarDecisao(ctx, decisao) {
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
+    case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
+    case 'exportar':           return cmdExportar(ctx);
     case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
     case 'responder':       return ctx.reply(decisao.argumentos.texto || 'Certo!');
     default:                return ctx.reply(TEXTO_AJUDA);

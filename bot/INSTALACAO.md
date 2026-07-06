@@ -86,6 +86,15 @@ Deve aparecer `SisPode Bot online como @seu_bot`. No Telegram, teste:
 Painel de Controle → Opções de Energia → **Nunca suspender**
 (o monitor pode desligar; a máquina não).
 
+## 7b. O worker do /analisar e /exportar
+
+O `npm install` baixa um **Chromium** (~170 MB) usado pelo bot como "worker":
+ele abre a própria extensão SisPode invisível e executa o painel de Análise
+por dentro (gerar análises, montar o PDF institucional). Nada precisa ficar
+aberto na tela. Se a rede bloquear o download do Chromium no `npm install`,
+aponte `PUPPETEER_EXECUTABLE_PATH` no `.env` para um Chrome já instalado.
+Para diagnosticar o worker com janela visível: `BOT_WORKER_VISIVEL=1`.
+
 ## 8. Atualizar o bot
 
 ```

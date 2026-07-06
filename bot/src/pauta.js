@@ -192,14 +192,14 @@ function gerarIdPauta(periodo, fileName) {
  * enxutos, sem campos transientes (enriquecimento/analise) — a extensão os
  * repõe ao carregar.
  */
-function montarPautaFirebase(parsed, uploadedBy) {
+function montarPautaFirebase(parsed, uploadedBy, pdfNome = 'pauta_s.pdf') {
   return {
-    id:         gerarIdPauta(parsed.periodo, 'pauta_s.pdf'),
+    id:         gerarIdPauta(parsed.periodo, pdfNome),
     titulo:     parsed.titulo || 'Pauta da Semana',
     periodo:    parsed.periodo || '',
     uploadedAt: new Date().toISOString(),
     uploadedBy: uploadedBy || 'bot-telegram',
-    pdfNome:    'pauta_s.pdf',
+    pdfNome,
     itens: parsed.itens.map((it, i) => ({
       ordem:             it.ordem ?? (i + 1),
       tipoCategoria:     it.tipoCategoria || 'projeto',

@@ -28,6 +28,9 @@ as notas técnicas e os documentos oficiais.
 |---|---|
 | `/pauta` | Verifica se há Pauta da Semana nova no site da Câmara |
 | `/importar` | Importa a pauta atual para o SisPode (pede confirmação; avisa se for sobrescrever uma pauta editada pela equipe) |
+| *(enviar um PDF de pauta no privado)* | O bot identifica os itens e oferece a importação — serve para a pauta do dashboard, que não fica em URL pública |
+| `/analisar` | Gera as notas técnicas da pauta importada — mesmo fluxo do "Gerar todas" do painel, rodando na **sua** chave (pede confirmação e mostra o progresso) |
+| `/exportar` | Gera e envia o **PDF institucional** da pauta com as análises (idêntico ao do painel) |
 | `/perguntar PL 1234/2026 qual o impacto no SUS?` | Responde com base na **nota técnica** e nos **documentos oficiais** da matéria |
 | `/perguntar algum item é de autoria do Podemos?` | Pergunta sobre a **pauta em geral** |
 | `/documentos PL 1234/2026` | Lista os documentos da tramitação (pareceres, emendas, textos) que **não** foram considerados na nota técnica |
