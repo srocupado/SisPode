@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId } = require('./src/pauta');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
@@ -11,6 +11,7 @@ const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia } = require('./src/odd');
+const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
@@ -25,6 +26,7 @@ const TEXTO_AJUDA =
   '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
   '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
   '/ordemdodia — importa a Ordem do Dia (pauta diária) da sessão de hoje\n' +
+  '/sispode — lista as pautas do SisPode e deixa você ESCOLHER qual usar\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
@@ -466,7 +468,7 @@ async function cmdAnalisar(ctx) {
   }
   if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
   await ctx.replyWithChatAction('typing');
-  const pauta = await pautaAtualImportada();
+  const pauta = await pautaDoUsuario(ctx.from.id);
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
   const token = crypto.randomBytes(6).toString('hex');
   analisePendente.set(token, { pautaId: pauta.id, titulo: pauta.nome || pauta.titulo || pauta.id, ts: Date.now() });
@@ -518,7 +520,7 @@ bot.callbackQuery(/^ana:(ok|no):([a-f0-9]+)$/, async ctx => {
 async function cmdExportar(ctx) {
   if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
   await ctx.replyWithChatAction('typing');
-  const pauta = await pautaAtualImportada();
+  const pauta = await pautaDoUsuario(ctx.from.id);
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
   _workerOcupado = true;
   const aviso = await ctx.reply(`📄 Gerando o PDF institucional de "${pauta.nome || pauta.titulo}"… (1–3 min)`);
@@ -714,12 +716,11 @@ function linhasItensPauta(pauta) {
 
 async function cmdListarItens(ctx) {
   await ctx.replyWithChatAction('typing');
-  const pauta = await pautaAtualImportada();
+  const pauta = await pautaDoUsuario(ctx.from.id);
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
   return responderLongo(ctx,
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
-    `ℹ️ Esta é a pauta mais recente que a equipe importou — para ver a pauta ` +
-    `semanal publicada no site da Câmara, use /pauta.\n\n${linhasItensPauta(pauta)}`);
+    `ℹ️ Para trocar de pauta use /sispode; para a pauta publicada no site, /pauta.\n\n${linhasItensPauta(pauta)}`);
 }
 
 // Escolha de uma das últimas pautas do Firebase (botões do /pauta quando o
@@ -737,6 +738,45 @@ bot.callbackQuery(/^psel:([a-f0-9]+)$/, async ctx => {
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n\n` +
     `${linhasItensPauta(pauta)}\n\n` +
     'Para perguntar sobre um item: /perguntar ' + (pauta.itens?.[0] ? `${pauta.itens[0].sigla} ${pauta.itens[0].numero}/${pauta.itens[0].ano} ` : 'PL 1234/2026 ') + '<sua pergunta>');
+});
+
+// ---------- /sispode — lista as pautas do SisPode e fixa a que o usuário quer usar ----------
+async function cmdSisPode(ctx) {
+  await ctx.replyWithChatAction('typing');
+  const pautas = await ultimasPautas(8).catch(() => []);
+  if (!pautas.length) {
+    return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar, /ordemdodia ou me envie o PDF da pauta.');
+  }
+  const atual = await pautaDoUsuario(ctx.from.id).catch(() => null);
+  const kb = new InlineKeyboard();
+  for (const p of pautas) {
+    const token = crypto.randomBytes(4).toString('hex');
+    pautaEscolha.set(token, { id: p.id, ts: Date.now() });
+    const marca = atual && atual.id === p.id ? '✅ ' : '';
+    kb.text(`${marca}${rotuloPauta(p)} · ${(p.itens || []).length} itens`.slice(0, 62), `pusar:${token}`).row();
+  }
+  return ctx.reply(
+    '📚 Pautas no SisPode — escolha qual usar. A escolhida vale para /listar, ' +
+    '/perguntar, /analisar e /exportar (por ~12h ou até você trocar):',
+    { reply_markup: kb });
+}
+bot.command('sispode', cmdSisPode);
+
+// Fixa a pauta escolhida como ATIVA do usuário e mostra seus itens.
+bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const esc = pautaEscolha.get(ctx.match[1]);
+  pautaEscolha.delete(ctx.match[1]);
+  if (!esc || Date.now() - esc.ts > IMPORT_TTL) {
+    return ctx.reply('Escolha expirada — use /sispode de novo.');
+  }
+  const pauta = await pautaPorId(esc.id);
+  if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
+  definirPautaAtiva(ctx.from.id, esc.id);
+  limparConversa(ctx.from.id);   // a conversa anterior podia estar noutra pauta
+  return responderLongo(ctx,
+    `✅ Agora você está usando: ${rotuloPauta(pauta)}.\n` +
+    `Vale para /listar, /perguntar, /analisar e /exportar.\n\n${linhasItensPauta(pauta)}`);
 });
 
 // ---------- /ordemdodia — importa a Ordem do Dia (pauta diária) da sessão ----------
@@ -784,6 +824,7 @@ async function executarDecisao(ctx, decisao) {
     case 'verificar_pauta': return cmdVerificarPauta(ctx);
     case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
     case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
+    case 'sispode':         return cmdSisPode(ctx);
     case 'listar_itens':    return cmdListarItens(ctx);
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');

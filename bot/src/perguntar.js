@@ -9,7 +9,8 @@
 
 const { fbGet } = require('./firebase');
 const { extrairTextoPdf } = require('./parser');
-const { pautaAtualImportada, rotuloPauta } = require('./pauta');
+const { rotuloPauta } = require('./pauta');
+const { pautaDoUsuario } = require('./sessao');
 const { chamarIAtexto } = require('./ia');
 const { resolveProposicao, listarDocumentosDisponiveis } = require('./documentos');
 
@@ -44,8 +45,8 @@ function extrairRefProposicao(texto) {
   return { sigla: m[1], numero: parseInt(m[2], 10), ano };
 }
 
-async function acharItemNaPauta(ref) {
-  const pauta = await pautaAtualImportada();
+// Localiza o item numa pauta já resolvida (a ativa do usuário).
+function acharItemNaPauta(ref, pauta) {
   if (!pauta) return { pauta: null, item: null };
   const item = (pauta.itens || []).find(it =>
     it.sigla === ref.sigla && String(it.numero) === String(ref.numero) && String(it.ano) === String(ref.ano));
@@ -246,8 +247,7 @@ async function resolverAutoriaPauta(pauta) {
 }
 
 /** Contexto da PAUTA inteira (leve — sem baixar PDF): itens + autoria Podemos + análises. */
-async function montarContextoPauta() {
-  const pauta = await pautaAtualImportada();
+async function montarContextoPauta(pauta) {
   if (!pauta) return null;
   const autoria = await resolverAutoriaPauta(pauta).catch(() => new Map());
 
@@ -329,10 +329,11 @@ async function perguntar({ userId, perfil, texto }) {
 
   // Nova referência de item na mensagem → (re)ancora a conversa nesse item
   if (ref) {
-    const { pauta, item } = await acharItemNaPauta(ref);
+    const pauta = await pautaDoUsuario(userId);
     if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
+    const { item } = acharItemNaPauta(ref, pauta);
     if (!item) {
-      return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta atual (${pauta.periodo || pauta.titulo}).` };
+      return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso (${pauta.periodo || pauta.titulo}). Troque de pauta com /sispode se precisar.` };
     }
     const chave = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
     // Já era o item ativo? Mantém a conversa (histórico e documentos agregados).
@@ -353,11 +354,13 @@ async function perguntar({ userId, perfil, texto }) {
 
   // Sem item ativo → contexto da pauta inteira
   if (!conversa) {
-    const geral = await montarContextoPauta();
+    const pauta = await pautaDoUsuario(userId);
+    if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
+    const geral = await montarContextoPauta(pauta);
     if (!geral) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
     conversa = {
-      chave: null, itemLabel: 'a Pauta da Semana',
-      pautaRef: rotuloPauta(geral.pauta),
+      chave: null, itemLabel: 'a pauta em uso',
+      pautaRef: rotuloPauta(pauta),
       contexto: geral.contexto, truncado: geral.truncado, mensagens: [], ts: Date.now(),
     };
     conversas.set(String(userId), conversa);
@@ -403,19 +406,20 @@ const docsListados = new Map(); // userId → { chave, itemLabel, docs[], temAna
  */
 async function listarDocumentos({ userId, texto }) {
   const ref = extrairRefProposicao(texto || '');
+  const pauta = await pautaDoUsuario(userId);
+  if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
   let item = null;
 
   if (ref) {
-    const r = await acharItemNaPauta(ref);
-    if (!r.pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
-    if (!r.item)  return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta atual.` };
+    const r = acharItemNaPauta(ref, pauta);
+    if (!r.item)  return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso.` };
     item = r.item;
   } else {
     const c = conversaDe(userId);
     if (!c?.chave) return { erro: 'Diga qual proposição: /documentos PL 1234/2026.' };
     const [sigla, numero, ano] = String(c.chave).split('-');
-    const r = await acharItemNaPauta({ sigla, numero, ano });
-    if (!r.item) return { erro: 'Não localizei o item ativo na pauta atual. Informe: /documentos PL 1234/2026.' };
+    const r = acharItemNaPauta({ sigla, numero, ano }, pauta);
+    if (!r.item) return { erro: 'Não localizei o item ativo na pauta em uso. Informe: /documentos PL 1234/2026.' };
     item = r.item;
   }
 
