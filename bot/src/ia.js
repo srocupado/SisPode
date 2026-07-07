@@ -118,9 +118,12 @@ const VOCAB_LEGISLATIVO =
  * Gemini e OpenAI aceitam áudio nas próprias APIs; Anthropic não — o
  * chamador deve usar a chave-fallback de transcrição (TRANSCRIBE_GEMINI_KEY).
  */
-async function transcreverAudio({ provedor, apiKey, buffer, mime = 'audio/ogg' }) {
+async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audio/ogg' }) {
   if (provedor === 'gemini') {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+    // Adota o modelo do /modelo do usuário quando for da família Gemini
+    // (o transcritor-fallback pode receber perfil Anthropic — aí usa o padrão).
+    const m = (modelo && /^gemini/i.test(modelo)) ? modelo : PROVEDORES.gemini.modeloPadrao;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
     const body = {
       contents: [{
         parts: [

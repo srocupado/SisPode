@@ -715,11 +715,12 @@ bot.on('message:voice', async ctx => {
     // áudio; a API da Anthropic não).
     let texto;
     if (TRANSCRIBE_GEMINI_KEY) {
-      texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, buffer });
+      // Modelo do /modelo do usuário quando for Gemini; senão o padrão do provedor
+      texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, modelo: perfil.modelo, buffer });
     } else if (perfil.provedor === 'anthropic') {
       return ctx.reply('Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY no .env). Envie por texto.');
     } else {
-      texto = await transcreverAudio({ provedor: perfil.provedor, apiKey: perfil.apiKey, buffer });
+      texto = await transcreverAudio({ provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo, buffer });
     }
     if (!texto) return ctx.reply('Não consegui transcrever o áudio — tente de novo ou envie por texto.');
 
