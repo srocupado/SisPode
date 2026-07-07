@@ -945,16 +945,9 @@ bot.on('message:voice', async ctx => {
 });
 
 // ============================================================
-//  Cron: seg–sex, 7h–21h (Brasília), a cada CRON_MINUTOS
+//  Cron: TODOS os dias, 24h, a cada CRON_MINUTOS — pauta é política e
+//  pode ser publicada a qualquer hora (inclusive fim de semana/madrugada).
 // ============================================================
-function horarioUtilBrasilia() {
-  const partes = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo', weekday: 'short', hour: 'numeric', hour12: false,
-  }).formatToParts(new Date());
-  const dia  = partes.find(p => p.type === 'weekday').value;          // 'Mon' … 'Sun'
-  const hora = parseInt(partes.find(p => p.type === 'hour').value, 10);
-  return !['Sat', 'Sun'].includes(dia) && hora >= 7 && hora <= 21;
-}
 
 // Destinatários do aviso: todos os analistas autorizados, no PRIVADO
 // (admin + IDs fixos do .env + quem entrou pela palavra-chave/aprovação).
@@ -967,7 +960,6 @@ function destinatariosAviso() {
 }
 
 async function tickCron() {
-  if (!horarioUtilBrasilia()) return;
   try {
     const r = await verificarPautaNova();
     // Só vale um aviso quando: mudou o período E a semana não está encerrada
