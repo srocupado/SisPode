@@ -10,7 +10,7 @@ const PROVEDORES = {
     label: 'Google Gemini',
     hintChave: 'Obtenha em aistudio.google.com → Get API key',
     regexChave: /^[\w.-]{20,}$/,
-    modeloPadrao: 'gemini-2.5-flash',
+    modeloPadrao: 'gemini-3.1-flash-lite',
   },
   openai: {
     label: 'OpenAI (ChatGPT)',
