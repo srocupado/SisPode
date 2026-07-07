@@ -90,10 +90,22 @@ async function descricaoCurta(ref) {
 }
 
 // ---------- Estado persistido por sessão ----------
+// ATENÇÃO: o RTDB não armazena objetos vazios — um estado salvo sem itens volta
+// SEM a chave `itens`. Normalizar aqui é obrigatório: sem isso, após um reinício
+// do bot, `est.itens[...]` explode em TypeError e o tick do painel morre em
+// silêncio (foi exatamente o que engoliu a votação nominal de 07/07 às 20h27).
 async function carregarEstado(eventoId) {
   let e = null;
   try { e = await fbGet(`/bot/monitor_sessao/${eventoId}`); } catch (_) {}
-  return e || { inicioAnunciado: false, oddAnunciado: false, itens: {}, resumoEnviado: false };
+  e = e || {};
+  return {
+    inicioAnunciado: !!e.inicioAnunciado,
+    oddAnunciado:    !!e.oddAnunciado,
+    oddOferecida:    !!e.oddOferecida,
+    oddImportada:    !!e.oddImportada,
+    resumoEnviado:   !!e.resumoEnviado,
+    itens:           e.itens || {},
+  };
 }
 function marcar(eventoId, patch) {
   fbPatch(`/bot/monitor_sessao/${eventoId}`, patch).catch(() => {});
@@ -180,6 +192,7 @@ async function tickPainel() {
     }
 
     for (const item of itens) {
+      try {
       // Destaques/DVS (nominais ou simbólicos): o bot NÃO entra na votação
       // (sem mensagem de abertura P1, sem imagem). Exceção controlada: se a
       // equipe PREPAROU material no módulo de Destaques (explicação/voto
@@ -238,6 +251,10 @@ async function tickPainel() {
           reg.encerramento = true;
           marcar(_sessao.id, { [`itens/${item.id}/encerramento`]: true });
         }
+      }
+      } catch (eItem) {
+        // Um item com problema não pode calar os demais nem os próximos ticks.
+        console.warn(`[monitor] item ${item.id} falhou neste tick:`, eItem.message);
       }
     }
   } catch (e) {
