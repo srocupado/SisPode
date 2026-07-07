@@ -177,6 +177,11 @@ bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
 // ============================================================
 bot.command(['start', 'ajuda'], ctx => ctx.reply(TEXTO_AJUDA));
 
+// Descobrir IDs sem sair do Telegram (útil p/ configurar GRUPO_CHAT_ID)
+bot.command('id', ctx => ctx.reply(
+  `ID deste chat: ${ctx.chat.id}\nSeu user_id: ${ctx.from.id}` +
+  (ctx.chat.type !== 'private' ? '\n(use o ID do chat no GRUPO_CHAT_ID do .env)' : '')));
+
 // ---------- Administração (só o ADMIN_USER_ID) ----------
 bot.command('revogar', async ctx => {
   if (String(ctx.from.id) !== ADMIN_USER_ID) return;
