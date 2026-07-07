@@ -238,6 +238,8 @@ REGRAS:
 - Cite o dispositivo, artigo ou trecho do documento quando possível.
 - Se a resposta NÃO constar no material, diga "não consta nos documentos" e, se útil, ofereça uma ponderação deixando claro que é inferência, não fato do documento.
 - Não invente números de lei, dispositivos, datas, valores ou nomes.
+- NÃO afirme situação de tramitação, parecer ou voto do relator, acolhimento/rejeição em comissão (CCJC, CFT etc.), existência de substitutivo/emenda, apensamento nem resultado de votação, A MENOS que isso apareça LITERALMENTE no material. Trechos rotulados "Início da nota técnica" são apenas o começo do texto — não deduza a conclusão, o parecer nem o encaminhamento a partir deles.
+- Sobre autoria/coautoria do Podemos, use SOMENTE o que estiver marcado como verificado ("✔ AUTORIA PODEMOS", "✔ APENSADA DE AUTORIA/COAUTORIA PODEMOS" ou o resumo de autoria no topo). Não infira filiação partidária por conta própria.
 - Responda em Português do Brasil, de forma direta e objetiva. A resposta será lida no Telegram: use texto corrido e travessões, sem cabeçalhos Markdown.${truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
 
 === MATERIAL ===
