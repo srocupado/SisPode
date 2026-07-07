@@ -99,21 +99,97 @@ async function montarContextoItem(analise) {
   return { contexto: truncado ? ctx.slice(0, CHAT_CTX_MAX) : ctx, truncado };
 }
 
-// ---------- Autoria Podemos por item (via API da Câmara, como o painel) ----------
+// ---------- Autoria Podemos por item (via API da Câmara — MESMA lógica do painel) ----------
 // A pauta salva só tem o nome do autor (autorTexto), não o partido. Aqui
-// resolvemos, por item, se algum autor é deputado do Podemos HOJE — cruzando
-// os IDs dos autores com a bancada PODE (mesma base do painel). Cache por pauta.
-let _rosterPodeIds = null;
-const _autoriaCache = new Map();   // pautaId → Map(chave → { ehPode, autores[] })
+// reproduzimos exatamente o enriquecerItem/resolverApensados da extensão
+// (analise.js) para que bot e painel NUNCA divirjam:
+//   - autoria por deputado: /deputados/{id}.ultimoStatus.siglaPartido === PODE
+//   - autor principal (1º signatário, ordemAssinatura=1) vs coautor
+//   - apensados pela cadeia real da API (/relacionadas + raiz uriPropPrincipal),
+//     não pelo texto do PDF — pega apensadas que o PDF não lista, e só as que
+//     pertencem à mesma cadeia de apensamento.
+const SIGLA_PODE = 'PODE';
+const _autoriaCache = new Map();   // pautaId → Map(chave → entrada)
+const _depCache = new Map();       // idDep → siglaPartido | null
+const _detCache = new Map();       // idProp → detalhe.dados | null
 
-async function rosterPodeIds() {
-  if (_rosterPodeIds) return _rosterPodeIds;
+async function fetchJsonCamara(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+/** Partido atual de um deputado (ultimoStatus), como fetchInfoDeputado do painel. */
+async function siglaPartidoDep(idDep) {
+  if (_depCache.has(idDep)) return _depCache.get(idDep);
+  let sig = null;
   try {
-    const r = await fetch(`${API_CAMARA}/deputados?siglaPartido=PODE&itens=100`);
-    const dados = (await r.json()).dados || [];
-    _rosterPodeIds = new Set(dados.map(d => d.id));
-  } catch (_) { _rosterPodeIds = new Set(); }
-  return _rosterPodeIds;
+    const j = await fetchJsonCamara(`${API_CAMARA}/deputados/${idDep}`);
+    sig = j.dados?.ultimoStatus?.siglaPartido || null;
+  } catch (_) { sig = null; }
+  _depCache.set(idDep, sig);
+  return sig;
+}
+
+/** Autores de uma proposição marcando quais são do Podemos + ordem de assinatura. */
+async function autoresProp(idProp) {
+  const j = await fetchJsonCamara(`${API_CAMARA}/proposicoes/${idProp}/autores`);
+  const autores = j.dados || [];
+  const out = [];
+  for (const a of autores) {
+    const idDep = Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1]) || null;
+    const isPode = idDep ? (await siglaPartidoDep(idDep)) === SIGLA_PODE : false;
+    out.push({ nome: a.nome, ordem: a.ordemAssinatura, idDep, isPode });
+  }
+  return out;
+}
+
+/**
+ * Resumo de autoria Podemos de UMA proposição: { ehPode, principal, autores[] }.
+ * principal = há autor(a) Podemos como 1º signatário (ordemAssinatura=1); sem
+ * info de ordem (dados antigos), assume principal — igual ao painel.
+ */
+async function autoriaPodeDe(idProp) {
+  const autores = await autoresProp(idProp);
+  const pode = autores.filter(a => a.isPode);
+  if (!pode.length) return { ehPode: false, principal: false, autores: [] };
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  const principal = temOrdem ? pode.some(a => Number(a.ordem) === 1) : true;
+  return { ehPode: true, principal, autores: pode.map(a => a.nome) };
+}
+
+// ----- Apensados pela cadeia real da API (porte de fetchApensados do painel) -----
+async function detalheProp(id) {
+  if (_detCache.has(id)) return _detCache.get(id);
+  let d = null;
+  try { d = (await fetchJsonCamara(`${API_CAMARA}/proposicoes/${id}`)).dados || null; }
+  catch (_) { d = null; }
+  _detCache.set(id, d);
+  return d;
+}
+const _idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
+async function raizApensamento(id, depth = 0) {
+  if (depth > 6) return id;
+  const pai = _idDaUri((await detalheProp(id))?.uriPropPrincipal);
+  return pai ? raizApensamento(pai, depth + 1) : id;
+}
+/** Apensadas que compartilham a raiz de apensamento da proposição-alvo. */
+async function apensadosDe(idProp) {
+  let rel = [];
+  try { rel = (await fetchJsonCamara(`${API_CAMARA}/proposicoes/${idProp}/relacionadas`)).dados || []; }
+  catch (_) { return []; }
+  if (!rel.length) return [];
+  const raizAlvo = await raizApensamento(Number(idProp));
+  const out = [];
+  for (const r of rel) {
+    const d = await detalheProp(r.id);
+    if (!d) continue;
+    const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
+    if (!d.uriPropPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
+    if (await raizApensamento(r.id) !== raizAlvo) continue;
+    out.push({ id: r.id, sigla: r.siglaTipo, numero: r.numero, ano: r.ano });
+  }
+  return out;
 }
 
 async function mapLimit(itens, limite, fn) {
@@ -132,50 +208,37 @@ function alvoAutoria(it) {
 }
 
 /**
- * Autoria/coautoria de UMA proposição: cruza TODOS os autores (inclui
- * coautores — /autores devolve a lista completa) com a bancada PODE.
- * Retorna { ehPode, autores[] } (autores = só os do Podemos) ou null em falha.
+ * Autoria/coautoria Podemos de cada item da pauta, resolvida como o painel.
+ * entrada = { ehPode, principal, autores[], apensadosPode:[{rotulo,autores,principal}] }
+ *   ehPode: true/false, ou null quando não foi possível verificar (não afirma).
+ * Cache por pauta.id.
  */
-async function autoriaProposicao({ sigla, numero, ano }, idsPode) {
-  const prop = await resolveProposicao(sigla, numero, ano);
-  if (!prop) return null;
-  const aut = await (await fetch(`${API_CAMARA}/proposicoes/${prop.id}/autores`)).json();
-  const autores = aut.dados || [];
-  const idDep = a => Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1]);
-  const podeAutores = autores.filter(a => idsPode.has(idDep(a)));
-  return { ehPode: podeAutores.length > 0, autores: podeAutores.map(a => a.nome) };
-}
-
 async function resolverAutoriaPauta(pauta) {
   if (_autoriaCache.has(pauta.id)) return _autoriaCache.get(pauta.id);
-  const idsPode = await rosterPodeIds();
   const mapa = new Map();
   await mapLimit(pauta.itens || [], 4, async (it) => {
     const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
-    const entrada = { ehPode: null, autores: [], apensadosPode: [] };
-
-    // 1) Proposição principal (para urgência, o projeto urgenciado)
+    const entrada = { ehPode: null, principal: false, autores: [], apensadosPode: [] };
     try {
       const alvo = alvoAutoria(it);
       if (String(alvo.sigla).toUpperCase() === 'REQ') {
-        entrada.ehPode = false;
+        entrada.ehPode = false;               // requerimento sem projeto-alvo
       } else {
-        const r = await autoriaProposicao(alvo, idsPode);
-        if (r) { entrada.ehPode = r.ehPode; entrada.autores = r.autores; }
-      }
-    } catch (_) { /* ehPode fica null — não determinado, não afirma */ }
-
-    // 2) Apensadas listadas no PDF oficial da pauta (autoria/coautoria também
-    //    conta). REQ/REC apensados são recursos/requerimentos, não projetos.
-    for (const ap of (it.apensadosTexto || [])) {
-      if (/^(REQ|REC)$/i.test(ap.sigla)) continue;
-      try {
-        const r = await autoriaProposicao(ap, idsPode);
-        if (r?.ehPode) {
-          entrada.apensadosPode.push({ rotulo: `${ap.sigla} ${ap.numero}/${ap.ano}`, autores: r.autores });
+        const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
+        if (prop) {
+          const a = await autoriaPodeDe(prop.id);
+          entrada.ehPode = a.ehPode; entrada.principal = a.principal; entrada.autores = a.autores;
+          // Apensadas pela cadeia real da API (mesma da extensão), com autoria/coautoria
+          for (const ap of await apensadosDe(prop.id)) {
+            const ra = await autoriaPodeDe(ap.id).catch(() => ({ ehPode: false }));
+            if (ra.ehPode) entrada.apensadosPode.push({
+              rotulo: `${ap.sigla} ${ap.numero}/${ap.ano}`, autores: ra.autores, principal: ra.principal,
+            });
+          }
         }
-      } catch (_) { /* apensado não verificado — segue os demais */ }
-    }
+        // prop nulo → ehPode fica null (não verificado)
+      }
+    } catch (_) { /* falha → mantém o que já preencheu; ehPode null se nem a principal saiu */ }
     mapa.set(chave, entrada);
   });
   _autoriaCache.set(pauta.id, mapa);
@@ -200,14 +263,16 @@ async function montarContextoPauta() {
     } catch (_) {}
     let linhaAutoria = '';
     if (aut?.ehPode === true) {
-      linhaAutoria = `  ✔ AUTORIA PODEMOS${aut.autores.length ? ` (${aut.autores.join(', ')})` : ''}\n`;
-      podemosItens.push(`${it.sigla} ${it.numero}/${it.ano}${aut.autores.length ? ` — ${aut.autores.join(', ')}` : ''}`);
+      const tipo = aut.principal ? 'AUTORIA' : 'COAUTORIA';
+      linhaAutoria = `  ✔ ${tipo} PODEMOS${aut.autores.length ? ` (${aut.autores.join(', ')})` : ''}\n`;
+      podemosItens.push(`${it.sigla} ${it.numero}/${it.ano} [${aut.principal ? 'autoria' : 'coautoria'}]${aut.autores.length ? ` — ${aut.autores.join(', ')}` : ''}`);
     } else if (aut?.ehPode === null) {
       linhaAutoria = '  (autoria Podemos não verificada)\n';
     }
     for (const ap of (aut?.apensadosPode || [])) {
-      linhaAutoria += `  ✔ APENSADA DE AUTORIA/COAUTORIA PODEMOS: ${ap.rotulo}${ap.autores.length ? ` (${ap.autores.join(', ')})` : ''}\n`;
-      podemosItens.push(`${ap.rotulo} (apensada ao item ${it.sigla} ${it.numero}/${it.ano})${ap.autores.length ? ` — ${ap.autores.join(', ')}` : ''}`);
+      const tipo = ap.principal ? 'AUTORIA' : 'COAUTORIA';
+      linhaAutoria += `  ✔ APENSADA — ${tipo} PODEMOS: ${ap.rotulo}${ap.autores.length ? ` (${ap.autores.join(', ')})` : ''}\n`;
+      podemosItens.push(`${ap.rotulo} (apensada ao item ${it.sigla} ${it.numero}/${it.ano}) [${ap.principal ? 'autoria' : 'coautoria'}]${ap.autores.length ? ` — ${ap.autores.join(', ')}` : ''}`);
     }
     linhas.push(
       `— Item ${it.ordem}: ${it.sigla} ${it.numero}/${it.ano}` +
@@ -239,8 +304,8 @@ REGRAS:
 - Se a resposta NÃO constar no material, diga "não consta nos documentos" e, se útil, ofereça uma ponderação deixando claro que é inferência, não fato do documento.
 - Não invente números de lei, dispositivos, datas, valores ou nomes.
 - NÃO afirme situação de tramitação, parecer ou voto do relator, acolhimento/rejeição em comissão (CCJC, CFT etc.), existência de substitutivo/emenda, apensamento nem resultado de votação, A MENOS que isso apareça LITERALMENTE no material. Trechos rotulados "Início da nota técnica" são apenas o começo do texto — não deduza a conclusão, o parecer nem o encaminhamento a partir deles.
-- Sobre autoria/coautoria do Podemos, use SOMENTE o que estiver marcado como verificado ("✔ AUTORIA PODEMOS", "✔ APENSADA DE AUTORIA/COAUTORIA PODEMOS" ou o resumo de autoria no topo). Não infira filiação partidária por conta própria.
-- Quando a pergunta for sobre QUAIS itens/projetos são do Podemos (ou qualquer enumeração sobre a pauta), liste TODOS os itens correspondentes que constam no material — completo, não apenas um exemplo. Inclua as proposições principais E as apensadas marcadas como do Podemos.
+- Sobre autoria/coautoria do Podemos, use SOMENTE o que estiver marcado com "✔" (linhas "✔ AUTORIA PODEMOS", "✔ COAUTORIA PODEMOS", "✔ APENSADA — AUTORIA/COAUTORIA PODEMOS") ou o resumo de autoria no topo. Respeite a distinção: "autoria" = 1º signatário; "coautoria" = assinou depois. Não chame coautoria de autoria, nem infira filiação por conta própria.
+- Quando a pergunta for sobre QUAIS itens/projetos são do Podemos (ou qualquer enumeração sobre a pauta), liste TODOS os itens correspondentes que constam no material — completo, não apenas um exemplo. Inclua as proposições principais E as apensadas marcadas como do Podemos, indicando se é autoria ou coautoria.
 - Responda em Português do Brasil, de forma direta e objetiva. A resposta será lida no Telegram: use texto corrido e travessões, sem cabeçalhos Markdown. EXCEÇÃO: quando a resposta for uma enumeração (ex.: a lista dos itens do Podemos), apresente um item por linha com travessão, cada um com sigla/número/ano e autor(a).${truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
 
 === MATERIAL ===
