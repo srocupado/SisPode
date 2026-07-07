@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId } = require('./src/pauta');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
@@ -238,9 +238,11 @@ async function ofertaOrdemDoDia() {
     const odd = await buscarOrdemDoDia(eventos[0].id, hoje);
     if (!odd) return null;
     const n = odd.parsed.itens.length;
-    const jaTem = await pautaPorId(`odd-${hoje}`).catch(() => null);
-    if (jaTem) {
-      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — já importada no SisPode. Use /sispode para escolhê-la.`, kb: null };
+    // Os itens de hoje já estão numa pauta do SisPode (a equipe pode já estar
+    // trabalhando nela)? Então NÃO oferece importação — aponta para a existente.
+    const ja = await verificarJaImportada(odd.parsed).catch(() => ({ importada: false }));
+    if (ja.importada) {
+      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — os itens já estão na pauta "${ja.titulo}" do SisPode (${ja.iguais}/${ja.total} coincidem). Use /sispode para escolhê-la.`, kb: null };
     }
     const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia de hoje', `oddimp:${eventos[0].id}:${hoje}`);
     return { linha: `\n\n📌 Mas HOJE há sessão com Ordem do Dia publicada (${n} itens) — é a pauta do dia, mais atual que a semanal.`, kb };
@@ -272,6 +274,36 @@ async function cmdVerificarPauta(ctx) {
         '\n\nEstas são as últimas importadas no SisPode — escolha uma para ver os itens:',
         { reply_markup: kb });
     }
+    // FIREBASE PRIMEIRO: se a equipe já tem essa pauta no SisPode (>=70% dos
+    // itens), a resposta usa a VERSÃO DO SISPODE — que é onde o trabalho
+    // (análises, edições) está — e não oferece re-importação, para o bot
+    // nunca atropelar a equipe.
+    if (r.jaImportada.importada && r.jaImportada.id) {
+      const pautaFb = await pautaPorId(r.jaImportada.id).catch(() => null);
+      if (pautaFb) {
+        const analises = contarAnalisesDaPauta(pautaFb, await chavesComAnalise());
+        const token = crypto.randomBytes(4).toString('hex');
+        pautaEscolha.set(token, { id: pautaFb.id, ts: Date.now() });
+        const kb = new InlineKeyboard().text('✅ Usar esta pauta', `pusar:${token}`);
+        let texto =
+          `📌 A equipe JÁ TRABALHA nesta pauta no SisPode: "${pautaFb.nome || pautaFb.titulo}" ` +
+          `(${r.jaImportada.iguais}/${r.jaImportada.total} itens coincidem` +
+          `${analises ? `, ${analises} de ${(pautaFb.itens || []).length} itens com análise pronta` : ''}).\n` +
+          `Mostrando a versão do SisPode — sem re-importar, para não sobrescrever o trabalho.\n\n` +
+          `📋 No site: ${r.pauta.periodo || '(período não identificado)'} — ${r.pauta.itens.length} itens\n` +
+          `${rotuloSituacao(r.situacao, r.pauta.periodo)}\n\n` +
+          `${linhasItensPauta(pautaFb)}`;
+        if (r.situacao === 'encerrada') {
+          const odd = await ofertaOrdemDoDia();
+          if (odd) {
+            texto += odd.linha;
+            if (odd.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
+          }
+        }
+        return responderLongo(ctx, texto, kb);
+      }
+    }
+
     let texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
     // Botão de importar só quando faz sentido (não importada e semana não encerrada)
     const comBotao = !r.jaImportada.importada && r.situacao !== 'encerrada';

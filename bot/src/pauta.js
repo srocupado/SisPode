@@ -247,6 +247,24 @@ async function gravarPauta(pautaDoc) {
   return pautaDoc.id;
 }
 
+// ---------- Trabalho da equipe: análises já geradas para os itens ----------
+// /analises_pauta/{chave} é onde o painel grava as notas — a presença da chave
+// é o sinal objetivo de que a equipe JÁ COMEÇOU a trabalhar naquele item.
+async function chavesComAnalise() {
+  try {
+    const r = await fbQuery('/analises_pauta', '?shallow=true');
+    return new Set(Object.keys(r || {}));
+  } catch (_) { return new Set(); }
+}
+
+/** Quantos itens da pauta já têm análise pronta no painel. */
+function contarAnalisesDaPauta(pauta, chaves) {
+  return (pauta.itens || []).filter(it => {
+    const ch = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    return chaves.has(ch) || chaves.has(encodeURIComponent(ch));
+  }).length;
+}
+
 /** As N pautas mais recentes já importadas no SisPode (ordenadas por uploadedAt desc). */
 async function ultimasPautas(n = 3) {
   let data;
@@ -289,5 +307,6 @@ module.exports = {
   baixarPautaAtual, verificarPautaNova, resumoPauta, rotuloPauta,
   gerarIdPauta, montarPautaFirebase, pautaJaExiste, gravarPauta,
   pautaAtualImportada, ultimasPautas, pautaPorId,
+  chavesComAnalise, contarAnalisesDaPauta,
   parsePeriodo, situacaoPeriodo, rotuloSituacao, verificarJaImportada,
 };
