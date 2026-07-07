@@ -14,6 +14,7 @@ const { chamarIAtexto, extrairJson } = require('./ia');
 const FERRAMENTAS = `
 - "verificar_pauta": checar se há Pauta da Semana nova no site da Câmara. Use para "tem pauta nova?", "saiu a pauta?", "como está a pauta da Câmara?".
 - "importar_pauta": importar a pauta atual para o SisPode (AÇÃO QUE GRAVA — o sistema pedirá confirmação). Use para "importa a pauta", "põe a pauta no sispode".
+- "ordem_do_dia": importar a Ordem do Dia (pauta DIÁRIA) da sessão de HOJE, direto da API da Câmara. Use para "importa a ordem do dia", "pega a pauta de hoje", "o que vai ser votado hoje?", "traz a ODD".
 - "listar_itens": listar os itens da pauta importada no SisPode. Use para "o que tem na pauta?", "lista os itens", "quais projetos vão ser votados?".
 - "perguntar": responder pergunta de conteúdo sobre uma proposição da pauta ou sobre a pauta em geral (usa a nota técnica e os documentos da matéria). Use para "o que o PL 1234/2026 muda?", "qual o impacto disso no SUS?", "algum item é de autoria do Podemos?".
 - "listar_documentos": listar os documentos da tramitação de uma proposição que NÃO foram considerados na nota técnica (pareceres, emendas, textos). Use para "quais documentos não entraram na análise do PL 1234/2026?", "que documentos da tramitação faltam?", "lista os documentos do PL X".
@@ -46,7 +47,7 @@ async function rotear(perfil, mensagem) {
     prompt: montarPromptRoteador(mensagem), maxTokens: 400,
   });
   const j = extrairJson(bruto);
-  const validas = ['verificar_pauta', 'importar_pauta', 'listar_itens', 'perguntar', 'listar_documentos', 'votacao', 'analisar', 'exportar', 'ajuda', 'responder'];
+  const validas = ['verificar_pauta', 'importar_pauta', 'ordem_do_dia', 'listar_itens', 'perguntar', 'listar_documentos', 'votacao', 'analisar', 'exportar', 'ajuda', 'responder'];
   if (!validas.includes(j.ferramenta)) {
     return { ferramenta: 'perguntar', argumentos: { pergunta: mensagem } };
   }

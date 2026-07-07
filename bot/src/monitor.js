@@ -13,6 +13,7 @@ const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
 const { carregarAnaliseMaisRecente } = require('./perguntar');
 const { buscarDestaquePreparado, mensagemDestaque } = require('./destaques');
+const { importarOrdemDoDia } = require('./odd');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_EVENTOS_MS = 60e3;
@@ -136,6 +137,26 @@ async function ativarSessao(ev) {
     estado.inicioAnunciado = true;
     marcar(ev.id, { inicioAnunciado: true, dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '' });
   }
+
+  // Importa a Ordem do Dia do evento (pauta DIÁRIA) — passa a ser a pauta de
+  // referência do dia no SisPode. Idempotente por sessão; grava um nó próprio
+  // ('odd-YYYY-MM-DD'), sem tocar na pauta semanal.
+  if (!estado.oddImportada) {
+    try {
+      const doc = await importarOrdemDoDia({ eventoId: ev.id, dataISO: _sessao.dataISO, uploadedBy: 'bot-monitor' });
+      if (doc) {
+        estado.oddImportada = true;
+        marcar(ev.id, { oddImportada: true });
+        await enviar(
+          `📋 *Ordem do Dia importada* (${(doc.itens || []).length} itens) — ` +
+          'agora é a pauta de referência do dia no SisPode (/perguntar, /listar, /analisar, /exportar).',
+          { md: true });
+      }
+    } catch (e) {
+      console.warn('[monitor] falha ao importar a Ordem do Dia:', e.message);
+    }
+  }
+
   clearInterval(_timerPainel);
   _timerPainel = setInterval(tickPainel, POLL_PAINEL_MS);
   tickPainel();

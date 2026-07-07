@@ -170,9 +170,10 @@ async function verificarPautaNova() {
  */
 function rotuloPauta(pauta) {
   if (!pauta) return '';
+  const base = pauta.tipoPauta === 'odd' ? 'Ordem do Dia' : 'Pauta da Semana';
   const per = pauta.periodo || pauta.titulo || pauta.nome || 'período não identificado';
   const imp = String(pauta.uploadedAt || '').slice(0, 10).split('-').reverse().join('/');
-  return `Pauta da Semana — ${per}${imp ? ` · importada em ${imp}` : ''}`;
+  return `${base} — ${per}${imp ? ` · importada em ${imp}` : ''}`;
 }
 
 /** Lista TODOS os itens para a mensagem do Telegram (quem envia fatia em blocos de 4096). */
@@ -209,6 +210,7 @@ function montarPautaFirebase(parsed, uploadedBy, pdfNome = 'pauta_s.pdf') {
     id:         gerarIdPauta(parsed.periodo, pdfNome),
     titulo:     parsed.titulo || 'Pauta da Semana',
     periodo:    parsed.periodo || '',
+    tipoPauta:  parsed.tipoPauta || 'semanal',
     uploadedAt: new Date().toISOString(),
     uploadedBy: uploadedBy || 'bot-telegram',
     pdfNome,

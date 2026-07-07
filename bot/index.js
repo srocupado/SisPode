@@ -10,6 +10,7 @@ const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = requi
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
+const { importarOrdemDoDiaDeHoje } = require('./src/odd');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor } = require('./src/monitor');
@@ -23,6 +24,7 @@ const TEXTO_AJUDA =
   '/pauta — verifica se há Pauta da Semana nova no site da Câmara\n' +
   '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
   '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
+  '/ordemdodia — importa a Ordem do Dia (pauta diária) da sessão de hoje\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
@@ -701,6 +703,26 @@ async function cmdListarItens(ctx) {
     `semanal publicada no site da Câmara, use /pauta.\n\n${linhas.join('\n')}`);
 }
 
+// ---------- /ordemdodia — importa a Ordem do Dia (pauta diária) da sessão ----------
+// O monitor faz isso sozinho ao detectar a sessão; este comando é o atalho
+// sob demanda (e útil para testar fora de sessão ao vivo).
+async function cmdOrdemDoDia(ctx) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await importarOrdemDoDiaDeHoje(hojeBrasiliaISO(), `telegram:${ctx.from.id}`);
+    if (r.semSessao) return ctx.reply('Não há sessão deliberativa do Plenário hoje — sem Ordem do Dia publicada.');
+    if (r.vazio)     return ctx.reply('A sessão de hoje ainda não tem itens na Ordem do Dia.');
+    const p = r.doc;
+    return ctx.reply(
+      `📋 Ordem do Dia de hoje importada — ${(p.itens || []).length} itens. ` +
+      'Agora é a pauta de referência do dia: use /listar, /perguntar, /analisar ou /exportar.');
+  } catch (e) {
+    console.error('/ordemdodia falhou:', e);
+    return ctx.reply(`Erro ao importar a Ordem do Dia: ${e.message}`);
+  }
+}
+bot.command('ordemdodia', cmdOrdemDoDia);
+
 // ============================================================
 //  FASE 4 — linguagem natural (texto livre) e voz
 // ============================================================
@@ -708,6 +730,7 @@ async function executarDecisao(ctx, decisao) {
   switch (decisao.ferramenta) {
     case 'verificar_pauta': return cmdVerificarPauta(ctx);
     case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
+    case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
     case 'listar_itens':    return cmdListarItens(ctx);
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
