@@ -131,25 +131,52 @@ function alvoAutoria(it) {
   return { sigla: it.sigla, numero: it.numero, ano: it.ano };
 }
 
+/**
+ * Autoria/coautoria de UMA proposição: cruza TODOS os autores (inclui
+ * coautores — /autores devolve a lista completa) com a bancada PODE.
+ * Retorna { ehPode, autores[] } (autores = só os do Podemos) ou null em falha.
+ */
+async function autoriaProposicao({ sigla, numero, ano }, idsPode) {
+  const prop = await resolveProposicao(sigla, numero, ano);
+  if (!prop) return null;
+  const aut = await (await fetch(`${API_CAMARA}/proposicoes/${prop.id}/autores`)).json();
+  const autores = aut.dados || [];
+  const idDep = a => Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1]);
+  const podeAutores = autores.filter(a => idsPode.has(idDep(a)));
+  return { ehPode: podeAutores.length > 0, autores: podeAutores.map(a => a.nome) };
+}
+
 async function resolverAutoriaPauta(pauta) {
   if (_autoriaCache.has(pauta.id)) return _autoriaCache.get(pauta.id);
   const idsPode = await rosterPodeIds();
   const mapa = new Map();
   await mapLimit(pauta.itens || [], 4, async (it) => {
     const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    const entrada = { ehPode: null, autores: [], apensadosPode: [] };
+
+    // 1) Proposição principal (para urgência, o projeto urgenciado)
     try {
       const alvo = alvoAutoria(it);
-      if (String(alvo.sigla).toUpperCase() === 'REQ') { mapa.set(chave, { ehPode: false, autores: [] }); return; }
-      const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
-      if (!prop) { mapa.set(chave, { ehPode: null, autores: [] }); return; }
-      const aut = await (await fetch(`${API_CAMARA}/proposicoes/${prop.id}/autores`)).json();
-      const autores = aut.dados || [];
-      const idsAut = autores.map(a => Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1])).filter(Boolean);
-      const podeAutores = autores.filter(a => idsPode.has(Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1])));
-      mapa.set(chave, { ehPode: idsAut.some(id => idsPode.has(id)), autores: podeAutores.map(a => a.nome) });
-    } catch (_) {
-      mapa.set(chave, { ehPode: null, autores: [] });   // não determinado (falha) — não afirma
+      if (String(alvo.sigla).toUpperCase() === 'REQ') {
+        entrada.ehPode = false;
+      } else {
+        const r = await autoriaProposicao(alvo, idsPode);
+        if (r) { entrada.ehPode = r.ehPode; entrada.autores = r.autores; }
+      }
+    } catch (_) { /* ehPode fica null — não determinado, não afirma */ }
+
+    // 2) Apensadas listadas no PDF oficial da pauta (autoria/coautoria também
+    //    conta). REQ/REC apensados são recursos/requerimentos, não projetos.
+    for (const ap of (it.apensadosTexto || [])) {
+      if (/^(REQ|REC)$/i.test(ap.sigla)) continue;
+      try {
+        const r = await autoriaProposicao(ap, idsPode);
+        if (r?.ehPode) {
+          entrada.apensadosPode.push({ rotulo: `${ap.sigla} ${ap.numero}/${ap.ano}`, autores: r.autores });
+        }
+      } catch (_) { /* apensado não verificado — segue os demais */ }
     }
+    mapa.set(chave, entrada);
   });
   _autoriaCache.set(pauta.id, mapa);
   return mapa;
@@ -178,6 +205,10 @@ async function montarContextoPauta() {
     } else if (aut?.ehPode === null) {
       linhaAutoria = '  (autoria Podemos não verificada)\n';
     }
+    for (const ap of (aut?.apensadosPode || [])) {
+      linhaAutoria += `  ✔ APENSADA DE AUTORIA/COAUTORIA PODEMOS: ${ap.rotulo}${ap.autores.length ? ` (${ap.autores.join(', ')})` : ''}\n`;
+      podemosItens.push(`${ap.rotulo} (apensada ao item ${it.sigla} ${it.numero}/${it.ano})${ap.autores.length ? ` — ${ap.autores.join(', ')}` : ''}`);
+    }
     linhas.push(
       `— Item ${it.ordem}: ${it.sigla} ${it.numero}/${it.ano}` +
       `${it.temUrgencia ? ' (urgência)' : ''}\n` +
@@ -187,8 +218,8 @@ async function montarContextoPauta() {
       `${resumoNota ? `  Início da nota técnica: ${resumoNota.replace(/\s+/g, ' ')}…\n` : '  (nota técnica ainda não gerada)\n'}`);
   }
   const resumoAutoria = podemosItens.length
-    ? `ITENS DE AUTORIA DO PODEMOS (autor(a) filiado(a) ao Podemos hoje, verificado na API da Câmara): ${podemosItens.join('; ')}.`
-    : 'ITENS DE AUTORIA DO PODEMOS: nenhum item cujo autor esteja filiado ao Podemos hoje foi identificado nesta pauta.';
+    ? `ITENS DE AUTORIA/COAUTORIA DO PODEMOS (inclui proposições apensadas; autor(a) filiado(a) ao Podemos hoje, verificado na API da Câmara): ${podemosItens.join('; ')}.`
+    : 'ITENS DE AUTORIA/COAUTORIA DO PODEMOS: nenhum item (nem apensada) cujo autor esteja filiado ao Podemos hoje foi identificado nesta pauta.';
   const ctx =
     `PAUTA DA SEMANA IMPORTADA NO SISPODE — ${pauta.titulo || ''} (${pauta.periodo || 'período n/d'})\n` +
     `${(pauta.itens || []).length} itens.\n\n${resumoAutoria}\n\n${linhas.join('\n')}`;
