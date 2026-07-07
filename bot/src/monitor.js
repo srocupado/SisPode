@@ -13,7 +13,7 @@ const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
 const { carregarAnaliseMaisRecente } = require('./perguntar');
 const { buscarDestaquePreparado, mensagemDestaque } = require('./destaques');
-const { importarOrdemDoDia } = require('./odd');
+const { InlineKeyboard } = require('grammy');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_EVENTOS_MS = 60e3;
@@ -98,6 +98,9 @@ async function carregarEstado(eventoId) {
 function marcar(eventoId, patch) {
   fbPatch(`/bot/monitor_sessao/${eventoId}`, patch).catch(() => {});
 }
+// Chamado pelo callback de confirmação (index.js) após importar a ODD, para
+// o estado persistido refletir a importação (idempotência entre reinícios).
+function marcarOddImportada(eventoId) { marcar(eventoId, { oddImportada: true }); }
 
 // ---------- Poll de eventos (sessão começou/terminou) ----------
 async function tickEventos() {
@@ -138,22 +141,20 @@ async function ativarSessao(ev) {
     marcar(ev.id, { inicioAnunciado: true, dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '' });
   }
 
-  // Importa a Ordem do Dia do evento (pauta DIÁRIA) — passa a ser a pauta de
-  // referência do dia no SisPode. Idempotente por sessão; grava um nó próprio
-  // ('odd-YYYY-MM-DD'), sem tocar na pauta semanal.
-  if (!estado.oddImportada) {
-    try {
-      const doc = await importarOrdemDoDia({ eventoId: ev.id, dataISO: _sessao.dataISO, uploadedBy: 'bot-monitor' });
-      if (doc) {
-        estado.oddImportada = true;
-        marcar(ev.id, { oddImportada: true });
-        await enviar(
-          `📋 *Ordem do Dia importada* (${(doc.itens || []).length} itens) — ` +
-          'agora é a pauta de referência do dia no SisPode (/perguntar, /listar, /analisar, /exportar).',
-          { md: true });
-      }
-    } catch (e) {
-      console.warn('[monitor] falha ao importar a Ordem do Dia:', e.message);
+  // OFERECE importar a Ordem do Dia do evento (pauta DIÁRIA). O write fica
+  // GATED por confirmação (botão); ao importar, vira a pauta de referência do
+  // dia — nó próprio 'odd-YYYY-MM-DD', sem tocar na semanal. Oferta única/sessão.
+  if (!estado.oddImportada && !estado.oddOferecida) {
+    estado.oddOferecida = true;
+    marcar(ev.id, { oddOferecida: true });
+    const destino = _cfg.destino();
+    if (destino) {
+      const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia', `oddimp:${ev.id}:${_sessao.dataISO}`);
+      _cfg.api.sendMessage(destino,
+        '📋 Importar a *Ordem do Dia de hoje* como pauta de referência no SisPode? ' +
+        'É a pauta do dia (mais precisa que a semanal) e reaproveita as análises já feitas.',
+        { parse_mode: 'Markdown', reply_markup: kb })
+        .catch(e => console.warn('[monitor] oferta de ODD falhou:', e.message));
     }
   }
 
@@ -317,4 +318,4 @@ function statusMonitor() {
   };
 }
 
-module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor };
+module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada };

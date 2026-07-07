@@ -247,6 +247,26 @@ async function gravarPauta(pautaDoc) {
   return pautaDoc.id;
 }
 
+/** As N pautas mais recentes já importadas no SisPode (ordenadas por uploadedAt desc). */
+async function ultimasPautas(n = 3) {
+  let data;
+  try {
+    data = await fbQuery('/pautas', `?orderBy="uploadedAt"&limitToLast=${n}`);
+  } catch (_) {
+    data = await fbGet('/pautas');   // sem índice: baixa tudo e ordena aqui
+  }
+  if (!data) return [];
+  const pautas = Object.values(data).filter(p => p && Array.isArray(p.itens) && p.itens.length);
+  pautas.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+  return pautas.slice(0, n);
+}
+
+/** Uma pauta específica pelo id (nó /pautas/{id}). */
+async function pautaPorId(id) {
+  try { return await fbGet(`/pautas/${encodeURIComponent(id)}`); }
+  catch (_) { return null; }
+}
+
 /** Pauta mais recente já importada no SisPode. */
 async function pautaAtualImportada() {
   let data;
@@ -268,6 +288,6 @@ async function pautaAtualImportada() {
 module.exports = {
   baixarPautaAtual, verificarPautaNova, resumoPauta, rotuloPauta,
   gerarIdPauta, montarPautaFirebase, pautaJaExiste, gravarPauta,
-  pautaAtualImportada,
+  pautaAtualImportada, ultimasPautas, pautaPorId,
   parsePeriodo, situacaoPeriodo, rotuloSituacao, verificarJaImportada,
 };

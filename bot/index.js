@@ -3,17 +3,17 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao, rotuloPauta } = require('./src/pauta');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
-const { importarOrdemDoDiaDeHoje } = require('./src/odd');
+const { importarOrdemDoDiaDeHoje, importarOrdemDoDia } = require('./src/odd');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
-const { iniciarMonitor, setMonitorLigado, statusMonitor } = require('./src/monitor');
+const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -45,6 +45,7 @@ const TEXTO_AJUDA =
 const configPendente = new Map();  // userId → { provedor }        (fluxo /config)
 const importPendente = new Map();  // token  → { doc, ts }         (confirmação de /importar)
 const pedidosAcesso  = new Map();  // userId → nome                (aprovação pelo admin)
+const pautaEscolha   = new Map();  // token  → { id, ts }          (escolha de pauta do Firebase)
 const IMPORT_TTL = 10 * 60e3;
 
 const ehPrivado = ctx => ctx.chat?.type === 'private';
@@ -227,7 +228,22 @@ async function cmdVerificarPauta(ctx) {
   try {
     const r = await verificarPautaNova();
     if (r.status === 'sem_pauta') {
-      return ctx.reply('Nenhuma pauta publicada no momento (o PDF oficial não está disponível).');
+      // Sem pauta nova no site, mas pode haver pautas já importadas: oferece as
+      // 3 últimas do Firebase para o usuário escolher qual quer ver/usar.
+      const ultimas = await ultimasPautas(3).catch(() => []);
+      if (!ultimas.length) {
+        return ctx.reply('Nenhuma pauta publicada no site agora (o PDF oficial não está disponível) e nenhuma importada no SisPode ainda.');
+      }
+      const kb = new InlineKeyboard();
+      for (const p of ultimas) {
+        const token = crypto.randomBytes(4).toString('hex');
+        pautaEscolha.set(token, { id: p.id, ts: Date.now() });
+        kb.text(`${rotuloPauta(p)} · ${(p.itens || []).length} itens`.slice(0, 62), `psel:${token}`).row();
+      }
+      return ctx.reply(
+        'Nenhuma pauta nova publicada no site da Câmara agora. ' +
+        'Estas são as últimas importadas no SisPode — escolha uma para ver os itens:',
+        { reply_markup: kb });
     }
     const texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
     // Botão de importar só quando faz sentido (não importada e semana não encerrada)
@@ -691,17 +707,37 @@ bot.callbackQuery(/^votp:(\d+):(\d+)$/, async ctx => {
 });
 
 // ---------- listar itens (usada pelo roteador da fase 4) ----------
+function linhasItensPauta(pauta) {
+  return (pauta.itens || []).map(it =>
+    `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ${(it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`).join('\n');
+}
+
 async function cmdListarItens(ctx) {
   await ctx.replyWithChatAction('typing');
   const pauta = await pautaAtualImportada();
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
-  const linhas = (pauta.itens || []).map(it =>
-    `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ${(it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`);
   return responderLongo(ctx,
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
     `ℹ️ Esta é a pauta mais recente que a equipe importou — para ver a pauta ` +
-    `semanal publicada no site da Câmara, use /pauta.\n\n${linhas.join('\n')}`);
+    `semanal publicada no site da Câmara, use /pauta.\n\n${linhasItensPauta(pauta)}`);
 }
+
+// Escolha de uma das últimas pautas do Firebase (botões do /pauta quando o
+// site não tem pauta nova) → mostra os itens da pauta escolhida.
+bot.callbackQuery(/^psel:([a-f0-9]+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const esc = pautaEscolha.get(ctx.match[1]);
+  pautaEscolha.delete(ctx.match[1]);
+  if (!esc || Date.now() - esc.ts > IMPORT_TTL) {
+    return ctx.reply('Escolha expirada — use /pauta de novo.');
+  }
+  const pauta = await pautaPorId(esc.id);
+  if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
+  return responderLongo(ctx,
+    `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n\n` +
+    `${linhasItensPauta(pauta)}\n\n` +
+    'Para perguntar sobre um item: /perguntar ' + (pauta.itens?.[0] ? `${pauta.itens[0].sigla} ${pauta.itens[0].numero}/${pauta.itens[0].ano} ` : 'PL 1234/2026 ') + '<sua pergunta>');
+});
 
 // ---------- /ordemdodia — importa a Ordem do Dia (pauta diária) da sessão ----------
 // O monitor faz isso sozinho ao detectar a sessão; este comando é o atalho
@@ -722,6 +758,23 @@ async function cmdOrdemDoDia(ctx) {
   }
 }
 bot.command('ordemdodia', cmdOrdemDoDia);
+
+// Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
+bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const [, eventoId, dataISO] = ctx.match;
+  try {
+    const doc = await importarOrdemDoDia({ eventoId, dataISO, uploadedBy: `telegram:${ctx.from.id}` });
+    if (!doc) return ctx.editMessageText('A Ordem do Dia dessa sessão ainda não tem itens.').catch(() => {});
+    marcarOddImportada(eventoId);
+    return ctx.editMessageText(
+      `📋 Ordem do Dia importada — ${(doc.itens || []).length} itens. ` +
+      'Agora é a pauta de referência do dia: /listar, /perguntar, /analisar, /exportar.').catch(() => {});
+  } catch (e) {
+    console.error('oddimp falhou:', e);
+    return ctx.reply(`Erro ao importar a Ordem do Dia: ${e.message}`);
+  }
+});
 
 // ============================================================
 //  FASE 4 — linguagem natural (texto livre) e voz
