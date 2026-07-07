@@ -240,7 +240,8 @@ REGRAS:
 - Não invente números de lei, dispositivos, datas, valores ou nomes.
 - NÃO afirme situação de tramitação, parecer ou voto do relator, acolhimento/rejeição em comissão (CCJC, CFT etc.), existência de substitutivo/emenda, apensamento nem resultado de votação, A MENOS que isso apareça LITERALMENTE no material. Trechos rotulados "Início da nota técnica" são apenas o começo do texto — não deduza a conclusão, o parecer nem o encaminhamento a partir deles.
 - Sobre autoria/coautoria do Podemos, use SOMENTE o que estiver marcado como verificado ("✔ AUTORIA PODEMOS", "✔ APENSADA DE AUTORIA/COAUTORIA PODEMOS" ou o resumo de autoria no topo). Não infira filiação partidária por conta própria.
-- Responda em Português do Brasil, de forma direta e objetiva. A resposta será lida no Telegram: use texto corrido e travessões, sem cabeçalhos Markdown.${truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
+- Quando a pergunta for sobre QUAIS itens/projetos são do Podemos (ou qualquer enumeração sobre a pauta), liste TODOS os itens correspondentes que constam no material — completo, não apenas um exemplo. Inclua as proposições principais E as apensadas marcadas como do Podemos.
+- Responda em Português do Brasil, de forma direta e objetiva. A resposta será lida no Telegram: use texto corrido e travessões, sem cabeçalhos Markdown. EXCEÇÃO: quando a resposta for uma enumeração (ex.: a lista dos itens do Podemos), apresente um item por linha com travessão, cada um com sigla/número/ano e autor(a).${truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
 
 === MATERIAL ===
 ${contexto}
