@@ -22,11 +22,10 @@ const bot = new Bot(BOT_TOKEN);
 const TEXTO_AJUDA =
   'SisPode Bot — Liderança do Podemos na Câmara\n\n' +
   'Comandos:\n' +
-  '/pauta — verifica se há Pauta da Semana nova no site da Câmara\n' +
-  '/importar — importa a pauta atual para o SisPode (pede confirmação)\n' +
+  '/pauta — lista as pautas do SisPode para ESCOLHER qual usar; botão "Buscar on-line" consulta o site da Câmara (semanal + Ordem do Dia)\n' +
+  '/importar — importa a Pauta da Semana do site para o SisPode (pede confirmação)\n' +
   '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
   '/ordemdodia — importa a Ordem do Dia (pauta diária) da sessão de hoje\n' +
-  '/sispode — lista as pautas do SisPode e deixa você ESCOLHER qual usar\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
@@ -242,42 +241,63 @@ async function ofertaOrdemDoDia() {
     // trabalhando nela)? Então NÃO oferece importação — aponta para a existente.
     const ja = await verificarJaImportada(odd.parsed).catch(() => ({ importada: false }));
     if (ja.importada) {
-      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — os itens já estão na pauta "${ja.titulo}" do SisPode (${ja.iguais}/${ja.total} coincidem). Use /sispode para escolhê-la.`, kb: null };
+      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — os itens já estão na pauta "${ja.titulo}" do SisPode (${ja.iguais}/${ja.total} coincidem). Escolha-a no /pauta.`, kb: null };
     }
     const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia de hoje', `oddimp:${eventos[0].id}:${hoje}`);
     return { linha: `\n\n📌 Mas HOJE há sessão com Ordem do Dia publicada (${n} itens) — é a pauta do dia, mais atual que a semanal.`, kb };
   } catch (_) { return null; }
 }
 
-async function cmdVerificarPauta(ctx) {
+// ---------- /pauta — FIREBASE PRIMEIRO; busca on-line só sob demanda ----------
+// O SisPode (Firebase) é a fonte de trabalho da equipe. O /pauta lista o que
+// existe lá e deixa ESCOLHER qual usar; a consulta ao site da Câmara (pauta
+// semanal + Ordem do Dia) só roda quando o usuário toca em "Buscar on-line".
+async function cmdPauta(ctx) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const pautas = await ultimasPautas(6).catch(() => []);
+    const kb = new InlineKeyboard();
+    if (pautas.length) {
+      const atual = await pautaDoUsuario(ctx.from.id).catch(() => null);
+      const chs = await chavesComAnalise();
+      for (const p of pautas) {
+        const token = crypto.randomBytes(4).toString('hex');
+        pautaEscolha.set(token, { id: p.id, ts: Date.now() });
+        const tipo = p.tipoPauta === 'odd' ? 'Ordem do Dia' : 'Semana';
+        const analises = contarAnalisesDaPauta(p, chs);
+        const marca = atual && atual.id === p.id ? '✅ ' : '';
+        kb.text(
+          `${marca}${tipo} ${p.periodo || p.titulo || p.id} · ${(p.itens || []).length} itens${analises ? ` · ${analises} análises` : ''}`.slice(0, 62),
+          `pusar:${token}`).row();
+      }
+    }
+    kb.text('🔎 Buscar on-line (site da Câmara)', 'pbusca').row();
+    return ctx.reply(
+      pautas.length
+        ? '📚 Pautas no SisPode — toque numa para USAR (vale para /listar, /perguntar, /analisar e /exportar), ou busque on-line se estiver atrás de pauta nova:'
+        : 'Nenhuma pauta no SisPode ainda — busque on-line para importar:',
+      { reply_markup: kb });
+  } catch (e) {
+    console.error('/pauta falhou:', e);
+    return ctx.reply(`Erro ao listar as pautas: ${e.message}`);
+  }
+}
+bot.command('pauta', cmdPauta);
+
+// "Buscar on-line": consulta o site (Pauta da Semana) E a Ordem do Dia de hoje.
+async function buscaOnline(ctx) {
   await ctx.replyWithChatAction('typing');
   try {
     const r = await verificarPautaNova();
+    const odd = await ofertaOrdemDoDia();   // busca explícita → sempre verifica a ODD de hoje
     if (r.status === 'sem_pauta') {
-      // Sem pauta nova no site, mas pode haver pautas já importadas: oferece as
-      // 3 últimas do Firebase para o usuário escolher qual quer ver/usar.
-      const odd = await ofertaOrdemDoDia();
-      const ultimas = await ultimasPautas(3).catch(() => []);
-      if (!ultimas.length) {
-        return ctx.reply('Nenhuma pauta publicada no site agora (o PDF oficial não está disponível) e nenhuma importada no SisPode ainda.' +
-          (odd ? odd.linha : ''), odd?.kb ? { reply_markup: odd.kb } : undefined);
-      }
-      const kb = new InlineKeyboard();
-      for (const p of ultimas) {
-        const token = crypto.randomBytes(4).toString('hex');
-        pautaEscolha.set(token, { id: p.id, ts: Date.now() });
-        kb.text(`${rotuloPauta(p)} · ${(p.itens || []).length} itens`.slice(0, 62), `psel:${token}`).row();
-      }
-      if (odd?.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
       return ctx.reply(
-        'Nenhuma pauta nova publicada no site da Câmara agora.' + (odd ? odd.linha : '') +
-        '\n\nEstas são as últimas importadas no SisPode — escolha uma para ver os itens:',
-        { reply_markup: kb });
+        'Nenhuma Pauta da Semana publicada no site agora (o PDF oficial não está disponível).' +
+        (odd ? odd.linha : '\n\nTambém não há sessão com Ordem do Dia hoje.'),
+        odd?.kb ? { reply_markup: odd.kb } : undefined);
     }
-    // FIREBASE PRIMEIRO: se a equipe já tem essa pauta no SisPode (>=70% dos
-    // itens), a resposta usa a VERSÃO DO SISPODE — que é onde o trabalho
-    // (análises, edições) está — e não oferece re-importação, para o bot
-    // nunca atropelar a equipe.
+    // Já corresponde a uma pauta do SisPode (>=70% dos itens)? Usa a versão de
+    // lá — onde o trabalho está — e não oferece re-importação.
     if (r.jaImportada.importada && r.jaImportada.id) {
       const pautaFb = await pautaPorId(r.jaImportada.id).catch(() => null);
       if (pautaFb) {
@@ -286,19 +306,15 @@ async function cmdVerificarPauta(ctx) {
         pautaEscolha.set(token, { id: pautaFb.id, ts: Date.now() });
         const kb = new InlineKeyboard().text('✅ Usar esta pauta', `pusar:${token}`);
         let texto =
+          `📋 No site: ${r.pauta.periodo || '(período não identificado)'} — ${r.pauta.itens.length} itens\n` +
+          `${rotuloSituacao(r.situacao, r.pauta.periodo)}\n\n` +
           `📌 A equipe JÁ TRABALHA nesta pauta no SisPode: "${pautaFb.nome || pautaFb.titulo}" ` +
           `(${r.jaImportada.iguais}/${r.jaImportada.total} itens coincidem` +
           `${analises ? `, ${analises} de ${(pautaFb.itens || []).length} itens com análise pronta` : ''}).\n` +
-          `Mostrando a versão do SisPode — sem re-importar, para não sobrescrever o trabalho.\n\n` +
-          `📋 No site: ${r.pauta.periodo || '(período não identificado)'} — ${r.pauta.itens.length} itens\n` +
-          `${rotuloSituacao(r.situacao, r.pauta.periodo)}\n\n` +
-          `${linhasItensPauta(pautaFb)}`;
-        if (r.situacao === 'encerrada') {
-          const odd = await ofertaOrdemDoDia();
-          if (odd) {
-            texto += odd.linha;
-            if (odd.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
-          }
+          `Sem re-importar, para não sobrescrever o trabalho.`;
+        if (odd) {
+          texto += odd.linha;
+          if (odd.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
         }
         return responderLongo(ctx, texto, kb);
       }
@@ -306,20 +322,15 @@ async function cmdVerificarPauta(ctx) {
 
     let texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
     // Botão de importar só quando faz sentido (não importada e semana não encerrada)
-    const comBotao = !r.jaImportada.importada && r.situacao !== 'encerrada';
-    // Semana do PDF encerrada → verifica se há Ordem do Dia de HOJE para oferecer
-    let kbFinal = comBotao ? tecladoImportar() : undefined;
-    if (r.situacao === 'encerrada') {
-      const odd = await ofertaOrdemDoDia();
-      if (odd) { texto += odd.linha; if (odd.kb) kbFinal = odd.kb; }
-    }
+    let kbFinal = (!r.jaImportada.importada && r.situacao !== 'encerrada') ? tecladoImportar() : undefined;
+    if (odd) { texto += odd.linha; if (odd.kb) kbFinal = odd.kb; }
     return responderLongo(ctx, texto, kbFinal);
   } catch (e) {
-    console.error('/pauta falhou:', e);
-    return ctx.reply(`Erro ao verificar a pauta: ${e.message}`);
+    console.error('busca on-line falhou:', e);
+    return ctx.reply(`Erro ao buscar on-line: ${e.message}`);
   }
 }
-bot.command('pauta', cmdVerificarPauta);
+bot.callbackQuery('pbusca', async ctx => { await ctx.answerCallbackQuery(); return buscaOnline(ctx); });
 
 // ---------- FASE 2: /importar (com confirmação) ----------
 function tecladoImportar() {
@@ -783,55 +794,16 @@ async function cmdListarItens(ctx) {
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
   return responderLongo(ctx,
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
-    `ℹ️ Para trocar de pauta use /sispode; para a pauta publicada no site, /pauta.\n\n${linhasItensPauta(pauta)}`);
+    `ℹ️ Para trocar de pauta (ou buscar on-line), use /pauta.\n\n${linhasItensPauta(pauta)}`);
 }
 
-// Escolha de uma das últimas pautas do Firebase (botões do /pauta quando o
-// site não tem pauta nova) → mostra os itens da pauta escolhida.
-bot.callbackQuery(/^psel:([a-f0-9]+)$/, async ctx => {
-  await ctx.answerCallbackQuery();
-  const esc = pautaEscolha.get(ctx.match[1]);
-  pautaEscolha.delete(ctx.match[1]);
-  if (!esc || Date.now() - esc.ts > IMPORT_TTL) {
-    return ctx.reply('Escolha expirada — use /pauta de novo.');
-  }
-  const pauta = await pautaPorId(esc.id);
-  if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
-  return responderLongo(ctx,
-    `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n\n` +
-    `${linhasItensPauta(pauta)}\n\n` +
-    'Para perguntar sobre um item: /perguntar ' + (pauta.itens?.[0] ? `${pauta.itens[0].sigla} ${pauta.itens[0].numero}/${pauta.itens[0].ano} ` : 'PL 1234/2026 ') + '<sua pergunta>');
-});
-
-// ---------- /sispode — lista as pautas do SisPode e fixa a que o usuário quer usar ----------
-async function cmdSisPode(ctx) {
-  await ctx.replyWithChatAction('typing');
-  const pautas = await ultimasPautas(8).catch(() => []);
-  if (!pautas.length) {
-    return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar, /ordemdodia ou me envie o PDF da pauta.');
-  }
-  const atual = await pautaDoUsuario(ctx.from.id).catch(() => null);
-  const kb = new InlineKeyboard();
-  for (const p of pautas) {
-    const token = crypto.randomBytes(4).toString('hex');
-    pautaEscolha.set(token, { id: p.id, ts: Date.now() });
-    const marca = atual && atual.id === p.id ? '✅ ' : '';
-    kb.text(`${marca}${rotuloPauta(p)} · ${(p.itens || []).length} itens`.slice(0, 62), `pusar:${token}`).row();
-  }
-  return ctx.reply(
-    '📚 Pautas no SisPode — escolha qual usar. A escolhida vale para /listar, ' +
-    '/perguntar, /analisar e /exportar (por ~12h ou até você trocar):',
-    { reply_markup: kb });
-}
-bot.command('sispode', cmdSisPode);
-
-// Fixa a pauta escolhida como ATIVA do usuário e mostra seus itens.
+// Fixa a pauta escolhida (botões do /pauta) como ATIVA do usuário e mostra os itens.
 bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   const esc = pautaEscolha.get(ctx.match[1]);
   pautaEscolha.delete(ctx.match[1]);
   if (!esc || Date.now() - esc.ts > IMPORT_TTL) {
-    return ctx.reply('Escolha expirada — use /sispode de novo.');
+    return ctx.reply('Escolha expirada — use /pauta de novo.');
   }
   const pauta = await pautaPorId(esc.id);
   if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
@@ -884,10 +856,10 @@ bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
 // ============================================================
 async function executarDecisao(ctx, decisao) {
   switch (decisao.ferramenta) {
-    case 'verificar_pauta': return cmdVerificarPauta(ctx);
+    case 'verificar_pauta': return buscaOnline(ctx);
+    case 'escolher_pauta':  return cmdPauta(ctx);
     case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
     case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
-    case 'sispode':         return cmdSisPode(ctx);
     case 'listar_itens':    return cmdListarItens(ctx);
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
@@ -1008,21 +980,24 @@ async function tickCron() {
       return;
     }
     const p = r.pauta;
+    // AVISO puro — sem botão de importar: quem decide importar/usar é o
+    // analista, pelo /pauta (lista do SisPode + "Buscar on-line").
     const msg =
       `🆕 📋 Pauta nova da semana${p.periodo ? ` — ${p.periodo}` : ''}\n` +
       `${rotuloSituacao(r.situacao, p.periodo)}\n` +
-      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}`;
+      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}\n\n` +
+      `Para importar ou usar: /pauta → 🔎 Buscar on-line.`;
 
     // Privado de cada analista. Quem nunca abriu conversa com o bot não pode
     // receber DM (regra do Telegram) — a falha individual é só logada.
     let enviados = 0;
     for (const id of destinatariosAviso()) {
-      try { await enviarLongo(bot.api, id, msg, tecladoImportar()); enviados++; }
+      try { await enviarLongo(bot.api, id, msg); enviados++; }
       catch (e) { console.warn(`cron: não foi possível avisar ${id}: ${e.message}`); }
     }
     // Grupo é opcional: se GRUPO_CHAT_ID estiver configurado, avisa lá também.
     if (GRUPO_CHAT_ID) {
-      try { await enviarLongo(bot.api, GRUPO_CHAT_ID, msg, tecladoImportar()); }
+      try { await enviarLongo(bot.api, GRUPO_CHAT_ID, msg); }
       catch (e) { console.warn('cron: aviso ao grupo falhou:', e.message); }
     }
     console.log(`cron: pauta nova "${p.periodo}" anunciada a ${enviados} analista(s)` +
