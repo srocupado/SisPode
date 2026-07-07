@@ -150,9 +150,10 @@ async function imagemVotacao(pl) {
   yy += 44;
   for (const o of orients) {
     const c = COR[votoClass(o.val)] || COR.texto;
+    // Rótulo + nome no MESMO <text>: o <tspan> continua o fluxo do texto,
+    // sem estimativa manual de largura (que fazia o nome atropelar o rótulo).
     svg += `<rect x="${M + 1}" y="${yy - 2}" width="${CW - 2}" height="56" fill="${COR.faixa}"/>` +
-           `<text x="${M + PAD}" y="${yy + 33}" font-family="${FONTE}" font-size="19" fill="${COR.dim}">${esc(o.rot)} </text>` +
-           `<text x="${M + PAD + (o.rot.length * 9.4)}" y="${yy + 33}" font-family="${FONTE}" font-size="19" font-weight="bold" fill="${COR.tealClaro}"> ${esc(o.quem)}</text>` +
+           `<text x="${M + PAD}" y="${yy + 33}" font-family="${FONTE}" font-size="19" fill="${COR.dim}">${esc(o.rot)} <tspan font-weight="bold" fill="${COR.tealClaro}">${esc(o.quem)}</tspan></text>` +
            `<text x="${W - M - PAD}" y="${yy + 33}" text-anchor="end" font-family="${FONTE}" font-size="20" font-weight="bold" fill="${c}">${esc(o.val)}</text>`;
     yy += 60;
   }
