@@ -12,6 +12,7 @@ const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
 const { carregarAnaliseMaisRecente } = require('./perguntar');
+const { buscarDestaquePreparado, mensagemDestaque } = require('./destaques');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_EVENTOS_MS = 60e3;
@@ -47,6 +48,16 @@ async function enviar(texto, { md = false } = {}) {
   }
   return _cfg.api.sendMessage(destino, texto).catch(e => console.warn('[monitor] envio falhou:', e.message));
 }
+// Grupo (ou destino de ensaio) + cópia ao admin, sem duplicar quando o
+// destino já É o admin (modo ensaio).
+async function enviarComCopiaAdmin(texto) {
+  const destinos = new Set([_cfg.destino(), _cfg.admin].filter(Boolean));
+  for (const d of destinos) {
+    try { await _cfg.api.sendMessage(d, texto, { parse_mode: 'Markdown' }); }
+    catch (_) { await _cfg.api.sendMessage(d, texto).catch(e => console.warn('[monitor] envio destaque falhou:', e.message)); }
+  }
+}
+
 async function enviarFoto(foto, caption) {
   const destino = _cfg.destino();
   if (!destino) return;
@@ -147,10 +158,29 @@ async function tickPainel() {
     }
 
     for (const item of itens) {
+      // Destaques/DVS (nominais ou simbólicos): o bot NÃO entra na votação
+      // (sem mensagem de abertura P1, sem imagem). Exceção controlada: se a
+      // equipe PREPAROU material no módulo de Destaques (explicação/voto
+      // sim/voto não), publica a ficha — sem orientação — no grupo + admin.
+      if (/DESTAQUE|\bDVS\b/i.test(item.rotulo)) {
+        const reg = est.itens[item.id] || (est.itens[item.id] = {});
+        if (!reg.destaqueVisto) {
+          reg.destaqueVisto = true;
+          marcar(_sessao.id, { [`itens/${item.id}/destaqueVisto`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
+          try {
+            const ficha = await buscarDestaquePreparado({ rotulo: item.rotulo, dataISO: _sessao.dataISO });
+            if (ficha?.temMaterial) {
+              await enviarComCopiaAdmin(mensagemDestaque(ficha));
+            } else {
+              console.log(`[monitor] destaque sem material preparado (silêncio): ${item.rotulo}`);
+            }
+          } catch (e) {
+            console.warn('[monitor] consulta ao módulo de Destaques falhou:', e.message);
+          }
+        }
+        continue;
+      }
       if (!item.nominal) continue;                       // D3: simbólicas em silêncio
-      // Destaques/DVS (nominais ou simbólicos): o bot NÃO entra — matéria
-      // politicamente sensível, tratamento é manual da Liderança.
-      if (/DESTAQUE|\bDVS\b/i.test(item.rotulo)) continue;
       const reg = est.itens[item.id] || (est.itens[item.id] = {});
       const ident = identificarItem(item.rotulo);
 
