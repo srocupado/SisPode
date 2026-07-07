@@ -196,4 +196,38 @@ function identificarItem(rotulo) {
   return { texto: `Votação: ${limpo}`, ref: null };   // fallback — calibrar no ensaio
 }
 
-module.exports = { paginaSessao, parseItens, parsePlacarPortal, identificarItem };
+// ============================================================
+//  Descoberta da sessão do dia no painel ao vivo (para o /votacao de HOJE
+//  não depender de Dados Abertos, que tem ~5min de atraso). O id do evento
+//  em Dados Abertos é o mesmo `reuniao` do portal — daí a ponte.
+// ============================================================
+
+async function eventosDeliberativosDia(dataISO) {
+  const r = await fetch(`${API}/eventos?dataInicio=${dataISO}&dataFim=${dataISO}&idOrgao=180&itens=30`);
+  if (!r.ok) return [];
+  return ((await r.json()).dados || [])
+    .filter(e => /deliberativa/i.test(e.descricaoTipo || '') && !/n[ãa]o\s+deliberativa/i.test(e.descricaoTipo || ''));
+}
+
+/**
+ * Descobre a sessão do dia no painel e seus itens NOMINAIS.
+ * Retorna { reuniaoId, itens:[{id,rotulo,nominal,selecionado}] } ou null se
+ * não houver sessão com painel disponível (aí o chamador cai para Dados Abertos).
+ */
+async function descobrirSessaoPortal(dataISO) {
+  const eventos = await eventosDeliberativosDia(dataISO);
+  eventos.sort((a, b) => String(b.dataHoraInicio || '').localeCompare(String(a.dataHoraInicio || '')));
+  for (const ev of eventos) {
+    try {
+      const html = await paginaSessao(ev.id);
+      const itens = parseItens(html).filter(i => i.nominal);
+      if (itens.length) return { reuniaoId: ev.id, itens };
+    } catch (_) { /* tenta o próximo evento */ }
+  }
+  return null;
+}
+
+module.exports = {
+  paginaSessao, parseItens, parsePlacarPortal, identificarItem,
+  descobrirSessaoPortal,
+};

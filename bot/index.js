@@ -9,6 +9,7 @@ const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
+const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor } = require('./src/monitor');
@@ -582,6 +583,31 @@ async function cmdVotacao(ctx, texto) {
   const dataBR  = dataISO.split('-').reverse().join('/');
 
   await ctx.replyWithChatAction('typing');
+
+  // HOJE: usa o painel AO VIVO (mesma fonte do monitor) — Dados Abertos tem
+  // ~5min de atraso e esconde votos até o encerramento. Só cai para Dados
+  // Abertos se não houver sessão com painel disponível (ex.: sessão já saiu
+  // do portal). Datas passadas usam Dados Abertos (dado final, sem atraso).
+  if (dataISO === hojeBrasiliaISO()) {
+    try {
+      const sessao = await descobrirSessaoPortal(dataISO);
+      if (sessao) {
+        const kb = new InlineKeyboard();
+        for (const it of sessao.itens.slice(0, 50)) {
+          const rot = identificarItem(it.rotulo).texto.replace(/\*/g, '').slice(0, 60);
+          kb.text(rot || `Item ${it.id}`, `votp:${sessao.reuniaoId}:${it.id}`).row();
+        }
+        return ctx.reply(
+          `🗳 Votações nominais do Plenário em ${dataBR} — *painel ao vivo* (${sessao.itens.length}):\n` +
+          'Escolha uma para gerar a imagem do placar. Se a votação ainda estiver em curso, ' +
+          'os votos individuais aparecem só após o encerramento.',
+          { reply_markup: kb, parse_mode: 'Markdown' });
+      }
+    } catch (e) {
+      console.warn('/votacao painel ao vivo indisponível, usando Dados Abertos:', e.message);
+    }
+  }
+
   try {
     const lista = await listarVotacoesDia(dataISO);
     if (!lista.length) {
@@ -623,6 +649,39 @@ bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   } catch (e) {
     console.error('imagem de votação falhou:', e);
     return ctx.reply(`Erro ao gerar a imagem: ${e.message}`);
+  }
+});
+
+// Placar via PAINEL AO VIVO (votp:{reuniao}:{item}) — fonte do monitor, sem o
+// atraso de Dados Abertos. Votos individuais só existem após o encerramento.
+bot.callbackQuery(/^votp:(\d+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  await ctx.replyWithChatAction('upload_photo');
+  const [, reuniao, item] = ctx.match;
+  try {
+    const html = await paginaSessao(reuniao, item);
+    const itens = parseItens(html);
+    const sel = itens.find(i => i.selecionado) || itens.find(i => i.id === item);
+    if (sel && sel.id !== item) {
+      return ctx.reply('O painel não abriu esse item específico agora — tente novamente em instantes.');
+    }
+    const ident = identificarItem(sel ? sel.rotulo : '');
+    const placar = await parsePlacarPortal(html, { descricao: ident.texto.replace(/\*/g, '') });
+    if (!placar.temVotos) {
+      return ctx.reply(
+        `⏳ ${ident.texto.replace(/\*/g, '')} — votação ainda em curso.\n` +
+        'Os votos individuais só aparecem no painel após o encerramento. Tente de novo em instantes.');
+    }
+    const png = await imagemVotacao(placar);
+    const g = placar.global, p = placar.parcial;
+    const cap = `${ident.texto.replace(/\*/g, '')}`.slice(0, 800) +
+      `\n${placar.data ? placar.data.split('-').reverse().join('/') + ' · ' : ''}quórum ${placar.quorum}` +
+      `\nSim ${g.sim} · Não ${g.nao}${g.abstencao ? ` · Abst. ${g.abstencao}` : ''}` +
+      `\nBancada PODE: ${p.sim} Sim / ${p.nao} Não${p.abstencao ? ` / ${p.abstencao} Abst.` : ''}${p.ausente ? ` / ${p.ausente} Aus.` : ''}`;
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'), { caption: cap });
+  } catch (e) {
+    console.error('imagem de votação (portal) falhou:', e);
+    return ctx.reply(`Erro ao gerar a imagem do painel: ${e.message}`);
   }
 });
 
