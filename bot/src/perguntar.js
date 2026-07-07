@@ -13,6 +13,8 @@ const { pautaAtualImportada } = require('./pauta');
 const { chamarIAtexto } = require('./ia');
 const { resolveProposicao, listarDocumentosDisponiveis } = require('./documentos');
 
+const API_CAMARA = 'https://dadosabertos.camara.leg.br/api/v2';
+
 const CHAT_CTX_MAX  = 60000;        // teto de caracteres do contexto (igual ao painel)
 const EXTRA_DOC_MAX = 50000;        // teto por documento extra agregado (igual ao painel)
 const CONVERSA_TTL  = 60 * 60e3;    // 1 h — chat é efêmero, como no painel
@@ -97,28 +99,99 @@ async function montarContextoItem(analise) {
   return { contexto: truncado ? ctx.slice(0, CHAT_CTX_MAX) : ctx, truncado };
 }
 
-/** Contexto da PAUTA inteira (leve — sem baixar PDF): itens + análises existentes. */
+// ---------- Autoria Podemos por item (via API da Câmara, como o painel) ----------
+// A pauta salva só tem o nome do autor (autorTexto), não o partido. Aqui
+// resolvemos, por item, se algum autor é deputado do Podemos HOJE — cruzando
+// os IDs dos autores com a bancada PODE (mesma base do painel). Cache por pauta.
+let _rosterPodeIds = null;
+const _autoriaCache = new Map();   // pautaId → Map(chave → { ehPode, autores[] })
+
+async function rosterPodeIds() {
+  if (_rosterPodeIds) return _rosterPodeIds;
+  try {
+    const r = await fetch(`${API_CAMARA}/deputados?siglaPartido=PODE&itens=100`);
+    const dados = (await r.json()).dados || [];
+    _rosterPodeIds = new Set(dados.map(d => d.id));
+  } catch (_) { _rosterPodeIds = new Set(); }
+  return _rosterPodeIds;
+}
+
+async function mapLimit(itens, limite, fn) {
+  const out = new Array(itens.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, async () => {
+    while (i < itens.length) { const idx = i++; out[idx] = await fn(itens[idx], idx); }
+  }));
+  return out;
+}
+
+// Alvo da autoria: para requerimento de urgência, o projeto urgenciado; senão o próprio item.
+function alvoAutoria(it) {
+  if (it.tipoCategoria === 'requerimento' && it.projetoUrgenciado?.sigla) return it.projetoUrgenciado;
+  return { sigla: it.sigla, numero: it.numero, ano: it.ano };
+}
+
+async function resolverAutoriaPauta(pauta) {
+  if (_autoriaCache.has(pauta.id)) return _autoriaCache.get(pauta.id);
+  const idsPode = await rosterPodeIds();
+  const mapa = new Map();
+  await mapLimit(pauta.itens || [], 4, async (it) => {
+    const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    try {
+      const alvo = alvoAutoria(it);
+      if (String(alvo.sigla).toUpperCase() === 'REQ') { mapa.set(chave, { ehPode: false, autores: [] }); return; }
+      const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
+      if (!prop) { mapa.set(chave, { ehPode: null, autores: [] }); return; }
+      const aut = await (await fetch(`${API_CAMARA}/proposicoes/${prop.id}/autores`)).json();
+      const autores = aut.dados || [];
+      const idsAut = autores.map(a => Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1])).filter(Boolean);
+      const podeAutores = autores.filter(a => idsPode.has(Number((a.uri || '').match(/\/deputados\/(\d+)/)?.[1])));
+      mapa.set(chave, { ehPode: idsAut.some(id => idsPode.has(id)), autores: podeAutores.map(a => a.nome) });
+    } catch (_) {
+      mapa.set(chave, { ehPode: null, autores: [] });   // não determinado (falha) — não afirma
+    }
+  });
+  _autoriaCache.set(pauta.id, mapa);
+  return mapa;
+}
+
+/** Contexto da PAUTA inteira (leve — sem baixar PDF): itens + autoria Podemos + análises. */
 async function montarContextoPauta() {
   const pauta = await pautaAtualImportada();
   if (!pauta) return null;
+  const autoria = await resolverAutoriaPauta(pauta).catch(() => new Map());
+
+  const podemosItens = [];
   const linhas = [];
   for (const it of (pauta.itens || [])) {
     const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    const aut = autoria.get(chave);
     let resumoNota = '';
     try {
       const a = await carregarAnaliseMaisRecente(chave);
       if (a) resumoNota = notaTextoPlano(a).slice(0, 400);
     } catch (_) {}
+    let linhaAutoria = '';
+    if (aut?.ehPode === true) {
+      linhaAutoria = `  ✔ AUTORIA PODEMOS${aut.autores.length ? ` (${aut.autores.join(', ')})` : ''}\n`;
+      podemosItens.push(`${it.sigla} ${it.numero}/${it.ano}${aut.autores.length ? ` — ${aut.autores.join(', ')}` : ''}`);
+    } else if (aut?.ehPode === null) {
+      linhaAutoria = '  (autoria Podemos não verificada)\n';
+    }
     linhas.push(
       `— Item ${it.ordem}: ${it.sigla} ${it.numero}/${it.ano}` +
       `${it.temUrgencia ? ' (urgência)' : ''}\n` +
       `  Ementa: ${(it.ementa || '(sem ementa)').replace(/\s+/g, ' ').slice(0, 300)}\n` +
       `${it.autorTexto ? `  Autor: ${it.autorTexto}\n` : ''}` +
+      linhaAutoria +
       `${resumoNota ? `  Início da nota técnica: ${resumoNota.replace(/\s+/g, ' ')}…\n` : '  (nota técnica ainda não gerada)\n'}`);
   }
+  const resumoAutoria = podemosItens.length
+    ? `ITENS DE AUTORIA DO PODEMOS (autor(a) filiado(a) ao Podemos hoje, verificado na API da Câmara): ${podemosItens.join('; ')}.`
+    : 'ITENS DE AUTORIA DO PODEMOS: nenhum item cujo autor esteja filiado ao Podemos hoje foi identificado nesta pauta.';
   const ctx =
     `PAUTA DA SEMANA IMPORTADA NO SISPODE — ${pauta.titulo || ''} (${pauta.periodo || 'período n/d'})\n` +
-    `${(pauta.itens || []).length} itens:\n\n${linhas.join('\n')}`;
+    `${(pauta.itens || []).length} itens.\n\n${resumoAutoria}\n\n${linhas.join('\n')}`;
   const truncado = ctx.length > CHAT_CTX_MAX;
   return { pauta, contexto: truncado ? ctx.slice(0, CHAT_CTX_MAX) : ctx, truncado };
 }
