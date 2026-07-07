@@ -163,6 +163,18 @@ async function verificarPautaNova() {
   return { status: 'nova', ...base };
 }
 
+/**
+ * Rótulo curto identificando a pauta de referência — para o bot deixar SEMPRE
+ * claro sobre qual pauta está falando (o analista pode estar vendo outra pauta
+ * aberta no painel; o bot usa sempre a mais recente importada).
+ */
+function rotuloPauta(pauta) {
+  if (!pauta) return '';
+  const per = pauta.periodo || pauta.titulo || pauta.nome || 'período não identificado';
+  const imp = String(pauta.uploadedAt || '').slice(0, 10).split('-').reverse().join('/');
+  return `Pauta da Semana — ${per}${imp ? ` · importada em ${imp}` : ''}`;
+}
+
 /** Lista TODOS os itens para a mensagem do Telegram (quem envia fatia em blocos de 4096). */
 function resumoPauta(pauta) {
   return pauta.itens.map(it => {
@@ -252,7 +264,7 @@ async function pautaAtualImportada() {
 }
 
 module.exports = {
-  baixarPautaAtual, verificarPautaNova, resumoPauta,
+  baixarPautaAtual, verificarPautaNova, resumoPauta, rotuloPauta,
   gerarIdPauta, montarPautaFirebase, pautaJaExiste, gravarPauta,
   pautaAtualImportada,
   parsePeriodo, situacaoPeriodo, rotuloSituacao, verificarJaImportada,

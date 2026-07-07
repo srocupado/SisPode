@@ -9,7 +9,7 @@
 
 const { fbGet } = require('./firebase');
 const { extrairTextoPdf } = require('./parser');
-const { pautaAtualImportada } = require('./pauta');
+const { pautaAtualImportada, rotuloPauta } = require('./pauta');
 const { chamarIAtexto } = require('./ia');
 const { resolveProposicao, listarDocumentosDisponiveis } = require('./documentos');
 
@@ -344,6 +344,7 @@ async function perguntar({ userId, perfil, texto }) {
       const { contexto, truncado } = await montarContextoItem(analise);
       conversa = {
         chave, itemLabel: `a proposição ${item.sigla} ${item.numero}/${item.ano}`,
+        pautaRef: rotuloPauta(pauta),
         contexto, truncado, mensagens: [], extras: [], ts: Date.now(),
       };
       conversas.set(String(userId), conversa);
@@ -356,6 +357,7 @@ async function perguntar({ userId, perfil, texto }) {
     if (!geral) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
     conversa = {
       chave: null, itemLabel: 'a Pauta da Semana',
+      pautaRef: rotuloPauta(geral.pauta),
       contexto: geral.contexto, truncado: geral.truncado, mensagens: [], ts: Date.now(),
     };
     conversas.set(String(userId), conversa);
@@ -383,7 +385,7 @@ async function perguntar({ userId, perfil, texto }) {
   conversa.mensagens = conversa.mensagens.slice(-10);  // mantém as 5 últimas trocas
   conversa.ts = Date.now();
 
-  return { resposta, itemLabel: conversa.itemLabel };
+  return { resposta, itemLabel: conversa.itemLabel, pautaRef: conversa.pautaRef };
 }
 
 // ============================================================

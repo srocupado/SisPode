@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao } = require('./src/pauta');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, pautaAtualImportada, rotuloSituacao, rotuloPauta } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
@@ -376,7 +376,10 @@ async function fluxoPerguntar(ctx, texto) {
   try {
     const r = await perguntar({ userId: ctx.from.id, perfil, texto: texto.trim() });
     if (r.erro) return ctx.reply(r.erro);
-    return responderLongo(ctx, r.resposta);
+    // Deixa claro sobre qual pauta o bot respondeu (o analista pode estar
+    // vendo outra pauta aberta no painel — problema 3 da varredura).
+    const rodape = r.pautaRef ? `\n\n— Base: ${r.pautaRef}` : '';
+    return responderLongo(ctx, r.resposta + rodape);
   } catch (e) {
     console.error('/perguntar falhou:', e);
     return ctx.reply(`Erro ao consultar a IA: ${e.message}`);
@@ -690,12 +693,10 @@ async function cmdListarItens(ctx) {
   await ctx.replyWithChatAction('typing');
   const pauta = await pautaAtualImportada();
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
-  const quando = String(pauta.uploadedAt || '').slice(0, 10).split('-').reverse().join('/');
   const linhas = (pauta.itens || []).map(it =>
     `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ${(it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`);
   return responderLongo(ctx,
-    `📋 Pauta IMPORTADA no SisPode: "${pauta.nome || pauta.titulo || 'Pauta'}"` +
-    `${quando ? ` (importada em ${quando}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''})` : ''}\n` +
+    `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
     `ℹ️ Esta é a pauta mais recente que a equipe importou — para ver a pauta ` +
     `semanal publicada no site da Câmara, use /pauta.\n\n${linhas.join('\n')}`);
 }
