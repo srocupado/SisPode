@@ -10,7 +10,7 @@ const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = requi
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
-const { importarOrdemDoDiaDeHoje, importarOrdemDoDia } = require('./src/odd');
+const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta } = require('./src/worker');
@@ -225,6 +225,28 @@ function quadroPauta(r) {
   return linhas.join('\n');
 }
 
+// Quando a pauta SEMANAL do site está encerrada/ausente, a "pauta nova" do dia
+// pode existir na forma da ORDEM DO DIA da sessão (API) — o pauta_s.pdf da
+// Câmara costuma ficar defasado. Devolve { linha, kb } para anexar à resposta,
+// ou null se não há sessão hoje.
+async function ofertaOrdemDoDia() {
+  try {
+    const hoje = hojeBrasiliaISO();
+    const eventos = await eventosDeliberativos(hoje);
+    if (!eventos.length) return null;
+    eventos.sort((a, b) => String(b.dataHoraInicio || '').localeCompare(String(a.dataHoraInicio || '')));
+    const odd = await buscarOrdemDoDia(eventos[0].id, hoje);
+    if (!odd) return null;
+    const n = odd.parsed.itens.length;
+    const jaTem = await pautaPorId(`odd-${hoje}`).catch(() => null);
+    if (jaTem) {
+      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — já importada no SisPode. Use /sispode para escolhê-la.`, kb: null };
+    }
+    const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia de hoje', `oddimp:${eventos[0].id}:${hoje}`);
+    return { linha: `\n\n📌 Mas HOJE há sessão com Ordem do Dia publicada (${n} itens) — é a pauta do dia, mais atual que a semanal.`, kb };
+  } catch (_) { return null; }
+}
+
 async function cmdVerificarPauta(ctx) {
   await ctx.replyWithChatAction('typing');
   try {
@@ -232,9 +254,11 @@ async function cmdVerificarPauta(ctx) {
     if (r.status === 'sem_pauta') {
       // Sem pauta nova no site, mas pode haver pautas já importadas: oferece as
       // 3 últimas do Firebase para o usuário escolher qual quer ver/usar.
+      const odd = await ofertaOrdemDoDia();
       const ultimas = await ultimasPautas(3).catch(() => []);
       if (!ultimas.length) {
-        return ctx.reply('Nenhuma pauta publicada no site agora (o PDF oficial não está disponível) e nenhuma importada no SisPode ainda.');
+        return ctx.reply('Nenhuma pauta publicada no site agora (o PDF oficial não está disponível) e nenhuma importada no SisPode ainda.' +
+          (odd ? odd.linha : ''), odd?.kb ? { reply_markup: odd.kb } : undefined);
       }
       const kb = new InlineKeyboard();
       for (const p of ultimas) {
@@ -242,15 +266,22 @@ async function cmdVerificarPauta(ctx) {
         pautaEscolha.set(token, { id: p.id, ts: Date.now() });
         kb.text(`${rotuloPauta(p)} · ${(p.itens || []).length} itens`.slice(0, 62), `psel:${token}`).row();
       }
+      if (odd?.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
       return ctx.reply(
-        'Nenhuma pauta nova publicada no site da Câmara agora. ' +
-        'Estas são as últimas importadas no SisPode — escolha uma para ver os itens:',
+        'Nenhuma pauta nova publicada no site da Câmara agora.' + (odd ? odd.linha : '') +
+        '\n\nEstas são as últimas importadas no SisPode — escolha uma para ver os itens:',
         { reply_markup: kb });
     }
-    const texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
+    let texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
     // Botão de importar só quando faz sentido (não importada e semana não encerrada)
     const comBotao = !r.jaImportada.importada && r.situacao !== 'encerrada';
-    return responderLongo(ctx, texto, comBotao ? tecladoImportar() : undefined);
+    // Semana do PDF encerrada → verifica se há Ordem do Dia de HOJE para oferecer
+    let kbFinal = comBotao ? tecladoImportar() : undefined;
+    if (r.situacao === 'encerrada') {
+      const odd = await ofertaOrdemDoDia();
+      if (odd) { texto += odd.linha; if (odd.kb) kbFinal = odd.kb; }
+    }
+    return responderLongo(ctx, texto, kbFinal);
   } catch (e) {
     console.error('/pauta falhou:', e);
     return ctx.reply(`Erro ao verificar a pauta: ${e.message}`);
