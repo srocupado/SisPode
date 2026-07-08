@@ -186,8 +186,15 @@ async function ativarSessao(ev) {
   };
   console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})`);
   if (!estado.inicioAnunciado) {
-    const hora = String(ev.dataHoraInicio || '').slice(11, 16);
-    await enviar(`🟢 *${ev.descricaoTipo || 'Sessão Deliberativa'}* iniciada no Plenário${hora ? ` às ${hora}` : ''}.`, { md: true });
+    // Ordinária/Extraordinária vem no `descricao` (o descricaoTipo é só
+    // "Sessão Deliberativa"); cai para "DELIBERATIVA" se não especificar.
+    const desc = `${ev.descricao || ''} ${ev.descricaoTipo || ''}`;
+    const tipoSessao = /extraordin/i.test(desc) ? 'EXTRAORDINÁRIA'
+      : /\bordin[áa]ri/i.test(desc) ? 'ORDINÁRIA' : 'DELIBERATIVA';
+    await enviar(
+      `*ABERTA A SESSÃO ${tipoSessao}*\n\n` +
+      'A sessão seguirá com as Breves Comunicações até o início da Ordem do Dia.',
+      { md: true });
     estado.inicioAnunciado = true;
     marcar(ev.id, { inicioAnunciado: true, dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '' });
   }
@@ -225,7 +232,7 @@ async function tickPainel() {
     const est = _sessao.estado;
 
     if (itens.length && !est.oddAnunciado) {
-      await enviar('📋 *Ordem do Dia iniciada* — acompanhando as votações.', { md: true });
+      await enviar('*INICIADA A ORDEM DO DIA*', { md: true });
       est.oddAnunciado = true;
       marcar(_sessao.id, { oddAnunciado: true });
     }
