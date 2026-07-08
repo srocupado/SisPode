@@ -161,16 +161,22 @@ async function imagemVotacao(pl) {
   // Card da bancada (donut + legenda + total)
   svg += `<rect x="${M}" y="${yBancada}" rx="16" width="${CW}" height="${hBancada}" fill="${COR.card}" stroke="${COR.borda}"/>`;
   svg += `<text x="${M + PAD}" y="${yBancada + 46}" font-family="${FONTE}" font-size="17" letter-spacing="2" font-weight="bold" fill="${COR.dim}">BANCADA ${esc(pl.sigla)}</text>`;
-  const cx = M + PAD + 130, cy = yBancada + 165, r = 78;
+  // Donut + legenda CENTRALIZADOS no card (grupo de 527px de largura:
+  // donut de raio externo 97 + respiro + legenda de 230px terminando em 527).
+  const gLarg = 527;
+  const gx = M + (CW - gLarg) / 2;
+  const cx = gx + 97, cy = yBancada + 165, r = 78;
   svg += donutSVG(cx, cy, r, 38, pl.parcial);
   svg += `<text x="${cx}" y="${cy + 2}" text-anchor="middle" font-family="${FONTE}" font-size="34" font-weight="bold" fill="${COR.texto}">${bancada.length}</text>` +
          `<text x="${cx}" y="${cy + 26}" text-anchor="middle" font-family="${FONTE}" font-size="13" letter-spacing="1" fill="${COR.dim}">TOTAL</text>`;
-  let ly = yBancada + 108;
+  // Legenda verticalmente centrada em relação ao donut
+  const nLinhas = ORDEM_GRUPOS.filter(k => pl.parcial[k]).length;
+  let ly = cy + 7 - ((nLinhas - 1) * 38) / 2;
   for (const k of ORDEM_GRUPOS) {
     if (!pl.parcial[k]) continue;
-    svg += `<circle cx="${M + PAD + 330}" cy="${ly - 7}" r="8" fill="${COR[k]}"/>` +
-           `<text x="${M + PAD + 352}" y="${ly}" font-family="${FONTE}" font-size="21" fill="${COR.texto}">${ROTULO[k]}</text>` +
-           `<text x="${M + PAD + 560}" y="${ly}" text-anchor="end" font-family="${FONTE}" font-size="21" font-weight="bold" fill="${COR[k]}">${pl.parcial[k]}</text>`;
+    svg += `<circle cx="${gx + 297}" cy="${ly - 7}" r="8" fill="${COR[k]}"/>` +
+           `<text x="${gx + 319}" y="${ly}" font-family="${FONTE}" font-size="21" fill="${COR.texto}">${ROTULO[k]}</text>` +
+           `<text x="${gx + 527}" y="${ly}" text-anchor="end" font-family="${FONTE}" font-size="21" font-weight="bold" fill="${COR[k]}">${pl.parcial[k]}</text>`;
     ly += 38;
   }
   svg += `<line x1="${M + PAD}" y1="${yBancada + hBancada - 62}" x2="${W - M - PAD}" y2="${yBancada + hBancada - 62}" stroke="${COR.divisor}"/>` +
