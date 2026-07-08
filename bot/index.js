@@ -400,6 +400,21 @@ function tecladoImportar() {
   return new InlineKeyboard().text('📥 Importar para o SisPode', 'imp:baixar');
 }
 
+// Aviso de REAPROVEITAMENTO: quantos itens do PDF já têm nota no SisPode
+// (indexadas por chave → uma pauta nova que repete projetos reaproveita as
+// notas; nada precisa ser regerado). Tranquiliza no cenário "pauta de quarta
+// com os itens remanescentes de terça".
+async function avisoReaproveitamento(doc) {
+  try {
+    const com = contarAnalisesDaPauta(doc, await chavesComAnalise());
+    const total = (doc.itens || []).length;
+    if (!com) return '';
+    const aGerar = total - com;
+    return `\n♻️ ${com} de ${total} itens já têm nota no SisPode (serão reaproveitadas)` +
+      `${aGerar > 0 ? `; ${aGerar} a gerar` : ' — nada a regerar'}.`;
+  } catch (_) { return ''; }
+}
+
 async function prepararImportacao(ctx) {
   await ctx.replyWithChatAction('typing');
   const parsed = await baixarPautaAtual();
@@ -410,15 +425,16 @@ async function prepararImportacao(ctx) {
   const doc = montarPautaFirebase(parsed, `bot-telegram (${nomeDe(ctx)})`);
   const token = crypto.randomBytes(6).toString('hex');
   importPendente.set(token, { doc, ts: Date.now() });
+  const reaprov = await avisoReaproveitamento(doc);
 
   if (await pautaJaExiste(doc.id)) {
     return ctx.reply(
       `⚠️ Já existe a pauta "${doc.titulo}" no SisPode — ela pode ter edições da equipe ` +
-      `(itens adicionados/removidos, responsáveis, renomeação).\n\nSobrescrever?`,
+      `(itens adicionados/removidos, responsáveis, renomeação).${reaprov}\n\nSobrescrever?`,
       { reply_markup: new InlineKeyboard().text('⚠️ Sobrescrever', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
   }
   return ctx.reply(
-    `Importar "${doc.titulo}" (${doc.itens.length} itens) para o SisPode?`,
+    `Importar "${doc.titulo}" (${doc.itens.length} itens) para o SisPode?${reaprov}`,
     { reply_markup: new InlineKeyboard().text('✅ Confirmar', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
 }
 bot.command('importar', prepararImportacao);
@@ -717,8 +733,9 @@ bot.on('message:document', async ctx => {
     const docFb = montarPautaFirebase(parsed, `bot-telegram (${nomeDe(ctx)})`, doc.file_name || 'pauta.pdf');
     const token = crypto.randomBytes(6).toString('hex');
     importPendente.set(token, { doc: docFb, ts: Date.now() });
+    const reaprov = await avisoReaproveitamento(docFb);
 
-    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.`;
+    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.${reaprov}`;
     if (await pautaJaExiste(docFb.id)) {
       return ctx.reply(
         `${cab}\n⚠️ Já existe pauta com esse período no SisPode (pode ter edições da equipe). Sobrescrever?`,
