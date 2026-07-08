@@ -15,6 +15,7 @@ const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
+const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -33,6 +34,7 @@ const TEXTO_AJUDA =
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
+  '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
@@ -187,6 +189,60 @@ bot.command(['start', 'ajuda'], ctx => ctx.reply(TEXTO_AJUDA));
 bot.command('id', ctx => ctx.reply(
   `ID deste chat: ${ctx.chat.id}\nSeu user_id: ${ctx.from.id}` +
   (ctx.chat.type !== 'private' ? '\n(use o ID do chat no GRUPO_CHAT_ID do .env)' : '')));
+
+// ---------- Backup / restauração (só o ADMIN_USER_ID) ----------
+const restaurePendente = new Map();   // token → { nome, ts }
+
+bot.command('backup', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await fazerBackup();
+    if (r.ignorado) {
+      return ctx.reply(`⚠️ O banco veio VAZIO agora (${r.pautas} pautas, ${r.analises} análises) — snapshot ignorado para não gravar por cima do bom. Último backup: ${r.referencia.pautas} pautas / ${r.referencia.analises} análises.`);
+    }
+    return ctx.reply(`💾 Backup gravado: ${r.pautas} pautas, ${r.analises} análises.\n(${r.arquivo})`);
+  } catch (e) {
+    console.error('/backup falhou:', e);
+    return ctx.reply(`Erro ao fazer backup: ${e.message}`);
+  }
+});
+
+bot.command('backups', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const lista = listarBackups();
+  if (!lista.length) return ctx.reply('Nenhum backup ainda. Use /backup para gerar o primeiro.');
+  const kb = new InlineKeyboard();
+  for (const b of lista.slice(0, 10)) {
+    const token = crypto.randomBytes(4).toString('hex');
+    restaurePendente.set(token, { nome: b.nome, ts: Date.now() });
+    kb.text(`♻️ ${b.quando} · ${b.pautas}p/${b.analises}a`.slice(0, 62), `rest:${token}`).row();
+  }
+  return ctx.reply(
+    '🗄 Backups locais (mais recente primeiro). Tocar RESTAURA o que estiver FALTANDO ' +
+    'no Firebase (não sobrescreve nada que já exista):',
+    { reply_markup: kb });
+});
+
+bot.callbackQuery(/^rest:([a-f0-9]+)$/, async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.answerCallbackQuery({ text: 'Só o administrador restaura.', show_alert: true });
+  await ctx.answerCallbackQuery();
+  const p = restaurePendente.get(ctx.match[1]);
+  restaurePendente.delete(ctx.match[1]);
+  if (!p || Date.now() - p.ts > IMPORT_TTL) return ctx.reply('Escolha expirada — use /backups de novo.');
+  await ctx.editMessageText('♻️ Restaurando o que está faltando…').catch(() => {});
+  try {
+    const r = await restaurarFaltantes(p.nome);
+    return ctx.reply(
+      `✅ Restauração concluída (${p.nome}):\n` +
+      `• Pautas repostas: ${r.pautas.length}${r.pautas.length ? ` (${r.pautas.join(', ')})` : ''}\n` +
+      `• Análises repostas: ${r.analises.length}\n` +
+      `• Já existiam (intactas): ${r.jaPautas} pautas, ${r.jaAnalises} análises.`);
+  } catch (e) {
+    console.error('/restaurar falhou:', e);
+    return ctx.reply(`Erro ao restaurar: ${e.message}`);
+  }
+});
 
 // ---------- Administração (só o ADMIN_USER_ID) ----------
 bot.command('revogar', async ctx => {
@@ -1059,6 +1115,21 @@ async function tickCron() {
 
 setInterval(tickCron, CRON_MINUTOS * 60 * 1000);
 tickCron(); // primeira checagem ao subir
+
+// ---------- Backup automático: na subida + a cada 6h ----------
+async function tickBackup() {
+  try {
+    const r = await fazerBackup();
+    if (r.ignorado && ADMIN_USER_ID) {
+      await bot.api.sendMessage(ADMIN_USER_ID,
+        `⚠️ Backup: o Firebase veio VAZIO (${r.pautas} pautas, ${r.analises} análises). ` +
+        `Snapshot ignorado (mantido o anterior: ${r.referencia.pautas}p/${r.referencia.analises}a). ` +
+        `Pode ser perda de dados — verifique o painel; /backups para restaurar.`).catch(() => {});
+    }
+  } catch (e) { console.warn('backup automático falhou:', e.message); }
+}
+setInterval(tickBackup, 6 * 60 * 60 * 1000);
+tickBackup();
 
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
 
