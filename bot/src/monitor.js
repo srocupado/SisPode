@@ -39,15 +39,40 @@ function janelaAtiva() {
   return hora >= 8 || hora < 2;
 }
 
+// Fatia mensagens acima do limite de 4096 do Telegram (mesma regra do index.js).
+// O resumo de sessão cheia passa fácil de 4096 — sem fatiar, o sendMessage
+// falha e o catch silencioso engolia a mensagem.
+function fatiar(texto, tam = 3900) {
+  const partes = [];
+  let resto = String(texto || '');
+  while (resto.length > tam) {
+    let corte = resto.lastIndexOf('\n', tam);
+    if (corte < tam * 0.5) corte = tam;
+    partes.push(resto.slice(0, corte));
+    resto = resto.slice(corte).replace(/^\n+/, '');
+  }
+  if (resto) partes.push(resto);
+  return partes;
+}
+
 async function enviar(texto, { md = false } = {}) {
   const destino = _cfg.destino();
   if (!destino) { console.warn('[monitor] sem destino configurado — mensagem descartada'); return; }
-  if (md) {
-    // Negrito Telegram (*texto*); se algum rótulo quebrar o parse, cai p/ texto puro
-    try { return await _cfg.api.sendMessage(destino, texto, { parse_mode: 'Markdown' }); }
-    catch (_) { /* fallback abaixo */ }
+  for (const parte of fatiar(texto)) {
+    if (md) {
+      // Negrito Telegram (*texto*); se algum rótulo quebrar o parse, cai p/ texto puro
+      try { await _cfg.api.sendMessage(destino, parte, { parse_mode: 'Markdown' }); continue; }
+      catch (_) { /* fallback abaixo */ }
+    }
+    await _cfg.api.sendMessage(destino, parte).catch(e => console.warn('[monitor] envio falhou:', e.message));
   }
-  return _cfg.api.sendMessage(destino, texto).catch(e => console.warn('[monitor] envio falhou:', e.message));
+}
+
+/** Envio ESTRITO: fatia e NÃO engole erro — usado onde a falha precisa acionar retry. */
+async function enviarOuFalhar(texto) {
+  const destino = _cfg.destino();
+  if (!destino) throw new Error('sem destino configurado (GRUPO_CHAT_ID/MONITOR_ENSAIO)');
+  for (const parte of fatiar(texto)) await _cfg.api.sendMessage(destino, parte);
 }
 // Grupo (ou destino de ensaio) + cópia ao admin, sem duplicar quando o
 // destino já É o admin (modo ensaio).
@@ -295,11 +320,15 @@ async function tentarResumo(s, tentativa) {
       }
       return;
     }
-    s.estado.resumoEnviado = true;
-    marcar(s.id, { resumoEnviado: true });
+    // ENVIA PRIMEIRO, marca depois: se o envio falhar (mensagem longa, rede,
+    // destino ausente), o erro cai no catch e as tentativas de +30/+60 min
+    // continuam valendo. Marcar antes queimava as tentativas com a flag no
+    // Firebase e o resumo se perdia em silêncio (sessão de 07/07).
     // Texto idêntico ao do painel (negrito estilo WhatsApp) — sem parse_mode,
     // para a equipe copiar/encaminhar ao WhatsApp sem retoque.
-    await enviar(r.texto);
+    await enviarOuFalhar(r.texto);
+    s.estado.resumoEnviado = true;
+    marcar(s.id, { resumoEnviado: true });
   } catch (e) {
     console.warn(`[monitor] resumo (tentativa ${tentativa + 1}) falhou:`, e.message);
     if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1 && _cfg.admin) {

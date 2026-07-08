@@ -13,7 +13,7 @@ const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, iden
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
-const { analisarPauta, exportarPdfPauta } = require('./src/worker');
+const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
@@ -31,6 +31,7 @@ const TEXTO_AJUDA =
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
+  '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
@@ -862,6 +863,33 @@ async function cmdOrdemDoDia(ctx) {
   }
 }
 bot.command('ordemdodia', cmdOrdemDoDia);
+
+// ---------- /resumo [dd/mm/aaaa] — resumo da sessão sob demanda ----------
+// Mesma mensagem do botão "Resultado da Sessão" do painel (via worker).
+// O monitor manda sozinho no fim da sessão; este comando cobre recuperação
+// (resumo perdido) e consulta de dias anteriores.
+async function cmdResumo(ctx, texto) {
+  if (_workerOcupado) return ctx.reply('Já há uma geração em andamento no worker — aguarde terminar.');
+  const m = String(texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const dataBR  = dataISO.split('-').reverse().join('/');
+  await ctx.replyWithChatAction('typing');
+  _workerOcupado = true;
+  try {
+    const pauta = await pautaDoUsuario(ctx.from.id).catch(() => null);
+    const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO });
+    if (r.vazio) {
+      return ctx.reply(`A Câmara não registrou matérias apreciadas em ${dataBR} (ou os dados ainda não foram publicados).`);
+    }
+    return responderLongo(ctx, r.texto);
+  } catch (e) {
+    console.error('/resumo falhou:', e);
+    return ctx.reply(`Erro ao gerar o resumo: ${e.message}`);
+  } finally {
+    _workerOcupado = false;
+  }
+}
+bot.command('resumo', ctx => cmdResumo(ctx, ctx.match));
 
 // Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
 bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
