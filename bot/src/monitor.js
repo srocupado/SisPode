@@ -18,7 +18,10 @@ const { InlineKeyboard } = require('grammy');
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_EVENTOS_MS = 60e3;
 const POLL_PAINEL_MS  = 20e3;
-const RESUMO_TENTATIVAS_MIN = [0, 30, 60];
+// Tentativas do RESUMO após o encerramento: os Dados Abertos levam ~5 min
+// para publicar as matérias apreciadas — por isso minutos, não segundos.
+// (Falha de ENVIO tem retry próprio de 5s/10s dentro de tentarResumo.)
+const RESUMO_TENTATIVAS_MIN = [0, 5, 10];
 
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
@@ -128,6 +131,7 @@ async function carregarEstado(eventoId) {
     oddAnunciado:    !!e.oddAnunciado,
     oddOferecida:    !!e.oddOferecida,
     oddImportada:    !!e.oddImportada,
+    fimAnunciado:    !!e.fimAnunciado,
     resumoEnviado:   !!e.resumoEnviado,
     itens:           e.itens || {},
   };
@@ -303,6 +307,14 @@ async function encerrarSessao() {
   clearInterval(_timerPainel);
   _timerPainel = null;
   console.log(`[monitor] sessão ${s.id} encerrada — agendando resumo`);
+  // Mensagem 1 — o encerramento em si, NA HORA (o resumo vem em seguida,
+  // quando os Dados Abertos publicarem). Idempotente entre reinícios.
+  if (!s.estado.fimAnunciado) {
+    await enviar('🔴 *ENCERRADA A SESSÃO*', { md: true });
+    s.estado.fimAnunciado = true;
+    marcar(s.id, { fimAnunciado: true });
+  }
+  // Mensagem 2 — o resumo das votações
   if (s.estado.resumoEnviado) return;
   for (let i = 0; i < RESUMO_TENTATIVAS_MIN.length; i++) {
     setTimeout(() => tentarResumo(s, i), RESUMO_TENTATIVAS_MIN[i] * 60e3);
@@ -316,17 +328,23 @@ async function tentarResumo(s, tentativa) {
     const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO: s.dataISO });
     if (r.vazio) {
       if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1) {
-        await enviar(`ℹ️ Sessão encerrada — a Câmara ainda não registrou matérias apreciadas em ${s.dataISO.split('-').reverse().join('/')}. Gere depois pelo painel (botão "Resultado da Sessão").`);
+        await enviar(`ℹ️ A Câmara ainda não registrou as matérias apreciadas de ${s.dataISO.split('-').reverse().join('/')}. Peça depois com /resumo ${s.dataISO.split('-').reverse().join('/')} (ou pelo painel, botão "Resultado da Sessão").`);
       }
       return;
     }
-    // ENVIA PRIMEIRO, marca depois: se o envio falhar (mensagem longa, rede,
-    // destino ausente), o erro cai no catch e as tentativas de +30/+60 min
+    // ENVIA PRIMEIRO (com retry rápido de 5s/10s), marca depois: se todo o
+    // envio falhar, o erro cai no catch e as tentativas de dados (+5/+10 min)
     // continuam valendo. Marcar antes queimava as tentativas com a flag no
     // Firebase e o resumo se perdia em silêncio (sessão de 07/07).
     // Texto idêntico ao do painel (negrito estilo WhatsApp) — sem parse_mode,
     // para a equipe copiar/encaminhar ao WhatsApp sem retoque.
-    await enviarOuFalhar(r.texto);
+    let enviado = false, ultErr = null;
+    for (const espera of [0, 5000, 10000]) {
+      if (espera) await new Promise(res => setTimeout(res, espera));
+      try { await enviarOuFalhar(r.texto); enviado = true; break; }
+      catch (e) { ultErr = e; console.warn('[monitor] envio do resumo falhou (retry):', e.message); }
+    }
+    if (!enviado) throw ultErr;
     s.estado.resumoEnviado = true;
     marcar(s.id, { resumoEnviado: true });
   } catch (e) {
