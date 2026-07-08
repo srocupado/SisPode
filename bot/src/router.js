@@ -20,6 +20,7 @@ const FERRAMENTAS = `
 - "ver_nota": MOSTRAR a nota técnica / análise pronta de uma proposição EXATAMENTE como foi salva no painel (texto integral, verbatim, SEM reprocessar pela IA). Use para "ver a nota técnica do PL 1234/2026", "me mostra a análise do PLP 41/2026", "traz a nota do PL X", "quero ler a nota do PL X".
 - "perguntar": RESPONDER uma pergunta de conteúdo sobre uma proposição ou sobre a pauta, a partir da nota técnica e dos documentos (a IA elabora a resposta). Use para "o que o PL 1234/2026 muda?", "qual o impacto disso no SUS?", "a nota fala sobre financiamento?", "algum item é de autoria do Podemos?".
 - "listar_documentos": listar os documentos da tramitação de uma proposição que NÃO foram considerados na nota técnica (pareceres, emendas, textos). Use para "quais documentos não entraram na análise do PL 1234/2026?", "que documentos da tramitação faltam?", "lista os documentos do PL X".
+- "baixar_documentos": enviar/BAIXAR os arquivos (PDFs) dos documentos de uma proposição — os usados na nota E os adicionais da tramitação. Use para "baixa os documentos do PL 1234/2026", "me envia os PDFs usados na nota do PL X", "quero o inteiro teor do PL X".
 - "pauta_comissao": pauta de uma ou mais COMISSÕES da Câmara numa DATA (dado oficial da API). GATE: use SEMPRE que o usuário NOMEAR a(s) comissão(ões) (CCJ, CCJC, Saúde, CMADS, Minas e Energia…) OU perguntar sobre projeto/partido/deputado numa comissão nomeada — mesmo que diga "em reuniões de hoje". Ex.: "o que a Comissão de Saúde vota dia 1º de julho?", "tem projeto do Podemos na pauta da CCJ amanhã?", "algo do deputado Fulano na CMADS hoje?". Preencha "comissoes" (TODAS as citadas, cada uma um item), "data", e "partido"/"deputado" se filtrar.
 - "comissoes_reuniao": listar QUAIS comissões permanentes têm REUNIÃO DELIBERATIVA numa data (só nomes/horários, sem olhar projeto). GATE: só na pergunta ABERTA e SEM filtro ("quais comissões têm reunião hoje?", "que comissões se reúnem amanhã?"). Se citar comissão → pauta_comissao; se cruzar com partido/deputado sem nomear comissão → varrer_comissoes.
 - "varrer_comissoes": VARRE todas as comissões com reunião deliberativa numa data e diz quais têm projeto de AUTORIA/RELATORIA de um partido/deputado. GATE: use quando a pergunta é ABERTA e cruza com partido/deputado SEM nomear comissão ("quais comissões com reunião hoje têm projeto do Podemos?", "nas reuniões de amanhã tem algo do PT?"). Varredura pesada. Preencha "data" e "partido" (padrão Podemos) ou "deputado".
@@ -52,7 +53,7 @@ async function rotear(perfil, mensagem) {
     prompt: montarPromptRoteador(mensagem), maxTokens: 400,
   });
   const j = extrairJson(bruto);
-  const validas = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'listar_itens', 'ver_nota', 'perguntar', 'listar_documentos', 'pauta_comissao', 'comissoes_reuniao', 'varrer_comissoes', 'votacao', 'analisar', 'exportar', 'ajuda', 'responder'];
+  const validas = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'listar_itens', 'ver_nota', 'perguntar', 'listar_documentos', 'baixar_documentos', 'pauta_comissao', 'comissoes_reuniao', 'varrer_comissoes', 'votacao', 'analisar', 'exportar', 'ajuda', 'responder'];
   if (!validas.includes(j.ferramenta)) {
     return { ferramenta: 'perguntar', argumentos: { pergunta: mensagem } };
   }

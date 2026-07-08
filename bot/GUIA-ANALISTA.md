@@ -36,6 +36,7 @@ as notas técnicas e os documentos oficiais.
 | `/perguntar PL 1234/2026 qual o impacto no SUS?` | A IA **responde** com base na nota técnica e nos documentos (texto elaborado, não a nota literal — para o texto integral use `/nota`) |
 | `/perguntar algum item é de autoria do Podemos?` | Pergunta sobre a **pauta em geral**. Autoria do Podemos é sempre **verificada na API da Câmara**, não inferida pela IA |
 | `/documentos PL 1234/2026` | Lista os documentos da tramitação (pareceres, emendas, textos) que **não** foram considerados na nota técnica |
+| `/baixar PL 1234/2026` | Envia os **PDFs para você baixar**: 📄 os usados na nota + 📎 os adicionais da tramitação. Toque em cada um, ou em "📥 Baixar todos" |
 | `/agregar 1,3` | Inclui na conversa os documentos listados (pelos números) — a IA passa a considerá-los nas próximas respostas |
 | `/limpar` | Zera a conversa atual com a IA (histórico e documentos agregados) |
 | `/comissao CCJ hoje` | **Pauta de uma comissão** da Câmara numa data — projetos, autor+partido, relator e voto do relator (dado oficial da API, verbatim). A frase serve para nome **e** data |

@@ -6,7 +6,7 @@ const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
-const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota } = require('./src/perguntar');
+const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -43,6 +43,7 @@ const TEXTO_AJUDA =
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
+  '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
@@ -610,6 +611,70 @@ async function cmdDocumentos(ctx, texto) {
 }
 bot.command('documentos', ctx => cmdDocumentos(ctx, ctx.match));
 
+// ---------- /baixar — download dos documentos (usados na nota + adicionais) ----------
+const baixarListas = new Map();   // token → { itemLabel, docs[{rotulo,url,usado}], ts }
+
+function nomeArquivoDoc(rotulo) {
+  const base = String(rotulo || 'documento').replace(/[\/\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+}
+
+async function cmdBaixar(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await documentosParaBaixar({ userId: ctx.from.id, texto: (texto || '').trim() });
+    if (r.erro) return ctx.reply(r.erro);
+    const token = crypto.randomBytes(4).toString('hex');
+    baixarListas.set(token, { itemLabel: r.itemLabel, docs: r.docs, ts: Date.now() });
+    const kb = new InlineKeyboard();
+    r.docs.slice(0, 40).forEach((d, i) => {
+      const icone = d.usado ? '📄' : '📎';
+      kb.text(`${icone} ${d.rotulo}`.slice(0, 62), `dl:${token}:${i}`).row();
+    });
+    if (r.docs.length > 1) kb.text('📥 Baixar todos', `dlall:${token}`).row();
+    const usados = r.docs.filter(d => d.usado).length;
+    return ctx.reply(
+      `📎 Documentos de ${r.itemLabel} (${r.docs.length}) — 📄 usados na nota (${usados}), 📎 adicionais da tramitação.\n` +
+      'Toque para baixar:',
+      { reply_markup: kb });
+  } catch (e) {
+    console.error('/baixar falhou:', e);
+    return ctx.reply(`Erro ao listar os documentos: ${e.message}`);
+  }
+}
+bot.command('baixar', ctx => cmdBaixar(ctx, ctx.match));
+
+async function enviarDoc(ctx, d) {
+  const buf = await baixarDocumento(d.url);
+  return ctx.replyWithDocument(new InputFile(Buffer.from(buf), nomeArquivoDoc(d.rotulo)),
+    { caption: d.rotulo.slice(0, 1000) });
+}
+
+bot.callbackQuery(/^dl:([a-f0-9]+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const lista = baixarListas.get(ctx.match[1]);
+  if (!lista || Date.now() - lista.ts > IMPORT_TTL) return ctx.reply('Lista expirada — use /baixar de novo.');
+  const d = lista.docs[+ctx.match[2]];
+  if (!d) return ctx.reply('Documento não encontrado na lista.');
+  await ctx.replyWithChatAction('upload_document');
+  try { return await enviarDoc(ctx, d); }
+  catch (e) { console.error('download doc falhou:', e); return ctx.reply(`Não consegui baixar "${d.rotulo}": ${e.message}`); }
+});
+
+bot.callbackQuery(/^dlall:([a-f0-9]+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const lista = baixarListas.get(ctx.match[1]);
+  if (!lista || Date.now() - lista.ts > IMPORT_TTL) return ctx.reply('Lista expirada — use /baixar de novo.');
+  await ctx.reply(`📥 Enviando ${lista.docs.length} documentos de ${lista.itemLabel}…`);
+  let ok = 0; const falhas = [];
+  for (const d of lista.docs) {
+    await ctx.replyWithChatAction('upload_document');
+    try { await enviarDoc(ctx, d); ok++; }
+    catch (e) { console.warn('dlall doc falhou:', d.rotulo, e.message); falhas.push(d.rotulo); }
+  }
+  if (falhas.length) return ctx.reply(`Enviados ${ok}/${lista.docs.length}. Falharam: ${falhas.join('; ')}`);
+});
+
 bot.command('agregar', async ctx => {
   const indices = String(ctx.match || '').split(/[,\s]+/).map(n => parseInt(n, 10)).filter(Number.isFinite);
   if (!indices.length) return ctx.reply('Uso: /agregar 1,3 — com os números listados pelo /documentos.');
@@ -1064,6 +1129,7 @@ async function executarDecisao(ctx, decisao) {
       data: decisao.argumentos.data, partido: decisao.argumentos.partido, deputado: decisao.argumentos.deputado });
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
+    case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
     case 'exportar':           return cmdExportar(ctx);

@@ -513,6 +513,57 @@ async function listarDocumentos({ userId, texto }) {
 }
 
 /**
+ * Documentos DISPONÍVEIS PARA DOWNLOAD de um item: os USADOS na nota
+ * (analise.documentos, com URL) + os ADICIONAIS da tramitação (os mesmos que o
+ * /documentos lista). Retorna { itemLabel, docs:[{rotulo,url,grupo,usado}] } ou { erro }.
+ */
+async function documentosParaBaixar({ userId, texto }) {
+  const ref = extrairRefProposicao(texto || '');
+  const pauta = await pautaDoUsuario(userId);
+  if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
+  let item = null;
+  if (ref) {
+    const r = acharItemNaPauta(ref, pauta);
+    if (!r.item) return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso.` };
+    item = r.item;
+  } else {
+    const c = conversaDe(userId);
+    if (!c?.chave) return { erro: 'Diga qual proposição: /baixar PL 1234/2026.' };
+    const [sigla, numero, ano] = String(c.chave).split('-');
+    const r = acharItemNaPauta({ sigla, numero, ano }, pauta);
+    if (!r.item) return { erro: 'Não localizei o item ativo na pauta em uso. Informe: /baixar PL 1234/2026.' };
+    item = r.item;
+  }
+
+  const chave     = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
+  const itemLabel = `${item.sigla} ${item.numero}/${item.ano}`;
+  const analise   = await carregarAnaliseMaisRecente(chave);
+  const usadosDocs = (analise?.documentos || []).filter(d => d && d.url);
+  const usadosUrls = new Set(usadosDocs.map(d => d.url));
+
+  const docs = usadosDocs.map(d => ({ rotulo: d.rotulo, url: d.url, grupo: 'Usados na nota', usado: true }));
+
+  // Adicionais da tramitação (não usados na nota) — mesma fonte do /documentos.
+  try {
+    const prop = await resolveProposicao(item.sigla, item.numero, item.ano);
+    if (prop) {
+      const grupos = await listarDocumentosDisponiveis({
+        idProp: prop.id, urlInteiroTeor: prop.urlInteiroTeor, usados: usadosUrls,
+        incluirRedacaoFinal: item.tipoCategoria === 'redacao_final',
+      });
+      for (const [grupo, lista] of Object.entries(grupos))
+        for (const d of lista) if (d?.url && !usadosUrls.has(d.url)) docs.push({ rotulo: d.rotulo, url: d.url, grupo, usado: false });
+    }
+  } catch (_) { /* segue só com os usados */ }
+
+  if (!docs.length) return { erro: `Não há documentos com link para baixar em ${itemLabel} (a nota pode não ter sido gerada ainda).` };
+  return { itemLabel, docs };
+}
+
+/** Baixa um documento (PDF) para envio pelo Telegram. Retorna Uint8Array. */
+async function baixarDocumento(url) { return baixarPdf(url); }
+
+/**
  * Agrega documentos (pelos números da última listagem) à conversa do item:
  * baixa cada PDF, extrai o texto (teto de EXTRA_DOC_MAX) e passa a incluí-lo
  * na seção "DOCUMENTOS ADICIONAIS" das próximas perguntas.
@@ -564,5 +615,5 @@ async function agregarDocumentos({ userId, indices }) {
 module.exports = {
   perguntar, limparConversa, conversaDe, extrairRefProposicao,
   listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente,
-  mostrarNota,
+  mostrarNota, documentosParaBaixar, baixarDocumento,
 };
