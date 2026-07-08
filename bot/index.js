@@ -6,7 +6,7 @@ const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
-const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente } = require('./src/perguntar');
+const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -31,6 +31,7 @@ const TEXTO_AJUDA =
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
+  '/nota PL 1234/2026 — mostra a nota técnica COMO ESTÁ SALVA no painel (texto integral, sem a IA reprocessar)\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
@@ -537,6 +538,22 @@ async function fluxoPerguntar(ctx, texto) {
   }
 }
 bot.command('perguntar', ctx => fluxoPerguntar(ctx, ctx.match));
+
+// /nota PL 1234/2026 — mostra a NOTA TÉCNICA como salva no painel (verbatim,
+// sem passar pela IA). Diferente de /perguntar, que RESPONDE a partir dela.
+async function fluxoNota(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await mostrarNota({ userId: ctx.from.id, texto: (texto || '').trim() });
+    if (r.erro) return ctx.reply(r.erro);
+    const cab = `📄 Nota técnica — ${r.itemLabel}${r.apelido ? ` · ${r.apelido}` : ''}\n(texto como salvo no SisPode)\n\n`;
+    return responderLongo(ctx, cab + r.nota);
+  } catch (e) {
+    console.error('/nota falhou:', e);
+    return ctx.reply(`Erro ao buscar a nota: ${e.message}`);
+  }
+}
+bot.command('nota', ctx => fluxoNota(ctx, ctx.match));
 bot.command('limpar', ctx => { limparConversa(ctx.from.id); return ctx.reply('Conversa zerada (histórico e documentos agregados).'); });
 
 // ---------- Documentos extras (porte do seletor do painel) ----------
@@ -969,6 +986,7 @@ async function executarDecisao(ctx, decisao) {
     case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
     case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
     case 'listar_itens':    return cmdListarItens(ctx);
+    case 'ver_nota':           return fluxoNota(ctx, decisao.argumentos.pergunta || '');
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');

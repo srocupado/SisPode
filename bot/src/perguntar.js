@@ -391,6 +391,40 @@ async function perguntar({ userId, perfil, texto }) {
   return { resposta, itemLabel: conversa.itemLabel, pautaRef: conversa.pautaRef };
 }
 
+/**
+ * Devolve a NOTA TÉCNICA como está SALVA no painel (texto integral, verbatim) —
+ * SEM reprocessar pela IA. É a diferença entre "ver a nota" (mostrar o que a
+ * equipe escreveu) e "perguntar sobre a nota" (a IA responde a partir dela).
+ * `texto` pode citar a proposição; sem citação, usa o item ativo da conversa.
+ * Retorna { itemLabel, apelido, nota } ou { erro }.
+ */
+async function mostrarNota({ userId, texto }) {
+  const ref = extrairRefProposicao(texto || '');
+  let chave = null, itemLabel = '';
+  if (ref) {
+    const pauta = await pautaDoUsuario(userId);
+    if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
+    const { item } = acharItemNaPauta(ref, pauta);
+    if (!item) return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso.` };
+    chave = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
+    itemLabel = `${item.sigla} ${item.numero}/${item.ano}`;
+  } else {
+    const c = conversaDe(userId);
+    if (!c?.chave) return { erro: 'Diga qual proposição: /nota PL 1234/2026.' };
+    chave = c.chave;
+    const [s, n, a] = String(chave).split('-');
+    itemLabel = `${s} ${n}/${a}`;
+  }
+
+  const analise = await carregarAnaliseMaisRecente(chave);
+  if (!analise) {
+    return { erro: `${itemLabel} ainda não tem nota técnica gerada no SisPode. Gere no painel "Análise de Pauta" e tente de novo.` };
+  }
+  const nota = notaTextoPlano(analise);
+  if (!nota) return { erro: `A nota de ${itemLabel} está vazia no SisPode.` };
+  return { itemLabel, apelido: (analise.apelido || '').trim(), nota };
+}
+
 // ============================================================
 //  Documentos extras — porte do seletor "documentos adicionais" do painel:
 //  lista o que a tramitação tem e NÃO entrou na nota, e agrega à conversa.
@@ -501,4 +535,5 @@ async function agregarDocumentos({ userId, indices }) {
 module.exports = {
   perguntar, limparConversa, conversaDe, extrairRefProposicao,
   listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente,
+  mostrarNota,
 };
