@@ -6,7 +6,7 @@ const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
-const { perguntar, limparConversa, listarDocumentos, agregarDocumentos } = require('./src/perguntar');
+const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente } = require('./src/perguntar');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -783,9 +783,38 @@ bot.callbackQuery(/^votp:(\d+):(\d+)$/, async ctx => {
 });
 
 // ---------- listar itens (usada pelo roteador da fase 4) ----------
-function linhasItensPauta(pauta) {
-  return (pauta.itens || []).map(it =>
-    `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ${(it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`).join('\n');
+// Apelido da matéria — o MESMO da extensão: gerado na análise e salvo em
+// /analises_pauta/{chave}/apelido (o monitor já usa essa fonte). Para
+// requerimento de urgência sem apelido próprio, tenta o projeto urgenciado.
+const _apelidoCache = new Map();   // chave → { apelido, ts }
+const APELIDO_TTL = 10 * 60e3;
+async function apelidoDe(chave) {
+  const c = _apelidoCache.get(chave);
+  if (c && Date.now() - c.ts < APELIDO_TTL) return c.apelido;
+  let apelido = '';
+  try {
+    const a = await carregarAnaliseMaisRecente(chave);
+    apelido = String(a?.apelido || '').trim();
+  } catch (_) {}
+  _apelidoCache.set(chave, { apelido, ts: Date.now() });
+  return apelido;
+}
+
+async function linhasItensPauta(pauta) {
+  const itens = pauta.itens || [];
+  const apelidos = await Promise.all(itens.map(async it => {
+    const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    let ap = await apelidoDe(chave);
+    if (!ap && it.projetoUrgenciado?.sigla) {
+      const pu = it.projetoUrgenciado;
+      ap = await apelidoDe(`${pu.sigla}-${pu.numero}-${pu.ano}`);
+      if (ap) ap = `Urgência: ${ap}`;
+    }
+    return ap;
+  }));
+  return itens.map((it, i) =>
+    `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ` +
+    `${apelidos[i] || (it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`).join('\n');
 }
 
 async function cmdListarItens(ctx) {
@@ -794,7 +823,7 @@ async function cmdListarItens(ctx) {
   if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
   return responderLongo(ctx,
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
-    `ℹ️ Para trocar de pauta (ou buscar on-line), use /pauta.\n\n${linhasItensPauta(pauta)}`);
+    `ℹ️ Para trocar de pauta (ou buscar on-line), use /pauta.\n\n${await linhasItensPauta(pauta)}`);
 }
 
 // Fixa a pauta escolhida (botões do /pauta) como ATIVA do usuário e mostra os itens.
@@ -811,7 +840,7 @@ bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
   limparConversa(ctx.from.id);   // a conversa anterior podia estar noutra pauta
   return responderLongo(ctx,
     `✅ Agora você está usando: ${rotuloPauta(pauta)}.\n` +
-    `Vale para /listar, /perguntar, /analisar e /exportar.\n\n${linhasItensPauta(pauta)}`);
+    `Vale para /listar, /perguntar, /analisar e /exportar.\n\n${await linhasItensPauta(pauta)}`);
 });
 
 // ---------- /ordemdodia — importa a Ordem do Dia (pauta diária) da sessão ----------
