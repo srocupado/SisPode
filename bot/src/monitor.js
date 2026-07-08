@@ -128,13 +128,14 @@ async function carregarEstado(eventoId) {
   try { e = await fbGet(`/bot/monitor_sessao/${eventoId}`); } catch (_) {}
   e = e || {};
   return {
-    inicioAnunciado: !!e.inicioAnunciado,
-    oddAnunciado:    !!e.oddAnunciado,
-    oddOferecida:    !!e.oddOferecida,
-    oddImportada:    !!e.oddImportada,
-    fimAnunciado:    !!e.fimAnunciado,
-    resumoEnviado:   !!e.resumoEnviado,
-    itens:           e.itens || {},
+    inicioAnunciado:  !!e.inicioAnunciado,
+    oddAnunciado:     !!e.oddAnunciado,
+    oddOferecida:     !!e.oddOferecida,
+    oddImportada:     !!e.oddImportada,
+    oddFimAnunciado:  !!e.oddFimAnunciado,
+    fimAnunciado:     !!e.fimAnunciado,
+    resumoEnviado:    !!e.resumoEnviado,
+    itens:            e.itens || {},
   };
 }
 function marcar(eventoId, patch) {
@@ -166,6 +167,11 @@ async function tickEventos() {
     // Sessão ativa terminou?
     if (_sessao) {
       const meu = eventos.find(e => String(e.id) === String(_sessao.id));
+      // Fim da ORDEM DO DIA (antes do fim da sessão): a Câmara marca os itens
+      // não votados com "não apreciada em face do encerramento da Ordem do Dia".
+      if (_sessao.estado.oddAnunciado && !_sessao.estado.oddFimAnunciado) {
+        await checarFimDaOdd().catch(() => {});
+      }
       if (meu && /encerrad|cancelad/i.test(meu.situacao || '')) return encerrarSessao();
     }
     // Nova sessão em andamento? (valor exato de `situacao` ao vivo: calibrar no ensaio)
@@ -176,6 +182,27 @@ async function tickEventos() {
   } catch (e) {
     console.warn('[monitor] tick eventos falhou:', e.message);
   }
+}
+
+// Detecta o ENCERRAMENTO DA ORDEM DO DIA pela pauta oficial do evento
+// (/eventos/{id}/pauta): quando o presidente encerra a ODD, os itens não
+// apreciados ganham "não apreciada em face do encerramento da Ordem do Dia".
+// É Dados Abertos (latência ~min), mas é o sinal oficial e não é time-crítico.
+async function checarFimDaOdd() {
+  const s = _sessao;
+  if (!s) return;
+  let dados = [];
+  try {
+    const r = await fetchTimeout(`${API}/eventos/${s.id}/pauta`);
+    if (!r.ok) return;
+    dados = (await r.json()).dados || [];
+  } catch (_) { return; }
+  const encerrada = dados.some(it =>
+    /encerramento da ordem do dia/i.test(it.situacaoItem || it.situacao || ''));
+  if (!encerrada) return;
+  s.estado.oddFimAnunciado = true;
+  marcar(s.id, { oddFimAnunciado: true });
+  await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
 }
 
 async function ativarSessao(ev) {
