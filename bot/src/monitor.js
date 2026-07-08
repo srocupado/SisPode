@@ -91,7 +91,8 @@ async function enviarFoto(foto, caption) {
   const destino = _cfg.destino();
   if (!destino) return;
   const { InputFile } = require('grammy');
-  return _cfg.api.sendPhoto(destino, new InputFile(foto, 'votacao.png'), { caption })
+  const opts = caption ? { caption } : undefined;
+  return _cfg.api.sendPhoto(destino, new InputFile(foto, 'votacao.png'), opts)
     .catch(e => console.warn('[monitor] envio de foto falhou:', e.message));
 }
 
@@ -271,12 +272,9 @@ async function tickPainel() {
         });
         if (placar.temVotos) {
           const png = await imagemVotacao(placar);
-          const p = placar.parcial, g = placar.global;
-          await enviarFoto(png,
-            `✅ Votado — ${ident.texto.replace(/\*/g, '')}\n` +
-            `Sim ${g.sim} · Não ${g.nao}${g.abstencao ? ` · Abst. ${g.abstencao}` : ''} (quórum ${placar.quorum})\n` +
-            `Bancada PODE: ${p.sim} Sim / ${p.nao} Não` +
-            `${p.abstencao ? ` / ${p.abstencao} Abst.` : ''}${p.ausente ? ` / ${p.ausente} Aus.` : ''}`);
+          // SÓ a imagem — ela já traz todos os dados da votação (título,
+          // placar global, bancada e parlamentares); sem legenda escrita.
+          await enviarFoto(png);
           reg.encerramento = true;
           marcar(_sessao.id, { [`itens/${item.id}/encerramento`]: true });
         }
