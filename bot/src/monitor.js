@@ -184,25 +184,57 @@ async function tickEventos() {
   }
 }
 
-// Detecta o ENCERRAMENTO DA ORDEM DO DIA pela pauta oficial do evento
-// (/eventos/{id}/pauta): quando o presidente encerra a ODD, os itens não
-// apreciados ganham "não apreciada em face do encerramento da Ordem do Dia".
-// É Dados Abertos (latência ~min), mas é o sinal oficial e não é time-crítico.
+// Detecta o ENCERRAMENTO DA ORDEM DO DIA. Há dois sinais oficiais e o que
+// vier primeiro dispara o aviso (ambos têm latência de minutos e não são
+// time-críticos):
+//
+//  1) NOTAS TAQUIGRÁFICAS (Escriba): a declaração do presidente
+//     "Declaro encerrada a Ordem do Dia." É o sinal ROBUSTO — aparece SEMPRE,
+//     inclusive quando TODOS os itens foram votados (nesse caso a pauta não
+//     ganha o marcador do item 2). Latência ~30-40 min (o quarto é transcrito
+//     depois de falado). Escriba serve JSON em escriba-servicosweb/json/{id}.
+//  2) MARCADOR NA PAUTA (/eventos/{id}/pauta): quando sobra item não apreciado,
+//     ele ganha "não apreciada em face do encerramento da Ordem do Dia". Pode
+//     chegar antes das notas, mas some no caso "tudo votado".
+const ESCRIBA = 'https://escriba.camara.leg.br/escriba-servicosweb/json';
+const CHECAR_NOTAS_MS = 3 * 60e3;  // Escriba é pesado (~300 KB); não a cada tick
+
 async function checarFimDaOdd() {
   const s = _sessao;
   if (!s) return;
-  let dados = [];
+  if (await oddEncerradaNasNotas(s) || await oddEncerradaNaPauta(s)) {
+    s.estado.oddFimAnunciado = true;
+    marcar(s.id, { oddFimAnunciado: true });
+    await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
+  }
+}
+
+// Sinal robusto: o presidente declara "encerrada a Ordem do Dia" nas notas.
+async function oddEncerradaNasNotas(s) {
+  const agora = Date.now();
+  if (s._ultNota && agora - s._ultNota < CHECAR_NOTAS_MS) return false;
+  s._ultNota = agora;
+  try {
+    const r = await fetchTimeout(`${ESCRIBA}/${s.id}`, 20000);
+    if (!r.ok) return false;
+    const dados = await r.json();
+    const texto = (dados.quartos || []).map(q => q.texto || '').join(' ');
+    // "Declaro/Está encerrada a Ordem do Dia" — a forma verbal varia; o núcleo
+    // "encerrada a Ordem do Dia" é específico o bastante (regex evita casar com
+    // "encerramento da Copa..." e afins que aparecem em discursos).
+    return /encerrad[ao]\s+a\s+ordem\s+do\s+dia/i.test(texto);
+  } catch (_) { return false; }
+}
+
+// Sinal por marcador: itens não apreciados carimbados no fim da ODD.
+async function oddEncerradaNaPauta(s) {
   try {
     const r = await fetchTimeout(`${API}/eventos/${s.id}/pauta`);
-    if (!r.ok) return;
-    dados = (await r.json()).dados || [];
-  } catch (_) { return; }
-  const encerrada = dados.some(it =>
-    /encerramento da ordem do dia/i.test(it.situacaoItem || it.situacao || ''));
-  if (!encerrada) return;
-  s.estado.oddFimAnunciado = true;
-  marcar(s.id, { oddFimAnunciado: true });
-  await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
+    if (!r.ok) return false;
+    const dados = (await r.json()).dados || [];
+    return dados.some(it =>
+      /encerramento da ordem do dia/i.test(it.situacaoItem || it.situacao || ''));
+  } catch (_) { return false; }
 }
 
 async function ativarSessao(ev) {
