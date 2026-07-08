@@ -16,6 +16,7 @@ const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
+const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -32,6 +33,10 @@ const TEXTO_AJUDA =
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/nota PL 1234/2026 — mostra a nota técnica COMO ESTÁ SALVA no painel (texto integral, sem a IA reprocessar)\n' +
+  '/comissao <comissão> [data] — pauta de uma COMISSÃO da Câmara (ex.: /comissao CCJ hoje)\n' +
+  '/comissoeshoje [data] — quais comissões têm reunião deliberativa\n' +
+  '/varrercomissoes [data] — varre as comissões atrás de projetos do Podemos (autoria/relatoria)\n' +
+  '(em linguagem natural: "tem projeto do Podemos na CCJ amanhã?", "quais comissões se reúnem hoje?")\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
@@ -935,6 +940,46 @@ async function cmdOrdemDoDia(ctx) {
 }
 bot.command('ordemdodia', cmdOrdemDoDia);
 
+// ---------- Pauta de COMISSÕES da Câmara (API de Dados Abertos, verbatim) ----------
+async function cmdPautaComissao(ctx, args) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    let comissoes = Array.isArray(args.comissoes) ? args.comissoes
+      : (args.comissoes ? [args.comissoes] : []);
+    if (!comissoes.length && args.texto) comissoes = [args.texto];   // fallback: texto cru
+    const texto = await consultarPauta(comissoes, args.data || args.texto || 'hoje',
+      { partido: args.partido || null, deputado: args.deputado || null });
+    return responderLongo(ctx, texto);
+  } catch (e) {
+    console.error('pauta comissão falhou:', e);
+    return ctx.reply(`Erro ao consultar a comissão: ${e.message}`);
+  }
+}
+bot.command('comissao', ctx => {
+  const t = (ctx.match || '').trim();
+  if (!t) return ctx.reply('Uso: /comissao <comissão> [data] — ex.: /comissao CCJ hoje · /comissao Saúde 09/07\n(a mesma frase serve para nome e data; para filtrar por partido, use linguagem natural: "tem projeto do Podemos na CCJ hoje?")');
+  // O mesmo texto alimenta nome (resolverComissao) e data (parseData) — cada um extrai o que precisa.
+  return cmdPautaComissao(ctx, { comissoes: [t], data: t });
+});
+
+async function cmdComissoesReuniao(ctx, args) {
+  await ctx.replyWithChatAction('typing');
+  try { return responderLongo(ctx, await listarReunioesDeliberativas(args.data || 'hoje')); }
+  catch (e) { console.error('listar reuniões falhou:', e); return ctx.reply(`Erro ao listar reuniões: ${e.message}`); }
+}
+bot.command('comissoeshoje', ctx => cmdComissoesReuniao(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
+
+async function cmdVarrerComissoes(ctx, args) {
+  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos…');
+  try {
+    // Sem partido/deputado explícito, procura o Podemos (é o bot da bancada).
+    const partido = args.partido || (args.deputado ? null : 'Podemos');
+    return responderLongo(ctx, await varrerComissoesPartido(args.data || 'hoje',
+      { partido, deputado: args.deputado || null }));
+  } catch (e) { console.error('varredura comissões falhou:', e); return ctx.reply(`Erro na varredura: ${e.message}`); }
+}
+bot.command('varrercomissoes', ctx => cmdVarrerComissoes(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
+
 // ---------- /resumo [dd/mm/aaaa] — resumo da sessão sob demanda ----------
 // Mesma mensagem do botão "Resultado da Sessão" do painel (via worker).
 // O monitor manda sozinho no fim da sessão; este comando cobre recuperação
@@ -990,6 +1035,12 @@ async function executarDecisao(ctx, decisao) {
     case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
     case 'listar_itens':    return cmdListarItens(ctx);
     case 'ver_nota':           return fluxoNota(ctx, decisao.argumentos.pergunta || '');
+    case 'pauta_comissao':     return cmdPautaComissao(ctx, {
+      comissoes: decisao.argumentos.comissoes, texto: decisao.argumentos.pergunta,
+      data: decisao.argumentos.data, partido: decisao.argumentos.partido, deputado: decisao.argumentos.deputado });
+    case 'comissoes_reuniao':  return cmdComissoesReuniao(ctx, { data: decisao.argumentos.data });
+    case 'varrer_comissoes':   return cmdVarrerComissoes(ctx, {
+      data: decisao.argumentos.data, partido: decisao.argumentos.partido, deputado: decisao.argumentos.deputado });
     case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');

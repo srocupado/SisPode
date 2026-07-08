@@ -38,7 +38,12 @@ as notas técnicas e os documentos oficiais.
 | `/documentos PL 1234/2026` | Lista os documentos da tramitação (pareceres, emendas, textos) que **não** foram considerados na nota técnica |
 | `/agregar 1,3` | Inclui na conversa os documentos listados (pelos números) — a IA passa a considerá-los nas próximas respostas |
 | `/limpar` | Zera a conversa atual com a IA (histórico e documentos agregados) |
+| `/comissao CCJ hoje` | **Pauta de uma comissão** da Câmara numa data — projetos, autor+partido, relator e voto do relator (dado oficial da API, verbatim). A frase serve para nome **e** data |
+| `/comissoeshoje [data]` | Lista **quais comissões** têm reunião deliberativa na data (nomes e horários) |
+| `/varrercomissoes [data]` | **Varre todas** as comissões com reunião deliberativa e mostra onde há projeto de **autoria ou relatoria do Podemos** (leva alguns segundos) |
 | `/ajuda` | Lista os comandos |
+
+> As três também funcionam em **linguagem natural**: *"tem projeto do Podemos na pauta da CCJ amanhã?"*, *"quais comissões se reúnem hoje?"*, *"quais comissões com reunião hoje têm algo do PT?"*. Tudo é dado oficial da API de Dados Abertos — o bot **não inventa**: sem reunião, diz que não há; comissão ambígua, pergunta qual.
 
 Depois da primeira pergunta sobre um item, você pode continuar perguntando
 sem repetir a sigla — o bot lembra o item ativo por até 1 hora.
