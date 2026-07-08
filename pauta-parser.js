@@ -21,8 +21,8 @@ const TIPOS_PROPOSICAO = [
   { sigla: 'PRC', regex: /PROJETO DE RESOLU[ÇC][ÃA]O\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                       prefixo: 'PROJETO DE RESOLUÇÃO' },
 ];
 
-// pdf.js worker
-if (typeof pdfjsLib !== 'undefined') {
+// pdf.js worker (só na extensão; no Node o bot fornece pdfjsLib sem chrome)
+if (typeof pdfjsLib !== 'undefined' && typeof chrome !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
 }
 
@@ -602,4 +602,12 @@ function parsearPautaPlenarioExportada(texto) {
 
   resultado.itens = [...porOrdem.values()].sort((a, b) => a.ordem - b.ordem);
   return resultado;
+}
+
+// ============================================================
+//  Export para Node.js (bot/). No navegador `module` não existe e
+//  este bloco é inerte — a extensão continua usando o escopo global.
+// ============================================================
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { parsearPauta, extrairTextoPdf, TIPOS_PROPOSICAO, limpaNumero };
 }

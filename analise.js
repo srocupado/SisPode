@@ -3575,10 +3575,20 @@ async function gerarTodasAsAnalises() {
 //  VARREDURA DE ANÁLISES ÓRFÃS
 // ============================================================
 /**
- * Lê todas as pautas e todas as análises do Firebase. Para cada análise
- * em /analises_pauta/{chave}/{parecerKey}, verifica se há ao menos uma
- * pauta que contenha um item com aquela chave E parecerKey computada.
- * Se não houver, DELETE.
+ * Remove análises de proposições que NÃO estão em NENHUMA pauta.
+ *
+ * IMPORTANTE (correção de perda de dados): a versão antiga comparava por
+ * "chave|parecerKey", mas parecerKey(it) depende do ENRIQUECIMENTO do item
+ * (relator.data). Numa pauta recém-carregada — ainda não enriquecida — a
+ * parecerKey de um projeto de mérito volta como 'inteiro-teor' em vez de
+ * 'parecer-DATA', não casava com a análise salva e ela era APAGADA como
+ * "órfã". Por isso só os projetos de mérito sumiam (requerimentos têm
+ * parecerKey estável). Agora a referência é só a CHAVE (a proposição): uma
+ * análise só é órfã se a proposição não aparece em pauta nenhuma.
+ *
+ * Salvaguardas: aborta se as pautas não puderem ser lidas ou vierem VAZIAS
+ * (nunca apaga quando não há com o que comparar), e um teto impede exclusão
+ * em massa por estado inconsistente (a menos que o disparo seja manual).
  *
  * @param {boolean} verbose - se true mostra status no modal de Configurações.
  */
@@ -3591,34 +3601,40 @@ async function varrerAnalisesOrfas(verbose) {
       fetch(`${FIREBASE_URL}/pautas.json`),
       fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=false`),
     ]);
-    const pautas   = pautasRes.ok   ? (await pautasRes.json())   : {};
-    const analises = analisesRes.ok ? (await analisesRes.json()) : {};
+    const pautas   = pautasRes.ok   ? (await pautasRes.json())   : null;
+    const analises = analisesRes.ok ? (await analisesRes.json()) : null;
     if (!analises) {
       if (verbose && stEl) stEl.textContent = '✓ Nada para limpar.';
       return { removidas: 0 };
     }
+    // Salvaguarda 1: sem pautas legíveis (rede/índice) ou banco de pautas
+    // vazio → NÃO apaga nada (senão TODA análise viraria "órfã").
+    const listaPautas = pautas ? Object.values(pautas).filter(p => p?.itens?.length) : [];
+    if (!listaPautas.length) {
+      const msg = 'Varredura abortada: nenhuma pauta legível — nada foi removido (proteção contra apagar tudo).';
+      if (verbose && stEl) stEl.textContent = '⚠️ ' + msg;
+      console.warn('[varredura] ' + msg);
+      return { removidas: 0, abortado: true };
+    }
 
-    // Conjunto de pares "chave|parecerKey" referenciados por alguma pauta
+    // Referência por CHAVE (proposição), não por parecerKey.
     const refs = new Set();
-    for (const p of Object.values(pautas || {})) {
-      for (const it of (p?.itens || [])) {
-        if (!it?.chave) continue;
-        refs.add(`${it.chave}|${parecerKey(it)}`);
-      }
+    for (const p of listaPautas) for (const it of (p.itens || [])) if (it?.chave) refs.add(it.chave);
+
+    const chavesOrfas = Object.keys(analises).filter(ch => !refs.has(ch));
+
+    // Salvaguarda 2: teto contra exclusão em massa. Se for apagar mais da
+    // metade das análises, quase certamente é estado inconsistente — só segue
+    // se o disparo for MANUAL (verbose) e explícito.
+    const total = Object.keys(analises).length;
+    if (!verbose && chavesOrfas.length > total * 0.5) {
+      console.warn(`[varredura] abortada: apagaria ${chavesOrfas.length}/${total} análises (>50%) — provável estado inconsistente.`);
+      return { removidas: 0, abortado: true };
     }
 
-    // Identifica órfãos
-    const deletes = [];
-    for (const [chave, porParecer] of Object.entries(analises)) {
-      if (!porParecer || typeof porParecer !== 'object') continue;
-      for (const pk of Object.keys(porParecer)) {
-        if (!refs.has(`${chave}|${pk}`)) {
-          const url = `${FIREBASE_URL}/analises_pauta/${encodeURIComponent(chave)}/${encodeURIComponent(pk)}.json`;
-          deletes.push(fetch(url, { method: 'DELETE' }).catch(() => {}));
-        }
-      }
-    }
-
+    // Apaga o nó inteiro da chave órfã (a proposição saiu de todas as pautas).
+    const deletes = chavesOrfas.map(ch =>
+      fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(ch)}.json`, { method: 'DELETE' }).catch(() => {}));
     await Promise.all(deletes);
 
     if (verbose && stEl) {
@@ -3626,7 +3642,7 @@ async function varrerAnalisesOrfas(verbose) {
         ? `✓ ${deletes.length} análise(s) órfã(s) removida(s).`
         : '✓ Nenhuma análise órfã encontrada.';
     } else if (deletes.length) {
-      console.log(`[varredura] removidas ${deletes.length} análise(s) órfã(s)`);
+      console.log(`[varredura] removidas ${deletes.length} análise(s) de proposições fora de qualquer pauta`);
     }
     return { removidas: deletes.length };
   } catch (e) {
@@ -3739,16 +3755,31 @@ async function confirmarApagarPauta() {
   const itens = _pautaParaApagar.itens || [];
   document.getElementById('modal-apagar-pauta').style.display = 'none';
   try {
-    // 1. Apaga as análises de cada item desta pauta no caminho
-    //    /analises_pauta/{chave}/{parecerKey}. Outras versões (outros pareceres
-    //    da mesma proposição vinculadas a outras pautas) são preservadas.
-    const deletes = itens
-      .filter(it => it.chave)
-      .map(it => {
-        const pk = parecerKey(it);
-        const url = `${FIREBASE_URL}/analises_pauta/${encodeURIComponent(it.chave)}/${encodeURIComponent(pk)}.json`;
-        return fetch(url, { method: 'DELETE' }).catch(() => {});
-      });
+    // 1. Apaga as análises dos itens desta pauta — mas SÓ das proposições que
+    //    não aparecem em NENHUMA outra pauta. Antes apagava por
+    //    /analises_pauta/{chave}/{parecerKey}, o que derrubava a análise
+    //    compartilhada quando a mesma proposição estava em outra pauta (a
+    //    parecerKey é a mesma). Agora consultamos as demais pautas primeiro.
+    let outrasChaves = null;   // null = não foi possível ler → preserva tudo
+    try {
+      const resAll = await fetch(`${FIREBASE_URL}/pautas.json?shallow=false`);
+      if (resAll.ok) {
+        const todas = await resAll.json();
+        outrasChaves = new Set();
+        for (const [pid, p] of Object.entries(todas || {})) {
+          if (pid === id) continue;                       // ignora a que será apagada
+          for (const it of (p?.itens || [])) if (it?.chave) outrasChaves.add(it.chave);
+        }
+      }
+    } catch (_) { /* outrasChaves fica null → não apaga nenhuma análise */ }
+
+    // Só apaga se conseguimos confirmar as outras pautas (outrasChaves != null)
+    // e a proposição não está em nenhuma delas.
+    const deletes = outrasChaves
+      ? itens
+          .filter(it => it.chave && !outrasChaves.has(it.chave))
+          .map(it => fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(it.chave)}.json`, { method: 'DELETE' }).catch(() => {}))
+      : [];
     await Promise.all(deletes);
 
     // 2. Apaga a pauta em si
@@ -3881,11 +3912,24 @@ async function autoSaveTick() {
 
 async function carregarUltimaPauta() {
   try {
-    const res = await fetch(`${FIREBASE_URL}/pautas.json?orderBy="uploadedAt"&limitToLast=1`);
-    if (!res.ok) return;
-    const data = await res.json();
-    if (!data) return;
-    const pauta = Object.values(data)[0];
+    // orderBy exige índice .indexOn:"uploadedAt" nas regras do RTDB; sem ele o
+    // Firebase devolve 400 e a auto-carga falhava em silêncio. Fallback: baixa
+    // tudo e ordena no cliente (mesma estratégia da barra lateral, que funciona
+    // sem índice) — assim o painel sempre abre a pauta mais recente.
+    let data = null;
+    try {
+      const res = await fetch(`${FIREBASE_URL}/pautas.json?orderBy="uploadedAt"&limitToLast=1`);
+      if (res.ok) data = await res.json();
+    } catch (_) { /* cai no fallback abaixo */ }
+    let pauta = data ? Object.values(data)[0] : null;
+    if (!pauta?.itens?.length) {
+      const resAll = await fetch(`${FIREBASE_URL}/pautas.json?shallow=false`);
+      if (!resAll.ok) return;
+      const todas = await resAll.json();
+      const lista = todas ? Object.values(todas).filter(p => p?.itens?.length) : [];
+      lista.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+      pauta = lista[0] || null;
+    }
     if (!pauta?.itens?.length) return;
 
     state.pauta = {
