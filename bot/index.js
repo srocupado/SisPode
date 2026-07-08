@@ -797,9 +797,8 @@ bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   try {
     const pl = await placarVotacao(ctx.match[1], 'PODE');
     const png = await imagemVotacao(pl);
-    const cap = `${pl.descricao}`.slice(0, 900) +
-      `\n${pl.data.split('-').reverse().join('/')}${pl.hora ? ' às ' + pl.hora : ''} · quórum ${pl.quorum}`;
-    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'), { caption: cap });
+    // SÓ a imagem — ela já traz título, placar e bancada (sem legenda escrita).
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'));
   } catch (e) {
     console.error('imagem de votação falhou:', e);
     return ctx.reply(`Erro ao gerar a imagem: ${e.message}`);
@@ -827,12 +826,8 @@ bot.callbackQuery(/^votp:(\d+):(\d+)$/, async ctx => {
         'Os votos individuais só aparecem no painel após o encerramento. Tente de novo em instantes.');
     }
     const png = await imagemVotacao(placar);
-    const g = placar.global, p = placar.parcial;
-    const cap = `${ident.texto.replace(/\*/g, '')}`.slice(0, 800) +
-      `\n${placar.data ? placar.data.split('-').reverse().join('/') + ' · ' : ''}quórum ${placar.quorum}` +
-      `\nSim ${g.sim} · Não ${g.nao}${g.abstencao ? ` · Abst. ${g.abstencao}` : ''}` +
-      `\nBancada PODE: ${p.sim} Sim / ${p.nao} Não${p.abstencao ? ` / ${p.abstencao} Abst.` : ''}${p.ausente ? ` / ${p.ausente} Aus.` : ''}`;
-    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'), { caption: cap });
+    // SÓ a imagem — ela já traz título, placar e bancada (sem legenda escrita).
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'));
   } catch (e) {
     console.error('imagem de votação (portal) falhou:', e);
     return ctx.reply(`Erro ao gerar a imagem do painel: ${e.message}`);
