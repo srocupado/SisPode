@@ -32,8 +32,9 @@ as notas técnicas e os documentos oficiais.
 | *(enviar um PDF de pauta no privado)* | O bot identifica os itens e oferece a importação — serve para a pauta do dashboard, que não fica em URL pública |
 | `/analisar` | Gera as notas técnicas da pauta importada — mesmo fluxo do "Gerar todas" do painel, rodando na **sua** chave (pede confirmação e mostra o progresso) |
 | `/exportar` | Gera e envia o **PDF institucional** da pauta com as análises (idêntico ao do painel) |
-| `/perguntar PL 1234/2026 qual o impacto no SUS?` | Responde com base na **nota técnica** e nos **documentos oficiais** da matéria |
-| `/perguntar algum item é de autoria do Podemos?` | Pergunta sobre a **pauta em geral** |
+| `/nota PL 1234/2026` | Mostra a **nota técnica como está salva** no painel — texto integral, **sem a IA reprocessar**. Use quando quer LER a nota (não perguntar sobre ela) |
+| `/perguntar PL 1234/2026 qual o impacto no SUS?` | A IA **responde** com base na nota técnica e nos documentos (texto elaborado, não a nota literal — para o texto integral use `/nota`) |
+| `/perguntar algum item é de autoria do Podemos?` | Pergunta sobre a **pauta em geral**. Autoria do Podemos é sempre **verificada na API da Câmara**, não inferida pela IA |
 | `/documentos PL 1234/2026` | Lista os documentos da tramitação (pareceres, emendas, textos) que **não** foram considerados na nota técnica |
 | `/agregar 1,3` | Inclui na conversa os documentos listados (pelos números) — a IA passa a considerá-los nas próximas respostas |
 | `/limpar` | Zera a conversa atual com a IA (histórico e documentos agregados) |

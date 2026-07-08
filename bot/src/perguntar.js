@@ -79,9 +79,37 @@ async function baixarPdf(url) {
   return new Uint8Array(await res.arrayBuffer());
 }
 
-/** Contexto de UM item: nota técnica + texto dos documentos salvos na análise. */
-async function montarContextoItem(analise) {
-  let ctx = `NOTA TÉCNICA JÁ PRODUZIDA:\n${notaTextoPlano(analise) || '(sem nota)'}\n`;
+/**
+ * Autoria Podemos VERIFICADA por API (determinística) para UM item — mesma
+ * base do painel/pauta. Vira uma linha de FATO no topo do contexto, para a IA
+ * não decidir autoria lendo a lista de autores dos documentos (que a fazia
+ * afirmar/negar autoria por conta própria). String vazia se não der para
+ * verificar (aí a IA simplesmente não fala de autoria como fato).
+ */
+async function linhaAutoriaItem(item) {
+  try {
+    const alvo = alvoAutoria(item);
+    if (String(alvo.sigla).toUpperCase() === 'REQ') return '';
+    const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
+    if (!prop) return '';
+    const a = await autoriaPodeDe(prop.id);
+    let linha = a.ehPode
+      ? `AUTORIA VERIFICADA (API da Câmara): ✔ ${a.principal ? 'AUTORIA' : 'COAUTORIA'} PODEMOS${a.autores.length ? ` — ${a.autores.join(', ')}` : ''}.`
+      : 'AUTORIA VERIFICADA (API da Câmara): nenhum(a) autor(a)/coautor(a) filiado(a) ao Podemos hoje.';
+    const aps = [];
+    for (const ap of await apensadosDe(prop.id)) {
+      const ra = await autoriaPodeDe(ap.id).catch(() => ({ ehPode: false }));
+      if (ra.ehPode) aps.push(`${ap.sigla} ${ap.numero}/${ap.ano}${ra.autores.length ? ` (${ra.autores.join(', ')})` : ''}`);
+    }
+    if (aps.length) linha += ` Apensada(s) de autoria/coautoria Podemos: ${aps.join('; ')}.`;
+    return linha + '\n\n';
+  } catch (_) { return ''; }
+}
+
+/** Contexto de UM item: autoria verificada + nota técnica + docs da análise. */
+async function montarContextoItem(analise, item) {
+  const autoria = item ? await linhaAutoriaItem(item) : '';
+  let ctx = `${autoria}NOTA TÉCNICA JÁ PRODUZIDA:\n${notaTextoPlano(analise) || '(sem nota)'}\n`;
   const docs = (analise?.documentos || []).filter(d => d && d.url);
   if (docs.length) {
     ctx += `\n=== DOCUMENTOS DA MATÉRIA ===\n`;
@@ -304,7 +332,7 @@ REGRAS:
 - Se a resposta NÃO constar no material, diga "não consta nos documentos" e, se útil, ofereça uma ponderação deixando claro que é inferência, não fato do documento.
 - Não invente números de lei, dispositivos, datas, valores ou nomes.
 - NÃO afirme situação de tramitação, parecer ou voto do relator, acolhimento/rejeição em comissão (CCJC, CFT etc.), existência de substitutivo/emenda, apensamento nem resultado de votação, A MENOS que isso apareça LITERALMENTE no material. Trechos rotulados "Início da nota técnica" são apenas o começo do texto — não deduza a conclusão, o parecer nem o encaminhamento a partir deles.
-- Sobre autoria/coautoria do Podemos, use SOMENTE o que estiver marcado com "✔" (linhas "✔ AUTORIA PODEMOS", "✔ COAUTORIA PODEMOS", "✔ APENSADA — AUTORIA/COAUTORIA PODEMOS") ou o resumo de autoria no topo. Respeite a distinção: "autoria" = 1º signatário; "coautoria" = assinou depois. Não chame coautoria de autoria, nem infira filiação por conta própria.
+- Sobre autoria/coautoria do Podemos, a VERDADE é a linha "AUTORIA VERIFICADA (API da Câmara)" (contexto de item) ou as linhas "✔ ... PODEMOS" / o resumo de autoria no topo (contexto de pauta). Use SOMENTE essas fontes — inclusive quando disserem que NÃO há autor do Podemos: nesse caso, NÃO afirme o contrário lendo a lista de autores dos documentos. Respeite a distinção: "autoria" = 1º signatário; "coautoria" = assinou depois. Não chame coautoria de autoria, nem infira filiação por conta própria.
 - Quando a pergunta for sobre QUAIS itens/projetos são do Podemos (ou qualquer enumeração sobre a pauta), liste TODOS os itens correspondentes que constam no material — completo, não apenas um exemplo. Inclua as proposições principais E as apensadas marcadas como do Podemos, indicando se é autoria ou coautoria.
 - Responda em Português do Brasil, de forma direta e objetiva. A resposta será lida no Telegram: use texto corrido e travessões, sem cabeçalhos Markdown. EXCEÇÃO: quando a resposta for uma enumeração (ex.: a lista dos itens do Podemos), apresente um item por linha com travessão, cada um com sigla/número/ano e autor(a).${truncado ? '\n- Observação: os documentos foram truncados por tamanho; se algo não aparecer, registre que pode estar fora do trecho disponível.' : ''}
 
@@ -342,7 +370,7 @@ async function perguntar({ userId, perfil, texto }) {
       if (!analise) {
         return { erro: `${item.sigla} ${item.numero}/${item.ano} ainda não tem análise gerada. Gere no painel "Análise de Pauta" do SisPode e pergunte de novo.` };
       }
-      const { contexto, truncado } = await montarContextoItem(analise);
+      const { contexto, truncado } = await montarContextoItem(analise, item);
       conversa = {
         chave, itemLabel: `a proposição ${item.sigla} ${item.numero}/${item.ano}`,
         pautaRef: rotuloPauta(pauta),
@@ -388,7 +416,7 @@ async function perguntar({ userId, perfil, texto }) {
   conversa.mensagens = conversa.mensagens.slice(-10);  // mantém as 5 últimas trocas
   conversa.ts = Date.now();
 
-  return { resposta, itemLabel: conversa.itemLabel, pautaRef: conversa.pautaRef };
+  return { resposta, itemLabel: conversa.itemLabel, pautaRef: conversa.pautaRef, chave: conversa.chave };
 }
 
 /**
@@ -506,7 +534,8 @@ async function agregarDocumentos({ userId, indices }) {
   if (!conversa || conversa.chave !== listagem.chave) {
     const analise = await carregarAnaliseMaisRecente(listagem.chave);
     if (!analise) return { erro: 'A análise deste item não está mais disponível no Firebase.' };
-    const { contexto, truncado } = await montarContextoItem(analise);
+    const [sig, num, ano] = String(listagem.chave).split('-');
+    const { contexto, truncado } = await montarContextoItem(analise, { sigla: sig, numero: num, ano });
     conversa = {
       chave: listagem.chave, itemLabel: `a proposição ${listagem.itemLabel}`,
       contexto, truncado, mensagens: [], extras: [], ts: Date.now(),

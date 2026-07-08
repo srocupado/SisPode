@@ -528,9 +528,12 @@ async function fluxoPerguntar(ctx, texto) {
   try {
     const r = await perguntar({ userId: ctx.from.id, perfil, texto: texto.trim() });
     if (r.erro) return ctx.reply(r.erro);
-    // Deixa claro sobre qual pauta o bot respondeu (o analista pode estar
-    // vendo outra pauta aberta no painel — problema 3 da varredura).
-    const rodape = r.pautaRef ? `\n\n— Base: ${r.pautaRef}` : '';
+    // Proveniência: deixa claro que é RESPOSTA ELABORADA pela IA (não a nota
+    // literal) e qual a base; para item, aponta o /nota (texto integral).
+    const notaHint = r.chave
+      ? ` · para o texto integral da nota: /nota ${String(r.chave).replace(/-(\d+)-(\d{4})$/, ' $1/$2')}`
+      : '';
+    const rodape = `\n\n— Resposta elaborada pela IA a partir da nota + documentos${r.pautaRef ? `\n— Base: ${r.pautaRef}` : ''}${notaHint}`;
     return responderLongo(ctx, r.resposta + rodape);
   } catch (e) {
     console.error('/perguntar falhou:', e);
