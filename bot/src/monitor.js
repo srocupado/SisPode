@@ -16,8 +16,8 @@ const { buscarDestaquePreparado, mensagemDestaque } = require('./destaques');
 const { InlineKeyboard } = require('grammy');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
-const POLL_EVENTOS_MS = 60e3;
-const POLL_PAINEL_MS  = 20e3;
+const POLL_EVENTOS_MS = 30e3;   // detecção de início/fim de sessão
+const POLL_PAINEL_MS  = 10e3;   // itens/aberturas/encerramentos (portal é a fonte rápida)
 // Tentativas do RESUMO após o encerramento: os Dados Abertos levam ~5 min
 // para publicar as matérias apreciadas — por isso minutos, não segundos.
 // (Falha de ENVIO tem retry próprio de 5s/10s dentro de tentarResumo.)
@@ -109,7 +109,7 @@ async function descricaoCurta(ref) {
   } catch (_) {}
   if (!out) {
     try {
-      const r = await fetch(`${API}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`);
+      const r = await fetchTimeout(`${API}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`, 8000);
       const em = (await r.json()).dados?.[0]?.ementa || '';
       out = em.replace(/\s+/g, ' ').slice(0, 140);
     } catch (_) {}
@@ -144,12 +144,21 @@ function marcar(eventoId, patch) {
 // o estado persistido refletir a importação (idempotência entre reinícios).
 function marcarOddImportada(eventoId) { marcar(eventoId, { oddImportada: true }); }
 
+// fetch com timeout (o fetch do Node não tem timeout padrão; sem isto um GET
+// travado do Dados Abertos estanca o poll).
+async function fetchTimeout(url, ms = 15000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try { return await fetch(url, { signal: ctrl.signal }); }
+  finally { clearTimeout(timer); }
+}
+
 // ---------- Poll de eventos (sessão começou/terminou) ----------
 async function tickEventos() {
   if (!_cfg.ligado || !janelaAtiva()) return;
   try {
     const hoje = hojeSP();
-    const r = await fetch(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`);
+    const r = await fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`);
     if (!r.ok) return;
     const eventos = ((await r.json()).dados || [])
       .filter(e => /deliberativa/i.test(e.descricaoTipo || '') && !/não\s+deliberativa/i.test(e.descricaoTipo || ''));

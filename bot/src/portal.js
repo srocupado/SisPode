@@ -11,7 +11,16 @@ const API = 'https://dadosabertos.camara.leg.br/api/v2';
 
 async function paginaSessao(reuniaoId, itemId) {
   const url = `${PORTAL_BASE}?reuniao=${reuniaoId}${itemId ? `&itemVotacao=${itemId}` : ''}`;
-  const r = await fetch(url, { redirect: 'follow' });
+  // TIMEOUT obrigatório: o fetch do Node não tem timeout padrão — sem isto, uma
+  // resposta lenta/travada do portal estanca o tick do monitor por tempo
+  // indefinido (e a trava `tickando` pula todos os ticks seguintes), gerando os
+  // delays de minutos observados. AbortController de 15s destrava rápido.
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
+  let r;
+  try { r = await fetch(url, { redirect: 'follow', signal: ctrl.signal }); }
+  catch (e) { throw new Error(e.name === 'AbortError' ? 'painel: timeout (15s)' : `painel: ${e.message}`); }
+  finally { clearTimeout(timer); }
   if (!r.ok) throw new Error(`painel HTTP ${r.status}`);
   const html = await r.text();
   if (html.length < 5000) throw new Error('painel retornou página vazia');
