@@ -348,6 +348,19 @@ async function encerrarSessao() {
   clearInterval(_timerPainel);
   _timerPainel = null;
   console.log(`[monitor] sessão ${s.id} encerrada — agendando resumo`);
+  // Backstop do fim da ORDEM DO DIA: o sinal oficial e tempestivo é o marcador
+  // "não apreciada em face do encerramento da Ordem do Dia" nos itens não
+  // votados (checarFimDaOdd, no tick). Mas se TODOS os itens foram votados,
+  // nenhum item recebe o marcador e a ODD encerra sem gatilho. Nesse caso raro,
+  // a ODD terminou de fato — anunciamos aqui, junto do fim da sessão, para o
+  // aviso nunca se perder em silêncio. NÃO é usar o fim da sessão como fim da
+  // ODD (a sessão pode seguir em Breves Comunicações): é só a rede de segurança
+  // do caso "tudo votado", quando as duas coisas de fato coincidem.
+  if (s.estado.oddAnunciado && !s.estado.oddFimAnunciado) {
+    await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
+    s.estado.oddFimAnunciado = true;
+    marcar(s.id, { oddFimAnunciado: true });
+  }
   // Mensagem 1 — o encerramento em si, NA HORA (o resumo vem em seguida,
   // quando os Dados Abertos publicarem). Idempotente entre reinícios.
   if (!s.estado.fimAnunciado) {
