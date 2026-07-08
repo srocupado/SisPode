@@ -28,6 +28,7 @@ const TEXTO_AJUDA =
   '/importar — importa a Pauta da Semana do site para o SisPode (pede confirmação)\n' +
   '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
   '/ordemdodia — importa a Ordem do Dia (pauta diária) da sessão de hoje\n' +
+  '/listar — lista os itens da pauta em uso\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
@@ -919,6 +920,9 @@ async function cmdListarItens(ctx) {
     `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
     `ℹ️ Para trocar de pauta (ou buscar on-line), use /pauta.\n\n${await linhasItensPauta(pauta)}`);
 }
+// /listar existia só via linguagem natural; registra o comando com barra
+// (funciona no privado E no grupo) + aliases comuns.
+bot.command(['listar', 'lista', 'itens'], cmdListarItens);
 
 // Fixa a pauta escolhida (botões do /pauta) como ATIVA do usuário e mostra os itens.
 bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
