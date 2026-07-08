@@ -619,6 +619,8 @@ function nomeArquivoDoc(rotulo) {
   return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
 }
 
+const escHtml = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
 async function cmdBaixar(ctx, texto) {
   await ctx.replyWithChatAction('typing');
   try {
@@ -626,17 +628,23 @@ async function cmdBaixar(ctx, texto) {
     if (r.erro) return ctx.reply(r.erro);
     const token = crypto.randomBytes(4).toString('hex');
     baixarListas.set(token, { itemLabel: r.itemLabel, docs: r.docs, ts: Date.now() });
+
+    // Cada documento como LINK INDIVIDUAL (URL direta do PDF na Câmara)…
+    const usados = r.docs.filter(d => d.usado);
+    const extras = r.docs.filter(d => !d.usado);
+    const linkDe = d => `• <a href="${escHtml(d.url)}">${escHtml(d.rotulo)}</a>`;
+    let txt = `📎 <b>Documentos de ${escHtml(r.itemLabel)}</b> (${r.docs.length})\n`;
+    if (usados.length) txt += `\n📄 <b>Usados na nota</b> (${usados.length}):\n${usados.map(linkDe).join('\n')}\n`;
+    if (extras.length) txt += `\n📎 <b>Adicionais da tramitação</b> (${extras.length}):\n${extras.map(linkDe).join('\n')}\n`;
+    txt += '\nCada item acima é um link individual (abre no navegador). Para receber o PDF aqui no chat, use os botões:';
+    if (txt.length > 3900) txt = txt.slice(0, 3900) + '\n…';
+
+    // …e um BOTÃO por documento para receber o arquivo no chat.
     const kb = new InlineKeyboard();
-    r.docs.slice(0, 40).forEach((d, i) => {
-      const icone = d.usado ? '📄' : '📎';
-      kb.text(`${icone} ${d.rotulo}`.slice(0, 62), `dl:${token}:${i}`).row();
-    });
-    if (r.docs.length > 1) kb.text('📥 Baixar todos', `dlall:${token}`).row();
-    const usados = r.docs.filter(d => d.usado).length;
-    return ctx.reply(
-      `📎 Documentos de ${r.itemLabel} (${r.docs.length}) — 📄 usados na nota (${usados}), 📎 adicionais da tramitação.\n` +
-      'Toque para baixar:',
-      { reply_markup: kb });
+    r.docs.slice(0, 40).forEach((d, i) => kb.text(`${d.usado ? '📄' : '📎'} ${d.rotulo}`.slice(0, 62), `dl:${token}:${i}`).row());
+    if (r.docs.length > 1) kb.text('📥 Baixar todos (arquivos)', `dlall:${token}`).row();
+
+    return ctx.reply(txt, { parse_mode: 'HTML', reply_markup: kb, link_preview_options: { is_disabled: true } });
   } catch (e) {
     console.error('/baixar falhou:', e);
     return ctx.reply(`Erro ao listar os documentos: ${e.message}`);
