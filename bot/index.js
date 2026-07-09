@@ -1313,24 +1313,34 @@ if (MONITOR_ATIVO) {
 }
 
 // ---------- Receptor de PUSH do Plenário (tempo real) ----------
-// FASE DE OBSERVAÇÃO: recebe os pushes da Câmara (OneSignal) e só LOGA na janela
-// do bot — ainda NÃO manda no grupo (aguardando confirmar os textos reais numa
-// sessão). Liga com BOT_PUSH=1 no .env. Sobe um Chromium headless próprio; se
-// falhar, o bot segue normal (não é fatal).
+// FASE DE TESTE: recebe os pushes da Câmara (OneSignal), LOGA na janela do bot
+// E encaminha cada push AO GRUPO (marcado como teste), para validarmos ao vivo
+// a recepção e ver o texto exato de cada push. Liga com BOT_PUSH=1 no .env. Sobe
+// um Chromium headless próprio; se falhar, o bot segue normal (não é fatal).
+// (Ainda NÃO substitui as mensagens do monitor — é só o eco do push.)
 if (process.env.BOT_PUSH === '1') {
   const { iniciarReceptorPush } = require('./src/pushplenario');
+  const destinoPush = () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID);
   iniciarReceptorPush({
     log: m => console.log(`[receptor-push] ${m}`),
-    onEvento: ev => {
+    onEvento: async ev => {
       console.log('==================== PUSH DO PLENÁRIO ====================');
       console.log(`  tipo  : ${ev.tipo}`);
       console.log(`  título: ${ev.titulo}`);
       console.log(`  corpo : ${ev.corpo}`);
       console.log(`  data  : ${JSON.stringify(ev.data)}`);
       console.log('=========================================================');
+      const destino = destinoPush();
+      if (!destino) return;
+      // Texto puro (sem parse_mode) para não quebrar com caracteres do push.
+      const txt = `🔔 Push do Plenário (teste — ${ev.tipo})\n`
+        + (ev.titulo ? ev.titulo + '\n' : '')
+        + (ev.corpo || '');
+      try { await bot.api.sendMessage(destino, txt); }
+      catch (e) { console.warn('[receptor-push] envio ao grupo falhou:', e.message); }
     },
   })
-    .then(() => console.log('[receptor-push] ATIVO (modo observação — só loga na janela, não envia ao grupo)'))
+    .then(() => console.log('[receptor-push] ATIVO — logando na janela e ecoando os pushes no grupo (teste)'))
     .catch(e => console.warn('[receptor-push] não iniciou (bot segue normal):', e.message));
 } else {
   console.log('Receptor de push do Plenário desativado (defina BOT_PUSH=1 no .env para ligar).');
