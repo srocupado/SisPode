@@ -1323,7 +1323,9 @@ if (process.env.BOT_PUSH === '1') {
   const destinoPush = () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID);
   iniciarReceptorPush({
     log: m => console.log(`[receptor-push] ${m}`),
-    debugConsole: true,     // janela do bot mostra o log COMPLETO do OneSignal
+    // Janela limpa: status do receptor + push INTEIRO quando chega (via onEvento),
+    // sem a enxurrada do log interno da SDK. (BOT_PUSH_DEBUG=1 mostra tudo.)
+    debugConsole: false,
     onEvento: async ev => {
       // Janela: o push inteiro (para diagnóstico).
       console.log('==================== PUSH DO PLENÁRIO ====================');

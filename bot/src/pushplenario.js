@@ -86,13 +86,17 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
 
   const page = await browser.newPage();
 
-  // Encaminha o console interno da página/SDK OneSignal para a janela do bot.
-  // Se debugConsole (ou BOT_PUSH_DEBUG=1) encaminha TUDO; senão só o que
-  // menciona push/onesignal.
-  const forwardAll = debugConsole !== undefined ? debugConsole : (process.env.BOT_PUSH_DEBUG === '1');
+  // Encaminho do console interno da SDK OneSignal para a janela:
+  //   debugConsole === true      → TUDO (enxurrada — só p/ depurar)
+  //   debugConsole === false     → NADA (janela limpa; pushes ainda aparecem
+  //                                 pelo onEvento e o status pelos [push] …)
+  //   debugConsole === undefined → filtrado (linhas de push/onesignal), ou
+  //                                 tudo se BOT_PUSH_DEBUG=1
   page.on('console', (m) => {
+    if (debugConsole === false) return;
+    const tudo = debugConsole === true || process.env.BOT_PUSH_DEBUG === '1';
     const t = m.text();
-    if (forwardAll || /onesignal|push|notif|subscri|service worker/i.test(t)) {
+    if (tudo || /onesignal|push|notif|subscri|service worker/i.test(t)) {
       log(`   [browser] ${t}`);
     }
   });
