@@ -55,14 +55,17 @@ function salvar(p, obj) {
 
 // ---------- config OneSignal (VAPID atual) ----------
 async function vapidAtual() {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 15000);
   try {
-    const r = await fetch(SYNC_URL);
+    const r = await fetch(SYNC_URL, { signal: ctrl.signal });
     if (r.ok) {
       const j = await r.json();
       const v = j?.config?.vapid_public_key;
       if (v) return v;
     }
   } catch (_) { /* usa fallback */ }
+  finally { clearTimeout(timer); }
   return VAPID_FALLBACK;
 }
 
@@ -143,7 +146,7 @@ function extrairTexto(envelope) {
  * @param {(msg:string) => void} [opts.log]
  * @returns {Promise<{ parar: () => void }>}
  */
-async function iniciarReceptorPush({ onEvento, log = console.log } = {}) {
+async function iniciarReceptorPush({ onEvento, log = console.log, debug = false } = {}) {
   const { PushReceiver } = require('@eneris/push-receiver');
 
   const firebase = {
@@ -155,11 +158,16 @@ async function iniciarReceptorPush({ onEvento, log = console.log } = {}) {
   for (const [k, v] of Object.entries(firebase)) {
     if (!v) throw new Error(`Falta a variável de ambiente FIREBASE_${k === 'messagingSenderId' ? 'SENDER_ID' : k.replace(/([A-Z])/g, '_$1').toUpperCase()} (veja PUSH-PLENARIO.md)`);
   }
+  log(`[push] firebase project=${firebase.projectId} sender=${firebase.messagingSenderId} apiKey=${String(firebase.apiKey).slice(0, 8)}…`);
 
+  log('[push] buscando chave VAPID do app OneSignal…');
   const vapidKey = await vapidAtual();
+  log(`[push] VAPID ok (${vapidKey.slice(0, 16)}…)`);
   const credentials = carregar(CREDS_PATH) || undefined;
+  log(credentials ? '[push] credenciais FCM existentes — reutilizando' : '[push] sem credenciais — vai registrar agora');
 
-  const receiver = new PushReceiver({ firebase, vapidKey, credentials, persistentIds: [] });
+  const receiver = new PushReceiver({ firebase, vapidKey, credentials, persistentIds: [], debug });
+  if (debug && receiver.setDebug) receiver.setDebug(true);
 
   receiver.onCredentialsChanged(async ({ newCredentials }) => {
     salvar(CREDS_PATH, newCredentials);
@@ -175,6 +183,7 @@ async function iniciarReceptorPush({ onEvento, log = console.log } = {}) {
     catch (e) { log(`[push] onEvento lançou: ${e.message}`); }
   });
 
+  log('[push] registrando/conectando ao MCS (mtalk.google.com:5228) — pode levar alguns segundos…');
   await receiver.connect();
   log('[push] conectado ao MCS — ouvindo pushes do Plenário');
 

@@ -23,6 +23,7 @@ const { iniciarReceptorPush } = require('./src/pushplenario');
   console.log(`[${hora()}] iniciando spike do receptor de push...`);
   try {
     const { parar } = await iniciarReceptorPush({
+      debug: true,
       log: (m) => console.log(`[${hora()}] ${m}`),
       onEvento: (ev) => {
         console.log(`[${hora()}] >>> EVENTO tipo=${ev.tipo}`);
