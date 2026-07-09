@@ -1323,24 +1323,25 @@ if (process.env.BOT_PUSH === '1') {
   const destinoPush = () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID);
   iniciarReceptorPush({
     log: m => console.log(`[receptor-push] ${m}`),
+    debugConsole: true,     // janela do bot mostra o log COMPLETO do OneSignal
     onEvento: async ev => {
+      // Janela: o push inteiro (para diagnóstico).
       console.log('==================== PUSH DO PLENÁRIO ====================');
       console.log(`  tipo  : ${ev.tipo}`);
       console.log(`  título: ${ev.titulo}`);
       console.log(`  corpo : ${ev.corpo}`);
       console.log(`  data  : ${JSON.stringify(ev.data)}`);
       console.log('=========================================================');
+      // Grupo: SÓ o corpo do push ("Ordem do Dia iniciada", "Sessão encerrada"…).
       const destino = destinoPush();
       if (!destino) return;
-      // Texto puro (sem parse_mode) para não quebrar com caracteres do push.
-      const txt = `🔔 Push do Plenário (teste — ${ev.tipo})\n`
-        + (ev.titulo ? ev.titulo + '\n' : '')
-        + (ev.corpo || '');
-      try { await bot.api.sendMessage(destino, txt); }
+      const corpo = String(ev.corpo || ev.titulo || '').trim();
+      if (!corpo) return;
+      try { await bot.api.sendMessage(destino, corpo); }
       catch (e) { console.warn('[receptor-push] envio ao grupo falhou:', e.message); }
     },
   })
-    .then(() => console.log('[receptor-push] ATIVO — logando na janela e ecoando os pushes no grupo (teste)'))
+    .then(() => console.log('[receptor-push] ATIVO — log completo na janela; corpo do push no grupo'))
     .catch(e => console.warn('[receptor-push] não iniciou (bot segue normal):', e.message));
 } else {
   console.log('Receptor de push do Plenário desativado (defina BOT_PUSH=1 no .env para ligar).');

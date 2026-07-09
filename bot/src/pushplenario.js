@@ -71,7 +71,7 @@ function normalizarPayload(p) {
  * @param {boolean} [opts.headless=true]  false abre a janela (diagnóstico)
  * @returns {Promise<{ parar: () => Promise<void> }>}
  */
-async function iniciarReceptorPush({ onEvento, log = console.log, headless = true } = {}) {
+async function iniciarReceptorPush({ onEvento, log = console.log, headless = true, debugConsole } = {}) {
   log('[push] subindo Chromium…');
   const browser = await puppeteer.launch({
     headless,
@@ -86,12 +86,13 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
 
   const page = await browser.newPage();
 
-  // Encaminha o console interno da página/SDK OneSignal (diagnóstico). Com
-  // BOT_PUSH_DEBUG=1 encaminha TUDO; senão só o que menciona push/onesignal.
-  const debugConsole = process.env.BOT_PUSH_DEBUG === '1';
+  // Encaminha o console interno da página/SDK OneSignal para a janela do bot.
+  // Se debugConsole (ou BOT_PUSH_DEBUG=1) encaminha TUDO; senão só o que
+  // menciona push/onesignal.
+  const forwardAll = debugConsole !== undefined ? debugConsole : (process.env.BOT_PUSH_DEBUG === '1');
   page.on('console', (m) => {
     const t = m.text();
-    if (debugConsole || /onesignal|push|notif|subscri|service worker/i.test(t)) {
+    if (forwardAll || /onesignal|push|notif|subscri|service worker/i.test(t)) {
       log(`   [browser] ${t}`);
     }
   });
