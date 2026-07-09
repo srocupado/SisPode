@@ -4,105 +4,30 @@
 // A Câmara dispara notificações push (OneSignal) no EXATO instante em que o
 // operador do painel do Plenário avança a fase da sessão: "Iniciada a Ordem do
 // Dia", "Encerrada a Ordem do Dia", "Encerrada a sessão", votações. É a MESMA
-// fonte que o app Infoleg usa — por isso o app avisa no mesmo segundo. Não é um
-// endpoint de consulta (poll): é broadcast. O Dados Abertos (marcador da pauta)
-// e as notas taquigráficas são derivados ATRASADOS desse mesmo evento.
+// fonte que o app Infoleg usa. Não é consulta (poll) — é broadcast; por isso o
+// Dados Abertos (marcador da pauta, ~10 min de atraso) e as notas taquigráficas
+// (~30 min) chegam sempre depois.
 //
-// Este módulo assina esse canal PÚBLICO e opt-in (igual a qualquer usuário que
-// clica "Aceitar" no site camara.leg.br/plenario) e emite cada notificação.
+// COMO FUNCIONA: em vez de reimplementar o registro FCM/Web-Push no Node (que o
+// Google bloqueia do lado servidor — fcmregistrations exige OAuth), usamos um
+// Chromium REAL (o mesmo puppeteer do worker). Ele abre camara.leg.br/plenario,
+// se inscreve no OneSignal EXATAMENTE como o site faz (respeitando o
+// restrict_origin), e recebe os pushes. Capturamos cada push por dois caminhos
+// redundantes:
+//   (1) o evento oficial OneSignal.on('notificationDisplay') na PÁGINA — a
+//       ponte SW→página que a própria OneSignal mantém; e
+//   (2) um listener injetado no service worker que repassa o push aos clientes.
+// Ambos desaguam em __pushRecebido (dedup por id).
 //
-// COMO FUNCIONA (sem navegador):
-//   1) Registra um token FCM/Web-Push via @eneris/push-receiver, usando um
-//      projeto Firebase próprio (grátis, criado uma vez) só como veículo da
-//      registração, e a chave VAPID do app OneSignal da Câmara (a que casa a
-//      inscrição com o remetente).
-//   2) Cria uma "assinatura" (player) no app OneSignal da Câmara com as tags
-//      pauta/votacao/extrapauta, apontando para essa inscrição Web-Push.
-//   3) Mantém a conexão MCS do Google (mtalk.google.com:5228) e recebe cada
-//      push que a Câmara envia — na hora.
-//
-// REQUISITOS DE AMBIENTE:
-//   - Projeto Firebase (grátis): FIREBASE_API_KEY, FIREBASE_APP_ID,
-//     FIREBASE_PROJECT_ID, FIREBASE_SENDER_ID. Ver PUSH-PLENARIO.md.
-//   - Saída TCP para mtalk.google.com:5228 (protocolo MCS). Servidores comuns
-//     têm; alguns proxies corporativos bloqueiam.
-//
-// Este é um SPIKE de validação: emite os eventos e loga o texto real dos
-// pushes. Só depois de confirmado o formato é que integramos ao monitor.
+// Requisitos: só o Chromium do puppeteer (já instalado). NÃO precisa de Firebase
+// nem de porta especial. Mantém um Chromium headless vivo enquanto roda.
 
-const fs = require('fs');
 const path = require('path');
+const puppeteer = require('puppeteer');
 
-const ONESIGNAL_APP_ID = '062b3950-258a-4531-b67b-c8f053fda285';
-const ONESIGNAL_API = 'https://onesignal.com/api/v1';
-const SYNC_URL = `${ONESIGNAL_API}/sync/${ONESIGNAL_APP_ID}/web`;
-// Chave VAPID do app (fallback; em runtime buscamos a atual no /sync).
-const VAPID_FALLBACK = 'BL9AbyEzfsefeem2fp3ozV6OIssTt9QWa_YKU6HGjLEEMZ2Y4dtaWatWqzHZvzWNwSjOZBTT_1Nnp17gSaBqspA';
-
-const CREDS_PATH = path.join(__dirname, '..', 'dados', 'push-plenario.json');
-const PLAYER_PATH = path.join(__dirname, '..', 'dados', 'push-plenario-player.json');
-
-// ---------- persistência local ----------
-function carregar(p) {
-  try { return JSON.parse(fs.readFileSync(p, 'utf8')); } catch (_) { return null; }
-}
-function salvar(p, obj) {
-  try {
-    fs.mkdirSync(path.dirname(p), { recursive: true });
-    fs.writeFileSync(p, JSON.stringify(obj, null, 2));
-  } catch (e) { console.warn('[push] não consegui salvar', p, e.message); }
-}
-
-// ---------- config OneSignal (VAPID atual) ----------
-async function vapidAtual() {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 15000);
-  try {
-    const r = await fetch(SYNC_URL, { signal: ctrl.signal });
-    if (r.ok) {
-      const j = await r.json();
-      const v = j?.config?.vapid_public_key;
-      if (v) return v;
-    }
-  } catch (_) { /* usa fallback */ }
-  finally { clearTimeout(timer); }
-  return VAPID_FALLBACK;
-}
-
-// ---------- assinatura no app OneSignal da Câmara ----------
-// Cria (ou atualiza) o "player" web-push com as tags pauta/votacao/extrapauta.
-// device_type 5 = Chrome Web Push. identifier = endpoint FCM; web_p256/web_auth
-// = as chaves da inscrição (mesmas que o navegador enviaria).
-async function garantirAssinatura(creds, log) {
-  const endpoint = `https://fcm.googleapis.com/fcm/send/${creds.fcm.token}`;
-  const corpo = {
-    app_id: ONESIGNAL_APP_ID,
-    device_type: 5,
-    identifier: endpoint,
-    web_p256: creds.keys.publicKey,
-    web_auth: creds.keys.authSecret,
-    notification_types: 1,
-    language: 'pt',
-    timezone: -10800,
-    tags: { pauta: 'true', votacao: 'true', extrapauta: 'true' },
-    sdk: 'sispode-push-receiver',
-  };
-  const player = carregar(PLAYER_PATH);
-  const url = player?.id ? `${ONESIGNAL_API}/players/${player.id}` : `${ONESIGNAL_API}/players`;
-  const metodo = player?.id ? 'PUT' : 'POST';
-  try {
-    const r = await fetch(url, {
-      method: metodo,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(corpo),
-    });
-    const j = await r.json().catch(() => ({}));
-    if (!r.ok) { log(`[push] OneSignal ${metodo} /players HTTP ${r.status}: ${JSON.stringify(j)}`); return null; }
-    if (j.id) salvar(PLAYER_PATH, { id: j.id, criadoEm: new Date().toISOString() });
-    log(`[push] assinatura OneSignal OK (player ${j.id || player?.id}) — tags pauta/votacao/extrapauta`);
-    return j.id || player?.id;
-  } catch (e) { log(`[push] falha ao criar assinatura OneSignal: ${e.message}`); return null; }
-}
+const PLENARIO_URL = 'https://www.camara.leg.br/plenario';
+const ORIGIN = 'https://www.camara.leg.br';
+const CHROME_DATA = path.join(__dirname, '..', 'dados', 'push-chrome');
 
 // ---------- classificação do evento pelo texto do push ----------
 // A Câmara escreve mensagens explícitas ("Encerrada a Ordem do Dia",
@@ -117,81 +42,138 @@ function classificar(titulo, corpo) {
   return 'outro';
 }
 
-// ---------- extrai título/corpo do envelope do push ----------
-// OneSignal entrega o conteúdo dentro do data-message do FCM. Tentamos os
-// formatos conhecidos (custom JSON da OneSignal, campos notification, alert).
-function extrairTexto(envelope) {
-  const m = envelope?.message || {};
-  const data = m.data || m.notification || {};
-  let titulo = data.title || data.alert_title || m.title || '';
-  let corpo = data.body || data.alert || data.msg || m.body || '';
-  // OneSignal às vezes empacota tudo em data.custom (JSON) ou data.a (payload)
-  for (const campo of ['custom', 'a']) {
-    if (!corpo && typeof data[campo] === 'string') {
-      try {
-        const c = JSON.parse(data[campo]);
-        titulo = titulo || c.title || c?.a?.title || '';
-        corpo = corpo || c.body || c.alert || c?.a?.body || '';
-      } catch (_) { /* ignore */ }
-    }
-  }
-  return { titulo, corpo, data };
+// Normaliza os vários formatos de payload (evento notificationDisplay do SDK,
+// payload cru do push OneSignal com `custom`, etc.) para {titulo,corpo,id,data}.
+function normalizarPayload(p) {
+  if (!p) return { titulo: '', corpo: '', id: '', data: {} };
+  const titulo = p.heading || p.title || p.aps?.alert?.title || '';
+  let corpo = p.content || p.body || p.alert || '';
+  if (!corpo && typeof p.aps?.alert === 'string') corpo = p.aps.alert;
+  if (!corpo && p.aps?.alert?.body) corpo = p.aps.alert.body;
+  const id = p.notificationId || p.id || p.custom?.i || '';
+  const data = p.data || p.additionalData || p.custom?.a || {};
+  return { titulo, corpo, id, data };
 }
 
-// ---------- API pública ----------
 /**
- * Inicia o receptor de push do Plenário.
+ * Inicia o receptor de push do Plenário via Chromium headless.
  * @param {object} opts
- * @param {(ev:{tipo:string,titulo:string,corpo:string,data:object}) => void} opts.onEvento
+ * @param {(ev:{tipo,titulo,corpo,data}) => void} opts.onEvento
  * @param {(msg:string) => void} [opts.log]
- * @returns {Promise<{ parar: () => void }>}
+ * @param {boolean} [opts.headless=true]  false abre a janela (diagnóstico)
+ * @returns {Promise<{ parar: () => Promise<void> }>}
  */
-async function iniciarReceptorPush({ onEvento, log = console.log, debug = false } = {}) {
-  const { PushReceiver } = require('@eneris/push-receiver');
-
-  const firebase = {
-    apiKey: process.env.FIREBASE_API_KEY,
-    appId: process.env.FIREBASE_APP_ID,
-    projectId: process.env.FIREBASE_PROJECT_ID,
-    messagingSenderId: process.env.FIREBASE_SENDER_ID,
-  };
-  for (const [k, v] of Object.entries(firebase)) {
-    if (!v) throw new Error(`Falta a variável de ambiente FIREBASE_${k === 'messagingSenderId' ? 'SENDER_ID' : k.replace(/([A-Z])/g, '_$1').toUpperCase()} (veja PUSH-PLENARIO.md)`);
-  }
-  log(`[push] firebase project=${firebase.projectId} sender=${firebase.messagingSenderId} apiKey=${String(firebase.apiKey).slice(0, 8)}…`);
-
-  log('[push] buscando chave VAPID do app OneSignal…');
-  const vapidKey = await vapidAtual();
-  log(`[push] VAPID ok (${vapidKey.slice(0, 16)}…)`);
-  const credentials = carregar(CREDS_PATH) || undefined;
-  log(credentials ? '[push] credenciais FCM existentes — reutilizando' : '[push] sem credenciais — vai registrar agora');
-
-  const receiver = new PushReceiver({ firebase, vapidKey, credentials, persistentIds: [], debug });
-  if (debug && receiver.setDebug) receiver.setDebug(true);
-
-  receiver.onCredentialsChanged(async ({ newCredentials }) => {
-    salvar(CREDS_PATH, newCredentials);
-    log('[push] credenciais FCM (re)geradas — atualizando assinatura OneSignal');
-    await garantirAssinatura(newCredentials, log);
+async function iniciarReceptorPush({ onEvento, log = console.log, headless = true } = {}) {
+  log('[push] subindo Chromium…');
+  const browser = await puppeteer.launch({
+    headless,
+    userDataDir: CHROME_DATA,                       // persiste a inscrição
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    protocolTimeout: 300000,
   });
 
-  receiver.onNotification((envelope) => {
-    const { titulo, corpo, data } = extrairTexto(envelope);
+  // Concede permissão de notificações ao domínio da Câmara (sem prompt).
+  await browser.defaultBrowserContext().overridePermissions(ORIGIN, ['notifications']);
+
+  const page = await browser.newPage();
+
+  // Dedup: o mesmo push pode chegar pelos dois caminhos (evento + SW).
+  const vistos = new Set();
+  await page.exposeFunction('__pushRecebido', (payload) => {
+    const { titulo, corpo, id, data } = normalizarPayload(payload);
+    const chave = id || `${titulo}|${corpo}`;
+    if (vistos.has(chave)) return;
+    vistos.add(chave);
     const tipo = classificar(titulo, corpo);
     log(`[push] recebido [${tipo}] título=${JSON.stringify(titulo)} corpo=${JSON.stringify(corpo)}`);
     try { onEvento && onEvento({ tipo, titulo, corpo, data }); }
     catch (e) { log(`[push] onEvento lançou: ${e.message}`); }
   });
 
-  log('[push] registrando/conectando ao MCS (mtalk.google.com:5228) — pode levar alguns segundos…');
-  await receiver.connect();
-  log('[push] conectado ao MCS — ouvindo pushes do Plenário');
+  // Caminho (2): mensagens do SW chegam à página e são repassadas ao Node.
+  await page.evaluateOnNewDocument(() => {
+    if (navigator.serviceWorker) {
+      navigator.serviceWorker.addEventListener('message', (e) => {
+        if (e && e.data && e.data.__sispodePush && window.__pushRecebido) {
+          window.__pushRecebido(e.data.payload);
+        }
+      });
+    }
+  });
 
-  // Garante a assinatura mesmo quando as credenciais já existiam (sem trocar).
-  const cred = receiver.config?.credentials || carregar(CREDS_PATH);
-  if (cred) await garantirAssinatura(cred, log);
+  log('[push] abrindo camara.leg.br/plenario…');
+  await page.goto(PLENARIO_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-  return { parar: () => { try { receiver.destroy(); } catch (_) {} } };
+  // Caminho (1): inscreve no OneSignal como o site + tags + escuta o evento
+  // oficial de exibição de notificação (a ponte SW→página da própria OneSignal).
+  await page.evaluate(() => {
+    window.OneSignal = window.OneSignal || [];
+    window.OneSignal.push(function () {
+      try { OneSignal.on('notificationDisplay', function (ev) { window.__pushRecebido && window.__pushRecebido(ev); }); } catch (e) {}
+      try { OneSignal.setSubscription(true); } catch (e) {}
+      try { if (OneSignal.registerForPushNotifications) OneSignal.registerForPushNotifications(); } catch (e) {}
+      try { OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
+    });
+  });
+
+  // Aguarda a confirmação da inscrição (até ~30s).
+  let inscrito = false;
+  for (let i = 0; i < 20 && !inscrito; i++) {
+    inscrito = await page.evaluate(() => new Promise((res) => {
+      window.OneSignal = window.OneSignal || [];
+      window.OneSignal.push(function () {
+        try { OneSignal.isPushNotificationsEnabled(function (v) { res(!!v); }); }
+        catch (e) { res(false); }
+      });
+      setTimeout(() => res(false), 1200);
+    })).catch(() => false);
+    if (!inscrito) await new Promise((r) => setTimeout(r, 1500));
+  }
+  log(inscrito
+    ? '[push] inscrito no OneSignal (tags pauta/votacao/extrapauta) ✓'
+    : '[push] inscrição ainda não confirmada — seguindo (pode confirmar depois)');
+
+  // Injeta o hook no service worker do OneSignal e reforça periodicamente
+  // (o SW pode ser reciclado; re-injetar garante o listener presente).
+  async function injetarSW() {
+    try {
+      const alvo = browser.targets().find(
+        (t) => t.type() === 'service_worker' && /onesignal/i.test(t.url()));
+      if (!alvo) return false;
+      const w = await alvo.worker();
+      if (!w) return false;
+      await w.evaluate(() => {
+        if (self.__sispodeHook) return;
+        self.__sispodeHook = true;
+        self.addEventListener('push', (event) => {
+          let payload = null;
+          try { payload = event.data ? event.data.json() : null; }
+          catch (_) { try { payload = { body: event.data && event.data.text() }; } catch (__) {} }
+          event.waitUntil(
+            self.clients.matchAll({ includeUncontrolled: true, type: 'window' })
+              .then((cs) => cs.forEach((c) => c.postMessage({ __sispodePush: true, payload }))));
+        });
+      });
+      return true;
+    } catch (_) { return false; }
+  }
+  if (await injetarSW()) log('[push] hook do service worker instalado ✓');
+  const tHook = setInterval(injetarSW, 20000);
+
+  // Mantém o SW/página aquecidos (evita reciclagem que perderia o hook).
+  const tWarm = setInterval(() => {
+    page.evaluate(() => { try { return !!navigator.serviceWorker; } catch (e) { return false; } }).catch(() => {});
+  }, 20000);
+
+  log('[push] ativo — ouvindo notificações do Plenário em tempo real');
+
+  return {
+    parar: async () => {
+      clearInterval(tHook); clearInterval(tWarm);
+      await browser.close().catch(() => {});
+    },
+  };
 }
 
-module.exports = { iniciarReceptorPush, classificar, extrairTexto, ONESIGNAL_APP_ID };
+module.exports = { iniciarReceptorPush, classificar, normalizarPayload, PLENARIO_URL };
