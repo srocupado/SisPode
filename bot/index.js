@@ -7,6 +7,7 @@ const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, 
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
+const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -45,6 +46,7 @@ const TEXTO_AJUDA =
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
+  '/digest — 📺 radar Fantástico: temas do programa, relevância legislativa e minuta em PDF (assinantes; segundas 7h automático)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
@@ -683,6 +685,131 @@ bot.callbackQuery(/^dlall:([a-f0-9]+)$/, async ctx => {
   if (falhas.length) return ctx.reply(`Enviados ${ok}/${lista.docs.length}. Falharam: ${falhas.join('; ')}`);
 });
 
+// ---------- /digest — radar legislativo do Fantástico ----------
+const digestTokens = new Map();   // token → { digest, ts } (para os botões de minuta)
+
+const podeDigest = id => String(id) === ADMIN_USER_ID || ehAssinante(id);
+
+function renderDigest(digest) {
+  const icone = { alta: '🔴', 'média': '🟡', media: '🟡', baixa: '⚪' };
+  const partes = [`📺 Radar Fantástico — temas do período\n(gerado ${new Date(digest.geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${digest.deCache ? ' · cache' : ''})`];
+  digest.temas.forEach((t, i) => {
+    const acoes = (t.acoes || []).filter(a => !/^nenhuma/i.test(a.tipo || ''))
+      .map(a => `   💡 ${a.tipo}: ${a.sugestao}`).join('\n');
+    partes.push(
+      `${i + 1}) ${icone[(t.relevancia || '').toLowerCase()] || '⚪'} ${t.titulo} — relevância ${t.relevancia}\n` +
+      `${t.resumo}\n(${t.porque || ''})` + (acoes ? `\n${acoes}` : ''));
+  });
+  if (digest.descartados?.length) partes.push(`Sem potencial legislativo: ${digest.descartados.join('; ')}`);
+  partes.push('⚠️ Resumos e sugestões gerados por IA a partir das matérias do g1 — confira a fonte antes de agir.\nToque em "📝 Minuta N" para a minuta em PDF do tema N (rascunho de IA).');
+  return partes.join('\n\n');
+}
+
+async function enviarDigest(api, chatId, digest) {
+  const token = crypto.randomBytes(4).toString('hex');
+  digestTokens.set(token, { digest, ts: Date.now() });
+  const kb = new InlineKeyboard();
+  digest.temas.slice(0, 12).forEach((t, i) => {
+    kb.text(`📝 Minuta ${i + 1}`, `dgm:${token}:${i}`);
+    if (i % 3 === 2) kb.row();
+  });
+  const texto = renderDigest(digest);
+  // fatia em blocos < 4000 e prende o teclado no último
+  const blocos = [];
+  let atual = '';
+  for (const p of texto.split('\n\n')) {
+    if ((atual + '\n\n' + p).length > 3900) { blocos.push(atual); atual = p; }
+    else atual = atual ? atual + '\n\n' + p : p;
+  }
+  if (atual) blocos.push(atual);
+  for (let i = 0; i < blocos.length; i++) {
+    await api.sendMessage(chatId, blocos[i],
+      i === blocos.length - 1 ? { reply_markup: kb, link_preview_options: { is_disabled: true } } : { link_preview_options: { is_disabled: true } });
+  }
+}
+
+async function cmdDigest(ctx) {
+  if (!podeDigest(ctx.from.id)) {
+    if (ADMIN_USER_ID) {
+      const kb = new InlineKeyboard().text('✅ Autorizar no digest', `dgok:${ctx.from.id}`);
+      bot.api.sendMessage(ADMIN_USER_ID,
+        `📺 ${nomeDe(ctx)} (ID ${ctx.from.id}) pediu acesso ao /digest.`, { reply_markup: kb }).catch(() => {});
+    }
+    return ctx.reply('O /digest é liberado pelo administrador — pedido enviado, aguarde a autorização.');
+  }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('O digest roda na sua chave de IA — configure com /config no privado.');
+  await ctx.reply('📺 Coletando as matérias do Fantástico e analisando (leva ~1 min)…');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const digest = await gerarDigest({ perfil });
+    return await enviarDigest(bot.api, ctx.chat.id, digest);
+  } catch (e) {
+    console.error('/digest falhou:', e);
+    return ctx.reply(`Não consegui gerar o digest: ${e.message}`);
+  }
+}
+bot.command('digest', cmdDigest);
+
+// Aprovação de assinante pelo admin (botão da notificação)
+bot.callbackQuery(/^dgok:(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = ctx.match[1];
+  assinar(id, '');
+  await ctx.editMessageText(`✅ ID ${id} autorizado no digest (recebe às segundas 7h e pode usar /digest).`);
+  bot.api.sendMessage(id, 'Você foi autorizado no 📺 /digest — receberá o radar do Fantástico às segundas, 7h, e pode pedir quando quiser com /digest.').catch(() => {});
+});
+
+// Gestão pelo admin: /digestadd <id> [nome] · /digestrem <id> · /digestlista
+bot.command('digestadd', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const [id, ...nome] = String(ctx.match || '').trim().split(/\s+/);
+  if (!/^\d+$/.test(id || '')) return ctx.reply('Uso: /digestadd <userId> [nome]');
+  assinar(id, nome.join(' '));
+  bot.api.sendMessage(id, 'Você foi autorizado no 📺 /digest — receberá o radar do Fantástico às segundas, 7h, e pode pedir quando quiser com /digest.').catch(() => {});
+  return ctx.reply(`✅ ${id} adicionado ao digest.`);
+});
+bot.command('digestrem', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = String(ctx.match || '').trim();
+  if (!/^\d+$/.test(id)) return ctx.reply('Uso: /digestrem <userId>');
+  desassinar(id);
+  return ctx.reply(`removido: ${id}`);
+});
+bot.command('digestlista', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const a = listarAssinantes();
+  const linhas = Object.entries(a).map(([id, v]) => `• ${v.nome || '(sem nome)'} — ${id} · desde ${String(v.desde || '').slice(0, 10)}`);
+  return ctx.reply((linhas.length ? `Assinantes do digest:\n${linhas.join('\n')}` : 'Nenhum assinante ainda.') +
+    `\n\n/digestadd <id> [nome] · /digestrem <id>` +
+    `\n(admin recebe sempre)`);
+});
+
+// Botão "📝 Minuta N" → elabora a minuta (chave de quem clicou) e envia o PDF
+bot.callbackQuery(/^dgm:([a-f0-9]+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const reg = digestTokens.get(ctx.match[1]);
+  if (!reg || Date.now() - reg.ts > 24 * 60 * 60 * 1000) return ctx.reply('Digest expirado — rode /digest de novo.');
+  const tema = reg.digest.temas[+ctx.match[2]];
+  if (!tema) return ctx.reply('Tema não encontrado.');
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('A minuta roda na sua chave de IA — configure com /config no privado.');
+  await ctx.reply(`📝 Elaborando a minuta de "${tema.titulo}" (leva ~1 min)…`);
+  await ctx.replyWithChatAction('upload_document');
+  try {
+    const minuta = await elaborarMinuta({ perfil, tema, materias: reg.digest.materias });
+    const pdf = await pdfMinuta(minuta, tema);
+    const nome = `minuta-${String(tema.titulo).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}.pdf`;
+    return await ctx.replyWithDocument(new InputFile(pdf, nome), {
+      caption: `${minuta.instrumento} — ${tema.titulo}\n⚠️ Rascunho de IA: revisar com a Consultoria Legislativa antes de protocolar.`.slice(0, 1000),
+    });
+  } catch (e) {
+    console.error('minuta falhou:', e);
+    return ctx.reply(`Não consegui elaborar a minuta: ${e.message}`);
+  }
+});
+
 bot.command('agregar', async ctx => {
   const indices = String(ctx.match || '').split(/[,\s]+/).map(n => parseInt(n, 10)).filter(Number.isFinite);
   if (!indices.length) return ctx.reply('Uso: /agregar 1,3 — com os números listados pelo /documentos.');
@@ -1140,6 +1267,7 @@ async function executarDecisao(ctx, decisao) {
     case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
+    case 'digest':             return cmdDigest(ctx);
     case 'exportar':           return cmdExportar(ctx);
     case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
     case 'responder':       return ctx.reply(decisao.argumentos.texto || 'Certo!');
@@ -1292,6 +1420,36 @@ async function tickBackup() {
 }
 setInterval(tickBackup, 6 * 60 * 60 * 1000);
 tickBackup();
+
+// ---------- Digest semanal: segunda-feira, 7h (Brasília) ----------
+// Gera na chave do ADMIN e envia aos assinantes (+ admin). Idempotente por
+// semana (dados/digest-envio.json) — sobrevive a reinícios do bot.
+async function tickDigest() {
+  try {
+    if (!ehHoraDoEnvio() || jaEnviadoNaSemana()) return;
+    const destinos = [...new Set([ADMIN_USER_ID, ...Object.keys(listarAssinantes())].filter(Boolean))];
+    if (!destinos.length) return;
+    const perfilAdmin = getPerfil(ADMIN_USER_ID);
+    if (!perfilAdmin?.apiKey) {
+      marcarEnvioDaSemana();   // não fica tentando em loop — avisa e segue
+      if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+        '📺 Digest de segunda: não gerei porque o admin está sem chave de IA (/config). Peça com /digest quando configurar.').catch(() => {});
+      return;
+    }
+    console.log('[digest] gerando o envio semanal…');
+    const digest = await gerarDigest({ perfil: perfilAdmin, forcar: true });
+    marcarEnvioDaSemana();
+    for (const id of destinos) {
+      try { await enviarDigest(bot.api, id, digest); }
+      catch (e) { console.warn(`[digest] envio a ${id} falhou:`, e.message); }
+    }
+    console.log(`[digest] enviado a ${destinos.length} assinante(s).`);
+  } catch (e) {
+    console.warn('[digest] tick falhou:', e.message);
+  }
+}
+setInterval(tickDigest, 10 * 60 * 1000);
+tickDigest();
 
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
 

@@ -25,6 +25,7 @@ const FERRAMENTAS = `
 - "comissoes_reuniao": listar QUAIS comissões permanentes têm REUNIÃO DELIBERATIVA numa data (só nomes/horários, sem olhar projeto). GATE: só na pergunta ABERTA e SEM filtro ("quais comissões têm reunião hoje?", "que comissões se reúnem amanhã?"). Se citar comissão → pauta_comissao; se cruzar com partido/deputado sem nomear comissão → varrer_comissoes.
 - "varrer_comissoes": VARRE todas as comissões com reunião deliberativa numa data e diz quais têm projeto de AUTORIA/RELATORIA de um partido/deputado. GATE: use quando a pergunta é ABERTA e cruza com partido/deputado SEM nomear comissão ("quais comissões com reunião hoje têm projeto do Podemos?", "nas reuniões de amanhã tem algo do PT?"). Varredura pesada. Preencha "data" e "partido" (padrão Podemos) ou "deputado".
 - "votacao": listar as votações nominais do PLENÁRIO de um dia e gerar a IMAGEM do placar da bancada. Use para "como foi a votação de hoje?", "placar da votação", "gera a imagem da votação de 02/07/2026". (Plenário, não comissão.)
+- "digest": radar do FANTÁSTICO — resume os temas do programa e avalia a relevância para ações legislativas (PL, requerimentos, CPI), com minuta em PDF sob demanda. Use para "o que deu no fantástico?", "radar do fantástico", "resumo do programa de domingo", "temas do fantástico para projetos".
 - "analisar": gerar as notas técnicas dos itens da pauta importada (AÇÃO CARA — o sistema pedirá confirmação; roda na chave do analista). Use para "gera as análises", "analisa a pauta", "roda a IA na pauta".
 - "exportar": gerar o PDF institucional da pauta com as análises. Use para "exporta o PDF", "gera o PDF da pauta", "me manda a pauta em PDF".
 - "ajuda": explicar o que o bot faz.
@@ -53,7 +54,7 @@ async function rotear(perfil, mensagem) {
     prompt: montarPromptRoteador(mensagem), maxTokens: 400,
   });
   const j = extrairJson(bruto);
-  const validas = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'listar_itens', 'ver_nota', 'perguntar', 'listar_documentos', 'baixar_documentos', 'pauta_comissao', 'comissoes_reuniao', 'varrer_comissoes', 'votacao', 'analisar', 'exportar', 'ajuda', 'responder'];
+  const validas = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'listar_itens', 'ver_nota', 'perguntar', 'listar_documentos', 'baixar_documentos', 'pauta_comissao', 'comissoes_reuniao', 'varrer_comissoes', 'votacao', 'digest', 'analisar', 'exportar', 'ajuda', 'responder'];
   if (!validas.includes(j.ferramenta)) {
     return { ferramenta: 'perguntar', argumentos: { pergunta: mensagem } };
   }
