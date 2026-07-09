@@ -696,9 +696,12 @@ function renderDigest(digest) {
   digest.temas.forEach((t, i) => {
     const acoes = (t.acoes || []).filter(a => !/^nenhuma/i.test(a.tipo || ''))
       .map(a => `   💡 ${a.tipo}: ${a.sugestao}`).join('\n');
+    // Temas de interesse (mesma config/badge laranja do painel Análise de Pauta)
+    const interesse = (t.interessados || []).length
+      ? `\n   👤 Interesse: ${t.interessados.map(n => `Dep. ${n}`).join(' · ')}` : '';
     partes.push(
       `${i + 1}) ${icone[(t.relevancia || '').toLowerCase()] || '⚪'} ${t.titulo} — relevância ${t.relevancia}\n` +
-      `${t.resumo}\n(${t.porque || ''})` + (acoes ? `\n${acoes}` : ''));
+      `${t.resumo}\n(${t.porque || ''})` + (acoes ? `\n${acoes}` : '') + interesse);
   });
   if (digest.descartados?.length) partes.push(`Sem potencial legislativo: ${digest.descartados.join('; ')}`);
   partes.push('⚠️ Resumos e sugestões gerados por IA a partir das matérias do g1 — confira a fonte antes de agir.\nToque em "📝 Minuta N" para a minuta em PDF do tema N (rascunho de IA).');

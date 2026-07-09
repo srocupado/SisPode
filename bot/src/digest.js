@@ -276,6 +276,16 @@ async function gerarDigest({ perfil, dias = 7, forcar = false } = {}) {
   const j = extrairJson(bruto);
   if (!Array.isArray(j.temas)) throw new Error('a IA não devolveu os temas no formato esperado.');
 
+  // TEMAS DE INTERESSE dos parlamentares (mesmo mecanismo/config do painel):
+  // marca em cada tema até 2 deputados do Podemos com interesse aderente.
+  // Falha aqui não derruba o digest (fica sem a marcação).
+  try {
+    const { determinarInteressados } = require('./interesse');
+    for (const t of j.temas) {
+      t.interessados = await determinarInteressados(`${t.titulo}. ${t.resumo}`, perfil);
+    }
+  } catch (e) { console.warn('[digest] temas de interesse indisponíveis:', e.message); }
+
   const digest = {
     temas: j.temas,
     descartados: Array.isArray(j.descartados) ? j.descartados : [],
@@ -355,6 +365,7 @@ function htmlMinuta(minuta, tema) {
   <h2>JUSTIFICAÇÃO</h2>
   <div class="just">${paragrafos(minuta.justificacao)}</div>
   <div class="assin">Sala das Sessões, em ${dataBR}.<br><br><b>Deputado(a) [NOME]</b><br>Podemos/[UF]</div>
+  ${(tema.interessados || []).length ? `<div class="fontes" style="margin-top:16pt"><b>Sugestão de autoria</b> — deputados com temas de interesse aderentes (configuração da equipe no SisPode): ${tema.interessados.map(n => `Dep. ${escHtml(n)}`).join(' · ')}</div>` : ''}
   <div class="fontes"><b>Tema:</b> ${escHtml(tema.titulo)} · <b>Fontes (imprensa):</b><br>
   ${(minuta.fontes || []).map(f => `• ${escHtml(f.titulo)} (${escHtml(f.data)}) — ${escHtml(f.url)}`).join('<br>')}</div>
   </body></html>`;
