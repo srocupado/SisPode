@@ -9,6 +9,7 @@
 //   npm install            # garante o puppeteer
 //   node spike-push.js     # headless
 //   set BOT_PUSH_VISIVEL=1 && node spike-push.js   # janela visível (diagnóstico)
+//   set BOT_PUSH_DEBUG=1   && node spike-push.js   # encaminha o log interno da SDK
 //
 // Deixe rodando durante uma sessão do Plenário e observe os eventos
 // (sessao_inicio, odd_inicio, votacao, odd_fim, sessao_fim).

@@ -78,6 +78,17 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
 
   const page = await browser.newPage();
 
+  // Encaminha o console interno da página/SDK OneSignal (diagnóstico). Com
+  // BOT_PUSH_DEBUG=1 encaminha TUDO; senão só o que menciona push/onesignal.
+  const debugConsole = process.env.BOT_PUSH_DEBUG === '1';
+  page.on('console', (m) => {
+    const t = m.text();
+    if (debugConsole || /onesignal|push|notif|subscri|service worker/i.test(t)) {
+      log(`   [browser] ${t}`);
+    }
+  });
+  page.on('pageerror', (e) => log(`   [browser:erro] ${e.message}`));
+
   // Dedup: o mesmo push pode chegar pelos dois caminhos (evento + SW).
   const vistos = new Set();
   await page.exposeFunction('__pushRecebido', (payload) => {
@@ -110,29 +121,48 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
   await page.evaluate(() => {
     window.OneSignal = window.OneSignal || [];
     window.OneSignal.push(function () {
+      try { OneSignal.log && OneSignal.log.setLevel && OneSignal.log.setLevel('trace'); } catch (e) {}
       try { OneSignal.on('notificationDisplay', function (ev) { window.__pushRecebido && window.__pushRecebido(ev); }); } catch (e) {}
+      try { OneSignal.on('subscriptionChange', function (v) { console.log('OneSignal subscriptionChange=' + v); }); } catch (e) {}
       try { OneSignal.setSubscription(true); } catch (e) {}
       try { if (OneSignal.registerForPushNotifications) OneSignal.registerForPushNotifications(); } catch (e) {}
       try { OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
     });
   });
 
-  // Aguarda a confirmação da inscrição (até ~30s).
-  let inscrito = false;
-  for (let i = 0; i < 20 && !inscrito; i++) {
-    inscrito = await page.evaluate(() => new Promise((res) => {
+  // Coleta o STATUS completo da inscrição — o sinal definitivo é o userId
+  // (UUID do "player" no OneSignal): se existir, a inscrição foi criada nos
+  // servidores da OneSignal. Também mostra token de push, permissão e tags.
+  async function statusInscricao() {
+    return await page.evaluate(() => new Promise((res) => {
+      const out = { permission: (typeof Notification !== 'undefined' ? Notification.permission : '?'), enabled: null, userId: null, token: null, tags: null };
       window.OneSignal = window.OneSignal || [];
-      window.OneSignal.push(function () {
-        try { OneSignal.isPushNotificationsEnabled(function (v) { res(!!v); }); }
-        catch (e) { res(false); }
+      window.OneSignal.push(async function () {
+        try { out.enabled = await OneSignal.isPushNotificationsEnabled(); } catch (e) {}
+        try { out.userId = await OneSignal.getUserId(); } catch (e) {}
+        try { out.token = await OneSignal.getRegistrationId(); } catch (e) {}
+        try { out.tags = await OneSignal.getTags(); } catch (e) {}
+        res(out);
       });
-      setTimeout(() => res(false), 1200);
-    })).catch(() => false);
-    if (!inscrito) await new Promise((r) => setTimeout(r, 1500));
+      setTimeout(() => res(out), 2500);
+    })).catch(() => null);
   }
-  log(inscrito
-    ? '[push] inscrito no OneSignal (tags pauta/votacao/extrapauta) ✓'
-    : '[push] inscrição ainda não confirmada — seguindo (pode confirmar depois)');
+
+  let st = null;
+  for (let i = 0; i < 20; i++) {
+    st = await statusInscricao();
+    if (st && st.userId) break;                 // inscrição confirmada no servidor
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+  if (st && st.userId) {
+    log(`[push] inscrito no OneSignal ✓  player(userId)=${st.userId}`);
+    log(`[push]   permissão=${st.permission}  push_habilitado=${st.enabled}  token=${st.token ? String(st.token).slice(0, 20) + '…' : '(sem)'}`);
+    log(`[push]   tags=${JSON.stringify(st.tags || {})}`);
+  } else {
+    log('[push] ⚠ inscrição NÃO confirmada (sem userId). Status atual:');
+    log(`[push]   permissão=${st?.permission}  push_habilitado=${st?.enabled}  token=${st?.token ? 'sim' : '(sem)'}  tags=${JSON.stringify(st?.tags || {})}`);
+    log('[push]   Rode com BOT_PUSH_VISIVEL=1 e BOT_PUSH_DEBUG=1 para ver o log interno da SDK.');
+  }
 
   // Injeta o hook no service worker do OneSignal e reforça periodicamente
   // (o SW pode ser reciclado; re-injetar garante o listener presente).
