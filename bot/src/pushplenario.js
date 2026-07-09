@@ -25,11 +25,17 @@
 const path = require('path');
 const puppeteer = require('puppeteer');
 
-const PLENARIO_URL = 'https://www.camara.leg.br/plenario';
-const ORIGIN = 'https://www.camara.leg.br';
+// Produção: a página e o app OneSignal da Câmara. Todos são sobrescrevíveis por
+// env para o TESTE de recepção com um app OneSignal próprio (ver PUSH-PLENARIO.md):
+//   BOT_PUSH_URL, BOT_PUSH_ORIGIN, BOT_PUSH_APPID, BOT_PUSH_NO_INIT=1
+const PLENARIO_URL = process.env.BOT_PUSH_URL || 'https://www.camara.leg.br/plenario';
+const ORIGIN = process.env.BOT_PUSH_ORIGIN || new URL(PLENARIO_URL).origin;
 const CHROME_DATA = path.join(__dirname, '..', 'dados', 'push-chrome');
 // appId do app OneSignal da Câmara (confirmado no HTML de /plenario).
-const ONESIGNAL_APP_ID = '062b3950-258a-4531-b67b-c8f053fda285';
+const ONESIGNAL_APP_ID = process.env.BOT_PUSH_APPID || '062b3950-258a-4531-b67b-c8f053fda285';
+// No teste com página hospedada pela OneSignal (os.tc), a própria página já
+// inicializa a SDK — aí pulamos a nossa init e só anexamos os ouvintes.
+const PULAR_INIT = process.env.BOT_PUSH_NO_INIT === '1';
 
 // ---------- classificação do evento pelo texto do push ----------
 // A Câmara escreve mensagens explícitas ("Encerrada a Ordem do Dia",
@@ -142,7 +148,7 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
   // #oneSignal (que não existe aqui) e lança antes de chamar OneSignal.init — a
   // SDK carrega mas não inicializa. Então inicializamos NÓS MESMOS, com o appId
   // real, e assinamos com as tags — mesmo efeito do site, sem o widget.
-  await page.evaluate((appId) => {
+  await page.evaluate((appId, pularInit) => {
     window.OneSignal = window.OneSignal || [];
     function reportarStatus() {
       window.OneSignal.push(async function () {
@@ -171,6 +177,7 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
     }
     window.OneSignal.push(function () {
       try { OneSignal.log && OneSignal.log.setLevel && OneSignal.log.setLevel('trace'); } catch (e) {}
+      if (pularInit) { console.log('pulando init (página já inicializa a SDK) — só assinando'); assinar(); return; }
       var p;
       try {
         p = OneSignal.init({ appId: appId, allowLocalhostAsSecureOrigin: true, autoRegister: false, notifyButton: { enable: false } });
@@ -181,7 +188,7 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
         assinar();
       });
     });
-  }, ONESIGNAL_APP_ID);
+  }, ONESIGNAL_APP_ID, PULAR_INIT);
 
   // Coleta o STATUS completo da inscrição — o sinal definitivo é o userId
   // (UUID do "player" no OneSignal): se existir, a inscrição foi criada nos
