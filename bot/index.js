@@ -1312,6 +1312,30 @@ if (MONITOR_ATIVO) {
   console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
 }
 
+// ---------- Receptor de PUSH do Plenário (tempo real) ----------
+// FASE DE OBSERVAÇÃO: recebe os pushes da Câmara (OneSignal) e só LOGA na janela
+// do bot — ainda NÃO manda no grupo (aguardando confirmar os textos reais numa
+// sessão). Liga com BOT_PUSH=1 no .env. Sobe um Chromium headless próprio; se
+// falhar, o bot segue normal (não é fatal).
+if (process.env.BOT_PUSH === '1') {
+  const { iniciarReceptorPush } = require('./src/pushplenario');
+  iniciarReceptorPush({
+    log: m => console.log(`[receptor-push] ${m}`),
+    onEvento: ev => {
+      console.log('==================== PUSH DO PLENÁRIO ====================');
+      console.log(`  tipo  : ${ev.tipo}`);
+      console.log(`  título: ${ev.titulo}`);
+      console.log(`  corpo : ${ev.corpo}`);
+      console.log(`  data  : ${JSON.stringify(ev.data)}`);
+      console.log('=========================================================');
+    },
+  })
+    .then(() => console.log('[receptor-push] ATIVO (modo observação — só loga na janela, não envia ao grupo)'))
+    .catch(e => console.warn('[receptor-push] não iniciou (bot segue normal):', e.message));
+} else {
+  console.log('Receptor de push do Plenário desativado (defina BOT_PUSH=1 no .env para ligar).');
+}
+
 bot.catch(err => console.error('Erro no bot:', err));
 bot.start({
   onStart: me => console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`),

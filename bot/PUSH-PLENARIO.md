@@ -67,6 +67,25 @@ Com esse texto real confirmado, integramos ao `monitor.js`: cada push vira a
 mensagem correspondente no grupo, com latência zero; o Dados Abertos/notas viram
 só reforço/fallback.
 
+## Embutido no bot (modo observação)
+
+Para rodar o receptor **dentro do bot** (um processo só, sem o `spike-push.js`),
+adicione ao `bot/.env`:
+
+```
+BOT_PUSH=1
+```
+
+Aí o `iniciar-bot.bat` sobe o bot normalmente **e** o receptor de push. Nesta
+fase, o receptor está em **modo observação**: ele imprime cada push recebido na
+**janela do bot** (bloco `==== PUSH DO PLENÁRIO ====`), mas **ainda não envia ao
+grupo** — isso só depois de confirmarmos, numa sessão real, o texto exato de
+cada push. Se o Chromium não subir, o bot segue normal (não é fatal).
+
+Deixe o bot rodando com `BOT_PUSH=1` durante uma sessão e me mande os blocos
+`PUSH DO PLENÁRIO` que aparecerem. Com os textos reais eu ligo cada push à
+mensagem do grupo no monitor.
+
 ## Arquivos
 
 - `src/pushplenario.js` — módulo do receptor (Chromium + inscrição + captura).
