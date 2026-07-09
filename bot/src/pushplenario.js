@@ -104,6 +104,18 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
     catch (e) { log(`[push] onEvento lançou: ${e.message}`); }
   });
 
+  // Confirmação da inscrição por EVENTO (não por janela de tempo): a inscrição
+  // pode levar de 5 a 40 s (mais em perfil novo). Quando o OneSignal conclui,
+  // dispara subscriptionChange e a página chama isto — aí logamos o ✓ na hora.
+  let confirmado = false;
+  await page.exposeFunction('__inscricaoConfirmada', (st) => {
+    if (confirmado) return;
+    confirmado = true;
+    log(`[push] inscrito no OneSignal ✓  player(userId)=${st.userId}`);
+    log(`[push]   permissão=${st.permission}  push_habilitado=${st.enabled}  token=${st.token ? String(st.token).slice(0, 24) + '…' : '(sem)'}`);
+    log(`[push]   tags=${JSON.stringify(st.tags || {})}`);
+  });
+
   // Caminho (2): mensagens do SW chegam à página e são repassadas ao Node.
   await page.evaluateOnNewDocument(() => {
     if (navigator.serviceWorker) {
@@ -132,9 +144,21 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
   // real, e assinamos com as tags — mesmo efeito do site, sem o widget.
   await page.evaluate((appId) => {
     window.OneSignal = window.OneSignal || [];
+    function reportarStatus() {
+      window.OneSignal.push(async function () {
+        try {
+          const st = { permission: (typeof Notification !== 'undefined' ? Notification.permission : '?'), enabled: null, userId: null, token: null, tags: null };
+          st.enabled = await OneSignal.isPushNotificationsEnabled();
+          st.userId = await OneSignal.getUserId();
+          st.token = await OneSignal.getRegistrationId();
+          st.tags = await OneSignal.getTags();
+          if (st.userId && window.__inscricaoConfirmada) window.__inscricaoConfirmada(st);
+        } catch (e) {}
+      });
+    }
     function assinar() {
       try { OneSignal.on('notificationDisplay', function (ev) { window.__pushRecebido && window.__pushRecebido(ev); }); } catch (e) {}
-      try { OneSignal.on('subscriptionChange', function (v) { console.log('subscriptionChange=' + v); }); } catch (e) {}
+      try { OneSignal.on('subscriptionChange', function (v) { console.log('subscriptionChange=' + v); if (v === true) reportarStatus(); }); } catch (e) {}
       try { OneSignal.setSubscription(true); } catch (e) {}
       try { if (OneSignal.registerForPushNotifications) OneSignal.registerForPushNotifications(); } catch (e) {}
       try { OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
@@ -171,20 +195,26 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
     })).catch(() => null);
   }
 
-  let st = null;
-  for (let i = 0; i < 20; i++) {
-    st = await statusInscricao();
-    if (st && st.userId) break;                 // inscrição confirmada no servidor
-    await new Promise((r) => setTimeout(r, 1500));
+  // Sondagem de reforço: além do evento subscriptionChange, checamos o status
+  // por até ~90 s (perfil novo pode demorar). O que confirmar primeiro loga o ✓;
+  // se passar da janela sem confirmar, avisamos sem alarme (o evento ainda pode
+  // confirmar depois — o receptor segue ativo de qualquer forma).
+  let ultimo = null;
+  for (let i = 0; i < 45 && !confirmado; i++) {
+    ultimo = await statusInscricao();
+    if (ultimo && ultimo.userId && !confirmado) {
+      confirmado = true;
+      log(`[push] inscrito no OneSignal ✓  player(userId)=${ultimo.userId}`);
+      log(`[push]   permissão=${ultimo.permission}  push_habilitado=${ultimo.enabled}  token=${ultimo.token ? String(ultimo.token).slice(0, 24) + '…' : '(sem)'}`);
+      log(`[push]   tags=${JSON.stringify(ultimo.tags || {})}`);
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
   }
-  if (st && st.userId) {
-    log(`[push] inscrito no OneSignal ✓  player(userId)=${st.userId}`);
-    log(`[push]   permissão=${st.permission}  push_habilitado=${st.enabled}  token=${st.token ? String(st.token).slice(0, 20) + '…' : '(sem)'}`);
-    log(`[push]   tags=${JSON.stringify(st.tags || {})}`);
-  } else {
-    log('[push] ⚠ inscrição NÃO confirmada (sem userId). Status atual:');
-    log(`[push]   permissão=${st?.permission}  push_habilitado=${st?.enabled}  token=${st?.token ? 'sim' : '(sem)'}  tags=${JSON.stringify(st?.tags || {})}`);
-    log('[push]   Rode com BOT_PUSH_VISIVEL=1 e BOT_PUSH_DEBUG=1 para ver o log interno da SDK.');
+  if (!confirmado) {
+    log('[push] inscrição ainda concluindo (perfil novo pode levar mais tempo).');
+    log(`[push]   status parcial: permissão=${ultimo?.permission} push_habilitado=${ultimo?.enabled} token=${ultimo?.token ? 'sim' : '(sem)'}`);
+    log('[push]   Assim que o OneSignal terminar, logo o "inscrito ✓" automaticamente (evento subscriptionChange).');
   }
 
   // Injeta o hook no service worker do OneSignal e reforça periodicamente
@@ -211,8 +241,13 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
       return true;
     } catch (_) { return false; }
   }
-  if (await injetarSW()) log('[push] hook do service worker instalado ✓');
-  const tHook = setInterval(injetarSW, 20000);
+  let hookOk = await injetarSW();
+  if (hookOk) log('[push] hook do service worker instalado ✓');
+  // Reforça o hook (SW pode ser reciclado / instalar só depois em perfil novo).
+  const tHook = setInterval(async () => {
+    const ok = await injetarSW();
+    if (ok && !hookOk) { hookOk = true; log('[push] hook do service worker instalado ✓'); }
+  }, 20000);
 
   // Mantém o SW/página aquecidos (evita reciclagem que perderia o hook).
   const tWarm = setInterval(() => {
