@@ -1031,7 +1031,9 @@ function vetoCasaBusca(v, termo) {
   const campos = [`VET ${v.numero}`, v.numero, v.tipo, v.materia, v.assunto, v.ementa, v.sobresta,
     v.resumoProjeto, v.razoesProjeto,
     ...(v.razoesGrupos || []).map(g => g.resumo),
-    ...(v.dispositivos || []).flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo])];
+    ...(v.dispositivos || []).flatMap(d => [d.codigo, d.descricao, d.texto, d.resumo]),
+    // Deputados marcados como interessados: buscar pelo NOME (ou UF) traz o veto.
+    ...(v.interessados || []).flatMap(d => [d.nome, d.uf])];
   return normalizar(campos.join(' ')).includes(normalizar(t));
 }
 
@@ -2189,7 +2191,9 @@ function plnCasaBusca(p, termo) {
   if (mFull) return p.num === +mFull[1] && p.ano === +mFull[2];
   const mNum = t.match(/^(\d{1,3})$/);
   if (mNum) return p.num === +mNum[1];
-  return normalizar([p.sigla, p.numero, p.titulo, p.ementa, p.autor, p.analise].join(' ')).includes(normalizar(t));
+  return normalizar([p.sigla, p.numero, p.titulo, p.ementa, p.autor, p.analise,
+    // Deputados interessados: busca pelo nome também traz o PLN/MPV.
+    ...(p.interessados || []).flatMap(d => [d.nome, d.uf])].join(' ')).includes(normalizar(t));
 }
 function renderPlnsSecao(termo) {
   const plns = (app.sessaoAtiva?.plns || []).filter(p => plnCasaBusca(p, termo));
