@@ -28,6 +28,8 @@ const puppeteer = require('puppeteer');
 const PLENARIO_URL = 'https://www.camara.leg.br/plenario';
 const ORIGIN = 'https://www.camara.leg.br';
 const CHROME_DATA = path.join(__dirname, '..', 'dados', 'push-chrome');
+// appId do app OneSignal da Câmara (confirmado no HTML de /plenario).
+const ONESIGNAL_APP_ID = '062b3950-258a-4531-b67b-c8f053fda285';
 
 // ---------- classificação do evento pelo texto do push ----------
 // A Câmara escreve mensagens explícitas ("Encerrada a Ordem do Dia",
@@ -114,21 +116,42 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
   });
 
   log('[push] abrindo camara.leg.br/plenario…');
-  await page.goto(PLENARIO_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto(PLENARIO_URL, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    .catch((e) => log(`[push] goto: ${e.message}`));
 
-  // Caminho (1): inscreve no OneSignal como o site + tags + escuta o evento
-  // oficial de exibição de notificação (a ponte SW→página da própria OneSignal).
-  await page.evaluate(() => {
+  // Espera a SDK do OneSignal carregar (o script é assíncrono).
+  await page.waitForFunction(
+    () => window.OneSignal && typeof window.OneSignal.init === 'function',
+    { timeout: 30000 },
+  ).then(() => log('[push] SDK OneSignal carregada'))
+    .catch(() => log('[push] ⚠ SDK OneSignal não carregou em 30s'));
+
+  // A init do PRÓPRIO site quebra em headless: o os.js da Câmara mexe no widget
+  // #oneSignal (que não existe aqui) e lança antes de chamar OneSignal.init — a
+  // SDK carrega mas não inicializa. Então inicializamos NÓS MESMOS, com o appId
+  // real, e assinamos com as tags — mesmo efeito do site, sem o widget.
+  await page.evaluate((appId) => {
     window.OneSignal = window.OneSignal || [];
-    window.OneSignal.push(function () {
-      try { OneSignal.log && OneSignal.log.setLevel && OneSignal.log.setLevel('trace'); } catch (e) {}
+    function assinar() {
       try { OneSignal.on('notificationDisplay', function (ev) { window.__pushRecebido && window.__pushRecebido(ev); }); } catch (e) {}
-      try { OneSignal.on('subscriptionChange', function (v) { console.log('OneSignal subscriptionChange=' + v); }); } catch (e) {}
+      try { OneSignal.on('subscriptionChange', function (v) { console.log('subscriptionChange=' + v); }); } catch (e) {}
       try { OneSignal.setSubscription(true); } catch (e) {}
       try { if (OneSignal.registerForPushNotifications) OneSignal.registerForPushNotifications(); } catch (e) {}
       try { OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
+    }
+    window.OneSignal.push(function () {
+      try { OneSignal.log && OneSignal.log.setLevel && OneSignal.log.setLevel('trace'); } catch (e) {}
+      var p;
+      try {
+        p = OneSignal.init({ appId: appId, allowLocalhostAsSecureOrigin: true, autoRegister: false, notifyButton: { enable: false } });
+        console.log('OneSignal.init chamado por nós (appId ' + appId + ')');
+      } catch (e) { p = Promise.reject(e); }
+      Promise.resolve(p).then(assinar).catch(function (e) {
+        console.log('init retornou erro (' + (e && e.message) + ') — assinando mesmo assim');
+        assinar();
+      });
     });
-  });
+  }, ONESIGNAL_APP_ID);
 
   // Coleta o STATUS completo da inscrição — o sinal definitivo é o userId
   // (UUID do "player" no OneSignal): se existir, a inscrição foi criada nos
