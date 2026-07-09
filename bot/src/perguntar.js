@@ -35,14 +35,40 @@ function limparConversa(userId) { conversas.delete(String(userId)); }
 
 // ---------- Localização de item e análise ----------
 
-// "PL 1234/2026", "pl 1234 2026", "PLP 12/25" → { sigla, numero, ano } ou null
+// "PL 1234/2026", "pl 1234 2026", "PLP 12/25" → { sigla, numero, ano } ou null.
+// Também aceita as formas POR EXTENSO (comuns na voz/linguagem natural):
+// "Medida Provisória 1342/2026", "projeto de lei complementar 41/2026" etc.
+const EXTENSO_SIGLA = [
+  [/PROJETO\s+DE\s+LEI\s+COMPLEMENTAR/, 'PLP'],
+  [/PROJETO\s+DE\s+LEI\s+DE\s+CONVERS[ÃA]O/, 'PLV'],
+  [/PROJETO\s+DE\s+DECRETO\s+LEGISLATIVO/, 'PDL'],
+  [/PROJETO\s+DE\s+RESOLU[ÇC][ÃA]O/, 'PRC'],
+  [/PROPOSTA\s+DE\s+EMENDA\s+(?:[ÀA]\s+)?CONSTITUI[ÇC][ÃA]O|PROPOSTA\s+DE\s+EMENDA\s+CONSTITUCIONAL/, 'PEC'],
+  [/MEDIDA\s+PROVIS[ÓO]RIA|\bMP\b/, 'MPV'],
+  [/PROJETO\s+DE\s+LEI/, 'PL'],
+  [/REQUERIMENTO/, 'REQ'],
+];
+
 function extrairRefProposicao(texto) {
-  const m = String(texto || '').toUpperCase()
-    .match(/\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ)\s*\.?\s*(\d{1,6})\s*[\/\s]\s*(\d{2,4})\b/);
+  const T = String(texto || '').toUpperCase();
+  // Número aceita ponto de milhar ("1.234"); ano pode vir após "/", espaço,
+  // "de 2026" ou ", de 2026" (praxe oficial e fala transcrita).
+  const NUM = '(\\d{1,3}(?:\\.\\d{3})+|\\d{1,6})';
+  const SEP = '\\s*(?:[\\/\\s]|,?\\s*DE\\s+)\\s*';
+  let m = T.match(new RegExp(`\\b(PL|PLP|PLV|PEC|PDL|PDC|MPV|PRC|REQ)\\s*\\.?\\s*${NUM}${SEP}(\\d{2,4})\\b`));
+  if (!m) {
+    // Formas por extenso: acha o nome e exige "nº"/número logo em seguida.
+    for (const [re, sigla] of EXTENSO_SIGLA) {
+      const mx = T.match(new RegExp(`(?:${re.source})\\s*(?:N[ºO°.]*\\s*)?${NUM}${SEP}(\\d{2,4})\\b`));
+      if (mx) { m = [mx[0], sigla, mx[1], mx[2]]; break; }
+    }
+  }
   if (!m) return null;
   let ano = m[3];
   if (ano.length === 2) ano = (parseInt(ano, 10) > 50 ? '19' : '20') + ano;
-  return { sigla: m[1], numero: parseInt(m[2], 10), ano };
+  const numero = parseInt(String(m[2]).replace(/\./g, ''), 10);
+  if (!Number.isFinite(numero)) return null;
+  return { sigla: m[1], numero, ano };
 }
 
 // Localiza o item numa pauta já resolvida (a ativa do usuário).
