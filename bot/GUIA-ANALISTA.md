@@ -39,7 +39,7 @@ as notas técnicas e os documentos oficiais.
 | `/baixar PL 1234/2026` | Envia os **PDFs para você baixar**: 📄 os usados na nota + 📎 os adicionais da tramitação. Toque em cada um, ou em "📥 Baixar todos" |
 | `/agregar 1,3` | Inclui na conversa os documentos listados (pelos números) — a IA passa a considerá-los nas próximas respostas |
 | `/limpar` | Zera a conversa atual com a IA (histórico e documentos agregados) |
-| `/digest` | 📺 **Radar Fantástico** (assinantes autorizados pelo admin): resume os temas do programa, avalia a **relevância legislativa** de cada um e sugere ações (PL, requerimentos, CPI, audiência…). Botão **📝 Minuta N** gera a minuta da proposição em **PDF** (rascunho de IA — revisar com a Consultoria antes de protocolar). Envio automático toda **segunda, 7h** |
+| `/digest` | 📺 **Radar de Imprensa** (assinantes autorizados pelo admin): resume os temas do Fantástico, Jornal Nacional, Profissão Repórter, Globo Rural e Agência Brasil, avalia a **relevância legislativa** de cada um e sugere ações (PL, requerimentos, CPI, audiência…). Botão **📝 Minuta N** gera a minuta da proposição em **PDF** (rascunho de IA — revisar com a Consultoria antes de protocolar). Envio automático toda **segunda, 7h** |
 | `/comissao CCJ hoje` | **Pauta de uma comissão** da Câmara numa data — projetos, autor+partido, relator e voto do relator (dado oficial da API, verbatim). A frase serve para nome **e** data |
 | `/comissoeshoje [data]` | Lista **quais comissões** têm reunião deliberativa na data (nomes e horários) |
 | `/varrercomissoes [data]` | **Varre todas** as comissões com reunião deliberativa e mostra onde há projeto de **autoria ou relatoria do Podemos** (leva alguns segundos) |

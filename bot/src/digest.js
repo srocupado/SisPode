@@ -18,24 +18,50 @@ const { DADOS_DIR } = require('./config');
 const { chamarIAtexto, extrairJson } = require('./ia');
 
 // ---------- fontes ----------
-// Multi-fonte por desenho: cada fonte declara como listar e filtrar matérias.
-// Para acrescentar (ex.: Jornal Nacional), basta uma nova entrada aqui.
+// Multi-fonte por desenho. Dois tipos:
+//   'g1'  — páginas do g1; matérias têm a data no caminho /noticia/AAAA/MM/DD/
+//   'rss' — feed RSS com <pubDate> por item (corpo: página do item, com
+//           fallback para a <description> do feed)
+// `max` limita quantas matérias cada fonte contribui (orçamento do prompt).
+const regexG1 = slug => new RegExp(
+  `href="(https://g1\\.globo\\.com/${slug.replace(/\//g, '\\/')}/noticia/(\\d{4})/(\\d{2})/(\\d{2})/[^"]+)"`, 'g');
+
 const FONTES = [
   {
-    id: 'fantastico',
-    nome: 'Fantástico',
+    id: 'fantastico', nome: 'Fantástico', tipo: 'g1', max: 8,
     paginas: [
       'https://g1.globo.com/fantastico/',
       'https://g1.globo.com/fantastico/index/feed/pagina-2.ghtml',
       'https://g1.globo.com/fantastico/index/feed/pagina-3.ghtml',
     ],
-    // matérias têm a data no caminho: /fantastico/noticia/AAAA/MM/DD/slug.ghtml
-    regexMateria: /href="(https:\/\/g1\.globo\.com\/fantastico\/noticia\/(\d{4})\/(\d{2})\/(\d{2})\/[^"]+)"/g,
+    regexMateria: regexG1('fantastico'),
+  },
+  {
+    id: 'jn', nome: 'Jornal Nacional', tipo: 'g1', max: 8,
+    paginas: [
+      'https://g1.globo.com/jornal-nacional/',
+      'https://g1.globo.com/jornal-nacional/index/feed/pagina-2.ghtml',
+    ],
+    regexMateria: regexG1('jornal-nacional'),
+  },
+  {
+    id: 'pr', nome: 'Profissão Repórter', tipo: 'g1', max: 4,
+    paginas: ['https://g1.globo.com/profissao-reporter/'],
+    regexMateria: regexG1('profissao-reporter'),
+  },
+  {
+    id: 'gr', nome: 'Globo Rural', tipo: 'g1', max: 4,
+    paginas: ['https://g1.globo.com/economia/agronegocios/globo-rural/'],
+    regexMateria: regexG1('economia/agronegocios/globo-rural'),
+  },
+  {
+    id: 'ab', nome: 'Agência Brasil', tipo: 'rss', max: 10,
+    rss: 'https://agenciabrasil.ebc.com.br/rss/ultimasnoticias/feed.xml',
   },
 ];
 
-const MAX_MATERIAS   = 15;      // teto de matérias por digest
-const MAX_CHARS_MAT  = 4000;    // corpo de cada matéria enviado à IA
+const MAX_MATERIAS   = 30;      // teto global de matérias por digest
+const MAX_CHARS_MAT  = 3000;    // corpo de cada matéria enviado à IA
 const CACHE_TTL_MS   = 6 * 60 * 60 * 1000;   // reuso do digest por 6h
 
 // ---------- persistência local (bot/dados/, fora do git) ----------
@@ -122,7 +148,7 @@ function decodeEntities(s) {
     .replace(/&quot;/g, '"').replace(/&#0?39;/g, "'").replace(/&nbsp;/g, ' ');
 }
 
-/** Lista as matérias da fonte publicadas nos últimos `dias`. */
+/** Lista as matérias de uma fonte g1 publicadas nos últimos `dias`. */
 async function listarMaterias(fonte, dias, sessao) {
   const corte = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
   const urls = new Map();   // url → dataISO
@@ -138,8 +164,35 @@ async function listarMaterias(fonte, dias, sessao) {
   }
   return [...urls.entries()]
     .sort((a, b) => b[1].localeCompare(a[1]))
-    .slice(0, MAX_MATERIAS)
+    .slice(0, fonte.max || MAX_MATERIAS)
     .map(([url, data]) => ({ url, data }));
+}
+
+/** Lista itens de um feed RSS dos últimos `dias`: [{url, data, titulo, descricao}]. */
+async function listarRss(fonte, dias, sessao) {
+  const corte = Date.now() - dias * 24 * 60 * 60 * 1000;
+  const xml = await htmlDe(fonte.rss, sessao);
+  const out = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const bloco = m[1];
+    const pega = tag => {
+      const x = bloco.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+      return x ? decodeEntities(x[1].replace(/<!\[CDATA\[|\]\]>/g, '').replace(/<[^>]+>/g, '')).trim() : '';
+    };
+    const url = pega('link'), titulo = pega('title'), descricao = pega('description');
+    const quando = Date.parse(pega('pubDate'));
+    if (!url || !Number.isFinite(quando) || quando < corte) continue;
+    out.push({ url, titulo, descricao, data: new Date(quando).toISOString().slice(0, 10), quando });
+  }
+  return out.sort((a, b) => b.quando - a.quando).slice(0, fonte.max || MAX_MATERIAS);
+}
+
+/** Extrai o corpo de uma matéria da Agência Brasil: parágrafos "reais" da página. */
+function extrairMateriaAB(html) {
+  const ps = [...html.matchAll(/<p[^>]*>([\s\S]*?)<\/p>/g)]
+    .map(p => decodeEntities(p[1].replace(/<[^>]+>/g, '')).replace(/\s+/g, ' ').trim())
+    .filter(t => t.length > 100 && !t.includes('-->') && !/^A\+\s/.test(t));
+  return ps.join('\n').slice(0, MAX_CHARS_MAT);
 }
 
 /** Extrai título + corpo (texto puro) do HTML de uma matéria do g1. */
@@ -160,16 +213,28 @@ async function coletarMaterias({ dias = 7 } = {}) {
   const sessao = novaSessaoChromium();
   try {
     for (const fonte of FONTES) {
-      const lista = await listarMaterias(fonte, dias, sessao);
-      for (const item of lista) {
-        try {
-          const { titulo, corpo } = extrairMateria(await htmlDe(item.url, sessao));
-          out.push({ fonte: fonte.nome, url: item.url, data: item.data, titulo, corpo });
-        } catch (e) { console.warn(`[digest] matéria falhou (${item.url}):`, e.message); }
-      }
+      try {
+        if (fonte.tipo === 'rss') {
+          for (const item of await listarRss(fonte, dias, sessao)) {
+            let corpo = '';
+            try { corpo = extrairMateriaAB(await htmlDe(item.url, sessao)); } catch (_) { /* usa a descrição */ }
+            if (!corpo) corpo = item.descricao || '';
+            if (!corpo) continue;
+            out.push({ fonte: fonte.nome, url: item.url, data: item.data, titulo: item.titulo, corpo });
+          }
+        } else {
+          for (const item of await listarMaterias(fonte, dias, sessao)) {
+            try {
+              const { titulo, corpo } = extrairMateria(await htmlDe(item.url, sessao));
+              out.push({ fonte: fonte.nome, url: item.url, data: item.data, titulo, corpo });
+            } catch (e) { console.warn(`[digest] matéria falhou (${item.url}):`, e.message); }
+          }
+        }
+      } catch (e) { console.warn(`[digest] fonte ${fonte.nome} falhou:`, e.message); }
+      if (out.length >= MAX_MATERIAS) break;
     }
   } finally { await sessao.fechar(); }
-  return out;
+  return out.slice(0, MAX_MATERIAS);
 }
 
 // ---------- análise (IA) ----------
@@ -337,7 +402,7 @@ function ehHoraDoEnvio() {
 }
 
 module.exports = {
-  gerarDigest, elaborarMinuta, pdfMinuta, coletarMaterias, extrairMateria,
+  gerarDigest, elaborarMinuta, pdfMinuta, coletarMaterias, extrairMateria, extrairMateriaAB,
   listarAssinantes, assinar, desassinar, ehAssinante,
   jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio,
 };

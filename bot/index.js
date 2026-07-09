@@ -46,7 +46,7 @@ const TEXTO_AJUDA =
   '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
   '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
-  '/digest — 📺 radar Fantástico: temas do programa, relevância legislativa e minuta em PDF (assinantes; segundas 7h automático)\n' +
+  '/digest — 📺 radar de imprensa (Fantástico, JN, Profissão Repórter, Globo Rural, Ag. Brasil): temas + relevância legislativa + minuta em PDF (assinantes; segundas 7h)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
@@ -692,7 +692,7 @@ const podeDigest = id => String(id) === ADMIN_USER_ID || ehAssinante(id);
 
 function renderDigest(digest) {
   const icone = { alta: '🔴', 'média': '🟡', media: '🟡', baixa: '⚪' };
-  const partes = [`📺 Radar Fantástico — temas do período\n(gerado ${new Date(digest.geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${digest.deCache ? ' · cache' : ''})`];
+  const partes = [`📺 Radar de Imprensa — Fantástico, JN, Profissão Repórter, Globo Rural e Agência Brasil\n(gerado ${new Date(digest.geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${digest.deCache ? ' · cache' : ''})`];
   digest.temas.forEach((t, i) => {
     const acoes = (t.acoes || []).filter(a => !/^nenhuma/i.test(a.tipo || ''))
       .map(a => `   💡 ${a.tipo}: ${a.sugestao}`).join('\n');
@@ -739,7 +739,7 @@ async function cmdDigest(ctx) {
   }
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) return ctx.reply('O digest roda na sua chave de IA — configure com /config no privado.');
-  await ctx.reply('📺 Coletando as matérias do Fantástico e analisando (leva ~1 min)…');
+  await ctx.reply('📺 Coletando as matérias (Fantástico, JN, Profissão Repórter, Globo Rural, Agência Brasil) e analisando (leva ~2 min)…');
   await ctx.replyWithChatAction('typing');
   try {
     const digest = await gerarDigest({ perfil });
