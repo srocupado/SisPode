@@ -2248,6 +2248,28 @@ function wirePlnCards() {
 // vazio, busca direto da API da Câmara e popula. O marcador "interessados" é
 // compartilhado pela equipe (vetos ao vivo) e herdado pela pauta de sessão.
 
+// Deputados que a equipe ACOMPANHA mas NÃO vêm no filtro de "em exercício" da
+// API (ex.: licenciados). São sempre garantidos na bancada, à parte do refresh.
+// (id no padrão cam_<idCamara> para deduplicar caso voltem ao exercício.)
+const DEPUTADOS_MANUAIS = [
+  { id: 'cam_178989', nome: 'Renata Abreu', uf: 'SP', partido: 'PODE', idCamara: 178989 },
+];
+
+// Garante os deputados manuais na bancada em memória e no cadastro compartilhado.
+async function garantirDeputadosManuais() {
+  let mudou = false;
+  for (const m of DEPUTADOS_MANUAIS) {
+    if (app.deputados.some(d => d.id === m.id || (m.idCamara && d.idCamara === m.idCamara))) continue;
+    app.deputados.push({ ...m });
+    mudou = true;
+    fetch(`${FIREBASE_URL}/deputados/${m.id}.json`, {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nome: m.nome, uf: m.uf, partido: m.partido, idCamara: m.idCamara }),
+    }).catch(() => {});
+  }
+  if (mudou) app.deputados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
 async function fbCarregarDeputados() {
   try {
     const r = await fetch(`${FIREBASE_URL}/deputados.json`);
@@ -2283,6 +2305,7 @@ async function atualizarBancadaCamara() {
   }).catch(() => {})));
   app.deputados = await fbCarregarDeputados();
   if (!app.deputados.length) app.deputados = lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  await garantirDeputadosManuais();
   return app.deputados;
 }
 
@@ -2292,6 +2315,7 @@ async function carregarDeputados() {
     try { await atualizarBancadaCamara(); }
     catch (e) { console.warn('Bancada da Câmara indisponível:', e.message); }
   }
+  await garantirDeputadosManuais();
 }
 
 function aArray(x) { return Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []); }
