@@ -152,6 +152,12 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
           st.userId = await OneSignal.getUserId();
           st.token = await OneSignal.getRegistrationId();
           st.tags = await OneSignal.getTags();
+          // As tags só "grudam" DEPOIS que existe o device (userId). Se ainda
+          // faltam, reenviamos agora — senão o segmento da Câmara não entrega.
+          if (st.userId && (!st.tags || !st.tags.pauta)) {
+            try { await OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
+            try { st.tags = await OneSignal.getTags(); } catch (e) {}
+          }
           if (st.userId && window.__inscricaoConfirmada) window.__inscricaoConfirmada(st);
         } catch (e) {}
       });
@@ -189,6 +195,11 @@ async function iniciarReceptorPush({ onEvento, log = console.log, headless = tru
         try { out.userId = await OneSignal.getUserId(); } catch (e) {}
         try { out.token = await OneSignal.getRegistrationId(); } catch (e) {}
         try { out.tags = await OneSignal.getTags(); } catch (e) {}
+        // Garante as tags depois que o device existe (senão o segmento não entrega).
+        if (out.userId && (!out.tags || !out.tags.pauta)) {
+          try { await OneSignal.sendTags({ pauta: true, votacao: true, extrapauta: true }); } catch (e) {}
+          try { out.tags = await OneSignal.getTags(); } catch (e) {}
+        }
         res(out);
       });
       setTimeout(() => res(out), 2500);
