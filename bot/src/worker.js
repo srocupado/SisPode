@@ -10,9 +10,13 @@
 //   _gerarTodasState). validarApiPainel() confere todas ao abrir e falha com
 //   mensagem clara se a extensão tiver mudado.
 const path = require('path');
+const fs = require('fs');
 const puppeteer = require('puppeteer');
 
-const EXT_DIR  = path.join(__dirname, '..', '..');                 // raiz do repo = extensão
+// Pasta da EXTENSÃO SisPode (manifest.json, analise.html…). Padrão: a pasta-mãe
+// da pasta do bot (raiz do repo). Se o bot estiver instalado separado da
+// extensão, aponte BOT_EXT_DIR no .env para a pasta onde a extensão está.
+const EXT_DIR  = process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..');
 const PAGED_JS = path.join(EXT_DIR, 'libs', 'paged.polyfill.js');  // paginador do PDF
 
 const FUNCOES_PAINEL = [
@@ -24,6 +28,14 @@ let _browser = null;
 
 async function abrirNavegador() {
   if (_browser && _browser.connected) return _browser;
+  // Confere ANTES de subir: sem manifest.json, o Chromium abriria sem a
+  // extensão e o erro ("extensão não subiu") esconderia a causa real.
+  if (!fs.existsSync(path.join(EXT_DIR, 'manifest.json'))) {
+    throw new Error(
+      `Extensão SisPode não encontrada em "${EXT_DIR}" (sem manifest.json). ` +
+      'Coloque os arquivos da extensão na pasta-mãe da pasta do bot, ou aponte ' +
+      'BOT_EXT_DIR no .env para a pasta da extensão.');
+  }
   const args = [
     `--disable-extensions-except=${EXT_DIR}`,
     `--load-extension=${EXT_DIR}`,
@@ -66,8 +78,19 @@ async function acharExtensionId(browser) {
 
 /** Abre o painel Análise no worker, valida a API interna e injeta a config. */
 async function abrirPainel({ perfil } = {}) {
-  const browser = await abrirNavegador();
-  const extId = await acharExtensionId(browser);
+  let browser = await abrirNavegador();
+  let extId;
+  try {
+    extId = await acharExtensionId(browser);
+  } catch (e) {
+    // Navegador reaproveitado com o service worker MV3 adormecido: o alvo
+    // chrome-extension:// some e o waitForTarget estoura. Recicla o Chromium
+    // uma vez (subida nova recarrega a extensão) antes de desistir.
+    console.warn('[worker] extensão não visível — reciclando o Chromium e tentando de novo:', e.message);
+    await fecharNavegador();
+    browser = await abrirNavegador();
+    extId = await acharExtensionId(browser);
+  }
   const page = await browser.newPage();
   await page.goto(`chrome-extension://${extId}/analise.html`, { waitUntil: 'domcontentloaded' });
 
