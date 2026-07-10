@@ -43,7 +43,8 @@ function hojeBrasilia() {
 /**
  * Interpreta o período da pauta nos formatos conhecidos e devolve
  * { inicio, fim } em 'YYYY-MM-DD', ou null se não reconhecer:
- *  - "29 DE JUNHO A 3 DE JULHO DE 2026" (pauta extensa oficial)
+ *  - "29 DE JUNHO A 3 DE JULHO DE 2026" (pauta extensa oficial, meses distintos)
+ *  - "13 A 17 DE JULHO DE 2026" (mesmo mês, citado uma vez)
  *  - "02/07/2026" (dashboard compacto — um dia)
  *  - "07 a 11/07/2026" | "29/06 a 03/07/2026"
  */
@@ -59,6 +60,12 @@ function parsePeriodo(periodo) {
       const anoFim = +m[6], anoIni = m[3] ? +m[3] : anoFim;
       return { inicio: iso(anoIni, mesIni, +m[1]), fim: iso(anoFim, mesFim, +m[4]) };
     }
+  }
+  // "13 a 17 de julho de 2026" — os dois dias no MESMO mês, citado uma vez.
+  m = norm.match(/(\d{1,2})\s+a\s+(\d{1,2})\s+de\s+([a-z]+)\s+de\s+(\d{4})/);
+  if (m) {
+    const mes = MESES_EXT[m[3]];
+    if (mes) return { inicio: iso(+m[4], mes, +m[1]), fim: iso(+m[4], mes, +m[2]) };
   }
   m = norm.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
   if (m) { const d = iso(+m[3], +m[2], +m[1]); return { inicio: d, fim: d }; }
