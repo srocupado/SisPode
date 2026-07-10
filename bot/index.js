@@ -1511,6 +1511,39 @@ if (process.env.BOT_PUSH === '1') {
 }
 
 bot.catch(err => console.error('Erro no bot:', err));
+
+// Registra o MENU de comandos do Telegram (o pop-up do "/" no privado e no
+// grupo). Sem isto, vale a lista velha do BotFather — que não se atualiza
+// quando o bot ganha comandos novos. Roda a cada subida (idempotente).
+const MENU_COMANDOS = [
+  { command: 'pauta',          description: 'Escolher a pauta do SisPode (ou buscar on-line)' },
+  { command: 'listar',         description: 'Itens da pauta em uso' },
+  { command: 'nota',           description: 'Nota técnica como está salva (ex.: /nota PL 1234/2026)' },
+  { command: 'perguntar',      description: 'Perguntar à IA sobre um item ou a pauta' },
+  { command: 'documentos',     description: 'Documentos da tramitação fora da nota' },
+  { command: 'baixar',         description: 'Baixar os PDFs dos documentos do item' },
+  { command: 'importar',       description: 'Importar a Pauta da Semana do site' },
+  { command: 'ordemdodia',     description: 'Importar a Ordem do Dia de hoje' },
+  { command: 'analisar',       description: 'Gerar as notas técnicas (na sua chave)' },
+  { command: 'exportar',       description: 'PDF institucional da pauta' },
+  { command: 'digest',         description: '📺 Radar de imprensa + minutas (assinantes)' },
+  { command: 'comissao',       description: 'Pauta de uma comissão (ex.: /comissao CCJ hoje)' },
+  { command: 'comissoeshoje',  description: 'Comissões com reunião deliberativa na data' },
+  { command: 'varrercomissoes', description: 'Projetos do Podemos nas comissões do dia' },
+  { command: 'votacao',        description: 'Votações do Plenário + imagem do placar' },
+  { command: 'resumo',         description: 'Resumo da sessão do dia' },
+  { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
+  { command: 'limpar',         description: 'Zerar a conversa com a IA' },
+  { command: 'config',         description: 'Configurar sua chave de IA (privado)' },
+  { command: 'ajuda',          description: 'Todos os comandos, com detalhes' },
+];
+
 bot.start({
-  onStart: me => console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`),
+  onStart: async me => {
+    console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`);
+    try {
+      await bot.api.setMyCommands(MENU_COMANDOS);
+      console.log(`Menu de comandos registrado (${MENU_COMANDOS.length} comandos).`);
+    } catch (e) { console.warn('Falha ao registrar o menu de comandos:', e.message); }
+  },
 });
