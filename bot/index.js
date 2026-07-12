@@ -1510,6 +1510,24 @@ if (process.env.BOT_PUSH === '1') {
   console.log('Receptor de push do Plenário desativado (defina BOT_PUSH=1 no .env para ligar).');
 }
 
+// ---------- Espião cosev (modo calibração ao vivo) ----------
+// Durante uma sessão REAL, manda ao PRIVADO DO ADMIN cada mudança de estado do
+// Plenário (sessão abre/fecha, ODD inicia/encerra, itens em votação) com o JSON
+// cru dos endpoints públicos cosev/ws-plenario. Serve para vermos a forma exata
+// dos dados e calibrar os gatilhos do monitor. Nunca fala no grupo; nunca é
+// fatal. Liga com BOT_COSEV_ESPIAO=1 no .env.
+if (process.env.BOT_COSEV_ESPIAO === '1') {
+  const { iniciarEspiaoCosev } = require('./src/cosevespiao');
+  iniciarEspiaoCosev({
+    api: bot.api,
+    admin: ADMIN_USER_ID,
+    log: m => console.log(`[cosev-espião] ${m}`),
+  });
+  console.log('[cosev-espião] ATIVO — mudanças do Plenário ao vivo vão para o privado do admin.');
+} else {
+  console.log('Espião cosev desativado (defina BOT_COSEV_ESPIAO=1 no .env para ligar).');
+}
+
 bot.catch(err => console.error('Erro no bot:', err));
 
 // Registra o MENU de comandos do Telegram (o pop-up do "/" no privado e no
