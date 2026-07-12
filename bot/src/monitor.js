@@ -96,6 +96,51 @@ async function enviarFoto(foto, caption) {
     .catch(e => console.warn('[monitor] envio de foto falhou:', e.message));
 }
 
+// ---------- Coesão/dissidência da bancada (legenda da imagem de votação) ----------
+// Referência = a POSIÇÃO MAJORITÁRIA da própria bancada (nunca a orientação,
+// que é decisão manual da Liderança e não entra em mensagem do bot).
+// Coesão = maioria ÷ votantes efetivos (Sim/Não/Abstenção/Obstrução; Art. 17 e
+// ausentes ficam fora da conta e são reportados à parte).
+const ROTULO_VOTO = { sim: 'Sim', nao: 'Não', abstencao: 'Abstenção', obstrucao: 'Obstrução', art17: 'Art. 17' };
+
+function legendaBancada(placar) {
+  const bancada = placar.bancada || [];
+  if (!bancada.length) return undefined;
+  const efetivas = ['sim', 'nao', 'abstencao', 'obstrucao'];
+  const votantes = bancada.filter(d => efetivas.includes(d.classe));
+  const ausentes = bancada.filter(d => d.classe === 'ausente');
+  const art17    = bancada.filter(d => d.classe === 'art17');
+
+  // Contagem por classe, só entre as efetivas
+  const cont = {};
+  for (const d of votantes) cont[d.classe] = (cont[d.classe] || 0) + 1;
+  const ordem = Object.entries(cont).sort((a, b) => b[1] - a[1]);
+
+  const partes = [];
+  const resumo = ordem.map(([c, n]) => `${n} ${ROTULO_VOTO[c]}`).join(' · ');
+  partes.push(`👥 Bancada: ${resumo || 'sem votos'}` +
+    (art17.length ? ` · ${art17.length} Art. 17` : '') +
+    (ausentes.length ? ` · ${ausentes.length} ausente(s)` : ''));
+
+  if (votantes.length >= 2 && ordem.length) {
+    const [classeMaioria, nMaioria] = ordem[0];
+    const empate = ordem.length > 1 && ordem[1][1] === nMaioria;
+    if (empate) {
+      partes.push('⚖️ Bancada dividida (empate entre posições).');
+    } else {
+      const coesao = Math.round((nMaioria / votantes.length) * 100);
+      const dissidentes = votantes.filter(d => d.classe !== classeMaioria)
+        .map(d => `${d.nome} (${ROTULO_VOTO[d.classe]})`);
+      partes.push(`🤝 Coesão: ${coesao}%` +
+        (dissidentes.length ? ` — divergiu: ${dissidentes.join(', ')}` : ' — bancada unida'));
+    }
+  }
+  if (ausentes.length && ausentes.length <= 4) {
+    partes.push(`🚶 Ausentes: ${ausentes.map(d => d.nome).join(', ')}`);
+  }
+  return partes.join('\n').slice(0, 1024);   // limite de caption do Telegram
+}
+
 // ---------- Descrição curta da matéria (apelido da análise → ementa da API) ----------
 const _descrCache = new Map();
 async function descricaoCurta(ref) {
@@ -345,9 +390,11 @@ async function tickPainel() {
         });
         if (placar.temVotos) {
           const png = await imagemVotacao(placar);
-          // SÓ a imagem — ela já traz todos os dados da votação (título,
-          // placar global, bancada e parlamentares); sem legenda escrita.
-          await enviarFoto(png);
+          // A imagem traz os dados brutos (título, placar global, bancada);
+          // a legenda acrescenta a LEITURA POLÍTICA: coesão da bancada e quem
+          // divergiu da posição majoritária (sem falar em orientação — a
+          // referência é a própria maioria da bancada).
+          await enviarFoto(png, legendaBancada(placar));
           reg.encerramento = true;
           marcar(_sessao.id, { [`itens/${item.id}/encerramento`]: true });
         }
