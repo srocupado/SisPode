@@ -8,6 +8,7 @@
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
 const { fbGet, fbPatch } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
+const { statusPlenario } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
@@ -245,11 +246,21 @@ const CHECAR_NOTAS_MS = 60e3;  // Escriba é pesado; poll leve (latência é da 
 async function checarFimDaOdd() {
   const s = _sessao;
   if (!s) return;
-  if (await oddEncerradaNaPauta(s) || await oddEncerradaNasNotas(s)) {
+  // PRIMÁRIO: o painel de presença público do app Infoleg expõe o booleano
+  // indOrdemDoDiaEncerrada — instantâneo e confiável (inclusive no caso "tudo
+  // votado"). Resolve o que antes dependia de heurística. Marcador da pauta e
+  // notas taquigráficas ficam como fallback se o cosev estiver fora do ar.
+  if (await oddEncerradaNoCosev() || await oddEncerradaNaPauta(s) || await oddEncerradaNasNotas(s)) {
     s.estado.oddFimAnunciado = true;
     marcar(s.id, { oddFimAnunciado: true });
     await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
   }
+}
+
+// Sinal PRIMÁRIO do fim da ODD: booleano do painel público (app Infoleg).
+async function oddEncerradaNoCosev() {
+  try { const st = await statusPlenario(); return !!(st && st.oddEncerrada); }
+  catch (_) { return false; }
 }
 
 // Sinal RÁPIDO: itens não apreciados carimbados no fim da ODD (checado a cada tick).
@@ -333,10 +344,16 @@ async function tickPainel() {
     const itens = parseItens(html);
     const est = _sessao.estado;
 
-    if (itens.length && !est.oddAnunciado) {
-      await enviar('*INICIADA A ORDEM DO DIA*', { md: true });
-      est.oddAnunciado = true;
-      marcar(_sessao.id, { oddAnunciado: true });
+    // Início da ODD: PRIMÁRIO é o booleano indOrdemDoDiaIniciada do painel
+    // público (app Infoleg) — mais confiável que "apareceram itens no portal",
+    // que fica como fallback.
+    if (!est.oddAnunciado) {
+      const st = await statusPlenario().catch(() => null);
+      if ((st && st.oddIniciada) || itens.length) {
+        await enviar('*INICIADA A ORDEM DO DIA*', { md: true });
+        est.oddAnunciado = true;
+        marcar(_sessao.id, { oddAnunciado: true });
+      }
     }
 
     for (const item of itens) {
