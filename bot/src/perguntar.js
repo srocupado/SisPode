@@ -340,7 +340,7 @@ async function montarContextoPauta(pauta) {
     ? `ITENS DE AUTORIA/COAUTORIA DO PODEMOS (inclui proposições apensadas; autor(a) filiado(a) ao Podemos hoje, verificado na API da Câmara): ${podemosItens.join('; ')}.`
     : 'ITENS DE AUTORIA/COAUTORIA DO PODEMOS: nenhum item (nem apensada) cujo autor esteja filiado ao Podemos hoje foi identificado nesta pauta.';
   const ctx =
-    `PAUTA DA SEMANA IMPORTADA NO SISPODE — ${pauta.titulo || ''} (${pauta.periodo || 'período n/d'})\n` +
+    `PAUTA DA SEMANA IMPORTADA NO SISPODE — ${pauta.nome || pauta.titulo || ''} (${pauta.periodo || 'período n/d'})\n` +
     `${(pauta.itens || []).length} itens.\n\n${resumoAutoria}\n\n${linhas.join('\n')}`;
   const truncado = ctx.length > CHAT_CTX_MAX;
   return { pauta, contexto: truncado ? ctx.slice(0, CHAT_CTX_MAX) : ctx, truncado };
@@ -387,7 +387,7 @@ async function perguntar({ userId, perfil, texto }) {
     if (!pauta) return { erro: 'Nenhuma pauta importada no SisPode ainda. Use /importar primeiro.' };
     const { item } = acharItemNaPauta(ref, pauta);
     if (!item) {
-      return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso (${pauta.periodo || pauta.titulo}). Troque de pauta com /sispode se precisar.` };
+      return { erro: `${ref.sigla} ${ref.numero}/${ref.ano} não está na pauta em uso (${pauta.nome || pauta.periodo || pauta.titulo}). Troque de pauta com /sispode se precisar.` };
     }
     const chave = item.chave || `${item.sigla}-${item.numero}-${item.ano}`;
     // Já era o item ativo? Mantém a conversa (histórico e documentos agregados).

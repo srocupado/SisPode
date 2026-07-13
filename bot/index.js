@@ -334,7 +334,9 @@ async function cmdPauta(ctx) {
         const analises = contarAnalisesDaPauta(p, chs);
         const marca = atual && atual.id === p.id ? '✅ ' : '';
         kb.text(
-          `${marca}${tipo} ${p.periodo || p.titulo || p.id} · ${(p.itens || []).length} itens${analises ? ` · ${analises} análises` : ''}`.slice(0, 62),
+          // Nome dado pela equipe primeiro (renomear no painel grava em `nome`)
+          // — é o MESMO título que a extensão e o /exportar exibem.
+          `${marca}${tipo} ${p.nome || p.periodo || p.titulo || p.id} · ${(p.itens || []).length} itens${analises ? ` · ${analises} análises` : ''}`.slice(0, 62),
           `pusar:${token}`).row();
       }
     }
