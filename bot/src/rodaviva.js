@@ -155,16 +155,58 @@ async function transcricaoDireta(videoId) {
   return texto;
 }
 
-/** Plano B: Chromium descartável — o get_transcript SÓ funciona chamado da
+// ---------- via "aplicativo" (API interna, clientes IOS/ANDROID) ----------
+// As URLs de legenda entregues aos clientes de APP não carregam a exigência
+// do token de navegador ("pot") que zera as do cliente WEB. Sem navegador,
+// resposta em ~2s, independe da duração do vídeo. O IOS é o mais permissivo
+// (validado: entrega a legenda inteira mesmo de IP de datacenter).
+const CLIENTES_APP = [
+  { name: 'IOS', version: '20.10.4', extras: { deviceModel: 'iPhone16,2' },
+    ua: 'com.google.ios.youtube/20.10.4 (iPhone16,2; U; CPU iOS 17_5_1 like Mac OS X)' },
+  { name: 'ANDROID', version: '20.10.38', extras: { androidSdkVersion: 30 },
+    ua: 'com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip' },
+];
+
+async function transcricaoViaApp(videoId, log = () => {}) {
+  let ultimo = null;
+  for (const c of CLIENTES_APP) {
+    try {
+      const r = await fetch('https://www.youtube.com/youtubei/v1/player?prettyPrint=false', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'User-Agent': c.ua },
+        body: JSON.stringify({
+          context: { client: { clientName: c.name, clientVersion: c.version, hl: 'pt', ...c.extras } },
+          videoId, contentCheckOk: true, racyCheckOk: true,
+        }),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const j = await r.json();
+      const st = j.playabilityStatus?.status;
+      if (st !== 'OK') throw new Error(`status ${st}`);
+      const trilha = escolherTrilha(j.captions?.playerCaptionsTracklistRenderer?.captionTracks || []);
+      if (!trilha) throw new Error('sem trilha de legenda');
+      const legenda = await fetchTexto(trilha.baseUrl + '&fmt=json3', { ms: 40000, headers: { 'User-Agent': c.ua } });
+      return transcricaoDeJson3(legenda);
+    } catch (e) {
+      ultimo = e;
+      log(`via app ${c.name} falhou: ${e.message}`);
+    }
+  }
+  throw ultimo || new Error('nenhum cliente de app funcionou.');
+}
+
+/** Plano C: Chromium descartável — o get_transcript SÓ funciona chamado da
  *  sessão de um navegador de verdade; e, se nem isso, ligamos o player com
  *  legenda e capturamos o pedido de legenda que ELE mesmo faz (vem com o
  *  token anti-robô "pot" que falta nas buscas de fora). */
-async function transcricaoViaChromium(videoId) {
+async function transcricaoViaChromium(videoId, log = () => {}) {
   const puppeteer = require('puppeteer');
   const args = ['--mute-audio', '--autoplay-policy=no-user-gesture-required'];
   if (process.platform === 'linux') args.push('--no-sandbox', '--disable-setuid-sandbox');
   const browser = await puppeteer.launch({
-    headless: true, args,
+    // BOT_RV_VISIVEL=1 abre a janela de verdade — ajuda a depurar e, de quebra,
+    // costuma passar onde o headless é barrado.
+    headless: process.env.BOT_RV_VISIVEL !== '1', args,
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
   });
   try {
@@ -179,6 +221,15 @@ async function transcricaoViaChromium(videoId) {
     });
 
     await page.goto(`https://www.youtube.com/watch?v=${videoId}&hl=pt`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // Diagnóstico: o que o YouTube serviu ao navegador? (a "casca" anti-robô
+    // vem sem ytInitialData útil e sem player)
+    const diag = await page.evaluate(() => ({
+      status: window.ytInitialPlayerResponse?.playabilityStatus?.status || null,
+      temDados: !!window.ytInitialData,
+      temVideo: !!document.querySelector('video'),
+    }));
+    log(`chromium: status=${diag.status} dados=${diag.temDados} video=${diag.temVideo}`);
 
     // 1ª via: painel "Mostrar transcrição" pela API interna, DE DENTRO da
     // página (contexto/sessão do próprio YouTube — passa na pré-condição).
@@ -210,18 +261,28 @@ async function transcricaoViaChromium(videoId) {
         return segs.length > 20 ? segs.join(' ') : null;
       } catch (_) { return null; }
     });
-    if (viaPainel) return viaPainel.replace(/\s+/g, ' ').trim();
+    if (viaPainel) { log('chromium: transcrição obtida pelo painel'); return viaPainel.replace(/\s+/g, ' ').trim(); }
+    log('chromium: painel de transcrição não veio — tentando o player com CC');
 
     // 2ª via: dá o play com legenda ligada e espera o pedido do próprio player.
     await page.evaluate(() => {
       const v = document.querySelector('video');
       if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); }
     });
-    await page.click('video').catch(() => {});
-    await page.keyboard.press('c').catch(() => {});   // atalho do player: legendas
-    const fim = Date.now() + 30000;
+    // Liga a legenda pelo BOTÃO do player (mais confiável que o atalho de teclado).
+    await page.hover('.html5-video-player').catch(() => {});
+    const ccOk = await page.evaluate(() => {
+      const b = document.querySelector('.ytp-subtitles-button');
+      if (!b) return false;
+      if (b.getAttribute('aria-pressed') !== 'true') b.click();
+      return true;
+    }).catch(() => false);
+    if (!ccOk) { await page.click('video').catch(() => {}); await page.keyboard.press('c').catch(() => {}); }
+    const fim = Date.now() + 45000;
     while (!capturada && Date.now() < fim) await new Promise(r => setTimeout(r, 500));
-    if (!capturada) throw new Error('não consegui capturar a legenda no navegador.');
+    if (!capturada) {
+      throw new Error(`não consegui capturar a legenda no navegador (página: status=${diag.status} dados=${diag.temDados} video=${diag.temVideo} ccBotao=${ccOk}).`);
+    }
     if (/^\s*\{/.test(capturada.txt)) return transcricaoDeJson3(capturada.txt);
     // Formato XML (fmt padrão do player em alguns casos)
     return capturada.txt
@@ -235,12 +296,12 @@ async function transcricaoViaChromium(videoId) {
 }
 
 async function transcricaoVideo(videoId, log = () => {}) {
-  try {
-    return await transcricaoDireta(videoId);
-  } catch (e) {
-    log(`transcrição direta falhou (${e.message}) — tentando via Chromium…`);
-    return await transcricaoViaChromium(videoId);
-  }
+  // A via de app é a mais confiável e a mais rápida — vai primeiro.
+  try { return await transcricaoViaApp(videoId, log); }
+  catch (e) { log(`via app falhou (${e.message}) — tentando a página…`); }
+  try { return await transcricaoDireta(videoId); }
+  catch (e) { log(`transcrição direta falhou (${e.message}) — tentando via Chromium…`); }
+  return await transcricaoViaChromium(videoId, log);
 }
 
 // ---------- resumo ----------
@@ -249,7 +310,7 @@ function promptResumo(ep, transcricao) {
 
 Produza um RESUMO para o grupo de Telegram da equipe, neste formato (texto puro, sem markdown além dos marcadores "•"):
 
-1ª linha: quem é o(a) convidado(a) — nome e qualificação (cargo/atividade), em uma frase.
+1ª linha: quem é o(a) convidado(a) — nome e qualificação (cargo/atividade), em uma frase. Comece DIRETO nessa linha, sem preâmbulo ("Aqui está o resumo…" etc.) e sem asteriscos/negrito.
 Depois, a seção "Principais pontos debatidos:" com 5 a 8 marcadores "•", cada um com UMA ideia objetiva dita na entrevista (posições, anúncios, críticas, dados citados).
 Se a entrevista tocar em temas de interesse do Congresso (projetos, regulação, políticas públicas), feche com a seção "Radar legislativo:" e 1 a 3 marcadores "•" apontando o tema e por que interessa ao parlamento. Se não tocar, omita a seção.
 
@@ -257,6 +318,32 @@ Regras: seja fiel à transcrição — não invente nem extrapole; nada de opini
 
 TRANSCRIÇÃO:
 ${transcricao.slice(0, MAX_TRANSCRICAO)}`;
+}
+
+// Último recurso: manda o VÍDEO do YouTube direto ao Gemini (a API aceita a
+// URL como anexo e processa o vídeo do lado de lá). Custa muito mais tokens
+// e demora minutos — só quando toda a escada de legendas falhar; só Gemini.
+async function resumoDoVideoGemini(perfil, ep) {
+  const m = perfil.modelo || 'gemini-3.1-flash-lite';
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8 * 60_000);
+  try {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${perfil.apiKey}`, {
+      method: 'POST', signal: ctrl.signal,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [
+          { fileData: { fileUri: ep.url } },
+          { text: promptResumo(ep, '(a entrevista está no VÍDEO anexado — resuma a partir do áudio dele)') },
+        ] }],
+        generationConfig: { temperature: 0.2, maxOutputTokens: 8000 },
+      }),
+    });
+    const j = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error(j.error?.message || `HTTP ${r.status}`);
+    return (j.candidates?.[0]?.content?.parts || [])
+      .filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('').trim();
+  } finally { clearTimeout(timer); }
 }
 
 /**
@@ -268,16 +355,28 @@ async function gerarResumoRodaViva({ perfil, log = () => {} }) {
   const ep = await ultimoEpisodio();
   if (!ep) throw new Error('não encontrei episódio completo no canal do Roda Viva.');
   log(`episódio: ${ep.titulo} (${ep.videoId})`);
-  const transcricao = await transcricaoVideo(ep.videoId, log);
-  log(`transcrição: ${transcricao.length} caracteres`);
-  const resumo = await chamarIAtexto({
-    provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
-    prompt: promptResumo(ep, transcricao), maxTokens: 8000,
-  });
+  let resumo;
+  try {
+    const transcricao = await transcricaoVideo(ep.videoId, log);
+    log(`transcrição: ${transcricao.length} caracteres`);
+    resumo = await chamarIAtexto({
+      provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
+      prompt: promptResumo(ep, transcricao), maxTokens: 8000,
+    });
+  } catch (e) {
+    if (perfil.provedor !== 'gemini') throw e;
+    log(`sem transcrição (${e.message}) — mandando o vídeo direto ao Gemini (leva alguns minutos)…`);
+    resumo = await resumoDoVideoGemini(perfil, ep);
+  }
   if (!resumo?.trim()) throw new Error('a IA não devolveu o resumo.');
+  // Faxina de formato: sem negrito de markdown (sairia literal no Telegram)
+  // e sem preâmbulo ("Aqui está o resumo…").
+  const linhas = resumo.replace(/\*\*/g, '').trim().split('\n');
+  while (linhas.length && /^(aqui est[áa]|aqui vai|segue|claro\b|resumo da entrevista)/i.test(linhas[0].trim())) linhas.shift();
+  const corpo = linhas.join('\n').trim();
   const cab = `📺 RODA VIVA — ${ep.convidado || ep.titulo}${ep.dataRotulo ? ` (${ep.dataRotulo})` : ''}`;
   const rodape = `\n\n🔗 ${ep.url}`;
-  return { ep, texto: `${cab}\n\n${resumo.trim()}${rodape}` };
+  return { ep, texto: `${cab}\n\n${corpo}${rodape}` };
 }
 
 // ---------- agenda do envio (padrão: terça 8h; ajustável pelo /rodaviva) ----------
