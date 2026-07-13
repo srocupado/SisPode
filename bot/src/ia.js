@@ -54,7 +54,11 @@ async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 800
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
       const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
       const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-      return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+      // Modelos "thinking" (3.x) podem devolver várias parts; junta todas as de
+      // texto (ignorando as de raciocínio), em vez de ler só a primeira.
+      return (j.candidates?.[0]?.content?.parts || [])
+        .filter(p => !p.thought && typeof p.text === 'string')
+        .map(p => p.text).join('').trim();
     };
     const m = modelo || PROVEDORES.gemini.modeloPadrao;
     try { return await chamar(m); }
@@ -169,13 +173,33 @@ async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audi
   throw new Error('Este provedor não aceita áudio.');
 }
 
+/** Escapa quebras de linha/tabs CRUS dentro de strings — o defeito mais comum
+ *  do JSON gerado por LLM em respostas longas (minutas, justificações). */
+function repararJson(t) {
+  let out = '', inStr = false, esc = false;
+  for (const ch of t) {
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && (ch === '\n' || ch === '\r' || ch === '\t')) {
+      out += ch === '\n' ? '\\n' : (ch === '\t' ? '\\t' : '');
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
 /** Extrai o objeto JSON da resposta da IA, tolerando texto/cercas ao redor (de congresso.js). */
 function extrairJson(texto) {
   if (!texto) return {};
   let t = texto.replace(/```json/gi, '').replace(/```/g, '').trim();
   const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
   if (ini >= 0 && fim > ini) t = t.slice(ini, fim + 1);
-  try { return JSON.parse(t); } catch (_) { return {}; }
+  try { return JSON.parse(t); } catch (_) {}
+  // 2ª chance: conserta os defeitos clássicos (quebra crua em string, vírgula
+  // sobrando antes de } ou ]) e tenta de novo.
+  try { return JSON.parse(repararJson(t).replace(/,\s*([}\]])/g, '$1')); } catch (_) { return {}; }
 }
 
 module.exports = { PROVEDORES, chamarIAtexto, testarChave, transcreverAudio, extrairJson, fetchIA };

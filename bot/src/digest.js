@@ -324,11 +324,23 @@ async function elaborarMinuta({ perfil, tema, materias }) {
   if (!perfil?.apiKey) throw new Error('sem chave de IA configurada (use /config no privado).');
   const usadas = (tema.fontes || []).map(i => materias[i - 1]).filter(Boolean);
   const base = usadas.length ? usadas : materias.slice(0, 3);
-  const bruto = await chamarIAtexto({
+  const prompt = promptMinuta(tema, base);
+  // maxTokens folgado: nos modelos "thinking" (Gemini 3.x) o teto inclui os
+  // tokens de raciocínio — 4500 cortava minutas longas no meio do JSON.
+  const pedir = p => chamarIAtexto({
     provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
-    prompt: promptMinuta(tema, base), maxTokens: 4500,
+    prompt: p, maxTokens: 16000,
   });
-  const j = extrairJson(bruto);
+  let bruto = await pedir(prompt);
+  let j = extrairJson(bruto);
+  if (!j.texto || !j.ementa) {
+    // Diagnóstico no log + 2ª tentativa com a exigência de JSON reforçada.
+    console.warn('[digest] minuta fora do formato (1ª tentativa). Início da resposta: ' +
+      JSON.stringify(String(bruto || '(vazia)').slice(0, 400)));
+    bruto = await pedir(prompt +
+      '\n\nATENÇÃO: a resposta deve ser um ÚNICO objeto JSON válido. Quebras de linha dentro dos campos devem vir escapadas como \\n. Sem cercas de código, sem texto antes ou depois.');
+    j = extrairJson(bruto);
+  }
   if (!j.texto || !j.ementa) throw new Error('a IA não devolveu a minuta no formato esperado.');
   return { ...j, fontes: base.map(m => ({ titulo: m.titulo, url: m.url, data: m.data })) };
 }
@@ -344,8 +356,6 @@ function htmlMinuta(minuta, tema) {
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><style>
   @page { size: A4; margin: 28mm 24mm; }
   body { font-family: "Times New Roman", Times, serif; font-size: 12.5pt; color: #111; line-height: 1.55; }
-  .tarja { border: 1.4pt solid #b00020; color: #b00020; padding: 6pt 10pt; font-family: Arial, sans-serif;
-           font-size: 9.5pt; text-align: center; margin-bottom: 18pt; }
   h1 { font-size: 13.5pt; text-align: center; margin: 0 0 4pt; }
   .porque { text-align: center; font-size: 10pt; color: #555; margin: 0 0 16pt; font-family: Arial, sans-serif; }
   .ementa { margin: 0 0 18pt 40%; text-align: justify; font-style: italic; }
@@ -356,8 +366,6 @@ function htmlMinuta(minuta, tema) {
             font-family: Arial, sans-serif; font-size: 9pt; color: #555; }
   .fontes a { color: #555; }
   </style></head><body>
-  <div class="tarja"><b>MINUTA GERADA POR INTELIGÊNCIA ARTIFICIAL — RASCUNHO DE TRABALHO</b><br>
-  Revisar com a Consultoria Legislativa antes de qualquer protocolo. Conferir os pontos marcados com [VERIFICAR].</div>
   <h1>${escHtml(minuta.titulo || minuta.instrumento || 'MINUTA')}</h1>
   <p class="porque">Instrumento sugerido: ${escHtml(minuta.instrumento || '')} — ${escHtml(minuta.porqueInstrumento || '')}</p>
   <div class="ementa">${escHtml(minuta.ementa)}</div>
