@@ -112,12 +112,31 @@ function escolherTrilha(tracks) {
 }
 
 function transcricaoDeJson3(txt) {
+  // O endpoint de legenda devolve corpo VAZIO quando exige o token de
+  // navegador ("pot") — sem este guard, o JSON.parse dava o críptico
+  // "Unexpected end of JSON input".
+  if (!txt || !txt.trim()) throw new Error('legenda veio vazia (proteção anti-robô do YouTube)');
   const j = JSON.parse(txt);
   const partes = [];
   for (const ev of (j.events || [])) for (const seg of (ev.segs || [])) {
     if (seg.utf8) partes.push(seg.utf8);
   }
   return partes.join('').replace(/\s+/g, ' ').trim();
+}
+
+// Colhe os segmentos de texto de uma resposta do get_transcript (painel
+// "Mostrar transcrição" do YouTube).
+function colherSegmentosTranscript(obj) {
+  const segs = [];
+  (function anda(o) {
+    if (!o || typeof o !== 'object') return;
+    if (o.transcriptSegmentRenderer?.snippet) {
+      segs.push((o.transcriptSegmentRenderer.snippet.runs || []).map(x => x.text).join(''));
+      return;
+    }
+    for (const v of Object.values(o)) anda(v);
+  })(obj);
+  return segs;
 }
 
 /** Tenta a via direta (fetch da página + fetch da legenda). */
@@ -136,10 +155,13 @@ async function transcricaoDireta(videoId) {
   return texto;
 }
 
-/** Plano B: Chromium descartável abre a página e lê a legenda de dentro dela. */
+/** Plano B: Chromium descartável — o get_transcript SÓ funciona chamado da
+ *  sessão de um navegador de verdade; e, se nem isso, ligamos o player com
+ *  legenda e capturamos o pedido de legenda que ELE mesmo faz (vem com o
+ *  token anti-robô "pot" que falta nas buscas de fora). */
 async function transcricaoViaChromium(videoId) {
   const puppeteer = require('puppeteer');
-  const args = ['--mute-audio'];
+  const args = ['--mute-audio', '--autoplay-policy=no-user-gesture-required'];
   if (process.platform === 'linux') args.push('--no-sandbox', '--disable-setuid-sandbox');
   const browser = await puppeteer.launch({
     headless: true, args,
@@ -148,24 +170,65 @@ async function transcricaoViaChromium(videoId) {
   try {
     const page = await browser.newPage();
     await page.setUserAgent(UA);
-    await page.goto(`https://www.youtube.com/watch?v=${videoId}&hl=pt`, { waitUntil: 'domcontentloaded', timeout: 60000 });
-    // ytInitialPlayerResponse fica no window logo no carregamento.
-    const info = await page.evaluate(() => {
-      const pr = window.ytInitialPlayerResponse;
-      return pr ? {
-        status: pr.playabilityStatus?.status,
-        tracks: (pr.captions?.playerCaptionsTracklistRenderer?.captionTracks || [])
-          .map(t => ({ baseUrl: t.baseUrl, languageCode: t.languageCode, kind: t.kind })),
-      } : null;
+
+    // Captura, desde já, qualquer legenda que o player venha a pedir.
+    let capturada = null;
+    page.on('response', res => {
+      if (capturada || !/\/api\/timedtext/.test(res.url())) return;
+      res.text().then(txt => { if (txt && txt.length > 500) capturada = { url: res.url(), txt }; }).catch(() => {});
     });
-    if (!info) throw new Error('playerResponse não encontrado na página.');
-    const trilha = escolherTrilha(info.tracks || []);
-    if (!trilha) throw new Error(`vídeo sem legenda (status ${info.status}).`);
-    // Busca a legenda DE DENTRO da página (mesma origem/sessão — passa no anti-bot).
-    const legenda = await page.evaluate(u => fetch(u).then(r => r.text()), trilha.baseUrl + '&fmt=json3');
-    const texto = transcricaoDeJson3(legenda);
-    if (!texto) throw new Error('legenda veio vazia (via navegador).');
-    return texto;
+
+    await page.goto(`https://www.youtube.com/watch?v=${videoId}&hl=pt`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    // 1ª via: painel "Mostrar transcrição" pela API interna, DE DENTRO da
+    // página (contexto/sessão do próprio YouTube — passa na pré-condição).
+    const viaPainel = await page.evaluate(async () => {
+      try {
+        const ctx = (window.ytcfg && (ytcfg.data_ || {}).INNERTUBE_CONTEXT) || null;
+        let params = null;
+        (function acha(o) {
+          if (!o || typeof o !== 'object' || params) return;
+          if (o.getTranscriptEndpoint && o.getTranscriptEndpoint.params) { params = o.getTranscriptEndpoint.params; return; }
+          for (const k in o) acha(o[k]);
+        })(window.ytInitialData);
+        if (!ctx || !params) return null;
+        const r = await fetch('/youtubei/v1/get_transcript?prettyPrint=false', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ context: ctx, params }),
+        });
+        if (!r.ok) return null;
+        const j = await r.json();
+        const segs = [];
+        (function anda(o) {
+          if (!o || typeof o !== 'object') return;
+          if (o.transcriptSegmentRenderer && o.transcriptSegmentRenderer.snippet) {
+            segs.push((o.transcriptSegmentRenderer.snippet.runs || []).map(x => x.text).join(''));
+            return;
+          }
+          for (const k in o) anda(o[k]);
+        })(j);
+        return segs.length > 20 ? segs.join(' ') : null;
+      } catch (_) { return null; }
+    });
+    if (viaPainel) return viaPainel.replace(/\s+/g, ' ').trim();
+
+    // 2ª via: dá o play com legenda ligada e espera o pedido do próprio player.
+    await page.evaluate(() => {
+      const v = document.querySelector('video');
+      if (v) { v.muted = true; const p = v.play(); if (p && p.catch) p.catch(() => {}); }
+    });
+    await page.click('video').catch(() => {});
+    await page.keyboard.press('c').catch(() => {});   // atalho do player: legendas
+    const fim = Date.now() + 30000;
+    while (!capturada && Date.now() < fim) await new Promise(r => setTimeout(r, 500));
+    if (!capturada) throw new Error('não consegui capturar a legenda no navegador.');
+    if (/^\s*\{/.test(capturada.txt)) return transcricaoDeJson3(capturada.txt);
+    // Formato XML (fmt padrão do player em alguns casos)
+    return capturada.txt
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(+n))
+      .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ').trim();
   } finally {
     await browser.close().catch(() => {});
   }
