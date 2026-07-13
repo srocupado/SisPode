@@ -50,11 +50,23 @@ async function fetchIA(url, init) {
 /** Chamada de IA somente-texto, na chave do usuário. */
 async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 8000 }) {
   if (provedor === 'gemini') {
+    const chamar = async (m) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+      const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    };
     const m = modelo || PROVEDORES.gemini.modeloPadrao;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
-    const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
-    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+    try { return await chamar(m); }
+    catch (e) {
+      // O Google aposenta modelos para chaves novas ("no longer available to
+      // new users" — ex.: gemini-2.5-*). Perfis antigos guardam esse modelo;
+      // em vez de quebrar o comando, refaz uma vez no modelo padrão.
+      if (m !== PROVEDORES.gemini.modeloPadrao && /no longer available/i.test(e.message || '')) {
+        return await chamar(PROVEDORES.gemini.modeloPadrao);
+      }
+      throw e;
+    }
   }
   if (provedor === 'openai') {
     const m = modelo || PROVEDORES.openai.modeloPadrao;
