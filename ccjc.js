@@ -1745,7 +1745,6 @@ function gerarHTMLImpressao(pauta) {
           <span class="pi-chave">${escHtml(proj.chave)}</span>
           ${proj.autores?.length ? `<span class="pi-autores">Autoria: ${escHtml(proj.autores.join(', '))}</span>` : ''}
         </div>
-        ${proj.analiseEm ? `<p class="pi-meta">Análise gerada em ${escHtml(_formatDataHora(proj.analiseEm))}${proj.analiseProvedor ? ` · ${escHtml(proj.analiseProvedor)}` : ''}${proj.analiseModelo ? ` / ${escHtml(proj.analiseModelo)}` : ''}</p>` : ''}
         <p class="pi-ementa">${escHtml(proj.ementa || '')}</p>
 
         <h3>1. Resumo do Projeto Original</h3>
