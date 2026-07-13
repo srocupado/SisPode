@@ -356,26 +356,18 @@ function htmlMinuta(minuta, tema) {
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><style>
   @page { size: A4; margin: 28mm 24mm; }
   body { font-family: "Times New Roman", Times, serif; font-size: 12.5pt; color: #111; line-height: 1.55; }
-  h1 { font-size: 13.5pt; text-align: center; margin: 0 0 4pt; }
-  .porque { text-align: center; font-size: 10pt; color: #555; margin: 0 0 16pt; font-family: Arial, sans-serif; }
+  h1 { font-size: 13.5pt; text-align: center; margin: 0 0 18pt; }
   .ementa { margin: 0 0 18pt 40%; text-align: justify; font-style: italic; }
   .texto p, .just p { text-align: justify; text-indent: 24pt; margin: 0 0 8pt; }
   h2 { font-size: 12.5pt; text-align: center; margin: 20pt 0 10pt; }
   .assin { margin-top: 28pt; text-align: center; }
-  .fontes { margin-top: 24pt; border-top: .8pt solid #999; padding-top: 8pt;
-            font-family: Arial, sans-serif; font-size: 9pt; color: #555; }
-  .fontes a { color: #555; }
   </style></head><body>
   <h1>${escHtml(minuta.titulo || minuta.instrumento || 'MINUTA')}</h1>
-  <p class="porque">Instrumento sugerido: ${escHtml(minuta.instrumento || '')} — ${escHtml(minuta.porqueInstrumento || '')}</p>
   <div class="ementa">${escHtml(minuta.ementa)}</div>
   <div class="texto">${paragrafos(minuta.texto)}</div>
   <h2>JUSTIFICAÇÃO</h2>
   <div class="just">${paragrafos(minuta.justificacao)}</div>
   <div class="assin">Sala das Sessões, em ${dataBR}.<br><br><b>Deputado(a) [NOME]</b><br>Podemos/[UF]</div>
-  ${(tema.interessados || []).length ? `<div class="fontes" style="margin-top:16pt"><b>Sugestão de autoria</b> — deputados com temas de interesse aderentes (configuração da equipe no SisPode): ${tema.interessados.map(n => `Dep. ${escHtml(n)}`).join(' · ')}</div>` : ''}
-  <div class="fontes"><b>Tema:</b> ${escHtml(tema.titulo)} · <b>Fontes (imprensa):</b><br>
-  ${(minuta.fontes || []).map(f => `• ${escHtml(f.titulo)} (${escHtml(f.data)}) — ${escHtml(f.url)}`).join('<br>')}</div>
   </body></html>`;
 }
 
