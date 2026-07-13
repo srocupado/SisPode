@@ -8,6 +8,7 @@ const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, li
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
 const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
+const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente } = require('./src/rodaviva');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -47,6 +48,7 @@ const TEXTO_AJUDA =
   '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/digest — 📺 radar de imprensa (Fantástico, JN, Profissão Repórter, Globo Rural, Ag. Brasil): temas + relevância legislativa + minuta em PDF (assinantes; segundas 7h)\n' +
+  '/rodaviva — 📺 resumo da entrevista do Roda Viva (TV Cultura): convidado + principais pontos; automático no grupo às terças 8h\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
@@ -820,6 +822,23 @@ bot.callbackQuery(/^dgm:([a-f0-9]+):(\d+)$/, async ctx => {
   }
 });
 
+// ---------- /rodaviva — resumo da entrevista de segunda (TV Cultura) ----------
+// Sob demanda, na chave de quem pediu. O envio automático de terça 8h usa a
+// chave do admin (tickRodaViva, mais abaixo).
+bot.command('rodaviva', async ctx => {
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('O resumo roda na sua chave de IA — configure com /config no privado.');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const { ep, texto } = await gerarResumoRodaViva({ perfil, log: m => console.log('[rodaviva] ' + m) });
+    console.log(`[rodaviva] resumo de "${ep.titulo}" enviado a pedido de ${ctx.from.id}`);
+    return responderLongo(ctx, texto);
+  } catch (e) {
+    console.error('/rodaviva falhou:', e);
+    return ctx.reply(`Não consegui resumir o Roda Viva: ${e.message}`);
+  }
+});
+
 bot.command('agregar', async ctx => {
   const indices = String(ctx.match || '').split(/[,\s]+/).map(n => parseInt(n, 10)).filter(Number.isFinite);
   if (!indices.length) return ctx.reply('Uso: /agregar 1,3 — com os números listados pelo /documentos.');
@@ -1461,6 +1480,35 @@ async function tickDigest() {
 setInterval(tickDigest, 10 * 60 * 1000);
 tickDigest();
 
+// ---------- Roda Viva: terça-feira, 8h (Brasília) → resumo no grupo ----------
+// O episódio de segunda 22h sobe no YouTube na madrugada; na terça a partir
+// das 8h o bot resume (chave do admin) e posta no GRUPO. Idempotente por
+// vídeo (dados/rodaviva-envio.json) e ignora episódio velho (reprise/recesso).
+async function tickRodaViva() {
+  try {
+    if (!GRUPO_CHAT_ID || !ehHoraDoEnvioRodaViva()) return;
+    const ep = await ultimoEpisodio().catch(() => null);
+    if (!ep || jaEnviadoRodaViva(ep.videoId) || !episodioRecente(ep)) return;
+    const perfilAdmin = getPerfil(ADMIN_USER_ID);
+    if (!perfilAdmin?.apiKey) {
+      marcarEnvioRodaViva(ep.videoId);   // não fica tentando em loop
+      if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+        '📺 Roda Viva de ontem: não resumi porque o admin está sem chave de IA (/config). Peça com /rodaviva quando configurar.').catch(() => {});
+      return;
+    }
+    console.log('[rodaviva] gerando o resumo semanal…');
+    const { texto } = await gerarResumoRodaViva({ perfil: perfilAdmin, log: m => console.log('[rodaviva] ' + m) });
+    marcarEnvioRodaViva(ep.videoId);
+    await enviarLongo(bot.api, GRUPO_CHAT_ID, texto);
+    console.log(`[rodaviva] resumo de "${ep.titulo}" enviado ao grupo.`);
+  } catch (e) {
+    // Transitório (vídeo ainda sem legenda, YouTube instável): o próximo tick tenta.
+    console.warn('[rodaviva] tick falhou:', e.message);
+  }
+}
+setInterval(tickRodaViva, 15 * 60 * 1000);
+tickRodaViva();
+
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
 
 // ---------- Monitor de Sessão ao Vivo ----------
@@ -1552,6 +1600,7 @@ const MENU_COMANDOS = [
   { command: 'analisar',       description: 'Gerar as notas técnicas (na sua chave)' },
   { command: 'exportar',       description: 'PDF institucional da pauta' },
   { command: 'digest',         description: '📺 Radar de imprensa + minutas (assinantes)' },
+  { command: 'rodaviva',       description: '📺 Resumo da entrevista do Roda Viva (segunda)' },
   { command: 'comissao',       description: 'Pauta de uma comissão (ex.: /comissao CCJ hoje)' },
   { command: 'comissoeshoje',  description: 'Comissões com reunião deliberativa na data' },
   { command: 'varrercomissoes', description: 'Projetos do Podemos nas comissões do dia' },
