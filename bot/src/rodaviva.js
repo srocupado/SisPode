@@ -213,7 +213,7 @@ async function gerarResumoRodaViva({ perfil, log = () => {} }) {
   });
   if (!resumo?.trim()) throw new Error('a IA não devolveu o resumo.');
   const cab = `📺 RODA VIVA — ${ep.convidado || ep.titulo}${ep.dataRotulo ? ` (${ep.dataRotulo})` : ''}`;
-  const rodape = `\n\n🔗 ${ep.url}\n⚠️ Resumo gerado por IA a partir da transcrição do YouTube — confira no vídeo antes de citar.`;
+  const rodape = `\n\n🔗 ${ep.url}`;
   return { ep, texto: `${cab}\n\n${resumo.trim()}${rodape}` };
 }
 
