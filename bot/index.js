@@ -8,7 +8,7 @@ const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, li
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
 const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
-const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente } = require('./src/rodaviva');
+const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente, ajustarAgendaRodaViva } = require('./src/rodaviva');
 const { rotear } = require('./src/router');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
@@ -48,7 +48,7 @@ const TEXTO_AJUDA =
   '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
   '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
   '/digest — 📺 radar de imprensa (Fantástico, JN, Profissão Repórter, Globo Rural, Ag. Brasil): temas + relevância legislativa + minuta em PDF (assinantes; segundas 7h)\n' +
-  '/rodaviva — 📺 resumo da entrevista do Roda Viva (TV Cultura): convidado + principais pontos; automático no grupo às terças 8h\n' +
+  '/rodaviva — 📺 resumo da entrevista do Roda Viva (TV Cultura): convidado + principais pontos; automático no grupo às terças 8h. Admin: /rodaviva off · on · status · terça 9h (mudar agenda)\n' +
   '/limpar — zera a conversa atual com a IA\n' +
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
@@ -823,9 +823,18 @@ bot.callbackQuery(/^dgm:([a-f0-9]+):(\d+)$/, async ctx => {
 });
 
 // ---------- /rodaviva — resumo da entrevista de segunda (TV Cultura) ----------
-// Sob demanda, na chave de quem pediu. O envio automático de terça 8h usa a
-// chave do admin (tickRodaViva, mais abaixo).
+// Sem argumento: resumo sob demanda, na chave de quem pediu. Com argumento
+// (só admin): controla a agenda do envio automático — off/on/status ou
+// "terça 9h" para mudar dia/hora. O envio automático usa a chave do admin
+// (tickRodaViva, mais abaixo).
 bot.command('rodaviva', async ctx => {
+  const arg = String(ctx.match || '').trim();
+  if (arg) {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) {
+      return ctx.reply('Só o administrador altera a agenda. Use /rodaviva sem nada para o resumo.');
+    }
+    return ctx.reply(ajustarAgendaRodaViva(arg));
+  }
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) return ctx.reply('O resumo roda na sua chave de IA — configure com /config no privado.');
   await ctx.replyWithChatAction('typing');

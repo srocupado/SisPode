@@ -217,17 +217,61 @@ async function gerarResumoRodaViva({ perfil, log = () => {} }) {
   return { ep, texto: `${cab}\n\n${resumo.trim()}${rodape}` };
 }
 
-// ---------- controle do envio semanal (terça ≥ 8h, idempotente por vídeo) ----------
-const ARQ_ENVIO = 'rodaviva-envio.json';
+// ---------- agenda do envio (padrão: terça 8h; ajustável pelo /rodaviva) ----------
+const ARQ_ENVIO  = 'rodaviva-envio.json';
+const ARQ_AGENDA = 'rodaviva-agenda.json';
 
-/** true se agora (SP) é terça-feira, 8h ou mais. */
+const DIA_CODIGO = { domingo: 'Sun', segunda: 'Mon', terca: 'Tue', terça: 'Tue', quarta: 'Wed', quinta: 'Thu', sexta: 'Fri', sabado: 'Sat', sábado: 'Sat' };
+const DIA_ROTULO = { Sun: 'domingo', Mon: 'segunda', Tue: 'terça', Wed: 'quarta', Thu: 'quinta', Fri: 'sexta', Sat: 'sábado' };
+
+function agendaEnvio() {
+  return { ativo: true, dia: 'Tue', hora: 8, ...carregarJson(ARQ_AGENDA, {}) };
+}
+function descreverAgenda() {
+  const a = agendaEnvio();
+  return a.ativo
+    ? `Envio automático LIGADO — toda ${DIA_ROTULO[a.dia] || a.dia}, a partir das ${a.hora}h (Brasília), no grupo.`
+    : 'Envio automático DESLIGADO — o resumo só sai sob demanda com /rodaviva.';
+}
+
+/**
+ * Ajusta a agenda por comando: "off"/"desligar", "on"/"ligar", "status",
+ * ou dia/hora ("terça 9h", "quarta 10", "9h" mantém o dia).
+ * @returns {string} mensagem de confirmação para o Telegram.
+ */
+function ajustarAgendaRodaViva(arg) {
+  const a = agendaEnvio();
+  const t = String(arg || '').trim().toLowerCase();
+  if (['off', 'desligar', 'desliga', 'parar'].includes(t)) {
+    gravarJson(ARQ_AGENDA, { ...a, ativo: false });
+    return '⏸ Envio automático DESLIGADO. Religue com /rodaviva on; o resumo sob demanda continua funcionando.';
+  }
+  if (['on', 'ligar', 'liga'].includes(t)) {
+    gravarJson(ARQ_AGENDA, { ...a, ativo: true });
+    return '▶️ ' + descreverAgenda();
+  }
+  if (t === 'status' || t === 'agenda') return '📅 ' + descreverAgenda();
+  const m = t.match(/^(domingo|segunda|ter[çc]a|quarta|quinta|sexta|s[áa]bado)?\s*(?:[àa]s?\s*)?(\d{1,2})\s*h?(?:00)?$/);
+  if (m) {
+    const hora = parseInt(m[2], 10);
+    if (hora > 23) return 'Hora inválida (0 a 23). Ex.: /rodaviva terça 8h';
+    const dia = m[1] ? DIA_CODIGO[m[1].replace('ç', 'c')] || DIA_CODIGO[m[1]] : a.dia;
+    gravarJson(ARQ_AGENDA, { ativo: true, dia, hora });
+    return `✅ Agendado: toda ${DIA_ROTULO[dia]}, a partir das ${hora}h (Brasília), no grupo.`;
+  }
+  return 'Não entendi. Use: /rodaviva (resumo agora) · /rodaviva off · /rodaviva on · /rodaviva status · /rodaviva terça 9h (mudar dia/hora)';
+}
+
+/** true se agora (SP) bate com a agenda configurada. */
 function ehHoraDoEnvioRodaViva() {
+  const a = agendaEnvio();
+  if (!a.ativo) return false;
   const p = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', weekday: 'short', hour: 'numeric', hour12: false,
   }).formatToParts(new Date());
   const dia = p.find(x => x.type === 'weekday').value;
   const hora = parseInt(p.find(x => x.type === 'hour').value, 10) % 24;
-  return dia === 'Tue' && hora >= 8;
+  return dia === a.dia && hora >= a.hora;
 }
 function jaEnviadoRodaViva(videoId) {
   return carregarJson(ARQ_ENVIO, {}).videoId === videoId;
@@ -244,4 +288,5 @@ function episodioRecente(ep, dias = 5) {
 module.exports = {
   ultimoEpisodio, transcricaoVideo, gerarResumoRodaViva,
   ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente,
+  ajustarAgendaRodaViva, descreverAgenda,
 };
