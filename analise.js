@@ -327,6 +327,11 @@ function renderizarPauta() {
     `${state.pauta.itens.length} itens · carregada em ${formatDataHora(state.pauta.uploadedAt)}`;
 
   const cont = document.getElementById('lista-itens');
+  // A lista vai ser reconstruída: edições abertas morrem com o DOM antigo.
+  // Sem esta limpeza, o estado órfão do autosave bloquearia a carga da análise
+  // desse item na próxima seleção (o guard de "em edição" o pularia para sempre).
+  for (const st of _autosaveState.values()) if (st.debounceId) clearTimeout(st.debounceId);
+  _autosaveState.clear();
   cont.innerHTML = '';
 
   // Barra de seleção para o PDF (vazio = exporta todos).
@@ -2657,10 +2662,15 @@ function renderAnaliseCard(it) {
   const conteudo = card.querySelector('[data-role=analise-conteudo]');
   const metaEl   = card.querySelector('[data-role=analise-meta]');
 
+  // Edição em andamento neste item (autosave ativo)? Então NÃO mexer na UI do
+  // editor: as cargas assíncronas de análise (Firebase) re-renderizavam o card
+  // e engoliam a edição aberta — o editor sumia no meio do trabalho.
+  const emEdicao = _autosaveState.has(it.chave);
+
   painel.classList.add('aberto');
   btnTog.style.display = 'inline-flex';
   btnGer.style.display = 'none';
-  card.querySelector('[data-role=btn-editar]').style.display = 'inline-flex';
+  card.querySelector('[data-role=btn-editar]').style.display = emEdicao ? 'none' : 'inline-flex';
   card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
   // Verificação de desatualização só faz sentido para projeto com texto operativo
   // (não se aplica à MPV de edição livre, que não tem documento rastreado).
@@ -2718,8 +2728,10 @@ function renderAnaliseCard(it) {
     ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
   conteudo.innerHTML = avisoRefs + notaDisplayHtml(it);
-  conteudo.style.display = '';
-  card.querySelector('[data-role=quill-wrap]').style.display = 'none';
+  if (!emEdicao) {
+    conteudo.style.display = '';
+    card.querySelector('[data-role=quill-wrap]').style.display = 'none';
+  }
   // Recalcula os badges (inclui o de interesse de parlamentar, que considera o
   // texto da nota recém-gerada/editada).
   atualizarBadgesCard(it);
@@ -3015,7 +3027,9 @@ function entrarEdicaoAnalise(it) {
   statusEl.textContent = '';
   statusEl.style.color = '#888';
 
-  q.focus();
+  // Cursor no INÍCIO da nota: o focus() padrão restaurava a última posição de
+  // cursor (fim de nota longa) e rolava a página para baixo ao abrir o editor.
+  q.setSelection(0, 0, 'silent');
   sincronizarSeletorTamanho(card, q);
 }
 
@@ -3733,7 +3747,9 @@ async function carregarPautaPorId(id) {
     atualizarSidebarPautas();
     for (const it of state.pauta.itens) {
       fbCarregarAnalise(it).then(a => {
-        if (a) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); }
+        // Chegada tardia (retry/rede lenta) com o item já em edição: não
+        // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
+        if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); }
       }).catch(() => {});
     }
     enriquecerItens();
@@ -3959,7 +3975,9 @@ async function carregarUltimaPauta() {
     // Carrega análises existentes em paralelo
     for (const it of state.pauta.itens) {
       fbCarregarAnalise(it).then(a => {
-        if (a) {
+        // Chegada tardia com o item já em edição: não sobrescrever a nota em
+        // curso nem re-renderizar (fecharia o editor aberto).
+        if (a && !_autosaveState.has(it.chave)) {
           it.analise = a;
           it.analiseStatus = 'ok';
           renderAnaliseCard(it);
