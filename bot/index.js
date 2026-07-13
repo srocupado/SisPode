@@ -809,7 +809,12 @@ bot.callbackQuery(/^dgm:([a-f0-9]+):(\d+)$/, async ctx => {
     });
   } catch (e) {
     console.error('minuta falhou:', e);
-    return ctx.reply(`Não consegui elaborar a minuta: ${e.message}`);
+    // "The caller does not have permission" = 403 do provedor de IA (Gemini):
+    // chave sem acesso ao modelo escolhido ou chave com restrição de aplicativo.
+    const dica = /permission/i.test(e.message || '')
+      ? '\n\nEsse erro vem da API do SEU provedor de IA, não do bot: ou o modelo do seu perfil não é acessível pela sua chave (veja com /modelo e volte ao padrão com /modelo gemini-2.5-flash), ou a chave tem "restrição de aplicativo" no Google (refaça em aistudio.google.com sem restrição e atualize com /config).'
+      : '';
+    return ctx.reply(`Não consegui elaborar a minuta: ${e.message}${dica}`);
   }
 });
 
