@@ -277,7 +277,9 @@ async function oddEncerradaNoCosev() {
 // que este aviso comunica ao grupo. Poll leve e dedicado (não depende do
 // _sessao dos Dados Abertos, que é mais lento).
 const COSEV_ABERTURA_MS = 12e3;
-let _presencaSessao = null;   // numSessao já anunciada (persistida entre reinícios)
+const QUORUM_MIN = 257;       // maioria absoluta (257 de 513) — quórum de deliberação
+let _presencaSessao = null;   // numSessao com aviso de presença já enviado
+let _quorumSessao = null;     // numSessao com aviso de quórum já enviado (ambos persistidos)
 
 function marcarCosev(patch) { fbPatch('/bot/monitor_cosev', patch).catch(() => {}); }
 
@@ -291,34 +293,53 @@ function tipoDoNomeSessao(nome) {
 // neste momento (bot reiniciado no meio dela), registra sem anunciar — evita
 // um aviso de presença atrasado. Só uma sessão que ABRE com o bot no ar dispara.
 async function primingAbertura() {
-  try { const v = await fbGet('/bot/monitor_cosev/presencaSessao'); if (v != null) _presencaSessao = v; }
-  catch (_) {}
+  try { const v = await fbGet('/bot/monitor_cosev/presencaSessao'); if (v != null) _presencaSessao = v; } catch (_) {}
+  try { const q = await fbGet('/bot/monitor_cosev/quorumSessao'); if (q != null) _quorumSessao = q; } catch (_) {}
   try {
-    const sess = await sessaoAtual();
-    if (sess && sess.aberta && sess.numSessao != null && sess.numSessao !== _presencaSessao) {
-      _presencaSessao = sess.numSessao;
-      marcarCosev({ presencaSessao: sess.numSessao });
+    const [sess, st] = await Promise.all([sessaoAtual().catch(() => null), statusPlenario().catch(() => null)]);
+    if (sess && sess.aberta && sess.numSessao != null) {
+      if (sess.numSessao !== _presencaSessao) {
+        _presencaSessao = sess.numSessao;
+        marcarCosev({ presencaSessao: sess.numSessao });
+      }
+      // Quórum já atingido quando o bot subiu: registra sem anunciar (evita alerta atrasado).
+      if (st && st.presentes >= QUORUM_MIN && sess.numSessao !== _quorumSessao) {
+        _quorumSessao = sess.numSessao;
+        marcarCosev({ quorumSessao: sess.numSessao });
+      }
     }
   } catch (_) {}
 }
 
 async function tickAbertura() {
   if (!_cfg.ligado || !janelaAtiva()) return;
-  let sess;
-  try { sess = await sessaoAtual(); } catch (_) { return; }
+  const [sess, st] = await Promise.all([sessaoAtual().catch(() => null), statusPlenario().catch(() => null)]);
   if (!sess || !sess.aberta || !sess.deliberativa) return;
   const num = sess.numSessao;
-  if (num == null || num === _presencaSessao) return;   // já anunciada / sem número
-  _presencaSessao = num;
-  marcarCosev({ presencaSessao: num });
-  const tipo = tipoDoNomeSessao(sess.nome) || 'DELIBERATIVA';
-  await enviar(
-    `📝 *ABERTO O REGISTRO DE PRESENÇA NA SESSÃO ${tipo}*\n\n` +
-    `O registro de presença deve ser feito pelo INFOLEG APP\n\n` +
-    `📝 *ABERTA AS INSCRIÇÕES DE ORADORES e para BREVES COMUNICAÇÕES*\n\n` +
-    `As inscrições de oradores para os itens da pauta de hoje e para as breves comunicações devem ser feitas pelo INFOLEG APP`,
-    { md: true });
-  console.log(`[monitor] aviso de presença/inscrições enviado (sessão ${num}, ${tipo}).`);
+  if (num == null) return;
+
+  // Aviso de presença/inscrições — uma vez por sessão, na abertura.
+  if (num !== _presencaSessao) {
+    _presencaSessao = num;
+    marcarCosev({ presencaSessao: num });
+    const tipo = tipoDoNomeSessao(sess.nome) || 'DELIBERATIVA';
+    await enviar(
+      `📝 *ABERTO O REGISTRO DE PRESENÇA NA SESSÃO ${tipo}*\n\n` +
+      `O registro de presença deve ser feito pelo INFOLEG APP\n\n` +
+      `📝 *ABERTA AS INSCRIÇÕES DE ORADORES e para BREVES COMUNICAÇÕES*\n\n` +
+      `As inscrições de oradores para os itens da pauta de hoje e para as breves comunicações devem ser feitas pelo INFOLEG APP`,
+      { md: true });
+    console.log(`[monitor] aviso de presença/inscrições enviado (sessão ${num}, ${tipo}).`);
+  }
+
+  // Aviso de QUÓRUM — uma vez por sessão, quando a presença atinge a maioria
+  // absoluta (257). Mostra o número REAL do momento (a presença sobe em saltos).
+  if (num !== _quorumSessao && st && st.presentes >= QUORUM_MIN) {
+    _quorumSessao = num;
+    marcarCosev({ quorumSessao: num });
+    await enviar(`*Quórum: ${st.presentes} deputado(s) presente(s) na casa!*`, { md: true });
+    console.log(`[monitor] aviso de quórum enviado (sessão ${num}, ${st.presentes} presentes).`);
+  }
 }
 
 // Sinal RÁPIDO: itens não apreciados carimbados no fim da ODD (checado a cada tick).
