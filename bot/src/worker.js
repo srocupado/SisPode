@@ -225,8 +225,14 @@ async function resumoSessao({ pautaId, dataISO }) {
       }
       const res = await coletarResumoSessao(data);
       if (!res.encontrouSessao || (!res.urgencias.length && !res.concluidos.length)) return { vazio: true };
+      // Na rota do bot as análises dos itens ainda não carregaram — puxa antes,
+      // para o apelido (usado nas descrições) existir em memória.
+      try {
+        await Promise.all((state.pauta?.itens || []).filter(it => !it.analise).map(it =>
+          fbCarregarAnalise(it).then(a => { if (a) it.analise = a; }).catch(() => {})));
+      } catch (_) {}
       try { await prepararApelidos(state.pauta?.itens || []); } catch (_) {}
-      return { texto: montarMensagemResumo(res.urgencias, res.concluidos) };
+      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data) };
     }, dataISO);
   } finally {
     await fecharNavegador();

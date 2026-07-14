@@ -4767,8 +4767,11 @@ async function coletarResumoSessao(dataISO) {
     let trs = [];
     try { trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}/tramitacoes`)).dados || []; } catch (_) {}
     const despachos = trs.filter(noDia).map(t => t.despacho || '');
-    const destino = destinoDeConclusao(c.sigla, despachos);
-    if (!destino) return null;   // não concluiu a apreciação no dia (voto intermediário)
+    const destino = destinoDeConclusao(c.sigla, despachos) || '';
+    // Matéria APROVADA no dia entra mesmo sem despacho de conclusão registrado
+    // (a tramitação demora mais que a votação para publicar — o resumo do bot
+    // roda minutos após o fim da ODD e perdia o mérito recém-aprovado). A seta
+    // de destino segue condicionada ao despacho oficial.
     let ementa = '';
     try { ementa = (await fetchJsonCamara(`${API_BASE}/proposicoes/${c.id}`)).dados?.ementa || ''; } catch (_) {}
     return { ...c, ementa, destino };
@@ -4793,24 +4796,48 @@ function apelidoDaPautaPorRef(sigla, numero, ano) {
   return '';
 }
 
-function montarMensagemResumo(urgencias, concluidos) {
+// Apelido direto do nó de análises (Firebase), por chave da matéria — cobre a
+// rota do BOT (worker), em que as análises dos itens ainda não foram carregadas
+// na memória, e matéria com análise que nem está na pauta em uso.
+async function apelidoDeAnalisePorRef(sigla, numero, ano) {
+  const chave = `${String(sigla || '').toUpperCase()}-${String(numero || '').replace(/\./g, '')}-${ano}`;
+  try {
+    const r = await fetch(`${FIREBASE_URL}/analises_pauta/${encodeURIComponent(chave)}.json`);
+    if (!r.ok) return '';
+    const nos = await r.json();
+    if (!nos || typeof nos !== 'object') return '';
+    let melhor = null;
+    for (const a of Object.values(nos)) {
+      if (!a?.apelido) continue;
+      const t = a.editadoEm || a.geradoEm || '';
+      if (!melhor || t > (melhor.editadoEm || melhor.geradoEm || '')) melhor = a;
+    }
+    return (melhor?.apelido || '').trim();
+  } catch (_) { return ''; }
+}
+
+async function montarMensagemResumo(urgencias, concluidos, dataISO) {
   const b = s => `*${s}*`;   // negrito do WhatsApp (o "*" final não pode vir após espaço)
-  const linhas = [`${b(`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataPautaCurta()}`)} `, ''];
-  // Prefere o APELIDO do item da pauta; só usa a ementa da API como reserva
-  // (matéria fora da pauta ou sem apelido gerado).
-  const descr = (sigla, numero, ano, ementa) => {
-    const t = apelidoDaPautaPorRef(sigla, numero, ano) || ementaTextoResumo(ementa);
+  // Cabeçalho com a DATA DA SESSÃO (não o período da pauta — o resumo é do dia).
+  const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : dataPautaCurta();
+  const linhas = [`${b(`📌 Matérias apreciadas no Plenário da Câmara dos Deputados – ${dataBR}`)} `, ''];
+  // Prefere o APELIDO do SisPode: do item da pauta em uso; senão do nó de
+  // análises; só então a ementa da API como reserva.
+  const descr = async (sigla, numero, ano, ementa) => {
+    const t = apelidoDaPautaPorRef(sigla, numero, ano)
+      || await apelidoDeAnalisePorRef(sigla, numero, ano)
+      || ementaTextoResumo(ementa);
     return t ? ` (${t})` : '';
   };
   for (const u of urgencias) {
     const rotulo = (u.resolvido === false)
       ? 'Urgência aprovada'                                     // alvo não localizado: não perdemos o item
       : `Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`;
-    linhas.push(`▪️ ${b(rotulo)}${descr(u.sigla, u.numero, u.ano, u.ementa)}`);
+    linhas.push(`▪️ ${b(rotulo)}${await descr(u.sigla, u.numero, u.ano, u.ementa)}`);
   }
   for (const c of concluidos) {
     const seta = c.destino ? `➡️ ${c.destino}` : '';
-    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${descr(c.sigla, c.numero, c.ano, c.ementa)}${seta}`);
+    linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${await descr(c.sigla, c.numero, c.ano, c.ementa)}${seta}`);
   }
   return linhas.join('\n');
 }
@@ -4828,7 +4855,7 @@ async function copiarResumoSessao() {
   // Garante o apelido dos itens da pauta — o resumo usa o apelido (não a ementa)
   // quando a matéria está na pauta.
   try { await prepararApelidos(state.pauta.itens || []); } catch (_) {}
-  const texto = montarMensagemResumo(res.urgencias, res.concluidos);
+  const texto = await montarMensagemResumo(res.urgencias, res.concluidos, dataISO);
   const ok = await copiarParaAreaTransferencia(texto);
   const tot = res.urgencias.length + res.concluidos.length;
   mostrarToast(
