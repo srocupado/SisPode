@@ -28,6 +28,7 @@ const RESUMO_TENTATIVAS_MIN = [0, 5, 10];
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
 let _timerEv = null, _timerPainel = null, _timerAbertura = null;
+const _encerradas = new Set();   // ids de sessões já encerradas neste processo (não reativar)
 
 const agoraSP = () => new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Sao_Paulo', weekday: 'short', hour: 'numeric', hour12: false,
@@ -218,8 +219,10 @@ async function tickEventos() {
       if (meu && /encerrad|cancelad/i.test(meu.situacao || '')) return encerrarSessao();
     }
     // Nova sessão em andamento? (valor exato de `situacao` ao vivo: calibrar no ensaio)
+    // Não reativa uma sessão que o cosev já encerrou (os Dados Abertos podem
+    // seguir marcando "andamento" por lag depois do encerramento real).
     if (!_sessao) {
-      const ativa = eventos.find(e => /andamento|iniciad/i.test(e.situacao || ''));
+      const ativa = eventos.find(e => /andamento|iniciad/i.test(e.situacao || '') && !_encerradas.has(e.id));
       if (ativa) await ativarSessao(ativa);
     }
   } catch (e) {
@@ -348,6 +351,9 @@ async function oddEncerradaNasNotas(s) {
 
 async function ativarSessao(ev) {
   const estado = await carregarEstado(ev.id);
+  // Já encerrada (sinal do cosev neste processo, ou fim persistido de um
+  // reinício)? Não reabre — evita o loop de reativação por lag dos Dados Abertos.
+  if (_encerradas.has(ev.id) || estado.fimAnunciado) { _encerradas.add(ev.id); return; }
   _sessao = {
     id: ev.id, dataISO: String(ev.dataHoraInicio || hojeSP()).slice(0, 10),
     estado, falhasPainel: 0, avisoFalhaDado: false, tickando: false,
@@ -394,6 +400,19 @@ async function tickPainel() {
   if (!_sessao || _sessao.tickando || !_cfg.ligado) return;
   _sessao.tickando = true;
   try {
+    // FIM DA SESSÃO — PRIMÁRIO pelo cosev: quando o painel público deixa de
+    // reportar sessão aberta, a sessão encerrou. Mais rápido que os Dados
+    // Abertos (fallback em tickEventos). Só age no sinal EXPLÍCITO (aberta:
+    // false); null = cosev indisponível, não conclui nada. Duas leituras
+    // seguidas evitam encerrar por um blip momentâneo.
+    const sc = await sessaoAtual().catch(() => null);
+    if (sc && sc.aberta === false) {
+      _sessao._fimSeguidos = (_sessao._fimSeguidos || 0) + 1;
+      if (_sessao._fimSeguidos >= 2) { _sessao.tickando = false; return encerrarSessao(); }
+    } else if (sc && sc.aberta === true) {
+      _sessao._fimSeguidos = 0;
+    }
+
     const html = await paginaSessao(_sessao.id);
     _sessao.falhasPainel = 0;
     const itens = parseItens(html);
@@ -500,6 +519,7 @@ async function tickPainel() {
 async function encerrarSessao() {
   const s = _sessao;
   _sessao = null;
+  _encerradas.add(s.id);          // trava contra reativação por lag dos Dados Abertos
   clearInterval(_timerPainel);
   _timerPainel = null;
   console.log(`[monitor] sessão ${s.id} encerrada — agendando resumo`);
