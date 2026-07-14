@@ -1513,9 +1513,20 @@ async function tickRodaViva() {
   } catch (e) {
     // Transitório (vídeo ainda sem legenda, YouTube instável): o próximo tick tenta.
     console.warn('[rodaviva] tick falhou:', e.message);
+  } finally {
+    _rodavivaEmCurso = false;
   }
 }
-setInterval(tickRodaViva, 15 * 60 * 1000);
+// Tick de 1 min (checagem local, custo zero fora da janela): o envio dispara
+// até 8h01 e a mensagem cai no grupo por volta das 8h02. O guard impede dois
+// ticks gerando em paralelo (a geração leva ~1 min) e postando em dobro.
+let _rodavivaEmCurso = false;
+setInterval(() => {
+  if (_rodavivaEmCurso) return;
+  _rodavivaEmCurso = true;
+  tickRodaViva();
+}, 60 * 1000);
+_rodavivaEmCurso = true;
 tickRodaViva();
 
 if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
