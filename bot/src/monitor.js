@@ -403,7 +403,7 @@ async function checarFimDaOdd() {
   if (await oddEncerradaNoCosev() || await oddEncerradaNaPauta(s) || await oddEncerradaNasNotas(s)) {
     s.estado.oddFimAnunciado = true;
     marcar(s.id, { oddFimAnunciado: true });
-    await enviar('*Encerrada a Ordem do Dia*', { md: true });
+    await enviar('*ENCERRADA A ORDEM DO DIA*', { md: true });
     // As votações terminam AQUI — o resumo já pode sair, sem esperar o fim da
     // sessão (que pode se arrastar em Breves Comunicações por muito tempo).
     agendarResumo(s, 'fim da ODD');
@@ -747,7 +747,7 @@ async function encerrarSessao() {
   // ODD (a sessão pode seguir em Breves Comunicações): é só a rede de segurança
   // do caso "tudo votado", quando as duas coisas de fato coincidem.
   if (s.estado.oddAnunciado && !s.estado.oddFimAnunciado) {
-    await enviar('*Encerrada a Ordem do Dia*', { md: true });
+    await enviar('*ENCERRADA A ORDEM DO DIA*', { md: true });
     s.estado.oddFimAnunciado = true;
     marcar(s.id, { oddFimAnunciado: true });
   }
