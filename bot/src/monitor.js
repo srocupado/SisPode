@@ -296,18 +296,17 @@ async function primingAbertura() {
   try { const v = await fbGet('/bot/monitor_cosev/presencaSessao'); if (v != null) _presencaSessao = v; } catch (_) {}
   try { const q = await fbGet('/bot/monitor_cosev/quorumSessao'); if (q != null) _quorumSessao = q; } catch (_) {}
   try {
-    const [sess, st] = await Promise.all([sessaoAtual().catch(() => null), statusPlenario().catch(() => null)]);
-    if (sess && sess.aberta && sess.numSessao != null) {
-      if (sess.numSessao !== _presencaSessao) {
-        _presencaSessao = sess.numSessao;
-        marcarCosev({ presencaSessao: sess.numSessao });
-      }
-      // Quórum já atingido quando o bot subiu: registra sem anunciar (evita alerta atrasado).
-      if (st && st.presentes >= QUORUM_MIN && sess.numSessao !== _quorumSessao) {
-        _quorumSessao = sess.numSessao;
-        marcarCosev({ quorumSessao: sess.numSessao });
-      }
+    const sess = await sessaoAtual().catch(() => null);
+    // Presença é evento PONTUAL: se a sessão já estava aberta quando o bot
+    // subiu, registra sem anunciar (não faz sentido "abriu a presença" atrasado).
+    if (sess && sess.aberta && sess.numSessao != null && sess.numSessao !== _presencaSessao) {
+      _presencaSessao = sess.numSessao;
+      marcarCosev({ presencaSessao: sess.numSessao });
     }
+    // Quórum NÃO é priming-suprimido: é um ESTADO (a maioria está presente).
+    // Se o bot subir com o quórum já batido e ainda não anunciado, o tickAbertura
+    // deve avisar. A idempotência fica só no marcador persistido (quorumSessao),
+    // gravado quando de fato anunciamos — evita repetir a cada reinício.
   } catch (_) {}
 }
 
