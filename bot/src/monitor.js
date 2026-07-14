@@ -3,7 +3,8 @@
 //   OCIOSO  → poll /eventos (60 s, janela útil) → sessão deliberativa Em Andamento
 //   SESSÃO  → poll do painel (20 s): Ordem do Dia, abertura de nominais,
 //             encerramento (votos individuais publicados) → imagem + mensagem
-//   FIM     → resumo da sessão via worker (tentativas 0/+30/+60 min)
+//   FIM ODD → resumo das votações via worker (tentativas 0/+5/+10 min;
+//             reforço no fim da sessão se a ODD encerrar sem gatilho)
 // Mensagens vão ao GRUPO (produção) ou só ao admin (MONITOR_ENSAIO=1).
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
 const { fbGet, fbPatch } = require('./firebase');
@@ -254,6 +255,9 @@ async function checarFimDaOdd() {
     s.estado.oddFimAnunciado = true;
     marcar(s.id, { oddFimAnunciado: true });
     await enviar('🔚 *ENCERRADA A ORDEM DO DIA*', { md: true });
+    // As votações terminam AQUI — o resumo já pode sair, sem esperar o fim da
+    // sessão (que pode se arrastar em Breves Comunicações por muito tempo).
+    agendarResumo(s, 'fim da ODD');
   }
 }
 
@@ -468,8 +472,21 @@ async function encerrarSessao() {
     s.estado.fimAnunciado = true;
     marcar(s.id, { fimAnunciado: true });
   }
-  // Mensagem 2 — o resumo das votações
-  if (s.estado.resumoEnviado) return;
+  // Mensagem 2 — o resumo das votações. Normalmente já foi agendado no FIM DA
+  // ODD; aqui é a rede de segurança (ODD encerrada sem gatilho, reinício do
+  // bot entre a ODD e o fim da sessão…). agendarResumo não duplica.
+  agendarResumo(s, 'fim da sessão');
+}
+
+// Agenda as tentativas do resumo (0/5/10 min — os Dados Abertos levam alguns
+// minutos para consolidar os placares). Disparado no FIM DA ODD (quando as
+// votações de fato terminam) e reforçado no fim da sessão. A trava em memória
+// evita agendar duas vezes no mesmo processo; resumoEnviado (persistido)
+// evita reenvio entre reinícios.
+function agendarResumo(s, origem) {
+  if (s.estado.resumoEnviado || s._resumoAgendado) return;
+  s._resumoAgendado = true;
+  console.log(`[monitor] resumo agendado (${origem}) — tentativas em ${RESUMO_TENTATIVAS_MIN.join('/')} min`);
   for (let i = 0; i < RESUMO_TENTATIVAS_MIN.length; i++) {
     setTimeout(() => tentarResumo(s, i), RESUMO_TENTATIVAS_MIN[i] * 60e3);
   }
