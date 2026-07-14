@@ -1615,10 +1615,10 @@ if (process.env.BOT_COSEV_ESPIAO === '1') {
   iniciarEspiaoCosev({
     api: bot.api,
     admin: ADMIN_USER_ID,
-    grupo: MONITOR_ENSAIO ? null : GRUPO_CHAT_ID,   // ensaio: só admin
+    grupo: null,   // espião fala SÓ no privado do admin (o grupo recebe do monitor)
     log: m => console.log(`[cosev-espião] ${m}`),
   });
-  console.log('[cosev-espião] ATIVO — mudanças ao grupo+admin; dumps crus só no admin.');
+  console.log('[cosev-espião] ATIVO — só no privado do admin (mudanças + dumps crus).');
 } else {
   console.log('Espião cosev desativado (defina BOT_COSEV_ESPIAO=1 no .env para ligar).');
 }
