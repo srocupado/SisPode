@@ -4546,9 +4546,37 @@ async function copiarParaAreaTransferencia(texto) {
 
 // Data da pauta em ISO (AAAA-MM-DD), p/ consultar o evento da sessão.
 function dataPautaISO() {
-  const fonte = String(state.pauta?.periodo || state.pauta?.nome || state.pauta?.titulo || '');
-  const m = fonte.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
-  return m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : null;
+  const fontes = [state.pauta?.periodo, state.pauta?.nome, state.pauta?.titulo].map(x => String(x || ''));
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const MES = { janeiro: 1, fevereiro: 2, 'março': 3, marco: 3, abril: 4, maio: 5, junho: 6,
+    julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12 };
+  const iso = (ano, mes, dia) => `${ano}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+
+  // 1) Pauta SEMANAL (período por extenso, ex.: "13 A 17 DE JULHO DE 2026"):
+  //    a sessão buscada é a de HOJE, se hoje cair dentro do intervalo; senão o
+  //    primeiro dia. (Era o caso que quebrava: o período vinha por extenso e a
+  //    função só entendia dd/mm/aaaa.)
+  for (const f of fontes) {
+    const t = f.toLowerCase();
+    let e = t.match(/(\d{1,2})\s*(?:a|à|até)\s*(\d{1,2})\s*de\s*([a-zçã]+)\s*(?:de\s*)?(\d{4})/i);
+    let ini = null, fim = null;
+    if (e && MES[e[3]]) {
+      ini = iso(+e[4], MES[e[3]], +e[1]); fim = iso(+e[4], MES[e[3]], +e[2]);
+    } else {
+      e = t.match(/(\d{1,2})\s*de\s*([a-zçã]+)\s*(?:a|à|até)\s*(\d{1,2})\s*de\s*([a-zçã]+)\s*(?:de\s*)?(\d{4})/i);
+      if (e && MES[e[2]] && MES[e[4]]) {
+        ini = iso(+e[5], MES[e[2]], +e[1]); fim = iso(+e[5], MES[e[4]], +e[3]);
+      }
+    }
+    if (ini && fim) return (hoje >= ini && hoje <= fim) ? hoje : ini;
+  }
+  // 2) Data numérica em QUALQUER dos campos (período, nome, título) — o período
+  //    pode não ter data enquanto o nome dado pela equipe tem.
+  for (const f of fontes) {
+    const m = f.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+    if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+  }
+  return null;
 }
 
 function _idDeUri(uri) { const m = String(uri || '').match(/(\d+)\s*$/); return m ? m[1] : null; }
