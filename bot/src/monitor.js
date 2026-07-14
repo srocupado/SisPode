@@ -14,7 +14,7 @@ const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
 const { carregarAnaliseMaisRecente } = require('./perguntar');
-const { buscarDestaquePreparado, mensagemDestaque } = require('./destaques');
+const { buscarDestaquePreparado } = require('./destaques');
 const { InlineKeyboard } = require('grammy');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
@@ -185,6 +185,48 @@ async function descricaoCurta(ref) {
   }
   _descrCache.set(k, out);
   return out;
+}
+
+// ---------- Destaques: reconhecimento e formatação ----------
+const REGEX_DESTAQUE = /DESTAQUE|\bDVS\b|\bDTQ\b|\bDVT\b/i;
+
+// Siglas partidárias ficam como são (com a grafia consagrada do PCdoB);
+// demais palavras da bancada ganham só a inicial maiúscula ("FDR" → "Fdr").
+const _PARTIDOS = new Set(['PT', 'PL', 'PP', 'PV', 'MDB', 'PSD', 'PSB', 'PDT', 'PSDB', 'PSOL', 'PCDOB', 'PODE', 'NOVO', 'REDE', 'UNIÃO', 'UNIAO', 'PRD', 'AVANTE', 'CIDADANIA', 'SOLIDARIEDADE', 'REPUBLICANOS', 'PSC', 'PMB', 'DC', 'PRTB']);
+function suavizarBancada(txt) {
+  return String(txt || '').split(/(\s+|-)/).map(tok => {
+    const up = tok.toUpperCase();
+    if (up === 'PCDOB') return 'PCdoB';
+    if (_PARTIDOS.has(up) || /^[\s-]*$/.test(tok)) return up.trim() ? up : tok;
+    return tok.charAt(0).toUpperCase() + tok.slice(1).toLowerCase();
+  }).join('');
+}
+// "EMENDA DE PLENÁRIO N. 2" → "Emenda de Plenário n. 2"
+function suavizarObjeto(txt) {
+  const menores = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'ao', 'à', 'n.', 'nº', 'no']);
+  return String(txt || '').toLowerCase().split(/\s+/).map((w, i) => {
+    if (menores.has(w)) return w;
+    if (/^\d/.test(w)) return w;
+    return w.charAt(0).toUpperCase() + w.slice(1);
+  }).join(' ');
+}
+const _ARTIGO_OBJ = { EMENDA: 'da', SUBEMENDA: 'da', EXPRESSÃO: 'da', PARTE: 'da', ALÍNEA: 'da', ARTIGO: 'do', PARÁGRAFO: 'do', INCISO: 'do', DISPOSITIVO: 'do', TEXTO: 'do' };
+
+// "PL Nº 3085/2026 - DTQ 2 - FDR PT-PCDOB-PV - EMENDA DE PLENÁRIO N. 2 (Nominal)"
+//   → "DTQ 2 - Fdr PT-PCdoB-PV - Destaque da Emenda de Plenário n. 2."
+function linhaDoDestaque(rotulo) {
+  let t = String(rotulo || '').replace(/\s*\((Nominal|Simb[óo]lica)\)\s*$/i, '').trim();
+  const m = t.match(/\b(DTQ|DVS|DVT|DESTAQUE)\b/i);
+  if (m) t = t.slice(t.search(/\b(DTQ|DVS|DVT|DESTAQUE)\b/i));   // corta a matéria-mãe
+  const partes = t.split(/\s+-\s+/);
+  if (partes.length >= 2) {
+    const objBruto = partes[partes.length - 1].trim();
+    const primeira = (objBruto.split(/\s+/)[0] || '').toUpperCase();
+    const artigo = _ARTIGO_OBJ[primeira] || 'de';
+    partes[partes.length - 1] = `Destaque ${artigo} ${suavizarObjeto(objBruto)}`;
+    for (let i = 1; i < partes.length - 1; i++) partes[i] = suavizarBancada(partes[i]);
+  }
+  return partes.join(' - ').replace(/\.?$/, '.');
 }
 
 // ---------- Resultado de votação SIMBÓLICA (via Dados Abertos) ----------
@@ -567,31 +609,26 @@ async function tickPainel() {
 
     for (const item of itens) {
       try {
-      // Destaques/DVS (nominais ou simbólicos): o bot NÃO entra na votação
-      // (sem mensagem de abertura P1, sem imagem). Exceção controlada: se a
-      // equipe PREPAROU material no módulo de Destaques (explicação/voto
-      // sim/voto não), publica a ficha — sem orientação — no grupo + admin.
-      if (/DESTAQUE|\bDVS\b/i.test(item.rotulo)) {
-        const reg = est.itens[item.id] || (est.itens[item.id] = {});
-        if (!reg.destaqueVisto) {
-          reg.destaqueVisto = true;
-          marcar(_sessao.id, { [`itens/${item.id}/destaqueVisto`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
+      // DESTAQUE (DTQ/DVS/DVT)? Entra nos fluxos normais (anúncio + placar da
+      // nominal), com formatação própria e a EXPLICAÇÃO do módulo de Destaques
+      // embutida quando a equipe preparou material (sem voto sim/não, sem
+      // orientação). O rótulo real do portal usa "DTQ" — o filtro antigo só
+      // conhecia "DESTAQUE/DVS" e deixava o destaque cair no fluxo genérico.
+      const ehDestaque = REGEX_DESTAQUE.test(item.rotulo);
+      let explicDestaque = '';
+      if (ehDestaque) {
+        const reg0 = est.itens[item.id] || (est.itens[item.id] = {});
+        if (reg0._explic === undefined) {
           try {
             const ficha = await buscarDestaquePreparado({ rotulo: item.rotulo, dataISO: _sessao.dataISO });
-            if (ficha?.temMaterial) {
-              await enviarComCopiaAdmin(mensagemDestaque(ficha));
-            } else {
-              console.log(`[monitor] destaque sem material preparado (silêncio): ${item.rotulo}`);
-            }
-          } catch (e) {
-            console.warn('[monitor] consulta ao módulo de Destaques falhou:', e.message);
-          }
+            reg0._explic = (ficha?.explicacao || '').trim();
+          } catch (e) { reg0._explic = ''; console.warn('[monitor] módulo de Destaques falhou:', e.message); }
         }
-        continue;
+        explicDestaque = reg0._explic ? `\n\n${reg0._explic}` : '';
       }
+
       // Simbólicas: sem placar (não há voto individual), mas ANUNCIA uma vez
-      // cada item que entra em apreciação. Urgência ganha formato próprio:
-      // "Anunciada a *urgência ao PL X/AAAA* (descrição curta)".
+      // cada item que entra em apreciação. Urgência e destaque têm formato próprio.
       if (!item.nominal) {
         const reg = est.itens[item.id] || (est.itens[item.id] = {});
         if (!reg.anunciado) {
@@ -599,7 +636,9 @@ async function tickPainel() {
           reg.simbolico = true;
           marcar(_sessao.id, { [`itens/${item.id}/anunciado`]: true, [`itens/${item.id}/simbolico`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
           const urg = item.rotulo.match(REGEX_URGENCIA);
-          if (urg) {
+          if (ehDestaque) {
+            await enviar(`*VOTAÇÃO SIMBÓLICA:*\n${linhaDoDestaque(item.rotulo)}${explicDestaque}`, { md: true });
+          } else if (urg) {
             const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
             const desc = await descricaoCurta(ref);
             await enviar(`Anunciada a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
@@ -616,8 +655,12 @@ async function tickPainel() {
 
       // Abertura (D2 + formato P1, SEM orientação — decisão da Liderança é manual)
       if (!reg.abertura) {
-        const desc = await descricaoCurta(ident.ref);
-        await enviar(`*VOTAÇÃO NOMINAL*\n\n${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+        if (ehDestaque) {
+          await enviar(`*VOTAÇÃO NOMINAL:*\n${linhaDoDestaque(item.rotulo)}${explicDestaque}`, { md: true });
+        } else {
+          const desc = await descricaoCurta(ident.ref);
+          await enviar(`*VOTAÇÃO NOMINAL*\n\n${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+        }
         reg.abertura = true;
         marcar(_sessao.id, { [`itens/${item.id}/abertura`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
       }
