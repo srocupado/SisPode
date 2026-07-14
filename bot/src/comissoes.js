@@ -233,7 +233,17 @@ async function secaoComissao(org, dataIso, partido, deputado, deps) {
     for (const item of pauta) {
       const prop = item.proposicao_ || {};
       const relProp = item.proposicaoRelacionada_ || {};
-      const projeto = relProp.id ? relProp : prop;
+      // A matéria EM DELIBERAÇÃO é a do TÍTULO do item ("PDL 353/2026",
+      // "REQ 311/2026 CSPCCO"). Não dá para preferir sempre a relacionada:
+      // num REQUERIMENTO ela aponta o projeto apenas CITADO por ele (ex.:
+      // "requer emenda ao PL 1828/2023") — e o bot listava esse PL como se
+      // estivesse na pauta (CSPCCO 14/07: PL 1828/2023 e PL 2199/2026).
+      const t = String(item.titulo || '').toUpperCase().match(/^([A-Z]+)\s+([\d.]+)\/(\d{4})/);
+      const bate = p => !!t && !!p && String(p.siglaTipo || '').toUpperCase() === t[1]
+        && String(p.numero) === t[2].replace(/\./g, '') && String(p.ano) === t[3];
+      const projeto = bate(prop) ? prop
+        : bate(relProp) ? relProp
+        : (relProp.id ? relProp : prop);   // sem título parseável: heurística antiga
       let relator = item.relator;
       if (relator && typeof relator === 'object') relator = relator.nome;
       if (projeto.id) itens.push({ projeto, relator: (typeof relator === 'string' ? relator : null), parecer: prop });
