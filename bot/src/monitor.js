@@ -213,8 +213,24 @@ async function idProposicao(ref) {
 }
 
 // O id da votação nos Dados Abertos é "{idProposicao}-{seq}" (validado ao vivo:
-// REQ 3828/2026 id=2638803 → votação "2638803-7", aprovacao=1). É o casamento
-// exato entre o item que sumiu do portal e o seu resultado.
+// REQ 3828/2026 id=2638803 → votação "2638803-7", aprovacao=1). ATENÇÃO: mérito,
+// emendas e redação final da MESMA matéria compartilham o prefixo (id do PL) —
+// a desambiguação é pela descrição oficial da votação.
+function escolherVotacao(vs, idProp, rotulo) {
+  const cands = (vs || []).filter(x => String(x.id || '').startsWith(`${idProp}-`));
+  if (cands.length <= 1) return cands[0] || null;
+  const r = String(rotulo || '');
+  const quer =
+    /EMENDAS?/i.test(r) ? /emendas?/i :
+    /REDA[ÇC][ÃA]O\s+FINAL/i.test(r) ? /reda[çc][ãa]o\s+final/i :
+    /URG[ÊE]NCIA/i.test(r) ? /urg[êe]ncia/i :
+    /projeto|proposta|medida|decreto|resolu/i;   // mérito da matéria
+  const pool = cands.filter(x => quer.test(x.descricao || ''));
+  const lista = pool.length ? pool : cands;
+  lista.sort((a, b) => String(b.dataHoraRegistro || '').localeCompare(String(a.dataHoraRegistro || '')));
+  return lista[0];
+}
+
 async function checarResultadoSimbolico(s, itemId) {
   const reg = s?.estado?.itens?.[itemId];
   if (!reg || reg.resultadoAnunciado) return;
@@ -224,20 +240,33 @@ async function checarResultadoSimbolico(s, itemId) {
   if (!idProp) return;
   const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
   if (!r.ok) return;
-  const v = ((await r.json()).dados || []).find(x => String(x.id || '').startsWith(`${idProp}-`));
+  const v = escolherVotacao((await r.json()).dados, idProp, reg.rotulo);
   if (!v || v.aprovacao == null) return;   // resultado ainda não publicado — próxima tentativa
   reg.resultadoAnunciado = true;
   marcar(s.id, { [`itens/${itemId}/resultadoAnunciado`]: true });
   const aprovada = Number(v.aprovacao) === 1;
-  const urg = String(reg.rotulo || '').match(REGEX_URGENCIA);
+  // Ressalva oficial ("ressalvado o destaque", "ressalvados os destaques"),
+  // copiada da descrição da votação — nunca inventada.
+  const rm = String(v.descricao || '').match(/ressalvad[^.;]*/i);
+  const ressalva = rm ? `, ${rm[0].trim()}` : '';
+  const rot = String(reg.rotulo || '');
+  const urg = rot.match(REGEX_URGENCIA);
+  const mer = !urg && rot.match(/VOTA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i);
   if (urg) {
     const alvo = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
     const desc = await descricaoCurta(alvo);
     await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+  } else if (mer) {
+    // Mérito da matéria: "Aprovado, simbolicamente, o mérito *PL X/AAAA*
+    // (apelido), ressalvado o destaque"
+    const alvo = { sigla: mer[1].toUpperCase(), numero: mer[2].replace(/\./g, ''), ano: mer[3] };
+    const desc = await descricaoCurta(alvo);
+    await enviar(`${aprovada ? 'Aprovado' : 'Rejeitado'}, simbolicamente, o mérito *${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}${ressalva}`, { md: true });
   } else {
-    const ident = identificarItem(reg.rotulo || '');
-    const desc = await descricaoCurta(ident.ref);
-    await enviar(`${aprovada ? 'Aprovado' : 'Rejeitado'}, simbolicamente: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+    // Demais itens: repassa a DESCRIÇÃO OFICIAL (gênero/plural sempre certos:
+    // "Rejeitadas as Emendas de Plenário.").
+    const oficial = String(v.descricao || '').trim().replace(/\.$/, '');
+    await enviar(`Votação simbólica — *${oficial || (aprovada ? 'Aprovado' : 'Rejeitado')}*`, { md: true });
   }
 }
 
