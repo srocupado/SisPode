@@ -46,21 +46,33 @@ async function statusPlenario() {
 }
 
 /**
- * Sessão atual. @returns {Promise<{aberta:boolean, numSessao?, tipo?, deliberativa?, raw?}|null>}
- * (a forma exata quando ABERTA será confirmada na 1ª sessão real — por isso
- * lemos os campos de forma tolerante.)
+ * Sessão atual. Forma REAL confirmada ao vivo (sessão extraordinária 143,
+ * 14/07/2026): a resposta vem num ENVELOPE —
+ *   { servico:"sessao-atual", resultado:0, mensagem:"Solicitação processada…",
+ *     sessaoAtual:{ numSessao:143, nomSessao:"EXTRAORDINÁRIA Nº 143 - 14/07/2026",
+ *                   coCasa:1, sqSessao:33166, datInicio:"2026-07-14 11:55:00",
+ *                   mensagemPainel:"" } }
+ * Sem sessão: corpo vazio (ou envelope sem sessaoAtual).
+ * @returns {Promise<{aberta:boolean, numSessao?, nome?, tipo?, inicio?, casa?, deliberativa?, raw?}|null>}
  */
 async function sessaoAtual() {
   const s = await getJson(SESSAO);
   if (!s || typeof s !== 'object') return null;
-  if (/n[ãa]o\s+h[áa]\s+sess[ãa]o/i.test(s.mensagem || '')) return { aberta: false };
-  const blob = JSON.stringify(s);
+  const n = s.sessaoAtual || null;
+  if (!n) return { aberta: false };
+  const nome = n.nomSessao || '';
   return {
     aberta: true,
-    numSessao: s.numSessao ?? s.numeroSessao ?? s.numReuniao ?? null,
-    tipo: s.descricaoTipoSessao || s.tipoSessao || s.descricao || '',
-    deliberativa: /deliberativ/i.test(blob),
-    raw: s,
+    numSessao: n.numSessao ?? null,
+    nome,
+    tipo: nome,
+    inicio: n.datInicio || null,
+    casa: n.coCasa ?? null,          // 1 = Câmara
+    // Sessões do painel são deliberativas por natureza; a exceção são as
+    // solenes/homenagens — o nome as denuncia. ("EXTRAORDINÁRIA" É deliberativa;
+    // o regex antigo por "deliberativ" dava falso negativo.)
+    deliberativa: !/solene|homenagem|comemorativ/i.test(nome),
+    raw: n,
   };
 }
 
