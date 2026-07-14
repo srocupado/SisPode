@@ -485,7 +485,27 @@ async function tickPainel() {
         }
         continue;
       }
-      if (!item.nominal) continue;                       // D3: simbólicas em silêncio
+      // Simbólicas: sem placar (não há voto individual), mas ANUNCIA uma vez
+      // cada item que entra em apreciação. Urgência ganha formato próprio:
+      // "Anunciada a *urgência ao PL X/AAAA* (descrição curta)".
+      if (!item.nominal) {
+        const reg = est.itens[item.id] || (est.itens[item.id] = {});
+        if (!reg.anunciado) {
+          reg.anunciado = true;
+          marcar(_sessao.id, { [`itens/${item.id}/anunciado`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
+          const urg = item.rotulo.match(/URG[ÊE]NCIA\s+PARA\s+APRECIA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i);
+          if (urg) {
+            const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+            const desc = await descricaoCurta(ref);
+            await enviar(`Anunciada a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+          } else {
+            const ident = identificarItem(item.rotulo);
+            const desc = await descricaoCurta(ident.ref);
+            await enviar(`Anunciado o item: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+          }
+        }
+        continue;
+      }
       const reg = est.itens[item.id] || (est.itens[item.id] = {});
       const ident = identificarItem(item.rotulo);
 
