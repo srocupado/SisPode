@@ -519,7 +519,7 @@ async function encerrarSessao() {
   // Mensagem 1 — o encerramento em si, NA HORA (o resumo vem em seguida,
   // quando os Dados Abertos publicarem). Idempotente entre reinícios.
   if (!s.estado.fimAnunciado) {
-    await enviar('🔴 *ENCERRADA A SESSÃO*', { md: true });
+    await enviar('*ENCERRADA A SESSÃO*', { md: true });
     s.estado.fimAnunciado = true;
     marcar(s.id, { fimAnunciado: true });
   }

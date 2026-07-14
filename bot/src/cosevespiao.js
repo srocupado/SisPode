@@ -1,18 +1,17 @@
 'use strict';
 // ESPIÃO do Plenário ao vivo (cosev/ws-plenario) — modo calibração.
 //
-// Consulta os endpoints PÚBLICOS do app Infoleg a cada intervalo e manda ao
-// PRIVADO DO ADMIN cada MUDANÇA de estado, com o JSON cru dos campos que
-// importam. Serve para, durante uma sessão real, vermos a forma exata dos
-// dados (tipo da sessão, itens em votação, encerramento da ODD) e calibrar o
-// monitor. Não envia nada ao grupo; nunca derruba o bot.
+// Consulta os endpoints PÚBLICOS do app Infoleg a cada intervalo e avisa cada
+// MUDANÇA de estado do Plenário (sessão abre/fecha, ODD inicia/encerra, itens
+// em votação). As mudanças vão ao GRUPO (quando configurado) e ao PRIVADO DO
+// ADMIN; os DUMPS de JSON cru vão SÓ ao admin (diagnóstico — não polui o
+// grupo). Sem heartbeat. Nunca derruba o bot.
 //
 // Ligar com BOT_COSEV_ESPIAO=1 no .env.
 
 const { statusPlenario, sessaoAtual, itensEmVotacao, PRESENCA, SESSAO, ITENS } = require('./plenariocosev');
 
 const INTERVALO_MS = 12_000;       // 12s — leve para 3 GETs públicos
-const HEARTBEAT_MS = 3 * 60_000;   // enquanto houver sessão, um "vivo" a cada 3 min
 
 // Busca crua (para dump fiel), sem normalização.
 async function cru(url, ms = 12000) {
@@ -30,15 +29,19 @@ function assinaturaItens(itens) {
   return (itens || []).map(i => `${i.descricao}|${i.tipoVotacao}|${i.aberta ? 'A' : 'F'}`).join(' ;; ');
 }
 
-function iniciarEspiaoCosev({ api, admin, log = console.log } = {}) {
-  if (!admin) { log('[cosev-espião] sem ADMIN_USER_ID — não iniciado.'); return { parar() {} }; }
+function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}) {
+  if (!admin && !grupo) { log('[cosev-espião] sem admin nem grupo — não iniciado.'); return { parar() {} }; }
 
-  const enviar = (txt) => api.sendMessage(admin, txt.slice(0, 4000)).catch(e => log('[cosev-espião] envio falhou: ' + e.message));
+  // Envia a um destino, tolerando falha. `mudou` (state changes) vai a admin +
+  // grupo; `dump` (JSON cru) vai só ao admin.
+  const enviarA = (dest, txt) => dest
+    ? api.sendMessage(dest, txt.slice(0, 4000)).catch(e => log('[cosev-espião] envio falhou: ' + e.message))
+    : Promise.resolve();
+  const enviarMudanca = (txt) => Promise.all([...new Set([grupo, admin].filter(Boolean))].map(d => enviarA(d, txt)));
+  const enviarDump    = (txt) => enviarA(admin, txt);
 
   let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null };
-  let dumpouSessao = false, dumpouVotacao = false, ultimoHeartbeat = 0;
-
-  enviar('🕵️ Espião cosev LIGADO — vou avisar aqui cada mudança do Plenário ao vivo (com o JSON cru). Fonte: painel público do app Infoleg.');
+  let dumpouSessao = false, dumpouVotacao = false;
 
   async function tick() {
     try {
@@ -49,7 +52,8 @@ function iniciarEspiaoCosev({ api, admin, log = console.log } = {}) {
       ]);
 
       const sessaoAberta = sess?.aberta === true;
-      const mudou = [];
+      const mudou = [];   // ao grupo + admin
+      const dumps = [];   // só ao admin (JSON cru)
 
       // --- sessão abriu/fechou ---
       if (sessaoAberta !== prev.sessao) {
@@ -58,7 +62,7 @@ function iniciarEspiaoCosev({ api, admin, log = console.log } = {}) {
           if (!dumpouSessao) {
             dumpouSessao = true;
             const raw = await cru(SESSAO);
-            mudou.push(`📦 sessao-atual (cru, HTTP ${raw.http}):\n${raw.txt.slice(0, 1500)}`);
+            dumps.push(`📦 sessao-atual (cru, HTTP ${raw.http}):\n${raw.txt.slice(0, 1500)}`);
           }
         } else if (prev.sessao !== null) {
           mudou.push('🔴 SESSÃO ENCERRADA (cosev: sem sessão aberta).');
@@ -89,7 +93,7 @@ function iniciarEspiaoCosev({ api, admin, log = console.log } = {}) {
           if (!dumpouVotacao) {
             dumpouVotacao = true;
             const raw = await cru(ITENS);
-            mudou.push(`📦 itens-em-votacao (cru, HTTP ${raw.http}):\n${raw.txt.slice(0, 1800)}`);
+            dumps.push(`📦 itens-em-votacao (cru, HTTP ${raw.http}):\n${raw.txt.slice(0, 1800)}`);
           }
         } else if (sessaoAberta) {
           mudou.push('🗳 Nenhum item em votação no momento.');
@@ -98,12 +102,9 @@ function iniciarEspiaoCosev({ api, admin, log = console.log } = {}) {
 
       if (mudou.length) {
         const cab = st ? `👥 presentes=${st.presentes}` : '(presença indisponível)';
-        await enviar(`🕵️ cosev — ${cab}\n\n${mudou.join('\n\n')}`);
-        ultimoHeartbeat = Date.now();
-      } else if (sessaoAberta && Date.now() - ultimoHeartbeat > HEARTBEAT_MS) {
-        ultimoHeartbeat = Date.now();
-        await enviar(`🕵️ cosev vivo — presentes=${st?.presentes ?? '?'} · ODD ini=${st?.oddIniciada ?? prev.oddIni} fim=${st?.oddEncerrada ?? prev.oddFim} · itens=${(itens || []).length}`);
+        await enviarMudanca(`🕵️ cosev — ${cab}\n\n${mudou.join('\n\n')}`);
       }
+      for (const d of dumps) await enviarDump(d);   // JSON cru: só no privado
     } catch (e) {
       log('[cosev-espião] tick falhou: ' + e.message);
     }
