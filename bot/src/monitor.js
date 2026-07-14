@@ -144,22 +144,43 @@ function legendaBancada(placar) {
   return partes.join('\n').slice(0, 1024);   // limite de caption do Telegram
 }
 
-// ---------- Descrição curta da matéria (apelido da análise → ementa da API) ----------
+// ---------- Descrição curta da matéria ----------
+// Prioridade: APELIDO do SisPode (o nome que a equipe dá ao projeto) — da
+// análise mais recente ou do item na pauta em uso. Só sem apelido nenhum cai
+// na ementa da API, cortada em fronteira de palavra.
 const _descrCache = new Map();
+
+function cortarNaPalavra(s, n = 120) {
+  s = String(s || '').replace(/\s+/g, ' ').trim();
+  if (s.length <= n) return s;
+  const c = s.slice(0, n);
+  const i = c.lastIndexOf(' ');
+  return (i > n - 25 ? c.slice(0, i) : c) + '…';
+}
+
 async function descricaoCurta(ref) {
   if (!ref) return '';
   const k = `${ref.sigla}-${ref.numero}-${ref.ano}`;
   if (_descrCache.has(k)) return _descrCache.get(k);
   let out = '';
+  // 1) apelido da análise mais recente no SisPode
   try {
     const a = await carregarAnaliseMaisRecente(k);
     if (a?.apelido) out = a.apelido;
   } catch (_) {}
+  // 2) apelido gravado no item da pauta em uso (existe mesmo sem análise)
+  if (!out) {
+    try {
+      const p = await pautaAtualImportada();
+      const it = (p?.itens || []).find(x => x.chave === k);
+      if (it?.apelido) out = it.apelido;
+    } catch (_) {}
+  }
+  // 3) fallback: ementa da API, encurtada com corte limpo
   if (!out) {
     try {
       const r = await fetchTimeout(`${API}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`, 8000);
-      const em = (await r.json()).dados?.[0]?.ementa || '';
-      out = em.replace(/\s+/g, ' ').slice(0, 140);
+      out = cortarNaPalavra((await r.json()).dados?.[0]?.ementa || '');
     } catch (_) {}
   }
   _descrCache.set(k, out);
