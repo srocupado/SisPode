@@ -387,10 +387,19 @@ async function ativarSessao(ev) {
     estado, falhasPainel: 0, avisoFalhaDado: false, tickando: false,
   };
   console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})`);
-  // A abertura da sessão NÃO é mais anunciada aqui: o aviso de presença/
-  // inscrições (tickAbertura, gatilho cosev) já cobre esse momento no grupo.
-  // Persiste só os metadados da sessão, uma vez.
+  // ABERTURA FORMAL da sessão (o "martelo"). Calibrado ao vivo em 14/07: o
+  // push do Infoleg "Início de Sessão Deliberativa às 15:55" bateu com o
+  // evento dos Dados Abertos virando "Em Andamento" (15:55) — enquanto o
+  // cosev NÃO mudou nada (segue a mesma sessão do painel desde a manhã).
+  // Logo: presença/inscrições = cosev (tickAbertura); ABERTA A SESSÃO = aqui.
   if (!estado.inicioAnunciado) {
+    const desc = `${ev.descricao || ''} ${ev.descricaoTipo || ''}`;
+    const tipoSessao = /extraordin/i.test(desc) ? 'EXTRAORDINÁRIA'
+      : /\bordin[áa]ri/i.test(desc) ? 'ORDINÁRIA' : 'DELIBERATIVA';
+    await enviar(
+      `*ABERTA A SESSÃO ${tipoSessao}*\n\n` +
+      'A sessão seguirá com as Breves Comunicações até o início da Ordem do Dia.',
+      { md: true });
     estado.inicioAnunciado = true;
     marcar(ev.id, { inicioAnunciado: true, dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '' });
   }
