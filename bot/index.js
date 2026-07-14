@@ -17,6 +17,7 @@ const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
+const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
@@ -41,6 +42,7 @@ const TEXTO_AJUDA =
   '/varrercomissoes [data] — varre as comissões atrás de projetos do Podemos (autoria/relatoria)\n' +
   '(em linguagem natural: "tem projeto do Podemos na CCJ amanhã?", "quais comissões se reúnem hoje?")\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
+  '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1072,6 +1074,22 @@ async function cmdVotacao(ctx, texto) {
 }
 bot.command('votacao', ctx => cmdVotacao(ctx, ctx.match));
 
+// /quorum — presença ao vivo pelo painel público (cosev/ws-plenário)
+bot.command('quorum', async ctx => {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const st = await statusPlenario();
+    if (!st) return ctx.reply('Não consegui ler o painel de presença agora — tente de novo em instantes.');
+    if (!st.presentes) return ctx.reply('O Painel não registra deputados presentes no momento (sem sessão aberta ou presença ainda não iniciada).');
+    const fase = st.oddEncerrada ? ' · Ordem do Dia encerrada'
+      : st.oddIniciada ? ' · Ordem do Dia em andamento' : '';
+    return ctx.reply(`👥 O Painel registra *${st.presentes}* deputado(s) presente(s)${fase}.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('/quorum falhou:', e);
+    return ctx.reply('Não consegui ler o painel de presença agora.');
+  }
+});
+
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
@@ -1625,6 +1643,7 @@ const MENU_COMANDOS = [
   { command: 'comissoeshoje',  description: 'Comissões com reunião deliberativa na data' },
   { command: 'varrercomissoes', description: 'Projetos do Podemos nas comissões do dia' },
   { command: 'votacao',        description: 'Votações do Plenário + imagem do placar' },
+  { command: 'quorum',         description: 'Presença ao vivo no Plenário (painel público)' },
   { command: 'resumo',         description: 'Resumo da sessão do dia' },
   { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
   { command: 'limpar',         description: 'Zerar a conversa com a IA' },
