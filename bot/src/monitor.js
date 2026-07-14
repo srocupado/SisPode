@@ -325,20 +325,19 @@ async function tickAbertura() {
     _presencaSessao = num;
     marcarCosev({ presencaSessao: num });
     const tipo = tipoDoNomeSessao(sess.nome) || 'DELIBERATIVA';
-    // 1) Abertura do registro de presença e das inscrições (pelo Infoleg) —
-    //    é o que acontece PRIMEIRO na casa.
+    // Abertura do registro de presença e das inscrições (pelo Infoleg) — é o
+    // que acontece PRIMEIRO na casa. Este é o gatilho certo (cosev vê a sessão
+    // / presença começa a encher).
     await enviar(
       `📝 *ABERTO O REGISTRO DE PRESENÇA NA SESSÃO ${tipo}*\n\n` +
       `O registro de presença deve ser feito pelo INFOLEG APP\n\n` +
       `📝 *ABERTA AS INSCRIÇÕES DE ORADORES e para BREVES COMUNICAÇÕES*\n\n` +
       `As inscrições de oradores para os itens da pauta de hoje e para as breves comunicações devem ser feitas pelo INFOLEG APP`,
       { md: true });
-    // 2) Abertura da sessão.
-    await enviar(
-      `*ABERTA A SESSÃO ${tipo}*\n\n` +
-      'A sessão seguirá com as Breves Comunicações até o início da Ordem do Dia.',
-      { md: true });
-    console.log(`[monitor] presença/inscrições + abertura de sessão enviados (sessão ${num}, ${tipo}).`);
+    // A "ABERTA A SESSÃO" NÃO sai aqui: a abertura formal da sessão é um evento
+    // POSTERIOR à abertura da presença, com gatilho próprio a ser calibrado ao
+    // vivo (ver qual sinal do cosev/Dados Abertos marca o momento real).
+    console.log(`[monitor] aviso de presença/inscrições enviado (sessão ${num}, ${tipo}).`);
   }
 
   // Aviso de QUÓRUM — uma vez por sessão, quando a presença atinge a maioria
