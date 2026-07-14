@@ -359,16 +359,10 @@ async function ativarSessao(ev) {
     estado, falhasPainel: 0, avisoFalhaDado: false, tickando: false,
   };
   console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})`);
+  // A abertura da sessão NÃO é mais anunciada aqui: o aviso de presença/
+  // inscrições (tickAbertura, gatilho cosev) já cobre esse momento no grupo.
+  // Persiste só os metadados da sessão, uma vez.
   if (!estado.inicioAnunciado) {
-    // Ordinária/Extraordinária vem no `descricao` (o descricaoTipo é só
-    // "Sessão Deliberativa"); cai para "DELIBERATIVA" se não especificar.
-    const desc = `${ev.descricao || ''} ${ev.descricaoTipo || ''}`;
-    const tipoSessao = /extraordin/i.test(desc) ? 'EXTRAORDINÁRIA'
-      : /\bordin[áa]ri/i.test(desc) ? 'ORDINÁRIA' : 'DELIBERATIVA';
-    await enviar(
-      `*ABERTA A SESSÃO ${tipoSessao}*\n\n` +
-      'A sessão seguirá com as Breves Comunicações até o início da Ordem do Dia.',
-      { md: true });
     estado.inicioAnunciado = true;
     marcar(ev.id, { inicioAnunciado: true, dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '' });
   }
