@@ -9,7 +9,7 @@
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
 const { fbGet, fbPatch } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
-const { statusPlenario } = require('./plenariocosev');
+const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
@@ -27,7 +27,7 @@ const RESUMO_TENTATIVAS_MIN = [0, 5, 10];
 
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
-let _timerEv = null, _timerPainel = null;
+let _timerEv = null, _timerPainel = null, _timerAbertura = null;
 
 const agoraSP = () => new Intl.DateTimeFormat('en-US', {
   timeZone: 'America/Sao_Paulo', weekday: 'short', hour: 'numeric', hour12: false,
@@ -265,6 +265,57 @@ async function checarFimDaOdd() {
 async function oddEncerradaNoCosev() {
   try { const st = await statusPlenario(); return !!(st && st.oddEncerrada); }
   catch (_) { return false; }
+}
+
+// ---------- Abertura de sessão (cosev) → aviso de presença/inscrições ----------
+// O painel público do app Infoleg expõe a sessão assim que ela abre (bem antes
+// de a API de Dados Abertos marcar "Em Andamento"). Na abertura, presença e
+// inscrições de oradores/breves comunicações passam a valer pelo Infoleg — é o
+// que este aviso comunica ao grupo. Poll leve e dedicado (não depende do
+// _sessao dos Dados Abertos, que é mais lento).
+const COSEV_ABERTURA_MS = 12e3;
+let _presencaSessao = null;   // numSessao já anunciada (persistida entre reinícios)
+
+function marcarCosev(patch) { fbPatch('/bot/monitor_cosev', patch).catch(() => {}); }
+
+// "EXTRAORDINÁRIA Nº 143 - 14/07/2026" → "EXTRAORDINÁRIA"
+function tipoDoNomeSessao(nome) {
+  const m = String(nome || '').match(/^\s*([A-Za-zÀ-ÿ ]+?)\s*N[ºo°]/);
+  return (m ? m[1] : '').trim().toUpperCase();
+}
+
+// Ao subir, carrega a última sessão já anunciada; se JÁ houver sessão aberta
+// neste momento (bot reiniciado no meio dela), registra sem anunciar — evita
+// um aviso de presença atrasado. Só uma sessão que ABRE com o bot no ar dispara.
+async function primingAbertura() {
+  try { const v = await fbGet('/bot/monitor_cosev/presencaSessao'); if (v != null) _presencaSessao = v; }
+  catch (_) {}
+  try {
+    const sess = await sessaoAtual();
+    if (sess && sess.aberta && sess.numSessao != null && sess.numSessao !== _presencaSessao) {
+      _presencaSessao = sess.numSessao;
+      marcarCosev({ presencaSessao: sess.numSessao });
+    }
+  } catch (_) {}
+}
+
+async function tickAbertura() {
+  if (!_cfg.ligado || !janelaAtiva()) return;
+  let sess;
+  try { sess = await sessaoAtual(); } catch (_) { return; }
+  if (!sess || !sess.aberta || !sess.deliberativa) return;
+  const num = sess.numSessao;
+  if (num == null || num === _presencaSessao) return;   // já anunciada / sem número
+  _presencaSessao = num;
+  marcarCosev({ presencaSessao: num });
+  const tipo = tipoDoNomeSessao(sess.nome) || 'DELIBERATIVA';
+  await enviar(
+    `📝 *ABERTO O REGISTRO DE PRESENÇA NA SESSÃO ${tipo}*\n\n` +
+    `O registro de presença deve ser feito pelo INFOLEG APP\n\n` +
+    `📝 *ABERTA AS INSCRIÇÕES DE ORADORES e para BREVES COMUNICAÇÕES*\n\n` +
+    `As inscrições de oradores para os itens da pauta de hoje e para as breves comunicações devem ser feitas pelo INFOLEG APP`,
+    { md: true });
+  console.log(`[monitor] aviso de presença/inscrições enviado (sessão ${num}, ${tipo}).`);
 }
 
 // Sinal RÁPIDO: itens não apreciados carimbados no fim da ODD (checado a cada tick).
@@ -532,6 +583,11 @@ function iniciarMonitor(cfg) {
   clearInterval(_timerEv);
   _timerEv = setInterval(tickEventos, POLL_EVENTOS_MS);
   tickEventos();
+  // Aviso de presença/inscrições pela abertura da sessão no cosev (poll próprio).
+  clearInterval(_timerAbertura);
+  primingAbertura().finally(() => {
+    _timerAbertura = setInterval(tickAbertura, COSEV_ABERTURA_MS);
+  });
   console.log(`[monitor] ligado (${_cfg.ensaio() ? 'MODO ENSAIO — mensagens só para o admin' : 'produção — grupo'})`);
 }
 
