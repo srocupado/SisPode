@@ -166,6 +166,60 @@ async function descricaoCurta(ref) {
   return out;
 }
 
+// ---------- Resultado de votação SIMBÓLICA (via Dados Abertos) ----------
+// Padrão de rótulo de urgência no portal: "REQ Nº 3828/2026 - URGÊNCIA PARA
+// APRECIAÇÃO DO PL 3085/2026 (Simbólica)".
+const REGEX_URGENCIA = /URG[ÊE]NCIA\s+PARA\s+APRECIA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i;
+
+// Primeira referência "SIGLA Nº NUM/ANO" do rótulo = a proposição VOTADA
+// (na urgência é o REQ, não o PL alvo).
+function refDoRotulo(rotulo) {
+  const m = String(rotulo || '').match(/([A-Z]{2,4})\s*Nº?\s*([\d.]+)\s*\/\s*(\d{4})/i);
+  return m ? { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] } : null;
+}
+
+const _idPropCache = new Map();
+async function idProposicao(ref) {
+  const k = `${ref.sigla}-${ref.numero}-${ref.ano}`;
+  if (_idPropCache.has(k)) return _idPropCache.get(k);
+  let id = null;
+  try {
+    const r = await fetchTimeout(`${API}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`, 8000);
+    id = (await r.json()).dados?.[0]?.id || null;
+  } catch (_) {}
+  if (id) _idPropCache.set(k, id);   // não cacheia falha (API pode estar lenta)
+  return id;
+}
+
+// O id da votação nos Dados Abertos é "{idProposicao}-{seq}" (validado ao vivo:
+// REQ 3828/2026 id=2638803 → votação "2638803-7", aprovacao=1). É o casamento
+// exato entre o item que sumiu do portal e o seu resultado.
+async function checarResultadoSimbolico(s, itemId) {
+  const reg = s?.estado?.itens?.[itemId];
+  if (!reg || reg.resultadoAnunciado) return;
+  const ref = refDoRotulo(reg.rotulo);
+  if (!ref) return;
+  const idProp = await idProposicao(ref);
+  if (!idProp) return;
+  const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
+  if (!r.ok) return;
+  const v = ((await r.json()).dados || []).find(x => String(x.id || '').startsWith(`${idProp}-`));
+  if (!v || v.aprovacao == null) return;   // resultado ainda não publicado — próxima tentativa
+  reg.resultadoAnunciado = true;
+  marcar(s.id, { [`itens/${itemId}/resultadoAnunciado`]: true });
+  const aprovada = Number(v.aprovacao) === 1;
+  const urg = String(reg.rotulo || '').match(REGEX_URGENCIA);
+  if (urg) {
+    const alvo = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+    const desc = await descricaoCurta(alvo);
+    await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+  } else {
+    const ident = identificarItem(reg.rotulo || '');
+    const desc = await descricaoCurta(ident.ref);
+    await enviar(`${aprovada ? 'Aprovado' : 'Rejeitado'}, simbolicamente: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+  }
+}
+
 // ---------- Estado persistido por sessão ----------
 // ATENÇÃO: o RTDB não armazena objetos vazios — um estado salvo sem itens volta
 // SEM a chave `itens`. Normalizar aqui é obrigatório: sem isso, após um reinício
@@ -492,8 +546,9 @@ async function tickPainel() {
         const reg = est.itens[item.id] || (est.itens[item.id] = {});
         if (!reg.anunciado) {
           reg.anunciado = true;
-          marcar(_sessao.id, { [`itens/${item.id}/anunciado`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
-          const urg = item.rotulo.match(/URG[ÊE]NCIA\s+PARA\s+APRECIA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i);
+          reg.simbolico = true;
+          marcar(_sessao.id, { [`itens/${item.id}/anunciado`]: true, [`itens/${item.id}/simbolico`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
+          const urg = item.rotulo.match(REGEX_URGENCIA);
           if (urg) {
             const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
             const desc = await descricaoCurta(ref);
@@ -544,6 +599,22 @@ async function tickPainel() {
       } catch (eItem) {
         // Um item com problema não pode calar os demais nem os próximos ticks.
         console.warn(`[monitor] item ${item.id} falhou neste tick:`, eItem.message);
+      }
+    }
+
+    // RESULTADO das simbólicas: quando um item simbólico anunciado SOME do
+    // portal, a apreciação terminou — o resultado (campo `aprovacao`) sai nos
+    // Dados Abertos minutos depois. Agenda checagens escalonadas.
+    const idsNoPortal = new Set(itens.map(i => String(i.id)));
+    for (const [itemId, reg] of Object.entries(est.itens)) {
+      if (reg.simbolico && reg.anunciado && !reg.resultadoAnunciado
+          && !idsNoPortal.has(String(itemId)) && !reg._resAgendado) {
+        reg._resAgendado = true;
+        const s = _sessao;
+        for (const ms of [15e3, 60e3, 180e3, 420e3]) {
+          setTimeout(() => checarResultadoSimbolico(s, itemId).catch(e =>
+            console.warn('[monitor] resultado simbólico falhou:', e.message)), ms);
+        }
       }
     }
 
