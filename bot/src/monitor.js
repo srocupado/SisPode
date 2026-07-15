@@ -213,6 +213,39 @@ function materiasEmAnalise(html) {
   return out;
 }
 
+// Situação por matéria na página do evento: cada bloco de item da pauta traz
+// <span class="texto-link">Aprovada com alterações</span> (ou Aprovada,
+// Rejeitada, Prejudicada, Retirada de pauta) assim que a apreciação termina —
+// forma validada ao vivo em 15/07 (PL 3839/2023 e /2024). É a fonte do
+// RESULTADO simbólico, sem Dados Abertos.
+function situacoesDoEvento(html) {
+  const out = [];
+  const seg = String(html || '').split(/item-pauta__proposicao">/);
+  for (let i = 1; i < seg.length; i++) {
+    const m = seg[i].match(/^\s*([A-Z]{2,4})\s+([\d.]+)\/(\d{4})/);
+    if (!m) continue;
+    const em = seg[i].match(/<\/a>\s*-\s*([^<]*)/);
+    const st = seg[i].match(/texto-link">\s*([^<]{3,60}?)\s*</);
+    const situacao = st ? st[1].trim() : '';
+    if (/^(Aprovad|Rejeitad|Prejudicad|Retirad)/i.test(situacao)) {
+      out.push({ sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3],
+                 ementa: (em ? em[1] : '').trim(), situacao });
+    }
+  }
+  return out;
+}
+
+// Alvo de um requerimento de urgência a partir da EMENTA ("…urgência na
+// apreciação do Projeto de Lei nº 2.581/2026", "…do PL nº 3.612, de 2026").
+function alvoDaUrgencia(texto) {
+  const t = String(texto || '');
+  let m = t.match(/\b(PL|PLP|PDL|PEC|MPV|PRC)\s*n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s*)(\d{4})/i);
+  if (m) return { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] };
+  m = t.match(/Projeto\s+de\s+Lei(\s+Complementar)?\s*n?[ºo°.]?\s*([\d.]+)\s*(?:\/|,?\s*de\s*)(\d{4})/i);
+  if (m) return { sigla: m[1] ? 'PLP' : 'PL', numero: m[2].replace(/\./g, ''), ano: m[3] };
+  return null;
+}
+
 async function checarDiscussao() {
   const s = _sessao;
   if (!s || Date.now() - _ultimaDiscussao < DISCUSSAO_MS) return;
@@ -223,6 +256,8 @@ async function checarDiscussao() {
     if (!r.ok) return;
     html = await r.text();
   } catch (_) { return; }
+
+  // 1) ANÚNCIO — matéria que entrou em apreciação (bloco "Propostas em análise").
   for (const mat of materiasEmAnalise(html)) {
     if (/^(REQ|REC)$/i.test(mat.sigla)) continue;   // urgências têm anúncio próprio (portal)
     const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
@@ -233,6 +268,32 @@ async function checarDiscussao() {
     const fem = /^(PEC|MPV)$/.test(mat.sigla);
     await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
     console.log(`[monitor] matéria anunciada (página do evento): ${chave}`);
+  }
+
+  // 2) RESULTADO — situação terminal por matéria. Só para apreciação SIMBÓLICA:
+  // matéria vista em votação NOMINAL no portal fica de fora (o placar cobre).
+  for (const mat of situacoesDoEvento(html)) {
+    const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
+    if (s.estado.resultadosPag[chave] || s.estado.nominaisChave[chave]) continue;
+    s.estado.resultadosPag[chave] = true;
+    marcar(s.id, { [`resultadosPag/${chave}`]: true });
+    const aprovada = /^Aprovad/i.test(mat.situacao);
+    const rejeitada = /^Rejeitad/i.test(mat.situacao);
+    if (/^(REQ|REC)$/.test(mat.sigla)) {
+      const alvo = alvoDaUrgencia(mat.ementa);
+      if (!alvo || !(aprovada || rejeitada)) continue;   // urgência sem alvo identificável: silêncio
+      const desc = await descricaoCurta(alvo);
+      await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    } else if (aprovada || rejeitada) {
+      const desc = await descricaoCurta(mat);
+      const fem = /^(PEC|MPV)$/.test(mat.sigla);
+      const compl = /altera[çc][õo]es/i.test(mat.situacao) ? ', com alterações' : '';
+      await enviar(`${aprovada ? (fem ? 'Aprovada' : 'Aprovado') : (fem ? 'Rejeitada' : 'Rejeitado')}, simbolicamente, ${fem ? 'a' : 'o'} *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}${compl}`, { md: true });
+    } else {
+      // Prejudicada / Retirada de pauta: repassa a situação oficial, sobriamente.
+      await enviar(`*${mat.sigla} ${mat.numero}/${mat.ano}* — ${mat.situacao}.`, { md: true });
+    }
+    console.log(`[monitor] resultado anunciado (página do evento): ${chave} → ${mat.situacao}`);
   }
 }
 
@@ -278,7 +339,6 @@ function linhaDoDestaque(rotulo) {
   return partes.join(' - ').replace(/\.?$/, '.');
 }
 
-// ---------- Resultado de votação SIMBÓLICA (via Dados Abertos) ----------
 // Padrão de rótulo de urgência no portal: "REQ Nº 3828/2026 - URGÊNCIA PARA
 // APRECIAÇÃO DO PL 3085/2026 (Simbólica)".
 const REGEX_URGENCIA = /URG[ÊE]NCIA\s+PARA\s+APRECIA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i;
@@ -289,80 +349,9 @@ function refDoRotulo(rotulo) {
   const m = String(rotulo || '').match(/([A-Z]{2,4})\s*Nº?\s*([\d.]+)\s*\/\s*(\d{4})/i);
   return m ? { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3] } : null;
 }
-
-const _idPropCache = new Map();
-async function idProposicao(ref) {
-  const k = `${ref.sigla}-${ref.numero}-${ref.ano}`;
-  if (_idPropCache.has(k)) return _idPropCache.get(k);
-  let id = null;
-  try {
-    const r = await fetchTimeout(`${API}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}`, 8000);
-    id = (await r.json()).dados?.[0]?.id || null;
-  } catch (_) {}
-  if (id) _idPropCache.set(k, id);   // não cacheia falha (API pode estar lenta)
-  return id;
-}
-
-// O id da votação nos Dados Abertos é "{idProposicao}-{seq}" (validado ao vivo:
-// REQ 3828/2026 id=2638803 → votação "2638803-7", aprovacao=1). ATENÇÃO: mérito,
-// emendas e redação final da MESMA matéria compartilham o prefixo (id do PL) —
-// a desambiguação é pela descrição oficial da votação.
-function escolherVotacao(vs, idProp, rotulo) {
-  const cands = (vs || []).filter(x => String(x.id || '').startsWith(`${idProp}-`));
-  if (cands.length <= 1) return cands[0] || null;
-  const r = String(rotulo || '');
-  const quer =
-    /EMENDAS?/i.test(r) ? /emendas?/i :
-    /REDA[ÇC][ÃA]O\s+FINAL/i.test(r) ? /reda[çc][ãa]o\s+final/i :
-    /URG[ÊE]NCIA/i.test(r) ? /urg[êe]ncia/i :
-    /projeto|proposta|medida|decreto|resolu/i;   // mérito da matéria
-  const pool = cands.filter(x => quer.test(x.descricao || ''));
-  const lista = pool.length ? pool : cands;
-  lista.sort((a, b) => String(b.dataHoraRegistro || '').localeCompare(String(a.dataHoraRegistro || '')));
-  return lista[0];
-}
-
-async function checarResultadoSimbolico(s, itemId) {
-  const reg = s?.estado?.itens?.[itemId];
-  if (!reg || reg.resultadoAnunciado) return;
-  const ref = refDoRotulo(reg.rotulo);
-  if (!ref) return;
-  const idProp = await idProposicao(ref);
-  if (!idProp) return;
-  const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
-  if (!r.ok) return;
-  const v = escolherVotacao((await r.json()).dados, idProp, reg.rotulo);
-  if (!v || v.aprovacao == null) return;   // resultado ainda não publicado — próxima tentativa
-  reg.resultadoAnunciado = true;
-  marcar(s.id, { [`itens/${itemId}/resultadoAnunciado`]: true });
-  const aprovada = Number(v.aprovacao) === 1;
-  // Ressalva oficial ("ressalvado o destaque", "ressalvados os destaques"),
-  // copiada da descrição da votação — nunca inventada.
-  const rm = String(v.descricao || '').match(/ressalvad[^.;]*/i);
-  const ressalva = rm ? `, ${rm[0].trim()}` : '';
-  const rot = String(reg.rotulo || '');
-  const urg = rot.match(REGEX_URGENCIA);
-  const ehDest = REGEX_DESTAQUE.test(rot);
-  const ehEmendas = !urg && /EMENDAS?/i.test(rot);
-  const alvo = refDoRotulo(rot);
-  if (urg) {
-    const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
-    const desc = await descricaoCurta(ref);
-    await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-  } else if (!ehDest && !ehEmendas && alvo) {
-    // Matéria (mérito): "Aprovado, simbolicamente, o *PL X/AAAA* (apelido)"
-    // — casado pela REFERÊNCIA do rótulo (o portal escreve "PL Nº 3085/2026 -
-    // PROJETO DE LEI", sem a palavra "votação"). Ressalva oficial quando houver.
-    const desc = await descricaoCurta(alvo);
-    const fem = /^(PEC|MPV)$/.test(alvo.sigla);
-    await enviar(`${aprovada ? (fem ? 'Aprovada' : 'Aprovado') : (fem ? 'Rejeitada' : 'Rejeitado')}, simbolicamente, ${fem ? 'a' : 'o'} *${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}${ressalva}`, { md: true });
-  } else {
-    // Destaques/emendas e afins: repassa a DESCRIÇÃO OFICIAL (gênero/plural
-    // sempre certos: "Rejeitadas as Emendas de Plenário.").
-    const oficial = String(v.descricao || '').trim().replace(/\.$/, '');
-    await enviar(`Votação simbólica — *${oficial || (aprovada ? 'Aprovado' : 'Rejeitado')}*`, { md: true });
-  }
-}
+// (O resultado das votações simbólicas vem da PÁGINA DO EVENTO — ver
+// situacoesDoEvento/checarDiscussao. A rota antiga por Dados Abertos foi
+// removida por latência; Dados Abertos seguem só nos ENCAMINHAMENTOS.)
 
 // ---------- Estado persistido por sessão ----------
 // ATENÇÃO: o RTDB não armazena objetos vazios — um estado salvo sem itens volta
@@ -384,6 +373,8 @@ async function carregarEstado(eventoId) {
     destinosEnviado:  !!e.destinosEnviado,
     itens:            e.itens || {},
     discutidos:       e.discutidos || {},
+    resultadosPag:    e.resultadosPag || {},   // resultado (página do evento) já anunciado, por chave
+    nominaisChave:    e.nominaisChave || {},   // matérias vistas em votação NOMINAL (não anunciar como simbólicas)
   };
 }
 function marcar(eventoId, patch) {
@@ -727,6 +718,14 @@ async function tickPainel() {
         } else {
           const desc = await descricaoCurta(ident.ref);
           await enviar(`*VOTAÇÃO NOMINAL*\n\n${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+          // Matéria em votação NOMINAL: o resultado dela é o PLACAR (imagem) —
+          // a página do evento não deve anunciá-la como simbólica.
+          const rn = refDoRotulo(item.rotulo);
+          if (rn) {
+            const k = `${rn.sigla}-${rn.numero}-${rn.ano}`;
+            est.nominaisChave[k] = true;
+            marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
+          }
         }
         reg.abertura = true;
         marcar(_sessao.id, { [`itens/${item.id}/abertura`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
@@ -762,25 +761,10 @@ async function tickPainel() {
       }
     }
 
-    // Matéria em DISCUSSÃO (fase anterior à abertura da votação no portal) —
-    // anunciada a partir da página do evento, com throttle próprio de 30s.
-    await checarDiscussao().catch(e => console.warn('[monitor] discussão falhou:', e.message));
-
-    // RESULTADO das simbólicas: quando um item simbólico anunciado SOME do
-    // portal, a apreciação terminou — o resultado (campo `aprovacao`) sai nos
-    // Dados Abertos minutos depois. Agenda checagens escalonadas.
-    const idsNoPortal = new Set(itens.map(i => String(i.id)));
-    for (const [itemId, reg] of Object.entries(est.itens)) {
-      if (reg.simbolico && reg.anunciado && !reg.resultadoAnunciado
-          && !idsNoPortal.has(String(itemId)) && !reg._resAgendado) {
-        reg._resAgendado = true;
-        const s = _sessao;
-        for (const ms of [15e3, 60e3, 180e3, 420e3]) {
-          setTimeout(() => checarResultadoSimbolico(s, itemId).catch(e =>
-            console.warn('[monitor] resultado simbólico falhou:', e.message)), ms);
-        }
-      }
-    }
+    // Página do evento (throttle próprio de 30s): ANÚNCIO da matéria que entrou
+    // em apreciação + RESULTADO das apreciações simbólicas (situação por
+    // matéria). Fonte 100% site — sem Dados Abertos neste fluxo.
+    await checarDiscussao().catch(e => console.warn('[monitor] página do evento falhou:', e.message));
 
     // Fim da ORDEM DO DIA — no laço RÁPIDO (10s), sem janela: assim o aviso sai
     // em segundos assim que o sinal aparece na fonte, não em minutos.
