@@ -411,9 +411,40 @@ async function anunciarSimbolico(rotulo, explic = '') {
   }
 }
 
-// RESULTADO da votação simbólica no fechamento pelo cosev. Assumimos APROVADO:
-// uma simbólica contestada não se encerra simbolicamente — vira nominal (e aí o
-// placar cobre). Espelha o formato do anúncio (urgência/destaque/matéria).
+// ┌─────────────────────────────────────────────────────────────────────────┐
+// │ DECISÃO DE PROJETO (15/07/2026) — "encerramento vazio = APROVADO"          │
+// ├─────────────────────────────────────────────────────────────────────────┤
+// │ O cosev NÃO informa o desfecho de uma votação simbólica. Confirmado na     │
+// │ engenharia reversa do APK Infoleg 5.4.5: o endpoint público                │
+// │ ws-plenario/votacao/{idVotacao} devolve, para tipoVotacao "S", o momento   │
+// │ do fechamento (dataFimVotacao) mas com totalVotacao VAZIO e                 │
+// │ nomeStatusVotacao NULO — não há campo "aprovada/rejeitada". O "aprovada"    │
+// │ é um ato manual do presidente que só aparece na página do evento           │
+// │ (~minutos depois) ou no Dados Abertos (mais lento ainda).                   │
+// │                                                                             │
+// │ A Liderança optou por ASSUMIR APROVADO quando o votacaoAtual simbólico     │
+// │ some (ver o rastreio _votAberta em tickAbertura). Fundamento: uma matéria  │
+// │ simbólica contestada NÃO se encerra simbolicamente — havendo dissenso, o   │
+// │ item vai a votação NOMINAL, e aí o placar (imagem, pelo portal) dá o        │
+// │ resultado real. Logo, "fechou em simbólica" ≈ "houve consenso" ≈ aprovado. │
+// │                                                                             │
+// │ SE UM DIA ISTO DER RESULTADO ERRADO, é por um destes motivos conhecidos —  │
+// │ e a correção passa por trocar a fonte do DESFECHO (não a do fechamento):    │
+// │  1. Simbólica REJEITADA/PREJUDICADA de fato (raro): sairá "Aprovado" e a    │
+// │     página do evento NÃO corrige, porque marcamos resultadosPag[chave] no   │
+// │     fechamento. Correção: não assumir; ler o carimbo real da página antes   │
+// │     de afirmar (custa os minutos de latência que este atalho evita).        │
+// │  2. Retirada de pauta: normalmente NÃO tem votacaoAtual (é retirada antes   │
+// │     de votar) → este ramo nem dispara; a página cobre. Se um dia houver     │
+// │     votacaoAtual e retirada, cairia no caso 1.                              │
+// │  3. MPV/matéria com PARECERES: o cosev abre uma sub-votação por parecer +   │
+// │     uma pela matéria, todas com a MESMA referência (ex.: MPV-1346-2026). O  │
+// │     dedup por chave garante 1 anúncio + 1 resultado, mas o "Aprovado" sai   │
+// │     no fechamento da PRIMEIRA sub-votação vista, não no da matéria-fim. Na  │
+// │     prática fecham em segundos; se precisar do desfecho da matéria em si,   │
+// │     filtrar por descricaoProposicao (a matéria não tem "PARECER" no texto). │
+// └─────────────────────────────────────────────────────────────────────────┘
+// Espelha o formato do anúncio (urgência aponta o alvo; MPV/PEC no feminino).
 async function anunciarResultadoSimbolico(rotulo) {
   const urg = String(rotulo || '').match(REGEX_URGENCIA);
   if (REGEX_DESTAQUE.test(rotulo)) {
@@ -637,7 +668,9 @@ async function tickAbertura() {
     const ant = _sessao._votAberta || null;  // simbólica aberta vista no tick anterior
 
     // FECHAMENTO: a simbólica que estava aberta sumiu (ou trocou de item).
-    // Assumimos APROVADO — uma simbólica contestada viraria nominal (placar).
+    // Assumimos APROVADO — o cosev não traz o desfecho da simbólica. Ver a
+    // DECISÃO DE PROJETO documentada sobre anunciarResultadoSimbolico() (por
+    // que assumimos, e como corrigir se um dia sair resultado errado).
     if (ant && ant.id !== atualId) {
       _sessao._votAberta = null;
       if (!est.resultadosPag[ant.chave]) {
