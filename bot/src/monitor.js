@@ -859,14 +859,9 @@ async function tentarResumo(s, tentativa) {
     marcar(s.id, { resumoEnviado: true });
     // Encaminhamentos ("vai ao Senado", "vai à sanção"): a Câmara publica os
     // despachos DEPOIS do resumo (que sai minutos após a ODD). Se saiu sem
-    // nenhum destino, agenda o complemento para quando forem publicados.
-    if (!(r.destinos || []).length && !s.estado.destinosEnviado) {
-      for (const min of [40, 90]) {
-        setTimeout(() => tentarComplementoDestinos(s).catch(e =>
-          console.warn('[monitor] complemento de destinos falhou:', e.message)), min * 60e3);
-      }
-      console.log('[monitor] resumo sem destinos — complemento agendado (+40/+90 min).');
-    }
+    // nenhum destino, vigia a publicação em poll leve — o complemento sai
+    // ~1 min depois de a Câmara publicar, seja quando for.
+    if (!(r.destinos || []).length && !s.estado.destinosEnviado) iniciarPollDestinos(s);
   } catch (e) {
     console.warn(`[monitor] resumo (tentativa ${tentativa + 1}) falhou:`, e.message);
     if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1 && _cfg.admin) {
@@ -875,8 +870,46 @@ async function tentarResumo(s, tentativa) {
   }
 }
 
-// Reconsulta a sessão e envia SÓ os encaminhamentos, uma vez, quando a Câmara
-// os publicar. Silêncio se ainda não houver nenhum (a 2ª tentativa cobre).
+// Vigia LEVE (HTTP puro, sem navegador) da publicação dos despachos de
+// encaminhamento: a cada 45s consulta as votações aprovadas da sessão e as
+// tramitações das matérias; quando o primeiro despacho de roteamento aparece,
+// chama o worker UMA vez (formata direito, com apelidos) e envia o complemento.
+// Teto de 2h — depois disso, silêncio (o /resumo manual sempre cobre).
+const DESTINOS_POLL_MS = 45e3;
+const DESTINOS_LIMITE_MS = 2 * 60 * 60e3;
+
+function iniciarPollDestinos(s) {
+  if (s._pollDestinos) return;
+  const fim = Date.now() + DESTINOS_LIMITE_MS;
+  console.log('[monitor] resumo sem destinos — vigiando a publicação (45s).');
+  s._pollDestinos = setInterval(async () => {
+    try {
+      if (s.estado.destinosEnviado || Date.now() > fim) {
+        clearInterval(s._pollDestinos); s._pollDestinos = null; return;
+      }
+      if (await algumDespachoDeDestino(s)) await tentarComplementoDestinos(s);
+    } catch (e) { console.warn('[monitor] vigia de destinos:', e.message); }
+  }, DESTINOS_POLL_MS);
+}
+
+async function algumDespachoDeDestino(s) {
+  const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
+  if (!r.ok) return false;
+  const ids = [...new Set(((await r.json()).dados || [])
+    .filter(v => Number(v.aprovacao) === 1)
+    .map(v => String(v.id || '').split('-')[0]).filter(Boolean))];
+  for (const id of ids.slice(0, 10)) {
+    try {
+      const t = await fetchTimeout(`${API}/proposicoes/${id}/tramitacoes`, 10000);
+      const trs = (await t.json()).dados || [];
+      if (trs.some(x => String(x.dataHora || '').slice(0, 10) >= s.dataISO &&
+        /^A\s+mat[ée]ria\s+(vai|retorna|volta|segue)|san[çc][ãa]o|promulga/i.test(x.despacho || ''))) return true;
+    } catch (_) {}
+  }
+  return false;
+}
+
+// Reconsulta a sessão via worker e envia SÓ os encaminhamentos, uma vez.
 async function tentarComplementoDestinos(s) {
   if (s.estado.destinosEnviado) return;
   const pauta = await pautaAtualImportada().catch(() => null);
