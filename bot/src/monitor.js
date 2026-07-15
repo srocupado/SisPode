@@ -225,9 +225,16 @@ function situacoesDoEvento(html) {
     const m = seg[i].match(/^\s*([A-Z]{2,4})\s+([\d.]+)\/(\d{4})/);
     if (!m) continue;
     const em = seg[i].match(/<\/a>\s*-\s*([^<]*)/);
-    const st = seg[i].match(/texto-link">\s*([^<]{3,60}?)\s*</);
-    const situacao = st ? st[1].trim() : '';
-    if (/^(Aprovad|Rejeitad|Prejudicad|Retirad)/i.test(situacao)) {
+    // Varre TODOS os texto-link do segmento e casa só vocabulário de situação —
+    // a mesma classe é usada em links de ação ("Opine sobre esta proposta"),
+    // que apareciam antes do status e cegavam o parser (REQ 3803, 15/07).
+    let situacao = '';
+    const reLink = /texto-link">\s*([^<]{3,60}?)\s*</g;
+    let l;
+    while ((l = reLink.exec(seg[i])) !== null) {
+      if (/^(Aprovad|Rejeitad|Prejudicad|Retirad|N[ãa]o apreciad)/i.test(l[1].trim())) { situacao = l[1].trim(); break; }
+    }
+    if (situacao) {
       out.push({ sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3],
                  ementa: (em ? em[1] : '').trim(), situacao });
     }
@@ -258,15 +265,26 @@ async function checarDiscussao() {
   } catch (_) { return; }
 
   // 1) ANÚNCIO — matéria que entrou em apreciação (bloco "Propostas em análise").
+  // REQs de urgência TAMBÉM chegam por aqui (validado 15/07: REQ 3803 apareceu
+  // no bloco e o portal nunca o listou) — saem no formato de urgência.
   for (const mat of materiasEmAnalise(html)) {
-    if (/^(REQ|REC)$/i.test(mat.sigla)) continue;   // urgências têm anúncio próprio (portal)
     const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
     if (s.estado.discutidos[chave]) continue;
     s.estado.discutidos[chave] = true;
     marcar(s.id, { [`discutidos/${chave}`]: true });
-    const desc = (await descricaoCurta(mat)) || cortarNaPalavra(mat.ementa);
-    const fem = /^(PEC|MPV)$/.test(mat.sigla);
-    await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    if (/^(REQ|REC)$/i.test(mat.sigla)) {
+      const alvo = alvoDaUrgencia(mat.ementa);
+      if (alvo) {
+        const desc = await descricaoCurta(alvo);
+        await enviar(`Anunciada a *urgência ao ${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+      } else {
+        await enviar(`Anunciado o *${mat.sigla} ${mat.numero}/${mat.ano}*${mat.ementa ? ` (${cortarNaPalavra(mat.ementa)})` : ''}`, { md: true });
+      }
+    } else {
+      const desc = (await descricaoCurta(mat)) || cortarNaPalavra(mat.ementa);
+      const fem = /^(PEC|MPV)$/.test(mat.sigla);
+      await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    }
     console.log(`[monitor] matéria anunciada (página do evento): ${chave}`);
   }
 
