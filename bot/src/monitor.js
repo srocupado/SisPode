@@ -371,6 +371,43 @@ function refDoRotulo(rotulo) {
 // situacoesDoEvento/checarDiscussao. A rota antiga por Dados Abertos foi
 // removida por latência; Dados Abertos seguem só nos ENCAMINHAMENTOS.)
 
+// Chave de DEDUPLICAÇÃO de anúncio entre as três fontes (cosev.votacaoAtual,
+// portal e página do evento): a matéria/REQ referenciada no rótulo; destaques
+// ganham prefixo próprio (DTQ2-...) para não colidir com o mérito da matéria.
+function chaveAnuncio(rotulo) {
+  const r = refDoRotulo(rotulo);
+  if (!r) return null;
+  const base = `${r.sigla}-${r.numero}-${r.ano}`;
+  const d = String(rotulo || '').match(/\b(DTQ|DVS|DVT)\s*(?:Nº?\s*)?(\d+)/i);
+  return d ? `${d[1].toUpperCase()}${d[2]}-${base}` : base;
+}
+
+// Envia o anúncio de apreciação/votação SIMBÓLICA no formato de cada tipo —
+// usado pelo portal e pelo gatilho cosev (votacaoAtual).
+async function anunciarSimbolico(rotulo, explic = '') {
+  const urg = String(rotulo || '').match(REGEX_URGENCIA);
+  if (REGEX_DESTAQUE.test(rotulo)) {
+    await enviar(`*VOTAÇÃO SIMBÓLICA:*\n${linhaDoDestaque(rotulo)}${explic}`, { md: true });
+    return;
+  }
+  if (urg) {
+    const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+    const desc = await descricaoCurta(ref);
+    await enviar(`Anunciada a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    return;
+  }
+  const ref = refDoRotulo(rotulo);
+  if (ref) {
+    const desc = await descricaoCurta(ref);
+    const fem = /^(PEC|MPV)$/.test(ref.sigla);
+    await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+  } else {
+    const ident = identificarItem(rotulo);
+    const desc = await descricaoCurta(ident.ref);
+    await enviar(`Anunciado o item: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+  }
+}
+
 // ---------- Estado persistido por sessão ----------
 // ATENÇÃO: o RTDB não armazena objetos vazios — um estado salvo sem itens volta
 // SEM a chave `itens`. Normalizar aqui é obrigatório: sem isso, após um reinício
@@ -556,6 +593,46 @@ async function tickAbertura() {
     await enviar(`*Quórum: ${st.presentes} deputado(s) presente(s) na casa!*`, { md: true });
     console.log(`[monitor] aviso de quórum enviado (sessão ${num}, ${st.presentes} presentes).`);
   }
+
+  // VOTAÇÃO EM CURSO pelo cosev (votacaoAtual) — o gatilho mais RÁPIDO (~12s)
+  // para anunciar as SIMBÓLICAS (o portal demora e às vezes nem lista, caso
+  // REQ 3803/2026; a página do evento leva ~30s+). As três fontes dividem a
+  // chave em `discutidos`: quem chegar primeiro anuncia, as demais respeitam.
+  // Precisa da sessão monitorada carregada (o estado persistido mora nela).
+  const v = sess.votacao;
+  if (v && v.titulo && _sessao && _sessao.estado) {
+    const est = _sessao.estado;
+    // Sem referência no título, deduplica pelo id da votação do painel.
+    const ck = chaveAnuncio(v.titulo) || (v.id != null ? `VOT-${v.id}` : null);
+    if (v.simbolica) {
+      if (ck && !est.discutidos[ck]) {
+        est.discutidos[ck] = true;
+        marcar(_sessao.id, { [`discutidos/${ck}`]: true });
+        let explic = '';
+        if (REGEX_DESTAQUE.test(v.titulo)) {
+          try {
+            const ficha = await buscarDestaquePreparado({ rotulo: v.titulo, dataISO: _sessao.dataISO });
+            explic = ficha?.explicacao ? `\n\n${ficha.explicacao.trim()}` : '';
+          } catch (e) { console.warn('[monitor] módulo de Destaques falhou (cosev):', e.message); }
+        }
+        await anunciarSimbolico(v.titulo, explic);
+        console.log(`[monitor] simbólica anunciada via cosev (${ck}).`);
+      }
+    } else if (v.tipoVotacao && !REGEX_DESTAQUE.test(v.titulo)) {
+      // NOMINAL (tipo ≠ "S"): o anúncio continua com o portal (que traz o
+      // placar); aqui só marcamos a matéria para a página do evento não
+      // anunciá-la como simbólica. (Valor exato do tipo nominal ainda em
+      // calibração pelo espião — tratar "não-S" como nominal é o conservador.)
+      const rn = refDoRotulo(v.titulo);
+      if (rn) {
+        const k = `${rn.sigla}-${rn.numero}-${rn.ano}`;
+        if (!est.nominaisChave[k]) {
+          est.nominaisChave[k] = true;
+          marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
+        }
+      }
+    }
+  }
 }
 
 // Sinal RÁPIDO: itens não apreciados carimbados no fim da ODD (checado a cada tick).
@@ -698,30 +775,13 @@ async function tickPainel() {
           reg.anunciado = true;
           reg.simbolico = true;
           marcar(_sessao.id, { [`itens/${item.id}/anunciado`]: true, [`itens/${item.id}/simbolico`]: true, [`itens/${item.id}/rotulo`]: item.rotulo });
-          const urg = item.rotulo.match(REGEX_URGENCIA);
-          if (ehDestaque) {
-            await enviar(`*VOTAÇÃO SIMBÓLICA:*\n${linhaDoDestaque(item.rotulo)}${explicDestaque}`, { md: true });
-          } else if (urg) {
-            const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
-            const desc = await descricaoCurta(ref);
-            await enviar(`Anunciada a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-          } else {
-            // Matéria simbólica: mensagem ÚNICA de anúncio por matéria — se a
-            // página do evento já anunciou (fase de discussão), não repete.
-            const ref = refDoRotulo(item.rotulo);
-            const chave = ref ? `${ref.sigla}-${ref.numero}-${ref.ano}` : null;
-            if (!chave || !est.discutidos[chave]) {
-              if (chave) { est.discutidos[chave] = true; marcar(_sessao.id, { [`discutidos/${chave}`]: true }); }
-              if (ref) {
-                const desc = await descricaoCurta(ref);
-                const fem = /^(PEC|MPV)$/.test(ref.sigla);
-                await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-              } else {
-                const ident = identificarItem(item.rotulo);
-                const desc = await descricaoCurta(ident.ref);
-                await enviar(`Anunciado o item: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
-              }
-            }
+          // Mensagem ÚNICA por matéria/urgência/destaque, entre as três fontes
+          // (cosev.votacaoAtual, portal, página do evento): quem chega primeiro
+          // anuncia, os demais respeitam a chave em `discutidos`.
+          const ck = chaveAnuncio(item.rotulo);
+          if (!ck || !est.discutidos[ck]) {
+            if (ck) { est.discutidos[ck] = true; marcar(_sessao.id, { [`discutidos/${ck}`]: true }); }
+            await anunciarSimbolico(item.rotulo, explicDestaque);
           }
         }
         continue;

@@ -40,8 +40,8 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
   const enviarMudanca = (txt) => Promise.all([...new Set([grupo, admin].filter(Boolean))].map(d => enviarA(d, txt)));
   const enviarDump    = (txt) => enviarA(admin, txt);
 
-  let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null };
-  let dumpouSessao = false, dumpouVotacao = false;
+  let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null, votId: null };
+  let dumpouSessao = false, dumpouVotacao = false, dumpouNominal = false;
 
   async function tick() {
     try {
@@ -66,7 +66,7 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
           }
         } else if (prev.sessao !== null) {
           mudou.push('🔴 SESSÃO ENCERRADA (cosev: sem sessão aberta).');
-          dumpouSessao = false; dumpouVotacao = false;
+          dumpouSessao = false; dumpouVotacao = false; dumpouNominal = false;
         }
         prev.sessao = sessaoAberta;
       }
@@ -81,6 +81,25 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
           if (prev.oddFim !== null || st.oddEncerrada) mudou.push(`🔚 indOrdemDoDiaEncerrada = ${st.oddEncerrada}`);
           prev.oddFim = st.oddEncerrada;
         }
+      }
+
+      // --- votacaoAtual (irmão de sessaoAtual; aparece durante a votação) ---
+      const vat = sess?.votacao || null;
+      const votSig = vat ? `${vat.id}|${vat.tipoVotacao}` : null;
+      if (votSig !== prev.votId) {
+        if (vat) {
+          mudou.push(`🗳 votacaoAtual [${vat.tipoVotacao || '?'}${vat.simbolica ? '/SIMBÓLICA' : ''}] id=${vat.id ?? '?'}: ${vat.titulo}`);
+          // Calibração: o valor de tipoVotacao da NOMINAL ainda é desconhecido
+          // ("S" = simbólica, confirmado 15/07) — na primeira não-S, dump cru.
+          if (!vat.simbolica && !dumpouNominal) {
+            dumpouNominal = true;
+            const raw = await cru(SESSAO);
+            dumps.push(`📦 sessao-atual com votação NÃO-simbólica (cru, HTTP ${raw.http}):\n${raw.txt.slice(0, 1800)}`);
+          }
+        } else if (prev.votId !== null) {
+          mudou.push('🗳 votacaoAtual encerrada (campo sumiu).');
+        }
+        prev.votId = votSig;
       }
 
       // --- itens em votação ---

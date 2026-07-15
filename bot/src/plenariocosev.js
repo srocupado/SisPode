@@ -61,6 +61,13 @@ async function sessaoAtual() {
   const n = s.sessaoAtual || null;
   if (!n) return { aberta: false };
   const nome = n.nomSessao || '';
+  // VOTAÇÃO EM CURSO: quando o painel abre uma votação, a resposta ganha um
+  // irmão "votacaoAtual" (descoberto ao vivo em 15/07):
+  //   { tipo:"Votacao", idVotacao:13846, tituloVotacao:"REQ Nº 3803/2026 -
+  //     URGÊNCIA PARA APRECIAÇÃO DO PL Nº 3.381/2015", tipoVotacao:"S" }
+  // tipoVotacao "S" = simbólica (o valor da nominal será calibrado ao vivo).
+  // O campo SOME quando a votação encerra. idVotacao = mesmo id do portal.
+  const v = s.votacaoAtual || null;
   return {
     aberta: true,
     numSessao: n.numSessao ?? null,
@@ -72,6 +79,12 @@ async function sessaoAtual() {
     // solenes/homenagens — o nome as denuncia. ("EXTRAORDINÁRIA" É deliberativa;
     // o regex antigo por "deliberativ" dava falso negativo.)
     deliberativa: !/solene|homenagem|comemorativ/i.test(nome),
+    votacao: v ? {
+      id: v.idVotacao ?? null,
+      titulo: String(v.tituloVotacao || '').replace(/\s+/g, ' ').trim(),
+      tipoVotacao: v.tipoVotacao || '',
+      simbolica: String(v.tipoVotacao || '').toUpperCase() === 'S',
+    } : null,
     raw: n,
   };
 }
