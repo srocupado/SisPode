@@ -187,6 +187,53 @@ async function descricaoCurta(ref) {
   return out;
 }
 
+// ---------- Matéria EM DISCUSSÃO (página do evento) ----------
+// O portal de votação só lista o item quando o presidente ABRE a votação; a
+// fase de DISCUSSÃO aparece antes, no bloco "Propostas em análise" da página
+// do evento — renderizado no servidor (validado ao vivo em 15/07, PL
+// 3839/2024). Poll suave (30s), embutido no tick do painel.
+const DISCUSSAO_MS = 30e3;
+let _ultimaDiscussao = 0;
+
+function materiasEmAnalise(html) {
+  // ESCOPO obrigatório: a página usa a MESMA classe CSS nos itens da pauta
+  // completa, mais abaixo — sem recortar a seção, anunciaríamos os ~20 itens
+  // da pauta como "em discussão". O bloco vai do título até o próximo <h2>.
+  const ini = String(html || '').search(/Propostas em an[áa]lise/i);
+  if (ini === -1) return [];
+  const resto = html.slice(ini);
+  const fim = resto.slice(20).search(/<h2/i);
+  const bloco = fim === -1 ? resto : resto.slice(0, 20 + fim);
+  const out = [];
+  const re = /item-pauta__proposicao">\s*([A-Z]{2,4})\s+([\d.]+)\/(\d{4})\s*<\/a>\s*(?:-\s*([^<]*))?/gi;
+  let m;
+  while ((m = re.exec(bloco)) !== null) {
+    out.push({ sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3], ementa: (m[4] || '').trim() });
+  }
+  return out;
+}
+
+async function checarDiscussao() {
+  const s = _sessao;
+  if (!s || Date.now() - _ultimaDiscussao < DISCUSSAO_MS) return;
+  _ultimaDiscussao = Date.now();
+  let html;
+  try {
+    const r = await fetchTimeout(`https://www.camara.leg.br/evento-legislativo/${s.id}`, 15000);
+    if (!r.ok) return;
+    html = await r.text();
+  } catch (_) { return; }
+  for (const mat of materiasEmAnalise(html)) {
+    const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
+    if (s.estado.discutidos[chave]) continue;
+    s.estado.discutidos[chave] = true;
+    marcar(s.id, { [`discutidos/${chave}`]: true });
+    const desc = (await descricaoCurta(mat)) || cortarNaPalavra(mat.ementa);
+    await enviar(`Em discussão: *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    console.log(`[monitor] discussão anunciada: ${chave}`);
+  }
+}
+
 // ---------- Destaques: reconhecimento e formatação ----------
 const REGEX_DESTAQUE = /DESTAQUE|\bDVS\b|\bDTQ\b|\bDVT\b/i;
 
@@ -330,6 +377,7 @@ async function carregarEstado(eventoId) {
     fimAnunciado:     !!e.fimAnunciado,
     resumoEnviado:    !!e.resumoEnviado,
     itens:            e.itens || {},
+    discutidos:       e.discutidos || {},
   };
 }
 function marcar(eventoId, patch) {
@@ -694,6 +742,10 @@ async function tickPainel() {
         console.warn(`[monitor] item ${item.id} falhou neste tick:`, eItem.message);
       }
     }
+
+    // Matéria em DISCUSSÃO (fase anterior à abertura da votação no portal) —
+    // anunciada a partir da página do evento, com throttle próprio de 30s.
+    await checarDiscussao().catch(e => console.warn('[monitor] discussão falhou:', e.message));
 
     // RESULTADO das simbólicas: quando um item simbólico anunciado SOME do
     // portal, a apreciação terminou — o resultado (campo `aprovacao`) sai nos
