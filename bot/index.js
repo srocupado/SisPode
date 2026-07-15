@@ -16,7 +16,7 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
-const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada } = require('./src/monitor');
+const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo } = require('./src/monitor');
 const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
@@ -1006,6 +1006,47 @@ bot.command('monitor', async ctx => {
     (s.sessao
       ? `Sessão em acompanhamento: ${s.sessao.id} (${s.sessao.dataISO}) — ${s.sessao.itens} item(ns) visto(s), ${s.sessao.encerrados} votado(s).`
       : 'Nenhuma sessão em andamento.'));
+});
+
+// ---------- Corrigir uma mensagem publicada no grupo (só ADMIN, no privado) ----------
+// /revisar_msg               → lista as últimas 5 mensagens do grupo (numeradas)
+// /revisar_msg <n>           → mostra o texto inteiro da nº <n> (p/ copiar e editar)
+// /revisar_msg <n> <texto>   → substitui a nº <n> no grupo pelo texto informado
+// (Telegram não aceita hífen em comando — por isso "_msg", não "-msg".)
+bot.command('revisar_msg', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  if (!ehPrivado(ctx)) {
+    if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID, 'Use o /revisar_msg aqui no meu privado.').catch(() => {});
+    return;
+  }
+  const lista = listarMsgsGrupo();
+  if (!lista.length) return ctx.reply('Ainda não há mensagens do monitor registradas para revisar.');
+
+  const arg = String(ctx.match || '').trim();
+  if (!arg) {
+    const linhas = lista.map(m => {
+      const hora = new Date(m.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+      const prev = m.texto.replace(/\s+/g, ' ').slice(0, 70);
+      return `${m.n}. (${hora}) ${prev}${m.texto.length > 70 ? '…' : ''}`;
+    });
+    return ctx.reply(
+      'Últimas mensagens no grupo (mais recente primeiro):\n\n' + linhas.join('\n') +
+      '\n\nVer o texto inteiro: /revisar_msg <n>\nCorrigir: /revisar_msg <n> <texto novo>');
+  }
+
+  const m = arg.match(/^(\d+)(?:\s+([\s\S]+))?$/);
+  if (!m) return ctx.reply('Uso: /revisar_msg (lista) · /revisar_msg <n> (mostra) · /revisar_msg <n> <texto novo> (corrige).');
+  const n = Number(m[1]);
+  const novo = (m[2] || '').trim();
+  const alvo = lista.find(x => x.n === n);
+  if (!alvo) return ctx.reply(`Só tenho as últimas ${lista.length} mensagens (1 a ${lista.length}).`);
+
+  if (!novo) {
+    return ctx.reply(`Texto atual da mensagem ${n}:\n\n${alvo.texto}\n\nEnvie: /revisar_msg ${n} <texto corrigido>`);
+  }
+  const r = await revisarMsgGrupo(n, novo);
+  if (!r.ok) return ctx.reply(`Não consegui corrigir a mensagem ${n}: ${r.erro}`);
+  return ctx.reply(`✅ Mensagem ${n} corrigida no grupo.`);
 });
 
 // ---------- Votação: placar da bancada como IMAGEM ----------

@@ -7,7 +7,7 @@
 //             reforço no fim da sessão se a ODD encerrar sem gatilho)
 // Mensagens vão ao GRUPO (produção) ou só ao admin (MONITOR_ENSAIO=1).
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
-const { fbGet, fbPatch } = require('./firebase');
+const { fbGet, fbPatch, fbPut } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
 const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
@@ -68,12 +68,14 @@ async function enviar(texto, { md = false } = {}) {
   const destino = _cfg.destino();
   if (!destino) { console.warn('[monitor] sem destino configurado — mensagem descartada'); return; }
   for (const parte of fatiar(texto)) {
+    let msg = null;
     if (md) {
       // Negrito Telegram (*texto*); se algum rótulo quebrar o parse, cai p/ texto puro
-      try { await _cfg.api.sendMessage(destino, parte, { parse_mode: 'Markdown' }); continue; }
+      try { msg = await _cfg.api.sendMessage(destino, parte, { parse_mode: 'Markdown' }); }
       catch (_) { /* fallback abaixo */ }
     }
-    await _cfg.api.sendMessage(destino, parte).catch(e => console.warn('[monitor] envio falhou:', e.message));
+    if (!msg) msg = await _cfg.api.sendMessage(destino, parte).catch(e => { console.warn('[monitor] envio falhou:', e.message); return null; });
+    if (msg) _registrarMsgGrupo(destino, msg, parte);
   }
 }
 
@@ -81,16 +83,72 @@ async function enviar(texto, { md = false } = {}) {
 async function enviarOuFalhar(texto) {
   const destino = _cfg.destino();
   if (!destino) throw new Error('sem destino configurado (GRUPO_CHAT_ID/MONITOR_ENSAIO)');
-  for (const parte of fatiar(texto)) await _cfg.api.sendMessage(destino, parte);
+  for (const parte of fatiar(texto)) {
+    const msg = await _cfg.api.sendMessage(destino, parte);
+    _registrarMsgGrupo(destino, msg, parte);
+  }
 }
 // Grupo (ou destino de ensaio) + cópia ao admin, sem duplicar quando o
 // destino já É o admin (modo ensaio).
 async function enviarComCopiaAdmin(texto) {
   const destinos = new Set([_cfg.destino(), _cfg.admin].filter(Boolean));
   for (const d of destinos) {
-    try { await _cfg.api.sendMessage(d, texto, { parse_mode: 'Markdown' }); }
-    catch (_) { await _cfg.api.sendMessage(d, texto).catch(e => console.warn('[monitor] envio destaque falhou:', e.message)); }
+    let msg = null;
+    try { msg = await _cfg.api.sendMessage(d, texto, { parse_mode: 'Markdown' }); }
+    catch (_) { msg = await _cfg.api.sendMessage(d, texto).catch(e => { console.warn('[monitor] envio destaque falhou:', e.message); return null; }); }
+    // Só registra a cópia pública (grupo/destino), não a do admin.
+    if (msg && d === _cfg.destino()) _registrarMsgGrupo(d, msg, texto);
   }
+}
+
+// ---------- Registro das últimas mensagens do GRUPO (comando /revisar_msg) ----------
+// Guarda as últimas REVISAVEIS_MAX mensagens de TEXTO enviadas ao destino público
+// (grupo; em ensaio, o admin) para o admin poder CORRIGIR uma que saiu errada —
+// ex.: um resultado simbólico assumido como aprovado (ver a DECISÃO DE PROJETO
+// sobre anunciarResultadoSimbolico). Sobrevive a restart via Firebase. Só texto:
+// o placar é imagem e não é editável como texto. Mensagem fatiada entra como uma
+// entrada por pedaço (edita-se o pedaço errado). Cobre só mensagens do MONITOR
+// (anúncios do Plenário) — outros posts ao grupo (ex.: Roda Viva) não passam por
+// aqui.
+const REVISAVEIS_MAX = 5;
+let _msgsGrupo = [];   // [{ message_id, chat, texto, ts }], mais antiga → mais nova
+
+async function carregarMsgsGrupo() {
+  try {
+    const v = await fbGet('/bot/msgs_grupo');
+    if (Array.isArray(v)) _msgsGrupo = v.filter(Boolean).slice(-REVISAVEIS_MAX);
+  } catch (_) {}
+}
+
+function _registrarMsgGrupo(chat, msg, texto) {
+  if (!msg || msg.message_id == null) return;
+  _msgsGrupo.push({ message_id: msg.message_id, chat, texto: String(texto || ''), ts: Date.now() });
+  if (_msgsGrupo.length > REVISAVEIS_MAX) _msgsGrupo = _msgsGrupo.slice(-REVISAVEIS_MAX);
+  fbPut('/bot/msgs_grupo', _msgsGrupo).catch(() => {});
+}
+
+/** Lista para o /revisar_msg — mais RECENTE primeiro, numerada de 1. */
+function listarMsgsGrupo() {
+  return _msgsGrupo.slice().reverse().map((m, i) => ({ n: i + 1, ...m }));
+}
+
+/** Edita a n-ésima mensagem (1 = mais recente) no chat original. Texto completo. */
+async function revisarMsgGrupo(n, novoTexto) {
+  const alvo = listarMsgsGrupo().find(m => m.n === n);
+  if (!alvo) return { ok: false, erro: 'número fora das últimas mensagens' };
+  const texto = String(novoTexto || '').trim();
+  if (!texto) return { ok: false, erro: 'texto vazio' };
+  const editar = opts => _cfg.api.editMessageText(alvo.chat, alvo.message_id, texto, opts);
+  try {
+    try { await editar({ parse_mode: 'Markdown' }); }
+    catch (_) { await editar(undefined); }   // markdown quebrou → texto puro
+  } catch (e) {
+    const m = e.description || e.message || '';
+    return { ok: false, erro: /not modified/i.test(m) ? 'o texto novo é igual ao atual.' : m };
+  }
+  const i = _msgsGrupo.findIndex(x => x.message_id === alvo.message_id && x.chat === alvo.chat);
+  if (i >= 0) { _msgsGrupo[i].texto = texto; fbPut('/bot/msgs_grupo', _msgsGrupo).catch(() => {}); }
+  return { ok: true, anterior: alvo.texto };
 }
 
 async function enviarFoto(foto, caption) {
@@ -1088,6 +1146,7 @@ async function tentarComplementoDestinos(s) {
 // ---------- API do módulo ----------
 function iniciarMonitor(cfg) {
   _cfg = { ...cfg, ligado: cfg.ligadoInicial !== false };
+  carregarMsgsGrupo();   // registro de mensagens revisáveis (sobrevive a restart)
   clearInterval(_timerEv);
   _timerEv = setInterval(tickEventos, POLL_EVENTOS_MS);
   tickEventos();
@@ -1117,4 +1176,4 @@ function statusMonitor() {
   };
 }
 
-module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada };
+module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo };
