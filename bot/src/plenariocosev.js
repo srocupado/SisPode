@@ -65,7 +65,9 @@ async function sessaoAtual() {
   // irmão "votacaoAtual" (descoberto ao vivo em 15/07):
   //   { tipo:"Votacao", idVotacao:13846, tituloVotacao:"REQ Nº 3803/2026 -
   //     URGÊNCIA PARA APRECIAÇÃO DO PL Nº 3.381/2015", tipoVotacao:"S" }
-  // tipoVotacao "S" = simbólica (o valor da nominal será calibrado ao vivo).
+  // tipoVotacao "S" = simbólica, "E" = eletrônica (nominal) — confirmado na
+  // engenharia reversa do APK Infoleg 5.4.5 (endpoint público ws-plenario/
+  // votacao/{id}: nominais trazem totalVotacao Sim/Não/Abstenção).
   // O campo SOME quando a votação encerra. idVotacao = mesmo id do portal.
   const v = s.votacaoAtual || null;
   return {

@@ -22,8 +22,11 @@ const POLL_EVENTOS_MS = 30e3;   // detecção de início/fim de sessão
 const POLL_PAINEL_MS  = 10e3;   // itens/aberturas/encerramentos (portal é a fonte rápida)
 // Tentativas do RESUMO após o encerramento: os Dados Abertos levam ~5 min
 // para publicar as matérias apreciadas — por isso minutos, não segundos.
+// A 1ª tentativa espera 30s (0.5 min) após o fim da ODD — dá tempo de a
+// última aprovação simbólica/nominal ser anunciada e de os primeiros dados
+// consolidarem, sem o resumo sair "por cima" do último resultado.
 // (Falha de ENVIO tem retry próprio de 5s/10s dentro de tentarResumo.)
-const RESUMO_TENTATIVAS_MIN = [0, 5, 10];
+const RESUMO_TENTATIVAS_MIN = [0.5, 5, 10];
 
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
@@ -408,6 +411,33 @@ async function anunciarSimbolico(rotulo, explic = '') {
   }
 }
 
+// RESULTADO da votação simbólica no fechamento pelo cosev. Assumimos APROVADO:
+// uma simbólica contestada não se encerra simbolicamente — vira nominal (e aí o
+// placar cobre). Espelha o formato do anúncio (urgência/destaque/matéria).
+async function anunciarResultadoSimbolico(rotulo) {
+  const urg = String(rotulo || '').match(REGEX_URGENCIA);
+  if (REGEX_DESTAQUE.test(rotulo)) {
+    await enviar(`Aprovado, simbolicamente, o ${linhaDoDestaque(rotulo)}`, { md: true });
+    return;
+  }
+  if (urg) {
+    const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+    const desc = await descricaoCurta(ref);
+    await enviar(`Aprovada, simbolicamente, a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    return;
+  }
+  const ref = refDoRotulo(rotulo);
+  if (ref) {
+    const desc = await descricaoCurta(ref);
+    const fem = /^(PEC|MPV)$/.test(ref.sigla);
+    await enviar(`${fem ? 'Aprovada' : 'Aprovado'}, simbolicamente, ${fem ? 'a' : 'o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+  } else {
+    const ident = identificarItem(rotulo);
+    const desc = await descricaoCurta(ident.ref);
+    await enviar(`Aprovado, simbolicamente: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+  }
+}
+
 // ---------- Estado persistido por sessão ----------
 // ATENÇÃO: o RTDB não armazena objetos vazios — um estado salvo sem itens volta
 // SEM a chave `itens`. Normalizar aqui é obrigatório: sem isso, após um reinício
@@ -594,41 +624,62 @@ async function tickAbertura() {
     console.log(`[monitor] aviso de quórum enviado (sessão ${num}, ${st.presentes} presentes).`);
   }
 
-  // VOTAÇÃO EM CURSO pelo cosev (votacaoAtual) — o gatilho mais RÁPIDO (~12s)
-  // para anunciar as SIMBÓLICAS (o portal demora e às vezes nem lista, caso
-  // REQ 3803/2026; a página do evento leva ~30s+). As três fontes dividem a
-  // chave em `discutidos`: quem chegar primeiro anuncia, as demais respeitam.
-  // Precisa da sessão monitorada carregada (o estado persistido mora nela).
-  const v = sess.votacao;
-  if (v && v.titulo && _sessao && _sessao.estado) {
+  // VOTAÇÃO pelo cosev (votacaoAtual) — o gatilho mais RÁPIDO (~12s), tanto para
+  // ANUNCIAR a simbólica que abre quanto para dar o RESULTADO quando ela fecha.
+  // O portal demora e às vezes nem lista (caso REQ 3803/2026); a página do
+  // evento leva minutos. As três fontes dividem as chaves em `discutidos`
+  // (anúncio) e `resultadosPag` (resultado): quem chegar primeiro fala, as
+  // demais respeitam. Precisa da sessão monitorada carregada (o estado mora nela).
+  if (_sessao && _sessao.estado) {
     const est = _sessao.estado;
-    // Sem referência no título, deduplica pelo id da votação do painel.
-    const ck = chaveAnuncio(v.titulo) || (v.id != null ? `VOT-${v.id}` : null);
-    if (v.simbolica) {
-      if (ck && !est.discutidos[ck]) {
-        est.discutidos[ck] = true;
-        marcar(_sessao.id, { [`discutidos/${ck}`]: true });
-        let explic = '';
-        if (REGEX_DESTAQUE.test(v.titulo)) {
-          try {
-            const ficha = await buscarDestaquePreparado({ rotulo: v.titulo, dataISO: _sessao.dataISO });
-            explic = ficha?.explicacao ? `\n\n${ficha.explicacao.trim()}` : '';
-          } catch (e) { console.warn('[monitor] módulo de Destaques falhou (cosev):', e.message); }
-        }
-        await anunciarSimbolico(v.titulo, explic);
-        console.log(`[monitor] simbólica anunciada via cosev (${ck}).`);
+    const v = sess.votacao;
+    const atualId = v && v.id != null ? v.id : null;
+    const ant = _sessao._votAberta || null;  // simbólica aberta vista no tick anterior
+
+    // FECHAMENTO: a simbólica que estava aberta sumiu (ou trocou de item).
+    // Assumimos APROVADO — uma simbólica contestada viraria nominal (placar).
+    if (ant && ant.id !== atualId) {
+      _sessao._votAberta = null;
+      if (!est.resultadosPag[ant.chave]) {
+        est.resultadosPag[ant.chave] = true;
+        marcar(_sessao.id, { [`resultadosPag/${ant.chave}`]: true });
+        await anunciarResultadoSimbolico(ant.titulo);
+        console.log(`[monitor] simbólica aprovada via cosev (${ant.chave}).`);
       }
-    } else if (v.tipoVotacao && !REGEX_DESTAQUE.test(v.titulo)) {
-      // NOMINAL (tipo ≠ "S"): o anúncio continua com o portal (que traz o
-      // placar); aqui só marcamos a matéria para a página do evento não
-      // anunciá-la como simbólica. (Valor exato do tipo nominal ainda em
-      // calibração pelo espião — tratar "não-S" como nominal é o conservador.)
-      const rn = refDoRotulo(v.titulo);
-      if (rn) {
-        const k = `${rn.sigla}-${rn.numero}-${rn.ano}`;
-        if (!est.nominaisChave[k]) {
-          est.nominaisChave[k] = true;
-          marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
+    }
+
+    // ABERTURA da votação atual.
+    if (v && v.titulo) {
+      // Sem referência no título, deduplica pelo id da votação do painel.
+      const ck = chaveAnuncio(v.titulo) || (v.id != null ? `VOT-${v.id}` : null);
+      if (v.simbolica) {
+        // Rastreia a simbólica aberta para detectar o fechamento no próximo tick.
+        if (ck) _sessao._votAberta = { id: v.id, titulo: v.titulo, chave: ck };
+        if (ck && !est.discutidos[ck]) {
+          est.discutidos[ck] = true;
+          marcar(_sessao.id, { [`discutidos/${ck}`]: true });
+          let explic = '';
+          if (REGEX_DESTAQUE.test(v.titulo)) {
+            try {
+              const ficha = await buscarDestaquePreparado({ rotulo: v.titulo, dataISO: _sessao.dataISO });
+              explic = ficha?.explicacao ? `\n\n${ficha.explicacao.trim()}` : '';
+            } catch (e) { console.warn('[monitor] módulo de Destaques falhou (cosev):', e.message); }
+          }
+          await anunciarSimbolico(v.titulo, explic);
+          console.log(`[monitor] simbólica anunciada via cosev (${ck}).`);
+        }
+      } else if (v.tipoVotacao && !REGEX_DESTAQUE.test(v.titulo)) {
+        // NOMINAL (tipoVotacao "E" = eletrônica): o anúncio+placar seguem no
+        // portal; aqui só marcamos a matéria para a página do evento não
+        // anunciá-la como simbólica. Não gera resultado simbólico.
+        _sessao._votAberta = null;
+        const rn = refDoRotulo(v.titulo);
+        if (rn) {
+          const k = `${rn.sigla}-${rn.numero}-${rn.ano}`;
+          if (!est.nominaisChave[k]) {
+            est.nominaisChave[k] = true;
+            marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
+          }
         }
       }
     }
