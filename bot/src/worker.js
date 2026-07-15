@@ -232,7 +232,12 @@ async function resumoSessao({ pautaId, dataISO }) {
           fbCarregarAnalise(it).then(a => { if (a) it.analise = a; }).catch(() => {})));
       } catch (_) {}
       try { await prepararApelidos(state.pauta?.itens || []); } catch (_) {}
-      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data) };
+      // `destinos` separado: o monitor usa para saber se os encaminhamentos
+      // ("vai ao Senado", "vai à sanção") já estavam publicados — quando não,
+      // agenda um complemento mais tarde.
+      const destinos = (res.concluidos || []).filter(c => c.destino)
+        .map(c => `${tipoLabel(c.sigla)} ${c.numero}/${c.ano} ➡️ ${c.destino}`);
+      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data), destinos };
     }, dataISO);
   } finally {
     await fecharNavegador();

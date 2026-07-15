@@ -376,6 +376,7 @@ async function carregarEstado(eventoId) {
     oddFimAnunciado:  !!e.oddFimAnunciado,
     fimAnunciado:     !!e.fimAnunciado,
     resumoEnviado:    !!e.resumoEnviado,
+    destinosEnviado:  !!e.destinosEnviado,
     itens:            e.itens || {},
     discutidos:       e.discutidos || {},
   };
@@ -856,12 +857,35 @@ async function tentarResumo(s, tentativa) {
     if (!enviado) throw ultErr;
     s.estado.resumoEnviado = true;
     marcar(s.id, { resumoEnviado: true });
+    // Encaminhamentos ("vai ao Senado", "vai à sanção"): a Câmara publica os
+    // despachos DEPOIS do resumo (que sai minutos após a ODD). Se saiu sem
+    // nenhum destino, agenda o complemento para quando forem publicados.
+    if (!(r.destinos || []).length && !s.estado.destinosEnviado) {
+      for (const min of [40, 90]) {
+        setTimeout(() => tentarComplementoDestinos(s).catch(e =>
+          console.warn('[monitor] complemento de destinos falhou:', e.message)), min * 60e3);
+      }
+      console.log('[monitor] resumo sem destinos — complemento agendado (+40/+90 min).');
+    }
   } catch (e) {
     console.warn(`[monitor] resumo (tentativa ${tentativa + 1}) falhou:`, e.message);
     if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1 && _cfg.admin) {
       _cfg.api.sendMessage(_cfg.admin, `⚠️ Monitor: o resumo da sessão de ${s.dataISO} falhou nas ${RESUMO_TENTATIVAS_MIN.length} tentativas (${e.message}).`).catch(() => {});
     }
   }
+}
+
+// Reconsulta a sessão e envia SÓ os encaminhamentos, uma vez, quando a Câmara
+// os publicar. Silêncio se ainda não houver nenhum (a 2ª tentativa cobre).
+async function tentarComplementoDestinos(s) {
+  if (s.estado.destinosEnviado) return;
+  const pauta = await pautaAtualImportada().catch(() => null);
+  const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO: s.dataISO });
+  if (r.vazio || !(r.destinos || []).length) return;
+  s.estado.destinosEnviado = true;
+  marcar(s.id, { destinosEnviado: true });
+  await enviar(`📍 *Encaminhamento das matérias:*\n${r.destinos.map(d => `▪️ ${d}`).join('\n')}`, { md: true });
+  console.log(`[monitor] complemento de destinos enviado (${r.destinos.length}).`);
 }
 
 // ---------- API do módulo ----------
