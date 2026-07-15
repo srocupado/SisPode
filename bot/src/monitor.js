@@ -224,13 +224,15 @@ async function checarDiscussao() {
     html = await r.text();
   } catch (_) { return; }
   for (const mat of materiasEmAnalise(html)) {
+    if (/^(REQ|REC)$/i.test(mat.sigla)) continue;   // urgências têm anúncio próprio (portal)
     const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
     if (s.estado.discutidos[chave]) continue;
     s.estado.discutidos[chave] = true;
     marcar(s.id, { [`discutidos/${chave}`]: true });
     const desc = (await descricaoCurta(mat)) || cortarNaPalavra(mat.ementa);
-    await enviar(`Em discussão: *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-    console.log(`[monitor] discussão anunciada: ${chave}`);
+    const fem = /^(PEC|MPV)$/.test(mat.sigla);
+    await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${mat.sigla} ${mat.numero}/${mat.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    console.log(`[monitor] matéria anunciada (página do evento): ${chave}`);
   }
 }
 
@@ -340,20 +342,23 @@ async function checarResultadoSimbolico(s, itemId) {
   const ressalva = rm ? `, ${rm[0].trim()}` : '';
   const rot = String(reg.rotulo || '');
   const urg = rot.match(REGEX_URGENCIA);
-  const mer = !urg && rot.match(/VOTA[ÇC][ÃA]O\s+D[OA]\s+([A-Z]{2,4})\s*(?:Nº?\s*)?([\d.]+)\s*\/\s*(\d{4})/i);
+  const ehDest = REGEX_DESTAQUE.test(rot);
+  const ehEmendas = !urg && /EMENDAS?/i.test(rot);
+  const alvo = refDoRotulo(rot);
   if (urg) {
-    const alvo = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+    const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
+    const desc = await descricaoCurta(ref);
+    await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+  } else if (!ehDest && !ehEmendas && alvo) {
+    // Matéria (mérito): "Aprovado, simbolicamente, o *PL X/AAAA* (apelido)"
+    // — casado pela REFERÊNCIA do rótulo (o portal escreve "PL Nº 3085/2026 -
+    // PROJETO DE LEI", sem a palavra "votação"). Ressalva oficial quando houver.
     const desc = await descricaoCurta(alvo);
-    await enviar(`${aprovada ? 'Aprovada' : 'Rejeitada'}, simbolicamente, a *urgência ao ${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-  } else if (mer) {
-    // Mérito da matéria: "Aprovado, simbolicamente, o mérito *PL X/AAAA*
-    // (apelido), ressalvado o destaque"
-    const alvo = { sigla: mer[1].toUpperCase(), numero: mer[2].replace(/\./g, ''), ano: mer[3] };
-    const desc = await descricaoCurta(alvo);
-    await enviar(`${aprovada ? 'Aprovado' : 'Rejeitado'}, simbolicamente, o mérito *${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}${ressalva}`, { md: true });
+    const fem = /^(PEC|MPV)$/.test(alvo.sigla);
+    await enviar(`${aprovada ? (fem ? 'Aprovada' : 'Aprovado') : (fem ? 'Rejeitada' : 'Rejeitado')}, simbolicamente, ${fem ? 'a' : 'o'} *${alvo.sigla} ${alvo.numero}/${alvo.ano}*${desc ? ` (${desc})` : ''}${ressalva}`, { md: true });
   } else {
-    // Demais itens: repassa a DESCRIÇÃO OFICIAL (gênero/plural sempre certos:
-    // "Rejeitadas as Emendas de Plenário.").
+    // Destaques/emendas e afins: repassa a DESCRIÇÃO OFICIAL (gênero/plural
+    // sempre certos: "Rejeitadas as Emendas de Plenário.").
     const oficial = String(v.descricao || '').trim().replace(/\.$/, '');
     await enviar(`Votação simbólica — *${oficial || (aprovada ? 'Aprovado' : 'Rejeitado')}*`, { md: true });
   }
@@ -692,9 +697,22 @@ async function tickPainel() {
             const desc = await descricaoCurta(ref);
             await enviar(`Anunciada a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
           } else {
-            const ident = identificarItem(item.rotulo);
-            const desc = await descricaoCurta(ident.ref);
-            await enviar(`Anunciado o item: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+            // Matéria simbólica: mensagem ÚNICA de anúncio por matéria — se a
+            // página do evento já anunciou (fase de discussão), não repete.
+            const ref = refDoRotulo(item.rotulo);
+            const chave = ref ? `${ref.sigla}-${ref.numero}-${ref.ano}` : null;
+            if (!chave || !est.discutidos[chave]) {
+              if (chave) { est.discutidos[chave] = true; marcar(_sessao.id, { [`discutidos/${chave}`]: true }); }
+              if (ref) {
+                const desc = await descricaoCurta(ref);
+                const fem = /^(PEC|MPV)$/.test(ref.sigla);
+                await enviar(`${fem ? 'Anunciada a' : 'Anunciado o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+              } else {
+                const ident = identificarItem(item.rotulo);
+                const desc = await descricaoCurta(ident.ref);
+                await enviar(`Anunciado o item: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+              }
+            }
           }
         }
         continue;
