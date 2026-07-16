@@ -183,6 +183,7 @@ REGRAS:
 - Prefira responder você mesmo (com as observações) a despachar ação; use AÇÃO só quando o usuário pediu a ação em si.
 - Ao usar pagina_oficial ou situacao_proposicao, cite a fonte na resposta (ex.: "segundo a Câmara").
 - Resposta final: objetiva, sem markdown pesado (Telegram), no máximo ~2500 caracteres.
+- Ao listar PESSOAS ou ITENS (oradores, deputados, matérias), coloque UM POR LINHA (com "• "), nunca corrido na frase — facilita a leitura no celular.
 ${CATALOGO_DADOS}
 ${CATALOGO_ACOES}
 

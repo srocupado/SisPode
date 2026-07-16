@@ -96,10 +96,12 @@ function blocoDaLista(lista, oradores) {
   const falaram  = oradores.filter(o => o.situacao === 'falou');
   const chamados = oradores.filter(o => o.situacao === 'chamado');
   const aguardam = oradores.filter(o => o.situacao !== 'falou' && o.situacao !== 'chamado');
+  // Um orador POR LINHA (pedido da Liderança: facilita a leitura no celular).
+  const bloco = (titulo, lst) => `${titulo}\n${lst.map(o => `• ${nomeCurto(o)}`).join('\n')}`;
   const linhas = [`*${rotuloCurto(lista)}* — ${oradores.length} inscrito(s)`];
-  if (falaram.length)  linhas.push(`✅ Falaram (${falaram.length}): ${falaram.map(nomeCurto).join(', ')}`);
-  if (chamados.length) linhas.push(`🎤 Chamado(s): ${chamados.map(nomeCurto).join(', ')}`);
-  if (aguardam.length) linhas.push(`⏳ Aguardam (${aguardam.length}): ${aguardam.map(nomeCurto).join(', ')}`);
+  if (falaram.length)  linhas.push(bloco(`✅ Falaram (${falaram.length}):`, falaram));
+  if (chamados.length) linhas.push(bloco(`🎤 Chamado(s) (${chamados.length}):`, chamados));
+  if (aguardam.length) linhas.push(bloco(`⏳ Aguardam (${aguardam.length}):`, aguardam));
   return linhas.join('\n');
 }
 
