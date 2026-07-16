@@ -20,6 +20,7 @@ const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, lis
 const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
+const { resumoOradoresDaData } = require('./src/oradores');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -43,6 +44,7 @@ const TEXTO_AJUDA =
   '(em linguagem natural: "tem projeto do Podemos na CCJ amanhã?", "quais comissões se reúnem hoje?")\n' +
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
+  '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1142,6 +1144,25 @@ bot.command('quorum', async ctx => {
   }
 });
 
+// ---------- /oradores [dd/mm/aaaa] [filtro] — quem falou/aguarda na sessão ----------
+// Fonte: página pública de oradores inscritos do evento (por lista: Breves,
+// Lideranças, Discussão/Encaminhamento por matéria). Sem data = hoje.
+// Filtro restringe às listas que casam (ex.: "breves", "liderança", "PL 2581/2026").
+async function cmdOradores(ctx, texto) {
+  const t = String(texto || '').trim();
+  const m = t.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const filtro = (m ? t.replace(m[0], '') : t).trim();
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, await resumoOradoresDaData(dataISO, filtro));
+  } catch (e) {
+    console.error('/oradores falhou:', e);
+    return ctx.reply(`Erro ao buscar os oradores: ${e.message}`);
+  }
+}
+bot.command('oradores', ctx => cmdOradores(ctx, ctx.match));
+
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
@@ -1411,6 +1432,11 @@ function ferramentasDado(userId) {
       return consultarPauta(lista, data || 'hoje', { partido: partido || null, deputado: deputado || null });
     },
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
+    oradores_sessao: async ({ data, filtro } = {}) => {
+      const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
+      return resumoOradoresDaData(iso, String(filtro || ''));
+    },
   };
 }
 
@@ -1700,6 +1726,7 @@ const MENU_COMANDOS = [
   { command: 'varrercomissoes', description: 'Projetos do Podemos nas comissões do dia' },
   { command: 'votacao',        description: 'Votações do Plenário + imagem do placar' },
   { command: 'quorum',         description: 'Presença ao vivo no Plenário (painel público)' },
+  { command: 'oradores',       description: 'Quem falou/aguarda na sessão (ex.: /oradores 15/07/2026)' },
   { command: 'resumo',         description: 'Resumo da sessão do dia' },
   { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
   { command: 'limpar',         description: 'Zerar a conversa com a IA' },
