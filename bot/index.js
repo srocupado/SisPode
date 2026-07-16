@@ -16,7 +16,7 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
-const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo } = require('./src/monitor');
+const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo } = require('./src/monitor');
 const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
@@ -24,6 +24,21 @@ const { resumoOradoresDaData } = require('./src/oradores');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
+
+// Interceptador de API (transformer do grammY): TODA mensagem de TEXTO que o
+// bot enviar ao GRUPO — por qualquer caminho (anúncios do monitor, respostas
+// de comando no grupo, agente, Roda Viva…) — entra no registro das últimas 5
+// revisáveis (/revisar_msg). Um ponto único, em vez de instrumentar cada reply.
+if (GRUPO_CHAT_ID) {
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    const res = await prev(method, payload, signal);
+    if (method === 'sendMessage' && res.ok && String(payload.chat_id) === String(GRUPO_CHAT_ID)) {
+      try { registrarMsgGrupo(payload.chat_id, res.result, payload.text || ''); } catch (_) {}
+    }
+    return res;
+  });
+}
+carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
 
 const TEXTO_AJUDA =
   'SisPode Bot — Liderança do Podemos na Câmara\n\n' +

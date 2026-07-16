@@ -68,14 +68,12 @@ async function enviar(texto, { md = false } = {}) {
   const destino = _cfg.destino();
   if (!destino) { console.warn('[monitor] sem destino configurado — mensagem descartada'); return; }
   for (const parte of fatiar(texto)) {
-    let msg = null;
     if (md) {
       // Negrito Telegram (*texto*); se algum rótulo quebrar o parse, cai p/ texto puro
-      try { msg = await _cfg.api.sendMessage(destino, parte, { parse_mode: 'Markdown' }); }
+      try { await _cfg.api.sendMessage(destino, parte, { parse_mode: 'Markdown' }); continue; }
       catch (_) { /* fallback abaixo */ }
     }
-    if (!msg) msg = await _cfg.api.sendMessage(destino, parte).catch(e => { console.warn('[monitor] envio falhou:', e.message); return null; });
-    if (msg) _registrarMsgGrupo(destino, msg, parte);
+    await _cfg.api.sendMessage(destino, parte).catch(e => console.warn('[monitor] envio falhou:', e.message));
   }
 }
 
@@ -83,33 +81,29 @@ async function enviar(texto, { md = false } = {}) {
 async function enviarOuFalhar(texto) {
   const destino = _cfg.destino();
   if (!destino) throw new Error('sem destino configurado (GRUPO_CHAT_ID/MONITOR_ENSAIO)');
-  for (const parte of fatiar(texto)) {
-    const msg = await _cfg.api.sendMessage(destino, parte);
-    _registrarMsgGrupo(destino, msg, parte);
-  }
+  for (const parte of fatiar(texto)) await _cfg.api.sendMessage(destino, parte);
 }
 // Grupo (ou destino de ensaio) + cópia ao admin, sem duplicar quando o
 // destino já É o admin (modo ensaio).
 async function enviarComCopiaAdmin(texto) {
   const destinos = new Set([_cfg.destino(), _cfg.admin].filter(Boolean));
   for (const d of destinos) {
-    let msg = null;
-    try { msg = await _cfg.api.sendMessage(d, texto, { parse_mode: 'Markdown' }); }
-    catch (_) { msg = await _cfg.api.sendMessage(d, texto).catch(e => { console.warn('[monitor] envio destaque falhou:', e.message); return null; }); }
-    // Só registra a cópia pública (grupo/destino), não a do admin.
-    if (msg && d === _cfg.destino()) _registrarMsgGrupo(d, msg, texto);
+    try { await _cfg.api.sendMessage(d, texto, { parse_mode: 'Markdown' }); }
+    catch (_) { await _cfg.api.sendMessage(d, texto).catch(e => console.warn('[monitor] envio destaque falhou:', e.message)); }
   }
 }
 
 // ---------- Registro das últimas mensagens do GRUPO (comando /revisar_msg) ----------
-// Guarda as últimas REVISAVEIS_MAX mensagens de TEXTO enviadas ao destino público
-// (grupo; em ensaio, o admin) para o admin poder CORRIGIR uma que saiu errada —
-// ex.: um resultado simbólico assumido como aprovado (ver a DECISÃO DE PROJETO
-// sobre anunciarResultadoSimbolico). Sobrevive a restart via Firebase. Só texto:
-// o placar é imagem e não é editável como texto. Mensagem fatiada entra como uma
-// entrada por pedaço (edita-se o pedaço errado). Cobre só mensagens do MONITOR
-// (anúncios do Plenário) — outros posts ao grupo (ex.: Roda Viva) não passam por
-// aqui.
+// Guarda as últimas REVISAVEIS_MAX mensagens de TEXTO que o bot enviou ao grupo,
+// para os autorizados CORRIGIREM uma que saiu errada — ex.: um resultado
+// simbólico assumido como aprovado (ver a DECISÃO DE PROJETO sobre
+// anunciarResultadoSimbolico). Sobrevive a restart via Firebase. Só texto: o
+// placar é imagem e não é editável como texto. Mensagem fatiada entra como uma
+// entrada por pedaço (edita-se o pedaço errado).
+// QUEM ALIMENTA: o interceptador de API no index.js (transformer do grammY) —
+// captura TODA mensagem de texto enviada ao GRUPO_CHAT_ID, por qualquer caminho
+// (anúncios do monitor, respostas de comando no grupo, agente, Roda Viva…), num
+// ponto único, chamando registrarMsgGrupo().
 const REVISAVEIS_MAX = 5;
 let _msgsGrupo = [];   // [{ message_id, chat, texto, ts }], mais antiga → mais nova
 
@@ -120,7 +114,7 @@ async function carregarMsgsGrupo() {
   } catch (_) {}
 }
 
-function _registrarMsgGrupo(chat, msg, texto) {
+function registrarMsgGrupo(chat, msg, texto) {
   if (!msg || msg.message_id == null) return;
   _msgsGrupo.push({ message_id: msg.message_id, chat, texto: String(texto || ''), ts: Date.now() });
   if (_msgsGrupo.length > REVISAVEIS_MAX) _msgsGrupo = _msgsGrupo.slice(-REVISAVEIS_MAX);
@@ -1176,4 +1170,4 @@ function statusMonitor() {
   };
 }
 
-module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo };
+module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo };
