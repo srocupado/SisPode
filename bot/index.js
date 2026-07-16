@@ -9,7 +9,7 @@ const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
 const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
 const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente, ajustarAgendaRodaViva } = require('./src/rodaviva');
-const { rotear } = require('./src/router');
+const { conversar, limparMemoria } = require('./src/agente');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
@@ -57,7 +57,7 @@ const TEXTO_AJUDA =
   '/removerchave — apaga sua chave\n' +
   '/modelo <id> — troca o modelo do seu provedor (opcional)\n' +
   '/ajuda — esta mensagem\n\n' +
-  'Também entendo linguagem natural e mensagens de voz (no privado, ou me mencionando no grupo) — para isso é preciso ter a chave configurada em /config.';
+  'Também converso em linguagem natural e por mensagens de voz (no privado; no grupo, me mencione ou responda a uma mensagem minha) — posso consultar a pauta, notas técnicas, comissões, o plenário ao vivo e os sites oficiais (Câmara/Senado/Planalto/DOU) para responder. Preciso da sua chave configurada em /config.';
 
 // Estados voláteis
 const configPendente = new Map();  // userId → { provedor }        (fluxo /config)
@@ -590,7 +590,7 @@ async function fluxoNota(ctx, texto) {
   }
 }
 bot.command('nota', ctx => fluxoNota(ctx, ctx.match));
-bot.command('limpar', ctx => { limparConversa(ctx.from.id); return ctx.reply('Conversa zerada (histórico e documentos agregados).'); });
+bot.command('limpar', ctx => { limparConversa(ctx.from.id); limparMemoria(ctx.from.id); return ctx.reply('Conversa zerada (histórico, memória do assistente e documentos agregados).'); });
 
 // ---------- Documentos extras (porte do seletor do painel) ----------
 async function cmdDocumentos(ctx, texto) {
@@ -1244,6 +1244,7 @@ bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
   if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
   definirPautaAtiva(ctx.from.id, esc.id);
   limparConversa(ctx.from.id);   // a conversa anterior podia estar noutra pauta
+  limparMemoria(ctx.from.id);    // idem para a memória do assistente
   return responderLongo(ctx,
     `✅ Agora você está usando: ${rotuloPauta(pauta)}.\n` +
     `Vale para /listar, /perguntar, /analisar e /exportar.\n\n${await linhasItensPauta(pauta)}`);
@@ -1374,6 +1375,7 @@ async function executarDecisao(ctx, decisao) {
     case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
     case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
     case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
+    case 'resumo':             return cmdResumo(ctx, decisao.argumentos.pergunta || '');
     case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
     case 'digest':             return cmdDigest(ctx);
     case 'exportar':           return cmdExportar(ctx);
@@ -1383,29 +1385,61 @@ async function executarDecisao(ctx, decisao) {
   }
 }
 
+// Ferramentas de CONSULTA do agente que dependem de helpers daqui — cada uma
+// recebe argumentos e devolve STRING (vira observação para a IA continuar).
+function ferramentasDado(userId) {
+  return {
+    listar_itens: async () => {
+      const pauta = await pautaDoUsuario(userId);
+      if (!pauta) return 'Nenhuma pauta importada no SisPode ainda (a ação importar_pauta ou ordem_do_dia resolve).';
+      return `${rotuloPauta(pauta)}\n${await linhasItensPauta(pauta)}`;
+    },
+    nota_tecnica: async ({ proposicao } = {}) => {
+      const r = await mostrarNota({ userId, texto: String(proposicao || '') });
+      if (r.erro) return `ERRO: ${r.erro}`;
+      return `Nota técnica de ${r.itemLabel}${r.apelido ? ` (${r.apelido})` : ''}, como salva no SisPode:\n${r.nota}`;
+    },
+    quorum: async () => {
+      const st = await statusPlenario();
+      if (!st) return 'Painel de presença indisponível no momento.';
+      const fase = st.oddEncerrada ? 'Ordem do Dia ENCERRADA' : st.oddIniciada ? 'Ordem do Dia EM ANDAMENTO' : 'Ordem do Dia não iniciada';
+      return `Painel ao vivo: ${st.presentes} deputado(s) presente(s) · ${fase}. (Quórum de deliberação: 257.)`;
+    },
+    pauta_comissao: async ({ comissoes, data, partido, deputado } = {}) => {
+      const lista = Array.isArray(comissoes) ? comissoes : (comissoes ? [comissoes] : []);
+      if (!lista.length) return 'ERRO: informe a(s) comissão(ões) em "comissoes".';
+      return consultarPauta(lista, data || 'hoje', { partido: partido || null, deputado: deputado || null });
+    },
+    comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
+  };
+}
+
 async function tratarLinguagemNatural(ctx, texto) {
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) {
     return ctx.reply(
-      'Entendo linguagem natural, mas para isso preciso da sua chave de IA (a interpretação roda na sua conta).\n' +
+      'Entendo linguagem natural, mas para isso preciso da sua chave de IA (a conversa roda na sua conta).\n' +
       'Configure com /config no privado — ou use os comandos: /pauta, /importar, /ajuda.');
   }
   await ctx.replyWithChatAction('typing');
   try {
-    const decisao = await rotear(perfil, texto);
-    return executarDecisao(ctx, decisao);
+    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id) });
+    if (r.tipo === 'acao') return executarDecisao(ctx, { ferramenta: r.ferramenta, argumentos: r.argumentos });
+    return responderLongo(ctx, r.texto);
   } catch (e) {
-    console.error('roteador falhou:', e);
+    console.error('agente falhou:', e);
     return ctx.reply(`Não consegui interpretar (${e.message}). Tente um comando: /pauta, /importar, /perguntar…`);
   }
 }
 
-// No grupo, só reage a texto livre quando o bot é mencionado.
+// No grupo, reage a texto livre quando o bot é MENCIONADO ou quando a mensagem
+// é RESPOSTA a uma mensagem dele (decisão da Liderança, 16/07).
 function textoParaOBot(ctx) {
   const texto = ctx.message?.text || '';
   if (ehPrivado(ctx)) return texto;
   const mencao = '@' + (ctx.me?.username || '');
   if (mencao.length > 1 && texto.includes(mencao)) return texto.split(mencao).join(' ').trim();
+  if (ctx.message?.reply_to_message?.from?.id === ctx.me?.id) return texto.trim();
   return null;
 }
 
