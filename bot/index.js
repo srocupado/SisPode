@@ -2,7 +2,7 @@
 const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
-const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO } = require('./src/config');
+const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO, ALLOWED_USER_IDS } = require('./src/config');
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
@@ -153,6 +153,7 @@ async function tratarNaoAutorizado(ctx) {
 
   if (texto.toLowerCase() === SENHA_ACESSO.toLowerCase()) {
     autorizar(id, nome, 'senha');
+    registrarMenuDe(id);   // já habilita /revisar_msg no "/" dele
     tentativasSenha.delete(id);
     await ctx.reply(TEXTO_BOAS_VINDAS.replace('%AJUDA%', TEXTO_AJUDA));
     if (ADMIN_USER_ID && id !== ADMIN_USER_ID) {
@@ -185,6 +186,7 @@ bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
   const id = ctx.match[1];
   const nome = pedidosAcesso.get(id) || '';
   autorizar(id, nome);
+  registrarMenuDe(id);   // já habilita /revisar_msg no "/" dele
   pedidosAcesso.delete(id);
   await ctx.answerCallbackQuery({ text: 'Autorizado!' });
   await ctx.editMessageText(`✅ ${nome || 'Usuário'} (ID ${id}) autorizado.`);
@@ -263,7 +265,7 @@ bot.command('revogar', async ctx => {
   if (String(ctx.from.id) !== ADMIN_USER_ID) return;
   const id = String(ctx.match || '').trim();
   if (!/^\d+$/.test(id)) return ctx.reply('Uso: /revogar <id do usuário> (veja os IDs com /usuarios).');
-  if (revogar(id)) return ctx.reply(`Acesso do ID ${id} revogado.`);
+  if (revogar(id)) { registrarMenuDe(id); return ctx.reply(`Acesso do ID ${id} revogado.`); }   // menu volta ao público
   return ctx.reply(`O ID ${id} não está na lista dinâmica (IDs fixos do .env só saem editando o arquivo).`);
 });
 
@@ -1008,15 +1010,17 @@ bot.command('monitor', async ctx => {
       : 'Nenhuma sessão em andamento.'));
 });
 
-// ---------- Corrigir uma mensagem publicada no grupo (só ADMIN, no privado) ----------
+// ---------- Corrigir uma mensagem publicada no grupo (autorizados, no privado) ----------
+// Liberado a TODOS os usuários autorizados (lista do /usuarios) — são os
+// responsáveis por ajustar mensagens no grupo. No privado do bot.
 // /revisar_msg               → lista as últimas 5 mensagens do grupo (numeradas)
 // /revisar_msg <n>           → mostra o texto inteiro da nº <n> (p/ copiar e editar)
 // /revisar_msg <n> <texto>   → substitui a nº <n> no grupo pelo texto informado
 // (Telegram não aceita hífen em comando — por isso "_msg", não "-msg".)
 bot.command('revisar_msg', async ctx => {
-  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  if (!isAutorizado(ctx.from.id)) return;
   if (!ehPrivado(ctx)) {
-    if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID, 'Use o /revisar_msg aqui no meu privado.').catch(() => {});
+    bot.api.sendMessage(ctx.from.id, 'Use o /revisar_msg aqui no meu privado.').catch(() => {});
     return;
   }
   const lista = listarMsgsGrupo();
@@ -1046,6 +1050,13 @@ bot.command('revisar_msg', async ctx => {
   }
   const r = await revisarMsgGrupo(n, novo);
   if (!r.ok) return ctx.reply(`Não consegui corrigir a mensagem ${n}: ${r.erro}`);
+  // Governança: como vários responsáveis podem editar, o admin fica sabendo
+  // quem mexeu (antes/depois), salvo quando é o próprio admin.
+  if (ADMIN_USER_ID && String(ctx.from.id) !== ADMIN_USER_ID) {
+    const quem = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || ctx.from.username || `ID ${ctx.from.id}`;
+    bot.api.sendMessage(ADMIN_USER_ID,
+      `✏️ ${quem} corrigiu uma mensagem no grupo.\n\nAntes:\n${r.anterior}\n\nDepois:\n${novo}`).catch(() => {});
+  }
   return ctx.reply(`✅ Mensagem ${n} corrigida no grupo.`);
 });
 
@@ -1662,28 +1673,41 @@ const MENU_COMANDOS = [
   { command: 'ajuda',          description: 'Todos os comandos, com detalhes' },
 ];
 
-// Menu EXCLUSIVO do admin (aparece só no "/" do privado dele, via escopo do
-// Telegram). É o menu público + os comandos de administração que valem no menu.
-const MENU_ADMIN_EXTRA = [
-  { command: 'revisar_msg',    description: 'Corrigir uma das últimas mensagens do grupo' },
-  { command: 'monitor',        description: 'Status/liga-desliga do monitor de sessão' },
-];
-const MENU_ADMIN = [...MENU_COMANDOS, ...MENU_ADMIN_EXTRA];
-// Lista de admins do bot (por ora só o dono do .env; pronta para virar lista).
-const ADMINS = [ADMIN_USER_ID].filter(Boolean);
+// Comando de revisão de mensagens — visível a quem PODE usar (autorizados).
+const MENU_REVISAR = { command: 'revisar_msg', description: 'Corrigir uma das últimas mensagens do grupo' };
+// Menu dos AUTORIZADOS (lista do /usuarios): público + /revisar_msg.
+const MENU_REVISOR = [...MENU_COMANDOS, MENU_REVISAR];
+// Menu do ADMIN: o dos autorizados + administração do monitor.
+const MENU_ADMIN = [...MENU_COMANDOS, MENU_REVISAR, { command: 'monitor', description: 'Status/liga-desliga do monitor de sessão' }];
+
+// Define o menu do "/" no privado de UM usuário conforme o papel dele. Escopo
+// por chat do Telegram: o público vê MENU_COMANDOS; autorizados veem +
+// /revisar_msg; o admin vê + /monitor. Chamado no arranque e a cada
+// aprovação/revogação (sem esperar restart).
+async function registrarMenuDe(id) {
+  id = String(id || '');
+  if (!id) return;
+  const menu = id === ADMIN_USER_ID ? MENU_ADMIN : (isAutorizado(id) ? MENU_REVISOR : null);
+  try {
+    if (menu) await bot.api.setMyCommands(menu, { scope: { type: 'chat', chat_id: Number(id) } });
+    else await bot.api.deleteMyCommands({ scope: { type: 'chat', chat_id: Number(id) } });  // revogado → volta ao público
+  } catch (e) { console.warn(`Menu do usuário ${id} não registrado:`, e.message); }
+}
+
+// IDs autorizados hoje: admin + fixos do .env + aprovados dinâmicos (allowlist).
+function idsAutorizados() {
+  return [...new Set([ADMIN_USER_ID, ...ALLOWED_USER_IDS, ...Object.keys(listarAutorizados())].filter(Boolean))];
+}
 
 bot.start({
   onStart: async me => {
     console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`);
     try {
-      await bot.api.setMyCommands(MENU_COMANDOS);
+      await bot.api.setMyCommands(MENU_COMANDOS);   // escopo padrão (público)
       console.log(`Menu de comandos registrado (${MENU_COMANDOS.length} comandos).`);
-      // Menu ampliado só para o(s) admin(s) — escopo por chat privado.
-      for (const id of ADMINS) {
-        await bot.api.setMyCommands(MENU_ADMIN, { scope: { type: 'chat', chat_id: Number(id) } })
-          .catch(e => console.warn(`Falha ao registrar menu do admin ${id}:`, e.message));
-      }
-      if (ADMINS.length) console.log(`Menu do admin registrado (${MENU_ADMIN.length} comandos) para ${ADMINS.length} admin(s).`);
+      const ids = idsAutorizados();
+      for (const id of ids) await registrarMenuDe(id);
+      console.log(`Menu ampliado (${MENU_REVISOR.length}/${MENU_ADMIN.length}) registrado para ${ids.length} autorizado(s).`);
     } catch (e) { console.warn('Falha ao registrar o menu de comandos:', e.message); }
   },
 });
