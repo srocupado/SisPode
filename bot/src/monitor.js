@@ -10,6 +10,7 @@
 const { fbGet, fbPatch, fbPut } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
 const { listasDeOradores, oradoresDaLista } = require('./oradores');
+const { faltamVotar, formatarFaltantes } = require('./faltamvotar');
 const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
@@ -585,6 +586,7 @@ async function carregarEstado(eventoId) {
     resultadosPag:    e.resultadosPag || {},   // resultado (página do evento) já anunciado, por chave
     nominaisChave:    e.nominaisChave || {},   // matérias vistas em votação NOMINAL (não anunciar como simbólicas)
     oradoresAvisados: e.oradoresAvisados || {},  // avisos "na tribuna" já dados (deputado-lista)
+    faltantesAvisados: e.faltantesAvisados || {},  // rede de segurança de faltantes já disparada, por idVotacao
   };
 }
 function marcar(eventoId, patch) {
@@ -681,6 +683,14 @@ const COSEV_ABERTURA_MS = 12e3;
 const QUORUM_MIN = 257;       // maioria absoluta (257 de 513) — quórum de deliberação
 let _presencaSessao = null;   // numSessao com aviso de presença já enviado
 let _quorumSessao = null;     // numSessao com aviso de quórum já enviado (ambos persistidos)
+
+// Rede de segurança dos FALTANTES: um auto-aviso por votação nominal quando a
+// Casa já registrou muito voto (LIMIAR) e ainda há PODE presente sem votar —
+// pro caso de ninguém ter pedido /faltamvotar. Liga/desliga persistido.
+const FALTANTES_LIMIAR = 0.80;   // fração da Casa que já registrou voto
+let _faltantesAuto = true;       // default ligado (a Liderança pediu com a rede)
+function setFaltantesAuto(v) { _faltantesAuto = !!v; marcarCosev({ faltantesAuto: _faltantesAuto }); }
+function getFaltantesAuto() { return _faltantesAuto; }
 
 function marcarCosev(patch) { fbPatch('/bot/monitor_cosev', patch).catch(() => {}); }
 
@@ -807,6 +817,23 @@ async function tickAbertura() {
             est.nominaisChave[k] = true;
             marcar(_sessao.id, { [`nominaisChave/${k}`]: true });
           }
+        }
+        // REDE DE SEGURANÇA dos faltantes: uma vez por votação, quando a Casa
+        // já registrou ≥ LIMIAR do total (votação madura) e ainda há PODE
+        // PRESENTE sem votar. Evita falso positivo da abertura (quase ninguém
+        // votou ainda) e cobre o caso de ninguém ter pedido /faltamvotar.
+        if (_faltantesAuto && !est.faltantesAvisados[v.id]) {
+          try {
+            const r = await faltamVotar('PODE');
+            if (r.aberta && r.casaTotal && (r.casaRegistrou / r.casaTotal) >= FALTANTES_LIMIAR
+                && r.presentesNaoVotaram.length) {
+              est.faltantesAvisados[v.id] = true;
+              marcar(_sessao.id, { [`faltantesAvisados/${v.id}`]: true });
+              const pct = Math.round((r.casaRegistrou / r.casaTotal) * 100);
+              await enviar(`⏰ *Votação nominal madura* (${pct}% da Casa já votou) — ainda faltam votar (presentes):\n${r.presentesNaoVotaram.map(n => `• ${n}`).join('\n')}`, { md: true });
+              console.log(`[monitor] rede de segurança de faltantes disparada (votação ${v.id}, ${r.presentesNaoVotaram.length} presentes sem votar).`);
+            }
+          } catch (e) { console.warn('[monitor] rede de faltantes falhou:', e.message); }
         }
       }
     }
@@ -1187,6 +1214,7 @@ async function tentarComplementoDestinos(s) {
 function iniciarMonitor(cfg) {
   _cfg = { ...cfg, ligado: cfg.ligadoInicial !== false };
   carregarMsgsGrupo();   // registro de mensagens revisáveis (sobrevive a restart)
+  fbGet('/bot/monitor_cosev/faltantesAuto').then(v => { if (v != null) _faltantesAuto = !!v; }).catch(() => {});
   clearInterval(_timerEv);
   _timerEv = setInterval(tickEventos, POLL_EVENTOS_MS);
   tickEventos();
@@ -1216,4 +1244,4 @@ function statusMonitor() {
   };
 }
 
-module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo };
+module.exports = { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto };

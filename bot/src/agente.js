@@ -144,6 +144,7 @@ FERRAMENTAS DE CONSULTA (o resultado volta para você continuar raciocinando):
 - "quorum" {}: presença AO VIVO no Plenário e fase da Ordem do Dia (painel público).
 - "pauta_comissao" {"comissoes":["CCJ"],"data":"hoje","partido":null,"deputado":null}: pauta oficial de comissão(ões) numa data.
 - "comissoes_reuniao" {"data":"hoje"}: quais comissões têm reunião deliberativa na data.
+- "faltam_votar" {}: numa votação NOMINAL em curso, quem da bancada do Podemos ainda NÃO votou — separando "presentes e não votaram" (acionável) de "fora da Casa". Só funciona com nominal aberta. Use para "quem do Podemos falta votar?", "a bancada já votou toda?".
 - "oradores_sessao" {"data":"dd/mm/aaaa","filtro":""}: quem FALOU / foi chamado / aguarda para falar na sessão do Plenário, por lista (Breves Comunicações, Comunicações de Liderança, Discussão/Encaminhamento por matéria) — com partido e UF. Sem data = hoje; "filtro" restringe (ex.: "breves", "liderança", "PL 2581/2026"). Use para "quem já falou hoje?", "quem discutiu a MPV X?", "alguém do Podemos falou?".
 - "situacao_proposicao" {"sigla":"PL","numero":"1234","ano":"2026"}: ementa, autoria, situação e última tramitação de QUALQUER proposição (API oficial da Câmara) — mesmo fora da pauta.
 - "pagina_oficial" {"url":"https://www.camara.leg.br/..."}: lê uma página de site OFICIAL (só camara.leg.br, senado.leg.br, planalto.gov.br, in.gov.br). Use quando souber a URL exata; para proposições prefira situacao_proposicao.`;

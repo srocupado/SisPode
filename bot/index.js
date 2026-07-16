@@ -16,11 +16,12 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
-const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo } = require('./src/monitor');
+const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
 const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
+const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -60,6 +61,7 @@ const TEXTO_AJUDA =
   '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
+  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1178,6 +1180,29 @@ async function cmdOradores(ctx, texto) {
 }
 bot.command('oradores', ctx => cmdOradores(ctx, ctx.match));
 
+// ---------- /faltamvotar — quem do PODE ainda não votou na nominal aberta ----------
+// Autorizados, no grupo ou privado. Fonte: painel do app Infoleg (host infoleg),
+// só em votação NOMINAL. Admin liga/desliga a rede de segurança: /faltamvotar auto on|off.
+async function cmdFaltamVotar(ctx) {
+  if (!isAutorizado(ctx.from.id)) return;
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg.startsWith('auto')) {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga a rede de segurança.');
+    const on = /\bon\b|liga/.test(arg), off = /\boff\b|desliga/.test(arg);
+    if (on || off) { setFaltantesAuto(on); return ctx.reply(`Rede de segurança de faltantes ${on ? 'LIGADA' : 'DESLIGADA'}.`); }
+    return ctx.reply(`Rede de segurança de faltantes: ${getFaltantesAuto() ? '🟢 ligada' : '🔴 desligada'}. Use /faltamvotar auto on|off.`);
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await faltamVotar('PODE');
+    return ctx.reply(formatarFaltantes(r, { sigla: 'PODE' }), { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('/faltamvotar falhou:', e);
+    return ctx.reply(`Erro ao consultar o painel de votação: ${e.message}`);
+  }
+}
+bot.command('faltamvotar', cmdFaltamVotar);
+
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
@@ -1447,6 +1472,7 @@ function ferramentasDado(userId) {
       return consultarPauta(lista, data || 'hoje', { partido: partido || null, deputado: deputado || null });
     },
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
+    faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
@@ -1742,6 +1768,7 @@ const MENU_COMANDOS = [
   { command: 'votacao',        description: 'Votações do Plenário + imagem do placar' },
   { command: 'quorum',         description: 'Presença ao vivo no Plenário (painel público)' },
   { command: 'oradores',       description: 'Quem falou/aguarda na sessão (ex.: /oradores 15/07/2026)' },
+  { command: 'faltamvotar',    description: 'Quem do Podemos ainda não votou (na nominal aberta)' },
   { command: 'resumo',         description: 'Resumo da sessão do dia' },
   { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
   { command: 'limpar',         description: 'Zerar a conversa com a IA' },
