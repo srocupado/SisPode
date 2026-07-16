@@ -9,6 +9,7 @@
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
 const { fbGet, fbPatch, fbPut } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
+const { listasDeOradores, oradoresDaLista } = require('./oradores');
 const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
 const { resumoSessao } = require('./worker');
@@ -308,6 +309,46 @@ function alvoDaUrgencia(texto) {
   return null;
 }
 
+// ---------- Aviso "na tribuna" — bancada do Podemos ----------
+// Vigia as listas de oradores da sessão (mesma página do /oradores; portal, sem
+// Dados Abertos) e avisa o GRUPO quando um deputado do PODE é CHAMADO à tribuna.
+// Se a transição chamado→falou acontecer entre dois polls, avisa "discursou"
+// (melhor tarde do que nunca). Um aviso por (deputado, lista), persistido.
+// Decisão da Liderança (16/07): só a bancada do Podemos; destino = grupo.
+const ORADORES_MS = 60e3;   // varredura ~30 GETs leves; 1x/min é o equilíbrio
+let _ultimaOradores = 0;
+let _oradoresPrimed = false;   // 1ª varredura do processo: "falou" antigo cala (evita jato pós-restart)
+const REGEX_PODE = /^PODE(MOS)?$/i;
+
+async function checarOradores() {
+  const s = _sessao;
+  if (!s || Date.now() - _ultimaOradores < ORADORES_MS) return;
+  _ultimaOradores = Date.now();
+  const priming = !_oradoresPrimed;
+  const { listas } = await listasDeOradores(s.id);
+  for (const lista of listas) {
+    let oradores;
+    try { oradores = await oradoresDaLista(s.id, lista); }
+    catch (_) { continue; }   // uma lista com problema não cala as demais
+    for (const o of oradores) {
+      if (!REGEX_PODE.test(o.partido)) continue;
+      if (o.situacao !== 'chamado' && o.situacao !== 'falou') continue;
+      const chave = `${o.idDep || o.nome.replace(/[^\w]/g, '')}-${lista.idLista}`;
+      if (s.estado.oradoresAvisados[chave]) continue;
+      s.estado.oradoresAvisados[chave] = true;
+      marcar(s.id, { [`oradoresAvisados/${chave}`]: true });
+      // Priming (bot subiu no meio da sessão): quem JÁ FALOU é passado — registra
+      // sem avisar. "Chamado" é estado PRESENTE (está na tribuna): avisa sempre.
+      if (priming && o.situacao === 'falou') continue;
+      const rotulo = lista.rotulo.replace(/\s+da\s+Sessão[\s\S]*$/i, '').replace(/\s*·\s*$/, '');
+      const verbo = o.situacao === 'chamado' ? 'Na tribuna' : 'Discursou';
+      await enviar(`🎙 *${verbo}:* Dep. ${o.nome} (${o.partido}${o.uf ? `-${o.uf}` : ''}) — ${rotulo}`, { md: true });
+      console.log(`[monitor] aviso de orador PODE: ${o.nome} (${o.situacao}) em ${lista.idLista}.`);
+    }
+  }
+  _oradoresPrimed = true;
+}
+
 async function checarDiscussao() {
   const s = _sessao;
   if (!s || Date.now() - _ultimaDiscussao < DISCUSSAO_MS) return;
@@ -543,6 +584,7 @@ async function carregarEstado(eventoId) {
     discutidos:       e.discutidos || {},
     resultadosPag:    e.resultadosPag || {},   // resultado (página do evento) já anunciado, por chave
     nominaisChave:    e.nominaisChave || {},   // matérias vistas em votação NOMINAL (não anunciar como simbólicas)
+    oradoresAvisados: e.oradoresAvisados || {},  // avisos "na tribuna" já dados (deputado-lista)
   };
 }
 function marcar(eventoId, patch) {
@@ -979,6 +1021,10 @@ async function tickPainel() {
     // em apreciação + RESULTADO das apreciações simbólicas (situação por
     // matéria). Fonte 100% site — sem Dados Abertos neste fluxo.
     await checarDiscussao().catch(e => console.warn('[monitor] página do evento falhou:', e.message));
+
+    // Oradores (throttle próprio de 60s): aviso "na tribuna" quando um
+    // deputado do PODE é chamado. Mesma página do /oradores (portal).
+    await checarOradores().catch(e => console.warn('[monitor] oradores falharam:', e.message));
 
     // Fim da ORDEM DO DIA — no laço RÁPIDO (10s), sem janela: assim o aviso sai
     // em segundos assim que o sinal aparece na fonte, não em minutos.

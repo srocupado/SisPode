@@ -40,7 +40,7 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
   const enviarMudanca = (txt) => Promise.all([...new Set([grupo, admin].filter(Boolean))].map(d => enviarA(d, txt)));
   const enviarDump    = (txt) => enviarA(admin, txt);
 
-  let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null, votId: null };
+  let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null, votId: null, painelMsg: null };
   let dumpouSessao = false, dumpouVotacao = false, dumpouNominal = false;
   let primeiraLeitura = true;   // snapshot de arranque (confirma "estou no ar")
 
@@ -96,6 +96,17 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
           if (prev.oddFim !== null || st.oddEncerrada) mudou.push(`🔚 indOrdemDoDiaEncerrada = ${st.oddEncerrada}`);
           prev.oddFim = st.oddEncerrada;
         }
+      }
+
+      // --- mensagemPainel (calibração: carrega o ORADOR durante discursos?) ---
+      // Nas capturas até 15/07 veio sempre "". Se durante a sessão ele mudar
+      // (ex.: nome de quem está na tribuna), vira fonte de ~12s para o aviso
+      // "na tribuna" — hoje coberto pela página de oradores (poll de 60s).
+      const painelMsg = sessaoAberta ? String(sess.raw?.mensagemPainel ?? '') : null;
+      if (painelMsg !== prev.painelMsg) {
+        if (painelMsg) mudou.push(`📟 mensagemPainel: "${painelMsg.slice(0, 300)}"`);
+        else if (prev.painelMsg) mudou.push('📟 mensagemPainel esvaziou.');
+        prev.painelMsg = painelMsg;
       }
 
       // --- votacaoAtual (irmão de sessaoAtual; aparece durante a votação) ---
