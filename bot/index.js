@@ -1662,12 +1662,28 @@ const MENU_COMANDOS = [
   { command: 'ajuda',          description: 'Todos os comandos, com detalhes' },
 ];
 
+// Menu EXCLUSIVO do admin (aparece só no "/" do privado dele, via escopo do
+// Telegram). É o menu público + os comandos de administração que valem no menu.
+const MENU_ADMIN_EXTRA = [
+  { command: 'revisar_msg',    description: 'Corrigir uma das últimas mensagens do grupo' },
+  { command: 'monitor',        description: 'Status/liga-desliga do monitor de sessão' },
+];
+const MENU_ADMIN = [...MENU_COMANDOS, ...MENU_ADMIN_EXTRA];
+// Lista de admins do bot (por ora só o dono do .env; pronta para virar lista).
+const ADMINS = [ADMIN_USER_ID].filter(Boolean);
+
 bot.start({
   onStart: async me => {
     console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`);
     try {
       await bot.api.setMyCommands(MENU_COMANDOS);
       console.log(`Menu de comandos registrado (${MENU_COMANDOS.length} comandos).`);
+      // Menu ampliado só para o(s) admin(s) — escopo por chat privado.
+      for (const id of ADMINS) {
+        await bot.api.setMyCommands(MENU_ADMIN, { scope: { type: 'chat', chat_id: Number(id) } })
+          .catch(e => console.warn(`Falha ao registrar menu do admin ${id}:`, e.message));
+      }
+      if (ADMINS.length) console.log(`Menu do admin registrado (${MENU_ADMIN.length} comandos) para ${ADMINS.length} admin(s).`);
     } catch (e) { console.warn('Falha ao registrar o menu de comandos:', e.message); }
   },
 });

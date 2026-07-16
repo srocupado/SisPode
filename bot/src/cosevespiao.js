@@ -42,6 +42,7 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
 
   let prev = { sessao: null, oddIni: null, oddFim: null, itensSig: null, votId: null };
   let dumpouSessao = false, dumpouVotacao = false, dumpouNominal = false;
+  let primeiraLeitura = true;   // snapshot de arranque (confirma "estou no ar")
 
   async function tick() {
     try {
@@ -54,6 +55,20 @@ function iniciarEspiaoCosev({ api, admin, grupo = null, log = console.log } = {}
       const sessaoAberta = sess?.aberta === true;
       const mudou = [];   // ao grupo + admin
       const dumps = [];   // só ao admin (JSON cru)
+
+      // SNAPSHOT DE ARRANQUE: no primeiro tick após um restart, o espião não tem
+      // "estado anterior" para comparar, então (de propósito) fica mudo se não
+      // houver transição. Isso confunde ("o espião subiu?"). Mandamos UMA vez o
+      // estado atual só ao admin — confirma que está no ar. Depois, só mudanças.
+      if (primeiraLeitura) {
+        primeiraLeitura = false;
+        const linhas = [
+          sessaoAberta ? `🟢 sessão ABERTA — nº ${sess.numSessao ?? '?'} (${sess.tipo || '?'})` : '⚪ nenhuma sessão aberta',
+          st ? `👥 presentes=${st.presentes} · oddIniciada=${st.oddIniciada} · oddEncerrada=${st.oddEncerrada}` : '(presença indisponível)',
+        ];
+        if (sess?.votacao) linhas.push(`🗳 votação em curso [${sess.votacao.tipoVotacao || '?'}] ${sess.votacao.titulo}`);
+        await enviarDump(`🕵️ cosev — espião no ar (arranque). Estado atual:\n\n${linhas.join('\n')}`);
+      }
 
       // --- sessão abriu/fechou ---
       if (sessaoAberta !== prev.sessao) {
