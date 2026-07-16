@@ -1607,42 +1607,10 @@ if (MONITOR_ATIVO) {
   console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
 }
 
-// ---------- Receptor de PUSH do Plenário (tempo real) ----------
-// FASE DE TESTE: recebe os pushes da Câmara (OneSignal), LOGA na janela do bot
-// E encaminha cada push AO GRUPO (marcado como teste), para validarmos ao vivo
-// a recepção e ver o texto exato de cada push. Liga com BOT_PUSH=1 no .env. Sobe
-// um Chromium headless próprio; se falhar, o bot segue normal (não é fatal).
-// (Ainda NÃO substitui as mensagens do monitor — é só o eco do push.)
-if (process.env.BOT_PUSH === '1') {
-  const { iniciarReceptorPush } = require('./src/pushplenario');
-  const destinoPush = () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID);
-  iniciarReceptorPush({
-    log: m => console.log(`[receptor-push] ${m}`),
-    // Janela limpa: status do receptor + push INTEIRO quando chega (via onEvento),
-    // sem a enxurrada do log interno da SDK. (BOT_PUSH_DEBUG=1 mostra tudo.)
-    debugConsole: false,
-    onEvento: async ev => {
-      // Janela: o push inteiro (para diagnóstico).
-      console.log('==================== PUSH DO PLENÁRIO ====================');
-      console.log(`  tipo  : ${ev.tipo}`);
-      console.log(`  título: ${ev.titulo}`);
-      console.log(`  corpo : ${ev.corpo}`);
-      console.log(`  data  : ${JSON.stringify(ev.data)}`);
-      console.log('=========================================================');
-      // Grupo: SÓ o corpo do push ("Ordem do Dia iniciada", "Sessão encerrada"…).
-      const destino = destinoPush();
-      if (!destino) return;
-      const corpo = String(ev.corpo || ev.titulo || '').trim();
-      if (!corpo) return;
-      try { await bot.api.sendMessage(destino, corpo); }
-      catch (e) { console.warn('[receptor-push] envio ao grupo falhou:', e.message); }
-    },
-  })
-    .then(() => console.log('[receptor-push] ATIVO — log completo na janela; corpo do push no grupo'))
-    .catch(e => console.warn('[receptor-push] não iniciou (bot segue normal):', e.message));
-} else {
-  console.log('Receptor de push do Plenário desativado (defina BOT_PUSH=1 no .env para ligar).');
-}
+// (Receptor de PUSH do Plenário via OneSignal: REMOVIDO em 16/07/2026. Nunca
+// entregou um sinal utilizável ao vivo e custava um Chromium permanente. Todo o
+// tempo real hoje vem das APIs públicas cosev/ws-plenario — ver plenariocosev.js
+// e monitor.js. Histórico no git, se um dia precisar ressuscitar.)
 
 // ---------- Espião cosev (modo calibração ao vivo) ----------
 // Durante uma sessão REAL, manda ao PRIVADO DO ADMIN cada mudança de estado do
