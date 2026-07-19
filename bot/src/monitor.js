@@ -389,6 +389,28 @@ async function checarDiscussao() {
   // matéria vista em votação NOMINAL no portal fica de fora (o placar cobre).
   for (const mat of situacoesDoEvento(html)) {
     const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
+    // AUTOCORREÇÃO do resultado ASSUMIDO via cosev: o carimbo REAL chegou —
+    // confere e, se divergir, EDITA a mensagem do grupo para o oficial.
+    const asm = s.estado.assumidos[chave];
+    if (asm && !asm.ok) {
+      asm.ok = true;
+      marcar(s.id, { [`assumidos/${chave}/ok`]: true });
+      const novo = textoCorrigido(asm.texto, mat.situacao);
+      if (novo) {
+        const editar = opts => _cfg.api.editMessageText(asm.chat, asm.mid, novo, opts);
+        try {
+          try { await editar({ parse_mode: 'Markdown' }); } catch (_) { await editar(undefined); }
+          console.log(`[monitor] resultado assumido CORRIGIDO por edição (${chave} → ${mat.situacao}).`);
+          if (_cfg.admin) {
+            _cfg.api.sendMessage(_cfg.admin,
+              `⚠️ Resultado simbólico corrigido no grupo (carimbo oficial divergiu):\n\nAntes: ${asm.texto}\n\nAgora: ${novo}`).catch(() => {});
+          }
+        } catch (e) { console.warn(`[monitor] edição da correção falhou (${chave}):`, e.message); }
+      } else {
+        console.log(`[monitor] resultado assumido CONFIRMADO pela página (${chave} → ${mat.situacao}).`);
+      }
+      continue;
+    }
     if (s.estado.resultadosPag[chave] || s.estado.nominaisChave[chave]) continue;
     s.estado.resultadosPag[chave] = true;
     marcar(s.id, { [`resultadosPag/${chave}`]: true });
@@ -522,15 +544,19 @@ async function anunciarSimbolico(rotulo, explic = '') {
 // │ item vai a votação NOMINAL, e aí o placar (imagem, pelo portal) dá o        │
 // │ resultado real. Logo, "fechou em simbólica" ≈ "houve consenso" ≈ aprovado. │
 // │                                                                             │
-// │ SE UM DIA ISTO DER RESULTADO ERRADO, é por um destes motivos conhecidos —  │
-// │ e a correção passa por trocar a fonte do DESFECHO (não a do fechamento):    │
-// │  1. Simbólica REJEITADA/PREJUDICADA de fato (raro): sairá "Aprovado" e a    │
-// │     página do evento NÃO corrige, porque marcamos resultadosPag[chave] no   │
-// │     fechamento. Correção: não assumir; ler o carimbo real da página antes   │
-// │     de afirmar (custa os minutos de latência que este atalho evita).        │
+// │ AUTOCORREÇÃO (16/07/2026): o "Aprovado" assumido é gravado com o            │
+// │ message_id em `assumidos[chave]` e o checarDiscussao segue vigiando o       │
+// │ carimbo REAL da página do evento. Divergiu (Rejeitada/Prejudicada/          │
+// │ "com alterações"), a mensagem do grupo é EDITADA para o resultado oficial   │
+// │ e o admin é avisado. Confirmou "Aprovada", só marca ok. Ou seja: o caso 1   │
+// │ abaixo passou a se autocorrigir em ~minutos (latência da página).           │
+// │                                                                             │
+// │ MODOS DE ERRO conhecidos (e por que são aceitáveis agora):                  │
+// │  1. Simbólica REJEITADA/PREJUDICADA de fato (raro): sai "Aprovado" e é      │
+// │     CORRIGIDO por edição quando o carimbo real chega (~7 min).              │
 // │  2. Retirada de pauta: normalmente NÃO tem votacaoAtual (é retirada antes   │
 // │     de votar) → este ramo nem dispara; a página cobre. Se um dia houver     │
-// │     votacaoAtual e retirada, cairia no caso 1.                              │
+// │     votacaoAtual e retirada, cai na autocorreção do caso 1.                 │
 // │  3. MPV/matéria com PARECERES: o cosev abre uma sub-votação por parecer +   │
 // │     uma pela matéria, todas com a MESMA referência (ex.: MPV-1346-2026). O  │
 // │     dedup por chave garante 1 anúncio + 1 resultado, mas o "Aprovado" sai   │
@@ -538,29 +564,56 @@ async function anunciarSimbolico(rotulo, explic = '') {
 // │     prática fecham em segundos; se precisar do desfecho da matéria em si,   │
 // │     filtrar por descricaoProposicao (a matéria não tem "PARECER" no texto). │
 // └─────────────────────────────────────────────────────────────────────────┘
+// Envia com md e devolve a mensagem (p/ guardar o message_id da autocorreção).
+async function enviarComId(texto) {
+  const destino = _cfg.destino();
+  if (!destino) return null;
+  let msg = null;
+  try { msg = await _cfg.api.sendMessage(destino, texto, { parse_mode: 'Markdown' }); }
+  catch (_) { msg = await _cfg.api.sendMessage(destino, texto).catch(e => { console.warn('[monitor] envio falhou:', e.message); return null; }); }
+  return msg ? { mid: msg.message_id, chat: destino } : null;
+}
+
 // Espelha o formato do anúncio (urgência aponta o alvo; MPV/PEC no feminino).
+// Retorna { mid, chat, texto } da mensagem enviada (ou null se falhou) — o
+// chamador grava em `assumidos` para a autocorreção pela página do evento.
 async function anunciarResultadoSimbolico(rotulo) {
   const urg = String(rotulo || '').match(REGEX_URGENCIA);
+  let texto;
   if (REGEX_DESTAQUE.test(rotulo)) {
-    await enviar(`Aprovado, simbolicamente, o ${linhaDoDestaque(rotulo)}`, { md: true });
-    return;
-  }
-  if (urg) {
+    texto = `Aprovado, simbolicamente, o ${linhaDoDestaque(rotulo)}`;
+  } else if (urg) {
     const ref = { sigla: urg[1].toUpperCase(), numero: urg[2].replace(/\./g, ''), ano: urg[3] };
     const desc = await descricaoCurta(ref);
-    await enviar(`Aprovada, simbolicamente, a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
-    return;
-  }
-  const ref = refDoRotulo(rotulo);
-  if (ref) {
-    const desc = await descricaoCurta(ref);
-    const fem = /^(PEC|MPV)$/.test(ref.sigla);
-    await enviar(`${fem ? 'Aprovada' : 'Aprovado'}, simbolicamente, ${fem ? 'a' : 'o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`, { md: true });
+    texto = `Aprovada, simbolicamente, a *urgência ao ${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`;
   } else {
-    const ident = identificarItem(rotulo);
-    const desc = await descricaoCurta(ident.ref);
-    await enviar(`Aprovado, simbolicamente: ${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+    const ref = refDoRotulo(rotulo);
+    if (ref) {
+      const desc = await descricaoCurta(ref);
+      const fem = /^(PEC|MPV)$/.test(ref.sigla);
+      texto = `${fem ? 'Aprovada' : 'Aprovado'}, simbolicamente, ${fem ? 'a' : 'o'} *${ref.sigla} ${ref.numero}/${ref.ano}*${desc ? ` (${desc})` : ''}`;
+    } else {
+      const ident = identificarItem(rotulo);
+      const desc = await descricaoCurta(ident.ref);
+      texto = `Aprovado, simbolicamente: ${ident.texto}${desc ? ` (${desc})` : ''}`;
+    }
   }
+  const env = await enviarComId(texto);
+  return env ? { ...env, texto } : null;
+}
+
+// Texto CORRIGIDO a partir do carimbo real da página. null = confirma (sem edição).
+function textoCorrigido(textoAssumido, situacao) {
+  if (/^Aprovad/i.test(situacao)) {
+    if (/altera[çc][õo]es/i.test(situacao)) return `${textoAssumido}, com alterações`;
+    return null;   // "Aprovada" pura: a assunção estava certa
+  }
+  if (/^Rejeitad/i.test(situacao)) {
+    return textoAssumido.replace(/Aprovad(o|a)/, 'Rejeitad$1');
+  }
+  // Prejudicada / Retirada de pauta / Não apreciada: frase sóbria com a situação oficial
+  const bold = (textoAssumido.match(/\*([^*]+)\*/) || [])[1];
+  return bold ? `*${bold}* — ${situacao}.` : `${situacao}: ${textoAssumido.replace(/^Aprovad[oa], simbolicamente,?\s*/i, '')}`;
 }
 
 // ---------- Estado persistido por sessão ----------
@@ -587,6 +640,7 @@ async function carregarEstado(eventoId) {
     nominaisChave:    e.nominaisChave || {},   // matérias vistas em votação NOMINAL (não anunciar como simbólicas)
     oradoresAvisados: e.oradoresAvisados || {},  // avisos "na tribuna" já dados (deputado-lista)
     faltantesAvisados: e.faltantesAvisados || {},  // rede de segurança de faltantes já disparada, por idVotacao
+    assumidos:        e.assumidos || {},       // resultados simbólicos ASSUMIDOS (mid/chat/texto) aguardando o carimbo real
   };
 }
 function marcar(eventoId, patch) {
@@ -780,7 +834,13 @@ async function tickAbertura() {
       if (!est.resultadosPag[ant.chave]) {
         est.resultadosPag[ant.chave] = true;
         marcar(_sessao.id, { [`resultadosPag/${ant.chave}`]: true });
-        await anunciarResultadoSimbolico(ant.titulo);
+        const env = await anunciarResultadoSimbolico(ant.titulo);
+        // Autocorreção: guarda a mensagem assumida; checarDiscussao confere o
+        // carimbo real da página e EDITA se divergir.
+        if (env) {
+          est.assumidos[ant.chave] = { mid: env.mid, chat: env.chat, texto: env.texto };
+          marcar(_sessao.id, { [`assumidos/${ant.chave}`]: est.assumidos[ant.chave] });
+        }
         console.log(`[monitor] simbólica aprovada via cosev (${ant.chave}).`);
       }
     }
