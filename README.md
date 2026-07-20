@@ -1,6 +1,9 @@
 # SisPode — Sistemas Legislativos do Podemos
 
-Extensão do Chrome para a equipe da **Liderança do Podemos** na Câmara dos Deputados. Reúne sete ferramentas integradas para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC) e acompanhamento dos vetos em tramitação no Congresso Nacional.
+Ferramentas para a equipe da **Liderança do Podemos** na Câmara dos Deputados, em duas frentes:
+
+- **Extensão do Chrome** (MV3) — sete módulos integrados para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC) e acompanhamento dos vetos em tramitação no Congresso Nacional.
+- **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#8-bot-do-telegram-sispode-bot).
 
 ---
 
@@ -258,6 +261,41 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 
 ---
 
+### 8. Bot do Telegram (SisPode Bot)
+
+Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as análises e o **acompanhamento ao vivo do Plenário** para o grupo do Telegram. Usa o **mesmo Firebase** da extensão (as análises geradas no painel aparecem no bot) e roda a IA **na chave de cada usuário** (`/config`). Código em `bot/` — instalação em [`bot/INSTALACAO.md`](bot/INSTALACAO.md), guia de uso em [`bot/GUIA-ANALISTA.md`](bot/GUIA-ANALISTA.md).
+
+**Conversa em linguagem natural (agente)**
+- Além dos comandos, o bot **conversa**: um agente (laço ReAct sobre os 3 provedores de IA) que consulta ferramentas, lê os resultados e responde — com memória de conversa. No privado (texto ou **voz**), ou no grupo **mencionando** o bot ou **respondendo** a uma mensagem dele
+- Ferramentas de consulta: itens da pauta, nota técnica salva, quórum ao vivo, pauta de comissão, situação de qualquer proposição, oradores da sessão, faltantes de votação, e **páginas de sites oficiais** (allow-list rígida no código: `camara.leg.br`, `senado.leg.br`, `planalto.gov.br`, `in.gov.br`)
+- Ações (com as confirmações de sempre): importar pauta, gerar análises, exportar PDF, etc.
+
+**Pauta e análise (porte da extensão)**
+- `/pauta` (escolhe/busca on-line), `/importar` (Pauta da Semana), `/ordemdodia` (Ordem do Dia do dia), `/listar`, também aceita **PDF da pauta** enviado no chat
+- `/analisar` gera as notas técnicas da pauta (via *worker* Puppeteer, na chave do solicitante); `/exportar` gera o **PDF institucional**
+- `/perguntar` (responde a partir da nota + documentos), `/nota` (texto integral verbatim), `/documentos` e `/baixar` (PDFs da tramitação), `/agregar`, `/limpar`
+- `/comissao`, `/comissoeshoje`, `/varrercomissoes` (projetos do Podemos nas comissões do dia)
+
+**Monitor de sessão ao vivo (Plenário)**
+Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
+- Abertura do registro de presença/inscrições, **quórum** (ao atingir 257), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
+- **Votações simbólicas**: anúncio e resultado a partir do sinal do cosev (~12 s), com **autocorreção** — o resultado assumido ("Aprovado") é editado na própria mensagem se o carimbo oficial da página do evento divergir
+- **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência), destaques (DTQ) com a explicação do módulo de Destaques
+- **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel) + encaminhamentos das matérias
+- **"Na tribuna"**: aviso quando um deputado do Podemos é chamado a discursar
+- Comandos ao vivo: `/quorum` (presença no painel), `/oradores [data] [filtro]` (quem falou/aguarda, por lista), `/faltamvotar` (na nominal aberta, quem do Podemos ainda não votou — presentes × fora da Casa, com rede de segurança automática)
+
+**Imprensa e produção**
+- `/digest` — radar de imprensa (Fantástico, JN, Profissão Repórter, Globo Rural, Agência Brasil): temas + relevância legislativa + minuta em PDF (assinantes; automático às segundas)
+- `/rodaviva` — resumo da entrevista do Roda Viva (convidado + principais pontos), automático no grupo às terças; transcrição via YouTube com cascata de fallbacks
+
+**Administração**
+- Acesso por allowlist (`/usuarios`, `/revogar`; entrada por palavra-chave ou aprovação do admin); menu de comandos por escopo (autorizados e admin veem comandos extras)
+- `/revisar_msg` — usuários autorizados corrigem, no privado, uma das últimas 5 mensagens que o bot enviou ao grupo (editado in-place; o admin recebe o antes/depois)
+- `/backup`/`/backups`, `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo` (chave de IA por usuário)
+
+---
+
 ## Instalação
 
 > A extensão não está publicada na Chrome Web Store. Para usar, faça a instalação manual em modo desenvolvedor.
@@ -313,12 +351,28 @@ sispode/
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
-└── libs/
-    ├── pdf.min.js / pdf.worker.min.js   # PDF.js — leitura de PDFs
-    ├── html2canvas.min.js               # Geração de imagens
-    ├── xlsx.full.min.js                 # Exportação para Excel
-    ├── docx.iife.js / docx.umd.js      # Exportação para Word
-    └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
+├── libs/
+│   ├── pdf.min.js / pdf.worker.min.js   # PDF.js — leitura de PDFs
+│   ├── html2canvas.min.js               # Geração de imagens
+│   ├── xlsx.full.min.js                 # Exportação para Excel
+│   ├── docx.iife.js / docx.umd.js      # Exportação para Word
+│   └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
+└── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
+    ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
+    └── src/
+        ├── agente.js               # Conversa natural (laço ReAct) + web oficial
+        ├── monitor.js              # Monitor de sessão ao vivo (Plenário)
+        ├── plenariocosev.js        # APIs públicas cosev/ws-plenario (app Infoleg)
+        ├── oradores.js             # Oradores inscritos da sessão
+        ├── faltamvotar.js          # Quem da bancada não votou na nominal aberta
+        ├── votacao.js / portal.js / imagem.js   # Placar da bancada (imagem)
+        ├── worker.js               # Puppeteer: /analisar e /exportar (PDF)
+        ├── pauta.js / odd.js / parser.js / sessao.js   # Pauta e Ordem do Dia
+        ├── perguntar.js / documentos.js / interesse.js # Notas, documentos, contexto
+        ├── comissoes.js / digest.js / rodaviva.js       # Comissões, imprensa, Roda Viva
+        ├── ia.js                   # Matriz dos 3 provedores de IA (chave do usuário)
+        ├── store.js / firebase.js / config.js / backup.js   # Persistência e config
+        └── cosevespiao.js          # Espião de calibração ao vivo (privado do admin)
 ```
 
 ---
@@ -328,7 +382,9 @@ sispode/
 | Serviço | Uso |
 |---|---|
 | [Dados Abertos da Câmara](https://dadosabertos.camara.leg.br) | Proposições, destaques, votações, deputados |
-| [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento e documentos legislativos |
+| [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento, oradores, presença e documentos legislativos |
+| APIs públicas do app Infoleg (cosev / ws-plenario) | **Bot**: acompanhamento ao vivo do Plenário (presença, ODD, votações) — endpoints de leitura públicos |
+| [API do Telegram](https://core.telegram.org/bots/api) (via grammY) | **Bot**: mensageria no grupo e no privado |
 | [SISCON – Senado Federal](https://legis.senado.leg.br) | Relatório Resumo de Vetos em tramitação (PDF) |
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
@@ -349,6 +405,12 @@ sispode/
 
 ## Requisitos
 
+**Extensão**
 - Google Chrome (versão compatível com Manifest V3)
 - Conexão com internet para consultar as APIs da Câmara
 - Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA
+
+**Bot** (opcional — ver [`bot/INSTALACAO.md`](bot/INSTALACAO.md))
+- Node.js LTS
+- Token de bot do Telegram (BotFather) e o ID do grupo da equipe
+- Chave de IA por usuário (`/config`) para conversa natural e geração de notas
