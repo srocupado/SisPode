@@ -433,7 +433,10 @@ function ehHoraDoEnvioRodaViva() {
   }).formatToParts(new Date());
   const dia = p.find(x => x.type === 'weekday').value;
   const hora = parseInt(p.find(x => x.type === 'hour').value, 10) % 24;
-  return dia === a.dia && hora >= a.hora;
+  // Janela de 2h a partir do horário configurado: recupera num restart logo
+  // após a hora certa, mas não dispara à noite se o bot subir tarde (a
+  // idempotência por vídeo já evita reenvio; isto evita o envio fora de hora).
+  return dia === a.dia && hora >= a.hora && hora < a.hora + 2;
 }
 function jaEnviadoRodaViva(videoId) {
   return carregarJson(ARQ_ENVIO, {}).videoId === videoId;

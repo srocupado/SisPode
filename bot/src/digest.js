@@ -402,14 +402,17 @@ function jaEnviadoNaSemana() {
 function marcarEnvioDaSemana() {
   gravarJson('digest-envio.json', { semana: chaveSemanaSP(), em: new Date().toISOString() });
 }
-/** true se agora (SP) é segunda-feira, 7h ou mais. */
+/** true se agora (SP) é segunda-feira, na JANELA da manhã (7h–9h59).
+ * A janela é limitada de propósito: se o bot estava fora às 7h e sobe às 8h,
+ * ainda recupera; mas um restart de segunda à tarde/noite NÃO dispara um digest
+ * às 21h (a idempotência semanal segue impedindo reenvio dentro da janela). */
 function ehHoraDoEnvio() {
   const p = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/Sao_Paulo', weekday: 'short', hour: 'numeric', hour12: false,
   }).formatToParts(new Date());
   const dia = p.find(x => x.type === 'weekday').value;
   const hora = parseInt(p.find(x => x.type === 'hour').value, 10) % 24;
-  return dia === 'Mon' && hora >= 7;
+  return dia === 'Mon' && hora >= 7 && hora < 10;
 }
 
 module.exports = {
