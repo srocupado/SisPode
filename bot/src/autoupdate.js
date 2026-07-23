@@ -90,12 +90,14 @@ async function aplicarUpdate() {
     }
   } finally { await fsp.rm(stage, { recursive: true, force: true }).catch(() => {}); }
 
-  // 3) package.json mudou?
+  // 3) as DEPENDÊNCIAS mudaram? (compara os mapas parseados, não o texto —
+  // evita falso positivo por quebra de linha CRLF/LF ou formatação)
   let pkgMudou = false;
   try {
-    const atual = await fsp.readFile(path.join(BOT_DIR, 'package.json'), 'utf8').catch(() => '');
-    const novo = baixados.find(b => b.local === 'package.json')?.conteudo || '';
-    pkgMudou = atual.trim() !== novo.trim();
+    const atual = JSON.parse(await fsp.readFile(path.join(BOT_DIR, 'package.json'), 'utf8').catch(() => '{}') || '{}');
+    const novo = JSON.parse(baixados.find(b => b.local === 'package.json')?.conteudo || '{}');
+    const eq = (a, b) => JSON.stringify(Object.entries(a || {}).sort()) === JSON.stringify(Object.entries(b || {}).sort());
+    pkgMudou = !eq(atual.dependencies, novo.dependencies) || !eq(atual.devDependencies, novo.devDependencies);
   } catch (_) {}
 
   // 4) aplica (tudo validado)
