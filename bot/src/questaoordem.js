@@ -119,7 +119,7 @@ function formatarQO(res) {
     return `Não encontrei questão de ordem mencionando "${res.termo}" (busca no resumo de cada QO).`;
   }
   const linhas = res.itens.map(x =>
-    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${x.trecho}\n  ${DETALHE(x.id)}`);
+    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${x.trecho}\n  🔗 Íntegra: ${DETALHE(x.id)}`);
   const cab = `🔎 Questões de ordem com "${res.termo}": *${res.total}*` +
     (res.total > res.itens.length ? ` (mostrando as ${res.itens.length} mais recentes)` : '');
   return `${cab}\n\n${linhas.join('\n\n')}`;
