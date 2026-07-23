@@ -23,6 +23,7 @@ const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = 
 const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, aquecerCorpus } = require('./src/questaoordem');
+const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -1222,6 +1223,32 @@ async function cmdQuestaoOrdem(ctx, texto) {
 }
 bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 
+// ---------- /update — baixa o main do GitHub, valida e reinicia (só ADMIN) ----------
+// Requer GH_TOKEN (fine-grained, read-only) no .env e o bot rodando sob o
+// iniciar-bot.bat (loop): o /update valida e encerra; o loop sobe o código novo.
+bot.command('update', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg === 'status') {
+    try {
+      const s = await statusUpdate();
+      const loc = s.local ? `${s.local.sha.slice(0, 7)} — ${(s.local.msg || '').slice(0, 50)}` : 'desconhecida (nunca atualizado pelo /update)';
+      return ctx.reply(`📦 Versão local: ${loc}\n📥 main: ${s.main.sha.slice(0, 7)} — ${(s.main.msg || '').slice(0, 50)}\n${s.atualizado ? '✅ já está na última.' : '⬆️ há atualização disponível — mande /update.'}`);
+    } catch (e) { return ctx.reply(`Não consegui checar: ${e.message}`); }
+  }
+  await ctx.reply('📥 Baixando o main e validando (node --check)…');
+  let r;
+  try { r = await aplicarUpdate(); }
+  catch (e) { return ctx.reply(`❌ Update falhou: ${e.message}. Continuo na versão atual (nada foi trocado).`); }
+  if (!r.ok) return ctx.reply(`⚠️ Update abortado: ${r.erro}.\nNada foi trocado — o bot segue na versão atual.`);
+  await ctx.reply(
+    `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) gravado(s).` +
+    (r.pkgMudou ? '\n\n⚠️ O *package.json* mudou — rode `npm install` na pasta do bot (o restart sozinho não instala dependências).' : '') +
+    '\n\n🔄 Reiniciando…', { parse_mode: 'Markdown' });
+  console.log(`[update] aplicado (${r.sha.slice(0, 7)}) — encerrando para o supervisor recarregar o código.`);
+  setTimeout(() => process.exit(0), 1500);
+});
+
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
@@ -1802,7 +1829,9 @@ const MENU_REVISAR = { command: 'revisar_msg', description: 'Corrigir uma das ú
 // Menu dos AUTORIZADOS (lista do /usuarios): público + /revisar_msg.
 const MENU_REVISOR = [...MENU_COMANDOS, MENU_REVISAR];
 // Menu do ADMIN: o dos autorizados + administração do monitor.
-const MENU_ADMIN = [...MENU_COMANDOS, MENU_REVISAR, { command: 'monitor', description: 'Status/liga-desliga do monitor de sessão' }];
+const MENU_ADMIN = [...MENU_COMANDOS, MENU_REVISAR,
+  { command: 'monitor', description: 'Status/liga-desliga do monitor de sessão' },
+  { command: 'update', description: 'Atualizar o bot pelo GitHub (main) e reiniciar' }];
 
 // Define o menu do "/" no privado de UM usuário conforme o papel dele. Escopo
 // por chat do Telegram: o público vê MENU_COMANDOS; autorizados veem +
