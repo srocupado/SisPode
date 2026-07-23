@@ -22,6 +22,7 @@ const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
+const { buscarQO, formatarQO, aquecerCorpus } = require('./src/questaoordem');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -40,6 +41,7 @@ if (GRUPO_CHAT_ID) {
   });
 }
 carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
+aquecerCorpus();       // pré-carrega o acervo de questões de ordem (busca instantânea depois)
 
 const TEXTO_AJUDA =
   'SisPode Bot — Liderança do Podemos na Câmara\n\n' +
@@ -62,6 +64,7 @@ const TEXTO_AJUDA =
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
   '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
+  '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário por palavra-chave, no histórico. Ex.: /qo ata de comissão\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1203,6 +1206,22 @@ async function cmdFaltamVotar(ctx) {
 }
 bot.command('faltamvotar', cmdFaltamVotar);
 
+// ---------- /questaoordem <termo> — questões de ordem por palavra-chave ----------
+// Busca no acervo (sistema dedicado da Câmara), cacheado 1h. Cobre o resumo de
+// cada QO. Sem termo, explica. Ex.: /questaoordem ata de comissão
+async function cmdQuestaoOrdem(ctx, texto) {
+  const termo = String(texto || '').trim();
+  if (!termo) return ctx.reply('Uso: /questaoordem <termo> — ex.: /questaoordem ata de comissão\nBusca no resumo das questões de ordem do Plenário.');
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, formatarQO(await buscarQO(termo)));
+  } catch (e) {
+    console.error('/questaoordem falhou:', e);
+    return ctx.reply(`Erro ao buscar questões de ordem: ${e.message}`);
+  }
+}
+bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
+
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
@@ -1473,6 +1492,7 @@ function ferramentasDado(userId) {
     },
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
+    questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
@@ -1769,6 +1789,7 @@ const MENU_COMANDOS = [
   { command: 'quorum',         description: 'Presença ao vivo no Plenário (painel público)' },
   { command: 'oradores',       description: 'Quem falou/aguarda na sessão (ex.: /oradores 15/07/2026)' },
   { command: 'faltamvotar',    description: 'Quem do Podemos ainda não votou (na nominal aberta)' },
+  { command: 'questaoordem',   description: 'Buscar questões de ordem por termo (ex.: /qo ata de comissão)' },
   { command: 'resumo',         description: 'Resumo da sessão do dia' },
   { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
   { command: 'limpar',         description: 'Zerar a conversa com a IA' },
