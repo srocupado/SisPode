@@ -22,21 +22,29 @@ const BOT_DIR = path.resolve(__dirname, '..');           // .../bot
 const VERSAO_JSON = path.join(BOT_DIR, 'dados', 'versao-bot.json');
 
 async function gh(caminho, { raw = false } = {}) {
-  const r = await fetch(`${API}${caminho}`, {
-    headers: {
-      Authorization: `Bearer ${TOKEN}`,
-      Accept: raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'SisPodeBot-update',
-    },
-  });
-  if (!r.ok) {
+  const headers = {
+    Authorization: `Bearer ${TOKEN}`,
+    Accept: raw ? 'application/vnd.github.raw' : 'application/vnd.github+json',
+    'X-GitHub-Api-Version': '2022-11-28',
+    'User-Agent': 'SisPodeBot-update',
+  };
+  // Retry com backoff: rede instável (fetch failed) e 429/5xx tentam de novo;
+  // 401/403/404 são permanentes e falham na hora.
+  const esperas = [0, 1500, 4000, 8000];
+  let ultimo = null;
+  for (let i = 0; i < esperas.length; i++) {
+    if (esperas[i]) await new Promise(r => setTimeout(r, esperas[i]));
+    let r;
+    try { r = await fetch(`${API}${caminho}`, { headers }); }
+    catch (e) { ultimo = new Error(e.message || 'fetch failed'); continue; }   // falha de rede → repete
+    if (r.ok) return raw ? r.text() : r.json();
+    if (r.status === 429 || (r.status >= 500 && r.status < 600)) { ultimo = new Error(`GitHub ${r.status}`); continue; }
     const dica = r.status === 401 ? ' (GH_TOKEN inválido/expirado?)'
       : r.status === 403 ? ' (sem permissão ou rate limit)'
       : r.status === 404 ? ' (repo/arquivo não encontrado ou token sem acesso a ele)' : '';
     throw new Error(`GitHub ${r.status}${dica}`);
   }
-  return raw ? r.text() : r.json();
+  throw ultimo || new Error('fetch failed (rede indisponível após tentativas)');
 }
 
 async function commitMain() {
