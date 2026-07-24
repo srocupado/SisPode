@@ -186,7 +186,7 @@ REGRAS:
 - Ao usar pagina_oficial ou situacao_proposicao, cite a fonte na resposta (ex.: "segundo a Câmara").
 - Resposta final: objetiva, sem markdown pesado (Telegram), no máximo ~2500 caracteres.
 - Ao listar PESSOAS ou ITENS (oradores, deputados, matérias), coloque UM POR LINHA (com "• "), nunca corrido na frase — facilita a leitura no celular.
-- Se uma OBSERVAÇÃO trouxer LINKS (URLs), REPRODUZA-OS na resposta EXATAMENTE como vieram (ex.: o "🔗 Íntegra: https://…" de cada questão de ordem). NUNCA troque um link por "consulte no portal" nem invente URLs — o usuário precisa do link exato.
+- Quando uma OBSERVAÇÃO já vier FORMATADA como lista (itens com "•", identificador em *negrito*, linhas "🔗 Íntegra: https://…"), ENTREGUE-A COMO ESTÁ: mantenha o *negrito* do identificador, os LINKS exatos e UMA LINHA EM BRANCO entre os itens. NÃO compacte em uma linha por item, NÃO resuma as ementas, NÃO troque link por "consulte no portal" nem invente URL. No máximo acrescente UMA frase curta de introdução antes da lista.
 ${CATALOGO_DADOS}
 ${CATALOGO_ACOES}
 
