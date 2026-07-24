@@ -74,6 +74,27 @@ function aquecerCorpus() {
     .catch(e => console.warn('[qordem] aquecimento falhou:', e.message));
 }
 
+// A EMENTA (resumo) só vem no detalhe por id, não na listagem. Buscamos só a
+// das QOs que vão APARECER (as ~12 mostradas), em paralelo, e cacheamos por id.
+const _ementa = new Map();
+async function carregarEmenta(id) {
+  if (id == null) return '';
+  if (_ementa.has(id)) return _ementa.get(id);
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 12000);
+  try {
+    const r = await fetch(`https://www.camara.leg.br/busca-qordem-api/qordem/${id}`, {
+      signal: ctrl.signal, headers: { Accept: 'application/json', Referer: 'https://www.camara.leg.br/v-busca-qordem' },
+    });
+    if (!r.ok) return '';
+    const d = await r.json();
+    const e = String(d.txtEmentaQOrdem || '').replace(/\s+/g, ' ').trim();
+    _ementa.set(id, e);
+    return e;
+  } catch (_) { return ''; }
+  finally { clearTimeout(timer); }
+}
+
 const dataOrd = o => {
   const m = String(o.datSessaoQOrdem || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? Number(`${m[3]}${m[2]}${m[1]}`) : 0;
@@ -100,17 +121,19 @@ async function buscarQO(termo, { limite = 12 } = {}) {
   const alvoDe = o => normalizar(`${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}`);
   const achados = corpus.filter(o => { const a = alvoDe(o); return termos.every(t => a.includes(t)); });
   achados.sort((a, b) => dataOrd(b) - dataOrd(a));
-  return {
-    termo: String(termo).trim(),
-    total: achados.length,
-    itens: achados.slice(0, limite).map(o => ({
+  // Enriquece só as mostradas com a EMENTA (detalhe por id, em paralelo).
+  const itens = await Promise.all(achados.slice(0, limite).map(async o => {
+    const ementa = await carregarEmenta(o.numInternoQOrdem);
+    return {
       id: o.numInternoQOrdem,
       num: o.numQOrdemComAno || o.numQOrdem,
       data: o.datSessaoQOrdem,
       autor: String(o.txtNomeAutorQOrdem || '').trim(),
+      ementa,
       trecho: trechoAoRedor(o.txtQOrdemReduzido || '', termos),
-    })),
-  };
+    };
+  }));
+  return { termo: String(termo).trim(), total: achados.length, itens };
 }
 
 /** Texto pronto para o comando e o agente. */
@@ -118,8 +141,13 @@ function formatarQO(res) {
   if (!res.total) {
     return `Não encontrei questão de ordem mencionando "${res.termo}" (busca no resumo de cada QO).`;
   }
+  const resumo = x => {
+    const e = (x.ementa || '').trim();
+    const texto = e ? (e.length > 240 ? e.slice(0, 240).replace(/\s+\S*$/, '') + '…' : e) : x.trecho;
+    return texto;
+  };
   const linhas = res.itens.map(x =>
-    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${x.trecho}\n  🔗 Íntegra: ${DETALHE(x.id)}`);
+    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${resumo(x)}\n  🔗 Íntegra: ${DETALHE(x.id)}`);
   const cab = `🔎 Questões de ordem com "${res.termo}": *${res.total}*` +
     (res.total > res.itens.length ? ` (mostrando as ${res.itens.length} mais recentes)` : '');
   return `${cab}\n\n${linhas.join('\n\n')}`;
