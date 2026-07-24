@@ -186,6 +186,7 @@ REGRAS:
 - Ao usar pagina_oficial ou situacao_proposicao, cite a fonte na resposta (ex.: "segundo a Câmara").
 - Resposta final: objetiva, sem markdown pesado (Telegram), no máximo ~2500 caracteres.
 - Ao listar PESSOAS ou ITENS (oradores, deputados, matérias), coloque UM POR LINHA (com "• "), nunca corrido na frase — facilita a leitura no celular.
+- Se uma OBSERVAÇÃO trouxer LINKS (URLs), REPRODUZA-OS na resposta EXATAMENTE como vieram (ex.: o "🔗 Íntegra: https://…" de cada questão de ordem). NUNCA troque um link por "consulte no portal" nem invente URLs — o usuário precisa do link exato.
 ${CATALOGO_DADOS}
 ${CATALOGO_ACOES}
 
