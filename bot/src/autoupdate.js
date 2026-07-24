@@ -14,6 +14,18 @@ const path = require('path');
 const fsp = require('fs').promises;
 const { execFile } = require('child_process');
 
+// Rede corporativa/gov costuma ter IPv6 quebrado: o navegador cai para IPv4
+// sozinho (Happy Eyeballs), mas o fetch do Node tenta IPv6 e estoura em
+// "fetch failed". Preferir IPv4 resolve — vale para TODAS as chamadas do bot
+// (este módulo é carregado no arranque pelo index.js).
+try { require('dns').setDefaultResultOrder('ipv4first'); } catch (_) {}
+
+// Extrai a causa REAL de um erro de fetch (que só diz "fetch failed").
+function causaRede(e) {
+  const c = e && e.cause;
+  return (c && (c.code || c.message)) || e.message || 'erro de rede';
+}
+
 const REPO = process.env.GH_REPO || 'srocupado/SisPode';
 const BRANCH = process.env.GH_BRANCH || 'main';
 const TOKEN = process.env.GH_TOKEN || '';
@@ -36,7 +48,7 @@ async function gh(caminho, { raw = false } = {}) {
     if (esperas[i]) await new Promise(r => setTimeout(r, esperas[i]));
     let r;
     try { r = await fetch(`${API}${caminho}`, { headers }); }
-    catch (e) { ultimo = new Error(e.message || 'fetch failed'); continue; }   // falha de rede → repete
+    catch (e) { ultimo = new Error(`rede: ${causaRede(e)}`); continue; }   // falha de rede → repete (com a causa real)
     if (r.ok) return raw ? r.text() : r.json();
     if (r.status === 429 || (r.status >= 500 && r.status < 600)) { ultimo = new Error(`GitHub ${r.status}`); continue; }
     const dica = r.status === 401 ? ' (GH_TOKEN inválido/expirado?)'
