@@ -107,11 +107,17 @@ function fatiarMensagem(texto, tam = 3900) {
   return partes;
 }
 
-async function responderLongo(ctx, texto, teclado) {
+async function responderLongo(ctx, texto, teclado, { md = false } = {}) {
   const partes = fatiarMensagem(texto);
   for (let i = 0; i < partes.length; i++) {
     const ultima = i === partes.length - 1;
-    await ctx.reply(partes[i], ultima && teclado ? { reply_markup: teclado } : undefined);
+    const base = ultima && teclado ? { reply_markup: teclado } : {};
+    if (md) {
+      // Negrito Telegram (*texto*); se algum trecho quebrar o parse, cai p/ texto puro
+      try { await ctx.reply(partes[i], { ...base, parse_mode: 'Markdown' }); continue; }
+      catch (_) { /* fallback abaixo */ }
+    }
+    await ctx.reply(partes[i], base);
   }
 }
 
@@ -1176,7 +1182,7 @@ async function cmdOradores(ctx, texto) {
   const filtro = (m ? t.replace(m[0], '') : t).trim();
   await ctx.replyWithChatAction('typing');
   try {
-    return responderLongo(ctx, await resumoOradoresDaData(dataISO, filtro));
+    return responderLongo(ctx, await resumoOradoresDaData(dataISO, filtro), null, { md: true });
   } catch (e) {
     console.error('/oradores falhou:', e);
     return ctx.reply(`Erro ao buscar os oradores: ${e.message}`);
@@ -1215,7 +1221,7 @@ async function cmdQuestaoOrdem(ctx, texto) {
   if (!termo) return ctx.reply('Uso: /questaoordem <termo> — ex.: /questaoordem ata de comissão\nBusca no resumo das questões de ordem do Plenário.');
   await ctx.replyWithChatAction('typing');
   try {
-    return responderLongo(ctx, formatarQO(await buscarQO(termo)));
+    return responderLongo(ctx, formatarQO(await buscarQO(termo)), null, { md: true });
   } catch (e) {
     console.error('/questaoordem falhou:', e);
     return ctx.reply(`Erro ao buscar questões de ordem: ${e.message}`);
@@ -1539,7 +1545,7 @@ async function tratarLinguagemNatural(ctx, texto) {
   try {
     const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id) });
     if (r.tipo === 'acao') return executarDecisao(ctx, { ferramenta: r.ferramenta, argumentos: r.argumentos });
-    return responderLongo(ctx, r.texto);
+    return responderLongo(ctx, r.texto, null, { md: true });
   } catch (e) {
     console.error('agente falhou:', e);
     return ctx.reply(`Não consegui interpretar (${e.message}). Tente um comando: /pauta, /importar, /perguntar…`);
