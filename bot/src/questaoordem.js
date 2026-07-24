@@ -113,7 +113,7 @@ function trechoAoRedor(texto, termos) {
  * Busca questões de ordem cujo texto reduzido contém TODOS os termos.
  * @returns {Promise<{termo, total, itens:[{id,num,data,autor,trecho}]}>}
  */
-async function buscarQO(termo, { limite = 12 } = {}) {
+async function buscarQO(termo, { limite = 8 } = {}) {
   const q = normalizar(termo);
   if (!q) return { termo, total: 0, itens: [] };
   const termos = q.split(/\s+/).filter(Boolean);
