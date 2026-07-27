@@ -144,7 +144,8 @@ FERRAMENTAS DE CONSULTA (o resultado volta para você continuar raciocinando):
 - "quorum" {}: presença AO VIVO no Plenário e fase da Ordem do Dia (painel público).
 - "pauta_comissao" {"comissoes":["CCJ"],"data":"hoje","partido":null,"deputado":null}: pauta oficial de comissão(ões) numa data.
 - "comissoes_reuniao" {"data":"hoje"}: quais comissões têm reunião deliberativa na data.
-- "questao_ordem" {"termo":"ata de comissão"}: busca QUESTÕES DE ORDEM do Plenário que mencionam um termo, no resumo de cada uma (histórico completo). Use para "houve questão de ordem sobre X?", "alguma QO sobre ata de comissão?", "questões de ordem do deputado Fulano".
+- "regimento" {"consulta":"verificação de votação"}: texto VIGENTE do Regimento Interno da Câmara (RICD). Aceita o número do artigo ("95") ou a dúvida em palavras ("quantas assinaturas para CPI", "prazo de interstício"). Devolve os artigos pertinentes na íntegra. Use SEMPRE que a pergunta for de rito/procedimento no Plenário ou nas comissões.
+- "questao_ordem" {"termo":"ata de comissão"}: busca QUESTÕES DE ORDEM do Plenário que mencionam um termo, no resumo de cada uma (histórico completo). Use para "houve questão de ordem sobre X?", "alguma QO sobre ata de comissão?", "questões de ordem do deputado Fulano". É o PRECEDENTE — como a Presidência já decidiu na prática. Numa dúvida regimental relevante, vale consultar "regimento" (a norma) E "questao_ordem" (o precedente).
 - "faltam_votar" {}: numa votação NOMINAL em curso, quem da bancada do Podemos ainda NÃO votou — separando "presentes e não votaram" (acionável) de "fora da Casa". Só funciona com nominal aberta. Use para "quem do Podemos falta votar?", "a bancada já votou toda?".
 - "oradores_sessao" {"data":"dd/mm/aaaa","filtro":""}: quem FALOU / foi chamado / aguarda para falar na sessão do Plenário, por lista (Breves Comunicações, Comunicações de Liderança, Discussão/Encaminhamento por matéria) — com partido e UF. Sem data = hoje; "filtro" restringe (ex.: "breves", "liderança", "PL 2581/2026"). Use para "quem já falou hoje?", "quem discutiu a MPV X?", "alguém do Podemos falou?".
 - "situacao_proposicao" {"sigla":"PL","numero":"1234","ano":"2026"}: ementa, autoria, situação e última tramitação de QUALQUER proposição (API oficial da Câmara) — mesmo fora da pauta.
@@ -182,6 +183,7 @@ function montarPrompt({ mensagem, memoria, observacoes, forcarResposta }) {
 
 REGRAS:
 - NUNCA invente número, placar, situação ou data: se precisar de um dado, CONSULTE uma ferramenta.
+- Em dúvida REGIMENTAL (rito, prazo, quórum, assinaturas, destaque, verificação): consulte "regimento" e responda CITANDO o artigo ("conforme o art. 185 do RICD…"). Nunca afirme regra de procedimento sem o artigo que a sustenta; se os artigos trazidos não responderem, diga isso em vez de deduzir.
 - Prefira responder você mesmo (com as observações) a despachar ação; use AÇÃO só quando o usuário pediu a ação em si.
 - Ao usar pagina_oficial ou situacao_proposicao, cite a fonte na resposta (ex.: "segundo a Câmara").
 - Resposta final: objetiva, sem markdown pesado (Telegram), no máximo ~2500 caracteres.

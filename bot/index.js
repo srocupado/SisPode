@@ -24,6 +24,7 @@ const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, aquecerCorpus } = require('./src/questaoordem');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
+const { consultarRegimento, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -43,6 +44,7 @@ if (GRUPO_CHAT_ID) {
 }
 carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
 aquecerCorpus();       // pré-carrega o acervo de questões de ordem (busca instantânea depois)
+aquecerRegimento();    // pré-carrega o Regimento Interno (consulta instantânea depois)
 
 const TEXTO_AJUDA =
   'SisPode Bot — Liderança do Podemos na Câmara\n\n' +
@@ -66,6 +68,7 @@ const TEXTO_AJUDA =
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
   '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário por palavra-chave, no histórico. Ex.: /qo ata de comissão\n' +
+  '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1229,6 +1232,28 @@ async function cmdQuestaoOrdem(ctx, texto) {
 }
 bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 
+// ---------- /regimento <artigo ou dúvida> — texto vigente do RICD ----------
+// Devolve os artigos LITERAIS (regimento é matéria de precisão; o bot mostra a
+// fonte, não parafraseia). Para o precedente da Presidência, use /qo.
+async function cmdRegimento(ctx, texto) {
+  const consulta = String(texto || '').trim();
+  if (!consulta) {
+    return ctx.reply('Uso: /regimento <artigo ou dúvida>\n\nEx.: /regimento 95 · /regimento verificação de votação · /regimento quantas assinaturas para CPI\n\nPara o precedente (como a Presidência já decidiu), use /qo <termo>.');
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await consultarRegimento(consulta);
+    const dica = r.artigos.length && !r.porNumero
+      ? `\n\n💡 Precedente sobre o tema: /qo ${consulta}`
+      : '';
+    return responderLongo(ctx, formatarRegimento(r) + dica, null, { md: true });
+  } catch (e) {
+    console.error('/regimento falhou:', e);
+    return ctx.reply(`Erro ao consultar o Regimento: ${e.message}`);
+  }
+}
+bot.command(['regimento', 'ri'], ctx => cmdRegimento(ctx, ctx.match));
+
 // ---------- /update — baixa o main do GitHub, valida e reinicia (só ADMIN) ----------
 // Requer GH_TOKEN (fine-grained, read-only) no .env e o bot rodando sob o
 // iniciar-bot.bat (loop): o /update valida e encerra; o loop sobe o código novo.
@@ -1526,6 +1551,7 @@ function ferramentasDado(userId) {
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
+    regimento: async ({ consulta } = {}) => formatarRegimento(await consultarRegimento(String(consulta || ''))),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
@@ -1823,6 +1849,7 @@ const MENU_COMANDOS = [
   { command: 'oradores',       description: 'Quem falou/aguarda na sessão (ex.: /oradores 15/07/2026)' },
   { command: 'faltamvotar',    description: 'Quem do Podemos ainda não votou (na nominal aberta)' },
   { command: 'questaoordem',   description: 'Buscar questões de ordem por termo (ex.: /qo ata de comissão)' },
+  { command: 'regimento',      description: 'Regimento Interno: artigo ou dúvida (ex.: /ri verificação)' },
   { command: 'resumo',         description: 'Resumo da sessão do dia' },
   { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
   { command: 'limpar',         description: 'Zerar a conversa com a IA' },
