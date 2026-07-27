@@ -22,7 +22,7 @@ const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
 const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
-const { buscarQO, formatarQO, aquecerCorpus } = require('./src/questaoordem');
+const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
@@ -1232,6 +1232,22 @@ async function cmdQuestaoOrdem(ctx, texto) {
 }
 bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 
+// Resposta regimental COMPLETA: a NORMA (artigos do RICD) seguida do PRECEDENTE
+// (questões de ordem sobre o mesmo tema). É como o analista de plenário raciocina
+// — a regra e como a Presidência já a aplicou. A busca de QO entra em modo
+// relaxado porque a consulta costuma ser uma pergunta, não uma expressão exata.
+async function respostaRegimental(consulta) {
+  const reg = await consultarRegimento(consulta);
+  let texto = formatarRegimento(reg);
+  if (!reg.artigos.length) return texto;
+  try {
+    const qo = await buscarQO(consulta, { limite: 3, relaxar: true });
+    const bloco = formatarQOCompacto(qo);
+    if (bloco) texto += `\n\n${bloco}`;
+  } catch (e) { console.warn('[regimento] precedente falhou:', e.message); }
+  return texto;
+}
+
 // ---------- /regimento <artigo ou dúvida> — texto vigente do RICD ----------
 // Devolve os artigos LITERAIS (regimento é matéria de precisão; o bot mostra a
 // fonte, não parafraseia). Para o precedente da Presidência, use /qo.
@@ -1242,11 +1258,7 @@ async function cmdRegimento(ctx, texto) {
   }
   await ctx.replyWithChatAction('typing');
   try {
-    const r = await consultarRegimento(consulta);
-    const dica = r.artigos.length && !r.porNumero
-      ? `\n\n💡 Precedente sobre o tema: /qo ${consulta}`
-      : '';
-    return responderLongo(ctx, formatarRegimento(r) + dica, null, { md: true });
+    return responderLongo(ctx, await respostaRegimental(consulta), null, { md: true });
   } catch (e) {
     console.error('/regimento falhou:', e);
     return ctx.reply(`Erro ao consultar o Regimento: ${e.message}`);
@@ -1551,7 +1563,7 @@ function ferramentasDado(userId) {
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
-    regimento: async ({ consulta } = {}) => formatarRegimento(await consultarRegimento(String(consulta || ''))),
+    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || '')),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());

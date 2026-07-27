@@ -13,7 +13,7 @@
 
 const URL_RICD = 'https://www2.camara.leg.br/legin/fed/rescad/1989/resolucaodacamaradosdeputados-17-21-setembro-1989-320110-normaatualizada-pl.html';
 const TTL_MS = 24 * 60 * 60e3;   // 24h (o RICD muda por resolução, raramente)
-const MAX_ART = 4000;            // teto de caracteres por artigo exibido
+const MAX_ART = 2200;            // teto por artigo (a resposta soma norma + precedente)
 
 let _artigos = [];               // [{ num, ordem, texto }]
 let _ts = 0;
@@ -123,7 +123,7 @@ const VAZIAS = new Set(['a','o','as','os','de','da','do','das','dos','e','em','n
  * Artigos pertinentes a uma consulta. Se a consulta for um número, devolve
  * aquele artigo. Senão, pontua por ocorrência dos termos (frase exata pesa mais).
  */
-async function consultarRegimento(consulta, { limite = 5 } = {}) {
+async function consultarRegimento(consulta, { limite = 3 } = {}) {
   const arts = await garantirRegimento();
   if (!arts.length) return { consulta, artigos: [], erro: 'não consegui carregar o Regimento agora' };
 

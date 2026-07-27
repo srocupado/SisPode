@@ -95,6 +95,11 @@ async function carregarEmenta(id) {
   finally { clearTimeout(timer); }
 }
 
+// Ligações e interrogativos: não discriminam QO e, no modo E, zeram a busca.
+const VAZIAS_QO = new Set(['a','o','as','os','de','da','do','das','dos','e','em','no','na','nos','nas',
+  'para','por','com','que','qual','quais','quantos','quantas','ser','pode','posso','como','quando',
+  'um','uma','ao','aos','sobre','houve','tem','ha','existe','alguma','algum','sao','foi']);
+
 const dataOrd = o => {
   const m = String(o.datSessaoQOrdem || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
   return m ? Number(`${m[3]}${m[2]}${m[1]}`) : 0;
@@ -113,13 +118,26 @@ function trechoAoRedor(texto, termos) {
  * Busca questões de ordem cujo texto reduzido contém TODOS os termos.
  * @returns {Promise<{termo, total, itens:[{id,num,data,autor,trecho}]}>}
  */
-async function buscarQO(termo, { limite = 8 } = {}) {
+async function buscarQO(termo, { limite = 8, relaxar = false } = {}) {
   const q = normalizar(termo);
   if (!q) return { termo, total: 0, itens: [] };
-  const termos = q.split(/\s+/).filter(Boolean);
+  // Palavras de ligação não ajudam a achar QO e, no modo E, zeram o resultado
+  // (ex.: "quantas assinaturas para CPI" nunca casa inteiro num mesmo texto).
+  const termos = q.split(/\s+/).filter(t => t.length > 2 && !VAZIAS_QO.has(t));
+  if (!termos.length) return { termo, total: 0, itens: [] };
   const corpus = await garantirCorpus();
   const alvoDe = o => normalizar(`${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}`);
-  const achados = corpus.filter(o => { const a = alvoDe(o); return termos.every(t => a.includes(t)); });
+  let achados = corpus.filter(o => { const a = alvoDe(o); return termos.every(t => a.includes(t)); });
+  // Modo RELAXADO (usado quando a consulta é uma pergunta, não uma expressão):
+  // sem casar tudo, ranqueia por quantos termos aparecem.
+  if (!achados.length && relaxar && termos.length > 1) {
+    achados = corpus.map(o => {
+      const a = alvoDe(o);
+      return { o, n: termos.reduce((s, t) => s + (a.includes(t) ? 1 : 0), 0) };
+    }).filter(x => x.n > 0)
+      .sort((a, b) => b.n - a.n || dataOrd(b.o) - dataOrd(a.o))
+      .map(x => x.o);
+  }
   achados.sort((a, b) => dataOrd(b) - dataOrd(a));
   // Enriquece só as mostradas com a EMENTA (detalhe por id, em paralelo).
   const itens = await Promise.all(achados.slice(0, limite).map(async o => {
@@ -153,4 +171,17 @@ function formatarQO(res) {
   return `${cab}\n\n${linhas.join('\n\n')}`;
 }
 
-module.exports = { buscarQO, formatarQO, aquecerCorpus, garantirCorpus };
+/** Versão COMPACTA — para anexar como precedente a outra resposta (ex.: /regimento). */
+function formatarQOCompacto(res, { titulo = '⚖️ *Precedente — questões de ordem sobre o tema*' } = {}) {
+  if (!res.total) return '';
+  const linhas = res.itens.map(x => {
+    const e = (x.ementa || x.trecho || '').replace(/\s+/g, ' ').trim();
+    const resumo = e.length > 150 ? e.slice(0, 150).replace(/\s+\S*$/, '') + '…' : e;
+    return `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${resumo}\n  🔗 ${DETALHE(x.id)}`;
+  });
+  const mais = res.total > res.itens.length
+    ? `\n\n(${res.total} no total — veja as demais com /qo ${res.termo})` : '';
+  return `${titulo} (${res.total})\n\n${linhas.join('\n\n')}${mais}`;
+}
+
+module.exports = { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus, garantirCorpus };
