@@ -13,6 +13,8 @@
 // parafraseia sem lastro. Para o PRECEDENTE de como a Presidência já decidiu,
 // a busca de questões de ordem (questaoordem.js) é o complemento natural.
 
+const { chamarIAtexto, extrairJson } = require('./ia');
+
 const URL_RICD = 'https://www2.camara.leg.br/legin/fed/rescad/1989/resolucaodacamaradosdeputados-17-21-setembro-1989-320110-normaatualizada-pl.html';
 const MAX_ART = 2200;            // teto por artigo (a resposta soma norma + precedente)
 let _artigos = [];               // [{ num, ordem, texto }]
@@ -199,6 +201,76 @@ async function consultarRegimento(consulta, { limite = 3 } = {}) {
   return { consulta, artigos: pontuados.slice(0, limite) };
 }
 
+// ---------- Seleção SEMÂNTICA (índice → artigos) ----------
+// A busca lexical conta palavras; não entende que "apreciação conclusiva" é o
+// contexto de "prazo de emendas em comissão" — por isso errava o Art. 119. Aqui
+// mandamos à IA o ÍNDICE do Regimento (nº + abertura de cada artigo, ~15 mil
+// tokens) e ela escolhe os artigos; só então lemos o TEXTO INTEGRAL deles. Sai
+// ~8x mais barato que mandar o Regimento inteiro (~115 mil tokens) e a resposta
+// final continua sendo composta sobre o texto literal, nunca sobre memória.
+const ABERTURA = 150;
+let _indice = null;
+function indiceArtigos(arts) {
+  if (_indice) return _indice;
+  _indice = arts.map(a => {
+    const t = a.texto.replace(/\s+/g, ' ').replace(/\(“?[Cc]aput[^)]*\)/g, '')
+      .replace(/\((?:Artigo|Parágrafo|Inciso|Alínea)[^)]*\)/g, '').trim();
+    return t.slice(0, a.rotulo.length + ABERTURA);
+  }).join('\n');
+  return _indice;
+}
+
+/** Artigos escolhidos pela IA, na ordem em que ela indicou. */
+function artigosPorNumeros(arts, nums) {
+  const out = [];
+  for (const n of nums) {
+    for (const a of arts.filter(x => x.num === Number(n))) {
+      if (!out.includes(a)) out.push(a);
+    }
+  }
+  return out;
+}
+
+/**
+ * Consulta regimental com seleção semântica, na chave do usuário.
+ * Falha da IA (sem chave, erro, resposta inválida) → cai na busca lexical.
+ * @returns {Promise<{consulta, artigos, via:'ia'|'lexical', erro?}>}
+ */
+async function consultarRegimentoIA({ consulta, perfil, limite = 4 }) {
+  const numero = numeroPedido(consulta);
+  if (numero || !perfil?.apiKey) return { ...(await consultarRegimento(consulta, { limite })), via: 'lexical' };
+
+  let arts;
+  try { arts = await garantirRegimento(); }
+  catch (e) { return { consulta, artigos: [], erro: `fonte indisponível (${e.message})`, via: 'lexical' }; }
+
+  const prompt = `Você recebe o ÍNDICE do Regimento Interno da Câmara dos Deputados: uma linha por artigo, com o número e o início do texto.
+
+PERGUNTA: ${consulta}
+
+Escolha de 1 a ${limite} artigos que respondem a essa pergunta. Prefira o artigo ESPECÍFICO ao genérico. Se nenhum servir, devolva lista vazia.
+Responda APENAS com JSON, sem cercas: {"artigos": [119, 120]}
+
+ÍNDICE:
+${indiceArtigos(arts)}`;
+
+  try {
+    const bruto = await chamarIAtexto({
+      provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo,
+      prompt, maxTokens: 200,
+    });
+    const j = extrairJson(bruto);
+    const nums = (Array.isArray(j.artigos) ? j.artigos : []).map(Number).filter(Number.isFinite);
+    const escolhidos = artigosPorNumeros(arts, nums).slice(0, limite);
+    if (escolhidos.length) return { consulta, artigos: escolhidos, via: 'ia' };
+    // IA não achou: a lexical ainda pode ter algo
+    return { ...(await consultarRegimento(consulta, { limite })), via: 'lexical' };
+  } catch (e) {
+    console.warn('[regimento] seleção por IA falhou, usando busca lexical:', e.message);
+    return { ...(await consultarRegimento(consulta, { limite })), via: 'lexical' };
+  }
+}
+
 function corta(s, n = MAX_ART) {
   s = String(s || '').trim();
   return s.length <= n ? s : s.slice(0, n).replace(/\s+\S*$/, '') + '…';
@@ -222,6 +294,6 @@ function formatarRegimento(res) {
   return `${cab}\n\n${corpo}`;
 }
 
-module.exports = { consultarRegimento, formatarRegimento, aquecerRegimento, garantirRegimento,
+module.exports = { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento, garantirRegimento,
   // usados pelo scripts/atualizar-ricd.js
   htmlParaTexto, partirEmArtigos, URL_RICD };

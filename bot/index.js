@@ -24,7 +24,7 @@ const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
-const { consultarRegimento, formatarRegimento, aquecerRegimento } = require('./src/regimento');
+const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
 
 const bot = new Bot(BOT_TOKEN);
@@ -1236,8 +1236,12 @@ bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 // (questões de ordem sobre o mesmo tema). É como o analista de plenário raciocina
 // — a regra e como a Presidência já a aplicou. A busca de QO entra em modo
 // relaxado porque a consulta costuma ser uma pergunta, não uma expressão exata.
-async function respostaRegimental(consulta, { limite = 3 } = {}) {
-  const reg = await consultarRegimento(consulta, { limite });
+async function respostaRegimental(consulta, { limite = 3, perfil = null } = {}) {
+  // Com chave de IA, a seleção é SEMÂNTICA (índice do RICD → artigos); sem
+  // chave, ou se a IA falhar, cai na busca lexical (BM25).
+  const reg = perfil?.apiKey
+    ? await consultarRegimentoIA({ consulta, perfil, limite })
+    : await consultarRegimento(consulta, { limite });
   let texto = formatarRegimento(reg);
   if (!reg.artigos.length) return texto;
   try {
@@ -1258,7 +1262,7 @@ async function cmdRegimento(ctx, texto) {
   }
   await ctx.replyWithChatAction('typing');
   try {
-    return responderLongo(ctx, await respostaRegimental(consulta), null, { md: true });
+    return responderLongo(ctx, await respostaRegimental(consulta, { perfil: getPerfil(ctx.from.id) }), null, { md: true });
   } catch (e) {
     console.error('/regimento falhou:', e);
     return ctx.reply(`Erro ao consultar o Regimento: ${e.message}`);
@@ -1537,7 +1541,7 @@ async function executarDecisao(ctx, decisao) {
 
 // Ferramentas de CONSULTA do agente que dependem de helpers daqui — cada uma
 // recebe argumentos e devolve STRING (vira observação para a IA continuar).
-function ferramentasDado(userId) {
+function ferramentasDado(userId, perfil) {
   return {
     listar_itens: async () => {
       const pauta = await pautaDoUsuario(userId);
@@ -1565,7 +1569,7 @@ function ferramentasDado(userId) {
     questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
     // O AGENTE recebe mais artigos que o comando: a busca lexical erra a ordem
     // em pergunta longa, e é ele quem tem leitura semântica para escolher o certo.
-    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 6 }),
+    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 4, perfil }),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
@@ -1583,7 +1587,7 @@ async function tratarLinguagemNatural(ctx, texto) {
   }
   await ctx.replyWithChatAction('typing');
   try {
-    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id) });
+    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id, perfil) });
     if (r.tipo === 'acao') return executarDecisao(ctx, { ferramenta: r.ferramenta, argumentos: r.argumentos });
     return responderLongo(ctx, r.texto, null, { md: true });
   } catch (e) {
