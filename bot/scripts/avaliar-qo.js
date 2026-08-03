@@ -63,6 +63,23 @@ if (fs.existsSync(ARQ_TEOR)) {
   motores.teor_leve = (o, d) => `${motores.atual(o, d)} ${motores.atual(o, d)} ${teorDe(o)}`;
 }
 
+// Camada 2: verbete extraído (tese, fundamento, razão, temas). Só entra na
+// comparação quando cobrir o acervo — medir com extração parcial daria uma
+// vantagem falsa aos registros extraídos, que é justamente o tipo de erro que
+// este arquivo existe para impedir.
+const ARQ_EXT = path.join(__dirname, '..', 'dados', 'qordem-extraido.json');
+if (fs.existsSync(ARQ_EXT)) {
+  const ext = JSON.parse(fs.readFileSync(ARQ_EXT, 'utf8')).itens || {};
+  global.__coberturaExtracao = Object.keys(ext).length;
+  const vDe = o => {
+    const v = ext[o.numInternoQOrdem];
+    if (!v) return '';
+    return `${v.tese} ${v.tese} ${(v.fundamento || []).join(' ')} ${v.contexto} ` +
+           `${v.resultado} ${v.decisao} ${v.razao} ${(v.temas || []).join(' ')}`;
+  };
+  global.__motorExtraido = (o, d) => `${motores.atual(o, d)} ${vDe(o)} ${vDe(o)}`;
+}
+
 // ------------------------------------------------------------------ busca
 /** Ranqueia o corpus para uma consulta. Devolve os itens, do mais relevante. */
 function ranquearPara(consulta, corpus, idx, textoDe) {
@@ -97,6 +114,11 @@ const pct = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—';
     { e: '', i: '', dec: '', rec: '', cd: '', obs: '', d: '', it: '' };
   console.log(`acervo: ${corpus.length} QOs · detalhes: ${Object.keys(det).length}\n`);
 
+  const cob = global.__coberturaExtracao || 0;
+  if (global.__motorExtraido) {
+    if (cob >= corpus.length * 0.95) motores.extraido = global.__motorExtraido;
+    else console.log(`(extração cobre ${cob}/${corpus.length} — fora da comparação até cobrir o acervo)\n`);
+  }
   const nomes = Object.keys(motores);
   const preparado = {};
   for (const nome of nomes) {
