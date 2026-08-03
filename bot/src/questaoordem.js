@@ -24,7 +24,8 @@
 
 const fs = require('fs');
 const path = require('path');
-const { normalizar, termosDe, construirIndice, ranquear } = require('./busca');
+const { normalizar, termosDe, construirIndice, ranquear,
+        expandirArtigos, bigramasDe, adjacencia } = require('./busca');
 
 const BUSCA = 'https://www.camara.leg.br/busca-qordem-api/qordem/search';
 const API = id => `https://www.camara.leg.br/busca-qordem-api/qordem/${id}`;
@@ -138,14 +139,26 @@ function aquecerCorpus() {
 //   ementa da CONTRADITA . 16%   331 ch
 //   inteiro teor ......... 98% 8.361 ch
 //
-// Indexamos os campos CURADOS, não o inteiro teor: os 8,4 mil caracteres de
-// taquigrafia por QO dariam 34 MB e trariam tudo o que se falou em volta
-// (aparte, presidência chamando ordem, matéria em pauta) como se fosse tema da
-// QO. A ementa é escrita justamente para dizer do que a QO trata.
+// O INTEIRO TEOR ficou de fora — por ora, e com medição, não por suposição.
+// Numa amostra de 508 QOs o recall melhora de verdade:
+//
+//   "retirada de pauta" ......... 26 → 61   novos PERTINENTES
+//   "adiamento de discussão" .... 15 → 42   novos PERTINENTES
+//   "prejudicialidade de emenda"  18 → 58   novos PERTINENTES
+//   "destaque p/ votação sep." .. 19 → 35   novos PERTINENTES
+//   "apreciação conclusiva" ...... 4 → 83   novos RUIDOSOS
+//
+// Mas ao ligar no acervo inteiro os totais estouram — "apreciação conclusiva"
+// 21 → 623, "ata de comissão" 3 → 131 —, o cache vai de 4,3 MB para 29,5 MB, o
+// índice de 1,3 s para 7,2 s e o heap para 121 MB. A adjacência ordena bem o
+// topo, mas o número que o usuário lê deixa de significar algo. Falta avaliar a
+// relevância do que entrou antes de ligar; nos RECURSOS (./recursos) o inteiro
+// teor JÁ está ligado, porque lá é a petição — texto só do caso — e não a
+// taquigrafia da sessão em volta.
 //
 // Baixar os 4.062 detalhes leva ~3 min com concorrência 5. Faz-se UMA vez, em
 // segundo plano, e grava em dados/ — depois só os ids novos (~150 QOs/ano).
-const VERSAO_CACHE = 2;     // mudou o conjunto de campos → recolhe do zero
+const VERSAO_CACHE = 2;
 const _det = new Map();     // id → { e, i, dec, pres, rec, cd, obs, d }
 let _detTs = 0;             // muda quando o cache cresce → o índice se refaz
 let _enriquecendo = null;
@@ -249,7 +262,8 @@ const textoDe = o => {
   // dizer do que a QO trata, enquanto o trecho taquigráfico traz junto tudo o
   // que se falou em volta. Decisão, recurso e contradita entram uma vez —
   // pertencem à QO, mas descrevem outra fase dela.
-  return `${base} ${d.e} ${d.e} ${d.i} ${d.i} ${d.dec} ${d.rec} ${d.cd} ${d.obs} ${d.d}`;
+  return expandirArtigos(
+    `${base} ${d.e} ${d.e} ${d.i} ${d.i} ${d.dec} ${d.rec} ${d.cd} ${d.obs} ${d.d}`);
 };
 
 const dataOrd = o => {
@@ -344,7 +358,7 @@ async function buscarQO(termo, { limite = 8, fase } = {}) {
 
   // "art. 52" / "artigo 52" → token único, para casar com o dispositivo
   // regimental que a QO invoca (o número solto casaria com qualquer ano).
-  const termos = termosDe(normalizar(consulta).replace(/\bart(?:igo)?s?\.?\s*(\d{1,3})/g, 'art$1'));
+  const termos = termosDe(expandirArtigos(consulta));
   if (!termos.length) return { termo, total: 0, itens: [] };
 
   // Com fase, o universo é só quem tem aquela peça e o casamento é no texto
@@ -358,8 +372,29 @@ async function buscarQO(termo, { limite = 8, fase } = {}) {
   const cobertura = r => termos.reduce((s, t) => s + (alvo.idx.docs[r.indice].tf.has(t) ? 1 : 0), 0);
   let maxCob = 0;
   for (const r of rank) { const c = cobertura(r); r._cob = c; if (c > maxCob) maxCob = c; }
-  const achados = rank.filter(r => r._cob === maxCob)
-    .sort((a, b) => b.score - a.score || dataOrd(b.item) - dataOrd(a.item))
+  // O corte é o nível mais estrito alcançável. Mas se ele não enche nem uma
+  // página, já estamos em melhor-esforço: descer um nível mostra candidatos
+  // que o corte escondia, em vez de fingir que a resposta é só aquela.
+  let piso = maxCob;
+  const noNivel = p => rank.filter(r => r._cob >= p);
+  if (noNivel(piso).length < limite && piso > 1) piso--;
+  let sel = noNivel(piso);
+
+  // EXPRESSÃO grudada vale mais: quem tem "apreciação conclusiva" literal vem
+  // antes de quem tem "a apreciação ... que concluem". Isto ORDENA, não filtra —
+  // como filtro derrubava "ata de comissão" de 24 para 3 e perdia resultados
+  // bons ("o Presidente da CCJC não observou a ata"), porque nem toda dupla de
+  // palavras é expressão consagrada.
+  // Só os melhores por BM25 são conferidos; abaixo disso a releitura do texto
+  // não pagaria o custo.
+  const pares = bigramasDe(consulta);
+  if (pares.length) {
+    for (const r of sel.slice(0, 400)) {
+      r._adj = adjacencia(campo ? _det.get(r.item.numInternoQOrdem)[campo] : textoDe(r.item), pares);
+    }
+  }
+  const achados = sel
+    .sort((a, b) => (b._adj || 0) - (a._adj || 0) || b.score - a.score || dataOrd(b.item) - dataOrd(a.item))
     .map(r => r.item);
 
   // Para destacar o trecho usamos as palavras COMO FORAM ESCRITAS (o radical

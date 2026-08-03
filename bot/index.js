@@ -23,6 +23,7 @@ const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = 
 const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
+const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
@@ -45,6 +46,7 @@ if (GRUPO_CHAT_ID) {
 carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
 aquecerCorpus();       // pré-carrega o acervo de questões de ordem (busca instantânea depois)
 aquecerRegimento();    // pré-carrega o Regimento Interno (consulta instantânea depois)
+aquecerRecursos();     // pré-carrega os recursos (proposições REC) — coleta inicial em 2º plano
 
 const TEXTO_AJUDA =
   'SisPode Bot — Liderança do Podemos na Câmara\n\n' +
@@ -68,6 +70,7 @@ const TEXTO_AJUDA =
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
   '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
+  '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
@@ -1238,6 +1241,28 @@ async function cmdQuestaoOrdem(ctx, texto) {
 }
 bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 
+// RECURSOS (proposições REC) — base diferente da de questões de ordem. O
+// "recurso" de que a Casa fala no dia a dia costuma ser este: a peça
+// protocolada contra uma decisão, com número próprio (REC 260/2013).
+async function cmdRecurso(ctx, texto) {
+  const termo = String(texto || '').trim();
+  if (!termo) return ctx.reply(
+    'Uso: /recurso <termo> — ex.: /recurso prejudicialidade de adiamento de discussão\n\n' +
+    'Busca nos recursos protocolados (proposições REC): ementa, subtipo regimental, autor, ' +
+    'despachos e o INTEIRO TEOR da petição.\n\n' +
+    'Também aceita:\n' +
+    '• número exato — /recurso 260/2013\n' +
+    '• artigo do Regimento — /recurso art. 164');
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, formatarRecurso(await buscarRecurso(termo)), null, { md: true });
+  } catch (e) {
+    console.error('/recurso falhou:', e);
+    return ctx.reply(`Erro ao buscar recursos: ${e.message}`);
+  }
+}
+bot.command(['recurso', 'recursos', 'rec'], ctx => cmdRecurso(ctx, ctx.match));
+
 // Resposta regimental COMPLETA: a NORMA (artigos do RICD) seguida do PRECEDENTE
 // (questões de ordem sobre o mesmo tema). É como o analista de plenário raciocina
 // — a regra e como a Presidência já a aplicou. A busca de QO entra em modo
@@ -1574,6 +1599,7 @@ function ferramentasDado(userId, perfil) {
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo, fase } = {}) =>
       formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
+    recurso: async ({ termo } = {}) => formatarRecurso(await buscarRecurso(String(termo || ''))),
     // O AGENTE recebe mais artigos que o comando: a busca lexical erra a ordem
     // em pergunta longa, e é ele quem tem leitura semântica para escolher o certo.
     regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 4, perfil }),

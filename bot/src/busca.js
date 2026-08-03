@@ -56,6 +56,13 @@ const VAZIAS = new Set(['a','o','as','os','de','da','do','das','dos','e','em','n
   'um','uma','se','ao','aos','sobre','houve','tem','existe','alguma','algum','sao','foi','pelo','pela',
   'seu','sua','este','esta','esse','essa','isso','the','of','porque','porquê']);
 
+/**
+ * "art. 164", "artigo 164", "arts. 95" → "art164". Precisa valer para o TEXTO
+ * INDEXADO e para a consulta: indexado como "art" + "164" solto, o número
+ * casaria com qualquer ano ou quórum, e "art" com qualquer menção a artigo.
+ */
+const expandirArtigos = t => normalizar(t).replace(/\bart(?:igo)?s?\.?\s*(\d{1,3})/g, 'art$1');
+
 /** Termos úteis de uma consulta, já radicalizados. */
 function termosDe(consulta) {
   return [...new Set(normalizar(consulta)
@@ -104,4 +111,51 @@ function ranquear(itens, idx, termos, { k1 = 1.2, b = 0.6 } = {}) {
   return out;
 }
 
-module.exports = { normalizar, radical, termosDe, construirIndice, ranquear, idf };
+// ---------- ADJACÊNCIA (expressões) ----------
+// O BM25 é saco de palavras: não sabe que "apreciação conclusiva" é uma
+// expressão. MEDIDO no acervo de questões de ordem, ao indexar o inteiro teor:
+// "apreciação conclusiva" saltou de 4 para 83 resultados, e os 79 novos casavam
+// coisas como "a apreciação pelas Comissões Técnicas, que concluem" — palavras
+// certas, sentido nenhum. Já "retirada de pauta" foi de 26 para 61 com os novos
+// todos pertinentes, porque a expressão aparece literalmente.
+//
+// A diferença é ADJACÊNCIA. Aqui ela é verificada só nos candidatos que o BM25
+// já selecionou (algumas centenas), relendo o texto — precomputar bigramas de
+// todo o acervo custaria milhões de entradas para ganhar milissegundos.
+
+/**
+ * Pares de termos VIZINHOS na consulta, já radicalizados. Vírgula, ponto e
+ * "e"/"ou" quebram o par: em "prejudicialidade, adiamento de discussão", só
+ * "adiamento discussão" é expressão — "prejudicialidade adiamento" não é.
+ */
+function bigramasDe(consulta) {
+  const pares = [];
+  for (const trecho of normalizar(consulta).split(/[,;:.!?]|\s+(?:e|ou|com|sem)\s+/)) {
+    const ts = trecho.split(/[^\wçà-ú-]+/i)
+      .filter(t => t.length > 2 && !VAZIAS.has(t)).map(radical);
+    for (let i = 0; i + 1 < ts.length; i++) if (ts[i] !== ts[i + 1]) pares.push([ts[i], ts[i + 1]]);
+  }
+  return pares;
+}
+
+/**
+ * Quantos dos pares aparecem grudados no texto. `folga` permite uma palavra no
+ * meio ("retirada DA pauta" já perde o "da" na tokenização, mas
+ * "adiamento da referida discussão" não).
+ */
+function adjacencia(texto, pares, { folga = 1 } = {}) {
+  if (!pares.length) return 0;
+  const toks = normalizar(texto).split(/[^\wçà-ú-]+/i).filter(t => t.length > 2).map(radical);
+  const pos = new Map();
+  toks.forEach((t, i) => { const l = pos.get(t); if (l) l.push(i); else pos.set(t, [i]); });
+  let n = 0;
+  for (const [a, b] of pares) {
+    const pa = pos.get(a), pb = pos.get(b);
+    if (!pa || !pb) continue;
+    if (pa.some(i => pb.some(k => k > i && k - i <= 1 + folga))) n++;
+  }
+  return n;
+}
+
+module.exports = { normalizar, radical, termosDe, construirIndice, ranquear, idf,
+                   expandirArtigos, bigramasDe, adjacencia };
