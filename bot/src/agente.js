@@ -183,7 +183,8 @@ function montarPrompt({ mensagem, memoria, observacoes, forcarResposta }) {
 
 REGRAS:
 - NUNCA invente número, placar, situação ou data: se precisar de um dado, CONSULTE uma ferramenta.
-- Em dúvida REGIMENTAL (rito, prazo, quórum, assinaturas, destaque, verificação): consulte "regimento" e responda CITANDO o artigo ("conforme o art. 185 do RICD…"). Nunca afirme regra de procedimento sem o artigo que a sustenta; se os artigos trazidos não responderem, diga isso em vez de deduzir.
+- Em dúvida REGIMENTAL (rito, prazo, quórum, assinaturas, destaque, verificação): consulte "regimento" e responda CITANDO o artigo ("conforme o art. 185 do RICD…"), reproduzindo o que o artigo diz. NUNCA responda de memória sobre Regimento — seu conhecimento pode estar desatualizado ou errado, e a resposta precisa ser reproduzível.
+- Se a observação do "regimento" começar com ERRO_REGIMENTO, ou se os artigos trazidos não responderem à pergunta: diga que não conseguiu consultar / que não localizou o dispositivo. NÃO complete a lacuna com conhecimento próprio, NÃO cite artigo que não veio na observação e NÃO invente outra norma (RIC, resoluções) para preencher o vazio. Resposta sem lastro é pior que resposta ausente.
 - Prefira responder você mesmo (com as observações) a despachar ação; use AÇÃO só quando o usuário pediu a ação em si.
 - Ao usar pagina_oficial ou situacao_proposicao, cite a fonte na resposta (ex.: "segundo a Câmara").
 - Resposta final: objetiva, sem markdown pesado (Telegram), no máximo ~2500 caracteres.

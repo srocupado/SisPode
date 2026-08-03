@@ -1,9 +1,11 @@
 'use strict';
 // CONSULTA REGIMENTAL — Regimento Interno da Câmara dos Deputados (RICD).
 //
-// Fonte: texto CONSOLIDADO e vigente publicado no LEGIN (Resolução 17/1989 com
-// todas as alterações). É HTML público, ~1 MB, 282 artigos — baixamos uma vez,
-// partimos em artigos e guardamos em memória (o Regimento muda raramente).
+// Fonte: texto CONSOLIDADO do LEGIN (Resolução 17/1989 com todas as alterações),
+// já parseado e EMBUTIDO em src/ricd.js. A consulta NÃO depende da rede: o
+// Regimento é estático e, quando o download falhava (429 do LEGIN), a consulta
+// voltava vazia e o agente respondia de memória — inventando. Atualização é ato
+// deliberado: node scripts/atualizar-ricd.js (após nova Resolução).
 //
 // A consulta NÃO responde sozinha: devolve os ARTIGOS PERTINENTES em texto
 // literal para quem perguntou (comando) ou para o agente compor a resposta
@@ -12,12 +14,9 @@
 // a busca de questões de ordem (questaoordem.js) é o complemento natural.
 
 const URL_RICD = 'https://www2.camara.leg.br/legin/fed/rescad/1989/resolucaodacamaradosdeputados-17-21-setembro-1989-320110-normaatualizada-pl.html';
-const TTL_MS = 24 * 60 * 60e3;   // 24h (o RICD muda por resolução, raramente)
 const MAX_ART = 2200;            // teto por artigo (a resposta soma norma + precedente)
-
 let _artigos = [];               // [{ num, ordem, texto }]
 let _ts = 0;
-let _carregando = null;
 
 const normalizar = s => String(s || '')
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -63,30 +62,32 @@ function partirEmArtigos(texto) {
   return arts.filter(a => a.texto.length > 40);
 }
 
-async function baixar() {
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 45000);
+function lerEmbutido() {
   try {
-    const r = await fetch(URL_RICD, { signal: ctrl.signal, headers: { 'User-Agent': 'SisPodeBot/1.0' } });
-    if (!r.ok) throw new Error(`HTTP ${r.status} ao baixar o Regimento`);
-    const arts = partirEmArtigos(htmlParaTexto(await r.text()));
-    if (arts.length) { _artigos = arts; _ts = Date.now(); }
-    return _artigos;
-  } finally { clearTimeout(timer); }
+    const m = require('./ricd');
+    if (Array.isArray(m.artigos) && m.artigos.length > 200) return m.artigos;
+  } catch (e) { console.warn('[regimento] módulo embutido indisponível:', e.message); }
+  return null;
 }
 
+/**
+ * Artigos do RICD. Lê do módulo embutido (síncrono, sem rede, sempre disponível).
+ * Só levanta erro se o próprio arquivo do bot estiver corrompido/ausente — caso
+ * em que o chamador precisa dizer "indisponível" em vez de responder sem lastro.
+ */
 async function garantirRegimento() {
-  if (_artigos.length && Date.now() - _ts < TTL_MS) return _artigos;
-  if (!_carregando) _carregando = baixar().finally(() => { _carregando = null; });
-  try { return await _carregando; }
-  catch (_) { return _artigos; }   // falhou o refetch: usa o que tiver
+  if (_artigos.length) return _artigos;
+  const a = lerEmbutido();
+  if (!a) throw new Error('arquivo do Regimento ausente no bot (src/ricd.js)');
+  _artigos = a; _ts = Date.now();
+  return _artigos;
 }
 
 /** Aquece no arranque (background) — a 1ª consulta já sai instantânea. */
 function aquecerRegimento() {
   garantirRegimento()
-    .then(a => console.log(`[regimento] RICD carregado (${a.length} artigos).`))
-    .catch(e => console.warn('[regimento] carga falhou:', e.message));
+    .then(a => console.log(`[regimento] RICD embutido OK (${a.length} artigos).`))
+    .catch(e => console.error('[regimento] FALHA GRAVE — sem Regimento:', e.message));
 }
 
 // "art 95", "artigo 95", "95" → 95
@@ -124,8 +125,10 @@ const VAZIAS = new Set(['a','o','as','os','de','da','do','das','dos','e','em','n
  * aquele artigo. Senão, pontua por ocorrência dos termos (frase exata pesa mais).
  */
 async function consultarRegimento(consulta, { limite = 3 } = {}) {
-  const arts = await garantirRegimento();
-  if (!arts.length) return { consulta, artigos: [], erro: 'não consegui carregar o Regimento agora' };
+  let arts;
+  try { arts = await garantirRegimento(); }
+  catch (e) { return { consulta, artigos: [], erro: `fonte indisponível (${e.message})` }; }
+  if (!arts.length) return { consulta, artigos: [], erro: 'o Regimento não pôde ser carregado' };
 
   const n = numeroPedido(consulta);
   if (n) {
@@ -161,7 +164,12 @@ function corta(s, n = MAX_ART) {
 
 /** Texto pronto (comando e observação do agente). */
 function formatarRegimento(res) {
-  if (res.erro) return `Consulta ao Regimento indisponível — ${res.erro}.`;
+  // Marcador explícito para o AGENTE: sem norma em mãos, ele não pode responder
+  // de memória — tem que dizer que não conseguiu consultar.
+  if (res.erro) {
+    return `ERRO_REGIMENTO: não consegui consultar o Regimento Interno agora — ${res.erro}. ` +
+      'NÃO responda a dúvida regimental sem o texto do artigo: informe que a consulta falhou e sugira tentar de novo.';
+  }
   if (!res.artigos.length) {
     return `Não localizei artigo do Regimento Interno para "${res.consulta}". Tente outros termos (ex.: "verificação de votação", "questão de ordem", "urgência") ou o número do artigo (ex.: /regimento 95).`;
   }
@@ -172,4 +180,6 @@ function formatarRegimento(res) {
   return `${cab}\n\n${corpo}`;
 }
 
-module.exports = { consultarRegimento, formatarRegimento, aquecerRegimento, garantirRegimento };
+module.exports = { consultarRegimento, formatarRegimento, aquecerRegimento, garantirRegimento,
+  // usados pelo scripts/atualizar-ricd.js
+  htmlParaTexto, partirEmArtigos, URL_RICD };
