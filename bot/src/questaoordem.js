@@ -22,12 +22,19 @@
 // cobre o resumo — que costuma conter o assunto —, mas um termo que só apareça
 // no corpo completo pode escapar.
 
+const fs = require('fs');
+const path = require('path');
 const { normalizar, termosDe, construirIndice, ranquear } = require('./busca');
 
 const BUSCA = 'https://www.camara.leg.br/busca-qordem-api/qordem/search';
+const API = id => `https://www.camara.leg.br/busca-qordem-api/qordem/${id}`;
 const DETALHE = id => `https://www.camara.leg.br/v-busca-qordem/${id}`;
 const TAM_PAGINA = 2000;
 const TTL_MS = 60 * 60e3;   // 1h
+// (não uso ./config aqui: ele faz process.exit sem BOT_TOKEN e este módulo
+// precisa rodar solto nos scripts de medição)
+const CACHE_DET = path.join(__dirname, '..', 'dados', 'qordem-detalhes.json');
+const HDR = { Accept: 'application/json', Referer: 'https://www.camara.leg.br/v-busca-qordem' };
 
 let _corpus = [];
 let _corpusTs = 0;
@@ -72,47 +79,125 @@ async function garantirCorpus() {
 
 // Índice BM25 do acervo — construído uma vez por carga (não por consulta) e
 // refeito quando o cache do acervo vira.
-let _idx = null, _idxTs = 0;
+let _idx = null, _idxTs = '';
 function indice(corpus) {
-  if (_idx && _idxTs === _corpusTs) return _idx;
+  const chave = `${_corpusTs}:${_detTs}`;      // refaz quando o acervo OU o cache de detalhes muda
+  if (_idx && _idxTs === chave) return _idx;
   _idx = construirIndice(corpus, textoDe);
-  _idxTs = _corpusTs;
+  _idxTs = chave;
   return _idx;
 }
 
-/** Aquece o acervo e o índice no arranque (background) — não bloqueia o boot. */
+/**
+ * Aquece no arranque (background) — não bloqueia o boot. Indexa já com o que
+ * houver em cache e, em paralelo, completa os detalhes que faltarem; ao
+ * terminar, o índice se refaz sozinho na consulta seguinte.
+ */
 function aquecerCorpus() {
+  carregarCacheDetalhes();
   garantirCorpus()
     .then(c => {
-      if (c.length) indice(c);
+      if (!c.length) return;
+      indice(c);
       console.log(`[qordem] acervo aquecido (${c.length} questões de ordem).`);
+      enriquecerCorpus(c).catch(e => console.warn('[qordem] enriquecimento falhou:', e.message));
     })
     .catch(e => console.warn('[qordem] aquecimento falhou:', e.message));
 }
 
-// A EMENTA (resumo) só vem no detalhe por id, não na listagem. Buscamos só a
-// das QOs que vão APARECER (as ~12 mostradas), em paralelo, e cacheamos por id.
-const _ementa = new Map();
-async function carregarEmenta(id) {
-  if (id == null) return '';
-  if (_ementa.has(id)) return _ementa.get(id);
+// ---------- DETALHE por id: a EMENTA e os DISPOSITIVOS ----------
+// A listagem devolve só o `txtQOrdemReduzido` — o trecho taquigráfico, que
+// começa com o cabeçalho da sessão. MEDIDO numa amostra de 25 QOs: esse trecho
+// é 6% do inteiro teor, e a EMENTA (o resumo que diz do que a QO trata, escrito
+// por quem cataloga) NÃO vem na listagem — está em 98 de 100 QOs, só no detalhe.
+//
+// Por isso a busca perdia a QO 8/2023 (Kim Kataguiri, avocação): "avocação" só
+// existe na ementa, e a ementa não estava no índice — era buscada DEPOIS, só
+// para as 8 QOs já escolhidas.
+//
+// Buscar os 4.062 detalhes leva ~1min45s com concorrência 10 (26 ms/registro
+// medidos). Faz-se UMA vez, em segundo plano, e grava em dados/ — nas próximas
+// vezes só os ids novos (o acervo cresce ~150 QOs/ano).
+const _det = new Map();     // id → { e: ementa, d: 'art52,art95' }
+let _detTs = 0;             // muda quando o cache cresce → o índice se refaz
+let _enriquecendo = null;
+
+function carregarCacheDetalhes() {
+  try {
+    const j = JSON.parse(fs.readFileSync(CACHE_DET, 'utf8'));
+    for (const [id, v] of Object.entries(j.itens || {})) _det.set(Number(id), v);
+    _detTs = _det.size;
+    console.log(`[qordem] cache de detalhes: ${_det.size} QOs (${j.gerado || '?'}).`);
+  } catch (_) { /* primeira execução: nasce vazio */ }
+}
+
+function gravarCacheDetalhes() {
+  try {
+    fs.mkdirSync(path.dirname(CACHE_DET), { recursive: true });
+    fs.writeFileSync(CACHE_DET, JSON.stringify({
+      gerado: new Date().toISOString().slice(0, 10),
+      itens: Object.fromEntries(_det),
+    }));
+  } catch (e) { console.warn('[qordem] não gravou o cache de detalhes:', e.message); }
+}
+
+async function buscarDetalhe(id) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 12000);
   try {
-    const r = await fetch(`https://www.camara.leg.br/busca-qordem-api/qordem/${id}`, {
-      signal: ctrl.signal, headers: { Accept: 'application/json', Referer: 'https://www.camara.leg.br/v-busca-qordem' },
-    });
-    if (!r.ok) return '';
+    const r = await fetch(API(id), { signal: ctrl.signal, headers: HDR });
+    if (!r.ok) return null;
     const d = await r.json();
-    const e = String(d.txtEmentaQOrdem || '').replace(/\s+/g, ' ').trim();
-    _ementa.set(id, e);
-    return e;
-  } catch (_) { return ''; }
+    return {
+      e: String(d.txtEmentaQOrdem || '').replace(/\s+/g, ' ').trim(),
+      // "art52" e não "52": token de 2 letras seria descartado pela busca, e o
+      // número solto casaria com qualquer ano/quórum do texto.
+      d: (d.dispositivosRegimentaisQO || [])
+        .map(x => `art${String(x.txtNumeroArtigo || '').trim()}`).filter(x => x !== 'art').join(' '),
+    };
+  } catch (_) { return null; }
   finally { clearTimeout(timer); }
 }
 
-const textoDe = o =>
-  `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}`;
+// Concorrência 5: a carga inicial são 4 mil chamadas e acontece UMA vez. Com
+// 10 o acervo saía em 80s (~50 req/s) — rápido demais para uma API pública que
+// o bot também usa para o resto. Com 5 leva ~3 min, em segundo plano.
+const CONCORRENCIA = 5;
+
+/** Completa o cache com os ids ainda não baixados. */
+async function enriquecerCorpus(corpus, { aoTerminar } = {}) {
+  const faltam = corpus.map(o => o.numInternoQOrdem).filter(id => id != null && !_det.has(id));
+  if (!faltam.length) return 0;
+  console.log(`[qordem] baixando o detalhe de ${faltam.length} QOs (ementa + dispositivos)…`);
+  const fila = [...faltam];
+  let feitos = 0;
+  await Promise.all(Array.from({ length: CONCORRENCIA }, async () => {
+    let id;
+    while ((id = fila.pop()) != null) {
+      const d = await buscarDetalhe(id);
+      if (d) { _det.set(id, d); feitos++; }
+    }
+  }));
+  if (feitos) { _detTs = _det.size; gravarCacheDetalhes(); }
+  console.log(`[qordem] detalhes completos: ${_det.size} QOs (+${feitos}).`);
+  if (aoTerminar) aoTerminar();
+  return feitos;
+}
+
+/** Ementa de uma QO (do cache; busca sob demanda se ainda não veio). */
+async function carregarEmenta(id) {
+  if (id == null) return '';
+  if (_det.has(id)) return _det.get(id).e;
+  const d = await buscarDetalhe(id);
+  if (d) { _det.set(id, d); return d.e; }
+  return '';
+}
+
+const textoDe = o => {
+  const d = _det.get(o.numInternoQOrdem);
+  return `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}` +
+         (d ? ` ${d.e} ${d.e} ${d.d}` : '');   // ementa DUAS vezes: é o resumo curado do tema
+};
 
 const dataOrd = o => {
   const m = String(o.datSessaoQOrdem || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
@@ -136,6 +221,27 @@ function trechoAoRedor(texto, termos) {
   return (ini > 0 ? '…' : '') + texto.slice(ini, i + 90).replace(/\s+/g, ' ').trim() + '…';
 }
 
+// "QO 8/2023", "questão de ordem nº 8 de 2023", "8/2023" → "8/2023".
+// Deliberadamente EXIGENTE (a consulta tem de ser só o número): "questão de
+// ordem sobre a MPV 1346/2026" não pode virar pedido da QO 1346/2026.
+const RX_NUM = /^(?:qo|questao de ordem|questoes de ordem)?\s*(?:n[º°o]?\.?\s*)?(\d{1,6})\s*(?:\/|\s+de\s+)\s*(\d{4})$/;
+function numeroPedido(termo) {
+  const m = normalizar(termo).trim().replace(/[?.!]+$/, '').match(RX_NUM);
+  return m ? `${Number(m[1])}/${m[2]}` : null;
+}
+
+/** Monta os itens de saída, buscando a ementa de quem ainda não a tiver. */
+function detalhar(achados, brutos) {
+  return Promise.all(achados.map(async o => ({
+    id: o.numInternoQOrdem,
+    num: o.numQOrdemComAno || o.numQOrdem,
+    data: o.datSessaoQOrdem,
+    autor: String(o.txtNomeAutorQOrdem || '').trim(),
+    ementa: await carregarEmenta(o.numInternoQOrdem),
+    trecho: trechoAoRedor(o.txtQOrdemReduzido || '', brutos),
+  })));
+}
+
 /**
  * Busca questões de ordem por relevância (BM25 sobre o texto reduzido).
  *
@@ -149,10 +255,23 @@ function trechoAoRedor(texto, termos) {
  * @returns {Promise<{termo, total, itens:[{id,num,data,autor,ementa,trecho}]}>}
  */
 async function buscarQO(termo, { limite = 8 } = {}) {
-  const termos = termosDe(termo);
-  if (!termos.length) return { termo, total: 0, itens: [] };
   const corpus = await garantirCorpus();
   if (!corpus.length) return { termo, total: 0, itens: [] };
+
+  // Pedido por NÚMERO ("QO 8/2023") não é busca por tema: sem este atalho,
+  // "8" era descartado por ser curto e sobrava "2023" — devolvia as 164 QOs
+  // do ano, sem a pedida entre elas.
+  const num = numeroPedido(termo);
+  if (num) {
+    const achados = corpus.filter(o => String(o.numQOrdemComAno) === num);
+    return { termo: String(termo).trim(), porNumero: num, total: achados.length,
+             itens: await detalhar(achados.slice(0, limite), []) };
+  }
+
+  // "art. 52" / "artigo 52" → token único, para casar com o dispositivo
+  // regimental que a QO invoca (o número solto casaria com qualquer ano).
+  const termos = termosDe(normalizar(termo).replace(/\bart(?:igo)?s?\.?\s*(\d{1,3})/g, 'art$1'));
+  if (!termos.length) return { termo, total: 0, itens: [] };
   const idx = indice(corpus);
 
   const rank = ranquear(corpus, idx, termos);
@@ -167,18 +286,7 @@ async function buscarQO(termo, { limite = 8 } = {}) {
   // Para destacar o trecho usamos as palavras COMO FORAM ESCRITAS (o radical
   // "comis" não aparece no texto; "comissão" aparece).
   const brutos = normalizar(termo).split(/[^\wà-ú]+/i).filter(t => t.length > 2);
-  // Enriquece só as mostradas com a EMENTA (detalhe por id, em paralelo).
-  const itens = await Promise.all(achados.slice(0, limite).map(async o => {
-    const ementa = await carregarEmenta(o.numInternoQOrdem);
-    return {
-      id: o.numInternoQOrdem,
-      num: o.numQOrdemComAno || o.numQOrdem,
-      data: o.datSessaoQOrdem,
-      autor: String(o.txtNomeAutorQOrdem || '').trim(),
-      ementa,
-      trecho: trechoAoRedor(o.txtQOrdemReduzido || '', brutos),
-    };
-  }));
+  const itens = await detalhar(achados.slice(0, limite), brutos);
   return { termo: String(termo).trim(), total: achados.length, itens,
            termosBuscados: termos.length, termosCasados: maxCob };
 }
@@ -186,7 +294,9 @@ async function buscarQO(termo, { limite = 8 } = {}) {
 /** Texto pronto para o comando e o agente. */
 function formatarQO(res) {
   if (!res.total) {
-    return `Não encontrei questão de ordem mencionando "${res.termo}" (busca no resumo de cada QO).`;
+    return res.porNumero
+      ? `Não existe questão de ordem ${res.porNumero} no acervo da Câmara.`
+      : `Não encontrei questão de ordem mencionando "${res.termo}".`;
   }
   const resumo = x => {
     const e = (x.ementa || '').trim();
@@ -195,6 +305,10 @@ function formatarQO(res) {
   };
   const linhas = res.itens.map(x =>
     `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${resumo(x)}\n  🔗 Íntegra: ${DETALHE(x.id)}`);
+  if (res.porNumero) {
+    return `🔎 *QO ${res.porNumero}*\n\n${res.itens.map(x =>
+      `${x.data}${x.autor ? ` · ${x.autor}` : ''}\n${(x.ementa || x.trecho)}\n\n🔗 Íntegra: ${DETALHE(x.id)}`).join('\n\n')}`;
+  }
   const cab = `🔎 Questões de ordem com "${res.termo}": *${res.total}*` +
     (res.total > res.itens.length ? ` (mostrando as ${res.itens.length} mais relevantes)` : '');
   // Sem isto o usuário não sabe se o resultado é exaustivo ou já é o "melhor
@@ -218,4 +332,5 @@ function formatarQOCompacto(res, { titulo = '⚖️ *Precedente — questões de
   return `${titulo} (${res.total})\n\n${linhas.join('\n\n')}${mais}`;
 }
 
-module.exports = { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus, garantirCorpus };
+module.exports = { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus, garantirCorpus,
+                   carregarCacheDetalhes, enriquecerCorpus };
