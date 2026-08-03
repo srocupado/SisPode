@@ -20,8 +20,7 @@ const MAX_ART = 2200;            // teto por artigo (a resposta soma norma + pre
 let _artigos = [];               // [{ num, ordem, texto }]
 let _ts = 0;
 
-const normalizar = s => String(s || '')
-  .normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+const { normalizar, termosDe, construirIndice, ranquear } = require('./busca');
 
 function htmlParaTexto(html) {
   return String(html || '')
@@ -84,43 +83,18 @@ function lerEmbutido() {
 // tamanho, o termo raro ("emendas", "interstício") manda no resultado.
 // RADICALIZAÇÃO leve (pt-BR). Sem isto, a pergunta não casa com a norma: o
 // artigo escreve "emendas APRESENTADAS em COMISSÃO", a pergunta diz
-// "APRESENTAÇÃO ... COMISSÕES" — tokens diferentes, zero match. Regras mínimas
-// de plural/derivação + truncagem resolvem sem precisar de stemmer completo.
-function radical(t) {
-  let s = t;
-  s = s.replace(/(coes|çoes|cao|ção)$/,'')        // apresentação/apresentações → apresentac
-       .replace(/(mente)$/,'')                      // regimentalmente → regimental
-       .replace(/(ndo|ada|ado|adas|ados|ida|ido|idas|idos)$/,'')  // apresentada → apresent
-       .replace(/(oes|aes|aos)$/,'ao')              // comissões → comissao
-       .replace(/(ns)$/,'m')                        // bens → bem
-       .replace(/s$/,'');                           // plural simples
-  return s.length >= 6 ? s.slice(0, 6) : s;         // truncagem: mesma família, mesmo radical
-}
+// "APRESENTAÇÃO ... COMISSÕES" — tokens diferentes, zero match. O radicalizador
+// e o BM25 vivem em ./busca, compartilhados com a busca de questões de ordem:
+// eram duas implementações divergentes e a mesma pergunta rendia resultados
+// diferentes em cada comando.
 let _idx = null;
-function construirIndice(arts) {
-  const N = arts.length;
-  const docs = arts.map(a => {
-    const toks = normalizar(a.texto).split(/[^\wçà-ú-]+/i).filter(t => t.length > 2).map(radical);
-    const tf = new Map();
-    for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
-    return { tf, len: toks.length };
-  });
-  const df = new Map();
-  for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
-  const avg = docs.reduce((s, d) => s + d.len, 0) / (N || 1);
-  return { docs, df, N, avg };
-}
-const idf = (idx, t) => {
-  const d = idx.df.get(t) || 0;
-  return Math.log(1 + (idx.N - d + 0.5) / (d + 0.5));
-};
 
 async function garantirRegimento() {
   if (_artigos.length) return _artigos;
   const a = lerEmbutido();
   if (!a) throw new Error('arquivo do Regimento ausente no bot (src/ricd.js)');
   _artigos = a; _ts = Date.now();
-  _idx = construirIndice(_artigos);
+  _idx = construirIndice(_artigos, a => a.texto);
   return _artigos;
 }
 
@@ -156,11 +130,6 @@ const SIGLAS = [
 ];
 const expandirSiglas = q => SIGLAS.reduce((s, [rx, exp]) => s.replace(rx, exp), q);
 
-// Palavras sem valor de busca (não ajudam a achar o artigo).
-const VAZIAS = new Set(['a','o','as','os','de','da','do','das','dos','e','em','no','na','nos','nas',
-  'para','por','com','que','qual','quais','quantos','quantas','é','ser','pode','posso','como','quando',
-  'um','uma','se','ao','à','às','aos','sobre','the','of']);
-
 /**
  * Artigos pertinentes a uma consulta. Se a consulta for um número, devolve
  * aquele artigo. Senão, pontua por ocorrência dos termos (frase exata pesa mais).
@@ -178,26 +147,15 @@ async function consultarRegimento(consulta, { limite = 3 } = {}) {
   }
 
   const q = expandirSiglas(normalizar(consulta));
-  const termos = [...new Set(q.split(/[^\wçãáéíóúâêôõà-]+/i).map(t => t.trim())
-    .filter(t => t.length > 2 && !VAZIAS.has(t)).map(radical))];
+  const termos = termosDe(q);
   if (!termos.length) return { consulta, artigos: [] };
 
   // BM25: cada termo pesa pela raridade (IDF) e o tamanho do artigo é
   // normalizado, para o artigo-catálogo não vencer o artigo-específico.
-  const K1 = 1.2, B = 0.6;
-  const pontuados = arts.map((a, i) => {
-    const d = _idx.docs[i];
-    let p = 0;
-    for (const termo of termos) {
-      const tf = d.tf.get(termo) || 0;
-      if (!tf) continue;
-      p += idf(_idx, termo) * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * d.len / _idx.avg));
-    }
-    if (p && normalizar(a.texto).includes(q)) p *= 1.8;   // frase exata: forte indício
-    return { ...a, _p: p };
-  }).filter(a => a._p > 0);
+  const pontuados = ranquear(arts, _idx, termos)
+    .map(r => ({ ...r.item, _p: normalizar(r.item.texto).includes(q) ? r.score * 1.8 : r.score }));
 
-  pontuados.sort((a, b) => b._p - a._p || a.num - b.num);
+  pontuados.sort((a, b) => b._p - a._p || a.num - b.num);   // frase exata pesa mais
   return { consulta, artigos: pontuados.slice(0, limite) };
 }
 

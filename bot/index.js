@@ -1245,7 +1245,7 @@ async function respostaRegimental(consulta, { limite = 3, perfil = null } = {}) 
   let texto = formatarRegimento(reg);
   if (!reg.artigos.length) return texto;
   try {
-    const qo = await buscarQO(consulta, { limite: 3, relaxar: true });
+    const qo = await buscarQO(consulta, { limite: 3 });
     const bloco = formatarQOCompacto(qo);
     if (bloco) texto += `\n\n${bloco}`;
   } catch (e) { console.warn('[regimento] precedente falhou:', e.message); }
