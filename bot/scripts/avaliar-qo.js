@@ -103,6 +103,50 @@ function ranquearPara(consulta, corpus, idx, textoDe) {
 
 const num = o => o.numQOrdemComAno || String(o.numQOrdem);
 
+// ---------------------------------------------------------------- semântica
+// Camada 3: o léxico e o vetor erram por motivos diferentes — um perde quando
+// muda o vocabulário, o outro perde número de artigo e nome próprio. A fusão
+// RRF junta as duas listas sem precisar comparar escalas (uma é BM25, a outra
+// cosseno), somando 1/(k+posição). Só entra na comparação quando os vetores
+// existirem e cobrirem o acervo.
+const ARQ_EMB = path.join(__dirname, '..', 'src', 'qoembeddings.js');
+let VET = null;
+if (fs.existsSync(ARQ_EMB)) {
+  const e = require(ARQ_EMB);
+  const buf = Buffer.from(e.vetores, 'base64');
+  VET = { dim: e.dim, modelo: e.modelo, porId: new Map() };
+  e.ids.forEach((id, i) => {
+    const v = new Float32Array(e.dim);
+    for (let k = 0; k < e.dim; k++) v[k] = buf[i * e.dim + k] > 127 ? (buf[i * e.dim + k] - 256) / 127 : buf[i * e.dim + k] / 127;
+    VET.porId.set(id, v);
+  });
+}
+
+async function vetorDaPergunta(texto) {
+  const chave = process.env.GEMINI_API_KEY;
+  if (!chave || !VET) return null;
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VET.modelo}:embedContent?key=${chave}`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: `models/${VET.modelo}`, content: { parts: [{ text: texto }] },
+        outputDimensionality: VET.dim, taskType: 'RETRIEVAL_QUERY' }) });
+  if (!r.ok) return null;
+  const v = (await r.json()).embedding.values;
+  let n = 0; for (const x of v) n += x * x; n = Math.sqrt(n) || 1;
+  return v.map(x => x / n);
+}
+
+/** Fusão RRF de duas ordenações. k=60 é o valor usual da literatura. */
+function fundir(listaA, listaB, k = 60) {
+  const p = new Map();
+  const somar = lista => lista.forEach((o, i) => {
+    const id = o.numInternoQOrdem;
+    p.set(id, (p.get(id) || 0) + 1 / (k + i + 1));
+  });
+  somar(listaA); somar(listaB);
+  const porId = new Map([...listaA, ...listaB].map(o => [o.numInternoQOrdem, o]));
+  return [...p.entries()].sort((a, b) => b[1] - a[1]).map(([id]) => porId.get(id));
+}
+
 // ----------------------------------------------------------------- saída
 const pct = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—';
 
@@ -126,6 +170,38 @@ const pct = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—';
     preparado[nome] = { texto, idx: construirIndice(corpus, texto) };
   }
 
+  // Motores VETORIAIS: ranqueiam por cosseno contra a tese extraída. Entram na
+  // mesma tabela, mas a chamada é assíncrona (a pergunta precisa ser vetorizada).
+  const temVetor = VET && VET.porId.size >= corpus.length * 0.95 && process.env.GEMINI_API_KEY;
+  if (VET && !temVetor) {
+    console.log(`(vetores cobrem ${VET.porId.size}/${corpus.length}` +
+      `${process.env.GEMINI_API_KEY ? '' : ' e falta GEMINI_API_KEY'} — fora da comparação)\n`);
+  }
+  const comVetor = new Map(corpus.map(o => [o, VET && VET.porId.get(o.numInternoQOrdem)]).filter(p => p[1]));
+  const porCosseno = q => {
+    const out = [];
+    for (const [o, v] of comVetor) {
+      let s = 0;
+      for (let i = 0; i < q.length; i++) s += q[i] * v[i];
+      out.push([o, s]);
+    }
+    return out.sort((a, b) => b[1] - a[1]).slice(0, 200).map(p => p[0]);
+  };
+  /** Ranqueia com o motor `nome`; se for vetorial, vetoriza a pergunta antes. */
+  async function ranquearMotor(nome, pergunta) {
+    if (nome === 'semantico' || nome === 'hibrido') {
+      const q = await vetorDaPergunta(pergunta);
+      if (!q) return [];
+      const vet = porCosseno(q);
+      if (nome === 'semantico') return vet;
+      const { idx, texto } = preparado.extraido || preparado.atual;
+      return fundir(ranquearPara(pergunta, corpus, idx, texto).slice(0, 200), vet);
+    }
+    const { idx, texto } = preparado[nome];
+    return ranquearPara(pergunta, corpus, idx, texto);
+  }
+  if (temVetor) { nomes.push('semantico', 'hibrido'); }
+
   // ---------- 1. casos curados ----------
   const casos = JSON.parse(fs.readFileSync(ARQ_CASOS, 'utf8')).casos || [];
   console.log(`=== 1. CASOS CURADOS (${casos.length}) ===`);
@@ -135,8 +211,7 @@ const pct = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—';
   for (const c of casos) {
     const linha = [];
     for (const nome of nomes) {
-      const { idx, texto } = preparado[nome];
-      const res = ranquearPara(c.pergunta, corpus, idx, texto).map(num);
+      const res = (await ranquearMotor(nome, c.pergunta)).map(num);
       const posicoes = c.esperadas.map(e => res.indexOf(e) + 1);   // 0 = ausente
       const pior = Math.min(...posicoes.map(p => p || 1e9));
       const todas = posicoes.every(p => p > 0);
@@ -168,11 +243,28 @@ const pct = (a, b) => b ? `${(100 * a / b).toFixed(0)}%` : '—';
   console.log('    pergunta = texto do recurso · índice construído SEM esse campo\n');
 
   for (const nome of nomes) {
-    const texto = o => motores[nome](o, { ...dDe(o), rec: '' });   // tira o recurso
-    const idx = construirIndice(corpus, texto);
+    const vetorial = nome === 'semantico' || nome === 'hibrido';
+    // Nos motores léxicos o índice é refeito SEM o campo do recurso, senão a
+    // medida seria circular. Nos vetoriais isso não se aplica: o vetor vem da
+    // tese extraída, que não contém o texto do recurso.
+    const texto = o => motores[nome === 'hibrido' ? (motores.extraido ? 'extraido' : 'atual') : nome]
+      ? motores[nome === 'hibrido' ? (motores.extraido ? 'extraido' : 'atual') : nome](o, { ...dDe(o), rec: '' })
+      : '';
+    const idx = vetorial && nome === 'semantico' ? null : construirIndice(corpus, texto);
     let em1 = 0, em5 = 0, em20 = 0, somaRR = 0, achou = 0;
     for (const alvo of alvos) {
-      const res = ranquearPara(dDe(alvo).rec, corpus, idx, texto);
+      const pergunta = dDe(alvo).rec;
+      let res;
+      if (nome === 'semantico') {
+        const q = await vetorDaPergunta(pergunta);
+        res = q ? porCosseno(q) : [];
+      } else if (nome === 'hibrido') {
+        const q = await vetorDaPergunta(pergunta);
+        res = q ? fundir(ranquearPara(pergunta, corpus, idx, texto).slice(0, 200), porCosseno(q))
+                : ranquearPara(pergunta, corpus, idx, texto);
+      } else {
+        res = ranquearPara(pergunta, corpus, idx, texto);
+      }
       const pos = res.findIndex(x => x.numInternoQOrdem === alvo.numInternoQOrdem) + 1;
       if (pos) { achou++; somaRR += 1 / pos; }
       if (pos === 1) em1++;
