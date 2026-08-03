@@ -67,7 +67,7 @@ const TEXTO_AJUDA =
   '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
   '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
   '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
-  '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário por palavra-chave, no histórico. Ex.: /qo ata de comissão\n' +
+  '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
@@ -1217,11 +1217,17 @@ async function cmdFaltamVotar(ctx) {
 bot.command('faltamvotar', cmdFaltamVotar);
 
 // ---------- /questaoordem <termo> — questões de ordem por palavra-chave ----------
-// Busca no acervo (sistema dedicado da Câmara), cacheado 1h. Cobre o resumo de
-// cada QO. Sem termo, explica. Ex.: /questaoordem ata de comissão
+// Busca no acervo (sistema dedicado da Câmara), cacheado 1h. Cobre todas as
+// fases catalogadas de cada QO. Sem termo, explica.
 async function cmdQuestaoOrdem(ctx, texto) {
   const termo = String(texto || '').trim();
-  if (!termo) return ctx.reply('Uso: /questaoordem <termo> — ex.: /questaoordem ata de comissão\nBusca no resumo das questões de ordem do Plenário.');
+  if (!termo) return ctx.reply(
+    'Uso: /questaoordem <termo> — ex.: /qo ata de comissão\n\n' +
+    'Busca em todas as fases da questão de ordem (a questão, a contradita, a decisão e o recurso).\n\n' +
+    'Também aceita:\n' +
+    '• número exato — /qo 8/2023\n' +
+    '• artigo do Regimento — /qo art. 52\n' +
+    '• uma fase só — /qo recurso: prejudicialidade · /qo decisão: quórum · /qo contradita: obstrução');
   await ctx.replyWithChatAction('typing');
   try {
     return responderLongo(ctx, formatarQO(await buscarQO(termo)), null, { md: true });
@@ -1566,7 +1572,8 @@ function ferramentasDado(userId, perfil) {
     },
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
-    questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
+    questao_ordem: async ({ termo, fase } = {}) =>
+      formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
     // O AGENTE recebe mais artigos que o comando: a busca lexical erra a ordem
     // em pergunta longa, e é ele quem tem leitura semântica para escolher o certo.
     regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 4, perfil }),

@@ -88,6 +88,26 @@ function indice(corpus) {
   return _idx;
 }
 
+// ---------- Busca por FASE ----------
+// "tem algum RECURSO que fale de prejudicialidade?" não é a mesma pergunta que
+// "tem alguma QO que fale de prejudicialidade?". No índice geral as fases viram
+// um texto só, e "recurso" passa a ser mais uma palavra: a busca devolvia QOs
+// cuja DECISÃO casava com o tema, sem recurso nenhum, e a resposta saía como se
+// fossem recursos. Aqui a fase VIRA FILTRO — só entram as QOs que têm aquela
+// peça, e o casamento é no texto dela.
+const FASES = { recurso: 'rec', decisao: 'dec', contradita: 'cd' };
+const _idxFase = new Map();     // campo → { chave, itens, idx }
+
+function indiceFase(corpus, campo) {
+  const chave = `${_corpusTs}:${_detTs}`;
+  const cache = _idxFase.get(campo);
+  if (cache && cache.chave === chave) return cache;
+  const itens = corpus.filter(o => (_det.get(o.numInternoQOrdem) || {})[campo]);
+  const novo = { chave, itens, idx: construirIndice(itens, o => _det.get(o.numInternoQOrdem)[campo]) };
+  _idxFase.set(campo, novo);
+  return novo;
+}
+
 /**
  * Aquece no arranque (background) — não bloqueia o boot. Indexa já com o que
  * houver em cache e, em paralelo, completa os detalhes que faltarem; ao
@@ -301,14 +321,21 @@ const cortar = (t, n) => {
  * o corte desce um nível sozinho, em vez de devolver tudo que tenha "votação".
  * @returns {Promise<{termo, total, itens:[{id,num,data,autor,ementa,trecho}]}>}
  */
-async function buscarQO(termo, { limite = 8 } = {}) {
+async function buscarQO(termo, { limite = 8, fase } = {}) {
   const corpus = await garantirCorpus();
   if (!corpus.length) return { termo, total: 0, itens: [] };
+
+  // Aceita a fase colada no termo ("recurso: prejudicialidade"), para o
+  // comando /qo ter o mesmo alcance que o agente.
+  let consulta = String(termo || '');
+  const pref = normalizar(consulta).match(/^(recurso|decisao|contradita)s?\s*:\s*(.+)$/);
+  if (pref) { fase = pref[1]; consulta = consulta.slice(consulta.indexOf(':') + 1).trim(); }
+  const campo = FASES[normalizar(fase || '')] || null;
 
   // Pedido por NÚMERO ("QO 8/2023") não é busca por tema: sem este atalho,
   // "8" era descartado por ser curto e sobrava "2023" — devolvia as 164 QOs
   // do ano, sem a pedida entre elas.
-  const num = numeroPedido(termo);
+  const num = numeroPedido(consulta);
   if (num) {
     const achados = corpus.filter(o => String(o.numQOrdemComAno) === num);
     return { termo: String(termo).trim(), porNumero: num, total: achados.length,
@@ -317,13 +344,18 @@ async function buscarQO(termo, { limite = 8 } = {}) {
 
   // "art. 52" / "artigo 52" → token único, para casar com o dispositivo
   // regimental que a QO invoca (o número solto casaria com qualquer ano).
-  const termos = termosDe(normalizar(termo).replace(/\bart(?:igo)?s?\.?\s*(\d{1,3})/g, 'art$1'));
+  const termos = termosDe(normalizar(consulta).replace(/\bart(?:igo)?s?\.?\s*(\d{1,3})/g, 'art$1'));
   if (!termos.length) return { termo, total: 0, itens: [] };
-  const idx = indice(corpus);
 
-  const rank = ranquear(corpus, idx, termos);
-  if (!rank.length) return { termo: String(termo).trim(), total: 0, itens: [] };
-  const cobertura = r => termos.reduce((s, t) => s + (idx.docs[r.indice].tf.has(t) ? 1 : 0), 0);
+  // Com fase, o universo é só quem tem aquela peça e o casamento é no texto
+  // dela; sem fase, é o acervo inteiro no índice geral.
+  const alvo = campo ? indiceFase(corpus, campo) : { itens: corpus, idx: indice(corpus) };
+  const base = { termo: String(termo).trim(), consulta: consulta.trim(),
+                 fase: campo ? normalizar(fase) : null, universo: alvo.itens.length };
+
+  const rank = ranquear(alvo.itens, alvo.idx, termos);
+  if (!rank.length) return { ...base, total: 0, itens: [] };
+  const cobertura = r => termos.reduce((s, t) => s + (alvo.idx.docs[r.indice].tf.has(t) ? 1 : 0), 0);
   let maxCob = 0;
   for (const r of rank) { const c = cobertura(r); r._cob = c; if (c > maxCob) maxCob = c; }
   const achados = rank.filter(r => r._cob === maxCob)
@@ -332,18 +364,27 @@ async function buscarQO(termo, { limite = 8 } = {}) {
 
   // Para destacar o trecho usamos as palavras COMO FORAM ESCRITAS (o radical
   // "comis" não aparece no texto; "comissão" aparece).
-  const brutos = normalizar(termo).split(/[^\wà-ú]+/i).filter(t => t.length > 2);
+  const brutos = normalizar(consulta).split(/[^\wà-ú]+/i).filter(t => t.length > 2);
   const itens = await detalhar(achados.slice(0, limite), brutos);
-  return { termo: String(termo).trim(), total: achados.length, itens,
+  return { ...base, total: achados.length, itens,
            termosBuscados: termos.length, termosCasados: maxCob };
 }
 
+const ROTULO = { recurso: ['recurso', 'recursos'], decisao: ['decisão', 'decisões'],
+                 contradita: ['contradita', 'contraditas'] };
+
 /** Texto pronto para o comando e o agente. */
 function formatarQO(res) {
+  const rot = ROTULO[res.fase];
   if (!res.total) {
-    return res.porNumero
-      ? `Não existe questão de ordem ${res.porNumero} no acervo da Câmara.`
-      : `Não encontrei questão de ordem mencionando "${res.termo}".`;
+    if (res.porNumero) return `Não existe questão de ordem ${res.porNumero} no acervo da Câmara.`;
+    // Com fase, a ausência é RESPOSTA — e precisa ser dita como tal, senão a
+    // pergunta "tem algum recurso sobre X?" volta respondida com outra coisa.
+    if (rot) {
+      return `Nenhum ${rot[0]} no acervo menciona "${res.consulta}".\n` +
+        `_Busquei no texto ${res.fase === 'contradita' ? 'das' : 'dos'} ${res.universo} ${rot[1]} registrad${res.fase === 'contradita' ? 'a' : 'o'}s — não no restante das questões de ordem._`;
+    }
+    return `Não encontrei questão de ordem mencionando "${res.termo}".`;
   }
   // Pedido por número: a QO inteira, com as fases que existirem.
   if (res.porNumero) {
@@ -356,17 +397,31 @@ function formatarQO(res) {
       `\n🔗 Íntegra: ${DETALHE(x.id)}`,
     ].filter(Boolean).join('\n')).join('\n\n')}`;
   }
-  // Na lista, a decisão vai resumida: é ela que responde "e no que deu?".
-  const linhas = res.itens.map(x =>
-    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${cortar(x.ementa, 240) || x.trecho}` +
-    (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 180)}` : '') +
-    `\n  🔗 Íntegra: ${DETALHE(x.id)}`);
-  const cab = `🔎 Questões de ordem com "${res.termo}": *${res.total}*` +
-    (res.total > res.itens.length ? ` (mostrando as ${res.itens.length} mais relevantes)` : '');
+  // Buscando por fase, o que casou é o texto DAQUELA peça — ela vem primeiro,
+  // com a ementa só situando o caso.
+  const linhas = res.fase
+    ? res.itens.map(x => {
+        const peca = { recurso: x.recurso, decisao: x.decisao, contradita: x.contradita }[res.fase];
+        const icone = { recurso: '📄', decisao: '⚖️', contradita: '✋' }[res.fase];
+        return `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${icone} ${cortar(peca, 300)}` +
+               (x.ementa ? `\n  _Caso:_ ${cortar(x.ementa, 140)}` : '') +
+               `\n  🔗 Íntegra: ${DETALHE(x.id)}`;
+      })
+    // Na lista comum, a decisão vai resumida: é ela que responde "e no que deu?".
+    : res.itens.map(x =>
+        `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${cortar(x.ementa, 240) || x.trecho}` +
+        (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 180)}` : '') +
+        `\n  🔗 Íntegra: ${DETALHE(x.id)}`);
+  const cab = (rot
+      ? `🔎 ${rot[1][0].toUpperCase()}${rot[1].slice(1)} mencionando "${res.consulta}": *${res.total}*` +
+        ` (de ${res.universo} no acervo)`
+      : `🔎 Questões de ordem com "${res.termo}": *${res.total}*`) +
+    (res.total > res.itens.length ? ` — mostrando ${res.itens.length}` : '');
   // Sem isto o usuário não sabe se o resultado é exaustivo ou já é o "melhor
   // possível" — e ele decide se vale reformular com menos palavras.
   const parcial = res.termosCasados < res.termosBuscados
-    ? `\n_Nenhuma QO reúne todos os termos; estas reúnem ${res.termosCasados} de ${res.termosBuscados}._`
+    ? `\n_Nenhum${rot ? '' : 'a'} ${rot ? rot[0] : 'QO'} reúne todos os termos; ` +
+      `${rot ? 'estes' : 'estas'} reúnem ${res.termosCasados} de ${res.termosBuscados}._`
     : '';
   return `${cab}${parcial}\n\n${linhas.join('\n\n')}`;
 }

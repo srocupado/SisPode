@@ -42,6 +42,12 @@ function radical(t) {
   if (SAO[s]) s = SAO[s];
   else if (/cao$/.test(s)) s = s.replace(/cao$/, '').replace(/[aeiou]$/, '');
   else s = s.replace(/(ar|er|ir)$/, '');
+  // Truncagem em 6: é ela que fecha as famílias que as regras não fecham
+  // sozinhas. O preço é juntar palavras sem parentesco que compartilham as 6
+  // primeiras letras — "quântico" e "quantitativo" viram ambos "quanti".
+  // MEDIDO: em 7 letras esse tipo de colisão diminui, mas quebram
+  // requerer/requerimento, presidir/presidência e urgência/urgente — três das
+  // famílias mais frequentes no vocabulário de plenário. 6 é o melhor ponto.
   return s.length >= 6 ? s.slice(0, 6) : s;
 }
 
