@@ -105,26 +105,38 @@ function aquecerCorpus() {
     .catch(e => console.warn('[qordem] aquecimento falhou:', e.message));
 }
 
-// ---------- DETALHE por id: a EMENTA e os DISPOSITIVOS ----------
+// ---------- DETALHE por id: o registro CURADO da questão de ordem ----------
 // A listagem devolve só o `txtQOrdemReduzido` — o trecho taquigráfico, que
-// começa com o cabeçalho da sessão. MEDIDO numa amostra de 25 QOs: esse trecho
-// é 6% do inteiro teor, e a EMENTA (o resumo que diz do que a QO trata, escrito
-// por quem cataloga) NÃO vem na listagem — está em 98 de 100 QOs, só no detalhe.
+// começa com o cabeçalho da sessão. MEDIDO: esse trecho é 6% do inteiro teor, e
+// tudo que a Câmara CATALOGA sobre a QO só vem no detalhe por id. Medido numa
+// amostra de 204 QOs de todo o acervo (1953–2026):
 //
-// Por isso a busca perdia a QO 8/2023 (Kim Kataguiri, avocação): "avocação" só
-// existe na ementa, e a ementa não estava no índice — era buscada DEPOIS, só
-// para as 8 QOs já escolhidas.
+//   ementa da QO ......... 98%   346 ch    ← o que se pergunta
+//   ementa da DECISÃO .... 86%   460 ch    ← como a Presidência resolveu
+//   indexação (tesauro) .. 63%   136 ch
+//   ementa do RECURSO .... 19%   193 ch
+//   ementa da CONTRADITA . 16%   331 ch
+//   inteiro teor ......... 98% 8.361 ch
 //
-// Buscar os 4.062 detalhes leva ~1min45s com concorrência 10 (26 ms/registro
-// medidos). Faz-se UMA vez, em segundo plano, e grava em dados/ — nas próximas
-// vezes só os ids novos (o acervo cresce ~150 QOs/ano).
-const _det = new Map();     // id → { e: ementa, d: 'art52,art95' }
+// Indexamos os campos CURADOS, não o inteiro teor: os 8,4 mil caracteres de
+// taquigrafia por QO dariam 34 MB e trariam tudo o que se falou em volta
+// (aparte, presidência chamando ordem, matéria em pauta) como se fosse tema da
+// QO. A ementa é escrita justamente para dizer do que a QO trata.
+//
+// Baixar os 4.062 detalhes leva ~3 min com concorrência 5. Faz-se UMA vez, em
+// segundo plano, e grava em dados/ — depois só os ids novos (~150 QOs/ano).
+const VERSAO_CACHE = 2;     // mudou o conjunto de campos → recolhe do zero
+const _det = new Map();     // id → { e, i, dec, pres, rec, cd, obs, d }
 let _detTs = 0;             // muda quando o cache cresce → o índice se refaz
 let _enriquecendo = null;
 
 function carregarCacheDetalhes() {
   try {
     const j = JSON.parse(fs.readFileSync(CACHE_DET, 'utf8'));
+    if (j.versao !== VERSAO_CACHE) {
+      console.log(`[qordem] cache de detalhes é da versão ${j.versao || 1} — será recolhido.`);
+      return;
+    }
     for (const [id, v] of Object.entries(j.itens || {})) _det.set(Number(id), v);
     _detTs = _det.size;
     console.log(`[qordem] cache de detalhes: ${_det.size} QOs (${j.gerado || '?'}).`);
@@ -135,11 +147,14 @@ function gravarCacheDetalhes() {
   try {
     fs.mkdirSync(path.dirname(CACHE_DET), { recursive: true });
     fs.writeFileSync(CACHE_DET, JSON.stringify({
+      versao: VERSAO_CACHE,
       gerado: new Date().toISOString().slice(0, 10),
       itens: Object.fromEntries(_det),
     }));
   } catch (e) { console.warn('[qordem] não gravou o cache de detalhes:', e.message); }
 }
+
+const limpo = v => String(v || '').replace(/\s+/g, ' ').trim();
 
 async function buscarDetalhe(id) {
   const ctrl = new AbortController();
@@ -148,12 +163,23 @@ async function buscarDetalhe(id) {
     const r = await fetch(API(id), { signal: ctrl.signal, headers: HDR });
     if (!r.ok) return null;
     const d = await r.json();
+    // Dispositivos invocados em QUALQUER fase (a QO, a contradita, a decisão e
+    // o recurso), como "art52": token de 2 letras seria descartado pela busca, e
+    // o número solto casaria com qualquer ano ou quórum do texto.
+    const disp = [...new Set(
+      [...(d.dispositivosRegimentaisQO || []), ...(d.dispositivosRegimentaisCD || []),
+       ...(d.dispositivosRegimentaisDE || []), ...(d.dispositivosRegimentaisRE || [])]
+        .map(x => `art${String(x.txtNumeroArtigo || '').trim()}`).filter(x => x !== 'art'))];
     return {
-      e: String(d.txtEmentaQOrdem || '').replace(/\s+/g, ' ').trim(),
-      // "art52" e não "52": token de 2 letras seria descartado pela busca, e o
-      // número solto casaria com qualquer ano/quórum do texto.
-      d: (d.dispositivosRegimentaisQO || [])
-        .map(x => `art${String(x.txtNumeroArtigo || '').trim()}`).filter(x => x !== 'art').join(' '),
+      e:    limpo(d.txtEmentaQOrdem),                          // do que trata a QO
+      i:    [d.txtIndexacaoQOrdem, d.txtIndexacaoCDita, d.txtIndexacaoDecisao,
+             d.txtIndexacaoRecurso].map(limpo).filter(Boolean).join(' '),   // tesauro
+      dec:  limpo(d.txtEmentaDecisao),                         // como a Presidência resolveu
+      pres: limpo(d.txtNomePresidenteDecisao),
+      rec:  limpo(d.txtEmentaRecurso),                         // o recurso contra a decisão
+      cd:   limpo(d.txtEmentaCDita),                           // a contradita
+      obs:  limpo(d.txtObservacaoQOrdem),
+      d:    disp.join(' '),
     };
   } catch (_) { return null; }
   finally { clearTimeout(timer); }
@@ -184,19 +210,26 @@ async function enriquecerCorpus(corpus, { aoTerminar } = {}) {
   return feitos;
 }
 
-/** Ementa de uma QO (do cache; busca sob demanda se ainda não veio). */
-async function carregarEmenta(id) {
-  if (id == null) return '';
-  if (_det.has(id)) return _det.get(id).e;
+const VAZIO = { e: '', i: '', dec: '', pres: '', rec: '', cd: '', obs: '', d: '' };
+
+/** Registro curado de uma QO (do cache; busca sob demanda se ainda não veio). */
+async function carregarDet(id) {
+  if (id == null) return VAZIO;
+  if (_det.has(id)) return _det.get(id);
   const d = await buscarDetalhe(id);
-  if (d) { _det.set(id, d); return d.e; }
-  return '';
+  if (d) { _det.set(id, d); return d; }
+  return VAZIO;
 }
 
 const textoDe = o => {
   const d = _det.get(o.numInternoQOrdem);
-  return `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}` +
-         (d ? ` ${d.e} ${d.e} ${d.d}` : '');   // ementa DUAS vezes: é o resumo curado do tema
+  const base = `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}`;
+  if (!d) return base;
+  // A ementa e o tesauro entram DUAS vezes: são texto curado, escrito para
+  // dizer do que a QO trata, enquanto o trecho taquigráfico traz junto tudo o
+  // que se falou em volta. Decisão, recurso e contradita entram uma vez —
+  // pertencem à QO, mas descrevem outra fase dela.
+  return `${base} ${d.e} ${d.e} ${d.i} ${d.i} ${d.dec} ${d.rec} ${d.cd} ${d.obs} ${d.d}`;
 };
 
 const dataOrd = o => {
@@ -230,17 +263,31 @@ function numeroPedido(termo) {
   return m ? `${Number(m[1])}/${m[2]}` : null;
 }
 
-/** Monta os itens de saída, buscando a ementa de quem ainda não a tiver. */
+/** Monta os itens de saída, buscando o detalhe de quem ainda não o tiver. */
 function detalhar(achados, brutos) {
-  return Promise.all(achados.map(async o => ({
-    id: o.numInternoQOrdem,
-    num: o.numQOrdemComAno || o.numQOrdem,
-    data: o.datSessaoQOrdem,
-    autor: String(o.txtNomeAutorQOrdem || '').trim(),
-    ementa: await carregarEmenta(o.numInternoQOrdem),
-    trecho: trechoAoRedor(o.txtQOrdemReduzido || '', brutos),
-  })));
+  return Promise.all(achados.map(async o => {
+    const d = await carregarDet(o.numInternoQOrdem);
+    return {
+      id: o.numInternoQOrdem,
+      num: o.numQOrdemComAno || o.numQOrdem,
+      data: o.datSessaoQOrdem,
+      autor: String(o.txtNomeAutorQOrdem || '').trim(),
+      ementa: d.e,
+      decisao: d.dec,
+      // A API devolve "ULYSSES GUIMARÃES (null-null)" quando não tem o
+      // partido/UF da época.
+      presidente: d.pres.replace(/\s*\([^)]*null[^)]*\)\s*$/i, '').trim(),
+      recurso: d.rec,
+      contradita: d.cd,
+      trecho: trechoAoRedor(o.txtQOrdemReduzido || '', brutos),
+    };
+  }));
 }
+
+const cortar = (t, n) => {
+  const s = String(t || '').trim();
+  return s.length > n ? s.slice(0, n).replace(/\s+\S*$/, '') + '…' : s;
+};
 
 /**
  * Busca questões de ordem por relevância (BM25 sobre o texto reduzido).
@@ -298,17 +345,22 @@ function formatarQO(res) {
       ? `Não existe questão de ordem ${res.porNumero} no acervo da Câmara.`
       : `Não encontrei questão de ordem mencionando "${res.termo}".`;
   }
-  const resumo = x => {
-    const e = (x.ementa || '').trim();
-    const texto = e ? (e.length > 240 ? e.slice(0, 240).replace(/\s+\S*$/, '') + '…' : e) : x.trecho;
-    return texto;
-  };
-  const linhas = res.itens.map(x =>
-    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${resumo(x)}\n  🔗 Íntegra: ${DETALHE(x.id)}`);
+  // Pedido por número: a QO inteira, com as fases que existirem.
   if (res.porNumero) {
-    return `🔎 *QO ${res.porNumero}*\n\n${res.itens.map(x =>
-      `${x.data}${x.autor ? ` · ${x.autor}` : ''}\n${(x.ementa || x.trecho)}\n\n🔗 Íntegra: ${DETALHE(x.id)}`).join('\n\n')}`;
+    return `🔎 *QO ${res.porNumero}*\n\n${res.itens.map(x => [
+      `${x.data}${x.autor ? ` · ${x.autor}` : ''}`,
+      x.ementa || x.trecho,
+      x.contradita ? `\n✋ *Contradita:* ${x.contradita}` : '',
+      x.decisao ? `\n⚖️ *Decisão*${x.presidente ? ` (${x.presidente})` : ''}: ${x.decisao}` : '',
+      x.recurso ? `\n📄 *Recurso:* ${x.recurso}` : '',
+      `\n🔗 Íntegra: ${DETALHE(x.id)}`,
+    ].filter(Boolean).join('\n')).join('\n\n')}`;
   }
+  // Na lista, a decisão vai resumida: é ela que responde "e no que deu?".
+  const linhas = res.itens.map(x =>
+    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${cortar(x.ementa, 240) || x.trecho}` +
+    (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 180)}` : '') +
+    `\n  🔗 Íntegra: ${DETALHE(x.id)}`);
   const cab = `🔎 Questões de ordem com "${res.termo}": *${res.total}*` +
     (res.total > res.itens.length ? ` (mostrando as ${res.itens.length} mais relevantes)` : '');
   // Sem isto o usuário não sabe se o resultado é exaustivo ou já é o "melhor
@@ -322,11 +374,11 @@ function formatarQO(res) {
 /** Versão COMPACTA — para anexar como precedente a outra resposta (ex.: /regimento). */
 function formatarQOCompacto(res, { titulo = '⚖️ *Precedente — questões de ordem sobre o tema*' } = {}) {
   if (!res.total) return '';
-  const linhas = res.itens.map(x => {
-    const e = (x.ementa || x.trecho || '').replace(/\s+/g, ' ').trim();
-    const resumo = e.length > 150 ? e.slice(0, 150).replace(/\s+\S*$/, '') + '…' : e;
-    return `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${resumo}\n  🔗 ${DETALHE(x.id)}`;
-  });
+  // Como precedente, o que vale é a DECISÃO — a ementa só situa o caso.
+  const linhas = res.itens.map(x =>
+    `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${cortar(x.ementa || x.trecho, 150)}` +
+    (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 200)}` : '') +
+    `\n  🔗 ${DETALHE(x.id)}`);
   const mais = res.total > res.itens.length
     ? `\n\n(${res.total} no total — veja as demais com /qo ${res.termo})` : '';
   return `${titulo} (${res.total})\n\n${linhas.join('\n\n')}${mais}`;
