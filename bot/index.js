@@ -1236,8 +1236,8 @@ bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
 // (questões de ordem sobre o mesmo tema). É como o analista de plenário raciocina
 // — a regra e como a Presidência já a aplicou. A busca de QO entra em modo
 // relaxado porque a consulta costuma ser uma pergunta, não uma expressão exata.
-async function respostaRegimental(consulta) {
-  const reg = await consultarRegimento(consulta);
+async function respostaRegimental(consulta, { limite = 3 } = {}) {
+  const reg = await consultarRegimento(consulta, { limite });
   let texto = formatarRegimento(reg);
   if (!reg.artigos.length) return texto;
   try {
@@ -1563,7 +1563,9 @@ function ferramentasDado(userId) {
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo } = {}) => formatarQO(await buscarQO(String(termo || ''))),
-    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || '')),
+    // O AGENTE recebe mais artigos que o comando: a busca lexical erra a ordem
+    // em pergunta longa, e é ele quem tem leitura semântica para escolher o certo.
+    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 6 }),
     oradores_sessao: async ({ data, filtro } = {}) => {
       const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
       const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());

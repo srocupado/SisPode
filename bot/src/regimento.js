@@ -75,11 +75,50 @@ function lerEmbutido() {
  * Só levanta erro se o próprio arquivo do bot estiver corrompido/ausente — caso
  * em que o chamador precisa dizer "indisponível" em vez de responder sem lastro.
  */
+// Índice BM25. Sem pesar os termos por raridade, uma pergunta longa era vencida
+// pelo artigo que contivesse mais palavras COMUNS: "prazo" está em 91 artigos e
+// "comissões" em 85 — não discriminam nada, e o Art. 32 (que lista todas as
+// comissões) ganhava de qualquer artigo específico. Com IDF + normalização de
+// tamanho, o termo raro ("emendas", "interstício") manda no resultado.
+// RADICALIZAÇÃO leve (pt-BR). Sem isto, a pergunta não casa com a norma: o
+// artigo escreve "emendas APRESENTADAS em COMISSÃO", a pergunta diz
+// "APRESENTAÇÃO ... COMISSÕES" — tokens diferentes, zero match. Regras mínimas
+// de plural/derivação + truncagem resolvem sem precisar de stemmer completo.
+function radical(t) {
+  let s = t;
+  s = s.replace(/(coes|çoes|cao|ção)$/,'')        // apresentação/apresentações → apresentac
+       .replace(/(mente)$/,'')                      // regimentalmente → regimental
+       .replace(/(ndo|ada|ado|adas|ados|ida|ido|idas|idos)$/,'')  // apresentada → apresent
+       .replace(/(oes|aes|aos)$/,'ao')              // comissões → comissao
+       .replace(/(ns)$/,'m')                        // bens → bem
+       .replace(/s$/,'');                           // plural simples
+  return s.length >= 6 ? s.slice(0, 6) : s;         // truncagem: mesma família, mesmo radical
+}
+let _idx = null;
+function construirIndice(arts) {
+  const N = arts.length;
+  const docs = arts.map(a => {
+    const toks = normalizar(a.texto).split(/[^\wçà-ú-]+/i).filter(t => t.length > 2).map(radical);
+    const tf = new Map();
+    for (const t of toks) tf.set(t, (tf.get(t) || 0) + 1);
+    return { tf, len: toks.length };
+  });
+  const df = new Map();
+  for (const d of docs) for (const t of d.tf.keys()) df.set(t, (df.get(t) || 0) + 1);
+  const avg = docs.reduce((s, d) => s + d.len, 0) / (N || 1);
+  return { docs, df, N, avg };
+}
+const idf = (idx, t) => {
+  const d = idx.df.get(t) || 0;
+  return Math.log(1 + (idx.N - d + 0.5) / (d + 0.5));
+};
+
 async function garantirRegimento() {
   if (_artigos.length) return _artigos;
   const a = lerEmbutido();
   if (!a) throw new Error('arquivo do Regimento ausente no bot (src/ricd.js)');
   _artigos = a; _ts = Date.now();
+  _idx = construirIndice(_artigos);
   return _artigos;
 }
 
@@ -138,22 +177,25 @@ async function consultarRegimento(consulta, { limite = 3 } = {}) {
 
   const q = expandirSiglas(normalizar(consulta));
   const termos = [...new Set(q.split(/[^\wçãáéíóúâêôõà-]+/i).map(t => t.trim())
-    .filter(t => t.length > 2 && !VAZIAS.has(t)))];
+    .filter(t => t.length > 2 && !VAZIAS.has(t)).map(radical))];
   if (!termos.length) return { consulta, artigos: [] };
 
-  const pontuados = arts.map(a => {
-    const t = normalizar(a.texto);
-    let p = 0, presentes = 0;
+  // BM25: cada termo pesa pela raridade (IDF) e o tamanho do artigo é
+  // normalizado, para o artigo-catálogo não vencer o artigo-específico.
+  const K1 = 1.2, B = 0.6;
+  const pontuados = arts.map((a, i) => {
+    const d = _idx.docs[i];
+    let p = 0;
     for (const termo of termos) {
-      const oc = t.split(termo).length - 1;
-      if (oc) { presentes++; p += Math.min(oc, 4); }
+      const tf = d.tf.get(termo) || 0;
+      if (!tf) continue;
+      p += idf(_idx, termo) * (tf * (K1 + 1)) / (tf + K1 * (1 - B + B * d.len / _idx.avg));
     }
-    if (t.includes(q)) p += 12;                    // frase exata: forte indício
-    if (presentes === termos.length) p += 6;       // cobre todos os termos
-    return { ...a, _p: p, _presentes: presentes };
+    if (p && normalizar(a.texto).includes(q)) p *= 1.8;   // frase exata: forte indício
+    return { ...a, _p: p };
   }).filter(a => a._p > 0);
 
-  pontuados.sort((a, b) => b._presentes - a._presentes || b._p - a._p || a.num - b.num);
+  pontuados.sort((a, b) => b._p - a._p || a.num - b.num);
   return { consulta, artigos: pontuados.slice(0, limite) };
 }
 
