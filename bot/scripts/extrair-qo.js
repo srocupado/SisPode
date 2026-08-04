@@ -190,7 +190,7 @@ function validar(txt) {
   console.log(`modelo ${MODELO} · concorrência ${CONC}\n`);
 
   const fila = [...alvos];
-  let ok = 0, ruim = 0, entrada = 0;
+  let ok = 0, ruim = 0, entrada = 0, seguidas = 0;   // seguidas: falhas de cota em sequência
   const erros = {};
   await Promise.all(Array.from({ length: CONC }, async () => {
     let o;
@@ -226,10 +226,16 @@ function validar(txt) {
         fs.writeFileSync(DESTINO, JSON.stringify({ modelo: MODELO, gerado: new Date().toISOString().slice(0, 10), itens: feito }));
       }
       // Cota diária estourada: insistir só queima tentativa. Para tudo.
-      if (falha && /quota|RESOURCE_EXHAUSTED|HTTP 429/i.test(falha) && ruim >= 30 && ok === 0) {
-        console.log('\nCOTA ESGOTADA — nada foi extraído nesta rodada. Encerrando.');
-        fila.length = 0;
-      }
+      // A guarda conta falhas de cota CONSECUTIVAS, não a rodada inteira: a
+      // primeira versão exigia zero sucessos e não disparou justamente no caso
+      // real — a coleta fez 421 verbetes e só então bateu o teto diário, e o
+      // silêncio virou "travamento" outra vez.
+      if (falha && /quota|RESOURCE_EXHAUSTED|HTTP 429/i.test(falha)) {
+        if (++seguidas >= 25) {
+          console.log(`\nCOTA ESGOTADA — ${seguidas} falhas de cota seguidas. Encerrando com ${ok} extraídos nesta rodada.`);
+          fila.length = 0;
+        }
+      } else if (!falha) seguidas = 0;
     }
   }));
 
