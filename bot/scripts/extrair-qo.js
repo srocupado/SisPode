@@ -97,10 +97,18 @@ async function chamar(prompt) {
   let ultimo = null;
   for (const ms of atrasos) {
     if (ms) await new Promise(r => setTimeout(r, ms));
+    // TIMEOUT OBRIGATÓRIO: sem ele uma conexão pendurada trava o worker para
+    // sempre. Aconteceu — o processo ficou 20 min vivo, com 9 s de CPU, sem
+    // gravar nada, porque os três workers estavam parados num fetch que nunca
+    // respondeu nem falhou.
     let res;
+    const ctrl = new AbortController();
+    const alarme = setTimeout(() => ctrl.abort(), 120000);
     try {
-      res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      res = await fetch(url, { method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     } catch (e) { ultimo = e; continue; }
+    finally { clearTimeout(alarme); }
     if (res.ok) {
       const j = await res.json();
       const t = (j.candidates?.[0]?.content?.parts || [])
