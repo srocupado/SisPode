@@ -141,6 +141,22 @@ function lastroDe(razao, fonte) {
   return Number((palavras.filter(w => alvo.includes(w)).length / palavras.length).toFixed(2));
 }
 
+// O modelo às vezes escreve o resultado por extenso ("indefere a questão de
+// ordem") em vez do rótulo. Rejeitar é o certo quando o conteúdo é ambíguo, mas
+// aqui a intenção é inequívoca — normalizar recupera ~1 em cada 12 registros
+// que estavam sendo descartados por forma, não por substância.
+function normalizarResultado(v) {
+  const t = String(v || '').toLowerCase();
+  if (RESULTADOS.includes(String(v).trim())) return String(v).trim();
+  if (/parcial/.test(t)) return 'parcialmente deferida';
+  if (/ind[ei]fer|nega|rejeit|improced/.test(t)) return 'indeferida';   // 'indiferida' é erro de digitação do modelo, visto em produção
+  if (/prejudic/.test(t)) return 'prejudicada';
+  if (/retirad/.test(t)) return 'retirada';
+  if (/sem decis|nao (consta|houve)|n[aã]o consta|pendente|aguard/.test(t)) return 'sem decisão registrada';
+  if (/defer|acolhe|proced|dá razão|da razao/.test(t)) return 'deferida';
+  return null;
+}
+
 /** Aceita só o que tem a forma certa — verbete torto é pior que verbete ausente. */
 function validar(txt) {
   let o;
@@ -148,7 +164,9 @@ function validar(txt) {
   catch (_) { return { erro: 'JSON inválido' }; }
   for (const c of CAMPOS) if (o[c] === undefined) return { erro: `sem campo ${c}` };
   if (!String(o.tese || '').trim()) return { erro: 'tese vazia' };
-  if (!RESULTADOS.includes(String(o.resultado).trim())) return { erro: `resultado "${o.resultado}"` };
+  const res = normalizarResultado(o.resultado);
+  if (!res) return { erro: `resultado "${o.resultado}"` };
+  o.resultado = res;
   o.fundamento = Array.isArray(o.fundamento) ? o.fundamento : [];
   o.temas = Array.isArray(o.temas) ? o.temas : [];
   return { ok: o };
