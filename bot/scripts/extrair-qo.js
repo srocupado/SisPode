@@ -186,17 +186,31 @@ function validar(txt) {
       };
       const p = PROMPT(q);
       entrada += p.length;
-      let txt;
+      let txt = null, falha = null;
       try { txt = await chamar(p); }
-      catch (e) { ruim++; erros[e.message] = (erros[e.message] || 0) + 1; continue; }
-      const v = validar(txt);
-      if (v.erro) { ruim++; erros[v.erro] = (erros[v.erro] || 0) + 1; continue; }
-      feito[o.numInternoQOrdem] = { num: q.num, ...v.ok,
-        lastro: lastroDe(v.ok.razao, `${q.decisao || ''} ${q.teor || ''}`) };
-      ok++;
+      catch (e) { falha = e.message; }
+      if (!falha) {
+        const v = validar(txt);
+        if (v.erro) falha = v.erro;
+        else {
+          feito[o.numInternoQOrdem] = { num: q.num, ...v.ok,
+            lastro: lastroDe(v.ok.razao, `${q.decisao || ''} ${q.teor || ''}`) };
+          ok++;
+        }
+      }
+      if (falha) { ruim++; erros[falha] = (erros[falha] || 0) + 1; }
+      // O relatório de progresso NÃO pode ficar atrás de um `continue` de erro:
+      // numa rodada em que tudo falha (cota diária estourada, por exemplo) o log
+      // fica mudo e a falha total vira indistinguível de travamento. Aconteceu.
       if ((ok + ruim) % 25 === 0) {
-        console.log(`  ${ok + ruim}/${alvos.length} · ok ${ok} · falhas ${ruim}`);
+        console.log(`  ${ok + ruim}/${alvos.length} · ok ${ok} · falhas ${ruim}` +
+          (falha ? ` · última: ${falha}` : ''));
         fs.writeFileSync(DESTINO, JSON.stringify({ modelo: MODELO, gerado: new Date().toISOString().slice(0, 10), itens: feito }));
+      }
+      // Cota diária estourada: insistir só queima tentativa. Para tudo.
+      if (falha && /quota|RESOURCE_EXHAUSTED|HTTP 429/i.test(falha) && ruim >= 30 && ok === 0) {
+        console.log('\nCOTA ESGOTADA — nada foi extraído nesta rodada. Encerrando.');
+        fila.length = 0;
       }
     }
   }));
