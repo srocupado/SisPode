@@ -87,16 +87,43 @@ Responda SÓ com um objeto JSON, sem cercas de código, neste formato:
   "temas": ["2 a 5 termos desta lista: ${VOCAB.join(', ')}"]
 }`;
 
+// RITMO. O limite é de 15 requisições por minuto no projeto inteiro, não por
+// worker. Sem espaçar, os 3 workers disparam juntos, tomam 429 em rajada e
+// gastam o backoff — foi o que fez a coleta parecer morta com 50 registros
+// feitos e nenhuma falha. Espaçar na origem sai MAIS rápido que corrigir depois.
+const MIN_INTERVALO = 60000 / 14;     // 14 rpm, uma folga sob o teto de 15
+let _proximoSlot = 0;
+async function aguardarSlot() {
+  const agora = Date.now();
+  const slot = Math.max(agora, _proximoSlot);
+  _proximoSlot = slot + MIN_INTERVALO;
+  if (slot > agora) await new Promise(r => setTimeout(r, slot - agora));
+}
+
+// A API diz QUAL cota estourou e QUANTO esperar. Ler isso é a diferença entre
+// pausar 52s e desistir do dia: 429 por minuto é ritmo, 429 por dia é parede.
+function lerCota(corpo) {
+  let tipo = null, esperaMs = 0;
+  for (const det of corpo?.error?.details || []) {
+    for (const v of det.violations || []) {
+      if (/PerDay/i.test(v.quotaId || '')) tipo = 'dia';
+      else if (/PerMinute/i.test(v.quotaId || '') && tipo !== 'dia') tipo = 'minuto';
+    }
+    const d = String(det.retryDelay || '').match(/^(\d+(?:\.\d+)?)s$/);
+    if (d) esperaMs = Math.ceil(Number(d[1]) * 1000);
+  }
+  return { tipo, esperaMs };
+}
+
 async function chamar(prompt) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${CHAVE}`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0, maxOutputTokens: 2000, responseMimeType: 'application/json' },
   };
-  const atrasos = [0, 4000, 12000, 30000];
   let ultimo = null;
-  for (const ms of atrasos) {
-    if (ms) await new Promise(r => setTimeout(r, ms));
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
+    await aguardarSlot();
     // TIMEOUT OBRIGATÓRIO: sem ele uma conexão pendurada trava o worker para
     // sempre. Aconteceu — o processo ficou 20 min vivo, com 9 s de CPU, sem
     // gravar nada, porque os três workers estavam parados num fetch que nunca
@@ -107,7 +134,7 @@ async function chamar(prompt) {
     try {
       res = await fetch(url, { method: 'POST', signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) { ultimo = e; continue; }
+    } catch (e) { ultimo = e; await new Promise(r => setTimeout(r, 4000 * (tentativa + 1))); continue; }
     finally { clearTimeout(alarme); }
     if (res.ok) {
       const j = await res.json();
@@ -115,9 +142,21 @@ async function chamar(prompt) {
         .filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('');
       return t;
     }
-    if (res.status === 429 || res.status >= 500) { ultimo = new Error(`HTTP ${res.status}`); continue; }
-    const det = await res.json().catch(() => null);
-    throw new Error(det?.error?.message || `HTTP ${res.status}`);
+    const corpo = await res.json().catch(() => null);
+    if (res.status === 429) {
+      const { tipo, esperaMs } = lerCota(corpo);
+      if (tipo === 'dia') throw new Error('COTA_DIA');       // parede: não adianta insistir
+      // Ritmo: empurra o slot de TODOS os workers e tenta de novo.
+      _proximoSlot = Math.max(_proximoSlot, Date.now() + (esperaMs || 20000));
+      ultimo = new Error('HTTP 429 (minuto)');
+      continue;
+    }
+    if (res.status >= 500) {
+      ultimo = new Error(`HTTP ${res.status}`);
+      await new Promise(r => setTimeout(r, 4000 * (tentativa + 1)));
+      continue;
+    }
+    throw new Error(corpo?.error?.message || `HTTP ${res.status}`);
   }
   throw ultimo || new Error('falhou após as tentativas');
 }
@@ -230,9 +269,12 @@ function validar(txt) {
       // primeira versão exigia zero sucessos e não disparou justamente no caso
       // real — a coleta fez 421 verbetes e só então bateu o teto diário, e o
       // silêncio virou "travamento" outra vez.
-      if (falha && /quota|RESOURCE_EXHAUSTED|HTTP 429/i.test(falha)) {
-        if (++seguidas >= 25) {
-          console.log(`\nCOTA ESGOTADA — ${seguidas} falhas de cota seguidas. Encerrando com ${ok} extraídos nesta rodada.`);
+      // Só o teto DIÁRIO encerra a rodada. 429 por minuto é ritmo, e matar a
+      // coleta por causa dele já custou um dia: o log mostrava 50 registros com
+      // zero falhas quando a guarda antiga desistiu.
+      if (falha === 'COTA_DIA') {
+        if (++seguidas >= 3) {
+          console.log(`\nCOTA ESGOTADA — teto diário do projeto. Encerrando com ${ok} extraídos nesta rodada.`);
           fila.length = 0;
         }
       } else if (!falha) seguidas = 0;
