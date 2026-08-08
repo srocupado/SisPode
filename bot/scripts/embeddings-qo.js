@@ -21,7 +21,7 @@ require('dns').setDefaultResultOrder('ipv4first');
 const fs = require('fs');
 const path = require('path');
 
-const ORIGEM = path.join(__dirname, '..', 'dados', 'qordem-extraido.json');
+const DADOS = path.join(__dirname, '..', 'dados');
 const DESTINO = path.join(__dirname, '..', 'src', 'qoembeddings.js');
 const argv = process.argv.slice(2);
 const opt = (n, p) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : p; };
@@ -84,7 +84,11 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
 
 (async () => {
   const t0 = Date.now();
-  const itens = JSON.parse(fs.readFileSync(ORIGEM, 'utf8')).itens || {};
+  // Junta as fatias: duas chaves em paralelo gravam um arquivo cada.
+  const itens = {};
+  for (const f of fs.readdirSync(DADOS).filter(x => /^qordem-extraido.*\.json$/.test(x)).sort()) {
+    Object.assign(itens, JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8')).itens || {});
+  }
   const ids = Object.keys(itens);
   console.log(`${ids.length} verbetes · modelo ${MODELO} · ${DIM} dimensões · concorrência ${CONC}\n`);
 

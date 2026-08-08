@@ -14,16 +14,27 @@
 const fs = require('fs');
 const path = require('path');
 
-const ORIGEM = path.join(__dirname, '..', 'dados', 'qordem-extraido.json');
+const DADOS = path.join(__dirname, '..', 'dados');
 const DESTINO = path.join(__dirname, '..', 'src', 'qoprecedentes.js');
 const MIN_ACEITAVEL = 3000;   // guarda: não sobrescreve o módulo com meia extração
 
-const j = JSON.parse(fs.readFileSync(ORIGEM, 'utf8'));
-const itens = j.itens || {};
+// Junta TODOS os arquivos de extração. Rodar duas chaves em paralelo produz um
+// arquivo por processo (qordem-extraido.json e -b.json); o verbete é o mesmo,
+// só a origem difere.
+const arquivos = fs.readdirSync(DADOS).filter(f => /^qordem-extraido.*\.json$/.test(f)).sort();
+const itens = {};
+let modelo = '?', gerado = '?';
+for (const f of arquivos) {
+  const j = JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8'));
+  modelo = j.modelo || modelo; gerado = j.gerado || gerado;
+  Object.assign(itens, j.itens || {});
+}
+const j = { modelo, gerado };
 const n = Object.keys(itens).length;
+console.log(`fontes: ${arquivos.join(', ')}`);
 
 if (n < MIN_ACEITAVEL) {
-  console.error(`Só ${n} verbetes em ${path.basename(ORIGEM)} — abaixo do mínimo de ${MIN_ACEITAVEL}.`);
+  console.error(`Só ${n} verbetes somando ${arquivos.length} arquivo(s) — abaixo do mínimo de ${MIN_ACEITAVEL}.`);
   console.error('Rode a extração até o fim antes de empacotar (ela retoma de onde parou).');
   process.exit(1);
 }

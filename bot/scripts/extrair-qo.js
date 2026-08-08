@@ -30,7 +30,8 @@ const path = require('path');
 const qo = require('../src/questaoordem');
 const { normalizar } = require('../src/busca');
 
-const DESTINO = path.join(__dirname, '..', 'dados', 'qordem-extraido.json');
+const DADOS = path.join(__dirname, '..', 'dados');
+const DESTINO_PADRAO = path.join(DADOS, 'qordem-extraido.json');
 const ARQ_TEOR = path.join(__dirname, '..', 'dados', 'qordem-teor.json');
 const CACHE_DET = path.join(__dirname, '..', 'dados', 'qordem-detalhes.json');
 
@@ -41,6 +42,33 @@ const MODELO = opt('modelo', 'gemini-3.1-flash-lite');
 const CONC = Number(opt('concorrencia', 4));
 const LIMITE = Number(opt('n', 0)) || 0;
 const MAX_TEOR = 14000;     // ~3,5 mil tokens; média medida é 6 mil caracteres
+
+// PARALELISMO POR CHAVE. Cada chave tem cota própria (15 rpm, ~500/dia por
+// projeto), então duas chaves dobram o rendimento — mas dois processos gravando
+// no MESMO arquivo se sobrescrevem e um perde o trabalho do outro. Duas peças
+// resolvem: --saida dá a cada um o seu arquivo, e --fatia N/M divide o acervo
+// sem coordenação (o processo 0/2 pega os pares, o 1/2 os ímpares).
+// O que já foi extraído é lido da UNIÃO de todos os arquivos, então cada
+// processo enxerga o trabalho do outro e nada é refeito.
+const DESTINO = opt('saida', DESTINO_PADRAO);
+const FATIA = (() => {
+  const m = String(opt('fatia', '') || '').match(/^(\d+)\/(\d+)$/);
+  return m ? { i: Number(m[1]), n: Number(m[2]) } : null;
+})();
+
+/** Ids já extraídos, somando TODOS os arquivos de saída. */
+function jaExtraidos() {
+  const ids = new Set();
+  for (const f of fs.readdirSync(DADOS)) {
+    if (!/^qordem-extraido.*\.json$/.test(f)) continue;
+    try {
+      for (const id of Object.keys(JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8')).itens || {})) {
+        ids.add(Number(id));
+      }
+    } catch (_) { /* arquivo pela metade: ignora */ }
+  }
+  return ids;
+}
 
 if (!CHAVE) { console.error('Defina GEMINI_API_KEY no ambiente.'); process.exit(1); }
 
@@ -217,15 +245,21 @@ function validar(txt) {
   const det = JSON.parse(fs.readFileSync(CACHE_DET, 'utf8')).itens || {};
   const corpus = await qo.garantirCorpus();
 
+  // `feito` é só o QUE ESTE processo grava; `prontos` é a união de todos, para
+  // não refazer o que a outra chave já extraiu.
   let feito = {};
   try { feito = JSON.parse(fs.readFileSync(DESTINO, 'utf8')).itens || {}; } catch (_) {}
+  const prontos = jaExtraidos();
 
-  let alvos = corpus.filter(o => !feito[o.numInternoQOrdem]);
+  let alvos = corpus.filter(o => !prontos.has(o.numInternoQOrdem));
+  if (FATIA) alvos = alvos.filter((_, i) => i % FATIA.n === FATIA.i);
   if (LIMITE) {                                   // amostra ESPALHADA, não os 200 mais novos
     const passo = Math.max(1, Math.floor(alvos.length / LIMITE));
     alvos = alvos.filter((_, i) => i % passo === 0).slice(0, LIMITE);
   }
-  console.log(`acervo ${corpus.length} · já extraído ${Object.keys(feito).length} · a extrair ${alvos.length}`);
+  console.log(`acervo ${corpus.length} · já extraído ${prontos.size} (total)` +
+    `${FATIA ? ` · fatia ${FATIA.i}/${FATIA.n}` : ''} · a extrair ${alvos.length}`);
+  console.log(`saída: ${path.basename(DESTINO)}`);
   console.log(`modelo ${MODELO} · concorrência ${CONC}\n`);
 
   const fila = [...alvos];
