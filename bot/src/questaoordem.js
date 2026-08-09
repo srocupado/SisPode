@@ -254,10 +254,30 @@ async function carregarDet(id) {
   return VAZIO;
 }
 
+// ---------- VERBETE DE PRECEDENTE (camada 2) ----------
+// Registro analítico de cada QO, extraído uma vez e distribuído com o bot:
+// tese, fundamento, contexto, resultado, decisão, razão, desdobramento e temas.
+// É o que a busca por palavra não alcança — a QO 10049/1998 tem ementa
+// "levantamento de questão em tese" e vira "a questão de ordem deve versar
+// sobre fato concreto, não sendo admissível sobre tese abstrata".
+//
+// MEDIDO em 325 casos de recuperação por item conhecido (scripts/avaliar-qo.js):
+//   sem verbete   @1 83%  @5 88%  @20 88%  MRR 0.854
+//   com verbete   @1 85%  @5 91%  @20 92%  MRR 0.878
+// Sobe em todas as métricas — foi por isso que entrou.
+let _verbetes = {};
+try { _verbetes = require('./qoprecedentes').itens || {}; }
+catch (_) { /* sem o módulo, a busca segue léxica */ }
+const verbeteDe = id => _verbetes[id];
+
 const textoDe = o => {
   const d = _det.get(o.numInternoQOrdem);
-  const base = `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}`;
-  if (!d) return base;
+  const v = verbeteDe(o.numInternoQOrdem);
+  const base = `${o.txtQOrdemReduzido || ''} ${o.txtNomeAutorQOrdem || ''} ${o.numQOrdemComAno || ''}` +
+    // A TESE entra duas vezes: é a formulação do problema jurídico, escrita
+    // para ser reconhecida em outro caso — o que se procura num precedente.
+    (v ? ` ${v.t} ${v.t} ${(v.f || []).join(' ')} ${v.c} ${v.r} ${v.d || ''} ${v.z || ''} ${(v.m || []).join(' ')}` : '');
+  if (!d) return expandirArtigos(base);
   // A ementa e o tesauro entram DUAS vezes: são texto curado, escrito para
   // dizer do que a QO trata, enquanto o trecho taquigráfico traz junto tudo o
   // que se falou em volta. Decisão, recurso e contradita entram uma vez —
@@ -307,6 +327,11 @@ function detalhar(achados, brutos) {
       data: o.datSessaoQOrdem,
       autor: String(o.txtNomeAutorQOrdem || '').trim(),
       ementa: d.e,
+      // Do verbete extraído (camada 2), não da catalogação oficial.
+      tese: (verbeteDe(o.numInternoQOrdem) || {}).t || '',
+      razao: (verbeteDe(o.numInternoQOrdem) || {}).z || '',
+      lastro: (verbeteDe(o.numInternoQOrdem) || {}).l,
+      resultado: (verbeteDe(o.numInternoQOrdem) || {}).r || '',
       decisao: d.dec,
       // A API devolve "ULYSSES GUIMARÃES (null-null)" quando não tem o
       // partido/UF da época.
@@ -444,8 +469,15 @@ function formatarQO(res) {
       })
     // Na lista comum, a decisão vai resumida: é ela que responde "e no que deu?".
     : res.itens.map(x =>
-        `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}\n  ${cortar(x.ementa, 240) || x.trecho}` +
-        (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 180)}` : '') +
+        `• *QO ${x.num}* — ${x.data}${x.autor ? ` · ${x.autor}` : ''}` +
+        // A TESE vem do verbete extraído: é a formulação do problema jurídico,
+        // que é o que se procura num precedente. A ementa oficial fica de
+        // reserva para quando não houver verbete.
+        (x.tese ? `\n  📌 ${cortar(x.tese, 240)}` : `\n  ${cortar(x.ementa, 240) || x.trecho}`) +
+        (x.resultado ? `\n  ⚖️ *${x.resultado}*${x.decisao ? ` — ${cortar(x.decisao, 150)}` : ''}` :
+          (x.decisao ? `\n  ⚖️ ${cortar(x.decisao, 180)}` : '')) +
+        // Razão só quando existe. Lastro baixo é paráfrase solta: avisa.
+        (x.razao ? `\n  _Razão:_ ${cortar(x.razao, 160)}${x.lastro != null && x.lastro < 0.5 ? ' ⚠️' : ''}` : '') +
         `\n  🔗 Íntegra: ${DETALHE(x.id)}`);
   const cab = (rot
       ? `🔎 ${rot[1][0].toUpperCase()}${rot[1].slice(1)} mencionando "${res.consulta}": *${res.total}*` +
