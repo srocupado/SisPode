@@ -15,9 +15,13 @@
 // a pergunta do usuário precisa ser vetorizada — uma chamada curta. Quem usa
 // chave Anthropic não tem essa API e cai na busca léxica, que continua boa.
 //
-// EM LOTE: batchEmbedContents aceita ~50 textos por chamada. Vetorizar as 4.062
-// teses uma a uma daria 4.062 requisições e, com o limite de ~14/min da camada
-// gratuita, cinco horas. Em lotes de 50 são ~82 chamadas e poucos minutos.
+// EM LOTE, COM RITMO. batchEmbedContents aceita ~50 textos por chamada, mas
+// cada texto conta como uma requisição na cota — MEDIDO:
+// EmbedContentRequestsPerMinutePerProjectPerModel-FreeTier = 100/min. Ou seja,
+// o lote economiza viagem de rede, não cota. Sem espaçar, 82 lotes disparados
+// em sequência entregaram 412 vetores e 3.650 falhas.
+// Com um lote a cada ~33s (90 req/min, folga sob o teto), saem ~45 min por
+// chave — ou metade disso repartindo com --fatia entre as duas.
 //
 // Uso: GEMINI_API_KEY=... node scripts/embeddings-qo.js [--dim 256] [--lote 50]
 
@@ -34,7 +38,22 @@ const CHAVE = process.env.GEMINI_API_KEY || '';
 const MODELO = opt('modelo', 'gemini-embedding-2');
 const DIM = Number(opt('dim', 256));
 const LOTE = Number(opt('lote', 50));
-const CONC = Number(opt('concorrencia', 2));
+const CONC = Number(opt('concorrencia', 1));
+const RPM = Number(opt('rpm', 90));            // folga sob o teto medido de 100
+const FATIA = (() => {
+  const m = String(opt('fatia', '') || '').match(/^(\d+)\/(\d+)$/);
+  return m ? { i: Number(m[1]), n: Number(m[2]) } : null;
+})();
+
+// Ritmo: um lote consome LOTE requisições da cota por minuto.
+const MIN_INTERVALO = 60000 * LOTE / RPM;
+let _proximoSlot = 0;
+async function aguardarSlot() {
+  const agora = Date.now();
+  const slot = Math.max(agora, _proximoSlot);
+  _proximoSlot = slot + MIN_INTERVALO;
+  if (slot > agora) await new Promise(r => setTimeout(r, slot - agora));
+}
 if (!CHAVE) { console.error('Defina GEMINI_API_KEY no ambiente.'); process.exit(1); }
 
 /** Unitário: com truncagem Matryoshka o vetor sai sem norma 1, e sem isto o
@@ -61,6 +80,7 @@ async function embutirLote(textos, tipo) {
   };
   let ultimo = null;
   for (let tentativa = 0; tentativa < 5; tentativa++) {
+    await aguardarSlot();
     // Timeout obrigatório: conexão pendurada travaria o worker para sempre.
     const ctrl = new AbortController();
     const alarme = setTimeout(() => ctrl.abort(), 120000);
@@ -96,16 +116,31 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
   for (const f of fs.readdirSync(DADOS).filter(x => /^qordem-extraido.*\.json$/.test(x)).sort()) {
     Object.assign(itens, JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8')).itens || {});
   }
-  const ids = Object.keys(itens);
+  let ids = Object.keys(itens);
+
+  // RETOMADA: reaproveita o que já foi vetorizado numa execução anterior. Sem
+  // isto, uma rodada interrompida pela cota jogava fora tudo que tinha feito.
+  const feitos = new Map();
+  try {
+    const ant = require(DESTINO);
+    if (ant.dim === DIM && ant.modelo === MODELO) {
+      const buf = Buffer.from(ant.vetores, 'base64');
+      ant.ids.forEach((id, i) => feitos.set(String(id), buf.subarray(i * DIM, (i + 1) * DIM)));
+      console.log(`retomando: ${feitos.size} vetores já prontos`);
+    }
+  } catch (_) { /* primeira execução */ }
+  if (FATIA) ids = ids.filter((_, i) => i % FATIA.n === FATIA.i || feitos.has(ids[i]));
   console.log(`${ids.length} verbetes · modelo ${MODELO} · ${DIM} dimensões · concorrência ${CONC}\n`);
 
   // Fatia em lotes e processa alguns lotes em paralelo.
   const lotes = [];
-  for (let i = 0; i < ids.length; i += LOTE) lotes.push(ids.slice(i, i + LOTE));
-  console.log(`${lotes.length} lotes de até ${LOTE}\n`);
+  const pendentes = ids.filter(id => !feitos.has(id));
+  for (let i = 0; i < pendentes.length; i += LOTE) lotes.push(pendentes.slice(i, i + LOTE));
+  console.log(`${pendentes.length} a vetorizar · ${lotes.length} lotes de até ${LOTE}` +
+    `${FATIA ? ` · fatia ${FATIA.i}/${FATIA.n}` : ''} · ${(MIN_INTERVALO / 1000).toFixed(0)}s entre lotes\n`);
 
-  const vetores = new Map();
-  let ok = 0, ruim = 0, feitos = 0;
+  const vetores = new Map(feitos);
+  let ok = 0, ruim = 0, lotesFeitos = 0;
   const fila = [...lotes];
   await Promise.all(Array.from({ length: CONC }, async () => {
     let lote;
@@ -115,7 +150,7 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
         lote.forEach((id, k) => { if (vs[k]) vetores.set(id, quantizar(vs[k])); });
         ok += lote.length;
       } catch (e) { ruim += lote.length; console.warn(`  lote falhou: ${e.message}`); }
-      if (++feitos % 10 === 0) console.log(`  ${feitos}/${lotes.length} lotes · ${ok} vetores`);
+      if (++lotesFeitos % 5 === 0) console.log(`  ${lotesFeitos}/${lotes.length} lotes · ${ok} vetores`);
     }
   }));
 
