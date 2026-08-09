@@ -30,15 +30,23 @@ const fs = require('fs');
 const path = require('path');
 
 const DADOS = path.join(__dirname, '..', 'dados');
-const DESTINO = path.join(__dirname, '..', 'src', 'qoembeddings.js');
+// Grava em dados/, como a extração: um arquivo por processo, empacotado depois
+// em src/qoembeddings.js por scripts/gerar-vetores.js. Dois processos gravando
+// no mesmo destino se sobrescreveriam.
+const SUFIXO = (process.env.GEMINI_API_KEY || '').slice(0, 6).replace(/\W/g, '') || 'x';
 const argv = process.argv.slice(2);
 const opt = (n, p) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : p; };
 
 const CHAVE = process.env.GEMINI_API_KEY || '';
-const MODELO = opt('modelo', 'gemini-embedding-2');
+// gemini-embedding-001: cota é PerProjectPerModel, então trocar de modelo
+// libera 1.000/dia novos por chave. E ele separa um pouco melhor que o -2
+// (0.902 contra 0.839 para a mesma tese em palavras diferentes). Todo o acervo
+// tem de usar o MESMO modelo — vetores de modelos distintos não se comparam.
+const MODELO = opt('modelo', 'gemini-embedding-001');
 const DIM = Number(opt('dim', 256));
 const LOTE = Number(opt('lote', 50));
 const CONC = Number(opt('concorrencia', 1));
+const DESTINO = opt('saida', path.join(DADOS, `qordem-vetores-${SUFIXO}.json`));
 const RPM = Number(opt('rpm', 90));            // folga sob o teto medido de 100
 const FATIA = (() => {
   const m = String(opt('fatia', '') || '').match(/^(\d+)\/(\d+)$/);
@@ -120,15 +128,26 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
 
   // RETOMADA: reaproveita o que já foi vetorizado numa execução anterior. Sem
   // isto, uma rodada interrompida pela cota jogava fora tudo que tinha feito.
-  const feitos = new Map();
-  try {
-    const ant = require(DESTINO);
-    if (ant.dim === DIM && ant.modelo === MODELO) {
-      const buf = Buffer.from(ant.vetores, 'base64');
-      ant.ids.forEach((id, i) => feitos.set(String(id), buf.subarray(i * DIM, (i + 1) * DIM)));
-      console.log(`retomando: ${feitos.size} vetores já prontos`);
-    }
-  } catch (_) { /* primeira execução */ }
+  const feitos = new Map();     // ids já vetorizados, somando TODOS os arquivos
+  const meus = new Map();       // só os deste processo — é o que ele grava
+  for (const f of fs.readdirSync(DADOS).filter(x => /^qordem-vetores.*\.json$/.test(x))) {
+    try {
+      const a = JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8'));
+      if (a.dim !== DIM || a.modelo !== MODELO) continue;   // outro modelo: incomparável
+      for (const [id, b64] of Object.entries(a.itens || {})) {
+        feitos.set(id, Buffer.from(b64, 'base64'));
+        if (path.join(DADOS, f) === DESTINO) meus.set(id, Buffer.from(b64, 'base64'));
+      }
+    } catch (_) { /* arquivo pela metade */ }
+  }
+  if (feitos.size) console.log(`retomando: ${feitos.size} vetores já prontos`);
+
+  // GRAVA A CADA LOTE. A versão anterior só gravava no fim e, ao ser
+  // interrompida pela cota, jogou fora 900 vetores já pagos.
+  const gravar = () => fs.writeFileSync(DESTINO, JSON.stringify({
+    modelo: MODELO, dim: DIM, gerado: new Date().toISOString().slice(0, 10),
+    itens: Object.fromEntries([...meus].map(([id, b]) => [id, b.toString('base64')])),
+  }));
   if (FATIA) ids = ids.filter((_, i) => i % FATIA.n === FATIA.i || feitos.has(ids[i]));
   console.log(`${ids.length} verbetes · modelo ${MODELO} · ${DIM} dimensões · concorrência ${CONC}\n`);
 
@@ -139,7 +158,7 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
   console.log(`${pendentes.length} a vetorizar · ${lotes.length} lotes de até ${LOTE}` +
     `${FATIA ? ` · fatia ${FATIA.i}/${FATIA.n}` : ''} · ${(MIN_INTERVALO / 1000).toFixed(0)}s entre lotes\n`);
 
-  const vetores = new Map(feitos);
+
   let ok = 0, ruim = 0, lotesFeitos = 0;
   const fila = [...lotes];
   await Promise.all(Array.from({ length: CONC }, async () => {
@@ -147,26 +166,16 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
     while ((lote = fila.pop())) {
       try {
         const vs = await embutirLote(lote.map(id => textoDe(itens[id])), 'RETRIEVAL_DOCUMENT');
-        lote.forEach((id, k) => { if (vs[k]) vetores.set(id, quantizar(vs[k])); });
+        lote.forEach((id, k) => { if (vs[k]) meus.set(id, quantizar(vs[k])); });
         ok += lote.length;
+        gravar();
       } catch (e) { ruim += lote.length; console.warn(`  lote falhou: ${e.message}`); }
       if (++lotesFeitos % 5 === 0) console.log(`  ${lotesFeitos}/${lotes.length} lotes · ${ok} vetores`);
     }
   }));
 
-  const bons = ids.map(id => [id, vetores.get(id)]).filter(([, v]) => v);
-  const buf = Buffer.concat(bons.map(([, v]) => v));
-  const cab = `'use strict';
-// VETORES SEMÂNTICOS das teses — GERADO, não editar à mão.
-// Refazer com: node scripts/embeddings-qo.js
-// Modelo ${MODELO} · ${DIM} dimensões · int8 · ${bons.length} questões de ordem
-// Ordem dos ids = ordem dos blocos de ${DIM} bytes em 'vetores' (base64).
-`;
-  fs.writeFileSync(DESTINO, cab + 'module.exports = ' + JSON.stringify({
-    modelo: MODELO, dim: DIM, gerado: new Date().toISOString().slice(0, 10),
-    ids: bons.map(([id]) => Number(id)), vetores: buf.toString('base64'),
-  }) + ';\n');
-
+  gravar();
   console.log(`\n${ok} vetorizadas · ${ruim} falhas · ${((Date.now() - t0) / 60000).toFixed(1)} min`);
-  console.log(`${DESTINO} · ${(fs.statSync(DESTINO).size / 1024 / 1024).toFixed(2)} MB`);
+  console.log(`${DESTINO} · ${meus.size} vetores neste arquivo`);
+  console.log('Empacote com: node scripts/gerar-vetores.js');
 })().catch(e => { console.error('falhou:', e); process.exit(1); });
