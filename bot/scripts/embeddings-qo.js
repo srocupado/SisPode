@@ -15,7 +15,11 @@
 // a pergunta do usuário precisa ser vetorizada — uma chamada curta. Quem usa
 // chave Anthropic não tem essa API e cai na busca léxica, que continua boa.
 //
-// Uso: GEMINI_API_KEY=... node scripts/embeddings-qo.js [--dim 256] [--concorrencia 4]
+// EM LOTE: batchEmbedContents aceita ~50 textos por chamada. Vetorizar as 4.062
+// teses uma a uma daria 4.062 requisições e, com o limite de ~14/min da camada
+// gratuita, cinco horas. Em lotes de 50 são ~82 chamadas e poucos minutos.
+//
+// Uso: GEMINI_API_KEY=... node scripts/embeddings-qo.js [--dim 256] [--lote 50]
 
 require('dns').setDefaultResultOrder('ipv4first');
 const fs = require('fs');
@@ -29,7 +33,8 @@ const opt = (n, p) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i
 const CHAVE = process.env.GEMINI_API_KEY || '';
 const MODELO = opt('modelo', 'gemini-embedding-2');
 const DIM = Number(opt('dim', 256));
-const CONC = Number(opt('concorrencia', 4));
+const LOTE = Number(opt('lote', 50));
+const CONC = Number(opt('concorrencia', 2));
 if (!CHAVE) { console.error('Defina GEMINI_API_KEY no ambiente.'); process.exit(1); }
 
 /** Unitário: com truncagem Matryoshka o vetor sai sem norma 1, e sem isto o
@@ -46,33 +51,35 @@ function normalizar(v) {
  *  outro (medida: quantizar move o cosseno em menos de 0,002). */
 const quantizar = v => Buffer.from(v.map(x => Math.max(-127, Math.min(127, Math.round(x * 127)))));
 
-async function embutir(texto, tipo) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:embedContent?key=${CHAVE}`;
+async function embutirLote(textos, tipo) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:batchEmbedContents?key=${CHAVE}`;
   const body = {
-    model: `models/${MODELO}`,
-    content: { parts: [{ text: texto }] },
-    outputDimensionality: DIM,
-    taskType: tipo,
+    requests: textos.map(t => ({
+      model: `models/${MODELO}`, content: { parts: [{ text: t }] },
+      outputDimensionality: DIM, taskType: tipo,
+    })),
   };
-  const atrasos = [0, 4000, 12000, 30000];
   let ultimo = null;
-  for (const ms of atrasos) {
-    if (ms) await new Promise(r => setTimeout(r, ms));
-    // TIMEOUT OBRIGATÓRIO: sem ele uma conexão pendurada trava o worker para
-    // sempre. Aconteceu — o processo ficou 20 min vivo, com 9 s de CPU, sem
-    // gravar nada, porque os três workers estavam parados num fetch que nunca
-    // respondeu nem falhou.
-    let res;
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
+    // Timeout obrigatório: conexão pendurada travaria o worker para sempre.
     const ctrl = new AbortController();
-    const alarme = setTimeout(() => ctrl.abort(), 60000);
+    const alarme = setTimeout(() => ctrl.abort(), 120000);
+    let res;
     try {
       res = await fetch(url, { method: 'POST', signal: ctrl.signal,
         headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-    } catch (e) { ultimo = e; continue; }
+    } catch (e) { ultimo = e; await new Promise(r => setTimeout(r, 5000 * (tentativa + 1))); continue; }
     finally { clearTimeout(alarme); }
-    if (res.ok) return normalizar((await res.json()).embedding.values);
-    if (res.status === 429 || res.status >= 500) { ultimo = new Error(`HTTP ${res.status}`); continue; }
-    throw new Error(`HTTP ${res.status}`);
+    if (res.ok) return (await res.json()).embeddings.map(e => normalizar(e.values));
+    const corpo = await res.json().catch(() => null);
+    if (res.status === 429 || res.status >= 500) {
+      const d = String((corpo?.error?.details || []).map(x => x.retryDelay).find(Boolean) || '')
+        .match(/^(\d+(?:\.\d+)?)s$/);
+      ultimo = new Error(`HTTP ${res.status}`);
+      await new Promise(r => setTimeout(r, d ? Number(d[1]) * 1000 : 15000 * (tentativa + 1)));
+      continue;
+    }
+    throw new Error(corpo?.error?.message || `HTTP ${res.status}`);
   }
   throw ultimo || new Error('falhou após as tentativas');
 }
@@ -92,22 +99,27 @@ const textoDe = v => [v.tese, v.decisao && !/^n[aã]o consta$/i.test(v.decisao) 
   const ids = Object.keys(itens);
   console.log(`${ids.length} verbetes · modelo ${MODELO} · ${DIM} dimensões · concorrência ${CONC}\n`);
 
-  const vetores = new Array(ids.length).fill(null);
-  const fila = ids.map((id, i) => [id, i]);
-  let ok = 0, ruim = 0;
+  // Fatia em lotes e processa alguns lotes em paralelo.
+  const lotes = [];
+  for (let i = 0; i < ids.length; i += LOTE) lotes.push(ids.slice(i, i + LOTE));
+  console.log(`${lotes.length} lotes de até ${LOTE}\n`);
+
+  const vetores = new Map();
+  let ok = 0, ruim = 0, feitos = 0;
+  const fila = [...lotes];
   await Promise.all(Array.from({ length: CONC }, async () => {
-    let par;
-    while ((par = fila.pop())) {
-      const [id, i] = par;
+    let lote;
+    while ((lote = fila.pop())) {
       try {
-        vetores[i] = quantizar(await embutir(textoDe(itens[id]), 'RETRIEVAL_DOCUMENT'));
-        ok++;
-      } catch (_) { ruim++; }
-      if ((ok + ruim) % 250 === 0) console.log(`  ${ok + ruim}/${ids.length}…`);
+        const vs = await embutirLote(lote.map(id => textoDe(itens[id])), 'RETRIEVAL_DOCUMENT');
+        lote.forEach((id, k) => { if (vs[k]) vetores.set(id, quantizar(vs[k])); });
+        ok += lote.length;
+      } catch (e) { ruim += lote.length; console.warn(`  lote falhou: ${e.message}`); }
+      if (++feitos % 10 === 0) console.log(`  ${feitos}/${lotes.length} lotes · ${ok} vetores`);
     }
   }));
 
-  const bons = ids.map((id, i) => [id, vetores[i]]).filter(([, v]) => v);
+  const bons = ids.map(id => [id, vetores.get(id)]).filter(([, v]) => v);
   const buf = Buffer.concat(bons.map(([, v]) => v));
   const cab = `'use strict';
 // VETORES SEMÂNTICOS das teses — GERADO, não editar à mão.
