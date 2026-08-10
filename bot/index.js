@@ -1523,14 +1523,14 @@ async function cmdResumo(ctx, texto) {
 }
 bot.command('resumo', ctx => cmdResumo(ctx, ctx.match));
 
-// ---------- /materia <proposição> — ficha avulsa no formato da Reunião de Líderes ----------
+// ---------- /colegio <proposição> — ficha avulsa no formato da Reunião de Líderes ----------
 // Complementar à extensão: serve ao analista que, durante a reunião, precisa
 // de algo que NÃO entrou na lista. Recebe SÓ a referência, nunca o PDF.
 // Duas etapas: os fatos saem na hora (regra fixa, sem chave); o resumo por IA
 // vem em seguida, na chave do usuário, com o inteiro teor anexado.
 async function cmdMateria(ctx, texto) {
   if (!String(texto || '').trim()) {
-    return ctx.reply('Uso: /materia PL 1234/2026 — ficha da proposição no formato do resumo da Reunião de Líderes.');
+    return ctx.reply('Uso: /colegio PL 1234/2026 — ficha da proposição no formato do resumo da Reunião de Líderes.');
   }
   await ctx.replyWithChatAction('typing');
   let ficha;
@@ -1559,12 +1559,12 @@ async function cmdMateria(ctx, texto) {
       await responderLongo(ctx, resumo, null, { md: true });
     }
   } catch (e) {
-    console.error('/materia resumo falhou:', e);
+    console.error('/colegio resumo falhou:', e);
     await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id,
       `A ficha factual acima vale; só o resumo por IA falhou: ${e.message}`).catch(() => {});
   }
 }
-bot.command('materia', ctx => cmdMateria(ctx, ctx.match));
+bot.command('colegio', ctx => cmdMateria(ctx, ctx.match));
 
 // Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
 bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
@@ -1927,7 +1927,7 @@ const MENU_COMANDOS = [
   { command: 'pauta',          description: 'Escolher a pauta do SisPode (ou buscar on-line)' },
   { command: 'listar',         description: 'Itens da pauta em uso' },
   { command: 'nota',           description: 'Nota técnica como está salva (ex.: /nota PL 1234/2026)' },
-  { command: 'materia',        description: 'Ficha de proposição avulsa, no formato da Reunião de Líderes' },
+  { command: 'colegio',        description: 'Ficha de proposição avulsa, no formato da Reunião de Líderes' },
   { command: 'perguntar',      description: 'Perguntar à IA sobre um item ou a pauta' },
   { command: 'documentos',     description: 'Documentos da tramitação fora da nota' },
   { command: 'baixar',         description: 'Baixar os PDFs dos documentos do item' },

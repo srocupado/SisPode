@@ -1,5 +1,5 @@
 'use strict';
-// /materia — ficha de UMA proposição avulsa, no formato do resumo da Reunião
+// /colegio — ficha de UMA proposição avulsa, no formato do resumo da Reunião
 // de Líderes da extensão (lideres.js). Serve ao analista que, durante a
 // reunião, precisa de algo que NÃO entrou na lista: o bot recebe só a
 // referência ("PL 1234/2026"), nunca o PDF da lista — ele é complementar à
@@ -387,7 +387,7 @@ function textoEmVotacao(it) {
 // ============================================================
 async function montarFicha(referencia) {
   const ref = parseReferencia(referencia);
-  if (!ref) throw new Error('Não entendi a proposição. Use, por exemplo: /materia PL 1234/2026');
+  if (!ref) throw new Error('Não entendi a proposição. Use, por exemplo: /colegio PL 1234/2026');
 
   const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
   if (!res.ok) throw new Error(`Dados Abertos indisponíveis (HTTP ${res.status}).`);
