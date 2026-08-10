@@ -399,6 +399,8 @@ async function criarReuniao() {
       comissoes:     '',
       relatoria:     '',
       comparativo:   '',
+      apensacao:     '',
+      papel:         null,
       parecer:       '',
       senado:        '',
       parecerPlen:   null,
@@ -468,6 +470,10 @@ async function carregarDadosDaProposicao(it) {
   it.situacao  = situacaoDe(trams, it.regimePdf);
   it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
+
+  it.papel = await papelDe(detalhe, trams);
+  const req = await alvoDoREQ(it);
+  it.apensacao = [frasePapel(it), fraseUrgenciaREQ(it, req)].filter(Boolean).join('\n');
 
   const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
   it.parecerPlen  = parecerPlenarioDe(relacionados);
@@ -780,6 +786,94 @@ function formatarPartido(sigla) {
   const s = String(sigla || '').trim();
   if (s.length <= 5) return s;
   return s.charAt(0) + s.slice(1).toLowerCase();
+}
+
+// ---------- PRINCIPAL × APENSADO, E DE QUEM É A URGÊNCIA ----------
+// Duas perguntas que decidem a conversa na reunião e que o número sozinho não
+// responde: o projeto listado é o principal ou um apensado? E o requerimento
+// de urgência foi apresentado para qual deles? MEDIDO no caso real: o REQ
+// 1258/2026 pede urgência para o PL 101/2026 — o APENSADO —, não para o
+// principal PL 23/2026. Tudo por regra fixa, sem IA.
+
+/** Papel da proposição na árvore de apensação. uriPropPrincipal preenchido =
+ *  ela é apensada; a existência de apensados dela sai das tramitações. */
+async function papelDe(detalhe, trams, signal) {
+  if (detalhe.uriPropPrincipal) {
+    let principal = null;
+    try {
+      const r = await fetch(detalhe.uriPropPrincipal, { signal });
+      if (r.ok) {
+        const d = (await r.json()).dados;
+        principal = `${d.siglaTipo} ${d.numero}/${d.ano}`;
+      }
+    } catch (_) { /* fica sem o nome */ }
+    return { apensada: true, principal };
+  }
+  const temApensados = trams.some(t =>
+    /apensa[çc][ãa]o d/i.test(t.despacho || '') && /a esta proposi/i.test(t.despacho || ''));
+  return { apensada: false, temApensados };
+}
+
+/** Proposições citadas num texto, nas duas grafias correntes:
+ *  "PL 641/2020" e "Projeto de Lei nº 2.338, de 2023". */
+const NOMES_LONGOS = {
+  'projeto de lei complementar': 'PLP', 'projeto de lei': 'PL',
+  'proposta de emenda à constituição': 'PEC', 'projeto de decreto legislativo': 'PDL',
+};
+function propsCitadas(txt) {
+  const out = [];
+  let m;
+  const re1 = /\b(PLP|PL|PEC|PDL|PDC|MPV|PDS|PRC)\s*n?[º°.]*\s*([\d.]{1,7})\s*(?:\/\s*|,?\s*de\s*)(\d{4})\b/gi;
+  while ((m = re1.exec(txt))) out.push(`${m[1].toUpperCase()} ${parseInt(m[2].replace(/\./g, ''), 10)}/${m[3]}`);
+  const re2 = /\b(Projeto de Lei Complementar|Projeto de Lei|Proposta de Emenda à Constituição|Projeto de Decreto Legislativo)\s*(?:n[º°.]*\s*)?([\d.]{1,7})\s*(?:\/\s*|,?\s*de\s*)(\d{4})\b/gi;
+  while ((m = re2.exec(txt))) out.push(`${NOMES_LONGOS[m[1].toLowerCase()]} ${parseInt(m[2].replace(/\./g, ''), 10)}/${m[3]}`);
+  return [...new Set(out)];
+}
+
+const reqDe = txt => {
+  const m = String(txt || '').match(/REQ\.?\s*n?\.?\s*[º°]?\s*(\d{1,5})\s*\/\s*(\d{4})/i);
+  return m ? { numero: +m[1], ano: +m[2], rotulo: `REQ ${+m[1]}/${m[2]}` } : null;
+};
+
+/** De quem é o requerimento de urgência da situação. Primeiro pela anotação da
+ *  própria lista ("REQ 3787/2025 (PL 3967/2025)"); sem ela, pela ementa do REQ
+ *  nos Dados Abertos, que nomeia a proposição pedida. */
+async function alvoDoREQ(it, signal) {
+  const req = reqDe(it.situacao) || reqDe(it.regimePdf);
+  if (!req) return null;
+  const anotacao = (it.regimePdf || '').match(new RegExp(
+    `REQ\\s*n?[º°.]*\\s*${req.numero}\\s*\\/\\s*${req.ano}\\s*\\(([^)]+)\\)`, 'i'));
+  let alvos = anotacao ? propsCitadas(anotacao[1]) : [];
+  if (!alvos.length) {
+    try {
+      const r = await fetch(`${API_BASE}/proposicoes?siglaTipo=REQ&numero=${req.numero}&ano=${req.ano}&itens=1`, { signal });
+      if (r.ok) alvos = propsCitadas(((await r.json()).dados?.[0]?.ementa) || '');
+    } catch (_) { /* fica sem alvo */ }
+  }
+  return { ...req, alvos };
+}
+
+function frasePapel(it) {
+  const p = it.papel;
+  if (!p) return '';
+  if (p.apensada) {
+    // A lista às vezes declara outro principal — divergência aparece, não some.
+    const decl = (it.celulaProp || '').match(/\(\s*principal:?\s*([^)]+)\)/i);
+    const declarados = decl ? propsCitadas(decl[1]) : [];
+    const div = p.principal && declarados.length && !declarados.includes(p.principal)
+      ? ` — a lista indica ${declarados[0]} como principal` : '';
+    return `Apensado ao ${p.principal || 'principal não identificado'}${div}.`;
+  }
+  return p.temApensados ? 'Principal (com apensados).' : 'Sem apensação.';
+}
+
+function fraseUrgenciaREQ(it, req) {
+  if (!req) return '';
+  if (!req.alvos.length) return `${req.rotulo}: proposição a que se refere não identificada — conferir.`;
+  const alvo = req.alvos[0];
+  if (alvo === it.chave) return `${req.rotulo} refere-se a este projeto${it.papel?.apensada ? ' (o apensado)' : ''}.`;
+  if (it.papel?.principal && alvo === it.papel.principal) return `${req.rotulo} refere-se ao principal (${alvo}).`;
+  return `${req.rotulo} refere-se ao ${alvo}.`;
 }
 
 // ---------- MATÉRIA-PRIMA DO CAMPO "COMISSÕES" ----------
@@ -1335,7 +1429,7 @@ async function resumirLote(chaves) {
 // ============================================================
 //  TABELA
 // ============================================================
-const CAMPOS_EDITAVEIS = ['objetivo', 'justificativa', 'comparativo', 'situacao', 'comissoes', 'relatoria', 'parecer', 'senado'];
+const CAMPOS_EDITAVEIS = ['objetivo', 'justificativa', 'comparativo', 'situacao', 'apensacao', 'comissoes', 'relatoria', 'parecer', 'senado'];
 
 function renderizarTabela() {
   const tbody = document.getElementById('lid-tbody');
@@ -1380,6 +1474,7 @@ function linhaHTML(it) {
     <td class="lid-c-just">${campo('justificativa', 'Justificativa')}</td>
     <td class="lid-c-comp">${campo('comparativo', '—')}</td>
     <td class="lid-c-sit">${campo('situacao', 'Situação')}</td>
+    <td class="lid-c-ape">${campo('apensacao', 'Apensação')}</td>
     <td class="lid-c-com">${campo('comissoes', 'Comissões')}</td>
     <td class="lid-c-rel">${campo('relatoria', 'Relatoria')}</td>
     <td class="lid-c-par">${campo('parecer', 'Parecer de Plenário')}</td>
@@ -1531,6 +1626,7 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
       <td>${esc(it.justificativa)}</td>
       <td>${esc(it.comparativo || '')}</td>
       <td>${esc(it.situacao)}</td>
+      <td>${esc(it.apensacao || '')}</td>
       <td>${esc(it.comissoes)}</td>
       <td>${esc(it.relatoria)}</td>
       <td>${esc(it.parecer || '')}</td>
@@ -1577,14 +1673,14 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     <table>
       <colgroup>
         <col style="width:3%"><col style="width:8%"><col style="width:8%">
-        <col style="width:16.5%"><col style="width:16.5%"><col style="width:13%">
-        <col style="width:8%"><col style="width:10%"><col style="width:8%"><col style="width:9%">
+        <col style="width:15%"><col style="width:15%"><col style="width:11%">
+        <col style="width:8%"><col style="width:9%"><col style="width:8%"><col style="width:7%"><col style="width:8%">
       </colgroup>
       <thead><tr>
         <th>Nº</th><th>Proposição</th><th>Autoria</th><th>Objetivo</th><th>Justificativa</th>
-        <th>O que mudou</th><th>Situação</th><th>Comissões</th><th>Relatoria de Plenário</th><th>Parecer de Plenário</th>
+        <th>O que mudou</th><th>Situação</th><th>Apensação e urgência</th><th>Comissões</th><th>Relatoria de Plenário</th><th>Parecer de Plenário</th>
       </tr></thead>
-      <tbody>${linhas || '<tr><td colspan="10">Reunião vazia.</td></tr>'}</tbody>
+      <tbody>${linhas || '<tr><td colspan="11">Reunião vazia.</td></tr>'}</tbody>
     </table>
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
@@ -1629,14 +1725,14 @@ function exportarPlanilha() {
   // As oito primeiras colunas são o resumo em si. As três últimas existem para
   // conferência: quem revisa consegue voltar à fonte sem reabrir o PDF.
   const cab = ['Nº', 'Proposição', 'Autoria', 'Objetivo', 'Justificativa', 'O que mudou',
-               'Situação', 'Comissões', 'Relatoria de Plenário', 'Parecer de Plenário', 'Emendas do Senado',
+               'Situação', 'Apensação e urgência', 'Comissões', 'Relatoria de Plenário', 'Parecer de Plenário', 'Emendas do Senado',
                'Cenário', 'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)',
                'Inteiro teor', 'Texto em votação'];
   const linhas = [cab, ...app.reuniao.itens.map(i => [
     i.numItem, [i.chave, ...etiquetasDe(i)].join(' – ') + (i.ehPrincipal ? ' (principal)' : ''),
     i.autoriaPdf || (i.autoresApi || []).join(', '),
     i.objetivo, i.justificativa, i.comparativo || '',
-    i.situacao, i.comissoes, i.relatoria, i.parecer || '', i.senado || '',
+    i.situacao, i.apensacao || '', i.comissoes, i.relatoria, i.parecer || '', i.senado || '',
     i.cenarioNome || '', avisosDe(i) || i.erro || '',
     i.ementa, i.celulaProp || '', i.regimePdf || '', i.urlInteiroTeor || '',
     textoEmVotacao(i)?.doc?.url || '',
@@ -1644,7 +1740,7 @@ function exportarPlanilha() {
 
   const ws = XLSX.utils.aoa_to_sheet(linhas);
   ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 28 }, { wch: 70 }, { wch: 70 }, { wch: 60 },
-                 { wch: 34 }, { wch: 40 }, { wch: 30 }, { wch: 50 }, { wch: 46 },
+                 { wch: 34 }, { wch: 44 }, { wch: 40 }, { wch: 30 }, { wch: 50 }, { wch: 46 },
                  { wch: 34 }, { wch: 34 }, { wch: 60 }, { wch: 26 }, { wch: 24 },
                  { wch: 46 }, { wch: 46 }];
   const wb = XLSX.utils.book_new();

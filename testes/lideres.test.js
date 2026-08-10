@@ -31,10 +31,11 @@ const sandbox = {
   XLSX: undefined,
 };
 const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoriaDe',
-                  'despachosDeComissao', 'extrairJSON', 'formatarPartido', 'buscarTramitacoes',
+                  'despachosDeComissao', 'extrairJSON', 'formatarPartido',
                   'buscarDocumentosRelacionados', 'parecerPlenarioDe', 'emendaSenadoDe',
                   'fraseDoParecer', 'fraseDaEmendaSenado', 'cenarioDe', 'validarReferencias',
-                  'textoQueSaiuDaCamara', 'marcadorDoItem', 'detectarColunas'];
+                  'textoQueSaiuDaCamara', 'marcadorDoItem', 'detectarColunas',
+                  'papelDe', 'alvoDoREQ', 'frasePapel', 'fraseUrgenciaREQ', 'propsCitadas', 'buscarTramitacoes'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -150,6 +151,46 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   ok(!!saiu?.doc?.url, `texto que saiu da Câmara tem inteiro teor (${saiu?.doc?.tipo})`);
   ok((saiu?.doc?.data || '') <= es.ems.data, 'o texto que saiu é ANTERIOR à emenda do Senado');
   ok(L.emendaSenadoDe(relPP) === null, 'proposição que não foi ao Senado não inventa emenda');
+
+  console.log('\n== Principal × apensado, e de quem é a urgência ==');
+  ok(JSON.stringify(L.propsCitadas('Projeto de Lei nº 2.338, de 2023 e o PL 641/2020')) === JSON.stringify(['PL 641/2020', 'PL 2338/2023']),
+     `citações nas duas grafias (obtido: ${JSON.stringify(L.propsCitadas('Projeto de Lei nº 2.338, de 2023 e o PL 641/2020'))})`);
+
+  // PL 101/2026 é APENSADO ao PL 23/2026, e o REQ 1258/2026 pede urgência para
+  // ELE (o apensado) — o caso que mostra por que a coluna existe.
+  const idAp = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=101&ano=2026&itens=1`)).json()).dados[0].id;
+  const detAp = (await (await fetch(`${API}/proposicoes/${idAp}`)).json()).dados;
+  const trAp = await L.buscarTramitacoes(idAp);
+  const papelAp = await L.papelDe(detAp, trAp);
+  ok(papelAp.apensada === true && papelAp.principal === 'PL 23/2026',
+     `PL 101/2026 apensado ao PL 23/2026 (obtido: ${JSON.stringify(papelAp)})`);
+  const itAp = { chave: 'PL 101/2026', situacao: 'Urgência aprovada (REQ. 1258/2026)', regimePdf: '', papel: papelAp };
+  const reqAp = await L.alvoDoREQ(itAp);
+  ok(L.fraseUrgenciaREQ(itAp, reqAp) === 'REQ 1258/2026 refere-se a este projeto (o apensado).',
+     `urgência do apensado (obtido: "${L.fraseUrgenciaREQ(itAp, reqAp)}")`);
+
+  // O principal PL 23/2026 tem apensados e o mesmo REQ refere-se ao OUTRO.
+  const idPr = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=23&ano=2026&itens=1`)).json()).dados[0].id;
+  const detPr = (await (await fetch(`${API}/proposicoes/${idPr}`)).json()).dados;
+  const papelPr = await L.papelDe(detPr, await L.buscarTramitacoes(idPr));
+  ok(papelPr.apensada === false && papelPr.temApensados === true,
+     `PL 23/2026 é principal com apensados (obtido: ${JSON.stringify(papelPr)})`);
+  ok(L.frasePapel({ papel: papelPr }) === 'Principal (com apensados).', 'frase do principal');
+  const itPr = { chave: 'PL 23/2026', situacao: 'Urgência aprovada (REQ. 1258/2026)', regimePdf: '', papel: papelPr };
+  ok(L.fraseUrgenciaREQ(itPr, await L.alvoDoREQ(itPr)) === 'REQ 1258/2026 refere-se ao PL 101/2026.',
+     'no principal, o mesmo REQ aponta para o apensado');
+
+  // Anotação da própria lista dispensa a API.
+  const itAn = { chave: 'PL 2338/2023', situacao: 'Requerimento de urgência apresentado (REQ n. 3787/2025)',
+                 regimePdf: 'REQ 3787/2025 (PL 3967/2025)', papel: { apensada: false } };
+  const reqAn = await L.alvoDoREQ(itAn);
+  ok(L.fraseUrgenciaREQ(itAn, reqAn) === 'REQ 3787/2025 refere-se ao PL 3967/2025.',
+     `anotação da lista vale como fonte (obtido: "${L.fraseUrgenciaREQ(itAn, reqAn)}")`);
+
+  // Divergência lista × Dados Abertos aparece, não some.
+  ok(/a lista indica PL 4194\/2019 como principal/.test(
+       L.frasePapel({ papel: { apensada: true, principal: 'PL 2217/2019' }, celulaProp: 'PL 4315/2023 (Principal: PL 4194/2019)' })),
+     'principal divergente entre a lista e a API é declarado');
 
   console.log('\n== Conferência de citações ==');
   // A conferência exige uma fonte com corpo: abaixo de 100 caracteres ela se
