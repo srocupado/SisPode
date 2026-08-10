@@ -1698,7 +1698,7 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
   // centrado + logo à direita, filete verde, linha de meta em itálico.
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(reuniao.titulo || 'Reunião de Líderes')}</title>
   <style>
-    @page { size:A4 landscape; margin:12mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
+    @page { size:A4 landscape; margin:9mm 9mm 11mm; @bottom-center { content: counter(page); font-size:8pt; color:#888; } }
     * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
     .cab { display:flex; align-items:center; gap:16px; }
@@ -1709,11 +1709,15 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     .cab .sp { width:42px; }
     .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
     .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:10px; }
-    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:7.6pt; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:7pt; }
     th { background:#e7f4ec; color:#003c1f; font-weight:700; text-align:left;
-         padding:4px 5px; border:1px solid #c4d6cb; }
-    td { padding:4px 5px; border:1px solid #d7ded9; vertical-align:top; line-height:1.45; overflow-wrap:break-word; }
-    tr { page-break-inside:avoid; break-inside:avoid; }
+         padding:3px 4px; border:1px solid #c4d6cb; }
+    td { padding:3px 4px; border:1px solid #d7ded9; vertical-align:top; line-height:1.32; overflow-wrap:break-word; }
+    /* Linha PODE quebrar entre páginas. Com break-inside:avoid, toda linha alta
+       que não coubesse no espaço restante pulava inteira para a página seguinte
+       e deixava meia página em branco — MEDIDO: só esta regra respondia por ~1/4
+       das páginas do documento. O cabeçalho repete em cada página e as bordas
+       seguram a leitura da linha partida. */
     thead { display:table-header-group; }
     tbody tr:nth-child(even) td { background:#f6faf7; }
     /* Depois da zebra, para vencer no empate de especificidade. */
