@@ -433,20 +433,26 @@ async function montarFicha(referencia) {
   return it;
 }
 
+// Rótulo em negrito (Markdown do Telegram) e linha em branco entre os tópicos
+// — em reunião a ficha é lida em diagonal, não de ponta a ponta.
 function formatarFatos(it) {
   const linhas = [
-    `📋 ${it.chave}${it.descricaoTipo ? ` — ${it.descricaoTipo}` : ''}`,
-    `Autoria: ${(it.autores || []).join(', ') || 'não informada'}`,
+    `📋 *${it.chave}*${it.descricaoTipo ? ` — ${it.descricaoTipo}` : ''}`,
     '',
-    `Ementa: ${it.ementa || '(sem ementa)'}`,
+    `*Autoria:* ${(it.autores || []).join(', ') || 'não informada'}`,
     '',
-    `Situação: ${it.situacao}`,
-    `Apensação: ${it.apensacao.replace(/\n/g, ' ')}`,
-    `Relatoria de Plenário: ${it.relatoria}`,
-    `Parecer de Plenário: ${it.parecer}`,
+    `*Ementa:* ${it.ementa || '(sem ementa)'}`,
+    '',
+    `*Situação:* ${it.situacao}`,
+    '',
+    `*Apensação:* ${it.apensacao.replace(/\n/g, ' ')}`,
+    '',
+    `*Relatoria de Plenário:* ${it.relatoria}`,
+    '',
+    `*Parecer de Plenário:* ${it.parecer}`,
   ];
-  if (it.emendaSenado) linhas.push(`Emendas do Senado: ${it.senado}`);
-  linhas.push('', `Ficha na Câmara: https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${it.idCamara}`);
+  if (it.emendaSenado) linhas.push('', `*Emendas do Senado:* ${it.senado}`);
+  linhas.push('', `*Ficha na Câmara:* https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${it.idCamara}`);
   return linhas.join('\n');
 }
 
@@ -714,10 +720,11 @@ async function resumirFicha(it, perfil) {
   const suspeitas = validarReferencias(`${objetivo} ${justificativa} ${comparativo}`, fonte);
   if (suspeitas.length) avisos.push(`Conferir no original: ${suspeitas.join('; ')}`);
 
-  const linhas = [`🧠 Resumo — ${it.chave} (IA na sua chave · ${perfil.provedor}/${perfil.modelo})`, '', objetivo, '', justificativa];
-  if (comparativo) linhas.push('', `O que mudou: ${comparativo}`);
-  linhas.push('', `Comissões: ${comissoes}`);
-  if (parecerExtra) linhas.push('', `Parecer de Plenário: ${it.parecer} ${parecerExtra}`);
+  const linhas = [`🧠 *Resumo — ${it.chave}* (IA na sua chave · ${perfil.provedor}/${perfil.modelo})`,
+    '', `*Objetivo:* ${objetivo}`, '', `*Justificativa:* ${justificativa}`];
+  if (comparativo) linhas.push('', `*O que mudou:* ${comparativo}`);
+  linhas.push('', `*Comissões:* ${comissoes}`);
+  if (parecerExtra) linhas.push('', `*Parecer de Plenário:* ${it.parecer} ${parecerExtra}`);
   if (avisos.length) linhas.push('', `⚠ ${avisos.join(' · ')}`);
   return linhas.join('\n');
 }

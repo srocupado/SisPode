@@ -1539,7 +1539,7 @@ async function cmdMateria(ctx, texto) {
   } catch (e) {
     return ctx.reply(`Não consegui montar a ficha: ${e.message}`);
   }
-  await responderLongo(ctx, formatarFatos(ficha));
+  await responderLongo(ctx, formatarFatos(ficha), null, { md: true });
 
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) {
@@ -1550,10 +1550,13 @@ async function cmdMateria(ctx, texto) {
     const resumo = await resumirFicha(ficha, perfil);
     // editMessageText estoura em 4096; acima disso apaga o aviso e manda partido.
     if (resumo.length <= 4000) {
-      await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo);
+      // Mesmo pacto do responderLongo: tenta Markdown e, se algum caractere do
+      // texto gerado quebrar o parse, reedita sem formatação.
+      try { await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo, { parse_mode: 'Markdown' }); }
+      catch (_) { await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo); }
     } else {
       await ctx.api.deleteMessage(aguarde.chat.id, aguarde.message_id).catch(() => {});
-      await responderLongo(ctx, resumo);
+      await responderLongo(ctx, resumo, null, { md: true });
     }
   } catch (e) {
     console.error('/materia resumo falhou:', e);
