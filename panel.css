@@ -1426,6 +1426,13 @@ body {
   border: 1px solid rgba(139, 92, 246, 0.25);
 }
 
+/* Card de home para Reunião de Líderes */
+.home-card-icon--vermelho {
+  background: rgba(240, 84, 84, 0.15);
+  color: #f47c7c;
+  border: 1px solid rgba(240, 84, 84, 0.25);
+}
+
 /* Card de home para Vetos do Congresso Nacional */
 .home-card-icon--ambar {
   background: rgba(245, 158, 11, 0.15);
