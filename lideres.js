@@ -1,0 +1,1386 @@
+/* ============================================================
+   REUNIÃO DE LÍDERES – PODEMOS
+
+   Recebe o PDF com a lista de proposições que o Colégio de Líderes vai
+   avaliar para eventual inclusão na pauta do Plenário e devolve a planilha
+   de resumo: uma linha por proposição, com objetivo, justificativa,
+   situação, comissões e relatoria de Plenário.
+
+   Divisão de trabalho deliberada — o que é FATO vem da fonte, o que é
+   REDAÇÃO vem da IA:
+     · o PDF da reunião manda no que entra na lista (número, proposição,
+       autoria, regime);
+     · a situação e a relatoria de Plenário são DERIVADAS das tramitações
+       dos Dados Abertos por regra fixa, não pela IA — são campos em que
+       um erro de leitura vira informação errada na mão do líder;
+     · só o objetivo, a justificativa e a redação das comissões passam
+       pela IA, sempre com o inteiro teor da proposição anexado.
+   ============================================================ */
+
+'use strict';
+
+// ---------- CONSTANTES ----------
+const API_BASE       = 'https://dadosabertos.camara.leg.br/api/v2';
+const CODETABS       = 'https://api.codetabs.com/v1/proxy?quest=';
+const WORKER         = 'https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=';
+const GEMINI_BASE    = 'https://generativelanguage.googleapis.com/v1beta/models';
+const ANTHROPIC_BASE = 'https://api.anthropic.com/v1/messages';
+const OPENAI_BASE    = 'https://api.openai.com/v1/responses';
+const ANTHROPIC_VER  = '2023-06-01';
+const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
+
+// Folgado de propósito: nos modelos com raciocínio, os tokens de pensamento
+// saem deste mesmo orçamento — MEDIDO, 665 só de pensamento num resumo curto.
+// Com 2048 a resposta vinha cortada no meio do JSON.
+const MAX_OUT_TOKENS = 4096;
+// Acima disto o inteiro teor vai como texto extraído, não como PDF: o corpo da
+// requisição em base64 cresce ~33% e estoura o limite dos provedores.
+const MAX_PDF_BYTES  = 8 * 1024 * 1024;
+const MAX_TEXTO_TEOR = 120000;
+
+// ---------- ESTADO ----------
+let app = {
+  reuniao:      null,   // { id, titulo, criada, itens: [...] }
+  processando:  false,
+  toastTimer:   null,
+  selecionados: new Set(),
+  instrucoes:   '',     // instruções adicionais compartilhadas (Firebase)
+  abortar:      null,   // AbortController do lote em andamento
+  config: { provedor: 'gemini', apiKey: '', modelo: 'gemini-2.5-flash' },
+};
+
+// ============================================================
+//  INICIALIZAÇÃO
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  if (typeof pdfjsLib !== 'undefined') {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
+  }
+  registrarEventos();
+  carregarConfiguracao();
+  carregarHistorico();
+  carregarInstrucoes().catch(e => console.warn('Instruções:', e.message));
+});
+
+function registrarEventos() {
+  document.getElementById('btn-voltar-home').addEventListener('click', () => {
+    chrome.tabs.update({ url: chrome.runtime.getURL('panel.html') });
+  });
+
+  document.getElementById('btn-nova-reuniao').addEventListener('click', abrirModalNovaReuniao);
+  document.getElementById('btn-nova-reuniao-upload').addEventListener('click', abrirModalNovaReuniao);
+  document.getElementById('btn-criar-reuniao').addEventListener('click', criarReuniao);
+
+  document.getElementById('btn-configuracoes').addEventListener('click', abrirConfiguracoes);
+  document.getElementById('btn-salvar-config').addEventListener('click', salvarConfiguracao);
+  document.getElementById('btn-testar-ia').addEventListener('click', testarConexao);
+  document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelosDisponiveis);
+  document.getElementById('config-provedor').addEventListener('change', onProvedorChange);
+  document.getElementById('btn-toggle-key').addEventListener('click', () => {
+    const i = document.getElementById('config-api-key');
+    i.type = i.type === 'password' ? 'text' : 'password';
+  });
+
+  document.getElementById('btn-resumir-todos').addEventListener('click', () => resumirLote(null));
+  document.getElementById('btn-resumir-selecionados').addEventListener('click', () => resumirLote([...app.selecionados]));
+  document.getElementById('btn-parar').addEventListener('click', () => app.abortar?.abort());
+  document.getElementById('btn-salvar').addEventListener('click', salvarReuniao);
+  document.getElementById('btn-exportar').addEventListener('click', exportarPlanilha);
+  document.getElementById('check-todos').addEventListener('change', e => marcarTodas(e.target.checked));
+
+  document.getElementById('input-pdf-lideres').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (f) await processarPDFModal(f);
+  });
+
+  // Arrastar o PDF direto sobre a tela de upload
+  const area = document.getElementById('upload-area');
+  ['dragenter', 'dragover'].forEach(ev => area.addEventListener(ev, e => {
+    e.preventDefault(); area.classList.add('drag-over');
+  }));
+  ['dragleave', 'drop'].forEach(ev => area.addEventListener(ev, e => {
+    e.preventDefault(); area.classList.remove('drag-over');
+  }));
+  area.addEventListener('drop', async e => {
+    const f = [...(e.dataTransfer?.files || [])].find(x => /\.pdf$/i.test(x.name));
+    if (!f) return;
+    abrirModalNovaReuniao();
+    await processarPDFModal(f);
+  });
+
+  document.querySelectorAll('[data-fecha]').forEach(b =>
+    b.addEventListener('click', () => fecharModal(b.dataset.fecha)));
+  document.querySelectorAll('.modal-overlay').forEach(o =>
+    o.addEventListener('click', e => { if (e.target === o) fecharModal(o.id); }));
+}
+
+function mostrarTela(id) {
+  document.querySelectorAll('.tela').forEach(t => t.classList.remove('active'));
+  document.getElementById(id)?.classList.add('active');
+}
+function fecharModal(id) { const el = document.getElementById(id); if (el) el.style.display = 'none'; }
+
+// ============================================================
+//  LEITURA DO PDF DA REUNIÃO
+//
+//  O PDF é uma tabela de largura fixa (A4 paisagem, 841,92 pt) cujas colunas
+//  se separam por posição horizontal — MEDIDO no documento de referência:
+//    x=38 Num. · x=66 Proposição · x=129 Autoria · x=256 Regime · x=333 Descrição
+//  A descrição quebra em várias linhas e o número do item aparece no MEIO do
+//  bloco, não na primeira linha dele. Por isso não dá para ler "linha a linha":
+//  recortamos por coluna e agrupamos os blocos entre os números.
+// ============================================================
+const LARGURA_REF = 841.92;
+const COLUNAS = [
+  { k: 'num',  x0: 0,   x1: 60 },
+  { k: 'prop', x0: 60,  x1: 125 },
+  { k: 'aut',  x0: 125, x1: 250 },
+  { k: 'reg',  x0: 250, x1: 330 },
+  { k: 'desc', x0: 330, x1: Infinity },
+];
+
+/** Agrupa os fragmentos de uma página em linhas e recorta cada linha nas cinco
+ *  colunas da tabela. */
+function linhasDaPagina(items, escala) {
+  const porY = new Map();
+  for (const it of items) {
+    if (!it.str) continue;
+    const y = Math.round(it.transform[5]);
+    // Tolerância de 2 pt: fragmentos da mesma linha às vezes diferem no baseline.
+    let chave = y;
+    for (const k of porY.keys()) if (Math.abs(k - y) <= 2) { chave = k; break; }
+    if (!porY.has(chave)) porY.set(chave, []);
+    porY.get(chave).push({ x: it.transform[4] / escala, s: it.str });
+  }
+  return [...porY.entries()].sort((a, b) => b[0] - a[0]).map(([y, frags]) => {
+    frags.sort((a, b) => a.x - b.x);
+    const cols = {};
+    // Junta sem separador: o PDF já emite os espaços como fragmentos próprios,
+    // e é assim que "Paulo Abi" + "-" + "Ackel" volta a ser "Paulo Abi-Ackel".
+    for (const c of COLUNAS) cols[c.k] = frags.filter(f => f.x >= c.x0 && f.x < c.x1).map(f => f.s).join('');
+    // Título e cabeçalho de tabela vivem na coluna do número, que fora deles só
+    // tem dígitos. MEDIDO: o cabeçalho "Num. | Proposição | ..." se repete no
+    // MEIO das páginas (p. ex. y=429 da pág. 2), não apenas no topo — por isso
+    // ele entra como separador de linha, e não como "tudo acima é lixo".
+    const separador = /[A-Za-zÀ-ÖØ-öø-ÿ]/.test(cols.num);
+    return { y, cols, separador };
+  });
+}
+
+/** Recorta a lista de linhas em itens da tabela. */
+function partirEmItens(linhas) {
+  // Âncora = a linha que traz o número do item. Exige conteúdo em outra coluna
+  // para que um número de página solto não vire item.
+  const ehAncora = l => !l.separador && /^\s*\d{1,3}\s*$/.test(l.cols.num) &&
+    (l.cols.prop.trim() || l.cols.aut.trim());
+  const ancoras = [];
+  linhas.forEach((l, i) => { if (ehAncora(l)) ancoras.push(i); });
+  if (!ancoras.length) return [];
+
+  // Distância até a linha seguinte. Quebra de página e cabeçalho repetido são
+  // fronteiras absolutas; dentro da página, a maior distância entre duas linhas
+  // é o filete que separa as linhas da tabela.
+  const dist = i => (linhas[i].pagina !== linhas[i + 1].pagina ||
+                     linhas[i].separador || linhas[i + 1].separador)
+    ? Infinity : linhas[i].y - linhas[i + 1].y;
+
+  const cortes = [];
+  for (let a = 0; a < ancoras.length - 1; a++) {
+    let melhor = ancoras[a], melhorD = -1;
+    for (let i = ancoras[a]; i < ancoras[a + 1]; i++) {
+      const d = dist(i);
+      if (d > melhorD) { melhorD = d; melhor = i; }
+    }
+    cortes.push(melhor + 1);
+  }
+  const ini = [0, ...cortes], fim = [...cortes, linhas.length];
+
+  return ancoras.map((iAncora, k) => {
+    const bloco = linhas.slice(ini[k], fim[k]).filter(l => !l.separador);
+    const junta = key => bloco.map(l => l.cols[key]).filter(s => s.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    return {
+      num:       linhas[iAncora].cols.num.trim(),
+      prop:      junta('prop'),
+      autoria:   junta('aut'),
+      regime:    junta('reg'),
+      descricao: junta('desc'),
+    };
+  });
+}
+
+async function lerListaDoPDF(file) {
+  const buffer = await file.arrayBuffer();
+  const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const linhas = [];
+  for (let p = 1; p <= pdf.numPages; p++) {
+    const pagina = await pdf.getPage(p);
+    const escala = pagina.getViewport({ scale: 1 }).width / LARGURA_REF;
+    const conteudo = await pagina.getTextContent();
+    for (const l of linhasDaPagina(conteudo.items, escala)) linhas.push({ ...l, pagina: p });
+  }
+  return partirEmItens(linhas);
+}
+
+// Espécies que podem aparecer na coluna "Proposição".
+const RE_PROP = /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG)\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})\b/gi;
+
+/** Uma linha da tabela pode carregar mais de uma proposição — o item traz a
+ *  apensada e, entre parênteses, a principal. Cada uma vira uma linha da
+ *  planilha, porque cada uma tem inteiro teor e tramitação próprios. */
+function proposicoesDoItem(item) {
+  const achados = [];
+  const vistos  = new Set();
+  let m;
+  RE_PROP.lastIndex = 0;
+  while ((m = RE_PROP.exec(item.prop)) !== null) {
+    const chave = `${m[1].toUpperCase()} ${parseInt(m[2], 10)}/${m[3]}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    achados.push({
+      chave,
+      sigla:  m[1].toUpperCase(),
+      numero: parseInt(m[2], 10),
+      ano:    parseInt(m[3], 10),
+      // "(Principal: PL 23/2026)" — a proposição citada dentro dos parênteses
+      // é a principal; a que abre a célula é a que foi listada.
+      ehPrincipal: /\(\s*principal/i.test(item.prop.slice(0, m.index)),
+    });
+  }
+  return achados;
+}
+
+// ============================================================
+//  MODAL NOVA REUNIÃO
+// ============================================================
+let _bufferPDF = null;
+
+function abrirModalNovaReuniao() {
+  _bufferPDF = null;
+  document.getElementById('reuniao-titulo').value = '';
+  document.getElementById('input-pdf-lideres').value = '';
+  document.getElementById('upload-inline-lideres-text').textContent = 'Clique para selecionar o PDF';
+  document.getElementById('itens-encontrados').style.display = 'none';
+  document.getElementById('lista-itens-modal').innerHTML = '';
+  document.getElementById('btn-criar-reuniao').disabled = true;
+  document.getElementById('modal-nova-reuniao').style.display = 'flex';
+}
+
+async function processarPDFModal(file) {
+  const label = document.getElementById('upload-inline-lideres-text');
+  const cx    = document.getElementById('itens-encontrados');
+  const lista = document.getElementById('lista-itens-modal');
+
+  label.textContent = '⏳ Lendo PDF...';
+  try {
+    const itens = await lerListaDoPDF(file);
+    const props = itens.flatMap(it => proposicoesDoItem(it).map(p => ({ ...p, item: it })));
+    _bufferPDF = { nome: file.name, itens, props };
+
+    if (!props.length) {
+      label.textContent = '⚠ Nenhuma proposição encontrada no PDF';
+      cx.style.display = 'none';
+      document.getElementById('btn-criar-reuniao').disabled = true;
+      return;
+    }
+
+    label.textContent = `✓ ${file.name} — ${itens.length} itens, ${props.length} proposições`;
+    lista.innerHTML = props.map(p => `<span class="lid-tag">${esc(p.chave)}</span>`).join('');
+    cx.style.display = 'block';
+    document.getElementById('btn-criar-reuniao').disabled = false;
+
+    // Sugere o título a partir do nome do arquivo ("2026.7.7 – Reunião de Líderes")
+    const campo = document.getElementById('reuniao-titulo');
+    if (!campo.value.trim()) {
+      const m = file.name.match(/(\d{4})[.\-_](\d{1,2})[.\-_](\d{1,2})/);
+      campo.value = m
+        ? `Reunião de Líderes – ${String(m[3]).padStart(2, '0')}/${String(m[2]).padStart(2, '0')}/${m[1]}`
+        : `Reunião de Líderes – ${new Date().toLocaleDateString('pt-BR')}`;
+    }
+  } catch (err) {
+    label.textContent = `✗ Erro ao ler PDF: ${err.message}`;
+    document.getElementById('btn-criar-reuniao').disabled = true;
+  }
+}
+
+async function criarReuniao() {
+  if (!_bufferPDF?.props?.length) return;
+
+  const titulo = document.getElementById('reuniao-titulo').value.trim()
+    || `Reunião de Líderes – ${new Date().toLocaleDateString('pt-BR')}`;
+
+  app.reuniao = {
+    id:     `lid-${Date.now()}`,
+    titulo,
+    arquivo: _bufferPDF.nome,
+    criada: new Date().toISOString(),
+    itens: _bufferPDF.props.map((p, i) => ({
+      ordem:         i + 1,
+      numItem:       p.item.num,
+      chave:         p.chave,
+      sigla:         p.sigla,
+      numero:        p.numero,
+      ano:           p.ano,
+      ehPrincipal:   p.ehPrincipal,
+      celulaProp:    p.item.prop,
+      autoriaPdf:    p.item.autoria,
+      regimePdf:     p.item.regime,
+      descricaoPdf:  p.item.descricao,
+      idCamara:      null,
+      ementa:        '',
+      autoresApi:    [],
+      urlInteiroTeor: null,
+      objetivo:      '',
+      justificativa: '',
+      situacao:      '',
+      comissoes:     '',
+      relatoria:     '',
+      status:        'pendente',
+      erro:          '',
+    })),
+  };
+
+  fecharModal('modal-nova-reuniao');
+  app.selecionados.clear();
+  atualizarSidebar();
+  renderizarTabela();
+  mostrarTela('tela-lista');
+  document.getElementById('lid-action-bar').style.display = 'flex';
+
+  mostrarToast(`${app.reuniao.itens.length} proposições. Buscando dados na Câmara...`, '');
+  await carregarDadosCamara(app.reuniao.itens);
+  renderizarTabela();
+  atualizarSidebar();
+  mostrarToast('Dados carregados. Clique em "Resumir Todas" para gerar os resumos por IA.', 'sucesso');
+}
+
+// ============================================================
+//  DADOS ABERTOS DA CÂMARA
+// ============================================================
+async function carregarDadosCamara(itens) {
+  let feitos = 0;
+  await mapLimit(itens, 6, async it => {
+    try {
+      await carregarDadosDaProposicao(it);
+      it.status = it.status === 'ok' ? 'ok' : 'dados';
+    } catch (e) {
+      it.erro = `Dados da Câmara: ${e.message}`;
+      it.status = 'erro';
+    }
+    atualizarProgresso(++feitos, itens.length, 'Consultando a Câmara');
+  });
+  atualizarProgresso(0, 0);
+}
+
+async function carregarDadosDaProposicao(it) {
+  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${it.sigla}&numero=${it.numero}&ano=${it.ano}&itens=1`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const item = (await res.json()).dados?.[0];
+  if (!item) throw new Error('proposição não localizada');
+  it.idCamara = item.id;
+
+  // O endpoint de LISTA não traz urlInteiroTeor nem statusProposicao; o DETALHE traz.
+  let detalhe = item;
+  try {
+    const rd = await fetch(`${API_BASE}/proposicoes/${item.id}`);
+    if (rd.ok) detalhe = (await rd.json()).dados || item;
+  } catch (_) {}
+  it.ementa         = detalhe.ementa || item.ementa || '';
+  it.urlInteiroTeor = detalhe.urlInteiroTeor || null;
+  it.situacaoApi    = detalhe.statusProposicao?.descricaoSituacao || '';
+
+  try {
+    const ra = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
+    if (ra.ok) it.autoresApi = ((await ra.json()).dados || []).map(a => a.nome).filter(Boolean).slice(0, 5);
+  } catch (_) {}
+
+  const trams = await buscarTramitacoes(item.id);
+  it.situacao  = situacaoDe(trams, it.regimePdf);
+  it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
+  it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
+}
+
+async function buscarTramitacoes(idCamara) {
+  try {
+    // Este endpoint NÃO aceita ?ordem/?itens (devolve 400). Vem em ordem
+    // ascendente de sequência.
+    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
+    if (!res.ok) return [];
+    return (await res.json()).dados || [];
+  } catch (_) { return []; }
+}
+
+// ---------- SITUAÇÃO (regra fixa, não IA) ----------
+// As três formas de preenchimento vêm do modelo de resumo usado pela equipe:
+//   urgência aprovada          → "Urgência aprovada (REQ. n/aaaa)"
+//   requerimento sem aprovação → "Requerimento de urgência apresentado (REQ n. n/aaaa)"
+//   nada                       → "Não há requerimento de urgência apresentado."
+function situacaoDe(trams, regimePdf) {
+  const rev = [...trams].reverse();
+  const numReq = t => {
+    const m = `${t.despacho || ''}`.match(/(?:requerimento|REQ)\.?\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})/i);
+    return m ? `${m[1]}/${m[2]}` : null;
+  };
+
+  for (const t of rev) {
+    const desc = t.descricaoTramitacao || '';
+    const desp = t.despacho || '';
+    if (/aprova[çc][ãa]o de urg[êe]ncia/i.test(desc) ||
+        /aprovad[oa]\s+o\s+requerimento[^.]{0,120}urg[êe]ncia/i.test(desp)) {
+      const n = numReq(t);
+      return n ? `Urgência aprovada (REQ. ${n})` : 'Urgência aprovada';
+    }
+  }
+  for (const t of rev) {
+    const desp = t.despacho || '';
+    const m = desp.match(/Apresenta[çc][ãa]o do REQ n\.?\s*(\d{1,5})\s*\/\s*(\d{4})\s*\(Requerimento de Urg[êe]ncia/i);
+    if (m) return `Requerimento de urgência apresentado (REQ n. ${m[1]}/${m[2]})`;
+  }
+
+  // Sem registro na API, vale o que está no PDF da reunião — mas só o trecho
+  // que fala de urgência: a célula de regime às vezes traz o regime ordinário
+  // e a urgência juntos ("Ordinário (Art. 151, III, RICD) (Urgência aprovada
+  // em 26/05/2026)"), e copiar a célula inteira produziria uma situação sem pé
+  // nem cabeça.
+  const reg = regimePdf || '';
+  const mAprov = reg.match(/urg[êe]ncia\s+aprovada(?:\s+em\s+\d{2}\/\d{2}\/\d{4})?/i);
+  if (mAprov) return mAprov[0].charAt(0).toUpperCase() + mAprov[0].slice(1);
+  const mReq = reg.match(/REQ\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})/i);
+  if (mReq) return `Requerimento de urgência apresentado (REQ n. ${mReq[1]}/${mReq[2]})`;
+  // A lista diz "Urgência" e a API não tem requerimento nenhum: os dois se
+  // contradizem, e afirmar "não há requerimento" seria escolher um lado.
+  if (/urg[êe]ncia/i.test(reg)) {
+    return 'Urgência indicada na lista da reunião; sem requerimento de urgência localizado nos Dados Abertos.';
+  }
+  return 'Não há requerimento de urgência apresentado.';
+}
+
+// ---------- RELATORIA DE PLENÁRIO (regra fixa, não IA) ----------
+// Só conta designação feita NO PLENÁRIO: relator de comissão não é relator de
+// Plenário, e o statusProposicao guarda o último relator seja de onde for.
+async function relatoriaDe(trams, statusProp) {
+  let designacao = null;
+  for (const t of trams) {
+    if (t.siglaOrgao !== 'PLEN') continue;
+    if (!/designa[çc][ãa]o de relator/i.test(t.descricaoTramitacao || '')) continue;
+    designacao = t;   // fica com a mais recente
+  }
+  if (!designacao) return 'Sem indicação';
+
+  const desp = designacao.despacho || '';
+  const m = desp.match(/Dep(?:utad[oa])?\.?\s*([^(,;]+?)\s*\(([^)]+)\)/i);
+  const nomeDespacho = m ? m[1].trim() : '';
+  const siglaDespacho = m ? m[2].trim().replace(/\s*\/\s*/, '-') : '';
+
+  // O despacho abrevia o partido ("REPUBLIC-SP"); a ficha do deputado traz o
+  // nome inteiro. Só usamos a ficha quando ela é do mesmo relator do despacho.
+  const uri = statusProp?.uriUltimoRelator;
+  if (uri) {
+    try {
+      const r = await fetch(uri);
+      if (r.ok) {
+        const d = (await r.json()).dados;
+        const nome = d?.ultimoStatus?.nome || d?.nomeCivil || '';
+        if (nome && (!nomeDespacho || mesmaPessoa(nome, nomeDespacho))) {
+          const partido = formatarPartido(d.ultimoStatus?.siglaPartido || '');
+          const uf = d.ultimoStatus?.siglaUf || '';
+          return `Dep. ${nome}${partido ? ` (${partido}${uf ? '-' + uf : ''})` : ''}`;
+        }
+      }
+    } catch (_) { /* fica com o despacho */ }
+  }
+  if (nomeDespacho) return `Dep. ${nomeDespacho}${siglaDespacho ? ` (${siglaDespacho})` : ''}`;
+  return desp.trim() || 'Sem indicação';
+}
+
+const semAcento = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+function mesmaPessoa(a, b) {
+  const na = semAcento(a), nb = semAcento(b);
+  return na === nb || na.includes(nb) || nb.includes(na);
+}
+/** "REPUBLICANOS" → "Republicanos"; siglas curtas (PT, PSD, NOVO) ficam como estão. */
+function formatarPartido(sigla) {
+  const s = String(sigla || '').trim();
+  if (s.length <= 5) return s;
+  return s.charAt(0) + s.slice(1).toLowerCase();
+}
+
+// ---------- MATÉRIA-PRIMA DO CAMPO "COMISSÕES" ----------
+// Não decide nada: recolhe os despachos de distribuição e o andamento por
+// comissão para a IA redigir a frase com base em texto real.
+const ORGAOS_NAO_COMISSAO = new Set(['PLEN', 'MESA', 'SGM', 'PR', 'SPL', 'CCP', 'CORD', 'SECGER', 'SECLEG', 'DETAQ']);
+
+function despachosDeComissao(trams, statusProp) {
+  const distribuicao = [];
+  for (const t of trams) {
+    const d = (t.despacho || '').trim();
+    if (!d) continue;
+    if (/^\s*(À|As|Às)\s+Comiss|^\s*Apense-se|distribu[ií](?:ção|do|da)\s+.{0,40}Comiss/i.test(d)) {
+      distribuicao.push(`${(t.dataHora || '').slice(0, 10)} — ${d}`);
+    }
+  }
+  // Andamento por comissão: última tramitação registrada em cada órgão colegiado.
+  const porOrgao = new Map();
+  for (const t of trams) {
+    const sig = t.siglaOrgao;
+    if (!sig || ORGAOS_NAO_COMISSAO.has(sig)) continue;
+    porOrgao.set(sig, `${sig}: ${(t.dataHora || '').slice(0, 10)} — ${t.descricaoTramitacao || ''}${t.despacho ? ' · ' + t.despacho : ''}`);
+  }
+  return {
+    distribuicao: distribuicao.slice(-6),
+    comissoes:    [...porOrgao.values()],
+    situacaoAtual: [statusProp?.siglaOrgao, statusProp?.descricaoSituacao, statusProp?.despacho]
+      .filter(Boolean).join(' · '),
+  };
+}
+
+// ============================================================
+//  PROVEDORES DE IA (mesma configuração dos demais painéis)
+// ============================================================
+const PROVEDORES_META = {
+  gemini: {
+    label: 'Google Gemini',
+    placeholderChave: 'AIzaSy... ou AQ....',
+    hintChave: 'Obtenha em aistudio.google.com → Get API key',
+    regexChave: /^[\w.-]{20,}$/,
+    // gemini-2.5-flash não é mais liberado para chaves novas ("no longer
+    // available to new users"), então o primeiro da lista é o apelido móvel,
+    // que nunca fica para trás. Os fixos continuam disponíveis para quem já usa.
+    modelosFallback: [
+      { id: 'gemini-flash-latest', displayName: 'Gemini Flash (mais recente)' },
+      { id: 'gemini-pro-latest',   displayName: 'Gemini Pro (mais recente)' },
+      { id: 'gemini-2.5-flash',    displayName: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',      displayName: 'Gemini 2.5 Pro' },
+    ],
+    async listar(key) {
+      const res = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      return (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && (m.name || '').includes('gemini'))
+        .map(m => ({ id: (m.name || '').replace(/^models\//, ''), displayName: m.displayName || m.name }));
+    },
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    placeholderChave: 'sk-...',
+    hintChave: 'Obtenha em platform.openai.com/api-keys',
+    regexChave: /^sk-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'gpt-5',   displayName: 'GPT-5' },
+      { id: 'gpt-4.1', displayName: 'GPT-4.1' },
+      { id: 'gpt-4o',  displayName: 'GPT-4o' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4', 'o3'];
+      const ids = (j.data || []).map(m => m.id).filter(id => prefs.some(p => id.startsWith(p))).sort();
+      return ids.length ? ids.map(id => ({ id, displayName: id })) : this.modelosFallback;
+    },
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    placeholderChave: 'sk-ant-...',
+    hintChave: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regexChave: /^sk-ant-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'claude-opus-4-8',   displayName: 'Claude Opus 4.8' },
+      { id: 'claude-opus-4-7',   displayName: 'Claude Opus 4.7' },
+      { id: 'claude-sonnet-4-6', displayName: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5',  displayName: 'Claude Haiku 4.5' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const lista = (j.data || []).map(m => ({ id: m.id, displayName: m.display_name || m.id }));
+      return lista.length ? lista : this.modelosFallback;
+    },
+  },
+};
+
+function bufParaBase64(buf) {
+  const u8 = new Uint8Array(buf);
+  let bin = '';
+  const CHUNK = 8192;
+  for (let i = 0; i < u8.length; i += CHUNK) bin += String.fromCharCode(...u8.subarray(i, i + CHUNK));
+  return btoa(bin);
+}
+
+/** Repete em 429/5xx; erro permanente (4xx) sobe na hora. */
+async function fetchIA(url, init, signal) {
+  const esperas = [0, 5000, 15000, 30000];
+  let ultimo = null;
+  for (let i = 0; i < esperas.length; i++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (esperas[i]) await sleep(esperas[i], signal);
+    let res;
+    try {
+      res = await fetch(url, { ...init, signal });
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      ultimo = e; continue;
+    }
+    if (res.ok) return await res.json();
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      ultimo = new Error(`HTTP ${res.status}`);
+      continue;
+    }
+    let det = null;
+    try { det = await res.json(); } catch (_) {}
+    throw new Error(det?.error?.message || `HTTP ${res.status}`);
+  }
+  throw ultimo || new Error('falhou após as tentativas');
+}
+
+function sleep(ms, signal) {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(new DOMException('Aborted', 'AbortError'));
+    const id = setTimeout(() => { signal?.removeEventListener?.('abort', onAbort); resolve(); }, ms);
+    const onAbort = () => { clearTimeout(id); reject(new DOMException('Aborted', 'AbortError')); };
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+  });
+}
+
+/** docs: [{ kind:'pdf', b64 } | { kind:'text', texto }] */
+async function chamarIA(prompt, docs = [], signal) {
+  const pid = app.config.apiKey ? (app.config.provedor || 'gemini') : '';
+  if (!pid) throw new Error('Nenhuma chave de IA configurada. Configure em ⚙ Configurações.');
+  if (pid === 'gemini')    return callGemini(prompt, docs, signal);
+  if (pid === 'anthropic') return callAnthropic(prompt, docs, signal);
+  return callOpenAI(prompt, docs, signal);
+}
+
+async function callGemini(prompt, docs, signal) {
+  const modelo = app.config.modelo || 'gemini-flash-latest';
+  const parts = [];
+  docs.forEach((d, i) => {
+    if (d.kind === 'pdf') parts.push({ inline_data: { mime_type: 'application/pdf', data: d.b64 } });
+    else parts.push({ text: `\n\n--- Documento ${i + 1} ---\n${d.texto}` });
+  });
+  parts.push({ text: prompt });
+  const j = await fetchIA(`${GEMINI_BASE}/${modelo}:generateContent?key=${app.config.apiKey}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      // responseMimeType tira as cercas de código e o texto de acompanhamento.
+      generationConfig: { temperature: 0.2, maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },
+    }),
+  }, signal);
+  const cand = j.candidates?.[0];
+  if (cand?.finishReason === 'MAX_TOKENS') throw new Error('resposta cortada pelo limite de tokens do modelo');
+  if (cand?.finishReason && !['STOP', 'MAX_TOKENS'].includes(cand.finishReason)) {
+    throw new Error(`resposta interrompida pelo provedor (${cand.finishReason})`);
+  }
+  return (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
+}
+
+async function callAnthropic(prompt, docs, signal) {
+  const modelo = app.config.modelo || 'claude-opus-4-8';
+  const content = [];
+  docs.forEach((d, i) => {
+    if (d.kind === 'pdf') content.push({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: d.b64 } });
+    else content.push({ type: 'text', text: `Documento ${i + 1}:\n${d.texto}` });
+  });
+  content.push({ type: 'text', text: prompt });
+  const j = await fetchIA(ANTHROPIC_BASE, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json', 'x-api-key': app.config.apiKey,
+      'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({ model: modelo, max_tokens: MAX_OUT_TOKENS, temperature: 0.2, messages: [{ role: 'user', content }] }),
+  }, signal);
+  return (j.content || []).map(c => c.text || '').join('').trim();
+}
+
+async function callOpenAI(prompt, docs, signal) {
+  const modelo = app.config.modelo || 'gpt-4o';
+  const content = [];
+  docs.forEach((d, i) => {
+    if (d.kind === 'pdf') content.push({ type: 'input_file', filename: `documento_${i + 1}.pdf`, file_data: `data:application/pdf;base64,${d.b64}` });
+    else content.push({ type: 'input_text', text: `Documento ${i + 1}:\n${d.texto}` });
+  });
+  content.push({ type: 'input_text', text: prompt });
+  const j = await fetchIA(OPENAI_BASE, {
+    method: 'POST', headers: { 'Authorization': `Bearer ${app.config.apiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: modelo, input: [{ role: 'user', content }], temperature: 0.2,
+      max_output_tokens: MAX_OUT_TOKENS, text: { format: { type: 'json_object' } },
+    }),
+  }, signal);
+  if (j.output_text) return j.output_text.trim();
+  for (const it of (j.output || [])) for (const c of (it.content || [])) if (c.type === 'output_text' && c.text) return c.text.trim();
+  return '';
+}
+
+// ---------- INTEIRO TEOR ----------
+// As páginas da Câmara nem sempre mandam cabeçalho CORS; por isso o download
+// tenta direto, depois pelos dois proxies já usados nos outros painéis, e só
+// aceita a resposta se os primeiros bytes forem "%PDF".
+async function baixarPdfCamara(url, signal) {
+  const vias = [
+    () => fetch(url, { redirect: 'follow', signal }),
+    () => fetch(WORKER + encodeURIComponent(url), { signal }),
+    () => fetch(CODETABS + encodeURIComponent(url), { signal }),
+  ];
+  for (const tentar of vias) {
+    try {
+      const r = await tentar();
+      if (!r.ok) continue;
+      const buf = await r.arrayBuffer();
+      const h = new Uint8Array(buf.slice(0, 5));
+      if (h[0] === 0x25 && h[1] === 0x50 && h[2] === 0x44 && h[3] === 0x46) return buf;
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+    }
+  }
+  return null;
+}
+
+async function textoDoPdf(buf) {
+  const pdf = await pdfjsLib.getDocument({ data: buf.slice(0) }).promise;
+  let t = '';
+  for (let i = 1; i <= pdf.numPages && t.length < MAX_TEXTO_TEOR; i++) {
+    const c = await (await pdf.getPage(i)).getTextContent();
+    t += c.items.map(x => x.str).join(' ') + '\n';
+  }
+  return t.slice(0, MAX_TEXTO_TEOR);
+}
+
+/** Devolve { doc, texto }: `doc` é o que vai para a IA, `texto` é a mesma peça
+ *  em texto puro, usada depois para conferir as citações do que ela escreveu. */
+async function obterTeor(it, signal) {
+  if (!it.urlInteiroTeor) return { doc: null, texto: '' };
+  const buf = await baixarPdfCamara(it.urlInteiroTeor, signal);
+  if (!buf) return { doc: null, texto: '' };
+
+  let texto = '';
+  try { texto = await textoDoPdf(buf); } catch (_) { /* PDF só de imagem */ }
+
+  // Inteiro teor gigante (anexos, autógrafos): manda o texto, que cabe.
+  if (buf.byteLength > MAX_PDF_BYTES) {
+    return texto ? { doc: { kind: 'text', texto }, texto } : { doc: null, texto: '' };
+  }
+  return { doc: { kind: 'pdf', b64: bufParaBase64(buf) }, texto };
+}
+
+// ---------- Conferência de citações (anti-alucinação) ----------
+// Mesma heurística dos painéis de Plenário e da CCJC: se o resumo cita uma
+// Lei/Decreto/EC/MP por número, esse número tem de aparecer na peça original.
+// Não corrige nada — apenas marca para revisão humana.
+function validarReferencias(textoGerado, textoFonte) {
+  if (!textoFonte || textoFonte.length < 100) return [];
+  const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
+  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  const suspeitas = [];
+  const vistos = new Set();
+  let m;
+  while ((m = re.exec(textoGerado)) !== null) {
+    const num = m[2].replace(/\./g, '');
+    if (num.length < 4 || vistos.has(num)) continue;   // números curtos dão falso positivo demais
+    vistos.add(num);
+    if (!numerosFonte.has(num)) suspeitas.push(`${m[1].replace(/\s+/g, ' ')} nº ${m[2].trim()}`);
+  }
+  return suspeitas;
+}
+
+// ============================================================
+//  RESUMO POR IA
+// ============================================================
+const REGRAS_RIGIDAS = `
+REGRAS RÍGIDAS (cumprimento obrigatório):
+- Baseie-se EXCLUSIVAMENTE no documento anexado e nos dados factuais deste prompt. Não recorra a conhecimento prévio.
+- Não invente números de lei, artigos, decretos, datas, valores, nomes ou citações. Só mencione um dispositivo se ele aparecer literalmente no material.
+- Se o documento anexado não trouxer a justificativa do autor, escreva exatamente "Justificativa não consta do inteiro teor disponível." — nunca preencha a lacuna com suposição.
+- Não inclua recomendação de voto, juízo de mérito, elogio ou crítica à proposição.
+- Responda APENAS com o objeto JSON pedido, sem texto antes ou depois e sem cercas de código.`;
+
+// PEC, MPV e MSC são femininas; o resto é masculino. Sem isto o modelo escreve
+// "O PEC 231/2019".
+const ARTIGO_FEMININO = new Set(['PEC', 'MPV', 'MSC', 'SUG', 'INC', 'PDN']);
+const artigoDe = sigla => ARTIGO_FEMININO.has(sigla) ? 'A' : 'O';
+
+function montarPrompt(it) {
+  const d = it.despachos || {};
+  const autoria = it.autoriaPdf || (it.autoresApi || []).join(', ') || 'não informada';
+  return `Você prepara o resumo das proposições que o Colégio de Líderes da Câmara dos Deputados vai avaliar para eventual inclusão na pauta do Plenário.
+
+PROPOSIÇÃO: ${it.chave}
+AUTORIA (lista da reunião): ${autoria}
+AUTORIA (Dados Abertos): ${(it.autoresApi || []).join(', ') || 'não informada'}
+EMENTA: ${it.ementa || it.descricaoPdf || 'não informada'}
+SITUAÇÃO ATUAL: ${d.situacaoAtual || 'não informada'}
+
+DESPACHOS DE DISTRIBUIÇÃO REGISTRADOS:
+${(d.distribuicao || []).join('\n') || '(nenhum despacho de distribuição a comissões registrado)'}
+
+ANDAMENTO POR COLEGIADO:
+${(d.comissoes || []).join('\n') || '(nenhum registro em comissão)'}
+
+Está anexado o inteiro teor da proposição.
+
+Devolva um JSON com exatamente estas três chaves:
+
+{
+  "objetivo": "Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, tem como objetivo …\\", descrevendo o que a proposição faz. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão. Cite as leis alteradas pelo nome usual quando houver (ex.: Lei de Responsabilidade Fiscal).",
+  "justificativa": "Um parágrafo curto começando por \\"Segundo a justificativa apresentada pelo autor, …\\", resumindo os motivos que o autor apresenta no inteiro teor. Se o inteiro teor não contiver justificativa, use a frase de abstenção prevista nas regras.",
+  "comissoes": "Uma frase sobre as comissões competentes, indicando quais estão pendentes de parecer, com base APENAS nos despachos e no andamento acima. Se não houver despacho de distribuição registrado, escreva exatamente \\"Aguardando despacho do presidente.\\""
+}
+${blocoInstrucoes()}${REGRAS_RIGIDAS}`;
+}
+
+function blocoInstrucoes() {
+  const t = (app.instrucoes || '').trim();
+  return t ? `\nINSTRUÇÕES ADICIONAIS DA EQUIPE (complementam, não substituem, o pedido acima):\n${t}\n` : '';
+}
+
+/** O modelo às vezes devolve o JSON entre cercas ou com texto em volta. */
+function extrairJSON(texto) {
+  const t = String(texto || '').trim().replace(/^```(?:json)?\s*|\s*```$/g, '');
+  try { return JSON.parse(t); } catch (_) {}
+  const i = t.indexOf('{'), f = t.lastIndexOf('}');
+  if (i >= 0 && f > i) {
+    try { return JSON.parse(t.slice(i, f + 1)); } catch (_) {}
+  }
+  // Mostra o começo do que veio: sem isto, "não veio em JSON" não diz se o
+  // modelo recusou, devolveu vazio ou foi cortado.
+  const amostra = t.slice(0, 120).replace(/\s+/g, ' ');
+  throw new Error(`resposta da IA não veio em JSON${amostra ? ` — recebido: "${amostra}…"` : ' — resposta vazia'}`);
+}
+
+async function resumirProposicao(it, signal) {
+  if (!it.idCamara) await carregarDadosDaProposicao(it);
+
+  const { doc, texto } = await obterTeor(it, signal);
+  const resposta = await chamarIA(montarPrompt(it), doc ? [doc] : [], signal);
+  const j = extrairJSON(resposta);
+
+  it.objetivo      = String(j.objetivo || '').trim();
+  it.justificativa = String(j.justificativa || '').trim();
+  it.comissoes     = String(j.comissoes || '').trim();
+
+  it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa}`, texto);
+  if (!doc) {
+    it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
+    it.avisoTeor = 'Inteiro teor indisponível — resumo feito só com ementa e tramitação.';
+  } else if (it.refsSuspeitas.length) {
+    it.avisoTeor = `Conferir no original: ${it.refsSuspeitas.join('; ')}`;
+  } else {
+    it.avisoTeor = '';
+  }
+  it.modelo = `${app.config.provedor}/${app.config.modelo}`;
+  it.geradoEm = new Date().toISOString();
+  it.status = 'ok';
+  it.erro = '';
+}
+
+async function resumirLote(chaves) {
+  if (app.processando) return;
+  if (!app.reuniao?.itens?.length) return;
+  if (!app.config.apiKey) {
+    mostrarToast('Configure uma chave de IA em ⚙ Configurações.', 'erro');
+    return;
+  }
+  const alvo = chaves?.length
+    ? app.reuniao.itens.filter(i => chaves.includes(i.chave))
+    : app.reuniao.itens;
+  if (!alvo.length) return;
+
+  app.processando = true;
+  app.abortar = new AbortController();
+  document.getElementById('btn-parar').style.display = '';
+  ['btn-resumir-todos', 'btn-resumir-selecionados'].forEach(id => document.getElementById(id).disabled = true);
+
+  let feitos = 0, erros = 0;
+  // Duas por vez: cada chamada carrega um PDF inteiro e os provedores limitam
+  // requisições por minuto — mais paralelismo só antecipa o 429.
+  await mapLimit(alvo, 2, async it => {
+    if (app.abortar.signal.aborted) return;
+    try {
+      await resumirProposicao(it, app.abortar.signal);
+    } catch (e) {
+      if (e.name === 'AbortError') return;
+      it.status = 'erro';
+      it.erro = e.message;
+      erros++;
+    }
+    atualizarProgresso(++feitos, alvo.length, 'Resumindo');
+    atualizarLinha(it);
+    atualizarSidebar();
+  });
+
+  app.processando = false;
+  document.getElementById('btn-parar').style.display = 'none';
+  document.getElementById('btn-resumir-todos').disabled = false;
+  atualizarBotaoSelecionadas();
+  atualizarProgresso(0, 0);
+  // Recolhe antes de redesenhar: as linhas que o usuário editou durante o lote
+  // não foram atualizadas (atualizarLinha respeita o campo em foco) e o
+  // redesenho as jogaria fora.
+  coletarEdicoes();
+  renderizarTabela();
+
+  if (app.abortar.signal.aborted) mostrarToast(`Interrompido. ${feitos} de ${alvo.length} concluídas.`, 'aviso');
+  else if (erros) mostrarToast(`${feitos - erros} resumidas, ${erros} com erro.`, 'aviso');
+  else mostrarToast(`${feitos} proposições resumidas.`, 'sucesso');
+}
+
+// ============================================================
+//  TABELA
+// ============================================================
+const CAMPOS_EDITAVEIS = ['objetivo', 'justificativa', 'situacao', 'comissoes', 'relatoria'];
+
+function renderizarTabela() {
+  const tbody = document.getElementById('lid-tbody');
+  if (!app.reuniao) { tbody.innerHTML = ''; return; }
+  tbody.innerHTML = app.reuniao.itens.map(linhaHTML).join('');
+
+  tbody.querySelectorAll('.lid-check').forEach(cb => cb.addEventListener('change', e => {
+    if (e.target.checked) app.selecionados.add(cb.dataset.chave);
+    else app.selecionados.delete(cb.dataset.chave);
+    cb.closest('tr').classList.toggle('lid-sel', e.target.checked);
+    atualizarBotaoSelecionadas();
+  }));
+
+  tbody.querySelectorAll('.lid-edit').forEach(el => el.addEventListener('blur', () => {
+    const it = app.reuniao.itens.find(x => x.chave === el.dataset.chave);
+    if (it) it[el.dataset.campo] = el.textContent.trim();
+  }));
+}
+
+function linhaHTML(it) {
+  const marcada = app.selecionados.has(it.chave);
+  const campo = (nome, rotulo) =>
+    `<span class="lid-edit" contenteditable="true" data-chave="${esc(it.chave)}" data-campo="${nome}" data-vazio="${rotulo}">${esc(it[nome] || '')}</span>`;
+  const link = it.urlInteiroTeor
+    ? `<a class="lid-link" href="${esc(it.urlInteiroTeor)}" target="_blank" rel="noopener">inteiro teor ↗</a>` : '';
+  const apenso = it.ehPrincipal ? '<span class="lid-apenso">principal</span>' : '';
+  const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
+  const aviso = it.avisoTeor ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(it.avisoTeor)}</span>` : '';
+
+  return `<tr class="${marcada ? 'lid-sel' : ''}">
+    <td class="lid-c-check"><input type="checkbox" class="lid-check" data-chave="${esc(it.chave)}" ${marcada ? 'checked' : ''}></td>
+    <td class="lid-c-num">${esc(it.numItem)}</td>
+    <td class="lid-c-prop">
+      ${esc(it.chave)}${apenso}
+      <span class="lid-badge ${it.status}">${rotuloStatus(it.status)}</span>
+      ${link}${erro}${aviso}
+    </td>
+    <td class="lid-c-aut">${esc(it.autoriaPdf || (it.autoresApi || []).join(', '))}</td>
+    <td class="lid-c-obj">${campo('objetivo', 'Objetivo')}</td>
+    <td class="lid-c-just">${campo('justificativa', 'Justificativa')}</td>
+    <td class="lid-c-sit">${campo('situacao', 'Situação')}</td>
+    <td class="lid-c-com">${campo('comissoes', 'Comissões')}</td>
+    <td class="lid-c-rel">${campo('relatoria', 'Relatoria')}</td>
+  </tr>`;
+}
+
+const rotuloStatus = s => ({ pendente: 'pendente', dados: 'dados', ok: 'resumida', erro: 'erro' }[s] || s);
+
+/** Redesenha só a linha alterada — com 80+ proposições, redesenhar a tabela
+ *  inteira a cada resumo apagaria a edição em curso do usuário. */
+function atualizarLinha(it) {
+  const cb = document.querySelector(`.lid-check[data-chave="${cssEscape(it.chave)}"]`);
+  const tr = cb?.closest('tr');
+  if (!tr) return;
+  const novo = document.createElement('tbody');
+  novo.innerHTML = linhaHTML(it);
+  const nova = novo.firstElementChild;
+  // Não mexe na linha que está sendo editada neste momento.
+  if (tr.contains(document.activeElement)) return;
+  tr.replaceWith(nova);
+  nova.querySelector('.lid-check')?.addEventListener('change', e => {
+    if (e.target.checked) app.selecionados.add(it.chave); else app.selecionados.delete(it.chave);
+    nova.classList.toggle('lid-sel', e.target.checked);
+    atualizarBotaoSelecionadas();
+  });
+  nova.querySelectorAll('.lid-edit').forEach(el => el.addEventListener('blur', () => {
+    it[el.dataset.campo] = el.textContent.trim();
+  }));
+}
+
+const cssEscape = s => (window.CSS?.escape ? CSS.escape(s) : String(s).replace(/["\\]/g, '\\$&'));
+
+function marcarTodas(marcar) {
+  app.selecionados.clear();
+  if (marcar) app.reuniao?.itens.forEach(i => app.selecionados.add(i.chave));
+  renderizarTabela();
+  atualizarBotaoSelecionadas();
+}
+
+function atualizarBotaoSelecionadas() {
+  const btn = document.getElementById('btn-resumir-selecionados');
+  const n = app.selecionados.size;
+  btn.disabled = n === 0 || app.processando;
+  btn.querySelector('[data-role="sel-label"]').textContent =
+    n ? `Resumir ${n} selecionada${n > 1 ? 's' : ''}` : 'Resumir selecionadas';
+}
+
+function atualizarSidebar() {
+  const info = document.getElementById('reuniao-info');
+  if (!app.reuniao) {
+    info.className = 'sessao-info empty';
+    info.innerHTML = '<span>Nenhuma reunião carregada</span>';
+    document.getElementById('sidebar-itens-section').style.display = 'none';
+    return;
+  }
+  const itens = app.reuniao.itens;
+  const prontas = itens.filter(i => i.status === 'ok').length;
+  info.className = 'sessao-info';
+  info.innerHTML = `<strong>${esc(app.reuniao.titulo)}</strong><br>
+    <span style="font-size:11px;color:var(--text-dim)">${itens.length} proposições · ${prontas} resumidas</span>`;
+
+  document.getElementById('sidebar-itens-section').style.display = '';
+  document.getElementById('lista-itens').innerHTML = itens.map(i => `
+    <div class="lid-item-side" data-chave="${esc(i.chave)}">
+      <span class="pt ${i.status}"></span>
+      <span class="num">${esc(i.numItem)}</span>
+      <span>${esc(i.chave)}</span>
+    </div>`).join('');
+
+  document.getElementById('lista-itens').querySelectorAll('.lid-item-side').forEach(el => {
+    el.addEventListener('click', () => {
+      const cb = document.querySelector(`.lid-check[data-chave="${cssEscape(el.dataset.chave)}"]`);
+      cb?.closest('tr')?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+  });
+
+  const st = document.getElementById('lid-action-status');
+  st.textContent = `${itens.length} proposições · ${prontas} resumidas`;
+}
+
+function atualizarProgresso(feitos, total, rotulo = '') {
+  const wrap = document.getElementById('lid-progresso-wrap');
+  if (!total) { wrap.style.display = 'none'; return; }
+  wrap.style.display = '';
+  document.getElementById('lid-progresso-bar').style.width = `${Math.round(100 * feitos / total)}%`;
+  document.getElementById('lid-progresso-label').textContent = `${rotulo} ${feitos}/${total}`;
+}
+
+// ============================================================
+//  PLANILHA
+// ============================================================
+function exportarPlanilha() {
+  if (!app.reuniao?.itens?.length) { mostrarToast('Nada para exportar.', 'erro'); return; }
+  if (typeof XLSX === 'undefined') { mostrarToast('Biblioteca de planilha não carregada.', 'erro'); return; }
+
+  // As oito primeiras colunas são o resumo em si. As três últimas existem para
+  // conferência: quem revisa consegue voltar à fonte sem reabrir o PDF.
+  const cab = ['Nº', 'Proposição', 'Autoria', 'Objetivo', 'Justificativa',
+               'Situação', 'Comissões', 'Relatoria de Plenário',
+               'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)', 'Inteiro teor'];
+  const linhas = [cab, ...app.reuniao.itens.map(i => [
+    i.numItem, i.chave + (i.ehPrincipal ? ' (principal)' : ''),
+    i.autoriaPdf || (i.autoresApi || []).join(', '),
+    i.objetivo, i.justificativa, i.situacao, i.comissoes, i.relatoria,
+    i.avisoTeor || i.erro || '',
+    i.ementa, i.celulaProp || '', i.regimePdf || '', i.urlInteiroTeor || '',
+  ])];
+
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 28 }, { wch: 70 }, { wch: 70 },
+                 { wch: 34 }, { wch: 40 }, { wch: 30 }, { wch: 34 },
+                 { wch: 60 }, { wch: 26 }, { wch: 24 }, { wch: 46 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Reunião de Líderes');
+
+  const dia = new Date().toISOString().slice(0, 10);
+  XLSX.writeFile(wb, `reuniao-lideres-${dia}.xlsx`);
+  mostrarToast('Planilha gerada.', 'sucesso');
+}
+
+// ============================================================
+//  PERSISTÊNCIA (Firebase, com cópia local de segurança)
+// ============================================================
+async function fbSalvar(reuniao) {
+  const res = await fetch(`${FIREBASE_URL}/lideres-reunioes/${reuniao.id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(reuniao),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function fbCarregar() {
+  const res = await fetch(`${FIREBASE_URL}/lideres-reunioes.json`);
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  const d = await res.json();
+  return d ? Object.values(d).filter(Boolean) : [];
+}
+async function fbApagar(id) {
+  const res = await fetch(`${FIREBASE_URL}/lideres-reunioes/${id}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function carregarInstrucoes() {
+  const res = await fetch(`${FIREBASE_URL}/lideres_instrucoes.json`);
+  if (!res.ok) return;
+  app.instrucoes = (await res.json()) || '';
+}
+async function salvarInstrucoes(texto) {
+  const res = await fetch(`${FIREBASE_URL}/lideres_instrucoes.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(texto || ''),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+const localSalvar = r => new Promise(res => chrome.storage.local.get('lideresReunioes', d => {
+  const m = d.lideresReunioes || {}; m[r.id] = r;
+  chrome.storage.local.set({ lideresReunioes: m }, res);
+}));
+const localCarregar = () => new Promise(res =>
+  chrome.storage.local.get('lideresReunioes', d => res(Object.values(d.lideresReunioes || {}))));
+const localApagar = id => new Promise(res => chrome.storage.local.get('lideresReunioes', d => {
+  const m = d.lideresReunioes || {}; delete m[id];
+  chrome.storage.local.set({ lideresReunioes: m }, res);
+}));
+
+async function salvarReuniao() {
+  if (!app.reuniao) return;
+  coletarEdicoes();
+  app.reuniao.atualizada = new Date().toISOString();
+  await localSalvar(app.reuniao);
+  try {
+    await fbSalvar(app.reuniao);
+    mostrarToast('Reunião salva e compartilhada com a equipe.', 'sucesso');
+  } catch (e) {
+    mostrarToast(`Salva localmente. Firebase indisponível: ${e.message}`, 'aviso');
+  }
+  carregarHistorico();
+}
+
+/** O contenteditable só grava no blur; salvar com o cursor dentro de um campo
+ *  perderia a última edição. */
+function coletarEdicoes() {
+  document.querySelectorAll('.lid-edit').forEach(el => {
+    const it = app.reuniao?.itens.find(x => x.chave === el.dataset.chave);
+    if (it) it[el.dataset.campo] = el.textContent.trim();
+  });
+}
+
+async function carregarHistorico() {
+  let reunioes = [];
+  try { reunioes = await fbCarregar(); }
+  catch (_) { reunioes = await localCarregar(); }
+  reunioes.sort((a, b) => new Date(b.criada) - new Date(a.criada));
+
+  const lista = document.getElementById('lista-historico');
+  if (!reunioes.length) {
+    lista.innerHTML = '<div class="empty-state"><p>Nenhuma reunião anterior</p></div>';
+    return;
+  }
+  lista.innerHTML = reunioes.slice(0, 15).map(r => {
+    const total = (r.itens || []).length;
+    const ok = (r.itens || []).filter(i => i.status === 'ok').length;
+    return `<div class="hist-item" data-id="${esc(r.id)}">
+      <div class="hist-item-main">
+        <div class="hist-item-titulo">${esc(r.titulo)}</div>
+        <div class="hist-item-data">${total} proposições · ${ok} resumidas</div>
+      </div>
+      <button class="hist-item-delete" data-id="${esc(r.id)}" title="Apagar reunião">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2">
+          <polyline points="3 6 5 6 21 6"/>
+          <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+      </button>
+    </div>`;
+  }).join('');
+
+  lista.querySelectorAll('.hist-item').forEach(el => el.addEventListener('click', e => {
+    if (!e.target.closest('.hist-item-delete')) restaurarReuniao(el.dataset.id, reunioes);
+  }));
+  lista.querySelectorAll('.hist-item-delete').forEach(btn => btn.addEventListener('click', async e => {
+    e.stopPropagation();
+    if (!confirm('Apagar esta reunião permanentemente?')) return;
+    const id = btn.dataset.id;
+    try { await fbApagar(id); } catch (_) {}
+    await localApagar(id);
+    if (app.reuniao?.id === id) {
+      app.reuniao = null;
+      app.selecionados.clear();
+      atualizarSidebar();
+      mostrarTela('tela-upload');
+      document.getElementById('lid-action-bar').style.display = 'none';
+    }
+    carregarHistorico();
+    mostrarToast('Reunião apagada.', '');
+  }));
+}
+
+function restaurarReuniao(id, reunioes) {
+  const r = reunioes.find(x => x.id === id);
+  if (!r) return;
+  app.reuniao = { ...r, itens: (r.itens || []).map(i => ({ ...i })) };
+  app.selecionados.clear();
+  atualizarSidebar();
+  renderizarTabela();
+  mostrarTela('tela-lista');
+  document.getElementById('lid-action-bar').style.display = 'flex';
+}
+
+// ============================================================
+//  CONFIGURAÇÕES (compartilhadas com os demais painéis)
+// ============================================================
+function carregarConfiguracao() {
+  return new Promise(resolve => {
+    chrome.storage.local.get('config', d => {
+      if (d.config) Object.assign(app.config, d.config);
+      resolve();
+    });
+  });
+}
+
+function onProvedorChange() {
+  const p = PROVEDORES_META[document.getElementById('config-provedor').value];
+  document.getElementById('config-api-key').placeholder = p.placeholderChave;
+  document.getElementById('config-hint-chave').textContent = p.hintChave;
+  popularSelectModelos();
+}
+
+function popularSelectModelos(selecionado) {
+  const p = PROVEDORES_META[document.getElementById('config-provedor').value];
+  const sel = document.getElementById('config-modelo');
+  sel.innerHTML = p.modelosFallback.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
+  if (selecionado && p.modelosFallback.some(m => m.id === selecionado)) sel.value = selecionado;
+  else if (app.config.modelo && p.modelosFallback.some(m => m.id === app.config.modelo)) sel.value = app.config.modelo;
+}
+
+async function carregarModelosDisponiveis() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim() || app.config.apiKey;
+  const p = PROVEDORES_META[pid];
+  const sel = document.getElementById('config-modelo');
+  const st = document.getElementById('modelos-status');
+  const btn = document.getElementById('btn-carregar-modelos');
+  if (!key) { st.textContent = 'Cole a chave de API primeiro.'; st.style.color = 'var(--text-dim)'; st.style.display = 'block'; return; }
+  btn.textContent = '↻ Carregando...'; btn.disabled = true; st.style.display = 'none';
+  try {
+    const lista = await p.listar(key);
+    if (!lista.length) throw new Error('Nenhum modelo compatível encontrado.');
+    const salvo = app.config.modelo;
+    sel.innerHTML = lista.map(m => `<option value="${m.id}" ${m.id === salvo ? 'selected' : ''}>${m.displayName}</option>`).join('');
+    if (!sel.value) sel.selectedIndex = 0;
+    st.textContent = `✓ ${lista.length} modelo(s) carregado(s).`; st.style.color = '#3ad97d'; st.style.display = 'block';
+  } catch (e) {
+    st.textContent = `✗ ${e.message}`; st.style.color = 'var(--vermelho)'; st.style.display = 'block';
+  } finally {
+    btn.textContent = '↻ Carregar disponíveis'; btn.disabled = false;
+  }
+}
+
+async function salvarConfiguracao() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim();
+  const modelo = document.getElementById('config-modelo').value;
+  const p = PROVEDORES_META[pid];
+  const st = document.getElementById('config-status-ia');
+  if (key && !p.regexChave.test(key)) {
+    st.textContent = `⚠ Chave inválida para ${p.label}.`;
+    st.className = 'config-status erro'; st.style.display = 'block';
+    return;
+  }
+  app.config = { ...app.config, provedor: pid, apiKey: key, modelo };
+  await new Promise(r => chrome.storage.local.set({ config: app.config }, r));
+
+  const texto = document.getElementById('config-instrucoes').value.trim();
+  if (texto !== (app.instrucoes || '').trim()) {
+    app.instrucoes = texto;
+    try { await salvarInstrucoes(texto); }
+    catch (e) { mostrarToast(`Instruções não sincronizadas: ${e.message}`, 'aviso'); }
+  }
+
+  fecharModal('modal-configuracoes');
+  mostrarToast(key ? 'Configurações salvas!' : 'Configurações salvas. Configure uma chave de IA para resumir.', key ? 'sucesso' : 'aviso');
+}
+
+async function testarConexao() {
+  const pid = document.getElementById('config-provedor').value;
+  const key = document.getElementById('config-api-key').value.trim() || app.config.apiKey;
+  const modelo = document.getElementById('config-modelo').value || app.config.modelo;
+  const st = document.getElementById('config-status-ia');
+  const btn = document.getElementById('btn-testar-ia');
+  if (!key) { st.textContent = 'Cole a chave de API antes de testar.'; st.className = 'config-status erro'; st.style.display = 'block'; return; }
+  const orig = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Testando...';
+  st.textContent = '⏳ Testando conexão...'; st.className = 'config-status teste'; st.style.display = 'block';
+  try {
+    await testarProvedor(pid, key, modelo);
+    st.textContent = '✓ Conexão OK — provedor pronto.'; st.className = 'config-status ok';
+  } catch (e) {
+    st.textContent = `✗ Erro: ${e.message}`; st.className = 'config-status erro';
+  } finally {
+    btn.disabled = false; btn.textContent = orig;
+  }
+}
+
+async function testarProvedor(pid, key, modelo) {
+  let res;
+  if (pid === 'gemini') {
+    res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent?key=${key}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ contents: [{ parts: [{ text: 'Responda apenas: OK' }] }] }),
+    });
+  } else if (pid === 'anthropic') {
+    res = await fetch(ANTHROPIC_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: modelo || 'claude-opus-4-8', max_tokens: 16, messages: [{ role: 'user', content: 'Responda apenas: OK' }] }),
+    });
+  } else {
+    res = await fetch(OPENAI_BASE, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${key}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: modelo || 'gpt-4o', input: 'Responda apenas: OK', max_output_tokens: 64 }),
+    });
+  }
+  const j = await res.json().catch(() => null);
+  if (!res.ok) throw new Error(j?.error?.message || `HTTP ${res.status}`);
+}
+
+async function abrirConfiguracoes() {
+  const c = app.config || {};
+  document.getElementById('config-provedor').value = c.provedor || 'gemini';
+  document.getElementById('config-api-key').value = c.apiKey || '';
+  onProvedorChange();
+  popularSelectModelos(c.modelo);
+  document.getElementById('config-status-ia').style.display = 'none';
+  document.getElementById('modelos-status').style.display = 'none';
+  document.getElementById('modal-configuracoes').style.display = 'flex';
+  if (c.apiKey) carregarModelosDisponiveis();
+
+  const ta = document.getElementById('config-instrucoes');
+  const st = document.getElementById('instrucoes-status');
+  st.textContent = 'Carregando…';
+  try { await carregarInstrucoes(); st.textContent = ''; }
+  catch (e) { st.textContent = `Não foi possível ler do Firebase: ${e.message}`; }
+  ta.value = app.instrucoes || '';
+}
+
+// ============================================================
+//  UTILITÁRIOS
+// ============================================================
+async function mapLimit(items, limit, fn) {
+  let idx = 0;
+  const worker = async () => {
+    while (idx < items.length) {
+      const i = idx++;
+      await fn(items[i], i);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+}
+
+function mostrarToast(msg, tipo = '') {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = `toast ${tipo}`;
+  t.style.display = 'block';
+  clearTimeout(app.toastTimer);
+  app.toastTimer = setTimeout(() => { t.style.display = 'none'; }, 4500);
+}
+
+function esc(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
