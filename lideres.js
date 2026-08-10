@@ -334,8 +334,13 @@ async function criarReuniao() {
       situacao:      '',
       comissoes:     '',
       relatoria:     '',
+      comparativo:   '',
       parecer:       '',
+      senado:        '',
       parecerPlen:   null,
+      emendaSenado:  null,
+      cenario:       0,
+      cenarioNome:   '',
       status:        'pendente',
       erro:          '',
     })),
@@ -400,9 +405,19 @@ async function carregarDadosDaProposicao(it) {
   it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
 
-  it.parecerPlen = await buscarParecerPlenario(item.id);
-  it.parecerFato = fraseDoParecer(it.parecerPlen);
+  const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
+  it.parecerPlen  = parecerPlenarioDe(relacionados);
+  it.emendaSenado = emendaSenadoDe(relacionados);
+  it.sbtComissao  = substitutivoComissaoDe(relacionados);
+  it.subemenda    = subemendaDe(relacionados);
+  it.especial     = it.sigla === 'PEC'
+    ? comUrl(relacionados.filter(d => ehComissaoEspecial(d) && ['PRL', 'SBT-A', 'SBT'].includes(d.tipo))) : [];
+  it.cenario      = cenarioDe(it, relacionados);
+  it.cenarioNome  = NOME_CENARIO[it.cenario] || '';
+  it.parecerFato  = fraseDoParecer(it.parecerPlen);
+  it.senadoFato   = fraseDaEmendaSenado(it.emendaSenado);
   if (!it.parecer) it.parecer = it.parecerFato;
+  if (!it.senado)  it.senado  = it.senadoFato;
   // Designação antiga pode não ter ficado registrada como tramitação de PLEN;
   // o parecer nomeia o relator e serve de segunda via.
   if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
@@ -410,58 +425,167 @@ async function carregarDadosDaProposicao(it) {
   }
 }
 
-// ---------- PARECER PROFERIDO EM PLENÁRIO ----------
-// O que vai a voto no Plenário quase nunca é o texto apresentado: quando há
-// parecer proferido em Plenário com substitutivo, é o SUBSTITUTIVO que está em
-// jogo. Resumir só o inteiro teor original descreveria a proposição errada.
+// ---------- DOCUMENTOS RELACIONADOS ----------
+// O texto que está em jogo raramente é o que foi apresentado. A proposição
+// caminha e cada etapa produz um documento próprio:
+//   PRLP parecer do relator de Plenário    PPP  parecer proferido em Plenário
+//   PRLE parecer às emendas                SBT  substitutivo de Plenário
+//   SBT-A substitutivo adotado por comissão SSP subemenda substitutiva
+//   RDF  redação final da Câmara           AA   autógrafo enviado ao Senado
+//   EMS  emenda/substitutivo do Senado     PSS  parecer da Câmara à emenda
+//   PRL  parecer do relator (comissão, inclusive Comissão Especial de PEC)
 //
-// Os pareceres são proposições autônomas, ligadas pela relação:
-//   PPP = Parecer Proferido em Plenário · SBT = Substitutivo adotado
-// e o que separa o de Plenário do de comissão é o siglaOrgao do documento.
-async function buscarParecerPlenario(idCamara, signal) {
+// OS CENÁRIOS SÃO OS MESMOS DO MÓDULO DE PLENÁRIO (analise.js,
+// escolherDocumentos/classificarCenario) — mesma numeração e mesma ordem de
+// prioridade, para que os dois painéis falem a mesma língua. A diferença é a
+// FONTE: lá os documentos saem da raspagem das páginas de pareceres e emendas;
+// aqui saem de /proposicoes/{id}/relacionadas, que MEDIDO expõe todos esses
+// tipos (nas 68 da lista de 07/07/2026: PRLP 36, SBT-A 13, PPP 10, PRLE 4,
+// RDF 4, EMS 3, SSP 1, AA 1, PSS 1).
+const TIPOS_RELACIONADOS = new Set(['PPP', 'PRLP', 'PRLE', 'PRL', 'SBT', 'SBT-A',
+                                    'SSP', 'RDF', 'AA', 'EMS', 'PSS']);
+// Teto por proposição: o PL 462/2011 tem 11 documentos e cada um custa uma
+// consulta de detalhe só para saber o órgão e a data.
+const MAX_RELACIONADOS = 30;
+
+async function buscarDocumentosRelacionados(idCamara, sigla, signal) {
   let rel;
   try {
     const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`, { signal });
-    if (!r.ok) return null;
+    if (!r.ok) return [];
     rel = (await r.json()).dados || [];
-  } catch (_) { return null; }
+  } catch (_) { return []; }
 
-  const candidatos = rel.filter(d => d.siglaTipo === 'PPP' || d.siglaTipo === 'SBT');
-  if (!candidatos.length) return null;
-
-  const doPlenario = [];
-  for (const d of candidatos) {
+  // Cada documento custa uma consulta de detalhe só para saber órgão e data.
+  // PRL é de longe o tipo mais numeroso (64 nas 68 da lista) e só interessa em
+  // PEC, onde a Comissão Especial é quem produz o texto operativo — fora daí
+  // seriam ~60 consultas por nada.
+  const interessa = x => TIPOS_RELACIONADOS.has(x.siglaTipo) && (x.siglaTipo !== 'PRL' || sigla === 'PEC');
+  const docs = [];
+  for (const d of rel.filter(interessa).slice(0, MAX_RELACIONADOS)) {
     try {
       const r = await fetch(`${API_BASE}/proposicoes/${d.id}`, { signal });
       if (!r.ok) continue;
       const det = (await r.json()).dados;
-      if (det.statusProposicao?.siglaOrgao !== 'PLEN') continue;   // parecer de comissão
-      doPlenario.push({
+      docs.push({
         tipo:   d.siglaTipo,
         data:   (det.dataApresentacao || det.statusProposicao?.dataHora || '').slice(0, 10),
+        orgao:  det.statusProposicao?.siglaOrgao || '',
         ementa: det.ementa || '',
         url:    det.urlInteiroTeor || null,
       });
     } catch (_) { /* um documento a menos */ }
   }
-  if (!doPlenario.length) return null;
+  return docs;
+}
+
+const maisNovo = lista => lista.slice().sort((a, b) => (a.data || '').localeCompare(b.data || '')).pop() || null;
+const comUrl = lista => lista.filter(d => d.url);
+// Comissão Especial: o órgão dela é codificado com o número da própria
+// proposição (a da PEC 231/2019 é "PEC23119"), e não com sigla de comissão
+// permanente.
+const ehComissaoEspecial = d => /^[A-Z]{2,4}\d{3,}$/.test(d.orgao || '');
+
+/** Cenário de tramitação — mesma numeração e mesma ordem de prioridade do
+ *  módulo de Plenário (analise.js: classificarCenario). */
+function cenarioDe(it, docs) {
+  const tem = t => docs.some(d => d.tipo === t && d.url);
+  const especial = comUrl(docs.filter(d => ehComissaoEspecial(d) && (d.tipo === 'PRL' || d.tipo === 'SBT-A' || d.tipo === 'SBT')));
+  if (it.sigla === 'PEC' && especial.length) return 9;
+  if (it.sigla === 'PDL' || it.sigla === 'PDC') return 10;
+  if (tem('EMS')) return emendaSenadoDe(docs)?.parecerPos ? 7 : 6;
+  if (tem('SSP')) return 5;
+  if ((tem('PRLP') || tem('PPP')) && (tem('SBT-A') || tem('SBT'))) return 4;
+  if (tem('SBT-A')) return 2;
+  if (tem('PRLP') || tem('PRLE') || tem('PPP')) return 3;
+  return 1;
+}
+
+const NOME_CENARIO = {
+  1:  'Cenário 1 — inteiro teor (sem parecer)',
+  2:  'Cenário 2 — substitutivo de comissão (SBT-A)',
+  3:  'Cenário 3 — parecer de plenário',
+  4:  'Cenário 4 — parecer de plenário na forma do substitutivo',
+  5:  'Cenário 5 — subemenda substitutiva (SSP)',
+  6:  'Cenário 6 — retorno do Senado (EMS)',
+  7:  'Cenário 7 — retorno do Senado com parecer da Câmara',
+  9:  'Cenário 9 — PEC (parecer da Comissão Especial)',
+  10: 'Cenário 10 — PDL (decreto legislativo)',
+};
+
+/** Parecer de Plenário: o que o separa do de comissão é o siglaOrgao, não o
+ *  tipo. O PPP é o parecer efetivamente proferido; o PRLP é o do relator. */
+function parecerPlenarioDe(docs) {
+  const doPlenario = docs.filter(d => ['PPP', 'PRLP', 'PRLE', 'SBT'].includes(d.tipo) && d.orgao === 'PLEN');
+  const pareceres0 = doPlenario.filter(d => d.tipo === 'PPP' || d.tipo === 'PRLP');
+  if (!pareceres0.length) return null;
 
   // Só a leva mais recente: o parecer de Plenário costuma vir repartido em um
   // documento por comissão, todos do mesmo dia (o PL 4558/2019 tem três), e
   // parecer de uma rodada anterior de apreciação não descreve o texto de agora.
-  const maisRecente = doPlenario.map(p => p.data).sort().pop();
-  const leva = doPlenario.filter(p => p.data === maisRecente);
-  const pareceres = leva.filter(p => p.tipo === 'PPP');
+  const data = maisNovo(pareceres0).data;
+  const leva = doPlenario.filter(d => d.data === data);
+  const pareceres = leva.filter(d => d.tipo === 'PPP' || d.tipo === 'PRLP');
   return {
-    data: maisRecente,
+    data,
     pareceres,
-    substitutivo: leva.find(p => p.tipo === 'SBT') || null,
+    proferido: pareceres.some(p => p.tipo === 'PPP'),
+    substitutivo: leva.find(d => d.tipo === 'SBT' && d.url) || null,
     relator: relatorDaEmenta(pareceres),
     relatorRotulo: pareceres.some(p => /\bRelatora\b/i.test(p.ementa || '')) ? 'relatora' : 'relator',
     // O de mérito é o que conclui pela aprovação — os demais tratam de
     // constitucionalidade e de adequação orçamentária.
-    merito: pareceres.find(p => /na forma do substitutivo|pela aprova/i.test(p.ementa)) || pareceres[pareceres.length - 1] || null,
+    merito: pareceres.find(p => /na forma do substitutivo|pela aprova/i.test(p.ementa) && p.url)
+            || comUrl(pareceres).pop() || null,
   };
+}
+
+/** Substitutivo adotado por comissão, e a subemenda de Plenário. */
+const substitutivoComissaoDe = docs => maisNovo(comUrl(docs.filter(d => d.tipo === 'SBT-A')));
+const subemendaDe            = docs => maisNovo(comUrl(docs.filter(d => d.tipo === 'SSP')));
+
+/** Proposição que voltou do Senado (a lista marca esses itens com "- EMS").
+ *  Interessa o PAR: o texto que SAIU da Câmara e o que VOLTOU do Senado — é a
+ *  diferença entre os dois que o Plenário vai deliberar.
+ *
+ *  O texto que saiu é o AUTÓGRAFO (AA), como no módulo de Plenário; sem ele,
+ *  a redação final (RDF); sem as duas, o inteiro teor serve de aproximação. */
+function emendaSenadoDe(docs) {
+  const ems = maisNovo(comUrl(docs.filter(d => d.tipo === 'EMS')));
+  if (!ems) return null;
+  const antes = t => maisNovo(comUrl(docs.filter(d => d.tipo === t && (d.data || '') <= (ems.data || ''))));
+  // O parecer sobre as emendas do Senado tem de ser POSTERIOR a elas: um
+  // parecer da primeira passagem nada tem a ver com o que o Senado mudou.
+  const parecerPos = maisNovo(comUrl(docs.filter(d =>
+    (d.tipo === 'PSS' || d.tipo === 'PRLP') && (d.data || '') > (ems.data || ''))));
+  return {
+    ems,
+    autografo: antes('AA'),
+    rdf: antes('RDF'),
+    parecerPos,
+    jaDeliberada: docs.some(d => d.tipo === 'RDF' && (d.data || '') > (ems.data || '')),
+  };
+}
+
+/** A peça que representa o texto aprovado pela Câmara antes de ir ao Senado. */
+function textoQueSaiuDaCamara(es) {
+  if (es.autografo) return { doc: es.autografo, rotulo: `AUTÓGRAFO — texto aprovado pela Câmara em ${dataBR(es.autografo.data)} e enviado ao Senado` };
+  if (es.rdf)       return { doc: es.rdf,       rotulo: `REDAÇÃO FINAL aprovada pela Câmara em ${dataBR(es.rdf.data)} — foi este o texto enviado ao Senado` };
+  return null;
+}
+
+/** A parte factual da coluna "Emendas do Senado". O confronto entre as duas
+ *  peças é redigido pela IA. */
+function fraseDaEmendaSenado(es) {
+  if (!es) return 'Não há emenda do Senado.';
+  const saiu = textoQueSaiuDaCamara(es);
+  const partes = [`Emenda/Substitutivo do Senado recebido em ${dataBR(es.ems.data)}`];
+  partes.push(saiu
+    ? `texto que saiu da Câmara: ${es.autografo ? 'autógrafo' : 'redação final'} de ${dataBR(saiu.doc.data)}`
+    : 'texto aprovado pela Câmara não localizado — o confronto usa o inteiro teor original');
+  if (es.parecerPos) partes.push(`parecer da Câmara à emenda em ${dataBR(es.parecerPos.data)}`);
+  if (es.jaDeliberada) partes.push('há redação final POSTERIOR à emenda — conferir se a matéria já foi deliberada');
+  return partes.join('; ') + '.';
 }
 
 function relatorDaEmenta(pareceres) {
@@ -859,22 +983,76 @@ async function documentoDeUrl(url, rotulo, signal) {
   return { doc: { kind: 'pdf', b64: bufParaBase64(buf), rotulo }, texto };
 }
 
+/** O texto que o Plenário vai efetivamente deliberar, por cenário. É ele que o
+ *  objetivo tem de descrever e o segundo lado do comparativo. */
+function textoEmVotacao(it) {
+  const pp = it.parecerPlen, es = it.emendaSenado;
+  switch (it.cenario) {
+    case 6: case 7:
+      return { doc: es.ems, rotulo: `EMENDA/SUBSTITUTIVO DO SENADO recebido em ${dataBR(es.ems.data)} — é o que voltou e será deliberado`,
+               nome: 'Substitutivo do Senado' };
+    case 5:
+      return { doc: it.subemenda, rotulo: `SUBEMENDA SUBSTITUTIVA DE PLENÁRIO de ${dataBR(it.subemenda.data)} — é ESTE o texto que vai a voto`,
+               nome: 'Subemenda substitutiva de Plenário' };
+    case 4:
+      return pp?.substitutivo
+        ? { doc: pp.substitutivo, rotulo: `SUBSTITUTIVO adotado em Plenário em ${dataBR(pp.data)} — é ESTE o texto que vai a voto`,
+            nome: 'Substitutivo de Plenário' }
+        : { doc: it.sbtComissao, rotulo: `SUBSTITUTIVO adotado por comissão em ${dataBR(it.sbtComissao.data)} — é ESTE o texto que vai a voto`,
+            nome: 'Substitutivo de comissão' };
+    case 2:
+      return { doc: it.sbtComissao, rotulo: `SUBSTITUTIVO adotado por comissão em ${dataBR(it.sbtComissao.data)} — é ESTE o texto que vai a voto`,
+               nome: 'Substitutivo de comissão' };
+    case 9: {
+      const sbt = it.especial.find(d => d.tipo !== 'PRL');
+      return sbt ? { doc: sbt, rotulo: `SUBSTITUTIVO adotado pela Comissão Especial em ${dataBR(sbt.data)} — é ESTE o texto que vai a voto`,
+                     nome: 'Substitutivo da Comissão Especial' } : null;
+    }
+    default: return null;
+  }
+}
+
 /** Monta o conjunto de peças que a IA vai ler e o texto-fonte contra o qual as
- *  citações serão conferidas. */
+ *  citações serão conferidas.
+ *
+ *  Segue a prioridade de escolherDocumentos() do módulo de Plenário. O texto de
+ *  partida vai SEMPRE: é dele que sai a justificativa do autor e é contra ele
+ *  que o texto em votação é confrontado — sem os dois lados o analista não tem
+ *  como orientar o líder ponto a ponto. */
 async function reunirDocumentos(it, signal) {
   const docs = [];
   let fonte = '';
   const juntar = ({ doc, texto }) => { if (doc) docs.push(doc); fonte += '\n' + texto; };
+  const pp = it.parecerPlen, es = it.emendaSenado;
 
-  juntar(await documentoDeUrl(it.urlInteiroTeor, `Peça: inteiro teor do ${it.chave}, como apresentado.`, signal));
+  // Lado A — o texto de partida do confronto.
+  const saiu = es && textoQueSaiuDaCamara(es);
+  if (saiu) {
+    juntar(await documentoDeUrl(saiu.doc.url, `Peça A: ${saiu.rotulo}.`, signal));
+  }
+  juntar(await documentoDeUrl(it.urlInteiroTeor,
+    `Peça ${saiu ? 'A2' : 'A'}: inteiro teor do ${it.chave}, como APRESENTADO pelo autor (traz a justificativa).`, signal));
   const temOriginal = docs.length > 0;
 
-  const pp = it.parecerPlen;
-  if (pp) {
-    juntar(await documentoDeUrl(pp.merito?.url,
-      `Peça: parecer proferido em Plenário em ${dataBR(pp.data)}${pp.relator ? ` ${pp.relatorRotulo === "relatora" ? "pela relatora" : "pelo relator"} ${pp.relator}` : ""}.`, signal));
-    juntar(await documentoDeUrl(pp.substitutivo?.url,
-      `Peça: SUBSTITUTIVO adotado em Plenário em ${dataBR(pp.data)} — é ESTE o texto que vai a voto.`, signal));
+  // Lado B — o texto em votação e o parecer que o sustenta.
+  if (it.cenario === 6 || it.cenario === 7) {
+    juntar(await documentoDeUrl(es.ems.url, `Peça B: ${textoEmVotacao(it).rotulo}.`, signal));
+    if (es.parecerPos) {
+      juntar(await documentoDeUrl(es.parecerPos.url,
+        `Peça C: parecer da Câmara às emendas do Senado, de ${dataBR(es.parecerPos.data)} — diz o que o relator ACATA e o que REJEITA.`, signal));
+    }
+  } else {
+    if (pp?.merito) {
+      juntar(await documentoDeUrl(pp.merito.url,
+        `Peça B: parecer de Plenário de ${dataBR(pp.data)}${pp.relator ? ` ${pp.relatorRotulo === 'relatora' ? 'pela relatora' : 'pelo relator'} ${pp.relator}` : ''}.`, signal));
+    }
+    const votacao = textoEmVotacao(it);
+    if (votacao?.doc) juntar(await documentoDeUrl(votacao.doc.url, `Peça C: ${votacao.rotulo}.`, signal));
+    if (it.cenario === 9) {
+      for (const d of it.especial.filter(x => x.tipo === 'PRL').slice(-1)) {
+        juntar(await documentoDeUrl(d.url, `Peça B: parecer do relator da Comissão Especial, de ${dataBR(d.data)}.`, signal));
+      }
+    }
   }
   return { docs, fonte: fonte.trim(), temOriginal };
 }
@@ -918,23 +1096,37 @@ const artigoDe = sigla => ARTIGO_FEMININO.has(sigla) ? 'A' : 'O';
 function montarPrompt(it) {
   const d = it.despachos || {};
   const pp = it.parecerPlen;
-  const sbt = !!pp?.substitutivo;
+  const es = it.emendaSenado;
+  const votacao = textoEmVotacao(it);
   const autoria = it.autoriaPdf || (it.autoresApi || []).join(', ') || 'não informada';
 
   const blocoParecer = pp ? `
 
-PARECER PROFERIDO EM PLENÁRIO — ${dataBR(pp.data)}${pp.relator ? ` · relator ${pp.relator}` : ''}${sbt ? ' · COM SUBSTITUTIVO ADOTADO' : ''}
+PARECER DE PLENÁRIO — ${dataBR(pp.data)}${pp.relator ? ` · relator ${pp.relator}` : ''}${pp.substitutivo ? ' · COM SUBSTITUTIVO ADOTADO' : ''}
 ${pp.pareceres.map(p => `· ${p.ementa}`).join('\n')}` : '';
 
-  // Com substitutivo, o texto apresentado deixa de ser o que está em jogo: o
+  const blocoSenado = es ? `
+
+RETORNO DO SENADO — ${it.cenarioNome}
+${it.senadoFato}
+· ${es.ems.ementa}` : '';
+
+  // Havendo texto em votação, o apresentado deixa de ser o que está em jogo: o
   // objetivo tem de descrever o que vai a voto, ou o líder lê uma coisa e vota
   // outra.
-  const instrucaoObjetivo = sbt
-    ? `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, na forma do Substitutivo adotado em Plenário, tem como objetivo …\\", descrevendo o que o SUBSTITUTIVO faz — não o texto originalmente apresentado. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão.`
+  const instrucaoObjetivo = votacao
+    ? `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, na forma do ${votacao.nome}, tem como objetivo …\\", descrevendo o que o texto EM VOTAÇÃO faz — não o texto originalmente apresentado. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão.`
     : `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, tem como objetivo …\\", descrevendo o que a proposição faz. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão. Cite as leis alteradas pelo nome usual quando houver (ex.: Lei de Responsabilidade Fiscal).`;
 
-  const chaveParecer = pp ? `,
-  "parecer": "Uma frase completando o registro do parecer proferido em Plenário: por quais comissões o relator opinou e a conclusão de cada uma. Não repita a data nem o nome do relator, que já constam. Baseie-se apenas nos pareceres acima e nas peças anexadas."` : '';
+  // O analista precisa dos dois lados para orientar o líder ponto a ponto na
+  // reunião, mas em reunião ninguém lê parágrafo: o campo é uma lista curta do
+  // que MUDOU em relação ao inteiro teor, com teto de tamanho no próprio pedido
+  // — sem o teto o modelo devolve dois parágrafos e o campo vira ilegível.
+  const chaveComparativo = votacao ? `,
+  "comparativo": "MUITO BREVE — no máximo 4 itens, cada um com no máximo 20 palavras, separados por ponto e vírgula, tudo numa linha só. Comece por \\"${votacao.nome}: \\" e liste apenas o que esse texto ALTERA, INCLUI ou SUPRIME em relação ao inteiro teor apresentado, usando esses verbos e citando o dispositivo quando couber. Não descreva o que ficou igual e não repita o objetivo. Só afirme mudança que você verifique confrontando as peças anexadas; se o confronto não for possível, escreva exatamente \\"Não foi possível cotejar as peças.\\"${es?.parecerPos ? ' Ao final, acrescente \\" | Parecer da Câmara: \\" e, em até 20 palavras, o que o relator ACATA e o que REJEITA.' : ''}"` : '';
+
+  const chaveParecer = (pp && !es) ? `,
+  "parecer": "Uma frase completando o registro do parecer de Plenário: por quais comissões o relator opinou e a conclusão de cada uma. Não repita a data nem o nome do relator, que já constam. Baseie-se apenas nos pareceres acima e nas peças anexadas."` : '';
 
   return `Você prepara o resumo das proposições que o Colégio de Líderes da Câmara dos Deputados vai avaliar para eventual inclusão na pauta do Plenário.
 
@@ -948,7 +1140,7 @@ DESPACHOS DE DISTRIBUIÇÃO REGISTRADOS:
 ${(d.distribuicao || []).join('\n') || '(nenhum despacho de distribuição a comissões registrado)'}
 
 ANDAMENTO POR COLEGIADO:
-${(d.comissoes || []).join('\n') || '(nenhum registro em comissão)'}${blocoParecer}
+${(d.comissoes || []).join('\n') || '(nenhum registro em comissão)'}${blocoParecer}${blocoSenado}
 
 As peças estão anexadas, cada uma precedida de um rótulo que diz o que ela é.
 
@@ -957,7 +1149,7 @@ Devolva um JSON com exatamente estas chaves:
 {
   "objetivo": "${instrucaoObjetivo}",
   "justificativa": "Um parágrafo curto começando por \\"Segundo a justificativa apresentada pelo autor, …\\", resumindo os motivos que o AUTOR da proposição apresenta no inteiro teor original — não os do relator. Se o inteiro teor não contiver justificativa, use a frase de abstenção prevista nas regras.",
-  "comissoes": "Uma frase sobre as comissões competentes, indicando quais estão pendentes de parecer, com base APENAS nos despachos e no andamento acima. Se não houver despacho de distribuição registrado, escreva exatamente \\"Aguardando despacho do presidente.\\""${chaveParecer}
+  "comissoes": "Uma frase sobre as comissões competentes, indicando quais estão pendentes de parecer, com base APENAS nos despachos e no andamento acima. Se não houver despacho de distribuição registrado, escreva exatamente \\"Aguardando despacho do presidente.\\""${chaveComparativo}${chaveParecer}
 }
 ${blocoInstrucoes()}${REGRAS_RIGIDAS}`;
 }
@@ -991,17 +1183,23 @@ async function resumirProposicao(it, signal) {
   it.objetivo      = String(j.objetivo || '').trim();
   it.justificativa = String(j.justificativa || '').trim();
   it.comissoes     = String(j.comissoes || '').trim();
-  it.parecer = it.parecerPlen
+  it.comparativo   = String(j.comparativo || '').trim();
+  it.senado        = it.senadoFato;
+  it.parecer = (it.parecerPlen && !it.emendaSenado)
     ? `${it.parecerFato} ${String(j.parecer || '').trim()}`.trim()
     : it.parecerFato;
 
-  it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa}`, fonte);
+  it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa} ${it.comparativo}`, fonte);
+  const votacao = textoEmVotacao(it);
   const avisos = [];
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
   }
-  if (it.parecerPlen?.substitutivo) avisos.push('Objetivo descreve o substitutivo adotado em Plenário, não o texto apresentado.');
+  if (votacao) avisos.push(`${it.cenarioNome}: objetivo descreve o ${votacao.nome}, não o texto apresentado.`);
+  if (it.emendaSenado && !textoQueSaiuDaCamara(it.emendaSenado)) {
+    avisos.push('Texto aprovado pela Câmara não localizado — cotejo feito contra o inteiro teor original.');
+  }
   if (it.refsSuspeitas.length) avisos.push(`Conferir no original: ${it.refsSuspeitas.join('; ')}`);
   it.avisoTeor = avisos.join(' · ');
   it.modelo = `${app.config.provedor}/${app.config.modelo}`;
@@ -1064,7 +1262,7 @@ async function resumirLote(chaves) {
 // ============================================================
 //  TABELA
 // ============================================================
-const CAMPOS_EDITAVEIS = ['objetivo', 'justificativa', 'situacao', 'comissoes', 'relatoria', 'parecer'];
+const CAMPOS_EDITAVEIS = ['objetivo', 'justificativa', 'comparativo', 'situacao', 'comissoes', 'relatoria', 'parecer', 'senado'];
 
 function renderizarTabela() {
   const tbody = document.getElementById('lid-tbody');
@@ -1105,10 +1303,12 @@ function linhaHTML(it) {
     <td class="lid-c-aut">${esc(it.autoriaPdf || (it.autoresApi || []).join(', '))}</td>
     <td class="lid-c-obj">${campo('objetivo', 'Objetivo')}</td>
     <td class="lid-c-just">${campo('justificativa', 'Justificativa')}</td>
+    <td class="lid-c-comp">${campo('comparativo', '—')}</td>
     <td class="lid-c-sit">${campo('situacao', 'Situação')}</td>
     <td class="lid-c-com">${campo('comissoes', 'Comissões')}</td>
     <td class="lid-c-rel">${campo('relatoria', 'Relatoria')}</td>
     <td class="lid-c-par">${campo('parecer', 'Parecer de Plenário')}</td>
+    <td class="lid-c-sen">${campo('senado', 'Emendas do Senado')}</td>
   </tr>`;
 }
 
@@ -1203,22 +1403,25 @@ function exportarPlanilha() {
 
   // As oito primeiras colunas são o resumo em si. As três últimas existem para
   // conferência: quem revisa consegue voltar à fonte sem reabrir o PDF.
-  const cab = ['Nº', 'Proposição', 'Autoria', 'Objetivo', 'Justificativa',
-               'Situação', 'Comissões', 'Relatoria de Plenário', 'Parecer de Plenário',
-               'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)', 'Inteiro teor', 'Substitutivo de Plenário'];
+  const cab = ['Nº', 'Proposição', 'Autoria', 'Objetivo', 'Justificativa', 'O que mudou',
+               'Situação', 'Comissões', 'Relatoria de Plenário', 'Parecer de Plenário', 'Emendas do Senado',
+               'Cenário', 'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)',
+               'Inteiro teor', 'Texto em votação'];
   const linhas = [cab, ...app.reuniao.itens.map(i => [
     i.numItem, i.chave + (i.ehPrincipal ? ' (principal)' : ''),
     i.autoriaPdf || (i.autoresApi || []).join(', '),
-    i.objetivo, i.justificativa, i.situacao, i.comissoes, i.relatoria, i.parecer || '',
-    i.avisoTeor || i.erro || '',
+    i.objetivo, i.justificativa, i.comparativo || '',
+    i.situacao, i.comissoes, i.relatoria, i.parecer || '', i.senado || '',
+    i.cenarioNome || '', i.avisoTeor || i.erro || '',
     i.ementa, i.celulaProp || '', i.regimePdf || '', i.urlInteiroTeor || '',
-    i.parecerPlen?.substitutivo?.url || '',
+    textoEmVotacao(i)?.doc?.url || '',
   ])];
 
   const ws = XLSX.utils.aoa_to_sheet(linhas);
-  ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 28 }, { wch: 70 }, { wch: 70 },
-                 { wch: 34 }, { wch: 40 }, { wch: 30 }, { wch: 50 }, { wch: 34 },
-                 { wch: 60 }, { wch: 26 }, { wch: 24 }, { wch: 46 }, { wch: 46 }];
+  ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 28 }, { wch: 70 }, { wch: 70 }, { wch: 60 },
+                 { wch: 34 }, { wch: 40 }, { wch: 30 }, { wch: 50 }, { wch: 46 },
+                 { wch: 34 }, { wch: 34 }, { wch: 60 }, { wch: 26 }, { wch: 24 },
+                 { wch: 46 }, { wch: 46 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Reunião de Líderes');
 

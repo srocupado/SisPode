@@ -30,7 +30,9 @@ const sandbox = {
 };
 const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoriaDe',
                   'despachosDeComissao', 'extrairJSON', 'formatarPartido', 'buscarTramitacoes',
-                  'buscarParecerPlenario', 'fraseDoParecer', 'validarReferencias'];
+                  'buscarDocumentosRelacionados', 'parecerPlenarioDe', 'emendaSenadoDe',
+                  'fraseDoParecer', 'fraseDaEmendaSenado', 'cenarioDe', 'validarReferencias',
+                  'textoQueSaiuDaCamara'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -95,7 +97,8 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   // própria lista. É o caso que mostra por que o resumo não pode se apoiar só
   // no texto apresentado.
   const idPP = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=2465&ano=2026&itens=1`)).json()).dados[0].id;
-  const pp = await L.buscarParecerPlenario(idPP);
+  const relPP = await L.buscarDocumentosRelacionados(idPP, 'PL');
+  const pp = L.parecerPlenarioDe(relPP);
   ok(!!pp, 'parecer de Plenário localizado');
   ok(pp?.data === '2026-07-07', `data do parecer (obtida: ${pp?.data})`);
   ok(!!pp?.substitutivo?.url, 'substitutivo adotado tem inteiro teor');
@@ -107,8 +110,26 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
 
   // Parecer de COMISSÃO não pode ser confundido com parecer de Plenário.
   const idCom = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=3052&ano=2023&itens=1`)).json()).dados[0].id;
-  const semPP = await L.buscarParecerPlenario(idCom);
+  const docsCom = await L.buscarDocumentosRelacionados(idCom, 'PL');
+  const semPP = L.parecerPlenarioDe(docsCom);
   ok(semPP === null, `PL 3052/2023 tem PRL e SBT de comissão, e nenhum de Plenário (obtido: ${semPP ? 'parecer' : 'null'})`);
+  ok(L.cenarioDe({ sigla: 'PL' }, docsCom) === 2, `PL 3052/2023 → cenário 2, substitutivo de comissão (obtido: ${L.cenarioDe({ sigla: 'PL' }, docsCom)})`);
+  ok(L.cenarioDe({ sigla: 'PL' }, relPP) === 4, `PL 2465/2026 → cenário 4, parecer de plenário na forma do substitutivo (obtido: ${L.cenarioDe({ sigla: 'PL' }, relPP)})`);
+
+  console.log('\n== Retorno do Senado (itens marcados "- EMS" na lista) ==');
+  const idEMS = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=6003&ano=2019&itens=1`)).json()).dados[0].id;
+  const relEMS = await L.buscarDocumentosRelacionados(idEMS, 'PL');
+  const es = L.emendaSenadoDe(relEMS);
+  ok(!!es, 'emenda do Senado localizada');
+  ok(es?.ems?.data === '2019-11-12', `data do EMS (obtida: ${es?.ems?.data})`);
+  // O parecer da Câmara às emendas do Senado tem de ser POSTERIOR a elas.
+  ok(es?.parecerPos?.data === '2024-03-20', `parecer POSTERIOR ao EMS (obtido: ${es?.parecerPos?.data})`);
+  const cen = L.cenarioDe({ sigla: 'PL' }, relEMS);
+  ok(cen === 7, `PL 6003/2019 → cenário 7, retorno do Senado com parecer da Câmara (obtido: ${cen})`);
+  const saiu = L.textoQueSaiuDaCamara(es);
+  ok(!!saiu?.doc?.url, `texto que saiu da Câmara tem inteiro teor (${saiu?.doc?.tipo})`);
+  ok((saiu?.doc?.data || '') <= es.ems.data, 'o texto que saiu é ANTERIOR à emenda do Senado');
+  ok(L.emendaSenadoDe(relPP) === null, 'proposição que não foi ao Senado não inventa emenda');
 
   console.log('\n== Conferência de citações ==');
   // A conferência exige uma fonte com corpo: abaixo de 100 caracteres ela se
