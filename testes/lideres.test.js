@@ -29,7 +29,8 @@ const sandbox = {
   XLSX: undefined,
 };
 const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoriaDe',
-                  'despachosDeComissao', 'extrairJSON', 'formatarPartido', 'buscarTramitacoes'];
+                  'despachosDeComissao', 'extrairJSON', 'formatarPartido', 'buscarTramitacoes',
+                  'buscarParecerPlenario', 'fraseDoParecer', 'validarReferencias'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -88,6 +89,38 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   const relCom = await L.relatoriaDe(
     [{ siglaOrgao: 'CCJC', descricaoTramitacao: 'Designação de Relator(a)', despacho: 'Designado Relator, Dep. Fulano (PT-SP).' }], null);
   ok(relCom === 'Sem indicação', `designação em comissão → "${relCom}"`);
+
+  console.log('\n== Parecer proferido em Plenário ==');
+  // O PL 2465/2026 teve parecer com substitutivo em 07/07/2026 — a data da
+  // própria lista. É o caso que mostra por que o resumo não pode se apoiar só
+  // no texto apresentado.
+  const idPP = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=2465&ano=2026&itens=1`)).json()).dados[0].id;
+  const pp = await L.buscarParecerPlenario(idPP);
+  ok(!!pp, 'parecer de Plenário localizado');
+  ok(pp?.data === '2026-07-07', `data do parecer (obtida: ${pp?.data})`);
+  ok(!!pp?.substitutivo?.url, 'substitutivo adotado tem inteiro teor');
+  ok(/Antonio Brito/.test(pp?.relator || ''), `relator do parecer (obtido: "${pp?.relator}")`);
+  ok(!!pp?.merito, 'parecer de mérito identificado entre os do dia');
+  ok(L.fraseDoParecer(pp) === 'Parecer proferido em Plenário em 07/07/2026, pelo relator Dep. Antonio Brito (PSD-BA), com substitutivo adotado.',
+     `frase factual do parecer (obtida: "${L.fraseDoParecer(pp)}")`);
+  ok(L.fraseDoParecer(null) === 'Sem parecer proferido em Plenário.', 'sem parecer → frase própria');
+
+  // Parecer de COMISSÃO não pode ser confundido com parecer de Plenário.
+  const idCom = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=3052&ano=2023&itens=1`)).json()).dados[0].id;
+  const semPP = await L.buscarParecerPlenario(idCom);
+  ok(semPP === null, `PL 3052/2023 tem PRL e SBT de comissão, e nenhum de Plenário (obtido: ${semPP ? 'parecer' : 'null'})`);
+
+  console.log('\n== Conferência de citações ==');
+  // A conferência exige uma fonte com corpo: abaixo de 100 caracteres ela se
+  // cala, porque extração vazia marcaria tudo como suspeito.
+  const fonteFalsa = 'Projeto de lei que altera a Lei nº 9.998, de 17 de agosto de 2000, '
+    + 'para dispor sobre o Fundo de Universalização dos Serviços de Telecomunicações e dá outras providências.';
+  ok(L.validarReferencias('Altera a Lei nº 9.998, de 2000.', fonteFalsa).length === 0,
+     'lei citada que existe na fonte não é marcada');
+  const sus = L.validarReferencias('Altera a Lei nº 12.345, de 2011.', fonteFalsa);
+  ok(sus.length === 1, `lei citada que NÃO existe na fonte é marcada (obtido: ${JSON.stringify(sus)})`);
+  ok(L.validarReferencias('Altera a Lei nº 12.345.', 'curto demais').length === 0,
+     'fonte curta demais → conferência se cala em vez de marcar tudo');
 
   console.log('\n== Extração de JSON da resposta da IA ==');
   ok(L.extrairJSON('```json\n{"objetivo":"a"}\n```').objetivo === 'a', 'JSON entre cercas');
