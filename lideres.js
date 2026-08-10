@@ -86,6 +86,7 @@ function registrarEventos() {
   document.getElementById('btn-parar').addEventListener('click', () => app.abortar?.abort());
   document.getElementById('btn-salvar').addEventListener('click', salvarReuniao);
   document.getElementById('btn-exportar').addEventListener('click', exportarPlanilha);
+  document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
   document.getElementById('check-todos').addEventListener('change', e => marcarTodas(e.target.checked));
 
   // Rolagem horizontal por botão: com barras em modo overlay, a tabela larga
@@ -1484,6 +1485,132 @@ function atualizarProgresso(feitos, total, rotulo = '') {
 // ============================================================
 //  PLANILHA
 // ============================================================
+// ============================================================
+//  PDF (via window.print, mesmo caminho do módulo de Plenário)
+// ============================================================
+async function carregarLogoDataUrl() {
+  try {
+    const res = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((resolve, reject) => {
+      const fr = new FileReader();
+      fr.onloadend = () => resolve(fr.result);
+      fr.onerror   = () => reject(fr.error);
+      fr.readAsDataURL(blob);
+    });
+  } catch (_) { return null; }
+}
+
+/** As mesmas colunas da interface, MENOS "Emendas do Senado" — ela lista os
+ *  documentos considerados, que interessam à revisão, não à reunião. */
+function _htmlImpressaoLideres(reuniao, logoDataUrl) {
+  const itens = reuniao.itens || [];
+  const meta = `${esc(reuniao.titulo || '')} · ${itens.length} proposição(ões)`;
+
+  const linhas = itens.map(it => {
+    const marcas = etiquetasDe(it).map(t => `<span class="marca">${esc(t)}</span>`).join('');
+    const apenso = it.ehPrincipal ? '<span class="apenso">principal</span>' : '';
+    const aviso  = it.avisoTeor ? `<div class="aviso">${esc(it.avisoTeor)}</div>` : '';
+    return `<tr>
+      <td class="c-num">${esc(it.numItem)}</td>
+      <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${aviso}</td>
+      <td>${esc(it.autoriaPdf || (it.autoresApi || []).join(', '))}</td>
+      <td>${esc(it.objetivo)}</td>
+      <td>${esc(it.justificativa)}</td>
+      <td>${esc(it.comparativo || '')}</td>
+      <td>${esc(it.situacao)}</td>
+      <td>${esc(it.comissoes)}</td>
+      <td>${esc(it.relatoria)}</td>
+      <td>${esc(it.parecer || '')}</td>
+    </tr>`;
+  }).join('');
+
+  // Cabeçalho no padrão do PDF do módulo de Plenário: espaçador + título
+  // centrado + logo à direita, filete verde, linha de meta em itálico.
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(reuniao.titulo || 'Reunião de Líderes')}</title>
+  <style>
+    @page { size:A4 landscape; margin:12mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
+    * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
+    .cab { display:flex; align-items:center; gap:16px; }
+    .cab .tit { flex:1; text-align:center; }
+    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; }
+    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; }
+    .cab img { height:42px; }
+    .cab .sp { width:42px; }
+    .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
+    .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:10px; }
+    table { width:100%; border-collapse:collapse; table-layout:fixed; font-size:7.6pt; }
+    th { background:#e7f4ec; color:#003c1f; font-weight:700; text-align:left;
+         padding:4px 5px; border:1px solid #c4d6cb; }
+    td { padding:4px 5px; border:1px solid #d7ded9; vertical-align:top; line-height:1.45; overflow-wrap:break-word; }
+    tr { page-break-inside:avoid; break-inside:avoid; }
+    thead { display:table-header-group; }
+    tbody tr:nth-child(even) td { background:#f6faf7; }
+    .c-num  { width:3%; text-align:center; color:#666; }
+    .c-prop { width:8%; }
+    .marca  { display:inline-block; margin-left:4px; padding:0 4px; border:1px solid #b48a0a;
+              border-radius:4px; color:#8a6d00; font-size:6.5pt; font-weight:700; }
+    .apenso { display:block; color:#666; font-size:6.5pt; }
+    .aviso  { color:#a15c00; font-size:6.8pt; margin-top:3px; }
+    .ft { margin-top:14px; padding-top:6px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
+  </style></head><body>
+    <div class="cab">
+      <div class="sp"></div>
+      <div class="tit"><h1>Reunião de Líderes</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
+    </div>
+    <div class="rule"></div>
+    <div class="meta">${meta}</div>
+    <table>
+      <colgroup>
+        <col style="width:3%"><col style="width:8%"><col style="width:8%">
+        <col style="width:16.5%"><col style="width:16.5%"><col style="width:13%">
+        <col style="width:8%"><col style="width:10%"><col style="width:8%"><col style="width:9%">
+      </colgroup>
+      <thead><tr>
+        <th>Nº</th><th>Proposição</th><th>Autoria</th><th>Objetivo</th><th>Justificativa</th>
+        <th>O que mudou</th><th>Situação</th><th>Comissões</th><th>Relatoria de Plenário</th><th>Parecer de Plenário</th>
+      </tr></thead>
+      <tbody>${linhas || '<tr><td colspan="10">Reunião vazia.</td></tr>'}</tbody>
+    </table>
+    <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
+  </body></html>`;
+}
+
+async function gerarPDF() {
+  if (!app.reuniao?.itens?.length) { mostrarToast('Nada para exportar.', 'erro'); return; }
+  coletarEdicoes();
+  // Seleção (vazio = todas), na ordem da tabela — como no módulo de Plenário.
+  const itens = app.selecionados.size
+    ? app.reuniao.itens.filter(i => app.selecionados.has(i.chave))
+    : app.reuniao.itens;
+
+  // Abre a janela já no gesto do clique (evita bloqueio de pop-up).
+  const win = window.open('', '_blank', 'width=1100,height=720');
+  if (!win) { mostrarToast('Permita pop-ups para exportar o PDF.', 'aviso'); return; }
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Gerando o PDF…</body></html>');
+  win.document.close();
+
+  const logoDataUrl = await carregarLogoDataUrl();
+  if (win.closed) return;
+  win.document.open();
+  win.document.write(_htmlImpressaoLideres({ ...app.reuniao, itens }, logoDataUrl));
+  win.document.close();
+
+  // Paged.js numera as páginas; sem ele, imprime do mesmo jeito.
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 15000);          // rede de segurança
+  mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', '');
+}
+
 function exportarPlanilha() {
   if (!app.reuniao?.itens?.length) { mostrarToast('Nada para exportar.', 'erro'); return; }
   if (typeof XLSX === 'undefined') { mostrarToast('Biblioteca de planilha não carregada.', 'erro'); return; }
