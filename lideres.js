@@ -130,18 +130,50 @@ function fecharModal(id) { const el = document.getElementById(id); if (el) el.st
 //  bloco, não na primeira linha dele. Por isso não dá para ler "linha a linha":
 //  recortamos por coluna e agrupamos os blocos entre os números.
 // ============================================================
-const LARGURA_REF = 841.92;
-const COLUNAS = [
-  { k: 'num',  x0: 0,   x1: 60 },
-  { k: 'prop', x0: 60,  x1: 125 },
-  { k: 'aut',  x0: 125, x1: 250 },
-  { k: 'reg',  x0: 250, x1: 330 },
-  { k: 'desc', x0: 330, x1: Infinity },
-];
+const CHAVES_COLUNA = ['num', 'prop', 'aut', 'reg', 'desc'];
+// Grade medida na lista de 07/07/2026. Serve só de rede de segurança: a grade
+// real é DETECTADA no documento, porque ela muda de uma reunião para outra —
+// MEDIDO, a lista de 11/08/2026 usa 38 · 108 · 236 · 358 · 493 no lugar de
+// 38 · 66 · 129 · 256 · 333, e com a grade fixa o regime do item 66 vazava
+// inteiro para dentro da descrição, sem erro nenhum aparecer.
+const COLUNAS_PADRAO = [38, 66, 129, 256, 333];
+
+/** Descobre onde começam as cinco colunas contando em que x o texto começa.
+ *  As colunas são de longe os x mais repetidos do documento — as quebras de
+ *  linha da descrição ficam bem abaixo delas. Exige separação mínima para não
+ *  eleger dois picos vizinhos da mesma coluna. */
+function detectarColunas(paginas) {
+  const hist = new Map();
+  for (const items of paginas) {
+    for (const it of items) {
+      if (!it.str.trim()) continue;
+      const x = Math.round(it.transform[4]);
+      hist.set(x, (hist.get(x) || 0) + 1);
+    }
+  }
+  const picos = [];
+  for (const [x, n] of [...hist].sort((a, b) => b[1] - a[1])) {
+    if (picos.length === CHAVES_COLUNA.length) break;
+    if (picos.every(p => Math.abs(p - x) >= 20)) picos.push(x);
+  }
+  picos.sort((a, b) => a - b);
+  // Sem cinco colunas plausíveis o documento não é a tabela esperada; a grade
+  // medida é melhor que uma detecção pela metade.
+  const plausivel = picos.length === CHAVES_COLUNA.length && picos[0] < 80
+    && picos[CHAVES_COLUNA.length - 1] > 200;
+  return plausivel ? picos : COLUNAS_PADRAO.slice();
+}
 
 /** Agrupa os fragmentos de uma página em linhas e recorta cada linha nas cinco
- *  colunas da tabela. */
-function linhasDaPagina(items, escala) {
+ *  colunas da tabela. Cada fragmento cai na última coluna que começa à sua
+ *  esquerda — é o que faz a continuação da descrição (bem à direita) voltar
+ *  para a coluna de descrição. */
+function linhasDaPagina(items, colunas) {
+  const colunaDe = x => {
+    let k = 0;
+    for (let i = 0; i < colunas.length; i++) if (x >= colunas[i] - 2) k = i;
+    return CHAVES_COLUNA[k];
+  };
   const porY = new Map();
   for (const it of items) {
     if (!it.str) continue;
@@ -150,14 +182,15 @@ function linhasDaPagina(items, escala) {
     let chave = y;
     for (const k of porY.keys()) if (Math.abs(k - y) <= 2) { chave = k; break; }
     if (!porY.has(chave)) porY.set(chave, []);
-    porY.get(chave).push({ x: it.transform[4] / escala, s: it.str });
+    porY.get(chave).push({ x: it.transform[4], s: it.str });
   }
   return [...porY.entries()].sort((a, b) => b[0] - a[0]).map(([y, frags]) => {
     frags.sort((a, b) => a.x - b.x);
     const cols = {};
+    for (const k of CHAVES_COLUNA) cols[k] = '';
     // Junta sem separador: o PDF já emite os espaços como fragmentos próprios,
     // e é assim que "Paulo Abi" + "-" + "Ackel" volta a ser "Paulo Abi-Ackel".
-    for (const c of COLUNAS) cols[c.k] = frags.filter(f => f.x >= c.x0 && f.x < c.x1).map(f => f.s).join('');
+    for (const f of frags) cols[colunaDe(f.x)] += f.s;
     // Título e cabeçalho de tabela vivem na coluna do número, que fora deles só
     // tem dígitos. MEDIDO: o cabeçalho "Num. | Proposição | ..." se repete no
     // MEIO das páginas (p. ex. y=429 da pág. 2), não apenas no topo — por isso
@@ -211,18 +244,37 @@ function partirEmItens(linhas) {
 async function lerListaDoPDF(file) {
   const buffer = await file.arrayBuffer();
   const pdf    = await pdfjsLib.getDocument({ data: buffer }).promise;
-  const linhas = [];
+
+  // Duas passagens: a primeira só para descobrir onde ficam as colunas NESTE
+  // documento, já que a grade muda de uma reunião para outra.
+  const paginas = [];
   for (let p = 1; p <= pdf.numPages; p++) {
-    const pagina = await pdf.getPage(p);
-    const escala = pagina.getViewport({ scale: 1 }).width / LARGURA_REF;
-    const conteudo = await pagina.getTextContent();
-    for (const l of linhasDaPagina(conteudo.items, escala)) linhas.push({ ...l, pagina: p });
+    paginas.push((await (await pdf.getPage(p)).getTextContent()).items);
   }
+  const colunas = detectarColunas(paginas);
+
+  const linhas = [];
+  paginas.forEach((items, i) => {
+    for (const l of linhasDaPagina(items, colunas)) linhas.push({ ...l, pagina: i + 1 });
+  });
   return partirEmItens(linhas);
 }
 
 // Espécies que podem aparecer na coluna "Proposição".
 const RE_PROP = /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG)\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})\b/gi;
+
+/** O que a célula da lista traz ALÉM do número da proposição — na prática o
+ *  "- EMS" que marca a matéria que voltou do Senado. É informação que a própria
+ *  Liderança escreveu sobre o que está em jogo, e some se a interface mostrar
+ *  só "PL 1242/2026". Genérico de propósito: marcador novo aparece sozinho. */
+function marcadorDoItem(celula) {
+  const resto = String(celula || '')
+    .replace(/\((?:\s*principal[^)]*)\)/gi, '')   // "(Principal: PL 23/2026)" já vira campo próprio
+    .replace(new RegExp(RE_PROP.source, 'gi'), '')
+    .replace(/[\s\-–—:;,.()]+/g, ' ')
+    .trim();
+  return resto ? resto.toUpperCase() : '';
+}
 
 /** Uma linha da tabela pode carregar mais de uma proposição — o item traz a
  *  apensada e, entre parênteses, a principal. Cada uma vira uma linha da
@@ -322,6 +374,7 @@ async function criarReuniao() {
       ano:           p.ano,
       ehPrincipal:   p.ehPrincipal,
       celulaProp:    p.item.prop,
+      marcador:      marcadorDoItem(p.item.prop),
       autoriaPdf:    p.item.autoria,
       regimePdf:     p.item.regime,
       descricaoPdf:  p.item.descricao,
@@ -1111,12 +1164,10 @@ RETORNO DO SENADO — ${it.cenarioNome}
 ${it.senadoFato}
 · ${es.ems.ementa}` : '';
 
-  // Havendo texto em votação, o apresentado deixa de ser o que está em jogo: o
-  // objetivo tem de descrever o que vai a voto, ou o líder lê uma coisa e vota
-  // outra.
-  const instrucaoObjetivo = votacao
-    ? `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, na forma do ${votacao.nome}, tem como objetivo …\\", descrevendo o que o texto EM VOTAÇÃO faz — não o texto originalmente apresentado. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão.`
-    : `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, tem como objetivo …\\", descrevendo o que a proposição faz. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão. Cite as leis alteradas pelo nome usual quando houver (ex.: Lei de Responsabilidade Fiscal).`;
+  // O objetivo descreve SEMPRE o texto apresentado. Quem conta o que mudou é a
+  // coluna própria — descrever o texto em votação aqui repetia a mesma
+  // informação nas duas colunas.
+  const instrucaoObjetivo = `Uma frase única, começando por \\"${artigoDe(it.sigla)} ${it.chave}, de autoria de ${autoria}, tem como objetivo …\\", descrevendo o que a proposição faz NO TEXTO APRESENTADO pelo autor — ignore aqui substitutivos e emendas, que vão em campo separado. Ajuste APENAS as preposições da autoria (de/do/da/dos/das) para a concordância correta, mantendo os nomes exatamente como estão. Cite as leis alteradas pelo nome usual quando houver (ex.: Lei de Responsabilidade Fiscal).`;
 
   // O analista precisa dos dois lados para orientar o líder ponto a ponto na
   // reunião, mas em reunião ninguém lê parágrafo: o campo é uma lista curta do
@@ -1196,7 +1247,7 @@ async function resumirProposicao(it, signal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
   }
-  if (votacao) avisos.push(`${it.cenarioNome}: objetivo descreve o ${votacao.nome}, não o texto apresentado.`);
+  if (votacao) avisos.push(`${it.cenarioNome} — há texto posterior ao apresentado; ver "O que mudou".`);
   if (it.emendaSenado && !textoQueSaiuDaCamara(it.emendaSenado)) {
     avisos.push('Texto aprovado pela Câmara não localizado — cotejo feito contra o inteiro teor original.');
   }
@@ -1289,6 +1340,7 @@ function linhaHTML(it) {
   const link = it.urlInteiroTeor
     ? `<a class="lid-link" href="${esc(it.urlInteiroTeor)}" target="_blank" rel="noopener">inteiro teor ↗</a>` : '';
   const apenso = it.ehPrincipal ? '<span class="lid-apenso">principal</span>' : '';
+  const etiquetas = etiquetasDe(it).map(t => `<span class="lid-marca">${esc(t)}</span>`).join('');
   const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
   const aviso = it.avisoTeor ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(it.avisoTeor)}</span>` : '';
 
@@ -1296,7 +1348,7 @@ function linhaHTML(it) {
     <td class="lid-c-check"><input type="checkbox" class="lid-check" data-chave="${esc(it.chave)}" ${marcada ? 'checked' : ''}></td>
     <td class="lid-c-num">${esc(it.numItem)}</td>
     <td class="lid-c-prop">
-      ${esc(it.chave)}${apenso}
+      ${esc(it.chave)}${etiquetas}${apenso}
       <span class="lid-badge ${it.status}">${rotuloStatus(it.status)}</span>
       ${link}${erro}${aviso}
     </td>
@@ -1313,6 +1365,19 @@ function linhaHTML(it) {
 }
 
 const rotuloStatus = s => ({ pendente: 'pendente', dados: 'dados', ok: 'resumida', erro: 'erro' }[s] || s);
+
+/** Etiquetas que acompanham o número da proposição. Vêm de duas origens que
+ *  podem divergir: o marcador escrito na lista pela Liderança e o cenário
+ *  apurado nos Dados Abertos. Quando divergem, as duas aparecem — esconder
+ *  qualquer uma delas seria esconder a divergência. */
+function etiquetasDe(it) {
+  const out = [];
+  if (it.marcador) out.push(it.marcador);
+  const voltouDoSenado = it.cenario === 6 || it.cenario === 7;
+  if (voltouDoSenado && !/EMS/.test(it.marcador || '')) out.push('EMS (apurado)');
+  if (/EMS/.test(it.marcador || '') && it.cenario && !voltouDoSenado) out.push('sem EMS nos dados abertos');
+  return out;
+}
 
 /** Redesenha só a linha alterada — com 80+ proposições, redesenhar a tabela
  *  inteira a cada resumo apagaria a edição em curso do usuário. */
@@ -1408,7 +1473,7 @@ function exportarPlanilha() {
                'Cenário', 'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)',
                'Inteiro teor', 'Texto em votação'];
   const linhas = [cab, ...app.reuniao.itens.map(i => [
-    i.numItem, i.chave + (i.ehPrincipal ? ' (principal)' : ''),
+    i.numItem, [i.chave, ...etiquetasDe(i)].join(' – ') + (i.ehPrincipal ? ' (principal)' : ''),
     i.autoriaPdf || (i.autoresApi || []).join(', '),
     i.objetivo, i.justificativa, i.comparativo || '',
     i.situacao, i.comissoes, i.relatoria, i.parecer || '', i.senado || '',

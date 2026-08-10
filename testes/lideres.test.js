@@ -8,9 +8,11 @@
 // pdfjs-dist vem de bot/node_modules (a extensão distribui a versão de
 // navegador em libs/), por isso o require aponta para lá.
 //
-// Uso: node testes/lideres.test.js <caminho-do-pdf-da-reuniao>
-//   O PDF de referência é a lista do Colégio de Líderes de 07/07/2026 (62
-//   itens, 68 proposições); os números conferidos abaixo são os dele.
+// Uso: node testes/lideres.test.js <pdf-de-07/07/2026> [outros-pdfs...]
+//   O primeiro PDF é a lista de referência (62 itens, 68 proposições) e os
+//   números conferidos abaixo são os dele. Os demais passam só pelas
+//   invariantes estruturais — que é onde mora o risco: a grade de colunas MUDA
+//   de uma reunião para outra.
 const fs = require('fs');
 const path = require('path');
 const pdfjs = require(path.join(__dirname, '..', 'bot', 'node_modules', 'pdfjs-dist', 'legacy', 'build', 'pdf.js'));
@@ -32,7 +34,7 @@ const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoria
                   'despachosDeComissao', 'extrairJSON', 'formatarPartido', 'buscarTramitacoes',
                   'buscarDocumentosRelacionados', 'parecerPlenarioDe', 'emendaSenadoDe',
                   'fraseDoParecer', 'fraseDaEmendaSenado', 'cenarioDe', 'validarReferencias',
-                  'textoQueSaiuDaCamara'];
+                  'textoQueSaiuDaCamara', 'marcadorDoItem', 'detectarColunas'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -60,6 +62,24 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
      `item 12 rende as duas proposições (obtido: ${it12.map(p => p.chave).join(', ')})`);
   ok(it12[1].ehPrincipal === true && it12[0].ehPrincipal === false, 'a que está em "(Principal: …)" é marcada como principal');
   ok(props.every(p => p.ano >= 1990 && p.ano <= 2030), 'anos plausíveis');
+
+  console.log('\n== Marcador da célula (o "- EMS" da lista) ==');
+  ok(L.marcadorDoItem('PL 1242/2026-EMS') === 'EMS', `"PL 1242/2026-EMS" → EMS (obtido: "${L.marcadorDoItem('PL 1242/2026-EMS')}")`);
+  ok(L.marcadorDoItem('PL 101/2026 (Principal: PL 23/2026)') === '', 'apensação não vira marcador (já tem campo próprio)');
+  ok(L.marcadorDoItem('PLP 230/2025') === '', 'célula limpa não inventa marcador');
+
+  console.log('\n== Invariantes estruturais em cada PDF fornecido ==');
+  for (const arq of process.argv.slice(2)) {
+    const nome = arq.split('/').pop().slice(0, 38);
+    const its = await L.lerListaDoPDF({ arrayBuffer: async () => fs.readFileSync(arq).buffer });
+    ok(its.length > 10, `${nome}: ${its.length} itens`);
+    ok(its.map(i => Number(i.num)).every((n, k) => n === k + 1), `${nome}: numeração sem furos`);
+    // A grade de colunas é detectada no documento; se ela escorregar, o regime
+    // vaza para dentro da descrição sem erro nenhum aparecer.
+    const vazou = its.filter(i => /^(Urg[êe]ncia|Priorid|Ordin[áa]rio|Especial|REQ\b)/i.test(i.descricao));
+    ok(vazou.length === 0, `${nome}: regime não vaza para a descrição${vazou.length ? ' (itens ' + vazou.map(i => i.num).join(',') + ')' : ''}`);
+    ok(its.every(i => i.prop.trim()), `${nome}: toda linha tem proposição`);
+  }
 
   console.log('\n== Situação e relatoria (PLP 230/2025, contra a API real) ==');
   const id = (await (await fetch(`${API}/proposicoes?siglaTipo=PLP&numero=230&ano=2025&itens=1`)).json()).dados[0].id;

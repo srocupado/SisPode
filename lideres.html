@@ -8,8 +8,20 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     /* ---- Tabela de proposições (espelha a planilha exportada) ---- */
-    .lid-tabela-wrap { flex: 1; overflow: auto; padding: 0 4px 90px; }
-    .lid-tabela { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+    /* min-width:0 nos três níveis: sem isso o item flex não encolhe abaixo do
+       conteúdo, a tabela estoura para fora da página e a barra de rolagem
+       horizontal simplesmente não aparece. */
+    .main-content, .tela { min-width: 0; }
+    .lid-tabela-wrap { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 90px; }
+    /* max-content preserva a largura das colunas e joga a rolagem para o
+       contêiner, em vez de espremer tudo em 100%. */
+    .lid-tabela { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+
+    /* Barra de rolagem visível no tema escuro — a do sistema some no fundo. */
+    .lid-tabela-wrap::-webkit-scrollbar { height: 12px; width: 12px; }
+    .lid-tabela-wrap::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
+    .lid-tabela-wrap::-webkit-scrollbar-thumb { background: #2f5a60; border-radius: 6px; }
+    .lid-tabela-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
     .lid-tabela th {
       position: sticky; top: 0; z-index: 3;
       background: var(--header); color: var(--text);
@@ -33,6 +45,29 @@
     .lid-c-par   { width: 240px; }
     .lid-c-sen   { width: 230px; }
     .lid-c-comp  { min-width: 260px; }
+    /* Identificação fixa à esquerda: rolando para a direita o analista continua
+       vendo de qual proposição é a linha. */
+    .lid-tabela th.lid-c-check, .lid-tabela td.lid-c-check { position: sticky; left: 0;    z-index: 2; }
+    .lid-tabela th.lid-c-num,   .lid-tabela td.lid-c-num   { position: sticky; left: 34px; z-index: 2; }
+    .lid-tabela th.lid-c-prop,  .lid-tabela td.lid-c-prop  { position: sticky; left: 78px; z-index: 2;
+      box-shadow: 1px 0 0 var(--border-soft); }
+    .lid-tabela th.lid-c-check, .lid-tabela th.lid-c-num, .lid-tabela th.lid-c-prop { z-index: 4; }
+    .lid-tabela td.lid-c-check, .lid-tabela td.lid-c-num, .lid-tabela td.lid-c-prop { background: var(--bg); }
+    .lid-tabela tbody tr:hover td.lid-c-check,
+    .lid-tabela tbody tr:hover td.lid-c-num,
+    .lid-tabela tbody tr:hover td.lid-c-prop { background: #16292d; }
+    .lid-tabela tr.lid-sel td.lid-c-check,
+    .lid-tabela tr.lid-sel td.lid-c-num,
+    .lid-tabela tr.lid-sel td.lid-c-prop { background: #16343a; }
+
+    /* Etiqueta da célula da lista (EMS e afins), ao lado do número */
+    .lid-marca {
+      display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 5px;
+      font-size: 10px; font-weight: 700; letter-spacing: .3px; vertical-align: middle;
+      background: rgba(240,192,64,0.16); color: var(--amarelo);
+      border: 1px solid rgba(240,192,64,0.32);
+    }
+
     .lid-edit {
       display: block; min-height: 20px; border-radius: 6px; padding: 3px 5px; margin: -3px -5px;
       border: 1px solid transparent; white-space: pre-wrap; outline: none;
