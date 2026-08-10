@@ -88,6 +88,16 @@ function registrarEventos() {
   document.getElementById('btn-exportar').addEventListener('click', exportarPlanilha);
   document.getElementById('check-todos').addEventListener('change', e => marcarTodas(e.target.checked));
 
+  // Rolagem horizontal por botão: com barras em modo overlay, a tabela larga
+  // fica sem saída visível. Rola 70% da largura visível, deixando uma faixa de
+  // sobreposição para não perder a referência.
+  const rolar = dir => {
+    const w = document.querySelector('.lid-tabela-wrap');
+    if (w) w.scrollBy({ left: dir * w.clientWidth * 0.7, behavior: 'smooth' });
+  };
+  document.getElementById('btn-rolar-esq').addEventListener('click', () => rolar(-1));
+  document.getElementById('btn-rolar-dir').addEventListener('click', () => rolar(1));
+
   document.getElementById('input-pdf-lideres').addEventListener('change', async e => {
     const f = e.target.files[0];
     if (f) await processarPDFModal(f);
@@ -548,7 +558,11 @@ function cenarioDe(it, docs) {
   if (it.sigla === 'PDL' || it.sigla === 'PDC') return 10;
   if (tem('EMS')) return emendaSenadoDe(docs)?.parecerPos ? 7 : 6;
   if (tem('SSP')) return 5;
-  if ((tem('PRLP') || tem('PPP')) && (tem('SBT-A') || tem('SBT'))) return 4;
+  // Exige o documento COM inteiro teor: um SBT registrado sem peça anexa não
+  // sustenta o cenário 4, e declará-lo assim mesmo deixava textoEmVotacao sem
+  // nada para devolver.
+  const sbtUtil = docs.some(d => (d.tipo === 'SBT-A' || (d.tipo === 'SBT' && d.orgao === 'PLEN')) && d.url);
+  if ((tem('PRLP') || tem('PPP')) && sbtUtil) return 4;
   if (tem('SBT-A')) return 2;
   if (tem('PRLP') || tem('PRLE') || tem('PPP')) return 3;
   return 1;
@@ -1037,30 +1051,38 @@ async function documentoDeUrl(url, rotulo, signal) {
 }
 
 /** O texto que o Plenário vai efetivamente deliberar, por cenário. É ele que o
- *  objetivo tem de descrever e o segundo lado do comparativo. */
+ *  segundo lado do comparativo confronta com o inteiro teor.
+ *
+ *  Devolve null sempre que o documento do cenário não estiver ali. Isso não é
+ *  zelo teórico: o cenário vem de uma leitura e o documento de outra, e uma
+ *  reunião salva antes destes campos existirem chega aqui sem nenhum deles —
+ *  era o que quebrava a exportação da planilha com "Cannot read properties of
+ *  null (reading 'data')". */
 function textoEmVotacao(it) {
+  if (!it) return null;
   const pp = it.parecerPlen, es = it.emendaSenado;
+  const peca = (doc, rotulo, nome) => doc && doc.url
+    ? { doc, rotulo: rotulo(dataBR(doc.data)), nome } : null;
+
   switch (it.cenario) {
     case 6: case 7:
-      return { doc: es.ems, rotulo: `EMENDA/SUBSTITUTIVO DO SENADO recebido em ${dataBR(es.ems.data)} — é o que voltou e será deliberado`,
-               nome: 'Substitutivo do Senado' };
+      return peca(es?.ems, d => `EMENDA/SUBSTITUTIVO DO SENADO recebido em ${d} — é o que voltou e será deliberado`,
+                  'Substitutivo do Senado');
     case 5:
-      return { doc: it.subemenda, rotulo: `SUBEMENDA SUBSTITUTIVA DE PLENÁRIO de ${dataBR(it.subemenda.data)} — é ESTE o texto que vai a voto`,
-               nome: 'Subemenda substitutiva de Plenário' };
+      return peca(it.subemenda, d => `SUBEMENDA SUBSTITUTIVA DE PLENÁRIO de ${d} — é ESTE o texto que vai a voto`,
+                  'Subemenda substitutiva de Plenário');
     case 4:
-      return pp?.substitutivo
-        ? { doc: pp.substitutivo, rotulo: `SUBSTITUTIVO adotado em Plenário em ${dataBR(pp.data)} — é ESTE o texto que vai a voto`,
-            nome: 'Substitutivo de Plenário' }
-        : { doc: it.sbtComissao, rotulo: `SUBSTITUTIVO adotado por comissão em ${dataBR(it.sbtComissao.data)} — é ESTE o texto que vai a voto`,
-            nome: 'Substitutivo de comissão' };
+      return peca(pp?.substitutivo, () => `SUBSTITUTIVO adotado em Plenário em ${dataBR(pp?.data)} — é ESTE o texto que vai a voto`,
+                  'Substitutivo de Plenário')
+          || peca(it.sbtComissao, d => `SUBSTITUTIVO adotado por comissão em ${d} — é ESTE o texto que vai a voto`,
+                  'Substitutivo de comissão');
     case 2:
-      return { doc: it.sbtComissao, rotulo: `SUBSTITUTIVO adotado por comissão em ${dataBR(it.sbtComissao.data)} — é ESTE o texto que vai a voto`,
-               nome: 'Substitutivo de comissão' };
-    case 9: {
-      const sbt = it.especial.find(d => d.tipo !== 'PRL');
-      return sbt ? { doc: sbt, rotulo: `SUBSTITUTIVO adotado pela Comissão Especial em ${dataBR(sbt.data)} — é ESTE o texto que vai a voto`,
-                     nome: 'Substitutivo da Comissão Especial' } : null;
-    }
+      return peca(it.sbtComissao, d => `SUBSTITUTIVO adotado por comissão em ${d} — é ESTE o texto que vai a voto`,
+                  'Substitutivo de comissão');
+    case 9:
+      return peca((it.especial || []).find(d => d.tipo !== 'PRL'),
+                  d => `SUBSTITUTIVO adotado pela Comissão Especial em ${d} — é ESTE o texto que vai a voto`,
+                  'Substitutivo da Comissão Especial');
     default: return null;
   }
 }

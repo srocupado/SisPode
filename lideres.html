@@ -8,14 +8,25 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     /* ---- Tabela de proposições (espelha a planilha exportada) ---- */
-    /* min-width:0 nos três níveis: sem isso o item flex não encolhe abaixo do
-       conteúdo, a tabela estoura para fora da página e a barra de rolagem
-       horizontal simplesmente não aparece. */
-    .main-content, .tela { min-width: 0; }
-    .lid-tabela-wrap { flex: 1; min-width: 0; overflow: auto; padding: 0 4px 90px; }
-    /* max-content preserva a largura das colunas e joga a rolagem para o
-       contêiner, em vez de espremer tudo em 100%. */
-    .lid-tabela { width: max-content; min-width: 100%; border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+    /* min-width E min-height zerados em toda a cadeia de flex. Sem min-width o
+       item não encolhe abaixo do conteúdo e a tabela estoura para fora da
+       página; sem min-height ele CRESCE com o conteúdo em vez de caber na tela
+       — MEDIDO, o contêiner ficava com 2862px de altura numa janela de 800, e
+       a barra de rolagem horizontal, que existe, ficava dois mil pixels abaixo
+       da dobra. */
+    .main-content, .tela { min-width: 0; min-height: 0; }
+    .lid-tabela-wrap { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 0 0 8px;   /* sem vão lateral: os 4px viravam uma fresta por onde o conteúdo rolava por baixo das colunas fixas */
+      scrollbar-gutter: stable; scrollbar-color: #2f5a60 rgba(255,255,255,0.04); }
+    /* table-layout:fixed com largura total explícita. É o que faz as três coisas
+       ao mesmo tempo:
+         · o texto QUEBRA dentro da coluna (com max-content a célula crescia até
+           caber a frase inteira e o objetivo saía numa linha quilométrica);
+         · a tabela excede o contêiner e quem rola é ele;
+         · a largura RENDERIZADA de cada coluna é a declarada — sem isso o
+           navegador redistribui as larguras, os deslocamentos das colunas fixas
+           deixam de bater e o texto das colunas de trás aparece por baixo delas. */
+    .lid-tabela { table-layout: fixed; width: 2310px; min-width: 100%;
+                  border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
 
     /* Barra de rolagem visível no tema escuro — a do sistema some no fundo. */
     .lid-tabela-wrap::-webkit-scrollbar { height: 12px; width: 12px; }
@@ -26,7 +37,8 @@
       position: sticky; top: 0; z-index: 3;
       background: var(--header); color: var(--text);
       font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase;
-      text-align: left; padding: 9px 10px; border-bottom: 2px solid var(--accent); white-space: nowrap;
+      text-align: left; padding: 9px 10px; border-bottom: 2px solid var(--accent);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     }
     .lid-tabela td {
       padding: 8px 10px; border-bottom: 1px solid var(--border);
@@ -34,22 +46,24 @@
     }
     .lid-tabela tbody tr:hover td { background: rgba(31,165,165,0.05); }
     .lid-tabela tr.lid-sel td { background: rgba(31,165,165,0.10); }
+    /* Larguras somam os 2310px da tabela. Mexeu numa, acerte o total. */
+    .lid-c-check { width: 36px;  text-align: center; }
     .lid-c-num   { width: 44px;  text-align: center; color: var(--text-dim); }
-    .lid-c-check { width: 34px;  text-align: center; }
-    .lid-c-prop  { width: 132px; font-weight: 600; }
+    .lid-c-prop  { width: 150px; font-weight: 600; }
     .lid-c-aut   { width: 150px; color: var(--text-dim); }
-    .lid-c-obj, .lid-c-just { min-width: 300px; }
-    .lid-c-sit   { width: 190px; }
-    .lid-c-com   { width: 210px; }
+    .lid-c-obj   { width: 320px; }
+    .lid-c-just  { width: 320px; }
+    .lid-c-comp  { width: 280px; }
+    .lid-c-sit   { width: 170px; }
+    .lid-c-com   { width: 200px; }
     .lid-c-rel   { width: 170px; }
     .lid-c-par   { width: 240px; }
     .lid-c-sen   { width: 230px; }
-    .lid-c-comp  { min-width: 260px; }
     /* Identificação fixa à esquerda: rolando para a direita o analista continua
        vendo de qual proposição é a linha. */
     .lid-tabela th.lid-c-check, .lid-tabela td.lid-c-check { position: sticky; left: 0;    z-index: 2; }
-    .lid-tabela th.lid-c-num,   .lid-tabela td.lid-c-num   { position: sticky; left: 34px; z-index: 2; }
-    .lid-tabela th.lid-c-prop,  .lid-tabela td.lid-c-prop  { position: sticky; left: 78px; z-index: 2;
+    .lid-tabela th.lid-c-num,   .lid-tabela td.lid-c-num   { position: sticky; left: 36px; z-index: 2; }
+    .lid-tabela th.lid-c-prop,  .lid-tabela td.lid-c-prop  { position: sticky; left: 80px; z-index: 2;
       box-shadow: 1px 0 0 var(--border-soft); }
     .lid-tabela th.lid-c-check, .lid-tabela th.lid-c-num, .lid-tabela th.lid-c-prop { z-index: 4; }
     .lid-tabela td.lid-c-check, .lid-tabela td.lid-c-num, .lid-tabela td.lid-c-prop { background: var(--bg); }
@@ -71,6 +85,7 @@
     .lid-edit {
       display: block; min-height: 20px; border-radius: 6px; padding: 3px 5px; margin: -3px -5px;
       border: 1px solid transparent; white-space: pre-wrap; outline: none;
+      overflow-wrap: anywhere;
     }
     .lid-edit:hover  { border-color: var(--border-soft); }
     .lid-edit:focus  { border-color: var(--accent); background: rgba(0,0,0,0.20); }
@@ -84,7 +99,7 @@
     .lid-badge.ok       { background: rgba(58,217,125,0.12); color: #3ad97d; }
     .lid-badge.erro     { background: rgba(240,84,84,0.12);  color: var(--vermelho); }
     .lid-erro-msg { display: block; font-size: 10.5px; color: var(--vermelho); margin-top: 3px; }
-    .lid-link { color: var(--accent-light); text-decoration: none; font-size: 10.5px; }
+    .lid-link { color: var(--vermelho); text-decoration: none; font-size: 10.5px; font-weight: 600; }
     .lid-link:hover { text-decoration: underline; }
     .lid-apenso { display: block; font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
 
@@ -94,12 +109,17 @@
     .lid-progresso-label { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
 
     /* ---- Barra de ações ---- */
+    /* No fluxo, não fixa: fixada em bottom:0 ela cobria a borda inferior da
+       tabela — justamente onde fica a barra de rolagem horizontal, que existia
+       mas era invisível. */
     .lid-action-bar {
-      position: fixed; bottom: 0; left: 0; right: 0; z-index: 20;
+      flex-shrink: 0; z-index: 20;
       background: var(--card); border-top: 1px solid var(--border-soft);
       padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
     }
     .lid-action-bar-right { display: flex; gap: 8px; flex-wrap: wrap; }
+    .lid-rolagem { display: flex; gap: 4px; }
+    .lid-rolagem .btn { padding: 4px 10px; font-size: 12px; line-height: 1; }
     #lid-action-status { font-size: 12px; color: var(--text-dim); }
 
     .lid-tag {
@@ -225,7 +245,15 @@
 
   <!-- ===== BARRA DE AÇÕES ===== -->
   <div class="lid-action-bar" id="lid-action-bar" style="display:none">
-    <div><span id="lid-action-status"></span></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <!-- Rolagem explícita: a barra do navegador pode estar em modo overlay e
+           só aparecer durante o gesto, deixando a tabela larga sem saída óbvia. -->
+      <span class="lid-rolagem">
+        <button id="btn-rolar-esq" class="btn btn-outline btn-sm" title="Rolar para a esquerda (Shift + roda do mouse)">◀</button>
+        <button id="btn-rolar-dir" class="btn btn-outline btn-sm" title="Rolar para a direita (Shift + roda do mouse)">▶</button>
+      </span>
+      <span id="lid-action-status"></span>
+    </div>
     <div class="lid-action-bar-right">
       <button id="btn-resumir-selecionados" class="btn btn-outline" disabled title="Marque proposições na tabela para resumir apenas elas">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
