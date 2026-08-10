@@ -1270,7 +1270,6 @@ async function resumirProposicao(it, signal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
   }
-  if (votacao) avisos.push(`${it.cenarioNome} — há texto posterior ao apresentado; ver "O que mudou".`);
   if (it.emendaSenado && !textoQueSaiuDaCamara(it.emendaSenado)) {
     avisos.push('Texto aprovado pela Câmara não localizado — cotejo feito contra o inteiro teor original.');
   }
@@ -1365,7 +1364,8 @@ function linhaHTML(it) {
   const apenso = it.ehPrincipal ? '<span class="lid-apenso">principal</span>' : '';
   const etiquetas = etiquetasDe(it).map(t => `<span class="lid-marca">${esc(t)}</span>`).join('');
   const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
-  const aviso = it.avisoTeor ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(it.avisoTeor)}</span>` : '';
+  const avisoTxt = avisosDe(it);
+  const aviso = avisoTxt ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(avisoTxt)}</span>` : '';
 
   return `<tr class="${marcada ? 'lid-sel' : ''}">
     <td class="lid-c-check"><input type="checkbox" class="lid-check" data-chave="${esc(it.chave)}" ${marcada ? 'checked' : ''}></td>
@@ -1384,6 +1384,7 @@ function linhaHTML(it) {
     <td class="lid-c-rel">${campo('relatoria', 'Relatoria')}</td>
     <td class="lid-c-par">${campo('parecer', 'Parecer de Plenário')}</td>
     <td class="lid-c-sen">${campo('senado', 'Emendas do Senado')}</td>
+    <td class="lid-c-cen">${esc(it.cenarioNome || '')}</td>
   </tr>`;
 }
 
@@ -1393,6 +1394,15 @@ const rotuloStatus = s => ({ pendente: 'pendente', dados: 'dados', ok: 'resumida
  *  podem divergir: o marcador escrito na lista pela Liderança e o cenário
  *  apurado nos Dados Abertos. Quando divergem, as duas aparecem — esconder
  *  qualquer uma delas seria esconder a divergência. */
+/** Alertas exibíveis. Reuniões salvas antes de o cenário virar coluna têm o
+ *  texto dele gravado dentro do avisoTeor — na exibição ele sai daqui, senão
+ *  voltaria a aparecer mesmo depois da mudança. */
+function avisosDe(it) {
+  return String(it.avisoTeor || '').split(' · ')
+    .filter(a => a.trim() && !/^Cenário \d/.test(a.trim()))
+    .join(' · ');
+}
+
 function etiquetasDe(it) {
   const out = [];
   if (it.marcador) out.push(it.marcador);
@@ -1511,7 +1521,8 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
   const linhas = itens.map(it => {
     const marcas = etiquetasDe(it).map(t => `<span class="marca">${esc(t)}</span>`).join('');
     const apenso = it.ehPrincipal ? '<span class="apenso">principal</span>' : '';
-    const aviso  = it.avisoTeor ? `<div class="aviso">${esc(it.avisoTeor)}</div>` : '';
+    const avisoTxt = avisosDe(it);
+    const aviso  = avisoTxt ? `<div class="aviso">${esc(avisoTxt)}</div>` : '';
     return `<tr>
       <td class="c-num">${esc(it.numItem)}</td>
       <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${aviso}</td>
@@ -1626,7 +1637,7 @@ function exportarPlanilha() {
     i.autoriaPdf || (i.autoresApi || []).join(', '),
     i.objetivo, i.justificativa, i.comparativo || '',
     i.situacao, i.comissoes, i.relatoria, i.parecer || '', i.senado || '',
-    i.cenarioNome || '', i.avisoTeor || i.erro || '',
+    i.cenarioNome || '', avisosDe(i) || i.erro || '',
     i.ementa, i.celulaProp || '', i.regimePdf || '', i.urlInteiroTeor || '',
     textoEmVotacao(i)?.doc?.url || '',
   ])];

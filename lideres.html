@@ -25,7 +25,7 @@
          · a largura RENDERIZADA de cada coluna é a declarada — sem isso o
            navegador redistribui as larguras, os deslocamentos das colunas fixas
            deixam de bater e o texto das colunas de trás aparece por baixo delas. */
-    .lid-tabela { table-layout: fixed; width: 2310px; min-width: 100%;
+    .lid-tabela { table-layout: fixed; width: 2460px; min-width: 100%;
                   border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
 
     /* Barra de rolagem visível no tema escuro — a do sistema some no fundo. */
@@ -46,7 +46,7 @@
     }
     .lid-tabela tbody tr:hover td { background: rgba(31,165,165,0.05); }
     .lid-tabela tr.lid-sel td { background: rgba(31,165,165,0.10); }
-    /* Larguras somam os 2310px da tabela. Mexeu numa, acerte o total. */
+    /* Larguras somam os 2460px da tabela. Mexeu numa, acerte o total. */
     .lid-c-check { width: 36px;  text-align: center; }
     .lid-c-num   { width: 44px;  text-align: center; color: var(--text-dim); }
     .lid-c-prop  { width: 150px; font-weight: 600; }
@@ -59,6 +59,7 @@
     .lid-c-rel   { width: 170px; }
     .lid-c-par   { width: 240px; }
     .lid-c-sen   { width: 230px; }
+    .lid-c-cen   { width: 150px; color: var(--text-dim); font-size: 11px; }
     /* Identificação fixa à esquerda: rolando para a direita o analista continua
        vendo de qual proposição é a linha. */
     .lid-tabela th.lid-c-check, .lid-tabela td.lid-c-check { position: sticky; left: 0;    z-index: 2; }
@@ -233,6 +234,7 @@
                 <th class="lid-c-rel">Relatoria de Plenário</th>
                 <th class="lid-c-par">Parecer de Plenário</th>
                 <th class="lid-c-sen">Emendas do Senado</th>
+                <th class="lid-c-cen">Cenário</th>
               </tr>
             </thead>
             <tbody id="lid-tbody"></tbody>
