@@ -720,7 +720,7 @@ async function resumirFicha(it, perfil) {
   const suspeitas = validarReferencias(`${objetivo} ${justificativa} ${comparativo}`, fonte);
   if (suspeitas.length) avisos.push(`Conferir no original: ${suspeitas.join('; ')}`);
 
-  const linhas = [`🧠 *Resumo — ${it.chave}* (IA na sua chave · ${perfil.provedor}/${perfil.modelo})`,
+  const linhas = [`🧠 *Resumo — ${it.chave}*`,
     '', `*Objetivo:* ${objetivo}`, '', `*Justificativa:* ${justificativa}`];
   if (comparativo) linhas.push('', `*O que mudou:* ${comparativo}`);
   linhas.push('', `*Comissões:* ${comissoes}`);
