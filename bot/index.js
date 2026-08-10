@@ -24,6 +24,7 @@ const { resumoOradoresDaData } = require('./src/oradores');
 const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
+const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
@@ -1522,6 +1523,46 @@ async function cmdResumo(ctx, texto) {
 }
 bot.command('resumo', ctx => cmdResumo(ctx, ctx.match));
 
+// ---------- /materia <proposição> — ficha avulsa no formato da Reunião de Líderes ----------
+// Complementar à extensão: serve ao analista que, durante a reunião, precisa
+// de algo que NÃO entrou na lista. Recebe SÓ a referência, nunca o PDF.
+// Duas etapas: os fatos saem na hora (regra fixa, sem chave); o resumo por IA
+// vem em seguida, na chave do usuário, com o inteiro teor anexado.
+async function cmdMateria(ctx, texto) {
+  if (!String(texto || '').trim()) {
+    return ctx.reply('Uso: /materia PL 1234/2026 — ficha da proposição no formato do resumo da Reunião de Líderes.');
+  }
+  await ctx.replyWithChatAction('typing');
+  let ficha;
+  try {
+    ficha = await montarFicha(texto);
+  } catch (e) {
+    return ctx.reply(`Não consegui montar a ficha: ${e.message}`);
+  }
+  await responderLongo(ctx, formatarFatos(ficha));
+
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('Para receber também o objetivo, a justificativa e o "o que mudou" (gerados por IA com o inteiro teor), configure sua chave no privado: /config.');
+  }
+  const aguarde = await ctx.reply('🧠 Lendo o inteiro teor e gerando o resumo na sua chave — leva até um minuto…');
+  try {
+    const resumo = await resumirFicha(ficha, perfil);
+    // editMessageText estoura em 4096; acima disso apaga o aviso e manda partido.
+    if (resumo.length <= 4000) {
+      await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo);
+    } else {
+      await ctx.api.deleteMessage(aguarde.chat.id, aguarde.message_id).catch(() => {});
+      await responderLongo(ctx, resumo);
+    }
+  } catch (e) {
+    console.error('/materia resumo falhou:', e);
+    await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id,
+      `A ficha factual acima vale; só o resumo por IA falhou: ${e.message}`).catch(() => {});
+  }
+}
+bot.command('materia', ctx => cmdMateria(ctx, ctx.match));
+
 // Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
 bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
   await ctx.answerCallbackQuery();
@@ -1883,6 +1924,7 @@ const MENU_COMANDOS = [
   { command: 'pauta',          description: 'Escolher a pauta do SisPode (ou buscar on-line)' },
   { command: 'listar',         description: 'Itens da pauta em uso' },
   { command: 'nota',           description: 'Nota técnica como está salva (ex.: /nota PL 1234/2026)' },
+  { command: 'materia',        description: 'Ficha de proposição avulsa, no formato da Reunião de Líderes' },
   { command: 'perguntar',      description: 'Perguntar à IA sobre um item ou a pauta' },
   { command: 'documentos',     description: 'Documentos da tramitação fora da nota' },
   { command: 'baixar',         description: 'Baixar os PDFs dos documentos do item' },
