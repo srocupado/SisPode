@@ -401,6 +401,9 @@ async function criarReuniao() {
       comparativo:   '',
       apensacao:     '',
       papel:         null,
+      autoriaPodemos: false,
+      autoriaPrincipalPodemos: false,
+      relatorPodemos: false,
       parecer:       '',
       senado:        '',
       parecerPlen:   null,
@@ -461,10 +464,13 @@ async function carregarDadosDaProposicao(it) {
   it.urlInteiroTeor = detalhe.urlInteiroTeor || null;
   it.situacaoApi    = detalhe.statusProposicao?.descricaoSituacao || '';
 
-  try {
-    const ra = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
-    if (ra.ok) it.autoresApi = ((await ra.json()).dados || []).map(a => a.nome).filter(Boolean).slice(0, 5);
-  } catch (_) {}
+  const autores = await autoresDetalhados(item.id);
+  it.autoresApi = autores.map(a => a.nome).filter(Boolean).slice(0, 5);
+  const podeAut = autores.filter(a => a.isPodemos);
+  it.autoriaPodemos = podeAut.length > 0;
+  // 1º signatário (ordemAssinatura = 1) = autoria; assinou depois = coautoria.
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
   const trams = await buscarTramitacoes(item.id);
   it.situacao  = situacaoDe(trams, it.regimePdf);
@@ -493,7 +499,52 @@ async function carregarDadosDaProposicao(it) {
   if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
     it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
   }
+  it.relatorPodemos = ehRelatorPodemos(it.relatoria);
 }
+
+// ---------- AUTORIA E RELATORIA DO PODEMOS ----------
+// Mesmo critério do módulo de Plenário (analise.js): partido do deputado na
+// ficha dos Dados Abertos, sigla PODE.
+const SIGLA_PODEMOS = 'PODE';
+const _cacheDeputado = new Map();   // idDep → { nome, siglaPartido } — o mesmo autor assina várias
+
+async function infoDeputado(idDep) {
+  if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
+  let info = null;
+  try {
+    const r = await fetch(`${API_BASE}/deputados/${idDep}`);
+    if (r.ok) {
+      const us = (await r.json()).dados?.ultimoStatus || {};
+      info = { nome: us.nome, siglaPartido: us.siglaPartido };
+    }
+  } catch (_) { /* fica sem partido */ }
+  _cacheDeputado.set(idDep, info);
+  return info;
+}
+
+async function autoresDetalhados(idProp) {
+  let dados = [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    if (r.ok) dados = (await r.json()).dados || [];
+  } catch (_) { return []; }
+  const out = [];
+  for (const a of dados) {
+    const m = (a.uri || '').match(/\/deputados\/(\d+)/);
+    if (!m) { out.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
+    const info = await infoDeputado(m[1]);
+    out.push({
+      nome: a.nome || info?.nome,
+      ordem: a.ordemAssinatura,
+      isPodemos: info?.siglaPartido === SIGLA_PODEMOS,
+    });
+  }
+  return out;
+}
+
+/** A relatoria já sai formatada com o partido entre parênteses — "(PODE-MG)"
+ *  vindo da ficha, do despacho ou da ementa do parecer. */
+const ehRelatorPodemos = rel => /\(PODE(?:MOS)?\b/i.test(String(rel || ''));
 
 // ---------- DOCUMENTOS RELACIONADOS ----------
 // O texto que está em jogo raramente é o que foi apresentado. A proposição
@@ -1457,6 +1508,9 @@ function linhaHTML(it) {
     ? `<a class="lid-link" href="${esc(it.urlInteiroTeor)}" target="_blank" rel="noopener">inteiro teor ↗</a>` : '';
   const apenso = it.ehPrincipal ? '<span class="lid-apenso">principal</span>' : '';
   const etiquetas = etiquetasDe(it).map(t => `<span class="lid-marca">${esc(t)}</span>`).join('');
+  const badgesPode =
+    (it.autoriaPodemos ? `<span class="lid-badge-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
+    (it.relatorPodemos ? '<span class="lid-badge-rel">Relatoria Podemos</span>' : '');
   const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
   const avisoTxt = avisosDe(it);
   const aviso = avisoTxt ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(avisoTxt)}</span>` : '';
@@ -1467,6 +1521,7 @@ function linhaHTML(it) {
     <td class="lid-c-prop">
       ${esc(it.chave)}${etiquetas}${apenso}
       <span class="lid-badge ${it.status}">${rotuloStatus(it.status)}</span>
+      ${badgesPode}
       ${link}${erro}${aviso}
     </td>
     <td class="lid-c-aut">${esc(it.autoriaPdf || (it.autoresApi || []).join(', '))}</td>
@@ -1618,9 +1673,15 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     const apenso = it.ehPrincipal ? '<span class="apenso">principal</span>' : '';
     const avisoTxt = avisosDe(it);
     const aviso  = avisoTxt ? `<div class="aviso">${esc(avisoTxt)}</div>` : '';
-    return `<tr>
+    // Tarja amarela para autoria/relatoria do Podemos, com o selo textual junto
+    // — numa impressão em preto e branco a tarja some, o selo fica.
+    const doPode = it.autoriaPodemos || it.relatorPodemos;
+    const selos =
+      (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
+      (it.relatorPodemos ? '<span class="selo-rel">Relatoria Podemos</span>' : '');
+    return `<tr${doPode ? ' class="pode"' : ''}>
       <td class="c-num">${esc(it.numItem)}</td>
-      <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${aviso}</td>
+      <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${selos}${aviso}</td>
       <td>${esc(it.autoriaPdf || (it.autoresApi || []).join(', '))}</td>
       <td>${esc(it.objetivo)}</td>
       <td>${esc(it.justificativa)}</td>
@@ -1655,6 +1716,12 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     tr { page-break-inside:avoid; break-inside:avoid; }
     thead { display:table-header-group; }
     tbody tr:nth-child(even) td { background:#f6faf7; }
+    /* Depois da zebra, para vencer no empate de especificidade. */
+    tbody tr.pode td { background:#fff3bf; }
+    .selo-pode, .selo-rel { display:block; width:fit-content; margin-top:3px; padding:0 5px;
+      border-radius:4px; font-size:6.5pt; font-weight:700; }
+    .selo-pode { color:#0a7a43; border:1px solid #0a7a43; }
+    .selo-rel  { color:#0a4a7a; border:1px solid #0a4a7a; }
     .c-num  { width:3%; text-align:center; color:#666; }
     .c-prop { width:8%; }
     .marca  { display:inline-block; margin-left:4px; padding:0 4px; border:1px solid #b48a0a;

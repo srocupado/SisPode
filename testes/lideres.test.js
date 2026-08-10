@@ -35,7 +35,8 @@ const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoria
                   'buscarDocumentosRelacionados', 'parecerPlenarioDe', 'emendaSenadoDe',
                   'fraseDoParecer', 'fraseDaEmendaSenado', 'cenarioDe', 'validarReferencias',
                   'textoQueSaiuDaCamara', 'marcadorDoItem', 'detectarColunas',
-                  'papelDe', 'alvoDoREQ', 'frasePapel', 'fraseUrgenciaREQ', 'propsCitadas', 'buscarTramitacoes'];
+                  'papelDe', 'alvoDoREQ', 'frasePapel', 'fraseUrgenciaREQ', 'propsCitadas', 'buscarTramitacoes',
+                  'ehRelatorPodemos', 'autoresDetalhados'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -191,6 +192,18 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   ok(/a lista indica PL 4194\/2019 como principal/.test(
        L.frasePapel({ papel: { apensada: true, principal: 'PL 2217/2019' }, celulaProp: 'PL 4315/2023 (Principal: PL 4194/2019)' })),
      'principal divergente entre a lista e a API é declarado');
+
+  console.log('\n== Autoria e relatoria do Podemos ==');
+  ok(L.ehRelatorPodemos('Dep. Nely Aquino (PODE-MG)') === true, 'relatoria PODE detectada');
+  ok(L.ehRelatorPodemos('Dep. Maria Rosas (Republicanos-SP)') === false, 'outros partidos não marcam');
+  ok(L.ehRelatorPodemos('Dep. Fulano (Podemos-MG)') === true, 'grafia "Podemos" por extenso também marca');
+  ok(L.ehRelatorPodemos('Sem indicação') === false, 'sem relatoria não marca');
+  // PLP 230/2025: autores Juscelino Filho e Luisa Canziani — nenhum do Podemos.
+  const idAut = (await (await fetch(`${API}/proposicoes?siglaTipo=PLP&numero=230&ano=2025&itens=1`)).json()).dados[0].id;
+  const auts = await L.autoresDetalhados(idAut);
+  ok(auts.length >= 2 && auts.every(a => typeof a.isPodemos === 'boolean'),
+     `autores com partido resolvido (${auts.map(a => a.nome).join(', ')})`);
+  ok(auts.every(a => !a.isPodemos), 'PLP 230/2025 sem autoria Podemos');
 
   console.log('\n== Conferência de citações ==');
   // A conferência exige uma fonte com corpo: abaixo de 100 caracteres ela se
