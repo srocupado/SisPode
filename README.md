@@ -310,6 +310,7 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 - `/perguntar` (responde a partir da nota + documentos), `/nota` (texto integral verbatim), `/documentos` e `/baixar` (PDFs da tramitação), `/agregar`, `/limpar`
 - `/comissao`, `/comissoeshoje`, `/varrercomissoes` (projetos do Podemos nas comissões do dia)
 - `/colegio PL 1234/2026` — **ficha de uma proposição avulsa no formato da Reunião de Líderes**, para o analista que precisa, durante a reunião, de algo que não entrou na lista. Responde em duas etapas: os **fatos na hora** (situação, apensação e de quem é o REQ, relatoria, parecer, retorno do Senado, marcações do Podemos — regra fixa, sem chave de IA) e o **resumo por IA em seguida**, com o inteiro teor e as peças do cenário anexados
+- `/ata` — **modo de anotação da Reunião de Líderes**. Com a ata aberta, todo texto (e todo áudio, transcrito) que o analista mandar no privado vira anotação numerada; ao final, `/ata fim` devolve a **mensagem pronta para o WhatsApp da bancada**, no padrão da Liderança (*Amigos,* / *Nesta semana:* / *Próxima semana:* / *⚠️ Atenção:*). A IA escreve a **prosa**; o **formato é montado por código**, e bloco sem anotação correspondente é omitido em vez de preenchido. Junto vão o que ficou de fora e a conferência das proposições citadas — nas duas direções: número que aparece na mensagem e **não** está nas anotações, e número anotado que **ficou fora** da mensagem. As anotações ficam **em disco na máquina do bot**, nunca no Firebase (deliberação interna, mesmo critério das chaves de API), e sobrevivem a reinício. `/ata ver`, `/ata apagar 3`, `/ata descartar`, `/ata ultima`; durante a ata, `?pergunta` fala com a IA sem fechá-la
 
 **Regimento e precedentes**
 - `/questaoordem` (`/qo`) — busca no acervo de **questões de ordem** da Câmara por termo, com ranqueamento BM25 e radicalização em português; aceita filtro por fase (`recurso:`, `decisão:`, `contradita:`) e busca por número
@@ -407,7 +408,8 @@ sispode/
 ├── testes/                         # Testes (Node, contra a API real da Câmara)
 │   ├── lideres.test.js             # Parser do PDF, cenários, situação/relatoria, Podemos
 │   ├── lideres-cura.test.js        # Reunião salva antes de um campo existir se atualiza
-│   └── materia.test.js             # /colegio: camada factual e resumo por IA
+│   ├── materia.test.js             # /colegio: camada factual e resumo por IA
+│   └── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
     └── src/
@@ -422,6 +424,7 @@ sispode/
         ├── perguntar.js / documentos.js / interesse.js # Notas, documentos, contexto
         ├── comissoes.js / digest.js / rodaviva.js       # Comissões, imprensa, Roda Viva
         ├── materia.js              # /colegio — ficha de proposição avulsa
+        ├── ata.js                  # /ata — anotação da reunião → mensagem da bancada
         ├── questaoordem.js / recursos.js / busca.js   # Questões de ordem, recursos, ranking BM25
         ├── qoprecedentes.js / qoembeddings.js         # Verbetes e vetores dos precedentes (gerados)
         ├── regimento.js / ricd.js  # Consulta ao Regimento Interno

@@ -25,6 +25,7 @@ const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
 const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
 const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
 const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
+const { abrirAta, ataAberta, anotar, apagarNota, descartarAta, fecharAta, ultimaAtaFechada, listarNotas, gerarMensagem, diaBR: diaBRAta, horaBR: horaBRAta } = require('./src/ata');
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
@@ -73,6 +74,7 @@ const TEXTO_AJUDA =
   '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
   '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
   '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
+  '/ata — modo de anotação da Reunião de Líderes: você vai escrevendo (ou ditando) o que for definido e, ao final, eu monto a mensagem pronta para repassar aos deputados no WhatsApp. /ata ver · /ata apagar 3 · /ata fim · /ata ultima\n' +
   '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
   '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
   '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
@@ -1566,6 +1568,142 @@ async function cmdMateria(ctx, texto) {
 }
 bot.command('colegio', ctx => cmdMateria(ctx, ctx.match));
 
+// ---------- /ata — modo de anotação da Reunião de Líderes ----------
+// Com a ata aberta, TODO texto solto do analista no privado vira anotação (em
+// vez de ir para o agente de linguagem natural) — durante a reunião é isso que
+// ele quer 95% do tempo. Escape para perguntar algo ao bot sem fechar a ata:
+// começar a mensagem com "?" (ou usar um comando, que sempre tem prioridade).
+const PREFIXO_PERGUNTA = '?';
+
+function tecladoAta(ata) {
+  const kb = new InlineKeyboard();
+  if (ata.notas.length) kb.text('📄 Ver anotações', 'ata:ver').text('✅ Gerar mensagem', 'ata:fim').row();
+  return kb.text('🗑 Descartar', 'ata:descartar');
+}
+
+function cabecalhoAta(ata) {
+  return `📝 Ata da reunião de ${diaBRAta(ata.iniciadaEm)}, aberta às ${horaBRAta(ata.iniciadaEm)} — ` +
+         `${ata.notas.length} anotação(ões).`;
+}
+
+async function cmdAta(ctx, arg) {
+  if (!ehPrivado(ctx)) return ctx.reply('A ata é pessoal — use /ata no meu privado.');
+  const sub = String(arg || '').trim();
+  const m = sub.match(/^(ver|listar|lista|fim|fecha|fechar|encerrar|gerar|descartar|cancelar|apagar|apaga|ajuda|ultima|última)\b\s*(.*)$/i);
+  const acao = m ? m[1].toLowerCase().replace(/^(fecha|encerrar)$/, 'fechar').replace(/^(apaga)$/, 'apagar').replace(/^lista$/, 'listar') : '';
+
+  if (/^(ajuda)$/.test(acao)) return ctx.reply(AJUDA_ATA);
+
+  if (/^(ultima|última)$/.test(acao)) {
+    const u = ultimaAtaFechada(ctx.from.id);
+    if (!u?.mensagem) return ctx.reply('Não encontrei nenhuma ata fechada com mensagem gerada.');
+    await ctx.reply(`Mensagem da ata de ${diaBRAta(u.iniciadaEm)}:`);
+    return responderLongo(ctx, u.mensagem);
+  }
+
+  const aberta = ataAberta(ctx.from.id);
+
+  if (/^(ver|listar)$/.test(acao)) {
+    if (!aberta) return ctx.reply('Não há ata aberta. Abra com /ata.');
+    return responderLongo(ctx, `${cabecalhoAta(aberta)}\n\n${listarNotas(aberta)}`, tecladoAta(aberta));
+  }
+  if (acao === 'apagar') {
+    if (!aberta) return ctx.reply('Não há ata aberta.');
+    const fora = apagarNota(ctx.from.id, m[2]);
+    return ctx.reply(fora ? `Apaguei: "${fora}"` : 'Número inválido — veja os números em /ata ver.');
+  }
+  if (/^(descartar|cancelar)$/.test(acao)) return descartarComConfirmacao(ctx);
+  if (/^(fim|fechar|gerar)$/.test(acao)) return gerarMensagemDaAta(ctx);
+
+  // "/ata pauta focada no agro" e "/anotar <texto>": o que sobra e não é
+  // subcomando conhecido é ANOTAÇÃO — perder o texto porque o analista digitou
+  // a barra por hábito seria o pior desfecho aqui.
+  if (sub && !acao) {
+    if (!aberta) abrirAta(ctx.from.id);
+    return tratarAnotacao(ctx, sub);
+  }
+
+  // Sem subcomando: abre (ou mostra a que já está aberta).
+  const { ata, jaEstava } = abrirAta(ctx.from.id);
+  if (jaEstava) return ctx.reply(`${cabecalhoAta(ata)}\n\nContinue anotando — é só escrever.`, { reply_markup: tecladoAta(ata) });
+  return ctx.reply(
+    '📝 Ata aberta. A partir de agora, tudo o que você me escrever aqui vira anotação da reunião — ' +
+    'pode mandar por texto ou por áudio, uma ideia por mensagem.\n\n' +
+    'Ao final, toque em "Gerar mensagem" (ou /ata fim) e eu devolvo o texto pronto para o WhatsApp.\n\n' +
+    `Para me perguntar algo sem fechar a ata, comece a mensagem com "${PREFIXO_PERGUNTA}" — ` +
+    'os comandos (/colegio, /pauta…) continuam funcionando normalmente.',
+    { reply_markup: tecladoAta(ata) });
+}
+
+const AJUDA_ATA =
+  '📝 /ata — anotações da Reunião de Líderes\n\n' +
+  '/ata — abre a ata (ou mostra a que está aberta)\n' +
+  'depois é só escrever/ditar: cada mensagem vira uma anotação\n' +
+  '/ata ver — lista as anotações numeradas\n' +
+  '/ata apagar 3 — apaga a anotação 3\n' +
+  '/ata fim — gera a mensagem para o WhatsApp (na sua chave de IA)\n' +
+  '/ata descartar — joga a ata fora\n' +
+  '/ata ultima — reenvia a mensagem da última ata fechada\n\n' +
+  `Durante a ata, mensagens começadas com "${PREFIXO_PERGUNTA}" vão para a IA em vez da ata.`;
+
+function descartarComConfirmacao(ctx) {
+  const aberta = ataAberta(ctx.from.id);
+  if (!aberta) return ctx.reply('Não há ata aberta.');
+  if (!aberta.notas.length) { descartarAta(ctx.from.id); return ctx.reply('Ata fechada (estava vazia).'); }
+  return ctx.reply(`Descartar a ata com ${aberta.notas.length} anotação(ões)? Isso não tem volta.`,
+    { reply_markup: new InlineKeyboard().text('🗑 Sim, descartar', 'ata:descartar:ok').text('Não', 'ata:nao') });
+}
+
+async function gerarMensagemDaAta(ctx) {
+  const ata = ataAberta(ctx.from.id);
+  if (!ata) return ctx.reply('Não há ata aberta. Abra com /ata.');
+  if (!ata.notas.length) return ctx.reply('A ata está sem anotações — não tenho o que resumir.');
+
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('Para gerar a mensagem preciso da sua chave de IA (a redação roda na sua conta). Configure com /config — as anotações ficam guardadas até lá.');
+  }
+
+  const aguarde = await ctx.reply(`🧠 Organizando ${ata.notas.length} anotações na mensagem da bancada…`);
+  let r;
+  try {
+    r = await gerarMensagem({ perfil, ata });
+  } catch (e) {
+    console.error('/ata fim falhou:', e);
+    return ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id,
+      `Não consegui gerar a mensagem: ${e.message}\n\nAs anotações continuam salvas — tente /ata fim de novo.`).catch(() => {});
+  }
+  await ctx.api.deleteMessage(aguarde.chat.id, aguarde.message_id).catch(() => {});
+
+  // A mensagem vai SOZINHA, sem formatação, para o analista copiar inteira e
+  // colar no WhatsApp. Conferências e descartes vão depois, em outra mensagem.
+  await responderLongo(ctx, r.mensagem);
+
+  const rodape = [];
+  if (r.avisos.length) rodape.push('⚠️ Confira antes de enviar:\n' + r.avisos.map(a => `• ${a}`).join('\n'));
+  if (r.descartado.length) rodape.push('Anotações que ficaram de fora:\n' + r.descartado.map(d => `• ${d}`).join('\n'));
+  rodape.push('A ata foi fechada. Se quiser o texto de novo: /ata ultima.');
+  fecharAta(ctx.from.id, r.mensagem);
+  return responderLongo(ctx, rodape.join('\n\n'));
+}
+
+bot.command(['ata', 'anotar'], ctx => cmdAta(ctx, ctx.match));
+
+bot.callbackQuery('ata:ver', async ctx => {
+  await ctx.answerCallbackQuery();
+  const a = ataAberta(ctx.from.id);
+  if (!a) return ctx.reply('Não há ata aberta.');
+  return responderLongo(ctx, `${cabecalhoAta(a)}\n\n${listarNotas(a)}`, tecladoAta(a));
+});
+bot.callbackQuery('ata:fim', async ctx => { await ctx.answerCallbackQuery(); return gerarMensagemDaAta(ctx); });
+bot.callbackQuery('ata:descartar', async ctx => { await ctx.answerCallbackQuery(); return descartarComConfirmacao(ctx); });
+bot.callbackQuery('ata:descartar:ok', async ctx => {
+  await ctx.answerCallbackQuery();
+  const n = descartarAta(ctx.from.id);
+  return ctx.reply(`Ata descartada (${n} anotação(ões)).`);
+});
+bot.callbackQuery('ata:nao', async ctx => { await ctx.answerCallbackQuery({ text: 'Ata mantida.' }); });
+
 // Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
 bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
   await ctx.answerCallbackQuery();
@@ -1684,13 +1822,38 @@ function textoParaOBot(ctx) {
   return null;
 }
 
+// Com a ata aberta, o texto solto do analista no privado é ANOTAÇÃO, não
+// pergunta. Vale só no privado (a ata é pessoal) e só fora do fluxo do /config.
+// Escape: mensagem começada com "?" vai para a IA sem fechar a ata.
+async function tratarAnotacao(ctx, texto) {
+  try {
+    const { n } = anotar(ctx.from.id, texto, ctx.message?.voice ? 'voz' : 'texto');
+    return ctx.reply(`📝 ${n}`);
+  } catch (e) {
+    return ctx.reply(`Não consegui anotar: ${e.message}`);
+  }
+}
+
+/** Roteia texto livre do privado: anotação da ata, ou conversa com a IA. */
+async function rotearTextoLivre(ctx, texto) {
+  if (ehPrivado(ctx) && ataAberta(ctx.from.id)) {
+    if (texto.startsWith(PREFIXO_PERGUNTA)) {
+      const pergunta = texto.slice(PREFIXO_PERGUNTA.length).trim();
+      if (!pergunta) return ctx.reply(`Escreva a pergunta depois do "${PREFIXO_PERGUNTA}".`);
+      return tratarLinguagemNatural(ctx, pergunta);
+    }
+    return tratarAnotacao(ctx, texto);
+  }
+  return tratarLinguagemNatural(ctx, texto);
+}
+
 bot.on('message:text', async ctx => {
   // Fluxo do /config aguardando a chave (só no privado)
   if (ehPrivado(ctx) && configPendente.has(String(ctx.from.id))) return tratarChaveColada(ctx);
 
   const texto = textoParaOBot(ctx);
   if (texto === null || !texto.trim()) return;          // grupo sem menção: ignora
-  return tratarLinguagemNatural(ctx, texto.trim());
+  return rotearTextoLivre(ctx, texto.trim());
 });
 
 // ---------- Voz ----------
@@ -1722,8 +1885,11 @@ bot.on('message:voice', async ctx => {
     }
     if (!texto) return ctx.reply('Não consegui transcrever o áudio — tente de novo ou envie por texto.');
 
+    // Com a ata aberta, o áudio vira anotação — ditar é o que se consegue fazer
+    // dentro de uma reunião. A transcrição vai visível para o analista poder
+    // conferir (e corrigir com /ata apagar) antes de gerar a mensagem.
     await ctx.reply(`🎤 Entendi: "${texto}"`);
-    return tratarLinguagemNatural(ctx, texto);
+    return rotearTextoLivre(ctx, texto.trim());
   } catch (e) {
     console.error('voz falhou:', e);
     return ctx.reply(`Erro ao processar o áudio: ${e.message}`);
@@ -1928,6 +2094,7 @@ const MENU_COMANDOS = [
   { command: 'listar',         description: 'Itens da pauta em uso' },
   { command: 'nota',           description: 'Nota técnica como está salva (ex.: /nota PL 1234/2026)' },
   { command: 'colegio',        description: 'Ficha de proposição avulsa, no formato da Reunião de Líderes' },
+  { command: 'ata',            description: 'Anotar a Reunião de Líderes e gerar a mensagem da bancada' },
   { command: 'perguntar',      description: 'Perguntar à IA sobre um item ou a pauta' },
   { command: 'documentos',     description: 'Documentos da tramitação fora da nota' },
   { command: 'baixar',         description: 'Baixar os PDFs dos documentos do item' },

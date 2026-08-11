@@ -43,6 +43,8 @@ as notas técnicas e os documentos oficiais.
 | `/comissao CCJ hoje` | **Pauta de uma comissão** da Câmara numa data — projetos, autor+partido, relator e voto do relator (dado oficial da API, verbatim). A frase serve para nome **e** data |
 | `/comissoeshoje [data]` | Lista **quais comissões** têm reunião deliberativa na data (nomes e horários) |
 | `/varrercomissoes [data]` | **Varre todas** as comissões com reunião deliberativa e mostra onde há projeto de **autoria ou relatoria do Podemos** (leva alguns segundos) |
+| `/colegio PL 1234/2026` | **Ficha de uma proposição avulsa** no formato do resumo da Reunião de Líderes — para o que não entrou na lista. Os fatos (situação da urgência, apensação, relatoria, parecer, retorno do Senado, marcações do Podemos) saem **na hora**; o resumo por IA vem em seguida |
+| `/ata` | **Modo de anotação da Reunião de Líderes** — você vai escrevendo (ou ditando) o que for definido e, ao final, o bot monta a **mensagem pronta para o WhatsApp** da bancada. Ver a seção abaixo |
 | `/ajuda` | Lista os comandos |
 
 > As três também funcionam em **linguagem natural**: *"tem projeto do Podemos na pauta da CCJ amanhã?"*, *"quais comissões se reúnem hoje?"*, *"quais comissões com reunião hoje têm algo do PT?"*. Tudo é dado oficial da API de Dados Abertos — o bot **não inventa**: sem reunião, diz que não há; comissão ambígua, pergunta qual.
@@ -50,12 +52,47 @@ as notas técnicas e os documentos oficiais.
 Depois da primeira pergunta sobre um item, você pode continuar perguntando
 sem repetir a sigla — o bot lembra o item ativo por até 1 hora.
 
+## Anotar a Reunião de Líderes (`/ata`)
+
+Serve para o analista que acompanha o Colégio de Líderes e precisa, ao final,
+repassar as definições aos deputados da bancada.
+
+1. **`/ata`** no privado abre a ata do dia.
+2. **Vá anotando.** Com a ata aberta, tudo o que você escrever aqui vira
+   anotação — uma ideia por mensagem. **Áudio também** 🎤: o bot transcreve e
+   anota (a transcrição aparece para você conferir). Cada anotação recebe um
+   número (`📝 7`).
+3. **`/ata fim`** (ou o botão **✅ Gerar mensagem**) devolve o texto pronto,
+   sozinho numa mensagem, para você copiar e colar no WhatsApp.
+
+| Durante a ata | |
+|---|---|
+| `/ata ver` | Lista as anotações numeradas, com a hora |
+| `/ata apagar 3` | Apaga a anotação 3 (útil quando o áudio saiu torto) |
+| `?tem parecer no PL 1234/2026?` | Mensagem começada com **`?`** vai para a IA em vez da ata |
+| `/colegio PL 1234/2026`, `/pauta`… | Comandos continuam funcionando normalmente |
+| `/ata descartar` | Joga a ata fora (pede confirmação) |
+| `/ata ultima` | Reenvia a mensagem da última ata fechada, sem gerar de novo |
+
+A mensagem sai no padrão fixado pela Liderança — *Amigos,* / *Nesta semana:* /
+*Próxima semana:* / *⚠️ Atenção:*. **O formato é montado pelo sistema**, não
+pela IA: bloco sobre o qual você não anotou nada é **omitido**, não preenchido.
+Depois da mensagem o bot manda, em separado, **o que ficou de fora** e os
+avisos de conferência — inclusive se algum projeto citado no texto **não
+aparece nas suas anotações**, ou se um projeto que você anotou **ficou fora**
+da mensagem. Quem decide o que vai para os deputados é você.
+
+As anotações ficam **na máquina do bot**, não no Firebase, e sobrevivem a
+reinício — a ata continua aberta até você fechar ou descartar.
+
 ## Linguagem natural e voz
 
 Com a chave configurada, você não precisa decorar comandos:
 
 - **No privado**: escreva normalmente — "tem pauta nova?", "importa a pauta",
   "o que o PL 1234 muda no ECA?" — ou **mande um áudio** 🎤.
+  (Com uma **ata aberta** (`/ata`), texto e áudio viram **anotação**; para
+  perguntar sem fechar a ata, comece a mensagem com `?`.)
 - **No grupo**: mencione o bot (`@nome_do_bot tem pauta nova?`).
 
 Ações que gravam no sistema (como importar) **sempre** pedem confirmação por

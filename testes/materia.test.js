@@ -7,7 +7,7 @@
 //
 // Uso: node testes/materia.test.js
 const path = require("path");
-const M = require('path.join(__dirname, "..", "bot", "src", "materia.js")');
+const M = require(path.join(__dirname, '..', 'bot', 'src', 'materia.js'));
 let falhas=0;
 const ok=(c,m)=>{ if(!c){falhas++;console.log('  ✗ '+m);} else console.log('  ✓ '+m); };
 (async()=>{
@@ -26,7 +26,7 @@ const ok=(c,m)=>{ if(!c){falhas++;console.log('  ✗ '+m);} else console.log('  
   ok(/Sem apensação\./.test(f1.apensacao),`apensação: ${f1.apensacao.replace(/\n/g,' | ')}`);
   ok(f1.cenario===3 || f1.cenario===1,`cenário: ${f1.cenarioNome}`);
   const fatos=M.formatarFatos(f1);
-  ok(fatos.includes('📋 PLP 230/2025') && fatos.includes('fichadetramitacao'),'fatos formatados com link');
+  ok(fatos.includes('📋 *PLP 230/2025*') && fatos.includes('fichadetramitacao'),'fatos formatados com link');
   ok(fatos.length<3800,`tamanho telegram ok (${fatos.length})`);
 
   const f2 = await M.montarFicha('PL 101/2026');
