@@ -451,6 +451,13 @@ function registrarEventos() {
       try { chrome.runtime.reload(); } catch (_) { location.reload(); }
     });
   verificarVersao();
+  // A checagem única na abertura deixa aba antiga sem aviso para sempre —
+  // MEDIDO em uso real: bump publicado e o usuário, com o painel aberto de
+  // antes, não viu nada. Rechecagem a cada 30 min e ao voltar para a aba.
+  setInterval(verificarVersao, 30 * 60e3);
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) verificarVersao();
+  });
 }
 
 // ---------- UPLOAD E PARSING DO PDF ----------
