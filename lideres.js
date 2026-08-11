@@ -140,6 +140,7 @@ function registrarEventos() {
 
   // Sistema 3 — e-mail de demandas
   document.getElementById('btn-email-copiar').addEventListener('click', copiarEmailDemandas);
+  document.getElementById('btn-email-outlook').addEventListener('click', abrirEmailNoOutlook);
   document.getElementById('btn-email-atualizar').addEventListener('click', atualizarSituacoesEmail);
 }
 
@@ -2570,6 +2571,7 @@ function renderizarPreviaEmail() {
   const prev   = document.getElementById('email-preview');
   const status = document.getElementById('email-status');
   document.getElementById('btn-email-copiar').disabled = !sel.length;
+  document.getElementById('btn-email-outlook').disabled = !sel.length;
   if (!sel.length) {
     status.textContent = app.demandas.length
       ? 'Nenhuma demanda selecionada' : 'Registre demandas na aba Demandas de Deputados';
@@ -2598,32 +2600,72 @@ async function atualizarSituacoesEmail() {
     : 'Nenhuma situação mudou.', mudadas ? 'aviso' : 'sucesso');
 }
 
-async function copiarEmailDemandas() {
+/** Texto final do e-mail: reconsulta a situação das selecionadas na Câmara
+ *  (entre o registro e o envio a urgência pode ter sido aprovada — e-mail com
+ *  situação velha é o defeito mais caro deste sistema) e busca a assinatura. */
+async function prepararEmailFinal() {
   const sel = demandasSelecionadas();
-  if (!sel.length) return;
-  // Reconsulta a situação ANTES de copiar: entre o registro e o envio a
-  // urgência pode ter sido aprovada — e-mail com situação velha é o defeito
-  // mais caro deste sistema.
-  const btn = document.getElementById('btn-email-copiar');
-  btn.disabled = true; btn.textContent = 'Conferindo situações…';
   let mudadas = 0;
   try {
     await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
-  } catch (_) { /* copia com o que há */ }
+  } catch (_) { /* segue com o que há */ }
   let assinatura = _liderCache?.assinatura;
   if (!assinatura) {
     try { assinatura = (await liderDoPodemos()).assinatura; }
     catch (_) { /* fica o marcador — nunca um nome errado em silêncio */ }
   }
   renderizarEmail();
-  await navigator.clipboard.writeText(montarEmailDemandas(demandasSelecionadas(), assinatura));
-  btn.disabled = false; btn.textContent = 'Copiar texto';
   const avisos = [];
   if (mudadas) avisos.push(`${mudadas} situação(ões) mudou(aram) desde o registro`);
   if (!assinatura) avisos.push('não consegui buscar o líder na API — a assinatura ficou como marcador');
+  return { texto: montarEmailDemandas(demandasSelecionadas(), assinatura), avisos };
+}
+
+async function copiarEmailDemandas() {
+  if (!demandasSelecionadas().length) return;
+  const btn = document.getElementById('btn-email-copiar');
+  btn.disabled = true; btn.textContent = 'Conferindo situações…';
+  const { texto, avisos } = await prepararEmailFinal();
+  await navigator.clipboard.writeText(texto);
+  btn.disabled = false; btn.textContent = 'Copiar texto';
   mostrarToast(avisos.length
     ? `Copiado — atenção: ${avisos.join('; ')}.`
     : 'Texto copiado para a área de transferência.', avisos.length ? 'aviso' : 'sucesso');
+}
+
+// ---------- Abrir no Outlook (mailto:) ----------
+// mailto: abre o CLIENTE PADRÃO da máquina (na Câmara, o Outlook) com o
+// e-mail pronto — é o máximo que uma extensão consegue sem OAuth corporativo:
+// ENVIAR sozinho exigiria Microsoft Graph com autorização da TI. O limite do
+// mailto é o tamanho da URL (o Windows trunca na casa dos 2 mil caracteres, e
+// ementa de lei estoura isso fácil); acima do limite, o corpo vai pela área
+// de transferência e o Outlook abre só com o assunto — nunca truncado.
+const ASSUNTO_EMAIL = 'Proposições prioritárias — bancada do PODEMOS';
+const LIMITE_MAILTO = 1900;
+
+function mailtoDoEmail(texto) {
+  // Quebras como %0D%0A (RFC 6068) — só %0A alguns clientes ignoram.
+  const url = `mailto:?subject=${encodeURIComponent(ASSUNTO_EMAIL)}` +
+              `&body=${encodeURIComponent(String(texto).replace(/\r?\n/g, '\r\n'))}`;
+  return { url, cabe: url.length <= LIMITE_MAILTO };
+}
+
+async function abrirEmailNoOutlook() {
+  if (!demandasSelecionadas().length) return;
+  const btn = document.getElementById('btn-email-outlook');
+  btn.disabled = true;
+  const { texto, avisos } = await prepararEmailFinal();
+  const m = mailtoDoEmail(texto);
+  if (m.cabe) {
+    location.href = m.url;
+  } else {
+    await navigator.clipboard.writeText(texto);
+    location.href = `mailto:?subject=${encodeURIComponent(ASSUNTO_EMAIL)}`;
+    avisos.push('o corpo excede o limite do mailto — copiei o texto: cole no e-mail (Ctrl+V)');
+  }
+  btn.disabled = false;
+  mostrarToast(avisos.length ? `Outlook aberto — atenção: ${avisos.join('; ')}.` : 'Outlook aberto com o e-mail pronto.',
+    avisos.length ? 'aviso' : 'sucesso');
 }
 
 // ============================================================

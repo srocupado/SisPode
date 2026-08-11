@@ -26,7 +26,7 @@ const sandbox = {
 };
 const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
                   'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
-                  'autoriaSemPartido', 'liderDoPodemos'];
+                  'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -88,6 +88,14 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.montarEmailDemandas([dA]).includes('<Líder do PODEMOS>'), 'sem assinatura da API, fica o marcador — nunca nome errado');
   const jaComPonto = { ...dA, situacao: 'Urgência aprovada (REQ. 2708/2026).' };
   ok(!/\.\.$/m.test(L.blocoDemandaEmail(jaComPonto)), 'situação que já termina em ponto não ganha outro');
+
+  console.log('\n== mailtoDoEmail: abrir no Outlook ==');
+  const curto = L.mailtoDoEmail('Senhor Presidente,\n\nLinha dois.');
+  ok(curto.cabe && curto.url.startsWith('mailto:?subject='), 'corpo curto cabe na URL do mailto');
+  ok(curto.url.includes('%0D%0A'), 'quebras de linha como %0D%0A (RFC 6068)');
+  ok(!L.mailtoDoEmail('x'.repeat(4000)).cabe, 'corpo longo é detectado — vai pela área de transferência');
+  ok(L.mailtoDoEmail(email).cabe === (L.mailtoDoEmail(email).url.length <= 1900),
+     `o e-mail do modelo ${L.mailtoDoEmail(email).cabe ? 'cabe' : 'não cabe'} no mailto (${L.mailtoDoEmail(email).url.length} chars)`);
 
   console.log('\n== liderDoPodemos (API real) ==');
   const lider = await L.liderDoPodemos();
