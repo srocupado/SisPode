@@ -25,7 +25,8 @@ const sandbox = {
   XLSX: undefined,
 };
 const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
-                  'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda'];
+                  'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
+                  'autoriaSemPartido', 'liderDoPodemos'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -39,40 +40,61 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.refDemanda('o PL 4822 2025 por favor').chave === 'PL 4822/2025', 'no meio de frase, com espaço');
   ok(L.refDemanda('bom dia') === null, 'texto sem referência → null');
 
-  console.log('\n== blocoDemandaEmail: o padrão de registro da Liderança ==');
-  // Demanda exatamente como o exemplo dado — o bloco tem de sair idêntico.
-  const exemplo = {
-    tratamento: 'Deputado', deputado: 'David Soares',
-    chave: 'PLP 78/2025', natureza: 'Solicitar relatoria',
-    autoria: 'Bacelar PV/BA',
-    ementa: 'Dispõe sobre a regulamentação de locação para temporada, quando intermediada por empresas operadoras de aplicativo ou de outra plataforma em rede, altera a Lei nº 11.771, de 17 de setembro de 2008, a Lei nº 8.245, de 18 de outubro de 1991, a Lei nº 10.257, de 10 de julho de 2001, a Lei Complementar nº 116, de 31 de julho de 2003, a Lei nº 7.713, de 22 de dezembro de 1988, e dá outras providências.',
-    situacao: 'Requerimento de urgência apresentado (REQ n. 2778/2026)',
+  console.log('\n== autoriaSemPartido: no e-mail, autoria só com o nome ==');
+  ok(L.autoriaSemPartido('Bacelar PV/BA') === 'Bacelar', '"Bacelar PV/BA" → "Bacelar"');
+  ok(L.autoriaSemPartido('David Soares UNIÃO/SP e outros') === 'David Soares e outros', 'sigla com acento + "e outros"');
+  ok(L.autoriaSemPartido('Poder Executivo') === 'Poder Executivo', 'autor que não é deputado fica intacto');
+  ok(L.autoriaSemPartido('Romero Rodrigues PODE/PB') === 'Romero Rodrigues', 'padrão do registro vira o do e-mail');
+
+  console.log('\n== montarEmailDemandas: o MODELO da Liderança, caractere a caractere ==');
+  // As duas demandas do modelo dado em 11/08/2026 — o e-mail tem de sair idêntico.
+  const dA = {
+    tratamento: 'Deputado', deputado: 'Qualquer Demandante',
+    chave: 'PL 3932/2024', natureza: 'Solicitar inclusão em pauta',
+    autoria: 'Romero Rodrigues PODE/PB',
+    ementa: 'Institui a Política Nacional de Conscientização e Combate ao Vício Tecnológico em crianças e adolescentes e altera a Lei nº 14.790, de 29 de dezembro de 2023, a fim de prever medidas adicionais de combate à participação de menores de 18 (dezoito) anos na condição de apostador em apostas de quota fixa.',
+    situacao: 'Urgência aprovada',
+  };
+  const dB = {
+    tratamento: 'Deputada', deputado: 'Outra Demandante',
+    chave: 'PL 3052/2023', natureza: 'Solicitar relatoria',
+    autoria: 'Renata Abreu PODE/SP',
+    ementa: 'Proclama São Vicente a Capital Simbólica do Brasil.',
+    situacao: 'Urgência aprovada',
   };
   const esperado =
-    '•\tPLP 78/2025\n' +
-    'Natureza da demanda: Solicitar relatoria\n' +
-    'Autoria: Bacelar PV/BA\n' +
-    'Ementa: Dispõe sobre a regulamentação de locação para temporada, quando intermediada por empresas operadoras de aplicativo ou de outra plataforma em rede, altera a Lei nº 11.771, de 17 de setembro de 2008, a Lei nº 8.245, de 18 de outubro de 1991, a Lei nº 10.257, de 10 de julho de 2001, a Lei Complementar nº 116, de 31 de julho de 2003, a Lei nº 7.713, de 22 de dezembro de 1988, e dá outras providências.\n' +
-    'Situação: Requerimento de urgência apresentado (REQ n. 2778/2026).';
-  ok(L.blocoDemandaEmail(exemplo) === esperado, 'bloco idêntico ao padrão, caractere a caractere');
-  ok(/\(REQ n\. 2778\/2026\)\.$/.test(L.blocoDemandaEmail(exemplo)), 'situação sem ponto final ganha o ponto');
-  const jaComPonto = { ...exemplo, situacao: 'Urgência aprovada (REQ. 2708/2026).' };
-  ok(!/\.\.$/.test(L.blocoDemandaEmail(jaComPonto)), 'situação que já termina em ponto não ganha outro');
+    'Senhor Presidente,\n' +
+    '\n' +
+    'Cumprimentando-o, remeto a lista de proposições prioritárias para a bancada do PODEMOS\n' +
+    '\n' +
+    '•\tPL 3932/2024\n' +
+    'Autoria: Romero Rodrigues\n' +
+    'Ementa: Institui a Política Nacional de Conscientização e Combate ao Vício Tecnológico em crianças e adolescentes e altera a Lei nº 14.790, de 29 de dezembro de 2023, a fim de prever medidas adicionais de combate à participação de menores de 18 (dezoito) anos na condição de apostador em apostas de quota fixa.\n' +
+    'Situação: Urgência aprovada.\n' +
+    '\n' +
+    '•\tPL 3052/2023\n' +
+    'Autoria: Renata Abreu\n' +
+    'Ementa: Proclama São Vicente a Capital Simbólica do Brasil.\n' +
+    'Situação: Urgência aprovada.\n' +
+    '\n' +
+    'Respeitosamente,\n' +
+    '\n' +
+    'Deputado Rodrigo Gambale\n' +
+    'Líder do PODEMOS';
+  const email = L.montarEmailDemandas([dA, dB], 'Deputado Rodrigo Gambale\nLíder do PODEMOS');
+  ok(email === esperado, 'e-mail idêntico ao modelo, caractere a caractere');
+  ok(!email.includes('Natureza da demanda'), 'natureza (registro interno) NÃO vai no e-mail');
+  ok(!email.includes('Demandante'), 'deputado demandante (registro interno) NÃO vai no e-mail');
+  ok(L.montarEmailDemandas([dA]).includes('<Líder do PODEMOS>'), 'sem assinatura da API, fica o marcador — nunca nome errado');
+  const jaComPonto = { ...dA, situacao: 'Urgência aprovada (REQ. 2708/2026).' };
+  ok(!/\.\.$/m.test(L.blocoDemandaEmail(jaComPonto)), 'situação que já termina em ponto não ganha outro');
 
-  console.log('\n== montarEmailDemandas: agrupamento por deputado ==');
-  const d2 = { ...exemplo, chave: 'PL 2030/2026', natureza: 'Apoiar a aprovação',
-               autoria: 'David Soares UNIÃO/SP', ementa: 'Ementa dois.', situacao: 'Não há requerimento de urgência apresentado.' };
-  const d3 = { ...exemplo, tratamento: 'Deputada', deputado: 'Renata Abreu',
-               chave: 'PL 1450/2026', natureza: 'Solicitar inclusão em pauta',
-               autoria: 'Renata Abreu PODE/SP', ementa: 'Ementa três.', situacao: 'Urgência aprovada (REQ. 100/2026)' };
-  const email = L.montarEmailDemandas([exemplo, d2, d3]);
-  ok(email.startsWith('Deputado DAVID SOARES:\n\n•\tPLP 78/2025\n'), 'cabeçalho com o nome em maiúsculas');
-  ok(email.includes('Deputada RENATA ABREU:'), 'tratamento Deputada respeitado no cabeçalho');
-  ok((email.match(/Deputado DAVID SOARES:/g) || []).length === 1, 'duas demandas do mesmo deputado sob UM cabeçalho');
-  ok(email.indexOf('PL 2030/2026') > email.indexOf('PLP 78/2025') &&
-     email.indexOf('PL 2030/2026') < email.indexOf('Deputada RENATA ABREU:'),
-     'demandas do deputado ficam juntas, na ordem de registro');
-  ok(email.split('Deputada RENATA ABREU:')[0].trimEnd().endsWith('.'), 'blocos separados por linha em branco');
+  console.log('\n== liderDoPodemos (API real) ==');
+  const lider = await L.liderDoPodemos();
+  console.log(`  · líder pela API: ${lider.assinatura.replace('\n', ' — ')}`);
+  ok(lider.nome && lider.nome.length > 3, `nome do líder veio da API ("${lider.nome}")`);
+  ok(['Deputado', 'Deputada', 'Deputado(a)'].includes(lider.tratamento), `tratamento derivado da ficha (${lider.tratamento})`);
+  ok(lider.assinatura === `${lider.tratamento} ${lider.nome}\nLíder do PODEMOS`, 'assinatura no formato do fecho');
 
   console.log('\n== camada factual (API real — o exemplo do padrão) ==');
   const t0 = Date.now();

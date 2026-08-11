@@ -300,9 +300,10 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 - Registros no Firebase (`lideres-demandas`), **compartilhados com a equipe** como as reuniões
 
 **Sistema 3 — E-mail de Demandas**
-- Marca-se na barra lateral quais demandas entram; a prévia monta os blocos **por código**, no padrão fixo (`Deputado NOME:` + proposição, natureza, autoria, ementa, situação) — sem IA na formatação
+- Marca-se na barra lateral quais demandas entram; o e-mail sai **montado por código** no modelo da Liderança ("Senhor Presidente, … lista de proposições prioritárias para a bancada do PODEMOS" + um bloco por proposição com autoria, ementa e situação) — sem IA na formatação
+- **Quem demandou e a natureza da demanda não entram no e-mail** — são registro interno da bancada; a autoria vai só com o nome ("Bacelar", não "Bacelar PV/BA")
 - Ao copiar, a **situação de cada demanda selecionada é reconsultada na Câmara** antes de montar o texto — entre o registro e o envio a urgência pode ter sido aprovada — e o que mudou sai avisado
-- A abertura e o fechamento do e-mail entram quando o modelo for definido (gabarito fixo no código)
+- A assinatura ("Deputado Fulano / Líder do PODEMOS") vem **da API da Câmara** (`/partidos/{id}` → `status.lider`), com o tratamento derivado do campo sexo da ficha — nunca nome fixo no código; se a API falhar, fica o marcador `<Líder do PODEMOS>` para o analista preencher, nunca um nome silenciosamente errado
 
 ---
 

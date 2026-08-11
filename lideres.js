@@ -2467,33 +2467,69 @@ async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
 // ============================================================
 //  SISTEMA 3 — E-MAIL DE DEMANDAS
 // ============================================================
-// O formato é montado por CÓDIGO, no padrão de registro da Liderança — o
-// mesmo princípio da mensagem do /ata: o padrão não depende de ninguém
-// lembrar do modelo. A abertura e o fechamento do e-mail entram quando o
-// modelo for definido (por ora vazios: a cópia leva só os blocos).
-const EMAIL_ABERTURA   = '';
-const EMAIL_FECHAMENTO = '';
+// Modelo do e-mail definido pela Liderança em 11/08/2026, montado por
+// CÓDIGO — o mesmo princípio da mensagem do /ata: o padrão não depende de
+// ninguém lembrar do modelo. Duas diferenças DELIBERADAS em relação ao
+// registro do sistema 2: o e-mail NÃO agrupa por deputado demandante e NÃO
+// leva a "Natureza da demanda" — quem pediu e por quê é registro interno da
+// bancada; o destinatário recebe a lista de proposições prioritárias.
+const EMAIL_ABERTURA =
+  'Senhor Presidente,\n\n' +
+  'Cumprimentando-o, remeto a lista de proposições prioritárias para a bancada do PODEMOS';
+
+/** No e-mail a autoria vai só com o nome, como no modelo da Liderança:
+ *  "Bacelar PV/BA e outros" → "Bacelar e outros". */
+function autoriaSemPartido(autoria) {
+  return String(autoria || '').replace(/\s+[^\s/]+\/[A-Z]{2}(?=( e outros)?$)/, '');
+}
 
 function blocoDemandaEmail(d) {
   const sit = (d.situacao || '').trim();
   return [`•\t${d.chave}`,
-          `Natureza da demanda: ${d.natureza}`,
-          `Autoria: ${d.autoria || 'não informada'}`,
+          `Autoria: ${autoriaSemPartido(d.autoria) || 'não informada'}`,
           `Ementa: ${d.ementa || '—'}`,
           `Situação: ${/[.!?]$/.test(sit) ? sit : sit + '.'}`].join('\n');
 }
 
-/** Blocos agrupados por deputado: "Deputado DAVID SOARES:" + demandas dele. */
-function montarEmailDemandas(demandas) {
-  const grupos = new Map();
-  for (const d of demandas) {
-    const g = `${d.tratamento || 'Deputado'} ${String(d.deputado || '').toUpperCase()}`;
-    if (!grupos.has(g)) grupos.set(g, []);
-    grupos.get(g).push(d);
+/** E-mail completo no modelo da Liderança. A assinatura vem de
+ *  liderDoPodemos(); sem ela, fica o marcador para o analista preencher —
+ *  nunca um nome silenciosamente errado. */
+function montarEmailDemandas(demandas, assinatura) {
+  return [EMAIL_ABERTURA,
+          demandas.map(blocoDemandaEmail).join('\n\n'),
+          `Respeitosamente,\n\n${assinatura || '<Líder do PODEMOS>'}`].join('\n\n');
+}
+
+// ---------- Assinatura: o líder do Podemos, SEMPRE da API ----------
+// /partidos/{id} → status.lider é mantido pela própria Câmara; nome fixo no
+// código envelheceria na primeira troca de liderança. O tratamento
+// (Deputado/Deputada) vem do campo sexo da ficha — não de chute pelo nome.
+let _liderCache = null;
+async function liderDoPodemos() {
+  if (_liderCache) return _liderCache;
+  const r1 = await fetch(`${API_BASE}/partidos?sigla=${SIGLA_PODEMOS}&itens=1`);
+  if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
+  const partido = (await r1.json()).dados?.[0];
+  if (!partido) throw new Error('partido não localizado');
+  const r2 = await fetch(`${API_BASE}/partidos/${partido.id}`);
+  if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
+  const lider = (await r2.json()).dados?.status?.lider;
+  if (!lider?.nome) throw new Error('líder não informado pela API');
+  let tratamento = 'Deputado(a)';
+  const m = (lider.uri || '').match(/\/deputados\/(\d+)/);
+  if (m) {
+    try {
+      const r3 = await fetch(`${API_BASE}/deputados/${m[1]}`);
+      if (r3.ok) {
+        const sexo = (await r3.json()).dados?.sexo;
+        if (sexo === 'F') tratamento = 'Deputada';
+        else if (sexo === 'M') tratamento = 'Deputado';
+      }
+    } catch (_) { /* fica no neutro */ }
   }
-  const corpo = [...grupos].map(([dep, ds]) =>
-    `${dep}:\n\n${ds.map(blocoDemandaEmail).join('\n\n')}`).join('\n\n');
-  return [EMAIL_ABERTURA, corpo, EMAIL_FECHAMENTO].filter(Boolean).join('\n\n');
+  _liderCache = { nome: lider.nome, tratamento,
+                  assinatura: `${tratamento} ${lider.nome}\nLíder do PODEMOS` };
+  return _liderCache;
 }
 
 function demandasSelecionadas() {
@@ -2542,7 +2578,10 @@ function renderizarPreviaEmail() {
   }
   const deps = new Set(sel.map(grupoDemanda)).size;
   status.textContent = `${sel.length} demanda(s) de ${deps} deputado(s)`;
-  prev.textContent = montarEmailDemandas(sel);
+  prev.textContent = montarEmailDemandas(sel, _liderCache?.assinatura);
+  // A assinatura chega da API depois do primeiro desenho; quando chegar,
+  // redesenha — o marcador some sozinho.
+  if (!_liderCache) liderDoPodemos().then(() => renderizarPreviaEmail()).catch(() => {});
 }
 
 async function atualizarSituacoesEmail() {
@@ -2571,12 +2610,20 @@ async function copiarEmailDemandas() {
   try {
     await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
   } catch (_) { /* copia com o que há */ }
+  let assinatura = _liderCache?.assinatura;
+  if (!assinatura) {
+    try { assinatura = (await liderDoPodemos()).assinatura; }
+    catch (_) { /* fica o marcador — nunca um nome errado em silêncio */ }
+  }
   renderizarEmail();
-  await navigator.clipboard.writeText(montarEmailDemandas(demandasSelecionadas()));
+  await navigator.clipboard.writeText(montarEmailDemandas(demandasSelecionadas(), assinatura));
   btn.disabled = false; btn.textContent = 'Copiar texto';
-  mostrarToast(mudadas
-    ? `Copiado — atenção: ${mudadas} situação(ões) mudou(aram) desde o registro.`
-    : 'Texto copiado para a área de transferência.', mudadas ? 'aviso' : 'sucesso');
+  const avisos = [];
+  if (mudadas) avisos.push(`${mudadas} situação(ões) mudou(aram) desde o registro`);
+  if (!assinatura) avisos.push('não consegui buscar o líder na API — a assinatura ficou como marcador');
+  mostrarToast(avisos.length
+    ? `Copiado — atenção: ${avisos.join('; ')}.`
+    : 'Texto copiado para a área de transferência.', avisos.length ? 'aviso' : 'sucesso');
 }
 
 // ============================================================
