@@ -2300,10 +2300,14 @@ async function carregarDemandas() {
   if (app.sistema === 'email')    renderizarEmail();
 }
 
-/** "PLP 78/2025", "plp78/25" → { sigla, numero, ano, chave } — ou null. */
+/** "PLP 78/2025", "plp78/25" → { sigla, numero, ano, chave } — ou null.
+ *  As siglas vão além das proposições da pauta: demanda de deputado também
+ *  mira REQ, RCP (criação de CPI — caso real: RCP 2/2026, despacho do
+ *  Presidente), RIC, REC e PFC. Sigla errada não passa de qualquer jeito:
+ *  o registro exige que a busca na API dê certo. */
 function refDemanda(texto) {
   const m = String(texto || '').match(
-    /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG)\s*\.?\s*n?[º°.]*\s*(\d{1,6})\s*[\/\s]\s*(\d{2,4})\b/i);
+    /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG|REQ|RCP|RIC|REC|PFC|PRN)\s*\.?\s*n?[º°.]*\s*(\d{1,6})\s*[\/\s]\s*(\d{2,4})\b/i);
   if (!m) return null;
   let ano = parseInt(m[3], 10);
   if (m[3].length === 2) ano += ano < 50 ? 2000 : 1900;   // "…/25" digitado às pressas
@@ -2345,11 +2349,18 @@ async function fatosDaDemanda(ref) {
     if (rd.ok) detalhe = (await rd.json()).dados || item;
   } catch (_) { /* fica com o item da lista */ }
   const [autoria, trams] = await Promise.all([autoriaDemanda(item.id), buscarTramitacoes(item.id)]);
+  // Situação: a regra de urgência do sistema 1 continua mandando quando há
+  // sinal de urgência. Mas quando NÃO há ("Não há requerimento…"), a situação
+  // oficial da ficha é o fato útil — para um RCP aguardando despacho do
+  // Presidente, dizer "não há requerimento de urgência" é verdadeiro e inútil.
+  let situacao = situacaoDe(trams, '');
+  const oficial = detalhe.statusProposicao?.descricaoSituacao || '';
+  if (/^Não há requerimento/.test(situacao) && oficial.trim()) situacao = oficial.trim();
   return {
     idCamara: item.id,
     ementa:   detalhe.ementa || item.ementa || '',
     autoria,
-    situacao: situacaoDe(trams, ''),
+    situacao,
   };
 }
 

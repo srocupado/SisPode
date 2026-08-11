@@ -39,6 +39,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.refDemanda('plp78/25').chave === 'PLP 78/2025', 'minúscula, sem espaço, ano curto');
   ok(L.refDemanda('o PL 4822 2025 por favor').chave === 'PL 4822/2025', 'no meio de frase, com espaço');
   ok(L.refDemanda('bom dia') === null, 'texto sem referência → null');
+  ok(L.refDemanda('RCP 2/2026').chave === 'RCP 2/2026', 'RCP (criação de CPI) é aceito');
+  ok(L.refDemanda('req 2778/2026').chave === 'REQ 2778/2026', 'REQ é aceito');
 
   console.log('\n== autoriaSemPartido: no e-mail, autoria só com o nome ==');
   ok(L.autoriaSemPartido('Bacelar PV/BA') === 'Bacelar', '"Bacelar PV/BA" → "Bacelar"');
@@ -119,6 +121,15 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
   const inexistente = await L.fatosDaDemanda(L.refDemanda('PL 999999/2026')).then(() => null, e => e.message);
   ok(/não localizada/.test(inexistente || ''), 'proposição inexistente dá erro claro, não registro vazio');
+
+  console.log('\n== RCP 2/2026 (caso real: despacho do Presidente) ==');
+  const rcp = await L.fatosDaDemanda(L.refDemanda('RCP 2/2026'));
+  ok(rcp.idCamara === 2617166, `RCP resolvido na API (${rcp.idCamara})`);
+  ok(/Comissão Parlamentar de Inquérito/i.test(rcp.ementa), 'ementa é a do RCP (criação de CPI)');
+  ok(rcp.autoria && rcp.autoria.length > 3, `autoria veio (${rcp.autoria})`);
+  // Sem sinal de urgência, a situação cai na OFICIAL da ficha — que é o fato
+  // que interessa ("Aguardando Despacho…"), não "não há requerimento".
+  ok(!/^Não há requerimento/.test(rcp.situacao), `situação não é o vazio da urgência (obtida: "${rcp.situacao}")`);
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
