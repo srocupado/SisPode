@@ -2,8 +2,8 @@
 
 Ferramentas para a equipe da **Liderança do Podemos** na Câmara dos Deputados, em duas frentes:
 
-- **Extensão do Chrome** (MV3) — sete módulos integrados para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC) e acompanhamento dos vetos em tramitação no Congresso Nacional.
-- **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#8-bot-do-telegram-sispode-bot).
+- **Extensão do Chrome** (MV3) — oito módulos integrados para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC), acompanhamento dos vetos em tramitação no Congresso Nacional e preparação da lista do Colégio de Líderes.
+- **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#9-bot-do-telegram-sispode-bot).
 
 ---
 
@@ -261,7 +261,41 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 
 ---
 
-### 8. Bot do Telegram (SisPode Bot)
+### 8. Reunião de Líderes
+
+Recebe o **PDF com a lista de proposições** que o Colégio de Líderes vai avaliar para eventual inclusão na pauta do Plenário e devolve a **planilha de resumo** — uma linha por proposição, pronta para a reunião.
+
+A divisão de trabalho é deliberada: **o que é fato vem da fonte, o que é redação vem da IA**. Situação da urgência, apensação, relatoria de Plenário, parecer, cenário e as marcações do Podemos são **derivados por regra fixa** dos Dados Abertos — sem IA, em segundos, porque nesses campos um erro de leitura vira informação errada na mão do líder. Só objetivo, justificativa e o comparativo passam pelo modelo, sempre com o inteiro teor anexado.
+
+**Leitura da lista (PDF)**
+- A lista é uma tabela cujas colunas se separam por **posição horizontal**, com a descrição quebrando em várias linhas e o número do item aparecendo no meio do bloco. O parser recorta por coluna e agrupa os blocos entre os números, tratando quebra de página e cabeçalho repetido (que reaparece no meio das páginas) como fronteira de linha
+- A **grade de colunas é detectada no próprio documento** — ela muda de uma reunião para outra, e uma grade fixa faz o regime vazar silenciosamente para dentro da descrição
+- Itens com mais de uma proposição (apensado + principal) rendem **uma linha por proposição**; marcadores da célula (como `- EMS`) viram etiqueta ao lado do número
+
+**Etapa de documentos (a mesma taxonomia do módulo de Plenário)**
+- Cenários 1 a 10 com a mesma numeração e prioridade do `analise.js`: inteiro teor, substitutivo de comissão, parecer de Plenário, subemenda, **retorno do Senado (EMS)**, PEC e PDL. A fonte aqui é `/proposicoes/{id}/relacionadas`, que expõe os mesmos tipos (`PRLP`, `SBT-A`, `PPP`, `RDF`, `AA`, `EMS`, `PSS`…)
+- Havendo texto posterior ao apresentado, a coluna **"O que mudou"** lista em poucos itens o que ele altera, inclui ou suprime — e as duas peças vão anexadas à IA, cada uma com rótulo
+- No retorno do Senado, o texto que saiu da Câmara é o **autógrafo** (ou a redação final), e o parecer da Câmara às emendas só conta se for **posterior** a elas
+
+**Fatos que a reunião exige**
+- **Situação**: "Urgência aprovada (REQ. n/aaaa)", "Requerimento de urgência apresentado" ou "Não há requerimento" — e, quando a lista e os Dados Abertos divergem, a **contradição é declarada**, não resolvida por chute
+- **Apensação e urgência**: se a proposição é principal ou apensada, e **a qual delas o requerimento de urgência se refere** (o REQ pode pedir urgência para o apensado, não para o principal)
+- **Autoria, coautoria, relatoria e apensados do Podemos**, com o nome do(a) deputado(a) — o pertencimento ao partido vem **sempre da ficha do deputado nos Dados Abertos**, nunca de lista fixa no código
+
+**Produtos**
+- **PDF** no padrão do módulo de Plenário (cabeçalho institucional, logo, filete verde), em A4 paisagem, com as linhas do Podemos **tarjadas de amarelo** e selo nomeando quem dá o atributo
+- **Planilha (.xlsx)** com as mesmas colunas mais colunas de conferência (alertas, ementa, célula original do PDF, cenário, links)
+- **Mensagem de WhatsApp** "Projetos do Podemos" — um bloco por item de autoria, apensado ou relatoria do partido
+- Tabela **editável** na tela (todos os campos), reuniões **compartilhadas via Firebase**, e reunião salva antes de um campo existir **se atualiza sozinha** ao ser reaberta
+
+**Anti-alucinação**
+- Situação, relatoria, apensação e cenário não passam pela IA
+- Toda **lei citada por número** no texto gerado é conferida contra a peça original; o que não bate sai marcado na coluna Alertas
+- Sem inteiro teor disponível, a justificativa vira frase de abstenção explícita — o modelo não preenche a lacuna
+
+---
+
+### 9. Bot do Telegram (SisPode Bot)
 
 Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as análises e o **acompanhamento ao vivo do Plenário** para o grupo do Telegram. Usa o **mesmo Firebase** da extensão (as análises geradas no painel aparecem no bot) e roda a IA **na chave de cada usuário** (`/config`). Código em `bot/` — instalação em [`bot/INSTALACAO.md`](bot/INSTALACAO.md), guia de uso em [`bot/GUIA-ANALISTA.md`](bot/GUIA-ANALISTA.md).
 
@@ -275,6 +309,18 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 - `/analisar` gera as notas técnicas da pauta (via *worker* Puppeteer, na chave do solicitante); `/exportar` gera o **PDF institucional**
 - `/perguntar` (responde a partir da nota + documentos), `/nota` (texto integral verbatim), `/documentos` e `/baixar` (PDFs da tramitação), `/agregar`, `/limpar`
 - `/comissao`, `/comissoeshoje`, `/varrercomissoes` (projetos do Podemos nas comissões do dia)
+- `/colegio PL 1234/2026` — **ficha de uma proposição avulsa no formato da Reunião de Líderes**, para o analista que precisa, durante a reunião, de algo que não entrou na lista. Responde em duas etapas: os **fatos na hora** (situação, apensação e de quem é o REQ, relatoria, parecer, retorno do Senado, marcações do Podemos — regra fixa, sem chave de IA) e o **resumo por IA em seguida**, com o inteiro teor e as peças do cenário anexados
+
+**Regimento e precedentes**
+- `/questaoordem` (`/qo`) — busca no acervo de **questões de ordem** da Câmara por termo, com ranqueamento BM25 e radicalização em português; aceita filtro por fase (`recurso:`, `decisão:`, `contradita:`) e busca por número
+- `/recurso` — base das proposições de recurso, com o inteiro teor extraído dos PDFs
+- `/regimento` — consulta ao RICD com resposta fundamentada nos artigos
+
+**Sessão e utilitários**
+- `/votacao` — votações do Plenário com imagem do placar da bancada
+- `/resumo [dd/mm/aaaa]` — resumo das matérias apreciadas na sessão (o monitor manda sozinho no fim; o comando cobre recuperação e dias anteriores)
+- `/ajuda` — lista os comandos disponíveis para o usuário
+- `/update` (admin) — autoatualização: baixa `index.js`, `package.json` e `src/*.js` do `main`, valida com `node --check` antes de escrever
 
 **Monitor de sessão ao vivo (Plenário)**
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
@@ -349,6 +395,7 @@ sispode/
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
+├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (lista do Colégio de Líderes)
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 ├── libs/
@@ -357,6 +404,10 @@ sispode/
 │   ├── xlsx.full.min.js                 # Exportação para Excel
 │   ├── docx.iife.js / docx.umd.js      # Exportação para Word
 │   └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
+├── testes/                         # Testes (Node, contra a API real da Câmara)
+│   ├── lideres.test.js             # Parser do PDF, cenários, situação/relatoria, Podemos
+│   ├── lideres-cura.test.js        # Reunião salva antes de um campo existir se atualiza
+│   └── materia.test.js             # /colegio: camada factual e resumo por IA
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
     └── src/
@@ -370,6 +421,12 @@ sispode/
         ├── pauta.js / odd.js / parser.js / sessao.js   # Pauta e Ordem do Dia
         ├── perguntar.js / documentos.js / interesse.js # Notas, documentos, contexto
         ├── comissoes.js / digest.js / rodaviva.js       # Comissões, imprensa, Roda Viva
+        ├── materia.js              # /colegio — ficha de proposição avulsa
+        ├── questaoordem.js / recursos.js / busca.js   # Questões de ordem, recursos, ranking BM25
+        ├── qoprecedentes.js / qoembeddings.js         # Verbetes e vetores dos precedentes (gerados)
+        ├── regimento.js / ricd.js  # Consulta ao Regimento Interno
+        ├── destaques.js            # Destaques (DTQ) para o monitor
+        ├── autoupdate.js           # /update: baixa e valida os arquivos do main
         ├── ia.js                   # Matriz dos 3 provedores de IA (chave do usuário)
         ├── store.js / firebase.js / config.js / backup.js   # Persistência e config
         └── cosevespiao.js          # Espião de calibração ao vivo (privado do admin)
