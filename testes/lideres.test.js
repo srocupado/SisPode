@@ -36,7 +36,7 @@ const exportar = ['lerListaDoPDF', 'proposicoesDoItem', 'situacaoDe', 'relatoria
                   'fraseDoParecer', 'fraseDaEmendaSenado', 'cenarioDe', 'validarReferencias',
                   'textoQueSaiuDaCamara', 'marcadorDoItem', 'detectarColunas',
                   'papelDe', 'alvoDoREQ', 'frasePapel', 'fraseUrgenciaREQ', 'propsCitadas', 'buscarTramitacoes',
-                  'ehRelatorPodemos', 'autoresDetalhados'];
+                  'ehRelatorPodemos', 'autoresDetalhados', 'apensadosDoPodemos'];
 const fn = new Function(...Object.keys(sandbox),
   `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
@@ -204,6 +204,18 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   ok(auts.length >= 2 && auts.every(a => typeof a.isPodemos === 'boolean'),
      `autores com partido resolvido (${auts.map(a => a.nome).join(', ')})`);
   ok(auts.every(a => !a.isPodemos), 'PLP 230/2025 sem autoria Podemos');
+
+  // Varredura de apensados: PL 23/2026 tem o PL 101/2026 apensado DIRETO.
+  // O achado depende do partido real do autor — o teste confere a coerência:
+  // se o autor do apensado é do Podemos, a varredura tem de achá-lo.
+  const idPr23 = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=23&ano=2026&itens=1`)).json()).dados[0].id;
+  const ap = await L.apensadosDoPodemos(idPr23);
+  ok(Array.isArray(ap.achados) && typeof ap.truncado === 'boolean', 'varredura devolve forma esperada');
+  const id101 = (await (await fetch(`${API}/proposicoes?siglaTipo=PL&numero=101&ano=2026&itens=1`)).json()).dados[0].id;
+  const auts101 = await L.autoresDetalhados(id101);
+  const temPode101 = auts101.some(a => a.isPodemos);
+  ok(ap.achados.some(a => a.chave === 'PL 101/2026') === temPode101,
+     `coerência: autor do PL 101/2026 ${temPode101 ? 'é' : 'não é'} Podemos e a varredura ${temPode101 ? 'achou' : 'não listou'} (achados: ${JSON.stringify(ap.achados)})`);
 
   console.log('\n== Conferência de citações ==');
   // A conferência exige uma fonte com corpo: abaixo de 100 caracteres ela se

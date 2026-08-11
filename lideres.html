@@ -77,12 +77,13 @@
     .lid-tabela tr.lid-sel td.lid-c-prop { background: #16343a; }
 
     /* Autoria/relatoria do Podemos — mesmas cores dos badges do Plenário */
-    .lid-badge-pode, .lid-badge-rel {
+    .lid-badge-pode, .lid-badge-rel, .lid-badge-apens {
       display: inline-block; margin: 2px 4px 0 0; padding: 2px 7px; border-radius: 999px;
       font-size: 10px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
     }
     .lid-badge-pode { background: rgba(0,168,89,.18);  color: #2fcf7a; border: 1px solid rgba(0,168,89,.35); }
     .lid-badge-rel  { background: rgba(96,165,250,.22); color: #9ecbff; border: 1px solid rgba(96,165,250,.5); }
+    .lid-badge-apens { background: rgba(31,165,165,.18); color: var(--accent-light); border: 1px solid rgba(31,165,165,.35); }
 
     /* Etiqueta da célula da lista (EMS e afins), ao lado do número */
     .lid-marca {
@@ -287,6 +288,12 @@
           <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
         </svg>
         Salvar
+      </button>
+      <button id="btn-whatsapp" class="btn btn-outline" title="Copiar mensagem com os itens do Podemos (autoria, apensado ou relatoria)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/>
+        </svg>
+        Projetos do Podemos
       </button>
       <button id="btn-gerar-pdf" class="btn btn-primary">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">

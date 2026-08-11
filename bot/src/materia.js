@@ -165,6 +165,80 @@ async function papelDe(detalhe, trams) {
   return { apensada: false, temApensados };
 }
 
+// ---------- Autoria, relatoria e apensados do Podemos ----------
+// Porte da extensão (lideres.js), mesma varredura deliberadamente limitada:
+// só apensado DIRETO, só quando as tramitações registram apensados, teto
+// declarado na resposta.
+const SIGLA_PODEMOS = 'PODE';
+const TIPOS_PROPOSICAO = new Set(['PL', 'PLP', 'PEC', 'PDL', 'PDC', 'PDS', 'PRC', 'MPV']);
+const MAX_APENSADOS_VARRIDOS = 15;
+const _cacheDeputado = new Map();
+const _cacheDetalheProp = new Map();
+
+async function infoDeputado(idDep) {
+  if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
+  let info = null;
+  try {
+    const r = await fetch(`${API_BASE}/deputados/${idDep}`);
+    if (r.ok) {
+      const us = (await r.json()).dados?.ultimoStatus || {};
+      info = { nome: us.nome, siglaPartido: us.siglaPartido };
+    }
+  } catch (_) { /* fica sem partido */ }
+  _cacheDeputado.set(idDep, info);
+  return info;
+}
+
+async function autoresDetalhados(idProp) {
+  let dados = [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    if (r.ok) dados = (await r.json()).dados || [];
+  } catch (_) { return []; }
+  const out = [];
+  for (const a of dados) {
+    const m = (a.uri || '').match(/\/deputados\/(\d+)/);
+    if (!m) { out.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
+    const info = await infoDeputado(m[1]);
+    out.push({ nome: a.nome || info?.nome, ordem: a.ordemAssinatura,
+               isPodemos: info?.siglaPartido === SIGLA_PODEMOS });
+  }
+  return out;
+}
+
+const ehRelatorPodemos = rel => /\(PODE(?:MOS)?\b/i.test(String(rel || ''));
+
+async function detalheProp(id) {
+  if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
+  let d = null;
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${id}`);
+    if (r.ok) d = (await r.json()).dados || null;
+  } catch (_) { /* fica sem */ }
+  _cacheDetalheProp.set(id, d);
+  return d;
+}
+
+async function apensadosDoPodemos(idCamara) {
+  let rel = [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
+    if (r.ok) rel = (await r.json()).dados || [];
+  } catch (_) { return { achados: [], truncado: false }; }
+  const candidatos = rel.filter(x => TIPOS_PROPOSICAO.has(x.siglaTipo));
+  const varridos = candidatos.slice(-MAX_APENSADOS_VARRIDOS);
+  const achados = [];
+  for (const r of varridos) {
+    const d = await detalheProp(r.id);
+    if (!d?.uriPropPrincipal) continue;
+    if (Number(String(d.uriPropPrincipal).split('/').pop()) !== Number(idCamara)) continue;
+    const autores = await autoresDetalhados(r.id);
+    const pode = autores.filter(a => a.isPodemos);
+    if (pode.length) achados.push({ chave: `${r.siglaTipo} ${r.numero}/${r.ano}`, autores: pode.map(a => a.nome) });
+  }
+  return { achados, truncado: candidatos.length > varridos.length };
+}
+
 const NOMES_LONGOS = {
   'projeto de lei complementar': 'PLP', 'projeto de lei': 'PL',
   'proposta de emenda à constituição': 'PEC', 'projeto de decreto legislativo': 'PDL',
@@ -404,17 +478,28 @@ async function montarFicha(referencia) {
   it.descricaoTipo  = detalhe.descricaoTipo || '';
   it.urlInteiroTeor = detalhe.urlInteiroTeor || null;
 
-  try {
-    const ra = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
-    if (ra.ok) it.autores = ((await ra.json()).dados || []).map(a => a.nome).filter(Boolean).slice(0, 6);
-  } catch (_) { it.autores = []; }
+  const autores = await autoresDetalhados(item.id);
+  it.autores = autores.map(a => a.nome).filter(Boolean).slice(0, 6);
+  const podeAut = autores.filter(a => a.isPodemos);
+  it.autoriaPodemos = podeAut.length > 0;
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
   const trams = await buscarTramitacoes(item.id);
   it.situacao  = situacaoDe(trams);
   it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
   it.papel     = await papelDe(detalhe, trams);
-  it.apensacao = [frasePapel(it), fraseUrgenciaREQ(it, await alvoDoREQ(it))].filter(Boolean).join('\n');
+  it.apensadosPodemos = [];
+  if (!it.papel.apensada && it.papel.temApensados) {
+    const ap = await apensadosDoPodemos(item.id);
+    it.apensadosPodemos = ap.achados;
+    it.apensadosVarreduraLimitada = ap.truncado;
+  }
+  it.apensacao = [frasePapel(it), fraseUrgenciaREQ(it, await alvoDoREQ(it)),
+    it.apensadosVarreduraLimitada
+      ? `Varredura de apensados limitada aos ${MAX_APENSADOS_VARRIDOS} mais recentes.` : '',
+  ].filter(Boolean).join('\n');
 
   const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
   it.parecerPlen  = parecerPlenarioDe(relacionados);
@@ -430,14 +515,20 @@ async function montarFicha(referencia) {
   if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
     it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
   }
+  it.relatorPodemos = ehRelatorPodemos(it.relatoria);
   return it;
 }
 
 // Rótulo em negrito (Markdown do Telegram) e linha em branco entre os tópicos
 // — em reunião a ficha é lida em diagonal, não de ponta a ponta.
 function formatarFatos(it) {
+  const marcas = [];
+  if (it.autoriaPodemos) marcas.push(`★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} do Podemos`);
+  if (it.relatorPodemos) marcas.push('Relatoria do Podemos');
+  for (const a of (it.apensadosPodemos || [])) marcas.push(`Apensado do Podemos: ${a.chave} (${a.autores.join(', ')})`);
   const linhas = [
     `📋 *${it.chave}*${it.descricaoTipo ? ` — ${it.descricaoTipo}` : ''}`,
+    ...(marcas.length ? ['', marcas.map(m => `🟡 ${m}`).join('\n')] : []),
     '',
     `*Autoria:* ${(it.autores || []).join(', ') || 'não informada'}`,
     '',

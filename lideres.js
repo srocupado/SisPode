@@ -87,6 +87,7 @@ function registrarEventos() {
   document.getElementById('btn-salvar').addEventListener('click', salvarReuniao);
   document.getElementById('btn-exportar').addEventListener('click', exportarPlanilha);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
+  document.getElementById('btn-whatsapp').addEventListener('click', copiarMensagemPodemos);
   document.getElementById('check-todos').addEventListener('change', e => marcarTodas(e.target.checked));
 
   // Rolagem horizontal por botão: com barras em modo overlay, a tabela larga
@@ -478,8 +479,19 @@ async function carregarDadosDaProposicao(it) {
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
 
   it.papel = await papelDe(detalhe, trams);
+  it.apensadosPodemos = [];
+  if (!it.papel.apensada && it.papel.temApensados) {
+    const ap = await apensadosDoPodemos(item.id);
+    it.apensadosPodemos = ap.achados;
+    it.apensadosVarreduraLimitada = ap.truncado;
+  }
   const req = await alvoDoREQ(it);
-  it.apensacao = [frasePapel(it), fraseUrgenciaREQ(it, req)].filter(Boolean).join('\n');
+  it.apensacao = [frasePapel(it), fraseUrgenciaREQ(it, req),
+    it.apensadosPodemos.length
+      ? `Apensado do Podemos: ${it.apensadosPodemos.map(a => `${a.chave} (${a.autores.join(', ')})`).join('; ')}.` : '',
+    it.apensadosVarreduraLimitada
+      ? `Varredura de apensados limitada aos ${MAX_APENSADOS_VARRIDOS} mais recentes.` : '',
+  ].filter(Boolean).join('\n');
 
   const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
   it.parecerPlen  = parecerPlenarioDe(relacionados);
@@ -540,6 +552,54 @@ async function autoresDetalhados(idProp) {
     });
   }
   return out;
+}
+
+// ---------- Apensados do Podemos ----------
+// A lista da reunião nomeia o principal, mas um apensado do Podemos que ela
+// NÃO nomeia é exatamente o que a Liderança precisa saber. O Plenário resolve
+// a cadeia de apensamento inteira (raiz por raiz); aqui, com até 73 matérias e
+// relacionadas na casa das centenas, a varredura é DELIBERADAMENTE menor:
+//   · só roda quando as tramitações registram apensados (papelDe já detecta);
+//   · só apensado DIRETO (uriPropPrincipal apontando para a matéria da lista —
+//     cadeia A→B→principal fica de fora);
+//   · teto de candidatos, DECLARADO na célula quando estourar.
+const TIPOS_PROPOSICAO = new Set(['PL', 'PLP', 'PEC', 'PDL', 'PDC', 'PDS', 'PRC', 'MPV']);
+const MAX_APENSADOS_VARRIDOS = 15;
+const _cacheDetalheProp = new Map();
+
+async function detalheProp(id) {
+  if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
+  let d = null;
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${id}`);
+    if (r.ok) d = (await r.json()).dados || null;
+  } catch (_) { /* fica sem */ }
+  _cacheDetalheProp.set(id, d);
+  return d;
+}
+
+async function apensadosDoPodemos(idCamara) {
+  let rel = [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
+    if (r.ok) rel = (await r.json()).dados || [];
+  } catch (_) { return { achados: [], truncado: false }; }
+
+  const candidatos = rel.filter(x => TIPOS_PROPOSICAO.has(x.siglaTipo));
+  // Os últimos são as apensações mais recentes — as mais prováveis de importar.
+  const varridos = candidatos.slice(-MAX_APENSADOS_VARRIDOS);
+  const achados = [];
+  for (const r of varridos) {
+    const d = await detalheProp(r.id);
+    if (!d?.uriPropPrincipal) continue;
+    if (Number(String(d.uriPropPrincipal).split('/').pop()) !== Number(idCamara)) continue;
+    const autores = await autoresDetalhados(r.id);
+    const pode = autores.filter(a => a.isPodemos);
+    if (pode.length) {
+      achados.push({ chave: `${r.siglaTipo} ${r.numero}/${r.ano}`, autores: pode.map(a => a.nome) });
+    }
+  }
+  return { achados, truncado: candidatos.length > varridos.length };
 }
 
 /** A relatoria já sai formatada com o partido entre parênteses — "(PODE-MG)"
@@ -1510,7 +1570,8 @@ function linhaHTML(it) {
   const etiquetas = etiquetasDe(it).map(t => `<span class="lid-marca">${esc(t)}</span>`).join('');
   const badgesPode =
     (it.autoriaPodemos ? `<span class="lid-badge-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
-    (it.relatorPodemos ? '<span class="lid-badge-rel">Relatoria Podemos</span>' : '');
+    (it.relatorPodemos ? '<span class="lid-badge-rel">Relatoria Podemos</span>' : '') +
+    (it.apensadosPodemos || []).map(a => `<span class="lid-badge-apens">Apensado Podemos: ${esc(a.chave)}</span>`).join('');
   const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
   const avisoTxt = avisosDe(it);
   const aviso = avisoTxt ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(avisoTxt)}</span>` : '';
@@ -1646,6 +1707,62 @@ function atualizarProgresso(feitos, total, rotulo = '') {
 //  PLANILHA
 // ============================================================
 // ============================================================
+//  MENSAGEM WHATSAPP — "Projetos do Podemos" (espelho do botão do Plenário)
+// ============================================================
+const itemDoPodemosLideres = it =>
+  !!it.autoriaPodemos || !!it.relatorPodemos || (it.apensadosPodemos || []).length > 0;
+
+function montarMensagemPodemos() {
+  const itens = app.reuniao?.itens || [];
+  // Um bloco por ITEM da lista: o item 12 tem duas proposições (apensado e
+  // principal), mas na mensagem é uma entrada só, com a célula como está na
+  // lista. Preferimos a linha que qualificou por autoria.
+  const porItem = new Map();
+  for (const it of itens.filter(itemDoPodemosLideres)) {
+    const atual = porItem.get(it.numItem);
+    if (!atual || (it.autoriaPodemos && !atual.autoriaPodemos)) porItem.set(it.numItem, it);
+  }
+
+  const blocos = [...porItem.values()].map(it => {
+    const linhas = [`* Item ${it.numItem} - ${it.celulaProp || it.chave}`];
+    linhas.push(`Autoria: ${it.autoriaPdf || (it.autoresApi || []).join(', ') || 'não informada'}`);
+    linhas.push(`Ementa: ${it.ementa || it.descricaoPdf || '(sem ementa)'}`);
+    if (it.situacao) linhas.push(`Situação: ${it.situacao}`);
+    for (const a of (it.apensadosPodemos || [])) {
+      linhas.push(`Apensado do Podemos: ${a.chave} (${a.autores.join(', ')})`);
+    }
+    if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${it.relatoria}`);
+    return linhas.join('\n');
+  });
+
+  if (!blocos.length) return null;
+  return `PROJETOS DO PODEMOS PARA REUNIÃO DE LÍDERES\n\n${blocos.join('\n\n')}`;
+}
+
+async function copiarMensagemPodemos() {
+  if (!app.reuniao?.itens?.length) { mostrarToast('Nenhuma reunião carregada.', 'erro'); return; }
+  coletarEdicoes();
+  const msg = montarMensagemPodemos();
+  if (!msg) {
+    mostrarToast('Nenhum item com autoria, apensado ou relatoria do Podemos nesta reunião.', 'aviso');
+    return;
+  }
+  const n = (msg.match(/^\* Item /gm) || []).length;
+  try {
+    await navigator.clipboard.writeText(msg);
+  } catch (_) {
+    // fallback: alguns contextos negam o clipboard assíncrono
+    const ta = document.createElement('textarea');
+    ta.value = msg;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  mostrarToast(`✓ ${n} item(ns) do Podemos copiados — cole no WhatsApp.`, 'sucesso');
+}
+
+// ============================================================
 //  PDF (via window.print, mesmo caminho do módulo de Plenário)
 // ============================================================
 async function carregarLogoDataUrl() {
@@ -1675,10 +1792,11 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     const aviso  = avisoTxt ? `<div class="aviso">${esc(avisoTxt)}</div>` : '';
     // Tarja amarela para autoria/relatoria do Podemos, com o selo textual junto
     // — numa impressão em preto e branco a tarja some, o selo fica.
-    const doPode = it.autoriaPodemos || it.relatorPodemos;
+    const doPode = it.autoriaPodemos || it.relatorPodemos || (it.apensadosPodemos || []).length;
     const selos =
       (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
-      (it.relatorPodemos ? '<span class="selo-rel">Relatoria Podemos</span>' : '');
+      (it.relatorPodemos ? '<span class="selo-rel">Relatoria Podemos</span>' : '') +
+      (it.apensadosPodemos || []).map(a => `<span class="selo-apens">Apensado Podemos: ${esc(a.chave)}</span>`).join('');
     return `<tr${doPode ? ' class="pode"' : ''}>
       <td class="c-num">${esc(it.numItem)}</td>
       <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${selos}${aviso}</td>
@@ -1722,10 +1840,11 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     tbody tr:nth-child(even) td { background:#f6faf7; }
     /* Depois da zebra, para vencer no empate de especificidade. */
     tbody tr.pode td { background:#fff3bf; }
-    .selo-pode, .selo-rel { display:block; width:fit-content; margin-top:3px; padding:0 5px;
+    .selo-pode, .selo-rel, .selo-apens { display:block; width:fit-content; margin-top:3px; padding:0 5px;
       border-radius:4px; font-size:6.5pt; font-weight:700; }
     .selo-pode { color:#0a7a43; border:1px solid #0a7a43; }
     .selo-rel  { color:#0a4a7a; border:1px solid #0a4a7a; }
+    .selo-apens { color:#02484d; border:1px solid #02484d; }
     .c-num  { width:3%; text-align:center; color:#666; }
     .c-prop { width:8%; }
     .marca  { display:inline-block; margin-left:4px; padding:0 4px; border:1px solid #b48a0a;
