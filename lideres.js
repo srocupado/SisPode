@@ -1741,6 +1741,9 @@ function montarMensagemPodemos() {
 
 async function copiarMensagemPodemos() {
   if (!app.reuniao?.itens?.length) { mostrarToast('Nenhuma reunião carregada.', 'erro'); return; }
+  // Reunião antiga sem os campos do Podemos: completa antes, senão a mensagem
+  // sai vazia sem estar errada — só desinformada.
+  if (app.reuniao.itens.some(camposNovosFaltando)) await completarDadosFaltantes();
   coletarEdicoes();
   const msg = montarMensagemPodemos();
   if (!msg) {
@@ -1890,6 +1893,9 @@ async function gerarPDF() {
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Gerando o PDF…</body></html>');
   win.document.close();
 
+  // Depois de abrir a janela (o pop-up exige o gesto do clique): reunião
+  // antiga completa os campos do Podemos antes de imprimir, senão sai sem tarja.
+  if (app.reuniao.itens.some(camposNovosFaltando)) await completarDadosFaltantes();
   const logoDataUrl = await carregarLogoDataUrl();
   if (win.closed) return;
   win.document.open();
@@ -2065,6 +2071,38 @@ function restaurarReuniao(id, reunioes) {
   renderizarTabela();
   mostrarTela('tela-lista');
   document.getElementById('lid-action-bar').style.display = 'flex';
+  // Reunião salva antes de um campo existir não tem o dado — cura sozinha.
+  completarDadosFaltantes();
+}
+
+// ---------- CURA DE REUNIÕES ANTIGAS ----------
+// Os campos do Podemos (autoria, apensados, relatoria) nasceram DEPOIS de
+// reuniões já consultadas na Câmara, e o "Resumir" não reconsulta quem já tem
+// idCamara — então, sem isto, badge, tarja do PDF e o botão de WhatsApp
+// falhavam em silêncio em reunião antiga: os campos simplesmente não existiam.
+const camposNovosFaltando = it =>
+  it.autoriaPodemos === undefined || it.apensadosPodemos === undefined || it.papel === undefined;
+
+async function completarDadosFaltantes() {
+  if (app._completando) return app._completando;      // uma cura por vez
+  const alvo = (app.reuniao?.itens || []).filter(camposNovosFaltando);
+  if (!alvo.length) return null;
+  app._completando = (async () => {
+    mostrarToast(`Reunião salva antes das marcações do Podemos — atualizando ${alvo.length} proposição(ões) na Câmara…`, '');
+    let feitos = 0;
+    await mapLimit(alvo, 6, async it => {
+      // Recarrega os FATOS (situação, relatoria, apensação, Podemos). Os campos
+      // de IA e as edições de objetivo/justificativa não são tocados.
+      try { await carregarDadosDaProposicao(it); } catch (_) { /* mantém o que há */ }
+      atualizarProgresso(++feitos, alvo.length, 'Atualizando dados');
+    });
+    atualizarProgresso(0, 0);
+    coletarEdicoes();
+    renderizarTabela();
+    atualizarSidebar();
+    mostrarToast('Marcações do Podemos atualizadas. Salve para compartilhar com a equipe.', 'sucesso');
+  })().finally(() => { app._completando = null; });
+  return app._completando;
 }
 
 // ============================================================
