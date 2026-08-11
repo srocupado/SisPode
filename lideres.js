@@ -1888,8 +1888,8 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
        das páginas do documento. O cabeçalho repete em cada página e as bordas
        seguram a leitura da linha partida. */
     thead { display:table-header-group; }
-    tbody tr:nth-child(even) td { background:#f6faf7; }
-    /* Depois da zebra, para vencer no empate de especificidade. */
+    /* Sem zebra: linha branca por padrão, e só a tarja amarela do Podemos
+       marca linha — a alternância verde/branca disputava atenção com ela. */
     tbody tr.pode td { background:#fff3bf; }
     .selo-pode, .selo-rel, .selo-apens { display:block; width:fit-content; margin-top:3px; padding:0 5px;
       border-radius:4px; font-size:6.5pt; font-weight:700; }
