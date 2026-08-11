@@ -26,7 +26,7 @@ const sandbox = {
 };
 const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
                   'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
-                  'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail'];
+                  'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail', 'historicoEmListas'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -90,6 +90,20 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.montarEmailDemandas([dA]).includes('<Líder do PODEMOS>'), 'sem assinatura da API, fica o marcador — nunca nome errado');
   const jaComPonto = { ...dA, situacao: 'Urgência aprovada (REQ. 2708/2026).' };
   ok(!/\.\.$/m.test(L.blocoDemandaEmail(jaComPonto)), 'situação que já termina em ponto não ganha outro');
+
+  console.log('\n== historicoEmListas: a demanda entrou em lista do sistema 1? ==');
+  const reunioes = [
+    { id: 'r1', titulo: 'Lista de 07/07/2026', criada: '2026-07-07T10:00:00Z',
+      itens: [{ chave: 'PLP 78/2025', numItem: '3' }, { chave: 'PL 23/2026', numItem: '12' }] },
+    { id: 'r2', titulo: 'Lista de 11/08/2026', criada: '2026-08-11T10:00:00Z',
+      itens: [{ chave: 'PLP 78/2025', numItem: '7' }, { chave: 'PL 101/2026', numItem: '12' }] },
+  ];
+  const h1 = L.historicoEmListas('PLP 78/2025', reunioes);
+  ok(h1.length === 2, 'acha as duas listas em que a proposição esteve');
+  ok(h1[0].titulo === 'Lista de 11/08/2026' && h1[0].numItem === '7', 'mais recente primeiro, com o nº do item');
+  ok(L.historicoEmListas('RCP 2/2026', reunioes).length === 0, 'proposição que nunca entrou → lista vazia');
+  ok(L.historicoEmListas('PL 101/2026', reunioes).length === 1, 'apensado que virou item próprio também conta');
+  ok(L.historicoEmListas('PLP 78/2025', null) === null, 'reuniões ainda não carregadas → null (não "nunca entrou")');
 
   console.log('\n== mailtoDoEmail: abrir no Outlook ==');
   const curto = L.mailtoDoEmail('Senhor Presidente,\n\nLinha dois.');

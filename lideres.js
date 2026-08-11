@@ -2151,6 +2151,12 @@ async function carregarHistorico() {
   try { reunioes = await fbCarregar(); }
   catch (_) { reunioes = await localCarregar(); }
   reunioes.sort((a, b) => new Date(b.criada) - new Date(a.criada));
+  // As reuniões também alimentam o histórico "entrou em lista?" das demandas
+  // (sistema 2) — calculado na hora a partir daqui, nunca gravado na demanda:
+  // campo gravado envelhece; quando a próxima lista for processada, o
+  // histórico de todas as demandas atualiza sozinho.
+  _reunioesCache = reunioes;
+  if (app.sistema === 'demandas') renderizarDemandas();
 
   const lista = document.getElementById('lista-historico');
   if (!reunioes.length) {
@@ -2435,6 +2441,23 @@ async function registrarDemanda() {
   }
 }
 
+// ---------- Histórico "entrou em lista do Colégio?" ----------
+// Cruzamento da demanda com as listas já processadas no sistema 1 (as
+// reuniões salvas). Cada proposição da lista vira um item próprio (inclusive
+// apensados), então a comparação por chave cobre os dois papéis.
+let _reunioesCache = null;   // preenchido por carregarHistorico
+
+function historicoEmListas(chave, reunioes = _reunioesCache) {
+  if (!reunioes) return null;    // ainda carregando
+  const aparicoes = [];
+  for (const r of reunioes) {
+    const it = (r.itens || []).find(i => i.chave === chave);
+    if (it) aparicoes.push({ id: r.id, titulo: r.titulo || '', criada: r.criada, numItem: it.numItem });
+  }
+  aparicoes.sort((a, b) => new Date(b.criada) - new Date(a.criada));
+  return aparicoes;
+}
+
 // ---------- Listagem ----------
 const grupoDemanda = d => `${d.tratamento || 'Deputado'} ${d.deputado}`.trim();
 // Ordem alfabética pelo NOME: comparar o rótulo inteiro poria toda "Deputada"
@@ -2497,6 +2520,16 @@ function cardDemandaHTML(d) {
   const mudou = d.situacaoRegistro && d.situacao !== d.situacaoRegistro;
   const ficha = d.idCamara
     ? ` · <a class="lid-link" href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${d.idCamara}" target="_blank">ficha na Câmara</a>` : '';
+  const hist = historicoEmListas(d.chave);
+  let listas;
+  if (hist === null) {
+    listas = '<span class="dem-listas-nunca">conferindo as listas…</span>';
+  } else if (!hist.length) {
+    listas = '<span class="dem-listas-nunca">não entrou em nenhuma lista até hoje</span>';
+  } else {
+    listas = hist.map(a =>
+      `<span class="dem-pill-lista" title="Esteve na lista processada no sistema 1">${esc(a.titulo)} — item ${esc(a.numItem)}</span>`).join(' ');
+  }
   return `<div class="dem-card">
     <div class="dem-card-topo">
       <strong>${esc(d.chave)}</strong>
@@ -2510,6 +2543,7 @@ function cardDemandaHTML(d) {
     <div class="dem-campo">Autoria: <b>${esc(d.autoria || 'não informada')}</b></div>
     <div class="dem-campo">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-campo">Situação: <b>${esc(d.situacao)}</b></div>
+    <div class="dem-campo">Listas do Colégio: ${listas}</div>
     <div class="dem-meta">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))}${ficha}</div>
   </div>`;
 }
