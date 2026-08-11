@@ -936,6 +936,7 @@ async function ativarSessao(ev) {
   _sessao = {
     id: ev.id, dataISO: String(ev.dataHoraInicio || hojeSP()).slice(0, 10),
     estado, falhasPainel: 0, avisoFalhaDado: false, tickando: false,
+    painelMaterializou: false, avisoAquecimentoDado: false,
   };
   console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})`);
   // ABERTURA FORMAL da sessão (o "martelo"). Calibrado ao vivo em 14/07: o
@@ -998,6 +999,7 @@ async function tickPainel() {
     const html = await paginaSessao(_sessao.id);
     _sessao.falhasPainel = 0;
     const itens = parseItens(html);
+    if (itens.length) _sessao.painelMaterializou = true;
     const est = _sessao.estado;
 
     // Início da ODD: PRIMÁRIO é o booleano indOrdemDoDiaIniciada do painel
@@ -1119,13 +1121,30 @@ async function tickPainel() {
       await checarFimDaOdd().catch(() => {});
     }
   } catch (e) {
-    _sessao.falhasPainel++;
-    console.warn(`[monitor] tick painel falhou (${_sessao.falhasPainel}x):`, e.message);
-    if (_sessao.falhasPainel >= 5 && !_sessao.avisoFalhaDado && _cfg.admin) {
-      _sessao.avisoFalhaDado = true;
-      _cfg.api.sendMessage(_cfg.admin,
-        `⚠️ Monitor: não consigo ler o painel da sessão ${_sessao.id} há ${_sessao.falhasPainel} tentativas (${e.message}). Sigo tentando.`)
-        .catch(() => {});
+    // AQUECIMENTO ≠ FALHA: antes de o painel desta reunião materializar no
+    // portal (o que só acontece quando a Ordem do Dia abre o primeiro item),
+    // os servidores da Câmara alternam entre a casca do aplicativo e uma
+    // página mínima — "página vazia" nessa fase é o estado normal da fonte,
+    // não defeito. MEDIDO em 11/08/2026: ticks alternando sucesso/falha por
+    // mais de uma hora antes da ODD, com o contador zerando a cada casca.
+    // Depois da materialização (ou de a ODD já ter sido anunciada — cobre
+    // reinício no meio da sessão), página vazia volta a contar como falha.
+    const aquecendo = !_sessao.painelMaterializou && !_sessao.estado.oddAnunciado
+      && /página vazia/.test(e.message || '');
+    if (aquecendo) {
+      if (!_sessao.avisoAquecimentoDado) {
+        _sessao.avisoAquecimentoDado = true;
+        console.log('[monitor] portal ainda não abriu o painel desta reunião — normal antes da Ordem do Dia. Sigo tentando a cada tick, sem repetir este aviso.');
+      }
+    } else {
+      _sessao.falhasPainel++;
+      console.warn(`[monitor] tick painel falhou (${_sessao.falhasPainel}x):`, e.message);
+      if (_sessao.falhasPainel >= 5 && !_sessao.avisoFalhaDado && _cfg.admin) {
+        _sessao.avisoFalhaDado = true;
+        _cfg.api.sendMessage(_cfg.admin,
+          `⚠️ Monitor: não consigo ler o painel da sessão ${_sessao.id} há ${_sessao.falhasPainel} tentativas (${e.message}). Sigo tentando.`)
+          .catch(() => {});
+      }
     }
   } finally {
     if (_sessao) _sessao.tickando = false;
