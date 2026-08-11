@@ -1724,7 +1724,9 @@ function montarMensagemPodemos() {
   }
 
   const blocos = [...porItem.values()].map(it => {
-    const linhas = [`* Item ${it.numItem} - ${it.celulaProp || it.chave}`];
+    // Negrito do WhatsApp (*texto*) na linha do item; o "* " inicial segue
+    // sendo o marcador literal do formato combinado.
+    const linhas = [`* *Item ${it.numItem} - ${it.celulaProp || it.chave}*`];
     linhas.push(`Autoria: ${it.autoriaPdf || (it.autoresApi || []).join(', ') || 'não informada'}`);
     linhas.push(`Ementa: ${it.ementa || it.descricaoPdf || '(sem ementa)'}`);
     if (it.situacao) linhas.push(`Situação: ${it.situacao}`);
