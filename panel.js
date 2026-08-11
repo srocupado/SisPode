@@ -450,6 +450,12 @@ function registrarEventos() {
     ?.addEventListener('click', () => {
       try { chrome.runtime.reload(); } catch (_) { location.reload(); }
     });
+  // O rodapé exibe a versão DO MANIFEST, não um texto fixo — o texto fixo
+  // ficou para trás num bump e fez a instalação parecer 3.1.5 sendo 3.2.0.
+  try {
+    const el = document.getElementById('versao-local');
+    if (el) el.textContent = 'v' + chrome.runtime.getManifest().version;
+  } catch (_) { /* fora da extensão, fica o texto do HTML */ }
   verificarVersao();
   // A checagem única na abertura deixa aba antiga sem aviso para sempre —
   // MEDIDO em uso real: bump publicado e o usuário, com o painel aberto de
