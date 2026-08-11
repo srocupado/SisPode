@@ -469,6 +469,7 @@ async function carregarDadosDaProposicao(it) {
   it.autoresApi = autores.map(a => a.nome).filter(Boolean).slice(0, 5);
   const podeAut = autores.filter(a => a.isPodemos);
   it.autoriaPodemos = podeAut.length > 0;
+  it.autoresPodemos = podeAut.map(a => a.nome).filter(Boolean);
   // 1º signatário (ordemAssinatura = 1) = autoria; assinou depois = coautoria.
   const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
   it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
@@ -1844,10 +1845,13 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     // Tarja amarela para autoria/relatoria do Podemos, com o selo textual junto
     // — numa impressão em preto e branco a tarja some, o selo fica.
     const doPode = it.autoriaPodemos || it.relatorPodemos || (it.apensadosPodemos || []).length;
+    // Cada selo nomeia o(a) deputado(a) do Podemos que dá o atributo — o selo
+    // sem nome obrigava a caçar na linha quem era.
+    const nomesAut = (it.autoresPodemos || []).join(', ');
     const selos =
-      (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
-      (it.relatorPodemos ? '<span class="selo-rel">Relatoria Podemos</span>' : '') +
-      (it.apensadosPodemos || []).map(a => `<span class="selo-apens">Apensado Podemos: ${esc(a.chave)}</span>`).join('');
+      (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos${nomesAut ? ': ' + esc(nomesAut) : ''}</span>` : '') +
+      (it.relatorPodemos ? `<span class="selo-rel">Relatoria Podemos${it.relatoria ? ': ' + esc(it.relatoria) : ''}</span>` : '') +
+      (it.apensadosPodemos || []).map(a => `<span class="selo-apens">Apensado Podemos: ${esc(a.chave)}${a.autores?.length ? ' (' + esc(a.autores.join(', ')) + ')' : ''}</span>`).join('');
     return `<tr${doPode ? ' class="pode"' : ''}>
       <td class="c-num">${esc(it.numItem)}</td>
       <td class="c-prop"><b>${esc(it.chave)}</b>${marcas}${apenso}${selos}${aviso}</td>
@@ -2129,7 +2133,9 @@ function restaurarReuniao(id, reunioes) {
 // idCamara — então, sem isto, badge, tarja do PDF e o botão de WhatsApp
 // falhavam em silêncio em reunião antiga: os campos simplesmente não existiam.
 const camposNovosFaltando = it =>
-  it.autoriaPodemos === undefined || it.apensadosPodemos === undefined || it.papel === undefined;
+  it.autoriaPodemos === undefined || it.apensadosPodemos === undefined || it.papel === undefined
+  // marcada como autoria do Podemos antes de os NOMES serem guardados
+  || (it.autoriaPodemos === true && it.autoresPodemos === undefined);
 
 async function completarDadosFaltantes() {
   if (app._completando) return app._completando;      // uma cura por vez
