@@ -114,6 +114,15 @@
     .lid-link:hover { text-decoration: underline; }
     .lid-apenso { display: block; font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
 
+    /* ---- Título editável (lápis) ---- */
+    .lid-titulo-linha { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+    .lid-titulo-linha strong { overflow-wrap: anywhere; }
+    .lid-btn-lapis {
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      padding: 2px; border-radius: 4px; line-height: 0; flex-shrink: 0;
+    }
+    .lid-btn-lapis:hover { color: var(--accent-light); background: rgba(31,165,165,0.12); }
+
     /* ---- Barra de progresso ---- */
     .lid-progresso { height: 5px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; margin-top: 8px; }
     .lid-progresso-bar { height: 100%; width: 0; background: var(--accent); transition: width .25s; }

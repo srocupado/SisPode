@@ -1673,8 +1673,19 @@ function atualizarSidebar() {
   const itens = app.reuniao.itens;
   const prontas = itens.filter(i => i.status === 'ok').length;
   info.className = 'sessao-info';
-  info.innerHTML = `<strong>${esc(app.reuniao.titulo)}</strong><br>
+  // Se o título está sendo editado, não redesenha o bloco — a sidebar é
+  // atualizada a cada item processado e apagaria o campo no meio da digitação.
+  if (app._editandoTitulo) return;
+  info.innerHTML = `<span class="lid-titulo-linha">
+      <strong>${esc(app.reuniao.titulo)}</strong>
+      <button id="btn-editar-titulo" class="lid-btn-lapis" title="Renomear a reunião">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z"/>
+        </svg>
+      </button>
+    </span>
     <span style="font-size:11px;color:var(--text-dim)">${itens.length} proposições · ${prontas} resumidas</span>`;
+  document.getElementById('btn-editar-titulo').addEventListener('click', editarTituloReuniao);
 
   document.getElementById('sidebar-itens-section').style.display = '';
   document.getElementById('lista-itens').innerHTML = itens.map(i => `
@@ -1693,6 +1704,41 @@ function atualizarSidebar() {
 
   const st = document.getElementById('lid-action-status');
   st.textContent = `${itens.length} proposições · ${prontas} resumidas`;
+}
+
+/** Troca o título por um campo de edição; Enter/clicar fora salva, Esc cancela.
+ *  Salva direto no Firebase — renomear é ação explícita, não pode se perder. */
+function editarTituloReuniao() {
+  const info = document.getElementById('reuniao-info');
+  if (!app.reuniao || app._editandoTitulo) return;
+  app._editandoTitulo = true;
+  const original = app.reuniao.titulo;
+  info.innerHTML = '<input type="text" id="input-titulo-reuniao" class="form-input" style="font-size:13px;padding:5px 8px">';
+  const campo = document.getElementById('input-titulo-reuniao');
+  campo.value = original;
+  campo.focus();
+  campo.select();
+
+  let terminado = false;
+  const terminar = async (salvar) => {
+    if (terminado) return;
+    terminado = true;
+    app._editandoTitulo = false;
+    const novoTitulo = campo.value.trim();
+    if (salvar && novoTitulo && novoTitulo !== original) {
+      app.reuniao.titulo = novoTitulo;
+      atualizarSidebar();
+      await salvarReuniao();
+      carregarHistorico();
+    } else {
+      atualizarSidebar();
+    }
+  };
+  campo.addEventListener('keydown', e => {
+    if (e.key === 'Enter') terminar(true);
+    if (e.key === 'Escape') terminar(false);
+  });
+  campo.addEventListener('blur', () => terminar(true));
 }
 
 function atualizarProgresso(feitos, total, rotulo = '') {
