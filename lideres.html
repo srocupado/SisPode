@@ -142,6 +142,17 @@
     .lid-rolagem .btn { padding: 4px 10px; font-size: 12px; line-height: 1; }
     #lid-action-status { font-size: 12px; color: var(--text-dim); }
 
+    /* ---- Busca na lista ---- */
+    .lid-busca {
+      width: 300px; padding: 6px 10px; font: inherit; font-size: 12.5px;
+      background: rgba(0,0,0,0.25); color: var(--text);
+      border: 1px solid var(--border-soft); border-radius: 8px; outline: none;
+    }
+    .lid-busca:focus { border-color: var(--accent); }
+    .lid-busca::placeholder { color: var(--text-dim); }
+    /* O ✕ nativo do type=search fica invisível no tema escuro */
+    .lid-busca::-webkit-search-cancel-button { filter: invert(.7); }
+
     .lid-tag {
       display: inline-block; font-size: 11px; padding: 3px 8px; margin: 0 4px 4px 0;
       border-radius: 6px; background: rgba(31,165,165,0.12);
@@ -418,6 +429,9 @@
         <button id="btn-rolar-esq" class="btn btn-outline btn-sm" title="Rolar para a esquerda (Shift + roda do mouse)">◀</button>
         <button id="btn-rolar-dir" class="btn btn-outline btn-sm" title="Rolar para a direita (Shift + roda do mouse)">▶</button>
       </span>
+      <input type="search" id="lid-busca" class="lid-busca"
+             placeholder="🔎 Buscar na lista — nº do item, projeto, autor ou texto"
+             title="Filtra a tabela e a barra lateral. Aceita PL 4822/2025 em qualquer grafia (pl4822/25). Enter rola até o primeiro resultado; ✕ ou Esc limpa.">
       <span id="lid-action-status"></span>
     </div>
     <div class="lid-action-bar-right">

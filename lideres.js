@@ -104,6 +104,15 @@ function registrarEventos() {
   document.getElementById('btn-rolar-esq').addEventListener('click', () => rolar(-1));
   document.getElementById('btn-rolar-dir').addEventListener('click', () => rolar(1));
 
+  // Busca na lista (sistema 1): filtra a cada tecla; Enter rola ao primeiro
+  // resultado; Esc limpa (o type=search também tem o ✕ nativo).
+  const busca = document.getElementById('lid-busca');
+  busca.addEventListener('input', aplicarBuscaLista);
+  busca.addEventListener('keydown', e => {
+    if (e.key === 'Enter') irAoPrimeiroResultado();
+    if (e.key === 'Escape') { busca.value = ''; aplicarBuscaLista(); }
+  });
+
   document.getElementById('input-pdf-lideres').addEventListener('change', async e => {
     const f = e.target.files[0];
     if (f) await processarPDFModal(f);
@@ -1577,6 +1586,60 @@ function renderizarTabela() {
     const it = app.reuniao.itens.find(x => x.chave === el.dataset.chave);
     if (it) it[el.dataset.campo] = el.textContent.trim();
   }));
+  aplicarBuscaLista();   // linhas recriadas: o filtro ativo continua valendo
+}
+
+// ---------- BUSCA NA LISTA ----------
+// Filtra a tabela e a barra lateral em tempo real. O alvo é o CONTEÚDO do
+// item (número, proposição, autores, ementa e todos os campos do resumo), não
+// só o que está visível — buscar "aposta" acha o item cuja ementa fala de
+// apostas mesmo com a coluna fora da tela.
+function textoBuscavelDoItem(it) {
+  return semAcento([it.numItem, it.chave, it.celulaProp, it.autoriaPdf,
+    (it.autoresApi || []).join(' '), it.ementa, it.objetivo, it.justificativa,
+    it.comparativo, it.situacao, it.apensacao, it.comissoes, it.relatoria,
+    it.parecer, it.senado, it.cenarioNome].filter(Boolean).join('\n'));
+}
+
+function aplicarBuscaLista() {
+  const campo = document.getElementById('lid-busca');
+  if (!campo || !app.reuniao) return;
+  const bruto = campo.value.trim();
+  const termo = semAcento(bruto);
+  // "pl4822/25", "PL 4822 2025" → também batem com a chave "PL 4822/2025"
+  const ref = refDemanda(bruto);
+  const chaveRef = ref ? semAcento(ref.chave) : null;
+
+  const itens = app.reuniao.itens;
+  const bateCache = new Map();
+  const bate = chave => {
+    if (bateCache.has(chave)) return bateCache.get(chave);
+    const it = itens.find(x => x.chave === chave);
+    const alvo = it ? textoBuscavelDoItem(it) : '';
+    const b = !termo || alvo.includes(termo) || (chaveRef !== null && alvo.includes(chaveRef));
+    bateCache.set(chave, b);
+    return b;
+  };
+
+  let visiveis = 0;
+  document.querySelectorAll('#lid-tbody tr[data-chave]').forEach(tr => {
+    const b = bate(tr.dataset.chave);
+    tr.style.display = b ? '' : 'none';
+    if (b) visiveis++;
+  });
+  document.querySelectorAll('#lista-itens .lid-item-side').forEach(el => {
+    el.style.display = bate(el.dataset.chave) ? '' : 'none';
+  });
+
+  const st = document.getElementById('lid-action-status');
+  if (st && termo) st.textContent = `${visiveis} de ${itens.length} proposições na busca`;
+  else if (st) st.textContent = `${itens.length} proposições · ${itens.filter(i => i.status === 'ok').length} resumidas`;
+}
+
+/** Enter na busca: rola até o primeiro resultado visível. */
+function irAoPrimeiroResultado() {
+  document.querySelector('#lid-tbody tr[data-chave]:not([style*="none"])')
+    ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 function linhaHTML(it) {
@@ -1595,7 +1658,7 @@ function linhaHTML(it) {
   const avisoTxt = avisosDe(it);
   const aviso = avisoTxt ? `<span class="lid-erro-msg" style="color:var(--amarelo)">${esc(avisoTxt)}</span>` : '';
 
-  return `<tr class="${marcada ? 'lid-sel' : ''}">
+  return `<tr class="${marcada ? 'lid-sel' : ''}" data-chave="${esc(it.chave)}">
     <td class="lid-c-check"><input type="checkbox" class="lid-check" data-chave="${esc(it.chave)}" ${marcada ? 'checked' : ''}></td>
     <td class="lid-c-num">${esc(it.numItem)}</td>
     <td class="lid-c-prop">
@@ -1723,6 +1786,7 @@ function atualizarSidebar() {
 
   const st = document.getElementById('lid-action-status');
   st.textContent = `${itens.length} proposições · ${prontas} resumidas`;
+  aplicarBuscaLista();   // a lista lateral acabou de ser recriada — refiltra
 }
 
 /** Troca o título por um campo de edição; Enter/clicar fora salva, Esc cancela.
