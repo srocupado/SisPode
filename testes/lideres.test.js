@@ -194,7 +194,7 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
      'principal divergente entre a lista e a API é declarado');
 
   console.log('\n== Autoria e relatoria do Podemos ==');
-  ok(L.ehRelatorPodemos('Dep. Nely Aquino (PODE-MG)') === true, 'relatoria PODE detectada');
+  ok(L.ehRelatorPodemos('Dep. Exemplo Sintético (PODE-MG)') === true, 'relatoria PODE detectada');
   ok(L.ehRelatorPodemos('Dep. Maria Rosas (Republicanos-SP)') === false, 'outros partidos não marcam');
   ok(L.ehRelatorPodemos('Dep. Fulano (Podemos-MG)') === true, 'grafia "Podemos" por extenso também marca');
   ok(L.ehRelatorPodemos('Sem indicação') === false, 'sem relatoria não marca');
