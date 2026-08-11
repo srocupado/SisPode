@@ -1845,7 +1845,7 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     tbody tr.pode td { background:#fff3bf; }
     .selo-pode, .selo-rel, .selo-apens { display:block; width:fit-content; margin-top:3px; padding:0 5px;
       border-radius:4px; font-size:6.5pt; font-weight:700; }
-    .selo-pode { color:#0a7a43; border:1px solid #0a7a43; }
+    .selo-pode { color:#b3261e; border:1px solid #b3261e; }
     .selo-rel  { color:#0a4a7a; border:1px solid #0a4a7a; }
     .selo-apens { color:#02484d; border:1px solid #02484d; }
     .c-num  { width:3%; text-align:center; color:#666; }
