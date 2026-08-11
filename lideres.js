@@ -47,6 +47,9 @@ let app = {
   instrucoes:   '',     // instruções adicionais compartilhadas (Firebase)
   abortar:      null,   // AbortController do lote em andamento
   config: { provedor: 'gemini', apiKey: '', modelo: 'gemini-2.5-flash' },
+  sistema:  'analise',  // aba ativa: analise | demandas | email
+  demandas: [],         // sistema 2 — registro de demandas (Firebase)
+  selEmail: new Set(),  // sistema 3 — ids das demandas marcadas p/ e-mail
 };
 
 // ============================================================
@@ -60,6 +63,7 @@ document.addEventListener('DOMContentLoaded', () => {
   carregarConfiguracao();
   carregarHistorico();
   carregarInstrucoes().catch(e => console.warn('Instruções:', e.message));
+  carregarDemandas();
 });
 
 function registrarEventos() {
@@ -124,6 +128,19 @@ function registrarEventos() {
     b.addEventListener('click', () => fecharModal(b.dataset.fecha)));
   document.querySelectorAll('.modal-overlay').forEach(o =>
     o.addEventListener('click', e => { if (e.target === o) fecharModal(o.id); }));
+
+  // Abas dos três sistemas
+  document.querySelectorAll('.lid-aba').forEach(b =>
+    b.addEventListener('click', () => mostrarSistema(b.dataset.sistema)));
+
+  // Sistema 2 — demandas de deputados
+  document.getElementById('btn-nova-demanda').addEventListener('click', abrirModalNovaDemanda);
+  document.getElementById('btn-dem-buscar').addEventListener('click', buscarDadosDemanda);
+  document.getElementById('btn-dem-registrar').addEventListener('click', registrarDemanda);
+
+  // Sistema 3 — e-mail de demandas
+  document.getElementById('btn-email-copiar').addEventListener('click', copiarEmailDemandas);
+  document.getElementById('btn-email-atualizar').addEventListener('click', atualizarSituacoesEmail);
 }
 
 function mostrarTela(id) {
@@ -528,7 +545,7 @@ async function infoDeputado(idDep) {
     const r = await fetch(`${API_BASE}/deputados/${idDep}`);
     if (r.ok) {
       const us = (await r.json()).dados?.ultimoStatus || {};
-      info = { nome: us.nome, siglaPartido: us.siglaPartido };
+      info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
     }
   } catch (_) { /* fica sem partido */ }
   _cacheDeputado.set(idDep, info);
@@ -2157,6 +2174,409 @@ async function completarDadosFaltantes() {
     mostrarToast('Marcações do Podemos atualizadas. Salve para compartilhar com a equipe.', 'sucesso');
   })().finally(() => { app._completando = null; });
   return app._completando;
+}
+
+// ============================================================
+//  NAVEGAÇÃO ENTRE OS TRÊS SISTEMAS (abas)
+// ============================================================
+// 1 Análise da Lista · 2 Demandas de Deputados · 3 E-mail de Demandas.
+// A barra lateral muda de conteúdo com a aba (seções marcadas com
+// data-sistema); a barra de ações pertence só ao sistema 1. Trocar de aba
+// não descarta nada: cada sistema fica exatamente como estava.
+function mostrarSistema(s) {
+  app.sistema = s;
+  document.querySelectorAll('.lid-aba').forEach(b => b.classList.toggle('on', b.dataset.sistema === s));
+  document.querySelectorAll('.sidebar-section[data-sistema]').forEach(sec => {
+    sec.style.display = sec.dataset.sistema === s ? '' : 'none';
+  });
+  document.getElementById('btn-nova-reuniao').style.display = s === 'analise' ? '' : 'none';
+  if (s === 'analise') {
+    mostrarTela(app.reuniao ? 'tela-lista' : 'tela-upload');
+    document.getElementById('lid-action-bar').style.display = app.reuniao ? 'flex' : 'none';
+    atualizarSidebar();   // a seção PROPOSIÇÕES tem regra própria de exibição
+  } else {
+    document.getElementById('lid-action-bar').style.display = 'none';
+    if (s === 'demandas') { mostrarTela('tela-demandas'); renderizarDemandas(); }
+    else                  { mostrarTela('tela-email');    renderizarEmail(); }
+  }
+}
+
+// ============================================================
+//  SISTEMA 2 — DEMANDAS DE DEPUTADOS
+// ============================================================
+// O analista digita SÓ tratamento, deputado, proposição e natureza da
+// demanda. Autoria, ementa e situação vêm dos Dados Abertos pelas MESMAS
+// regras fixas do sistema 1 (situacaoDe etc.) — campo digitado à mão
+// envelhece e diverge da fonte. O registro vai ao Firebase
+// (lideres-demandas), compartilhado com a equipe como as reuniões.
+
+async function fbDemandasCarregar() {
+  const res = await fetch(`${FIREBASE_URL}/lideres-demandas.json`);
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  const d = await res.json();
+  return d ? Object.values(d).filter(Boolean) : [];
+}
+async function fbDemandaSalvar(dem) {
+  const res = await fetch(`${FIREBASE_URL}/lideres-demandas/${dem.id}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dem),
+  });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+async function fbDemandaApagar(id) {
+  const res = await fetch(`${FIREBASE_URL}/lideres-demandas/${id}.json`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+}
+
+async function carregarDemandas() {
+  try { app.demandas = await fbDemandasCarregar(); }
+  catch (e) { console.warn('Demandas:', e.message); return; }
+  app.demandas.sort((a, b) => (a.registradaEm || '').localeCompare(b.registradaEm || ''));
+  if (app.sistema === 'demandas') renderizarDemandas();
+  if (app.sistema === 'email')    renderizarEmail();
+}
+
+/** "PLP 78/2025", "plp78/25" → { sigla, numero, ano, chave } — ou null. */
+function refDemanda(texto) {
+  const m = String(texto || '').match(
+    /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG)\s*\.?\s*n?[º°.]*\s*(\d{1,6})\s*[\/\s]\s*(\d{2,4})\b/i);
+  if (!m) return null;
+  let ano = parseInt(m[3], 10);
+  if (m[3].length === 2) ano += ano < 50 ? 2000 : 1900;   // "…/25" digitado às pressas
+  return { sigla: m[1].toUpperCase(), numero: parseInt(m[2], 10), ano,
+           chave: `${m[1].toUpperCase()} ${parseInt(m[2], 10)}/${ano}` };
+}
+
+/** 1º signatário no padrão de registro da Liderança: "Bacelar PV/BA".
+ *  Autor que não é deputado (Executivo, Senado) fica só com o nome. */
+async function autoriaDemanda(idProp) {
+  let dados = [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    if (r.ok) dados = (await r.json()).dados || [];
+  } catch (_) { return ''; }
+  if (!dados.length) return '';
+  const ordenados = dados.slice().sort((a, b) => (a.ordemAssinatura || 99) - (b.ordemAssinatura || 99));
+  const a = ordenados[0];
+  const sufixo = dados.length > 1 ? ' e outros' : '';
+  const m = (a.uri || '').match(/\/deputados\/(\d+)/);
+  if (m) {
+    const info = await infoDeputado(m[1]);
+    if (info?.siglaPartido) {
+      return `${a.nome || info.nome} ${info.siglaPartido}${info.siglaUf ? '/' + info.siglaUf : ''}${sufixo}`;
+    }
+  }
+  return `${a.nome || ''}${sufixo}`.trim();
+}
+
+/** Fatos da proposição para o registro — sem IA, direto da fonte. */
+async function fatosDaDemanda(ref) {
+  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const item = (await res.json()).dados?.[0];
+  if (!item) throw new Error(`${ref.chave} não localizada nos Dados Abertos`);
+  let detalhe = item;
+  try {
+    const rd = await fetch(`${API_BASE}/proposicoes/${item.id}`);
+    if (rd.ok) detalhe = (await rd.json()).dados || item;
+  } catch (_) { /* fica com o item da lista */ }
+  const [autoria, trams] = await Promise.all([autoriaDemanda(item.id), buscarTramitacoes(item.id)]);
+  return {
+    idCamara: item.id,
+    ementa:   detalhe.ementa || item.ementa || '',
+    autoria,
+    situacao: situacaoDe(trams, ''),
+  };
+}
+
+// ---------- Modal de registro ----------
+// "Registrar" só habilita depois de "Buscar na Câmara" dar certo: demanda
+// sem os fatos da fonte não entra — é a regra que impede o registro manual.
+let _demandaPreparada = null;
+
+function abrirModalNovaDemanda() {
+  _demandaPreparada = null;
+  ['dem-deputado', 'dem-prop', 'dem-natureza'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('dem-tratamento').value = 'Deputado';
+  document.getElementById('dem-api-preview').style.display = 'none';
+  document.getElementById('btn-dem-registrar').disabled = true;
+  document.getElementById('modal-nova-demanda').style.display = 'flex';
+  document.getElementById('dem-deputado').focus();
+}
+
+async function buscarDadosDemanda() {
+  const ref = refDemanda(document.getElementById('dem-prop').value);
+  if (!ref) return mostrarToast('Escreva a proposição como "PLP 78/2025".', 'erro');
+  const btn  = document.getElementById('btn-dem-buscar');
+  const prev = document.getElementById('dem-api-preview');
+  btn.disabled = true; btn.textContent = 'Consultando…';
+  try {
+    const fatos = await fatosDaDemanda(ref);
+    _demandaPreparada = { ...ref, ...fatos };
+    prev.style.display = '';
+    prev.innerHTML = `<div class="rot">${esc(ref.chave)} — dados da API da Câmara</div>
+      <div class="campo-fixo">Autoria: <b>${esc(fatos.autoria || 'não informada')}</b></div>
+      <div class="campo-fixo">Ementa: <b>${esc(fatos.ementa || '—')}</b></div>
+      <div class="campo-fixo">Situação: <b>${esc(fatos.situacao)}</b></div>`;
+    document.getElementById('btn-dem-registrar').disabled = false;
+  } catch (e) {
+    _demandaPreparada = null;
+    prev.style.display = '';
+    prev.innerHTML = `<div class="campo-fixo">Não consegui buscar: <b>${esc(e.message)}</b></div>`;
+    document.getElementById('btn-dem-registrar').disabled = true;
+  } finally {
+    btn.disabled = false; btn.textContent = 'Buscar na Câmara';
+  }
+}
+
+async function registrarDemanda() {
+  const deputado = document.getElementById('dem-deputado').value.trim();
+  const natureza = document.getElementById('dem-natureza').value.trim();
+  if (!deputado) return mostrarToast('Informe quem demanda.', 'erro');
+  if (!natureza) return mostrarToast('Informe a natureza da demanda.', 'erro');
+  if (!_demandaPreparada) return mostrarToast('Busque a proposição na Câmara antes de registrar.', 'erro');
+  // Se a proposição foi trocada depois da busca, os fatos não são dela.
+  const refAtual = refDemanda(document.getElementById('dem-prop').value);
+  if (!refAtual || refAtual.chave !== _demandaPreparada.chave) {
+    return mostrarToast('A proposição mudou desde a busca — clique em "Buscar na Câmara" de novo.', 'erro');
+  }
+  const agora = new Date().toISOString();
+  const dem = {
+    id: `dem-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+    tratamento: document.getElementById('dem-tratamento').value,
+    deputado, natureza,
+    ..._demandaPreparada,
+    situacaoRegistro: _demandaPreparada.situacao,  // congela p/ detectar mudança depois
+    registradaEm: agora, atualizadaEm: agora,
+  };
+  app.demandas.push(dem);
+  fecharModal('modal-nova-demanda');
+  renderizarDemandas();
+  try {
+    await fbDemandaSalvar(dem);
+    mostrarToast('Demanda registrada e compartilhada com a equipe.', 'sucesso');
+  } catch (e) {
+    mostrarToast(`Registrada só nesta tela — Firebase indisponível: ${e.message}`, 'aviso');
+  }
+}
+
+// ---------- Listagem ----------
+const grupoDemanda = d => `${d.tratamento || 'Deputado'} ${d.deputado}`.trim();
+// Ordem alfabética pelo NOME: comparar o rótulo inteiro poria toda "Deputada"
+// antes de todo "Deputado" — MEDIDO na captura de tela do teste de layout.
+const ordemPorNome = (a, b) =>
+  a.replace(/^Deputad[oa] /, '').localeCompare(b.replace(/^Deputad[oa] /, ''), 'pt-BR');
+
+function renderizarDemandas() {
+  const wrap = document.getElementById('dem-wrap');
+  const side = document.getElementById('dem-lista-deputados');
+  if (!app.demandas.length) {
+    side.innerHTML = '<div class="empty-state"><p>Nenhuma demanda registrada</p></div>';
+    wrap.innerHTML = `<div class="empty-state"><p>Nenhuma demanda registrada ainda.<br>
+      Use <strong>+ Nova demanda</strong> na barra lateral: você informa deputado, proposição e a natureza da demanda — autoria, ementa e situação vêm da API da Câmara.</p></div>`;
+    return;
+  }
+  const grupos = new Map();
+  for (const d of app.demandas) {
+    const g = grupoDemanda(d);
+    if (!grupos.has(g)) grupos.set(g, []);
+    grupos.get(g).push(d);
+  }
+  const nomes = [...grupos.keys()].sort(ordemPorNome);
+
+  side.innerHTML = nomes.map(n => `
+    <div class="dem-side-dep" data-grupo="${esc(n)}">
+      <span>${esc(n.replace(/^Deputad[oa] /, ''))}</span>
+      <span class="qtd">${grupos.get(n).length}</span>
+    </div>`).join('');
+  side.querySelectorAll('.dem-side-dep').forEach(el => el.addEventListener('click', () => {
+    document.querySelector(`.dem-grupo[data-grupo="${cssEscape(el.dataset.grupo)}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }));
+
+  wrap.innerHTML = nomes.map(n => `
+    <div class="dem-grupo" data-grupo="${esc(n)}">
+      <div class="dem-grupo-titulo">${esc(n)}</div>
+      ${grupos.get(n).map(cardDemandaHTML).join('')}
+    </div>`).join('');
+
+  wrap.querySelectorAll('[data-acao]').forEach(btn => btn.addEventListener('click', () => {
+    const d = app.demandas.find(x => x.id === btn.dataset.id);
+    if (!d) return;
+    if (btn.dataset.acao === 'apagar')    apagarDemanda(d);
+    if (btn.dataset.acao === 'atualizar') atualizarSituacaoDemanda(d);
+  }));
+  // Natureza editável direto no cartão (é o único campo que é do analista;
+  // os demais são da fonte e não se editam — se envelheceram, atualiza ↻).
+  wrap.querySelectorAll('.dem-nat').forEach(el => el.addEventListener('blur', async () => {
+    const d = app.demandas.find(x => x.id === el.dataset.id);
+    const novo = el.textContent.trim();
+    if (!d || !novo || novo === d.natureza) { if (d) el.textContent = d.natureza; return; }
+    d.natureza = novo;
+    try { await fbDemandaSalvar(d); mostrarToast('Natureza atualizada.', 'sucesso'); }
+    catch (e) { mostrarToast(`Não salvou no Firebase: ${e.message}`, 'aviso'); }
+  }));
+}
+
+function cardDemandaHTML(d) {
+  const mudou = d.situacaoRegistro && d.situacao !== d.situacaoRegistro;
+  const ficha = d.idCamara
+    ? ` · <a class="lid-link" href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${d.idCamara}" target="_blank">ficha na Câmara</a>` : '';
+  return `<div class="dem-card">
+    <div class="dem-card-topo">
+      <strong>${esc(d.chave)}</strong>
+      ${mudou ? '<span class="dem-pill-mudou" title="A situação de hoje é diferente da do dia do registro">situação mudou desde o registro</span>' : ''}
+      <span class="dem-card-acoes">
+        <button class="dem-btn-ico" data-acao="atualizar" data-id="${esc(d.id)}" title="Reconsultar a situação na Câmara">↻</button>
+        <button class="dem-btn-ico" data-acao="apagar" data-id="${esc(d.id)}" title="Apagar demanda">🗑</button>
+      </span>
+    </div>
+    <div class="dem-campo">Natureza da demanda: <span class="dem-nat" contenteditable="true" data-id="${esc(d.id)}">${esc(d.natureza)}</span></div>
+    <div class="dem-campo">Autoria: <b>${esc(d.autoria || 'não informada')}</b></div>
+    <div class="dem-campo">Ementa: ${esc(d.ementa || '—')}</div>
+    <div class="dem-campo">Situação: <b>${esc(d.situacao)}</b></div>
+    <div class="dem-meta">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))}${ficha}</div>
+  </div>`;
+}
+
+async function apagarDemanda(d) {
+  if (!confirm(`Apagar a demanda de ${grupoDemanda(d)} sobre ${d.chave}?`)) return;
+  app.demandas = app.demandas.filter(x => x.id !== d.id);
+  app.selEmail.delete(d.id);
+  renderizarDemandas();
+  try { await fbDemandaApagar(d.id); }
+  catch (e) { mostrarToast(`Apagada só nesta tela — Firebase indisponível: ${e.message}`, 'aviso'); }
+}
+
+/** Reconsulta a situação na Câmara; devolve true se mudou. */
+async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
+  const trams = await buscarTramitacoes(d.idCamara);
+  const nova = situacaoDe(trams, '');
+  const mudou = nova !== d.situacao;
+  if (mudou) {
+    d.situacao = nova;
+    d.atualizadaEm = new Date().toISOString();
+    try { await fbDemandaSalvar(d); } catch (_) { /* fica na tela */ }
+  }
+  if (!silencioso) {
+    renderizarDemandas();
+    mostrarToast(mudou ? `Situação de ${d.chave} atualizada.` : `${d.chave}: situação não mudou.`, mudou ? 'sucesso' : '');
+  }
+  return mudou;
+}
+
+// ============================================================
+//  SISTEMA 3 — E-MAIL DE DEMANDAS
+// ============================================================
+// O formato é montado por CÓDIGO, no padrão de registro da Liderança — o
+// mesmo princípio da mensagem do /ata: o padrão não depende de ninguém
+// lembrar do modelo. A abertura e o fechamento do e-mail entram quando o
+// modelo for definido (por ora vazios: a cópia leva só os blocos).
+const EMAIL_ABERTURA   = '';
+const EMAIL_FECHAMENTO = '';
+
+function blocoDemandaEmail(d) {
+  const sit = (d.situacao || '').trim();
+  return [`•\t${d.chave}`,
+          `Natureza da demanda: ${d.natureza}`,
+          `Autoria: ${d.autoria || 'não informada'}`,
+          `Ementa: ${d.ementa || '—'}`,
+          `Situação: ${/[.!?]$/.test(sit) ? sit : sit + '.'}`].join('\n');
+}
+
+/** Blocos agrupados por deputado: "Deputado DAVID SOARES:" + demandas dele. */
+function montarEmailDemandas(demandas) {
+  const grupos = new Map();
+  for (const d of demandas) {
+    const g = `${d.tratamento || 'Deputado'} ${String(d.deputado || '').toUpperCase()}`;
+    if (!grupos.has(g)) grupos.set(g, []);
+    grupos.get(g).push(d);
+  }
+  const corpo = [...grupos].map(([dep, ds]) =>
+    `${dep}:\n\n${ds.map(blocoDemandaEmail).join('\n\n')}`).join('\n\n');
+  return [EMAIL_ABERTURA, corpo, EMAIL_FECHAMENTO].filter(Boolean).join('\n\n');
+}
+
+function demandasSelecionadas() {
+  return app.demandas.filter(d => app.selEmail.has(d.id));
+}
+
+function renderizarEmail() {
+  const side = document.getElementById('email-selecao');
+  // Seleção só de demanda que ainda existe (pode ter sido apagada no sistema 2)
+  app.selEmail = new Set([...app.selEmail].filter(id => app.demandas.some(d => d.id === id)));
+
+  if (!app.demandas.length) {
+    side.innerHTML = '<div class="empty-state"><p>Nenhuma demanda registrada</p></div>';
+  } else {
+    const grupos = new Map();
+    for (const d of app.demandas) {
+      const g = grupoDemanda(d);
+      if (!grupos.has(g)) grupos.set(g, []);
+      grupos.get(g).push(d);
+    }
+    side.innerHTML = [...grupos.keys()].sort(ordemPorNome).map(n => `
+      <div class="email-side-dep">${esc(n.replace(/^Deputad[oa] /, ''))}</div>
+      ${grupos.get(n).map(d => `
+        <label class="email-side-item">
+          <input type="checkbox" data-id="${esc(d.id)}" ${app.selEmail.has(d.id) ? 'checked' : ''}>
+          <span>${esc(d.chave)}<br><small style="color:var(--text-dim)">${esc(d.natureza)}</small></span>
+        </label>`).join('')}`).join('');
+    side.querySelectorAll('input[type=checkbox]').forEach(cb => cb.addEventListener('change', () => {
+      if (cb.checked) app.selEmail.add(cb.dataset.id); else app.selEmail.delete(cb.dataset.id);
+      renderizarPreviaEmail();
+    }));
+  }
+  renderizarPreviaEmail();
+}
+
+function renderizarPreviaEmail() {
+  const sel    = demandasSelecionadas();
+  const prev   = document.getElementById('email-preview');
+  const status = document.getElementById('email-status');
+  document.getElementById('btn-email-copiar').disabled = !sel.length;
+  if (!sel.length) {
+    status.textContent = app.demandas.length
+      ? 'Nenhuma demanda selecionada' : 'Registre demandas na aba Demandas de Deputados';
+    prev.textContent = 'Marque na barra lateral as demandas que devem entrar na mensagem.';
+    return;
+  }
+  const deps = new Set(sel.map(grupoDemanda)).size;
+  status.textContent = `${sel.length} demanda(s) de ${deps} deputado(s)`;
+  prev.textContent = montarEmailDemandas(sel);
+}
+
+async function atualizarSituacoesEmail() {
+  const sel = demandasSelecionadas();
+  if (!sel.length) return mostrarToast('Marque as demandas antes de atualizar.', 'erro');
+  const btn = document.getElementById('btn-email-atualizar');
+  btn.disabled = true;
+  let mudadas = 0;
+  await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
+  btn.disabled = false;
+  renderizarEmail();
+  mostrarToast(mudadas
+    ? `${mudadas} situação(ões) mudou(aram) desde o registro — confira os blocos.`
+    : 'Nenhuma situação mudou.', mudadas ? 'aviso' : 'sucesso');
+}
+
+async function copiarEmailDemandas() {
+  const sel = demandasSelecionadas();
+  if (!sel.length) return;
+  // Reconsulta a situação ANTES de copiar: entre o registro e o envio a
+  // urgência pode ter sido aprovada — e-mail com situação velha é o defeito
+  // mais caro deste sistema.
+  const btn = document.getElementById('btn-email-copiar');
+  btn.disabled = true; btn.textContent = 'Conferindo situações…';
+  let mudadas = 0;
+  try {
+    await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
+  } catch (_) { /* copia com o que há */ }
+  renderizarEmail();
+  await navigator.clipboard.writeText(montarEmailDemandas(demandasSelecionadas()));
+  btn.disabled = false; btn.textContent = 'Copiar texto';
+  mostrarToast(mudadas
+    ? `Copiado — atenção: ${mudadas} situação(ões) mudou(aram) desde o registro.`
+    : 'Texto copiado para a área de transferência.', mudadas ? 'aviso' : 'sucesso');
 }
 
 // ============================================================

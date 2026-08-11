@@ -263,9 +263,9 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 
 ### 8. Reunião de Líderes
 
-Recebe o **PDF com a lista de proposições** que o Colégio de Líderes vai avaliar para eventual inclusão na pauta do Plenário e devolve a **planilha de resumo** — uma linha por proposição, pronta para a reunião.
+Módulo com **três sistemas internos**, navegados por abas no topo: **1 · Análise da Lista** (o PDF do Colégio de Líderes vira planilha de resumo), **2 · Demandas de Deputados** (registro dos interesses que os deputados manifestam sobre matérias) e **3 · E-mail de Demandas** (seleção das demandas registradas e formatação do texto de envio). Trocar de aba não descarta nada — cada sistema fica como estava.
 
-A divisão de trabalho é deliberada: **o que é fato vem da fonte, o que é redação vem da IA**. Situação da urgência, apensação, relatoria de Plenário, parecer, cenário e as marcações do Podemos são **derivados por regra fixa** dos Dados Abertos — sem IA, em segundos, porque nesses campos um erro de leitura vira informação errada na mão do líder. Só objetivo, justificativa e o comparativo passam pelo modelo, sempre com o inteiro teor anexado.
+A divisão de trabalho é deliberada e vale para os três: **o que é fato vem da fonte, o que é redação vem da IA**. Situação da urgência, apensação, relatoria de Plenário, parecer, cenário e as marcações do Podemos são **derivados por regra fixa** dos Dados Abertos — sem IA, em segundos, porque nesses campos um erro de leitura vira informação errada na mão do líder. Só objetivo, justificativa e o comparativo passam pelo modelo, sempre com o inteiro teor anexado.
 
 **Leitura da lista (PDF)**
 - A lista é uma tabela cujas colunas se separam por **posição horizontal**, com a descrição quebrando em várias linhas e o número do item aparecendo no meio do bloco. O parser recorta por coluna e agrupa os blocos entre os números, tratando quebra de página e cabeçalho repetido (que reaparece no meio das páginas) como fronteira de linha
@@ -292,6 +292,17 @@ A divisão de trabalho é deliberada: **o que é fato vem da fonte, o que é red
 - Situação, relatoria, apensação e cenário não passam pela IA
 - Toda **lei citada por número** no texto gerado é conferida contra a peça original; o que não bate sai marcado na coluna Alertas
 - Sem inteiro teor disponível, a justificativa vira frase de abstenção explícita — o modelo não preenche a lacuna
+
+**Sistema 2 — Demandas de Deputados**
+- O analista digita **só quatro campos**: tratamento (Deputado/Deputada), quem demanda, a proposição e a natureza da demanda (ex.: "Solicitar relatoria"). **Autoria, ementa e situação vêm da API da Câmara** pelas mesmas regras fixas do sistema 1 — o botão "Registrar" só habilita depois de "Buscar na Câmara" dar certo, o que impede registro de campo digitado à mão
+- Autoria no padrão de registro da Liderança ("Bacelar PV/BA"), com partido e UF da **ficha do deputado** nos Dados Abertos
+- Demandas agrupadas por deputado, com a natureza editável no cartão; quando a **situação de hoje difere da do dia do registro**, o cartão ganha a marca "situação mudou desde o registro" (e ↻ reconsulta na hora)
+- Registros no Firebase (`lideres-demandas`), **compartilhados com a equipe** como as reuniões
+
+**Sistema 3 — E-mail de Demandas**
+- Marca-se na barra lateral quais demandas entram; a prévia monta os blocos **por código**, no padrão fixo (`Deputado NOME:` + proposição, natureza, autoria, ementa, situação) — sem IA na formatação
+- Ao copiar, a **situação de cada demanda selecionada é reconsultada na Câmara** antes de montar o texto — entre o registro e o envio a urgência pode ter sido aprovada — e o que mudou sai avisado
+- A abertura e o fechamento do e-mail entram quando o modelo for definido (gabarito fixo no código)
 
 ---
 
@@ -396,7 +407,7 @@ sispode/
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
-├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (lista do Colégio de Líderes)
+├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (análise da lista + demandas + e-mail)
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 ├── libs/
@@ -407,6 +418,7 @@ sispode/
 │   └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
 ├── testes/                         # Testes (Node, contra a API real da Câmara)
 │   ├── lideres.test.js             # Parser do PDF, cenários, situação/relatoria, Podemos
+│   ├── lideres-demandas.test.js    # Demandas de deputados + formato do e-mail
 │   ├── lideres-cura.test.js        # Reunião salva antes de um campo existir se atualiza
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   └── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência

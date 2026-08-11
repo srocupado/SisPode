@@ -158,6 +158,100 @@
     .lid-item-side .pt  { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
     .pt.pendente { background: #4a5a5e; } .pt.dados { background: var(--accent); }
     .pt.ok { background: #3ad97d; }       .pt.erro { background: var(--vermelho); }
+
+    /* ================================================================
+       ABAS DOS TRÊS SISTEMAS  (1 Análise · 2 Demandas · 3 E-mail)
+       ================================================================ */
+    .lid-abas {
+      display: flex; gap: 2px; flex-shrink: 0;
+      background: rgba(0,0,0,0.25); padding: 6px 16px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .lid-aba {
+      appearance: none; background: none; border: 1px solid transparent; border-bottom: none;
+      padding: 8px 16px 9px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--text-dim); border-radius: 10px 10px 0 0; cursor: pointer;
+    }
+    .lid-aba:hover { color: var(--text); }
+    .lid-aba.on {
+      background: var(--bg); color: var(--accent-light);
+      border-color: var(--border-soft);
+      box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    /* ---- Sistema 2: demandas ---- */
+    .dem-wrap { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .dem-grupo { margin-bottom: 22px; }
+    .dem-grupo-titulo {
+      font-size: 13px; font-weight: 700; letter-spacing: .4px;
+      color: var(--accent-light); margin-bottom: 10px;
+    }
+    .dem-card {
+      background: var(--card); border: 1px solid var(--border-soft);
+      border-radius: var(--radius); padding: 13px 16px; margin-bottom: 10px;
+      max-width: 900px;
+    }
+    .dem-card-topo { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .dem-card-topo strong { font-size: 14px; }
+    .dem-card-acoes { margin-left: auto; display: flex; gap: 4px; }
+    .dem-campo { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin-top: 3px; }
+    .dem-campo b { color: var(--text); font-weight: 600; }
+    .dem-pill-mudou {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 999px; background: rgba(240,192,64,0.16); color: var(--amarelo);
+      border: 1px solid rgba(240,192,64,0.32); white-space: nowrap;
+    }
+    .dem-nat {
+      display: inline-block; min-width: 60px; border-radius: 6px; padding: 1px 5px; margin: -1px -5px;
+      border: 1px solid transparent; outline: none; color: var(--text); font-weight: 600;
+    }
+    .dem-nat:hover { border-color: var(--border-soft); }
+    .dem-nat:focus { border-color: var(--accent); background: rgba(0,0,0,0.20); }
+    .dem-meta { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; }
+    .dem-btn-ico {
+      background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+      color: var(--text-dim); padding: 3px 6px; font-size: 12px; line-height: 1;
+    }
+    .dem-btn-ico:hover { color: var(--text); border-color: var(--border-soft); background: rgba(255,255,255,0.04); }
+    .dem-side-dep {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 12px;
+    }
+    .dem-side-dep:hover { background: rgba(255,255,255,0.04); }
+    .dem-side-dep .qtd { color: var(--text-dim); font-size: 11px; }
+    .dem-api-preview {
+      margin-top: 12px; background: rgba(31,165,165,0.07); border: 1px solid rgba(31,165,165,0.25);
+      border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.55;
+    }
+    .dem-api-preview .rot { color: var(--accent-light); font-weight: 700; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .8px; }
+    .dem-api-preview .campo-fixo { color: var(--text-dim); }
+    .dem-api-preview .campo-fixo b { color: var(--text); font-weight: 600; }
+
+    /* ---- Sistema 3: e-mail ---- */
+    .email-wrap { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .email-toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      max-width: 900px; margin-bottom: 12px;
+    }
+    .email-status { font-size: 12px; color: var(--text-dim); }
+    .email-preview {
+      max-width: 900px; background: var(--card); border: 1px solid var(--border-soft);
+      border-radius: var(--radius); padding: 16px 20px; margin: 0;
+      font-family: inherit; font-size: 13px; line-height: 1.6;
+      white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+    }
+    .email-nota { max-width: 900px; font-size: 11.5px; color: var(--text-dim); margin-top: 10px; }
+    .email-side-item {
+      display: flex; align-items: flex-start; gap: 7px; padding: 5px 8px;
+      border-radius: 8px; cursor: pointer; font-size: 12px; line-height: 1.35;
+    }
+    .email-side-item:hover { background: rgba(255,255,255,0.04); }
+    .email-side-item input { margin-top: 2px; accent-color: var(--accent); }
+    .email-side-dep {
+      font-size: 10.5px; font-weight: 700; color: var(--text-dim);
+      letter-spacing: .5px; margin: 8px 0 3px; text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
@@ -194,11 +288,18 @@
     </div>
   </header>
 
+  <!-- ===== ABAS DOS TRÊS SISTEMAS ===== -->
+  <nav class="lid-abas">
+    <button class="lid-aba on" data-sistema="analise">📋 Análise da Lista</button>
+    <button class="lid-aba" data-sistema="demandas">📥 Demandas de Deputados</button>
+    <button class="lid-aba" data-sistema="email">✉️ E-mail de Demandas</button>
+  </nav>
+
   <!-- ===== LAYOUT PRINCIPAL ===== -->
   <div class="app-body">
 
     <aside class="sidebar">
-      <div class="sidebar-section">
+      <div class="sidebar-section" data-sistema="analise">
         <div class="sidebar-label">REUNIÃO ATUAL</div>
         <div id="reuniao-info" class="sessao-info empty"><span>Nenhuma reunião carregada</span></div>
         <div id="lid-progresso-wrap" style="display:none">
@@ -207,15 +308,32 @@
         </div>
       </div>
 
-      <div class="sidebar-section" id="sidebar-itens-section" style="display:none">
+      <div class="sidebar-section" id="sidebar-itens-section" data-sistema="analise" style="display:none">
         <div class="sidebar-label">PROPOSIÇÕES</div>
         <div id="lista-itens" class="lista-proposicoes"></div>
       </div>
 
-      <div class="sidebar-section">
+      <div class="sidebar-section" data-sistema="analise">
         <div class="sidebar-label">HISTÓRICO</div>
         <div id="lista-historico" class="lista-historico">
           <div class="empty-state"><p>Nenhuma reunião anterior</p></div>
+        </div>
+      </div>
+
+      <!-- Sistema 2: deputados com demandas registradas -->
+      <div class="sidebar-section" data-sistema="demandas" style="display:none">
+        <div class="sidebar-label">DEPUTADOS</div>
+        <div id="dem-lista-deputados">
+          <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
+        </div>
+        <button id="btn-nova-demanda" class="btn btn-primary btn-sm" style="margin-top:10px;width:100%">+ Nova demanda</button>
+      </div>
+
+      <!-- Sistema 3: seleção do que entra na mensagem -->
+      <div class="sidebar-section" data-sistema="email" style="display:none">
+        <div class="sidebar-label">INCLUIR NA MENSAGEM</div>
+        <div id="email-selecao">
+          <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
         </div>
       </div>
     </aside>
@@ -259,6 +377,31 @@
             </thead>
             <tbody id="lid-tbody"></tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- TELA DEMANDAS (sistema 2) -->
+      <div id="tela-demandas" class="tela">
+        <div class="dem-wrap" id="dem-wrap">
+          <div class="empty-state">
+            <p>Nenhuma demanda registrada ainda.<br>
+            Use <strong>+ Nova demanda</strong> na barra lateral: você informa deputado, proposição e a natureza da demanda — autoria, ementa e situação vêm da API da Câmara.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TELA E-MAIL (sistema 3) -->
+      <div id="tela-email" class="tela">
+        <div class="email-wrap">
+          <div class="email-toolbar">
+            <span class="email-status" id="email-status">Nenhuma demanda selecionada</span>
+            <div style="display:flex;gap:8px">
+              <button id="btn-email-atualizar" class="btn btn-outline btn-sm" title="Reconsulta a situação das demandas selecionadas na API da Câmara">↻ Atualizar situações</button>
+              <button id="btn-email-copiar" class="btn btn-primary btn-sm" disabled>Copiar texto</button>
+            </div>
+          </div>
+          <pre class="email-preview" id="email-preview">Marque na barra lateral as demandas que devem entrar na mensagem.</pre>
+          <p class="email-nota">A situação de cada demanda é reconsultada na Câmara ao gerar — o que mudou desde o registro sai marcado. O texto de abertura e fechamento do e-mail entra quando o modelo for definido; por enquanto, a cópia leva os blocos por deputado.</p>
         </div>
       </div>
 
@@ -351,6 +494,51 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-nova-reuniao">Cancelar</button>
         <button id="btn-criar-reuniao" class="btn btn-primary" disabled>Criar Reunião</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: NOVA DEMANDA (sistema 2) ===== -->
+  <div id="modal-nova-demanda" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h3>Nova demanda de deputado</h3>
+        <button class="modal-close" data-fecha="modal-nova-demanda">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:10px">
+          <div class="form-group" style="width:130px;flex-shrink:0">
+            <label>Tratamento</label>
+            <select id="dem-tratamento" class="form-input">
+              <option value="Deputado">Deputado</option>
+              <option value="Deputada">Deputada</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Quem demanda</label>
+            <input type="text" id="dem-deputado" class="form-input" placeholder="Ex: David Soares">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Proposição</label>
+          <input type="text" id="dem-prop" class="form-input" placeholder="Ex: PLP 78/2025">
+        </div>
+        <div class="form-group">
+          <label>Natureza da demanda</label>
+          <input type="text" id="dem-natureza" class="form-input" list="dem-naturezas" placeholder="Ex: Solicitar relatoria">
+          <datalist id="dem-naturezas">
+            <option value="Solicitar relatoria"></option>
+            <option value="Solicitar inclusão em pauta"></option>
+            <option value="Apoiar a aprovação"></option>
+            <option value="Acompanhar a tramitação"></option>
+          </datalist>
+        </div>
+        <button id="btn-dem-buscar" class="btn btn-outline btn-sm">Buscar na Câmara</button>
+        <div id="dem-api-preview" class="dem-api-preview" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-nova-demanda">Cancelar</button>
+        <button id="btn-dem-registrar" class="btn btn-primary" disabled title="Busque a proposição na Câmara antes de registrar">Registrar demanda</button>
       </div>
     </div>
   </div>
