@@ -253,9 +253,12 @@ bot.command('backup', async ctx => {
   try {
     const r = await fazerBackup();
     if (r.ignorado) {
-      return ctx.reply(`⚠️ O banco veio VAZIO agora (${r.pautas} pautas, ${r.analises} análises) — snapshot ignorado para não gravar por cima do bom. Último backup: ${r.referencia.pautas} pautas / ${r.referencia.analises} análises.`);
+      return ctx.reply(`⚠️ O banco veio VAZIO agora — snapshot ignorado para não gravar por cima do bom. Último backup: ${r.referencia.registros} registros.`);
     }
-    return ctx.reply(`💾 Backup gravado: ${r.pautas} pautas, ${r.analises} análises.\n(${r.arquivo})`);
+    // Detalhe por nó: é o que mostra que a cobertura é do banco inteiro.
+    const linhas = Object.entries(r.contagem).filter(([, n]) => n > 0)
+      .map(([no, n]) => `• ${no.replace(/^\//, '')}: ${n}`).join('\n');
+    return ctx.reply(`💾 Backup gravado: ${r.total} registros.\n${linhas}\n(${r.arquivo})`);
   } catch (e) {
     console.error('/backup falhou:', e);
     return ctx.reply(`Erro ao fazer backup: ${e.message}`);
@@ -270,11 +273,14 @@ bot.command('backups', async ctx => {
   for (const b of lista.slice(0, 10)) {
     const token = crypto.randomBytes(4).toString('hex');
     restaurePendente.set(token, { nome: b.nome, ts: Date.now() });
-    kb.text(`♻️ ${b.quando} · ${b.pautas}p/${b.analises}a`.slice(0, 62), `rest:${token}`).row();
+    kb.text(`♻️ ${b.quando} · ${b.registros} reg.${b.formatoAntigo ? ' (antigo)' : ''}`.slice(0, 62), `rest:${token}`).row();
   }
   return ctx.reply(
     '🗄 Backups locais (mais recente primeiro). Tocar RESTAURA o que estiver FALTANDO ' +
-    'no Firebase (não sobrescreve nada que já exista):',
+    'no Firebase (não sobrescreve nada que já exista).\n\n' +
+    'Cobre pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes ' +
+    '(reuniões e demandas), cadastros e estado do bot. Snapshots marcados como ' +
+    '"(antigo)" são anteriores a 11/08/2026 e só têm pautas e análises.',
     { reply_markup: kb });
 });
 
@@ -287,11 +293,15 @@ bot.callbackQuery(/^rest:([a-f0-9]+)$/, async ctx => {
   await ctx.editMessageText('♻️ Restaurando o que está faltando…').catch(() => {});
   try {
     const r = await restaurarFaltantes(p.nome);
+    const detalhe = Object.entries(r.porNo).filter(([, x]) => x.repostos)
+      .map(([no, x]) => `• ${no.replace(/^\//, '')}: ${x.repostos} reposto(s)` +
+        (x.exemplos.length ? ` — ${x.exemplos.join(', ')}${x.repostos > x.exemplos.length ? '…' : ''}` : ''))
+      .join('\n');
     return ctx.reply(
       `✅ Restauração concluída (${p.nome}):\n` +
-      `• Pautas repostas: ${r.pautas.length}${r.pautas.length ? ` (${r.pautas.join(', ')})` : ''}\n` +
-      `• Análises repostas: ${r.analises.length}\n` +
-      `• Já existiam (intactas): ${r.jaPautas} pautas, ${r.jaAnalises} análises.`);
+      `• Repostos: ${r.total} registro(s)\n` +
+      `• Já existiam (intactos): ${r.jaExistiam}\n` +
+      (detalhe ? `\n${detalhe}` : '\nNada estava faltando — o banco já tinha tudo.'));
   } catch (e) {
     console.error('/restaurar falhou:', e);
     return ctx.reply(`Erro ao restaurar: ${e.message}`);
@@ -1961,8 +1971,8 @@ async function tickBackup() {
     const r = await fazerBackup();
     if (r.ignorado && ADMIN_USER_ID) {
       await bot.api.sendMessage(ADMIN_USER_ID,
-        `⚠️ Backup: o Firebase veio VAZIO (${r.pautas} pautas, ${r.analises} análises). ` +
-        `Snapshot ignorado (mantido o anterior: ${r.referencia.pautas}p/${r.referencia.analises}a). ` +
+        `⚠️ Backup: o Firebase veio VAZIO (0 registros em todos os nós). ` +
+        `Snapshot ignorado (mantido o anterior: ${r.referencia.registros} registros). ` +
         `Pode ser perda de dados — verifique o painel; /backups para restaurar.`).catch(() => {});
     }
   } catch (e) { console.warn('backup automático falhou:', e.message); }

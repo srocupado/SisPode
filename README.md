@@ -356,7 +356,8 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 **Administração**
 - Acesso por allowlist (`/usuarios`, `/revogar`; entrada por palavra-chave ou aprovação do admin); menu de comandos por escopo (autorizados e admin veem comandos extras)
 - `/revisar_msg` — usuários autorizados corrigem, no privado, uma das últimas 5 mensagens que o bot enviou ao grupo (editado in-place; o admin recebe o antes/depois)
-- `/backup`/`/backups`, `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo` (chave de IA por usuário)
+- `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
+- `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo` (chave de IA por usuário)
 
 ---
 
@@ -427,7 +428,8 @@ sispode/
 │   ├── lideres-demandas.test.js    # Demandas de deputados + formato do e-mail
 │   ├── lideres-cura.test.js        # Reunião salva antes de um campo existir se atualiza
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
-│   └── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
+│   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
+│   └── backup.test.js              # backup/restauração: ida e volta com Firebase falso
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
     └── src/
