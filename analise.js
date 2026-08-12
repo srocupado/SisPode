@@ -918,10 +918,14 @@ async function fetchHtmlCamara(url) {
   // Respeita o "Parar tudo": os fetches são abortáveis e, uma vez abortado,
   // não adianta tentar as demais vias.
   const signal = _abortAll.signal;
+  // Cada via tem TETO PRÓPRIO: sem ele, uma via que aceita a conexão e não
+  // responde trava aqui para sempre e as alternativas — que existem justamente
+  // para cobrir a falha da primeira — nunca chegam a ser tentadas.
+  const comTeto = (u, init) => fetchComTimeout(u, { ...init, sinalExtra: signal });
   const vias = [
-    ['direto',   () => fetch(url, { redirect: 'follow', signal })],
-    ['codetabs', () => fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), { signal })],
-    ['worker',   () => fetch('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), { signal })],
+    ['direto',   () => comTeto(url, { redirect: 'follow' })],
+    ['codetabs', () => comTeto('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), {})],
+    ['worker',   () => comTeto('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), {})],
   ];
   for (const [nome, tentar] of vias) {
     if (signal.aborted) break;
@@ -4675,12 +4679,47 @@ function ementaTextoResumo(t) {
 const _ascVot = (a, b) => String(a.dataHoraRegistro || '').localeCompare(String(b.dataHoraRegistro || ''));
 
 // fetch da API da Câmara com retry em 429/5xx e erros de rede (a API limita taxa).
+// TIMEOUT OBRIGATÓRIO nas chamadas à Câmara. fetch NÃO tem timeout padrão:
+// quando a API aceita a conexão e não responde (aconteceu em 12/08/2026), a
+// promessa fica pendente PARA SEMPRE — o enriquecimento trava em "carregando",
+// sem erro, sem fim, e a análise nunca começa porque espera a autoria. Com o
+// teto, a tentativa morre e o retry abaixo tem chance de pegar a fonte de pé.
+// Mesma lição já aplicada no bot (portal.js e monitor.js).
+const TIMEOUT_CAMARA_MS = 20000;
+
+// init.sinalExtra encadeia um AbortSignal de fora (o "Parar tudo"): abortar
+// por ali continua valendo e é propagado como AbortError, que os chamadores
+// distinguem de uma falha de rede para parar de vez em vez de tentar de novo.
+async function fetchComTimeout(url, init = {}, ms = TIMEOUT_CAMARA_MS) {
+  const { sinalExtra, ...resto } = init;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  const cascata = () => ctrl.abort();
+  if (sinalExtra) {
+    if (sinalExtra.aborted) { clearTimeout(timer); throw new DOMException('Aborted', 'AbortError'); }
+    sinalExtra.addEventListener('abort', cascata, { once: true });
+  }
+  try {
+    return await fetch(url, { ...resto, signal: ctrl.signal });
+  } catch (e) {
+    // Abortado pelo teto vira erro legível ("This operation was aborted" não
+    // diz nada a quem lê o card); abortado de fora segue como AbortError.
+    if (e.name === 'AbortError' && !sinalExtra?.aborted) {
+      throw new Error(`a API da Câmara não respondeu em ${ms / 1000}s`);
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
+    if (sinalExtra) sinalExtra.removeEventListener('abort', cascata);
+  }
+}
+
 async function fetchJsonCamara(url, tentativas = 4) {
   let erro = null;
   for (let i = 0; i < tentativas; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
     try {
-      const res = await fetch(url);
+      const res = await fetchComTimeout(url);
       if (res.ok) return await res.json();
       if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
       throw new Error(`HTTP ${res.status} em ${url}`);
@@ -5206,7 +5245,9 @@ function arrayBufferToBase64(buffer) {
 }
 
 async function fetchJson(url) {
-  const res = await fetch(url);
+  // Mesmo motivo do fetchJsonCamara: sem teto, uma resposta que nunca chega
+  // deixa a chamada pendente para sempre (resolveProposicao, pauta manual…).
+  const res = await fetchComTimeout(url);
   if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
   return await res.json();
 }
