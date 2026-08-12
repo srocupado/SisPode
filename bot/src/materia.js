@@ -48,15 +48,23 @@ function parseReferencia(texto) {
 // ============================================================
 async function buscarTramitacoes(idCamara) {
   try {
-    // Este endpoint NÃO aceita ?ordem/?itens (devolve 400).
+    // Este endpoint NÃO aceita ?ordem/?itens (devolve 400). Vem em ordem
+    // ascendente de sequência.
+    // FALHA devolve null, não [] — os dois eram indistinguíveis, e a regra de
+    // situação lia o vazio como "Não há requerimento de urgência": a
+    // intermitência da API virava AFIRMAÇÃO FACTUAL ERRADA na mão do líder
+    // (MEDIDO em 12/08/2026: PLP 230/2025, que tem urgência aprovada, saiu
+    // como "não há requerimento" durante uma janela de 504 da Câmara).
     const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     return (await res.json()).dados || [];
-  } catch (_) { return []; }
+  } catch (_) { return null; }
 }
 
 // ---------- Situação (urgência) ----------
 function situacaoDe(trams) {
+  // trams === null → a consulta falhou (≠ lista vazia); a falha fica expressa.
+  if (trams === null) return 'Não foi possível consultar — API da Câmara instável no momento; tente atualizar mais tarde.';
   const rev = [...trams].reverse();
   const numReq = t => {
     const m = `${t.despacho || ''}`.match(/(?:requerimento|REQ)\.?\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})/i);
@@ -92,6 +100,7 @@ const formatarPartido = sigla => {
 };
 
 async function relatoriaDe(trams, statusProp) {
+  if (trams === null) return 'Não verificada — API da Câmara instável no momento';
   let designacao = null;
   for (const t of trams) {
     if (t.siglaOrgao !== 'PLEN') continue;
@@ -125,6 +134,7 @@ async function relatoriaDe(trams, statusProp) {
 // ---------- Matéria-prima do campo "comissões" ----------
 const ORGAOS_NAO_COMISSAO = new Set(['PLEN', 'MESA', 'SGM', 'PR', 'SPL', 'CCP', 'CORD', 'SECGER', 'SECLEG', 'DETAQ']);
 function despachosDeComissao(trams, statusProp) {
+  trams = trams || [];   // consulta falhou → segue sem despachos
   const distribuicao = [];
   for (const t of trams) {
     const d = (t.despacho || '').trim();
@@ -160,6 +170,7 @@ async function papelDe(detalhe, trams) {
     } catch (_) { /* fica sem o nome */ }
     return { apensada: true, principal };
   }
+  if (trams === null) return { apensada: false, temApensados: false, naoVerificado: true };
   const temApensados = trams.some(t =>
     /apensa[çc][ãa]o d/i.test(t.despacho || '') && /a esta proposi/i.test(t.despacho || ''));
   return { apensada: false, temApensados };
@@ -275,6 +286,7 @@ function frasePapel(it) {
   const p = it.papel;
   if (!p) return '';
   if (p.apensada) return `Apensado ao ${p.principal || 'principal não identificado'}.`;
+  if (p.naoVerificado) return 'Apensação não verificada — API da Câmara instável no momento.';
   return p.temApensados ? 'Principal (com apensados).' : 'Sem apensação.';
 }
 

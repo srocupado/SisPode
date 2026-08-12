@@ -373,6 +373,11 @@ function renderizarPauta() {
     cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Projetos em Discussão (${projs.length})</h2>`);
     projs.forEach(it => cont.appendChild(renderCard(it)));
   }
+  // Badges refletem o enriquecimento JÁ CONHECIDO (ex.: pré-carga do banco).
+  // O template do card nasce com "Verificando autoria…" fixo, e sem esta
+  // repintura o cache restaurado ficava invisível até a verificação de fundo
+  // terminar — que é justamente o que a pré-carga quer evitar esperar.
+  for (const it of state.pauta.itens) atualizarBadgesCard(it);
   atualizarSelecaoPdf();
 }
 
@@ -648,23 +653,44 @@ function itemAindaAtivo(it) {
 }
 
 async function enriquecerItens() {
-  for (const it of state.pauta.itens) {
+  const pautaRef = state.pauta;
+  const jobs = pautaRef.itens.map(it =>
     enriquecerItem(it).catch(e => {
       const msg = e?.message || String(e);
+      // Verificação em fundo que falhou NÃO rebaixa o card: os dados salvos
+      // continuam valendo (vieram de uma verificação que deu certo) — melhor
+      // badge de ontem que erro de hoje causado pela intermitência da API.
+      if (it.enriquecimento?.deCache) {
+        console.warn(`Verificação em fundo falhou para ${it.chave} — mantendo os dados salvos: ${msg}`);
+        return;
+      }
       console.warn(
         `Enriquecimento falhou para ${it.chave} (${it.sigla} ${it.numero}/${it.ano}): ${msg}`,
         '\n', e?.stack || ''
       );
       it.enriquecimento = { status: 'erro', erro: msg };
       atualizarBadgesCard(it);
-    });
+    }));
+  await Promise.allSettled(jobs);
+  // Grava o cache atualizado dos badges — é o que faz a PRÓXIMA abertura
+  // pré-carregar. Só se a pauta ainda for a mesma (o usuário pode ter trocado).
+  if (state.pauta === pautaRef) {
+    fbSalvarPauta(pautaRef).catch(e => console.warn('Cache de badges não salvo:', e.message));
   }
 }
 
 async function enriquecerItem(it) {
   if (!itemAindaAtivo(it)) return;
-  it.enriquecimento = { status: 'carregando' };
-  atualizarBadgesCard(it);
+  // PRÉ-CARGA: item vindo do banco com enriquecimento salvo já mostra os
+  // badges — esta rodada é uma VERIFICAÇÃO EM FUNDO: trabalha num objeto
+  // local e só troca o conteúdo do card quando terminar inteira, sem regredir
+  // para "Verificando autoria…" no meio.
+  const cachePrevio = it.enriquecimento?.deCache ? it.enriquecimento : null;
+  const enr = { status: 'carregando' };
+  if (!cachePrevio) {
+    it.enriquecimento = enr;
+    atualizarBadgesCard(it);
+  }
 
   // Para requerimentos, o "projeto alvo" é o projeto cuja urgência é pedida.
   // Usamos esse projeto como base para autoria e apensados.
@@ -686,8 +712,8 @@ async function enriquecerItem(it) {
   let prop;
   try {
     prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
-    it.enriquecimento.idProposicao = prop.id;
-    it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+    enr.idProposicao = prop.id;
+    enr.urlInteiroTeor = prop.urlInteiroTeor;
     // Para requerimento de urgência, guarda a ementa do PROJETO-ALVO no
     // projetoUrgenciado. Sem isso, o apelido era gerado a partir do texto do
     // próprio requerimento ("Requeiro urgência…") — daí o apelido errado.
@@ -701,14 +727,14 @@ async function enriquecerItem(it) {
     // Autoria principal
     etapa = 'autores';
     const autores = await fetchAutoresProposicao(prop.id);
-    it.enriquecimento.autores = autores;
+    enr.autores = autores;
     const podeAut = autores.filter(a => a.isPodemos);
-    it.enriquecimento.autoriaPodemos = podeAut.length > 0;
+    enr.autoriaPodemos = podeAut.length > 0;
     // Distingue autor principal (1º signatário, ordemAssinatura = 1) de coautor
     // (assina depois). Sem info de ordem (dados antigos), mantém o comportamento
     // antigo (autor).
     const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
-    it.enriquecimento.autoriaPrincipalPodemos = temOrdem
+    enr.autoriaPrincipalPodemos = temOrdem
       ? podeAut.some(a => Number(a.ordem) === 1)
       : podeAut.length > 0;
 
@@ -716,8 +742,8 @@ async function enriquecerItem(it) {
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
     const apensados = await resolverApensados(prop.id);
-    it.enriquecimento.apensados = apensados;
-    it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    enr.apensados = apensados;
+    enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
@@ -727,25 +753,27 @@ async function enriquecerItem(it) {
   // URLs do(s) parecer(es) do relator de Plenário (para projetos)
   if (it.tipoCategoria === 'projeto') {
     try {
-      it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
+      enr.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
+      enr.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
     }
   }
 
   // Documento da Redação Final (para itens dessa categoria)
   if (it.tipoCategoria === 'redacao_final') {
     try {
-      it.enriquecimento.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
+      enr.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
     } catch (e) {
       console.warn('Não encontrou Redação Final:', e.message);
-      it.enriquecimento.urlRedacaoFinal = null;
+      enr.urlRedacaoFinal = null;
     }
   }
 
-  it.enriquecimento.status = 'ok';
+  enr.status = 'ok';
+  it.enriquecimento = enr;   // troca atômica: cache antigo sai, verificado entra
   atualizarBadgesCard(it);
+  atualizarLinkPortal(it);
 }
 
 const cacheProp = state.cacheProposicao;
@@ -3793,7 +3821,11 @@ async function carregarPautaPorId(id) {
       ...pauta,
       itens: (pauta.itens || []).map(it => ({
         ...it,
-        enriquecimento: { status: 'pendente' },
+        // Cache dos badges salvo com a pauta: restaura como 'ok' + deCache e
+        // a verificação roda em fundo (enriquecerItens logo abaixo).
+        enriquecimento: it.enriquecimento && it.enriquecimento.status === 'ok'
+          ? { ...it.enriquecimento, deCache: true }
+          : { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
       })),
@@ -3930,6 +3962,12 @@ async function _fbSalvarPautaExec(pauta) {
           apensadosTexto: it.apensadosTexto, relator: it.relator,
           temUrgencia: it.temUrgencia, projetoUrgenciado: it.projetoUrgenciado || null,
           chave: it.chave,
+          // Badges pré-carregados: o enriquecimento COMPLETO vai junto — a
+          // próxima abertura mostra autoria/apensados/pareceres na hora e
+          // deixa a reverificação para o fundo. Parcial (carregando/erro) não
+          // é salvo: cache ruim é pior que cache nenhum.
+          enriquecimento: it.enriquecimento?.status === 'ok'
+            ? { ...it.enriquecimento, deCache: undefined } : null,
         })),
       }),
     });
@@ -4020,7 +4058,11 @@ async function carregarUltimaPauta() {
       ...pauta,
       itens: pauta.itens.map(it => ({
         ...it,
-        enriquecimento: { status: 'pendente' },
+        // Cache dos badges salvo com a pauta: restaura como 'ok' + deCache e
+        // a verificação roda em fundo (enriquecerItens logo abaixo).
+        enriquecimento: it.enriquecimento && it.enriquecimento.status === 'ok'
+          ? { ...it.enriquecimento, deCache: true }
+          : { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
       })),

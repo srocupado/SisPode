@@ -117,6 +117,7 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 - O parser identifica **PL, PLP, PEC, PDL/PDC, MPV, PRC, REQ e Redações Finais** (categoria própria, RICD art. 83, I), captando ordem, número, ano e ementa
 - Suporte a requerimentos de urgência **sem número de protocolo** ("Requerimento s/nº") — a identidade do item vem do projeto cuja urgência é solicitada
 - Enriquecimento automático via API da Câmara: autoria, relator, apensados e classificação de **autoria Podemos** / **apensados Podemos** (badge no card). Decretos legislativos antigos usam fallback **PDL ↔ PDC** quando a sigla atual não retorna na API
+- **Badges pré-carregados**: o enriquecimento é salvo junto da pauta no Firebase e restaurado na abertura — autoria, apensados e pareceres aparecem **na hora**, e a **verificação roda em fundo** (sem regredir o card para "Verificando autoria…"); terminando, atualiza o que mudou e regrava o cache. Verificação de fundo que falha **mantém os dados salvos** — melhor badge de ontem que erro de hoje causado por intermitência da API
 - Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
 - Para Redações Finais, localiza o documento próprio na caixa "Documentos Anexos e Referenciados" da ficha de tramitação
 - Adição/remoção manual de itens da pauta com link direto para a ficha da proposição. Aceita **projetos e requerimentos** (REQ/REC); no requerimento, o **projeto cuja urgência é pedida** pode ser informado ou é **lido da ementa** da API — é ele que a análise vai ler. O campo **"Nº na pauta"** insere o item **na posição certa** (útil para completar um item que faltou, sem reimportar o PDF e descartar as análises já geradas); número já ocupado é avisado, e nada é renumerado por conta própria
@@ -280,6 +281,7 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 
 **Fatos que a reunião exige**
 - **Situação**: "Urgência aprovada (REQ. n/aaaa)", "Requerimento de urgência apresentado" ou "Não há requerimento" — e, quando a lista e os Dados Abertos divergem, a **contradição é declarada**, não resolvida por chute
+- **Falha de fonte é declarada, nunca convertida em fato**: se a consulta às tramitações falhar (intermitência da API da Câmara), situação, relatoria e apensação saem como "não foi possível consultar — API da Câmara instável", em vez de um falso "não há requerimento"/"sem apensação" (vale também no `/colegio` do bot)
 - **Apensação e urgência**: se a proposição é principal ou apensada, e **a qual delas o requerimento de urgência se refere** (o REQ pode pedir urgência para o apensado, não para o principal)
 - **Autoria, coautoria, relatoria e apensados do Podemos**, com o nome do(a) deputado(a) — o pertencimento ao partido vem **sempre da ficha do deputado nos Dados Abertos**, nunca de lista fixa no código
 
