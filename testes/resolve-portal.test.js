@@ -16,6 +16,7 @@ function montar({ ws, api }) {
     "const API_BASE = 'https://dadosabertos.camara.leg.br/api/v2';",
     'const SIGLAS_EQUIVALENTES = { PDL: ["PDL", "PDC"], PDC: ["PDC", "PDL"] };',
     'const cacheProp = new Map();',
+    'const fbCacheProposicaoGet = async () => null; const fbCacheProposicaoPut = () => {};',
     src.match(/async function resolverProposicaoDoPortal[\s\S]*?\n}/)[0],
     src.match(/async function resolveProposicao\(sigla, numero, ano\)[\s\S]*?\n}/)[0],
   ].join('\n');

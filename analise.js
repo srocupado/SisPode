@@ -821,7 +821,7 @@ async function resolverProposicaoDoPortal(sigla, numero, ano) {
   if (!res.ok) return null;
   const xml = await res.text();
   const campo = tag => {
-    const m = xml.match(new RegExp(`<${tag}>([\s\S]*?)</${tag}>`, 'i'));
+    const m = xml.match(new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`, 'i'));
     return m ? m[1].trim() : '';
   };
   const id = parseInt(campo('idProposicao'), 10);
