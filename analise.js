@@ -123,6 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   document.getElementById('input-pauta-pdf').addEventListener('change', onPdfSelecionado);
   document.getElementById('btn-pauta-manual').addEventListener('click', abrirModalPautaManual);
+  document.getElementById('btn-diagnostico-fontes').addEventListener('click', diagnosticoFontes);
   document.getElementById('btn-pm-validar').addEventListener('click', validarRefsPautaManual);
   document.getElementById('btn-pm-criar').addEventListener('click', criarPautaManual);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
@@ -811,6 +812,51 @@ function fbCacheProposicaoPut(chave, dados) {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ...dados, em: new Date().toISOString() }),
   }).catch(() => {});
+}
+
+// ---------- Diagnóstico de fontes ----------
+// Roda NO NAVEGADOR DO ANALISTA — mede o que cada fonte responde a partir do
+// ambiente real de produção (extensão + rede da Câmara), que é diferente de
+// qualquer teste feito de fora. O resultado vai para a área de transferência
+// para ser colado no suporte.
+async function diagnosticoFontes() {
+  const alvos = [
+    ['API REST · lista',        `${API_BASE}/proposicoes?siglaTipo=PL&numero=1828&ano=2023&itens=1`],
+    ['API REST · tramitações',  `${API_BASE}/proposicoes/2355883/tramitacoes`],
+    ['API REST · autores',      `${API_BASE}/proposicoes/2355883/autores`],
+    ['Portal · WS ObterProposicao', 'https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=PL&numero=1828&ano=2023'],
+    ['Portal · prop_autores',   'https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=2355883'],
+    ['Portal · prop_pareceres', 'https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=2355883'],
+    ['Portal · ficha',          'https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=2355883'],
+    ['Proxy · codetabs',        'https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent('https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=2355883')],
+    ['Proxy · worker',          'https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent('https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=2355883')],
+    ['Firebase',                `${FIREBASE_URL}/app_versao_atual.json`],
+  ];
+  const btn = document.getElementById('btn-diagnostico-fontes');
+  btn.disabled = true;
+  const linhas = [`SisPode ${chrome.runtime?.getManifest?.().version || '?'} · diagnóstico de fontes · ${new Date().toLocaleString('pt-BR')}`];
+  for (const [nome, url] of alvos) {
+    btn.textContent = `🩺 ${nome}…`;
+    const t0 = Date.now();
+    let resultado;
+    try {
+      const ctrl = new AbortController();
+      const timer = setTimeout(() => ctrl.abort(), 12000);
+      const r = await fetch(url, { redirect: 'follow', signal: ctrl.signal });
+      clearTimeout(timer);
+      const corpo = await r.text();
+      resultado = `HTTP ${r.status} · ${corpo.length} bytes · ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+    } catch (e) {
+      resultado = `FALHOU: ${e.name === 'AbortError' ? 'sem resposta em 12s' : e.message} · ${((Date.now() - t0) / 1000).toFixed(1)}s`;
+    }
+    linhas.push(`${resultado.startsWith('HTTP 2') ? '✓' : '✗'} ${nome.padEnd(26)} ${resultado}`);
+  }
+  btn.disabled = false;
+  btn.textContent = '🩺 Diagnóstico de fontes';
+  const texto = linhas.join('\n');
+  console.log('[diagnóstico]\n' + texto);
+  const ok = await copiarParaAreaTransferencia(texto);
+  mostrarToast(ok ? 'Diagnóstico copiado — cole na conversa do suporte.' : 'Diagnóstico no console (F12) — não consegui copiar.', ok ? 'sucesso' : 'aviso');
 }
 
 // FONTE PRIMÁRIA da resolução id/ementa/teor (decisão do usuário, 12/08/2026):
