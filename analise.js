@@ -983,12 +983,34 @@ async function autoresDoPortal(idProp) {
   return out.length ? out : null;
 }
 
+// A página prop_autores às vezes OMITE o "- PARTIDO/UF" de um deputado (visto
+// em 12/08/2026 no PL 25/2024: "Delegado Bruno Lima" seco, sem partido — e ele
+// é do Podemos). Completa a lacuna pela ficha da API; se ela também falhar, a
+// lacuna fica DECLARADA em partidoNaoVerificado — nunca não-Podemos silencioso.
+async function preencherPartidosFaltantes(autores) {
+  const faltantes = autores.filter(a => a.idDeputado && !a.siglaPartido);
+  if (!faltantes.length) return;
+  await _mapLimit(faltantes, 4, async a => {
+    const info = await fetchInfoDeputado(a.idDeputado);
+    if (info?.siglaPartido) {
+      a.siglaPartido = info.siglaPartido;
+      a.siglaUf     = a.siglaUf || info.siglaUf;
+      a.isPodemos   = info.siglaPartido === SIGLA_PODEMOS;
+    } else {
+      a.partidoNaoVerificado = true;
+    }
+  });
+}
+
 async function fetchAutoresProposicao(idProp) {
   // PORTAL PRIMEIRO; API de reserva. A página não lista de forma inequívoca
   // autor institucional sem link de deputado (Poder Executivo, TST…) — nesse
   // caso ela devolve vazio e a via API assume.
   const primario = await autoresDoPortal(idProp).catch(() => null);
-  if (primario) return primario;
+  if (primario) {
+    await preencherPartidosFaltantes(primario);
+    return primario;
+  }
 
   let out = null, erroApi = null;
   try {
@@ -1023,10 +1045,17 @@ async function fetchAutoresProposicao(idProp) {
   const incompleto = out && out.some(a => a.idDeputado && !a.siglaPartido);
   if (!out || incompleto) {
     const doPortal = await autoresDoPortal(idProp).catch(() => null);
-    if (doPortal) return doPortal;
+    if (doPortal) {
+      await preencherPartidosFaltantes(doPortal);
+      return doPortal;
+    }
   }
   if (out) {
-    if (incompleto) console.warn(`[análise] autores de ${idProp}: partido incompleto (portal e ficha do deputado falharam)`);
+    if (incompleto) {
+      // Fica declarado no resultado, não só no console — o badge avisa.
+      out.forEach(a => { if (a.idDeputado && !a.siglaPartido) a.partidoNaoVerificado = true; });
+      console.warn(`[análise] autores de ${idProp}: partido incompleto (portal e ficha do deputado falharam)`);
+    }
     return out;
   }
   throw erroApi;
@@ -1473,6 +1502,11 @@ function atualizarBadgesCard(it) {
   if (enr.autoriaPodemos) {
     flag.className = 'an-badge an-badge--pode';
     flag.textContent = `★ ${rotuloAutoriaPodemos(it)} Podemos`;
+  } else if ((enr.autores || []).some(a => a.partidoNaoVerificado)) {
+    // Há autor cujo partido NENHUMA fonte confirmou: dizer "não-Podemos"
+    // seria afirmação sem base — a incerteza fica declarada.
+    flag.className = 'an-badge an-badge--neutro';
+    flag.textContent = 'Autoria: não confirmada (partido de autor não verificado)';
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';

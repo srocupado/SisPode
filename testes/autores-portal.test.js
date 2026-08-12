@@ -13,6 +13,9 @@ const { DOMParser } = require(path.join(__dirname, '..', 'bot', 'node_modules', 
 const src = fs.readFileSync(path.join(__dirname, '..', 'analise.js'), 'utf8');
 const HTML_RCP = fs.readFileSync(path.join(__dirname, 'fixtures', 'autores-rcp2-2617166.html'), 'utf8');
 const HTML_PL = fs.readFileSync(path.join(__dirname, 'fixtures', 'autores-pl1828-2355883.html'), 'utf8');
+// Página REAL do PL 25/2024 (12/08/2026): o portal omite o "- PARTIDO/UF" do
+// Delegado Bruno Lima (Podemos) — só nome e link. Caso do não-Podemos silencioso.
+const HTML_PL25 = fs.readFileSync(path.join(__dirname, 'fixtures', 'autores-pl25-2416877.html'), 'utf8');
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
@@ -24,6 +27,7 @@ function montar({ api, deputado, portalHtml }) {
     "const API_BASE = 'https://dadosabertos.camara.leg.br/api/v2';",
     'const state = { cacheAutoria: new Map() };',
     src.match(/async function autoresDoPortal[\s\S]*?\n}/)[0],
+    src.match(/async function preencherPartidosFaltantes[\s\S]*?\n}/)[0],
     src.match(/async function fetchAutoresProposicao[\s\S]*?\n}/)[0],
     src.match(/async function fetchInfoDeputado[\s\S]*?\n}/)[0],
     src.match(/async function _mapLimit[\s\S]*?\n}/)[0],
@@ -88,6 +92,36 @@ function montar({ api, deputado, portalHtml }) {
     const a = await f(2355883);
     ok(a[0].siglaPartido === 'PODE' && a[0].isPodemos === true,
        `partido resgatado pelo portal: ${a[0].nome} ${a[0].siglaPartido}/${a[0].siglaUf}`);
+  }
+
+  console.log('\n== portal omite o partido de um deputado → ficha da API completa ==');
+  {
+    // Caso real PL 25/2024: "Delegado Bruno Lima" vem SEM "- PARTIDO/UF" na
+    // página; os outros três vêm completos. A ficha da API preenche a lacuna.
+    const f = await montar({
+      api: new Error('não deve ser chamada'),
+      deputado: { ultimoStatus: { nome: 'Delegado Bruno Lima', siglaPartido: 'PODE', siglaUf: 'SP' } },
+      portalHtml: HTML_PL25,
+    });
+    const a = await f(2416877);
+    const bruno = a.find(x => /Bruno Lima/.test(x.nome));
+    ok(a.length === 4, `4 autores da página real (${a.length})`);
+    ok(bruno.siglaPartido === 'PODE' && bruno.isPodemos === true,
+       `lacuna preenchida pela ficha: ${bruno.nome} [${bruno.siglaPartido}/${bruno.siglaUf}]`);
+    ok(a.find(x => /Laiola/.test(x.nome)).siglaPartido === 'UNIÃO', 'quem veio completo não é tocado');
+  }
+
+  console.log('\n== portal omite o partido E a ficha falha → lacuna DECLARADA ==');
+  {
+    const f = await montar({
+      api: new Error('não deve ser chamada'),
+      deputado: new Error('HTTP 504'),
+      portalHtml: HTML_PL25,
+    });
+    const a = await f(2416877);
+    const bruno = a.find(x => /Bruno Lima/.test(x.nome));
+    ok(bruno.partidoNaoVerificado === true && !bruno.isPodemos,
+       'sem fonte para o partido, fica partidoNaoVerificado — não "não-Podemos" mudo');
   }
 
   console.log('\n== tudo fora → o erro sobe (nunca lista vazia silenciosa) ==');
