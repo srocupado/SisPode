@@ -943,7 +943,10 @@ async function fetchHtmlCamara(url) {
 async function buscarPareceresPlenario(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
-  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
+  // `falha: true` distingue "página não veio" de "proposição sem pareceres" —
+  // quem verifica atualização precisa saber que NÃO conseguiu olhar a fonte,
+  // em vez de tratar a falha como página vazia (e concluir "em dia").
+  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null, falha: true };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const candidatos = [];
@@ -3467,11 +3470,33 @@ function toggleGerarTodas() {
 async function verificarAtualizacaoItem(it) {
   if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
   const enr = it.enriquecimento || (it.enriquecimento = {});
-  if (enr.emendasSenado === undefined && enr.idProposicao) {
-    try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
-    catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
+
+  // RECONSULTA A FONTE antes de comparar. Até 12/08/2026 esta função comparava
+  // a análise salva com o snapshot de pareceres guardado no enriquecimento —
+  // feito na importação da pauta —, ou seja, verificava a nota contra ela
+  // mesma: parecer publicado DEPOIS da importação era invisível e o botão
+  // respondia "em dia" (caso real: PRLP 3 do PL 1828/2023, publicado no dia,
+  // com a nota gerada sobre o PRLP 2).
+  let fonteIndisponivel = false;
+  if (enr.idProposicao) {
+    try {
+      const frescos = await buscarPareceresPlenario(enr.idProposicao);
+      if (frescos.falha) fonteIndisponivel = true;
+      else enr.pareceresPlenario = frescos;   // o Reanalisar também passa a ver o novo
+    } catch (_) { fonteIndisponivel = true; }
+
+    if (it.sigla !== 'PEC' && !ehPDL(it)) {
+      // Recarrega SEMPRE (não só quando undefined): as emendas do Senado podem
+      // ter chegado depois do cache. Falhou → mantém o cache, não zera.
+      try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
+      catch (_) { if (enr.emendasSenado === undefined) enr.emendasSenado = { ems: null, ssp: null }; }
+    }
   }
+
   const desat = desatualizacaoOperativa(it) || { novos: [] };
+  // Fonte fora do ar e nada novo no cache: o resultado é INCONCLUSIVO — dizer
+  // "em dia" sem ter olhado a fonte foi exatamente o defeito original.
+  if (fonteIndisponivel && !desat.novos.length) desat.inconclusa = true;
   it.desatualizacao = desat;
   atualizarBadgesCard(it);
   return desat;
@@ -3495,8 +3520,10 @@ async function verificarAtualizacaoItemUI(it) {
     mostrarToast(
       desat?.novos?.length
         ? `⚠ Pode estar desatualizada — documento mais recente: ${_resumoNovos(desat.novos)}`
-        : '✓ Nota em dia com o texto operativo.',
-      desat?.novos?.length ? 'aviso' : 'sucesso'
+        : desat?.inconclusa
+          ? '⚠ Não consegui consultar a página de pareceres agora — tente de novo em instantes.'
+          : '✓ Nota em dia com o texto operativo (fonte reconsultada).',
+      desat?.novos?.length || desat?.inconclusa ? 'aviso' : 'sucesso'
     );
   } finally {
     btn.disabled = false;
@@ -3513,18 +3540,21 @@ async function verificarAtualizacoesPauta() {
   const btn = document.getElementById('btn-verificar-atualizacoes');
   const orig = btn.innerHTML;
   btn.disabled = true;
-  let feitos = 0, desatualizadas = 0;
+  let feitos = 0, desatualizadas = 0, inconclusas = 0;
   try {
     for (const it of itens) {
       btn.innerHTML = `<span class="an-spinner"></span> Verificando ${++feitos}/${itens.length}...`;
       const desat = await verificarAtualizacaoItem(it);
       if (desat?.novos?.length) desatualizadas++;
+      else if (desat?.inconclusa) inconclusas++;
     }
+    const partes = [];
+    if (desatualizadas) partes.push(`⚠ ${desatualizadas} de ${itens.length} nota(s) podem estar desatualizadas`);
+    if (inconclusas) partes.push(`${inconclusas} não verificada(s) — fonte indisponível`);
     mostrarToast(
-      desatualizadas
-        ? `⚠ ${desatualizadas} de ${itens.length} nota(s) podem estar desatualizadas.`
-        : `✓ Todas as ${itens.length} notas estão em dia com o texto operativo.`,
-      desatualizadas ? 'aviso' : 'sucesso'
+      partes.length ? partes.join('; ') + '.'
+        : `✓ Todas as ${itens.length} notas estão em dia com o texto operativo (fonte reconsultada).`,
+      partes.length ? 'aviso' : 'sucesso'
     );
   } finally {
     btn.disabled = false;
