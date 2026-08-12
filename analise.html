@@ -535,6 +535,13 @@
     </div>
     <div class="header-actions">
       <button id="btn-voltar" class="btn btn-outline btn-sm" title="Voltar">← Início</button>
+      <button id="btn-pauta-manual" class="btn btn-outline btn-sm" title="Criar uma pauta digitando as proposições — para quando a Câmara não divulga o PDF">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+          <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+        </svg>
+        Pauta Manual
+      </button>
       <button id="btn-exportar-pdf" class="btn btn-primary btn-sm" disabled>
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
         Exportar PDF
@@ -677,6 +684,34 @@
   </div>
 
   <!-- ===== MODAL: ADICIONAR PROJETO ===== -->
+  <!-- Modal: pauta manual (a Câmara não divulgou o PDF) -->
+  <div id="modal-pauta-manual" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h3>Pauta manual</h3>
+        <button class="modal-close" data-fecha="modal-pauta-manual">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Para quando a Câmara não divulga o PDF da semana: dê um nome à pauta e cole as proposições. Ementa, autor e relator vêm da API da Câmara, e a pauta segue o fluxo normal (análises, PDF, bot).</p>
+        <div class="form-group">
+          <label>Nome da pauta</label>
+          <input type="text" id="pm-titulo" class="form-input" placeholder="Ex: Semana de 18 a 22/08/2026">
+        </div>
+        <div class="form-group">
+          <label>Proposições (uma por linha ou separadas por vírgula)</label>
+          <textarea id="pm-refs" class="form-input" rows="5" placeholder="PL 4822/2025&#10;PEC 3/2021, PLP 78/2025&#10;MPV 1300/2025"></textarea>
+          <small style="font-size:11px;color:var(--text-dim);display:block;margin-top:4px">Também dá para criar a pauta vazia e usar "Adicionar projeto" depois, item a item.</small>
+        </div>
+        <button id="btn-pm-validar" class="btn btn-outline btn-sm">Validar na Câmara</button>
+        <div id="pm-resultado" style="display:none;margin-top:10px;font-size:12px;line-height:1.6"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-pauta-manual">Cancelar</button>
+        <button id="btn-pm-criar" class="btn btn-primary">Criar pauta</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal-adicionar" class="modal-overlay" style="display:none">
     <div class="modal">
       <div class="modal-header">

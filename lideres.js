@@ -146,6 +146,11 @@ function registrarEventos() {
   document.getElementById('btn-nova-demanda').addEventListener('click', abrirModalNovaDemanda);
   document.getElementById('btn-dem-buscar').addEventListener('click', buscarDadosDemanda);
   document.getElementById('btn-dem-registrar').addEventListener('click', registrarDemanda);
+  document.getElementById('btn-relatorio-demandas').addEventListener('click', gerarRelatorioDemandas);
+  document.getElementById('btn-confirmar-atender').addEventListener('click', confirmarAtender);
+  document.getElementById('atender-reuniao').addEventListener('change', e => {
+    document.getElementById('atender-outra-wrap').style.display = e.target.value === 'outra' ? '' : 'none';
+  });
 
   // Sistema 3 — e-mail de demandas
   document.getElementById('btn-email-copiar').addEventListener('click', copiarEmailDemandas);
@@ -2503,6 +2508,8 @@ function renderizarDemandas() {
     if (!d) return;
     if (btn.dataset.acao === 'apagar')    apagarDemanda(d);
     if (btn.dataset.acao === 'atualizar') atualizarSituacaoDemanda(d);
+    if (btn.dataset.acao === 'atender')   abrirModalAtender(d);
+    if (btn.dataset.acao === 'reabrir')   reabrirDemanda(d);
   }));
   // Natureza editável direto no cartão (é o único campo que é do analista;
   // os demais são da fonte e não se editam — se envelheceram, atualiza ↻).
@@ -2530,11 +2537,19 @@ function cardDemandaHTML(d) {
     listas = hist.map(a =>
       `<span class="dem-pill-lista" title="Esteve na lista processada no sistema 1">${esc(a.titulo)} — item ${esc(a.numItem)}</span>`).join(' ');
   }
+  const atend = d.atendimento
+    ? `<span class="dem-pill-atendida" title="Marcada como atendida${d.atendimento.em ? ' em ' + dataBR(String(d.atendimento.em).slice(0, 10)) : ''}">✔ atendida — ${esc(d.atendimento.rotulo)}</span>`
+    : '<span class="dem-pill-aberta">em aberto</span>';
+  const btnAtend = d.atendimento
+    ? `<button class="dem-btn-ico" data-acao="reabrir" data-id="${esc(d.id)}" title="Reabrir (desfazer o atendimento)">↩</button>`
+    : `<button class="dem-btn-ico" data-acao="atender" data-id="${esc(d.id)}" title="Marcar como atendida">✓</button>`;
   return `<div class="dem-card">
     <div class="dem-card-topo">
       <strong>${esc(d.chave)}</strong>
+      ${atend}
       ${mudou ? '<span class="dem-pill-mudou" title="A situação de hoje é diferente da do dia do registro">situação mudou desde o registro</span>' : ''}
       <span class="dem-card-acoes">
+        ${btnAtend}
         <button class="dem-btn-ico" data-acao="atualizar" data-id="${esc(d.id)}" title="Reconsultar a situação na Câmara">↻</button>
         <button class="dem-btn-ico" data-acao="apagar" data-id="${esc(d.id)}" title="Apagar demanda">🗑</button>
       </span>
@@ -2572,6 +2587,155 @@ async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
     mostrarToast(mudou ? `Situação de ${d.chave} atualizada.` : `${d.chave}: situação não mudou.`, mudou ? 'sucesso' : '');
   }
   return mudou;
+}
+
+// ---------- Atendimento da demanda ----------
+// A marcação é MANUAL: entrar numa lista do Colégio nem sempre é o
+// atendimento (demanda de relatoria ou de despacho se resolve fora dela).
+// O que o sistema faz é SUGERIR: quando a proposição apareceu numa lista, a
+// reunião mais recente vem pré-selecionada no modal.
+let _demandaParaAtender = null;
+
+function abrirModalAtender(d) {
+  _demandaParaAtender = d;
+  document.getElementById('atender-desc').textContent =
+    `${d.chave} — ${d.natureza} (${grupoDemanda(d)})`;
+  const sel = document.getElementById('atender-reuniao');
+  const reunioes = (_reunioesCache || []).slice()
+    .sort((a, b) => new Date(b.criada) - new Date(a.criada));
+  sel.innerHTML = reunioes.map(r =>
+    `<option value="${esc(r.id)}">${esc(r.titulo || r.id)}</option>`).join('') +
+    '<option value="outra">Fora de lista / outro atendimento…</option>';
+  const hist = historicoEmListas(d.chave) || [];
+  sel.value = hist.length ? hist[0].id : (reunioes.length ? reunioes[0].id : 'outra');
+  document.getElementById('atender-obs').value = '';
+  document.getElementById('atender-outra-wrap').style.display = sel.value === 'outra' ? '' : 'none';
+  document.getElementById('modal-atender').style.display = 'flex';
+}
+
+async function confirmarAtender() {
+  const d = _demandaParaAtender;
+  if (!d) return;
+  const sel = document.getElementById('atender-reuniao');
+  let atendimento;
+  if (sel.value === 'outra') {
+    const obs = document.getElementById('atender-obs').value.trim();
+    if (!obs) return mostrarToast('Descreva como foi o atendimento (ex.: despacho, acordo, ofício).', 'erro');
+    atendimento = { reuniaoId: null, rotulo: obs, em: new Date().toISOString() };
+  } else {
+    const r = (_reunioesCache || []).find(x => x.id === sel.value);
+    if (!r) return mostrarToast('Reunião não encontrada — recarregue a página.', 'erro');
+    atendimento = { reuniaoId: r.id, rotulo: r.titulo || r.id, em: new Date().toISOString() };
+  }
+  d.atendimento = atendimento;
+  _demandaParaAtender = null;
+  fecharModal('modal-atender');
+  renderizarDemandas();
+  try {
+    await fbDemandaSalvar(d);
+    mostrarToast(`${d.chave} marcada como atendida.`, 'sucesso');
+  } catch (e) {
+    mostrarToast(`Marcada só nesta tela — Firebase indisponível: ${e.message}`, 'aviso');
+  }
+}
+
+async function reabrirDemanda(d) {
+  if (!confirm(`Reabrir a demanda de ${grupoDemanda(d)} sobre ${d.chave}? A marcação de atendimento será desfeita.`)) return;
+  d.atendimento = null;
+  renderizarDemandas();
+  try { await fbDemandaSalvar(d); mostrarToast(`${d.chave} reaberta.`, ''); }
+  catch (e) { mostrarToast(`Reaberta só nesta tela — Firebase indisponível: ${e.message}`, 'aviso'); }
+}
+
+// ---------- Relatório (PDF) das demandas ----------
+function separarDemandasRelatorio(demandas) {
+  return {
+    abertas:   (demandas || []).filter(d => !d.atendimento),
+    atendidas: (demandas || []).filter(d => d.atendimento),
+  };
+}
+
+function _blocoRelatorioHTML(d, reunioes) {
+  const hist = historicoEmListas(d.chave, reunioes) || [];
+  const listas = hist.length
+    ? hist.map(a => `${a.titulo} (item ${a.numItem})`).join(' · ')
+    : 'não entrou em lista do Colégio';
+  const sit = (d.situacao || '').trim();
+  return `<div class="dem">
+    <div class="dem-t">${esc(d.chave)} — ${esc(d.natureza)}</div>
+    <div class="dem-l">Demandante: ${esc(grupoDemanda(d))} · Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))}</div>
+    <div class="dem-l">Autoria: ${esc(d.autoria || 'não informada')} · Situação: ${esc(sit)}</div>
+    <div class="dem-l">Ementa: ${esc(d.ementa || '—')}</div>
+    <div class="dem-l">Listas do Colégio: ${esc(listas)}</div>
+    ${d.atendimento ? `<div class="dem-l dem-ok">✔ Atendida — ${esc(d.atendimento.rotulo)}${d.atendimento.em ? ` (marcada em ${dataBR(String(d.atendimento.em).slice(0, 10))})` : ''}</div>` : ''}
+  </div>`;
+}
+
+function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
+  const { abertas, atendidas } = separarDemandasRelatorio(demandas);
+  const secao = (titulo, lista) => `
+    <h2>${titulo} (${lista.length})</h2>
+    ${lista.length ? lista.map(d => _blocoRelatorioHTML(d, reunioes)).join('') : '<p class="vazio">Nenhuma.</p>'}`;
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
+    <title>Demandas de Deputados — ${hoje}</title>
+    <style>
+    @page { size: A4; margin: 14mm 14mm 16mm;
+      @bottom-center { content: counter(page); font-size: 8pt; color: #888; } }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', Arial, sans-serif; color: #1f2937; font-size: 9.5pt; line-height: 1.45; }
+    .cab { display: flex; align-items: center; justify-content: space-between; }
+    .cab img { height: 44px; } .sp { width: 44px; }
+    .tit { text-align: center; }
+    .tit h1 { font-size: 15pt; color: #046A38; }
+    .tit p { font-size: 9pt; color: #6b7280; }
+    .rule { height: 3px; background: #00A859; border-radius: 2px; margin: 8px 0 4px; }
+    .meta { text-align: center; font-size: 8.5pt; color: #6b7280; margin-bottom: 12px; }
+    h2 { font-size: 11.5pt; color: #046A38; margin: 14px 0 6px; border-bottom: 1px solid #d1d5db; padding-bottom: 3px; }
+    .dem { border: 1px solid #e5e7eb; border-radius: 6px; padding: 7px 10px; margin-bottom: 7px;
+           page-break-inside: avoid; }
+    .dem-t { font-weight: 700; font-size: 10pt; margin-bottom: 2px; }
+    .dem-l { color: #374151; font-size: 8.8pt; }
+    .dem-ok { color: #046A38; font-weight: 600; margin-top: 2px; }
+    .vazio { color: #9ca3af; font-style: italic; margin-bottom: 8px; }
+    .ft { margin-top: 14px; padding-top: 6px; border-top: 1px solid #e5e7eb; font-size: 8.5pt; color: #9ca3af; text-align: center; }
+    </style></head><body>
+    <div class="cab">
+      <div class="sp"></div>
+      <div class="tit"><h1>Demandas de Deputados</h1><p>Reunião de Líderes · Liderança do Podemos na Câmara dos Deputados</p></div>
+      ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
+    </div>
+    <div class="rule"></div>
+    <div class="meta">Relatório de ${hoje} · ${abertas.length} em aberto · ${atendidas.length} atendida(s)</div>
+    ${secao('Em aberto', abertas)}
+    ${secao('Atendidas', atendidas)}
+    <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
+  </body></html>`;
+}
+
+async function gerarRelatorioDemandas() {
+  if (!app.demandas.length) return mostrarToast('Nenhuma demanda registrada.', 'erro');
+  // Janela aberta no gesto do clique (evita bloqueio de pop-up), como no gerarPDF.
+  const win = window.open('', '_blank', 'width=900,height=720');
+  if (!win) return mostrarToast('Permita pop-ups para gerar o relatório.', 'aviso');
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando relatório…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Gerando o relatório…</body></html>');
+  win.document.close();
+
+  const logoDataUrl = await carregarLogoDataUrl();
+  if (win.closed) return;
+  win.document.open();
+  win.document.write(_htmlRelatorioDemandas(app.demandas, logoDataUrl, _reunioesCache));
+  win.document.close();
+
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 15000);
+  mostrarToast('Gerando relatório… escolha "Salvar como PDF" na janela.', '');
 }
 
 // ============================================================

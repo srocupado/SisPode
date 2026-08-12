@@ -120,6 +120,7 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 - Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
 - Para Redações Finais, localiza o documento próprio na caixa "Documentos Anexos e Referenciados" da ficha de tramitação
 - Adição/remoção manual de itens da pauta com link direto para a ficha da proposição
+- **Pauta Manual** (botão no cabeçalho): cria a pauta **sem PDF** — para quando a Câmara não divulga o documento. Dá nome à pauta e cola as proposições (várias de uma vez, em qualquer grafia: "pl4822/25"); cada referência é **validada na API** antes de entrar, e referência não localizada **bloqueia a criação** (nada é descartado em silêncio). A pauta criada é indistinguível de uma importada: análises, exportações, bot e histórico funcionam igual
 - Campo **"Responsável"** em cada card (ao lado de "Ver no portal"): texto livre com o nome do(a) analista, salvo junto da análise (e no item da pauta). Aparece na **meta do card** e, no **PDF** exportado, como linha própria **"Responsável: \<nome\>"** logo após os badges de autoria/apensado
 
 **Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
@@ -297,6 +298,9 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 - O analista digita **só quatro campos**: tratamento (Deputado/Deputada), quem demanda, a proposição e a natureza da demanda (ex.: "Solicitar relatoria"). **Autoria, ementa e situação vêm da API da Câmara** pelas mesmas regras fixas do sistema 1 — o botão "Registrar" só habilita depois de "Buscar na Câmara" dar certo, o que impede registro de campo digitado à mão
 - Autoria no padrão de registro da Liderança ("Bacelar PV/BA"), com partido e UF da **ficha do deputado** nos Dados Abertos
 - Demandas agrupadas por deputado, com a natureza editável no cartão; quando a **situação de hoje difere da do dia do registro**, o cartão ganha a marca "situação mudou desde o registro" (e ↻ reconsulta na hora)
+- Cada cartão traz o histórico **"Listas do Colégio"**: em quais listas do sistema 1 a proposição apareceu (com o número do item) — calculado na hora, nunca gravado
+- **Atendimento**: a demanda pode ser marcada como **atendida**, dizendo **em qual Reunião de Líderes** (a reunião em que a proposição apareceu em lista vem sugerida) ou **fora de lista** com observação livre (ex.: despacho do Presidente). A marcação é manual — entrar em lista nem sempre é o atendimento — e reversível (↩ reabre)
+- **Relatório (PDF)** no padrão institucional: seções **"Em aberto"** (primeiro — é o que cobra ação) e **"Atendidas"**, cada demanda com demandante, natureza, autoria, situação, histórico de listas e, nas atendidas, a reunião/forma do atendimento
 - Registros no Firebase (`lideres-demandas`), **compartilhados com a equipe** como as reuniões
 
 **Sistema 3 — E-mail de Demandas**

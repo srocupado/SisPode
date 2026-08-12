@@ -122,6 +122,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   document.getElementById('input-pauta-pdf').addEventListener('change', onPdfSelecionado);
+  document.getElementById('btn-pauta-manual').addEventListener('click', abrirModalPautaManual);
+  document.getElementById('btn-pm-validar').addEventListener('click', validarRefsPautaManual);
+  document.getElementById('btn-pm-criar').addEventListener('click', criarPautaManual);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
@@ -5897,6 +5900,146 @@ async function confirmarRemover() {
   marcarSujo();
   fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
   mostrarToast('Item removido da pauta', 'sucesso');
+}
+
+// ============================================================
+//  PAUTA MANUAL (a Câmara não divulgou o PDF da semana)
+// ============================================================
+// Cria a pauta digitando as proposições em vez de importar o PDF. Cada
+// referência é VALIDADA na API antes de entrar — referência que a Câmara não
+// confirma não cria item. Depois de criada, a pauta é indistinguível de uma
+// importada: análises, exportações, bot e histórico funcionam igual.
+const RE_REF_MANUAL = /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC)\s*\.?\s*n?[º°.]*\s*(\d{1,6})\s*[\/\s]\s*(\d{2,4})\b/gi;
+
+/** "PL 4822/2025\nPEC 3/2021, plp78/25" → [{sigla, numero, ano, chave}] sem repetidos. */
+function parseRefsColadas(texto) {
+  const refs = [], vistos = new Set();
+  for (const m of String(texto || '').matchAll(RE_REF_MANUAL)) {
+    let ano = parseInt(m[3], 10);
+    if (m[3].length === 2) ano += ano < 50 ? 2000 : 1900;   // "…/25" abreviado
+    const sigla = m[1].toUpperCase(), numero = String(parseInt(m[2], 10));
+    const chave = `${sigla}-${numero}-${ano}`;
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    refs.push({ sigla, numero, ano: String(ano), chave });
+  }
+  return refs;
+}
+
+function abrirModalPautaManual() {
+  document.getElementById('pm-titulo').value = '';
+  document.getElementById('pm-refs').value = '';
+  const res = document.getElementById('pm-resultado');
+  res.style.display = 'none';
+  res.innerHTML = '';
+  document.getElementById('modal-pauta-manual').style.display = 'flex';
+  document.getElementById('pm-titulo').focus();
+}
+
+/** Valida as referências coladas na API. Devolve { ok, erros } e mostra o resultado. */
+async function validarRefsPautaManual() {
+  const refs = parseRefsColadas(document.getElementById('pm-refs').value);
+  const res = document.getElementById('pm-resultado');
+  res.style.display = '';
+  if (!refs.length) {
+    res.innerHTML = '<span style="color:var(--text-dim)">Nenhuma referência reconhecida — a pauta pode ser criada vazia e preenchida com "Adicionar projeto".</span>';
+    return { ok: [], erros: [] };
+  }
+  res.innerHTML = `Validando ${refs.length} proposição(ões) na API da Câmara…`;
+  const ok = [], erros = [];
+  await _mapLimit(refs, 4, async ref => {
+    try {
+      const prop = await resolveProposicao(ref.sigla, ref.numero, ref.ano);
+      const det = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
+      ok.push({ ref, ementa: (det.dados?.ementa || '').trim() });
+    } catch (e) {
+      erros.push({ ref, erro: e.message });
+    }
+  });
+  // devolve na ordem em que foram coladas — é a ordem da pauta
+  const pos = new Map(refs.map((r, i) => [r.chave, i]));
+  ok.sort((a, b) => pos.get(a.ref.chave) - pos.get(b.ref.chave));
+  res.innerHTML =
+    ok.map(o => `<div>✓ ${tipoLabel(o.ref.sigla)} ${o.ref.numero}/${o.ref.ano}</div>`).join('') +
+    erros.map(x => `<div style="color:var(--vermelho)">✗ ${x.ref.sigla} ${x.ref.numero}/${x.ref.ano} — ${escapeHtml(x.erro)}</div>`).join('');
+  return { ok, erros };
+}
+
+function habilitarBotoesPauta() {
+  ['btn-exportar-pdf', 'btn-exportar-docx', 'btn-salvar-firebase', 'btn-adicionar-item',
+   'btn-gerar-todas', 'btn-verificar-atualizacoes', 'btn-prop-partido', 'btn-resumo-sessao',
+   'btn-apelidos', 'btn-recategorizar']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+}
+
+async function criarPautaManual() {
+  const titulo = document.getElementById('pm-titulo').value.trim();
+  if (!titulo) return mostrarToast('Dê um nome à pauta (ex.: Semana de 18 a 22/08/2026).', 'aviso');
+  const btn = document.getElementById('btn-pm-criar');
+  btn.disabled = true;
+  try {
+    // Revalida o que está na textarea NA HORA de criar: o texto pode ter
+    // mudado desde o clique em "Validar". Falhou alguma → não cria nada;
+    // pauta criada com item silenciosamente descartado é o pior desfecho.
+    const { ok, erros } = await validarRefsPautaManual();
+    if (erros.length) {
+      return mostrarToast(`${erros.length} proposição(ões) não localizada(s) na Câmara — corrija ou remova a linha para criar.`, 'erro');
+    }
+
+    // Mesma proteção da importação: id repetido sobrescreveria a pauta da equipe.
+    const idPauta = gerarIdPauta(titulo, 'pauta-manual');
+    let jaExiste = false;
+    try {
+      const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json?shallow=true`);
+      jaExiste = r.ok && (await r.json()) !== null;
+    } catch (_) { /* Firebase indisponível — segue sem a checagem */ }
+    if (jaExiste && !confirm(
+      'Já existe uma pauta salva com este nome.\n\nCriar vai SOBRESCREVER a pauta existente, incluindo edições feitas pela equipe. Continuar?')) {
+      return;
+    }
+
+    state.pauta = {
+      id:         idPauta,
+      titulo,
+      periodo:    titulo,
+      uploadedAt: new Date().toISOString(),
+      uploadedBy: state.config?.nomeUsuario || 'equipe',
+      pdfNome:    null,
+      origem:     'manual',
+      itens: ok.map((o, i) => normalizarItem({
+        ordem:          i + 1,
+        tipoCategoria:  'projeto',
+        sigla:          o.ref.sigla,
+        numero:         o.ref.numero,
+        ano:            o.ref.ano,
+        ementa:         o.ementa,
+        autorTexto:     '',
+        apensadosTexto: [],
+        relator:        null,
+        temUrgencia:    false,
+        adicionadoManualmente: true,
+      })),
+    };
+
+    renderizarPauta();
+    habilitarBotoesPauta();
+    state.ultimoSave = state.pauta.uploadedAt;
+    state.dirty = false;
+    atualizarStatusSync('ok');
+    fbSalvarPauta(state.pauta)
+      .then(() => atualizarSidebarPautas())
+      .catch(e => {
+        console.warn('Firebase indisponível:', e.message);
+        mostrarToast('⚠ Pauta criada nesta tela, mas não foi salva no Firebase', 'aviso');
+      });
+    document.getElementById('modal-pauta-manual').style.display = 'none';
+    mostrarToast(ok.length
+      ? `✓ Pauta manual criada com ${ok.length} item(ns)`
+      : '✓ Pauta manual criada vazia — use "Adicionar projeto" para preencher', 'sucesso');
+    enriquecerItens();
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 // ============================================================

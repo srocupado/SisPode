@@ -26,7 +26,8 @@ const sandbox = {
 };
 const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
                   'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
-                  'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail', 'historicoEmListas'];
+                  'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail', 'historicoEmListas',
+                  'separarDemandasRelatorio', '_htmlRelatorioDemandas'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -104,6 +105,32 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.historicoEmListas('RCP 2/2026', reunioes).length === 0, 'proposição que nunca entrou → lista vazia');
   ok(L.historicoEmListas('PL 101/2026', reunioes).length === 1, 'apensado que virou item próprio também conta');
   ok(L.historicoEmListas('PLP 78/2025', null) === null, 'reuniões ainda não carregadas → null (não "nunca entrou")');
+
+  console.log('\n== relatório de demandas (abertas × atendidas) ==');
+  const dAberta = { id: 'x1', tratamento: 'Deputado', deputado: 'Bruno Lima', chave: 'RCP 2/2026',
+    natureza: 'Solicitar despacho do Presidente', autoria: 'Delegado Bruno Lima PODE/SP e outros',
+    ementa: 'Cria CPI.', situacao: 'Aguardando Despacho do Presidente da Câmara dos Deputados',
+    registradaEm: '2026-08-11T10:00:00Z', atendimento: null };
+  const dAtendida = { id: 'x2', tratamento: 'Deputada', deputado: 'Renata Abreu', chave: 'PL 3052/2023',
+    natureza: 'Solicitar inclusão em pauta', autoria: 'Renata Abreu PODE/SP',
+    ementa: 'Capital simbólica.', situacao: 'Urgência aprovada',
+    registradaEm: '2026-07-01T10:00:00Z',
+    atendimento: { reuniaoId: 'r2', rotulo: 'Lista de 11/08/2026', em: '2026-08-11T18:00:00Z' } };
+  const sep = L.separarDemandasRelatorio([dAberta, dAtendida]);
+  ok(sep.abertas.length === 1 && sep.abertas[0].id === 'x1', 'separa as em aberto');
+  ok(sep.atendidas.length === 1 && sep.atendidas[0].id === 'x2', 'separa as atendidas');
+  ok(L.separarDemandasRelatorio([]).abertas.length === 0, 'lista vazia não quebra');
+
+  const reunioesRel = [{ id: 'r2', titulo: 'Lista de 11/08/2026', criada: '2026-08-11',
+    itens: [{ chave: 'PL 3052/2023', numItem: '9' }] }];
+  const htmlRel = L._htmlRelatorioDemandas([dAberta, dAtendida], null, reunioesRel);
+  ok(htmlRel.includes('Em aberto (1)') && htmlRel.includes('Atendidas (1)'), 'seções com contagem');
+  ok(htmlRel.indexOf('Em aberto') < htmlRel.indexOf('Atendidas'), 'em aberto vem primeiro (é o que cobra ação)');
+  ok(htmlRel.includes('RCP 2/2026 — Solicitar despacho do Presidente'), 'demanda aberta com natureza');
+  ok(htmlRel.includes('✔ Atendida — Lista de 11/08/2026'), 'atendida nomeia a reunião');
+  ok(htmlRel.includes('Lista de 11/08/2026 (item 9)'), 'histórico de listas entra no relatório');
+  ok(htmlRel.includes('Demandante: Deputado Bruno Lima'), 'demandante identificado');
+  ok(htmlRel.includes('1 em aberto · 1 atendida(s)'), 'meta com o placar');
 
   console.log('\n== mailtoDoEmail: abrir no Outlook ==');
   const curto = L.mailtoDoEmail('Senhor Presidente,\n\nLinha dois.');
