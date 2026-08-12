@@ -653,10 +653,27 @@ function itemAindaAtivo(it) {
   return !!state.pauta && state.pauta.itens.includes(it);
 }
 
+// Teto de EXIBIÇÃO por item: passado o prazo, o card sai de "Verificando
+// autoria…" e assume estado final com o motivo — a consulta continua em fundo
+// e, se terminar, o resultado real ainda substitui o aviso. Sem isso, uma
+// cadeia longa (fontes instáveis × muitos autores) deixava a pauta INTEIRA
+// parecendo travada por mais de 10 minutos, sem erro e sem fim.
+const PRAZO_EXIBICAO_ITEM_MS = 180000;
+
 async function enriquecerItens() {
   const pautaRef = state.pauta;
-  const jobs = pautaRef.itens.map(it =>
-    enriquecerItem(it).catch(e => {
+  const jobs = pautaRef.itens.map(it => {
+    const timer = setTimeout(() => {
+      if (it.enriquecimento?.status === 'carregando') {
+        it.enriquecimento = {
+          status: 'erro',
+          erro: 'Fontes da Câmara sem resposta após 3 minutos (instabilidade da API/portal). ' +
+                'A consulta continua em fundo e o card será atualizado se ela terminar.',
+        };
+        atualizarBadgesCard(it);
+      }
+    }, PRAZO_EXIBICAO_ITEM_MS);
+    return enriquecerItem(it).finally(() => clearTimeout(timer)).catch(e => {
       const msg = e?.message || String(e);
       // Verificação em fundo que falhou NÃO rebaixa o card: os dados salvos
       // continuam valendo (vieram de uma verificação que deu certo) — melhor
@@ -671,7 +688,8 @@ async function enriquecerItens() {
       );
       it.enriquecimento = { status: 'erro', erro: msg };
       atualizarBadgesCard(it);
-    }));
+    });
+  });
   await Promise.allSettled(jobs);
   // Grava o cache atualizado dos badges — é o que faz a PRÓXIMA abertura
   // pré-carregar. Só se a pauta ainda for a mesma (o usuário pode ter trocado).
@@ -977,27 +995,27 @@ async function fetchAutoresProposicao(idProp) {
     const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
     const autores = json.dados || [];
 
-    // Para autores que são deputados, busca partido atual
-    out = [];
-    for (const a of autores) {
+    // Para autores que são deputados, busca partido atual — em PARALELO
+    // (limite 4). Em sequência, com a API instável, um projeto com muitos
+    // autores levava DEZENAS de minutos (cada ficha com o ciclo completo de
+    // retries) e o card ficava "Verificando autoria…" o tempo todo,
+    // parecendo travado — visto em produção em 12/08/2026.
+    out = await _mapLimit(autores, 4, async a => {
       const m = (a.uri || '').match(/\/deputados\/(\d+)/);
-      if (m) {
-        const idDep = m[1];
-        const info  = await fetchInfoDeputado(idDep);
-        out.push({
-          idDeputado: idDep,
-          nome:       a.nome || info?.nome,
-          siglaPartido: info?.siglaPartido,
-          siglaUf:    info?.siglaUf,
-          tipo:       a.tipo,
-          ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
-          proponente: a.proponente,
-          isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
-        });
-      } else {
-        out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
-      }
-    }
+      if (!m) return { nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false };
+      const idDep = m[1];
+      const info  = await fetchInfoDeputado(idDep);
+      return {
+        idDeputado: idDep,
+        nome:       a.nome || info?.nome,
+        siglaPartido: info?.siglaPartido,
+        siglaUf:    info?.siglaUf,
+        tipo:       a.tipo,
+        ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
+        proponente: a.proponente,
+        isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
+      };
+    });
   } catch (e) { erroApi = e; }
 
   // Segunda chance no portal quando a reserva também veio manca: deputado sem
@@ -1017,7 +1035,10 @@ async function fetchAutoresProposicao(idProp) {
 async function fetchInfoDeputado(idDep) {
   if (state.cacheAutoria.has(idDep)) return state.cacheAutoria.get(idDep);
   try {
-    const json = await fetchJson(`${API_BASE}/deputados/${idDep}`);
+    // 2 tentativas, não 4: esta é a reserva da reserva (o portal é a fonte
+    // primária e ainda dá uma segunda chance se o partido vier vazio) — o
+    // ciclo cheio aqui só multiplicava a espera de quem está olhando o card.
+    const json = await fetchJsonCamara(`${API_BASE}/deputados/${idDep}`, 2);
     const us   = json.dados?.ultimoStatus || {};
     const info = {
       nome:        us.nome || json.dados?.nomeCivil,

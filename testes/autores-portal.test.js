@@ -26,16 +26,18 @@ function montar({ api, deputado, portalHtml }) {
     src.match(/async function autoresDoPortal[\s\S]*?\n}/)[0],
     src.match(/async function fetchAutoresProposicao[\s\S]*?\n}/)[0],
     src.match(/async function fetchInfoDeputado[\s\S]*?\n}/)[0],
+    src.match(/async function _mapLimit[\s\S]*?\n}/)[0],
   ].join('\n');
   const fetchJson = async url => {
     if (url.includes('/autores')) { if (api instanceof Error) throw api; return { dados: api }; }
     if (url.includes('/deputados/')) { if (deputado instanceof Error) throw deputado; return { dados: deputado }; }
     throw new Error('url inesperada: ' + url);
   };
+  const fetchJsonCamara = async url => fetchJson(url);   // fetchInfoDeputado usa 2 tentativas
   const fetchHtmlCamara = async () => portalHtml || null;
-  return new Function('fetchJson', 'fetchHtmlCamara', 'DOMParser', 'console',
+  return new Function('fetchJson', 'fetchJsonCamara', 'fetchHtmlCamara', 'DOMParser', 'console',
     'return (async()=>{' + partes + '; return fetchAutoresProposicao;})()')(
-    fetchJson, fetchHtmlCamara, DOMParser, { ...console, warn() {} });
+    fetchJson, fetchJsonCamara, fetchHtmlCamara, DOMParser, { ...console, warn() {} });
 }
 
 (async () => {
