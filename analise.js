@@ -922,25 +922,41 @@ async function fetchHtmlCamara(url) {
   // Cada via tem TETO PRÓPRIO: sem ele, uma via que aceita a conexão e não
   // responde trava aqui para sempre e as alternativas — que existem justamente
   // para cobrir a falha da primeira — nunca chegam a ser tentadas.
-  const comTeto = (u, init) => fetchComTimeout(u, { ...init, sinalExtra: signal });
+  const teto = (u, init, ms) => fetchComTimeout(u, { ...init, sinalExtra: signal }, ms);
+  const direta = () => teto(url, { redirect: 'follow' }, TIMEOUT_CAMARA_MS);
+  // Os proxies têm teto MENOR: são rota de contorno e não podem custar mais
+  // que a rota boa. MEDIDO em 12/08/2026, o codetabs devolvia HTTP 522 depois
+  // de 20s e o worker respondia "Domínio não permitido" — com o teto cheio,
+  // cada página desperdiçava 40s em vias que não iam funcionar.
+  const PROXY_MS = 8000;
+  // A REPETIÇÃO vai na via DIRETA, não numa segunda passada por todas: as três
+  // apontam para o MESMO portal, então "três vias" não são três chances quando
+  // quem oscila é a origem — e repetir os proxies só multiplica a espera.
+  // MEDIDO no mesmo dia: o portal respondeu 200 em 10 de 10 tentativas
+  // seguidas enquanto a extensão registrava falha nas três vias; faltava
+  // repetir, não ter mais alternativas.
   const vias = [
-    ['direto',   () => comTeto(url, { redirect: 'follow' })],
-    ['codetabs', () => comTeto('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), {})],
-    ['worker',   () => comTeto('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), {})],
+    ['direto',                () => direta()],
+    ['direto (2ª tentativa)', async () => { await sleep(1200, signal); return direta(); }],
+    ['codetabs',              () => teto('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), {}, PROXY_MS)],
+    ['worker',                () => teto('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), {}, PROXY_MS)],
   ];
+  const motivos = [];
   for (const [nome, tentar] of vias) {
     if (signal.aborted) break;
     try {
       const r = await tentar();
       const html = r.ok ? await r.text() : '';
       if (r.ok && _htmlCamaraValido(html)) return html;
-      console.debug(`[análise] página Câmara via ${nome}: status=${r.status} len=${html.length} (inválido)`);
+      motivos.push(`${nome}: HTTP ${r.status}${r.ok ? ` (${html.length} bytes, conteúdo inesperado)` : ''}`);
     } catch (e) {
-      if (isAbortError(e)) break;
-      console.debug(`[análise] página Câmara via ${nome}: erro ${e.message}`);
+      if (isAbortError(e)) return null;
+      motivos.push(`${nome}: ${e.message}`);
     }
   }
-  console.warn('[análise] não foi possível obter a página da Câmara (direto, codetabs e worker):', url);
+  // O motivo de CADA via vai na mensagem: sem isso o console só dizia "não foi
+  // possível", que não permite distinguir portal fora do ar de proxy quebrado.
+  console.warn(`[análise] não foi possível obter a página da Câmara — ${[...new Set(motivos)].join(' · ')}:`, url);
   return null;
 }
 
