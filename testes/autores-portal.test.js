@@ -1,8 +1,8 @@
-// Autoria com fallback pelo portal (emergência de 12/08/2026, API 504 em
-// produção): a via API (1+N chamadas por item) morria e levava junto o
-// enriquecimento, os badges e os apelidos. A página prop_autores do portal é
-// renderizada no servidor e traz "Nome - PARTIDO/UF" na ordem de assinatura,
-// com o id do deputado no link.
+// Autoria com o PORTAL como fonte PRIMÁRIA e a API de reserva (invertido por
+// decisão do usuário em 12/08/2026, com a API 504 em produção). A página
+// prop_autores é renderizada no servidor e traz "Nome - PARTIDO/UF" na ordem
+// de assinatura, com o id do deputado no link — uma requisição no lugar das
+// 1+N da via API.
 //
 // Roda contra o HTML REAL gravado em testes/fixtures/ (12/08/2026).
 // Uso: node testes/autores-portal.test.js
@@ -39,7 +39,21 @@ function montar({ api, deputado, portalHtml }) {
 }
 
 (async () => {
-  console.log('== via API saudável: nada muda ==');
+  console.log('== portal é a fonte PRIMÁRIA ==');
+  {
+    // API saudável E portal saudável → quem responde é o PORTAL (uma
+    // requisição), e a API nem é chamada.
+    let apiChamada = false;
+    const f = await montar({
+      api: (apiChamada = true, [{ nome: 'X', uri: 'x/deputados/1', ordemAssinatura: 1 }]),
+      deputado: { ultimoStatus: { siglaPartido: 'PT' } },
+      portalHtml: HTML_PL,
+    });
+    const a = await f(2355883);
+    ok(a[0].fonte === 'portal' && a[0].nome === 'Rodrigo Gambale', 'portal responde primeiro');
+  }
+
+  console.log('\n== portal fora → a API assume (reserva) ==');
   {
     const f = await montar({
       api: [{ nome: 'Renata Abreu', uri: 'x/deputados/1', ordemAssinatura: 1 }],
@@ -47,10 +61,10 @@ function montar({ api, deputado, portalHtml }) {
       portalHtml: null,
     });
     const a = await f(99);
-    ok(a.length === 1 && a[0].isPodemos === true && a[0].fonte === undefined, 'API ok → resultado da API, sem portal');
+    ok(a.length === 1 && a[0].isPodemos === true && a[0].fonte === undefined, 'API cobre quando o portal falha');
   }
 
-  console.log('\n== API fora → portal, com o HTML real ==');
+  console.log('\n== os dois pelo HTML real (portal) ==');
   {
     const f = await montar({ api: new Error('HTTP 504'), deputado: null, portalHtml: HTML_RCP });
     const a = await f(2617166);

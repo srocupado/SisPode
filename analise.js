@@ -799,9 +799,7 @@ const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
 // Cache COMPARTILHADO de fatos imutáveis (/proposicoes-cache, o mesmo nó que
 // o módulo de Líderes e o bot usam): id nunca muda; ementa e inteiro teor
-// original, raramente. Quem resolve primeiro grava para a equipe toda — as
-// resoluções seguintes nem perguntam à API, o que imuniza este passo contra
-// a intermitência (504) medida em 12/08/2026.
+// original, raramente. Quem resolve primeiro grava para a equipe toda.
 async function fbCacheProposicaoGet(chave) {
   try {
     const r = await fetchComTimeout(`${FIREBASE_URL}/proposicoes-cache/${encodeURIComponent(chave)}.json`, {}, 8000);
@@ -815,12 +813,29 @@ function fbCacheProposicaoPut(chave, dados) {
   }).catch(() => {});
 }
 
+// FONTE PRIMÁRIA da resolução id/ementa/teor (decisão do usuário, 12/08/2026):
+// o web service clássico do portal (SitCamaraWS). A API é a reserva.
+async function resolverProposicaoDoPortal(sigla, numero, ano) {
+  const url = `https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`;
+  const res = await fetchComTimeout(url, {}, 15000);
+  if (!res.ok) return null;
+  const xml = await res.text();
+  const campo = tag => {
+    const m = xml.match(new RegExp(`<${tag}>([\s\S]*?)</${tag}>`, 'i'));
+    return m ? m[1].trim() : '';
+  };
+  const id = parseInt(campo('idProposicao'), 10);
+  if (!Number.isFinite(id)) return null;
+  const teor = campo('LinkInteiroTeor')
+    .replace(/^http:/, 'https:').replace('://www.camara.gov.br', '://www.camara.leg.br');
+  return { id, ementa: campo('Ementa'), urlInteiroTeor: teor || null };
+}
+
+// Ordem: memória → cache da equipe (Firebase) → PORTAL (WS) → API.
 async function resolveProposicao(sigla, numero, ano) {
   const ck = `${sigla}-${numero}-${ano}`;
   if (cacheProp.has(ck)) return cacheProp.get(ck);
 
-  // 1º o cache compartilhado — id é imutável, e o Firebase não depende da
-  // infraestrutura da Câmara.
   const doCache = await fbCacheProposicaoGet(ck);
   if (doCache?.idCamara) {
     const obj = { id: doCache.idCamara, ementa: doCache.ementa || '', urlInteiroTeor: doCache.urlInteiroTeor || null };
@@ -829,6 +844,15 @@ async function resolveProposicao(sigla, numero, ano) {
   }
 
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
+  for (const s of tentativas) {
+    const doPortal = await resolverProposicaoDoPortal(s, numero, ano).catch(() => null);
+    if (doPortal) {
+      cacheProp.set(ck, doPortal);
+      fbCacheProposicaoPut(ck, { idCamara: doPortal.id, ementa: doPortal.ementa, urlInteiroTeor: doPortal.urlInteiroTeor });
+      return doPortal;
+    }
+  }
+
   let hit = null;
   for (const s of tentativas) {
     const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
@@ -838,7 +862,6 @@ async function resolveProposicao(sigla, numero, ano) {
   }
   if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
 
-  // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
   const det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   const obj = {
     id:             hit.id,
@@ -850,11 +873,11 @@ async function resolveProposicao(sigla, numero, ano) {
   return obj;
 }
 
-// FALLBACK DE EMERGÊNCIA (12/08/2026, API 504 em produção): a autoria pelo
-// portal. A página prop_autores é renderizada no servidor e traz, por autor,
-// "Nome - PARTIDO/UF" já NA ORDEM DE ASSINATURA e com o id do deputado no
-// link — dispensa inclusive as N chamadas de partido que a via API exige
-// (1+N por item: a maior exposição do enriquecimento à instabilidade).
+// FONTE PRIMÁRIA da autoria (decisão do usuário em 12/08/2026, com a API
+// instável em produção): a página prop_autores do portal, renderizada no
+// servidor, traz "Nome - PARTIDO/UF" já NA ORDEM DE ASSINATURA e o id do
+// deputado no link — UMA requisição resolve o que a via API faz em 1+N
+// chamadas por item. A API é a reserva.
 async function autoresDoPortal(idProp) {
   const html = await fetchHtmlCamara(`https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=${idProp}`);
   if (!html) return null;
@@ -887,6 +910,12 @@ async function autoresDoPortal(idProp) {
 }
 
 async function fetchAutoresProposicao(idProp) {
+  // PORTAL PRIMEIRO; API de reserva. A página não lista de forma inequívoca
+  // autor institucional sem link de deputado (Poder Executivo, TST…) — nesse
+  // caso ela devolve vazio e a via API assume.
+  const primario = await autoresDoPortal(idProp).catch(() => null);
+  if (primario) return primario;
+
   let out = null, erroApi = null;
   try {
     const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
@@ -915,18 +944,17 @@ async function fetchAutoresProposicao(idProp) {
     }
   } catch (e) { erroApi = e; }
 
-  // Via API falhou — OU veio com deputado SEM partido (a ficha dele falhou,
-  // que viraria um "não-Podemos" silencioso): o portal cobre os dois casos,
-  // porque traz o partido inline.
+  // Segunda chance no portal quando a reserva também veio manca: deputado sem
+  // partido (ficha falhou) viraria um "não-Podemos" silencioso.
   const incompleto = out && out.some(a => a.idDeputado && !a.siglaPartido);
   if (!out || incompleto) {
     const doPortal = await autoresDoPortal(idProp).catch(() => null);
-    if (doPortal) {
-      console.warn(`[análise] autores de ${idProp} via portal (${erroApi ? 'API falhou: ' + erroApi.message : 'partido incompleto pela API'})`);
-      return doPortal;
-    }
+    if (doPortal) return doPortal;
   }
-  if (out) return out;
+  if (out) {
+    if (incompleto) console.warn(`[análise] autores de ${idProp}: partido incompleto (portal e ficha do deputado falharam)`);
+    return out;
+  }
   throw erroApi;
 }
 
