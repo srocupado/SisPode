@@ -759,6 +759,16 @@ async function enriquecerItem(it) {
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
+    // O item NUNCA termina em 'carregando': vários chamadores engolem o erro
+    // (botões de Apelidos / Proposições do partido / adição manual), e sem
+    // isto o card ficava "Verificando autoria…" PARA SEMPRE quando a fonte
+    // falhava — visto em produção em 12/08/2026, em todos os itens da pauta.
+    if (cachePrevio) {
+      it.enriquecimento = cachePrevio;   // verificação em fundo falhou: mantém o salvo
+    } else {
+      it.enriquecimento = { status: 'erro', erro: e.message };
+      atualizarBadgesCard(it);
+    }
     throw e;
   }
 
@@ -1428,6 +1438,9 @@ function atualizarBadgesCard(it) {
   if (enr.status === 'erro') {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
+    // O MOTIVO fica expresso no próprio badge (passar o mouse): qual etapa
+    // falhou e o que a fonte respondeu — exigência de 12/08/2026.
+    flag.title = enr.erro || '';
     return;
   }
   if (enr.semProjeto) {
