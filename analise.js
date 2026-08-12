@@ -130,6 +130,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
+  document.getElementById('add-tipo').addEventListener('change', atualizarCampoUrgencia);
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
   document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
   document.getElementById('btn-prop-partido').addEventListener('click', copiarPropPartido);
@@ -5717,8 +5718,44 @@ function abrirModalAdicionar() {
   document.getElementById('add-numero').value = '';
   document.getElementById('add-ano').value = '';
   document.getElementById('add-ordem').value = '';
+  document.getElementById('add-urgencia').value = '';
   document.getElementById('add-status').textContent = '';
+  atualizarCampoUrgencia();
   document.getElementById('modal-adicionar').style.display = 'flex';
+}
+
+/**
+ * Reordena os itens pelo Nº na pauta, mantendo o agrupamento por seção que o
+ * render usa. Estável: itens SEM número (ou empatados) preservam a posição
+ * relativa que já tinham, em vez de saltarem de lugar sozinhos.
+ */
+function ordenarItensPorOrdem() {
+  const pos = new Map(state.pauta.itens.map((it, i) => [it, i]));
+  state.pauta.itens.sort((a, b) => {
+    const oa = Number.isFinite(a.ordem) ? a.ordem : Infinity;   // sem número → fim
+    const ob = Number.isFinite(b.ordem) ? b.ordem : Infinity;
+    return oa !== ob ? oa - ob : pos.get(a) - pos.get(b);
+  });
+}
+
+/** O campo do projeto urgenciado só faz sentido para requerimento. */
+function atualizarCampoUrgencia() {
+  const ehReq = document.getElementById('add-tipo').value === 'REQ';
+  document.getElementById('add-urgencia-wrap').style.display = ehReq ? '' : 'none';
+}
+
+/** "PL 1400/2015", "Projeto de Lei nº 1.400, de 2015", "…nº 1.400/2015" →
+ *  { sigla, numero, ano }. Cobre as duas grafias porque as fontes divergem: o
+ *  PDF da pauta escreve "nº X, de AAAA" e a ementa da API escreve "nº X/AAAA". */
+function detectarProjetoUrgenciado(texto) {
+  const t = String(texto || '');
+  const sigla = /\b(PL|PLP|PEC|PDL|PDC|MPV|PRC)\b\s*\.?\s*n?[º°.]*\s*([\d.]+)(?:-[A-Z]+)?\s*[\/,]?\s*(?:de\s*)?(\d{4})\b/i.exec(t);
+  if (sigla) return { sigla: sigla[1].toUpperCase(), numero: limpaNumero(sigla[2]), ano: sigla[3] };
+  const porExtenso = TIPOS_PROPOSICAO.slice().sort((a, b) => b.prefixo.length - a.prefixo.length)
+    .map(tp => ({ tp, m: new RegExp(tp.prefixo + '\\s+n[º°o]?\\.?\\s*([\\d.]+)(?:-[A-Z]+)?\\s*(?:[\\/,]|\\s*,?\\s*de)\\s*(\\d{4})', 'i').exec(t) }))
+    .find(x => x.m);
+  if (porExtenso) return { sigla: porExtenso.tp.sigla, numero: limpaNumero(porExtenso.m[1]), ano: porExtenso.m[2] };
+  return null;
 }
 
 async function confirmarAdicionar() {
@@ -5738,6 +5775,15 @@ async function confirmarAdicionar() {
     stEl.textContent = 'Este item já está na pauta.';
     return;
   }
+  // Número já usado: avisa e deixa decidir. Renumerar os demais por conta
+  // própria seria pior — a numeração é a da Câmara, não nossa.
+  const ocupante = !isNaN(ordem) && state.pauta.itens.find(it => it.ordem === ordem);
+  if (ocupante && !confirm(
+    `O nº ${ordem} da pauta já é do ${tipoLabel(ocupante.sigla)} ${ocupante.numero}/${ocupante.ano}.\n\n` +
+    `Incluir assim mesmo? Os dois vão aparecer com o nº ${ordem} (nada é renumerado).`)) {
+    stEl.textContent = 'Escolha outro número na pauta.';
+    return;
+  }
 
   const btn = document.getElementById('btn-confirmar-adicionar');
   btn.disabled = true;
@@ -5748,29 +5794,58 @@ async function confirmarAdicionar() {
     // Detalhe para ementa e autor
     const det  = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
     const dados = det.dados || {};
+    const ementa = (dados.ementa || '').trim();
+
+    // Requerimento não é analisado por si: o que interessa é o PROJETO cuja
+    // urgência ele pede (é assim que o item vindo do PDF funciona, via
+    // _alvoItem). O usuário pode informar o projeto; em branco, tento ler da
+    // ementa — a da API costuma trazer "Requer Urgência para o Projeto de Lei
+    // nº 1.400/2015".
+    const ehReq = sigla === 'REQ';
+    let projetoUrgenciado = null;
+    if (ehReq) {
+      const digitado = document.getElementById('add-urgencia').value.trim();
+      projetoUrgenciado = digitado ? detectarProjetoUrgenciado(digitado) : detectarProjetoUrgenciado(ementa);
+      if (digitado && !projetoUrgenciado) {
+        stEl.textContent = 'Não entendi o projeto da urgência — escreva como "PL 1400/2015".';
+        return;
+      }
+    }
 
     const novo = normalizarItem({
       ordem:         isNaN(ordem) ? null : ordem,
-      tipoCategoria: 'projeto',
+      // REC entra como 'requerimento', a mesma convenção do parser compacto —
+      // não se inventa categoria nova, que ninguém mais no módulo entenderia.
+      tipoCategoria: (ehReq || sigla === 'REC') ? 'requerimento' : 'projeto',
       sigla,
       numero,
       ano,
-      ementa:        (dados.ementa || '').trim(),
+      ementa,
       autorTexto:    '',
       apensadosTexto: [],
       relator:       null,
       temUrgencia:   false,
+      ...(ehReq ? { projetoUrgenciado } : {}),
       adicionadoManualmente: true,
     });
 
     state.pauta.itens.push(novo);
+    // O card é desenhado na ordem do ARRAY, não pelo campo `ordem` — sem
+    // reordenar, o item entra no fim da seção mesmo tendo número 7. Reordenar
+    // aqui é o que faz "inserir no nº 7 da pauta" significar o que diz, sem
+    // reimportar o PDF (o que descartaria as análises já geradas).
+    ordenarItensPorOrdem();
     renderizarPauta();
     enriquecerItem(novo).catch(e => console.warn('Enriquecimento manual falhou:', e));
     marcarSujo();
     fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
 
     document.getElementById('modal-adicionar').style.display = 'none';
-    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta`, 'sucesso');
+    const alvo = novo.projetoUrgenciado;
+    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta` +
+      (ehReq ? (alvo ? ` — urgência do ${alvo.sigla} ${alvo.numero}/${alvo.ano}`
+                     : ' — projeto da urgência não identificado; use "Vincular projeto" no card') : ''),
+      ehReq && !alvo ? 'aviso' : 'sucesso');
   } catch (e) {
     stEl.textContent = `Erro: ${e.message}`;
   } finally {
