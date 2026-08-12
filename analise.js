@@ -3493,6 +3493,15 @@ async function verificarAtualizacaoItem(it) {
   // respondia "em dia" (caso real: PRLP 3 do PL 1828/2023, publicado no dia,
   // com a nota gerada sobre o PRLP 2).
   let fonteIndisponivel = false;
+  if (!enr.idProposicao) {
+    // O enriquecimento ainda não terminou (badge "Verificando autoria…") ou
+    // falhou — MEDIDO em 12/08/2026: clicar em "Verificar atualização" nesse
+    // estado pulava a reconsulta em silêncio e comparava contra um cache
+    // vazio, respondendo "em dia". O botão resolve o id por conta própria:
+    // verificar não pode depender de outra rotina ter terminado.
+    try { enr.idProposicao = (await resolveProposicao(it.sigla, it.numero, it.ano)).id; }
+    catch (_) { fonteIndisponivel = true; }
+  }
   if (enr.idProposicao) {
     try {
       const frescos = await buscarPareceresPlenario(enr.idProposicao);
