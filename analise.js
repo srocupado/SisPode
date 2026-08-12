@@ -4715,16 +4715,41 @@ async function fetchComTimeout(url, init = {}, ms = TIMEOUT_CAMARA_MS) {
   }
 }
 
-async function fetchJsonCamara(url, tentativas = 4) {
+// A API da Câmara oscila: MEDIDO em 12/08/2026, 4 de 15 chamadas voltaram
+// HTTP 504 (gateway timeout) depois de ~16s, com as MESMAS URLs respondendo
+// 200 em 1s na tentativa seguinte. Falha intermitente assim se resolve com
+// repetição — por isso 429 e 5xx são retentados, enquanto 404 (proposição
+// inexistente) falha na hora, que repetir não conserta.
+const BACKOFF_CAMARA_MS = [0, 800, 2000, 4000];
+
+async function fetchJsonCamara(url, tentativas = BACKOFF_CAMARA_MS.length) {
   let erro = null;
   for (let i = 0; i < tentativas; i++) {
-    if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
+    if (i > 0) await new Promise(r => setTimeout(r, BACKOFF_CAMARA_MS[i] ?? 4000));
+
+    let res;
     try {
-      const res = await fetchComTimeout(url);
-      if (res.ok) return await res.json();
-      if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
-      throw new Error(`HTTP ${res.status} em ${url}`);
-    } catch (e) { erro = e; }
+      res = await fetchComTimeout(url);
+    } catch (e) {
+      erro = e;            // rede caiu ou estourou o teto — vale repetir
+      continue;
+    }
+
+    if (res.ok) {
+      // Corpo truncado por gateway instável também vale uma nova tentativa.
+      try { return await res.json(); }
+      catch (e) { erro = new Error(`resposta ilegível da Câmara: ${e.message}`); continue; }
+    }
+    if (res.status === 429 || res.status >= 500) {
+      // Mensagem que diz o que houve: "HTTP 504" sozinho parece defeito
+      // nosso, e o analista precisa saber que a fonte é que está de fora.
+      erro = new Error(`a API da Câmara respondeu HTTP ${res.status} (fora do ar) em ${tentativas} tentativas`);
+      continue;
+    }
+    // 4xx que não é 429 (404 = proposição inexistente): repetir não conserta.
+    // Este throw precisa ficar FORA do try — dentro, o próprio catch do laço o
+    // capturava e repetia 4 vezes, gastando ~7s para chegar ao mesmo 404.
+    throw new Error(`HTTP ${res.status} em ${url}`);
   }
   throw erro || new Error('Falha ao consultar ' + url);
 }
@@ -5245,12 +5270,14 @@ function arrayBufferToBase64(buffer) {
   return btoa(parts.join(''));
 }
 
+// TODO o enriquecimento (autoria, apensados, relacionadas, detalhe) passa por
+// aqui. Até 12/08/2026 esta função NÃO tinha repetição: um único 504 da Câmara
+// derrubava o item, e como cada item faz 4 a 6 chamadas, uma oscilação de ~25%
+// na fonte reprovava quase toda a pauta ("várias análises com problema na API").
+// Agora usa a mesma política do resto do módulo: repete em 429/5xx, desiste na
+// hora em 404. GET é idempotente — repetir é seguro.
 async function fetchJson(url) {
-  // Mesmo motivo do fetchJsonCamara: sem teto, uma resposta que nunca chega
-  // deixa a chamada pendente para sempre (resolveProposicao, pauta manual…).
-  const res = await fetchComTimeout(url);
-  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
-  return await res.json();
+  return fetchJsonCamara(url);
 }
 
 function escapeHtml(s) {
