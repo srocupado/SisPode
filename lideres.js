@@ -467,8 +467,143 @@ async function criarReuniao() {
   mostrarToast('Dados carregados. Clique em "Resumir Todas" para gerar os resumos por IA.', 'sucesso');
 }
 
+
+// ============================================================
+//  CHAMADAS À API DA CÂMARA — teto de tempo + repetição
+// ============================================================
+// A API oscila (MEDIDO em 12/08/2026: 504 intermitente em ~25% das chamadas,
+// com as mesmas URLs respondendo 200 na tentativa seguinte). GET é
+// idempotente: repetir é seguro, e 4 tentativas derrubam a taxa de erro para
+// <1%. 4xx que não é 429 (ex.: 404) falha na hora — repetir não conserta.
+// Mesma política já aplicada no módulo de Plenário e no bot.
+const BACKOFF_API_MS = [0, 800, 2000, 4000];
+
+async function fetchApiCamara(url, init = {}, ms = 20000) {
+  let ultima = null;
+  for (let i = 0; i < BACKOFF_API_MS.length; i++) {
+    if (BACKOFF_API_MS[i]) await new Promise(r => setTimeout(r, BACKOFF_API_MS[i]));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res;
+    try {
+      res = await fetch(url, { ...init, signal: ctrl.signal });
+    } catch (e) {
+      ultima = e.name === 'AbortError'
+        ? new Error(`a API da Câmara não respondeu em ${ms / 1000}s`) : e;
+      continue;
+    } finally {
+      clearTimeout(timer);
+    }
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    ultima = new Error(`a API da Câmara respondeu HTTP ${res.status} (instável)`);
+  }
+  throw ultima || new Error('API da Câmara indisponível');
+}
+
 // ============================================================
 //  DADOS ABERTOS DA CÂMARA
+
+// ============================================================
+//  B) CACHE COMPARTILHADO DE FATOS IMUTÁVEIS (/proposicoes-cache)
+// ============================================================
+// Id de proposição nunca muda; ementa e inteiro teor original, raramente.
+// Quem resolve primeiro grava para a equipe toda — as aberturas seguintes
+// nem perguntam à API, o que imuniza esses campos contra a instabilidade.
+async function fbCacheProposicaoGet(chave) {
+  try {
+    const r = await fetch(`${FIREBASE_URL}/proposicoes-cache/${encodeURIComponent(chave)}.json`);
+    return r.ok ? await r.json() : null;
+  } catch (_) { return null; }
+}
+function fbCacheProposicaoPut(chave, dados) {
+  fetch(`${FIREBASE_URL}/proposicoes-cache/${encodeURIComponent(chave)}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...dados, em: new Date().toISOString() }),
+  }).catch(() => {});
+}
+
+// ============================================================
+//  C) FALLBACK: TRAMITAÇÕES PELA FICHA DO PORTAL
+// ============================================================
+// O portal (www.camara.leg.br) tem infraestrutura própria — MEDIDO em
+// 12/08/2026: a ficha respondia 200 em ~2s enquanto a API dava 504. A página
+// é renderizada no servidor (tr.odd/even → data + órgão (SIGLA) + li com o
+// texto) e o adaptador devolve objetos no MESMO formato das tramitações da
+// API, para as mesmas regras fixas (situacaoDe/relatoriaDe) decidirem.
+//
+// LIMITE HONESTO: a ficha mostra uma JANELA (~último ano), não o histórico
+// inteiro. Serve para CONFIRMAR urgência/relatoria, nunca para provar
+// ausência — quem consome trata "não achei na janela" como não-verificado.
+async function tramitacoesDaFicha(idCamara) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(`https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idCamara}`,
+      { redirect: 'follow', signal: ctrl.signal });
+    if (!res.ok) return null;
+    const html = await res.text();
+    if (html.length < 5000) return null;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const out = [];
+    for (const tr of doc.querySelectorAll('tr.odd, tr.even')) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const data = (tds[0].textContent || '').trim();
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(data)) continue;
+      const org = ((tr.querySelector('strong') || {}).textContent || '').match(/\(\s*([A-Z0-9]+)\s*\)/);
+      const texto = [...tds[1].querySelectorAll('li')]
+        .map(li => li.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+      if (!texto) continue;
+      out.push({
+        siglaOrgao: org ? org[1] : '',
+        despacho: texto,
+        // Normaliza para as MESMAS regras da API: a ficha escreve "Designada
+        // Relatora, Dep. X"; a regra procura "Designação de Relator".
+        // A ficha escreve "Aprovado o requerimento nº X, do Sr. Fulano…" — o
+        // "Sr." tem PONTO e mata o [^.]{0,120} da regra da API. Normaliza a
+        // DESCRIÇÃO (como a API faz) em vez de afrouxar a regra compartilhada.
+        descricaoTramitacao:
+          /Designad[oa] Relator/i.test(texto) ? 'Designação de Relator'
+          : /aprovad[oa]\s+o\s+requerimento[\s\S]{0,160}?urg[êe]ncia/i.test(texto) ? 'Aprovação de Urgência'
+          : '',
+        dataHora: data.split('/').reverse().join('-'),
+      });
+    }
+    return out.length ? out : null;
+  } catch (_) { return null; }
+  finally { clearTimeout(timer); }
+}
+
+/** Tramitações com fonte declarada: API (com repetição) e, se ela falhar, a
+ *  ficha do portal. { trams, fonte: 'api' | 'portal' | null }. */
+async function obterTramitacoes(idCamara) {
+  const daApi = await buscarTramitacoes(idCamara);
+  if (daApi !== null) return { trams: daApi, fonte: 'api' };
+  const daFicha = await tramitacoesDaFicha(idCamara);
+  if (daFicha) return { trams: daFicha, fonte: 'portal' };
+  return { trams: null, fonte: null };
+}
+
+/** Situação com a fonte declarada. Pela ficha (janela), achado POSITIVO vale
+ *  (etiquetado); ausência NÃO vira "não há requerimento". */
+function situacaoComFonte(trams, regimePdf, fonte) {
+  const s = situacaoDe(trams, regimePdf);
+  if (fonte !== 'portal') return s;
+  if (/^Não há requerimento/.test(s)) {
+    return 'Não foi possível confirmar pela API (instável); a ficha do portal não mostra requerimento de urgência na janela recente — confirmar mais tarde.';
+  }
+  return `${s} — fonte: portal da Câmara`;
+}
+
+async function relatoriaComFonte(trams, statusProp, fonte) {
+  if (fonte !== 'portal') return relatoriaDe(trams, statusProp);
+  // uriUltimoRelator é da API (instável agora) — no fallback fica o despacho da ficha.
+  const r = await relatoriaDe(trams, undefined);
+  return r === 'Sem indicação'
+    ? 'Não verificada — API da Câmara instável no momento'
+    : `${r} — fonte: portal da Câmara`;
+}
+
 // ============================================================
 async function carregarDadosCamara(itens) {
   let feitos = 0;
@@ -486,23 +621,35 @@ async function carregarDadosCamara(itens) {
 }
 
 async function carregarDadosDaProposicao(it) {
-  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${it.sigla}&numero=${it.numero}&ano=${it.ano}&itens=1`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const item = (await res.json()).dados?.[0];
-  if (!item) throw new Error('proposição não localizada');
-  it.idCamara = item.id;
+  // B) id/ementa: primeiro o cache compartilhado (imutáveis), depois a API.
+  const chaveCache = `${it.sigla}-${it.numero}-${it.ano}`;
+  const cacheAqui = await fbCacheProposicaoGet(chaveCache);
+  let item = null;
+  if (cacheAqui?.idCamara) {
+    it.idCamara = cacheAqui.idCamara;
+  } else {
+    const res = await fetchApiCamara(`${API_BASE}/proposicoes?siglaTipo=${it.sigla}&numero=${it.numero}&ano=${it.ano}&itens=1`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    item = (await res.json()).dados?.[0];
+    if (!item) throw new Error('proposição não localizada');
+    it.idCamara = item.id;
+  }
 
   // O endpoint de LISTA não traz urlInteiroTeor nem statusProposicao; o DETALHE traz.
-  let detalhe = item;
+  let detalhe = null, detalheFalhou = false;
   try {
-    const rd = await fetch(`${API_BASE}/proposicoes/${item.id}`);
-    if (rd.ok) detalhe = (await rd.json()).dados || item;
+    const rd = await fetchApiCamara(`${API_BASE}/proposicoes/${it.idCamara}`);
+    if (rd.ok) detalhe = (await rd.json()).dados || null;
   } catch (_) {}
-  it.ementa         = detalhe.ementa || item.ementa || '';
-  it.urlInteiroTeor = detalhe.urlInteiroTeor || null;
+  if (!detalhe) { detalheFalhou = true; detalhe = item || {}; }
+  it.ementa         = detalhe.ementa || item?.ementa || cacheAqui?.ementa || '';
+  it.urlInteiroTeor = detalhe.urlInteiroTeor || cacheAqui?.urlInteiroTeor || null;
   it.situacaoApi    = detalhe.statusProposicao?.descricaoSituacao || '';
+  if (!detalheFalhou) fbCacheProposicaoPut(chaveCache, {
+    idCamara: it.idCamara, ementa: it.ementa, urlInteiroTeor: it.urlInteiroTeor,
+  });
 
-  const autores = await autoresDetalhados(item.id);
+  const autores = await autoresDetalhados(it.idCamara);
   it.autoresApi = autores.map(a => a.nome).filter(Boolean).slice(0, 5);
   const podeAut = autores.filter(a => a.isPodemos);
   it.autoriaPodemos = podeAut.length > 0;
@@ -511,15 +658,20 @@ async function carregarDadosDaProposicao(it) {
   const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
   it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
-  const trams = await buscarTramitacoes(item.id);
-  it.situacao  = situacaoDe(trams, it.regimePdf);
-  it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
+  const { trams, fonte: fonteTrams } = await obterTramitacoes(it.idCamara);
+  it.situacao  = situacaoComFonte(trams, it.regimePdf, fonteTrams);
+  it.relatoria = await relatoriaComFonte(trams, detalhe.statusProposicao, fonteTrams);
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
 
-  it.papel = await papelDe(detalhe, trams);
+  // Detalhe fora do ar → sem uriPropPrincipal: não dá para afirmar o papel.
+  it.papel = detalheFalhou
+    ? { apensada: false, temApensados: false, naoVerificado: true }
+    : await papelDe(detalhe, trams);
+  // Pela janela da ficha não se prova ausência de apensados.
+  if (fonteTrams === 'portal' && !it.papel.apensada && !it.papel.temApensados) it.papel.naoVerificado = true;
   it.apensadosPodemos = [];
   if (!it.papel.apensada && it.papel.temApensados) {
-    const ap = await apensadosDoPodemos(item.id);
+    const ap = await apensadosDoPodemos(it.idCamara);
     it.apensadosPodemos = ap.achados;
     it.apensadosVarreduraLimitada = ap.truncado;
   }
@@ -531,7 +683,7 @@ async function carregarDadosDaProposicao(it) {
       ? `Varredura de apensados limitada aos ${MAX_APENSADOS_VARRIDOS} mais recentes.` : '',
   ].filter(Boolean).join('\n');
 
-  const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
+  const relacionados = await buscarDocumentosRelacionados(it.idCamara, it.sigla);
   it.parecerPlen  = parecerPlenarioDe(relacionados);
   it.emendaSenado = emendaSenadoDe(relacionados);
   it.sbtComissao  = substitutivoComissaoDe(relacionados);
@@ -562,7 +714,7 @@ async function infoDeputado(idDep) {
   if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
   let info = null;
   try {
-    const r = await fetch(`${API_BASE}/deputados/${idDep}`);
+    const r = await fetchApiCamara(`${API_BASE}/deputados/${idDep}`);
     if (r.ok) {
       const us = (await r.json()).dados?.ultimoStatus || {};
       info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
@@ -575,7 +727,7 @@ async function infoDeputado(idDep) {
 async function autoresDetalhados(idProp) {
   let dados = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idProp}/autores`);
     if (r.ok) dados = (await r.json()).dados || [];
   } catch (_) { return []; }
   const out = [];
@@ -609,7 +761,7 @@ async function detalheProp(id) {
   if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
   let d = null;
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${id}`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${id}`);
     if (r.ok) d = (await r.json()).dados || null;
   } catch (_) { /* fica sem */ }
   _cacheDetalheProp.set(id, d);
@@ -619,7 +771,7 @@ async function detalheProp(id) {
 async function apensadosDoPodemos(idCamara) {
   let rel = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
     if (r.ok) rel = (await r.json()).dados || [];
   } catch (_) { return { achados: [], truncado: false }; }
 
@@ -670,7 +822,7 @@ const MAX_RELACIONADOS = 30;
 async function buscarDocumentosRelacionados(idCamara, sigla, signal) {
   let rel;
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`, { signal });
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/relacionadas`, { signal });
     if (!r.ok) return [];
     rel = (await r.json()).dados || [];
   } catch (_) { return []; }
@@ -683,7 +835,7 @@ async function buscarDocumentosRelacionados(idCamara, sigla, signal) {
   const docs = [];
   for (const d of rel.filter(interessa).slice(0, MAX_RELACIONADOS)) {
     try {
-      const r = await fetch(`${API_BASE}/proposicoes/${d.id}`, { signal });
+      const r = await fetchApiCamara(`${API_BASE}/proposicoes/${d.id}`, { signal });
       if (!r.ok) continue;
       const det = (await r.json()).dados;
       docs.push({
@@ -841,7 +993,7 @@ async function buscarTramitacoes(idCamara) {
     // intermitência da API virava AFIRMAÇÃO FACTUAL ERRADA na mão do líder
     // (MEDIDO em 12/08/2026: PLP 230/2025, que tem urgência aprovada, saiu
     // como "não há requerimento" durante uma janela de 504 da Câmara).
-    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
+    const res = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
     if (!res.ok) return null;
     return (await res.json()).dados || [];
   } catch (_) { return null; }
@@ -921,7 +1073,7 @@ async function relatoriaDe(trams, statusProp) {
   const uri = statusProp?.uriUltimoRelator;
   if (uri) {
     try {
-      const r = await fetch(uri);
+      const r = await fetchApiCamara(uri);
       if (r.ok) {
         const d = (await r.json()).dados;
         const nome = d?.ultimoStatus?.nome || d?.nomeCivil || '';
@@ -962,7 +1114,7 @@ async function papelDe(detalhe, trams, signal) {
   if (detalhe.uriPropPrincipal) {
     let principal = null;
     try {
-      const r = await fetch(detalhe.uriPropPrincipal, { signal });
+      const r = await fetchApiCamara(detalhe.uriPropPrincipal, { signal });
       if (r.ok) {
         const d = (await r.json()).dados;
         principal = `${d.siglaTipo} ${d.numero}/${d.ano}`;
@@ -1009,7 +1161,7 @@ async function alvoDoREQ(it, signal) {
   let alvos = anotacao ? propsCitadas(anotacao[1]) : [];
   if (!alvos.length) {
     try {
-      const r = await fetch(`${API_BASE}/proposicoes?siglaTipo=REQ&numero=${req.numero}&ano=${req.ano}&itens=1`, { signal });
+      const r = await fetchApiCamara(`${API_BASE}/proposicoes?siglaTipo=REQ&numero=${req.numero}&ano=${req.ano}&itens=1`, { signal });
       if (r.ok) alvos = propsCitadas(((await r.json()).dados?.[0]?.ementa) || '');
     } catch (_) { /* fica sem alvo */ }
   }
@@ -2357,7 +2509,7 @@ function refDemanda(texto) {
 async function autoriaDemanda(idProp) {
   let dados = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idProp}/autores`);
     if (r.ok) dados = (await r.json()).dados || [];
   } catch (_) { return ''; }
   if (!dados.length) return '';
@@ -2376,28 +2528,39 @@ async function autoriaDemanda(idProp) {
 
 /** Fatos da proposição para o registro — sem IA, direto da fonte. */
 async function fatosDaDemanda(ref) {
-  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const item = (await res.json()).dados?.[0];
-  if (!item) throw new Error(`${ref.chave} não localizada nos Dados Abertos`);
-  let detalhe = item;
+  // B) cache compartilhado primeiro (id/ementa imutáveis), API depois.
+  const chaveCache = `${ref.sigla}-${ref.numero}-${ref.ano}`;
+  const doCache = await fbCacheProposicaoGet(chaveCache);
+  let item = null, idCamara = doCache?.idCamara || null;
+  if (!idCamara) {
+    const res = await fetchApiCamara(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    item = (await res.json()).dados?.[0];
+    if (!item) throw new Error(`${ref.chave} não localizada nos Dados Abertos`);
+    idCamara = item.id;
+  }
+  let detalhe = item || {}, detalheOk = false;
   try {
-    const rd = await fetch(`${API_BASE}/proposicoes/${item.id}`);
-    if (rd.ok) detalhe = (await rd.json()).dados || item;
-  } catch (_) { /* fica com o item da lista */ }
-  const [autoria, trams] = await Promise.all([autoriaDemanda(item.id), buscarTramitacoes(item.id)]);
+    const rd = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}`);
+    if (rd.ok) { detalhe = (await rd.json()).dados || detalhe; detalheOk = true; }
+  } catch (_) { /* fica com o que há */ }
+  const [autoria, { trams, fonte: fonteTrams }] = await Promise.all([autoriaDemanda(idCamara), obterTramitacoes(idCamara)]);
   // Situação: a regra de urgência do sistema 1 continua mandando quando há
   // sinal de urgência. Mas quando NÃO há ("Não há requerimento…"), a situação
   // oficial da ficha é o fato útil — para um RCP aguardando despacho do
   // Presidente, dizer "não há requerimento de urgência" é verdadeiro e inútil.
-  let situacao = situacaoDe(trams, '');
+  let situacao = situacaoComFonte(trams, '', fonteTrams);
   const oficial = detalhe.statusProposicao?.descricaoSituacao || '';
   // Sem urgência (ou com as tramitações fora do ar), a situação OFICIAL da
   // ficha — que veio do detalhe, outro endpoint — é o melhor fato disponível.
   if ((/^Não há requerimento/.test(situacao) || trams === null) && oficial.trim()) situacao = oficial.trim();
+  const ementa = detalhe.ementa || item?.ementa || doCache?.ementa || '';
+  if (detalheOk) fbCacheProposicaoPut(chaveCache, {
+    idCamara, ementa, urlInteiroTeor: detalhe.urlInteiroTeor || doCache?.urlInteiroTeor || null,
+  });
   return {
-    idCamara: item.id,
-    ementa:   detalhe.ementa || item.ementa || '',
+    idCamara,
+    ementa,
     autoria,
     situacao,
   };
@@ -2602,13 +2765,18 @@ async function apagarDemanda(d) {
 
 /** Reconsulta a situação na Câmara; devolve true se mudou. */
 async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
-  const trams = await buscarTramitacoes(d.idCamara);
-  // Consulta falhou → NÃO sobrescreve a situação registrada com uma incerteza.
+  const { trams, fonte: fonteTrams } = await obterTramitacoes(d.idCamara);
+  // API e portal falharam → NÃO sobrescreve a situação registrada com incerteza.
   if (trams === null) {
     if (!silencioso) mostrarToast(`${d.chave}: API da Câmara instável no momento — situação mantida como estava.`, 'aviso');
     return false;
   }
-  const nova = situacaoDe(trams, '');
+  // Pela janela da ficha não se prova ausência: sem achado positivo, mantém.
+  if (fonteTrams === 'portal' && /^Não foi possível confirmar/.test(situacaoComFonte(trams, '', fonteTrams))) {
+    if (!silencioso) mostrarToast(`${d.chave}: API instável; ficha do portal sem achado novo — situação mantida.`, 'aviso');
+    return false;
+  }
+  const nova = situacaoComFonte(trams, '', fonteTrams);
   const mudou = nova !== d.situacao;
   if (mudou) {
     d.situacao = nova;
@@ -2855,11 +3023,11 @@ function montarEmailDemandas(demandas, assinatura) {
 let _liderCache = null;
 async function liderDoPodemos() {
   if (_liderCache) return _liderCache;
-  const r1 = await fetch(`${API_BASE}/partidos?sigla=${SIGLA_PODEMOS}&itens=1`);
+  const r1 = await fetchApiCamara(`${API_BASE}/partidos?sigla=${SIGLA_PODEMOS}&itens=1`);
   if (!r1.ok) throw new Error(`HTTP ${r1.status}`);
   const partido = (await r1.json()).dados?.[0];
   if (!partido) throw new Error('partido não localizado');
-  const r2 = await fetch(`${API_BASE}/partidos/${partido.id}`);
+  const r2 = await fetchApiCamara(`${API_BASE}/partidos/${partido.id}`);
   if (!r2.ok) throw new Error(`HTTP ${r2.status}`);
   const lider = (await r2.json()).dados?.status?.lider;
   if (!lider?.nome) throw new Error('líder não informado pela API');
@@ -2867,7 +3035,7 @@ async function liderDoPodemos() {
   const m = (lider.uri || '').match(/\/deputados\/(\d+)/);
   if (m) {
     try {
-      const r3 = await fetch(`${API_BASE}/deputados/${m[1]}`);
+      const r3 = await fetchApiCamara(`${API_BASE}/deputados/${m[1]}`);
       if (r3.ok) {
         const sexo = (await r3.json()).dados?.sexo;
         if (sexo === 'F') tratamento = 'Deputada';

@@ -1,0 +1,1309 @@
+
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="pt-br" xml:lang="pt-br">
+<head>
+    <meta http-equiv="Permissions-Policy" content="ch-ua=(), ch-ua-platform=(), ch-ua-mobile=()">
+	<!-- head Portal -->
+	
+    <meta http-equiv="Content-Type" content="text/html charset=utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="apple-itunes-app" content="app-id=1049343067" />
+    <meta name="google-play-app" content="app-id=br.leg.camara.infolegmovel" />
+    <script>
+      (function () {
+        let initialized = false;
+        let loading = false;
+
+        function ensureBody(callback) {
+          if (document.body) {
+            callback();
+          } else {
+            setTimeout(() => ensureBody(callback), 50);
+          }
+        }
+
+        function loadScript() {
+          if (loading || window.VLibras) return;
+          loading = true;
+
+          ensureBody(() => {
+            const s = document.createElement("script");
+            s.src = "https://vlibras.gov.br/app/vlibras-plugin.js";
+            s.onload = initVLibras;
+            document.body.appendChild(s);
+          });
+        }
+
+        function initVLibras() {
+          if (initialized || !window.VLibras) return;
+
+          ensureBody(() => {
+            if (!document.querySelector("[vw]")) {
+              const container = document.createElement("div");
+              container.innerHTML = `
+              <div vw class="enabled">
+                <div vw-access-button class="active"></div>
+                <div vw-plugin-wrapper>
+                  <div class="vw-plugin-top-wrapper"></div>
+                </div>
+              </div>
+            `;
+              document.body.appendChild(container);
+            }
+
+            (new window.VLibras.Widget(
+              "https://vlibras.gov.br/app",
+              "https://vlibras.gov.br/config/camara.json",
+            ),
+              $("body").append(
+                '<aside><div vw class="enabled"><div vw-access-button class="active"></div><div vw-plugin-wrapper><div class="vw-plugin-top-wrapper"></div></div></div></aside>',
+              ));
+            initialized = true;
+
+            injectCSS();
+            if (!window.location.pathname.includes("/comissoes")) {
+              bindButton();
+            }
+          });
+        }
+
+        function injectCSS() {
+          if (document.getElementById("vlibras-style")) return;
+          const style = document.createElement("style");
+          style.id = "vlibras-style";
+          style.innerHTML = `
+          [vw-access-button] { display: none !important; }
+          div[vw] { z-index: 999999 !important; }
+        `;
+          document.head.appendChild(style);
+        }
+
+        function bindButton() {
+          const btn = document.getElementById("meu-botao-vlibras");
+          if (!btn) {
+            setTimeout(bindButton, 300);
+            return;
+          }
+
+          btn.onclick = function (e) {
+            e.preventDefault();
+            const original = document.querySelector("[vw-access-button]");
+            if (original) original.click();
+          };
+        }
+
+        // OBSERVA MUTA&#199;&#213;ES DO DOM (ESSENCIAL NO PLONE)
+        const observer = new MutationObserver(() => {
+          if (!document.querySelector("[vw]") && !initialized) {
+            loadScript();
+          }
+        });
+
+        observer.observe(document.documentElement, {
+          childList: true,
+          subtree: true,
+        });
+
+        window.addEventListener("load", loadScript);
+      })();
+    </script>
+
+    <title>Portal da Câmara dos Deputados</title>
+  <style type="text/css">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/member-cachekey-46bb2e0fc9968a457e63f356c0ff3900.css);</style><style type="text/css">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/portlets-cachekey-8a45f49b338591ae0c9c8a91f261dc78.css);</style><style type="text/css" media="screen">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/deprecated-cachekey-32595b622b36f2eee9478f07796d4f67.css);</style><style type="text/css" media="screen">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/resourceplone.app.discussion.stylesheetsdiscussion-cachekey-5b23f388acd88bdb65020b51a5a278fb.css);</style><style type="text/css">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/elements-cachekey-57e40a70bd8192a6f63782abff5c2748.css);</style><style type="text/css" media="all">@import url(https://www.camara.leg.br/portal_css/camara_leg_viradadigital/ploneCustom-cachekey-7fb44e17264e070fccf4e31d9f2ada1c.css);</style><link rel="stylesheet" type="text/css" href="https://www.camara.leg.br/portal_css/camara_leg_viradadigital/themecamara.leg.viradadigitalcsslibsbootstrap-datetimepicker.min-cachekey-ab2d257c1b49d2d194633e2ecb4564a2.css" /><link rel="stylesheet" type="text/css" href="https://www.camara.leg.br/tema/global/camara-custom.css" /><link rel="stylesheet" type="text/css" href="https://www.camara.leg.br/portal_css/camara_leg_viradadigital/++theme++camara.leg.viradadigital/css/all.min.css" /><link rel="apple-touch-icon" sizes="180x180" href="https://www.camara.leg.br/tema/apple-touch-icon.png" /><link rel="icon" type="image/png" sizes="32x32" href="https://www.camara.leg.br/tema/favicon-32x32.png" /><link rel="icon" type="image/png" sizes="16x16" href="https://www.camara.leg.br/tema/favicon-16x16.png" /><link rel="manifest" href="https://www.camara.leg.br/tema/site.webmanifest" /><link rel="mask-icon" href="https://www.camara.leg.br/tema/safari-pinned-tab.svg" color="#009e49" /><link rel="search" href="http://www2.camara.leg.br/busca-geral" title="Buscar neste site" /><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/resourceplone.app.jquery-cachekey-3fa72abea58e1799bd3b0bc237335d45.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/styleswitcher-cachekey-9178d2d1bc80488214ac8d40a46c7bdf.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/impressaoIframes-cachekey-7de901cf3c737563606c12fa53b7a321.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/GoogleAnalyticsTracker.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/kss-bbb-cachekey-df10a37e7aa4176c3b122c2e3b0ee128.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/inline_validation-cachekey-35d4d75a94cdb17b403a636871dd92cb.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljsbootstrap.min-cachekey-c15df71e2ec454087fe4c4eab0ce9d3e.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljslibsmoment.min-cachekey-860514b918ea422f7e82fa48125015c4.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljslibsmoment-pt-br-cachekey-0aafba4fb000126f1ed0f6701186de00.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljslibsbootstrap-datetimepicker.min-cachekey-fac2884b384d9c99236b26d0746facc4.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljslibsjquery.maskedinput.min-cachekey-e2f8b2523378532cc132594675b6dc6f.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljsacoes-tema-cachekey-a0084cf69f1785571a18f6a58a4986ac.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitaljscorrecoes-bootstrap-tema-cachekey-bd4c19550531506aa59d8b0aa7e8d6c5.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitalviradadigitalvendorjquery.mmenu.all-cachekey-f0e297313e30d6b2b2c2588ef23b5ef2.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitalviradadigitaljsvd_correcoes-cachekey-52a3614631388ad9e07bf35264bc73d5.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitalviradadigitaljsmmenu-correcoes-cachekey-8e45cc1e451978774afbfe2f5f1e95cf.js"></script><script type="text/javascript" src="https://www.camara.leg.br/portal_javascripts/camara_leg_viradadigital/themecamara.leg.viradadigitalviradadigitaljsselecao-idioma-cachekey-998dbb210e1353a5d7f94011740ee16c.js"></script><meta name="msapplication-TileColor" content="#00a300" /><meta name="msapplication-TileImage" content="https://www.camara.leg.br/tema/mstile-144x144.png" /><meta name="theme-color" content="#009e49" /><meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" /><link rel="canonical" href="" /><script type="text/javascript">
+          $("link[rel='canonical']").attr("href", window.location.href);
+        </script>
+	<!-- fim do head Portal -->    
+
+<link rel="stylesheet" type="text/css" href="css/impressaoFichaDeTramitacao.css" media="print" />
+<link rel="stylesheet" type="text/css" href="css/pesquisaProposicoes.css" />
+<script type="text/javascript" src="js/jquery.simpletip-1.3.1.pack.js"></script>
+<script type="text/javascript" src="js/layoutFichaDeTramitacao.js"></script>
+<link rel="stylesheet" type="text/css" href="css/customizacaoTooltip.css" />
+<script type="text/javascript" src="js/customizacaoTooltip.js"></script>
+<link rel="stylesheet" type="text/css" href="css/linkFichaVirada.css" />
+<link rel="stylesheet" type="text/css" href="css/layoutFichaDeTramitacao20210326.1.css" />
+</head>
+<body>
+	<div id="portal-top" class="diazo_layouts_topo">
+
+		<div><header class="l-cabecalho-portal" role="banner" id="portal-header">
+        <ul aria-label="Acesso direto" class="acesso-direto">
+          <!-- Links para saltar diretamente para &#225;reas importantes da p&#225;gina accesskey 2 = conte&#250;do e 3 = navega&#231;&#227;o -->
+          <li>
+            <a class="acesso-direto__link" href="#main-content" accesskey="2">Ir ao conteúdo</a>
+          </li>
+          <li>
+            <a class="acesso-direto__link" href="#main-nav" accesskey="3">Ir à navegação principal</a>
+          </li>
+        </ul>
+
+        <!--[if lte IE 9]>
+          <p class="browserupgrade">
+            Voc&#234; est&#225; usando um navegador <strong>defasado</strong>. Por favor,
+            <a href="https://browsehappy.com/">atualize seu navegador</a> para
+            melhorar sua experi&#234;ncia e sua seguran&#231;a.
+          </p>
+        <![endif]-->
+
+        <div class="nav-top">
+          <div class="container nav-top--container">
+            <a href="https://www2.camara.leg.br" class="logo-camara" accesskey="1"><span class="sr-only">Página inicial</span></a>
+
+            <div class="nav-top__palacio"></div>
+
+            <div class="nav-top__menu-superior">
+              <ul aria-label="Ferramentas de apoio" class="links-apoio">
+                <li class="links-apoio__item links-apoio__item--vlibras">
+                  <a id="meu-botao-vlibras" href="javascript:void(0);">
+                    <span>
+                      <img src="https://www.camara.leg.br/tema/assets/images/ico-vlibras-branco.png" alt="Ativar VLibras" width="28px" height="30px" />
+                    </span>
+                  </a>
+                </li>
+                <li class="links-apoio__item links-apoio__item--acessibilidade">
+                  <a href="https://www2.camara.leg.br/acessibilidade/recursos-de-acessibilidade" accesskey="0">Acessibilidade</a>
+                </li>
+                <li class="links-apoio__item links-apoio__item--faleconosco">
+                  <a href="https://www.camara.leg.br/fale-conosco" accesskey="9">Fale Conosco</a>
+                </li>
+              </ul>
+
+              <ul class="orgaos-parceiros" aria-label="Órgãos parceiros">
+                <li class="orgaos-parceiros__item orgaos-parceiros__item--congresso">
+                  <a href="http://www.congressonacional.leg.br"><span>Congresso</span></a>
+                </li>
+                <li class="orgaos-parceiros__item orgaos-parceiros__item--senado">
+                  <a href="http://www.senado.leg.br"><span>Senado</span></a>
+                </li>
+              </ul>
+
+              <div class="lista-idiomas">
+                <button class="botao-idioma-topo" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" data-offset="4,0">
+                  <span class="botao-idioma-topo__sigla">PT</span>
+                </button>
+
+                <ul class="dropdown-menu dropdown-menu-right l-lista-idiomas" aria-label="Idioma">
+                  <li class="l-lista-idiomas__item">
+                    <a href="https://www2.camara.leg.br/english" class="idioma-topo">
+                      <span class="idioma-topo__bandeira idioma-topo__bandeira--ingles" aria-hidden="true"></span>
+                      <span class="idioma-topo__nome">English</span>
+                      <span class="idioma-topo__sigla">EN</span>
+                    </a>
+                  </li>
+                  <li class="l-lista-idiomas__item">
+                    <a href="https://www2.camara.leg.br/espanol" class="idioma-topo">
+                      <span class="idioma-topo__bandeira idioma-topo__bandeira--espanhol" aria-hidden="true"></span>
+                      <span class="idioma-topo__nome">Español</span>
+                      <span class="idioma-topo__sigla">ES</span>
+                    </a>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="home-camara-menu">
+    <nav class="menu-global navbar navbar-expand-lg" role="navigation" aria-label="Navegação principal" id="menuglobal">
+      <div class="container menu-global--container">
+      
+
+        <a href="https://www.camara.leg.br" class="logo-camara" accesskey="1">
+          <span class="sr-only">Página inicial</span>
+        </a>
+
+      
+        
+        <!-- icone menu -->
+        <button class="menu-global--btnmenu navbar-toggler" type="button" data-toggle="collapse" data-target="#navbarportal" aria-controls="navbarportal" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="menu-global--icon"></span>
+        </button>
+
+        <!-- icone busca -->
+        <button class="menu-global--btnsearch" type="button" data-toggle="collapse" data-target="#buscaportal" aria-controls="buscaportal" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="fa fa-search"></span>
+        </button>
+
+        <div class="navbar-collapse hidden-sm hidden-md hidden-xs" id="navbarportal">
+          <ul title="Navegação Principal" id="main-nav" class="navbar-nav">
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-temas nav-link dropdown-toggle" id="temas">Assuntos</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="temas">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/agropecuaria">Agropecuária</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/cidades-e-transportes">Cidades e transportes</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/ciencia-tecnologia-e-comunicacoes">Ciência, tecnologia e comunicações</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/consumidor">Consumidor</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/direitos-humanos">Direitos humanos</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/economia">Economia</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/educacao-cultura-e-esportes">Educação, cultura e esportes</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/meio-ambiente-e-energia">Meio ambiente e energia</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/politica-e-administracao-publica">Política e administração pública</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/relacoes-exteriores">Relações exteriores</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/saude">Saúde</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/seguranca">Segurança</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assuntos/trabalho-previdencia-e-assistencia">Trabalho, previdência e assistência</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-institucional nav-link dropdown-toggle" id="institucional">Institucional</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="institucional">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/agenda">Agenda</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/transparencia/servicos-ao-cidadao">Serviços</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/a-camara/estruturaadm/mesa/presidencia">Presidência</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/biblioteca-e-publicacoes/">Biblioteca e publicações</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/escola-da-camara/">Escola da Câmara</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/papel-e-estrutura/">Papel e estrutura</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/historia-e-arquivo/">História e arquivo</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/a-camara/visiteacamara">Visite</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-deputados nav-link dropdown-toggle" id="deputados">Deputados</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="deputados">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/deputados/quem-sao">Quem são</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/deputados/liderancas-e-bancadas-partidarias">Lideranças e bancadas</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/deputados/frentes-e-grupos-parlamentares">Frentes e grupos parlamentares</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-atvlegislativa nav-link dropdown-toggle" id="atvlegislativa">Atividade Legislativa</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="atvlegislativa">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/busca-portal/proposicoes/pesquisa-simplificada">Propostas legislativas</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/plenario">Plenário</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/comissoes">Comissões</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/sessoesereunioes">Sessões e reuniões</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/atividade-legislativa/estudos-e-notas-tecnicas">Estudos legislativos</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/atividade-legislativa/orcamento-da-uniao">Orçamento da União</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/legislacao">Legislação</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/entenda-o-processo-legislativo/">Entenda o processo legislativo</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/atividade-legislativa/participe">Participe</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-comunicacao nav-link dropdown-toggle" id="comunicacao">Comunicação</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="comunicacao">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/noticias">Agência Câmara de Notícias</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/radio">Rádio Câmara</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/tv">TV Câmara</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/banco-imagens">Banco de Imagens</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/assessoria-de-imprensa">Assessoria de Imprensa</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/comprove">Comprove uma notícia</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+            
+              
+                <li class="nav-item dropdown">
+                  <a href="#" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" class="menu-global__item-transprestcontas nav-link dropdown-toggle" id="transprestcontas">Transparência e prestação de contas</a>
+
+                  
+                    <ul class="dropdown-menu" aria-labelledby="transprestcontas">
+                      <li class="dropdown-item">
+                        <a href="https://www.camara.leg.br/transparencia/">Transparência</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://www2.camara.leg.br/transparencia/prestacao-de-contas">Prestação de contas</a>
+                      </li>
+                      <li class="dropdown-item">
+                        <a href="https://dadosabertos.camara.leg.br/">Dados abertos</a>
+                      </li>
+                    </ul>
+                  
+                </li>
+              
+            
+          </ul>
+          <div class="outras-opcoes-menu-usuario hidden-md hidden-lg">
+            <ul aria-label="Ferramentas de apoio" class="links-apoio links-apoio--menu-mobile">
+              <li class="links-apoio__item links-apoio__item--acessibilidade">
+                <a href="https://www2.camara.leg.br/acessibilidade/recursos-de-acessibilidade" accesskey="0">Acessibilidade</a>
+              </li>
+              <li class="links-apoio__item links-apoio__item--faleconosco">
+                <a href="https://www.camara.leg.br/fale-conosco" accesskey="9">Fale Conosco</a>
+              </li>
+            </ul>
+          </div>
+          <div class="lista-idiomas hidden-md hidden-lg">
+            <button id="botao-idioma-topo" class="botao-idioma-topo" data-toggle="dropdown" aria-haspopup="true" aria-expanded="false" data-offset="4,0">
+                <span class="botao-idioma-topo__sigla">PT</span>
+            </button>
+        
+            <ul class="dropdown-menu-right l-lista-idiomas " aria-label="Idioma">
+                <li class="l-lista-idiomas__item">
+                    <a href="https://www2.camara.leg.br/english" class="idioma-topo">
+                        <span class="idioma-topo__bandeira idioma-topo__bandeira--ingles" aria-hidden="true"></span>
+                        <span class="idioma-topo__nome">English</span>
+                        <span class="idioma-topo__sigla">EN</span>
+                    </a>
+                </li>
+                <li class="l-lista-idiomas__item">
+                    <a href="https://www2.camara.leg.br/espanol" class="idioma-topo">
+                        <span class="idioma-topo__bandeira idioma-topo__bandeira--espanhol" aria-hidden="true"></span>
+                        <span class="idioma-topo__nome">Español</span>
+                        <span class="idioma-topo__sigla">ES</span>            
+                    </a>
+                </li>
+            </ul>
+        </div>
+        </div>
+
+
+        <div class="collapse box-search" id="buscaportal">
+          <form role="search" accesskey="4" class="box-search__busca form-inline" action="https://www.camara.leg.br/busca-geral">
+            <label for="termo" class="sr-only box-search__label">Pesquise no Portal da Câmara</label>
+            <input class="form-control box-search__campo" type="search" name="termo" id="termo" placeholder="Buscar" aria-label="Search" />
+          </form>
+        </div>
+      </div>
+    </nav>
+  </div>
+      </header></div>
+		
+				
+		<div class="container breadcrumbs-marcacao">
+			<div id="portal-breadcrumbs">
+			
+		<div id="portal-breadcrumbs">
+			<span id="breadcrumbs-home">
+				<a href="http://www2.camara.leg.br">P&aacute;gina Inicial</a>
+				<span class="breadcrumbSeparator"> / </span>
+			</span>
+			
+			<span dir="ltr">
+				<a href="http://www2.camara.leg.br/atividade-legislativa">Atividade Legislativa</a> 
+				<span class="breadcrumbSeparator"> / </span>
+				
+			</span><span dir="ltr">
+				<a href="https://www.camara.leg.br/busca-portal/proposicoes/pesquisa-simplificada">Projetos de Lei e Outras Proposições</a> 
+				<span class="breadcrumbSeparator"> / </span>
+				
+			</span><span dir="ltr">
+				 
+				
+				<span>PLP 230/2025</span>
+			</span>
+		</div>
+	
+			
+			</div>  
+            <div class="row">
+                <div id="menu-secoes-internas" class="col-md-12 menu-secoes-internas">
+                    <div id="portal-mainsection">
+                        <h2 id="areaTituloMenu"><a href="fichadetramitacao?idProposicao=2580259">PLP 230/2025</a></h2>
+                    </div>
+                </div>
+            </div>
+        </div>
+	</div>
+	<div id="marcacao-conteudo-portal" class="conteudo-portal container nopadding-right nopadding-left">
+		<div class="coluna-centro col-md-12">
+			<div id="content">
+				
+
+        
+				<!-- InstanceBeginEditable name="Document Content" -->
+				<!-- INICIO CORPO -->
+
+				<div id="portal-column-content" class="col-md-8">
+					<div id="portal-content-wrapper">
+						<div id="region-content" class="documentContent">
+							<a name="documentContent"></a>
+
+							<div id="content">
+								
+
+									
+									
+
+										<div class="rightPositioned naoVisivelNaImpressao tiposDeImpressao dropDownTrigger">
+											<a class="itemPai rightIconified iconSetinha">&nbsp;&nbsp;Vers&otilde;es
+												para impress&atilde;o</a>
+											<ul class="dropDown visualNoMarker">
+												<li><a title="Impress&atilde;o reduzida" href="prop_imp;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1&amp;tp=reduzida">Impress&atilde;o
+														reduzida</a></li>
+												<li><a title="Impress&atilde;o completa" href="prop_imp;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1&amp;tp=completa">Impress&atilde;o
+														completa</a></li>
+												<li><a title="Impress&atilde;o personalizada" href="prop_visual_impress;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1">Impress&atilde;o
+														personalizada</a></li>
+
+											</ul>
+										</div>
+										<div>
+											<span id="subSecaoNomeFuncoesImpressao">
+												<span id="barraFuncoesTopo" class="rightPositioned naoVisivelNaImpressao">
+													<a class="comBordaLateralDireita" href="https://www.camara.leg.br/boletins/propostas/subscricoes?texParametroInscricao=2580259">Cadastrar para
+														acompanhamento&nbsp;&nbsp;</a>
+													<a class="comBordaLateralDireita" href="/sileg/Prop_Detalhe.asp?id=2580259&amp;st=1">
+														&nbsp;&nbsp;Vers&atilde;o anterior da ficha&nbsp;&nbsp;</a>
+												</span>
+											</span>
+										</div>
+									
+									<div class="clearedBox"></div>
+									<h3 class="inteiroTeor">
+										<span class="nomeProposicao">PLP 230/2025</span> <span class="naoVisivelNaImpressao"><a href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3037247&filename=PLP 230/2025" onclick="" onkeypress="" title="Clique para obter o inteiro teor ou a &iacute;ntegra" class="rightIconified iconDetalhe linkDownloadTeor">
+												Inteiro teor
+											</a></span> <br /> <span class="tipoProposicao">Projeto de Lei Complementar</span>
+									</h3>
+
+									<br />
+									<div id="subSecaoSituacaoOrigemAcessoria">
+										<p>
+											<strong>Situa&ccedil;&atilde;o: </strong>
+											<span>Aguardando Deliberação no Plenário (PLEN); Aguardando Despacho do Presidente da Câmara dos Deputados</span>
+										</p>
+										
+										
+									</div>
+
+									<br />
+
+									<strong> <span>Identifica&ccedil;&atilde;o da
+											Proposi&ccedil;&atilde;o</span> 
+										<hr>
+										</hr>
+									</strong>
+
+									<div id="identificacaoProposicao">
+										<div>
+											<div class="row">
+												<div class="col-md-9">
+													<p id="colunaPrimeiroAutor">
+														<strong>Autor</strong><br />
+														
+															<a href="/deputados/178886">
+																Juscelino Filho - UNIÃO/MA
+															</a>
+															,&nbsp;
+														
+															<a href="/deputados/204410">
+																Luisa Canziani - PSD/PR
+															</a>
+															
+														
+														
+													</p>
+												</div>
+
+												<div class="col-md-3">
+													<p>
+														<strong>Apresenta&ccedil;&atilde;o</strong><br />
+														03/11/2025
+													</p>
+												</div>
+											</div>
+										</div>
+
+
+										<p>
+											<strong>Ementa</strong><br /> <span class="textoJustificado">Altera a Lei Complementar nº 101, de 4 de maio de 2000, para vedar a limitação de empenho e movimentação financeira das despesas relativas ao Fundo de Universalização dos Serviços de Telecomunicações, e a Lei nº 9.998, de 17 de agosto de 2000, para os fins que especifica.</span>
+										</p>
+										
+
+										
+
+										<div class="naoVisivelNaImpressao">
+											<a id="linkIndexacao" class="iconSecaoFechada"><span><strong>Indexa&ccedil;&atilde;o</strong></span></a>
+											<br />
+
+											<div class="textoJustificado" id="textoIndexacao" style="display: none;">Alteração, Lei de Responsabilidade Fiscal (2000), Lei do Fundo de Universalização dos Serviços de Telecomunicações (2000), proibição, limitação de empenho, Programação financeira, Fundo de Universalização dos Serviços de Telecomunicações (Fust), despesa, programa (administração), aprovação, Conselho Gestor do Fundo de Universalização dos Serviços de Telecomunicações, prazo, vigência, Benefício fiscal.</div>
+										</div>
+
+									</div>
+									<br />
+
+									<h3 class="headSessao-1">
+										<a class="iconSecaoAberta"><span>Informa&ccedil;&otilde;es
+												de Tramita&ccedil;&atilde;o</span></a>
+									</h3>
+
+									<div id="informacoesDeTramitacao">
+										<div class="row">
+											<div>
+												<div class="col-md-8">
+													<p>
+														<strong>Forma de Aprecia&ccedil;&atilde;o</strong><br />
+														Proposição Sujeita à Apreciação do Plenário
+													</p>
+												</div>
+
+												<div class="col-md-4">
+													<p>
+														<strong>Regime de Tramita&ccedil;&atilde;o</strong><br />
+														Urgência (Art. 155, RICD)
+													</p>
+												</div>
+											</div>
+										</div>
+
+										<br />
+
+										
+
+										
+									</div>
+
+									
+
+										<h3 class="headSessao-1">
+											<a class="iconSecaoAberta"><span>&Uacute;ltima
+													A&ccedil;&atilde;o Legislativa</span></a>
+										</h3>
+
+										<div id="ultimaAcao">
+
+											<table border="0" width="100%"
+												summary="Lista das &uacute;ltimas a&ccedil;&otilde;es"
+												class="table table-bordered table-striped">
+												<tbody>
+													<tr>
+														<th width="10%" scope="col">Data</th>
+														<th scope="col">A&ccedil;&atilde;o</th>
+													</tr>
+												</tbody>
+												<tbody class="coresAlternadas">
+
+													<tr class="even">
+														<td>07/07/2026</td>
+														<td class="textoJustificado"><span class="linkNoDecoration">
+																<strong>
+																	Plenário ( PLEN )
+																</strong>
+															</span> <br /> <span>Designada Relatora, Dep. Maria Rosas (REPUBLIC-SP).</span></td>
+													</tr>
+
+													
+												</tbody>
+											</table>
+										</div>
+
+									
+
+									
+
+									<div>
+										<a class="" id="lnkArvoreDeApensados" href="prop_arvore_tramitacoes;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259">&Aacute;rvore
+											de apensados e outros documentos da mat&eacute;ria</a>
+									</div>
+
+									
+										<h3 id="secaoDocumentosEAnexosReferenciados" class="headSessao-1">
+											<a class="iconSecaoAberta"><span>Documentos
+													Anexos e Referenciados</span></a>
+										</h3>
+
+										<div id="documentosEanexos">
+											<div>
+												<div class="row">
+													<div class="col-md-4">
+														<ul>
+															<li>
+																<span onkeypress="">Avulsos</span>
+																	
+															</li><li>
+																<span onkeypress="">Destaques</span>
+																	 ( 0 )
+															</li><li>
+																<a onclick="" onkeypress="" href="https://www.camara.leg.br/proposicoesWeb/prop_emendas?idProposicao=2580259&amp;subst=0">Emendas ao Projeto</a>
+																	 ( 1 )
+															</li><li>
+																<span onkeypress="">Emendas ao Substitutivo</span>
+																	 ( 0 )
+															</li><li>
+																<span onkeypress="">Histórico de Despachos</span>
+																	 ( 0 )
+															</li>
+														</ul>
+													</div><div class="col-md-4">
+														<ul>
+															<li>
+																<a onclick="" onkeypress="" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3037316&amp;filename=LegislacaoCitada PLP 230/2025">Legislação citada</a>
+																	
+															</li><li>
+																<a onclick="" onkeypress="" href="https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=2580259">Histórico de Pareceres, Substitutivos e Votos</a>
+																	 ( 2 )
+															</li><li>
+																<span onkeypress="">Recursos</span>
+																	 ( 0 )
+															</li><li>
+																<span onkeypress="">Redação Final</span>
+																	
+															</li>
+														</ul>
+													</div><div class="col-md-4">
+														<ul>
+															<li>
+																<a onclick="" onkeypress="" href="https://www.camara.leg.br/proposicoesWeb/prop_requerimentos?idProposicao=2580259">Mensagens, Ofícios e Requerimentos</a>
+																	 ( 3 )
+															</li><li>
+																<span onkeypress="">Relatório de conferência de assinaturas</span>
+																	
+															</li><li>
+																<span onkeypress="">Dossiê digitalizado</span>
+																	
+															</li>
+														</ul>
+													</div>
+												</div>
+											</div>
+										</div>
+									
+									
+
+									
+										<h3 id="separadorOculto">
+											<br></br>
+											<span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+											<span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+										</h3>
+
+										<h3 class="headSessao-1">
+											<a class="iconSecaoAberta"><span>Aprecia&ccedil;&atilde;o em
+													Plen&aacute;rio</span></a>
+										</h3>
+										<div class="row">
+											<div class="col-md-12">
+												<ul>
+													<li><a href="https://www.camara.leg.br/pplen/requerimentos-proposicao.html?codOrgao=180&codProposicao=2580259">Requerimentos
+															Procedimentais</a> ( 0 )
+													</li>
+													<li><a href="https://www.camara.leg.br/pplen/destaques.html?codOrgao=180&codProposicao=2580259">Destaques
+															e Emendas Aglutinativas </a> ( 0 )
+													</li>
+													<li><a href="prop_listas_de_oradores;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259">Oradores Inscritos </a>
+														( 3 )
+													</li>
+												</ul>
+											</div>
+										</div>
+										<h3 id="separadorOculto">
+											<br></br>
+											<span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+											<span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+										</h3>
+									
+
+									
+
+									<h3 id="separadorOculto">
+										<span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;</span><br />
+									</h3>
+									
+
+									
+
+										
+											<form action="/sileg/CadastraMarcadas.asp" method="post" name="frmListaProp" id="frmListaProp" target="_top"
+												class="formCamara">
+												<input type="hidden" id="ModuloChamador" value="fichadetramitacao?idProposicao=2580259" name="ModuloChamador"/> <input type="hidden" id="chkListaProp" value="2580259;PLP-230/2025" name="chkListaProp"/>
+
+											</form>
+										
+
+
+
+
+										<div id="tramitacoes">
+											<h3>
+												<a class="iconSecaoAberta" name="lnkSecaoTramitacao">
+													<span>Tramita&ccedil;&atilde;o</span></a>
+												<a class="rightPositioned naoVisivelNaImpressao" id="lnkCadastrarSispush1" href="https://www.camara.leg.br/boletins/propostas/subscricoes?texParametroInscricao=2580259">Cadastrar para acompanhamento</a>
+												<hr>
+												</hr>
+
+											</h3>
+
+											<div>
+												<p>
+													<em>Obs.: o andamento da proposi&ccedil;&atilde;o fora
+														desta Casa Legislativa n&atilde;o &eacute; tratado pelo
+														sistema, devendo ser consultado nos &oacute;rg&atilde;os
+														respectivos.</em>
+												</p>
+											</div>
+											<table border="0" width="100%"
+												summary="Lista das tramita&ccedil;&otilde;es da proposi&ccedil;&atilde;o"
+												class="table table-bordered table-striped">
+												<thead>
+													<tr>
+														<th scope="col">Data</th>
+														<th scope="col">Andamento</th>
+													</tr>
+												</thead>
+												<tbody id="id1">
+
+													<tr class="even">
+														<td>03/11/2025</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Mesa Diretora ( MESA )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Apresentação do PLP n. 230/2025 (Projeto de Lei Complementar), pelos Deputado Juscelino Filho (UNIÃO/MA) e Deputada Luisa Canziani PSD       , que &quot;Altera a Lei Complementar nº 101, de 4 de maio de 2000, para vedar a limitação de empenho e movimentação financeira das despesas relativas ao Fundo de Universalização dos Serviços de Telecomunicações, e a Lei nº 9.998, de 17 de agosto de 2000, para os fins que especifica&quot;.
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3037247&filename=Tramitacao-1-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="odd">
+														<td>25/03/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Mesa Diretora ( MESA )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Apresentação do REQ n. 1642/2026 (Requerimento de Redistribuição), pelo Comissão de Comunicação, que &quot;Requer a distribuição do Projeto de Lei Complementar nº 230/2025 para que a Comissão de Comunicação analise seu mérito&quot;.
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3104314&filename=Tramitacao-7-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="even">
+														<td>07/05/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Mesa Diretora ( MESA )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Apresentação do REQ n. 2708/2026 (Requerimento de Urgência (Art. 155 do RICD)), pelos Deputado Juscelino Filho (PSDB/MA) e outros, que &quot;Requer regime de urgência para apreciação do Projeto de Lei Complementar nº 230/2025, que altera a Lei Complementar nº 101, de 4 de maio de 2000, e a Lei nº 9.998, de 17 de agosto de 2000, para os fins que especifica&quot;.
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3125581&filename=Tramitacao-8-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="odd">
+														<td>16/06/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Plenário ( PLEN )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Aprovado o requerimento nº 2708/2026,do Sr. Juscelino Filho e outros, que solicita urgência (art. 155) para o PLP 230/2025.
+																		
+																		
+																		
+														               
+																	</li><li class="liTabelaTramitacoes">
+																		Alteração do Regime de Tramitação desta proposição em virtude da Aprovação do REQ 2708/2026.
+																		
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="even">
+														<td>07/07/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Plenário ( PLEN )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Designada Relatora, Dep. Maria Rosas (REPUBLIC-SP).
+																		
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="odd">
+														<td>11/08/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Mesa Diretora ( MESA )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Apresentação do PRLP n. 1 PLEN (Parecer Preliminar de Plenário), pela Deputada Maria Rosas (REPUBLIC/SP).
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3169995&filename=Tramitacao-12-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li><li class="liTabelaTramitacoes">
+																		Apresentação do PRLP n. 2 PLEN (Parecer Preliminar de Plenário), pela Deputada Maria Rosas (REPUBLIC/SP).
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3170169&filename=Tramitacao-13-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr><tr class="even">
+														<td>12/08/2026</td>
+														<td class="textoJustificado">
+															<p class="paragrafoTabelaTramitacoes">
+																<span class="linkNoDecoration">
+																	<strong>
+																		Mesa Diretora ( MESA )
+																	</strong>
+																	</span>
+																	
+																		</p>
+																		<ul class="ulTabelaTramitacoes">
+																	<li class="liTabelaTramitacoes">
+																		Apresentação do REQ n. 4031/2026 (Requerimento de Inclusão de Matéria na Ordem do Dia), pelo Deputado Messias Donato (UNIÃO/ES), que &quot;Requer a inclusão na Ordem do Dia do Plenário para votação imediata do PLP 230/2025, que Altera a Lei Complementar nº 101, de 4 de maio de 2000, para vedar a limitação de empenho e movimentação financeira das despesas relativas ao Fundo de Universalização dos Serviços de Telecomunicações, e a Lei nº 9.998, de 17 de agosto de 2000, para os fins que especifica&quot;.
+																		<a class="rightIconified iconDetalhe linkDownloadTeor" href="https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=3171011&filename=Tramitacao-14-PLP-230-2025" onclick="" onkeypress="" title="Clique para obter a &iacute;ntegra da tramita&ccedil;&atilde;o">
+																			Inteiro teor
+																		</a>
+																		
+																		
+														               
+																	</li>
+																	
+																		</ul>
+															
+															</td>
+													</tr>
+
+
+													
+												</tbody>
+											</table>
+											
+
+										</div>
+									
+									
+
+										<div class="rightPositioned naoVisivelNaImpressao tiposDeImpressao dropUpTrigger">
+											<a class="itemPai rightIconified iconSetinha">&nbsp;&nbsp;Vers&otilde;es
+												para impress&atilde;o</a>
+											<ul class="dropDown visualNoMarker">
+												<li><a title="Impress&atilde;o reduzida" href="prop_imp;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1&amp;tp=reduzida">Impress&atilde;o
+														reduzida</a></li>
+												<li><a title="Impress&atilde;o completa" href="prop_imp;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1&amp;tp=completa">Impress&atilde;o
+														completa</a></li>
+												<li><a title="Impress&atilde;o personalizada" href="prop_visual_impress;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259&amp;ord=1">Impress&atilde;o
+														personalizada</a></li>
+
+											</ul>
+										</div>
+										<div>
+											<span id="subSecaoNomeFuncoesImpressao">
+												<span id="barraFuncoesTopo" class="rightPositioned naoVisivelNaImpressao">
+													<a class="comBordaLateralDireita" href="https://www.camara.leg.br/boletins/propostas/subscricoes?texParametroInscricao=2580259">Cadastrar para
+														acompanhamento&nbsp;&nbsp;</a>
+													<a class="comBordaLateralDireita" href="/sileg/Prop_Detalhe.asp?id=2580259&amp;st=1">
+														&nbsp;&nbsp;Vers&atilde;o anterior da ficha&nbsp;&nbsp;</a>
+												</span>
+											</span>
+										</div>
+									
+
+									<!-- InstanceEndEditable -->
+								
+								<!-- container do corpo principal -->
+
+							</div>
+						</div>
+					</div>
+				</div>
+				<div id="portal-column-two" class="col-md-4">
+
+					<!-- TemplateBeginEditable name="portal-column-two"-->
+
+					<iframe width="100%" height="190px" src="https://www.camara.leg.br/enquetes/embed/2580259"></iframe>
+
+					
+
+					
+
+					<div class="portlet-destaques-1 fichaTramitacao">
+						<h5 class="header">Sessões e Reuniões</h5>
+						<ul>
+							<li class="destaque textoColuna"><span>12/08/2026 - 13h00</span>
+
+								<p>Plenário</p>
+
+								<p>Sessão Deliberativa Extraordinária Semipresencial (AM nº 123/2020)</p>
+								<ul class="listaHorizontal espacamentoIcones">
+									
+									
+									<li><a class="leftIconified iconDetalhe" href="https://www.camara.leg.br/evento-legislativo/82876">Detalhes</a>
+									</li>
+									</ul>
+									</li>
+							
+						</ul>
+						
+
+						<div class="linkApoio">
+							<a href="sessoes_e_reunioes;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259">mais sessões e reuniões</a>
+						</div>
+</div>
+
+					<div class="portlet-destaques-1 fichaTramitacao">
+						<h5 class="header">Discursos</h5>
+						<ul>
+							<li class="destaque listaSemDivisor"><a href="https://www.camara.leg.br/proposicoesWeb/prop_discursos?idProposicao=2580259&amp;nm=Adriana+Ventura&amp;p=NOVO&amp;uf=SP">Adriana Ventura (1)</a></li><li class="destaque listaSemDivisor"><a href="https://www.camara.leg.br/proposicoesWeb/prop_discursos?idProposicao=2580259&amp;nm=Chico+Alencar&amp;p=PSOL&amp;uf=RJ">Chico Alencar (1)</a></li><li class="destaque listaSemDivisor"><a href="https://www.camara.leg.br/proposicoesWeb/prop_discursos?idProposicao=2580259&amp;nm=Juscelino+Filho&amp;p=PSDB&amp;uf=MA">Juscelino Filho (1)</a></li>
+							
+						</ul>
+						<div class="linkApoio">
+							<a href="prop_deputados;jsessionid=node01ljfh2dryh3gj1qxdfg47lvemq72833.node0?idProposicao=2580259">mais deputados</a>
+						</div>
+
+					</div>
+
+					<div class="portlet-destaques-1 fichaTramitacao">
+						<h5 class="header">Informações Externas</h5>
+						<ul>
+                            
+    							<li class="destaque listaSemDivisor"><a class="clearedBox" href="http://www.lexml.gov.br/urn/urn:lex:br:camara.deputados:projeto.lei.complementar;plc:2025-11-03;230"><img alt="LeXML" src="imagens/ico_lexml.png"/>LeXML - Veja
+    									informações desta
+    									proposição no Senado e em outros órgãos</a></li>
+							
+                            
+						</ul>
+					</div>
+
+
+					<!-- TemplateEndEditable -->
+
+				</div>
+
+			
+    
+			</div>
+		</div>
+	</div>
+	<div><div class="js-mmenu-container">
+      
+
+      
+      
+
+      
+
+      <footer role="contentinfo" class="rodape-portal">
+        <!-- Coloque aqui o endere&#231;o e demais informa&#231;&#245;es de assinatura -->
+        <address class="rodape-portal-info">
+          <div class="container">
+            <div class="rodape-portal-info__nome">
+              <p>
+                <strong id="legislaturaRodape">57ª Legislatura - 4ª Sessão Legislativa Ordinária</strong>
+              </p>
+            </div>
+
+            <div class="l-rodape-info">
+              <div class="l-rodape-info__local rodape-portal-info__texto">
+                <span class="rodape-info">Câmara dos Deputados - Palácio do Congresso Nacional - Praça
+                  dos Três Poderes</span>
+                <span class="rodape-info">Brasília - DF - Brasil - CEP 70160-900</span>
+                <span class="rodape-info"><span class="rodape-info__destaque">CNPJ:</span>
+                  00.530.352/0001-59</span>
+              </div>
+
+              <div class="l-rodape-info__telefones rodape-portal-info__texto">
+                <ul class="list-unstyled" aria-label="Número para contato e horário de atendimento">
+                  <li>
+                    <span class="rodape-info__destaque">Disque-Câmara:</span>
+                    <a href="tel:0800-0-619-619">0800-0-619-619</a>, das 8h às
+                    20h
+                  </li>
+                  <li>
+                    <span class="rodape-info__destaque">Atendimento por WhatsApp:</span>
+                    <a href="https://wa.me//556132160000?text">(61) 3216-0000</a>, das 8h às 19h
+                  </li>
+                  <li>
+                    <span class="rodape-info__destaque">Atendimento presencial:</span>
+                    das 9h às 19h
+                  </li>
+                </ul>
+              </div>
+            </div>
+            <div class="acesso-provedor text-right">
+              <a title="Autenticar-se no site" href="/login_form">
+                <i class="fas fa-lock" aria-hidden="true"></i>
+              </a>
+            </div>
+          </div>
+        </address>
+        <!-- Coloque aqui a lista de redes sociais da C&#226;mara -->
+        <div class="rodape-portal-links rodape-portal-links--redes-sociais">
+          <div class="container">
+            <ul class="rodape-portal-links__lista" aria-label="Câmara nas redes sociais">
+              <li class="rodape-portal-links__item">
+                <a href="https://whatsapp.com/channel/0029Va2fexI3gvWgfMs6Fv31" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--whatsapp" aria-hidden="true"></span>
+                  <span class="sr-only">Whatsapp</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://t.me/CamaradosDeputados" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--telegram" aria-hidden="true"></span>
+                  <span class="sr-only">Telegram</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www.facebook.com/camaradeputados" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--facebook" aria-hidden="true"></span>
+                  <span class="sr-only">Facebook</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://twitter.com/camaradeputados" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--twitter" aria-hidden="true"></span>
+                  <span class="sr-only">X</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www.youtube.com/channel/UC-ZkSRh-7UEuwXJQ9UMCFJA" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--youtube" aria-hidden="true"></span>
+                  <span class="sr-only">Youtube</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://tiktok.com/@camaradosdeputados" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--tiktok" aria-hidden="true"></span>
+                  <span class="sr-only">Tiktok</span>
+                </a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www.instagram.com/camaradeputados" class="rodape-portal-links__link">
+                  <span class="g-social-icon-outline g-social-icon-outline--instagram" aria-hidden="true"></span>
+                  <span class="sr-only">Instagram</span>
+                </a>
+              </li>
+              <li class="rodape-portal-links__item">
+                  <a href="https://www.threads.com/@camaradosdeputados" class="rodape-portal-links__link">
+                      <span class="g-social-icon-outline g-social-icon-outline--threads" aria-hidden="true"></span>
+                      <span class="sr-only">Threads</span>
+                  </a>
+              </li>
+              <li class="rodape-portal-links__item">
+                  <a href="https://bsky.app/profile/camara.leg.br" class="rodape-portal-links__link">
+                      <span class="g-social-icon-outline g-social-icon-outline--bluesky" aria-hidden="true"></span>
+                      <span class="sr-only">Bluesky</span>
+                  </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+        <!-- Coloque aqui a lista de links de apoio do rodap&#233; -->
+        <div class="rodape-portal-links rodape-portal-links--apoio">
+          <div class="container">
+            <ul class="rodape-portal-links__lista" aria-label="Links de apoio">
+              <li class="rodape-portal-links__item">
+                <a href="https://www2.camara.leg.br/sobre-o-portal" class="rodape-portal-links__link">Sobre o portal</a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www2.camara.leg.br/termo-de-uso-e-politica-de-privacidade" class="rodape-portal-links__link">Termos de uso</a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www2.camara.leg.br/aplicativos/" class="rodape-portal-links__link">Aplicativos</a>
+              </li>
+
+              <li class="rodape-portal-links__item">
+                <a href="https://www.camara.leg.br/extranet" class="rodape-portal-links__link">Extranet</a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </footer>
+
+      <div class="barra-carregando" style="display: none">
+        <div class="modal-dialog">
+          <div class="modal-content">
+            <div class="modal-header">
+              <h5 class="modal-title">Carregando</h5>
+            </div>
+            <div class="modal-body">
+              <p>Por favor, aguarde.</p>
+              <div class="progress">
+                <div class="progress-bar progress-bar-striped active" role="progressbar" aria-valuenow="45" aria-valuemin="0" aria-valuemax="100" style="width: 100%">
+                  <span class="sr-only"></span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div></div>
+	
+
+</body>
+</html>

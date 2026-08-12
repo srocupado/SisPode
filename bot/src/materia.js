@@ -18,6 +18,8 @@
 
 require('dns').setDefaultResultOrder('ipv4first');
 const pdfjs = require('pdfjs-dist/legacy/build/pdf.js');
+const { DOMParser } = require('linkedom');
+const { fbGet, fbPut } = require('./firebase');
 
 const API_BASE = 'https://dadosabertos.camara.leg.br/api/v2';
 const ANTHROPIC_VER = '2023-06-01';
@@ -43,6 +45,110 @@ function parseReferencia(texto) {
            chave: `${m[1].toUpperCase()} ${parseInt(m[2], 10)}/${ano}` };
 }
 
+
+// ============================================================
+//  CHAMADAS À API — teto + repetição · CACHE compartilhado · FICHA do portal
+// ============================================================
+// A) A API oscila (MEDIDO em 12/08/2026: 504 intermitente em ~25% das
+// chamadas). GET é idempotente: repetir é seguro. Mesma política da extensão.
+const BACKOFF_API_MS = [0, 800, 2000, 4000];
+
+async function fetchApiCamara(url, init = {}, ms = 20000) {
+  let ultima = null;
+  for (let i = 0; i < BACKOFF_API_MS.length; i++) {
+    if (BACKOFF_API_MS[i]) await new Promise(r => setTimeout(r, BACKOFF_API_MS[i]));
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), ms);
+    let res;
+    try {
+      res = await fetch(url, { ...init, signal: ctrl.signal });
+    } catch (e) {
+      ultima = e.name === 'AbortError' ? new Error(`a API da Câmara não respondeu em ${ms / 1000}s`) : e;
+      continue;
+    } finally { clearTimeout(timer); }
+    if (res.ok || (res.status !== 429 && res.status < 500)) return res;
+    ultima = new Error(`a API da Câmara respondeu HTTP ${res.status} (instável)`);
+  }
+  throw ultima || new Error('API da Câmara indisponível');
+}
+
+// B) Cache de fatos IMUTÁVEIS (id/ementa), compartilhado com a extensão no
+// mesmo nó /proposicoes-cache. O bot consulta a API primeiro (processo longo,
+// quase sempre no ar) e cai no cache quando ela falha; sucesso regrava.
+async function cacheProposicaoGet(chave) {
+  try { return await fbGet(`/proposicoes-cache/${encodeURIComponent(chave)}`); }
+  catch (_) { return null; }
+}
+function cacheProposicaoPut(chave, dados) {
+  fbPut(`/proposicoes-cache/${encodeURIComponent(chave)}`, { ...dados, em: new Date().toISOString() }).catch(() => {});
+}
+
+// C) Fallback de tramitações pela FICHA do portal (infra própria; renderizada
+// no servidor). LIMITE HONESTO: a ficha é uma JANELA (~último ano) — serve
+// para CONFIRMAR urgência/relatoria, nunca para provar ausência.
+async function tramitacoesDaFicha(idCamara) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 20000);
+  try {
+    const res = await fetch(`https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${idCamara}`,
+      { redirect: 'follow', signal: ctrl.signal });
+    if (!res.ok) return null;
+    const html = await res.text();
+    if (html.length < 5000) return null;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const out = [];
+    for (const tr of doc.querySelectorAll('tr.odd, tr.even')) {
+      const tds = tr.querySelectorAll('td');
+      if (tds.length < 2) continue;
+      const data = (tds[0].textContent || '').trim();
+      if (!/^\d{2}\/\d{2}\/\d{4}$/.test(data)) continue;
+      const org = ((tr.querySelector('strong') || {}).textContent || '').match(/\(\s*([A-Z0-9]+)\s*\)/);
+      const texto = [...tds[1].querySelectorAll('li')]
+        .map(li => li.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean).join(' ');
+      if (!texto) continue;
+      out.push({
+        siglaOrgao: org ? org[1] : '',
+        despacho: texto,
+        // A ficha escreve "Aprovado o requerimento nº X, do Sr. Fulano…" — o
+        // "Sr." tem PONTO e mata o [^.]{0,120} da regra da API. Normaliza a
+        // DESCRIÇÃO (como a API faz) em vez de afrouxar a regra compartilhada.
+        descricaoTramitacao:
+          /Designad[oa] Relator/i.test(texto) ? 'Designação de Relator'
+          : /aprovad[oa]\s+o\s+requerimento[\s\S]{0,160}?urg[êe]ncia/i.test(texto) ? 'Aprovação de Urgência'
+          : '',
+        dataHora: data.split('/').reverse().join('-'),
+      });
+    }
+    return out.length ? out : null;
+  } catch (_) { return null; }
+  finally { clearTimeout(timer); }
+}
+
+async function obterTramitacoes(idCamara) {
+  const daApi = await buscarTramitacoes(idCamara);
+  if (daApi !== null) return { trams: daApi, fonte: 'api' };
+  const daFicha = await tramitacoesDaFicha(idCamara);
+  if (daFicha) return { trams: daFicha, fonte: 'portal' };
+  return { trams: null, fonte: null };
+}
+
+function situacaoComFonte(trams, fonte) {
+  const s = situacaoDe(trams);
+  if (fonte !== 'portal') return s;
+  if (/^Não há requerimento/.test(s)) {
+    return 'Não foi possível confirmar pela API (instável); a ficha do portal não mostra requerimento de urgência na janela recente — confirmar mais tarde.';
+  }
+  return `${s} — fonte: portal da Câmara`;
+}
+
+async function relatoriaComFonte(trams, statusProp, fonte) {
+  if (fonte !== 'portal') return relatoriaDe(trams, statusProp);
+  const r = await relatoriaDe(trams, undefined);
+  return r === 'Sem indicação'
+    ? 'Não verificada — API da Câmara instável no momento'
+    : `${r} — fonte: portal da Câmara`;
+}
+
 // ============================================================
 //  CAMADA FACTUAL (regra fixa, sem IA) — porte de lideres.js
 // ============================================================
@@ -55,7 +161,7 @@ async function buscarTramitacoes(idCamara) {
     // intermitência da API virava AFIRMAÇÃO FACTUAL ERRADA na mão do líder
     // (MEDIDO em 12/08/2026: PLP 230/2025, que tem urgência aprovada, saiu
     // como "não há requerimento" durante uma janela de 504 da Câmara).
-    const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
+    const res = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
     if (!res.ok) return null;
     return (await res.json()).dados || [];
   } catch (_) { return null; }
@@ -115,7 +221,7 @@ async function relatoriaDe(trams, statusProp) {
   const uri = statusProp?.uriUltimoRelator;
   if (uri) {
     try {
-      const r = await fetch(uri);
+      const r = await fetchApiCamara(uri);
       if (r.ok) {
         const d = (await r.json()).dados;
         const nome = d?.ultimoStatus?.nome || d?.nomeCivil || '';
@@ -162,7 +268,7 @@ async function papelDe(detalhe, trams) {
   if (detalhe.uriPropPrincipal) {
     let principal = null;
     try {
-      const r = await fetch(detalhe.uriPropPrincipal);
+      const r = await fetchApiCamara(detalhe.uriPropPrincipal);
       if (r.ok) {
         const d = (await r.json()).dados;
         principal = `${d.siglaTipo} ${d.numero}/${d.ano}`;
@@ -190,7 +296,7 @@ async function infoDeputado(idDep) {
   if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
   let info = null;
   try {
-    const r = await fetch(`${API_BASE}/deputados/${idDep}`);
+    const r = await fetchApiCamara(`${API_BASE}/deputados/${idDep}`);
     if (r.ok) {
       const us = (await r.json()).dados?.ultimoStatus || {};
       info = { nome: us.nome, siglaPartido: us.siglaPartido };
@@ -203,7 +309,7 @@ async function infoDeputado(idDep) {
 async function autoresDetalhados(idProp) {
   let dados = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idProp}/autores`);
     if (r.ok) dados = (await r.json()).dados || [];
   } catch (_) { return []; }
   const out = [];
@@ -223,7 +329,7 @@ async function detalheProp(id) {
   if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
   let d = null;
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${id}`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${id}`);
     if (r.ok) d = (await r.json()).dados || null;
   } catch (_) { /* fica sem */ }
   _cacheDetalheProp.set(id, d);
@@ -233,7 +339,7 @@ async function detalheProp(id) {
 async function apensadosDoPodemos(idCamara) {
   let rel = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
     if (r.ok) rel = (await r.json()).dados || [];
   } catch (_) { return { achados: [], truncado: false }; }
   const candidatos = rel.filter(x => TIPOS_PROPOSICAO.has(x.siglaTipo));
@@ -276,7 +382,7 @@ async function alvoDoREQ(it) {
   if (!req) return null;
   let alvos = [];
   try {
-    const r = await fetch(`${API_BASE}/proposicoes?siglaTipo=REQ&numero=${req.numero}&ano=${req.ano}&itens=1`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes?siglaTipo=REQ&numero=${req.numero}&ano=${req.ano}&itens=1`);
     if (r.ok) alvos = propsCitadas(((await r.json()).dados?.[0]?.ementa) || '');
   } catch (_) { /* fica sem alvo */ }
   return { ...req, alvos };
@@ -309,7 +415,7 @@ const MAX_RELACIONADOS = 30;
 async function buscarDocumentosRelacionados(idCamara, sigla) {
   let rel;
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
+    const r = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}/relacionadas`);
     if (!r.ok) return [];
     rel = (await r.json()).dados || [];
   } catch (_) { return []; }
@@ -319,7 +425,7 @@ async function buscarDocumentosRelacionados(idCamara, sigla) {
   const docs = [];
   for (const d of rel.filter(interessa).slice(0, MAX_RELACIONADOS)) {
     try {
-      const r = await fetch(`${API_BASE}/proposicoes/${d.id}`);
+      const r = await fetchApiCamara(`${API_BASE}/proposicoes/${d.id}`);
       if (!r.ok) continue;
       const det = (await r.json()).dados;
       docs.push({
@@ -475,36 +581,51 @@ async function montarFicha(referencia) {
   const ref = parseReferencia(referencia);
   if (!ref) throw new Error('Não entendi a proposição. Use, por exemplo: /colegio PL 1234/2026');
 
-  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
-  if (!res.ok) throw new Error(`Dados Abertos indisponíveis (HTTP ${res.status}).`);
-  const item = (await res.json()).dados?.[0];
-  if (!item) throw new Error(`${ref.chave} não localizada nos Dados Abertos da Câmara.`);
-
-  const it = { ...ref, idCamara: item.id };
-  let detalhe = item;
+  // Resolve id/ementa: API com repetição; se falhar, o cache compartilhado
+  // com a extensão (/proposicoes-cache) — id é imutável.
+  const chaveCache = `${ref.sigla}-${ref.numero}-${ref.ano}`;
+  let item = null, idCamara = null;
   try {
-    const rd = await fetch(`${API_BASE}/proposicoes/${item.id}`);
-    if (rd.ok) detalhe = (await rd.json()).dados || item;
+    const res = await fetchApiCamara(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    item = (await res.json()).dados?.[0];
+    if (!item) throw new Error(`${ref.chave} não localizada nos Dados Abertos da Câmara.`);
+    idCamara = item.id;
+  } catch (e) {
+    if (/não localizada/.test(e.message)) throw e;
+    const doCache = await cacheProposicaoGet(chaveCache);
+    if (!doCache?.idCamara) throw new Error(`Dados Abertos indisponíveis (${e.message}) e a proposição ainda não está no cache da equipe.`);
+    idCamara = doCache.idCamara;
+    item = { id: idCamara, ementa: doCache.ementa || '' };
+  }
+
+  const it = { ...ref, idCamara };
+  let detalhe = item, detalheOk = false;
+  try {
+    const rd = await fetchApiCamara(`${API_BASE}/proposicoes/${idCamara}`);
+    if (rd.ok) { detalhe = (await rd.json()).dados || item; detalheOk = true; }
   } catch (_) {}
   it.ementa         = detalhe.ementa || item.ementa || '';
   it.descricaoTipo  = detalhe.descricaoTipo || '';
   it.urlInteiroTeor = detalhe.urlInteiroTeor || null;
 
-  const autores = await autoresDetalhados(item.id);
+  const autores = await autoresDetalhados(idCamara);
   it.autores = autores.map(a => a.nome).filter(Boolean).slice(0, 6);
   const podeAut = autores.filter(a => a.isPodemos);
   it.autoriaPodemos = podeAut.length > 0;
   const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
   it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
-  const trams = await buscarTramitacoes(item.id);
-  it.situacao  = situacaoDe(trams);
-  it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
+  if (detalheOk) cacheProposicaoPut(chaveCache, { idCamara, ementa: it.ementa, urlInteiroTeor: it.urlInteiroTeor });
+
+  const { trams, fonte: fonteTrams } = await obterTramitacoes(idCamara);
+  it.situacao  = situacaoComFonte(trams, fonteTrams);
+  it.relatoria = await relatoriaComFonte(trams, detalhe.statusProposicao, fonteTrams);
   it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
   it.papel     = await papelDe(detalhe, trams);
   it.apensadosPodemos = [];
   if (!it.papel.apensada && it.papel.temApensados) {
-    const ap = await apensadosDoPodemos(item.id);
+    const ap = await apensadosDoPodemos(idCamara);
     it.apensadosPodemos = ap.achados;
     it.apensadosVarreduraLimitada = ap.truncado;
   }
@@ -513,7 +634,7 @@ async function montarFicha(referencia) {
       ? `Varredura de apensados limitada aos ${MAX_APENSADOS_VARRIDOS} mais recentes.` : '',
   ].filter(Boolean).join('\n');
 
-  const relacionados = await buscarDocumentosRelacionados(item.id, it.sigla);
+  const relacionados = await buscarDocumentosRelacionados(idCamara, it.sigla);
   it.parecerPlen  = parecerPlenarioDe(relacionados);
   it.emendaSenado = emendaSenadoDe(relacionados);
   it.sbtComissao  = substitutivoComissaoDe(relacionados);

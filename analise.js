@@ -786,9 +786,36 @@ const cacheDetalheProp = new Map();
 // época, então tentamos ambas antes de desistir.
 const SIGLAS_EQUIVALENTES = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
 
+// Cache COMPARTILHADO de fatos imutáveis (/proposicoes-cache, o mesmo nó que
+// o módulo de Líderes e o bot usam): id nunca muda; ementa e inteiro teor
+// original, raramente. Quem resolve primeiro grava para a equipe toda — as
+// resoluções seguintes nem perguntam à API, o que imuniza este passo contra
+// a intermitência (504) medida em 12/08/2026.
+async function fbCacheProposicaoGet(chave) {
+  try {
+    const r = await fetchComTimeout(`${FIREBASE_URL}/proposicoes-cache/${encodeURIComponent(chave)}.json`, {}, 8000);
+    return r.ok ? await r.json() : null;
+  } catch (_) { return null; }
+}
+function fbCacheProposicaoPut(chave, dados) {
+  fetch(`${FIREBASE_URL}/proposicoes-cache/${encodeURIComponent(chave)}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...dados, em: new Date().toISOString() }),
+  }).catch(() => {});
+}
+
 async function resolveProposicao(sigla, numero, ano) {
   const ck = `${sigla}-${numero}-${ano}`;
   if (cacheProp.has(ck)) return cacheProp.get(ck);
+
+  // 1º o cache compartilhado — id é imutável, e o Firebase não depende da
+  // infraestrutura da Câmara.
+  const doCache = await fbCacheProposicaoGet(ck);
+  if (doCache?.idCamara) {
+    const obj = { id: doCache.idCamara, ementa: doCache.ementa || '', urlInteiroTeor: doCache.urlInteiroTeor || null };
+    cacheProp.set(ck, obj);
+    return obj;
+  }
 
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
   let hit = null;
@@ -808,6 +835,7 @@ async function resolveProposicao(sigla, numero, ano) {
     urlInteiroTeor: det.dados?.urlInteiroTeor || null,
   };
   cacheProp.set(ck, obj);
+  fbCacheProposicaoPut(ck, { idCamara: obj.id, ementa: obj.ementa, urlInteiroTeor: obj.urlInteiroTeor });
   return obj;
 }
 
