@@ -578,6 +578,26 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: RELATÓRIO DE DEMANDAS (escolha dos deputados) ===== -->
+  <div id="modal-relatorio" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h3>Relatório de demandas</h3>
+        <button class="modal-close" data-fecha="modal-relatorio">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Escolha quais deputados entram no relatório —
+          <a href="#" id="rel-todos" class="lid-link">todos</a> ·
+          <a href="#" id="rel-nenhum" class="lid-link">nenhum</a></p>
+        <div id="rel-deputados" style="max-height:280px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-relatorio">Cancelar</button>
+        <button id="btn-rel-gerar" class="btn btn-primary">Gerar PDF</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== MODAL: MARCAR DEMANDA COMO ATENDIDA ===== -->
   <div id="modal-atender" class="modal-overlay" style="display:none">
     <div class="modal" style="max-width:480px">

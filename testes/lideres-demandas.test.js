@@ -123,14 +123,31 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
   const reunioesRel = [{ id: 'r2', titulo: 'Lista de 11/08/2026', criada: '2026-08-11',
     itens: [{ chave: 'PL 3052/2023', numItem: '9' }] }];
-  const htmlRel = L._htmlRelatorioDemandas([dAberta, dAtendida], null, reunioesRel);
-  ok(htmlRel.includes('Em aberto (1)') && htmlRel.includes('Atendidas (1)'), 'seções com contagem');
-  ok(htmlRel.indexOf('Em aberto') < htmlRel.indexOf('Atendidas'), 'em aberto vem primeiro (é o que cobra ação)');
+  // Uma terceira demanda do MESMO deputado, atendida — para testar as
+  // subseções dentro do grupo.
+  const dBruno2 = { ...dAberta, id: 'x3', chave: 'PL 500/2026', natureza: 'Apoiar a aprovação',
+    atendimento: { reuniaoId: null, rotulo: 'Acordo em plenário', em: '2026-08-01T10:00:00Z' } };
+  const htmlRel = L._htmlRelatorioDemandas([dAberta, dAtendida, dBruno2], null, reunioesRel);
+  ok(htmlRel.includes('Deputado Bruno Lima') && htmlRel.includes('Deputada Renata Abreu'),
+     'seção própria por deputado');
+  ok(htmlRel.indexOf('Deputado Bruno Lima') < htmlRel.indexOf('Deputada Renata Abreu'),
+     'deputados em ordem alfabética pelo nome');
+  const blocoBruno = htmlRel.split('Deputada Renata Abreu')[0];
+  ok(blocoBruno.includes('Em aberto (1)') && blocoBruno.includes('Atendidas (1)'),
+     'subseções com contagem DENTRO do deputado');
+  ok(blocoBruno.indexOf('Em aberto (1)') < blocoBruno.indexOf('Atendidas (1)'),
+     'em aberto vem primeiro (é o que cobra ação)');
+  ok(blocoBruno.includes('2 demanda(s) · 1 em aberto'), 'placar no cabeçalho do deputado');
+  ok(!/Deputada Renata Abreu[\s\S]*Em aberto \(/.test(htmlRel),
+     'deputada só com atendida não ganha subseção "Em aberto" vazia');
   ok(htmlRel.includes('RCP 2/2026 — Solicitar despacho do Presidente'), 'demanda aberta com natureza');
   ok(htmlRel.includes('✔ Atendida — Lista de 11/08/2026'), 'atendida nomeia a reunião');
   ok(htmlRel.includes('Lista de 11/08/2026 (item 9)'), 'histórico de listas entra no relatório');
-  ok(htmlRel.includes('Demandante: Deputado Bruno Lima'), 'demandante identificado');
-  ok(htmlRel.includes('1 em aberto · 1 atendida(s)'), 'meta com o placar');
+  ok(htmlRel.includes('2 deputado(s) · 1 em aberto · 2 atendida(s)'), 'meta geral com o placar');
+  // A escolha de deputados é um FILTRO antes do builder: só o selecionado sai.
+  const soRenata = L._htmlRelatorioDemandas([dAtendida], null, reunioesRel);
+  ok(soRenata.includes('Deputada Renata Abreu') && !soRenata.includes('Bruno Lima'),
+     'relatório filtrado leva só o deputado escolhido');
 
   console.log('\n== mailtoDoEmail: abrir no Outlook ==');
   const curto = L.mailtoDoEmail('Senhor Presidente,\n\nLinha dois.');

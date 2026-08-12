@@ -146,7 +146,12 @@ function registrarEventos() {
   document.getElementById('btn-nova-demanda').addEventListener('click', abrirModalNovaDemanda);
   document.getElementById('btn-dem-buscar').addEventListener('click', buscarDadosDemanda);
   document.getElementById('btn-dem-registrar').addEventListener('click', registrarDemanda);
-  document.getElementById('btn-relatorio-demandas').addEventListener('click', gerarRelatorioDemandas);
+  document.getElementById('btn-relatorio-demandas').addEventListener('click', abrirModalRelatorio);
+  document.getElementById('btn-rel-gerar').addEventListener('click', gerarRelatorioDemandas);
+  const marcarRel = v => e => { e.preventDefault();
+    document.querySelectorAll('#rel-deputados input').forEach(cb => { cb.checked = v; }); };
+  document.getElementById('rel-todos').addEventListener('click', marcarRel(true));
+  document.getElementById('rel-nenhum').addEventListener('click', marcarRel(false));
   document.getElementById('btn-confirmar-atender').addEventListener('click', confirmarAtender);
   document.getElementById('atender-reuniao').addEventListener('change', e => {
     document.getElementById('atender-outra-wrap').style.display = e.target.value === 'outra' ? '' : 'none';
@@ -2663,19 +2668,36 @@ function _blocoRelatorioHTML(d, reunioes) {
   const sit = (d.situacao || '').trim();
   return `<div class="dem">
     <div class="dem-t">${esc(d.chave)} — ${esc(d.natureza)}</div>
-    <div class="dem-l">Demandante: ${esc(grupoDemanda(d))} · Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))}</div>
-    <div class="dem-l">Autoria: ${esc(d.autoria || 'não informada')} · Situação: ${esc(sit)}</div>
+    <div class="dem-l">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))} · Autoria: ${esc(d.autoria || 'não informada')}</div>
+    <div class="dem-l">Situação: ${esc(sit)}</div>
     <div class="dem-l">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-l">Listas do Colégio: ${esc(listas)}</div>
     ${d.atendimento ? `<div class="dem-l dem-ok">✔ Atendida — ${esc(d.atendimento.rotulo)}${d.atendimento.em ? ` (marcada em ${dataBR(String(d.atendimento.em).slice(0, 10))})` : ''}</div>` : ''}
   </div>`;
 }
 
+// O relatório é organizado POR DEPUTADO (pedido do usuário): cada um com o
+// próprio placar e, dentro, "Em aberto" antes de "Atendidas" — é o que cobra
+// ação na conversa com o gabinete.
 function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
   const { abertas, atendidas } = separarDemandasRelatorio(demandas);
-  const secao = (titulo, lista) => `
-    <h2>${titulo} (${lista.length})</h2>
-    ${lista.length ? lista.map(d => _blocoRelatorioHTML(d, reunioes)).join('') : '<p class="vazio">Nenhuma.</p>'}`;
+  const grupos = new Map();
+  for (const d of demandas || []) {
+    const g = grupoDemanda(d);
+    if (!grupos.has(g)) grupos.set(g, []);
+    grupos.get(g).push(d);
+  }
+  const nomes = [...grupos.keys()].sort(ordemPorNome);
+  const secoes = nomes.map(n => {
+    const ds = grupos.get(n);
+    const s = separarDemandasRelatorio(ds);
+    const sub = (t, l) => l.length
+      ? `<h3>${t} (${l.length})</h3>${l.map(d => _blocoRelatorioHTML(d, reunioes)).join('')}` : '';
+    return `<section class="dep">
+      <h2>${esc(n)} <span class="h2m">· ${ds.length} demanda(s) · ${s.abertas.length} em aberto</span></h2>
+      ${sub('Em aberto', s.abertas)}${sub('Atendidas', s.atendidas)}
+    </section>`;
+  }).join('');
   const hoje = new Date().toLocaleDateString('pt-BR');
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">
     <title>Demandas de Deputados — ${hoje}</title>
@@ -2692,6 +2714,9 @@ function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
     .rule { height: 3px; background: #00A859; border-radius: 2px; margin: 8px 0 4px; }
     .meta { text-align: center; font-size: 8.5pt; color: #6b7280; margin-bottom: 12px; }
     h2 { font-size: 11.5pt; color: #046A38; margin: 14px 0 6px; border-bottom: 1px solid #d1d5db; padding-bottom: 3px; }
+    .h2m { font-size: 8.5pt; color: #6b7280; font-weight: 400; }
+    h3 { font-size: 9.5pt; color: #374151; margin: 8px 0 4px; }
+    .dep h2 { page-break-after: avoid; }
     .dem { border: 1px solid #e5e7eb; border-radius: 6px; padding: 7px 10px; margin-bottom: 7px;
            page-break-inside: avoid; }
     .dem-t { font-weight: 700; font-size: 10pt; margin-bottom: 2px; }
@@ -2706,25 +2731,46 @@ function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
       ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
     </div>
     <div class="rule"></div>
-    <div class="meta">Relatório de ${hoje} · ${abertas.length} em aberto · ${atendidas.length} atendida(s)</div>
-    ${secao('Em aberto', abertas)}
-    ${secao('Atendidas', atendidas)}
+    <div class="meta">Relatório de ${hoje} · ${nomes.length} deputado(s) · ${abertas.length} em aberto · ${atendidas.length} atendida(s)</div>
+    ${secoes || '<p class="vazio">Nenhuma demanda selecionada.</p>'}
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
 }
 
-async function gerarRelatorioDemandas() {
+/** Modal de escolha: quais deputados entram no relatório (todos marcados). */
+function abrirModalRelatorio() {
   if (!app.demandas.length) return mostrarToast('Nenhuma demanda registrada.', 'erro');
+  const grupos = new Map();
+  for (const d of app.demandas) {
+    const g = grupoDemanda(d);
+    grupos.set(g, (grupos.get(g) || 0) + 1);
+  }
+  document.getElementById('rel-deputados').innerHTML =
+    [...grupos.keys()].sort(ordemPorNome).map(n => `
+      <label class="email-side-item">
+        <input type="checkbox" checked data-grupo="${esc(n)}">
+        <span>${esc(n)} <small style="color:var(--text-dim)">· ${grupos.get(n)} demanda(s)</small></span>
+      </label>`).join('');
+  document.getElementById('modal-relatorio').style.display = 'flex';
+}
+
+async function gerarRelatorioDemandas() {
+  const marcados = new Set([...document.querySelectorAll('#rel-deputados input:checked')]
+    .map(cb => cb.dataset.grupo));
+  const selecionadas = app.demandas.filter(d => marcados.has(grupoDemanda(d)));
+  if (!selecionadas.length) return mostrarToast('Marque ao menos um deputado.', 'erro');
+
   // Janela aberta no gesto do clique (evita bloqueio de pop-up), como no gerarPDF.
   const win = window.open('', '_blank', 'width=900,height=720');
   if (!win) return mostrarToast('Permita pop-ups para gerar o relatório.', 'aviso');
+  fecharModal('modal-relatorio');
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando relatório…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Gerando o relatório…</body></html>');
   win.document.close();
 
   const logoDataUrl = await carregarLogoDataUrl();
   if (win.closed) return;
   win.document.open();
-  win.document.write(_htmlRelatorioDemandas(app.demandas, logoDataUrl, _reunioesCache));
+  win.document.write(_htmlRelatorioDemandas(selecionadas, logoDataUrl, _reunioesCache));
   win.document.close();
 
   let impresso = false;
