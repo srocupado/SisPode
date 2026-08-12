@@ -91,7 +91,7 @@ function parsearPautaExtenso(texto) {
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
-  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[º°o]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[ºo]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -134,11 +134,7 @@ function parsearPautaExtenso(texto) {
   // O requerimento em si pode estar SEM número de protocolo ("Requerimento
   // s/nº, de 2026") — comum em requerimentos de urgência dos Líderes ainda não
   // autuados; nesse caso o grupo do número fica indefinido.
-  // O "nº" é OPCIONAL: a pauta da Câmara às vezes sai sem ele — MEDIDO na
-  // pauta de 12/08/2026, cujo item 7 veio "Requerimento 4.027, de 2026"
-  // enquanto os outros 26 traziam "Requerimento nº". Com o "nº" obrigatório o
-  // item sumia da pauta em silêncio (26 de 27 identificados), sem erro nenhum.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[ºo]\s*([\d.]+)|s\/\s*n[ºo]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);
@@ -148,10 +144,10 @@ function parsearPautaExtenso(texto) {
     const bloco   = m[4];
 
     // Tenta identificar o projeto cujo regime de urgência está sendo pedido
-    const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + '\\s+n[º°o]', 'i')));
+    const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + '\\s+n[ºo]', 'i')));
     let proj = null;
     if (projInternoSigla) {
-      const m2 = bloco.match(new RegExp(projInternoSigla.prefixo + '\\s+n[º°o]\\s*([\\d.]+)(?:-[A-Z]+)?,?\\s*de\\s*(\\d{4})', 'i'));
+      const m2 = bloco.match(new RegExp(projInternoSigla.prefixo + '\\s+n[ºo]\\s*([\\d.]+)(?:-[A-Z]+)?,?\\s*de\\s*(\\d{4})', 'i'));
       if (m2) proj = { sigla: projInternoSigla.sigla, numero: limpaNumero(m2[1]), ano: m2[2] };
     }
     const autorMatch = bloco.match(/d[oa]s?\s+(Sr\.|Sra\.|Senhor|Senhora|Srs?\.?\s+L[íi]deres)[^,.]{0,80}/i);

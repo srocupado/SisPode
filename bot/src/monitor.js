@@ -656,18 +656,6 @@ async function fetchTimeout(url, ms = 15000) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try { return await fetch(url, { signal: ctrl.signal }); }
-  catch (e) {
-    // "This operation was aborted" (mensagem do AbortController do Node) não
-    // diz nada a quem lê o log: parece defeito do bot quando é a fonte que não
-    // respondeu. Traduz para o que aconteceu e NOMEIA o endpoint — com 8
-    // chamadas usando este helper, sem isso não dá para saber qual fonte caiu.
-    if (e.name === 'AbortError') {
-      let alvo = url;
-      try { alvo = new URL(url).pathname; } catch (_) { /* fica a url inteira */ }
-      throw new Error(`fonte não respondeu em ${ms / 1000}s (${alvo})`);
-    }
-    throw e;
-  }
   finally { clearTimeout(timer); }
 }
 

@@ -130,7 +130,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-salvar-firebase').addEventListener('click', salvarPautaManual);
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfig);
   document.getElementById('btn-adicionar-item').addEventListener('click', abrirModalAdicionar);
-  document.getElementById('add-tipo').addEventListener('change', atualizarCampoUrgencia);
   document.getElementById('btn-gerar-todas').addEventListener('click', toggleGerarTodas);
   document.getElementById('btn-verificar-atualizacoes').addEventListener('click', verificarAtualizacoesPauta);
   document.getElementById('btn-prop-partido').addEventListener('click', copiarPropPartido);
@@ -373,11 +372,6 @@ function renderizarPauta() {
     cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Projetos em Discussão (${projs.length})</h2>`);
     projs.forEach(it => cont.appendChild(renderCard(it)));
   }
-  // Badges refletem o enriquecimento JÁ CONHECIDO (ex.: pré-carga do banco).
-  // O template do card nasce com "Verificando autoria…" fixo, e sem esta
-  // repintura o cache restaurado ficava invisível até a verificação de fundo
-  // terminar — que é justamente o que a pré-carga quer evitar esperar.
-  for (const it of state.pauta.itens) atualizarBadgesCard(it);
   atualizarSelecaoPdf();
 }
 
@@ -653,44 +647,23 @@ function itemAindaAtivo(it) {
 }
 
 async function enriquecerItens() {
-  const pautaRef = state.pauta;
-  const jobs = pautaRef.itens.map(it =>
+  for (const it of state.pauta.itens) {
     enriquecerItem(it).catch(e => {
       const msg = e?.message || String(e);
-      // Verificação em fundo que falhou NÃO rebaixa o card: os dados salvos
-      // continuam valendo (vieram de uma verificação que deu certo) — melhor
-      // badge de ontem que erro de hoje causado pela intermitência da API.
-      if (it.enriquecimento?.deCache) {
-        console.warn(`Verificação em fundo falhou para ${it.chave} — mantendo os dados salvos: ${msg}`);
-        return;
-      }
       console.warn(
         `Enriquecimento falhou para ${it.chave} (${it.sigla} ${it.numero}/${it.ano}): ${msg}`,
         '\n', e?.stack || ''
       );
       it.enriquecimento = { status: 'erro', erro: msg };
       atualizarBadgesCard(it);
-    }));
-  await Promise.allSettled(jobs);
-  // Grava o cache atualizado dos badges — é o que faz a PRÓXIMA abertura
-  // pré-carregar. Só se a pauta ainda for a mesma (o usuário pode ter trocado).
-  if (state.pauta === pautaRef) {
-    fbSalvarPauta(pautaRef).catch(e => console.warn('Cache de badges não salvo:', e.message));
+    });
   }
 }
 
 async function enriquecerItem(it) {
   if (!itemAindaAtivo(it)) return;
-  // PRÉ-CARGA: item vindo do banco com enriquecimento salvo já mostra os
-  // badges — esta rodada é uma VERIFICAÇÃO EM FUNDO: trabalha num objeto
-  // local e só troca o conteúdo do card quando terminar inteira, sem regredir
-  // para "Verificando autoria…" no meio.
-  const cachePrevio = it.enriquecimento?.deCache ? it.enriquecimento : null;
-  const enr = { status: 'carregando' };
-  if (!cachePrevio) {
-    it.enriquecimento = enr;
-    atualizarBadgesCard(it);
-  }
+  it.enriquecimento = { status: 'carregando' };
+  atualizarBadgesCard(it);
 
   // Para requerimentos, o "projeto alvo" é o projeto cuja urgência é pedida.
   // Usamos esse projeto como base para autoria e apensados.
@@ -712,8 +685,8 @@ async function enriquecerItem(it) {
   let prop;
   try {
     prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
-    enr.idProposicao = prop.id;
-    enr.urlInteiroTeor = prop.urlInteiroTeor;
+    it.enriquecimento.idProposicao = prop.id;
+    it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
     // Para requerimento de urgência, guarda a ementa do PROJETO-ALVO no
     // projetoUrgenciado. Sem isso, o apelido era gerado a partir do texto do
     // próprio requerimento ("Requeiro urgência…") — daí o apelido errado.
@@ -727,14 +700,14 @@ async function enriquecerItem(it) {
     // Autoria principal
     etapa = 'autores';
     const autores = await fetchAutoresProposicao(prop.id);
-    enr.autores = autores;
+    it.enriquecimento.autores = autores;
     const podeAut = autores.filter(a => a.isPodemos);
-    enr.autoriaPodemos = podeAut.length > 0;
+    it.enriquecimento.autoriaPodemos = podeAut.length > 0;
     // Distingue autor principal (1º signatário, ordemAssinatura = 1) de coautor
     // (assina depois). Sem info de ordem (dados antigos), mantém o comportamento
     // antigo (autor).
     const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
-    enr.autoriaPrincipalPodemos = temOrdem
+    it.enriquecimento.autoriaPrincipalPodemos = temOrdem
       ? podeAut.some(a => Number(a.ordem) === 1)
       : podeAut.length > 0;
 
@@ -742,8 +715,8 @@ async function enriquecerItem(it) {
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
     const apensados = await resolverApensados(prop.id);
-    enr.apensados = apensados;
-    enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    it.enriquecimento.apensados = apensados;
+    it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
@@ -753,27 +726,25 @@ async function enriquecerItem(it) {
   // URLs do(s) parecer(es) do relator de Plenário (para projetos)
   if (it.tipoCategoria === 'projeto') {
     try {
-      enr.pareceresPlenario = await buscarPareceresPlenario(prop.id);
+      it.enriquecimento.pareceresPlenario = await buscarPareceresPlenario(prop.id);
     } catch (e) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
-      enr.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
+      it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
     }
   }
 
   // Documento da Redação Final (para itens dessa categoria)
   if (it.tipoCategoria === 'redacao_final') {
     try {
-      enr.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
+      it.enriquecimento.urlRedacaoFinal = await buscarRedacaoFinal(prop.id);
     } catch (e) {
       console.warn('Não encontrou Redação Final:', e.message);
-      enr.urlRedacaoFinal = null;
+      it.enriquecimento.urlRedacaoFinal = null;
     }
   }
 
-  enr.status = 'ok';
-  it.enriquecimento = enr;   // troca atômica: cache antigo sai, verificado entra
+  it.enriquecimento.status = 'ok';
   atualizarBadgesCard(it);
-  atualizarLinkPortal(it);
 }
 
 const cacheProp = state.cacheProposicao;
@@ -947,54 +918,31 @@ async function fetchHtmlCamara(url) {
   // Respeita o "Parar tudo": os fetches são abortáveis e, uma vez abortado,
   // não adianta tentar as demais vias.
   const signal = _abortAll.signal;
-  // Cada via tem TETO PRÓPRIO: sem ele, uma via que aceita a conexão e não
-  // responde trava aqui para sempre e as alternativas — que existem justamente
-  // para cobrir a falha da primeira — nunca chegam a ser tentadas.
-  const teto = (u, init, ms) => fetchComTimeout(u, { ...init, sinalExtra: signal }, ms);
-  const direta = () => teto(url, { redirect: 'follow' }, TIMEOUT_CAMARA_MS);
-  // Os proxies têm teto MENOR: são rota de contorno e não podem custar mais
-  // que a rota boa. MEDIDO em 12/08/2026, o codetabs devolvia HTTP 522 depois
-  // de 20s e o worker respondia "Domínio não permitido" — com o teto cheio,
-  // cada página desperdiçava 40s em vias que não iam funcionar.
-  const PROXY_MS = 8000;
-  // A REPETIÇÃO vai na via DIRETA, não numa segunda passada por todas: as três
-  // apontam para o MESMO portal, então "três vias" não são três chances quando
-  // quem oscila é a origem — e repetir os proxies só multiplica a espera.
-  // MEDIDO no mesmo dia: o portal respondeu 200 em 10 de 10 tentativas
-  // seguidas enquanto a extensão registrava falha nas três vias; faltava
-  // repetir, não ter mais alternativas.
   const vias = [
-    ['direto',                () => direta()],
-    ['direto (2ª tentativa)', async () => { await sleep(1200, signal); return direta(); }],
-    ['codetabs',              () => teto('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), {}, PROXY_MS)],
-    ['worker',                () => teto('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), {}, PROXY_MS)],
+    ['direto',   () => fetch(url, { redirect: 'follow', signal })],
+    ['codetabs', () => fetch('https://api.codetabs.com/v1/proxy?quest=' + encodeURIComponent(url), { signal })],
+    ['worker',   () => fetch('https://shrill-resonance-4d17.vinicius-const.workers.dev/?url=' + encodeURIComponent(url), { signal })],
   ];
-  const motivos = [];
   for (const [nome, tentar] of vias) {
     if (signal.aborted) break;
     try {
       const r = await tentar();
       const html = r.ok ? await r.text() : '';
       if (r.ok && _htmlCamaraValido(html)) return html;
-      motivos.push(`${nome}: HTTP ${r.status}${r.ok ? ` (${html.length} bytes, conteúdo inesperado)` : ''}`);
+      console.debug(`[análise] página Câmara via ${nome}: status=${r.status} len=${html.length} (inválido)`);
     } catch (e) {
-      if (isAbortError(e)) return null;
-      motivos.push(`${nome}: ${e.message}`);
+      if (isAbortError(e)) break;
+      console.debug(`[análise] página Câmara via ${nome}: erro ${e.message}`);
     }
   }
-  // O motivo de CADA via vai na mensagem: sem isso o console só dizia "não foi
-  // possível", que não permite distinguir portal fora do ar de proxy quebrado.
-  console.warn(`[análise] não foi possível obter a página da Câmara — ${[...new Set(motivos)].join(' · ')}:`, url);
+  console.warn('[análise] não foi possível obter a página da Câmara (direto, codetabs e worker):', url);
   return null;
 }
 
 async function buscarPareceresPlenario(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   const html = await fetchHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
-  // `falha: true` distingue "página não veio" de "proposição sem pareceres" —
-  // quem verifica atualização precisa saber que NÃO conseguiu olhar a fonte,
-  // em vez de tratar a falha como página vazia (e concluir "em dia").
-  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null, falha: true };
+  if (!html) return { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
 
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const candidatos = [];
@@ -2681,12 +2629,7 @@ function validarReferencias(markdown, textoFonte) {
   if (!textoFonte || textoFonte.length < 100) return []; // fonte indisponivel -> nao sinaliza
   // Conjunto de numeros presentes na fonte, sem separador de milhar ("9.999" -> "9999").
   const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
-  // "Projeto de Lei nº 1.400" NÃO é citação de lei — o lookbehind impede o
-  // recorte de "Lei nº 1.400" do meio da expressão. CASO REAL (12/08/2026):
-  // a nota do REQ 4027/2026 citava "Projeto de Lei nº 1.400/2015" e a
-  // conferência acusava a inexistente "Lei nº 1.400". Cobre PL e PLP
-  // ("Projeto de Lei Complementar nº…" casa o ramo da Lei Complementar).
-  const re = /(?<!Projeto\s+de\s+)\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
   const suspeitas = [];
   const vistos = new Set();
   let m;
@@ -3518,42 +3461,11 @@ function toggleGerarTodas() {
 async function verificarAtualizacaoItem(it) {
   if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos) return null;
   const enr = it.enriquecimento || (it.enriquecimento = {});
-
-  // RECONSULTA A FONTE antes de comparar. Até 12/08/2026 esta função comparava
-  // a análise salva com o snapshot de pareceres guardado no enriquecimento —
-  // feito na importação da pauta —, ou seja, verificava a nota contra ela
-  // mesma: parecer publicado DEPOIS da importação era invisível e o botão
-  // respondia "em dia" (caso real: PRLP 3 do PL 1828/2023, publicado no dia,
-  // com a nota gerada sobre o PRLP 2).
-  let fonteIndisponivel = false;
-  if (!enr.idProposicao) {
-    // O enriquecimento ainda não terminou (badge "Verificando autoria…") ou
-    // falhou — MEDIDO em 12/08/2026: clicar em "Verificar atualização" nesse
-    // estado pulava a reconsulta em silêncio e comparava contra um cache
-    // vazio, respondendo "em dia". O botão resolve o id por conta própria:
-    // verificar não pode depender de outra rotina ter terminado.
-    try { enr.idProposicao = (await resolveProposicao(it.sigla, it.numero, it.ano)).id; }
-    catch (_) { fonteIndisponivel = true; }
+  if (enr.emendasSenado === undefined && enr.idProposicao) {
+    try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
+    catch (e) { enr.emendasSenado = { ems: null, ssp: null }; }
   }
-  if (enr.idProposicao) {
-    try {
-      const frescos = await buscarPareceresPlenario(enr.idProposicao);
-      if (frescos.falha) fonteIndisponivel = true;
-      else enr.pareceresPlenario = frescos;   // o Reanalisar também passa a ver o novo
-    } catch (_) { fonteIndisponivel = true; }
-
-    if (it.sigla !== 'PEC' && !ehPDL(it)) {
-      // Recarrega SEMPRE (não só quando undefined): as emendas do Senado podem
-      // ter chegado depois do cache. Falhou → mantém o cache, não zera.
-      try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
-      catch (_) { if (enr.emendasSenado === undefined) enr.emendasSenado = { ems: null, ssp: null }; }
-    }
-  }
-
   const desat = desatualizacaoOperativa(it) || { novos: [] };
-  // Fonte fora do ar e nada novo no cache: o resultado é INCONCLUSIVO — dizer
-  // "em dia" sem ter olhado a fonte foi exatamente o defeito original.
-  if (fonteIndisponivel && !desat.novos.length) desat.inconclusa = true;
   it.desatualizacao = desat;
   atualizarBadgesCard(it);
   return desat;
@@ -3577,10 +3489,8 @@ async function verificarAtualizacaoItemUI(it) {
     mostrarToast(
       desat?.novos?.length
         ? `⚠ Pode estar desatualizada — documento mais recente: ${_resumoNovos(desat.novos)}`
-        : desat?.inconclusa
-          ? '⚠ Não consegui consultar a página de pareceres agora — tente de novo em instantes.'
-          : '✓ Nota em dia com o texto operativo (fonte reconsultada).',
-      desat?.novos?.length || desat?.inconclusa ? 'aviso' : 'sucesso'
+        : '✓ Nota em dia com o texto operativo.',
+      desat?.novos?.length ? 'aviso' : 'sucesso'
     );
   } finally {
     btn.disabled = false;
@@ -3597,21 +3507,18 @@ async function verificarAtualizacoesPauta() {
   const btn = document.getElementById('btn-verificar-atualizacoes');
   const orig = btn.innerHTML;
   btn.disabled = true;
-  let feitos = 0, desatualizadas = 0, inconclusas = 0;
+  let feitos = 0, desatualizadas = 0;
   try {
     for (const it of itens) {
       btn.innerHTML = `<span class="an-spinner"></span> Verificando ${++feitos}/${itens.length}...`;
       const desat = await verificarAtualizacaoItem(it);
       if (desat?.novos?.length) desatualizadas++;
-      else if (desat?.inconclusa) inconclusas++;
     }
-    const partes = [];
-    if (desatualizadas) partes.push(`⚠ ${desatualizadas} de ${itens.length} nota(s) podem estar desatualizadas`);
-    if (inconclusas) partes.push(`${inconclusas} não verificada(s) — fonte indisponível`);
     mostrarToast(
-      partes.length ? partes.join('; ') + '.'
-        : `✓ Todas as ${itens.length} notas estão em dia com o texto operativo (fonte reconsultada).`,
-      partes.length ? 'aviso' : 'sucesso'
+      desatualizadas
+        ? `⚠ ${desatualizadas} de ${itens.length} nota(s) podem estar desatualizadas.`
+        : `✓ Todas as ${itens.length} notas estão em dia com o texto operativo.`,
+      desatualizadas ? 'aviso' : 'sucesso'
     );
   } finally {
     btn.disabled = false;
@@ -3821,11 +3728,7 @@ async function carregarPautaPorId(id) {
       ...pauta,
       itens: (pauta.itens || []).map(it => ({
         ...it,
-        // Cache dos badges salvo com a pauta: restaura como 'ok' + deCache e
-        // a verificação roda em fundo (enriquecerItens logo abaixo).
-        enriquecimento: it.enriquecimento && it.enriquecimento.status === 'ok'
-          ? { ...it.enriquecimento, deCache: true }
-          : { status: 'pendente' },
+        enriquecimento: { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
       })),
@@ -3962,12 +3865,6 @@ async function _fbSalvarPautaExec(pauta) {
           apensadosTexto: it.apensadosTexto, relator: it.relator,
           temUrgencia: it.temUrgencia, projetoUrgenciado: it.projetoUrgenciado || null,
           chave: it.chave,
-          // Badges pré-carregados: o enriquecimento COMPLETO vai junto — a
-          // próxima abertura mostra autoria/apensados/pareceres na hora e
-          // deixa a reverificação para o fundo. Parcial (carregando/erro) não
-          // é salvo: cache ruim é pior que cache nenhum.
-          enriquecimento: it.enriquecimento?.status === 'ok'
-            ? { ...it.enriquecimento, deCache: undefined } : null,
         })),
       }),
     });
@@ -4058,11 +3955,7 @@ async function carregarUltimaPauta() {
       ...pauta,
       itens: pauta.itens.map(it => ({
         ...it,
-        // Cache dos badges salvo com a pauta: restaura como 'ok' + deCache e
-        // a verificação roda em fundo (enriquecerItens logo abaixo).
-        enriquecimento: it.enriquecimento && it.enriquecimento.status === 'ok'
-          ? { ...it.enriquecimento, deCache: true }
-          : { status: 'pendente' },
+        enriquecimento: { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
       })),
@@ -4782,76 +4675,16 @@ function ementaTextoResumo(t) {
 const _ascVot = (a, b) => String(a.dataHoraRegistro || '').localeCompare(String(b.dataHoraRegistro || ''));
 
 // fetch da API da Câmara com retry em 429/5xx e erros de rede (a API limita taxa).
-// TIMEOUT OBRIGATÓRIO nas chamadas à Câmara. fetch NÃO tem timeout padrão:
-// quando a API aceita a conexão e não responde (aconteceu em 12/08/2026), a
-// promessa fica pendente PARA SEMPRE — o enriquecimento trava em "carregando",
-// sem erro, sem fim, e a análise nunca começa porque espera a autoria. Com o
-// teto, a tentativa morre e o retry abaixo tem chance de pegar a fonte de pé.
-// Mesma lição já aplicada no bot (portal.js e monitor.js).
-const TIMEOUT_CAMARA_MS = 20000;
-
-// init.sinalExtra encadeia um AbortSignal de fora (o "Parar tudo"): abortar
-// por ali continua valendo e é propagado como AbortError, que os chamadores
-// distinguem de uma falha de rede para parar de vez em vez de tentar de novo.
-async function fetchComTimeout(url, init = {}, ms = TIMEOUT_CAMARA_MS) {
-  const { sinalExtra, ...resto } = init;
-  const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), ms);
-  const cascata = () => ctrl.abort();
-  if (sinalExtra) {
-    if (sinalExtra.aborted) { clearTimeout(timer); throw new DOMException('Aborted', 'AbortError'); }
-    sinalExtra.addEventListener('abort', cascata, { once: true });
-  }
-  try {
-    return await fetch(url, { ...resto, signal: ctrl.signal });
-  } catch (e) {
-    // Abortado pelo teto vira erro legível ("This operation was aborted" não
-    // diz nada a quem lê o card); abortado de fora segue como AbortError.
-    if (e.name === 'AbortError' && !sinalExtra?.aborted) {
-      throw new Error(`a API da Câmara não respondeu em ${ms / 1000}s`);
-    }
-    throw e;
-  } finally {
-    clearTimeout(timer);
-    if (sinalExtra) sinalExtra.removeEventListener('abort', cascata);
-  }
-}
-
-// A API da Câmara oscila: MEDIDO em 12/08/2026, 4 de 15 chamadas voltaram
-// HTTP 504 (gateway timeout) depois de ~16s, com as MESMAS URLs respondendo
-// 200 em 1s na tentativa seguinte. Falha intermitente assim se resolve com
-// repetição — por isso 429 e 5xx são retentados, enquanto 404 (proposição
-// inexistente) falha na hora, que repetir não conserta.
-const BACKOFF_CAMARA_MS = [0, 800, 2000, 4000];
-
-async function fetchJsonCamara(url, tentativas = BACKOFF_CAMARA_MS.length) {
+async function fetchJsonCamara(url, tentativas = 4) {
   let erro = null;
   for (let i = 0; i < tentativas; i++) {
-    if (i > 0) await new Promise(r => setTimeout(r, BACKOFF_CAMARA_MS[i] ?? 4000));
-
-    let res;
+    if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
     try {
-      res = await fetchComTimeout(url);
-    } catch (e) {
-      erro = e;            // rede caiu ou estourou o teto — vale repetir
-      continue;
-    }
-
-    if (res.ok) {
-      // Corpo truncado por gateway instável também vale uma nova tentativa.
-      try { return await res.json(); }
-      catch (e) { erro = new Error(`resposta ilegível da Câmara: ${e.message}`); continue; }
-    }
-    if (res.status === 429 || res.status >= 500) {
-      // Mensagem que diz o que houve: "HTTP 504" sozinho parece defeito
-      // nosso, e o analista precisa saber que a fonte é que está de fora.
-      erro = new Error(`a API da Câmara respondeu HTTP ${res.status} (fora do ar) em ${tentativas} tentativas`);
-      continue;
-    }
-    // 4xx que não é 429 (404 = proposição inexistente): repetir não conserta.
-    // Este throw precisa ficar FORA do try — dentro, o próprio catch do laço o
-    // capturava e repetia 4 vezes, gastando ~7s para chegar ao mesmo 404.
-    throw new Error(`HTTP ${res.status} em ${url}`);
+      const res = await fetch(url);
+      if (res.ok) return await res.json();
+      if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
+      throw new Error(`HTTP ${res.status} em ${url}`);
+    } catch (e) { erro = e; }
   }
   throw erro || new Error('Falha ao consultar ' + url);
 }
@@ -5372,14 +5205,10 @@ function arrayBufferToBase64(buffer) {
   return btoa(parts.join(''));
 }
 
-// TODO o enriquecimento (autoria, apensados, relacionadas, detalhe) passa por
-// aqui. Até 12/08/2026 esta função NÃO tinha repetição: um único 504 da Câmara
-// derrubava o item, e como cada item faz 4 a 6 chamadas, uma oscilação de ~25%
-// na fonte reprovava quase toda a pauta ("várias análises com problema na API").
-// Agora usa a mesma política do resto do módulo: repete em 429/5xx, desiste na
-// hora em 404. GET é idempotente — repetir é seguro.
 async function fetchJson(url) {
-  return fetchJsonCamara(url);
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
+  return await res.json();
 }
 
 function escapeHtml(s) {
@@ -5888,44 +5717,8 @@ function abrirModalAdicionar() {
   document.getElementById('add-numero').value = '';
   document.getElementById('add-ano').value = '';
   document.getElementById('add-ordem').value = '';
-  document.getElementById('add-urgencia').value = '';
   document.getElementById('add-status').textContent = '';
-  atualizarCampoUrgencia();
   document.getElementById('modal-adicionar').style.display = 'flex';
-}
-
-/**
- * Reordena os itens pelo Nº na pauta, mantendo o agrupamento por seção que o
- * render usa. Estável: itens SEM número (ou empatados) preservam a posição
- * relativa que já tinham, em vez de saltarem de lugar sozinhos.
- */
-function ordenarItensPorOrdem() {
-  const pos = new Map(state.pauta.itens.map((it, i) => [it, i]));
-  state.pauta.itens.sort((a, b) => {
-    const oa = Number.isFinite(a.ordem) ? a.ordem : Infinity;   // sem número → fim
-    const ob = Number.isFinite(b.ordem) ? b.ordem : Infinity;
-    return oa !== ob ? oa - ob : pos.get(a) - pos.get(b);
-  });
-}
-
-/** O campo do projeto urgenciado só faz sentido para requerimento. */
-function atualizarCampoUrgencia() {
-  const ehReq = document.getElementById('add-tipo').value === 'REQ';
-  document.getElementById('add-urgencia-wrap').style.display = ehReq ? '' : 'none';
-}
-
-/** "PL 1400/2015", "Projeto de Lei nº 1.400, de 2015", "…nº 1.400/2015" →
- *  { sigla, numero, ano }. Cobre as duas grafias porque as fontes divergem: o
- *  PDF da pauta escreve "nº X, de AAAA" e a ementa da API escreve "nº X/AAAA". */
-function detectarProjetoUrgenciado(texto) {
-  const t = String(texto || '');
-  const sigla = /\b(PL|PLP|PEC|PDL|PDC|MPV|PRC)\b\s*\.?\s*n?[º°.]*\s*([\d.]+)(?:-[A-Z]+)?\s*[\/,]?\s*(?:de\s*)?(\d{4})\b/i.exec(t);
-  if (sigla) return { sigla: sigla[1].toUpperCase(), numero: limpaNumero(sigla[2]), ano: sigla[3] };
-  const porExtenso = TIPOS_PROPOSICAO.slice().sort((a, b) => b.prefixo.length - a.prefixo.length)
-    .map(tp => ({ tp, m: new RegExp(tp.prefixo + '\\s+n[º°o]?\\.?\\s*([\\d.]+)(?:-[A-Z]+)?\\s*(?:[\\/,]|\\s*,?\\s*de)\\s*(\\d{4})', 'i').exec(t) }))
-    .find(x => x.m);
-  if (porExtenso) return { sigla: porExtenso.tp.sigla, numero: limpaNumero(porExtenso.m[1]), ano: porExtenso.m[2] };
-  return null;
 }
 
 async function confirmarAdicionar() {
@@ -5945,15 +5738,6 @@ async function confirmarAdicionar() {
     stEl.textContent = 'Este item já está na pauta.';
     return;
   }
-  // Número já usado: avisa e deixa decidir. Renumerar os demais por conta
-  // própria seria pior — a numeração é a da Câmara, não nossa.
-  const ocupante = !isNaN(ordem) && state.pauta.itens.find(it => it.ordem === ordem);
-  if (ocupante && !confirm(
-    `O nº ${ordem} da pauta já é do ${tipoLabel(ocupante.sigla)} ${ocupante.numero}/${ocupante.ano}.\n\n` +
-    `Incluir assim mesmo? Os dois vão aparecer com o nº ${ordem} (nada é renumerado).`)) {
-    stEl.textContent = 'Escolha outro número na pauta.';
-    return;
-  }
 
   const btn = document.getElementById('btn-confirmar-adicionar');
   btn.disabled = true;
@@ -5964,58 +5748,29 @@ async function confirmarAdicionar() {
     // Detalhe para ementa e autor
     const det  = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
     const dados = det.dados || {};
-    const ementa = (dados.ementa || '').trim();
-
-    // Requerimento não é analisado por si: o que interessa é o PROJETO cuja
-    // urgência ele pede (é assim que o item vindo do PDF funciona, via
-    // _alvoItem). O usuário pode informar o projeto; em branco, tento ler da
-    // ementa — a da API costuma trazer "Requer Urgência para o Projeto de Lei
-    // nº 1.400/2015".
-    const ehReq = sigla === 'REQ';
-    let projetoUrgenciado = null;
-    if (ehReq) {
-      const digitado = document.getElementById('add-urgencia').value.trim();
-      projetoUrgenciado = digitado ? detectarProjetoUrgenciado(digitado) : detectarProjetoUrgenciado(ementa);
-      if (digitado && !projetoUrgenciado) {
-        stEl.textContent = 'Não entendi o projeto da urgência — escreva como "PL 1400/2015".';
-        return;
-      }
-    }
 
     const novo = normalizarItem({
       ordem:         isNaN(ordem) ? null : ordem,
-      // REC entra como 'requerimento', a mesma convenção do parser compacto —
-      // não se inventa categoria nova, que ninguém mais no módulo entenderia.
-      tipoCategoria: (ehReq || sigla === 'REC') ? 'requerimento' : 'projeto',
+      tipoCategoria: 'projeto',
       sigla,
       numero,
       ano,
-      ementa,
+      ementa:        (dados.ementa || '').trim(),
       autorTexto:    '',
       apensadosTexto: [],
       relator:       null,
       temUrgencia:   false,
-      ...(ehReq ? { projetoUrgenciado } : {}),
       adicionadoManualmente: true,
     });
 
     state.pauta.itens.push(novo);
-    // O card é desenhado na ordem do ARRAY, não pelo campo `ordem` — sem
-    // reordenar, o item entra no fim da seção mesmo tendo número 7. Reordenar
-    // aqui é o que faz "inserir no nº 7 da pauta" significar o que diz, sem
-    // reimportar o PDF (o que descartaria as análises já geradas).
-    ordenarItensPorOrdem();
     renderizarPauta();
     enriquecerItem(novo).catch(e => console.warn('Enriquecimento manual falhou:', e));
     marcarSujo();
     fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));
 
     document.getElementById('modal-adicionar').style.display = 'none';
-    const alvo = novo.projetoUrgenciado;
-    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta` +
-      (ehReq ? (alvo ? ` — urgência do ${alvo.sigla} ${alvo.numero}/${alvo.ano}`
-                     : ' — projeto da urgência não identificado; use "Vincular projeto" no card') : ''),
-      ehReq && !alvo ? 'aviso' : 'sucesso');
+    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta`, 'sucesso');
   } catch (e) {
     stEl.textContent = `Erro: ${e.message}`;
   } finally {

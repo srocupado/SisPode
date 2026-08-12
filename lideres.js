@@ -836,15 +836,10 @@ async function buscarTramitacoes(idCamara) {
   try {
     // Este endpoint NÃO aceita ?ordem/?itens (devolve 400). Vem em ordem
     // ascendente de sequência.
-    // FALHA devolve null, não [] — os dois eram indistinguíveis, e a regra de
-    // situação lia o vazio como "Não há requerimento de urgência": a
-    // intermitência da API virava AFIRMAÇÃO FACTUAL ERRADA na mão do líder
-    // (MEDIDO em 12/08/2026: PLP 230/2025, que tem urgência aprovada, saiu
-    // como "não há requerimento" durante uma janela de 504 da Câmara).
     const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
-    if (!res.ok) return null;
+    if (!res.ok) return [];
     return (await res.json()).dados || [];
-  } catch (_) { return null; }
+  } catch (_) { return []; }
 }
 
 // ---------- SITUAÇÃO (regra fixa, não IA) ----------
@@ -853,10 +848,7 @@ async function buscarTramitacoes(idCamara) {
 //   requerimento sem aprovação → "Requerimento de urgência apresentado (REQ n. n/aaaa)"
 //   nada                       → "Não há requerimento de urgência apresentado."
 function situacaoDe(trams, regimePdf) {
-  // trams === null → a CONSULTA falhou (≠ de lista vazia). A falha tem de
-  // ficar EXPRESSA: antes, o vazio virava "Não há requerimento de urgência"
-  // — intermitência da API virando afirmação factual errada.
-  const rev = [...(trams || [])].reverse();
+  const rev = [...trams].reverse();
   const numReq = t => {
     const m = `${t.despacho || ''}`.match(/(?:requerimento|REQ)\.?\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})/i);
     return m ? `${m[1]}/${m[2]}` : null;
@@ -890,11 +882,8 @@ function situacaoDe(trams, regimePdf) {
   // A lista diz "Urgência" e a API não tem requerimento nenhum: os dois se
   // contradizem, e afirmar "não há requerimento" seria escolher um lado.
   if (/urg[êe]ncia/i.test(reg)) {
-    return trams === null
-      ? 'Urgência indicada na lista da reunião; não foi possível conferir nos Dados Abertos (API da Câmara instável no momento).'
-      : 'Urgência indicada na lista da reunião; sem requerimento de urgência localizado nos Dados Abertos.';
+    return 'Urgência indicada na lista da reunião; sem requerimento de urgência localizado nos Dados Abertos.';
   }
-  if (trams === null) return 'Não foi possível consultar — API da Câmara instável no momento; tente atualizar mais tarde.';
   return 'Não há requerimento de urgência apresentado.';
 }
 
@@ -902,7 +891,6 @@ function situacaoDe(trams, regimePdf) {
 // Só conta designação feita NO PLENÁRIO: relator de comissão não é relator de
 // Plenário, e o statusProposicao guarda o último relator seja de onde for.
 async function relatoriaDe(trams, statusProp) {
-  if (trams === null) return 'Não verificada — API da Câmara instável no momento';
   let designacao = null;
   for (const t of trams) {
     if (t.siglaOrgao !== 'PLEN') continue;
@@ -970,8 +958,6 @@ async function papelDe(detalhe, trams, signal) {
     } catch (_) { /* fica sem o nome */ }
     return { apensada: true, principal };
   }
-  // Sem tramitações (consulta falhou) não dá para afirmar "sem apensação".
-  if (trams === null) return { apensada: false, temApensados: false, naoVerificado: true };
   const temApensados = trams.some(t =>
     /apensa[çc][ãa]o d/i.test(t.despacho || '') && /a esta proposi/i.test(t.despacho || ''));
   return { apensada: false, temApensados };
@@ -1027,7 +1013,6 @@ function frasePapel(it) {
       ? ` — a lista indica ${declarados[0]} como principal` : '';
     return `Apensado ao ${p.principal || 'principal não identificado'}${div}.`;
   }
-  if (p.naoVerificado) return 'Apensação não verificada — API da Câmara instável no momento.';
   return p.temApensados ? 'Principal (com apensados).' : 'Sem apensação.';
 }
 
@@ -1046,7 +1031,6 @@ function fraseUrgenciaREQ(it, req) {
 const ORGAOS_NAO_COMISSAO = new Set(['PLEN', 'MESA', 'SGM', 'PR', 'SPL', 'CCP', 'CORD', 'SECGER', 'SECLEG', 'DETAQ']);
 
 function despachosDeComissao(trams, statusProp) {
-  trams = trams || [];   // consulta falhou → segue sem despachos (campo da IA fica sem essa fonte)
   const distribuicao = [];
   for (const t of trams) {
     const d = (t.despacho || '').trim();
@@ -1399,12 +1383,7 @@ async function reunirDocumentos(it, signal) {
 function validarReferencias(textoGerado, textoFonte) {
   if (!textoFonte || textoFonte.length < 100) return [];
   const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
-  // "Projeto de Lei nº 1.400" NÃO é citação de lei — o lookbehind impede o
-  // recorte de "Lei nº 1.400" do meio da expressão. CASO REAL (12/08/2026):
-  // a nota do REQ 4027/2026 citava "Projeto de Lei nº 1.400/2015" e a
-  // conferência acusava a inexistente "Lei nº 1.400". Cobre PL e PLP
-  // ("Projeto de Lei Complementar nº…" casa o ramo da Lei Complementar).
-  const re = /(?<!Projeto\s+de\s+)\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
   const suspeitas = [];
   const vistos = new Set();
   let m;
@@ -2392,9 +2371,7 @@ async function fatosDaDemanda(ref) {
   // Presidente, dizer "não há requerimento de urgência" é verdadeiro e inútil.
   let situacao = situacaoDe(trams, '');
   const oficial = detalhe.statusProposicao?.descricaoSituacao || '';
-  // Sem urgência (ou com as tramitações fora do ar), a situação OFICIAL da
-  // ficha — que veio do detalhe, outro endpoint — é o melhor fato disponível.
-  if ((/^Não há requerimento/.test(situacao) || trams === null) && oficial.trim()) situacao = oficial.trim();
+  if (/^Não há requerimento/.test(situacao) && oficial.trim()) situacao = oficial.trim();
   return {
     idCamara: item.id,
     ementa:   detalhe.ementa || item.ementa || '',
@@ -2603,11 +2580,6 @@ async function apagarDemanda(d) {
 /** Reconsulta a situação na Câmara; devolve true se mudou. */
 async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
   const trams = await buscarTramitacoes(d.idCamara);
-  // Consulta falhou → NÃO sobrescreve a situação registrada com uma incerteza.
-  if (trams === null) {
-    if (!silencioso) mostrarToast(`${d.chave}: API da Câmara instável no momento — situação mantida como estava.`, 'aviso');
-    return false;
-  }
   const nova = situacaoDe(trams, '');
   const mudou = nova !== d.situacao;
   if (mudou) {
