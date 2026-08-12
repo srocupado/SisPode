@@ -757,8 +757,7 @@ async function enriquecerItem(it) {
       ? podeAut.some(a => Number(a.ordem) === 1)
       : podeAut.length > 0;
 
-    // Apensados: a lista do PRÓPRIO PDF da pauta é a fonte primária; a
-    // varredura pela API complementa.
+    // Apensados via API
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
     // Falha aqui NÃO derruba o enriquecimento inteiro (autoria, pareceres e
@@ -766,12 +765,9 @@ async function enriquecerItem(it) {
     // com badge próprio — em vez de o item inteiro morrer em "erro" como
     // aconteceu na janela de 504 de 12/08/2026.
     try {
-      const { apensados, varreduraApiFalhou } = await resolverApensados(prop.id, it.apensadosTexto || []);
+      const apensados = await resolverApensados(prop.id);
       enr.apensados = apensados;
       enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
-      // Declara verificação parcial: autoria de algum apensado falhou, ou a
-      // varredura da API caiu (pode haver apensado além dos listados no PDF).
-      if (varreduraApiFalhou || apensados.some(ap => ap.autoriaNaoVerificada)) enr.apensadosNaoVerificados = true;
     } catch (eAp) {
       console.warn(`[análise] apensados de ${it.chave} não verificados: ${eAp.message}`);
       enr.apensados = [];
@@ -1112,52 +1108,18 @@ async function fetchApensados(idProp) {
 // marcar quais são do Podemos). Usado pelo enriquecimento e, sob demanda, por
 // escolherDocumentos — assim o resumo do apensado sai mesmo que a nota seja
 // gerada antes de o enriquecimento assíncrono terminar.
-// A lista OFICIAL de apensados vem do PRÓPRIO PDF da pauta (daPauta =
-// it.apensadosTexto); a varredura pela API (/relacionadas) é complemento.
-// MEDIDO em 12/08/2026: para o PL 25/2024, a pauta oficial listava 4
-// apensados (dois do Podemos — PL 236/2024 de Felipe Becari e PL 951/2024
-// do Delegado Bruno Lima) e a API não devolvia NENHUM deles em
-// /relacionadas (constavam "Arquivada", sem vínculo com o principal) — a
-// varredura "bem-sucedida" com zero apensados matava os badges em silêncio.
-async function resolverApensados(idProp, daPauta = []) {
-  const daApi = await fetchApensados(idProp).then(r => r, e => {
-    // Sem lista da pauta, a falha da varredura precisa SUBIR (vira o badge
-    // "não verificados"); com a lista, seguimos com ela e declaramos o resto.
-    if (!daPauta.length) throw e;
-    return null;
-  });
-
-  const porId = new Map();
-  for (const ap of (daApi || [])) porId.set(ap.id, ap);
-  for (const t of daPauta) {
-    try {
-      const prop = await resolveProposicao(t.sigla, t.numero, t.ano);
-      if (!porId.has(prop.id)) {
-        porId.set(prop.id, { id: prop.id, siglaTipo: t.sigla, numero: t.numero, ano: t.ano, ementa: prop.ementa });
-      }
-    } catch (e) {
-      // Nem resolveu o id: entra mesmo assim, declaradamente não verificado —
-      // sumir da lista é pior que aparecer sem autoria confirmada.
-      porId.set(`${t.sigla}-${t.numero}-${t.ano}`,
-        { siglaTipo: t.sigla, numero: t.numero, ano: t.ano, autoriaNaoVerificada: true, autoriaPodemos: false });
-    }
-  }
-
-  const apensados = [...porId.values()];
+async function resolverApensados(idProp) {
+  const apensados = await fetchApensados(idProp);
   for (const ap of apensados) {
-    if (!ap.id) continue;
     try {
       const aps = await fetchAutoresProposicao(ap.id);
       ap.autores = aps;
       ap.autoriaPodemos = aps.some(a => a.isPodemos);
     } catch (e) {
-      // "Não deu para verificar" NÃO é "não-Podemos": a falha fica declarada
-      // (antes virava false silencioso — o defeito mais traiçoeiro do módulo).
       ap.autoriaPodemos = false;
-      ap.autoriaNaoVerificada = true;
     }
   }
-  return { apensados, varreduraApiFalhou: daApi === null };
+  return apensados;
 }
 
 /**
@@ -2378,7 +2340,7 @@ async function escolherDocumentos(it) {
   // do apensado Podemos não fique faltando.
   if (enr.apensadosPodemos === undefined && enr.idProposicao) {
     try {
-      const { apensados } = await resolverApensados(enr.idProposicao, it.apensadosTexto || []);
+      const apensados = await resolverApensados(enr.idProposicao);
       enr.apensados = apensados;
       enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
     } catch (e) { console.warn('Falha ao resolver apensados sob demanda:', e.message); }
