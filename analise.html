@@ -729,7 +729,14 @@
             <option value="PDL">PDL — Projeto de Decreto Legislativo</option>
             <option value="MPV">MPV — Medida Provisória</option>
             <option value="PRC">PRC — Projeto de Resolução</option>
+            <option value="REQ">REQ — Requerimento (urgência)</option>
+            <option value="REC">REC — Recurso</option>
           </select>
+        </div>
+        <div class="form-group" id="add-urgencia-wrap" style="display:none">
+          <label>Projeto cuja urgência é requerida (opcional)</label>
+          <input type="text" id="add-urgencia" class="form-input" placeholder="Ex: PL 1400/2015 — deixe em branco para eu ler da ementa">
+          <small style="font-size:11px;color:var(--text-dim);display:block;margin-top:4px">É esse projeto que a análise vai ler. Em branco, tento identificá-lo pela ementa do requerimento.</small>
         </div>
         <div style="display:flex; gap:10px">
           <div class="form-group" style="flex:1">
@@ -740,9 +747,9 @@
             <label>Ano</label>
             <input type="text" id="add-ano" class="form-input" placeholder="Ex: 2019">
           </div>
-          <div class="form-group" style="width:120px">
-            <label>Ordem (opcional)</label>
-            <input type="text" id="add-ordem" class="form-input" placeholder="Ex: 15">
+          <div class="form-group" style="width:140px">
+            <label>Nº na pauta (opcional)</label>
+            <input type="text" id="add-ordem" class="form-input" placeholder="Ex: 7">
           </div>
         </div>
         <div id="add-status" style="font-size:11px;color:var(--text-dim);min-height:14px"></div>
