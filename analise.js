@@ -741,9 +741,20 @@ async function enriquecerItem(it) {
     // Apensados via API
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
-    const apensados = await resolverApensados(prop.id);
-    enr.apensados = apensados;
-    enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    // Falha aqui NÃO derruba o enriquecimento inteiro (autoria, pareceres e
+    // apelidos sobrevivem): apensados ficam declaradamente não verificados,
+    // com badge próprio — em vez de o item inteiro morrer em "erro" como
+    // aconteceu na janela de 504 de 12/08/2026.
+    try {
+      const apensados = await resolverApensados(prop.id);
+      enr.apensados = apensados;
+      enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    } catch (eAp) {
+      console.warn(`[análise] apensados de ${it.chave} não verificados: ${eAp.message}`);
+      enr.apensados = [];
+      enr.apensadosPodemos = [];
+      enr.apensadosNaoVerificados = true;
+    }
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
@@ -839,32 +850,84 @@ async function resolveProposicao(sigla, numero, ano) {
   return obj;
 }
 
-async function fetchAutoresProposicao(idProp) {
-  const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
-  const autores = json.dados || [];
-
-  // Para autores que são deputados, busca partido atual
+// FALLBACK DE EMERGÊNCIA (12/08/2026, API 504 em produção): a autoria pelo
+// portal. A página prop_autores é renderizada no servidor e traz, por autor,
+// "Nome - PARTIDO/UF" já NA ORDEM DE ASSINATURA e com o id do deputado no
+// link — dispensa inclusive as N chamadas de partido que a via API exige
+// (1+N por item: a maior exposição do enriquecimento à instabilidade).
+async function autoresDoPortal(idProp) {
+  const html = await fetchHtmlCamara(`https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=${idProp}`);
+  if (!html) return null;
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const cont = doc.querySelector('#content') || doc;
   const out = [];
-  for (const a of autores) {
-    const m = (a.uri || '').match(/\/deputados\/(\d+)/);
-    if (m) {
-      const idDep = m[1];
-      const info  = await fetchInfoDeputado(idDep);
-      out.push({
-        idDeputado: idDep,
-        nome:       a.nome || info?.nome,
-        siglaPartido: info?.siglaPartido,
-        siglaUf:    info?.siglaUf,
-        tipo:       a.tipo,
-        ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
-        proponente: a.proponente,
-        isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
-      });
-    } else {
-      out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
+  let ordem = 0;
+  for (const li of cont.querySelectorAll('ul li')) {
+    const texto = (li.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!texto) continue;
+    const link = li.querySelector('a[href*="/deputados/"]');
+    const m = texto.match(/^(.*?)\s*[-–]\s*([A-ZÀ-Ú]{2,15})\s*\/\s*([A-Z]{2})$/);
+    // Sem "PARTIDO/UF" e sem link de deputado não é linha de autor (a página
+    // tem outras listas): só entra o que é inequívoco. Autor institucional
+    // (Poder Executivo, TST) vem SEM link — aí o li precisa estar dentro do
+    // bloco de conteúdo com o texto puro; mantemos se já achamos autores.
+    if (!m && !link) continue;
+    ordem++;
+    out.push({
+      idDeputado:   link ? (link.getAttribute('href').match(/\/deputados\/(\d+)/) || [])[1] : undefined,
+      nome:         m ? m[1].trim() : texto,
+      siglaPartido: m ? m[2] : undefined,
+      siglaUf:      m ? m[3] : undefined,
+      ordem,                                  // posição na página = ordem de assinatura
+      isPodemos:    !!m && m[2] === SIGLA_PODEMOS,
+      fonte:        'portal',
+    });
+  }
+  return out.length ? out : null;
+}
+
+async function fetchAutoresProposicao(idProp) {
+  let out = null, erroApi = null;
+  try {
+    const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
+    const autores = json.dados || [];
+
+    // Para autores que são deputados, busca partido atual
+    out = [];
+    for (const a of autores) {
+      const m = (a.uri || '').match(/\/deputados\/(\d+)/);
+      if (m) {
+        const idDep = m[1];
+        const info  = await fetchInfoDeputado(idDep);
+        out.push({
+          idDeputado: idDep,
+          nome:       a.nome || info?.nome,
+          siglaPartido: info?.siglaPartido,
+          siglaUf:    info?.siglaUf,
+          tipo:       a.tipo,
+          ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
+          proponente: a.proponente,
+          isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
+        });
+      } else {
+        out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
+      }
+    }
+  } catch (e) { erroApi = e; }
+
+  // Via API falhou — OU veio com deputado SEM partido (a ficha dele falhou,
+  // que viraria um "não-Podemos" silencioso): o portal cobre os dois casos,
+  // porque traz o partido inline.
+  const incompleto = out && out.some(a => a.idDeputado && !a.siglaPartido);
+  if (!out || incompleto) {
+    const doPortal = await autoresDoPortal(idProp).catch(() => null);
+    if (doPortal) {
+      console.warn(`[análise] autores de ${idProp} via portal (${erroApi ? 'API falhou: ' + erroApi.message : 'partido incompleto pela API'})`);
+      return doPortal;
     }
   }
-  return out;
+  if (out) return out;
+  throw erroApi;
 }
 
 async function fetchInfoDeputado(idDep) {
@@ -880,7 +943,10 @@ async function fetchInfoDeputado(idDep) {
     state.cacheAutoria.set(idDep, info);
     return info;
   } catch (e) {
-    state.cacheAutoria.set(idDep, null);
+    // NÃO grava null no cache: cachear a falha faria todo item seguinte ler
+    // este deputado como "sem partido" (→ não-Podemos silencioso) pela sessão
+    // inteira. Sem cache, a próxima chamada tenta de novo — ou o fallback do
+    // portal cobre.
     return null;
   }
 }
@@ -1320,6 +1386,13 @@ function atualizarBadgesCard(it) {
     autorLinha.innerHTML = `<b>Autor:</b> ${htmlAutorRealcado(it)}`;
   }
 
+  if (enr.apensadosNaoVerificados) {
+    const badge = document.createElement('span');
+    badge.className = 'an-badge an-badge--neutro';
+    badge.dataset.role = 'badge-extra';
+    badge.textContent = 'Apensados: não verificados (API instável)';
+    cont.appendChild(badge);
+  }
   // Apensados Podemos — com sufixo de acolhimento (status sensível, só na tela)
   const statusAcolh = it.analise?.apensadosStatus || {};
   for (const ap of (enr.apensadosPodemos || [])) {
