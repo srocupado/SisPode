@@ -2630,7 +2630,12 @@ function validarReferencias(markdown, textoFonte) {
   if (!textoFonte || textoFonte.length < 100) return []; // fonte indisponivel -> nao sinaliza
   // Conjunto de numeros presentes na fonte, sem separador de milhar ("9.999" -> "9999").
   const numerosFonte = new Set((textoFonte.match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
-  const re = /\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
+  // "Projeto de Lei nº 1.400" NÃO é citação de lei — o lookbehind impede o
+  // recorte de "Lei nº 1.400" do meio da expressão. CASO REAL (12/08/2026):
+  // a nota do REQ 4027/2026 citava "Projeto de Lei nº 1.400/2015" e a
+  // conferência acusava a inexistente "Lei nº 1.400". Cobre PL e PLP
+  // ("Projeto de Lei Complementar nº…" casa o ramo da Lei Complementar).
+  const re = /(?<!Projeto\s+de\s+)\b(Lei(?:\s+Complementar|\s+Delegada)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi;
   const suspeitas = [];
   const vistos = new Set();
   let m;
