@@ -15,11 +15,42 @@ const BASE = 'https://www.camara.leg.br/evento-legislativo';
 const CACHE_MS = 60e3;                 // um /oradores no grupo + agente logo atrás = 1 varredura só
 const _cache = new Map();              // eventoId → { ts, resumoTexto }
 
+// LIMITE DE TAXA do portal (HTTP 429, visto em 13/08/2026): a varredura da
+// sessão cheia dispara ~30 GETs em rajada a cada minuto e o portal fecha a
+// porta — e, uma vez fechada, até a página de catálogo passa a responder 429.
+// Duas defesas: um respiro entre GETs (a rajada vira fila) e uma PAUSA GERAL
+// quando o 429 aparece, respeitando o Retry-After quando o portal o envia.
+const GAP_MS = 400;          // respiro mínimo entre duas requisições ao portal
+const PAUSA_PADRAO_MS = 5 * 60e3;   // sem Retry-After: 5 min de silêncio
+let _proximoGet = 0;         // agenda do respiro (fila entre chamadas simultâneas)
+let _pausaAte   = 0;         // enquanto agora < isto, nem tenta
+
+/** Está de castigo por limite de taxa? Em segundos que faltam (0 = livre). */
+function esperaPorTaxa() {
+  return Math.max(0, Math.ceil((_pausaAte - Date.now()) / 1000));
+}
+
 async function fetchTimeout(url, ms = 15000) {
+  const falta = esperaPorTaxa();
+  if (falta) throw new Error(`portal em espera por limite de taxa (faltam ${falta}s)`);
+
+  // Enfileira: cada chamada marca seu horário e a seguinte espera o respiro.
+  const agora = Date.now();
+  const quando = Math.max(agora, _proximoGet);
+  _proximoGet = quando + GAP_MS;
+  if (quando > agora) await new Promise(r => setTimeout(r, quando - agora));
+
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
-  try { return await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'SisPodeBot/1.0' } }); }
-  finally { clearTimeout(timer); }
+  try {
+    const r = await fetch(url, { signal: ctrl.signal, headers: { 'User-Agent': 'SisPodeBot/1.0' } });
+    if (r.status === 429) {
+      const ra = Number(r.headers.get('retry-after'));
+      _pausaAte = Date.now() + (Number.isFinite(ra) && ra > 0 ? Math.min(ra, 1800) * 1000 : PAUSA_PADRAO_MS);
+      console.warn(`[oradores] portal limitou a taxa (429) — pausando ${esperaPorTaxa()}s.`);
+    }
+    return r;
+  } finally { clearTimeout(timer); }
 }
 
 function limpar(s) {
@@ -28,8 +59,16 @@ function limpar(s) {
     .replace(/\s+/g, ' ').trim();
 }
 
+// O catálogo muda pouco durante a sessão (lista nova entra quando a matéria
+// entra em discussão): guardá-lo por 5 min corta uma requisição por varredura
+// e, principalmente, evita repetir o GET que mais aparece no log de 429.
+const CATALOGO_MS = 5 * 60e3;
+const _catalogo = new Map();   // eventoId → { ts, dados }
+
 /** Catálogo de listas de oradores da sessão (do <select> server-rendered). */
-async function listasDeOradores(eventoId) {
+async function listasDeOradores(eventoId, { cache = true } = {}) {
+  const c = _catalogo.get(eventoId);
+  if (cache && c && Date.now() - c.ts < CATALOGO_MS) return c.dados;
   const r = await fetchTimeout(`${BASE}/${eventoId}/oradores-inscritos`);
   if (!r.ok) throw new Error(`HTTP ${r.status} na página de oradores`);
   const html = await r.text();
@@ -45,7 +84,9 @@ async function listasDeOradores(eventoId) {
   }
   // Nome da sessão (título da própria página, para o cabeçalho do resumo)
   const t = html.match(/(?:Breves Comunicações|Comunicações de Liderança) da\s+(Sessão[^;<"]+)/i);
-  return { listas, sessaoNome: t ? limpar(t[1]) : '' };
+  const dados = { listas, sessaoNome: t ? limpar(t[1]) : '' };
+  _catalogo.set(eventoId, { ts: Date.now(), dados });
+  return dados;
 }
 
 /** Oradores de UMA lista. Situação: 'falou' | 'chamado' | '' (aguarda). */
@@ -116,6 +157,18 @@ async function resumoOradores(eventoId, filtro = '') {
   const c = _cache.get(chaveCache);
   if (c && Date.now() - c.ts < CACHE_MS) return c.texto;
 
+  // Portal limitando a taxa: em vez de estourar um erro cru para quem pediu
+  // /oradores, entrega o último quadro obtido — DIZENDO de quando ele é.
+  const espera = esperaPorTaxa();
+  if (espera) {
+    const min = Math.ceil(espera / 60);
+    if (c) {
+      const hora = new Date(c.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+      return `${c.texto}\n\n_⚠️ O portal da Câmara limitou nossas consultas; este quadro é de ${hora}. Tento de novo em ~${min} min._`;
+    }
+    return `⚠️ O portal da Câmara limitou nossas consultas (HTTP 429) e ainda não tenho um quadro de oradores guardado. Tento de novo em ~${min} min.`;
+  }
+
   const { listas, sessaoNome } = await listasDeOradores(eventoId);
   if (!listas.length) return 'A sessão ainda não tem listas de oradores publicadas.';
 
@@ -165,4 +218,4 @@ async function resumoOradoresDaData(dataISO, filtro = '') {
   return partes.join('\n\n————————\n\n');
 }
 
-module.exports = { resumoOradores, resumoOradoresDaData, eventosPlenarioDaData, listasDeOradores, oradoresDaLista };
+module.exports = { esperaPorTaxa, resumoOradores, resumoOradoresDaData, eventosPlenarioDaData, listasDeOradores, oradoresDaLista };

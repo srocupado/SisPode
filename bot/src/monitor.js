@@ -9,7 +9,7 @@
 // Idempotência entre reinícios: /bot/monitor_sessao/{eventoId} no Firebase.
 const { fbGet, fbPatch, fbPut } = require('./firebase');
 const { paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./portal');
-const { listasDeOradores, oradoresDaLista } = require('./oradores');
+const { listasDeOradores, oradoresDaLista, esperaPorTaxa } = require('./oradores');
 const { faltamVotar, formatarFaltantes } = require('./faltamvotar');
 const { statusPlenario, sessaoAtual } = require('./plenariocosev');
 const { imagemVotacao } = require('./imagem');
@@ -318,12 +318,24 @@ function alvoDaUrgencia(texto) {
 // Decisão da Liderança (16/07): só a bancada do Podemos; destino = grupo.
 const ORADORES_MS = 60e3;   // varredura ~30 GETs leves; 1x/min é o equilíbrio
 let _ultimaOradores = 0;
-let _oradoresPrimed = false;   // 1ª varredura do processo: "falou" antigo cala (evita jato pós-restart)
+let _oradoresPrimed = false;
+let _oradoresAvisouPausa = false;  // o aviso de pausa sai UMA vez, não a cada minuto   // 1ª varredura do processo: "falou" antigo cala (evita jato pós-restart)
 const REGEX_PODE = /^PODE(MOS)?$/i;
 
 async function checarOradores() {
   const s = _sessao;
   if (!s || Date.now() - _ultimaOradores < ORADORES_MS) return;
+  // Portal de castigo por limite de taxa: sair em silêncio. Insistir a cada
+  // minuto só renova o castigo e enchia o log com o mesmo 429 (13/08/2026).
+  const espera = esperaPorTaxa();
+  if (espera) {
+    if (!_oradoresAvisouPausa) {
+      console.warn(`[monitor] oradores em pausa: o portal limitou a taxa; volto em ~${Math.ceil(espera / 60)} min.`);
+      _oradoresAvisouPausa = true;
+    }
+    return;
+  }
+  _oradoresAvisouPausa = false;
   _ultimaOradores = Date.now();
   const priming = !_oradoresPrimed;
   const { listas } = await listasDeOradores(s.id);
