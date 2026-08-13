@@ -14,7 +14,10 @@
 // "Nº" como sai da extração do PDF: ordinal (º), sinal de grau (°) ou "No",
 // com ou sem ponto. MEDIDO nas pautas de 12 e 13/08/2026 — as três formas
 // aparecem, e exigir só o ordinal fazia o item sumir da análise.
-const NUM_ORD = 'N[º°o]?\\.?';
+// O espaço entre o "N" e o "º" é real: MEDIDO na pauta de 13/08/2026, o item 7
+// saiu "PROJETO DE LEI N º 5.229 - A, DE 2025" (o kerning do PDF separa os
+// caracteres) e o item sumia em silêncio.
+const NUM_ORD = 'N\\s*[º°o]?\\.?';
 // Sufixo de tramitação depois do número — "241-A", "241 - A", "241–B": marca
 // de substitutivo/redação da Câmara, NÃO faz parte do número da proposição
 // (PL 241-A/2023 é o PL 241/2023). O hífen pode vir com espaços ou como
@@ -95,11 +98,16 @@ function parsearPautaExtenso(texto) {
     // A data da sessão vem por extenso — convertê-la para dd/mm/aaaa. (A 1ª
     // ocorrência é a do cabeçalho; datas posteriores são de tramitação.)
     const MESES = { janeiro:1, fevereiro:2, marco:3, abril:4, maio:5, junho:6, julho:7, agosto:8, setembro:9, outubro:10, novembro:11, dezembro:12 };
-    const dataExt = texto.match(/\bEm\s+(\d{1,2})\s+de\s+([A-Za-zçÇãÃéÉ]+)\s+de\s+(\d{4})/i);
+    // O kerning do PDF separa caracteres DENTRO das palavras e dos números:
+    // MEDIDO na pauta de 13/08/2026, o cabeçalho saiu "Em 1 3 de agost o de
+    // 2026". Por isso cada grupo tolera espaços internos e é compactado
+    // depois — sem isso a pauta ficava sem data e caía no nome do arquivo.
+    const dataExt = texto.match(/\bEm\s+(\d(?:\s*\d)?)\s+de\s+([A-Za-zçÇãÃéÉêÊíÍóÓúÚ][A-Za-zçÇãÃéÉêÊíÍóÓúÚ\s]{2,12}?)\s+de\s+(\d(?:\s*\d){3})/i);
     if (dataExt) {
-      const mesNome = dataExt[2].toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+      const semEspaco = s => s.replace(/\s+/g, '');
+      const mesNome = semEspaco(dataExt[2]).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
       const mesNum  = MESES[mesNome];
-      if (mesNum) resultado.periodo = `${String(dataExt[1]).padStart(2, '0')}/${String(mesNum).padStart(2, '0')}/${dataExt[3]}`;
+      if (mesNum) resultado.periodo = `${semEspaco(dataExt[1]).padStart(2, '0')}/${String(mesNum).padStart(2, '0')}/${semEspaco(dataExt[3])}`;
     }
   }
   resultado.titulo = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
@@ -107,7 +115,7 @@ function parsearPautaExtenso(texto) {
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
-  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n\s*[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -154,7 +162,7 @@ function parsearPautaExtenso(texto) {
   // pauta de 12/08/2026, cujo item 7 veio "Requerimento 4.027, de 2026"
   // enquanto os outros 26 traziam "Requerimento nº". Com o "nº" obrigatório o
   // item sumia da pauta em silêncio (26 de 27 identificados), sem erro nenhum.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n\s*[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n\s*[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);
@@ -232,8 +240,11 @@ function parsearPautaExtenso(texto) {
 
     // Ordem: número(s) isolado(s) antes do cabeçalho (na mesma linha ou linha acima)
     const antes = texto.slice(Math.max(0, h.idx - 60), h.idx);
-    const ordemMatch = antes.match(/(?:^|\n)\s*(\d{1,3})\s*\n[^\n]*$/);
-    const ordemRaw = ordemMatch ? parseInt(ordemMatch[1], 10) : null;
+    // A extração do PDF separa os dígitos do número de ordem a partir do 10º
+    // item ("1 1", "1 2", "1 3" na pauta de 13/08/2026) — sem juntar, os itens
+    // 11 em diante ficavam sem ordem e iam para o fim da lista.
+    const ordemMatch = antes.match(/(?:^|\n)[ \t]*(\d(?:[ \t]*\d){0,2})[ \t]*\n[^\n]*$/);
+    const ordemRaw = ordemMatch ? parseInt(ordemMatch[1].replace(/[ \t]/g, ''), 10) : null;
 
     const chave = `${tipo.sigla}-${h.numero}-${h.ano}`;
     if (resultado.itens.some(it => it.tipoCategoria === 'projeto' && `${it.sigla}-${it.numero}-${it.ano}` === chave)) {
@@ -278,13 +289,22 @@ function parsearPautaExtenso(texto) {
     }
 
     // Relator: pega a ÚLTIMA ocorrência (mais recente)
-    const relRegex = /RELATOR(?:A)?:\s*DEP\.\s*([^()\n]+?)\s*\(([A-ZÁÀÂÃÄÉÊÍÓÔÕÚÇ]+)-([A-Z]{2})\)\s*,?\s*EM\s*(\d{2}\/\d{2}\/\d{4})/gi;
+    // O PDF escreve o partido/UF com espaços em volta do traço ("(PSB - PE)",
+    // MEDIDO na pauta de 13/08/2026) — sem tolerância, o relator sumia de
+    // TODOS os itens dessa pauta.
+    const relRegex = /RELATOR(?:A)?:\s*DEP\.\s*([^()\n]+?)\s*\(\s*([A-ZÁÀÂÃÄÉÊÍÓÔÕÚÇ.]+)\s*[-–—]\s*([A-Z]{2})\s*\)\s*,?\s*EM\s*(\d{2}\/\d{2}\/\d{4})/gi;
     let relator = null, rm;
     while ((rm = relRegex.exec(bloco)) !== null) {
       relator = { nome: rm[1].trim(), partido: rm[2].trim(), uf: rm[3].trim(), data: rm[4] };
     }
 
-    const temUrgencia = /APROVADO\s+O\s+REQUERIMENTO\s+DE\s+URG[ÊE]NCIA/i.test(bloco);
+    // "SE APROVADO O REQUERIMENTO DE URGÊNCIA nº X" é CONDICIONAL — a urgência
+    // ainda depende da aprovação daquele requerimento (MEDIDO na pauta de
+    // 13/08/2026, item 9, que pende do REQ 4.045 do item 1). Tratar isso como
+    // urgência aprovada seria afirmar um fato que ainda não ocorreu.
+    const temUrgencia = /(?<!\bSE\s{0,3})APROVADO\s+O\s+REQUERIMENTO\s+DE\s+URG[ÊE]NCIA/i.test(bloco);
+    const urgenciaCondicional = !temUrgencia
+      && /\bSE\s+APROVADO\s+O\s+REQUERIMENTO\s+DE\s+URG[ÊE]NCIA/i.test(bloco);
 
     // Pareceres de comissão constantes na pauta.
     // Padrões reconhecidos no PDF:
@@ -304,6 +324,7 @@ function parsearPautaExtenso(texto) {
       apensadosTexto,
       relator,
       temUrgencia,
+      urgenciaCondicional,
       pareceresComissao,
     });
   }

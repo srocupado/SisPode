@@ -447,6 +447,7 @@ function renderCard(it) {
         </div>
         <div class="an-badges" data-rolebadges>
           ${it.temUrgencia ? `<span class="an-badge an-badge--urg">Urgência aprovada</span>` : ''}
+          ${it.urgenciaCondicional ? `<span class="an-badge an-badge--neutro" title="A pauta diz &quot;SE APROVADO O REQUERIMENTO DE URGÊNCIA&quot;: a urgência ainda depende da aprovação desse requerimento">Urgência pendente de aprovação</span>` : ''}
           <span class="an-badge an-badge--neutro" data-role="autoria-flag">Verificando autoria...</span>
         </div>
       </div>
@@ -3954,7 +3955,8 @@ async function _fbSalvarPautaExec(pauta) {
           sigla: it.sigla, numero: it.numero, ano: it.ano,
           ementa: it.ementa, autorTexto: it.autorTexto,
           apensadosTexto: it.apensadosTexto, relator: it.relator,
-          temUrgencia: it.temUrgencia, projetoUrgenciado: it.projetoUrgenciado || null,
+          temUrgencia: it.temUrgencia, urgenciaCondicional: it.urgenciaCondicional || null,
+          projetoUrgenciado: it.projetoUrgenciado || null,
           chave: it.chave,
         })),
       }),
