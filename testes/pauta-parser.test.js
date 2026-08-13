@@ -67,6 +67,34 @@ const req = (ordem, comoEscreve, projeto) =>
     ok(achou('4480', '2025'), 'cabeçalho sem letra continua funcionando');
   }
 
+  console.log('\n== quebras de kerning do PDF real (pauta de 13/08/2026) ==');
+  {
+    // A extração do PDF separa caracteres dentro de palavras e números. Todas
+    // as grafias abaixo saíram do PDF oficial de 13/08/2026.
+    const texto = 'CÂMARA DOS DEPUTADOS\nEm 1 3 de agost o de 2026\n( Qu in t a - feira)\n\nORDEM DO DIA\n\n' +
+      '7\nPROJETO DE LEI N º 5.229 - A, DE 2025\n(DO SR. PEDRO PAULO)\n' +
+      'Discussão, em turno único, do Projeto de Lei nº 5.229 - A, de 2025, que dispõe sobre suplementos. (NT62 T64)\n' +
+      'Tendo apensados (2) os PLs 5.319/25 e 6.000/25.\n' +
+      'APROVADO O REQUERIMENTO DE URGÊNCIA N° 1.675/2026, EM\n28/04/2026.\n' +
+      'RELATOR: DEP. FELIPE CARRERAS (PSB - PE), EM 28/04/2026\n' +
+      '1 1\nPROJETO DE LEI Nº 3.540, DE 2026\n(DO SR. ISNALDO BULHÕES JR.)\n' +
+      'Discussão, em turno único, do Projeto de Lei nº 3.540, de 2026, que altera a CSLL. (T62 T64)\n' +
+      'SE APROVADO O REQUERIMENTO DE URGÊNCIA N° 4.045 / 2026 .\n';
+    const p = P.parsearPauta(texto);
+    const i7 = p.itens.find(i => i.numero === '5229');
+    const i11 = p.itens.find(i => i.numero === '3540');
+    ok(p.periodo === '13/08/2026', `data do cabeçalho com letras/dígitos partidos ("Em 1 3 de agost o"): ${p.periodo || '(vazio)'}`);
+    ok(!!i7, '"N º" com espaço entre N e º — item 7 do PDF real não some');
+    ok(i7?.ordem === 7, `ordem do item lida (${i7?.ordem})`);
+    ok(i7?.relator?.nome === 'FELIPE CARRERAS' && i7?.relator?.partido === 'PSB',
+       `relator com "(PSB - PE)" espaçado: ${i7?.relator?.nome || '(nenhum)'}`);
+    ok((i7?.apensadosTexto || []).length === 2, `apensados do item ("(2) os PLs 5.319/25 e 6.000/25"): ${(i7?.apensadosTexto || []).length}`);
+    ok(i7?.temUrgencia === true, 'urgência efetivamente aprovada continua marcada');
+    ok(i11?.ordem === 11, `ordem partida em dígitos ("1 1") vira 11 (obtido: ${i11?.ordem})`);
+    ok(i11?.temUrgencia === false && i11?.urgenciaCondicional === true,
+       '"SE APROVADO o requerimento" NÃO é urgência aprovada — fica pendente');
+  }
+
   console.log('\n== não inventa item onde não há ==');
   const vazio = P.parsearPauta(pauta(['Nada aqui que se pareça com uma proposição.']));
   ok(vazio.itens.length === 0, 'texto sem requerimento não produz item');
