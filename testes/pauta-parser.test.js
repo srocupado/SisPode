@@ -47,6 +47,26 @@ const req = (ordem, comoEscreve, projeto) =>
      `item sem "nº" ainda vincula o projeto (obtido: ${JSON.stringify(porOrdem(2)?.projetoUrgenciado)})`);
   ok(porOrdem(1)?.projetoUrgenciado?.numero === '4159', 'item com "nº" vincula o projeto');
 
+  console.log('\n== cabeçalho de PROJETO com letra depois do número (PL 241-A) ==');
+  {
+    // Caso real da pauta de 13/08/2026: "PROJETO DE LEI Nº 241-A, DE 2023".
+    // A letra é marca de substitutivo/redação — o item é o PL 241/2023 — e
+    // as variações de traço/espaço vêm da extração do PDF.
+    const cab = (t, n) => `${t}\nDiscussão, em turno único, do projeto que dispõe sobre coisa nenhuma.\n(DO SR. FULANO)\nRELATOR: DEP. CICLANO (PODE-SP), EM 01/08/2026\n`;
+    const p = P.parsearPauta(pauta([
+      cab('PROJETO DE LEI Nº 241-A, DE 2023'),
+      cab('PROJETO DE LEI Nº 1.842 - B, DE 2025'),
+      cab('PROJETO DE LEI COMPLEMENTAR N° 73-A, DE 2025'),
+      cab('PROJETO DE LEI Nº 4.480, DE 2025'),          // sem letra, o corrente
+    ]));
+    const achou = (n, a) => p.itens.some(i => i.numero === n && i.ano === a);
+    ok(p.itens.length === 4, `os 4 projetos entram (obtidos: ${p.itens.length} — ${p.itens.map(i => i.sigla + ' ' + i.numero + '/' + i.ano).join(', ')})`);
+    ok(achou('241', '2023'), 'PL 241-A/2023 vira PL 241/2023 (a letra não entra no número)');
+    ok(achou('1842', '2025'), 'traço com espaços ("1.842 - B") também é aceito');
+    ok(p.itens.some(i => i.sigla === 'PLP' && i.numero === '73'), 'PLP com grau + letra ("N° 73-A")');
+    ok(achou('4480', '2025'), 'cabeçalho sem letra continua funcionando');
+  }
+
   console.log('\n== não inventa item onde não há ==');
   const vazio = P.parsearPauta(pauta(['Nada aqui que se pareça com uma proposição.']));
   ok(vazio.itens.length === 0, 'texto sem requerimento não produz item');

@@ -11,15 +11,31 @@
 
 'use strict';
 
+// "Nº" como sai da extração do PDF: ordinal (º), sinal de grau (°) ou "No",
+// com ou sem ponto. MEDIDO nas pautas de 12 e 13/08/2026 — as três formas
+// aparecem, e exigir só o ordinal fazia o item sumir da análise.
+const NUM_ORD = 'N[º°o]?\\.?';
+// Sufixo de tramitação depois do número — "241-A", "241 - A", "241–B": marca
+// de substitutivo/redação da Câmara, NÃO faz parte do número da proposição
+// (PL 241-A/2023 é o PL 241/2023). O hífen pode vir com espaços ou como
+// travessão, conforme a extração do PDF.
+const SUF_LETRA = '(?:\\s*[-–—]\\s*[A-Z]{1,3})?';
+
 // Tipos de proposição que reconhecemos no PDF
 const TIPOS_PROPOSICAO = [
-  { sigla: 'PL',  regex: /PROJETO DE LEI\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                                 prefixo: 'PROJETO DE LEI' },
-  { sigla: 'PLP', regex: /PROJETO DE LEI COMPLEMENTAR\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                    prefixo: 'PROJETO DE LEI COMPLEMENTAR' },
-  { sigla: 'PEC', regex: /PROPOSTA DE EMENDA (?:À|A) CONSTITUI[ÇC][ÃA]O\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,    prefixo: 'PROPOSTA DE EMENDA À CONSTITUIÇÃO' },
-  { sigla: 'PDL', regex: /PROJETO DE DECRETO LEGISLATIVO\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                  prefixo: 'PROJETO DE DECRETO LEGISLATIVO' },
-  { sigla: 'MPV', regex: /MEDIDA PROVIS[ÓO]RIA\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                            prefixo: 'MEDIDA PROVISÓRIA' },
-  { sigla: 'PRC', regex: /PROJETO DE RESOLU[ÇC][ÃA]O\s+N[ºo]?\s*[\d.]+(?:-[A-Z]+)?,?\s*DE\s+\d{4}/i,                       prefixo: 'PROJETO DE RESOLUÇÃO' },
-];
+  { sigla: 'PL',  prefixo: 'PROJETO DE LEI' },
+  { sigla: 'PLP', prefixo: 'PROJETO DE LEI COMPLEMENTAR' },
+  { sigla: 'PEC', prefixo: 'PROPOSTA DE EMENDA À CONSTITUIÇÃO' },
+  { sigla: 'PDL', prefixo: 'PROJETO DE DECRETO LEGISLATIVO' },
+  { sigla: 'MPV', prefixo: 'MEDIDA PROVISÓRIA' },
+  { sigla: 'PRC', prefixo: 'PROJETO DE RESOLUÇÃO' },
+].map(t => ({
+  ...t,
+  // O prefixo aceita as variações de acento/cedilha que a extração produz.
+  regex: new RegExp(
+    t.prefixo.replace('À', '(?:À|A)').replace('Ç', '[ÇC]').replace('Ã', '[ÃA]').replace('Ó', '[ÓO]') +
+    `\\s+${NUM_ORD}\\s*[\\d.]+${SUF_LETRA}\\s*,?\\s*DE\\s+\\d{4}`, 'i'),
+}));
 
 // pdf.js worker (só na extensão; no Node o bot fornece pdfjsLib sem chrome)
 if (typeof pdfjsLib !== 'undefined' && typeof chrome !== 'undefined') {
@@ -91,7 +107,7 @@ function parsearPautaExtenso(texto) {
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
-  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[º°o]\s*([\d.]+)(?:-[A-Z]+)?,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -148,10 +164,10 @@ function parsearPautaExtenso(texto) {
     const bloco   = m[4];
 
     // Tenta identificar o projeto cujo regime de urgência está sendo pedido
-    const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + '\\s+n[º°o]', 'i')));
+    const projInternoSigla = TIPOS_PROPOSICAO.find(t => bloco.match(new RegExp(t.prefixo + `\\s+${NUM_ORD}`, 'i')));
     let proj = null;
     if (projInternoSigla) {
-      const m2 = bloco.match(new RegExp(projInternoSigla.prefixo + '\\s+n[º°o]\\s*([\\d.]+)(?:-[A-Z]+)?,?\\s*de\\s*(\\d{4})', 'i'));
+      const m2 = bloco.match(new RegExp(projInternoSigla.prefixo + `\\s+${NUM_ORD}\\s*([\\d.]+)${SUF_LETRA}\\s*,?\\s*de\\s*(\\d{4})`, 'i'));
       if (m2) proj = { sigla: projInternoSigla.sigla, numero: limpaNumero(m2[1]), ano: m2[2] };
     }
     const autorMatch = bloco.match(/d[oa]s?\s+(Sr\.|Sra\.|Senhor|Senhora|Srs?\.?\s+L[íi]deres)[^,.]{0,80}/i);
@@ -190,7 +206,7 @@ function parsearPautaExtenso(texto) {
   // sensitive e ancorado ao início da linha evita falsos positivos quando o
   // mesmo nome aparece em title case dentro da ementa.
   const headerRegex = new RegExp(
-    `(?:^|\\n)\\s*(${tiposOrdenados.map(t => t.prefixo).join('|')})\\s+N[º]\\s*([\\d.]+)(?:-[A-Z]+)?,?\\s*DE\\s+(\\d{4})`,
+    `(?:^|\\n)\\s*(${tiposOrdenados.map(t => t.prefixo).join('|')})\\s+${NUM_ORD}\\s*([\\d.]+)${SUF_LETRA}\\s*,?\\s*DE\\s+(\\d{4})`,
     'g'
   );
   const headers = [];
