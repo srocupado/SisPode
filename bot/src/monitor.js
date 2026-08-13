@@ -251,6 +251,10 @@ async function descricaoCurta(ref) {
 // 3839/2024). Poll suave (30s), embutido no tick do painel.
 const DISCUSSAO_MS = 30e3;
 let _ultimaDiscussao = 0;
+// Matérias que a página do evento mostra EM ANÁLISE agora (chaves SIGLA-NUM-ANO).
+// É o que define "o item da vez" para calar avisos fora de contexto — ver
+// checarOradores. null = ainda não sabemos (nunca lemos a página com sucesso).
+let _emAnalise = null;
 
 function materiasEmAnalise(html) {
   // ESCOPO obrigatório: a página usa a MESMA classe CSS nos itens da pauta
@@ -322,6 +326,14 @@ let _oradoresPrimed = false;
 let _oradoresAvisouPausa = false;  // o aviso de pausa sai UMA vez, não a cada minuto   // 1ª varredura do processo: "falou" antigo cala (evita jato pós-restart)
 const REGEX_PODE = /^PODE(MOS)?$/i;
 
+// Matéria a que a lista de oradores se refere ("Discussão PL 1842/2025" →
+// PL-1842-2025). Listas gerais (Breves Comunicações, Comunicações de
+// Liderança) não têm matéria e não entram nessa régua.
+function materiaDaLista(rotulo) {
+  const m = String(rotulo || '').match(/\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|REC|PLV)\s*([\d.]+)\s*\/\s*(\d{4})\b/i);
+  return m ? `${m[1].toUpperCase()}-${m[2].replace(/\./g, '')}-${m[3]}` : null;
+}
+
 async function checarOradores() {
   const s = _sessao;
   if (!s || Date.now() - _ultimaOradores < ORADORES_MS) return;
@@ -348,6 +360,23 @@ async function checarOradores() {
       if (o.situacao !== 'chamado' && o.situacao !== 'falou') continue;
       const chave = `${o.idDep || o.nome.replace(/[^\w]/g, '')}-${lista.idLista}`;
       if (s.estado.oradoresAvisados[chave]) continue;
+      // FORA DE CONTEXTO: a lista de uma matéria específica ("Discussão PL
+      // 1842/2025") só vale enquanto ESSA matéria está em apreciação. Em
+      // 13/08/2026 um aviso de tribuna chegou atrasado e caiu no meio da
+      // apreciação de outro projeto — quem lê o grupo associa o orador ao item
+      // errado. Registra como visto (para não ressurgir depois) e cala.
+      const daLista = materiaDaLista(lista.rotulo);
+      if (daLista && _emAnalise?.size && !_emAnalise.has(daLista)) {
+        s.estado.oradoresAvisados[chave] = true;
+        marcar(s.id, { [`oradoresAvisados/${chave}`]: true });
+        console.log(`[monitor] aviso de tribuna descartado (fora de contexto): ${o.nome} em ${daLista}, mas em apreciação: ${[..._emAnalise].join(', ')}.`);
+        continue;
+      }
+      // Nada em apreciação no retrato (intervalo entre itens, ou a página do
+      // evento — poll de 30s — ainda não pegou o item que acabou de abrir):
+      // ADIA sem registrar, para o aviso sair quando a matéria entrar. Marcar
+      // aqui calaria para sempre um orador chamado no início do próprio item.
+      if (daLista && _emAnalise && !_emAnalise.size) continue;
       s.estado.oradoresAvisados[chave] = true;
       marcar(s.id, { [`oradoresAvisados/${chave}`]: true });
       // Priming (bot subiu no meio da sessão): quem JÁ FALOU é passado — registra
@@ -376,7 +405,11 @@ async function checarDiscussao() {
   // 1) ANÚNCIO — matéria que entrou em apreciação (bloco "Propostas em análise").
   // REQs de urgência TAMBÉM chegam por aqui (validado 15/07: REQ 3803 apareceu
   // no bloco e o portal nunca o listou) — saem no formato de urgência.
-  for (const mat of materiasEmAnalise(html)) {
+  const emAnalise = materiasEmAnalise(html);
+  // Retrato do que está em apreciação AGORA (inclusive o que já foi anunciado):
+  // é a régua que os avisos de tribuna usam para não falar de outro item.
+  _emAnalise = new Set(emAnalise.map(mt => `${mt.sigla}-${mt.numero}-${mt.ano}`));
+  for (const mat of emAnalise) {
     const chave = `${mat.sigla}-${mat.numero}-${mat.ano}`;
     if (s.estado.discutidos[chave]) continue;
     s.estado.discutidos[chave] = true;
