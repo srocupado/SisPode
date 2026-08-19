@@ -887,6 +887,21 @@ function passaNoVinculo(nome, escolha) {
 }
 
 // ---------- filtros e agregação do panorama ----------
+/** Regra ÚNICA de vínculo para uma emenda: o campo gravado na coleta e, na
+ *  base antiga sem ele, a classificação da bancada — sem o dado, nada é
+ *  escondido. Usada pelo filtro E pelos menus: eram duas lógicas, e o menu
+ *  listava senador como se fosse bancada (19/08/2026). */
+function emendaPassaNoVinculo(e, vinculo) {
+  if (!vinculo) return true;
+  if (e.casa) {
+    if (vinculo === 'deputados') return e.casa === 'deputado';
+    if (vinculo === 'partido') return e.casa === 'deputado' || e.casa === 'senador do partido';
+    if (vinculo === 'outros') return e.casa !== 'deputado' && e.casa !== 'senador do partido';
+    return true;
+  }
+  return passaNoVinculo(e.parlamentar, vinculo);
+}
+
 function emendasFiltradas() {
   const parl = document.getElementById('p-parlamentar').value;
   const func = document.getElementById('p-funcao').value;
@@ -896,16 +911,7 @@ function emendasFiltradas() {
     if (parl && e.parlamentar !== parl) return false;
     if (func && e.funcao !== func) return false;
     if (tipo && e.tipo !== tipo) return false;
-    // Emenda antiga, gravada antes de o vínculo existir, não é escondida:
-    // sem o dado, não dá para afirmar que não é da bancada.
-    // A emenda já vem com o vínculo gravado na coleta; quando falta (base
-    // antiga), cai na classificação da bancada.
-    if (vinculo && e.casa) {
-      if (vinculo === 'deputados' && e.casa !== 'deputado') return false;
-      if (vinculo === 'partido' && e.casa !== 'deputado' && e.casa !== 'senador do partido') return false;
-      if (vinculo === 'outros' && (e.casa === 'deputado' || e.casa === 'senador do partido')) return false;
-    } else if (!passaNoVinculo(e.parlamentar, vinculo)) return false;
-    return true;
+    return emendaPassaNoVinculo(e, vinculo);
   });
 }
 
@@ -1144,9 +1150,12 @@ function popularSelects() {
     }
     if (escolhido && valores.includes(escolhido)) sel.value = escolhido;
   };
-  encher('f-deputado', [...new Set(state.itens.map(i => i.deputado).filter(Boolean))].sort());
-  encher('f-uf',       [...new Set(state.itens.map(i => i.uf).filter(Boolean))].sort());
-  encher('f-tipo',     [...new Set(state.itens.map(i => i.tipo).filter(Boolean))].sort());
+  // Mesmo princípio na saúde: o menu de parlamentar respeita o vínculo.
+  const vinculoFns = document.getElementById('f-vinculo').value;
+  const baseFns = state.itens.filter(i => passaNoVinculo(i.deputado, vinculoFns));
+  encher('f-deputado', [...new Set(baseFns.map(i => i.deputado).filter(Boolean))].sort());
+  encher('f-uf',       [...new Set(baseFns.map(i => i.uf).filter(Boolean))].sort());
+  encher('f-tipo',     [...new Set(baseFns.map(i => i.tipo).filter(Boolean))].sort());
 
   // O seletor de exercício NÃO depende de haver dados: ele é a porta para
   // trocar de ano, inclusive para sair de um ano vazio.
@@ -1585,6 +1594,9 @@ document.addEventListener('DOMContentLoaded', () => {
   for (const id of ['p-parlamentar', 'p-funcao', 'p-tipo', 'p-vinculo']) {
     document.getElementById(id).addEventListener('change', renderPanorama);
   }
+  // Mudou o vínculo na saúde: refaz os menus ANTES da tabela, senão um
+  // parlamentar recém-excluído continuaria selecionado e filtrando.
+  document.getElementById('f-vinculo').addEventListener('change', () => popularSelects());
   document.getElementById('btn-panorama').addEventListener('click', buscarPanorama);
   document.getElementById('btn-chave').addEventListener('click', abrirModalChave);
   document.getElementById('chave-cancelar').addEventListener('click', () => {
@@ -1693,6 +1705,11 @@ function renderPanorama() {
 }
 
 function popularSelectsPanorama() {
+  // As OPÇÕES acompanham o filtro de vínculo: com "Deputados da bancada"
+  // ativo, o menu listava os senadores mesmo assim — dava a impressão de que
+  // eram bancada e, escolhido um, a tabela vinha vazia.
+  const vinculo = document.getElementById('p-vinculo').value;
+  const base = state.emendas.filter(e => emendaPassaNoVinculo(e, vinculo));
   const encher = (id, valores) => {
     const sel = document.getElementById(id);
     const escolhido = sel.value;
@@ -1706,9 +1723,9 @@ function popularSelectsPanorama() {
     }
     if (escolhido && valores.includes(escolhido)) sel.value = escolhido;
   };
-  encher('p-parlamentar', [...new Set(state.emendas.map(e => e.parlamentar))].sort());
-  encher('p-funcao', [...new Set(state.emendas.map(e => e.funcao))].sort());
-  encher('p-tipo', [...new Set(state.emendas.map(e => e.tipo))].sort());
+  encher('p-parlamentar', [...new Set(base.map(e => e.parlamentar))].sort());
+  encher('p-funcao', [...new Set(base.map(e => e.funcao))].sort());
+  encher('p-tipo', [...new Set(base.map(e => e.tipo))].sort());
 }
 
 /** Detalhe: as emendas de um parlamentar numa pasta. */
