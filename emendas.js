@@ -36,7 +36,11 @@ const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
 const TIMEOUT_PLANILHA_MS = 180000;
 const TIMEOUT_DETALHE_MS  = 30000;
 const BACKOFF_MS = [0, 2000, 6000];
-const SIMULTANEAS = 3;      // UFs em paralelo — o portal é lento, não abusamos
+// MEDIDO em 19/08/2026: um pedido sozinho levou de 8s (AC) a 34s (SP), mas
+// TRÊS ao mesmo tempo não terminaram em 120s — o portal não ganha nada com
+// paralelismo alto e parece enfileirar. Dois é o meio-termo: aproveita a
+// espera de rede sem empurrar o servidor para o atraso.
+const SIMULTANEAS = 2;
 const GAP_MS = 400;         // respiro entre requisições
 
 const state = {
@@ -45,6 +49,7 @@ const state = {
   meta: {},               // { uf: { em, n } }
   aba: 'propostas',
   log: null,              // relatório da última coleta desta sessão
+  emVoo: new Map(),       // uf → instante em que a requisição saiu (para o painel vivo)
   ordem: { col: 'pago', desc: true },
   varredura: null,        // AbortController enquanto busca
 };
@@ -238,6 +243,10 @@ async function buscarNoFns(escopo = 'tudo') {
   document.getElementById('btn-atualizar').disabled = true;
   document.getElementById('em-vazio').style.display = 'none';
   document.getElementById('em-progresso').style.display = '';
+  // O log fica disponível JÁ, não só no fim: coleta que parece travada é
+  // exatamente quando o analista precisa dele (13/08/2026 — o botão só
+  // aparecia depois que a varredura terminava, quando já não servia).
+  document.getElementById('btn-log').style.display = '';
 
   // Retrato do que havia ANTES, para dizer o que mudou (é disto que vive um
   // módulo de monitoramento: proposta que virou paga, valor que subiu).
@@ -253,24 +262,36 @@ async function buscarNoFns(escopo = 'tudo') {
   const falhas = [];
   let prontas = 0;
 
+  let ultimoPronto = '';
   const pintar = (uf) => {
+    if (uf) ultimoPronto = uf;
     const pct = Math.round((prontas / ufs.length) * 100);
     document.getElementById('em-barra-fill').style.width = pct + '%';
     document.getElementById('em-prog-txt').textContent =
       `Consultando o FNS — ${prontas} de ${ufs.length} estados (${pct}%)`;
+    // A barra só anda quando um estado TERMINA, e um estado leva de 8 a 35s.
+    // Sem mostrar quem está em voo e há quanto tempo, uma coleta lenta é
+    // indistinguível de uma travada — foi o que aconteceu em 13/08/2026.
+    const voando = [...state.emVoo.entries()]
+      .map(([u, t]) => `${u} ${Math.round((Date.now() - t) / 1000)}s`).join(' · ');
     document.getElementById('em-prog-sub').textContent =
-      `${encontrados.length} proposta(s) do Podemos até agora${uf ? ` · último: ${uf}` : ''}` +
-      (falhas.length ? ` · ${falhas.length} estado(s) com falha` : '');
+      (voando ? `Em andamento: ${voando}` : 'Aguardando…') +
+      ` · ${encontrados.length} proposta(s) do Podemos${ultimoPronto ? ` · último pronto: ${ultimoPronto}` : ''}` +
+      (falhas.length ? ` · ${falhas.length} com falha` : '');
   };
   pintar('');
+  const relogio = setInterval(() => pintar(''), 1000);
 
-  const fila = ufs.slice();
-  const trabalhador = async () => {
+  const rodarFila = async (lista, simultaneas) => {
+    const fila = lista.slice();
+    const trabalhador = async () => {
     while (fila.length) {
       if (ctrl.signal.aborted) return;
       const uf = fila.shift();
       const reg = { uf };
       const t0 = Date.now();
+      state.emVoo.set(uf, t0);
+      console.log(`[emendas] → ${uf} pedido enviado ao FNS`);
       try {
         const { buffer, tentativas, status, ms } = await baixarPlanilhaUf(uf, ano, ctrl.signal);
         Object.assign(reg, { status, tentativas, msDownload: ms, bytes: buffer.byteLength });
@@ -297,6 +318,7 @@ async function buscarNoFns(escopo = 'tudo') {
         reg.msDownload = e.ms;
         falhas.push(`${uf}: ${e.message}`);
       } finally {
+        state.emVoo.delete(uf);
         reg.ms = Date.now() - t0;
         state.log.linhas.push(reg);
         console.log('[emendas] ' + linhaDoLog(reg));
@@ -304,9 +326,33 @@ async function buscarNoFns(escopo = 'tudo') {
         pintar(uf);
       }
     }
+    };
+    await Promise.all(Array.from({ length: simultaneas }, trabalhador));
   };
-  await Promise.all(Array.from({ length: SIMULTANEAS }, trabalhador));
 
+  await rodarFila(ufs, SIMULTANEAS);
+
+  // REPESCAGEM — as tentativas dentro do download (até 3, com espera) cobrem a
+  // oscilação de segundos; não cobrem o portal ficando pesado durante a
+  // varredura. Quem falhou volta para uma última rodada, agora UM DE CADA VEZ
+  // e sem concorrência nenhuma, que é a condição em que o FNS responde melhor.
+  const paraRepescar = state.log.linhas.filter(r => r.erro && r.erro !== 'cancelado').map(r => r.uf);
+  if (paraRepescar.length && !ctrl.signal.aborted) {
+    console.log(`[emendas] repescagem de ${paraRepescar.length} estado(s): ${paraRepescar.join(', ')}`);
+    document.getElementById('em-prog-txt').textContent =
+      `Tentando de novo ${paraRepescar.length} estado(s) que falharam: ${paraRepescar.join(', ')}`;
+    state.log.repescagem = paraRepescar.slice();
+    // Tira do log as linhas com erro: a repescagem escreve o desfecho final.
+    state.log.linhas = state.log.linhas.filter(r => !paraRepescar.includes(r.uf));
+    for (let i = falhas.length - 1; i >= 0; i--) {
+      if (paraRepescar.includes(falhas[i].split(':')[0])) falhas.splice(i, 1);
+    }
+    prontas -= paraRepescar.length;
+    await rodarFila(paraRepescar, 1);
+  }
+
+  clearInterval(relogio);
+  state.emVoo.clear();
   state.varredura = null;
   state.log.fim = new Date().toISOString();
   state.log.falhas = falhas.length;
@@ -383,13 +429,22 @@ function relatorioDaColeta() {
   const l = state.log;
   if (!l) return 'Nenhuma coleta nesta sessão.';
   const dur = l.fim ? ((new Date(l.fim) - new Date(l.inicio)) / 1000).toFixed(0) + 's' : 'em andamento';
+  const rep = l.repescagem?.length ? ` · repescagem: ${l.repescagem.join(', ')}` : '';
   const cab = [
     `SisPode ${l.versao} · log da coleta de emendas · ${new Date(l.inicio).toLocaleString('pt-BR')}`,
     `Exercício ${l.ano} · escopo: ${l.escopo === 'bancada' ? 'estados com propostas da bancada' : 'todos os estados'} (${l.ufs} UF) · duração ${dur}`,
-    `Resultado: ${l.propostas ?? '—'} proposta(s) do Podemos · ${l.falhas ?? 0} estado(s) com problema`,
+    `Resultado: ${l.propostas ?? '—'} proposta(s) do Podemos · ${l.falhas ?? 0} estado(s) com problema${rep}`,
     '',
   ];
   const linhas = l.linhas.slice().sort((a, b) => String(a.uf).localeCompare(String(b.uf))).map(linhaDoLog);
+  // Coleta ainda rodando: os estados em voo entram como tal, com o tempo já
+  // decorrido — é o dado que diz se algo está pendurado.
+  for (const [uf, t] of state.emVoo.entries()) {
+    linhas.push(`… ${String(uf).padEnd(3)} em andamento há ${Math.round((Date.now() - t) / 1000)}s`);
+  }
+  if (state.emVoo.size) {
+    linhas.push('', `(${l.linhas.length} de ${l.ufs} estados concluídos até agora)`);
+  }
   const m = l.mudancas;
   const rodape = [];
   if (m && !m.primeira) {
