@@ -168,6 +168,16 @@ const emendas = CRU.map(M.normalizarEmenda);
        `senador entra marcado como fora da bancada de deputados (${kajuru?.casa})`);
 
     ok(bancada.every(p => p.nome && p.chave), 'todo integrante tem nome e chave de comparação');
+
+    // A CHAVE é o que vai para o Portal: ele guarda em maiúsculas e SEM
+    // acento, e o filtro é sensível aos dois. Consultar "Renata Abreu" ou
+    // "FÁBIO MACEDO" devolve zero — foi assim que a bancada inteira sumiu do
+    // painel em 19/08/2026, sem erro nenhum aparecer.
+    ok(M2.chaveNome('Renata Abreu') === 'RENATA ABREU', 'caixa: Renata Abreu → RENATA ABREU');
+    ok(M2.chaveNome('Fábio Macedo') === 'FABIO MACEDO', 'acento: Fábio Macedo → FABIO MACEDO');
+    ok(M2.chaveNome('Oriovisto Guimarães') === 'ORIOVISTO GUIMARAES', 'til: Guimarães → GUIMARAES');
+    ok(bancada.every(p => p.chave === p.chave.toUpperCase() && !/[À-ÿ]/.test(p.chave)),
+       'nenhuma chave sai com minúscula ou acento — é a forma que a fonte aceita');
     console.log('     →', M2.composicaoDaBancada(bancada));
   }
 
