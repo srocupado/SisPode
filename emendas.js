@@ -57,6 +57,7 @@ const state = {
   log: null,              // relatório da última coleta desta sessão
   emVoo: new Map(),       // uf → instante em que a requisição saiu (para o painel vivo)
   emendas: [],            // panorama (Portal da Transparência), do exercício carregado
+  bancada: [],            // quem foi consultado, com situação e casa
   metaTr: null,           // { em, parlamentares, falhas } da última consulta do panorama
   ordem: { col: 'pago', desc: true },
   varredura: null,        // AbortController enquanto busca
@@ -579,20 +580,84 @@ function temPropostaNoFns(emenda) {
   return /finalidade\s+definida/i.test(emenda.tipo) && /sa[úu]de/i.test(emenda.funcao);
 }
 
-/** Quem é a bancada: os nomes que já apareceram no FNS mais os deputados que
- *  a API da Câmara lista no partido — assim entra também quem não tem emenda
- *  de saúde. A lista NUNCA é escrita à mão. */
-async function nomesDaBancada() {
-  const doFns = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))];
-  let daCamara = [];
+const API_CAMARA = 'https://dadosabertos.camara.leg.br/api/v2';
+
+/** Nome comparável: sem acento, sem espaço dobrado, em maiúsculas.
+ *  O FNS escreve "FABIO MACEDO"; a Câmara, "Fábio Macedo". */
+function chaveNome(n) {
+  return String(n || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .replace(/\s+/g, ' ').trim().toUpperCase();
+}
+
+async function jsonCamara(caminho) {
+  const r = await fetchComTimeout(`${API_CAMARA}/${caminho}`, {}, 20000);
+  if (!r.ok) throw new Error(`API da Câmara HTTP ${r.status}`);
+  return r.json();
+}
+
+async function mapLimite(itens, limite, fn) {
+  const out = new Array(itens.length);
+  let i = 0;
+  await Promise.all(Array.from({ length: Math.min(limite, itens.length) }, async () => {
+    while (i < itens.length) { const k = i++; out[k] = await fn(itens[k]); }
+  }));
+  return out;
+}
+
+/** QUEM É A BANCADA — nunca escrita à mão, e a montagem tem três armadilhas
+ *  que só apareceram medindo a API em 19/08/2026:
+ *
+ *  1. `/deputados?siglaPartido=PODE` devolve só quem está EM EXERCÍCIO: a
+ *     presidente do partido, licenciada, ficava de fora da própria bancada.
+ *     Por isso a consulta é pela LEGISLATURA (descoberta na API, não fixada
+ *     aqui) — aí ela entra.
+ *  2. A lista da legislatura traz quem passou pelo partido em algum momento
+ *     e REPETE a pessoa em variações de nome ("Samuel Santos" e "Samuel dos
+ *     Santos" são o mesmo id). Deduplicamos por id e confirmamos a filiação
+ *     ATUAL no detalhe de cada um.
+ *  3. Quem tem emenda no FNS mas não é deputado (senadores do partido, como
+ *     Jorge Kajuru) continua entrando — a emenda existe —, mas identificado
+ *     como tal, para ninguém contá-los como deputados.
+ */
+async function bancadaDoPodemos() {
+  const nomesFns = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))];
+  const out = [];
+  const vistos = new Set();
+
   try {
-    const r = await fetchComTimeout(
-      'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&ordem=ASC&ordenarPor=nome&itens=100', {}, 20000);
-    if (r.ok) daCamara = ((await r.json()).dados || []).map(d => String(d.nome || '').toUpperCase());
+    const leg = (await jsonCamara('legislaturas?ordem=DESC&ordenarPor=id&itens=1')).dados?.[0]?.id;
+    const lista = (await jsonCamara(
+      `deputados?siglaPartido=${SIGLA_PODEMOS}&idLegislatura=${leg}&ordem=ASC&ordenarPor=nome&itens=100`)).dados || [];
+    const ids = [...new Set(lista.map(d => d.id))];
+
+    const detalhes = await mapLimite(ids, 4, async id => {
+      try { return (await jsonCamara(`deputados/${id}`)).dados?.ultimoStatus || null; }
+      catch (e) { console.warn(`[orçamento] deputado ${id} não veio:`, e.message); return null; }
+    });
+
+    for (const u of detalhes) {
+      // Só quem está NO PARTIDO hoje. "Vacância / Não Eleito" é quem não
+      // assumiu — não é bancada, ainda que a lista da legislatura o traga.
+      if (!u || u.siglaPartido !== SIGLA_PODEMOS) continue;
+      if (/vac[âa]ncia/i.test(u.situacao || '')) continue;
+      const chave = chaveNome(u.nome);
+      if (vistos.has(chave)) continue;
+      vistos.add(chave);
+      out.push({ nome: u.nome, chave, situacao: u.situacao || '', casa: 'deputado' });
+    }
   } catch (e) {
     console.warn('[orçamento] lista de deputados da Câmara não veio:', e.message);
   }
-  return [...new Set([...doFns, ...daCamara])].sort();
+
+  // O que o FNS conhece e a Câmara não: senador do partido ou grafia diferente.
+  for (const n of nomesFns) {
+    const chave = chaveNome(n);
+    if (vistos.has(chave)) continue;
+    vistos.add(chave);
+    out.push({ nome: n, chave, situacao: '', casa: out.length ? 'fora da bancada de deputados' : 'não identificado' });
+  }
+
+  return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
 async function buscarPanorama() {
@@ -607,7 +672,9 @@ async function buscarPanorama() {
   document.getElementById('em-vazio').style.display = 'none';
   document.getElementById('em-progresso').style.display = '';
 
-  const nomes = await nomesDaBancada();
+  const bancada = await bancadaDoPodemos();
+  const nomes = bancada.map(p => p.nome);
+  state.bancada = bancada;
   const achadas = [];
   const falhas = [];
   let prontos = 0;
@@ -665,6 +732,25 @@ async function buscarPanorama() {
   } else {
     mostrarToast(`✓ ${achadas.length} emendas de ${nomes.length} parlamentares em ${new Set(achadas.map(e => e.funcao)).size} pastas.`, 'sucesso');
   }
+}
+
+/** "27 em exercício · 1 licenciado(a) · 4 suplentes · 8 fora da bancada". */
+function composicaoDaBancada(bancada) {
+  const conta = { exercicio: 0, licenca: 0, suplencia: 0, outros: 0, forade: 0 };
+  for (const p of bancada) {
+    if (p.casa !== 'deputado') conta.forade++;
+    else if (/exerc/i.test(p.situacao)) conta.exercicio++;
+    else if (/licen/i.test(p.situacao)) conta.licenca++;
+    else if (/supl/i.test(p.situacao)) conta.suplencia++;
+    else conta.outros++;
+  }
+  const p = [];
+  if (conta.exercicio) p.push(`${conta.exercicio} deputado(s) em exercício`);
+  if (conta.licenca) p.push(`${conta.licenca} licenciado(s)`);
+  if (conta.suplencia) p.push(`${conta.suplencia} na suplência`);
+  if (conta.outros) p.push(`${conta.outros} em outra situação`);
+  if (conta.forade) p.push(`${conta.forade} fora da bancada de deputados (senadores ou grafia própria do FNS)`);
+  return p.join(' · ');
 }
 
 async function fbSalvarPanorama(ano, emendas, meta) {
@@ -965,6 +1051,7 @@ function renderTudoPanorama() {
     : `Exercício ${state.ano} — panorama ainda não consultado`;
   document.getElementById('em-meta').textContent = tem
     ? (m?.em ? `Última consulta em ${new Date(m.em).toLocaleString('pt-BR')} · ` : '') +
+      (m?.composicao ? `${m.composicao} · ` : '') +
       'fonte: Portal da Transparência (todas as pastas, por emenda)'
     : 'O panorama cobre TODAS as pastas — saúde, educação, urbanismo, segurança e as demais. Exige a chave gratuita do Portal da Transparência.';
   document.getElementById('em-selo').innerHTML = tem
