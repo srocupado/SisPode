@@ -169,6 +169,26 @@ function dinheiro(v) {
   return Number.isFinite(n) ? n : 0;
 }
 
+// O nº da proposta tem 17 dígitos e ESTOURA a precisão de número inteiro do
+// JavaScript (2^53 ≈ 9,007 quatrilhões — 16 dígitos). Hoje o FNS grava a
+// coluna como TEXTO (verificado nas planilhas de AC, SP e TO em 19/08/2026),
+// então o valor chega inteiro; se um dia vier como número, os últimos dígitos
+// já teriam sido arredondados ANTES de chegar aqui — não dá para recuperar,
+// mas dá para gritar em vez de exibir um número silenciosamente errado.
+let _avisouPrecisao = false;
+function numeroDaProposta(v, uf) {
+  if (typeof v === 'number') {
+    if (!_avisouPrecisao) {
+      _avisouPrecisao = true;
+      console.warn(`[emendas] ATENÇÃO: a planilha de ${uf} trouxe o nº da proposta como NÚMERO, ` +
+        'não como texto. Acima de 16 dígitos o JavaScript arredonda, então os números podem estar ' +
+        'errados nos últimos dígitos. Confira uma proposta no site do FNS antes de usar a lista.');
+    }
+    return v.toFixed(0);
+  }
+  return String(v ?? '').trim();
+}
+
 /** Lê o XLSX e devolve SÓ as linhas do Podemos, já normalizadas. */
 function lerPlanilhaPodemos(buffer, uf, ano) {
   const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
@@ -191,7 +211,7 @@ function lerPlanilhaPodemos(buffer, uf, ano) {
     if (String(obj.partido || '').trim().toUpperCase() !== SIGLA_PODEMOS) continue;
 
     out.push({
-      nuProposta: String(obj.nuProposta || '').trim(),
+      nuProposta: numeroDaProposta(obj.nuProposta, uf),
       uf: String(obj.uf || uf).trim(),
       municipio: String(obj.municipio || '').trim(),
       entidade: String(obj.entidade || '').trim(),

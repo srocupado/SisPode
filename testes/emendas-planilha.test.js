@@ -27,11 +27,12 @@ const modulo = new Function('XLSX', `
   ${trecho(/const COLUNAS = \{[\s\S]*?\n\};/)}
   ${trecho(/function normalizarCabecalho[\s\S]*?\n}/)}
   ${trecho(/function dinheiro[\s\S]*?\n}/)}
+  ${trecho(/let _avisouPrecisao[\s\S]*?\n}/)}
   ${trecho(/function lerPlanilhaPodemos[\s\S]*?\n}/)}
   ${trecho(/function etapaDe[\s\S]*?\n}/)}
   ${trecho(/function somar[\s\S]*?\n}/)}
   ${trecho(/function porDeputado[\s\S]*?\n}/)}
-  return { lerPlanilhaPodemos, dinheiro, etapaDe, somar, porDeputado, normalizarCabecalho };
+  return { lerPlanilhaPodemos, dinheiro, etapaDe, somar, porDeputado, normalizarCabecalho, numeroDaProposta };
 `)(XLSX);
 
 const ler = arq => modulo.lerPlanilhaPodemos(
@@ -92,6 +93,21 @@ const ler = arq => modulo.lerPlanilhaPodemos(
       const e = modulo.etapaDe({ situacao: txt });
       ok(e.chave === esperado, `"${txt}" → ${e.chave} (${e.rotulo})`);
     }
+  }
+
+  console.log('\n== nº da proposta com 17 dígitos ==');
+  {
+    // O FNS grava essa coluna como TEXTO — é o que preserva os 17 dígitos.
+    // Conferido contra a própria API em 19/08/2026: a proposta do Tocantins
+    // é "36000765198202600" mesmo, terminada em 00; não falta dígito.
+    ok(modulo.numeroDaProposta('36000765198202600', 'TO') === '36000765198202600',
+       'texto de 17 dígitos passa intacto');
+    ok(modulo.numeroDaProposta('07241356000126001', 'SP') === '07241356000126001',
+       'zero à esquerda é preservado');
+    // Se um dia vier como número, o estrago já aconteceu antes daqui — o teste
+    // trava o comportamento de não exibir notação científica.
+    ok(!/e\+/i.test(modulo.numeroDaProposta(36000765198202600, 'TO')),
+       'número cru não vira notação científica na tela');
   }
 
   console.log('\n== mudança de formato da fonte estoura, não silencia ==');
