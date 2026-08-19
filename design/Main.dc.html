@@ -1,0 +1,258 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #26c9c9; text-decoration: none; }
+    a:hover { color: #1fa5a5; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 900px; background: #0e1c1f; color: #e8ecec; font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column;">
+
+  <!-- CABEÇALHO -->
+  <div style="background: linear-gradient(135deg, #17373e 0%, #1a4a4a 100%); border-bottom: 2px solid #1fa5a5; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+        <circle cx="17" cy="17" r="17" fill="#00A859"></circle>
+        <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+      </svg>
+      <div style="display: flex; flex-direction: column;">
+        <span style="font-weight: 700; font-size: 16px; color: #e8ecec;">Emendas — Fundo Nacional de Saúde</span>
+        <span style="font-size: 11px; color: #8da3a8; letter-spacing: 0.3px;">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: transparent; border: 1px solid rgba(255,255,255,0.10); color: #8da3a8;">← Início</button>
+      <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: transparent; border: 1px solid rgba(255,255,255,0.10); color: #8da3a8;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"></path><path d="M3 12a9 9 0 0 1 15-6.7L21 8"></path><path d="M3 22v-6h6"></path><path d="M21 12a9 9 0 0 1-15 6.7L3 16"></path></svg>
+        Atualizar varredura
+      </button>
+      <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: #1fa5a5; border: none; color: #fff;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Exportar XLSX
+      </button>
+    </div>
+  </div>
+
+  <!-- ABAS -->
+  <div style="display: flex; gap: 2px; background: rgba(0,0,0,0.25); padding: 6px 16px 0; border-bottom: 1px solid rgba(255,255,255,0.10);">
+    <button style="appearance: none; border: 1px solid rgba(255,255,255,0.10); border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; border-radius: 10px 10px 0 0; cursor: pointer; background: #0e1c1f; color: #26c9c9; box-shadow: inset 0 2px 0 #1fa5a5;">Propostas</button>
+    <button style="appearance: none; background: none; border: 1px solid transparent; border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; color: #8da3a8; border-radius: 10px 10px 0 0; cursor: pointer;">Por deputado</button>
+    <button style="appearance: none; background: none; border: 1px solid transparent; border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; color: #8da3a8; border-radius: 10px 10px 0 0; cursor: pointer;">Municípios</button>
+  </div>
+
+  <!-- BARRA DE CONTEXTO -->
+  <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #142a2f; border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 2px;">
+      <span style="font-size: 14px; font-weight: 600; color: #e8ecec;">213 propostas da bancada do Podemos · exercício 2026</span>
+      <span style="font-size: 12px; color: #8da3a8;">Última varredura concluída em 19/08/2026, 03:12 — 41.882 propostas do FNS lidas · fonte: consultafns.saude.gov.br</span>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(0,168,89,.18); color: #2fcf7a; border: 1px solid rgba(0,168,89,.35);">Base do dia</span>
+    </div>
+  </div>
+
+  <!-- FILTROS -->
+  <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px; padding: 16px 20px 4px;">
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Exercício</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>2026</option>
+        <option>2025</option>
+        <option>2024</option>
+      </select>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Deputado</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>Toda a bancada (14)</option>
+        <option>Renata Abreu</option>
+        <option>Delegado Bruno Lima</option>
+      </select>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">UF</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>Todas</option>
+        <option>SP</option>
+        <option>MG</option>
+      </select>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Município</span>
+      <input type="text" placeholder="Digite para filtrar" style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Tipo de emenda</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>Todas</option>
+        <option>Individual</option>
+        <option>Bancada obrigatória</option>
+        <option>Comissão</option>
+      </select>
+    </label>
+    <label style="display: flex; flex-direction: column; gap: 5px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Etapa</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>Todas</option>
+        <option>Pago</option>
+        <option>Em pagamento</option>
+        <option>Empenho</option>
+        <option>Em análise</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- INDICADORES -->
+  <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 20px;">
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Proposto</span>
+      <span style="font-size: 22px; font-weight: 700; color: #e8ecec;">R$ 48.712.940</span>
+      <span style="font-size: 11px; color: #8da3a8;">213 propostas</span>
+    </div>
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Empenhado</span>
+      <span style="font-size: 22px; font-weight: 700; color: #e8ecec;">R$ 31.204.118</span>
+      <span style="font-size: 11px; color: #8da3a8;">64% do proposto</span>
+    </div>
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Pago</span>
+      <span style="font-size: 22px; font-weight: 700; color: #2fcf7a;">R$ 18.936.502</span>
+      <span style="font-size: 11px; color: #8da3a8;">39% do proposto · 71 propostas</span>
+    </div>
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">A pagar</span>
+      <span style="font-size: 22px; font-weight: 700; color: #f0c040;">R$ 29.776.438</span>
+      <span style="font-size: 11px; color: #8da3a8;">142 propostas em andamento</span>
+    </div>
+  </div>
+
+  <!-- TABELA -->
+  <div style="padding: 0 20px 24px; display: flex; flex-direction: column; gap: 10px;">
+    <div style="display: flex; align-items: center; justify-content: space-between;">
+      <span style="font-size: 12px; color: #8da3a8;">Mostrando 8 de 213 propostas — ordenadas por valor pago</span>
+      <div style="display: flex; align-items: center; gap: 8px;">
+        <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: transparent; border: 1px solid rgba(255,255,255,0.10); color: #8da3a8;">Colunas</button>
+        <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: transparent; border: 1px solid rgba(255,255,255,0.10); color: #8da3a8;">Ordenar</button>
+      </div>
+    </div>
+
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+        <thead>
+          <tr>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Deputado</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Proposta</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Município</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Entidade</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Objeto</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Proposto</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Pago</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 10px; border-bottom: 2px solid #1fa5a5;">Etapa</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Renata Abreu <span style="color: #8da3a8; font-weight: 400;">SP</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">07241356000126001</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Arapeí/SP</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Equipamento</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">199.873</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">199.873</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(0,168,89,.18); color: #2fcf7a; border: 1px solid rgba(0,168,89,.35);">Paga</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Renata Abreu <span style="color: #8da3a8; font-weight: 400;">SP</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">07584185000126004</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Serrana/SP</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal da Saúde de Serrana</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Equipamento</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">312.730</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #8da3a8;">0</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(255,170,0,.16); color: #ffcc66; border: 1px solid rgba(255,170,0,.35);">Empenho</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Delegado Bruno Lima <span style="color: #8da3a8; font-weight: 400;">SP</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">04832568000126002</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Guarulhos/SP</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Custeio</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">1.500.000</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">750.000</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(31,165,165,.18); color: #26c9c9; border: 1px solid rgba(31,165,165,.35);">Em pagamento</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Nely Aquino <span style="color: #8da3a8; font-weight: 400;">MG</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">18715508000126001</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Contagem/MG</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Academia da Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">468.000</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">468.000</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(0,168,89,.18); color: #2fcf7a; border: 1px solid rgba(0,168,89,.35);">Paga</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Luiz Carlos Hauly <span style="color: #8da3a8; font-weight: 400;">PR</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">75771477000126003</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Londrina/PR</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Unidade Básica de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">2.100.000</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #8da3a8;">0</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(96,165,250,.22); color: #9ecbff; border: 1px solid rgba(96,165,250,.5);">Formalização</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Felipe Becari <span style="color: #8da3a8; font-weight: 400;">SP</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">46523239000126007</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">São Bernardo do Campo/SP</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Equipamento</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">890.400</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">445.200</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(31,165,165,.18); color: #26c9c9; border: 1px solid rgba(31,165,165,.35);">Em pagamento</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Rodrigo Gambale <span style="color: #8da3a8; font-weight: 400;">SP</span></td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8; font-variant-numeric: tabular-nums;">59307595000126002</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">Sorocaba/SP</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">Fundo Municipal de Saúde</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);">CAPS</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">474.946</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #8da3a8;">0</td>
+            <td style="padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,0.06);"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(255,255,255,.06); color: #8da3a8; border: 1px solid rgba(255,255,255,0.10);">Análise de mérito</span></td>
+          </tr>
+          <tr>
+            <td style="padding: 8px 10px; font-weight: 600;">Bancada do Podemos <span style="color: #8da3a8; font-weight: 400;">GO</span></td>
+            <td style="padding: 8px 10px; color: #8da3a8; font-variant-numeric: tabular-nums;">01612092000126001</td>
+            <td style="padding: 8px 10px;">Goiânia/GO</td>
+            <td style="padding: 8px 10px; color: #8da3a8;">Secretaria de Estado da Saúde</td>
+            <td style="padding: 8px 10px;">Hospital — custeio</td>
+            <td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums;">6.000.000</td>
+            <td style="padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">3.000.000</td>
+            <td style="padding: 8px 10px;"><span style="display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; background: rgba(31,165,165,.18); color: #26c9c9; border: 1px solid rgba(31,165,165,.35);">Em pagamento</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

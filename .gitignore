@@ -3,3 +3,6 @@ bot/node_modules/
 bot/.env
 bot/dados/
 *.log
+
+# Canvas do mockup: 2,2 MB de editor embutido, gerado pelo /design a partir dos .dc.html
+design/emendas-fns.html

@@ -1,0 +1,192 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap">
+  <style>
+    body { margin: 0; }
+    a { color: #26c9c9; text-decoration: none; }
+    a:hover { color: #1fa5a5; }
+  </style>
+</helmet>
+
+<div style="width: 1440px; min-height: 900px; background: #0e1c1f; color: #e8ecec; font-family: 'DM Sans', 'Segoe UI', system-ui, sans-serif; font-size: 14px; display: flex; flex-direction: column;">
+
+  <!-- CABEÇALHO -->
+  <div style="background: linear-gradient(135deg, #17373e 0%, #1a4a4a 100%); border-bottom: 2px solid #1fa5a5; padding: 10px 20px; display: flex; align-items: center; justify-content: space-between;">
+    <div style="display: flex; align-items: center; gap: 12px;">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+        <circle cx="17" cy="17" r="17" fill="#00A859"></circle>
+        <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+      </svg>
+      <div style="display: flex; flex-direction: column;">
+        <span style="font-weight: 700; font-size: 16px; color: #e8ecec;">Emendas — Fundo Nacional de Saúde</span>
+        <span style="font-size: 11px; color: #8da3a8; letter-spacing: 0.3px;">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 8px;">
+      <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: transparent; border: 1px solid rgba(255,255,255,0.10); color: #8da3a8;">← Início</button>
+      <button style="display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; border-radius: 8px; font-size: 12px; font-weight: 600; font-family: inherit; cursor: pointer; background: #1fa5a5; border: none; color: #fff;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        Exportar XLSX
+      </button>
+    </div>
+  </div>
+
+  <!-- ABAS -->
+  <div style="display: flex; gap: 2px; background: rgba(0,0,0,0.25); padding: 6px 16px 0; border-bottom: 1px solid rgba(255,255,255,0.10);">
+    <button style="appearance: none; background: none; border: 1px solid transparent; border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; color: #8da3a8; border-radius: 10px 10px 0 0; cursor: pointer;">Propostas</button>
+    <button style="appearance: none; border: 1px solid rgba(255,255,255,0.10); border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; border-radius: 10px 10px 0 0; cursor: pointer; background: #0e1c1f; color: #26c9c9; box-shadow: inset 0 2px 0 #1fa5a5;">Por deputado</button>
+    <button style="appearance: none; background: none; border: 1px solid transparent; border-bottom: none; padding: 8px 16px 9px; font-family: inherit; font-size: 13px; font-weight: 600; color: #8da3a8; border-radius: 10px 10px 0 0; cursor: pointer;">Municípios</button>
+  </div>
+
+  <!-- BARRA DE CONTEXTO -->
+  <div style="display: flex; align-items: center; gap: 14px; padding: 14px 20px; background: #142a2f; border-bottom: 1px solid rgba(255,255,255,0.06); flex-wrap: wrap;">
+    <div style="flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 2px;">
+      <span style="font-size: 14px; font-weight: 600; color: #e8ecec;">Execução por deputado — exercício 2026</span>
+      <span style="font-size: 12px; color: #8da3a8;">14 deputados da bancada · o percentual mede o pago sobre o proposto</span>
+    </div>
+    <label style="display: flex; align-items: center; gap: 8px;">
+      <span style="font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: #8da3a8;">Exercício</span>
+      <select style="background: #0e1c1f; border: 1px solid rgba(255,255,255,0.10); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 12.5px; color: #e8ecec;">
+        <option>2026</option>
+        <option>2025</option>
+      </select>
+    </label>
+  </div>
+
+  <!-- TABELA AGREGADA -->
+  <div style="padding: 18px 20px 24px;">
+    <div style="background: #142a2f; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; overflow: hidden;">
+      <table style="width: 100%; border-collapse: collapse; font-size: 12.5px;">
+        <thead>
+          <tr>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">Deputado</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">UF</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">Propostas</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">Proposto</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">Empenhado</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: right; padding: 9px 12px; border-bottom: 2px solid #1fa5a5;">Pago</th>
+            <th style="background: #17373e; color: #e8ecec; font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; text-align: left; padding: 9px 12px; border-bottom: 2px solid #1fa5a5; width: 220px;">Execução</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Renata Abreu</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">SP</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">28</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">6.240.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">4.680.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">3.744.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 60%; height: 100%; background: #1fa5a5;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">60%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Delegado Bruno Lima</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">SP</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">24</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">5.900.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">3.540.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">2.360.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 40%; height: 100%; background: #1fa5a5;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">40%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Nely Aquino</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">MG</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">19</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">4.100.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">3.280.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">2.870.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 70%; height: 100%; background: #1fa5a5;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">70%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Luiz Carlos Hauly</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">PR</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">17</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">4.980.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">1.494.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">996.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 20%; height: 100%; background: #f0c040;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">20%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Felipe Becari</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">SP</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">15</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">3.560.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">2.492.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #2fcf7a; font-weight: 600;">1.780.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 50%; height: 100%; background: #1fa5a5;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">50%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); font-weight: 600;">Rodrigo Gambale</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); color: #8da3a8;">SP</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">12</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">2.840.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums;">852.000</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06); text-align: right; font-variant-numeric: tabular-nums; color: #8da3a8;">0</td>
+            <td style="padding: 10px 12px; border-bottom: 1px solid rgba(255,255,255,0.06);">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 3%; height: 100%; background: #f05454;"></div></div>
+                <span style="font-size: 11px; color: #8da3a8; font-variant-numeric: tabular-nums;">0%</span>
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding: 10px 12px; font-weight: 700; color: #26c9c9;">Bancada (total)</td>
+            <td style="padding: 10px 12px; color: #8da3a8;">—</td>
+            <td style="padding: 10px 12px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700;">213</td>
+            <td style="padding: 10px 12px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700;">48.712.940</td>
+            <td style="padding: 10px 12px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700;">31.204.118</td>
+            <td style="padding: 10px 12px; text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; color: #2fcf7a;">18.936.502</td>
+            <td style="padding: 10px 12px;">
+              <div style="display: flex; align-items: center; gap: 8px;">
+                <div style="flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden;"><div style="width: 39%; height: 100%; background: #26c9c9;"></div></div>
+                <span style="font-size: 11px; color: #e8ecec; font-weight: 600; font-variant-numeric: tabular-nums;">39%</span>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+</x-dc>
+
+<script data-dc-script data-props='{}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
