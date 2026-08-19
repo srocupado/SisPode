@@ -241,12 +241,16 @@ async function buscarNoFns(escopo = 'tudo') {
   // em quais UFs a bancada tem proposta, e atualizar só essas custa uma fração
   // do tempo. A varredura completa continua existindo para achar UF nova.
   const comBancada = Object.keys(state.meta).filter(uf => (state.meta[uf].n || 0) > 0);
-  const ufs = (escopo === 'bancada' && comBancada.length) ? comBancada : UFS;
+  const faltantes = ufsFaltantes();
+  const ufs = escopo === 'faltantes' ? (faltantes.length ? faltantes : UFS)
+            : escopo === 'bancada'   ? (comBancada.length ? comBancada : UFS)
+            : UFS;
 
   const ctrl = new AbortController();
   state.varredura = ctrl;
   document.getElementById('btn-buscar').disabled = true;
   document.getElementById('btn-atualizar').disabled = true;
+  document.getElementById('btn-faltantes').disabled = true;
   document.getElementById('em-vazio').style.display = 'none';
   document.getElementById('em-progresso').style.display = '';
   // O log fica disponível JÁ, não só no fim: coleta que parece travada é
@@ -318,7 +322,12 @@ async function buscarNoFns(escopo = 'tudo') {
         }
       } catch (e) {
         if (e.name === 'AbortError') { reg.erro = 'cancelado'; state.log.linhas.push(reg); return; }
-        reg.erro = e.message;
+        // "Array buffer allocation failed" NÃO é falha da fonte: é a aba sem
+        // memória para segurar duas planilhas grandes ao mesmo tempo (visto em
+        // 19/08/2026 com AL). Dizer isso muda a conduta de quem lê o log.
+        reg.erro = /allocation failed|out of memory/i.test(e.message)
+          ? `sem memória na aba para abrir a planilha (${e.message}) — repita este estado sozinho`
+          : e.message;
         reg.status = e.status;
         reg.tentativas = e.tentativas;
         reg.msDownload = e.ms;
@@ -365,6 +374,7 @@ async function buscarNoFns(escopo = 'tudo') {
   state.log.propostas = encontrados.length;
   document.getElementById('btn-buscar').disabled = false;
   document.getElementById('btn-atualizar').disabled = false;
+  document.getElementById('btn-faltantes').disabled = false;
   document.getElementById('em-progresso').style.display = 'none';
   document.getElementById('btn-log').style.display = '';
 
@@ -414,6 +424,11 @@ function resumoMudancas(m) {
   return p.length ? ` · ${p.join(', ')}` : ' · nada mudou desde a última busca';
 }
 
+/** Estados que ainda NÃO estão na base — nunca coletados ou que falharam. */
+function ufsFaltantes() {
+  return UFS.filter(uf => !state.meta[uf] || state.meta[uf].salvo === false);
+}
+
 // ============================================================
 //  LOG DA COLETA — o relatório que o analista copia e manda
 // ============================================================
@@ -438,7 +453,7 @@ function relatorioDaColeta() {
   const rep = l.repescagem?.length ? ` · repescagem: ${l.repescagem.join(', ')}` : '';
   const cab = [
     `SisPode ${l.versao} · log da coleta de emendas · ${new Date(l.inicio).toLocaleString('pt-BR')}`,
-    `Exercício ${l.ano} · escopo: ${l.escopo === 'bancada' ? 'estados com propostas da bancada' : 'todos os estados'} (${l.ufs} UF) · duração ${dur}`,
+    `Exercício ${l.ano} · escopo: ${l.escopo === 'bancada' ? 'estados com propostas da bancada' : l.escopo === 'faltantes' ? 'estados que faltavam na base' : 'todos os estados'} (${l.ufs} UF) · duração ${dur}`,
     `Resultado: ${l.propostas ?? '—'} proposta(s) do Podemos · ${l.falhas ?? 0} estado(s) com problema${rep}`,
     '',
   ];
@@ -617,9 +632,16 @@ function renderTopo() {
   document.getElementById('em-meta').textContent =
     (ultima ? `Última busca em ${ultima.toLocaleString('pt-BR')} · ` : '') +
     `${ufs.length} de ${UFS.length} estados na base · fonte: portal do Fundo Nacional de Saúde`;
-  document.getElementById('em-selo').innerHTML = ufs.length === UFS.length
+  const faltam = ufsFaltantes();
+  document.getElementById('em-selo').innerHTML = faltam.length === 0
     ? '<span class="em-badge em-badge--pago">Base completa</span>'
-    : `<span class="em-badge em-badge--empenho">Base parcial (${ufs.length}/${UFS.length})</span>`;
+    : `<span class="em-badge em-badge--empenho" title="Faltam: ${faltam.join(', ')}">Base parcial (${ufs.length}/${UFS.length})</span>`;
+  // Botão dedicado: completar a base custa 3 downloads, não 27 — e a lista de
+  // quem falta fica no próprio rótulo, sem o analista ter que deduzir.
+  const btnF = document.getElementById('btn-faltantes');
+  btnF.style.display = faltam.length ? '' : 'none';
+  btnF.textContent = `Buscar os que faltam (${faltam.length}): ${faltam.join(', ')}`;
+  btnF.title = `Reconsulta apenas ${faltam.join(', ')} — os estados que ainda não entraram na base`;
 }
 
 function renderKpis() {
@@ -889,6 +911,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-buscar').addEventListener('click', () => buscarNoFns('tudo'));
   document.getElementById('btn-buscar-vazio').addEventListener('click', () => buscarNoFns('tudo'));
   document.getElementById('btn-atualizar').addEventListener('click', () => buscarNoFns('bancada'));
+  document.getElementById('btn-faltantes').addEventListener('click', () => buscarNoFns('faltantes'));
   document.getElementById('btn-log').addEventListener('click', copiarLog);
   document.getElementById('btn-exportar').addEventListener('click', exportarXlsx);
   document.getElementById('btn-cancelar').addEventListener('click', () => {
