@@ -33,7 +33,8 @@ const M = new Function(`
   ${trecho(/function temPropostaNoFns\([\s\S]*?\n}/)}
   ${trecho(/function somarEmendas\([\s\S]*?\n}/)}
   ${trecho(/function matrizPorPasta\([\s\S]*?\n}/)}
-  return { dinheiro, partesDoCodigo, normalizarEmenda, temPropostaNoFns, somarEmendas, matrizPorPasta, pagoIncoerente };
+  ${trecho(/function chaveNome\([\s\S]*?\n}/)}
+  return { dinheiro, partesDoCodigo, normalizarEmenda, temPropostaNoFns, somarEmendas, matrizPorPasta, pagoIncoerente, chaveNome };
 `)();
 
 const emendas = CRU.map(M.normalizarEmenda);
@@ -179,6 +180,25 @@ const emendas = CRU.map(M.normalizarEmenda);
     ok(bancada.every(p => p.chave === p.chave.toUpperCase() && !/[À-ÿ]/.test(p.chave)),
        'nenhuma chave sai com minúscula ou acento — é a forma que a fonte aceita');
     console.log('     →', M2.composicaoDaBancada(bancada));
+  }
+
+  console.log('\n== as duas fontes se encontram só pela chave normalizada ==');
+  {
+    // O FNS consulta por UF e devolve os nomes na coluna APELIDO; a
+    // Transparência consulta por nome. Hoje as duas escrevem em maiúsculas sem
+    // acento e bateriam por igualdade simples — o teste garante que o encontro
+    // continue valendo se UMA delas mudar de convenção.
+    const casar = (daTransparencia, opcoesDoFns) => {
+      const alvo = M.chaveNome(daTransparencia);
+      return (opcoesDoFns.find(o => M.chaveNome(o) === alvo)) || null;
+    };
+    ok(casar('FABIO MACEDO', ['FABIO MACEDO', 'NELY AQUINO']) === 'FABIO MACEDO', 'grafias iguais casam');
+    ok(casar('FABIO MACEDO', ['FÁBIO MACEDO']) === 'FÁBIO MACEDO',
+       'se o FNS passar a acentuar, o link continua achando o deputado');
+    ok(casar('ORIOVISTO GUIMARAES', ['Oriovisto Guimarães']) === 'Oriovisto Guimarães',
+       'e continua achando se mudar a caixa também');
+    ok(casar('RENATA ABREU', ['NELY AQUINO']) === null,
+       'quem não está na base do FNS não é casado à força com outro nome');
   }
 
   console.log('\n== matriz parlamentar × pasta ==');
