@@ -3170,10 +3170,10 @@ const MODULES = [
   },
   {
     id:     'emendas',
-    titulo: 'Emendas do Fundo Nacional de Saúde',
+    titulo: 'Orçamento — Emendas',
     desc:   'Acompanhe as emendas da bancada à saúde — individuais, de bancada e de comissão: quanto foi proposto, empenhado e efetivamente PAGO, por deputado, estado e município, com exportação em planilha.',
     cor:    'verde',
-    icone:  '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/><path d="M3.5 12h4l1.5-3 2 6 1.5-3h4"/>',
+    icone:  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     acao:   abrirEmendas,
   },
 ];
