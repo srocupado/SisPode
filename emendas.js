@@ -629,9 +629,18 @@ async function buscarPanorama() {
       achadas.push(...await emendasDoParlamentar(nome, ano, chave, ctrl.signal));
     } catch (e) {
       if (e.name === 'AbortError') break;
-      falhas.push(`${nome}: ${e.message}`);
-      console.warn(`[orçamento] ${nome} falhou:`, e.message);
-      if (/recusada/.test(e.message)) break;   // chave inválida: não insiste 22 vezes
+      // "Failed to fetch" repetido 42 vezes não diz nada a quem lê. O navegador
+      // devolve isso quando o domínio não está no manifest (visto em
+      // 19/08/2026: preflight bloqueado por CORS antes de a extensão ser
+      // atualizada) — e nesse caso insistir nos outros 41 é desperdício.
+      const permissao = /failed to fetch|networkerror/i.test(e.message);
+      const msg = permissao
+        ? 'o Chrome bloqueou a consulta ao Portal da Transparência — recarregue a extensão em chrome://extensions ' +
+          'para valer a permissão nova do domínio (o navegador só a concede ao recarregar)'
+        : e.message;
+      falhas.push(`${nome}: ${msg}`);
+      console.warn(`[orçamento] ${nome} falhou:`, msg);
+      if (permissao || /recusada/.test(e.message)) break;   // problema geral: não insiste 42 vezes
     } finally {
       prontos++;
       pintar(nome);
@@ -894,8 +903,7 @@ function renderTudo() {
   popularSelects();
   renderTopo();
   if (!temBase) {
-    document.getElementById('em-vazio-titulo').textContent =
-      `Nenhuma proposta na base para o exercício ${state.ano}`;
+    pintarVazio('fns');
     return;
   }
 
@@ -963,9 +971,36 @@ function renderTudoPanorama() {
     ? (m?.falhas ? `<span class="em-badge em-badge--empenho">${m.falhas} parlamentar(es) com falha</span>`
                  : '<span class="em-badge em-badge--pago">Panorama completo</span>')
     : '<span class="em-badge em-badge--neutro">Sem panorama</span>';
-  document.getElementById('em-vazio-titulo').textContent = `Panorama de ${state.ano} ainda não consultado`;
+  if (!tem) pintarVazio('panorama');
 
   if (tem) renderPanorama();
+}
+
+// O estado vazio é o MESMO bloco nas duas abas — antes ele ficava com o texto
+// e o botão do FNS mesmo no panorama, mandando "Buscar no FNS" para quem
+// queria consultar as outras pastas (relatado em 19/08/2026).
+const VAZIO = {
+  fns: {
+    titulo: ano => `Nenhuma proposta na base para o exercício ${ano}`,
+    texto: 'Esta aba baixa a planilha oficial de cada unidade da federação no portal do Fundo Nacional de Saúde ' +
+           '(consultafns.saude.gov.br) e guarda apenas as propostas do Podemos — com município, entidade, etapa e ' +
+           'ordem bancária. A primeira busca leva alguns minutos; depois disso a base abre na hora.',
+    botao: 'Buscar no FNS',
+  },
+  panorama: {
+    titulo: ano => `Panorama de ${ano} ainda não consultado`,
+    texto: 'Esta aba mostra as emendas da bancada em TODAS as pastas — saúde, educação, urbanismo, segurança e as ' +
+           'demais — pelo Portal da Transparência, com empenhado, liquidado, pago e restos a pagar. ' +
+           'A consulta leva segundos e exige a chave gratuita do Portal.',
+    botao: 'Consultar o Portal da Transparência',
+  },
+};
+
+function pintarVazio(qual) {
+  const v = VAZIO[qual];
+  document.getElementById('em-vazio-titulo').textContent = v.titulo(state.ano);
+  document.getElementById('em-vazio-texto').textContent = v.texto;
+  document.getElementById('btn-buscar-vazio').textContent = v.botao;
 }
 
 function renderTopo() {
