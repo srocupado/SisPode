@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Emendas do Fundo Nacional de Saúde – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ---- Abas (mesmo padrão do módulo de Líderes) ---- */
+    .em-abas {
+      display: flex; gap: 2px; flex-shrink: 0;
+      background: rgba(0,0,0,0.25); padding: 6px 16px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .em-aba {
+      appearance: none; background: none; border: 1px solid transparent; border-bottom: none;
+      padding: 8px 16px 9px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--text-dim); border-radius: 10px 10px 0 0; cursor: pointer;
+    }
+    .em-aba:hover { color: var(--text); }
+    .em-aba.on {
+      background: var(--bg); color: var(--accent-light);
+      border-color: var(--border-soft); box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    .em-topbar {
+      display: flex; align-items: center; gap: 14px; padding: 14px 20px;
+      background: var(--card); border-bottom: 1px solid var(--border); flex-wrap: wrap; flex-shrink: 0;
+    }
+    .em-topbar-info { flex: 1; min-width: 240px; display: flex; flex-direction: column; gap: 2px; }
+    .em-topbar-info .title { font-size: 14px; font-weight: 600; color: var(--text); }
+    .em-topbar-info .meta  { font-size: 12px; color: var(--text-dim); }
+
+    .em-body { flex: 1; overflow-y: auto; }
+
+    /* ---- Filtros ---- */
+    .em-filtros {
+      display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+      gap: 10px; padding: 16px 20px 4px;
+    }
+    .em-campo { display: flex; flex-direction: column; gap: 5px; }
+    .em-rotulo {
+      font-size: 10.5px; font-weight: 600; letter-spacing: .3px;
+      text-transform: uppercase; color: var(--text-dim);
+    }
+    .em-filtros select, .em-filtros input {
+      background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px;
+      padding: 8px 10px; font-family: inherit; font-size: 12.5px; color: var(--text); outline: none;
+    }
+    .em-filtros select:focus, .em-filtros input:focus { border-color: var(--accent); }
+
+    /* ---- Indicadores ---- */
+    .em-kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 20px; }
+    .em-kpi {
+      background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+      padding: 14px 16px; display: flex; flex-direction: column; gap: 4px;
+    }
+    .em-kpi-valor { font-size: 22px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+    .em-kpi-valor.pago  { color: #2fcf7a; }
+    .em-kpi-valor.apagar{ color: var(--amarelo); }
+    .em-kpi-sub { font-size: 11px; color: var(--text-dim); }
+
+    /* ---- Tabela ---- */
+    .em-tabela-wrap {
+      margin: 0 20px 24px; background: var(--card);
+      border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden;
+    }
+    .em-tabela { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    .em-tabela th {
+      background: var(--header); color: var(--text); font-weight: 600; font-size: 11px;
+      letter-spacing: .3px; text-transform: uppercase; text-align: left;
+      padding: 9px 10px; border-bottom: 2px solid var(--accent); white-space: nowrap;
+      position: sticky; top: 0; z-index: 2; cursor: pointer; user-select: none;
+    }
+    .em-tabela th.num, .em-tabela td.num { text-align: right; font-variant-numeric: tabular-nums; }
+    .em-tabela td {
+      padding: 8px 10px; border-bottom: 1px solid var(--border);
+      color: var(--text); line-height: 1.45; vertical-align: top;
+    }
+    .em-tabela tbody tr:hover td { background: rgba(31,165,165,0.05); cursor: pointer; }
+    .em-tabela td.dim { color: var(--text-dim); }
+    .em-tabela td.forte { font-weight: 600; }
+    .em-tabela td.pago { color: #2fcf7a; font-weight: 600; }
+
+    .em-badge {
+      display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px;
+      border-radius: 999px; font-size: 10.5px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
+    }
+    .em-badge--pago    { background: rgba(0,168,89,.18);   color: #2fcf7a; border: 1px solid rgba(0,168,89,.35); }
+    .em-badge--empago  { background: rgba(31,165,165,.18); color: var(--accent-light); border: 1px solid rgba(31,165,165,.35); }
+    .em-badge--empenho { background: rgba(255,170,0,.16);  color: #ffcc66; border: 1px solid rgba(255,170,0,.35); }
+    .em-badge--formal  { background: rgba(96,165,250,.22); color: #9ecbff; border: 1px solid rgba(96,165,250,.5); }
+    .em-badge--neutro  { background: rgba(255,255,255,.06);color: var(--text-dim); border: 1px solid var(--border-soft); }
+
+    /* ---- Barra de progresso da busca ---- */
+    .em-progresso {
+      margin: 0 20px 16px; background: var(--card); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 14px 16px; display: flex; flex-direction: column; gap: 10px;
+    }
+    .em-barra { height: 8px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+    .em-barra > div { height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+    .em-prog-linha { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+    .em-prog-txt { font-size: 12.5px; color: var(--text); }
+    .em-prog-sub { font-size: 11px; color: var(--text-dim); }
+
+    .em-vazio {
+      padding: 60px 20px; text-align: center; color: var(--text-dim);
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+    }
+    .em-vazio h2 { font-size: 16px; color: var(--text); font-weight: 600; }
+    .em-vazio p { font-size: 13px; max-width: 560px; line-height: 1.6; }
+
+    /* ---- Execução (barra por deputado) ---- */
+    .em-exec { display: flex; align-items: center; gap: 8px; min-width: 150px; }
+    .em-exec-barra { flex: 1; height: 6px; border-radius: 999px; background: rgba(255,255,255,0.06); overflow: hidden; }
+    .em-exec-barra > div { height: 100%; background: var(--accent); }
+    .em-exec-pct { font-size: 11px; color: var(--text-dim); font-variant-numeric: tabular-nums; min-width: 34px; text-align: right; }
+
+    /* ---- Modal de detalhe ---- */
+    .em-modal { width: 900px; max-width: 94vw; max-height: 92vh; display: flex; flex-direction: column; }
+    .em-ficha {
+      display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px 22px;
+      padding: 18px 20px; border-bottom: 1px solid var(--border);
+    }
+    .em-ficha-item { display: flex; flex-direction: column; gap: 3px; }
+    .em-valores { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .em-valor-card { background: var(--bg); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; display: flex; flex-direction: column; gap: 3px; }
+    .em-valor-card .v { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+    .em-etapas { display: grid; grid-template-columns: repeat(12, minmax(0, 1fr)); gap: 6px; }
+    .em-etapa { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+    .em-etapa-bola {
+      width: 22px; height: 22px; border-radius: 999px; display: flex; align-items: center; justify-content: center;
+      background: rgba(255,255,255,.06); border: 1px solid var(--border-soft);
+    }
+    .em-etapa-bola.feita { background: rgba(0,168,89,.22); border-color: rgba(0,168,89,.5); }
+    .em-etapa-bola.atual { background: var(--accent); border-color: var(--accent-light); box-shadow: 0 0 0 3px rgba(31,165,165,.18); }
+    .em-etapa-nome { font-size: 9.5px; color: var(--text-dim); text-align: center; line-height: 1.25; }
+    .em-etapa.atual .em-etapa-nome { color: var(--accent-light); font-weight: 700; }
+    .em-secao-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: .3px; text-transform: uppercase; color: var(--text-dim); }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Emendas — Fundo Nacional de Saúde</span>
+        <span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar" class="btn btn-outline btn-sm" title="Voltar">← Início</button>
+      <button id="btn-buscar" class="btn btn-outline btn-sm" title="Baixa as planilhas do FNS e atualiza a base do partido">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        Buscar no FNS
+      </button>
+      <button id="btn-exportar" class="btn btn-primary btn-sm" disabled title="Exporta o que está filtrado na tela">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Exportar XLSX
+      </button>
+    </div>
+  </header>
+
+  <div class="em-abas">
+    <button class="em-aba on" data-aba="propostas">Propostas</button>
+    <button class="em-aba" data-aba="deputados">Por deputado</button>
+  </div>
+
+  <div class="em-topbar">
+    <div class="em-topbar-info">
+      <span class="title" id="em-titulo">Nenhuma base carregada</span>
+      <span class="meta" id="em-meta">Use “Buscar no FNS” para baixar as planilhas oficiais do Fundo Nacional de Saúde.</span>
+    </div>
+    <div id="em-selo"></div>
+  </div>
+
+  <div class="em-body">
+    <div id="em-progresso" class="em-progresso" style="display: none;">
+      <div class="em-prog-linha">
+        <span class="em-prog-txt" id="em-prog-txt">Consultando o FNS…</span>
+        <button id="btn-cancelar" class="btn btn-outline btn-sm">Cancelar</button>
+      </div>
+      <div class="em-barra"><div id="em-barra-fill"></div></div>
+      <span class="em-prog-sub" id="em-prog-sub"></span>
+    </div>
+
+    <div id="em-vazio" class="em-vazio">
+      <h2>Nenhuma consulta feita ainda</h2>
+      <p>O módulo baixa a planilha oficial de cada unidade da federação no portal do Fundo Nacional de Saúde
+         (consultafns.saude.gov.br) e guarda apenas as propostas do Podemos. A primeira busca leva alguns minutos;
+         depois disso a base abre na hora e você atualiza quando quiser.</p>
+      <button id="btn-buscar-vazio" class="btn btn-primary">Buscar no FNS</button>
+    </div>
+
+    <div id="em-conteudo" style="display: none;">
+      <div class="em-filtros">
+        <label class="em-campo">
+          <span class="em-rotulo">Exercício</span>
+          <select id="f-ano"></select>
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">Deputado</span>
+          <select id="f-deputado"><option value="">Toda a bancada</option></select>
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">UF</span>
+          <select id="f-uf"><option value="">Todas</option></select>
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">Município</span>
+          <input type="text" id="f-municipio" placeholder="Digite para filtrar">
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">Objeto</span>
+          <select id="f-tipo"><option value="">Todos</option></select>
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">Etapa</span>
+          <select id="f-etapa">
+            <option value="">Todas</option>
+            <option value="pago">Paga</option>
+            <option value="empago">Em pagamento</option>
+            <option value="formal">Formalização</option>
+            <option value="empenho">Empenho</option>
+            <option value="neutro">Em análise</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="em-kpis">
+        <div class="em-kpi">
+          <span class="em-rotulo">Proposto</span>
+          <span class="em-kpi-valor" id="kpi-proposto">—</span>
+          <span class="em-kpi-sub" id="kpi-proposto-sub"></span>
+        </div>
+        <div class="em-kpi">
+          <span class="em-rotulo">Empenhado</span>
+          <span class="em-kpi-valor" id="kpi-empenhado">—</span>
+          <span class="em-kpi-sub" id="kpi-empenhado-sub"></span>
+        </div>
+        <div class="em-kpi">
+          <span class="em-rotulo">Pago</span>
+          <span class="em-kpi-valor pago" id="kpi-pago">—</span>
+          <span class="em-kpi-sub" id="kpi-pago-sub"></span>
+        </div>
+        <div class="em-kpi">
+          <span class="em-rotulo">A pagar</span>
+          <span class="em-kpi-valor apagar" id="kpi-apagar">—</span>
+          <span class="em-kpi-sub" id="kpi-apagar-sub"></span>
+        </div>
+      </div>
+
+      <div class="em-tabela-wrap">
+        <table class="em-tabela" id="em-tabela">
+          <thead id="em-thead"></thead>
+          <tbody id="em-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal de detalhe da proposta -->
+  <div id="modal-detalhe" class="modal-overlay" style="display: none;">
+    <div class="modal em-modal">
+      <div class="modal-header">
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+          <div style="display: flex; align-items: center; gap: 10px;">
+            <span id="det-titulo" style="font-size: 16px; font-weight: 700;">Proposta</span>
+            <span id="det-badge"></span>
+          </div>
+          <span id="det-sub" style="font-size: 12px; color: var(--text-dim);"></span>
+        </div>
+        <button id="det-fechar" class="btn btn-outline btn-sm">Fechar</button>
+      </div>
+      <div class="modal-body" id="det-corpo" style="padding: 0; overflow-y: auto;"></div>
+      <div class="modal-footer" style="justify-content: space-between;">
+        <span id="det-fonte" style="font-size: 11px; color: var(--text-dim);"></span>
+        <a id="det-link" class="btn btn-outline btn-sm" target="_blank" rel="noopener">Abrir no site do FNS</a>
+      </div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <script src="libs/xlsx.full.min.js"></script>
+  <script src="emendas.js"></script>
+</body>
+</html>

@@ -3168,6 +3168,14 @@ const MODULES = [
     icone:  '<rect x="9.4" y="5" width="2.2" height="11.5" rx="0.3"/><rect x="12.4" y="5" width="2.2" height="11.5" rx="0.3"/><path d="M2 16.5 A 3.5 3.5 0 0 1 9 16.5 Z"/><path d="M15 13 A 3.5 3.5 0 0 0 22 13 Z"/>',
     acao:   abrirCongresso,
   },
+  {
+    id:     'emendas',
+    titulo: 'Emendas do Fundo Nacional de Saúde',
+    desc:   'Acompanhe as emendas da bancada à saúde — individuais, de bancada e de comissão: quanto foi proposto, empenhado e efetivamente PAGO, por deputado, estado e município, com exportação em planilha.',
+    cor:    'verde',
+    icone:  '<path d="M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.29 1.51 4.04 3 5.5l7 7Z"/><path d="M3.5 12h4l1.5-3 2 6 1.5-3h4"/>',
+    acao:   abrirEmendas,
+  },
 ];
 
 // Compara duas versões "x.y.z"; retorna >0 se a>b, <0 se a<b, 0 se iguais.
@@ -3305,6 +3313,11 @@ function abrirCCJC() {
 
 function abrirLideres() {
   const url = chrome.runtime.getURL('lideres.html');
+  chrome.tabs.create({ url });
+}
+
+function abrirEmendas() {
+  const url = chrome.runtime.getURL('emendas.html');
   chrome.tabs.create({ url });
 }
 
