@@ -123,10 +123,13 @@ const emendas = CRU.map(M.normalizarEmenda);
   console.log('\n== quem é a bancada (dados reais da API da Câmara) ==');
   {
     const CAM = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'camara-pode-legislatura.json'), 'utf8'));
-    const montar = nomesFns => new Function('jsonCamara', 'state', 'SIGLA_PODEMOS', `
+    const SEN = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'senado-atual.json'), 'utf8'));
+    const montar = nomesFns => new Function('jsonCamara', 'state', 'SIGLA_PODEMOS', 'fetchComTimeout', `
       ${trecho(/function chaveNome\([\s\S]*?\n}/)}
       ${trecho(/async function mapLimite\([\s\S]*?\n}/)}
       ${trecho(/async function bancadaDoPodemos\([\s\S]*?\n}/)}
+      ${trecho(/const PARTIDO_SENADO[\s\S]*?\n/)}
+      ${trecho(/async function senadoresPorNome\([\s\S]*?\n}/)}
       ${trecho(/function composicaoDaBancada\([\s\S]*?\n}/)}
       return { bancadaDoPodemos, composicaoDaBancada, chaveNome };`)(
       async caminho => {
@@ -134,9 +137,11 @@ const emendas = CRU.map(M.normalizarEmenda);
         if (caminho.startsWith('deputados/')) return { dados: { ultimoStatus: CAM.detalhes[caminho.split('/')[1]] } };
         return { dados: CAM.lista };
       },
-      { itens: nomesFns.map(n => ({ deputado: n })) }, 'PODE');
+      { itens: nomesFns.map(n => ({ deputado: n })) }, 'PODE',
+      async () => ({ ok: true, json: async () => SEN }));
 
-    const M2 = montar(['RENATA ABREU', 'JORGE KAJURU', 'FABIO MACEDO', 'SAMUEL SANTOS']);
+    const M2 = montar(['RENATA ABREU', 'JORGE KAJURU', 'FABIO MACEDO', 'SAMUEL SANTOS',
+                       'CARLOS VIANA', 'ZEQUINHA MARINHO', 'RAIMUNDO COSTA']);
     const bancada = await M2.bancadaDoPodemos();
     const nomes = bancada.map(p => p.nome);
     const achar = n => bancada.find(p => M2.chaveNome(p.nome) === M2.chaveNome(n));
@@ -147,10 +152,12 @@ const emendas = CRU.map(M.normalizarEmenda);
     ok(renata && renata.casa === 'deputado' && /licen/i.test(renata.situacao),
        `Renata Abreu entra como deputada licenciada (situação: ${renata?.situacao})`);
 
-    // Quem trocou de partido não é bancada (a lista da legislatura os traz).
+    // Quem trocou de partido não entra como DEPUTADO da bancada. Pode voltar à
+    // lista pela via do FNS (a planilha guarda o partido da época), mas aí
+    // aparece com o vínculo de hoje — nunca como deputado do Podemos.
     const trocaram = Object.values(CAM.detalhes).filter(u => u.siglaPartido !== 'PODE');
-    ok(trocaram.length > 0 && trocaram.every(u => !achar(u.nome)),
-       `${trocaram.length} que saíram do partido ficam de fora (${trocaram.map(u => u.siglaPartido).join(', ')})`);
+    ok(trocaram.length > 0 && trocaram.every(u => achar(u.nome)?.casa !== 'deputado'),
+       `${trocaram.length} que saíram do partido não contam como deputados (${[...new Set(trocaram.map(u => u.siglaPartido))].join(', ')})`);
 
     // "Vacância / Não Eleito" nunca assumiu — não é bancada.
     const vacancia = Object.values(CAM.detalhes).find(u => /vac/i.test(u.situacao) && u.siglaPartido === 'PODE');
@@ -163,10 +170,18 @@ const emendas = CRU.map(M.normalizarEmenda);
     ok(nomes.filter(n => /f[áa]bio macedo/i.test(n)).length === 1,
        `acento não duplica: ${nomes.filter(n => /f[áa]bio macedo/i.test(n)).join(' / ')}`);
 
-    // Senador do partido com emenda no FNS entra, mas identificado.
-    const kajuru = achar('JORGE KAJURU');
-    ok(kajuru && kajuru.casa !== 'deputado',
-       `senador entra marcado como fora da bancada de deputados (${kajuru?.casa})`);
+    // A planilha do FNS guarda o partido DA ÉPOCA da emenda, não o de hoje:
+    // Carlos Viana está lá como PODE (115 propostas) e hoje é senador pelo
+    // PSD. Por isso quem não é deputado é identificado no Senado, com o
+    // partido ATUAL, em vez de virar um rótulo vago de "fora da bancada".
+    ok(achar('ZEQUINHA MARINHO')?.casa === 'senador do partido',
+       `senador do partido identificado como tal (${achar('ZEQUINHA MARINHO')?.casa})`);
+    ok(/PSD/.test(achar('CARLOS VIANA')?.casa || ''),
+       `quem saiu do partido aparece com a sigla de hoje: ${achar('CARLOS VIANA')?.casa}`);
+    ok(/PSB/.test(achar('JORGE KAJURU')?.casa || ''),
+       `e o mesmo vale para Kajuru: ${achar('JORGE KAJURU')?.casa}`);
+    ok(achar('RAIMUNDO COSTA')?.casa === 'fora do partido hoje',
+       `quem não é deputado nem senador hoje: ${achar('RAIMUNDO COSTA')?.casa}`);
 
     ok(bancada.every(p => p.nome && p.chave), 'todo integrante tem nome e chave de comparação');
 
@@ -220,6 +235,37 @@ const emendas = CRU.map(M.normalizarEmenda);
     ok(filtrar(amostra, 'outros').map(e => e.parlamentar).join() === 'JORGE KAJURU,ANTIGA',
        'só fora da bancada: o deputado sai');
     ok(filtrar(amostra, '').length === 3, 'todos: ninguém é filtrado');
+  }
+
+  console.log('\n== o vínculo vale nas DUAS abas, e nunca esconde por ignorância ==');
+  {
+    const V = new Function('state', 'chaveNome', `
+      ${trecho(/function vinculoDe\([\s\S]*?\n}/)}
+      ${trecho(/function passaNoVinculo\([\s\S]*?\n}/)}
+      return { vinculoDe, passaNoVinculo };`)(
+      { bancada: [
+        { chave: 'RENATA ABREU', casa: 'deputado' },
+        { chave: 'ZEQUINHA MARINHO', casa: 'senador do partido' },
+        { chave: 'CARLOS VIANA', casa: 'senador hoje no PSD' },
+      ] }, M.chaveNome);
+
+    ok(V.passaNoVinculo('RENATA ABREU', 'deputados'), 'deputada passa no filtro de bancada');
+    ok(!V.passaNoVinculo('CARLOS VIANA', 'deputados'),
+       'senador de outro partido não entra como bancada (era o caso do FNS)');
+    ok(V.passaNoVinculo('ZEQUINHA MARINHO', 'partido') && !V.passaNoVinculo('ZEQUINHA MARINHO', 'deputados'),
+       'senador do partido entra em "bancada + senadores", não em "deputados"');
+    ok(V.passaNoVinculo('CARLOS VIANA', 'outros') && !V.passaNoVinculo('RENATA ABREU', 'outros'),
+       '"só quem não é da bancada" inverte certo');
+    ok(V.passaNoVinculo('QUALQUER UM', ''), 'sem escolha, nada é filtrado');
+
+    // Sem bancada carregada não dá para classificar — e esconder proposta por
+    // falta de informação seria pior que mostrar demais.
+    const semBancada = new Function('state', 'chaveNome', `
+      ${trecho(/function vinculoDe\([\s\S]*?\n}/)}
+      ${trecho(/function passaNoVinculo\([\s\S]*?\n}/)}
+      return { passaNoVinculo };`)({ bancada: [] }, M.chaveNome);
+    ok(semBancada.passaNoVinculo('CARLOS VIANA', 'deputados'),
+       'sem panorama coletado, o filtro não esconde ninguém');
   }
 
   console.log('\n== matriz parlamentar × pasta ==');
