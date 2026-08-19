@@ -44,6 +44,7 @@ const state = {
   itens: [],              // linhas do Podemos do exercício carregado
   meta: {},               // { uf: { em, n } }
   aba: 'propostas',
+  log: null,              // relatório da última coleta desta sessão
   ordem: { col: 'pago', desc: true },
   varredura: null,        // AbortController enquanto busca
 };
@@ -82,9 +83,12 @@ async function respiro() {
   if (quando > agora) await new Promise(r => setTimeout(r, quando - agora));
 }
 
-/** Baixa a planilha oficial de uma UF. Repete em falha de rede e 5xx. */
+/** Baixa a planilha oficial de uma UF. Repete em falha de rede e 5xx.
+ *  Devolve { buffer, tentativas, status, ms } — as métricas alimentam o log
+ *  da coleta, que é o que permite diagnosticar do navegador do analista. */
 async function baixarPlanilhaUf(uf, ano, sinal) {
   let erro = null;
+  const t0 = Date.now();
   for (let i = 0; i < BACKOFF_MS.length; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, BACKOFF_MS[i]));
     if (sinal?.aborted) throw new DOMException('Aborted', 'AbortError');
@@ -101,14 +105,25 @@ async function baixarPlanilhaUf(uf, ano, sinal) {
       if (e.name === 'AbortError') throw e;
       erro = e; continue;
     }
-    if (res.ok) return await res.arrayBuffer();
+    if (res.ok) {
+      const buffer = await res.arrayBuffer();
+      return { buffer, tentativas: i + 1, status: res.status, ms: Date.now() - t0 };
+    }
     if (res.status === 429 || res.status >= 500) {
       erro = new Error(`o FNS respondeu HTTP ${res.status} para ${uf}`);
+      erro.status = res.status;
       continue;
     }
-    throw new Error(`HTTP ${res.status} ao pedir a planilha de ${uf}`);
+    const eFatal = new Error(`HTTP ${res.status} ao pedir a planilha de ${uf}`);
+    eFatal.status = res.status;
+    eFatal.tentativas = i + 1;
+    eFatal.ms = Date.now() - t0;
+    throw eFatal;
   }
-  throw erro || new Error(`falha ao baixar a planilha de ${uf}`);
+  const eFim = erro || new Error(`falha ao baixar a planilha de ${uf}`);
+  eFim.tentativas = BACKOFF_MS.length;
+  eFim.ms = Date.now() - t0;
+  throw eFim;
 }
 
 // ============================================================
@@ -205,47 +220,86 @@ function etapaDe(item) {
 // ============================================================
 //  VARREDURA (as 27 UFs)
 // ============================================================
-async function buscarNoFns() {
+async function buscarNoFns(escopo = 'tudo') {
   if (state.varredura) return;
   const ano = state.ano;
+
+  // ESCOPO da coleta. O FNS não tem consulta "o que mudou desde ontem": a
+  // menor unidade que ele entrega é a planilha inteira de uma UF. Então o
+  // incremental possível é por ESTADO — depois da primeira varredura sabemos
+  // em quais UFs a bancada tem proposta, e atualizar só essas custa uma fração
+  // do tempo. A varredura completa continua existindo para achar UF nova.
+  const comBancada = Object.keys(state.meta).filter(uf => (state.meta[uf].n || 0) > 0);
+  const ufs = (escopo === 'bancada' && comBancada.length) ? comBancada : UFS;
+
   const ctrl = new AbortController();
   state.varredura = ctrl;
   document.getElementById('btn-buscar').disabled = true;
+  document.getElementById('btn-atualizar').disabled = true;
   document.getElementById('em-vazio').style.display = 'none';
   document.getElementById('em-progresso').style.display = '';
 
+  // Retrato do que havia ANTES, para dizer o que mudou (é disto que vive um
+  // módulo de monitoramento: proposta que virou paga, valor que subiu).
+  const antes = new Map(state.itens.map(i => [`${i.nuProposta}|${i.deputado}`, i]));
+
+  state.log = {
+    inicio: new Date().toISOString(),
+    ano, escopo, ufs: ufs.length,
+    versao: (chrome.runtime?.getManifest?.().version || '?'),
+    linhas: [],
+  };
   const encontrados = [];
   const falhas = [];
   let prontas = 0;
 
   const pintar = (uf) => {
-    const pct = Math.round((prontas / UFS.length) * 100);
+    const pct = Math.round((prontas / ufs.length) * 100);
     document.getElementById('em-barra-fill').style.width = pct + '%';
     document.getElementById('em-prog-txt').textContent =
-      `Consultando o FNS — ${prontas} de ${UFS.length} estados (${pct}%)`;
+      `Consultando o FNS — ${prontas} de ${ufs.length} estados (${pct}%)`;
     document.getElementById('em-prog-sub').textContent =
       `${encontrados.length} proposta(s) do Podemos até agora${uf ? ` · último: ${uf}` : ''}` +
       (falhas.length ? ` · ${falhas.length} estado(s) com falha` : '');
   };
   pintar('');
 
-  const fila = UFS.slice();
+  const fila = ufs.slice();
   const trabalhador = async () => {
     while (fila.length) {
       if (ctrl.signal.aborted) return;
       const uf = fila.shift();
+      const reg = { uf };
+      const t0 = Date.now();
       try {
-        const buf = await baixarPlanilhaUf(uf, ano, ctrl.signal);
-        const itens = lerPlanilhaPodemos(buf, uf, ano);
+        const { buffer, tentativas, status, ms } = await baixarPlanilhaUf(uf, ano, ctrl.signal);
+        Object.assign(reg, { status, tentativas, msDownload: ms, bytes: buffer.byteLength });
+        const itens = lerPlanilhaPodemos(buffer, uf, ano);
+        reg.podemos = itens.length;
         encontrados.push(...itens);
         // Grava por UF assim que fica pronta: uma busca interrompida no meio
-        // não joga fora o que já foi lido.
-        await fbSalvarUf(ano, uf, itens).catch(() => {});
+        // não joga fora o que já foi lido. Falha de GRAVAÇÃO conta como falha
+        // do estado — antes era engolida, e como a tela recarregava do banco,
+        // a UF sumia da base sem ninguém saber.
+        try {
+          await fbSalvarUf(ano, uf, itens);
+          reg.salvo = true;
+        } catch (eSalvar) {
+          reg.salvo = false;
+          reg.erro = `lido do FNS, mas NÃO salvo no Firebase: ${eSalvar.message}`;
+          falhas.push(`${uf}: ${reg.erro}`);
+        }
       } catch (e) {
-        if (e.name === 'AbortError') return;
+        if (e.name === 'AbortError') { reg.erro = 'cancelado'; state.log.linhas.push(reg); return; }
+        reg.erro = e.message;
+        reg.status = e.status;
+        reg.tentativas = e.tentativas;
+        reg.msDownload = e.ms;
         falhas.push(`${uf}: ${e.message}`);
-        console.warn(`[emendas] ${uf} falhou:`, e.message);
       } finally {
+        reg.ms = Date.now() - t0;
+        state.log.linhas.push(reg);
+        console.log('[emendas] ' + linhaDoLog(reg));
         prontas++;
         pintar(uf);
       }
@@ -254,20 +308,113 @@ async function buscarNoFns() {
   await Promise.all(Array.from({ length: SIMULTANEAS }, trabalhador));
 
   state.varredura = null;
+  state.log.fim = new Date().toISOString();
+  state.log.falhas = falhas.length;
+  state.log.propostas = encontrados.length;
   document.getElementById('btn-buscar').disabled = false;
+  document.getElementById('btn-atualizar').disabled = false;
   document.getElementById('em-progresso').style.display = 'none';
+  document.getElementById('btn-log').style.display = '';
+
+  // A tela passa a valer o que FOI LIDO nesta rodada, não o que o banco
+  // devolve: assim uma UF que falhou ao salvar continua visível (e declarada),
+  // em vez de desaparecer no recarregamento.
+  const naoTocadas = state.itens.filter(i => !ufs.includes(i.uf));
+  state.itens = naoTocadas.concat(encontrados);
+  for (const reg of state.log.linhas) {
+    if (reg.podemos !== undefined) state.meta[reg.uf] = { em: new Date().toISOString(), n: reg.podemos, salvo: reg.salvo };
+  }
+  const mudancas = compararComAnterior(antes, encontrados);
+  state.log.mudancas = mudancas;
+  renderTudo();
 
   if (ctrl.signal.aborted) {
     mostrarToast('Busca cancelada — o que já foi lido está salvo.', 'aviso');
   } else if (falhas.length) {
     // Falha DECLARADA: dizer quais estados ficaram de fora é melhor que
     // apresentar um total incompleto como se fosse a base inteira.
-    mostrarToast(`${encontrados.length} propostas · ${falhas.length} estado(s) não responderam: ${falhas.map(f => f.split(':')[0]).join(', ')}`, 'aviso');
+    mostrarToast(`${encontrados.length} propostas · ${falhas.length} estado(s) com problema: ${falhas.map(f => f.split(':')[0]).join(', ')} — veja o log da coleta`, 'aviso');
     console.warn('[emendas] estados com falha:\n' + falhas.join('\n'));
   } else {
-    mostrarToast(`✓ ${encontrados.length} propostas do Podemos em ${UFS.length} estados.`, 'sucesso');
+    mostrarToast(`✓ ${encontrados.length} propostas em ${ufs.length} estado(s)${resumoMudancas(mudancas)}`, 'sucesso');
   }
-  await carregarDoFirebase(ano);
+}
+
+/** O que mudou nesta coleta em relação ao retrato anterior. */
+function compararComAnterior(antes, agora) {
+  const novas = [], pagas = [], subiu = [];
+  if (!antes.size) return { novas, pagas, subiu, primeira: true };
+  for (const it of agora) {
+    const ant = antes.get(`${it.nuProposta}|${it.deputado}`);
+    if (!ant) { novas.push(it); continue; }
+    if (etapaDe(ant).chave !== 'pago' && etapaDe(it).chave === 'pago') pagas.push(it);
+    else if (it.pago > ant.pago) subiu.push({ ...it, antes: ant.pago });
+  }
+  return { novas, pagas, subiu, primeira: false };
+}
+
+function resumoMudancas(m) {
+  if (!m || m.primeira) return '';
+  const p = [];
+  if (m.novas.length) p.push(`${m.novas.length} nova(s)`);
+  if (m.pagas.length) p.push(`${m.pagas.length} passou(aram) a paga`);
+  if (m.subiu.length) p.push(`${m.subiu.length} com pagamento novo`);
+  return p.length ? ` · ${p.join(', ')}` : ' · nada mudou desde a última busca';
+}
+
+// ============================================================
+//  LOG DA COLETA — o relatório que o analista copia e manda
+// ============================================================
+function linhaDoLog(r) {
+  const seg = ms => (ms / 1000).toFixed(1) + 's';
+  const kb = b => Math.round(b / 1024) + ' KB';
+  if (r.erro) {
+    return `✗ ${String(r.uf).padEnd(3)} ${r.erro}` +
+           (r.status ? ` · HTTP ${r.status}` : '') +
+           (r.tentativas ? ` · ${r.tentativas} tentativa(s)` : '') +
+           (r.ms ? ` · ${seg(r.ms)}` : '');
+  }
+  return `✓ ${String(r.uf).padEnd(3)} ${String(r.podemos).padStart(4)} do PODE · ${kb(r.bytes)} · ${seg(r.msDownload)}` +
+         (r.tentativas > 1 ? ` · ${r.tentativas} tentativas` : '') +
+         (r.salvo === false ? ' · NÃO SALVO' : '');
+}
+
+function relatorioDaColeta() {
+  const l = state.log;
+  if (!l) return 'Nenhuma coleta nesta sessão.';
+  const dur = l.fim ? ((new Date(l.fim) - new Date(l.inicio)) / 1000).toFixed(0) + 's' : 'em andamento';
+  const cab = [
+    `SisPode ${l.versao} · log da coleta de emendas · ${new Date(l.inicio).toLocaleString('pt-BR')}`,
+    `Exercício ${l.ano} · escopo: ${l.escopo === 'bancada' ? 'estados com propostas da bancada' : 'todos os estados'} (${l.ufs} UF) · duração ${dur}`,
+    `Resultado: ${l.propostas ?? '—'} proposta(s) do Podemos · ${l.falhas ?? 0} estado(s) com problema`,
+    '',
+  ];
+  const linhas = l.linhas.slice().sort((a, b) => String(a.uf).localeCompare(String(b.uf))).map(linhaDoLog);
+  const m = l.mudancas;
+  const rodape = [];
+  if (m && !m.primeira) {
+    rodape.push('', 'MUDANÇAS DESDE A BUSCA ANTERIOR');
+    if (!m.novas.length && !m.pagas.length && !m.subiu.length) rodape.push('  (nada mudou)');
+    for (const it of m.pagas.slice(0, 40)) rodape.push(`  paga agora · ${it.deputado} · ${it.nuProposta} · ${it.municipio}/${it.uf} · ${fmtR$(it.pago)}`);
+    for (const it of m.subiu.slice(0, 40)) rodape.push(`  pagamento novo · ${it.deputado} · ${it.nuProposta} · ${fmtR$(it.antes)} → ${fmtR$(it.pago)}`);
+    for (const it of m.novas.slice(0, 40)) rodape.push(`  nova · ${it.deputado} · ${it.nuProposta} · ${it.municipio}/${it.uf} · ${fmtR$(it.proposto)}`);
+  }
+  return cab.concat(linhas, rodape).join('\n');
+}
+
+async function copiarLog() {
+  const texto = relatorioDaColeta();
+  console.log('[emendas] log da coleta\n' + texto);
+  let ok = false;
+  try { await navigator.clipboard.writeText(texto); ok = true; } catch (_) {
+    const ta = document.createElement('textarea');
+    ta.value = texto; ta.style.position = 'fixed'; ta.style.opacity = '0';
+    document.body.appendChild(ta); ta.select();
+    try { ok = document.execCommand('copy'); } catch (_) {}
+    ta.remove();
+  }
+  mostrarToast(ok ? 'Log da coleta copiado — cole na conversa do suporte.'
+                  : 'Log no console (F12) — não consegui copiar.', ok ? 'sucesso' : 'aviso');
 }
 
 // ============================================================
@@ -678,8 +825,10 @@ function mostrarToast(msg, tipo = 'info') {
 
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-voltar').addEventListener('click', () => window.close());
-  document.getElementById('btn-buscar').addEventListener('click', buscarNoFns);
-  document.getElementById('btn-buscar-vazio').addEventListener('click', buscarNoFns);
+  document.getElementById('btn-buscar').addEventListener('click', () => buscarNoFns('tudo'));
+  document.getElementById('btn-buscar-vazio').addEventListener('click', () => buscarNoFns('tudo'));
+  document.getElementById('btn-atualizar').addEventListener('click', () => buscarNoFns('bancada'));
+  document.getElementById('btn-log').addEventListener('click', copiarLog);
   document.getElementById('btn-exportar').addEventListener('click', exportarXlsx);
   document.getElementById('btn-cancelar').addEventListener('click', () => {
     if (state.varredura) state.varredura.abort();
