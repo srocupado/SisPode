@@ -201,6 +201,27 @@ const emendas = CRU.map(M.normalizarEmenda);
        'quem não está na base do FNS não é casado à força com outro nome');
   }
 
+  console.log('\n== o vínculo separa a bancada do resto ==');
+  {
+    // A base guardava só nomes soltos: ninguém distinguia deputado da bancada
+    // de senador do partido ou de quem já saiu (relatado em 19/08/2026).
+    const filtrar = (lista, vinculo) => lista.filter(e => {
+      if (vinculo === 'deputados' && e.casa && e.casa !== 'deputado') return false;
+      if (vinculo === 'outros' && e.casa === 'deputado') return false;
+      return true;
+    });
+    const amostra = [
+      { parlamentar: 'RENATA ABREU', casa: 'deputado' },
+      { parlamentar: 'JORGE KAJURU', casa: 'fora da bancada de deputados' },
+      { parlamentar: 'ANTIGA', /* sem casa: gravada antes do campo existir */ },
+    ];
+    ok(filtrar(amostra, 'deputados').map(e => e.parlamentar).join() === 'RENATA ABREU,ANTIGA',
+       'deputados: senador sai, e o registro ANTIGO sem vínculo não é escondido');
+    ok(filtrar(amostra, 'outros').map(e => e.parlamentar).join() === 'JORGE KAJURU,ANTIGA',
+       'só fora da bancada: o deputado sai');
+    ok(filtrar(amostra, '').length === 3, 'todos: ninguém é filtrado');
+  }
+
   console.log('\n== matriz parlamentar × pasta ==');
   {
     const { colunas, linhas } = M.matrizPorPasta(emendas);

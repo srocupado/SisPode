@@ -704,10 +704,17 @@ async function buscarPanorama() {
   };
   pintar('');
 
+  const porChave = new Map(bancada.map(p => [p.chave, p]));
   for (const nome of nomes) {
     if (ctrl.signal.aborted) break;
     try {
-      achadas.push(...await emendasDoParlamentar(nome, ano, chave, ctrl.signal));
+      // Cada emenda guarda o VÍNCULO de quem a apresentou. Sem isso a base
+      // vira uma lista de nomes soltos, em que ninguém distingue deputado da
+      // bancada de senador do partido ou de quem já saiu (19/08/2026).
+      const p = porChave.get(nome) || {};
+      const doNome = (await emendasDoParlamentar(nome, ano, chave, ctrl.signal))
+        .map(e => ({ ...e, casa: p.casa || 'não identificado', situacao: p.situacao || '' }));
+      achadas.push(...doNome);
     } catch (e) {
       if (e.name === 'AbortError') break;
       // "Failed to fetch" repetido 42 vezes não diz nada a quem lê. O navegador
@@ -734,7 +741,7 @@ async function buscarPanorama() {
 
   state.emendas = achadas;
   state.metaTr = { em: new Date().toISOString(), parlamentares: nomes.length, falhas: falhas.length };
-  await fbSalvarPanorama(ano, achadas, state.metaTr).catch(e => {
+  await fbSalvarPanorama(ano, achadas, state.metaTr, bancada).catch(e => {
     falhas.push('Firebase: ' + e.message);
     console.warn('[orçamento] panorama não salvo:', e.message);
   });
@@ -779,10 +786,13 @@ function composicaoDaBancada(bancada) {
   return p.join(' · ');
 }
 
-async function fbSalvarPanorama(ano, emendas, meta) {
+async function fbSalvarPanorama(ano, emendas, meta, bancada) {
   const r = await fetchComTimeout(`${FIREBASE_URL}/orcamento-transparencia/${ano}.json`, {
     method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ ...meta, itens: emendas }),
+    // A gravação é um PUT do nó inteiro: cada coleta SUBSTITUI a anterior, não
+    // acumula. E leva junto QUEM foi consultado — inclusive quem não tinha
+    // emenda nenhuma —, para a base explicar a si mesma depois.
+    body: JSON.stringify({ ...meta, bancada, itens: emendas }),
   }, 25000);
   if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
 }
@@ -792,7 +802,8 @@ async function carregarPanorama(ano) {
     const r = await fetchComTimeout(`${FIREBASE_URL}/orcamento-transparencia/${ano}.json`, {}, 20000);
     const d = r.ok ? await r.json() : null;
     state.emendas = (d && d.itens) || [];
-    state.metaTr = d ? { em: d.em, parlamentares: d.parlamentares, falhas: d.falhas } : null;
+    state.bancada = (d && d.bancada) || [];
+    state.metaTr = d ? { em: d.em, parlamentares: d.parlamentares, falhas: d.falhas, composicao: d.composicao } : null;
   } catch (e) {
     console.warn('[orçamento] panorama salvo não pôde ser lido:', e.message);
     state.emendas = []; state.metaTr = null;
@@ -804,8 +815,17 @@ function emendasFiltradas() {
   const parl = document.getElementById('p-parlamentar').value;
   const func = document.getElementById('p-funcao').value;
   const tipo = document.getElementById('p-tipo').value;
-  return state.emendas.filter(e =>
-    (!parl || e.parlamentar === parl) && (!func || e.funcao === func) && (!tipo || e.tipo === tipo));
+  const vinculo = document.getElementById('p-vinculo').value;
+  return state.emendas.filter(e => {
+    if (parl && e.parlamentar !== parl) return false;
+    if (func && e.funcao !== func) return false;
+    if (tipo && e.tipo !== tipo) return false;
+    // Emenda antiga, gravada antes de o vínculo existir, não é escondida:
+    // sem o dado, não dá para afirmar que não é da bancada.
+    if (vinculo === 'deputados' && e.casa && e.casa !== 'deputado') return false;
+    if (vinculo === 'outros' && e.casa === 'deputado') return false;
+    return true;
+  });
 }
 
 function somarEmendas(lista) {
@@ -1457,7 +1477,7 @@ document.addEventListener('DOMContentLoaded', () => {
   document.querySelectorAll('.em-aba').forEach(b =>
     b.addEventListener('click', () => trocarAba(b.dataset.aba)));
 
-  for (const id of ['p-parlamentar', 'p-funcao', 'p-tipo']) {
+  for (const id of ['p-parlamentar', 'p-funcao', 'p-tipo', 'p-vinculo']) {
     document.getElementById(id).addEventListener('change', renderPanorama);
   }
   document.getElementById('btn-panorama').addEventListener('click', buscarPanorama);
