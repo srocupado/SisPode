@@ -657,15 +657,59 @@ async function bancadaDoPodemos() {
     console.warn('[orçamento] lista de deputados da Câmara não veio:', e.message);
   }
 
-  // O que o FNS conhece e a Câmara não: senador do partido ou grafia diferente.
+  // O FNS não distingue as duas casas — a planilha traz só "PODE" — e, pior,
+  // MEDIDO em 19/08/2026: aquela coluna guarda o partido DA ÉPOCA da emenda,
+  // não o de hoje. Carlos Viana está lá com 115 propostas como PODE e hoje é
+  // senador pelo PSD. Por isso quem não é deputado é identificado no Senado,
+  // com o partido ATUAL, em vez de receber um rótulo vago.
+  const senadores = await senadoresPorNome();
+  const temCamara = out.length > 0;
+
   for (const n of nomesFns) {
     const chave = chaveNome(n);
     if (vistos.has(chave)) continue;
     vistos.add(chave);
-    out.push({ nome: n, chave, situacao: '', casa: out.length ? 'fora da bancada de deputados' : 'não identificado' });
+    const sen = senadores.get(chave);
+    let casa;
+    if (sen) {
+      casa = sen.partido === PARTIDO_SENADO ? 'senador do partido' : `senador hoje no ${sen.partido}`;
+    } else if (!temCamara || !senadores.size) {
+      // Sem conseguir ler Câmara ou Senado, não dá para afirmar nada sobre
+      // esta pessoa — e afirmar "fora da bancada" seria inventar.
+      casa = 'não identificado (não foi possível consultar Câmara/Senado)';
+    } else {
+      casa = 'fora do partido hoje';
+    }
+    out.push({ nome: n, chave, situacao: sen ? `Senado · ${sen.uf}` : '', casa });
   }
 
   return out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
+
+const PARTIDO_SENADO = 'PODEMOS';   // no Senado a sigla vem por extenso
+
+/** Senadores em exercício, por nome normalizado, com o partido de HOJE. */
+async function senadoresPorNome() {
+  const mapa = new Map();
+  try {
+    const r = await fetchComTimeout('https://legis.senado.leg.br/dadosabertos/senador/lista/atual',
+      { headers: { Accept: 'application/json' } }, 20000);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    const lista = d?.ListaParlamentarEmExercicio?.Parlamentares?.Parlamentar || [];
+    for (const p of lista) {
+      const i = p.IdentificacaoParlamentar || {};
+      if (!i.NomeParlamentar) continue;
+      mapa.set(chaveNome(i.NomeParlamentar), {
+        nome: i.NomeParlamentar,
+        partido: i.SiglaPartidoParlamentar || '',
+        uf: i.UfParlamentar || '',
+      });
+    }
+  } catch (e) {
+    console.warn('[orçamento] lista de senadores não veio:', e.message);
+  }
+  return mapa;
 }
 
 async function buscarPanorama() {
@@ -769,21 +813,29 @@ async function buscarPanorama() {
 
 /** "27 em exercício · 1 licenciado(a) · 4 suplentes · 8 fora da bancada". */
 function composicaoDaBancada(bancada) {
-  const conta = { exercicio: 0, licenca: 0, suplencia: 0, outros: 0, forade: 0 };
+  const c = { exercicio: 0, licenca: 0, suplencia: 0, outros: 0, senador: 0, exSenador: 0, fora: 0, indef: 0 };
   for (const p of bancada) {
-    if (p.casa !== 'deputado') conta.forade++;
-    else if (/exerc/i.test(p.situacao)) conta.exercicio++;
-    else if (/licen/i.test(p.situacao)) conta.licenca++;
-    else if (/supl/i.test(p.situacao)) conta.suplencia++;
-    else conta.outros++;
+    if (p.casa === 'deputado') {
+      if (/exerc/i.test(p.situacao)) c.exercicio++;
+      else if (/licen/i.test(p.situacao)) c.licenca++;
+      else if (/supl/i.test(p.situacao)) c.suplencia++;
+      else c.outros++;
+    } else if (p.casa === 'senador do partido') c.senador++;
+    else if (/^senador hoje/.test(p.casa)) c.exSenador++;
+    else if (p.casa === 'fora do partido hoje') c.fora++;
+    else c.indef++;
   }
-  const p = [];
-  if (conta.exercicio) p.push(`${conta.exercicio} deputado(s) em exercício`);
-  if (conta.licenca) p.push(`${conta.licenca} licenciado(s)`);
-  if (conta.suplencia) p.push(`${conta.suplencia} na suplência`);
-  if (conta.outros) p.push(`${conta.outros} em outra situação`);
-  if (conta.forade) p.push(`${conta.forade} fora da bancada de deputados (senadores ou grafia própria do FNS)`);
-  return p.join(' · ');
+  const t = [];
+  if (c.exercicio) t.push(`${c.exercicio} deputado(s) em exercício`);
+  if (c.licenca) t.push(`${c.licenca} licenciado(s)`);
+  if (c.suplencia) t.push(`${c.suplencia} na suplência`);
+  if (c.outros) t.push(`${c.outros} em outra situação`);
+  if (c.senador) t.push(`${c.senador} senador(es) do partido`);
+  // Estes vêm da planilha do FNS, que guarda o partido DA ÉPOCA da emenda.
+  if (c.exSenador) t.push(`${c.exSenador} senador(es) hoje em outro partido`);
+  if (c.fora) t.push(`${c.fora} fora do partido hoje`);
+  if (c.indef) t.push(`${c.indef} não identificado(s)`);
+  return t.join(' · ');
 }
 
 async function fbSalvarPanorama(ano, emendas, meta, bancada) {
@@ -810,6 +862,25 @@ async function carregarPanorama(ano) {
   }
 }
 
+/** Vínculo de um nome, pela bancada montada na coleta do panorama.
+ *  Devolve null quando ainda não sabemos — e nesse caso NADA é filtrado:
+ *  esconder proposta por falta de informação seria pior que mostrar demais. */
+function vinculoDe(nome) {
+  if (!state.bancada?.length) return null;
+  const alvo = chaveNome(nome);
+  return state.bancada.find(p => p.chave === alvo)?.casa || 'fora do partido hoje';
+}
+
+function passaNoVinculo(nome, escolha) {
+  if (!escolha) return true;
+  const v = vinculoDe(nome);
+  if (!v) return true;                       // sem classificação, não filtra
+  if (escolha === 'deputados') return v === 'deputado';
+  if (escolha === 'partido') return v === 'deputado' || v === 'senador do partido';
+  if (escolha === 'outros') return v !== 'deputado' && v !== 'senador do partido';
+  return true;
+}
+
 // ---------- filtros e agregação do panorama ----------
 function emendasFiltradas() {
   const parl = document.getElementById('p-parlamentar').value;
@@ -822,8 +893,13 @@ function emendasFiltradas() {
     if (tipo && e.tipo !== tipo) return false;
     // Emenda antiga, gravada antes de o vínculo existir, não é escondida:
     // sem o dado, não dá para afirmar que não é da bancada.
-    if (vinculo === 'deputados' && e.casa && e.casa !== 'deputado') return false;
-    if (vinculo === 'outros' && e.casa === 'deputado') return false;
+    // A emenda já vem com o vínculo gravado na coleta; quando falta (base
+    // antiga), cai na classificação da bancada.
+    if (vinculo && e.casa) {
+      if (vinculo === 'deputados' && e.casa !== 'deputado') return false;
+      if (vinculo === 'partido' && e.casa !== 'deputado' && e.casa !== 'senador do partido') return false;
+      if (vinculo === 'outros' && (e.casa === 'deputado' || e.casa === 'senador do partido')) return false;
+    } else if (!passaNoVinculo(e.parlamentar, vinculo)) return false;
     return true;
   });
 }
@@ -971,12 +1047,17 @@ function filtros() {
     municipio: document.getElementById('f-municipio').value.trim().toLowerCase(),
     tipo: document.getElementById('f-tipo').value,
     etapa: document.getElementById('f-etapa').value,
+    vinculo: document.getElementById('f-vinculo').value,
   };
 }
 
 function itensFiltrados() {
   const f = filtros();
   return state.itens.filter(it => {
+    // A planilha do FNS traz o partido DA ÉPOCA da emenda: há quem esteja lá
+    // como Podemos e hoje seja de outro partido, e senadores misturados aos
+    // deputados (19/08/2026). O mesmo filtro de vínculo do panorama vale aqui.
+    if (!passaNoVinculo(it.deputado, f.vinculo)) return false;
     if (f.deputado && it.deputado !== f.deputado) return false;
     if (f.uf && it.uf !== f.uf) return false;
     if (f.tipo && it.tipo !== f.tipo) return false;
@@ -1149,9 +1230,16 @@ function renderTopo() {
   }
   const datas = ufs.map(u => state.meta[u].em).filter(Boolean).sort();
   const ultima = datas.length ? new Date(datas[datas.length - 1]) : null;
-  const dep = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))].length;
+  const nomes = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))];
+  // "22 deputados" era falso: a lista inclui senadores e quem já saiu do
+  // partido. Só chamamos de deputado quem a Câmara confirma como tal.
+  const dep = nomes.filter(n => vinculoDe(n) === 'deputado').length;
+  const outros = nomes.length - dep;
+  const quem = state.bancada?.length
+    ? `${dep} deputado(s) da bancada${outros ? ` · ${outros} outro(s) parlamentar(es)` : ''}`
+    : `${nomes.length} parlamentar(es) — colete o panorama para separar bancada de senadores`;
   document.getElementById('em-titulo').textContent =
-    `${fmt(state.itens.length)} propostas da bancada · ${dep} deputado(s) · exercício ${state.ano}`;
+    `${fmt(state.itens.length)} propostas · ${quem} · exercício ${state.ano}`;
   document.getElementById('em-meta').textContent =
     (ultima ? `Última busca em ${ultima.toLocaleString('pt-BR')} · ` : '') +
     `${ufs.length} de ${UFS.length} estados na base · fonte: portal do Fundo Nacional de Saúde`;
@@ -1468,7 +1556,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if (e.target.id === 'modal-detalhe') e.currentTarget.style.display = 'none';
   });
 
-  for (const id of ['f-deputado', 'f-uf', 'f-tipo', 'f-etapa']) {
+  for (const id of ['f-deputado', 'f-uf', 'f-tipo', 'f-etapa', 'f-vinculo']) {
     document.getElementById(id).addEventListener('change', () => { renderKpis(); renderTabela(); });
   }
   document.getElementById('f-municipio').addEventListener('input', () => { renderKpis(); renderTabela(); });

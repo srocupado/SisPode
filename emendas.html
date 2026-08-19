@@ -221,10 +221,11 @@
       <div class="em-filtros" id="em-filtros-panorama" style="display: none; grid-template-columns: repeat(4, minmax(0, 1fr));">
         <label class="em-campo">
           <span class="em-rotulo">Vínculo</span>
-          <select id="p-vinculo">
+          <select id="p-vinculo" title="A planilha do FNS guarda o partido da ÉPOCA da emenda: há quem esteja lá como Podemos e hoje seja de outro partido.">
             <option value="deputados">Deputados da bancada</option>
-            <option value="">Todos os parlamentares do partido</option>
-            <option value="outros">Só senadores e fora da bancada</option>
+            <option value="partido">Bancada + senadores do partido</option>
+            <option value="">Todos os nomes consultados</option>
+            <option value="outros">Só quem não é da bancada</option>
           </select>
         </label>
         <label class="em-campo">
@@ -241,9 +242,18 @@
         </label>
       </div>
 
-      <div class="em-filtros" id="em-filtros-fns">
+      <div class="em-filtros" id="em-filtros-fns" style="grid-template-columns: repeat(6, minmax(0, 1fr));">
         <label class="em-campo">
-          <span class="em-rotulo">Deputado</span>
+          <span class="em-rotulo">Vínculo</span>
+          <select id="f-vinculo" title="A planilha do FNS guarda o partido da ÉPOCA da emenda: há senadores e quem já saiu do partido na mesma lista.">
+            <option value="deputados">Deputados da bancada</option>
+            <option value="partido">Bancada + senadores do partido</option>
+            <option value="">Todos os nomes da planilha</option>
+            <option value="outros">Só quem não é da bancada</option>
+          </select>
+        </label>
+        <label class="em-campo">
+          <span class="em-rotulo">Parlamentar</span>
           <select id="f-deputado"><option value="">Toda a bancada</option></select>
         </label>
         <label class="em-campo">
