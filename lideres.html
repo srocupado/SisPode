@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Reunião de Líderes – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ---- Tabela de proposições (espelha a planilha exportada) ---- */
+    /* min-width E min-height zerados em toda a cadeia de flex. Sem min-width o
+       item não encolhe abaixo do conteúdo e a tabela estoura para fora da
+       página; sem min-height ele CRESCE com o conteúdo em vez de caber na tela
+       — MEDIDO, o contêiner ficava com 2862px de altura numa janela de 800, e
+       a barra de rolagem horizontal, que existe, ficava dois mil pixels abaixo
+       da dobra. */
+    .main-content, .tela { min-width: 0; min-height: 0; }
+    .lid-tabela-wrap { flex: 1; min-width: 0; min-height: 0; overflow: auto; padding: 0 0 8px;   /* sem vão lateral: os 4px viravam uma fresta por onde o conteúdo rolava por baixo das colunas fixas */
+      scrollbar-gutter: stable; scrollbar-color: #2f5a60 rgba(255,255,255,0.04); }
+    /* table-layout:fixed com largura total explícita. É o que faz as três coisas
+       ao mesmo tempo:
+         · o texto QUEBRA dentro da coluna (com max-content a célula crescia até
+           caber a frase inteira e o objetivo saía numa linha quilométrica);
+         · a tabela excede o contêiner e quem rola é ele;
+         · a largura RENDERIZADA de cada coluna é a declarada — sem isso o
+           navegador redistribui as larguras, os deslocamentos das colunas fixas
+           deixam de bater e o texto das colunas de trás aparece por baixo delas. */
+    .lid-tabela { table-layout: fixed; width: 2670px; min-width: 100%;
+                  border-collapse: separate; border-spacing: 0; font-size: 12.5px; }
+
+    /* Barra de rolagem visível no tema escuro — a do sistema some no fundo. */
+    .lid-tabela-wrap::-webkit-scrollbar { height: 12px; width: 12px; }
+    .lid-tabela-wrap::-webkit-scrollbar-track { background: rgba(255,255,255,0.04); }
+    .lid-tabela-wrap::-webkit-scrollbar-thumb { background: #2f5a60; border-radius: 6px; }
+    .lid-tabela-wrap::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+    .lid-tabela th {
+      position: sticky; top: 0; z-index: 3;
+      background: var(--header); color: var(--text);
+      font-weight: 600; font-size: 11px; letter-spacing: .3px; text-transform: uppercase;
+      text-align: left; padding: 9px 10px; border-bottom: 2px solid var(--accent);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .lid-tabela td {
+      padding: 8px 10px; border-bottom: 1px solid var(--border);
+      vertical-align: top; color: var(--text); line-height: 1.45;
+    }
+    .lid-tabela tbody tr:hover td { background: rgba(31,165,165,0.05); }
+    .lid-tabela tr.lid-sel td { background: rgba(31,165,165,0.10); }
+    /* Larguras somam os 2670px da tabela. Mexeu numa, acerte o total. */
+    .lid-c-check { width: 36px;  text-align: center; }
+    .lid-c-num   { width: 44px;  text-align: center; color: var(--text-dim); }
+    .lid-c-prop  { width: 150px; font-weight: 600; }
+    .lid-c-aut   { width: 150px; color: var(--text-dim); }
+    .lid-c-obj   { width: 320px; }
+    .lid-c-just  { width: 320px; }
+    .lid-c-comp  { width: 280px; }
+    .lid-c-sit   { width: 170px; }
+    .lid-c-ape   { width: 210px; }
+    .lid-c-com   { width: 200px; }
+    .lid-c-rel   { width: 170px; }
+    .lid-c-par   { width: 240px; }
+    .lid-c-sen   { width: 230px; }
+    .lid-c-cen   { width: 150px; color: var(--text-dim); font-size: 11px; }
+    /* Identificação fixa à esquerda: rolando para a direita o analista continua
+       vendo de qual proposição é a linha. */
+    .lid-tabela th.lid-c-check, .lid-tabela td.lid-c-check { position: sticky; left: 0;    z-index: 2; }
+    .lid-tabela th.lid-c-num,   .lid-tabela td.lid-c-num   { position: sticky; left: 36px; z-index: 2; }
+    .lid-tabela th.lid-c-prop,  .lid-tabela td.lid-c-prop  { position: sticky; left: 80px; z-index: 2;
+      box-shadow: 1px 0 0 var(--border-soft); }
+    .lid-tabela th.lid-c-check, .lid-tabela th.lid-c-num, .lid-tabela th.lid-c-prop { z-index: 4; }
+    .lid-tabela td.lid-c-check, .lid-tabela td.lid-c-num, .lid-tabela td.lid-c-prop { background: var(--bg); }
+    .lid-tabela tbody tr:hover td.lid-c-check,
+    .lid-tabela tbody tr:hover td.lid-c-num,
+    .lid-tabela tbody tr:hover td.lid-c-prop { background: #16292d; }
+    .lid-tabela tr.lid-sel td.lid-c-check,
+    .lid-tabela tr.lid-sel td.lid-c-num,
+    .lid-tabela tr.lid-sel td.lid-c-prop { background: #16343a; }
+
+    /* Autoria/relatoria do Podemos — mesmas cores dos badges do Plenário */
+    .lid-badge-pode, .lid-badge-rel, .lid-badge-apens {
+      display: inline-block; margin: 2px 4px 0 0; padding: 2px 7px; border-radius: 999px;
+      font-size: 10px; font-weight: 600; letter-spacing: .2px; white-space: nowrap;
+    }
+    .lid-badge-pode { background: rgba(240,84,84,.16); color: #f47c7c; border: 1px solid rgba(240,84,84,.38); }
+    .lid-badge-rel  { background: rgba(96,165,250,.22); color: #9ecbff; border: 1px solid rgba(96,165,250,.5); }
+    .lid-badge-apens { background: rgba(31,165,165,.18); color: var(--accent-light); border: 1px solid rgba(31,165,165,.35); }
+
+    /* Etiqueta da célula da lista (EMS e afins), ao lado do número */
+    .lid-marca {
+      display: inline-block; margin-left: 5px; padding: 1px 6px; border-radius: 5px;
+      font-size: 10px; font-weight: 700; letter-spacing: .3px; vertical-align: middle;
+      background: rgba(240,192,64,0.16); color: var(--amarelo);
+      border: 1px solid rgba(240,192,64,0.32);
+    }
+
+    .lid-edit {
+      display: block; min-height: 20px; border-radius: 6px; padding: 3px 5px; margin: -3px -5px;
+      border: 1px solid transparent; white-space: pre-wrap; outline: none;
+      overflow-wrap: anywhere;
+    }
+    .lid-edit:hover  { border-color: var(--border-soft); }
+    .lid-edit:focus  { border-color: var(--accent); background: rgba(0,0,0,0.20); }
+    .lid-edit:empty::before { content: attr(data-vazio); color: var(--text-dim); font-style: italic; }
+    .lid-badge {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 6px;
+      border-radius: 5px; letter-spacing: .2px; white-space: nowrap;
+    }
+    .lid-badge.pendente { background: rgba(255,255,255,0.06); color: var(--text-dim); }
+    .lid-badge.dados    { background: rgba(31,165,165,0.15); color: var(--accent-light); }
+    .lid-badge.ok       { background: rgba(58,217,125,0.12); color: #3ad97d; }
+    .lid-badge.erro     { background: rgba(240,84,84,0.12);  color: var(--vermelho); }
+    .lid-erro-msg { display: block; font-size: 10.5px; color: var(--vermelho); margin-top: 3px; }
+    .lid-link { color: var(--accent-light); text-decoration: none; font-size: 10.5px; }
+    .lid-link:hover { text-decoration: underline; }
+    .lid-apenso { display: block; font-size: 10.5px; color: var(--text-dim); font-weight: 400; }
+
+    /* ---- Título editável (lápis) ---- */
+    .lid-titulo-linha { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; }
+    .lid-titulo-linha strong { overflow-wrap: anywhere; }
+    .lid-btn-lapis {
+      background: none; border: none; color: var(--text-dim); cursor: pointer;
+      padding: 2px; border-radius: 4px; line-height: 0; flex-shrink: 0;
+    }
+    .lid-btn-lapis:hover { color: var(--accent-light); background: rgba(31,165,165,0.12); }
+
+    /* ---- Barra de progresso ---- */
+    .lid-progresso { height: 5px; background: rgba(255,255,255,0.07); border-radius: 3px; overflow: hidden; margin-top: 8px; }
+    .lid-progresso-bar { height: 100%; width: 0; background: var(--accent); transition: width .25s; }
+    .lid-progresso-label { font-size: 11px; color: var(--text-dim); margin-top: 5px; }
+
+    /* ---- Barra de ações ---- */
+    /* No fluxo, não fixa: fixada em bottom:0 ela cobria a borda inferior da
+       tabela — justamente onde fica a barra de rolagem horizontal, que existia
+       mas era invisível. */
+    .lid-action-bar {
+      flex-shrink: 0; z-index: 20;
+      background: var(--card); border-top: 1px solid var(--border-soft);
+      padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
+    }
+    .lid-action-bar-right { display: flex; gap: 8px; flex-wrap: wrap; }
+    .lid-rolagem { display: flex; gap: 4px; }
+    .lid-rolagem .btn { padding: 4px 10px; font-size: 12px; line-height: 1; }
+    #lid-action-status { font-size: 12px; color: var(--text-dim); }
+
+    /* ---- Busca na lista ---- */
+    .lid-busca {
+      width: 300px; padding: 6px 10px; font: inherit; font-size: 12.5px;
+      background: rgba(0,0,0,0.25); color: var(--text);
+      border: 1px solid var(--border-soft); border-radius: 8px; outline: none;
+    }
+    .lid-busca:focus { border-color: var(--accent); }
+    .lid-busca::placeholder { color: var(--text-dim); }
+    /* O ✕ nativo do type=search fica invisível no tema escuro */
+    .lid-busca::-webkit-search-cancel-button { filter: invert(.7); }
+
+    .lid-tag {
+      display: inline-block; font-size: 11px; padding: 3px 8px; margin: 0 4px 4px 0;
+      border-radius: 6px; background: rgba(31,165,165,0.12);
+      color: var(--accent-light); border: 1px solid rgba(31,165,165,0.22);
+    }
+    #lista-itens-modal { max-height: 190px; overflow-y: auto; margin-top: 6px; }
+
+    .lid-item-side {
+      display: flex; align-items: flex-start; gap: 7px; padding: 6px 8px;
+      border-radius: 8px; cursor: pointer; font-size: 12px; line-height: 1.3;
+    }
+    .lid-item-side:hover { background: rgba(255,255,255,0.04); }
+    .lid-item-side .num { color: var(--text-dim); min-width: 20px; }
+    .lid-item-side .pt  { width: 7px; height: 7px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+    .pt.pendente { background: #4a5a5e; } .pt.dados { background: var(--accent); }
+    .pt.ok { background: #3ad97d; }       .pt.erro { background: var(--vermelho); }
+
+    /* ================================================================
+       ABAS DOS TRÊS SISTEMAS  (1 Análise · 2 Demandas · 3 E-mail)
+       ================================================================ */
+    .lid-abas {
+      display: flex; gap: 2px; flex-shrink: 0;
+      background: rgba(0,0,0,0.25); padding: 6px 16px 0;
+      border-bottom: 1px solid var(--border-soft);
+    }
+    .lid-aba {
+      appearance: none; background: none; border: 1px solid transparent; border-bottom: none;
+      padding: 8px 16px 9px; font: inherit; font-size: 13px; font-weight: 600;
+      color: var(--text-dim); border-radius: 10px 10px 0 0; cursor: pointer;
+    }
+    .lid-aba:hover { color: var(--text); }
+    .lid-aba.on {
+      background: var(--bg); color: var(--accent-light);
+      border-color: var(--border-soft);
+      box-shadow: inset 0 2px 0 var(--accent);
+    }
+
+    /* ---- Sistema 2: demandas ---- */
+    .dem-wrap { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .dem-grupo { margin-bottom: 22px; }
+    .dem-grupo-titulo {
+      font-size: 13px; font-weight: 700; letter-spacing: .4px;
+      color: var(--accent-light); margin-bottom: 10px;
+    }
+    .dem-card {
+      background: var(--card); border: 1px solid var(--border-soft);
+      border-radius: var(--radius); padding: 13px 16px; margin-bottom: 10px;
+      max-width: 900px;
+    }
+    .dem-card-topo { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; }
+    .dem-card-topo strong { font-size: 14px; }
+    .dem-card-acoes { margin-left: auto; display: flex; gap: 4px; }
+    .dem-campo { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin-top: 3px; }
+    .dem-campo b { color: var(--text); font-weight: 600; }
+    .dem-pill-mudou {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 999px; background: rgba(240,192,64,0.16); color: var(--amarelo);
+      border: 1px solid rgba(240,192,64,0.32); white-space: nowrap;
+    }
+    /* Histórico "entrou em lista do Colégio?" */
+    .dem-pill-lista {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
+      margin: 1px 0; border-radius: 999px; background: rgba(58,217,125,0.10);
+      color: #3ad97d; border: 1px solid rgba(58,217,125,0.30);
+    }
+    .dem-listas-nunca { color: var(--text-dim); font-style: italic; }
+    /* Atendimento da demanda */
+    .dem-pill-atendida {
+      display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px;
+      border-radius: 999px; background: rgba(58,217,125,0.16); color: #3ad97d;
+      border: 1px solid rgba(58,217,125,0.40); white-space: nowrap;
+    }
+    .dem-pill-aberta {
+      display: inline-block; font-size: 10px; font-weight: 600; padding: 2px 8px;
+      border-radius: 999px; background: rgba(255,255,255,0.05); color: var(--text-dim);
+      border: 1px solid var(--border-soft); white-space: nowrap;
+    }
+    .dem-nat {
+      display: inline-block; min-width: 60px; border-radius: 6px; padding: 1px 5px; margin: -1px -5px;
+      border: 1px solid transparent; outline: none; color: var(--text); font-weight: 600;
+    }
+    .dem-nat:hover { border-color: var(--border-soft); }
+    .dem-nat:focus { border-color: var(--accent); background: rgba(0,0,0,0.20); }
+    .dem-meta { font-size: 10.5px; color: var(--text-dim); margin-top: 8px; }
+    .dem-btn-ico {
+      background: none; border: 1px solid transparent; border-radius: 6px; cursor: pointer;
+      color: var(--text-dim); padding: 3px 6px; font-size: 12px; line-height: 1;
+    }
+    .dem-btn-ico:hover { color: var(--text); border-color: var(--border-soft); background: rgba(255,255,255,0.04); }
+    .dem-side-dep {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 6px 8px; border-radius: 8px; cursor: pointer; font-size: 12px;
+    }
+    .dem-side-dep:hover { background: rgba(255,255,255,0.04); }
+    .dem-side-dep .qtd { color: var(--text-dim); font-size: 11px; }
+    .dem-api-preview {
+      margin-top: 12px; background: rgba(31,165,165,0.07); border: 1px solid rgba(31,165,165,0.25);
+      border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.55;
+    }
+    .dem-api-preview .rot { color: var(--accent-light); font-weight: 700; font-size: 10px;
+      text-transform: uppercase; letter-spacing: .8px; }
+    .dem-api-preview .campo-fixo { color: var(--text-dim); }
+    .dem-api-preview .campo-fixo b { color: var(--text); font-weight: 600; }
+
+    /* ---- Sistema 3: e-mail ---- */
+    .email-wrap { flex: 1; overflow-y: auto; padding: 18px 22px; }
+    .email-toolbar {
+      display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      max-width: 900px; margin-bottom: 12px;
+    }
+    .email-status { font-size: 12px; color: var(--text-dim); }
+    .email-preview {
+      max-width: 900px; background: var(--card); border: 1px solid var(--border-soft);
+      border-radius: var(--radius); padding: 16px 20px; margin: 0;
+      font-family: inherit; font-size: 13px; line-height: 1.6;
+      white-space: pre-wrap; overflow-wrap: anywhere; color: var(--text);
+    }
+    .email-nota { max-width: 900px; font-size: 11.5px; color: var(--text-dim); margin-top: 10px; }
+    .email-side-item {
+      display: flex; align-items: flex-start; gap: 7px; padding: 5px 8px;
+      border-radius: 8px; cursor: pointer; font-size: 12px; line-height: 1.35;
+    }
+    .email-side-item:hover { background: rgba(255,255,255,0.04); }
+    .email-side-item input { margin-top: 2px; accent-color: var(--accent); }
+    .email-side-dep {
+      font-size: 10.5px; font-weight: 700; color: var(--text-dim);
+      letter-spacing: .5px; margin: 8px 0 3px; text-transform: uppercase;
+    }
+  </style>
+</head>
+<body>
+
+  <!-- ===== CABEÇALHO ===== -->
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Reunião de Líderes</span>
+        <span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar-home" class="btn btn-outline btn-sm" title="Voltar ao início">← Início</button>
+      <button id="btn-nova-reuniao" class="btn btn-primary">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+        </svg>
+        Nova Reunião
+      </button>
+      <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Configurações">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+        Configurações
+      </button>
+    </div>
+  </header>
+
+  <!-- ===== ABAS DOS TRÊS SISTEMAS ===== -->
+  <nav class="lid-abas">
+    <button class="lid-aba on" data-sistema="analise">📋 Análise da Lista</button>
+    <button class="lid-aba" data-sistema="demandas">📥 Demandas de Deputados</button>
+    <button class="lid-aba" data-sistema="email">✉️ E-mail de Demandas</button>
+  </nav>
+
+  <!-- ===== LAYOUT PRINCIPAL ===== -->
+  <div class="app-body">
+
+    <aside class="sidebar">
+      <div class="sidebar-section" data-sistema="analise">
+        <div class="sidebar-label">REUNIÃO ATUAL</div>
+        <div id="reuniao-info" class="sessao-info empty"><span>Nenhuma reunião carregada</span></div>
+        <div id="lid-progresso-wrap" style="display:none">
+          <div class="lid-progresso"><div class="lid-progresso-bar" id="lid-progresso-bar"></div></div>
+          <div class="lid-progresso-label" id="lid-progresso-label"></div>
+        </div>
+      </div>
+
+      <div class="sidebar-section" id="sidebar-itens-section" data-sistema="analise" style="display:none">
+        <div class="sidebar-label">PROPOSIÇÕES</div>
+        <div id="lista-itens" class="lista-proposicoes"></div>
+      </div>
+
+      <div class="sidebar-section" data-sistema="analise">
+        <div class="sidebar-label">HISTÓRICO</div>
+        <div id="lista-historico" class="lista-historico">
+          <div class="empty-state"><p>Nenhuma reunião anterior</p></div>
+        </div>
+      </div>
+
+      <!-- Sistema 2: deputados com demandas registradas -->
+      <div class="sidebar-section" data-sistema="demandas" style="display:none">
+        <div class="sidebar-label">DEPUTADOS</div>
+        <div id="dem-lista-deputados">
+          <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
+        </div>
+        <button id="btn-nova-demanda" class="btn btn-primary btn-sm" style="margin-top:10px;width:100%">+ Nova demanda</button>
+        <button id="btn-relatorio-demandas" class="btn btn-outline btn-sm" style="margin-top:6px;width:100%" title="PDF com as demandas em aberto e as atendidas">📄 Relatório (PDF)</button>
+      </div>
+
+      <!-- Sistema 3: seleção do que entra na mensagem -->
+      <div class="sidebar-section" data-sistema="email" style="display:none">
+        <div class="sidebar-label">INCLUIR NA MENSAGEM</div>
+        <div id="email-selecao">
+          <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+
+      <!-- TELA UPLOAD -->
+      <div id="tela-upload" class="tela active">
+        <div class="upload-area" id="upload-area">
+          <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="1.5">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+            <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+          </svg>
+          <h2>Carregar a lista da Reunião de Líderes</h2>
+          <p>Arraste aqui o PDF com as proposições que o Colégio de Líderes vai avaliar, ou clique em Nova Reunião.</p>
+          <button id="btn-nova-reuniao-upload" class="btn btn-outline" style="cursor:pointer">Nova Reunião</button>
+        </div>
+      </div>
+
+      <!-- TELA LISTA -->
+      <div id="tela-lista" class="tela">
+        <div class="lid-tabela-wrap">
+          <table class="lid-tabela">
+            <thead>
+              <tr>
+                <th class="lid-c-check"><input type="checkbox" id="check-todos" title="Marcar todas"></th>
+                <th class="lid-c-num">Nº</th>
+                <th class="lid-c-prop">Proposição</th>
+                <th class="lid-c-aut">Autoria</th>
+                <th class="lid-c-obj">Objetivo</th>
+                <th class="lid-c-just">Justificativa</th>
+                <th class="lid-c-comp">O que mudou</th>
+                <th class="lid-c-sit">Situação</th>
+                <th class="lid-c-ape">Apensação e urgência</th>
+                <th class="lid-c-com">Comissões</th>
+                <th class="lid-c-rel">Relatoria de Plenário</th>
+                <th class="lid-c-par">Parecer de Plenário</th>
+                <th class="lid-c-sen">Emendas do Senado</th>
+                <th class="lid-c-cen">Cenário</th>
+              </tr>
+            </thead>
+            <tbody id="lid-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- TELA DEMANDAS (sistema 2) -->
+      <div id="tela-demandas" class="tela">
+        <div class="dem-wrap" id="dem-wrap">
+          <div class="empty-state">
+            <p>Nenhuma demanda registrada ainda.<br>
+            Use <strong>+ Nova demanda</strong> na barra lateral: você informa deputado, proposição e a natureza da demanda — autoria, ementa e situação vêm da API da Câmara.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- TELA E-MAIL (sistema 3) -->
+      <div id="tela-email" class="tela">
+        <div class="email-wrap">
+          <div class="email-toolbar">
+            <span class="email-status" id="email-status">Nenhuma demanda selecionada</span>
+            <div style="display:flex;gap:8px">
+              <button id="btn-email-atualizar" class="btn btn-outline btn-sm" title="Reconsulta a situação das demandas selecionadas na API da Câmara">↻ Atualizar situações</button>
+              <button id="btn-email-outlook" class="btn btn-outline btn-sm" disabled title="Abre o cliente de e-mail padrão (Outlook) com o e-mail pronto">✉ Abrir no Outlook</button>
+              <button id="btn-email-copiar" class="btn btn-primary btn-sm" disabled>Copiar texto</button>
+            </div>
+          </div>
+          <pre class="email-preview" id="email-preview">Marque na barra lateral as demandas que devem entrar na mensagem.</pre>
+          <p class="email-nota">Ao copiar, a situação de cada demanda é reconsultada na Câmara — o que mudou desde o registro sai avisado. A assinatura traz o líder do Podemos <strong>buscado na API da Câmara</strong> na hora (nunca fixo no código); quem pediu e a natureza da demanda são registro interno e não entram no e-mail.</p>
+        </div>
+      </div>
+
+    </main>
+  </div>
+
+  <!-- ===== BARRA DE AÇÕES ===== -->
+  <div class="lid-action-bar" id="lid-action-bar" style="display:none">
+    <div style="display:flex;align-items:center;gap:10px">
+      <!-- Rolagem explícita: a barra do navegador pode estar em modo overlay e
+           só aparecer durante o gesto, deixando a tabela larga sem saída óbvia. -->
+      <span class="lid-rolagem">
+        <button id="btn-rolar-esq" class="btn btn-outline btn-sm" title="Rolar para a esquerda (Shift + roda do mouse)">◀</button>
+        <button id="btn-rolar-dir" class="btn btn-outline btn-sm" title="Rolar para a direita (Shift + roda do mouse)">▶</button>
+      </span>
+      <input type="search" id="lid-busca" class="lid-busca"
+             placeholder="🔎 Buscar na lista — nº do item, projeto, autor ou texto"
+             title="Filtra a tabela e a barra lateral. Aceita PL 4822/2025 em qualquer grafia (pl4822/25). Enter rola até o primeiro resultado; ✕ ou Esc limpa.">
+      <span id="lid-action-status"></span>
+    </div>
+    <div class="lid-action-bar-right">
+      <button id="btn-resumir-selecionados" class="btn btn-outline" disabled title="Marque proposições na tabela para resumir apenas elas">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="9 11 12 14 22 4"/>
+          <path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/>
+        </svg>
+        <span data-role="sel-label">Resumir selecionadas</span>
+      </button>
+      <button id="btn-resumir-todos" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v4l3 3"/>
+        </svg>
+        Resumir Todas
+      </button>
+      <button id="btn-parar" class="btn btn-ghost" style="display:none">Parar</button>
+      <button id="btn-salvar" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+          <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+        </svg>
+        Salvar
+      </button>
+      <button id="btn-whatsapp" class="btn btn-whatsapp" title="Copiar mensagem com os itens do Podemos (autoria, apensado ou relatoria)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347z"/><path d="M12.004 2C6.465 2 2 6.462 2 12.001c0 1.76.46 3.413 1.26 4.845L2 22l5.283-1.237A9.99 9.99 0 0 0 12.004 22C17.539 22 22 17.538 22 12.001 22 6.465 17.539 2 12.004 2zm0 18.197a8.183 8.183 0 0 1-4.17-1.141l-.299-.178-3.096.725.766-2.985-.196-.307A8.187 8.187 0 0 1 3.803 12c0-4.52 3.68-8.197 8.201-8.197 4.52 0 8.197 3.677 8.197 8.197 0 4.521-3.677 8.197-8.197 8.197z"/></svg>
+        Projetos do Podemos
+      </button>
+      <button id="btn-gerar-pdf" class="btn btn-primary">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>
+        </svg>
+        Gerar PDF
+      </button>
+      <button id="btn-exportar" class="btn btn-outline">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/>
+        </svg>
+        Exportar planilha
+      </button>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: NOVA REUNIÃO ===== -->
+  <div id="modal-nova-reuniao" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Nova Reunião de Líderes</h3>
+        <button class="modal-close" data-fecha="modal-nova-reuniao">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label>Título</label>
+          <input type="text" id="reuniao-titulo" placeholder="Ex: Reunião de Líderes – 07/07/2026" class="form-input">
+        </div>
+        <div class="form-group">
+          <label>PDF da lista de proposições</label>
+          <label for="input-pdf-lideres" class="upload-inline" id="upload-inline-lideres">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>
+            </svg>
+            <span id="upload-inline-lideres-text">Clique para selecionar o PDF</span>
+          </label>
+          <input type="file" id="input-pdf-lideres" accept=".pdf" style="display:none">
+        </div>
+        <div id="itens-encontrados" style="display:none">
+          <label>Proposições encontradas</label>
+          <div id="lista-itens-modal" class="proposicoes-modal-lista"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-nova-reuniao">Cancelar</button>
+        <button id="btn-criar-reuniao" class="btn btn-primary" disabled>Criar Reunião</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: NOVA DEMANDA (sistema 2) ===== -->
+  <div id="modal-nova-demanda" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:560px">
+      <div class="modal-header">
+        <h3>Nova demanda de deputado</h3>
+        <button class="modal-close" data-fecha="modal-nova-demanda">✕</button>
+      </div>
+      <div class="modal-body">
+        <div style="display:flex;gap:10px">
+          <div class="form-group" style="width:130px;flex-shrink:0">
+            <label>Tratamento</label>
+            <select id="dem-tratamento" class="form-input">
+              <option value="Deputado">Deputado</option>
+              <option value="Deputada">Deputada</option>
+            </select>
+          </div>
+          <div class="form-group" style="flex:1">
+            <label>Quem demanda</label>
+            <input type="text" id="dem-deputado" class="form-input" placeholder="Ex: David Soares">
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Proposição</label>
+          <input type="text" id="dem-prop" class="form-input" placeholder="Ex: PLP 78/2025">
+        </div>
+        <div class="form-group">
+          <label>Natureza da demanda</label>
+          <input type="text" id="dem-natureza" class="form-input" list="dem-naturezas" placeholder="Ex: Solicitar relatoria">
+          <datalist id="dem-naturezas">
+            <option value="Solicitar relatoria"></option>
+            <option value="Solicitar inclusão em pauta"></option>
+            <option value="Solicitar despacho do Presidente"></option>
+            <option value="Apoiar a aprovação"></option>
+            <option value="Acompanhar a tramitação"></option>
+          </datalist>
+        </div>
+        <button id="btn-dem-buscar" class="btn btn-outline btn-sm">Buscar na Câmara</button>
+        <div id="dem-api-preview" class="dem-api-preview" style="display:none"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-nova-demanda">Cancelar</button>
+        <button id="btn-dem-registrar" class="btn btn-primary" disabled title="Busque a proposição na Câmara antes de registrar">Registrar demanda</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: RELATÓRIO DE DEMANDAS (escolha dos deputados) ===== -->
+  <div id="modal-relatorio" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:440px">
+      <div class="modal-header">
+        <h3>Relatório de demandas</h3>
+        <button class="modal-close" data-fecha="modal-relatorio">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc">Escolha quais deputados entram no relatório —
+          <a href="#" id="rel-todos" class="lid-link">todos</a> ·
+          <a href="#" id="rel-nenhum" class="lid-link">nenhum</a></p>
+        <div id="rel-deputados" style="max-height:280px;overflow-y:auto"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-relatorio">Cancelar</button>
+        <button id="btn-rel-gerar" class="btn btn-primary">Gerar PDF</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: MARCAR DEMANDA COMO ATENDIDA ===== -->
+  <div id="modal-atender" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:480px">
+      <div class="modal-header">
+        <h3>Marcar demanda como atendida</h3>
+        <button class="modal-close" data-fecha="modal-atender">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc" id="atender-desc"></p>
+        <div class="form-group">
+          <label>Atendida em qual Reunião de Líderes?</label>
+          <select id="atender-reuniao" class="form-input"></select>
+        </div>
+        <div class="form-group" id="atender-outra-wrap" style="display:none">
+          <label>Como foi o atendimento</label>
+          <input type="text" id="atender-obs" class="form-input" placeholder="Ex: Despacho do Presidente em 20/08/2026">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-atender">Cancelar</button>
+        <button id="btn-confirmar-atender" class="btn btn-primary">Confirmar atendimento</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal" style="max-width:520px">
+      <div class="modal-header">
+        <h3>Configurações</h3>
+        <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Integração com Inteligência Artificial
+          </div>
+          <p class="config-desc">
+            A IA lê o inteiro teor de cada proposição e escreve o objetivo e a justificativa do resumo.
+            Estas configurações são compartilhadas com os outros painéis do SisPode.
+          </p>
+
+          <div class="form-group" style="margin-top:14px">
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-api-key" class="form-input" placeholder="Cole aqui sua chave">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+            </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block"></small>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar disponíveis</button>
+            </label>
+            <select id="config-modelo" class="form-input">
+              <option value="">— cole a chave e clique em "Carregar disponíveis" —</option>
+            </select>
+            <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+          </div>
+
+          <button id="btn-testar-ia" class="btn btn-outline btn-sm">Testar conexão</button>
+          <div id="config-status-ia" class="config-status" style="display:none;margin-top:8px"></div>
+        </div>
+
+        <div class="config-section" style="margin-top:18px">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>
+            Instruções adicionais
+          </div>
+          <p class="config-desc">
+            Texto que <strong>complementa</strong> o prompt base enviado ao LLM (ênfase, recortes temáticos, tom).
+            Fica guardado no Firebase e vale para toda a equipe.
+          </p>
+          <div class="form-group" style="margin-top:10px">
+            <textarea id="config-instrucoes" class="form-input" rows="5" placeholder="Ex: Destaque sempre o impacto fiscal quando o projeto criar despesa."></textarea>
+          </div>
+          <div id="instrucoes-status" style="font-size:11px;color:var(--text-dim);min-height:14px"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
+        <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== TOAST ===== -->
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== SCRIPTS ===== -->
+  <script src="libs/pdf.min.js"></script>
+  <script src="libs/xlsx.full.min.js"></script>
+  <script src="lideres.js"></script>
+
+</body>
+</html>

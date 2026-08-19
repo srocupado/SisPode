@@ -1,0 +1,328 @@
+'use strict';
+// CAMADA 2 — extração estruturada das questões de ordem.
+//
+// Transforma texto em PRECEDENTE. Para cada QO, uma passada de IA lê o inteiro
+// teor (a tese, com o raciocínio do parlamentar) junto com os campos que a
+// Câmara cataloga (a decisão, o tesauro) e devolve um registro analítico.
+//
+// A regra que governa o prompt vem de medição, não de gosto:
+//   - a TESE está no inteiro teor em quase todos os registros;
+//   - o RESULTADO está na ementa da decisão, em 86%;
+//   - a RAZÃO da decisão nem sempre existe: onde não existir, o campo tem de
+//     sair "não consta", jamais inferido. Precedente inventado é pior que
+//     precedente não encontrado. MEDIDO em 157 registros: sai "não consta" em
+//     31% deles, e das razões preenchidas 79% têm lastro léxico no original.
+//
+// Roda UMA vez e o resultado é distribuído com o bot (como src/ricd.js): nenhum
+// usuário paga por consulta, todos veem o mesmo, e cada campo é conferível
+// contra o original pelo link.
+//
+// Uso:
+//   GEMINI_API_KEY=... node scripts/extrair-qo.js --n 200
+//   GEMINI_API_KEY=... node scripts/extrair-qo.js            (acervo inteiro)
+//   ... --modelo gemini-3.1-flash-lite --concorrencia 4
+//
+// Retoma de onde parou: o que já está em dados/qordem-extraido.json é pulado.
+
+require('dns').setDefaultResultOrder('ipv4first');
+const fs = require('fs');
+const path = require('path');
+const qo = require('../src/questaoordem');
+const { normalizar } = require('../src/busca');
+
+const DADOS = path.join(__dirname, '..', 'dados');
+const DESTINO_PADRAO = path.join(DADOS, 'qordem-extraido.json');
+const ARQ_TEOR = path.join(__dirname, '..', 'dados', 'qordem-teor.json');
+const CACHE_DET = path.join(__dirname, '..', 'dados', 'qordem-detalhes.json');
+
+const argv = process.argv.slice(2);
+const opt = (n, p) => { const i = argv.indexOf(`--${n}`); return i >= 0 ? argv[i + 1] : p; };
+const CHAVE = process.env.GEMINI_API_KEY || '';
+const MODELO = opt('modelo', 'gemini-3.1-flash-lite');
+const CONC = Number(opt('concorrencia', 4));
+const LIMITE = Number(opt('n', 0)) || 0;
+const MAX_TEOR = 14000;     // ~3,5 mil tokens; média medida é 6 mil caracteres
+
+// PARALELISMO POR CHAVE. Cada chave tem cota própria (15 rpm, ~500/dia por
+// projeto), então duas chaves dobram o rendimento — mas dois processos gravando
+// no MESMO arquivo se sobrescrevem e um perde o trabalho do outro. Duas peças
+// resolvem: --saida dá a cada um o seu arquivo, e --fatia N/M divide o acervo
+// sem coordenação (o processo 0/2 pega os pares, o 1/2 os ímpares).
+// O que já foi extraído é lido da UNIÃO de todos os arquivos, então cada
+// processo enxerga o trabalho do outro e nada é refeito.
+const DESTINO = opt('saida', DESTINO_PADRAO);
+const FATIA = (() => {
+  const m = String(opt('fatia', '') || '').match(/^(\d+)\/(\d+)$/);
+  return m ? { i: Number(m[1]), n: Number(m[2]) } : null;
+})();
+
+/** Ids já extraídos, somando TODOS os arquivos de saída. */
+function jaExtraidos() {
+  const ids = new Set();
+  for (const f of fs.readdirSync(DADOS)) {
+    if (!/^qordem-extraido.*\.json$/.test(f)) continue;
+    try {
+      for (const id of Object.keys(JSON.parse(fs.readFileSync(path.join(DADOS, f), 'utf8')).itens || {})) {
+        ids.add(Number(id));
+      }
+    } catch (_) { /* arquivo pela metade: ignora */ }
+  }
+  return ids;
+}
+
+if (!CHAVE) { console.error('Defina GEMINI_API_KEY no ambiente.'); process.exit(1); }
+
+const VOCAB = [
+  'quórum', 'votação', 'verificação', 'obstrução', 'destaque', 'emenda',
+  'prejudicialidade', 'preferência', 'adiamento', 'retirada de pauta', 'urgência',
+  'discussão', 'encaminhamento', 'redação final', 'medida provisória', 'PEC',
+  'comissão', 'composição de comissão', 'admissibilidade', 'apreciação conclusiva',
+  'recurso', 'liderança', 'uso da palavra', 'ata', 'sessão', 'ordem do dia',
+  'inconstitucionalidade', 'processo legislativo', 'mandato', 'decoro',
+];
+
+const PROMPT = (q) => `Você é analista de plenário da Câmara dos Deputados. Leia o registro de uma QUESTÃO DE ORDEM e extraia dele um verbete de precedente.
+
+REGRA ABSOLUTA: só afirme o que está no texto. Onde o texto não disser, escreva exatamente "não consta". Nunca deduza a decisão a partir da pergunta, nem a razão a partir da decisão. Um verbete com "não consta" é útil; um verbete inventado destrói a confiança em todos os outros.
+
+REGISTRO
+--------
+Questão de ordem nº ${q.num} — sessão de ${q.data}
+Autor: ${q.autor || 'não consta'}
+Dispositivos catalogados: ${q.disp || 'não consta'}
+
+Ementa da questão (catalogada):
+${q.ementa || 'não consta'}
+
+Ementa da decisão (catalogada):
+${q.decisao || 'não consta'}
+
+${q.contradita ? `Contradita (catalogada):\n${q.contradita}\n` : ''}${q.recurso ? `Recurso (catalogado):\n${q.recurso}\n` : ''}
+Notas taquigráficas (inteiro teor, pode estar truncado):
+${q.teor || 'não consta'}
+--------
+
+Responda SÓ com um objeto JSON, sem cercas de código, neste formato:
+
+{
+  "tese": "em uma ou duas frases, O QUE SE SUSTENTOU e com que raciocínio — a proposição jurídica em disputa, não o resumo do episódio. Escreva de forma que sirva para reconhecer o mesmo problema em outro caso.",
+  "fundamento": ["artigos do Regimento ou da Constituição invocados, ex.: 'RICD art. 117, VI'"],
+  "contexto": "matéria e fase em que ocorreu, ex.: 'votação da MPV 713/2016, em Plenário'",
+  "resultado": "um de: deferida | indeferida | parcialmente deferida | prejudicada | retirada | sem decisão registrada",
+  "decisao": "o que a Presidência decidiu, na forma como está registrado — ou 'não consta'",
+  "razao": "o FUNDAMENTO que a Presidência deu para decidir assim. Se as notas não trouxerem a justificativa, escreva 'não consta'.",
+  "desdobramento": "houve contradita, recurso ou reforma posterior, conforme o registro — ou 'não consta'",
+  "temas": ["2 a 5 termos desta lista: ${VOCAB.join(', ')}"]
+}`;
+
+// RITMO. O limite é de 15 requisições por minuto no projeto inteiro, não por
+// worker. Sem espaçar, os 3 workers disparam juntos, tomam 429 em rajada e
+// gastam o backoff — foi o que fez a coleta parecer morta com 50 registros
+// feitos e nenhuma falha. Espaçar na origem sai MAIS rápido que corrigir depois.
+const MIN_INTERVALO = 60000 / 14;     // 14 rpm, uma folga sob o teto de 15
+let _proximoSlot = 0;
+async function aguardarSlot() {
+  const agora = Date.now();
+  const slot = Math.max(agora, _proximoSlot);
+  _proximoSlot = slot + MIN_INTERVALO;
+  if (slot > agora) await new Promise(r => setTimeout(r, slot - agora));
+}
+
+// A API diz QUAL cota estourou e QUANTO esperar. Ler isso é a diferença entre
+// pausar 52s e desistir do dia: 429 por minuto é ritmo, 429 por dia é parede.
+function lerCota(corpo) {
+  let tipo = null, esperaMs = 0;
+  for (const det of corpo?.error?.details || []) {
+    for (const v of det.violations || []) {
+      if (/PerDay/i.test(v.quotaId || '')) tipo = 'dia';
+      else if (/PerMinute/i.test(v.quotaId || '') && tipo !== 'dia') tipo = 'minuto';
+    }
+    const d = String(det.retryDelay || '').match(/^(\d+(?:\.\d+)?)s$/);
+    if (d) esperaMs = Math.ceil(Number(d[1]) * 1000);
+  }
+  return { tipo, esperaMs };
+}
+
+async function chamar(prompt) {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${CHAVE}`;
+  const body = {
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: { temperature: 0, maxOutputTokens: 2000, responseMimeType: 'application/json' },
+  };
+  let ultimo = null;
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
+    await aguardarSlot();
+    // TIMEOUT OBRIGATÓRIO: sem ele uma conexão pendurada trava o worker para
+    // sempre. Aconteceu — o processo ficou 20 min vivo, com 9 s de CPU, sem
+    // gravar nada, porque os três workers estavam parados num fetch que nunca
+    // respondeu nem falhou.
+    let res;
+    const ctrl = new AbortController();
+    const alarme = setTimeout(() => ctrl.abort(), 120000);
+    try {
+      res = await fetch(url, { method: 'POST', signal: ctrl.signal,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    } catch (e) { ultimo = e; await new Promise(r => setTimeout(r, 4000 * (tentativa + 1))); continue; }
+    finally { clearTimeout(alarme); }
+    if (res.ok) {
+      const j = await res.json();
+      const t = (j.candidates?.[0]?.content?.parts || [])
+        .filter(p => !p.thought && typeof p.text === 'string').map(p => p.text).join('');
+      return t;
+    }
+    const corpo = await res.json().catch(() => null);
+    if (res.status === 429) {
+      const { tipo, esperaMs } = lerCota(corpo);
+      if (tipo === 'dia') throw new Error('COTA_DIA');       // parede: não adianta insistir
+      // Ritmo: empurra o slot de TODOS os workers e tenta de novo.
+      _proximoSlot = Math.max(_proximoSlot, Date.now() + (esperaMs || 20000));
+      ultimo = new Error('HTTP 429 (minuto)');
+      continue;
+    }
+    if (res.status >= 500) {
+      ultimo = new Error(`HTTP ${res.status}`);
+      await new Promise(r => setTimeout(r, 4000 * (tentativa + 1)));
+      continue;
+    }
+    throw new Error(corpo?.error?.message || `HTTP ${res.status}`);
+  }
+  throw ultimo || new Error('falhou após as tentativas');
+}
+
+const CAMPOS = ['tese', 'fundamento', 'contexto', 'resultado', 'decisao', 'razao',
+                'desdobramento', 'temas'];
+const RESULTADOS = ['deferida', 'indeferida', 'parcialmente deferida', 'prejudicada',
+                    'retirada', 'sem decisão registrada'];
+
+// LASTRO: quanto do que a IA escreveu como RAZÃO da decisão reaparece no texto
+// de origem. Substitui o campo de autoavaliação que eu tinha pedido ao modelo —
+// medido em 157 registros, ele respondia "alta" em 156, ou seja, não
+// discriminava nada. Isto aqui é conferível: lastro baixo é aviso de paráfrase
+// solta, e a resposta ao usuário pode marcar o verbete.
+const naoConsta = v => /^n[aã]o consta$/i.test(String(v || '').trim());
+function lastroDe(razao, fonte) {
+  if (naoConsta(razao) || !String(razao || '').trim()) return null;
+  const alvo = normalizar(fonte);
+  const palavras = normalizar(razao).split(/\W+/).filter(w => w.length > 5);
+  if (!palavras.length) return 0;
+  return Number((palavras.filter(w => alvo.includes(w)).length / palavras.length).toFixed(2));
+}
+
+// O modelo às vezes escreve o resultado por extenso ("indefere a questão de
+// ordem") em vez do rótulo. Rejeitar é o certo quando o conteúdo é ambíguo, mas
+// aqui a intenção é inequívoca — normalizar recupera ~1 em cada 12 registros
+// que estavam sendo descartados por forma, não por substância.
+function normalizarResultado(v) {
+  const t = String(v || '').toLowerCase();
+  if (RESULTADOS.includes(String(v).trim())) return String(v).trim();
+  if (/parcial/.test(t)) return 'parcialmente deferida';
+  if (/ind[ei]fer|nega|rejeit|improced/.test(t)) return 'indeferida';   // 'indiferida' é erro de digitação do modelo, visto em produção
+  if (/prejudic/.test(t)) return 'prejudicada';
+  if (/retirad/.test(t)) return 'retirada';
+  if (/sem decis|nao (consta|houve)|n[aã]o consta|pendente|aguard/.test(t)) return 'sem decisão registrada';
+  if (/defer|acolhe|proced|dá razão|da razao/.test(t)) return 'deferida';
+  return null;
+}
+
+/** Aceita só o que tem a forma certa — verbete torto é pior que verbete ausente. */
+function validar(txt) {
+  let o;
+  try { o = JSON.parse(String(txt).replace(/^```(json)?|```$/g, '').trim()); }
+  catch (_) { return { erro: 'JSON inválido' }; }
+  for (const c of CAMPOS) if (o[c] === undefined) return { erro: `sem campo ${c}` };
+  if (!String(o.tese || '').trim()) return { erro: 'tese vazia' };
+  const res = normalizarResultado(o.resultado);
+  if (!res) return { erro: `resultado "${o.resultado}"` };
+  o.resultado = res;
+  o.fundamento = Array.isArray(o.fundamento) ? o.fundamento : [];
+  o.temas = Array.isArray(o.temas) ? o.temas : [];
+  return { ok: o };
+}
+
+(async () => {
+  const t0 = Date.now();
+  const teor = JSON.parse(fs.readFileSync(ARQ_TEOR, 'utf8')).itens || {};
+  const det = JSON.parse(fs.readFileSync(CACHE_DET, 'utf8')).itens || {};
+  const corpus = await qo.garantirCorpus();
+
+  // `feito` é só o QUE ESTE processo grava; `prontos` é a união de todos, para
+  // não refazer o que a outra chave já extraiu.
+  let feito = {};
+  try { feito = JSON.parse(fs.readFileSync(DESTINO, 'utf8')).itens || {}; } catch (_) {}
+  const prontos = jaExtraidos();
+
+  let alvos = corpus.filter(o => !prontos.has(o.numInternoQOrdem));
+  if (FATIA) alvos = alvos.filter((_, i) => i % FATIA.n === FATIA.i);
+  if (LIMITE) {                                   // amostra ESPALHADA, não os 200 mais novos
+    const passo = Math.max(1, Math.floor(alvos.length / LIMITE));
+    alvos = alvos.filter((_, i) => i % passo === 0).slice(0, LIMITE);
+  }
+  console.log(`acervo ${corpus.length} · já extraído ${prontos.size} (total)` +
+    `${FATIA ? ` · fatia ${FATIA.i}/${FATIA.n}` : ''} · a extrair ${alvos.length}`);
+  console.log(`saída: ${path.basename(DESTINO)}`);
+  console.log(`modelo ${MODELO} · concorrência ${CONC}\n`);
+
+  const fila = [...alvos];
+  let ok = 0, ruim = 0, entrada = 0, seguidas = 0;   // seguidas: falhas de cota em sequência
+  const erros = {};
+  await Promise.all(Array.from({ length: CONC }, async () => {
+    let o;
+    while ((o = fila.pop())) {
+      const d = det[o.numInternoQOrdem] || {};
+      const q = {
+        num: o.numQOrdemComAno, data: o.datSessaoQOrdem, autor: o.txtNomeAutorQOrdem,
+        disp: (d.d || '').replace(/art(\d+)/g, 'art. $1'),
+        ementa: d.e, decisao: d.dec, contradita: d.cd, recurso: d.rec,
+        teor: String(teor[o.numInternoQOrdem] || '').slice(0, MAX_TEOR),
+      };
+      const p = PROMPT(q);
+      entrada += p.length;
+      let txt = null, falha = null;
+      try { txt = await chamar(p); }
+      catch (e) { falha = e.message; }
+      if (!falha) {
+        const v = validar(txt);
+        if (v.erro) falha = v.erro;
+        else {
+          feito[o.numInternoQOrdem] = { num: q.num, ...v.ok,
+            lastro: lastroDe(v.ok.razao, `${q.decisao || ''} ${q.teor || ''}`) };
+          ok++;
+        }
+      }
+      if (falha) { ruim++; erros[falha] = (erros[falha] || 0) + 1; }
+      // O relatório de progresso NÃO pode ficar atrás de um `continue` de erro:
+      // numa rodada em que tudo falha (cota diária estourada, por exemplo) o log
+      // fica mudo e a falha total vira indistinguível de travamento. Aconteceu.
+      if ((ok + ruim) % 25 === 0) {
+        console.log(`  ${ok + ruim}/${alvos.length} · ok ${ok} · falhas ${ruim}` +
+          (falha ? ` · última: ${falha}` : ''));
+        fs.writeFileSync(DESTINO, JSON.stringify({ modelo: MODELO, gerado: new Date().toISOString().slice(0, 10), itens: feito }));
+      }
+      // Cota diária estourada: insistir só queima tentativa. Para tudo.
+      // A guarda conta falhas de cota CONSECUTIVAS, não a rodada inteira: a
+      // primeira versão exigia zero sucessos e não disparou justamente no caso
+      // real — a coleta fez 421 verbetes e só então bateu o teto diário, e o
+      // silêncio virou "travamento" outra vez.
+      // Só o teto DIÁRIO encerra a rodada. 429 por minuto é ritmo, e matar a
+      // coleta por causa dele já custou um dia: o log mostrava 50 registros com
+      // zero falhas quando a guarda antiga desistiu.
+      if (falha === 'COTA_DIA') {
+        if (++seguidas >= 3) {
+          console.log(`\nCOTA ESGOTADA — teto diário do projeto. Encerrando com ${ok} extraídos nesta rodada.`);
+          fila.length = 0;
+        }
+      } else if (!falha) seguidas = 0;
+    }
+  }));
+
+  fs.mkdirSync(path.dirname(DESTINO), { recursive: true });
+  fs.writeFileSync(DESTINO, JSON.stringify({ modelo: MODELO, gerado: new Date().toISOString().slice(0, 10), itens: feito }));
+
+  const min = (Date.now() - t0) / 60000;
+  console.log(`\n${ok} extraídas · ${ruim} falhas · ${min.toFixed(1)} min`);
+  if (Object.keys(erros).length) console.log('falhas:', JSON.stringify(erros));
+  console.log(`entrada ≈ ${(entrada / 4 / 1e6).toFixed(2)}M tokens` +
+    ` · projeção para as ${corpus.length}: ${(entrada / 4 / Math.max(1, ok) * corpus.length / 1e6).toFixed(1)}M tokens` +
+    ` e ~${(min / Math.max(1, ok) * corpus.length).toFixed(0)} min`);
+  console.log(`gravado em ${DESTINO}`);
+})().catch(e => { console.error('falhou:', e); process.exit(1); });

@@ -1,0 +1,578 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aderência ao Governo — Podemos</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #0e1c1f;
+    --card: #142a2f;
+    --header: #17373e;
+    --accent: #1fa5a5;
+    --accent-light: #26c9c9;
+    --text: #e8ecec;
+    --text-dim: #8da3a8;
+    --sim: #3ad97d;
+    --nao: #f05454;
+    --abstencao: #f0c040;
+    --art17: #6eaaff;
+    --obstrucao: #c084fc;
+    --absent: #5a6f74;
+    --border: rgba(255,255,255,0.06);
+    --radius: 12px;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: 'DM Sans', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* ── TOP BAR ── */
+  .top-bar {
+    background: linear-gradient(135deg, #17373e 0%, #1a4a4a 100%);
+    padding: 0 20px;
+    height: 52px;
+    display: flex;
+    align-items: center;
+    border-bottom: 2px solid var(--accent);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    gap: 14px;
+  }
+
+  .top-bar-back {
+    background: transparent;
+    border: 1px solid rgba(255,255,255,0.18);
+    border-radius: 7px;
+    color: var(--text-dim);
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 600;
+    padding: 5px 12px;
+    cursor: pointer;
+    letter-spacing: 0.3px;
+    transition: color 0.15s, border-color 0.15s;
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+
+  .top-bar-back:hover { color: var(--text); border-color: rgba(255,255,255,0.35); }
+
+  .top-bar-title {
+    font-weight: 700;
+    font-size: 14px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text);
+    flex: 1;
+    text-align: center;
+  }
+
+  .top-bar-spacer { flex-shrink: 0; width: 68px; }
+
+  /* ── LAYOUT ── */
+  .container {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 16px;
+  }
+
+  .input-section {
+    background: var(--card);
+    border-radius: var(--radius);
+    padding: 20px;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+  }
+
+  .input-section label {
+    display: block;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+    margin-bottom: 8px;
+  }
+
+  .date-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 14px;
+  }
+
+  .date-col { flex: 1; }
+
+  .field {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.2s;
+    cursor: pointer;
+    color-scheme: dark;
+  }
+
+  .field:focus { border-color: var(--accent); }
+
+  .field::-webkit-calendar-picker-indicator {
+    filter: invert(70%) sepia(30%) saturate(500%) hue-rotate(140deg);
+    cursor: pointer;
+    opacity: 0.9;
+  }
+
+  .party-input {
+    text-transform: uppercase;
+    font-weight: 700;
+    color: var(--accent-light);
+    font-size: 14px;
+    letter-spacing: 0.5px;
+  }
+
+  .btn-gerar {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 13px 20px;
+    font-family: inherit;
+    font-size: 13px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    width: 100%;
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 14px;
+  }
+
+  .btn-gerar:hover { background: var(--accent-light); }
+  .btn-gerar:active { transform: scale(0.99); }
+  .btn-gerar:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── STATUS / LOADING ── */
+  .status {
+    text-align: center;
+    padding: 20px;
+    color: var(--text-dim);
+    font-size: 13px;
+  }
+
+  .status.error { color: var(--nao); }
+
+  .spinner {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    border: 3px solid rgba(255,255,255,0.1);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    margin-bottom: 10px;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .progress {
+    width: 100%;
+    height: 4px;
+    background: rgba(255,255,255,0.08);
+    border-radius: 2px;
+    margin-top: 12px;
+    overflow: hidden;
+  }
+
+  .progress-bar {
+    height: 100%;
+    background: var(--accent);
+    transition: width 0.3s;
+    width: 0;
+  }
+
+  /* ── RESULTADO GERAL ── */
+  .result-card {
+    background: var(--card);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+    margin-bottom: 16px;
+    overflow: hidden;
+  }
+
+  .result-title-bar {
+    background: linear-gradient(135deg, #17373e, #1a4a4a);
+    padding: 14px 16px;
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--accent-light);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    text-align: center;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .result-body {
+    padding: 28px 16px 24px;
+    text-align: center;
+  }
+
+  .big-pct {
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--accent-light);
+    letter-spacing: -2px;
+  }
+
+  .big-pct .sign { font-size: 32px; font-weight: 600; color: var(--text-dim); }
+
+  .big-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin-top: 6px;
+  }
+
+  .result-meta {
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border);
+    font-size: 12px;
+    color: var(--text-dim);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 4px;
+  }
+
+  .meta-item { text-align: center; }
+  .meta-item .v { display: block; font-size: 16px; font-weight: 700; color: var(--text); }
+  .meta-item .l { font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-dim); margin-top: 2px; }
+
+  .result-period {
+    margin-top: 10px;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.3px;
+  }
+
+  .export-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 16px;
+    background: transparent;
+    color: var(--accent-light);
+    border: 1px solid var(--accent);
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-family: inherit;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.6px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background 0.2s, color 0.2s, transform 0.1s;
+  }
+
+  .export-btn:hover { background: var(--accent); color: #fff; }
+  .export-btn:active { transform: scale(0.97); }
+  .export-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+  .export-btn .icon { font-size: 14px; line-height: 1; }
+
+  /* ── FILTRO POR DEPUTADO ── */
+  .dep-filter-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px;
+    margin-bottom: 16px;
+  }
+
+  .dep-filter-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+  }
+
+  .dep-filter-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+  }
+
+  .dep-filter-clear {
+    background: transparent;
+    color: var(--text-dim);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 600;
+    letter-spacing: 0.4px;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+  }
+
+  .dep-filter-clear:hover { color: var(--accent-light); border-color: var(--accent); }
+
+  .dep-filter-select {
+    width: 100%;
+    background: var(--bg);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 8px;
+    padding: 11px 14px;
+    color: var(--text);
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 600;
+    outline: none;
+    cursor: pointer;
+    color-scheme: dark;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' fill='%238da3a8' viewBox='0 0 16 16'%3E%3Cpath d='M1.5 5.5l6.5 6 6.5-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    padding-right: 32px;
+  }
+
+  .dep-filter-select:focus { border-color: var(--accent); }
+  .dep-filter-select option { background: #0e1c1f; color: #e8ecec; }
+
+  .dep-individual { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .dep-individual-name { font-size: 14px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .dep-individual-uf { font-size: 11px; color: var(--text-dim); margin-bottom: 14px; }
+
+  .dep-individual-pct { text-align: center; margin-bottom: 14px; }
+  .dep-individual-pct .num { font-size: 38px; font-weight: 700; color: var(--accent-light); line-height: 1; }
+  .dep-individual-pct .lbl { display: block; margin-top: 4px; font-size: 10px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.6px; font-weight: 600; }
+
+  .dep-individual-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; }
+  .dep-individual-stats .stat { text-align: center; padding: 8px 4px; background: rgba(0,0,0,0.2); border-radius: 6px; }
+  .dep-individual-stats .stat .v { display: block; font-size: 18px; font-weight: 700; line-height: 1.1; }
+  .dep-individual-stats .stat .l { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
+  .dep-individual-stats .stat.aderente .v { color: #3ad97d; }
+  .dep-individual-stats .stat.divergente .v { color: #f05454; }
+  .dep-individual-stats .stat.ausente .v { color: var(--absent); }
+
+  .dep-individual-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
+  .dep-individual-list .item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  .dep-individual-list .item:last-child { border-bottom: none; }
+  .dep-individual-list .mark { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; font-weight: 700; }
+  .dep-individual-list .mark.aderente { background: rgba(58,217,125,0.15); color: #3ad97d; }
+  .dep-individual-list .mark.divergente { background: rgba(240,84,84,0.15); color: #f05454; }
+  .dep-individual-list .mark.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
+  .dep-individual-list .desc { flex: 1; min-width: 0; color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dep-individual-list .desc .gov { display: block; font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; font-weight: 600; }
+  .dep-individual-list .vote { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.3px; text-transform: uppercase; white-space: nowrap; }
+  .dep-individual-list .vote.sim { background: rgba(58,217,125,0.15); color: #3ad97d; }
+  .dep-individual-list .vote.nao { background: rgba(240,84,84,0.15); color: #f05454; }
+  .dep-individual-list .vote.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
+
+  /* ── LISTA DE VOTAÇÕES ── */
+  .list-header { font-size: 12px; font-weight: 700; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.8px; margin: 8px 4px 10px; }
+
+  .vote-row { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); margin-bottom: 10px; overflow: hidden; transition: border-color 0.2s; }
+  .vote-row.open { border-color: var(--accent); }
+
+  .vote-summary { padding: 14px 16px; cursor: pointer; display: flex; align-items: center; gap: 12px; user-select: none; }
+  .vote-summary:hover { background: rgba(255,255,255,0.02); }
+
+  .vote-pct-mini { flex-shrink: 0; width: 52px; height: 52px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--text); }
+  .vote-info { flex: 1; min-width: 0; }
+  .vote-desc { font-size: 12px; font-weight: 600; line-height: 1.35; color: var(--text); overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+  .vote-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; letter-spacing: 0.3px; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  .gov-mini { display: inline-block; padding: 1px 6px; border-radius: 3px; font-weight: 700; text-transform: uppercase; font-size: 9px; letter-spacing: 0.5px; }
+  .gov-mini.sim { background: rgba(58,217,125,0.18); color: var(--sim); }
+  .gov-mini.nao { background: rgba(240,84,84,0.18); color: var(--nao); }
+
+  .chevron { color: var(--text-dim); font-size: 18px; transition: transform 0.2s; flex-shrink: 0; }
+  .vote-row.open .chevron { transform: rotate(90deg); color: var(--accent-light); }
+
+  /* ── DETALHE EXPANDIDO ── */
+  .vote-detail { display: none; border-top: 1px solid var(--border); background: rgba(0,0,0,0.18); }
+  .vote-row.open .vote-detail { display: block; }
+
+  .detail-chart { padding: 20px 16px; display: flex; align-items: center; justify-content: center; gap: 20px; border-bottom: 1px solid var(--border); }
+  .detail-legend { display: flex; flex-direction: column; gap: 10px; font-size: 11px; }
+  .detail-legend .line { display: flex; align-items: center; gap: 8px; }
+  .dot { width: 11px; height: 11px; border-radius: 2px; flex-shrink: 0; }
+  .detail-legend .label { color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; font-size: 9px; }
+  .detail-legend .value { font-weight: 700; font-size: 12px; }
+
+  .detail-deputies { padding: 4px 0; }
+  .dep-row { display: flex; align-items: center; gap: 10px; padding: 9px 16px; border-bottom: 1px solid var(--border); font-size: 12px; }
+  .dep-row:last-child { border-bottom: none; }
+
+  .match-mark { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; }
+  .match-mark.yes { background: rgba(58,217,125,0.2); color: var(--sim); }
+  .match-mark.no  { background: rgba(240,84,84,0.2); color: var(--nao); }
+
+  .dep-name { flex: 1; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .dep-uf { color: var(--text-dim); font-size: 10px; margin-left: 4px; }
+
+  .dep-vote { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; letter-spacing: 0.4px; white-space: nowrap; }
+  .dep-vote.sim { background: rgba(58,217,125,0.15); color: var(--sim); }
+  .dep-vote.nao { background: rgba(240,84,84,0.15); color: var(--nao); }
+  .dep-vote.abstencao { background: rgba(240,192,64,0.15); color: var(--abstencao); }
+  .dep-vote.art17 { background: rgba(110,170,255,0.15); color: var(--art17); }
+  .dep-vote.obstrucao { background: rgba(192,132,252,0.15); color: var(--obstrucao); }
+  .dep-vote.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
+
+  /* ── RODAPÉ ── */
+  .signature { text-align: center; padding: 24px 16px 20px; border-top: 1px solid var(--border); margin-top: 24px; }
+  .signature-line { width: 200px; height: 1px; background: rgba(255,255,255,0.15); margin: 0 auto 10px; }
+  .signature-text { font-size: 13px; font-weight: 700; color: var(--accent-light); letter-spacing: 1px; text-transform: uppercase; }
+  .signature-sub { font-size: 10px; color: var(--text-dim); margin-top: 4px; letter-spacing: 0.5px; }
+
+  /* ── CACHE BADGE ── */
+  .cache-badge {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 9px; font-weight: 700; text-transform: none; letter-spacing: 0.3px;
+    color: var(--accent-light);
+    background: rgba(31,165,165,0.12);
+    border: 1px solid rgba(31,165,165,0.25);
+    border-radius: 4px; padding: 2px 7px; margin-left: 8px;
+    vertical-align: middle;
+  }
+
+  /* ── MÉTRICAS 3-STATE (card resultado) ── */
+  .result-3state {
+    display: grid; grid-template-columns: repeat(3, 1fr);
+    gap: 6px; margin: 16px 0 0;
+    padding: 14px 0;
+    border-top: 1px solid var(--border);
+  }
+  .state-item { text-align: center; padding: 8px 4px; border-radius: 8px; }
+  .state-item .state-v { display: block; font-size: 22px; font-weight: 700; line-height: 1.1; }
+  .state-item .state-l { font-size: 9px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; margin-top: 3px; color: var(--text-dim); }
+  .state-aderiu  { background: rgba(58,217,125,0.08); } .state-aderiu  .state-v { color: var(--sim); }
+  .state-divergiu{ background: rgba(240,84,84,0.08); }  .state-divergiu .state-v { color: var(--nao); }
+  .state-ausente { background: rgba(90,111,116,0.08); } .state-ausente .state-v { color: var(--absent); }
+
+  /* ── VOTAÇÕES sub-labels 3-state ── */
+  .vote-sub .sub-ade { color: var(--sim); font-weight: 700; }
+  .vote-sub .sub-div { color: var(--nao); font-weight: 700; }
+  .vote-sub .sub-aus { color: var(--absent); }
+
+  /* ── GRÁFICO TEMPORAL ── */
+  .temporal-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden;
+  }
+  .temporal-title-bar {
+    background: linear-gradient(135deg, #17373e, #1a4a4a);
+    padding: 12px 16px; font-size: 11px; font-weight: 700;
+    color: var(--accent-light); text-transform: uppercase; letter-spacing: 1px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between;
+  }
+  .temporal-sub { font-size: 10px; font-weight: 500; letter-spacing: 0.3px; color: var(--text-dim); text-transform: none; }
+  .temporal-canvas-wrap { padding: 16px 16px 8px; }
+
+  /* ── RANKING DE DEPUTADOS ── */
+  .ranking-card {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); margin-bottom: 16px; overflow: hidden;
+  }
+  .ranking-title-bar {
+    background: linear-gradient(135deg, #17373e, #1a4a4a);
+    padding: 12px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px;
+  }
+  .ranking-title-bar > span { font-size: 11px; font-weight: 700; color: var(--accent-light); text-transform: uppercase; letter-spacing: 1px; }
+  .ranking-sort-bar { display: flex; gap: 6px; }
+  .sort-btn {
+    background: transparent; border: 1px solid var(--border); border-radius: 6px;
+    color: var(--text-dim); font-family: inherit; font-size: 9px; font-weight: 700;
+    letter-spacing: 0.4px; text-transform: uppercase; padding: 4px 9px;
+    cursor: pointer; transition: all 0.15s; white-space: nowrap;
+  }
+  .sort-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.2); }
+  .sort-btn.active { color: var(--accent-light); border-color: var(--accent); background: rgba(31,165,165,0.1); }
+
+  .ranking-row { border-bottom: 1px solid var(--border); overflow: hidden; }
+  .ranking-row:last-child { border-bottom: none; }
+
+  .ranking-summary {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; cursor: pointer; user-select: none;
+  }
+  .ranking-summary:hover { background: rgba(255,255,255,0.02); }
+
+  .rank-num { font-size: 10px; font-weight: 700; color: var(--text-dim); width: 18px; text-align: right; flex-shrink: 0; }
+  .rank-info { flex: 1; min-width: 0; }
+  .rank-name { font-size: 12px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rank-meta { font-size: 10px; color: var(--text-dim); margin-top: 1px; }
+  .rank-counts { display: flex; gap: 5px; font-size: 10px; font-weight: 700; flex-shrink: 0; }
+  .rank-ade { color: var(--sim); }
+  .rank-div { color: var(--nao); }
+  .rank-aus { color: var(--absent); }
+  .rank-pct-wrap { flex-shrink: 0; width: 68px; text-align: right; }
+  .rank-pct-bar { height: 3px; background: rgba(255,255,255,0.08); border-radius: 2px; overflow: hidden; margin-bottom: 3px; }
+  .rank-pct-fill { height: 100%; border-radius: 2px; }
+  .rank-pct-num { font-size: 12px; font-weight: 700; }
+  .rank-chevron { color: var(--text-dim); font-size: 16px; transition: transform 0.2s; flex-shrink: 0; }
+  .ranking-row.open .rank-chevron { transform: rotate(90deg); color: var(--accent-light); }
+  .rank-detail { display: none; padding: 0 14px 10px; border-top: 1px solid var(--border); background: rgba(0,0,0,0.12); }
+  .ranking-row.open .rank-detail { display: block; }
+</style>
+</head>
+<body>
+
+<div class="top-bar">
+  <button class="top-bar-back" id="btn-voltar-home">← Início</button>
+  <div class="top-bar-title">Aderência ao Governo</div>
+  <div class="top-bar-spacer"></div>
+</div>
+
+<div class="container">
+  <div class="input-section">
+    <div class="date-row">
+      <div class="date-col">
+        <label>Data início</label>
+        <input type="date" id="dataIni" class="field">
+      </div>
+      <div class="date-col">
+        <label>Data fim</label>
+        <input type="date" id="dataFim" class="field">
+      </div>
+    </div>
+    <label>Partido (sigla)</label>
+    <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
+    <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="resultado"></div>
+
+  <div class="signature">
+    <div class="signature-line"></div>
+    <div class="signature-text">Liderança do Podemos</div>
+    <div class="signature-sub">Câmara dos Deputados</div>
+  </div>
+</div>
+
+<script src="libs/xlsx.full.min.js"></script>
+<script src="aderencia.js"></script>
+</body>
+</html>

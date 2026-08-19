@@ -1,0 +1,2172 @@
+'use strict';
+const crypto = require('crypto');
+const { Bot, InlineKeyboard, InputFile } = require('grammy');
+
+const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO, ALLOWED_USER_IDS } = require('./src/config');
+const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
+const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
+const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
+const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
+const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
+const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente, ajustarAgendaRodaViva } = require('./src/rodaviva');
+const { conversar, limparMemoria } = require('./src/agente');
+const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
+const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
+const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
+const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
+const { imagemVotacao } = require('./src/imagem');
+const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
+const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
+const { statusPlenario } = require('./src/plenariocosev');
+const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
+const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
+const { resumoOradoresDaData } = require('./src/oradores');
+const { faltamVotar, formatarFaltantes } = require('./src/faltamvotar');
+const { buscarQO, formatarQO, formatarQOCompacto, aquecerCorpus } = require('./src/questaoordem');
+const { buscarRecurso, formatarRecurso, aquecerRecursos } = require('./src/recursos');
+const { montarFicha, formatarFatos, resumirFicha } = require('./src/materia');
+const { abrirAta, ataAberta, anotar, apagarNota, descartarAta, fecharAta, ultimaAtaFechada, listarNotas, gerarMensagem, diaBR: diaBRAta, horaBR: horaBRAta } = require('./src/ata');
+const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
+const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
+const { extrairTextoPdf, parsearPauta } = require('./src/parser');
+
+const bot = new Bot(BOT_TOKEN);
+
+// Interceptador de API (transformer do grammY): TODA mensagem de TEXTO que o
+// bot enviar ao GRUPO — por qualquer caminho (anúncios do monitor, respostas
+// de comando no grupo, agente, Roda Viva…) — entra no registro das últimas 5
+// revisáveis (/revisar_msg). Um ponto único, em vez de instrumentar cada reply.
+if (GRUPO_CHAT_ID) {
+  bot.api.config.use(async (prev, method, payload, signal) => {
+    const res = await prev(method, payload, signal);
+    if (method === 'sendMessage' && res.ok && String(payload.chat_id) === String(GRUPO_CHAT_ID)) {
+      try { registrarMsgGrupo(payload.chat_id, res.result, payload.text || ''); } catch (_) {}
+    }
+    return res;
+  });
+}
+carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
+aquecerCorpus();       // pré-carrega o acervo de questões de ordem (busca instantânea depois)
+aquecerRegimento();    // pré-carrega o Regimento Interno (consulta instantânea depois)
+aquecerRecursos();     // pré-carrega os recursos (proposições REC) — coleta inicial em 2º plano
+
+const TEXTO_AJUDA =
+  'SisPode Bot — Liderança do Podemos na Câmara\n\n' +
+  'Comandos:\n' +
+  '/pauta — lista as pautas do SisPode para ESCOLHER qual usar; botão "Buscar on-line" consulta o site da Câmara (semanal + Ordem do Dia)\n' +
+  '/importar — importa a Pauta da Semana do site para o SisPode (pede confirmação)\n' +
+  '(também importo uma pauta se você me ENVIAR O PDF dela aqui no privado)\n' +
+  '/ordemdodia — importa a Ordem do Dia (pauta diária) da sessão de hoje\n' +
+  '/listar — lista os itens da pauta em uso\n' +
+  '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
+  '/exportar — gera o PDF institucional da pauta com as análises\n' +
+  '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
+  '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
+  '/nota PL 1234/2026 — mostra a nota técnica COMO ESTÁ SALVA no painel (texto integral, sem a IA reprocessar)\n' +
+  '/comissao <comissão> [data] — pauta de uma COMISSÃO da Câmara (ex.: /comissao CCJ hoje)\n' +
+  '/comissoeshoje [data] — quais comissões têm reunião deliberativa\n' +
+  '/varrercomissoes [data] — varre as comissões atrás de projetos do Podemos (autoria/relatoria)\n' +
+  '(em linguagem natural: "tem projeto do Podemos na CCJ amanhã?", "quais comissões se reúnem hoje?")\n' +
+  '/votacao [dd/mm/aaaa] — votações nominais do Plenário; gera a IMAGEM do placar da bancada\n' +
+  '/quorum — presença AO VIVO no Plenário (painel público do app Infoleg)\n' +
+  '/oradores [dd/mm/aaaa] [filtro] — quem falou/foi chamado/aguarda para falar na sessão, por lista (Breves, Lideranças, Discussão/Encaminhamento). Ex.: /oradores · /oradores 15/07/2026 · /oradores breves\n' +
+  '/faltamvotar — na votação NOMINAL aberta, quem do Podemos ainda não votou (presentes × fora da Casa). Admin: /faltamvotar auto on|off (rede de segurança automática)\n' +
+  '/questaoordem <termo> (ou /qo) — busca questões de ordem do Plenário: a questão, a contradita, a decisão e o recurso. Aceita número (/qo 8/2023), artigo (/qo art. 52) e uma fase só (/qo recurso: prejudicialidade)\n' +
+  '/recurso <termo> (ou /rec) — busca os recursos protocolados (proposições REC), com o inteiro teor da petição. Ex.: /recurso prejudicialidade de adiamento · /recurso 260/2013\n' +
+  '/regimento <artigo|dúvida> (ou /ri) — texto VIGENTE do Regimento Interno. Ex.: /ri 95 · /ri verificação de votação · /ri quantas assinaturas para CPI\n' +
+  '/ata — modo de anotação da Reunião de Líderes: você vai escrevendo (ou ditando) o que for definido e, ao final, eu monto a mensagem pronta para repassar aos deputados no WhatsApp. /ata ver · /ata apagar 3 · /ata fim · /ata ultima\n' +
+  '/resumo [dd/mm/aaaa] — resumo da sessão (mesma mensagem do botão "Resultado da Sessão" do painel)\n' +
+  '/monitor — status do monitor de sessão ao vivo (admin: /monitor on|off)\n' +
+  '/backups — (admin) backups locais de pautas e análises; restaura o que faltar\n' +
+  '/documentos PL 1234/2026 — lista documentos da tramitação que NÃO entraram na nota\n' +
+  '/baixar PL 1234/2026 — envia os PDFs (usados na nota + adicionais) para você baixar\n' +
+  '/agregar 1,3 — inclui documentos listados na conversa (a IA passa a considerá-los)\n' +
+  '/digest — 📺 radar de imprensa (Fantástico, JN, Profissão Repórter, Globo Rural, Ag. Brasil): temas + relevância legislativa + minuta em PDF (assinantes; segundas 7h)\n' +
+  '/rodaviva — 📺 resumo da entrevista do Roda Viva (TV Cultura): convidado + principais pontos; automático no grupo às terças 8h. Admin: /rodaviva off · on · status · terça 9h (mudar agenda)\n' +
+  '/limpar — zera a conversa atual com a IA\n' +
+  '/config — configura seu provedor e chave de IA (somente no privado)\n' +
+  '/minhachave — mostra qual chave está configurada (mascarada)\n' +
+  '/removerchave — apaga sua chave\n' +
+  '/modelo <id> — troca o modelo do seu provedor (opcional)\n' +
+  '/ajuda — esta mensagem\n\n' +
+  'Também converso em linguagem natural e por mensagens de voz (no privado; no grupo, me mencione ou responda a uma mensagem minha) — posso consultar a pauta, notas técnicas, comissões, o plenário ao vivo e os sites oficiais (Câmara/Senado/Planalto/DOU) para responder. Preciso da sua chave configurada em /config.';
+
+// Estados voláteis
+const configPendente = new Map();  // userId → { provedor }        (fluxo /config)
+const importPendente = new Map();  // token  → { doc, ts }         (confirmação de /importar)
+const pedidosAcesso  = new Map();  // userId → nome                (aprovação pelo admin)
+const pautaEscolha   = new Map();  // token  → { id, ts }          (escolha de pauta do Firebase)
+const IMPORT_TTL = 10 * 60e3;
+
+const ehPrivado = ctx => ctx.chat?.type === 'private';
+const nomeDe    = ctx => [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(' ') || (ctx.from?.username ? '@' + ctx.from.username : '');
+
+// Fatia mensagens acima do limite de 4096 do Telegram, quebrando em fim de
+// linha; um teclado inline opcional vai na ÚLTIMA parte.
+function fatiarMensagem(texto, tam = 3900) {
+  const partes = [];
+  let resto = String(texto || '');
+  while (resto.length > tam) {
+    let corte = resto.lastIndexOf('\n', tam);
+    if (corte < tam * 0.5) corte = tam;
+    partes.push(resto.slice(0, corte));
+    resto = resto.slice(corte).replace(/^\n+/, '');
+  }
+  if (resto) partes.push(resto);
+  return partes;
+}
+
+async function responderLongo(ctx, texto, teclado, { md = false } = {}) {
+  const partes = fatiarMensagem(texto);
+  for (let i = 0; i < partes.length; i++) {
+    const ultima = i === partes.length - 1;
+    const base = ultima && teclado ? { reply_markup: teclado } : {};
+    if (md) {
+      // Negrito Telegram (*texto*); se algum trecho quebrar o parse, cai p/ texto puro
+      try { await ctx.reply(partes[i], { ...base, parse_mode: 'Markdown' }); continue; }
+      catch (_) { /* fallback abaixo */ }
+    }
+    await ctx.reply(partes[i], base);
+  }
+}
+
+async function enviarLongo(api, chatId, texto, teclado) {
+  const partes = fatiarMensagem(texto);
+  for (let i = 0; i < partes.length; i++) {
+    const ultima = i === partes.length - 1;
+    await api.sendMessage(chatId, partes[i], ultima && teclado ? { reply_markup: teclado } : undefined);
+  }
+}
+
+// ============================================================
+//  Acesso — palavra-chave (SENHA_ACESSO) ou aprovação do admin
+// ============================================================
+// Controle antichute: 5 erros de senha → bloqueio de 1 h.
+const tentativasSenha = new Map();  // userId → { erros, bloqueadoAte }
+const MAX_TENTATIVAS  = 5;
+const BLOQUEIO_MS     = 60 * 60e3;
+
+const TEXTO_BOAS_VINDAS =
+  'Você foi autorizado(a) a usar o SisPode Bot! 🎉\n\n%AJUDA%' +
+  '\n\nDica: comece configurando sua chave de IA com /config (aqui no privado).';
+
+async function tratarNaoAutorizado(ctx) {
+  const id   = String(ctx.from?.id || '');
+  const nome = nomeDe(ctx);
+  // Só interage no privado — em grupo, não autorizado é silêncio.
+  if (ctx.chat?.type !== 'private' || !ctx.message?.text) return;
+  const texto = ctx.message.text.trim();
+
+  // Qualquer comando (/start, /ajuda…) de não autorizado → convite/pedido;
+  // só texto livre conta como tentativa de senha.
+  if (texto.startsWith('/') || !SENHA_ACESSO) {
+    if (SENHA_ACESSO) {
+      return ctx.reply(
+        'Este bot é de uso interno da Liderança do Podemos.\n' +
+        '🔑 Envie a palavra-chave de acesso para entrar.');
+    }
+    // Sem senha configurada: fluxo de aprovação manual pelo administrador.
+    if (!texto.startsWith('/start')) return;
+    pedidosAcesso.set(id, nome);
+    await ctx.reply(
+      'Este bot é de uso interno da Liderança do Podemos.\n' +
+      `Seu ID do Telegram é: ${id}\n` +
+      'Pedi autorização ao administrador — você será avisado(a) quando for liberado.');
+    if (ADMIN_USER_ID) {
+      await bot.api.sendMessage(ADMIN_USER_ID,
+        `🔑 Pedido de acesso: ${nome || '(sem nome)'} — ID ${id}`,
+        { reply_markup: new InlineKeyboard().text('✅ Autorizar', `auth:${id}`) }
+      ).catch(() => {});
+    }
+    return;
+  }
+
+  // Texto livre de não autorizado com senha configurada = tentativa de senha.
+  const t = tentativasSenha.get(id) || { erros: 0, bloqueadoAte: 0 };
+  if (Date.now() < t.bloqueadoAte) {
+    return ctx.reply('Muitas tentativas erradas — aguarde 1 hora e tente de novo.');
+  }
+  // Apaga a mensagem (certa ou errada): senha não fica no histórico do chat.
+  await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id).catch(() => {});
+
+  if (texto.toLowerCase() === SENHA_ACESSO.toLowerCase()) {
+    autorizar(id, nome, 'senha');
+    registrarMenuDe(id);   // já habilita /revisar_msg no "/" dele
+    tentativasSenha.delete(id);
+    await ctx.reply(TEXTO_BOAS_VINDAS.replace('%AJUDA%', TEXTO_AJUDA));
+    if (ADMIN_USER_ID && id !== ADMIN_USER_ID) {
+      await bot.api.sendMessage(ADMIN_USER_ID,
+        `🔓 Entrou com a palavra-chave: ${nome || '(sem nome)'} — ID ${id}\n` +
+        `(para remover: /revogar ${id})`).catch(() => {});
+    }
+    return;
+  }
+
+  t.erros++;
+  if (t.erros >= MAX_TENTATIVAS) {
+    t.bloqueadoAte = Date.now() + BLOQUEIO_MS;
+    t.erros = 0;
+    tentativasSenha.set(id, t);
+    return ctx.reply('Palavra-chave incorreta. Limite de tentativas atingido — aguarde 1 hora.');
+  }
+  tentativasSenha.set(id, t);
+  return ctx.reply(`Palavra-chave incorreta (${t.erros}/${MAX_TENTATIVAS} tentativas).`);
+}
+
+bot.use(async (ctx, next) => {
+  const id = String(ctx.from?.id || '');
+  if (isAutorizado(id)) return next();
+  return tratarNaoAutorizado(ctx);
+});
+
+bot.callbackQuery(/^auth:(\d+)$/, async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.answerCallbackQuery({ text: 'Só o administrador autoriza.' });
+  const id = ctx.match[1];
+  const nome = pedidosAcesso.get(id) || '';
+  autorizar(id, nome);
+  registrarMenuDe(id);   // já habilita /revisar_msg no "/" dele
+  pedidosAcesso.delete(id);
+  await ctx.answerCallbackQuery({ text: 'Autorizado!' });
+  await ctx.editMessageText(`✅ ${nome || 'Usuário'} (ID ${id}) autorizado.`);
+  await bot.api.sendMessage(id,
+    'Você foi autorizado(a) a usar o SisPode Bot! 🎉\n\n' + TEXTO_AJUDA +
+    '\n\nDica: comece configurando sua chave de IA com /config (aqui no privado).'
+  ).catch(() => {});
+});
+
+// ============================================================
+//  Comandos básicos
+// ============================================================
+bot.command(['start', 'ajuda'], ctx => ctx.reply(TEXTO_AJUDA));
+
+// Descobrir IDs sem sair do Telegram (útil p/ configurar GRUPO_CHAT_ID)
+bot.command('id', ctx => ctx.reply(
+  `ID deste chat: ${ctx.chat.id}\nSeu user_id: ${ctx.from.id}` +
+  (ctx.chat.type !== 'private' ? '\n(use o ID do chat no GRUPO_CHAT_ID do .env)' : '')));
+
+// ---------- Backup / restauração (só o ADMIN_USER_ID) ----------
+const restaurePendente = new Map();   // token → { nome, ts }
+
+bot.command('backup', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await fazerBackup();
+    if (r.ignorado) {
+      return ctx.reply(`⚠️ O banco veio VAZIO agora — snapshot ignorado para não gravar por cima do bom. Último backup: ${r.referencia.registros} registros.`);
+    }
+    // Detalhe por nó: é o que mostra que a cobertura é do banco inteiro.
+    const linhas = Object.entries(r.contagem).filter(([, n]) => n > 0)
+      .map(([no, n]) => `• ${no.replace(/^\//, '')}: ${n}`).join('\n');
+    return ctx.reply(`💾 Backup gravado: ${r.total} registros.\n${linhas}\n(${r.arquivo})`);
+  } catch (e) {
+    console.error('/backup falhou:', e);
+    return ctx.reply(`Erro ao fazer backup: ${e.message}`);
+  }
+});
+
+bot.command('backups', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const lista = listarBackups();
+  if (!lista.length) return ctx.reply('Nenhum backup ainda. Use /backup para gerar o primeiro.');
+  const kb = new InlineKeyboard();
+  for (const b of lista.slice(0, 10)) {
+    const token = crypto.randomBytes(4).toString('hex');
+    restaurePendente.set(token, { nome: b.nome, ts: Date.now() });
+    kb.text(`♻️ ${b.quando} · ${b.registros} reg.${b.formatoAntigo ? ' (antigo)' : ''}`.slice(0, 62), `rest:${token}`).row();
+  }
+  return ctx.reply(
+    '🗄 Backups locais (mais recente primeiro). Tocar RESTAURA o que estiver FALTANDO ' +
+    'no Firebase (não sobrescreve nada que já exista).\n\n' +
+    'Cobre pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes ' +
+    '(reuniões e demandas), cadastros e estado do bot. Snapshots marcados como ' +
+    '"(antigo)" são anteriores a 11/08/2026 e só têm pautas e análises.',
+    { reply_markup: kb });
+});
+
+bot.callbackQuery(/^rest:([a-f0-9]+)$/, async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.answerCallbackQuery({ text: 'Só o administrador restaura.', show_alert: true });
+  await ctx.answerCallbackQuery();
+  const p = restaurePendente.get(ctx.match[1]);
+  restaurePendente.delete(ctx.match[1]);
+  if (!p || Date.now() - p.ts > IMPORT_TTL) return ctx.reply('Escolha expirada — use /backups de novo.');
+  await ctx.editMessageText('♻️ Restaurando o que está faltando…').catch(() => {});
+  try {
+    const r = await restaurarFaltantes(p.nome);
+    const detalhe = Object.entries(r.porNo).filter(([, x]) => x.repostos)
+      .map(([no, x]) => `• ${no.replace(/^\//, '')}: ${x.repostos} reposto(s)` +
+        (x.exemplos.length ? ` — ${x.exemplos.join(', ')}${x.repostos > x.exemplos.length ? '…' : ''}` : ''))
+      .join('\n');
+    return ctx.reply(
+      `✅ Restauração concluída (${p.nome}):\n` +
+      `• Repostos: ${r.total} registro(s)\n` +
+      `• Já existiam (intactos): ${r.jaExistiam}\n` +
+      (detalhe ? `\n${detalhe}` : '\nNada estava faltando — o banco já tinha tudo.'));
+  } catch (e) {
+    console.error('/restaurar falhou:', e);
+    return ctx.reply(`Erro ao restaurar: ${e.message}`);
+  }
+});
+
+// ---------- Administração (só o ADMIN_USER_ID) ----------
+bot.command('revogar', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = String(ctx.match || '').trim();
+  if (!/^\d+$/.test(id)) return ctx.reply('Uso: /revogar <id do usuário> (veja os IDs com /usuarios).');
+  if (revogar(id)) { registrarMenuDe(id); return ctx.reply(`Acesso do ID ${id} revogado.`); }   // menu volta ao público
+  return ctx.reply(`O ID ${id} não está na lista dinâmica (IDs fixos do .env só saem editando o arquivo).`);
+});
+
+bot.command('usuarios', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const din = listarAutorizados();
+  const linhas = Object.entries(din).map(([id, u]) =>
+    `• ${u.nome || '(sem nome)'} — ${id} · via ${u.via || 'admin'} · ${String(u.autorizadoEm || '').slice(0, 10)}`);
+  return ctx.reply(
+    (linhas.length ? `Autorizados (dinâmicos):\n${linhas.join('\n')}` : 'Nenhum autorizado dinâmico ainda.') +
+    '\n\nPara remover: /revogar <id>. IDs fixos do .env não aparecem aqui.');
+});
+
+// ---------- FASE 1: /pauta ----------
+
+/** Cabeçalho com o quadro completo: período, situação da semana e importação. */
+function quadroPauta(r) {
+  const p = r.pauta;
+  const linhas = [
+    `📋 Pauta publicada no site: ${p.periodo || '(período não identificado)'} — ${p.itens.length} itens`,
+    rotuloSituacao(r.situacao, p.periodo),
+    r.jaImportada.importada
+      ? `✅ Já importada no SisPode como "${r.jaImportada.titulo}" (${r.jaImportada.iguais} de ${r.jaImportada.total} itens coincidem)`
+      : '📥 Ainda não importada no SisPode',
+  ];
+  // "🆕" só quando o período realmente mudou desde a checagem anterior —
+  // na primeira checagem após instalar não há base de comparação.
+  if (r.status === 'nova' && !r.primeiraChecagem) linhas.unshift('🆕 Mudança de semana desde a última checagem!');
+  return linhas.join('\n');
+}
+
+// Quando a pauta SEMANAL do site está encerrada/ausente, a "pauta nova" do dia
+// pode existir na forma da ORDEM DO DIA da sessão (API) — o pauta_s.pdf da
+// Câmara costuma ficar defasado. Devolve { linha, kb } para anexar à resposta,
+// ou null se não há sessão hoje.
+async function ofertaOrdemDoDia() {
+  try {
+    const hoje = hojeBrasiliaISO();
+    const eventos = await eventosDeliberativos(hoje);
+    if (!eventos.length) return null;
+    eventos.sort((a, b) => String(b.dataHoraInicio || '').localeCompare(String(a.dataHoraInicio || '')));
+    const odd = await buscarOrdemDoDia(eventos[0].id, hoje);
+    if (!odd) return null;
+    const n = odd.parsed.itens.length;
+    // Os itens de hoje já estão numa pauta do SisPode (a equipe pode já estar
+    // trabalhando nela)? Então NÃO oferece importação — aponta para a existente.
+    const ja = await verificarJaImportada(odd.parsed).catch(() => ({ importada: false }));
+    if (ja.importada) {
+      return { linha: `\n\n📌 Hoje há sessão com Ordem do Dia (${n} itens) — os itens já estão na pauta "${ja.titulo}" do SisPode (${ja.iguais}/${ja.total} coincidem). Escolha-a no /pauta.`, kb: null };
+    }
+    const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia de hoje', `oddimp:${eventos[0].id}:${hoje}`);
+    return { linha: `\n\n📌 Mas HOJE há sessão com Ordem do Dia publicada (${n} itens) — é a pauta do dia, mais atual que a semanal.`, kb };
+  } catch (_) { return null; }
+}
+
+// ---------- /pauta — FIREBASE PRIMEIRO; busca on-line só sob demanda ----------
+// O SisPode (Firebase) é a fonte de trabalho da equipe. O /pauta lista o que
+// existe lá e deixa ESCOLHER qual usar; a consulta ao site da Câmara (pauta
+// semanal + Ordem do Dia) só roda quando o usuário toca em "Buscar on-line".
+async function cmdPauta(ctx) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const pautas = await ultimasPautas(6).catch(() => []);
+    const kb = new InlineKeyboard();
+    if (pautas.length) {
+      const atual = await pautaDoUsuario(ctx.from.id).catch(() => null);
+      const chs = await chavesComAnalise();
+      for (const p of pautas) {
+        const token = crypto.randomBytes(4).toString('hex');
+        pautaEscolha.set(token, { id: p.id, ts: Date.now() });
+        const tipo = p.tipoPauta === 'odd' ? 'Ordem do Dia' : 'Semana';
+        const analises = contarAnalisesDaPauta(p, chs);
+        const marca = atual && atual.id === p.id ? '✅ ' : '';
+        kb.text(
+          // Nome dado pela equipe primeiro (renomear no painel grava em `nome`)
+          // — é o MESMO título que a extensão e o /exportar exibem.
+          `${marca}${tipo} ${p.nome || p.periodo || p.titulo || p.id} · ${(p.itens || []).length} itens${analises ? ` · ${analises} análises` : ''}`.slice(0, 62),
+          `pusar:${token}`).row();
+      }
+    }
+    kb.text('🔎 Buscar on-line (site da Câmara)', 'pbusca').row();
+    return ctx.reply(
+      pautas.length
+        ? '📚 Pautas no SisPode — toque numa para USAR (vale para /listar, /perguntar, /analisar e /exportar), ou busque on-line se estiver atrás de pauta nova:'
+        : 'Nenhuma pauta no SisPode ainda — busque on-line para importar:',
+      { reply_markup: kb });
+  } catch (e) {
+    console.error('/pauta falhou:', e);
+    return ctx.reply(`Erro ao listar as pautas: ${e.message}`);
+  }
+}
+bot.command('pauta', cmdPauta);
+
+// "Buscar on-line": consulta o site (Pauta da Semana) E a Ordem do Dia de hoje.
+async function buscaOnline(ctx) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await verificarPautaNova();
+    const odd = await ofertaOrdemDoDia();   // busca explícita → sempre verifica a ODD de hoje
+    if (r.status === 'sem_pauta') {
+      return ctx.reply(
+        'Nenhuma Pauta da Semana publicada no site agora (o PDF oficial não está disponível).' +
+        (odd ? odd.linha : '\n\nTambém não há sessão com Ordem do Dia hoje.'),
+        odd?.kb ? { reply_markup: odd.kb } : undefined);
+    }
+    // Já corresponde a uma pauta do SisPode (>=70% dos itens)? Usa a versão de
+    // lá — onde o trabalho está — e não oferece re-importação.
+    if (r.jaImportada.importada && r.jaImportada.id) {
+      const pautaFb = await pautaPorId(r.jaImportada.id).catch(() => null);
+      if (pautaFb) {
+        const analises = contarAnalisesDaPauta(pautaFb, await chavesComAnalise());
+        const token = crypto.randomBytes(4).toString('hex');
+        pautaEscolha.set(token, { id: pautaFb.id, ts: Date.now() });
+        const kb = new InlineKeyboard().text('✅ Usar esta pauta', `pusar:${token}`);
+        let texto =
+          `📋 No site: ${r.pauta.periodo || '(período não identificado)'} — ${r.pauta.itens.length} itens\n` +
+          `${rotuloSituacao(r.situacao, r.pauta.periodo)}\n\n` +
+          `📌 A equipe JÁ TRABALHA nesta pauta no SisPode: "${pautaFb.nome || pautaFb.titulo}" ` +
+          `(${r.jaImportada.iguais}/${r.jaImportada.total} itens coincidem` +
+          `${analises ? `, ${analises} de ${(pautaFb.itens || []).length} itens com análise pronta` : ''}).\n` +
+          `Sem re-importar, para não sobrescrever o trabalho.`;
+        if (odd) {
+          texto += odd.linha;
+          if (odd.kb) kb.row().text('📥 Importar Ordem do Dia de hoje', odd.kb.inline_keyboard[0][0].callback_data);
+        }
+        return responderLongo(ctx, texto, kb);
+      }
+    }
+
+    let texto = `${quadroPauta(r)}\n\n${resumoPauta(r.pauta)}`;
+    // Botão de importar só quando faz sentido (não importada e semana não encerrada)
+    let kbFinal = (!r.jaImportada.importada && r.situacao !== 'encerrada') ? tecladoImportar() : undefined;
+    if (odd) { texto += odd.linha; if (odd.kb) kbFinal = odd.kb; }
+    return responderLongo(ctx, texto, kbFinal);
+  } catch (e) {
+    console.error('busca on-line falhou:', e);
+    return ctx.reply(`Erro ao buscar on-line: ${e.message}`);
+  }
+}
+bot.callbackQuery('pbusca', async ctx => { await ctx.answerCallbackQuery(); return buscaOnline(ctx); });
+
+// ---------- FASE 2: /importar (com confirmação) ----------
+function tecladoImportar() {
+  return new InlineKeyboard().text('📥 Importar para o SisPode', 'imp:baixar');
+}
+
+// Aviso de REAPROVEITAMENTO: quantos itens do PDF já têm nota no SisPode
+// (indexadas por chave → uma pauta nova que repete projetos reaproveita as
+// notas; nada precisa ser regerado). Tranquiliza no cenário "pauta de quarta
+// com os itens remanescentes de terça".
+async function avisoReaproveitamento(doc) {
+  try {
+    const com = contarAnalisesDaPauta(doc, await chavesComAnalise());
+    const total = (doc.itens || []).length;
+    if (!com) return '';
+    const aGerar = total - com;
+    return `\n♻️ ${com} de ${total} itens já têm nota no SisPode (serão reaproveitadas)` +
+      `${aGerar > 0 ? `; ${aGerar} a gerar` : ' — nada a regerar'}.`;
+  } catch (_) { return ''; }
+}
+
+async function prepararImportacao(ctx) {
+  await ctx.replyWithChatAction('typing');
+  const parsed = await baixarPautaAtual();
+  if (!parsed) return ctx.reply('Nenhuma pauta publicada no momento — nada para importar.');
+  if (!parsed.itens.length) {
+    return ctx.reply('O PDF foi baixado mas o parser não identificou itens (o formato pode ter mudado). Importação recusada — verifique no painel.');
+  }
+  const doc = montarPautaFirebase(parsed, `bot-telegram (${nomeDe(ctx)})`);
+  const token = crypto.randomBytes(6).toString('hex');
+  importPendente.set(token, { doc, ts: Date.now() });
+  const reaprov = await avisoReaproveitamento(doc);
+
+  if (await pautaJaExiste(doc.id)) {
+    return ctx.reply(
+      `⚠️ Já existe a pauta "${doc.titulo}" no SisPode — ela pode ter edições da equipe ` +
+      `(itens adicionados/removidos, responsáveis, renomeação).${reaprov}\n\nSobrescrever?`,
+      { reply_markup: new InlineKeyboard().text('⚠️ Sobrescrever', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+  }
+  return ctx.reply(
+    `Importar "${doc.titulo}" (${doc.itens.length} itens) para o SisPode?${reaprov}`,
+    { reply_markup: new InlineKeyboard().text('✅ Confirmar', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+}
+bot.command('importar', prepararImportacao);
+
+bot.callbackQuery('imp:baixar', async ctx => {
+  await ctx.answerCallbackQuery();
+  return prepararImportacao(ctx);
+});
+
+bot.callbackQuery(/^imp:(ok|no):([a-f0-9]+)$/, async ctx => {
+  const [, acao, token] = ctx.match;
+  const pend = importPendente.get(token);
+  importPendente.delete(token);
+  if (!pend || Date.now() - pend.ts > IMPORT_TTL) {
+    return ctx.answerCallbackQuery({ text: 'Pedido expirado — use /importar de novo.', show_alert: true });
+  }
+  if (acao === 'no') {
+    await ctx.answerCallbackQuery({ text: 'Cancelado.' });
+    return ctx.editMessageText('Importação cancelada — a pauta existente foi mantida.');
+  }
+  await ctx.answerCallbackQuery();
+  try {
+    const id = await gravarPauta(pend.doc);
+    await ctx.editMessageText(
+      `✅ Pauta "${pend.doc.titulo}" importada (${pend.doc.itens.length} itens).\n` +
+      `Já está disponível para toda a equipe no painel "Análise de Pauta" do SisPode. (id: ${id})`);
+  } catch (e) {
+    await ctx.editMessageText(`Erro ao gravar no Firebase: ${e.message}`);
+  }
+});
+
+// ---------- FASE 3a: perfis (/config) ----------
+bot.command('config', async ctx => {
+  if (!ehPrivado(ctx)) {
+    return ctx.reply('Por segurança, a configuração de chave é feita no privado — me chame no chat direto e envie /config lá.');
+  }
+  const kb = new InlineKeyboard();
+  for (const [id, p] of Object.entries(PROVEDORES)) kb.text(p.label, `cfg:${id}`).row();
+  return ctx.reply(
+    'Escolha seu provedor de IA (a mesma chave que você usa na extensão serve):', { reply_markup: kb });
+});
+
+bot.callbackQuery(/^cfg:(gemini|openai|anthropic)$/, async ctx => {
+  if (!ehPrivado(ctx)) return ctx.answerCallbackQuery({ text: 'Só no privado.' });
+  const provedor = ctx.match[1];
+  configPendente.set(String(ctx.from.id), { provedor });
+  await ctx.answerCallbackQuery();
+  return ctx.reply(
+    `${PROVEDORES[provedor].label} selecionado.\n\n` +
+    `Agora cole aqui a sua chave de API.\n(${PROVEDORES[provedor].hintChave})\n\n` +
+    'Assim que eu validar, apago a sua mensagem com a chave.');
+});
+
+async function tratarChaveColada(ctx) {
+  const userId = String(ctx.from.id);
+  const pend = configPendente.get(userId);
+  const chave = (ctx.message.text || '').trim();
+  const meta = PROVEDORES[pend.provedor];
+
+  if (!meta.regexChave.test(chave)) {
+    return ctx.reply(`Isso não parece uma chave ${meta.label} válida. ${meta.hintChave}\nCole a chave, ou envie /config para recomeçar.`);
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    await testarChave(pend.provedor, chave);
+  } catch (e) {
+    return ctx.reply(`A chave não passou no teste de conexão (${e.message}). Confira e cole de novo, ou /config para recomeçar.`);
+  }
+  setPerfil(userId, {
+    nome: nomeDe(ctx), provedor: pend.provedor, modelo: meta.modeloPadrao,
+    apiKey: chave, configuradoEm: new Date().toISOString(),
+  });
+  configPendente.delete(userId);
+  // Apaga a mensagem que continha a chave (fica só no arquivo local do bot).
+  await ctx.api.deleteMessage(ctx.chat.id, ctx.message.message_id).catch(() => {});
+  return ctx.reply(
+    `✅ Chave ${meta.label} validada e salva (${chave.slice(0, 6)}…).\n` +
+    `Modelo: ${meta.modeloPadrao} (troque com /modelo <id> se quiser).\n\n` +
+    'Agora você pode usar /perguntar, linguagem natural e mensagens de voz.');
+}
+
+bot.command('minhachave', ctx => {
+  const p = getPerfil(ctx.from.id);
+  if (!p?.apiKey) return ctx.reply('Nenhuma chave configurada. Use /config no privado.');
+  return ctx.reply(`Provedor: ${PROVEDORES[p.provedor]?.label || p.provedor}\nModelo: ${p.modelo}\nChave: ${p.apiKey.slice(0, 6)}…`);
+});
+
+bot.command('removerchave', ctx => {
+  removerChave(ctx.from.id);
+  return ctx.reply('Chave removida. Use /config quando quiser configurar de novo.');
+});
+
+bot.command('modelo', ctx => {
+  const p = getPerfil(ctx.from.id);
+  if (!p?.apiKey) return ctx.reply('Configure a chave primeiro com /config.');
+  const id = (ctx.match || '').trim();
+  if (!id) return ctx.reply(`Modelo atual: ${p.modelo}\nPara trocar: /modelo <id do modelo>`);
+  setPerfil(ctx.from.id, { modelo: id });
+  return ctx.reply(`Modelo alterado para: ${id}`);
+});
+
+// ---------- FASE 3a: /perguntar e /limpar ----------
+async function fluxoPerguntar(ctx, texto) {
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('Para perguntar à IA você precisa configurar sua chave: me chame no privado e envie /config.');
+  }
+  if (!texto?.trim()) {
+    return ctx.reply('Uso: /perguntar PL 1234/2026 <sua pergunta> — ou /perguntar <pergunta sobre a pauta>.');
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await perguntar({ userId: ctx.from.id, perfil, texto: texto.trim() });
+    if (r.erro) return ctx.reply(r.erro);
+    // Proveniência: deixa claro que é RESPOSTA ELABORADA pela IA (não a nota
+    // literal) e qual a base; para item, aponta o /nota (texto integral).
+    const notaHint = r.chave
+      ? ` · para o texto integral da nota: /nota ${String(r.chave).replace(/-(\d+)-(\d{4})$/, ' $1/$2')}`
+      : '';
+    const rodape = `\n\n— Resposta elaborada pela IA a partir da nota + documentos${r.pautaRef ? `\n— Base: ${r.pautaRef}` : ''}${notaHint}`;
+    return responderLongo(ctx, r.resposta + rodape);
+  } catch (e) {
+    console.error('/perguntar falhou:', e);
+    return ctx.reply(`Erro ao consultar a IA: ${e.message}`);
+  }
+}
+bot.command('perguntar', ctx => fluxoPerguntar(ctx, ctx.match));
+
+// /nota PL 1234/2026 — mostra a NOTA TÉCNICA como salva no painel (verbatim,
+// sem passar pela IA). Diferente de /perguntar, que RESPONDE a partir dela.
+async function fluxoNota(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await mostrarNota({ userId: ctx.from.id, texto: (texto || '').trim() });
+    if (r.erro) return ctx.reply(r.erro);
+    const cab = `📄 Nota técnica — ${r.itemLabel}${r.apelido ? ` · ${r.apelido}` : ''}\n(texto como salvo no SisPode)\n\n`;
+    return responderLongo(ctx, cab + r.nota);
+  } catch (e) {
+    console.error('/nota falhou:', e);
+    return ctx.reply(`Erro ao buscar a nota: ${e.message}`);
+  }
+}
+bot.command('nota', ctx => fluxoNota(ctx, ctx.match));
+bot.command('limpar', ctx => { limparConversa(ctx.from.id); limparMemoria(ctx.from.id); return ctx.reply('Conversa zerada (histórico, memória do assistente e documentos agregados).'); });
+
+// ---------- Documentos extras (porte do seletor do painel) ----------
+async function cmdDocumentos(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await listarDocumentos({ userId: ctx.from.id, texto });
+    if (r.erro) return ctx.reply(r.erro);
+    if (!r.docs.length) {
+      return ctx.reply(`Todos os documentos da tramitação de ${r.itemLabel} já foram considerados na nota — não há extras disponíveis.`);
+    }
+    let msg = `📄 Documentos da tramitação de ${r.itemLabel} que NÃO entraram na nota técnica:\n`;
+    let grupoAtual = '';
+    r.docs.forEach((d, i) => {
+      if (d.grupo !== grupoAtual) { grupoAtual = d.grupo; msg += `\n— ${grupoAtual} —\n`; }
+      msg += `${i + 1}. ${d.rotulo}\n`;
+    });
+    msg += `\nPara incluir na conversa: /agregar 1,3 (números da lista acima).`;
+    if (!r.temAnalise) {
+      msg += `\n⚠️ Este item ainda não tem análise no painel — gere a nota primeiro para poder perguntar/agregar.`;
+    } else if (r.usadosNaNota.length) {
+      msg += `\n\nJá considerados na nota: ${r.usadosNaNota.join(' · ')}`;
+    }
+    return responderLongo(ctx, msg);
+  } catch (e) {
+    console.error('/documentos falhou:', e);
+    return ctx.reply(`Erro ao listar documentos: ${e.message}`);
+  }
+}
+bot.command('documentos', ctx => cmdDocumentos(ctx, ctx.match));
+
+// ---------- /baixar — download dos documentos (usados na nota + adicionais) ----------
+const baixarListas = new Map();   // token → { itemLabel, docs[{rotulo,url,usado}], ts }
+
+function nomeArquivoDoc(rotulo) {
+  const base = String(rotulo || 'documento').replace(/[\/\\:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80);
+  return /\.pdf$/i.test(base) ? base : `${base}.pdf`;
+}
+
+const escHtml = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+async function cmdBaixar(ctx, texto) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await documentosParaBaixar({ userId: ctx.from.id, texto: (texto || '').trim() });
+    if (r.erro) return ctx.reply(r.erro);
+    const token = crypto.randomBytes(4).toString('hex');
+    baixarListas.set(token, { itemLabel: r.itemLabel, docs: r.docs, ts: Date.now() });
+
+    // Cada documento como LINK INDIVIDUAL (URL direta do PDF na Câmara)…
+    const usados = r.docs.filter(d => d.usado);
+    const extras = r.docs.filter(d => !d.usado);
+    const linkDe = d => `• <a href="${escHtml(d.url)}">${escHtml(d.rotulo)}</a>`;
+    let txt = `📎 <b>Documentos de ${escHtml(r.itemLabel)}</b> (${r.docs.length})\n`;
+    if (usados.length) txt += `\n📄 <b>Usados na nota</b> (${usados.length}):\n${usados.map(linkDe).join('\n')}\n`;
+    if (extras.length) txt += `\n📎 <b>Adicionais da tramitação</b> (${extras.length}):\n${extras.map(linkDe).join('\n')}\n`;
+    txt += '\nCada item acima é um link individual (abre no navegador). Para receber o PDF aqui no chat, use os botões:';
+    if (txt.length > 3900) txt = txt.slice(0, 3900) + '\n…';
+
+    // …e um BOTÃO por documento para receber o arquivo no chat.
+    const kb = new InlineKeyboard();
+    r.docs.slice(0, 40).forEach((d, i) => kb.text(`${d.usado ? '📄' : '📎'} ${d.rotulo}`.slice(0, 62), `dl:${token}:${i}`).row());
+    if (r.docs.length > 1) kb.text('📥 Baixar todos (arquivos)', `dlall:${token}`).row();
+
+    return ctx.reply(txt, { parse_mode: 'HTML', reply_markup: kb, link_preview_options: { is_disabled: true } });
+  } catch (e) {
+    console.error('/baixar falhou:', e);
+    return ctx.reply(`Erro ao listar os documentos: ${e.message}`);
+  }
+}
+bot.command('baixar', ctx => cmdBaixar(ctx, ctx.match));
+
+async function enviarDoc(ctx, d) {
+  const buf = await baixarDocumento(d.url);
+  return ctx.replyWithDocument(new InputFile(Buffer.from(buf), nomeArquivoDoc(d.rotulo)),
+    { caption: d.rotulo.slice(0, 1000) });
+}
+
+bot.callbackQuery(/^dl:([a-f0-9]+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const lista = baixarListas.get(ctx.match[1]);
+  if (!lista || Date.now() - lista.ts > IMPORT_TTL) return ctx.reply('Lista expirada — use /baixar de novo.');
+  const d = lista.docs[+ctx.match[2]];
+  if (!d) return ctx.reply('Documento não encontrado na lista.');
+  await ctx.replyWithChatAction('upload_document');
+  try { return await enviarDoc(ctx, d); }
+  catch (e) { console.error('download doc falhou:', e); return ctx.reply(`Não consegui baixar "${d.rotulo}": ${e.message}`); }
+});
+
+bot.callbackQuery(/^dlall:([a-f0-9]+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const lista = baixarListas.get(ctx.match[1]);
+  if (!lista || Date.now() - lista.ts > IMPORT_TTL) return ctx.reply('Lista expirada — use /baixar de novo.');
+  await ctx.reply(`📥 Enviando ${lista.docs.length} documentos de ${lista.itemLabel}…`);
+  let ok = 0; const falhas = [];
+  for (const d of lista.docs) {
+    await ctx.replyWithChatAction('upload_document');
+    try { await enviarDoc(ctx, d); ok++; }
+    catch (e) { console.warn('dlall doc falhou:', d.rotulo, e.message); falhas.push(d.rotulo); }
+  }
+  if (falhas.length) return ctx.reply(`Enviados ${ok}/${lista.docs.length}. Falharam: ${falhas.join('; ')}`);
+});
+
+// ---------- /digest — radar legislativo do Fantástico ----------
+const digestTokens = new Map();   // token → { digest, ts } (para os botões de minuta)
+
+const podeDigest = id => String(id) === ADMIN_USER_ID || ehAssinante(id);
+
+function renderDigest(digest) {
+  const icone = { alta: '🔴', 'média': '🟡', media: '🟡', baixa: '⚪' };
+  const partes = [`📺 Radar de Imprensa — Fantástico, JN, Profissão Repórter, Globo Rural e Agência Brasil\n(gerado ${new Date(digest.geradoEm).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}${digest.deCache ? ' · cache' : ''})`];
+  digest.temas.forEach((t, i) => {
+    const acoes = (t.acoes || []).filter(a => !/^nenhuma/i.test(a.tipo || ''))
+      .map(a => `   💡 ${a.tipo}: ${a.sugestao}`).join('\n');
+    // Temas de interesse (mesma config/badge laranja do painel Análise de Pauta)
+    const interesse = (t.interessados || []).length
+      ? `\n   👤 Interesse: ${t.interessados.map(n => `Dep. ${n}`).join(' · ')}` : '';
+    partes.push(
+      `${i + 1}) ${icone[(t.relevancia || '').toLowerCase()] || '⚪'} ${t.titulo} — relevância ${t.relevancia}\n` +
+      `${t.resumo}\n(${t.porque || ''})` + (acoes ? `\n${acoes}` : '') + interesse);
+  });
+  if (digest.descartados?.length) partes.push(`Sem potencial legislativo: ${digest.descartados.join('; ')}`);
+  partes.push('⚠️ Resumos e sugestões gerados por IA a partir das matérias do g1 — confira a fonte antes de agir.\nToque em "📝 Minuta N" para a minuta em PDF do tema N (rascunho de IA).');
+  return partes.join('\n\n');
+}
+
+async function enviarDigest(api, chatId, digest) {
+  const token = crypto.randomBytes(4).toString('hex');
+  digestTokens.set(token, { digest, ts: Date.now() });
+  const kb = new InlineKeyboard();
+  digest.temas.slice(0, 12).forEach((t, i) => {
+    kb.text(`📝 Minuta ${i + 1}`, `dgm:${token}:${i}`);
+    if (i % 3 === 2) kb.row();
+  });
+  const texto = renderDigest(digest);
+  // fatia em blocos < 4000 e prende o teclado no último
+  const blocos = [];
+  let atual = '';
+  for (const p of texto.split('\n\n')) {
+    if ((atual + '\n\n' + p).length > 3900) { blocos.push(atual); atual = p; }
+    else atual = atual ? atual + '\n\n' + p : p;
+  }
+  if (atual) blocos.push(atual);
+  for (let i = 0; i < blocos.length; i++) {
+    await api.sendMessage(chatId, blocos[i],
+      i === blocos.length - 1 ? { reply_markup: kb, link_preview_options: { is_disabled: true } } : { link_preview_options: { is_disabled: true } });
+  }
+}
+
+async function cmdDigest(ctx) {
+  if (!podeDigest(ctx.from.id)) {
+    if (ADMIN_USER_ID) {
+      const kb = new InlineKeyboard().text('✅ Autorizar no digest', `dgok:${ctx.from.id}`);
+      bot.api.sendMessage(ADMIN_USER_ID,
+        `📺 ${nomeDe(ctx)} (ID ${ctx.from.id}) pediu acesso ao /digest.`, { reply_markup: kb }).catch(() => {});
+    }
+    return ctx.reply('O /digest é liberado pelo administrador — pedido enviado, aguarde a autorização.');
+  }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('O digest roda na sua chave de IA — configure com /config no privado.');
+  await ctx.reply('📺 Coletando as matérias (Fantástico, JN, Profissão Repórter, Globo Rural, Agência Brasil) e analisando (leva ~2 min)…');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const digest = await gerarDigest({ perfil });
+    return await enviarDigest(bot.api, ctx.chat.id, digest);
+  } catch (e) {
+    console.error('/digest falhou:', e);
+    return ctx.reply(`Não consegui gerar o digest: ${e.message}`);
+  }
+}
+bot.command('digest', cmdDigest);
+
+// Aprovação de assinante pelo admin (botão da notificação)
+bot.callbackQuery(/^dgok:(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = ctx.match[1];
+  assinar(id, '');
+  await ctx.editMessageText(`✅ ID ${id} autorizado no digest (recebe às segundas 7h e pode usar /digest).`);
+  bot.api.sendMessage(id, 'Você foi autorizado no 📺 /digest — receberá o radar do Fantástico às segundas, 7h, e pode pedir quando quiser com /digest.').catch(() => {});
+});
+
+// Gestão pelo admin: /digestadd <id> [nome] · /digestrem <id> · /digestlista
+bot.command('digestadd', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const [id, ...nome] = String(ctx.match || '').trim().split(/\s+/);
+  if (!/^\d+$/.test(id || '')) return ctx.reply('Uso: /digestadd <userId> [nome]');
+  assinar(id, nome.join(' '));
+  bot.api.sendMessage(id, 'Você foi autorizado no 📺 /digest — receberá o radar do Fantástico às segundas, 7h, e pode pedir quando quiser com /digest.').catch(() => {});
+  return ctx.reply(`✅ ${id} adicionado ao digest.`);
+});
+bot.command('digestrem', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const id = String(ctx.match || '').trim();
+  if (!/^\d+$/.test(id)) return ctx.reply('Uso: /digestrem <userId>');
+  desassinar(id);
+  return ctx.reply(`removido: ${id}`);
+});
+bot.command('digestlista', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const a = listarAssinantes();
+  const linhas = Object.entries(a).map(([id, v]) => `• ${v.nome || '(sem nome)'} — ${id} · desde ${String(v.desde || '').slice(0, 10)}`);
+  return ctx.reply((linhas.length ? `Assinantes do digest:\n${linhas.join('\n')}` : 'Nenhum assinante ainda.') +
+    `\n\n/digestadd <id> [nome] · /digestrem <id>` +
+    `\n(admin recebe sempre)`);
+});
+
+// Botão "📝 Minuta N" → elabora a minuta (chave de quem clicou) e envia o PDF
+bot.callbackQuery(/^dgm:([a-f0-9]+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const reg = digestTokens.get(ctx.match[1]);
+  if (!reg || Date.now() - reg.ts > 24 * 60 * 60 * 1000) return ctx.reply('Digest expirado — rode /digest de novo.');
+  const tema = reg.digest.temas[+ctx.match[2]];
+  if (!tema) return ctx.reply('Tema não encontrado.');
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('A minuta roda na sua chave de IA — configure com /config no privado.');
+  await ctx.reply(`📝 Elaborando a minuta de "${tema.titulo}" (leva ~1 min)…`);
+  await ctx.replyWithChatAction('upload_document');
+  try {
+    const minuta = await elaborarMinuta({ perfil, tema, materias: reg.digest.materias });
+    const pdf = await pdfMinuta(minuta, tema);
+    const nome = `minuta-${String(tema.titulo).toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 40)}.pdf`;
+    return await ctx.replyWithDocument(new InputFile(pdf, nome), {
+      caption: `${minuta.instrumento} — ${tema.titulo}\n⚠️ Rascunho de IA: revisar com a Consultoria Legislativa antes de protocolar.`.slice(0, 1000),
+    });
+  } catch (e) {
+    console.error('minuta falhou:', e);
+    // "The caller does not have permission" = 403 do provedor de IA (Gemini):
+    // chave sem acesso ao modelo escolhido ou chave com restrição de aplicativo.
+    const dica = /permission/i.test(e.message || '')
+      ? '\n\nEsse erro vem da API do SEU provedor de IA, não do bot: ou o modelo do seu perfil não é acessível pela sua chave (veja com /modelo e volte ao padrão com /modelo gemini-3.1-flash-lite), ou a chave tem "restrição de aplicativo" no Google (refaça em aistudio.google.com sem restrição e atualize com /config).'
+      : '';
+    return ctx.reply(`Não consegui elaborar a minuta: ${e.message}${dica}`);
+  }
+});
+
+// ---------- /rodaviva — resumo da entrevista de segunda (TV Cultura) ----------
+// Sem argumento: resumo sob demanda, na chave de quem pediu. Com argumento
+// (só admin): controla a agenda do envio automático — off/on/status ou
+// "terça 9h" para mudar dia/hora. O envio automático usa a chave do admin
+// (tickRodaViva, mais abaixo).
+bot.command('rodaviva', async ctx => {
+  const arg = String(ctx.match || '').trim();
+  if (arg) {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) {
+      return ctx.reply('Só o administrador altera a agenda. Use /rodaviva sem nada para o resumo.');
+    }
+    return ctx.reply(ajustarAgendaRodaViva(arg));
+  }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('O resumo roda na sua chave de IA — configure com /config no privado.');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const { ep, texto } = await gerarResumoRodaViva({ perfil, log: m => console.log('[rodaviva] ' + m) });
+    console.log(`[rodaviva] resumo de "${ep.titulo}" enviado a pedido de ${ctx.from.id}`);
+    return responderLongo(ctx, texto);
+  } catch (e) {
+    console.error('/rodaviva falhou:', e);
+    return ctx.reply(`Não consegui resumir o Roda Viva: ${e.message}`);
+  }
+});
+
+bot.command('agregar', async ctx => {
+  const indices = String(ctx.match || '').split(/[,\s]+/).map(n => parseInt(n, 10)).filter(Number.isFinite);
+  if (!indices.length) return ctx.reply('Uso: /agregar 1,3 — com os números listados pelo /documentos.');
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await agregarDocumentos({ userId: ctx.from.id, indices });
+    if (r.erro) return ctx.reply(r.erro);
+    let msg = r.ok.length
+      ? `✅ Agregado(s) à conversa sobre ${r.itemLabel}:\n• ${r.ok.join('\n• ')}`
+      : 'Nenhum documento novo agregado (os escolhidos já estavam na conversa).';
+    if (r.falhas.length) msg += `\n⚠️ Falhou a leitura de: ${r.falhas.join(' · ')}`;
+    msg += `\n\nPode perguntar — a IA agora considera também esse(s) documento(s). ` +
+           `(${r.total} extra(s) na conversa; /limpar remove tudo.)`;
+    return ctx.reply(msg);
+  } catch (e) {
+    console.error('/agregar falhou:', e);
+    return ctx.reply(`Erro ao agregar: ${e.message}`);
+  }
+});
+
+// ---------- /analisar e /exportar (worker Puppeteer — código do painel) ----------
+let _workerOcupado = false;          // um trabalho de painel por vez
+const analisePendente = new Map();   // token → { pautaId, titulo, ts }
+
+async function cmdAnalisar(ctx) {
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('O /analisar gera as notas na SUA chave de IA — configure com /config no privado.');
+  }
+  if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
+  await ctx.replyWithChatAction('typing');
+  const pauta = await pautaDoUsuario(ctx.from.id);
+  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+  const token = crypto.randomBytes(6).toString('hex');
+  analisePendente.set(token, { pautaId: pauta.id, titulo: pauta.nome || pauta.titulo || pauta.id, ts: Date.now() });
+  return ctx.reply(
+    `Gerar as análises da pauta "${pauta.nome || pauta.titulo}" (${(pauta.itens || []).length} itens)?\n` +
+    'Itens que já têm nota são pulados; MPVs ficam de fora (edição manual). ' +
+    'As chamadas de IA rodam na SUA chave.',
+    { reply_markup: new InlineKeyboard().text('🤖 Gerar análises', `ana:ok:${token}`).text('Cancelar', `ana:no:${token}`) });
+}
+bot.command('analisar', cmdAnalisar);
+
+bot.callbackQuery(/^ana:(ok|no):([a-f0-9]+)$/, async ctx => {
+  const [, acao, token] = ctx.match;
+  const pend = analisePendente.get(token);
+  analisePendente.delete(token);
+  if (!pend || Date.now() - pend.ts > IMPORT_TTL) {
+    return ctx.answerCallbackQuery({ text: 'Pedido expirado — use /analisar de novo.', show_alert: true });
+  }
+  if (acao === 'no') {
+    await ctx.answerCallbackQuery({ text: 'Cancelado.' });
+    return ctx.editMessageText('Geração cancelada.');
+  }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.answerCallbackQuery({ text: 'Configure sua chave com /config.', show_alert: true });
+  if (_workerOcupado) return ctx.answerCallbackQuery({ text: 'Worker ocupado — tente em instantes.', show_alert: true });
+  await ctx.answerCallbackQuery();
+  _workerOcupado = true;
+  await ctx.editMessageText(`⚙️ Abrindo o painel no worker para "${pend.titulo}"…`);
+  try {
+    const final = await analisarPauta({
+      perfil, pautaId: pend.pautaId,
+      onProgress: p => ctx.editMessageText(
+        `🤖 Gerando análises de "${pend.titulo}"… ${p.ok}/${p.total}` +
+        (p.erro ? ` · ${p.erro} falha(s)` : '') + (p.gerando ? ' (em andamento)' : '')
+      ).catch(() => {}),
+    });
+    await ctx.editMessageText(
+      `✅ Análises de "${pend.titulo}": ${final.ok}/${final.total} prontas` +
+      (final.erro ? ` · ${final.erro} falha(s) — tente de novo mais tarde ou gere no painel` : '') +
+      '.\nJá estão no painel de todos e o /perguntar responde sobre os itens.');
+  } catch (e) {
+    console.error('/analisar falhou:', e);
+    await ctx.editMessageText(`Erro na geração: ${e.message}`).catch(() => {});
+  } finally {
+    _workerOcupado = false;
+  }
+});
+
+async function cmdExportar(ctx) {
+  if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
+  await ctx.replyWithChatAction('typing');
+  const pauta = await pautaDoUsuario(ctx.from.id);
+  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+  _workerOcupado = true;
+  const aviso = await ctx.reply(`📄 Gerando o PDF institucional de "${pauta.nome || pauta.titulo}"… (1–3 min)`);
+  try {
+    const r = await exportarPdfPauta({ perfil: getPerfil(ctx.from.id), pautaId: pauta.id });
+    await ctx.replyWithChatAction('upload_document');
+    await ctx.replyWithDocument(
+      new InputFile(r.pdf, `${String(r.titulo).replace(/[^\w\- ]+/g, '').trim() || 'pauta'}.pdf`),
+      { caption: `${r.titulo} — ${r.numItens} itens · PDF institucional gerado pelo SisPode Bot` });
+    await ctx.api.deleteMessage(aviso.chat.id, aviso.message_id).catch(() => {});
+  } catch (e) {
+    console.error('/exportar falhou:', e);
+    await ctx.api.editMessageText(aviso.chat.id, aviso.message_id, `Erro ao gerar o PDF: ${e.message}`).catch(() => {});
+  } finally {
+    _workerOcupado = false;
+  }
+}
+bot.command('exportar', cmdExportar);
+
+// ---------- Receber a pauta em PDF pelo chat ----------
+bot.on('message:document', async ctx => {
+  if (!ehPrivado(ctx)) return;   // só no privado
+  const doc = ctx.message.document;
+  const ehPdf = doc.mime_type === 'application/pdf' || /\.pdf$/i.test(doc.file_name || '');
+  if (!ehPdf) return ctx.reply('Só sei importar pautas em PDF.');
+  if (doc.file_size > 20 * 1024 * 1024) return ctx.reply('PDF acima de 20 MB — o Telegram não deixa o bot baixar. Importe pelo painel.');
+
+  await ctx.replyWithChatAction('typing');
+  try {
+    const file = await ctx.getFile();
+    const res = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`);
+    if (!res.ok) throw new Error(`download: HTTP ${res.status}`);
+    const texto  = await extrairTextoPdf(new Uint8Array(await res.arrayBuffer()));
+    const parsed = parsearPauta(texto);
+    if (!parsed.itens.length) {
+      return ctx.reply('Não identifiquei itens nesse PDF — ele está num dos formatos de pauta conhecidos (oficial da Câmara ou dashboard da Liderança)?');
+    }
+    const docFb = montarPautaFirebase(parsed, `bot-telegram (${nomeDe(ctx)})`, doc.file_name || 'pauta.pdf');
+    const token = crypto.randomBytes(6).toString('hex');
+    importPendente.set(token, { doc: docFb, ts: Date.now() });
+    const reaprov = await avisoReaproveitamento(docFb);
+
+    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.${reaprov}`;
+    if (await pautaJaExiste(docFb.id)) {
+      return ctx.reply(
+        `${cab}\n⚠️ Já existe pauta com esse período no SisPode (pode ter edições da equipe). Sobrescrever?`,
+        { reply_markup: new InlineKeyboard().text('⚠️ Sobrescrever', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+    }
+    return ctx.reply(`${cab}\nImportar para o SisPode?`,
+      { reply_markup: new InlineKeyboard().text('✅ Importar', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
+  } catch (e) {
+    console.error('importação por PDF falhou:', e);
+    return ctx.reply(`Erro ao ler o PDF: ${e.message}`);
+  }
+});
+
+// ---------- Monitor de sessão: /monitor [on|off] ----------
+bot.command('monitor', async ctx => {
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg === 'on' || arg === 'off') {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga o monitor.');
+    setMonitorLigado(arg === 'on');
+    return ctx.reply(`Monitor de sessão ${arg === 'on' ? 'LIGADO' : 'DESLIGADO'}.`);
+  }
+  const s = statusMonitor();
+  return ctx.reply(
+    `Monitor de sessão: ${s.ligado ? '🟢 ligado' : '🔴 desligado'}` +
+    `${s.ensaio ? ' · MODO ENSAIO (mensagens só p/ admin)' : ' · produção (grupo)'}\n` +
+    `Janela de vigilância: ${s.janelaAtiva ? 'ativa' : 'fora do horário (seg–sex 8h–2h)'}\n` +
+    (s.sessao
+      ? `Sessão em acompanhamento: ${s.sessao.id} (${s.sessao.dataISO}) — ${s.sessao.itens} item(ns) visto(s), ${s.sessao.encerrados} votado(s).`
+      : 'Nenhuma sessão em andamento.'));
+});
+
+// ---------- Corrigir uma mensagem publicada no grupo (autorizados, no privado) ----------
+// Liberado a TODOS os usuários autorizados (lista do /usuarios) — são os
+// responsáveis por ajustar mensagens no grupo. No privado do bot.
+// /revisar_msg               → lista as últimas 5 mensagens do grupo (numeradas)
+// /revisar_msg <n>           → mostra o texto inteiro da nº <n> (p/ copiar e editar)
+// /revisar_msg <n> <texto>   → substitui a nº <n> no grupo pelo texto informado
+// (Telegram não aceita hífen em comando — por isso "_msg", não "-msg".)
+bot.command('revisar_msg', async ctx => {
+  if (!isAutorizado(ctx.from.id)) return;
+  if (!ehPrivado(ctx)) {
+    bot.api.sendMessage(ctx.from.id, 'Use o /revisar_msg aqui no meu privado.').catch(() => {});
+    return;
+  }
+  const lista = listarMsgsGrupo();
+  if (!lista.length) return ctx.reply('Ainda não há mensagens do monitor registradas para revisar.');
+
+  const arg = String(ctx.match || '').trim();
+  if (!arg) {
+    const linhas = lista.map(m => {
+      const hora = new Date(m.ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' });
+      const prev = m.texto.replace(/\s+/g, ' ').slice(0, 70);
+      return `${m.n}. (${hora}) ${prev}${m.texto.length > 70 ? '…' : ''}`;
+    });
+    return ctx.reply(
+      'Últimas mensagens no grupo (mais recente primeiro):\n\n' + linhas.join('\n') +
+      '\n\nVer o texto inteiro: /revisar_msg <n>\nCorrigir: /revisar_msg <n> <texto novo>');
+  }
+
+  const m = arg.match(/^(\d+)(?:\s+([\s\S]+))?$/);
+  if (!m) return ctx.reply('Uso: /revisar_msg (lista) · /revisar_msg <n> (mostra) · /revisar_msg <n> <texto novo> (corrige).');
+  const n = Number(m[1]);
+  const novo = (m[2] || '').trim();
+  const alvo = lista.find(x => x.n === n);
+  if (!alvo) return ctx.reply(`Só tenho as últimas ${lista.length} mensagens (1 a ${lista.length}).`);
+
+  if (!novo) {
+    return ctx.reply(`Texto atual da mensagem ${n}:\n\n${alvo.texto}\n\nEnvie: /revisar_msg ${n} <texto corrigido>`);
+  }
+  const r = await revisarMsgGrupo(n, novo);
+  if (!r.ok) return ctx.reply(`Não consegui corrigir a mensagem ${n}: ${r.erro}`);
+  // Governança: como vários responsáveis podem editar, o admin fica sabendo
+  // quem mexeu (antes/depois), salvo quando é o próprio admin.
+  if (ADMIN_USER_ID && String(ctx.from.id) !== ADMIN_USER_ID) {
+    const quem = [ctx.from.first_name, ctx.from.last_name].filter(Boolean).join(' ') || ctx.from.username || `ID ${ctx.from.id}`;
+    bot.api.sendMessage(ADMIN_USER_ID,
+      `✏️ ${quem} corrigiu uma mensagem no grupo.\n\nAntes:\n${r.anterior}\n\nDepois:\n${novo}`).catch(() => {});
+  }
+  return ctx.reply(`✅ Mensagem ${n} corrigida no grupo.`);
+});
+
+// ---------- Votação: placar da bancada como IMAGEM ----------
+function hojeBrasiliaISO() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+}
+
+async function cmdVotacao(ctx, texto) {
+  // Data opcional: "/votacao 02/07/2026" (padrão: hoje)
+  const m = String(texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const dataBR  = dataISO.split('-').reverse().join('/');
+
+  await ctx.replyWithChatAction('typing');
+
+  // HOJE: usa o painel AO VIVO (mesma fonte do monitor) — Dados Abertos tem
+  // ~5min de atraso e esconde votos até o encerramento. Só cai para Dados
+  // Abertos se não houver sessão com painel disponível (ex.: sessão já saiu
+  // do portal). Datas passadas usam Dados Abertos (dado final, sem atraso).
+  if (dataISO === hojeBrasiliaISO()) {
+    try {
+      const sessao = await descobrirSessaoPortal(dataISO);
+      if (sessao) {
+        const kb = new InlineKeyboard();
+        for (const it of sessao.itens.slice(0, 50)) {
+          const rot = identificarItem(it.rotulo).texto.replace(/\*/g, '').slice(0, 60);
+          kb.text(rot || `Item ${it.id}`, `votp:${sessao.reuniaoId}:${it.id}`).row();
+        }
+        return ctx.reply(
+          `🗳 Votações nominais do Plenário em ${dataBR} — *painel ao vivo* (${sessao.itens.length}):\n` +
+          'Escolha uma para gerar a imagem do placar. Se a votação ainda estiver em curso, ' +
+          'os votos individuais aparecem só após o encerramento.',
+          { reply_markup: kb, parse_mode: 'Markdown' });
+      }
+    } catch (e) {
+      console.warn('/votacao painel ao vivo indisponível, usando Dados Abertos:', e.message);
+    }
+  }
+
+  try {
+    const lista = await listarVotacoesDia(dataISO);
+    if (!lista.length) {
+      return ctx.reply(`Nenhuma votação nominal do Plenário em ${dataBR}.` +
+        (m ? '' : ' Para outra data: /votacao dd/mm/aaaa'));
+    }
+    const MAX_BOTOES = 50;   // Telegram aceita até 100; 50 cobre qualquer sessão real
+    const kb = new InlineKeyboard();
+    for (const v of lista.slice(0, MAX_BOTOES)) {
+      // A DESCRIÇÃO distingue votações da mesma matéria (substitutivo, DVS,
+      // emenda…) — a proposição sozinha geraria botões idênticos. O placar
+      // embutido na descrição ("Sim: 293; Não: …") é cortado do rótulo.
+      const desc = v.descricao.split(/Sim:\s*\d/i)[0].replace(/[\s,;:—-]+$/, '').trim();
+      const rotulo = `${v.hora ? v.hora + ' — ' : ''}${v.proposicao ? v.proposicao + ' · ' : ''}${desc}`
+        .replace(/\s+/g, ' ').slice(0, 60);
+      kb.text(rotulo || `Votação ${v.id}`, `vot:${v.id}`).row();
+    }
+    return ctx.reply(
+      `🗳 Votações nominais do Plenário em ${dataBR} (${lista.length}):\n` +
+      'Escolha uma para gerar a imagem do placar da bancada:' +
+      (lista.length > MAX_BOTOES ? `\n⚠️ Mostrando as ${MAX_BOTOES} primeiras de ${lista.length}.` : ''),
+      { reply_markup: kb });
+  } catch (e) {
+    console.error('/votacao falhou:', e);
+    return ctx.reply(`Erro ao buscar votações: ${e.message}`);
+  }
+}
+bot.command('votacao', ctx => cmdVotacao(ctx, ctx.match));
+
+// /quorum — presença ao vivo pelo painel público (cosev/ws-plenário)
+bot.command('quorum', async ctx => {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const st = await statusPlenario();
+    if (!st) return ctx.reply('Não consegui ler o painel de presença agora — tente de novo em instantes.');
+    if (!st.presentes) return ctx.reply('O Painel não registra deputados presentes no momento (sem sessão aberta ou presença ainda não iniciada).');
+    const fase = st.oddEncerrada ? ' · Ordem do Dia encerrada'
+      : st.oddIniciada ? ' · Ordem do Dia em andamento' : '';
+    return ctx.reply(`👥 O Painel registra *${st.presentes}* deputado(s) presente(s)${fase}.`, { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('/quorum falhou:', e);
+    return ctx.reply('Não consegui ler o painel de presença agora.');
+  }
+});
+
+// ---------- /oradores [dd/mm/aaaa] [filtro] — quem falou/aguarda na sessão ----------
+// Fonte: página pública de oradores inscritos do evento (por lista: Breves,
+// Lideranças, Discussão/Encaminhamento por matéria). Sem data = hoje.
+// Filtro restringe às listas que casam (ex.: "breves", "liderança", "PL 2581/2026").
+async function cmdOradores(ctx, texto) {
+  const t = String(texto || '').trim();
+  const m = t.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const filtro = (m ? t.replace(m[0], '') : t).trim();
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, await resumoOradoresDaData(dataISO, filtro), null, { md: true });
+  } catch (e) {
+    console.error('/oradores falhou:', e);
+    return ctx.reply(`Erro ao buscar os oradores: ${e.message}`);
+  }
+}
+bot.command('oradores', ctx => cmdOradores(ctx, ctx.match));
+
+// ---------- /faltamvotar — quem do PODE ainda não votou na nominal aberta ----------
+// Autorizados, no grupo ou privado. Fonte: painel do app Infoleg (host infoleg),
+// só em votação NOMINAL. Admin liga/desliga a rede de segurança: /faltamvotar auto on|off.
+async function cmdFaltamVotar(ctx) {
+  if (!isAutorizado(ctx.from.id)) return;
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg.startsWith('auto')) {
+    if (String(ctx.from.id) !== ADMIN_USER_ID) return ctx.reply('Só o administrador liga/desliga a rede de segurança.');
+    const on = /\bon\b|liga/.test(arg), off = /\boff\b|desliga/.test(arg);
+    if (on || off) { setFaltantesAuto(on); return ctx.reply(`Rede de segurança de faltantes ${on ? 'LIGADA' : 'DESLIGADA'}.`); }
+    return ctx.reply(`Rede de segurança de faltantes: ${getFaltantesAuto() ? '🟢 ligada' : '🔴 desligada'}. Use /faltamvotar auto on|off.`);
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await faltamVotar('PODE');
+    return ctx.reply(formatarFaltantes(r, { sigla: 'PODE' }), { parse_mode: 'Markdown' });
+  } catch (e) {
+    console.error('/faltamvotar falhou:', e);
+    return ctx.reply(`Erro ao consultar o painel de votação: ${e.message}`);
+  }
+}
+bot.command('faltamvotar', cmdFaltamVotar);
+
+// ---------- /questaoordem <termo> — questões de ordem por palavra-chave ----------
+// Busca no acervo (sistema dedicado da Câmara), cacheado 1h. Cobre todas as
+// fases catalogadas de cada QO. Sem termo, explica.
+async function cmdQuestaoOrdem(ctx, texto) {
+  const termo = String(texto || '').trim();
+  if (!termo) return ctx.reply(
+    'Uso: /questaoordem <termo> — ex.: /qo ata de comissão\n\n' +
+    'Busca em todas as fases da questão de ordem (a questão, a contradita, a decisão e o recurso).\n\n' +
+    'Também aceita:\n' +
+    '• número exato — /qo 8/2023\n' +
+    '• artigo do Regimento — /qo art. 52\n' +
+    '• uma fase só — /qo recurso: prejudicialidade · /qo decisão: quórum · /qo contradita: obstrução');
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, formatarQO(await buscarQO(termo)), null, { md: true });
+  } catch (e) {
+    console.error('/questaoordem falhou:', e);
+    return ctx.reply(`Erro ao buscar questões de ordem: ${e.message}`);
+  }
+}
+bot.command(['questaoordem', 'qo'], ctx => cmdQuestaoOrdem(ctx, ctx.match));
+
+// RECURSOS (proposições REC) — base diferente da de questões de ordem. O
+// "recurso" de que a Casa fala no dia a dia costuma ser este: a peça
+// protocolada contra uma decisão, com número próprio (REC 260/2013).
+async function cmdRecurso(ctx, texto) {
+  const termo = String(texto || '').trim();
+  if (!termo) return ctx.reply(
+    'Uso: /recurso <termo> — ex.: /recurso prejudicialidade de adiamento de discussão\n\n' +
+    'Busca nos recursos protocolados (proposições REC): ementa, subtipo regimental, autor, ' +
+    'despachos e o INTEIRO TEOR da petição.\n\n' +
+    'Também aceita:\n' +
+    '• número exato — /recurso 260/2013\n' +
+    '• artigo do Regimento — /recurso art. 164');
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, formatarRecurso(await buscarRecurso(termo)), null, { md: true });
+  } catch (e) {
+    console.error('/recurso falhou:', e);
+    return ctx.reply(`Erro ao buscar recursos: ${e.message}`);
+  }
+}
+bot.command(['recurso', 'recursos', 'rec'], ctx => cmdRecurso(ctx, ctx.match));
+
+// Resposta regimental COMPLETA: a NORMA (artigos do RICD) seguida do PRECEDENTE
+// (questões de ordem sobre o mesmo tema). É como o analista de plenário raciocina
+// — a regra e como a Presidência já a aplicou. A busca de QO entra em modo
+// relaxado porque a consulta costuma ser uma pergunta, não uma expressão exata.
+async function respostaRegimental(consulta, { limite = 3, perfil = null } = {}) {
+  // Com chave de IA, a seleção é SEMÂNTICA (índice do RICD → artigos); sem
+  // chave, ou se a IA falhar, cai na busca lexical (BM25).
+  const reg = perfil?.apiKey
+    ? await consultarRegimentoIA({ consulta, perfil, limite })
+    : await consultarRegimento(consulta, { limite });
+  let texto = formatarRegimento(reg);
+  if (!reg.artigos.length) return texto;
+  try {
+    const qo = await buscarQO(consulta, { limite: 3 });
+    const bloco = formatarQOCompacto(qo);
+    if (bloco) texto += `\n\n${bloco}`;
+  } catch (e) { console.warn('[regimento] precedente falhou:', e.message); }
+  return texto;
+}
+
+// ---------- /regimento <artigo ou dúvida> — texto vigente do RICD ----------
+// Devolve os artigos LITERAIS (regimento é matéria de precisão; o bot mostra a
+// fonte, não parafraseia). Para o precedente da Presidência, use /qo.
+async function cmdRegimento(ctx, texto) {
+  const consulta = String(texto || '').trim();
+  if (!consulta) {
+    return ctx.reply('Uso: /regimento <artigo ou dúvida>\n\nEx.: /regimento 95 · /regimento verificação de votação · /regimento quantas assinaturas para CPI\n\nPara o precedente (como a Presidência já decidiu), use /qo <termo>.');
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    return responderLongo(ctx, await respostaRegimental(consulta, { perfil: getPerfil(ctx.from.id) }), null, { md: true });
+  } catch (e) {
+    console.error('/regimento falhou:', e);
+    return ctx.reply(`Erro ao consultar o Regimento: ${e.message}`);
+  }
+}
+bot.command(['regimento', 'ri'], ctx => cmdRegimento(ctx, ctx.match));
+
+// ---------- /update — baixa o main do GitHub, valida e reinicia (só ADMIN) ----------
+// Requer GH_TOKEN (fine-grained, read-only) no .env e o bot rodando sob o
+// iniciar-bot.bat (loop): o /update valida e encerra; o loop sobe o código novo.
+bot.command('update', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const arg = String(ctx.match || '').trim().toLowerCase();
+  if (arg === 'status') {
+    try {
+      const s = await statusUpdate();
+      const loc = s.local ? `${s.local.sha.slice(0, 7)} — ${(s.local.msg || '').slice(0, 50)}` : 'desconhecida (nunca atualizado pelo /update)';
+      return ctx.reply(`📦 Versão local: ${loc}\n📥 main: ${s.main.sha.slice(0, 7)} — ${(s.main.msg || '').slice(0, 50)}\n${s.atualizado ? '✅ já está na última.' : '⬆️ há atualização disponível — mande /update.'}`);
+    } catch (e) { return ctx.reply(`Não consegui checar: ${e.message}`); }
+  }
+  await ctx.reply('📥 Baixando o main e validando (node --check)…');
+  let r;
+  try { r = await aplicarUpdate(); }
+  catch (e) { return ctx.reply(`❌ Update falhou: ${e.message}. Continuo na versão atual (nada foi trocado).`); }
+  if (!r.ok) return ctx.reply(`⚠️ Update abortado: ${r.erro}.\nNada foi trocado — o bot segue na versão atual.`);
+  await ctx.reply(
+    `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) gravado(s).` +
+    (r.pkgMudou ? '\n\n⚠️ O *package.json* mudou — rode `npm install` na pasta do bot (o restart sozinho não instala dependências).' : '') +
+    '\n\n🔄 Reiniciando…', { parse_mode: 'Markdown' });
+  console.log(`[update] aplicado (${r.sha.slice(0, 7)}) — encerrando para o supervisor recarregar o código.`);
+  setTimeout(() => process.exit(0), 1500);
+});
+
+bot.callbackQuery(/^vot:(.+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  await ctx.replyWithChatAction('upload_photo');
+  try {
+    const pl = await placarVotacao(ctx.match[1], 'PODE');
+    const png = await imagemVotacao(pl);
+    // SÓ a imagem — ela já traz título, placar e bancada (sem legenda escrita).
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'));
+  } catch (e) {
+    console.error('imagem de votação falhou:', e);
+    return ctx.reply(`Erro ao gerar a imagem: ${e.message}`);
+  }
+});
+
+// Placar via PAINEL AO VIVO (votp:{reuniao}:{item}) — fonte do monitor, sem o
+// atraso de Dados Abertos. Votos individuais só existem após o encerramento.
+bot.callbackQuery(/^votp:(\d+):(\d+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  await ctx.replyWithChatAction('upload_photo');
+  const [, reuniao, item] = ctx.match;
+  try {
+    const html = await paginaSessao(reuniao, item);
+    const itens = parseItens(html);
+    const sel = itens.find(i => i.selecionado) || itens.find(i => i.id === item);
+    if (sel && sel.id !== item) {
+      return ctx.reply('O painel não abriu esse item específico agora — tente novamente em instantes.');
+    }
+    const ident = identificarItem(sel ? sel.rotulo : '');
+    const placar = await parsePlacarPortal(html, { descricao: ident.texto.replace(/\*/g, '') });
+    if (!placar.temVotos) {
+      return ctx.reply(
+        `⏳ ${ident.texto.replace(/\*/g, '')} — votação ainda em curso.\n` +
+        'Os votos individuais só aparecem no painel após o encerramento. Tente de novo em instantes.');
+    }
+    const png = await imagemVotacao(placar);
+    // SÓ a imagem — ela já traz título, placar e bancada (sem legenda escrita).
+    return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'));
+  } catch (e) {
+    console.error('imagem de votação (portal) falhou:', e);
+    return ctx.reply(`Erro ao gerar a imagem do painel: ${e.message}`);
+  }
+});
+
+// ---------- listar itens (usada pelo roteador da fase 4) ----------
+// Apelido da matéria — o MESMO da extensão: gerado na análise e salvo em
+// /analises_pauta/{chave}/apelido (o monitor já usa essa fonte). Para
+// requerimento de urgência sem apelido próprio, tenta o projeto urgenciado.
+const _apelidoCache = new Map();   // chave → { apelido, ts }
+const APELIDO_TTL = 10 * 60e3;
+async function apelidoDe(chave) {
+  const c = _apelidoCache.get(chave);
+  if (c && Date.now() - c.ts < APELIDO_TTL) return c.apelido;
+  let apelido = '';
+  try {
+    const a = await carregarAnaliseMaisRecente(chave);
+    apelido = String(a?.apelido || '').trim();
+  } catch (_) {}
+  _apelidoCache.set(chave, { apelido, ts: Date.now() });
+  return apelido;
+}
+
+async function linhasItensPauta(pauta) {
+  const itens = pauta.itens || [];
+  const apelidos = await Promise.all(itens.map(async it => {
+    const chave = it.chave || `${it.sigla}-${it.numero}-${it.ano}`;
+    let ap = await apelidoDe(chave);
+    if (!ap && it.projetoUrgenciado?.sigla) {
+      const pu = it.projetoUrgenciado;
+      ap = await apelidoDe(`${pu.sigla}-${pu.numero}-${pu.ano}`);
+      if (ap) ap = `Urgência: ${ap}`;
+    }
+    return ap;
+  }));
+  return itens.map((it, i) =>
+    `${it.ordem}. ${it.sigla} ${it.numero}/${it.ano}${it.temUrgencia ? ' ⚡' : ''} — ` +
+    `${apelidos[i] || (it.ementa || '').replace(/\s+/g, ' ').slice(0, 90)}`).join('\n');
+}
+
+async function cmdListarItens(ctx) {
+  await ctx.replyWithChatAction('typing');
+  const pauta = await pautaDoUsuario(ctx.from.id);
+  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+  return responderLongo(ctx,
+    `📋 ${rotuloPauta(pauta)}${pauta.uploadedBy ? ` por ${pauta.uploadedBy}` : ''}\n` +
+    `ℹ️ Para trocar de pauta (ou buscar on-line), use /pauta.\n\n${await linhasItensPauta(pauta)}`);
+}
+// /listar existia só via linguagem natural; registra o comando com barra
+// (funciona no privado E no grupo) + aliases comuns.
+bot.command(['listar', 'lista', 'itens'], cmdListarItens);
+
+// Fixa a pauta escolhida (botões do /pauta) como ATIVA do usuário e mostra os itens.
+bot.callbackQuery(/^pusar:([a-f0-9]+)$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const esc = pautaEscolha.get(ctx.match[1]);
+  pautaEscolha.delete(ctx.match[1]);
+  if (!esc || Date.now() - esc.ts > IMPORT_TTL) {
+    return ctx.reply('Escolha expirada — use /pauta de novo.');
+  }
+  const pauta = await pautaPorId(esc.id);
+  if (!pauta) return ctx.reply('Não encontrei essa pauta no SisPode (pode ter sido removida).');
+  definirPautaAtiva(ctx.from.id, esc.id);
+  limparConversa(ctx.from.id);   // a conversa anterior podia estar noutra pauta
+  limparMemoria(ctx.from.id);    // idem para a memória do assistente
+  return responderLongo(ctx,
+    `✅ Agora você está usando: ${rotuloPauta(pauta)}.\n` +
+    `Vale para /listar, /perguntar, /analisar e /exportar.\n\n${await linhasItensPauta(pauta)}`);
+});
+
+// ---------- /ordemdodia — importa a Ordem do Dia (pauta diária) da sessão ----------
+// O monitor faz isso sozinho ao detectar a sessão; este comando é o atalho
+// sob demanda (e útil para testar fora de sessão ao vivo).
+async function cmdOrdemDoDia(ctx) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await importarOrdemDoDiaDeHoje(hojeBrasiliaISO(), `telegram:${ctx.from.id}`);
+    if (r.semSessao) return ctx.reply('Não há sessão deliberativa do Plenário hoje — sem Ordem do Dia publicada.');
+    if (r.vazio)     return ctx.reply('A sessão de hoje ainda não tem itens na Ordem do Dia.');
+    const p = r.doc;
+    return ctx.reply(
+      `📋 Ordem do Dia de hoje importada — ${(p.itens || []).length} itens. ` +
+      'Agora é a pauta de referência do dia: use /listar, /perguntar, /analisar ou /exportar.');
+  } catch (e) {
+    console.error('/ordemdodia falhou:', e);
+    return ctx.reply(`Erro ao importar a Ordem do Dia: ${e.message}`);
+  }
+}
+bot.command('ordemdodia', cmdOrdemDoDia);
+
+// ---------- Pauta de COMISSÕES da Câmara (API de Dados Abertos, verbatim) ----------
+async function cmdPautaComissao(ctx, args) {
+  await ctx.replyWithChatAction('typing');
+  try {
+    let comissoes = Array.isArray(args.comissoes) ? args.comissoes
+      : (args.comissoes ? [args.comissoes] : []);
+    if (!comissoes.length && args.texto) comissoes = [args.texto];   // fallback: texto cru
+    const texto = await consultarPauta(comissoes, args.data || args.texto || 'hoje',
+      { partido: args.partido || null, deputado: args.deputado || null });
+    return responderLongo(ctx, texto);
+  } catch (e) {
+    console.error('pauta comissão falhou:', e);
+    return ctx.reply(`Erro ao consultar a comissão: ${e.message}`);
+  }
+}
+bot.command('comissao', ctx => {
+  const t = (ctx.match || '').trim();
+  if (!t) return ctx.reply('Uso: /comissao <comissão> [data] — ex.: /comissao CCJ hoje · /comissao Saúde 09/07\n(a mesma frase serve para nome e data; para filtrar por partido, use linguagem natural: "tem projeto do Podemos na CCJ hoje?")');
+  // O mesmo texto alimenta nome (resolverComissao) e data (parseData) — cada um extrai o que precisa.
+  return cmdPautaComissao(ctx, { comissoes: [t], data: t });
+});
+
+async function cmdComissoesReuniao(ctx, args) {
+  await ctx.replyWithChatAction('typing');
+  try { return responderLongo(ctx, await listarReunioesDeliberativas(args.data || 'hoje')); }
+  catch (e) { console.error('listar reuniões falhou:', e); return ctx.reply(`Erro ao listar reuniões: ${e.message}`); }
+}
+bot.command('comissoeshoje', ctx => cmdComissoesReuniao(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
+
+async function cmdVarrerComissoes(ctx, args) {
+  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos…');
+  try {
+    // Sem partido/deputado explícito, procura o Podemos (é o bot da bancada).
+    const partido = args.partido || (args.deputado ? null : 'Podemos');
+    return responderLongo(ctx, await varrerComissoesPartido(args.data || 'hoje',
+      { partido, deputado: args.deputado || null }));
+  } catch (e) { console.error('varredura comissões falhou:', e); return ctx.reply(`Erro na varredura: ${e.message}`); }
+}
+bot.command('varrercomissoes', ctx => cmdVarrerComissoes(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
+
+// ---------- /resumo [dd/mm/aaaa] — resumo da sessão sob demanda ----------
+// Mesma mensagem do botão "Resultado da Sessão" do painel (via worker).
+// O monitor manda sozinho no fim da sessão; este comando cobre recuperação
+// (resumo perdido) e consulta de dias anteriores.
+async function cmdResumo(ctx, texto) {
+  if (_workerOcupado) return ctx.reply('Já há uma geração em andamento no worker — aguarde terminar.');
+  const m = String(texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
+  const dataBR  = dataISO.split('-').reverse().join('/');
+  await ctx.replyWithChatAction('typing');
+  _workerOcupado = true;
+  try {
+    const pauta = await pautaDoUsuario(ctx.from.id).catch(() => null);
+    const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO });
+    if (r.vazio) {
+      return ctx.reply(`A Câmara não registrou matérias apreciadas em ${dataBR} (ou os dados ainda não foram publicados).`);
+    }
+    return responderLongo(ctx, r.texto);
+  } catch (e) {
+    console.error('/resumo falhou:', e);
+    return ctx.reply(`Erro ao gerar o resumo: ${e.message}`);
+  } finally {
+    _workerOcupado = false;
+  }
+}
+bot.command('resumo', ctx => cmdResumo(ctx, ctx.match));
+
+// ---------- /colegio <proposição> — ficha avulsa no formato da Reunião de Líderes ----------
+// Complementar à extensão: serve ao analista que, durante a reunião, precisa
+// de algo que NÃO entrou na lista. Recebe SÓ a referência, nunca o PDF.
+// Duas etapas: os fatos saem na hora (regra fixa, sem chave); o resumo por IA
+// vem em seguida, na chave do usuário, com o inteiro teor anexado.
+async function cmdMateria(ctx, texto) {
+  if (!String(texto || '').trim()) {
+    return ctx.reply('Uso: /colegio PL 1234/2026 — ficha da proposição no formato do resumo da Reunião de Líderes.');
+  }
+  await ctx.replyWithChatAction('typing');
+  let ficha;
+  try {
+    ficha = await montarFicha(texto);
+  } catch (e) {
+    return ctx.reply(`Não consegui montar a ficha: ${e.message}`);
+  }
+  await responderLongo(ctx, formatarFatos(ficha), null, { md: true });
+
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('Para receber também o objetivo, a justificativa e o "o que mudou" (gerados por IA com o inteiro teor), configure sua chave no privado: /config.');
+  }
+  const aguarde = await ctx.reply('🧠 Lendo o inteiro teor e gerando o resumo na sua chave — leva até um minuto…');
+  try {
+    const resumo = await resumirFicha(ficha, perfil);
+    // editMessageText estoura em 4096; acima disso apaga o aviso e manda partido.
+    if (resumo.length <= 4000) {
+      // Mesmo pacto do responderLongo: tenta Markdown e, se algum caractere do
+      // texto gerado quebrar o parse, reedita sem formatação.
+      try { await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo, { parse_mode: 'Markdown' }); }
+      catch (_) { await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id, resumo); }
+    } else {
+      await ctx.api.deleteMessage(aguarde.chat.id, aguarde.message_id).catch(() => {});
+      await responderLongo(ctx, resumo, null, { md: true });
+    }
+  } catch (e) {
+    console.error('/colegio resumo falhou:', e);
+    await ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id,
+      `A ficha factual acima vale; só o resumo por IA falhou: ${e.message}`).catch(() => {});
+  }
+}
+bot.command('colegio', ctx => cmdMateria(ctx, ctx.match));
+
+// ---------- /ata — modo de anotação da Reunião de Líderes ----------
+// Com a ata aberta, TODO texto solto do analista no privado vira anotação (em
+// vez de ir para o agente de linguagem natural) — durante a reunião é isso que
+// ele quer 95% do tempo. Escape para perguntar algo ao bot sem fechar a ata:
+// começar a mensagem com "?" (ou usar um comando, que sempre tem prioridade).
+const PREFIXO_PERGUNTA = '?';
+
+function tecladoAta(ata) {
+  const kb = new InlineKeyboard();
+  if (ata.notas.length) kb.text('📄 Ver anotações', 'ata:ver').text('✅ Gerar mensagem', 'ata:fim').row();
+  return kb.text('🗑 Descartar', 'ata:descartar');
+}
+
+function cabecalhoAta(ata) {
+  return `📝 Ata da reunião de ${diaBRAta(ata.iniciadaEm)}, aberta às ${horaBRAta(ata.iniciadaEm)} — ` +
+         `${ata.notas.length} anotação(ões).`;
+}
+
+async function cmdAta(ctx, arg) {
+  if (!ehPrivado(ctx)) return ctx.reply('A ata é pessoal — use /ata no meu privado.');
+  const sub = String(arg || '').trim();
+  const m = sub.match(/^(ver|listar|lista|fim|fecha|fechar|encerrar|gerar|descartar|cancelar|apagar|apaga|ajuda|ultima|última)\b\s*(.*)$/i);
+  const acao = m ? m[1].toLowerCase().replace(/^(fecha|encerrar)$/, 'fechar').replace(/^(apaga)$/, 'apagar').replace(/^lista$/, 'listar') : '';
+
+  if (/^(ajuda)$/.test(acao)) return ctx.reply(AJUDA_ATA);
+
+  if (/^(ultima|última)$/.test(acao)) {
+    const u = ultimaAtaFechada(ctx.from.id);
+    if (!u?.mensagem) return ctx.reply('Não encontrei nenhuma ata fechada com mensagem gerada.');
+    await ctx.reply(`Mensagem da ata de ${diaBRAta(u.iniciadaEm)}:`);
+    return responderLongo(ctx, u.mensagem);
+  }
+
+  const aberta = ataAberta(ctx.from.id);
+
+  if (/^(ver|listar)$/.test(acao)) {
+    if (!aberta) return ctx.reply('Não há ata aberta. Abra com /ata.');
+    return responderLongo(ctx, `${cabecalhoAta(aberta)}\n\n${listarNotas(aberta)}`, tecladoAta(aberta));
+  }
+  if (acao === 'apagar') {
+    if (!aberta) return ctx.reply('Não há ata aberta.');
+    const fora = apagarNota(ctx.from.id, m[2]);
+    return ctx.reply(fora ? `Apaguei: "${fora}"` : 'Número inválido — veja os números em /ata ver.');
+  }
+  if (/^(descartar|cancelar)$/.test(acao)) return descartarComConfirmacao(ctx);
+  if (/^(fim|fechar|gerar)$/.test(acao)) return gerarMensagemDaAta(ctx);
+
+  // "/ata pauta focada no agro" e "/anotar <texto>": o que sobra e não é
+  // subcomando conhecido é ANOTAÇÃO — perder o texto porque o analista digitou
+  // a barra por hábito seria o pior desfecho aqui.
+  if (sub && !acao) {
+    if (!aberta) abrirAta(ctx.from.id);
+    return tratarAnotacao(ctx, sub);
+  }
+
+  // Sem subcomando: abre (ou mostra a que já está aberta).
+  const { ata, jaEstava } = abrirAta(ctx.from.id);
+  if (jaEstava) return ctx.reply(`${cabecalhoAta(ata)}\n\nContinue anotando — é só escrever.`, { reply_markup: tecladoAta(ata) });
+  return ctx.reply(
+    '📝 Ata aberta. A partir de agora, tudo o que você me escrever aqui vira anotação da reunião — ' +
+    'pode mandar por texto ou por áudio, uma ideia por mensagem.\n\n' +
+    'Ao final, toque em "Gerar mensagem" (ou /ata fim) e eu devolvo o texto pronto para o WhatsApp.\n\n' +
+    `Para me perguntar algo sem fechar a ata, comece a mensagem com "${PREFIXO_PERGUNTA}" — ` +
+    'os comandos (/colegio, /pauta…) continuam funcionando normalmente.',
+    { reply_markup: tecladoAta(ata) });
+}
+
+const AJUDA_ATA =
+  '📝 /ata — anotações da Reunião de Líderes\n\n' +
+  '/ata — abre a ata (ou mostra a que está aberta)\n' +
+  'depois é só escrever/ditar: cada mensagem vira uma anotação\n' +
+  '/ata ver — lista as anotações numeradas\n' +
+  '/ata apagar 3 — apaga a anotação 3\n' +
+  '/ata fim — gera a mensagem para o WhatsApp (na sua chave de IA)\n' +
+  '/ata descartar — joga a ata fora\n' +
+  '/ata ultima — reenvia a mensagem da última ata fechada\n\n' +
+  `Durante a ata, mensagens começadas com "${PREFIXO_PERGUNTA}" vão para a IA em vez da ata.`;
+
+function descartarComConfirmacao(ctx) {
+  const aberta = ataAberta(ctx.from.id);
+  if (!aberta) return ctx.reply('Não há ata aberta.');
+  if (!aberta.notas.length) { descartarAta(ctx.from.id); return ctx.reply('Ata fechada (estava vazia).'); }
+  return ctx.reply(`Descartar a ata com ${aberta.notas.length} anotação(ões)? Isso não tem volta.`,
+    { reply_markup: new InlineKeyboard().text('🗑 Sim, descartar', 'ata:descartar:ok').text('Não', 'ata:nao') });
+}
+
+async function gerarMensagemDaAta(ctx) {
+  const ata = ataAberta(ctx.from.id);
+  if (!ata) return ctx.reply('Não há ata aberta. Abra com /ata.');
+  if (!ata.notas.length) return ctx.reply('A ata está sem anotações — não tenho o que resumir.');
+
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply('Para gerar a mensagem preciso da sua chave de IA (a redação roda na sua conta). Configure com /config — as anotações ficam guardadas até lá.');
+  }
+
+  const aguarde = await ctx.reply(`🧠 Organizando ${ata.notas.length} anotações na mensagem da bancada…`);
+  let r;
+  try {
+    r = await gerarMensagem({ perfil, ata });
+  } catch (e) {
+    console.error('/ata fim falhou:', e);
+    return ctx.api.editMessageText(aguarde.chat.id, aguarde.message_id,
+      `Não consegui gerar a mensagem: ${e.message}\n\nAs anotações continuam salvas — tente /ata fim de novo.`).catch(() => {});
+  }
+  await ctx.api.deleteMessage(aguarde.chat.id, aguarde.message_id).catch(() => {});
+
+  // A mensagem vai SOZINHA, sem formatação, para o analista copiar inteira e
+  // colar no WhatsApp. Conferências e descartes vão depois, em outra mensagem.
+  await responderLongo(ctx, r.mensagem);
+
+  const rodape = [];
+  if (r.avisos.length) rodape.push('⚠️ Confira antes de enviar:\n' + r.avisos.map(a => `• ${a}`).join('\n'));
+  if (r.descartado.length) rodape.push('Anotações que ficaram de fora:\n' + r.descartado.map(d => `• ${d}`).join('\n'));
+  rodape.push('A ata foi fechada. Se quiser o texto de novo: /ata ultima.');
+  fecharAta(ctx.from.id, r.mensagem);
+  return responderLongo(ctx, rodape.join('\n\n'));
+}
+
+bot.command(['ata', 'anotar'], ctx => cmdAta(ctx, ctx.match));
+
+bot.callbackQuery('ata:ver', async ctx => {
+  await ctx.answerCallbackQuery();
+  const a = ataAberta(ctx.from.id);
+  if (!a) return ctx.reply('Não há ata aberta.');
+  return responderLongo(ctx, `${cabecalhoAta(a)}\n\n${listarNotas(a)}`, tecladoAta(a));
+});
+bot.callbackQuery('ata:fim', async ctx => { await ctx.answerCallbackQuery(); return gerarMensagemDaAta(ctx); });
+bot.callbackQuery('ata:descartar', async ctx => { await ctx.answerCallbackQuery(); return descartarComConfirmacao(ctx); });
+bot.callbackQuery('ata:descartar:ok', async ctx => {
+  await ctx.answerCallbackQuery();
+  const n = descartarAta(ctx.from.id);
+  return ctx.reply(`Ata descartada (${n} anotação(ões)).`);
+});
+bot.callbackQuery('ata:nao', async ctx => { await ctx.answerCallbackQuery({ text: 'Ata mantida.' }); });
+
+// Confirmação da oferta do monitor (botão "Importar Ordem do Dia").
+bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
+  await ctx.answerCallbackQuery();
+  const [, eventoId, dataISO] = ctx.match;
+  try {
+    const doc = await importarOrdemDoDia({ eventoId, dataISO, uploadedBy: `telegram:${ctx.from.id}` });
+    if (!doc) return ctx.editMessageText('A Ordem do Dia dessa sessão ainda não tem itens.').catch(() => {});
+    marcarOddImportada(eventoId);
+    return ctx.editMessageText(
+      `📋 Ordem do Dia importada — ${(doc.itens || []).length} itens. ` +
+      'Agora é a pauta de referência do dia: /listar, /perguntar, /analisar, /exportar.').catch(() => {});
+  } catch (e) {
+    console.error('oddimp falhou:', e);
+    return ctx.reply(`Erro ao importar a Ordem do Dia: ${e.message}`);
+  }
+});
+
+// ============================================================
+//  FASE 4 — linguagem natural (texto livre) e voz
+// ============================================================
+async function executarDecisao(ctx, decisao) {
+  switch (decisao.ferramenta) {
+    case 'verificar_pauta': return buscaOnline(ctx);
+    case 'escolher_pauta':  return cmdPauta(ctx);
+    case 'importar_pauta':  return prepararImportacao(ctx);   // sempre com botão de confirmação
+    case 'ordem_do_dia':    return cmdOrdemDoDia(ctx);
+    case 'listar_itens':    return cmdListarItens(ctx);
+    case 'ver_nota':           return fluxoNota(ctx, decisao.argumentos.pergunta || '');
+    case 'pauta_comissao':     return cmdPautaComissao(ctx, {
+      comissoes: decisao.argumentos.comissoes, texto: decisao.argumentos.pergunta,
+      data: decisao.argumentos.data, partido: decisao.argumentos.partido, deputado: decisao.argumentos.deputado });
+    case 'comissoes_reuniao':  return cmdComissoesReuniao(ctx, { data: decisao.argumentos.data });
+    case 'varrer_comissoes':   return cmdVarrerComissoes(ctx, {
+      data: decisao.argumentos.data, partido: decisao.argumentos.partido, deputado: decisao.argumentos.deputado });
+    case 'perguntar':          return fluxoPerguntar(ctx, decisao.argumentos.pergunta);
+    case 'listar_documentos':  return cmdDocumentos(ctx, decisao.argumentos.pergunta || '');
+    case 'baixar_documentos':  return cmdBaixar(ctx, decisao.argumentos.pergunta || '');
+    case 'votacao':            return cmdVotacao(ctx, decisao.argumentos.pergunta || '');
+    case 'resumo':             return cmdResumo(ctx, decisao.argumentos.pergunta || '');
+    case 'analisar':           return cmdAnalisar(ctx);   // tem confirmação própria (custo de IA)
+    case 'digest':             return cmdDigest(ctx);
+    case 'exportar':           return cmdExportar(ctx);
+    case 'ajuda':              return ctx.reply(TEXTO_AJUDA);
+    case 'responder':       return ctx.reply(decisao.argumentos.texto || 'Certo!');
+    default:                return ctx.reply(TEXTO_AJUDA);
+  }
+}
+
+// Ferramentas de CONSULTA do agente que dependem de helpers daqui — cada uma
+// recebe argumentos e devolve STRING (vira observação para a IA continuar).
+function ferramentasDado(userId, perfil) {
+  return {
+    listar_itens: async () => {
+      const pauta = await pautaDoUsuario(userId);
+      if (!pauta) return 'Nenhuma pauta importada no SisPode ainda (a ação importar_pauta ou ordem_do_dia resolve).';
+      return `${rotuloPauta(pauta)}\n${await linhasItensPauta(pauta)}`;
+    },
+    nota_tecnica: async ({ proposicao } = {}) => {
+      const r = await mostrarNota({ userId, texto: String(proposicao || '') });
+      if (r.erro) return `ERRO: ${r.erro}`;
+      return `Nota técnica de ${r.itemLabel}${r.apelido ? ` (${r.apelido})` : ''}, como salva no SisPode:\n${r.nota}`;
+    },
+    quorum: async () => {
+      const st = await statusPlenario();
+      if (!st) return 'Painel de presença indisponível no momento.';
+      const fase = st.oddEncerrada ? 'Ordem do Dia ENCERRADA' : st.oddIniciada ? 'Ordem do Dia EM ANDAMENTO' : 'Ordem do Dia não iniciada';
+      return `Painel ao vivo: ${st.presentes} deputado(s) presente(s) · ${fase}. (Quórum de deliberação: 257.)`;
+    },
+    pauta_comissao: async ({ comissoes, data, partido, deputado } = {}) => {
+      const lista = Array.isArray(comissoes) ? comissoes : (comissoes ? [comissoes] : []);
+      if (!lista.length) return 'ERRO: informe a(s) comissão(ões) em "comissoes".';
+      return consultarPauta(lista, data || 'hoje', { partido: partido || null, deputado: deputado || null });
+    },
+    comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
+    faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
+    questao_ordem: async ({ termo, fase } = {}) =>
+      formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
+    recurso: async ({ termo } = {}) => formatarRecurso(await buscarRecurso(String(termo || ''))),
+    // O AGENTE recebe mais artigos que o comando: a busca lexical erra a ordem
+    // em pergunta longa, e é ele quem tem leitura semântica para escolher o certo.
+    regimento: async ({ consulta } = {}) => respostaRegimental(String(consulta || ''), { limite: 4, perfil }),
+    oradores_sessao: async ({ data, filtro } = {}) => {
+      const m = String(data || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
+      const iso = m ? `${m[3]}-${m[2]}-${m[1]}` : (String(data || '').match(/^\d{4}-\d{2}-\d{2}$/) ? data : hojeBrasiliaISO());
+      return resumoOradoresDaData(iso, String(filtro || ''));
+    },
+  };
+}
+
+async function tratarLinguagemNatural(ctx, texto) {
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) {
+    return ctx.reply(
+      'Entendo linguagem natural, mas para isso preciso da sua chave de IA (a conversa roda na sua conta).\n' +
+      'Configure com /config no privado — ou use os comandos: /pauta, /importar, /ajuda.');
+  }
+  await ctx.replyWithChatAction('typing');
+  try {
+    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id, perfil) });
+    if (r.tipo === 'acao') return executarDecisao(ctx, { ferramenta: r.ferramenta, argumentos: r.argumentos });
+    return responderLongo(ctx, r.texto, null, { md: true });
+  } catch (e) {
+    console.error('agente falhou:', e);
+    return ctx.reply(`Não consegui interpretar (${e.message}). Tente um comando: /pauta, /importar, /perguntar…`);
+  }
+}
+
+// No grupo, reage a texto livre quando o bot é MENCIONADO ou quando a mensagem
+// é RESPOSTA a uma mensagem dele (decisão da Liderança, 16/07).
+function textoParaOBot(ctx) {
+  const texto = ctx.message?.text || '';
+  if (ehPrivado(ctx)) return texto;
+  const mencao = '@' + (ctx.me?.username || '');
+  if (mencao.length > 1 && texto.includes(mencao)) return texto.split(mencao).join(' ').trim();
+  if (ctx.message?.reply_to_message?.from?.id === ctx.me?.id) return texto.trim();
+  return null;
+}
+
+// Com a ata aberta, o texto solto do analista no privado é ANOTAÇÃO, não
+// pergunta. Vale só no privado (a ata é pessoal) e só fora do fluxo do /config.
+// Escape: mensagem começada com "?" vai para a IA sem fechar a ata.
+async function tratarAnotacao(ctx, texto) {
+  try {
+    const { n } = anotar(ctx.from.id, texto, ctx.message?.voice ? 'voz' : 'texto');
+    return ctx.reply(`📝 ${n}`);
+  } catch (e) {
+    return ctx.reply(`Não consegui anotar: ${e.message}`);
+  }
+}
+
+/** Roteia texto livre do privado: anotação da ata, ou conversa com a IA. */
+async function rotearTextoLivre(ctx, texto) {
+  if (ehPrivado(ctx) && ataAberta(ctx.from.id)) {
+    if (texto.startsWith(PREFIXO_PERGUNTA)) {
+      const pergunta = texto.slice(PREFIXO_PERGUNTA.length).trim();
+      if (!pergunta) return ctx.reply(`Escreva a pergunta depois do "${PREFIXO_PERGUNTA}".`);
+      return tratarLinguagemNatural(ctx, pergunta);
+    }
+    return tratarAnotacao(ctx, texto);
+  }
+  return tratarLinguagemNatural(ctx, texto);
+}
+
+bot.on('message:text', async ctx => {
+  // Fluxo do /config aguardando a chave (só no privado)
+  if (ehPrivado(ctx) && configPendente.has(String(ctx.from.id))) return tratarChaveColada(ctx);
+
+  const texto = textoParaOBot(ctx);
+  if (texto === null || !texto.trim()) return;          // grupo sem menção: ignora
+  return rotearTextoLivre(ctx, texto.trim());
+});
+
+// ---------- Voz ----------
+bot.on('message:voice', async ctx => {
+  if (!ehPrivado(ctx)) return;   // voz só no privado (no grupo não há menção em áudio)
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.reply('Para usar voz, configure sua chave com /config.');
+
+  await ctx.replyWithChatAction('typing');
+  try {
+    const file = await ctx.getFile();
+    const res = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`);
+    if (!res.ok) throw new Error(`download do áudio: HTTP ${res.status}`);
+    const buffer = new Uint8Array(await res.arrayBuffer());
+
+    // Transcrição: com TRANSCRIBE_GEMINI_KEY configurada, TODO áudio é
+    // reconhecido pelo Gemini (transcritor padrão do bot, cota gratuita) —
+    // padroniza a qualidade e não consome a chave pessoal do analista.
+    // Sem ela, cai no provedor do próprio usuário (Gemini/OpenAI aceitam
+    // áudio; a API da Anthropic não).
+    let texto;
+    if (TRANSCRIBE_GEMINI_KEY) {
+      // Modelo do /modelo do usuário quando for Gemini; senão o padrão do provedor
+      texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, modelo: perfil.modelo, buffer });
+    } else if (perfil.provedor === 'anthropic') {
+      return ctx.reply('Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY no .env). Envie por texto.');
+    } else {
+      texto = await transcreverAudio({ provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo, buffer });
+    }
+    if (!texto) return ctx.reply('Não consegui transcrever o áudio — tente de novo ou envie por texto.');
+
+    // Com a ata aberta, o áudio vira anotação — ditar é o que se consegue fazer
+    // dentro de uma reunião. A transcrição vai visível para o analista poder
+    // conferir (e corrigir com /ata apagar) antes de gerar a mensagem.
+    await ctx.reply(`🎤 Entendi: "${texto}"`);
+    return rotearTextoLivre(ctx, texto.trim());
+  } catch (e) {
+    console.error('voz falhou:', e);
+    return ctx.reply(`Erro ao processar o áudio: ${e.message}`);
+  }
+});
+
+// ============================================================
+//  Cron: TODOS os dias, 24h, a cada CRON_MINUTOS — pauta é política e
+//  pode ser publicada a qualquer hora (inclusive fim de semana/madrugada).
+// ============================================================
+
+// Destinatários do aviso: todos os analistas autorizados, no PRIVADO
+// (admin + IDs fixos do .env + quem entrou pela palavra-chave/aprovação).
+function destinatariosAviso() {
+  const ids = new Set();
+  if (ADMIN_USER_ID) ids.add(ADMIN_USER_ID);
+  for (const id of ALLOWED_USER_IDS) ids.add(id);
+  for (const id of Object.keys(listarAutorizados())) ids.add(id);
+  return [...ids];
+}
+
+async function tickCron() {
+  try {
+    const r = await verificarPautaNova();
+    // Só vale um aviso quando: mudou o período E a semana não está encerrada
+    // E a equipe ainda não importou (evita anunciar como "nova" uma pauta
+    // velha ou que alguém já colocou no SisPode — ex.: primeiro boot).
+    if (r.status !== 'nova') return;
+    if (r.situacao === 'encerrada' || r.jaImportada.importada) {
+      console.log(`cron: pauta "${r.pauta.periodo}" detectada mas não anunciada ` +
+        `(situação: ${r.situacao}; importada: ${r.jaImportada.importada})`);
+      return;
+    }
+    const p = r.pauta;
+    // AVISO puro — sem botão de importar: quem decide importar/usar é o
+    // analista, pelo /pauta (lista do SisPode + "Buscar on-line").
+    const msg =
+      `🆕 📋 Pauta nova da semana${p.periodo ? ` — ${p.periodo}` : ''}\n` +
+      `${rotuloSituacao(r.situacao, p.periodo)}\n` +
+      `${p.itens.length} itens identificados\n\n${resumoPauta(p)}\n\n` +
+      `Para importar ou usar: /pauta → 🔎 Buscar on-line.`;
+
+    // Privado de cada analista. Quem nunca abriu conversa com o bot não pode
+    // receber DM (regra do Telegram) — a falha individual é só logada.
+    let enviados = 0;
+    for (const id of destinatariosAviso()) {
+      try { await enviarLongo(bot.api, id, msg); enviados++; }
+      catch (e) { console.warn(`cron: não foi possível avisar ${id}: ${e.message}`); }
+    }
+    // Grupo é opcional: se GRUPO_CHAT_ID estiver configurado, avisa lá também.
+    if (GRUPO_CHAT_ID) {
+      try { await enviarLongo(bot.api, GRUPO_CHAT_ID, msg); }
+      catch (e) { console.warn('cron: aviso ao grupo falhou:', e.message); }
+    }
+    console.log(`cron: pauta nova "${p.periodo}" anunciada a ${enviados} analista(s)` +
+      (GRUPO_CHAT_ID ? ' + grupo' : ''));
+  } catch (e) {
+    // Falha transitória (Câmara fora do ar etc.): só loga; o próximo tick tenta de novo.
+    console.warn('cron da pauta falhou:', e.message);
+  }
+}
+
+setInterval(tickCron, CRON_MINUTOS * 60 * 1000);
+tickCron(); // primeira checagem ao subir
+
+// ---------- Backup automático: na subida + a cada 6h ----------
+async function tickBackup() {
+  try {
+    const r = await fazerBackup();
+    if (r.ignorado && ADMIN_USER_ID) {
+      await bot.api.sendMessage(ADMIN_USER_ID,
+        `⚠️ Backup: o Firebase veio VAZIO (0 registros em todos os nós). ` +
+        `Snapshot ignorado (mantido o anterior: ${r.referencia.registros} registros). ` +
+        `Pode ser perda de dados — verifique o painel; /backups para restaurar.`).catch(() => {});
+    }
+  } catch (e) { console.warn('backup automático falhou:', e.message); }
+}
+setInterval(tickBackup, 6 * 60 * 60 * 1000);
+tickBackup();
+
+// ---------- Digest semanal: segunda-feira, 7h (Brasília) ----------
+// Gera na chave do ADMIN e envia aos assinantes (+ admin). Idempotente por
+// semana (dados/digest-envio.json) — sobrevive a reinícios do bot.
+async function tickDigest() {
+  try {
+    if (!ehHoraDoEnvio() || jaEnviadoNaSemana()) return;
+    const destinos = [...new Set([ADMIN_USER_ID, ...Object.keys(listarAssinantes())].filter(Boolean))];
+    if (!destinos.length) return;
+    const perfilAdmin = getPerfil(ADMIN_USER_ID);
+    if (!perfilAdmin?.apiKey) {
+      marcarEnvioDaSemana();   // não fica tentando em loop — avisa e segue
+      if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+        '📺 Digest de segunda: não gerei porque o admin está sem chave de IA (/config). Peça com /digest quando configurar.').catch(() => {});
+      return;
+    }
+    console.log('[digest] gerando o envio semanal…');
+    const digest = await gerarDigest({ perfil: perfilAdmin, forcar: true });
+    marcarEnvioDaSemana();
+    for (const id of destinos) {
+      try { await enviarDigest(bot.api, id, digest); }
+      catch (e) { console.warn(`[digest] envio a ${id} falhou:`, e.message); }
+    }
+    console.log(`[digest] enviado a ${destinos.length} assinante(s).`);
+  } catch (e) {
+    console.warn('[digest] tick falhou:', e.message);
+  }
+}
+setInterval(tickDigest, 10 * 60 * 1000);
+tickDigest();
+
+// ---------- Roda Viva: terça-feira, 8h (Brasília) → resumo no grupo ----------
+// O episódio de segunda 22h sobe no YouTube na madrugada; na terça a partir
+// das 8h o bot resume (chave do admin) e posta no GRUPO. Idempotente por
+// vídeo (dados/rodaviva-envio.json) e ignora episódio velho (reprise/recesso).
+async function tickRodaViva() {
+  try {
+    if (!GRUPO_CHAT_ID || !ehHoraDoEnvioRodaViva()) return;
+    const ep = await ultimoEpisodio().catch(() => null);
+    if (!ep || jaEnviadoRodaViva(ep.videoId) || !episodioRecente(ep)) return;
+    const perfilAdmin = getPerfil(ADMIN_USER_ID);
+    if (!perfilAdmin?.apiKey) {
+      marcarEnvioRodaViva(ep.videoId);   // não fica tentando em loop
+      if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+        '📺 Roda Viva de ontem: não resumi porque o admin está sem chave de IA (/config). Peça com /rodaviva quando configurar.').catch(() => {});
+      return;
+    }
+    console.log('[rodaviva] gerando o resumo semanal…');
+    const { texto } = await gerarResumoRodaViva({ perfil: perfilAdmin, log: m => console.log('[rodaviva] ' + m) });
+    marcarEnvioRodaViva(ep.videoId);
+    await enviarLongo(bot.api, GRUPO_CHAT_ID, texto);
+    console.log(`[rodaviva] resumo de "${ep.titulo}" enviado ao grupo.`);
+  } catch (e) {
+    // Transitório (vídeo ainda sem legenda, YouTube instável): o próximo tick tenta.
+    console.warn('[rodaviva] tick falhou:', e.message);
+  } finally {
+    _rodavivaEmCurso = false;
+  }
+}
+// Tick de 1 min (checagem local, custo zero fora da janela): o envio dispara
+// até 8h01 e a mensagem cai no grupo por volta das 8h02. O guard impede dois
+// ticks gerando em paralelo (a geração leva ~1 min) e postando em dobro.
+let _rodavivaEmCurso = false;
+setInterval(() => {
+  if (_rodavivaEmCurso) return;
+  _rodavivaEmCurso = true;
+  tickRodaViva();
+}, 60 * 1000);
+_rodavivaEmCurso = true;
+tickRodaViva();
+
+if (!ADMIN_USER_ID) console.warn('ADMIN_USER_ID vazio — pedidos de acesso não serão encaminhados a ninguém.');
+
+// ---------- Monitor de Sessão ao Vivo ----------
+if (MONITOR_ATIVO) {
+  iniciarMonitor({
+    api: bot.api,
+    admin: ADMIN_USER_ID,
+    ensaio: () => MONITOR_ENSAIO,
+    // Ensaio: tudo vai só para o admin. Produção: grupo da equipe.
+    destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
+    ligadoInicial: true,
+  });
+  if (!MONITOR_ENSAIO && !GRUPO_CHAT_ID) {
+    console.warn('Monitor em modo produção sem GRUPO_CHAT_ID — mensagens serão descartadas. Configure o grupo ou ligue MONITOR_ENSAIO=1.');
+  }
+} else {
+  console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
+}
+
+// (Receptor de PUSH do Plenário via OneSignal: REMOVIDO em 16/07/2026. Nunca
+// entregou um sinal utilizável ao vivo e custava um Chromium permanente. Todo o
+// tempo real hoje vem das APIs públicas cosev/ws-plenario — ver plenariocosev.js
+// e monitor.js. Histórico no git, se um dia precisar ressuscitar.)
+
+// ---------- Espião cosev (modo calibração ao vivo) ----------
+// Durante uma sessão REAL, manda ao PRIVADO DO ADMIN cada mudança de estado do
+// Plenário (sessão abre/fecha, ODD inicia/encerra, itens em votação) com o JSON
+// cru dos endpoints públicos cosev/ws-plenario. Serve para vermos a forma exata
+// dos dados e calibrar os gatilhos do monitor. Mudanças de estado vão ao GRUPO
+// (produção) e ao admin; os dumps de JSON cru vão só ao admin. Sem heartbeat.
+// Liga com BOT_COSEV_ESPIAO=1 no .env.
+if (process.env.BOT_COSEV_ESPIAO === '1') {
+  const { iniciarEspiaoCosev } = require('./src/cosevespiao');
+  iniciarEspiaoCosev({
+    api: bot.api,
+    admin: ADMIN_USER_ID,
+    grupo: null,   // espião fala SÓ no privado do admin (o grupo recebe do monitor)
+    log: m => console.log(`[cosev-espião] ${m}`),
+  });
+  console.log('[cosev-espião] ATIVO — só no privado do admin (mudanças + dumps crus).');
+} else {
+  console.log('Espião cosev desativado (defina BOT_COSEV_ESPIAO=1 no .env para ligar).');
+}
+
+bot.catch(err => console.error('Erro no bot:', err));
+
+// Registra o MENU de comandos do Telegram (o pop-up do "/" no privado e no
+// grupo). Sem isto, vale a lista velha do BotFather — que não se atualiza
+// quando o bot ganha comandos novos. Roda a cada subida (idempotente).
+const MENU_COMANDOS = [
+  { command: 'pauta',          description: 'Escolher a pauta do SisPode (ou buscar on-line)' },
+  { command: 'listar',         description: 'Itens da pauta em uso' },
+  { command: 'nota',           description: 'Nota técnica como está salva (ex.: /nota PL 1234/2026)' },
+  { command: 'colegio',        description: 'Ficha de proposição avulsa, no formato da Reunião de Líderes' },
+  { command: 'ata',            description: 'Anotar a Reunião de Líderes e gerar a mensagem da bancada' },
+  { command: 'perguntar',      description: 'Perguntar à IA sobre um item ou a pauta' },
+  { command: 'documentos',     description: 'Documentos da tramitação fora da nota' },
+  { command: 'baixar',         description: 'Baixar os PDFs dos documentos do item' },
+  { command: 'importar',       description: 'Importar a Pauta da Semana do site' },
+  { command: 'ordemdodia',     description: 'Importar a Ordem do Dia de hoje' },
+  { command: 'analisar',       description: 'Gerar as notas técnicas (na sua chave)' },
+  { command: 'exportar',       description: 'PDF institucional da pauta' },
+  { command: 'digest',         description: '📺 Radar de imprensa + minutas (assinantes)' },
+  { command: 'rodaviva',       description: '📺 Resumo da entrevista do Roda Viva (segunda)' },
+  { command: 'comissao',       description: 'Pauta de uma comissão (ex.: /comissao CCJ hoje)' },
+  { command: 'comissoeshoje',  description: 'Comissões com reunião deliberativa na data' },
+  { command: 'varrercomissoes', description: 'Projetos do Podemos nas comissões do dia' },
+  { command: 'votacao',        description: 'Votações do Plenário + imagem do placar' },
+  { command: 'quorum',         description: 'Presença ao vivo no Plenário (painel público)' },
+  { command: 'oradores',       description: 'Quem falou/aguarda na sessão (ex.: /oradores 15/07/2026)' },
+  { command: 'faltamvotar',    description: 'Quem do Podemos ainda não votou (na nominal aberta)' },
+  { command: 'questaoordem',   description: 'Buscar questões de ordem por termo (ex.: /qo ata de comissão)' },
+  { command: 'regimento',      description: 'Regimento Interno: artigo ou dúvida (ex.: /ri verificação)' },
+  { command: 'resumo',         description: 'Resumo da sessão do dia' },
+  { command: 'agregar',        description: 'Incluir documentos na conversa da IA' },
+  { command: 'limpar',         description: 'Zerar a conversa com a IA' },
+  { command: 'config',         description: 'Configurar sua chave de IA (privado)' },
+  { command: 'ajuda',          description: 'Todos os comandos, com detalhes' },
+];
+
+// Comando de revisão de mensagens — visível a quem PODE usar (autorizados).
+const MENU_REVISAR = { command: 'revisar_msg', description: 'Corrigir uma das últimas mensagens do grupo' };
+// Menu dos AUTORIZADOS (lista do /usuarios): público + /revisar_msg.
+const MENU_REVISOR = [...MENU_COMANDOS, MENU_REVISAR];
+// Menu do ADMIN: o dos autorizados + administração do monitor.
+const MENU_ADMIN = [...MENU_COMANDOS, MENU_REVISAR,
+  { command: 'monitor', description: 'Status/liga-desliga do monitor de sessão' },
+  { command: 'update', description: 'Atualizar o bot pelo GitHub (main) e reiniciar' }];
+
+// Define o menu do "/" no privado de UM usuário conforme o papel dele. Escopo
+// por chat do Telegram: o público vê MENU_COMANDOS; autorizados veem +
+// /revisar_msg; o admin vê + /monitor. Chamado no arranque e a cada
+// aprovação/revogação (sem esperar restart).
+async function registrarMenuDe(id) {
+  id = String(id || '');
+  if (!id) return;
+  const menu = id === ADMIN_USER_ID ? MENU_ADMIN : (isAutorizado(id) ? MENU_REVISOR : null);
+  try {
+    if (menu) await bot.api.setMyCommands(menu, { scope: { type: 'chat', chat_id: Number(id) } });
+    else await bot.api.deleteMyCommands({ scope: { type: 'chat', chat_id: Number(id) } });  // revogado → volta ao público
+  } catch (e) { console.warn(`Menu do usuário ${id} não registrado:`, e.message); }
+}
+
+// IDs autorizados hoje: admin + fixos do .env + aprovados dinâmicos (allowlist).
+function idsAutorizados() {
+  return [...new Set([ADMIN_USER_ID, ...ALLOWED_USER_IDS, ...Object.keys(listarAutorizados())].filter(Boolean))];
+}
+
+bot.start({
+  onStart: async me => {
+    console.log(`SisPode Bot online como @${me.username} — monitor a cada ${CRON_MINUTOS} min`);
+    try {
+      await bot.api.setMyCommands(MENU_COMANDOS);   // escopo padrão (público)
+      console.log(`Menu de comandos registrado (${MENU_COMANDOS.length} comandos).`);
+      const ids = idsAutorizados();
+      for (const id of ids) await registrarMenuDe(id);
+      console.log(`Menu ampliado (${MENU_REVISOR.length}/${MENU_ADMIN.length}) registrado para ${ids.length} autorizado(s).`);
+    } catch (e) { console.warn('Falha ao registrar o menu de comandos:', e.message); }
+  },
+});
