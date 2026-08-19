@@ -467,6 +467,14 @@ function resumoMudancas(m) {
 //   · Transferência Especial ("pix") NÃO gera proposta no FNS: não há para
 //     onde descer, e isso é dito em vez de parecer defeito.
 // ============================================================
+// AS DUAS FONTES NÃO SE CONSULTAM DO MESMO JEITO — mexer numa não pode
+// quebrar a outra:
+//   · FNS: consulta por UF (sgUf). NUNCA por nome. Os nomes só aparecem na
+//     coluna APELIDO da planilha que volta.
+//   · Transparência: consulta por NOME (nomeAutor), sensível a caixa e acento,
+//     na forma maiúscula sem acento — ver chaveNome().
+// O único lugar em que as duas se cruzam é o link "ver propostas no FNS" do
+// detalhe da pasta, e lá a comparação passa obrigatoriamente por chaveNome.
 const TRANSP_BASE = 'https://api.portaldatransparencia.gov.br/api-de-dados';
 const TRANSP_PAGINA = 15;        // tamanho de página observado na fonte
 
@@ -1664,8 +1672,19 @@ function abrirPasta(parlamentar, funcao) {
     ev.preventDefault();
     document.getElementById('modal-detalhe').style.display = 'none';
     trocarAba('propostas');
+    // ÚNICO ponto em que as duas fontes se encontram — e por isso a comparação
+    // passa SEMPRE pela chave normalizada, nunca pelo texto cru. Hoje as duas
+    // escrevem em maiúsculas sem acento e bateriam por igualdade simples; no
+    // dia em que uma delas mudar, o filtro erraria em silêncio e o analista
+    // veria a pauta inteira achando que era a do deputado.
     const sel = document.getElementById('f-deputado');
-    if ([...sel.options].some(o => o.value === a.dataset.fns)) sel.value = a.dataset.fns;
+    const alvo = chaveNome(a.dataset.fns);
+    const opcao = [...sel.options].find(o => o.value && chaveNome(o.value) === alvo);
+    if (opcao) {
+      sel.value = opcao.value;
+    } else {
+      mostrarToast(`Não há proposta do FNS para ${a.dataset.fns} na base deste exercício.`, 'aviso');
+    }
     renderKpis(); renderTabela();
   }));
 
