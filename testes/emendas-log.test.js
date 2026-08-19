@@ -15,10 +15,10 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
 const trecho = re => src.match(re)[0];
 const M = new Function(`
-  ${trecho(/function etapaDe[\s\S]*?\n}/)}
-  ${trecho(/function linhaDoLog[\s\S]*?\n}/)}
-  ${trecho(/function compararComAnterior[\s\S]*?\n}/)}
-  ${trecho(/function resumoMudancas[\s\S]*?\n}/)}
+  ${trecho(/function etapaDe\([\s\S]*?\n}/)}
+  ${trecho(/function linhaDoLog\([\s\S]*?\n}/)}
+  ${trecho(/function compararComAnterior\([\s\S]*?\n}/)}
+  ${trecho(/function resumoMudancas\([\s\S]*?\n}/)}
   return { linhaDoLog, compararComAnterior, resumoMudancas, etapaDe };
 `)();
 

@@ -25,13 +25,13 @@ const trecho = re => src.match(re)[0];
 const modulo = new Function('XLSX', `
   const SIGLA_PODEMOS = 'PODE';
   ${trecho(/const COLUNAS = \{[\s\S]*?\n\};/)}
-  ${trecho(/function normalizarCabecalho[\s\S]*?\n}/)}
-  ${trecho(/function dinheiro[\s\S]*?\n}/)}
+  ${trecho(/function normalizarCabecalho\([\s\S]*?\n}/)}
+  ${trecho(/function dinheiro\([\s\S]*?\n}/)}
   ${trecho(/let _avisouPrecisao[\s\S]*?\n}/)}
-  ${trecho(/function lerPlanilhaPodemos[\s\S]*?\n}/)}
-  ${trecho(/function etapaDe[\s\S]*?\n}/)}
-  ${trecho(/function somar[\s\S]*?\n}/)}
-  ${trecho(/function porDeputado[\s\S]*?\n}/)}
+  ${trecho(/function lerPlanilhaPodemos\([\s\S]*?\n}/)}
+  ${trecho(/function etapaDe\([\s\S]*?\n}/)}
+  ${trecho(/function somar\([\s\S]*?\n}/)}
+  ${trecho(/function porDeputado\([\s\S]*?\n}/)}
   return { lerPlanilhaPodemos, dinheiro, etapaDe, somar, porDeputado, normalizarCabecalho, numeroDaProposta };
 `)(XLSX);
 

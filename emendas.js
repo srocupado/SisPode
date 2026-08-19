@@ -56,6 +56,8 @@ const state = {
   aba: 'propostas',
   log: null,              // relatório da última coleta desta sessão
   emVoo: new Map(),       // uf → instante em que a requisição saiu (para o painel vivo)
+  emendas: [],            // panorama (Portal da Transparência), do exercício carregado
+  metaTr: null,           // { em, parlamentares, falhas } da última consulta do panorama
   ordem: { col: 'pago', desc: true },
   varredura: null,        // AbortController enquanto busca
 };
@@ -444,6 +446,257 @@ function resumoMudancas(m) {
   return p.length ? ` · ${p.join(', ')}` : ' · nada mudou desde a última busca';
 }
 
+// ============================================================
+//  PANORAMA POR PASTA — Portal da Transparência
+//  A segunda fonte do módulo. Enquanto o FNS desce ao município e à ordem
+//  bancária (só na saúde), a Transparência dá a LARGURA: todas as pastas
+//  (funções orçamentárias), filtrando por AUTOR direto na consulta.
+//
+//  MEDIDO em 19/08/2026 com a chave da Liderança: cada parlamentar tem de 2 a
+//  13 emendas no ano, tudo em UMA página — a bancada inteira sai em ~22
+//  requisições, segundos. Renata Abreu, por exemplo: 13 emendas em 9 pastas.
+//
+//  O VÍNCULO entre as duas fontes é exato: codigoEmenda = ano + código do
+//  autor + número (202637460001), e o FNS traz o mesmo par em
+//  coEmendaPolitica ("37460001"). Dá para sair de uma emenda de saúde daqui
+//  e cair nas propostas municipais dela.
+//
+//  Limites da fonte, que a tela precisa respeitar:
+//   · localidadeDoGasto quase sempre vem "MÚLTIPLO" — município é assunto do FNS;
+//   · Transferência Especial ("pix") NÃO gera proposta no FNS: não há para
+//     onde descer, e isso é dito em vez de parecer defeito.
+// ============================================================
+const TRANSP_BASE = 'https://api.portaldatransparencia.gov.br/api-de-dados';
+const TRANSP_PAGINA = 15;        // tamanho de página observado na fonte
+
+/** A chave é de cada analista e mora só neste navegador (nunca no Firebase,
+ *  que hoje é aberto). Mesmo padrão da chave de IA dos outros módulos. */
+function chaveTransparencia() {
+  return new Promise(r => chrome.storage.local.get(['transparenciaChave'], o => r(o.transparenciaChave || '')));
+}
+function salvarChaveTransparencia(chave) {
+  return new Promise(r => chrome.storage.local.set({ transparenciaChave: chave }, r));
+}
+
+async function fetchTransparencia(caminho, params, chave, sinal) {
+  const url = `${TRANSP_BASE}/${caminho}?` + new URLSearchParams(params);
+  let erro = null;
+  for (let i = 0; i < 3; i++) {
+    if (i > 0) await new Promise(r => setTimeout(r, 1500 * i));
+    await respiro();
+    let res;
+    try {
+      res = await fetchComTimeout(url, { headers: { 'chave-api-dados': chave, Accept: 'application/json' }, sinalExtra: sinal }, 30000);
+    } catch (e) {
+      if (e.name === 'AbortError') throw e;
+      erro = e; continue;
+    }
+    if (res.ok) return await res.json();
+    if (res.status === 401 || res.status === 403) {
+      throw new Error('a chave do Portal da Transparência foi recusada (HTTP ' + res.status + ') — confira em “Chave”');
+    }
+    if (res.status === 429 || res.status >= 500) { erro = new Error(`Portal da Transparência respondeu HTTP ${res.status}`); continue; }
+    throw new Error(`HTTP ${res.status} no Portal da Transparência`);
+  }
+  throw erro || new Error('falha ao consultar o Portal da Transparência');
+}
+
+/** Emendas de um parlamentar num exercício (todas as páginas). */
+async function emendasDoParlamentar(nome, ano, chave, sinal) {
+  const out = [];
+  for (let pagina = 1; pagina <= 10; pagina++) {
+    const lote = await fetchTransparencia('emendas', { ano, nomeAutor: nome, pagina }, chave, sinal);
+    if (!Array.isArray(lote)) break;
+    out.push(...lote.map(e => normalizarEmenda(e)));
+    if (lote.length < TRANSP_PAGINA) break;
+  }
+  return out;
+}
+
+/** codigoEmenda "202637460001" → { ano, autor: '3746', numero: '0001' }.
+ *  O par autor+numero é o que casa com coEmendaPolitica do FNS. */
+function partesDoCodigo(codigo) {
+  const c = String(codigo || '').trim();
+  if (!/^\d{12}$/.test(c)) return null;
+  return { ano: c.slice(0, 4), autor: c.slice(4, 8), numero: c.slice(8, 12) };
+}
+
+function normalizarEmenda(e) {
+  const p = partesDoCodigo(e.codigoEmenda);
+  return {
+    codigo: String(e.codigoEmenda || '').trim(),
+    codigoAutor: p?.autor || '',
+    numero: String(e.numeroEmenda || '').trim(),
+    ano: String(e.ano || '').trim(),
+    parlamentar: String(e.nomeAutor || e.autor || '').trim(),
+    tipo: String(e.tipoEmenda || '').trim(),
+    funcao: String(e.funcao || '(sem função)').trim(),
+    subfuncao: String(e.subfuncao || '').trim(),
+    localidade: String(e.localidadeDoGasto || '').trim(),
+    empenhado: dinheiro(e.valorEmpenhado),
+    liquidado: dinheiro(e.valorLiquidado),
+    pago: dinheiro(e.valorPago),
+    restoInscrito: dinheiro(e.valorRestoInscrito),
+    restoPago: dinheiro(e.valorRestoPago),
+  };
+}
+
+// O Portal às vezes informa PAGO maior que o EMPENHADO — visto em 19/08/2026
+// na emenda 202644370009 (Nely Aquino, desporto): empenhado 392.000,
+// liquidado 391.984,80 e pago 783.969,60, exatamente o dobro do liquidado.
+// Não cabe a nós "consertar" com um teto de 100%: isso esconderia um defeito
+// da fonte e faria a Liderança apresentar número que a origem não sustenta.
+// Marcamos e explicamos.
+function pagoIncoerente(e) {
+  return e.empenhado > 0 && e.pago > e.empenhado * 1.001;
+}
+
+/** Transferência especial vai direto ao município: não existe proposta no FNS. */
+function temPropostaNoFns(emenda) {
+  return /finalidade\s+definida/i.test(emenda.tipo) && /sa[úu]de/i.test(emenda.funcao);
+}
+
+/** Quem é a bancada: os nomes que já apareceram no FNS mais os deputados que
+ *  a API da Câmara lista no partido — assim entra também quem não tem emenda
+ *  de saúde. A lista NUNCA é escrita à mão. */
+async function nomesDaBancada() {
+  const doFns = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))];
+  let daCamara = [];
+  try {
+    const r = await fetchComTimeout(
+      'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&ordem=ASC&ordenarPor=nome&itens=100', {}, 20000);
+    if (r.ok) daCamara = ((await r.json()).dados || []).map(d => String(d.nome || '').toUpperCase());
+  } catch (e) {
+    console.warn('[orçamento] lista de deputados da Câmara não veio:', e.message);
+  }
+  return [...new Set([...doFns, ...daCamara])].sort();
+}
+
+async function buscarPanorama() {
+  if (state.varredura) return;
+  const chave = await chaveTransparencia();
+  if (!chave) { abrirModalChave(); return; }
+
+  const ano = state.ano;
+  const ctrl = new AbortController();
+  state.varredura = ctrl;
+  document.getElementById('btn-panorama').disabled = true;
+  document.getElementById('em-vazio').style.display = 'none';
+  document.getElementById('em-progresso').style.display = '';
+
+  const nomes = await nomesDaBancada();
+  const achadas = [];
+  const falhas = [];
+  let prontos = 0;
+
+  const pintar = (nome) => {
+    const pct = Math.round((prontos / nomes.length) * 100);
+    document.getElementById('em-barra-fill').style.width = pct + '%';
+    document.getElementById('em-prog-txt').textContent =
+      `Consultando o Portal da Transparência — ${prontos} de ${nomes.length} parlamentares (${pct}%)`;
+    document.getElementById('em-prog-sub').textContent =
+      `${achadas.length} emenda(s)${nome ? ` · último: ${nome}` : ''}` +
+      (falhas.length ? ` · ${falhas.length} com falha` : '');
+  };
+  pintar('');
+
+  for (const nome of nomes) {
+    if (ctrl.signal.aborted) break;
+    try {
+      achadas.push(...await emendasDoParlamentar(nome, ano, chave, ctrl.signal));
+    } catch (e) {
+      if (e.name === 'AbortError') break;
+      falhas.push(`${nome}: ${e.message}`);
+      console.warn(`[orçamento] ${nome} falhou:`, e.message);
+      if (/recusada/.test(e.message)) break;   // chave inválida: não insiste 22 vezes
+    } finally {
+      prontos++;
+      pintar(nome);
+    }
+  }
+
+  state.varredura = null;
+  document.getElementById('btn-panorama').disabled = false;
+  document.getElementById('em-progresso').style.display = 'none';
+
+  state.emendas = achadas;
+  state.metaTr = { em: new Date().toISOString(), parlamentares: nomes.length, falhas: falhas.length };
+  await fbSalvarPanorama(ano, achadas, state.metaTr).catch(e => {
+    falhas.push('Firebase: ' + e.message);
+    console.warn('[orçamento] panorama não salvo:', e.message);
+  });
+  renderTudo();
+
+  if (falhas.length) {
+    mostrarToast(`${achadas.length} emendas · ${falhas.length} problema(s): ${falhas[0]}`, 'aviso');
+    console.warn('[orçamento] falhas no panorama:\n' + falhas.join('\n'));
+  } else {
+    mostrarToast(`✓ ${achadas.length} emendas de ${nomes.length} parlamentares em ${new Set(achadas.map(e => e.funcao)).size} pastas.`, 'sucesso');
+  }
+}
+
+async function fbSalvarPanorama(ano, emendas, meta) {
+  const r = await fetchComTimeout(`${FIREBASE_URL}/orcamento-transparencia/${ano}.json`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...meta, itens: emendas }),
+  }, 25000);
+  if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+}
+
+async function carregarPanorama(ano) {
+  try {
+    const r = await fetchComTimeout(`${FIREBASE_URL}/orcamento-transparencia/${ano}.json`, {}, 20000);
+    const d = r.ok ? await r.json() : null;
+    state.emendas = (d && d.itens) || [];
+    state.metaTr = d ? { em: d.em, parlamentares: d.parlamentares, falhas: d.falhas } : null;
+  } catch (e) {
+    console.warn('[orçamento] panorama salvo não pôde ser lido:', e.message);
+    state.emendas = []; state.metaTr = null;
+  }
+}
+
+// ---------- filtros e agregação do panorama ----------
+function emendasFiltradas() {
+  const parl = document.getElementById('p-parlamentar').value;
+  const func = document.getElementById('p-funcao').value;
+  const tipo = document.getElementById('p-tipo').value;
+  return state.emendas.filter(e =>
+    (!parl || e.parlamentar === parl) && (!func || e.funcao === func) && (!tipo || e.tipo === tipo));
+}
+
+function somarEmendas(lista) {
+  const t = { empenhado: 0, liquidado: 0, pago: 0, restos: 0, n: lista.length };
+  for (const e of lista) {
+    t.empenhado += e.empenhado; t.liquidado += e.liquidado; t.pago += e.pago;
+    t.restos += Math.max(0, e.restoInscrito - e.restoPago);
+  }
+  return t;
+}
+
+/** Matriz parlamentar × pasta. As colunas são as pastas com mais dinheiro
+ *  empenhado; o resto some numa coluna "Outras" para a tabela caber. */
+function matrizPorPasta(lista, maxColunas = 6) {
+  const porFuncao = new Map();
+  for (const e of lista) porFuncao.set(e.funcao, (porFuncao.get(e.funcao) || 0) + e.empenhado);
+  const principais = [...porFuncao.entries()].sort((a, b) => b[1] - a[1]).slice(0, maxColunas).map(x => x[0]);
+  const outras = [...porFuncao.keys()].filter(f => !principais.includes(f));
+
+  const linhas = new Map();
+  for (const e of lista) {
+    if (!linhas.has(e.parlamentar)) linhas.set(e.parlamentar, { parlamentar: e.parlamentar, celulas: {}, total: { empenhado: 0, pago: 0 } });
+    const l = linhas.get(e.parlamentar);
+    const col = principais.includes(e.funcao) ? e.funcao : 'Outras';
+    l.celulas[col] = l.celulas[col] || { empenhado: 0, pago: 0, n: 0 };
+    l.celulas[col].empenhado += e.empenhado;
+    l.celulas[col].pago += e.pago;
+    l.celulas[col].n++;
+    l.total.empenhado += e.empenhado;
+    l.total.pago += e.pago;
+  }
+  const colunas = outras.length ? [...principais, 'Outras'] : principais;
+  return { colunas, linhas: [...linhas.values()].sort((a, b) => b.total.pago - a.total.pago) };
+}
+
 /** Estados que ainda NÃO estão na base — nunca coletados ou que falharam. */
 function ufsFaltantes() {
   return UFS.filter(uf => !state.meta[uf] || state.meta[uf].salvo === false);
@@ -599,6 +852,7 @@ const fmt = n => (n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 0 });
 const fmtR$ = n => 'R$ ' + fmt(n);
 
 function renderTudo() {
+  if (state.aba === 'panorama') return renderTudoPanorama();
   const temBase = state.itens.length > 0 || Object.keys(state.meta).length > 0;
   document.getElementById('em-vazio').style.display = temBase ? 'none' : '';
   document.getElementById('em-conteudo').style.display = temBase ? '' : 'none';
@@ -608,6 +862,12 @@ function renderTudo() {
   // não havia como voltar para um ano com base sem fechar o módulo
   // (relatado em 19/08/2026). O cabeçalho também mostrava os números do ano
   // anterior, contradizendo o "nenhuma consulta feita" logo abaixo.
+  document.getElementById('em-filtros-panorama').style.display = 'none';
+  document.getElementById('em-filtros-fns').style.display = '';
+  document.getElementById('btn-panorama').style.display = 'none';
+  document.getElementById('btn-chave').style.display = 'none';
+  document.getElementById('btn-atualizar').style.display = '';
+  document.getElementById('btn-buscar').style.display = '';
   popularSelects();
   renderTopo();
   if (!temBase) {
@@ -651,6 +911,38 @@ function popularSelects() {
     }
   }
   anos.value = state.ano;
+}
+
+function renderTudoPanorama() {
+  const tem = state.emendas.length > 0;
+  document.getElementById('em-filtros-panorama').style.display = tem ? '' : 'none';
+  document.getElementById('em-filtros-fns').style.display = 'none';
+  document.getElementById('em-vazio').style.display = tem ? 'none' : '';
+  document.getElementById('em-conteudo').style.display = tem ? '' : 'none';
+  document.getElementById('btn-panorama').style.display = '';
+  document.getElementById('btn-chave').style.display = '';
+  document.getElementById('btn-atualizar').style.display = 'none';
+  document.getElementById('btn-buscar').style.display = 'none';
+  document.getElementById('btn-faltantes').style.display = 'none';
+  document.getElementById('btn-exportar').disabled = !tem;
+  popularSelects();   // mantém o seletor de exercício vivo nas duas abas
+
+  const m = state.metaTr;
+  document.getElementById('em-titulo').textContent = tem
+    ? `${fmt(state.emendas.length)} emendas · ${new Set(state.emendas.map(e => e.parlamentar)).size} parlamentar(es) · ` +
+      `${new Set(state.emendas.map(e => e.funcao)).size} pastas · exercício ${state.ano}`
+    : `Exercício ${state.ano} — panorama ainda não consultado`;
+  document.getElementById('em-meta').textContent = tem
+    ? (m?.em ? `Última consulta em ${new Date(m.em).toLocaleString('pt-BR')} · ` : '') +
+      'fonte: Portal da Transparência (todas as pastas, por emenda)'
+    : 'O panorama cobre TODAS as pastas — saúde, educação, urbanismo, segurança e as demais. Exige a chave gratuita do Portal da Transparência.';
+  document.getElementById('em-selo').innerHTML = tem
+    ? (m?.falhas ? `<span class="em-badge em-badge--empenho">${m.falhas} parlamentar(es) com falha</span>`
+                 : '<span class="em-badge em-badge--pago">Panorama completo</span>')
+    : '<span class="em-badge em-badge--neutro">Sem panorama</span>';
+  document.getElementById('em-vazio-titulo').textContent = `Panorama de ${state.ano} ainda não consultado`;
+
+  if (tem) renderPanorama();
 }
 
 function renderTopo() {
@@ -898,6 +1190,7 @@ function htmlDetalhe(base, d, etapasApi, erro) {
 //  EXPORTAÇÃO
 // ============================================================
 function exportarXlsx() {
+  if (state.aba === 'panorama') return exportarPanoramaXlsx();
   const itens = ordenar(itensFiltrados(), state.ordem.col, state.ordem.desc);
   if (!itens.length) { mostrarToast('Nada para exportar com esses filtros.', 'aviso'); return; }
 
@@ -927,6 +1220,25 @@ function exportarXlsx() {
   mostrarToast(`✓ ${itens.length} proposta(s) exportadas.`, 'sucesso');
 }
 
+function exportarPanoramaXlsx() {
+  const lista = emendasFiltradas();
+  if (!lista.length) { mostrarToast('Nada para exportar com esses filtros.', 'aviso'); return; }
+  const cab = ['Parlamentar', 'Partido', 'Código da emenda', 'Nº', 'Tipo', 'Pasta (função)', 'Subfunção',
+               'Localidade do gasto', 'Empenhado', 'Liquidado', 'Pago', 'Restos inscritos', 'Restos pagos'];
+  const linhas = lista.map(e => [e.parlamentar, SIGLA_PODEMOS, e.codigo, e.numero, e.tipo, e.funcao, e.subfuncao,
+                                 e.localidade, e.empenhado, e.liquidado, e.pago, e.restoInscrito, e.restoPago]);
+  const t = somarEmendas(lista);
+  linhas.push([], ['TOTAL', '', `${t.n} emendas`, '', '', '', '', '', t.empenhado, t.liquidado, t.pago, '', '']);
+
+  const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
+  ws['!cols'] = [{ wch: 24 }, { wch: 8 }, { wch: 16 }, { wch: 6 }, { wch: 44 }, { wch: 22 }, { wch: 26 },
+                 { wch: 20 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, `Panorama ${state.ano}`);
+  XLSX.writeFile(wb, `orcamento-panorama-${state.ano}.xlsx`);
+  mostrarToast(`✓ ${lista.length} emenda(s) exportadas.`, 'sucesso');
+}
+
 // ============================================================
 //  UTILITÁRIOS E ARRANQUE
 // ============================================================
@@ -949,7 +1261,8 @@ function mostrarToast(msg, tipo = 'info') {
 document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('btn-voltar').addEventListener('click', () => window.close());
   document.getElementById('btn-buscar').addEventListener('click', () => buscarNoFns('tudo'));
-  document.getElementById('btn-buscar-vazio').addEventListener('click', () => buscarNoFns('tudo'));
+  document.getElementById('btn-buscar-vazio').addEventListener('click', () =>
+    state.aba === 'panorama' ? buscarPanorama() : buscarNoFns('tudo'));
   document.getElementById('btn-atualizar').addEventListener('click', () => buscarNoFns('bancada'));
   document.getElementById('btn-faltantes').addEventListener('click', () => buscarNoFns('faltantes'));
   document.getElementById('btn-log').addEventListener('click', copiarLog);
@@ -968,22 +1281,207 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById(id).addEventListener('change', () => { renderKpis(); renderTabela(); });
   }
   document.getElementById('f-municipio').addEventListener('input', () => { renderKpis(); renderTabela(); });
-  document.getElementById('f-ano').addEventListener('change', e => {
-    state.ano = e.target.value;
-    carregarDoFirebase(state.ano);
+  document.getElementById('f-ano').addEventListener('change', e => carregarExercicio(e.target.value));
+
+  document.querySelectorAll('.em-aba').forEach(b =>
+    b.addEventListener('click', () => trocarAba(b.dataset.aba)));
+
+  for (const id of ['p-parlamentar', 'p-funcao', 'p-tipo']) {
+    document.getElementById(id).addEventListener('change', renderPanorama);
+  }
+  document.getElementById('btn-panorama').addEventListener('click', buscarPanorama);
+  document.getElementById('btn-chave').addEventListener('click', abrirModalChave);
+  document.getElementById('chave-cancelar').addEventListener('click', () => {
+    document.getElementById('modal-chave').style.display = 'none';
+  });
+  document.getElementById('chave-salvar').addEventListener('click', async () => {
+    const v = document.getElementById('input-chave').value.trim();
+    if (!v) { document.getElementById('chave-status').textContent = 'Cole a chave para continuar.'; return; }
+    await salvarChaveTransparencia(v);
+    document.getElementById('modal-chave').style.display = 'none';
+    buscarPanorama();
   });
 
-  document.querySelectorAll('.em-aba').forEach(b => b.addEventListener('click', () => {
-    document.querySelectorAll('.em-aba').forEach(x => x.classList.toggle('on', x === b));
-    state.aba = b.dataset.aba;
-    renderTabela();
-  }));
-
   popularSelects();
-  carregarDoFirebase(state.ano);
+  state.aba = 'panorama';
+  carregarExercicio(state.ano);
 });
 
+/** Carrega as DUAS fontes do exercício — cada aba lê a sua. */
+async function carregarExercicio(ano) {
+  state.ano = String(ano);
+  await Promise.all([carregarPanorama(ano), carregarDoFirebase(ano)]);
+  renderTudo();
+}
+
+function trocarAba(aba) {
+  document.querySelectorAll('.em-aba').forEach(x => x.classList.toggle('on', x.dataset.aba === aba));
+  state.aba = aba;
+  renderTudo();
+}
+
+async function abrirModalChave() {
+  document.getElementById('input-chave').value = await chaveTransparencia();
+  document.getElementById('chave-status').textContent = '';
+  document.getElementById('modal-chave').style.display = 'flex';
+}
+
 function renderTabela() {
-  if (state.aba === 'propostas') renderTabelaPropostas();
+  if (state.aba === 'panorama') renderPanorama();
+  else if (state.aba === 'propostas') renderTabelaPropostas();
   else renderTabelaDeputados();
+}
+
+// ============================================================
+//  RENDER DO PANORAMA
+// ============================================================
+function renderPanorama() {
+  popularSelectsPanorama();
+  const lista = emendasFiltradas();
+  const t = somarEmendas(lista);
+  const pct = (a, b) => b ? Math.round((a / b) * 100) : 0;
+
+  document.getElementById('kpi-proposto').textContent = fmtR$(t.empenhado);
+  document.getElementById('kpi-proposto-sub').textContent = `${fmt(t.n)} emenda(s)`;
+  document.getElementById('kpi-empenhado').textContent = fmtR$(t.liquidado);
+  document.getElementById('kpi-empenhado-sub').textContent = `${pct(t.liquidado, t.empenhado)}% do empenhado`;
+  document.getElementById('kpi-pago').textContent = fmtR$(t.pago);
+  document.getElementById('kpi-pago-sub').textContent = `${pct(t.pago, t.empenhado)}% do empenhado`;
+  document.getElementById('kpi-apagar').textContent = fmtR$(t.restos);
+  document.getElementById('kpi-apagar-sub').textContent = 'restos a pagar não quitados';
+  // Os rótulos dos indicadores mudam de fonte para fonte: no panorama a régua
+  // é o EMPENHO (o Portal não fala em "proposto"), na saúde é a proposta.
+  const rotulos = document.querySelectorAll('.em-kpi .em-rotulo');
+  ['Empenhado', 'Liquidado', 'Pago', 'Restos a pagar'].forEach((r, i) => { if (rotulos[i]) rotulos[i].textContent = r; });
+
+  const { colunas, linhas } = matrizPorPasta(lista);
+  const th = c => `<th class="num">${escapeHtml(c)}</th>`;
+  document.getElementById('em-thead').innerHTML =
+    '<tr><th>Parlamentar</th>' + colunas.map(th).join('') + '<th class="num">Total pago</th></tr>';
+
+  const celula = (l, col) => {
+    const c = l.celulas[col];
+    if (!c) return '<td class="num dim">—</td>';
+    const p = pct(c.pago, c.empenhado);
+    if (p > 100) {
+      // Contradição da fonte: mostrada como está, com aviso — nunca aparada.
+      return `<td class="num" style="background:rgba(255,170,0,.10)" data-parl="${escapeHtml(l.parlamentar)}" data-func="${escapeHtml(col)}"` +
+             ` title="O Portal da Transparência informa pago maior que o empenhado nesta pasta (${p}%). Número mantido como está na fonte — confira antes de usar.">` +
+             `${fmt(c.pago)} <span style="color:#ffcc66">⚠ ${p}%</span></td>`;
+    }
+    // O fundo mais forte marca onde o dinheiro efetivamente saiu — a leitura
+    // que a Liderança faz primeiro é "isso aqui foi pago ou não?".
+    const fundo = p >= 70 ? 'rgba(0,168,89,.14)' : p >= 40 ? 'rgba(0,168,89,.08)' : 'transparent';
+    return `<td class="num" style="background:${fundo}" data-parl="${escapeHtml(l.parlamentar)}" data-func="${escapeHtml(col)}">` +
+           `${fmt(c.pago)} <span class="dim">${p}%</span></td>`;
+  };
+
+  document.getElementById('em-tbody').innerHTML = linhas.length ? linhas.map(l => `
+    <tr>
+      <td class="forte">${escapeHtml(l.parlamentar)}</td>
+      ${colunas.map(c => celula(l, c)).join('')}
+      <td class="num pago">${fmt(l.total.pago)}</td>
+    </tr>`).join('') + `
+    <tr style="background: rgba(31,165,165,0.06)">
+      <td class="forte" style="color: var(--accent-light)">Bancada (${linhas.length})</td>
+      ${colunas.map(c => {
+        const soma = linhas.reduce((a, l) => a + (l.celulas[c]?.pago || 0), 0);
+        return `<td class="num forte">${fmt(soma)}</td>`;
+      }).join('')}
+      <td class="num pago forte">${fmt(t.pago)}</td>
+    </tr>`
+    : `<tr><td colspan="${colunas.length + 2}" style="padding:30px; text-align:center; color:var(--text-dim)">Nenhuma emenda com esses filtros.</td></tr>`;
+
+  document.querySelectorAll('#em-tbody td[data-parl]').forEach(td =>
+    td.addEventListener('click', () => abrirPasta(td.dataset.parl, td.dataset.func)));
+}
+
+function popularSelectsPanorama() {
+  const encher = (id, valores) => {
+    const sel = document.getElementById(id);
+    const escolhido = sel.value;
+    const primeiro = sel.querySelector('option[value=""]');
+    sel.innerHTML = '';
+    if (primeiro) sel.appendChild(primeiro);
+    for (const v of valores) {
+      const o = document.createElement('option');
+      o.value = v; o.textContent = v;
+      sel.appendChild(o);
+    }
+    if (escolhido && valores.includes(escolhido)) sel.value = escolhido;
+  };
+  encher('p-parlamentar', [...new Set(state.emendas.map(e => e.parlamentar))].sort());
+  encher('p-funcao', [...new Set(state.emendas.map(e => e.funcao))].sort());
+  encher('p-tipo', [...new Set(state.emendas.map(e => e.tipo))].sort());
+}
+
+/** Detalhe: as emendas de um parlamentar numa pasta. */
+function abrirPasta(parlamentar, funcao) {
+  const daPasta = state.emendas.filter(e =>
+    e.parlamentar === parlamentar && (funcao === 'Outras'
+      ? !matrizPorPasta(emendasFiltradas()).colunas.includes(e.funcao)
+      : e.funcao === funcao));
+  if (!daPasta.length) return;
+  const t = somarEmendas(daPasta);
+
+  document.getElementById('det-titulo').textContent = `${parlamentar} · ${funcao}`;
+  document.getElementById('det-badge').innerHTML =
+    `<span class="em-badge em-badge--neutro">${daPasta.length} emenda(s)</span>`;
+  document.getElementById('det-sub').textContent =
+    `Exercício ${state.ano} · fonte: Portal da Transparência`;
+  document.getElementById('det-fonte').textContent = state.metaTr?.em
+    ? `Consultado em ${new Date(state.metaTr.em).toLocaleString('pt-BR')}` : '';
+  document.getElementById('det-link').href = 'https://portaldatransparencia.gov.br/emendas';
+
+  const linha = e => {
+    // Transferência especial NÃO tem proposta no FNS — dizer isso evita que o
+    // analista procure um detalhe que não existe.
+    const acao = temPropostaNoFns(e)
+      ? `<a href="#" data-fns="${escapeHtml(e.parlamentar)}">ver propostas no FNS →</a>`
+      : `<span class="dim">${/especia/i.test(e.tipo) ? 'transferência especial — sem proposta no FNS' : 'sem detalhe fora da saúde'}</span>`;
+    const aviso = pagoIncoerente(e)
+      ? ` <span style="color:#ffcc66" title="A fonte informa pago maior que o empenhado — conferir no Portal da Transparência">⚠</span>` : '';
+    return `<tr>
+      <td class="dim">${escapeHtml(e.codigo)}</td>
+      <td>${escapeHtml(e.subfuncao || '—')}</td>
+      <td>${escapeHtml(e.localidade || '—')}</td>
+      <td class="num">${fmt(e.empenhado)}</td>
+      <td class="num ${e.pago ? 'pago' : 'dim'}">${fmt(e.pago)}${aviso}</td>
+      <td>${acao}</td>
+    </tr>`;
+  };
+
+  document.getElementById('det-corpo').innerHTML = `
+    <div class="em-valores">
+      ${[['Empenhado', fmtR$(t.empenhado), ''], ['Liquidado', fmtR$(t.liquidado), ''],
+         ['Pago', fmtR$(t.pago), 'color:#2fcf7a'], ['Restos a pagar', fmtR$(t.restos), 'color:var(--amarelo)']]
+        .map(([r, v, st]) => `<div class="em-valor-card"><span class="em-rotulo">${r}</span><span class="v" style="${st}">${v}</span></div>`).join('')}
+    </div>
+    <div style="padding:18px 20px; display:flex; flex-direction:column; gap:10px;">
+      <span class="em-secao-rotulo">Emendas nesta pasta</span>
+      <div style="border:1px solid var(--border); border-radius:var(--radius); overflow:hidden;">
+        <table class="em-tabela">
+          <thead><tr><th>Código</th><th>Subfunção</th><th>Localidade do gasto</th><th class="num">Empenhado</th><th class="num">Pago</th><th>Detalhe</th></tr></thead>
+          <tbody>${daPasta.map(linha).join('')}</tbody>
+        </table>
+      </div>
+      ${daPasta.some(pagoIncoerente) ? `<span style="font-size:11px; color:#ffcc66; line-height:1.6;">
+        ⚠ Em ${daPasta.filter(pagoIncoerente).length} emenda(s) desta pasta o Portal informa <b>pago maior que o empenhado</b>.
+        O número aparece como está na fonte, sem correção nossa — confira no Portal antes de usar em documento.</span>` : ''}
+      <span style="font-size:11px; color:var(--text-dim); line-height:1.6;">
+        A localidade quase sempre vem como “MÚLTIPLO” no Portal da Transparência — município, entidade e
+        ordem bancária são detalhe do FNS, disponível na aba “Propostas · saúde”.
+      </span>
+    </div>`;
+
+  document.querySelectorAll('#det-corpo a[data-fns]').forEach(a => a.addEventListener('click', ev => {
+    ev.preventDefault();
+    document.getElementById('modal-detalhe').style.display = 'none';
+    trocarAba('propostas');
+    const sel = document.getElementById('f-deputado');
+    if ([...sel.options].some(o => o.value === a.dataset.fns)) sel.value = a.dataset.fns;
+    renderKpis(); renderTabela();
+  }));
+
+  document.getElementById('modal-detalhe').style.display = 'flex';
 }
