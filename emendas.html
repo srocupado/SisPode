@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Orçamento — Emendas – Podemos</title>
+  <title>Orçamento – Podemos</title>
   <link rel="stylesheet" href="panel.css">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
@@ -36,7 +36,7 @@
 
     /* ---- Filtros ---- */
     .em-filtros {
-      display: grid; grid-template-columns: repeat(6, minmax(0, 1fr));
+      display: grid; grid-template-columns: repeat(5, minmax(0, 1fr));
       gap: 10px; padding: 16px 20px 4px;
     }
     .em-campo { display: flex; flex-direction: column; gap: 5px; }
@@ -150,7 +150,7 @@
         </svg>
       </div>
       <div class="header-title">
-        <span class="header-main">Orçamento — Emendas</span>
+        <span class="header-main">Orçamento</span>
         <span class="header-sub">Emendas à saúde · Liderança do Podemos – Câmara dos Deputados</span>
       </div>
     </div>
@@ -186,6 +186,10 @@
       <span class="meta" id="em-meta">Use “Buscar no FNS” para baixar as planilhas oficiais do Fundo Nacional de Saúde.</span>
     </div>
     <div style="display: flex; align-items: center; gap: 10px;">
+      <label style="display: flex; align-items: center; gap: 8px;">
+        <span class="em-rotulo">Exercício</span>
+        <select id="f-ano" style="background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px; padding: 7px 10px; font-family: inherit; font-size: 12.5px; color: var(--text);"></select>
+      </label>
       <button id="btn-faltantes" class="btn btn-primary btn-sm" style="display:none"></button>
       <div id="em-selo"></div>
     </div>
@@ -202,7 +206,7 @@
     </div>
 
     <div id="em-vazio" class="em-vazio">
-      <h2>Nenhuma consulta feita ainda</h2>
+      <h2 id="em-vazio-titulo">Nenhuma consulta feita ainda</h2>
       <p>O módulo baixa a planilha oficial de cada unidade da federação no portal do Fundo Nacional de Saúde
          (consultafns.saude.gov.br) e guarda apenas as propostas do Podemos. A primeira busca leva alguns minutos;
          depois disso a base abre na hora e você atualiza quando quiser.</p>
@@ -211,10 +215,6 @@
 
     <div id="em-conteudo" style="display: none;">
       <div class="em-filtros">
-        <label class="em-campo">
-          <span class="em-rotulo">Exercício</span>
-          <select id="f-ano"></select>
-        </label>
         <label class="em-campo">
           <span class="em-rotulo">Deputado</span>
           <select id="f-deputado"><option value="">Toda a bancada</option></select>

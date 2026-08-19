@@ -3170,8 +3170,8 @@ const MODULES = [
   },
   {
     id:     'emendas',
-    titulo: 'Orçamento — Emendas',
-    desc:   'Acompanhe as emendas da bancada à saúde — individuais, de bancada e de comissão: quanto foi proposto, empenhado e efetivamente PAGO, por deputado, estado e município, com exportação em planilha.',
+    titulo: 'Orçamento',
+    desc:   'Execução orçamentária de interesse da bancada. Começa pelas emendas à saúde: quanto foi proposto, empenhado e efetivamente PAGO, por deputado, estado e município, com exportação em planilha.',
     cor:    'verde',
     icone:  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     acao:   abrirEmendas,

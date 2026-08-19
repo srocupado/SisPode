@@ -603,10 +603,19 @@ function renderTudo() {
   document.getElementById('em-vazio').style.display = temBase ? 'none' : '';
   document.getElementById('em-conteudo').style.display = temBase ? '' : 'none';
   document.getElementById('btn-exportar').disabled = !temBase;
-  if (!temBase) return;
-
+  // A barra de contexto e o seletor de exercício são pintados SEMPRE: escolher
+  // um ano ainda sem dados escondia o próprio seletor junto com o conteúdo, e
+  // não havia como voltar para um ano com base sem fechar o módulo
+  // (relatado em 19/08/2026). O cabeçalho também mostrava os números do ano
+  // anterior, contradizendo o "nenhuma consulta feita" logo abaixo.
   popularSelects();
   renderTopo();
+  if (!temBase) {
+    document.getElementById('em-vazio-titulo').textContent =
+      `Nenhuma proposta na base para o exercício ${state.ano}`;
+    return;
+  }
+
   renderKpis();
   if (state.aba === 'propostas') renderTabelaPropostas();
   else renderTabelaDeputados();
@@ -630,6 +639,8 @@ function popularSelects() {
   encher('f-uf',       [...new Set(state.itens.map(i => i.uf).filter(Boolean))].sort());
   encher('f-tipo',     [...new Set(state.itens.map(i => i.tipo).filter(Boolean))].sort());
 
+  // O seletor de exercício NÃO depende de haver dados: ele é a porta para
+  // trocar de ano, inclusive para sair de um ano vazio.
   const anos = document.getElementById('f-ano');
   if (!anos.options.length) {
     const atual = new Date().getFullYear();
@@ -638,12 +649,21 @@ function popularSelects() {
       o.value = String(a); o.textContent = String(a);
       anos.appendChild(o);
     }
-    anos.value = state.ano;
   }
+  anos.value = state.ano;
 }
 
 function renderTopo() {
   const ufs = Object.keys(state.meta);
+  if (!ufs.length) {
+    document.getElementById('em-titulo').textContent = `Exercício ${state.ano} — nada coletado ainda`;
+    document.getElementById('em-meta').textContent =
+      'Use “Varredura completa” para baixar as planilhas deste exercício, ou volte ao exercício anterior no seletor ao lado.';
+    document.getElementById('em-selo').innerHTML =
+      '<span class="em-badge em-badge--neutro">Base vazia</span>';
+    document.getElementById('btn-faltantes').style.display = 'none';
+    return;
+  }
   const datas = ufs.map(u => state.meta[u].em).filter(Boolean).sort();
   const ultima = datas.length ? new Date(datas[datas.length - 1]) : null;
   const dep = [...new Set(state.itens.map(i => i.deputado).filter(Boolean))].length;
