@@ -119,6 +119,58 @@ const emendas = CRU.map(M.normalizarEmenda);
        `documento identificado: ${r.pagamentos[0].documento} · ${r.pagamentos[0].favorecido}`);
   }
 
+  console.log('\n== quem é a bancada (dados reais da API da Câmara) ==');
+  {
+    const CAM = JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures', 'camara-pode-legislatura.json'), 'utf8'));
+    const montar = nomesFns => new Function('jsonCamara', 'state', 'SIGLA_PODEMOS', `
+      ${trecho(/function chaveNome\([\s\S]*?\n}/)}
+      ${trecho(/async function mapLimite\([\s\S]*?\n}/)}
+      ${trecho(/async function bancadaDoPodemos\([\s\S]*?\n}/)}
+      ${trecho(/function composicaoDaBancada\([\s\S]*?\n}/)}
+      return { bancadaDoPodemos, composicaoDaBancada, chaveNome };`)(
+      async caminho => {
+        if (caminho.startsWith('legislaturas')) return { dados: [{ id: CAM.legislatura }] };
+        if (caminho.startsWith('deputados/')) return { dados: { ultimoStatus: CAM.detalhes[caminho.split('/')[1]] } };
+        return { dados: CAM.lista };
+      },
+      { itens: nomesFns.map(n => ({ deputado: n })) }, 'PODE');
+
+    const M2 = montar(['RENATA ABREU', 'JORGE KAJURU', 'FABIO MACEDO', 'SAMUEL SANTOS']);
+    const bancada = await M2.bancadaDoPodemos();
+    const nomes = bancada.map(p => p.nome);
+    const achar = n => bancada.find(p => M2.chaveNome(p.nome) === M2.chaveNome(n));
+
+    // A presidente do partido está LICENCIADA: a consulta antiga, por
+    // deputados em exercício, a deixava fora da própria bancada.
+    const renata = achar('Renata Abreu');
+    ok(renata && renata.casa === 'deputado' && /licen/i.test(renata.situacao),
+       `Renata Abreu entra como deputada licenciada (situação: ${renata?.situacao})`);
+
+    // Quem trocou de partido não é bancada (a lista da legislatura os traz).
+    const trocaram = Object.values(CAM.detalhes).filter(u => u.siglaPartido !== 'PODE');
+    ok(trocaram.length > 0 && trocaram.every(u => !achar(u.nome)),
+       `${trocaram.length} que saíram do partido ficam de fora (${trocaram.map(u => u.siglaPartido).join(', ')})`);
+
+    // "Vacância / Não Eleito" nunca assumiu — não é bancada.
+    const vacancia = Object.values(CAM.detalhes).find(u => /vac/i.test(u.situacao) && u.siglaPartido === 'PODE');
+    ok(!vacancia || !achar(vacancia.nome), `vacância fica de fora (${vacancia?.nome || '—'})`);
+
+    // O mesmo id aparece com nomes diferentes na lista da legislatura.
+    ok(nomes.filter(n => /samuel/i.test(n)).length === 1,
+       `variações do mesmo id não duplicam (${nomes.filter(n => /samuel/i.test(n)).join(' / ') || 'nenhum'})`);
+    // E acento não pode criar gêmeo: FNS escreve "FABIO", a Câmara "Fábio".
+    ok(nomes.filter(n => /f[áa]bio macedo/i.test(n)).length === 1,
+       `acento não duplica: ${nomes.filter(n => /f[áa]bio macedo/i.test(n)).join(' / ')}`);
+
+    // Senador do partido com emenda no FNS entra, mas identificado.
+    const kajuru = achar('JORGE KAJURU');
+    ok(kajuru && kajuru.casa !== 'deputado',
+       `senador entra marcado como fora da bancada de deputados (${kajuru?.casa})`);
+
+    ok(bancada.every(p => p.nome && p.chave), 'todo integrante tem nome e chave de comparação');
+    console.log('     →', M2.composicaoDaBancada(bancada));
+  }
+
   console.log('\n== matriz parlamentar × pasta ==');
   {
     const { colunas, linhas } = M.matrizPorPasta(emendas);
