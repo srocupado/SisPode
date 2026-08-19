@@ -673,7 +673,13 @@ async function buscarPanorama() {
   document.getElementById('em-progresso').style.display = '';
 
   const bancada = await bancadaDoPodemos();
-  const nomes = bancada.map(p => p.nome);
+  // MEDIDO em 19/08/2026: o filtro nomeAutor do Portal é sensível a caixa e a
+  // acento — "Renata Abreu" devolve 0 e "RENATA ABREU" devolve 13; "FÁBIO
+  // MACEDO" devolve 0 e "FABIO MACEDO" devolve 3. A fonte guarda tudo em
+  // maiúsculas e sem acento, que é justamente a chave normalizada. Consultar
+  // pelo nome como a Câmara escreve zerava TODOS os deputados em silêncio —
+  // sobravam só os nomes vindos do FNS, que já vêm nessa forma.
+  const nomes = bancada.map(p => p.chave);
   state.bancada = bancada;
   const achadas = [];
   const falhas = [];
@@ -725,6 +731,18 @@ async function buscarPanorama() {
     console.warn('[orçamento] panorama não salvo:', e.message);
   });
   renderTudo();
+
+  // Zero emenda para TODOS os deputados, com resultado para os demais, é a
+  // assinatura de nome consultado na forma errada — foi assim que a troca de
+  // caixa passou despercebida. Nada falha, e é justamente o problema.
+  const deputados = new Set(bancada.filter(p => p.casa === 'deputado').map(p => p.chave));
+  const comEmenda = new Set(achadas.map(e => chaveNome(e.parlamentar)));
+  const nenhumDeputado = deputados.size > 0 && ![...deputados].some(c => comEmenda.has(c));
+  if (nenhumDeputado && achadas.length) {
+    falhas.push('nenhum dos deputados retornou emenda, embora outros nomes tenham retornado — ' +
+                'verifique a forma do nome consultado no Portal (maiúsculas, sem acento)');
+    console.warn('[orçamento] suspeita: 0 emendas para os ' + deputados.size + ' deputados da bancada');
+  }
 
   if (falhas.length) {
     mostrarToast(`${achadas.length} emendas · ${falhas.length} problema(s): ${falhas[0]}`, 'aviso');
