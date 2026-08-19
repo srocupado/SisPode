@@ -784,16 +784,9 @@ async function buscarPanorama() {
   document.getElementById('em-progresso').style.display = 'none';
 
   state.emendas = achadas;
-  state.metaTr = { em: new Date().toISOString(), parlamentares: nomes.length, falhas: falhas.length };
-  await fbSalvarPanorama(ano, achadas, state.metaTr, bancada).catch(e => {
-    falhas.push('Firebase: ' + e.message);
-    console.warn('[orçamento] panorama não salvo:', e.message);
-  });
-  renderTudo();
-
-  // Zero emenda para TODOS os deputados, com resultado para os demais, é a
-  // assinatura de nome consultado na forma errada — foi assim que a troca de
-  // caixa passou despercebida. Nada falha, e é justamente o problema.
+  // A guarda vem ANTES do meta e da gravação, para a contagem de falhas e a
+  // composição irem CERTAS para o banco (antes: composição nunca era gravada
+  // — a edição não casou e falhou em silêncio — e falhas ficava defasada).
   const deputados = new Set(bancada.filter(p => p.casa === 'deputado').map(p => p.chave));
   const comEmenda = new Set(achadas.map(e => chaveNome(e.parlamentar)));
   const nenhumDeputado = deputados.size > 0 && ![...deputados].some(c => comEmenda.has(c));
@@ -802,6 +795,18 @@ async function buscarPanorama() {
                 'verifique a forma do nome consultado no Portal (maiúsculas, sem acento)');
     console.warn('[orçamento] suspeita: 0 emendas para os ' + deputados.size + ' deputados da bancada');
   }
+
+  state.metaTr = {
+    em: new Date().toISOString(),
+    parlamentares: nomes.length,
+    falhas: falhas.length,
+    composicao: composicaoDaBancada(bancada),
+  };
+  await fbSalvarPanorama(ano, achadas, state.metaTr, bancada).catch(e => {
+    falhas.push('Firebase: ' + e.message);
+    console.warn('[orçamento] panorama não salvo:', e.message);
+  });
+  renderTudo();
 
   if (falhas.length) {
     mostrarToast(`${achadas.length} emendas · ${falhas.length} problema(s): ${falhas[0]}`, 'aviso');
@@ -1256,6 +1261,11 @@ function renderTopo() {
 }
 
 function renderKpis() {
+  // O panorama troca os rótulos dos 4 cartões (Empenhado/Liquidado/…); sem
+  // restaurar aqui, voltar para a saúde deixava "Empenhado" em cima do valor
+  // PROPOSTO — todos os números sob nome errado (auditoria de 19/08/2026).
+  const rotulos = document.querySelectorAll('.em-kpi .em-rotulo');
+  ['Proposto', 'Empenhado', 'Pago', 'A pagar'].forEach((r, i) => { if (rotulos[i]) rotulos[i].textContent = r; });
   const t = somar(itensFiltrados());
   document.getElementById('kpi-proposto').textContent = fmtR$(t.proposto);
   document.getElementById('kpi-proposto-sub').textContent = `${fmt(t.n)} proposta(s)`;
@@ -1372,7 +1382,9 @@ async function abrirDetalhe(nuProposta) {
   document.getElementById('det-badge').innerHTML = `<span class="em-badge ${et.classe}">${escapeHtml(et.rotulo)}</span>`;
   document.getElementById('det-sub').textContent =
     `${base.deputado} (PODE-${base.uf}) · ${base.municipio} · exercício ${base.ano}`;
-  document.getElementById('det-link').href = `${FNS_BASE}/#/proposta`;
+  const linkFns = document.getElementById('det-link');
+  linkFns.href = `${FNS_BASE}/#/proposta`;
+  linkFns.textContent = 'Abrir no site do FNS';
   document.getElementById('det-fonte').textContent = 'Consultando o FNS…';
   document.getElementById('det-corpo').innerHTML =
     '<div style="padding:40px; text-align:center; color:var(--text-dim)">Buscando o detalhe no portal do FNS…</div>';
@@ -1473,22 +1485,26 @@ function exportarXlsx() {
   const itens = ordenar(itensFiltrados(), state.ordem.col, state.ordem.desc);
   if (!itens.length) { mostrarToast('Nada para exportar com esses filtros.', 'aviso'); return; }
 
-  const cab = ['Deputado', 'Partido', 'UF', 'Proposta', 'Município', 'Entidade', 'CNPJ',
+  const cab = ['Parlamentar', 'Partido na época (FNS)', 'Vínculo hoje', 'UF', 'Proposta', 'Município', 'Entidade', 'CNPJ',
                'Objeto', 'Tipo de recurso', 'Portaria', 'Data da portaria',
                'Proposto', 'Empenhado', 'Pago', 'A pagar', 'Situação', 'Etapa'];
   const linhas = itens.map(it => [
-    it.deputado, SIGLA_PODEMOS, it.uf, it.nuProposta, it.municipio, it.entidade, it.cnpj,
+    // O "PODE" é o que a PLANILHA DO FNS registra — o partido da época da
+    // emenda. O vínculo de hoje vai ao lado, para a coluna não afirmar que
+    // um senador do PSD é do Podemos (caso Carlos Viana, 19/08/2026).
+    it.deputado, SIGLA_PODEMOS, vinculoDe(it.deputado) || 'não classificado',
+    it.uf, it.nuProposta, it.municipio, it.entidade, it.cnpj,
     it.tipo, it.tipoRecurso, it.portaria, it.dataPortaria,
     it.proposto, it.empenhado, it.pago, Math.max(0, it.proposto - it.pago),
     it.situacao, etapaDe(it).rotulo,
   ]);
   const t = somar(itens);
   linhas.push([]);
-  linhas.push(['TOTAL', '', '', `${t.n} propostas`, '', '', '', '', '', '', '',
+  linhas.push(['TOTAL', '', '', '', `${t.n} propostas`, '', '', '', '', '', '', '',
                t.proposto, t.empenhado, t.pago, t.apagar, '', '']);
 
   const ws = XLSX.utils.aoa_to_sheet([cab, ...linhas]);
-  ws['!cols'] = [{ wch: 24 }, { wch: 8 }, { wch: 5 }, { wch: 20 }, { wch: 22 }, { wch: 34 }, { wch: 20 },
+  ws['!cols'] = [{ wch: 24 }, { wch: 18 }, { wch: 24 }, { wch: 5 }, { wch: 20 }, { wch: 22 }, { wch: 34 }, { wch: 20 },
                  { wch: 18 }, { wch: 16 }, { wch: 10 }, { wch: 12 },
                  { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 34 }, { wch: 16 }];
   const wb = XLSX.utils.book_new();
@@ -1502,9 +1518,10 @@ function exportarXlsx() {
 function exportarPanoramaXlsx() {
   const lista = emendasFiltradas();
   if (!lista.length) { mostrarToast('Nada para exportar com esses filtros.', 'aviso'); return; }
-  const cab = ['Parlamentar', 'Partido', 'Código da emenda', 'Nº', 'Tipo', 'Pasta (função)', 'Subfunção',
+  const cab = ['Parlamentar', 'Vínculo hoje', 'Código da emenda', 'Nº', 'Tipo', 'Pasta (função)', 'Subfunção',
                'Localidade do gasto', 'Empenhado', 'Liquidado', 'Pago', 'Restos inscritos', 'Restos pagos'];
-  const linhas = lista.map(e => [e.parlamentar, SIGLA_PODEMOS, e.codigo, e.numero, e.tipo, e.funcao, e.subfuncao,
+  const linhas = lista.map(e => [e.parlamentar, e.casa || vinculoDe(e.parlamentar) || 'não classificado',
+                                 e.codigo, e.numero, e.tipo, e.funcao, e.subfuncao,
                                  e.localidade, e.empenhado, e.liquidado, e.pago, e.restoInscrito, e.restoPago]);
   const t = somarEmendas(lista);
   linhas.push([], ['TOTAL', '', `${t.n} emendas`, '', '', '', '', '', t.empenhado, t.liquidado, t.pago, '', '']);
@@ -1696,9 +1713,14 @@ function popularSelectsPanorama() {
 
 /** Detalhe: as emendas de um parlamentar numa pasta. */
 function abrirPasta(parlamentar, funcao) {
-  const daPasta = state.emendas.filter(e =>
+  // O MESMO conjunto da célula clicada: a célula soma a lista FILTRADA, então
+  // o modal parte dela também — antes ele abria sobre a base inteira e, com um
+  // filtro ativo, mostrava emendas que a célula não somava.
+  const filtradas = emendasFiltradas();
+  const colunas = funcao === 'Outras' ? matrizPorPasta(filtradas).colunas : null;
+  const daPasta = filtradas.filter(e =>
     e.parlamentar === parlamentar && (funcao === 'Outras'
-      ? !matrizPorPasta(emendasFiltradas()).colunas.includes(e.funcao)
+      ? !colunas.includes(e.funcao)
       : e.funcao === funcao));
   if (!daPasta.length) return;
   const t = somarEmendas(daPasta);
@@ -1710,7 +1732,12 @@ function abrirPasta(parlamentar, funcao) {
     `Exercício ${state.ano} · fonte: Portal da Transparência`;
   document.getElementById('det-fonte').textContent = state.metaTr?.em
     ? `Consultado em ${new Date(state.metaTr.em).toLocaleString('pt-BR')}` : '';
-  document.getElementById('det-link').href = 'https://portaldatransparencia.gov.br/emendas';
+  // O rodapé é compartilhado com o modal do FNS: rótulo e destino andam
+  // JUNTOS — aqui o botão dizia "Abrir no site do FNS" apontando para o
+  // Portal da Transparência (auditoria de 19/08/2026).
+  const linkTr = document.getElementById('det-link');
+  linkTr.href = 'https://portaldatransparencia.gov.br/emendas';
+  linkTr.textContent = 'Abrir no Portal da Transparência';
 
   const linha = e => {
     // Transferência especial NÃO tem proposta no FNS — dizer isso evita que o
