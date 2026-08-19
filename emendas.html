@@ -218,7 +218,15 @@
     </div>
 
     <div id="em-conteudo" style="display: none;">
-      <div class="em-filtros" id="em-filtros-panorama" style="display: none; grid-template-columns: repeat(3, minmax(0, 1fr));">
+      <div class="em-filtros" id="em-filtros-panorama" style="display: none; grid-template-columns: repeat(4, minmax(0, 1fr));">
+        <label class="em-campo">
+          <span class="em-rotulo">Vínculo</span>
+          <select id="p-vinculo">
+            <option value="deputados">Deputados da bancada</option>
+            <option value="">Todos os parlamentares do partido</option>
+            <option value="outros">Só senadores e fora da bancada</option>
+          </select>
+        </label>
         <label class="em-campo">
           <span class="em-rotulo">Parlamentar</span>
           <select id="p-parlamentar"><option value="">Toda a bancada</option></select>
