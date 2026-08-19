@@ -551,6 +551,29 @@ function pagoIncoerente(e) {
   return e.empenhado > 0 && e.pago > e.empenhado * 1.001;
 }
 
+// CONFERÊNCIA na própria fonte: para a emenda marcada, buscamos os documentos
+// de pagamento e o valor de cada um. Foi assim que o caso da Nely Aquino se
+// esclareceu em 19/08/2026: a ordem bancária 2026OB000014 vale R$ 391.984,80
+// (o mesmo do liquidado), enquanto o endpoint de emendas informa o DOBRO —
+// o defeito está na agregação do Portal, não na leitura daqui.
+async function conferirEmendaNaFonte(codigo, chave, sinal) {
+  const docs = await fetchTransparencia(`emendas/documentos/${encodeURIComponent(codigo)}`, { pagina: 1 }, chave, sinal);
+  const pagamentos = (Array.isArray(docs) ? docs : []).filter(d => /pagamento/i.test(d.fase || ''));
+  const detalhados = [];
+  for (const d of pagamentos) {
+    const cod = d.codigoDocumento || d.codigoDocumentoResumido;
+    if (!cod) continue;
+    const det = await fetchTransparencia(`despesas/documentos/${encodeURIComponent(cod)}`, {}, chave, sinal);
+    detalhados.push({
+      documento: det.documentoResumido || cod,
+      data: det.data || d.data || '',
+      favorecido: det.nomeFavorecido || '',
+      valor: dinheiro(det.valor),
+    });
+  }
+  return { pagamentos: detalhados, soma: detalhados.reduce((a, v) => a + v.valor, 0) };
+}
+
 /** Transferência especial vai direto ao município: não existe proposta no FNS. */
 function temPropostaNoFns(emenda) {
   return /finalidade\s+definida/i.test(emenda.tipo) && /sa[úu]de/i.test(emenda.funcao);
@@ -1440,7 +1463,8 @@ function abrirPasta(parlamentar, funcao) {
       ? `<a href="#" data-fns="${escapeHtml(e.parlamentar)}">ver propostas no FNS →</a>`
       : `<span class="dim">${/especia/i.test(e.tipo) ? 'transferência especial — sem proposta no FNS' : 'sem detalhe fora da saúde'}</span>`;
     const aviso = pagoIncoerente(e)
-      ? ` <span style="color:#ffcc66" title="A fonte informa pago maior que o empenhado — conferir no Portal da Transparência">⚠</span>` : '';
+      ? ` <button class="btn btn-outline btn-sm" data-conferir="${escapeHtml(e.codigo)}" style="padding:1px 6px; font-size:11px"
+                 title="A fonte informa pago maior que o empenhado. Clique para somar os documentos de pagamento na própria fonte.">⚠ conferir</button>` : '';
     return `<tr>
       <td class="dim">${escapeHtml(e.codigo)}</td>
       <td>${escapeHtml(e.subfuncao || '—')}</td>
@@ -1473,6 +1497,28 @@ function abrirPasta(parlamentar, funcao) {
         ordem bancária são detalhe do FNS, disponível na aba “Propostas · saúde”.
       </span>
     </div>`;
+
+  document.querySelectorAll('#det-corpo button[data-conferir]').forEach(b => b.addEventListener('click', async () => {
+    const codigo = b.dataset.conferir;
+    const e = state.emendas.find(x => x.codigo === codigo);
+    b.disabled = true; b.textContent = 'conferindo…';
+    try {
+      const chave = await chaveTransparencia();
+      const { pagamentos, soma } = await conferirEmendaNaFonte(codigo, chave);
+      const bate = Math.abs(soma - e.pago) < 0.01;
+      // O veredito é dado com os dois números lado a lado: quem lê decide,
+      // com a evidência à vista, em vez de confiar num ajuste silencioso.
+      b.outerHTML = `<span style="font-size:11px; color:${bate ? 'var(--text-dim)' : '#ffcc66'}">` +
+        (bate
+          ? `documentos somam ${fmtR$(soma)} — confere`
+          : `⚠ documentos de pagamento somam <b>${fmtR$(soma)}</b>, mas a API informa ${fmtR$(e.pago)}` +
+            (pagamentos.length ? ` · ${pagamentos.map(p => `${p.documento} ${fmtR$(p.valor)}`).join(' · ')}` : '')) +
+        `</span>`;
+    } catch (err) {
+      b.disabled = false; b.textContent = '⚠ conferir';
+      mostrarToast('Não foi possível conferir na fonte: ' + err.message, 'erro');
+    }
+  }));
 
   document.querySelectorAll('#det-corpo a[data-fns]').forEach(a => a.addEventListener('click', ev => {
     ev.preventDefault();

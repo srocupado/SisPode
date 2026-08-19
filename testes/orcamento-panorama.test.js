@@ -96,6 +96,29 @@ const emendas = CRU.map(M.normalizarEmenda);
     ok(!M.pagoIncoerente({ empenhado: 0, pago: 0 }), 'emenda sem empenho não vira falso alarme');
   }
 
+  console.log('\n== conferência na fonte soma os documentos de pagamento ==');
+  {
+    // A conferência foi feita à mão em 19/08/2026 para a emenda da Nely: o
+    // endpoint de documentos devolve UM pagamento (2026OB000014) e o detalhe
+    // desse documento vale 391.984,80 — metade do que a API de emendas diz.
+    const conferir = new Function('fetchTransparencia', 'dinheiro', `
+      ${trecho(/async function conferirEmendaNaFonte\([\s\S]*?\n}/)}
+      return conferirEmendaNaFonte;`)(
+      async (caminho) => caminho.startsWith('emendas/documentos')
+        ? [{ fase: 'Empenho', codigoDocumento: 'X-NE' },
+           { fase: 'Liquidação', codigoDocumento: 'X-NS' },
+           { fase: 'Pagamento', codigoDocumento: '550029000012026OB000014', data: '29/05/2026' }]
+        : { documentoResumido: '2026OB000014', data: '29/05/2026',
+            nomeFavorecido: 'CONFEDERACAO BRASILEIRA DE DESPORTOS DE SURDOS', valor: '391.984,80' },
+      M.dinheiro);
+
+    const r = await conferir('202644370009', 'chave-de-teste');
+    ok(r.pagamentos.length === 1, `só a fase de PAGAMENTO é somada (${r.pagamentos.length} de 3 documentos)`);
+    ok(r.soma === 391984.8, `soma dos documentos: ${fmtN(r.soma)} — metade do que a API de emendas informa`);
+    ok(r.pagamentos[0].documento === '2026OB000014' && /SURDOS/.test(r.pagamentos[0].favorecido),
+       `documento identificado: ${r.pagamentos[0].documento} · ${r.pagamentos[0].favorecido}`);
+  }
+
   console.log('\n== matriz parlamentar × pasta ==');
   {
     const { colunas, linhas } = M.matrizPorPasta(emendas);
