@@ -33,7 +33,13 @@ const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
 // A planilha do FNS é pesada e o servidor oscila: SP levou 34s e o Acre 8s
 // na medição de 19/08/2026. Teto generoso e repetição — um timeout isolado
 // não é a fonte fora do ar (lição da janela de 504 da Câmara).
-const TIMEOUT_PLANILHA_MS = 180000;
+// MEDIDO em 19/08/2026, 13h: com o portal degradado, um pedido SOZINHO para
+// Goiás não devolveu byte nenhum em 200s (de manhã, o mesmo tipo de pedido
+// levava de 8s a 34s). Teto alto o bastante para o dia ruim, com POUCAS
+// tentativas na passagem principal — a repescagem no fim, sem concorrência,
+// é a chance boa; insistir 3x no meio da varredura só empilha espera.
+const TIMEOUT_PLANILHA_MS = 240000;
+const TENTATIVAS_PLANILHA = 2;
 const TIMEOUT_DETALHE_MS  = 30000;
 const BACKOFF_MS = [0, 2000, 6000];
 // MEDIDO em 19/08/2026: um pedido sozinho levou de 8s (AC) a 34s (SP), mas
@@ -94,7 +100,7 @@ async function respiro() {
 async function baixarPlanilhaUf(uf, ano, sinal) {
   let erro = null;
   const t0 = Date.now();
-  for (let i = 0; i < BACKOFF_MS.length; i++) {
+  for (let i = 0; i < TENTATIVAS_PLANILHA; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, BACKOFF_MS[i]));
     if (sinal?.aborted) throw new DOMException('Aborted', 'AbortError');
     await respiro();
@@ -126,7 +132,7 @@ async function baixarPlanilhaUf(uf, ano, sinal) {
     throw eFatal;
   }
   const eFim = erro || new Error(`falha ao baixar a planilha de ${uf}`);
-  eFim.tentativas = BACKOFF_MS.length;
+  eFim.tentativas = TENTATIVAS_PLANILHA;
   eFim.ms = Date.now() - t0;
   throw eFim;
 }
