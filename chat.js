@@ -972,11 +972,17 @@ CÂMARA — API oficial de Dados Abertos:
 OUTRAS BASES DO SISPODE:
 - "notas_tecnicas" {"termo":"PL 1234/2026"}: procura nas análises de pauta salvas. Sem "termo", lista o que existe.
 
-EXPORTAÇÃO (o usuário pede; você só confirma que dá):
-- "exportar_planilha" {}: gera XLSX da ÚLTIMA tabela consultada.
-- "exportar_documento" {}: gera DOCX da ÚLTIMA tabela consultada.`;
+EXPORTAÇÃO E GRÁFICO (sobre a ÚLTIMA tabela consultada — consulte o dado ANTES):
+- "exportar_planilha" {}: gera XLSX.
+- "exportar_documento" {}: gera DOCX.
+- "exportar_grafico" {"tipo":"barra","colunaRotulo":null,"colunaValor":null,"agregacao":null,"titulo":null,"limite":20,"destacarColuna":null}: desenha o gráfico e entrega em PNG e SVG, no padrão visual do placar de votação. VOCÊ TEM ESSA CAPACIDADE — nunca diga que não sabe fazer gráfico ou imagem.
+  "tipo": "barra" (padrão — compara magnitude entre categorias; é o certo na maioria dos casos), "pizza" (rosca de parte-do-todo, até 6 fatias, o resto vira "outros"), "empilhada" (parte-do-todo em faixa única) ou "linha" (SÓ para série temporal — preserva a ordem da tabela).
+  "colunaRotulo"/"colunaValor": nomes das colunas. Em branco, escolhe a primeira coluna numérica de verdade.
+  "agregacao":"contagem" conta QUANTAS LINHAS há por categoria — é o que serve para tabela sem número (votações, proposições): ex.: quantas matérias por órgão, por dia, por autoria. Nesse modo "colunaValor" é ignorado e "colunaRotulo" é o que se conta.
+  Se a tabela não tiver coluna numérica e você não pedir agregação, o desenho é RECUSADO com a lista de colunas — nesse caso reformule com agregacao:"contagem", não desista.
+  "destacarColuna": coluna que, quando preenchida, marca a linha (ex.: "Autoria Podemos") — as marcadas ficam na cor da série e o resto em cinza.`;
 
-const EXPORTACOES = ['exportar_planilha', 'exportar_documento'];
+const EXPORTACOES = ['exportar_planilha', 'exportar_documento', 'exportar_grafico'];
 
 // ============================================================================
 // LAÇO ReAct
@@ -1047,6 +1053,16 @@ async function conversar(mensagem, aoPassar) {
         observacoes.push({ ferramenta: j.ferramenta, argumentos: {}, resultado: 'ERRO: não há tabela consultada ainda. Consulte um dado antes de exportar.' });
         continue;
       }
+      // Gráfico recusado (coluna não-numérica, por exemplo) volta como
+      // observação para a IA reformular, em vez de virar erro na tela.
+      if (j.ferramenta === 'exportar_grafico') {
+        const g = graficoDaTabela(app.ultimaTabela, j.argumentos || {});
+        if (g.erro) {
+          observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado: `ERRO: ${g.erro}` });
+          continue;
+        }
+        return { exportar: j.ferramenta, tabela: app.ultimaTabela, grafico: g, argumentos: j.argumentos || {} };
+      }
       return { exportar: j.ferramenta, tabela: app.ultimaTabela };
     }
 
@@ -1067,6 +1083,436 @@ async function conversar(mensagem, aoPassar) {
 // ============================================================================
 // EXPORTAÇÃO — XLSX e DOCX a partir da última tabela
 // ============================================================================
+
+// ============================================================================
+// GRÁFICOS — SVG desenhado à mão, a partir da ÚLTIMA TABELA consultada.
+//
+// Os números vêm SEMPRE da tabela, nunca do modelo: o gráfico é uma releitura
+// do que a ferramenta apurou, não uma nova afirmação. Se a coluna escolhida
+// não for numérica, o pedido é RECUSADO em vez de virar barra de zeros.
+//
+// Cores e formas seguem a validação rodada contra a superfície do SisPode
+// (#142a2f), não o olhômetro:
+//   · série única  #3987e5 — 4,12:1 de contraste;
+//   · categórica (empilhada) os 6 primeiros slots passam banda de luminância,
+//     piso de croma, separação para daltonismo (pior par ΔE 8,4) e contraste;
+//   · cinza de apagamento #5c757c — 3,06:1, para o caso de ênfase;
+//   · grade e eixo recessivos, 1px sólidos (nunca tracejados).
+// Barra até 24px, ponta arredondada em 4px e quadrada na base, 2px de respiro
+// entre barras vizinhas — o respiro é que separa, não contorno.
+// ============================================================================
+
+// Superfície, texto e estrutura seguem o módulo de imagem de votação
+// (bot/src/imagem.js) — é o padrão visual que a Liderança já publica.
+// As HUES de série são as validadas; foram re-conferidas contra ESTA
+// superfície (#122226): banda de luminância, croma, daltonismo e contraste,
+// todas passando, pior par adjacente ΔE 8,4.
+const VIZ = {
+  fundo:   '#122226',   // card do placar de votação
+  borda:   'rgba(255,255,255,0.07)',
+  texto:   '#e8eef0',   // 13,97:1
+  textoDim:'#7d949b',   // 5,13:1
+  grade:   '#1e3840',
+  serie:   '#3987e5',   // 4,50:1
+  apagado: '#6e878e',   // 4,30:1 — sobra e "outros", nunca uma 7ª hue
+  categorica: ['#3987e5', '#d95926', '#199e70', '#c98500', '#d55181', '#008300'],
+};
+
+/** Converte célula de tabela em número. Devolve null se não for numérica. */
+function numeroDe(v) {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+  const s = String(v ?? '').trim();
+  if (!s) return null;
+  // "R$ 1.234.567,89" e "1.234.567,89" → 1234567.89 ; "1234.56" → 1234.56
+  const limpo = s.replace(/[R$\s%]/g, '');
+  const br = /^-?\d{1,3}(\.\d{3})*(,\d+)?$/.test(limpo);
+  const n = Number(br ? limpo.replace(/\./g, '').replace(',', '.') : limpo.replace(',', '.'));
+  return Number.isFinite(n) ? n : null;
+}
+
+/**
+ * Abreviação que NÃO produz "1.000 mil": 999.700 arredondava para 1.000 na
+ * casa dos milhares e ficava na unidade errada. Promove de faixa quando o
+ * arredondamento estoura o milhar.
+ */
+function abreviar(n) {
+  const faixas = [[1e9, ' bi', 1], [1e6, ' mi', 1], [1e3, ' mil', 0]];
+  for (const [div, suf, casas] of faixas) {
+    if (Math.abs(n) < div) continue;
+    const v = n / div;
+    let arred = Number(v.toFixed(casas));
+    // Estourou o milhar ao arredondar (999.930 virava "1.000 mil")? Ganha uma
+    // casa decimal em vez de mudar de unidade — 999.930 NÃO é um milhão.
+    if (Math.abs(arred) >= 1000) arred = Number(v.toFixed(casas + 1));
+    return arred.toLocaleString('pt-BR', { maximumFractionDigits: casas + 1 }) + suf;
+  }
+  return n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+}
+
+const esc = s => String(s ?? '')
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+
+/** Largura aproximada de texto — para NÃO colocar rótulo que não cabe. */
+function larguraTexto(t, px) { return String(t).length * px * 0.56; }
+
+function cortar(t, max) {
+  const s = String(t ?? '');
+  return s.length <= max ? s : s.slice(0, max - 1) + '…';
+}
+
+/** Escalas "redondas" para o eixo: 1, 2, 2,5 ou 5 × potência de 10. */
+function marcasEixo(maxValor, quantas = 4) {
+  if (!(maxValor > 0)) return { max: 1, marcas: [0, 1] };
+  const cru = maxValor / quantas;
+  const pot = Math.pow(10, Math.floor(Math.log10(cru)));
+  const passo = [1, 2, 2.5, 5, 10].map(m => m * pot).find(p => p >= cru) || 10 * pot;
+  const max = Math.ceil(maxValor / passo) * passo;
+  const marcas = [];
+  for (let v = 0; v <= max + 1e-9; v += passo) marcas.push(v);
+  return { max, marcas };
+}
+
+/**
+ * Barra horizontal — a forma padrão. O comprimento carrega a magnitude; a cor
+ * é uma só (série única não leva legenda: o título já diz o que está plotado).
+ * `destaque` é o modo de ÊNFASE: os rótulos que casam ficam na cor da série e
+ * o resto vai para o cinza de apagamento.
+ */
+function svgBarras({ titulo, subtitulo, dados, destaque, fonte }) {
+  const n = dados.length;
+  const alturaFaixa = Math.min(38, Math.max(22, Math.floor(420 / Math.max(n, 1))));
+  const alturaBarra = Math.min(24, alturaFaixa - 8);          // teto de 24px
+  // `baixo` precisa caber os rótulos do eixo (+18) E a linha de fonte (-14),
+  // que se sobrepunham no primeiro desenho.
+  const margem = { topo: subtitulo ? 74 : 58, dir: 96, baixo: 60, esq: 8 };
+  const larguraRotulo = Math.min(230, Math.max(110,
+    ...dados.map(d => larguraTexto(cortar(d.rotulo, 34), 12) + 12)));
+  const larg = 860;
+  const plotEsq = margem.esq + larguraRotulo + 12;
+  const plotLarg = larg - plotEsq - margem.dir;
+  const alt = margem.topo + n * alturaFaixa + margem.baixo;
+
+  const maxV = Math.max(...dados.map(d => d.valor), 0);
+  const { max, marcas } = marcasEixo(maxV);
+  const x = v => plotEsq + (max ? (v / max) * plotLarg : 0);
+
+  const p = [];
+  p.push(`<rect width="${larg}" height="${alt}" fill="${VIZ.fundo}"/>`);
+  p.push(`<text x="${margem.esq}" y="26" fill="${VIZ.texto}" font-size="16" font-weight="700">${esc(titulo)}</text>`);
+  if (subtitulo) p.push(`<text x="${margem.esq}" y="46" fill="${VIZ.textoDim}" font-size="12">${esc(subtitulo)}</text>`);
+
+  // Grade: 1px sólida, recessiva, atrás das barras.
+  for (const m of marcas) {
+    p.push(`<line x1="${x(m).toFixed(1)}" y1="${margem.topo - 12}" x2="${x(m).toFixed(1)}" y2="${margem.topo + n * alturaFaixa}" stroke="${VIZ.grade}" stroke-width="1"/>`);
+    p.push(`<text x="${x(m).toFixed(1)}" y="${margem.topo + n * alturaFaixa + 18}" fill="${VIZ.textoDim}" font-size="11" text-anchor="middle">${esc(abreviar(m))}</text>`);
+  }
+
+  dados.forEach((d, i) => {
+    const y = margem.topo + i * alturaFaixa + (alturaFaixa - alturaBarra) / 2;
+    const larguraBarra = Math.max(0, x(d.valor) - plotEsq);
+    const cor = destaque ? (d.destacado ? VIZ.serie : VIZ.apagado) : VIZ.serie;
+    // Ponta arredondada em 4px, quadrada na base: dois retângulos sobrepostos
+    // dão isso sem depender de `path`.
+    if (larguraBarra > 0) {
+      p.push(`<rect x="${plotEsq}" y="${y}" width="${larguraBarra.toFixed(1)}" height="${alturaBarra}" rx="4" fill="${cor}"/>`);
+      if (larguraBarra > 4) {
+        p.push(`<rect x="${plotEsq}" y="${y}" width="${Math.min(4, larguraBarra).toFixed(1)}" height="${alturaBarra}" fill="${cor}"/>`);
+      }
+    }
+    p.push(`<text x="${plotEsq - 12}" y="${y + alturaBarra / 2 + 4}" fill="${VIZ.texto}" font-size="12" text-anchor="end">${esc(cortar(d.rotulo, 34))}<title>${esc(d.rotulo)}</title></text>`);
+    // Valor fora da ponta — só se couber na margem reservada.
+    const rot = abreviar(d.valor);
+    if (larguraTexto(rot, 12) + 10 < margem.dir) {
+      p.push(`<text x="${(x(d.valor) + 8).toFixed(1)}" y="${y + alturaBarra / 2 + 4}" fill="${VIZ.textoDim}" font-size="12">${esc(rot)}</text>`);
+    }
+  });
+
+  if (destaque) {
+    const yl = alt - 14;
+    p.push(`<rect x="${margem.esq}" y="${yl - 9}" width="10" height="10" rx="2" fill="${VIZ.serie}"/>`);
+    p.push(`<text x="${margem.esq + 16}" y="${yl}" fill="${VIZ.textoDim}" font-size="11">${esc(destaque)}</text>`);
+    const off = margem.esq + 26 + larguraTexto(destaque, 11);
+    p.push(`<rect x="${off}" y="${yl - 9}" width="10" height="10" rx="2" fill="${VIZ.apagado}"/>`);
+    p.push(`<text x="${off + 16}" y="${yl}" fill="${VIZ.textoDim}" font-size="11">demais</text>`);
+  } else if (fonte) {
+    p.push(`<text x="${margem.esq}" y="${alt - 14}" fill="${VIZ.textoDim}" font-size="11">${esc(fonte)}</text>`);
+  }
+  return { svg: envelope(larg, alt, p.join('')), larg, alt };
+}
+
+/** Linha — série única, 2px, marcadores r=4 com anel de 2px na cor do fundo. */
+function svgLinha({ titulo, subtitulo, dados, fonte }) {
+  const larg = 860, alt = 400;
+  const margem = { topo: subtitulo ? 74 : 58, dir: 28, baixo: 54, esq: 66 };
+  const plotLarg = larg - margem.esq - margem.dir;
+  const plotAlt = alt - margem.topo - margem.baixo;
+  const maxV = Math.max(...dados.map(d => d.valor), 0);
+  const { max, marcas } = marcasEixo(maxV);
+  const px = i => margem.esq + (dados.length > 1 ? (i / (dados.length - 1)) * plotLarg : plotLarg / 2);
+  const py = v => margem.topo + plotAlt - (max ? (v / max) * plotAlt : 0);
+
+  const p = [];
+  p.push(`<rect width="${larg}" height="${alt}" fill="${VIZ.fundo}"/>`);
+  p.push(`<text x="${margem.esq - 58}" y="26" fill="${VIZ.texto}" font-size="16" font-weight="700">${esc(titulo)}</text>`);
+  if (subtitulo) p.push(`<text x="${margem.esq - 58}" y="46" fill="${VIZ.textoDim}" font-size="12">${esc(subtitulo)}</text>`);
+  for (const m of marcas) {
+    p.push(`<line x1="${margem.esq}" y1="${py(m).toFixed(1)}" x2="${larg - margem.dir}" y2="${py(m).toFixed(1)}" stroke="${VIZ.grade}" stroke-width="1"/>`);
+    p.push(`<text x="${margem.esq - 8}" y="${(py(m) + 4).toFixed(1)}" fill="${VIZ.textoDim}" font-size="11" text-anchor="end">${esc(abreviar(m))}</text>`);
+  }
+  const d = dados.map((v, i) => `${i ? 'L' : 'M'}${px(i).toFixed(1)},${py(v.valor).toFixed(1)}`).join(' ');
+  p.push(`<path d="${d}" fill="none" stroke="${VIZ.serie}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>`);
+  // Rótulos do eixo x sem colisão: mostra no máximo 8, espaçados.
+  const passoRot = Math.ceil(dados.length / 8);
+  dados.forEach((v, i) => {
+    p.push(`<circle cx="${px(i).toFixed(1)}" cy="${py(v.valor).toFixed(1)}" r="4" fill="${VIZ.serie}" stroke="${VIZ.fundo}" stroke-width="2"><title>${esc(v.rotulo)}: ${esc(abreviar(v.valor))}</title></circle>`);
+    if (i % passoRot === 0 || i === dados.length - 1) {
+      p.push(`<text x="${px(i).toFixed(1)}" y="${alt - margem.baixo + 20}" fill="${VIZ.textoDim}" font-size="11" text-anchor="middle">${esc(cortar(v.rotulo, 12))}</text>`);
+    }
+  });
+  if (fonte) p.push(`<text x="${margem.esq - 58}" y="${alt - 12}" fill="${VIZ.textoDim}" font-size="11">${esc(fonte)}</text>`);
+  return { svg: envelope(larg, alt, p.join('')), larg, alt };
+}
+
+/**
+ * Barra empilhada horizontal — parte-do-todo. Legenda SEMPRE presente (são ≥2
+ * séries), 2px de respiro na cor do fundo entre segmentos, e rótulo dentro do
+ * segmento só quando o texto medido cabe.
+ */
+function svgEmpilhada({ titulo, subtitulo, series, total, fonte }) {
+  // "outros" NÃO recebe hue: o índice dava a volta na paleta e pintava a
+  // sobra com a mesma cor do primeiro segmento. Sobra é cinza de apagamento.
+  const corDe = i => (series[i]?.resto ? VIZ.apagado : VIZ.categorica[i % VIZ.categorica.length]);
+  const larg = 860, alt = 190;
+  const margem = { topo: subtitulo ? 84 : 68, esq: 8, dir: 8 };
+  const plotLarg = larg - margem.esq - margem.dir;
+  const altBarra = 34;
+  const p = [];
+  p.push(`<rect width="${larg}" height="${alt}" fill="${VIZ.fundo}"/>`);
+  p.push(`<text x="${margem.esq}" y="26" fill="${VIZ.texto}" font-size="16" font-weight="700">${esc(titulo)}</text>`);
+  if (subtitulo) p.push(`<text x="${margem.esq}" y="46" fill="${VIZ.textoDim}" font-size="12">${esc(subtitulo)}</text>`);
+
+  let x = margem.esq;
+  series.forEach((s, i) => {
+    const w = total ? (s.valor / total) * plotLarg : 0;
+    const wv = Math.max(0, w - 2);                       // 2px de respiro
+    const cor = corDe(i);
+    p.push(`<rect x="${x.toFixed(1)}" y="${margem.topo}" width="${wv.toFixed(1)}" height="${altBarra}" rx="3" fill="${cor}"><title>${esc(s.rotulo)}: ${esc(abreviar(s.valor))}</title></rect>`);
+    const pct = total ? Math.round((s.valor / total) * 100) + '%' : '';
+    if (pct && larguraTexto(pct, 12) + 12 < wv) {
+      // Rótulo DENTRO do preenchimento — a exceção em que o texto não usa token.
+      p.push(`<text x="${(x + wv / 2).toFixed(1)}" y="${margem.topo + altBarra / 2 + 4}" fill="#0b1416" font-size="12" font-weight="600" text-anchor="middle">${pct}</text>`);
+    }
+    x += w;
+  });
+
+  let lx = margem.esq, ly = margem.topo + altBarra + 26;
+  series.forEach((s, i) => {
+    const txt = `${cortar(s.rotulo, 26)} · ${abreviar(s.valor)}`;
+    const w = larguraTexto(txt, 11) + 30;
+    if (lx + w > larg - margem.dir) { lx = margem.esq; ly += 20; }
+    p.push(`<rect x="${lx}" y="${ly - 9}" width="10" height="10" rx="2" fill="${corDe(i)}"/>`);
+    p.push(`<text x="${lx + 16}" y="${ly}" fill="${VIZ.textoDim}" font-size="11">${esc(txt)}</text>`);
+    lx += w;
+  });
+  const altFinal = Math.max(alt, ly + 30);
+  if (fonte) p.push(`<text x="${margem.esq}" y="${altFinal - 12}" fill="${VIZ.textoDim}" font-size="11">${esc(fonte)}</text>`);
+  return { svg: envelope(larg, altFinal, p.join('')), larg, alt: altFinal };
+}
+
+/**
+ * Pizza (rosca) — parte-do-todo "de relance".
+ *
+ * Serve para mostrar que UMA fatia domina, não para comparar valores
+ * próximos: dois setores de 18% e 21% ninguém distingue por ângulo. Por isso
+ * o percentual vai escrito na fatia sempre que couber, e a legenda traz o
+ * valor — quem precisa comparar lê o número, não o ângulo.
+ * Teto de 6 fatias; a sobra vira "outros" no cinza de apagamento, nunca uma
+ * sétima cor (hue gerada é indistinguível sob daltonismo).
+ */
+function svgPizza({ titulo, subtitulo, series, total, fonte }) {
+  const larg = 860;
+  const raio = 118, furo = 62;               // rosca: o furo devolve o total ao centro
+  const cx = 200, cy = (subtitulo ? 84 : 68) + raio;
+  const corDe = i => (series[i]?.resto ? VIZ.apagado : VIZ.categorica[i % VIZ.categorica.length]);
+  const p = [];
+
+  const legX = 400;
+  const altLeg = series.length * 24;
+  const alt = Math.max(cy + raio + 46, (subtitulo ? 84 : 68) + altLeg + 46);
+
+  p.push(`<rect width="${larg}" height="${alt}" fill="${VIZ.fundo}"/>`);
+  p.push(`<text x="16" y="26" fill="${VIZ.texto}" font-size="16" font-weight="700">${esc(titulo)}</text>`);
+  if (subtitulo) p.push(`<text x="16" y="46" fill="${VIZ.textoDim}" font-size="12">${esc(subtitulo)}</text>`);
+
+  // MESMA técnica do donutSVG de bot/src/imagem.js: um <circle> por fatia,
+  // com stroke-dasharray e um pedaço a menos servindo de respiro. Mantém o
+  // desenho idêntico ao placar que a Liderança já publica.
+  const rMeio = (raio + furo) / 2;
+  const larguraAnel = raio - furo;
+  const C = 2 * Math.PI * rMeio;
+  const RESPIRO = 3;
+  const ponto = (ang, r) => [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+  let acum = 0;
+  series.forEach((s, i) => {
+    if (!(s.valor > 0) || !total) return;
+    const comp = (s.valor / total) * C;
+    p.push(`<circle cx="${cx}" cy="${cy}" r="${rMeio}" fill="none" stroke="${corDe(i)}"`
+      + ` stroke-width="${larguraAnel}" stroke-dasharray="${Math.max(comp - RESPIRO, 1).toFixed(2)} ${C.toFixed(2)}"`
+      + ` stroke-dashoffset="${(-acum).toFixed(2)}" transform="rotate(-90 ${cx} ${cy})">`
+      + `<title>${esc(s.rotulo)}: ${esc(abreviar(s.valor))}</title></circle>`);
+    const fatia = (s.valor / total) * Math.PI * 2;
+    const pct = Math.round((s.valor / total) * 100);
+    // Percentual dentro da fatia só quando o arco comporta o texto — abaixo
+    // disso ele sai borrado por cima da fatia vizinha; a legenda carrega.
+    if (fatia > 0.42) {
+      const meio = -Math.PI / 2 + (acum / C) * Math.PI * 2 + fatia / 2;
+      const [lx, ly] = ponto(meio, rMeio);
+      p.push(`<text x="${lx.toFixed(1)}" y="${(ly + 4).toFixed(1)}" fill="#0b1416" font-size="12" font-weight="700" text-anchor="middle">${pct}%</text>`);
+    }
+    acum += comp;
+  });
+
+  p.push(`<text x="${cx}" y="${cy - 2}" fill="${VIZ.texto}" font-size="17" font-weight="700" text-anchor="middle">${esc(abreviar(total))}</text>`);
+  p.push(`<text x="${cx}" y="${cy + 16}" fill="${VIZ.textoDim}" font-size="11" text-anchor="middle">total</text>`);
+
+  let ly = (subtitulo ? 84 : 68) + 14;
+  series.forEach((s, i) => {
+    const pct = total ? Math.round((s.valor / total) * 100) : 0;
+    p.push(`<rect x="${legX}" y="${ly - 9}" width="10" height="10" rx="2" fill="${corDe(i)}"/>`);
+    p.push(`<text x="${legX + 16}" y="${ly}" fill="${VIZ.texto}" font-size="12">${esc(cortar(s.rotulo, 40))}</text>`);
+    p.push(`<text x="${larg - 16}" y="${ly}" fill="${VIZ.textoDim}" font-size="12" text-anchor="end">${esc(abreviar(s.valor))} · ${pct}%</text>`);
+    ly += 24;
+  });
+
+  if (fonte) p.push(`<text x="16" y="${alt - 14}" fill="${VIZ.textoDim}" font-size="11">${esc(fonte)}</text>`);
+  return { svg: envelope(larg, alt, p.join('')), larg, alt };
+}
+
+function envelope(larg, alt, corpo) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${larg}" height="${alt}" viewBox="0 0 ${larg} ${alt}" `
+    + `font-family="DM Sans, Segoe UI, Helvetica, Arial, sans-serif">${corpo}</svg>`;
+}
+
+/**
+ * Monta o gráfico a partir da última tabela. Devolve {svg, aviso} ou {erro}.
+ * NUNCA inventa dado: tudo sai de `tabela.linhas`.
+ */
+function graficoDaTabela(tabela, { tipo = 'barra', colunaRotulo, colunaValor, titulo, limite = 20, destacarColuna, agregacao } = {}) {
+  if (!tabela || !tabela.linhas?.length) return { erro: 'não há tabela consultada para desenhar.' };
+  const cols = tabela.colunas;
+  const idx = (nome, padrao) => {
+    if (nome == null || nome === '') return padrao;
+    const alvo = chaveNome(nome);
+    const i = cols.findIndex(c => chaveNome(c) === alvo);
+    return i >= 0 ? i : cols.findIndex(c => chaveNome(c).includes(alvo));
+  };
+
+  let dados, descartadas = 0, medida;
+
+  if (agregacao === 'contagem') {
+    // Tabela sem número (votações, proposições) tem um gráfico legítimo:
+    // QUANTAS linhas por categoria. É agregação do que já foi apurado, não
+    // valor novo. Uma célula com vários valores ("PLEN, CCJC") conta em cada.
+    const ir = idx(colunaRotulo, 0);
+    if (ir < 0) return { erro: `coluna "${colunaRotulo}" não existe. Colunas: ${cols.join(', ')}.` };
+    const conta = new Map();
+    for (const l of tabela.linhas) {
+      const cru = String(l[ir] ?? '').trim();
+      const partes = cru ? cru.split(/\s*[,;]\s*/).filter(Boolean) : ['(vazio)'];
+      for (const chave of partes) conta.set(chave, (conta.get(chave) || 0) + 1);
+    }
+    dados = [...conta].map(([rotulo, valor]) => ({ rotulo, valor }));
+    medida = { valor: 'Quantidade', rotulo: cols[ir] };
+  } else {
+    // Coluna de valor: a indicada, ou a primeira que seja numérica de verdade.
+    let iv = idx(colunaValor, -1);
+    if (iv < 0) {
+      iv = cols.findIndex((_, i) => {
+        const amostra = tabela.linhas.slice(0, 12).map(l => numeroDe(l[i]));
+        return amostra.filter(v => v !== null).length >= Math.ceil(amostra.length * 0.7);
+      });
+    }
+    if (iv < 0) {
+      return { erro: `nenhuma coluna numérica em "${tabela.titulo}". Colunas: ${cols.join(', ')}. `
+        + 'Esta tabela é textual — para plotá-la use agregacao:"contagem" com a coluna que quer contar '
+        + `(ex.: {"agregacao":"contagem","colunaRotulo":"${cols[0]}"}).` };
+    }
+    const ir = idx(colunaRotulo, cols.findIndex((_, i) => i !== iv));
+    if (ir < 0) return { erro: 'não achei uma coluna de rótulo.' };
+    dados = tabela.linhas.map(l => ({ rotulo: String(l[ir] ?? '—'), valor: numeroDe(l[iv]) }))
+      .filter(d => d.valor !== null);
+    descartadas = tabela.linhas.length - dados.length;
+    medida = { valor: cols[iv], rotulo: cols[ir] };
+  }
+
+  if (!dados.length) return { erro: 'não sobrou nenhum valor para desenhar.' };
+
+  if (tipo === 'linha') {
+    // Série temporal: preserva a ordem da tabela (já vem ordenada por data).
+    const g = svgLinha({
+      titulo: titulo || tabela.titulo, subtitulo: `${medida.valor} por ${medida.rotulo}`,
+      dados, fonte: tabela.fonte,
+    });
+    return { ...g, itens: dados.length, descartadas };
+  }
+
+  dados.sort((a, b) => b.valor - a.valor);
+  const total = dados.reduce((s, d) => s + d.valor, 0);
+  const cortados = Math.max(0, dados.length - limite);
+  const mostrados = dados.slice(0, limite);
+
+  if (tipo === 'pizza' || tipo === 'empilhada') {
+    // Parte-do-todo só é honesto com poucos segmentos: acima de 6, o resto
+    // vira "outros" em vez de virar uma faixa de fatias indistinguíveis.
+    const seis = dados.slice(0, 6);
+    const resto = dados.slice(6).reduce((s, d) => s + d.valor, 0);
+    const series = resto > 0 ? [...seis, { rotulo: `outros (${dados.length - 6})`, valor: resto, resto: true }] : seis;
+    const args = {
+      titulo: titulo || tabela.titulo,
+      subtitulo: `${medida.valor} — participação de cada ${medida.rotulo.toLowerCase()}`,
+      series, total, fonte: tabela.fonte,
+    };
+    const g = tipo === 'pizza' ? svgPizza(args) : svgEmpilhada(args);
+    return { ...g, itens: series.length, descartadas, cortados: 0 };
+  }
+
+  let destaque = null;
+  if (destacarColuna) {
+    const id = idx(destacarColuna, -1);
+    if (id >= 0) {
+      const irRot = cols.indexOf(medida.rotulo);
+      const marcados = new Set(tabela.linhas.filter(l => String(l[id] ?? '').trim()).map(l => String(l[irRot])));
+      mostrados.forEach(d => { d.destacado = marcados.has(d.rotulo); });
+      if (mostrados.some(d => d.destacado)) destaque = cols[id];
+    }
+  }
+  const g = svgBarras({
+    titulo: titulo || tabela.titulo,
+    subtitulo: `${medida.valor} por ${medida.rotulo}${cortados ? ` — ${limite} maiores de ${dados.length}` : ''}`,
+    dados: mostrados, destaque, fonte: tabela.fonte,
+  });
+  return { ...g, itens: mostrados.length, descartadas, cortados };
+}
+
+/** SVG → PNG pelo canvas (a CSP da extensão permite data: e blob: em img). */
+function svgParaPng(svg, larg, alt, escala = 2) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
+    img.onload = () => {
+      const c = document.createElement('canvas');
+      c.width = larg * escala; c.height = alt * escala;
+      const ctx = c.getContext('2d');
+      ctx.fillStyle = VIZ.fundo;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, 0, 0, c.width, c.height);
+      c.toBlob(b => b ? resolve(b) : reject(new Error('canvas não gerou PNG')), 'image/png');
+    };
+    img.onerror = () => reject(new Error('não foi possível rasterizar o SVG'));
+    img.src = url;
+  });
+}
 
 function baixar(blob, nome) {
   const url = URL.createObjectURL(blob);
@@ -1193,6 +1639,46 @@ function botoesExport(tabela) {
   return box;
 }
 
+/** Mostra o gráfico na conversa e oferece PNG e SVG. */
+function blocoGrafico(g, tabela) {
+  const box = document.createElement('div');
+  box.className = 'grafico-box';
+
+  const fig = document.createElement('div');
+  fig.className = 'grafico';
+  fig.innerHTML = g.svg;                       // SVG montado aqui, sem HTML externo
+  box.appendChild(fig);
+
+  const nota = [];
+  if (g.cortados) nota.push(`mostrando os ${g.itens} maiores de ${g.itens + g.cortados}`);
+  if (g.descartadas) nota.push(`${g.descartadas} linha(s) sem valor numérico ficaram de fora`);
+  nota.push('a planilha tem todos os dados');
+  const legenda = document.createElement('span');
+  legenda.className = 'export-info';
+  legenda.textContent = nota.join(' · ');
+
+  const barra = document.createElement('div');
+  barra.className = 'export-box';
+  barra.appendChild(legenda);
+  for (const [rot, fn] of [
+    ['⤓ Imagem (.png)', async () => baixar(await svgParaPng(g.svg, g.larg, g.alt), nomeArquivo(tabela.titulo, 'png'))],
+    ['⤓ Vetor (.svg)', async () => baixar(new Blob([g.svg], { type: 'image/svg+xml' }), nomeArquivo(tabela.titulo, 'svg'))],
+  ]) {
+    const b = document.createElement('button');
+    b.className = 'btn-export';
+    b.textContent = rot;
+    b.addEventListener('click', async () => {
+      b.disabled = true;
+      try { await fn(); }
+      catch (e) { bolha('bot', `ERRO ao gerar o arquivo: ${e.message}`); }
+      finally { b.disabled = false; }
+    });
+    barra.appendChild(b);
+  }
+  box.appendChild(barra);
+  return box;
+}
+
 async function enviar() {
   if (app.pensando) return;
   const campo = el('entrada');
@@ -1217,7 +1703,14 @@ async function enviar() {
       passo(`consultando ${ferr}${arg ? ` (${arg})` : ''}…`);
     });
     limparPassos();
-    if (r.exportar) {
+    if (r.exportar === 'exportar_grafico') {
+      const t = r.tabela;
+      const b = bolha('bot', `${t.titulo} — ${t.linhas.length} linha(s).\nFonte: ${t.fonte}`);
+      b.appendChild(blocoGrafico(r.grafico, t));
+      b.appendChild(botoesExport(t));
+      lembrar('usuario', texto);
+      lembrar('bot', `[desenhei o gráfico de ${t.titulo}]`);
+    } else if (r.exportar) {
       const t = r.tabela;
       const b = bolha('bot', `Pronto — ${t.linhas.length} linha(s) de "${t.titulo}".\nFonte: ${t.fonte}`);
       b.appendChild(botoesExport(t));
@@ -1402,6 +1895,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     chaveNome, hostPermitido, htmlParaTexto, extrairJson, brl, hojeISO,
     montarObservacao, classeDe, FERRAMENTAS, DOMINIOS_OFICIAIS,
+    numeroDe, marcasEixo, graficoDaTabela, VIZ,
     // A tabela exportável guarda TODOS os itens, mesmo quando a observação
     // corta — os testes conferem essa diferença.
     ultimaTabela: () => app.ultimaTabela,
