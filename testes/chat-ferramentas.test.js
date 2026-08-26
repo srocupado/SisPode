@@ -1,0 +1,189 @@
+// Ferramentas do módulo Chat — rodam contra as fontes REAIS (Firebase do
+// SisPode e API de Dados Abertos da Câmara).
+//
+// O que este teste existe para impedir:
+//   a) O ZERO SILENCIOSO. Em 20/08/2026, filtrar autoria por
+//      `siglaPartido === 'PODE'` em /proposicoes/{id}/autores devolveu 0
+//      projetos do Podemos votados em 30 dias — porque esse campo NÃO EXISTE
+//      naquele endpoint. HTTP 200 em tudo, lista vazia, resposta errada e
+//      confiante. O caso está travado abaixo.
+//   b) Falha virando fato. Fonte fora do ar tem de produzir observação que
+//      COMEÇA com "ERRO:" — é isso que faz o prompt mandar a IA declarar a
+//      falha em vez de completar o buraco.
+//   c) Vazamento de domínio na leitura de página oficial.
+//
+// Uso: node testes/chat-ferramentas.test.js
+//      node testes/chat-ferramentas.test.js --rapido   (pula a rede lenta)
+
+const fs = require('fs');
+const path = require('path');
+
+const RAPIDO = process.argv.includes('--rapido');
+
+// chat.js é <script> de página; para o Node, carrega e usa o module.exports
+// do rodapé — sem DOM, porque nada de UI roda na importação.
+global.document = { addEventListener() {} };
+global.chrome = { storage: { local: { get(_, cb) { cb({}); } } } };
+const chat = require(path.join(__dirname, '..', 'chat.js'));
+
+let falhas = 0;
+const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
+
+(async () => {
+  console.log('== normalização de nome (casa FNS × Câmara × Senado) ==');
+  {
+    ok(chat.chaveNome('Renata Abreu') === 'RENATA ABREU', 'Title Case → caixa alta');
+    ok(chat.chaveNome('FÁBIO MACEDO') === 'FABIO MACEDO', 'acento removido — "FÁBIO" e "FABIO" batem');
+    ok(chat.chaveNome('  José   da  Silva ') === 'JOSE DA SILVA', 'espaços colapsados');
+    // A consulta ao Transparência é sensível a caixa E acento: "Renata Abreu"
+    // devolvia 0 e "RENATA ABREU" devolvia 13. Por isso a chave existe.
+    ok(chat.chaveNome('Renata Abreu') === chat.chaveNome('RENATA ABREU'),
+       'as duas grafias colapsam na MESMA chave');
+  }
+
+  console.log('\n== allow-list de domínio (verificada no host) ==');
+  {
+    ok(chat.hostPermitido('https://www.camara.leg.br/x') === true, 'camara.leg.br permitido');
+    ok(chat.hostPermitido('https://legis.senado.leg.br/y') === true, 'subdomínio do senado permitido');
+    ok(chat.hostPermitido('https://www.planalto.gov.br/z') === true, 'planalto permitido');
+    ok(chat.hostPermitido('https://camara.leg.br.evil.com/') === false,
+       'domínio que só TERMINA parecido é recusado');
+    ok(chat.hostPermitido('https://consultafns.saude.gov.br/') === false,
+       'fonte de dados do módulo Orçamento não é fonte de leitura livre');
+    ok(chat.hostPermitido('não é url') === false, 'lixo não vira permissão');
+  }
+
+  console.log('\n== extração do JSON da resposta da IA ==');
+  {
+    ok(chat.extrairJson('{"acao":"responder","texto":"oi"}').acao === 'responder', 'JSON puro');
+    ok(chat.extrairJson('```json\n{"acao":"consultar","ferramenta":"x"}\n```').ferramenta === 'x',
+       'cercas de código toleradas');
+    ok(chat.extrairJson('Claro!\n{"acao":"responder","texto":"a"}').acao === 'responder',
+       'prosa antes do JSON tolerada');
+    // Chave dentro de string quebrava o parser ingênuo por contagem de "{".
+    ok(chat.extrairJson('{"acao":"responder","texto":"use { assim }"}').texto === 'use { assim }',
+       'chave dentro de string não encerra o objeto');
+    ok(Object.keys(chat.extrairJson('sem json aqui')).length === 0, 'sem JSON devolve vazio');
+  }
+
+  if (RAPIDO) {
+    console.log('\n(--rapido: testes de rede pulados)');
+    console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
+    process.exit(falhas ? 1 : 0);
+  }
+
+  console.log('\n== bancada do Podemos (API da Câmara) ==');
+  {
+    const r = await chat.FERRAMENTAS.bancada_podemos({});
+    ok(!r.startsWith('ERRO:'), 'consulta respondeu');
+    ok(/BANCADA DO PODEMOS/.test(r), 'cabeçalho presente');
+    const n = (r.match(/^• /gm) || []).length;
+    ok(n >= 15 && n <= 60, `bancada com tamanho plausível: ${n} deputados`);
+    // Licenciados PRECISAM aparecer: usar ?siglaPartido=PODE sem legislatura
+    // omite quem está em licença — a presidente do partido sumia da bancada.
+    ok(/Licen|Exerc/.test(r), 'situação (Exercício/Licença) declarada por deputado');
+  }
+
+  console.log('\n== votações no período — o caso do zero silencioso ==');
+  {
+    const r = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-07-21', dataFim: '2026-08-20', apenasPodemos: true,
+    });
+    ok(!r.startsWith('ERRO:'), 'consulta respondeu');
+    ok(/\d+ votações/.test(r), 'total de votações declarado');
+
+    // Medido à mão em 20/08/2026: 486 votações → 120 com objeto → 29
+    // proposições → 1 do Podemos (PL 3659/2026, Bruno Ganem, 12/08, CPASF).
+    // Se o cruzamento de autoria voltar a ser por um campo inexistente, isto
+    // vira "Com autoria do Podemos: 0" e o teste QUEBRA.
+    const m = /Com autoria do Podemos: (\d+)/.exec(r);
+    ok(m, 'a contagem da bancada aparece na resposta');
+    ok(m && Number(m[1]) >= 1,
+       `pelo menos uma proposição da bancada no período — achou ${m ? m[1] : '?'}` +
+       (m && m[1] === '0' ? '  ← ZERO SILENCIOSO DE VOLTA' : ''));
+    ok(/PL 3659\/2026/.test(r), 'o caso conferido à mão (PL 3659/2026) está na lista');
+    ok(/Bruno Ganem/.test(r), 'a autoria da bancada é nomeada');
+  }
+
+  console.log('\n== /autores NÃO tem siglaPartido (a causa raiz, travada) ==');
+  {
+    const res = await fetch('https://dadosabertos.camara.leg.br/api/v2/proposicoes/2642391/autores',
+      { headers: { Accept: 'application/json' } });
+    const d = await res.json();
+    const campos = Object.keys(d.dados[0]);
+    ok(!campos.includes('siglaPartido'),
+       `o endpoint continua sem siglaPartido (campos: ${campos.join(', ')})`);
+    ok(campos.includes('uri'),
+       'a uri — de onde o id do deputado é extraído — continua existindo');
+    // Se um dia a Câmara ADICIONAR siglaPartido, este teste falha e alguém
+    // decide conscientemente se passa a usá-lo. Melhor do que descobrir por
+    // acidente num número errado publicado.
+  }
+
+  console.log('\n== base do Orçamento (Firebase) ==');
+  {
+    const cob = await chat.FERRAMENTAS.orcamento_cobertura({});
+    ok(!cob.startsWith('ERRO:'), 'cobertura respondeu');
+    ok(/anos coletados/.test(cob), 'declara os anos coletados');
+    // Coleta incompleta tem de ser DECLARADA, não silenciada.
+    const ufs = /(\d+) UF/.exec(cob);
+    if (ufs && Number(ufs[1]) < 27) {
+      ok(/ATENÇÃO: faltam/.test(cob), 'UF faltando é declarada como coleta parcial');
+    } else {
+      ok(true, `cobertura completa (${ufs ? ufs[1] : '?'} UF)`);
+    }
+
+    const pan = await chat.FERRAMENTAS.orcamento_panorama({ ano: '2026' });
+    ok(!pan.startsWith('ERRO:'), 'panorama 2026 respondeu');
+    ok(/Empenhado R\$/.test(pan) && /Pago R\$/.test(pan), 'traz empenhado e pago em reais');
+    ok(/Por função/.test(pan), 'quebra por função presente');
+
+    const dep = await chat.FERRAMENTAS.orcamento_parlamentar({ nome: 'Renata Abreu', ano: '2026' });
+    ok(!dep.startsWith('ERRO:'), 'consulta por parlamentar respondeu');
+    ok(/RENATA ABREU/i.test(dep), 'encontrou a parlamentar pela chave normalizada');
+
+    // Nome inexistente: a resposta certa é "não há" COM a lista do que há —
+    // nunca uma tabela vazia que a IA leia como zero.
+    const nada = await chat.FERRAMENTAS.orcamento_parlamentar({ nome: 'Fulano Inexistente', ano: '2026' });
+    ok(/Nenhuma emenda/.test(nada) && /Parlamentares com emenda/.test(nada),
+       'nome inexistente devolve "não há" e lista quem há');
+  }
+
+  console.log('\n== saúde/FNS por UF ==');
+  {
+    const sp = await chat.FERRAMENTAS.orcamento_saude_uf({ uf: 'SP', ano: '2026' });
+    ok(!sp.startsWith('ERRO:'), 'SP respondeu');
+    ok(/propostas do Podemos/.test(sp), 'conta as propostas');
+    ok(/Por situação/.test(sp), 'quebra por situação presente');
+
+    const zz = await chat.FERRAMENTAS.orcamento_saude_uf({ uf: 'ZZ', ano: '2026' });
+    ok(/Nenhuma coleta/.test(zz), 'UF sem coleta é declarada, não devolve vazio mudo');
+  }
+
+  console.log('\n== falha de fonte é DECLARADA com "ERRO:" ==');
+  {
+    // O prompt manda a IA declarar a falha quando a observação começa com
+    // "ERRO:". Se a ferramenta engolir o erro e devolver texto normal, a IA
+    // completa o buraco com invenção — é o modo de falha mais caro.
+    const fora = await chat.FERRAMENTAS.pagina_oficial({ url: 'https://exemplo-nao-oficial.com/x' });
+    ok(fora.startsWith('ERRO:'), `domínio fora da lista → ${fora.slice(0, 60)}`);
+
+    const semArg = await chat.FERRAMENTAS.situacao_proposicao({ sigla: 'PL' });
+    ok(semArg.startsWith('ERRO:'), 'argumento faltando → ERRO explícito');
+
+    const semUf = await chat.FERRAMENTAS.orcamento_saude_uf({ ano: '2026' });
+    ok(semUf.startsWith('ERRO:'), 'UF faltando → ERRO explícito');
+  }
+
+  console.log('\n== situação de proposição, com autoria da bancada ==');
+  {
+    const r = await chat.FERRAMENTAS.situacao_proposicao({ sigla: 'PL', numero: '3659', ano: '2026' });
+    ok(!r.startsWith('ERRO:'), 'consulta respondeu');
+    ok(/Ementa:/.test(r), 'ementa presente');
+    ok(/Do Podemos: .*Bruno Ganem/.test(r),
+       'autoria da bancada identificada pelo id (não pelo campo inexistente)');
+  }
+
+  console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
+  process.exit(falhas ? 1 : 0);
+})().catch(e => { console.error('ERRO FATAL:', e); process.exit(1); });

@@ -3176,6 +3176,14 @@ const MODULES = [
     icone:  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     acao:   abrirEmendas,
   },
+  {
+    id:     'chat',
+    titulo: 'Assistente de Dados',
+    desc:   'Pergunte em linguagem natural sobre as emendas do módulo Orçamento, as proposições e votações da API da Câmara e as análises de pauta salvas. O assistente consulta as fontes antes de responder, declara quando alguma falha e exporta o resultado em planilha ou documento.',
+    cor:    'roxo',
+    icone:  '<path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><line x1="8" y1="9" x2="16" y2="9"/><line x1="8" y1="13" x2="13" y2="13"/>',
+    acao:   abrirChat,
+  },
 ];
 
 // Compara duas versões "x.y.z"; retorna >0 se a>b, <0 se a<b, 0 se iguais.
@@ -3318,6 +3326,11 @@ function abrirLideres() {
 
 function abrirEmendas() {
   const url = chrome.runtime.getURL('emendas.html');
+  chrome.tabs.create({ url });
+}
+
+function abrirChat() {
+  const url = chrome.runtime.getURL('chat.html');
   chrome.tabs.create({ url });
 }
 
