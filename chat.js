@@ -142,6 +142,36 @@ function comTabela(titulo, colunas, linhas, fonte, texto) {
   return texto;
 }
 
+/**
+ * Junta cabeçalho e itens respeitando o teto da observação SEM cortar calado.
+ *
+ * `texto.slice(0, OBS_MAX)` decepava no meio: numa consulta de 40 proposições
+ * votadas no Plenário, 30 entravam e 10 sumiam — entre elas o PL 4578/2025,
+ * que era justamente o que a pergunta procurava. A IA recebia uma lista
+ * aparentemente completa e respondia "não há". Aqui, se não couber tudo, o que
+ * ficou de fora é CONTADO e o que fazer a respeito vai escrito.
+ */
+function montarObservacao(cabecalho, itens, teto = OBS_MAX) {
+  const cab = cabecalho.filter(v => v !== null && v !== undefined);
+  const base = cab.join('\n') + '\n\n';
+  const reserva = 220;                       // espaço do aviso de corte
+  let usado = base.length;
+  const dentro = [];
+  for (const it of itens) {
+    if (usado + it.length + 1 > teto - reserva) break;
+    dentro.push(it);
+    usado += it.length + 1;
+  }
+  const fora = itens.length - dentro.length;
+  const aviso = fora > 0
+    ? [`\n⚠ ${fora} de ${itens.length} itens NÃO couberam nesta observação. `
+      + `Diga isso na resposta e ofereça a planilha (a tabela exportável tem TODOS). `
+      + `Para ver os que faltam, restrinja a consulta (órgão, termo ou janela menor). `
+      + `NÃO conclua que algo não existe a partir desta lista.`]
+    : [];
+  return [base + dentro.join('\n'), ...aviso].join('');
+}
+
 // ============================================================================
 // PROVEDORES DE IA — mesma matriz dos demais módulos, na chave do usuário.
 // ============================================================================
@@ -558,84 +588,196 @@ async function situacaoProposicao({ sigla, numero, ano }) {
 }
 
 /**
- * Votações num período, opcionalmente só as de matéria com autoria do Podemos.
+ * Votações num período.
  *
- * O cruzamento de autoria é por ID DO DEPUTADO extraído da `uri` — /autores
- * NÃO tem `siglaPartido`. Filtrar por esse campo devolve zero silencioso.
- * Medido em 20/08/2026: 486 votações em 30 dias → 120 com objeto → 29
- * proposições distintas → 1 do Podemos, em ~18s.
+ * VERSÃO ANTERIOR PERDIA 75% DAS VOTAÇÕES. Ela filtrava por
+ * `v.proposicaoObjeto`, que vem NULO na maioria: em 10–14/08/2026 foram 486
+ * votações, das quais só 120 tinham esse campo. As 366 restantes eram
+ * descartadas sem aviso — inclusive as duas do PL 4578/2025 (futebol
+ * feminino), aprovado no Plenário em 13/08. A pergunta "houve projeto sobre
+ * futebol feminino aprovado?" recebeu "não houve" com o dado na base.
+ *
+ * O identificador da votação carrega a proposição: "2560976-30" → 2560976 =
+ * PL 4578/2025. É daí que a matéria sai, sem requisição nenhuma.
+ *
+ * Dois sentidos de "matéria votada", e os dois importam:
+ *   · o PREFIXO do id é o objeto posto em votação (pode ser um REQ);
+ *   · `proposicoesAfetadas` (só no detalhe) é a matéria atingida — a votação
+ *     2642749-7 é do REQ 4019/2026 e afeta o PL 1800/2023.
+ * O prefixo é de graça e cobre o caso comum; `detalhar:true` acrescenta as
+ * afetadas ao custo de uma requisição por votação.
+ *
+ * Autoria cruza por ID DO DEPUTADO extraído da `uri`: /autores NÃO tem
+ * `siglaPartido`, e filtrar por esse campo devolve zero silencioso.
  */
-async function votacoesPeriodo({ dias, dataInicio, dataFim, apenasPodemos = true }) {
+async function votacoesPeriodo({ dias, dataInicio, dataFim, orgao, termo, apenasPodemos = false, detalhar = false }) {
   const fim = dataFim || hojeISO();
   const ini = dataInicio || hojeISO(-(Number(dias) || 30));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(ini) || !/^\d{4}-\d{2}-\d{2}$/.test(fim)) {
     return 'ERRO: datas devem ser AAAA-MM-DD.';
   }
+  if (fim < ini) return `ERRO: a data final (${fim}) é anterior à inicial (${ini}).`;
+
   let vots = [];
   try {
-    for (let pag = 1; pag <= 20; pag++) {
+    for (let pag = 1; pag <= 30; pag++) {
       const d = await json(`${API_CAMARA}/votacoes?dataInicio=${ini}&dataFim=${fim}&itens=100&pagina=${pag}`, 30000);
       vots.push(...(d.dados || []));
       if ((d.dados || []).length < 100) break;   // itens=100 é o teto real da API
     }
   } catch (e) { return `ERRO: falha ao listar votações (${e.message}).`; }
-  if (!vots.length) return `Nenhuma votação registrada entre ${ini} e ${fim}.`;
+  if (!vots.length) return `JANELA CONSULTADA: ${ini} a ${fim}.\nNenhuma votação registrada no período.`;
 
-  const comObj = vots.filter(v => v.proposicaoObjeto);
-  const det = await emParalelo(comObj, 6, async v => {
-    const d = await json(`${API_CAMARA}/votacoes/${v.id}`);
-    const p = (d.dados?.proposicoesAfetadas || [])[0] || null;
-    return p ? { p, data: v.data, orgao: v.siglaOrgao, descricao: v.descricao } : null;
+  const totalVots = vots.length;
+  const todas = vots;
+  const orgaoAlvo = orgao ? String(orgao).toUpperCase().trim() : null;
+  if (orgaoAlvo) {
+    const antes = vots.length;
+    vots = vots.filter(v => String(v.siglaOrgao || '').toUpperCase() === orgaoAlvo);
+    if (!vots.length) {
+      const orgaos = {};
+      for (const v of todas) orgaos[v.siglaOrgao] = (orgaos[v.siglaOrgao] || 0) + 1;
+      return `JANELA CONSULTADA: ${ini} a ${fim}.\n`
+        + `Nenhuma votação no órgão "${orgaoAlvo}". Houve ${antes} votações no período, nestes órgãos: `
+        + `${Object.entries(orgaos).sort((a, b) => b[1] - a[1]).map(([o, n]) => `${o} ${n}`).join('; ')}.`;
+    }
+  }
+
+  // Agrupa por proposição usando o PREFIXO do id — nada é descartado.
+  const porProp = new Map();
+  for (const v of vots) {
+    const pid = String(v.id).split('-')[0];
+    if (!/^\d+$/.test(pid)) continue;
+    if (!porProp.has(pid)) porProp.set(pid, []);
+    porProp.get(pid).push(v);
+  }
+  const semId = vots.length - [...porProp.values()].reduce((s, a) => s + a.length, 0);
+
+  // `detalhar` acrescenta as matérias AFETADAS (um REQ de urgência sobre um PL
+  // faz o PL aparecer). Custa uma requisição por votação.
+  let falhasDet = 0;
+  if (detalhar) {
+    const extras = await emParalelo(vots, 6, async v => {
+      const d = await json(`${API_CAMARA}/votacoes/${v.id}`);
+      return { v, af: (d.dados?.proposicoesAfetadas || []).map(p => String(p.id)) };
+    });
+    falhasDet = extras.filter(x => x === null).length;
+    for (const x of extras.filter(Boolean)) {
+      for (const pid of x.af) {
+        if (!porProp.has(pid)) porProp.set(pid, []);
+        if (!porProp.get(pid).includes(x.v)) porProp.get(pid).push(x.v);
+      }
+    }
+  }
+
+  const ids = [...porProp.keys()];
+  const TETO = 260;
+  if (ids.length > TETO) {
+    const orgaos = {};
+    for (const v of vots) orgaos[v.siglaOrgao] = (orgaos[v.siglaOrgao] || 0) + 1;
+    return `JANELA CONSULTADA: ${ini} a ${fim}.\n`
+      + `São ${vots.length} votações em ${ids.length} proposições distintas — demais para detalhar de uma vez.\n`
+      + `RESTRINJA e consulte de novo: por órgão (orgao:"PLEN" para o Plenário) ou por janela menor.\n`
+      + `Votações por órgão no período: ${Object.entries(orgaos).sort((a, b) => b[1] - a[1]).map(([o, n]) => `${o} ${n}`).join('; ')}.`;
+  }
+
+  const fichas = await emParalelo(ids, 6, async pid => {
+    const d = await json(`${API_CAMARA}/proposicoes/${pid}`);
+    const p = d.dados || {};
+    return { pid, sigla: p.siglaTipo, numero: p.numero, ano: p.ano, ementa: p.ementa || '' };
   });
-  const falhasDet = det.filter(x => x === null).length - comObj.filter(v => !v).length;
-  const props = [...new Map(det.filter(Boolean).map(x => [x.p.id, x])).values()];
-  if (!props.length) {
-    return `Entre ${ini} e ${fim} houve ${vots.length} votações, mas nenhuma teve proposição identificável (${comObj.length} tinham objeto declarado).`;
+  const lidas = fichas.filter(Boolean);
+  const naoLidas = fichas.length - lidas.length;
+
+  let itens = lidas.map(f => {
+    const vv = porProp.get(f.pid);
+    return {
+      ...f,
+      votacoes: vv,
+      datas: [...new Set(vv.map(v => v.data))].sort(),
+      orgaos: [...new Set(vv.map(v => v.siglaOrgao))],
+      descricoes: vv.map(v => v.descricao || '').filter(Boolean),
+    };
+  });
+
+  // Filtro por tema: procura na ementa E na descrição da votação (é lá que
+  // está "Aprovada a Redação Final…", "Aprovado o Substitutivo…").
+  let filtradoPor = null;
+  if (termo) {
+    const alvo = chaveNome(termo);
+    const palavras = alvo.split(' ').filter(w => w.length > 2);
+    const casa = t => { const k = chaveNome(t); return palavras.every(w => k.includes(w)); };
+    const antes = itens.length;
+    itens = itens.filter(x => casa(x.ementa) || x.descricoes.some(casa));
+    filtradoPor = `termo "${termo}": ${itens.length} de ${antes} proposições votadas`;
   }
 
   const banc = (await bancadaAtual().catch(() => null))?.membros || null;
-  if (apenasPodemos && !banc) {
-    return 'ERRO: não foi possível montar a bancada do Podemos, então não dá para filtrar por autoria. Consulte sem o filtro ou tente de novo.';
-  }
   const idDe = u => { const m = /\/deputados\/(\d+)/.exec(u || ''); return m ? +m[1] : null; };
-  const comAutor = await emParalelo(props, 6, async x => {
-    const a = (await json(`${API_CAMARA}/proposicoes/${x.p.id}/autores`)).dados || [];
-    return { ...x, autores: a };
-  });
-  const validos = comAutor.filter(Boolean);
-  const semAutoria = comAutor.length - validos.length;
+  if (banc && itens.length <= TETO) {
+    const comAutor = await emParalelo(itens, 6, async x => {
+      const a = (await json(`${API_CAMARA}/proposicoes/${x.pid}/autores`)).dados || [];
+      x.podemos = a.filter(y => banc.has(idDe(y.uri))).map(y => y.nome);
+      return true;
+    });
+    void comAutor;
+  }
+  if (apenasPodemos) {
+    if (!banc) return 'ERRO: não foi possível montar a bancada, então não dá para filtrar por autoria. Consulte sem o filtro.';
+    itens = itens.filter(x => (x.podemos || []).length);
+  }
 
-  const alvo = apenasPodemos
-    ? validos.filter(x => x.autores.some(a => banc.has(idDe(a.uri))))
-    : validos;
-
-  const linhas = alvo.map(x => {
-    const daBancada = banc ? x.autores.filter(a => banc.has(idDe(a.uri))).map(a => a.nome) : [];
-    return [`${x.p.siglaTipo} ${x.p.numero}/${x.p.ano}`, x.data, x.orgao,
-      daBancada.join(', ') || '—', (x.p.ementa || '').slice(0, 160)];
-  });
+  itens.sort((a, b) => (a.datas[0] || '').localeCompare(b.datas[0] || '')
+    || `${a.sigla}${a.numero}`.localeCompare(`${b.sigla}${b.numero}`));
 
   const cab = [
-    `VOTAÇÕES ${ini} a ${fim} (API da Câmara)`,
-    `${vots.length} votações · ${comObj.length} com objeto declarado · ${props.length} proposições distintas`,
-    falhasDet > 0 ? `ATENÇÃO: ${falhasDet} votação(ões) não puderam ser detalhadas — o recorte pode estar incompleto.` : null,
-    semAutoria > 0 ? `ATENÇÃO: ${semAutoria} proposição(ões) sem autoria consultável.` : null,
-    apenasPodemos
-      ? `Com autoria do Podemos: ${alvo.length}`
-      : `Listando todas as ${alvo.length} proposições votadas.`,
-    '',
-  ].filter(v => v !== null);
+    `JANELA CONSULTADA: ${ini} a ${fim}.  ← use ESTA janela na resposta, não outra.`,
+    `${totalVots} votações no período${orgaoAlvo ? `, ${vots.length} no órgão ${orgaoAlvo}` : ''} → ${ids.length} proposições distintas.`,
+    detalhar
+      ? `Matérias afetadas incluídas (detalhe de cada votação).${falhasDet ? ` ATENÇÃO: ${falhasDet} votação(ões) não puderam ser detalhadas.` : ''}`
+      : `Matéria obtida do identificador da votação. Requerimentos que AFETAM outra matéria só aparecem com detalhar:true.`,
+    filtradoPor,
+    apenasPodemos ? `Filtro de autoria: só matérias com autor da bancada.` : null,
+    semId ? `ATENÇÃO: ${semId} votação(ões) sem proposição no identificador.` : null,
+    naoLidas ? `ATENÇÃO: ${naoLidas} proposição(ões) não puderam ser lidas — a lista pode estar incompleta.` : null,
+    !banc ? `ATENÇÃO: bancada indisponível — a marcação de autoria do Podemos não pôde ser feita.` : null,
+    `A LISTA ABAIXO ESTÁ COMPLETA (${itens.length} itens). Reproduza os que interessam; não invente nem omita.`,
+  ].filter(v => v !== null && v !== undefined);
 
-  const corpo = alvo.length
-    ? alvo.map(x => {
-        const q = banc ? x.autores.filter(a => banc.has(idDe(a.uri))).map(a => a.nome) : [];
-        return `• ${x.p.siglaTipo} ${x.p.numero}/${x.p.ano} — ${x.data} · ${x.orgao}${q.length ? ` · ${q.join(', ')}` : ''}\n  ${(x.p.ementa || '').slice(0, 200)}`;
-      })
-    : ['Nenhuma proposição votada no período tem autoria da bancada.'];
+  if (!itens.length) {
+    cab.push('', termo
+      ? `Nenhuma das ${ids.length} proposições votadas casa com "${termo}".`
+      : 'Nenhuma proposição votada no recorte pedido.');
+  }
+
+  // Orçamento de texto por item: com muitos itens, ementa curta cabe todo
+  // mundo; com poucos, cabe o detalhe. É preferível listar TODAS as matérias
+  // com ementa curta a listar 3/4 delas com ementa longa — foi o corte que
+  // fez o PL 4578/2025 desaparecer de uma lista aparentemente completa.
+  // Teto DURO por item, dividido entre ementa e descrições das votações. Uma
+  // matéria com 5 votações estourava sozinha o orçamento e empurrava outras
+  // para fora da lista.
+  const porItem = Math.max(170, Math.floor((OBS_MAX - 1800) / Math.max(1, itens.length)));
+  const corpo = itens.map(x => {
+    const q = (x.podemos || []);
+    const cabItem = `• ${x.sigla} ${x.numero}/${x.ano} — ${x.datas.join(', ')} · ${x.orgaos.join(', ')}`
+      + (q.length ? ` · AUTORIA PODEMOS: ${q.join(', ')}` : '');
+    const sobra = Math.max(80, porItem - cabItem.length);
+    const paraEmenta = Math.ceil(sobra * 0.6);
+    const paraVotos = sobra - paraEmenta;
+    const votos = x.descricoes.join(' | ');
+    return cabItem
+      + `\n  ${x.ementa.slice(0, paraEmenta)}`
+      + (votos ? `\n  Votações: ${votos.slice(0, paraVotos)}` : '');
+  });
+
+  const linhas = itens.map(x => [`${x.sigla} ${x.numero}/${x.ano}`, x.datas.join(', '),
+    x.orgaos.join(', '), (x.podemos || []).join(', '), x.descricoes.join(' | ').slice(0, 300),
+    x.ementa.slice(0, 300)]);
 
   return comTabela(`Votações ${ini} a ${fim}`,
-    ['Proposição', 'Data', 'Órgão', 'Autoria Podemos', 'Ementa'], linhas,
-    'API de Dados Abertos da Câmara', [...cab, ...corpo].join('\n').slice(0, OBS_MAX));
+    ['Proposição', 'Data', 'Órgão', 'Autoria Podemos', 'Votações', 'Ementa'], linhas,
+    'API de Dados Abertos da Câmara', montarObservacao(cab, corpo));
 }
 
 /**
@@ -765,7 +907,7 @@ async function proposicoesBancada({ dias, dataInicio, dataFim, sigla, classe, ap
 
   return comTabela(`Proposições da bancada ${ini} a ${fim}`,
     ['Proposição', 'Classe', 'Autoria Podemos', 'Apensado a', 'Ementa'], linhas,
-    'API de Dados Abertos da Câmara', [...cab, ...corpo].join('\n').slice(0, OBS_MAX));
+    'API de Dados Abertos da Câmara', montarObservacao(cab, corpo));
 }
 
 async function paginaOficial({ url }) {
@@ -811,7 +953,12 @@ ORÇAMENTO — base do próprio SisPode (coletada pelo módulo Orçamento):
 CÂMARA — API oficial de Dados Abertos:
 - "bancada_podemos" {}: quem é a bancada hoje, com UF e situação (exercício, licença, suplência).
 - "situacao_proposicao" {"sigla":"PL","numero":"3659","ano":"2026"}: ementa, autoria, situação e última tramitação de qualquer proposição. Já diz se há autoria da bancada.
-- "votacoes_periodo" {"dias":30,"apenasPodemos":true}: o que foi VOTADO no período. Para período FECHADO mande SEMPRE o par {"dataInicio":"2026-07-01","dataFim":"2026-07-31"} — mandar só dataInicio faz a janela ir até HOJE. Com apenasPodemos=false lista tudo.
+- "votacoes_periodo" {"dias":30,"orgao":null,"termo":null,"apenasPodemos":false,"detalhar":false}: o que foi VOTADO no período. Para período FECHADO mande SEMPRE o par {"dataInicio":"2026-07-01","dataFim":"2026-07-31"} — só dataInicio faz a janela ir até HOJE.
+  "orgao":"PLEN" restringe ao PLENÁRIO. Use SEMPRE que a pergunta disser "em plenário" — sem isso vêm também as comissões, e numa semana comum são ~486 votações em 25 órgãos.
+  "termo":"futebol feminino" filtra por ASSUNTO, procurando na ementa E na descrição da votação ("Aprovada a Redação Final…"). Use quando a pergunta for temática. O termo casa por palavras, sem acento e sem caixa.
+  "apenasPodemos":true restringe a matérias com autor da bancada — só use se a pergunta for sobre autoria. A autoria do Podemos é marcada na lista de qualquer jeito.
+  "detalhar":true acrescenta as matérias AFETADAS por cada votação (um requerimento de urgência sobre um PL faz o PL aparecer). Custa uma requisição por votação; use quando a busca sem ele não achou o que deveria.
+  Se vier "RESTRINJA e consulte de novo", o recorte é largo demais: chame outra vez com "orgao" ou janela menor. NÃO responda com o aviso.
 - "proposicoes_bancada" {"dias":30,"classe":null,"sigla":null,"apensados":false}: o que a bancada APRESENTOU no período. Aceita o par dataInicio/dataFim — para semana fechada mande OS DOIS.
   "classe" restringe ao que foi pedido e é o parâmetro que mais importa:
     · "projeto"      → PL, PLP, PEC, PDL, PDC, PLV, MPV, PLN, PRC
@@ -847,6 +994,7 @@ REGRAS QUE NÃO SE NEGOCIAM:
 - NUNCA invente número, valor, data, placar, situação ou autoria. Se precisa de um dado, CONSULTE uma ferramenta.
 - Se a OBSERVAÇÃO começar com "ERRO:", a fonte FALHOU. Diga que falhou e o que falhou. NÃO preencha o buraco com conhecimento próprio, NÃO estime, NÃO troque por outro dado parecido fingindo que responde. Resposta ausente é melhor que resposta sem lastro.
 - Se a observação trouxer "ATENÇÃO: … incompleto/parcial", REPRODUZA essa ressalva na resposta. Total parcial apresentado como total é erro grave.
+- BUSCA INCOMPLETA NÃO VIRA "NÃO EXISTE". Se a observação disser que N itens não puderam ser lidos ou detalhados, você NÃO pode concluir que algo não existe — só pode dizer que não apareceu no que foi lido. Antes de responder "não houve", esgote o que a ferramenta oferece: refaça com "orgao", com "termo", ou com "detalhar":true. Uma negativa sobre busca furada é o pior erro possível aqui.
 - Lista vazia é RESPOSTA, não falha: se a ferramenta diz que não há nada, diga que não há — e diga em quantos itens foi procurado.
 - A JANELA é a que a observação declara, NUNCA a que o usuário pediu. Se a observação disser "JANELA CONSULTADA: X a Y", é X a Y que você escreve na resposta. Se não for a janela pedida, DIGA isso e ofereça refazer. Nunca escreva o período do usuário sobre dados de outro período.
 - NÃO RESUMA LISTA. Quando a observação disser que a lista está completa com N itens, entregue os N. Se não couber, diga quantos ficaram de fora e ofereça a planilha — jamais corte em silêncio.
@@ -1253,6 +1401,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     chaveNome, hostPermitido, htmlParaTexto, extrairJson, brl, hojeISO,
-    FERRAMENTAS, DOMINIOS_OFICIAIS,
+    montarObservacao, classeDe, FERRAMENTAS, DOMINIOS_OFICIAIS,
+    // A tabela exportável guarda TODOS os itens, mesmo quando a observação
+    // corta — os testes conferem essa diferença.
+    ultimaTabela: () => app.ultimaTabela,
   };
 }

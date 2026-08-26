@@ -84,25 +84,94 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(/Licen|Exerc/.test(r), 'situação (Exercício/Licença) declarada por deputado');
   }
 
-  console.log('\n== votações no período — o caso do zero silencioso ==');
+  console.log('\n== votações: 75% das votações eram DESCARTADAS ==');
   {
-    const r = await chat.FERRAMENTAS.votacoes_periodo({
-      dataInicio: '2026-07-21', dataFim: '2026-08-20', apenasPodemos: true,
+    // A versão anterior filtrava por `v.proposicaoObjeto`, que vem NULO na
+    // maioria: em 10–14/08/2026 foram 486 votações e só 120 tinham o campo.
+    // As 366 restantes sumiam sem aviso — inclusive as duas do PL 4578/2025
+    // (futebol feminino), aprovado no Plenário em 13/08. A pergunta sobre ele
+    // recebeu "não houve" com o dado na base. Este é o caso travado.
+    const plen = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'PLEN',
     });
-    ok(!r.startsWith('ERRO:'), 'consulta respondeu');
-    ok(/\d+ votações/.test(r), 'total de votações declarado');
+    ok(!plen.startsWith('ERRO:'), 'consulta ao Plenário respondeu');
+    ok(/JANELA CONSULTADA: 2026-08-10 a 2026-08-14/.test(plen), 'janela declarada');
+    ok(/PL 4578\/2025/.test(plen),
+       'PL 4578/2025 (futebol feminino) aparece entre as votadas no Plenário');
+    const m = /→ (\d+) proposições distintas/.exec(plen);
+    ok(m && Number(m[1]) >= 35,
+       `proposições no Plenário na semana: ${m ? m[1] : '?'} (eram 29 quando 75% era descartado)`);
 
-    // Medido à mão em 20/08/2026: 486 votações → 120 com objeto → 29
-    // proposições → 1 do Podemos (PL 3659/2026, Bruno Ganem, 12/08, CPASF).
-    // Se o cruzamento de autoria voltar a ser por um campo inexistente, isto
-    // vira "Com autoria do Podemos: 0" e o teste QUEBRA.
-    const m = /Com autoria do Podemos: (\d+)/.exec(r);
-    ok(m, 'a contagem da bancada aparece na resposta');
-    ok(m && Number(m[1]) >= 1,
-       `pelo menos uma proposição da bancada no período — achou ${m ? m[1] : '?'}` +
-       (m && m[1] === '0' ? '  ← ZERO SILENCIOSO DE VOLTA' : ''));
-    ok(/PL 3659\/2026/.test(r), 'o caso conferido à mão (PL 3659/2026) está na lista');
-    ok(/Bruno Ganem/.test(r), 'a autoria da bancada é nomeada');
+    // Busca temática — o modo em que a pergunta foi feita.
+    const tema = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'PLEN', termo: 'futebol feminino',
+    });
+    ok(/PL 4578\/2025/.test(tema), 'filtro por tema encontra a matéria');
+    ok(/Redação Final|Substitutivo/.test(tema),
+       'a descrição da votação vem junto — é ela que diz se foi aprovado');
+    ok(/de \d+ proposições votadas/.test(tema),
+       'declara o universo em que procurou, para "não achei" não virar "não existe"');
+
+    // Tema inexistente responde "não há" DIZENDO onde procurou.
+    const nada = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'PLEN', termo: 'colonizacao de marte',
+    });
+    ok(/Nenhuma das \d+ proposições votadas casa/.test(nada),
+       'tema sem resultado declara o universo procurado');
+
+    // Autoria continua funcionando (o caso do siglaPartido inexistente).
+    // Precisa de detalhar:true — a votação do PL 3659/2026 tem prefixo de um
+    // REQUERIMENTO (2639270-5, "Aprovado o Requerimento"), e o PL só aparece
+    // como matéria AFETADA. É a diferença entre os dois sentidos de "votado".
+    const pode = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-07-21', dataFim: '2026-08-20', orgao: 'CPASF',
+      apenasPodemos: true, detalhar: true,
+    });
+    ok(/PL 3659\/2026/.test(pode) && /Bruno Ganem/.test(pode),
+       'autoria da bancada cruzada por id (PL 3659/2026, Bruno Ganem)');
+    const semDetalhe = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-07-21', dataFim: '2026-08-20', orgao: 'CPASF', apenasPodemos: true,
+    });
+    ok(!/PL 3659\/2026/.test(semDetalhe) && /detalhar:true/.test(semDetalhe),
+       'sem detalhar, a matéria afetada não aparece — e a observação DIZ que falta detalhar');
+  }
+
+  console.log('\n== lista que não cabe é DECLARADA, não decepada ==');
+  {
+    // `texto.slice(0, OBS_MAX)` decepava no meio: das 40 proposições votadas
+    // no Plenário, 30 entravam e 10 sumiam — entre elas o PL 4578/2025, que
+    // era o que a pergunta procurava. A IA recebia lista aparentemente
+    // completa e respondia "não há".
+    const plen = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'PLEN',
+    });
+    const n = (plen.match(/^• /gm) || []).length;
+    const tot = /→ (\d+) proposições distintas/.exec(plen);
+    ok(tot && n === Number(tot[1]), `as ${tot ? tot[1] : '?'} do Plenário cabem inteiras (listou ${n})`);
+    ok(!/NÃO couberam/.test(plen), 'nada foi cortado nesse recorte');
+
+    // Recorte grande de verdade: corta, mas AVISA e diz o que fazer.
+    const ccjc = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'CCJC',
+    });
+    ok(/NÃO couberam/.test(ccjc), 'lista grande demais declara quantos ficaram de fora');
+    ok(/NÃO conclua que algo não existe/.test(ccjc),
+       'e proíbe explicitamente concluir inexistência a partir da lista cortada');
+    // O que a observação corta, a planilha continua tendo — é o que torna o
+    // aviso "peça a planilha" verdadeiro em vez de consolo.
+    const tab = chat.ultimaTabela();
+    const vistos = (ccjc.match(/^• /gm) || []).length;
+    ok(tab && tab.linhas.length > vistos,
+       `planilha com ${tab ? tab.linhas.length : 0} linhas contra ${vistos} visíveis na observação`);
+  }
+
+  console.log('\n== recorte largo demais PEDE recorte, não devolve lista cortada ==');
+  {
+    const r = await chat.FERRAMENTAS.votacoes_periodo({ dataInicio: '2026-08-10', dataFim: '2026-08-14' });
+    ok(/RESTRINJA e consulte de novo/.test(r),
+       '446 proposições numa semana → pede restrição em vez de truncar');
+    ok(/Votações por órgão no período/.test(r),
+       'diz por quais órgãos restringir, em vez de só reclamar');
   }
 
   console.log('\n== /autores NÃO tem siglaPartido (a causa raiz, travada) ==');
