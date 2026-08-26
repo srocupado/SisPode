@@ -754,15 +754,19 @@ async function votacoesPeriodo({ dias, dataInicio, dataFim, orgao, termo, apenas
   // mundo; com poucos, cabe o detalhe. É preferível listar TODAS as matérias
   // com ementa curta a listar 3/4 delas com ementa longa — foi o corte que
   // fez o PL 4578/2025 desaparecer de uma lista aparentemente completa.
-  // Teto DURO por item, dividido entre ementa e descrições das votações. Uma
+  // Teto por item, dividido entre ementa e descrições das votações. Uma
   // matéria com 5 votações estourava sozinha o orçamento e empurrava outras
   // para fora da lista.
-  const porItem = Math.max(170, Math.floor((OBS_MAX - 1800) / Math.max(1, itens.length)));
-  const corpo = itens.map(x => {
+  //
+  // Antes de declarar corte, TENTA ENCOLHER: perder uma matéria inteira por
+  // cem caracteres de ementa é troca ruim — quem lê prefere 62 ementas curtas
+  // a 61 longas e uma sumida. Só quando nem o mínimo cabe é que corta (e aí
+  // montarObservacao declara).
+  const montarCorpo = porItem => itens.map(x => {
     const q = (x.podemos || []);
     const cabItem = `• ${x.sigla} ${x.numero}/${x.ano} — ${x.datas.join(', ')} · ${x.orgaos.join(', ')}`
       + (q.length ? ` · AUTORIA PODEMOS: ${q.join(', ')}` : '');
-    const sobra = Math.max(80, porItem - cabItem.length);
+    const sobra = Math.max(60, porItem - cabItem.length);
     const paraEmenta = Math.ceil(sobra * 0.6);
     const paraVotos = sobra - paraEmenta;
     const votos = x.descricoes.join(' | ');
@@ -770,6 +774,12 @@ async function votacoesPeriodo({ dias, dataInicio, dataFim, orgao, termo, apenas
       + `\n  ${x.ementa.slice(0, paraEmenta)}`
       + (votos ? `\n  Votações: ${votos.slice(0, paraVotos)}` : '');
   });
+  const espaco = OBS_MAX - cab.join('\n').length - 300;
+  let corpo = montarCorpo(Math.max(170, Math.floor(espaco / Math.max(1, itens.length))));
+  for (const fator of [1, 0.75, 0.55, 0.4]) {
+    corpo = montarCorpo(Math.max(70, Math.floor((espaco / Math.max(1, itens.length)) * fator)));
+    if (corpo.reduce((s, t) => s + t.length + 1, 0) <= espaco) break;
+  }
 
   const linhas = itens.map(x => [`${x.sigla} ${x.numero}/${x.ano}`, x.datas.join(', '),
     x.orgaos.join(', '), (x.podemos || []).join(', '), x.descricoes.join(' | ').slice(0, 300),
@@ -1008,6 +1018,7 @@ REGRAS QUE NÃO SE NEGOCIAM:
 - Cite sempre a fonte ("segundo a API da Câmara", "pela coleta do FNS de 19/08").
 - Ao listar pessoas ou matérias, use UM POR LINHA com "• ".
 - Valores em reais no formato brasileiro.
+- VOCÊ NÃO FAZ CONTA. Não some, não conte itens da lista, não calcule média nem percentual de cabeça. Só reproduza número que a observação JÁ TRAZ escrito. Se precisar de um total ou de uma quebra por categoria (quantas por dia, por órgão, por autoria), use "exportar_grafico" com agregacao:"contagem" — a contagem sai da tabela, não do seu olho. Contar itens a olho já produziu quebra por dia errada em três dos seis dias, com o total certo ao lado.
 - Quando o usuário pedir planilha ou documento, use "exportar_planilha" / "exportar_documento" — eles exportam a ÚLTIMA tabela consultada, então CONSULTE o dado antes de exportar.
 ${CATALOGO}
 
@@ -1026,6 +1037,36 @@ function lembrar(de, texto) {
   if (app.trocas.length > MEM_TROCAS) app.trocas = app.trocas.slice(-MEM_TROCAS);
 }
 
+/**
+ * Decide o caminho pela FERRAMENTA, não pelo rótulo de ação.
+ *
+ * A IA mandou {"acao":"consultar","ferramenta":"exportar_grafico"} — rótulo
+ * errado, intenção clara. O laço antigo exigia acao:"exportar", não achou
+ * "exportar_grafico" entre as ferramentas de consulta, devolveu ERRO e o
+ * pedido acabou vazando como JSON cru na tela do usuário. Quem manda é o nome
+ * da ferramenta; o rótulo só decide quando não há ferramenta nenhuma.
+ */
+function rotaDe(j) {
+  const f = j.ferramenta;
+  if (f && EXPORTACOES.includes(f)) return 'exportar';
+  if (f && typeof FERRAMENTAS[f] === 'function') return 'consultar';
+  if (j.acao === 'responder' || (!f && typeof j.texto === 'string')) return 'responder';
+  return f ? 'desconhecida' : 'responder';
+}
+
+/**
+ * Tira da resposta final qualquer chamada de ferramenta que a IA tenha escrito
+ * DENTRO do texto. O usuário nunca deve ler {"acao":…} — ou a chamada é
+ * executada, ou some.
+ */
+function limparChamadas(texto) {
+  return String(texto || '')
+    .replace(/```[a-z]*\n?/gi, '')
+    .replace(/\{\s*"acao"\s*:[\s\S]*?\}\s*\}?/g, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
+
 async function conversar(mensagem, aoPassar) {
   const observacoes = [];
   for (let volta = 0; volta <= MAX_CONSULTAS; volta++) {
@@ -1035,20 +1076,21 @@ async function conversar(mensagem, aoPassar) {
       prompt: montarPrompt({ mensagem, observacoes, forcarResposta }),
     });
     const j = extrairJson(bruto);
+    const rota = j && Object.keys(j).length ? rotaDe(j) : 'responder';
 
-    // A IA respondeu em prosa (sem JSON)? Entregar é melhor que falhar por formalidade.
-    if (!j.acao) {
-      const prosa = String(bruto || '').replace(/```[a-z]*\n?/gi, '').trim();
-      return { texto: prosa || 'Não consegui elaborar uma resposta — tente reformular.' };
+    if (rota === 'responder') {
+      // Sem JSON de ação: entregar a prosa é melhor que falhar por formalidade.
+      const texto = limparChamadas(j.texto != null ? j.texto : bruto);
+      return { texto: texto || 'Não consegui elaborar uma resposta — tente reformular.' };
     }
-    if (j.acao === 'responder') {
-      return { texto: String(j.texto || '').trim() || 'Certo.' };
+
+    if (rota === 'desconhecida') {
+      observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {},
+        resultado: `ERRO: não existe ferramenta "${j.ferramenta}". Escolha uma do catálogo.` });
+      continue;
     }
-    if (j.acao === 'exportar') {
-      if (!EXPORTACOES.includes(j.ferramenta)) {
-        observacoes.push({ ferramenta: j.ferramenta, argumentos: {}, resultado: 'ERRO: exportação inexistente.' });
-        continue;
-      }
+
+    if (rota === 'exportar') {
       if (!app.ultimaTabela) {
         observacoes.push({ ferramenta: j.ferramenta, argumentos: {}, resultado: 'ERRO: não há tabela consultada ainda. Consulte um dado antes de exportar.' });
         continue;
@@ -1056,6 +1098,7 @@ async function conversar(mensagem, aoPassar) {
       // Gráfico recusado (coluna não-numérica, por exemplo) volta como
       // observação para a IA reformular, em vez de virar erro na tela.
       if (j.ferramenta === 'exportar_grafico') {
+        aoPassar?.(j.ferramenta, j.argumentos || {});
         const g = graficoDaTabela(app.ultimaTabela, j.argumentos || {});
         if (g.erro) {
           observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado: `ERRO: ${g.erro}` });
@@ -1067,10 +1110,6 @@ async function conversar(mensagem, aoPassar) {
     }
 
     const fn = FERRAMENTAS[j.ferramenta];
-    if (typeof fn !== 'function') {
-      observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado: 'ERRO: ferramenta inexistente. Escolha uma do catálogo.' });
-      continue;
-    }
     aoPassar?.(j.ferramenta, j.argumentos || {});
     let resultado;
     try { resultado = String(await fn(j.argumentos || {}) || '(vazio)').slice(0, OBS_MAX); }
@@ -1895,7 +1934,7 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     chaveNome, hostPermitido, htmlParaTexto, extrairJson, brl, hojeISO,
     montarObservacao, classeDe, FERRAMENTAS, DOMINIOS_OFICIAIS,
-    numeroDe, marcasEixo, graficoDaTabela, VIZ,
+    numeroDe, marcasEixo, graficoDaTabela, VIZ, rotaDe, limparChamadas,
     // A tabela exportável guarda TODOS os itens, mesmo quando a observação
     // corta — os testes conferem essa diferença.
     ultimaTabela: () => app.ultimaTabela,
