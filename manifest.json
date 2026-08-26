@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sistemas Legislativos – Podemos",
-  "version": "3.3.0",
+  "version": "3.2.6",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
 
   "permissions": ["storage", "tabs"],
@@ -48,7 +48,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js", "ccjc.html", "ccjc.js", "congresso.html", "congresso.js", "lideres.html", "lideres.js", "chat.html", "chat.js", "libs/docx.iife.js", "icons/podemos-logo.png"],
+      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js", "ccjc.html", "ccjc.js", "congresso.html", "congresso.js", "lideres.html", "lideres.js", "icons/podemos-logo.png"],
       "matches": ["<all_urls>"]
     }
   ]
