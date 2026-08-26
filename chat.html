@@ -131,6 +131,14 @@
     .btn-export:hover:not(:disabled) { background: var(--accent); color: #fff; border-color: var(--accent); }
     .btn-export:disabled { opacity: .5; cursor: default; }
 
+    /* ---- gráfico ---- */
+    .grafico-box { margin-top: 12px; }
+    .grafico {
+      border: 1px solid var(--border-soft); border-radius: var(--radius);
+      overflow-x: auto; background: #142a2f;
+    }
+    .grafico svg { display: block; max-width: 100%; height: auto; min-width: 560px; }
+
     /* ---- passos (o que está sendo consultado) ---- */
     .passos {
       display: none; align-self: center; max-width: 860px; width: 100%;

@@ -258,6 +258,69 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
        'projetos apensados trazem a proposição principal');
   }
 
+  console.log('\n== gráficos: números vêm da TABELA, nunca do modelo ==');
+  {
+    await chat.FERRAMENTAS.orcamento_panorama({ ano: '2026' });
+    const t = chat.ultimaTabela();
+
+    for (const tipo of ['barra', 'pizza', 'empilhada']) {
+      const g = chat.graficoDaTabela(t, { tipo, colunaValor: 'Pago' });
+      ok(!g.erro && /^<svg /.test(g.svg), `${tipo}: desenhou (${g.larg}×${g.alt})`);
+      ok(g.svg.includes(chat.VIZ.fundo),
+         `${tipo}: superfície é a do placar de votação (${chat.VIZ.fundo})`);
+    }
+
+    // O maior valor da tabela tem de aparecer no desenho — se o gráfico
+    // inventasse escala, o rótulo não bateria com o dado.
+    const maior = Math.max(...t.linhas.map(l => Number(l[3]) || 0));
+    const g = chat.graficoDaTabela(t, { tipo: 'barra', colunaValor: 'Pago' });
+    const esperado = maior >= 1e6 ? (maior / 1e6).toFixed(1).replace('.', ',') : null;
+    ok(!esperado || g.svg.includes(esperado),
+       `o maior valor da tabela (${esperado} mi) está rotulado no gráfico`);
+
+    // Tabela textual: RECUSA em vez de barra de zeros — e ensina a saída.
+    await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'CCJC',
+    });
+    const tv = chat.ultimaTabela();
+    const rec = chat.graficoDaTabela(tv, { tipo: 'barra' });
+    ok(rec.erro && /textual/.test(rec.erro), 'tabela sem número é recusada, não vira gráfico de zeros');
+    ok(rec.erro && /contagem/.test(rec.erro), 'a recusa indica agregacao:"contagem" como saída');
+
+    const cont = chat.graficoDaTabela(tv, { tipo: 'barra', agregacao: 'contagem', colunaRotulo: 'Data' });
+    ok(!cont.erro && cont.itens >= 1, `contagem por categoria funciona (${cont.itens} categorias)`);
+  }
+
+  console.log('\n== gráfico: as regras que viraram código ==');
+  {
+    // "1.000 mil" — 999.930 arredondava para 1.000 na casa dos milhares.
+    const t = { titulo: 'x', fonte: 'y', colunas: ['A', 'V'],
+      linhas: [['a', 999930], ['b', 817000], ['c', 1200000]] };
+    const g = chat.graficoDaTabela(t, { tipo: 'barra' });
+    ok(!/1\.000 mil/.test(g.svg), '999.930 não vira "1.000 mil"');
+    ok(/999,9 mil/.test(g.svg), 'vira "999,9 mil" — não muda de unidade para um valor que não é milhão');
+    ok(/1,2 mi/.test(g.svg), '1.200.000 vira "1,2 mi"');
+
+    // Sobra de parte-do-todo é cinza, nunca a 7ª cor (que repetia a 1ª).
+    const muitos = { titulo: 'x', fonte: 'y', colunas: ['A', 'V'],
+      linhas: Array.from({ length: 12 }, (_, i) => [`cat${i}`, 100 - i * 5]) };
+    const pz = chat.graficoDaTabela(muitos, { tipo: 'pizza' });
+    ok(pz.itens === 7, 'pizza limita a 6 fatias + "outros"');
+    ok(pz.svg.includes(chat.VIZ.apagado), 'a sobra usa o cinza de apagamento');
+    const azuis = (pz.svg.match(new RegExp(chat.VIZ.categorica[0], 'g')) || []).length;
+    ok(azuis <= 2, `a 1ª cor não é reaproveitada na sobra (aparições: ${azuis})`);
+
+    // Escala do eixo em números redondos.
+    ok(JSON.stringify(chat.marcasEixo(383300000).marcas) === JSON.stringify([0, 100000000, 200000000, 300000000, 400000000]),
+       'eixo em marcas redondas (0, 100 mi, 200 mi, 300 mi, 400 mi)');
+
+    // Parser de célula: os dois formatos que as tabelas produzem.
+    ok(chat.numeroDe('R$ 1.234.567,89') === 1234567.89, 'texto "R$ 1.234.567,89" vira número');
+    ok(chat.numeroDe(199873) === 199873, 'número cru passa');
+    ok(chat.numeroDe('PL 4578/2025') === null, 'texto não-numérico devolve null, não NaN nem zero');
+    ok(chat.numeroDe('') === null, 'vazio devolve null (não vira zero silencioso)');
+  }
+
   console.log('\n== base do Orçamento (Firebase) ==');
   {
     const cob = await chat.FERRAMENTAS.orcamento_cobertura({});
