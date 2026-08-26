@@ -8,7 +8,12 @@
 const fs=require('fs'),path=require('path');
 const pdfjs=require(path.join(__dirname,'..','bot','node_modules','pdfjs-dist','legacy','build','pdf.js'));
 const fonte=fs.readFileSync(path.join(__dirname,'..','lideres.js'),'utf8');
-const elStub=()=>({style:{},textContent:'',classList:{add(){},remove(){},toggle(){}},querySelectorAll:()=>[],addEventListener(){}});
+// `value:''` não é enfeite: getElementById('lid-busca') no navegador devolve um
+// <input>, e aplicarBuscaLista() faz campo.value.trim(). Sem a propriedade, o
+// stub entregava um elemento que NÃO existe em navegador nenhum e o teste
+// estourava em "Cannot read properties of undefined (reading 'trim')" —
+// acusando o código de um defeito que era do próprio stub.
+const elStub=()=>({style:{},textContent:'',value:'',classList:{add(){},remove(){},toggle(){}},querySelectorAll:()=>[],addEventListener(){}});
 const sb={document:{addEventListener(){},getElementById:()=>elStub(),querySelectorAll:()=>[],querySelector:()=>null,createElement:()=>elStub(),body:{appendChild(){},removeChild(){}}},
  chrome:{runtime:{getURL:x=>x},storage:{local:{get:(k,cb)=>cb({}),set:(o,cb)=>cb&&cb()}}},
  pdfjsLib:{GlobalWorkerOptions:{},getDocument:pdfjs.getDocument},window:{},fetch:globalThis.fetch,
