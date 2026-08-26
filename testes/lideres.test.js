@@ -8,6 +8,11 @@
 // pdfjs-dist vem de bot/node_modules (a extensão distribui a versão de
 // navegador em libs/), por isso o require aponta para lá.
 //
+// Ao carregar, o pdfjs avisa que não achou o módulo `canvas` e que "rendering
+// may be broken". É RUÍDO, não falha: canvas só serve para DESENHAR a página,
+// e aqui se extrai TEXTO — conferido extraindo texto de um PDF com o aviso na
+// tela. O mesmo aviso aparece em todas as suítes que tocam pdfjs; ignore-o.
+//
 // Uso: node testes/lideres.test.js <pdf-de-07/07/2026> [outros-pdfs...]
 //   O primeiro PDF é a lista de referência (62 itens, 68 proposições) e os
 //   números conferidos abaixo são os dele. Os demais passam só pelas
@@ -47,9 +52,27 @@ let falhas = 0;
 const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); } else console.log('  ✓ ' + msg); };
 
 (async () => {
+  // O parser precisa de um PDF real, passado como argumento — o repositório
+  // não guarda a lista do Colégio de Líderes (documento de trabalho). Sem o
+  // argumento o teste ESTOURAVA em fs.readFileSync(undefined) e derrubava a
+  // suíte inteira, inclusive as dezenas de asserções que não dependem de PDF.
+  // Agora só esta seção é pulada, com o aviso de como exercitá-la.
+  let itens = null;   // preenchido só quando há PDF; ver a seção seguinte
   console.log('\n== Parser do PDF ==');
-  const itens = await L.lerListaDoPDF({ arrayBuffer: async () => fs.readFileSync(PDF).buffer });
+  if (!PDF) {
+    console.log('  ⏭ pulado: nenhum PDF informado.');
+    console.log('     Para exercitar o parser: node testes/lideres.test.js <lista.pdf> [outros.pdf ...]');
+  } else {
+  itens = await L.lerListaDoPDF({ arrayBuffer: async () => fs.readFileSync(PDF).buffer });
   ok(itens.length === 62, `62 itens (obtidos: ${itens.length})`);
+  // PDF que não é a lista (ou que o parser não entendeu) devolve zero itens, e
+  // as asserções seguintes estouravam em itens[0] — erro de acesso no lugar da
+  // informação útil, que é "este arquivo não serve".
+  if (!itens.length) {
+    console.log(`  ⚠ nenhum item extraído de "${PDF}". As demais asserções de parser`);
+    console.log('     dependem da lista de referência (07/07/2026, 62 itens) e foram puladas.');
+    itens = null;
+  } else {
   ok(itens[0].num === '1' && /^PLP 230\/2025$/.test(itens[0].prop), `item 1 = PLP 230/2025 (obtido: "${itens[0].prop}")`);
   ok(itens[0].autoria === 'Juscelino Filho e Luisa Canziani', `autoria do item 1 (obtida: "${itens[0].autoria}")`);
   ok(/especifica\.$/.test(itens[0].descricao), 'descrição do item 1 completa');
@@ -64,6 +87,9 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
      `item 12 rende as duas proposições (obtido: ${it12.map(p => p.chave).join(', ')})`);
   ok(it12[1].ehPrincipal === true && it12[0].ehPrincipal === false, 'a que está em "(Principal: …)" é marcada como principal');
   ok(props.every(p => p.ano >= 1990 && p.ano <= 2030), 'anos plausíveis');
+  }
+
+  }
 
   console.log('\n== Marcador da célula (o "- EMS" da lista) ==');
   ok(L.marcadorDoItem('PL 1242/2026-EMS') === 'EMS', `"PL 1242/2026-EMS" → EMS (obtido: "${L.marcadorDoItem('PL 1242/2026-EMS')}")`);
@@ -87,12 +113,32 @@ const ok = (cond, msg) => { if (!cond) { falhas++; console.log('  ✗ ' + msg); 
   const id = (await (await fetch(`${API}/proposicoes?siglaTipo=PLP&numero=230&ano=2025&itens=1`)).json()).dados[0].id;
   const det = (await (await fetch(`${API}/proposicoes/${id}`)).json()).dados;
   const trams = await L.buscarTramitacoes(id);
-  const sit = L.situacaoDe(trams, itens[0].regime);
+  // O regime vindo do PDF é só um palpite de partida: quando a API traz
+  // tramitação, ela prevalece — conferido passando '', o regime do PDF e um
+  // regime contraditório, os três dando a MESMA situação. Por isso esta
+  // seção vale mesmo sem PDF.
+  const sit = L.situacaoDe(trams, itens ? itens[0].regime : '');
   ok(sit === 'Urgência aprovada (REQ. 2708/2026)', `situação = "${sit}"`);
   const rel = await L.relatoriaDe(trams, det.statusProposicao);
   ok(rel === 'Dep. Maria Rosas (Republicanos-SP)', `relatoria = "${rel}"`);
+  // Este caso era um RETRATO: afirmava "zero despachos de distribuição". Em
+  // 12/08/2026 o PLP 230/2025 recebeu um ("Às Comissões de Comunicação;
+  // Finanças e Tributação…") e o teste quebrou — sem que nada no código
+  // mudasse. Matéria em tramitação anda; congelar o estado dela num teste
+  // fabrica falha futura. Agora vale a REGRA: o que a função devolve tem de
+  // ser bem formado e conferir com a tramitação, quantos quer que sejam.
   const desp = L.despachosDeComissao(trams, det.statusProposicao);
-  ok(desp.distribuicao.length === 0, `sem despacho de distribuição (${desp.distribuicao.length})`);
+  ok(Array.isArray(desp.distribuicao), `distribuição devolvida como lista (${desp.distribuicao.length} despacho(s))`);
+  ok(desp.distribuicao.every(d => /^\d{4}-\d{2}-\d{2} — .+/.test(d)),
+     'todo despacho traz data ISO e texto');
+  ok(desp.distribuicao.every(d => /Comiss/i.test(d)),
+     'todo despacho de distribuição menciona comissão — não é despacho de outra coisa');
+  // E não inventa: cada despacho listado tem de existir na tramitação lida.
+  const textosTram = trams.map(t => String(t.despacho || '').replace(/\s+/g, ''));
+  ok(desp.distribuicao.every(d => {
+    const corpo = d.replace(/^\d{4}-\d{2}-\d{2} — /, '').replace(/\s+/g, '');
+    return textosTram.some(t => t.includes(corpo.slice(0, 40)));
+  }), 'todo despacho listado existe na tramitação da API');
 
   console.log('\n== Regras de situação (casos sintéticos) ==');
   ok(L.situacaoDe([], 'REQ 3787/2025 (PL 3967/2025)') === 'Requerimento de urgência apresentado (REQ n. 3787/2025)',

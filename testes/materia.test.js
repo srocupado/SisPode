@@ -24,7 +24,18 @@ const ok=(c,m)=>{ if(!c){falhas++;console.log('  ✗ '+m);} else console.log('  
   ok(f1.situacao==='Urgência aprovada (REQ. 2708/2026)',`situação: ${f1.situacao}`);
   ok(f1.relatoria==='Dep. Maria Rosas (Republicanos-SP)',`relatoria: ${f1.relatoria}`);
   ok(/Sem apensação\./.test(f1.apensacao),`apensação: ${f1.apensacao.replace(/\n/g,' | ')}`);
-  ok(f1.cenario===3 || f1.cenario===1,`cenário: ${f1.cenarioNome}`);
+  // Era um RETRATO: exigia cenário 3 ou 1. Em 12/08/2026 a relatora proferiu
+  // parecer em Plenário NA FORMA DO SUBSTITUTIVO e a matéria virou cenário 4 —
+  // leitura correta, teste quebrado sem uma linha de código mudar. Agora o que
+  // se cobra é a REGRA: o cenário tem de ser conhecido e tem de CONFERIR com
+  // os documentos que a própria ficha encontrou.
+  ok(!!f1.cenarioNome, `cenário conhecido: ${f1.cenario} — ${f1.cenarioNome}`);
+  const temParecerPlen = !!f1.parecerPlen;
+  const comSubstitutivo = /substitutivo adotado/i.test(f1.parecer || '');
+  const esperadoPeloDoc = !temParecerPlen ? null : (comSubstitutivo ? 4 : 3);
+  ok(esperadoPeloDoc === null || f1.cenario === esperadoPeloDoc,
+     `cenário confere com os documentos: parecer de plenário ${temParecerPlen ? 'sim' : 'não'}`
+     + `, substitutivo ${comSubstitutivo ? 'sim' : 'não'} → esperado ${esperadoPeloDoc}, obtido ${f1.cenario}`);
   const fatos=M.formatarFatos(f1);
   ok(fatos.includes('📋 *PLP 230/2025*') && fatos.includes('fichadetramitacao'),'fatos formatados com link');
   ok(fatos.length<3800,`tamanho telegram ok (${fatos.length})`);
