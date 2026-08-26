@@ -150,19 +150,25 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(tot && n === Number(tot[1]), `as ${tot ? tot[1] : '?'} do Plenário cabem inteiras (listou ${n})`);
     ok(!/NÃO couberam/.test(plen), 'nada foi cortado nesse recorte');
 
-    // Recorte grande de verdade: corta, mas AVISA e diz o que fazer.
+    // A CCJC tem 104 matérias na semana — com o encolhimento, cabem todas.
+    // (Antes do encolhimento este caso cortava 31 delas.)
     const ccjc = await chat.FERRAMENTAS.votacoes_periodo({
       dataInicio: '2026-08-10', dataFim: '2026-08-14', orgao: 'CCJC',
     });
-    ok(/NÃO couberam/.test(ccjc), 'lista grande demais declara quantos ficaram de fora');
-    ok(/NÃO conclua que algo não existe/.test(ccjc),
-       'e proíbe explicitamente concluir inexistência a partir da lista cortada');
-    // O que a observação corta, a planilha continua tendo — é o que torna o
-    // aviso "peça a planilha" verdadeiro em vez de consolo.
-    const tab = chat.ultimaTabela();
     const vistos = (ccjc.match(/^• /gm) || []).length;
-    ok(tab && tab.linhas.length > vistos,
-       `planilha com ${tab ? tab.linhas.length : 0} linhas contra ${vistos} visíveis na observação`);
+    const tab = chat.ultimaTabela();
+    ok(tab && vistos === tab.linhas.length,
+       `as ${tab ? tab.linhas.length : '?'} da CCJC couberam encolhendo o texto de cada uma`);
+
+    // Mas o aviso continua existindo para quando NÃO couber mesmo: o
+    // mecanismo é testado direto, sem depender de a Câmara votar muito.
+    const gigantes = Array.from({ length: 200 }, (_, i) => `• item ${i} ${'x'.repeat(300)}`);
+    const o = chat.montarObservacao(['CABEÇALHO'], gigantes);
+    ok(/NÃO couberam/.test(o), 'lista impossível de caber declara quantos ficaram de fora');
+    ok(/⚠ \d+ de 200 itens/.test(o), 'o aviso diz o número exato, não "alguns"');
+    ok(/NÃO conclua que algo não existe/.test(o),
+       'e proíbe explicitamente concluir inexistência a partir da lista cortada');
+    ok(o.length <= 12000, `a observação respeita o teto (${o.length} chars)`);
   }
 
   console.log('\n== recorte largo demais PEDE recorte, não devolve lista cortada ==');
@@ -258,6 +264,43 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
        'projetos apensados trazem a proposição principal');
   }
 
+  console.log('\n== o laço obedece à FERRAMENTA, não ao rótulo de ação ==');
+  {
+    // 26/08/2026: a IA mandou {"acao":"consultar","ferramenta":"exportar_grafico"}
+    // — rótulo errado, intenção clara. O laço exigia acao:"exportar", não achou
+    // a ferramenta entre as de consulta, devolveu ERRO, e o pedido acabou
+    // VAZANDO como JSON cru na tela do usuário.
+    ok(chat.rotaDe({ acao: 'consultar', ferramenta: 'exportar_grafico' }) === 'exportar',
+       'exportar_grafico rotulado como "consultar" ainda vai para a exportação');
+    ok(chat.rotaDe({ acao: 'exportar', ferramenta: 'votacoes_periodo' }) === 'consultar',
+       'ferramenta de dado rotulada como "exportar" ainda vai para a consulta');
+    ok(chat.rotaDe({ acao: 'consultar', ferramenta: 'votacoes_periodo' }) === 'consultar',
+       'caminho normal de consulta preservado');
+    ok(chat.rotaDe({ acao: 'responder', texto: 'oi' }) === 'responder', 'resposta final preservada');
+    ok(chat.rotaDe({ acao: 'consultar', ferramenta: 'nao_existe' }) === 'desconhecida',
+       'ferramenta inexistente é recusada, não confundida com resposta');
+
+    // E se mesmo assim a chamada aparecer dentro do texto, ela não chega à tela.
+    const sujo = 'Segue o gráfico.\n\n{"acao":"consultar","ferramenta":"exportar_grafico","argumentos":{"tipo":"barra"}}';
+    const limpo = chat.limparChamadas(sujo);
+    ok(!/"acao"/.test(limpo), 'chamada de ferramenta escrita no texto é removida');
+    ok(/Segue o gráfico\./.test(limpo), 'o texto de verdade sobrevive à limpeza');
+  }
+
+  console.log('\n== encolher antes de cortar ==');
+  {
+    // Perder uma matéria inteira por cem caracteres de ementa é troca ruim:
+    // no relato, 1 de 62 proposições de julho ficou de fora por pouco.
+    const r = await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-07-01', dataFim: '2026-07-31', orgao: 'PLEN',
+    });
+    const n = (r.match(/^• /gm) || []).length;
+    const tot = /→ (\d+) proposições distintas/.exec(r);
+    ok(tot && n === Number(tot[1]),
+       `as ${tot ? tot[1] : '?'} de julho couberam inteiras (listou ${n})`);
+    ok(!/NÃO couberam/.test(r), 'nenhum item perdido por margem apertada');
+  }
+
   console.log('\n== gráficos: números vêm da TABELA, nunca do modelo ==');
   {
     await chat.FERRAMENTAS.orcamento_panorama({ ano: '2026' });
@@ -289,6 +332,22 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
     const cont = chat.graficoDaTabela(tv, { tipo: 'barra', agregacao: 'contagem', colunaRotulo: 'Data' });
     ok(!cont.erro && cont.itens >= 1, `contagem por categoria funciona (${cont.itens} categorias)`);
+
+    // A contagem tem de bater com a fonte. No relato de 26/08 o modelo contou
+    // os itens a olho e errou 3 dos 6 dias (07/07 disse 7 e eram 9; 08/07
+    // disse 5 e eram 6; 15/07 disse 37 e eram 34) — com o total certo ao lado.
+    await chat.FERRAMENTAS.votacoes_periodo({
+      dataInicio: '2026-07-01', dataFim: '2026-07-31', orgao: 'PLEN',
+    });
+    const tj = chat.ultimaTabela();
+    const gj = chat.graficoDaTabela(tj, { tipo: 'barra', agregacao: 'contagem', colunaRotulo: 'Data' });
+    const porDia = { '2026-07-01': 9, '2026-07-02': 1, '2026-07-07': 9, '2026-07-08': 6, '2026-07-14': 3, '2026-07-15': 34 };
+    const lido = {};
+    for (const l of tj.linhas) for (const d of String(l[1]).split(/\s*,\s*/)) lido[d] = (lido[d] || 0) + 1;
+    const bate = Object.entries(porDia).every(([d, n]) => lido[d] === n);
+    ok(bate, `quebra por dia bate com a API: ${JSON.stringify(lido)}`);
+    ok(gj.itens === Object.keys(porDia).length,
+       `o gráfico conta os mesmos ${Object.keys(porDia).length} dias`);
   }
 
   console.log('\n== gráfico: as regras que viraram código ==');
