@@ -120,6 +120,75 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     // acidente num número errado publicado.
   }
 
+  console.log('\n== ex-membros NÃO contam como bancada ==');
+  {
+    // 26/08/2026: a lista de proposições da bancada trouxe Dr. Victor Linhalis
+    // (hoje PSB) e Mauricio Marcon (hoje PL) como se fossem do Podemos. A
+    // lista da legislatura inclui quem saiu e REPETE o mesmo id com partidos
+    // diferentes; sem conferir a filiação de hoje, ex-membro entra na conta.
+    const r = await chat.FERRAMENTAS.bancada_podemos({});
+    ok(!/• Dr\. Victor Linhalis/.test(r), 'Dr. Victor Linhalis (PSB) fora da bancada');
+    ok(!/• Mauricio Marcon/.test(r), 'Mauricio Marcon (PL) fora da bancada');
+    ok(/outro partido/.test(r), 'os que saíram são declarados, não apagados');
+    // Licenciado PRECISA ficar: filtrar por situação em vez de partido tirava
+    // a presidente do partido da própria bancada.
+    ok(/Licen[çc]a|Exerc[íi]cio/.test(r), 'situação preservada (licenciado continua na bancada)');
+  }
+
+  console.log('\n== "projeto" não é sinônimo de "proposição" ==');
+  {
+    // Na semana de 10 a 14/08/2026 a bancada figurou em ~39 proposições de 12
+    // tipos. Só 11 eram projeto. A resposta original listou tudo junto como
+    // se fossem projetos — REQ, RIC, INC, PRL e SBT incluídos.
+    const tudo = await chat.FERRAMENTAS.proposicoes_bancada({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14',
+    });
+    ok(/JANELA CONSULTADA: 2026-08-10 a 2026-08-14/.test(tudo),
+       'a janela consultada é declarada no topo da observação');
+    ok(/PROJETOS/.test(tudo) && /REQUERIMENTOS|RELATORIA/.test(tudo),
+       'a saída vem separada por classe, não numa lista única');
+
+    const proj = await chat.FERRAMENTAS.proposicoes_bancada({
+      dataInicio: '2026-08-10', dataFim: '2026-08-14', classe: 'projeto',
+    });
+    const itens = (proj.match(/^• /gm) || []).length;
+    ok(itens >= 8 && itens <= 20, `classe "projeto" devolve só projetos: ${itens} itens`);
+    ok(!/• (REQ|RIC|INC|REC|PRL|SBT|EMP) /m.test(proj),
+       'nenhum requerimento, parecer ou emenda na lista de projetos');
+    ok(/de \d+ proposições do período/.test(proj),
+       'declara quantas do total foram filtradas — o resto não some em silêncio');
+    ok(/LISTA ABAIXO ESTÁ COMPLETA/.test(proj),
+       'marca a lista como completa, para a IA não resumir');
+  }
+
+  console.log('\n== janela: só dataInicio NÃO vira semana fechada ==');
+  {
+    // O pedido era 10 a 14/08; a IA mandou só dataInicio e a janela foi até
+    // hoje (26/08). O cabeçalho tem de deixar isso impossível de disfarçar.
+    const r = await chat.FERRAMENTAS.proposicoes_bancada({ dataInicio: '2026-08-10', classe: 'projeto' });
+    const m = /JANELA CONSULTADA: (\d{4}-\d{2}-\d{2}) a (\d{4}-\d{2}-\d{2})/.exec(r);
+    ok(m, 'janela sempre declarada');
+    ok(m && m[2] !== '2026-08-14',
+       `sem dataFim a janela vai até hoje (${m ? m[2] : '?'}) — e isso fica escrito`);
+
+    const invertida = await chat.FERRAMENTAS.proposicoes_bancada({
+      dataInicio: '2026-08-14', dataFim: '2026-08-10',
+    });
+    ok(invertida.startsWith('ERRO:'), 'data final antes da inicial é recusada');
+  }
+
+  console.log('\n== apensados (uriPropPrincipal) ==');
+  {
+    // Confirmado em 26/08/2026: 9 de 25 PLs do Podemos de fev-abr têm
+    // uriPropPrincipal preenchido (ex.: PL 54/2026 → apensado a PL 1191/2011).
+    const r = await chat.FERRAMENTAS.proposicoes_bancada({
+      dataInicio: '2026-02-01', dataFim: '2026-02-28', classe: 'projeto', apensados: true,
+    });
+    ok(/Apensamento conferido: \d+ de \d+/.test(r), 'o apensamento é conferido e contado');
+    ok(/\[apensado a [A-Z]+ \d+\/\d{4}\]/.test(r),
+       'projetos apensados trazem a proposição principal');
+  }
+
   console.log('\n== base do Orçamento (Firebase) ==');
   {
     const cob = await chat.FERRAMENTAS.orcamento_cobertura({});

@@ -147,10 +147,50 @@ function comTabela(titulo, colunas, linhas, fonte, texto) {
 // ============================================================================
 
 const PROVEDORES = {
-  gemini:    { label: 'Google Gemini',       modeloPadrao: 'gemini-3.1-flash-lite' },
-  openai:    { label: 'OpenAI (ChatGPT)',    modeloPadrao: 'gpt-4o' },
-  anthropic: { label: 'Anthropic (Claude)',  modeloPadrao: 'claude-sonnet-4-6' },
+  gemini: {
+    label: 'Google Gemini',
+    modeloPadrao: 'gemini-3.1-flash-lite',
+    hint: 'Obtenha em aistudio.google.com → Get API key',
+    regex: /^[\w.-]{20,}$/,
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    modeloPadrao: 'gpt-4o',
+    hint: 'Obtenha em platform.openai.com/api-keys',
+    regex: /^sk-[\w-]{20,}$/,
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    modeloPadrao: 'claude-sonnet-4-6',
+    hint: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regex: /^sk-ant-[\w-]{20,}$/,
+  },
 };
+
+/** Valida a chave com a chamada mais barata de cada provedor (listar modelos). */
+async function testarChave({ provedor, apiKey }) {
+  if (!apiKey) throw new Error('informe a chave');
+  let res;
+  if (provedor === 'gemini') {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=1`);
+  } else if (provedor === 'openai') {
+    res = await fetch('https://api.openai.com/v1/models', { headers: { Authorization: `Bearer ${apiKey}` } });
+  } else if (provedor === 'anthropic') {
+    res = await fetch('https://api.anthropic.com/v1/models?limit=1', {
+      headers: {
+        'x-api-key': apiKey, 'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+    });
+  } else {
+    throw new Error(`provedor desconhecido: ${provedor}`);
+  }
+  if (res.ok) return true;
+  if (res.status === 401 || res.status === 403) throw new Error('chave recusada pelo provedor');
+  let det = null;
+  try { det = await res.json(); } catch (_) { /* corpo não-JSON */ }
+  throw new Error(det?.error?.message || `HTTP ${res.status}`);
+}
 
 async function fetchIA(url, init) {
   const espera = [0, 4000, 12000, 25000];
@@ -424,44 +464,61 @@ async function notasTecnicas({ termo }) {
 // ---------- API da Câmara ----------
 
 /**
- * Bancada do Podemos por ID — a lista da legislatura inclui ex-membros e
- * variações de nome que dividem o mesmo id, então deduplica por id.
- * Usar `?siglaPartido=PODE` sem legislatura OMITE licenciados (a presidente
- * do partido sumiria da própria bancada) — por isso a legislatura entra.
+ * Bancada do Podemos — REGRA ÚNICA, usada por todas as ferramentas.
+ *
+ * Duas armadilhas, as duas já custaram caro:
+ *  1. `?siglaPartido=PODE` SEM legislatura omite licenciados — a presidente do
+ *     partido sumia da própria bancada. Por isso a legislatura entra.
+ *  2. A lista da legislatura inclui QUEM JÁ SAIU e repete o mesmo id com
+ *     partidos diferentes (Mauricio Marcon aparece como PODE e como PL). Sem
+ *     conferir a filiação de HOJE, ex-membros entram na conta: em 26/08/2026 a
+ *     lista de proposições da bancada trouxe Dr. Victor Linhalis (PSB) e
+ *     Mauricio Marcon (PL) como se fossem do Podemos.
+ *
+ * Filtra por `ultimoStatus.siglaPartido` — filiação de hoje — INDEPENDENTE da
+ * situação, para que licenciado continue na bancada e ex-membro saia dela.
+ * O resultado é memorizado na sessão: são ~43 fichas por chamada.
  */
-async function bancadaPorId() {
+let _bancadaCache = null;
+
+async function bancadaAtual() {
+  if (_bancadaCache) return _bancadaCache;
   const leg = await json(`${API_CAMARA}/legislaturas?ordem=DESC&ordenarPor=id&itens=1`);
   const idLeg = leg.dados?.[0]?.id;
   if (!idLeg) throw new Error('não foi possível descobrir a legislatura atual');
   const d = await json(`${API_CAMARA}/deputados?siglaPartido=PODE&idLegislatura=${idLeg}&itens=100`);
-  const mapa = new Map();
-  for (const dep of (d.dados || [])) if (!mapa.has(dep.id)) mapa.set(dep.id, dep.nome);
-  return mapa;
+  const candidatos = [...new Set((d.dados || []).map(x => x.id))];
+
+  const fichas = await emParalelo(candidatos, 6, async id => {
+    const f = await json(`${API_CAMARA}/deputados/${id}`);
+    const u = f.dados?.ultimoStatus || {};
+    return { id, nome: u.nomeEleitoral || f.dados?.nomeCivil, uf: u.siglaUf, partido: u.siglaPartido, situacao: u.situacao };
+  });
+  const lidas = fichas.filter(Boolean);
+  const naoLidas = fichas.length - lidas.length;
+
+  const membros = new Map();
+  for (const f of lidas) if (/^PODE$/i.test(f.partido || '')) membros.set(f.id, f);
+  const sairam = lidas.filter(f => f.partido && !/^PODE$/i.test(f.partido));
+
+  _bancadaCache = { membros, sairam, naoLidas, candidatos: candidatos.length };
+  return _bancadaCache;
 }
 
 async function bancadaPodemos() {
-  let mapa;
-  try { mapa = await bancadaPorId(); }
+  let b;
+  try { b = await bancadaAtual(); }
   catch (e) { return `ERRO: falha ao consultar a bancada na API da Câmara (${e.message}).`; }
-  const ids = [...mapa.keys()];
-  const fichas = await emParalelo(ids, 6, async id => {
-    const d = await json(`${API_CAMARA}/deputados/${id}`);
-    const u = d.dados?.ultimoStatus || {};
-    return { id, nome: u.nomeEleitoral || d.dados?.nomeCivil, uf: u.siglaUf, partido: u.siglaPartido, situacao: u.situacao };
-  });
-  const ok = fichas.filter(Boolean);
-  const falhas = fichas.length - ok.length;
-  const atuais = ok.filter(f => /^PODE$/i.test(f.partido || ''));
-  const sairam = ok.filter(f => f.partido && !/^PODE$/i.test(f.partido));
-
+  const atuais = [...b.membros.values()].sort((a, b2) => a.nome.localeCompare(b2.nome));
   const linhas = atuais.map(f => [f.nome, f.uf, f.situacao]);
   const txt = [
     `BANCADA DO PODEMOS NA CÂMARA — ${atuais.length} deputados hoje no partido`,
-    falhas ? `ATENÇÃO: ${falhas} ficha(s) não puderam ser lidas — a lista pode estar incompleta.` : null,
+    b.naoLidas ? `ATENÇÃO: ${b.naoLidas} ficha(s) não puderam ser lidas — a lista pode estar incompleta.` : null,
     '',
-    ...atuais.sort((a, b) => a.nome.localeCompare(b.nome))
-      .map(f => `• ${f.nome} (${f.uf}) — ${f.situacao}`),
-    sairam.length ? `\nApareceram na legislatura mas hoje estão em outro partido: ${sairam.map(f => `${f.nome} (${f.partido})`).join(', ')}` : null,
+    ...atuais.map(f => `• ${f.nome} (${f.uf}) — ${f.situacao}`),
+    b.sairam.length
+      ? `\nApareceram na legislatura pelo Podemos mas HOJE estão em outro partido (NÃO contam como bancada): ${b.sairam.map(f => `${f.nome} (${f.partido})`).join(', ')}`
+      : null,
   ].filter(v => v !== null).join('\n');
 
   return comTabela('Bancada do Podemos na Câmara', ['Nome', 'UF', 'Situação'], linhas,
@@ -482,7 +539,7 @@ async function situacaoProposicao({ sigla, numero, ano }) {
   const st = det.statusProposicao || {};
   let autores = [];
   try { autores = (await json(`${API_CAMARA}/proposicoes/${p.id}/autores`)).dados || []; } catch (_) { /* declarado abaixo */ }
-  const banc = await bancadaPorId().catch(() => new Map());
+  const banc = (await bancadaAtual().catch(() => null))?.membros || new Map();
   const idDe = u => { const m = /\/deputados\/(\d+)/.exec(u || ''); return m ? +m[1] : null; };
   const doPode = autores.filter(a => banc.has(idDe(a.uri))).map(a => a.nome);
 
@@ -536,7 +593,7 @@ async function votacoesPeriodo({ dias, dataInicio, dataFim, apenasPodemos = true
     return `Entre ${ini} e ${fim} houve ${vots.length} votações, mas nenhuma teve proposição identificável (${comObj.length} tinham objeto declarado).`;
   }
 
-  const banc = await bancadaPorId().catch(() => null);
+  const banc = (await bancadaAtual().catch(() => null))?.membros || null;
   if (apenasPodemos && !banc) {
     return 'ERRO: não foi possível montar a bancada do Podemos, então não dá para filtrar por autoria. Consulte sem o filtro ou tente de novo.';
   }
@@ -581,14 +638,57 @@ async function votacoesPeriodo({ dias, dataInicio, dataFim, apenasPodemos = true
     'API de Dados Abertos da Câmara', [...cab, ...corpo].join('\n').slice(0, OBS_MAX));
 }
 
-/** Proposições APRESENTADAS pela bancada num período. */
-async function proposicoesBancada({ dias, dataInicio, dataFim, sigla }) {
+/**
+ * Classes de matéria. "Projeto" NÃO é sinônimo de "proposição": numa semana
+ * comum (10 a 14/08/2026) a bancada figurou em 41 proposições de 13 tipos, das
+ * quais só 12 eram PL. Requerimento, parecer de relator e substitutivo entraram
+ * numa lista única e foram apresentados ao usuário como se fossem projetos.
+ */
+const CLASSES = {
+  projeto:    ['PL', 'PLP', 'PEC', 'PDL', 'PDC', 'PLV', 'MPV', 'PLN', 'PRC'],
+  requerimento: ['REQ', 'RIC', 'REC', 'INC', 'DOC', 'RCP'],
+  relatoria:  ['PRL', 'PRLP', 'SBT', 'CPR'],       // trabalho de relator
+  emenda:     ['EMP', 'EMC', 'EMS', 'EMR', 'ERD'],
+};
+
+function classeDe(sigla) {
+  const s = String(sigla || '').toUpperCase();
+  for (const [classe, siglas] of Object.entries(CLASSES)) if (siglas.includes(s)) return classe;
+  return 'outros';
+}
+
+const ROTULO_CLASSE = {
+  projeto: 'PROJETOS (PL, PLP, PEC, PDL…)',
+  requerimento: 'REQUERIMENTOS (REQ, RIC, REC, INC…)',
+  relatoria: 'RELATORIA (pareceres, substitutivos)',
+  emenda: 'EMENDAS',
+  outros: 'OUTROS TIPOS',
+};
+
+/**
+ * Proposições APRESENTADAS pela bancada num período.
+ *
+ * `classe` restringe ao que o usuário pediu: quem pergunta por "projetos"
+ * quer projeto, não requerimento. `apensados: true` resolve, para cada
+ * projeto, a proposição a que ele foi apensado (campo `uriPropPrincipal`) —
+ * é isso que responde "coautoria inclusive de apensado".
+ */
+async function proposicoesBancada({ dias, dataInicio, dataFim, sigla, classe, apensados }) {
   const fim = dataFim || hojeISO();
   const ini = dataInicio || hojeISO(-(Number(dias) || 30));
-  let banc;
-  try { banc = await bancadaPorId(); }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ini) || !/^\d{4}-\d{2}-\d{2}$/.test(fim)) {
+    return 'ERRO: datas devem ser AAAA-MM-DD.';
+  }
+  if (fim < ini) return `ERRO: a data final (${fim}) é anterior à inicial (${ini}).`;
+  if (classe && !ROTULO_CLASSE[classe]) {
+    return `ERRO: classe "${classe}" não existe. Use: ${Object.keys(ROTULO_CLASSE).join(', ')}.`;
+  }
+
+  let b;
+  try { b = await bancadaAtual(); }
   catch (e) { return `ERRO: falha ao montar a bancada (${e.message}).`; }
-  const ids = [...banc.keys()];
+
+  const ids = [...b.membros.keys()];
   const partes = await emParalelo(ids, 5, async id => {
     const u = `${API_CAMARA}/proposicoes?idDeputadoAutor=${id}&dataApresentacaoInicio=${ini}&dataApresentacaoFim=${fim}`
             + `${sigla ? `&siglaTipo=${String(sigla).toUpperCase()}` : ''}&itens=100&ordem=DESC&ordenarPor=id`;
@@ -596,31 +696,76 @@ async function proposicoesBancada({ dias, dataInicio, dataFim, sigla }) {
   });
   const ok = partes.filter(Boolean);
   const falhas = partes.length - ok.length;
+
   const mapa = new Map();
   for (const p of ok) for (const it of p.itens) {
-    if (!mapa.has(it.id)) mapa.set(it.id, { it, autores: [] });
-    mapa.get(it.id).autores.push(banc.get(p.id));
+    if (!mapa.has(it.id)) mapa.set(it.id, { it, autores: [], classe: classeDe(it.siglaTipo) });
+    mapa.get(it.id).autores.push(b.membros.get(p.id).nome);
   }
-  const lista = [...mapa.values()].sort((a, b) => String(b.it.ano).localeCompare(String(a.it.ano)));
-  if (!lista.length) {
-    return `Nenhuma proposição da bancada apresentada entre ${ini} e ${fim}${sigla ? ` (tipo ${sigla})` : ''}.`
-         + (falhas ? ` ATENÇÃO: ${falhas} deputado(s) falharam na consulta.` : '');
-  }
-  const linhas = lista.map(x => [`${x.it.siglaTipo} ${x.it.numero}/${x.it.ano}`,
-    x.autores.join(', '), (x.it.ementa || '').slice(0, 200)]);
+  let lista = [...mapa.values()];
+  const totalBruto = lista.length;
+  if (classe) lista = lista.filter(x => x.classe === classe);
 
-  const txt = [
-    `PROPOSIÇÕES DA BANCADA APRESENTADAS — ${ini} a ${fim}${sigla ? ` · tipo ${sigla}` : ''}`,
-    `${lista.length} proposições · ${banc.size} deputados consultados`,
-    falhas ? `ATENÇÃO: ${falhas} deputado(s) falharam — a lista pode estar incompleta.` : null,
-    '',
-    ...lista.slice(0, 60).map(x => `• ${x.it.siglaTipo} ${x.it.numero}/${x.it.ano} — ${x.autores.join(', ')}\n  ${(x.it.ementa || '').slice(0, 200)}`),
-    lista.length > 60 ? `… e mais ${lista.length - 60}. Peça a planilha para ver todas.` : null,
-  ].filter(v => v !== null).join('\n');
+  if (!lista.length) {
+    const porClasse = {};
+    for (const x of mapa.values()) porClasse[x.classe] = (porClasse[x.classe] || 0) + 1;
+    return `JANELA CONSULTADA: ${ini} a ${fim}.\n`
+      + `Nenhum item da classe "${classe || 'qualquer'}" apresentado pela bancada nesse período.`
+      + (totalBruto ? ` Havia ${totalBruto} proposição(ões) de outras classes: `
+          + Object.entries(porClasse).map(([c, n]) => `${ROTULO_CLASSE[c]} ${n}`).join('; ') + '.' : '')
+      + (falhas ? ` ATENÇÃO: ${falhas} deputado(s) falharam na consulta.` : '');
+  }
+
+  // Apensamento: só faz sentido para projeto, e custa 1 requisição por item.
+  let apensou = 0;
+  if (apensados) {
+    const projetos = lista.filter(x => x.classe === 'projeto');
+    await emParalelo(projetos, 6, async x => {
+      const det = (await json(`${API_CAMARA}/proposicoes/${x.it.id}`)).dados || {};
+      if (!det.uriPropPrincipal) return null;
+      const pr = (await json(det.uriPropPrincipal)).dados || {};
+      x.principal = `${pr.siglaTipo} ${pr.numero}/${pr.ano}`;
+      apensou++;
+      return null;
+    });
+  }
+
+  lista.sort((a, c) => a.classe.localeCompare(c.classe)
+    || `${a.it.siglaTipo}${a.it.numero}`.localeCompare(`${c.it.siglaTipo}${c.it.numero}`));
+
+  const linhas = lista.map(x => [`${x.it.siglaTipo} ${x.it.numero}/${x.it.ano}`,
+    ROTULO_CLASSE[x.classe].split(' (')[0], x.autores.join(', '),
+    x.principal || '', (x.it.ementa || '').slice(0, 300)]);
+
+  const grupos = {};
+  for (const x of lista) (grupos[x.classe] = grupos[x.classe] || []).push(x);
+
+  const corpo = [];
+  for (const c of ['projeto', 'requerimento', 'relatoria', 'emenda', 'outros']) {
+    if (!grupos[c]) continue;
+    corpo.push('', `${ROTULO_CLASSE[c]} — ${grupos[c].length}:`);
+    for (const x of grupos[c]) {
+      corpo.push(`• ${x.it.siglaTipo} ${x.it.numero}/${x.it.ano} — ${x.autores.join(', ')}`
+        + (x.principal ? `  [apensado a ${x.principal}]` : ''));
+      if (x.it.ementa) corpo.push(`  ${x.it.ementa.slice(0, 200)}`);
+    }
+  }
+
+  const cab = [
+    `JANELA CONSULTADA: ${ini} a ${fim}.  ← use ESTA janela na resposta, não outra.`,
+    `Bancada: ${b.membros.size} deputados HOJE no Podemos${b.sairam.length ? ` (${b.sairam.length} ex-membro(s) excluído(s): ${b.sairam.map(f => `${f.nome} → ${f.partido}`).join(', ')})` : ''}.`,
+    classe
+      ? `Filtro de classe: ${ROTULO_CLASSE[classe]}. ${lista.length} de ${totalBruto} proposições do período.`
+      : `${lista.length} proposições, de ${Object.keys(grupos).length} classes diferentes. ATENÇÃO: "projeto" é só a classe PROJETOS — não apresente requerimento, parecer ou emenda como projeto.`,
+    `A LISTA ABAIXO ESTÁ COMPLETA (${lista.length} itens). Reproduza TODOS; não resuma nem corte.`,
+    apensados ? `Apensamento conferido: ${apensou} de ${grupos.projeto?.length || 0} projeto(s) estão apensados a outra proposição.` : null,
+    falhas ? `ATENÇÃO: ${falhas} deputado(s) falharam na consulta — a lista pode estar incompleta.` : null,
+    b.naoLidas ? `ATENÇÃO: ${b.naoLidas} ficha(s) de deputado não puderam ser lidas.` : null,
+  ].filter(v => v !== null);
 
   return comTabela(`Proposições da bancada ${ini} a ${fim}`,
-    ['Proposição', 'Autoria Podemos', 'Ementa'], linhas,
-    'API de Dados Abertos da Câmara', txt.slice(0, OBS_MAX));
+    ['Proposição', 'Classe', 'Autoria Podemos', 'Apensado a', 'Ementa'], linhas,
+    'API de Dados Abertos da Câmara', [...cab, ...corpo].join('\n').slice(0, OBS_MAX));
 }
 
 async function paginaOficial({ url }) {
@@ -666,8 +811,15 @@ ORÇAMENTO — base do próprio SisPode (coletada pelo módulo Orçamento):
 CÂMARA — API oficial de Dados Abertos:
 - "bancada_podemos" {}: quem é a bancada hoje, com UF e situação (exercício, licença, suplência).
 - "situacao_proposicao" {"sigla":"PL","numero":"3659","ano":"2026"}: ementa, autoria, situação e última tramitação de qualquer proposição. Já diz se há autoria da bancada.
-- "votacoes_periodo" {"dias":30,"apenasPodemos":true}: o que foi VOTADO no período. Aceita {"dataInicio":"2026-07-01","dataFim":"2026-07-31"}. Com apenasPodemos=false lista tudo.
-- "proposicoes_bancada" {"dias":30,"sigla":null}: o que a bancada APRESENTOU no período. "sigla" restringe o tipo (PL, REQ, PEC…).
+- "votacoes_periodo" {"dias":30,"apenasPodemos":true}: o que foi VOTADO no período. Para período FECHADO mande SEMPRE o par {"dataInicio":"2026-07-01","dataFim":"2026-07-31"} — mandar só dataInicio faz a janela ir até HOJE. Com apenasPodemos=false lista tudo.
+- "proposicoes_bancada" {"dias":30,"classe":null,"sigla":null,"apensados":false}: o que a bancada APRESENTOU no período. Aceita o par dataInicio/dataFim — para semana fechada mande OS DOIS.
+  "classe" restringe ao que foi pedido e é o parâmetro que mais importa:
+    · "projeto"      → PL, PLP, PEC, PDL, PDC, PLV, MPV, PLN, PRC
+    · "requerimento" → REQ, RIC, REC, INC, DOC, RCP
+    · "relatoria"    → PRL, PRLP, SBT (parecer e substitutivo de relator)
+    · "emenda"       → EMP, EMC, EMS…
+  PROJETO NÃO É SINÔNIMO DE PROPOSIÇÃO. Se o usuário pediu "projetos", mande classe:"projeto" — requerimento e parecer NÃO são projetos. Sem "classe" vem tudo, separado por seção, e aí a resposta tem de manter a separação.
+  "apensados":true resolve, para cada projeto, a proposição a que ele foi apensado. Use quando a pergunta mencionar apensado/apensamento.
 - "pagina_oficial" {"url":"https://www.camara.leg.br/..."}: lê página de site OFICIAL (só camara.leg.br, senado.leg.br, planalto.gov.br, in.gov.br).
 
 OUTRAS BASES DO SISPODE:
@@ -696,6 +848,9 @@ REGRAS QUE NÃO SE NEGOCIAM:
 - Se a OBSERVAÇÃO começar com "ERRO:", a fonte FALHOU. Diga que falhou e o que falhou. NÃO preencha o buraco com conhecimento próprio, NÃO estime, NÃO troque por outro dado parecido fingindo que responde. Resposta ausente é melhor que resposta sem lastro.
 - Se a observação trouxer "ATENÇÃO: … incompleto/parcial", REPRODUZA essa ressalva na resposta. Total parcial apresentado como total é erro grave.
 - Lista vazia é RESPOSTA, não falha: se a ferramenta diz que não há nada, diga que não há — e diga em quantos itens foi procurado.
+- A JANELA é a que a observação declara, NUNCA a que o usuário pediu. Se a observação disser "JANELA CONSULTADA: X a Y", é X a Y que você escreve na resposta. Se não for a janela pedida, DIGA isso e ofereça refazer. Nunca escreva o período do usuário sobre dados de outro período.
+- NÃO RESUMA LISTA. Quando a observação disser que a lista está completa com N itens, entregue os N. Se não couber, diga quantos ficaram de fora e ofereça a planilha — jamais corte em silêncio.
+- Respeite a CLASSE do que foi pedido. "Projeto" é PL/PLP/PEC/PDL e afins. Requerimento (REQ, RIC, REC, INC), parecer de relator (PRL, SBT) e emenda NÃO são projetos e não entram numa lista pedida como "projetos".
 - Cite sempre a fonte ("segundo a API da Câmara", "pela coleta do FNS de 19/08").
 - Ao listar pessoas ou matérias, use UM POR LINHA com "• ".
 - Valores em reais no formato brasileiro.
@@ -896,7 +1051,8 @@ async function enviar() {
   const texto = campo.value.trim();
   if (!texto) return;
   if (!app.config.apiKey) {
-    bolha('bot', 'ERRO: nenhuma chave de IA configurada. Abra o painel do SisPode → Configurações e cadastre a sua chave.');
+    bolha('bot', 'ERRO: nenhuma chave de IA configurada. Clique em "⚙ Chave" aqui em cima para cadastrar a sua.');
+    abrirConfig();
     return;
   }
   campo.value = '';
@@ -944,36 +1100,133 @@ async function enviar() {
  * mostrando o problema — antes isso do que a página inteira morrer muda
  * porque os listeners nunca chegaram a ser ligados.
  */
+function pintarEstado(aviso) {
+  const alvo = el('estado-ia');
+  if (aviso) {
+    alvo.textContent = aviso;
+    alvo.className = 'estado alerta';
+    return;
+  }
+  const p = PROVEDORES[app.config.provedor];
+  alvo.textContent = app.config.apiKey
+    ? `${p?.label || app.config.provedor} · ${app.config.modelo || p?.modeloPadrao || 'modelo padrão'}`
+    : 'sem chave — clique para configurar';
+  alvo.className = app.config.apiKey ? 'estado ok' : 'estado alerta';
+}
+
 function carregarConfig() {
   return new Promise(resolve => {
-    const mostrar = (aviso) => {
-      const p = PROVEDORES[app.config.provedor];
-      const alvo = el('estado-ia');
-      if (aviso) {
-        alvo.textContent = aviso;
-        alvo.className = 'estado alerta';
-      } else {
-        alvo.textContent = app.config.apiKey
-          ? `${p?.label || app.config.provedor} · ${app.config.modelo || p?.modeloPadrao || 'modelo padrão'}`
-          : 'sem chave configurada';
-        alvo.className = app.config.apiKey ? 'estado ok' : 'estado alerta';
-      }
-      resolve();
-    };
+    const pronto = aviso => { pintarEstado(aviso); resolve(); };
     try {
       chrome.storage.local.get('config', d => {
-        if (chrome.runtime?.lastError) return mostrar('falha ao ler a configuração');
+        if (chrome.runtime?.lastError) return pronto('falha ao ler a configuração');
         if (d && d.config) app.config = { ...app.config, ...d.config };
-        mostrar(null);
+        pronto(null);
       });
     } catch (e) {
-      mostrar(`configuração indisponível: ${e.message}`);
+      pronto(`configuração indisponível: ${e.message}`);
+    }
+  });
+}
+
+// ---------------------------------------------------- modal de configuração
+
+function msgConfig(texto, tipo = 'neutro') {
+  const m = el('cfg-msg');
+  m.textContent = texto;
+  m.className = `msg ${tipo}`;
+}
+
+function abrirConfig() {
+  el('cfg-provedor').value = app.config.provedor || 'gemini';
+  el('cfg-chave').value    = app.config.apiKey || '';
+  el('cfg-modelo').value   = app.config.modelo || '';
+  atualizarDicaConfig();
+  msgConfig('');
+  el('modal-config').classList.add('aberto');
+  el('cfg-chave').focus();
+}
+
+function fecharConfig() { el('modal-config').classList.remove('aberto'); }
+
+function atualizarDicaConfig() {
+  const p = PROVEDORES[el('cfg-provedor').value];
+  el('cfg-dica').textContent = p?.hint || '';
+  el('cfg-modelo').placeholder = p?.modeloPadrao || '';
+}
+
+function registrarConfig() {
+  el('btn-config').addEventListener('click', abrirConfig);
+  el('estado-ia').addEventListener('click', abrirConfig);
+  el('cfg-fechar').addEventListener('click', fecharConfig);
+  el('modal-config').addEventListener('click', e => {
+    if (e.target === el('modal-config')) fecharConfig();
+  });
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape' && el('modal-config').classList.contains('aberto')) fecharConfig();
+  });
+
+  // Trocar de provedor limpa chave e modelo: chave de um não serve no outro,
+  // e modelo herdado do provedor anterior quebra a primeira chamada.
+  el('cfg-provedor').addEventListener('change', () => {
+    el('cfg-chave').value = '';
+    el('cfg-modelo').value = '';
+    atualizarDicaConfig();
+    msgConfig('');
+  });
+
+  el('cfg-ver').addEventListener('click', () => {
+    const i = el('cfg-chave');
+    i.type = i.type === 'password' ? 'text' : 'password';
+  });
+
+  el('cfg-testar').addEventListener('click', async () => {
+    const provedor = el('cfg-provedor').value;
+    const apiKey = el('cfg-chave').value.trim();
+    const b = el('cfg-testar');
+    b.disabled = true;
+    msgConfig('testando…');
+    try {
+      await testarChave({ provedor, apiKey });
+      msgConfig('chave aceita pelo provedor', 'ok');
+    } catch (e) {
+      msgConfig(e.message, 'erro');
+    } finally { b.disabled = false; }
+  });
+
+  el('cfg-salvar').addEventListener('click', () => {
+    const provedor = el('cfg-provedor').value;
+    const apiKey = el('cfg-chave').value.trim();
+    const modelo = el('cfg-modelo').value.trim();
+    const p = PROVEDORES[provedor];
+    // Formato errado é o erro mais comum (chave de outro provedor colada aqui);
+    // avisa, mas não impede — o provedor é a autoridade final, não este regex.
+    if (apiKey && p?.regex && !p.regex.test(apiKey)) {
+      msgConfig(`atenção: não parece uma chave do ${p.label} — salvo assim mesmo`, 'erro');
+    }
+    app.config = { ...app.config, provedor, apiKey, modelo };
+    try {
+      chrome.storage.local.get('config', d => {
+        const cfg = { ...(d?.config || {}), provedor, apiKey, modelo };
+        chrome.storage.local.set({ config: cfg }, () => {
+          if (chrome.runtime?.lastError) {
+            msgConfig(`falha ao gravar: ${chrome.runtime.lastError.message}`, 'erro');
+            return;
+          }
+          pintarEstado();
+          if (!el('cfg-msg').classList.contains('erro')) msgConfig('salvo', 'ok');
+          setTimeout(fecharConfig, 700);
+        });
+      });
+    } catch (e) {
+      msgConfig(`falha ao gravar: ${e.message}`, 'erro');
     }
   });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
   await carregarConfig();
+  registrarConfig();
 
   const campo = el('entrada');
   campo.addEventListener('input', () => {
