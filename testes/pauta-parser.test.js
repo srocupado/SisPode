@@ -95,6 +95,67 @@ const req = (ordem, comoEscreve, projeto) =>
        '"SE APROVADO o requerimento" NÃO é urgência aprovada — fica pendente');
   }
 
+  console.log('\n== pauta de 01/09/2026 — os itens 1, 2, 5 e 6 que sumiram ==');
+  {
+    // Reprodução fiel dos trechos do PDF real (pauta1926.pdf): o kerning
+    // descola o ponto da ordem ("1 . Requerimento"), o dia vem ordinal
+    // ("Em 1º de setembro") e MENSAGEM era tipo desconhecido. O módulo
+    // entregou 13 de 17 itens e datou a pauta de 23/06/1981 — a assinatura de
+    // uma convenção da OIT citada na ementa do item 5.
+    const texto =
+      'CÂMARA DOS DEPUTADOS\n' +
+      'Em 1º de setembro de 2026\n' +
+      '( Terça - feira)\n' +
+      'ORDEM DO DIA\n' +
+      'MATÉRIA SOBRE A MESA\n' +
+      '1 . Requerimento nº 3.671, de 2026 , dos Srs. Líderes, que requer, nos termos do\n' +
+      'artigo 155 do Regimento Interno da Câmara dos Deputados, regime de urgência\n' +
+      'para apreciação do Projeto de Lei Complementar nº 73, de 2025 , do Senado\n' +
+      'Federal, que altera a Lei Complementar nº 101. (REQ NT62 NT64)\n' +
+      '2 . Requerimento nº 4.063, de 2026 , dos Srs. Líderes, que requer, nos termos do\n' +
+      'artigo 155 do Regimento Interno da Câmara dos Deputados, regime de urgência\n' +
+      'para apreciação do Projeto de Lei nº 4.921, de 2026 , do Tribunal Superior do\n' +
+      'Trabalho, que dispõe sobre cargos. (REQ NT62 NT64)\n' +
+      'URGÊNCIA\n' +
+      '(Art. 155 do Regimento Interno)\n' +
+      'Discussão\n' +
+      '5\n' +
+      'MENSAGEM Nº 85, DE 2023\n' +
+      '(DO PODER EXECUTIVO)\n' +
+      'Discussão, em turno único, da Mensagem nº 85, de 2023, que trata da\n' +
+      'C onvenção nº 156, de 1981, da Organização Internacional do Trabalho - OIT,\n' +
+      'assinada em Genebra, em 23 de junho de 1981.\n' +
+      'RELATORA: DEP. BENEDITA DA SILVA (PT - RJ), EM 31/08/2026\n' +
+      '6\n' +
+      'MENSAGEM Nº 86, DE 2023\n' +
+      '(DO PODER EXECUTIVO)\n' +
+      'Discussão, em turno único, da Mensagem nº 86, de 2023, que trata da\n' +
+      'C onvenção nº 190 da OIT, assinada em Genebra, em 21 de junho de 2019.\n' +
+      'RELATORA: DEP. BENEDITA DA SILVA (PT - RJ), EM 31/08/2026\n';
+    const p = P.parsearPauta(texto);
+    ok(p.periodo === '01/09/2026',
+       `dia ordinal "1º" lido no cabeçalho — e NÃO a data de 1981 da ementa (obtido: ${p.periodo || '(vazio)'})`);
+
+    const r1 = p.itens.find(i => i.ordem === 1), r2 = p.itens.find(i => i.ordem === 2);
+    ok(r1?.sigla === 'REQ' && r1?.numero === '3671',
+       `"1 . Requerimento" com ponto descolado entra (obtido: ${r1 ? r1.sigla + ' ' + r1.numero : 'nada'})`);
+    ok(r1?.projetoUrgenciado?.sigla === 'PLP' && r1?.projetoUrgenciado?.numero === '73',
+       'o projeto urgenciado (PLP 73/2025) é identificado');
+    ok(r2?.numero === '4063', 'item 2 idem');
+
+    const m5 = p.itens.find(i => i.ordem === 5), m6 = p.itens.find(i => i.ordem === 6);
+    ok(m5?.sigla === 'MSC' && m5?.numero === '85' && m5?.ano === '2023',
+       `MENSAGEM vira MSC — sigla real da API (obtido: ${m5 ? m5.sigla + ' ' + m5.numero + '/' + m5.ano : 'nada'})`);
+    ok(m6?.sigla === 'MSC' && m6?.numero === '86', 'item 6 idem');
+    ok(m5?.relator?.nome === 'BENEDITA DA SILVA' && m5?.relator?.partido === 'PT',
+       `relatora da mensagem capturada (${m5?.relator?.nome || 'nenhuma'})`);
+    // "Mensagem" minúscula DENTRO da ementa não pode virar item duplicado —
+    // o cabeçalho é case-sensitive de propósito.
+    ok(p.itens.filter(i => i.sigla === 'MSC').length === 2,
+       'a menção "da Mensagem nº 85" na ementa não duplica o item');
+    ok(p.itens.length === 4, `os 4 itens do trecho, sem sobras (obtidos: ${p.itens.length})`);
+  }
+
   console.log('\n== não inventa item onde não há ==');
   const vazio = P.parsearPauta(pauta(['Nada aqui que se pareça com uma proposição.']));
   ok(vazio.itens.length === 0, 'texto sem requerimento não produz item');

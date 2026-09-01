@@ -32,6 +32,13 @@ const TIPOS_PROPOSICAO = [
   { sigla: 'PDL', prefixo: 'PROJETO DE DECRETO LEGISLATIVO' },
   { sigla: 'MPV', prefixo: 'MEDIDA PROVISÓRIA' },
   { sigla: 'PRC', prefixo: 'PROJETO DE RESOLUÇÃO' },
+  // Mensagem do Poder Executivo (ex.: acordos e convenções internacionais que
+  // o Plenário discute antes de virarem PDL). MEDIDO na pauta de 01/09/2026:
+  // os itens 5 e 6 eram "MENSAGEM Nº 85, DE 2023" e "MENSAGEM Nº 86, DE 2023"
+  // e sumiam da análise em silêncio — o tipo não existia nesta tabela. Na API
+  // da Câmara a sigla é MSC (conferido: MSC 85/2023 e MSC 86/2023 existem,
+  // com as mesmas ementas das convenções da OIT).
+  { sigla: 'MSC', prefixo: 'MENSAGEM' },
 ].map(t => ({
   ...t,
   // O prefixo aceita as variações de acento/cedilha que a extração produz.
@@ -81,7 +88,7 @@ function parsearPauta(texto) {
   //  - "compacto": dashboard da Liderança — "1 REQ 1180/2026", "9 PL 1625/2026"
   //  - "extenso": pauta oficial da Câmara — "PROJETO DE LEI Nº X, DE AAAA"
   // O padrão compacto é mais específico, então testamos primeiro.
-  const temFormatoCompacto = /(?:^|\n)\s*\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+[\d.]+\/\d{4}\b/.test(texto);
+  const temFormatoCompacto = /(?:^|\n)\s*\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL|MSC)\s+[\d.]+\/\d{4}\b/.test(texto);
   if (temFormatoCompacto) return parsearPautaCompacto(texto);
   return parsearPautaExtenso(texto);
 }
@@ -102,7 +109,16 @@ function parsearPautaExtenso(texto) {
     // MEDIDO na pauta de 13/08/2026, o cabeçalho saiu "Em 1 3 de agost o de
     // 2026". Por isso cada grupo tolera espaços internos e é compactado
     // depois — sem isso a pauta ficava sem data e caía no nome do arquivo.
-    const dataExt = texto.match(/\bEm\s+(\d(?:\s*\d)?)\s+de\s+([A-Za-zçÇãÃéÉêÊíÍóÓúÚ][A-Za-zçÇãÃéÉêÊíÍóÓúÚ\s]{2,12}?)\s+de\s+(\d(?:\s*\d){3})/i);
+    //
+    // O dia 1 vem ORDINAL: "Em 1º de setembro de 2026" (pauta de 01/09/2026).
+    // Sem tolerar o º, o cabeçalho não casava e a PRIMEIRA data por extenso do
+    // documento inteiro virava o período — naquela pauta, "em 23 de junho de
+    // 1981", a assinatura de uma convenção da OIT citada na ementa do item 5.
+    // Data errada exibida com confiança é pior que data ausente; por isso,
+    // além do º, a busca fica restrita ao COMEÇO do documento (o cabeçalho é
+    // sempre das primeiras linhas): se ele não casar, melhor cair no nome do
+    // arquivo do que pescar 1981 numa ementa.
+    const dataExt = texto.slice(0, 600).match(/\bEm\s+(\d(?:\s*\d)?)\s*[º°]?\s*de\s+([A-Za-zçÇãÃéÉêÊíÍóÓúÚ][A-Za-zçÇãÃéÉêÊíÍóÓúÚ\s]{2,12}?)\s+de\s+(\d(?:\s*\d){3})/i);
     if (dataExt) {
       const semEspaco = s => s.replace(/\s+/g, '');
       const mesNome = semEspaco(dataExt[2]).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
@@ -115,7 +131,9 @@ function parsearPautaExtenso(texto) {
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
-  const rfRegex = /(\d{1,2})\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n\s*[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  // Mesmo kerning do "1 ." dos requerimentos (medido em 01/09/2026): o ponto
+  // da ordem tolera UM espaço antes — [ \t]?, nunca \s*.
+  const rfRegex = /(\d{1,2})[ \t]?\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n\s*[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}[ \t]?\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -162,7 +180,12 @@ function parsearPautaExtenso(texto) {
   // pauta de 12/08/2026, cujo item 7 veio "Requerimento 4.027, de 2026"
   // enquanto os outros 26 traziam "Requerimento nº". Com o "nº" obrigatório o
   // item sumia da pauta em silêncio (26 de 27 identificados), sem erro nenhum.
-  const reqRegex = /(\d{1,2})\.\s+Requerimento\s+(?:n\s*[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n\s*[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  // O ponto da ordem pode vir DESCOLADO do número: MEDIDO na pauta de
+  // 01/09/2026, os itens 1 e 2 saíram "1 . Requerimento" e "2 . Requerimento"
+  // (kerning do PDF) e sumiam em silêncio. O espaço tolerado é [ \t]? — nunca
+  // \s*, que atravessaria quebra de linha e deixaria "…2026\n. Requerimento"
+  // capturar dígitos do ano como ordem.
+  const reqRegex = /(\d{1,2})[ \t]?\.\s+Requerimento\s+(?:n\s*[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n\s*[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);
@@ -444,7 +467,7 @@ function parsearPautaCompacto(texto) {
 
     // EMENTA — até a próxima seção em maiúsculas conhecida ou o fim do bloco
     const ementaMatch = bloco.match(
-      /EMENTA:\s*([\s\S]*?)(?=\n\s*(?:SITUAÇÃO:|SITUACAO:|RELATOR:|PARECER:|Notas técnicas:|APENSADAS|OUTROS AUTORES:|Acessória|\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+[\d.]+\/\d{4})|$)/i
+      /EMENTA:\s*([\s\S]*?)(?=\n\s*(?:SITUAÇÃO:|SITUACAO:|RELATOR:|PARECER:|Notas técnicas:|APENSADAS|OUTROS AUTORES:|Acessória|\d{1,3}\s+(?:REQ|REC|PLP|PEC|PDL|MPV|PRC|PL|MSC)\s+[\d.]+\/\d{4})|$)/i
     );
     let ementa = ementaMatch ? ementaMatch[1].replace(/\s+/g, ' ').trim() : '';
     if (!ementa) {
@@ -464,7 +487,7 @@ function parsearPautaCompacto(texto) {
 
     // Para requerimentos: "Acessória do PL 5900/2025" indica o projeto urgenciado.
     let projetoUrgenciado = null;
-    const acessMatch = bloco.match(/Acess[óo]ria\s+do\s+(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+([\d.]+)\/(\d{4})/i);
+    const acessMatch = bloco.match(/Acess[óo]ria\s+do\s+(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL|MSC)\s+([\d.]+)\/(\d{4})/i);
     if (acessMatch) {
       projetoUrgenciado = {
         sigla:  acessMatch[1].toUpperCase(),
@@ -477,7 +500,7 @@ function parsearPautaCompacto(texto) {
     const apensadosTexto = [];
     const apensBloco = bloco.match(/APENSAD[AO]S?(?:\s+SEM\s+AUTORIA[^\n]*)?\s*\n([\s\S]*?)(?=\n\s*(?:RELATOR:|PARECER:|Notas técnicas:|EMENTA:|SITUAÇÃO:|$))/i);
     if (apensBloco) {
-      const reAp = /(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL)\s+([\d.]+)\/(\d{4})/gi;
+      const reAp = /(REQ|REC|PLP|PEC|PDL|MPV|PRC|PL|MSC)\s+([\d.]+)\/(\d{4})/gi;
       let am;
       while ((am = reAp.exec(apensBloco[1])) !== null) {
         apensadosTexto.push({
