@@ -1027,7 +1027,7 @@ async function buscarPareceresPlenario(idProp) {
     // Sigla do colegiado/comissão (ex.: CCJC, CSPCCO) quando for uma sigla de
     // letras (não o próprio tipo da proposição, ex.: "PEC00619", nem "MESA").
     const dono = (siglaMatch[3] || '').toUpperCase();
-    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
+    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MSC|MESA)$/.test(dono) ? dono : null;
     // Comissão Especial: a sigla-dona é o código compacto da própria proposição
     // (ex.: "PEC00619" = PEC 6/2019; "PL629902" = PL 6299/2002; "PL233823" =
     // PL 2338/2023). Ocorre em PECs (onde é o parecer de mérito operativo) e em
@@ -1145,7 +1145,7 @@ async function listarDocsPareceres(idProp) {
     let dataBR = null;
     for (const td of tds) { const dm = (td.textContent || '').match(/\b(\d{2}\/\d{2}\/\d{4})\b/); if (dm) { dataBR = dm[1]; break; } }
     const dono = (m[3] || '').toUpperCase();
-    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MESA)$/.test(dono) ? dono : null;
+    const comissao = /^[A-ZÀ-Ú]{2,12}$/.test(dono) && !/^(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|MSC|MESA)$/.test(dono) ? dono : null;
     const especial = /^(PEC|PLP|PL)\d{3,}$/.test(dono);
     const sigla = m[1].toUpperCase();
     const nome  = sigla === 'AA' ? 'Autógrafo' : sigla;
