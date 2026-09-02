@@ -1423,6 +1423,101 @@ function limparTextoPDF(texto) {
 // Busca documento da Câmara. Default: retorna pdfBuffer (envio inline ao Gemini).
 // Fallback: se for HTML, extrai texto via fetchTextoIntegra.
 // `infoExtra` é mesclado no retorno (tipo, referenciaLeg, etc).
+// ── Emendas de MEDIDA PROVISÓRIA: a fonte é o Congresso, não a Câmara ──────
+// MPV tramita na Comissão Mista, e as emendas ficam no acervo do Senado /
+// Congresso Nacional — NÃO na página prop_emendas da Câmara.
+// MEDIDO em 01/09/2026 com a MPV 1357/2026: a página da Câmara veio só com o
+// esqueleto (0 emendas) e a API da Câmara relaciona DTQ/REQ/RPD, nenhuma EMC;
+// o Senado devolve 112 emendas (nº 1..112, contíguas, todas da CMMPV
+// 1357/2026), cada uma com autor, partido e o PDF em sdleg-getter.
+// A numeração do Senado é a mesma que os destaques de Plenário citam.
+const SENADO_DADOS = 'https://legis.senado.leg.br/dadosabertos';
+
+async function senadoJson(url) {
+  const r = await fetch(url, { headers: { Accept: 'application/json' } });
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+/** Procura uma chave em qualquer profundidade do JSON do Senado (que aninha muito). */
+function senadoAchar(obj, chave) {
+  if (obj && typeof obj === 'object') {
+    if (chave in obj) return obj[chave];
+    for (const v of Object.values(obj)) { const r = senadoAchar(v, chave); if (r !== undefined) return r; }
+  }
+  return undefined;
+}
+
+/** Código da matéria no Senado (ex.: MPV 1357/2026 → 174123). */
+async function senadoCodigoMateria(sigla, numero, ano) {
+  const d = await senadoJson(`${SENADO_DADOS}/materia/pesquisa/lista?sigla=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`);
+  let ms = senadoAchar(d, 'Materia') || [];
+  if (!Array.isArray(ms)) ms = [ms];
+  const alvo = ms.find(m => String(m.Sigla || '').toUpperCase() === String(sigla).toUpperCase()
+    && parseInt(m.Numero, 10) === parseInt(numero, 10) && String(m.Ano) === String(ano));
+  return alvo ? String(alvo.Codigo) : null;
+}
+
+/**
+ * Emendas da matéria no Senado, normalizadas: { numero, autor, partido, url }.
+ * `url` já vem em https (o Senado responde http:// e a extensão só fala https).
+ */
+async function senadoEmendas(codigoMateria) {
+  const d = await senadoJson(`${SENADO_DADOS}/materia/emendas/${codigoMateria}`);
+  let lista = senadoAchar(d, 'Emenda') || [];
+  if (!Array.isArray(lista)) lista = [lista];
+  return lista.map(e => {
+    let autores = senadoAchar(e.AutoriaEmenda || {}, 'Autor') || [];
+    if (!Array.isArray(autores)) autores = [autores];
+    const principal = autores.find(a => a.IndicadorAutorPrincipal === 'Sim') || autores[0] || {};
+    let textos = senadoAchar(e.TextosEmenda || {}, 'TextoEmenda') || [];
+    if (!Array.isArray(textos)) textos = [textos];
+    const texto = textos.find(t => /emenda/i.test(t.DescricaoTipoTexto || t.TipoDocumento || '')) || textos[0] || {};
+    return {
+      numero:  parseInt(e.NumeroEmenda, 10),
+      autor:   principal.NomeAutor || senadoAchar(principal, 'NomeParlamentar') || '',
+      partido: senadoAchar(principal, 'SiglaPartidoParlamentar') || '',
+      url:     String(texto.UrlTexto || '').replace(/^http:\/\//i, 'https://'),
+    };
+  }).filter(e => Number.isFinite(e.numero));
+}
+
+/**
+ * Texto de uma emenda de MPV, pelo número que o destaque cita.
+ * Devolve o mesmo formato de buscarDocumento (com pdfBuffer) mais autoria — ou
+ * null, DECLARANDO no console por que não achou. Nunca devolve outra emenda
+ * "parecida": o destaque é sobre um número, e número errado é análise errada.
+ */
+async function buscarEmendaMPVnoSenado(prop, numEmenda) {
+  if (!numEmenda) {
+    console.warn('[IA] MPV: destaque sem número de emenda identificável — não dá para escolher no acervo do Senado.');
+    return null;
+  }
+  let codigo = null;
+  try { codigo = await senadoCodigoMateria(prop.sigla, prop.numero, prop.ano); }
+  catch (e) { console.warn('[IA] MPV: Senado não respondeu à pesquisa da matéria:', e.message); return null; }
+  if (!codigo) { console.warn(`[IA] MPV: ${prop.chave || prop.sigla} não localizada no Senado.`); return null; }
+
+  let emendas;
+  try { emendas = await senadoEmendas(codigo); }
+  catch (e) { console.warn('[IA] MPV: Senado não respondeu à lista de emendas:', e.message); return null; }
+  console.log(`[IA] MPV: ${emendas.length} emenda(s) no Senado (matéria ${codigo})`);
+
+  const alvo = emendas.find(e => e.numero === numEmenda);
+  if (!alvo) {
+    console.warn(`[IA] MPV: emenda nº ${numEmenda} não existe entre as ${emendas.length} do Senado (nº ${Math.min(...emendas.map(e => e.numero))}..${Math.max(...emendas.map(e => e.numero))}).`);
+    return null;
+  }
+  if (!alvo.url) { console.warn(`[IA] MPV: emenda nº ${numEmenda} sem PDF no Senado.`); return null; }
+  console.log(`[IA] MPV: emenda nº ${numEmenda} — ${alvo.autor}${alvo.partido ? ` (${alvo.partido})` : ''} — ${alvo.url}`);
+  const info = await buscarDocumento(alvo.url, {
+    tipo: 'emenda', fonte: 'Senado/Congresso Nacional',
+    numeroEmenda: alvo.numero, autorEmenda: alvo.autor, partidoEmenda: alvo.partido,
+  });
+  if (!info) console.warn(`[IA] MPV: PDF da emenda nº ${numEmenda} não pôde ser baixado (${alvo.url}).`);
+  return info;
+}
+
 async function buscarDocumento(url, infoExtra = {}) {
   if (!url) return null;
   try {
@@ -2030,6 +2125,16 @@ async function buscarTextoEmenda(d, prop) {
     }
 
     if (isEmendaEspecifica || !isDVSSubstitutivo) {
+      // Medida Provisória: as emendas estão no Senado/Congresso, não na Câmara.
+      // Vai lá primeiro; se não achar, DECLARA (no console) e ainda tenta a
+      // página da Câmara — que, medida em 01/09/2026, vem vazia para MPV, mas
+      // custa nada e não esconde um caso em que a Câmara passe a publicar.
+      if (String(prop.sigla || '').toUpperCase() === 'MPV') {
+        console.log('[IA] Caso 2-MPV: emenda de Medida Provisória — buscando no acervo do Senado/Congresso');
+        const infoSenado = await buscarEmendaMPVnoSenado(prop, numEmenda);
+        if (infoSenado) return infoSenado;
+        console.warn('[IA] Caso 2-MPV: Senado não resolveu; tentando a página da Câmara (normalmente vazia para MPV).');
+      }
       const isSubemenda = /sub\s*emenda|subemenda/i.test(descricao);
       const ordemSubst  = isSubemenda ? [1, 0] : [0, 1];
       let linkAlvo = null;
@@ -2335,11 +2440,17 @@ function montarPrompt(d, prop, infoEmenda) {
   const referenciaLeg = infoEmenda?.referenciaLeg || (infoEmenda?.numArtigo ? `Artigo ${infoEmenda.numArtigo}` : null);
 
   // Nome amigável do tipo de documento (independente de ser PDF ou texto)
-  const tipoDoc = infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
+  // Emenda de MPV vem do Senado com número e autoria resolvidos — vão no
+  // rótulo, para a análise saber de QUEM é a emenda (inclusive se é do
+  // Podemos) sem precisar adivinhar pelo PDF.
+  const autoriaDoc = infoEmenda?.autorEmenda
+    ? ` Nº ${infoEmenda.numeroEmenda} — autoria: ${infoEmenda.autorEmenda}${infoEmenda.partidoEmenda ? ` (${infoEmenda.partidoEmenda})` : ''}${infoEmenda.fonte ? ` — fonte: ${infoEmenda.fonte}` : ''}`
+    : '';
+  const tipoDoc = (infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
                : infoEmenda?.tipo === 'substitutivo' ? 'SUBSTITUTIVO'
                : infoEmenda?.tipo === 'pl_original'  ? 'PROJETO DE LEI ORIGINAL'
                : isPreferencia                       ? 'DESTAQUE DE PREFERÊNCIA'
-               : 'DOCUMENTO';
+               : 'DOCUMENTO') + autoriaDoc;
 
   const blocoFonte = temTexto ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
