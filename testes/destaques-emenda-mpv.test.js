@@ -17,16 +17,21 @@ const trecho = re => { const m = src.match(re); if (!m) throw new Error('trecho 
 // mentira que devolve o que recebeu — assim o teste confere a ESCOLHA da
 // emenda sem baixar 300 KB de PDF a cada caso.
 const chamadas = [];
-const M = new Function('fetch', 'console', 'buscarDocumento', `
-  ${trecho(/const SENADO_DADOS = [^\n]+/)}
-  ${trecho(/async function senadoJson\([\s\S]*?\n}/)}
-  ${trecho(/function senadoAchar\([\s\S]*?\n}/)}
-  ${trecho(/async function senadoCodigoMateria\([\s\S]*?\n}/)}
-  ${trecho(/async function senadoEmendas\([\s\S]*?\n}/)}
-  ${trecho(/async function buscarEmendaMPVnoSenado\([\s\S]*?\n}/)}
-  return { senadoCodigoMateria, senadoEmendas, buscarEmendaMPVnoSenado };
-`)(globalThis.fetch, { log() {}, warn: (...a) => chamadas.push(a.join(' ')) },
-   async (url, extra) => ({ pdfBuffer: 'stub', url, ...extra }));
+function montar(fetchImpl) {
+  return new Function('fetch', 'console', 'buscarDocumento', 'API_BASE', `
+    ${trecho(/const SENADO_DADOS = [^\n]+/)}
+    ${trecho(/async function senadoJson\([\s\S]*?\n}/)}
+    ${trecho(/function senadoAchar\([\s\S]*?\n}/)}
+    ${trecho(/async function senadoCodigoMateria\([\s\S]*?\n}/)}
+    ${trecho(/async function senadoEmendas\([\s\S]*?\n}/)}
+    ${trecho(/async function buscarEmendaMPVnoSenado\([\s\S]*?\n}/)}
+    ${trecho(/async function buscarPLVdaMPV\([\s\S]*?\n}/)}
+    return { senadoCodigoMateria, senadoEmendas, buscarEmendaMPVnoSenado, buscarPLVdaMPV };
+  `)(fetchImpl, { log: (...a) => chamadas.push(a.join(' ')), warn: (...a) => chamadas.push(a.join(' ')) },
+     async (url, extra) => ({ pdfBuffer: 'stub', url, ...extra }),
+     'https://dadosabertos.camara.leg.br/api/v2');
+}
+const M = montar(globalThis.fetch);
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
@@ -69,6 +74,44 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const semNum = await M.buscarEmendaMPVnoSenado(prop, null);
   ok(semNum === null && chamadas.some(c => /sem número de emenda/.test(c)),
      'destaque sem número não escolhe emenda nenhuma — e diz isso');
+
+  console.log('\n== PLV (o substitutivo da MPV) — DVS "no substitutivo" é sobre ele ==');
+  {
+    // MPV 1366/2026: a Comissão Mista adotou o PLV 10/2026. Medido em
+    // 01/09/2026: a Câmara relaciona o PLV e tem o inteiro teor (PDF, 11 págs).
+    const mpv1366 = { sigla: 'MPV', numero: 1366, ano: 2026, chave: 'MPV 1366/2026', idCamara: 2632300 };
+    chamadas.length = 0;
+    const plv = await M.buscarPLVdaMPV(mpv1366);
+    ok(plv && plv.rotulo === 'PLV 10/2026', `MPV 1366/2026 → ${plv?.rotulo} (esperado PLV 10/2026)`);
+    ok(plv && /camara\.leg\.br\/proposicoesWeb\/prop_mostrarintegra\?codteor=\d+/.test(plv.url),
+       `inteiro teor da Câmara: …${(plv?.url || '').slice(-28)}`);
+    ok(plv && /Câmara/.test(plv.fonte), `fonte declarada: ${plv?.fonte}`);
+
+    // Fallback: a Câmara ainda não autuou o PLV → o Senado tem o "Texto final
+    // da Comissão - PLV 10/2026" (mesmo texto, 11 páginas). Simula a Câmara
+    // sem PLV nas relacionadas e deixa o Senado REAL responder.
+    const semPLVnaCamara = montar(async (url, init) => {
+      if (/\/relacionadas$/.test(String(url))) return { ok: true, json: async () => ({ dados: [] }) };
+      return globalThis.fetch(url, init);
+    });
+    chamadas.length = 0;
+    const viaSenado = await semPLVnaCamara.buscarPLVdaMPV(mpv1366);
+    ok(viaSenado && viaSenado.rotulo === 'PLV 10/2026', `sem PLV na Câmara, o Senado resolve: ${viaSenado?.rotulo}`);
+    ok(viaSenado && /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(viaSenado.url),
+       'PDF do Senado em https');
+    ok(viaSenado && /Senado/.test(viaSenado.fonte), `fonte declarada: ${viaSenado?.fonte}`);
+    ok(chamadas.some(c => /nenhum PLV entre as relacionadas na Câmara/.test(c)),
+       'e o console conta que a Câmara não tinha e que foi ao Senado');
+
+    // MPV 1357/2026 (sem PLV até 01/09/2026): NÃO inventa — devolve null com
+    // o motivo. Cair no texto original da MPV seria o documento errado.
+    const mpv1357 = { sigla: 'MPV', numero: 1357, ano: 2026, chave: 'MPV 1357/2026', idCamara: 2624161 };
+    chamadas.length = 0;
+    const nada = await M.buscarPLVdaMPV(mpv1357);
+    ok(nada === null, 'MPV sem PLV devolve null');
+    ok(chamadas.some(c => /não tem "Texto final da Comissão - PLV"/.test(c)),
+       `e declara que o Senado não tem o texto final: "${chamadas.find(c => /Texto final/.test(c)) || ''}"`);
+  }
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);

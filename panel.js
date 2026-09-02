@@ -1518,6 +1518,62 @@ async function buscarEmendaMPVnoSenado(prop, numEmenda) {
   return info;
 }
 
+/**
+ * O PLV (Projeto de Lei de Conversão) de uma MPV — o "substitutivo" que a
+ * Comissão Mista adota e que o Plenário vota. Um DVS "no substitutivo" ou "no
+ * art. X do PLV" é sobre ESTE texto, não sobre a MPV original.
+ *
+ * MEDIDO em 01/09/2026 com a MPV 1366/2026 (PLV 10/2026):
+ *   Câmara  /proposicoes/{mpv}/relacionadas traz o PLV (siglaTipo PLV) e o
+ *           inteiro teor é PDF em prop_mostrarintegra (11 páginas);
+ *   Senado  /materia/textos/{codigo} traz "Texto final da Comissão - PLV
+ *           10/2026" (o mesmo texto, 11 páginas) — serve de fallback quando a
+ *           Câmara ainda não autuou o PLV.
+ * Com a MPV 1357/2026 (sem PLV até essa data) os dois lados devolvem nada —
+ * e aí a resposta certa é "não há PLV", nunca o texto original da MPV.
+ */
+async function buscarPLVdaMPV(prop) {
+  // 1) Câmara: PLV entre as relacionadas da MPV (o mais recente, se houver >1).
+  if (prop.idCamara) {
+    try {
+      const r = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}/relacionadas`);
+      if (r.ok) {
+        const plvs = ((await r.json()).dados || []).filter(x => x.siglaTipo === 'PLV')
+          .sort((a, b) => Number(b.id) - Number(a.id));
+        if (plvs.length) {
+          const p = plvs[0];
+          const det = await fetch(`${API_BASE}/proposicoes/${p.id}`);
+          const url = det.ok ? (await det.json()).dados?.urlInteiroTeor : null;
+          if (url) {
+            return { rotulo: `PLV ${p.numero}/${p.ano}`, url, fonte: 'Câmara (inteiro teor do PLV)', id: p.id };
+          }
+          console.warn(`[IA] MPV: PLV ${p.numero}/${p.ano} existe na Câmara mas sem inteiro teor — tentando o Senado.`);
+        } else {
+          console.log('[IA] MPV: nenhum PLV entre as relacionadas na Câmara — tentando o Senado.');
+        }
+      }
+    } catch (e) { console.warn('[IA] MPV: Câmara falhou ao procurar o PLV:', e.message); }
+  }
+  // 2) Senado: "Texto final da Comissão - PLV n/ano" entre os textos da matéria.
+  try {
+    const codigo = await senadoCodigoMateria(prop.sigla, prop.numero, prop.ano);
+    if (!codigo) { console.warn(`[IA] MPV: ${prop.chave || prop.sigla} não localizada no Senado.`); return null; }
+    const d = await senadoJson(`${SENADO_DADOS}/materia/textos/${codigo}`);
+    let textos = senadoAchar(d, 'Texto') || [];
+    if (!Array.isArray(textos)) textos = [textos];
+    const cand = textos.filter(t => /\bPLV\b/i.test(t.DescricaoTexto || '') && /texto\s+final/i.test(t.DescricaoTexto || ''))
+      .sort((a, b) => String(b.DataTexto || '').localeCompare(String(a.DataTexto || '')));
+    if (!cand.length) { console.warn(`[IA] MPV: Senado não tem "Texto final da Comissão - PLV" para a matéria ${codigo} (${textos.length} documentos lidos).`); return null; }
+    const t = cand[0];
+    const m = /PLV\s+(\d+)\/(\d{4})/i.exec(t.DescricaoTexto || '');
+    return {
+      rotulo: m ? `PLV ${m[1]}/${m[2]}` : 'PLV',
+      url: String(t.UrlTexto || '').replace(/^http:\/\//i, 'https://'),
+      fonte: 'Senado/Congresso Nacional (texto final da Comissão Mista)',
+    };
+  } catch (e) { console.warn('[IA] MPV: Senado falhou ao procurar o PLV:', e.message); return null; }
+}
+
 async function buscarDocumento(url, infoExtra = {}) {
   if (!url) return null;
   try {
@@ -1857,6 +1913,27 @@ async function buscarTextoEmenda(d, prop) {
       return null; // não cai em casos de emenda: seria documento errado
     }
 
+    // ── CASO 1-MPV: DVS no PLV (o "substitutivo" da Medida Provisória) ────
+    // Em MPV, o substitutivo é o PLV adotado pela Comissão Mista, e ele não
+    // está na página de pareceres da Câmara (o caminho do CASO 1). O texto do
+    // destaque pode dizer "substitutivo", "PLV", "lei de conversão" ou "texto
+    // do relator/da comissão" — todos apontam para o mesmo documento.
+    const ehMPV   = String(prop.sigla || '').toUpperCase() === 'MPV';
+    const citaPLV = /\bPLV\b|lei\s+de\s+convers[ãa]o|texto\s+(?:final\s+)?d[ao]\s+(?:comiss[ãa]o|relator)/i.test(descricao);
+    if (ehMPV && (isDVSSubstitutivo || citaPLV) && !isEmendaEspecifica) {
+      console.log('[IA] Caso 1-MPV: DVS no PLV — localizando o Projeto de Lei de Conversão');
+      const plv = await buscarPLVdaMPV(prop);
+      if (plv) {
+        console.log(`[IA] Caso 1-MPV: ${plv.rotulo} — ${plv.fonte} — ${plv.url}`);
+        const info = await buscarDocumento(plv.url, { tipo: 'substitutivo', numArtigo, referenciaLeg, plv: plv.rotulo, fonte: plv.fonte });
+        if (info) return info;
+        console.warn(`[IA] Caso 1-MPV: o PDF do ${plv.rotulo} não pôde ser baixado (${plv.url}).`);
+      } else {
+        console.warn('[IA] Caso 1-MPV: o destaque fala em substitutivo/PLV, mas nenhum PLV foi localizado (Câmara e Senado). Sem documento para analisar.');
+      }
+      return null;   // NÃO cair no texto original da MPV: seria o documento errado
+    }
+
     // ── CASO 1: DVS no substitutivo ──────────────────────────────────────
     if (isDVSSubstitutivo) {
       const isRelator = /relator/i.test(descricao);
@@ -2070,6 +2147,21 @@ async function buscarTextoEmenda(d, prop) {
     // 1º tenta PDF do próprio destaque (d.urlLink): contém transcrição literal
     // do dispositivo + justificativa do partido. Fallback: urlInteiroTeor.
     if (isDVSPLOriginal) {
+      // MPV: se a Comissão Mista adotou um PLV, é o PLV que está em votação no
+      // Plenário — um DVS "do art. X" sem dizer de qual texto é, na prática,
+      // sobre o PLV. Só cai no texto original da MPV quando o destaque cita a
+      // MPV explicitamente ou quando não existe PLV. A escolha fica no console.
+      if (ehMPV && !/\bMPV\b|medida\s+provis[óo]ria/i.test(descricao)) {
+        const plv = await buscarPLVdaMPV(prop);
+        if (plv) {
+          console.log(`[IA] Caso 3-MPV: destaque de dispositivo sem citar o texto; existe ${plv.rotulo} adotado — assumindo que o DVS é sobre ele (${plv.fonte}).`);
+          const info = await buscarDocumento(plv.url, { tipo: 'substitutivo', numArtigo, numInciso, numPar, referenciaLeg, plv: plv.rotulo, fonte: plv.fonte, assumidoPLV: true });
+          if (info) return info;
+          console.warn(`[IA] Caso 3-MPV: PDF do ${plv.rotulo} indisponível — caindo no texto original da MPV.`);
+        } else {
+          console.log('[IA] Caso 3-MPV: sem PLV adotado — o DVS é sobre o texto original da MPV.');
+        }
+      }
       console.log('[IA] Caso 3: DVS de dispositivo do PL original');
       const infoBase = { tipo: 'pl_original', numArtigo, numInciso, numPar, referenciaLeg };
 
@@ -2129,7 +2221,7 @@ async function buscarTextoEmenda(d, prop) {
       // Vai lá primeiro; se não achar, DECLARA (no console) e ainda tenta a
       // página da Câmara — que, medida em 01/09/2026, vem vazia para MPV, mas
       // custa nada e não esconde um caso em que a Câmara passe a publicar.
-      if (String(prop.sigla || '').toUpperCase() === 'MPV') {
+      if (ehMPV) {
         console.log('[IA] Caso 2-MPV: emenda de Medida Provisória — buscando no acervo do Senado/Congresso');
         const infoSenado = await buscarEmendaMPVnoSenado(prop, numEmenda);
         if (infoSenado) return infoSenado;
@@ -2445,7 +2537,11 @@ function montarPrompt(d, prop, infoEmenda) {
   // Podemos) sem precisar adivinhar pelo PDF.
   const autoriaDoc = infoEmenda?.autorEmenda
     ? ` Nº ${infoEmenda.numeroEmenda} — autoria: ${infoEmenda.autorEmenda}${infoEmenda.partidoEmenda ? ` (${infoEmenda.partidoEmenda})` : ''}${infoEmenda.fonte ? ` — fonte: ${infoEmenda.fonte}` : ''}`
-    : '';
+    : infoEmenda?.plv
+      // PLV de MPV: o rótulo diz QUAL texto está sendo lido e, se a escolha
+      // foi por inferência (destaque sem citar o texto), diz isso também.
+      ? ` (${infoEmenda.plv} — Projeto de Lei de Conversão adotado pela Comissão Mista; fonte: ${infoEmenda.fonte || 'Câmara'}${infoEmenda.assumidoPLV ? '; o destaque não nomeia o texto — assumido que é sobre o PLV, por ser o texto em votação' : ''})`
+      : '';
   const tipoDoc = (infoEmenda?.tipo === 'emenda'      ? 'EMENDA'
                : infoEmenda?.tipo === 'substitutivo' ? 'SUBSTITUTIVO'
                : infoEmenda?.tipo === 'pl_original'  ? 'PROJETO DE LEI ORIGINAL'
