@@ -138,11 +138,32 @@ async function verificarJaImportada(parsed) {
 }
 
 /**
+ * Identidade da pauta para o MONITOR — o que responde "é a mesma de antes?".
+ *
+ * Era só o período, e isso escondia a 2ª sessão do dia: em 02/09/2026 houve
+ * duas sessões deliberativas, ambas com período "02/09/2026", e a segunda
+ * (7 itens) seria classificada como "sem_mudanca" contra a primeira (1 item) —
+ * o bot ficaria calado sobre uma pauta inteira.
+ *
+ * O ordinal e a hora do cabeçalho entram na chave. NÃO se usa o hash do texto:
+ * ele muda a cada republicação do mesmo PDF, e a decisão de projeto é que
+ * atualização intra-semana da MESMA pauta não vira anúncio. O hash segue como
+ * identidade de reserva quando o parser não acha o período.
+ */
+function chaveMonitor(p) {
+  if (!p) return null;
+  if (!p.periodo) return p.hash || null;
+  const s = p.sessao || {};
+  const marca = [s.ordinal ? `${s.ordinal}a` : '', s.hora || ''].filter(Boolean).join('-');
+  return marca ? `${p.periodo}|${marca}` : p.periodo;
+}
+
+/**
  * Verifica a pauta publicada no site e devolve o quadro completo:
  * { status: 'nova' | 'sem_mudanca' | 'sem_pauta', pauta?, anterior?,
  *   primeiraChecagem, situacao, jaImportada }.
- * "nova" = período diferente do último visto (atualizações intra-semana
- * não contam — decisão de projeto).
+ * "nova" = período/sessão diferente do último visto (atualizações intra-semana
+ * da mesma pauta não contam — decisão de projeto).
  */
 async function verificarPautaNova() {
   const pauta = await baixarPautaAtual();
@@ -151,8 +172,8 @@ async function verificarPautaNova() {
   let anterior = null;
   try { anterior = await fbGet(MONITOR_PATH); } catch (_) { /* primeiro uso/offline */ }
 
-  const idAtual    = pauta.periodo || pauta.hash;
-  const idAnterior = anterior ? (anterior.periodo || anterior.hash) : null;
+  const idAtual    = chaveMonitor(pauta);
+  const idAnterior = chaveMonitor(anterior);
 
   const situacao    = situacaoPeriodo(pauta.periodo);
   const jaImportada = await verificarJaImportada(pauta);
@@ -162,6 +183,7 @@ async function verificarPautaNova() {
 
   await fbPut(MONITOR_PATH, {
     periodo:  pauta.periodo || '',
+    sessao:   pauta.sessao || null,   // sem isto a chave anterior não se remonta
     hash:     pauta.hash,
     titulo:   pauta.titulo || '',
     numItens: pauta.itens.length,
@@ -174,13 +196,17 @@ async function verificarPautaNova() {
  * Rótulo curto identificando a pauta de referência — para o bot deixar SEMPRE
  * claro sobre qual pauta está falando (o analista pode estar vendo outra pauta
  * aberta no painel; o bot usa sempre a mais recente importada).
+ *
+ * A sessão entra no rótulo: com duas pautas no mesmo dia, "Pauta da Semana —
+ * 02/09/2026" nas duas deixaria o analista sem saber de qual o bot fala.
  */
 function rotuloPauta(pauta) {
   if (!pauta) return '';
   const base = pauta.tipoPauta === 'odd' ? 'Ordem do Dia' : 'Pauta da Semana';
   const per = pauta.periodo || pauta.titulo || pauta.nome || 'período não identificado';
+  const ses = pauta.sessao?.rotulo ? ` · ${pauta.sessao.rotulo}` : '';
   const imp = String(pauta.uploadedAt || '').slice(0, 10).split('-').reverse().join('/');
-  return `${base} — ${per}${imp ? ` · importada em ${imp}` : ''}`;
+  return `${base} — ${per}${ses}${imp ? ` · importada em ${imp}` : ''}`;
 }
 
 /** Lista TODOS os itens para a mensagem do Telegram (quem envia fatia em blocos de 4096). */
@@ -321,4 +347,5 @@ module.exports = {
   pautaAtualImportada, ultimasPautas, pautaPorId,
   chavesComAnalise, contarAnalisesDaPauta,
   parsePeriodo, situacaoPeriodo, rotuloSituacao, verificarJaImportada,
+  chaveMonitor,
 };

@@ -153,6 +153,48 @@ const itens = (...refs) => refs.map(r => { const [s, n, a] = r.split(/[ /]/); re
        'com -2 ocupado, o próximo livre é -3');
   }
 
+  console.log('\n== monitor do bot: a 2ª sessão do dia é pauta NOVA ==');
+  {
+    // O monitor comparava só o período: as duas sessões de 02/09/2026 têm o
+    // MESMO período, então a segunda caía em "sem_mudanca" e o bot ficava
+    // calado sobre uma pauta inteira — mesma falha da importação, noutro fluxo.
+    // bot/src/pauta.js exige o .env do bot ao ser carregado (config valida o
+    // BOT_TOKEN), então extraímos as duas funções puras do arquivo — mesmo
+    // recurso das outras suítes do bot.
+    const srcBot = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'pauta.js'), 'utf8');
+    const pega = re => { const m = srcBot.match(re); if (!m) throw new Error('trecho não encontrado em bot/src/pauta.js: ' + re); return m[0]; };
+    const { chaveMonitor, rotuloPauta } = new Function(`
+      ${pega(/function chaveMonitor\([\s\S]*?\n}/)}
+      ${pega(/function rotuloPauta\([\s\S]*?\n}/)}
+      return { chaveMonitor, rotuloPauta };
+    `)();
+    const s11 = { ordinal: null, hora: '11h', rotulo: 'sessão deliberativa (extraordinária) — 11h' };
+    const s2a = { ordinal: 2, hora: '', rotulo: '2ª sessão deliberativa (extraordinária)' };
+    const p11 = { periodo: '02/09/2026', sessao: s11, hash: 'aaa' };
+    const p2a = { periodo: '02/09/2026', sessao: s2a, hash: 'bbb' };
+
+    ok(chaveMonitor(p11) !== chaveMonitor(p2a),
+       `chaves distintas: "${chaveMonitor(p11)}" × "${chaveMonitor(p2a)}"`);
+    // Republicação do MESMO PDF (hash muda, cabeçalho não) não pode re-anunciar:
+    // é a decisão de projeto de ignorar atualização intra-semana.
+    ok(chaveMonitor(p2a) === chaveMonitor({ ...p2a, hash: 'zzz', titulo: 'outro' }),
+       'mesma sessão republicada → mesma chave (não re-anuncia)');
+    ok(chaveMonitor({ periodo: '03/09/2026', sessao: s2a }) !== chaveMonitor(p2a), 'dia diferente → chave diferente');
+    // Pauta antiga (gravada antes desta correção) não tem `sessao`: a chave cai
+    // no período, exatamente como era — nada re-anuncia por causa do deploy.
+    ok(chaveMonitor({ periodo: '02/09/2026' }) === '02/09/2026', 'sem sessão → chave é o período (compatível com o já gravado)');
+    ok(chaveMonitor({ hash: 'ccc' }) === 'ccc', 'sem período → hash, a identidade de reserva de sempre');
+    ok(chaveMonitor(null) === null, 'sem pauta anterior → null');
+
+    // O rótulo precisa separar as duas na conversa do Telegram.
+    const r11 = rotuloPauta({ ...p11, uploadedAt: '2026-09-02T12:00:00Z' });
+    const r2a = rotuloPauta({ ...p2a, uploadedAt: '2026-09-02T18:00:00Z' });
+    ok(r11 !== r2a, `rótulos distintos:\n      "${r11}"\n      "${r2a}"`);
+    ok(/2ª sessão/.test(r2a) && /11h/.test(r11), 'cada rótulo nomeia a sua sessão');
+    ok(/^Pauta da Semana — 02\/09\/2026 · importada em/.test(rotuloPauta({ periodo: '02/09/2026', uploadedAt: '2026-09-02T12:00:00Z' })),
+       'pauta sem sessão mantém o rótulo de antes');
+  }
+
   console.log('\n== Firebase fora do ar não pode travar a importação ==');
   {
     const B = new Function('fetch', 'confirm', 'FIREBASE_URL', 'perguntarColisaoPauta', 'normalizarItem', `
