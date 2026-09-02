@@ -514,16 +514,10 @@ function renderCard(it) {
     </div>
   `;
 
-  // MPV (Cenário 8): a análise é de texto livre — o botão abre o editor em
-  // branco em vez de acionar a IA.
+  // MPV (Cenários 8a/8b) gera por IA como os demais projetos; a edição livre
+  // fica como saída quando nenhum documento da MPV é localizado.
   const btnGerar = card.querySelector('[data-role=btn-gerar]');
-  if (ehMPV(it)) {
-    btnGerar.innerHTML = `${iconeEditar()} Escrever análise`;
-    btnGerar.title = 'Medida Provisória — escreva a nota livremente (sem IA)';
-    btnGerar.addEventListener('click', () => iniciarAnaliseLivreMPV(it));
-  } else {
-    btnGerar.addEventListener('click', () => gerarAnaliseItem(it));
-  }
+  btnGerar.addEventListener('click', () => gerarAnaliseItem(it));
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
   card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
@@ -614,9 +608,19 @@ function tipoLabel(sigla) {
   return ({ PL: 'PL', PLP: 'PLP', PEC: 'PEC', PDL: 'PDL', MPV: 'MPV', PRC: 'PRC', REQ: 'REQ' })[sigla] || sigla;
 }
 
-// Medida Provisória: Cenário 8 — análise de texto livre (escrita manual pelo
-// analista, sem IA e sem estrutura de seções imposta).
-const CENARIO_MPV = 'Cenário 8 — Medida Provisória (edição livre)';
+// Medida Provisória — Cenário 8.
+//   8a: sem parecer da Comissão Mista (sem PLV) → a nota se baseia no texto
+//       original editado pelo Executivo.
+//   8b: com PLV → a nota relata as emendas acolhidas (pelo parecer) e compara
+//       o PLV com o texto original.
+//   "Cenário 8 (edição livre)" é o rótulo das notas manuais anteriores a
+//   02/09/2026 e da saída quando nenhum documento da MPV é localizado; o
+//   texto do rótulo é mantido porque há análises salvas com ele no Firebase.
+// O acervo da MPV (emendas, relatório, PLV) é do Senado/Congresso — ver mpv.js.
+const CENARIO_MPV    = 'Cenário 8 — Medida Provisória (edição livre)';
+const CENARIO_MPV_8A = 'Cenário 8a — MPV (texto original do Executivo)';
+const CENARIO_MPV_8B = 'Cenário 8b — MPV com PLV (Comissão Mista)';
+const TIPOS_MPV = ['MPV_TEOR', 'PAR_CMMPV', 'PLV', 'RELATORIO_CMMPV'];
 function ehMPV(it) {
   return it.tipoCategoria === 'projeto' && it.sigla === 'MPV';
 }
@@ -734,6 +738,13 @@ async function enriquecerItem(it) {
       console.warn('Não encontrou pareceres de plenário:', e.message);
       it.enriquecimento.pareceresPlenario = { comissoes: [], prlp: null, prle: null, sbtA: null, autografo: null, prlEspecial: null, sbtAEspecial: null };
     }
+  }
+
+  // MPV: parecer da Comissão Mista (PAR), PLV e texto original — Câmara e
+  // Senado/Congresso (mpv.js). Falha de fonte fica DECLARADA em `avisos`.
+  if (ehMPV(it)) {
+    if (!itemAindaAtivo(it)) return;
+    it.enriquecimento.mpv = await resolverMPVDeclarando(it, prop.id);
   }
 
   // Documento da Redação Final (para itens dessa categoria)
@@ -1652,9 +1663,26 @@ async function salvarInteresse() {
   }
 }
 
-// Cenário 8 (MPV): cria uma análise de texto livre (manual, sem IA) e abre o
-// editor em branco para o analista escrever. Se já houver análise, apenas
-// reabre o editor. O autosave persiste no Firebase como qualquer outra nota.
+// Resolve os documentos da MPV sem nunca lançar: uma fonte fora do ar vira
+// aviso (e enr.mpv.falha = true), para que a escolha de documentos e o botão
+// "Verificar atualização" saibam distinguir "não existe" de "não consegui olhar".
+async function resolverMPVDeclarando(it, idCamara) {
+  try {
+    const r = await resolverDocumentosMPV({ idCamara, sigla: it.sigla, numero: it.numero, ano: it.ano, chave: it.chave });
+    r.falha = r.avisos.some(a => /indispon[íi]vel/i.test(a));
+    for (const a of r.avisos) console.warn(`[MPV] ${it.chave}: ${a}`);
+    return r;
+  } catch (e) {
+    console.warn(`[MPV] ${it.chave}: resolução falhou:`, e.message);
+    return { par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, falha: true,
+             avisos: [`Resolução dos documentos da MPV falhou (${e.message}).`] };
+  }
+}
+
+// Cenário 8 (MPV, edição livre): cria uma análise de texto livre (manual, sem
+// IA) e abre o editor em branco para o analista escrever. Saída para quando
+// nenhum documento da MPV foi localizado. Se já houver análise, apenas reabre
+// o editor. O autosave persiste no Firebase como qualquer outra nota.
 async function iniciarAnaliseLivreMPV(it) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const painel   = card?.querySelector('[data-role=painel-analise]');
@@ -1683,8 +1711,6 @@ async function iniciarAnaliseLivreMPV(it) {
 //  GERAÇÃO DE ANÁLISE VIA IA
 // ============================================================
 async function gerarAnaliseItem(it, forcar = false, opts = {}) {
-  // MPV (Cenário 8) é edição livre — nunca aciona a IA.
-  if (ehMPV(it)) return iniciarAnaliseLivreMPV(it);
   resetAbortAll();
   await carregarConfig();
   if (!state.config?.apiKey) {
@@ -1747,6 +1773,16 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 
   try {
     const docs = await escolherDocumentos(it);
+    if (!docs.length && ehMPV(it)) {
+      // Nem Câmara nem Senado entregaram documento algum da MPV: declara os
+      // motivos e abre a edição livre (Cenário 8) em vez de fingir análise.
+      const avisos = (it.enriquecimento?.mpv?.avisos || []).join(' ');
+      mostrarToast(`MPV sem documento localizado — ${avisos || 'fontes não responderam'}. Abrindo edição livre.`, 'aviso');
+      btnGer.disabled = false;
+      btnGer.innerHTML = iconeGerar() + ' Gerar Análise';
+      it.analiseStatus = 'sem_analise';
+      return iniciarAnaliseLivreMPV(it);
+    }
     if (!docs.length) throw new Error('Documento (PRLP/PRLE ou inteiro teor) não disponível na API.');
 
     // Baixa todos os PDFs em paralelo
@@ -1785,7 +1821,10 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       }
     }
 
-    const refsSuspeitas = await calcularRefsSuspeitas(markdown, pdfBuffers);
+    const refsSuspeitas = [
+      ...await calcularRefsSuspeitas(markdown, pdfBuffers),
+      ...await calcularEmendasSuspeitas(markdown, docs, pdfBuffers),
+    ];
 
     // Apelido curto para o índice/títulos do PDF — gerado aqui, junto da nota
     // (1 chamada leve), e salvo no Firebase com a análise. Assim é computado
@@ -1916,7 +1955,10 @@ async function completarAnalise(it) {
     });
 
     const markdownCompleto = costurarContinuacao(it.analise.markdown, cont.text);
-    const refsSuspeitas = await calcularRefsSuspeitas(markdownCompleto, pdfBuffers);
+    const refsSuspeitas = [
+      ...await calcularRefsSuspeitas(markdownCompleto, pdfBuffers),
+      ...await calcularEmendasSuspeitas(markdownCompleto, docs, pdfBuffers),
+    ];
     it.analise = {
       ...it.analise,
       markdown:   markdownCompleto,
@@ -1947,6 +1989,11 @@ async function completarAnalise(it) {
 // de homologação).
 function classificarCenario(docs = []) {
   const has = t => docs.some(d => d.tipo === t);
+  // MPV: com parecer da Comissão Mista / PLV (ou parecer proferido em
+  // Plenário) é 8b; só o texto do Executivo é 8a.
+  if (TIPOS_MPV.some(has)) {
+    return (has('PAR_CMMPV') || has('PLV') || has('RELATORIO_CMMPV') || has('PRLP')) ? CENARIO_MPV_8B : CENARIO_MPV_8A;
+  }
   if (has('PRL_ESPECIAL') || has('SBT_A_ESPECIAL')) return 'Cenário 9 — PEC (parecer da Comissão Especial)';
   if (has('PDL_TEOR'))                 return 'Cenário 10 — PDL (decreto legislativo)';
   if (has('EMS'))                      return has('PRLP') ? 'Cenário 7 — EMS + parecer do relator' : 'Cenário 6 — retorno do Senado (EMS)';
@@ -1962,7 +2009,10 @@ function classificarCenario(docs = []) {
 // Considera "operativo" o que está em votação: parecer de plenário (PRLP/PRLE),
 // substitutivo adotado por comissão (SBT-A), subemenda (SSP) e emendas do
 // Senado (EMS). Pareceres de comissão e apensados NÃO marcam desatualização.
-const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL'];
+// Na MPV, o parecer da Comissão Mista (PAR, com o PLV anexo), o PLV avulso e o
+// Relatório Legislativo do Senado são o texto operativo: uma nota 8a (só o
+// texto do Executivo) fica desatualizada quando qualquer um deles surge.
+const TIPOS_OPERATIVOS = ['EMS', 'SSP', 'PRLP', 'PRLE', 'SBT_A', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL', 'PAR_CMMPV', 'PLV', 'RELATORIO_CMMPV'];
 
 // Documentos operativos ATUAIS, lidos do enriquecimento (sem rede no nível
 // automático; o nível "botão" garante que enr.emendasSenado foi buscado antes).
@@ -1981,6 +2031,14 @@ function operativosAtuais(it) {
   add('SBT_A_ESPECIAL', it.sigla === 'PEC' ? par.sbtAEspecial : null, 'substitutivo adotado pela Comissão Especial (PEC)');
   add('EMS', es.ems, 'emendas do Senado (EMS)');
   add('SSP', es.ssp, 'subemenda substitutiva (SSP)');
+  // MPV — espelha escolherDocumentos: o PAR da Câmara já traz o PLV anexo, então
+  // PLV avulso e relatório do Senado só contam quando não há PAR.
+  if (ehMPV(it)) {
+    const m = enr.mpv || {};
+    add('PAR_CMMPV', m.par, `parecer da Comissão Mista (${m.par?.rotulo || 'PAR'})`);
+    add('PLV', m.par ? null : m.plv, `Projeto de Lei de Conversão (${m.plv?.rotulo || 'PLV'})`);
+    add('RELATORIO_CMMPV', m.par ? null : m.relatorioSenado, 'Relatório Legislativo da Comissão Mista (Senado)');
+  }
   return out;
 }
 
@@ -2014,7 +2072,7 @@ async function escolherDocumentos(it) {
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
     // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
     // PECs e PDLs seguem rito próprio (sem retorno do Senado).
-    if (it.sigla !== 'PEC' && !ehPDL(it) && enr.emendasSenado === undefined && enr.idProposicao) {
+    if (it.sigla !== 'PEC' && !ehPDL(it) && !ehMPV(it) && enr.emendasSenado === undefined && enr.idProposicao) {
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null }; }
     }
@@ -2030,7 +2088,31 @@ async function escolherDocumentos(it) {
     const rotuloEMS  = ems && `Emendas do Senado (EMS)${ems.dataBR ? ' de ' + ems.dataBR : ''}`;
     const rotuloSSP  = ssp && `Subemenda Substitutiva de Plenário (SSP)${ssp.dataBR ? ' de ' + ssp.dataBR : ''}`;
 
-    if (it.sigla === 'PEC') {
+    if (ehMPV(it)) {
+      // ── Cenário 8 (MPV) ───────────────────────────────────────────────
+      // O acervo é do Senado/Congresso (Comissão Mista) — ver mpv.js. Ordem:
+      //  - PAR da Câmara: relatório + conclusão ("Emendas nºs … acolhidas") +
+      //    PLV anexo, tudo num PDF → basta ele (o PLV avulso repetiria 11 págs);
+      //  - sem PAR: Relatório Legislativo do Senado (o parecer) + PLV (texto
+      //    final da Comissão ou PLV autuado na Câmara);
+      //  - PRLP, se houver: parecer proferido em Plenário (sem precedente até
+      //    02/09/2026 — entra para o caso de a Comissão Mista não deliberar);
+      //  - texto original da MPV sempre (8a é só ele; em 8b é a base do cotejo).
+      // Enriquecimento ainda sem mpv (corrida ao gerar logo após importar) →
+      // resolve sob demanda, como EMS/SSP.
+      if (enr.mpv === undefined) enr.mpv = await resolverMPVDeclarando(it, enr.idProposicao);
+      const m = enr.mpv || {};
+      const dataBR = o => o?.data ? ' de ' + o.data.split('-').reverse().join('/') : '';
+      if (m.par) {
+        docs.push({ tipo: 'PAR_CMMPV', rotulo: `Parecer da Comissão Mista (${m.par.rotulo}${dataBR(m.par)}) — relatório, conclusão e PLV anexo`, url: m.par.url });
+      } else {
+        if (m.relatorioSenado) docs.push({ tipo: 'RELATORIO_CMMPV', rotulo: `Relatório Legislativo da Comissão Mista (Senado${dataBR(m.relatorioSenado)})`, url: m.relatorioSenado.url });
+        if (m.plv) docs.push({ tipo: 'PLV', rotulo: `Projeto de Lei de Conversão (${m.plv.rotulo}${dataBR(m.plv)}) — ${m.plv.fonte}`, url: m.plv.url });
+      }
+      if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: `Parecer proferido em Plenário (${rotuloPRLP})`, url: par.prlp.url });
+      const original = m.original?.url || enr.urlInteiroTeor;
+      if (original) docs.push({ tipo: 'MPV_TEOR', rotulo: 'Texto original da Medida Provisória (inteiro teor)', url: original });
+    } else if (it.sigla === 'PEC') {
       // ── Cenário 9 (PEC) ───────────────────────────────────────────────
       // Proposta de Emenda à Constituição: o texto que vai a Plenário é o do
       // parecer de mérito da Comissão Especial. Anexa o ÚLTIMO PRL (parecer do
@@ -2099,7 +2181,9 @@ async function escolherDocumentos(it) {
     // substitutivos entre si e isole a contribuição de cada comissão. Inclui o
     // parecer da Comissão Especial (em PLs/PLPs) — na PEC, porém, a Especial é o
     // documento operativo (PRL_ESPECIAL) e não se repete aqui.
-    const comissoesCron = [...(par.comissoes || [])]
+    // Na MPV o parecer da Comissão Mista já entrou acima (PAR/RELATORIO); a
+    // página de pareceres da Câmara não é a fonte dela.
+    const comissoesCron = ehMPV(it) ? [] : [...(par.comissoes || [])]
       .filter(pc => !(it.sigla === 'PEC' && pc.especial))
       .sort((a, b) => (a.data || '').localeCompare(b.data || ''));
     for (const pc of comissoesCron) {
@@ -2192,7 +2276,7 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   // subemenda ou redação final), pede-se à IA que avalie se a ideia do apensado
   // foi incorporada — os dois textos já estão na mesma chamada.
   const apensadoVsTexto = totalApens &&
-    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL'].includes(d.tipo));
+    docs.some(d => ['SBT_A', 'PRLP', 'PRLE', 'SSP', 'REDACAO_FINAL', 'PRL_ESPECIAL', 'SBT_A_ESPECIAL', 'PAR_CMMPV', 'PLV'].includes(d.tipo));
   const instrIncorporacao = apensadoVsTexto
     ? ' Em seguida, como há texto consolidado em votação (substitutivo, subemenda ou redação final), acrescente para cada apensado **uma NOVA linha (um item de lista próprio, logo abaixo do resumo daquele apensado)** dedicada à avaliação de incorporação. Essa linha deve **começar EXATAMENTE** com o marcador `[[ACOLHIMENTO:NIVEL NUMERO/ANO]]`, em que NIVEL é uma destas três palavras — `ACOLHIDO` (ideia incorporada integralmente), `PARCIAL` (incorporada em parte) ou `NAO` (não incorporada) — e NUMERO/ANO é o número do próprio apensado (ex.: `[[ACOLHIMENTO:PARCIAL 1405/2026]]`). Logo após o marcador, escreva 1 a 2 frases justificando, apontando os dispositivos e, se o parecer/relatório mencionar o apensado, o que o(a) relator(a) decidiu; caso contrário, faça o cotejo entre o apensado e o texto em votação. Reproduza o marcador literalmente, sem alterar o formato, e **não** repita a conclusão de acolhimento na linha de resumo — ela vai apenas nesta linha do marcador.'
     : '';
@@ -2266,13 +2350,22 @@ REGRAS RÍGIDAS:
   const hasSSP     = has('SSP');
   const hasRedacaoCamara = has('AUTOGRAFO') || has('TEXTO_CAMARA');
   const temOriginal = has('REDACAO_ORIGINAL') || hasRedacaoCamara;
+  // MPV (Cenário 8): 8b quando há parecer da Comissão Mista / PLV (ou parecer
+  // proferido em Plenário); 8a quando só há o texto do Executivo.
+  const hasMPV     = TIPOS_MPV.some(has);
+  const hasPLV     = has('PAR_CMMPV') || has('PLV');
+  const hasParCM   = has('PAR_CMMPV') || has('RELATORIO_CMMPV');
+  const mpv8b      = hasMPV && (hasPLV || hasParCM || hasPRLP);
 
   // Documento(s) operativo(s) da seção "Pareceres e substitutivos" — entra(m)
   // no título da seção para facilitar identificar versão/atualização do doc.
-  // Prioridade: EMS → SSP → SBT-A → PRLP/PRLE → inteiro teor.
+  // Prioridade: MPV → EMS → SSP → SBT-A → PRLP/PRLE → inteiro teor.
   const rotuloDe = tipo => docs.find(d => d.tipo === tipo)?.rotulo;
   let rotulosOperativos = [];
-  if (hasEMS) {
+  if (hasMPV) {
+    for (const t of ['PAR_CMMPV', 'RELATORIO_CMMPV', 'PLV', 'PRLP']) if (has(t)) rotulosOperativos.push(rotuloDe(t));
+    if (!mpv8b) rotulosOperativos.push(rotuloDe('MPV_TEOR'));
+  } else if (hasEMS) {
     rotulosOperativos.push(rotuloDe('EMS'));
     if (hasPRLP) rotulosOperativos.push(rotuloDe('PRLP'));
   } else if (hasSSP) {
@@ -2312,7 +2405,11 @@ REGRAS RÍGIDAS:
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
   // documentos anexados, diz à IA qual é o texto "operativo" a descrever.
   let cenarioHint;
-  if (hasEMS) {
+  if (hasMPV && !mpv8b) {
+    cenarioHint = `Trata-se de Medida Provisória AINDA SEM parecer da Comissão Mista e sem Projeto de Lei de Conversão (PLV): o texto em votação é o original editado pelo Poder Executivo (documento "Texto original da Medida Provisória" anexado). Registre que não há parecer nem PLV localizados e descreva o conteúdo da MPV tal como editada, citando a exposição de motivos se constar do documento. Não presuma emendas nem alterações: nada disso foi anexado.`;
+  } else if (hasMPV) {
+    cenarioHint = `Trata-se de Medida Provisória COM ${hasParCM ? 'parecer da Comissão Mista' : 'parecer'}${hasPLV ? ' e Projeto de Lei de Conversão (PLV)' : ''} anexado(s)${has('PAR_CMMPV') ? ' — o documento "Parecer da Comissão Mista" contém o relatório do(a) relator(a), a conclusão (emendas acolhidas e rejeitadas) e, ao final, o texto do PLV' : ''}${hasPRLP ? '; há também parecer proferido em Plenário, que prevalece sobre o da Comissão se divergirem' : ''}. O texto em votação é o PLV (o "substitutivo" da MPV), não o texto original. Nesta seção, apresente o parecer: quem relatou, a conclusão (aprovação da MPV na forma do PLV, com quais emendas acolhidas — só os números aqui; o teor vai na seção própria) e os fundamentos do voto. Não descreva ainda o que mudou em relação ao texto original: há seção própria para isso.`;
+  } else if (hasEMS) {
     cenarioHint = `A proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado). Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
   } else if (hasSSP) {
     cenarioHint = `Há subemenda substitutiva de plenário (SSP anexada) — é o texto mais recente e operativo (o que está sendo votado). Traga o conteúdo da subemenda substitutiva.${hasPRLE ? ' Use o parecer às emendas de plenário (PRLE) anexado para explicar o que a subemenda consolidou.' : ''}`;
@@ -2331,7 +2428,11 @@ REGRAS RÍGIDAS:
   // Título da seção de disposições — adaptado ao que está efetivamente em
   // votação (evita afirmar "substitutivo" quando não há nenhum anexado).
   let tituloDisposicoes;
-  if (hasEMS) {
+  if (hasMPV) {
+    tituloDisposicoes = mpv8b
+      ? 'Principais Disposições do Projeto de Lei de Conversão (PLV)'
+      : 'Principais Disposições da Medida Provisória';
+  } else if (hasEMS) {
     tituloDisposicoes = 'Principais Disposições do texto em votação (emendas do Senado)';
   } else if (ehPEC) {
     tituloDisposicoes = 'Principais Disposições do texto aprovado pela Comissão Especial';
@@ -2344,6 +2445,21 @@ REGRAS RÍGIDAS:
   const tipoDoc = it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
     : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
+
+  // Seções próprias do Cenário 8b (MPV com PLV). A lista de emendas acolhidas
+  // sai do PARECER (relatório/conclusão) — o corpo do PLV não a traz. A IA
+  // lista; o JS depois só CONFERE os números citados contra o texto do parecer
+  // (validarEmendasCitadas) e sinaliza o que não localizar.
+  const rotuloParecerMPV = has('PAR_CMMPV') ? 'Parecer da Comissão Mista' : has('RELATORIO_CMMPV') ? 'Relatório Legislativo da Comissão Mista' : 'parecer';
+  const secaoMPV = mpv8b
+    ? `
+## Emendas acolhidas
+Com base exclusivamente na conclusão e no voto do(a) relator(a) constantes do documento "${rotuloParecerMPV}"${hasPRLP ? ' (e do parecer proferido em Plenário, se divergir)' : ''}, informe quais emendas foram ACOLHIDAS (total ou parcialmente) e quais foram REJEITADAS. Para as acolhidas, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <breve resumo do teor acolhido e do que ele produz no PLV>", citando o número EXATAMENTE como consta do parecer. Se o parecer não detalhar o teor de uma emenda acolhida, escreva "teor não detalhado no parecer". As rejeitadas vão em um único parágrafo curto, só com os números (sem detalhar cada uma), salvo se o relatório destacar o motivo de alguma. Se o parecer não trouxer lista de emendas, diga isso explicitamente. NÃO deduza acolhimento comparando textos: só o que o parecer declarar.
+
+## O que mudou em relação ao texto original da MPV
+Compare o PLV com o texto original da Medida Provisória (documento "Texto original da Medida Provisória" anexado). Em parágrafos corridos e de forma resumida, aponte, em ordem de relevância, o que o PLV INCLUIU, o que ALTEROU (com o sentido antes e depois) e o que SUPRIMIU em relação à MPV, citando os artigos afetados. Use o relatório do(a) relator(a) como guia do que mudou e por quê, mas confirme no cotejo dos dois textos; ao encontrar mudança que o relatório não explica, registre-a mesmo assim, anotando que o relatório não a justifica. Não repita aqui a lista de emendas da seção anterior.
+`
+    : '';
 
   return `Você é um analista legislativo da Câmara dos Deputados especializado em análise de proposições legislativas. Sua tarefa é elaborar uma nota técnica sucinta, clara e objetiva, destinada a informar Deputados Federais sobre uma proposição legislativa.
 
@@ -2370,7 +2486,7 @@ Nesta seção, descreva diretamente o conteúdo do parecer/substitutivo/emendas 
 O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do texto que está sendo votado (o substitutivo, a subemenda, o conjunto de emendas ou o próprio projeto, conforme o que foi anexado)? ${temOriginal
   ? 'A redação original da proposição (ou o texto aprovado pela Câmara) está anexada. **Faça o cotejo com o texto operativo percorrendo dispositivo a dispositivo (artigos, parágrafos, incisos e alíneas), apontando o que foi INCLUÍDO, o que foi ALTERADO (com o teor antes e depois) e o que foi SUPRIMIDO.** '
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
-${secaoApensados}
+${secaoMPV}${secaoApensados}
 ## Argumentos favoráveis e contrários
 Dois parágrafos corridos. O primeiro **começa exatamente com **Argumentos favoráveis:**** e reúne os argumentos que sustentam a aprovação; o segundo **começa exatamente com **Argumentos contrários:**** e reúne os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
 ${instrucoesExtra && instrucoesExtra.trim()
@@ -2388,7 +2504,7 @@ REGRAS RÍGIDAS:
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
-- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO (a) quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator), (b) na seção de projetos apensados de autoria do Podemos e (c) na seção "Pareceres das comissões": nesses casos, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda/apensado/comissão.
+- Escreva em **parágrafos corridos**, SEM bullets ou listas, EXCETO (a) quando estiver enumerando dispositivos ou emendas (ex.: emendas do Senado, ou dispositivos acatados/rejeitados pelo relator), (b) na seção de projetos apensados de autoria do Podemos, (c) na seção "Pareceres das comissões" e (d) nas emendas acolhidas da seção "Emendas acolhidas": nesses casos, apresente-os em **tópicos** (lista com "-"), um item por dispositivo/emenda/apensado/comissão.
 - Se identificar substitutivo, descreva detalhadamente as mudanças promovidas em relação ao texto original.
 - Se identificar emendas, descreva o que cada emenda altera.
 - Responda em texto Markdown puro, sem cercas de código \`\`\`.`;
@@ -2712,6 +2828,63 @@ async function calcularRefsSuspeitas(markdown, pdfBuffers) {
   } catch (_) { return []; }
 }
 
+// ---------- MPV (8b): conferência das emendas citadas contra o parecer ----------
+// A IA LÊ o parecer e lista as emendas acolhidas/rejeitadas; o JS não extrai a
+// lista (o formato da conclusão varia e uma regex que "não pega" viraria
+// omissão silenciosa) — ele apenas CONFERE que cada número que a nota cita na
+// seção "Emendas acolhidas" aparece como emenda no texto do parecer, e sinaliza
+// o que não localizar, no mesmo espírito de validarReferencias.
+//
+// Números de emenda citados num trecho: "Emenda nº 3", "Emendas nºs 3, 5 e 14",
+// "Emendas de nºs 1 a 12", "EMENDAS Nos 3, 5" (º vira "o" na extração do PDF).
+// Só o que vier logo após "Emenda(s) [nº(s)]"; anos (4 dígitos) ficam de fora.
+function extrairNumerosEmendas(texto) {
+  const nums = new Set();
+  const re = /\bEmendas?\s+(?:de\s+)?(?:n[.º°o]*s?\.?\s*)?((?:\d{1,3}\b\s*(?:,|\be\b|\ba\b|\bat[ée]\b)?\s*)+)/gi;
+  let m;
+  while ((m = re.exec(texto)) !== null) {
+    const run = m[1];
+    const faixa = /(\d{1,3})\s*(?:a|at[ée])\s*(\d{1,3})/gi;
+    let f;
+    while ((f = faixa.exec(run)) !== null) {
+      const a = +f[1], b = +f[2];
+      if (b > a && b - a < 300) for (let i = a; i <= b; i++) nums.add(i);
+    }
+    for (const n of run.match(/\d{1,3}/g) || []) nums.add(+n);
+  }
+  return nums;
+}
+
+function validarEmendasCitadas(markdown, textoParecer) {
+  if (!textoParecer || textoParecer.length < 100) return [];   // parecer ilegível → não sinaliza
+  const ini = markdown.search(/^##\s*Emendas acolhidas/m);
+  if (ini < 0) return [];
+  const resto = markdown.slice(ini + 1);
+  const fim = resto.search(/^##\s/m);
+  const secao = fim < 0 ? resto : resto.slice(0, fim);
+  const citadas = [...extrairNumerosEmendas(secao)].sort((a, b) => a - b);
+  if (!citadas.length) return [];
+  const noParecer = extrairNumerosEmendas(textoParecer);
+  return citadas
+    .filter(n => !noParecer.has(n))
+    .map(n => `Emenda nº ${n} (citada em "Emendas acolhidas", não localizada como emenda no texto do parecer)`);
+}
+
+// Só em MPV com parecer anexado (8b): junta o texto do(s) parecer(es) —
+// PAR da Câmara, Relatório Legislativo do Senado, parecer de Plenário — e
+// confere as emendas que a nota cita.
+async function calcularEmendasSuspeitas(markdown, docs, pdfBuffers) {
+  try {
+    if (!(docs || []).some(d => TIPOS_MPV.includes(d.tipo))) return [];
+    let fonte = '';
+    for (let i = 0; i < docs.length; i++) {
+      if (!['PAR_CMMPV', 'RELATORIO_CMMPV', 'PRLP'].includes(docs[i].tipo) || !pdfBuffers?.[i]) continue;
+      try { fonte += '\n' + await extrairTextoPdf(pdfBuffers[i].slice(0)); } catch (_) {}
+    }
+    return validarEmendasCitadas(markdown, fonte);
+  } catch (_) { return []; }
+}
+
 function renderAnaliseCard(it) {
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
@@ -2731,14 +2904,16 @@ function renderAnaliseCard(it) {
   btnGer.style.display = 'none';
   card.querySelector('[data-role=btn-editar]').style.display = emEdicao ? 'none' : 'inline-flex';
   card.querySelector('[data-role=btn-completar]').style.display = it.analise.truncada ? 'inline-flex' : 'none';
-  // Verificação de desatualização só faz sentido para projeto com texto operativo
-  // (não se aplica à MPV de edição livre, que não tem documento rastreado).
+  // Verificação de desatualização só faz sentido para projeto com documentos
+  // rastreados — a nota manual (edição livre) não tem nenhum. Na MPV gerada
+  // por IA, o botão é a varredura por PLV/parecer novo (8a → 8b).
   card.querySelector('[data-role=btn-verificar-item]').style.display =
-    (it.tipoCategoria === 'projeto' && !ehMPV(it)) ? 'inline-flex' : 'none';
-  // MPV (Cenário 8) é texto livre: os botões de IA (Reanalisar / Regerar) não
-  // se aplicam.
-  card.querySelector('[data-role=btn-reanalisar]').style.display = ehMPV(it) ? 'none' : 'inline-flex';
-  card.querySelector('[data-role=btn-regerar]').style.display    = ehMPV(it) ? 'none' : 'inline-flex';
+    (it.tipoCategoria === 'projeto' && !it.analise.manual) ? 'inline-flex' : 'none';
+  // Nota manual: "Reanalisar" (instruções à IA) não se aplica. "Regerar" fica
+  // disponível na MPV manual para migrar a nota antiga (edição livre) para a
+  // geração por IA dos cenários 8a/8b.
+  card.querySelector('[data-role=btn-reanalisar]').style.display = it.analise.manual ? 'none' : 'inline-flex';
+  card.querySelector('[data-role=btn-regerar]').style.display    = (!it.analise.manual || ehMPV(it)) ? 'inline-flex' : 'none';
 
   // Análises manuais (Redação Final antiga ou MPV de edição livre) — sem
   // provedor/modelo/documentos. Para MPV mostra o rótulo do Cenário 8.
@@ -3541,7 +3716,16 @@ async function verificarAtualizacaoItem(it) {
       else enr.pareceresPlenario = frescos;   // o Reanalisar também passa a ver o novo
     } catch (_) { fonteIndisponivel = true; }
 
-    if (it.sigla !== 'PEC' && !ehPDL(it)) {
+    if (ehMPV(it)) {
+      // MPV: reconsulta Câmara e Senado por parecer da Comissão Mista / PLV —
+      // é a varredura que promove uma nota 8a (texto do Executivo) a
+      // "desatualizada" quando o PLV aparece. Fonte fora do ar sem achado novo
+      // mantém o cache e marca a verificação como inconclusiva.
+      const r = await resolverMPVDeclarando(it, enr.idProposicao);
+      const achou = !!(r.par || r.plv || r.relatorioSenado);
+      if (achou || !r.falha) enr.mpv = r;
+      if (r.falha && !achou) fonteIndisponivel = true;
+    } else if (it.sigla !== 'PEC' && !ehPDL(it)) {
       // Recarrega SEMPRE (não só quando undefined): as emendas do Senado podem
       // ter chegado depois do cache. Falhou → mantém o cache, não zera.
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
@@ -3627,14 +3811,10 @@ async function gerarTodasAsAnalises() {
     return;
   }
 
-  // Apenas itens ainda sem análise. MPVs (Cenário 8) ficam de fora: são de
-  // edição livre, escritas manualmente pelo analista.
-  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok' && !ehMPV(it));
+  // Apenas itens ainda sem análise (MPV incluída: cenários 8a/8b por IA).
+  const pendentes = state.pauta.itens.filter(it => it.analiseStatus !== 'ok');
   if (!pendentes.length) {
-    const temMPVPendente = state.pauta.itens.some(it => ehMPV(it) && it.analiseStatus !== 'ok');
-    mostrarToast(temMPVPendente
-      ? 'Itens com IA já analisados. MPVs são de edição livre — use "Escrever análise" em cada uma.'
-      : 'Todos os itens já têm análise.', 'info');
+    mostrarToast('Todos os itens já têm análise.', 'info');
     return;
   }
 

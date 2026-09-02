@@ -1431,56 +1431,9 @@ function limparTextoPDF(texto) {
 // o Senado devolve 112 emendas (nº 1..112, contíguas, todas da CMMPV
 // 1357/2026), cada uma com autor, partido e o PDF em sdleg-getter.
 // A numeração do Senado é a mesma que os destaques de Plenário citam.
-const SENADO_DADOS = 'https://legis.senado.leg.br/dadosabertos';
-
-async function senadoJson(url) {
-  const r = await fetch(url, { headers: { Accept: 'application/json' } });
-  if (!r.ok) throw new Error(`HTTP ${r.status}`);
-  return r.json();
-}
-
-/** Procura uma chave em qualquer profundidade do JSON do Senado (que aninha muito). */
-function senadoAchar(obj, chave) {
-  if (obj && typeof obj === 'object') {
-    if (chave in obj) return obj[chave];
-    for (const v of Object.values(obj)) { const r = senadoAchar(v, chave); if (r !== undefined) return r; }
-  }
-  return undefined;
-}
-
-/** Código da matéria no Senado (ex.: MPV 1357/2026 → 174123). */
-async function senadoCodigoMateria(sigla, numero, ano) {
-  const d = await senadoJson(`${SENADO_DADOS}/materia/pesquisa/lista?sigla=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`);
-  let ms = senadoAchar(d, 'Materia') || [];
-  if (!Array.isArray(ms)) ms = [ms];
-  const alvo = ms.find(m => String(m.Sigla || '').toUpperCase() === String(sigla).toUpperCase()
-    && parseInt(m.Numero, 10) === parseInt(numero, 10) && String(m.Ano) === String(ano));
-  return alvo ? String(alvo.Codigo) : null;
-}
-
-/**
- * Emendas da matéria no Senado, normalizadas: { numero, autor, partido, url }.
- * `url` já vem em https (o Senado responde http:// e a extensão só fala https).
- */
-async function senadoEmendas(codigoMateria) {
-  const d = await senadoJson(`${SENADO_DADOS}/materia/emendas/${codigoMateria}`);
-  let lista = senadoAchar(d, 'Emenda') || [];
-  if (!Array.isArray(lista)) lista = [lista];
-  return lista.map(e => {
-    let autores = senadoAchar(e.AutoriaEmenda || {}, 'Autor') || [];
-    if (!Array.isArray(autores)) autores = [autores];
-    const principal = autores.find(a => a.IndicadorAutorPrincipal === 'Sim') || autores[0] || {};
-    let textos = senadoAchar(e.TextosEmenda || {}, 'TextoEmenda') || [];
-    if (!Array.isArray(textos)) textos = [textos];
-    const texto = textos.find(t => /emenda/i.test(t.DescricaoTipoTexto || t.TipoDocumento || '')) || textos[0] || {};
-    return {
-      numero:  parseInt(e.NumeroEmenda, 10),
-      autor:   principal.NomeAutor || senadoAchar(principal, 'NomeParlamentar') || '',
-      partido: senadoAchar(principal, 'SiglaPartidoParlamentar') || '',
-      url:     String(texto.UrlTexto || '').replace(/^http:\/\//i, 'https://'),
-    };
-  }).filter(e => Number.isFinite(e.numero));
-}
+// As funções de acesso ao Senado (senadoCodigoMateria, senadoEmendas,
+// resolverDocumentosMPV…) vivem em mpv.js, carregado antes deste script e
+// compartilhado com o módulo de Análise de Pauta.
 
 /**
  * Texto de uma emenda de MPV, pelo número que o destaque cita.
@@ -1533,45 +1486,13 @@ async function buscarEmendaMPVnoSenado(prop, numEmenda) {
  * e aí a resposta certa é "não há PLV", nunca o texto original da MPV.
  */
 async function buscarPLVdaMPV(prop) {
-  // 1) Câmara: PLV entre as relacionadas da MPV (o mais recente, se houver >1).
-  if (prop.idCamara) {
-    try {
-      const r = await fetch(`${API_BASE}/proposicoes/${prop.idCamara}/relacionadas`);
-      if (r.ok) {
-        const plvs = ((await r.json()).dados || []).filter(x => x.siglaTipo === 'PLV')
-          .sort((a, b) => Number(b.id) - Number(a.id));
-        if (plvs.length) {
-          const p = plvs[0];
-          const det = await fetch(`${API_BASE}/proposicoes/${p.id}`);
-          const url = det.ok ? (await det.json()).dados?.urlInteiroTeor : null;
-          if (url) {
-            return { rotulo: `PLV ${p.numero}/${p.ano}`, url, fonte: 'Câmara (inteiro teor do PLV)', id: p.id };
-          }
-          console.warn(`[IA] MPV: PLV ${p.numero}/${p.ano} existe na Câmara mas sem inteiro teor — tentando o Senado.`);
-        } else {
-          console.log('[IA] MPV: nenhum PLV entre as relacionadas na Câmara — tentando o Senado.');
-        }
-      }
-    } catch (e) { console.warn('[IA] MPV: Câmara falhou ao procurar o PLV:', e.message); }
-  }
-  // 2) Senado: "Texto final da Comissão - PLV n/ano" entre os textos da matéria.
-  try {
-    const codigo = await senadoCodigoMateria(prop.sigla, prop.numero, prop.ano);
-    if (!codigo) { console.warn(`[IA] MPV: ${prop.chave || prop.sigla} não localizada no Senado.`); return null; }
-    const d = await senadoJson(`${SENADO_DADOS}/materia/textos/${codigo}`);
-    let textos = senadoAchar(d, 'Texto') || [];
-    if (!Array.isArray(textos)) textos = [textos];
-    const cand = textos.filter(t => /\bPLV\b/i.test(t.DescricaoTexto || '') && /texto\s+final/i.test(t.DescricaoTexto || ''))
-      .sort((a, b) => String(b.DataTexto || '').localeCompare(String(a.DataTexto || '')));
-    if (!cand.length) { console.warn(`[IA] MPV: Senado não tem "Texto final da Comissão - PLV" para a matéria ${codigo} (${textos.length} documentos lidos).`); return null; }
-    const t = cand[0];
-    const m = /PLV\s+(\d+)\/(\d{4})/i.exec(t.DescricaoTexto || '');
-    return {
-      rotulo: m ? `PLV ${m[1]}/${m[2]}` : 'PLV',
-      url: String(t.UrlTexto || '').replace(/^http:\/\//i, 'https://'),
-      fonte: 'Senado/Congresso Nacional (texto final da Comissão Mista)',
-    };
-  } catch (e) { console.warn('[IA] MPV: Senado falhou ao procurar o PLV:', e.message); return null; }
+  // Câmara (relacionadas → inteiro teor) e, na falta, Senado ("Texto final da
+  // Comissão - PLV n/ano"): a resolução é a de mpv.js, que DECLARA em `avisos`
+  // por que não achou — e "não achou" é null, nunca o texto original da MPV.
+  const r = await resolverDocumentosMPV({ idCamara: prop.idCamara, sigla: prop.sigla, numero: prop.numero, ano: prop.ano, chave: prop.chave });
+  for (const a of r.avisos) console.warn('[IA] MPV:', a);
+  if (!r.plv) return null;
+  return { rotulo: r.plv.rotulo, url: r.plv.url, fonte: r.plv.fonte, id: r.plv.id };
 }
 
 async function buscarDocumento(url, infoExtra = {}) {
