@@ -620,6 +620,11 @@ function tipoLabel(sigla) {
 const CENARIO_MPV    = 'Cenário 8 — Medida Provisória (edição livre)';
 const CENARIO_MPV_8A = 'Cenário 8a — MPV (texto original do Executivo)';
 const CENARIO_MPV_8B = 'Cenário 8b — MPV com PLV (Comissão Mista)';
+// Ainda 8b, mas o PLV é PROPOSTA do(a) relator(a), não texto aprovado: o
+// relatório traz o PLV anexo ao final e SEM número ("PROJETO DE LEI DE
+// CONVERSÃO Nº , DE 2026" — medido na p.21 do relatório da MPV 1357/2026, de
+// 02/09/2026), porque a numeração só vem quando a Comissão Mista aprova.
+const CENARIO_MPV_8B_PROPOSTO = 'Cenário 8b — MPV com PLV proposto pelo relator (Comissão Mista ainda não concluiu)';
 const TIPOS_MPV = ['MPV_TEOR', 'PAR_CMMPV', 'PLV', 'RELATORIO_CMMPV'];
 function ehMPV(it) {
   return it.tipoCategoria === 'projeto' && it.sigla === 'MPV';
@@ -1666,16 +1671,22 @@ async function salvarInteresse() {
 // Resolve os documentos da MPV sem nunca lançar: uma fonte fora do ar vira
 // aviso (e enr.mpv.falha = true), para que a escolha de documentos e o botão
 // "Verificar atualização" saibam distinguir "não existe" de "não consegui olhar".
+//
+// Só `avisos` (problemas) vai para console.warn. MPV sem PLV é o estado normal
+// da maioria das MPVs em pauta (Cenário 8a) e sai em console.debug: como
+// console.warn, ela aparecia na página de Erros da extensão — 4 linhas por
+// MPV — dando aparência de defeito ao que é tramitação corrente.
 async function resolverMPVDeclarando(it, idCamara) {
   try {
     const r = await resolverDocumentosMPV({ idCamara, sigla: it.sigla, numero: it.numero, ano: it.ano, chave: it.chave });
-    r.falha = r.avisos.some(a => /indispon[íi]vel/i.test(a));
+    r.falha = r.avisos.length > 0;
     for (const a of r.avisos) console.warn(`[MPV] ${it.chave}: ${a}`);
+    for (const n of (r.notas || [])) console.debug(`[MPV] ${it.chave}: ${n}`);
     return r;
   } catch (e) {
     console.warn(`[MPV] ${it.chave}: resolução falhou:`, e.message);
     return { par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, falha: true,
-             avisos: [`Resolução dos documentos da MPV falhou (${e.message}).`] };
+             avisos: [`Resolução dos documentos da MPV falhou (${e.message}).`], notas: [] };
   }
 }
 
@@ -1776,8 +1787,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     if (!docs.length && ehMPV(it)) {
       // Nem Câmara nem Senado entregaram documento algum da MPV: declara os
       // motivos e abre a edição livre (Cenário 8) em vez de fingir análise.
-      const avisos = (it.enriquecimento?.mpv?.avisos || []).join(' ');
-      mostrarToast(`MPV sem documento localizado — ${avisos || 'fontes não responderam'}. Abrindo edição livre.`, 'aviso');
+      const m = it.enriquecimento?.mpv || {};
+      const motivos = [...(m.avisos || []), ...(m.notas || [])].join(' ');
+      mostrarToast(`MPV sem documento localizado — ${motivos || 'fontes não responderam'}. Abrindo edição livre.`, 'aviso');
       btnGer.disabled = false;
       btnGer.innerHTML = iconeGerar() + ' Gerar Análise';
       it.analiseStatus = 'sem_analise';
@@ -1989,10 +2001,13 @@ async function completarAnalise(it) {
 // de homologação).
 function classificarCenario(docs = []) {
   const has = t => docs.some(d => d.tipo === t);
-  // MPV: com parecer da Comissão Mista / PLV (ou parecer proferido em
-  // Plenário) é 8b; só o texto do Executivo é 8a.
+  // MPV: com PLV em mãos (o PAR da Câmara o traz anexo) é 8b; só com o
+  // relatório do relator, o PLV é proposta e o rótulo diz isso; só o texto do
+  // Executivo é 8a.
   if (TIPOS_MPV.some(has)) {
-    return (has('PAR_CMMPV') || has('PLV') || has('RELATORIO_CMMPV') || has('PRLP')) ? CENARIO_MPV_8B : CENARIO_MPV_8A;
+    if (has('PAR_CMMPV') || has('PLV')) return CENARIO_MPV_8B;
+    if (has('RELATORIO_CMMPV') || has('PRLP')) return CENARIO_MPV_8B_PROPOSTO;
+    return CENARIO_MPV_8A;
   }
   if (has('PRL_ESPECIAL') || has('SBT_A_ESPECIAL')) return 'Cenário 9 — PEC (parecer da Comissão Especial)';
   if (has('PDL_TEOR'))                 return 'Cenário 10 — PDL (decreto legislativo)';
@@ -2353,6 +2368,12 @@ REGRAS RÍGIDAS:
   // MPV (Cenário 8): 8b quando há parecer da Comissão Mista / PLV (ou parecer
   // proferido em Plenário); 8a quando só há o texto do Executivo.
   const hasMPV     = TIPOS_MPV.some(has);
+  // O PAR da Câmara traz o PLV anexo (medido no PAR 1/2026 da MPV 1366/2026),
+  // então ele conta como texto do PLV em mãos; o Relatório Legislativo do
+  // Senado, NÃO — ele pode ser um relatório ainda sem PLV proposto (caso real:
+  // MPV 1357/2026 em 02/09/2026, relatório da Senadora relatora sem texto
+  // final da Comissão). Sem essa distinção o prompt afirmava "o texto em
+  // votação é o PLV" sem ter PLV algum anexado.
   const hasPLV     = has('PAR_CMMPV') || has('PLV');
   const hasParCM   = has('PAR_CMMPV') || has('RELATORIO_CMMPV');
   const mpv8b      = hasMPV && (hasPLV || hasParCM || hasPRLP);
@@ -2408,7 +2429,9 @@ REGRAS RÍGIDAS:
   if (hasMPV && !mpv8b) {
     cenarioHint = `Trata-se de Medida Provisória AINDA SEM parecer da Comissão Mista e sem Projeto de Lei de Conversão (PLV): o texto em votação é o original editado pelo Poder Executivo (documento "Texto original da Medida Provisória" anexado). Registre que não há parecer nem PLV localizados e descreva o conteúdo da MPV tal como editada, citando a exposição de motivos se constar do documento. Não presuma emendas nem alterações: nada disso foi anexado.`;
   } else if (hasMPV) {
-    cenarioHint = `Trata-se de Medida Provisória COM ${hasParCM ? 'parecer da Comissão Mista' : 'parecer'}${hasPLV ? ' e Projeto de Lei de Conversão (PLV)' : ''} anexado(s)${has('PAR_CMMPV') ? ' — o documento "Parecer da Comissão Mista" contém o relatório do(a) relator(a), a conclusão (emendas acolhidas e rejeitadas) e, ao final, o texto do PLV' : ''}${hasPRLP ? '; há também parecer proferido em Plenário, que prevalece sobre o da Comissão se divergirem' : ''}. O texto em votação é o PLV (o "substitutivo" da MPV), não o texto original. Nesta seção, apresente o parecer: quem relatou, a conclusão (aprovação da MPV na forma do PLV, com quais emendas acolhidas — só os números aqui; o teor vai na seção própria) e os fundamentos do voto. Não descreva ainda o que mudou em relação ao texto original: há seção própria para isso.`;
+    cenarioHint = `Trata-se de Medida Provisória COM ${hasParCM ? 'parecer da Comissão Mista' : 'parecer'}${has('PLV') ? ' e Projeto de Lei de Conversão (PLV)' : ''} anexado(s)${has('PAR_CMMPV') ? ' — o documento "Parecer da Comissão Mista" contém o relatório do(a) relator(a), a conclusão (emendas acolhidas e rejeitadas) e, ao final, o texto do PLV' : ''}${hasPRLP ? '; há também parecer proferido em Plenário, que prevalece sobre o da Comissão se divergirem' : ''}. ${hasPLV
+      ? 'O texto em votação é o PLV (o "substitutivo" da MPV), não o texto original.'
+      : 'ATENÇÃO: o que está anexado é o RELATÓRIO do(a) relator(a), e a Comissão Mista ainda não deliberou sobre ele. O texto do Projeto de Lei de Conversão proposto costuma vir ANEXO AO FINAL do próprio relatório, em geral sem número ("PROJETO DE LEI DE CONVERSÃO Nº , DE 2026"), justamente porque a numeração só ocorre quando a Comissão aprova. Percorra o relatório inteiro, até a última página, à procura desse texto. Se o encontrar, trate-o SEMPRE como texto PROPOSTO pelo(a) relator(a) — nunca como aprovado — e diga isso ao(à) leitor(a) já na primeira menção. Se o relatório concluir pela aprovação da MPV sem PLV, ou se você não localizar o texto proposto, DIGA ISSO EXPLICITAMENTE e não descreva um PLV que não viu.'} Nesta seção, apresente o parecer: quem relatou, a conclusão (com quais emendas acolhidas — só os números aqui; o teor vai na seção própria) e os fundamentos do voto. Não descreva ainda o que mudou em relação ao texto original: há seção própria para isso.`;
   } else if (hasEMS) {
     cenarioHint = `A proposição retornou do Senado Federal com emendas (documento "Emendas do Senado (EMS)" anexado). Se a emenda do Senado for um substitutivo integral, traga o conteúdo desse substitutivo do Senado em parágrafos corridos. Se houver emendas enumeradas, apresente-as em **tópicos** (lista com "-"), um tópico por emenda, no formato "EMS N – <resumo do que a emenda altera>".${hasPRLP ? ' Como há também o parecer do relator anexado, indique quais emendas/dispositivos foram ACATADOS e quais foram REJEITADOS pelo relator (igualmente em tópicos), pois a votação será feita em globo, por grupos (aprovadas × rejeitadas).' : ''}`;
   } else if (hasSSP) {
@@ -2429,9 +2452,11 @@ REGRAS RÍGIDAS:
   // votação (evita afirmar "substitutivo" quando não há nenhum anexado).
   let tituloDisposicoes;
   if (hasMPV) {
-    tituloDisposicoes = mpv8b
-      ? 'Principais Disposições do Projeto de Lei de Conversão (PLV)'
-      : 'Principais Disposições da Medida Provisória';
+    // Só afirma "PLV" (aprovado) no título quando o texto do PLV está em mãos;
+    // com o relatório, o PLV é proposta e o título não pode sugerir outra coisa.
+    tituloDisposicoes = !mpv8b ? 'Principais Disposições da Medida Provisória'
+      : hasPLV ? 'Principais Disposições do Projeto de Lei de Conversão (PLV)'
+      : 'Principais Disposições do texto proposto pelo(a) relator(a)';
   } else if (hasEMS) {
     tituloDisposicoes = 'Principais Disposições do texto em votação (emendas do Senado)';
   } else if (ehPEC) {
@@ -2446,18 +2471,21 @@ REGRAS RÍGIDAS:
     ? 'inteiro teor da proposição cuja urgência é solicitada'
     : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
 
-  // Seções próprias do Cenário 8b (MPV com PLV). A lista de emendas acolhidas
-  // sai do PARECER (relatório/conclusão) — o corpo do PLV não a traz. A IA
-  // lista; o JS depois só CONFERE os números citados contra o texto do parecer
-  // (validarEmendasCitadas) e sinaliza o que não localizar.
+  // Seções próprias do Cenário 8b (MPV com parecer da Comissão Mista). A lista
+  // de emendas acolhidas sai do PARECER (relatório/conclusão) — o corpo do PLV
+  // não a traz. A IA lista; o JS depois só CONFERE os números citados contra o
+  // texto do parecer (validarEmendasCitadas) e sinaliza o que não localizar.
+  // Sem documento de PLV em mãos (só relatório), o texto fala em "texto
+  // proposto pelo(a) relator(a)" — não se afirma um PLV que não foi anexado.
   const rotuloParecerMPV = has('PAR_CMMPV') ? 'Parecer da Comissão Mista' : has('RELATORIO_CMMPV') ? 'Relatório Legislativo da Comissão Mista' : 'parecer';
+  const textoNovoMPV = hasPLV ? 'o PLV' : 'o PLV proposto pelo(a) relator(a) (anexo ao final do relatório)';
   const secaoMPV = mpv8b
     ? `
 ## Emendas acolhidas
-Com base exclusivamente na conclusão e no voto do(a) relator(a) constantes do documento "${rotuloParecerMPV}"${hasPRLP ? ' (e do parecer proferido em Plenário, se divergir)' : ''}, informe quais emendas foram ACOLHIDAS (total ou parcialmente) e quais foram REJEITADAS. Para as acolhidas, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <breve resumo do teor acolhido e do que ele produz no PLV>", citando o número EXATAMENTE como consta do parecer. Se o parecer não detalhar o teor de uma emenda acolhida, escreva "teor não detalhado no parecer". As rejeitadas vão em um único parágrafo curto, só com os números (sem detalhar cada uma), salvo se o relatório destacar o motivo de alguma. Se o parecer não trouxer lista de emendas, diga isso explicitamente. NÃO deduza acolhimento comparando textos: só o que o parecer declarar.
+Com base exclusivamente na conclusão e no voto do(a) relator(a) constantes do documento "${rotuloParecerMPV}"${hasPRLP ? ' (e do parecer proferido em Plenário, se divergir)' : ''}, informe quais emendas ${hasPLV ? 'foram ACOLHIDAS (total ou parcialmente) e quais foram REJEITADAS' : 'o(a) relator(a) PROPÕE acolher (total ou parcialmente) e quais propõe rejeitar — escreva sempre no sentido de proposta, pois a Comissão Mista ainda não deliberou'}. Para as acolhidas, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <breve resumo do teor acolhido e do que ele produz n${hasPLV ? 'o PLV' : 'o texto proposto'}>", citando o número EXATAMENTE como consta do parecer. Se o parecer não detalhar o teor de uma emenda acolhida, escreva "teor não detalhado no parecer". As rejeitadas vão em um único parágrafo curto, só com os números (sem detalhar cada uma), salvo se o relatório destacar o motivo de alguma. Se o parecer não trouxer lista de emendas, diga isso explicitamente. NÃO deduza acolhimento comparando textos: só o que o parecer declarar.
 
 ## O que mudou em relação ao texto original da MPV
-Compare o PLV com o texto original da Medida Provisória (documento "Texto original da Medida Provisória" anexado). Em parágrafos corridos e de forma resumida, aponte, em ordem de relevância, o que o PLV INCLUIU, o que ALTEROU (com o sentido antes e depois) e o que SUPRIMIU em relação à MPV, citando os artigos afetados. Use o relatório do(a) relator(a) como guia do que mudou e por quê, mas confirme no cotejo dos dois textos; ao encontrar mudança que o relatório não explica, registre-a mesmo assim, anotando que o relatório não a justifica. Não repita aqui a lista de emendas da seção anterior.
+Compare ${textoNovoMPV} com o texto original da Medida Provisória (documento "Texto original da Medida Provisória" anexado). Em parágrafos corridos e de forma resumida, aponte, em ordem de relevância, o que ${textoNovoMPV} INCLUIU, o que ALTEROU (com o sentido antes e depois) e o que SUPRIMIU em relação à MPV, citando os artigos afetados. Use o relatório do(a) relator(a) como guia do que mudou e por quê, mas confirme no cotejo dos dois textos; ao encontrar mudança que o relatório não explica, registre-a mesmo assim, anotando que o relatório não a justifica. Não repita aqui a lista de emendas da seção anterior.${hasPLV ? '' : ' Se o parecer não trouxer texto novo (concluir pela aprovação da MPV como editada) ou se o texto proposto não estiver no documento anexado, escreva que não há texto novo a cotejar — não descreva mudanças que você não conseguiu ler.'}
 `
     : '';
 

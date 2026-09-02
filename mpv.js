@@ -90,8 +90,17 @@ async function senadoTextos(codigoMateria) {
 
 /**
  * Onde estão os documentos da MPV — parecer da Comissão Mista, PLV e texto
- * original. Devolve sempre um objeto; cada peça é null quando não existe, e
- * `avisos` conta por quê (fonte fora do ar ≠ documento inexistente).
+ * original. Devolve sempre um objeto; cada peça é null quando não existe.
+ *
+ * O relato do que aconteceu vem em DUAS listas, e a distinção importa:
+ *   · `avisos` — algo deu errado e o resultado pode estar incompleto: fonte
+ *     fora do ar, matéria não localizada, documento autuado sem inteiro teor.
+ *     É isto que merece console.warn (e, na extensão, a página de Erros).
+ *   · `notas`  — estado NORMAL da tramitação, relatado para diagnóstico: a
+ *     Comissão Mista ainda não concluiu, então não há PAR/PLV em lugar nenhum.
+ *     A maioria das MPVs em pauta está assim (Cenário 8a); tratar isso como
+ *     erro enchia a página de Erros da extensão com 4 linhas por MPV.
+ * Fonte fora do ar ≠ documento inexistente: só a primeira lista é problema.
  *
  *   {
  *     par:              { rotulo:'PAR 1/2026', url, data, fonte:'Câmara' }     // relatório + conclusão + PLV anexo
@@ -99,11 +108,12 @@ async function senadoTextos(codigoMateria) {
  *     relatorioSenado:  { rotulo:'Relatório Legislativo', url, data, fonte }   // fallback do parecer
  *     original:         { rotulo:'MPV 1366/2026', url, fonte:'Câmara' }        // texto do Executivo
  *     temPLV:           boolean
- *     avisos:           [string]
+ *     avisos:           [string]   // problemas
+ *     notas:            [string]   // ausências normais
  *   }
  */
 async function resolverDocumentosMPV({ idCamara, sigla = 'MPV', numero, ano, chave }) {
-  const out = { par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, avisos: [] };
+  const out = { par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, avisos: [], notas: [] };
   const rot = chave || `${sigla} ${numero}/${ano}`;
 
   // ---- Câmara: relacionadas → PAR e PLV; detalhe → inteiro teor ----
@@ -118,18 +128,21 @@ async function resolverDocumentosMPV({ idCamara, sigla = 'MPV', numero, ano, cha
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       const rel = (await r.json()).dados || [];
       const maisRecente = tipo => rel.filter(x => x.siglaTipo === tipo).sort((a, b) => Number(b.id) - Number(a.id))[0] || null;
+      const faltando = [];
       for (const [campo, tipo] of [['par', 'PAR'], ['plv', 'PLV']]) {
         const p = maisRecente(tipo);
-        if (!p) { out.avisos.push(`Nenhum ${tipo} entre as ${rel.length} relacionadas na Câmara — procurado no Senado.`); continue; }
+        if (!p) { faltando.push(tipo); continue; }
         const dp = await fetch(`${MPV_API_CAMARA}/proposicoes/${p.id}`);
         const dd = dp.ok ? (await dp.json()).dados || {} : {};
         if (dd.urlInteiroTeor) {
           out[campo] = { rotulo: `${tipo} ${p.numero}/${p.ano}`, url: dd.urlInteiroTeor,
             data: String(dd.dataApresentacao || '').slice(0, 10), fonte: 'Câmara', id: p.id };
         } else {
+          // Autuado mas sem PDF: isso é defeito da fonte, não ausência.
           out.avisos.push(`${tipo} ${p.numero}/${p.ano} consta na Câmara mas sem inteiro teor.`);
         }
       }
+      if (faltando.length) out.notas.push(`Sem ${faltando.join(' nem ')} entre as ${rel.length} relacionadas na Câmara — procurado no Senado.`);
     } catch (e) { out.avisos.push(`Câmara indisponível ao procurar PAR/PLV (${e.message}).`); }
   } else {
     out.avisos.push('Sem id da MPV na Câmara — PAR/PLV não procurados lá.');
@@ -150,13 +163,13 @@ async function resolverDocumentosMPV({ idCamara, sigla = 'MPV', numero, ano, cha
             const m = /PLV\s+(\d+)\/(\d{4})/i.exec(tf.descricao);
             out.plv = { rotulo: m ? `PLV ${m[1]}/${m[2]}` : 'PLV', url: tf.url, data: tf.data, fonte: 'Senado/Congresso (texto final da Comissão Mista)' };
           } else {
-            out.avisos.push(`Senado não tem "Texto final da Comissão - PLV" para a matéria ${codigo} (${textos.length} documentos lidos).`);
+            out.notas.push(`Senado não tem "Texto final da Comissão - PLV" para a matéria ${codigo} (${textos.length} documentos lidos).`);
           }
         }
         if (!out.par) {
           const rl = textos.filter(t => /relat[óo]rio\s+legislativo/i.test(t.descricao)).sort(porData)[0];
           if (rl) out.relatorioSenado = { rotulo: 'Relatório Legislativo da Comissão Mista', url: rl.url, data: rl.data, fonte: 'Senado/Congresso', autoria: rl.autoria };
-          else out.avisos.push(`Senado não tem "Relatório Legislativo" para a matéria ${codigo}.`);
+          else out.notas.push(`Senado não tem "Relatório Legislativo" para a matéria ${codigo}.`);
         }
         if (!out.original) {
           const mp = textos.find(t => new RegExp(`^${sigla}\\s+${numero}/${ano}$`, 'i').test(t.descricao.trim()));
@@ -166,8 +179,17 @@ async function resolverDocumentosMPV({ idCamara, sigla = 'MPV', numero, ano, cha
     } catch (e) { out.avisos.push(`Senado indisponível (${e.message}).`); }
   }
 
+  // temPLV = PLV autuado/aprovado em mãos. O relatório do relator NÃO conta:
+  // ele traz o PLV apenas como PROPOSTA, anexa ao final e sem número
+  // ("PROJETO DE LEI DE CONVERSÃO Nº , DE 2026" — medido na p.21 do relatório
+  // da MPV 1357/2026), porque a numeração só vem com a aprovação na Comissão.
   out.temPLV = !!(out.plv || out.par);
-  if (!out.temPLV) out.avisos.push('Nenhum PLV localizado (Câmara e Senado): a MPV está sem parecer da Comissão Mista.');
+  // Estados normais da tramitação, não defeitos.
+  if (!out.temPLV) {
+    out.notas.push(out.relatorioSenado
+      ? 'Nenhum PLV autuado (Câmara e Senado): há relatório do(a) relator(a), mas a Comissão Mista ainda não concluiu — o PLV proposto, se houver, está dentro do próprio relatório.'
+      : 'Nenhum PLV localizado (Câmara e Senado): a MPV está sem parecer da Comissão Mista.');
+  }
   return out;
 }
 

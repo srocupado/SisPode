@@ -99,7 +99,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(viaSenado && /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(viaSenado.url),
        'PDF do Senado em https');
     ok(viaSenado && /Senado/.test(viaSenado.fonte), `fonte declarada: ${viaSenado?.fonte}`);
-    ok(chamadas.some(c => /Nenhum PLV entre as \d+ relacionadas na Câmara/.test(c)),
+    ok(chamadas.some(c => /Sem PAR nem PLV entre as \d+ relacionadas na Câmara/.test(c)),
        'e o console conta que a Câmara não tinha e que foi ao Senado');
 
     // MPV 1357/2026 (sem PLV até 01/09/2026): NÃO inventa — devolve null com
