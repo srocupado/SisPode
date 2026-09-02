@@ -1788,6 +1788,14 @@ function ferramentasDado(userId, perfil) {
       return consultarPauta(lista, data || 'hoje', { partido: partido || null, deputado: deputado || null });
     },
     comissoes_reuniao: async ({ data } = {}) => listarReunioesDeliberativas(data || 'hoje'),
+    // Varredura como DADO: uma consulta cobre todas as comissões do dia. Sem
+    // partido/deputado explícito procura o Podemos — é o bot da bancada, a
+    // mesma regra do /varrercomissoes.
+    varrer_comissoes: async ({ data, partido, deputado } = {}) =>
+      varrerComissoesPartido(data || 'hoje', {
+        partido: partido || (deputado ? null : 'Podemos'),
+        deputado: deputado || null,
+      }),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo, fase } = {}) =>
       formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
