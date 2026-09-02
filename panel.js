@@ -1490,7 +1490,10 @@ async function buscarPLVdaMPV(prop) {
   // Comissão - PLV n/ano"): a resolução é a de mpv.js, que DECLARA em `avisos`
   // por que não achou — e "não achou" é null, nunca o texto original da MPV.
   const r = await resolverDocumentosMPV({ idCamara: prop.idCamara, sigla: prop.sigla, numero: prop.numero, ano: prop.ano, chave: prop.chave });
+  // Problema de fonte é warn; MPV ainda sem PLV é tramitação normal e vai a log
+  // (warn aqui enchia a página de Erros da extensão com o caso comum).
   for (const a of r.avisos) console.warn('[IA] MPV:', a);
+  for (const n of (r.notas || [])) console.log('[IA] MPV:', n);
   if (!r.plv) return null;
   return { rotulo: r.plv.rotulo, url: r.plv.url, fonte: r.plv.fonte, id: r.plv.id };
 }

@@ -38,6 +38,7 @@ const A = new Function('console', 'resolverMPVDeclarando', 'buscarEmendasSenadoE
   ${trecho(/const CENARIO_MPV\s+= [^\n]+/)}
   ${trecho(/const CENARIO_MPV_8A = [^\n]+/)}
   ${trecho(/const CENARIO_MPV_8B = [^\n]+/)}
+  ${trecho(/const CENARIO_MPV_8B_PROPOSTO = [^\n]+/)}
   ${trecho(/const TIPOS_MPV = [^\n]+/)}
   ${trecho(/const TIPOS_OPERATIVOS = [^\n]+/)}
   ${trecho(/function tipoLabel\([\s\S]*?\n}/)}
@@ -51,7 +52,7 @@ const A = new Function('console', 'resolverMPVDeclarando', 'buscarEmendasSenadoE
   ${trecho(/function extrairNumerosEmendas\([\s\S]*?\n}/)}
   ${trecho(/function validarEmendasCitadas\([\s\S]*?\n}/)}
   function promptPDL() { throw new Error('promptPDL não deveria ser chamado para MPV'); }
-  return { CENARIO_MPV_8A, CENARIO_MPV_8B, TIPOS_OPERATIVOS, classificarCenario, operativosAtuais,
+  return { CENARIO_MPV_8A, CENARIO_MPV_8B, CENARIO_MPV_8B_PROPOSTO, TIPOS_OPERATIVOS, classificarCenario, operativosAtuais,
            desatualizacaoOperativa, escolherDocumentos, montarPrompt, extrairNumerosEmendas, validarEmendasCitadas };
 `)(
   { log() {}, warn() {} },
@@ -84,14 +85,14 @@ const itemMPV = (mpvRes, extra = {}) => ({
     const d2 = await A.escolherDocumentos(itemMPV({ par: null, plv: { ...PLV, fonte: 'Senado/Congresso (texto final da Comissão Mista)' }, relatorioSenado: REL, original: ORIG, temPLV: true, avisos: [] }));
     ok(tipos(d2) === 'RELATORIO_CMMPV,PLV,MPV_TEOR', `sem PAR: ${tipos(d2)}`);
     // 8a: só o texto do Executivo.
-    const d3 = await A.escolherDocumentos(itemMPV({ par: null, plv: null, relatorioSenado: null, original: ORIG, temPLV: false, avisos: ['Nenhum PLV localizado'] }));
+    const d3 = await A.escolherDocumentos(itemMPV({ par: null, plv: null, relatorioSenado: null, original: ORIG, temPLV: false, avisos: [], notas: ['Nenhum PLV localizado'] }));
     ok(tipos(d3) === 'MPV_TEOR', `sem parecer nem PLV: ${tipos(d3)}`);
     // Parecer proferido em Plenário (sem precedente; entra se existir).
     const d4 = await A.escolherDocumentos(itemMPV({ par: PAR, plv: PLV, relatorioSenado: null, original: ORIG, temPLV: true, avisos: [] },
       { pareceresPlenario: { ...semPar, prlp: { url: 'https://camara/prlp', sequencial: 1, dataBR: '01/09/2026', data: '2026-09-01' } } }));
     ok(tipos(d4) === 'PAR_CMMPV,PRLP,MPV_TEOR', `com parecer de Plenário: ${tipos(d4)}`);
     // Nada em lugar nenhum (fontes fora do ar): lista vazia, sem inventar.
-    const d5 = await A.escolherDocumentos(itemMPV({ par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, falha: true, avisos: ['Câmara indisponível'] }, { urlInteiroTeor: null }));
+    const d5 = await A.escolherDocumentos(itemMPV({ par: null, plv: null, relatorioSenado: null, original: null, temPLV: false, falha: true, avisos: ['Câmara indisponível ao procurar PAR/PLV (HTTP 503).'], notas: [] }, { urlInteiroTeor: null }));
     ok(d5.length === 0, 'fontes fora do ar → nenhum documento (quem chama abre a edição livre e declara)');
     ok(chamadasEMS.length === 0, 'MPV não vai à página de emendas da Câmara (EMS/SSP não se aplicam)');
   }
@@ -102,7 +103,12 @@ const itemMPV = (mpvRes, extra = {}) => ({
     ok(c(['MPV_TEOR']) === A.CENARIO_MPV_8A, `só o texto do Executivo → ${c(['MPV_TEOR'])}`);
     ok(c(['PAR_CMMPV', 'MPV_TEOR']) === A.CENARIO_MPV_8B, `PAR + original → ${c(['PAR_CMMPV', 'MPV_TEOR'])}`);
     ok(c(['RELATORIO_CMMPV', 'PLV', 'MPV_TEOR']) === A.CENARIO_MPV_8B, 'relatório do Senado + PLV → 8b');
-    ok(c(['PRLP', 'MPV_TEOR']) === A.CENARIO_MPV_8B, 'parecer proferido em Plenário + original → 8b');
+    // Só o relatório: o PLV vem anexo dentro dele, sem número, e a Comissão
+    // ainda não votou — o rótulo diz "proposto" para o analista não ler a nota
+    // como se o texto já estivesse aprovado.
+    ok(c(['RELATORIO_CMMPV', 'MPV_TEOR']) === A.CENARIO_MPV_8B_PROPOSTO, `só o relatório → ${c(['RELATORIO_CMMPV', 'MPV_TEOR'])}`);
+    ok(/^Cenário 8b/.test(A.CENARIO_MPV_8B_PROPOSTO), 'continua sendo 8b (não é um cenário novo)');
+    ok(c(['PRLP', 'MPV_TEOR']) === A.CENARIO_MPV_8B_PROPOSTO, 'parecer proferido em Plenário + original → 8b');
     ok(/Cenário 3/.test(c(['PRLP', 'REDACAO_ORIGINAL'])), 'PL com PRLP continua Cenário 3 (MPV não vaza para os outros)');
     ok(/Cenário 1/.test(c(['INTEIRO_TEOR'])), 'inteiro teor continua Cenário 1');
   }
@@ -118,6 +124,27 @@ const itemMPV = (mpvRes, extra = {}) => ({
     ok(/um tópico \(item de lista com "-"\) por emenda/.test(p8b) && /"Emenda nº N/.test(p8b), 'uma emenda por tópico, no formato "Emenda nº N" (é o que a conferência lê)');
     ok(/\(d\) nas emendas acolhidas/.test(p8b), 'a regra de "sem listas" abre exceção para as acolhidas');
     ok(/Pareceres e substitutivos \(Parecer da Comissão Mista \(PAR 1\/2026 de 28\/08\/2026\)/.test(p8b), 'o título da seção de parecer carrega o rótulo do PAR');
+
+    // Relatório do(a) relator(a) SEM texto final da Comissão: é 8b (há parecer),
+    // mas o PLV não está em mãos. Caso real: MPV 1357/2026 em 02/09/2026, com
+    // Relatório Legislativo da Senadora relatora e nenhum PLV. Antes desta
+    // guarda o prompt afirmava "o texto em votação é o PLV" sem ter PLV algum.
+    const itRel = itemMPV({ par: null, plv: null, relatorioSenado: REL, original: ORIG, temPLV: false, avisos: [], notas: [] });
+    const pRel = A.montarPrompt(itRel, await A.escolherDocumentos(itRel), '');
+    ok(/## Emendas acolhidas/.test(pRel), 'relatório sem PLV autuado ainda é 8b (há parecer com emendas)');
+    ok(!/O texto em votação é o PLV/.test(pRel), 'mas NÃO afirma que o texto em votação é o PLV aprovado');
+    ok(/ANEXO AO FINAL do próprio relatório/.test(pRel) && /Percorra o relatório inteiro/.test(pRel),
+       'manda procurar o PLV anexo dentro do relatório (na MPV 1357/2026 ele começa na p.21 de 25)');
+    ok(/sem número \("PROJETO DE LEI DE CONVERSÃO Nº , DE 2026"\)/.test(pRel),
+       'avisa que o PLV proposto vem sem número — a numeração só vem com a aprovação');
+    ok(/texto PROPOSTO pelo\(a\) relator\(a\) — nunca como aprovado/.test(pRel), 'e proíbe apresentá-lo como aprovado');
+    ok(/PROPÕE acolher/.test(pRel) && /a Comissão Mista ainda não deliberou/.test(pRel),
+       'as emendas são as que o relator PROPÕE acolher, não as acolhidas');
+    ok(/Principais Disposições do texto proposto pelo\(a\) relator\(a\)/.test(pRel) && !/Principais Disposições do Projeto de Lei de Conversão/.test(pRel),
+       'o título das disposições não promete um PLV aprovado');
+    ok(/Compare o PLV proposto pelo\(a\) relator\(a\) \(anexo ao final do relatório\) com o texto original/.test(pRel),
+       'o cotejo é contra o PLV proposto');
+    ok(/não há texto novo a cotejar/.test(pRel), 'e prevê o caso de o parecer não trazer texto novo');
 
     const it8a = itemMPV({ par: null, plv: null, relatorioSenado: null, original: ORIG, temPLV: false, avisos: [] });
     const p8a = A.montarPrompt(it8a, await A.escolherDocumentos(it8a), '');
@@ -181,13 +208,45 @@ const itemMPV = (mpvRes, extra = {}) => ({
     ok(r.par && r.par.rotulo === 'PAR 1/2026' && /codteor=\d+/.test(r.par.url), `PAR: ${r.par?.rotulo} (${r.par?.fonte}, ${r.par?.data})`);
     ok(r.plv && r.plv.rotulo === 'PLV 10/2026', `PLV: ${r.plv?.rotulo} (${r.plv?.fonte})`);
     ok(r.original && /codteor=\d+/.test(r.original.url), `texto original: ${r.original?.url}`);
-    ok(!r.avisos.some(a => /indispon/.test(a)), `sem fonte indisponível: ${JSON.stringify(r.avisos)}`);
+    ok(r.avisos.length === 0, `nada deu errado: avisos=${JSON.stringify(r.avisos)}`);
 
+    // MPV 1357/2026: em tramitação, então o estado MUDA (em 01/09/2026 não
+    // tinha nada; em 02/09/2026 ganhou o Relatório Legislativo da relatora).
+    // As asserções são por REGRA, não por instantâneo — a suíte não pode
+    // quebrar quando a Comissão Mista concluir.
     const s = await mpv.resolverDocumentosMPV({ idCamara: 2624161, sigla: 'MPV', numero: 1357, ano: 2026, chave: 'MPV 1357/2026' });
-    ok(!s.par && !s.plv, `MPV 1357/2026 (sem parecer até 01/09/2026): par=${!!s.par} plv=${!!s.plv}`);
-    ok(s.temPLV === false && s.avisos.some(a => /Nenhum PLV localizado/.test(a)), `temPLV=false, declarado: "${s.avisos.find(a => /Nenhum PLV/.test(a))}"`);
-    ok(s.original && /codteor=/.test(s.original.url), `mas o texto original está lá (8a): ${s.original?.url}`);
-    ok(s.avisos.some(a => /Texto final da Comissão - PLV/.test(a)), 'o Senado também foi consultado e disse que não tem texto final');
+    ok(s.original && /codteor=/.test(s.original.url), `texto original sempre presente: ${s.original?.url}`);
+    ok(s.temPLV === !!(s.par || s.plv), `temPLV (${s.temPLV}) reflete PLV autuado/aprovado, não o relatório`);
+    if (s.temPLV) {
+      console.log('    (a Comissão Mista concluiu: a MPV 1357/2026 agora tem PLV)');
+      ok(!s.notas.some(a => /^Nenhum PLV/.test(a)), 'com PLV, não declara ausência de PLV');
+    } else {
+      ok(s.notas.some(a => /^Nenhum PLV/.test(a)), `sem PLV, declarado: "${s.notas.find(a => /Nenhum PLV/.test(a))}"`);
+      if (s.relatorioSenado) {
+        ok(s.notas.some(a => /o PLV proposto, se houver, está dentro do próprio relatório/.test(a)),
+           'e, havendo relatório, a nota diz onde o PLV proposto está');
+      }
+      ok(s.notas.some(a => /Texto final da Comissão - PLV/.test(a)), 'o Senado também foi consultado e disse que não tem texto final');
+    }
+    // O relatório do(a) relator(a) sai no lugar do parecer quando existe — foi
+    // ele que apareceu em 02/09/2026 (Senadora Leila Barros, 25 págs, com o
+    // PLV proposto a partir da p.21).
+    if (s.relatorioSenado) {
+      ok(/sdleg-getter/.test(s.relatorioSenado.url) && s.relatorioSenado.data,
+         `relatório do Senado: ${s.relatorioSenado.data} — ${s.relatorioSenado.autoria || 'sem autoria declarada'}`);
+    }
+
+    // O QUE ESTE BLOCO TRAVA (relato de 02/09/2026): as MPVs 1357 e 1360 —
+    // ambas em tramitação normal, sem PLV — enchiam a página de Erros da
+    // extensão com 4 linhas cada, porque toda ausência saía em console.warn.
+    // Ausência prevista é `notas` (console.debug); `avisos` fica só para o que
+    // deu errado de fato, que é o que merece aparecer como erro.
+    ok(s.avisos.length === 0, `MPV em tramitação não gera aviso algum (avisos=${JSON.stringify(s.avisos)})`);
+    ok(s.notas.length >= 1, `mas o diagnóstico continua registrado em notas (${s.notas.length})`);
+    if (!s.par && !s.plv) {
+      ok(s.notas.some(a => /Sem PAR nem PLV entre as \d+ relacionadas na Câmara/.test(a)),
+         `a Câmara é relatada numa linha só: "${s.notas.find(a => /relacionadas/.test(a))}"`);
+    }
   }
 
   console.log('\n== conferência contra o PAR 1/2026 REAL (PDF da Câmara, 55 págs) ==');
