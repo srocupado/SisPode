@@ -838,6 +838,31 @@
     </div>
   </div>
 
+  <!-- ===== MODAL: COLISÃO DE PAUTA (duas sessões no mesmo dia) ===== -->
+  <div id="modal-colisao-pauta" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Já existe uma pauta com este identificador</h3>
+        <button class="modal-close" data-fecha="modal-colisao-pauta">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-bottom:12px">
+          O PDF que você está importando tem <strong>itens diferentes</strong> da pauta já salva
+          para este período. Costuma ser outra sessão do mesmo dia.
+        </p>
+        <div id="colisao-comparativo" style="display:flex;gap:10px;flex-wrap:wrap"></div>
+        <p style="font-size:13px;color:var(--text-dim);line-height:1.6;margin-top:12px">
+          Salvar como pauta separada preserva as duas, com análises independentes.
+        </p>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-colisao-pauta">Cancelar</button>
+        <button id="btn-colisao-substituir" class="btn btn-danger">Substituir a existente</button>
+        <button id="btn-colisao-separada" class="btn btn-primary">Salvar como pauta separada</button>
+      </div>
+    </div>
+  </div>
+
   <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
   <div id="modal-configuracoes" class="modal-overlay" style="display:none">
     <div class="modal">

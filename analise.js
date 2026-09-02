@@ -235,20 +235,11 @@ async function onPdfSelecionado(ev) {
       return;
     }
 
-    // O id deriva do período/nome do arquivo: subir um segundo PDF da mesma
-    // semana cai no MESMO id e o PUT sobrescreveria a pauta da equipe (itens
-    // adicionados/removidos, renomeação, responsáveis) sem aviso. Confirma antes.
-    const idPauta = gerarIdPauta(parsed.periodo, file.name);
-    let jaExiste = false;
-    try {
-      const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json?shallow=true`);
-      jaExiste = r.ok && (await r.json()) !== null;
-    } catch (_) { /* Firebase indisponível — segue sem a checagem */ }
-    if (jaExiste && !confirm(
-      `Já existe uma pauta salva para este período/arquivo.\n\n` +
-      `Importar este PDF vai SOBRESCREVER a pauta existente, incluindo edições ` +
-      `feitas pela equipe (itens adicionados/removidos, renomeação, responsáveis).\n\n` +
-      `Continuar e sobrescrever?`)) {
+    // O id deriva do período (+ ordinal da sessão): subir outro PDF que caia no
+    // MESMO id sobrescreveria a pauta da equipe (itens adicionados/removidos,
+    // renomeação, responsáveis) sem aviso. Resolve antes de tocar em nada.
+    const idPauta = await resolverIdImportacao(gerarIdPauta(parsed.periodo, file.name, parsed.sessao), parsed);
+    if (!idPauta) {
       mostrarToast('Importação cancelada — a pauta existente foi mantida.', 'info');
       return;
     }
@@ -257,6 +248,7 @@ async function onPdfSelecionado(ev) {
       id:         idPauta,
       titulo:     parsed.titulo || 'Pauta da Semana',
       periodo:    parsed.periodo || '',
+      sessao:     parsed.sessao || null,
       uploadedAt: new Date().toISOString(),
       uploadedBy: state.config?.nomeUsuario || 'equipe',
       pdfNome:    file.name,
@@ -309,13 +301,114 @@ function normalizarItem(it) {
   };
 }
 
-function gerarIdPauta(periodo, fileName) {
+/**
+ * Decide sob qual id a importa\u00e7\u00e3o ser\u00e1 gravada, sem nunca apagar pauta alheia
+ * em sil\u00eancio. Devolve o id a usar, ou null se o(a) analista cancelar.
+ *
+ * O ordinal da sess\u00e3o j\u00e1 separa as pautas do mesmo dia (ver gerarIdPauta), mas
+ * ele nem sempre est\u00e1 no cabe\u00e7alho \u2014 pauta antiga, formato diferente, pauta
+ * manual. Nesses casos a colis\u00e3o ainda acontece, e aqui ela vira uma escolha
+ * expl\u00edcita em vez de perda de dados:
+ *   \u00b7 itens IGUAIS   \u2192 \u00e9 reimporta\u00e7\u00e3o da mesma pauta (o fluxo de "reimportar
+ *     depois de corrigir o parser"): confirma a substitui\u00e7\u00e3o, como sempre foi;
+ *   \u00b7 itens DIFERENTES \u2192 provavelmente \u00e9 outra sess\u00e3o do mesmo dia: oferece
+ *     salvar como pauta separada (padr\u00e3o), substituir, ou cancelar.
+ */
+async function resolverIdImportacao(idPauta, parsed) {
+  let existente = null;
+  try {
+    const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(idPauta)}.json`);
+    if (r.ok) existente = await r.json();
+  } catch (_) { return idPauta; }   // Firebase fora do ar \u2014 segue sem a checagem
+  if (!existente) return idPauta;
+
+  const chaves = p => new Set((p.itens || []).map(it => it.chave).filter(Boolean));
+  const antigas = chaves(existente);
+  const novas   = chaves({ itens: parsed.itens.map(normalizarItem) });
+  const iguais  = antigas.size === novas.size && [...novas].every(k => antigas.has(k));
+
+  if (iguais) {
+    return confirm(
+      `J\u00e1 existe uma pauta salva para este per\u00edodo/arquivo, com os MESMOS itens.\n\n` +
+      `Importar este PDF vai SOBRESCREVER a pauta existente, incluindo edi\u00e7\u00f5es ` +
+      `feitas pela equipe (itens adicionados/removidos, renomea\u00e7\u00e3o, respons\u00e1veis).\n\n` +
+      `Continuar e sobrescrever?`) ? idPauta : null;
+  }
+
+  const escolha = await perguntarColisaoPauta(existente, parsed);
+  if (escolha === 'substituir') return idPauta;
+  if (escolha === 'separada')   return await proximoIdLivre(idPauta);
+  return null;
+}
+
+/**
+ * Di\u00e1logo da colis\u00e3o: mostra as duas pautas lado a lado (nome, n\u00ba de itens e
+ * as proposi\u00e7\u00f5es) para a escolha ser informada, n\u00e3o um "sim/n\u00e3o" \u00e0s cegas.
+ * Resolve com 'separada' | 'substituir' | null (cancelado).
+ */
+function perguntarColisaoPauta(existente, parsed) {
+  const modal = document.getElementById('modal-colisao-pauta');
+  const lista = itens => (itens || []).slice(0, 12)
+    .map(it => `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`).join(', ')
+    + ((itens || []).length > 12 ? `, +${itens.length - 12}` : '');
+  const coluna = (rotulo, titulo, itens, destaque) => `
+    <div style="flex:1;min-width:200px;border:1px solid var(--borda, #333);border-left:3px solid ${destaque};border-radius:6px;padding:10px">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--text-dim);margin-bottom:4px">${rotulo}</div>
+      <div style="font-weight:600;font-size:13px;margin-bottom:6px">${escapeHtml(titulo || '(sem t\u00edtulo)')}</div>
+      <div style="font-size:12px;color:var(--text-dim);line-height:1.5">${(itens || []).length} itens \u00b7 ${escapeHtml(lista(itens))}</div>
+    </div>`;
+  document.getElementById('colisao-comparativo').innerHTML =
+    coluna('J\u00e1 salva', existente.nome || existente.titulo || existente.periodo || existente.id, existente.itens, '#d68a00') +
+    coluna('Sendo importada', parsed.titulo, parsed.itens, '#0a6cf0');
+
+  modal.style.display = 'flex';
+  return new Promise(resolve => {
+    const fim = escolha => {
+      modal.style.display = 'none';
+      btnSep.removeEventListener('click', onSep);
+      btnSub.removeEventListener('click', onSub);
+      modal.querySelectorAll('[data-fecha="modal-colisao-pauta"]').forEach(b => b.removeEventListener('click', onCancel));
+      resolve(escolha);
+    };
+    const btnSep = document.getElementById('btn-colisao-separada');
+    const btnSub = document.getElementById('btn-colisao-substituir');
+    const onSep = () => fim('separada');
+    const onSub = () => fim(confirm(
+      'Substituir apaga a pauta salva e as edi\u00e7\u00f5es da equipe nela (itens, renomea\u00e7\u00e3o, respons\u00e1veis).\n\nConfirma?')
+      ? 'substituir' : null);
+    const onCancel = () => fim(null);
+    btnSep.addEventListener('click', onSep);
+    btnSub.addEventListener('click', onSub);
+    modal.querySelectorAll('[data-fecha="modal-colisao-pauta"]').forEach(b => b.addEventListener('click', onCancel));
+  });
+}
+
+/** `02-09-2026` ocupado \u2192 `02-09-2026-2`, `-3`\u2026 O primeiro livre no Firebase. */
+async function proximoIdLivre(base) {
+  for (let n = 2; n <= 20; n++) {
+    const cand = `${base}-${n}`;
+    try {
+      const r = await fetch(`${FIREBASE_URL}/pautas/${encodeURIComponent(cand)}.json?shallow=true`);
+      if (r.ok && (await r.json()) === null) return cand;
+    } catch (_) { return cand; }   // sem conseguir checar, o sufixo j\u00e1 basta
+  }
+  return `${base}-${Date.now()}`;
+}
+
+// O id vem do per\u00edodo (a data da sess\u00e3o). Quando h\u00e1 MAIS DE UMA sess\u00e3o no
+// mesmo dia \u2014 02/09/2026 teve duas: a das 11h, com 1 item, e a 2\u00aa, com 7 \u2014, o
+// per\u00edodo sozinho colide e a segunda importa\u00e7\u00e3o sobrescrevia a primeira. O
+// ordinal da sess\u00e3o entra como sufixo. Como ele s\u00f3 aparece a partir da 2\u00aa
+// sess\u00e3o, toda pauta j\u00e1 salva (todas primeiras sess\u00f5es) mant\u00e9m o id de sempre.
+function gerarIdPauta(periodo, fileName, sessao) {
   const semId = (periodo || fileName || 'pauta').toLowerCase()
     .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
-  return semId || 'pauta-' + Date.now();
+  const ord = Number(sessao?.ordinal);
+  const sufixo = Number.isFinite(ord) && ord > 1 ? `-${ord}a-sessao` : '';
+  return (semId || 'pauta-' + Date.now()) + sufixo;
 }
 
 // ============================================================
@@ -3991,7 +4084,10 @@ async function atualizarSidebarPautas() {
     cont.innerHTML = lista.map(p => `
       <div class="an-pauta-item ${p.id === ativaId ? 'ativo' : ''}" data-pid="${escapeHtml(p.id)}">
         <div class="an-pauta-item-info">
-          <div class="an-pauta-item-titulo">${escapeHtml(p.nome || p.periodo || p.titulo || p.id)}</div>
+          <!-- titulo antes de periodo: duas sessões do mesmo dia têm o MESMO
+               período e apareciam com nome idêntico na lista; o título traz a
+               sessão ("Pauta — 02/09/2026 · 2ª sessão deliberativa"). -->
+          <div class="an-pauta-item-titulo">${escapeHtml(p.nome || p.titulo || p.periodo || p.id)}</div>
           <div class="an-pauta-item-meta">${(p.itens || []).length} itens · ${formatDataHora(p.uploadedAt)}</div>
         </div>
         <button class="an-pauta-item-apagar" data-pid="${escapeHtml(p.id)}" title="Apagar pauta">
