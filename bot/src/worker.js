@@ -6,7 +6,7 @@
 //
 // ⚠ API implícita: este worker chama funções internas do analise.js pelo nome
 //   (carregarPautaPorId, gerarTodasAsAnalises, _htmlImpressaoPautaPlenario,
-//   prepararApelidos, carregarLogoDataUrl, carregarConfig, ehMPV, state,
+//   prepararApelidos, carregarLogoDataUrl, carregarConfig, state,
 //   _gerarTodasState). validarApiPainel() confere todas ao abrir e falha com
 //   mensagem clara se a extensão tiver mudado.
 const path = require('path');
@@ -21,7 +21,7 @@ const PAGED_JS = path.join(EXT_DIR, 'libs', 'paged.polyfill.js');  // paginador 
 
 const FUNCOES_PAINEL = [
   'carregarPautaPorId', 'gerarTodasAsAnalises', '_htmlImpressaoPautaPlenario',
-  'prepararApelidos', 'carregarLogoDataUrl', 'carregarConfig', 'ehMPV',
+  'prepararApelidos', 'carregarLogoDataUrl', 'carregarConfig',
 ];
 
 let _browser = null;
