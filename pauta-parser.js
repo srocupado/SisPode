@@ -93,8 +93,54 @@ function parsearPauta(texto) {
   return parsearPautaExtenso(texto);
 }
 
+/**
+ * Identidade da SESSÃO no cabeçalho da pauta — o que distingue duas pautas do
+ * MESMO dia. MEDIDO em 02/09/2026, quando houve duas:
+ *
+ *   "SESSÃO DELIBERATIVA / (EXTRAORDINÁRIA) / ( 1 1 h )"        → 1 item
+ *   "2ª SESSÃO DELIBERATIVA / (EXTRAORDINÁRIA) /
+ *    ( Após Sessão Deliberativa d as 11h )"                     → 7 itens
+ *
+ * O ordinal só aparece a partir da 2ª sessão do dia; a primeira vem sem ele.
+ * É por isso que ele — e não a hora — entra no id da pauta: assim as pautas já
+ * salvas (todas primeiras sessões) mantêm o id que sempre tiveram.
+ *
+ * Devolve { ordinal, tipo, extraordinaria, hora, rotulo }; campos vazios quando
+ * o cabeçalho não traz a informação (pauta antiga, formato diferente).
+ */
+function extrairSessao(texto) {
+  // O cabeçalho está sempre nas primeiras linhas. Fora daí só há risco de
+  // pescar "sessão" citada em ementa de proposição.
+  const cab = String(texto || '').slice(0, 800);
+  const semEspaco = s => String(s || '').replace(/\s+/g, '');
+  const out = { ordinal: null, tipo: '', extraordinaria: false, hora: '', rotulo: '' };
+
+  const mOrd = cab.match(/(\d)\s*[ªa°º]\s*SESS[ÃA]O/i);
+  if (mOrd) out.ordinal = parseInt(mOrd[1], 10);
+
+  const mTipo = cab.match(/SESS[ÃA]O\s+(DELIBERATIVA|SOLENE|PREPARAT[ÓO]RIA|N[ÃA]O\s*DELIBERATIVA)/i);
+  if (mTipo) out.tipo = mTipo[1].replace(/\s+/g, ' ').toLowerCase();
+
+  out.extraordinaria = /\(\s*EXTRAORDIN[ÁA]RIA\s*\)/i.test(cab);
+
+  // "( 1 1 h )" e "( 14h30 )" — o kerning separa os dígitos. Exige o parêntese
+  // colado ao número para não confundir com "( Após Sessão ... das 11h )", que
+  // é referência a OUTRA sessão, não ao horário desta.
+  const mHora = cab.match(/\(\s*(\d(?:\s*\d)?)\s*h\s*(\d(?:\s*\d)?)?\s*\)/i);
+  if (mHora) out.hora = `${semEspaco(mHora[1])}h${mHora[2] ? semEspaco(mHora[2]) : ''}`;
+
+  const partes = [];
+  if (out.ordinal) partes.push(`${out.ordinal}ª sessão`);
+  else if (out.tipo || out.hora) partes.push('sessão');
+  if (out.tipo) partes[0] = `${partes[0]} ${out.tipo}`;
+  if (out.extraordinaria) partes.push('(extraordinária)');
+  if (out.hora) partes.push(`— ${out.hora}`);
+  out.rotulo = partes.join(' ').trim();
+  return out;
+}
+
 function parsearPautaExtenso(texto) {
-  const resultado = { titulo: '', periodo: '', itens: [] };
+  const resultado = { titulo: '', periodo: '', sessao: null, itens: [] };
 
   // Período
   const periodoMatch = texto.match(/PAUTA\s+PREVISTA\s+PARA\s+([\s\S]{5,80}?)(?:\(|\n)/i);
@@ -126,7 +172,11 @@ function parsearPautaExtenso(texto) {
       if (mesNum) resultado.periodo = `${semEspaco(dataExt[1]).padStart(2, '0')}/${String(mesNum).padStart(2, '0')}/${semEspaco(dataExt[3])}`;
     }
   }
-  resultado.titulo = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
+  // A sessão entra no título para que duas pautas do mesmo dia não apareçam
+  // com o mesmo nome na lista lateral.
+  resultado.sessao = extrairSessao(texto);
+  const base = resultado.periodo ? `Pauta — ${resultado.periodo}` : 'Pauta da Semana';
+  resultado.titulo = resultado.sessao.rotulo ? `${base} · ${resultado.sessao.rotulo}` : base;
 
   // === REDAÇÕES FINAIS (RICD, art. 83, I) ===
   // Padrão: "1. Redação Final ao Projeto de Lei nº 3.801, de 2004, do Sr. X,
@@ -673,5 +723,5 @@ function parsearPautaPlenarioExportada(texto) {
 //  este bloco é inerte — a extensão continua usando o escopo global.
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parsearPauta, extrairTextoPdf, TIPOS_PROPOSICAO, limpaNumero };
+  module.exports = { parsearPauta, extrairTextoPdf, extrairSessao, TIPOS_PROPOSICAO, limpaNumero };
 }

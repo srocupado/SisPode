@@ -197,14 +197,18 @@ function resumoPauta(pauta) {
 // ============================================================
 
 // Portado de analise.js (gerarIdPauta): mesma regra de id da extensão, para
-// que bot e painel apontem para o MESMO documento no Firebase.
-function gerarIdPauta(periodo, fileName) {
+// que bot e painel apontem para o MESMO documento no Firebase. O sufixo da
+// sessão precisa existir aqui também — sem ele o bot importaria a 2ª sessão do
+// dia POR CIMA da primeira, que é o defeito que o painel deixou de ter.
+function gerarIdPauta(periodo, fileName, sessao) {
   const semId = (periodo || fileName || 'pauta').toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 80);
-  return semId || 'pauta-' + Date.now();
+  const ord = Number(sessao && sessao.ordinal);
+  const sufixo = Number.isFinite(ord) && ord > 1 ? `-${ord}a-sessao` : '';
+  return (semId || 'pauta-' + Date.now()) + sufixo;
 }
 
 /**
@@ -214,9 +218,10 @@ function gerarIdPauta(periodo, fileName) {
  */
 function montarPautaFirebase(parsed, uploadedBy, pdfNome = 'pauta_s.pdf') {
   return {
-    id:         gerarIdPauta(parsed.periodo, pdfNome),
+    id:         gerarIdPauta(parsed.periodo, pdfNome, parsed.sessao),
     titulo:     parsed.titulo || 'Pauta da Semana',
     periodo:    parsed.periodo || '',
+    sessao:     parsed.sessao || null,
     tipoPauta:  parsed.tipoPauta || 'semanal',
     uploadedAt: new Date().toISOString(),
     uploadedBy: uploadedBy || 'bot-telegram',
