@@ -118,8 +118,9 @@ async function carregarPauta(page, pautaId) {
 
 function progressoSnapshot(page) {
   return page.evaluate(() => {
-    const itens = state.pauta?.itens || [];
-    const alvo = itens.filter(it => !ehMPV(it));
+    // MPV entra na contagem: desde 02/09/2026 ela é gerada por IA como os
+    // demais projetos (cenários 8a/8b), não mais só edição livre.
+    const alvo = state.pauta?.itens || [];
     return {
       total:   alvo.length,
       ok:      alvo.filter(it => it.analiseStatus === 'ok').length,
@@ -132,7 +133,7 @@ function progressoSnapshot(page) {
 
 /**
  * Gera as análises da pauta no worker, com o MESMO fluxo do botão "Gerar
- * todas" do painel (pula itens com análise já salva; MPVs ficam de fora).
+ * todas" do painel (pula itens com análise já salva).
  * onProgress(p) é chamado a cada ~5 s. Retorna o snapshot final.
  */
 async function analisarPauta({ perfil, pautaId, onProgress, timeoutMin = 45 }) {
