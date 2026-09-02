@@ -25,17 +25,37 @@ function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 // A API da Câmara é instável (502/503/504/timeouts transitórios). Retry com
 // backoff (1s, 2s) em 5xx/rede; 4xx NÃO repete (erro do pedido).
+// Teto por requisição. Sem ele, o `fetch` do Node espera o padrão da
+// plataforma (~5 min) numa conexão pendurada — e a varredura de 11 comissões
+// vira uma espera de minutos em que o analista não recebe nada, nem erro.
+// 20 s é folgado para a API da Câmara num dia bom e curto o bastante para a
+// falha ser DECLARADA enquanto a pergunta ainda importa.
+const TIMEOUT_MS = 20000;
+
 async function apiGet(path, params) {
   const url = new URL(API + path);
   for (const [k, v] of Object.entries(params || {})) url.searchParams.set(k, String(v));
   let last = null;
   for (let attempt = 1; attempt <= RETRIES; attempt++) {
-    let res;
-    try { res = await fetch(url, { headers: HEADERS }); }
-    catch (e) { last = e; if (attempt < RETRIES) { await sleep(attempt * 1000); continue; } break; }
-    if (res.ok) { const j = await res.json().catch(() => ({})); return (j && j.dados) || []; }
-    if (!RETRY_STATUS.has(res.status)) throw new Error(`API da Câmara falhou: HTTP ${res.status}`);
-    last = new Error(`HTTP ${res.status}`);
+    // O teto cobre a leitura do CORPO também: limpar o timer na chegada dos
+    // cabeçalhos deixaria um corpo pendurado esperar sem limite.
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
+    let repetir = true;
+    try {
+      const res = await fetch(url, { headers: HEADERS, signal: ctrl.signal });
+      if (res.ok) { const j = await res.json().catch(() => ({})); return (j && j.dados) || []; }
+      if (!RETRY_STATUS.has(res.status)) {
+        repetir = false;                              // 4xx é erro do pedido
+        throw new Error(`API da Câmara falhou: HTTP ${res.status}`);
+      }
+      last = new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      if (!repetir) throw e;
+      // Tempo esgotado entra no mesmo caminho de retry que a falha de rede:
+      // é instabilidade transitória, não erro do pedido.
+      last = e.name === 'AbortError' ? new Error(`tempo esgotado (${TIMEOUT_MS / 1000}s)`) : e;
+    } finally { clearTimeout(timer); }
     if (attempt < RETRIES) await sleep(attempt * 1000);
   }
   throw new Error(`API da Câmara instável (5xx/timeout) após ${RETRIES} tentativas${last ? ` (${last.message})` : ''}`);

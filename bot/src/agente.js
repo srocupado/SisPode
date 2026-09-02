@@ -142,8 +142,10 @@ FERRAMENTAS DE CONSULTA (o resultado volta para você continuar raciocinando):
 - "listar_itens" {}: itens da pauta em uso no SisPode (números, apelidos, relatores).
 - "nota_tecnica" {"proposicao":"PL 1234/2026"}: texto da nota técnica salva no SisPode para um item da pauta.
 - "quorum" {}: presença AO VIVO no Plenário e fase da Ordem do Dia (painel público).
-- "pauta_comissao" {"comissoes":["CCJ"],"data":"hoje","partido":null,"deputado":null}: pauta oficial de comissão(ões) numa data.
-- "comissoes_reuniao" {"data":"hoje"}: quais comissões têm reunião deliberativa na data.
+- "varrer_comissoes" {"data":"hoje","partido":"Podemos","deputado":null}: varre TODAS as comissões com reunião deliberativa na data e devolve os projetos (autoria E relatoria) do partido/deputado, comissão por comissão. É UMA consulta só — a varredura é paralela por dentro.
+  USE ESTA quando a pergunta for sobre o conjunto do dia: "temos projetos nas comissões amanhã?", "o que a bancada tem em comissão hoje?". NÃO liste as comissões e depois consulte uma a uma: são 11 comissões numa terça comum e você estoura o limite de consultas antes da terceira.
+- "pauta_comissao" {"comissoes":["CCJ"],"data":"hoje","partido":null,"deputado":null}: pauta oficial de comissão(ões) ESPECÍFICA(S) numa data. Use quando o usuário nomear a comissão. Para o conjunto do dia, use "varrer_comissoes".
+- "comissoes_reuniao" {"data":"hoje"}: só a LISTA de quais comissões têm reunião deliberativa na data, sem as pautas. Use quando bastar saber quem se reúne — se a pergunta é sobre matérias da bancada, vá direto em "varrer_comissoes".
 - "regimento" {"consulta":"verificação de votação"}: texto VIGENTE do Regimento Interno da Câmara (RICD). Aceita o número do artigo ("95") ou a dúvida em palavras ("quantas assinaturas para CPI", "prazo de interstício"). Devolve os artigos pertinentes na íntegra. Use SEMPRE que a pergunta for de rito/procedimento no Plenário ou nas comissões.
 - "questao_ordem" {"termo":"ata de comissão"} ou {"termo":"prejudicialidade","fase":"recurso"}: busca no acervo COMPLETO de questões de ordem do Plenário (1953 até hoje). Cada QO é indexada em todas as suas fases: a questão levantada, a CONTRADITA, a DECISÃO da Presidência e o RECURSO contra ela, mais os artigos do Regimento invocados. O "termo" aceita TEMA ("avocação de decisão"), NÚMERO EXATO ("8/2023" — mande só o número, sem mais palavras) e ARTIGO ("art. 52", traz as QOs que invocaram aquele dispositivo). É o PRECEDENTE — como a Presidência já decidiu na prática. Numa dúvida regimental relevante, vale consultar "regimento" (a norma) E "questao_ordem" (o precedente). A observação traz a decisão junto (linha ⚖️): REPRODUZA-A, é ela que responde "e no que deu?".
   O parâmetro "fase" ("recurso", "decisao" ou "contradita") RESTRINGE a busca ao texto daquela peça DENTRO da questão de ordem. Use quando a pergunta for sobre uma peça específica — "houve CONTRADITA sobre Y?", "como a Presidência DECIDIU sobre Z?". Sem "fase" a busca casa em qualquer parte da QO.
@@ -167,7 +169,6 @@ AÇÕES DO BOT (executam um fluxo pronto e encerram sua vez — use quando o usu
 - "baixar_documentos" {"pergunta":"PL 1234/2026"}: enviar os PDFs da matéria.
 - "votacao" {"pergunta":"dd/mm/aaaa"}: votações nominais do Plenário + imagem do placar da bancada.
 - "resumo" {"pergunta":"dd/mm/aaaa"}: resumo oficial da sessão do dia (matérias apreciadas).
-- "varrer_comissoes" {"data":"hoje","partido":"Podemos","deputado":null}: varrer comissões atrás de projetos de um partido/deputado.
 - "digest" {}: radar de imprensa (assinantes).
 - "analisar" {}: gerar as notas técnicas da pauta (caro; pede confirmação).
 - "exportar" {}: PDF institucional da pauta.
@@ -214,8 +215,15 @@ ${forcarResposta
  * Retorna { tipo:'texto', texto } ou { tipo:'acao', ferramenta, argumentos }.
  */
 async function conversar({ userId, perfil, texto, dados = {} }) {
+  // `varrer_comissoes` saiu daqui e virou ferramenta de DADO (26/08/2026):
+  // como AÇÃO ela encerrava a vez do agente, e a regra "prefira responder você
+  // mesmo a despachar ação" empurrava o modelo para o caminho longo — listar as
+  // comissões e consultar uma a uma. Numa terça com 11 comissões isso estoura
+  // MAX_CONSULTAS antes da terceira, e o usuário recebe "atingi o limite de
+  // consultas" com 9 comissões por olhar. Como DADO, resolve em UMA consulta e
+  // ainda sobra volta para o agente ler o resultado.
   const ACOES = ['verificar_pauta', 'escolher_pauta', 'importar_pauta', 'ordem_do_dia', 'ver_nota',
-    'perguntar', 'listar_documentos', 'baixar_documentos', 'votacao', 'resumo', 'varrer_comissoes',
+    'perguntar', 'listar_documentos', 'baixar_documentos', 'votacao', 'resumo',
     'digest', 'analisar', 'exportar', 'ajuda'];
   const DADOS = { ...dados, situacao_proposicao: situacaoProposicao, pagina_oficial: paginaOficial };
 

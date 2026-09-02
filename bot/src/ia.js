@@ -28,21 +28,49 @@ const PROVEDORES = {
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
+// Teto por tentativa. O `fetch` do Node, sem isto, espera o padrão da
+// plataforma (~5 min) numa conexão pendurada — e com 4 tentativas o analista
+// ficaria vendo "digitando…" por até 20 minutos sem receber nada.
+// 90 s cobre com folga uma geração longa (o /analisar manda prompt grande).
+const TIMEOUT_IA_MS = 90000;
+
+/**
+ * Uma tentativa, sob teto de tempo. Devolve:
+ *   { ok:true, json }            → deu certo
+ *   { ok:false, repetir:true }   → instabilidade (rede, tempo, 429, 5xx)
+ *   { ok:false, repetir:false }  → erro do PEDIDO (4xx) — não adianta repetir
+ * O timer só é limpo DEPOIS de ler o corpo: limpá-lo na chegada dos cabeçalhos
+ * deixaria um corpo pendurado esperar sem limite.
+ */
+async function tentativaIA(url, init) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_IA_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    if (res.ok) return { ok: true, json: await res.json() };
+    const repetir = res.status === 429 || (res.status >= 500 && res.status < 600);
+    if (repetir) return { ok: false, repetir: true, erro: new Error(`HTTP ${res.status}`) };
+    let det; try { det = await res.json(); } catch (_) { det = null; }
+    return { ok: false, repetir: false,
+      erro: new Error(det?.error?.message || det?.error?.type || `HTTP ${res.status}`) };
+  } catch (e) {
+    // Rede caída e tempo esgotado são instabilidade, não erro do pedido.
+    return { ok: false, repetir: true,
+      erro: e.name === 'AbortError'
+        ? new Error(`provedor não respondeu em ${TIMEOUT_IA_MS / 1000}s`) : e };
+  } finally { clearTimeout(timer); }
+}
+
 /** fetch para IA com retry/backoff em 429 e 5xx (5s/15s/30s). */
 async function fetchIA(url, init) {
   const delays = [0, 5000, 15000, 30000];
   let ultima = null;
   for (let i = 0; i < delays.length; i++) {
     if (delays[i]) await sleep(delays[i]);
-    let res;
-    try { res = await fetch(url, init); }
-    catch (e) { ultima = e; continue; }
-    if (res.ok) return await res.json();
-    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
-      ultima = new Error(`HTTP ${res.status}`); continue;
-    }
-    let det; try { det = await res.json(); } catch (_) { det = null; }
-    throw new Error(det?.error?.message || det?.error?.type || `HTTP ${res.status}`);
+    const r = await tentativaIA(url, init);
+    if (r.ok) return r.json;
+    if (!r.repetir) throw r.erro;
+    ultima = r.erro;
   }
   throw ultima || new Error('Falha após várias tentativas.');
 }
