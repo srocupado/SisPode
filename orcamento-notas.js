@@ -116,6 +116,7 @@ function render() {
   partes.push(cardEmendas(q));
   partes.push(cardNotasTecnicas(q));
   partes.push(cardDocumentos(q));
+  partes.push(cardExecutivo(q));
   partes.push(cardFicha(q));
   if (q.alteracoes) partes.push(cardAlteracoesPPA(q));
   if (estado.conferencia) partes.push(cardConferencia());
@@ -284,6 +285,46 @@ function cardConferencia() {
       A conferência diz apenas se a norma ou o valor citado CONSTA do documento do exercício.
       Constar não significa que o dispositivo continue aplicável ao mesmo caso — confirme na fonte.
     </div>
+  </div>`;
+}
+
+/**
+ * Materiais do Executivo — o CONTEÚDO do orçamento, ao lado da tramitação.
+ *
+ * É o que permite a nota sair de "onde o processo está" para "o que muda para
+ * o gabinete": os volumes trazem a alocação por órgão, o comparativo mostra o
+ * que o projeto altera na lei vigente, e a Mensagem Presidencial — que vem
+ * DENTRO do PDF do PLN, não como arquivo próprio — traz os parâmetros macro,
+ * o salário mínimo, a reserva para emendas e a justificativa do Governo.
+ */
+function cardExecutivo(q) {
+  const e = q.executivo;
+  if (!e) return '';
+  const m = q.materia;
+  const mensagem = m?.disponivel && m.urlDocumento
+    ? `<div class="on-ok">Mensagem Presidencial: vem <strong>dentro do PDF do projeto</strong>, nas páginas iniciais —
+       <a style="color:#0a6cf0" href="${esc(m.urlDocumento)}" target="_blank" rel="noopener">abrir ${esc(m.identificacao)}</a>.
+       É onde estão os parâmetros macroeconômicos, o salário mínimo projetado, a reserva para emendas e a
+       justificativa do Governo.</div>`
+    : '';
+  if (!e.disponivel) {
+    return `<div class="on-card largo"><h3>Materiais do Poder Executivo</h3>
+      ${mensagem}<div class="on-pend">${esc(e.motivo)}</div></div>`;
+  }
+  const grupo = (rot, classe) => {
+    const ds = e.documentos.filter(d => d.classe === classe);
+    if (!ds.length) return '';
+    return `<div style="margin-top:8px"><div class="on-rotulo">${rot}</div>
+      <ul class="on-lista">${ds.map(d => `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.rotulo)}</a></li>`).join('')}</ul></div>`;
+  };
+  return `<div class="on-card largo"><h3>Materiais do Poder Executivo · Ministério do Planejamento</h3>
+    ${mensagem}
+    ${grupo('Texto do projeto', 'texto_lei')}
+    ${grupo('Comparativos com a lei vigente', 'comparativo')}
+    ${grupo('Volumes (alocação por órgão e programa)', 'volume')}
+    ${grupo('Apresentação', 'apresentacao')}
+    ${grupo('Orçamento Cidadão', 'orcamento_cidadao')}
+    ${!e.apresentacao ? '<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">A Apresentação do Executivo não é publicada nesta página; quando circular, anexe-a manualmente à análise.</div>' : ''}
   </div>`;
 }
 
@@ -589,6 +630,10 @@ ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:
 <br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
 
 ${blocoFichaNota(q, ficha, pendencias.length)}
+${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
+<p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
+está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
+<table>${q.executivo.documentos.slice(0, 14).map(d => `<tr><td class="r">${esc(d.rotulo)}</td><td style="font-size:9pt;color:#555">${esc(d.url)}</td></tr>`).join('')}</table>` : ''}
 ${q.alteracoes && q.alteracoes.disponivel ? `<h2>Alterações ao texto do PPA</h2>
 <p>O plano em vigor é a <strong>${esc(q.alteracoes.leiDoPlano || 'lei do PPA')}</strong>. Ao longo do quadriênio, o Poder
 Executivo encaminha projetos que o alteram; são eles que tramitam, e não o plano original.</p>

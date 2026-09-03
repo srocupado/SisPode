@@ -36,6 +36,10 @@
 'use strict';
 
 const CN_BASE     = 'https://www.congressonacional.leg.br';
+// Ministério do Planejamento e Orçamento: onde o Executivo publica o texto do
+// projeto, os volumes e os comparativos de cada exercício. É o lado da FONTE
+// do orçamento; o Congresso publica o lado da TRAMITAÇÃO.
+const MPO_BASE    = 'https://www.gov.br/planejamento/pt-br/assuntos/orcamento/orcamentos-anuais';
 const SENADO_CMO  = 'https://legis.senado.leg.br/dadosabertos';
 
 // Cada lei orçamentária tem sua trilha no portal e seu jeito de se identificar
@@ -492,12 +496,84 @@ async function lerAlteracoesPPA(periodo) {
 }
 
 /**
+ * Materiais do Poder Executivo para o exercício (gov.br / MPO).
+ *
+ * POR QUE ISTO IMPORTA: o portal do Congresso conta a TRAMITAÇÃO; o conteúdo
+ * do orçamento — quanto vai para cada órgão, que parâmetros o Governo adotou,
+ * o que mudou em relação ao ano anterior — está do lado do Executivo. É esse
+ * material que uma nota consegue transformar em informação útil ao gabinete,
+ * em vez de relatório de andamento.
+ *
+ * MEDIDO em 03/09/2026 para o PLOA 2027: a página do exercício oferece Texto
+ * da Lei, Volumes 1 a 6 e o Comparativo LOA 2026 × PLOA 2027. A APRESENTAÇÃO
+ * e a MENSAGEM PRESIDENCIAL não são publicadas ali como itens próprios — a
+ * Mensagem vem DENTRO do PDF do PLN (nas páginas iniciais; no PLN 24/2026 ela
+ * ocupa da p.15 à ~250 de 3.235, com os parâmetros macro na p.34, o salário
+ * mínimo na p.128 e a Reserva para Emendas na p.137).
+ *
+ * Os slugs mudam a cada ano ("ploa-2027", "volume1finalrev1ploa2027_momento5…"),
+ * então nada é adivinhado: lê-se o índice do ano e seguem-se os links.
+ */
+async function lerMateriaisExecutivo(tipo, anoOrcamento) {
+  const t = LEIS_ORCAMENTARIAS[tipo];
+  if (!t || t.porPeriodo) return semConteudo('O Executivo não publica página por exercício para esta lei.');
+  const alvo = t.rotulo === 'LOA' ? /projeto de lei or[çc]ament[áa]ria/i : /projeto de lei de diretrizes/i;
+  const indice = `${MPO_BASE}/${anoOrcamento}`;
+
+  let doc;
+  try { ({ doc } = await htmlCMO(indice)); }
+  catch (e) { return semConteudo(`Portal do Ministério do Planejamento indisponível (${e.message}).`, { falha: true }); }
+
+  const linkExercicio = [...doc.querySelectorAll('a[href]')]
+    .find(a => alvo.test(txt(a)) && /orcamentos-anuais/i.test(a.getAttribute('href') || ''));
+  if (!linkExercicio) {
+    return semConteudo(`O Executivo ainda não publicou a página do ${t.rotulo === 'LOA' ? 'PLOA' : 'PLDO'} ${anoOrcamento}.`, { url: indice });
+  }
+  let url = linkExercicio.getAttribute('href');
+  if (url.startsWith('/')) url = 'https://www.gov.br' + url;
+
+  let pagina;
+  try { ({ doc: pagina } = await htmlCMO(url)); }
+  catch (e) { return semConteudo(`Página do exercício indisponível (${e.message}).`, { falha: true, url }); }
+
+  const documentos = [];
+  for (const a of pagina.querySelectorAll('a[href]')) {
+    const rotulo = txt(a);
+    let href = a.getAttribute('href') || '';
+    if (!rotulo || rotulo.length > 90 || !href) continue;
+    if (!/orcamentos-anuais/i.test(href)) continue;      // corta o menu do portal
+    if (href.startsWith('/')) href = 'https://www.gov.br' + href;
+    if (documentos.some(d => d.url === href)) continue;
+    const classe = /texto da lei|texto do/i.test(rotulo) ? 'texto_lei'
+      : /^volume/i.test(rotulo)                           ? 'volume'
+      : /comparativo/i.test(rotulo)                       ? 'comparativo'
+      : /apresenta[çc][ãa]o/i.test(rotulo)                ? 'apresentacao'
+      : /mensagem/i.test(rotulo)                          ? 'mensagem'
+      : /cidad[ãa]o/i.test(rotulo)                        ? 'orcamento_cidadao'
+      : 'outro';
+    if (classe === 'outro') continue;
+    documentos.push({ rotulo, url: href, classe });
+  }
+
+  return {
+    disponivel: documentos.length > 0,
+    motivo: documentos.length ? null : 'A página do exercício existe, mas nenhum documento foi localizado.',
+    url,
+    documentos,
+    textoLei:    documentos.find(d => d.classe === 'texto_lei') || null,
+    comparativo: documentos.find(d => d.classe === 'comparativo') || null,
+    apresentacao: documentos.find(d => d.classe === 'apresentacao') || null,
+    volumes: documentos.filter(d => d.classe === 'volume'),
+  };
+}
+
+/**
  * Quadro completo de um exercício: identificação + acompanhamento + cronograma
  * + relatores + documentos de emendas + notas técnicas. Cada peça declara-se
  * disponível ou não; nenhuma falha derruba as outras.
  */
 async function carregarExercicio(tipo, anoOrcamento) {
-  const [materia, acompanhamento, cronograma, relatores, emendas, notas, alteracoes] = await Promise.all([
+  const [materia, acompanhamento, cronograma, relatores, emendas, notas, alteracoes, executivo] = await Promise.all([
     buscarMateriaOrcamentaria(tipo, anoOrcamento),
     lerAcompanhamento(tipo, anoOrcamento),
     lerCronograma(tipo, anoOrcamento),
@@ -505,8 +581,10 @@ async function carregarExercicio(tipo, anoOrcamento) {
     lerDocumentosEmendas(tipo, anoOrcamento),
     lerNotasTecnicas(tipo, anoOrcamento),
     tipo === 'ppa' ? lerAlteracoesPPA(anoOrcamento) : Promise.resolve(null),
+    lerMateriaisExecutivo(tipo, anoOrcamento),
   ]);
-  const partes = { materia, acompanhamento, cronograma, relatores, emendas, notas, ...(alteracoes ? { alteracoes } : {}) };
+  const partes = { materia, acompanhamento, cronograma, relatores, emendas, notas, executivo,
+                   ...(alteracoes ? { alteracoes } : {}) };
   return {
     tipo, anoOrcamento: String(anoOrcamento), lidoEm: new Date().toISOString(),
     ...partes,
@@ -521,6 +599,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, txt, SEM_CONTEUDO,
     buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, lerRelatores,
-    lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, carregarExercicio,
+    lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, lerMateriaisExecutivo, carregarExercicio,
   };
 }
