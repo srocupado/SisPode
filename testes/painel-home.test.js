@@ -139,6 +139,57 @@ function montarPainel(htmlBruto = HTML) {
        'a home é mesmo uma camada fixa de tela cheia — é isso que a torna capaz de esconder um modal');
   }
 
+  console.log('\n== toda tela que reusa o panel.css precisa de contêiner rolável ==');
+  {
+    // O panel.css define body { height:100vh; display:flex; overflow:hidden }.
+    // Isso é deliberado: o painel é de altura fixa e quem rola é uma área
+    // interna (.main-content, .sidebar, .em-body — todas com overflow-y:auto).
+    //
+    // A consequência, fácil de esquecer numa tela nova: sem declarar um
+    // contêiner rolável, o conteúdo além da primeira dobra fica INALCANÇÁVEL,
+    // sem barra de rolagem e sem sintoma nenhum além do corte. Foi o que
+    // aconteceu com orcamento-notas.html, que montou layout próprio.
+    // Comentários fora ANTES de qualquer casamento: a primeira versão deste
+    // teste dava ✓ para min-height:0 lendo o próprio comentário que explica a
+    // regra, e continuava passando com a correção removida. Um teste que passa
+    // pelo texto da explicação é pior que teste nenhum.
+    const semComentarios = s => s.replace(/\/\*[\s\S]*?\*\//g, '');
+    const css = semComentarios(fs.readFileSync(path.join(RAIZ, 'panel.css'), 'utf8'));
+    const regraBody = /(^|\n)body\s*\{[^}]*\}/.exec(css)?.[0] || '';
+    ok(/overflow:\s*hidden/.test(regraBody) && /height:\s*100vh/.test(regraBody),
+       'o panel.css realmente prende o body em 100vh com overflow:hidden');
+
+    // As classes que rolam saem do próprio panel.css, medidas, não de uma lista
+    // escrita à mão que envelhece em silêncio.
+    const rolaveisDoCss = [...css.matchAll(/\.([a-z0-9-]+)\s*\{[^}]*overflow(?:-y)?:\s*auto/gi)]
+      .map(m => m[1]);
+    ok(rolaveisDoCss.length >= 3, `o panel.css oferece ${rolaveisDoCss.length} classes roláveis: ${[...new Set(rolaveisDoCss)].join(', ')}`);
+
+    const telas = fs.readdirSync(RAIZ).filter(f => f.endsWith('.html'))
+      .filter(f => fs.readFileSync(path.join(RAIZ, f), 'utf8').includes('panel.css'));
+    ok(telas.length >= 6, `${telas.length} telas reusam o panel.css`);
+
+    const usaClasse = (h, c) => new RegExp(`class="[^"]*\\b${c}\\b`).test(h);
+    const semRolagem = telas.filter(f => {
+      const h = fs.readFileSync(path.join(RAIZ, f), 'utf8');
+      if (/overflow(-y)?:\s*auto/.test(semComentarios(h))) return false;   // declara a própria
+      return !rolaveisDoCss.some(c => usaClasse(h, c));
+    });
+    ok(!semRolagem.length,
+       semRolagem.length ? `telas sem contêiner rolável (conteúdo cortado sem barra): ${semRolagem.join(', ')}`
+                         : 'todas têm área rolável, própria ou herdada do panel.css');
+
+    // E a tela do Orçamento, que é a que quebrou, com verificação direta.
+    const on = semComentarios(fs.readFileSync(path.join(RAIZ, 'orcamento-notas.html'), 'utf8'));
+    const regraCorpo = /\.on-corpo\s*\{[^}]*\}/.exec(on)?.[0] || '';
+    ok(/overflow-y:\s*auto/.test(regraCorpo) && /flex:\s*1/.test(regraCorpo),
+       'o corpo das notas orçamentárias é o contêiner rolável');
+    ok(/min-height:\s*0/.test(regraCorpo),
+       'com min-height:0 — sem isso o item flex não encolhe e o overflow não vale de nada');
+    const regraTop = /\.on-topbar\s*\{[^}]*\}/.exec(on)?.[0] || '';
+    ok(/flex-shrink:\s*0/.test(regraTop), 'e a barra de filtros não encolhe junto com a rolagem');
+  }
+
   console.log('\n== todo id exigido sem guarda existe no HTML ==');
   {
     // A causa raiz: getElementById('x').addEventListener sem `?.`. Se o id não
