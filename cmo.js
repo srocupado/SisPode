@@ -232,7 +232,18 @@ async function lerCronograma(tipo, anoOrcamento) {
   // O PPA põe a hora DEPOIS de cada data — "de 07/11/2023 (13h) a 07/11/2023
   // (18h)" —, enquanto a LOA põe só no fim ("a 19/11/2025 (20h)"). Sem aceitar
   // o parêntese entre a primeira data e o "a", os itens do PPA eram descartados.
-  const re = /(\d{1,2})\.\s*((?:(?!\d{2}\/\d{2}\/\d{4}).){5,170}?)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:\(([^)]{1,14})\))?\s*(?:a|até)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:\(([^)]{1,14})\))?/g;
+  // A data inicial às vezes vem SEM O ANO: o cronograma da LOA 2025 escreve
+  // "5. Publicação do relatório preliminar de 06/12 (10h02) a 06/12/2024".
+  // Exigir dd/mm/aaaa nas duas pontas descartava os itens 5, 6 e 7 daquele
+  // exercício EM SILÊNCIO — e o 6 é "Apresentação de emendas ao relatório
+  // preliminar", um prazo que sumiria da nota sem deixar rastro. O ano que
+  // falta é herdado da outra ponta, que sempre o traz.
+  const re = /(\d{1,2})\.\s*((?:(?!\d{2}\/\d{2}).){5,170}?)\s*(?:de\s+)?(\d{2}\/\d{2}(?:\/\d{4})?)\s*(?:\(([^)]{1,14})\))?\s*(?:a|até)\s*(?:de\s+)?(\d{2}\/\d{2}(?:\/\d{4})?)\s*(?:\(([^)]{1,14})\))?/g;
+  const comAno = (data, referencia) => {
+    if (/^\d{2}\/\d{2}\/\d{4}$/.test(data)) return data;
+    const ano = String(referencia || '').slice(-4);
+    return /^\d{4}$/.test(ano) ? `${data}/${ano}` : data;
+  };
   let m;
   while ((m = re.exec(texto)) !== null) {
     const descricao = m[2].replace(/\s+/g, ' ').trim();
@@ -240,8 +251,8 @@ async function lerCronograma(tipo, anoOrcamento) {
     itens.push({
       ordem: parseInt(m[1], 10),
       descricao,
-      inicio: m[3],
-      fim: m[5],
+      inicio: comAno(m[3], m[5]),
+      fim: comAno(m[5], m[3]),
       observacao: [m[4], m[6]].filter(Boolean).map(x => x.trim()).join(' a ') || null,
     });
   }
@@ -359,6 +370,11 @@ async function lerDocumentosEmendas(tipo, anoOrcamento) {
     if (docs.some(d => d.url === href)) continue;
     const classe = /manual\s+de\s+emendas/i.test(rotulo) ? 'manual'
       : /instru[çc][ãa]o\s+normativa/i.test(rotulo)      ? 'instrucao_normativa'
+      // A LOA 2025 NÃO publicou "Manual de Emendas": a orientação veio partida
+      // em "Instruções para elaboração de emendas no LEXOR", formulários e
+      // listas. Sem reconhecer essas formas, o exercício ficava sem âncora
+      // normativa nenhuma e a conferência não teria contra o que rodar.
+      : /instru[çc][õo]es|orienta[çc][õo]es|manual/i.test(rotulo) ? 'orientacao'
       : /portaria/i.test(rotulo)                          ? 'portaria'
       : /cartilha/i.test(rotulo)                          ? 'cartilha'
       : 'outro';
@@ -368,7 +384,12 @@ async function lerDocumentosEmendas(tipo, anoOrcamento) {
     disponivel: docs.length > 0,
     motivo: docs.length ? null : 'A etapa está aberta, mas nenhum documento foi localizado.',
     url,
+    // A âncora preferida é o Manual; na falta dele, a orientação publicada.
     manual: docs.find(d => d.classe === 'manual') || null,
+    ancoraNormativa: docs.find(d => d.classe === 'manual')
+      || docs.find(d => d.classe === 'orientacao')
+      || docs.find(d => d.classe === 'instrucao_normativa')
+      || null,
     documentos: docs,
   };
 }
