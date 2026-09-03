@@ -178,21 +178,31 @@ async function lerAcompanhamento(tipo, anoOrcamento) {
   const mEstado = /Último estado:\s*([\d/]{10})\s*-\s*(.{3,90}?)(?:\s{2,}|$)/i.exec(corpo);
   const mProposta = /Proposta:\s*(PLN\s*\d+\/\d{4})/i.exec(corpo);
 
-  // Documentos anexados (PLN, Quadro Comparativo, pareceres…) — links do
-  // sdleg-getter, em ordem cronológica inversa. Um exercício encerrado acumula
-  // centenas (a LOA 2026 fechou com ~200): guarda os mais recentes e CONTA o
-  // resto, para não inflar o Firebase com a tramitação inteira nem fingir que
-  // a lista está completa.
+  // Documentos anexados — links do sdleg-getter, em ordem cronológica inversa.
+  // Um exercício encerrado acumula centenas (a LOA 2026 fechou com 210).
+  //
+  // Guardar "os 60 mais recentes" era o critério errado, e escondia o melhor
+  // conteúdo que o portal oferece. Nesses 210 documentos estão o RELATÓRIO
+  // GERAL da CMO (que traz os números finais), os 16 RELATÓRIOS SETORIAIS por
+  // área temática e o RELATÓRIO DE DISTRIBUIÇÃO DOS RECURSOS POR BANCADA — que
+  // é quanto cada bancada estadual efetivamente recebeu. Ficavam misturados a
+  // dezenas de "Ofício" sem título, na mesma lista chapada, e nenhum deles
+  // chegava à nota. Classificar é o que permite pôr o que decide na frente.
   const TETO_DOCS = 60;
-  const documentos = [];
-  let totalDocs = 0;
+  const brutos = [];
+  const vistos = new Set();
   for (const a of doc.querySelectorAll('a[href*="sdleg-getter"]')) {
     const rotulo = txt(a);
     const href = (a.getAttribute('href') || '').replace(/&amp;/g, '&').replace(/^http:\/\//i, 'https://');
-    if (!rotulo || rotulo === 'PDF' || documentos.some(d => d.url === href)) continue;
-    totalDocs++;
-    if (documentos.length < TETO_DOCS) documentos.push({ rotulo, url: href });
+    if (!rotulo || rotulo === 'PDF' || vistos.has(href)) continue;
+    vistos.add(href);
+    brutos.push({ rotulo, url: href, ...classificarDocTramitacao(rotulo) });
   }
+  // O teto agora nunca corta um documento decisivo: eles entram primeiro, e o
+  // restante preenche o que sobra da cota.
+  const decisivos = brutos.filter(d => d.decisivo);
+  const demais = brutos.filter(d => !d.decisivo);
+  const documentos = [...decisivos, ...demais.slice(0, Math.max(0, TETO_DOCS - decisivos.length))];
 
   return {
     disponivel: etapas.length > 0,
@@ -202,7 +212,11 @@ async function lerAcompanhamento(tipo, anoOrcamento) {
     ultimoEstado: mEstado ? { data: mEstado[1], descricao: mEstado[2].trim() } : null,
     etapas,
     documentos,
-    documentosOmitidos: Math.max(0, totalDocs - documentos.length),
+    documentosOmitidos: Math.max(0, brutos.length - documentos.length),
+    // Atalhos para a nota: é isto que um gabinete procura, e estava enterrado.
+    relatorioGeral: decisivos.find(d => d.classe === 'relatorio_geral') || null,
+    relatoriosSetoriais: decisivos.filter(d => d.classe === 'relatorio_setorial'),
+    distribuicaoBancadas: decisivos.filter(d => d.classe === 'distribuicao'),
     etapaAtual: etapas.find(e => /em andamento/i.test(e.estado)) || null,
   };
 }
@@ -352,6 +366,35 @@ async function lerRelatores(tipo, anoOrcamento) {
  * portarias ministeriais e cartilhas. O Manual é a ÂNCORA NORMATIVA da nota —
  * é dele que saem cotas, prazos, pisos e a base legal vigente NAQUELE exercício.
  */
+/**
+ * Classifica um documento da tramitação pelo rótulo com que o portal o publica.
+ *
+ * `decisivo` marca o que um gabinete efetivamente procura e o que a nota tem de
+ * trazer; os rótulos abaixo são os REAIS, medidos na LOA 2026 em 03/09/2026.
+ */
+function classificarDocTramitacao(rotulo) {
+  const r = String(rotulo || '');
+  const setorial = /Relat[óo]rio\s+Setorial\s+d[aoe]s?\s+(.+?)\s*$/i.exec(r);
+  if (setorial) {
+    // O portal republica versões do mesmo setorial com sufixo ("- Complementação",
+    // "- Retificação"). Sem tirá-lo, a mesma área aparece duas vezes na nota,
+    // como se fossem duas áreas temáticas distintas.
+    const area = setorial[1].replace(/\s*[-–]\s*(Complementa[çc][ãa]o|Retifica[çc][ãa]o|Errata|Anexos?)\s*$/i, '').trim();
+    return { classe: 'relatorio_setorial', area, decisivo: true };
+  }
+  // "Relatório Geral" e "Relatório Geral - Complementação" (e o PAR que o veicula).
+  if (/Relat[óo]rio\s+Geral/i.test(r))          return { classe: 'relatorio_geral', decisivo: true };
+  if (/distribui[çc][ãa]o\s+dos?\s+recursos/i.test(r)) return { classe: 'distribuicao', decisivo: true };
+  if (/Aut[óo]grafo/i.test(r))                  return { classe: 'autografo', decisivo: true };
+  if (/Quadro\s+Comparativo/i.test(r))          return { classe: 'quadro_comparativo', decisivo: true };
+  if (/^Nota\s+T[ée]cnica/i.test(r))            return { classe: 'nota_tecnica', decisivo: true };
+  if (/Relat[óo]rio\s+Legislativo/i.test(r))    return { classe: 'relatorio_legislativo', decisivo: true };
+  if (/^Parecer\b|^PAR\s+\d/i.test(r))          return { classe: 'parecer', decisivo: false };
+  if (/^Of[íi]cio|^OF[CN.\s]|^Aviso\b|^Of\./i.test(r)) return { classe: 'oficio', decisivo: false };
+  if (/^MPCN|^Mensagem/i.test(r))               return { classe: 'mensagem', decisivo: false };
+  return { classe: 'outro', decisivo: false };
+}
+
 /**
  * A área temática de um link de cartilha: o <strong> do <li> que o envolve.
  *
