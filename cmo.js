@@ -286,12 +286,25 @@ async function lerRelatores(tipo, anoOrcamento) {
     setoriais.push({ area, casa: p[1] === 'Dep' ? 'Câmara' : 'Senado', nome: p[2].trim(), partido: (partido || '').trim(), uf: (uf || '').trim() });
   }
 
+  const presidente = acha('Presidente');
   const geral   = acha('Relator\\s+Geral');
   const receita = acha('Relator\\s+da\\s+Receita');
+
+  // MEDIDO em 03/09/2026: a trilha da LDO NÃO tem página de relatores — o
+  // portal devolve 200 com o layout genérico, sem bloco nenhum. Sem esta
+  // guarda, a LDO 2026 (exercício ENCERRADO, que teve relator) saía como
+  // "página lida, ninguém designado" — uma afirmação falsa sobre a relatoria.
+  // "O bloco existe e está vazio" (LOA recém-chegada) é outra coisa, e é o
+  // único caso em que cabe falar em pendência de designação.
+  const temBloco = /Relatores?\s+d[oae]\s/i.test(corpo) || /Relator\s+Geral/i.test(corpo);
+  if (!temBloco && !presidente && !geral && !receita && !setoriais.length) {
+    return semConteudo('O portal não publica página de relatores para esta lei/exercício.', { url });
+  }
+
   return {
     disponivel: true,
     url,
-    presidenteCMO: acha('Presidente'),
+    presidenteCMO: presidente,
     relatorGeral:  geral,
     relatorReceita: receita,
     setoriais,
@@ -358,14 +371,26 @@ async function lerNotasTecnicas(tipo, anoOrcamento) {
   if (SEM_CONTEUDO.test(corpo)) {
     return semConteudo('As consultorias ainda não publicaram notas técnicas para este exercício.', { url });
   }
+  // Duas grafias, MEDIDAS em 03/09/2026: a LOA lista "19/02/2026 - Raio-X da
+  // LOA 2026" e a LDO lista só o título ("Nota Técnica Conjunta nº 4/2025 -
+  // CONORF/SF - CONOF/CD - Subsídios…"). Exigir a data descartava as três
+  // notas da LDO em silêncio, e a tela dizia que não havia nenhuma.
   const notas = [];
+  const ASSUNTO = /nota\s+t[ée]cnica|informativo|raio[\s-]?x|estudo|subs[íi]dios|considera[çc][õo]es/i;
   for (const a of doc.querySelectorAll('a[href]')) {
     const rotulo = txt(a);
-    const m = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*(.+)$/.exec(rotulo);
-    if (!m) continue;
+    if (!rotulo || rotulo.length < 18 || rotulo.length > 300) continue;
     let href = a.getAttribute('href') || '';
+    if (!href || href.startsWith('#')) continue;
+    // Uma nota aponta para um DOCUMENTO (/documents/…, .pdf, sdleg-getter);
+    // "Estudos orçamentários" no menu lateral aponta para /web/orcamento/… e
+    // casava com a busca por assunto, entrando na lista como se fosse nota.
+    if (!/\/documents\/|\.pdf|sdleg-getter/i.test(href)) continue;
     if (href.startsWith('/')) href = CN_BASE + href;
-    notas.push({ data: m[1], titulo: m[2].trim(), url: href });
+    if (notas.some(n => n.url === href)) continue;
+    const m = /^(\d{2}\/\d{2}\/\d{4})\s*-\s*(.+)$/.exec(rotulo);
+    if (m) notas.push({ data: m[1], titulo: m[2].trim(), url: href });
+    else if (ASSUNTO.test(rotulo)) notas.push({ data: null, titulo: rotulo, url: href });
   }
   return {
     disponivel: notas.length > 0,

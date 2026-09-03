@@ -137,6 +137,37 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     else ok(true, `(a etapa de emendas da LOA 2027 abriu: ${e27.documentos.length} documentos)`);
   }
 
+  console.log('\n== LDO: mesma leitura, formato diferente ==');
+  {
+    // A LDO tem trilha, pipeline e grafias próprios. MEDIDO em 03/09/2026:
+    // 6 etapas (a LOA tem 10); cronograma com 7 itens; NÃO tem página de
+    // relatores; e as notas das consultorias são listadas SEM data.
+    const a = await C.lerAcompanhamento('ldo', 2026);
+    ok(a.disponivel && a.etapas.length === 6, `LDO 2026: ${a.etapas.length} etapas (a LOA tem 10)`);
+    ok(a.etapas.some(e => /diretrizes or[çc]ament/i.test(e.nome)), 'com a etapa própria da LDO');
+
+    const c = await C.lerCronograma('ldo', 2026);
+    ok(c.disponivel && c.prazoEmendas, `prazo de emendas da LDO 2026: ${c.prazoEmendas?.inicio} a ${c.prazoEmendas?.fim}`);
+
+    // Página inexistente NÃO pode virar "ninguém designado": a LDO 2026 está
+    // encerrada e teve relator. Afirmar o contrário seria informação falsa.
+    const r = await C.lerRelatores('ldo', 2026);
+    ok(!r.disponivel && /não publica página de relatores/i.test(r.motivo),
+       `relatoria da LDO: "${r.motivo}"`);
+    ok(!r.falha, 'e isso não é falha de fonte');
+
+    // As notas da LDO vêm sem data — exigi-la descartava as três em silêncio.
+    const n = await C.lerNotasTecnicas('ldo', 2026);
+    ok(n.disponivel && n.notas.length >= 3, `${n.notas.length} notas das consultorias na LDO 2026`);
+    ok(n.notas.some(x => x.data === null), 'e ao menos uma sem data, como o portal publica');
+    ok(n.notas.every(x => /\/documents\/|\.pdf|sdleg-getter/i.test(x.url)),
+       'toda nota aponta para um documento — "Estudos orçamentários" do menu não entra na lista');
+    ok(!n.notas.some(x => /^Estudos or[çc]ament[áa]rios$/i.test(x.titulo)), 'e o item de menu não vaza');
+
+    const m = await C.buscarMateriaOrcamentaria('ldo', 2026);
+    ok(m.disponivel && /^PLN\s*\d+\/2025$/.test(m.identificacao), `PLDO 2026 é ${m.identificacao} (apresentado no ano anterior)`);
+  }
+
   console.log('\n== quadro completo do exercício ==');
   {
     const e = await C.carregarExercicio('loa', 2027);
