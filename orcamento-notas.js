@@ -31,7 +31,7 @@
 const FIREBASE_URL_ON = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const SIGLA_PODE = /^PODE(MOS)?$/i;
 
-const estado = { tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false, ficha: null };
+const estado = { tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false, ficha: null, serie: null, variacao: null };
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
@@ -91,6 +91,7 @@ async function carregar() {
   try {
     estado.quadro = await carregarExercicio(estado.tipo, estado.ano);
     estado.ficha = await carregarFicha(estado.tipo, estado.ano);
+    estado.serie = await carregarSerie(estado.tipo, estado.ano);
     render();
   } catch (e) {
     console.error(e);
@@ -116,6 +117,9 @@ function render() {
   partes.push(cardEmendas(q));
   partes.push(cardNotasTecnicas(q));
   partes.push(cardDocumentos(q));
+  partes.push(cardSerie());
+  partes.push(cardVariacao());
+  partes.push(cardGuia(q));
   partes.push(cardExecutivo(q));
   partes.push(cardFicha(q));
   if (q.alteracoes) partes.push(cardAlteracoesPPA(q));
@@ -329,6 +333,165 @@ function cardExecutivo(q) {
 }
 
 // ============================================================
+//  SÉRIE HISTÓRICA · VARIAÇÃO · GUIA DE APLICAÇÃO
+// ============================================================
+// Os três produtos que fazem a nota falar com o deputado, e não só com a
+// coordenação: quanto ele tem e quanto era antes, o que subiu e o que caiu, e
+// o que dá para fazer com o dinheiro.
+
+/** Carrega as fichas dos exercícios anteriores para montar a série. */
+async function carregarSerie(tipo, ano) {
+  const base = Number(String(ano).slice(0, 4));
+  if (!Number.isFinite(base)) return null;
+  const anos = [];
+  for (let a = base; a > base - 6; a--) anos.push(String(a));
+  const fichas = await Promise.all(anos.map(a => carregarFicha(tipo, a)));
+  return montarSerie(fichas.filter(Boolean));
+}
+
+function cardSerie() {
+  const series = estado.serie ? seriesComDados(estado.serie) : [];
+  if (!estado.serie) return '';
+  if (!series.length) {
+    return `<div class="on-card largo"><h3>Série histórica</h3>
+      <div class="on-pend">Nenhum exercício tem ficha preenchida ainda. A série se monta sozinha conforme a
+      equipe preenche a ficha de cada ano — e é ela que dá sentido ao número: "sua cota é de R$ 40 milhões"
+      não diz nada a quem não sabe quanto era antes.</div></div>`;
+  }
+  const linha = s => {
+    const pts = s.pontos.map(p => `<td style="text-align:right"><strong>${esc(p.texto)}</strong><br>
+      <span style="font-size:10.5px;color:var(--text-dim)">${esc(p.ano)}</span></td>`).join('');
+    const v = s.variacao;
+    const tag = !v ? '<span class="on-vazio">um exercício</span>'
+      : v.pct === null ? '<span class="on-vazio">base zero</span>'
+      : `<span class="on-selo ${v.pct >= 0 ? 'selo-andamento' : 'selo-diverg'}">${v.pct >= 0 ? '+' : '−'}${Math.abs(v.pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span>`;
+    return `<tr><td class="a">${esc(s.rotulo)}${v && !v.contiguo ? `<br><span style="font-size:10.5px;color:#d68a00">série com lacuna: ${esc(s.lacunas.join(', '))}</span>` : ''}</td>
+      ${pts}<td style="text-align:right">${tag}</td></tr>`;
+  };
+  return `<div class="on-card largo"><h3>Série histórica — o que mudou para o parlamentar</h3>
+    <table class="on-tab">${series.map(linha).join('')}</table>
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">
+      Cada ponto vem da ficha do respectivo exercício, com documento de origem. Exercício sem ficha aparece
+      como lacuna — nunca é interpolado.
+    </div>
+  </div>`;
+}
+
+/**
+ * Variação entre exercícios, lida das tabelas da Mensagem Presidencial. Só
+ * aparece depois que o analista roda a leitura, porque envolve baixar o PDF do
+ * projeto (27 MB no PLOA 2027) e extrair as páginas.
+ */
+function cardVariacao() {
+  const v = estado.variacao;
+  if (!v) {
+    return `<div class="on-card largo"><h3>O que subiu e o que caiu</h3>
+      <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
+        As tabelas comparativas entre exercícios estão na Mensagem Presidencial, dentro do PDF do projeto.
+        <button class="btn btn-outline btn-sm" data-acao="ler-mensagem" style="margin-left:8px">Ler a Mensagem</button>
+      </div></div>`;
+  }
+  if (v.erro) return `<div class="on-card largo"><h3>O que subiu e o que caiu</h3><div class="on-falha">${esc(v.erro)}</div></div>`;
+
+  const bloco = (titulo, itens, classe) => itens.length ? `<div style="margin-top:8px"><div class="on-rotulo">${titulo}</div>
+    <table class="on-tab">${itens.map(i => `<tr><td class="a">${esc(i.rotulo)}</td>
+      <td style="text-align:right"><strong>${esc(formatarBR(i.para))}</strong>
+      <span class="on-selo ${classe}">${i.pct >= 0 ? '+' : '−'}${Math.abs(i.pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</span></td></tr>`).join('')}</table></div>` : '';
+
+  return `<div class="on-card largo"><h3>O que subiu e o que caiu · ${esc(v.de)} → ${esc(v.para)}</h3>
+    <div style="font-size:11.5px;color:var(--text-dim)">Valores em R$ milhões, da ${esc(v.fonte)}.</div>
+    ${bloco('Maiores altas', v.maioresAltas, 'selo-andamento')}
+    ${bloco('Maiores quedas', v.maioresQuedas, 'selo-diverg')}
+    ${v.porOrgao ? `<div style="margin-top:10px"><div class="on-rotulo">Por órgão — ${esc(v.porOrgao.titulo || 'distribuição')}</div>
+      <table class="on-tab">${v.porOrgao.linhas.map(l => `<tr><td class="a">${esc(l.codigo)} — ${esc(l.orgao)}</td><td style="text-align:right"><strong>${esc(formatarBR(l.valor))}</strong></td></tr>`).join('')}</table>
+      <div class="${v.porOrgao.confere ? 'on-ok' : 'on-falha'}">${v.porOrgao.confere
+        ? `Leitura conferida: a soma das ${v.porOrgao.linhas.length} linhas fecha com o total impresso no documento (${esc(formatarBR(v.porOrgao.total))}).`
+        : esc(v.porOrgao.motivo)}</div></div>` : ''}
+  </div>`;
+}
+
+/** Lê a Mensagem (dentro do PDF do projeto) e extrai as tabelas. */
+async function lerMensagem() {
+  const q = estado.quadro;
+  const url = q?.materia?.urlDocumento;
+  if (!url) { mostrarToast('A matéria não tem documento publicado.', 'aviso'); return; }
+  estado.variacao = { carregando: true };
+  $('on-status').innerHTML = '<span class="on-spinner"></span> lendo a Mensagem Presidencial (PDF grande)…';
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const doc = await pdfjsLib.getDocument({ data: await r.arrayBuffer() }).promise;
+    // A Mensagem ocupa as páginas iniciais; varrer o documento inteiro (3.235
+    // páginas no PLOA 2027) seria minutos de espera sem ganho.
+    const limite = Math.min(doc.numPages, 300);
+    let comparativa = null, porOrgao = null;
+    for (let p = 20; p <= limite; p++) {
+      const texto = await textoDaPagina(doc, p);
+      if (!comparativa) {
+        const t = tabelaComparativa(texto);
+        if (t.linhas.length >= 4) comparativa = { ...t, pagina: p };
+      }
+      if (!porOrgao) {
+        const o = tabelaPorOrgao(texto);
+        if (o.linhas.length >= 5) porOrgao = { ...o, pagina: p, titulo: tituloDaTabela(texto) };
+      }
+      if (comparativa && porOrgao) break;
+    }
+    if (!comparativa) { estado.variacao = { erro: 'Não localizei tabela comparativa entre exercícios nas primeiras 300 páginas do projeto.' }; render(); return; }
+
+    const exs = comparativa.exercicios;
+    const v = variacaoEntre(comparativa, exs[exs.length - 2], exs[exs.length - 1]);
+    estado.variacao = v.comparado
+      ? { ...v, fonte: `Mensagem Presidencial, p. ${comparativa.pagina} do ${q.materia.identificacao}`, porOrgao }
+      : { erro: v.motivo };
+    render();
+  } catch (e) {
+    estado.variacao = { erro: `Não consegui ler a Mensagem (${e.message}).` };
+    render();
+  } finally { $('on-status').textContent = ''; }
+}
+
+/** Texto de uma página, agrupado por linha (mesmo critério do extrator). */
+async function textoDaPagina(doc, p) {
+  const c = await (await doc.getPage(p)).getTextContent();
+  const its = c.items.slice().sort((a, b) => b.transform[5] - a.transform[5]);
+  const g = [];
+  for (const i of its) {
+    const y = i.transform[5];
+    let k = g.find(x => Math.abs(x.y - y) <= 2.5);
+    if (!k) { k = { y, i: [] }; g.push(k); }
+    k.i.push(i);
+  }
+  return g.map(k => k.i.sort((a, b) => a.transform[4] - b.transform[4]).map(i => i.str).join(' ').replace(/\s+/g, ' ').trim())
+    .filter(Boolean).join('\n');
+}
+
+function tituloDaTabela(texto) {
+  const m = /Tabela\s+\d+\s*[-–]\s*([^\n]{10,120})/i.exec(texto);
+  return m ? m[1].replace(/\s+/g, ' ').trim() : null;
+}
+
+function cardGuia(q) {
+  const g = montarGuia(q.emendas || {}, q.relatores || {});
+  if (!g.disponivel) return `<div class="on-card largo"><h3>Guia de aplicação das emendas</h3>
+    <div class="on-pend">${esc(g.motivo || g.ressalva)}</div></div>`;
+  const area = a => `<tr>
+    <td class="a"><strong>${esc(a.area)}</strong><br>
+      <span style="font-size:11px;color:var(--text-dim)">${a.relator.casa === 'Senado' ? 'Sen.' : 'Dep.'} ${esc(a.relator.nome)} (${esc(a.relator.partido)}/${esc(a.relator.uf)})${a.relator.daBancada ? '<span class="on-pode">PODEMOS</span>' : ''}</span></td>
+    <td>${a.cartilhas.length
+      ? a.cartilhas.map(c => `<a style="color:#0a6cf0" href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.rotulo)}</a>`).join('<br>')
+      : '<span class="on-vazio">sem cartilha publicada</span>'}</td></tr>`;
+  return `<div class="on-card largo"><h3>Guia de aplicação das emendas · por área temática</h3>
+    ${g.areasDaBancada.length ? `<div class="on-ok">A bancada relata ${g.areasDaBancada.length} área(s): ${g.areasDaBancada.map(a => esc(a.nome)).join('; ')} — acesso direto ao relator setorial.</div>` : ''}
+    <table class="on-tab">${g.areas.map(area).join('')}</table>
+    ${g.semArea.length ? `<div style="margin-top:8px"><div class="on-rotulo">Cartilhas sem área identificada</div>
+      <ul class="on-lista">${g.semArea.map(c => `<li><a href="${esc(c.url)}" target="_blank" rel="noopener">${esc(c.rotulo)}</a></li>`).join('')}</ul></div>` : ''}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">${esc(g.ressalva)}</div>
+  </div>`;
+}
+
+// ============================================================
 //  FICHA DE PARÂMETROS
 // ============================================================
 // Compartilhada com a equipe pelo Firebase, uma por exercício. O esquema vem
@@ -526,11 +689,11 @@ function gerarNota() {
   if (!q?.materia?.disponivel) return;
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a nova aba. Permita pop-ups para gerar a nota.'); return; }
-  w.document.write(htmlNota(q, estado.conferencia, estado.ficha));
+  w.document.write(htmlNota(q, estado.conferencia, estado.ficha, estado.serie, estado.variacao));
   w.document.close();
 }
 
-function htmlNota(q, conf, ficha) {
+function htmlNota(q, conf, ficha, serie, variacao) {
   const m = q.materia, r = q.relatores, c = q.cronograma, a = q.acompanhamento, e = q.emendas;
   const agora = new Date();
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
@@ -630,6 +793,8 @@ ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:
 <br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
 
 ${blocoFichaNota(q, ficha, pendencias.length)}
+${blocoSerieNota(serie)}
+${blocoVariacaoNota(variacao)}
 ${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
 <p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
 está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
@@ -678,6 +843,36 @@ ${aPreencher.length ? `<div class="pend">A fonte já foi publicada, mas estes ca
   ${esc(aPreencher.map(l => l.rotulo).join('; '))}.</div>` : ''}`;
 }
 
+/**
+ * A série na nota. O número isolado não informa; a série informa. E a cobertura
+ * vai junto: série com buraco no meio não pode ser lida como evolução anual.
+ */
+function blocoSerieNota(serie) {
+  const comDados = serie ? seriesComDados(serie) : [];
+  if (!comDados.length) return '';
+  return `<h2>Evolução entre exercícios</h2>
+<table>${comDados.map(s => `<tr><td class="r">${esc(s.rotulo)}</td><td>${esc(frasSerie(s).replace(s.rotulo + ': ', ''))}</td></tr>`).join('')}</table>
+<div class="fonte">Cada ponto vem da ficha do respectivo exercício, com documento de origem registrado.
+Exercícios sem ficha aparecem como lacuna — nenhum valor é interpolado.</div>`;
+}
+
+/** "O que subiu e o que caiu" — a parte que vai à tribuna. */
+function blocoVariacaoNota(v) {
+  if (!v || v.erro || !v.comparado) return '';
+  const linha = i => `<tr><td class="r">${esc(i.rotulo)}</td>
+    <td style="text-align:right">${esc(formatarBR(i.de))} → <strong>${esc(formatarBR(i.para))}</strong></td>
+    <td style="width:16%;text-align:right">${i.pct >= 0 ? '+' : '−'}${Math.abs(i.pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</td></tr>`;
+  return `<h2>O que muda em relação ao exercício anterior</h2>
+<p>Comparação entre <strong>${esc(v.de)}</strong> e <strong>${esc(v.para)}</strong>, em R$ milhões, extraída da ${esc(v.fonte)}.</p>
+${v.maioresAltas.length ? `<p><strong>Maiores altas</strong></p><table>${v.maioresAltas.slice(0, 8).map(linha).join('')}</table>` : ''}
+${v.maioresQuedas.length ? `<p><strong>Maiores quedas</strong></p><table>${v.maioresQuedas.slice(0, 8).map(linha).join('')}</table>` : ''}
+${v.porOrgao ? `<p><strong>Por órgão — ${esc(v.porOrgao.titulo || 'distribuição')}</strong></p>
+<table>${v.porOrgao.linhas.map(l => `<tr><td class="r">${esc(l.codigo)}</td><td>${esc(l.orgao)}</td><td style="text-align:right">${esc(formatarBR(l.valor))}</td></tr>`).join('')}</table>
+<div class="fonte">${v.porOrgao.confere
+  ? `Leitura conferida contra o total impresso no documento (${esc(formatarBR(v.porOrgao.total))}): a tabela está completa.`
+  : esc(v.porOrgao.motivo)}</div>` : ''}`;
+}
+
 /** 57ª Legislatura: 2023-2027. Cada legislatura dura 4 anos desde 1826. */
 function legislaturaDe(ano) {
   return 57 + Math.floor((ano - 2023) / 4);
@@ -705,6 +900,8 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-voltar').addEventListener('click', () => { window.location.href = 'panel.html'; });
   // Os links da ficha nascem a cada render; a escuta fica no contêiner.
   $('on-corpo').addEventListener('click', ev => {
+    const btnMsg = ev.target.closest('[data-acao="ler-mensagem"]');
+    if (btnMsg) { ev.preventDefault(); lerMensagem(); return; }
     const a = ev.target.closest('[data-ficha-editar]');
     if (!a) return;
     ev.preventDefault();
