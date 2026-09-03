@@ -245,11 +245,45 @@ let app = {
 // ---------- INICIALIZAÇÃO ----------
 document.addEventListener('DOMContentLoaded', () => {
   configurarPDF();
-  registrarEventos();
+
+  // A navegação da home vem PRIMEIRO, e de propósito.
+  //
+  // registrarEventos() faz ~40 getElementById().addEventListener() em sequência,
+  // sem guarda. Um único elemento ausente — um panel.html defasado depois de uma
+  // atualização parcial da pasta da extensão — lança TypeError e mata todo o
+  // resto da função. Como renderHomeGrid() ficava no fim dela, o efeito era o
+  // pior possível: a tela abria normal e NENHUM card respondia ao clique, sem
+  // erro visível. "Cliquei no módulo e não aconteceu nada" é exatamente a cara
+  // desse defeito. Renderizando a home antes, a navegação sobrevive à falha.
+  try { renderHomeGrid(); } catch (e) { console.error('[painel] home:', e); }
+
+  try {
+    registrarEventos();
+  } catch (e) {
+    // E o que falhar depois disso é DITO, não engolido: silêncio aqui manda o
+    // usuário clicar num botão morto sem nunca saber por quê.
+    console.error('[painel] registrarEventos parou em:', e);
+    avisarFalhaDeBoot(e);
+  }
+
   carregarConfiguracao();
   carregarHistorico();
   // Pré-carrega o histórico na sidebar sem sair da home
 });
+
+/**
+ * Banner de falha de inicialização. Aparece na própria tela porque o console da
+ * extensão exige abrir chrome://extensions → Erros, e ninguém faz isso antes de
+ * reportar "não acontece nada".
+ */
+function avisarFalhaDeBoot(erro) {
+  const el = document.createElement('div');
+  el.style.cssText = 'position:fixed;left:0;right:0;top:0;z-index:9999;padding:10px 16px;'
+    + 'background:#7a1f1f;color:#fff;font-size:12.5px;line-height:1.5;font-family:inherit';
+  el.textContent = 'Falha ao inicializar o painel: ' + (erro?.message || erro)
+    + ' — a pasta da extensão pode estar com arquivos de versões diferentes. Recarregue em chrome://extensions após copiar todos os arquivos.';
+  document.body.appendChild(el);
+}
 
 function configurarPDF() {
   if (typeof pdfjsLib !== 'undefined') {
@@ -309,11 +343,12 @@ function registrarEventos() {
   document.getElementById('config-provedor')
     .addEventListener('change', () => aoTrocarProvedor({ limparChave: true }));
 
-  // Sub-painéis do Orçamento
+  // Sub-painéis do Orçamento. Com `?.` porque estes botões são novos: numa pasta
+  // com panel.html antigo, exigi-los derrubava todo o registro seguinte.
   document.getElementById('btn-sub-emendas')
-    .addEventListener('click', () => abrirSubpainelOrcamento('emendas.html'));
+    ?.addEventListener('click', () => abrirSubpainelOrcamento('emendas.html'));
   document.getElementById('btn-sub-notas')
-    .addEventListener('click', () => abrirSubpainelOrcamento('orcamento-notas.html'));
+    ?.addEventListener('click', () => abrirSubpainelOrcamento('orcamento-notas.html'));
 
   // Fechar modais via data-fecha
   document.querySelectorAll('[data-fecha]').forEach(btn => {
@@ -448,8 +483,8 @@ function registrarEventos() {
   document.getElementById('btn-sync-manual')
     .addEventListener('click', sincronizarAgora);
 
-  // ── HOME: navegação entre sistemas ──
-  renderHomeGrid();
+  // A home já foi renderizada no boot, antes destes registros — ver o comentário
+  // no DOMContentLoaded. Não repetir aqui: duplicaria os listeners dos cards.
 
   // ── Aviso de versão desatualizada ──
   document.getElementById('btn-recarregar-ext')
@@ -3487,11 +3522,18 @@ function abrirLideres() {
 // módulo original) e as notas técnicas das leis orçamentárias (LOA/LDO/PPA).
 // São trabalhos distintos sobre o mesmo tema, e cada um tem tela própria.
 function abrirEmendas() {
-  document.getElementById('modal-orcamento').style.display = 'flex';
+  const modal = document.getElementById('modal-orcamento');
+  // Sem o modal (panel.html defasado), NÃO ficar em silêncio: cai no
+  // comportamento anterior e abre o acompanhamento de emendas. Um clique que
+  // não faz nada é o pior desfecho possível — o usuário não tem como saber se
+  // errou o clique, se travou, ou se a extensão está desatualizada.
+  if (!modal) { abrirSubpainelOrcamento('emendas.html'); return; }
+  modal.style.display = 'flex';
 }
 
 function abrirSubpainelOrcamento(arquivo) {
-  document.getElementById('modal-orcamento').style.display = 'none';
+  const modal = document.getElementById('modal-orcamento');
+  if (modal) modal.style.display = 'none';
   chrome.tabs.create({ url: chrome.runtime.getURL(arquivo) });
 }
 
