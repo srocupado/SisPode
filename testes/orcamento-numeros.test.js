@@ -150,6 +150,21 @@ const T_RESERVA = 'O art. 13, § 5º, do PLDO 2027 prevê que o Projeto de Lei O
     ok(IA.paginasRelevantes([], IA.TERMOS_MENSAGEM).length === 0, 'lista vazia → vazia');
   }
 
+  console.log('\n== a URL do PDF do projeto tem de estar num domínio que a extensão pode buscar ==');
+  {
+    // O erro real de 03/09/2026: "Não consegui ler a Mensagem (Failed to fetch)".
+    // O Dados Abertos devolve legis.senado.GOV.br; o manifest autoriza LEG.br.
+    const C = require(path.join(RAIZ, 'cmo.js'));
+    ok(C.urlSenado('https://legis.senado.gov.br/sdleg-getter/documento?dm=10308047') === 'https://legis.senado.leg.br/sdleg-getter/documento?dm=10308047',
+       'legis.senado.gov.br vira legis.senado.leg.br');
+    ok(C.urlSenado('http://legis.senado.gov.br/sdleg-getter/documento?dm=1') === 'https://legis.senado.leg.br/sdleg-getter/documento?dm=1', 'e http vira https');
+    ok(C.urlSenado('https://legis.senado.leg.br/x') === 'https://legis.senado.leg.br/x' && C.urlSenado('') === '', 'o que já está certo não muda');
+    const manifest = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
+    ok(manifest.host_permissions.includes('https://legis.senado.leg.br/*') && manifest.host_permissions.includes('https://legis.senado.gov.br/*'),
+       'e o manifest autoriza os dois domínios do Senado');
+    ok(/urlDocumento:\s+urlSenado\(/.test(fs.readFileSync(path.join(RAIZ, 'cmo.js'), 'utf8')), 'a matéria já sai do cmo.js com a URL normalizada');
+  }
+
   console.log('\n== as fontes, na ordem em que valem a leitura ==');
   {
     const q = {
