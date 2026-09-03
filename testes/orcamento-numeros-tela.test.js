@@ -83,7 +83,11 @@ ok(f.map(x => x.classe).join() === 'informativo,mensagem', 'fontes: informativo,
   const txt = nota.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   ok(/Números do exercício/.test(txt) && /R\$ 1\.741,00/.test(txt) && /Bolsa Família/.test(txt) && !/2,5%/.test(txt), 'a nota traz os números conferidos e não o recusado');
   ok(/Destaques registrados nas fontes/.test(txt) && /Parâmetros do exercício/.test(txt), 'com destaques e a ficha alimentada');
-  ok(txt.indexOf('Números do exercício') < txt.indexOf('Prazo de emendas'), 'os números vêm antes do prazo (ordem é conteúdo)');
+  ok(nota.indexOf('<h2>Números do exercício') < nota.indexOf('<h2>Prazo de emendas'), 'a seção dos números vem antes da seção do prazo (ordem é conteúdo)');
+  ok(/class="cartoes"/.test(nota) && /cartao-valor">R\$ 1\.741,00/.test(nota) && /Prazo de emendas<\/div><div class="cartao-valor">não fixado/.test(nota),
+     'a primeira dobra tem os cartões de destaque: salário mínimo apurado e o prazo, que diz "não fixado" quando não há cronograma');
+  ok(/id="btn-pdf"/.test(nota) && /Salvar em PDF/.test(nota), 'a nota traz o botão de salvar em PDF');
+  ok(/class="passos"/.test(nota) && /passo--andamento/.test(nota), 'as etapas viram passos, com o estado escrito ao lado da cor');
   // prompt da síntese com os números
   const p = av("promptSintese({ numeros: numerosApurados(estado.ia, estado.quadro), achados: achadosApurados(estado.ia), ficha: estado.ficha, quadro: estado.quadro, pendencias: pendenciasDo(estado.quadro) })");
   ok(/Salário mínimo: R\$ 1\.741,00 \(2027\)/.test(p) && /Bolsa Família: 157\.062,2/.test(p) && /Reserva: O projeto deve conter/.test(p), 'o prompt da síntese recebe números e achados');

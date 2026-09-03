@@ -115,6 +115,7 @@ async function carregar() {
   estado.carregando = true;
   estado.conferencia = null;
   $('btn-nota').disabled = true;
+  if ($('btn-nota-pdf')) $('btn-nota-pdf').disabled = true;
   $('btn-conferir').disabled = true;
   $('on-status').innerHTML = '<span class="on-spinner"></span> consultando Senado e Congresso…';
   $('on-corpo').innerHTML = '<div class="on-carregando"><span class="on-spinner"></span> Carregando o quadro da matéria…</div>';
@@ -166,6 +167,7 @@ function render() {
 
   $('on-corpo').innerHTML = partes.filter(Boolean).join('');
   $('btn-nota').disabled = !q.materia.disponivel;
+  if ($('btn-nota-pdf')) $('btn-nota-pdf').disabled = !q.materia.disponivel;
   // Conferir normas só faz sentido havendo Manual de Emendas do exercício.
   // Nem todo exercício publica "Manual de Emendas": a LOA 2025 orientou por
   // "Instruções para elaboração de emendas no LEXOR". A conferência roda contra
@@ -1274,7 +1276,7 @@ function cardNumeros() {
 function blocoNumerosNota(apurados = [], achados = []) {
   if (!apurados.length && !achados.length) return '';
   const grupos = [...new Set(apurados.map(a => a.grupo))];
-  const linha = a => `<tr><td class="r">${esc(a.rotulo)}</td><td><strong>${esc(a.valor)}</strong>${a.exercicio ? ` <span style="font-size:9pt;color:#555">(${esc(a.exercicio)})</span>` : ''}</td>
+  const linha = a => `<tr><td class="r">${esc(a.rotulo)}</td><td class="num" style="text-align:left"><strong>${esc(a.valor)}</strong>${a.exercicio ? ` <span style="font-size:9pt;color:#555">(${esc(a.exercicio)})</span>` : ''}</td>
     <td style="width:34%;font-size:9pt;color:#555">${esc(a.fonte)}${a.pagina ? `, p. ${esc(a.pagina)}` : ''}</td></tr>`;
   const fontes = [...new Set([...apurados, ...achados].map(a => a.fonte).filter(Boolean))];
   return `<h2>Números do exercício</h2>
@@ -1557,8 +1559,8 @@ function montarTextoNota(q) {
   return p.join('\n\n');
 }
 
-/** Abre a nota em aba própria, pronta para impressão/PDF pelo navegador. */
-function gerarNota() {
+/** Abre a nota em aba própria. `imprimir` já dispara o diálogo de PDF. */
+function gerarNota({ imprimir = false } = {}) {
   const q = estado.quadro;
   if (!q?.materia?.disponivel) return;
   if (!numerosApurados(estado.ia, q).length && !estado.ia?.sintese && !estado.variacao?.comparado) {
@@ -1568,6 +1570,118 @@ function gerarNota() {
   if (!w) { alert('O navegador bloqueou a nova aba. Permita pop-ups para gerar a nota.'); return; }
   w.document.write(htmlNota(q, estado.conferencia, estado.ficha, estado.serie, estado.variacao, estado.ia));
   w.document.close();
+  // A aba herda a CSP da extensão (script-src 'self'): script inline na nota
+  // não roda. Os botões são ligados DAQUI, que é a mesma origem.
+  const ligar = () => {
+    w.document.getElementById('btn-pdf')?.addEventListener('click', () => w.print());
+    if (imprimir) setTimeout(() => w.print(), 400);   // dá tempo de o logo carregar
+  };
+  if (w.document.readyState === 'complete') ligar(); else w.addEventListener('load', ligar);
+}
+
+// ============================================================
+//  GRÁFICOS DA NOTA — SVG estático, sem biblioteca
+// ============================================================
+// A nota é documento impresso e vai por WhatsApp: gráfico aqui é SVG inline,
+// que imprime e sobrevive ao "Salvar como PDF" sem depender de script (a aba
+// da nota herda a CSP da extensão e não roda script inline). Regras que valem
+// para todos: barra fina (≤ 20px) com a ponta arredondada e a base reta, valor
+// escrito na ponta, texto sempre em tinta (nunca na cor da série), uma cor por
+// gráfico — magnitude em verde; alta × queda em verde × laranja, cada uma no
+// seu gráfico, com o título dizendo o que é.
+const COR_NOTA = { verde: '#0B8A4B', laranja: '#D9531E', azul: '#1F5FA8', tinta: '#1b1b1b', tinta2: '#52514e', grade: '#e4e4e0', superficie: '#fcfcfb' };
+
+/** "R$ 1.234,5 milhões" curto para a ponta da barra. */
+function rotuloValorNota(n, unidade = '') {
+  if (!Number.isFinite(n)) return '';
+  const abs = Math.abs(n);
+  const txt = abs >= 1000 ? Number(n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' bi'
+            : Number(n).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + (unidade ? ' ' + unidade : '');
+  return txt;
+}
+
+/**
+ * Barras horizontais, uma série. `itens` = [{ rotulo, valor, texto? }].
+ * Largura fixa em 640 (cabe na coluna A4); a barra mais longa ocupa a pista.
+ */
+function svgBarrasH(itens = [], { cor = COR_NOTA.verde, largura = 640, rotuloValor = null, maxItens = 10 } = {}) {
+  const dados = itens.slice(0, maxItens).map(i => ({ ...i, v: Math.abs(Number(i.valor) || 0) }));
+  if (!dados.length) return '';
+  const alturaLinha = 26, colRotulo = 230, colValor = 84, esp = 20, r = 4;
+  const max = Math.max(...dados.map(d => d.v)) || 1;
+  const pista = largura - colRotulo - colValor - 12;
+  const altura = dados.length * alturaLinha + 8;
+  const corta = s => { const t = String(s || ''); return t.length > 38 ? t.slice(0, 36).replace(/\s+\S*$/, '') + '…' : t; };
+  const linhas = dados.map((d, i) => {
+    const y = 4 + i * alturaLinha, w = Math.max(2, Math.round(pista * d.v / max));
+    const x0 = colRotulo, x1 = colRotulo + w, y0 = y + (alturaLinha - esp) / 2, y1 = y0 + esp;
+    const rr = Math.min(r, w / 2);
+    const barra = `M${x0} ${y0} H${x1 - rr} A${rr} ${rr} 0 0 1 ${x1} ${y0 + rr} V${y1 - rr} A${rr} ${rr} 0 0 1 ${x1 - rr} ${y1} H${x0} Z`;
+    const valor = rotuloValor ? rotuloValor(d) : (d.texto || rotuloValorNota(d.valor));
+    return `<title>${esc(d.rotulo)}: ${esc(valor)}</title>
+      <text x="${colRotulo - 8}" y="${y + alturaLinha / 2 + 4}" text-anchor="end" font-size="11" fill="${COR_NOTA.tinta2}">${esc(corta(d.rotulo))}</text>
+      <path d="${barra}" fill="${cor}"/>
+      <text x="${x1 + 6}" y="${y + alturaLinha / 2 + 4}" font-size="11" font-weight="600" fill="${COR_NOTA.tinta}">${esc(valor)}</text>`;
+  }).join('');
+  return `<svg class="grafico" viewBox="0 0 ${largura} ${altura}" width="100%" role="img" aria-label="gráfico de barras">
+    <line x1="${colRotulo}" y1="2" x2="${colRotulo}" y2="${altura - 2}" stroke="${COR_NOTA.grade}" stroke-width="1"/>${linhas}</svg>`;
+}
+
+/**
+ * Colunas por exercício, uma série — a série histórica de um parâmetro.
+ * `pontos` = [{ ano, valor, texto }].
+ */
+function svgColunas(pontos = [], { cor = COR_NOTA.verde, largura = 300, altura = 130 } = {}) {
+  const dados = pontos.filter(p => Number.isFinite(Number(p.valor)));
+  if (dados.length < 2) return '';
+  const max = Math.max(...dados.map(p => Number(p.valor))) || 1;
+  const base = altura - 22, topo = 22, r = 4;
+  const passo = largura / dados.length, esp = Math.min(24, passo * 0.5);
+  const cols = dados.map((p, i) => {
+    const h = Math.max(2, Math.round((base - topo) * Number(p.valor) / max));
+    const x0 = Math.round(i * passo + (passo - esp) / 2), y0 = base - h, x1 = x0 + esp;
+    const rr = Math.min(r, esp / 2, h / 2);
+    const col = `M${x0} ${base} V${y0 + rr} A${rr} ${rr} 0 0 1 ${x0 + rr} ${y0} H${x1 - rr} A${rr} ${rr} 0 0 1 ${x1} ${y0 + rr} V${base} Z`;
+    const valor = String(p.texto || p.valor).replace(/^R\$\s*/, '').replace(/,00$/, '');
+    return `<title>${esc(p.ano)}: ${esc(p.texto || p.valor)}</title>
+      <path d="${col}" fill="${cor}"/>
+      <text x="${x0 + esp / 2}" y="${y0 - 5}" text-anchor="middle" font-size="9.5" font-weight="600" fill="${COR_NOTA.tinta}">${esc(valor.length > 14 ? rotuloValorNota(Number(p.valor)) : valor)}</text>
+      <text x="${x0 + esp / 2}" y="${base + 14}" text-anchor="middle" font-size="10" fill="${COR_NOTA.tinta2}">${esc(p.ano)}</text>`;
+  }).join('');
+  return `<svg class="grafico" viewBox="0 0 ${largura} ${altura}" width="${largura}" role="img" aria-label="série histórica">
+    <line x1="0" y1="${base}" x2="${largura}" y2="${base}" stroke="${COR_NOTA.grade}" stroke-width="1"/>${cols}</svg>`;
+}
+
+/**
+ * Os destaques em cartões — o que a primeira dobra da nota mostra. Vêm dos
+ * números apurados, na ordem em que um deputado pergunta: quanto gasta, quanto
+ * arrecada, qual a meta, quanto há para emendas, quanto é o salário mínimo.
+ */
+const ORDEM_DESTAQUES = ['despesa_total', 'receita_total', 'resultado_primario', 'limite_despesa', 'reserva_emendas_total',
+  'cota_individual', 'salario_minimo', 'despesas_discricionarias', 'investimentos', 'pib', 'ipca', 'minimo_saude', 'minimo_educacao'];
+function cartoesDestaqueNota(apurados = [], q = {}, max = 7) {
+  const porChave = new Map(apurados.filter(a => a.chave).map(a => [a.chave, a]));
+  const escolhidos = ORDEM_DESTAQUES.map(c => porChave.get(c)).filter(Boolean).slice(0, max);
+  const cartao = (rotulo, valor, fonte, classe = '') => `<div class="cartao ${classe}">
+    <div class="cartao-rotulo">${esc(rotulo)}</div><div class="cartao-valor${String(valor).length > 22 ? ' longo' : ''}">${esc(valor)}</div>${fonte ? `<div class="cartao-fonte">${esc(fonte)}</div>` : ''}</div>`;
+  const cartoes = escolhidos.map(a => cartao(a.rotulo.replace(/\s*\(.*\)$/, ''), a.valor, `${a.fonte || ''}${a.pagina ? `, p. ${a.pagina}` : ''}${a.exercicio ? ` · ${a.exercicio}` : ''}`));
+  // O prazo de emendas é sempre um cartão: com a data, ou dizendo que não há.
+  const p = q.cronograma?.disponivel ? q.cronograma.prazoEmendas : null;
+  if (p) {
+    const dias = diasAte(p.fim);
+    const situacao = dias === null ? '' : dias < 0 ? 'encerrado' : dias === 0 ? 'encerra hoje' : `faltam ${dias} dia(s)`;
+    cartoes.push(cartao('Prazo de emendas', `${p.inicio} a ${p.fim}`, situacao, dias !== null && dias >= 0 ? 'cartao--laranja' : 'cartao--cinza'));
+  } else {
+    cartoes.push(cartao('Prazo de emendas', 'não fixado', 'cronograma ainda não publicado', 'cartao--cinza'));
+  }
+  return `<div class="cartoes">${cartoes.join('')}</div>`;
+}
+
+/** As etapas da tramitação como passos, com o estado escrito ao lado da cor. */
+function passosEtapasNota(etapas = []) {
+  const classe = e => /andamento/i.test(e.estado || '') ? 'passo--andamento' : /conclu|encerr|realiz/i.test(e.estado || '') ? 'passo--feito' : 'passo--espera';
+  return `<ol class="passos">${etapas.map((e, i) => `<li class="passo ${classe(e)}"><span class="passo-n">${i + 1}</span>
+    <span class="passo-nome">${esc(e.nome)}</span><span class="passo-estado">${esc(e.estado || '—')}</span></li>`).join('')}</ol>`;
 }
 
 function htmlNota(q, conf, ficha, serie, variacao, ia) {
@@ -1576,17 +1690,14 @@ function htmlNota(q, conf, ficha, serie, variacao, ia) {
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
   const legislatura = legislaturaDe(agora.getFullYear());
   const nome = p => p ? `${p.casa === 'Senado' ? 'Sen.' : 'Dep.'} ${esc(p.nome)} (${esc(p.partido)}/${esc(p.uf)})` : '<span class="nd">Ainda não designado</span>';
+  const logo = (typeof chrome !== 'undefined' && chrome.runtime?.getURL) ? chrome.runtime.getURL('icons/podemos-logo.png') : 'icons/podemos-logo.png';
 
   // As pendências são o miolo da nota enquanto a CMO não avança. Elas saem
   // do estado REAL de cada fonte, não de uma lista fixa.
   // Pendência é o que a CMO AINDA NÃO fez; fonte que o portal não publica é
   // outra coisa e não entra aqui. A LDO, por exemplo, não tem página de
   // relatores nenhuma — dizer "designação pendente" seria inventar um atraso
-  // que não existe. Guardar por `disponivel` também evita ler .length de uma
-  // leitura que não trouxe lista (o que quebrava a nota da LDO).
-  // A MESMA lista que vai no prompt da síntese (pendenciasDo): se a nota e a IA
-  // divergissem sobre o que falta, o texto redigido contradiria a seção 4 da
-  // própria nota que o contém.
+  // que não existe. A MESMA lista que vai no prompt da síntese (pendenciasDo).
   const pendencias = pendenciasDo(q);
 
   // Exercício concluído: a tramitação vira uma frase e o cronograma vencido sai
@@ -1595,49 +1706,108 @@ function htmlNota(q, conf, ficha, serie, variacao, ia) {
     && a.etapas.every(et => /encerrad/i.test(et.estado || ''));
 
   const alertas = conf ? resumoConferencia(conf.resultado) : null;
+  const apurados = numerosApurados(ia, q);
+  const achados = achadosApurados(ia);
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
 <title>Nota Técnica — ${esc(m.apelido)}</title>
 <style>
-  @page { size: A4; margin: 22mm 20mm 20mm 22mm; }
-  body { font-family: "Times New Roman", Times, serif; font-size: 11.5pt; line-height: 1.5; color: #111; margin: 0; text-align: justify; }
-  .cab { text-align: center; border-bottom: 2px solid #1a3a6b; padding-bottom: 6px; margin-bottom: 14px; }
-  .cab h1 { font-size: 15pt; letter-spacing: 2px; margin: 0; color: #1a3a6b; }
-  .cab .leg { font-size: 10pt; color: #444; } .cab .atu { font-size: 8.5pt; color: #666; font-style: italic; }
-  h2 { font-size: 11.5pt; color: #1a3a6b; margin: 18px 0 7px; padding-bottom: 3px; border-bottom: 1px solid #c8d4e6; text-transform: uppercase; letter-spacing: .5px; }
-  table { width: 100%; border-collapse: collapse; }
-  td { padding: 4px 6px; vertical-align: top; border-bottom: 1px solid #e6e6e6; font-size: 10.5pt; }
-  td.r { width: 26%; font-weight: bold; color: #1a3a6b; }
-  .nd { color: #a35b00; font-weight: bold; }
-  .pend { background: #fffaf0; border-left: 3px solid #d68a00; padding: 9px 12px; margin: 9px 0; font-size: 10.5pt; }
-  .conf { background: #f2f8f2; border-left: 3px solid #2f7a3a; padding: 9px 12px; margin: 9px 0; font-size: 10pt; }
-  ul { margin: 6px 0 0; padding-left: 18px; font-size: 10.5pt; } li { margin-bottom: 3px; }
-  .fonte { font-size: 8.5pt; color: #666; font-style: italic; margin-top: 5px; }
-  .rodape { margin-top: 26px; border-top: 1px solid #c8d4e6; padding-top: 5px; text-align: center; font-size: 8.5pt; color: #1a3a6b; }
-  @media print { .noprint { display: none; } }
-</style></head><body>
-<div class="noprint" style="background:#eef3fb;padding:8px 12px;margin-bottom:12px;font-family:sans-serif;font-size:12px">
-  Use <strong>Ctrl+P → Salvar como PDF</strong> para exportar.
+  /* Paleta: verde da casa para magnitude, laranja para queda/alerta, azul para
+     títulos. Validada para daltonismo (verde × laranja ΔE 6,8 protan, com
+     rótulo escrito ao lado de cada barra — a cor nunca carrega sozinha). */
+  :root { --verde:#0B8A4B; --verde-esc:#003c1f; --laranja:#D9531E; --azul:#1F5FA8; --tinta:#1b1b1b; --tinta2:#52514e;
+          --grade:#e4e4e0; --sup:#fcfcfb; --sup2:#f2f6f3; --ambar-bg:#fff7ea; --ambar:#b45309; }
+  @page { size: A4; margin: 16mm 16mm 16mm 16mm; }
+  * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  body { font-family: "Segoe UI", Roboto, Arial, sans-serif; font-size: 10.5pt; line-height: 1.5; color: var(--tinta); margin: 0; background: #fff; }
+  .folha { max-width: 190mm; margin: 0 auto; padding: 0 0 20px; }
+  .cab { display: flex; align-items: center; gap: 16px; padding: 6px 0 10px; }
+  .cab img { height: 44px; }
+  .cab .tit { flex: 1; }
+  .cab .kicker { font-size: 9pt; letter-spacing: 2px; text-transform: uppercase; color: var(--tinta2); }
+  .cab h1 { font-size: 26pt; font-weight: 700; margin: 0; line-height: 1.1; color: var(--verde-esc); }
+  .cab .sub { font-size: 10pt; color: var(--tinta2); margin-top: 2px; }
+  .cab .meta { text-align: right; font-size: 8.5pt; color: var(--tinta2); line-height: 1.4; }
+  .filete { height: 5px; margin: 0 0 14px; border-radius: 3px;
+    background: linear-gradient(90deg, var(--verde) 0 40%, #7C9A2F 40% 62%, var(--azul) 62% 82%, var(--laranja) 82% 100%); }
+  h2 { font-size: 12.5pt; color: var(--verde-esc); margin: 20px 0 8px; padding: 0 0 4px; border-bottom: 2px solid var(--verde);
+       display: flex; align-items: baseline; gap: 8px; page-break-after: avoid; break-after: avoid; }
+  h2 .un { font-size: 8.5pt; font-weight: 400; color: var(--tinta2); }
+  p { margin: 6px 0; text-align: justify; }
+  table { width: 100%; border-collapse: collapse; margin: 4px 0 8px; page-break-inside: auto; }
+  td, th { padding: 4px 7px; vertical-align: top; border-bottom: 1px solid var(--grade); font-size: 9.5pt; text-align: left; }
+  tr:nth-child(even) td { background: #f7f8f6; }
+  td.r { width: 28%; font-weight: 600; color: var(--verde-esc); }
+  td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .nd { color: var(--ambar); font-weight: 600; }
+  .pend { background: var(--ambar-bg); border-left: 4px solid #e9a23b; padding: 8px 12px; margin: 8px 0; font-size: 9.5pt; border-radius: 0 6px 6px 0; }
+  .conf { background: var(--sup2); border-left: 4px solid var(--verde); padding: 8px 12px; margin: 8px 0; font-size: 9.5pt; border-radius: 0 6px 6px 0; }
+  ul { margin: 4px 0 0; padding-left: 18px; font-size: 9.5pt; } li { margin-bottom: 3px; }
+  .fonte { font-size: 8pt; color: var(--tinta2); font-style: italic; margin-top: 4px; }
+  .rodape { margin-top: 26px; border-top: 1px solid var(--grade); padding-top: 6px; text-align: center; font-size: 8pt; color: var(--tinta2); }
+  /* cartões de destaque */
+  .cartoes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 6px 0 4px; }
+  .cartao { border: 1px solid var(--grade); border-top: 4px solid var(--verde); border-radius: 8px; padding: 8px 10px 7px; background: #fff; page-break-inside: avoid; break-inside: avoid; }
+  .cartao--laranja { border-top-color: var(--laranja); }
+  .cartao--cinza { border-top-color: #9aa1a9; }
+  .cartao-rotulo { font-size: 8.5pt; color: var(--tinta2); line-height: 1.25; min-height: 22px; }
+  .cartao-valor { font-size: 13.5pt; font-weight: 700; color: var(--tinta); margin-top: 2px; line-height: 1.15; word-break: break-word; }
+  .cartao-valor.longo { font-size: 10.5pt; }
+  .cartao-fonte { font-size: 7.5pt; color: var(--tinta2); margin-top: 3px; }
+  /* gráficos */
+  .grafico { display: block; margin: 4px 0 6px; font-family: inherit; }
+  .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .duas > div { min-width: 0; }
+  .g-tit { font-size: 9.5pt; font-weight: 600; color: var(--tinta); margin: 8px 0 0; display: flex; align-items: center; gap: 6px; }
+  .g-tit .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .series { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px 20px; }
+  .serie { page-break-inside: avoid; break-inside: avoid; }
+  .serie .g-tit { margin-top: 4px; }
+  .serie .fonte { margin-top: 0; }
+  /* passos da tramitação */
+  .passos { list-style: none; margin: 4px 0; padding: 0; columns: 2; column-gap: 24px; font-size: 9.5pt; }
+  .passo { display: flex; align-items: center; gap: 8px; padding: 3px 0; break-inside: avoid; }
+  .passo-n { width: 18px; height: 18px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: 8pt; font-weight: 700; flex-shrink: 0;
+             border: 2px solid #b8bec4; color: var(--tinta2); }
+  .passo--feito .passo-n { background: var(--verde); border-color: var(--verde); color: #fff; }
+  .passo--andamento .passo-n { background: var(--laranja); border-color: var(--laranja); color: #fff; }
+  .passo-nome { flex: 1; }
+  .passo-estado { font-size: 8pt; color: var(--tinta2); white-space: nowrap; }
+  .passo--andamento .passo-estado { color: var(--laranja); font-weight: 600; }
+  .sintese p { font-size: 10.5pt; }
+  .barra-ferramentas { background: #eef3fb; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 10px; border-radius: 6px; }
+  .barra-ferramentas button { background: var(--verde); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+  .barra-ferramentas button:hover { background: #086e3b; }
+  @media print { .noprint { display: none !important; } .folha { max-width: none; } }
+</style></head><body><div class="folha">
+<div class="barra-ferramentas noprint">
+  <button id="btn-pdf" type="button">⬇ Salvar em PDF</button>
+  <span>No diálogo, escolha o destino <strong>Salvar como PDF</strong>. As cores e os gráficos vão junto.</span>
 </div>
 
 <div class="cab">
-  <h1>NOTA TÉCNICA</h1>
-  <div class="leg">${legislatura}ª Legislatura</div>
-  <div class="atu">Atualizada em ${carimbo}</div>
+  <img src="${logo}" alt="">
+  <div class="tit">
+    <div class="kicker">NOTA TÉCNICA · ${legislatura}ª Legislatura</div>
+    <h1>${esc(m.apelido)}</h1>
+    <div class="sub">${esc(m.identificacao)}${m.dataApresentacao ? ` · apresentado em ${dataBR(m.dataApresentacao)}` : ''} · situação: <strong>${esc(m.situacaoAtual || '—')}</strong></div>
+  </div>
+  <div class="meta">Coordenação de Orçamento<br>Liderança do Podemos<br>Atualizada em ${carimbo}</div>
 </div>
+<div class="filete"></div>
+
+${cartoesDestaqueNota(apurados, q)}
 
 <p>A presente nota técnica trata do <strong>${esc(m.identificacao)} — ${esc(m.apelido)}</strong>${m.dataApresentacao ? `, apresentado ao Congresso Nacional em ${dataBR(m.dataApresentacao)}` : ''}.
 Situação em ${carimbo.slice(0, 10)}: <strong>${esc(m.situacaoAtual || '—')}</strong>.
 ${pendencias.length ? 'A matéria ainda não percorreu todas as etapas na Comissão Mista, e por isso parte dos parâmetros operacionais não está definida — o que está e o que não está vem discriminado adiante.' : ''}</p>
 
 ${blocoSinteseNota(ia?.sintese)}
-${blocoNumerosNota(numerosApurados(ia, q), achadosApurados(ia))}
+${blocoNumerosNota(apurados, achados)}
 
-${/* A ORDEM É O CONTEÚDO.
-      A versão anterior abria com identificação e com dez linhas de "Encerrada",
-      e só chegava a número algum no fim — quando chegava. Um deputado que lê a
-      primeira página tem de sair sabendo quanto tem, até quando, o que mudou e
-      onde está o documento que decide. Processo e anexos vão depois. */''}
+${/* A ORDEM É O CONTEÚDO: quem lê a primeira página sai sabendo quanto tem,
+      até quando, o que mudou e onde está o documento que decide. Processo e
+      anexos vão depois. */''}
 ${blocoVariacaoNota(variacao)}
 ${blocoFichaNota(q, ficha)}
 ${blocoSerieNota(serie)}
@@ -1661,7 +1831,7 @@ ${e.disponivel && e.ancoraNormativa ? `<h2>Base normativa do exercício</h2>
 <strong>${esc(e.ancoraNormativa.rotulo)}</strong>, publicado pela Comissão Mista, que é a referência a ser consultada
 para cotas, quantidades, sequenciais de cancelamento e pisos de repasse.</p>
 ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:</strong><br>${alertas.map(esc).join('<br>')}
-<br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
+<br><span style="font-size:8.5pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
 
 <h2>Identificação da matéria</h2>
 <table>
@@ -1684,28 +1854,28 @@ ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:
 
 ${a.disponivel ? `<h2>Estágio da tramitação</h2>
 ${/* Dez linhas de "Encerrada" não são informação. Num exercício concluído a
-     tramitação cabe numa frase; enquanto ele corre, o quadro etapa a etapa é o
-     que mostra onde a matéria parou. */''}
+     tramitação cabe numa frase; enquanto ele corre, os passos mostram onde a
+     matéria parou — com o estado escrito, não só na cor. */''}
 ${concluida
   ? `<p>As dez etapas da tramitação na Comissão Mista estão encerradas${a.ultimoEstado ? `; o último estado registrado é de ${esc(a.ultimoEstado.data)} — ${esc(a.ultimoEstado.descricao)}` : ''}.</p>`
-  : `<table>${a.etapas.map((et, i) => `<tr><td class="r" style="width:8%">${i + 1}.</td><td>${esc(et.nome)}</td><td style="width:28%;text-align:right">${esc(et.estado || '—')}</td></tr>`).join('')}</table>
+  : `${passosEtapasNota(a.etapas)}
      ${a.ultimoEstado ? `<div class="fonte">Último estado: ${esc(a.ultimoEstado.data)} — ${esc(a.ultimoEstado.descricao)}.</div>` : ''}`}` : ''}
 
 ${c.disponivel && c.itens.length && !concluida ? `<h2>Cronograma da Comissão Mista</h2>
-<table>${c.itens.map(i => `<tr><td class="r" style="width:8%">${i.ordem}.</td><td>${esc(i.descricao)}</td><td style="width:30%;text-align:right">${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` (${esc(i.observacao)})` : ''}</td></tr>`).join('')}</table>` : ''}
+<table>${c.itens.map(i => { const ehPrazo = c.prazoEmendas && i.ordem === c.prazoEmendas.ordem; return `<tr${ehPrazo ? ' style="font-weight:600"' : ''}><td class="r" style="width:8%">${i.ordem}.</td><td>${esc(i.descricao)}${ehPrazo ? ' <span class="nd">◆ prazo de emendas</span>' : ''}</td><td class="num" style="width:30%">${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` (${esc(i.observacao)})` : ''}</td></tr>`; }).join('')}</table>` : ''}
 
 ${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
 <p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
 está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
-<table>${q.executivo.documentos.slice(0, 14).map(d => `<tr><td class="r">${esc(d.rotulo)}</td><td style="font-size:9pt;color:#555">${esc(d.url)}</td></tr>`).join('')}</table>` : ''}
+<table>${q.executivo.documentos.slice(0, 14).map(d => `<tr><td class="r">${esc(d.rotulo)}</td><td style="font-size:8.5pt;color:#555;word-break:break-all">${esc(d.url)}</td></tr>`).join('')}</table>` : ''}
 ${q.alteracoes && q.alteracoes.disponivel ? `<h2>Alterações ao texto do PPA</h2>
 <p>O plano em vigor é a <strong>${esc(q.alteracoes.leiDoPlano || 'lei do PPA')}</strong>. Ao longo do quadriênio, o Poder
 Executivo encaminha projetos que o alteram; são eles que tramitam, e não o plano original.</p>
 <table>${q.alteracoes.alteracoes.map(x => `<tr><td class="r">${esc(x.projeto)}</td><td>${esc(x.ementa || '')}</td><td style="width:22%;text-align:right">${esc(x.situacao || '—')}${x.normaGerada ? `<br>${esc(x.normaGerada)}` : ''}</td></tr>`).join('')}</table>
 ${q.alteracoes.emTramitacao.length ? `<div class="pend">Em tramitação nesta data: <strong>${q.alteracoes.emTramitacao.map(x => esc(x.projeto)).join(', ')}</strong>.</div>` : ''}` : ''}
 
-<div class="rodape">Coordenação de Orçamento da Liderança do Podemos na Câmara dos Deputados</div>
-</body></html>`;
+<div class="rodape">Coordenação de Orçamento da Liderança do Podemos na Câmara dos Deputados · nota gerada pelo SisPode em ${carimbo}</div>
+</div></body></html>`;
 }
 
 /**
@@ -1744,31 +1914,45 @@ ${aPreencher.length ? `<div class="pend">A fonte já foi publicada, mas estes ca
 /**
  * A série na nota. O número isolado não informa; a série informa. E a cobertura
  * vai junto: série com buraco no meio não pode ser lida como evolução anual.
+ * Cada série vira colunas por exercício, com o valor no topo e a frase embaixo.
  */
 function blocoSerieNota(serie) {
   const comDados = serie ? seriesComDados(serie) : [];
   if (!comDados.length) return '';
   return `<h2>Evolução entre exercícios</h2>
-<table>${comDados.map(s => `<tr><td class="r">${esc(s.rotulo)}</td><td>${esc(frasSerie(s).replace(s.rotulo + ': ', ''))}</td></tr>`).join('')}</table>
+<div class="series">${comDados.map(s => `<div class="serie">
+  <div class="g-tit"><span class="sw" style="background:${COR_NOTA.verde}"></span>${esc(s.rotulo)}</div>
+  ${svgColunas(s.pontos, { cor: COR_NOTA.verde })}
+  <div class="fonte">${esc(frasSerie(s).replace(s.rotulo + ': ', ''))}</div></div>`).join('')}</div>
 <div class="fonte">Cada ponto vem da ficha do respectivo exercício, com documento de origem registrado.
 Exercícios sem ficha aparecem como lacuna — nenhum valor é interpolado.</div>`;
 }
 
-/** "O que subiu e o que caiu" — a parte que vai à tribuna. */
+/** "O que subiu e o que caiu" — a parte que vai à tribuna, em barras. */
 function blocoVariacaoNota(v) {
   if (!v || v.erro || !v.comparado) return '';
-  const linha = i => `<tr><td class="r">${esc(i.rotulo)}</td>
-    <td style="text-align:right">${esc(formatarBR(i.de))} → <strong>${esc(formatarBR(i.para))}</strong></td>
-    <td style="width:16%;text-align:right">${i.pct >= 0 ? '+' : '−'}${Math.abs(i.pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%</td></tr>`;
-  return `<h2>O que muda em relação ao exercício anterior</h2>
-<p>Comparação entre <strong>${esc(v.de)}</strong> e <strong>${esc(v.para)}</strong>, em R$ milhões, extraída da ${esc(v.fonte)}.</p>
-${v.maioresAltas.length ? `<p><strong>Maiores altas</strong></p><table>${v.maioresAltas.slice(0, 8).map(linha).join('')}</table>` : ''}
-${v.maioresQuedas.length ? `<p><strong>Maiores quedas</strong></p><table>${v.maioresQuedas.slice(0, 8).map(linha).join('')}</table>` : ''}
-${v.porOrgao ? `<p><strong>Por órgão — ${esc(v.porOrgao.titulo || 'distribuição')}</strong></p>
-<table>${v.porOrgao.linhas.map(l => `<tr><td class="r">${esc(l.codigo)}</td><td>${esc(l.orgao)}</td><td style="text-align:right">${esc(formatarBR(l.valor))}</td></tr>`).join('')}</table>
+  const pct = i => `${i.pct >= 0 ? '+' : '−'}${Math.abs(i.pct).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%`;
+  // O rótulo remontado das linhas da tabela pode arrastar o cabeçalho da página
+  // seguinte ("Mensagem Presidencial | Projeto de Lei… Capítulo 3 …"): corta-se
+  // ali, e o que sobra é a rubrica.
+  const limpo = r => String(r || '').replace(/\s*\[\[PAGINA.*$/i, '').replace(/\s*Mensagem Presidencial\s*\|.*$/i, '').trim();
+  const itensPct = lista => lista.slice(0, 8).map(i => ({ rotulo: limpo(i.rotulo).replace(/^[IVXLC]+(?:\.\d+)*\.?\s*/, ''), valor: i.pct, texto: `${pct(i)} · ${formatarBR(i.para)}` }));
+  const linha = i => `<tr><td class="r">${esc(limpo(i.rotulo))}</td>
+    <td class="num">${esc(formatarBR(i.de))} → <strong>${esc(formatarBR(i.para))}</strong></td>
+    <td class="num" style="width:16%">${pct(i)}</td></tr>`;
+  return `<h2>O que muda em relação ao exercício anterior <span class="un">R$ milhões</span></h2>
+<p>Comparação entre <strong>${esc(v.de)}</strong> e <strong>${esc(v.para)}</strong>, extraída da ${esc(v.fonte)}. As barras mostram a variação percentual; o valor ao lado é o de ${esc(v.para)}.</p>
+<div class="duas">
+  ${v.maioresAltas.length ? `<div><div class="g-tit"><span class="sw" style="background:${COR_NOTA.verde}"></span>Maiores altas</div>${svgBarrasH(itensPct(v.maioresAltas), { cor: COR_NOTA.verde, largura: 420, rotuloValor: d => d.texto })}</div>` : ''}
+  ${v.maioresQuedas.length ? `<div><div class="g-tit"><span class="sw" style="background:${COR_NOTA.laranja}"></span>Maiores quedas</div>${svgBarrasH(itensPct(v.maioresQuedas), { cor: COR_NOTA.laranja, largura: 420, rotuloValor: d => d.texto })}</div>` : ''}
+</div>
+${v.porOrgao ? `<div class="g-tit" style="margin-top:10px"><span class="sw" style="background:${COR_NOTA.verde}"></span>Por órgão — ${esc(v.porOrgao.titulo || 'distribuição')} <span class="un" style="font-weight:400;color:var(--tinta2)">R$ milhões · os ${Math.min(12, v.porOrgao.linhas.length)} maiores</span></div>
+${svgBarrasH(v.porOrgao.linhas.slice().sort((x, y) => y.valor - x.valor).slice(0, 12).map(l => ({ rotulo: l.orgao, valor: l.valor, texto: formatarBR(l.valor) })), { cor: COR_NOTA.verde, maxItens: 12 })}
+<table>${v.porOrgao.linhas.map(l => `<tr><td class="r">${esc(l.codigo)}</td><td>${esc(l.orgao)}</td><td class="num">${esc(formatarBR(l.valor))}</td></tr>`).join('')}</table>
 <div class="fonte">${v.porOrgao.confere
   ? `Leitura conferida contra o total impresso no documento (${esc(formatarBR(v.porOrgao.total))}): a tabela está completa.`
-  : esc(v.porOrgao.motivo)}</div>` : ''}`;
+  : esc(v.porOrgao.motivo)}</div>` : ''}
+${(v.maioresAltas.length || v.maioresQuedas.length) ? `<table>${[...v.maioresAltas.slice(0, 8), ...v.maioresQuedas.slice(0, 8)].map(linha).join('')}</table>` : ''}`;
 }
 
 /**
@@ -1901,7 +2085,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   selAno.addEventListener('change', ev => { estado.ano = ev.target.value; carregar(); });
   $('btn-atualizar').addEventListener('click', carregar);
   $('btn-conferir').addEventListener('click', conferirNormas);
-  $('btn-nota').addEventListener('click', gerarNota);
+  $('btn-nota').addEventListener('click', () => gerarNota());
+  $('btn-nota-pdf')?.addEventListener('click', () => gerarNota({ imprimir: true }));
   $('btn-voltar').addEventListener('click', () => { window.location.href = 'panel.html'; });
 
   // Configurações de IA

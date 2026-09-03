@@ -51,6 +51,13 @@ const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio'
   ${trecho(/function numerosApurados\([\s\S]*?\n^}/m)}
   ${trecho(/function achadosApurados\([\s\S]*?\n^}/m)}
   ${trecho(/function blocoNumerosNota\([\s\S]*?\n^}/m)}
+  ${trecho(/const COR_NOTA = [^\n]+/)}
+  ${trecho(/const ORDEM_DESTAQUES = [\s\S]*?\];/)}
+  ${trecho(/function rotuloValorNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function svgBarrasH\([\s\S]*?\n^}/m)}
+  ${trecho(/function svgColunas\([\s\S]*?\n^}/m)}
+  ${trecho(/function cartoesDestaqueNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function passosEtapasNota\([\s\S]*?\n^}/m)}
   ${trecho(/function htmlNota\([\s\S]*?\n^}/m)}
   return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota, pendenciasDo };
 `)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }),
