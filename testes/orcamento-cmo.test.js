@@ -139,6 +139,49 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     else ok(true, `(a etapa de emendas da LOA 2027 abriu: ${e27.documentos.length} documentos)`);
   }
 
+  console.log('\n== o exercício muda de formato de um ano para o outro ==');
+  {
+    // Comparação LOA 2025 × 2026 × 2027, feita para decidir o que dá para
+    // reaproveitar na ficha de parâmetros. Ela expôs dois casos de perda muda.
+
+    // (a) A LOA 2025 escreve a data inicial SEM O ANO em três itens: "de 06/12
+    //     (10h02) a 06/12/2024". Exigir dd/mm/aaaa nas duas pontas descartava
+    //     os itens 5, 6 e 7 — e o 6 é "Apresentação de emendas ao relatório
+    //     preliminar", um PRAZO que sumia da nota sem deixar rastro.
+    const c25 = await C.lerCronograma('loa', 2025);
+    ok(c25.disponivel && c25.itens.length === 13, `LOA 2025: ${c25.itens.length} itens (eram 10 antes da correção)`);
+    const ordens = c25.itens.map(i => i.ordem);
+    ok(JSON.stringify(ordens) === JSON.stringify([1,2,3,4,5,6,7,8,9,10,11,12,13]),
+       `numeração sem buracos: ${ordens.join(',')}`);
+    const item6 = c25.itens.find(i => i.ordem === 6);
+    ok(item6 && /emendas ao relatório preliminar/i.test(item6.descricao),
+       `o item 6 voltou: "${item6?.descricao}"`);
+    ok(item6 && /^\d{2}\/\d{2}\/\d{4}$/.test(item6.inicio) && item6.inicio.endsWith('/2024'),
+       `e o ano que faltava foi herdado da outra ponta: ${item6?.inicio} a ${item6?.fim}`);
+
+    // (b) A LOA 2025 NÃO publicou "Manual de Emendas" — a orientação veio em
+    //     "Instruções para elaboração de emendas no LEXOR". Sem reconhecer a
+    //     variação, o exercício ficava sem âncora e a conferência normativa não
+    //     tinha contra o que rodar.
+    const e25 = await C.lerDocumentosEmendas('loa', 2025);
+    ok(!e25.manual, 'a LOA 2025 realmente não tem "Manual de Emendas"');
+    ok(e25.ancoraNormativa && /instru[çc][õo]es/i.test(e25.ancoraNormativa.rotulo),
+       `mas tem âncora: "${e25.ancoraNormativa?.rotulo}"`);
+    const e26 = await C.lerDocumentosEmendas('loa', 2026);
+    ok(e26.ancoraNormativa === e26.manual, 'havendo Manual, é ele a âncora preferida');
+
+    // (c) O que É estável entre exercícios: as 10 etapas. É o esqueleto que a
+    //     ficha de parâmetros pode reaproveitar — nunca os valores.
+    const nomes = a => a.etapas.map(e => e.nome).join('§');
+    const [a25, a26, a27] = await Promise.all([2025, 2026, 2027].map(x => C.lerAcompanhamento('loa', x)));
+    ok(nomes(a25) === nomes(a26) && nomes(a26) === nomes(a27),
+       'as 10 etapas são idênticas em 2025, 2026 e 2027');
+    // O cronograma, ao contrário, MUDA: 13 itens em 2025, 16 em 2026.
+    const c26 = await C.lerCronograma('loa', 2026);
+    ok(c25.itens.length !== c26.itens.length,
+       `o cronograma NÃO é estável (${c25.itens.length} itens em 2025 × ${c26.itens.length} em 2026) — não se copia do ano anterior`);
+  }
+
   console.log('\n== LDO: mesma leitura, formato diferente ==');
   {
     // A LDO tem trilha, pipeline e grafias próprios. MEDIDO em 03/09/2026:

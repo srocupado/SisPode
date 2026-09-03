@@ -121,10 +121,13 @@ function render() {
   $('on-corpo').innerHTML = partes.filter(Boolean).join('');
   $('btn-nota').disabled = !q.materia.disponivel;
   // Conferir normas só faz sentido havendo Manual de Emendas do exercício.
-  $('btn-conferir').disabled = !(q.emendas.disponivel && q.emendas.manual);
-  $('btn-conferir').title = q.emendas.manual
-    ? `Confere a nota contra o "${q.emendas.manual.rotulo}"`
-    : 'O Manual de Emendas deste exercício ainda não foi publicado — não há contra o que conferir.';
+  // Nem todo exercício publica "Manual de Emendas": a LOA 2025 orientou por
+  // "Instruções para elaboração de emendas no LEXOR". A conferência roda contra
+  // a âncora normativa que existir naquele ano.
+  $('btn-conferir').disabled = !(q.emendas.disponivel && q.emendas.ancoraNormativa);
+  $('btn-conferir').title = q.emendas.ancoraNormativa
+    ? `Confere a nota contra o "${q.emendas.ancoraNormativa.rotulo}"`
+    : 'A orientação normativa deste exercício ainda não foi publicada — não há contra o que conferir.';
 
   if (q.fontesIndisponiveis.length) {
     $('on-status').innerHTML = `<span style="color:#ff8e8e">⚠ ${q.fontesIndisponiveis.length} fonte(s) fora do ar — o quadro pode estar incompleto.</span>`;
@@ -221,7 +224,8 @@ function cardEmendas(q) {
       <ul class="on-lista">${ds.map(d => `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.rotulo)}</a></li>`).join('')}</ul></div>`;
   };
   return `<div class="on-card"><h3>Emendas — documentos oficiais</h3>
-    ${e.manual ? `<div class="on-ok">Âncora normativa do exercício: <a style="color:#0a6cf0" href="${esc(e.manual.url)}" target="_blank" rel="noopener">${esc(e.manual.rotulo)}</a></div>` : '<div class="on-pend">O Manual de Emendas deste exercício ainda não foi publicado.</div>'}
+    ${e.ancoraNormativa ? `<div class="on-ok">Âncora normativa do exercício: <a style="color:#0a6cf0" href="${esc(e.ancoraNormativa.url)}" target="_blank" rel="noopener">${esc(e.ancoraNormativa.rotulo)}</a></div>` : '<div class="on-pend">A orientação normativa deste exercício ainda não foi publicada.</div>'}
+    ${grupo('Orientações', 'orientacao')}
     ${grupo('Instruções normativas', 'instrucao_normativa')}
     ${grupo('Portarias', 'portaria')}
     ${grupo('Cartilhas por área temática', 'cartilha')}
@@ -291,12 +295,12 @@ function cardConferencia() {
  */
 async function conferirNormas() {
   const q = estado.quadro;
-  const manual = q?.emendas?.manual;
+  const manual = q?.emendas?.ancoraNormativa;
   if (!manual) return;
   const btn = $('btn-conferir');
   const rot = btn.innerHTML;
   btn.disabled = true;
-  btn.innerHTML = '<span class="on-spinner"></span> lendo o Manual…';
+  btn.innerHTML = '<span class="on-spinner"></span> lendo a orientação…';
   try {
     const texto = await extrairTextoPdfUrl(manual.url);
     const nota = montarTextoNota(q);
@@ -379,7 +383,7 @@ function htmlNota(q, conf) {
   if (!c.disponivel) pendencias.push('prazo de apresentação de emendas e demais datas do cronograma');
   if (r.disponivel && !r.relatorGeral) pendencias.push('designação do Relator-Geral');
   if (r.disponivel && !r.setoriais.length) pendencias.push('designação dos relatores setoriais');
-  if (!e.disponivel || !e.manual) pendencias.push('Manual de Emendas do exercício, que fixa cotas, quantidades, sequenciais de cancelamento e pisos de repasse');
+  if (!e.disponivel || !e.ancoraNormativa) pendencias.push('orientação normativa do exercício (Manual de Emendas ou equivalente), que fixa cotas, quantidades, sequenciais de cancelamento e pisos de repasse');
   if (!q.notas.disponivel) pendencias.push('notas técnicas das consultorias (CONOF/CD e CONORF/SF)');
 
   const alertas = conf ? resumoConferencia(conf.resultado) : null;
@@ -453,9 +457,9 @@ ${pendencias.length ? `<h2>4. O que ainda não está definido</h2>
 antecipado a partir de exercícios anteriores: são fixados a cada ano, e o regime de emendas muda entre eles.
 <ul>${pendencias.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
 
-${e.disponivel && e.manual ? `<h2>${pendencias.length ? '5' : '4'}. Base normativa do exercício</h2>
+${e.disponivel && e.ancoraNormativa ? `<h2>${pendencias.length ? '5' : '4'}. Base normativa do exercício</h2>
 <p>Os parâmetros operacionais das emendas deste exercício constam do
-<strong>${esc(e.manual.rotulo)}</strong>, publicado pela Comissão Mista, que é a referência a ser consultada
+<strong>${esc(e.ancoraNormativa.rotulo)}</strong>, publicado pela Comissão Mista, que é a referência a ser consultada
 para cotas, quantidades, sequenciais de cancelamento e pisos de repasse.</p>
 ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:</strong><br>${alertas.map(esc).join('<br>')}
 <br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}

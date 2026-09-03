@@ -85,8 +85,11 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
       ok(/Relator-Geral/.test(txt) && /Ainda não designado/i.test(txt), 'Relator-Geral não designado aparece como tal');
       ok(/O que ainda não está definido/i.test(txt), 'e há a seção de pendências');
     }
-    if (!q.emendas.manual) {
-      ok(/Manual de Emendas do exercício/i.test(txt), 'a falta do Manual de Emendas é registrada entre as pendências');
+    if (!q.emendas.ancoraNormativa) {
+      // O texto fala em "orientação normativa (Manual de Emendas ou
+      // equivalente)" porque nem todo exercício publica um Manual: a LOA 2025
+      // orientou por "Instruções para elaboração de emendas no LEXOR".
+      ok(/orientação normativa do exercício/i.test(txt), 'a falta da orientação normativa é registrada entre as pendências');
       ok(/cotas, quantidades, sequenciais de cancelamento e pisos de repasse/i.test(txt),
          'nomeando exatamente o que depende dele');
     }
