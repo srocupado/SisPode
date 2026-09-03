@@ -139,6 +139,42 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     else ok(true, `(a etapa de emendas da LOA 2027 abriu: ${e27.documentos.length} documentos)`);
   }
 
+  console.log('\n== as cartilhas por área temática (o defeito que esvaziava o guia) ==');
+  {
+    // A classificação saía do rótulo do link, e a palavra "cartilha" aparece
+    // UMA vez na página: no título da seção. As 22 cartilhas da LOA 2026 são
+    // publicadas com o nome do ÓRGÃO — "Ministério de Portos e Aeroportos",
+    // "Fundo Nacional de Saúde - FNS" — e todas caíam em "outro". O guia de
+    // aplicação exibia as 16 áreas com "sem cartilha publicada" enquanto as
+    // cartilhas estavam ali, a um clique.
+    const e26 = await C.lerDocumentosEmendas('loa', 2026);
+    const cart = e26.documentos.filter(d => d.classe === 'cartilha');
+    ok(cart.length >= 20, `${cart.length} cartilhas classificadas na LOA 2026 (eram 0)`);
+    ok(cart.every(c => !/cartilha/i.test(c.rotulo)),
+       'e NENHUMA traz a palavra "cartilha" no rótulo — por isso o rótulo nunca serviu');
+    ok(cart.every(c => /cartilha/i.test(c.secao || '')),
+       `a classificação vem do título da seção: "${cart[0]?.secao}"`);
+
+    // A ÁREA tem a mesma origem: é o <strong> que agrupa os links no HTML.
+    ok(cart.every(c => c.area), 'toda cartilha vem com a área temática a que pertence');
+    const saude = cart.find(c => /Fundo Nacional de Saúde/i.test(c.rotulo));
+    ok(saude && /^II\s*[-–]\s*Saúde/.test(saude.area), `ex.: "${saude?.rotulo}" → "${saude?.area}"`);
+    // "VII - Turismo" vem como <span><strong>VII -&nbsp;<strong>Turismo</strong>
+    // </strong></span>: exigir <strong> filho DIRETO do <li> deixava essa área
+    // (e só ela) sem cartilha.
+    const turismo = cart.find(c => /Ministério do Turismo/i.test(c.rotulo));
+    ok(turismo && /Turismo/.test(turismo.area || ''),
+       `a área embrulhada em <span> também é lida: "${turismo?.area}"`);
+
+    // O Manual não pode virar cartilha por estar na mesma página.
+    ok(e26.manual && e26.manual.classe === 'manual', 'o Manual de Emendas continua sendo Manual');
+    ok(!cart.some(c => c.url === e26.manual.url), 'e não aparece entre as cartilhas');
+
+    const e25 = await C.lerDocumentosEmendas('loa', 2025);
+    ok(e25.documentos.filter(d => d.classe === 'cartilha').length >= 20,
+       `e o exercício anterior também: ${e25.documentos.filter(d => d.classe === 'cartilha').length} cartilhas na LOA 2025`);
+  }
+
   console.log('\n== o exercício muda de formato de um ano para o outro ==');
   {
     // Comparação LOA 2025 × 2026 × 2027, feita para decidir o que dá para

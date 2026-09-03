@@ -49,11 +49,14 @@ function montarGuia(emendas = {}, relatores = {}) {
   const usadas = new Set();
   const areas = setoriais.map(s => {
     const { numero, nome } = partesDaArea(s.area);
-    // A cartilha é publicada sob o nome do órgão, não da área; o casamento é
-    // pelo número romano da área quando ele aparece no rótulo, e é declarado
-    // como aproximado quando não aparece.
+    // A cartilha é publicada sob o nome do ÓRGÃO ("Ministério de Portos e
+    // Aeroportos"), nunca da área — a área é o <strong> que a agrupa no HTML da
+    // CMO, e o cmo.js a carrega em `c.area`. Casar pelo número romano do rótulo
+    // era buscar no lugar errado: nenhuma das 22 cartilhas da LOA 2026 traz
+    // numeral no nome, e todas ficavam órfãs.
     const daArea = cartilhas.filter(c => {
-      const bate = numero && new RegExp(`(^|\\s)${numero}\\s*[-–]`).test(c.rotulo);
+      const bate = (c.area && partesDaArea(c.area).numero === numero)
+        || (numero && new RegExp(`(^|\\s)${numero}\\s*[-–]`).test(c.rotulo));
       if (bate) usadas.add(c.url);
       return bate;
     });

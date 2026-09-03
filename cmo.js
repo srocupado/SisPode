@@ -352,6 +352,34 @@ async function lerRelatores(tipo, anoOrcamento) {
  * portarias ministeriais e cartilhas. O Manual é a ÂNCORA NORMATIVA da nota —
  * é dele que saem cotas, prazos, pisos e a base legal vigente NAQUELE exercício.
  */
+/**
+ * A área temática de um link de cartilha: o <strong> do <li> que o envolve.
+ *
+ *   <li><strong>II - Saúde</strong>
+ *     <ul><li><a href="FNS.pdf">Fundo Nacional de Saúde - FNS</a></li></ul></li>
+ *
+ * Devolve null quando o link não está sob uma área — e null é resposta certa:
+ * a cartilha continua listada, só não é atribuída a uma área que não existe.
+ */
+function areaDoLink(a) {
+  for (let el = a.parentElement, n = 0; el && n < 6; el = el.parentElement, n++) {
+    if (el.tagName !== 'LI') continue;
+    for (const s of el.querySelectorAll('strong, b')) {
+      // O rótulo da área nem sempre é filho DIRETO do <li>: a LOA 2026 publica
+      // "VII - Turismo" como <span><strong>VII -&nbsp;<strong>Turismo</strong>
+      // </strong></span>, e exigir filho direto deixava justamente essa área
+      // sem cartilha. Buscar em profundidade resolve, desde que não se atravesse
+      // para dentro de um <li> aninhado — que já é outra área.
+      let dono = s.parentElement;
+      while (dono && dono !== el && dono.tagName !== 'LI') dono = dono.parentElement;
+      if (dono !== el) continue;
+      const t = txt(s);
+      if (/^[IVXLC]+\s*[-–]/.test(t)) return t;
+    }
+  }
+  return null;
+}
+
 async function lerDocumentosEmendas(tipo, anoOrcamento) {
   const url = urlCMO(tipo, anoOrcamento, 'etapas/apresentacao-emendas');
   if (!url) return semConteudo('Este tipo não tem etapa de emendas por exercício no portal.');
@@ -365,7 +393,22 @@ async function lerDocumentosEmendas(tipo, anoOrcamento) {
   }
 
   const docs = [];
-  for (const a of doc.querySelectorAll('a[href]')) {
+  // A classificação NÃO pode sair só do rótulo do link. Medido em 03/09/2026 na
+  // LOA 2026: as 22 cartilhas por área temática são publicadas com o nome do
+  // ÓRGÃO ("Ministério de Portos e Aeroportos", "Fundo Nacional de Saúde -
+  // FNS") e a palavra "cartilha" aparece uma única vez na página — no título da
+  // seção que as agrupa. Classificando pelo rótulo, as 22 caíam em "outro" e o
+  // guia de aplicação ficava permanentemente vazio, com as 16 áreas exibindo
+  // "sem cartilha publicada" enquanto as cartilhas estavam ali.
+  //
+  // A ÁREA TEMÁTICA tem a mesma origem: ela é o <strong> do <li> que envolve o
+  // link ("I - Infraestrutura, Minas e Energia"), e nunca esteve no rótulo.
+  // Percorrer o documento em ordem, guardando o último título visto, é o que
+  // dá acesso às duas coisas.
+  let secao = '';
+  for (const el of doc.querySelectorAll('h1, h2, h3, h4, a[href]')) {
+    if (el.tagName !== 'A') { secao = txt(el); continue; }
+    const a = el;
     const rotulo = txt(a);
     let href = a.getAttribute('href') || '';
     if (!rotulo || rotulo.length > 120) continue;
@@ -380,9 +423,9 @@ async function lerDocumentosEmendas(tipo, anoOrcamento) {
       // normativa nenhuma e a conferência não teria contra o que rodar.
       : /instru[çc][õo]es|orienta[çc][õo]es|manual/i.test(rotulo) ? 'orientacao'
       : /portaria/i.test(rotulo)                          ? 'portaria'
-      : /cartilha/i.test(rotulo)                          ? 'cartilha'
+      : /cartilha/i.test(rotulo) || /cartilha/i.test(secao) ? 'cartilha'
       : 'outro';
-    docs.push({ rotulo, url: href, classe });
+    docs.push({ rotulo, url: href, classe, secao: secao || null, area: areaDoLink(a) });
   }
   return {
     disponivel: docs.length > 0,
