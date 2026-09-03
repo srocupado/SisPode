@@ -21,12 +21,13 @@ const { DOMParser } = require(path.join(RAIZ, 'bot', 'node_modules', 'linkedom')
 globalThis.DOMParser = DOMParser;
 const C = require(path.join(RAIZ, 'cmo.js'));
 const N = require(path.join(RAIZ, 'normas.js'));
+const F = require(path.join(RAIZ, 'ficha.js'));
 
 const src = fs.readFileSync(path.join(RAIZ, 'orcamento-notas.js'), 'utf8');
 const trecho = re => { const m = src.match(re); if (!m) throw new Error('trecho não encontrado: ' + re); return m[0]; };
 
 // Só as funções puras da tela (sem DOM): montagem da nota e utilitários.
-const M = new Function('resumoConferencia', `
+const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio', `
   ${trecho(/const esc = [^\n]+/)}
   ${trecho(/const dataBR = [^\n]+/)}
   ${trecho(/function dataDe\([\s\S]*?\n}/)}
@@ -34,9 +35,10 @@ const M = new Function('resumoConferencia', `
   ${trecho(/function anosDisponiveis\([\s\S]*?\n}/)}
   ${trecho(/function legislaturaDe\([\s\S]*?\n}/)}
   ${trecho(/function montarTextoNota\([\s\S]*?\n}/)}
+  ${trecho(/function blocoFichaNota\([\s\S]*?\n^}/m)}
   ${trecho(/function htmlNota\([\s\S]*?\n^}/m)}
   return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota };
-`)(N.resumoConferencia);
+`)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }));
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
@@ -144,6 +146,36 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     ok(/Prazo de emendas/.test(txt), 'a seção de prazo continua presente');
     ok(q.acompanhamento.etapas.every(e => txt.includes(e.nome)),
        `as ${q.acompanhamento.etapas.length} etapas próprias da LDO entram na nota`);
+  }
+
+  console.log('\n== a ficha de parâmetros entra na nota ==');
+  {
+    const q = await C.carregarExercicio('loa', 2027);
+
+    // Sem ficha, a nota continua saindo (compatível com o que já existe).
+    ok(semTags(M.htmlNota(q, null)).length > 500, 'nota sem ficha não quebra');
+
+    // Ficha vazia no início do exercício: a nota NOMEIA o que ainda não existe.
+    const vazia = F.fichaVazia('loa', 2027);
+    const txtVazia = semTags(M.htmlNota(q, null, vazia));
+    ok(/Parâmetros do exercício/.test(txtVazia), 'a seção de parâmetros aparece');
+    ok(/sem fonte publicada/i.test(txtVazia) && /Cota por deputado/.test(txtVazia),
+       'listando os campos ainda sem fonte, pelo nome');
+    ok(/não se deduzem do exercício anterior/i.test(txtVazia),
+       'com o aviso de que não se deduzem do ano anterior');
+    ok(!/40\.252\.007|19\.704\.897/.test(txtVazia), 'e nenhum número de outro exercício aparece');
+
+    // Ficha preenchida: valor com procedência, e o divergente sinalizado.
+    const cheia = F.fichaVazia('loa', 2027);
+    F.preencherCampo(cheia, 'cota_individual_deputado', {
+      valor: 'R$ 41.000.000,00', documento: 'Manual de Emendas da LOA 2027', pagina: '20' });
+    F.preencherCampo(cheia, 'piso_obras', { valor: 'R$ 250.000,00', documento: 'Manual de Emendas da LOA 2027' });
+    cheia.valores.piso_obras.conferencia = { localizado: false, fonte: 'Manual', em: new Date().toISOString() };
+    const txtCheia = semTags(M.htmlNota(q, null, cheia));
+    ok(/41\.000\.000,00/.test(txtCheia), 'o valor preenchido entra na nota');
+    ok(/Manual de Emendas da LOA 2027, p\. 20/.test(txtCheia), 'com documento e página ao lado');
+    ok(/não localizado na fonte/i.test(txtCheia), 'e o campo que não conferiu vai sinalizado, não omitido');
+    ok(/Confirme antes de divulgar/i.test(txtCheia), 'com instrução do que fazer');
   }
 
   console.log('\n== texto corrido usado pela conferência ==');
