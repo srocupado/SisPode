@@ -22,12 +22,14 @@ globalThis.DOMParser = DOMParser;
 const C = require(path.join(RAIZ, 'cmo.js'));
 const N = require(path.join(RAIZ, 'normas.js'));
 const F = require(path.join(RAIZ, 'ficha.js'));
+const S = require(path.join(RAIZ, 'serie.js'));
+const MSG = require(path.join(RAIZ, 'mensagem.js'));
 
 const src = fs.readFileSync(path.join(RAIZ, 'orcamento-notas.js'), 'utf8');
 const trecho = re => { const m = src.match(re); if (!m) throw new Error('trecho não encontrado: ' + re); return m[0]; };
 
 // Só as funções puras da tela (sem DOM): montagem da nota e utilitários.
-const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio', `
+const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio', 'seriesComDados', 'frasSerie', 'formatarBR', `
   ${trecho(/const esc = [^\n]+/)}
   ${trecho(/const dataBR = [^\n]+/)}
   ${trecho(/function dataDe\([\s\S]*?\n}/)}
@@ -36,9 +38,12 @@ const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio'
   ${trecho(/function legislaturaDe\([\s\S]*?\n}/)}
   ${trecho(/function montarTextoNota\([\s\S]*?\n}/)}
   ${trecho(/function blocoFichaNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function blocoSerieNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function blocoVariacaoNota\([\s\S]*?\n^}/m)}
   ${trecho(/function htmlNota\([\s\S]*?\n^}/m)}
   return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota };
-`)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }));
+`)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }),
+   S.seriesComDados, S.frasSerie, MSG.formatarBR);
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
