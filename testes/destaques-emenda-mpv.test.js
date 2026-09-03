@@ -45,10 +45,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   console.log('\n== emendas normalizadas ==');
   const em = await M.senadoEmendas('174123');
   ok(em.length >= 100, `${em.length} emendas (medido 112 em 01/09/2026, 113 em 02/09/2026)`);
-  // Numeração contígua, tolerando REPETIÇÃO de número: em 02/09/2026 a nº 13
-  // passou a aparecer duas vezes (Dep. Da Vitoria e "Comissão", esta publicada
-  // no dia em que a Comissão Mista concluiu). O acervo cresce durante a
-  // tramitação, então a asserção é sobre a COBERTURA, não sobre a contagem.
+  // Numeração contígua, tolerando REPETIÇÃO de número: em 02/09/2026 o
+  // endpoint passou a devolver 113 documentos para 112 emendas, porque o
+  // PLV 13/2026 entrou na coleção e colidiu com a Emenda nº 13. O acervo muda
+  // durante a tramitação, então a asserção é sobre a COBERTURA (1..N), não
+  // sobre a contagem.
   const nums = [...new Set(em.map(e => e.numero))].sort((a, b) => a - b);
   ok(nums[0] === 1 && nums.every((n, i) => n === i + 1), `numeração contígua 1..${nums[nums.length - 1]}`);
   ok(em.every(e => /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(e.url)),
@@ -125,9 +126,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
   console.log('\n== número de emenda repetido no Senado (medido em 02/09/2026) ==');
   {
-    // A nº 13 da MPV 1357/2026 voltou duas vezes: Dep. Da Vitoria (PP) e
-    // "Comissão". `find` pegaria a primeira em silêncio — e anexar o texto
-    // errado a um destaque é análise errada.
+    // A nº 13 da MPV 1357/2026 voltou duas vezes, e o primeiro documento NEM
+    // É uma emenda: é o "PROJETO DE LEI DE CONVERSÃO Nº 13, DE 2026" (5 págs,
+    // autoria "Comissão"), que colide com a Emenda nº 13 do Dep. Da Vitoria
+    // porque as duas numerações são sequências independentes. `find` pegava o
+    // PLV em silêncio — um destaque à emenda receberia o substitutivo inteiro.
     const em = await M.senadoEmendas('174123');
     const repetidos = [...new Set(em.map(e => e.numero))].filter(n => em.filter(e => e.numero === n).length > 1);
     if (!repetidos.length) {
