@@ -44,14 +44,21 @@ const SENADO_CMO  = 'https://legis.senado.leg.br/dadosabertos';
 const LEIS_ORCAMENTARIAS = {
   loa: { rotulo: 'LOA', nome: 'Lei Orçamentária Anual',        trilha: 'orcamento-anual',          apelido: /^PLOA\b/i },
   ldo: { rotulo: 'LDO', nome: 'Lei de Diretrizes Orçamentárias', trilha: 'diretrizes-orcamentarias', apelido: /^PLDO\b/i },
-  ppa: { rotulo: 'PPA', nome: 'Plano Plurianual',              trilha: null,                        apelido: /^PPA\b/i },
+  // O PPA é indexado por QUADRIÊNIO ("2024-2027"), não por exercício, e o
+  // Senado apelida o projeto original de "PPPA" — com três Ps, de Projeto de
+  // Plano Plurianual. A regex /^PPA\b/ que estava aqui não pegava nem isso nem
+  // "Alteração do PPA 2024-2027", que é a forma das revisões.
+  ppa: { rotulo: 'PPA', nome: 'Plano Plurianual',              trilha: 'plano-plurianual',          apelido: /^P?PPA\b/i, porPeriodo: true },
 };
 
-/** URL de uma seção do acompanhamento. `secao` vazia = página do exercício. */
-function urlCMO(tipo, ano, secao = '') {
+/**
+ * URL de uma seção do acompanhamento. `secao` vazia = página do exercício.
+ * `chave` é o ano (LOA/LDO) ou o quadriênio (PPA: "2024-2027").
+ */
+function urlCMO(tipo, chave, secao = '') {
   const t = LEIS_ORCAMENTARIAS[tipo];
   if (!t || !t.trilha) return null;
-  const base = `${CN_BASE}/web/orcamento/acompanhe/${t.trilha}/-/${tipo}/${ano}`;
+  const base = `${CN_BASE}/web/orcamento/acompanhe/${t.trilha}/-/${tipo}/${chave}`;
   return secao ? `${base}/${secao}` : base;
 }
 
@@ -93,9 +100,13 @@ function semConteudo(motivo, extra = {}) {
 async function buscarMateriaOrcamentaria(tipo, anoOrcamento) {
   const t = LEIS_ORCAMENTARIAS[tipo];
   if (!t) throw new Error(`tipo desconhecido: ${tipo}`);
-  const alvo = new RegExp(`^${t.rotulo === 'LOA' ? 'PLOA' : t.rotulo === 'LDO' ? 'PLDO' : 'PPA'}\\s*${anoOrcamento}\\b`, 'i');
+  // "2024-2027" → o projeto foi apresentado em 2023 e apelidado "PPPA 2024-2027".
+  const primeiroAno = Number(String(anoOrcamento).slice(0, 4));
+  const alvo = t.porPeriodo
+    ? new RegExp(`^P?PPA\\s*${String(anoOrcamento)}\\b`, 'i')
+    : new RegExp(`^${t.rotulo === 'LOA' ? 'PLOA' : 'PLDO'}\\s*${anoOrcamento}\\b`, 'i');
 
-  for (const anoBusca of [Number(anoOrcamento) - 1, Number(anoOrcamento)]) {
+  for (const anoBusca of [primeiroAno - 1, primeiroAno]) {
     let lista;
     try {
       const r = await fetch(`${SENADO_CMO}/processo?sigla=PLN&ano=${anoBusca}`, { headers: { Accept: 'application/json' } });
@@ -218,7 +229,10 @@ async function lerCronograma(tipo, anoOrcamento) {
   // simples, 16 itens viravam 8, cada um engolindo o vizinho.
   const texto = corpo.replace(/\s+/g, ' ');
   const itens = [];
-  const re = /(\d{1,2})\.\s*((?:(?!\d{2}\/\d{2}\/\d{4}).){5,170}?)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:a|até)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:\(([^)]{1,14})\))?/g;
+  // O PPA põe a hora DEPOIS de cada data — "de 07/11/2023 (13h) a 07/11/2023
+  // (18h)" —, enquanto a LOA põe só no fim ("a 19/11/2025 (20h)"). Sem aceitar
+  // o parêntese entre a primeira data e o "a", os itens do PPA eram descartados.
+  const re = /(\d{1,2})\.\s*((?:(?!\d{2}\/\d{2}\/\d{4}).){5,170}?)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:\(([^)]{1,14})\))?\s*(?:a|até)\s*(?:de\s+)?(\d{2}\/\d{2}\/\d{4})\s*(?:\(([^)]{1,14})\))?/g;
   let m;
   while ((m = re.exec(texto)) !== null) {
     const descricao = m[2].replace(/\s+/g, ' ').trim();
@@ -227,8 +241,8 @@ async function lerCronograma(tipo, anoOrcamento) {
       ordem: parseInt(m[1], 10),
       descricao,
       inicio: m[3],
-      fim: m[4],
-      observacao: (m[5] || '').trim() || null,
+      fim: m[5],
+      observacao: [m[4], m[6]].filter(Boolean).map(x => x.trim()).join(' a ') || null,
     });
   }
   const mPub = /Cronograma\s*\(publicado em\s*(\d{2}\/\d{2}\/\d{4})\)/i.exec(texto);
@@ -400,20 +414,78 @@ async function lerNotasTecnicas(tipo, anoOrcamento) {
 }
 
 /**
+ * Alterações ao texto do PPA — só ele tem isto, e é a parte VIVA do plano.
+ *
+ * O PPA é aprovado uma vez por quadriênio, mas o Executivo manda projetos de
+ * alteração ao longo dele. MEDIDO em 03/09/2026 no PPA 2024-2027: dois
+ * projetos, o PLN 28/2024 já aprovado (Lei 15.060/2024) e o PLN 19/2025 EM
+ * TRAMITAÇÃO. Para a bancada, é a alteração em curso que importa — o plano
+ * original de 2023 já é norma.
+ *
+ * Devolve [{ projeto, situacao, ementa, url, normaGerada, normaUrl }].
+ */
+async function lerAlteracoesPPA(periodo) {
+  const url = urlCMO('ppa', periodo);
+  if (!url) return semConteudo('Período inválido para o PPA.');
+  let doc;
+  try { ({ doc } = await htmlCMO(url)); }
+  catch (e) { return semConteudo(`Portal do Congresso indisponível (${e.message}).`, { falha: true }); }
+
+  const caixa = doc.querySelector('#collapseAlteracoesLeiOrcamentaria');
+  if (!caixa) return semConteudo('O portal não lista alterações ao texto deste PPA.', { url });
+
+  const alteracoes = [];
+  for (const tr of caixa.querySelectorAll('tr')) {
+    const tds = tr.querySelectorAll('td');
+    if (tds.length < 1) continue;
+    const linkProj = tds[0].querySelector('a[href]');
+    const projeto = txt(linkProj);
+    if (!/^PLN\s*\d+\/\d{4}$/i.test(projeto)) continue;
+    const badge = txt(tds[0].querySelector('.badge'));
+    const ementa = txt(tds[0].querySelector('span:not(.badge):not(.cn-orc-pre-badge)'))
+      || txt(tds[0]).replace(projeto, '').replace(badge, '').trim();
+    const linkNorma = tds[1] && tds[1].querySelector('a[href]');
+    alteracoes.push({
+      projeto,
+      situacao: badge || null,
+      ementa,
+      url: linkProj ? linkProj.getAttribute('href') : null,
+      normaGerada: linkNorma ? txt(linkNorma) : null,
+      normaUrl: linkNorma ? linkNorma.getAttribute('href') : null,
+      emTramitacao: /em\s*tramita/i.test(badge || ''),
+    });
+  }
+
+  // A lei do plano em vigor aparece na mesma página.
+  const corpo = (doc.body?.textContent || '').replace(/\u00a0/g, ' ');
+  const mLei = /Lei do Plano Plurianual \(PPA\):\s*(LEI\s*[\d/]+)/i.exec(corpo);
+
+  return {
+    disponivel: alteracoes.length > 0,
+    motivo: alteracoes.length ? null : 'Nenhuma alteração ao texto deste PPA foi listada.',
+    url,
+    leiDoPlano: mLei ? mLei[1].replace(/\s+/g, ' ').trim() : null,
+    alteracoes,
+    emTramitacao: alteracoes.filter(a => a.emTramitacao),
+  };
+}
+
+/**
  * Quadro completo de um exercício: identificação + acompanhamento + cronograma
  * + relatores + documentos de emendas + notas técnicas. Cada peça declara-se
  * disponível ou não; nenhuma falha derruba as outras.
  */
 async function carregarExercicio(tipo, anoOrcamento) {
-  const [materia, acompanhamento, cronograma, relatores, emendas, notas] = await Promise.all([
+  const [materia, acompanhamento, cronograma, relatores, emendas, notas, alteracoes] = await Promise.all([
     buscarMateriaOrcamentaria(tipo, anoOrcamento),
     lerAcompanhamento(tipo, anoOrcamento),
     lerCronograma(tipo, anoOrcamento),
     lerRelatores(tipo, anoOrcamento),
     lerDocumentosEmendas(tipo, anoOrcamento),
     lerNotasTecnicas(tipo, anoOrcamento),
+    tipo === 'ppa' ? lerAlteracoesPPA(anoOrcamento) : Promise.resolve(null),
   ]);
-  const partes = { materia, acompanhamento, cronograma, relatores, emendas, notas };
+  const partes = { materia, acompanhamento, cronograma, relatores, emendas, notas, ...(alteracoes ? { alteracoes } : {}) };
   return {
     tipo, anoOrcamento: String(anoOrcamento), lidoEm: new Date().toISOString(),
     ...partes,
@@ -428,6 +500,6 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, txt, SEM_CONTEUDO,
     buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, lerRelatores,
-    lerDocumentosEmendas, lerNotasTecnicas, carregarExercicio,
+    lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, carregarExercicio,
   };
 }
