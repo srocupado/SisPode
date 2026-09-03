@@ -49,6 +49,7 @@ let erro = null; try { av('render()'); } catch (e) { erro = e; }
 ok(!erro, erro ? 'render quebrou: ' + erro.stack : 'render com quadro sintético (sem numeros no estado.ia)');
 let h = document.getElementById('on-corpo').innerHTML;
 ok(/Números do exercício/.test(h) && /Apurar números com IA/.test(h) && /Apurar tudo e redigir/.test(h), 'card dos números com os dois botões');
+ok(/Ler parâmetros da Mensagem/.test(h), 'a ficha oferece ler os parâmetros macroeconômicos da Mensagem, sem IA');
 ok(/Informativo Conjunto LOA 2027/.test(h) && /Mensagem Presidencial \(PLN 24\/2026\)/.test(h), 'as fontes localizadas são listadas');
 const f = av('fontesDeNumeros(estado.quadro)');
 ok(f.map(x => x.classe).join() === 'informativo,mensagem', 'fontes: informativo, mensagem');
@@ -88,6 +89,23 @@ ok(f.map(x => x.classe).join() === 'informativo,mensagem', 'fontes: informativo,
      'a primeira dobra tem os cartões de destaque: salário mínimo apurado e o prazo, que diz "não fixado" quando não há cronograma');
   ok(/id="btn-pdf"/.test(nota) && /Salvar em PDF/.test(nota), 'a nota traz o botão de salvar em PDF');
   ok(/class="passos"/.test(nota) && /passo--andamento/.test(nota), 'as etapas viram passos, com o estado escrito ao lado da cor');
+  // parâmetros macroeconômicos lidos da Mensagem entram na ficha, com procedência
+  const fxMsg = fs.readFileSync(path.join(RAIZ, 'testes', 'fixtures', 'mensagem-ploa2027-paginas.txt'), 'utf8');
+  const partes = fxMsg.split(/\[\[PAGINA (\d+)\]\]/);
+  ctx.__pags = []; for (let i = 1; i < partes.length; i += 2) ctx.__pags.push({ numero: +partes[i], texto: partes[i + 1] });
+  av(`estado.ficha = fichaVazia('loa', '2027'); preencherCampo(estado.ficha, 'ipca', { valor: '4,0%', documento: 'preenchido à mão' });`);
+  h = document.getElementById('on-corpo').innerHTML;
+  await av('aplicarParametrosDaMensagem(__pags)');
+  ok(av("estado.ficha.valores.salario_minimo.valor") === 'R$ 1.741,00' && av("estado.ficha.valores.pib.valor") === '2,5%' && av("estado.ficha.valores.selic.valor") === '12,53%' && av("estado.ficha.valores.cambio.valor") === 'R$/US$ 5,22',
+     'PIB, Selic, câmbio e salário mínimo entram na ficha a partir da Mensagem');
+  ok(av("estado.ficha.valores.ipca.valor") === '4,0%' && av("estado.ficha.valores.ipca.documento") === 'preenchido à mão', 'o campo já preenchido pelo analista NÃO é sobrescrito');
+  ok(av("estado.ficha.valores.salario_minimo.documento") === 'Mensagem Presidencial (PLN 24/2026)' && av("estado.ficha.valores.salario_minimo.pagina") === '128' && /estimado em R\$ 1\.741,00/.test(av("estado.ficha.valores.salario_minimo.trecho")),
+     'com documento, página e trecho literal — a mesma procedência do preenchimento manual');
+  ok(av("estado.ficha.valores.pib.conferencia.localizado") === true, 'e já conferido, porque o trecho é o do próprio documento');
+  av('render()'); h = document.getElementById('on-corpo').innerHTML;
+  ok(!/Ler parâmetros da Mensagem/.test(h), 'depois da leitura o botão some');
+  ok(/R\$\/US\$ 5,22/.test(h) && /R\$ 1\.741,00/.test(h), 'a ficha na tela mostra os valores lidos');
+
   // prompt da síntese com os números
   const p = av("promptSintese({ numeros: numerosApurados(estado.ia, estado.quadro), achados: achadosApurados(estado.ia), ficha: estado.ficha, quadro: estado.quadro, pendencias: pendenciasDo(estado.quadro) })");
   ok(/Salário mínimo: R\$ 1\.741,00 \(2027\)/.test(p) && /Bolsa Família: 157\.062,2/.test(p) && /Reserva: O projeto deve conter/.test(p), 'o prompt da síntese recebe números e achados');

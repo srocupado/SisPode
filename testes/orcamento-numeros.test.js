@@ -165,6 +165,21 @@ const T_RESERVA = 'O art. 13, § 5º, do PLDO 2027 prevê que o Projeto de Lei O
     ok(/urlDocumento:\s+urlSenado\(/.test(fs.readFileSync(path.join(RAIZ, 'cmo.js'), 'utf8')), 'a matéria já sai do cmo.js com a URL normalizada');
   }
 
+  console.log('\n== o que é cada documento do Executivo ==');
+  {
+    // Rótulos REAIS do gov.br (PLOA 2027 e 2026): "Volume 1", "Volume 4 - 2",
+    // "Volume 4 - grade de parâmetros"… A descrição vem das capas dos volumes.
+    const C = require(path.join(RAIZ, 'cmo.js'));
+    const d = C.descreverDocumentoExecutivo;
+    ok(/emendas à despesa/.test(d('Volume 4 - 1')) && /exceto o MEC/.test(d('Volume 4 - 2')), 'Volume 4 (tomos I e II): Poder Executivo — o volume das emendas à despesa');
+    ok(/mínimos de saúde e educação/.test(d('Volume 1')), 'Volume 1: anexos, quadros consolidados e mínimos');
+    ok(/Programas de Governo/.test(d('Volume 2')) && /Legislativo/.test(d('Volume 3')) && /Educação/.test(d('Volume 5')) && /estatais/.test(d('Volume 6')), 'Volumes 2, 3, 5 e 6');
+    ok(/artigos/.test(d('Texto da Lei')) && /artigo por artigo/.test(d('Comparativo LOA 2026 x PLOA 2027')), 'texto da lei e comparativo');
+    ok(/Grade de parâmetros/.test(d('Volume 4 - grade de parâmetros')) && /Cadastro de ações/.test(d('Volume 5 - inciso XV - Cadastro de Ações')) && /Informações complementares/.test(d('Volume 3 - incisos IX a XXI (exceto XIII e XV)')),
+       'as informações complementares de 2026 têm descrição própria — o inciso da grade e o do cadastro de ações antes do genérico');
+    ok(/linguagem simples/.test(d('Orçamento Cidadão')) && d('Coisa desconhecida') === '' && d('') === '', 'Orçamento Cidadão; rótulo desconhecido não recebe descrição inventada');
+  }
+
   console.log('\n== as fontes, na ordem em que valem a leitura ==');
   {
     const q = {
