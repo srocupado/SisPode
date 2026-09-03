@@ -1890,6 +1890,19 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     }
     if (!docs.length) throw new Error('Documento (PRLP/PRLE ou inteiro teor) não disponível na API.');
 
+    // Requerimento de urgência e o projeto que ele urgencia costumam cair na
+    // MESMA análise: o requerimento é sempre analisado sobre o inteiro teor do
+    // projeto-alvo. Quando o projeto também está em Cenário 1 (sem parecer), os
+    // dois leem exatamente os mesmos PDFs — e a segunda chamada à IA paga por
+    // um texto que já existe. Reaproveita, desde que os documentos batam.
+    if (!forcar) {
+      const irma = analiseIrmaAproveitavel(it, docs);
+      if (irma) {
+        aproveitarAnalise(it, irma, docs);
+        return;
+      }
+    }
+
     // Baixa todos os PDFs em paralelo
     btnGer.innerHTML = `<span class="an-spinner"></span> Buscando ${docs.length} documento(s)...`;
     const pdfBuffers = await Promise.all(docs.map(d => baixarPdf(d.url)));
@@ -2350,6 +2363,83 @@ async function escolherDocumentos(it) {
   }
 
   return docs;
+}
+
+// ============================================================
+//  REAPROVEITAMENTO ENTRE REQUERIMENTO DE URGÊNCIA E PROJETO
+// ============================================================
+// Uma pauta traz, com frequência, o requerimento de urgência de um projeto e
+// o próprio projeto. O requerimento NÃO tem texto próprio a analisar: o módulo
+// já o analisa sobre o inteiro teor do projeto-alvo (ver escolherDocumentos).
+// Logo, quando o projeto está em Cenário 1 — sem parecer de plenário, sem
+// substitutivo adotado, sem emendas do Senado —, as duas análises leem os
+// MESMOS PDFs e a segunda chamada à IA é desperdício.
+//
+// O que NÃO se pode fazer é reaproveitar por identidade ("é o mesmo projeto").
+// Se o projeto tiver parecer, ele é votado na forma do substitutivo, e a
+// análise do requerimento — feita sobre o texto original — descreveria outra
+// coisa. Seria o mesmo erro que desatualizacaoOperativa existe para pegar. Por
+// isso a condição é a IGUALDADE DOS DOCUMENTOS, verificada pela URL, e não o
+// parentesco entre os itens.
+
+/** Os dois itens tratam da mesma proposição? (requerimento ↔ projeto urgenciado) */
+function mesmaProposicao(a, b) {
+  const alvo = it => it.tipoCategoria === 'requerimento' && it.projetoUrgenciado
+    ? it.projetoUrgenciado
+    : { sigla: it.sigla, numero: it.numero, ano: it.ano };
+  const x = alvo(a), y = alvo(b);
+  if (!x?.sigla || !y?.sigla) return false;
+  return x.sigla === y.sigla && String(x.numero) === String(y.numero) && String(x.ano) === String(y.ano);
+}
+
+/** Conjunto de URLs de um rol de documentos, para comparar dois roles. */
+function chaveDocumentos(docs = []) {
+  return (docs || []).map(d => d.url).filter(Boolean).sort().join('|');
+}
+
+/**
+ * Análise já pronta, em outro item da MESMA pauta, que leu exatamente os
+ * mesmos documentos que `docs`. Devolve o item irmão, ou null.
+ */
+function analiseIrmaAproveitavel(it, docs) {
+  if (!state.pauta || !docs.length) return null;
+  const alvoDocs = chaveDocumentos(docs);
+  for (const outro of state.pauta.itens) {
+    if (outro === it) continue;
+    if (!outro.analise || outro.analiseStatus !== 'ok') continue;
+    if (outro.analise.manual) continue;                 // nota escrita à mão não se replica
+    if (!mesmaProposicao(it, outro)) continue;
+    if (chaveDocumentos(outro.analise.documentos) !== alvoDocs) continue;
+    return outro;
+  }
+  return null;
+}
+
+/** Copia a análise do irmão para `it`, deixando a origem registrada. */
+function aproveitarAnalise(it, irma, docs) {
+  const rotuloIrma = `${tipoLabel(irma.sigla)} ${irma.numero}/${irma.ano}${irma.ordem ? ' (item ' + irma.ordem + ')' : ''}`;
+  it.analise = {
+    ...irma.analise,
+    documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
+    cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
+    parecerKey:  parecerKey(it),
+    analista:    it.analista || '',
+    // Procedência explícita: quem lê a nota precisa saber que ela não foi
+    // gerada para este item, e o card mostra isso na meta.
+    reaproveitadaDe: rotuloIrma,
+    reaproveitadaEm: new Date().toISOString(),
+    editadoEm:   undefined,
+    editadoPor:  undefined,
+  };
+  it.analiseStatus = 'ok';
+  it.desatualizacao = null;
+  // O apelido pode viver no item ou só na análise salva (é assim que ele volta
+  // do Firebase) — aproveitar os dois evita outra chamada à IA só para renomear.
+  const apelidoIrma = irma.apelido || irma.analise?.apelido;
+  if (!it.apelido && apelidoIrma) it.apelido = apelidoIrma;
+  renderAnaliseCard(it);
+  fbSalvarAnalise(it).catch(e => console.warn('Firebase save falhou:', e.message));
+  mostrarToast(`✓ Análise reaproveitada de ${rotuloIrma} — mesmos documentos, sem nova chamada à IA`, 'sucesso');
 }
 
 function parecerKey(it) {
@@ -3061,7 +3151,13 @@ function renderAnaliseCard(it) {
     const cenarioHtml = it.analise.cenario
       ? ` <span title="Cenário de tramitação em que a análise foi enquadrada">(${escapeHtml(it.analise.cenario)})</span>`
       : '';
-    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${docsHtml}${promptHtml}`;
+    // Análise copiada de um item irmão (requerimento ↔ projeto urgenciado):
+    // a procedência fica visível, senão a meta diria "gerada em" para um texto
+    // que não foi gerado para este item.
+    const reapHtml = it.analise.reaproveitadaDe
+      ? ` · <span title="A análise foi reaproveitada porque os documentos analisados são exatamente os mesmos; nenhuma nova chamada à IA foi feita" style="color:#2fcf7a;font-weight:600">reaproveitada de ${escapeHtml(it.analise.reaproveitadaDe)}</span>`
+      : '';
+    metaEl.innerHTML = `${fonte} · ${it.analise.provedor}${it.analise.modelo ? ' / ' + it.analise.modelo : ''}${cenarioHtml}${reapHtml}${docsHtml}${promptHtml}`;
   }
   // Analista responsável na meta + sincroniza o campo do card (cache/regeração).
   const analista = it.analista || it.analise.analista || '';
