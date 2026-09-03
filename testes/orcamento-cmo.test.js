@@ -250,6 +250,35 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(!r.disponivel, `relatoria do PPA: "${r.motivo}"`);
   }
 
+  console.log('\n== materiais do Executivo (gov.br) ==');
+  {
+    // O portal do Congresso conta a TRAMITAÇÃO; o CONTEÚDO do orçamento está do
+    // lado do Executivo. Sem ele, a nota fica em "onde o processo está" e nunca
+    // chega a "o que muda para o gabinete".
+    const e = await C.lerMateriaisExecutivo('loa', 2027);
+    ok(e.disponivel && e.documentos.length >= 8, `PLOA 2027: ${e.documentos.length} documentos no gov.br`);
+    ok(e.textoLei && /orcamentos-anuais/.test(e.textoLei.url), `texto do projeto: "${e.textoLei?.rotulo}"`);
+    ok(e.comparativo, `comparativo com a lei vigente: "${e.comparativo?.rotulo}"`);
+    ok(e.volumes.length >= 6, `${e.volumes.length} volumes (alocação por órgão)`);
+    ok(e.documentos.every(d => d.url.startsWith('https://www.gov.br/')), 'todo link absoluto e em https');
+    // Os slugs mudam a cada ano ("volume1finalrev1ploa2027_momento5…"): o
+    // caminho é lido do índice, nunca montado por adivinhação.
+    ok(!e.documentos.some(d => /undefined|\[object/.test(d.url)), 'nenhuma URL montada às cegas');
+
+    const ldo = await C.lerMateriaisExecutivo('ldo', 2027);
+    ok(ldo.disponivel && ldo.documentos.some(d => d.classe === 'comparativo'),
+       `a LDO traz comparativos próprios: "${ldo.documentos.find(d => d.classe === 'comparativo')?.rotulo}"`);
+
+    // Exercício futuro ainda sem página: declara, não inventa.
+    const futuro = await C.lerMateriaisExecutivo('loa', 2035);
+    ok(!futuro.disponivel && /ainda não publicou|indispon/i.test(futuro.motivo),
+       `exercício sem página: "${futuro.motivo}"`);
+
+    // O PPA não tem página por exercício no MPO.
+    const ppa = await C.lerMateriaisExecutivo('ppa', '2024-2027');
+    ok(!ppa.disponivel, `PPA: "${ppa.motivo}"`);
+  }
+
   console.log('\n== quadro completo do exercício ==');
   {
     const e = await C.carregarExercicio('loa', 2027);
