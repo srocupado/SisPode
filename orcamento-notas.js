@@ -128,7 +128,11 @@ async function carregar() {
     // por exercício, para não se pagar duas vezes pela leitura da mesma cartilha.
     estado.ia = await carregarIA(estado.tipo, estado.ano);
     estado.propostas = null;
+    estado.parametrosMensagem = null;
     render();
+    // Os parâmetros macroeconômicos se preenchem sozinhos: a fonte oficial é a
+    // Mensagem, e ela não exige clique. Em segundo plano, para a tela abrir já.
+    if (precisaLerParametros(estado.quadro, estado.ficha)) lerParametrosMensagem({ silencioso: true });
   } catch (e) {
     console.error(e);
     $('on-corpo').innerHTML = `<div class="on-card largo"><div class="on-falha">Não foi possível carregar: ${esc(e.message)}</div></div>`;
@@ -501,6 +505,56 @@ async function lerMensagem() {
 }
 
 /**
+ * A ficha precisa da leitura automática? Sim quando há campo de origem "ploa"
+ * vazio, o projeto tem PDF e a Mensagem deste exercício ainda não foi lida
+ * (a marca fica na própria ficha, compartilhada: um download de 27 MB por
+ * exercício, para a equipe toda, e não um por abertura da tela).
+ */
+function precisaLerParametros(q, ficha) {
+  if (!q?.materia?.disponivel || !q.materia.urlDocumento || !ficha) return false;
+  if (ficha.leituraMensagem) return false;
+  return CAMPOS_FICHA.some(c => c.origem === 'ploa' && !ficha.valores?.[c.chave]);
+}
+
+/**
+ * Lê SÓ os parâmetros macroeconômicos da Mensagem: percorre as páginas
+ * iniciais do PDF do projeto até localizar os cinco (na p.128 do PLOA 2027)
+ * e para. Roda sozinha ao abrir a tela com a ficha vazia; o botão da ficha
+ * repete a leitura quando o analista quiser.
+ */
+async function lerParametrosMensagem({ silencioso = false } = {}) {
+  const q = estado.quadro;
+  const url = q?.materia?.urlDocumento;
+  if (!url || !estado.ficha) return null;
+  if (estado.lendoParametros) return null;
+  estado.lendoParametros = true;
+  $('on-status').innerHTML = '<span class="on-spinner"></span> lendo a Mensagem Presidencial para preencher os parâmetros macroeconômicos…';
+  try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
+    const r = await fetch(url);
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const doc = await pdfjsLib.getDocument({ data: await r.arrayBuffer() }).promise;
+    const limite = Math.min(doc.numPages, 260);
+    const paginas = [];
+    for (let p = 12; p <= limite; p++) {
+      paginas.push({ numero: p, texto: await textoDaPagina(doc, p) });
+      if (p % 8 === 0 && parametrosMacro(paginas, estado.ano).faltando.length === 0) break;
+    }
+    const res = await aplicarParametrosDaMensagem(paginas);
+    if (!silencioso && !res.encontrados.length) mostrarToast('A Mensagem foi lida, mas os parâmetros macroeconômicos não foram localizados no texto.', 'aviso');
+    render();
+    return res;
+  } catch (e) {
+    console.warn('[orçamento] parâmetros da Mensagem:', e.message);
+    if (!silencioso) mostrarToast(`Não consegui ler a Mensagem (${e.message}).`, 'erro');
+    return null;
+  } finally {
+    estado.lendoParametros = false;
+    $('on-status').textContent = '';
+  }
+}
+
+/**
  * Os parâmetros macroeconômicos lidos da Mensagem entram na FICHA — só nos
  * campos vazios, com o documento, a página e o trecho literal, exatamente a
  * procedência que o preenchimento manual exige. Vêm de leitura determinística
@@ -511,8 +565,13 @@ async function aplicarParametrosDaMensagem(paginas) {
   const q = estado.quadro;
   const res = parametrosMacro(paginas, estado.ano);
   estado.parametrosMensagem = res;
-  if (!estado.ficha || !res.encontrados.length) return res;
+  if (!estado.ficha) return res;
   const documento = `Mensagem Presidencial (${q?.materia?.identificacao || 'projeto'})`;
+  // A marca da leitura vai na ficha, que é compartilhada: a equipe inteira
+  // fica sabendo que a Mensagem deste exercício já foi lida, e o que faltou.
+  estado.ficha.leituraMensagem = { em: new Date().toISOString(), documento, encontrados: res.encontrados, faltando: res.faltando,
+                                   paginas: paginas.length };
+  if (!res.encontrados.length) { await salvarFicha().catch(e => console.warn('Firebase:', e.message)); return res; }
   let novos = 0;
   for (const chave of res.encontrados) {
     if (estado.ficha.valores?.[chave]) continue;   // o analista já preencheu: não se sobrescreve
@@ -523,10 +582,8 @@ async function aplicarParametrosDaMensagem(paginas) {
     estado.ficha.valores[chave].conferencia = { localizado: true, fonte: documento, em: new Date().toISOString() };
     novos++;
   }
-  if (novos) {
-    await salvarFicha().catch(e => console.warn('Firebase:', e.message));
-    mostrarToast(`✓ ${novos} parâmetro(s) macroeconômico(s) lido(s) da Mensagem e gravado(s) na ficha, com página e trecho.`, 'sucesso');
-  }
+  await salvarFicha().catch(e => console.warn('Firebase:', e.message));
+  if (novos) mostrarToast(`✓ ${novos} parâmetro(s) macroeconômico(s) lido(s) da Mensagem e gravado(s) na ficha, com página e trecho.`, 'sucesso');
   return res;
 }
 
@@ -1478,14 +1535,18 @@ function cardFicha(q) {
       ${r.divergente ? ` · <span style="color:#ff8e8e">${r.divergente} não localizado(s) na fonte</span>` : ''}
       ${temAncora && r.pendente ? `<button class="btn btn-outline btn-sm" data-acao="propor-ficha" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>
         Extrair da fonte com IA</button>` : ''}
-      ${fontes.ploa && linhas.some(l => l.origem === 'ploa' && l.estado === 'pendente') && !estado.parametrosMensagem
-        ? `<button class="btn btn-outline btn-sm" data-acao="ler-mensagem" style="margin-left:8px" title="Lê PIB, IPCA, Selic, câmbio e salário mínimo da Mensagem Presidencial, sem IA, com página e trecho" ${estado.variacao?.carregando ? 'disabled' : ''}>Ler parâmetros da Mensagem</button>` : ''}
+      ${fontes.ploa && linhas.some(l => l.origem === 'ploa' && l.estado === 'pendente')
+        ? `<button class="btn btn-outline btn-sm" data-acao="ler-parametros" style="margin-left:8px" title="Lê PIB, IPCA, Selic, câmbio e salário mínimo da Mensagem Presidencial, sem IA, com página e trecho" ${estado.lendoParametros ? 'disabled' : ''}>${estado.lendoParametros ? 'Lendo a Mensagem…' : (estado.ficha.leituraMensagem ? 'Reler parâmetros da Mensagem' : 'Ler parâmetros da Mensagem')}</button>` : ''}
     </div>
-    ${estado.parametrosMensagem && estado.parametrosMensagem.faltando.length && estado.parametrosMensagem.encontrados.length
-      ? `<div class="on-pend">Lidos da Mensagem: ${estado.parametrosMensagem.encontrados.map(c => esc(CAMPOS_FICHA.find(x => x.chave === c)?.rotulo || c)).join('; ')}.
-         Não localizado(s) no texto da Mensagem: ${estado.parametrosMensagem.faltando.map(c => esc(CAMPOS_FICHA.find(x => x.chave === c)?.rotulo || c)).join('; ')} — preencha à mão ou pela leitura com IA.</div>`
-      : estado.parametrosMensagem && !estado.parametrosMensagem.encontrados.length
-        ? '<div class="on-pend">A Mensagem foi lida, mas os parâmetros macroeconômicos não foram localizados no texto — o formato pode ter mudado neste exercício. Preencha à mão ou pela leitura com IA.</div>' : ''}
+    ${estado.lendoParametros ? '<div class="on-pend"><span class="on-spinner"></span> Lendo a Mensagem Presidencial (PDF do projeto) para preencher os parâmetros macroeconômicos — sem IA, com página e trecho.</div>' : ''}
+    ${(() => {
+      const lm = estado.parametrosMensagem || estado.ficha.leituraMensagem;
+      if (!lm) return '';
+      const rot = c => esc(CAMPOS_FICHA.find(x => x.chave === c)?.rotulo || c);
+      if (!lm.encontrados?.length) return '<div class="on-pend">A Mensagem foi lida, mas os parâmetros macroeconômicos não foram localizados no texto — o formato pode ter mudado neste exercício. Preencha à mão ou pela leitura com IA.</div>';
+      if (lm.faltando?.length) return `<div class="on-pend">Lidos da Mensagem: ${lm.encontrados.map(rot).join('; ')}. Não localizado(s) no texto: ${lm.faltando.map(rot).join('; ')} — preencha à mão ou pela leitura com IA.</div>`;
+      return '';
+    })()}
     ${!fontes.ancora ? `<div class="on-pend">A orientação normativa deste exercício ainda não foi publicada. Os campos que dependem dela ficam
       <strong>aguardando</strong> — e é isso que a nota deve dizer, em vez de repetir os números do ano anterior.
       Só para dar a medida: a cota individual por deputado era R$ 19.704.897,00 na LOA 2023 e R$ 40.252.007,00 na LOA 2026.</div>` : ''}
@@ -2157,6 +2218,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     'aceitar-todas':   aceitarTodasPropostas,
     'redigir-sintese': () => redigirSintese(),
     'apurar-numeros':  () => apurarNumeros(),
+    'ler-parametros':  () => lerParametrosMensagem(),
     'apurar-tudo':     apurarTudo,
   };
   $('on-corpo').addEventListener('click', ev => {
