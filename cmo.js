@@ -96,6 +96,22 @@ function semConteudo(motivo, extra = {}) {
 // ============================================================
 
 /**
+ * URL de documento do Senado no domínio que a extensão pode buscar.
+ *
+ * MEDIDO em 03/09/2026: o Dados Abertos devolve `urlDocumento` em
+ * https://legis.senado.gov.br/sdleg-getter/documento?dm=… — e o manifest só
+ * autoriza legis.senado.LEG.br. Da página da extensão, um fetch a domínio sem
+ * permissão morre em CORS com "Failed to fetch", que foi exatamente o erro ao
+ * ler a Mensagem do PLOA 2027. O sdleg-getter responde igual nos dois
+ * domínios (conferido byte a byte no dm=10308047), então a troca é segura.
+ */
+function urlSenado(url) {
+  return String(url || '')
+    .replace(/^http:\/\//i, 'https://')
+    .replace(/^https:\/\/legis\.senado\.gov\.br\//i, 'https://legis.senado.leg.br/');
+}
+
+/**
  * Matérias orçamentárias de um exercício, pelo apelido que o Senado já publica
  * ("PLOA 2027", "PLDO 2027"). O ano do ARQUIVO não é o ano do ORÇAMENTO: o
  * PLOA 2027 é o PLN 24/2026, apresentado em 2026. Por isso a busca varre o ano
@@ -134,7 +150,7 @@ async function buscarMateriaOrcamentaria(tipo, anoOrcamento) {
         normaGerada:   m.normaGerada || null,    // preenchido quando vira lei
         tramitando:    m.tramitando === 'Sim',
         codigoMateria: m.codigoMateria,
-        urlDocumento:  String(m.urlDocumento || '').replace(/^http:\/\//i, 'https://'),
+        urlDocumento:  urlSenado(m.urlDocumento),
       };
     }
   }
@@ -683,7 +699,7 @@ async function carregarExercicio(tipo, anoOrcamento) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, txt, SEM_CONTEUDO,
+    LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, urlSenado, txt, SEM_CONTEUDO,
     buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, lerRelatores,
     lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, lerMateriaisExecutivo, carregarExercicio,
   };
