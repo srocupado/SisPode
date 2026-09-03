@@ -31,7 +31,7 @@
 const FIREBASE_URL_ON = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const SIGLA_PODE = /^PODE(MOS)?$/i;
 
-const estado = { tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false };
+const estado = { tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false, ficha: null };
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
@@ -90,6 +90,7 @@ async function carregar() {
 
   try {
     estado.quadro = await carregarExercicio(estado.tipo, estado.ano);
+    estado.ficha = await carregarFicha(estado.tipo, estado.ano);
     render();
   } catch (e) {
     console.error(e);
@@ -115,6 +116,7 @@ function render() {
   partes.push(cardEmendas(q));
   partes.push(cardNotasTecnicas(q));
   partes.push(cardDocumentos(q));
+  partes.push(cardFicha(q));
   if (q.alteracoes) partes.push(cardAlteracoesPPA(q));
   if (estado.conferencia) partes.push(cardConferencia());
 
@@ -286,6 +288,120 @@ function cardConferencia() {
 }
 
 // ============================================================
+//  FICHA DE PARÂMETROS
+// ============================================================
+// Compartilhada com a equipe pelo Firebase, uma por exercício. O esquema vem
+// de ficha.js; aqui ficam a persistência e a tela.
+const FICHA_PATH = chave => `${FIREBASE_URL_ON}/orcamento_ficha/${encodeURIComponent(chave)}.json`;
+
+async function carregarFicha(tipo, ano) {
+  const vazia = fichaVazia(tipo, ano);
+  try {
+    const r = await fetch(FICHA_PATH(`${tipo}-${ano}`));
+    if (!r.ok) return vazia;
+    const salva = await r.json();
+    return salva && salva.valores ? { ...vazia, ...salva, valores: salva.valores } : vazia;
+  } catch (_) { return vazia; }   // Firebase fora do ar não impede trabalhar
+}
+
+async function salvarFicha() {
+  const f = estado.ficha;
+  const r = await fetch(FICHA_PATH(`${f.tipo}-${f.ano}`), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f),
+  });
+  if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+}
+
+/** O que o exercício já publicou, para separar "aguardando" de "pendente". */
+function fontesDoExercicio(q) {
+  return {
+    ancora: !!(q.emendas?.disponivel && q.emendas.ancoraNormativa),
+    ploa:   !!(q.materia?.disponivel && q.materia.urlDocumento),
+    auto:   { prazo_emendas: q.cronograma?.prazoEmendas
+      ? `${q.cronograma.prazoEmendas.inicio} a ${q.cronograma.prazoEmendas.fim}` : null },
+  };
+}
+
+const SELO_FICHA = {
+  aguardando: { txt: 'aguardando fonte', cor: 'selo-naoini' },
+  pendente:   { txt: 'a preencher',      cor: 'selo-pend' },
+  preenchido: { txt: 'preenchido',       cor: 'selo-conc' },
+  conferido:  { txt: 'conferido',        cor: 'selo-andamento' },
+  divergente: { txt: '⚠ não localizado', cor: 'selo-diverg' },
+};
+
+function cardFicha(q) {
+  if (!estado.ficha) return '';
+  const fontes = fontesDoExercicio(q);
+  const linhas = estadoDaFicha(estado.ficha, fontes);
+  const r = resumoDaFicha(estado.ficha, fontes);
+  const herdados = valoresDeOutroExercicio(estado.ficha);
+
+  const linhaHtml = l => {
+    const selo = SELO_FICHA[l.estado];
+    const proc = l.valor
+      ? `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${esc(l.documento || '')}${l.pagina ? `, p. ${esc(l.pagina)}` : ''}${l.automatico ? '' : ` · <a href="#" data-ficha-editar="${l.chave}" style="color:#0a6cf0">editar</a>`}</div>`
+      : `<div style="font-size:11px;color:var(--text-dim);margin-top:2px">${esc(l.ajuda || '')}${l.estado === 'pendente' ? ` · <a href="#" data-ficha-editar="${l.chave}" style="color:#0a6cf0">preencher</a>` : ''}</div>`;
+    return `<tr>
+      <td class="a"><strong>${esc(l.rotulo)}</strong>${proc}</td>
+      <td style="width:34%">${l.valor ? `<strong>${esc(l.valor)}</strong>` : '<span class="on-vazio">—</span>'}</td>
+      <td style="width:22%;text-align:right"><span class="on-selo ${selo.cor}">${esc(selo.txt)}</span></td>
+    </tr>`;
+  };
+
+  const grupos = GRUPOS_FICHA.map(g => {
+    const doGrupo = linhas.filter(l => l.grupo === g);
+    if (!doGrupo.length) return '';
+    return `<div style="margin-top:10px"><div class="on-rotulo">${esc(g)}</div>
+      <table class="on-tab">${doGrupo.map(linhaHtml).join('')}</table></div>`;
+  }).join('');
+
+  return `<div class="on-card largo"><h3>Ficha de parâmetros do exercício</h3>
+    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
+      ${r.conferido + r.preenchido} de ${r.total} campos preenchidos ·
+      ${r.pendente} a preencher · ${r.aguardando} aguardando a fonte
+      ${r.divergente ? ` · <span style="color:#ff8e8e">${r.divergente} não localizado(s) na fonte</span>` : ''}
+    </div>
+    ${!fontes.ancora ? `<div class="on-pend">A orientação normativa deste exercício ainda não foi publicada. Os campos que dependem dela ficam
+      <strong>aguardando</strong> — e é isso que a nota deve dizer, em vez de repetir os números do ano anterior.
+      Só para dar a medida: a cota individual por deputado era R$ 19.704.897,00 na LOA 2023 e R$ 40.252.007,00 na LOA 2026.</div>` : ''}
+    ${herdados.length ? `<div class="on-falha">⚠ ${herdados.length} valor(es) carimbado(s) com outro exercício: ${herdados.map(h => esc(h.rotulo) + ' (' + esc(h.exercicio) + ')').join('; ')}. Confirme na fonte deste ano antes de usar.</div>` : ''}
+    ${grupos}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:10px">
+      Nenhum campo aceita valor sem documento de origem. "Conferido" significa apenas que o valor foi
+      localizado no texto da fonte — não que o dispositivo se aplique ao caso.
+    </div>
+  </div>`;
+}
+
+/** Diálogo de preenchimento: valor + documento + página + trecho. */
+function abrirEdicaoCampo(chave) {
+  const campo = CAMPOS_FICHA.find(c => c.chave === chave);
+  if (!campo) return;
+  const atual = estado.ficha.valores[chave] || {};
+  const sugestao = estado.quadro?.emendas?.ancoraNormativa?.rotulo
+    || estado.quadro?.materia?.apelido || '';
+  const valor = prompt(`${campo.rotulo}\n${campo.ajuda || ''}\n\nValor:`, atual.valor || '');
+  if (valor === null) return;
+  const documento = prompt('Documento de origem (obrigatório — a ficha não aceita valor sem procedência):',
+    atual.documento || sugestao);
+  if (documento === null) return;
+  const pagina = prompt('Página do documento (opcional, mas recomendável):', atual.pagina || '');
+  if (pagina === null) return;
+  const trecho = prompt('Trecho citado (opcional — ajuda a conferir depois):', atual.trecho || '');
+
+  const res = preencherCampo(estado.ficha, chave, {
+    valor, documento, pagina, trecho: trecho || '',
+    preenchidoPor: state?.config?.nomeUsuario || 'equipe',
+  });
+  if (!res.ok) { mostrarToast(res.erro, 'aviso'); return; }
+  render();
+  salvarFicha()
+    .then(() => mostrarToast('✓ Ficha atualizada', 'sucesso'))
+    .catch(e => mostrarToast('Não consegui salvar no Firebase: ' + e.message, 'erro'));
+}
+
+// ============================================================
 //  CONFERÊNCIA NORMATIVA
 // ============================================================
 /**
@@ -308,6 +424,14 @@ async function conferirNormas() {
       rotuloFonte: manual.rotulo,
       resultado: conferirContraFonte(nota, texto, { rotuloFonte: manual.rotulo }),
     };
+    // O mesmo texto serve para conferir os valores da ficha: cada número
+    // preenchido é procurado na fonte do exercício.
+    const rf = conferirFicha(estado.ficha, texto, manual.rotulo);
+    if (rf.conferida) {
+      await salvarFicha().catch(e => console.warn('Firebase:', e.message));
+      mostrarToast(`Ficha conferida: ${rf.conferidos} localizado(s), ${rf.divergentes} não localizado(s).`,
+                   rf.divergentes ? 'aviso' : 'sucesso');
+    }
     render();
   } catch (e) {
     console.error(e);
@@ -361,11 +485,11 @@ function gerarNota() {
   if (!q?.materia?.disponivel) return;
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a nova aba. Permita pop-ups para gerar a nota.'); return; }
-  w.document.write(htmlNota(q, estado.conferencia));
+  w.document.write(htmlNota(q, estado.conferencia, estado.ficha));
   w.document.close();
 }
 
-function htmlNota(q, conf) {
+function htmlNota(q, conf, ficha) {
   const m = q.materia, r = q.relatores, c = q.cronograma, a = q.acompanhamento, e = q.emendas;
   const agora = new Date();
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
@@ -464,6 +588,7 @@ para cotas, quantidades, sequenciais de cancelamento e pisos de repasse.</p>
 ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:</strong><br>${alertas.map(esc).join('<br>')}
 <br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
 
+${blocoFichaNota(q, ficha, pendencias.length)}
 ${q.alteracoes && q.alteracoes.disponivel ? `<h2>Alterações ao texto do PPA</h2>
 <p>O plano em vigor é a <strong>${esc(q.alteracoes.leiDoPlano || 'lei do PPA')}</strong>. Ao longo do quadriênio, o Poder
 Executivo encaminha projetos que o alteram; são eles que tramitam, e não o plano original.</p>
@@ -472,6 +597,40 @@ ${q.alteracoes.emTramitacao.length ? `<div class="pend">Em tramitação nesta da
 
 <div class="rodape">Coordenação de Orçamento da Liderança do Podemos na Câmara dos Deputados</div>
 </body></html>`;
+}
+
+/**
+ * A ficha na nota. Mostra o que está preenchido COM a procedência, e nomeia o
+ * que falta — a lacuna declarada vale mais que a linha omitida, porque o
+ * gabinete precisa saber que aquele número ainda não existe.
+ */
+function blocoFichaNota(q, ficha, temPendencias) {
+  if (!ficha) return '';
+  const linhas = estadoDaFicha(ficha, fontesDoExercicio(q));
+  const comValor = linhas.filter(l => l.valor);
+  const semValor = linhas.filter(l => !l.valor);
+  if (!comValor.length && !semValor.length) return '';
+
+  const n = temPendencias ? 6 : 5;
+  const linhaHtml = l => `<tr>
+    <td class="r">${esc(l.rotulo)}</td>
+    <td><strong>${esc(l.valor)}</strong>${l.estado === 'divergente' ? ' <span class="nd">⚠ não localizado na fonte</span>' : ''}</td>
+    <td style="width:32%;font-size:9pt;color:#555">${esc(l.documento || '')}${l.pagina ? `, p. ${esc(l.pagina)}` : ''}</td>
+  </tr>`;
+
+  const aguardando = semValor.filter(l => l.estado === 'aguardando');
+  const aPreencher = semValor.filter(l => l.estado === 'pendente');
+
+  return `<h2>${n}. Parâmetros do exercício</h2>
+${comValor.length
+  ? `<table>${comValor.map(linhaHtml).join('')}</table>
+     <div class="fonte">Cada valor traz o documento de onde foi extraído. "Não localizado na fonte" significa que a
+     conferência automática não encontrou o número no texto indicado — confirme antes de divulgar.</div>`
+  : ''}
+${aguardando.length ? `<div class="pend">Ainda sem fonte publicada para este exercício, e portanto <strong>sem valor definido</strong>:
+  ${esc(aguardando.map(l => l.rotulo).join('; '))}. Estes números são fixados a cada ano e não se deduzem do exercício anterior.</div>` : ''}
+${aPreencher.length ? `<div class="pend">A fonte já foi publicada, mas estes campos ainda não foram preenchidos pela Coordenação:
+  ${esc(aPreencher.map(l => l.rotulo).join('; '))}.</div>` : ''}`;
 }
 
 /** 57ª Legislatura: 2023-2027. Cada legislatura dura 4 anos desde 1826. */
@@ -499,6 +658,13 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-conferir').addEventListener('click', conferirNormas);
   $('btn-nota').addEventListener('click', gerarNota);
   $('btn-voltar').addEventListener('click', () => { window.location.href = 'panel.html'; });
+  // Os links da ficha nascem a cada render; a escuta fica no contêiner.
+  $('on-corpo').addEventListener('click', ev => {
+    const a = ev.target.closest('[data-ficha-editar]');
+    if (!a) return;
+    ev.preventDefault();
+    abrirEdicaoCampo(a.getAttribute('data-ficha-editar'));
+  });
 
   // Exercício seguinte por padrão: é o que está em tramitação na CMO no
   // segundo semestre, que é quando a nota é pedida.
