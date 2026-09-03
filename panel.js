@@ -1456,16 +1456,38 @@ async function buscarEmendaMPVnoSenado(prop, numEmenda) {
   catch (e) { console.warn('[IA] MPV: Senado não respondeu à lista de emendas:', e.message); return null; }
   console.log(`[IA] MPV: ${emendas.length} emenda(s) no Senado (matéria ${codigo})`);
 
-  const alvo = emendas.find(e => e.numero === numEmenda);
-  if (!alvo) {
+  // O MESMO número pode voltar mais de uma vez. MEDIDO em 02/09/2026 na MPV
+  // 1357/2026: a emenda nº 13 aparece duas vezes — a do Dep. Da Vitoria (PP) e
+  // uma da "Comissão", publicada no dia em que a Comissão Mista concluiu.
+  // `find` pegaria a primeira EM SILÊNCIO, e anexar o texto errado a um
+  // destaque é análise errada. Entre uma emenda de parlamentar e uma da
+  // Comissão, o destaque de Plenário é sobre a do parlamentar — mas a escolha
+  // vai DECLARADA no console e no rótulo; empate entre parlamentares não se
+  // resolve por chute: devolve null e diz por quê.
+  const candidatos = emendas.filter(e => e.numero === numEmenda);
+  if (!candidatos.length) {
     console.warn(`[IA] MPV: emenda nº ${numEmenda} não existe entre as ${emendas.length} do Senado (nº ${Math.min(...emendas.map(e => e.numero))}..${Math.max(...emendas.map(e => e.numero))}).`);
     return null;
+  }
+  let alvo = candidatos[0];
+  let ambiguidade = null;
+  if (candidatos.length > 1) {
+    const deParlamentar = candidatos.filter(e => e.partido);
+    if (deParlamentar.length === 1) {
+      alvo = deParlamentar[0];
+      ambiguidade = `${candidatos.length} documentos com o nº ${numEmenda} no Senado (${candidatos.map(e => e.autor || 'sem autor').join('; ')}); usado o de autoria parlamentar (${alvo.autor}).`;
+      console.warn(`[IA] MPV: ${ambiguidade}`);
+    } else {
+      console.warn(`[IA] MPV: emenda nº ${numEmenda} está AMBÍGUA no Senado — ${candidatos.length} documentos (${candidatos.map(e => e.autor || 'sem autor').join('; ')}). Não dá para escolher sem risco de anexar o texto errado.`);
+      return null;
+    }
   }
   if (!alvo.url) { console.warn(`[IA] MPV: emenda nº ${numEmenda} sem PDF no Senado.`); return null; }
   console.log(`[IA] MPV: emenda nº ${numEmenda} — ${alvo.autor}${alvo.partido ? ` (${alvo.partido})` : ''} — ${alvo.url}`);
   const info = await buscarDocumento(alvo.url, {
     tipo: 'emenda', fonte: 'Senado/Congresso Nacional',
     numeroEmenda: alvo.numero, autorEmenda: alvo.autor, partidoEmenda: alvo.partido,
+    ambiguidade,
   });
   if (!info) console.warn(`[IA] MPV: PDF da emenda nº ${numEmenda} não pôde ser baixado (${alvo.url}).`);
   return info;
@@ -2460,7 +2482,7 @@ function montarPrompt(d, prop, infoEmenda) {
   // rótulo, para a análise saber de QUEM é a emenda (inclusive se é do
   // Podemos) sem precisar adivinhar pelo PDF.
   const autoriaDoc = infoEmenda?.autorEmenda
-    ? ` Nº ${infoEmenda.numeroEmenda} — autoria: ${infoEmenda.autorEmenda}${infoEmenda.partidoEmenda ? ` (${infoEmenda.partidoEmenda})` : ''}${infoEmenda.fonte ? ` — fonte: ${infoEmenda.fonte}` : ''}`
+    ? ` Nº ${infoEmenda.numeroEmenda} — autoria: ${infoEmenda.autorEmenda}${infoEmenda.partidoEmenda ? ` (${infoEmenda.partidoEmenda})` : ''}${infoEmenda.fonte ? ` — fonte: ${infoEmenda.fonte}` : ''}${infoEmenda.ambiguidade ? ` — ATENÇÃO: ${infoEmenda.ambiguidade}` : ''}`
     : infoEmenda?.plv
       // PLV de MPV: o rótulo diz QUAL texto está sendo lido e, se a escolha
       // foi por inferência (destaque sem citar o texto), diz isso também.
