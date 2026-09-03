@@ -103,16 +103,23 @@ const campo = (valor, extra = {}) => ({ valor, documento: `Manual de Emendas ${e
       { area: 'XIV - Trabalho e Previdência', casa: 'Senado', nome: 'Carlos Viana', partido: 'PODEMOS', uf: 'MG' },
       { area: 'XV - Justiça e Segurança Pública', casa: 'Câmara', nome: 'Romero Rodrigues', partido: 'PODEMOS', uf: 'PB' },
     ] };
+    // Como a CMO realmente publica (medido na LOA 2026): o link tem o nome do
+    // ÓRGÃO e a área vem do <strong> que o agrupa, carregada pelo cmo.js em
+    // `area`. Um documento sem área ainda casa pelo numeral do rótulo, que é o
+    // caminho de reserva.
     const emendas = { documentos: [
-      { rotulo: 'I - Infraestrutura, Minas e Energia — Ministério de Portos e Aeroportos', url: 'u1', classe: 'cartilha' },
-      { rotulo: 'II - Saúde — Fundo Nacional de Saúde - FNS', url: 'u2', classe: 'cartilha' },
+      { rotulo: 'Ministério de Portos e Aeroportos', area: 'I - Infraestrutura, Minas e Energia', url: 'u1', classe: 'cartilha' },
+      { rotulo: 'Fundo Nacional de Saúde - FNS', area: 'II - Saúde', url: 'u2', classe: 'cartilha' },
       { rotulo: 'Cartilha avulsa do Ministério da Cultura', url: 'u3', classe: 'cartilha' },
       { rotulo: 'Manual de Emendas', url: 'u4', classe: 'manual' },
     ] };
 
     const g = G.montarGuia(emendas, relatores);
     ok(g.disponivel && g.areas.length === 4, `${g.areas.length} áreas temáticas organizadas`);
-    ok(g.areas[0].cartilhas.length === 1 && g.areas[0].cartilhas[0].url === 'u1', 'a cartilha casa com a área pelo número romano');
+    ok(g.areas[0].cartilhas.length === 1 && g.areas[0].cartilhas[0].url === 'u1',
+       'a cartilha casa com a área pelo agrupamento do HTML, e não pelo rótulo do link');
+    ok(g.areas[1].cartilhas.length === 1 && g.areas[1].cartilhas[0].url === 'u2',
+       'inclusive quando o nome do órgão não tem relação nenhuma com o nome da área');
     ok(g.areas[2].cartilhas.length === 0, 'área sem cartilha publicada fica vazia, e continua listada');
     // Cartilha que não casou não pode sumir: é documento que o gabinete procura.
     ok(g.semArea.length === 1 && g.semArea[0].url === 'u3',

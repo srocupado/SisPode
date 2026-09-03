@@ -40,8 +40,11 @@ const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio'
   ${trecho(/function blocoFichaNota\([\s\S]*?\n^}/m)}
   ${trecho(/function blocoSerieNota\([\s\S]*?\n^}/m)}
   ${trecho(/function blocoVariacaoNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function blocoSinteseNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function blocoAcoesNota\([\s\S]*?\n^}/m)}
+  ${trecho(/function pendenciasDo\([\s\S]*?\n^}/m)}
   ${trecho(/function htmlNota\([\s\S]*?\n^}/m)}
-  return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota };
+  return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota, pendenciasDo };
 `)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }),
    S.seriesComDados, S.frasSerie, MSG.formatarBR);
 
@@ -181,6 +184,64 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
     ok(/Manual de Emendas da LOA 2027, p\. 20/.test(txtCheia), 'com documento e página ao lado');
     ok(/não localizado na fonte/i.test(txtCheia), 'e o campo que não conferiu vai sinalizado, não omitido');
     ok(/Confirme antes de divulgar/i.test(txtCheia), 'com instrução do que fazer');
+  }
+
+  console.log('\n== o que a camada de IA imprime na nota ==');
+  {
+    const q = await C.carregarExercicio('loa', 2027);
+
+    // A síntese redigida por IA abre a nota, e o carimbo vai junto: quem
+    // recebe o PDF por WhatsApp não vê o painel, vê a nota.
+    const limpa = { sintese: { texto: 'Primeiro parágrafo da síntese.\n\nSegundo parágrafo, com 28,3% de variação.',
+      conferencia: { limpo: true, conferidos: 1, suspeitos: [] } } };
+    const t1 = semTags(M.htmlNota(q, null, null, null, null, limpa));
+    ok(/Síntese analítica/.test(t1) && /Segundo parágrafo/.test(t1), 'a síntese entra na nota, em parágrafos');
+    ok(/apoio de inteligência artificial/.test(t1), 'com o carimbo de que houve IA — não se disfarça de redação humana');
+    ok(/conferidos, um a um, contra os números extraídos dos documentos/.test(t1),
+       'e com o que a conferência de fato garante');
+
+    // A RESSALVA é o ponto: número não conferido tem de aparecer IMPRESSO,
+    // nomeado, dentro do documento que vai circular.
+    const suja = { sintese: { texto: 'O Ministério da Saúde receberá 3.812,7 milhões em emendas.',
+      conferencia: { limpo: false, conferidos: 0, suspeitos: [{ numero: '3.812,7', contexto: '…receberá 3.812,7 milhões…' }],
+                     motivo: '1 de 1 número(s) do texto não constam da base conferida: 3.812,7.' } } };
+    const t2 = semTags(M.htmlNota(q, null, null, null, null, suja));
+    ok(/Ressalva de conferência/.test(t2) && /3\.812,7/.test(t2),
+       'o número não conferido é NOMEADO na nota impressa, não só na tela');
+    ok(/não foram conferidos/.test(t2) && /Confirme na fonte antes de divulgar/.test(t2),
+       'com a instrução do que fazer antes de divulgar');
+    ok(!/apoio de inteligência artificial sobre a base de dados apurada/.test(t2),
+       'e a nota NÃO se declara conferida quando não está');
+
+    // As ações vêm só do que passou na conferência.
+    const ia = { acoes: { d1: { rotulo: 'Cartilha do Fundo Nacional de Saúde',
+      aprovadas: [{ codigo: '2E90', nome: 'Média e Alta Complexidade', orgao: 'Ministério da Saúde',
+        permite: ['custeio de procedimentos'], naoPermite: ['aquisição de equipamentos'], pagina: '4' }],
+      recusadas: [{ codigo: '8535', motivo: 'o trecho citado não foi localizado no texto do documento' }] } } };
+    const t3 = semTags(M.htmlNota(q, null, null, null, null, ia));
+    ok(/o que cada ação permite custear/i.test(t3) && /2E90/.test(t3), 'a ação conferida entra na nota');
+    ok(/Não permite: aquisição de equipamentos/.test(t3), 'com a vedação, que é metade da informação útil');
+    ok(!/8535/.test(t3), 'e a ação DESCARTADA na conferência não vai para a nota, que é documento de circulação');
+    ok(/Cartilha do Fundo Nacional de Saúde/.test(t3), 'a fonte de cada leitura é citada');
+    ok(/não significa que a ação se aplique ao caso concreto/.test(t3), 'com a ressalva do que localizar não prova');
+
+    ok(!/Síntese analítica/.test(semTags(M.htmlNota(q, null, null, null, null, null))),
+       'sem camada de IA, a nota sai como antes — nenhuma seção vazia');
+  }
+
+  console.log('\n== pendências: a MESMA lista na nota e no prompt ==');
+  {
+    // Se a nota e a IA divergissem sobre o que falta, o texto redigido
+    // contradiria a seção 4 da própria nota que o contém.
+    const q = await C.carregarExercicio('loa', 2027);
+    const pend = M.pendenciasDo(q);
+    const txt = semTags(M.htmlNota(q, null));
+    if (pend.length) {
+      ok(pend.every(p => txt.includes(p.slice(0, 40))),
+         `as ${pend.length} pendências da lista aparecem na nota, uma a uma`);
+    } else {
+      ok(!/O que ainda não está definido/.test(txt), 'sem pendências, a seção não aparece');
+    }
   }
 
   console.log('\n== texto corrido usado pela conferência ==');

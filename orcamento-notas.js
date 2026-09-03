@@ -31,10 +31,41 @@
 const FIREBASE_URL_ON = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const SIGLA_PODE = /^PODE(MOS)?$/i;
 
-const estado = { tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false, ficha: null, serie: null, variacao: null };
+const estado = {
+  tipo: 'loa', ano: null, quadro: null, conferencia: null, carregando: false,
+  ficha: null, serie: null, variacao: null,
+  config: null,          // provedor/chave/modelo de IA, de chrome.storage
+  ia: null,              // { acoes: {url:{...}}, sintese, atualizadoEm } — compartilhado no Firebase
+  propostas: null,       // propostas de ficha aguardando aceite do analista
+  ocupado: null,         // rótulo da operação de IA em curso (bloqueia disparo duplo)
+  lote: false,           // leitura em lote das cartilhas em andamento
+};
 
 // ---------- utilidades ----------
 const $ = id => document.getElementById(id);
+
+/**
+ * Aviso curto. Esta tela não carrega panel.js nem analise.js, onde vivem as
+ * outras implementações — chamá-las daqui quebrava com ReferenceError na
+ * primeira falha de gravação da ficha, justamente quando o aviso importa.
+ */
+function mostrarToast(msg, tipo = 'info') {
+  const cores = { sucesso: '#00a859', erro: '#ff6b6b', aviso: '#d68a00', info: '#0a6cf0' };
+  let el = $('on-toast');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'on-toast';
+    el.style.cssText = 'position:fixed;right:18px;bottom:18px;z-index:9999;max-width:380px;padding:11px 15px;'
+      + 'border-radius:8px;font-size:12.5px;line-height:1.5;color:#fff;box-shadow:0 6px 22px rgba(0,0,0,.35);'
+      + 'transition:opacity .25s';
+    document.body.appendChild(el);
+  }
+  el.style.background = cores[tipo] || cores.info;
+  el.textContent = msg;
+  el.style.opacity = '1';
+  clearTimeout(el._t);
+  el._t = setTimeout(() => { el.style.opacity = '0'; }, tipo === 'erro' ? 8000 : 4500);
+}
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const dataBR = iso => /^\d{4}-\d{2}-\d{2}/.test(String(iso || '')) ? iso.slice(0, 10).split('-').reverse().join('/') : (iso || '');
 
@@ -92,6 +123,10 @@ async function carregar() {
     estado.quadro = await carregarExercicio(estado.tipo, estado.ano);
     estado.ficha = await carregarFicha(estado.tipo, estado.ano);
     estado.serie = await carregarSerie(estado.tipo, estado.ano);
+    // O trabalho da IA é caro e é o MESMO para a equipe toda: fica no Firebase,
+    // por exercício, para não se pagar duas vezes pela leitura da mesma cartilha.
+    estado.ia = await carregarIA(estado.tipo, estado.ano);
+    estado.propostas = null;
     render();
   } catch (e) {
     console.error(e);
@@ -117,10 +152,13 @@ function render() {
   partes.push(cardEmendas(q));
   partes.push(cardNotasTecnicas(q));
   partes.push(cardDocumentos(q));
+  partes.push(cardSintese());
   partes.push(cardSerie());
   partes.push(cardVariacao());
   partes.push(cardGuia(q));
+  partes.push(cardAcoes());
   partes.push(cardExecutivo(q));
+  partes.push(cardPropostas());
   partes.push(cardFicha(q));
   if (q.alteracoes) partes.push(cardAlteracoesPPA(q));
   if (estado.conferencia) partes.push(cardConferencia());
@@ -492,6 +530,425 @@ function cardGuia(q) {
 }
 
 // ============================================================
+//  CAMADA DE IA
+// ============================================================
+// Três leituras que regex nenhuma faz: o que a cartilha permite custear, quais
+// são os parâmetros escritos no Manual, e o texto que o deputado leva à
+// tribuna. Em todas, a IA lê e o JS confere (orcamento-ia.js) — e o que não
+// confere não entra na nota, mas também não some da tela: aparece recusado,
+// com o motivo, porque saber que houve alucinação é informação para quem revisa.
+//
+// O resultado é COMPARTILHADO no Firebase por exercício. Ler uma cartilha de 60
+// páginas custa uma chamada; não faz sentido cada assessor pagar a mesma.
+
+const IA_PATH = chave => `${FIREBASE_URL_ON}/orcamento_ia/${encodeURIComponent(chave)}.json`;
+
+/**
+ * Chave de um documento dentro do nó do exercício.
+ *
+ * NÃO pode ser a URL: o Firebase RTDB recusa chaves com ".", "/", ":", "#",
+ * "$", "[" e "]" — e uma URL tem quase todos. Usar a URL crua gravaria em
+ * silêncio um nó aninhado por cada barra, ou falharia a gravação inteira.
+ * Um hash FNV-1a resolve, e a URL de origem vai guardada no valor.
+ */
+function chaveDocumento(url) {
+  const s = String(url || '');
+  let h = 0x811c9dc5;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return 'd' + h.toString(36);
+}
+
+async function carregarConfigIA() {
+  estado.config = await new Promise(r => {
+    try { chrome.storage.local.get('config', d => r(d.config || {})); }
+    catch (_) { r({}); }
+  });
+}
+
+async function carregarIA(tipo, ano) {
+  const vazio = { acoes: {}, sintese: null };
+  try {
+    const r = await fetch(IA_PATH(`${tipo}-${ano}`));
+    if (!r.ok) return vazio;
+    const salvo = await r.json();
+    return salvo ? { ...vazio, ...salvo, acoes: salvo.acoes || {} } : vazio;
+  } catch (_) { return vazio; }
+}
+
+async function salvarIA() {
+  const r = await fetch(IA_PATH(`${estado.tipo}-${estado.ano}`), {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...estado.ia, atualizadoEm: new Date().toISOString(),
+                           atualizadoPor: estado.config?.nomeUsuario || 'equipe' }),
+  });
+  if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+}
+
+/**
+ * A IA está configurada? Devolve { ok } ou { ok:false, motivo }.
+ * A chave fica em chrome.storage, por analista — nunca no repositório.
+ */
+function iaConfigurada() {
+  const c = estado.config || {};
+  if (!c.apiKey) {
+    return { ok: false, motivo: 'Nenhuma chave de IA configurada. Abra as Configurações da extensão e informe provedor, chave e modelo — a chave fica no seu navegador, nunca no servidor.' };
+  }
+  // Mesmo padrão dos demais módulos: sem provedor escolhido, gemini.
+  return { ok: true, provedorId: c.provedor || 'gemini', apiKey: c.apiKey, modelo: c.modelo };
+}
+
+/** Uma chamada de IA com trava de concorrência e status na barra. */
+async function comIA(rotulo, fn) {
+  // A trava é o `ocupado`: uma chamada por vez. O `lote` desabilita os botões
+  // entre uma cartilha e outra, quando `ocupado` está momentaneamente livre.
+  if (estado.ocupado) { mostrarToast(`Aguarde: ${estado.ocupado} em andamento.`, 'aviso'); return null; }
+  const cfg = iaConfigurada();
+  if (!cfg.ok) { mostrarToast(cfg.motivo, 'aviso'); return null; }
+  estado.ocupado = rotulo;
+  $('on-status').innerHTML = `<span class="on-spinner"></span> ${esc(rotulo)}…`;
+  render();
+  try {
+    return await fn(cfg);
+  } catch (e) {
+    console.error(e);
+    mostrarToast(`Falhou: ${e.message}`, 'erro');
+    return null;
+  } finally {
+    estado.ocupado = null;
+    $('on-status').textContent = '';
+    render();
+  }
+}
+
+/** Baixa um documento como ArrayBuffer, para mandar ao modelo. */
+async function bufferDe(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} ao baixar o documento`);
+  return r.arrayBuffer();
+}
+
+/** Texto e número de páginas de um PDF já baixado. */
+async function textoDoBuffer(buffer) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
+  const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+  let txt = '';
+  for (let p = 1; p <= doc.numPages; p++) {
+    const c = await (await doc.getPage(p)).getTextContent();
+    txt += '\n' + c.items.map(i => i.str).join(' ');
+  }
+  return { texto: txt, paginas: doc.numPages };
+}
+
+/**
+ * Baixa o documento e decide como ele vai ao modelo: como PDF (o preferido,
+ * porque o modelo enxerga tabelas e quadros) ou como texto extraído, quando o
+ * arquivo não cabe na requisição do provedor.
+ *
+ * A conferência SEMPRE roda contra o texto extraído aqui pelo pdf.js — e é
+ * justamente por isso que o modo importa: no modo PDF os dois lados leem por
+ * caminhos independentes; no modo texto, pela mesma extração. O resultado
+ * guarda qual foi, e a tela mostra.
+ */
+async function prepararDocumento(url, cfg) {
+  const buffer = await bufferDe(url);
+  const { texto, paginas } = await textoDoBuffer(buffer.slice(0));
+  const { modo, motivo } = modoDeLeitura({ bytes: buffer.byteLength, paginas, provedorId: cfg.provedorId });
+  return {
+    texto, paginas, modo, motivo,
+    bytes: buffer.byteLength,
+    pdfBuffers: modo === 'pdf' ? [buffer] : [],
+    montarPrompt: p => (modo === 'pdf' ? p : comTextoDoDocumento(p, texto)),
+  };
+}
+
+// ---------- produto 1: o que dá para fazer com o dinheiro ----------
+/**
+ * Lê UMA cartilha: manda o PDF ao modelo, confere a resposta contra o texto
+ * extraído do mesmo PDF e guarda o resultado.
+ *
+ * O mesmo arquivo vai por dois caminhos de propósito: o modelo lê o PDF (com
+ * layout, tabelas, quadros), e o pdf.js extrai o texto cru, que é contra o que
+ * se confere. Se a conferência usasse o que o próprio modelo leu, não seria
+ * conferência nenhuma.
+ */
+async function resumirCartilha(url, rotulo) {
+  const chave = chaveDocumento(url);
+  return comIA(`lendo "${(rotulo || '').slice(0, 40)}"`, async (cfg) => {
+    const doc = await prepararDocumento(url, cfg);
+    const resp = await chamarIAOrcamento({
+      provedorId: cfg.provedorId, apiKey: cfg.apiKey, modelo: cfg.modelo,
+      prompt: doc.montarPrompt(promptCartilha({ rotulo, exercicio: estado.ano })),
+      pdfBuffers: doc.pdfBuffers,
+    });
+    const texto = doc.texto;
+    const comum = { url, rotulo, lidoEm: new Date().toISOString(),
+                    lidoPor: estado.config?.nomeUsuario || 'equipe',
+                    modelo: `${cfg.provedorId}/${cfg.modelo || 'padrão'}`,
+                    modoLeitura: doc.modo, motivoModo: doc.motivo, paginas: doc.paginas };
+    const json = extrairJSON(resp.text);
+    if (!Array.isArray(json)) {
+      // Falha registrada, e não silenciosa: sem isso a cartilha voltaria à fila
+      // a cada abertura da tela, gastando uma chamada por vez.
+      estado.ia.acoes[chave] = { ...comum, erro: resp.truncated
+        ? 'A resposta do modelo veio truncada (limite de tokens) — o documento é grande demais para uma leitura só.'
+        : 'Não consegui interpretar a resposta do modelo como lista de ações.' };
+      mostrarToast(`${rotulo}: ${estado.ia.acoes[chave].erro}`, 'aviso');
+    } else {
+      const conf = conferirAcoes(json, texto);
+      estado.ia.acoes[chave] = { ...comum, ...conf };
+      mostrarToast(conf.conferido ? `${rotulo}: ${conf.resumo}` : conf.motivo,
+                   conf.conferido && conf.aprovadas.length ? 'sucesso' : 'aviso');
+    }
+    await salvarIA().catch(e => console.warn('Firebase:', e.message));
+    return estado.ia.acoes[chave];
+  });
+}
+
+/** Lê todas as cartilhas ainda não lidas, uma a uma. */
+async function resumirTodasCartilhas() {
+  if (estado.lote || estado.ocupado) { mostrarToast('Já há uma leitura em andamento.', 'aviso'); return; }
+  const g = montarGuia(estado.quadro?.emendas || {}, estado.quadro?.relatores || {});
+  const todas = [...g.areas.flatMap(a => a.cartilhas), ...g.semArea];
+  const faltando = todas.filter(c => !estado.ia?.acoes?.[chaveDocumento(c.url)]);
+  if (!faltando.length) { mostrarToast('Todas as cartilhas publicadas já foram lidas.', 'info'); return; }
+  if (!confirm(`Ler ${faltando.length} cartilha(s) com IA? É uma chamada por documento, e o resultado fica salvo para a equipe toda.`)) return;
+  estado.lote = true;
+  try {
+    for (let i = 0; i < faltando.length; i++) {
+      const r = await resumirCartilha(faltando[i].url, faltando[i].rotulo);
+      // Falha dura (chave inválida, provedor fora) não pode consumir as 22
+      // chamadas seguintes só para falhar 22 vezes.
+      if (r === null) {
+        mostrarToast(`Leitura interrompida em ${i} de ${faltando.length} — resolva o erro acima e recomece.`, 'erro');
+        break;
+      }
+    }
+  } finally { estado.lote = false; render(); }
+}
+
+function cardAcoes() {
+  const lidas = Object.entries(estado.ia?.acoes || {});
+  const g = montarGuia(estado.quadro?.emendas || {}, estado.quadro?.relatores || {});
+  const total = [...g.areas.flatMap(a => a.cartilhas), ...g.semArea].length;
+  if (!total && !lidas.length) return '';
+
+  const aprovadas = lidas.flatMap(([, v]) => (v.aprovadas || []).map(a => ({ ...a, fonte: v.rotulo })));
+  const recusadas = lidas.flatMap(([, v]) => (v.recusadas || []).map(a => ({ ...a, fonte: v.rotulo })));
+  const comErro = lidas.filter(([, v]) => v.erro);
+
+  const acao = a => `<tr>
+    <td class="a"><strong>${esc(a.codigo)}</strong> — ${esc(a.nome || '')}<br>
+      <span style="font-size:11px;color:var(--text-dim)">${esc(a.orgao || a.fonte || '')}${a.pagina ? `, p. ${esc(a.pagina)}` : ''}</span></td>
+    <td>${a.permite?.length ? `<div><strong style="color:#2fcf7a">Permite:</strong> ${esc(a.permite.join('; '))}</div>` : ''}
+        ${a.naoPermite?.length ? `<div style="margin-top:3px"><strong style="color:#ff8e8e">Não permite:</strong> ${esc(a.naoPermite.join('; '))}</div>` : ''}
+        ${a.observacoes ? `<div style="margin-top:3px;color:var(--text-dim)">${esc(a.observacoes)}</div>` : ''}</td></tr>`;
+
+  return `<div class="on-card largo"><h3>O que dá para fazer com o dinheiro · ações orçamentárias</h3>
+    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
+      ${lidas.length} de ${total} cartilha(s) lida(s) pela IA · ${aprovadas.length} ação(ões) conferida(s) contra o texto do documento.
+      <button class="btn btn-outline btn-sm" data-acao="ler-cartilhas" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>
+        ${lidas.length ? 'Ler as que faltam' : 'Ler as cartilhas com IA'}</button>
+    </div>
+    ${aprovadas.length ? `<table class="on-tab" style="margin-top:8px">${aprovadas.map(acao).join('')}</table>` : ''}
+    ${recusadas.length ? `<div class="on-falha"><strong>${recusadas.length} item(ns) descartado(s) na conferência</strong> — o modelo os produziu, mas eles
+      não foram localizados no documento e por isso NÃO entram na nota:
+      <ul class="on-lista" style="margin-top:5px">${recusadas.slice(0, 8).map(r => `<li>${esc(r.codigo || '(sem código)')} — ${esc(r.motivo)}</li>`).join('')}</ul></div>` : ''}
+    ${comErro.length ? `<div class="on-pend">${comErro.map(([, v]) => `${esc(v.rotulo)}: ${esc(v.erro)}`).join('<br>')}</div>` : ''}
+    ${avisoModoLeitura(lidas.map(([, v]) => v))}
+    ${!lidas.length ? `<div class="on-pend">As cartilhas estão indexadas por área temática logo acima, mas o conteúdo — o que cada ação
+      permite custear — só existe dentro dos PDFs. A leitura é feita por IA e conferida contra o texto do próprio documento.</div>` : ''}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">
+      Cada ação exibida traz um trecho literal que foi localizado no documento de origem. Localizar não é
+      interpretar: a aplicabilidade ao caso concreto continua sendo do analista.
+    </div>
+  </div>`;
+}
+
+/**
+ * Diz quais documentos precisaram ir como texto, e o que isso muda.
+ * A força da conferência depende disso: no modo PDF, modelo e verificador leem
+ * por caminhos independentes; no modo texto, pela mesma extração. Esconder a
+ * diferença seria vender uma garantia mais forte do que a que existe.
+ */
+function avisoModoLeitura(leituras = []) {
+  const porTexto = leituras.filter(v => v && v.modoLeitura === 'texto');
+  if (!porTexto.length) return '';
+  return `<div class="on-pend"><strong>${porTexto.length} documento(s) lido(s) como texto extraído, não como PDF:</strong>
+    ${esc([...new Set(porTexto.map(v => `${v.rotulo} — ${v.motivoModo}`))].join(' · '))}
+    Nesses casos a conferência continua pegando ação e valor que não constam do documento, mas o modelo e o
+    verificador passam a ler a MESMA extração — a checagem deixa de ser por dois caminhos independentes.</div>`;
+}
+
+// ---------- produto 2: a ficha preenchida a partir da fonte ----------
+/**
+ * Lê a orientação normativa do exercício e PROPÕE valores para os campos
+ * vazios. Proposta não é preenchimento: o analista aceita um a um, e só entra
+ * o que o JS achou dentro do trecho citado.
+ */
+async function proporFicha() {
+  const ancora = estado.quadro?.emendas?.ancoraNormativa;
+  if (!ancora) { mostrarToast('Este exercício ainda não publicou orientação normativa — não há de onde extrair.', 'aviso'); return; }
+  const vazios = CAMPOS_FICHA.filter(c => c.origem === 'ancora' && !estado.ficha?.valores?.[c.chave]);
+  if (!vazios.length) { mostrarToast('Todos os campos de origem normativa já estão preenchidos.', 'info'); return; }
+
+  return comIA(`lendo "${ancora.rotulo}"`, async (cfg) => {
+    const doc = await prepararDocumento(ancora.url, cfg);
+    const resp = await chamarIAOrcamento({
+      provedorId: cfg.provedorId, apiKey: cfg.apiKey, modelo: cfg.modelo,
+      prompt: doc.montarPrompt(promptFicha(vazios, { rotulo: ancora.rotulo, exercicio: estado.ano })),
+      pdfBuffers: doc.pdfBuffers,
+    });
+    const texto = doc.texto;
+    const json = extrairJSON(resp.text);
+    if (!Array.isArray(json)) {
+      mostrarToast(resp.truncated ? 'A resposta veio truncada — tente de novo ou use um modelo com saída maior.'
+                                  : 'Não consegui interpretar a resposta do modelo.', 'aviso');
+      return null;
+    }
+    const conf = conferirPropostasFicha(json, texto, CAMPOS_FICHA);
+    estado.propostas = { ...conf, documento: ancora.rotulo, url: ancora.url,
+                         modoLeitura: doc.modo, motivoModo: doc.motivo };
+    mostrarToast(conf.conferido ? conf.resumo : conf.motivo,
+                 conf.aceitas?.length ? 'sucesso' : 'aviso');
+    return conf;
+  });
+}
+
+/** Aceita uma proposta: vira preenchimento normal da ficha, com procedência. */
+function aceitarProposta(chave) {
+  const p = estado.propostas?.aceitas?.find(x => x.campo === chave);
+  if (!p) return;
+  const res = preencherCampo(estado.ficha, chave, {
+    valor: p.valor, documento: estado.propostas.documento, pagina: p.pagina || '',
+    trecho: p.trecho, preenchidoPor: `${estado.config?.nomeUsuario || 'equipe'} (proposta de IA conferida)`,
+  });
+  if (!res.ok) { mostrarToast(res.erro, 'aviso'); return; }
+  estado.propostas.aceitas = estado.propostas.aceitas.filter(x => x.campo !== chave);
+  render();
+  salvarFicha().then(() => mostrarToast('✓ Campo preenchido', 'sucesso'))
+               .catch(e => mostrarToast('Não consegui salvar: ' + e.message, 'erro'));
+}
+
+function aceitarTodasPropostas() {
+  const chaves = (estado.propostas?.aceitas || []).map(p => p.campo);
+  if (!chaves.length) return;
+  for (const c of chaves) {
+    const p = estado.propostas.aceitas.find(x => x.campo === c);
+    if (p) preencherCampo(estado.ficha, c, { valor: p.valor, documento: estado.propostas.documento,
+      pagina: p.pagina || '', trecho: p.trecho,
+      preenchidoPor: `${estado.config?.nomeUsuario || 'equipe'} (proposta de IA conferida)` });
+  }
+  estado.propostas.aceitas = [];
+  render();
+  salvarFicha().then(() => mostrarToast(`✓ ${chaves.length} campo(s) preenchido(s)`, 'sucesso'))
+               .catch(e => mostrarToast('Não consegui salvar: ' + e.message, 'erro'));
+}
+
+function cardPropostas() {
+  const p = estado.propostas;
+  if (!p) return '';
+  if (!p.conferido) return `<div class="on-card largo"><h3>Propostas de preenchimento</h3><div class="on-falha">${esc(p.motivo)}</div></div>`;
+  if (!p.aceitas.length && !p.recusadas.length) {
+    return `<div class="on-card largo"><h3>Propostas de preenchimento</h3>
+      <div class="on-pend">A IA leu "${esc(p.documento)}" e não localizou nenhum dos campos pedidos. Campo não encontrado
+      é resposta legítima — o documento pode simplesmente não trazer aquele parâmetro.</div></div>`;
+  }
+  const linha = a => `<tr>
+    <td class="a"><strong>${esc(a.rotulo)}</strong><br>
+      <span style="font-size:11px;color:var(--text-dim)">“${esc(a.trecho.slice(0, 150))}${a.trecho.length > 150 ? '…' : ''}”${a.pagina ? ` — p. ${esc(a.pagina)}` : ''}</span></td>
+    <td style="width:28%"><strong>${esc(a.valor)}</strong></td>
+    <td style="width:14%;text-align:right"><a href="#" data-ia-aceitar="${esc(a.campo)}" style="color:#0a6cf0">aceitar</a></td></tr>`;
+
+  return `<div class="on-card largo"><h3>Propostas de preenchimento · leitura de "${esc(p.documento)}"</h3>
+    ${p.aceitas.length ? `<div class="on-ok">${p.aceitas.length} valor(es) localizado(s) no documento e conferido(s): o valor
+      proposto foi encontrado <strong>dentro do trecho citado</strong>, e o trecho, dentro do PDF.
+      <button class="btn btn-outline btn-sm" data-acao="aceitar-todas" style="margin-left:8px">Aceitar todas</button></div>
+      <table class="on-tab" style="margin-top:8px">${p.aceitas.map(linha).join('')}</table>` : ''}
+    ${p.recusadas.length ? `<div class="on-falha"><strong>${p.recusadas.length} proposta(s) descartada(s)</strong> — não são oferecidas para aceite:
+      <ul class="on-lista" style="margin-top:5px">${p.recusadas.map(r => `<li>${esc(r.campo)}: ${esc(r.motivo)}</li>`).join('')}</ul></div>` : ''}
+    ${avisoModoLeitura([{ rotulo: p.documento, modoLeitura: p.modoLeitura, motivoModo: p.motivoModo }])}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">
+      Aceitar grava o valor na ficha com o documento e a página — a mesma procedência exigida do preenchimento
+      manual. A conferência contra a fonte continua valendo depois.
+    </div>
+  </div>`;
+}
+
+// ---------- produto 3: a síntese analítica ----------
+/**
+ * Redige o texto da nota a partir dos números JÁ conferidos, e depois confere
+ * cada número escrito contra essa mesma base. O risco fica invertido: a IA não
+ * extrai nada, só redige — e o que ela inventar aparece marcado.
+ */
+async function redigirSintese() {
+  const q = estado.quadro;
+  if (!q?.materia?.disponivel) return;
+  const base = { variacao: estado.variacao, serie: estado.serie ? seriesComDados(estado.serie) : [],
+                 ficha: estado.ficha, quadro: q };
+  const temDado = (estado.variacao?.comparado) || base.serie.length || Object.keys(estado.ficha?.valores || {}).length;
+  if (!temDado && !confirm('Nenhum número foi apurado ainda (nem variação, nem série, nem ficha). A síntese sairá só com o estágio da tramitação. Continuar?')) return;
+
+  return comIA('redigindo a síntese', async (cfg) => {
+    const resp = await chamarIAOrcamento({
+      provedorId: cfg.provedorId, apiKey: cfg.apiKey, modelo: cfg.modelo,
+      prompt: promptSintese({ ...base, materia: `${q.materia.identificacao} — ${q.materia.apelido}`,
+                              pendencias: pendenciasDo(q) }),
+    });
+    const texto = (resp.text || '').trim();
+    if (!texto) { mostrarToast('O modelo devolveu resposta vazia.', 'aviso'); return null; }
+    const conferencia = conferirSintese(texto, numerosDaBase(base));
+    estado.ia.sintese = {
+      texto, conferencia, truncada: resp.truncated,
+      redigidaEm: new Date().toISOString(), redigidaPor: estado.config?.nomeUsuario || 'equipe',
+      modelo: `${cfg.provedorId}/${cfg.modelo || 'padrão'}`,
+    };
+    mostrarToast(conferencia.limpo
+      ? `Síntese redigida: ${conferencia.conferidos} número(s) conferido(s) contra a base.`
+      : conferencia.motivo, conferencia.limpo ? 'sucesso' : 'aviso');
+    await salvarIA().catch(e => console.warn('Firebase:', e.message));
+    return estado.ia.sintese;
+  });
+}
+
+function cardSintese() {
+  const s = estado.ia?.sintese;
+  if (!s) {
+    return `<div class="on-card largo"><h3>Síntese analítica</h3>
+      <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
+        O texto que abre a nota — o que cresceu, o que encolheu e o que isso significa para o gabinete —
+        escrito pela IA <strong>sobre os números já apurados</strong>. Ela não extrai cifra nenhuma: recebe a base
+        conferida e redige em cima dela; depois, todo número do texto é procurado nessa base.
+        <button class="btn btn-outline btn-sm" data-acao="redigir-sintese" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>Redigir síntese</button>
+      </div></div>`;
+  }
+  const c = s.conferencia || { limpo: true, suspeitos: [] };
+  return `<div class="on-card largo"><h3>Síntese analítica</h3>
+    <div class="${c.limpo ? 'on-ok' : 'on-falha'}">${c.limpo
+      ? `Conferida: os ${c.conferidos} número(s) do texto constam da base apurada.`
+      : esc(c.motivo)}</div>
+    ${s.truncada ? '<div class="on-pend">A resposta foi cortada no limite de tokens — o último parágrafo pode estar incompleto.</div>' : ''}
+    <div style="font-size:13px;line-height:1.7;margin-top:10px;white-space:pre-wrap">${esc(s.texto)}</div>
+    ${!c.limpo ? `<div class="on-pend" style="margin-top:8px"><strong>Onde estão os números não conferidos:</strong>
+      <ul class="on-lista" style="margin-top:4px">${c.suspeitos.map(x => `<li><strong>${esc(x.numero)}</strong> — ${esc(x.contexto)}</li>`).join('')}</ul></div>` : ''}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">
+      ${esc(s.modelo || '')} · ${esc(dataBR(s.redigidaEm))} por ${esc(s.redigidaPor || 'equipe')} ·
+      <a href="#" data-acao="redigir-sintese" style="color:#0a6cf0">refazer</a>
+    </div>
+  </div>`;
+}
+
+/** As pendências, extraídas para o prompt e para a nota usarem a MESMA lista. */
+function pendenciasDo(q) {
+  const p = [];
+  if (!q.cronograma.disponivel) p.push('prazo de apresentação de emendas e demais datas do cronograma');
+  if (q.relatores.disponivel && !q.relatores.relatorGeral) p.push('designação do Relator-Geral');
+  if (q.relatores.disponivel && !q.relatores.setoriais.length) p.push('designação dos relatores setoriais');
+  if (!q.emendas.disponivel || !q.emendas.ancoraNormativa) p.push('orientação normativa do exercício (Manual de Emendas ou equivalente), que fixa cotas, quantidades, sequenciais de cancelamento e pisos de repasse');
+  if (!q.notas.disponivel) p.push('notas técnicas das consultorias (CONOF/CD e CONORF/SF)');
+  return p;
+}
+
+// ============================================================
 //  FICHA DE PARÂMETROS
 // ============================================================
 // Compartilhada com a equipe pelo Firebase, uma por exercício. O esquema vem
@@ -560,11 +1017,14 @@ function cardFicha(q) {
       <table class="on-tab">${doGrupo.map(linhaHtml).join('')}</table></div>`;
   }).join('');
 
+  const temAncora = fontes.ancora;
   return `<div class="on-card largo"><h3>Ficha de parâmetros do exercício</h3>
     <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
       ${r.conferido + r.preenchido} de ${r.total} campos preenchidos ·
       ${r.pendente} a preencher · ${r.aguardando} aguardando a fonte
       ${r.divergente ? ` · <span style="color:#ff8e8e">${r.divergente} não localizado(s) na fonte</span>` : ''}
+      ${temAncora && r.pendente ? `<button class="btn btn-outline btn-sm" data-acao="propor-ficha" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>
+        Extrair da fonte com IA</button>` : ''}
     </div>
     ${!fontes.ancora ? `<div class="on-pend">A orientação normativa deste exercício ainda não foi publicada. Os campos que dependem dela ficam
       <strong>aguardando</strong> — e é isso que a nota deve dizer, em vez de repetir os números do ano anterior.
@@ -596,7 +1056,7 @@ function abrirEdicaoCampo(chave) {
 
   const res = preencherCampo(estado.ficha, chave, {
     valor, documento, pagina, trecho: trecho || '',
-    preenchidoPor: state?.config?.nomeUsuario || 'equipe',
+    preenchidoPor: estado.config?.nomeUsuario || 'equipe',
   });
   if (!res.ok) { mostrarToast(res.erro, 'aviso'); return; }
   render();
@@ -689,11 +1149,11 @@ function gerarNota() {
   if (!q?.materia?.disponivel) return;
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a nova aba. Permita pop-ups para gerar a nota.'); return; }
-  w.document.write(htmlNota(q, estado.conferencia, estado.ficha, estado.serie, estado.variacao));
+  w.document.write(htmlNota(q, estado.conferencia, estado.ficha, estado.serie, estado.variacao, estado.ia));
   w.document.close();
 }
 
-function htmlNota(q, conf, ficha, serie, variacao) {
+function htmlNota(q, conf, ficha, serie, variacao, ia) {
   const m = q.materia, r = q.relatores, c = q.cronograma, a = q.acompanhamento, e = q.emendas;
   const agora = new Date();
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
@@ -707,12 +1167,10 @@ function htmlNota(q, conf, ficha, serie, variacao) {
   // relatores nenhuma — dizer "designação pendente" seria inventar um atraso
   // que não existe. Guardar por `disponivel` também evita ler .length de uma
   // leitura que não trouxe lista (o que quebrava a nota da LDO).
-  const pendencias = [];
-  if (!c.disponivel) pendencias.push('prazo de apresentação de emendas e demais datas do cronograma');
-  if (r.disponivel && !r.relatorGeral) pendencias.push('designação do Relator-Geral');
-  if (r.disponivel && !r.setoriais.length) pendencias.push('designação dos relatores setoriais');
-  if (!e.disponivel || !e.ancoraNormativa) pendencias.push('orientação normativa do exercício (Manual de Emendas ou equivalente), que fixa cotas, quantidades, sequenciais de cancelamento e pisos de repasse');
-  if (!q.notas.disponivel) pendencias.push('notas técnicas das consultorias (CONOF/CD e CONORF/SF)');
+  // A MESMA lista que vai no prompt da síntese (pendenciasDo): se a nota e a IA
+  // divergissem sobre o que falta, o texto redigido contradiria a seção 4 da
+  // própria nota que o contém.
+  const pendencias = pendenciasDo(q);
 
   const alertas = conf ? resumoConferencia(conf.resultado) : null;
 
@@ -749,6 +1207,8 @@ function htmlNota(q, conf, ficha, serie, variacao) {
 <p>A presente nota técnica trata do <strong>${esc(m.identificacao)} — ${esc(m.apelido)}</strong>${m.dataApresentacao ? `, apresentado ao Congresso Nacional em ${dataBR(m.dataApresentacao)}` : ''}.
 Situação em ${carimbo.slice(0, 10)}: <strong>${esc(m.situacaoAtual || '—')}</strong>.
 ${pendencias.length ? 'A matéria ainda não percorreu todas as etapas na Comissão Mista, e por isso parte dos parâmetros operacionais não está definida — o que está e o que não está vem discriminado adiante.' : ''}</p>
+
+${blocoSinteseNota(ia?.sintese)}
 
 <h2>1. Identificação da matéria</h2>
 <table>
@@ -795,6 +1255,7 @@ ${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:
 ${blocoFichaNota(q, ficha, pendencias.length)}
 ${blocoSerieNota(serie)}
 ${blocoVariacaoNota(variacao)}
+${blocoAcoesNota(ia)}
 ${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
 <p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
 está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
@@ -873,6 +1334,57 @@ ${v.porOrgao ? `<p><strong>Por órgão — ${esc(v.porOrgao.titulo || 'distribui
   : esc(v.porOrgao.motivo)}</div>` : ''}`;
 }
 
+/**
+ * A síntese abre a nota — é o parágrafo que o deputado lê antes de qualquer
+ * tabela. Vai com o carimbo de que foi redigida por IA sobre a base apurada, e
+ * com os números não conferidos NOMEADOS dentro do próprio documento impresso.
+ *
+ * Publicar a nota com a ressalva impressa é o que impede a marcação de se
+ * perder no caminho da tela para o PDF: quem recebe o arquivo por WhatsApp não
+ * vê o card, vê a nota.
+ */
+function blocoSinteseNota(s) {
+  if (!s?.texto) return '';
+  const c = s.conferencia || { limpo: true, suspeitos: [] };
+  const paragrafos = s.texto.split(/\n{2,}/).map(p => p.trim()).filter(Boolean);
+  return `<h2>Síntese analítica</h2>
+${paragrafos.map(p => `<p>${esc(p)}</p>`).join('\n')}
+${c.limpo
+  ? `<div class="fonte">Texto redigido com apoio de inteligência artificial sobre a base de dados apurada nesta nota.
+     Os ${c.conferidos} valor(es) citados foram conferidos, um a um, contra os números extraídos dos documentos.</div>`
+  : `<div class="pend"><strong>Ressalva de conferência:</strong> ${esc(c.suspeitos.length)} número(s) deste texto
+     (${esc(c.suspeitos.map(x => x.numero).join(', '))}) não constam da base apurada e <strong>não foram conferidos</strong>
+     contra os documentos. Confirme na fonte antes de divulgar.</div>`}
+${s.truncada ? '<div class="pend">A redação foi interrompida no limite de tokens do modelo — o último parágrafo pode estar incompleto.</div>' : ''}`;
+}
+
+/**
+ * As ações orçamentárias — a resposta a "o que eu faço com esse dinheiro".
+ * Só as aprovadas na conferência entram; as descartadas ficam no painel, para
+ * quem revisa, e não na nota, que é documento de circulação.
+ */
+function blocoAcoesNota(ia) {
+  const lidas = Object.values(ia?.acoes || {});
+  const acoes = lidas.flatMap(v => (v.aprovadas || []).map(a => ({ ...a, fonte: v.rotulo })));
+  if (!acoes.length) return '';
+  const linha = a => `<tr>
+    <td class="r">${esc(a.codigo)}</td>
+    <td>${esc(a.nome || '')}${a.orgao ? `<br><span style="font-size:9pt;color:#555">${esc(a.orgao)}</span>` : ''}
+      ${a.permite?.length ? `<div style="font-size:9.5pt"><strong>Permite:</strong> ${esc(a.permite.join('; '))}</div>` : ''}
+      ${a.naoPermite?.length ? `<div style="font-size:9.5pt"><strong>Não permite:</strong> ${esc(a.naoPermite.join('; '))}</div>` : ''}
+      ${a.observacoes ? `<div style="font-size:9.5pt;color:#555">${esc(a.observacoes)}</div>` : ''}</td>
+  </tr>`;
+  return `<h2>Aplicação das emendas — o que cada ação permite custear</h2>
+<p>O quadro abaixo reúne as ações orçamentárias descritas nas cartilhas publicadas para este exercício, com o
+que cada uma admite e o que veda. A leitura dos documentos foi feita com apoio de inteligência artificial, e
+cada ação listada teve o trecho de origem <strong>localizado no texto do próprio documento</strong>; o que não
+foi localizado não consta deste quadro.</p>
+<table>${acoes.map(linha).join('')}</table>
+<div class="fonte">Fontes: ${esc([...new Set(lidas.map(v => v.rotulo).filter(Boolean))].join('; '))}.
+Constar do documento não significa que a ação se aplique ao caso concreto — a adequação da emenda continua
+sendo análise do gabinete.</div>`;
+}
+
 /** 57ª Legislatura: 2023-2027. Cada legislatura dura 4 anos desde 1826. */
 function legislaturaDe(ano) {
   return 57 + Math.floor((ano - 2023) / 4);
@@ -881,7 +1393,8 @@ function legislaturaDe(ano) {
 // ============================================================
 //  INÍCIO
 // ============================================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+  await carregarConfigIA();
   const selAno = $('f-ano');
 
   const povoar = () => {
@@ -899,9 +1412,22 @@ document.addEventListener('DOMContentLoaded', () => {
   $('btn-nota').addEventListener('click', gerarNota);
   $('btn-voltar').addEventListener('click', () => { window.location.href = 'panel.html'; });
   // Os links da ficha nascem a cada render; a escuta fica no contêiner.
+  const ACOES = {
+    'ler-mensagem':    lerMensagem,
+    'ler-cartilhas':   resumirTodasCartilhas,
+    'propor-ficha':    proporFicha,
+    'aceitar-todas':   aceitarTodasPropostas,
+    'redigir-sintese': redigirSintese,
+  };
   $('on-corpo').addEventListener('click', ev => {
-    const btnMsg = ev.target.closest('[data-acao="ler-mensagem"]');
-    if (btnMsg) { ev.preventDefault(); lerMensagem(); return; }
+    const botao = ev.target.closest('[data-acao]');
+    if (botao && ACOES[botao.getAttribute('data-acao')]) {
+      ev.preventDefault();
+      ACOES[botao.getAttribute('data-acao')]();
+      return;
+    }
+    const aceitar = ev.target.closest('[data-ia-aceitar]');
+    if (aceitar) { ev.preventDefault(); aceitarProposta(aceitar.getAttribute('data-ia-aceitar')); return; }
     const a = ev.target.closest('[data-ficha-editar]');
     if (!a) return;
     ev.preventDefault();
