@@ -213,7 +213,8 @@ function cardNotasTecnicas(q) {
   const n = q.notas;
   if (!n.disponivel) return `<div class="on-card"><h3>Notas técnicas das consultorias</h3><div class="on-pend">${esc(n.motivo)}</div></div>`;
   return `<div class="on-card"><h3>Notas técnicas e estudos (CONOF/CD e CONORF/SF)</h3>
-    <ul class="on-lista">${n.notas.map(x => `<li>${esc(x.data)} — <a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a></li>`).join('')}</ul>
+    <!-- a LOA lista com data ("19/02/2026 - Raio-X…"), a LDO só com o título -->
+    <ul class="on-lista">${n.notas.map(x => `<li>${x.data ? esc(x.data) + ' — ' : ''}<a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.titulo)}</a></li>`).join('')}</ul>
   </div>`;
 }
 
