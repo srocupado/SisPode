@@ -1456,14 +1456,22 @@ async function buscarEmendaMPVnoSenado(prop, numEmenda) {
   catch (e) { console.warn('[IA] MPV: Senado não respondeu à lista de emendas:', e.message); return null; }
   console.log(`[IA] MPV: ${emendas.length} emenda(s) no Senado (matéria ${codigo})`);
 
-  // O MESMO número pode voltar mais de uma vez. MEDIDO em 02/09/2026 na MPV
-  // 1357/2026: a emenda nº 13 aparece duas vezes — a do Dep. Da Vitoria (PP) e
-  // uma da "Comissão", publicada no dia em que a Comissão Mista concluiu.
-  // `find` pegaria a primeira EM SILÊNCIO, e anexar o texto errado a um
-  // destaque é análise errada. Entre uma emenda de parlamentar e uma da
-  // Comissão, o destaque de Plenário é sobre a do parlamentar — mas a escolha
-  // vai DECLARADA no console e no rótulo; empate entre parlamentares não se
-  // resolve por chute: devolve null e diz por quê.
+  // O MESMO número pode voltar mais de uma vez, e o segundo documento pode NEM
+  // SER uma emenda. MEDIDO em 02/09/2026 na MPV 1357/2026: /materia/emendas
+  // devolve dois documentos com o nº 13 — a Emenda nº 13 do Dep. Da Vitoria
+  // (PP) e, na posição ANTERIOR, o "PROJETO DE LEI DE CONVERSÃO Nº 13, DE
+  // 2026" (5 páginas), com autoria "Comissão", publicado no dia em que a
+  // Comissão Mista concluiu. A numeração do PLV e a das emendas são sequências
+  // independentes, e nada impede que colidam.
+  //
+  // `find` pegava a primeira e, sem dizer nada, um destaque à emenda nº 13
+  // receberia o PLV INTEIRO no lugar da emenda — o analista leria uma
+  // orientação sobre o substitutivo achando que era sobre a emenda.
+  //
+  // Regra: o destaque de Plenário é sobre a emenda do PARLAMENTAR, então vence
+  // o candidato com partido; a escolha vai DECLARADA no console e no rótulo
+  // que a IA recebe. Empate entre parlamentares não se resolve por chute:
+  // devolve null e diz por quê.
   const candidatos = emendas.filter(e => e.numero === numEmenda);
   if (!candidatos.length) {
     console.warn(`[IA] MPV: emenda nº ${numEmenda} não existe entre as ${emendas.length} do Senado (nº ${Math.min(...emendas.map(e => e.numero))}..${Math.max(...emendas.map(e => e.numero))}).`);
