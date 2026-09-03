@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notas Técnicas Orçamentárias – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    .on-topbar { display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+      border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; }
+    .on-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: .3px;
+      text-transform: uppercase; color: var(--text-dim); }
+    .on-topbar select { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px;
+      padding: 7px 10px; font-family: inherit; font-size: 12.5px; color: var(--text); }
+    .on-corpo { padding: 20px 22px 60px; display: grid; gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start; }
+    .on-card { border: 1px solid var(--border-soft); border-radius: 10px; background: var(--bg-elev, var(--bg));
+      padding: 14px 16px; }
+    .on-card.largo { grid-column: 1 / -1; }
+    .on-card h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+      color: var(--text-dim); font-weight: 600; }
+    .on-linha { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+    .on-linha:last-child { border-bottom: 0; }
+    .on-linha .r { min-width: 130px; color: var(--text-dim); flex-shrink: 0; }
+    .on-linha .v { flex: 1; }
+    .on-etapa { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12.5px; }
+    .on-etapa .n { width: 20px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+    .on-etapa .nome { flex: 1; }
+    .on-selo { font-size: 10.5px; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+    .selo-andamento { background: rgba(47,207,122,.14); color: #2fcf7a; font-weight: 600; }
+    .selo-naoini { background: rgba(255,255,255,.06); color: var(--text-dim); }
+    .selo-conc { background: rgba(31,165,165,.14); color: #1fa5a5; }
+    .on-pend { border-left: 3px solid #d68a00; background: rgba(214,138,0,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; line-height: 1.55; }
+    .on-falha { border-left: 3px solid #ff6b6b; background: rgba(255,107,107,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; }
+    .on-ok { border-left: 3px solid #2fcf7a; background: rgba(47,207,122,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; }
+    .on-prazo { font-size: 15px; font-weight: 700; color: var(--text); }
+    .on-prazo.fechado { color: var(--text-dim); font-weight: 500; }
+    .on-lista { margin: 0; padding-left: 16px; font-size: 12.5px; line-height: 1.7; }
+    .on-lista a { color: #0a6cf0; text-decoration: none; }
+    .on-lista a:hover { text-decoration: underline; }
+    .on-pode { background: rgba(0,168,89,.16); color: #00a859; font-weight: 600;
+      padding: 1px 6px; border-radius: 4px; font-size: 10.5px; margin-left: 6px; }
+    .on-vazio { color: var(--text-dim); font-size: 12.5px; font-style: italic; }
+    .on-carregando { padding: 40px 22px; text-align: center; color: var(--text-dim); font-size: 13px; }
+    table.on-tab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.on-tab td { padding: 4px 6px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+    table.on-tab td.a { color: var(--text-dim); width: 46%; }
+    .on-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25);
+      border-top-color: var(--text); border-radius: 50%; animation: on-gira .7s linear infinite; }
+    @keyframes on-gira { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Notas Técnicas Orçamentárias</span>
+        <span class="header-sub">LOA, LDO e PPA · Comissão Mista de Orçamento · Liderança do Podemos</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar" class="btn btn-outline btn-sm" title="Voltar">← Início</button>
+      <button id="btn-atualizar" class="btn btn-outline btn-sm" title="Reconsulta o Senado e o portal do Congresso">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        Atualizar
+      </button>
+      <button id="btn-conferir" class="btn btn-outline btn-sm" disabled title="Confere a base normativa da nota contra o Manual de Emendas do exercício">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Conferir normas
+      </button>
+      <button id="btn-nota" class="btn btn-primary btn-sm" disabled title="Gera a nota técnica com o quadro atual da matéria">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Gerar nota técnica
+      </button>
+    </div>
+  </header>
+
+  <div class="on-topbar">
+    <label style="display:flex;align-items:center;gap:8px">
+      <span class="on-rotulo">Lei</span>
+      <select id="f-tipo">
+        <option value="loa">LOA — Lei Orçamentária Anual</option>
+        <option value="ldo">LDO — Lei de Diretrizes Orçamentárias</option>
+        <option value="ppa">PPA — Plano Plurianual</option>
+      </select>
+    </label>
+    <label style="display:flex;align-items:center;gap:8px">
+      <span class="on-rotulo">Exercício</span>
+      <select id="f-ano"></select>
+    </label>
+    <span id="on-status" style="font-size:12px;color:var(--text-dim)"></span>
+  </div>
+
+  <div id="on-corpo" class="on-corpo">
+    <div class="on-carregando">Selecione a lei e o exercício para carregar o quadro da matéria.</div>
+  </div>
+
+  <script src="libs/pdf.min.js"></script>
+  <script src="cmo.js"></script>
+  <script src="normas.js"></script>
+  <script src="orcamento-notas.js"></script>
+</body>
+</html>

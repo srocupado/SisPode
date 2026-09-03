@@ -309,6 +309,12 @@ function registrarEventos() {
   document.getElementById('config-provedor')
     .addEventListener('change', () => aoTrocarProvedor({ limparChave: true }));
 
+  // Sub-painéis do Orçamento
+  document.getElementById('btn-sub-emendas')
+    .addEventListener('click', () => abrirSubpainelOrcamento('emendas.html'));
+  document.getElementById('btn-sub-notas')
+    .addEventListener('click', () => abrirSubpainelOrcamento('orcamento-notas.html'));
+
   // Fechar modais via data-fecha
   document.querySelectorAll('[data-fecha]').forEach(btn => {
     btn.addEventListener('click', () => fecharModal(btn.dataset.fecha));
@@ -3332,7 +3338,7 @@ const MODULES = [
   {
     id:     'emendas',
     titulo: 'Orçamento',
-    desc:   'Execução orçamentária de interesse da bancada. Começa pelas emendas à saúde: quanto foi proposto, empenhado e efetivamente PAGO, por deputado, estado e município, com exportação em planilha.',
+    desc:   'Dois painéis: acompanhamento das emendas da bancada (proposto, empenhado e pago) e notas técnicas das leis orçamentárias — LOA, LDO e PPA na Comissão Mista, com prazo de emendas e conferência da base normativa.',
     cor:    'verde',
     icone:  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     acao:   abrirEmendas,
@@ -3477,9 +3483,16 @@ function abrirLideres() {
   chrome.tabs.create({ url });
 }
 
+// O card "Orçamento" reúne dois sub-painéis: o acompanhamento de emendas (o
+// módulo original) e as notas técnicas das leis orçamentárias (LOA/LDO/PPA).
+// São trabalhos distintos sobre o mesmo tema, e cada um tem tela própria.
 function abrirEmendas() {
-  const url = chrome.runtime.getURL('emendas.html');
-  chrome.tabs.create({ url });
+  document.getElementById('modal-orcamento').style.display = 'flex';
+}
+
+function abrirSubpainelOrcamento(arquivo) {
+  document.getElementById('modal-orcamento').style.display = 'none';
+  chrome.tabs.create({ url: chrome.runtime.getURL(arquivo) });
 }
 
 function abrirCongresso() {
