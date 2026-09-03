@@ -669,6 +669,50 @@ async function lerMateriaisExecutivo(tipo, anoOrcamento) {
   };
 }
 
+
+/**
+ * O que cada documento do Executivo contém — lido das CAPAS dos volumes do
+ * PLOA 2027 (03/09/2026) e da estrutura do art. 9º da LDO. A página do gov.br
+ * só diz "Volume 1", "Volume 4 - 2": sem isto o gabinete abre sete PDFs de
+ * mil páginas para achar o que procura. O Volume IV é o das emendas à
+ * despesa; o Volume I, o dos totais e mínimos constitucionais.
+ */
+const DESCRICAO_DOCS_EXECUTIVO = [
+  { re: /texto d[ao] (lei|projeto)/i,
+    o: 'O texto do projeto de lei (os artigos), sem os anexos. É a parte que se altera por emenda de texto.' },
+  { re: /comparativo/i,
+    o: 'Comparativo, artigo por artigo, entre a lei orçamentária vigente e o projeto: mostra o que muda na redação.' },
+  { re: /cidad[ãa]o/i,
+    o: 'Orçamento Cidadão: a versão em linguagem simples, com os grandes números, os parâmetros e as prioridades.' },
+  { re: /grade de par[âa]metros/i,
+    o: 'Grade de parâmetros macroeconômicos usada nas estimativas (PIB, IPCA, Selic, câmbio, salário mínimo).' },
+  { re: /cadastro de a[çc][õo]es/i,
+    o: 'Cadastro de ações: a descrição de cada ação orçamentária e o que ela financia — é onde se confere a ação certa para a emenda.' },
+  { re: /inciso/i,
+    o: 'Informações complementares exigidas pela LDO (os incisos indicados), que acompanham o projeto sem integrar a lei.' },
+  { re: /sum[áa]rio/i,
+    o: 'Sumário das informações complementares.' },
+  { re: /^volume\s*(1|i)\b/i,
+    o: 'Anexos do projeto de lei, quadros orçamentários consolidados, detalhamento da receita e legislação da receita e da despesa: os totais por órgão, função e fonte, e os mínimos de saúde e educação.' },
+  { re: /^volume\s*(2|ii)\b/i,
+    o: 'Consolidação dos Programas de Governo: cada programa do PPA com suas ações e valores, sem separar por órgão.' },
+  { re: /^volume\s*(3|iii)\b/i,
+    o: 'Detalhamento das ações dos órgãos do Poder Legislativo, do TCU, do Poder Judiciário, da DPU e do MPU.' },
+  { re: /^volume\s*(4|iv)\b/i,
+    o: 'Detalhamento das ações dos órgãos do Poder Executivo — Presidência e Ministérios, exceto o MEC (em dois tomos). É o volume das emendas à despesa: programa, ação, localizador e valor.' },
+  { re: /^volume\s*(5|v)\b/i,
+    o: 'Detalhamento das ações do Ministério da Educação.' },
+  { re: /^volume\s*(6|vi)\b/i,
+    o: 'Orçamento de Investimento das empresas estatais: quadros consolidados e detalhamento por empresa.' },
+  { re: /^volume/i,
+    o: 'Volume do detalhamento do projeto (programação por órgão, programa e ação).' },
+];
+function descreverDocumentoExecutivo(rotulo) {
+  const r = String(rotulo || '').trim();
+  const hit = DESCRICAO_DOCS_EXECUTIVO.find(d => d.re.test(r));
+  return hit ? hit.o : '';
+}
+
 /**
  * Quadro completo de um exercício: identificação + acompanhamento + cronograma
  * + relatores + documentos de emendas + notas técnicas. Cada peça declara-se
@@ -702,5 +746,6 @@ if (typeof module !== 'undefined' && module.exports) {
     LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, urlSenado, txt, SEM_CONTEUDO,
     buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, lerRelatores,
     lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, lerMateriaisExecutivo, carregarExercicio,
+    DESCRICAO_DOCS_EXECUTIVO, descreverDocumentoExecutivo,
   };
 }

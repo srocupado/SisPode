@@ -190,6 +190,106 @@ function rotuloVariacao(item) {
   return `${formatarBR(item.para)} (${pct})`;
 }
 
+
+/**
+ * PARÂMETROS MACROECONÔMICOS — PIB, IPCA, Selic, câmbio e salário mínimo.
+ *
+ * São os cinco campos da ficha que ficavam "a preencher" à mão. Estão na
+ * própria Mensagem, e em dois formatos MEDIDOS:
+ *
+ *  · PLOA 2027 (p.34): a GRADE por ano —
+ *       2022 2023 2024 2025 2026 2027 2028 2029 2030
+ *       PIB (var. % anual) 3,0 3,2 3,4 2,3 2,3 2,5 2,5 2,6 2,7
+ *       IPCA (var. % ac. ano) 5,79 … 3,60 …
+ *       Taxa de câmbio R$/US$ / 5,16 … 5,22 … / (média anual)
+ *       Taxa Selic / 12,34 … 12,53 … / (var. % média anual)
+ *    O rótulo de câmbio e Selic quebra em três linhas no pdf.js (rótulo,
+ *    números, complemento). A coluna do exercício é a posição do ano no
+ *    cabeçalho — é isso que impede de ler o 2026 achando que é o 2027.
+ *    O salário mínimo não está na grade: está na frase da p.128 ("para o
+ *    PLOA 2027, está estimado em R$ 1.741,00"), com o "salá-/rio" hifenizado.
+ *
+ *  · PLOA 2026 (p.171, capítulo "Orçamento Cidadão" dentro do PDF): um
+ *    GLOSSÁRIO — "Salário mínimo R$ 1.631,00 É o menor valor…", "Inflação
+ *    3,60% …", "PIB 2,44% …", "Câmbio R$ 5,76 …", "Juros 13,11% … SELIC".
+ *
+ * `paginas` = [{ numero, texto }] (texto agrupado por linha, como textoDaPagina).
+ * Devolve, por campo, { valor, pagina, trecho } — só o que foi localizado, e
+ * cada um com a página e o trecho literal, que é a procedência que a ficha
+ * exige. `exercicio` é o ano do orçamento ("2027").
+ */
+function parametrosMacro(paginas = [], exercicio) {
+  const ano = String(exercicio || '').slice(0, 4);
+  const achados = {};
+  const NUM = /-?\d+,\d+/g;
+  const numeros = l => (String(l).match(NUM) || []);
+  const pct = v => v.replace(/%$/, '') + '%';
+
+  // 1) A grade por ano, com a coluna do exercício.
+  for (const p of paginas) {
+    const linhas = String(p.texto || '').split('\n').map(l => l.trim()).filter(Boolean);
+    const iCab = linhas.findIndex(l => (l.match(/\b20\d\d\b/g) || []).length >= 4 && new RegExp(`\\b${ano}\\b`).test(l) && !/\d,\d/.test(l));
+    if (iCab < 0) continue;
+    const anos = linhas[iCab].match(/\b20\d\d\b/g);
+    const col = anos.indexOf(ano);
+    const ROTULOS = [
+      ['pib',    /^PIB\b/i,                       pct],
+      ['ipca',   /^IPCA\b/i,                      pct],
+      ['cambio', /^Taxa de c[âa]mbio/i,           v => `R$/US$ ${v}`],
+      ['selic',  /^(Taxa\s+)?Selic\b/i,           pct],
+    ];
+    for (let i = iCab + 1; i < Math.min(linhas.length, iCab + 16); i++) {
+      for (const [chave, re, fmt] of ROTULOS) {
+        if (achados[chave] || !re.test(linhas[i])) continue;
+        // Os números vêm na própria linha ou na seguinte (rótulo quebrado).
+        let nums = numeros(linhas[i].replace(re, '')), trecho = linhas[i];
+        if (nums.length < anos.length && linhas[i + 1]) { nums = numeros(linhas[i + 1]); trecho = `${linhas[i]} ${linhas[i + 1]}`; }
+        if (nums.length !== anos.length) continue;
+        achados[chave] = { valor: fmt(nums[col]), pagina: String(p.numero), trecho: trecho.replace(/\s+/g, ' ').trim(), origem: 'grade' };
+      }
+    }
+    if (achados.pib && achados.ipca && achados.selic && achados.cambio) break;
+  }
+
+  // 2) O glossário (Orçamento Cidadão dentro da Mensagem) — só onde a página
+  //    fala em projeções, para "PIB 2,44%" não ser pescado de um lugar qualquer.
+  for (const p of paginas) {
+    const t = String(p.texto || '').replace(/\s+/g, ' ');
+    if (!/proje[çc][õo]es macroecon[ôo]micas/i.test(t) || !/sal[áa]rio[ -]m[íi]nimo\s+R\$/i.test(t)) continue;
+    const pega = (chave, re, fmt) => {
+      if (achados[chave]) return;
+      const m = re.exec(t);
+      if (m) achados[chave] = { valor: fmt(m[1]), pagina: String(p.numero), trecho: t.slice(Math.max(0, m.index - 20), m.index + m[0].length + 60).trim(), origem: 'glossario' };
+    };
+    pega('salario_minimo', /Sal[áa]rio[ -]m[íi]nimo\s+R\$\s*([\d.]+,\d{2})/i, v => `R$ ${v}`);
+    pega('ipca',   /Infla[çc][ãa]o\s+([\d.]+,\d+)\s*%/i, pct);
+    pega('pib',    /\bPIB\s+([\d.]+,\d+)\s*%/i, pct);
+    pega('cambio', /C[âa]mbio\s+R\$\s*([\d.]+,\d+)/i, v => `R$/US$ ${v}`);
+    pega('selic',  /Juros\s+([\d.]+,\d+)\s*%[\s\S]{0,260}?SELIC/i, pct);
+  }
+
+  // 3) O salário mínimo em prosa ("para o PLOA 2027, está estimado em R$ 1.741,00").
+  if (!achados.salario_minimo) {
+    for (const p of paginas) {
+      const t = String(p.texto || '').replace(/-\n/g, '').replace(/\s+/g, ' ');
+      const re = /sal[áa]rio[ -]m[íi]nimo[^.]{0,160}?(?:estimad[oa]|fixad[oa]|projetad[oa]|previst[oa])[^.]{0,60}?R\$\s*([\d.]+,\d{2})/i;
+      const m = re.exec(t);
+      if (!m) continue;
+      const frase = t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 20);
+      if (ano && !new RegExp(`\\b${ano}\\b`).test(frase)) continue;   // frase de outro exercício não serve
+      achados.salario_minimo = { valor: `R$ ${m[1]}`, pagina: String(p.numero), trecho: frase.trim(), origem: 'prosa' };
+      break;
+    }
+  }
+
+  const campos = ['pib', 'ipca', 'selic', 'cambio', 'salario_minimo'];
+  return {
+    ...achados,
+    encontrados: campos.filter(c => achados[c]),
+    faltando: campos.filter(c => !achados[c]),
+  };
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { numeroBR, formatarBR, tabelaPorOrgao, tabelaComparativa, variacaoEntre, rotuloVariacao };
+  module.exports = { numeroBR, formatarBR, tabelaPorOrgao, tabelaComparativa, variacaoEntre, rotuloVariacao, parametrosMacro };
 }

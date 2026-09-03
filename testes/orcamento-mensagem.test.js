@@ -149,6 +149,40 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(/44,8 bilhões para Reserva para Emendas/.test(TXT), 'e a Reserva para Emendas (p.137)');
   }
 
+  console.log('\n== parâmetros macroeconômicos: PIB, IPCA, Selic, câmbio e salário mínimo ==');
+  {
+    // PLOA 2027: a grade por ano (p.34) e a frase do salário mínimo (p.128).
+    const paginas = [34, 71, 114, 115, 116, 128, 137].map(n => ({ numero: n, texto: pagina(n) }));
+    const r = M.parametrosMacro(paginas, '2027');
+    ok(r.encontrados.length === 5 && r.faltando.length === 0, `os cinco localizados (${r.encontrados.join(', ')})`);
+    ok(r.pib?.valor === '2,5%' && r.pib.pagina === '34', `PIB 2027 = ${r.pib?.valor} (coluna certa da grade, p. ${r.pib?.pagina})`);
+    ok(r.ipca?.valor === '3,60%', `IPCA 2027 = ${r.ipca?.valor}`);
+    ok(r.cambio?.valor === 'R$/US$ 5,22', `câmbio 2027 = ${r.cambio?.valor} (rótulo quebrado em três linhas)`);
+    ok(r.selic?.valor === '12,53%', `Selic 2027 = ${r.selic?.valor}`);
+    ok(r.salario_minimo?.valor === 'R$ 1.741,00' && r.salario_minimo.pagina === '128', `salário mínimo = ${r.salario_minimo?.valor} (p. ${r.salario_minimo?.pagina}, "salá-/rio" hifenizado)`);
+    ok(/PIB \(var\. % anual\) 3,0 3,2/.test(r.pib.trecho) && /Taxa Selic 12,34/.test(r.selic.trecho), 'cada valor traz o trecho literal da linha');
+    ok(/estimado em R\$ 1\.741,00/.test(r.salario_minimo.trecho) && /2027/.test(r.salario_minimo.trecho), 'e a frase do salário mínimo nomeia o exercício');
+
+    // A coluna segue o exercício pedido: a mesma grade lida para 2026 dá os
+    // valores de 2026 — é o que impede o número do ano vizinho de entrar.
+    const r26 = M.parametrosMacro(paginas, '2026');
+    ok(r26.pib?.valor === '2,3%' && r26.ipca?.valor === '5,08%' && r26.selic?.valor === '14,16%' && r26.cambio?.valor === 'R$/US$ 5,16',
+       `a grade lida para 2026 devolve a coluna de 2026 (PIB ${r26.pib?.valor}, IPCA ${r26.ipca?.valor})`);
+    ok(!r26.salario_minimo, 'e a frase do salário mínimo de 2027 NÃO serve para 2026');
+    ok(M.parametrosMacro(paginas, '2031').encontrados.length === 0, 'ano fora da grade: nada é inventado');
+
+    // PLOA 2026: o glossário do "Orçamento Cidadão" dentro da Mensagem (p.171, MEDIDO).
+    const glossario = { numero: 171, texto: 'Orçamento Cidadão | Projeto de Lei Orçamentária Anual 2026 Projeções Macroeconômicas para 2026 Como o PLOA de um determinado ano é elaborado no ano anterior, é necessário projetar quanto será arrecadado. Salário mínimo R$ 1.631,00 É o menor valor que um (a) empregador (a) pode pagar a um (a) trabalhador (a). Inflação 3,60% É o aumento geral dos preços de bens e serviços na economia. O principal índice de inflação utilizado no PLOA é o IPCA acumulado. PIB 2,44% É uma forma de medir a riqueza de um país. Câmbio R$ 5,76 Taxa de câmbio é o valor da moeda de um país em relação ao valor da moeda de outro país. Juros 13,11% É a remuneração do dinheiro emprestado. No empréstimo entre bancos, é o Banco Central que decide a taxa de juros de referência, a taxa SELIC.' };
+    const g = M.parametrosMacro([glossario], '2026');
+    ok(g.encontrados.length === 5, `o glossário de 2026 rende os cinco (${g.encontrados.join(', ')})`);
+    ok(g.salario_minimo?.valor === 'R$ 1.631,00' && g.ipca?.valor === '3,60%' && g.pib?.valor === '2,44%' && g.cambio?.valor === 'R$/US$ 5,76' && g.selic?.valor === '13,11%',
+       'com os valores medidos na Mensagem do PLOA 2026');
+    ok(g.pib.origem === 'glossario' && r.pib.origem === 'grade', 'e cada leitura declara de qual formato veio');
+    ok(M.parametrosMacro([{ numero: 1, texto: 'PIB 2,44% em texto solto, sem contexto de projeções. Salário mínimo R$ 1.631,00.' }], '2026').encontrados.length === 0,
+       'sem o contexto de projeções, "PIB 2,44%" solto não é lido — evita pescar número de outra seção');
+    ok(M.parametrosMacro([], '2027').faltando.length === 5 && M.parametrosMacro([{ numero: 1, texto: '' }]).faltando.length === 5, 'vazio → tudo faltando, sem erro');
+  }
+
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error('ERRO FATAL:', e); process.exit(1); });

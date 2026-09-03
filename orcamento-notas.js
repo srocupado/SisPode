@@ -360,7 +360,7 @@ function cardExecutivo(q) {
     const ds = e.documentos.filter(d => d.classe === classe);
     if (!ds.length) return '';
     return `<div style="margin-top:8px"><div class="on-rotulo">${rot}</div>
-      <ul class="on-lista">${ds.map(d => `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.rotulo)}</a></li>`).join('')}</ul></div>`;
+      <ul class="on-lista">${ds.map(d => { const o = descreverDocumentoExecutivo(d.rotulo); return `<li><a href="${esc(d.url)}" target="_blank" rel="noopener">${esc(d.rotulo)}</a>${o ? ` <span style="color:var(--text-dim)">— ${esc(o)}</span>` : ''}</li>`; }).join('')}</ul></div>`;
   };
   return `<div class="on-card largo"><h3>Materiais do Poder Executivo · Ministério do Planejamento</h3>
     ${mensagem}
@@ -467,8 +467,14 @@ async function lerMensagem() {
     // páginas no PLOA 2027) seria minutos de espera sem ganho.
     const limite = Math.min(doc.numPages, 300);
     let comparativa = null, porOrgao = null;
-    for (let p = 20; p <= limite; p++) {
+    // As páginas ficam guardadas: os parâmetros macroeconômicos (grade da
+    // p.34, salário mínimo na p.128 do PLOA 2027) saem do mesmo passeio, e
+    // ele não para mais nas tabelas — parar ali deixava o salário mínimo,
+    // que vem depois, sem leitura.
+    const paginas = [];
+    for (let p = 12; p <= limite; p++) {
       const texto = await textoDaPagina(doc, p);
+      paginas.push({ numero: p, texto });
       if (!comparativa) {
         const t = tabelaComparativa(texto);
         if (t.linhas.length >= 4) comparativa = { ...t, pagina: p };
@@ -477,8 +483,9 @@ async function lerMensagem() {
         const o = tabelaPorOrgao(texto);
         if (o.linhas.length >= 5) porOrgao = { ...o, pagina: p, titulo: tituloDaTabela(texto) };
       }
-      if (comparativa && porOrgao) break;
+      if (comparativa && porOrgao && parametrosMacro(paginas, estado.ano).faltando.length === 0) break;
     }
+    await aplicarParametrosDaMensagem(paginas);
     if (!comparativa) { estado.variacao = { erro: 'Não localizei tabela comparativa entre exercícios nas primeiras 300 páginas do projeto.' }; render(); return; }
 
     const exs = comparativa.exercicios;
@@ -491,6 +498,36 @@ async function lerMensagem() {
     estado.variacao = { erro: `Não consegui ler a Mensagem (${e.message}).` };
     render();
   } finally { $('on-status').textContent = ''; }
+}
+
+/**
+ * Os parâmetros macroeconômicos lidos da Mensagem entram na FICHA — só nos
+ * campos vazios, com o documento, a página e o trecho literal, exatamente a
+ * procedência que o preenchimento manual exige. Vêm de leitura determinística
+ * (mensagem.js, sem IA), e o trecho é o do próprio documento: por isso já
+ * nascem conferidos. O que não foi localizado fica dito na tela.
+ */
+async function aplicarParametrosDaMensagem(paginas) {
+  const q = estado.quadro;
+  const res = parametrosMacro(paginas, estado.ano);
+  estado.parametrosMensagem = res;
+  if (!estado.ficha || !res.encontrados.length) return res;
+  const documento = `Mensagem Presidencial (${q?.materia?.identificacao || 'projeto'})`;
+  let novos = 0;
+  for (const chave of res.encontrados) {
+    if (estado.ficha.valores?.[chave]) continue;   // o analista já preencheu: não se sobrescreve
+    const a = res[chave];
+    const r = preencherCampo(estado.ficha, chave, { valor: a.valor, documento, pagina: a.pagina, trecho: a.trecho,
+                                                     preenchidoPor: 'leitura automática da Mensagem' });
+    if (!r.ok) continue;
+    estado.ficha.valores[chave].conferencia = { localizado: true, fonte: documento, em: new Date().toISOString() };
+    novos++;
+  }
+  if (novos) {
+    await salvarFicha().catch(e => console.warn('Firebase:', e.message));
+    mostrarToast(`✓ ${novos} parâmetro(s) macroeconômico(s) lido(s) da Mensagem e gravado(s) na ficha, com página e trecho.`, 'sucesso');
+  }
+  return res;
 }
 
 /** Texto de uma página, agrupado por linha (mesmo critério do extrator). */
@@ -1441,7 +1478,14 @@ function cardFicha(q) {
       ${r.divergente ? ` · <span style="color:#ff8e8e">${r.divergente} não localizado(s) na fonte</span>` : ''}
       ${temAncora && r.pendente ? `<button class="btn btn-outline btn-sm" data-acao="propor-ficha" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>
         Extrair da fonte com IA</button>` : ''}
+      ${fontes.ploa && linhas.some(l => l.origem === 'ploa' && l.estado === 'pendente') && !estado.parametrosMensagem
+        ? `<button class="btn btn-outline btn-sm" data-acao="ler-mensagem" style="margin-left:8px" title="Lê PIB, IPCA, Selic, câmbio e salário mínimo da Mensagem Presidencial, sem IA, com página e trecho" ${estado.variacao?.carregando ? 'disabled' : ''}>Ler parâmetros da Mensagem</button>` : ''}
     </div>
+    ${estado.parametrosMensagem && estado.parametrosMensagem.faltando.length && estado.parametrosMensagem.encontrados.length
+      ? `<div class="on-pend">Lidos da Mensagem: ${estado.parametrosMensagem.encontrados.map(c => esc(CAMPOS_FICHA.find(x => x.chave === c)?.rotulo || c)).join('; ')}.
+         Não localizado(s) no texto da Mensagem: ${estado.parametrosMensagem.faltando.map(c => esc(CAMPOS_FICHA.find(x => x.chave === c)?.rotulo || c)).join('; ')} — preencha à mão ou pela leitura com IA.</div>`
+      : estado.parametrosMensagem && !estado.parametrosMensagem.encontrados.length
+        ? '<div class="on-pend">A Mensagem foi lida, mas os parâmetros macroeconômicos não foram localizados no texto — o formato pode ter mudado neste exercício. Preencha à mão ou pela leitura com IA.</div>' : ''}
     ${!fontes.ancora ? `<div class="on-pend">A orientação normativa deste exercício ainda não foi publicada. Os campos que dependem dela ficam
       <strong>aguardando</strong> — e é isso que a nota deve dizer, em vez de repetir os números do ano anterior.
       Só para dar a medida: a cota individual por deputado era R$ 19.704.897,00 na LOA 2023 e R$ 40.252.007,00 na LOA 2026.</div>` : ''}
@@ -1867,7 +1911,7 @@ ${c.disponivel && c.itens.length && !concluida ? `<h2>Cronograma da Comissão Mi
 ${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
 <p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
 está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
-<table>${q.executivo.documentos.slice(0, 14).map(d => `<tr><td class="r">${esc(d.rotulo)}</td><td style="font-size:8.5pt;color:#555;word-break:break-all">${esc(d.url)}</td></tr>`).join('')}</table>` : ''}
+<table>${q.executivo.documentos.slice(0, 14).map(d => { const o = descreverDocumentoExecutivo(d.rotulo); return `<tr><td class="r">${esc(d.rotulo)}</td><td>${o ? esc(o) : ''}<div style="font-size:8pt;color:#555;word-break:break-all">${esc(d.url)}</div></td></tr>`; }).join('')}</table>` : ''}
 ${q.alteracoes && q.alteracoes.disponivel ? `<h2>Alterações ao texto do PPA</h2>
 <p>O plano em vigor é a <strong>${esc(q.alteracoes.leiDoPlano || 'lei do PPA')}</strong>. Ao longo do quadriênio, o Poder
 Executivo encaminha projetos que o alteram; são eles que tramitam, e não o plano original.</p>
