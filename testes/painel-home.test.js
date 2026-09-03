@@ -77,7 +77,10 @@ function montarPainel(htmlBruto = HTML) {
     ok(modal.style.display === 'none', 'e começa fechado');
 
     ok(p.clicar('.home-card[data-modulo="emendas"]'), 'o card Orçamento está na home');
-    ok(modal.style.display === 'flex', 'clicar nele ABRE o modal — o sintoma reportado não se reproduz no código atual');
+    // Este estado do DOM SEMPRE esteve certo, inclusive quando o clique parecia
+    // não fazer nada: o modal abria atrás da home. Quem pega aquilo é a
+    // verificação de camadas, mais abaixo — não esta.
+    ok(modal.style.display === 'flex', 'clicar nele abre o modal');
 
     ok(p.clicar('#btn-sub-notas'), 'o sub-painel de notas técnicas está no modal');
     ok(p.abertas.some(u => u.endsWith('orcamento-notas.html')),
@@ -107,6 +110,33 @@ function montarPainel(htmlBruto = HTML) {
     q.clicar('.home-card[data-modulo="emendas"]');
     ok(q.abertas.some(u => u.endsWith('emendas.html')),
        'o card Orçamento cai no comportamento anterior em vez de silenciar');
+  }
+
+  console.log('\n== as camadas: o modal precisa cobrir a home ==');
+  {
+    // A CAUSA RAIZ do "clique que não faz nada".
+    //
+    // .tela-home é fixed, inset 0 e OPACA. Enquanto todos os modais eram
+    // abertos de dentro da tela de destaques — com a home já em display:none —
+    // o z-index 100 do overlay nunca incomodou. O modal de sub-painéis do
+    // Orçamento é o primeiro aberto a partir da PRÓPRIA home, e abria atrás
+    // dela: display:flex aplicado, nenhum erro no console, nada na tela.
+    //
+    // Nenhum teste de JS pega isso: o estado do DOM estava certo o tempo todo.
+    // Por isso a ordem das camadas é travada aqui, como regra.
+    const css = fs.readFileSync(path.join(RAIZ, 'panel.css'), 'utf8');
+    const zDe = seletor => {
+      const re = new RegExp(`${seletor.replace('.', '\\.')}\\s*\\{[^}]*?z-index:\\s*(\\d+)`, 's');
+      const m = re.exec(css);
+      return m ? Number(m[1]) : null;
+    };
+    const home = zDe('.tela-home'), modal = zDe('.modal-overlay'), toast = zDe('.toast');
+    ok(home && modal && toast, `camadas lidas: home ${home}, modal ${modal}, toast ${toast}`);
+    ok(modal > home, `o modal (${modal}) fica ACIMA da home (${home}) — senão abre invisível atrás dela`);
+    ok(toast > modal, `e o toast (${toast}) acima do modal (${modal}), porque é o retorno das ações dele`);
+    const regraHome = /\.tela-home\s*\{[^}]*\}/.exec(css)?.[0] || '';
+    ok(/position:\s*fixed/.test(regraHome) && /inset:\s*0/.test(regraHome),
+       'a home é mesmo uma camada fixa de tela cheia — é isso que a torna capaz de esconder um modal');
   }
 
   console.log('\n== todo id exigido sem guarda existe no HTML ==');
