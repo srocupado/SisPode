@@ -38,7 +38,9 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
        'LOA usa a trilha orcamento-anual');
     ok(/diretrizes-orcamentarias\/-\/ldo\/2027\/informacoes\/cronograma$/.test(C.urlCMO('ldo', 2027, 'informacoes/cronograma')),
        'LDO usa a trilha diretrizes-orcamentarias');
-    ok(C.urlCMO('ppa', 2027) === null, 'PPA não tem página por exercício — devolve null em vez de URL inventada');
+    // O PPA é indexado por QUADRIÊNIO, não por exercício.
+    ok(C.urlCMO('ppa', '2024-2027') === 'https://www.congressonacional.leg.br/web/orcamento/acompanhe/plano-plurianual/-/ppa/2024-2027',
+       'PPA usa a trilha plano-plurianual, com o quadriênio na chave');
   }
 
   console.log('\n== descoberta da matéria pelo apelido ==');
@@ -166,6 +168,43 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
     const m = await C.buscarMateriaOrcamentaria('ldo', 2026);
     ok(m.disponivel && /^PLN\s*\d+\/2025$/.test(m.identificacao), `PLDO 2026 é ${m.identificacao} (apresentado no ano anterior)`);
+  }
+
+  console.log('\n== PPA: quadriênio, e a parte viva são as alterações ==');
+  {
+    // O PPA não é anual: vale por quadriênio e é aprovado uma vez. O que
+    // interessa à bancada durante os quatro anos são os projetos de ALTERAÇÃO
+    // que o Executivo manda — MEDIDO em 03/09/2026: o PLN 28/2024 já virou a
+    // Lei 15.060/2024 e o PLN 19/2025 segue EM TRAMITAÇÃO.
+    const m = await C.buscarMateriaOrcamentaria('ppa', '2024-2027');
+    ok(m.disponivel && m.identificacao === 'PLN 28/2023', `plano original: ${m.identificacao} — ${m.apelido}`);
+    // O Senado apelida "PPPA", com três Ps (Projeto de Plano Plurianual). A
+    // regex /^PPA\b/ que havia aqui não pegava isso e o PPA nunca era achado.
+    ok(/^PPPA/i.test(m.apelido), `o apelido do Senado é "${m.apelido}", não "PPA"`);
+    ok(m.normaGerada && /14\.802/.test(m.normaGerada), `virou norma: ${m.normaGerada}`);
+
+    const c = await C.lerCronograma('ppa', '2024-2027');
+    ok(c.disponivel && c.itens.length >= 8, `cronograma com ${c.itens.length} itens`);
+    // O PPA escreve a hora depois de CADA data ("de 07/11/2023 (13h) a
+    // 07/11/2023 (18h)"); a LOA só no fim. Sem aceitar as duas formas, os
+    // itens do PPA eram descartados em silêncio.
+    ok(c.itens[0] && c.itens[0].inicio === '07/11/2023' && c.itens[0].fim === '07/11/2023',
+       `datas com hora em ambas as pontas: ${c.itens[0]?.inicio} a ${c.itens[0]?.fim} (${c.itens[0]?.observacao})`);
+
+    const alt = await C.lerAlteracoesPPA('2024-2027');
+    ok(alt.disponivel && alt.alteracoes.length >= 2, `${alt.alteracoes.length} alterações listadas`);
+    ok(/14802/.test(alt.leiDoPlano || ''), `lei do plano em vigor: ${alt.leiDoPlano}`);
+    ok(alt.alteracoes.every(a => /^PLN\s*\d+\/\d{4}$/.test(a.projeto)), 'toda alteração é um PLN identificado');
+    const aprovada = alt.alteracoes.find(a => /aprovad/i.test(a.situacao || ''));
+    ok(aprovada && aprovada.normaGerada, `a aprovada traz a norma gerada: ${aprovada?.projeto} → ${aprovada?.normaGerada}`);
+    ok(Array.isArray(alt.emTramitacao), 'a lista do que está em tramitação existe');
+    if (alt.emTramitacao.length) {
+      ok(alt.emTramitacao.every(a => !a.normaGerada), 'e o que está em tramitação ainda não tem norma');
+    }
+
+    // O PPA também não tem página de relatores.
+    const r = await C.lerRelatores('ppa', '2024-2027');
+    ok(!r.disponivel, `relatoria do PPA: "${r.motivo}"`);
   }
 
   console.log('\n== quadro completo do exercício ==');
