@@ -89,6 +89,14 @@ ok(f.map(x => x.classe).join() === 'informativo,mensagem', 'fontes: informativo,
      'a primeira dobra tem os cartões de destaque: salário mínimo apurado e o prazo, que diz "não fixado" quando não há cronograma');
   ok(/id="btn-pdf"/.test(nota) && /Salvar em PDF/.test(nota), 'a nota traz o botão de salvar em PDF');
   ok(/class="passos"/.test(nota) && /passo--andamento/.test(nota), 'as etapas viram passos, com o estado escrito ao lado da cor');
+  // a leitura é automática: ao abrir com a ficha vazia e o PDF do projeto, ela roda sozinha
+  ok(av("precisaLerParametros(estado.quadro, fichaVazia('loa', '2027'))") === true, 'ficha vazia + PDF do projeto → a leitura automática dispara');
+  ok(av("precisaLerParametros({ materia: { disponivel: false } }, fichaVazia('loa', '2027'))") === false, 'sem matéria, não');
+  ok(av("(() => { const f = fichaVazia('loa','2027'); f.leituraMensagem = { em: 'x', encontrados: [], faltando: ['pib'] }; return precisaLerParametros(estado.quadro, f); })()") === false,
+     'Mensagem já lida neste exercício (marca na ficha compartilhada) → não baixa de novo o PDF de 27 MB');
+  ok(av("(() => { const f = fichaVazia('loa','2027'); ['pib','ipca','selic','cambio','salario_minimo','reserva_emendas_total'].forEach(c => preencherCampo(f, c, { valor: '1', documento: 'd' })); return precisaLerParametros(estado.quadro, f); })()") === false,
+     'todos os campos da Mensagem preenchidos → nada a ler');
+
   // parâmetros macroeconômicos lidos da Mensagem entram na ficha, com procedência
   const fxMsg = fs.readFileSync(path.join(RAIZ, 'testes', 'fixtures', 'mensagem-ploa2027-paginas.txt'), 'utf8');
   const partes = fxMsg.split(/\[\[PAGINA (\d+)\]\]/);
@@ -102,8 +110,10 @@ ok(f.map(x => x.classe).join() === 'informativo,mensagem', 'fontes: informativo,
   ok(av("estado.ficha.valores.salario_minimo.documento") === 'Mensagem Presidencial (PLN 24/2026)' && av("estado.ficha.valores.salario_minimo.pagina") === '128' && /estimado em R\$ 1\.741,00/.test(av("estado.ficha.valores.salario_minimo.trecho")),
      'com documento, página e trecho literal — a mesma procedência do preenchimento manual');
   ok(av("estado.ficha.valores.pib.conferencia.localizado") === true, 'e já conferido, porque o trecho é o do próprio documento');
+  ok(av("estado.ficha.leituraMensagem.encontrados.length") === 5 && av("precisaLerParametros(estado.quadro, estado.ficha)") === false,
+     'a ficha guarda a marca da leitura, e a automática não repete');
   av('render()'); h = document.getElementById('on-corpo').innerHTML;
-  ok(!/Ler parâmetros da Mensagem/.test(h), 'depois da leitura o botão some');
+  ok(!/>Ler parâmetros da Mensagem</.test(h), 'depois da leitura o botão de primeira leitura some (o campo pendente que restar oferece "Reler")');
   ok(/R\$\/US\$ 5,22/.test(h) && /R\$ 1\.741,00/.test(h), 'a ficha na tela mostra os valores lidos');
 
   // prompt da síntese com os números

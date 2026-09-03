@@ -31,7 +31,7 @@ const trecho = re => { const m = src.match(re); if (!m) throw new Error('trecho 
 
 // Só as funções puras da tela (sem DOM): montagem da nota e utilitários.
 const IA = require(path.join(RAIZ, 'orcamento-ia.js'));
-const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio', 'seriesComDados', 'frasSerie', 'formatarBR', 'partesDaArea', 'SIGLA_PODE', 'compacto', `
+const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio', 'seriesComDados', 'frasSerie', 'formatarBR', 'partesDaArea', 'SIGLA_PODE', 'compacto', 'descreverDocumentoExecutivo', `
   ${trecho(/const esc = [^\n]+/)}
   ${trecho(/const dataBR = [^\n]+/)}
   ${trecho(/function dataDe\([\s\S]*?\n}/)}
@@ -61,7 +61,7 @@ const M = new Function('resumoConferencia', 'estadoDaFicha', 'fontesDoExercicio'
   ${trecho(/function htmlNota\([\s\S]*?\n^}/m)}
   return { esc, dataBR, diasAte, anosDisponiveis, legislaturaDe, montarTextoNota, htmlNota, pendenciasDo };
 `)(N.resumoConferencia, F.estadoDaFicha, q => ({ ancora: !!q.emendas?.ancoraNormativa, ploa: !!q.materia?.urlDocumento, auto: {} }),
-   S.seriesComDados, S.frasSerie, MSG.formatarBR, G.partesDaArea, /^PODE(MOS)?$/i, IA.compacto);
+   S.seriesComDados, S.frasSerie, MSG.formatarBR, G.partesDaArea, /^PODE(MOS)?$/i, IA.compacto, C.descreverDocumentoExecutivo);
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
