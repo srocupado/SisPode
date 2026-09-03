@@ -122,6 +122,27 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
        'e com a ressalva do que a conferência NÃO prova');
   }
 
+  console.log('\n== nota da LDO: relatoria que o portal não publica ==');
+  {
+    // A LDO não tem página de relatores. A primeira versão de htmlNota lia
+    // r.setoriais.length sem guarda e QUEBRAVA ao gerar a nota do PLDO 2027.
+    // Pior que quebrar seria o que vinha antes na lógica: tratar a ausência da
+    // página como "relatoria não designada", inventando um atraso da CMO.
+    const q = await C.carregarExercicio('ldo', 2027);
+    const html = M.htmlNota(q, null);
+    const txt = semTags(html);
+    ok(txt.length > 500, `a nota da LDO é gerada sem quebrar (${txt.length} chars)`);
+    ok(txt.includes(q.materia.identificacao) && /PLDO 2027/.test(txt), `identifica ${q.materia.identificacao} — PLDO 2027`);
+    if (!q.relatores.disponivel) {
+      ok(/não publica página de relatores/i.test(txt), 'diz que o portal não publica a relatoria desta lei');
+      ok(!/designação do Relator-Geral/i.test(txt),
+         'e NÃO lista "designação do Relator-Geral" como pendência da CMO — o atraso não existe');
+    }
+    ok(/Prazo de emendas/.test(txt), 'a seção de prazo continua presente');
+    ok(q.acompanhamento.etapas.every(e => txt.includes(e.nome)),
+       `as ${q.acompanhamento.etapas.length} etapas próprias da LDO entram na nota`);
+  }
+
   console.log('\n== texto corrido usado pela conferência ==');
   {
     const q = await C.carregarExercicio('loa', 2027);

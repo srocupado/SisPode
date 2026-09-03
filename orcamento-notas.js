@@ -330,10 +330,15 @@ function htmlNota(q, conf) {
 
   // As pendências são o miolo da nota enquanto a CMO não avança. Elas saem
   // do estado REAL de cada fonte, não de uma lista fixa.
+  // Pendência é o que a CMO AINDA NÃO fez; fonte que o portal não publica é
+  // outra coisa e não entra aqui. A LDO, por exemplo, não tem página de
+  // relatores nenhuma — dizer "designação pendente" seria inventar um atraso
+  // que não existe. Guardar por `disponivel` também evita ler .length de uma
+  // leitura que não trouxe lista (o que quebrava a nota da LDO).
   const pendencias = [];
   if (!c.disponivel) pendencias.push('prazo de apresentação de emendas e demais datas do cronograma');
-  if (!r.relatorGeral) pendencias.push('designação do Relator-Geral');
-  if (!r.setoriais.length) pendencias.push('designação dos relatores setoriais');
+  if (r.disponivel && !r.relatorGeral) pendencias.push('designação do Relator-Geral');
+  if (r.disponivel && !r.setoriais.length) pendencias.push('designação dos relatores setoriais');
   if (!e.disponivel || !e.manual) pendencias.push('Manual de Emendas do exercício, que fixa cotas, quantidades, sequenciais de cancelamento e pisos de repasse');
   if (!q.notas.disponivel) pendencias.push('notas técnicas das consultorias (CONOF/CD e CONORF/SF)');
 
@@ -381,10 +386,14 @@ ${pendencias.length ? 'A matéria ainda não percorreu todas as etapas na Comiss
   <tr><td class="r">Apresentação</td><td>${dataBR(m.dataApresentacao)}</td></tr>
   <tr><td class="r">Situação</td><td><strong>${esc(m.situacaoAtual || '—')}</strong>${m.dataSituacaoAtual ? ` (desde ${dataBR(m.dataSituacaoAtual)})` : ''}</td></tr>
   ${m.normaGerada ? `<tr><td class="r">Norma gerada</td><td><strong>${esc(m.normaGerada)}</strong></td></tr>` : ''}
-  <tr><td class="r">Presidente da CMO</td><td>${r.disponivel ? nome(r.presidenteCMO) : '—'}</td></tr>
-  <tr><td class="r">Relator-Geral</td><td>${r.disponivel ? nome(r.relatorGeral) : '—'}</td></tr>
-  <tr><td class="r">Relator da Receita</td><td>${r.disponivel ? nome(r.relatorReceita) : '—'}</td></tr>
-  <tr><td class="r">Relatores setoriais</td><td>${r.disponivel && r.setoriais.length ? `${r.setoriais.length} áreas temáticas designadas` : '<span class="nd">Ainda não designados</span>'}</td></tr>
+  ${r.disponivel ? `
+  <tr><td class="r">Presidente da CMO</td><td>${nome(r.presidenteCMO)}</td></tr>
+  <tr><td class="r">Relator-Geral</td><td>${nome(r.relatorGeral)}</td></tr>
+  <tr><td class="r">Relator da Receita</td><td>${nome(r.relatorReceita)}</td></tr>
+  <tr><td class="r">Relatores setoriais</td><td>${r.setoriais.length ? `${r.setoriais.length} áreas temáticas designadas` : '<span class="nd">Ainda não designados</span>'}</td></tr>`
+  // Sem página de relatores (caso da LDO), a nota diz que a informação não é
+  // publicada ali — e não que a relatoria esteja vaga.
+  : `<tr><td class="r">Relatoria</td><td><span class="nd">${esc(r.motivo || 'Informação não disponível.')}</span></td></tr>`}
 </table>
 <div class="fonte">Fonte: Senado Federal, Dados Abertos (processo ${esc(m.identificacao)}); Congresso Nacional, Orçamento da União ${esc(q.anoOrcamento)}. Consulta em ${carimbo}.</div>
 
