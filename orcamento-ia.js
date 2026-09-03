@@ -291,7 +291,7 @@ function conferirPropostasFicha(propostas = [], textoFonte = '', campos = []) {
  * Colhe da base tudo que a síntese pode legitimamente citar.
  * Devolve um Set de números — é a lista branca da conferência.
  */
-function numerosDaBase({ variacao = null, serie = null, ficha = null, quadro = null } = {}) {
+function numerosDaBase({ variacao = null, serie = null, ficha = null, quadro = null, numeros = null, achados = null } = {}) {
   const nums = new Set();
   const add = n => { if (Number.isFinite(n)) nums.add(Math.abs(n)); };
   const doTexto = t => { for (const n of (String(t ?? '').match(/-?\d[\d.]*(?:,\d+)?/g) || [])) {
@@ -312,6 +312,11 @@ function numerosDaBase({ variacao = null, serie = null, ficha = null, quadro = n
     if (s.variacao) add(s.variacao.pct);
   }
   for (const v of Object.values(ficha?.valores || {})) doTexto(v?.valor);
+  // Produto 4: cada número apurado já teve valor e trecho localizados no
+  // documento; as cifras dos achados, idem. Entram na lista branca — é o que
+  // finalmente dá à síntese algo a citar.
+  for (const a of (numeros || [])) { doTexto(a?.valor); doTexto(a?.exercicio); }
+  for (const a of (achados || [])) doTexto(a?.afirmacao);
   if (quadro) {
     doTexto(quadro.anoOrcamento);
     doTexto(quadro.materia?.identificacao);
@@ -407,6 +412,14 @@ function promptSintese(dados = {}) {
   for (const [k, val] of Object.entries(dados.ficha?.valores || {})) {
     if (val?.valor) linhas.push(`Parâmetro ${k}: ${val.valor} (fonte: ${val.documento || 'não informada'})`);
   }
+  // Produto 4: os números lidos das fontes (informativo e nota técnica das
+  // Consultorias, Raio-X, Mensagem), já conferidos trecho a trecho.
+  const numeros = dados.numeros || [];
+  if (numeros.length) {
+    linhas.push('Números do exercício (extraídos das fontes publicadas e conferidos contra o texto de cada documento):');
+    for (const a of numeros) linhas.push(`  · ${a.rotulo}: ${a.valor}${a.exercicio ? ` (${a.exercicio})` : ''} — fonte: ${a.fonte || a.documento || 'documento do exercício'}${a.pagina ? `, p. ${a.pagina}` : ''}`);
+  }
+  const achados = (dados.achados || []).map(a => `  · ${a.tema ? a.tema + ': ' : ''}${a.afirmacao} (${a.fonte || 'fonte do exercício'}${a.pagina ? `, p. ${a.pagina}` : ''})`).join('\n');
   const pend = (dados.pendencias || []).map(p => `  · ${p}`).join('\n');
 
   return `Você redige a SÍNTESE ANALÍTICA de uma nota técnica orçamentária da Liderança do Podemos na Câmara dos
@@ -415,13 +428,19 @@ para ele neste projeto${dados.materia ? ` (${dados.materia})` : ''}.
 
 DADOS APURADOS — estes números já foram extraídos dos documentos e conferidos. Use SOMENTE eles:
 ${linhas.join('\n') || '  (nenhum dado numérico apurado até o momento)'}
+${achados ? `\nDESTAQUES REGISTRADOS NAS FONTES (fatos, com o documento de origem):\n${achados}` : ''}
 ${pend ? `\nO QUE AINDA NÃO FOI PUBLICADO pela Comissão Mista nesta data:\n${pend}` : ''}
 
-Escreva de três a cinco parágrafos corridos, em português formal de nota técnica, cobrindo:
-1. o que o projeto representa em relação ao exercício anterior — o que cresceu, o que encolheu e o que isso
-   significa em termos de espaço orçamentário;
-2. o efeito sobre a atuação parlamentar: cota, prazo e o que está definido ou não;
-3. o que ainda não está publicado, dito com todas as letras, e por que isso impede conclusões.
+Escreva de três a seis parágrafos corridos, em português formal de nota técnica, no molde dos informativos da
+Liderança ("Nota explicativa — Análise do PLN"): explicar em linguagem simples e dar os números. Cubra, nesta ordem:
+1. o que a matéria é e os grandes números que a estruturam — receita, despesa, resultado fiscal, parâmetros
+   (PIB, inflação, salário mínimo) —, explicando em uma frase o que cada termo técnico significa;
+2. o que muda em relação ao exercício anterior — o que cresceu, o que encolheu e o que isso significa em
+   termos de espaço orçamentário —, quando houver comparação apurada;
+3. o efeito sobre a atuação parlamentar: reserva e cota de emendas, prazo, regras — o que está definido e o que não;
+4. os destaques e pontos de atenção registrados nas fontes, e o que ainda não está publicado, dito com todas as
+   letras, e por que isso impede conclusões.
+Se não houver dado apurado para um item, diga isso em uma frase e siga; não preencha com generalidades.
 
 REGRAS QUE NÃO PODEM SER QUEBRADAS:
 - NÃO escreva nenhum número que não esteja na lista de DADOS APURADOS acima. Cada número do seu texto será
@@ -431,6 +450,239 @@ REGRAS QUE NÃO PODEM SER QUEBRADAS:
   não foi publicado.
 - Sem listas, sem bullets, sem títulos: parágrafos corridos. Markdown puro, sem cercas de código.`;
 }
+
+// ============================================================
+//  PRODUTO 4 — OS NÚMEROS DO EXERCÍCIO
+// ============================================================
+// A ressalva honesta registrada em b0b554d era esta: a nota continuava sem um
+// número do orçamento — despesa total, resultado primário, salário mínimo,
+// reserva para emendas — porque todo número do módulo estava atrás de um
+// portão manual (ficha de 19 campos digitada à mão, 22 chamadas para as
+// cartilhas), e o estado padrão era vazio.
+//
+// Os números existem, e estão em três lugares MEDIDOS em 03/09/2026:
+//   · o INFORMATIVO CONJUNTO das Consultorias (12 páginas; tabela de
+//     variáveis macroeconômicas na p.1: PIB 2,44%, IPCA 3,60%, Selic 13,11%,
+//     salário-mínimo R$ 1.631,00 no PLOA 2026);
+//   · a NOTA TÉCNICA CONJUNTA "Subsídios à apreciação do PLOA" (112 páginas)
+//     e o RAIO-X (4 páginas: despesa total R$ 6.530,0 bi, limite por Poder,
+//     reserva para emendas, mínimos constitucionais);
+//   · a MENSAGEM PRESIDENCIAL, dentro do PDF do projeto (PLN 24/2026: salário
+//     mínimo de R$ 1.741,00 na p.128, Reserva para Emendas na p.129,
+//     receita total na p.113 do capítulo fiscal).
+//
+// A mesma regra dos produtos 1 a 3: a IA lê e devolve cada indicador com a
+// PÁGINA e o TRECHO LITERAL; o JS procura o trecho no texto extraído e o
+// valor dentro do trecho. O que não confere fica visível como recusado, e não
+// entra na nota. E o que confere alimenta a lista branca da síntese — que é o
+// que faz a síntese finalmente ter o que dizer.
+
+/**
+ * O catálogo de indicadores que uma nota orçamentária cita. `ficha` liga o
+ * indicador ao campo da ficha de parâmetros que ele preenche (produto 2), para
+ * o valor apurado virar proposta de preenchimento sem digitação.
+ */
+const INDICADORES_EXERCICIO = [
+  { chave: 'receita_total',            grupo: 'Grandes números',  rotulo: 'Receita total' },
+  { chave: 'despesa_total',            grupo: 'Grandes números',  rotulo: 'Despesa total (fiscal, seguridade e investimento das estatais)' },
+  { chave: 'despesas_primarias',       grupo: 'Grandes números',  rotulo: 'Despesas primárias' },
+  { chave: 'despesas_obrigatorias',    grupo: 'Grandes números',  rotulo: 'Despesas obrigatórias' },
+  { chave: 'despesas_discricionarias', grupo: 'Grandes números',  rotulo: 'Despesas discricionárias' },
+  { chave: 'investimentos',            grupo: 'Grandes números',  rotulo: 'Investimentos' },
+  { chave: 'pessoal',                  grupo: 'Grandes números',  rotulo: 'Pessoal e encargos sociais' },
+  { chave: 'previdencia',              grupo: 'Grandes números',  rotulo: 'Benefícios previdenciários (RGPS)' },
+  { chave: 'transferencias_entes',     grupo: 'Grandes números',  rotulo: 'Transferências a Estados e Municípios' },
+  { chave: 'resultado_primario',       grupo: 'Resultado fiscal', rotulo: 'Meta de resultado primário' },
+  { chave: 'resultado_nominal',        grupo: 'Resultado fiscal', rotulo: 'Resultado nominal' },
+  { chave: 'limite_despesa',           grupo: 'Resultado fiscal', rotulo: 'Limite de despesas primárias (arcabouço fiscal)' },
+  { chave: 'precatorios',              grupo: 'Resultado fiscal', rotulo: 'Sentenças judiciais e precatórios' },
+  { chave: 'regra_de_ouro',            grupo: 'Resultado fiscal', rotulo: 'Regra de Ouro (margem ou insuficiência)' },
+  { chave: 'divida',                   grupo: 'Resultado fiscal', rotulo: 'Dívida (bruta ou líquida)' },
+  { chave: 'pib',                      grupo: 'Parâmetros macroeconômicos', rotulo: 'Crescimento real do PIB',  ficha: 'pib' },
+  { chave: 'ipca',                     grupo: 'Parâmetros macroeconômicos', rotulo: 'IPCA',                     ficha: 'ipca' },
+  { chave: 'selic',                    grupo: 'Parâmetros macroeconômicos', rotulo: 'Taxa Selic',               ficha: 'selic' },
+  { chave: 'cambio',                   grupo: 'Parâmetros macroeconômicos', rotulo: 'Taxa de câmbio',           ficha: 'cambio' },
+  { chave: 'salario_minimo',           grupo: 'Parâmetros macroeconômicos', rotulo: 'Salário mínimo',           ficha: 'salario_minimo' },
+  { chave: 'reserva_emendas_total',    grupo: 'Emendas parlamentares', rotulo: 'Reserva para emendas no projeto', ficha: 'reserva_emendas_total' },
+  { chave: 'emendas_individuais_total', grupo: 'Emendas parlamentares', rotulo: 'Emendas individuais (RP 6) — montante global' },
+  { chave: 'emendas_bancada_total',    grupo: 'Emendas parlamentares', rotulo: 'Emendas de bancada (RP 7) — montante global' },
+  { chave: 'emendas_comissao_total',   grupo: 'Emendas parlamentares', rotulo: 'Emendas de comissão (RP 8) — montante global' },
+  { chave: 'cota_individual',          grupo: 'Emendas parlamentares', rotulo: 'Cota individual por parlamentar' },
+  { chave: 'minimo_saude',             grupo: 'Mínimos constitucionais', rotulo: 'Aplicação mínima em saúde' },
+  { chave: 'minimo_educacao',          grupo: 'Mínimos constitucionais', rotulo: 'Aplicação mínima em educação' },
+];
+
+/**
+ * Cifras de uma afirmação em prosa. cifrasDe() pega decimais e números de 4+
+ * dígitos; aqui entram também os curtos com cara de dinheiro ou proporção
+ * ("R$ 55 bilhões", "12%", "8 mil"), porque é assim que a prosa escreve — e
+ * "R$ 55 bilhões" inventado passaria batido pela regra das cartilhas.
+ */
+function cifrasDeAfirmacao(texto) {
+  const t = String(texto || '');
+  const out = new Set(cifrasDe(t));
+  const re = /R\$\s*(\d[\d.]*(?:,\d+)?)|(\d[\d.]*(?:,\d+)?)\s*(?:%|bilh|milh|trilh|mil\b)/gi;
+  let m;
+  while ((m = re.exec(t)) !== null) out.add(m[1] || m[2]);
+  return [...out];
+}
+
+/**
+ * A cifra existe no documento? Para número curto ("55", "12") a busca no
+ * texto compactado não prova nada — dois dígitos aparecem em qualquer PDF —,
+ * então ele tem de aparecer como número inteiro, com fronteira dos dois lados.
+ * Número longo pode vir partido pela extração ("1.741,00" ↔ "1.741, 00"), e aí
+ * a busca compactada é o que tolera o ruído.
+ */
+function cifraNoDocumento(fonteTexto, fonteCompacta, n) {
+  const bruto = String(n);
+  const esc = bruto.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  if (new RegExp(`(^|[^\\d.,])${esc}(?![\\d])`).test(fonteTexto)) return true;
+  const curta = bruto.replace(/[^\d]/g, '').length < 4;
+  return !curta && fonteCompacta.includes(compacto(bruto));
+}
+
+/** Prompt dos números: o catálogo inteiro, e a exigência do trecho literal. */
+function promptNumeros(contexto = {}) {
+  const lista = INDICADORES_EXERCICIO.map(i => `- "${i.chave}" — ${i.rotulo}`).join('\n');
+  const cab = `Você lê um documento sobre a ${contexto.materia || 'lei orçamentária'}${contexto.rotulo ? ` (${contexto.rotulo})` : ''}${contexto.exercicio ? `, exercício ${contexto.exercicio}` : ''} e extrai os NÚMEROS que uma nota técnica da Liderança precisa citar. O leitor é o deputado: ele quer saber quanto é a despesa, o resultado fiscal, os parâmetros e o que há para as emendas parlamentares.`;
+  return `${cab}
+
+Procure no documento, e SOMENTE no documento, os indicadores abaixo. Omita o que não encontrar.
+${lista}
+
+Responda APENAS com um objeto JSON, sem texto em volta:
+{
+  "indicadores": [
+    { "chave": "salario_minimo", "valor": "R$ 1.741,00", "exercicio": "2027", "pagina": "128",
+      "trecho": "transcrição LITERAL de 30 a 300 caracteres do documento onde esse valor aparece" }
+  ],
+  "outros": [
+    { "rotulo": "nome curto de um número relevante que não está na lista", "valor": "R$ 157.062,2 milhões",
+      "pagina": "129", "trecho": "transcrição LITERAL de 30 a 300 caracteres" }
+  ],
+  "achados": [
+    { "tema": "o que muda / novidade / ponto polêmico / regra de emendas / o que sobe ou cai",
+      "afirmacao": "uma frase objetiva, em português claro, com o fato que o documento registra",
+      "pagina": "37", "trecho": "transcrição LITERAL de 30 a 300 caracteres que sustenta a afirmação" }
+  ]
+}
+
+REGRAS QUE NÃO PODEM SER QUEBRADAS:
+- Cada "trecho" é CÓPIA EXATA do documento, palavra por palavra, e precisa CONTER o "valor" informado (no caso dos
+  indicadores e de "outros") ou o fato afirmado (no caso dos achados). O trecho será procurado no texto do PDF; se
+  não for encontrado, ou se o valor não estiver dentro dele, o item inteiro é descartado.
+- Reproduza o valor COMO ESTÁ ESCRITO no documento, com a mesma unidade e pontuação ("R$ 6.530,0 bilhões",
+  "2,44%", "R$ 1.741,00"). Não converta unidades, não arredonde, não some.
+- Quando o documento comparar exercícios, informe o valor do exercício a que a nota se refere e diga qual é em
+  "exercicio". Se houver mais de um valor para o mesmo indicador (projeto × lei vigente, por exemplo), prefira o do
+  PROJETO em análise e use "outros" para o de comparação, com rótulo que diga a que se refere.
+- Até 12 itens em "outros" e até 10 em "achados". Achados são fatos, não opiniões: o que o documento afirma que
+  cresce, cai, muda de regra, ou é apontado como novidade ou controvérsia — sempre com o trecho que o sustenta.
+- NÃO use conhecimento de outros exercícios. Cotas, pisos, parâmetros e metas mudam todo ano; um número lembrado de
+  outro ano é exatamente o erro que este módulo existe para impedir.
+- Se o documento não tratar de matéria orçamentária, responda {"indicadores":[],"outros":[],"achados":[]}.`;
+}
+
+/**
+ * Confere a resposta do produto 4 contra o texto do documento.
+ *
+ *   indicadores/outros: trecho no documento E valor dentro do trecho;
+ *   achados:            trecho no documento E toda cifra da afirmação no documento.
+ *
+ * Devolve { conferido, apurados, achados, recusados, resumo, motivo }. Recusado
+ * não some: aparece com o motivo, porque saber que o modelo inventou aquele
+ * número é informação para quem revisa.
+ */
+function conferirNumeros(resposta = {}, textoFonte = '') {
+  if (!textoFonte || textoFonte.length < FONTE_MINIMA) {
+    return { conferido: false, apurados: [], achados: [], recusados: [],
+             motivo: 'O texto do documento não pôde ser extraído (ou veio vazio) — nada foi conferido, e por isso nada é publicável.' };
+  }
+  const fonte = compacto(textoFonte);
+  const fonteTexto = String(textoFonte).replace(/\s+/g, ' ');
+  const catalogo = new Map(INDICADORES_EXERCICIO.map(i => [i.chave, i]));
+  const apurados = [], achados = [], recusados = [];
+  const r = resposta && typeof resposta === 'object' ? resposta : {};
+
+  const conferirValor = (item, tipo) => {
+    const valor = String(item?.valor ?? '').trim();
+    const trecho = String(item?.trecho || '').trim();
+    const nome = tipo === 'indicador' ? String(item?.chave || '').trim() : String(item?.rotulo || '').trim();
+    const recusa = motivo => recusados.push({ tipo, chave: nome || '(sem identificação)', valor, motivo });
+    if (tipo === 'indicador' && !catalogo.has(nome)) { recusa(`indicador desconhecido no catálogo: "${nome}"`); return; }
+    if (tipo === 'outro' && !nome) { recusa('item de "outros" sem rótulo'); return; }
+    if (!valor) { recusa('item sem valor'); return; }
+    if (!contemTrecho(textoFonte, trecho)) {
+      recusa(trecho ? 'o trecho citado não foi localizado no documento' : 'item sem trecho literal');
+      return;
+    }
+    if (!compacto(trecho).includes(compacto(valor))) { recusa(`o valor "${valor}" não aparece dentro do trecho citado`); return; }
+    const cat = tipo === 'indicador' ? catalogo.get(nome) : null;
+    apurados.push({
+      chave: tipo === 'indicador' ? nome : null,
+      rotulo: cat ? cat.rotulo : nome,
+      grupo: cat ? cat.grupo : 'Outros números',
+      ficha: cat?.ficha || null,
+      valor, trecho,
+      exercicio: item.exercicio ? String(item.exercicio) : null,
+      pagina: item.pagina ? String(item.pagina) : null,
+    });
+  };
+  for (const it of (Array.isArray(r.indicadores) ? r.indicadores : [])) conferirValor(it, 'indicador');
+  for (const it of (Array.isArray(r.outros) ? r.outros : []).slice(0, 12)) conferirValor(it, 'outro');
+
+  for (const a of (Array.isArray(r.achados) ? r.achados : []).slice(0, 10)) {
+    const afirmacao = String(a?.afirmacao || '').trim();
+    const trecho = String(a?.trecho || '').trim();
+    const recusa = motivo => recusados.push({ tipo: 'achado', chave: String(a?.tema || afirmacao.slice(0, 40) || '(sem tema)'), valor: afirmacao, motivo });
+    if (!afirmacao) { recusa('achado sem afirmação'); continue; }
+    if (!contemTrecho(textoFonte, trecho)) { recusa(trecho ? 'o trecho citado não foi localizado no documento' : 'achado sem trecho literal'); continue; }
+    // A afirmação é paráfrase — mas toda cifra nela tem de existir no documento.
+    const inventadas = cifrasDeAfirmacao(afirmacao).filter(n => !cifraNoDocumento(fonteTexto, fonte, n));
+    if (inventadas.length) { recusa(`cifra(s) da afirmação que não constam do documento: ${inventadas.join(', ')}`); continue; }
+    achados.push({ tema: String(a.tema || '').trim(), afirmacao, trecho, pagina: a.pagina ? String(a.pagina) : null });
+  }
+
+  return {
+    conferido: true, apurados, achados, recusados, motivo: null,
+    resumo: `${apurados.length} número(s) e ${achados.length} achado(s) conferido(s) contra o texto do documento`
+      + (recusados.length ? `; ${recusados.length} item(ns) descartado(s) por não conferir.` : '.'),
+  };
+}
+
+/**
+ * Escolhe, num documento grande, as páginas que valem a leitura.
+ *
+ * A Mensagem Presidencial tem ~250 páginas dentro de um PDF de 3.235; mandar
+ * tudo estoura o prompt, e mandar "as primeiras 60" perde o capítulo fiscal,
+ * que fica depois da p.100. Pontua-se cada página pelos termos que ela contém
+ * (termos distintos primeiro, ocorrências depois) e mandam-se as melhores, na
+ * ordem do documento — o modelo lê um texto que ainda faz sentido.
+ *
+ * `paginas` = [{ numero, texto }]. Devolve as escolhidas, na ordem original.
+ */
+function paginasRelevantes(paginas = [], termos = [], max = 40) {
+  const res = termos.map(t => new RegExp(String(t).replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'));
+  const pontuadas = paginas.map((p, idx) => {
+    let distintos = 0, ocorrencias = 0;
+    for (const re of res) {
+      const n = (String(p.texto || '').match(re) || []).length;
+      if (n) { distintos++; ocorrencias += n; }
+    }
+    return { idx, distintos, ocorrencias };
+  }).filter(x => x.distintos > 0);
+  pontuadas.sort((a, b) => (b.distintos - a.distintos) || (b.ocorrencias - a.ocorrencias) || (a.idx - b.idx));
+  return pontuadas.slice(0, max).sort((a, b) => a.idx - b.idx).map(x => paginas[x.idx]);
+}
+
+/** Os termos pelos quais se acham, na Mensagem, as páginas que a nota precisa. */
+const TERMOS_MENSAGEM = [
+  'Parâmetros Macroeconômicos', 'salário mínimo', 'Reserva para Emendas', 'emendas individuais', 'emendas de bancada',
+  'Resultado Primário', 'RECEITA TOTAL', 'DESPESA TOTAL', 'Despesas Discricionárias', 'Despesas Obrigatórias',
+  'Regime Fiscal Sustentável', 'Regra de Ouro', 'Limite de despesas', 'precatórios', 'Investimentos',
+  'IPCA', 'Selic', 'câmbio', 'PIB', 'Transferências Constitucionais', 'Dívida', 'saúde', 'educação',
+];
 
 // ============================================================
 //  DOCUMENTO GRANDE DEMAIS PARA IR COMO PDF
@@ -650,6 +902,7 @@ if (typeof module !== 'undefined' && module.exports) {
     promptCartilha, conferirAcoes,
     promptFicha, conferirPropostasFicha,
     promptSintese, numerosDaBase, numeroConfere, conferirSintese,
+    INDICADORES_EXERCICIO, TERMOS_MENSAGEM, promptNumeros, conferirNumeros, paginasRelevantes, cifrasDeAfirmacao, cifraNoDocumento,
     modoDeLeitura, comTextoDoDocumento, PROVEDORES_ORCAMENTO,
     LIMITE_PDF_BYTES, LIMITE_PAGINAS_OPENAI, LIMITE_TEXTO_PROMPT,
   };

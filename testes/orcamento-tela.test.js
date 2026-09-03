@@ -106,7 +106,9 @@ function montarPagina() {
       'tabelaComparativa', 'tabelaPorOrgao', 'variacaoEntre', 'formatarBR',
       'promptCartilha', 'conferirAcoes', 'promptFicha', 'conferirPropostasFicha',
       'promptSintese', 'numerosDaBase', 'conferirSintese', 'extrairJSON',
-      'chamarIAOrcamento', 'modoDeLeitura', 'comTextoDoDocumento', 'PROVEDORES_ORCAMENTO'];
+      'chamarIAOrcamento', 'modoDeLeitura', 'comTextoDoDocumento', 'PROVEDORES_ORCAMENTO',
+      // Produto 4 — os números do exercício.
+      'promptNumeros', 'conferirNumeros', 'paginasRelevantes', 'TERMOS_MENSAGEM', 'INDICADORES_EXERCICIO', 'compacto'];
     const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
     ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão todos definidos`);
   }
@@ -127,6 +129,12 @@ function montarPagina() {
     const html = corpo();
     ok(html.length > 3000, `${html.length} caracteres de painel`);
     ok(/Síntese analítica/.test(html), 'o card da síntese aparece');
+    ok(/Números do exercício/.test(html) && /Apurar números com IA/.test(html),
+       'e o card dos números do exercício, com o botão de apuração — as fontes já estão localizadas');
+    ok(/Apurar tudo e redigir/.test(html), 'e o caminho de um clique só: apurar tudo e redigir');
+    const fontes = av('fontesDeNumeros(estado.quadro)');
+    ok(fontes.length >= 2 && fontes.some(f => f.mensagem) && fontes.some(f => /informativo|raio|nota/i.test(f.classe)),
+       `${fontes.length} fonte(s) de números na LOA 2026: ${fontes.map(f => f.classe).join(', ')}`);
     ok(/o que dá para fazer com o dinheiro/i.test(html), 'o card das ações orçamentárias aparece');
     ok(/Guia de aplicação das emendas/.test(html), 'e o guia por área temática');
     ok(/Ler as cartilhas com IA/.test(html), 'com o botão de leitura, porque há cartilhas publicadas');
@@ -162,6 +170,23 @@ function montarPagina() {
        'o modo de leitura degradado é declarado na tela, com o motivo');
     ok(/deixa de ser por dois caminhos independentes/.test(html),
        'e explica o que isso enfraquece — a garantia não pode ser vendida mais forte do que é');
+
+    // Estado 2b: números apurados — o card mostra o número com a fonte, e o
+    // recusado com o motivo; a ficha recebe a proposta.
+    av(`estado.ia.numeros = { dm: { url: 'https://legis/pln15', rotulo: 'Mensagem Presidencial (PLN 15/2025)', modoLeitura: 'texto',
+      motivoModo: 'a Mensagem está dentro do PDF do projeto (3.235 páginas); foram lidas as 45 páginas mais relevantes.', conferido: true,
+      apurados: [{ chave: 'salario_minimo', rotulo: 'Salário mínimo', grupo: 'Parâmetros macroeconômicos', ficha: 'salario_minimo', valor: 'R$ 1.631,00', exercicio: '2026', pagina: '128', trecho: 't' }],
+      achados: [{ tema: 'Reserva', afirmacao: 'O projeto traz reserva para emendas individuais e de bancada.', pagina: '129', trecho: 't' }],
+      recusados: [{ tipo: 'indicador', chave: 'pib', valor: '2,44', motivo: 'o valor "2,44" não aparece dentro do trecho citado' }] } };
+      estado.propostas = null; proporFichaDosNumeros(); render();`);
+    html = corpo();
+    ok(/R\$ 1\.631,00/.test(html) && /p\. 128/.test(html), 'o número apurado aparece com a página');
+    ok(/1 item\(ns\) descartado\(s\) na conferência/.test(html) && /não aparece dentro do trecho/.test(html),
+       'e o recusado aparece separado, com o motivo');
+    ok(/Destaques apontados nas fontes/.test(html) && /reserva para emendas/.test(html), 'os achados entram como destaques');
+    ok(av('estado.propostas.aceitas.length') === 1 && av('estado.propostas.aceitas[0].campo') === 'salario_minimo',
+       'o salário mínimo apurado vira proposta de preenchimento da ficha');
+    ok(/Propostas de preenchimento/.test(html) && /Mensagem Presidencial/.test(html), 'e o card de propostas mostra de onde veio');
 
     // Estado 3: síntese com número não conferido.
     av(`estado.ia.sintese = { texto: 'O Ministério da Saúde receberá 3.812,7 milhões.',
@@ -242,6 +267,8 @@ function montarPagina() {
        'e a ressalva vai IMPRESSA: quem recebe o PDF não vê o painel');
     ok(/2E90/.test(txt) && !/8535/.test(txt),
        'só a ação conferida entra na nota; a descartada fica no painel');
+    ok(/Números do exercício/.test(txt) && /R\$ 1\.631,00/.test(txt) && !/2,44/.test(txt),
+       'os números apurados entram na nota com a fonte; o recusado, não');
   }
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
