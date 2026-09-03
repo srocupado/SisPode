@@ -1,0 +1,152 @@
+// Leitura das fontes das leis orçamentárias (cmo.js) — Senado + portal do
+// Congresso Nacional.
+//
+// Roda contra as fontes REAIS, e por isso as asserções são por REGRA, não por
+// instantâneo: a LOA 2027 avança de etapa a cada semana e a suíte não pode
+// quebrar por isso. O que se trava aqui é o COMPORTAMENTO:
+//
+//   a) a matéria do exercício é DESCOBERTA pelo apelido ("PLOA 2027"), nunca
+//      por número fixo — o ano do arquivo não é o ano do orçamento (o PLOA 2027
+//      é o PLN 24/2026, apresentado em 31/08/2026);
+//   b) etapa não iniciada é DECLARADA ("a CMO ainda não publicou o cronograma"),
+//      não devolvida como lista vazia muda — a nota técnica precisa dizer ao
+//      analista que o prazo de emendas não existe, e não omitir a linha;
+//   c) "ainda não publicado" (o portal responde 200 com "Conteúdo não
+//      disponível") é diferente de "não consegui ler" (fonte fora do ar). Só o
+//      segundo entra em fontesIndisponiveis e pede nova tentativa.
+//
+// MEDIDO em 02/09/2026: LOA 2027 com 10 etapas, 1 em andamento, cronograma e
+// emendas ainda fechados, presidente da CMO designado e Relator-Geral não;
+// LOA 2026 encerrada, com 16 itens de cronograma (emendas de 24/10 a
+// 14/11/2025), 16 relatores setoriais e o Manual de Emendas publicado.
+//
+// Uso: node testes/orcamento-cmo.test.js
+const path = require('path');
+
+const RAIZ = path.join(__dirname, '..');
+const { DOMParser } = require(path.join(RAIZ, 'bot', 'node_modules', 'linkedom'));
+globalThis.DOMParser = DOMParser;          // o módulo é de página; no Node, linkedom faz o papel
+const C = require(path.join(RAIZ, 'cmo.js'));
+
+let falhas = 0;
+const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
+
+(async () => {
+  console.log('== URLs por exercício ==');
+  {
+    ok(C.urlCMO('loa', 2027) === 'https://www.congressonacional.leg.br/web/orcamento/acompanhe/orcamento-anual/-/loa/2027',
+       'LOA usa a trilha orcamento-anual');
+    ok(/diretrizes-orcamentarias\/-\/ldo\/2027\/informacoes\/cronograma$/.test(C.urlCMO('ldo', 2027, 'informacoes/cronograma')),
+       'LDO usa a trilha diretrizes-orcamentarias');
+    ok(C.urlCMO('ppa', 2027) === null, 'PPA não tem página por exercício — devolve null em vez de URL inventada');
+  }
+
+  console.log('\n== descoberta da matéria pelo apelido ==');
+  {
+    const m = await C.buscarMateriaOrcamentaria('loa', 2027);
+    ok(m.disponivel, `LOA 2027 localizada: ${m.identificacao} — ${m.apelido}`);
+    ok(/^PLN\s*\d+\/2026$/.test(m.identificacao || ''),
+       `o PLOA 2027 é um PLN de 2026 (${m.identificacao}) — o ano do arquivo não é o do orçamento`);
+    ok(/exerc[íi]cio financeiro de 2027/i.test(m.ementa || ''), 'a ementa confirma o exercício');
+    ok(/sdleg-getter/.test(m.urlDocumento || ''), 'traz a URL do documento');
+
+    const ldo = await C.buscarMateriaOrcamentaria('ldo', 2027);
+    ok(ldo.disponivel && /PLDO\s*2027/i.test(ldo.apelido), `LDO 2027: ${ldo.identificacao} — ${ldo.apelido}`);
+
+    const inexistente = await C.buscarMateriaOrcamentaria('loa', 2035);
+    ok(!inexistente.disponivel && /ainda não localizad/i.test(inexistente.motivo),
+       `exercício futuro não inventa matéria: "${inexistente.motivo}"`);
+  }
+
+  console.log('\n== acompanhamento: as 10 etapas ==');
+  {
+    const a = await C.lerAcompanhamento('loa', 2027);
+    ok(a.disponivel && a.etapas.length === 10, `${a.etapas.length} etapas lidas`);
+    ok(a.etapas.some(e => /apresenta[çc][ãa]o de emendas/i.test(e.nome)), 'a etapa de emendas está entre elas');
+    ok(a.etapas.every(e => e.estado && e.estado.length < 40),
+       `cada etapa tem estado curto (ex.: "${a.etapas[0]?.nome}" → "${a.etapas[0]?.estado}")`);
+    ok(a.ultimoEstado && /^\d{2}\/\d{2}\/\d{4}$/.test(a.ultimoEstado.data),
+       `último estado: ${a.ultimoEstado?.data} — ${a.ultimoEstado?.descricao}`);
+    // Sem cortar em 2+ espaços, a situação vinha grudada no bloco seguinte.
+    ok(!/comunicad/i.test(a.ultimoEstado?.descricao || ''), 'a situação não arrasta o bloco de Comunicados');
+    ok(a.documentos.length >= 1 && a.documentos.every(d => /^https:/.test(d.url)),
+       `${a.documentos.length} documento(s), todos em https`);
+  }
+
+  console.log('\n== cronograma: publicado × não publicado ==');
+  {
+    const c26 = await C.lerCronograma('loa', 2026);
+    ok(c26.disponivel && c26.itens.length >= 14, `LOA 2026: ${c26.itens.length} itens (medido 16)`);
+    ok(c26.itens.every(i => /^\d{2}\/\d{2}\/\d{4}$/.test(i.inicio) && /^\d{2}\/\d{2}\/\d{4}$/.test(i.fim)),
+       'todo item tem faixa de datas completa');
+    const ordens = c26.itens.map(i => i.ordem);
+    ok(new Set(ordens).size === ordens.length, 'sem item repetido (o tempered greedy não engole o vizinho)');
+    ok(c26.prazoEmendas && c26.prazoEmendas.inicio === '24/10/2025' && c26.prazoEmendas.fim === '14/11/2025',
+       `prazo de emendas isolado: ${c26.prazoEmendas?.inicio} a ${c26.prazoEmendas?.fim}`);
+    ok(!/relat[óo]rio/i.test(c26.prazoEmendas?.descricao || ''),
+       'e é o das emendas ao PROJETO, não o das emendas ao relatório preliminar');
+
+    const c27 = await C.lerCronograma('loa', 2027);
+    if (c27.disponivel) {
+      console.log('    (a CMO publicou o cronograma da LOA 2027 — o prazo já existe)');
+      ok(c27.itens.length > 0 && c27.prazoEmendas !== undefined, `${c27.itens.length} itens`);
+    } else {
+      ok(/ainda não publicou/i.test(c27.motivo), `não publicado, e DECLARADO: "${c27.motivo}"`);
+      ok(!c27.falha, 'e isso não é falha de fonte — é o estado da tramitação');
+    }
+  }
+
+  console.log('\n== relatores: designados × pendentes ==');
+  {
+    const r26 = await C.lerRelatores('loa', 2026);
+    ok(r26.presidenteCMO && r26.presidenteCMO.nome,
+       `presidente da CMO em 2026: ${r26.presidenteCMO?.nome} (${r26.presidenteCMO?.partido}/${r26.presidenteCMO?.uf})`);
+    ok(r26.relatorGeral && r26.relatorGeral.casa, `relator-geral: ${r26.relatorGeral?.nome} — ${r26.relatorGeral?.casa}`);
+    ok(r26.setoriais.length === 16, `16 áreas temáticas (obtidas: ${r26.setoriais.length})`);
+    const areas = r26.setoriais.map(s => s.area);
+    ok(new Set(areas).size === areas.length, 'sem área repetida (a tabela aparece duas vezes na página)');
+    ok(r26.setoriais.every(s => s.nome && s.partido && s.uf), 'todo setorial tem nome, partido e UF');
+    ok(!r26.pendencias.length, 'exercício com relatoria completa não tem pendência');
+
+    const r27 = await C.lerRelatores('loa', 2027);
+    ok(r27.presidenteCMO && r27.presidenteCMO.nome,
+       `presidente da CMO em 2027: ${r27.presidenteCMO?.nome} (${r27.presidenteCMO?.partido}/${r27.presidenteCMO?.uf})`);
+    if (!r27.relatorGeral) {
+      ok(r27.pendencias.some(p => /Relator-Geral ainda não designado/.test(p)),
+         `o "-" do portal vira pendência declarada: "${r27.pendencias[0]}"`);
+      ok(r27.relatorGeral === null, 'e o campo é null, não a string "-"');
+    } else {
+      console.log(`    (a CMO já designou o Relator-Geral da LOA 2027: ${r27.relatorGeral.nome})`);
+      ok(true, 'relatoria designada');
+    }
+  }
+
+  console.log('\n== documentos de emendas e notas técnicas ==');
+  {
+    const e26 = await C.lerDocumentosEmendas('loa', 2026);
+    ok(e26.disponivel && e26.manual, `Manual de Emendas da LOA 2026: "${e26.manual?.rotulo}"`);
+    ok(/\.pdf/i.test(e26.manual?.url || '') || /documents\//.test(e26.manual?.url || ''), 'com URL de documento');
+    ok(e26.documentos.some(d => d.classe === 'instrucao_normativa'), 'e a Instrução Normativa da CMO está classificada');
+
+    const n26 = await C.lerNotasTecnicas('loa', 2026);
+    ok(n26.disponivel && n26.notas.length >= 5, `${n26.notas.length} notas/estudos das consultorias`);
+    ok(n26.notas.every(n => /^\d{2}\/\d{2}\/\d{4}$/.test(n.data)), 'todas com data');
+
+    const e27 = await C.lerDocumentosEmendas('loa', 2027);
+    if (!e27.disponivel) ok(/ainda não começou/i.test(e27.motivo), `LOA 2027 sem etapa de emendas: "${e27.motivo}"`);
+    else ok(true, `(a etapa de emendas da LOA 2027 abriu: ${e27.documentos.length} documentos)`);
+  }
+
+  console.log('\n== quadro completo do exercício ==');
+  {
+    const e = await C.carregarExercicio('loa', 2027);
+    ok(e.materia.disponivel && e.acompanhamento.disponivel, 'identificação e acompanhamento carregam juntos');
+    ok(Array.isArray(e.fontesIndisponiveis), 'a lista de fontes com falha existe');
+    ok(e.fontesIndisponiveis.length === 0,
+       `nenhuma fonte fora do ar — etapa não iniciada NÃO entra aqui (${JSON.stringify(e.fontesIndisponiveis)})`);
+    ok(typeof e.lidoEm === 'string' && e.lidoEm.length > 10, 'o quadro carimba quando foi lido');
+  }
+
+  console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
+  process.exit(falhas ? 1 : 0);
+})().catch(e => { console.error('ERRO FATAL:', e); process.exit(1); });
