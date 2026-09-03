@@ -44,8 +44,12 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
   console.log('\n== emendas normalizadas ==');
   const em = await M.senadoEmendas('174123');
-  ok(em.length >= 100, `${em.length} emendas (medido 112 em 01/09/2026)`);
-  const nums = em.map(e => e.numero).sort((a, b) => a - b);
+  ok(em.length >= 100, `${em.length} emendas (medido 112 em 01/09/2026, 113 em 02/09/2026)`);
+  // Numeração contígua, tolerando REPETIÇÃO de número: em 02/09/2026 a nº 13
+  // passou a aparecer duas vezes (Dep. Da Vitoria e "Comissão", esta publicada
+  // no dia em que a Comissão Mista concluiu). O acervo cresce durante a
+  // tramitação, então a asserção é sobre a COBERTURA, não sobre a contagem.
+  const nums = [...new Set(em.map(e => e.numero))].sort((a, b) => a - b);
   ok(nums[0] === 1 && nums.every((n, i) => n === i + 1), `numeração contígua 1..${nums[nums.length - 1]}`);
   ok(em.every(e => /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(e.url)),
      'todo PDF em https no sdleg-getter (o Senado responde http:// e a extensão só fala https)');
@@ -102,14 +106,49 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(chamadas.some(c => /Sem PAR nem PLV entre as \d+ relacionadas na Câmara/.test(c)),
        'e o console conta que a Câmara não tinha e que foi ao Senado');
 
-    // MPV 1357/2026 (sem PLV até 01/09/2026): NÃO inventa — devolve null com
-    // o motivo. Cair no texto original da MPV seria o documento errado.
+    // MPV 1357/2026: em 01/09/2026 não tinha PLV; em 02/09/2026 a Comissão
+    // Mista concluiu e o Senado passou a ter o "Texto final - PLV 13/2026".
+    // A asserção é por REGRA — o que se trava é que, HAVENDO PLV, ele vem do
+    // texto final da Comissão; e NÃO havendo, devolve null com o motivo, nunca
+    // o texto original da MPV, que seria o documento errado.
     const mpv1357 = { sigla: 'MPV', numero: 1357, ano: 2026, chave: 'MPV 1357/2026', idCamara: 2624161 };
     chamadas.length = 0;
-    const nada = await M.buscarPLVdaMPV(mpv1357);
-    ok(nada === null, 'MPV sem PLV devolve null');
-    ok(chamadas.some(c => /não tem "Texto final da Comissão - PLV"/.test(c)),
-       `e declara que o Senado não tem o texto final: "${chamadas.find(c => /Texto final/.test(c)) || ''}"`);
+    const r1357 = await M.buscarPLVdaMPV(mpv1357);
+    if (r1357) {
+      ok(/^PLV \d+\/\d{4}$/.test(r1357.rotulo), `a Comissão Mista concluiu: ${r1357.rotulo} (${r1357.fonte})`);
+      ok(/sdleg-getter|prop_mostrarintegra/.test(r1357.url), 'com o documento do texto final');
+    } else {
+      ok(chamadas.some(c => /não tem "Texto final da Comissão - PLV"/.test(c)),
+         `sem PLV, declara o motivo: "${chamadas.find(c => /Texto final/.test(c)) || ''}"`);
+    }
+  }
+
+  console.log('\n== número de emenda repetido no Senado (medido em 02/09/2026) ==');
+  {
+    // A nº 13 da MPV 1357/2026 voltou duas vezes: Dep. Da Vitoria (PP) e
+    // "Comissão". `find` pegaria a primeira em silêncio — e anexar o texto
+    // errado a um destaque é análise errada.
+    const em = await M.senadoEmendas('174123');
+    const repetidos = [...new Set(em.map(e => e.numero))].filter(n => em.filter(e => e.numero === n).length > 1);
+    if (!repetidos.length) {
+      console.log('    (o Senado não tem mais número repetido nesta matéria — bloco pulado)');
+    } else {
+      const n = repetidos[0];
+      const cands = em.filter(e => e.numero === n);
+      chamadas.length = 0;
+      const info = await M.buscarEmendaMPVnoSenado({ sigla: 'MPV', numero: 1357, ano: 2026, chave: 'MPV 1357/2026' }, n);
+      const comPartido = cands.filter(c => c.partido);
+      if (comPartido.length === 1) {
+        ok(info && info.autorEmenda === comPartido[0].autor,
+           `nº ${n} tem ${cands.length} documentos; escolhe o de autoria parlamentar (${info?.autorEmenda})`);
+        ok(info && /documentos com o nº/.test(info.ambiguidade || ''),
+           `e a escolha vai DECLARADA no rótulo: "${(info?.ambiguidade || '').slice(0, 80)}…"`);
+        ok(chamadas.some(c => /documentos com o n/.test(c)), 'o console também registra');
+      } else {
+        ok(info === null, `nº ${n} ambíguo entre parlamentares → null, sem chute`);
+        ok(chamadas.some(c => /AMB[ÍI]GUA/.test(c)), 'e o console diz que está ambígua');
+      }
+    }
   }
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
