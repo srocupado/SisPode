@@ -591,10 +591,124 @@ async function salvarIA() {
 function iaConfigurada() {
   const c = estado.config || {};
   if (!c.apiKey) {
-    return { ok: false, motivo: 'Nenhuma chave de IA configurada. Abra as Configurações da extensão e informe provedor, chave e modelo — a chave fica no seu navegador, nunca no servidor.' };
+    return { ok: false, motivo: 'Nenhuma chave de IA configurada. Clique em "IA" no topo da tela para informar provedor, chave e modelo — a chave fica no seu navegador, nunca no servidor.' };
   }
   // Mesmo padrão dos demais módulos: sem provedor escolhido, gemini.
   return { ok: true, provedorId: c.provedor || 'gemini', apiKey: c.apiKey, modelo: c.modelo };
+}
+
+// ---------- modal de configurações ----------
+// Cada painel autônomo carrega o seu (analise, congresso, lideres, ccjc já
+// tinham; esta tela ficou sem, e sem ela não havia como informar a chave sem
+// voltar ao painel principal). Os ids são os mesmos de propósito: é a MESMA
+// configuração, num só lugar do chrome.storage.
+
+function abrirConfiguracoes() {
+  const c = estado.config || {};
+  $('config-provedor').value = c.provedor || 'gemini';
+  $('config-api-key').value = c.apiKey || '';
+  aoTrocarProvedor();
+  $('config-status-ia').style.display = 'none';
+  $('modelos-status').style.display = 'none';
+  $('modal-configuracoes').style.display = 'flex';
+}
+
+function aoTrocarProvedor() {
+  const p = PROVEDORES_ORCAMENTO[$('config-provedor').value];
+  if (!p) return;
+  $('config-api-key').placeholder = p.placeholderChave;
+  $('config-hint-chave').textContent = p.hintChave;
+  popularModelos();
+}
+
+/** Lista de reserva: funciona sem chave, para a tela nunca abrir vazia. */
+function popularModelos(lista) {
+  const pid = $('config-provedor').value;
+  const modelos = lista || PROVEDORES_ORCAMENTO[pid].modelosFallback;
+  $('config-modelo').innerHTML = modelos.map(m => `<option value="${esc(m.id)}">${esc(m.displayName)}</option>`).join('');
+  const salvo = estado.config?.provedor === pid ? estado.config?.modelo : null;
+  if (salvo && modelos.some(m => m.id === salvo)) $('config-modelo').value = salvo;
+}
+
+async function carregarModelos() {
+  const pid = $('config-provedor').value;
+  const key = $('config-api-key').value.trim();
+  const st = $('modelos-status');
+  st.style.display = 'block';
+  if (!key) { st.textContent = 'Informe a chave primeiro.'; return; }
+  st.innerHTML = '<span class="on-spinner"></span> consultando o provedor…';
+  try {
+    const lista = await PROVEDORES_ORCAMENTO[pid].listar(key);
+    popularModelos(lista);
+    st.textContent = `✓ ${lista.length} modelo(s) disponível(is).`;
+  } catch (e) { st.textContent = 'Erro: ' + e.message; }
+}
+
+async function testarConexao() {
+  const pid = $('config-provedor').value;
+  const key = $('config-api-key').value.trim();
+  const modelo = $('config-modelo').value;
+  const p = PROVEDORES_ORCAMENTO[pid];
+  const st = $('config-status-ia');
+  st.style.display = 'block';
+  st.className = 'config-status teste';
+  if (!p.regexChave.test(key)) {
+    st.className = 'config-status erro';
+    st.textContent = `A chave não tem o formato de uma chave ${p.label} (${p.placeholderChave}).`;
+    return;
+  }
+  st.textContent = 'Testando…';
+  try {
+    const r = await chamarIAOrcamento({ provedorId: pid, apiKey: key, modelo,
+                                        prompt: 'Responda apenas com a palavra OK.' });
+    st.className = 'config-status ok';
+    st.textContent = r.text ? `✓ Conexão OK com ${p.label} (${modelo || 'modelo padrão'}).`
+                            : '✓ Conectado, mas a resposta veio vazia.';
+  } catch (e) { st.className = 'config-status erro'; st.textContent = 'Falha: ' + e.message; }
+}
+
+async function salvarConfig() {
+  const pid = $('config-provedor').value;
+  const key = $('config-api-key').value.trim();
+  const p = PROVEDORES_ORCAMENTO[pid];
+  if (!key) { mostrarToast('Informe a chave de API.', 'aviso'); return; }
+  if (!p.regexChave.test(key)) { mostrarToast(`A chave não tem o formato de uma chave ${p.label}.`, 'aviso'); return; }
+  // Mesclar, e não substituir: o mesmo nó `config` guarda nomeUsuario e a
+  // chave do Portal da Transparência, que não são desta tela. Sobrescrever o
+  // objeto inteiro apagaria em silêncio a configuração dos outros painéis.
+  estado.config = { ...(estado.config || {}), provedor: pid, apiKey: key, modelo: $('config-modelo').value };
+  await new Promise(r => chrome.storage.local.set({ config: estado.config }, r));
+  $('modal-configuracoes').style.display = 'none';
+  atualizarSeloConfig();
+  render();
+  mostrarToast('✓ Configurações salvas', 'sucesso');
+}
+
+/** O topo mostra o provedor em uso — ou avisa que não há nenhum. */
+function atualizarSeloConfig() {
+  const rot = $('btn-config-rotulo');
+  if (!rot) return;
+  const c = estado.config || {};
+  const p = PROVEDORES_ORCAMENTO[c.provedor || 'gemini'];
+  rot.textContent = c.apiKey ? (c.modelo || p.label) : 'IA — configurar';
+  $('btn-config').style.borderColor = c.apiKey ? '' : '#d68a00';
+  $('btn-config').title = c.apiKey
+    ? `${p.label} · ${c.modelo || 'modelo padrão'} — clique para alterar`
+    : 'Nenhuma chave de IA configurada: as leituras por IA deste módulo ficam indisponíveis.';
+}
+
+/**
+ * Guarda para as ações de IA, chamada ANTES de qualquer confirm().
+ * Sem isto, o analista era perguntado "ler 22 cartilhas?" ou "seguir sem dados
+ * apurados?" para só então descobrir que não havia chave configurada.
+ * Devolve a config ou null, já tendo aberto o lugar de resolver.
+ */
+function exigirIA() {
+  const cfg = iaConfigurada();
+  if (cfg.ok) return cfg;
+  mostrarToast(cfg.motivo, 'aviso');
+  abrirConfiguracoes();
+  return null;
 }
 
 /** Uma chamada de IA com trava de concorrência e status na barra. */
@@ -602,8 +716,8 @@ async function comIA(rotulo, fn) {
   // A trava é o `ocupado`: uma chamada por vez. O `lote` desabilita os botões
   // entre uma cartilha e outra, quando `ocupado` está momentaneamente livre.
   if (estado.ocupado) { mostrarToast(`Aguarde: ${estado.ocupado} em andamento.`, 'aviso'); return null; }
-  const cfg = iaConfigurada();
-  if (!cfg.ok) { mostrarToast(cfg.motivo, 'aviso'); return null; }
+  const cfg = exigirIA();     // última linha de defesa; as ações já checaram
+  if (!cfg) return null;
   estado.ocupado = rotulo;
   $('on-status').innerHTML = `<span class="on-spinner"></span> ${esc(rotulo)}…`;
   render();
@@ -707,6 +821,7 @@ async function resumirCartilha(url, rotulo) {
 /** Lê todas as cartilhas ainda não lidas, uma a uma. */
 async function resumirTodasCartilhas() {
   if (estado.lote || estado.ocupado) { mostrarToast('Já há uma leitura em andamento.', 'aviso'); return; }
+  if (!exigirIA()) return;
   const g = montarGuia(estado.quadro?.emendas || {}, estado.quadro?.relatores || {});
   const todas = [...g.areas.flatMap(a => a.cartilhas), ...g.semArea];
   const faltando = todas.filter(c => !estado.ia?.acoes?.[chaveDocumento(c.url)]);
@@ -790,6 +905,7 @@ async function proporFicha() {
   if (!ancora) { mostrarToast('Este exercício ainda não publicou orientação normativa — não há de onde extrair.', 'aviso'); return; }
   const vazios = CAMPOS_FICHA.filter(c => c.origem === 'ancora' && !estado.ficha?.valores?.[c.chave]);
   if (!vazios.length) { mostrarToast('Todos os campos de origem normativa já estão preenchidos.', 'info'); return; }
+  if (!exigirIA()) return;
 
   return comIA(`lendo "${ancora.rotulo}"`, async (cfg) => {
     const doc = await prepararDocumento(ancora.url, cfg);
@@ -883,6 +999,7 @@ function cardPropostas() {
 async function redigirSintese() {
   const q = estado.quadro;
   if (!q?.materia?.disponivel) return;
+  if (!exigirIA()) return;
   const base = { variacao: estado.variacao, serie: estado.serie ? seriesComDados(estado.serie) : [],
                  ficha: estado.ficha, quadro: q };
   const temDado = (estado.variacao?.comparado) || base.serie.length || Object.keys(estado.ficha?.valores || {}).length;
@@ -1395,6 +1512,7 @@ function legislaturaDe(ano) {
 // ============================================================
 document.addEventListener('DOMContentLoaded', async () => {
   await carregarConfigIA();
+  atualizarSeloConfig();
   const selAno = $('f-ano');
 
   const povoar = () => {
@@ -1411,6 +1529,23 @@ document.addEventListener('DOMContentLoaded', async () => {
   $('btn-conferir').addEventListener('click', conferirNormas);
   $('btn-nota').addEventListener('click', gerarNota);
   $('btn-voltar').addEventListener('click', () => { window.location.href = 'panel.html'; });
+
+  // Configurações de IA
+  $('btn-config').addEventListener('click', abrirConfiguracoes);
+  $('config-provedor').addEventListener('change', () => { $('config-api-key').value = ''; aoTrocarProvedor(); });
+  $('btn-carregar-modelos').addEventListener('click', carregarModelos);
+  $('btn-testar-conexao').addEventListener('click', testarConexao);
+  $('btn-salvar-config').addEventListener('click', salvarConfig);
+  $('btn-toggle-key').addEventListener('click', () => {
+    const i = $('config-api-key');
+    i.type = i.type === 'password' ? 'text' : 'password';
+  });
+  document.querySelectorAll('[data-fecha]').forEach(b => {
+    b.addEventListener('click', () => { const el = $(b.dataset.fecha); if (el) el.style.display = 'none'; });
+  });
+  document.querySelectorAll('.modal-overlay').forEach(ov => {
+    ov.addEventListener('click', ev => { if (ev.target === ov) ov.style.display = 'none'; });
+  });
   // Os links da ficha nascem a cada render; a escuta fica no contêiner.
   const ACOES = {
     'ler-mensagem':    lerMensagem,

@@ -481,6 +481,74 @@ ${t.slice(0, LIMITE_TEXTO_PROMPT)}
 }
 
 // ============================================================
+//  PROVEDORES
+// ============================================================
+// Os mesmos três dos demais painéis, com a mesma chave em chrome.storage. A
+// chave de API fica NO NAVEGADOR do analista — nunca no Firebase, nunca no
+// repositório —, e é por isso que cada tela precisa saber ler e gravar esta
+// configuração: não há um servidor guardando isso por ninguém.
+
+const PROVEDORES_ORCAMENTO = {
+  gemini: {
+    label: 'Google Gemini',
+    placeholderChave: 'AIzaSy... ou AQ....',
+    hintChave: 'Obtenha em aistudio.google.com → Get API key',
+    regexChave: /^[\w.-]{20,}$/,
+    modelosFallback: [
+      { id: 'gemini-2.5-flash', displayName: 'Gemini 2.5 Flash' },
+      { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
+    ],
+    async listar(key) {
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=50`);
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      return (j.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent') && (m.name || '').includes('gemini'))
+        .map(m => ({ id: (m.name || '').replace(/^models\//, ''), displayName: m.displayName || m.name }));
+    },
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    placeholderChave: 'sk-...',
+    hintChave: 'Obtenha em platform.openai.com/api-keys',
+    regexChave: /^sk-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'gpt-5',   displayName: 'GPT-5' },
+      { id: 'gpt-4.1', displayName: 'GPT-4.1' },
+      { id: 'gpt-4o',  displayName: 'GPT-4o' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${key}` } });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const prefs = ['gpt-5', 'gpt-4.1', 'gpt-4o', 'o4'];
+      const ids = (j.data || []).map(m => m.id).filter(id => prefs.some(p => id.startsWith(p)));
+      return ids.length ? ids.map(id => ({ id, displayName: id })) : this.modelosFallback;
+    },
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    placeholderChave: 'sk-ant-...',
+    hintChave: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regexChave: /^sk-ant-[\w-]{20,}$/,
+    modelosFallback: [
+      { id: 'claude-opus-4-8',           displayName: 'Claude Opus 4.8' },
+      { id: 'claude-sonnet-4-6',         displayName: 'Claude Sonnet 4.6' },
+      { id: 'claude-haiku-4-5-20251001', displayName: 'Claude Haiku 4.5' },
+    ],
+    async listar(key) {
+      const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+        headers: { 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      });
+      const j = await res.json();
+      if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+      const lista = (j.data || []).map(m => ({ id: m.id, displayName: m.display_name || m.id }));
+      return lista.length ? lista : this.modelosFallback;
+    },
+  },
+};
+
+// ============================================================
 //  CHAMADA AOS PROVEDORES
 // ============================================================
 // Mesmos três provedores dos demais módulos, mesma chave em chrome.storage.
@@ -582,7 +650,7 @@ if (typeof module !== 'undefined' && module.exports) {
     promptCartilha, conferirAcoes,
     promptFicha, conferirPropostasFicha,
     promptSintese, numerosDaBase, numeroConfere, conferirSintese,
-    modoDeLeitura, comTextoDoDocumento,
+    modoDeLeitura, comTextoDoDocumento, PROVEDORES_ORCAMENTO,
     LIMITE_PDF_BYTES, LIMITE_PAGINAS_OPENAI, LIMITE_TEXTO_PROMPT,
   };
 }
