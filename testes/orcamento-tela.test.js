@@ -34,13 +34,36 @@ function scriptsDaPagina() {
 /** Um escopo de página com o mínimo que a extensão oferece. */
 function montarPagina() {
   const { document, window } = parseHTML(fs.readFileSync(path.join(RAIZ, 'orcamento-notas.html'), 'utf8'));
+
+  // LIMITAÇÃO DO HARNESS, não do código: no linkedom, <select>.value é somente
+  // leitura, e no navegador é gravável. Sem este shim o teste acusaria um erro
+  // que não existe em produção. O getter devolve o que foi gravado ou, na
+  // falta, a primeira <option> — que é o comportamento do navegador.
+  const protoSelect = Object.getPrototypeOf(document.createElement('select'));
+  if (!Object.getOwnPropertyDescriptor(protoSelect, 'value')?.set) {
+    Object.defineProperty(protoSelect, 'value', {
+      configurable: true,
+      get() {
+        if (this.__valor !== undefined) return this.__valor;
+        const o = this.querySelector('option');
+        return o ? (o.getAttribute('value') ?? o.textContent) : '';
+      },
+      set(v) { this.__valor = v; },
+    });
+  }
+  const gravado = {};
   const ctx = {
-    document, window, DOMParser, console,
+    document, window, DOMParser, console, gravado,
     setTimeout, clearTimeout, setInterval, clearInterval,
     fetch: globalThis.fetch, URL, TextDecoder, AbortController, DOMException,
     btoa: s => Buffer.from(s, 'latin1').toString('base64'),
     chrome: {
-      storage: { local: { get: (_k, cb) => cb({ config: { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'gemini-2.5-flash', nomeUsuario: 'Teste' } }) } },
+      storage: { local: {
+        get: (_k, cb) => cb({ config: { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'gemini-2.5-flash', nomeUsuario: 'Teste' } }),
+        // Guarda o que foi gravado para o teste conferir a MESCLAGEM: o nó
+        // `config` é compartilhado com os outros painéis.
+        set: (obj, cb) => { Object.assign(gravado, obj); if (cb) cb(); },
+      } },
       runtime: { getURL: p => p },
     },
     pdfjsLib: { GlobalWorkerOptions: {}, getDocument: () => ({ promise: Promise.resolve({ numPages: 0 }) }) },
@@ -56,7 +79,7 @@ function montarPagina() {
   const script = new vm.Script(fonte, { filename: 'pagina-orcamento.js' });
   const av = expr => vm.runInContext(expr, ctx);
   script.runInContext(ctx);
-  return { ctx, av, doc: document };
+  return { ctx, av, doc: document, gravado };
 }
 
 (async () => {
@@ -83,7 +106,7 @@ function montarPagina() {
       'tabelaComparativa', 'tabelaPorOrgao', 'variacaoEntre', 'formatarBR',
       'promptCartilha', 'conferirAcoes', 'promptFicha', 'conferirPropostasFicha',
       'promptSintese', 'numerosDaBase', 'conferirSintese', 'extrairJSON',
-      'chamarIAOrcamento', 'modoDeLeitura', 'comTextoDoDocumento'];
+      'chamarIAOrcamento', 'modoDeLeitura', 'comTextoDoDocumento', 'PROVEDORES_ORCAMENTO'];
     const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
     ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão todos definidos`);
   }
@@ -150,6 +173,64 @@ function montarPagina() {
     ok(/não constam da base conferida/.test(html) && /3\.812,7/.test(html),
        'a síntese sai com o número suspeito NOMEADO, não escondida nem apagada');
     ok(/Onde estão os números não conferidos/.test(html), 'e com o contexto para o revisor localizar no texto');
+  }
+
+  console.log('\n== o menu de chave de IA ==');
+  {
+    // Sem ele, a única forma de informar a chave era voltar ao painel
+    // principal — e as três leituras deste módulo simplesmente não rodavam.
+    // As demais telas autônomas (analise, congresso, lideres, ccjc) já tinham
+    // o seu; esta ficou sem.
+    const modal = pag.doc.getElementById('modal-configuracoes');
+    ok(!!modal, 'a tela tem modal de configurações de IA');
+    ok(modal.style.display === 'none', 'fechado por padrão');
+    ok(['config-provedor', 'config-api-key', 'config-modelo', 'btn-salvar-config',
+        'btn-carregar-modelos', 'btn-testar-conexao', 'btn-toggle-key']
+       .every(id => pag.doc.getElementById(id)),
+       'com provedor, chave, modelo, teste de conexão e gravação');
+    ok(!!pag.doc.getElementById('btn-config'), 'e o botão no topo para abri-lo');
+
+    av('abrirConfiguracoes()');
+    ok(modal.style.display === 'flex', 'o botão abre o modal');
+    ok(pag.doc.getElementById('config-modelo').querySelectorAll('option').length >= 2,
+       'a lista de modelos vem preenchida mesmo sem chave — a tela nunca abre vazia');
+    ok(/aistudio\.google\.com/.test(pag.doc.getElementById('config-hint-chave').textContent),
+       'e diz onde obter a chave do provedor selecionado');
+
+    // Chave com formato errado não é gravada: é o erro que só apareceria na
+    // primeira chamada real, depois de baixar um PDF de 20 MB.
+    av(`$('config-api-key').value = 'chave-qualquer'`);
+    const antes = JSON.stringify(av('estado.config'));
+    await av('salvarConfig()');
+    ok(JSON.stringify(av('estado.config')) === antes, 'chave com formato inválido não é gravada');
+
+    // A MESCLAGEM: o nó `config` é compartilhado com os outros painéis e guarda
+    // nomeUsuario e a chave do Portal da Transparência. Substituir o objeto
+    // apagaria a configuração deles em silêncio.
+    av(`estado.config = { nomeUsuario: 'Fulano', transparenciaKey: 'abc', provedor: 'gemini', apiKey: 'antiga-mas-longa-o-suficiente' };
+        $('config-provedor').value = 'anthropic';
+        $('config-api-key').value = 'sk-ant-chave-de-teste-com-tamanho-suficiente';
+        popularModelos();`);
+    await av('salvarConfig()');
+    const c = av('estado.config');
+    ok(c.provedor === 'anthropic' && /^sk-ant-/.test(c.apiKey), `provedor e chave gravados: ${c.provedor}`);
+    ok(c.nomeUsuario === 'Fulano' && c.transparenciaKey === 'abc',
+       'e o que era dos OUTROS painéis continua lá — a gravação mescla, não substitui');
+    ok(modal.style.display === 'none', 'o modal fecha ao salvar');
+
+    // O topo passa a dizer o que está em uso, em vez de deixar adivinhar.
+    ok(/claude|anthropic/i.test(pag.doc.getElementById('btn-config-rotulo').textContent),
+       `o botão do topo mostra o modelo em uso: "${pag.doc.getElementById('btn-config-rotulo').textContent}"`);
+    av(`estado.config = {}; atualizarSeloConfig();`);
+    ok(/configurar/i.test(pag.doc.getElementById('btn-config-rotulo').textContent),
+       'e avisa quando não há chave nenhuma');
+
+    // Sem chave, pedir uma leitura ABRE o lugar de resolver.
+    modal.style.display = 'none';
+    await av('redigirSintese()');
+    ok(modal.style.display === 'flex',
+       'pedir IA sem chave abre as configurações, em vez de só avisar e parar');
+    modal.style.display = 'none';
   }
 
   console.log('\n== a nota gerada a partir desse estado ==');
