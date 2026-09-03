@@ -1,0 +1,197 @@
+# Trechos REAIS, extraídos com pdf.js/pypdf em 03/09/2026, para os testes do produto 4 (números do exercício).
+# 1) Mensagem Presidencial do PLOA 2027 (PLN 24/2026), páginas 128-130 e 135 do PDF de 3.235 páginas.
+# 2) Informativo Conjunto das Consultorias sobre o PLOA 2026 (PLN 15/2025), página 1 (variáveis macroeconômicas).
+===== PÁGINA 128 =====
+113
+Mensagem Presidencial  | Projeto de Lei Orçamentária Anual 2027   Capítulo 3
+Despesa Primária Total
+As despesas primárias correspondem à oferta de serviços públicos à socie -
+dade e são classificadas como obrigatórias ou discricionárias. Há ainda um 
+outro grupo considerado para o cálculo da NFSP , constituído pelos impactos 
+de operações que não constam dos Orçamentos Fiscal e da Seguridade Social, 
+mas afetam a apuração do resultado primário do Governo Central.
+A composição dos principais itens de despesa primária é apresentada a seguir:
+Pessoal e Encargos Sociais
+Dispêndios com pessoal civil e militar do Governo Central, incluindo ativos, 
+inativos e pensionistas, bem como precatórios alimentícios fixados para o pe-
+ríodo. Engloba a despesa classificada no grupo de natureza de despesa (GND) 
+Pessoal e Encargos Sociais, exceto a despesa com encargos sociais da União 
+para o Regime Próprio de Previdência que, desde meados de 2004, é classifi-
+cada como despesa financeira.
+O valor desse item é ajustado para o regime de caixa mediante incorporação 
+da diferença entre os valores orçamentários de algumas despesas da folha de 
+pagamento projetados para o mês de dezembro dos exercícios financeiros 
+de 2026 e 2027, haja vista que são empenhadas e liquidadas em dezembro 
+de cada ano (despesa reconhecida de acordo com o regime de competên-
+cia), mas pagas efetivamente apenas em janeiro do ano seguinte. A estimativa 
+desse ajuste para 2027 é de R$ 1,1 bilhão.
+Desse modo, no regime orçamentário, o total da despesa primária com Pesso-
+al e Encargos Sociais, inclusive sentenças judiciais, é de R$ 475,2 bilhões e, no 
+regime financeiro, equivale a R$ 474,1 bilhões.
+O detalhamento desta despesa para a Proposta de 2027 encontra-se no item 
+sobre Pessoal e Encargos Sociais deste Capítulo.
+Benefícios da Previdência Social
+Engloba os benefícios que compõem o RGPS, como aposentadorias, pensões, 
+demais auxílios, sentenças judiciais e a despesa relativa à compensação entre 
+os regimes de previdência. Os parâmetros que mais influenciam a estimativa 
+desses gastos são o crescimento vegetativo dos benefícios e o Índice Nacional 
+de Preços ao Consumidor – INPC apurado pelo IBGE, além do reajuste do salá-
+rio mínimo, que, para o PLOA 2027, está estimado em R$ 1.741,00, refletindo 
+7,40% de aumento frente ao valor vigente em 2026, de R$ 1.621,00.
+===== PÁGINA 129 =====
+114
+Mensagem Presidencial  | Projeto de Lei Orçamentária Anual 2027   Capítulo 3
+Despesas Obrigatórias sem Controle de Fluxo do 
+Poder Executivo
+Referem-se às despesas de execução obrigatória, excetuadas as Transferên-
+cias Constitucionais e Legais a Estados, Distrito Federal e Municípios, Pessoal 
+e Encargos Sociais, os Benefícios Previdenciários e as Despesas Obrigatórias 
+com Controle de Fluxo do Poder Executivo. Os principais itens relacionados a 
+esse grupo de despesa são: seguro-desemprego e abono salarial; benefícios 
+da Lei Orgânica de Assistência Social – LOAS e da Renda Mensal Vitalícia – 
+RMV; complementação da União ao Fundo de Manutenção e Desenvolvimen-
+to da Educação Básica e de Valorização dos Profissionais da Educação – Fun-
+deb; sentenças judiciais de outras despesas de custeio e capital; o Fundo de 
+Compensação aos Estados pela Substituição do IPI pelo IS; Subsídios e Sub -
+venções Econômicas; e outras despesas de menor monta.
+Despesas Obrigatórias com Controle de Fluxo do 
+Poder Executivo
+Consideram-se, nesse grupo, as despesas obrigatórias com benefícios aos ser-
+vidores, bem como determinadas ações e programas obrigatórios na área da 
+saúde e educação, além dos montantes para atendimento do Bolsa Família, 
+conforme a Tabela 12.
+Tabela 12 - Despesas obrigatórias com controle de fluxo
+ R$ milhões 
+ PLOA-2027 
+Bolsa Família  157.062,2 
+Saúde  190.753,9 
+Benefícios a Servidores  26.739,5 
+Educação  9.706,6 
+Demais  12.011,3 
+Total  396.273,5 
+Fonte/Elaboração: SOF/MPO.
+Reserva para Emendas
+O art. 13, § 5º, do PLDO 2027 prevê que o Projeto de Lei Orçamentária 
+Anual de 2027 deve conter reservas específicas destinadas ao atendi-
+mento de emendas individuais e de bancada estadual até o limite permi-
+tido pela legislação.
+Para a definição dos valores a serem alocados na reserva para emendas par -
+lamentares do PLOA 2027, devem ser observados, cumulativamente, os cri-
+térios constitucionais e legais aplicáveis, adotando-se como limite, em cada 
+===== PÁGINA 130 =====
+115
+Mensagem Presidencial  | Projeto de Lei Orçamentária Anual 2027   Capítulo 3
+caso, o menor valor resultante de sua aplicação. Assim, as emendas individu-
+ais devem observar o limite previsto no § 9º do art. 166 da Constituição Fede-
+ral, correspondente a até 2% da Receita Corrente Líquida — RCL de 2025, bem 
+como os limites de crescimento estabelecidos pela Lei Complementar nº 210, 
+de 2024, e os mecanismos de contenção instituídos pela Lei Complementar 
+nº 235, de 2026.
+No caso das emendas de bancada estadual, além do limite previsto no § 12 
+do art. 166 da Constituição Federal, equivalente, no PLOA 2027, a 1% da RCL 
+de 2026, considerada a estimativa constante do Relatório de Avaliação de Re-
+ceitas e Despesas Primárias do 3º bimestre de 2026, também devem ser con-
+siderados os limites decorrentes da Lei Complementar nº 210, de 2024, da LC 
+nº 235, de 2026. Desse modo, o montante a ser consignado na reserva está 
+limitado ao menor valor apurado entre esses critérios. 
+Adicionalmente, o critério fixado pelo Supremo Tribunal Federal na ADI nº 
+7.697, relativo ao crescimento das despesas discricionárias do Poder Executi-
+vo, incide sobre o conjunto das emendas parlamentares impositivas — isto é, 
+sobre a soma das reservas de emendas individuais e de bancada estadual —, 
+e não isoladamente sobre cada modalidade. Assim, apurados os valores de 
+cada reserva pelos critérios constitucionais e legais específicos de cada moda-
+lidade, verifica-se, em etapa subsequente, se o total das duas reservas obser -
+va o limite de crescimento das despesas discricionárias fixado pelo STF; caso 
+o somatório supere esse limite, impõe-se a redução proporcional necessária 
+para adequação ao teto.
+Dados os parâmetros, o menor valor apurado para cada modalidade decorreu 
+da aplicação do limite de crescimento estabelecido pela Lei Complementar 
+nº 210, de 2024. A reserva para emendas individuais no PLOA 2027 totaliza R$ 
+28,4 bilhões, enquanto a reserva para emendas de bancada estadual alcança 
+R$ 16,3 bilhões. A soma de R$ 44,8 bilhões observa o limite de crescimento 
+das despesas discricionárias fixado pelo STF na ADI nº 7.697.
+===== PÁGINA 135 =====
+120
+Mensagem Presidencial  | Projeto de Lei Orçamentária Anual 2027   Capítulo 3
+Parâmetros 
+Macroeconômicos
+Os principais parâmetros macroeconômicos utilizados nas estimativas de re -
+ceitas e despesas constantes no PLOA 2027 são apresentados na Tabela 13. 
+Esses parâmetros são definidos pela SPE/MF.
+Tabela 13 - Parâmetros Macroeconômicos 
+PIB Mercado de Trabalho - Var. Média s/ano anterior
+R$ milhões Var. Real Deflator Massa Salarial Nominal Ocupação PEA Rend. Nominal
+14.782.901 2,5% 5,4% 10,1% 3,4% 1,6% 6,5%
+Inflação - IGP/DI Inflação - IPCA Câmbio - Taxa Média
+Var. Média Var. Acum. Var. Média Var. Acum. Variação R$ / US$
+4,4% 4,0% 4,1% 3,6% 1,1% 5,22
+Fonte: SPE/MF. Elaboração: SOF/MPO.
+
+
+===== INFORMATIVO CONJUNTO PLOA 2026 — página 1 =====
+1.VARIÁVEIS MACROECONÔMICAS RELEVANTES
+Etapas de tramitação do PLOA 20261 2 3
+PLOA 2026
+Consultoria de Orçamentos, 
+Fiscalização e Controle – SF
+Consultoria de Orçamento e 
+Fiscalização Financeira – CD
+Setembro | 2025
+INFORMATIVO
+Projeto de Lei Orçamentária Anual para 2026 - PLN 15/2025
+Recebimento 
+do PLOA 2026 
+pelo CN
+Aprovação do 
+Relatório da 
+Receita
+Audiências 
+Públicas 
+Aprovação 
+dos Relatórios 
+Setoriais
+Nota  
+Técnica 
+Conjunta das 
+Consultorias 
+Emendamento 
+e Aprovação 
+do Relatório 
+Preliminar
+Emendas 
+(Receita, 
+Despesa e 
+Texto)
+Aprovação  
+do Relatório-
+Geral
+Discussão e 
+Votação no 
+Plenário do 
+CN
+Envio do 
+Autógrafo 
+ao Poder 
+Executivo
+Apreciação 
+de vetos
+31/8 1º a 20/10 22/12
+DESCRIÇÃO
+2025 2026
+AVALIAÇÃO  
+3º BIM. 
+EXPECTATIVA 
+MERCADO PLOA EXPECTATIVA 
+MERCADO
+PIB nominal (R$ bilhões) 12.818,52 - 13.826,29 -
+Crescimento real do PIB (%) 2,54 2,19 2,44 1,87
+IPCA acumulado (%) 4,94 4,85 3,60 4,31
+INPC acumulado (%) 4,66 - 3,28 -
+Taxa de câmbio (R$/US$) – média anual 5,70 - 5,76 -
+Taxa de câmbio (R$/US$) - dezembro 5,70 5,56 5,79 5,62
+Taxa Selic (% a.a.) – média anual 14,25 - 13,11 -
+Taxa Selic (% a.a.) - dezembro 14,65 15,00 11,40 12,50
+Crescimento nominal da massa salarial (%) 12,08 - 10,51 -
+Salário-mínimo (R$) 1.518,00 - 1.631,00 -
+Fontes: Relatório de Avaliação de Receitas e Despesas Primárias do 3º bimestre de 2025, Mensagem Presidencial do PLOA 2026, Boletim da Secretaria de Política Econômica 
+(SPE) - Panorama Macroeconômico/Julho de 2025 e Relatório de Mercado/Focus, de 29/08/2025. 

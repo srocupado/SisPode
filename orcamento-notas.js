@@ -153,6 +153,7 @@ function render() {
   partes.push(cardNotasTecnicas(q));
   partes.push(cardDocumentos(q));
   partes.push(cardSintese());
+  partes.push(cardNumeros());
   partes.push(cardSerie());
   partes.push(cardVariacao());
   partes.push(cardGuia(q));
@@ -566,12 +567,12 @@ async function carregarConfigIA() {
 }
 
 async function carregarIA(tipo, ano) {
-  const vazio = { acoes: {}, sintese: null };
+  const vazio = { acoes: {}, sintese: null, numeros: {} };
   try {
     const r = await fetch(IA_PATH(`${tipo}-${ano}`));
     if (!r.ok) return vazio;
     const salvo = await r.json();
-    return salvo ? { ...vazio, ...salvo, acoes: salvo.acoes || {} } : vazio;
+    return salvo ? { ...vazio, ...salvo, acoes: salvo.acoes || {}, numeros: salvo.numeros || {} } : vazio;
   } catch (_) { return vazio; }
 }
 
@@ -935,7 +936,7 @@ function aceitarProposta(chave) {
   const p = estado.propostas?.aceitas?.find(x => x.campo === chave);
   if (!p) return;
   const res = preencherCampo(estado.ficha, chave, {
-    valor: p.valor, documento: estado.propostas.documento, pagina: p.pagina || '',
+    valor: p.valor, documento: p.documento || estado.propostas.documento, pagina: p.pagina || '',
     trecho: p.trecho, preenchidoPor: `${estado.config?.nomeUsuario || 'equipe'} (proposta de IA conferida)`,
   });
   if (!res.ok) { mostrarToast(res.erro, 'aviso'); return; }
@@ -950,7 +951,7 @@ function aceitarTodasPropostas() {
   if (!chaves.length) return;
   for (const c of chaves) {
     const p = estado.propostas.aceitas.find(x => x.campo === c);
-    if (p) preencherCampo(estado.ficha, c, { valor: p.valor, documento: estado.propostas.documento,
+    if (p) preencherCampo(estado.ficha, c, { valor: p.valor, documento: p.documento || estado.propostas.documento,
       pagina: p.pagina || '', trecho: p.trecho,
       preenchidoPor: `${estado.config?.nomeUsuario || 'equipe'} (proposta de IA conferida)` });
   }
@@ -971,7 +972,7 @@ function cardPropostas() {
   }
   const linha = a => `<tr>
     <td class="a"><strong>${esc(a.rotulo)}</strong><br>
-      <span style="font-size:11px;color:var(--text-dim)">“${esc(a.trecho.slice(0, 150))}${a.trecho.length > 150 ? '…' : ''}”${a.pagina ? ` — p. ${esc(a.pagina)}` : ''}</span></td>
+      <span style="font-size:11px;color:var(--text-dim)">“${esc((a.trecho || '').slice(0, 150))}${(a.trecho || '').length > 150 ? '…' : ''}”${a.documento && a.documento !== p.documento ? ` — ${esc(a.documento)}` : ''}${a.pagina ? ` — p. ${esc(a.pagina)}` : ''}</span></td>
     <td style="width:28%"><strong>${esc(a.valor)}</strong></td>
     <td style="width:14%;text-align:right"><a href="#" data-ia-aceitar="${esc(a.campo)}" style="color:#0a6cf0">aceitar</a></td></tr>`;
 
@@ -990,20 +991,315 @@ function cardPropostas() {
   </div>`;
 }
 
+// ---------- produto 4: os números do exercício ----------
+// A ressalva de b0b554d: a nota saía sem um número do orçamento porque todo
+// número estava atrás de um portão manual. Aqui o portão vira um botão — e,
+// no "Apurar tudo", um só. A IA lê as fontes que o módulo JÁ localiza
+// (informativo e nota técnica das Consultorias, Raio-X, Relatório Geral, a
+// Mensagem dentro do PDF do projeto) e devolve cada número com página e
+// trecho; o JS confere (conferirNumeros) e só o conferido vai à nota e à
+// lista branca da síntese.
+
+/**
+ * As fontes de números do exercício, na ordem em que valem a leitura: as
+ * curtas e densas primeiro (o Informativo das Consultorias tem 12 páginas e a
+ * tabela de variáveis na p.1), a Mensagem do projeto em seguida, as longas por
+ * último. `mensagem: true` marca o PDF do projeto, que precisa de leitura por
+ * páginas (3.235 páginas no PLN 24/2026).
+ */
+function fontesDeNumeros(q) {
+  const f = [];
+  const add = (d, classe, extra = {}) => {
+    const url = d?.url, rotulo = d?.rotulo || d?.titulo;
+    if (!url || !rotulo || f.some(x => x.url === url)) return;
+    f.push({ rotulo, url, classe, ...extra });
+  };
+  const notas = q?.notas?.disponivel ? (q.notas.notas || []) : [];
+  const com = re => notas.filter(n => re.test(n.titulo || ''));
+  com(/informativo/i).forEach(n => add(n, 'informativo'));
+  com(/raio[\s-]?x/i).forEach(n => add(n, 'raiox'));
+  (q?.executivo?.documentos || []).filter(d => d.classe === 'orcamento_cidadao').forEach(d => add(d, 'orcamento_cidadao'));
+  if (q?.materia?.disponivel && q.materia.urlDocumento) {
+    add({ rotulo: `Mensagem Presidencial (${q.materia.identificacao})`, url: q.materia.urlDocumento }, 'mensagem', { mensagem: true });
+  }
+  com(/subs[íi]dios|nota\s+t[ée]cnica\s+conjunta/i).forEach(n => add(n, 'nota_tecnica'));
+  if (q?.acompanhamento?.relatorioGeral) add(q.acompanhamento.relatorioGeral, 'relatorio_geral');
+  notas.forEach(n => add(n, 'nota'));
+  return f;
+}
+
+/**
+ * A Mensagem Presidencial não é arquivo próprio: são as ~250 páginas iniciais
+ * do PDF do projeto. Lê-se por página, escolhem-se as que trazem os termos da
+ * nota (paginasRelevantes) e vai TEXTO — nunca o PDF de 27 MB. A conferência
+ * roda contra esse mesmo texto, e isso fica dito no modo de leitura.
+ */
+async function prepararMensagem(url, cfg) {
+  void cfg;
+  pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`HTTP ${r.status} ao baixar o projeto`);
+  const buffer = await r.arrayBuffer();
+  const doc = await pdfjsLib.getDocument({ data: buffer }).promise;
+  const ini = Math.min(10, doc.numPages), fim = Math.min(doc.numPages, 320);
+  const paginas = [];
+  for (let p = ini; p <= fim; p++) paginas.push({ numero: p, texto: await textoDaPagina(doc, p) });
+  const escolhidas = paginasRelevantes(paginas, TERMOS_MENSAGEM, 45);
+  const texto = escolhidas.map(p => `\n[página ${p.numero} do PDF]\n${p.texto}`).join('\n');
+  const motivo = `a Mensagem está dentro do PDF do projeto (${doc.numPages} páginas); foram lidas as ${escolhidas.length} páginas mais relevantes entre a ${ini} e a ${fim}, como texto extraído.`;
+  return { texto, paginas: doc.numPages, modo: 'texto', motivo, bytes: buffer.byteLength, pdfBuffers: [],
+           montarPrompt: p => comTextoDoDocumento(p, texto) };
+}
+
+/** Lê UMA fonte de números e guarda o resultado conferido. */
+async function lerFonteDeNumeros(f) {
+  const chave = chaveDocumento(f.url);
+  return comIA(`lendo números em "${(f.rotulo || '').slice(0, 40)}"`, async (cfg) => {
+    const doc = f.mensagem ? await prepararMensagem(f.url, cfg) : await prepararDocumento(f.url, cfg);
+    const q = estado.quadro;
+    const resp = await chamarIAOrcamento({
+      provedorId: cfg.provedorId, apiKey: cfg.apiKey, modelo: cfg.modelo,
+      prompt: doc.montarPrompt(promptNumeros({ materia: q?.materia?.disponivel ? `${q.materia.identificacao} — ${q.materia.apelido}` : '',
+                                                rotulo: f.rotulo, exercicio: estado.ano })),
+      pdfBuffers: doc.pdfBuffers,
+    });
+    if (!estado.ia.numeros) estado.ia.numeros = {};
+    const comum = { url: f.url, rotulo: f.rotulo, classe: f.classe, lidoEm: new Date().toISOString(),
+                    lidoPor: estado.config?.nomeUsuario || 'equipe',
+                    modelo: `${cfg.provedorId}/${cfg.modelo || 'padrão'}`,
+                    modoLeitura: doc.modo, motivoModo: doc.motivo, paginas: doc.paginas };
+    const json = extrairJSON(resp.text);
+    if (!json || typeof json !== 'object' || Array.isArray(json)) {
+      estado.ia.numeros[chave] = { ...comum, erro: resp.truncated
+        ? 'A resposta do modelo veio truncada (limite de tokens).'
+        : 'Não consegui interpretar a resposta do modelo como a lista de números.' };
+      mostrarToast(`${f.rotulo}: ${estado.ia.numeros[chave].erro}`, 'aviso');
+    } else {
+      const conf = conferirNumeros(json, doc.texto);
+      estado.ia.numeros[chave] = { ...comum, ...conf };
+      mostrarToast(conf.conferido ? `${f.rotulo}: ${conf.resumo}` : conf.motivo,
+                   conf.conferido && conf.apurados.length ? 'sucesso' : 'aviso');
+    }
+    await salvarIA().catch(e => console.warn('Firebase:', e.message));
+    return estado.ia.numeros[chave];
+  });
+}
+
+/**
+ * Apura os números nas fontes ainda não lidas (até três por vez — uma chamada
+ * por documento). Ao final, os indicadores que têm campo na ficha viram
+ * propostas de preenchimento, com a mesma procedência exigida à mão.
+ */
+async function apurarNumeros({ silencioso = false } = {}) {
+  const q = estado.quadro;
+  if (!q?.materia?.disponivel) return null;
+  if (estado.lote || estado.ocupado) { if (!silencioso) mostrarToast('Já há uma leitura em andamento.', 'aviso'); return null; }
+  const fontes = fontesDeNumeros(q);
+  if (!fontes.length) {
+    if (!silencioso) mostrarToast('Nenhuma fonte com números foi publicada ainda — nem informativo ou nota técnica das Consultorias, nem o texto do projeto.', 'aviso');
+    return null;
+  }
+  const lidas = estado.ia?.numeros || {};
+  const faltando = fontes.filter(f => !lidas[chaveDocumento(f.url)]);
+  if (!faltando.length) { if (!silencioso) mostrarToast('Todas as fontes de números já foram lidas.', 'info'); return lidas; }
+  if (!exigirIA()) return null;
+  const lote = faltando.slice(0, 3);
+  if (!silencioso && !confirm(`Ler ${lote.length} documento(s) com IA?\n\n${lote.map(f => '· ' + f.rotulo).join('\n')}\n\nÉ uma chamada por documento; cada número volta com página e trecho, é conferido contra o texto, e o resultado fica salvo para a equipe toda.`)) return null;
+  estado.lote = true;
+  try {
+    for (let i = 0; i < lote.length; i++) {
+      const r = await lerFonteDeNumeros(lote[i]);
+      if (r === null) { mostrarToast(`Leitura interrompida em ${i} de ${lote.length} — resolva o erro acima e recomece.`, 'erro'); break; }
+    }
+  } finally { estado.lote = false; }
+  proporFichaDosNumeros();
+  render();
+  return estado.ia.numeros;
+}
+
+/**
+ * Os números conferidos, de todas as fontes lidas, sem repetição: para cada
+ * indicador vale a primeira fonte na ordem de fontesDeNumeros (a mais curta e
+ * mais direta). "Outros" entram todos, deduplicados por rótulo e valor.
+ */
+function numerosApurados(ia, q) {
+  const leituras = ia?.numeros || {};
+  const ordem = fontesDeNumeros(q || {}).map(f => chaveDocumento(f.url));
+  const chaves = [...ordem.filter(c => leituras[c]), ...Object.keys(leituras).filter(c => !ordem.includes(c))];
+  const out = []; const vistos = new Set();
+  for (const c of chaves) {
+    const l = leituras[c];
+    for (const a of (l.apurados || [])) {
+      const id = a.chave ? `i:${a.chave}` : `o:${a.rotulo}|${a.valor}`;
+      if (vistos.has(id)) continue;
+      vistos.add(id);
+      out.push({ ...a, fonte: l.rotulo, url: l.url, modoLeitura: l.modoLeitura });
+    }
+  }
+  return out;
+}
+function achadosApurados(ia) {
+  const leituras = ia?.numeros || {};
+  const out = []; const vistos = new Set();
+  for (const l of Object.values(leituras)) {
+    for (const a of (l.achados || [])) {
+      const id = compacto(a.afirmacao).slice(0, 60);
+      if (vistos.has(id)) continue;
+      vistos.add(id);
+      out.push({ ...a, fonte: l.rotulo, url: l.url });
+    }
+  }
+  return out;
+}
+
+/**
+ * Indicador conferido que tem campo na ficha (PIB, IPCA, Selic, câmbio,
+ * salário mínimo, reserva para emendas) vira PROPOSTA — o analista aceita, e
+ * o valor entra com documento, página e trecho, como se digitado.
+ */
+function proporFichaDosNumeros() {
+  if (!estado.ficha) return;
+  const campos = new Map(CAMPOS_FICHA.map(c => [c.chave, c]));
+  const novas = [];
+  for (const a of numerosApurados(estado.ia, estado.quadro)) {
+    if (!a.ficha || !campos.has(a.ficha)) continue;
+    if (estado.ficha.valores?.[a.ficha]) continue;
+    // Número carimbado com outro exercício não vira proposta: é o valor herdado
+    // que a ficha inteira existe para barrar.
+    if (a.exercicio && String(a.exercicio) !== String(estado.ano).slice(0, 4)) continue;
+    if (estado.propostas?.aceitas?.some(p => p.campo === a.ficha)) continue;
+    novas.push({ campo: a.ficha, rotulo: campos.get(a.ficha).rotulo, valor: a.valor, trecho: a.trecho,
+                 pagina: a.pagina, documento: a.fonte });
+  }
+  if (!novas.length) return;
+  if (!estado.propostas || !estado.propostas.conferido) {
+    estado.propostas = { conferido: true, aceitas: [], recusadas: [], documento: novas[0].documento, url: null,
+                         resumo: `${novas.length} campo(s) propostos a partir dos números apurados.` };
+  }
+  estado.propostas.aceitas.push(...novas);
+}
+
+/**
+ * O caminho de um clique só: Mensagem → números → ficha → síntese. Cada passo
+ * já sabe pular o que não se aplica (LDO sem tabela comparativa, exercício sem
+ * orientação normativa, fonte já lida) e declarar o que falhou.
+ */
+async function apurarTudo() {
+  const q = estado.quadro;
+  if (!q?.materia?.disponivel) return;
+  if (estado.lote || estado.ocupado) { mostrarToast('Já há uma leitura em andamento.', 'aviso'); return; }
+  if (!exigirIA()) return;
+  const passos = [];
+  if (!estado.variacao && q.materia.urlDocumento && estado.tipo === 'loa') passos.push('ler as tabelas comparativas da Mensagem');
+  const fontes = fontesDeNumeros(q);
+  const faltando = fontes.filter(f => !estado.ia?.numeros?.[chaveDocumento(f.url)]).slice(0, 3);
+  if (faltando.length) passos.push(`apurar os números em ${faltando.length} fonte(s)`);
+  const pendentes = CAMPOS_FICHA.filter(c => c.origem === 'ancora' && !estado.ficha?.valores?.[c.chave]).length;
+  if (q.emendas?.ancoraNormativa && pendentes && !estado.propostas) passos.push('extrair a ficha da orientação normativa');
+  passos.push('redigir a síntese');
+  if (!confirm(`Apurar tudo com IA — ${passos.join('; ')}. São até ${faltando.length + (passos.length - (faltando.length ? 1 : 0))} chamadas, e o resultado fica salvo para a equipe. Continuar?`)) return;
+
+  if (!estado.variacao && q.materia.urlDocumento && estado.tipo === 'loa') await lerMensagem();
+  if (faltando.length) await apurarNumeros({ silencioso: true });
+  if (q.emendas?.ancoraNormativa && pendentes && !estado.propostas) await proporFicha();
+  await redigirSintese({ silencioso: true });
+  mostrarToast('Apuração concluída — revise os cards e gere a nota.', 'sucesso');
+}
+
+function cardNumeros() {
+  const q = estado.quadro;
+  if (!q?.materia?.disponivel) return '';
+  const fontes = fontesDeNumeros(q);
+  const leituras = Object.values(estado.ia?.numeros || {});
+  const lidasUrl = new Set(leituras.map(l => l.url));
+  const faltando = fontes.filter(f => !lidasUrl.has(f.url));
+  const apurados = numerosApurados(estado.ia, q);
+  const achados = achadosApurados(estado.ia);
+  const recusados = leituras.flatMap(l => (l.recusados || []).map(r => ({ ...r, fonte: l.rotulo })));
+  const comErro = leituras.filter(l => l.erro);
+  const travado = estado.ocupado || estado.lote ? 'disabled' : '';
+
+  if (!fontes.length && !leituras.length) {
+    return `<div class="on-card largo"><h3>Números do exercício</h3>
+      <div class="on-pend">Nenhuma fonte com números foi publicada ainda para este exercício — nem informativo ou nota
+      técnica das Consultorias, nem o texto do projeto com a Mensagem Presidencial. Quando uma delas sair, a leitura
+      aparece aqui.</div></div>`;
+  }
+
+  const grupos = [...new Set(apurados.map(a => a.grupo))];
+  const linha = a => `<tr>
+    <td class="a"><strong>${esc(a.rotulo)}</strong>${a.exercicio ? ` <span style="font-size:10.5px;color:var(--text-dim)">${esc(a.exercicio)}</span>` : ''}</td>
+    <td style="width:26%"><strong>${esc(a.valor)}</strong></td>
+    <td style="width:34%;font-size:11px;color:var(--text-dim)" title="${esc(a.trecho || '')}">${esc(a.fonte)}${a.pagina ? `, p. ${esc(a.pagina)}` : ''}</td></tr>`;
+  const tabela = grupos.map(g => `<div style="margin-top:8px"><div class="on-rotulo">${esc(g)}</div>
+    <table class="on-tab">${apurados.filter(a => a.grupo === g).map(linha).join('')}</table></div>`).join('');
+
+  const botao = faltando.length
+    ? `<button class="btn btn-outline btn-sm" data-acao="apurar-numeros" style="margin-left:8px" ${travado}>
+         ${leituras.length ? `Ler as ${faltando.length} fonte(s) que faltam` : 'Apurar números com IA'}</button>`
+    : '';
+  const botaoTudo = !estado.ia?.sintese
+    ? `<button class="btn btn-primary btn-sm" data-acao="apurar-tudo" style="margin-left:8px" ${travado}>Apurar tudo e redigir</button>`
+    : '';
+
+  return `<div class="on-card largo"><h3>Números do exercício · o que a nota cita</h3>
+    <div style="font-size:12.5px;color:var(--text-dim);line-height:1.6">
+      ${leituras.length} de ${fontes.length} fonte(s) lida(s) · ${apurados.length} número(s) e ${achados.length} achado(s) conferidos contra o texto dos documentos.
+      ${botao}${botaoTudo}
+    </div>
+    ${apurados.length ? tabela : ''}
+    ${achados.length ? `<div style="margin-top:10px"><div class="on-rotulo">Destaques apontados nas fontes</div>
+      <ul class="on-lista">${achados.map(a => `<li>${a.tema ? `<strong>${esc(a.tema)}:</strong> ` : ''}${esc(a.afirmacao)}
+        <span style="font-size:11px;color:var(--text-dim)" title="${esc(a.trecho || '')}">(${esc(a.fonte)}${a.pagina ? `, p. ${esc(a.pagina)}` : ''})</span></li>`).join('')}</ul></div>` : ''}
+    ${recusados.length ? `<div class="on-falha"><strong>${recusados.length} item(ns) descartado(s) na conferência</strong> — o modelo os produziu, mas não foram
+      localizados no documento e por isso NÃO entram na nota:
+      <ul class="on-lista" style="margin-top:5px">${recusados.slice(0, 8).map(r => `<li>${esc(r.chave)}${r.valor ? ` (${esc(String(r.valor).slice(0, 60))})` : ''} — ${esc(r.motivo)}</li>`).join('')}</ul></div>` : ''}
+    ${comErro.length ? `<div class="on-pend">${comErro.map(l => `${esc(l.rotulo)}: ${esc(l.erro)}`).join('<br>')}</div>` : ''}
+    ${avisoModoLeitura(leituras)}
+    ${!leituras.length ? `<div class="on-pend">As fontes já estão localizadas — ${fontes.map(f => esc(f.rotulo)).join('; ')} — mas os números só existem
+      dentro dos PDFs. A leitura é feita por IA e cada número volta com página e trecho literal, conferidos contra o texto do próprio documento.</div>`
+      : faltando.length ? `<div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">Ainda não lidas: ${faltando.map(f => esc(f.rotulo)).join('; ')}.</div>` : ''}
+    <div style="font-size:11.5px;color:var(--text-dim);margin-top:8px">
+      Cada número exibido teve o trecho de origem localizado no documento e o valor localizado dentro do trecho.
+      Localizar não é interpretar: a leitura do que o número significa continua sendo do analista.
+    </div>
+  </div>`;
+}
+
+/**
+ * Os números na nota — a tabela que o gabinete lê antes de qualquer prosa, com
+ * a fonte e a página ao lado de cada um; depois, os destaques que as fontes
+ * registram. Só entra o conferido.
+ */
+function blocoNumerosNota(apurados = [], achados = []) {
+  if (!apurados.length && !achados.length) return '';
+  const grupos = [...new Set(apurados.map(a => a.grupo))];
+  const linha = a => `<tr><td class="r">${esc(a.rotulo)}</td><td><strong>${esc(a.valor)}</strong>${a.exercicio ? ` <span style="font-size:9pt;color:#555">(${esc(a.exercicio)})</span>` : ''}</td>
+    <td style="width:34%;font-size:9pt;color:#555">${esc(a.fonte)}${a.pagina ? `, p. ${esc(a.pagina)}` : ''}</td></tr>`;
+  const fontes = [...new Set([...apurados, ...achados].map(a => a.fonte).filter(Boolean))];
+  return `<h2>Números do exercício</h2>
+${apurados.length ? grupos.map(g => `<p><strong>${esc(g)}</strong></p><table>${apurados.filter(a => a.grupo === g).map(linha).join('')}</table>`).join('\n') : ''}
+${achados.length ? `<p><strong>Destaques registrados nas fontes</strong></p>
+<ul>${achados.map(a => `<li>${a.tema ? `<strong>${esc(a.tema)}:</strong> ` : ''}${esc(a.afirmacao)} <span style="font-size:9pt;color:#555">(${esc(a.fonte)}${a.pagina ? `, p. ${esc(a.pagina)}` : ''})</span></li>`).join('')}</ul>` : ''}
+<div class="fonte">Fontes: ${esc(fontes.join('; '))}. Cada número foi extraído com apoio de inteligência artificial e
+teve o trecho de origem localizado no texto do próprio documento; o que não foi localizado não consta deste quadro.</div>`;
+}
+
 // ---------- produto 3: a síntese analítica ----------
 /**
  * Redige o texto da nota a partir dos números JÁ conferidos, e depois confere
  * cada número escrito contra essa mesma base. O risco fica invertido: a IA não
  * extrai nada, só redige — e o que ela inventar aparece marcado.
  */
-async function redigirSintese() {
+async function redigirSintese({ silencioso = false } = {}) {
   const q = estado.quadro;
   if (!q?.materia?.disponivel) return;
   if (!exigirIA()) return;
   const base = { variacao: estado.variacao, serie: estado.serie ? seriesComDados(estado.serie) : [],
-                 ficha: estado.ficha, quadro: q };
-  const temDado = (estado.variacao?.comparado) || base.serie.length || Object.keys(estado.ficha?.valores || {}).length;
-  if (!temDado && !confirm('Nenhum número foi apurado ainda (nem variação, nem série, nem ficha). A síntese sairá só com o estágio da tramitação. Continuar?')) return;
+                 ficha: estado.ficha, quadro: q, numeros: numerosApurados(estado.ia, q), achados: achadosApurados(estado.ia) };
+  const temDado = (estado.variacao?.comparado) || base.serie.length || Object.keys(estado.ficha?.valores || {}).length
+    || base.numeros.length || base.achados.length;
+  if (!temDado && !silencioso && !confirm('Nenhum número foi apurado ainda (nem variação, nem série, nem ficha, nem os números das fontes). A síntese sairá só com o estágio da tramitação. Continuar?')) return;
 
   return comIA('redigindo a síntese', async (cfg) => {
     const resp = await chamarIAOrcamento({
@@ -1036,6 +1332,7 @@ function cardSintese() {
         escrito pela IA <strong>sobre os números já apurados</strong>. Ela não extrai cifra nenhuma: recebe a base
         conferida e redige em cima dela; depois, todo número do texto é procurado nessa base.
         <button class="btn btn-outline btn-sm" data-acao="redigir-sintese" style="margin-left:8px" ${estado.ocupado || estado.lote ? 'disabled' : ''}>Redigir síntese</button>
+        <button class="btn btn-primary btn-sm" data-acao="apurar-tudo" style="margin-left:4px" ${estado.ocupado || estado.lote ? 'disabled' : ''} title="Lê a Mensagem, apura os números nas fontes publicadas, propõe a ficha e redige a síntese — de uma vez">Apurar tudo e redigir</button>
       </div></div>`;
   }
   const c = s.conferencia || { limpo: true, suspeitos: [] };
@@ -1264,6 +1561,9 @@ function montarTextoNota(q) {
 function gerarNota() {
   const q = estado.quadro;
   if (!q?.materia?.disponivel) return;
+  if (!numerosApurados(estado.ia, q).length && !estado.ia?.sintese && !estado.variacao?.comparado) {
+    mostrarToast('A nota sai sem números apurados. Use "Apurar tudo e redigir" para preenchê-la com as fontes publicadas.', 'aviso');
+  }
   const w = window.open('', '_blank');
   if (!w) { alert('O navegador bloqueou a nova aba. Permita pop-ups para gerar a nota.'); return; }
   w.document.write(htmlNota(q, estado.conferencia, estado.ficha, estado.serie, estado.variacao, estado.ia));
@@ -1331,6 +1631,7 @@ Situação em ${carimbo.slice(0, 10)}: <strong>${esc(m.situacaoAtual || '—')}<
 ${pendencias.length ? 'A matéria ainda não percorreu todas as etapas na Comissão Mista, e por isso parte dos parâmetros operacionais não está definida — o que está e o que não está vem discriminado adiante.' : ''}</p>
 
 ${blocoSinteseNota(ia?.sintese)}
+${blocoNumerosNota(numerosApurados(ia, q), achadosApurados(ia))}
 
 ${/* A ORDEM É O CONTEÚDO.
       A versão anterior abria com identificação e com dez linhas de "Encerrada",
@@ -1625,7 +1926,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     'ler-cartilhas':   resumirTodasCartilhas,
     'propor-ficha':    proporFicha,
     'aceitar-todas':   aceitarTodasPropostas,
-    'redigir-sintese': redigirSintese,
+    'redigir-sintese': () => redigirSintese(),
+    'apurar-numeros':  () => apurarNumeros(),
+    'apurar-tudo':     apurarTudo,
   };
   $('on-corpo').addEventListener('click', ev => {
     const botao = ev.target.closest('[data-acao]');
