@@ -1289,6 +1289,11 @@ function htmlNota(q, conf, ficha, serie, variacao, ia) {
   // própria nota que o contém.
   const pendencias = pendenciasDo(q);
 
+  // Exercício concluído: a tramitação vira uma frase e o cronograma vencido sai
+  // da nota. Enquanto ele corre, os dois são o que o gabinete acompanha.
+  const concluida = a.disponivel && a.etapas.length > 0
+    && a.etapas.every(et => /encerrad/i.test(et.estado || ''));
+
   const alertas = conf ? resumoConferencia(conf.resultado) : null;
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8">
@@ -1327,7 +1332,37 @@ ${pendencias.length ? 'A matéria ainda não percorreu todas as etapas na Comiss
 
 ${blocoSinteseNota(ia?.sintese)}
 
-<h2>1. Identificação da matéria</h2>
+${/* A ORDEM É O CONTEÚDO.
+      A versão anterior abria com identificação e com dez linhas de "Encerrada",
+      e só chegava a número algum no fim — quando chegava. Um deputado que lê a
+      primeira página tem de sair sabendo quanto tem, até quando, o que mudou e
+      onde está o documento que decide. Processo e anexos vão depois. */''}
+${blocoVariacaoNota(variacao)}
+${blocoFichaNota(q, ficha)}
+${blocoSerieNota(serie)}
+
+<h2>Prazo de emendas</h2>
+${c.disponivel && c.prazoEmendas
+  ? `<p>O cronograma aprovado pela Comissão Mista fixa a apresentação de emendas ao projeto entre
+     <strong>${esc(c.prazoEmendas.inicio)}</strong> e <strong>${esc(c.prazoEmendas.fim)}</strong>${concluida ? ', prazo já encerrado' : ''}.</p>`
+  : `<div class="pend">${esc(c.motivo || 'Cronograma não disponível.')} Sem cronograma aprovado não há prazo fixado, e ele não se deduz do exercício anterior.</div>`}
+
+${blocoDecisivosNota(q)}
+${blocoAcoesNota(ia)}
+
+${pendencias.length ? `<h2>O que ainda não está definido</h2>
+<div class="pend">Nesta data, os itens abaixo não foram publicados pela Comissão Mista. Nenhum deles pode ser
+antecipado a partir de exercícios anteriores: são fixados a cada ano, e o regime de emendas muda entre eles.
+<ul>${pendencias.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
+
+${e.disponivel && e.ancoraNormativa ? `<h2>Base normativa do exercício</h2>
+<p>Os parâmetros operacionais das emendas deste exercício constam do
+<strong>${esc(e.ancoraNormativa.rotulo)}</strong>, publicado pela Comissão Mista, que é a referência a ser consultada
+para cotas, quantidades, sequenciais de cancelamento e pisos de repasse.</p>
+${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:</strong><br>${alertas.map(esc).join('<br>')}
+<br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
+
+<h2>Identificação da matéria</h2>
 <table>
   <tr><td class="r">Matéria</td><td>${esc(m.identificacao)} — ${esc(m.apelido)}</td></tr>
   <tr><td class="r">Ementa</td><td>${esc(m.ementa)}</td></tr>
@@ -1346,33 +1381,18 @@ ${blocoSinteseNota(ia?.sintese)}
 </table>
 <div class="fonte">Fonte: Senado Federal, Dados Abertos (processo ${esc(m.identificacao)}); Congresso Nacional, Orçamento da União ${esc(q.anoOrcamento)}. Consulta em ${carimbo}.</div>
 
-${a.disponivel ? `<h2>2. Estágio da tramitação</h2>
-<table>${a.etapas.map((et, i) => `<tr><td class="r" style="width:8%">${i + 1}.</td><td>${esc(et.nome)}</td><td style="width:28%;text-align:right">${esc(et.estado || '—')}</td></tr>`).join('')}</table>
-${a.ultimoEstado ? `<div class="fonte">Último estado: ${esc(a.ultimoEstado.data)} — ${esc(a.ultimoEstado.descricao)}.</div>` : ''}` : ''}
+${a.disponivel ? `<h2>Estágio da tramitação</h2>
+${/* Dez linhas de "Encerrada" não são informação. Num exercício concluído a
+     tramitação cabe numa frase; enquanto ele corre, o quadro etapa a etapa é o
+     que mostra onde a matéria parou. */''}
+${concluida
+  ? `<p>As dez etapas da tramitação na Comissão Mista estão encerradas${a.ultimoEstado ? `; o último estado registrado é de ${esc(a.ultimoEstado.data)} — ${esc(a.ultimoEstado.descricao)}` : ''}.</p>`
+  : `<table>${a.etapas.map((et, i) => `<tr><td class="r" style="width:8%">${i + 1}.</td><td>${esc(et.nome)}</td><td style="width:28%;text-align:right">${esc(et.estado || '—')}</td></tr>`).join('')}</table>
+     ${a.ultimoEstado ? `<div class="fonte">Último estado: ${esc(a.ultimoEstado.data)} — ${esc(a.ultimoEstado.descricao)}.</div>` : ''}`}` : ''}
 
-<h2>3. Prazo de emendas</h2>
-${c.disponivel && c.prazoEmendas
-  ? `<p>O cronograma aprovado pela Comissão Mista fixa a apresentação de emendas ao projeto entre
-     <strong>${esc(c.prazoEmendas.inicio)}</strong> e <strong>${esc(c.prazoEmendas.fim)}</strong>.</p>
-     <table>${c.itens.map(i => `<tr><td class="r" style="width:8%">${i.ordem}.</td><td>${esc(i.descricao)}</td><td style="width:30%;text-align:right">${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` (${esc(i.observacao)})` : ''}</td></tr>`).join('')}</table>`
-  : `<div class="pend">${esc(c.motivo || 'Cronograma não disponível.')} Sem cronograma aprovado não há prazo fixado, e ele não se deduz do exercício anterior.</div>`}
+${c.disponivel && c.itens.length && !concluida ? `<h2>Cronograma da Comissão Mista</h2>
+<table>${c.itens.map(i => `<tr><td class="r" style="width:8%">${i.ordem}.</td><td>${esc(i.descricao)}</td><td style="width:30%;text-align:right">${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` (${esc(i.observacao)})` : ''}</td></tr>`).join('')}</table>` : ''}
 
-${pendencias.length ? `<h2>4. O que ainda não está definido</h2>
-<div class="pend">Nesta data, os itens abaixo não foram publicados pela Comissão Mista. Nenhum deles pode ser
-antecipado a partir de exercícios anteriores: são fixados a cada ano, e o regime de emendas muda entre eles.
-<ul>${pendencias.map(p => `<li>${esc(p)}</li>`).join('')}</ul></div>` : ''}
-
-${e.disponivel && e.ancoraNormativa ? `<h2>${pendencias.length ? '5' : '4'}. Base normativa do exercício</h2>
-<p>Os parâmetros operacionais das emendas deste exercício constam do
-<strong>${esc(e.ancoraNormativa.rotulo)}</strong>, publicado pela Comissão Mista, que é a referência a ser consultada
-para cotas, quantidades, sequenciais de cancelamento e pisos de repasse.</p>
-${alertas ? `<div class="conf"><strong>Conferência automática contra o Manual:</strong><br>${alertas.map(esc).join('<br>')}
-<br><span style="font-size:9pt">A conferência indica apenas se a norma ou o valor citado consta do documento do exercício; constar não significa que o dispositivo siga aplicável ao mesmo caso.</span></div>` : ''}` : ''}
-
-${blocoFichaNota(q, ficha, pendencias.length)}
-${blocoSerieNota(serie)}
-${blocoVariacaoNota(variacao)}
-${blocoAcoesNota(ia)}
 ${q.executivo && q.executivo.disponivel ? `<h2>Documentos do Poder Executivo</h2>
 <p>O conteúdo do orçamento — alocação por órgão, parâmetros adotados e o que muda em relação à lei vigente —
 está nos documentos publicados pelo Ministério do Planejamento${m.urlDocumento ? `, e a <strong>Mensagem Presidencial</strong> integra o PDF do próprio ${esc(m.identificacao)}, em suas páginas iniciais` : ''}.</p>
@@ -1392,14 +1412,13 @@ ${q.alteracoes.emTramitacao.length ? `<div class="pend">Em tramitação nesta da
  * que falta — a lacuna declarada vale mais que a linha omitida, porque o
  * gabinete precisa saber que aquele número ainda não existe.
  */
-function blocoFichaNota(q, ficha, temPendencias) {
+function blocoFichaNota(q, ficha) {
   if (!ficha) return '';
   const linhas = estadoDaFicha(ficha, fontesDoExercicio(q));
   const comValor = linhas.filter(l => l.valor);
   const semValor = linhas.filter(l => !l.valor);
   if (!comValor.length && !semValor.length) return '';
 
-  const n = temPendencias ? 6 : 5;
   const linhaHtml = l => `<tr>
     <td class="r">${esc(l.rotulo)}</td>
     <td><strong>${esc(l.valor)}</strong>${l.estado === 'divergente' ? ' <span class="nd">⚠ não localizado na fonte</span>' : ''}</td>
@@ -1409,7 +1428,7 @@ function blocoFichaNota(q, ficha, temPendencias) {
   const aguardando = semValor.filter(l => l.estado === 'aguardando');
   const aPreencher = semValor.filter(l => l.estado === 'pendente');
 
-  return `<h2>${n}. Parâmetros do exercício</h2>
+  return `<h2>Parâmetros do exercício</h2>
 ${comValor.length
   ? `<table>${comValor.map(linhaHtml).join('')}</table>
      <div class="fonte">Cada valor traz o documento de onde foi extraído. "Não localizado na fonte" significa que a
@@ -1449,6 +1468,60 @@ ${v.porOrgao ? `<p><strong>Por órgão — ${esc(v.porOrgao.titulo || 'distribui
 <div class="fonte">${v.porOrgao.confere
   ? `Leitura conferida contra o total impresso no documento (${esc(formatarBR(v.porOrgao.total))}): a tabela está completa.`
   : esc(v.porOrgao.motivo)}</div>` : ''}`;
+}
+
+/**
+ * OS DOCUMENTOS QUE DECIDEM.
+ *
+ * Esta seção nasceu de uma constatação simples: a nota da LOA 2026 — exercício
+ * já encerrado, virou a Lei 15.346/2026 — saía com 6.900 caracteres em que o
+ * único número substantivo era uma data de 2025. Enquanto isso, o módulo lia
+ * 210 documentos da tramitação e não mostrava nenhum na nota, entre eles o
+ * RELATÓRIO GERAL da CMO (onde estão os números finais), os 16 RELATÓRIOS
+ * SETORIAIS por área temática e o RELATÓRIO DE DISTRIBUIÇÃO DOS RECURSOS POR
+ * BANCADA — que é quanto cada bancada estadual recebeu.
+ *
+ * O gabinete não precisa que a nota repita o que está no Google. Precisa que
+ * ela aponte, com nome e link, o documento que responde à pergunta dele.
+ */
+function blocoDecisivosNota(q) {
+  const a = q.acompanhamento;
+  if (!a?.disponivel) return '';
+  const geral = a.relatorioGeral, dist = a.distribuicaoBancadas || [], set = a.relatoriosSetoriais || [];
+  const outros = (a.documentos || []).filter(d =>
+    ['autografo', 'quadro_comparativo', 'nota_tecnica', 'relatorio_legislativo'].includes(d.classe));
+  if (!geral && !dist.length && !set.length && !outros.length) return '';
+
+  // As áreas relatadas pela bancada primeiro: é onde o acesso existe.
+  const daBancada = new Set((q.relatores?.setoriais || [])
+    .filter(s => SIGLA_PODE.test(s.partido || ''))
+    .map(s => partesDaArea(s.area).nome.toLowerCase()));
+  const ehDaBancada = d => daBancada.has(String(d.area || '').toLowerCase());
+  // O portal republica versões do mesmo setorial (complementação, retificação):
+  // uma linha por ÁREA, com o documento mais recente, que é o primeiro da lista.
+  const porArea = [];
+  for (const d of set) if (!porArea.some(x => x.area === d.area)) porArea.push(d);
+  porArea.sort((x, y) => (ehDaBancada(y) - ehDaBancada(x)) || String(x.area).localeCompare(String(y.area), 'pt-BR'));
+
+  const linha = (rot, d, destaque) => `<tr><td class="r">${esc(rot)}</td>
+    <td>${destaque ? '<strong>' : ''}${esc(d.rotulo)}${destaque ? '</strong>' : ''}
+      <div style="font-size:8.5pt;color:#555;word-break:break-all">${esc(d.url)}</div></td></tr>`;
+
+  return `<h2>Onde estão os números — documentos decisivos da tramitação</h2>
+<p>Os valores finais do exercício não estão nesta nota: estão nos relatórios abaixo, publicados pela Comissão
+Mista. Esta seção existe para levar o gabinete direto a eles, em vez de percorrer os
+${a.documentos.length + (a.documentosOmitidos || 0)} documentos da tramitação.</p>
+<table>
+  ${geral ? linha('Relatório Geral', geral, true) : ''}
+  ${dist.map(d => linha('Distribuição por bancada', d, true)).join('')}
+  ${outros.map(d => linha(({ autografo: 'Autógrafo', quadro_comparativo: 'Quadro comparativo',
+      nota_tecnica: 'Nota técnica da consultoria', relatorio_legislativo: 'Relatório legislativo' })[d.classe], d, false)).join('')}
+</table>
+${porArea.length ? `<p><strong>Relatórios setoriais por área temática</strong>${daBancada.size ? ' — as áreas relatadas pela bancada vêm primeiro' : ''}</p>
+<table>${porArea.map(d => `<tr>
+  <td class="r">${esc(d.area)}${ehDaBancada(d) ? ' <span style="color:#00794a">◆ bancada</span>' : ''}</td>
+  <td>${esc(d.rotulo)}<div style="font-size:8.5pt;color:#555;word-break:break-all">${esc(d.url)}</div></td></tr>`).join('')}</table>` : ''}
+${geral ? '' : '<div class="pend">O Relatório Geral ainda não foi publicado — é dele que saem os valores finais por órgão e o montante efetivamente destinado a emendas.</div>'}`;
 }
 
 /**
