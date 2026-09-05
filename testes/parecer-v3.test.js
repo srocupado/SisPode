@@ -62,6 +62,27 @@ const achadosX = [
   ok(!F.objetoEnunciado('A MP delega ao Ministro a alteração das alíquotas do regime simplificado.', ficha).ok, 'síntese sem valores reprova no G2 (o caso real)');
   ok(/Regra vigente \(transcri/.test(F.fichaParaTexto(ficha)) && /<table class="ficha">/.test(F.fichaParaHtml(ficha)), 'ficha em texto e em HTML');
 
+  console.log('== ficha de matéria qualitativa (PL 1893/2026: negociação coletiva, sem números) ==');
+  {
+    const fontePL = 'A lacuna tornou-se ainda mais sensível após o Supremo Tribunal Federal declarar a inconstitucionalidade das alíneas d e e do art. 240 da Lei nº 8.112, de 11 de dezembro de 1990. Art. 19. Esta Lei entra em vigor noventa dias após a data de sua publicação. Brasília, 11 de agosto de 2026.';
+    const achadosPL = [
+      { lente: 'X', pergunta: 'dispositivo', achado: 'art. 240 da Lei 8.112/1990 e lei nova (arts. 1º a 19)', trecho: 'alíneas d e e do art. 240 da Lei nº 8.112, de 11 de dezembro de 1990' },
+      { lente: 'X', pergunta: 'regra_antes', achado: 'Não há lei que discipline a negociação coletiva no setor público; as alíneas d e e do art. 240 da Lei 8.112/1990 foram declaradas inconstitucionais.', trecho: 'A lacuna tornou-se ainda mais sensível após o Supremo Tribunal Federal' },
+      { lente: 'X', pergunta: 'regra_depois', achado: 'Institui a negociação das relações de trabalho no setor público e a representação sindical dos servidores.', trecho: 'Esta Lei entra em vigor noventa dias após a data de sua publicação' },
+    ];
+    const fq = F.montarFicha({ achados: achadosPL, leiVigente: [{ norma: 'Lei nº 8.112, de 11 de dezembro de 1990', compilado: false, desatualizado: true, url: 'u', trechos: [{ artigo: 'Art. 240', texto: 'Art. 240. Ao servidor público civil é assegurado, nos termos da Constituição Federal, o direito à livre associação sindical e os seguintes direitos, entre outros, dela decorrentes: d) de negociação coletiva; e) de ajuizamento' }] }],
+      marco: { data: '2026-08-11', trecho: 'entra em vigor na data de sua publicação — Brasília, 11 de agosto de 2026' }, identificacao: 'PL 1893/2026', fonte: fontePL, sigla: 'PL' });
+    ok(fq.completa && !fq.quantitativa && !fq.faltas.length, 'regra sem números: ficha completa sem exigir valores (faltas: ' + fq.faltas.join(', ') + ')');
+    ok(fq.regraVigente && fq.regraVigente.origem === 'documento' && /Não há lei/.test(fq.regraVigente.texto), 'texto original de 1990 recusado; "não há lei que discipline" vale como regra vigente, com origem declarada');
+    ok(fq.dataEfeito && fq.dataEfeito.data === null && /noventa dias/.test(fq.dataEfeito.clausula) && fq.dataEfeito.condicional && /se aprovado/.test(F.dataEfeitoTexto(fq)), 'projeto: a data do fecho do parecer não vira vigência; vale a cláusula, condicionada à aprovação');
+    ok(F.objetoEnunciado('O PL 1893/2026 institui a negociação coletiva e altera o art. 240 da Lei 8.112/1990.', fq).ok && !F.objetoEnunciado('O projeto institui a negociação coletiva.', fq).ok, 'G2 sem números: a síntese tem de nomear a norma alterada (8.112)');
+    const semRegraPL = F.montarFicha({ achados: achadosPL.filter(a => a.pergunta !== 'regra_antes'), leiVigente: fq.leiTentada.map(l => ({ norma: l.norma, compilado: false, desatualizado: true, trechos: [] })), marco: null, identificacao: 'PL 1893/2026', fonte: fontePL });
+    const gq = G.aplicarGates({ ficha: semRegraPL, dossie: { avisos: [] }, tese: { afirmacoes: [] }, texto: 'Síntese\n\nx', nivel: 'C' });
+    ok(gq.faixas.some(f => /texto original de Lei nº 8\.112/.test(f) && /não vale como regra vigente/.test(f)), 'G1 diz a causa exata: Planalto mudo, Senado só com o texto original, documento sem a regra atual');
+    const clausulas = ['Esta Lei entra em vigor na data de sua publicação.', 'Esta Lei entra em vigor 180 (cento e oitenta) dias após a sua publicação oficial.', 'entrará em vigor no primeiro dia do exercício financeiro seguinte'];
+    ok(clausulas.every(c => F.clausulaDeVigencia(c)) && /180 \(cento e oitenta\) dias após/.test(F.clausulaDeVigencia(clausulas[1]).clausula), 'clausulaDeVigencia lê as três formas usuais');
+  }
+
   console.log('== catálogo e validação da tese ==');
   const dossie = { nivel: 'B', estimativas: [{ literal: 'R$ 3,5 bilhões', trecho: 'para 2024, R$ 3,5 bilhões associados ao Programa Mover', rotulo: 'Parecer do Senado', vinculo: false }], negacoes: [{ trecho: 'não ocasiona renúncia de receitas tributárias', rotulo: 'EMI 1146/2026' }], marco: { data: '2026-05-12', trecho: 'x' }, leiVigente: [], janelas: {}, fontes: [], avisos: [],
     prc: { relatorios: 29, primeiro: '2023-08', ultimo: '2026-07', janelas: { nivel: 'B', antes: { de: '2025-05', ate: '2026-04', meses: 12, porMes: { remessas: 15.2e6, usd: 305.8e6, ii: 446.6e6, iiPrc: 319.6e6, iiNaoPrc: 127e6 }, ticketUsd: 20.07, aliquotaEfetiva: 0.272, participacaoPrc: 0.965 }, depois: { de: '2026-05', ate: '2026-07', meses: 3, porMes: { remessas: 25.1e6, usd: 517.2e6, ii: 297e6, iiPrc: 139.4e6, iiNaoPrc: 157.6e6 }, ticketUsd: 20.83, aliquotaEfetiva: 0.113, participacaoPrc: 0.975 } } } };
@@ -197,6 +218,11 @@ const achadosX = [
   const io2 = { ...io, chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /apura o HISTÓRICO/.test(prompt) ? 'historico' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostasRuins[nome] || '[]', truncated: false }; } };
   // sem histórico na apuração geral, o pipeline faz UMA chamada só para ele
   const io3 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'historico')), truncated: false }; if (/apura o HISTÓRICO/.test(prompt)) return { text: JSON.stringify([{ lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026' }]), truncated: false }; return io.chamarModelo({ prompt }); } };
+  // sem regra_antes na apuração geral, há uma chamada só para a ficha do objeto
+  let promptFichaVisto = '';
+  const io5 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'regra_antes')), truncated: false }; if (/FICHA DO OBJETO de um parecer/.test(prompt)) { promptFichaVisto = prompt; return { text: JSON.stringify(achadosX.filter(a => ['regra_antes', 'dispositivo'].includes(a.pergunta))), truncated: false }; } return io.chamarModelo({ prompt }); } };
+  const p5 = await PP.gerarParecer(ctx, io5);
+  ok(!p5.erro && p5.chamadas.some(c => c.nome === 'ficha') && p5.ficha.regraVigente && /NÃO HAVENDO regra/.test(promptFichaVisto) && p5.apuracao.aprovados === p.apuracao.aprovados, 'sem regra_antes: chamada dedicada à ficha, achado entra uma vez só (dispositivo já existente não duplica)');
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   // apuração geral truncada (o raciocínio conta no teto de saída): uma chamada por lente, ficha só na primeira
