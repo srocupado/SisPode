@@ -44,14 +44,22 @@ const PADROES_REGRA_ATUAL = [
   new RegExp(`atualmente,?${ATE_FIM_DA_FRASE}`, 'i'),
   new RegExp(`(?:hoje|na legisla[çc][ãa]o vigente),?${ATE_FIM_DA_FRASE}`, 'i'),
 ];
+/** Recorta a transcrição logo após o último valor: o que vem depois já é outro assunto ("11 Ao atribuir competência…"). */
+function recortarRegra(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ').trim();
+  let fim = -1; const re = new RegExp(RE_VALOR_FICHA.source, 'g'); let m;
+  while ((m = re.exec(t)) !== null) fim = m.index + m[0].length;
+  return fim > 0 ? t.slice(0, Math.min(t.length, fim + 1)).replace(/[,;:\s]+$/, '') : t.slice(0, 700);
+}
+
 /** Transcrição da regra atual localizada no texto por padrão fixo — exige ao menos dois valores. */
 function regraVigenteNoTexto(fonte) {
   const t = String(fonte || '').replace(/\s+/g, ' ');
   for (const re of PADROES_REGRA_ATUAL) {
     const m = re.exec(t);
     if (!m) continue;
-    const texto = m[0].trim().slice(0, 700);
-    if (valoresDoTexto(texto).length >= 2) return { texto, padrao: re.source.slice(0, 40) };
+    const texto = recortarRegra(m[0].slice(0, 700));
+    if (valoresDoTexto(texto).length >= 2) return { texto };
   }
   return null;
 }
@@ -84,7 +92,7 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
     // transcrevendo a tabela). Última rede: o programa procura no texto a
     // transcrição da regra atual por padrões fixos, e declara a origem.
     const r = regraVigenteNoTexto(fonte);
-    if (r) ficha.regraVigente = { texto: r.texto, trecho: r.texto, origem: 'documento', fonte: `transcrição no documento analisado (localizada por programa: "${r.padrao}")`, url: null };
+    if (r) ficha.regraVigente = { texto: r.texto, trecho: r.texto, origem: 'documento', fonte: 'transcrição no documento analisado, localizada por programa', url: null };
   }
   if (aDepois) ficha.regraProposta = { texto: aDepois.achado, trecho: aDepois.trecho || null, dispositivo: aDepois.dispositivo || null, fonte: 'texto analisado' };
   if (marco && marco.data) ficha.dataEfeito = { data: marco.data, trecho: marco.trecho, aproximado: !!marco.aproximado };
@@ -141,5 +149,5 @@ const CSS_FICHA = `
     .ficha-falta { color:#b03030; }`;
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, objetoEnunciado, fichaParaTexto, fichaParaHtml, CSS_FICHA };
+  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, recortarRegra, objetoEnunciado, fichaParaTexto, fichaParaHtml, CSS_FICHA };
 }
