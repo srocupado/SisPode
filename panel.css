@@ -667,11 +667,22 @@ body {
 .btn-danger:hover  { background: #f05454; }
 
 /* ---- MODAIS ---- */
+/* As camadas do painel, de baixo para cima:
+     .app-header ......  10
+     .tela-home ....... 200  (fixed, inset 0, FUNDO OPACO)
+     .modal-overlay ... 300
+     .toast ........... 400  (precisa cobrir o modal: é o retorno das ações dele)
+     .cn-interesse-pop 1000
+
+   O modal estava em 100, ABAIXO da home. Passa despercebido enquanto todo modal
+   é aberto de dentro da tela de destaques, com a home já em display:none — mas
+   qualquer modal aberto a partir da PRÓPRIA home abre atrás dela: display:flex
+   aplicado, nenhum erro no console, nada visível. Um clique que não faz nada. */
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,.65);
-  z-index: 100;
+  z-index: 300;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -843,7 +854,7 @@ body {
   padding: 12px 20px;
   border-radius: 8px;
   font-size: 13px;
-  z-index: 200;
+  z-index: 400;   /* acima do modal (300): o toast é o retorno das ações dele */
   box-shadow: 0 4px 20px rgba(0,0,0,.4);
   animation: slideUp .2s ease;
 }
