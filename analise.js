@@ -5765,10 +5765,20 @@ function iconeEditar() {
 // ============================================================
 //  CONFIGURAÇÕES (provedor IA)
 // ============================================================
+/**
+ * Chave de um provedor. A configuração guardava UMA chave (a do provedor da
+ * nota comum); o diálogo do parecer oferece os três provedores, então as
+ * chaves passaram a ser guardadas por provedor em `chaves`. A antiga
+ * `apiKey` continua valendo para o seu provedor — sem migração.
+ */
+function chaveDoProvedor(pid, cfg = state.config || {}) {
+  return (cfg.chaves && cfg.chaves[pid]) || (cfg.provedor === pid ? cfg.apiKey : '') || '';
+}
+
 function abrirConfig() {
   const c = state.config || {};
   document.getElementById('config-provedor').value = c.provedor || 'gemini';
-  document.getElementById('config-api-key').value  = c.apiKey   || '';
+  document.getElementById('config-api-key').value  = chaveDoProvedor(c.provedor || 'gemini', c);
   onProvedorChange();
   popularSelectModelos(c.modelo);
   renderInteresseConfig();
@@ -5797,6 +5807,8 @@ function onProvedorChange() {
   const inp = document.getElementById('config-api-key');
   inp.placeholder = p.placeholderChave;
   document.getElementById('config-hint-chave').textContent = p.hintChave;
+  // Ao trocar o provedor, o campo mostra a chave guardada DELE (ou fica vazio).
+  inp.value = chaveDoProvedor(pid);
   popularSelectModelos();
 }
 
@@ -5852,6 +5864,16 @@ function popularSelectModelos(selecionado, lista) {
   }).join('');
   if (alvo) sel.value = alvo;
   avisarFaixaModelo();
+  // O seletor do Parecer de Especialista usa a mesma lista: "Automático" mais
+  // os modelos, com os econômicos desabilitados e o motivo. O fixado é por provedor.
+  const selP = document.getElementById('config-modelo-parecer');
+  if (selP) {
+    const fixado = (state.config?.modeloParecer || {})[pid] || '';
+    const rk = ranquearModelos(modelos.map(m => m.id));
+    selP.innerHTML = '<option value="">Automático — o melhor do provedor no momento</option>' + rk.map(m =>
+      `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para o parecer)'}</option>`).join('');
+    selP.value = rk.some(m => m.id === fixado && m.elegivel) ? fixado : '';
+  }
 }
 
 /**
@@ -5917,7 +5939,14 @@ async function salvarConfig() {
     mostrarToast(`Chave inválida para ${p.label}.`, 'aviso');
     return;
   }
-  state.config = { ...(state.config || {}), provedor: pid, apiKey: key, modelo };
+  const chaves = { ...((state.config || {}).chaves || {}) };
+  // A chave antiga (única) entra no mapa do seu provedor, se ainda não estiver lá.
+  if (state.config?.apiKey && state.config?.provedor && !chaves[state.config.provedor]) chaves[state.config.provedor] = state.config.apiKey;
+  chaves[pid] = key;
+  const modeloParecer = { ...((state.config || {}).modeloParecer || {}) };
+  const selP = document.getElementById('config-modelo-parecer');
+  if (selP) { if (selP.value) modeloParecer[pid] = selP.value; else delete modeloParecer[pid]; }
+  state.config = { ...(state.config || {}), provedor: pid, apiKey: key, modelo, chaves, modeloParecer };
   delete state.config.geminiKey;
   await new Promise(r => chrome.storage.local.set({ config: state.config }, r));
   document.getElementById('modal-configuracoes').style.display = 'none';
@@ -6789,10 +6818,96 @@ async function situacaoDaProposicao(idProposicao) {
   } catch (_) { return ''; }
 }
 
+// Listagens ao vivo por provedor, guardadas na sessão: o diálogo abre sem
+// esperar a rede a cada parecer.
+const _modelosPorProvedor = {};
+async function listarModelosDoProvedor(pid) {
+  const chave = chaveDoProvedor(pid);
+  if (!chave) return [];
+  if (_modelosPorProvedor[pid]) return _modelosPorProvedor[pid];
+  const lista = await PROVEDORES_META[pid].listar(chave);
+  _modelosPorProvedor[pid] = lista;
+  return lista;
+}
+
+/**
+ * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
+ * com o melhor de cada provedor pré-selecionado (ou o fixado na
+ * configuração), econômicos desabilitados com o motivo, e o custo em
+ * palavras. Devolve { pid, apiKey, modelo, faixa, motivo, ressalva } ou null.
+ *
+ * Decisão da Liderança (05/09/2026): o parecer é raro e caro, e a escolha
+ * do modelo aparece no momento em que custa — reverte, só aqui, a regra
+ * "sem confirmação" do início.
+ */
+function confirmarModeloParecer(it) {
+  return new Promise(resolve => {
+    const cfg = state.config || {};
+    const provedores = Object.keys(PROVEDORES_META);
+    const comChave = provedores.filter(p => chaveDoProvedor(p, cfg));
+    if (!comChave.length) { mostrarToast('Configure a chave de ao menos um provedor antes de gerar o parecer.', 'aviso'); resolve(null); return; }
+    document.getElementById('dlg-parecer')?.remove();
+    const ov = document.createElement('div');
+    ov.id = 'dlg-parecer'; ov.className = 'modal-overlay'; ov.style.display = 'flex';
+    ov.innerHTML = `<div class="modal" style="max-width:560px">
+      <div class="modal-header"><h3>Parecer de Especialista</h3><button class="modal-close" id="dlg-parecer-fechar">✕</button></div>
+      <div class="modal-body">
+        <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 12px">${escapeHtml(`${it.sigla} ${it.numero}/${it.ano}`)} — ${escapeHtml((it.ementa || '').slice(0, 160))}${(it.ementa || '').length > 160 ? '…' : ''}</p>
+        <div class="form-group"><label>Provedor</label>
+          <select id="dlg-parecer-provedor" class="form-input">${provedores.map(p => `<option value="${p}"${comChave.includes(p) ? '' : ' disabled'}>${escapeHtml(PROVEDORES_META[p].label)}${comChave.includes(p) ? '' : ' — sem chave cadastrada'}</option>`).join('')}</select></div>
+        <div class="form-group"><label>Modelo</label>
+          <select id="dlg-parecer-modelo" class="form-input"><option value="">carregando a lista do provedor…</option></select>
+          <div id="dlg-parecer-status" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;line-height:1.5"></div></div>
+        <p style="font-size:12px;color:var(--text-dim);margin:10px 0 0;line-height:1.5">Custo esperado: 4 a 6 chamadas ao modelo com raciocínio em nível alto, cerca de 60 a 90 mil tokens e 3 a 6 minutos. O modelo e o motivo da escolha ficam impressos no parecer.</p>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline" id="dlg-parecer-cancelar">Cancelar</button><button class="btn btn-primary" id="dlg-parecer-gerar" disabled>Gerar parecer</button></div>
+    </div>`;
+    document.body.appendChild(ov);
+    const selP = ov.querySelector('#dlg-parecer-provedor'), selM = ov.querySelector('#dlg-parecer-modelo'), st = ov.querySelector('#dlg-parecer-status'), btnG = ov.querySelector('#dlg-parecer-gerar');
+    let escolhaAuto = null;
+    const fechar = v => { ov.remove(); resolve(v); };
+    const preferido = () => comChave.includes(cfg.provedor) ? cfg.provedor : comChave[0];
+    selP.value = preferido();
+    async function carregar() {
+      const pid = selP.value;
+      btnG.disabled = true; selM.innerHTML = '<option value="">carregando a lista do provedor…</option>'; st.textContent = '';
+      let lista = [];
+      try { lista = await listarModelosDoProvedor(pid); } catch (e) { st.textContent = `Não consegui listar os modelos: ${e.message}`; return; }
+      if (selP.value !== pid) return;
+      const rk = ranquearModelos(lista.map(m => m.id));
+      escolhaAuto = escolherModelo(lista.map(m => m.id), { padraoDoUsuario: cfg.modelo, fixado: (cfg.modeloParecer || {})[pid] || null });
+      if (escolhaAuto.erro) { selM.innerHTML = '<option value="">nenhum modelo adequado</option>'; st.textContent = escolhaAuto.erro; return; }
+      selM.innerHTML = rk.map(m => `<option value="${escapeHtml(m.id)}"${m.elegivel ? '' : ' disabled'}>${escapeHtml(m.id)} — ${ROTULO_FAIXA[m.faixa]}${m.elegivel ? '' : ' (não disponível para o parecer)'}</option>`).join('');
+      selM.value = escolhaAuto.modelo;
+      st.textContent = escolhaAuto.motivo;
+      btnG.disabled = false;
+    }
+    selP.addEventListener('change', carregar);
+    selM.addEventListener('change', () => {
+      const id = selM.value; const f = faixaDoModelo(id);
+      st.textContent = id === escolhaAuto?.modelo ? escolhaAuto.motivo : `Escolhido pelo usuário no diálogo (${id}, ${ROTULO_FAIXA[f]}).`;
+    });
+    ov.querySelector('#dlg-parecer-fechar').addEventListener('click', () => fechar(null));
+    ov.querySelector('#dlg-parecer-cancelar').addEventListener('click', () => fechar(null));
+    btnG.addEventListener('click', () => {
+      const pid = selP.value, modelo = selM.value;
+      if (!modelo) return;
+      const f = faixaDoModelo(modelo);
+      const proprio = modelo !== escolhaAuto?.modelo;
+      fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
+        motivo: proprio ? `Escolhido pelo usuário no diálogo (${modelo}, faixa ${f}).` : escolhaAuto.motivo,
+        ressalva: proprio ? (f === 'superior' ? null : `O modelo ${modelo} é de faixa ${ROTULO_FAIXA[f].replace('faixa ', '')}; escolha do usuário. Esta ressalva vai impressa no parecer.`) : escolhaAuto.ressalva });
+    });
+    carregar();
+  });
+}
+
 async function gerarParecerEspecialista(it) {
   const cfg = state.config || {};
-  if (!cfg.apiKey) { mostrarToast('Configure a chave de IA antes de gerar o parecer.', 'aviso'); return; }
-  const pid = cfg.provedor || 'gemini';
+  // --- provedor e modelo confirmados no diálogo ----------------------------
+  const esc = await confirmarModeloParecer(it);
+  if (!esc) return;
+  const pid = esc.pid;
 
   const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const btn = card?.querySelector('[data-role=btn-parecer]');
@@ -6802,12 +6917,6 @@ async function gerarParecerEspecialista(it) {
   iaInFlightInc();
 
   try {
-    // --- modelo, por faixa e pela listagem AO VIVO ---------------------------
-    passo('escolhendo modelo…');
-    let lista = [];
-    try { lista = await PROVEDORES_META[pid].listar(cfg.apiKey); } catch (_) { lista = []; }
-    const esc = escolherModelo(lista, { padraoDoUsuario: cfg.modelo });
-    if (esc.erro) { mostrarToast(esc.erro, 'aviso'); return; }
 
     // --- insumos: documentos, temas, situação --------------------------------
     passo('localizando documentos…');
@@ -6829,7 +6938,7 @@ async function gerarParecerEspecialista(it) {
       situacao, temas, docs, textoEmendas: docsMeta.map(d => d.rotulo).join(' '), hoje: new Date(),
     };
     const io = {
-      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: cfg.apiKey, modelo: esc.modelo, prompt, pdfBuffers, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
+      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
       abrirXlsx: typeof XLSX !== 'undefined' ? (b => XLSX.read(new Uint8Array(b), { type: 'array' })) : null,

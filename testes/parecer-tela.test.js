@@ -73,6 +73,36 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
   }
 
+  console.log('\n== o diálogo de confirmação pré-seleciona o melhor modelo de cada provedor ==');
+  {
+    // linkedom: <select>.value só tem getter. O navegador tem setter (seleciona a option de mesmo
+    // value) e, sem option marcada, devolve a primeira não desabilitada. Shim fiel a esse comportamento.
+    av(`(() => { const proto = Object.getPrototypeOf(document.createElement('select'));
+      Object.defineProperty(proto, 'value', { configurable: true,
+        get() { const o = this.querySelector('option[selected]') || this.querySelector('option:not([disabled])') || this.querySelector('option'); return o ? o.value : ''; },
+        set(v) { for (const o of this.querySelectorAll('option')) o.selected = (o.value === String(v)); } }); })()`);
+    av(`state.config = { provedor: 'gemini', apiKey: 'AIzaX', modelo: 'gemini-3.1-flash-lite', chaves: { anthropic: 'sk-ant-x' }, modeloParecer: {} };
+        PROVEDORES_META.gemini.listar = async () => [{ id: 'gemini-3.1-pro-preview' }, { id: 'gemini-3.8-flash' }, { id: 'gemini-3.8-flash-lite' }, { id: 'gemini-3-pro-image' }];
+        PROVEDORES_META.anthropic.listar = async () => [{ id: 'claude-opus-5' }, { id: 'claude-sonnet-5' }, { id: 'claude-haiku-4-5-20251001' }];
+        mostrarToast = () => {};
+        __dlg = confirmarModeloParecer({ sigla: 'MPV', numero: 1357, ano: 2026, ementa: 'x' });`);
+    await new Promise(r => setTimeout(r, 30));
+    const q = sel => av(`document.querySelector(${JSON.stringify(sel)})`);
+    ok(!!q('#dlg-parecer'), 'o diálogo abre');
+    ok(av(`document.querySelector('#dlg-parecer-provedor').value`) === 'gemini' && av(`[...document.querySelectorAll('#dlg-parecer-provedor option')].find(o => o.value === 'openai').hasAttribute('disabled')`) === true, 'provedor da nota vem selecionado; provedor sem chave aparece desabilitado');
+    ok(av(`document.querySelector('#dlg-parecer-modelo').value`) === 'gemini-3.8-flash', 'o melhor modelo do provedor vem pré-selecionado (3.8-flash, pela versão)');
+    ok(av(`[...document.querySelectorAll('#dlg-parecer-modelo option')].find(o => o.value === 'gemini-3.8-flash-lite').hasAttribute('disabled')`) === true && !av(`[...document.querySelectorAll('#dlg-parecer-modelo option')].some(o => /image/.test(o.value))`), 'econômico desabilitado; modelo de imagem fora da lista');
+    ok(/versão mais alta/.test(av(`document.querySelector('#dlg-parecer-status').textContent`)), 'o motivo da pré-seleção está escrito no diálogo');
+    // troca de provedor: a lista do outro provedor entra, pré-selecionada pelo melhor dele
+    av(`document.querySelector('#dlg-parecer-provedor').value = 'anthropic'; document.querySelector('#dlg-parecer-provedor').dispatchEvent(new window.Event('change'));`);
+    await new Promise(r => setTimeout(r, 30));
+    ok(av(`document.querySelector('#dlg-parecer-modelo').value`) === 'claude-opus-5', 'ao trocar de provedor, o melhor dele é pré-selecionado (opus-5)');
+    av(`document.querySelector('#dlg-parecer-gerar').dispatchEvent(new window.Event('click'))`);
+    const esc = await av('__dlg');
+    ok(esc && esc.pid === 'anthropic' && esc.apiKey === 'sk-ant-x' && esc.modelo === 'claude-opus-5' && !av(`document.querySelector('#dlg-parecer')`), 'Gerar devolve provedor, chave do provedor e modelo, e fecha o diálogo');
+    ok(av(`chaveDoProvedor('gemini')`) === 'AIzaX' && av(`chaveDoProvedor('openai')`) === '', 'chaveDoProvedor: a chave antiga vale para o provedor da nota; sem chave → vazio');
+  }
+
   console.log('\n== o pipeline roda no escopo da página com modelo falso ==');
   {
     const TRECHO = 'De acordo com o art. 1º, § 2º-A, do Decreto-Lei nº 1.804, de 3 de setembro de 1980, o imposto de importação é calculado de acordo com a seguinte tabela progressiva: 0 50,00 20,0% - 50,01 3.000,00 60,0% US$ 20,00';
