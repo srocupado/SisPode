@@ -51,7 +51,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   const usados = ['ESPECIALISTAS', 'sugerirEspecialistas', 'ressalvasDeValidade', 'montarDossie', 'resumoDoDossie', 'tabelasDoDossie', 'montarFicha', 'fichaParaHtml',
     'catalogoDeEvidencias', 'validarTese', 'aplicarContraditorio', 'conferirRedacao', 'aplicarGates', 'rubricaMaquina', 'escolherModelo', 'promptApuracao', 'carimboDoParecer',
     'gerarParecer', 'htmlParecer', 'chamarIA', 'escolherDocumentos', 'baixarPdf', 'extrairTextoPdf', 'PROVEDORES_META', 'tituloComApelido', 'iaInFlightInc', 'iaInFlightDec',
-    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH'];
+    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer'];
   const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
   ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão definidos`);
   ok(!/\(0, eval\)|\beval\(/.test(fonte.replace(/\/\/[^\n]*/g, '')), 'nenhum eval nos scripts (a CSP da extensão o proíbe)');
@@ -101,6 +101,16 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     const esc = await av('__dlg');
     ok(esc && esc.pid === 'anthropic' && esc.apiKey === 'sk-ant-x' && esc.modelo === 'claude-opus-5' && !av(`document.querySelector('#dlg-parecer')`), 'Gerar devolve provedor, chave do provedor e modelo, e fecha o diálogo');
     ok(av(`chaveDoProvedor('gemini')`) === 'AIzaX' && av(`chaveDoProvedor('openai')`) === '', 'chaveDoProvedor: a chave antiga vale para o provedor da nota; sem chave → vazio');
+  }
+
+  console.log('\n== o card mostra "Abrir parecer" quando há parecer salvo ==');
+  {
+    av(`__card = document.createElement('div'); __card.innerHTML = '<button data-role="btn-abrir-parecer" style="display:none"></button>';
+        atualizarBotaoParecer({ chave: 'k', parecerMeta: { em: '2026-09-05T12:00:00Z', por: 'equipe', modelo: 'gemini-3.8-flash', aprovado: false } }, __card);`);
+    ok(av("__card.querySelector('button').style.display") === 'inline-flex' && /reprovado/.test(av("__card.querySelector('button').textContent")) && /gemini-3\.8-flash/.test(av("__card.querySelector('button').title")), 'com meta: botão visível, marcado como reprovado, modelo no título');
+    av(`atualizarBotaoParecer({ chave: 'k' }, __card)`);
+    ok(av("__card.querySelector('button').style.display") === 'none', 'sem meta: botão escondido');
+    ok(/\/pareceres\/p1__c1\/meta\.json$/.test(av("state.pauta = { id: 'p1' }; PARECER_PATH(chaveParecer({ chave: 'c1' }), 'meta')")), 'a meta é lida num caminho próprio, sem baixar o parecer inteiro');
   }
 
   console.log('\n== o pipeline roda no escopo da página com modelo falso ==');
