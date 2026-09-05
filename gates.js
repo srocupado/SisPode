@@ -73,8 +73,8 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
   // G4 — janela curta / mês parcial
   const jan = dossie?.prc?.janelas || null;
   const jd = jan?.depois || Object.values(dossie?.janelas || {}).map(j => j.depois).find(Boolean);
-  if (jd && jd.meses < 12) notas.push(`Janela posterior ao marco com ${jd.meses} mês(es) (${jd.de} a ${jd.ate}): comparação de nível B no máximo.`);
-  if (dossie?.marco?.data && !/-01$/.test(dossie.marco.data)) notas.push(`O marco (${dossie.marco.data.split('-').reverse().join('/')}) não cai no dia 1º: o mês ${dossie.marco.data.slice(0, 7)} é parcial e mistura os dois regimes.`);
+  if (jd && jd.meses < 12) notas.push(`Só há ${jd.meses} mês(es) de dados depois da mudança (${jd.de} a ${jd.ate}): a comparação indica uma direção, não permite concluir.`);
+  if (dossie?.marco?.data && !/-01$/.test(dossie.marco.data)) notas.push(`A mudança começou em ${dossie.marco.data.split('-').reverse().join('/')}, no meio do mês: ${dossie.marco.data.slice(0, 7)} mistura os dois regimes.`);
 
   // G5 — cifra por extenso
   const ext = t.match(RE_EXTENSO) || [];
@@ -85,7 +85,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
   if (naoVinc.length) notas.push(`${naoVinc.length} estimativa(s) localizada(s) no processo tratam de outra parte da matéria (${naoVinc.map(e => e.literal).join(', ')}) e não são a previsão desta medida.`);
 
   // G7 — série que termina antes do marco
-  for (const [k, j] of Object.entries(dossie?.janelas || {})) if (j.antes && !j.depois) notas.push(`Série ${j.rotulo || k} termina em ${j.antes.ate}, antes do marco: não comparável (nível C).`);
+  for (const [k, j] of Object.entries(dossie?.janelas || {})) if (j.antes && !j.depois) notas.push(`A série de ${j.rotulo || k} termina em ${j.antes.ate}, antes da mudança: não serve para comparar.`);
 
   // G9/G10 — contagens
   if (validacao) notas.push(`Tese: ${validacao.resumo}.`);
@@ -106,7 +106,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   add(!(conferencia?.semEvidencia?.length) && !(conferencia?.idsInexistentes?.length), 'M3 Todo parágrafo de síntese, avaliação, dois lados e opções cita evidência existente', [conferencia?.semEvidencia?.length ? `${conferencia.semEvidencia.length} parágrafo(s) sem evidência` : '', conferencia?.idsInexistentes?.length ? `identificadores inexistentes: ${conferencia.idsInexistentes.join(', ')}` : ''].filter(Boolean).join('; '));
   const aval = (secoes['Avaliação da política'] || []).join(' ');
   const proibidos = nivel === 'A' ? [] : nivel === 'B' ? [/(?<!n[ãa]o )(?<!indícios de )\batingido\b/i, /\bn[ãa]o atingido\b/i] : [/\batingido\b/i, /\bind[íi]cios de/i];
-  add(!proibidos.some(re => re.test(aval)), `M4 Vereditos compatíveis com o nível de evidência ${nivel}`);
+  add(!proibidos.some(re => re.test(aval)), `M4 Vereditos compatíveis com a solidez da comparação (nível ${nivel})`);
   const ordem = Object.entries(_TITULOS || {}).filter(([k]) => k !== 'aconteceu' || temSerie).map(([, v]) => v);
   const posicoes = ordem.map(s => t.search(new RegExp(`(^|\\n)\\s*${s}\\s*:?\\s*(\\n|$)`, 'i')));
   const faltantes = ordem.filter((s, i) => posicoes[i] < 0);
@@ -118,7 +118,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   add(!semCit.length, 'M7 Nenhuma afirmação de inconstitucionalidade sem precedente citado', semCit.length ? `"${semCit[0].slice(0, 100)}…"` : null);
   add(!(t.match(RE_EXTENSO) || []).length, 'M8 Nenhuma cifra por extenso');
   add(!ficha || !ficha.faltas.includes('regra vigente') || (gates?.faixas || []).some(f => /INCOMPLETO/.test(f)), 'M9 Faixa de incompletude impressa quando falta insumo essencial');
-  add(new RegExp(`n[íi]vel de evid[êe]ncia\\s*:?\\s*${nivel}\\b`, 'i').test(t), `M10 Nível de evidência (${nivel}) declarado no texto`);
+  add(new RegExp(`n[íi]vel de evid[êe]ncia\\s*:?\\s*${nivel}\\b`, 'i').test(t), `M10 Solidez da comparação (nível ${nivel}) declarada no texto`);
   // Causalidade ATRIBUÍDA A UM LADO ("quem apoia argumenta que a medida
   // aumentou…") é relato da posição alheia, não afirmação do parecer.
   const causaisProprias = causaisNaoAtribuidas(t);

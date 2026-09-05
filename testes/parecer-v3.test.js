@@ -114,7 +114,7 @@ const achadosX = [
   ok(conf2.semEvidencia.length === 1 && conf2.numerosSuspeitos.some(n => n.numero === '500,0'), 'parágrafo de síntese sem marcador e número 500,0 fora da base são apontados');
   const lentes = [{ chave: 'tributario', ordem: '2', rotulo: 'Tributário' }];
   const g = G.aplicarGates({ ficha, dossie, tese: teseFinal, texto: bom, nivel: 'B' });
-  ok(!g.reprovacoes.length && g.notas.some(n => /3 mês/.test(n)) && g.notas.some(n => /parcial/.test(n)) && g.notas.some(n => /Mover|outra parte/.test(n)), 'gates: sem reprovação; notas de janela curta, mês parcial e estimativa não vinculada');
+  ok(!g.reprovacoes.length && g.notas.some(n => /3 mês/.test(n)) && g.notas.some(n => /meio do mês|parcial/.test(n)) && g.notas.some(n => /Mover|outra parte/.test(n)), 'gates: sem reprovação; notas de janela curta, mês parcial e estimativa não vinculada, em linguagem de leitor');
   const semObjeto = bom.replace('permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% acima disso', 'delega ao Ministro a alteração das alíquotas');
   ok(G.aplicarGates({ ficha, dossie, tese: teseFinal, texto: semObjeto, nivel: 'B' }).reprovacoes.some(r => r.gate === 'G2'), 'G2 reprova a síntese que não enuncia a regra em algarismos');
   const comExtenso = bom.replace('R$ 446,6 milhões', 'quatrocentos e quarenta e seis milhões');
@@ -168,6 +168,10 @@ const achadosX = [
     const html = H.htmlParecer(p, { materia: 'MPV 1357/2026', css: '' });
     ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /<sup class="ev">T1<\/sup>/.test(html) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha, marcadores como sobrescrito e seções com âncora');
     ok(/M1 Ficha do objeto/.test(html) && /Conferência e ressalvas/.test(html), 'HTML traz a rubrica na conferência');
+    // "Nível de evidência B" era jargão repetido no PDF sem explicação (crítica do usuário).
+    ok(/Solidez da comparação antes × depois: <b>não comparável<\/b> — não há série oficial/.test(html), 'o nível de evidência é explicado em palavras na primeira página');
+    const ocorr = html.match(/nível de evidência C/gi) || [];
+    ok(ocorr.length >= 1 && /nível de evidência C \(sem base para comparar\)/.test(html), 'no corpo, a primeira ocorrência vem traduzida entre parênteses');
   }
   // modelo que não enuncia o objeto: a redação é refeita uma vez e, persistindo, o parecer sai reprovado
   const respostasRuins = { ...respostas, redacao: respostas.redacao.replace('permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026', 'delega ao Ministro a alteração das alíquotas') };
