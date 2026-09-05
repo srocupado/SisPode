@@ -47,7 +47,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
 
   // G1 — regra vigente
   if (ficha && ficha.faltas.includes('regra vigente')) {
-    faixas.push('PARECER INCOMPLETO — a regra vigente não foi obtida: o Planalto e o LexML/Senado não devolveram o texto da norma alterada e o documento analisado não a transcreve. As seções "Lei vigente" e "Avaliação da política" não são verificáveis.');
+    faixas.push('PARECER INCOMPLETO — a regra vigente não foi obtida: o Planalto e o LexML/Senado não devolveram o texto da norma alterada, e não se localizou transcrição dela no documento analisado. As seções "Lei vigente" e "Avaliação da política" não são verificáveis.');
   } else if (ficha && ficha.regraVigente && ficha.regraVigente.origem === 'documento') {
     notas.push('A regra vigente foi tomada da transcrição feita no próprio documento analisado (trecho conferido), porque o texto da norma não foi obtido no Planalto nem no Senado.');
   }

@@ -512,7 +512,11 @@ async function montarDossie({ fonte = '', rotulos = [], documentos = null, ement
   }
 
   // ---- fase 4/5: séries ----------------------------------------------------
-  d.rubricas = identificarRubricas(`${ementa} ${fonte.slice(0, 200000)}`);
+  // A rubrica de arrecadação é a da MATÉRIA (ementa e objeto), não toda que o
+  // parecer cita de passagem: IPI e CSLL entravam nas observações do parecer
+  // das remessas só porque o relatório do Senado os menciona.
+  const rubObjeto = identificarRubricas(`${ementa} ${(palavrasDoObjeto || []).join(' ')}`);
+  d.rubricas = rubObjeto.length ? rubObjeto.slice(0, 2) : identificarRubricas(fonte.slice(0, 200000)).slice(0, 1);
   if (comSeries && fetchFn) {
     const de = '01/01/2019', ate = dataBR(hoje.toISOString().slice(0, 10));
     let deflator = null;
