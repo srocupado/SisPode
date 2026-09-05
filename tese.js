@@ -137,7 +137,11 @@ REGRAS QUE O PROGRAMA VAI CONFERIR (o que violar é removido):
   juízo da assessoria, declarado como tal. Opção sem evidência para o fiscal e o jurídico é removida.
 - LADOS (L): "argumento" é a posição do lado e pode ser causal ("a medida aumentou…"); "o_que_a_evidencia_diz" é do parecer
   e NÃO pode ser causal: só o que a série ou o documento mostram.
-- Prefira menos afirmações bem apoiadas a muitas fracas. Entre 12 e 30 afirmações; 2 a 4 opções.`;
+- EXTENSÃO: o parecer tem de ser DETALHADO. Entre 20 e 45 afirmações, cada uma de uma a quatro frases; 3 a 4 opções.
+  Mínimos por seção, quando as evidências permitirem: sintese 4; contexto 3 (quem propôs, quem relatou, o que decidiu,
+  com datas); lei 2; previu 2; aconteceu 5 (um por indicador, com o número); avaliacao: todos os objetivos declarados;
+  lados: argumento e "o que a evidência diz" com duas a quatro frases cada; cada lente acionada 3. O mínimo NÃO autoriza
+  inventar: sem evidência para uma afirmação, ela não existe e o mínimo não vale.`;
 }
 
 /** Valida a tese contra o catálogo. Remove o que não se sustenta e rebaixa vereditos. */
@@ -356,7 +360,16 @@ COMO ESCREVER
   unidade da tese sobreviveu à conferência nesta seção." — nada mais, nada inventado.
 - Não repita em "Respostas por lente" o que já foi dito nas seções anteriores com outro identificador; cada ideia uma vez.
 - Números SÓ os da tese, da ficha e dos achados; cifras em algarismos (R$ 3,50 bilhões; 20%), nunca por extenso.
-- Síntese: três a cinco parágrafos curtos, cada um começando pela conclusão; o primeiro enuncia a regra que muda.
+- EXTENSÃO: documento DETALHADO, entre 2.500 e 4.500 palavras. Cada afirmação da tese vira um parágrafo desenvolvido:
+  o fato ou o número, o que ele significa para o leitor e a que se liga. Não resuma a tese; desdobre-a.
+- Síntese: quatro a seis parágrafos, cada um começando pela conclusão e desenvolvendo-a; o primeiro enuncia a regra que
+  muda em algarismos.
+- Contexto e processo: a história em ordem, com datas e nomes que a tese traz (quem propôs, quem relatou e o que propôs,
+  o que se decidiu), dois a quatro parágrafos.
+- O que aconteceu: um parágrafo por indicador, com o número e o que ele significa; depois os fatores concorrentes.
+- Os dois lados: dois parágrafos por lado (o argumento no seu melhor; o que a evidência diz sobre ele).
+- Opções: um parágrafo por opção, com as três consequências desenvolvidas.
+- Respostas por lente: dois a quatro parágrafos por lente, prosa técnica com o dispositivo citado.
 - O que aconteceu (quando existir): os números, o tamanho da janela e o mês parcial quando houver, e — UMA única vez, aqui —
   a expressão "nível de evidência ${nivel}" seguida do que ela significa em palavras (${nivel === 'A' ? 'série oficial com 12 meses antes e depois: comparação sólida' : nivel === 'B' ? 'poucos meses depois da mudança ou mês parcial: os números indicam uma direção, não permitem concluir' : 'sem série que cubra antes e depois: o efeito não é verificável'}).
   Em qualquer outra seção, não repita o rótulo: diga "a comparação é ${nivel === 'A' ? 'sólida' : nivel === 'B' ? 'indicativa, não conclusiva' : 'impossível com o que existe'}".

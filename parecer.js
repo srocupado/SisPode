@@ -180,6 +180,8 @@ REGRAS QUE NÃO PODEM SER QUEBRADAS
 - NÃO afirme inconstitucionalidade. Aponte o dispositivo e o ponto que merece exame. Se houver precedente,
   cite classe, número, órgão, relator e data; sem esses elementos, não cite.
 - NÃO invente número, data, lei, processo ou valor. O que não estiver no documento não existe para esta etapa.
+- Quando o documento sustentar MAIS DE UM ponto para a mesma pergunta, devolva um achado por ponto (até três por
+  pergunta), cada um com o seu trecho. O parecer é detalhado; achado a mais com trecho vale, achado sem trecho não.
 - Se a proposição tiver estimativa oficial de impacto (exposição de motivos, parecer, anexo), registre-a como
   achado próprio com o valor, a fonte e o trecho.
 
