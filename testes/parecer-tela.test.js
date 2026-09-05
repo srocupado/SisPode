@@ -84,7 +84,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       ok(p.ficha.completa && p.rubrica.aprovado, 'ficha completa e rubrica aprovada: ' + (p.rubrica.pendentes.map(x => x.item).join('; ') || 'ok'));
       ctx.__p = p;
       const html = av('htmlParecer(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
-      ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /<sup class="ev">T1<\/sup>/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota');
+      ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && /<td>T1<\/td>/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota, limites e anexo técnico');
     }
   }
 

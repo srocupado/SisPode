@@ -183,8 +183,10 @@ const achadosX = [
     ok(T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'opcoes', tipo: 'fato', texto: 'Rejeitada, a MP perde eficácia desde a edição, nos termos do art. 62, § 3º, da CF.', evidencias: ['F1'] }] }, T.catalogoDeEvidencias({ achados: achadosX, ficha }), { nivel: 'C' }).tese.afirmacoes.length === 1, '"art. 62" numa afirmação é referência normativa, não cifra fora da base');
     ok(p.gates.faixas.length === 0 && p.nivel === 'C', 'sem faixa de incompletude (regra veio do documento) e nível C');
     const html = H.htmlParecer(p, { materia: 'MPV 1357/2026', css: '' });
-    ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /<sup class="ev">T1<\/sup>/.test(html) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha, marcadores como sobrescrito e seções com âncora');
-    ok(/M1 Ficha do objeto/.test(html) && /Conferência e ressalvas/.test(html), 'HTML traz a rubrica na conferência');
+    const corpoHtml = html.slice(0, html.indexOf('<h3 class="item-h">Anexo técnico'));
+    ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && !/\[T1\]|<sup class="ev">/.test(corpoHtml) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha e seções com âncora, e o corpo sai SEM identificadores de evidência');
+    ok(/Limites deste parecer/.test(corpoHtml) && /não recomenda voto/.test(corpoHtml) && /Anexo técnico — conferência/.test(html) && /M1 Ficha do objeto/.test(html.slice(html.indexOf('<h3 class="item-h">Anexo técnico'))), '"Limites deste parecer" em palavras no corpo; rubrica e tese com identificadores só no anexo técnico');
+    ok(/<td>T1<\/td>/.test(html) && /Tese aprovada, com evidências/.test(html), 'a rastreabilidade (T1 → evidências) está na tabela do anexo técnico');
     // "Nível de evidência B" era jargão repetido no PDF sem explicação (crítica do usuário).
     ok(/Solidez da comparação antes × depois: <b>não comparável<\/b> — não há série oficial/.test(html), 'o nível de evidência é explicado em palavras na primeira página');
     const ocorr = html.match(/nível de evidência C/gi) || [];
