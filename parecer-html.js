@@ -57,7 +57,32 @@ function blocosDoParecer(p, esc) {
 }
 
 /** O parecer em HTML de impressão. `css` é o CSS da nota (CSS_IMPRESSAO_PLENARIO) — injetado, não importado. */
+/**
+ * O Firebase não guarda array nem objeto vazio: um parecer salvo e reaberto
+ * volta sem `estimativas`, `refutadas`, `faixas`… e as tabelas quebravam
+ * ("Cannot read properties of undefined (reading 'map')"). Repõe os vazios.
+ */
+function normalizarParecer(p) {
+  if (!p || typeof p !== 'object') return p;
+  const arr = (o, k) => { if (o && !Array.isArray(o[k])) o[k] = []; };
+  const obj = (o, k) => { if (o && (o[k] == null || typeof o[k] !== 'object')) o[k] = {}; };
+  for (const k of ['lentes', 'descartadas', 'chamadas', 'ressalvasValidade']) arr(p, k);
+  if (p.dossie) { for (const k of ['fontes', 'avisos', 'estimativas', 'negacoes', 'leiVigente']) arr(p.dossie, k); obj(p.dossie, 'series'); obj(p.dossie, 'janelas');
+    for (const l of p.dossie.leiVigente) arr(l, 'trechos'); if (p.dossie.prc) arr(p.dossie.prc, 'serie'); }
+  if (p.tese) { for (const k of ['afirmacoes', 'objetivos', 'opcoes', 'fatores_concorrentes']) arr(p.tese, k); obj(p.tese, 'lados'); }
+  if (p.ficha) { arr(p.ficha, 'valores'); arr(p.ficha, 'faltas'); }
+  if (p.apuracao) arr(p.apuracao, 'recusados');
+  if (p.validacao) { arr(p.validacao, 'removidas'); arr(p.validacao, 'rebaixadas'); }
+  if (p.contraditorio) for (const k of ['refutadas', 'contestadas', 'ressalvas']) arr(p.contraditorio, k);
+  if (p.conferencia) for (const k of ['semEvidencia', 'numerosSuspeitos', 'idsInexistentes']) arr(p.conferencia, k);
+  if (p.gates) for (const k of ['faixas', 'notas', 'reprovacoes', 'rebaixamentos']) arr(p.gates, k);
+  if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
+  if (p.carimbo) arr(p.carimbo, 'lentes');
+  return p;
+}
+
 function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
+  p = normalizarParecer(p);
   const esc = escapeHtmlParecer;
   const bm = ch => 'l_' + String(ch).replace(/[^\w]/g, '_');
   const { secoes, corpoLimpo, traduzir } = blocosDoParecer(p, esc);
@@ -171,5 +196,5 @@ ${CSS_TAB || ''}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer };
+  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer, normalizarParecer };
 }

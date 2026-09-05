@@ -697,15 +697,15 @@ function tabelasDoDossie(r, esc = s => String(s ?? '').replace(/[&<>"]/g, c => (
   const H = [];
 
   // Tabela 1 — o que se previu
-  const est = r.estimativas.map(e => [`<b>${esc(e.literal)}</b>`, esc(e.trecho), esc(e.rotulo)]);
-  r.negacoes.forEach(n => est.push(['<b>sem impacto (declaração)</b>', esc(n.trecho), esc(n.rotulo)]));
+  const est = (r.estimativas || []).map(e => [`<b>${esc(e.literal)}</b>`, esc(e.trecho), esc(e.rotulo)]);
+  (r.negacoes || []).forEach(n => est.push(['<b>sem impacto (declaração)</b>', esc(n.trecho), esc(n.rotulo)]));
   H.push(`<h4 class="dt-h">Tabela 1 — Estimativas oficiais e declarações de impacto no processo</h4>`);
   H.push(est.length ? t(['Cifra', 'Trecho literal', 'Documento'], est) : leg('Nenhuma estimativa oficial de impacto em reais localizada nos documentos do processo.'));
 
   // Tabela 2 — marco e lei vigente
   const lv = [];
   if (r.marco) lv.push(['Marco de vigência', esc(r.marco.data.split('-').reverse().join('/')) + (r.marco.aproximado ? ' (aproximação: data da norma)' : ''), esc(r.marco.trecho)]);
-  r.leiVigente.forEach(l => l.trechos.forEach(x => lv.push([esc(l.norma), esc(x.artigo), esc(x.texto)])));
+  (r.leiVigente || []).forEach(l => (l.trechos || []).forEach(x => lv.push([esc(l.norma), esc(x.artigo), esc(x.texto)])));
   if (lv.length) { H.push(`<h4 class="dt-h">Tabela 2 — Marco e lei vigente (texto lido, não memória)</h4>`); H.push(t(['Item', 'Data / artigo', 'Conteúdo'], lv)); }
 
   // Tabela 3 — séries oficiais em janelas
@@ -746,7 +746,7 @@ function tabelasDoDossie(r, esc = s => String(s ?? '').replace(/[&<>"]/g, c => (
   if (r.prc?.serie?.length) {
     A.push(`<h4 class="dt-h">Tabela 5 — Série completa dos Relatórios do Programa Remessa Conforme (${r.prc.relatorios} relatórios, ${esc(r.prc.primeiro)} a ${esc(r.prc.ultimo)})</h4>`);
     A.push(t(['Período', 'Meses', 'Remessas', 'Declarações', 'Valor aduaneiro US$', 'Valor aduaneiro R$', 'II devido R$', 'II no PRC', 'II fora do PRC'],
-      r.prc.serie.map(s => [s.meses === 2 ? `${s.de} a ${s.ate}` : s.de, s.meses, fmt.n0(s.remessas), fmt.n0(s.dir), fmt.n0(s.usd), fmt.n0(s.brl), fmt.n0(s.ii), fmt.n0(s.iiPrc), fmt.n0(s.iiNaoPrc)]),
+      (r.prc.serie || []).map(s => [s.meses === 2 ? `${s.de} a ${s.ate}` : s.de, s.meses, fmt.n0(s.remessas), fmt.n0(s.dir), fmt.n0(s.usd), fmt.n0(s.brl), fmt.n0(s.ii), fmt.n0(s.iiPrc), fmt.n0(s.iiNaoPrc)]),
       ['', 'num', 'num', 'num', 'num', 'num', 'num', 'num', 'num']));
   }
   const tipoFonte = { A: 'documento oficial, lido', B: 'imprensa citando documento oficial', C: 'declaração sem documento' };

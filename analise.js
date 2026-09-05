@@ -2850,7 +2850,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    // Com raciocínio (parecer) a resposta demora minutos; sem streaming o Chrome derruba a conexão
+    // que fica sem receber byte algum. O streaming mantém bytes chegando; o texto é juntado no fim.
+    const url = pensarAlto
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse&key=${apiKey}`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
     const parts = pdfsBase64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } }));
     parts.push({ text: prompt });
     const body = {
@@ -2860,7 +2864,18 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     };
     if (pensarAlto) body.generationConfig.thinkingConfig = /gemini-2\.5/.test(m) ? { thinkingBudget: 24576 } : { thinkingLevel: 'high' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
-    const json = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+    if (pensarAlto) {
+      let texto = '', fim = '';
+      for (const ev of await fetchIASse(url, init)) {
+        if (ev.dados?.error) throw new Error(ev.dados.error.message || 'erro do Gemini');
+        const cand = ev.dados?.candidates?.[0];
+        for (const pt of cand?.content?.parts || []) if (pt.text && !pt.thought) texto += pt.text;
+        if (cand?.finishReason) fim = cand.finishReason;
+      }
+      return { text: texto.trim(), truncated: fim.toUpperCase() === 'MAX_TOKENS' };
+    }
+    const json = await fetchIA(url, init);
     const cand = json.candidates?.[0];
     return {
       // Com grounding o texto pode vir em vários parts — concatena todos.
@@ -2886,6 +2901,17 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // Modelos de raciocínio (o*, gpt-5*) não aceitam temperature e recebem o esforço.
     if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { delete body.temperature; body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
     if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
+    if (pensarAlto) {
+      body.stream = true;
+      let texto = '', fim = null;
+      for (const ev of await fetchIASse('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })) {
+        if (ev.evento === 'error' || ev.dados?.type === 'error') throw new Error(ev.dados?.error?.message || ev.dados?.message || 'erro da OpenAI');
+        if (ev.evento === 'response.output_text.delta' && ev.dados?.delta) texto += ev.dados.delta;
+        if (/^response\.(completed|incomplete|failed)$/.test(ev.evento || '')) fim = ev.dados?.response || null;
+      }
+      if (fim?.status === 'failed') throw new Error(fim.error?.message || 'resposta falhou');
+      return { text: texto.trim(), truncated: fim?.status === 'incomplete' || fim?.incomplete_details?.reason === 'max_output_tokens' };
+    }
     const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -2926,16 +2952,20 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       body.max_tokens = maxSaida + 16000;
     }
     if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
-    const json = await fetchIA('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'anthropic-dangerous-direct-browser-access': 'true',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
+    const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
+    if (pensarAlto) {
+      body.stream = true;
+      let texto = '', parada = null;
+      for (const ev of await fetchIASse('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) })) {
+        const d = ev.dados || {};
+        if (ev.evento === 'error' || d.type === 'error') throw new Error(d.error?.message || 'erro da Anthropic');
+        if (d.type === 'content_block_delta' && d.delta?.type === 'text_delta') texto += d.delta.text || '';
+        if (d.type === 'message_delta' && d.delta?.stop_reason) parada = d.delta.stop_reason;
+      }
+      if (parada === 'refusal') throw new Error('O modelo recusou a solicitação (stop_reason refusal).');
+      return { text: texto.trim(), truncated: parada === 'max_tokens' };
+    }
+    const json = await fetchIA('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) });
     // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
     let texto = '';
     for (const item of (json.content || [])) {
@@ -2981,6 +3011,58 @@ async function fetchIA(url, init) {
     try { detalhe = await res.json(); } catch (_) { detalhe = null; }
     const msg = detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`;
     throw new Error(msg);
+  }
+  throw ultimaErro || new Error('Falha após retries');
+}
+
+/** Texto SSE completo → [{ evento, dados }] (uma entrada por linha "data:" com JSON). */
+function eventosSse(texto) {
+  const out = [];
+  let evento = null;
+  for (const linhaBruta of String(texto || '').split(/\r?\n/)) {
+    const linha = linhaBruta.trimEnd();
+    if (!linha) { evento = null; continue; }
+    if (linha.startsWith(':')) continue;
+    if (linha.startsWith('event:')) { evento = linha.slice(6).trim(); continue; }
+    if (linha.startsWith('data:')) {
+      const d = linha.slice(5).trim();
+      if (!d || d === '[DONE]') continue;
+      try { out.push({ evento, dados: JSON.parse(d) }); } catch (_) { /* fragmento não-JSON: ignora */ }
+    }
+  }
+  return out;
+}
+
+/**
+ * Como fetchIA, mas para respostas em streaming (SSE): a conexão recebe bytes o tempo
+ * todo, então o Chrome não a derruba nas chamadas de minutos com raciocínio. O corpo é
+ * lido até o fim e devolvido como lista de eventos — a tela não precisa do incremental.
+ */
+async function fetchIASse(url, init) {
+  const delays = [0, 5000, 15000, 30000];
+  let ultimaErro = null;
+  const signal = _abortAll.signal;
+  for (let i = 0; i < delays.length; i++) {
+    if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+    if (delays[i] > 0) await sleep(delays[i], signal);
+    let res;
+    try { res = await fetch(url, { ...init, headers: { ...(init.headers || {}), Accept: 'text/event-stream' }, signal }); }
+    catch (e) { if (isAbortError(e)) throw e; ultimaErro = e; continue; }
+    if (res.ok) {
+      let texto = '';
+      if (res.body && res.body.getReader) {
+        const leitor = res.body.getReader(); const dec = new TextDecoder();
+        for (;;) { const { value, done } = await leitor.read(); if (done) break; texto += dec.decode(value, { stream: true }); }
+        texto += dec.decode();
+      } else texto = await res.text();
+      return eventosSse(texto);
+    }
+    if (res.status === 429 || (res.status >= 500 && res.status < 600)) {
+      try { const txt = await res.text(); ultimaErro = new Error(`HTTP ${res.status}: ${txt.slice(0, 200)}`); } catch (_) { ultimaErro = new Error(`HTTP ${res.status}`); }
+      continue;
+    }
+    let detalhe; try { detalhe = await res.json(); } catch (_) { detalhe = null; }
+    throw new Error(detalhe?.error?.message || detalhe?.error?.type || `HTTP ${res.status}`);
   }
   throw ultimaErro || new Error('Falha após retries');
 }
@@ -6973,7 +7055,12 @@ async function gerarParecerEspecialista(it) {
   const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const btn = card?.querySelector('[data-role=btn-parecer]');
   const rot = btn ? btn.innerHTML : '';
-  const passo = t => { if (btn) btn.innerHTML = `<span class="an-spinner"></span> ${t}`; };
+  // O botão mostra a etapa e o tempo decorrido: com raciocínio alto uma etapa leva minutos,
+  // e "apurando…" parado por cinco minutos parece travamento.
+  const t0 = Date.now(); let etapaAtual = '';
+  const mostrar = () => { if (btn) btn.innerHTML = `<span class="an-spinner"></span> ${etapaAtual} ${Math.round((Date.now() - t0) / 1000)}s`; };
+  const passo = t => { etapaAtual = t; mostrar(); };
+  const relogio = setInterval(mostrar, 1000);
   if (btn) btn.disabled = true;
   iaInFlightInc();
 
@@ -7026,6 +7113,7 @@ async function gerarParecerEspecialista(it) {
   } catch (e) {
     if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }
   } finally {
+    clearInterval(relogio);
     iaInFlightDec();
     if (btn) { btn.disabled = false; btn.innerHTML = rot; }
   }

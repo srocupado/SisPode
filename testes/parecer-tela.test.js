@@ -72,7 +72,9 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   console.log('\n== a chamada do parecer liga o raciocínio alto e 32 mil tokens de saída ==');
   {
     // fetchIA é declaração de função no escopo da página: reatribuível para capturar o corpo enviado.
-    av('var __corpos = []; fetchIA = async (url, init) => { __corpos.push(JSON.parse(init.body)); return { candidates: [], output: [], content: [] }; };');
+    av(`var __corpos = [], __urls = [], __viaSse = [];
+        fetchIA = async (url, init) => { __corpos.push(JSON.parse(init.body)); __urls.push(url); __viaSse.push(false); return { candidates: [], output: [], content: [] }; };
+        fetchIASse = async (url, init) => { __corpos.push(JSON.parse(init.body)); __urls.push(url); __viaSse.push(true); return []; };`);
     await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-2.5-pro", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-opus-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
@@ -89,6 +91,22 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     for (const [m, e] of [['claude-sonnet-4-6', true], ['claude-opus-4-1-20250805', false], ['claude-3-7-sonnet-20250219', false], ['claude-fable-5-1', true], ['claude-opus-4-8', true]]) ok(av(`raciocinioAdaptativo(${JSON.stringify(m)})`) === e, `raciocinioAdaptativo(${m}) = ${e}`);
     ok(c[3].max_output_tokens === 64000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
     ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
+    const sse = av('__viaSse'), urls = av('__urls');
+    ok(sse[0] && sse[2] && sse[3] && !sse[4] && /:streamGenerateContent\?alt=sse/.test(urls[0]) && c[2].stream === true && c[3].stream === true && c[4].stream === undefined, 'com raciocínio as três APIs vão em streaming (o Chrome derruba a conexão muda); a nota comum não');
+    // o parser de SSE e a montagem do texto, com as respostas reais de cada provedor
+    const A = 'event: message_start\ndata: {"type":"message_start"}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"thinking_delta","thinking":"hmm"}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"Olá "}}\n\nevent: content_block_delta\ndata: {"type":"content_block_delta","delta":{"type":"text_delta","text":"mundo"}}\n\nevent: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"max_tokens"}}\n\n';
+    ctx.__sse = { A, G: 'data: {"candidates":[{"content":{"parts":[{"text":"pensando","thought":true},{"text":"Um "}]}}]}\r\n\r\ndata: {"candidates":[{"content":{"parts":[{"text":"dois"}]},"finishReason":"STOP"}]}\r\n\r\n', O: 'event: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"a"}\n\nevent: response.output_text.delta\ndata: {"type":"response.output_text.delta","delta":"b"}\n\nevent: response.completed\ndata: {"type":"response.completed","response":{"status":"completed"}}\n\ndata: [DONE]\n\n' };
+    ok(av('eventosSse(__sse.A)').length === 5 && av('eventosSse(__sse.A)')[1].evento === 'content_block_delta', 'eventosSse: um evento por data:, com o nome do event:');
+    av('fetchIASse = async (url) => eventosSse(/anthropic/.test(url) ? __sse.A : /openai/.test(url) ? __sse.O : __sse.G);');
+    const rA = await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    ok(rA.text === 'Olá mundo' && rA.truncated === true, 'Anthropic em streaming: junta só os text_delta (ignora thinking) e lê o stop_reason');
+    const rG = await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    ok(rG.text === 'Um dois' && rG.truncated === false, 'Gemini em streaming: junta os parts sem thought e lê o finishReason');
+    const rO = await av('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    ok(rO.text === 'ab' && rO.truncated === false, 'OpenAI em streaming: junta os output_text.delta e lê o status');
+    av('fetchIASse = async () => eventosSse(\'event: error\\ndata: {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}\\n\\n\')');
+    let erroA = null; try { await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { pensar: "alto" } })'); } catch (e) { erroA = e; }
+    ok(erroA && /Overloaded/.test(erroA.message), 'evento error do stream vira exceção com a mensagem da API');
   }
 
   console.log('\n== o diálogo de confirmação pré-seleciona o melhor modelo de cada provedor ==');
@@ -160,6 +178,12 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       ctx.__p = p;
       const html = av('htmlParecer(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
       ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && /<td>T1<\/td>/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota, limites e anexo técnico');
+      // ida e volta pelo Firebase: arrays e objetos vazios somem
+      const semVazios = v => Array.isArray(v) ? (v.length ? v.map(semVazios) : undefined) : (v && typeof v === 'object') ? (Object.keys(v).length ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, semVazios(x)]).filter(([, x]) => x !== undefined)) : undefined) : v;
+      ctx.__pfb = semVazios(JSON.parse(JSON.stringify(p)));
+      let htmlFb = null, eFb = null;
+      try { htmlFb = av('htmlParecer(__pfb, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })'); } catch (e) { eFb = e; }
+      ok(htmlFb && !eFb && /Tabela 1/.test(htmlFb), eFb ? `parecer reaberto do Firebase quebra: ${eFb.message}` : 'parecer reaberto do Firebase (sem arrays vazios) imprime igual');
     }
   }
 
