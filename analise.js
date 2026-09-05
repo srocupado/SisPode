@@ -172,7 +172,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   });
   document.getElementById('config-provedor').addEventListener('change', onProvedorChange);
-  document.getElementById('btn-carregar-modelos').addEventListener('click', carregarModelos);
+  document.getElementById('btn-carregar-modelos').addEventListener('click', () => carregarModelos());
+  // O aviso de faixa acompanha a escolha, e não só a abertura da tela.
+  document.getElementById('config-modelo').addEventListener('change', avisarFaixaModelo);
   document.getElementById('btn-salvar-config').addEventListener('click', salvarConfig);
   document.getElementById('btn-toggle-key').addEventListener('click', () => {
     const inp = document.getElementById('config-api-key');
@@ -577,6 +579,8 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-verificar-item" style="display:none" title="Reconsulta a tramitação e indica se o texto operativo (parecer/substitutivo/subemenda/emenda do Senado) foi superado por um documento mais recente">Verificar atualização</button>
         <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com o Revisor (IA), com base na nota e nos documentos">💬 Pergunte ao Revisor</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-parecer" style="color:#8fd0ff"
+          title="Parecer técnico aprofundado, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot; e escolhe sozinho um modelo de faixa superior.">⚖ Parecer de Especialista</button>
       </div>
       <div class="an-apelido-row" data-role="apelido-row" style="display:none">
         <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
@@ -614,6 +618,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-regerar]').addEventListener('click', () => gerarAnaliseItem(it, true));
   card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
+  card.querySelector('[data-role=btn-parecer]').addEventListener('click', () => gerarParecerEspecialista(it));
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -4771,6 +4776,57 @@ async function prepararApelidos(itens) {
 // HTML de impressão da pauta — cabeçalho institucional (padrão do módulo do
 // Congresso), índice clicável com nº de página (Paged.js / target-counter) e os
 // itens com título "o que será votado (apelido)".
+/**
+ * CSS de impressão do Plenário — o formato da casa.
+ *
+ * Extraído para constante porque agora tem DOIS consumidores: a pauta
+ * exportada e o Parecer de Especialista. Duplicar o bloco garantiria que os
+ * dois divergissem na primeira vez que alguém ajustasse uma margem.
+ *
+ * O numero de pagina vem do @bottom-center, que e CSS Paged Media: quem o
+ * renderiza e o paged.js, carregado antes de imprimir. O indice usa
+ * target-counter, que so o paged.js resolve.
+ */
+const CSS_IMPRESSAO_PLENARIO = `    @page { size:A4; margin:16mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
+    * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
+    .cab { display:flex; align-items:center; gap:16px; }
+    .cab .tit { flex:1; text-align:center; }
+    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; text-align:center; }
+    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; text-align:center; }
+    .cab img { height:42px; }
+    .cab .sp { width:42px; }
+    .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
+    .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    .indice { break-after:page; page-break-after:always; }
+    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
+    .indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
+    .indice-legenda b { font-style:normal; color:#006633; }
+    .indice ul { list-style:none; margin:0; padding:0; }
+    .indice li { font-size:12pt; margin-bottom:4px; }
+    .indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
+    .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
+    .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
+    .bloco { margin-bottom:8px; }
+    .item-h { font-size:13pt; font-weight:700; color:#003c1f; border-bottom:1px solid #ccc; padding-bottom:3px; margin:18px 0 4px; page-break-after:avoid; break-after:avoid; }
+    .item-meta { font-size:9pt; color:#555; margin-bottom:4px; }
+    .badges { margin:2px 0 6px; font-size:9pt; }
+    .responsavel { font-size:9pt; color:#444; margin:2px 0 2px; }
+    .portal { font-size:9pt; margin:0 0 6px; }
+    .portal a { color:#0a4a7a; text-decoration:none; font-weight:600; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
+    .badge-pode { background:#d3f5e2; color:#006633; }
+    .badge-apens { background:#d8eef0; color:#02484d; }
+    .badge-rel { background:#cfe8ff; color:#0a4a7a; }
+    h2 { font-size:13pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
+    h3 { font-size:12pt; color:#155724; margin:10px 0 3px; }
+    p { font-size:12pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; orphans:2; widows:2; }
+    ul { margin:4px 0 6px 18px; padding:0; }
+    li { font-size:12pt; line-height:1.6; text-align:justify; margin:3px 0; }
+    .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
+    .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
+`;
+
 function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
   const esc = escapeHtml;
   const bm  = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
@@ -4825,45 +4881,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${esc(pauta.nome || pauta.titulo || 'Pauta de Plenário')}</title>
   <style>
-    @page { size:A4; margin:16mm; @bottom-center { content: counter(page); font-size:9pt; color:#888; } }
-    * { box-sizing:border-box; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    body { font-family:'Segoe UI',Arial,sans-serif; color:#1a1a1a; margin:0; }
-    .cab { display:flex; align-items:center; gap:16px; }
-    .cab .tit { flex:1; text-align:center; }
-    .cab .tit h1 { font-size:16pt; font-weight:700; color:#003c1f; margin:0; text-align:center; }
-    .cab .tit p  { font-size:10pt; color:#003c1f; margin:2px 0 0; text-align:center; }
-    .cab img { height:42px; }
-    .cab .sp { width:42px; }
-    .rule { border-bottom:2px solid #00A859; margin:6px 0 8px; }
-    .meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
-    .indice { break-after:page; page-break-after:always; }
-    .indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
-    .indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
-    .indice-legenda b { font-style:normal; color:#006633; }
-    .indice ul { list-style:none; margin:0; padding:0; }
-    .indice li { font-size:12pt; margin-bottom:4px; }
-    .indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
-    .indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
-    .indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
-    .bloco { margin-bottom:8px; }
-    .item-h { font-size:13pt; font-weight:700; color:#003c1f; border-bottom:1px solid #ccc; padding-bottom:3px; margin:18px 0 4px; page-break-after:avoid; break-after:avoid; }
-    .item-meta { font-size:9pt; color:#555; margin-bottom:4px; }
-    .badges { margin:2px 0 6px; font-size:9pt; }
-    .responsavel { font-size:9pt; color:#444; margin:2px 0 2px; }
-    .portal { font-size:9pt; margin:0 0 6px; }
-    .portal a { color:#0a4a7a; text-decoration:none; font-weight:600; }
-    .badge { display:inline-block; padding:2px 8px; border-radius:999px; margin-right:4px; font-weight:600; }
-    .badge-pode { background:#d3f5e2; color:#006633; }
-    .badge-apens { background:#d8eef0; color:#02484d; }
-    .badge-rel { background:#cfe8ff; color:#0a4a7a; }
-    h2 { font-size:13pt; color:#003c1f; margin:14px 0 4px; page-break-after:avoid; break-after:avoid; }
-    h3 { font-size:12pt; color:#155724; margin:10px 0 3px; }
-    p { font-size:12pt; line-height:1.6; margin:6px 0; text-align:justify; hyphens:auto; orphans:2; widows:2; }
-    ul { margin:4px 0 6px 18px; padding:0; }
-    li { font-size:12pt; line-height:1.6; text-align:justify; margin:3px 0; }
-    .pendente { color:#888; font-style:italic; background:#fafafa; border:1px dashed #ddd; padding:8px 10px; border-radius:4px; margin:6px 0; }
-    .ft { margin-top:24px; padding-top:8px; border-top:1px solid #e5e7eb; font-size:8.5pt; color:#9ca3af; text-align:center; }
-  </style></head><body>
+${CSS_IMPRESSAO_PLENARIO}  </style></head><body>
     <div class="cab">
       <div class="sp"></div>
       <div class="tit"><h1>Pauta de Plenário</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
@@ -5740,6 +5758,11 @@ function abrirConfig() {
   renderInteresseConfig();
   selecionarAbaConfig('ia');
   document.getElementById('modal-configuracoes').style.display = 'flex';
+  // Havendo chave, busca a lista AO VIVO em segundo plano. A lista de reserva
+  // é do dia em que o código foi escrito; deixar o analista escolher a partir
+  // dela é oferecer um catálogo vencido — e foi assim que o modelo dele podia
+  // ser trocado em silêncio ao salvar.
+  if (c.apiKey) carregarModelos({ silencioso: true }).catch(() => {});
 }
 
 // Alterna entre as abas do modal de Configurações (Provedor de IA / Temas).
@@ -5761,39 +5784,110 @@ function onProvedorChange() {
   popularSelectModelos();
 }
 
-function popularSelectModelos(selecionado) {
+const ROTULO_FAIXA = {
+  superior:         'faixa superior',
+  intermediaria:    'faixa intermediária',
+  economica:        'faixa econômica',
+  nao_identificada: 'faixa não identificada',
+};
+
+/**
+ * Preenche o seletor de modelos.
+ *
+ * TRÊS COISAS QUE ESTA FUNÇÃO PRECISA FAZER, e a versão anterior não fazia:
+ *
+ * 1. NUNCA DESCARTAR O MODELO SALVO. A lista de reserva é fixa no código e
+ *    envelhece: hoje ela só tem gemini-2.5-flash e 2.5-pro, e o
+ *    gemini-3.1-flash-lite que a equipe usa não está nela. Como o <select> não
+ *    aceita um valor que não existe entre as <option>, ele caía no primeiro
+ *    item — e o Salvar gravava ESSE. Medido: abrir as Configurações só para
+ *    conferir a chave e clicar em Salvar trocava o modelo do analista sem
+ *    aviso. Agora o modelo salvo entra na lista mesmo quando não é ofertado.
+ *
+ * 2. DIZER A FAIXA de cada modelo. A classificação já existia e era usada só
+ *    pelo Parecer; quem escolhe o modelo da análise comum é que precisa dela.
+ *
+ * 3. ORDENAR pela faixa, para os adequados aparecerem primeiro.
+ */
+function popularSelectModelos(selecionado, lista) {
   const pid = document.getElementById('config-provedor').value;
   const p   = PROVEDORES_META[pid];
   const sel = document.getElementById('config-modelo');
-  const modelos = p.modelosFallback;
-  sel.innerHTML = modelos.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
-  if (selecionado && modelos.some(m => m.id === selecionado)) {
-    sel.value = selecionado;
-  } else if (state.config?.modelo && modelos.some(m => m.id === state.config.modelo)) {
-    sel.value = state.config.modelo;
+  const alvo = selecionado || (state.config?.provedor === pid ? state.config?.modelo : '') || '';
+
+  const modelos = (lista && lista.length ? lista : p.modelosFallback)
+    .map(m => ({ id: m.id, displayName: m.displayName || m.id }));
+
+  // (1) o modelo salvo entra de qualquer jeito.
+  if (alvo && !modelos.some(m => m.id === alvo)) {
+    modelos.push({ id: alvo, displayName: alvo, naoListado: true });
   }
+
+  // (3) ordena por faixa; dentro da faixa, o mais novo primeiro.
+  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
+  modelos.sort((a, b) => (peso[faixaDoModelo(b.id)] - peso[faixaDoModelo(a.id)])
+    || (versaoDoModelo(b.id) - versaoDoModelo(a.id)));
+
+  // (2) cada opção diz a sua faixa.
+  sel.innerHTML = modelos.map(m => {
+    const f = faixaDoModelo(m.id);
+    const extra = m.naoListado ? ', salvo — não ofertado pelo provedor agora' : '';
+    return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName)} — ${ROTULO_FAIXA[f]}${extra}</option>`;
+  }).join('');
+  if (alvo) sel.value = alvo;
+  avisarFaixaModelo();
 }
 
-async function carregarModelos() {
+/**
+ * (4) Diz o que a faixa escolhida significa para o trabalho.
+ * Não impede nada: a faixa econômica é boa e barata para resumo de pauta. O
+ * que ela não sustenta é a análise densa — e é isso que precisa estar dito
+ * na hora da escolha, não descoberto depois numa nota fraca.
+ */
+function avisarFaixaModelo() {
+  const el = document.getElementById('config-faixa-aviso');
+  if (!el) return;
+  const id = document.getElementById('config-modelo').value;
+  if (!id) { el.style.display = 'none'; return; }
+  const f = faixaDoModelo(id);
+  const txt = {
+    superior: ['#2fcf7a', 'Faixa superior: adequada para análise densa e para o Parecer de Especialista.'],
+    intermediaria: ['#8da3a8', 'Faixa intermediária: dá conta do resumo de pauta. Para análise densa, prefira a superior.'],
+    economica: ['#d68a00', 'Faixa econômica: rápida e barata, boa para resumo de pauta. Tende a completar lacuna com o plausível, '
+      + 'o que enfraquece análise densa — e o Parecer de Especialista recusa rodar nesta faixa, escolhendo sozinho um modelo superior.'],
+    nao_identificada: ['#8da3a8', 'Faixa não identificada pela convenção de nomes conhecida. O modelo funciona; só não dá para dizer se é adequado à análise densa.'],
+  }[f];
+  el.style.color = txt[0];
+  el.textContent = txt[1];
+  el.style.display = 'block';
+}
+
+async function carregarModelos({ silencioso = false } = {}) {
   const pid = document.getElementById('config-provedor').value;
-  const key = document.getElementById('config-api-key').value.trim();
+  const key = document.getElementById('config-api-key').value.trim() || (silencioso ? state.config?.apiKey : '');
   const p   = PROVEDORES_META[pid];
   const stEl = document.getElementById('modelos-status');
   if (!key) {
-    stEl.textContent = 'Informe a chave primeiro.';
-    stEl.style.display = 'block';
+    if (!silencioso) { stEl.textContent = 'Informe a chave primeiro.'; stEl.style.display = 'block'; }
     return;
   }
-  stEl.textContent = 'Carregando modelos...';
+  stEl.textContent = silencioso ? 'Buscando a lista atual do provedor…' : 'Carregando modelos...';
   stEl.style.display = 'block';
   try {
     const lista = await p.listar(key);
-    const sel = document.getElementById('config-modelo');
-    sel.innerHTML = lista.map(m => `<option value="${m.id}">${m.displayName}</option>`).join('');
-    if (state.config?.modelo && lista.some(m => m.id === state.config.modelo)) sel.value = state.config.modelo;
-    stEl.textContent = `✓ ${lista.length} modelo(s) disponível(is).`;
+    // A montagem passa por popularSelectModelos: é ela que preserva o modelo
+    // salvo, rotula a faixa e ordena. Repetir a montagem aqui era o que fazia
+    // a lista ao vivo perder essas três coisas.
+    popularSelectModelos(document.getElementById('config-modelo').value || state.config?.modelo, lista);
+    const sup = lista.filter(m => faixaDoModelo(m.id) === 'superior').length;
+    stEl.textContent = `✓ ${lista.length} modelo(s) do provedor, ${sup} de faixa superior.`;
   } catch (e) {
-    stEl.textContent = `Erro: ${e.message}`;
+    // Em modo silencioso a lista de reserva já está na tela; dizer que a busca
+    // falhou importa, porque o que se vê passa a ser catálogo possivelmente
+    // vencido — e não o que a chave realmente oferece.
+    stEl.textContent = silencioso
+      ? `Não consegui buscar a lista do provedor (${e.message}). O que aparece abaixo é a lista de reserva do programa, que pode estar desatualizada.`
+      : `Erro: ${e.message}`;
   }
 }
 
@@ -6638,4 +6732,144 @@ function mostrarToast(msg, tipo = 'info') {
   el.style.display = 'block';
   clearTimeout(mostrarToast._t);
   mostrarToast._t = setTimeout(() => { el.style.display = 'none'; }, 3500);
+}
+
+// ============================================================
+//  PARECER DE ESPECIALISTA
+// ============================================================
+// O modo profundo. Sob demanda explícita — não entra no "Gerar todas", não
+// pede confirmação e não usa o modelo configurado na tela.
+//
+// A ARMADILHA Nº 1 DO ROTEIRO É DE ENGENHARIA, NÃO DE PROMPT: "analisar o
+// texto original quando o Plenário vai votar o substitutivo invalida o parecer
+// inteiro". Instrução ao modelo não resolve. Aqui o texto analisado é
+// resolvido antes, nomeado no prompt e impresso no parecer.
+//
+// Duas passagens: apuração (com PDF, gera achados com trecho literal) e
+// redação (sem PDF, só com os achados já conferidos). O modelo caro só entra
+// na segunda, e sem documento não tem de onde inventar cifra.
+
+const PARECER_PATH = ch => `${FIREBASE_URL}/pareceres/${encodeURIComponent(ch)}.json`;
+
+/** Temas oficiais da proposição — usados só para sugerir a lente. */
+async function temasDaProposicao(idProposicao) {
+  if (!idProposicao) return [];
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idProposicao}/temas`);
+    if (!r.ok) return [];
+    return (await r.json()).dados || [];
+  } catch (_) { return []; }
+}
+
+/** Situação atual da tramitação, em uma linha, para o Contexto do parecer. */
+async function situacaoDaProposicao(idProposicao) {
+  if (!idProposicao) return '';
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idProposicao}`);
+    if (!r.ok) return '';
+    const s = ((await r.json()).dados || {}).statusProposicao || {};
+    const data = s.dataHora ? s.dataHora.slice(0, 10).split('-').reverse().join('/') : '';
+    return [data, s.siglaOrgao, s.descricaoSituacao, s.descricaoTramitacao, (s.despacho || '').slice(0, 240)].filter(Boolean).join(' — ');
+  } catch (_) { return ''; }
+}
+
+async function gerarParecerEspecialista(it) {
+  const cfg = state.config || {};
+  if (!cfg.apiKey) { mostrarToast('Configure a chave de IA antes de gerar o parecer.', 'aviso'); return; }
+  const pid = cfg.provedor || 'gemini';
+
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const btn = card?.querySelector('[data-role=btn-parecer]');
+  const rot = btn ? btn.innerHTML : '';
+  const passo = t => { if (btn) btn.innerHTML = `<span class="an-spinner"></span> ${t}`; };
+  if (btn) btn.disabled = true;
+  iaInFlightInc();
+
+  try {
+    // --- modelo, por faixa e pela listagem AO VIVO ---------------------------
+    passo('escolhendo modelo…');
+    let lista = [];
+    try { lista = await PROVEDORES_META[pid].listar(cfg.apiKey); } catch (_) { lista = []; }
+    const esc = escolherModelo(lista, { padraoDoUsuario: cfg.modelo });
+    if (esc.erro) { mostrarToast(esc.erro, 'aviso'); return; }
+
+    // --- insumos: documentos, temas, situação --------------------------------
+    passo('localizando documentos…');
+    const temas = await temasDaProposicao(it.enriquecimento?.idProposicao);
+    const situacao = await situacaoDaProposicao(it.enriquecimento?.idProposicao);
+    const docsMeta = await escolherDocumentos(it);
+    if (!docsMeta.length) { mostrarToast('Nenhum documento localizado para esta matéria — o parecer não é gerado sem texto.', 'aviso'); return; }
+    const docs = [];
+    for (const d of docsMeta) {
+      try { docs.push({ rotulo: d.rotulo, buffer: await baixarPdf(d.url) }); }
+      catch (e) { console.warn('Parecer: documento não baixado', d.rotulo, e.message); }
+    }
+    if (!docs.length) { mostrarToast('Nenhum documento pôde ser baixado.', 'aviso'); return; }
+
+    // --- o pipeline (pipeline-parecer.js), com o fetch e o pdf.js da extensão -
+    const ctx = {
+      identificacao: `${it.sigla} ${it.numero}/${it.ano}`, sigla: it.sigla, numero: it.numero, ano: it.ano,
+      ementa: it.ementa || '', titulo: tituloComApelido(it) || '', autoria: it.autor, relator: it.enriquecimento?.relator?.nome,
+      situacao, temas, docs, textoEmendas: docsMeta.map(d => d.rotulo).join(' '), hoje: new Date(),
+    };
+    const io = {
+      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: cfg.apiKey, modelo: esc.modelo, prompt, pdfBuffers }),
+      fetchFn: (u, o) => fetch(u, o),
+      lerPdf: b => extrairTextoPdf(b.slice(0)),
+      abrirXlsx: typeof XLSX !== 'undefined' ? (b => XLSX.read(new Uint8Array(b), { type: 'array' })) : null,
+      onPasso: passo,
+    };
+    const p = await gerarParecer(ctx, io);
+    if (p.erro) { mostrarToast(p.erro, 'aviso'); console.warn('Parecer:', p); return; }
+    p.carimbo = carimboDoParecer({ ...esc, lentes: p.lentes, por: cfg.nomeUsuario || 'equipe' });
+    p.geradoPor = cfg.nomeUsuario || 'equipe';
+    it.parecer = p;
+    await fetch(PARECER_PATH(`${state.pauta.id}__${it.chave}`), {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+    }).catch(e => console.warn('Firebase:', e.message));
+
+    abrirParecerEspecialista(it);
+    mostrarToast(p.aprovado
+      ? `Parecer gerado e aprovado na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`
+      : `Parecer gerado com REPROVAÇÃO: ${[...p.rubrica.pendentes.map(x => x.item.slice(0, 3)), ...p.gates.reprovacoes.map(r => r.gate)].join(', ')}. Veja a conferência no PDF antes de usar.`,
+      p.aprovado ? 'sucesso' : 'aviso');
+
+  } catch (e) {
+    if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }
+  } finally {
+    iaInFlightDec();
+    if (btn) { btn.disabled = false; btn.innerHTML = rot; }
+  }
+}
+
+/**
+ * Abre o parecer no MESMO formato da pauta exportada (parecer-html.js), com
+ * paged.js para número de página e índice. Parecer reprovado na conferência
+ * abre com faixa vermelha — quem vai ler precisa ver o porquê, não um toast.
+ */
+async function abrirParecerEspecialista(it) {
+  const p = it.parecer;
+  if (!p) return;
+  if (!p.ficha || !p.rubrica) { mostrarToast('Este parecer foi gerado por uma versão anterior; gere de novo.', 'aviso'); return; }
+  const w = window.open('', '_blank', 'width=900,height=760');
+  if (!w) { mostrarToast('Permita pop-ups para abrir o parecer.', 'aviso'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
+    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando o parecer…</body></html>');
+  w.document.close();
+
+  const logoDataUrl = await carregarLogoDataUrl();
+  if (w.closed) return;
+  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Conferência e ressalvas".', ...(p.gates?.faixas || [])] } };
+  w.document.open();
+  w.document.write(htmlParecer(paraImpressao, { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO }));
+  w.document.close();
+
+  let impresso = false;
+  const imprimir = () => { if (impresso || w.closed) return; impresso = true; try { w.focus(); w.print(); } catch (_) {} };
+  w.PagedConfig = { auto: true, after: imprimir };
+  const sc = w.document.createElement('script');
+  sc.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  sc.onerror = imprimir;
+  w.document.head.appendChild(sc);
+  setTimeout(imprimir, 30000);
 }
