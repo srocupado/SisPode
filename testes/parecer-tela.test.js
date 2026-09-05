@@ -56,6 +56,23 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão definidos`);
   ok(!/\(0, eval\)|\beval\(/.test(fonte.replace(/\/\/[^\n]*/g, '')), 'nenhum eval nos scripts (a CSP da extensão o proíbe)');
 
+  console.log('\n== a chamada do parecer liga o raciocínio alto e 32 mil tokens de saída ==');
+  {
+    // fetchIA é declaração de função no escopo da página: reatribuível para capturar o corpo enviado.
+    av('var __corpos = []; fetchIA = async (url, init) => { __corpos.push(JSON.parse(init.body)); return { candidates: [], output: [], content: [] }; };');
+    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-2.5-pro", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-opus-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await av('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
+    const c = av('__corpos');
+    ok(c[0].generationConfig.maxOutputTokens === 32000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 32000 e thinkingLevel high');
+    ok(c[1].generationConfig.thinkingConfig?.thinkingBudget === 24576, 'Gemini 2.5: thinkingBudget');
+    ok(c[2].max_tokens === 32000 && c[2].thinking?.type === 'enabled' && c[2].thinking.budget_tokens <= 16000, 'Anthropic: extended thinking dentro de max_tokens');
+    ok(c[3].max_output_tokens === 32000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
+    ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
+  }
+
   console.log('\n== o pipeline roda no escopo da página com modelo falso ==');
   {
     const TRECHO = 'De acordo com o art. 1º, § 2º-A, do Decreto-Lei nº 1.804, de 3 de setembro de 1980, o imposto de importação é calculado de acordo com a seguinte tabela progressiva: 0 50,00 20,0% - 50,01 3.000,00 60,0% US$ 20,00';

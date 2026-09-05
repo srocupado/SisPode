@@ -120,7 +120,7 @@ async function gerarParecer(ctx, io) {
   const T = { catalogo: R.catalogoDeEvidencias, promptTese: R.promptTese, validar: R.validarTese, promptContra: R.promptContraditorio, aplicarContra: R.aplicarContraditorio, promptRedacao: R.promptRedacao, conferir: R.conferirRedacao, limpar: R.limparMarcadores };
   const aplicarGates = R.aplicarGates, rubricaMaquina = R.rubricaMaquina;
   const chamadas = [];
-  const chamar = async (nome, prompt, pdfBuffers) => { const r = await io.chamarModelo({ prompt, pdfBuffers: pdfBuffers || [] }); chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated }); return r; };
+  const chamar = async (nome, prompt, pdfBuffers) => { const r = await io.chamarModelo({ prompt, pdfBuffers: pdfBuffers || [], etapa: nome }); chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated }); return r; };
 
   // 1. leitura
   passo('lendo os documentos…');

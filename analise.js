@@ -2817,8 +2817,19 @@ ${instr}${regras}`;
 // ---------- IA: chamada adaptada para resposta em Markdown ----------
 // Retorna { text, truncated } onde truncated=true sinaliza que o modelo
 // atingiu o limite de tokens de saída (não terminou a resposta).
-async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web }) {
+/**
+ * `opcoes` (só o Parecer de Especialista as usa): maxSaida — limite de tokens
+ * de saída (padrão 12000; o parecer pede 32000, porque no Gemini o raciocínio
+ * conta dentro do limite e 12000 truncava a redação); pensar: 'alto' — liga o
+ * raciocínio no nível máximo em cada provedor (Gemini 3: thinkingLevel high;
+ * Gemini 2.5: thinkingBudget; Anthropic: extended thinking; OpenAI, modelos
+ * de raciocínio: reasoning effort high). Sem `opcoes`, a chamada é a da nota
+ * comum, intacta.
+ */
+async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, opcoes = {} }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
+  const maxSaida = opcoes.maxSaida || 12000;
+  const pensarAlto = opcoes.pensar === 'alto';
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
@@ -2827,8 +2838,9 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web })
     parts.push({ text: prompt });
     const body = {
       contents: [{ parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: 12000 },
+      generationConfig: { temperature: 0.2, maxOutputTokens: maxSaida },
     };
+    if (pensarAlto) body.generationConfig.thinkingConfig = /gemini-2\.5/.test(m) ? { thinkingBudget: 24576 } : { thinkingLevel: 'high' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const json = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
     const cand = json.candidates?.[0];
@@ -2851,8 +2863,10 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web })
       model: m,
       input: [{ role: 'user', content }],
       temperature: 0.2,
-      max_output_tokens: 12000,
+      max_output_tokens: maxSaida,
     };
+    // Modelos de raciocínio (o*, gpt-5*) não aceitam temperature e recebem o esforço.
+    if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { delete body.temperature; body.reasoning = { effort: 'high' }; }
     if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
     const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -2882,9 +2896,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web })
     content.push({ type: 'text', text: prompt });
     const body = {
       model: m,
-      max_tokens: 12000,
+      max_tokens: maxSaida,
       messages: [{ role: 'user', content }],
     };
+    // Raciocínio estendido: o orçamento de pensamento fica dentro de max_tokens.
+    if (pensarAlto) body.thinking = { type: 'enabled', budget_tokens: Math.min(16000, Math.max(1024, maxSaida - 8000)) };
     if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const json = await fetchIA('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -6813,7 +6829,7 @@ async function gerarParecerEspecialista(it) {
       situacao, temas, docs, textoEmendas: docsMeta.map(d => d.rotulo).join(' '), hoje: new Date(),
     };
     const io = {
-      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: cfg.apiKey, modelo: esc.modelo, prompt, pdfBuffers }),
+      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: cfg.apiKey, modelo: esc.modelo, prompt, pdfBuffers, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
       abrirXlsx: typeof XLSX !== 'undefined' ? (b => XLSX.read(new Uint8Array(b), { type: 'array' })) : null,
