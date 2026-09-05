@@ -139,8 +139,22 @@ async function gerarParecer(ctx, io) {
 
   // 2–3. apuração e conferência
   passo(`apurando (${lentes.length} lentes)…`);
-  const r1 = await chamar('apuracao', promptApuracao({ identificacao: ctx.identificacao, ementa: ctx.ementa, autoria: ctx.autoria, relator: ctx.relator, textoAnalisado }, lentes, ESPEC), (ctx.docs || []).map(d => d.buffer));
-  const bruto = extrairJSONParecer(r1.text);
+  const ctxAp = { identificacao: ctx.identificacao, ementa: ctx.ementa, autoria: ctx.autoria, relator: ctx.relator, textoAnalisado };
+  const buffers = (ctx.docs || []).map(d => d.buffer);
+  const r1 = await chamar('apuracao', promptApuracao(ctxAp, lentes, ESPEC), buffers);
+  let bruto = extrairJSONParecer(r1.text);
+  // Resposta truncada (o raciocínio conta no limite de saída): uma chamada por
+  // lente, a ficha do objeto só na primeira. Mais chamadas, nenhuma perdida.
+  if (!Array.isArray(bruto) && r1.truncated && lentes.length > 1) {
+    passo(`apuração truncada — repetindo lente a lente (${lentes.length})…`);
+    bruto = [];
+    for (let i = 0; i < lentes.length; i++) {
+      const ri = await chamar(`apuracao-lente-${lentes[i].ordem}`, promptApuracao(ctxAp, [lentes[i]], ESPEC, { semFicha: i > 0 }), buffers);
+      const bi = extrairJSONParecer(ri.text);
+      if (!Array.isArray(bi)) return { erro: ri.truncated ? `A apuração da lente ${lentes[i].ordem} veio truncada mesmo isolada — documento grande demais para o modelo.` : `Não consegui interpretar a apuração da lente ${lentes[i].ordem}.`, chamadas };
+      bruto.push(...bi);
+    }
+  }
   if (!Array.isArray(bruto)) return { erro: r1.truncated ? 'A apuração veio truncada — documento grande demais para uma leitura só.' : 'Não consegui interpretar a apuração do modelo.', chamadas };
   const conf = conferirAchados(bruto, fonte);
   // Sem histórico na apuração geral, uma chamada só para ele (os pareceres e

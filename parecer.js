@@ -164,7 +164,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = 
  * "não identifiquei questão nesta linha" — que no roteiro da casa é resposta
  * válida e esperada, não lacuna.
  */
-function promptApuracao(ctx = {}, lentes = [], catalogo = []) {
+function promptApuracao(ctx = {}, lentes = [], catalogo = [], { semFicha = false } = {}) {
   const bloco = l => {
     const e = catalogo.find(x => x.chave === l.chave);
     if (!e) return '';
@@ -204,7 +204,7 @@ REGRAS QUE NÃO PODEM SER QUEBRADAS
   pergunta), cada um com o seu trecho. O parecer é detalhado; achado a mais com trecho vale, achado sem trecho não.
 - Se a proposição tiver estimativa oficial de impacto (exposição de motivos, parecer, anexo), registre-a como
   achado próprio com o valor, a fonte e o trecho.
-
+${semFicha ? '' : `
 ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJETO; sem eles o parecer sai incompleto):
 - "pergunta": "dispositivo" — o dispositivo da norma vigente que a proposição altera ou cria (ex.: "art. 1º, § 2º-A, do
   Decreto-Lei 1.804/1980"), com trecho.
@@ -220,7 +220,7 @@ ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJET
   a contam: quem propôs; quem relatou e O QUE o relator propôs (manter, suprimir, alterar — com o argumento dele);
   emendas acatadas ou rejeitadas e de quem; o que o Plenário decidiu; datas. UM achado por fato, cada um com
   trecho literal; três a oito achados quando os documentos permitirem. É isto que diz ao leitor "de onde veio
-  isto" e "quem defendeu o quê" — sem isto o parecer sai sem contexto.
+  isto" e "quem defendeu o quê" — sem isto o parecer sai sem contexto.`}
 ${lentes.map(bloco).join('\n')}`;
 }
 

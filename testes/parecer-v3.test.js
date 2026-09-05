@@ -199,6 +199,20 @@ const achadosX = [
   const io3 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'historico')), truncated: false }; if (/apura o HISTÓRICO/.test(prompt)) return { text: JSON.stringify([{ lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026' }]), truncated: false }; return io.chamarModelo({ prompt }); } };
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
+  // apuração geral truncada (o raciocínio conta no teto de saída): uma chamada por lente, ficha só na primeira
+  const promptsLente = [];
+  const io4 = { ...io, chamarModelo: async ({ prompt }) => {
+    if (/etapa de APURAÇÃO/.test(prompt)) {
+      const nLentes = (prompt.match(/### LENTE /g) || []).length;
+      if (nLentes > 1) return { text: '[{"lente": "X", "pergunta": "dispositivo", "achado": "cortado', truncated: true };
+      promptsLente.push(prompt);
+      return { text: JSON.stringify(promptsLente.length === 1 ? achadosX.map(a => ({ ...a, semQuestao: false })) : [{ lente: '2', pergunta: '2.1', semQuestao: true }]), truncated: false };
+    }
+    return io.chamarModelo({ prompt }); } };
+  const p4 = await PP.gerarParecer(ctx, io4);
+  const nomesLente = p4.chamadas ? p4.chamadas.filter(c => /^apuracao-lente-/.test(c.nome)) : [];
+  ok(!p4.erro && nomesLente.length >= 2 && p4.chamadas[0].truncada && p4.ficha.completa, 'apuração truncada: repete lente a lente e o parecer sai inteiro: ' + (p4.erro || nomesLente.map(c => c.nome).join(', ')));
+  ok(/ALÉM DAS LENTES/.test(promptsLente[0]) && promptsLente.slice(1).every(pr => !/ALÉM DAS LENTES/.test(pr)), 'a ficha do objeto é pedida só na primeira lente');
   const p2 = await PP.gerarParecer(ctx, io2);
   ok(!p2.erro && p2.refeita && p2.chamadas.length === 6 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita e, persistindo, parecer reprovado no G2');
 
