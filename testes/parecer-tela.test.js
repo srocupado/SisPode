@@ -65,10 +65,15 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-opus-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await av('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
+    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-haiku-4-5-20251001", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     const c = av('__corpos');
     ok(c[0].generationConfig.maxOutputTokens === 64000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 64000 (o raciocínio conta no teto) e thinkingLevel high');
     ok(c[1].generationConfig.thinkingConfig?.thinkingBudget === 24576, 'Gemini 2.5: thinkingBudget');
-    ok(c[2].max_tokens === 48000 && c[2].thinking?.type === 'enabled' && c[2].thinking.budget_tokens === 16000, 'Anthropic: extended thinking de 16 mil somado ao max_tokens');
+    ok(c[2].max_tokens === 48000 && c[2].thinking?.type === 'adaptive' && c[2].thinking.budget_tokens === undefined && c[2].output_config?.effort === 'high' && c[2].temperature === undefined, 'Anthropic opus-5: thinking adaptive + effort high, sem budget_tokens nem temperature');
+    ok(c[5].thinking?.type === 'enabled' && c[5].thinking.budget_tokens === 16000 && c[5].output_config === undefined, 'Anthropic haiku-4.5: ainda budget_tokens, sem output_config');
+    ok(c[6].thinking?.type === 'adaptive' && c[6].output_config?.effort === 'high', 'Anthropic sonnet-5: adaptive (o erro "thinking.type.enabled is not supported" não volta)');
+    for (const [m, e] of [['claude-sonnet-4-6', true], ['claude-opus-4-1-20250805', false], ['claude-3-7-sonnet-20250219', false], ['claude-fable-5-1', true], ['claude-opus-4-8', true]]) ok(av(`raciocinioAdaptativo(${JSON.stringify(m)})`) === e, `raciocinioAdaptativo(${m}) = ${e}`);
     ok(c[3].max_output_tokens === 64000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
     ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
   }
