@@ -14,11 +14,16 @@ ok(P.faixaDoModelo('gemini-3.1-pro-preview') === 'superior', 'gemini-3.1-pro-pre
 ok(P.faixaDoModelo('claude-opus-5') === 'superior' && P.faixaDoModelo('claude-haiku-4-5-20251001') === 'economica', 'opus superior, haiku econômica');
 ok(P.faixaDoModelo('gemini-2.5-flash-image') === 'outra_modalidade' && P.faixaDoModelo('gemini-2.5-pro-tts') === 'outra_modalidade', 'imagem e TTS não são candidatos');
 
-console.log('== escolha automática ==');
-const lista = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash-image'];
+console.log('== escolha automática: versão decide, faixa desempata ==');
+const lista = ['gemini-3.1-flash-lite', 'gemini-2.5-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-pro', 'gemini-2.5-flash-image', 'gemini-3.8-flash', 'gemini-3.8-flash-lite'];
 const esc = P.escolherModelo(lista, { padraoDoUsuario: 'gemini-3.1-flash-lite' });
-ok(esc.modelo && P.faixaDoModelo(esc.modelo) === 'superior', 'ignora o padrão econômico do usuário e escolhe a faixa superior: ' + esc.modelo);
-ok(!esc.erro, 'sem erro quando há modelo superior');
+ok(esc.modelo === 'gemini-3.8-flash', 'a versão mais alta não econômica vence a faixa pelo nome (3.8-flash > 3.1-pro-preview): ' + esc.modelo);
+ok(/versão mais alta/.test(esc.motivo) && /não é usado/.test(esc.motivo) && /intermediária/.test(esc.ressalva || ''), 'motivo cita a regra e o padrão ignorado; ressalva de faixa vai impressa');
+ok(P.escolherModelo(['gemini-3.1-pro-preview', 'gemini-3.1-pro'], {}).modelo === 'gemini-3.1-pro', 'mesma versão: o estável vence o preview');
+ok(P.escolherModelo(lista, { fixado: 'gemini-2.5-pro' }).modelo === 'gemini-2.5-pro' && /fixado/.test(P.escolherModelo(lista, { fixado: 'gemini-2.5-pro' }).motivo), 'modelo fixado na configuração é respeitado quando elegível');
+ok(P.escolherModelo(lista, { fixado: 'gemini-3.8-flash-lite' }).modelo === 'gemini-3.8-flash', 'modelo fixado econômico é ignorado: cai no automático');
+const rk = P.ranquearModelos(lista);
+ok(rk[0].id === 'gemini-3.8-flash' && rk.every(m => m.faixa !== 'outra_modalidade') && rk.filter(m => !m.elegivel).every(m => /econômica/.test(m.motivoInelegivel)), 'ranking para o diálogo: elegíveis primeiro, imagem fora, econômicos com motivo');
 const so = P.escolherModelo(['gemini-3.1-flash-lite', 'gpt-5-mini'], { padraoDoUsuario: 'gpt-5-mini' });
 ok(!!so.erro, 'só econômicos → recusa com erro: ' + so.erro);
 

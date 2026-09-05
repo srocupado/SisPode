@@ -97,41 +97,61 @@ const ORDEM_FAIXA = { superior: 3, nao_identificada: 2, intermediaria: 1, econom
  * um parecer, escrito por um modelo que preenche lacuna, é pior que não
  * entregar.
  */
-function escolherModelo(lista = [], { padraoDoUsuario = null } = {}) {
+/**
+ * Ranking dos modelos de um provedor para o parecer. A regra mudou em
+ * 05/09/2026, depois de uma comparação real: o gemini-3.8-flash produziu o
+ * parecer mais informativo e a regra antiga (faixa pelo nome primeiro) o
+ * preteria pelo 3.1-pro. A convenção de nomes envelheceu; a VERSÃO decide,
+ * a faixa desempata, "preview" fica atrás do estável. A faixa econômica
+ * continua fora (elegivel: false) — é a regra de faixa mínima da Liderança.
+ */
+function ranquearModelos(lista = []) {
+  const ids = (lista || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
+  return ids
+    .map(id => ({ id, faixa: faixaDoModelo(id), versao: versaoDoModelo(id), preview: /preview|exp/i.test(id) ? 1 : 0 }))
+    .filter(m => m.faixa !== 'outra_modalidade')
+    .map(m => ({ ...m, elegivel: m.faixa !== 'economica', motivoInelegivel: m.faixa === 'economica' ? 'faixa econômica: o parecer exige faixa mínima intermediária' : null }))
+    .sort((a, b) => (b.elegivel - a.elegivel) || (b.versao - a.versao) || (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (a.preview - b.preview));
+}
+
+/**
+ * Escolhe o modelo do parecer a partir da listagem AO VIVO do provedor.
+ * `fixado`: modelo que o usuário fixou na configuração para o parecer — vale
+ * se estiver na lista e for elegível. `padraoDoUsuario`: o modelo da nota
+ * comum, que NÃO é usado (só citado no motivo).
+ *
+ * Devolve { modelo, faixa, motivo, ressalva } ou { erro } quando não há
+ * modelo adequado. Recusar é o comportamento certo: entregar algo parecido com
+ * um parecer, escrito por um modelo que preenche lacuna, é pior que não
+ * entregar.
+ */
+function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = {}) {
   const ids = (lista || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
   if (!ids.length) {
     return { erro: 'Não foi possível listar os modelos do provedor. Sem a lista ao vivo o parecer não escolhe modelo — e não usa o padrão da tela, que pode ser de faixa econômica.' };
   }
-  // Modelo de outra modalidade sai da disputa antes do ranking; "preview"
-  // desempata para trás dentro da mesma faixa e versão — para homologação,
-  // o estável vem primeiro.
-  const ranqueados = ids
-    .map(id => ({ id, faixa: faixaDoModelo(id), versao: versaoDoModelo(id), preview: /preview|exp/i.test(id) ? 1 : 0 }))
-    .filter(m => m.faixa !== 'outra_modalidade')
-    .sort((a, b) => (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (b.versao - a.versao) || (a.preview - b.preview));
+  const ranqueados = ranquearModelos(ids);
   if (!ranqueados.length) {
     return { erro: `Os ${ids.length} modelos listados são todos de outra modalidade (imagem, voz, vídeo) — nenhum redige texto.` };
   }
-
-  const alvo = ranqueados[0];
-  if (alvo.faixa === 'economica') {
+  const elegiveis = ranqueados.filter(m => m.elegivel);
+  if (!elegiveis.length) {
     return { erro: 'Nenhum modelo adequado disponível nesta chave: todos os '
       + `${ids.length} modelos oferecidos são de faixa econômica (${ranqueados.slice(0, 3).map(r => r.id).join(', ')}). `
-      + 'O Parecer de Especialista exige faixa superior — a faixa econômica é otimizada para custo e latência e '
+      + 'O Parecer de Especialista exige ao menos a faixa intermediária — a faixa econômica é otimizada para custo e latência e '
       + 'tende a completar lacuna com o plausível, que num parecer técnico é o erro de maior consequência.' };
   }
-
-  const trocou = padraoDoUsuario && padraoDoUsuario !== alvo.id;
+  const fix = fixado ? elegiveis.find(m => m.id === fixado) : null;
+  const alvo = fix || elegiveis[0];
+  const ressalva = alvo.faixa === 'superior' ? null
+    : alvo.faixa === 'intermediaria'
+      ? `O modelo ${alvo.id} é de faixa intermediária pela convenção de nomes; foi escolhido pela versão mais alta. Esta ressalva vai impressa no parecer.`
+      : `A faixa do modelo ${alvo.id} não foi identificada pela convenção de nomes conhecida. O parecer sai, e esta ressalva vai impressa nele.`;
   return {
-    modelo: alvo.id,
-    faixa: alvo.faixa,
-    motivo: trocou
-      ? `Escolhido automaticamente por faixa (${alvo.faixa}); o padrão da tela (${padraoDoUsuario}, faixa ${faixaDoModelo(padraoDoUsuario)}) não é usado no modo profundo.`
-      : `Escolhido automaticamente por faixa (${alvo.faixa}).`,
-    ressalva: alvo.faixa === 'superior' ? null
-      : alvo.faixa === 'intermediaria'
-        ? `O melhor modelo disponível nesta chave é de faixa intermediária (${alvo.id}). O parecer sai, e esta ressalva vai impressa nele.`
-        : `A faixa do modelo ${alvo.id} não foi identificada pela convenção de nomes conhecida. O parecer sai, e esta ressalva vai impressa nele.`,
+    modelo: alvo.id, faixa: alvo.faixa, ressalva,
+    motivo: fix
+      ? `Modelo fixado pelo usuário na configuração do parecer (${alvo.id}, faixa ${alvo.faixa}).`
+      : `Escolhido automaticamente: versão mais alta entre os modelos não econômicos do provedor (${alvo.id}, faixa ${alvo.faixa})${padraoDoUsuario && padraoDoUsuario !== alvo.id ? `; o padrão da nota comum (${padraoDoUsuario}) não é usado no parecer` : ''}.`,
   };
 }
 
@@ -248,7 +268,7 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    faixaDoModelo, versaoDoModelo, escolherModelo,
+    faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
     promptApuracao, promptHistorico, carimboDoParecer,
   };
 }
