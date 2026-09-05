@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sistemas Legislativos – Podemos",
-  "version": "3.3.4",
+  "version": "3.4.0",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
 
   "permissions": ["storage", "tabs"],
@@ -20,7 +20,10 @@
     "https://unpkg.com/*",
     "https://legis.camara.leg.br/*",
     "https://legis.senado.leg.br/*",
-    "https://www.congressonacional.leg.br/*"
+    "https://www.congressonacional.leg.br/*",
+    "https://www.gov.br/*",
+    "https://api.bcb.gov.br/*",
+    "https://www.planalto.gov.br/*"
   ],
 
   "content_security_policy": {

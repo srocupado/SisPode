@@ -1,0 +1,54 @@
+Síntese
+O texto original da MPV 1357/2026 com a EMI 1146/2026 altera o regime de tributação simplificada aplicável a remessas postais internacionais, delegando ao Ministro da Fazenda a alteração de alíquotas do Imposto de Importação.
+A proposição atinge os objetivos declarados de ampliar a formalização e a adesão ao programa de conformidade, visto que o volume de remessas e a participação no programa aumentaram, mas falha no objetivo implícito de manter a arrecadação, que sofreu queda expressiva.
+O Poder Executivo declarou não haver renúncia de receita, dispensando estimativas, mas os dados reais mostram uma redução de 33,5% no imposto devido total mensal após a edição da medida.
+A Liderança deve decidir considerando que a aprovação consolida o aumento da formalização aduaneira, mas acarreta perda de arrecadação federal, enquanto a rejeição ou alteração precisa observar o exíguo prazo de vigência da medida, que expira em 08/09/2026.
+
+Contexto e processo
+A proposição é uma Medida Provisória editada pelo Presidente da República, acompanhada da Exposição de Motivos 1146/2026. O texto foi submetido à análise de comissão mista, tendo como relatora a Senadora Leila Barros. Em 03/09/2026, a matéria foi aprovada pelo Plenário da Câmara dos Deputados na forma do Projeto de Lei de Conversão 13/2026. Atualmente, a proposição segue para análise do Senado Federal, com prazo de vigência expirando em 08/09/2026.
+
+Lei vigente e datas de efeito
+O texto vigente do Decreto-Lei 1.804/1980 não foi obtido para comparação. A proposição altera as regras relativas ao Imposto de Importação no âmbito do regime de tributação simplificada para remessas postais internacionais, delegando ao Ministro da Fazenda a competência para alterar as alíquotas. As mudanças entram em vigor e produzem efeitos imediatamente a partir da data de publicação da medida, ocorrida em 12/05/2026, uma vez que o Imposto de Importação constitui exceção expressa aos princípios da anterioridade anual e nonagesimal.
+
+O que se previu
+O processo não traz estimativa de impacto financeiro-orçamentário para a medida analisada. O Poder Executivo declara expressamente no item 13 da EMI 1146/2026 que a proposição não acarreta renúncia de receitas tributárias. As cifras de R$ 3,5 bilhões para 2024, R$ 3,8 bilhões para 2025 e R$ 3,90 bilhões para 2026, bem como os valores de R$ 2,924 bilhões, R$ 576 milhões e R$ 396 milhões localizados nos documentos do processo, referem-se ao Programa Mover e a outras resoluções, não constituindo a estimativa oficial desta proposição. A declaração de ausência de impacto do Executivo é contraditada pelos números da arrecadação posterior à vigência da medida.
+
+O que aconteceu
+Os dados do Programa Remessa Conforme da Receita Federal apresentam nível de evidência B. Na comparação entre os 12 meses anteriores à medida e os 3 meses posteriores, o volume de remessas recebidas passou de 15,2 milhões para 25,1 milhões por mês, um aumento de 65,3%. O valor aduaneiro subiu de 305,8 milhões de dólares para 517,2 milhões de dólares mensais, com o ticket médio por declaração passando de 20,07 dólares para 20,83 dólares. O Imposto de Importação devido total caiu de R$ 446,6 milhões para R$ 297,0 milhões mensais, uma redução de 33,5%. O imposto devido dentro do programa caiu de R$ 319,6 milhões para R$ 139,4 milhões mensais, gerando um incremento anualizado negativo de R$ 2.161.675.802. O imposto devido fora do programa subiu de R$ 127,0 milhões para R$ 157,6 milhões mensais. A alíquota efetiva caiu de 27,2% para 11,3%, e a participação do programa nas declarações subiu de 96,5% para 97,5%. No mesmo período, o câmbio médio mensal variou de 5,4 para 5,1 reais por dólar, uma queda nominal de 5,3%. O parecer não atribui a diferença exclusivamente à medida.
+
+Avaliação da política
+O objetivo declarado de aperfeiçoar a conformidade tributária e aduaneira utilizando incentivos para estimular a adesão voluntária foi atingido. Os dados mostram que a participação do programa nas declarações subiu de 96,5% para 97,5% após a edição da medida. O objetivo declarado de simplificar e reduzir a tributação sobre remessas de pequeno valor para ampliar a formalização das operações também foi atingido. O volume de remessas recebidas aumentou 65,3% e a alíquota efetiva caiu de 27,2% para 11,3%. Contudo, o objetivo implícito de preservar a base de arrecadação ao reduzir a evasão não foi atingido, uma vez que o Imposto de Importação devido total apresentou queda de 33,5%, resultando em um impacto negativo anualizado superior a 2 bilhões de reais no âmbito do programa.
+
+Os dois lados
+O melhor argumento de quem apoia a proposição é que a redução da carga tributária e a simplificação atraem os agentes para a legalidade, o que é sustentado pelo aumento expressivo no volume de remessas formalizadas e pela elevação da taxa de adesão ao programa de conformidade para 97,5%. O melhor argumento de quem se opõe é que a medida provoca uma perda severa de arrecadação federal sem a devida compensação ou transparência prévia, o que é confirmado pela queda de R$ 446,6 milhões para R$ 297,0 milhões mensais no imposto devido total e pela contradição entre a declaração do Executivo de que não haveria renúncia de receita e a queda efetiva da alíquota de 27,2% para 11,3%.
+
+Opções e consequências
+A Liderança pode orientar pela aprovação do texto, o que tem como consequência jurídica a consolidação da delegação de competência ao Ministro da Fazenda, como consequência política o atendimento à demanda por menor tributação no comércio eletrônico, e como consequência fiscal a manutenção do cenário de queda na arrecadação do Imposto de Importação. A Liderança pode orientar pela rejeição da matéria, o que tem como consequência jurídica a perda de eficácia da medida provisória e a necessidade de disciplinar as relações jurídicas constituídas desde 12/05/2026, como consequência política o desgaste com os consumidores de remessas internacionais, e como consequência fiscal a reversão das alíquotas reduzidas, com potencial recuperação de receitas. A Liderança pode optar por alterar o texto, o que politicamente exige negociação rápida no Senado, juridicamente demanda adequação aos limites constitucionais de delegação, e fiscalmente permite calibrar as alíquotas para mitigar a perda de arrecadação, mas esbarra no exíguo prazo de vigência que se encerra em 08/09/2026.
+
+Respostas por lente
+
+0. Processo legislativo e técnica legislativa
+A proposição é uma Medida Provisória, submetida ao rito do art. 62 da Constituição Federal, com vigência imediata e prazo de 60 dias, prorrogável por igual período, trancando a pauta após 45 dias de sua publicação, conforme o preâmbulo da MPV 1357/2026 e o art. 62 da CF.
+O texto analisado é o original da Medida Provisória editada pelo Poder Executivo, acompanhado de sua respectiva Exposição de Motivos, conforme o cabeçalho da MPV 1357/2026.
+A proposição entra em vigor na data de sua publicação, sujeitando-se à análise por comissão mista e aos prazos constitucionais, conforme o art. 2º da MPV 1357/2026 e o art. 62 da CF.
+A proposição atende aos preceitos de técnica legislativa, pois a ementa reflete o conteúdo, indica expressamente o diploma alterado e possui cláusula de vigência compatível, conforme a ementa da MPV 1357/2026.
+A proposição delega ao Ministro da Fazenda a alteração de alíquotas, o que é facultado ao Poder Executivo pela Constituição para o Imposto de Importação, atendidas as condições legais, conforme o art. 1º da MPV 1357/2026 e o art. 153, parágrafo 1º, da CF.
+Não identifiquei questão quanto ao quórum de maioria absoluta e à exorbitação do poder regulamentar ou da delegação.
+
+1. Constitucional
+A iniciativa é regular, exercida pelo Presidente da República, a quem compete a edição de medidas provisórias e a deflagração de processo legislativo em matéria tributária federal, conforme o preâmbulo da MPV 1357/2026 e o art. 62 da CF.
+A competência legislativa é da União, tratando-se de matéria relativa a comércio exterior e direito tributário, conforme o art. 22, inciso VIII, e o art. 24, inciso I, da CF.
+A matéria não exige lei complementar, pois a instituição e alteração de alíquotas do Imposto de Importação e de regimes aduaneiros simplificados podem ser veiculadas por lei ordinária ou medida provisória, conforme o art. 146 e o art. 153, inciso I, da CF.
+A matéria não se enquadra nas vedações materiais para edição de Medida Provisória e, por se tratar do texto original, não há emenda sem pertinência temática, conforme o art. 62, parágrafo 1º, da CF.
+Não localizei precedente do STF que obste a delegação ao Executivo para alteração de alíquotas do Imposto de Importação nos moldes propostos, visto que a própria Constituição autoriza tal prática, conforme o art. 153, parágrafo 1º, da CF.
+Não identifiquei questão quanto à emenda parlamentar que aumente despesa, à retroatividade que atinja ato jurídico perfeito, à imposição de despesa a entes federados, à violação de cláusula pétrea e ao cabimento de controle concentrado.
+
+2. Tributário
+A proposição altera regras relativas ao Imposto sobre a Importação de Produtos Estrangeiros, especificamente no âmbito do regime de tributação simplificada aplicável a remessas postais internacionais, conforme o art. 1º da MPV 1357/2026 e o art. 153, inciso I, da CF.
+A competência para instituir e alterar o Imposto de Importação é privativa da União, sendo a proposição adequada a este preceito constitucional, conforme o art. 153, inciso I, da CF.
+As alterações nas alíquotas podem ser cobradas imediatamente a partir da publicação da Medida Provisória ou do ato infralegal que as fixar, pois o Imposto de Importação constitui exceção expressa aos princípios da anterioridade anual e nonagesimal, conforme o art. 2º da MPV 1357/2026 e o art. 150, parágrafo 1º, da CF.
+A matéria não exige lei complementar, dando-se a disciplina do Imposto de Importação validamente por lei ordinária ou medida provisória, conforme o art. 146 da CF.
+O Poder Executivo atesta expressamente que a medida não ocasiona renúncia de receitas tributárias, dispensando a apresentação das estimativas e compensações exigidas pela LRF e pelo ADCT, conforme o item 13 da EMI 1146/2026.
+O Imposto de Importação não é extinto nem absorvido pela transição da Emenda Constitucional 132/2023, mantendo-se como tributo regulatório de competência da União.
+A medida não afeta a repartição constitucional de receitas para Estados e Municípios, pois o produto da arrecadação do Imposto de Importação pertence exclusivamente à União, conforme o art. 153, inciso I, combinado com os arts. 157 a 159 da CF.
+Não identifiquei questão quanto à majoração com efeito retroativo e à comparação de previsto e realizado.
