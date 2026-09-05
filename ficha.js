@@ -64,10 +64,22 @@ function regraVigenteNoTexto(fonte) {
   return null;
 }
 
-function montarFicha({ achados = [], leiVigente = [], marco = null, identificacao = '', fonte = '' } = {}) {
+/**
+ * Cláusula de vigência do texto ("entra em vigor noventa dias após a data de sua
+ * publicação"): para projeto ainda não aprovado, é a única "data de efeito" que
+ * existe — condicional. A MP e a lei publicada têm data; o projeto tem cláusula.
+ */
+function clausulaDeVigencia(fonte) {
+  const t = String(fonte || '').replace(/\s+/g, ' ');
+  const m = /entra(?:r[áa])? em vigor (na data de sua publica[çc][ãa]o|(?:[a-zçãéí]+|\d+)\s*(?:\([^)]{1,30}\)\s*)?dias?,? (?:ap[óo]s|depois de|contados? d[ae])[^.;]{0,80}|em \d{1,2}[ºo°]? de [a-zçã]+ de \d{4}|no (?:primeiro|1º) dia[^.;]{0,60})/i.exec(t);
+  return m ? { clausula: m[1].trim().replace(/\s+,/g, ','), trecho: m[0].trim() } : null;
+}
+
+function montarFicha({ achados = [], leiVigente = [], marco = null, identificacao = '', fonte = '', sigla = '' } = {}) {
   const x = p => achados.find(a => String(a.lente) === 'X' && a.pergunta === p) || null;
   const aDisp = x('dispositivo'), aAntes = x('regra_antes'), aDepois = x('regra_depois');
-  const ficha = { identificacao, dispositivo: aDisp ? aDisp.achado : null, regraVigente: null, regraProposta: null, dataEfeito: null, valores: [], faltas: [], completa: false };
+  const ficha = { identificacao, dispositivo: aDisp ? aDisp.achado : null, regraVigente: null, regraProposta: null, dataEfeito: null, valores: [], quantitativa: false, faltas: [], completa: false,
+    leiTentada: leiVigente.map(l => ({ norma: l.norma, compilado: !!l.compilado, desatualizado: !!l.desatualizado })) };
 
   // Regra vigente: lei lida > documento.
   const numArt = (s) => (/\bart\.?\s*(\d+)/i.exec(String(s || '')) || [])[1];
@@ -95,43 +107,73 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
     if (r) ficha.regraVigente = { texto: r.texto, trecho: r.texto, origem: 'documento', fonte: 'transcrição no documento analisado, localizada por programa', url: null };
   }
   if (aDepois) ficha.regraProposta = { texto: aDepois.achado, trecho: aDepois.trecho || null, dispositivo: aDepois.dispositivo || null, fonte: 'texto analisado' };
-  if (marco && marco.data) ficha.dataEfeito = { data: marco.data, trecho: marco.trecho, aproximado: !!marco.aproximado };
+
+  // Data de efeito. Norma em vigor (MP, lei): a data do marco. Projeto: a data
+  // do fecho ("Brasília, 11 de agosto de 2026" no parecer) NÃO é vigência de
+  // nada — vale a cláusula do texto, condicionada à aprovação.
+  const sg = String(sigla || (String(identificacao).match(/^([A-Z]{2,4})\b/) || [])[1] || '').toUpperCase();
+  const projeto = /^(PL|PLP|PEC|PDL|PDC|PRC|PLV|PLN|SUB|SBT)$/.test(sg);
+  const marcoDeFecho = !!(marco && /entra em vigor na data de sua publica[çc][ãa]o —/i.test(marco.trecho || ''));
+  const clausula = clausulaDeVigencia(fonte);
+  const marcoVale = marco && marco.data && !(projeto && (marcoDeFecho || (clausula && marco.aproximado)));
+  if (marcoVale) ficha.dataEfeito = { data: marco.data, trecho: marco.trecho, aproximado: !!marco.aproximado };
+  else if (clausula) ficha.dataEfeito = { data: null, clausula: clausula.clausula, trecho: clausula.trecho, condicional: projeto };
 
   const base = [ficha.regraVigente?.texto, ficha.regraVigente?.trecho, ficha.regraProposta?.texto, ficha.regraProposta?.trecho].filter(Boolean).join(' ');
   ficha.valores = valoresDoTexto(base).slice(0, 12);
+  // Regra quantitativa (alíquota, prazo, pena, valor): a síntese tem de enunciar os números.
+  // Regra qualitativa (competência, direito, vedação, procedimento): não há número a exigir.
+  ficha.quantitativa = ficha.valores.length > 0 || valoresDoTexto(`${aAntes?.achado || ''} ${aDepois?.achado || ''}`).length > 0;
 
   if (!ficha.regraVigente) ficha.faltas.push('regra vigente');
   if (!ficha.regraProposta) ficha.faltas.push('regra proposta');
-  if (ficha.valores.length < 2) ficha.faltas.push('valores da regra');
+  if (ficha.quantitativa && ficha.valores.length < 2) ficha.faltas.push('valores da regra');
   if (!ficha.dataEfeito) ficha.faltas.push('data de efeito');
   ficha.completa = ficha.faltas.length === 0;
   return ficha;
 }
 
-/** G2 — a síntese enuncia o objeto? Conta os valores da ficha presentes no texto. */
+/** "A partir de", em palavras: data, ou cláusula condicionada à aprovação. */
+function dataEfeitoTexto(f) {
+  const d = f && f.dataEfeito;
+  if (!d) return 'não identificada';
+  if (d.data) return d.data.split('-').reverse().join('/') + (d.aproximado ? ' (aproximação: data da norma)' : '');
+  return `${d.clausula}${d.condicional ? ' (se aprovado e sancionado)' : ''}`;
+}
+
+/**
+ * G2 — a síntese enuncia o objeto? Regra numérica: conta os valores da ficha
+ * presentes no texto. Regra sem números: a síntese tem de nomear a norma
+ * alterada (o número da lei do dispositivo), quando houver uma.
+ */
 function objetoEnunciado(texto, ficha, minimo = 2) {
   const t = normalizarValor(texto);
   const presentes = [], faltantes = [];
   for (const v of ficha.valores || []) (t.includes(v.norm) ? presentes : faltantes).push(v.token);
-  const exigidos = Math.min(minimo, (ficha.valores || []).length);
+  let exigidos = Math.min(minimo, (ficha.valores || []).length);
+  if (!(ficha.valores || []).length) {
+    const lei = /\b(\d{1,3}\.\d{3}|\d{2,5})(?=\s*\/\s*\d{4}|,?\s*de\s+(?:\d{1,2}\s+de\s+[a-zçã]+\s+de\s+)?\d{4})/i.exec(String(ficha.dispositivo || ''));
+    if (lei) { exigidos = 1; (t.includes(normalizarValor(lei[1])) ? presentes : faltantes).push(lei[1]); }
+  }
   return { presentes, faltantes, exigidos, ok: presentes.length >= exigidos };
 }
 
 function fichaParaTexto(f) {
-  const d = f.dataEfeito ? f.dataEfeito.data.split('-').reverse().join('/') + (f.dataEfeito.aproximado ? ' (aproximação: data da norma)' : '') : 'não identificada';
+  const d = dataEfeitoTexto(f);
   return [
     `FICHA DO OBJETO — ${f.identificacao}`,
     `Dispositivo: ${f.dispositivo || 'não identificado'}`,
     `Regra vigente (${f.regraVigente ? f.regraVigente.fonte : 'NÃO OBTIDA'}): ${f.regraVigente ? f.regraVigente.texto : '—'}`,
     `Regra proposta (${f.regraProposta ? f.regraProposta.fonte : 'NÃO IDENTIFICADA'}): ${f.regraProposta ? f.regraProposta.texto : '—'}`,
     `Data de efeito: ${d}`,
-    `Valores da regra (a síntese TEM de enunciar ao menos dois, em algarismos): ${f.valores.map(v => v.token).join('; ') || 'nenhum'}`,
+    f.quantitativa ? `Valores da regra (a síntese TEM de enunciar ao menos dois, em algarismos): ${f.valores.map(v => v.token).join('; ') || 'nenhum'}`
+      : 'Regra sem valores numéricos (matéria qualitativa): a síntese enuncia a regra vigente e a proposta em palavras e nomeia a norma alterada.',
     f.faltas.length ? `FALTAS: ${f.faltas.join(', ')}` : 'Ficha completa.',
   ].join('\n');
 }
 
 function fichaParaHtml(f, esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))) {
-  const d = f.dataEfeito ? f.dataEfeito.data.split('-').reverse().join('/') + (f.dataEfeito.aproximado ? ' (aproximação: data da norma)' : '') : 'não identificada';
+  const d = dataEfeitoTexto(f);
   const linha = (rot, val, fonte) => `<tr><th>${esc(rot)}</th><td>${val}${fonte ? `<div class="ficha-fonte">${esc(fonte)}</div>` : ''}</td></tr>`;
   return `<table class="ficha">
     ${linha('Dispositivo', esc(f.dispositivo || 'não identificado'))}
@@ -149,5 +191,5 @@ const CSS_FICHA = `
     .ficha-falta { color:#b03030; }`;
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, recortarRegra, objetoEnunciado, fichaParaTexto, fichaParaHtml, CSS_FICHA };
+  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, recortarRegra, clausulaDeVigencia, dataEfeitoTexto, objetoEnunciado, fichaParaTexto, fichaParaHtml, CSS_FICHA };
 }

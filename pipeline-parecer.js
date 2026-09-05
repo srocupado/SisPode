@@ -30,13 +30,13 @@ const __mods = (typeof module !== 'undefined' && typeof require === 'function') 
 function _refs() {
   if (__mods) {
     const { D, F, T, G, P, E } = __mods;
-    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico,
+    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico, promptFicha: P.promptFicha,
       montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, catalogoDeEvidencias: T.catalogoDeEvidencias, promptTese: T.promptTese,
       validarTese: T.validarTese, promptContraditorio: T.promptContraditorio, aplicarContraditorio: T.aplicarContraditorio, promptRedacao: T.promptRedacao,
       conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina };
   }
   /* eslint-disable no-undef */
-  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, montarDossie, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
+  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, montarDossie, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
     validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina };
   /* eslint-enable no-undef */
 }
@@ -169,11 +169,25 @@ async function gerarParecer(ctx, io) {
       if (Array.isArray(brutoH)) { const ch = conferirAchados(brutoH.filter(a => a && a.pergunta === 'historico'), fonte); conf.aprovados.push(...ch.aprovados); conf.recusados.push(...ch.recusados); }
     } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'historico', motivo: `apuração do histórico falhou: ${e.message}` }); }
   }
+  // Ficha do objeto sem regra vigente ou proposta: uma chamada só para ela (o
+  // modelo pula "regra_antes" quando a regra não tem número).
+  const temX = p => conf.aprovados.some(a => String(a.lente) === 'X' && a.pergunta === p);
+  if (!temX('regra_antes') || !temX('regra_depois') || !temX('dispositivo')) {
+    passo('apurando a ficha do objeto…');
+    try {
+      const rf = await chamar('ficha', R.promptFicha({ identificacao: ctx.identificacao, ementa: ctx.ementa, textoAnalisado }), buffers);
+      const brutoF = extrairJSONParecer(rf.text);
+      if (Array.isArray(brutoF)) {
+        const cf = conferirAchados(brutoF.filter(a => a && String(a.lente) === 'X' && ['dispositivo', 'regra_antes', 'regra_depois'].includes(a.pergunta) && !temX(a.pergunta)), fonte);
+        conf.aprovados.push(...cf.aprovados); conf.recusados.push(...cf.recusados);
+      }
+    } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'ficha', motivo: `apuração da ficha falhou: ${e.message}` }); }
+  }
   const objetivos = conf.aprovados.filter(a => String(a.lente) === 'X' && a.pergunta === 'objetivo');
 
   // 4. dossiê (com as palavras do objeto vindas da apuração)
   passo('montando o dossiê de dados…');
-  const fichaPrevia = montarFicha({ achados: conf.aprovados, leiVigente: [], marco: null, identificacao: ctx.identificacao });
+  const fichaPrevia = montarFicha({ achados: conf.aprovados, leiVigente: [], marco: null, identificacao: ctx.identificacao, sigla: ctx.sigla });
   let dossie = null;
   try {
     dossie = await montarDossie({ fonte, documentos, rotulos: documentos.map(d => d.rotulo), ementa: ctx.ementa || '', hoje: ctx.hoje || new Date(),
@@ -183,7 +197,7 @@ async function gerarParecer(ctx, io) {
   const temSerie = !!(Object.values(dossie.janelas || {}).some(j => j.antes && j.depois) || dossie.prc?.janelas?.antes);
 
   // 5. ficha
-  const ficha = montarFicha({ achados: conf.aprovados, leiVigente: dossie.leiVigente || [], marco: dossie.marco, identificacao: ctx.identificacao, fonte });
+  const ficha = montarFicha({ achados: conf.aprovados, leiVigente: dossie.leiVigente || [], marco: dossie.marco, identificacao: ctx.identificacao, fonte, sigla: ctx.sigla });
 
   // 6. tese
   passo('formulando a tese…');

@@ -208,9 +208,11 @@ ${semFicha ? '' : `
 ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJETO; sem eles o parecer sai incompleto):
 - "pergunta": "dispositivo" — o dispositivo da norma vigente que a proposição altera ou cria (ex.: "art. 1º, § 2º-A, do
   Decreto-Lei 1.804/1980"), com trecho.
-- "pergunta": "regra_antes" — a REGRA HOJE, como o documento a descreve ou transcreve (alíquotas, valores, prazos, penas,
-  em algarismos), com o trecho literal. Se o documento não a descreve, "semQuestao": true.
-- "pergunta": "regra_depois" — a REGRA PROPOSTA, em algarismos, com trecho.
+- "pergunta": "regra_antes" — a REGRA HOJE, como o documento a descreve ou transcreve. Regra numérica (alíquota, valor,
+  prazo, pena): em algarismos. Regra sem números (competência, direito, vedação, procedimento): o enunciado dela. Quando
+  NÃO HÁ regra (matéria nova, lacuna, dispositivo revogado ou declarado inconstitucional), isso É o achado — "não há lei
+  que discipline X; vale Y" — com o trecho que o diz. Só "semQuestao": true se o documento não falar do estado atual.
+- "pergunta": "regra_depois" — a REGRA PROPOSTA: em algarismos quando numérica; senão, o enunciado, com trecho.
 - "pergunta": "objetivo" — o OBJETIVO DECLARADO da proposição (o que a justificação, a exposição de motivos ou
   o parecer dizem que ela pretende alcançar: proteger setor, arrecadar, simplificar, reduzir preço etc.), com o
   trecho literal que o enuncia. Havendo mais de um objetivo, um achado para cada.
@@ -252,6 +254,35 @@ REGRAS: "trecho" é CÓPIA EXATA do documento — será procurado no texto e, n�
 nome, data ou voto que não esteja escrito. Nomeie partidos e senadores/deputados só como aparecem no documento.`;
 }
 
+/**
+ * Apuração dedicada da FICHA DO OBJETO. Na apuração geral o modelo pula
+ * "regra_antes"/"regra_depois" quando a regra não tem número (o PL 1893/2026,
+ * negociação coletiva no setor público, saiu "incompleto" por isso). Esta
+ * chamada pede só a ficha, com a instrução de que regra qualitativa e
+ * "não há regra" são respostas.
+ */
+function promptFicha(ctx = {}) {
+  return `Você preenche a FICHA DO OBJETO de um parecer técnico da Liderança do Podemos na Câmara dos Deputados sobre
+${ctx.identificacao || '(não informada)'} — ${ctx.ementa || ''}. Só isto, nesta etapa.
+
+TEXTO ANALISADO: ${ctx.textoAnalisado || '(não identificado)'}. Leia os documentos anexados e responda em JSON:
+[
+  { "lente": "X", "pergunta": "dispositivo", "achado": "…", "dispositivo": "…", "trecho": "cópia literal (30 a 300 caracteres)", "semQuestao": false },
+  { "lente": "X", "pergunta": "regra_antes", "achado": "…", "trecho": "…", "semQuestao": false },
+  { "lente": "X", "pergunta": "regra_depois", "achado": "…", "trecho": "…", "semQuestao": false }
+]
+
+- "dispositivo": o dispositivo da norma vigente que a proposição altera, revoga ou cria (ex.: "art. 240 da Lei 8.112/1990";
+  "lei nova: arts. 1º a 19"). Se a proposição institui regime novo, diga "norma nova" e cite a lei que ela toca, se alguma.
+- "regra_antes": a REGRA HOJE. Numérica: em algarismos. Sem números (direito, competência, vedação, procedimento): o
+  enunciado. NÃO HAVENDO regra (lacuna, matéria não regulamentada, dispositivo revogado ou declarado inconstitucional):
+  diga isso — é a resposta — com o trecho do documento que o afirma (a justificação e o parecer costumam dizê-lo:
+  "atualmente", "hoje", "não há", "lacuna", "carece de regulamentação").
+- "regra_depois": o que passa a valer com a proposição, em uma a quatro frases; em algarismos quando houver números.
+- "trecho" é CÓPIA EXATA do documento; será procurado no texto extraído e, não encontrado, o achado é descartado.
+- "semQuestao": true só se os documentos não disserem nada sobre aquele item.`;
+}
+
 // A redação, a tese e as travas de saída vivem em tese.js e gates.js: o juízo
 // virou dado conferível, não prosa gerada de uma vez.
 
@@ -269,6 +300,6 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
-    promptApuracao, promptHistorico, carimboDoParecer,
+    promptApuracao, promptHistorico, promptFicha, carimboDoParecer,
   };
 }

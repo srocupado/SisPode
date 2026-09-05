@@ -47,7 +47,15 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
 
   // G1 — regra vigente
   if (ficha && ficha.faltas.includes('regra vigente')) {
-    faixas.push('PARECER INCOMPLETO — a regra vigente não foi obtida: o Planalto e o LexML/Senado não devolveram o texto da norma alterada, e não se localizou transcrição dela no documento analisado. As seções "Lei vigente" e "Avaliação da política" não são verificáveis.');
+    const lt = ficha.leiTentada || [];
+    const desat = lt.filter(l => l.desatualizado).map(l => l.norma);
+    const lidas = lt.filter(l => !l.desatualizado).map(l => l.norma);
+    const causa = desat.length
+      ? `o Planalto (texto compilado) não respondeu e o Senado/LexML só tem o texto original de ${desat.join(' e ')}, que não vale como regra vigente porque a norma foi alterada depois; e o documento analisado não descreve a regra atual`
+      : lidas.length
+        ? `o texto de ${lidas.join(' e ')} foi lido, mas nele não se localizou o dispositivo alterado; e o documento analisado não descreve a regra atual`
+        : 'o Planalto e o LexML/Senado não devolveram o texto da norma alterada, e não se localizou transcrição dela no documento analisado';
+    faixas.push(`PARECER INCOMPLETO — a regra vigente não foi obtida: ${causa}. As seções "Lei vigente" e "Avaliação da política" não são verificáveis.`);
   } else if (ficha && ficha.regraVigente && ficha.regraVigente.origem === 'documento') {
     notas.push('A regra vigente foi tomada da transcrição feita no próprio documento analisado (trecho conferido), porque o texto da norma não foi obtido no Planalto nem no Senado.');
   }
@@ -100,7 +108,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   const itens = [];
   const add = (ok, item, detalhe) => itens.push({ ok: !!ok, item, detalhe: ok ? null : (detalhe || null) });
 
-  add(ficha && ficha.valores.length >= 2 && ficha.dataEfeito, 'M1 Ficha do objeto com ao menos dois valores da regra e data de efeito', ficha ? `falta ${ficha.faltas.join(', ')}` : 'sem ficha');
+  add(ficha && ficha.regraVigente && ficha.regraProposta && ficha.dataEfeito && (!ficha.quantitativa || ficha.valores.length >= 2), 'M1 Ficha do objeto com regra vigente, regra proposta e data de efeito (e dois valores quando a regra é numérica)', ficha ? `falta ${ficha.faltas.join(', ') || '—'}` : 'sem ficha');
   add(!(conferencia?.numerosSuspeitos?.length), 'M2 Nenhum número fora da base (achados, dossiê, lei, ficha)', conferencia?.numerosSuspeitos?.length ? conferencia.numerosSuspeitos.map(s => s.numero).join(', ') : null);
   add(!(conferencia?.semEvidencia?.length) && !(conferencia?.idsInexistentes?.length), 'M3 Todo parágrafo de síntese, avaliação, dois lados e opções cita evidência existente', [conferencia?.semEvidencia?.length ? `${conferencia.semEvidencia.length} parágrafo(s) sem evidência` : '', conferencia?.idsInexistentes?.length ? `identificadores inexistentes: ${conferencia.idsInexistentes.join(', ')}` : ''].filter(Boolean).join('; '));
   const aval = (secoes['Avaliação da política'] || []).join(' ');
