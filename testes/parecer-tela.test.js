@@ -64,6 +64,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       { lente: 'X', pergunta: 'regra_antes', achado: 'Até US$ 50,00: 20%; de US$ 50,01 a US$ 3.000,00: 60%, dedução de US$ 20,00.', trecho: TRECHO, semQuestao: false },
       { lente: 'X', pergunta: 'regra_depois', achado: 'Ato do Ministro poderá reduzir a zero até US$ 50,00 e a 30% até US$ 3.000,00.', trecho: 'inclusive para reduzi-las a zero na faixa de tributação de até US$ 50,00', semQuestao: false },
       { lente: '2', pergunta: '2.3', achado: 'O II é exceção às anterioridades (art. 150, § 1º, da CF).', trecho: 'Esta Medida Provisória entra em vigor na data de sua publicação', semQuestao: false },
+      { lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026', semQuestao: false },
     ];
     const respostas = {
       apuracao: JSON.stringify(achados),

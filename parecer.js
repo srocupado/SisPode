@@ -202,6 +202,34 @@ ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJET
 ${lentes.map(bloco).join('\n')}`;
 }
 
+/**
+ * Apuração dedicada do HISTÓRICO. Na apuração geral o modelo pulou a pergunta
+ * "historico" em cinco rodadas reais seguidas — o relatório do Senado contava
+ * que o relator do Podemos tentou derrubar a cobrança, e nada disso chegou ao
+ * parecer. Quando a apuração geral não traz histórico e há parecer ou
+ * relatório entre os documentos, esta chamada lê só para isso.
+ */
+function promptHistorico(ctx = {}) {
+  return `Você apura o HISTÓRICO para um parecer técnico da Liderança do Podemos na Câmara dos Deputados sobre
+${ctx.identificacao || '(não informada)'} — ${ctx.ementa || ''}. Só isto, nesta etapa.
+
+Leia os documentos anexados (texto da proposição, exposição de motivos, pareceres, relatórios) e extraia, em JSON, os FATOS
+da história da regra que a proposição altera e da própria proposição, como os documentos os contam:
+[
+  { "lente": "X", "pergunta": "historico", "achado": "um fato, em uma a três frases, com data e nome quando o documento os der",
+    "dispositivo": "documento e trecho de onde vem (ex.: relatório do Senado, item II)",
+    "trecho": "transcrição LITERAL de 30 a 300 caracteres do documento que sustenta o fato", "semQuestao": false }
+]
+
+O QUE PROCURAR, um achado por fato: quem propôs a regra atual e quando; quem relatou e O QUE o relator propôs (manter,
+suprimir, alterar) e com que argumento; emendas apresentadas, de quem, acatadas ou rejeitadas; o que o Plenário decidiu e
+quando; o que a exposição de motivos da proposição atual diz sobre a experiência da regra. Entre 3 e 10 achados quando os
+documentos permitirem; se nada houver, [].
+
+REGRAS: "trecho" é CÓPIA EXATA do documento — será procurado no texto e, não encontrado, o achado é descartado. Não invente
+nome, data ou voto que não esteja escrito. Nomeie partidos e senadores/deputados só como aparecem no documento.`;
+}
+
 // A redação, a tese e as travas de saída vivem em tese.js e gates.js: o juízo
 // virou dado conferível, não prosa gerada de uma vez.
 
@@ -219,6 +247,6 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     faixaDoModelo, versaoDoModelo, escolherModelo,
-    promptApuracao, carimboDoParecer,
+    promptApuracao, promptHistorico, carimboDoParecer,
   };
 }

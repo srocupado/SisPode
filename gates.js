@@ -82,14 +82,13 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
 
   // G6 — estimativa não vinculada usada como previsto
   const naoVinc = (dossie?.estimativas || []).filter(e => e.vinculo === false);
-  if (naoVinc.length) notas.push(`${naoVinc.length} estimativa(s) localizada(s) no processo tratam de outra parte da matéria (${naoVinc.map(e => e.literal).join(', ')}) e não são a previsão desta medida.`);
+  if (naoVinc.length) notas.push(`Os valores ${[...new Set(naoVinc.map(e => e.literal))].join(', ')} que aparecem no processo referem-se a outra parte da matéria, não a esta medida.`);
 
   // G7 — série que termina antes do marco
   for (const [k, j] of Object.entries(dossie?.janelas || {})) if (j.antes && !j.depois) notas.push(`A série de ${j.rotulo || k} termina em ${j.antes.ate}, antes da mudança: não serve para comparar.`);
 
-  // G9/G10 — contagens
-  if (validacao) notas.push(`Tese: ${validacao.resumo}.`);
-  if (contraditorio) notas.push(`Contraditório: ${contraditorio.resumo}.`);
+  // G9/G10 — as contagens da tese e do contraditório ficam na seção de
+  // conferência, não na primeira página: são do método, não do leitor.
 
   return { faixas, notas, reprovacoes, rebaixamentos, texto: t };
 }

@@ -36,6 +36,7 @@ const achadosX = [
   { lente: 'X', pergunta: 'regra_antes', achado: 'Até US$ 50,00: alíquota de 20%; de US$ 50,01 a US$ 3.000,00: 60%, com parcela a deduzir de US$ 20,00.', trecho: TRECHO_EMI },
   { lente: 'X', pergunta: 'regra_depois', achado: 'Ato do Ministro da Fazenda poderá reduzir a alíquota a zero até US$ 50,00 e a 30% na faixa até US$ 3.000,00.', trecho: 'inclusive para reduzi-las a zero na faixa de tributação de até US$ 50,00' },
   { lente: 'X', pergunta: 'objetivo', achado: 'Aperfeiçoar a conformidade tributária e aduaneira no comércio eletrônico internacional.', trecho: 'aperfeiçoar os mecanismos de conformidade tributária e aduaneira' },
+  { lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026' },
   { lente: '2', pergunta: '2.3', achado: 'O II é exceção às anterioridades (art. 150, § 1º, da CF); efeitos desde a publicação.', dispositivo: 'art. 2º da MPV', trecho: 'Esta Medida Provisória entra em vigor na data de sua publicação' },
 ];
 
@@ -152,7 +153,7 @@ const achadosX = [
     redacao: 'Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026 [T1].\n\nSem série oficial, o efeito não é verificável (nível de evidência C) [T2].\n\nContexto e processo\n\nA EMI declara que não há renúncia [T3].\n\nLei vigente e datas de efeito\n\nVale 20% até US$ 50 [F1].\n\nO que se previu\n\nA EMI nega renúncia [D1].\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável [O1].\n\nOs dois lados\n\nQuem apoia diz que simplifica [L1]. Quem se opõe aponta renúncia sem estimativa [L2].\n\nOpções e consequências\n\nAprovar consolida a delegação sem estimativa [P1].\n\nCondicionar à estimativa atende à LRF [P2].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades [A5]. Não identifiquei questão quanto à espécie tributária.',
   };
   const io = {
-    chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostas[nome], truncated: false }; },
+    chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /apura o HISTÓRICO/.test(prompt) ? 'historico' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostas[nome] || '[]', truncated: false }; },
     lerPdf: async () => textoDoc, fetchFn: null, abrirXlsx: null, onPasso: () => {},
   };
   const ctx = { identificacao: 'MPV 1357/2026', ementa: 'Altera o Decreto-Lei nº 1.804, de 3 de setembro de 1980, que dispõe sobre tributação simplificada das remessas postais internacionais.', temas: [{ cod: 70 }], docs: [{ rotulo: 'Texto original da MPV 1357/2026', buffer: Buffer.alloc(10) }], situacao: 'No Senado.', hoje: new Date('2026-09-05T12:00:00Z') };
@@ -175,7 +176,11 @@ const achadosX = [
   }
   // modelo que não enuncia o objeto: a redação é refeita uma vez e, persistindo, o parecer sai reprovado
   const respostasRuins = { ...respostas, redacao: respostas.redacao.replace('permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026', 'delega ao Ministro a alteração das alíquotas') };
-  const io2 = { ...io, chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostasRuins[nome], truncated: false }; } };
+  const io2 = { ...io, chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /apura o HISTÓRICO/.test(prompt) ? 'historico' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostasRuins[nome] || '[]', truncated: false }; } };
+  // sem histórico na apuração geral, o pipeline faz UMA chamada só para ele
+  const io3 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'historico')), truncated: false }; if (/apura o HISTÓRICO/.test(prompt)) return { text: JSON.stringify([{ lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026' }]), truncated: false }; return io.chamarModelo({ prompt }); } };
+  const p3 = await PP.gerarParecer(ctx, io3);
+  ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   const p2 = await PP.gerarParecer(ctx, io2);
   ok(!p2.erro && p2.refeita && p2.chamadas.length === 5 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita (5ª chamada) e, persistindo, parecer reprovado no G2');
 

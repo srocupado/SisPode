@@ -30,13 +30,13 @@ const __mods = (typeof module !== 'undefined' && typeof require === 'function') 
 function _refs() {
   if (__mods) {
     const { D, F, T, G, P, E } = __mods;
-    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao,
+    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico,
       montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, catalogoDeEvidencias: T.catalogoDeEvidencias, promptTese: T.promptTese,
       validarTese: T.validarTese, promptContraditorio: T.promptContraditorio, aplicarContraditorio: T.aplicarContraditorio, promptRedacao: T.promptRedacao,
       conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina };
   }
   /* eslint-disable no-undef */
-  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, montarDossie, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
+  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, montarDossie, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
     validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina };
   /* eslint-enable no-undef */
 }
@@ -127,6 +127,16 @@ async function gerarParecer(ctx, io) {
   const bruto = extrairJSONParecer(r1.text);
   if (!Array.isArray(bruto)) return { erro: r1.truncated ? 'A apuração veio truncada — documento grande demais para uma leitura só.' : 'Não consegui interpretar a apuração do modelo.', chamadas };
   const conf = conferirAchados(bruto, fonte);
+  // Sem histórico na apuração geral, uma chamada só para ele (os pareceres e
+  // relatórios são onde a história está, e o modelo a pulava).
+  if (!conf.aprovados.some(a => String(a.lente) === 'X' && a.pergunta === 'historico')) {
+    passo('apurando o histórico…');
+    try {
+      const rh = await chamar('historico', R.promptHistorico({ identificacao: ctx.identificacao, ementa: ctx.ementa }), (ctx.docs || []).map(d => d.buffer));
+      const brutoH = extrairJSONParecer(rh.text);
+      if (Array.isArray(brutoH)) { const ch = conferirAchados(brutoH.filter(a => a && a.pergunta === 'historico'), fonte); conf.aprovados.push(...ch.aprovados); conf.recusados.push(...ch.recusados); }
+    } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'historico', motivo: `apuração do histórico falhou: ${e.message}` }); }
+  }
   const objetivos = conf.aprovados.filter(a => String(a.lente) === 'X' && a.pergunta === 'objetivo');
 
   // 4. dossiê (com as palavras do objeto vindas da apuração)
