@@ -33,6 +33,8 @@ const pa = P.promptApuracao({ identificacao: 'MPV 1357/2026', ementa: 'x', texto
 ok(/LENTE 2 — Tributário/.test(pa) && /2\.3\./.test(pa), 'as perguntas da lente vão numeradas');
 for (const p of ['dispositivo', 'regra_antes', 'regra_depois', 'objetivo', 'estimativa']) ok(new RegExp(`"pergunta": "${p}"`).test(pa), `ficha do objeto: pede "${p}"`);
 ok(/trecho.*CÓPIA EXATA/s.test(pa) && /semQuestao/.test(pa), 'trecho literal obrigatório e fórmula de ausência de questão');
+const paSem = P.promptApuracao({ identificacao: 'MPV 1357/2026', ementa: 'x', textoAnalisado: 'Texto original' }, [lentes[1]], E.ESPECIALISTAS, { semFicha: true });
+ok(!/ALÉM DAS LENTES/.test(paSem) && !/"pergunta": "dispositivo"/.test(paSem) && /LENTE 2 — Tributário/.test(paSem) && !/LENTE 0/.test(paSem), 'semFicha: só a lente pedida, sem a ficha do objeto');
 
 console.log('== carimbo ==');
 const c = P.carimboDoParecer({ modelo: 'gemini-3.1-pro-preview', faixa: 'superior', motivo: 'm', lentes: [{ ordem: '2', rotulo: 'Tributário', motivo: 'gatilho' }], em: new Date('2026-09-05T12:00:00Z'), por: 'equipe' });

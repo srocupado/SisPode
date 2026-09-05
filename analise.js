@@ -580,7 +580,8 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-perguntar" title="Tirar dúvidas sobre a matéria com o Revisor (IA), com base na nota e nos documentos">💬 Pergunte ao Revisor</button>
         <button class="btn btn-outline btn-sm" data-role="btn-regerar">Regerar</button>
         <button class="btn btn-outline btn-sm" data-role="btn-parecer" style="color:#8fd0ff"
-          title="Parecer técnico aprofundado, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot; e escolhe sozinho um modelo de faixa superior.">⚖ Parecer de Especialista</button>
+          title="Parecer técnico aprofundado, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot;; um diálogo confirma provedor e modelo antes de gerar.">⚖ Parecer de Especialista</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-abrir-parecer" style="display:none;color:#8fd0ff">📄 Abrir parecer</button>
       </div>
       <div class="an-apelido-row" data-role="apelido-row" style="display:none">
         <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
@@ -619,6 +620,8 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-reanalisar]').addEventListener('click', () => abrirModalReanalise(it));
   card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
   card.querySelector('[data-role=btn-parecer]').addEventListener('click', () => gerarParecerEspecialista(it));
+  card.querySelector('[data-role=btn-abrir-parecer]').addEventListener('click', () => abrirParecerSalvo(it));
+  atualizarBotaoParecer(it, card);
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
     painel.classList.toggle('aberto');
@@ -2838,7 +2841,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     parts.push({ text: prompt });
     const body = {
       contents: [{ parts }],
-      generationConfig: { temperature: 0.2, maxOutputTokens: maxSaida },
+      // Com raciocínio ligado, o pensamento conta dentro de maxOutputTokens: o teto sobe.
+      generationConfig: { temperature: 0.2, maxOutputTokens: pensarAlto ? Math.min(65536, maxSaida * 2) : maxSaida },
     };
     if (pensarAlto) body.generationConfig.thinkingConfig = /gemini-2\.5/.test(m) ? { thinkingBudget: 24576 } : { thinkingLevel: 'high' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
@@ -2866,7 +2870,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       max_output_tokens: maxSaida,
     };
     // Modelos de raciocínio (o*, gpt-5*) não aceitam temperature e recebem o esforço.
-    if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { delete body.temperature; body.reasoning = { effort: 'high' }; }
+    if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { delete body.temperature; body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
     if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
     const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -2899,8 +2903,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       max_tokens: maxSaida,
       messages: [{ role: 'user', content }],
     };
-    // Raciocínio estendido: o orçamento de pensamento fica dentro de max_tokens.
-    if (pensarAlto) body.thinking = { type: 'enabled', budget_tokens: Math.min(16000, Math.max(1024, maxSaida - 8000)) };
+    // Raciocínio estendido: o orçamento de pensamento fica dentro de max_tokens, que sobe para acomodá-lo.
+    if (pensarAlto) { body.thinking = { type: 'enabled', budget_tokens: 16000 }; body.max_tokens = maxSaida + 16000; }
     if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const json = await fetchIA('https://api.anthropic.com/v1/messages', {
       method: 'POST',
@@ -4267,6 +4271,10 @@ async function carregarPautaPorId(id) {
         // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
         if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); }
       }).catch(() => {});
+      // Parecer de Especialista salvo nesta pauta: só a meta (poucos bytes) desce
+      // agora; o documento inteiro desce ao clicar em "Abrir parecer".
+      fetch(PARECER_PATH(chaveParecer(it), 'meta')).then(r => r.ok ? r.json() : null)
+        .then(m => { if (m && m.em) { it.parecerMeta = m; atualizarBotaoParecer(it); } }).catch(() => {});
     }
     enriquecerItens();
   } catch (e) {
@@ -6794,7 +6802,40 @@ function mostrarToast(msg, tipo = 'info') {
 // redação (sem PDF, só com os achados já conferidos). O modelo caro só entra
 // na segunda, e sem documento não tem de onde inventar cifra.
 
-const PARECER_PATH = ch => `${FIREBASE_URL}/pareceres/${encodeURIComponent(ch)}.json`;
+const PARECER_PATH = (ch, sub) => `${FIREBASE_URL}/pareceres/${encodeURIComponent(ch)}${sub ? '/' + sub : ''}.json`;
+/** O parecer é da proposição NESTA pauta (a nota é compartilhada entre pautas; o parecer, não). */
+const chaveParecer = it => `${state.pauta.id}__${it.chave}`;
+
+/**
+ * Botão "Abrir parecer" do card: aparece quando há parecer salvo (meta lida na
+ * abertura da pauta) ou recém-gerado. O documento inteiro (centenas de KB) só
+ * desce do Firebase ao clicar.
+ */
+function atualizarBotaoParecer(it, card) {
+  const btn = (card || document.querySelector(`.an-card[data-chave="${it.chave}"]`))?.querySelector('[data-role=btn-abrir-parecer]');
+  if (!btn) return;
+  const m = it.parecer?.meta || it.parecerMeta;
+  if (!m) { btn.style.display = 'none'; return; }
+  btn.style.display = 'inline-flex';
+  btn.textContent = m.aprovado ? '📄 Abrir parecer' : '📄 Abrir parecer (reprovado)';
+  btn.title = `Parecer de Especialista gerado em ${formatDataHora(m.em)} por ${m.por || 'equipe'} com ${m.modelo}`
+    + (m.aprovado ? '' : ' — REPROVADO na conferência automática; veja os limites e o anexo técnico antes de usar');
+}
+
+async function fbCarregarParecer(it) {
+  const res = await fetch(PARECER_PATH(chaveParecer(it)));
+  if (!res.ok) return null;
+  return await res.json();
+}
+
+async function abrirParecerSalvo(it) {
+  if (!it.parecer) {
+    try { it.parecer = await fbCarregarParecer(it); }
+    catch (e) { mostrarToast('Não consegui ler o parecer salvo: ' + e.message, 'erro'); return; }
+    if (!it.parecer) { mostrarToast('Não há parecer salvo para esta proposição nesta pauta.', 'aviso'); it.parecerMeta = null; atualizarBotaoParecer(it); return; }
+  }
+  abrirParecerEspecialista(it);
+}
 
 /** Temas oficiais da proposição — usados só para sugerir a lente. */
 async function temasDaProposicao(idProposicao) {
@@ -6948,10 +6989,13 @@ async function gerarParecerEspecialista(it) {
     if (p.erro) { mostrarToast(p.erro, 'aviso'); console.warn('Parecer:', p); return; }
     p.carimbo = carimboDoParecer({ ...esc, lentes: p.lentes, por: cfg.nomeUsuario || 'equipe' });
     p.geradoPor = cfg.nomeUsuario || 'equipe';
+    p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, aprovado: !!p.aprovado };
     it.parecer = p;
-    await fetch(PARECER_PATH(`${state.pauta.id}__${it.chave}`), {
+    it.parecerMeta = p.meta;
+    await fetch(PARECER_PATH(chaveParecer(it)), {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
     }).catch(e => console.warn('Firebase:', e.message));
+    atualizarBotaoParecer(it);
 
     abrirParecerEspecialista(it);
     mostrarToast(p.aprovado
@@ -6984,7 +7028,7 @@ async function abrirParecerEspecialista(it) {
 
   const logoDataUrl = await carregarLogoDataUrl();
   if (w.closed) return;
-  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Conferência e ressalvas".', ...(p.gates?.faixas || [])] } };
+  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Limites deste parecer" e o anexo técnico de conferência.', ...(p.gates?.faixas || [])] } };
   w.document.open();
   w.document.write(htmlParecer(paraImpressao, { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO }));
   w.document.close();

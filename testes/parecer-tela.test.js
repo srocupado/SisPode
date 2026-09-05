@@ -66,10 +66,10 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     await av('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
     const c = av('__corpos');
-    ok(c[0].generationConfig.maxOutputTokens === 32000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 32000 e thinkingLevel high');
+    ok(c[0].generationConfig.maxOutputTokens === 64000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 64000 (o raciocínio conta no teto) e thinkingLevel high');
     ok(c[1].generationConfig.thinkingConfig?.thinkingBudget === 24576, 'Gemini 2.5: thinkingBudget');
-    ok(c[2].max_tokens === 32000 && c[2].thinking?.type === 'enabled' && c[2].thinking.budget_tokens <= 16000, 'Anthropic: extended thinking dentro de max_tokens');
-    ok(c[3].max_output_tokens === 32000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
+    ok(c[2].max_tokens === 48000 && c[2].thinking?.type === 'enabled' && c[2].thinking.budget_tokens === 16000, 'Anthropic: extended thinking de 16 mil somado ao max_tokens');
+    ok(c[3].max_output_tokens === 64000 && c[3].reasoning?.effort === 'high' && c[3].temperature === undefined, 'OpenAI gpt-5: reasoning high e sem temperature');
     ok(c[4].generationConfig.maxOutputTokens === 12000 && !c[4].generationConfig.thinkingConfig, 'sem opcoes (nota comum): 12000 e sem thinkingConfig — intacta');
   }
 
