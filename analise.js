@@ -2829,6 +2829,20 @@ ${instr}${regras}`;
  * de raciocínio: reasoning effort high). Sem `opcoes`, a chamada é a da nota
  * comum, intacta.
  */
+/**
+ * Modelos Claude com raciocínio adaptativo (thinking.type "adaptive" + output_config.effort):
+ * família 4.6 em diante — Sonnet 4.6/5, Opus 4.6/4.7/4.8/5, Fable, Mythos. Antes disso (Haiku 4.5,
+ * Sonnet 4.5, Opus 4.1, 3.7) o raciocínio é "enabled" com budget_tokens.
+ */
+function raciocinioAdaptativo(modelo) {
+  const m = String(modelo || '');
+  if (/claude-(fable|mythos)/.test(m)) return true;
+  let r = m.match(/claude-(?:opus|sonnet|haiku)-(\d+)(?:-(\d+))?/);
+  if (!r) { r = m.match(/claude-(\d+)-(\d+)-/); if (!r) return false; }
+  const maior = +r[1], menor = +(r[2] || 0);
+  return maior >= 5 || (maior === 4 && menor >= 6);
+}
+
 async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, opcoes = {} }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
   const maxSaida = opcoes.maxSaida || 12000;
@@ -2903,8 +2917,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       max_tokens: maxSaida,
       messages: [{ role: 'user', content }],
     };
-    // Raciocínio estendido: o orçamento de pensamento fica dentro de max_tokens, que sobe para acomodá-lo.
-    if (pensarAlto) { body.thinking = { type: 'enabled', budget_tokens: 16000 }; body.max_tokens = maxSaida + 16000; }
+    // Raciocínio: nos Claude 4.6 em diante (Sonnet 5, Opus 5, Fable) o modo é "adaptive" com o
+    // esforço em output_config; budget_tokens é rejeitado com 400. Nos anteriores (Haiku 4.5, Sonnet 4.5,
+    // 4.1, 3.7) vale o orçamento fixo. Nos dois casos o pensamento conta dentro de max_tokens, que sobe.
+    if (pensarAlto) {
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; }
+      else body.thinking = { type: 'enabled', budget_tokens: 16000 };
+      body.max_tokens = maxSaida + 16000;
+    }
     if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const json = await fetchIA('https://api.anthropic.com/v1/messages', {
       method: 'POST',
