@@ -604,6 +604,15 @@ async function montarDossie({ fonte = '', rotulos = [], documentos = null, ement
   return d;
 }
 
+// O "nível de evidência" é rótulo do método; o leitor do PDF não sabe o que
+// é. No que se imprime, ele vira uma palavra e uma explicação, uma vez.
+const NIVEL_EVIDENCIA = {
+  A: { rotulo: 'sólida', curta: 'comparação sólida', explicacao: 'há série oficial com 12 meses antes e 12 meses depois da mudança; a comparação é sólida, embora não prove causa' },
+  B: { rotulo: 'indicativa', curta: 'comparação indicativa, não conclusiva', explicacao: 'há série oficial, mas com poucos meses depois da mudança ou com um mês parcial; os números indicam uma direção, não permitem concluir' },
+  C: { rotulo: 'não comparável', curta: 'sem base para comparar', explicacao: 'não há série oficial que cubra antes e depois da mudança; o efeito não é verificável com o que existe' },
+};
+function descreverNivel(n) { const x = NIVEL_EVIDENCIA[n] || NIVEL_EVIDENCIA.C; return `${x.rotulo} (${n || 'C'})`; }
+
 /** O dossiê como o modelo o recebe: tabelas em texto, com fonte e nível. */
 function textoDoDossie(d) {
   const L = [];
@@ -700,10 +709,10 @@ function tabelasDoDossie(r, esc = s => String(s ?? '').replace(/[&<>"]/g, c => (
   for (const [k, j] of Object.entries(r.janelas || {})) {
     const rot = j.rotulo || (k === 'cambio' ? 'Câmbio médio (R$/US$)' : k);
     const un = k === 'cambio' ? '' : ', R$ milhões/mês';
-    if (j.antes && j.depois) jan.push([esc(rot + un), `${j.antes.de} a ${j.antes.ate} (${j.antes.meses}m)`, fmt.n2(j.antes.media), `${j.depois.de} a ${j.depois.ate} (${j.depois.meses}m)`, fmt.n2(j.depois.media), fmt.pct(j.variacao) + (j.variacaoReal != null ? ` (real ${fmt.pct(j.variacaoReal)})` : ''), j.nivel]);
-    else if (j.antes) jan.push([esc(rot + un), `${j.antes.de} a ${j.antes.ate} (${j.antes.meses}m)`, fmt.n2(j.antes.media), 'série termina antes do marco', '—', '—', 'C']);
+    if (j.antes && j.depois) jan.push([esc(rot + un), `${j.antes.de} a ${j.antes.ate} (${j.antes.meses}m)`, fmt.n2(j.antes.media), `${j.depois.de} a ${j.depois.ate} (${j.depois.meses}m)`, fmt.n2(j.depois.media), fmt.pct(j.variacao) + (j.variacaoReal != null ? ` (real ${fmt.pct(j.variacaoReal)})` : ''), esc(descreverNivel(j.nivel))]);
+    else if (j.antes) jan.push([esc(rot + un), `${j.antes.de} a ${j.antes.ate} (${j.antes.meses}m)`, fmt.n2(j.antes.media), 'série termina antes da mudança', '—', '—', esc(descreverNivel('C'))]);
   }
-  if (jan.length) { H.push(`<h4 class="dt-h">Tabela 3 — Séries oficiais: 12 meses antes e depois do marco (médias mensais)</h4>`); H.push(t(['Série', 'Antes', 'Média', 'Depois', 'Média', 'Variação', 'Nível'], jan, ['', '', 'num', '', 'num', 'num', ''])); }
+  if (jan.length) { H.push(`<h4 class="dt-h">Tabela 3 — Séries oficiais: 12 meses antes e depois da mudança (médias mensais)</h4>`); H.push(t(['Série', 'Antes', 'Média', 'Depois', 'Média', 'Variação', 'Solidez da comparação'], jan, ['', '', 'num', '', 'num', 'num', ''])); }
 
   // Tabela 4 — Remessa Conforme
   const pj = r.prc?.janelas;
@@ -711,7 +720,7 @@ function tabelasDoDossie(r, esc = s => String(s ?? '').replace(/[&<>"]/g, c => (
     const a = pj.antes, b = pj.depois, c = pj.depois2;
     const cab = ['Indicador (média mensal)', `Antes ${a.de} a ${a.ate} (${a.meses}m)`, `Depois ${b.de} a ${b.ate} (${b.meses}m)`, 'Var.'].concat(c ? [`Ano 2 ${c.de} a ${c.ate} (${c.meses}m)`] : []);
     const lin = (rot, f, v) => [esc(rot), f(a), f(b), v ? fmt.pct((v(b) - v(a)) / v(a)) : ''].concat(c ? [f(c)] : []);
-    H.push(`<h4 class="dt-h">Tabela 4 — Relatórios do Programa Remessa Conforme (RFB): antes × depois do marco (nível ${esc(pj.nivel)})</h4>`);
+    H.push(`<h4 class="dt-h">Tabela 4 — Relatórios do Programa Remessa Conforme (RFB): antes × depois da mudança — ${esc(NIVEL_EVIDENCIA[pj.nivel]?.curta || pj.nivel)}</h4>`);
     H.push(t(cab, [
       lin('Remessas recebidas (milhões)', x => fmt.mi(x.porMes.remessas), x => x.porMes.remessas),
       lin('Declarações registradas (milhões)', x => fmt.mi(x.porMes.dir), x => x.porMes.dir),
@@ -736,7 +745,8 @@ function tabelasDoDossie(r, esc = s => String(s ?? '').replace(/[&<>"]/g, c => (
       r.prc.serie.map(s => [s.meses === 2 ? `${s.de} a ${s.ate}` : s.de, s.meses, fmt.n0(s.remessas), fmt.n0(s.dir), fmt.n0(s.usd), fmt.n0(s.brl), fmt.n0(s.ii), fmt.n0(s.iiPrc), fmt.n0(s.iiNaoPrc)]),
       ['', 'num', 'num', 'num', 'num', 'num', 'num', 'num', 'num']));
   }
-  if (r.fontes?.length) { A.push(`<h4 class="dt-h">Fontes do dossiê</h4>`); A.push(t(['Nível', 'Fonte', 'URL'], r.fontes.map(f => [esc(f.nivel), esc(f.nome), `<a href="${esc(f.url)}">${esc(f.url)}</a>`]))); }
+  const tipoFonte = { A: 'documento oficial, lido', B: 'imprensa citando documento oficial', C: 'declaração sem documento' };
+  if (r.fontes?.length) { A.push(`<h4 class="dt-h">Fontes do dossiê</h4>`); A.push(t(['Tipo', 'Fonte', 'URL'], r.fontes.map(f => [esc(tipoFonte[f.nivel] || f.nivel), esc(f.nome), `<a href="${esc(f.url)}">${esc(f.url)}</a>`]))); }
   if (r.avisos?.length) { A.push(`<h4 class="dt-h">Não obtido ou não verificado</h4><ul class="dt-ul">${r.avisos.map(a => `<li>${esc(a)}</li>`).join('')}</ul>`); }
   return { corpo, anexo: A.join('\n') };
 }
@@ -817,6 +827,6 @@ if (typeof module !== 'undefined' && module.exports) {
     SECOES_PARECER, localizarEstimativas, identificarMarco, marcoPelaNorma, normasCitadas, urlPlanalto, textoDoHtml, extrairArtigo,
     identificarRubricas, RUBRICAS_RFB, serieDaPlanilhaRFB, serieBCB, indiceAcumulado, fatorDeflator, janelas,
     lerRelatorioPRC, linksRelatoriosPRC, agregarPRC, GATILHO_PRC, montarDossie, textoDoDossie, numerosDoDossie,
-    resumoDoDossie, tabelasDoDossie, CSS_TABELAS_DOSSIE, buscarTextoNorma, itensDoDossie, numerosDoTexto, fmt,
+    resumoDoDossie, tabelasDoDossie, CSS_TABELAS_DOSSIE, buscarTextoNorma, itensDoDossie, numerosDoTexto, fmt, NIVEL_EVIDENCIA, descreverNivel,
   };
 }

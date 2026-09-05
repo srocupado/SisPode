@@ -43,21 +43,32 @@ function blocosDoParecer(p, esc) {
     else atual.paras.push(par);
   }
   if (atual.paras.length) secoes.push(atual);
-  const marc = s => esc(s).replace(/\[((?:T|O|L|P|A|D|LV|F)\d+)\]/g, '<sup class="ev">$1</sup>');
-  return { secoes, marc };
+  // A expressão "nível de evidência B" fica no texto (a rubrica a exige uma
+  // vez), mas impressa com a tradução na primeira ocorrência e reduzida nas
+  // seguintes — o leitor não é obrigado a saber o método.
+  const NEs = typeof NIVEL_EVIDENCIA !== 'undefined' ? NIVEL_EVIDENCIA : (__mh ? __mh.D.NIVEL_EVIDENCIA : {});
+  let vezes = 0;
+  const traduzir = s => String(s)
+    .replace(/n[íi]vel de evid[êe]ncia\s*:?\s*([ABC])\b/gi, (m, n) => { vezes++; const x = NEs[n.toUpperCase()]; return vezes === 1 ? `${m} (${x ? x.curta : ''})` : (x ? x.curta : m); })
+    .replace(/\b(?:de )?n[íi]vel ([ABC])\b/g, (m, n) => { const x = NEs[n]; return x ? `${/^de /.test(m) ? 'de ' : ''}solidez ${x.rotulo} (${n})` : m; });
+  const marc = s => traduzir(esc(s)).replace(/\[((?:T|O|L|P|A|D|LV|F)\d+)\]/g, '<sup class="ev">$1</sup>');
+  return { secoes, marc, traduzir };
 }
 
 /** O parecer em HTML de impressão. `css` é o CSS da nota (CSS_IMPRESSAO_PLENARIO) — injetado, não importado. */
 function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const esc = escapeHtmlParecer;
   const bm = ch => 'l_' + String(ch).replace(/[^\w]/g, '_');
-  const { secoes, marc } = blocosDoParecer(p, esc);
+  const { secoes, marc, traduzir } = blocosDoParecer(p, esc);
   const { tabelasDoDossie, CSS_TABELAS_DOSSIE: CSS_TAB, fichaParaHtml, CSS_FICHA } = _refsHtml();
   const tabelas = p.dossie ? tabelasDoDossie(p.dossie, esc) : { corpo: '', anexo: '' };
   const onde = secoes.find(s => /^O que aconteceu/i.test(s.chave)) || secoes.find(s => /^O que se previu/i.test(s.chave)) || null;
-  const lista = (cls, titulo, linhas) => linhas && linhas.length ? `<div class="${cls}"><b>${esc(titulo)}</b><ul>${linhas.map(l => `<li>${esc(l)}</li>`).join('')}</ul></div>` : '';
+  const lista = (cls, titulo, linhas) => linhas && linhas.length ? `<div class="${cls}"><b>${esc(titulo)}</b><ul>${linhas.map(l => `<li>${traduzir(esc(l))}</li>`).join('')}</ul></div>` : '';
 
-  const produto = p.gates?.faixas?.length ? 'Parecer jurídico-processual (avaliação de política não verificável)' : p.temSerie ? `Parecer completo, com previsto × realizado (nível de evidência ${esc(p.nivel)})` : `Parecer sem série oficial (nível de evidência ${esc(p.nivel)}: avaliação limitada ao que o processo traz)`;
+  // O "nível de evidência" explicado UMA vez, em palavras, onde o leitor começa.
+  const NE = (typeof NIVEL_EVIDENCIA !== 'undefined' ? NIVEL_EVIDENCIA : (__mh ? __mh.D.NIVEL_EVIDENCIA : {}))[p.nivel] || {};
+  const explicaNivel = `Solidez da comparação antes × depois: <b>${esc(NE.rotulo || p.nivel)}</b> — ${esc(NE.explicacao || '')}. No texto, isso aparece como "nível de evidência ${esc(p.nivel)}".`;
+  const produto = p.gates?.faixas?.length ? 'Parecer jurídico-processual: a avaliação da política não é verificável com o que se obteve.' : p.temSerie ? `Parecer completo, com o que se previu e o que aconteceu. ${explicaNivel}` : `Parecer sem série oficial: a avaliação fica limitada ao que o processo traz. ${explicaNivel}`;
   const indice = `<section class="indice"><h2>Índice</h2><ul>
       <li><a href="#${bm('ficha')}">Ficha do objeto<span class="ld"></span></a></li>
       ${secoes.filter(s => s.chave !== 'abertura').map(s => `<li><a href="#${bm(s.chave)}">${esc(s.rotulo)}<span class="ld"></span></a></li>`).join('')}
@@ -102,7 +113,7 @@ ${CSS_TAB || ''}
     ${corpo}
     <div class="bloco" id="${bm('conferencia')}">
       <h3 class="item-h">Conferência e ressalvas</h3>
-      <div class="${rub.aprovado ? 'conf-ok' : 'conf-erro'}"><b>${esc(rub.resumo)}</b><ul>${(rub.itens || []).map(i => `<li>${i.ok ? '✓' : '✗'} ${esc(i.item)}${i.detalhe ? ` — ${esc(i.detalhe)}` : ''}</li>`).join('')}</ul></div>
+      <div class="${rub.aprovado ? 'conf-ok' : 'conf-erro'}"><b>${esc(rub.resumo)}</b><ul>${(rub.itens || []).map(i => `<li>${i.ok ? '✓' : '✗'} ${traduzir(esc(i.item))}${i.detalhe ? ` — ${traduzir(esc(i.detalhe))}` : ''}</li>`).join('')}</ul></div>
       ${lista('conf-ok', `Lentes aplicadas (${(p.lentes || []).length})`, (p.lentes || []).map(l => `${l.ordem}. ${l.rotulo} — acionada por ${l.motivo}`))}
       ${lista('conf-pend', 'Lentes sugeridas e NÃO aplicadas', (p.descartadas || []).map(l => `${l.rotulo}: ${l.ressalva}`))}
       <div class="conf-ok">Apuração: ${p.apuracao?.aprovados ?? 0} achado(s) com trecho localizado no documento; ${(p.apuracao?.recusados || []).length} descartado(s); ${p.apuracao?.semQuestao ?? 0} linha(s) sem questão.</div>
@@ -119,7 +130,7 @@ ${CSS_TAB || ''}
     </div>
     ${p.dossie ? `<div class="bloco" id="${bm('dossie')}">
       <h3 class="item-h">Anexo — Dossiê de dados</h3>
-      <p style="font-size:9.5pt;color:#555">Base numérica do parecer, apurada pelo programa nas fontes oficiais antes da redação (nível de evidência ${esc(p.nivel)}).</p>
+      <p style="font-size:9.5pt;color:#555">Base numérica do parecer, apurada pelo programa nas fontes oficiais antes da redação. Solidez da comparação antes × depois: ${esc(NE.rotulo || p.nivel)}.</p>
       ${tabelas.anexo || '<p style="font-size:9.5pt;color:#555">Nenhuma série obtida.</p>'}
     </div>` : ''}
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>

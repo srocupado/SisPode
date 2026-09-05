@@ -252,7 +252,8 @@ CATÁLOGO DE EVIDÊNCIAS:
 ${catalogo.texto}
 
 Responda SOMENTE com JSON: [ { "id": "T3", "refutada": true, "motivo": "uma ou duas frases", "evidencias_contrarias": ["D4"] } ]
-Inclua TODAS as unidades (T, O, L, P), refutadas ou não.`;
+Inclua TODAS as unidades (T, O, L, P), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
+em palavras comuns ("os dados cobrem só 3 meses depois da mudança, e maio é parcial"), sem "nível de evidência" nem jargão.`;
 }
 
 /** Aplica os vereditos do contraditório: fato/cálculo refutado sai; juízo refutado vira "não verificável" ou sai. */
@@ -320,8 +321,10 @@ COMO ESCREVER
 - Não repita em "Respostas por lente" o que já foi dito nas seções anteriores com outro identificador; cada ideia uma vez.
 - Números SÓ os da tese, da ficha e dos achados; cifras em algarismos (R$ 3,50 bilhões; 20%), nunca por extenso.
 - Síntese: três a cinco parágrafos curtos, cada um começando pela conclusão; o primeiro enuncia a regra que muda.
-- O que aconteceu (quando existir): os números, o tamanho da janela e o mês parcial quando houver, e a frase "nível de
-  evidência ${nivel}" literalmente; sem atribuir causa; liste os fatores concorrentes.
+- O que aconteceu (quando existir): os números, o tamanho da janela e o mês parcial quando houver, e — UMA única vez, aqui —
+  a expressão "nível de evidência ${nivel}" seguida do que ela significa em palavras (${nivel === 'A' ? 'série oficial com 12 meses antes e depois: comparação sólida' : nivel === 'B' ? 'poucos meses depois da mudança ou mês parcial: os números indicam uma direção, não permitem concluir' : 'sem série que cubra antes e depois: o efeito não é verificável'}).
+  Em qualquer outra seção, não repita o rótulo: diga "a comparação é ${nivel === 'A' ? 'sólida' : nivel === 'B' ? 'indicativa, não conclusiva' : 'impossível com o que existe'}".
+  Sem atribuir causa; liste os fatores concorrentes.
 - Avaliação da política: um parágrafo por objetivo, em prosa, com o veredito EXATAMENTE como está na tese; se a tese
   disser "Contestado no contraditório: …", escreva "não verificável, porque …" com o motivo em prosa.
 - Os dois lados: o argumento de cada lado pode ser relatado como posição dele ("quem apoia sustenta que…"); a frase "o que
