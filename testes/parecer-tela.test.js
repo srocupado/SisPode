@@ -56,6 +56,19 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão definidos`);
   ok(!/\(0, eval\)|\beval\(/.test(fonte.replace(/\/\/[^\n]*/g, '')), 'nenhum eval nos scripts (a CSP da extensão o proíbe)');
 
+  console.log('\n== todo host que o parecer consulta está em host_permissions (sem isso o CORS bloqueia) ==');
+  {
+    const manifesto = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
+    const permitidos = (manifesto.host_permissions || []).map(h => h.replace(/\/\*$/, ''));
+    const hosts = new Set();
+    for (const f of ['dossie.js', 'ficha.js', 'pipeline-parecer.js', 'parecer.js', 'analise.js']) {
+      for (const m of fs.readFileSync(path.join(RAIZ, f), 'utf8').matchAll(/https:\/\/[a-z0-9.-]+\.(?:gov\.br|leg\.br|googleapis\.com|openai\.com|anthropic\.com|firebaseio\.com)/g)) hosts.add(m[0]);
+    }
+    const semPermissao = [...hosts].filter(h => !permitidos.includes(h));
+    ok(!semPermissao.length, semPermissao.length ? `hosts consultados sem permissão no manifesto: ${semPermissao.join(', ')}` : `os ${hosts.size} hosts consultados estão no manifesto`);
+    ok(permitidos.includes('https://www.lexml.gov.br') && permitidos.includes('https://legis.senado.leg.br') && permitidos.includes('https://www.planalto.gov.br'), 'a cascata da lei vigente (Planalto → LexML → Senado) tem os três hosts');
+  }
+
   console.log('\n== a chamada do parecer liga o raciocínio alto e 32 mil tokens de saída ==');
   {
     // fetchIA é declaração de função no escopo da página: reatribuível para capturar o corpo enviado.
