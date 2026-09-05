@@ -121,6 +121,7 @@ ${CSS_TAB || ''}
       ${lista('conf-pend', 'Afirmações removidas na validação', (p.validacao?.removidas || []).map(r => `${r.id} (${r.motivo}): ${String(r.texto || '').slice(0, 140)}`))}
       ${lista('conf-pend', 'Refutadas no contraditório', (p.contraditorio?.refutadas || []).map(r => `${r.id} (${r.motivo}): ${String(r.texto || '').slice(0, 140)}`))}
       ${lista('conf-pend', 'Juízos contestados e rebaixados a "não verificável"', (p.contraditorio?.contestadas || []).map(r => `${r.id}: ${r.motivo}`))}
+      ${lista('conf-pend', 'Ressalvas do contraditório a dados mantidos', (p.contraditorio?.ressalvas || []).map(r => `${r.id}: ${r.motivo}`))}
       ${lista('conf-pend', 'Rebaixamentos aplicados no texto', (p.gates?.rebaixamentos || []).map(r => `${r.gate}: ${r.detalhe}`))}
       ${p.conferencia ? `<div class="${p.conferencia.ok ? 'conf-ok' : 'conf-erro'}">Redação: ${p.conferencia.ok ? 'todos os parágrafos de juízo citam evidência existente e todos os números constam da base.' : `${p.conferencia.semEvidencia.length} parágrafo(s) sem evidência; ${p.conferencia.numerosSuspeitos.length} número(s) fora da base; ${p.conferencia.idsInexistentes.length} identificador(es) inexistente(s).`}${p.refeita ? ' A redação foi refeita uma vez após reprovação.' : ''}</div>` : ''}
       ${lista('conf-pend', 'Ressalvas de validade dos roteiros', (p.ressalvasValidade || []).map(r => `${r.lente}: ${r.texto}`))}

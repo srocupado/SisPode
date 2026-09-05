@@ -37,6 +37,19 @@ const VEREDITOS = {
 // Inteiros pequenos (artigo, inciso, contagem) e anos não são cifra.
 const numeroRelevante = v => !(Number.isInteger(v) && (v <= 31 || (v >= 1900 && v <= 2100)));
 const numsRelevantes = s => (_numerosDoTexto(s) || []).filter(numeroRelevante);
+// Nem número de norma ou de artigo: "art. 62 da CF" numa opção foi removido
+// como "número fora das evidências" na rodada real. A pista é a palavra anterior.
+const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
+function numerosCifra(texto) {
+  const t = String(texto || ''); const out = []; const re = /\d[\d.]*(?:,\d+)?/g; let m;
+  while ((m = re.exec(t)) !== null) {
+    const v = Number(m[0].replace(/\./g, '').replace(',', '.'));
+    if (!Number.isFinite(v) || !numeroRelevante(v)) continue;
+    if (REF_ANTES.test(t.slice(Math.max(0, m.index - 34), m.index))) continue;
+    out.push(Math.abs(v));
+  }
+  return out;
+}
 
 // ============================================================
 //  CATÁLOGO DE EVIDÊNCIAS
@@ -143,7 +156,17 @@ function validarTese(tese, catalogo, { nivel = 'C' } = {}) {
     obj.evidencias = ids;
     const permitidos = numsDe(ids);
     for (const n of fichaNums) permitidos.add(n);
-    const fora = numsRelevantes(texto).filter(n => !permitidos.has(n));
+    let fora = numerosCifra(texto).filter(n => !permitidos.has(n));
+    // Número que existe em OUTRO item do catálogo é subcitação, não invenção:
+    // o programa acrescenta a evidência (e registra) em vez de remover a
+    // unidade. Na rodada real, o objetivo caiu por citar a linha de remessas
+    // sem citar a linha de variação, onde os 65,3% estavam.
+    if (fora.length) {
+      const acrescidas = [];
+      for (const n of fora) { const item = catalogo.itens.find(i => !i.aviso && !i.fonteApenas && (i.numeros || []).includes(n)); if (item && !ids.includes(item.id)) { ids.push(item.id); acrescidas.push(item.id); } }
+      if (acrescidas.length) { obj.evidencias = ids; obj.evidenciasAcrescidas = acrescidas; for (const id of acrescidas) for (const n of (catalogo.porId.get(id)?.numeros || [])) permitidos.add(n); }
+      fora = fora.filter(n => !permitidos.has(n));
+    }
     if (fora.length) return `número fora das evidências citadas: ${fora.join(', ')}`;
     return null;
   };
@@ -234,9 +257,10 @@ da tese abaixo usando apenas o catálogo de evidências. Refute quando: (a) a ev
 (c) há evidência contrária no catálogo; (d) há atribuição causal disfarçada; (e) um número é lido errado (ex.: aumento de
 volume de remessas descrito como "formalização"; estimativa de outra parte do processo tratada como previsão desta medida);
 (f) a opção ou o lado descreve consequência FISCAL ou JURÍDICA que nenhuma evidência mostra.
-O QUE NÃO SE REFUTA: (1) unidade do tipo "calculo" que apenas REPORTA a série com a janela e o nível declarados ("caiu de X
-para Y em N meses, nível B") — reportar não excede o nível; o que excede é CONCLUIR a partir dela ("funcionou", "formalizou",
-"o efeito foi"); (2) a consequência POLÍTICA de uma opção, que é juízo da assessoria — refute-a só se contradisser evidência;
+O QUE NÃO SE REFUTA: (1) unidade do tipo "calculo" que apenas REPORTA a série ("caiu de X para Y") — reportar não excede o
+nível; o que excede é CONCLUIR a partir dela ("funcionou", "formalizou", "o efeito foi"). NÃO refute por a unidade não
+repetir a limitação da série (nível, janela curta, mês parcial): a limitação é declarada uma vez na seção e vale para todas
+as unidades; omissão de ressalva NÃO é motivo de refutação; (2) a consequência POLÍTICA de uma opção, que é juízo da assessoria — refute-a só se contradisser evidência;
 (3) fato apoiado em S1 (situação da tramitação informada pelo sistema) ou em F1 (ficha do objeto); (4) em L1/L2, o
 "argumento" é a posição do lado e PODE ser causal — julgue só "o que a evidência diz"; (5) em P, a consequência jurídica
 que decorre do regime constitucional da MP (art. 62 da CF: perda de eficácia, decreto legislativo) ou de achado citado, e a
@@ -256,17 +280,29 @@ Inclua TODAS as unidades (T, O, L, P), refutadas ou não. O "motivo" será IMPRE
 em palavras comuns ("os dados cobrem só 3 meses depois da mudança, e maio é parcial"), sem "nível de evidência" nem jargão.`;
 }
 
-/** Aplica os vereditos do contraditório: fato/cálculo refutado sai; juízo refutado vira "não verificável" ou sai. */
-function aplicarContraditorio(t, vereditos = []) {
+// Motivo que aponta erro CONCRETO num fato ou cálculo (número, conceito,
+// inexistência) — diferente de "não repetiu a ressalva", que não derruba nada.
+const RE_ERRO_CONCRETO = /confund|errad|incorret|inexist|n[ãa]o consta|n[ãa]o existe|invent|n[ãa]o (é|era|está) (o|a) (que|mesmo)|troca|diverg|contradi[çz]|l[êe] (errado|indevidamente)|leitura errada|n[ãa]o sustenta|n[ãa]o mostra|n[ãa]o cita|outra parte|refere-se a|diz respeito a|trata de outr|n[ãa]o (é|trata) dest/i;
+
+/**
+ * Aplica os vereditos do contraditório. Juízo refutado vira "não verificável"
+ * ou sai. Fato ou cálculo refutado só sai se o motivo apontar erro concreto ou
+ * citar evidência contrária existente; refutação por "não declarou a
+ * limitação da série" vira ressalva impressa — a limitação é dita uma vez na
+ * seção e vale para todas (na rodada real, seis linhas de dados caíram por isso).
+ */
+function aplicarContraditorio(t, vereditos = [], catalogo = null) {
   const v = new Map((Array.isArray(vereditos) ? vereditos : []).filter(x => x && x.id).map(x => [String(x.id), x]));
-  const refutadas = [], contestadas = [];
+  const refutadas = [], contestadas = [], ressalvas = [];
   const ref = id => { const x = v.get(id); return x && x.refutada === true ? x : null; };
+  const temContraria = r => (r.evidencias_contrarias || []).some(id => catalogo ? catalogo.porId.has(String(id)) : true) && (r.evidencias_contrarias || []).length > 0;
   const afirmacoes = [];
   for (const a of t.afirmacoes || []) {
     const r = ref(a.id);
     if (!r) { afirmacoes.push(a); continue; }
-    if (a.tipo === 'juizo') { contestadas.push({ id: a.id, motivo: r.motivo, texto: a.texto }); }
-    else refutadas.push({ id: a.id, tipo: a.tipo, motivo: r.motivo, texto: a.texto });
+    if (a.tipo === 'juizo') { contestadas.push({ id: a.id, motivo: r.motivo, texto: a.texto }); continue; }
+    if (RE_ERRO_CONCRETO.test(r.motivo || '') || temContraria(r)) refutadas.push({ id: a.id, tipo: a.tipo, motivo: r.motivo, texto: a.texto });
+    else { ressalvas.push({ id: a.id, motivo: r.motivo }); afirmacoes.push(a); }
   }
   const objetivos = [];
   for (const o of t.objetivos || []) {
@@ -278,8 +314,8 @@ function aplicarContraditorio(t, vereditos = []) {
   for (const k of ['apoia', 'opoe']) { const l = t.lados?.[k]; if (!l) continue; const r = ref(l.id); if (r) { contestadas.push({ id: l.id, motivo: r.motivo, texto: l.argumento }); l.contestado = r.motivo; } lados[k] = l; }
   const opcoes = [];
   for (const p of t.opcoes || []) { const r = ref(p.id); if (r) { refutadas.push({ id: p.id, tipo: 'opcao', motivo: r.motivo, texto: p.opcao }); continue; } opcoes.push(p); }
-  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [] }, refutadas, contestadas,
-    resumo: `${refutadas.length} unidade(s) refutada(s) e removida(s); ${contestadas.length} juízo(s) contestado(s) e rebaixado(s)` };
+  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [] }, refutadas, contestadas, ressalvas,
+    resumo: `${refutadas.length} unidade(s) refutada(s) e removida(s); ${contestadas.length} juízo(s) contestado(s) e rebaixado(s)${ressalvas.length ? `; ${ressalvas.length} ressalva(s) mantida(s) com o dado` : ''}` };
 }
 
 // ============================================================

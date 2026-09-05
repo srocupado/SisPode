@@ -66,12 +66,28 @@ function conferirAchados(achados, fonte) {
   const f = compacto(fonte);
   const aprovados = [], recusados = [], semQuestao = [];
   const podeConferir = fonte && fonte.length > 500;
+  // O trecho pode atravessar uma quebra de página do PDF, onde o texto
+  // extraído traz cabeçalho e número de página no meio ("SF/24692.28045-78",
+  // "[p7] 7"). Na rodada real, os três achados de histórico do relatório do
+  // Senado caíram por isso. Aceita-se o trecho inteiro OU as duas metades,
+  // cada uma localizada por si (25+ caracteres compactos cada).
+  const localizado = t => {
+    if (f.includes(t)) return true;
+    if (t.length < 60) return false;
+    // Em pedaços de 25+ caracteres: todos menos um têm de estar no texto (o
+    // pedaço que contém a quebra de página é o que falha).
+    const n = Math.min(4, Math.floor(t.length / 25));
+    const tam = Math.ceil(t.length / n);
+    const pedacos = Array.from({ length: n }, (_, i) => t.slice(i * tam, (i + 1) * tam)).filter(p => p.length >= 20);
+    const achados = pedacos.filter(p => f.includes(p)).length;
+    return pedacos.length >= 2 && achados >= pedacos.length - 1 && achados >= 2;
+  };
   for (const a of achados || []) {
     if (a?.semQuestao) { semQuestao.push({ lente: a.lente, pergunta: a.pergunta }); continue; }
     if (!a?.achado) continue;
     const t = compacto(a.trecho);
-    if (podeConferir && (t.length < 25 || !f.includes(t))) {
-      recusados.push({ lente: a.lente, pergunta: a.pergunta, motivo: t.length < 25 ? 'trecho ausente ou curto demais para conferir' : 'trecho citado não localizado no documento analisado' });
+    if (podeConferir && (t.length < 25 || !localizado(t))) {
+      recusados.push({ lente: a.lente, pergunta: a.pergunta, motivo: t.length < 25 ? 'trecho ausente ou curto demais para conferir' : 'trecho citado não localizado no documento analisado', trecho: String(a.trecho || '').slice(0, 100) });
       continue;
     }
     aprovados.push({ lente: a.lente, pergunta: a.pergunta, achado: String(a.achado), dispositivo: a.dispositivo || null, trecho: a.trecho || null, conferido: podeConferir });
@@ -129,7 +145,9 @@ async function gerarParecer(ctx, io) {
   const conf = conferirAchados(bruto, fonte);
   // Sem histórico na apuração geral, uma chamada só para ele (os pareceres e
   // relatórios são onde a história está, e o modelo a pulava).
-  if (!conf.aprovados.some(a => String(a.lente) === 'X' && a.pergunta === 'historico')) {
+  // Um ou dois achados de histórico costumam ser só da tramitação recente; a
+  // origem da regra (quem propôs, quem relatou) exige leitura dedicada.
+  if (conf.aprovados.filter(a => String(a.lente) === 'X' && a.pergunta === 'historico').length < 3) {
     passo('apurando o histórico…');
     try {
       const rh = await chamar('historico', R.promptHistorico({ identificacao: ctx.identificacao, ementa: ctx.ementa }), (ctx.docs || []).map(d => d.buffer));
@@ -168,7 +186,7 @@ async function gerarParecer(ctx, io) {
   passo('contraditório…');
   const r3 = await chamar('contraditorio', T.promptContra({ identificacao: ctx.identificacao, tese: validacao.tese, catalogo, nivel }));
   const vereditos = extrairJSONParecer(r3.text);
-  const contraditorio = T.aplicarContra(validacao.tese, Array.isArray(vereditos) ? vereditos : []);
+  const contraditorio = T.aplicarContra(validacao.tese, Array.isArray(vereditos) ? vereditos : [], catalogo);
   if (!contraditorio.tese.afirmacoes.length) return { erro: `Nenhuma afirmação sobreviveu ao contraditório (${contraditorio.refutadas.length} refutadas). O parecer não é gerado.`, validacao, contraditorio, chamadas };
   const tese = contraditorio.tese;
 
@@ -210,7 +228,7 @@ async function gerarParecer(ctx, io) {
     descartadas: descartadas.map(l => ({ rotulo: l.rotulo, ressalva: l.ressalva })),
     apuracao: { aprovados: conf.aprovados.length, recusados: conf.recusados, semQuestao: conf.semQuestao.length },
     validacao: { resumo: validacao.resumo, removidas: validacao.removidas, rebaixadas: validacao.rebaixadas },
-    contraditorio: { resumo: contraditorio.resumo, refutadas: contraditorio.refutadas, contestadas: contraditorio.contestadas },
+    contraditorio: { resumo: contraditorio.resumo, refutadas: contraditorio.refutadas, contestadas: contraditorio.contestadas, ressalvas: contraditorio.ressalvas || [] },
     conferencia, gates: { faixas: g.faixas, notas: g.notas, reprovacoes: g.reprovacoes, rebaixamentos: g.rebaixamentos },
     rubrica, ressalvasValidade, refeita, truncado: !!r4.truncated, chamadas,
     aprovado: rubrica.aprovado && !g.reprovacoes.length,

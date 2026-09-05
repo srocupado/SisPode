@@ -98,8 +98,14 @@ const achadosX = [
   ok(v.tese.fatores_concorrentes.length === 0, 'fator concorrente sem evidência existente sai');
 
   console.log('== contraditório ==');
-  const c = T.aplicarContraditorio(v.tese, [{ id: 'T2', refutada: false }, { id: 'T6', refutada: true, motivo: 'a evidência é do Mover' }, { id: 'O1', refutada: true, motivo: 'um ponto em três meses não é indício' }, { id: 'L1', refutada: true, motivo: 'volume não é formalização' }, { id: 'P1', refutada: false }]);
-  ok(!c.tese.afirmacoes.some(a => a.id === 'T6') && c.refutadas.some(r => r.id === 'T6'), 'fato refutado sai');
+  const c = T.aplicarContraditorio(v.tese, [{ id: 'T2', refutada: false }, { id: 'T6', refutada: true, motivo: 'a evidência refere-se ao Programa Mover, outra parte do processo' }, { id: 'O1', refutada: true, motivo: 'um ponto em três meses não é indício' }, { id: 'L1', refutada: true, motivo: 'volume não é formalização' }, { id: 'P1', refutada: false }]);
+  ok(!c.tese.afirmacoes.some(a => a.id === 'T6') && c.refutadas.some(r => r.id === 'T6'), 'fato refutado com erro concreto ("a evidência é do Mover") sai');
+  const cOmissao = T.aplicarContraditorio(v.tese, [{ id: 'T2', refutada: true, motivo: 'A afirmação omite que a evidência tem limitações (nível B) e que maio é parcial.' }], cat);
+  ok(cOmissao.tese.afirmacoes.some(a => a.id === 'T2') && cOmissao.ressalvas.some(r => r.id === 'T2') && !cOmissao.refutadas.length, 'cálculo "refutado" só por não repetir a ressalva da série é MANTIDO, com a ressalva registrada');
+  const cConfunde = T.aplicarContraditorio(v.tese, [{ id: 'T2', refutada: true, motivo: 'Confunde imposto devido com arrecadação.' }], cat);
+  ok(!cConfunde.tese.afirmacoes.some(a => a.id === 'T2'), 'cálculo refutado por erro de conceito ("confunde") sai');
+  const subcit = T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'aconteceu', tipo: 'calculo', texto: 'O II devido total caiu de R$ 446,6 milhões para R$ 297,0 milhões por mês.', evidencias: [cat.itens.find(i => /remessas recebidas por m/.test(i.texto)).id] }] }, cat, { nivel: 'B' });
+  ok(subcit.tese.afirmacoes.length === 1 && subcit.tese.afirmacoes[0].evidenciasAcrescidas?.length === 1, 'número que existe em outro item do catálogo: a evidência é acrescentada em vez de remover a afirmação');
   ok(c.tese.objetivos.find(o => o.id === 'O1').veredito === 'não verificável' && c.contestadas.some(x => x.id === 'O1'), 'objetivo contestado vira "não verificável"');
   ok(c.tese.lados.apoia && /volume não é formalização/.test(c.tese.lados.apoia.contestado), 'lado contestado fica marcado');
   const pc = T.promptContraditorio({ identificacao: 'MPV 1357/2026', tese: v.tese, catalogo: cat, nivel: 'B' });
@@ -137,6 +143,15 @@ const achadosX = [
   ok(!rubV3.aprovado && rubV3.pendentes.some(p => /M3/.test(p.item)) && rubV3.pendentes.some(p => /M4/.test(p.item)), 'a rubrica reprova o parecer real v2 rejeitado (M3 sem evidência; M4 "atingido" com nível B): ' + rubV3.pendentes.map(p => p.item.slice(0, 3)).join(','));
   ok(G.aplicarGates({ ficha, dossie, tese: teseFinal, texto: v3, nivel: 'B' }).reprovacoes.some(r => r.gate === 'G2'), 'e o G2 reprova o parecer real v2 por não enunciar 20%/60%/US$ 50');
 
+  console.log('== conferência de trecho com quebra de página ==');
+  {
+    const doc = 'x'.repeat(600) + ' Apoiamos, dessa forma, o conteúdo da Emenda nº 3 – PLEN, do Senador Mecias de Jesus. Por ser incompatível [p12] 12 SF/24692.28045-78 com essa supressão, rejeitamos as Emendas nº 4 e 11 – PLEN, que propõem a tributação com alíquotas diferenciadas.';
+    const trecho = 'Apoiamos, dessa forma, o conteúdo da Emenda nº 3 – PLEN, do Senador Mecias de Jesus. Por ser incompatível com essa supressão, rejeitamos as Emendas nº 4 e 11 – PLEN';
+    const c = PP.conferirAchados([{ lente: 'X', pergunta: 'historico', achado: 'O relator apoiou a supressão.', trecho }], doc);
+    ok(c.aprovados.length === 1, 'trecho que atravessa cabeçalho de página é localizado pelas duas metades');
+    ok(PP.conferirAchados([{ lente: 'X', pergunta: 'historico', achado: 'x', trecho: 'Frase que não está no documento analisado de forma alguma, inventada pelo modelo.' }], doc).recusados.length === 1, 'trecho inventado continua recusado');
+  }
+
   console.log('== pipeline completo com modelo falso ==');
   const textoDoc = fx('emi1146-trecho.txt') + ' ' + TRECHO_EMI + ' Esta Medida Provisória entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026. Art. 1º O Decreto-Lei nº 1.804, de 3 de setembro de 1980, passa a vigorar. ' + 'inclusive para reduzi-las a zero na faixa de tributação de até US$ 50,00. aperfeiçoar os mecanismos de conformidade tributária e aduaneira. '.repeat(3) + 'x'.repeat(600);
   const respostas = {
@@ -164,7 +179,8 @@ const achadosX = [
     ok(p.validacao.removidas.some(r => r.id === 'T9'), 'T9 (R$ 2,4 bi sem evidência) removida antes da redação');
     ok(p.contraditorio.contestadas.some(x => x.id === 'O1') && p.tese.objetivos[0].veredito === 'não verificável', 'O1 contestado vira "não verificável"');
     ok(p.rubrica.aprovado && p.aprovado, 'rubrica aprova: ' + p.rubrica.pendentes.map(x => x.item).join('; '));
-    ok(p.chamadas.length === 4 && !p.refeita, 'quatro chamadas de modelo, sem redação refeita');
+    ok(p.chamadas.length === 5 && p.chamadas.some(c => c.nome === 'historico') && !p.refeita, 'cinco chamadas (com a de histórico, porque a apuração trouxe menos de três fatos), sem redação refeita');
+    ok(T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'opcoes', tipo: 'fato', texto: 'Rejeitada, a MP perde eficácia desde a edição, nos termos do art. 62, § 3º, da CF.', evidencias: ['F1'] }] }, T.catalogoDeEvidencias({ achados: achadosX, ficha }), { nivel: 'C' }).tese.afirmacoes.length === 1, '"art. 62" numa afirmação é referência normativa, não cifra fora da base');
     ok(p.gates.faixas.length === 0 && p.nivel === 'C', 'sem faixa de incompletude (regra veio do documento) e nível C');
     const html = H.htmlParecer(p, { materia: 'MPV 1357/2026', css: '' });
     ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /<sup class="ev">T1<\/sup>/.test(html) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha, marcadores como sobrescrito e seções com âncora');
@@ -180,9 +196,9 @@ const achadosX = [
   // sem histórico na apuração geral, o pipeline faz UMA chamada só para ele
   const io3 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'historico')), truncated: false }; if (/apura o HISTÓRICO/.test(prompt)) return { text: JSON.stringify([{ lente: 'X', pergunta: 'historico', achado: 'A MP foi editada em 12 de maio de 2026.', trecho: 'entra em vigor na data de sua publicação. Brasília, 12 de maio de 2026' }]), truncated: false }; return io.chamarModelo({ prompt }); } };
   const p3 = await PP.gerarParecer(ctx, io3);
-  ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
+  ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   const p2 = await PP.gerarParecer(ctx, io2);
-  ok(!p2.erro && p2.refeita && p2.chamadas.length === 5 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita (5ª chamada) e, persistindo, parecer reprovado no G2');
+  ok(!p2.erro && p2.refeita && p2.chamadas.length === 6 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita e, persistindo, parecer reprovado no G2');
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
