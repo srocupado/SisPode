@@ -109,6 +109,22 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 
   console.log('== dossiê sem rede ==');
   {
+    // LEGIN da Câmara primeiro: a busca aponta o link, "normaatualizada" traz o compilado
+    {
+      const paginas = {
+        'https://www.camara.leg.br/legislacao/busca?geral=&tipoNorma=lei&numero=8112&ano=1990': '<a href="https://www2.camara.leg.br/legin/fed/decret_sn/1990/decreto-8112-1-janeiro-1990-1-norma-pe.html">x</a> <a href="https://www2.camara.leg.br/legin/fed/lei/1990/lei-8112-11-dezembro-1990-322161-norma-pl.html">Lei 8.112</a>',
+        'https://www2.camara.leg.br/legin/fed/lei/1990/lei-8112-11-dezembro-1990-322161-normaatualizada-pl.html': '<html><body><p>Art. 240. Ao servidor público civil é assegurado, nos termos da Constituição Federal, o direito à livre associação sindical e os seguintes direitos: a) de ser representado pelo sindicato; d) (Revogada pela Lei nº 9.527, de 10/12/1997 ) e) (Revogada pela Lei nº 9.527, de 10/12/1997 )</p><p>Art. 241. Consideram-se da família do servidor.</p>' + '<p>x</p>'.repeat(200) + '</body></html>',
+      };
+      const pedidos = [];
+      const fakeFetch = async u => { pedidos.push(u); const h = paginas[u]; return h ? { ok: true, status: 200, text: async () => h, arrayBuffer: async () => new TextEncoder().encode(h).buffer } : { ok: false, status: 503, text: async () => '', arrayBuffer: async () => new ArrayBuffer(0) }; };
+      const r = await D.buscarTextoNorma({ tipo: 'lei', numero: '8.112', ano: 1990 }, fakeFetch);
+      ok(r.origem === 'camara' && r.compilado && /normaatualizada-pl\.html$/.test(r.url) && /Revogada pela Lei nº 9\.527/.test(r.texto) && !pedidos.some(u => /planalto/.test(u)), 'Lei 8.112/1990: texto atualizado do LEGIN, pelo caminho /legin/fed/lei/, sem passar pelo Planalto');
+      ok(/Revogada/.test(D.extrairArtigo(r.texto, '240')), 'extrairArtigo lê o art. 240 com as alíneas revogadas anotadas');
+      const rm = await D.buscarTextoNorma({ tipo: 'mpv', numero: '1357', ano: 2026 }, fakeFetch);
+      ok(rm.origem === null && !pedidos.some(u => /legislacao\/busca.*medida/.test(u)) && rm.tentativas.some(t => /Planalto/.test(t)), 'MP não passa pelo LEGIN (não tem versão atualizada): vai direto ao Planalto');
+      const rf = await D.buscarTextoNorma({ tipo: 'lei', numero: '14.902', ano: 2024 }, fakeFetch);
+      ok(rf.tentativas[0] && /Câmara\/LEGIN/.test(rf.tentativas[0]), 'falha do LEGIN fica registrada e a cascata segue');
+    }
     const d = await D.montarDossie({ fonte: fx('prlp5-adequacao.txt') + ' A alíquota aplica-se a partir de 1º de agosto de 2024. Altera o Decreto-Lei nº 1.804, de 3 de setembro de 1980.', rotulos: ['PRLP 5'], ementa: 'Imposto de Importação sobre remessas', fetchFn: null });
     ok(d.estimativas.length >= 3 && d.marco?.data === '2024-08-01', 'estimativas e marco preenchidos sem rede');
     ok(d.nivel === 'C' && d.avisos.some(a => /Sem acesso à rede/.test(a)), 'sem rede: nível C e aviso declarado');
