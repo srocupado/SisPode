@@ -3,9 +3,10 @@
   "name": "Sistemas Legislativos – Podemos",
   "version": "3.4.0",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
-
-  "permissions": ["storage", "tabs"],
-
+  "permissions": [
+    "storage",
+    "tabs"
+  ],
   "host_permissions": [
     "https://dadosabertos.camara.leg.br/*",
     "https://consultafns.saude.gov.br/*",
@@ -20,6 +21,7 @@
     "https://unpkg.com/*",
     "https://legis.camara.leg.br/*",
     "https://legis.senado.leg.br/*",
+    "https://legis.senado.gov.br/*",
     "https://www.congressonacional.leg.br/*",
     "https://www.gov.br/*",
     "https://api.bcb.gov.br/*",
@@ -27,34 +29,50 @@
     "https://www.lexml.gov.br/*",
     "https://www2.camara.leg.br/*"
   ],
-
   "content_security_policy": {
     "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'self'; img-src 'self' data: blob:"
   },
-
   "action": {
     "default_title": "Sistemas Legislativos – Podemos",
     "default_icon": {
-      "16":  "icons/icon16.png",
-      "48":  "icons/icon48.png",
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
       "128": "icons/icon128.png"
     }
   },
-
   "background": {
     "service_worker": "background.js"
   },
-
   "icons": {
-    "16":  "icons/icon16.png",
-    "48":  "icons/icon48.png",
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-
   "web_accessible_resources": [
     {
-      "resources": ["libs/pdf.worker.min.js", "votacao.html", "votacao.js", "libs/html2canvas.min.js", "aderencia.html", "aderencia.js", "libs/xlsx.full.min.js", "comissoes.html", "comissoes.js", "analise.html", "analise.js", "ccjc.html", "ccjc.js", "congresso.html", "congresso.js", "lideres.html", "lideres.js", "icons/podemos-logo.png"],
-      "matches": ["<all_urls>"]
+      "resources": [
+        "libs/pdf.worker.min.js",
+        "votacao.html",
+        "votacao.js",
+        "libs/html2canvas.min.js",
+        "aderencia.html",
+        "aderencia.js",
+        "libs/xlsx.full.min.js",
+        "comissoes.html",
+        "comissoes.js",
+        "analise.html",
+        "analise.js",
+        "ccjc.html",
+        "ccjc.js",
+        "congresso.html",
+        "congresso.js",
+        "lideres.html",
+        "lideres.js",
+        "icons/podemos-logo.png"
+      ],
+      "matches": [
+        "<all_urls>"
+      ]
     }
   ]
 }
