@@ -18,6 +18,7 @@ const _objetoEnunciado = __fichaMod ? __fichaMod.objetoEnunciado : (typeof objet
 const __teseMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./tese.js') : null;
 const _secoesDoTexto = __teseMod ? __teseMod.secoesDoTexto : (typeof secoesDoTexto === 'function' ? secoesDoTexto : null);
 const _TITULOS = __teseMod ? __teseMod.TITULOS : (typeof TITULOS !== 'undefined' ? TITULOS : null);
+const _secoesAtivas = __teseMod ? __teseMod.secoesAtivas : (typeof secoesAtivas === 'function' ? secoesAtivas : null);
 const __dossieMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./dossie.js') : null;
 const _NIVEL_EVIDENCIA = __dossieMod ? __dossieMod.NIVEL_EVIDENCIA : (typeof NIVEL_EVIDENCIA !== 'undefined' ? NIVEL_EVIDENCIA : null);
 
@@ -35,9 +36,19 @@ const RE_NEGACAO = /n[ãa]o\s+(se\s+)?(identifi|verifi|vislumbr|constat|h[áa]\b
 const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|sustenta|alega|afirma|defende|aponta|segundo (o|a|os|as) )[^.]{0,120}$/i;
 // "o relator recomendou a aprovação", "o parecer opina pela rejeição": relato, não voto do parecer.
 const RE_QUEM_VOTA = /\b(relator[a]?|parecer|comiss[ãa]o|manifesta[çc][ãa]o|CASP|CCJ|CFT|governo|autor[a]?|senador[a]?|deputad[oa]|l[íi]der|bancada|sindicato|entidade|confedera[çc][ãa]o|quem (apoia|se op[õo]e|defende|critica)|segundo)\b[^.]{0,160}$/i;
-/** Recomendações de voto que o PARECER faz — exclui as relatadas como posição de outrem. */
+/**
+ * Recomendações de voto que o PARECER faz fora da conclusão. Relato da posição
+ * de outrem não conta; a seção "Conclusão e posicionamento sugerido" é o lugar
+ * onde a assessoria recomenda, e por isso sai da varredura.
+ */
+function semAConclusao(texto) {
+  const titulo = (_TITULOS && _TITULOS.conclusao) || 'Conclusão e posicionamento sugerido';
+  const re = new RegExp(`(^|\\n)\\s*${titulo}\\s*:?\\s*(\\n|$)`, 'i');
+  const m = re.exec(String(texto || ''));
+  return m ? String(texto).slice(0, m.index) : String(texto || '');
+}
 function votosNaoAtribuidos(texto) {
-  const t = String(texto || ''); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
+  const t = semAConclusao(texto); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
   while ((m = re.exec(t)) !== null) { const antes = t.slice(Math.max(0, m.index - 160), m.index); if (!RE_QUEM_VOTA.test(antes) && !RE_ATRIBUICAO.test(antes)) out.push(t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30).replace(/\s+/g, ' ')); }
   return out;
 }
@@ -185,7 +196,8 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   const aval = (secoes['Avaliação da política'] || []).join(' ');
   const proibidos = nivel === 'A' ? [] : nivel === 'B' ? [/(?<!n[ãa]o )(?<!indícios de )\batingido\b/i, /\bn[ãa]o atingido\b/i] : [/\batingido\b/i, /\bind[íi]cios de/i];
   add(!proibidos.some(re => re.test(aval)), `M4 Vereditos compatíveis com a solidez da comparação (nível ${nivel})`);
-  const ordem = Object.entries(_TITULOS || {}).filter(([k]) => (k !== 'aconteceu' || temSerie) && (k !== 'comparada' || temComparada)).map(([, v]) => v);
+  const chaves = _secoesAtivas ? _secoesAtivas(tese || {}, { temSerie }) : Object.keys(_TITULOS || {});
+  const ordem = chaves.map(k => (_TITULOS || {})[k]).filter(Boolean);
   const posicoes = ordem.map(s => t.search(new RegExp(`(^|\\n)\\s*${s}\\s*:?\\s*(\\n|$)`, 'i')));
   const faltantes = ordem.filter((s, i) => posicoes[i] < 0);
   const emOrdem = posicoes.filter(p => p >= 0).every((p, i, a) => i === 0 || p > a[i - 1]);
@@ -201,7 +213,14 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   // aumentou…") é relato da posição alheia, não afirmação do parecer.
   const causaisProprias = causaisNaoAtribuidas(t);
   const votosProprios = votosNaoAtribuidos(t);
-  add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria e sem recomendação de voto', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação de voto: "${votosProprios[0]}"` : null);
+  add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria; recomendação de voto só na conclusão', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação fora da conclusão: "${votosProprios[0]}"` : null);
+  // M13 — a conclusão da tese chegou ao texto, com posição e com o que a mudaria.
+  if (tese && tese.conclusao) {
+    const c = tese.conclusao;
+    const secConc = (secoes[(_TITULOS || {}).conclusao] || []).join(' ');
+    add(secConc.length > 80 && (c.contestada || /mudar|rever|alterar|deixar de|passar a/i.test(secConc)), 'M13 Conclusão escrita, com a posição e o que a mudaria',
+      secConc.length <= 80 ? 'seção de conclusão vazia ou curta demais' : 'a conclusão não diz o que faria a assessoria mudar de posição');
+  }
   // M12 — o que o módulo de Plenário sabe tem de estar no texto: relator pelo nome, cada emenda/substitutivo.
   if (processo && (processo.relator?.nome || (processo.emendas || []).length)) {
     const faltam = [];

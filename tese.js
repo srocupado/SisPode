@@ -25,8 +25,33 @@ const _itensDoDossie = __dossie ? __dossie.itensDoDossie : (typeof itensDoDossie
 const __ficha = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha.js') : null;
 const _fichaParaTexto = __ficha ? __ficha.fichaParaTexto : (typeof fichaParaTexto === 'function' ? fichaParaTexto : null);
 
-const SECOES_TESE = ['sintese', 'contexto', 'lei', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'lados', 'opcoes'];
-const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', lados: 'Os dois lados', opcoes: 'Opções e consequências', lentes: 'Respostas por lente' };
+const SECOES_TESE = ['sintese', 'contexto', 'lei', 'jurisprudencia', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'atores', 'implementacao', 'lados', 'opcoes', 'redacional', 'viabilidade'];
+const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', jurisprudencia: 'Jurisprudência sobre normas análogas', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', atores: 'Quem se posicionou e como', implementacao: 'Implementação e custo de conformidade', lados: 'Os dois lados', opcoes: 'Opções e consequências', redacional: 'Aprimoramentos e sugestões de emenda', viabilidade: 'Prioridade e viabilidade', lentes: 'Respostas por lente', conclusao: 'Conclusão e posicionamento sugerido' };
+// Seções que só entram quando a tese tem unidade para elas; as demais são fixas.
+const SECOES_CONDICIONAIS = ['jurisprudencia', 'aconteceu', 'comparada', 'atores', 'implementacao', 'redacional', 'viabilidade'];
+// Onde cada evidência buscada na internet pode sustentar afirmação.
+const SECAO_DA_EXTERNA = { W: 'comparada', J: 'jurisprudencia', N: 'lei', Q: 'atores' };
+const POSICOES_ATOR = ['favorável', 'contrário', 'favorável com ressalvas', 'contrário com ressalvas', 'dividido', 'não declarada'];
+const PESOS_VIABILIDADE = ['favorece', 'dificulta', 'neutro'];
+
+/**
+ * Quais seções o parecer terá: as fixas, mais as condicionais que a tese
+ * alimentou. Uma única fonte para o prompt de redação, para o gate da ordem
+ * das seções (M5) e para o índice do PDF.
+ */
+function secoesAtivas(tese = {}, { temSerie = false } = {}) {
+  const temAfirm = sec => (tese.afirmacoes || []).some(a => a.secao === sec);
+  const tem = {
+    jurisprudencia: temAfirm('jurisprudencia'),
+    aconteceu: !!temSerie,
+    comparada: temAfirm('comparada'),
+    atores: (tese.atores || []).length > 0,
+    implementacao: (tese.implementacao || []).length > 0,
+    redacional: (tese.aprimoramentos || []).length > 0,
+    viabilidade: (tese.viabilidade || []).length > 0,
+  };
+  return Object.keys(TITULOS).filter(k => !SECOES_CONDICIONAIS.includes(k) || tem[k]);
+}
 const ORDEM_NIVEL = { A: 3, B: 2, C: 1 };
 const VEREDITOS = {
   A: ['atingido', 'não atingido', 'não verificável'],
@@ -64,7 +89,7 @@ function numerosCifra(texto) {
 //  CATÁLOGO DE EVIDÊNCIAS
 // ============================================================
 
-function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null, processo = null, comparada = [] } = {}) {
+function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null, processo = null, comparada = [], jurisprudencia = [], infralegal = [], posicoes = [] } = {}) {
   const itens = [];
   // A situação da tramitação vem do sistema (API da Câmara), não do documento;
   // sem entrar no catálogo, o contraditório refutava a data de perda de
@@ -87,10 +112,14 @@ function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situa
   if (dossie && _itensDoDossie) for (const it of _itensDoDossie(dossie)) itens.push(it);
   // Experiência comparada: o modelo buscou na web; a fonte fica nomeada e o
   // programa NÃO a conferiu. Só entra com fonte (nome e endereço).
-  (comparada || []).forEach((c, i) => {
-    const texto = `Experiência comparada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.lugar}${c.quando ? `, ${c.quando}` : ''} — ${c.medida}. O que se mediu: ${c.o_que_se_mediu || 'não informado'}. Resultado: ${c.resultado}. Fonte: ${c.fonte_nome} (${c.fonte_url}).`;
-    itens.push({ id: `W${i + 1}`, tipo: 'externa', texto, numeros: _numerosDoTexto(texto), nivel: 'externa', fonte: `${c.fonte_nome} — ${c.fonte_url}`, url: c.fonte_url });
+  const externo = (lista, prefixo, monta) => (lista || []).forEach((c, i) => {
+    const texto = `${monta(c)} Fonte: ${c.fonte_nome} (${c.fonte_url}).`;
+    itens.push({ id: `${prefixo}${i + 1}`, tipo: 'externa', texto, numeros: _numerosDoTexto(texto), nivel: 'externa', fonte: `${c.fonte_nome} — ${c.fonte_url}`, url: c.fonte_url, externa: prefixo });
   });
+  externo(comparada, 'W', c => `Experiência comparada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.lugar}${c.quando ? `, ${c.quando}` : ''} — ${c.medida}. O que se mediu: ${c.o_que_se_mediu || 'não informado'}. Resultado: ${c.resultado}.`);
+  externo(jurisprudencia, 'J', c => `Jurisprudência (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.tribunal} — ${c.processo}${c.relator ? `, rel. ${c.relator}` : ''}${c.data ? `, ${c.data}` : ''}. Norma examinada: ${c.norma_examinada}. O que se decidiu: ${c.decisao}. Relação com esta proposição: ${c.relacao || 'não informada'}.`);
+  externo(infralegal, 'N', c => `Norma infralegal já em vigor sobre a matéria (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.norma}${c.orgao ? ` (${c.orgao})` : ''}${c.data ? `, ${c.data}` : ''} — ${c.o_que_disciplina}. O que muda com a proposição: ${c.relacao || 'não informada'}.`);
+  externo(posicoes, 'Q', c => `Posição pública declarada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.ator}${c.tipo ? ` (${c.tipo})` : ''} — posição ${c.posicao || 'não declarada'}${c.data ? `, ${c.data}` : ''}. O que defende: ${c.o_que_defende}.`);
   if (ficha) {
     const texto = _fichaParaTexto ? _fichaParaTexto(ficha) : JSON.stringify(ficha);
     itens.push({ id: 'F1', tipo: 'ficha', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'ficha do objeto' });
@@ -105,6 +134,7 @@ function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situa
 // ============================================================
 
 function promptTese({ identificacao, textoAnalisado, situacao, ficha, catalogo, nivel, lentes = [], objetivos = [], emVigor = true, temComparada = false }) {
+  const temExterna = pre => catalogo.itens.some(i => i.externa === pre);
   return `Você é o especialista que formula a TESE de um parecer da Liderança do Podemos na Câmara dos Deputados sobre
 ${identificacao} (texto analisado: ${textoAnalisado}). O parecer vai formar o convencimento de um deputado que pode não
 conhecer o tema. Nesta etapa você NÃO redige: você lista AFIRMAÇÕES, cada uma apoiada em evidências do catálogo abaixo.
@@ -136,7 +166,24 @@ Responda SOMENTE com JSON neste formato:
   "opcoes": [
     { "id": "P1", "opcao": "aprovar / alterar / rejeitar / condicionar — o que exatamente", "fiscal": "…", "juridica": "…", "politica": "…", "evidencias": ["F1", "D7"] }
   ],
-  "fatores_concorrentes": [ { "fator": "câmbio, outra norma, sazonalidade…", "evidencias": ["D9"] } ]
+  "fatores_concorrentes": [ { "fator": "câmbio, outra norma, sazonalidade…", "evidencias": ["D9"] } ],
+  "atores": [
+    { "id": "AT1", "ator": "nome de quem se manifestou", "tipo": "governo|entidade de classe|setor regulado|sociedade civil|parlamentar|órgão de controle",
+      "posicao": "${POSICOES_ATOR.join('|')}", "o_que_defende": "uma a três frases", "evidencias": ["Q1", "A5"] }
+  ],
+  "implementacao": [
+    { "id": "I1", "aspecto": "órgão executor|regulamentação necessária|prazo|estrutura ou sistema|custo de conformidade|fiscalização",
+      "texto": "uma a três frases", "evidencias": ["A7", "N1"] }
+  ],
+  "aprimoramentos": [
+    { "id": "R1", "dispositivo": "art. 5º do substitutivo", "tipo": "redacional|técnica legislativa|remissão|vigência|constitucional|mérito",
+      "problema": "o que está impreciso, contraditório ou omisso", "sugestao": "a redação ou a emenda que resolve", "evidencias": ["A9"] }
+  ],
+  "viabilidade": [
+    { "id": "V1", "sinal": "fato objetivo da tramitação ou do calendário", "peso": "${PESOS_VIABILIDADE.join('|')}", "evidencias": ["S1", "S2"] }
+  ],
+  "conclusao": { "id": "CC", "posicao": "aprovar / aprovar com as emendas X / rejeitar / condicionar / liberar a bancada — literal",
+    "porque": "duas a quatro frases ligadas às evidências", "o_que_mudaria": "o que faria a assessoria mudar de posição", "evidencias": ["P1", "F1"] }
 }
 
 SEÇÕES (campo "secao"): ${SECOES_TESE.join(', ')} — e "lente:N" para respostas técnicas de cada lente acionada
@@ -162,9 +209,28 @@ ${emVigor ? `- Vereditos dos objetivos, pelo nível de evidência das evidência
 ${temComparada ? `- EXPERIÊNCIA COMPARADA (W): uma afirmação por experiência, na seção "comparada", com o lugar, o que se fez, o que se
   mediu e o resultado, citando o W. Ela NÃO prova que "funcionará aqui": diga o que é e o que não é comparável. Fato que cite
   só W fica restrito à seção "comparada".` : ''}
+${temExterna('J') ? `- JURISPRUDÊNCIA (J): uma afirmação por julgado, na seção "jurisprudencia", com tribunal, classe e número, o que se
+  decidiu e o que isso significa para ESTA proposição. Julgado sobre lei estadual análoga vale como sinal, não como decisão
+  sobre este texto: diga a diferença. Fato que cite só J fica restrito à seção "jurisprudencia".` : ''}
+${temExterna('N') ? `- NORMAS INFRALEGAIS (N): entram na seção "lei" — o que já está disciplinado por decreto, portaria ou resolução, e o que
+  muda ao virar lei (hierarquia, estabilidade, o que deixa de ser discricionário).` : ''}
 - Estimativa marcada "NÃO vinculada ao objeto" nunca é "o previsto" desta medida; ela só pode aparecer como contexto, nomeada.
 - Nada de atribuição causal ("a medida provocou"): a série mostra; o parecer compara.
-- Nada de recomendação de voto: as opções têm consequências, a decisão é da Liderança.
+- Recomendação de voto SÓ na "conclusao": nas opções (P) e no resto da tese, consequências, nunca voto.
+- ATORES (AT): um por quem se manifestou, com posição e evidência (Q da busca, ou achado "posicao" do documento). Sem
+  evidência, o ator não existe: não suponha a posição de ninguém. Governo é a exposição de motivos ou a manifestação
+  oficial; entidade de classe, setor regulado e sociedade civil só com fonte.
+- IMPLEMENTAÇÃO (I): quem executa, o que ainda depende de regulamento, prazos, estrutura necessária, custo de conformidade
+  e sobre quem recai, fiscalização. Cada um com evidência (achado "execucao", dispositivo, norma infralegal N).
+- APRIMORAMENTOS (R): pontos concretos do texto em votação — remissão errada, prazo sem termo inicial, conceito indefinido,
+  vigência incompatível, dispositivo que repete lei vigente, ausência de cláusula de revogação. "sugestao" é acionável:
+  a redação alternativa ou a emenda a apresentar, com o dispositivo. Não invente vício: aponte o que está no texto.
+- VIABILIDADE (V): SÓ sinais objetivos, cada um com evidência do sistema (S) ou dos documentos (A): regime de urgência,
+  relator designado e seu parecer, apensados, comissões vencidas, matéria em pauta, prazo constitucional, acordo registrado
+  nos documentos. NÃO estime votos, não afirme apoio de partido que não esteja nas evidências.
+- CONCLUSÃO (CC): a posição da assessoria. Ela DECORRE das opções (cite o P correspondente) e das evidências; "o_que_mudaria"
+  é obrigatório e diz o que faria a assessoria mudar de posição (dado que falta, emenda acolhida, mudança de cenário).
+  A conclusão é juízo declarado da assessoria — não a apresente como fato nem como decisão tomada.
 - OPÇÕES (P): a consequência FISCAL descreve o que a série mostra, com a janela e o nível, sem extrapolar ("mantém o cenário
   observado na série: II devido de X para Y por mês, nível B"); a consequência JURÍDICA decorre da ficha, dos achados sobre o
   regime da MP (art. 62 da CF: perda de eficácia, decreto legislativo) ou da lei citada — cite-os; a consequência POLÍTICA é
@@ -176,8 +242,10 @@ ${temComparada ? `- EXPERIÊNCIA COMPARADA (W): uma afirmação por experiência
   relator(a) NOMEADO(A) e o que propôs (S3 e achados "documento"), UMA afirmação por documento anexado (achados "documento"),
   UMA por emenda ou substitutivo — autor, teor e destino (achados "emenda" e S5), as comissões (S6), com datas; lei: 2 e
   UMA afirmação por dispositivo alterado (achados "altera": o que vale hoje e o que muda); previu 2; aconteceu 5 (um por indicador, com o número); avaliacao: todos os objetivos declarados;
-  lados: argumento e "o que a evidência diz" com duas a quatro frases cada; cada lente acionada 3. O mínimo NÃO autoriza
-  inventar: sem evidência para uma afirmação, ela não existe e o mínimo não vale.`;
+  lados: argumento e "o que a evidência diz" com duas a quatro frases cada; cada lente acionada 3;
+  atores: todos os que se manifestaram, com fonte; implementacao 3 (executor, regulamentação, custo); aprimoramentos 3 a 8;
+  viabilidade 3 a 6 sinais; conclusao: uma. O mínimo NÃO autoriza inventar: sem evidência para uma afirmação, ela não existe
+  e o mínimo não vale.`;
 }
 
 /** Valida a tese contra o catálogo. Remove o que não se sustenta e rebaixa vereditos. */
@@ -222,8 +290,13 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
     // Fato precisa de evidência documental: achado, lei, ficha ou item do
     // dossiê que não seja aviso (estimativa no processo, marco, negação).
     if (a.tipo === 'fato' && !a.evidencias.some(id => { const e = catalogo.porId.get(id); return e && !e.aviso && !e.fonteApenas; })) { removidas.push({ id: a.id, secao: a.secao, motivo: 'fato sem evidência documental', texto: a.texto }); return; }
-    // Experiência externa (W) só sustenta afirmação na seção própria: fora dela, não é evidência do caso.
-    if (a.secao !== 'comparada' && a.evidencias.length && a.evidencias.every(id => catalogo.porId.get(id)?.tipo === 'externa')) { removidas.push({ id: a.id, secao: a.secao, motivo: 'apoiada só em experiência externa (W), fora da seção "Experiência de outros países e entes"', texto: a.texto }); return; }
+    // Evidência buscada na internet sustenta afirmação SÓ na seção que lhe
+    // corresponde: W em "comparada", J em "jurisprudencia", N em "lei", Q em
+    // "atores". Fora dela, não é evidência sobre este caso.
+    if (a.evidencias.length && a.evidencias.every(id => catalogo.porId.get(id)?.tipo === 'externa')) {
+      const secoesOk = new Set(a.evidencias.map(id => SECAO_DA_EXTERNA[catalogo.porId.get(id)?.externa]).filter(Boolean));
+      if (!secoesOk.has(a.secao)) { removidas.push({ id: a.id, secao: a.secao, motivo: `apoiada só em fonte buscada na internet, fora da seção própria (${[...secoesOk].join(', ') || 'nenhuma'})`, texto: a.texto }); return; }
+    }
     if (a.tipo === 'calculo' && !tipos.includes('dossie')) { removidas.push({ id: a.id, secao: a.secao, motivo: 'cálculo sem item do dossiê como evidência', texto: a.texto }); return; }
     // Atribuição causal POSITIVA. "O efeito da medida não é verificável" é o
     // contrário disso e não pode cair na mesma malha.
@@ -271,8 +344,67 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
 
   const fatores = (tese.fatores_concorrentes || []).filter(f => f && f.fator && (f.evidencias || []).some(existe)).map(f => ({ ...f, evidencias: f.evidencias.filter(existe) }));
 
-  const limpa = { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: fatores };
-  return { tese: limpa, removidas, rebaixadas, resumo: `${afirmacoes.length} afirmações, ${objetivos.length} objetivos, ${opcoes.length} opções; ${removidas.length} removida(s), ${rebaixadas.length} veredito(s) rebaixado(s)` };
+  // Atores: posição de alguém só existe com fonte; posição fora da lista vira "não declarada".
+  const atores = [];
+  (tese.atores || []).forEach((x, i) => {
+    x.id = x.id || `AT${i + 1}`;
+    if (!x.ator || !x.o_que_defende) { removidas.push({ id: x.id, secao: 'atores', motivo: 'ator sem nome ou sem o que defende', texto: x.ator || '' }); return; }
+    const erro = conferir(x, `${x.ator} ${x.o_que_defende}`, x.id);
+    if (erro) { removidas.push({ id: x.id, secao: 'atores', motivo: erro, texto: x.ator }); return; }
+    if (!POSICOES_ATOR.includes(String(x.posicao || '').toLowerCase().trim())) { rebaixadas.push({ id: x.id, de: x.posicao, para: 'não declarada', motivo: 'posição fora da lista' }); x.posicao = 'não declarada'; }
+    atores.push(x);
+  });
+
+  const implementacao = [];
+  (tese.implementacao || []).forEach((x, i) => {
+    x.id = x.id || `I${i + 1}`;
+    if (!x.texto) { removidas.push({ id: x.id, secao: 'implementacao', motivo: 'item sem texto', texto: x.aspecto || '' }); return; }
+    const erro = conferir(x, `${x.aspecto || ''} ${x.texto}`, x.id);
+    if (erro) { removidas.push({ id: x.id, secao: 'implementacao', motivo: erro, texto: x.texto }); return; }
+    implementacao.push(x);
+  });
+
+  // Aprimoramentos: sem dispositivo e sugestão não é aprimoramento, é opinião solta.
+  const aprimoramentos = [];
+  (tese.aprimoramentos || []).forEach((x, i) => {
+    x.id = x.id || `R${i + 1}`;
+    if (!x.dispositivo || !x.sugestao) { removidas.push({ id: x.id, secao: 'redacional', motivo: 'aprimoramento sem dispositivo ou sem sugestão acionável', texto: x.problema || '' }); return; }
+    const erro = conferir(x, `${x.dispositivo} ${x.problema || ''} ${x.sugestao}`, x.id);
+    if (erro) { removidas.push({ id: x.id, secao: 'redacional', motivo: erro, texto: x.dispositivo }); return; }
+    aprimoramentos.push(x);
+  });
+
+  // Viabilidade: só sinal objetivo — evidência do sistema (S) ou do documento (A).
+  const viabilidade = [];
+  (tese.viabilidade || []).forEach((x, i) => {
+    x.id = x.id || `V${i + 1}`;
+    if (!x.sinal) { removidas.push({ id: x.id, secao: 'viabilidade', motivo: 'sinal vazio', texto: '' }); return; }
+    const erro = conferir(x, x.sinal, x.id);
+    if (erro) { removidas.push({ id: x.id, secao: 'viabilidade', motivo: erro, texto: x.sinal }); return; }
+    if (!x.evidencias.some(id => ['situacao', 'achado'].includes(catalogo.porId.get(id)?.tipo))) { removidas.push({ id: x.id, secao: 'viabilidade', motivo: 'sinal de viabilidade sem fato da tramitação (S) nem do documento (A)', texto: x.sinal }); return; }
+    if (!PESOS_VIABILIDADE.includes(String(x.peso || '').toLowerCase().trim())) x.peso = 'neutro';
+    viabilidade.push(x);
+  });
+
+  // Conclusão: posição da assessoria, ligada às opções, com o que a mudaria.
+  let conclusao = null;
+  const c = tese.conclusao;
+  if (c && c.posicao && c.porque) {
+    c.id = c.id || 'CC';
+    // A conclusão cita OPÇÕES (unidades da tese, P1…) e evidências do catálogo.
+    // As duas coisas chegam misturadas em "evidencias": separam-se aqui.
+    const brutos = (c.evidencias || []).map(String);
+    c.opcoes = brutos.filter(id => opcoes.some(o => o.id === id));
+    c.evidencias = brutos.filter(id => !/^P\d+$/.test(id));
+    const erro = c.evidencias.length ? conferir(c, `${c.posicao} ${c.porque} ${c.o_que_mudaria || ''}`, c.id) : (c.opcoes.length ? null : 'conclusão sem evidência e sem opção citada');
+    if (erro) removidas.push({ id: c.id, secao: 'conclusao', motivo: erro, texto: c.posicao });
+    else if (!c.o_que_mudaria) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'conclusão sem "o que mudaria a posição"', texto: c.posicao });
+    else if (opcoes.length && !c.opcoes.length) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'conclusão não se liga a nenhuma das opções apresentadas', texto: c.posicao });
+    else conclusao = c;
+  } else if (c) removidas.push({ id: 'CC', secao: 'conclusao', motivo: 'conclusão sem posição ou sem motivo', texto: c.posicao || '' });
+
+  const limpa = { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: fatores, atores, implementacao, aprimoramentos, viabilidade, conclusao };
+  return { tese: limpa, removidas, rebaixadas, resumo: `${afirmacoes.length} afirmações, ${objetivos.length} objetivos, ${opcoes.length} opções, ${atores.length} atores, ${implementacao.length} itens de implementação, ${aprimoramentos.length} aprimoramentos, ${viabilidade.length} sinais de viabilidade, conclusão ${conclusao ? 'com posição' : 'ausente'}; ${removidas.length} removida(s), ${rebaixadas.length} veredito(s) rebaixado(s)` };
 }
 
 /** Todas as unidades da tese com identificador, para o contraditório e a redação. */
@@ -282,6 +414,11 @@ function unidadesDaTese(t) {
   for (const o of t.objetivos || []) u.push({ id: o.id, tipo: 'juizo', secao: 'avaliacao', texto: `Objetivo: ${o.objetivo} — veredito: ${o.veredito}. ${o.justificativa || ''}`, evidencias: o.evidencias });
   for (const k of ['apoia', 'opoe']) { const l = t.lados?.[k]; if (l) u.push({ id: l.id, tipo: 'juizo', secao: 'lados', texto: `${k === 'apoia' ? 'Quem apoia' : 'Quem se opõe'}: ${l.argumento} — o que a evidência diz: ${l.o_que_a_evidencia_diz || ''}`, evidencias: l.evidencias }); }
   for (const p of t.opcoes || []) u.push({ id: p.id, tipo: 'juizo', secao: 'opcoes', texto: `Opção: ${p.opcao}. Fiscal: ${p.fiscal || '—'}. Jurídica: ${p.juridica || '—'}. Política: ${p.politica || '—'}`, evidencias: p.evidencias });
+  for (const x of t.atores || []) u.push({ id: x.id, tipo: 'fato', secao: 'atores', texto: `${x.ator} (${x.tipo || 'não classificado'}) — posição ${x.posicao}: ${x.o_que_defende}`, evidencias: x.evidencias });
+  for (const x of t.implementacao || []) u.push({ id: x.id, tipo: 'fato', secao: 'implementacao', texto: `${x.aspecto || 'implementação'}: ${x.texto}`, evidencias: x.evidencias });
+  for (const x of t.aprimoramentos || []) u.push({ id: x.id, tipo: 'juizo', secao: 'redacional', texto: `${x.dispositivo} (${x.tipo || 'redacional'}) — problema: ${x.problema || '—'}; sugestão: ${x.sugestao}`, evidencias: x.evidencias });
+  for (const x of t.viabilidade || []) u.push({ id: x.id, tipo: 'fato', secao: 'viabilidade', texto: `Sinal (${x.peso}): ${x.sinal}`, evidencias: x.evidencias });
+  if (t.conclusao) u.push({ id: t.conclusao.id || 'CC', tipo: 'juizo', secao: 'conclusao', texto: `Posição sugerida: ${t.conclusao.posicao}. Porque: ${t.conclusao.porque}. Mudaria se: ${t.conclusao.o_que_mudaria}${(t.conclusao.opcoes || []).length ? ` (decorre da opção ${t.conclusao.opcoes.join(', ')})` : ''}`, evidencias: [...(t.conclusao.evidencias || []), ...(t.conclusao.opcoes || [])] });
   return u;
 }
 
@@ -319,7 +456,11 @@ CATÁLOGO DE EVIDÊNCIAS:
 ${catalogo.texto}
 
 Responda SOMENTE com JSON: [ { "id": "T3", "refutada": true, "motivo": "uma ou duas frases", "evidencias_contrarias": ["D4"] } ]
-Inclua TODAS as unidades (T, O, L, P), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
+REFUTE TAMBÉM, com o mesmo rigor: ator (AT) cuja posição a fonte não sustenta; item de implementação (I) que afirme
+estrutura, prazo ou custo que nenhuma evidência mostra; aprimoramento (R) que invente vício, contrarie o texto ou proponha
+o que a lei já diz; sinal de viabilidade (V) que seja aposta e não fato da tramitação; e a CONCLUSÃO (CC) quando a posição
+não decorrer das opções e das evidências, quando ignorar evidência contrária relevante ou quando "o que mudaria" for vazio.
+Inclua TODAS as unidades (T, O, L, P, AT, I, R, V, CC), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
 em palavras comuns ("os dados cobrem só 3 meses depois da mudança, e maio é parcial"), sem "nível de evidência" nem jargão.`;
 }
 
@@ -357,7 +498,22 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
   for (const k of ['apoia', 'opoe']) { const l = t.lados?.[k]; if (!l) continue; const r = ref(l.id); if (r) { contestadas.push({ id: l.id, motivo: r.motivo, texto: l.argumento }); l.contestado = r.motivo; } lados[k] = l; }
   const opcoes = [];
   for (const p of t.opcoes || []) { const r = ref(p.id); if (r) { refutadas.push({ id: p.id, tipo: 'opcao', motivo: r.motivo, texto: p.opcao }); continue; } opcoes.push(p); }
-  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [] }, refutadas, contestadas, ressalvas,
+  // Ator, implementação e viabilidade são FATO: caem só com erro concreto ou evidência contrária.
+  const filtraFato = (lista, secao, rotulo) => (lista || []).filter(x => {
+    const r = ref(x.id); if (!r) return true;
+    if (RE_ERRO_CONCRETO.test(r.motivo || '') || temContraria(r)) { refutadas.push({ id: x.id, tipo: secao, motivo: r.motivo, texto: rotulo(x) }); return false; }
+    ressalvas.push({ id: x.id, motivo: r.motivo }); return true;
+  });
+  const atores = filtraFato(t.atores, 'ator', x => x.ator);
+  const implementacao = filtraFato(t.implementacao, 'implementacao', x => x.texto);
+  const viabilidade = filtraFato(t.viabilidade, 'viabilidade', x => x.sinal);
+  // Aprimoramento é juízo: refutado, sai (sugestão errada no parecer é pior que sugestão a menos).
+  const aprimoramentos = [];
+  for (const x of t.aprimoramentos || []) { const r = ref(x.id); if (r) { refutadas.push({ id: x.id, tipo: 'aprimoramento', motivo: r.motivo, texto: x.dispositivo }); continue; } aprimoramentos.push(x); }
+  // Conclusão refutada: a posição NÃO é impressa; fica o motivo e a decisão com a Liderança.
+  let conclusao = t.conclusao || null;
+  if (conclusao) { const r = ref(conclusao.id || 'CC'); if (r) { contestadas.push({ id: conclusao.id || 'CC', motivo: r.motivo, texto: conclusao.posicao }); conclusao = { ...conclusao, contestada: r.motivo, posicao: null }; } }
+  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [], atores, implementacao, aprimoramentos, viabilidade, conclusao }, refutadas, contestadas, ressalvas,
     resumo: `${refutadas.length} unidade(s) refutada(s) e removida(s); ${contestadas.length} juízo(s) contestado(s) e rebaixado(s)${ressalvas.length ? `; ${ressalvas.length} ressalva(s) mantida(s) com o dado` : ''}` };
 }
 
@@ -367,7 +523,9 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
 
 function promptRedacao({ identificacao, textoAnalisado, situacao, ficha, tese, catalogo, lentes = [], catalogoLentes = [], nivel, temSerie, correcoes = null, emVigor = true, temComparada = false }) {
   const lentesTxt = lentes.map(l => { const e = catalogoLentes.find(x => x.chave === l.chave); return e ? `  ${e.ordem}. ${e.rotulo}` : ''; }).filter(Boolean).join('\n');
-  const secoes = Object.entries(TITULOS).filter(([k]) => (k !== 'aconteceu' || temSerie) && (k !== 'comparada' || temComparada)).map(([, v]) => `  ${v}`).join('\n');
+  const ativas = secoesAtivas(tese, { temSerie });
+  const tem = k => ativas.includes(k);
+  const secoes = ativas.map(k => `  ${TITULOS[k]}`).join('\n');
   const fraseNivel = nivel === 'A' ? 'há dados oficiais com pelo menos 12 meses antes e 12 meses depois da mudança: a comparação é sólida, embora não prove causa'
     : nivel === 'B' ? 'há dados oficiais, mas com poucos meses depois da mudança ou um mês incompleto: os números indicam uma direção, mas não permitem concluir'
     : emVigor ? 'não há dados oficiais que permitam comparar o antes e o depois da mudança: o efeito não é verificável com o que existe'
@@ -436,15 +594,37 @@ ${emVigor ? `- Avaliação da política: um parágrafo por objetivo, em prosa, c
 - Os dois lados: o argumento de cada lado pode ser relatado como posição dele ("quem apoia sustenta que…"); a frase "o que
   a evidência diz" nunca atribui causa.
 - Os dois lados: o melhor de cada um e o que a evidência diz sobre cada um.
-- Opções e consequências: uma por parágrafo, com as três consequências; sem recomendar voto.
+- Opções e consequências: uma por parágrafo, com as três consequências; sem recomendar voto — a recomendação é da conclusão.
 - Respostas por lente: prosa técnica com o dispositivo citado; sem enumerar linha a linha.
+${tem('jurisprudencia') ? `- Jurisprudência sobre normas análogas: um parágrafo por julgado — tribunal, classe e número, o que se decidiu e o que
+  isso significa para esta proposição. Julgado sobre lei estadual análoga é sinal, não decisão sobre este texto: diga a
+  diferença. Fonte nomeada no texto.` : ''}
+${tem('atores') ? `- Quem se posicionou e como: um parágrafo por ator (governo, entidades de classe, setor regulado, sociedade civil,
+  parlamentares, órgãos de controle), com a posição e o que defende, sempre atribuído ("a CNTE sustenta que…"). Quem não se
+  manifestou publicamente não aparece. Feche com uma frase dizendo quem NÃO se manifestou entre os diretamente afetados.` : ''}
+${tem('implementacao') ? `- Implementação e custo de conformidade: um parágrafo por aspecto — quem executa, o que ainda depende de regulamento,
+  prazos, estrutura necessária, custo de conformidade e sobre quem recai, fiscalização. Diga o que o texto NÃO resolve.` : ''}
+${tem('redacional') ? `- Aprimoramentos e sugestões de emenda: um parágrafo por ponto, sempre nesta ordem — o dispositivo, o problema concreto,
+  a sugestão acionável (a redação alternativa ou a emenda a apresentar). Texto corrido, sem lista.` : ''}
+${tem('viabilidade') ? `- Prioridade e viabilidade: os sinais objetivos da tramitação e do calendário (urgência, relator, comissões, pauta,
+  prazo), o que cada um indica, e um parágrafo final de balanço. Não estime votos nem afirme apoio que a evidência não traz.` : ''}
+- Conclusão e posicionamento sugerido: dois a quatro parágrafos. O primeiro traz a POSIÇÃO SUGERIDA em uma frase, com o
+  verbo no início ("Sugere-se aprovar o substitutivo com as emendas…"), EXATAMENTE como está na tese. Depois, o porquê
+  ligado às evidências e, no último parágrafo, o que faria a assessoria mudar de posição. Esta é a ÚNICA seção em que o
+  parecer recomenda; escreva-a como juízo da assessoria. Se a tese não trouxer conclusão, escreva só: "A assessoria não
+  sustentou posição nesta matéria: a conferência automática não a manteve.".
 - Português formal, parágrafos corridos, texto puro: sem negrito, itálico, listas, tabelas ou cercas de código. Não escreva
   cabeçalho, título, destinatário, data, ressalvas ou lista de fontes: o formato de impressão já traz.`;
 }
 
-const RE_MARCADOR = /\[(T|O|L|P|A|D|LV|F)\d+\](?:\[(?:T|O|L|P|A|D|LV|F)\d+\])*/g;
-const RE_ID = /\b(T|O|L|P|A|D|LV|F)(\d+)\b/g;
-const SECOES_COM_JUIZO = ['Síntese', 'Avaliação da política', 'Os dois lados', 'Opções e consequências'];
+// Prefixos de identificador: unidades da tese (T O L P AT I R V CC) e evidências
+// (A D LV F S W J N Q). Os mais longos vêm primeiro, senão "AT1" casaria como "A".
+const PREFIXOS_ID = 'CC|AT|LV|T|O|L|P|A|D|F|S|I|R|V|W|J|N|Q';
+const RE_MARCADOR = new RegExp(`\\[(?:${PREFIXOS_ID})\\d*\\](?:\\[(?:${PREFIXOS_ID})\\d*\\])*`, 'g');
+// Só entre colchetes: "V1" ou "N1" soltos no texto não são citação.
+const RE_ID = new RegExp(`\\[(${PREFIXOS_ID})(\\d*)\\]`, 'g');
+const SECOES_COM_JUIZO = ['Síntese', 'Avaliação da política', 'Os dois lados', 'Opções e consequências',
+  'Aprimoramentos e sugestões de emenda', 'Prioridade e viabilidade', 'Conclusão e posicionamento sugerido'];
 const REF_NORMATIVA_RE = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|inciso|par[áa]grafo|al[íi]nea|n[.º°]?)\s*(n?[.º°]?\s*)?$/i;
 
 /** Divide o texto nas seções fixas (título em linha própria). */
@@ -467,6 +647,7 @@ function conferirRedacao(texto, { tese, catalogo, ficha }) {
   const idsExistentes = id => idsTese.has(id) || catalogo.porId.has(id);
   const idsInexistentes = [];
   for (const m of t.matchAll(RE_ID)) { const id = m[1] + m[2]; if (!idsExistentes(id)) idsInexistentes.push(id); }
+  RE_ID.lastIndex = 0;
   const secoes = secoesDoTexto(t);
   const semEvidencia = [];
   const RE_VAZIA = /nenhuma unidade da tese sobreviveu/i;
@@ -491,9 +672,9 @@ function conferirRedacao(texto, { tese, catalogo, ficha }) {
   return { ok, idsInexistentes: [...new Set(idsInexistentes)], semEvidencia, numerosSuspeitos, cifrasPorExtenso: extenso, secoes: Object.keys(secoes) };
 }
 
-function limparMarcadores(texto) { return String(texto || '').replace(/\s*\[(?:T|O|L|P|A|D|LV|F)\d+\]/g, ''); }
+function limparMarcadores(texto) { return String(texto || '').replace(new RegExp(`\\s*\\[(?:${PREFIXOS_ID})\\d*\\]`, 'g'), ''); }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SECOES_TESE, TITULOS, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese,
+  module.exports = { SECOES_TESE, TITULOS, SECOES_CONDICIONAIS, secoesAtivas, POSICOES_ATOR, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese,
     promptContraditorio, aplicarContraditorio, promptRedacao, secoesDoTexto, conferirRedacao, limparMarcadores, RE_MARCADOR, numsRelevantes };
 }
