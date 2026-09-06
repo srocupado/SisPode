@@ -40,6 +40,12 @@ const numsRelevantes = s => (_numerosDoTexto(s) || []).filter(numeroRelevante);
 // Nem número de norma ou de artigo: "art. 62 da CF" numa opção foi removido
 // como "número fora das evidências" na rodada real. A pista é a palavra anterior.
 const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
+/** Trecho em volta do número, para o motivo da remoção dizer ONDE ele estava. */
+function contextoDoNumero(texto, n) {
+  const t = String(texto || ''); const re = /\d[\d.]*(?:,\d+)?/g; let m;
+  while ((m = re.exec(t)) !== null) { if (Math.abs(Number(m[0].replace(/\./g, '').replace(',', '.'))) === n) return t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 25).replace(/\s+/g, ' ').trim(); }
+  return '';
+}
 function numerosCifra(texto) {
   const t = String(texto || ''); const out = []; const re = /\d[\d.]*(?:,\d+)?/g; let m;
   while ((m = re.exec(t)) !== null) {
@@ -171,7 +177,7 @@ function validarTese(tese, catalogo, { nivel = 'C' } = {}) {
       if (acrescidas.length) { obj.evidencias = ids; obj.evidenciasAcrescidas = acrescidas; for (const id of acrescidas) for (const n of (catalogo.porId.get(id)?.numeros || [])) permitidos.add(n); }
       fora = fora.filter(n => !permitidos.has(n));
     }
-    if (fora.length) return `número fora das evidências citadas: ${fora.join(', ')}`;
+    if (fora.length) return `número fora das evidências citadas: ${fora.map(n => `${n} («${contextoDoNumero(texto, n)}»)`).join(', ')}`;
     return null;
   };
 
