@@ -162,6 +162,7 @@ const achadosX = [
   const semRegra = F.montarFicha({ achados: achadosX.filter(a => a.pergunta !== 'regra_antes'), leiVigente: [], marco: ficha.dataEfeito });
   ok(G.aplicarGates({ ficha: semRegra, dossie, tese: teseFinal, texto: bom, nivel: 'B' }).faixas.some(f => /INCOMPLETO/.test(f)), 'G1 imprime a faixa de incompletude quando a regra vigente não foi obtida');
   ok(G.causaisNaoAtribuidas('Quem apoia argumenta que a medida aumentou a formalização [L1].').length === 0 && G.causaisNaoAtribuidas('A medida aumentou a formalização [T1].').length === 1, 'causalidade relatada como posição de um lado não conta; causalidade própria conta (M11)');
+  ok(G.causaisNaoAtribuidas('O cenário normativo consolidado desde então resultou em uma lacuna legislativa [T3].').length === 0 && G.causaisNaoAtribuidas('A medida resultou em queda de 30% na arrecadação [T3].').length === 1, '"resultou em" só é causa quando o sujeito é a matéria analisada (rodada r10)');
   ok(G.causaisNaoAtribuidas('A data de efeito da medida é 12/05/2026 [T1].').length === 0 && G.causaisNaoAtribuidas('O efeito da medida foi a queda do imposto [T1].').length === 1, '"data de efeito da medida" não é causa; "o efeito da medida foi a queda" é');
   const rub = G.rubricaMaquina({ texto: g.texto, ficha, tese: teseFinal, dossie, nivel: 'B', conferencia: conf, gates: g, temSerie: true });
   ok(rub.aprovado, 'rubrica aprova o parecer bom: ' + rub.pendentes.map(p => p.item).join('; '));
