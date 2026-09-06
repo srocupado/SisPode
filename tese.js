@@ -403,6 +403,9 @@ COMO ESCREVER
   unidade da tese sobreviveu à conferência nesta seção." — nada mais, nada inventado.
 - Não repita em "Respostas por lente" o que já foi dito nas seções anteriores com outro identificador; cada ideia uma vez.
 - Números SÓ os da tese, da ficha e dos achados; cifras em algarismos (R$ 3,50 bilhões; 20%), nunca por extenso.
+- JURÍDICO: o parecer NÃO decreta inconstitucionalidade, vício de iniciativa ou usurpação de competência. Escreva "o ponto
+  merece exame quanto à compatibilidade com o art. X da Constituição" e explique por quê. "Inconstitucional" só ao citar
+  precedente com classe e número (ADI, RE, Súmula) ou ao relatar decisão já tomada ("o STF declarou…").
 - EXTENSÃO: documento DETALHADO, entre 2.500 e 4.500 palavras. Cada afirmação da tese vira um parágrafo desenvolvido:
   o fato ou o número, o que ele significa para o leitor e a que se liga. Não resuma a tese; desdobre-a.
 - Síntese: quatro a seis parágrafos, cada um começando pela conclusão e desenvolvendo-a; o primeiro enuncia a regra que
