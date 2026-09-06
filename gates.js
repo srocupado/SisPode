@@ -18,6 +18,8 @@ const _objetoEnunciado = __fichaMod ? __fichaMod.objetoEnunciado : (typeof objet
 const __teseMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./tese.js') : null;
 const _secoesDoTexto = __teseMod ? __teseMod.secoesDoTexto : (typeof secoesDoTexto === 'function' ? secoesDoTexto : null);
 const _TITULOS = __teseMod ? __teseMod.TITULOS : (typeof TITULOS !== 'undefined' ? TITULOS : null);
+const __dossieMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./dossie.js') : null;
+const _NIVEL_EVIDENCIA = __dossieMod ? __dossieMod.NIVEL_EVIDENCIA : (typeof NIVEL_EVIDENCIA !== 'undefined' ? NIVEL_EVIDENCIA : null);
 
 const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|mil|quinhentos)\s+(?:e\s+\w+\s+)?(bilh|milh)/gi;
 // "A data de efeito da medida é 12/05/2026" não é causa; "o efeito da medida foi a queda" é.
@@ -25,6 +27,9 @@ const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a
 const RE_VOTO = /\b(recomend\w+ (o |a )?(voto|aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?)\s*n?[.º°]?\s*\d/i;
 const RE_ASSERCAO = /inconstitucional|v[íi]cio\s+de\s+(iniciativa|compet[êe]ncia|forma)|usurpa[çc][ãa]o\s+de\s+compet[êe]ncia/i;
+// "declarou a inconstitucionalidade", "declaradas inconstitucionais pelo STF", "julgada inconstitucional na ADI":
+// relato de decisão já tomada, não afirmação do parecer. Sai do parágrafo antes do teste do M7.
+const RE_INCONST_RELATADA = /(?:declara(?:ção|ções|ram|ou|d[ao]s?)|julg(?:ou|ad[ao]s?)|reconhec(?:eu|id[ao]s?)|pronunci(?:ou|ad[ao]s?))\s+(?:formalmente\s+|expressamente\s+)?(?:a\s+|d[ae]\s+)?inconstitucional(?:idade)?|inconstitucional(?:idade)?\s+(?:das?|dos?|de)\s+[^.]{0,80}?(?:pelo|no)\s+(?:STF|Supremo)/gi;
 const RE_NEGACAO = /n[ãa]o\s+(se\s+)?(identifi|verifi|vislumbr|constat|h[áa]\b|se\s+afigura|parece)/i;
 
 const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|sustenta|alega|afirma|defende|aponta|segundo (o|a|os|as) )[^.]{0,120}$/i;
@@ -66,6 +71,18 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
     const sint = (secoes['Síntese'] || []).join('\n');
     const r = _objetoEnunciado(sint, ficha, 2);
     if (!r.ok) reprovacoes.push({ gate: 'G2', detalhe: `A síntese não enuncia a regra em algarismos: exigidos ${r.exigidos} valores da ficha, presentes ${r.presentes.length} (${r.presentes.join(', ') || 'nenhum'}); faltam ${r.faltantes.join(', ')}.` });
+  }
+
+  // G8 — o nível de evidência tem de estar declarado no texto, em palavras.
+  // O modelo o omite quando a afirmação que o carregava caiu na validação
+  // (rodada real do PL 1893/2026). O programa insere a frase na abertura de
+  // "Avaliação da política" e registra a inserção.
+  if (!new RegExp(`n[íi]vel de evid[êe]ncia\\s*:?\\s*${nivel}\\b`, 'i').test(t)) {
+    const x = (_NIVEL_EVIDENCIA || {})[nivel] || { rotulo: 'não comparável', explicacao: 'não há série oficial que cubra antes e depois da mudança; o efeito não é verificável com o que existe' };
+    const frase = `A solidez da comparação nesta seção é de nível de evidência ${nivel}, ${x.rotulo}: ${x.explicacao}.`;
+    const tituloAval = (_TITULOS && _TITULOS.avaliacao) || 'Avaliação da política';
+    const re = new RegExp(`((?:^|\\n)\\s*${tituloAval}\\s*:?\\s*\\n+)`, 'i');
+    if (re.test(t)) { t = t.replace(re, `$1${frase}\n\n`); notas.push(`A frase sobre o nível de evidência (${nivel}) foi inserida pelo programa na abertura de "${tituloAval}": o modelo a omitiu na redação.`); rebaixamentos.push({ gate: 'G8', detalhe: `Nível de evidência ${nivel} declarado pelo programa.` }); }
   }
 
   // G3 — veredito acima do nível (no texto final, por seção de avaliação)
@@ -121,7 +138,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   add(!faltantes.length && emOrdem, 'M5 Seções fixas presentes e na ordem', faltantes.length ? `faltam: ${faltantes.join('; ')}` : 'fora de ordem');
   add(!temSerie || !!(dossie?.prc?.janelas?.antes || Object.values(dossie?.janelas || {}).some(j => j.antes && j.depois)), 'M6 Tabelas de dados presentes quando há série');
   const paragrafos = t.split(/\n{2,}/);
-  const semCit = paragrafos.filter(p => RE_ASSERCAO.test(p) && !RE_NEGACAO.test(p) && !RE_CITACAO.test(p));
+  const semCit = paragrafos.filter(p => { const proprio = p.replace(RE_INCONST_RELATADA, ''); return RE_ASSERCAO.test(proprio) && !RE_NEGACAO.test(proprio) && !RE_CITACAO.test(p); });
   add(!semCit.length, 'M7 Nenhuma afirmação de inconstitucionalidade sem precedente citado', semCit.length ? `"${semCit[0].slice(0, 100)}…"` : null);
   add(!(t.match(RE_EXTENSO) || []).length, 'M8 Nenhuma cifra por extenso');
   add(!ficha || !ficha.faltas.includes('regra vigente') || (gates?.faixas || []).some(f => /INCOMPLETO/.test(f)), 'M9 Faixa de incompletude impressa quando falta insumo essencial');

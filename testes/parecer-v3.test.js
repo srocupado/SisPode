@@ -164,6 +164,21 @@ const achadosX = [
   ok(!rubV3.aprovado && rubV3.pendentes.some(p => /M3/.test(p.item)) && rubV3.pendentes.some(p => /M4/.test(p.item)), 'a rubrica reprova o parecer real v2 rejeitado (M3 sem evidência; M4 "atingido" com nível B): ' + rubV3.pendentes.map(p => p.item.slice(0, 3)).join(','));
   ok(G.aplicarGates({ ficha, dossie, tese: teseFinal, texto: v3, nivel: 'B' }).reprovacoes.some(r => r.gate === 'G2'), 'e o G2 reprova o parecer real v2 por não enunciar 20%/60%/US$ 50');
 
+  console.log('== M7 relato de decisão × afirmação própria; G8 nível declarado pelo programa ==');
+  {
+    const relato = 'Síntese\n\nx [T1].\n\nAvaliação da política\n\nO quadro foi agravado após a declaração de inconstitucionalidade das alíneas d e e do art. 240 pelo Supremo Tribunal Federal, que as declarou formalmente inconstitucionais [T1].\n\nOs dois lados\n\ny [L1].';
+    const proprio = relato.replace('O quadro foi agravado após a declaração de inconstitucionalidade das alíneas d e e do art. 240 pelo Supremo Tribunal Federal, que as declarou formalmente inconstitucionais [T1].', 'O art. 5º do substitutivo é inconstitucional por vício de iniciativa [T1].');
+    const base = { ficha, dossie: { avisos: [] }, tese: { afirmacoes: [] }, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] } };
+    const gR = G.aplicarGates({ ...base, texto: relato });
+    const rR = G.rubricaMaquina({ ...base, texto: gR.texto, gates: gR });
+    const gP = G.aplicarGates({ ...base, texto: proprio });
+    const rP = G.rubricaMaquina({ ...base, texto: gP.texto, gates: gP });
+    ok(rR.itens.find(i => /^M7/.test(i.item)).ok && !rP.itens.find(i => /^M7/.test(i.item)).ok, 'M7 aceita o relato da decisão do STF e reprova a inconstitucionalidade afirmada pelo parecer sem precedente');
+    ok(/nível de evidência C, não comparável: não há série oficial/.test(gR.texto) && gR.notas.some(n => /inserida pelo programa/.test(n)) && rR.itens.find(i => /^M10/.test(i.item)).ok, 'G8: sem a frase do nível, o programa a insere na abertura da Avaliação e a rubrica M10 passa');
+    const jaTem = G.aplicarGates({ ...base, texto: relato.replace('Avaliação da política\n\n', 'Avaliação da política\n\nA comparação tem nível de evidência C [T1].\n\n') });
+    ok(!jaTem.notas.some(n => /inserida pelo programa/.test(n)), 'com a frase presente, nada é inserido');
+  }
+
   console.log('== conferência de trecho com quebra de página ==');
   {
     const doc = 'x'.repeat(600) + ' Apoiamos, dessa forma, o conteúdo da Emenda nº 3 – PLEN, do Senador Mecias de Jesus. Por ser incompatível [p12] 12 SF/24692.28045-78 com essa supressão, rejeitamos as Emendas nº 4 e 11 – PLEN, que propõem a tributação com alíquotas diferenciadas.';
