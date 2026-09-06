@@ -161,6 +161,26 @@ function urlPlanalto({ tipo, numero, ano }) {
  * objeto do parecer na rodada real da MPV 1357/2026.
  */
 const URN_TIPO = { lei: 'lei', lcp: 'lei.complementar', del: 'decreto.lei', mpv: 'medida.provisoria' };
+// Portal da Legislação da Câmara (LEGIN): a busca é servida pronta (sem JS) e
+// traz o link "…-<id>-norma-pl.html"; trocando "norma" por "normaatualizada"
+// vem o texto compilado, com "(Revogada pela Lei nº …)" e "Redação dada pela…"
+// no lugar certo. Estável quando o Planalto não responde. MP não tem versão
+// atualizada (não é alterada), então o LEGIN só entra para lei, LC e decreto-lei.
+const LEGIN_PASTA = { lei: 'lei', lcp: 'leicom', del: 'declei' };
+const LEGIN_TIPO_BUSCA = { lei: 'lei', lcp: 'lei-complementar', del: 'decreto-lei' };
+async function urlLegin(n, fetchFn) {
+  const pasta = LEGIN_PASTA[n.tipo];
+  if (!pasta) return null;
+  const num = String(n.numero).replace(/\./g, '');
+  const r = await fetchFn(`https://www.camara.leg.br/legislacao/busca?geral=&tipoNorma=${LEGIN_TIPO_BUSCA[n.tipo]}&numero=${num}&ano=${n.ano}`);
+  if (!r.ok) throw new Error(`busca HTTP ${r.status}`);
+  const html = await r.text();
+  // A busca não filtra pelo tipo com rigor (LC 101 devolve também decreto 101): o caminho decide.
+  const re = new RegExp(`https://www2\\.camara\\.leg\\.br/legin/fed/${pasta}/[^"]*?-${num}-[^"]*?-\\d+-norma-p[el]\\.html`, 'i');
+  const m = re.exec(html);
+  if (!m) throw new Error('norma não localizada na busca');
+  return m[0].replace(/-norma-(p[el])\.html$/, '-normaatualizada-$1.html');
+}
 async function buscarTextoNorma(n, fetchFn) {
   const tentativas = [];
   const lerHtml = async (url, latin1) => {
@@ -174,6 +194,14 @@ async function buscarTextoNorma(n, fetchFn) {
     if (texto.length < 500) throw new Error('página sem texto');
     return { html, texto };
   };
+  // 0. Câmara (LEGIN), texto atualizado
+  if (LEGIN_PASTA[n.tipo]) {
+    try {
+      const urlC = await urlLegin(n, fetchFn);
+      const { texto } = await lerHtml(urlC, false);
+      return { texto, url: urlC, origem: 'camara', compilado: true, tentativas };
+    } catch (e) { tentativas.push(`Câmara/LEGIN: ${e.message}`); }
+  }
   // 1. Planalto, duas tentativas
   const urlP = urlPlanalto(n);
   if (urlP) {
@@ -828,7 +856,7 @@ function itensDoDossie(d) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
-    SECOES_PARECER, localizarEstimativas, identificarMarco, marcoPelaNorma, normasCitadas, urlPlanalto, textoDoHtml, extrairArtigo,
+    SECOES_PARECER, localizarEstimativas, identificarMarco, marcoPelaNorma, normasCitadas, urlPlanalto, urlLegin, buscarTextoNorma, textoDoHtml, extrairArtigo,
     identificarRubricas, RUBRICAS_RFB, serieDaPlanilhaRFB, serieBCB, indiceAcumulado, fatorDeflator, janelas,
     lerRelatorioPRC, linksRelatoriosPRC, agregarPRC, GATILHO_PRC, montarDossie, textoDoDossie, numerosDoDossie,
     resumoDoDossie, tabelasDoDossie, CSS_TABELAS_DOSSIE, buscarTextoNorma, itensDoDossie, numerosDoTexto, fmt, NIVEL_EVIDENCIA, descreverNivel,

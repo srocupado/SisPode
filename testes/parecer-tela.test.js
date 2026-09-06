@@ -66,7 +66,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     }
     const semPermissao = [...hosts].filter(h => !permitidos.includes(h));
     ok(!semPermissao.length, semPermissao.length ? `hosts consultados sem permissão no manifesto: ${semPermissao.join(', ')}` : `os ${hosts.size} hosts consultados estão no manifesto`);
-    ok(permitidos.includes('https://www.lexml.gov.br') && permitidos.includes('https://legis.senado.leg.br') && permitidos.includes('https://www.planalto.gov.br'), 'a cascata da lei vigente (Planalto → LexML → Senado) tem os três hosts');
+    ok(permitidos.includes('https://www2.camara.leg.br') && permitidos.includes('https://www.lexml.gov.br') && permitidos.includes('https://legis.senado.leg.br') && permitidos.includes('https://www.planalto.gov.br'), 'a cascata da lei vigente (LEGIN → Planalto → LexML → Senado) tem os quatro hosts');
   }
 
   console.log('\n== a chamada do parecer liga o raciocínio alto e 32 mil tokens de saída ==');

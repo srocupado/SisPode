@@ -96,7 +96,9 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
     if (trechoLei) break;
   }
   if (trechoLei) {
-    ficha.regraVigente = { texto: trechoLei.texto.slice(0, 1400), origem: leiOrigem.compilado ? 'planalto' : 'senado', fonte: `${trechoLei.norma}, ${trechoLei.artigo} (${leiOrigem.compilado ? 'texto compilado, Planalto' : 'texto publicado, Senado via LexML'})`, url: leiOrigem.url };
+    const origem = leiOrigem.origem === 'camara' ? 'camara' : leiOrigem.compilado ? 'planalto' : 'senado';
+    const rotuloFonte = { camara: 'texto atualizado, Portal da Legislação da Câmara', planalto: 'texto compilado, Planalto', senado: 'texto publicado, Senado via LexML' }[origem];
+    ficha.regraVigente = { texto: trechoLei.texto.slice(0, 1400), origem, fonte: `${trechoLei.norma}, ${trechoLei.artigo} (${rotuloFonte})`, url: leiOrigem.url };
   } else if (aAntes) {
     ficha.regraVigente = { texto: aAntes.achado, trecho: aAntes.trecho || null, origem: 'documento', fonte: 'transcrição no documento analisado (trecho conferido)', url: null };
   } else if (fonte) {
