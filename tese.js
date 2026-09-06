@@ -22,7 +22,7 @@
 const __dossie = (typeof module !== 'undefined' && typeof require === 'function') ? require('./dossie.js') : null;
 const _numerosDoTexto = __dossie ? __dossie.numerosDoTexto : (typeof numerosDoTexto === 'function' ? numerosDoTexto : null);
 const _itensDoDossie = __dossie ? __dossie.itensDoDossie : (typeof itensDoDossie === 'function' ? itensDoDossie : null);
-const __ficha = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha.js') : null;
+const __ficha = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha-objeto.js') : null;
 const _fichaParaTexto = __ficha ? __ficha.fichaParaTexto : (typeof fichaParaTexto === 'function' ? fichaParaTexto : null);
 
 const SECOES_TESE = ['sintese', 'contexto', 'lei', 'jurisprudencia', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'atores', 'implementacao', 'lados', 'opcoes', 'redacional', 'viabilidade'];

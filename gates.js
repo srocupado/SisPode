@@ -13,7 +13,7 @@
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
-const __fichaMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha.js') : null;
+const __fichaMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha-objeto.js') : null;
 const _objetoEnunciado = __fichaMod ? __fichaMod.objetoEnunciado : (typeof objetoEnunciado === 'function' ? objetoEnunciado : null);
 const __teseMod = (typeof module !== 'undefined' && typeof require === 'function') ? require('./tese.js') : null;
 const _secoesDoTexto = __teseMod ? __teseMod.secoesDoTexto : (typeof secoesDoTexto === 'function' ? secoesDoTexto : null);
