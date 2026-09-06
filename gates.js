@@ -25,11 +25,11 @@ const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nov
 // "A data de efeito da medida é 12/05/2026" não é causa; "o efeito da medida foi a queda" é.
 const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
 const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|(?:deve|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
-const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?)\s*n?[.º°]?\s*\d/i;
+const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?|A[çc][ãa]o Direta de (?:In)?constitucionalidade|Argui[çc][ãa]o de Descumprimento[^\d]{0,40}|Mandado de Injun[çc][ãa]o)\s*n?[.º°]?\s*\d/i;
 const RE_ASSERCAO = /inconstitucional|v[íi]cio\s+de\s+(iniciativa|compet[êe]ncia|forma)|usurpa[çc][ãa]o\s+de\s+compet[êe]ncia/i;
 // "declarou a inconstitucionalidade", "declaradas inconstitucionais pelo STF", "julgada inconstitucional na ADI":
 // relato de decisão já tomada, não afirmação do parecer. Sai do parágrafo antes do teste do M7.
-const RE_INCONST_RELATADA = /(?:declara(?:ção|ções|ram|ou|d[ao]s?)|julg(?:ou|ad[ao]s?)|reconhec(?:eu|id[ao]s?)|pronunci(?:ou|ad[ao]s?))\s+(?:formalmente\s+|expressamente\s+)?(?:a\s+|d[ae]\s+)?inconstitucional(?:idade)?|inconstitucional(?:idade)?\s+(?:das?|dos?|de)\s+[^.]{0,80}?(?:pelo|no)\s+(?:STF|Supremo)/gi;
+const RE_INCONST_RELATADA = /(?:declara(?:r|ção|ções|ram|ou|d[ao]s?)|julg(?:ar|ou|ad[ao]s?)|reconhec(?:er|eu|id[ao]s?)|pronunci(?:ar|ou|ad[ao]s?))\s+(?:formalmente\s+|expressamente\s+)?(?:a\s+|d[ae]\s+)?inconstitucional(?:idade)?|inconstitucional(?:idade)?\s+(?:das?|dos?|de)\s+[^.]{0,80}?(?:pelo|no)\s+(?:STF|Supremo)|(?:STF|Supremo Tribunal Federal|Supremo)[^.]{0,80}?inconstitucional(?:idade)?|A[çc][ãa]o Direta de Inconstitucionalidade/gi;
 const RE_NEGACAO = /n[ãa]o\s+(se\s+)?(identifi|verifi|vislumbr|constat|h[áa]\b|se\s+afigura|parece)/i;
 
 const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|sustenta|alega|afirma|defende|aponta|segundo (o|a|os|as) )[^.]{0,120}$/i;
@@ -40,6 +40,10 @@ function votosNaoAtribuidos(texto) {
   const t = String(texto || ''); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
   while ((m = re.exec(t)) !== null) { const antes = t.slice(Math.max(0, m.index - 160), m.index); if (!RE_QUEM_VOTA.test(antes) && !RE_ATRIBUICAO.test(antes)) out.push(t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30).replace(/\s+/g, ' ')); }
   return out;
+}
+/** Parágrafos em que o PARECER afirma inconstitucionalidade (não relata decisão) sem citar precedente. */
+function assercoesSemPrecedente(texto) {
+  return String(texto || '').split(/\n{2,}/).filter(p => { const proprio = p.replace(RE_INCONST_RELATADA, ''); return RE_ASSERCAO.test(proprio) && !RE_NEGACAO.test(proprio) && !RE_CITACAO.test(p); });
 }
 /** Frases causais que o PARECER assume — exclui as relatadas como posição de um lado. */
 function causaisNaoAtribuidas(texto) {
@@ -112,6 +116,16 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
     if (re.test(t)) { t = t.replace(re, `$1${frase}\n\n`); notas.push(`A frase sobre a solidez da comparação foi inserida pelo programa na abertura de "${tituloAval}": o modelo a omitiu na redação.`); rebaixamentos.push({ gate: 'G8', detalhe: 'Solidez da comparação declarada pelo programa, em palavras.' }); }
   }
 
+  // G9 — inconstitucionalidade afirmada pelo parecer sem precedente: a redação
+  // é refeita com a instrução (o modelo decreta "vulnerabilidade de
+  // inconstitucionalidade material" onde o parecer só pode apontar o exame).
+  for (const par of assercoesSemPrecedente(t).slice(0, 3)) {
+    reprovacoes.push({ gate: 'G9', detalhe: `O parecer AFIRMA inconstitucionalidade sem precedente citado: "${par.replace(/\s+/g, ' ').slice(0, 160)}…". Reescreva o parágrafo sem decretar inconstitucionalidade ou vício: aponte o dispositivo constitucional e diga que o ponto "merece exame quanto à compatibilidade com o art. X"; só use "inconstitucional" citando precedente com classe e número (ADI, RE, Súmula) ou relatando decisão já tomada.` });
+  }
+  // G10 — recomendação de voto ou causa atribuída pelo próprio parecer: idem.
+  for (const v of votosNaoAtribuidos(t).slice(0, 2)) reprovacoes.push({ gate: 'G10', detalhe: `Recomendação de voto do próprio parecer: "${v}". O parecer não recomenda voto: apresente a opção e as consequências; a decisão é da Liderança.` });
+  for (const c of causaisNaoAtribuidas(t).slice(0, 2)) reprovacoes.push({ gate: 'G10', detalhe: `Causa atribuída pelo próprio parecer: "${c}". Não afirme que a medida causou o resultado: diga o que a série mostra e liste os fatores concorrentes; causa só como posição relatada de um lado.` });
+
   // G3 — veredito acima do nível (no texto final, por seção de avaliação)
   const aval = secoes['Avaliação da política'] || [];
   if (aval.length && nivel !== 'A') {
@@ -178,7 +192,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   add(!faltantes.length && emOrdem, 'M5 Seções fixas presentes e na ordem', faltantes.length ? `faltam: ${faltantes.join('; ')}` : 'fora de ordem');
   add(!temSerie || !!(dossie?.prc?.janelas?.antes || Object.values(dossie?.janelas || {}).some(j => j.antes && j.depois)), 'M6 Tabelas de dados presentes quando há série');
   const paragrafos = t.split(/\n{2,}/);
-  const semCit = paragrafos.filter(p => { const proprio = p.replace(RE_INCONST_RELATADA, ''); return RE_ASSERCAO.test(proprio) && !RE_NEGACAO.test(proprio) && !RE_CITACAO.test(p); });
+  const semCit = assercoesSemPrecedente(t);
   add(!semCit.length, 'M7 Nenhuma afirmação de inconstitucionalidade sem precedente citado', semCit.length ? `"${semCit[0].slice(0, 100)}…"` : null);
   add(!(t.match(RE_EXTENSO) || []).length, 'M8 Nenhuma cifra por extenso');
   add(!ficha || !ficha.faltas.includes('regra vigente') || (gates?.faixas || []).some(f => /INCOMPLETO/.test(f)), 'M9 Faixa de incompletude impressa quando falta insumo essencial');
@@ -212,5 +226,5 @@ const RUBRICA_HUMANA = [
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, chaveDaEmenda, emendaCitada, fraseDoNivel, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
+  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, votosNaoAtribuidos, assercoesSemPrecedente, chaveDaEmenda, emendaCitada, fraseDoNivel, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
 }

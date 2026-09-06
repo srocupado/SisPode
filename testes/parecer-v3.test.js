@@ -181,6 +181,12 @@ const achadosX = [
     const gP = G.aplicarGates({ ...base, texto: proprio });
     const rP = G.rubricaMaquina({ ...base, texto: gP.texto, gates: gP });
     ok(rR.itens.find(i => /^M7/.test(i.item)).ok && !rP.itens.find(i => /^M7/.test(i.item)).ok, 'M7 aceita o relato da decisão do STF e reprova a inconstitucionalidade afirmada pelo parecer sem precedente');
+    ok(gP.reprovacoes.some(r => r.gate === 'G9' && /merece exame/.test(r.detalhe)) && !gR.reprovacoes.some(r => r.gate === 'G9'), 'G9: inconstitucionalidade afirmada pelo parecer reprova a redação com instrução de reescrita; o relato não');
+    const gVoto = G.aplicarGates({ ...base, texto: relato.replace('y [L1].', 'Diante do exposto, recomenda-se a aprovação do substitutivo [T6].') });
+    ok(gVoto.reprovacoes.some(r => r.gate === 'G10' && /não recomenda voto/.test(r.detalhe)), 'G10: recomendação de voto do próprio parecer manda refazer a redação');
+    const relato2 = relato.replace('y [L1].', 'O projeto busca preencher o vácuo consolidado após o Supremo Tribunal Federal declarar a inconstitucionalidade das alíneas d e e do art. 240 da Lei 8.112/1990 no âmbito da Ação Direta de Inconstitucionalidade nº 492 [T2].');
+    const g2 = G.aplicarGates({ ...base, texto: relato2 });
+    ok(G.rubricaMaquina({ ...base, texto: g2.texto, gates: g2 }).itens.find(i => /^M7/.test(i.item)).ok, 'M7: "após o STF declarar a inconstitucionalidade… Ação Direta de Inconstitucionalidade nº 492" é relato com precedente (rodada r7)');
     const relatoVoto = relato.replace('y [L1].', 'A manifestação do relator consolidou as adequações acolhidas na comissão e recomendou a aprovação do texto [T6]. O parecer da CASP opina pela aprovação [T6].');
     const votoProprio = relato.replace('y [L1].', 'Diante do exposto, recomenda-se a aprovação do substitutivo [T6].');
     const mk = tx => { const g = G.aplicarGates({ ...base, texto: tx }); return G.rubricaMaquina({ ...base, texto: g.texto, gates: g }).itens.find(i => /^M11/.test(i.item)).ok; };
@@ -328,6 +334,12 @@ const achadosX = [
   const nomesLente = p4.chamadas ? p4.chamadas.filter(c => /^apuracao-lente-/.test(c.nome)) : [];
   ok(!p4.erro && nomesLente.length >= 2 && p4.chamadas[0].truncada && p4.ficha.completa, 'apuração truncada: repete lente a lente e o parecer sai inteiro: ' + (p4.erro || nomesLente.map(c => c.nome).join(', ')));
   ok(/ALÉM DAS LENTES/.test(promptsLente[0]) && promptsLente.slice(1).every(pr => !/ALÉM DAS LENTES/.test(pr)), 'a ficha do objeto é pedida só na primeira lente');
+  // redação que decreta inconstitucionalidade: refeita uma vez com a instrução do G9; a segunda passa
+  let vezes = 0;
+  const ehRedacao = pr => !/etapa de APURAÇÃO|apura o HISTÓRICO|FICHA DO OBJETO de um parecer|formula a TESE|revisor ADVERSARIAL|EXPERIÊNCIA COMPARADA/.test(pr);
+  const io8 = { ...io, chamarModelo: async ({ prompt }) => { if (ehRedacao(prompt)) { vezes++; if (vezes === 1) return { text: respostas.redacao.replace('Aprovar consolida a delegação sem estimativa [P1].', 'A delegação é inconstitucional por vício de iniciativa [P1].'), truncated: false }; if (!/G9/.test(prompt) || !/merece exame/.test(prompt)) throw new Error('segunda redação sem a instrução do G9'); } return io.chamarModelo({ prompt }); } };
+  const p8 = await PP.gerarParecer(ctx, io8);
+  ok(!p8.erro && p8.refeita && p8.aprovado && vezes === 2, `G9 na primeira redação: refeita com a instrução, e a segunda é aprovada (${p8.erro || `refeita=${p8.refeita} aprovado=${p8.aprovado} vezes=${vezes} pendentes=${(p8.rubrica?.pendentes || []).map(x => x.item.slice(0, 4)).join(',')} reprov=${(p8.gates?.reprovacoes || []).map(r => r.gate).join(',')}`})`);
   const p2 = await PP.gerarParecer(ctx, io2);
   ok(!p2.erro && p2.refeita && p2.chamadas.length === 6 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita e, persistindo, parecer reprovado no G2');
 
