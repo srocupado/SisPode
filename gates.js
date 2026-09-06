@@ -53,7 +53,26 @@ function causaisNaoAtribuidas(texto) {
  * página), notas, reprovações (impedem abrir) e o texto com os rebaixamentos
  * do G3 aplicados.
  */
-function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = null, contraditorio = null } = {}) {
+/**
+ * A solidez da comparação, em PALAVRAS, para o leitor final. "Nível de
+ * evidência C" não diz nada a deputado nem a analista; a frase abaixo diz.
+ */
+function fraseDoNivel(nivel, emVigor = true) {
+  if (nivel === 'A') return 'Há dados oficiais com pelo menos 12 meses antes e 12 meses depois da mudança: a comparação entre antes e depois é sólida, embora não prove que a medida causou a variação.';
+  if (nivel === 'B') return 'Há dados oficiais, mas com poucos meses depois da mudança ou com um mês incompleto: os números indicam uma direção, mas não permitem concluir.';
+  return emVigor
+    ? 'Não há dados oficiais que permitam comparar o antes e o depois da mudança: o efeito da medida não é verificável com o que existe.'
+    : 'Como a proposição ainda não está em vigor, não há resultados a comparar: este parecer descreve o que o texto prevê e o que só poderá ser medido depois.';
+}
+const RE_NIVEL_EM_PALAVRAS = {
+  A: /compara[çc][ãa]o[^.]{0,80}s[óo]lida|12 meses antes/i,
+  B: /indicam uma dire[çc][ãa]o|n[ãa]o permitem concluir/i,
+  C: /n[ãa]o h[áa] (?:dados|s[ée]rie)[^.]{0,120}(?:antes e (?:o )?depois|comparar)|ainda n[ãa]o est[áa] em vigor[^.]{0,80}n[ãa]o h[áa] resultados|n[ãa]o h[áa] resultados a comparar/i,
+};
+const RE_ROTULO_NIVEL = /\(?\bn[íi]vel de evid[êe]ncia\s*:?\s*\(?([ABC])\)?(?:\s*\([^)]{0,60}\))?\)?/gi;
+const NIVEL_CURTO = { A: 'comparação sólida', B: 'comparação indicativa, não conclusiva', C: 'sem base para comparar' };
+
+function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = null, contraditorio = null, emVigor = true } = {}) {
   const faixas = [], notas = [], reprovacoes = [], rebaixamentos = [];
   let t = String(texto || '');
   const secoes = _secoesDoTexto ? _secoesDoTexto(t) : {};
@@ -81,16 +100,16 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
     if (!r.ok) reprovacoes.push({ gate: 'G2', detalhe: `A síntese não enuncia a regra em algarismos: exigidos ${r.exigidos} valores da ficha, presentes ${r.presentes.length} (${r.presentes.join(', ') || 'nenhum'}); faltam ${r.faltantes.join(', ')}.` });
   }
 
-  // G8 — o nível de evidência tem de estar declarado no texto, em palavras.
-  // O modelo o omite quando a afirmação que o carregava caiu na validação
-  // (rodada real do PL 1893/2026). O programa insere a frase na abertura de
-  // "Avaliação da política" e registra a inserção.
-  if (!new RegExp(`n[íi]vel de evid[êe]ncia\\s*:?\\s*${nivel}\\b`, 'i').test(t)) {
-    const x = (_NIVEL_EVIDENCIA || {})[nivel] || { rotulo: 'não comparável', explicacao: 'não há série oficial que cubra antes e depois da mudança; o efeito não é verificável com o que existe' };
-    const frase = `A solidez da comparação nesta seção é de nível de evidência ${nivel}, ${x.rotulo}: ${x.explicacao}.`;
+  // G8 — a solidez da comparação tem de estar no texto EM PALAVRAS. O rótulo
+  // "nível de evidência C" sai do corpo (vira a expressão curta); se a frase
+  // em palavras não estiver, o programa a insere na abertura de "Avaliação da
+  // política" e registra.
+  if (RE_ROTULO_NIVEL.test(t)) { t = t.replace(RE_ROTULO_NIVEL, (m, n) => NIVEL_CURTO[String(n).toUpperCase()] || m); rebaixamentos.push({ gate: 'G8', detalhe: 'Rótulo "nível de evidência" trocado pela expressão em palavras.' }); }
+  if (!(RE_NIVEL_EM_PALAVRAS[nivel] || RE_NIVEL_EM_PALAVRAS.C).test(t)) {
+    const frase = fraseDoNivel(nivel, emVigor);
     const tituloAval = (_TITULOS && _TITULOS.avaliacao) || 'Avaliação da política';
     const re = new RegExp(`((?:^|\\n)\\s*${tituloAval}\\s*:?\\s*\\n+)`, 'i');
-    if (re.test(t)) { t = t.replace(re, `$1${frase}\n\n`); notas.push(`A frase sobre o nível de evidência (${nivel}) foi inserida pelo programa na abertura de "${tituloAval}": o modelo a omitiu na redação.`); rebaixamentos.push({ gate: 'G8', detalhe: `Nível de evidência ${nivel} declarado pelo programa.` }); }
+    if (re.test(t)) { t = t.replace(re, `$1${frase}\n\n`); notas.push(`A frase sobre a solidez da comparação foi inserida pelo programa na abertura de "${tituloAval}": o modelo a omitiu na redação.`); rebaixamentos.push({ gate: 'G8', detalhe: 'Solidez da comparação declarada pelo programa, em palavras.' }); }
   }
 
   // G3 — veredito acima do nível (no texto final, por seção de avaliação)
@@ -140,7 +159,7 @@ function emendaCitada(texto, ch) {
   return ch.numero ? new RegExp(`\\b${sigla}\\s*(?:n[ºo.]?\\s*)?${ch.numero}\\b|emenda[^.]{0,20}\\bn[ºo.]?\\s*${ch.numero}\\b`, 'i').test(t) : new RegExp(`\\b${sigla}\\b`, 'i').test(t);
 }
 
-function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia = null, gates = null, temSerie = false, processo = null } = {}) {
+function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia = null, gates = null, temSerie = false, processo = null, temComparada = false } = {}) {
   const t = String(texto || '');
   const secoes = _secoesDoTexto ? _secoesDoTexto(t) : {};
   const itens = [];
@@ -152,7 +171,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   const aval = (secoes['Avaliação da política'] || []).join(' ');
   const proibidos = nivel === 'A' ? [] : nivel === 'B' ? [/(?<!n[ãa]o )(?<!indícios de )\batingido\b/i, /\bn[ãa]o atingido\b/i] : [/\batingido\b/i, /\bind[íi]cios de/i];
   add(!proibidos.some(re => re.test(aval)), `M4 Vereditos compatíveis com a solidez da comparação (nível ${nivel})`);
-  const ordem = Object.entries(_TITULOS || {}).filter(([k]) => k !== 'aconteceu' || temSerie).map(([, v]) => v);
+  const ordem = Object.entries(_TITULOS || {}).filter(([k]) => (k !== 'aconteceu' || temSerie) && (k !== 'comparada' || temComparada)).map(([, v]) => v);
   const posicoes = ordem.map(s => t.search(new RegExp(`(^|\\n)\\s*${s}\\s*:?\\s*(\\n|$)`, 'i')));
   const faltantes = ordem.filter((s, i) => posicoes[i] < 0);
   const emOrdem = posicoes.filter(p => p >= 0).every((p, i, a) => i === 0 || p > a[i - 1]);
@@ -163,7 +182,7 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   add(!semCit.length, 'M7 Nenhuma afirmação de inconstitucionalidade sem precedente citado', semCit.length ? `"${semCit[0].slice(0, 100)}…"` : null);
   add(!(t.match(RE_EXTENSO) || []).length, 'M8 Nenhuma cifra por extenso');
   add(!ficha || !ficha.faltas.includes('regra vigente') || (gates?.faixas || []).some(f => /INCOMPLETO/.test(f)), 'M9 Faixa de incompletude impressa quando falta insumo essencial');
-  add(new RegExp(`n[íi]vel de evid[êe]ncia\\s*:?\\s*${nivel}\\b`, 'i').test(t), `M10 Solidez da comparação (nível ${nivel}) declarada no texto`);
+  add((RE_NIVEL_EM_PALAVRAS[nivel] || RE_NIVEL_EM_PALAVRAS.C).test(t) && !RE_ROTULO_NIVEL.test(t), `M10 Solidez da comparação dita em palavras no texto, sem o rótulo "nível ${nivel}"`);
   // Causalidade ATRIBUÍDA A UM LADO ("quem apoia argumenta que a medida
   // aumentou…") é relato da posição alheia, não afirmação do parecer.
   const causaisProprias = causaisNaoAtribuidas(t);
@@ -193,5 +212,5 @@ const RUBRICA_HUMANA = [
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, chaveDaEmenda, emendaCitada, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
+  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, chaveDaEmenda, emendaCitada, fraseDoNivel, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
 }

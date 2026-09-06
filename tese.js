@@ -25,13 +25,16 @@ const _itensDoDossie = __dossie ? __dossie.itensDoDossie : (typeof itensDoDossie
 const __ficha = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha.js') : null;
 const _fichaParaTexto = __ficha ? __ficha.fichaParaTexto : (typeof fichaParaTexto === 'function' ? fichaParaTexto : null);
 
-const SECOES_TESE = ['sintese', 'contexto', 'lei', 'previu', 'aconteceu', 'avaliacao', 'lados', 'opcoes'];
-const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', previu: 'O que se previu', aconteceu: 'O que aconteceu', avaliacao: 'Avaliação da política', lados: 'Os dois lados', opcoes: 'Opções e consequências', lentes: 'Respostas por lente' };
+const SECOES_TESE = ['sintese', 'contexto', 'lei', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'lados', 'opcoes'];
+const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', lados: 'Os dois lados', opcoes: 'Opções e consequências', lentes: 'Respostas por lente' };
 const ORDEM_NIVEL = { A: 3, B: 2, C: 1 };
 const VEREDITOS = {
   A: ['atingido', 'não atingido', 'não verificável'],
   B: ['indícios de atingimento', 'indícios de não atingimento', 'não verificável'],
   C: ['não verificável'],
+  // Proposição ainda não em vigor: não há "realizado"; o que se julga é se o
+  // TEXTO prevê meios para o objetivo declarado.
+  PROJETO: ['o texto prevê meios', 'o texto prevê meios em parte', 'o texto não prevê meios', 'não verificável'],
 };
 
 // Inteiros pequenos (artigo, inciso, contagem) e anos não são cifra.
@@ -39,7 +42,7 @@ const numeroRelevante = v => !(Number.isInteger(v) && (v <= 31 || (v >= 1900 && 
 const numsRelevantes = s => (_numerosDoTexto(s) || []).filter(numeroRelevante);
 // Nem número de norma ou de artigo: "art. 62 da CF" numa opção foi removido
 // como "número fora das evidências" na rodada real. A pista é a palavra anterior.
-const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
+const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|PDL|PRLP|PRLE|EMP|EMS|EMC|SBT-?A?|SSP|conven[çc][ãa]o|recomenda[çc][ãa]o|emenda|subemenda|substitutivo|parecer|item|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
 /** Trecho em volta do número, para o motivo da remoção dizer ONDE ele estava. */
 function contextoDoNumero(texto, n) {
   const t = String(texto || ''); const re = /\d[\d.]*(?:,\d+)?/g; let m;
@@ -61,7 +64,7 @@ function numerosCifra(texto) {
 //  CATÁLOGO DE EVIDÊNCIAS
 // ============================================================
 
-function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null, processo = null } = {}) {
+function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null, processo = null, comparada = [] } = {}) {
   const itens = [];
   // A situação da tramitação vem do sistema (API da Câmara), não do documento;
   // sem entrar no catálogo, o contraditório refutava a data de perda de
@@ -82,6 +85,12 @@ function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situa
     itens.push({ id: `A${i + 1}`, tipo: 'achado', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'documento analisado', lente: String(a.lente), pergunta: a.pergunta });
   });
   if (dossie && _itensDoDossie) for (const it of _itensDoDossie(dossie)) itens.push(it);
+  // Experiência comparada: o modelo buscou na web; a fonte fica nomeada e o
+  // programa NÃO a conferiu. Só entra com fonte (nome e endereço).
+  (comparada || []).forEach((c, i) => {
+    const texto = `Experiência comparada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.lugar}${c.quando ? `, ${c.quando}` : ''} — ${c.medida}. O que se mediu: ${c.o_que_se_mediu || 'não informado'}. Resultado: ${c.resultado}. Fonte: ${c.fonte_nome} (${c.fonte_url}).`;
+    itens.push({ id: `W${i + 1}`, tipo: 'externa', texto, numeros: _numerosDoTexto(texto), nivel: 'externa', fonte: `${c.fonte_nome} — ${c.fonte_url}`, url: c.fonte_url });
+  });
   if (ficha) {
     const texto = _fichaParaTexto ? _fichaParaTexto(ficha) : JSON.stringify(ficha);
     itens.push({ id: 'F1', tipo: 'ficha', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'ficha do objeto' });
@@ -95,7 +104,7 @@ function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situa
 //  PASSAGEM 2 — TESE
 // ============================================================
 
-function promptTese({ identificacao, textoAnalisado, situacao, ficha, catalogo, nivel, lentes = [], objetivos = [] }) {
+function promptTese({ identificacao, textoAnalisado, situacao, ficha, catalogo, nivel, lentes = [], objetivos = [], emVigor = true, temComparada = false }) {
   return `Você é o especialista que formula a TESE de um parecer da Liderança do Podemos na Câmara dos Deputados sobre
 ${identificacao} (texto analisado: ${textoAnalisado}). O parecer vai formar o convencimento de um deputado que pode não
 conhecer o tema. Nesta etapa você NÃO redige: você lista AFIRMAÇÕES, cada uma apoiada em evidências do catálogo abaixo.
@@ -142,8 +151,17 @@ REGRAS QUE O PROGRAMA VAI CONFERIR (o que violar é removido):
 - Todo número da afirmação consta das evidências citadas. Não some, não derive, não arredonde de forma diferente.
 - Na seção "sintese", a primeira afirmação enuncia a regra que muda em algarismos: de quanto para quanto, sobre o quê, a
   partir de quando (use F1 e LV).
-- Vereditos dos objetivos, pelo nível de evidência das evidências citadas: nível A permite ${VEREDITOS.A.join(', ')};
-  nível B permite ${VEREDITOS.B.join(', ')}; nível C permite só "não verificável". Sem série, o veredito é "não verificável".
+${emVigor ? `- Vereditos dos objetivos, pelo nível de evidência das evidências citadas: nível A permite ${VEREDITOS.A.join(', ')};
+  nível B permite ${VEREDITOS.B.join(', ')}; nível C permite só "não verificável". Sem série, o veredito é "não verificável".`
+: `- A PROPOSIÇÃO AINDA NÃO ESTÁ EM VIGOR: não existe "realizado" a comparar, e "não verificável" NÃO é resposta para
+  objetivo que o próprio texto realiza. Para cada objetivo declarado, o veredito é um destes, literalmente:
+  ${VEREDITOS.PROJETO.slice(0, 3).map(v => `"${v}"`).join(', ')} — e a "justificativa" aponta os dispositivos (achados "altera",
+  "regra_depois", A) que o realizam ou a lacuna. Objetivo do tipo "regulamentar / instituir / criar X" É o objeto da
+  proposição: diga o que o texto regula e com quais dispositivos ("o texto prevê meios"). Efeito futuro (preço, arrecadação,
+  adesão, conflitos) só poderá ser medido depois da vigência: diga isso em uma frase da justificativa, sem veredito de resultado.`}
+${temComparada ? `- EXPERIÊNCIA COMPARADA (W): uma afirmação por experiência, na seção "comparada", com o lugar, o que se fez, o que se
+  mediu e o resultado, citando o W. Ela NÃO prova que "funcionará aqui": diga o que é e o que não é comparável. Fato que cite
+  só W fica restrito à seção "comparada".` : ''}
 - Estimativa marcada "NÃO vinculada ao objeto" nunca é "o previsto" desta medida; ela só pode aparecer como contexto, nomeada.
 - Nada de atribuição causal ("a medida provocou"): a série mostra; o parecer compara.
 - Nada de recomendação de voto: as opções têm consequências, a decisão é da Liderança.
@@ -163,7 +181,7 @@ REGRAS QUE O PROGRAMA VAI CONFERIR (o que violar é removido):
 }
 
 /** Valida a tese contra o catálogo. Remove o que não se sustenta e rebaixa vereditos. */
-function validarTese(tese, catalogo, { nivel = 'C' } = {}) {
+function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
   const removidas = [], rebaixadas = [];
   const existe = id => catalogo.porId.has(String(id));
   const numsDe = ids => { const s = new Set(); for (const id of ids) for (const n of (catalogo.porId.get(id)?.numeros || [])) s.add(n); return s; };
@@ -204,6 +222,8 @@ function validarTese(tese, catalogo, { nivel = 'C' } = {}) {
     // Fato precisa de evidência documental: achado, lei, ficha ou item do
     // dossiê que não seja aviso (estimativa no processo, marco, negação).
     if (a.tipo === 'fato' && !a.evidencias.some(id => { const e = catalogo.porId.get(id); return e && !e.aviso && !e.fonteApenas; })) { removidas.push({ id: a.id, secao: a.secao, motivo: 'fato sem evidência documental', texto: a.texto }); return; }
+    // Experiência externa (W) só sustenta afirmação na seção própria: fora dela, não é evidência do caso.
+    if (a.secao !== 'comparada' && a.evidencias.length && a.evidencias.every(id => catalogo.porId.get(id)?.tipo === 'externa')) { removidas.push({ id: a.id, secao: a.secao, motivo: 'apoiada só em experiência externa (W), fora da seção "Experiência de outros países e entes"', texto: a.texto }); return; }
     if (a.tipo === 'calculo' && !tipos.includes('dossie')) { removidas.push({ id: a.id, secao: a.secao, motivo: 'cálculo sem item do dossiê como evidência', texto: a.texto }); return; }
     // Atribuição causal POSITIVA. "O efeito da medida não é verificável" é o
     // contrário disso e não pode cair na mesma malha.
@@ -218,9 +238,10 @@ function validarTese(tese, catalogo, { nivel = 'C' } = {}) {
     if (erro) { removidas.push({ id: o.id, secao: 'avaliacao', motivo: erro, texto: o.objetivo }); return; }
     const nv = nivelDe(o.evidencias);
     const ver = String(o.veredito || '').toLowerCase().trim();
-    const permitidos = VEREDITOS[nv] || VEREDITOS.C;
+    const permitidos = emVigor ? (VEREDITOS[nv] || VEREDITOS.C) : VEREDITOS.PROJETO;
     if (!permitidos.includes(ver)) {
-      const novo = nv === 'B' && /^n[ãa]o atingido/.test(ver) ? 'indícios de não atingimento' : nv === 'B' && /^atingido/.test(ver) ? 'indícios de atingimento' : 'não verificável';
+      const novo = !emVigor ? (/prev[êe] meios em parte|parcial/.test(ver) ? 'o texto prevê meios em parte' : /n[ãa]o prev[êe]|sem meios/.test(ver) ? 'o texto não prevê meios' : /prev[êe] meios|atingido|regulament|institui/.test(ver) ? 'o texto prevê meios' : 'não verificável')
+        : nv === 'B' && /^n[ãa]o atingido/.test(ver) ? 'indícios de não atingimento' : nv === 'B' && /^atingido/.test(ver) ? 'indícios de atingimento' : 'não verificável';
       rebaixadas.push({ id: o.id, de: o.veredito, para: novo, motivo: `veredito "${o.veredito}" não permitido com evidência de nível ${nv}` });
       o.veredito = novo;
     }
@@ -344,9 +365,13 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
 //  PASSAGEM 4 — REDAÇÃO
 // ============================================================
 
-function promptRedacao({ identificacao, textoAnalisado, situacao, ficha, tese, catalogo, lentes = [], catalogoLentes = [], nivel, temSerie, correcoes = null }) {
+function promptRedacao({ identificacao, textoAnalisado, situacao, ficha, tese, catalogo, lentes = [], catalogoLentes = [], nivel, temSerie, correcoes = null, emVigor = true, temComparada = false }) {
   const lentesTxt = lentes.map(l => { const e = catalogoLentes.find(x => x.chave === l.chave); return e ? `  ${e.ordem}. ${e.rotulo}` : ''; }).filter(Boolean).join('\n');
-  const secoes = Object.entries(TITULOS).filter(([k]) => k !== 'aconteceu' || temSerie).map(([, v]) => `  ${v}`).join('\n');
+  const secoes = Object.entries(TITULOS).filter(([k]) => (k !== 'aconteceu' || temSerie) && (k !== 'comparada' || temComparada)).map(([, v]) => `  ${v}`).join('\n');
+  const fraseNivel = nivel === 'A' ? 'há dados oficiais com pelo menos 12 meses antes e 12 meses depois da mudança: a comparação é sólida, embora não prove causa'
+    : nivel === 'B' ? 'há dados oficiais, mas com poucos meses depois da mudança ou um mês incompleto: os números indicam uma direção, mas não permitem concluir'
+    : emVigor ? 'não há dados oficiais que permitam comparar o antes e o depois da mudança: o efeito não é verificável com o que existe'
+    : 'como a proposição ainda não está em vigor, não há resultados a comparar: o parecer descreve o que o texto prevê e o que só poderá ser medido depois';
   const achadosLentes = catalogo.itens.filter(i => i.tipo === 'achado' && i.lente !== 'X').map(i => `  ${i.id} ${i.texto.slice(0, 500)}`).join('\n');
   const semQuestao = catalogo.semQuestao || '';
   return `Você redige o CORPO de um PARECER DE ESPECIALISTA da Liderança do Podemos na Câmara dos Deputados sobre
@@ -391,12 +416,20 @@ COMO ESCREVER
 - Os dois lados: dois parágrafos por lado (o argumento no seu melhor; o que a evidência diz sobre ele).
 - Opções: um parágrafo por opção, com as três consequências desenvolvidas.
 - Respostas por lente: dois a quatro parágrafos por lente, prosa técnica com o dispositivo citado.
-- O que aconteceu (quando existir): os números, o tamanho da janela e o mês parcial quando houver, e — UMA única vez, aqui —
-  a expressão "nível de evidência ${nivel}" seguida do que ela significa em palavras (${nivel === 'A' ? 'série oficial com 12 meses antes e depois: comparação sólida' : nivel === 'B' ? 'poucos meses depois da mudança ou mês parcial: os números indicam uma direção, não permitem concluir' : 'sem série que cubra antes e depois: o efeito não é verificável'}).
-  Em qualquer outra seção, não repita o rótulo: diga "a comparação é ${nivel === 'A' ? 'sólida' : nivel === 'B' ? 'indicativa, não conclusiva' : 'impossível com o que existe'}".
-  Sem atribuir causa; liste os fatores concorrentes.
-- Avaliação da política: um parágrafo por objetivo, em prosa, com o veredito EXATAMENTE como está na tese; se a tese
-  disser "Contestado no contraditório: …", escreva "não verificável, porque …" com o motivo em prosa.
+- SOLIDEZ DA COMPARAÇÃO, EM PALAVRAS: o leitor é deputado ou analista; NUNCA escreva "nível de evidência", "nível A/B/C"
+  nem "evidência de nível". Diga, UMA vez, na abertura de "${temSerie ? 'O que aconteceu' : 'Avaliação da política'}", esta ideia com
+  estas palavras: "${fraseNivel}". Nas demais seções, quando precisar, diga "a comparação é ${nivel === 'A' ? 'sólida' : nivel === 'B' ? 'indicativa, não conclusiva' : 'impossível com o que existe'}".
+- O que aconteceu (quando existir): os números, o tamanho da janela e o mês parcial quando houver. Sem atribuir causa; liste
+  os fatores concorrentes.
+${temComparada ? `- Experiência de outros países e entes: um parágrafo por experiência (onde, quando, o que se fez, o que se mediu, o
+  resultado), com a fonte NOMEADA no texto ("segundo o relatório X da OCDE"); feche com um parágrafo dizendo o que é e o que
+  não é comparável ao caso brasileiro. Nada de "funcionará aqui".` : ''}
+${emVigor ? `- Avaliação da política: um parágrafo por objetivo, em prosa, com o veredito EXATAMENTE como está na tese; se a tese
+  disser "Contestado no contraditório: …", escreva "não verificável, porque …" com o motivo em prosa.`
+: `- Avaliação da política (proposição ainda não em vigor): um parágrafo por objetivo declarado, em prosa: o que o texto prevê
+  para alcançá-lo (dispositivos), o veredito EXATAMENTE como está na tese ("o texto prevê meios" / "em parte" / "não prevê
+  meios") e, em uma frase, o que só poderá ser medido depois da vigência. Objetivo do tipo "regulamentar/instituir X" é o
+  próprio objeto: descreva o que o texto regula; NÃO escreva "não verificável" para ele.`}
 - Os dois lados: o argumento de cada lado pode ser relatado como posição dele ("quem apoia sustenta que…"); a frase "o que
   a evidência diz" nunca atribui causa.
 - Os dois lados: o melhor de cada um e o que a evidência diz sobre cada um.

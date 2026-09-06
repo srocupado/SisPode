@@ -78,7 +78,7 @@ function normalizarParecer(p) {
   if (p.gates) for (const k of ['faixas', 'notas', 'reprovacoes', 'rebaixamentos']) arr(p.gates, k);
   if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
   if (p.carimbo) arr(p.carimbo, 'lentes');
-  arr(p, 'alteracoes');
+  arr(p, 'alteracoes'); arr(p, 'comparada');
   if (p.processo) for (const k of ['documentos', 'emendas', 'comissoes', 'apensados']) arr(p.processo, k);
   return p;
 }
@@ -111,20 +111,24 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const dataBR = iso => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '';
 
   // ---- primeira página --------------------------------------------------
-  const explicaNivel = `Solidez da comparação antes × depois: <b>${esc(NE.rotulo || p.nivel)}</b> — ${esc(NE.explicacao || '')}.`;
-  const produto = p.gates?.faixas?.length ? 'Parecer jurídico-processual: a avaliação da política não é verificável com o que se obteve.' : p.temSerie ? `Parecer completo, com o que se previu e o que aconteceu. ${explicaNivel}` : `Parecer sem série oficial: a avaliação fica limitada ao que o processo traz. ${explicaNivel}`;
+  const emVigor = p.emVigor !== false;
+  const fraseNivel = p.nivel === 'A' ? 'Há dados oficiais com pelo menos 12 meses antes e 12 meses depois da mudança: a comparação entre antes e depois é sólida, embora não prove que a medida causou a variação.'
+    : p.nivel === 'B' ? 'Há dados oficiais, mas com poucos meses depois da mudança ou com um mês incompleto: os números indicam uma direção, mas não permitem concluir.'
+    : emVigor ? 'Não há dados oficiais que permitam comparar o antes e o depois da mudança: o efeito da medida não é verificável com o que existe.'
+    : 'Como a proposição ainda não está em vigor, não há resultados a comparar: este parecer descreve o que o texto prevê e o que só poderá ser medido depois.';
+  const produto = p.gates?.faixas?.length ? 'Parecer jurídico-processual: a avaliação da política não é verificável com o que se obteve.' : p.temSerie ? `Parecer completo, com o que se previu e o que aconteceu. ${esc(fraseNivel)}` : emVigor ? `Parecer sem dados oficiais de antes e depois: a avaliação fica limitada ao que o processo traz. ${esc(fraseNivel)}` : `Parecer sobre proposição ainda não em vigor. ${esc(fraseNivel)}`;
 
   // ---- "Limites deste parecer": o que o leitor precisa saber, em palavras ----
   const limites = [];
   for (const f of p.gates?.faixas || []) limites.push(f);
-  if (p.temSerie) limites.push(`A comparação entre antes e depois da mudança é ${NE.rotulo || p.nivel}: ${NE.explicacao || ''}. O parecer mostra o que a série registra; não afirma que a medida causou a variação, porque outros fatores agem ao mesmo tempo.`);
-  else limites.push('Não há série oficial que permita comparar antes e depois: o efeito da medida não é verificável com o que existe.');
+  limites.push(p.temSerie ? `${fraseNivel} O parecer mostra o que a série registra; não afirma que a medida causou a variação, porque outros fatores agem ao mesmo tempo.` : fraseNivel);
+  if ((p.comparada || []).length) limites.push(`A seção "Experiência de outros países e entes" vem de busca na web feita pelo modelo: as fontes estão nomeadas no texto e listadas no anexo técnico, e NÃO foram conferidas pelo programa. Use-a como pista, não como prova.`);
   for (const a of p.dossie?.avisos || []) limites.push(a);
   const nRemov = (p.validacao?.removidas || []).length + (p.contraditorio?.refutadas || []).length;
   const nContest = (p.contraditorio?.contestadas || []).length;
   if (nRemov || nContest) limites.push(`Antes da redação, ${nRemov ? `${nRemov} afirmação(ões) do rascunho foram retiradas por não se sustentarem nas fontes` : ''}${nRemov && nContest ? ' e ' : ''}${nContest ? `${nContest} conclusão(ões) foram rebaixadas a "não verificável" após contestação` : ''}. O detalhe está no anexo técnico.`);
   limites.push('Este parecer não recomenda voto: apresenta as opções e suas consequências; a decisão é da Liderança.');
-  if (p.carimbo?.linha) limites.push(p.carimbo.linha + (p.carimbo.ressalva ? ' ' + p.carimbo.ressalva : ''));
+
 
   // ---- índice e corpo ------------------------------------------------------
   const indice = `<section class="indice"><h2>Índice</h2><ul>
@@ -169,7 +173,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
       ${p.truncado ? '<div class="conf-pend">A redação foi interrompida no limite de tokens do modelo — o final pode estar incompleto.</div>' : ''}
       <h4 class="dt-h">Tese aprovada, com evidências</h4>
       ${tabelaTese || '<p class="tec-nota">Sem tese registrada.</p>'}
-      ${p.carimbo ? `<div class="carimbo">${esc(p.carimbo.linha)}${p.carimbo.ressalva ? ` ${esc(p.carimbo.ressalva)}` : ''} Gerado em ${esc(dataBR(p.geradoEm))}.</div>` : ''}
+      ${(p.comparada || []).length ? `<h4 class="dt-h">Fontes externas da experiência comparada (não conferidas pelo programa)</h4><table class="dt"><thead><tr><th>Lugar</th><th>Medida</th><th>Fonte</th></tr></thead><tbody>${p.comparada.map(c => `<tr><td>${esc(c.lugar)}${c.quando ? ` (${esc(c.quando)})` : ''}</td><td>${esc(c.medida)}</td><td>${esc(c.fonte_nome)}<br><a href="${esc(c.fonte_url)}">${esc(c.fonte_url)}</a></td></tr>`).join('')}</tbody></table>` : ''}
     </div>`;
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Parecer — ${esc(materia)}</title>

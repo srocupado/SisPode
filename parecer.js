@@ -315,6 +315,29 @@ TEXTO ANALISADO: ${ctx.textoAnalisado || '(não identificado)'}. Leia os documen
 - "semQuestao": true só se os documentos não disserem nada sobre aquele item.`;
 }
 
+/**
+ * Experiência comparada, com busca na web. O leitor quer saber se regra
+ * parecida funcionou em outro lugar; o modelo procura, nomeia a fonte e o
+ * programa imprime "fonte não conferida". Sem fonte, o item não entra.
+ */
+function promptComparada(ctx = {}) {
+  return `Você levanta a EXPERIÊNCIA COMPARADA para um parecer técnico da Liderança do Podemos na Câmara dos Deputados sobre
+${ctx.identificacao || '(não informada)'} — ${ctx.ementa || ''}.
+Regra em exame: ${ctx.regra || '(ver ementa)'}.
+
+Use a busca na web. Procure de 3 a 6 casos em que outro país, ou outro ente brasileiro (estado, município), adotou regra
+semelhante e em que exista avaliação, estudo ou dado oficial sobre o resultado. Prefira OCDE, OIT, FMI, Banco Mundial,
+tribunais de contas, institutos de estatística, universidades. Responda SOMENTE com JSON:
+[
+  { "lugar": "país ou ente", "quando": "ano ou período", "medida": "o que foi adotado, em uma ou duas frases",
+    "o_que_se_mediu": "indicador e período", "resultado": "o que a avaliação encontrou, com números quando houver",
+    "fonte_nome": "nome do documento e instituição", "fonte_url": "https://…" }
+]
+REGRAS: cada item TEM fonte com endereço (URL) real, encontrado na busca; item sem fonte não existe. Não invente número:
+o que a fonte não traz, escreva "não informado". Não conclua que "funcionará no Brasil": relate o que se mediu lá.
+Se a busca não encontrar avaliação de caso semelhante, responda [].`;
+}
+
 // A redação, a tese e as travas de saída vivem em tese.js e gates.js: o juízo
 // virou dado conferível, não prosa gerada de uma vez.
 
@@ -332,6 +355,6 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
-    promptApuracao, promptHistorico, promptFicha, descreverProcesso, carimboDoParecer,
+    promptApuracao, promptHistorico, promptFicha, promptComparada, descreverProcesso, carimboDoParecer,
   };
 }
