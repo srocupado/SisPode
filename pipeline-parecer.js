@@ -20,7 +20,7 @@
 // Script clássico (global na extensão) + module.exports para os testes.
 
 const __mods = (typeof module !== 'undefined' && typeof require === 'function') ? {
-  D: require('./dossie.js'), F: require('./ficha.js'), T: require('./tese.js'), G: require('./gates.js'), P: require('./parecer.js'), E: require('./especialistas.js'),
+  D: require('./dossie.js'), F: require('./ficha-objeto.js'), T: require('./tese.js'), G: require('./gates.js'), P: require('./parecer.js'), E: require('./especialistas.js'),
 } : null;
 // No navegador os módulos são scripts clássicos no mesmo escopo: `const` do
 // topo de um script (ESPECIALISTAS…) é visível pelo nome, mas NÃO é

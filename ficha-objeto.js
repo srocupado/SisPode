@@ -1,4 +1,5 @@
-// Parecer de Especialista — a FICHA DO OBJETO.
+// Parecer de Especialista — a FICHA DO OBJETO. (arquivo ficha-objeto.js: o
+// módulo de Orçamento tem a sua própria ficha, de parâmetros, em ficha.js)
 //
 // O parecer gerado na rodada real da MPV 1357/2026 nunca disse 20%, 60%,
 // US$ 50 nem que revertia a Lei 14.902/2024: o leitor não ficava sabendo qual

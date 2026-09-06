@@ -12,7 +12,7 @@
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
-const __mh = (typeof module !== 'undefined' && typeof require === 'function') ? { D: require('./dossie.js'), F: require('./ficha.js'), T: require('./tese.js') } : null;
+const __mh = (typeof module !== 'undefined' && typeof require === 'function') ? { D: require('./dossie.js'), F: require('./ficha-objeto.js'), T: require('./tese.js') } : null;
 // `const` de script clássico não está em globalThis e a CSP proíbe eval — identificadores explícitos, resolvidos na chamada.
 function _refsHtml() {
   if (__mh) return { TITULOS: __mh.T.TITULOS, tabelasDoDossie: __mh.D.tabelasDoDossie, CSS_TABELAS_DOSSIE: __mh.D.CSS_TABELAS_DOSSIE, fichaParaHtml: __mh.F.fichaParaHtml, alteracoesParaHtml: __mh.F.alteracoesParaHtml, CSS_FICHA: __mh.F.CSS_FICHA, NIVEL_EVIDENCIA: __mh.D.NIVEL_EVIDENCIA, unidadesDaTese: __mh.T.unidadesDaTese };

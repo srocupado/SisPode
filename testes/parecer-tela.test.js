@@ -23,7 +23,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
 (async () => {
   console.log('== a página carrega inteira ==');
   const scripts = scriptsDaPagina();
-  const novos = ['especialistas.js', 'dossie.js', 'ficha.js', 'tese.js', 'gates.js', 'parecer.js', 'pipeline-parecer.js', 'parecer-html.js'];
+  const novos = ['especialistas.js', 'dossie.js', 'ficha-objeto.js', 'tese.js', 'gates.js', 'parecer.js', 'pipeline-parecer.js', 'parecer-html.js'];
   ok(novos.every(s => scripts.includes(s)), `os oito arquivos do parecer estão no analise.html (faltam: ${novos.filter(s => !scripts.includes(s)).join(', ') || 'nenhum'})`);
   ok(novos.every(s => scripts.indexOf(s) < scripts.indexOf('analise.js')), 'e vêm ANTES do analise.js, que os consome');
 
@@ -61,7 +61,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     const manifesto = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
     const permitidos = (manifesto.host_permissions || []).map(h => h.replace(/\/\*$/, ''));
     const hosts = new Set();
-    for (const f of ['dossie.js', 'ficha.js', 'pipeline-parecer.js', 'parecer.js', 'analise.js']) {
+    for (const f of ['dossie.js', 'ficha-objeto.js', 'pipeline-parecer.js', 'parecer.js', 'analise.js']) {
       for (const m of fs.readFileSync(path.join(RAIZ, f), 'utf8').matchAll(/https:\/\/[a-z0-9.-]+\.(?:gov\.br|leg\.br|googleapis\.com|openai\.com|anthropic\.com|firebaseio\.com)/g)) hosts.add(m[0]);
     }
     const semPermissao = [...hosts].filter(h => !permitidos.includes(h));

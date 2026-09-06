@@ -19,7 +19,7 @@
 const path = require('path');
 const fs = require('fs');
 const RAIZ = path.join(__dirname, '..');
-const F = require(path.join(RAIZ, 'ficha.js'));
+const F = require(path.join(RAIZ, 'ficha-objeto.js'));
 const T = require(path.join(RAIZ, 'tese.js'));
 const G = require(path.join(RAIZ, 'gates.js'));
 const D = require(path.join(RAIZ, 'dossie.js'));
