@@ -68,14 +68,22 @@ const numsRelevantes = s => (_numerosDoTexto(s) || []).filter(numeroRelevante);
 // Nem número de norma ou de artigo: "art. 62 da CF" numa opção foi removido
 // como "número fora das evidências" na rodada real. A pista é a palavra anterior.
 const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|PDL|PRLP|PRLE|EMP|EMS|EMC|SBT-?A?|SSP|conven[çc][ãa]o|recomenda[çc][ãa]o|emenda|subemenda|substitutivo|parecer|item|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
+// Prefixos de identificador: unidades da tese (T O L P AT I R V CC) e evidências
+// (A D LV F S W J N Q). Os mais longos vêm primeiro, senão "AT1" casaria como "A".
+const PREFIXOS_ID = 'CC|AT|LV|T|O|L|P|A|D|F|S|I|R|V|W|J|N|Q';
+// O modelo cita evidência dentro da prosa ("(A42)", "(A39, LV5)"). Sem tirar
+// esses tokens, "42" e "39" entravam como cifra inventada e derrubavam a
+// unidade inteira — foi assim que as quatro opções e a conclusão caíram.
+const RE_ID_INLINE = new RegExp(`\\b(?:${PREFIXOS_ID})\\d+\\b`, 'g');
+
 /** Trecho em volta do número, para o motivo da remoção dizer ONDE ele estava. */
 function contextoDoNumero(texto, n) {
-  const t = String(texto || ''); const re = /\d[\d.]*(?:,\d+)?/g; let m;
+  const t = String(texto || '').replace(RE_ID_INLINE, ' '); const re = /\d[\d.]*(?:,\d+)?/g; let m;
   while ((m = re.exec(t)) !== null) { if (Math.abs(Number(m[0].replace(/\./g, '').replace(',', '.'))) === n) return t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 25).replace(/\s+/g, ' ').trim(); }
   return '';
 }
 function numerosCifra(texto) {
-  const t = String(texto || ''); const out = []; const re = /\d[\d.]*(?:,\d+)?/g; let m;
+  const t = String(texto || '').replace(RE_ID_INLINE, ' '); const out = []; const re = /\d[\d.]*(?:,\d+)?/g; let m;
   while ((m = re.exec(t)) !== null) {
     const v = Number(m[0].replace(/\./g, '').replace(',', '.'));
     if (!Number.isFinite(v) || !numeroRelevante(v)) continue;
@@ -195,6 +203,7 @@ REGRAS QUE O PROGRAMA VAI CONFERIR (o que violar é removido):
 - LV marcado "TEXTO ORIGINAL, NÃO COMPILADO" não é regra vigente: dispositivos dele podem estar revogados. A regra vigente é
   a da ficha (F1).
 - Não repita a mesma afirmação em duas unidades; uma unidade por ideia.
+- O identificador da evidência vai SÓ no campo "evidencias"; não escreva "(A42)" nem "(A39, LV5)" dentro do texto.
 - Todo número da afirmação consta das evidências citadas. Não some, não derive, não arredonde de forma diferente.
 - Na seção "sintese", a primeira afirmação enuncia a regra que muda em algarismos: de quanto para quanto, sobre o quê, a
   partir de quando (use F1 e LV).
@@ -617,9 +626,6 @@ ${tem('viabilidade') ? `- Prioridade e viabilidade: os sinais objetivos da trami
   cabeçalho, título, destinatário, data, ressalvas ou lista de fontes: o formato de impressão já traz.`;
 }
 
-// Prefixos de identificador: unidades da tese (T O L P AT I R V CC) e evidências
-// (A D LV F S W J N Q). Os mais longos vêm primeiro, senão "AT1" casaria como "A".
-const PREFIXOS_ID = 'CC|AT|LV|T|O|L|P|A|D|F|S|I|R|V|W|J|N|Q';
 const RE_MARCADOR = new RegExp(`\\[(?:${PREFIXOS_ID})\\d*\\](?:\\[(?:${PREFIXOS_ID})\\d*\\])*`, 'g');
 // Só entre colchetes: "V1" ou "N1" soltos no texto não são citação.
 const RE_ID = new RegExp(`\\[(${PREFIXOS_ID})(\\d*)\\]`, 'g');
@@ -657,7 +663,7 @@ function conferirRedacao(texto, { tese, catalogo, ficha }) {
   for (const it of catalogo.itens) for (const n of it.numeros || []) base.add(n);
   for (const n of _numerosDoTexto(ficha ? (_fichaParaTexto ? _fichaParaTexto(ficha) : '') : '')) base.add(n);
   const numerosSuspeitos = [];
-  const semMarcadores = t.replace(RE_MARCADOR, '');
+  const semMarcadores = t.replace(RE_MARCADOR, '').replace(RE_ID_INLINE, ' ');
   const re = /\d[\d.]*(?:,\d+)?/g; let m;
   while ((m = re.exec(semMarcadores)) !== null) {
     const bruto = m[0]; const v = Number(bruto.replace(/\./g, '').replace(',', '.'));

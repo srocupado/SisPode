@@ -184,6 +184,18 @@ const achadosX = [
     ok(gP.reprovacoes.some(r => r.gate === 'G9' && /merece exame/.test(r.detalhe)) && !gR.reprovacoes.some(r => r.gate === 'G9'), 'G9: inconstitucionalidade afirmada pelo parecer reprova a redação com instrução de reescrita; o relato não');
     const gVoto = G.aplicarGates({ ...base, texto: relato.replace('y [L1].', 'Diante do exposto, recomenda-se a aprovação do substitutivo [T6].') });
     ok(gVoto.reprovacoes.some(r => r.gate === 'G10' && /não recomenda voto/.test(r.detalhe)), 'G10: recomendação de voto do próprio parecer manda refazer a redação');
+    const frasesRelato = [
+      'A conversão substitui arranjos infralegais instáveis por uma lei geral, colmatando o vácuo normativo gerado pela inconstitucionalidade de dispositivos do art. 240 da Lei nº 8.112/1990 [T2].',
+      'As alíneas d e e foram declaradas inconstitucionais em 1992 [T2].',
+    ];
+    const frasesAfirmacao = [
+      'Na esfera jurídica, a emenda incorre em grave vulnerabilidade de inconstitucionalidade material ao violar a vedação do art. 63 [T2].',
+      'O dispositivo é materialmente inconstitucional [T2].',
+      'A proposição apresenta vício de iniciativa [T2].',
+    ];
+    const m7 = frase => { const g = G.aplicarGates({ ...base, texto: relato.replace('y [L1].', frase) }); return G.rubricaMaquina({ ...base, texto: g.texto, gates: g }).itens.find(i => /^M7/.test(i.item)).ok; };
+    ok(frasesRelato.every(m7), 'M7 aceita referência a inconstitucionalidade já declarada (rodada r9: "o vácuo gerado pela inconstitucionalidade das alíneas")');
+    ok(frasesAfirmacao.every(f => !m7(f)), 'M7 reprova o parecer que AFIRMA o vício ("incorre em", "é inconstitucional", "apresenta vício de iniciativa")');
     const relato2 = relato.replace('y [L1].', 'O projeto busca preencher o vácuo consolidado após o Supremo Tribunal Federal declarar a inconstitucionalidade das alíneas d e e do art. 240 da Lei 8.112/1990 no âmbito da Ação Direta de Inconstitucionalidade nº 492 [T2].');
     const g2 = G.aplicarGates({ ...base, texto: relato2 });
     ok(G.rubricaMaquina({ ...base, texto: g2.texto, gates: g2 }).itens.find(i => /^M7/.test(i.item)).ok, 'M7: "após o STF declarar a inconstitucionalidade… Ação Direta de Inconstitucionalidade nº 492" é relato com precedente (rodada r7)');
@@ -283,6 +295,11 @@ const achadosX = [
     ok(v.tese.aprimoramentos.length === 1 && v.removidas.some(r => r.id === 'R2' && /sem dispositivo ou sem sugestão/.test(r.motivo)), 'aprimoramento sem dispositivo ou sem sugestão acionável é removido');
     ok(v.tese.viabilidade.length === 1 && v.removidas.some(r => r.id === 'V2' && /sem fato da tramitação/.test(r.motivo)), 'viabilidade: só sinal apoiado em fato da tramitação (S) ou do documento (A) — aposta de votos cai');
     ok(v.tese.conclusao && v.tese.conclusao.opcoes.join() === 'P1' && !v.tese.conclusao.evidencias.includes('P1'), 'conclusão: a opção citada é separada das evidências do catálogo');
+    // rodada r9: o modelo escreveu "(A42)" na prosa e o "42" derrubava a unidade
+    const comIdNaProsa = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)),
+      opcoes: [{ id: 'P1', opcao: 'Aprovar o substitutivo (A30), suprindo a lacuna da ADI 492 (A42)', fiscal: 'sem impacto (A39, LV5)', juridica: 'b', politica: 'c', evidencias: ['A1'] }] }, cat, { nivel: 'C', emVigor: false });
+    ok(comIdNaProsa.tese.opcoes.length === 1 && !comIdNaProsa.removidas.some(r => r.id === 'P1'), 'identificador citado dentro da prosa ("(A42)") não vira número inventado');
+    ok(T.conferirRedacao('Síntese\n\nAprovar o substitutivo (A30) suprindo a lacuna (A42) [P1].', { tese: comIdNaProsa.tese, catalogo: cat, ficha }).numerosSuspeitos.length === 0, 'na redação, o mesmo identificador na prosa também não é número suspeito');
     const semMudaria = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)), conclusao: { id: 'CC', posicao: 'Aprovar', porque: 'x', evidencias: ['P1'] } }, cat, { nivel: 'C', emVigor: false });
     ok(!semMudaria.tese.conclusao && semMudaria.removidas.some(r => r.id === 'CC' && /o que mudaria/.test(r.motivo)), 'conclusão sem "o que mudaria a posição" é removida');
     const semOpcao = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)), conclusao: { id: 'CC', posicao: 'Aprovar', porque: 'x', o_que_mudaria: 'y', evidencias: ['A1'] } }, cat, { nivel: 'C', emVigor: false });
