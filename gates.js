@@ -27,7 +27,16 @@ const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nov
 const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
 const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|(?:deve|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?|A[çc][ãa]o Direta de (?:In)?constitucionalidade|Argui[çc][ãa]o de Descumprimento[^\d]{0,40}|Mandado de Injun[çc][ãa]o)\s*n?[.º°]?\s*\d/i;
-const RE_ASSERCAO = /inconstitucional|v[íi]cio\s+de\s+(iniciativa|compet[êe]ncia|forma)|usurpa[çc][ãa]o\s+de\s+compet[êe]ncia/i;
+// O parecer AFIRMANDO o vício ("é inconstitucional", "incorre em vício de
+// iniciativa") — e não a referência a inconstitucionalidade já declarada
+// ("o vácuo gerado pela inconstitucionalidade das alíneas"), que é relato.
+const RE_ASSERCAO = new RegExp([
+  // \b não vale antes de "é" (não é [A-Za-z0-9_] em JS): a fronteira vai explícita.
+  '(?:^|[\\s,;(])(?:é|são|seria|seriam|resta|restam|mostra-se|revela-se|afigura-se|reputa-se|tem-se por)\\s+(?:material|formal|manifesta|clara|patente|flagrante)?(?:mente)?\\s*inconstitucion(?:al|ais)',
+  '\\b(?:incorre|padece|enseja|configura|acarreta|apresenta|contém|encerra|h[áa]|existe|verifica-se|constata-se)\\b[^.]{0,45}?(?:inconstitucionalidade|v[íi]cio\\s+de\\s+(?:iniciativa|compet[êe]ncia|forma))',
+  'v[íi]cio\\s+(?:formal|material)\\s+insan[áa]vel',
+  'usurpa[çc][ãa]o\\s+de\\s+compet[êe]ncia',
+].join('|'), 'i');
 // "declarou a inconstitucionalidade", "declaradas inconstitucionais pelo STF", "julgada inconstitucional na ADI":
 // relato de decisão já tomada, não afirmação do parecer. Sai do parágrafo antes do teste do M7.
 const RE_INCONST_RELATADA = /(?:declara(?:r|ção|ções|ram|ou|d[ao]s?)|julg(?:ar|ou|ad[ao]s?)|reconhec(?:er|eu|id[ao]s?)|pronunci(?:ar|ou|ad[ao]s?))\s+(?:formalmente\s+|expressamente\s+)?(?:a\s+|d[ae]\s+)?inconstitucional(?:idade)?|inconstitucional(?:idade)?\s+(?:das?|dos?|de)\s+[^.]{0,80}?(?:pelo|no)\s+(?:STF|Supremo)|(?:STF|Supremo Tribunal Federal|Supremo)[^.]{0,80}?inconstitucional(?:idade)?|A[çc][ãa]o Direta de Inconstitucionalidade/gi;
