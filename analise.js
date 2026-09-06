@@ -2951,7 +2951,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       else body.thinking = { type: 'enabled', budget_tokens: 16000 };
       body.max_tokens = maxSaida + 16000;
     }
-    if (web) body.tools = [{ type: 'web_search_20250305', name: 'web_search', max_uses: 5 }];
+    // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
+    if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
     if (pensarAlto) {
       body.stream = true;
@@ -7114,7 +7115,7 @@ async function gerarParecerEspecialista(it) {
       situacao, temas, docs, processo, textoEmendas: docsMeta.map(d => d.rotulo).concat(emendas.map(e => e.rotulo)).join(' '), hoje: new Date(),
     };
     const io = {
-      chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
+      chamarModelo: ({ prompt, pdfBuffers, web }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
       abrirXlsx: typeof XLSX !== 'undefined' ? (b => XLSX.read(new Uint8Array(b), { type: 'array' })) : null,

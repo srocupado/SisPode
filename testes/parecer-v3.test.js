@@ -185,9 +185,14 @@ const achadosX = [
     const votoProprio = relato.replace('y [L1].', 'Diante do exposto, recomenda-se a aprovação do substitutivo [T6].');
     const mk = tx => { const g = G.aplicarGates({ ...base, texto: tx }); return G.rubricaMaquina({ ...base, texto: g.texto, gates: g }).itens.find(i => /^M11/.test(i.item)).ok; };
     ok(mk(relatoVoto) && !mk(votoProprio), 'M11 aceita "o relator recomendou a aprovação" (relato) e reprova "recomenda-se a aprovação" (voto do parecer)');
-    ok(/nível de evidência C, não comparável: não há série oficial/.test(gR.texto) && gR.notas.some(n => /inserida pelo programa/.test(n)) && rR.itens.find(i => /^M10/.test(i.item)).ok, 'G8: sem a frase do nível, o programa a insere na abertura da Avaliação e a rubrica M10 passa');
-    const jaTem = G.aplicarGates({ ...base, texto: relato.replace('Avaliação da política\n\n', 'Avaliação da política\n\nA comparação tem nível de evidência C [T1].\n\n') });
-    ok(!jaTem.notas.some(n => /inserida pelo programa/.test(n)), 'com a frase presente, nada é inserido');
+    ok(/Não há dados oficiais que permitam comparar o antes e o depois/.test(gR.texto) && !/n[íi]vel de evid[êe]ncia/i.test(gR.texto) && gR.notas.some(n => /inserida pelo programa/.test(n)) && rR.itens.find(i => /^M10/.test(i.item)).ok, 'G8: sem a frase em palavras, o programa a insere na abertura da Avaliação, sem rótulo, e a rubrica M10 passa');
+    const jaTem = G.aplicarGates({ ...base, texto: relato.replace('Avaliação da política\n\n', 'Avaliação da política\n\nNão há dados oficiais que permitam comparar o antes e o depois da mudança [T1].\n\n') });
+    ok(!jaTem.notas.some(n => /inserida pelo programa/.test(n)), 'com a frase em palavras presente, nada é inserido');
+    const comRotulo = G.aplicarGates({ ...base, texto: relato.replace('y [L1].', 'A comparação é fraca (nível de evidência C) [L1].') });
+    ok(!/n[íi]vel de evid[êe]ncia/i.test(comRotulo.texto) && /sem base para comparar/.test(comRotulo.texto), 'o rótulo "nível de evidência C" some do corpo: vira "sem base para comparar"');
+    const gProj = G.aplicarGates({ ...base, texto: relato, emVigor: false });
+    ok(/ainda não está em vigor, não há resultados a comparar/.test(gProj.texto), 'proposição ainda não em vigor: a frase diz que não há resultados a comparar, não que "não há série"');
+    ok(/Não há dados oficiais/.test(G.fraseDoNivel('C', true)) && /12 meses/.test(G.fraseDoNivel('A')) && /indicam uma direção/.test(G.fraseDoNivel('B')), 'fraseDoNivel: uma frase por nível, em palavras');
   }
 
   console.log('== tramitação: o que o módulo de Plenário sabe entra no catálogo, na apuração, na rubrica e na 1ª página ==');
@@ -218,6 +223,27 @@ const achadosX = [
     ok(/O que vale hoje/.test(html) && /texto novo/.test(html), 'alteracoesParaHtml imprime as três colunas');
   }
 
+  console.log('== proposição ainda não em vigor: vereditos "o texto prevê meios"; experiência comparada (W) ==');
+  {
+    const cat = T.catalogoDeEvidencias({ achados: [{ lente: 'X', pergunta: 'altera', achado: 'Institui rodada anual de negociação.', trecho: 't', dispositivo: 'art. 5º' }], situacao: 'x',
+      comparada: [{ lugar: 'Portugal', quando: '2014', medida: 'negociação coletiva na administração pública (LTFP)', o_que_se_mediu: 'acordos firmados 2015-2020', resultado: '35 acordos coletivos', fonte_nome: 'OCDE, Government at a Glance', fonte_url: 'https://www.oecd.org/x' }] });
+    ok(cat.itens.some(i => i.id === 'W1' && i.tipo === 'externa' && /não conferida pelo programa/.test(i.texto) && i.numeros.includes(35)), 'W1 entra no catálogo como externa, com a fonte e os números');
+    const tese = { afirmacoes: [
+      { id: 'T1', secao: 'comparada', tipo: 'fato', texto: 'Portugal firmou 35 acordos coletivos entre 2015 e 2020.', evidencias: ['W1'] },
+      { id: 'T2', secao: 'sintese', tipo: 'fato', texto: 'Portugal firmou 35 acordos coletivos.', evidencias: ['W1'] } ],
+      objetivos: [{ id: 'O1', objetivo: 'Regulamentar a Convenção 151 da OIT', veredito: 'não verificável', justificativa: 'x', evidencias: ['A1'] }, { id: 'O2', objetivo: 'Reduzir greves', veredito: 'o texto prevê meios em parte', justificativa: 'y', evidencias: ['A1'] }], lados: {}, opcoes: [], fatores_concorrentes: [] };
+    const v = T.validarTese(JSON.parse(JSON.stringify(tese)), cat, { nivel: 'C', emVigor: false });
+    ok(v.tese.afirmacoes.some(a => a.id === 'T1') && v.removidas.some(r => r.id === 'T2' && /experiência externa/.test(r.motivo)), 'fato apoiado só em W vale na seção "comparada" e cai fora dela');
+    ok(v.tese.objetivos.find(o => o.id === 'O2').veredito === 'o texto prevê meios em parte' && v.tese.objetivos.find(o => o.id === 'O1').veredito === 'não verificável', 'projeto: vereditos "o texto prevê meios…" são aceitos como estão');
+    const vEmVigor = T.validarTese(JSON.parse(JSON.stringify(tese)), cat, { nivel: 'C', emVigor: true });
+    ok(vEmVigor.tese.objetivos.find(o => o.id === 'O2').veredito === 'não verificável', 'em vigor sem série: o veredito de projeto é rebaixado a "não verificável"');
+    const pt = T.promptTese({ identificacao: 'PL 1893/2026', ficha, catalogo: cat, nivel: 'C', emVigor: false, temComparada: true });
+    ok(/AINDA NÃO ESTÁ EM VIGOR/.test(pt) && /"o texto prevê meios"/.test(pt) && /regulamentar \/ instituir \/ criar X/.test(pt) && /EXPERIÊNCIA COMPARADA \(W\)/.test(pt), 'prompt da tese: regras de projeto e de experiência comparada');
+    const pr = T.promptRedacao({ identificacao: 'PL 1893/2026', ficha, tese: v.tese, catalogo: cat, nivel: 'C', temSerie: false, emVigor: false, temComparada: true });
+    ok(/NUNCA escreva "nível de evidência"/.test(pr) && /ainda não está em vigor, não há resultados a comparar/.test(pr) && /Experiência de outros países e entes/.test(pr) && /NÃO escreva "não verificável" para ele/.test(pr), 'prompt da redação: solidez em palavras, seção comparada, avaliação de projeto');
+    ok(/fonte_url/.test(P.promptComparada({ identificacao: 'x', ementa: 'y', regra: 'z' })) && T.TITULOS.comparada === 'Experiência de outros países e entes', 'promptComparada pede fonte com URL; a seção existe nos títulos');
+  }
+
   console.log('== conferência de trecho com quebra de página ==');
   {
     const doc = 'x'.repeat(600) + ' Apoiamos, dessa forma, o conteúdo da Emenda nº 3 – PLEN, do Senador Mecias de Jesus. Por ser incompatível [p12] 12 SF/24692.28045-78 com essa supressão, rejeitamos as Emendas nº 4 e 11 – PLEN, que propõem a tributação com alíquotas diferenciadas.';
@@ -243,6 +269,7 @@ const achadosX = [
     redacao: 'Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026 [T1].\n\nSem série oficial, o efeito não é verificável (nível de evidência C) [T2].\n\nContexto e processo\n\nA EMI declara que não há renúncia [T3].\n\nLei vigente e datas de efeito\n\nVale 20% até US$ 50 [F1].\n\nO que se previu\n\nA EMI nega renúncia [D1].\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável [O1].\n\nOs dois lados\n\nQuem apoia diz que simplifica [L1]. Quem se opõe aponta renúncia sem estimativa [L2].\n\nOpções e consequências\n\nAprovar consolida a delegação sem estimativa [P1].\n\nCondicionar à estimativa atende à LRF [P2].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades [A5]. Não identifiquei questão quanto à espécie tributária.',
   };
   const io = {
+    semWeb: true,
     chamarModelo: async ({ prompt }) => { const nome = /etapa de APURAÇÃO/.test(prompt) ? 'apuracao' : /apura o HISTÓRICO/.test(prompt) ? 'historico' : /formula a TESE/.test(prompt) ? 'tese' : /revisor ADVERSARIAL/.test(prompt) ? 'contraditorio' : 'redacao'; return { text: respostas[nome] || '[]', truncated: false }; },
     lerPdf: async () => textoDoc, fetchFn: null, abrirXlsx: null, onPasso: () => {},
   };
@@ -262,10 +289,9 @@ const achadosX = [
     ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && !/\[T1\]|<sup class="ev">/.test(corpoHtml) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha e seções com âncora, e o corpo sai SEM identificadores de evidência');
     ok(/Limites deste parecer/.test(corpoHtml) && /não recomenda voto/.test(corpoHtml) && /Anexo técnico — conferência/.test(html) && /M1 Ficha do objeto/.test(html.slice(html.indexOf('<h3 class="item-h">Anexo técnico'))), '"Limites deste parecer" em palavras no corpo; rubrica e tese com identificadores só no anexo técnico');
     ok(/<td>T1<\/td>/.test(html) && /Tese aprovada, com evidências/.test(html), 'a rastreabilidade (T1 → evidências) está na tabela do anexo técnico');
-    // "Nível de evidência B" era jargão repetido no PDF sem explicação (crítica do usuário).
-    ok(/Solidez da comparação antes × depois: <b>não comparável<\/b> — não há série oficial/.test(html), 'o nível de evidência é explicado em palavras na primeira página');
-    const ocorr = html.match(/nível de evidência C/gi) || [];
-    ok(ocorr.length >= 1 && /nível de evidência C \(sem base para comparar\)/.test(html), 'no corpo, a primeira ocorrência vem traduzida entre parênteses');
+    // "Nível de evidência C" era jargão no PDF (crítica do usuário, duas vezes): sai do corpo; a 1ª página explica em palavras.
+    ok(/Não há dados oficiais que permitam comparar o antes e o depois/.test(corpoHtml), 'a solidez da comparação é explicada em palavras na primeira página');
+    ok(!/n[íi]vel de evid[êe]ncia/i.test(corpoHtml), 'o corpo do parecer não usa a expressão "nível de evidência"');
   }
   // modelo que não enuncia o objeto: a redação é refeita uma vez e, persistindo, o parecer sai reprovado
   const respostasRuins = { ...respostas, redacao: respostas.redacao.replace('permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026', 'delega ao Ministro a alteração das alíquotas') };
@@ -280,6 +306,12 @@ const achadosX = [
   const p6 = await PP.gerarParecer({ ...ctx, processo: { cenario: 'Cenário 8a — MPV (texto original do Executivo)', textoEmVotacao: 'Texto original', relator: { nome: 'Rodrigo Cunha', partido: 'PODE', uf: 'AL' }, documentos: [{ rotulo: 'Texto original da MPV 1357/2026' }], emendas: [], comissoes: [] } }, io6);
   ok(!p6.erro && p6.processo && p6.processo.relator.nome === 'Rodrigo Cunha' && Array.isArray(p6.alteracoes) && p6.alteracoes.length === 1 && p6.rubrica.itens.some(i => /^M12/.test(i.item)), 'pipeline: tramitação vai à apuração, volta no parecer (processo, alteracoes) e a rubrica avalia M12');
   ok(!p5.erro && p5.chamadas.some(c => c.nome === 'ficha') && p5.ficha.regraVigente && /NÃO HAVENDO regra/.test(promptFichaVisto) && p5.apuracao.aprovados === p.apuracao.aprovados, 'sem regra_antes: chamada dedicada à ficha, achado entra uma vez só (dispositivo já existente não duplica)');
+  // com busca na web: a chamada "comparada" recebe web:true e os itens com fonte entram (W) e vão ao parecer
+  const io7 = { ...io, semWeb: false, chamarModelo: async ({ prompt, web }) => { if (/EXPERIÊNCIA COMPARADA para um parecer/.test(prompt)) { if (!web) throw new Error('comparada sem web'); return { text: JSON.stringify([{ lugar: 'Portugal', quando: '2014', medida: 'm', o_que_se_mediu: 'x', resultado: 'r', fonte_nome: 'OCDE', fonte_url: 'https://www.oecd.org/x' }, { lugar: 'sem fonte', medida: 'm', resultado: 'r' }]), truncated: false }; } return io.chamarModelo({ prompt }); } };
+  const p7 = await PP.gerarParecer(ctx, io7);
+  ok(!p7.erro && p7.chamadas.some(c => c.nome === 'comparada' && c.web) && p7.comparada.length === 1 && p7.comparada[0].lugar === 'Portugal', 'pipeline: busca comparada com web:true; item sem fonte cai; o parecer devolve a lista');
+  const htmlC = H.htmlParecer(p7, { materia: 'x' });
+  ok(/Fontes externas da experiência comparada/.test(htmlC) && /oecd\.org/.test(htmlC) && /NÃO foram conferidas/.test(htmlC) && !/Parecer produzido com apoio/.test(htmlC), 'impresso: fontes externas no anexo e aviso nos limites; sem o carimbo do modelo');
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   // apuração geral truncada (o raciocínio conta no teto de saída): uma chamada por lente, ficha só na primeira
