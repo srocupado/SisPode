@@ -427,7 +427,15 @@ function unidadesDaTese(t) {
   for (const x of t.implementacao || []) u.push({ id: x.id, tipo: 'fato', secao: 'implementacao', texto: `${x.aspecto || 'implementação'}: ${x.texto}`, evidencias: x.evidencias });
   for (const x of t.aprimoramentos || []) u.push({ id: x.id, tipo: 'juizo', secao: 'redacional', texto: `${x.dispositivo} (${x.tipo || 'redacional'}) — problema: ${x.problema || '—'}; sugestão: ${x.sugestao}`, evidencias: x.evidencias });
   for (const x of t.viabilidade || []) u.push({ id: x.id, tipo: 'fato', secao: 'viabilidade', texto: `Sinal (${x.peso}): ${x.sinal}`, evidencias: x.evidencias });
-  if (t.conclusao) u.push({ id: t.conclusao.id || 'CC', tipo: 'juizo', secao: 'conclusao', texto: `Posição sugerida: ${t.conclusao.posicao}. Porque: ${t.conclusao.porque}. Mudaria se: ${t.conclusao.o_que_mudaria}${(t.conclusao.opcoes || []).length ? ` (decorre da opção ${t.conclusao.opcoes.join(', ')})` : ''}`, evidencias: [...(t.conclusao.evidencias || []), ...(t.conclusao.opcoes || [])] });
+  if (t.conclusao) {
+    const c = t.conclusao;
+    // Conclusão derrubada no contraditório: a posição não vai ao texto, mas o
+    // leitor precisa saber o que se argumentou e por que não se sustentou.
+    const texto = c.contestada
+      ? `Posição NÃO sustentada. O que a assessoria havia argumentado: ${c.porque}. Por que a conferência não manteve a posição: ${c.contestada}`
+      : `Posição sugerida: ${c.posicao}. Porque: ${c.porque}. Mudaria se: ${c.o_que_mudaria}${(c.opcoes || []).length ? ` (decorre da opção ${c.opcoes.join(', ')})` : ''}`;
+    u.push({ id: c.id || 'CC', tipo: 'juizo', secao: 'conclusao', texto, evidencias: [...(c.evidencias || []), ...(c.opcoes || [])] });
+  }
   return u;
 }
 
@@ -620,7 +628,10 @@ ${tem('viabilidade') ? `- Prioridade e viabilidade: os sinais objetivos da trami
 - Conclusão e posicionamento sugerido: dois a quatro parágrafos. O primeiro traz a POSIÇÃO SUGERIDA em uma frase, com o
   verbo no início ("Sugere-se aprovar o substitutivo com as emendas…"), EXATAMENTE como está na tese. Depois, o porquê
   ligado às evidências e, no último parágrafo, o que faria a assessoria mudar de posição. Esta é a ÚNICA seção em que o
-  parecer recomenda; escreva-a como juízo da assessoria. Se a tese não trouxer conclusão, escreva só: "A assessoria não
+  parecer recomenda; escreva-a como juízo da assessoria.
+  Se a tese trouxer a conclusão marcada como "Posição NÃO sustentada", escreva dois parágrafos: o que a assessoria havia
+  argumentado e por que a conferência não manteve a posição (nas palavras da tese), fechando com a frase de que, à vista
+  das opções, a decisão fica com a Liderança. Se a tese não trouxer conclusão nenhuma, escreva só: "A assessoria não
   sustentou posição nesta matéria: a conferência automática não a manteve.".
 - Português formal, parágrafos corridos, texto puro: sem negrito, itálico, listas, tabelas ou cercas de código. Não escreva
   cabeçalho, título, destinatário, data, ressalvas ou lista de fontes: o formato de impressão já traz.`;
