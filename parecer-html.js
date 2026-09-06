@@ -142,8 +142,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   limites.push(p.temSerie ? `${fraseNivel} O parecer mostra o que a série registra; não afirma que a medida causou a variação, porque outros fatores agem ao mesmo tempo.` : fraseNivel);
   const nExt = (p.comparada || []).length + (p.jurisprudencia || []).length + (p.infralegal || []).length + (p.posicoes || []).length;
   if (nExt) limites.push(`As seções que trazem experiência de outros países, jurisprudência, normas infralegais e posições públicas vêm de busca na internet feita pelo modelo: ${nExt} fonte(s), nomeadas no texto e listadas no anexo técnico, NÃO conferidas pelo programa. Use-as como pista, não como prova.`);
-  if (p.tese?.conclusao) limites.push('O "Posicionamento sugerido" é juízo da assessoria, não resultado da apuração: decorre das opções e das evidências, e a decisão é da Liderança.');
-  else limites.push('Este parecer não traz posicionamento: apresenta as opções e suas consequências; a decisão é da Liderança.');
+  limites.push('Este parecer não recomenda voto nem defende posição: apresenta as opções, as consequências de cada uma e o que falta saber para decidir. A decisão é da Liderança.');
   for (const a of p.dossie?.avisos || []) limites.push(a);
   const nRemov = (p.validacao?.removidas || []).length + (p.contraditorio?.refutadas || []).length;
   const nContest = (p.contraditorio?.contestadas || []).length;
@@ -154,7 +153,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   // ---- índice e corpo ------------------------------------------------------
   const indice = `<section class="indice"><h2>Índice</h2><ul>
       <li><a href="#${bm('ficha')}">Ficha do objeto<span class="ld"></span></a></li>
-      ${p.tese?.conclusao ? `<li><a href="#${bm('posicao')}">Posicionamento sugerido<span class="ld"></span></a></li>` : ''}
+      ${p.tese?.conclusao ? `<li><a href="#${bm('posicao')}">O que está em jogo na decisão<span class="ld"></span></a></li>` : ''}
       ${p.processo ? `<li><a href="#${bm('tramitacao')}">Tramitação<span class="ld"></span></a></li>` : ''}
       ${(p.alteracoes || []).length ? `<li><a href="#${bm('alteracoes')}">O que muda na legislação<span class="ld"></span></a></li>` : ''}
       ${secoes.filter(s => s.chave !== 'abertura').map(s => `<li><a href="#${bm(s.chave)}">${esc(s.rotulo)}<span class="ld"></span></a></li>`).join('')}
@@ -232,11 +231,14 @@ ${CSS_TAB || ''}
       ${lista('conf-pend', 'Observações', p.gates?.notas || [])}
     </div>
     ${p.tese?.conclusao ? `<div class="bloco" id="${bm('posicao')}">
-      <h3 class="item-h">Posicionamento sugerido</h3>
-      <div class="posicao">${p.tese.conclusao.posicao
-        ? `<p class="posicao-p">${esc(p.tese.conclusao.posicao)}</p><p>${esc(p.tese.conclusao.porque || '')}</p><p><b>Mudaria se:</b> ${esc(p.tese.conclusao.o_que_mudaria || '—')}</p>`
-        : `<p class="posicao-p">A assessoria não sustentou posição nesta matéria.</p><p>${esc(p.tese.conclusao.contestada || 'A conferência automática não manteve a conclusão.')}</p>`}
-        <p class="posicao-aviso">Este é o juízo da assessoria, não um fato apurado: decorre das opções e das evidências listadas no parecer. A decisão é da Liderança.</p>
+      <h3 class="item-h">O que está em jogo na decisão</h3>
+      <div class="posicao">
+        <p class="posicao-p">${esc(p.tese.conclusao.ponto_de_decisao || '')}</p>
+        ${p.tese.conclusao.estabelecido ? `<p><b>Estabelecido:</b> ${esc(p.tese.conclusao.estabelecido)}</p>` : ''}
+        ${p.tese.conclusao.aberto ? `<p><b>Em aberto:</b> ${esc(p.tese.conclusao.aberto)}</p>` : ''}
+        <p><b>Falta para decidir:</b> ${esc(p.tese.conclusao.falta_para_decidir || '—')}</p>
+        ${p.tese.conclusao.contestada ? `<p><b>Ressalva da conferência:</b> ${esc(p.tese.conclusao.contestada)}</p>` : ''}
+        <p class="posicao-aviso">Este parecer não recomenda voto nem defende posição: apresenta as opções, as consequências de cada uma e o que falta saber. A decisão é da Liderança.</p>
       </div>
     </div>` : ''}
     ${p.processo ? `<div class="bloco" id="${bm('tramitacao')}">
