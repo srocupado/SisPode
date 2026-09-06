@@ -76,6 +76,11 @@ const achadosX = [
     ok(fq.regraVigente && fq.regraVigente.origem === 'documento' && /Não há lei/.test(fq.regraVigente.texto), 'texto original de 1990 recusado; "não há lei que discipline" vale como regra vigente, com origem declarada');
     ok(fq.dataEfeito && fq.dataEfeito.data === null && /noventa dias/.test(fq.dataEfeito.clausula) && fq.dataEfeito.condicional && /se aprovado/.test(F.dataEfeitoTexto(fq)), 'projeto: a data do fecho do parecer não vira vigência; vale a cláusula, condicionada à aprovação');
     ok(F.objetoEnunciado('O PL 1893/2026 institui a negociação coletiva e altera o art. 240 da Lei 8.112/1990.', fq).ok && !F.objetoEnunciado('O projeto institui a negociação coletiva.', fq).ok, 'G2 sem números: a síntese tem de nomear a norma alterada (8.112)');
+    const comLegin = F.montarFicha({ achados: achadosPL.map(a => a.pergunta === 'dispositivo' ? { ...a, achado: 'A proposição institui marco legal autônomo sobre negociação no setor público.' } : a),
+      leiVigente: [{ norma: 'Lei nº 8.112, de 11 de dezembro de 1990', origem: 'camara', compilado: true, url: 'https://www2.camara.leg.br/legin/x-normaatualizada-pl.html', trechos: [{ artigo: 'Art. 92', texto: 'Art. 92. É assegurado ao servidor o direito à licença sem remuneração' }, { artigo: 'Art. 240', texto: 'Art. 240. Ao servidor público civil é assegurado o direito à livre associação sindical: d) (Revogada pela Lei nº 9.527, de 10/12/1997 )' }] }],
+      marco: null, identificacao: 'PL 1893/2026', fonte: fontePL, sigla: 'PL' });
+    ok(comLegin.regraVigente && comLegin.regraVigente.origem === 'camara' && /Art\. 240/.test(comLegin.regraVigente.texto) && /Portal da Legislação da Câmara/.test(comLegin.regraVigente.fonte) && /Não há lei/.test(comLegin.regraVigente.noDocumento || ''), 'com o LEGIN: o art. 240 citado na regra_antes (não no dispositivo) casa com a lei lida; a descrição do documento vai junto');
+    ok(/Como o documento analisado descreve/.test(F.fichaParaHtml(comLegin)) && /ficha-doc/.test(F.fichaParaHtml(comLegin)), 'a ficha impressa mostra a lei e, abaixo, a situação como o documento a descreve');
     const semRegraPL = F.montarFicha({ achados: achadosPL.filter(a => a.pergunta !== 'regra_antes'), leiVigente: fq.leiTentada.map(l => ({ norma: l.norma, compilado: false, desatualizado: true, trechos: [] })), marco: null, identificacao: 'PL 1893/2026', fonte: fontePL });
     const gq = G.aplicarGates({ ficha: semRegraPL, dossie: { avisos: [] }, tese: { afirmacoes: [] }, texto: 'Síntese\n\nx', nivel: 'C' });
     ok(gq.faixas.some(f => /texto original de Lei nº 8\.112/.test(f) && /não vale como regra vigente/.test(f)), 'G1 diz a causa exata: Planalto mudo, Senado só com o texto original, documento sem a regra atual');
@@ -174,6 +179,10 @@ const achadosX = [
     const gP = G.aplicarGates({ ...base, texto: proprio });
     const rP = G.rubricaMaquina({ ...base, texto: gP.texto, gates: gP });
     ok(rR.itens.find(i => /^M7/.test(i.item)).ok && !rP.itens.find(i => /^M7/.test(i.item)).ok, 'M7 aceita o relato da decisão do STF e reprova a inconstitucionalidade afirmada pelo parecer sem precedente');
+    const relatoVoto = relato.replace('y [L1].', 'A manifestação do relator consolidou as adequações acolhidas na comissão e recomendou a aprovação do texto [T6]. O parecer da CASP opina pela aprovação [T6].');
+    const votoProprio = relato.replace('y [L1].', 'Diante do exposto, recomenda-se a aprovação do substitutivo [T6].');
+    const mk = tx => { const g = G.aplicarGates({ ...base, texto: tx }); return G.rubricaMaquina({ ...base, texto: g.texto, gates: g }).itens.find(i => /^M11/.test(i.item)).ok; };
+    ok(mk(relatoVoto) && !mk(votoProprio), 'M11 aceita "o relator recomendou a aprovação" (relato) e reprova "recomenda-se a aprovação" (voto do parecer)');
     ok(/nível de evidência C, não comparável: não há série oficial/.test(gR.texto) && gR.notas.some(n => /inserida pelo programa/.test(n)) && rR.itens.find(i => /^M10/.test(i.item)).ok, 'G8: sem a frase do nível, o programa a insere na abertura da Avaliação e a rubrica M10 passa');
     const jaTem = G.aplicarGates({ ...base, texto: relato.replace('Avaliação da política\n\n', 'Avaliação da política\n\nA comparação tem nível de evidência C [T1].\n\n') });
     ok(!jaTem.notas.some(n => /inserida pelo programa/.test(n)), 'com a frase presente, nada é inserido');

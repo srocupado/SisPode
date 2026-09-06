@@ -24,7 +24,7 @@ const _NIVEL_EVIDENCIA = __dossieMod ? __dossieMod.NIVEL_EVIDENCIA : (typeof NIV
 const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|mil|quinhentos)\s+(?:e\s+\w+\s+)?(bilh|milh)/gi;
 // "A data de efeito da medida é 12/05/2026" não é causa; "o efeito da medida foi a queda" é.
 const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
-const RE_VOTO = /\b(recomend\w+ (o |a )?(voto|aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
+const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|(?:deve|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?)\s*n?[.º°]?\s*\d/i;
 const RE_ASSERCAO = /inconstitucional|v[íi]cio\s+de\s+(iniciativa|compet[êe]ncia|forma)|usurpa[çc][ãa]o\s+de\s+compet[êe]ncia/i;
 // "declarou a inconstitucionalidade", "declaradas inconstitucionais pelo STF", "julgada inconstitucional na ADI":
@@ -33,6 +33,14 @@ const RE_INCONST_RELATADA = /(?:declara(?:ção|ções|ram|ou|d[ao]s?)|julg(?:ou
 const RE_NEGACAO = /n[ãa]o\s+(se\s+)?(identifi|verifi|vislumbr|constat|h[áa]\b|se\s+afigura|parece)/i;
 
 const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|sustenta|alega|afirma|defende|aponta|segundo (o|a|os|as) )[^.]{0,120}$/i;
+// "o relator recomendou a aprovação", "o parecer opina pela rejeição": relato, não voto do parecer.
+const RE_QUEM_VOTA = /\b(relator[a]?|parecer|comiss[ãa]o|manifesta[çc][ãa]o|CASP|CCJ|CFT|governo|autor[a]?|senador[a]?|deputad[oa]|l[íi]der|bancada|sindicato|entidade|confedera[çc][ãa]o|quem (apoia|se op[õo]e|defende|critica)|segundo)\b[^.]{0,160}$/i;
+/** Recomendações de voto que o PARECER faz — exclui as relatadas como posição de outrem. */
+function votosNaoAtribuidos(texto) {
+  const t = String(texto || ''); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
+  while ((m = re.exec(t)) !== null) { const antes = t.slice(Math.max(0, m.index - 160), m.index); if (!RE_QUEM_VOTA.test(antes) && !RE_ATRIBUICAO.test(antes)) out.push(t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30).replace(/\s+/g, ' ')); }
+  return out;
+}
 /** Frases causais que o PARECER assume — exclui as relatadas como posição de um lado. */
 function causaisNaoAtribuidas(texto) {
   const t = String(texto || ''); const out = []; const re = new RegExp(RE_CAUSAL.source, 'gi'); let m;
@@ -146,7 +154,8 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   // Causalidade ATRIBUÍDA A UM LADO ("quem apoia argumenta que a medida
   // aumentou…") é relato da posição alheia, não afirmação do parecer.
   const causaisProprias = causaisNaoAtribuidas(t);
-  add(!causaisProprias.length && !RE_VOTO.test(t), 'M11 Sem atribuição causal própria e sem recomendação de voto', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : RE_VOTO.test(t) ? 'recomendação de voto' : null);
+  const votosProprios = votosNaoAtribuidos(t);
+  add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria e sem recomendação de voto', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação de voto: "${votosProprios[0]}"` : null);
   const pendentes = itens.filter(i => !i.ok);
   return { itens, pendentes, aprovado: !pendentes.length, resumo: pendentes.length ? `${pendentes.length} de ${itens.length} itens da rubrica reprovados.` : `Os ${itens.length} itens mecânicos da rubrica foram satisfeitos.` };
 }
