@@ -314,6 +314,8 @@ const achadosX = [
       { id: 'AT1', refutada: true, motivo: 'faltou dizer a data' },
       { id: 'R1', refutada: true, motivo: 'a redação sugerida repete o que a lei já diz' }], cat);
     ok(c2.tese.conclusao && c2.tese.conclusao.posicao === null && /ignora o impacto/.test(c2.tese.conclusao.contestada), 'conclusão refutada perde a posição e guarda o motivo');
+    const uCC = T.unidadesDaTese(c2.tese).find(u => u.id === 'CC');
+    ok(/Posição NÃO sustentada/.test(uCC.texto) && /havia argumentado: o vácuo normativo/.test(uCC.texto) && /não manteve a posição: a posição ignora o impacto/.test(uCC.texto), 'a redação recebe o que se argumentou e por que não se sustentou (rodada r10)');
     ok(c2.tese.atores.length === 2 && c2.ressalvas.some(r => r.id === 'AT1'), 'ator refutado sem erro concreto vira ressalva, não sai');
     ok(!c2.tese.aprimoramentos.length && c2.refutadas.some(r => r.id === 'R1'), 'aprimoramento refutado sai (sugestão errada é pior que sugestão a menos)');
     // prompts
