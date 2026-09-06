@@ -15,9 +15,9 @@
 const __mh = (typeof module !== 'undefined' && typeof require === 'function') ? { D: require('./dossie.js'), F: require('./ficha.js'), T: require('./tese.js') } : null;
 // `const` de script clássico não está em globalThis e a CSP proíbe eval — identificadores explícitos, resolvidos na chamada.
 function _refsHtml() {
-  if (__mh) return { TITULOS: __mh.T.TITULOS, tabelasDoDossie: __mh.D.tabelasDoDossie, CSS_TABELAS_DOSSIE: __mh.D.CSS_TABELAS_DOSSIE, fichaParaHtml: __mh.F.fichaParaHtml, CSS_FICHA: __mh.F.CSS_FICHA, NIVEL_EVIDENCIA: __mh.D.NIVEL_EVIDENCIA, unidadesDaTese: __mh.T.unidadesDaTese };
+  if (__mh) return { TITULOS: __mh.T.TITULOS, tabelasDoDossie: __mh.D.tabelasDoDossie, CSS_TABELAS_DOSSIE: __mh.D.CSS_TABELAS_DOSSIE, fichaParaHtml: __mh.F.fichaParaHtml, alteracoesParaHtml: __mh.F.alteracoesParaHtml, CSS_FICHA: __mh.F.CSS_FICHA, NIVEL_EVIDENCIA: __mh.D.NIVEL_EVIDENCIA, unidadesDaTese: __mh.T.unidadesDaTese };
   /* eslint-disable no-undef */
-  return { TITULOS, tabelasDoDossie, CSS_TABELAS_DOSSIE, fichaParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese };
+  return { TITULOS, tabelasDoDossie, CSS_TABELAS_DOSSIE, fichaParaHtml, alteracoesParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese };
   /* eslint-enable no-undef */
 }
 
@@ -78,7 +78,24 @@ function normalizarParecer(p) {
   if (p.gates) for (const k of ['faixas', 'notas', 'reprovacoes', 'rebaixamentos']) arr(p.gates, k);
   if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
   if (p.carimbo) arr(p.carimbo, 'lentes');
+  arr(p, 'alteracoes');
+  if (p.processo) for (const k of ['documentos', 'emendas', 'comissoes', 'apensados']) arr(p.processo, k);
   return p;
+}
+
+/** Bloco "Tramitação" da primeira página: o que o módulo de Plenário sabe, impresso por programa. */
+function tramitacaoParaHtml(pr, esc) {
+  if (!pr) return '';
+  const linha = (rot, val) => val ? `<tr><th>${esc(rot)}</th><td>${val}</td></tr>` : '';
+  const ol = xs => xs && xs.length ? `<ol class="tram-lista">${xs.map(x => `<li>${x}</li>`).join('')}</ol>` : '';
+  return `<table class="ficha tramitacao">
+    ${linha('O que se vota', pr.cenario ? esc(pr.cenario) + (pr.textoEmVotacao ? `<div class="ficha-fonte">Texto em votação: ${esc(pr.textoEmVotacao)}</div>` : '') : '')}
+    ${linha('Relator(a)', pr.relator?.nome ? esc(`${pr.relator.nome}${pr.relator.partido ? ` (${pr.relator.partido}${pr.relator.uf ? '-' + pr.relator.uf : ''})` : ''}${pr.relator.data ? `, designado(a) em ${pr.relator.data}` : ''}`) : '')}
+    ${linha('Documentos analisados', ol((pr.documentos || []).map(d => esc(d.rotulo))))}
+    ${linha('Emendas e substitutivos', ol((pr.emendas || []).map(e => esc(e.rotulo))))}
+    ${linha('Comissões', ol((pr.comissoes || []).map(c => esc(`${c.comissao}${c.dataBR ? ` (${c.dataBR})` : ''}${c.relator ? `, relator(a) ${c.relator}` : ''}${c.posicao ? `: ${c.posicao}` : ''}`))))}
+    ${linha('Apensados do Podemos', ol((pr.apensados || []).map(a => esc(a))))}
+  </table>`;
 }
 
 function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
@@ -86,7 +103,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const esc = escapeHtmlParecer;
   const bm = ch => 'l_' + String(ch).replace(/[^\w]/g, '_');
   const { secoes, corpoLimpo, traduzir } = blocosDoParecer(p, esc);
-  const { tabelasDoDossie, CSS_TABELAS_DOSSIE: CSS_TAB, fichaParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese } = _refsHtml();
+  const { tabelasDoDossie, CSS_TABELAS_DOSSIE: CSS_TAB, fichaParaHtml, alteracoesParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese } = _refsHtml();
   const tabelas = p.dossie ? tabelasDoDossie(p.dossie, esc) : { corpo: '', anexo: '' };
   const onde = secoes.find(s => /^O que aconteceu/i.test(s.chave)) || secoes.find(s => /^O que se previu/i.test(s.chave)) || null;
   const lista = (cls, titulo, linhas) => linhas && linhas.length ? `<div class="${cls}"><b>${esc(titulo)}</b><ul>${linhas.map(l => `<li>${traduzir(esc(l))}</li>`).join('')}</ul></div>` : '';
@@ -112,6 +129,8 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   // ---- índice e corpo ------------------------------------------------------
   const indice = `<section class="indice"><h2>Índice</h2><ul>
       <li><a href="#${bm('ficha')}">Ficha do objeto<span class="ld"></span></a></li>
+      ${p.processo ? `<li><a href="#${bm('tramitacao')}">Tramitação<span class="ld"></span></a></li>` : ''}
+      ${(p.alteracoes || []).length ? `<li><a href="#${bm('alteracoes')}">O que muda na legislação<span class="ld"></span></a></li>` : ''}
       ${secoes.filter(s => s.chave !== 'abertura').map(s => `<li><a href="#${bm(s.chave)}">${esc(s.rotulo)}<span class="ld"></span></a></li>`).join('')}
       <li><a href="#${bm('limites')}">Limites deste parecer<span class="ld"></span></a></li>
       ${p.dossie ? `<li><a href="#${bm('dossie')}">Anexo — Dossiê de dados<span class="ld"></span></a></li>` : ''}
@@ -165,6 +184,7 @@ ${css}
     .tecnico   { page-break-before:always; font-size:9pt; } .tecnico ul { margin:2px 0 4px 16px; } .tecnico li { font-size:8.8pt; margin:1px 0; }
     .tec-nota  { font-size:9pt; color:#555; }
     .carimbo   { margin-top:10px; font-size:8.8pt; color:#666; font-style:italic; }
+    .tram-lista { margin:0 0 0 16px; padding:0; } .tram-lista li { margin:1px 0; }
 ${CSS_FICHA || ''}
 ${CSS_TAB || ''}
   </style></head><body>
@@ -182,6 +202,15 @@ ${CSS_TAB || ''}
       ${fichaParaHtml(p.ficha, esc)}
       ${lista('conf-pend', 'Observações', p.gates?.notas || [])}
     </div>
+    ${p.processo ? `<div class="bloco" id="${bm('tramitacao')}">
+      <h3 class="item-h">Tramitação</h3>
+      ${tramitacaoParaHtml(p.processo, esc)}
+    </div>` : ''}
+    ${(p.alteracoes || []).length ? `<div class="bloco" id="${bm('alteracoes')}">
+      <h3 class="item-h">O que muda na legislação</h3>
+      ${alteracoesParaHtml(p.alteracoes, esc)}
+      <p class="tec-nota">"O que vale hoje" é o texto lido na fonte indicada; "o que a proposição faz" é o achado da apuração, conferido no documento pelo trecho.</p>
+    </div>` : ''}
     ${indice}
     ${corpo}
     ${temLimitesNoCorpo ? '' : blocoLimites}
@@ -196,5 +225,5 @@ ${CSS_TAB || ''}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer, normalizarParecer };
+  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer, normalizarParecer, tramitacaoParaHtml };
 }

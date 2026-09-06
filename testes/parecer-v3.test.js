@@ -25,6 +25,8 @@ const G = require(path.join(RAIZ, 'gates.js'));
 const D = require(path.join(RAIZ, 'dossie.js'));
 const PP = require(path.join(RAIZ, 'pipeline-parecer.js'));
 const H = require(path.join(RAIZ, 'parecer-html.js'));
+const P = require(path.join(RAIZ, 'parecer.js'));
+const E = require(path.join(RAIZ, 'especialistas.js'));
 const fx = n => fs.readFileSync(path.join(__dirname, 'fixtures', n), 'utf8');
 
 let falhas = 0;
@@ -188,6 +190,34 @@ const achadosX = [
     ok(!jaTem.notas.some(n => /inserida pelo programa/.test(n)), 'com a frase presente, nada é inserido');
   }
 
+  console.log('== tramitação: o que o módulo de Plenário sabe entra no catálogo, na apuração, na rubrica e na 1ª página ==');
+  {
+    const processo = { cenario: 'Cenário 3 — parecer de plenário (PRLP)', textoEmVotacao: 'PRLP nº 4 de 11/08/2026',
+      relator: { nome: 'André Figueiredo', partido: 'PDT', uf: 'CE', data: '22/04/2026' },
+      documentos: [{ rotulo: 'PRLP nº 4 de 11/08/2026' }, { rotulo: 'Redação original (inteiro teor)' }, { rotulo: 'Emenda — EMP 1 · 31/08/2026' }],
+      emendas: [{ rotulo: 'EMP 1 · 31/08/2026', anexada: true }, { rotulo: 'EMP 2 · 01/09/2026', anexada: true }],
+      comissoes: [{ comissao: 'CASP', dataBR: '15/07/2026' }], apensados: ['PL 2000/2026 — Dep. X'] };
+    const cat = T.catalogoDeEvidencias({ achados: [], dossie: null, ficha: null, situacao: 'No Plenário.', processo });
+    const ids = cat.itens.map(i => i.id);
+    ok(['S1', 'S2', 'S3', 'S4', 'S5', 'S6', 'S7'].every(id => ids.includes(id)) && /André Figueiredo \(PDT-CE\)/.test(cat.itens.find(i => i.id === 'S3').texto) && /EMP 1/.test(cat.itens.find(i => i.id === 'S5').texto), 'catálogo: S2 cenário, S3 relator, S4 documentos, S5 emendas, S6 comissões, S7 apensados');
+    const pa = P.promptApuracao({ identificacao: 'PL 1893/2026', ementa: 'x', textoAnalisado: 'PRLP 4', processo }, [], E.ESPECIALISTAS);
+    ok(/TRAMITAÇÃO/.test(pa) && /André Figueiredo/.test(pa) && /"pergunta": "documento"/.test(pa) && /"pergunta": "emenda"/.test(pa) && /"pergunta": "altera"/.test(pa), 'apuração: bloco TRAMITAÇÃO com o relator, e pede achados "documento", "emenda" e "altera"');
+    ok(!/TRAMITAÇÃO/.test(P.promptApuracao({ identificacao: 'x', processo }, [], E.ESPECIALISTAS, { semFicha: true })), 'lente a lente (semFicha): sem repetir o bloco de tramitação');
+    const base = { ficha, dossie: { avisos: [] }, tese: { afirmacoes: [] }, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] }, processo };
+    const m12 = tx => { const g = G.aplicarGates({ ...base, texto: tx }); return G.rubricaMaquina({ ...base, texto: g.texto, gates: g }).itens.find(i => /^M12/.test(i.item)); };
+    const completo = 'Síntese\n\nx [T1].\n\nContexto e processo\n\nO relator, Deputado André Figueiredo (PDT-CE), apresentou o PRLP 4 [S3]. A EMP 1, do Deputado Cleber Verde, e a emenda nº 2 foram apresentadas em Plenário [S5].\n\nAvaliação da política\n\ny [T1].';
+    ok(m12(completo).ok && !m12(completo.replace('André Figueiredo', 'o relator').replace('EMP 1', 'uma emenda')).ok && /Figueiredo/.test(m12(completo.replace('André Figueiredo', 'o relator')).detalhe), 'M12: passa com relator e emendas nomeados; reprova e diz o que falta');
+    ok(G.chaveDaEmenda('SBT-A 2 · 10/07/2026').sigla === 'SBT-A' && G.emendaCitada('o substitutivo SBT-A nº 2 foi', G.chaveDaEmenda('SBT-A 2')) && G.emendaCitada('acolheu a Emenda nº 2 do', G.chaveDaEmenda('EMP 2')), 'chaveDaEmenda/emendaCitada: sigla com número, "Emenda nº 2" vale para EMP 2');
+    const alt = F.tabelaAlteracoes({ achados: [
+      { lente: 'X', pergunta: 'altera', dispositivo: 'art. 92 da Lei 8.112/1990', achado: 'Amplia a licença para o mandato classista.', trecho: 't1' },
+      { lente: 'X', pergunta: 'altera', dispositivo: 'art. 240 da Lei nº 8.112, de 1990', achado: 'Restabelece a negociação coletiva.', trecho: 't2' },
+      { lente: 'X', pergunta: 'altera', dispositivo: 'arts. 1º a 19 (lei nova)', achado: 'Institui o regime de negociação.', trecho: 't3' }],
+      leiVigente: [{ norma: 'Lei nº 8.112, de 11 de dezembro de 1990', origem: 'camara', compilado: true, trechos: [{ artigo: 'Art. 92', texto: 'Art. 92. É assegurado ao servidor o direito à licença sem remuneração para o desempenho de mandato' }, { artigo: 'Art. 240', texto: 'Art. 240. Ao servidor público civil é assegurado' }] }] });
+    ok(alt.length === 3 && /licença sem remuneração/.test(alt[0].vigente) && /Câmara/.test(alt[0].fonte) && /Art\. 240/.test(alt[1].vigente) && alt[2].vigente === null && alt[2].novo, 'tabelaAlteracoes: arts. 92 e 240 casam com o texto lido; "lei nova" fica sem correspondente');
+    const html = F.alteracoesParaHtml(alt);
+    ok(/O que vale hoje/.test(html) && /texto novo/.test(html), 'alteracoesParaHtml imprime as três colunas');
+  }
+
   console.log('== conferência de trecho com quebra de página ==');
   {
     const doc = 'x'.repeat(600) + ' Apoiamos, dessa forma, o conteúdo da Emenda nº 3 – PLEN, do Senador Mecias de Jesus. Por ser incompatível [p12] 12 SF/24692.28045-78 com essa supressão, rejeitamos as Emendas nº 4 e 11 – PLEN, que propõem a tributação com alíquotas diferenciadas.';
@@ -246,6 +276,9 @@ const achadosX = [
   let promptFichaVisto = '';
   const io5 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) return { text: JSON.stringify(achadosX.filter(a => a.pergunta !== 'regra_antes')), truncated: false }; if (/FICHA DO OBJETO de um parecer/.test(prompt)) { promptFichaVisto = prompt; return { text: JSON.stringify(achadosX.filter(a => ['regra_antes', 'dispositivo'].includes(a.pergunta))), truncated: false }; } return io.chamarModelo({ prompt }); } };
   const p5 = await PP.gerarParecer(ctx, io5);
+  const io6 = { ...io, chamarModelo: async ({ prompt }) => { if (/etapa de APURAÇÃO/.test(prompt)) { if (!/TRAMITAÇÃO/.test(prompt) || !/Rodrigo Cunha/.test(prompt)) throw new Error('apuração sem o bloco de tramitação'); return { text: JSON.stringify(achadosX.concat([{ lente: 'X', pergunta: 'altera', dispositivo: 'art. 1º do Decreto-Lei 1.804/1980', achado: 'Permite reduzir a alíquota a zero até US$ 50.', trecho: 'inclusive para reduzi-las a zero na faixa de tributação de até US$ 50,00' }])), truncated: false }; } return io.chamarModelo({ prompt }); } };
+  const p6 = await PP.gerarParecer({ ...ctx, processo: { cenario: 'Cenário 8a — MPV (texto original do Executivo)', textoEmVotacao: 'Texto original', relator: { nome: 'Rodrigo Cunha', partido: 'PODE', uf: 'AL' }, documentos: [{ rotulo: 'Texto original da MPV 1357/2026' }], emendas: [], comissoes: [] } }, io6);
+  ok(!p6.erro && p6.processo && p6.processo.relator.nome === 'Rodrigo Cunha' && Array.isArray(p6.alteracoes) && p6.alteracoes.length === 1 && p6.rubrica.itens.some(i => /^M12/.test(i.item)), 'pipeline: tramitação vai à apuração, volta no parecer (processo, alteracoes) e a rubrica avalia M12');
   ok(!p5.erro && p5.chamadas.some(c => c.nome === 'ficha') && p5.ficha.regraVigente && /NÃO HAVENDO regra/.test(promptFichaVisto) && p5.apuracao.aprovados === p.apuracao.aprovados, 'sem regra_antes: chamada dedicada à ficha, achado entra uma vez só (dispositivo já existente não duplica)');
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');

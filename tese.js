@@ -61,12 +61,22 @@ function numerosCifra(texto) {
 //  CATÁLOGO DE EVIDÊNCIAS
 // ============================================================
 
-function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null } = {}) {
+function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situacao = null, processo = null } = {}) {
   const itens = [];
   // A situação da tramitação vem do sistema (API da Câmara), não do documento;
   // sem entrar no catálogo, o contraditório refutava a data de perda de
   // vigência "por falta de evidência".
-  if (situacao) { const texto = `Situação da tramitação (informada pelo sistema): ${situacao}`; itens.push({ id: 'S1', tipo: 'situacao', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'sistema / API da Câmara' }); }
+  const sis = (id, texto) => itens.push({ id, tipo: 'situacao', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'sistema / módulo de Plenário' });
+  if (situacao) sis('S1', `Situação da tramitação (informada pelo sistema): ${situacao}`);
+  // O que o módulo de Plenário sabe: cenário, relator, documentos, emendas, comissões.
+  if (processo) {
+    if (processo.cenario) sis('S2', `Cenário de tramitação (sistema): ${processo.cenario}.${processo.textoEmVotacao ? ` Texto em votação: ${processo.textoEmVotacao}.` : ''}`);
+    if (processo.relator?.nome) sis('S3', `Relator(a) (sistema): ${processo.relator.nome}${processo.relator.partido ? ` (${processo.relator.partido}${processo.relator.uf ? '-' + processo.relator.uf : ''})` : ''}${processo.relator.data ? `, designado(a) em ${processo.relator.data}` : ''}.`);
+    if (processo.documentos?.length) sis('S4', `Documentos anexados ao parecer (sistema): ${processo.documentos.map((d, i) => `${i + 1}. ${d.rotulo}`).join('; ')}.`);
+    if (processo.emendas?.length) sis('S5', `Emendas e substitutivos apresentados à matéria (sistema): ${processo.emendas.map(e => e.rotulo).join('; ')}.`);
+    if (processo.comissoes?.length) sis('S6', `Pareceres de comissões (sistema): ${processo.comissoes.map(c => `${c.comissao}${c.dataBR ? ` (${c.dataBR})` : ''}${c.relator ? `, relator(a) ${c.relator}` : ''}${c.posicao ? `: ${c.posicao}` : ''}`).join('; ')}.`);
+    if (processo.apensados?.length) sis('S7', `Apensados de autoria do Podemos (sistema): ${processo.apensados.join('; ')}.`);
+  }
   achados.forEach((a, i) => {
     const texto = `[lente ${a.lente} · ${a.pergunta}] ${a.achado}${a.dispositivo ? ` (${a.dispositivo})` : ''}${a.trecho ? ` — trecho: "${String(a.trecho).slice(0, 400)}"` : ''}`;
     itens.push({ id: `A${i + 1}`, tipo: 'achado', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'documento analisado', lente: String(a.lente), pergunta: a.pergunta });
@@ -144,8 +154,10 @@ REGRAS QUE O PROGRAMA VAI CONFERIR (o que violar é removido):
 - LADOS (L): "argumento" é a posição do lado e pode ser causal ("a medida aumentou…"); "o_que_a_evidencia_diz" é do parecer
   e NÃO pode ser causal: só o que a série ou o documento mostram.
 - EXTENSÃO: o parecer tem de ser DETALHADO. Entre 20 e 45 afirmações, cada uma de uma a quatro frases; 3 a 4 opções.
-  Mínimos por seção, quando as evidências permitirem: sintese 4; contexto 3 (quem propôs, quem relatou, o que decidiu,
-  com datas); lei 2; previu 2; aconteceu 5 (um por indicador, com o número); avaliacao: todos os objetivos declarados;
+  Mínimos por seção, quando as evidências permitirem: sintese 4; contexto: o cenário e o texto em votação (S2), o(a)
+  relator(a) NOMEADO(A) e o que propôs (S3 e achados "documento"), UMA afirmação por documento anexado (achados "documento"),
+  UMA por emenda ou substitutivo — autor, teor e destino (achados "emenda" e S5), as comissões (S6), com datas; lei: 2 e
+  UMA afirmação por dispositivo alterado (achados "altera": o que vale hoje e o que muda); previu 2; aconteceu 5 (um por indicador, com o número); avaliacao: todos os objetivos declarados;
   lados: argumento e "o que a evidência diz" com duas a quatro frases cada; cada lente acionada 3. O mínimo NÃO autoriza
   inventar: sem evidência para uma afirmação, ela não existe e o mínimo não vale.`;
 }
@@ -370,8 +382,11 @@ COMO ESCREVER
   o fato ou o número, o que ele significa para o leitor e a que se liga. Não resuma a tese; desdobre-a.
 - Síntese: quatro a seis parágrafos, cada um começando pela conclusão e desenvolvendo-a; o primeiro enuncia a regra que
   muda em algarismos.
-- Contexto e processo: a história em ordem, com datas e nomes que a tese traz (quem propôs, quem relatou e o que propôs,
-  o que se decidiu), dois a quatro parágrafos.
+- Contexto e processo: a história em ordem, quatro a oito parágrafos: primeiro o cenário (o que se vota e por quê);
+  depois o(a) relator(a) pelo NOME e o que propôs; depois cada substitutivo, subemenda e emenda (autor, teor, destino dado
+  pelo relator), um parágrafo por documento; depois as comissões e datas. Nomes, números e datas como estão na tese.
+- Lei vigente e datas de efeito: além da regra da ficha, um parágrafo por dispositivo alterado (o que vale hoje, o que
+  passa a valer), quando a tese o traz.
 - O que aconteceu: um parágrafo por indicador, com o número e o que ele significa; depois os fatores concorrentes.
 - Os dois lados: dois parágrafos por lado (o argumento no seu melhor; o que a evidência diz sobre ele).
 - Opções: um parágrafo por opção, com as três consequências desenvolvidas.

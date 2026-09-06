@@ -7079,11 +7079,39 @@ async function gerarParecerEspecialista(it) {
     }
     if (!docs.length) { mostrarToast('Nenhum documento pôde ser baixado.', 'aviso'); return; }
 
+    // --- o que o módulo de Plenário sabe da tramitação -----------------------
+    // Mesma lógica de casos da nota (escolherDocumentos/classificarCenario):
+    // cenário, texto em votação, relator, documentos, emendas, comissões,
+    // apensados. Vai ao modelo como fato do sistema e é impresso na 1ª página.
+    passo('levantando a tramitação…');
+    const enr = it.enriquecimento || {};
+    const rel = it.relator || enr.relator || null;
+    let emendas = [];
+    if (enr.idProposicao && !ehMPV(it)) {
+      try { emendas = (await listarEmendas(enr.idProposicao)).filter(e => !docsMeta.some(d => d.url === e.url)); }
+      catch (e) { console.warn('Parecer: emendas não listadas', e.message); }
+    }
+    // Emendas anexadas (até 8, as mais recentes): o modelo sintetiza cada uma com trecho.
+    for (const e of emendas.slice(-8)) {
+      try { docs.push({ rotulo: `Emenda — ${e.rotulo}`, buffer: await baixarPdf(e.url) }); e.anexada = true; }
+      catch (err) { console.warn('Parecer: emenda não baixada', e.rotulo, err.message); }
+    }
+    const processo = {
+      cenario: it.tipoCategoria === 'projeto' ? classificarCenario(docsMeta) : '',
+      textoEmVotacao: docsMeta[0]?.rotulo || '',
+      relator: rel && rel.nome ? { nome: rel.nome, partido: rel.partido || '', uf: rel.uf || '', data: rel.data || '' } : null,
+      documentos: docs.map(d => ({ rotulo: d.rotulo })),
+      emendas: emendas.map(e => ({ rotulo: e.rotulo, url: e.url, anexada: !!e.anexada })),
+      comissoes: [...(enr.pareceresPlenario?.comissoes || [])].sort((a, b) => (a.data || '').localeCompare(b.data || '')).map(pc => ({ comissao: pc.especial ? 'Comissão Especial' : pc.comissao, dataBR: pc.dataBR || '' }))
+        .concat((it.pareceresComissao || []).map(pc => ({ comissao: pc.comissao, posicao: pc.posicao || '', relator: pc.relator || '' }))),
+      apensados: (enr.apensadosPodemos || []).map(ap => { const aut = (ap.autores || []).map(a => a.nome).filter(Boolean).join(', '); return `${ap.siglaTipo || ''} ${ap.numero || ''}/${ap.ano || ''}${aut ? ' — ' + aut : ''}`.trim(); }).filter(x => !/^\/$/.test(x)),
+    };
+
     // --- o pipeline (pipeline-parecer.js), com o fetch e o pdf.js da extensão -
     const ctx = {
       identificacao: `${it.sigla} ${it.numero}/${it.ano}`, sigla: it.sigla, numero: it.numero, ano: it.ano,
       ementa: it.ementa || '', titulo: tituloComApelido(it) || '', autoria: it.autor, relator: it.enriquecimento?.relator?.nome,
-      situacao, temas, docs, textoEmendas: docsMeta.map(d => d.rotulo).join(' '), hoje: new Date(),
+      situacao, temas, docs, processo, textoEmendas: docsMeta.map(d => d.rotulo).concat(emendas.map(e => e.rotulo)).join(' '), hoje: new Date(),
     };
     const io = {
       chamarModelo: ({ prompt, pdfBuffers }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
