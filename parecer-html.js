@@ -78,9 +78,27 @@ function normalizarParecer(p) {
   if (p.gates) for (const k of ['faixas', 'notas', 'reprovacoes', 'rebaixamentos']) arr(p.gates, k);
   if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
   if (p.carimbo) arr(p.carimbo, 'lentes');
-  arr(p, 'alteracoes'); arr(p, 'comparada');
+  arr(p, 'alteracoes'); for (const k of ['comparada', 'jurisprudencia', 'infralegal', 'posicoes', 'secoes']) arr(p, k);
+  if (p.tese) for (const k of ['atores', 'implementacao', 'aprimoramentos', 'viabilidade']) arr(p.tese, k);
   if (p.processo) for (const k of ['documentos', 'emendas', 'comissoes', 'apensados']) arr(p.processo, k);
   return p;
+}
+
+/**
+ * Fontes buscadas na web (experiência comparada, jurisprudência, normas
+ * infralegais, posições públicas). O programa não as conferiu: a tabela diz
+ * isso e dá o endereço para quem quiser conferir.
+ */
+function externasHtml(p, esc) {
+  const grupos = [
+    ['Experiência de outros países e entes', p.comparada, c => [`${c.lugar}${c.quando ? ` (${c.quando})` : ''}`, c.medida]],
+    ['Jurisprudência', p.jurisprudencia, c => [`${c.tribunal} — ${c.processo}`, `${c.norma_examinada || ''} ${c.decisao || ''}`.trim()]],
+    ['Normas infralegais', p.infralegal, c => [`${c.norma}${c.orgao ? ` (${c.orgao})` : ''}`, c.o_que_disciplina]],
+    ['Posições públicas', p.posicoes, c => [`${c.ator}${c.tipo ? ` (${c.tipo})` : ''}`, `${c.posicao ? `posição ${c.posicao}: ` : ''}${c.o_que_defende || ''}`]],
+  ].filter(([, lista]) => (lista || []).length);
+  if (!grupos.length) return '';
+  const linhas = grupos.flatMap(([rot, lista, campos]) => lista.map(c => { const [a, b] = campos(c); return `<tr><td>${esc(rot)}</td><td>${esc(a)}</td><td>${esc(b)}</td><td>${esc(c.fonte_nome)}<br><a href="${esc(c.fonte_url)}">${esc(c.fonte_url)}</a></td></tr>`; }));
+  return `<h4 class="dt-h">Fontes buscadas na internet (NÃO conferidas pelo programa)</h4><table class="dt"><thead><tr><th>O quê</th><th>Item</th><th>Conteúdo</th><th>Fonte</th></tr></thead><tbody>${linhas.join('')}</tbody></table>`;
 }
 
 /** Bloco "Tramitação" da primeira página: o que o módulo de Plenário sabe, impresso por programa. */
@@ -122,17 +140,21 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const limites = [];
   for (const f of p.gates?.faixas || []) limites.push(f);
   limites.push(p.temSerie ? `${fraseNivel} O parecer mostra o que a série registra; não afirma que a medida causou a variação, porque outros fatores agem ao mesmo tempo.` : fraseNivel);
-  if ((p.comparada || []).length) limites.push(`A seção "Experiência de outros países e entes" vem de busca na web feita pelo modelo: as fontes estão nomeadas no texto e listadas no anexo técnico, e NÃO foram conferidas pelo programa. Use-a como pista, não como prova.`);
+  const nExt = (p.comparada || []).length + (p.jurisprudencia || []).length + (p.infralegal || []).length + (p.posicoes || []).length;
+  if (nExt) limites.push(`As seções que trazem experiência de outros países, jurisprudência, normas infralegais e posições públicas vêm de busca na internet feita pelo modelo: ${nExt} fonte(s), nomeadas no texto e listadas no anexo técnico, NÃO conferidas pelo programa. Use-as como pista, não como prova.`);
+  if (p.tese?.conclusao) limites.push('O "Posicionamento sugerido" é juízo da assessoria, não resultado da apuração: decorre das opções e das evidências, e a decisão é da Liderança.');
+  else limites.push('Este parecer não traz posicionamento: apresenta as opções e suas consequências; a decisão é da Liderança.');
   for (const a of p.dossie?.avisos || []) limites.push(a);
   const nRemov = (p.validacao?.removidas || []).length + (p.contraditorio?.refutadas || []).length;
   const nContest = (p.contraditorio?.contestadas || []).length;
   if (nRemov || nContest) limites.push(`Antes da redação, ${nRemov ? `${nRemov} afirmação(ões) do rascunho foram retiradas por não se sustentarem nas fontes` : ''}${nRemov && nContest ? ' e ' : ''}${nContest ? `${nContest} conclusão(ões) foram rebaixadas a "não verificável" após contestação` : ''}. O detalhe está no anexo técnico.`);
-  limites.push('Este parecer não recomenda voto: apresenta as opções e suas consequências; a decisão é da Liderança.');
+
 
 
   // ---- índice e corpo ------------------------------------------------------
   const indice = `<section class="indice"><h2>Índice</h2><ul>
       <li><a href="#${bm('ficha')}">Ficha do objeto<span class="ld"></span></a></li>
+      ${p.tese?.conclusao ? `<li><a href="#${bm('posicao')}">Posicionamento sugerido<span class="ld"></span></a></li>` : ''}
       ${p.processo ? `<li><a href="#${bm('tramitacao')}">Tramitação<span class="ld"></span></a></li>` : ''}
       ${(p.alteracoes || []).length ? `<li><a href="#${bm('alteracoes')}">O que muda na legislação<span class="ld"></span></a></li>` : ''}
       ${secoes.filter(s => s.chave !== 'abertura').map(s => `<li><a href="#${bm(s.chave)}">${esc(s.rotulo)}<span class="ld"></span></a></li>`).join('')}
@@ -173,7 +195,7 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
       ${p.truncado ? '<div class="conf-pend">A redação foi interrompida no limite de tokens do modelo — o final pode estar incompleto.</div>' : ''}
       <h4 class="dt-h">Tese aprovada, com evidências</h4>
       ${tabelaTese || '<p class="tec-nota">Sem tese registrada.</p>'}
-      ${(p.comparada || []).length ? `<h4 class="dt-h">Fontes externas da experiência comparada (não conferidas pelo programa)</h4><table class="dt"><thead><tr><th>Lugar</th><th>Medida</th><th>Fonte</th></tr></thead><tbody>${p.comparada.map(c => `<tr><td>${esc(c.lugar)}${c.quando ? ` (${esc(c.quando)})` : ''}</td><td>${esc(c.medida)}</td><td>${esc(c.fonte_nome)}<br><a href="${esc(c.fonte_url)}">${esc(c.fonte_url)}</a></td></tr>`).join('')}</tbody></table>` : ''}
+      ${externasHtml(p, esc)}
     </div>`;
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>Parecer — ${esc(materia)}</title>
@@ -189,6 +211,9 @@ ${css}
     .tec-nota  { font-size:9pt; color:#555; }
     .carimbo   { margin-top:10px; font-size:8.8pt; color:#666; font-style:italic; }
     .tram-lista { margin:0 0 0 16px; padding:0; } .tram-lista li { margin:1px 0; }
+    .posicao   { border:1.5px solid #1a4f7a; background:#f4f8fb; padding:8px 12px; font-size:10.5pt; }
+    .posicao p { margin:3px 0; } .posicao-p { font-weight:600; font-size:11.5pt; }
+    .posicao-aviso { font-size:9pt; color:#555; border-top:1px dotted #9bb4c8; padding-top:4px; margin-top:6px !important; }
 ${CSS_FICHA || ''}
 ${CSS_TAB || ''}
   </style></head><body>
@@ -206,6 +231,14 @@ ${CSS_TAB || ''}
       ${fichaParaHtml(p.ficha, esc)}
       ${lista('conf-pend', 'Observações', p.gates?.notas || [])}
     </div>
+    ${p.tese?.conclusao ? `<div class="bloco" id="${bm('posicao')}">
+      <h3 class="item-h">Posicionamento sugerido</h3>
+      <div class="posicao">${p.tese.conclusao.posicao
+        ? `<p class="posicao-p">${esc(p.tese.conclusao.posicao)}</p><p>${esc(p.tese.conclusao.porque || '')}</p><p><b>Mudaria se:</b> ${esc(p.tese.conclusao.o_que_mudaria || '—')}</p>`
+        : `<p class="posicao-p">A assessoria não sustentou posição nesta matéria.</p><p>${esc(p.tese.conclusao.contestada || 'A conferência automática não manteve a conclusão.')}</p>`}
+        <p class="posicao-aviso">Este é o juízo da assessoria, não um fato apurado: decorre das opções e das evidências listadas no parecer. A decisão é da Liderança.</p>
+      </div>
+    </div>` : ''}
     ${p.processo ? `<div class="bloco" id="${bm('tramitacao')}">
       <h3 class="item-h">Tramitação</h3>
       ${tramitacaoParaHtml(p.processo, esc)}
@@ -229,5 +262,5 @@ ${CSS_TAB || ''}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer, normalizarParecer, tramitacaoParaHtml };
+  module.exports = { htmlParecer, blocosDoParecer, escapeHtmlParecer, normalizarParecer, tramitacaoParaHtml, externasHtml };
 }

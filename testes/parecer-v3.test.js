@@ -141,7 +141,7 @@ const achadosX = [
 
   console.log('== redação: conferência, gates e rubrica ==');
   const teseFinal = c.tese;
-  const bom = `Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% acima disso, a partir de 12/05/2026 [T1].\n\nO imposto devido caiu de R$ 446,6 milhões para R$ 297,0 milhões por mês [T2].\n\nContexto e processo\n\nA MP foi editada em maio de 2026 e aprovada pela Câmara em setembro [A1].\n\nLei vigente e datas de efeito\n\nVale hoje 20% até US$ 50 [F1]. Efeitos imediatos por ser II [A5].\n\nO que se previu\n\nA EMI declara que não há renúncia [D2].\n\nO que aconteceu\n\nNos 3 meses posteriores, com maio parcial, o II devido total caiu de R$ 446,6 milhões para R$ 297,0 milhões por mês (nível de evidência B) [T2]. O parecer não atribui a diferença à medida.\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável, porque a janela tem 3 meses [O1].\n\nObjetivo de reduzir a tributação: não verificável [O2].\n\nOs dois lados\n\nQuem apoia diz que menos tributo formaliza; a evidência mostra um ponto de participação em três meses [L1]. Quem se opõe aponta a queda de R$ 446,6 para R$ 297,0 milhões por mês [L2].\n\nOpções e consequências\n\nAprovar o PLV consolida a delegação, mantém a queda de arrecadação e atende ao consumidor [P1].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades (art. 150, § 1º, da CF) [A5].`;
+  const bom = `Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% acima disso, a partir de 12/05/2026 [T1].\n\nO imposto devido caiu de R$ 446,6 milhões para R$ 297,0 milhões por mês [T2].\n\nContexto e processo\n\nA MP foi editada em maio de 2026 e aprovada pela Câmara em setembro [A1].\n\nLei vigente e datas de efeito\n\nVale hoje 20% até US$ 50 [F1]. Efeitos imediatos por ser II [A5].\n\nO que se previu\n\nA EMI declara que não há renúncia [D2].\n\nO que aconteceu\n\nNos 3 meses posteriores, com maio parcial, o II devido total caiu de R$ 446,6 milhões para R$ 297,0 milhões por mês (nível de evidência B) [T2]. O parecer não atribui a diferença à medida.\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável, porque a janela tem 3 meses [O1].\n\nObjetivo de reduzir a tributação: não verificável [O2].\n\nOs dois lados\n\nQuem apoia diz que menos tributo formaliza; a evidência mostra um ponto de participação em três meses [L1]. Quem se opõe aponta a queda de R$ 446,6 para R$ 297,0 milhões por mês [L2].\n\nOpções e consequências\n\nAprovar o PLV consolida a delegação, mantém a queda de arrecadação e atende ao consumidor [P1].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades (art. 150, § 1º, da CF) [A5].\n\nConclusão e posicionamento sugerido\n\nSugere-se aprovar o PLV com ressalva quanto à ausência de estimativa [P1]. A posição mudaria se o governo apresentasse a estimativa de renúncia [P1].`;
   const conf = T.conferirRedacao(bom, { tese: teseFinal, catalogo: cat, ficha });
   ok(conf.ok, 'redação boa: sem parágrafo sem evidência, sem número fora da base (' + JSON.stringify({ s: conf.semEvidencia.length, n: conf.numerosSuspeitos.map(x => x.numero), i: conf.idsInexistentes }) + ')');
   const ruim = bom.replace('[T2].\n\nContexto', '.\n\nContexto').replace('R$ 446,6 milhões para R$ 297,0 milhões por mês (nível', 'R$ 500,0 milhões para R$ 297,0 milhões por mês (nível');
@@ -239,7 +239,7 @@ const achadosX = [
       { id: 'T2', secao: 'sintese', tipo: 'fato', texto: 'Portugal firmou 35 acordos coletivos.', evidencias: ['W1'] } ],
       objetivos: [{ id: 'O1', objetivo: 'Regulamentar a Convenção 151 da OIT', veredito: 'não verificável', justificativa: 'x', evidencias: ['A1'] }, { id: 'O2', objetivo: 'Reduzir greves', veredito: 'o texto prevê meios em parte', justificativa: 'y', evidencias: ['A1'] }], lados: {}, opcoes: [], fatores_concorrentes: [] };
     const v = T.validarTese(JSON.parse(JSON.stringify(tese)), cat, { nivel: 'C', emVigor: false });
-    ok(v.tese.afirmacoes.some(a => a.id === 'T1') && v.removidas.some(r => r.id === 'T2' && /experiência externa/.test(r.motivo)), 'fato apoiado só em W vale na seção "comparada" e cai fora dela');
+    ok(v.tese.afirmacoes.some(a => a.id === 'T1') && v.removidas.some(r => r.id === 'T2' && /fonte buscada na internet/.test(r.motivo)), 'fato apoiado só em W vale na seção "comparada" e cai fora dela');
     ok(v.tese.objetivos.find(o => o.id === 'O2').veredito === 'o texto prevê meios em parte' && v.tese.objetivos.find(o => o.id === 'O1').veredito === 'não verificável', 'projeto: vereditos "o texto prevê meios…" são aceitos como estão');
     const vEmVigor = T.validarTese(JSON.parse(JSON.stringify(tese)), cat, { nivel: 'C', emVigor: true });
     ok(vEmVigor.tese.objetivos.find(o => o.id === 'O2').veredito === 'não verificável', 'em vigor sem série: o veredito de projeto é rebaixado a "não verificável"');
@@ -248,6 +248,81 @@ const achadosX = [
     const pr = T.promptRedacao({ identificacao: 'PL 1893/2026', ficha, tese: v.tese, catalogo: cat, nivel: 'C', temSerie: false, emVigor: false, temComparada: true });
     ok(/NUNCA escreva "nível de evidência"/.test(pr) && /ainda não está em vigor, não há resultados a comparar/.test(pr) && /Experiência de outros países e entes/.test(pr) && /NÃO escreva "não verificável" para ele/.test(pr), 'prompt da redação: solidez em palavras, seção comparada, avaliação de projeto');
     ok(/fonte_url/.test(P.promptComparada({ identificacao: 'x', ementa: 'y', regra: 'z' })) && T.TITULOS.comparada === 'Experiência de outros países e entes', 'promptComparada pede fonte com URL; a seção existe nos títulos');
+  }
+
+  console.log('== atores, implementação, aprimoramentos, viabilidade e conclusão ==');
+  {
+    const cat = T.catalogoDeEvidencias({
+      achados: [{ lente: 'X', pergunta: 'posicao', achado: 'A CNTE apoia a matéria.', trecho: 't1' }, { lente: 'X', pergunta: 'execucao', achado: 'A execução cabe ao Ministério da Gestão, em 90 dias.', trecho: 't2' }],
+      situacao: 'Pronta para pauta no Plenário.',
+      processo: { cenario: 'Cenário 3 — parecer de plenário (PRLP)', relator: { nome: 'André Figueiredo', partido: 'PDT', uf: 'CE' }, emendas: [{ rotulo: 'EMP 1' }] },
+      jurisprudencia: [{ tribunal: 'STF', processo: 'ADI 492, Pleno', relator: 'Min. Carlos Velloso', data: '12/11/1992', norma_examinada: 'Lei federal 8.112/1990, art. 240, d e e', decisao: 'declarou inconstitucionais as alíneas', relacao: 'é o vácuo que a proposição preenche', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/x' }],
+      infralegal: [{ norma: 'Decreto 10.088/2019', orgao: 'Presidência', data: '2019', o_que_disciplina: 'promulga a Convenção 151 da OIT', relacao: 'a proposição dá status legal ao que hoje é decreto', fonte_nome: 'Planalto', fonte_url: 'https://www.planalto.gov.br/y' }],
+      posicoes: [{ ator: 'Confederação Nacional dos Municípios', tipo: 'setor regulado', posicao: 'contrário', data: '2026', o_que_defende: 'alega impacto fiscal nos municípios', fonte_nome: 'CNM', fonte_url: 'https://cnm.org.br/z' }] });
+    const ids = cat.itens.map(i => i.id);
+    ok(ids.includes('J1') && ids.includes('N1') && ids.includes('Q1') && cat.itens.find(i => i.id === 'J1').externa === 'J' && /ADI 492/.test(cat.itens.find(i => i.id === 'J1').texto), 'catálogo: J (jurisprudência), N (infralegal) e Q (posições), cada um com fonte');
+    const bruta = {
+      afirmacoes: [{ id: 'T1', secao: 'jurisprudencia', tipo: 'fato', texto: 'O STF declarou inconstitucionais as alíneas d e e na ADI 492.', evidencias: ['J1'] }],
+      objetivos: [], lados: {}, fatores_concorrentes: [],
+      opcoes: [{ id: 'P1', opcao: 'Aprovar com as emendas', fiscal: 'a', juridica: 'b', politica: 'c', evidencias: ['A1'] }],
+      atores: [
+        { id: 'AT1', ator: 'CNM', tipo: 'setor regulado', posicao: 'contrário', o_que_defende: 'impacto fiscal', evidencias: ['Q1'] },
+        { id: 'AT2', ator: 'Entidade inventada', tipo: 'sociedade civil', posicao: 'favorável', o_que_defende: 'apoia', evidencias: [] },
+        { id: 'AT3', ator: 'CNTE', tipo: 'entidade de classe', posicao: 'entusiasmada', o_que_defende: 'apoia a matéria', evidencias: ['A1'] }],
+      implementacao: [{ id: 'I1', aspecto: 'órgão executor', texto: 'A execução cabe ao Ministério da Gestão, em 90 dias.', evidencias: ['A2'] }],
+      aprimoramentos: [
+        { id: 'R1', dispositivo: 'art. 5º', tipo: 'redacional', problema: 'prazo sem termo inicial', sugestao: 'fixar o termo na publicação', evidencias: ['A2'] },
+        { id: 'R2', dispositivo: '', tipo: 'mérito', problema: 'não gosto', sugestao: '', evidencias: ['A1'] }],
+      viabilidade: [
+        { id: 'V1', sinal: 'Matéria pronta para pauta no Plenário.', peso: 'favorece', evidencias: ['S1'] },
+        { id: 'V2', sinal: 'A base do governo já garantiu apoio suficiente para aprovar.', peso: 'favorece', evidencias: ['J1'] }],
+      conclusao: { id: 'CC', posicao: 'Aprovar com as emendas de Plenário', porque: 'o vácuo normativo é real e o texto o preenche', o_que_mudaria: 'se a estimativa de impacto fiscal for apresentada e contrariar o parecer', evidencias: ['P1', 'A1'] },
+    };
+    const v = T.validarTese(JSON.parse(JSON.stringify(bruta)), cat, { nivel: 'C', emVigor: false });
+    ok(v.tese.atores.length === 2 && v.removidas.some(r => r.id === 'AT2') && v.tese.atores.find(a => a.id === 'AT3').posicao === 'não declarada', 'atores: sem fonte é removido; posição fora da lista vira "não declarada"');
+    ok(v.tese.aprimoramentos.length === 1 && v.removidas.some(r => r.id === 'R2' && /sem dispositivo ou sem sugestão/.test(r.motivo)), 'aprimoramento sem dispositivo ou sem sugestão acionável é removido');
+    ok(v.tese.viabilidade.length === 1 && v.removidas.some(r => r.id === 'V2' && /sem fato da tramitação/.test(r.motivo)), 'viabilidade: só sinal apoiado em fato da tramitação (S) ou do documento (A) — aposta de votos cai');
+    ok(v.tese.conclusao && v.tese.conclusao.opcoes.join() === 'P1' && !v.tese.conclusao.evidencias.includes('P1'), 'conclusão: a opção citada é separada das evidências do catálogo');
+    const semMudaria = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)), conclusao: { id: 'CC', posicao: 'Aprovar', porque: 'x', evidencias: ['P1'] } }, cat, { nivel: 'C', emVigor: false });
+    ok(!semMudaria.tese.conclusao && semMudaria.removidas.some(r => r.id === 'CC' && /o que mudaria/.test(r.motivo)), 'conclusão sem "o que mudaria a posição" é removida');
+    const semOpcao = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)), conclusao: { id: 'CC', posicao: 'Aprovar', porque: 'x', o_que_mudaria: 'y', evidencias: ['A1'] } }, cat, { nivel: 'C', emVigor: false });
+    ok(!semOpcao.tese.conclusao && semOpcao.removidas.some(r => /não se liga a nenhuma das opções/.test(r.motivo)), 'conclusão que não se liga a nenhuma opção é removida');
+    // seções ativas seguem o que a tese alimentou
+    const ativas = T.secoesAtivas(v.tese, { temSerie: false });
+    ok(ativas.includes('jurisprudencia') && ativas.includes('atores') && ativas.includes('redacional') && ativas.includes('viabilidade') && ativas.includes('conclusao') && !ativas.includes('aconteceu') && !ativas.includes('comparada'), 'secoesAtivas: entram as que a tese alimentou; sem série e sem comparada, ficam fora');
+    // contraditório: conclusão refutada perde a posição, ator só cai com erro concreto
+    const c2 = T.aplicarContraditorio(JSON.parse(JSON.stringify(v.tese)), [
+      { id: 'CC', refutada: true, motivo: 'a posição ignora o impacto declarado pela CNM' },
+      { id: 'AT1', refutada: true, motivo: 'faltou dizer a data' },
+      { id: 'R1', refutada: true, motivo: 'a redação sugerida repete o que a lei já diz' }], cat);
+    ok(c2.tese.conclusao && c2.tese.conclusao.posicao === null && /ignora o impacto/.test(c2.tese.conclusao.contestada), 'conclusão refutada perde a posição e guarda o motivo');
+    ok(c2.tese.atores.length === 2 && c2.ressalvas.some(r => r.id === 'AT1'), 'ator refutado sem erro concreto vira ressalva, não sai');
+    ok(!c2.tese.aprimoramentos.length && c2.refutadas.some(r => r.id === 'R1'), 'aprimoramento refutado sai (sugestão errada é pior que sugestão a menos)');
+    // prompts
+    const pt = T.promptTese({ identificacao: 'PL 1893/2026', ficha, catalogo: cat, nivel: 'C', emVigor: false });
+    ok(/"atores"/.test(pt) && /"implementacao"/.test(pt) && /"aprimoramentos"/.test(pt) && /"viabilidade"/.test(pt) && /"conclusao"/.test(pt) && /JURISPRUDÊNCIA \(J\)/.test(pt) && /NORMAS INFRALEGAIS \(N\)/.test(pt), 'prompt da tese pede os cinco blocos novos e cita J e N quando existem');
+    ok(/Recomendação de voto SÓ na "conclusao"/.test(pt) && /SÓ sinais objetivos/.test(pt), 'prompt: voto só na conclusão; viabilidade só com sinal objetivo');
+    const pr = T.promptRedacao({ identificacao: 'x', ficha, tese: v.tese, catalogo: cat, nivel: 'C', temSerie: false, emVigor: false });
+    ok(/Quem se posicionou e como/.test(pr) && /Implementação e custo de conformidade/.test(pr) && /Aprimoramentos e sugestões de emenda/.test(pr) && /Prioridade e viabilidade/.test(pr) && /Conclusão e posicionamento sugerido/.test(pr) && /ÚNICA seção em que o\s+parecer recomenda/.test(pr), 'prompt da redação lista as seções novas e diz que só a conclusão recomenda');
+    const pe = P.promptExterno({ identificacao: 'x', ementa: 'y', regra: 'z', normas: 'Lei 8.112/1990' });
+    ok(/"jurisprudencia"/.test(pe) && /"infralegal"/.test(pe) && /"posicoes"/.test(pe) && /leis estaduais e\s+municipais análogas/.test(pe) && /Ouça OS DOIS lados/.test(pe), 'promptExterno pede jurisprudência (inclusive de leis estaduais), normas infralegais e os dois lados');
+    // gates: voto permitido na conclusão, proibido fora
+    const baseG = { ficha, dossie: { avisos: [] }, tese: v.tese, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] } };
+    const corpo = 'Síntese\n\nx [T1].\n\nAvaliação da política\n\nNão há dados oficiais que permitam comparar o antes e o depois da mudança [T1].\n\nConclusão e posicionamento sugerido\n\nSugere-se aprovar o texto com as emendas de Plenário [CC]. A posição mudaria se a estimativa de impacto fiscal for apresentada [CC].';
+    const gC = G.aplicarGates({ ...baseG, texto: corpo });
+    const rC = G.rubricaMaquina({ ...baseG, texto: gC.texto, gates: gC });
+    ok(!gC.reprovacoes.some(r => r.gate === 'G10') && rC.itens.find(i => /^M11/.test(i.item)).ok, 'recomendação DENTRO da conclusão é permitida (M11 e G10 não reprovam)');
+    const foraDaConclusao = corpo.replace('x [T1].', 'Recomenda-se a aprovação do texto [T1].');
+    const gF = G.aplicarGates({ ...baseG, texto: foraDaConclusao });
+    ok(gF.reprovacoes.some(r => r.gate === 'G10') && !G.rubricaMaquina({ ...baseG, texto: gF.texto, gates: gF }).itens.find(i => /^M11/.test(i.item)).ok, 'a mesma recomendação na Síntese reprova');
+    ok(rC.itens.find(i => /^M13/.test(i.item)).ok && !G.rubricaMaquina({ ...baseG, texto: corpo.replace('A posição mudaria se a estimativa de impacto fiscal for apresentada [CC].', ''), gates: gC }).itens.find(i => /^M13/.test(i.item)).ok, 'M13 exige a conclusão escrita com o que mudaria a posição');
+    // impressão
+    const pImp = { texto: gC.texto, textoLimpo: T.limparMarcadores(gC.texto), tese: v.tese, ficha, nivel: 'C', emVigor: false, gates: gC, rubrica: rC, jurisprudencia: [{ tribunal: 'STF', processo: 'ADI 492', norma_examinada: 'n', decisao: 'd', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/x' }], infralegal: [], posicoes: [], comparada: [], conferencia: baseG.conferencia, validacao: { removidas: [] }, contraditorio: { refutadas: [], contestadas: [], ressalvas: [] } };
+    const htmlP = H.htmlParecer(pImp, { materia: 'PL 1893/2026' });
+    ok(/Posicionamento sugerido/.test(htmlP) && /Aprovar com as emendas de Plenário/.test(htmlP) && /juízo da assessoria/.test(htmlP) && /A decisão é da Liderança/.test(htmlP), 'a 1ª página traz "Posicionamento sugerido" com a posição e o aviso de que é juízo da assessoria');
+    ok(/Fontes buscadas na internet/.test(htmlP) && /ADI 492/.test(htmlP) && /portal\.stf\.jus\.br/.test(htmlP), 'o anexo lista as fontes buscadas na internet, com endereço');
+    const semPos = H.htmlParecer({ ...pImp, tese: { ...v.tese, conclusao: { ...v.tese.conclusao, posicao: null, contestada: 'a posição não se sustentou' } } }, { materia: 'x' });
+    ok(/não sustentou posição/.test(semPos), 'conclusão contestada: o PDF diz que a assessoria não sustentou posição e por quê');
   }
 
   console.log('== conferência de trecho com quebra de página ==');
@@ -270,9 +345,10 @@ const achadosX = [
       { id: 'T9', secao: 'sintese', tipo: 'calculo', texto: 'A arrecadação cairá R$ 2,4 bilhões.', evidencias: ['F1'] },
     ], objetivos: [{ id: 'O1', objetivo: 'Aperfeiçoar a conformidade tributária', veredito: 'atingido', justificativa: 'x', evidencias: ['A4'] }],
       lados: { apoia: { id: 'L1', argumento: 'Simplifica e reduz a carga.', o_que_a_evidencia_diz: 'a EMI o afirma', evidencias: ['A4'] }, opoe: { id: 'L2', argumento: 'Renúncia sem estimativa.', o_que_a_evidencia_diz: 'a EMI nega renúncia', evidencias: ['D1', 'D2'] } },
-      opcoes: [{ id: 'P1', opcao: 'Aprovar o texto', fiscal: 'renúncia não estimada', juridica: 'delegação regular', politica: 'alinha ao governo', evidencias: ['F1'] }, { id: 'P2', opcao: 'Condicionar à estimativa', fiscal: 'a', juridica: 'b', politica: 'c', evidencias: ['F1'] }], fatores_concorrentes: [] }),
-    contraditorio: JSON.stringify([{ id: 'T1', refutada: false }, { id: 'T2', refutada: false }, { id: 'T3', refutada: false }, { id: 'O1', refutada: true, motivo: 'objetivo declarado não é resultado' }, { id: 'L1', refutada: false }, { id: 'L2', refutada: false }, { id: 'P1', refutada: false }, { id: 'P2', refutada: false }]),
-    redacao: 'Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026 [T1].\n\nSem série oficial, o efeito não é verificável (nível de evidência C) [T2].\n\nContexto e processo\n\nA EMI declara que não há renúncia [T3].\n\nLei vigente e datas de efeito\n\nVale 20% até US$ 50 [F1].\n\nO que se previu\n\nA EMI nega renúncia [D1].\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável [O1].\n\nOs dois lados\n\nQuem apoia diz que simplifica [L1]. Quem se opõe aponta renúncia sem estimativa [L2].\n\nOpções e consequências\n\nAprovar consolida a delegação sem estimativa [P1].\n\nCondicionar à estimativa atende à LRF [P2].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades [A5]. Não identifiquei questão quanto à espécie tributária.',
+      opcoes: [{ id: 'P1', opcao: 'Aprovar o texto', fiscal: 'renúncia não estimada', juridica: 'delegação regular', politica: 'alinha ao governo', evidencias: ['F1'] }, { id: 'P2', opcao: 'Condicionar à estimativa', fiscal: 'a', juridica: 'b', politica: 'c', evidencias: ['F1'] }], fatores_concorrentes: [],
+      conclusao: { id: 'CC', posicao: 'Aprovar o texto condicionado à apresentação da estimativa de renúncia', porque: 'a delegação é regular, mas a renúncia não foi estimada.', o_que_mudaria: 'a apresentação da estimativa antes da votação', evidencias: ['P2', 'F1'] } }),
+    contraditorio: JSON.stringify([{ id: 'T1', refutada: false }, { id: 'T2', refutada: false }, { id: 'T3', refutada: false }, { id: 'O1', refutada: true, motivo: 'objetivo declarado não é resultado' }, { id: 'L1', refutada: false }, { id: 'L2', refutada: false }, { id: 'P1', refutada: false }, { id: 'P2', refutada: false }, { id: 'CC', refutada: false }]),
+    redacao: 'Síntese\n\nO texto original da MPV 1357/2026 permite reduzir de 20% para zero a alíquota até US$ 50 e de 60% para 30% até US$ 3.000, a partir de 12/05/2026 [T1].\n\nSem série oficial, o efeito não é verificável (nível de evidência C) [T2].\n\nContexto e processo\n\nA EMI declara que não há renúncia [T3].\n\nLei vigente e datas de efeito\n\nVale 20% até US$ 50 [F1].\n\nO que se previu\n\nA EMI nega renúncia [D1].\n\nAvaliação da política\n\nObjetivo de conformidade: não verificável [O1].\n\nOs dois lados\n\nQuem apoia diz que simplifica [L1]. Quem se opõe aponta renúncia sem estimativa [L2].\n\nOpções e consequências\n\nAprovar consolida a delegação sem estimativa [P1].\n\nCondicionar à estimativa atende à LRF [P2].\n\nRespostas por lente\n\nTributário\n\nO II é exceção às anterioridades [A5]. Não identifiquei questão quanto à espécie tributária.\n\nConclusão e posicionamento sugerido\n\nSugere-se aprovar o texto condicionado à apresentação da estimativa de renúncia [CC]. A posição mudaria se o governo apresentasse a estimativa antes da votação [CC].',
   };
   const io = {
     semWeb: true,
@@ -286,14 +362,14 @@ const achadosX = [
     ok(p.ficha.completa && p.ficha.regraVigente.origem === 'documento', 'ficha montada do documento (Planalto indisponível)');
     ok(p.validacao.removidas.some(r => r.id === 'T9'), 'T9 (R$ 2,4 bi sem evidência) removida antes da redação');
     ok(p.contraditorio.contestadas.some(x => x.id === 'O1') && p.tese.objetivos[0].veredito === 'não verificável', 'O1 contestado vira "não verificável"');
-    ok(p.rubrica.aprovado && p.aprovado, 'rubrica aprova: ' + p.rubrica.pendentes.map(x => x.item).join('; '));
+    ok(p.rubrica.aprovado && p.aprovado, 'rubrica aprova: ' + p.rubrica.pendentes.map(x => `${x.item} — ${x.detalhe || ''}`).join('; ') + ' | conf: ' + JSON.stringify(p.conferencia).slice(0, 400));
     ok(p.chamadas.length === 5 && p.chamadas.some(c => c.nome === 'historico') && !p.refeita, 'cinco chamadas (com a de histórico, porque a apuração trouxe menos de três fatos), sem redação refeita');
     ok(T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'opcoes', tipo: 'fato', texto: 'Rejeitada, a MP perde eficácia desde a edição, nos termos do art. 62, § 3º, da CF.', evidencias: ['F1'] }] }, T.catalogoDeEvidencias({ achados: achadosX, ficha }), { nivel: 'C' }).tese.afirmacoes.length === 1, '"art. 62" numa afirmação é referência normativa, não cifra fora da base');
     ok(p.gates.faixas.length === 0 && p.nivel === 'C', 'sem faixa de incompletude (regra veio do documento) e nível C');
     const html = H.htmlParecer(p, { materia: 'MPV 1357/2026', css: '' });
     const corpoHtml = html.slice(0, html.indexOf('<h3 class="item-h">Anexo técnico'));
     ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && !/\[T1\]|<sup class="ev">/.test(corpoHtml) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha e seções com âncora, e o corpo sai SEM identificadores de evidência');
-    ok(/Limites deste parecer/.test(corpoHtml) && /não recomenda voto/.test(corpoHtml) && /Anexo técnico — conferência/.test(html) && /M1 Ficha do objeto/.test(html.slice(html.indexOf('<h3 class="item-h">Anexo técnico'))), '"Limites deste parecer" em palavras no corpo; rubrica e tese com identificadores só no anexo técnico');
+    ok(/Limites deste parecer/.test(corpoHtml) && /juízo da assessoria/.test(corpoHtml) && /Anexo técnico — conferência/.test(html) && /M1 Ficha do objeto/.test(html.slice(html.indexOf('<h3 class="item-h">Anexo técnico'))), '"Limites deste parecer" em palavras no corpo; rubrica e tese com identificadores só no anexo técnico');
     ok(/<td>T1<\/td>/.test(html) && /Tese aprovada, com evidências/.test(html), 'a rastreabilidade (T1 → evidências) está na tabela do anexo técnico');
     // "Nível de evidência C" era jargão no PDF (crítica do usuário, duas vezes): sai do corpo; a 1ª página explica em palavras.
     ok(/Não há dados oficiais que permitam comparar o antes e o depois/.test(corpoHtml), 'a solidez da comparação é explicada em palavras na primeira página');
@@ -317,7 +393,7 @@ const achadosX = [
   const p7 = await PP.gerarParecer(ctx, io7);
   ok(!p7.erro && p7.chamadas.some(c => c.nome === 'comparada' && c.web) && p7.comparada.length === 1 && p7.comparada[0].lugar === 'Portugal', 'pipeline: busca comparada com web:true; item sem fonte cai; o parecer devolve a lista');
   const htmlC = H.htmlParecer(p7, { materia: 'x' });
-  ok(/Fontes externas da experiência comparada/.test(htmlC) && /oecd\.org/.test(htmlC) && /NÃO foram conferidas/.test(htmlC) && !/Parecer produzido com apoio/.test(htmlC), 'impresso: fontes externas no anexo e aviso nos limites; sem o carimbo do modelo');
+  ok(/Fontes buscadas na internet/.test(htmlC) && /oecd\.org/.test(htmlC) && /NÃO conferidas pelo programa/.test(htmlC) && !/Parecer produzido com apoio/.test(htmlC), 'impresso: fontes externas no anexo e aviso nos limites; sem o carimbo do modelo');
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   // apuração geral truncada (o raciocínio conta no teto de saída): uma chamada por lente, ficha só na primeira

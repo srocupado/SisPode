@@ -30,13 +30,13 @@ const __mods = (typeof module !== 'undefined' && typeof require === 'function') 
 function _refs() {
   if (__mods) {
     const { D, F, T, G, P, E } = __mods;
-    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico, promptFicha: P.promptFicha, promptComparada: P.promptComparada,
-      montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, tabelaAlteracoes: F.tabelaAlteracoes, catalogoDeEvidencias: T.catalogoDeEvidencias, promptTese: T.promptTese,
+    return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico, promptFicha: P.promptFicha, promptComparada: P.promptComparada, promptExterno: P.promptExterno,
+      montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, tabelaAlteracoes: F.tabelaAlteracoes, catalogoDeEvidencias: T.catalogoDeEvidencias, secoesAtivas: T.secoesAtivas, promptTese: T.promptTese,
       validarTese: T.validarTese, promptContraditorio: T.promptContraditorio, aplicarContraditorio: T.aplicarContraditorio, promptRedacao: T.promptRedacao,
       conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina };
   }
   /* eslint-disable no-undef */
-  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, promptComparada, montarDossie, tabelaAlteracoes, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
+  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, promptComparada, promptExterno, montarDossie, tabelaAlteracoes, secoesAtivas, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
     validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina };
   /* eslint-enable no-undef */
 }
@@ -117,7 +117,7 @@ async function gerarParecer(ctx, io) {
   const promptApuracao = R.promptApuracao;
   const montarDossie = R.montarDossie, resumoDoDossie = R.resumoDoDossie;
   const montarFicha = R.montarFicha;
-  const T = { catalogo: R.catalogoDeEvidencias, promptTese: R.promptTese, validar: R.validarTese, promptContra: R.promptContraditorio, aplicarContra: R.aplicarContraditorio, promptRedacao: R.promptRedacao, conferir: R.conferirRedacao, limpar: R.limparMarcadores };
+  const T = { secoesAtivas: R.secoesAtivas, catalogo: R.catalogoDeEvidencias, promptTese: R.promptTese, validar: R.validarTese, promptContra: R.promptContraditorio, aplicarContra: R.aplicarContraditorio, promptRedacao: R.promptRedacao, conferir: R.conferirRedacao, limpar: R.limparMarcadores };
   const aplicarGates = R.aplicarGates, rubricaMaquina = R.rubricaMaquina;
   const chamadas = [];
   const chamar = async (nome, prompt, pdfBuffers, extra = {}) => { const r = await io.chamarModelo({ prompt, pdfBuffers: pdfBuffers || [], etapa: nome, ...extra }); chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated, web: !!extra.web }); return r; };
@@ -223,7 +223,22 @@ async function gerarParecer(ctx, io) {
     } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'comparada', motivo: `busca de experiência comparada falhou: ${e.message}` }); }
   }
   const temComparada = comparada.length > 0;
-  const catalogo = T.catalogo({ achados: conf.aprovados, dossie, ficha, situacao: ctx.situacao || null, processo: ctx.processo || null, comparada });
+
+  // 5c. contexto externo, também com busca: jurisprudência sobre normas
+  // análogas, normas infralegais que já tratam da matéria e posições públicas.
+  let jurisprudencia = [], infralegal = [], posicoes = [];
+  if (io.semWeb !== true) {
+    passo('buscando jurisprudência, normas infralegais e posições…');
+    try {
+      const re = await chamar('externo', R.promptExterno({ identificacao: ctx.identificacao, ementa: ctx.ementa, regra: ficha.regraProposta?.texto || ficha.dispositivo || '', normas: (dossie.normas || []).map(n => n.literal).join('; ') }), [], { web: true });
+      const b = extrairJSONParecer(re.text) || {};
+      const comFonte = (lista, obrig) => (Array.isArray(lista) ? lista : []).filter(x => x && obrig.every(k => x[k]) && /^https?:\/\/\S+$/i.test(String(x.fonte_url || '')) && x.fonte_nome);
+      jurisprudencia = comFonte(b.jurisprudencia, ['tribunal', 'processo', 'decisao']).slice(0, 6);
+      infralegal = comFonte(b.infralegal, ['norma', 'o_que_disciplina']).slice(0, 6);
+      posicoes = comFonte(b.posicoes, ['ator', 'o_que_defende']).slice(0, 8);
+    } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'externo', motivo: `busca de contexto externo falhou: ${e.message}` }); }
+  }
+  const catalogo = T.catalogo({ achados: conf.aprovados, dossie, ficha, situacao: ctx.situacao || null, processo: ctx.processo || null, comparada, jurisprudencia, infralegal, posicoes });
   const semQuestaoTxt = conf.semQuestao.map(s => { const e = ESPEC.find(x => x.ordem === String(s.lente)); const idx = Number(String(s.pergunta).split('.').pop()) - 1; const p = e?.perguntas?.[idx]; return p ? `  [lente ${s.lente} · ${s.pergunta}] ${p.replace(/\([^)]*\)/g, '').split(/\?|\.\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/)[0].trim().slice(0, 90)}` : ''; }).filter(Boolean).join('\n');
   catalogo.semQuestao = semQuestaoTxt;
   const r2 = await chamar('tese', T.promptTese({ identificacao: ctx.identificacao, textoAnalisado, situacao: ctx.situacao, ficha, catalogo, nivel, lentes, objetivos, emVigor, temComparada }));
@@ -271,7 +286,8 @@ async function gerarParecer(ctx, io) {
 
   return {
     texto, textoLimpo: T.limpar(texto), textoAnalisado, situacao: ctx.situacao || null,
-    ficha, tese, nivel, temSerie, emVigor, alteracoes, processo: ctx.processo || null, comparada,
+    ficha, tese, nivel, temSerie, emVigor, alteracoes, processo: ctx.processo || null,
+    comparada, jurisprudencia, infralegal, posicoes, secoes: T.secoesAtivas ? T.secoesAtivas(tese, { temSerie }) : null,
     dossie: resumoDoDossie(dossie),
     catalogo: { itens: catalogo.itens.length },
     lentes: lentes.map(l => ({ ordem: l.ordem, rotulo: l.rotulo, motivo: l.motivo, chave: l.chave })),

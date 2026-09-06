@@ -223,6 +223,12 @@ ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJET
   emendas acatadas ou rejeitadas e de quem; o que o Plenário decidiu; datas. UM achado por fato, cada um com
   trecho literal; três a oito achados quando os documentos permitirem. É isto que diz ao leitor "de onde veio
   isto" e "quem defendeu o quê" — sem isto o parecer sai sem contexto.
+- "pergunta": "posicao" — UM achado por ator que se manifesta NOS DOCUMENTOS sobre o mérito (o governo na exposição de
+  motivos; entidade de classe, empresa, associação, conselho, órgão de controle citados no parecer ou em audiência;
+  parlamentar autor de emenda): quem é, se apoia ou se opõe e o que defende, com trecho. Até 8.
+- "pergunta": "execucao" — UM achado por elemento de implementação: qual órgão executa, o que depende de regulamento
+  posterior, prazos que o texto fixa, estrutura ou sistema exigido, obrigação nova para quem é regulado (custo de
+  conformidade) e quem fiscaliza. Com trecho. Até 8.
 ${blocoTramitacao(ctx.processo)}`}
 ${lentes.map(bloco).join('\n')}`;
 }
@@ -316,6 +322,50 @@ TEXTO ANALISADO: ${ctx.textoAnalisado || '(não identificado)'}. Leia os documen
 }
 
 /**
+ * O que existe FORA do processo, com busca na web: jurisprudência sobre normas
+ * análogas, normas infralegais que já disciplinam a matéria e posições públicas
+ * de atores. Uma chamada, três listas — cada item só entra com fonte e
+ * endereço, e o parecer imprime que o programa não as conferiu.
+ */
+function promptExterno(ctx = {}) {
+  return `Você levanta o CONTEXTO EXTERNO de um parecer técnico da Liderança do Podemos na Câmara dos Deputados sobre
+${ctx.identificacao || '(não informada)'} — ${ctx.ementa || ''}.
+Regra em exame: ${ctx.regra || '(ver ementa)'}.${ctx.normas ? `\nNormas envolvidas: ${ctx.normas}.` : ''}
+
+Use a busca na web e responda SOMENTE com JSON:
+{
+  "jurisprudencia": [
+    { "tribunal": "STF|STJ|TST|TCU", "processo": "classe, número e órgão julgador (ex.: ADI 5.127, Pleno)", "relator": "…",
+      "data": "julgamento ou publicação", "norma_examinada": "a norma julgada — diga se é lei federal, estadual ou municipal",
+      "decisao": "o que se decidiu, em uma a três frases", "relacao": "por que importa para ESTA proposição",
+      "fonte_nome": "…", "fonte_url": "https://…" }
+  ],
+  "infralegal": [
+    { "norma": "Decreto/Portaria/Resolução, número e data", "orgao": "quem editou", "data": "…",
+      "o_que_disciplina": "o que já está regulado hoje por essa norma",
+      "relacao": "o que muda ao a matéria virar lei (hierarquia, estabilidade, discricionariedade)",
+      "fonte_nome": "…", "fonte_url": "https://…" }
+  ],
+  "posicoes": [
+    { "ator": "nome da entidade, órgão, empresa ou coletivo", "tipo": "governo|entidade de classe|setor regulado|sociedade civil|órgão de controle",
+      "posicao": "favorável|contrário|favorável com ressalvas|contrário com ressalvas|não declarada", "data": "…",
+      "o_que_defende": "o que sustentou publicamente, em uma a três frases", "fonte_nome": "…", "fonte_url": "https://…" }
+  ]
+}
+
+O QUE PROCURAR
+- jurisprudência: decisões sobre o dispositivo alterado OU sobre norma de teor equivalente, INCLUSIVE leis estaduais e
+  municipais análogas declaradas inconstitucionais; ADIs, ADCs, ADPFs, temas de repercussão geral, súmulas. Até 6.
+- infralegal: decretos, portarias, resoluções, instruções normativas e atos de agência que já disciplinam a matéria. Até 6.
+- posições: manifestações públicas (notas, ofícios, audiências, notícias com declaração atribuída) de governo, entidades de
+  classe, setor regulado, sociedade civil e órgãos de controle. Até 8. Ouça OS DOIS lados: procure quem apoia e quem se opõe.
+
+REGRAS: cada item TEM fonte com endereço (URL) real encontrado na busca; item sem fonte não existe. Não invente número de
+processo, de norma nem declaração: o que a fonte não traz, escreva "não informado". Não conclua nada — apenas relate.
+Lista sem resultado vai vazia ([]).`;
+}
+
+/**
  * Experiência comparada, com busca na web. O leitor quer saber se regra
  * parecida funcionou em outro lugar; o modelo procura, nomeia a fonte e o
  * programa imprime "fonte não conferida". Sem fonte, o item não entra.
@@ -355,6 +405,6 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
-    promptApuracao, promptHistorico, promptFicha, promptComparada, descreverProcesso, carimboDoParecer,
+    promptApuracao, promptHistorico, promptFicha, promptComparada, promptExterno, descreverProcesso, carimboDoParecer,
   };
 }
