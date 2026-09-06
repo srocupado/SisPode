@@ -222,8 +222,40 @@ ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJET
   a contam: quem propôs; quem relatou e O QUE o relator propôs (manter, suprimir, alterar — com o argumento dele);
   emendas acatadas ou rejeitadas e de quem; o que o Plenário decidiu; datas. UM achado por fato, cada um com
   trecho literal; três a oito achados quando os documentos permitirem. É isto que diz ao leitor "de onde veio
-  isto" e "quem defendeu o quê" — sem isto o parecer sai sem contexto.`}
+  isto" e "quem defendeu o quê" — sem isto o parecer sai sem contexto.
+${blocoTramitacao(ctx.processo)}`}
 ${lentes.map(bloco).join('\n')}`;
+}
+
+/**
+ * O que o módulo de Plenário sabe da tramitação (cenário, relator, documentos
+ * anexados, emendas, comissões) vai ao modelo como fato do sistema, e a
+ * apuração devolve UM achado por documento, por emenda e por dispositivo
+ * alterado — é isso que dá ao leitor "o que ocorreu ao longo do processo".
+ */
+function descreverProcesso(pr) {
+  if (!pr) return '';
+  const L = [];
+  if (pr.cenario) L.push(`Cenário: ${pr.cenario}.${pr.textoEmVotacao ? ` Texto em votação: ${pr.textoEmVotacao}.` : ''}`);
+  if (pr.relator) L.push(`Relator(a): ${pr.relator.nome}${pr.relator.partido ? ` (${pr.relator.partido}${pr.relator.uf ? '-' + pr.relator.uf : ''})` : ''}${pr.relator.data ? `, designado(a) em ${pr.relator.data}` : ''}.`);
+  if (pr.documentos?.length) L.push(`Documentos anexados, nesta ordem: ${pr.documentos.map((d, i) => `${i + 1}. ${d.rotulo}`).join('; ')}.`);
+  if (pr.emendas?.length) L.push(`Emendas e substitutivos na tramitação: ${pr.emendas.map(e => e.rotulo).join('; ')}.`);
+  if (pr.comissoes?.length) L.push(`Comissões por onde tramitou: ${pr.comissoes.map(c => `${c.comissao}${c.dataBR ? ` (${c.dataBR})` : ''}${c.relator ? `, relator(a) ${c.relator}` : ''}${c.posicao ? `: ${c.posicao}` : ''}`).join('; ')}.`);
+  if (pr.apensados?.length) L.push(`Apensados de autoria do Podemos: ${pr.apensados.join('; ')}.`);
+  return L.join('\n  ');
+}
+function blocoTramitacao(pr) {
+  if (!pr) return '';
+  return `
+TRAMITAÇÃO (informada pelo sistema — use-a para localizar cada documento e não a contradiga):
+  ${descreverProcesso(pr)}
+Registre também, com "lente": "X":
+- "pergunta": "documento" — UM achado por documento anexado (campo "documento": o rótulo dele): o que é, quem assina,
+  o que conclui ou propõe, em duas a quatro frases, com trecho literal DESSE documento.
+- "pergunta": "emenda" — UM achado por emenda, substitutivo ou subemenda anexado ou mencionado nos documentos: número,
+  autor, o que altera e o destino que o relator lhe deu (acolhida, rejeitada, parcialmente), com trecho.
+- "pergunta": "altera" — UM achado por dispositivo da legislação vigente que a proposição altera, revoga ou acrescenta
+  ("dispositivo": "art. 92 da Lei 8.112/1990"): o que muda, em uma a três frases, com trecho. Até 12.`;
 }
 
 /**
@@ -300,6 +332,6 @@ function carimboDoParecer({ modelo, faixa, motivo, ressalva, lentes = [], em = n
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     faixaDoModelo, versaoDoModelo, escolherModelo, ranquearModelos,
-    promptApuracao, promptHistorico, promptFicha, carimboDoParecer,
+    promptApuracao, promptHistorico, promptFicha, descreverProcesso, carimboDoParecer,
   };
 }

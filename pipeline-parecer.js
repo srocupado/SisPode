@@ -31,12 +31,12 @@ function _refs() {
   if (__mods) {
     const { D, F, T, G, P, E } = __mods;
     return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico, promptFicha: P.promptFicha,
-      montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, catalogoDeEvidencias: T.catalogoDeEvidencias, promptTese: T.promptTese,
+      montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, tabelaAlteracoes: F.tabelaAlteracoes, catalogoDeEvidencias: T.catalogoDeEvidencias, promptTese: T.promptTese,
       validarTese: T.validarTese, promptContraditorio: T.promptContraditorio, aplicarContraditorio: T.aplicarContraditorio, promptRedacao: T.promptRedacao,
       conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina };
   }
   /* eslint-disable no-undef */
-  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, montarDossie, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
+  return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, montarDossie, tabelaAlteracoes, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
     validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina };
   /* eslint-enable no-undef */
 }
@@ -141,6 +141,7 @@ async function gerarParecer(ctx, io) {
   passo(`apurando (${lentes.length} lentes)…`);
   const ctxAp = { identificacao: ctx.identificacao, ementa: ctx.ementa, autoria: ctx.autoria, relator: ctx.relator, textoAnalisado };
   const buffers = (ctx.docs || []).map(d => d.buffer);
+  ctxAp.processo = ctx.processo || null;
   const r1 = await chamar('apuracao', promptApuracao(ctxAp, lentes, ESPEC), buffers);
   let bruto = extrairJSONParecer(r1.text);
   // Resposta truncada (o raciocínio conta no limite de saída): uma chamada por
@@ -190,8 +191,12 @@ async function gerarParecer(ctx, io) {
   const fichaPrevia = montarFicha({ achados: conf.aprovados, leiVigente: [], marco: null, identificacao: ctx.identificacao, sigla: ctx.sigla });
   let dossie = null;
   try {
+    // Artigos que a apuração diz alterados entram na leitura da lei (tabela "O que muda").
+    const artigosExtra = conf.aprovados.filter(a => String(a.lente) === 'X' && a.pergunta === 'altera').map(a => {
+      const d = String(a.dispositivo || a.achado || ''); const art = (/\barts?\.?\s*(\d+)/i.exec(d) || [])[1]; const num = (/(\d{1,3}\.\d{3}|\d{2,5})\s*(?:\/\s*\d{4}|,?\s*de\s+(?:\d{1,2}\s+de\s+[a-zçã]+\s+de\s+)?\d{4})/i.exec(d) || [])[1];
+      return art && num ? { numero: num, artigo: art } : null; }).filter(Boolean);
     dossie = await montarDossie({ fonte, documentos, rotulos: documentos.map(d => d.rotulo), ementa: ctx.ementa || '', hoje: ctx.hoje || new Date(),
-      fetchFn: io.fetchFn || null, lerPdf: io.lerPdf, abrirXlsx: io.abrirXlsx || null, palavrasDoObjeto: palavrasDoObjeto(fichaPrevia, ctx.ementa) });
+      fetchFn: io.fetchFn || null, lerPdf: io.lerPdf, abrirXlsx: io.abrirXlsx || null, palavrasDoObjeto: palavrasDoObjeto(fichaPrevia, ctx.ementa), artigosExtra });
   } catch (e) { dossie = { nivel: 'C', avisos: [`Dossiê não montado: ${e.message}`], estimativas: [], negacoes: [], leiVigente: [], janelas: {}, fontes: [], texto: '', numeros: [], marco: null }; }
   const nivel = dossie.nivel || 'C';
   const temSerie = !!(Object.values(dossie.janelas || {}).some(j => j.antes && j.depois) || dossie.prc?.janelas?.antes);
@@ -201,7 +206,8 @@ async function gerarParecer(ctx, io) {
 
   // 6. tese
   passo('formulando a tese…');
-  const catalogo = T.catalogo({ achados: conf.aprovados, dossie, ficha, situacao: ctx.situacao || null });
+  const alteracoes = R.tabelaAlteracoes({ achados: conf.aprovados, leiVigente: dossie.leiVigente || [] });
+  const catalogo = T.catalogo({ achados: conf.aprovados, dossie, ficha, situacao: ctx.situacao || null, processo: ctx.processo || null });
   const semQuestaoTxt = conf.semQuestao.map(s => { const e = ESPEC.find(x => x.ordem === String(s.lente)); const idx = Number(String(s.pergunta).split('.').pop()) - 1; const p = e?.perguntas?.[idx]; return p ? `  [lente ${s.lente} · ${s.pergunta}] ${p.replace(/\([^)]*\)/g, '').split(/\?|\.\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])/)[0].trim().slice(0, 90)}` : ''; }).filter(Boolean).join('\n');
   catalogo.semQuestao = semQuestaoTxt;
   const r2 = await chamar('tese', T.promptTese({ identificacao: ctx.identificacao, textoAnalisado, situacao: ctx.situacao, ficha, catalogo, nivel, lentes, objetivos }));
@@ -244,12 +250,12 @@ async function gerarParecer(ctx, io) {
   texto = g.texto;
 
   // 9. rubrica
-  const rubrica = rubricaMaquina({ texto, ficha, tese, dossie, nivel, conferencia, gates: g, temSerie });
+  const rubrica = rubricaMaquina({ texto, ficha, tese, dossie, nivel, conferencia, gates: g, temSerie, processo: ctx.processo || null });
   const ressalvasValidade = ressalvas(lentes.map(l => l.chave));
 
   return {
     texto, textoLimpo: T.limpar(texto), textoAnalisado, situacao: ctx.situacao || null,
-    ficha, tese, nivel, temSerie,
+    ficha, tese, nivel, temSerie, alteracoes, processo: ctx.processo || null,
     dossie: resumoDoDossie(dossie),
     catalogo: { itens: catalogo.itens.length },
     lentes: lentes.map(l => ({ ordem: l.ordem, rotulo: l.rotulo, motivo: l.motivo, chave: l.chave })),

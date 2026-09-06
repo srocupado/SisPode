@@ -139,6 +139,37 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
   return ficha;
 }
 
+/**
+ * "O que muda na legislação": um achado "altera" por dispositivo, casado com
+ * o texto vigente lido (LEGIN/Planalto) pelo número do artigo e da norma.
+ * O leitor vê, lado a lado, o que vale hoje e o que a proposição faz.
+ */
+function tabelaAlteracoes({ achados = [], leiVigente = [] } = {}) {
+  const linhas = [];
+  for (const a of achados.filter(x => String(x.lente) === 'X' && x.pergunta === 'altera' && !x.semQuestao)) {
+    const disp = String(a.dispositivo || a.achado || '');
+    const art = (/\barts?\.?\s*(\d+)/i.exec(disp) || [])[1] || null;
+    const norma = (/(\d{1,3}\.\d{3}|\d{2,5})\s*(?:\/\s*\d{4}|,?\s*de\s+(?:\d{1,2}\s+de\s+[a-zçã]+\s+de\s+)?\d{4})/i.exec(disp) || [])[1];
+    let vigente = null, fonte = null;
+    for (const l of leiVigente) {
+      if (l.desatualizado) continue;
+      if (norma && !String(l.norma).replace(/\./g, '').includes(norma.replace(/\./g, ''))) continue;
+      const t = (l.trechos || []).find(x => art && (/\d+/.exec(String(x.artigo)) || [])[0] === art);
+      if (t) { vigente = String(t.texto).slice(0, 900); fonte = `${l.norma} (${l.origem === 'camara' ? 'texto atualizado, Câmara' : l.compilado ? 'texto compilado, Planalto' : 'texto publicado, Senado'})`; break; }
+    }
+    linhas.push({ dispositivo: disp, artigo: art, norma: norma || null, vigente, fonte, proposta: a.achado, trecho: a.trecho || null, novo: !art || /acrescent|inclu|cria|institui|novo/i.test(a.achado || '') });
+  }
+  return linhas;
+}
+
+function alteracoesParaHtml(linhas, esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))) {
+  if (!linhas || !linhas.length) return '';
+  return `<table class="ficha alteracoes"><thead><tr><th>Dispositivo</th><th>O que vale hoje</th><th>O que a proposição faz</th></tr></thead><tbody>${linhas.map(l => `<tr>
+    <td>${esc(l.dispositivo)}</td>
+    <td>${l.vigente ? esc(l.vigente) + `<div class="ficha-fonte">${esc(l.fonte)}</div>` : `<span class="ficha-falta">${l.novo ? 'não há dispositivo correspondente (texto novo)' : 'texto vigente não lido'}</span>`}</td>
+    <td>${esc(l.proposta)}${l.trecho ? `<div class="ficha-fonte">Trecho: “${esc(String(l.trecho).slice(0, 220))}”</div>` : ''}</td></tr>`).join('')}</tbody></table>`;
+}
+
 /** "A partir de", em palavras: data, ou cláusula condicionada à aprovação. */
 function dataEfeitoTexto(f) {
   const d = f && f.dataEfeito;
@@ -195,8 +226,9 @@ const CSS_FICHA = `
     .ficha td { border:1px solid #bfc7cf; padding:4px 6px; vertical-align:top; }
     .ficha-fonte { font-size:8.3pt; color:#666; margin-top:2px; }
     .ficha-doc { font-size:9pt; color:#333; margin-top:4px; padding-top:3px; border-top:1px dotted #bfc7cf; }
+    .alteracoes th { width:auto; background:#eef2f5; } .alteracoes td:first-child { width:20%; font-weight:600; } .alteracoes td { font-size:9pt; }
     .ficha-falta { color:#b03030; }`;
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, recortarRegra, clausulaDeVigencia, dataEfeitoTexto, objetoEnunciado, fichaParaTexto, fichaParaHtml, CSS_FICHA };
+  module.exports = { RE_VALOR_FICHA, normalizarValor, valoresDoTexto, montarFicha, regraVigenteNoTexto, recortarRegra, clausulaDeVigencia, dataEfeitoTexto, objetoEnunciado, fichaParaTexto, fichaParaHtml, tabelaAlteracoes, alteracoesParaHtml, CSS_FICHA };
 }

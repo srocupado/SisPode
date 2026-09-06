@@ -51,7 +51,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   const usados = ['ESPECIALISTAS', 'sugerirEspecialistas', 'ressalvasDeValidade', 'montarDossie', 'resumoDoDossie', 'tabelasDoDossie', 'montarFicha', 'fichaParaHtml',
     'catalogoDeEvidencias', 'validarTese', 'aplicarContraditorio', 'conferirRedacao', 'aplicarGates', 'rubricaMaquina', 'escolherModelo', 'promptApuracao', 'carimboDoParecer',
     'gerarParecer', 'htmlParecer', 'chamarIA', 'escolherDocumentos', 'baixarPdf', 'extrairTextoPdf', 'PROVEDORES_META', 'tituloComApelido', 'iaInFlightInc', 'iaInFlightDec',
-    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer'];
+    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer', 'listarEmendas', 'classificarCenario', 'ehMPV', 'tramitacaoParaHtml', 'alteracoesParaHtml', 'tabelaAlteracoes'];
   const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
   ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão definidos`);
   ok(!/\(0, eval\)|\beval\(/.test(fonte.replace(/\/\/[^\n]*/g, '')), 'nenhum eval nos scripts (a CSP da extensão o proíbe)');
@@ -178,6 +178,9 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       ctx.__p = p;
       const html = av('htmlParecer(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
       ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && /<td>T1<\/td>/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota, limites e anexo técnico');
+      ctx.__pt = { ...p, processo: { cenario: 'Cenário 3 — parecer de plenário (PRLP)', textoEmVotacao: 'PRLP 4', relator: { nome: 'André Figueiredo', partido: 'PDT', uf: 'CE' }, documentos: [{ rotulo: 'PRLP 4' }], emendas: [{ rotulo: 'EMP 1' }], comissoes: [], apensados: [] }, alteracoes: [{ dispositivo: 'art. 92 da Lei 8.112/1990', vigente: 'Art. 92. texto', fonte: 'Lei 8.112 (Câmara)', proposta: 'muda', trecho: 't' }] };
+      const htmlT = av('htmlParecer(__pt, { materia: "PL 1893/2026", css: CSS_IMPRESSAO_PLENARIO })');
+      ok(/<h3 class="item-h">Tramitação<\/h3>/.test(htmlT) && /André Figueiredo \(PDT-CE\)/.test(htmlT) && /O que muda na legislação/.test(htmlT) && /O que vale hoje/.test(htmlT) && /href="#l_tramitacao"/.test(htmlT), 'com tramitação e alterações: blocos "Tramitação" e "O que muda na legislação" na 1ª página e no índice');
       // ida e volta pelo Firebase: arrays e objetos vazios somem
       const semVazios = v => Array.isArray(v) ? (v.length ? v.map(semVazios) : undefined) : (v && typeof v === 'object') ? (Object.keys(v).length ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, semVazios(x)]).filter(([, x]) => x !== undefined)) : undefined) : v;
       ctx.__pfb = semVazios(JSON.parse(JSON.stringify(p)));

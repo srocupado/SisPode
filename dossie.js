@@ -489,7 +489,7 @@ const fmt = {
  *
  * Tudo que falhar vira aviso, e o parecer sai com o que houver.
  */
-async function montarDossie({ fonte = '', rotulos = [], documentos = null, ementa = '', hoje = new Date(), fetchFn = null, lerPdf = null, abrirXlsx = null, comSeries = true, palavrasDoObjeto = null } = {}) {
+async function montarDossie({ fonte = '', rotulos = [], documentos = null, ementa = '', hoje = new Date(), fetchFn = null, lerPdf = null, abrirXlsx = null, comSeries = true, palavrasDoObjeto = null, artigosExtra = null} = {}) {
   const d = { geradoEm: hoje.toISOString(), fontes: [], avisos: [], estimativas: [], negacoes: [], marco: null, normas: [], leiVigente: [], rubricas: [], series: {}, janelas: {}, prc: null, nivel: 'C' };
   const dataBR = iso => iso ? iso.split('-').reverse().join('/') : '';
   const acesso = `acesso em ${dataBR(hoje.toISOString().slice(0, 10))}`;
@@ -524,8 +524,11 @@ async function montarDossie({ fonte = '', rotulos = [], documentos = null, ement
     for (const n of d.normas.filter(x => x.tipo !== 'mpv').slice(0, 3)) {
       const r = await buscarTextoNorma(n, fetchFn);
       if (!r.texto) { d.avisos.push(`Texto de ${n.literal} não obtido: ${r.tentativas.join('; ')}.`); continue; }
+      // Artigos citados junto da norma no texto + os que a apuração disse que a proposição altera.
+      const numN = String(n.numero).replace(/\./g, '');
+      const extras = (artigosExtra || []).filter(x => String(x.numero || '').replace(/\./g, '') === numN).map(x => String(x.artigo));
       const artigos = [...String(fonte).matchAll(new RegExp(`art\\.?\\s*(\\d+[ºo°]?)[^.]{0,80}${n.literal.split(',')[0].replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'gi'))]
-        .map(m => m[1]).filter((v, i, a) => a.indexOf(v) === i).slice(0, 3);
+        .map(m => m[1]).concat(extras).map(v => v.replace(/[ºo°]/g, '')).filter((v, i, a) => a.indexOf(v) === i).slice(0, 10);
       const trechos = artigos.map(a => ({ artigo: `Art. ${a}`, texto: extrairArtigo(r.texto, a) })).filter(x => x.texto);
       // Texto publicado (não compilado) de norma antiga NÃO é regra vigente:
       // na rodada real, o DL 1.804 de 1980 entrou como "vigente" com uma isenção
@@ -534,7 +537,7 @@ async function montarDossie({ fonte = '', rotulos = [], documentos = null, ement
       const desatualizado = !r.compilado && Number(n.ano) < anoRef - 1;
       d.leiVigente.push({ norma: n.literal, url: r.url, origem: r.origem, compilado: r.compilado, desatualizado, acesso, caracteres: r.texto.length,
         trechos: trechos.length ? trechos : [{ artigo: 'início', texto: r.texto.slice(0, 1500) }] });
-      d.fontes.push({ nome: `${n.literal} — ${r.compilado ? 'texto compilado (Planalto)' : `texto publicado (Senado, via LexML), NÃO compilado${desatualizado ? ': norma de ' + n.ano + ', pode ter dispositivos alterados ou revogados' : ''}`}`, url: r.url, nivel: 'A' });
+      d.fontes.push({ nome: `${n.literal} — ${r.origem === 'camara' ? 'texto atualizado (Portal da Legislação da Câmara)' : r.compilado ? 'texto compilado (Planalto)' : `texto publicado (Senado, via LexML), NÃO compilado${desatualizado ? ': norma de ' + n.ano + ', pode ter dispositivos alterados ou revogados' : ''}`}`, url: r.url, nivel: 'A' });
       if (desatualizado) d.avisos.push(`${n.literal}: só o texto original (${n.ano}) foi obtido; o texto compilado do Planalto não respondeu. Não usado como regra vigente.`);
     }
   }

@@ -127,7 +127,20 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
 }
 
 /** Rubrica mecânica M1–M11. Qualquer item reprovado impede o PDF de abrir. */
-function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia = null, gates = null, temSerie = false } = {}) {
+/** Chave curta de uma emenda/substitutivo ("EMP 1", "SBT-A 2", "EMS") para procurar no texto. */
+function chaveDaEmenda(rotulo) {
+  const m = /\b(EMP|EMC|EMS|EMR|EMA|SBT-?A?|SSP|SBE|PRLP|PRLE|PLV|EMENDA(?:\s+DE\s+PLENÁRIO)?|SUBEMENDA|SUBSTITUTIVO)\s*(?:N[ºo.]?\s*)?(\d+)?/i.exec(String(rotulo || ''));
+  if (!m) return null;
+  return { sigla: m[1].toUpperCase().replace(/\s+/g, ' '), numero: m[2] || null };
+}
+function emendaCitada(texto, ch) {
+  if (!ch) return true;
+  const t = String(texto || '');
+  const sigla = ch.sigla.replace(/-/g, '-?').replace(/\s+/g, '\\s+');
+  return ch.numero ? new RegExp(`\\b${sigla}\\s*(?:n[ºo.]?\\s*)?${ch.numero}\\b|emenda[^.]{0,20}\\bn[ºo.]?\\s*${ch.numero}\\b`, 'i').test(t) : new RegExp(`\\b${sigla}\\b`, 'i').test(t);
+}
+
+function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia = null, gates = null, temSerie = false, processo = null } = {}) {
   const t = String(texto || '');
   const secoes = _secoesDoTexto ? _secoesDoTexto(t) : {};
   const itens = [];
@@ -156,6 +169,17 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   const causaisProprias = causaisNaoAtribuidas(t);
   const votosProprios = votosNaoAtribuidos(t);
   add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria e sem recomendação de voto', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação de voto: "${votosProprios[0]}"` : null);
+  // M12 — o que o módulo de Plenário sabe tem de estar no texto: relator pelo nome, cada emenda/substitutivo.
+  if (processo && (processo.relator?.nome || (processo.emendas || []).length)) {
+    const faltam = [];
+    if (processo.relator?.nome) {
+      const partes = String(processo.relator.nome).replace(/\(.*?\)/g, '').split(/\s+/).filter(x => x.length >= 4 && !/^(dep|deputad[oa]|sen|senador[a]?)\.?$/i.test(x));
+      const sobrenome = partes[partes.length - 1];
+      if (sobrenome && !new RegExp(sobrenome.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i').test(t)) faltam.push(`relator(a) ${processo.relator.nome}`);
+    }
+    for (const e of processo.emendas || []) { const ch = chaveDaEmenda(e.rotulo); if (ch && !emendaCitada(t, ch)) faltam.push(e.rotulo); }
+    add(!faltam.length, 'M12 Contexto nomeia o(a) relator(a) e cada emenda ou substitutivo da tramitação', faltam.length ? `não citados: ${faltam.slice(0, 6).join('; ')}` : null);
+  }
   const pendentes = itens.filter(i => !i.ok);
   return { itens, pendentes, aprovado: !pendentes.length, resumo: pendentes.length ? `${pendentes.length} de ${itens.length} itens da rubrica reprovados.` : `Os ${itens.length} itens mecânicos da rubrica foram satisfeitos.` };
 }
@@ -169,5 +193,5 @@ const RUBRICA_HUMANA = [
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
+  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, chaveDaEmenda, emendaCitada, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
 }
