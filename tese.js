@@ -645,8 +645,8 @@ ${tem('viabilidade') ? `- Prioridade e viabilidade: os sinais objetivos da trami
 const RE_MARCADOR = new RegExp(`\\[(?:${PREFIXOS_ID})\\d*\\](?:\\[(?:${PREFIXOS_ID})\\d*\\])*`, 'g');
 // Só entre colchetes: "V1" ou "N1" soltos no texto não são citação.
 const RE_ID = new RegExp(`\\[(${PREFIXOS_ID})(\\d*)\\]`, 'g');
-const SECOES_COM_JUIZO = ['Síntese', 'Avaliação da política', 'Os dois lados', 'Opções e consequências',
-  'Aprimoramentos e sugestões de emenda', 'Prioridade e viabilidade', 'Conclusão e posicionamento sugerido'];
+// Derivado de TITULOS: renomear uma seção não pode calar a conferência dela.
+const SECOES_COM_JUIZO = ['sintese', 'avaliacao', 'lados', 'opcoes', 'redacional', 'viabilidade', 'conclusao'].map(k => TITULOS[k]);
 const REF_NORMATIVA_RE = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|inciso|par[áa]grafo|al[íi]nea|n[.º°]?)\s*(n?[.º°]?\s*)?$/i;
 
 /** Divide o texto nas seções fixas (título em linha própria). */
