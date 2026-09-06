@@ -27,7 +27,7 @@ const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nov
 // "resultou em" solto é narrativa ("o cenário normativo resultou em lacuna");
 // só vira atribuição de causa quando o sujeito é a própria matéria analisada.
 const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|(a (lei|medida|norma|MP|MPV|proposi[çc][ãa]o)|o (projeto|texto|substitutivo|dispositivo))[^.]{0,40}resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
-const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|(?:deve|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
+const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|sugerimos (?:a )?(aprova|rejei)|(?:deve|dever[íi]a|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|a melhor (?:op[çc][ãa]o|alternativa|sa[íi]da) (?:é|seria|ser[áa])|opta-se pel|somos pel|opina-se pel|voto pel|posicionamento (?:favor[áa]vel|contr[áa]rio) (?:à|ao|a )|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?|A[çc][ãa]o Direta de (?:In)?constitucionalidade|Argui[çc][ãa]o de Descumprimento[^\d]{0,40}|Mandado de Injun[çc][ãa]o)\s*n?[.º°]?\s*\d/i;
 // O parecer AFIRMANDO o vício ("é inconstitucional", "incorre em vício de
 // iniciativa") — e não a referência a inconstitucionalidade já declarada
@@ -48,18 +48,11 @@ const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|suste
 // "o relator recomendou a aprovação", "o parecer opina pela rejeição": relato, não voto do parecer.
 const RE_QUEM_VOTA = /\b(relator[a]?|parecer|comiss[ãa]o|manifesta[çc][ãa]o|CASP|CCJ|CFT|governo|autor[a]?|senador[a]?|deputad[oa]|l[íi]der|bancada|sindicato|entidade|confedera[çc][ãa]o|quem (apoia|se op[õo]e|defende|critica)|segundo)\b[^.]{0,160}$/i;
 /**
- * Recomendações de voto que o PARECER faz fora da conclusão. Relato da posição
- * de outrem não conta; a seção "Conclusão e posicionamento sugerido" é o lugar
- * onde a assessoria recomenda, e por isso sai da varredura.
+ * Recomendações de voto ou de posição que o PARECER faz — em qualquer seção,
+ * conclusão inclusive. Relato da posição de outrem não conta.
  */
-function semAConclusao(texto) {
-  const titulo = (_TITULOS && _TITULOS.conclusao) || 'Conclusão e posicionamento sugerido';
-  const re = new RegExp(`(^|\\n)\\s*${titulo}\\s*:?\\s*(\\n|$)`, 'i');
-  const m = re.exec(String(texto || ''));
-  return m ? String(texto).slice(0, m.index) : String(texto || '');
-}
 function votosNaoAtribuidos(texto) {
-  const t = semAConclusao(texto); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
+  const t = String(texto || ''); const out = []; const re = new RegExp(RE_VOTO.source, 'gi'); let m;
   while ((m = re.exec(t)) !== null) { const antes = t.slice(Math.max(0, m.index - 160), m.index); if (!RE_QUEM_VOTA.test(antes) && !RE_ATRIBUICAO.test(antes)) out.push(t.slice(Math.max(0, m.index - 40), m.index + m[0].length + 30).replace(/\s+/g, ' ')); }
   return out;
 }
@@ -145,7 +138,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
     reprovacoes.push({ gate: 'G9', detalhe: `O parecer AFIRMA inconstitucionalidade sem precedente citado: "${par.replace(/\s+/g, ' ').slice(0, 160)}…". Reescreva o parágrafo sem decretar inconstitucionalidade ou vício: aponte o dispositivo constitucional e diga que o ponto "merece exame quanto à compatibilidade com o art. X"; só use "inconstitucional" citando precedente com classe e número (ADI, RE, Súmula) ou relatando decisão já tomada.` });
   }
   // G10 — recomendação de voto ou causa atribuída pelo próprio parecer: idem.
-  for (const v of votosNaoAtribuidos(t).slice(0, 2)) reprovacoes.push({ gate: 'G10', detalhe: `Recomendação de voto do próprio parecer: "${v}". O parecer não recomenda voto: apresente a opção e as consequências; a decisão é da Liderança.` });
+  for (const v of votosNaoAtribuidos(t).slice(0, 2)) reprovacoes.push({ gate: 'G10', detalhe: `Recomendação de voto ou de posição feita pelo parecer: "${v}". O parecer NÃO recomenda e NÃO defende posição, nem na conclusão: apresente a opção e as consequências, diga o que falta para decidir e deixe a escolha com a Liderança.` });
   for (const c of causaisNaoAtribuidas(t).slice(0, 2)) reprovacoes.push({ gate: 'G10', detalhe: `Causa atribuída pelo próprio parecer: "${c}". Não afirme que a medida causou o resultado: diga o que a série mostra e liste os fatores concorrentes; causa só como posição relatada de um lado.` });
 
   // G3 — veredito acima do nível (no texto final, por seção de avaliação)
@@ -224,13 +217,13 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   // aumentou…") é relato da posição alheia, não afirmação do parecer.
   const causaisProprias = causaisNaoAtribuidas(t);
   const votosProprios = votosNaoAtribuidos(t);
-  add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria; recomendação de voto só na conclusão', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação fora da conclusão: "${votosProprios[0]}"` : null);
+  add(!causaisProprias.length && !votosProprios.length, 'M11 Sem atribuição causal própria e sem recomendação de voto ou posição', causaisProprias.length ? `verbo causal: "${causaisProprias[0]}"` : votosProprios.length ? `recomendação de voto ou posição: "${votosProprios[0]}"` : null);
   // M13 — a conclusão da tese chegou ao texto, com posição e com o que a mudaria.
   if (tese && tese.conclusao) {
     const c = tese.conclusao;
     const secConc = (secoes[(_TITULOS || {}).conclusao] || []).join(' ');
-    add(secConc.length > 80 && (c.contestada || /mudar|rever|alterar|deixar de|passar a/i.test(secConc)), 'M13 Conclusão escrita, com a posição e o que a mudaria',
-      secConc.length <= 80 ? 'seção de conclusão vazia ou curta demais' : 'a conclusão não diz o que faria a assessoria mudar de posição');
+    add(secConc.length > 80 && /falta|faltam|ainda n[ãa]o|permanece|em aberto|n[ãa]o se sabe|obter|depende/i.test(secConc), 'M13 Conclusão escrita, com o que se decide e o que falta para decidir',
+      secConc.length <= 80 ? 'seção de conclusão vazia ou curta demais' : 'a conclusão não diz o que falta saber para decidir');
   }
   // M12 — o que o módulo de Plenário sabe tem de estar no texto: relator pelo nome, cada emenda/substitutivo.
   if (processo && (processo.relator?.nome || (processo.emendas || []).length)) {

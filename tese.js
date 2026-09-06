@@ -26,9 +26,12 @@ const __ficha = (typeof module !== 'undefined' && typeof require === 'function')
 const _fichaParaTexto = __ficha ? __ficha.fichaParaTexto : (typeof fichaParaTexto === 'function' ? fichaParaTexto : null);
 
 const SECOES_TESE = ['sintese', 'contexto', 'lei', 'jurisprudencia', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'atores', 'implementacao', 'lados', 'opcoes', 'redacional', 'viabilidade'];
-const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', jurisprudencia: 'Jurisprudência sobre normas análogas', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', atores: 'Quem se posicionou e como', implementacao: 'Implementação e custo de conformidade', lados: 'Os dois lados', opcoes: 'Opções e consequências', redacional: 'Aprimoramentos e sugestões de emenda', viabilidade: 'Prioridade e viabilidade', lentes: 'Respostas por lente', conclusao: 'Conclusão e posicionamento sugerido' };
+const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', jurisprudencia: 'Jurisprudência sobre normas análogas', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', atores: 'Quem se posicionou e como', implementacao: 'Implementação e custo de conformidade', lados: 'Os dois lados', opcoes: 'Opções e consequências', redacional: 'Aprimoramentos e sugestões de emenda', viabilidade: 'Prioridade e viabilidade', lentes: 'Respostas por lente', conclusao: 'Conclusão: o que está em jogo na decisão' };
 // Seções que só entram quando a tese tem unidade para elas; as demais são fixas.
 const SECOES_CONDICIONAIS = ['jurisprudencia', 'aconteceu', 'comparada', 'atores', 'implementacao', 'redacional', 'viabilidade'];
+// O parecer não recomenda voto nem toma partido — em nenhuma seção.
+const RE_POSICIONAMENTO = /\b(recomend\w*(?:-se)?|sugere-se|sugerimos|deve(?:m|ria)? ser (?:aprovad|rejeitad)|deve votar|merece (?:aprova|rejei)|a melhor (?:op[çc][ãa]o|alternativa|sa[íi]da)|opta-se pel|somos pel|opina-se pel|voto pel|posicionamento (?:favor[áa]vel|contr[áa]rio)|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
+
 // Onde cada evidência buscada na internet pode sustentar afirmação.
 const SECAO_DA_EXTERNA = { W: 'comparada', J: 'jurisprudencia', N: 'lei', Q: 'atores' };
 const POSICOES_ATOR = ['favorável', 'contrário', 'favorável com ressalvas', 'contrário com ressalvas', 'dividido', 'não declarada'];
@@ -190,8 +193,12 @@ Responda SOMENTE com JSON neste formato:
   "viabilidade": [
     { "id": "V1", "sinal": "fato objetivo da tramitação ou do calendário", "peso": "${PESOS_VIABILIDADE.join('|')}", "evidencias": ["S1", "S2"] }
   ],
-  "conclusao": { "id": "CC", "posicao": "aprovar / aprovar com as emendas X / rejeitar / condicionar / liberar a bancada — literal",
-    "porque": "duas a quatro frases ligadas às evidências", "o_que_mudaria": "o que faria a assessoria mudar de posição", "evidencias": ["P1", "F1"] }
+  "conclusao": { "id": "CC",
+    "ponto_de_decisao": "o que exatamente se decide ao votar esta matéria, em uma ou duas frases",
+    "estabelecido": "o que a apuração deixou assentado (regra que muda, datas, o que o texto faz)",
+    "aberto": "o que permanece em disputa entre os lados ou não verificável com o que existe",
+    "falta_para_decidir": "que informação mudaria a leitura de quem decide, e onde obtê-la",
+    "evidencias": ["F1", "A3"] }
 }
 
 SEÇÕES (campo "secao"): ${SECOES_TESE.join(', ')} — e "lente:N" para respostas técnicas de cada lente acionada
@@ -225,7 +232,8 @@ ${temExterna('N') ? `- NORMAS INFRALEGAIS (N): entram na seção "lei" — o que
   muda ao virar lei (hierarquia, estabilidade, o que deixa de ser discricionário).` : ''}
 - Estimativa marcada "NÃO vinculada ao objeto" nunca é "o previsto" desta medida; ela só pode aparecer como contexto, nomeada.
 - Nada de atribuição causal ("a medida provocou"): a série mostra; o parecer compara.
-- Recomendação de voto SÓ na "conclusao": nas opções (P) e no resto da tese, consequências, nunca voto.
+- Nada de recomendação de voto nem de posição em NENHUMA parte, inclusive na conclusão: as opções têm consequências,
+  a decisão é da Liderança. Não escreva "recomenda-se", "deve ser aprovado", "a melhor opção é", "sugere-se aprovar".
 - ATORES (AT): um por quem se manifestou, com posição e evidência (Q da busca, ou achado "posicao" do documento). Sem
   evidência, o ator não existe: não suponha a posição de ninguém. Governo é a exposição de motivos ou a manifestação
   oficial; entidade de classe, setor regulado e sociedade civil só com fonte.
@@ -237,9 +245,9 @@ ${temExterna('N') ? `- NORMAS INFRALEGAIS (N): entram na seção "lei" — o que
 - VIABILIDADE (V): SÓ sinais objetivos, cada um com evidência do sistema (S) ou dos documentos (A): regime de urgência,
   relator designado e seu parecer, apensados, comissões vencidas, matéria em pauta, prazo constitucional, acordo registrado
   nos documentos. NÃO estime votos, não afirme apoio de partido que não esteja nas evidências.
-- CONCLUSÃO (CC): a posição da assessoria. Ela DECORRE das opções (cite o P correspondente) e das evidências; "o_que_mudaria"
-  é obrigatório e diz o que faria a assessoria mudar de posição (dado que falta, emenda acolhida, mudança de cenário).
-  A conclusão é juízo declarado da assessoria — não a apresente como fato nem como decisão tomada.
+- CONCLUSÃO (CC): fecha o parecer SEM tomar partido. Diz o que se decide ao votar ("aprovar o substitutivo significa X;
+  acolher a emenda 2 significa Y"), o que ficou estabelecido, o que segue em aberto e o que falta saber para decidir, com
+  onde obter. Não escolhe opção, não pondera qual é melhor, não usa "porém" para favorecer um lado.
 - OPÇÕES (P): a consequência FISCAL descreve o que a série mostra, com a janela e o nível, sem extrapolar ("mantém o cenário
   observado na série: II devido de X para Y por mês, nível B"); a consequência JURÍDICA decorre da ficha, dos achados sobre o
   regime da MP (art. 62 da CF: perda de eficácia, decreto legislativo) ou da lei citada — cite-os; a consequência POLÍTICA é
@@ -347,7 +355,7 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
     if (!p.opcao || !(p.fiscal || p.juridica || p.politica)) { removidas.push({ id: p.id, secao: 'opcoes', motivo: 'opção sem consequência', texto: p.opcao }); return; }
     const erro = conferir(p, `${p.opcao} ${p.fiscal || ''} ${p.juridica || ''} ${p.politica || ''}`, p.id);
     if (erro) { removidas.push({ id: p.id, secao: 'opcoes', motivo: erro, texto: p.opcao }); return; }
-    if (/\b(recomend|deve votar|orienta(?:mos|-se)? (?:pel|a favor|contra)|voto pel)/i.test(`${p.opcao} ${p.politica}`)) { removidas.push({ id: p.id, secao: 'opcoes', motivo: 'recomendação de voto', texto: p.opcao }); return; }
+    if (RE_POSICIONAMENTO.test(`${p.opcao} ${p.politica}`)) { removidas.push({ id: p.id, secao: 'opcoes', motivo: 'recomendação de voto', texto: p.opcao }); return; }
     opcoes.push(p);
   });
 
@@ -398,19 +406,20 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
   // Conclusão: posição da assessoria, ligada às opções, com o que a mudaria.
   let conclusao = null;
   const c = tese.conclusao;
-  if (c && c.posicao && c.porque) {
+  if (c && c.ponto_de_decisao) {
     c.id = c.id || 'CC';
-    // A conclusão cita OPÇÕES (unidades da tese, P1…) e evidências do catálogo.
-    // As duas coisas chegam misturadas em "evidencias": separam-se aqui.
+    // A conclusão pode citar OPÇÕES (unidades da tese, P1…) junto das evidências
+    // do catálogo; as duas coisas chegam misturadas em "evidencias".
     const brutos = (c.evidencias || []).map(String);
     c.opcoes = brutos.filter(id => opcoes.some(o => o.id === id));
     c.evidencias = brutos.filter(id => !/^P\d+$/.test(id));
-    const erro = c.evidencias.length ? conferir(c, `${c.posicao} ${c.porque} ${c.o_que_mudaria || ''}`, c.id) : (c.opcoes.length ? null : 'conclusão sem evidência e sem opção citada');
-    if (erro) removidas.push({ id: c.id, secao: 'conclusao', motivo: erro, texto: c.posicao });
-    else if (!c.o_que_mudaria) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'conclusão sem "o que mudaria a posição"', texto: c.posicao });
-    else if (opcoes.length && !c.opcoes.length) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'conclusão não se liga a nenhuma das opções apresentadas', texto: c.posicao });
+    const inteiro = `${c.ponto_de_decisao} ${c.estabelecido || ''} ${c.aberto || ''} ${c.falta_para_decidir || ''}`;
+    const erro = c.evidencias.length ? conferir(c, inteiro, c.id) : (c.opcoes.length ? null : 'conclusão sem evidência');
+    if (erro) removidas.push({ id: c.id, secao: 'conclusao', motivo: erro, texto: c.ponto_de_decisao });
+    else if (!c.falta_para_decidir) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'conclusão sem "o que falta para decidir"', texto: c.ponto_de_decisao });
+    else if (RE_POSICIONAMENTO.test(inteiro)) removidas.push({ id: c.id, secao: 'conclusao', motivo: 'a conclusão toma posição ou orienta voto — o parecer não recomenda', texto: c.ponto_de_decisao });
     else conclusao = c;
-  } else if (c) removidas.push({ id: 'CC', secao: 'conclusao', motivo: 'conclusão sem posição ou sem motivo', texto: c.posicao || '' });
+  } else if (c) removidas.push({ id: 'CC', secao: 'conclusao', motivo: 'conclusão sem o ponto de decisão', texto: c.ponto_de_decisao || c.posicao || '' });
 
   const limpa = { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: fatores, atores, implementacao, aprimoramentos, viabilidade, conclusao };
   return { tese: limpa, removidas, rebaixadas, resumo: `${afirmacoes.length} afirmações, ${objetivos.length} objetivos, ${opcoes.length} opções, ${atores.length} atores, ${implementacao.length} itens de implementação, ${aprimoramentos.length} aprimoramentos, ${viabilidade.length} sinais de viabilidade, conclusão ${conclusao ? 'com posição' : 'ausente'}; ${removidas.length} removida(s), ${rebaixadas.length} veredito(s) rebaixado(s)` };
@@ -431,9 +440,8 @@ function unidadesDaTese(t) {
     const c = t.conclusao;
     // Conclusão derrubada no contraditório: a posição não vai ao texto, mas o
     // leitor precisa saber o que se argumentou e por que não se sustentou.
-    const texto = c.contestada
-      ? `Posição NÃO sustentada. O que a assessoria havia argumentado: ${c.porque}. Por que a conferência não manteve a posição: ${c.contestada}`
-      : `Posição sugerida: ${c.posicao}. Porque: ${c.porque}. Mudaria se: ${c.o_que_mudaria}${(c.opcoes || []).length ? ` (decorre da opção ${c.opcoes.join(', ')})` : ''}`;
+    const base = `O que se decide: ${c.ponto_de_decisao}. Estabelecido: ${c.estabelecido || '—'}. Em aberto: ${c.aberto || '—'}. Falta para decidir: ${c.falta_para_decidir}${(c.opcoes || []).length ? ` (opções na mesa: ${c.opcoes.join(', ')})` : ''}`;
+    const texto = c.contestada ? `${base} — RESSALVA do contraditório: ${c.contestada}` : base;
     u.push({ id: c.id || 'CC', tipo: 'juizo', secao: 'conclusao', texto, evidencias: [...(c.evidencias || []), ...(c.opcoes || [])] });
   }
   return u;
@@ -476,7 +484,7 @@ Responda SOMENTE com JSON: [ { "id": "T3", "refutada": true, "motivo": "uma ou d
 REFUTE TAMBÉM, com o mesmo rigor: ator (AT) cuja posição a fonte não sustenta; item de implementação (I) que afirme
 estrutura, prazo ou custo que nenhuma evidência mostra; aprimoramento (R) que invente vício, contrarie o texto ou proponha
 o que a lei já diz; sinal de viabilidade (V) que seja aposta e não fato da tramitação; e a CONCLUSÃO (CC) quando a posição
-não decorrer das opções e das evidências, quando ignorar evidência contrária relevante ou quando "o que mudaria" for vazio.
+descrever mal o que se decide, ignorar evidência contrária relevante ou deixar de dizer o que falta para decidir.
 Inclua TODAS as unidades (T, O, L, P, AT, I, R, V, CC), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
 em palavras comuns ("os dados cobrem só 3 meses depois da mudança, e maio é parcial"), sem "nível de evidência" nem jargão.`;
 }
@@ -527,9 +535,9 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
   // Aprimoramento é juízo: refutado, sai (sugestão errada no parecer é pior que sugestão a menos).
   const aprimoramentos = [];
   for (const x of t.aprimoramentos || []) { const r = ref(x.id); if (r) { refutadas.push({ id: x.id, tipo: 'aprimoramento', motivo: r.motivo, texto: x.dispositivo }); continue; } aprimoramentos.push(x); }
-  // Conclusão refutada: a posição NÃO é impressa; fica o motivo e a decisão com a Liderança.
+  // Conclusão contestada: como ela não toma partido, o que entra é a ressalva.
   let conclusao = t.conclusao || null;
-  if (conclusao) { const r = ref(conclusao.id || 'CC'); if (r) { contestadas.push({ id: conclusao.id || 'CC', motivo: r.motivo, texto: conclusao.posicao }); conclusao = { ...conclusao, contestada: r.motivo, posicao: null }; } }
+  if (conclusao) { const r = ref(conclusao.id || 'CC'); if (r) { contestadas.push({ id: conclusao.id || 'CC', motivo: r.motivo, texto: conclusao.ponto_de_decisao }); conclusao = { ...conclusao, contestada: r.motivo }; } }
   return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [], atores, implementacao, aprimoramentos, viabilidade, conclusao }, refutadas, contestadas, ressalvas,
     resumo: `${refutadas.length} unidade(s) refutada(s) e removida(s); ${contestadas.length} juízo(s) contestado(s) e rebaixado(s)${ressalvas.length ? `; ${ressalvas.length} ressalva(s) mantida(s) com o dado` : ''}` };
 }
@@ -611,7 +619,7 @@ ${emVigor ? `- Avaliação da política: um parágrafo por objetivo, em prosa, c
 - Os dois lados: o argumento de cada lado pode ser relatado como posição dele ("quem apoia sustenta que…"); a frase "o que
   a evidência diz" nunca atribui causa.
 - Os dois lados: o melhor de cada um e o que a evidência diz sobre cada um.
-- Opções e consequências: uma por parágrafo, com as três consequências; sem recomendar voto — a recomendação é da conclusão.
+- Opções e consequências: uma por parágrafo, com as três consequências; sem recomendar voto e sem eleger a melhor.
 - Respostas por lente: prosa técnica com o dispositivo citado; sem enumerar linha a linha.
 ${tem('jurisprudencia') ? `- Jurisprudência sobre normas análogas: um parágrafo por julgado — tribunal, classe e número, o que se decidiu e o que
   isso significa para esta proposição. Julgado sobre lei estadual análoga é sinal, não decisão sobre este texto: diga a
@@ -625,14 +633,11 @@ ${tem('redacional') ? `- Aprimoramentos e sugestões de emenda: um parágrafo po
   a sugestão acionável (a redação alternativa ou a emenda a apresentar). Texto corrido, sem lista.` : ''}
 ${tem('viabilidade') ? `- Prioridade e viabilidade: os sinais objetivos da tramitação e do calendário (urgência, relator, comissões, pauta,
   prazo), o que cada um indica, e um parágrafo final de balanço. Não estime votos nem afirme apoio que a evidência não traz.` : ''}
-- Conclusão e posicionamento sugerido: dois a quatro parágrafos. O primeiro traz a POSIÇÃO SUGERIDA em uma frase, com o
-  verbo no início ("Sugere-se aprovar o substitutivo com as emendas…"), EXATAMENTE como está na tese. Depois, o porquê
-  ligado às evidências e, no último parágrafo, o que faria a assessoria mudar de posição. Esta é a ÚNICA seção em que o
-  parecer recomenda; escreva-a como juízo da assessoria.
-  Se a tese trouxer a conclusão marcada como "Posição NÃO sustentada", escreva dois parágrafos: o que a assessoria havia
-  argumentado e por que a conferência não manteve a posição (nas palavras da tese), fechando com a frase de que, à vista
-  das opções, a decisão fica com a Liderança. Se a tese não trouxer conclusão nenhuma, escreva só: "A assessoria não
-  sustentou posição nesta matéria: a conferência automática não a manteve.".
+- Conclusão: o que está em jogo na decisão — três a quatro parágrafos, SEM tomar partido e SEM recomendar: (1) o que
+  exatamente se decide ao votar, e o que cada caminho significa em termos concretos; (2) o que a apuração deixou
+  estabelecido; (3) o que permanece em aberto ou não verificável; (4) o que falta saber para decidir e onde obter.
+  Não escreva "recomenda-se", "sugere-se", "a melhor opção", "deve ser aprovado", nem equivalente. Havendo ressalva do
+  contraditório na tese, registre-a. Sem conclusão na tese, escreva só: "A conferência automática não manteve a conclusão.".
 - Português formal, parágrafos corridos, texto puro: sem negrito, itálico, listas, tabelas ou cercas de código. Não escreva
   cabeçalho, título, destinatário, data, ressalvas ou lista de fontes: o formato de impressão já traz.`;
 }
@@ -692,6 +697,6 @@ function conferirRedacao(texto, { tese, catalogo, ficha }) {
 function limparMarcadores(texto) { return String(texto || '').replace(new RegExp(`\\s*\\[(?:${PREFIXOS_ID})\\d*\\]`, 'g'), ''); }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SECOES_TESE, TITULOS, SECOES_CONDICIONAIS, secoesAtivas, POSICOES_ATOR, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese,
+  module.exports = { SECOES_TESE, TITULOS, SECOES_CONDICIONAIS, secoesAtivas, POSICOES_ATOR, RE_POSICIONAMENTO, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese,
     promptContraditorio, aplicarContraditorio, promptRedacao, secoesDoTexto, conferirRedacao, limparMarcadores, RE_MARCADOR, numsRelevantes };
 }
