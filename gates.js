@@ -24,7 +24,9 @@ const _NIVEL_EVIDENCIA = __dossieMod ? __dossieMod.NIVEL_EVIDENCIA : (typeof NIV
 
 const RE_EXTENSO = /\b(um|uma|dois|duas|tr[êe]s|quatro|cinco|seis|sete|oito|nove|dez|onze|doze|vinte|trinta|quarenta|cinquenta|sessenta|setenta|oitenta|noventa|cem|cento|mil|quinhentos)\s+(?:e\s+\w+\s+)?(bilh|milh)/gi;
 // "A data de efeito da medida é 12/05/2026" não é causa; "o efeito da medida foi a queda" é.
-const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
+// "resultou em" solto é narrativa ("o cenário normativo resultou em lacuna");
+// só vira atribuição de causa quando o sujeito é a própria matéria analisada.
+const RE_CAUSAL = /\b(a (lei|medida|norma|MP|MPV) (provocou|causou|gerou|levou a|reduziu|aumentou|elevou|derrubou)|(a (lei|medida|norma|MP|MPV|proposi[çc][ãa]o)|o (projeto|texto|substitutivo|dispositivo))[^.]{0,40}resultou em|gra[çc]as [àa] (lei|medida)|em decorr[êe]ncia da (lei|medida)|por causa da (lei|medida)|(?<!data de )(efeito|impacto) da (lei|medida) (foi|é) (de |o |a |uma |um )?(aument|redu|qued|alta|elev|cresc|fort|expressiv|negativ|positiv))/i;
 const RE_VOTO = /\b(recomend\w+(?:-se)? (?:o |a )?(voto|aprova|rejei)|sugere-se (?:a )?(aprova|rejei)|(?:deve|merece) ser (?:aprovad|rejeitad)|merece (?:aprova|rejei)|somos pel|opina-se pel|voto pel|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 const RE_CITACAO = /\b(ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|RHC|REsp|AgR|Tema|S[úu]mula(\s+Vinculante)?|A[çc][ãa]o Direta de (?:In)?constitucionalidade|Argui[çc][ãa]o de Descumprimento[^\d]{0,40}|Mandado de Injun[çc][ãa]o)\s*n?[.º°]?\s*\d/i;
 // O parecer AFIRMANDO o vício ("é inconstitucional", "incorre em vício de
