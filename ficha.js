@@ -83,13 +83,15 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
 
   // Regra vigente: lei lida > documento.
   const numArt = (s) => (/\bart\.?\s*(\d+)/i.exec(String(s || '')) || [])[1];
-  const artDisp = numArt(ficha.dispositivo);
+  // Artigos citados no dispositivo E na descrição da regra atual ("as alíneas d e e
+  // do art. 240 da Lei 8.112"): qualquer um deles casa com o trecho da lei lida.
+  const artsCitados = new Set([ficha.dispositivo, aDisp?.trecho, aAntes?.achado, aAntes?.trecho].filter(Boolean).flatMap(s => [...String(s).matchAll(/\barts?\.?\s*(\d+)/gi)].map(m => m[1])));
   const valoresAntes = aAntes ? valoresDoTexto(`${aAntes.achado} ${aAntes.trecho || ''}`).map(v => v.norm) : [];
   let trechoLei = null, leiOrigem = null;
   for (const l of leiVigente) {
     if (l.desatualizado) continue;                       // texto original de norma antiga não é regra vigente
     for (const t of l.trechos || []) {
-      const casaArtigo = artDisp && numArt(t.artigo) === artDisp;
+      const casaArtigo = artsCitados.size && artsCitados.has(numArt(t.artigo));
       const casaValor = valoresAntes.length && valoresAntes.some(v => normalizarValor(t.texto).includes(v));
       if (casaArtigo || casaValor) { trechoLei = { norma: l.norma, artigo: t.artigo, texto: t.texto }; leiOrigem = l; break; }
     }
@@ -98,7 +100,9 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
   if (trechoLei) {
     const origem = leiOrigem.origem === 'camara' ? 'camara' : leiOrigem.compilado ? 'planalto' : 'senado';
     const rotuloFonte = { camara: 'texto atualizado, Portal da Legislação da Câmara', planalto: 'texto compilado, Planalto', senado: 'texto publicado, Senado via LexML' }[origem];
-    ficha.regraVigente = { texto: trechoLei.texto.slice(0, 1400), origem, fonte: `${trechoLei.norma}, ${trechoLei.artigo} (${rotuloFonte})`, url: leiOrigem.url };
+    ficha.regraVigente = { texto: trechoLei.texto.slice(0, 1400), origem, fonte: `${trechoLei.norma}, ${trechoLei.artigo} (${rotuloFonte})`, url: leiOrigem.url,
+      // A lei diz o texto; o documento diz a situação ("não há marco legal…"). Os dois vão à ficha.
+      noDocumento: aAntes ? aAntes.achado : null };
   } else if (aAntes) {
     ficha.regraVigente = { texto: aAntes.achado, trecho: aAntes.trecho || null, origem: 'documento', fonte: 'transcrição no documento analisado (trecho conferido)', url: null };
   } else if (fonte) {
@@ -165,7 +169,7 @@ function fichaParaTexto(f) {
   return [
     `FICHA DO OBJETO — ${f.identificacao}`,
     `Dispositivo: ${f.dispositivo || 'não identificado'}`,
-    `Regra vigente (${f.regraVigente ? f.regraVigente.fonte : 'NÃO OBTIDA'}): ${f.regraVigente ? f.regraVigente.texto : '—'}`,
+    `Regra vigente (${f.regraVigente ? f.regraVigente.fonte : 'NÃO OBTIDA'}): ${f.regraVigente ? f.regraVigente.texto : '—'}${f.regraVigente?.noDocumento ? `\n  Como o documento analisado descreve a situação atual: ${f.regraVigente.noDocumento}` : ''}`,
     `Regra proposta (${f.regraProposta ? f.regraProposta.fonte : 'NÃO IDENTIFICADA'}): ${f.regraProposta ? f.regraProposta.texto : '—'}`,
     `Data de efeito: ${d}`,
     f.quantitativa ? `Valores da regra (a síntese TEM de enunciar ao menos dois, em algarismos): ${f.valores.map(v => v.token).join('; ') || 'nenhum'}`
@@ -179,7 +183,7 @@ function fichaParaHtml(f, esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ 
   const linha = (rot, val, fonte) => `<tr><th>${esc(rot)}</th><td>${val}${fonte ? `<div class="ficha-fonte">${esc(fonte)}</div>` : ''}</td></tr>`;
   return `<table class="ficha">
     ${linha('Dispositivo', esc(f.dispositivo || 'não identificado'))}
-    ${linha('Regra vigente', f.regraVigente ? esc(f.regraVigente.texto) : '<b class="ficha-falta">não obtida</b>', f.regraVigente ? f.regraVigente.fonte : null)}
+    ${linha('Regra vigente', f.regraVigente ? esc(f.regraVigente.texto) + (f.regraVigente.noDocumento ? `<div class="ficha-doc"><b>Como o documento analisado descreve a situação atual:</b> ${esc(f.regraVigente.noDocumento)}</div>` : '') : '<b class="ficha-falta">não obtida</b>', f.regraVigente ? f.regraVigente.fonte : null)}
     ${linha('Regra proposta', f.regraProposta ? esc(f.regraProposta.texto) : '<b class="ficha-falta">não identificada</b>', f.regraProposta ? f.regraProposta.fonte : null)}
     ${linha('A partir de', esc(d), f.dataEfeito ? f.dataEfeito.trecho : null)}
   </table>`;
@@ -190,6 +194,7 @@ const CSS_FICHA = `
     .ficha th { width:22%; text-align:left; vertical-align:top; background:#eef2f5; border:1px solid #bfc7cf; padding:4px 6px; }
     .ficha td { border:1px solid #bfc7cf; padding:4px 6px; vertical-align:top; }
     .ficha-fonte { font-size:8.3pt; color:#666; margin-top:2px; }
+    .ficha-doc { font-size:9pt; color:#333; margin-top:4px; padding-top:3px; border-top:1px dotted #bfc7cf; }
     .ficha-falta { color:#b03030; }`;
 
 if (typeof module !== 'undefined' && module.exports) {
