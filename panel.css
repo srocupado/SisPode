@@ -674,10 +674,11 @@ body {
      .toast ........... 400  (precisa cobrir o modal: é o retorno das ações dele)
      .cn-interesse-pop 1000
 
-   O modal estava em 100, ABAIXO da home. Passa despercebido enquanto todo modal
-   é aberto de dentro da tela de destaques, com a home já em display:none — mas
-   qualquer modal aberto a partir da PRÓPRIA home abre atrás dela: display:flex
-   aplicado, nenhum erro no console, nada visível. Um clique que não faz nada. */
+   O modal estava em 100, ABAIXO da home. Isso passou despercebido enquanto
+   todos os modais eram abertos de dentro da tela de destaques, com a home já
+   em display:none. O modal de sub-painéis do Orçamento é o primeiro aberto a
+   partir da PRÓPRIA home — e abria atrás dela: display:flex aplicado, nenhum
+   erro no console, nada visível na tela. Um clique que não faz nada. */
 .modal-overlay {
   position: fixed;
   inset: 0;
