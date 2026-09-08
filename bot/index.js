@@ -10,6 +10,7 @@ const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregar
 const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
 const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente, ajustarAgendaRodaViva } = require('./src/rodaviva');
 const { conversar, limparMemoria } = require('./src/agente');
+const { comRepeticao } = require('./src/reenvio');
 const { listarVotacoesDia, placarVotacao } = require('./src/votacao');
 const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, identificarItem } = require('./src/portal');
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
@@ -1991,26 +1992,54 @@ tickBackup();
 // ---------- Digest semanal: segunda-feira, 7h (Brasília) ----------
 // Gera na chave do ADMIN e envia aos assinantes (+ admin). Idempotente por
 // semana (dados/digest-envio.json) — sobrevive a reinícios do bot.
+// Quem ainda não recebeu o digest desta semana. A geração leva ~2 min e gasta
+// a chave de IA do admin: falhando o ENVIO, o próximo tick reenvia o mesmo
+// digest, sem gerar de novo, enquanto a janela da manhã estiver aberta.
+let _digestPendente = null;   // { digest, destinos: [ids que faltam] }
+
 async function tickDigest() {
   try {
-    if (!ehHoraDoEnvio() || jaEnviadoNaSemana()) return;
-    const destinos = [...new Set([ADMIN_USER_ID, ...Object.keys(listarAssinantes())].filter(Boolean))];
-    if (!destinos.length) return;
-    const perfilAdmin = getPerfil(ADMIN_USER_ID);
-    if (!perfilAdmin?.apiKey) {
-      marcarEnvioDaSemana();   // não fica tentando em loop — avisa e segue
-      if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
-        '📺 Digest de segunda: não gerei porque o admin está sem chave de IA (/config). Peça com /digest quando configurar.').catch(() => {});
-      return;
+    if (!ehHoraDoEnvio()) return;
+    const repetindo = !!_digestPendente?.destinos.length;
+    if (jaEnviadoNaSemana() && !repetindo) return;
+
+    let digest, destinos;
+    if (repetindo) {
+      ({ digest } = _digestPendente);
+      destinos = [..._digestPendente.destinos];
+      console.log(`[digest] reenviando aos ${destinos.length} destino(s) que falharam.`);
+    } else {
+      destinos = [...new Set([ADMIN_USER_ID, ...Object.keys(listarAssinantes())].filter(Boolean))];
+      if (!destinos.length) return;
+      const perfilAdmin = getPerfil(ADMIN_USER_ID);
+      if (!perfilAdmin?.apiKey) {
+        marcarEnvioDaSemana();   // não fica tentando em loop — avisa e segue
+        if (ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+          '📺 Digest de segunda: não gerei porque o admin está sem chave de IA (/config). Peça com /digest quando configurar.').catch(() => {});
+        return;
+      }
+      console.log('[digest] gerando o envio semanal…');
+      digest = await gerarDigest({ perfil: perfilAdmin, forcar: true });
+      _digestPendente = { digest, destinos: [...destinos] };
     }
-    console.log('[digest] gerando o envio semanal…');
-    const digest = await gerarDigest({ perfil: perfilAdmin, forcar: true });
-    marcarEnvioDaSemana();
+
+    const falharam = [];
     for (const id of destinos) {
-      try { await enviarDigest(bot.api, id, digest); }
-      catch (e) { console.warn(`[digest] envio a ${id} falhou:`, e.message); }
+      try {
+        await comRepeticao('digest', () => enviarDigest(bot.api, id, digest));
+        marcarEnvioDaSemana();   // alguém recebeu: a semana não se regenera
+      } catch (e) { falharam.push(id); console.warn(`[digest] envio a ${id} falhou:`, e.message); }
     }
-    console.log(`[digest] enviado a ${destinos.length} assinante(s).`);
+    _digestPendente.destinos = falharam;
+    const entregues = destinos.length - falharam.length;
+    console.log(`[digest] enviado a ${entregues} de ${destinos.length} destino(s)`
+      + (falharam.length ? ` — falhou em ${falharam.length}; o próximo tick tenta de novo.` : '.'));
+    if (!falharam.length) { _digestPendente = null; return; }
+    // Ninguém recebeu: nada foi marcado, e o próximo tick reenvia. Alguém
+    // recebeu: avisa o admin de quem ficou de fora (melhor esforço).
+    if (entregues && ADMIN_USER_ID) bot.api.sendMessage(ADMIN_USER_ID,
+      `⚠️ Digest: ${falharam.length} destino(s) não receberam por falha de rede (${falharam.join(', ')}). `
+      + 'Vou tentar de novo nos próximos minutos; depois das 10h, use /digest.').catch(() => {});
   } catch (e) {
     console.warn('[digest] tick falhou:', e.message);
   }
@@ -2036,8 +2065,10 @@ async function tickRodaViva() {
     }
     console.log('[rodaviva] gerando o resumo semanal…');
     const { texto } = await gerarResumoRodaViva({ perfil: perfilAdmin, log: m => console.log('[rodaviva] ' + m) });
+    // Marca DEPOIS de entregar: marcar antes fazia uma falha de rede custar o
+    // resumo do episódio inteiro, sem nova tentativa.
+    await comRepeticao('rodaviva', () => enviarLongo(bot.api, GRUPO_CHAT_ID, texto));
     marcarEnvioRodaViva(ep.videoId);
-    await enviarLongo(bot.api, GRUPO_CHAT_ID, texto);
     console.log(`[rodaviva] resumo de "${ep.titulo}" enviado ao grupo.`);
   } catch (e) {
     // Transitório (vídeo ainda sem legenda, YouTube instável): o próximo tick tenta.
