@@ -191,7 +191,9 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
   console.log('\n== carregar modelos, barra de rolagem e apagar a pauta ==');
   {
     ok(!!document.getElementById('btn-config-modelos') && !!document.getElementById('btn-cc-modelos'), 'os dois modais têm o botão "Carregar disponíveis"');
-    ok(!/scrollbar-width/.test(fs.readFileSync(path.join(RAIZ, 'pautas-comissoes.html'), 'utf8')), 'sem scrollbar-width próprio: vale a barra fina do panel.css, como nos outros módulos');
+    const htmlPC = fs.readFileSync(path.join(RAIZ, 'pautas-comissoes.html'), 'utf8');
+    ok(!/scrollbar-width/.test(htmlPC), 'sem scrollbar-width próprio: vale a barra fina do panel.css, como nos outros módulos');
+    ok(/\.pc-abas::-webkit-scrollbar \{ height: 5px; \}/.test(htmlPC), 'barra horizontal das abas afinada (panel.css só define width, que vale para a vertical)');
     av(`pc.aba = 'CCJC'; abrirSalva({ orgaoId: 2003, id: 82841 })`);
     await new Promise(r => setTimeout(r, 100));
     ok(!!document.getElementById('pc-apagar') && document.querySelectorAll('#pc-lat [data-apagar]').length === 1, 'a reunião aberta tem "Apagar pauta" e a pauta salva tem o ✕ na lateral');

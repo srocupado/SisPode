@@ -11,6 +11,10 @@
   <style>
     /* ---- abas por colegiado ---- */
     .pc-abas { display: flex; gap: 2px; align-items: stretch; border-bottom: 1px solid var(--border); padding: 0 14px; background: var(--card); overflow-x: auto; }
+    /* o panel.css só afina a barra vertical (width); a das abas é horizontal e usa height */
+    .pc-abas::-webkit-scrollbar { height: 5px; }
+    .pc-abas::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 3px; }
+    .pc-abas::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.18); }
     .pc-aba { padding: 10px 11px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); border: none; background: none; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: inherit; }
     .pc-aba:hover { color: var(--text); }
     .pc-aba.ativa { color: var(--text); border-bottom-color: var(--accent); }
