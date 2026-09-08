@@ -14,8 +14,9 @@
 //   5 ficha        JS      regra vigente → regra proposta → data de efeito, com origem
 //   6 tese         MODELO  afirmações com evidências (JSON) → validação por máquina
 //   7 contraditório MODELO refutações → aplicadas por máquina
-//   8 redação      MODELO  texto com marcadores → conferência; reprovada, refaz UMA vez (5ª chamada)
-//   9 gates+rubrica JS     faixas, notas, reprovações; M1–M14
+//   8 redação      MODELO  texto com marcadores → conferência; com correções, refaz UMA vez (5ª chamada)
+//   9 gates+rubrica JS     faixas, notas, pontos de atenção; M1–M14 — o parecer sai sempre;
+//                          o que persistir vai ao relatório de conferência para o analista
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
@@ -33,11 +34,11 @@ function _refs() {
     return { ESPECIALISTAS: E.ESPECIALISTAS, sugerirEspecialistas: E.sugerirEspecialistas, ressalvasDeValidade: E.ressalvasDeValidade, promptApuracao: P.promptApuracao, promptHistorico: P.promptHistorico, promptFicha: P.promptFicha, promptComparada: P.promptComparada, promptExterno: P.promptExterno,
       montarDossie: D.montarDossie, resumoDoDossie: D.resumoDoDossie, montarFicha: F.montarFicha, tabelaAlteracoes: F.tabelaAlteracoes, catalogoDeEvidencias: T.catalogoDeEvidencias, secoesAtivas: T.secoesAtivas, promptTese: T.promptTese,
       validarTese: T.validarTese, promptContraditorio: T.promptContraditorio, aplicarContraditorio: T.aplicarContraditorio, promptRedacao: T.promptRedacao,
-      conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina };
+      conferirRedacao: T.conferirRedacao, limparMarcadores: T.limparMarcadores, aplicarGates: G.aplicarGates, rubricaMaquina: G.rubricaMaquina, pontosDeAtencao: G.pontosDeAtencao };
   }
   /* eslint-disable no-undef */
   return { ESPECIALISTAS, sugerirEspecialistas, ressalvasDeValidade, promptApuracao, promptHistorico, promptFicha, promptComparada, promptExterno, montarDossie, tabelaAlteracoes, secoesAtivas, resumoDoDossie, montarFicha, catalogoDeEvidencias, promptTese,
-    validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina };
+    validarTese, promptContraditorio, aplicarContraditorio, promptRedacao, conferirRedacao, limparMarcadores, aplicarGates, rubricaMaquina, pontosDeAtencao };
   /* eslint-enable no-undef */
 }
 
@@ -118,7 +119,7 @@ async function gerarParecer(ctx, io) {
   const montarDossie = R.montarDossie, resumoDoDossie = R.resumoDoDossie;
   const montarFicha = R.montarFicha;
   const T = { secoesAtivas: R.secoesAtivas, catalogo: R.catalogoDeEvidencias, promptTese: R.promptTese, validar: R.validarTese, promptContra: R.promptContraditorio, aplicarContra: R.aplicarContraditorio, promptRedacao: R.promptRedacao, conferir: R.conferirRedacao, limpar: R.limparMarcadores };
-  const aplicarGates = R.aplicarGates, rubricaMaquina = R.rubricaMaquina;
+  const aplicarGates = R.aplicarGates, rubricaMaquina = R.rubricaMaquina, pontosDeAtencao = R.pontosDeAtencao;
   const chamadas = [];
   const chamar = async (nome, prompt, pdfBuffers, extra = {}) => { const r = await io.chamarModelo({ prompt, pdfBuffers: pdfBuffers || [], etapa: nome, ...extra }); chamadas.push({ nome, prompt: prompt.length, resposta: (r.text || '').length, truncada: !!r.truncated, web: !!extra.web }); return r; };
   // Norma em vigor (MP, lei) tem "realizado"; projeto ainda não.
@@ -273,7 +274,7 @@ async function gerarParecer(ctx, io) {
       ...conferencia.cifrasPorExtenso.map(c => `cifra por extenso: "${c}"`),
       ...g.reprovacoes.map(r => `${r.gate}: ${r.detalhe}`),
     ].join('\n');
-    passo('redação reprovada; refazendo…');
+    passo('conferência apontou correções; refazendo a redação…');
     r4 = await redigir(motivos);
     texto = (r4.text || '').trim() || texto;
     conferencia = T.conferir(texto, { tese, catalogo, ficha });
@@ -282,8 +283,9 @@ async function gerarParecer(ctx, io) {
   }
   texto = g.texto;
 
-  // 9. rubrica
+  // 9. rubrica → pontos de atenção (o parecer sai sempre; nada aqui o reprova)
   const rubrica = rubricaMaquina({ texto, ficha, tese, dossie, nivel, conferencia, gates: g, temSerie, processo: ctx.processo || null, temComparada });
+  const pontos = pontosDeAtencao({ gates: g, rubrica });
   const ressalvasValidade = ressalvas(lentes.map(l => l.chave));
 
   return {
@@ -299,7 +301,7 @@ async function gerarParecer(ctx, io) {
     contraditorio: { resumo: contraditorio.resumo, refutadas: contraditorio.refutadas, contestadas: contraditorio.contestadas, ressalvas: contraditorio.ressalvas || [] },
     conferencia, gates: { faixas: g.faixas, notas: g.notas, reprovacoes: g.reprovacoes, rebaixamentos: g.rebaixamentos },
     rubrica, ressalvasValidade, refeita, truncado: !!r4.truncated, chamadas,
-    aprovado: rubrica.aprovado && !g.reprovacoes.length,
+    pontosDeAtencao: pontos,
     geradoEm: (ctx.hoje || new Date()).toISOString(),
   };
 }

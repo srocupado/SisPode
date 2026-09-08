@@ -49,7 +49,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
 
   console.log('\n== todo símbolo que a tela usa está definido ==');
   const usados = ['ESPECIALISTAS', 'sugerirEspecialistas', 'ressalvasDeValidade', 'montarDossie', 'resumoDoDossie', 'tabelasDoDossie', 'montarFicha', 'fichaParaHtml',
-    'catalogoDeEvidencias', 'validarTese', 'aplicarContraditorio', 'conferirRedacao', 'aplicarGates', 'rubricaMaquina', 'escolherModelo', 'promptApuracao', 'carimboDoParecer',
+    'catalogoDeEvidencias', 'validarTese', 'aplicarContraditorio', 'conferirRedacao', 'aplicarGates', 'rubricaMaquina', 'pontosDeAtencao', 'escolherModelo', 'promptApuracao', 'carimboDoParecer',
     'gerarParecer', 'htmlParecer', 'chamarIA', 'escolherDocumentos', 'baixarPdf', 'extrairTextoPdf', 'PROVEDORES_META', 'tituloComApelido', 'iaInFlightInc', 'iaInFlightDec',
     'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer', 'listarEmendas', 'classificarCenario', 'ehMPV', 'tramitacaoParaHtml', 'alteracoesParaHtml', 'tabelaAlteracoes', 'htmlConferencia', 'limparMarcadores', 'AVISO_PARECER'];
   const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
@@ -148,8 +148,10 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   console.log('\n== o card mostra "Abrir parecer" quando há parecer salvo ==');
   {
     av(`__card = document.createElement('div'); __card.innerHTML = '<button data-role="btn-abrir-parecer" style="display:none"></button>';
-        atualizarBotaoParecer({ chave: 'k', parecerMeta: { em: '2026-09-05T12:00:00Z', por: 'equipe', modelo: 'gemini-3.8-flash', aprovado: false } }, __card);`);
-    ok(av("__card.querySelector('button').style.display") === 'inline-flex' && /reprovado/.test(av("__card.querySelector('button').textContent")) && /gemini-3\.8-flash/.test(av("__card.querySelector('button').title")), 'com meta: botão visível, marcado como reprovado, modelo no título');
+        atualizarBotaoParecer({ chave: 'k', parecerMeta: { em: '2026-09-05T12:00:00Z', por: 'equipe', modelo: 'gemini-3.8-flash', pontos: 2 } }, __card);`);
+    ok(av("__card.querySelector('button').style.display") === 'inline-flex' && !/reprovado/i.test(av("__card.querySelector('button').textContent")) && /2 ponto\(s\) de atenção/.test(av("__card.querySelector('button').title")) && /gemini-3\.8-flash/.test(av("__card.querySelector('button').title")), 'com meta: botão visível, sem "reprovado"; os pontos de atenção vão ao título com o modelo');
+    av(`atualizarBotaoParecer({ chave: 'k', parecerMeta: { em: '2026-09-05T12:00:00Z', por: 'equipe', modelo: 'm', aprovado: false } }, __card);`);
+    ok(/anotou pontos de atenção/.test(av("__card.querySelector('button').title")) && !/reprovad/i.test(av("__card.querySelector('button').title")), 'meta antiga com aprovado:false vira "anotou pontos de atenção", sem contagem');
     av(`atualizarBotaoParecer({ chave: 'k' }, __card)`);
     ok(av("__card.querySelector('button').style.display") === 'none', 'sem meta: botão escondido');
     ok(/\/pareceres\/p1__c1\/meta\.json$/.test(av("state.pauta = { id: 'p1' }; PARECER_PATH(chaveParecer({ chave: 'c1' }), 'meta')")), 'a meta é lida num caminho próprio, sem baixar o parecer inteiro');

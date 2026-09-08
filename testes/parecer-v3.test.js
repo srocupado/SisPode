@@ -455,7 +455,7 @@ const achadosX = [
     ok(p.ficha.completa && p.ficha.regraVigente.origem === 'documento', 'ficha montada do documento (Planalto indisponível)');
     ok(p.validacao.removidas.some(r => r.id === 'T9'), 'T9 (R$ 2,4 bi sem evidência) removida antes da redação');
     ok(p.contraditorio.contestadas.some(x => x.id === 'O1') && p.tese.objetivos[0].veredito === 'não verificável', 'O1 contestado vira "não verificável"');
-    ok(p.rubrica.aprovado && p.aprovado, 'rubrica aprova: ' + p.rubrica.pendentes.map(x => `${x.item} — ${x.detalhe || ''}`).join('; ') + ' | conf: ' + JSON.stringify(p.conferencia).slice(0, 400));
+    ok(p.rubrica.aprovado && Array.isArray(p.pontosDeAtencao) && p.pontosDeAtencao.length === 0 && !('aprovado' in p), 'rubrica sem pendência, nenhum ponto de atenção e sem campo "aprovado" (o parecer nunca é reprovado): ' + p.rubrica.pendentes.map(x => `${x.item} — ${x.detalhe || ''}`).join('; ') + ' | conf: ' + JSON.stringify(p.conferencia).slice(0, 400));
     ok(p.chamadas.length === 5 && p.chamadas.some(c => c.nome === 'historico') && !p.refeita, 'cinco chamadas (com a de histórico, porque a apuração trouxe menos de três fatos), sem redação refeita');
     ok(T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'opcoes', tipo: 'fato', texto: 'Rejeitada, a MP perde eficácia desde a edição, nos termos do art. 62, § 3º, da CF.', evidencias: ['F1'] }] }, T.catalogoDeEvidencias({ achados: achadosX, ficha }), { nivel: 'C' }).tese.afirmacoes.length === 1, '"art. 62" numa afirmação é referência normativa, não cifra fora da base');
     ok(p.gates.faixas.length === 0 && p.nivel === 'C', 'sem faixa de incompletude (regra veio do documento) e nível C');
@@ -510,9 +510,46 @@ const achadosX = [
   const ehRedacao = pr => !/etapa de APURAÇÃO|apura o HISTÓRICO|FICHA DO OBJETO de um parecer|formula a TESE|revisor ADVERSARIAL|EXPERIÊNCIA COMPARADA/.test(pr);
   const io8 = { ...io, chamarModelo: async ({ prompt }) => { if (ehRedacao(prompt)) { vezes++; if (vezes === 1) return { text: respostas.redacao.replace('Aprovar consolida a delegação sem estimativa [P1].', 'A delegação é inconstitucional por vício de iniciativa [P1].'), truncated: false }; if (!/G9/.test(prompt) || !/merece exame/.test(prompt)) throw new Error('segunda redação sem a instrução do G9'); } return io.chamarModelo({ prompt }); } };
   const p8 = await PP.gerarParecer(ctx, io8);
-  ok(!p8.erro && p8.refeita && p8.aprovado && vezes === 2, `G9 na primeira redação: refeita com a instrução, e a segunda é aprovada (${p8.erro || `refeita=${p8.refeita} aprovado=${p8.aprovado} vezes=${vezes} pendentes=${(p8.rubrica?.pendentes || []).map(x => x.item.slice(0, 4)).join(',')} reprov=${(p8.gates?.reprovacoes || []).map(r => r.gate).join(',')}`})`);
+  ok(!p8.erro && p8.refeita && !p8.pontosDeAtencao.length && vezes === 2, `G9 na primeira redação: refeita com a instrução, e a segunda sai sem ponto de atenção (${p8.erro || `refeita=${p8.refeita} pontos=${(p8.pontosDeAtencao || []).map(x => x.codigo).join(',')} vezes=${vezes} pendentes=${(p8.rubrica?.pendentes || []).map(x => x.item.slice(0, 4)).join(',')} reprov=${(p8.gates?.reprovacoes || []).map(r => r.gate).join(',')}`})`);
   const p2 = await PP.gerarParecer(ctx, io2);
-  ok(!p2.erro && p2.refeita && p2.chamadas.length === 6 && !p2.aprovado && p2.gates.reprovacoes.some(r => r.gate === 'G2'), 'síntese sem o objeto: redação refeita e, persistindo, parecer reprovado no G2');
+  ok(!p2.erro && p2.refeita && p2.chamadas.length === 6 && p2.pontosDeAtencao.some(x => x.codigo === 'G2') && p2.texto.length > 200, 'síntese sem o objeto: redação refeita e, persistindo, o G2 vira ponto de atenção — e o parecer sai mesmo assim');
+  {
+    const hc2 = H.htmlConferencia(p2, { materia: 'MPV 1357/2026', css: '' }), hp2 = H.htmlParecer(p2, { materia: 'MPV 1357/2026', css: '' });
+    ok(/COM RESSALVAS/.test(hc2) && /Pontos de atenção/.test(hc2) && /<b>G2<\/b>/.test(hc2) && !/REPROVADO|APROVADO/.test(hc2), 'conferência com ressalvas lista os pontos de atenção, sem "REPROVADO"');
+    ok(!/REPROVAD|não circular|ponto de atenção/i.test(hp2), 'o parecer que circula não traz carimbo de reprovação nem os pontos de atenção');
+    const hc8 = H.htmlConferencia(p8, { materia: 'MPV 1357/2026', css: '' });
+    ok(/SEM RESSALVAS/.test(hc8) && !/REPROVADO/.test(hc8), 'conferência sem pendência diz "SEM RESSALVAS"');
+    // parecer salvo antes da 4.0.1 (sem pontosDeAtencao, com "aprovado: false"): os pontos são recompostos
+    const antigo = { ...p2, aprovado: false }; delete antigo.pontosDeAtencao;
+    ok(H.normalizarParecer(antigo).pontosDeAtencao.some(x => x.codigo === 'G2'), 'parecer antigo reaberto do Firebase: pontos de atenção recompostos da rubrica e dos portões');
+  }
+
+  console.log('== G10: posição relatada de terceiros não é voto do parecer (PLP 74/2026, 08/09/2026) ==');
+  {
+    const relatos = [
+      'No setor empresarial de tecnologia, o presidente executivo da Associação Brasileira das Empresas de Tecnologia da Informação e Comunicação (Brasscom), Affonso Nina, manifestou posicionamento favorável à tramitação célere do PLP 74/2026, argumentando que a medida constitui requisito mandatório [AT1].',
+      'O Coletivo de Organizações Socioambientais registrou posicionamento contrário à concessão de incentivos fiscais a datacenters [AT5].',
+      'O Deputado Benes Leocádio, acompanhado pelos signatários da Emenda de Plenário nº 2, defendeu posicionamento favorável à expansão dos incentivos [AT6].',
+      'A Firjan adotou posicionamento favorável à ampliação das ZPEs [AT7].',
+    ];
+    for (const r of relatos) ok(G.votosNaoAtribuidos(r).length === 0, 'relato não conta: "' + r.slice(0, 70) + '…"');
+    ok(G.votosNaoAtribuidos('Diante disso, o posicionamento favorável à aprovação é o que melhor atende ao interesse público [CC].').length === 1, 'posição assumida pelo próprio parecer continua contando');
+    ok(G.votosNaoAtribuidos('Recomenda-se a aprovação do substitutivo [CC].').length === 1, '"recomenda-se" segue sendo voto do parecer');
+    // M1: valor que só aparece na descrição da apuração ("alíquota superior a 40%") é contexto, não parâmetro da regra
+    const fCtx = F.montarFicha({ achados: [
+      { lente: 'X', pergunta: 'dispositivo', achado: 'art. 1º da LC 229/2026', trecho: 'x' },
+      { lente: 'X', pergunta: 'regra_antes', achado: 'As resseguradoras locais estão sujeitas a alíquota combinada de IRPJ e CSLL superior a 40%, sem ressalva das vedações da LRF.', trecho: 'sujeitas a alíquota combinada superior a 40%' },
+      { lente: 'X', pergunta: 'regra_depois', achado: 'Ressalvam-se das vedações dos arts. 14 e 14-A da LRF as desonerações para resseguradoras locais.', trecho: 'ficam ressalvadas da aplicação do disposto nos arts. 14 e 14-A' },
+    ], leiVigente: [{ norma: 'Lei Complementar nº 229, de 2026', compilado: true, url: 'https://planalto/lc229', trechos: [{ artigo: 'Art. 1', texto: 'Art. 1º As proposições legislativas que concedam benefício tributário no exercício de 2026 e se enquadrem no regime tributário para áreas de livre comércio ficam ressalvadas da aplicação do art. 14-A da Lei Complementar nº 101, de 4 de maio de 2000.' }] }], marco: { data: '2026-09-10', trecho: 'entra em vigor' } });
+    ok(!fCtx.quantitativa && fCtx.completa && fCtx.regraVigente.origem === 'planalto' && fCtx.valoresForaDaRegra.includes('40%'), `o 40% da descrição não torna a regra numérica nem a ficha incompleta: faltas=${fCtx.faltas.join(',') || 'nenhuma'}; fora da regra=${fCtx.valoresForaDaRegra.join(',')}`);
+    ok(/contexto, não parâmetro/.test(F.fichaParaTexto(fCtx)), 'o prompt da redação recebe o valor como contexto');
+    const base1 = { ficha: fCtx, dossie: { avisos: [] }, tese: { afirmacoes: [] }, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] } };
+    const g1 = G.aplicarGates({ ...base1, texto: 'Síntese\n\nx [T1].' });
+    ok(g1.notas.some(n => /40%[^.]*contexto, não parâmetro/.test(n)) && G.rubricaMaquina({ ...base1, texto: g1.texto, gates: g1 }).itens.find(i => /^M1/.test(i.item)).ok, 'vira observação na conferência e o M1 passa');
+    // pontosDeAtencao: portão com gêmeo na rubrica aparece uma vez
+    const pts = G.pontosDeAtencao({ gates: { reprovacoes: [{ gate: 'G10', detalhe: 'x' }, { gate: 'G2', detalhe: 'A síntese não enuncia a regra: faltam 20%.' }] }, rubrica: { pendentes: [{ item: 'M11 Sem atribuição causal própria e sem recomendação de voto ou posição', detalhe: 'recomendação: "x"' }] } });
+    ok(pts.length === 2 && pts[0].codigo === 'M11' && pts[1].codigo === 'G2' && !pts.some(x => x.codigo === 'G10'), 'G10 e M11 são o mesmo ponto; G2 entra por não ter gêmeo');
+  }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);

@@ -6320,9 +6320,12 @@ function atualizarBotaoParecer(it, card) {
   const m = it.parecer?.meta || it.parecerMeta;
   if (!m) { btn.style.display = 'none'; if (btnC) btnC.style.display = 'none'; return; }
   btn.style.display = 'inline-flex';
-  btn.textContent = m.aprovado ? '📄 Abrir parecer' : '📄 Abrir parecer (reprovado)';
+  btn.textContent = '📄 Abrir parecer';
+  // `pontos`: quantos pontos de atenção a conferência anotou. Meta da 4.0.0 ou
+  // anterior só tem `aprovado`; false ali quer dizer "há pontos", sem contagem.
+  const pontos = typeof m.pontos === 'number' ? m.pontos : (m.aprovado === false ? null : 0);
   btn.title = `Parecer de Especialista gerado em ${formatDataHora(m.em)} por ${m.por || 'equipe'} com ${m.modelo}`
-    + (m.aprovado ? '' : ' — REPROVADO na conferência automática; abra a conferência antes de usar');
+    + (pontos === 0 ? '' : ` — a conferência anotou ${pontos == null ? 'pontos' : `${pontos} ponto(s)`} de atenção; veja o relatório de conferência`);
   if (btnC) btnC.style.display = 'inline-flex';
 }
 
@@ -6540,7 +6543,7 @@ async function gerarParecerEspecialista(it) {
     p.carimbo = carimboDoParecer({ ...esc, lentes: p.lentes, por: cfg.nomeUsuario || 'equipe' });
     p.geradoPor = cfg.nomeUsuario || 'equipe';
     p.duracaoMs = Date.now() - t0;   // vai ao relatório de conferência
-    p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, aprovado: !!p.aprovado };
+    p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, pontos: (p.pontosDeAtencao || []).length };
     it.parecer = p;
     it.parecerMeta = p.meta;
     await fetch(PARECER_PATH(chaveParecer(it)), {
@@ -6549,10 +6552,11 @@ async function gerarParecerEspecialista(it) {
     atualizarBotaoParecer(it);
 
     abrirParecerEspecialista(it);
-    mostrarToast(p.aprovado
-      ? `Parecer gerado e aprovado na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`
-      : `Parecer gerado com REPROVAÇÃO: ${[...p.rubrica.pendentes.map(x => x.item.slice(0, 3)), ...p.gates.reprovacoes.map(r => r.gate)].join(', ')}. Abra a conferência antes de usar.`,
-      p.aprovado ? 'sucesso' : 'aviso');
+    const pontos = p.pontosDeAtencao || [];
+    mostrarToast(pontos.length
+      ? `Parecer gerado: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas. A conferência anotou ${pontos.length} ponto(s) de atenção (${pontos.map(x => x.codigo).join(', ')}) — veja no relatório de conferência.`
+      : `Parecer gerado sem ressalvas na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`,
+      pontos.length ? 'aviso' : 'sucesso');
 
   } catch (e) {
     if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }
@@ -6566,8 +6570,8 @@ async function gerarParecerEspecialista(it) {
 /**
  * Abre o parecer (ou, com documento = 'conferencia', o relatório de
  * conferência) no MESMO formato da pauta exportada (parecer-html.js), com
- * paged.js para número de página e índice. Parecer reprovado na conferência
- * abre com faixa vermelha — quem vai ler precisa ver o porquê, não um toast.
+ * paged.js para número de página e índice. O parecer abre sempre, sem carimbo
+ * de conferência: os pontos de atenção ficam no relatório de conferência.
  */
 async function abrirParecerEspecialista(it, documento = 'parecer') {
   const p = it.parecer;
@@ -6582,10 +6586,9 @@ async function abrirParecerEspecialista(it, documento = 'parecer') {
 
   const logoDataUrl = await carregarLogoDataUrl();
   if (w.closed) return;
-  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Limites deste parecer" e abra o relatório de conferência.', ...(p.gates?.faixas || [])] } };
   const opts = { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO };
   w.document.open();
-  w.document.write(conferencia ? htmlConferencia(p, opts) : htmlParecer(paraImpressao, opts));
+  w.document.write(conferencia ? htmlConferencia(p, opts) : htmlParecer(p, opts));
   w.document.close();
 
   let impresso = false;

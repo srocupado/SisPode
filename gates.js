@@ -8,8 +8,14 @@
 //   G5  cifra por extenso → "três bilhões e quinhentos milhões" burlou a conferência.
 //   G6  estimativa de outra parte do processo → os R$ 3,5 bi do Mover viraram previsão da taxa.
 //   G7  série que termina antes do marco → aparecia como se fosse comparável.
-// A rubrica M1–M14 é a parte mecânica do teste de aceitação; qualquer item
-// reprovado impede o PDF de abrir.
+// A rubrica M1–M14 é a parte mecânica do teste de aceitação. Item pendente e
+// portão acionado viram PONTO DE ATENÇÃO no relatório de conferência, para o
+// analista olhar; nunca impedem o parecer de sair. (Até a 4.0.0 reprovavam o
+// parecer inteiro — e reprovavam quase todos, por falso positivo: o PLP
+// 74/2026 caiu no G10 porque "a Brasscom manifestou posicionamento favorável"
+// foi lido como voto do parecer.) O que os portões conseguem consertar
+// sozinhos (G3, G8) continua sendo consertado; o que exige reescrita ainda
+// manda refazer a redação UMA vez.
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
@@ -45,8 +51,11 @@ const RE_INCONST_RELATADA = /(?:declara(?:r|ção|ções|ram|ou|d[ao]s?)|julg(?:
 const RE_NEGACAO = /n[ãa]o\s+(se\s+)?(identifi|verifi|vislumbr|constat|h[áa]\b|se\s+afigura|parece)/i;
 
 const RE_ATRIBUICAO = /(quem (apoia|se op[õo]e|defende|critica)|argumenta|sustenta|alega|afirma|defende|aponta|segundo (o|a|os|as) )[^.]{0,120}$/i;
-// "o relator recomendou a aprovação", "o parecer opina pela rejeição": relato, não voto do parecer.
-const RE_QUEM_VOTA = /\b(relator[a]?|parecer|comiss[ãa]o|manifesta[çc][ãa]o|CASP|CCJ|CFT|governo|autor[a]?|senador[a]?|deputad[oa]|l[íi]der|bancada|sindicato|entidade|confedera[çc][ãa]o|quem (apoia|se op[õo]e|defende|critica)|segundo)\b[^.]{0,160}$/i;
+// "o relator recomendou a aprovação", "o parecer opina pela rejeição", "a
+// Brasscom manifestou posicionamento favorável", "o presidente da entidade
+// defendeu": relato da posição de outrem, não voto do parecer. Vale quem fala
+// (cargo, órgão, entidade, bancada) e o verbo de relato na mesma frase.
+const RE_QUEM_VOTA = /\b(relator[a]?|parecer|comiss[ãa]o|manifesta[çc][ãa]o|CASP|CCJ|CFT|CMO|governo|autor[a]?|senador[a]?|deputad[oa]|l[íi]der|bancada|partido|sindicato|entidade|confedera[çc][ãa]o|federa[çc][ãa]o|associa[çc][ãa]o|coletivo|grupo|conselho|instituto|frente|setor|empresas?|consultoria|organiza[çc][õo]es|presidente|diretor[a]?|secret[áa]ri[oa]|ministr[oa]|prefeit[oa]|governador[a]?|procurador[a]?|minist[ée]rio|tribunal|STF|TCU|OAB|quem (apoia|se op[õo]e|defende|critica)|segundo|conforme|manifest\w+|registr\w+|extern\w+|express\w+|declar\w+|posicion\w+|orient\w+|defend\w+|sustent\w+|apoi\w+|adot\w+|firm\w+|sinaliz\w+|anunci\w+|articul\w+)\b[^.]{0,160}$/i;
 /**
  * Recomendações de voto ou de posição que o PARECER faz — em qualquer seção,
  * conclusão inclusive. Relato da posição de outrem não conta.
@@ -111,6 +120,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
     notas.push('A regra vigente foi tomada da transcrição feita no próprio documento analisado (trecho conferido), porque o texto da norma não foi obtido no Planalto nem no Senado.');
   }
   if (ficha && ficha.faltas.length && !ficha.faltas.includes('regra vigente')) notas.push(`Ficha do objeto incompleta: falta ${ficha.faltas.join(', ')}.`);
+  if (ficha && (ficha.valoresForaDaRegra || []).length) notas.push(`A apuração cita ${ficha.valoresForaDaRegra.join(', ')} ao descrever a regra, mas o valor não consta da regra vigente nem da proposta transcritas na ficha: é contexto, não parâmetro da regra.`);
 
   // G2 — objeto enunciado na síntese
   if (ficha && _objetoEnunciado) {
@@ -174,7 +184,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
   return { faixas, notas, reprovacoes, rebaixamentos, texto: t };
 }
 
-/** Rubrica mecânica M1–M14. Qualquer item reprovado marca o parecer como reprovado. */
+/** Rubrica mecânica M1–M14. Item pendente vira ponto de atenção no relatório de conferência. */
 /** Chave curta de uma emenda/substitutivo ("EMP 1", "SBT-A 2", "EMS") para procurar no texto. */
 function chaveDaEmenda(rotulo) {
   const m = /\b(EMP|EMC|EMS|EMR|EMA|SBT-?A?|SSP|SBE|PRLP|PRLE|PLV|EMENDA(?:\s+DE\s+PLENÁRIO)?|SUBEMENDA|SUBSTITUTIVO)\s*(?:N[ºo.]?\s*)?(\d+)?/i.exec(String(rotulo || ''));
@@ -194,7 +204,9 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
   const itens = [];
   const add = (ok, item, detalhe) => itens.push({ ok: !!ok, item, detalhe: ok ? null : (detalhe || null) });
 
-  add(ficha && ficha.regraVigente && ficha.regraProposta && ficha.dataEfeito && (!ficha.quantitativa || ficha.valores.length >= 2), 'M1 Ficha do objeto com regra vigente, regra proposta e data de efeito (e dois valores quando a regra é numérica)', ficha ? `falta ${ficha.faltas.join(', ') || '—'}` : 'sem ficha');
+  // "Numérica" é a regra cujos valores estão na própria transcrição (a ficha já
+  // os traz); valor só citado na apuração é contexto e não pesa aqui.
+  add(ficha && ficha.regraVigente && ficha.regraProposta && ficha.dataEfeito, 'M1 Ficha do objeto com regra vigente, regra proposta e data de efeito', ficha ? `falta ${ficha.faltas.join(', ') || '—'}` : 'sem ficha');
   add(!(conferencia?.numerosSuspeitos?.length), 'M2 Nenhum número fora da base (achados, dossiê, lei, ficha)', conferencia?.numerosSuspeitos?.length ? conferencia.numerosSuspeitos.map(s => s.numero).join(', ') : null);
   add(!(conferencia?.semEvidencia?.length) && !(conferencia?.idsInexistentes?.length), 'M3 Todo parágrafo de síntese, avaliação, dois lados e opções cita evidência existente', [conferencia?.semEvidencia?.length ? `${conferencia.semEvidencia.length} parágrafo(s) sem evidência` : '', conferencia?.idsInexistentes?.length ? `identificadores inexistentes: ${conferencia.idsInexistentes.join(', ')}` : ''].filter(Boolean).join('; '));
   const aval = (secoes['Avaliação da política'] || []).join(' ');
@@ -247,7 +259,31 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
     add(!semDestino.length, 'M14 Cada emenda ou substitutivo da tramitação aparece num embate ou é declarado sem conflito', semDestino.length ? `sem destino na tese: ${semDestino.slice(0, 6).join('; ')}` : null);
   }
   const pendentes = itens.filter(i => !i.ok);
-  return { itens, pendentes, aprovado: !pendentes.length, resumo: pendentes.length ? `${pendentes.length} de ${itens.length} itens da rubrica reprovados.` : `Os ${itens.length} itens mecânicos da rubrica foram satisfeitos.` };
+  return { itens, pendentes, aprovado: !pendentes.length, resumo: pendentes.length ? `${pendentes.length} de ${itens.length} itens da rubrica com ponto de atenção.` : `Os ${itens.length} itens mecânicos da rubrica foram satisfeitos.` };
+}
+
+// Portão que tem item gêmeo na rubrica: o ponto aparece uma vez só.
+const GEMEO_NA_RUBRICA = { G5: 'M8', G9: 'M7', G10: 'M11' };
+/**
+ * Pontos de atenção para o analista: os itens pendentes da rubrica mais os
+ * portões que pediram reescrita e persistiram (sem gêmeo na rubrica). Cada
+ * ponto diz o código, o que se viu e o que o analista confere.
+ */
+function pontosDeAtencao({ gates, rubrica } = {}) {
+  const out = [];
+  for (const i of (rubrica && rubrica.pendentes) || []) {
+    const cod = (/^(M\d+)/.exec(i.item) || [])[1] || 'M?';
+    out.push({ codigo: cod, item: i.item.replace(/^M\d+\s*/, ''), detalhe: i.detalhe || null });
+  }
+  const vistos = new Set(out.map(x => x.codigo));
+  for (const r of (gates && gates.reprovacoes) || []) {
+    const gemeo = GEMEO_NA_RUBRICA[r.gate];
+    if (gemeo && vistos.has(gemeo)) continue;
+    if (vistos.has(r.gate)) continue;
+    vistos.add(r.gate);
+    out.push({ codigo: r.gate, item: r.detalhe ? r.detalhe.split(/[:.]/)[0] : r.gate, detalhe: r.detalhe || null });
+  }
+  return out;
 }
 
 const RUBRICA_HUMANA = [
@@ -259,5 +295,5 @@ const RUBRICA_HUMANA = [
 ];
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { aplicarGates, rubricaMaquina, causaisNaoAtribuidas, votosNaoAtribuidos, assercoesSemPrecedente, chaveDaEmenda, emendaCitada, fraseDoNivel, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
+  module.exports = { aplicarGates, rubricaMaquina, pontosDeAtencao, causaisNaoAtribuidas, votosNaoAtribuidos, assercoesSemPrecedente, chaveDaEmenda, emendaCitada, fraseDoNivel, RUBRICA_HUMANA, RE_EXTENSO, RE_CAUSAL, RE_VOTO, RE_CITACAO, RE_ASSERCAO, RE_NEGACAO };
 }
