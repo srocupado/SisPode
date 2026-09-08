@@ -66,6 +66,24 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const pExtra = C.promptComissao({ comissao: com, reuniao: ccjc[0], item: itens[0], docs, instrucoesExtra: 'aprofunde o impacto nos municípios' });
   ok(/INSTRUÇÕES ADICIONAIS/.test(pExtra) && /aprofunde o impacto nos municípios/.test(pExtra), 'instruções extras entram no prompt');
 
+
+  console.log('\n== provedor e prompt por comissão ==');
+  {
+    ok(C.juntarInstrucoes('foque no impacto federativo', '') === 'foque no impacto federativo' && C.juntarInstrucoes('', 'compare com a Lei 8.112') === 'compare com a Lei 8.112', 'só um dos dois: entra como está');
+    const j = C.juntarInstrucoes('foque no impacto federativo', 'compare com a Lei 8.112');
+    ok(/^Orientações permanentes desta comissão:\nfoque no impacto federativo\n\nInstruções para esta análise:\ncompare com a Lei 8.112$/.test(j), 'os dois juntos, cada um nomeado');
+    ok(/Orientações permanentes desta comissão:/.test(C.promptComissao({ comissao: com, reuniao: ccjc[0], item: itens[0], docs, instrucoesExtra: j })) , 'o prompt recebe o bloco combinado');
+    const chaves = { gemini: 'g', anthropic: 'a' }, chaveDe = pid => chaves[pid] || '';
+    const global = { provedor: 'gemini', modelo: 'gemini-3.8-flash' };
+    const pad = C.provedorParaComissao({}, global, chaveDe);
+    ok(pad.pid === 'gemini' && pad.apiKey === 'g' && pad.modelo === 'gemini-3.8-flash' && pad.origem === 'padrao' && !pad.aviso, 'sem configuração própria: provedor, chave e modelo das Configurações');
+    const pro = C.provedorParaComissao({ provedor: 'anthropic', modelo: 'claude-opus-5' }, global, chaveDe);
+    ok(pro.pid === 'anthropic' && pro.apiKey === 'a' && pro.modelo === 'claude-opus-5' && pro.origem === 'comissao', 'com provedor próprio e chave disponível: usa o da comissão');
+    const semChave = C.provedorParaComissao({ provedor: 'openai', modelo: 'gpt-5' }, global, chaveDe);
+    ok(semChave.pid === 'gemini' && semChave.origem === 'padrao' && /não há chave dele/.test(semChave.aviso), 'provedor próprio sem chave local: cai no padrão e avisa');
+    ok(C.provedorParaComissao({ provedor: 'gemini' }, global, chaveDe).modelo === 'gemini-3.8-flash' && C.provedorParaComissao({ provedor: 'anthropic' }, global, chaveDe).modelo === '', 'modelo: o padrão só vale quando o provedor é o mesmo; noutro provedor, fica o padrão do provedor');
+  }
+
   console.log('\n== fila com limite de requisições ==');
   {
     let t = 0; const esperas = [];
