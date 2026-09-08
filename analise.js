@@ -582,6 +582,7 @@ function renderCard(it) {
         <button class="btn btn-outline btn-sm" data-role="btn-parecer" style="color:#8fd0ff"
           title="Parecer técnico aprofundado, por lentes de especialista. Sob demanda: não entra no &quot;Gerar todas&quot;; um diálogo confirma provedor e modelo antes de gerar.">⚖ Parecer de Especialista</button>
         <button class="btn btn-outline btn-sm" data-role="btn-abrir-parecer" style="display:none;color:#8fd0ff">📄 Abrir parecer</button>
+        <button class="btn btn-outline btn-sm" data-role="btn-abrir-conferencia" style="display:none" title="Relatório de conferência do parecer (uso interno): rubrica automática, tese com evidências, o que foi descartado, modelo e consumo">🔍 Abrir conferência</button>
       </div>
       <div class="an-apelido-row" data-role="apelido-row" style="display:none">
         <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
@@ -621,6 +622,7 @@ function renderCard(it) {
   card.querySelector('[data-role=btn-verificar-item]').addEventListener('click', () => verificarAtualizacaoItemUI(it));
   card.querySelector('[data-role=btn-parecer]').addEventListener('click', () => gerarParecerEspecialista(it));
   card.querySelector('[data-role=btn-abrir-parecer]').addEventListener('click', () => abrirParecerSalvo(it));
+  card.querySelector('[data-role=btn-abrir-conferencia]').addEventListener('click', () => abrirParecerSalvo(it, 'conferencia'));
   atualizarBotaoParecer(it, card);
   card.querySelector('[data-role=btn-toggle]').addEventListener('click', () => {
     const painel = card.querySelector('[data-role=painel-analise]');
@@ -6915,14 +6917,16 @@ const chaveParecer = it => `${state.pauta.id}__${it.chave}`;
  * desce do Firebase ao clicar.
  */
 function atualizarBotaoParecer(it, card) {
-  const btn = (card || document.querySelector(`.an-card[data-chave="${it.chave}"]`))?.querySelector('[data-role=btn-abrir-parecer]');
+  const el = card || document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const btn = el?.querySelector('[data-role=btn-abrir-parecer]'), btnC = el?.querySelector('[data-role=btn-abrir-conferencia]');
   if (!btn) return;
   const m = it.parecer?.meta || it.parecerMeta;
-  if (!m) { btn.style.display = 'none'; return; }
+  if (!m) { btn.style.display = 'none'; if (btnC) btnC.style.display = 'none'; return; }
   btn.style.display = 'inline-flex';
   btn.textContent = m.aprovado ? '📄 Abrir parecer' : '📄 Abrir parecer (reprovado)';
   btn.title = `Parecer de Especialista gerado em ${formatDataHora(m.em)} por ${m.por || 'equipe'} com ${m.modelo}`
-    + (m.aprovado ? '' : ' — REPROVADO na conferência automática; veja os limites e o anexo técnico antes de usar');
+    + (m.aprovado ? '' : ' — REPROVADO na conferência automática; abra a conferência antes de usar');
+  if (btnC) btnC.style.display = 'inline-flex';
 }
 
 async function fbCarregarParecer(it) {
@@ -6931,13 +6935,13 @@ async function fbCarregarParecer(it) {
   return await res.json();
 }
 
-async function abrirParecerSalvo(it) {
+async function abrirParecerSalvo(it, documento = 'parecer') {
   if (!it.parecer) {
     try { it.parecer = await fbCarregarParecer(it); }
     catch (e) { mostrarToast('Não consegui ler o parecer salvo: ' + e.message, 'erro'); return; }
     if (!it.parecer) { mostrarToast('Não há parecer salvo para esta proposição nesta pauta.', 'aviso'); it.parecerMeta = null; atualizarBotaoParecer(it); return; }
   }
-  abrirParecerEspecialista(it);
+  abrirParecerEspecialista(it, documento);
 }
 
 /** Temas oficiais da proposição — usados só para sugerir a lente. */
@@ -6974,11 +6978,18 @@ async function listarModelosDoProvedor(pid) {
   return lista;
 }
 
+// Medido nas rodadas reais do PL 1893/2026 (set/2026): 6 a 9 chamadas, duas
+// delas com busca na internet, 250 a 350 mil tokens (raciocínio incluído),
+// 7 a 12 minutos. O aviso do diálogo repete estes números; quando o pipeline
+// mudar, mude aqui.
+const AVISO_PARECER = { tempo: 'de 7 a 12 minutos', chamadas: '6 a 9 chamadas', tokens: '250 a 350 mil tokens' };
+
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
  * com o melhor de cada provedor pré-selecionado (ou o fixado na
- * configuração), econômicos desabilitados com o motivo, e o custo em
- * palavras. Devolve { pid, apiKey, modelo, faixa, motivo, ressalva } ou null.
+ * configuração), econômicos desabilitados com o motivo, e o aviso de que a
+ * pesquisa é longa e cara. Devolve { pid, apiKey, modelo, faixa, motivo,
+ * ressalva } ou null.
  *
  * Decisão da Liderança (05/09/2026): o parecer é raro e caro, e a escolha
  * do modelo aparece no momento em que custa — reverte, só aqui, a regra
@@ -6997,14 +7008,20 @@ function confirmarModeloParecer(it) {
       <div class="modal-header"><h3>Parecer de Especialista</h3><button class="modal-close" id="dlg-parecer-fechar">✕</button></div>
       <div class="modal-body">
         <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 12px">${escapeHtml(`${it.sigla} ${it.numero}/${it.ano}`)} — ${escapeHtml((it.ementa || '').slice(0, 160))}${(it.ementa || '').length > 160 ? '…' : ''}</p>
+        <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> O parecer não é uma resposta rápida: o modelo lê os documentos, busca na internet, monta a tese, contesta a própria tese e só então redige.
+          <ul>
+            <li><b>Tempo:</b> ${AVISO_PARECER.tempo}. Mantenha esta aba aberta.</li>
+            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas} com raciocínio alto, cerca de <b>${AVISO_PARECER.tokens}</b> da sua chave.</li>
+          </ul>
+        </div>
         <div class="form-group"><label>Provedor</label>
           <select id="dlg-parecer-provedor" class="form-input">${provedores.map(p => `<option value="${p}"${comChave.includes(p) ? '' : ' disabled'}>${escapeHtml(PROVEDORES_META[p].label)}${comChave.includes(p) ? '' : ' — sem chave cadastrada'}</option>`).join('')}</select></div>
         <div class="form-group"><label>Modelo</label>
           <select id="dlg-parecer-modelo" class="form-input"><option value="">carregando a lista do provedor…</option></select>
-          <div id="dlg-parecer-status" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;line-height:1.5"></div></div>
-        <p style="font-size:12px;color:var(--text-dim);margin:10px 0 0;line-height:1.5">Custo esperado: 4 a 6 chamadas ao modelo com raciocínio em nível alto, cerca de 60 a 90 mil tokens e 3 a 6 minutos. O modelo e o motivo da escolha ficam impressos no parecer.</p>
+          <div id="dlg-parecer-status" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;line-height:1.5"></div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-top:4px;line-height:1.5">Estimativa para este modelo: <b style="color:var(--text)">${AVISO_PARECER.tempo} · ${AVISO_PARECER.tokens}</b>. O modelo e o motivo da escolha ficam registrados no relatório de conferência, não no parecer.</div></div>
       </div>
-      <div class="modal-footer"><button class="btn btn-outline" id="dlg-parecer-cancelar">Cancelar</button><button class="btn btn-primary" id="dlg-parecer-gerar" disabled>Gerar parecer</button></div>
+      <div class="modal-footer"><button class="btn btn-outline" id="dlg-parecer-cancelar">Cancelar</button><button class="btn btn-primary" id="dlg-parecer-gerar" disabled>Gerar mesmo assim</button></div>
     </div>`;
     document.body.appendChild(ov);
     const selP = ov.querySelector('#dlg-parecer-provedor'), selM = ov.querySelector('#dlg-parecer-modelo'), st = ov.querySelector('#dlg-parecer-status'), btnG = ov.querySelector('#dlg-parecer-gerar');
@@ -7040,7 +7057,7 @@ function confirmarModeloParecer(it) {
       const proprio = modelo !== escolhaAuto?.modelo;
       fechar({ pid, apiKey: chaveDoProvedor(pid, cfg), modelo, faixa: f,
         motivo: proprio ? `Escolhido pelo usuário no diálogo (${modelo}, faixa ${f}).` : escolhaAuto.motivo,
-        ressalva: proprio ? (f === 'superior' ? null : `O modelo ${modelo} é de faixa ${ROTULO_FAIXA[f].replace('faixa ', '')}; escolha do usuário. Esta ressalva vai impressa no parecer.`) : escolhaAuto.ressalva });
+        ressalva: proprio ? (f === 'superior' ? null : `O modelo ${modelo} é de faixa ${ROTULO_FAIXA[f].replace('faixa ', '')}; escolha do usuário. Esta ressalva fica registrada no relatório de conferência.`) : escolhaAuto.ressalva });
     });
     carregar();
   });
@@ -7125,6 +7142,7 @@ async function gerarParecerEspecialista(it) {
     if (p.erro) { mostrarToast(p.erro, 'aviso'); console.warn('Parecer:', p); return; }
     p.carimbo = carimboDoParecer({ ...esc, lentes: p.lentes, por: cfg.nomeUsuario || 'equipe' });
     p.geradoPor = cfg.nomeUsuario || 'equipe';
+    p.duracaoMs = Date.now() - t0;   // vai ao relatório de conferência
     p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, aprovado: !!p.aprovado };
     it.parecer = p;
     it.parecerMeta = p.meta;
@@ -7136,7 +7154,7 @@ async function gerarParecerEspecialista(it) {
     abrirParecerEspecialista(it);
     mostrarToast(p.aprovado
       ? `Parecer gerado e aprovado na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`
-      : `Parecer gerado com REPROVAÇÃO: ${[...p.rubrica.pendentes.map(x => x.item.slice(0, 3)), ...p.gates.reprovacoes.map(r => r.gate)].join(', ')}. Veja a conferência no PDF antes de usar.`,
+      : `Parecer gerado com REPROVAÇÃO: ${[...p.rubrica.pendentes.map(x => x.item.slice(0, 3)), ...p.gates.reprovacoes.map(r => r.gate)].join(', ')}. Abra a conferência antes de usar.`,
       p.aprovado ? 'sucesso' : 'aviso');
 
   } catch (e) {
@@ -7149,25 +7167,28 @@ async function gerarParecerEspecialista(it) {
 }
 
 /**
- * Abre o parecer no MESMO formato da pauta exportada (parecer-html.js), com
+ * Abre o parecer (ou, com documento = 'conferencia', o relatório de
+ * conferência) no MESMO formato da pauta exportada (parecer-html.js), com
  * paged.js para número de página e índice. Parecer reprovado na conferência
  * abre com faixa vermelha — quem vai ler precisa ver o porquê, não um toast.
  */
-async function abrirParecerEspecialista(it) {
+async function abrirParecerEspecialista(it, documento = 'parecer') {
   const p = it.parecer;
   if (!p) return;
   if (!p.ficha || !p.rubrica) { mostrarToast('Este parecer foi gerado por uma versão anterior; gere de novo.', 'aviso'); return; }
+  const conferencia = documento === 'conferencia';
   const w = window.open('', '_blank', 'width=900,height=760');
   if (!w) { mostrarToast('Permita pop-ups para abrir o parecer.', 'aviso'); return; }
   w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
-    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando o parecer…</body></html>');
+    + `<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando ${conferencia ? 'o relatório de conferência' : 'o parecer'}…</body></html>`);
   w.document.close();
 
   const logoDataUrl = await carregarLogoDataUrl();
   if (w.closed) return;
-  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Limites deste parecer" e o anexo técnico de conferência.', ...(p.gates?.faixas || [])] } };
+  const paraImpressao = p.aprovado ? p : { ...p, gates: { ...p.gates, faixas: ['PARECER REPROVADO NA CONFERÊNCIA AUTOMÁTICA — não circular. Veja "Limites deste parecer" e abra o relatório de conferência.', ...(p.gates?.faixas || [])] } };
+  const opts = { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO };
   w.document.open();
-  w.document.write(htmlParecer(paraImpressao, { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO }));
+  w.document.write(conferencia ? htmlConferencia(p, opts) : htmlParecer(paraImpressao, opts));
   w.document.close();
 
   let impresso = false;

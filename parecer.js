@@ -145,7 +145,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = 
   const alvo = fix || elegiveis[0];
   const ressalva = alvo.faixa === 'superior' ? null
     : alvo.faixa === 'intermediaria'
-      ? `O modelo ${alvo.id} é de faixa intermediária pela convenção de nomes; foi escolhido pela versão mais alta. Esta ressalva vai impressa no parecer.`
+      ? `O modelo ${alvo.id} é de faixa intermediária pela convenção de nomes; foi escolhido pela versão mais alta. Esta ressalva fica registrada no relatório de conferência.`
       : `A faixa do modelo ${alvo.id} não foi identificada pela convenção de nomes conhecida. O parecer sai, e esta ressalva vai impressa nele.`;
   return {
     modelo: alvo.id, faixa: alvo.faixa, ressalva,

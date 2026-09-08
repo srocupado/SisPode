@@ -51,7 +51,7 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
   const usados = ['ESPECIALISTAS', 'sugerirEspecialistas', 'ressalvasDeValidade', 'montarDossie', 'resumoDoDossie', 'tabelasDoDossie', 'montarFicha', 'fichaParaHtml',
     'catalogoDeEvidencias', 'validarTese', 'aplicarContraditorio', 'conferirRedacao', 'aplicarGates', 'rubricaMaquina', 'escolherModelo', 'promptApuracao', 'carimboDoParecer',
     'gerarParecer', 'htmlParecer', 'chamarIA', 'escolherDocumentos', 'baixarPdf', 'extrairTextoPdf', 'PROVEDORES_META', 'tituloComApelido', 'iaInFlightInc', 'iaInFlightDec',
-    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer', 'listarEmendas', 'classificarCenario', 'ehMPV', 'tramitacaoParaHtml', 'alteracoesParaHtml', 'tabelaAlteracoes'];
+    'isAbortError', 'mostrarToast', 'API_BASE', 'FIREBASE_URL', 'state', 'CSS_IMPRESSAO_PLENARIO', 'gerarParecerEspecialista', 'abrirParecerEspecialista', 'temasDaProposicao', 'situacaoDaProposicao', 'PARECER_PATH', 'chaveParecer', 'atualizarBotaoParecer', 'abrirParecerSalvo', 'fbCarregarParecer', 'listarEmendas', 'classificarCenario', 'ehMPV', 'tramitacaoParaHtml', 'alteracoesParaHtml', 'tabelaAlteracoes', 'htmlConferencia', 'limparMarcadores', 'AVISO_PARECER'];
   const faltando = usados.filter(n => av(`typeof ${n}`) === 'undefined');
   ok(!faltando.length, faltando.length ? `faltam no escopo: ${faltando.join(', ')}` : `os ${usados.length} símbolos usados pela tela estão definidos`);
   ok(!/\(0, eval\)|\beval\(/.test(fonte.replace(/\/\/[^\n]*/g, '')), 'nenhum eval nos scripts (a CSP da extensão o proíbe)');
@@ -129,6 +129,12 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     ok(av(`document.querySelector('#dlg-parecer-modelo').value`) === 'gemini-3.8-flash', 'o melhor modelo do provedor vem pré-selecionado (3.8-flash, pela versão)');
     ok(av(`[...document.querySelectorAll('#dlg-parecer-modelo option')].find(o => o.value === 'gemini-3.8-flash-lite').hasAttribute('disabled')`) === true && !av(`[...document.querySelectorAll('#dlg-parecer-modelo option')].some(o => /image/.test(o.value))`), 'econômico desabilitado; modelo de imagem fora da lista');
     ok(/versão mais alta/.test(av(`document.querySelector('#dlg-parecer-status').textContent`)), 'o motivo da pré-seleção está escrito no diálogo');
+    // aviso de custo (decisão de 08/09/2026): tempo e tokens em destaque; o botão diz o que está fazendo
+    const avisoTxt = av(`(document.querySelector('#dlg-parecer .aviso-custo') || {}).textContent || ''`);
+    ok(/Pesquisa longa e de alto consumo/.test(avisoTxt) && /7 a 12 minutos/.test(avisoTxt) && /250 a 350 mil tokens/.test(avisoTxt) && /Mantenha esta aba aberta/.test(avisoTxt), 'o diálogo avisa que a pesquisa é longa e consome muitos tokens, com os números');
+    ok(av(`document.querySelector('#dlg-parecer-gerar').textContent`) === 'Gerar mesmo assim' && !av(`document.querySelector('#dlg-parecer input[type=checkbox]')`), 'botão "Gerar mesmo assim"; sem caixa de opção (a busca na internet fica sempre ligada)');
+    ok(!/Custo esperado: 4 a 6 chamadas/.test(av(`document.querySelector('#dlg-parecer').textContent`)), 'a estimativa antiga (4 a 6 chamadas, 60 a 90 mil tokens) saiu');
+    ok(/\.aviso-custo\s*\{/.test(fs.readFileSync(path.join(RAIZ, 'panel.css'), 'utf8')), 'o estilo .aviso-custo existe no panel.css');
     // troca de provedor: a lista do outro provedor entra, pré-selecionada pelo melhor dele
     av(`document.querySelector('#dlg-parecer-provedor').value = 'anthropic'; document.querySelector('#dlg-parecer-provedor').dispatchEvent(new window.Event('change'));`);
     await new Promise(r => setTimeout(r, 30));
@@ -178,7 +184,12 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
       ok(p.ficha.completa && p.rubrica.aprovado, 'ficha completa e rubrica aprovada: ' + (p.rubrica.pendentes.map(x => x.item).join('; ') || 'ok'));
       ctx.__p = p;
       const html = av('htmlParecer(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
-      ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && /<td>T1<\/td>/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota, limites e anexo técnico');
+      ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && /@page/.test(html) && /Limites deste parecer/.test(html) && !/<td>T1<\/td>/.test(html) && !/Rubrica automática/.test(html), 'htmlParecer imprime no escopo da página com o CSS da nota e limites — sem a tabela da tese nem a rubrica');
+      const htmlConf = av('htmlConferencia(__p, { materia: "MPV 1357/2026", css: CSS_IMPRESSAO_PLENARIO })');
+      ok(/Conferência do Parecer/.test(htmlConf) && /@page/.test(htmlConf) && /<td>T1<\/td>/.test(htmlConf) && /Rubrica automática/.test(htmlConf) && /M1 Ficha do objeto/.test(htmlConf), 'htmlConferencia imprime o relatório à parte no escopo da página, com tese e rubrica');
+      // os dois botões do card
+      const cardHtml = fs.readFileSync(path.join(RAIZ, 'analise.js'), 'utf8');
+      ok(/data-role="btn-abrir-conferencia"/.test(cardHtml) && /abrirParecerSalvo\(it, 'conferencia'\)/.test(cardHtml) && /htmlConferencia\(p, opts\)/.test(cardHtml), 'o card tem "Abrir conferência", que abre o relatório pelo mesmo caminho do parecer salvo');
       ctx.__pt = { ...p, processo: { cenario: 'Cenário 3 — parecer de plenário (PRLP)', textoEmVotacao: 'PRLP 4', relator: { nome: 'André Figueiredo', partido: 'PDT', uf: 'CE' }, documentos: [{ rotulo: 'PRLP 4' }], emendas: [{ rotulo: 'EMP 1' }], comissoes: [], apensados: [] }, alteracoes: [{ dispositivo: 'art. 92 da Lei 8.112/1990', vigente: 'Art. 92. texto', fonte: 'Lei 8.112 (Câmara)', proposta: 'muda', trecho: 't' }] };
       const htmlT = av('htmlParecer(__pt, { materia: "PL 1893/2026", css: CSS_IMPRESSAO_PLENARIO })');
       ok(/<h3 class="item-h">Tramitação<\/h3>/.test(htmlT) && /André Figueiredo \(PDT-CE\)/.test(htmlT) && /O que muda na legislação/.test(htmlT) && /O que vale hoje/.test(htmlT) && /href="#l_tramitacao"/.test(htmlT), 'com tramitação e alterações: blocos "Tramitação" e "O que muda na legislação" na 1ª página e no índice');
