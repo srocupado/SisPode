@@ -58,6 +58,7 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
         const cam = url.replace(/^.*pautas-comissoes\//, '').replace(/\.json.*$/, '');
         if (init.method === 'PUT') { fb[cam] = JSON.parse(init.body); return j({}); }
         if (init.method === 'PATCH') { fb[cam] = { ...(fb[cam] || {}), ...JSON.parse(init.body) }; return j({}); }
+        if (init.method === 'DELETE') { for (const k of Object.keys(fb)) if (k === cam || k.startsWith(cam + '/')) delete fb[k]; return j(null); }
         // GET: monta a subárvore
         const sub = {}; let direto = null;
         for (const [k, v] of Object.entries(fb)) { if (k === cam) direto = v; else if (k.startsWith(cam + '/')) { const resto = k.slice(cam.length + 1).split('/'); let o = sub; for (let i = 0; i < resto.length - 1; i++) o = (o[resto[i]] = o[resto[i]] || {}); o[resto[resto.length - 1]] = v; } }
@@ -185,6 +186,21 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
   await new Promise(r => setTimeout(r, 30));
   ok(document.getElementById('modal-configuracoes').style.display === 'flex' && document.getElementById('config-paralelas').value === '2' && document.getElementById('config-intervalo').value === '0' && /Chave de API/.test(document.getElementById('modal-configuracoes').textContent), 'configurações: limites da fila e a mesma chave do Plenário');
   ok(av(`pc.fila.paralelas`) === 2, 'a fila nasce com os limites da configuração');
+
+
+  console.log('\n== carregar modelos, barra de rolagem e apagar a pauta ==');
+  {
+    ok(!!document.getElementById('btn-config-modelos') && !!document.getElementById('btn-cc-modelos'), 'os dois modais têm o botão "Carregar disponíveis"');
+    ok(!/scrollbar-width/.test(fs.readFileSync(path.join(RAIZ, 'pautas-comissoes.html'), 'utf8')), 'sem scrollbar-width próprio: vale a barra fina do panel.css, como nos outros módulos');
+    av(`pc.aba = 'CCJC'; abrirSalva({ orgaoId: 2003, id: 82841 })`);
+    await new Promise(r => setTimeout(r, 100));
+    ok(!!document.getElementById('pc-apagar') && document.querySelectorAll('#pc-lat [data-apagar]').length === 1, 'a reunião aberta tem "Apagar pauta" e a pauta salva tem o ✕ na lateral');
+    ok(fb['reunioes/2003_82841'] && fb['analises/2003_82841/PL-4159-2025'] && fb['indice/2003/82841'], 'antes: pauta, notas e índice no Firebase');
+    document.getElementById('pc-apagar').click();
+    await new Promise(r => setTimeout(r, 100));
+    ok(!fb['reunioes/2003_82841'] && !fb['analises/2003_82841/PL-4159-2025'] && !fb['indice/2003/82841'], 'apagar remove a pauta, todas as notas e a entrada do índice');
+    ok(av(`pc.reuniao`) === null && /Calendário — Comissão de Constituição/.test(document.getElementById('pc-main').textContent) && /Nenhuma pauta salva desta comissão/.test(document.getElementById('pc-lat').textContent), 'volta ao calendário e a lateral fica sem a pauta');
+  }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);

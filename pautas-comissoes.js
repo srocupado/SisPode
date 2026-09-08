@@ -40,6 +40,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-configuracoes').addEventListener('click', abrirConfigPC);
   document.getElementById('btn-config-salvar').addEventListener('click', salvarConfigPC);
   document.getElementById('config-provedor').addEventListener('change', () => { preencherChaveEModelos(); });
+  document.getElementById('btn-config-modelos').addEventListener('click', () => preencherChaveEModelos({ listar: true, manterChave: true }));
+  document.getElementById('btn-cc-modelos').addEventListener('click', () => preencherModelosCC(undefined, { listar: true }));
   document.getElementById('btn-reanalise-executar').addEventListener('click', executarReanalise);
   document.getElementById('btn-semana-executar').addEventListener('click', executarGerarSemana);
   document.getElementById('btn-cc-salvar').addEventListener('click', salvarConfigComissao);
@@ -155,6 +157,7 @@ async function enriquecerAutores(reuniao) {
 // ============================================================
 async function fbGetPC(caminho) { const r = await fetch(`${FIREBASE_PC}/${caminho}.json`); if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`); return await r.json(); }
 async function fbPutPC(caminho, dados) { const r = await fetch(`${FIREBASE_PC}/${caminho}.json`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados) }); if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`); }
+async function fbDeletePC(caminho) { const r = await fetch(`${FIREBASE_PC}/${caminho}.json`, { method: 'DELETE' }); if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`); }
 async function fbPatchPC(caminho, dados) { const r = await fetch(`${FIREBASE_PC}/${caminho}.json`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dados) }); if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`); }
 
 async function carregarIndice() {
@@ -176,6 +179,18 @@ async function fbSalvarAnalise(reuniao, it) {
   const nAnalisados = reuniao.itens.filter(x => temNotaPC(x)).length;
   await fbPatchPC(`indice/${reuniao.orgaoId}/${reuniao.eventoId}`, { nAnalisados, atualizadoEm: new Date().toISOString() });
   const m = metaIndice(reuniao.orgaoId, reuniao.eventoId); if (m) m.nAnalisados = nAnalisados;
+}
+/** Apaga a reunião importada: a pauta, as notas de cada item e a entrada no índice. */
+async function apagarReuniao({ chave, orgaoId, eventoId }) {
+  await Promise.all([fbDeletePC(`reunioes/${chave}`), fbDeletePC(`analises/${chave}`), fbDeletePC(`indice/${orgaoId}/${eventoId}`)]);
+  if (pc.indice[orgaoId]) delete pc.indice[orgaoId][eventoId];
+  if (pc.reuniao && pc.reuniao.chave === chave) pc.reuniao = null;
+}
+async function confirmarApagarReuniao(meta) {
+  const m = metaIndice(meta.orgaoId, meta.eventoId) || {};
+  if (!confirm(`Apagar a pauta da ${meta.sigla || ''} de ${dataBR(meta.data || m.data)}${m.nAnalisados ? `, com ${m.nAnalisados} nota(s) gerada(s)` : ''}? Isso vale para toda a equipe e não tem volta.`)) return;
+  try { await apagarReuniao(meta); mostrarToast('Pauta apagada.', 'info'); renderAbas(); renderTela(); }
+  catch (e) { mostrarToast('Não apaguei: ' + e.message, 'erro'); }
 }
 async function fbCarregarReuniao(chave) {
   const [r, analises] = await Promise.all([fbGetPC(`reunioes/${chave}`), fbGetPC(`analises/${chave}`).catch(() => null)]);
@@ -285,10 +300,11 @@ function renderLateralComissao() {
     <div class="item" id="lat-cal"${!pc.reuniao ? ' style="color:var(--text)"' : ''}>📅 Calendário da comissão<small>reuniões por mês, importar pauta</small></div>
     <div class="item" id="lat-cfg">⚙ Provedor e prompt da ${escapeHtml(c.sigla)}<small>${escapeHtml(resumoConfigComissao(c.sigla))}</small></div>
     <h4>Pautas salvas</h4>
-    ${salvas.length ? salvas.map(m => `<div class="item${pc.reuniao && pc.reuniao.eventoId === m.eventoId ? ' ativo' : ''}" data-salva="${m.eventoId}">Reunião de ${escapeHtml(dataBR(m.data))}${m.hora ? ` · ${escapeHtml(m.hora)}` : ''}<small>${m.nItens} itens · ${m.nAnalisados || 0} analisados${m.por ? ` · ${escapeHtml(m.por)}` : ''}</small></div>`).join('') : '<div class="vazio">Nenhuma pauta salva desta comissão.</div>'}`;
+    ${salvas.length ? salvas.map(m => `<div class="item${pc.reuniao && pc.reuniao.eventoId === m.eventoId ? ' ativo' : ''}" data-salva="${m.eventoId}" style="position:relative;padding-right:30px">Reunião de ${escapeHtml(dataBR(m.data))}${m.hora ? ` · ${escapeHtml(m.hora)}` : ''}<small>${m.nItens} itens · ${m.nAnalisados || 0} analisados${m.por ? ` · ${escapeHtml(m.por)}` : ''}</small><button class="pc-apagar" data-apagar="${m.eventoId}" title="Apagar esta pauta e suas notas (para toda a equipe)">✕</button></div>`).join('') : '<div class="vazio">Nenhuma pauta salva desta comissão.</div>'}`;
   document.getElementById('lat-cal').addEventListener('click', () => { pc.reuniao = null; renderTela(); });
   document.getElementById('lat-cfg').addEventListener('click', () => abrirConfigComissao(c.sigla));
-  document.querySelectorAll('[data-salva]').forEach(el => el.addEventListener('click', () => abrirSalva({ orgaoId: c.id, id: Number(el.dataset.salva) })));
+  document.querySelectorAll('[data-salva]').forEach(el => el.addEventListener('click', e => { if (e.target.closest('[data-apagar]')) return; abrirSalva({ orgaoId: c.id, id: Number(el.dataset.salva) }); }));
+  document.querySelectorAll('[data-apagar]').forEach(b => b.addEventListener('click', e => { e.stopPropagation(); const m = metaIndice(c.id, Number(b.dataset.apagar)) || {}; confirmarApagarReuniao({ chave: `${c.id}_${b.dataset.apagar}`, orgaoId: c.id, eventoId: Number(b.dataset.apagar), sigla: c.sigla, data: m.data }); }));
 }
 
 async function carregarCalendario() {
@@ -423,6 +439,7 @@ function renderReuniao() {
       <button class="btn btn-outline btn-sm" id="pc-gerar-todas">○ Gerar todas</button>
       <button class="btn btn-whatsapp btn-sm" id="pc-wa-partido">Proposições do Partido</button>
       <button class="btn btn-whatsapp btn-sm" id="pc-wa-resumo">Resumo da reunião</button>
+      <button class="btn btn-ghost btn-sm" id="pc-apagar" style="margin-left:auto;color:#ff8e8e" title="Apaga a pauta importada e todas as notas dela, para toda a equipe">🗑 Apagar pauta</button>
     </div>
     <div class="pc-progresso" id="pc-progresso"><span id="pc-progresso-txt"></span><div class="bar"><i id="pc-progresso-bar"></i></div></div>
     <div id="pc-lista"></div>`;
@@ -431,6 +448,7 @@ function renderReuniao() {
   document.getElementById('pc-gerar-todas').addEventListener('click', () => gerarTodasDaReuniao(r));
   document.getElementById('pc-wa-partido').addEventListener('click', () => copiar(textoPropPartido(c, r, r.itens), 'Proposições do Partido copiadas'));
   document.getElementById('pc-wa-resumo').addEventListener('click', () => copiar(textoResumoReuniao(c, r, r.itens), 'Resumo da reunião copiado'));
+  document.getElementById('pc-apagar').addEventListener('click', () => confirmarApagarReuniao({ chave: r.chave, orgaoId: r.orgaoId, eventoId: r.eventoId, sigla: r.sigla, data: r.data }));
   const lista = document.getElementById('pc-lista');
   for (const it of r.itens) lista.appendChild(renderCardItem(it));
   filtrarCards(); atualizarBarraLote();
@@ -731,7 +749,7 @@ function abrirConfigComissao(sigla) {
   preencherModelosCC(c.modelo || '');
   document.getElementById('modal-comissao').style.display = 'flex';
 }
-async function preencherModelosCC(selecionado) {
+async function preencherModelosCC(selecionado, { listar = true } = {}) {
   const pid = document.getElementById('cc-provedor').value;
   const selM = document.getElementById('cc-modelo'), st = document.getElementById('cc-modelo-status'), hint = document.getElementById('cc-provedor-hint');
   const salvo = selecionado ?? (configDaComissao(_siglaConfig).modelo || '');
@@ -740,10 +758,11 @@ async function preencherModelosCC(selecionado) {
   hint.textContent = chave ? `Chave de ${p.label} encontrada nas Configurações.` : `Sem chave de ${p.label} nas Configurações: quem não a tiver cai no padrão.`;
   const montar = lista => { const atual = selM.value; const ids = new Set(lista.map(m => m.id)); if (salvo && !ids.has(salvo)) lista = [{ id: salvo, displayName: salvo + ' (salvo)' }].concat(lista); selM.innerHTML = '<option value="">Padrão do provedor</option>' + lista.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName || m.id)}</option>`).join(''); selM.value = (atual && ids.has(atual)) ? atual : (salvo || ''); };
   montar(p.modelosFallback);
-  if (!chave) { st.textContent = ''; return; }
+  if (!chave) { st.textContent = 'Sem chave: a lista é a de reserva do programa.'; return; }
+  if (!listar) return;
   st.textContent = 'Listando modelos…';
-  try { const lista = await p.listar(chave); if (document.getElementById('cc-provedor').value === pid) { montar(lista); st.textContent = `${lista.length} modelos disponíveis na chave.`; } }
-  catch (e) { st.textContent = 'Não listei os modelos: ' + e.message; }
+  try { const lista = await p.listar(chave); if (document.getElementById('cc-provedor').value === pid) { montar(lista); st.textContent = `✓ ${lista.length} modelo(s) disponíveis na chave.`; } }
+  catch (e) { st.textContent = `Não listei os modelos (${e.message}). A lista abaixo é a de reserva do programa.`; }
 }
 async function salvarConfigComissao() {
   const sigla = _siglaConfig; if (!sigla) return;
@@ -778,19 +797,20 @@ function abrirConfigPC() {
   preencherChaveEModelos();
   document.getElementById('modal-configuracoes').style.display = 'flex';
 }
-async function preencherChaveEModelos() {
+async function preencherChaveEModelos({ listar = true, manterChave = false } = {}) {
   const pid = document.getElementById('config-provedor').value, p = PROVEDORES_META[pid];
-  const inp = document.getElementById('config-api-key'); inp.placeholder = p.placeholderChave; inp.value = chaveDe(pid);
+  const inp = document.getElementById('config-api-key'); inp.placeholder = p.placeholderChave; if (!manterChave) inp.value = chaveDe(pid);
   document.getElementById('config-api-hint').textContent = p.hintChave;
   const selM = document.getElementById('config-modelo'), st = document.getElementById('config-modelo-status');
   const salvo = pc.config?.provedor === pid ? (pc.config?.modelo || '') : '';
   const montar = lista => { const atual = selM.value; const ids = new Set(lista.map(m => m.id)); if (salvo && !ids.has(salvo)) lista = [{ id: salvo, displayName: salvo + ' (salvo)' }].concat(lista); selM.innerHTML = lista.map(m => `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName || m.id)}</option>`).join(''); const alvo = atual && ids.has(atual) ? atual : salvo; if (alvo) selM.value = alvo; };
   montar(p.modelosFallback);
   const chave = inp.value.trim();
-  if (!chave) { st.textContent = 'Informe a chave para listar os modelos ao vivo.'; return; }
+  if (!chave) { st.textContent = 'Nenhuma chave deste provedor: cole a chave acima e clique em "Carregar disponíveis". A lista abaixo é a de reserva do programa.'; return; }
+  if (!listar) return;
   st.textContent = 'Listando modelos…';
-  try { const lista = await p.listar(chave); if (document.getElementById('config-provedor').value === pid) { montar(lista); st.textContent = `${lista.length} modelos disponíveis na chave.`; } }
-  catch (e) { st.textContent = 'Não listei os modelos: ' + e.message; }
+  try { const lista = await p.listar(chave); if (document.getElementById('config-provedor').value === pid) { montar(lista); st.textContent = `✓ ${lista.length} modelo(s) disponíveis na chave.`; } }
+  catch (e) { st.textContent = `Não listei os modelos (${e.message}). A lista abaixo é a de reserva do programa e pode estar desatualizada.`; }
 }
 async function salvarConfigPC() {
   const pid = document.getElementById('config-provedor').value, key = document.getElementById('config-api-key').value.trim(), p = PROVEDORES_META[pid];
