@@ -760,6 +760,13 @@ body {
 .form-input:focus { border-color: var(--accent); }
 .form-input option { background: var(--card); color: var(--text); }
 
+/* Aviso de custo no diálogo do Parecer de Especialista: a pesquisa leva minutos
+   e consome centenas de milhares de tokens — o usuário decide sabendo disso. */
+.aviso-custo { border: 1px solid var(--amarelo); background: rgba(240,192,64,.10); border-radius: 8px; padding: 10px 12px; margin: 0 0 14px; font-size: 12.5px; line-height: 1.5; color: var(--text); }
+.aviso-custo b { color: var(--amarelo); }
+.aviso-custo ul { margin: 6px 0 0 18px; padding: 0; }
+.aviso-custo li { margin: 2px 0; }
+
 .upload-inline {
   border: 2px dashed var(--border-soft);
   border-radius: 8px;

@@ -342,7 +342,17 @@ const achadosX = [
     const pImp = { texto: gC.texto, textoLimpo: T.limparMarcadores(gC.texto), tese: v.tese, ficha, nivel: 'C', emVigor: false, gates: gC, rubrica: rC, jurisprudencia: [{ tribunal: 'STF', processo: 'ADI 492', norma_examinada: 'n', decisao: 'd', fonte_nome: 'STF', fonte_url: 'https://portal.stf.jus.br/x' }], infralegal: [], posicoes: [], comparada: [], conferencia: baseG.conferencia, validacao: { removidas: [] }, contraditorio: { refutadas: [], contestadas: [], ressalvas: [] } };
     const htmlP = H.htmlParecer(pImp, { materia: 'PL 1893/2026' });
     ok(/O que está em jogo na decisão/.test(htmlP) && /Decide-se instituir o marco nacional/.test(htmlP) && /Falta para decidir/.test(htmlP) && /não recomenda voto nem defende posição/.test(htmlP), 'a 1ª página traz "O que está em jogo na decisão", sem posicionamento');
-    ok(/Fontes buscadas na internet/.test(htmlP) && /ADI 492/.test(htmlP) && /portal\.stf\.jus\.br/.test(htmlP), 'o anexo lista as fontes buscadas na internet, com endereço');
+    ok(/Fontes consultadas na internet/.test(htmlP) && /ADI 492/.test(htmlP) && /<a href="https:\/\/portal\.stf\.jus\.br\/x">STF ↗<\/a>/.test(htmlP) && !/>https:\/\/portal\.stf/.test(htmlP), 'o parecer lista as fontes consultadas na internet; o nome da fonte é o link e o endereço bruto não é impresso');
+    ok(/href="#l_fontes"/.test(htmlP) && !/Anexo técnico/.test(htmlP) && !/Tese aprovada, com evidências/.test(htmlP), 'o índice aponta as fontes e não há mais anexo técnico no parecer');
+    // marcadores de TODOS os prefixos saem do corpo (bug: "[AT8]" e "[R2]" chegavam ao PDF)
+    const comNovos = H.htmlParecer({ ...pImp, texto: gC.texto + '\n\nQuem se posicionou e como\n\nO governo defendeu o texto [AT1]. A entidade pediu ajuste [Q2][W1].\n\nAprimoramentos e sugestões de emenda\n\nO art. 3º pede redação mais clara [R2] e o custo é alto [I1][V3].' }, { materia: 'x' });
+    ok(!/\[(?:AT|Q|W|R|I|V|CC)\d*\]/.test(comNovos.slice(0, comNovos.indexOf('Limites deste parecer'))) && /O governo defendeu o texto\./.test(comNovos) && /custo é alto\./.test(comNovos), 'marcadores das seções novas ([AT1], [Q2][W1], [R2], [I1][V3]) não chegam ao corpo impresso');
+    // o relatório de conferência, à parte
+    const htmlConf = H.htmlConferencia({ ...pImp, chamadas: [{ nome: 'apuracao', prompt: 12000, resposta: 27000, web: false }, { nome: 'externo', prompt: 2800, resposta: 18700, web: true }], duracaoMs: 581000, meta: { em: '2026-09-06T19:59:00Z', por: 'Sergio', modelo: 'gemini-3.8-flash' }, carimbo: { linha: 'Parecer produzido com apoio de inteligência artificial em 06/09/2026 por Sergio. Modelo: gemini-3.8-flash (faixa superior). Escolhido automaticamente.', ressalva: null, lentes: [] }, gates: { ...gC, notas: ['G1: nota de teste'] } }, { materia: 'PL 1893/2026' });
+    ok(/Conferência do Parecer/.test(htmlConf) && /Resultado da conferência automática/.test(htmlConf) && /M1 Ficha do objeto/.test(htmlConf) && /<td>T1<\/td>/.test(htmlConf) && /Tese aprovada, com evidências/.test(htmlConf), 'a conferência traz rubrica, resultado e a tabela da tese');
+    ok(/2 chamada\(s\), 1 com busca na internet/.test(htmlConf) && /61 mil no total/.test(htmlConf) && /9 min 41 s/.test(htmlConf) && /gemini-3\.8-flash \(faixa superior\)/.test(htmlConf) && !/Parecer produzido com apoio/.test(htmlConf) && /G1: nota de teste/.test(htmlConf), 'a conferência mostra chamadas, tokens, duração, modelo (sem a frase do carimbo) e as observações dos portões');
+    ok(!/Fontes consultadas na internet/.test(htmlConf) && !/G1: nota de teste/.test(htmlP) && !/Observações/.test(htmlP), 'a tabela de fontes fica no parecer; as observações dos portões ficam só na conferência');
+    ok(H.duracaoEmPalavras(581000) === '9 min 41 s' && H.duracaoEmPalavras(42000) === '42 s' && H.duracaoEmPalavras(0) === '', 'duracaoEmPalavras');
     const comRessalva = H.htmlParecer({ ...pImp, tese: { ...v.tese, conclusao: { ...v.tese.conclusao, contestada: 'a leitura do impacto não se sustenta' } } }, { materia: 'x' });
     ok(/Ressalva da conferência/.test(comRessalva) && /a leitura do impacto não se sustenta/.test(comRessalva), 'conclusão contestada: o PDF imprime a ressalva da conferência');
   }
@@ -389,10 +399,12 @@ const achadosX = [
     ok(T.validarTese({ afirmacoes: [{ id: 'T1', secao: 'opcoes', tipo: 'fato', texto: 'Rejeitada, a MP perde eficácia desde a edição, nos termos do art. 62, § 3º, da CF.', evidencias: ['F1'] }] }, T.catalogoDeEvidencias({ achados: achadosX, ficha }), { nivel: 'C' }).tese.afirmacoes.length === 1, '"art. 62" numa afirmação é referência normativa, não cifra fora da base');
     ok(p.gates.faixas.length === 0 && p.nivel === 'C', 'sem faixa de incompletude (regra veio do documento) e nível C');
     const html = H.htmlParecer(p, { materia: 'MPV 1357/2026', css: '' });
-    const corpoHtml = html.slice(0, html.indexOf('<h3 class="item-h">Anexo técnico'));
+    const corpoHtml = html;
     ok(/Ficha do objeto/.test(html) && /class="ficha"/.test(html) && !/\[T1\]|<sup class="ev">/.test(corpoHtml) && /id="l_Síntese"|id="l_S.ntese"/.test(html), 'HTML traz ficha e seções com âncora, e o corpo sai SEM identificadores de evidência');
-    ok(/Limites deste parecer/.test(corpoHtml) && /não recomenda voto nem defende posição/.test(corpoHtml) && /Anexo técnico — conferência/.test(html) && /M1 Ficha do objeto/.test(html.slice(html.indexOf('<h3 class="item-h">Anexo técnico'))), '"Limites deste parecer" em palavras no corpo; rubrica e tese com identificadores só no anexo técnico');
-    ok(/<td>T1<\/td>/.test(html) && /Tese aprovada, com evidências/.test(html), 'a rastreabilidade (T1 → evidências) está na tabela do anexo técnico');
+    const htmlConf = H.htmlConferencia(p, { materia: 'MPV 1357/2026', css: '' });
+    ok(/Limites deste parecer/.test(corpoHtml) && /não recomenda voto nem defende posição/.test(corpoHtml) && !/M1 Ficha do objeto/.test(html) && /M1 Ficha do objeto/.test(htmlConf), '"Limites deste parecer" em palavras no parecer; a rubrica só no relatório de conferência');
+    ok(!/<td>T1<\/td>/.test(html) && /<td>T1<\/td>/.test(htmlConf) && /Tese aprovada, com evidências/.test(htmlConf), 'a rastreabilidade (T1 → evidências) está na tabela do relatório de conferência, não no parecer');
+    ok(html.indexOf('id="l_limites"') > html.lastIndexOf('<h3 class="item-h">Conclusão'), '"Limites deste parecer" fecha o corpo, depois da conclusão');
     // "Nível de evidência C" era jargão no PDF (crítica do usuário, duas vezes): sai do corpo; a 1ª página explica em palavras.
     ok(/Não há dados oficiais que permitam comparar o antes e o depois/.test(corpoHtml), 'a solidez da comparação é explicada em palavras na primeira página');
     ok(!/n[íi]vel de evid[êe]ncia/i.test(corpoHtml), 'o corpo do parecer não usa a expressão "nível de evidência"');
@@ -415,7 +427,7 @@ const achadosX = [
   const p7 = await PP.gerarParecer(ctx, io7);
   ok(!p7.erro && p7.chamadas.some(c => c.nome === 'comparada' && c.web) && p7.comparada.length === 1 && p7.comparada[0].lugar === 'Portugal', 'pipeline: busca comparada com web:true; item sem fonte cai; o parecer devolve a lista');
   const htmlC = H.htmlParecer(p7, { materia: 'x' });
-  ok(/Fontes buscadas na internet/.test(htmlC) && /oecd\.org/.test(htmlC) && /NÃO conferidas pelo programa/.test(htmlC) && !/Parecer produzido com apoio/.test(htmlC), 'impresso: fontes externas no anexo e aviso nos limites; sem o carimbo do modelo');
+  ok(/Fontes consultadas na internet/.test(htmlC) && /href="https:\/\/www\.oecd\.org\/x"/.test(htmlC) && /NÃO conferidas pelo programa/.test(htmlC) && /listadas ao fim deste parecer/.test(htmlC) && !/Parecer produzido com apoio/.test(htmlC), 'impresso: fontes externas listadas ao fim do parecer e aviso nos limites; sem o carimbo do modelo');
   const p3 = await PP.gerarParecer(ctx, io3);
   ok(!p3.erro && p3.chamadas.some(c => c.nome === 'historico') && p3.chamadas.length === 5 && p3.catalogo.itens > p.catalogo.itens - 1, 'sem histórico na apuração geral, há uma chamada dedicada e o achado entra');
   // apuração geral truncada (o raciocínio conta no teto de saída): uma chamada por lente, ficha só na primeira
