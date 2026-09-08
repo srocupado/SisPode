@@ -14,12 +14,12 @@
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
-const __mh = (typeof module !== 'undefined' && typeof require === 'function') ? { D: require('./dossie.js'), F: require('./ficha-objeto.js'), T: require('./tese.js') } : null;
+const __mh = (typeof module !== 'undefined' && typeof require === 'function') ? { D: require('./dossie.js'), F: require('./ficha-objeto.js'), T: require('./tese.js'), G: require('./gates.js') } : null;
 // `const` de script clássico não está em globalThis e a CSP proíbe eval — identificadores explícitos, resolvidos na chamada.
 function _refsHtml() {
-  if (__mh) return { TITULOS: __mh.T.TITULOS, tabelasDoDossie: __mh.D.tabelasDoDossie, CSS_TABELAS_DOSSIE: __mh.D.CSS_TABELAS_DOSSIE, fichaParaHtml: __mh.F.fichaParaHtml, alteracoesParaHtml: __mh.F.alteracoesParaHtml, CSS_FICHA: __mh.F.CSS_FICHA, NIVEL_EVIDENCIA: __mh.D.NIVEL_EVIDENCIA, unidadesDaTese: __mh.T.unidadesDaTese, limparMarcadores: __mh.T.limparMarcadores };
+  if (__mh) return { TITULOS: __mh.T.TITULOS, tabelasDoDossie: __mh.D.tabelasDoDossie, CSS_TABELAS_DOSSIE: __mh.D.CSS_TABELAS_DOSSIE, fichaParaHtml: __mh.F.fichaParaHtml, alteracoesParaHtml: __mh.F.alteracoesParaHtml, CSS_FICHA: __mh.F.CSS_FICHA, NIVEL_EVIDENCIA: __mh.D.NIVEL_EVIDENCIA, unidadesDaTese: __mh.T.unidadesDaTese, limparMarcadores: __mh.T.limparMarcadores, pontosDeAtencao: __mh.G.pontosDeAtencao };
   /* eslint-disable no-undef */
-  return { TITULOS, tabelasDoDossie, CSS_TABELAS_DOSSIE, fichaParaHtml, alteracoesParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese, limparMarcadores };
+  return { TITULOS, tabelasDoDossie, CSS_TABELAS_DOSSIE, fichaParaHtml, alteracoesParaHtml, CSS_FICHA, NIVEL_EVIDENCIA, unidadesDaTese, limparMarcadores, pontosDeAtencao: typeof pontosDeAtencao === 'function' ? pontosDeAtencao : null };
   /* eslint-enable no-undef */
 }
 
@@ -80,6 +80,12 @@ function normalizarParecer(p) {
   if (p.conferencia) for (const k of ['semEvidencia', 'numerosSuspeitos', 'idsInexistentes']) arr(p.conferencia, k);
   if (p.gates) for (const k of ['faixas', 'notas', 'reprovacoes', 'rebaixamentos']) arr(p.gates, k);
   if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
+  // Parecer salvo pela 4.0.0 ou anterior (quando ainda havia "reprovado"): os
+  // pontos de atenção são recompostos da rubrica e dos portões.
+  if (!Array.isArray(p.pontosDeAtencao)) {
+    const pda = _refsHtml().pontosDeAtencao;
+    p.pontosDeAtencao = pda ? pda({ gates: p.gates, rubrica: p.rubrica }) : [];
+  }
   if (p.carimbo) arr(p.carimbo, 'lentes');
   arr(p, 'alteracoes'); for (const k of ['comparada', 'jurisprudencia', 'infralegal', 'posicoes', 'secoes']) arr(p, k);
   if (p.tese) { for (const k of ['atores', 'embates', 'emendas_sem_conflito', 'implementacao', 'aprimoramentos', 'viabilidade']) arr(p.tese, k); for (const e of p.tese.embates) { arr(e, 'lados'); arr(e, 'evidencias'); for (const l of e.lados) arr(l, 'evidencias'); } }
@@ -296,8 +302,8 @@ function htmlConferencia(p, { materia = '', logoDataUrl = null, css = '' } = {})
   const { traduzir } = blocosDoParecer(p, esc);
   const { CSS_TABELAS_DOSSIE: CSS_TAB, CSS_FICHA, unidadesDaTese } = _refsHtml();
   const lista = (cls, titulo, linhas) => linhas && linhas.length ? `<div class="${cls}"><b>${esc(titulo)}</b><ul>${linhas.map(l => `<li>${traduzir(esc(l))}</li>`).join('')}</ul></div>` : '';
-  const rub = p.rubrica || { itens: [], aprovado: false, resumo: '' };
-  const aprovado = p.aprovado ?? (rub.aprovado && !(p.gates?.reprovacoes || []).length);
+  const rub = p.rubrica || { itens: [], aprovado: true, resumo: '' };
+  const pontos = p.pontosDeAtencao || [];
   const ch = p.chamadas || [];
   const mil = n => `${Math.round((n || 0) / 1000)} mil`;
   const entrada = ch.reduce((s, c) => s + (c.prompt || 0), 0), saida = ch.reduce((s, c) => s + (c.resposta || 0), 0);
@@ -324,7 +330,10 @@ ${CSS_TAB || ''}
     <div class="produto">Relatório de conferência do Parecer de Especialista. Para a assessoria que confere o documento antes de circular; não é o parecer e não se destina ao leitor final.</div>
     <div class="bloco tecnico">
       <h3 class="item-h">Resultado da conferência automática</h3>
-      <div class="${aprovado ? 'conf-ok' : 'conf-erro'}" style="font-size:10.5pt"><b>${aprovado ? 'APROVADO' : 'REPROVADO'}</b>${rub.resumo ? ` — ${esc(rub.resumo)}` : ''}${(p.gates?.reprovacoes || []).length ? ` Portões reprovados: ${esc(p.gates.reprovacoes.map(r => `${r.gate} (${r.detalhe || r.motivo || ''})`).join('; '))}.` : ''}</div>
+      ${pontos.length
+        ? `<div class="conf-pend" style="font-size:10.5pt"><b>COM RESSALVAS</b> — ${pontos.length} ponto(s) de atenção para o analista conferir antes de circular. O parecer está completo; a lista diz onde olhar.</div>
+      <div class="conf-pend"><b>Pontos de atenção</b><ul>${pontos.map(x => `<li><b>${esc(x.codigo)}</b> ${esc(x.item)}${x.detalhe ? ` — ${esc(x.detalhe)}` : ''}</li>`).join('')}</ul></div>`
+        : `<div class="conf-ok" style="font-size:10.5pt"><b>SEM RESSALVAS</b> — ${esc(rub.resumo || 'nenhum item da rubrica pendente')}${rub.resumo ? '' : '.'} Nenhum portão apontou correção persistente.</div>`}
       ${(p.gates?.faixas || []).map(f => `<div class="faixa">${esc(f)}</div>`).join('')}
       <table class="ficha consumo"><tbody>
         ${linha('Modelo', p.carimbo?.linha ? esc(p.carimbo.linha.replace(/^Parecer produzido com apoio de inteligência artificial em [^.]*\. /, '')) : esc(p.meta?.modelo || ''))}
@@ -335,17 +344,17 @@ ${CSS_TAB || ''}
       </tbody></table>
       ${lista('conf-pend', 'Observações dos portões', p.gates?.notas || [])}
       <p class="tec-nota">O texto do parecer só pode afirmar o que consta da tese abaixo; cada unidade da tese aponta para evidências (A achados no documento, D dados do dossiê, LV lei, S situação da tramitação, F ficha, W/J/N/Q fontes da internet).</p>
-      <div class="${rub.aprovado ? 'conf-ok' : 'conf-erro'}"><b>Rubrica automática</b><ul>${(rub.itens || []).map(i => `<li>${i.ok ? '✓' : '✗'} ${esc(i.item)}${i.detalhe ? ` — ${esc(i.detalhe)}` : ''}</li>`).join('')}</ul></div>
+      <div class="${rub.aprovado ? 'conf-ok' : 'conf-pend'}"><b>Rubrica automática</b><ul>${(rub.itens || []).map(i => `<li>${i.ok ? '✓' : '⚠'} ${esc(i.item)}${i.detalhe ? ` — ${esc(i.detalhe)}` : ''}</li>`).join('')}</ul></div>
       ${lista('conf-ok', `Lentes aplicadas (${(p.lentes || []).length})`, (p.lentes || []).map(l => `${l.ordem}. ${l.rotulo} — acionada por ${l.motivo}`))}
       ${lista('conf-pend', 'Lentes sugeridas e NÃO aplicadas', (p.descartadas || []).map(l => `${l.rotulo}: ${l.ressalva}`))}
-      <div class="conf-ok">Apuração: ${p.apuracao?.aprovados ?? 0} achado(s) com trecho localizado no documento; ${(p.apuracao?.recusados || []).length} descartado(s); ${p.apuracao?.semQuestao ?? 0} linha(s) sem questão. Tese: ${esc(p.validacao?.resumo || '')}. Contraditório: ${esc(p.contraditorio?.resumo || '')}.${p.refeita ? ' A redação foi refeita uma vez após reprovação.' : ''}</div>
+      <div class="conf-ok">Apuração: ${p.apuracao?.aprovados ?? 0} achado(s) com trecho localizado no documento; ${(p.apuracao?.recusados || []).length} descartado(s); ${p.apuracao?.semQuestao ?? 0} linha(s) sem questão. Tese: ${esc(p.validacao?.resumo || '')}. Contraditório: ${esc(p.contraditorio?.resumo || '')}.${p.refeita ? ' A redação foi refeita uma vez com as correções apontadas na primeira conferência.' : ''}</div>
       ${lista('conf-pend', 'Achados descartados na apuração (trecho não localizado)', (p.apuracao?.recusados || []).map(r => `${r.lente} · ${r.pergunta}: ${r.motivo}${r.trecho ? ` — "${r.trecho}…"` : ''}`))}
       ${lista('conf-pend', 'Afirmações removidas na validação', (p.validacao?.removidas || []).map(r => `${r.id} (${r.motivo}): ${String(r.texto || '').slice(0, 160)}`))}
       ${lista('conf-pend', 'Refutadas no contraditório', (p.contraditorio?.refutadas || []).map(r => `${r.id} (${r.motivo}): ${String(r.texto || '').slice(0, 160)}`))}
       ${lista('conf-pend', 'Juízos contestados e rebaixados a "não verificável"', (p.contraditorio?.contestadas || []).map(r => `${r.id}: ${r.motivo}`))}
       ${lista('conf-pend', 'Ressalvas do contraditório a dados mantidos', (p.contraditorio?.ressalvas || []).map(r => `${r.id}: ${r.motivo}`))}
       ${lista('conf-pend', 'Rebaixamentos aplicados no texto', (p.gates?.rebaixamentos || []).map(r => `${r.gate}: ${r.detalhe}`))}
-      ${p.conferencia ? `<div class="${p.conferencia.ok ? 'conf-ok' : 'conf-erro'}">Redação: ${p.conferencia.ok ? 'todos os parágrafos de juízo citam evidência existente e todos os números constam da base.' : `${(p.conferencia.semEvidencia || []).length} parágrafo(s) sem evidência; ${(p.conferencia.numerosSuspeitos || []).length} número(s) fora da base; ${(p.conferencia.idsInexistentes || []).length} identificador(es) inexistente(s).`}</div>` : ''}
+      ${p.conferencia ? `<div class="${p.conferencia.ok ? 'conf-ok' : 'conf-pend'}">Redação: ${p.conferencia.ok ? 'todos os parágrafos de juízo citam evidência existente e todos os números constam da base.' : `${(p.conferencia.semEvidencia || []).length} parágrafo(s) sem evidência; ${(p.conferencia.numerosSuspeitos || []).length} número(s) fora da base; ${(p.conferencia.idsInexistentes || []).length} identificador(es) inexistente(s).`}</div>` : ''}
       ${lista('conf-pend', 'Ressalvas de validade dos roteiros', (p.ressalvasValidade || []).map(r => `${r.lente}: ${r.texto}`))}
       ${p.truncado ? '<div class="conf-pend">A redação foi interrompida no limite de tokens do modelo — o final pode estar incompleto.</div>' : ''}
       <h4 class="dt-h">Tese aprovada, com evidências</h4>
