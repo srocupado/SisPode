@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Sistemas Legislativos – Podemos",
-  "version": "3.4.0",
+  "version": "3.5.0",
   "description": "Destaques e Votação — ferramentas para a equipe de plenário da Liderança do Podemos",
   "permissions": [
     "storage",
@@ -68,6 +68,11 @@
         "congresso.js",
         "lideres.html",
         "lideres.js",
+        "pautas-comissoes.html",
+        "pautas-comissoes.js",
+        "pautas-comissoes-core.js",
+        "ia-comum.js",
+        "analise.css",
         "icons/podemos-logo.png"
       ],
       "matches": [

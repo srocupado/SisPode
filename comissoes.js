@@ -187,6 +187,10 @@ function registrarEventos() {
   // Voltar à tela inicial
   document.getElementById('btn-voltar-home')
     .addEventListener('click', () => window.close());
+  // O outro painel de Comissões (calendário e pautas). `?.` porque o botão é
+  // novo e um comissoes.html antigo não o tem.
+  document.getElementById('btn-pautas-comissoes')
+    ?.addEventListener('click', () => chrome.tabs.create({ url: chrome.runtime.getURL('pautas-comissoes.html') }));
 
   // Gerir deputados
   document.getElementById('btn-gerir-deputados')
