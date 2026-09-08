@@ -269,6 +269,32 @@ PRINCÍPIOS: clareza (sem termo técnico sem explicação); objetividade; imparc
 ${REGRAS_RIGIDAS_PC}`;
 }
 
+/**
+ * O prompt extra de uma comissão (configurado pelo analista e guardado para a
+ * equipe) e as instruções avulsas de uma reanálise entram juntos no mesmo
+ * bloco de INSTRUÇÕES ADICIONAIS, cada um nomeado.
+ */
+function juntarInstrucoes(promptComissaoExtra = '', instrucoesItem = '') {
+  const a = String(promptComissaoExtra || '').trim(), b = String(instrucoesItem || '').trim();
+  if (a && b) return `Orientações permanentes desta comissão:\n${a}\n\nInstruções para esta análise:\n${b}`;
+  return a || b;
+}
+
+/**
+ * Qual provedor e modelo atendem uma comissão: o dela, quando configurado e
+ * com chave disponível; senão o padrão das Configurações. `chaveDe(pid)`
+ * devolve a chave local do provedor.
+ */
+function provedorParaComissao(cfgComissao = {}, cfgGlobal = {}, chaveDe = () => '') {
+  const padrao = { pid: cfgGlobal.provedor || 'gemini', modelo: cfgGlobal.modelo || '', origem: 'padrao', aviso: null };
+  padrao.apiKey = chaveDe(padrao.pid);
+  const pid = cfgComissao.provedor;
+  if (!pid) return { ...padrao, modelo: cfgComissao.modelo && !cfgComissao.provedor ? padrao.modelo : padrao.modelo };
+  const apiKey = chaveDe(pid);
+  if (!apiKey) return { ...padrao, aviso: `A comissão pede o provedor ${pid}, mas não há chave dele nas Configurações; usei o padrão.` };
+  return { pid, apiKey, modelo: cfgComissao.modelo || (pid === padrao.pid ? padrao.modelo : ''), origem: 'comissao', aviso: null };
+}
+
 // ---------- fila de chamadas ----------
 
 /**
@@ -367,5 +393,5 @@ function htmlImpressaoReuniao({ comissao, reuniao, itens, notaHtml, logoDataUrl 
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { API_CAMARA_PC, COMISSOES_PERMANENTES, normalizarOrgaos, PAPEL_COMISSAO, papelDaComissao, eventosDeliberativos, agruparPorData, semanaDe, rotuloSemana, tituloReuniao, chaveReuniao, dataBR, diaSemana,
-    itensDaPauta, votoDoRelator, documentosDoItem, promptComissao, criarFila, textoPropPartido, textoResumoReuniao, htmlImpressaoReuniao, limpaChave };
+    itensDaPauta, votoDoRelator, documentosDoItem, promptComissao, juntarInstrucoes, provedorParaComissao, criarFila, textoPropPartido, textoResumoReuniao, htmlImpressaoReuniao, limpaChave };
 }

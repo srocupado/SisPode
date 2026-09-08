@@ -134,6 +134,44 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
   await new Promise(r => setTimeout(r, 100));
   ok(av(`pc.reuniao.itens[0].analise && /Livro/.test(pc.reuniao.itens[0].analise.markdown)`) === true, 'abrir a pauta salva recompõe a nota a partir do Firebase');
 
+
+  console.log('\n== provedor e prompt por comissão ==');
+  {
+    ok(/Provedor e prompt da CCJC/.test(document.getElementById('pc-lat').textContent) && /provedor padrão · sem prompt próprio/.test(document.getElementById('pc-lat').textContent), 'a lateral da comissão tem o item de configuração, dizendo que vale o padrão');
+    // linkedom: <select>.value só tem getter; shim fiel ao navegador (seleciona a option de mesmo value)
+    av(`(() => { const proto = Object.getPrototypeOf(document.createElement('select'));
+      Object.defineProperty(proto, 'value', { configurable: true,
+        get() { const o = this.querySelector('option[selected]') || this.querySelector('option:not([disabled])') || this.querySelector('option'); return o ? o.value : ''; },
+        set(v) { for (const o of this.querySelectorAll('option')) o.removeAttribute('selected'); const alvo = [...this.querySelectorAll('option')].find(o => o.value === String(v)); if (alvo) alvo.setAttribute('selected', ''); } }); })()`);
+    armazem.config.chaves = { anthropic: 'sk-ant-teste' };
+    av(`pc.config = ${JSON.stringify(armazem.config)}`);
+    av(`abrirConfigComissao('CCJC')`);
+    await new Promise(r => setTimeout(r, 30));
+    ok(document.getElementById('modal-comissao').style.display === 'flex' && /CCJC — provedor e prompt/.test(document.getElementById('cc-titulo').textContent) && [...document.querySelectorAll('#cc-provedor option')].some(o => o.value === 'anthropic' && !/sem chave/.test(o.textContent)) && [...document.querySelectorAll('#cc-provedor option')].some(o => o.value === 'openai' && /sem chave/.test(o.textContent)), 'o modal abre com os provedores, marcando os sem chave');
+    av(`document.getElementById('cc-provedor').value = 'anthropic'; document.getElementById('cc-provedor').dispatchEvent(new window.Event('change'));`);
+    await new Promise(r => setTimeout(r, 30));
+    av(`document.getElementById('cc-modelo').value = 'claude-opus-4-8'; document.getElementById('cc-prompt').value = 'Destaque sempre o impacto sobre os servidores públicos federais.'`);
+    av(`salvarConfigComissao()`);
+    await new Promise(r => setTimeout(r, 60));
+    ok(fb['config/CCJC'] && fb['config/CCJC'].provedor === 'anthropic' && fb['config/CCJC'].modelo === 'claude-opus-4-8' && /servidores públicos federais/.test(fb['config/CCJC'].promptExtra) && fb['config/CCJC'].por === 'Ana', 'salva em pautas-comissoes/config/CCJC: provedor, modelo, prompt e quem salvou');
+    ok(/Anthropic \(Claude\) claude-opus-4-8 · prompt próprio/.test(document.getElementById('pc-lat').textContent) && /prompt próprio/.test(document.getElementById('pc-main').textContent), 'a lateral e o cabeçalho da reunião mostram a configuração própria');
+    av(`chamarIA = async ({ provedorId, modelo, prompt }) => { __prov = provedorId; __mod = modelo; __prompt = prompt; return { text: '## Objetivo\\n\\nNota com o prompt da comissão.', truncated: false }; }`);
+    const card1 = document.querySelectorAll('#pc-lista .an-card')[1];
+    card1.querySelector('[data-role=btn-gerar]').click();
+    await new Promise(r => setTimeout(r, 150));
+    ok(av('__prov') === 'anthropic' && av('__mod') === 'claude-opus-4-8' && /INSTRUÇÕES ADICIONAIS[\s\S]{0,200}Destaque sempre o impacto sobre os servidores públicos federais\./.test(av('__prompt')), 'a análise usa o provedor e o modelo da comissão e leva o prompt customizado');
+    ok(/prompt da comissão/.test(card1.querySelector('[data-role=analise-meta]').textContent) && fb['analises/2003_82841/PL-2829-2024'].promptComissao === true, 'a meta da nota e o registro no Firebase dizem que o prompt da comissão foi usado');
+    // provedor sem chave local: cai no padrão e avisa
+    av(`pc.configComissoes.CCJC = { provedor: 'openai', modelo: 'gpt-5', promptExtra: '' }; pc._avisouProvedor = false;`);
+    const card2 = document.querySelectorAll('#pc-lista .an-card')[2];
+    card2.querySelector('[data-role=btn-gerar]').click();
+    await new Promise(r => setTimeout(r, 150));
+    ok(av('__prov') === 'gemini' && /não há chave dele/.test(document.getElementById('toast').textContent), 'comissão pede provedor sem chave local: usa o padrão e avisa');
+    av(`_siglaConfig = 'CCJC'; limparConfigComissao()`);
+    await new Promise(r => setTimeout(r, 60));
+    ok(fb['config/CCJC'] === null && av(`!pc.configComissoes.CCJC`) === true && /provedor padrão · sem prompt próprio/.test(document.getElementById('pc-lat').textContent), '"Voltar ao padrão" apaga a configuração no Firebase');
+  }
+
   console.log('\n== saídas e configuração ==');
   document.getElementById('pc-wa-resumo').click();
   await new Promise(r => setTimeout(r, 20));
