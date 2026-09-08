@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pautas de Comissões — Liderança do Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link rel="stylesheet" href="analise.css">
+  <link rel="stylesheet" href="libs/quill.snow.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* ---- abas por colegiado ---- */
+    .pc-abas { display: flex; gap: 2px; align-items: stretch; border-bottom: 1px solid var(--border); padding: 0 14px; background: var(--card); overflow-x: auto; scrollbar-width: thin; }
+    .pc-aba { padding: 10px 11px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); border: none; background: none; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: inherit; }
+    .pc-aba:hover { color: var(--text); }
+    .pc-aba.ativa { color: var(--text); border-bottom-color: var(--accent); }
+    .pc-aba .n { background: var(--accent); color: #fff; font-size: 10px; border-radius: 999px; padding: 1px 6px; font-weight: 700; min-width: 10px; text-align: center; }
+    .pc-aba .n.zero { background: rgba(255,255,255,.10); color: var(--text-dim); }
+    /* ---- corpo ---- */
+    .pc-corpo { display: flex; flex: 1; min-height: 0; }
+    .pc-lat { width: 280px; flex-shrink: 0; border-right: 1px solid var(--border); background: var(--card); overflow-y: auto; }
+    .pc-lat h4 { margin: 0; padding: 12px 14px 6px; font-size: 11px; letter-spacing: .6px; text-transform: uppercase; color: var(--accent); font-weight: 700; }
+    .pc-lat .item { padding: 8px 14px; font-size: 12.5px; color: var(--text-dim); border-left: 3px solid transparent; cursor: pointer; }
+    .pc-lat .item:hover { color: var(--text); background: rgba(255,255,255,.03); }
+    .pc-lat .item.ativo { color: var(--text); background: rgba(255,255,255,.04); border-left-color: var(--accent); }
+    .pc-lat .item small { display: block; font-size: 11px; opacity: .8; }
+    .pc-lat .vazio { padding: 8px 14px; font-size: 12px; color: var(--text-dim); font-style: italic; }
+    .pc-main { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 20px 40px; }
+    .pc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
+    .pc-top h2 { margin: 0; font-size: 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .pc-top p { margin: 3px 0 0; font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+    .pc-acoes { display: flex; gap: 8px; flex-wrap: wrap; margin: 8px 0 12px; align-items: center; }
+    .pc-acoes .form-input { width: 250px; padding: 6px 10px; font-size: 12px; }
+    .pill { font-size: 10.5px; border-radius: 999px; padding: 2px 8px; border: 1px solid var(--border-soft); color: var(--text-dim); white-space: nowrap; }
+    .pill.verde { color: #2fcf7a; border-color: rgba(0,168,89,.4); background: rgba(0,168,89,.12); }
+    .pill.ambar { color: #ffcc66; border-color: rgba(255,170,0,.4); background: rgba(255,170,0,.12); }
+    .pill.azul { color: #9ecbff; border-color: rgba(96,165,250,.5); background: rgba(96,165,250,.14); }
+    .pill.vermelho { color: #ff8a7a; border-color: rgba(231,76,60,.5); background: rgba(231,76,60,.14); }
+    /* ---- semana ---- */
+    .pc-dia { margin-bottom: 14px; }
+    .pc-dia h3 { font-size: 13px; margin: 0 0 6px; color: var(--text); display: flex; gap: 10px; align-items: baseline; }
+    .pc-dia h3 small { color: var(--text-dim); font-weight: 400; font-size: 11.5px; }
+    .pc-reu { display: grid; grid-template-columns: 82px 52px 1fr auto auto; gap: 10px; align-items: center; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 5px; font-size: 12.5px; background: rgba(255,255,255,.02); }
+    .pc-reu .sig { font-weight: 700; color: var(--accent-light); cursor: pointer; } .pc-reu .h { color: var(--text-dim); } .pc-reu .nm { color: var(--text); min-width: 0; } .pc-reu .nm small { color: var(--text-dim); }
+    .pc-reu.cancelada { opacity: .5; }
+    .pc-progresso { display: none; align-items: center; gap: 10px; font-size: 12px; color: var(--text-dim); margin: 6px 0 10px; }
+    .pc-progresso .bar { flex: 1; height: 6px; border-radius: 3px; background: rgba(255,255,255,.08); overflow: hidden; } .pc-progresso .bar i { display: block; height: 100%; background: var(--accent); width: 0; transition: width .3s; }
+    /* ---- calendário (base em panel.css .cal-*) ---- */
+    .pc-cal { display: flex; gap: 24px; align-items: flex-start; flex-wrap: wrap; }
+    .pc-cal .cal-wrap { flex: 0 0 340px; }
+    .cal-dow-grid { display: grid; grid-template-columns: repeat(7, 1fr); font-size: 11px; color: var(--text-dim); text-align: center; margin: 8px 0 4px; letter-spacing: .4px; }
+    .cal-dia { background: rgba(255,255,255,.025); cursor: default; }
+    .cal-dia.vazio { background: transparent; }
+    .cal-dia.tem-reuniao { color: var(--text); font-weight: 600; cursor: pointer; }
+    .cal-dia.tem-reuniao:hover { background: rgba(255,255,255,.07); }
+    .cal-dia.selecionado { background: var(--accent); color: #fff; }
+    .cal-dia.hoje { outline: 1px solid var(--accent); }
+    .cal-dot { position: absolute; bottom: 5px; width: 5px; height: 5px; border-radius: 50%; background: var(--accent-light); }
+    .cal-dia.selecionado .cal-dot { background: #fff; }
+    .pc-card-reuniao { border: 1px solid var(--border-soft); border-radius: 12px; padding: 14px; background: var(--card); width: 380px; }
+    .pc-card-reuniao .badge { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--accent-light); background: rgba(31,165,165,.15); border-radius: 999px; padding: 2px 8px; }
+    .pc-card-reuniao .data { font-size: 15px; font-weight: 700; margin: 8px 0 2px; }
+    .pc-card-reuniao .info { font-size: 12px; color: var(--text-dim); line-height: 1.5; }
+    .pc-previa { margin-top: 10px; border-top: 1px dashed var(--border-soft); padding-top: 8px; font-size: 12px; }
+    .pc-previa div { padding: 3px 0; color: var(--text-dim); } .pc-previa b { color: var(--text); }
+    .pc-mes { margin-top: 16px; }
+    .pc-mes h3 { font-size: 12px; text-transform: uppercase; letter-spacing: .5px; color: var(--accent); margin: 0 0 6px; }
+    .pc-mes .pc-reu { grid-template-columns: 90px 1fr auto; }
+    /* ---- cards de itens (base em analise.css .an-card) ---- */
+    .an-card { margin-bottom: 10px; }
+    .an-card-meta { line-height: 1.5; }
+    .pc-analista { width: 130px; padding: 5px 8px; font-size: 12px; }
+    .pc-nota h2 { font-size: 13.5px; margin: 12px 0 4px; color: var(--accent-light); } .pc-nota p { font-size: 13px; line-height: 1.55; margin: 0 0 8px; } .pc-nota ul { margin: 4px 0 8px 18px; font-size: 13px; } .pc-nota h1, .pc-nota h3 { font-size: 13.5px; margin: 10px 0 4px; }
+    .pc-quill { display: none; margin-top: 8px; }
+    .pc-quill .ql-toolbar { background: rgba(255,255,255,.04); border-color: var(--border-soft); border-radius: 8px 8px 0 0; }
+    .pc-quill .ql-container { border-color: var(--border-soft); border-radius: 0 0 8px 8px; font-family: inherit; font-size: 13px; min-height: 240px; color: var(--text); }
+    .pc-quill .ql-editor { min-height: 240px; }
+    .pc-quill .ql-snow .ql-stroke { stroke: var(--text-dim); } .pc-quill .ql-snow .ql-fill { fill: var(--text-dim); } .pc-quill .ql-snow .ql-picker { color: var(--text-dim); }
+    .pc-vazio { text-align: center; color: var(--text-dim); padding: 60px 20px; font-size: 13.5px; }
+    .pc-status { font-size: 11.5px; color: var(--text-dim); margin: 4px 0 8px; }
+    .pc-erro { border: 1px solid rgba(231,76,60,.5); background: rgba(231,76,60,.10); color: #ff8a7a; border-radius: 8px; padding: 8px 12px; font-size: 12.5px; margin: 6px 0; }
+    .pc-aviso { border: 1px solid var(--amarelo); background: rgba(240,192,64,.10); border-radius: 8px; padding: 8px 12px; font-size: 12.5px; margin: 6px 0; line-height: 1.5; }
+    .pc-aviso b { color: var(--amarelo); }
+    .form-row { display: flex; gap: 10px; } .form-row .form-group { flex: 1; }
+    .form-hint { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo"><svg width="34" height="34" viewBox="0 0 34 34" fill="none"><circle cx="17" cy="17" r="17" fill="#00A859"/><text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text></svg></div>
+      <div class="header-title"><span class="header-main">Pautas de Comissões</span><span class="header-sub">Liderança do Podemos – Câmara dos Deputados</span></div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar" class="btn btn-ghost btn-sm">← Início</button>
+      <button id="btn-gestao" class="btn btn-outline btn-sm" title="Abre o painel de Gestão de Comissões (vagas, titulares e suplentes)">↔ Gestão</button>
+      <button id="btn-exportar-pdf" class="btn btn-outline btn-sm" disabled title="PDF da reunião aberta, com as notas geradas">📥 Exportar PDF</button>
+      <button id="btn-parar" class="btn btn-danger btn-sm" style="display:none" title="Cancela a fila e as análises em andamento">■ Parar tudo</button>
+      <button id="btn-configuracoes" class="btn btn-outline btn-sm" title="Provedor de IA, chave, modelo e limites de requisições">⚙</button>
+    </div>
+  </header>
+
+  <nav class="pc-abas" id="pc-abas" aria-label="Colegiados"></nav>
+
+  <div class="pc-corpo">
+    <aside class="pc-lat" id="pc-lat"></aside>
+    <main class="pc-main" id="pc-main"></main>
+  </div>
+
+  <div id="toast" class="toast" style="display:none"></div>
+
+  <!-- ===== MODAL: CONFIGURAÇÕES ===== -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal" style="width:560px">
+      <div class="modal-header"><h3>Configurações</h3><button class="modal-close" data-fecha="modal-configuracoes">✕</button></div>
+      <div class="modal-body">
+        <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.5">A chave e o modelo são os mesmos do módulo de Plenário: mudar aqui muda lá.</p>
+        <div class="form-group"><label>Provedor de IA</label><select id="config-provedor" class="form-input"></select></div>
+        <div class="form-group"><label>Chave de API</label><input type="password" id="config-api-key" class="form-input" autocomplete="off"><div class="form-hint" id="config-api-hint"></div></div>
+        <div class="form-group"><label>Modelo</label><select id="config-modelo" class="form-input"></select><div class="form-hint" id="config-modelo-status"></div></div>
+        <div class="form-group"><label>Seu nome (assina as notas)</label><input type="text" id="config-nome" class="form-input" placeholder="ex.: Ana Paula"></div>
+        <div class="form-row">
+          <div class="form-group"><label>Análises em paralelo</label><input type="number" id="config-paralelas" class="form-input" min="1" max="6" value="2"><div class="form-hint">Quantas chamadas ao modelo ao mesmo tempo ao gerar todas.</div></div>
+          <div class="form-group"><label>Intervalo entre chamadas (s)</label><input type="number" id="config-intervalo" class="form-input" min="0" max="120" value="3"><div class="form-hint">Pausa mínima entre o início de duas chamadas. Sobe se o provedor devolver 429.</div></div>
+        </div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline" data-fecha="modal-configuracoes">Cancelar</button><button id="btn-config-salvar" class="btn btn-primary">Salvar</button></div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: REANALISAR COM INSTRUÇÕES ===== -->
+  <div id="modal-reanalise" class="modal-overlay" style="display:none">
+    <div class="modal" style="width:560px">
+      <div class="modal-header"><h3>Reanalisar com instruções</h3><button class="modal-close" data-fecha="modal-reanalise">✕</button></div>
+      <div class="modal-body">
+        <p id="reanalise-item" style="font-size:12.5px;color:var(--text-dim);margin:0 0 10px"></p>
+        <div class="form-group"><label>Instruções adicionais para a IA</label><textarea id="reanalise-texto" class="form-input" rows="6" placeholder="ex.: aprofunde o impacto sobre os municípios; compare com a Lei 8.112/1990; destaque o que muda para os servidores aposentados"></textarea></div>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline" data-fecha="modal-reanalise">Cancelar</button><button id="btn-reanalise-executar" class="btn btn-primary">Reanalisar</button></div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: GERAR A SEMANA ===== -->
+  <div id="modal-semana" class="modal-overlay" style="display:none">
+    <div class="modal" style="width:560px">
+      <div class="modal-header"><h3>Gerar todas as pautas da semana</h3><button class="modal-close" data-fecha="modal-semana">✕</button></div>
+      <div class="modal-body">
+        <div class="pc-aviso"><b>⚠ Muitas chamadas ao modelo.</b> <span id="semana-resumo"></span> Cada item é uma chamada com dois PDFs. A fila respeita os limites das Configurações; você pode parar a qualquer momento e o que já foi gerado fica salvo.</div>
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:10px"><input type="checkbox" id="semana-so-podemos"> Só os itens de autoria ou relatoria do Podemos</label>
+        <label style="display:flex;gap:8px;align-items:center;font-size:12.5px;margin-top:6px"><input type="checkbox" id="semana-pular-prontos" checked> Pular itens que já têm nota</label>
+      </div>
+      <div class="modal-footer"><button class="btn btn-outline" data-fecha="modal-semana">Cancelar</button><button id="btn-semana-executar" class="btn btn-primary">Gerar mesmo assim</button></div>
+    </div>
+  </div>
+
+  <script src="libs/pdf.min.js"></script>
+  <script src="libs/quill.js"></script>
+  <script src="ia-comum.js"></script>
+  <script src="pautas-comissoes-core.js"></script>
+  <script src="pautas-comissoes.js"></script>
+</body>
+</html>

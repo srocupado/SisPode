@@ -349,6 +349,11 @@ function registrarEventos() {
     ?.addEventListener('click', () => abrirSubpainelOrcamento('emendas.html'));
   document.getElementById('btn-sub-notas')
     ?.addEventListener('click', () => abrirSubpainelOrcamento('orcamento-notas.html'));
+  // Sub-painéis de Comissões (Gestão / Pautas), pelo mesmo motivo.
+  document.getElementById('btn-sub-gestao')
+    ?.addEventListener('click', () => abrirSubpainelComissoes('comissoes.html'));
+  document.getElementById('btn-sub-pautas-comissoes')
+    ?.addEventListener('click', () => abrirSubpainelComissoes('pautas-comissoes.html'));
 
   // Fechar modais via data-fecha
   document.querySelectorAll('[data-fecha]').forEach(btn => {
@@ -3332,8 +3337,8 @@ const MODULES = [
   },
   {
     id:     'comissoes',
-    titulo: 'Controle de Comissões',
-    desc:   'Gerencie a participação de deputados do partido em comissões permanentes.',
+    titulo: 'Comissões',
+    desc:   'Dois painéis: gestão das vagas da bancada (titulares, suplentes, pedidos, transferências) e pautas de cada comissão permanente, com calendário de reuniões e análise por IA do parecer em votação.',
     cor:    'teal',
     icone:  '<path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
     acao:   abrirComissoes,
@@ -3498,9 +3503,21 @@ function abrirAderencia() {
   chrome.tabs.create({ url });
 }
 
+// O card "Comissões" reúne dois sub-painéis: a Gestão (o Controle de Comissões
+// original: vagas, titulares, suplentes) e as Pautas de Comissões (calendário
+// de cada colegiado, pauta importada da Câmara e análise por IA).
 function abrirComissoes() {
-  const url = chrome.runtime.getURL('comissoes.html');
-  chrome.tabs.create({ url });
+  const modal = document.getElementById('modal-comissoes');
+  // Sem o modal (panel.html defasado), abre a Gestão, como antes — um clique
+  // que não faz nada é o pior desfecho possível.
+  if (!modal) { abrirSubpainelComissoes('comissoes.html'); return; }
+  modal.style.display = 'flex';
+}
+
+function abrirSubpainelComissoes(arquivo) {
+  const modal = document.getElementById('modal-comissoes');
+  if (modal) modal.style.display = 'none';
+  chrome.tabs.create({ url: chrome.runtime.getURL(arquivo) });
 }
 
 function abrirAnalise() {
