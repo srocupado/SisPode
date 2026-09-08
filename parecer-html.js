@@ -82,7 +82,7 @@ function normalizarParecer(p) {
   if (p.rubrica) { arr(p.rubrica, 'itens'); arr(p.rubrica, 'pendentes'); }
   if (p.carimbo) arr(p.carimbo, 'lentes');
   arr(p, 'alteracoes'); for (const k of ['comparada', 'jurisprudencia', 'infralegal', 'posicoes', 'secoes']) arr(p, k);
-  if (p.tese) for (const k of ['atores', 'implementacao', 'aprimoramentos', 'viabilidade']) arr(p.tese, k);
+  if (p.tese) { for (const k of ['atores', 'embates', 'emendas_sem_conflito', 'implementacao', 'aprimoramentos', 'viabilidade']) arr(p.tese, k); for (const e of p.tese.embates) { arr(e, 'lados'); arr(e, 'evidencias'); for (const l of e.lados) arr(l, 'evidencias'); } }
   if (p.processo) for (const k of ['documentos', 'emendas', 'comissoes', 'apensados']) arr(p.processo, k);
   return p;
 }
@@ -128,7 +128,25 @@ const CSS_PARECER_EXTRA = `
     .posicao p { margin:3px 0; } .posicao-p { font-weight:600; font-size:11.5pt; }
     .posicao-aviso { font-size:9pt; color:#555; border-top:1px dotted #9bb4c8; padding-top:4px; margin-top:6px !important; }
     .fontes td:nth-child(2) { white-space:nowrap; } .fontes td:nth-child(4) { min-width:32mm; } .fontes a { color:#1a4f7a; }
+    .embates { margin:4px 0 10px; } .embates td:nth-child(4) { white-space:nowrap; } .emb-lado { margin:2px 0; }
     .consumo th { width:28mm; }`;
+
+/**
+ * Quadro "Quem disputa o quê": um embate por linha — objeto, dispositivo, os
+ * lados com o que cada um quer, o que a tramitação fez com a disputa e o
+ * estado. Lado sem evidência sai como "não se manifestou nas fontes": o
+ * parecer não supõe a posição de ninguém.
+ */
+function embatesParaHtml(embates, esc, emendasSemConflito = []) {
+  if (!(embates || []).length && !(emendasSemConflito || []).length) return '';
+  const linhas = (embates || []).map(e => `<tr>
+      <td><b>${esc(e.objeto)}</b>${e.dispositivo ? `<div class="ficha-fonte">${esc(e.dispositivo)}</div>` : ''}</td>
+      <td>${(e.lados || []).map(l => `<div class="emb-lado"><b>${esc(l.quem)}</b>: ${l.ausente ? '<i>não se manifestou nas fontes</i>' : esc(l.quer)}</div>`).join('')}</td>
+      <td>${[['Texto original', e.texto_original], ['Substitutivo', e.substitutivo], ['Emendas', e.emendas]].filter(([, v]) => v).map(([r, v]) => `<div><b>${r}:</b> ${esc(v)}</div>`).join('') || '—'}</td>
+      <td>${esc(e.estado || 'aberto')}</td></tr>`);
+  const semConflito = (emendasSemConflito || []).length ? `<p class="tec-nota">Sem disputa identificada: ${emendasSemConflito.map(x => `${esc(x.emenda)}${x.por_que ? ` (${esc(x.por_que)})` : ''}`).join('; ')}.</p>` : '';
+  return `${linhas.length ? `<table class="dt embates"><thead><tr><th>O que está em disputa</th><th>Quem quer o quê</th><th>O que a tramitação fez</th><th>Estado</th></tr></thead><tbody>${linhas.join('')}</tbody></table>` : ''}${semConflito}`;
+}
 
 /** Bloco "Tramitação" da primeira página: o que o módulo de Plenário sabe, impresso por programa. */
 function tramitacaoParaHtml(pr, esc) {
@@ -195,8 +213,11 @@ function htmlParecer(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
       <h3 class="item-h">Limites deste parecer</h3>
       <ul class="limites">${limites.map(l => `<li>${traduzir(esc(l))}</li>`).join('')}</ul>
     </div>`;
+  const { TITULOS } = _refsHtml();
+  const quadroEmbates = embatesParaHtml(p.tese?.embates, esc, p.tese?.emendas_sem_conflito);
   const corpo = secoes.map(s => `<div class="bloco" id="${bm(s.chave)}">
       ${s.chave === 'abertura' ? '' : `<h3 class="item-h">${esc(s.rotulo)}</h3>`}
+      ${s.chave === TITULOS.embates ? quadroEmbates : ''}
       ${s.paras.map(x => `<p>${corpoLimpo(x)}</p>`).join('\n')}
       ${s === onde ? tabelas.corpo : ''}
     </div>`).join('');
@@ -335,5 +356,5 @@ ${CSS_TAB || ''}
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecer, htmlConferencia, blocosDoParecer, escapeHtmlParecer, normalizarParecer, tramitacaoParaHtml, externasHtml, duracaoEmPalavras };
+  module.exports = { htmlParecer, htmlConferencia, blocosDoParecer, escapeHtmlParecer, normalizarParecer, tramitacaoParaHtml, externasHtml, embatesParaHtml, duracaoEmPalavras };
 }
