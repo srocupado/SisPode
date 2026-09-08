@@ -631,7 +631,7 @@ function promptRedacao({ identificacao, textoAnalisado, situacao, ficha, tese, c
 ${identificacao}. Texto analisado: ${textoAnalisado} — nomeie-o na primeira frase. O leitor é o deputado e sua assessoria;
 o documento tem de formar convencimento de quem não conhece o tema.
 ${situacao ? `\nSITUAÇÃO DA TRAMITAÇÃO (use no Contexto): ${situacao}\n` : ''}
-${correcoes ? `\nESTA É UMA SEGUNDA REDAÇÃO. A primeira foi reprovada pelos motivos abaixo; corrija TODOS:\n${correcoes}\n` : ''}
+${correcoes ? `\nESTA É UMA SEGUNDA REDAÇÃO. A conferência da primeira apontou os problemas abaixo; corrija TODOS:\n${correcoes}\n` : ''}
 ${_fichaParaTexto ? _fichaParaTexto(ficha) : ''}
 A ficha acima será impressa pelo programa na primeira página; mesmo assim, a Síntese TEM de enunciar em algarismos a regra
 que muda: de quanto para quanto, sobre o quê, a partir de quando.

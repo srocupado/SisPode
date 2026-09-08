@@ -130,11 +130,15 @@ function montarFicha({ achados = [], leiVigente = [], marco = null, identificaca
   ficha.valores = valoresDoTexto(base).slice(0, 12);
   // Regra quantitativa (alíquota, prazo, pena, valor): a síntese tem de enunciar os números.
   // Regra qualitativa (competência, direito, vedação, procedimento): não há número a exigir.
-  ficha.quantitativa = ficha.valores.length > 0 || valoresDoTexto(`${aAntes?.achado || ''} ${aDepois?.achado || ''}`).length > 0;
+  // Só conta o que está NA REGRA transcrita. Valor que aparece apenas na descrição
+  // da apuração ("resseguradoras sujeitas a alíquota superior a 40%") é contexto,
+  // não parâmetro da regra: vai a `valoresForaDaRegra`, que vira observação, não falta.
+  // (O PLP 74/2026 saía "incompleto" por esse 40%.)
+  ficha.quantitativa = ficha.valores.length > 0;
+  ficha.valoresForaDaRegra = valoresDoTexto(`${aAntes?.achado || ''} ${aDepois?.achado || ''}`).filter(v => !ficha.valores.some(x => x.norm === v.norm)).map(v => v.token);
 
   if (!ficha.regraVigente) ficha.faltas.push('regra vigente');
   if (!ficha.regraProposta) ficha.faltas.push('regra proposta');
-  if (ficha.quantitativa && ficha.valores.length < 2) ficha.faltas.push('valores da regra');
   if (!ficha.dataEfeito) ficha.faltas.push('data de efeito');
   ficha.completa = ficha.faltas.length === 0;
   return ficha;
@@ -204,10 +208,11 @@ function fichaParaTexto(f) {
     `Regra vigente (${f.regraVigente ? f.regraVigente.fonte : 'NÃO OBTIDA'}): ${f.regraVigente ? f.regraVigente.texto : '—'}${f.regraVigente?.noDocumento ? `\n  Como o documento analisado descreve a situação atual: ${f.regraVigente.noDocumento}` : ''}`,
     `Regra proposta (${f.regraProposta ? f.regraProposta.fonte : 'NÃO IDENTIFICADA'}): ${f.regraProposta ? f.regraProposta.texto : '—'}`,
     `Data de efeito: ${d}`,
-    f.quantitativa ? `Valores da regra (a síntese TEM de enunciar ao menos dois, em algarismos): ${f.valores.map(v => v.token).join('; ') || 'nenhum'}`
+    f.quantitativa ? `Valores da regra (a síntese TEM de enunciar ${f.valores.length >= 2 ? 'ao menos dois' : 'o valor'}, em algarismos): ${f.valores.map(v => v.token).join('; ')}`
       : 'Regra sem valores numéricos (matéria qualitativa): a síntese enuncia a regra vigente e a proposta em palavras e nomeia a norma alterada.',
+    (f.valoresForaDaRegra || []).length ? `Valores citados na apuração que NÃO estão na regra (contexto, não parâmetro; use-os só como descrição): ${f.valoresForaDaRegra.join('; ')}` : '',
     f.faltas.length ? `FALTAS: ${f.faltas.join(', ')}` : 'Ficha completa.',
-  ].join('\n');
+  ].filter(Boolean).join('\n');
 }
 
 function fichaParaHtml(f, esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]))) {
