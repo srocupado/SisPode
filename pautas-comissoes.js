@@ -464,7 +464,7 @@ function renderCardItem(it) {
       <span class="an-analista-ok" data-role="analista-ok" title="Salvo">✓</span>
       <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item desta pauta">Remover</button>
     </div>
-    <div class="an-analise" data-role="painel-analise" style="display:none">
+    <div class="an-analise" data-role="painel-analise">
       <div class="an-analise-head">
         <span class="an-analise-meta" data-role="analise-meta"></span>
         <button class="btn btn-outline btn-sm" data-role="btn-editar">Editar</button>
@@ -479,7 +479,7 @@ function renderCardItem(it) {
     </div>`;
   const q = s => card.querySelector(`[data-role=${s}]`);
   q('btn-gerar').addEventListener('click', () => gerarAnaliseItem(pc.reuniao, it, { forcar: temNotaPC(it) }));
-  q('btn-toggle').addEventListener('click', () => { const p = q('painel-analise'); const aberto = p.style.display !== 'none'; p.style.display = aberto ? 'none' : ''; q('btn-toggle').textContent = aberto ? 'Ver análise' : 'Ocultar análise'; });
+  q('btn-toggle').addEventListener('click', () => { const p = q('painel-analise'); const aberto = p.classList.toggle('aberto'); q('btn-toggle').textContent = aberto ? 'Ocultar análise' : 'Ver análise'; });
   q('btn-regerar').addEventListener('click', () => gerarAnaliseItem(pc.reuniao, it, { forcar: true }));
   q('btn-reanalisar').addEventListener('click', () => abrirReanalise(it));
   q('btn-editar').addEventListener('click', () => entrarEdicao(card, it));
@@ -512,11 +512,11 @@ function atualizarPainelItem(it, card = cardDe(it)) {
   q('btn-toggle').style.display = tem ? '' : 'none';
   q('btn-gerar').textContent = tem ? 'Gerar de novo' : 'Gerar Análise';
   q('btn-gerar').className = tem ? 'btn btn-outline btn-sm' : 'btn btn-primary btn-sm';
-  if (!tem) { q('painel-analise').style.display = 'none'; return; }
+  if (!tem) { q('painel-analise').classList.remove('aberto'); return; }
   const a = it.analise;
   q('analise-meta').innerHTML = `Documento${(a.documentos || []).length > 1 ? 's' : ''}: <b>${escapeHtml((a.documentos || []).map(d => d.rotulo).join('; ') || 'só a ementa e a conclusão da pauta')}</b> · ${escapeHtml(a.provedor || '')} ${escapeHtml(a.modelo || '')} · ${escapeHtml(formatDataHora(a.geradoEm))}${a.geradoPor ? ` por ${escapeHtml(a.geradoPor)}` : ''}${a.instrucoes ? ' · com instruções' : ''}${a.editadoEm ? ` · editada ${escapeHtml(formatDataHora(a.editadoEm))}` : ''}`;
   q('analise-conteudo').innerHTML = notaHtmlPC(it);
-  q('painel-analise').style.display = '';
+  q('painel-analise').classList.add('aberto');
   q('btn-toggle').textContent = 'Ocultar análise';
 }
 
@@ -551,7 +551,7 @@ async function gerarAnaliseItem(reuniao, it, { forcar = false, instrucoes = '' }
     atualizarBadgesItem(it); atualizarPainelItem(it);
     if (pc.reuniao === reuniao) renderLateralComissao();
   } catch (e) {
-    if (!isAbortError(e) && !/fila cancelada/.test(e.message)) { console.error(e); if (erroEl) { erroEl.textContent = 'Falha: ' + e.message; erroEl.style.display = ''; card.querySelector('[data-role=painel-analise]').style.display = ''; } else mostrarToast('Falha ao gerar: ' + e.message, 'erro'); }
+    if (!isAbortError(e) && !/fila cancelada/.test(e.message)) { console.error(e); if (erroEl) { erroEl.textContent = 'Falha: ' + e.message; erroEl.style.display = ''; card.querySelector('[data-role=painel-analise]').classList.add('aberto'); } else mostrarToast('Falha ao gerar: ' + e.message, 'erro'); }
   } finally {
     iaInFlightDec(); atualizarBotaoPararPC();
     if (btn) { btn.disabled = false; btn.innerHTML = temNotaPC(it) ? 'Gerar de novo' : 'Gerar Análise'; }

@@ -125,7 +125,7 @@ const scriptsDe = html => [...fs.readFileSync(path.join(RAIZ, html), 'utf8').mat
   cards[0].querySelector('[data-role=btn-gerar]').click();
   await new Promise(r => setTimeout(r, 150));
   ok(av(`__pdfs`) === 2 && /Documento 1 — PRL 1 — parecer do\(a\) relator\(a\) Helder Salomão/.test(av('__prompt')) && /## Admissibilidade/.test(av('__prompt')), 'a análise baixa os dois PDFs e manda o prompt de comissão (CCJC: admissibilidade)');
-  ok(/Inscreve o nome no Livro dos Heróis/.test(cards[0].querySelector('[data-role=analise-conteudo]').innerHTML) && cards[0].querySelector('[data-role=painel-analise]').style.display !== 'none', 'a nota aparece no card');
+  ok(/Inscreve o nome no Livro dos Heróis/.test(cards[0].querySelector('[data-role=analise-conteudo]').innerHTML) && cards[0].querySelector('[data-role=painel-analise]').classList.contains('aberto'), 'a nota aparece no card (painel com a classe .aberto do analise.css)');
   ok(fb['analises/2003_82841/PL-4159-2025'] && /Livro dos Heróis/.test(fb['analises/2003_82841/PL-4159-2025'].markdown) && fb['indice/2003/82841'].nAnalisados === 1, 'a nota vai a pautas-comissoes/analises e o índice conta 1 analisado');
   ok(/PRL 1 — parecer/.test(cards[0].querySelector('[data-role=analise-meta]').textContent) && /Google Gemini gemini-3\.8-flash/.test(cards[0].querySelector('[data-role=analise-meta]').textContent) && /por Ana/.test(cards[0].querySelector('[data-role=analise-meta]').textContent), 'a linha de meta diz o documento analisado, o modelo e quem gerou — sem cenário');
   // reabrir a pauta salva traz a nota de volta
