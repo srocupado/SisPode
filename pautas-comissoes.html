@@ -10,7 +10,7 @@
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     /* ---- abas por colegiado ---- */
-    .pc-abas { display: flex; gap: 2px; align-items: stretch; border-bottom: 1px solid var(--border); padding: 0 14px; background: var(--card); overflow-x: auto; scrollbar-width: thin; }
+    .pc-abas { display: flex; gap: 2px; align-items: stretch; border-bottom: 1px solid var(--border); padding: 0 14px; background: var(--card); overflow-x: auto; }
     .pc-aba { padding: 10px 11px; font-size: 12.5px; font-weight: 600; color: var(--text-dim); border: none; background: none; border-bottom: 2px solid transparent; white-space: nowrap; display: flex; gap: 6px; align-items: center; cursor: pointer; font-family: inherit; }
     .pc-aba:hover { color: var(--text); }
     .pc-aba.ativa { color: var(--text); border-bottom-color: var(--accent); }
@@ -24,6 +24,8 @@
     .pc-lat .item:hover { color: var(--text); background: rgba(255,255,255,.03); }
     .pc-lat .item.ativo { color: var(--text); background: rgba(255,255,255,.04); border-left-color: var(--accent); }
     .pc-lat .item small { display: block; font-size: 11px; opacity: .8; }
+    .pc-lat .pc-apagar { position: absolute; right: 8px; top: 8px; background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 5px; border-radius: 4px; opacity: 0; }
+    .pc-lat .item:hover .pc-apagar { opacity: 1; } .pc-lat .pc-apagar:hover { color: #ff8e8e; background: rgba(255,255,255,.06); }
     .pc-lat .vazio { padding: 8px 14px; font-size: 12px; color: var(--text-dim); font-style: italic; }
     .pc-main { flex: 1; min-width: 0; overflow-y: auto; padding: 14px 20px 40px; }
     .pc-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; margin-bottom: 10px; }
@@ -117,7 +119,7 @@
         <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.5">A chave e o modelo são os mesmos do módulo de Plenário: mudar aqui muda lá.</p>
         <div class="form-group"><label>Provedor de IA</label><select id="config-provedor" class="form-input"></select></div>
         <div class="form-group"><label>Chave de API</label><input type="password" id="config-api-key" class="form-input" autocomplete="off"><div class="form-hint" id="config-api-hint"></div></div>
-        <div class="form-group"><label>Modelo</label><select id="config-modelo" class="form-input"></select><div class="form-hint" id="config-modelo-status"></div></div>
+        <div class="form-group"><label style="display:flex;align-items:center;justify-content:space-between">Modelo <button id="btn-config-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar disponíveis</button></label><select id="config-modelo" class="form-input"></select><div class="form-hint" id="config-modelo-status"></div></div>
         <div class="form-group"><label>Seu nome (assina as notas)</label><input type="text" id="config-nome" class="form-input" placeholder="ex.: Ana Paula"></div>
         <div class="form-row">
           <div class="form-group"><label>Análises em paralelo</label><input type="number" id="config-paralelas" class="form-input" min="1" max="6" value="2"><div class="form-hint">Quantas chamadas ao modelo ao mesmo tempo ao gerar todas.</div></div>
@@ -136,7 +138,7 @@
         <p style="font-size:12px;color:var(--text-dim);margin:0 0 12px;line-height:1.5">Vale para todas as análises desta comissão e é compartilhada com a equipe (fica no Firebase). A chave de API continua sendo a das Configurações de cada analista.</p>
         <div class="form-row">
           <div class="form-group"><label>Provedor de IA</label><select id="cc-provedor" class="form-input"></select><div class="form-hint" id="cc-provedor-hint"></div></div>
-          <div class="form-group"><label>Modelo</label><select id="cc-modelo" class="form-input"></select><div class="form-hint" id="cc-modelo-status"></div></div>
+          <div class="form-group"><label style="display:flex;align-items:center;justify-content:space-between">Modelo <button id="btn-cc-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">↻ Carregar disponíveis</button></label><select id="cc-modelo" class="form-input"></select><div class="form-hint" id="cc-modelo-status"></div></div>
         </div>
         <div class="form-group"><label>Prompt customizado desta comissão</label>
           <textarea id="cc-prompt" class="form-input" rows="8" placeholder="ex.: Nesta comissão, destaque sempre o impacto sobre os servidores públicos federais e compare o parecer com a jurisprudência do TCU citada nos documentos. Aponte, em parágrafo próprio, se a matéria cria despesa obrigatória."></textarea>
