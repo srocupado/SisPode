@@ -8,7 +8,7 @@
 //   G5  cifra por extenso → "três bilhões e quinhentos milhões" burlou a conferência.
 //   G6  estimativa de outra parte do processo → os R$ 3,5 bi do Mover viraram previsão da taxa.
 //   G7  série que termina antes do marco → aparecia como se fosse comparável.
-// A rubrica M1–M11 é a parte mecânica do teste de aceitação; qualquer item
+// A rubrica M1–M14 é a parte mecânica do teste de aceitação; qualquer item
 // reprovado impede o PDF de abrir.
 //
 // Script clássico (global na extensão) + module.exports para os testes.
@@ -174,7 +174,7 @@ function aplicarGates({ ficha, dossie, tese, texto, nivel = 'C', validacao = nul
   return { faixas, notas, reprovacoes, rebaixamentos, texto: t };
 }
 
-/** Rubrica mecânica M1–M11. Qualquer item reprovado impede o PDF de abrir. */
+/** Rubrica mecânica M1–M14. Qualquer item reprovado marca o parecer como reprovado. */
 /** Chave curta de uma emenda/substitutivo ("EMP 1", "SBT-A 2", "EMS") para procurar no texto. */
 function chaveDaEmenda(rotulo) {
   const m = /\b(EMP|EMC|EMS|EMR|EMA|SBT-?A?|SSP|SBE|PRLP|PRLE|PLV|EMENDA(?:\s+DE\s+PLENÁRIO)?|SUBEMENDA|SUBSTITUTIVO)\s*(?:N[ºo.]?\s*)?(\d+)?/i.exec(String(rotulo || ''));
@@ -235,6 +235,16 @@ function rubricaMaquina({ texto, ficha, tese, dossie, nivel = 'C', conferencia =
     }
     for (const e of processo.emendas || []) { const ch = chaveDaEmenda(e.rotulo); if (ch && !emendaCitada(t, ch)) faltam.push(e.rotulo); }
     add(!faltam.length, 'M12 Contexto nomeia o(a) relator(a) e cada emenda ou substitutivo da tramitação', faltam.length ? `não citados: ${faltam.slice(0, 6).join('; ')}` : null);
+  }
+  // M14 — a tramitação é o registro das disputas: cada emenda ou substitutivo
+  // aparece em algum embate da tese ou é declarado sem conflito, com evidência.
+  // Sem isso, a disputa que a emenda carrega fica reduzida a "custo" (o PL
+  // 1893/2026: a EMP 2 punha associações na mesa com os sindicatos, e o parecer
+  // só viu a despesa da licença).
+  if (tese && processo && (processo.emendas || []).length) {
+    const cobertas = [...(tese.embates || []).map(e => `${e.objeto || ''} ${e.dispositivo || ''} ${e.emendas || ''} ${e.substitutivo || ''} ${e.texto_original || ''} ${(e.lados || []).map(l => `${l.quem} ${l.quer}`).join(' ')}`), ...(tese.emendas_sem_conflito || []).map(x => `${x.emenda} ${x.por_que || ''}`)].join('\n');
+    const semDestino = (processo.emendas || []).filter(e => { const ch = chaveDaEmenda(e.rotulo); return ch && !emendaCitada(cobertas, ch); }).map(e => e.rotulo);
+    add(!semDestino.length, 'M14 Cada emenda ou substitutivo da tramitação aparece num embate ou é declarado sem conflito', semDestino.length ? `sem destino na tese: ${semDestino.slice(0, 6).join('; ')}` : null);
   }
   const pendentes = itens.filter(i => !i.ok);
   return { itens, pendentes, aprovado: !pendentes.length, resumo: pendentes.length ? `${pendentes.length} de ${itens.length} itens da rubrica reprovados.` : `Os ${itens.length} itens mecânicos da rubrica foram satisfeitos.` };

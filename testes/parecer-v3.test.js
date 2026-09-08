@@ -325,6 +325,67 @@ const achadosX = [
     ok(/Quem se posicionou e como/.test(pr) && /Implementação e custo de conformidade/.test(pr) && /Aprimoramentos e sugestões de emenda/.test(pr) && /Prioridade e viabilidade/.test(pr) && /Conclusão: o que está em jogo na decisão/.test(pr) && /SEM tomar partido e SEM recomendar/.test(pr), 'prompt da redação lista as seções novas e proíbe recomendar também na conclusão');
     const pe = P.promptExterno({ identificacao: 'x', ementa: 'y', regra: 'z', normas: 'Lei 8.112/1990' });
     ok(/"jurisprudencia"/.test(pe) && /"infralegal"/.test(pe) && /"posicoes"/.test(pe) && /leis estaduais e\s+municipais análogas/.test(pe) && /Ouça OS DOIS lados/.test(pe), 'promptExterno pede jurisprudência (inclusive de leis estaduais), normas infralegais e os dois lados');
+
+    console.log('== embates: quem disputa o quê (forma comum a qualquer seara) ==');
+    {
+      // apuração: a pergunta fixa "disputa" existe e não depende do tema
+      const pa = P.promptApuracao({ identificacao: 'PL 1893/2026', ementa: 'x', textoAnalisado: 'PRLP 4' }, [], E.ESPECIALISTAS);
+      ok(/"pergunta": "disputa"/.test(pa) && /partes identificáveis querendo\s+coisas incompatíveis/.test(pa) && /não suponha lados/.test(pa), 'apuração pergunta "disputa": quem quer o quê, quem perde o quê, em qual dispositivo, sem supor lados');
+      // busca externa recebe as disputas e procura os dois lados de cada uma
+      const peD = P.promptExterno({ identificacao: 'x', ementa: 'y', regra: 'z', disputas: ['Associações de carreira querem assento na mesa de negociação ao lado dos sindicatos (art. 11 do substitutivo); a EMP 2 lhes dá isso.'] });
+      ok(/DISPUTAS já localizadas/.test(peD) && /1\. Associações de carreira querem assento/.test(peD) && /"sobre"/.test(peD) && /Até 12/.test(peD) && !/Até 12/.test(pe), 'promptExterno lista as disputas achadas, pede a que disputa cada posição se refere e amplia o limite');
+      const catQ = T.catalogoDeEvidencias({ posicoes: [{ ator: 'ADEPOL', tipo: 'entidade de classe', posicao: 'favorável com ressalvas', sobre: '1 (assento na mesa)', o_que_defende: 'x', fonte_nome: 'ADEPOL', fonte_url: 'https://adepol.org.br/a' }] });
+      ok(/sobre: 1 \(assento na mesa\)/.test(catQ.itens.find(i => i.id === 'Q1').texto), 'a posição Q leva ao catálogo a disputa a que se refere');
+      // validação da tese
+      const embates = [
+        { id: 'E1', objeto: 'quem senta à mesa de negociação pelos servidores', dispositivo: 'art. 11 do substitutivo; EMP 2', lados: [
+          { quem: 'associações de carreira (ADEPOL)', quer: 'assento na mesa ao lado do sindicato, com 10 anos de existência', evidencias: ['Q1'] },
+          { quem: 'sindicatos (CNTE)', quer: 'representação exclusiva pela entidade sindical', evidencias: ['A1'] }],
+          texto_original: 'só sindicatos', substitutivo: 'só sindicatos', emendas: 'EMP 2 põe as associações na mesa', estado: 'deslocado para emenda', evidencias: ['S1'] },
+        { id: 'E2', objeto: 'quem paga a licença do dirigente classista', lados: [
+          { quem: 'entidades (CNM)', quer: 'que o erário pague', evidencias: ['Q1'] },
+          { quem: 'municípios', quer: 'que a entidade reembolse', evidencias: [] }],
+          emendas: 'EMP 2 estende a licença', evidencias: [] },
+        { id: 'E3', objeto: 'disputa sem nenhuma fonte', lados: [{ quem: 'A', quer: 'x', evidencias: [] }, { quem: 'B', quer: 'y', evidencias: ['Z9'] }] },
+        { id: 'E4', objeto: 'quem fiscaliza', lados: [{ quem: 'A', quer: 'x', evidencias: ['A1'] }, { quem: 'B', quer: 'y', evidencias: ['A2'] }], substitutivo: 'Recomenda-se acolher o lado A.' },
+        { id: 'E5', objeto: 'um lado só', lados: [{ quem: 'A', quer: 'x', evidencias: ['A1'] }] },
+      ];
+      const vE = T.validarTese({ ...JSON.parse(JSON.stringify(bruta)), embates: JSON.parse(JSON.stringify(embates)), emendas_sem_conflito: [{ emenda: 'EMP 1', por_que: 'só explicita os aposentados', evidencias: ['A1'] }, { emenda: 'EMP 3', por_que: 'inventada', evidencias: [] }] }, cat, { nivel: 'C', emVigor: false });
+      const e1 = vE.tese.embates.find(e => e.id === 'E1'), e2 = vE.tese.embates.find(e => e.id === 'E2');
+      ok(vE.tese.embates.length === 2 && e1 && e2, `embates: ficam os que têm ao menos um lado com evidência (${vE.tese.embates.map(e => e.id).join(', ')})`);
+      ok(e1.estado === 'deslocado para emenda' && e1.lados.every(l => !l.ausente) && e1.evidencias.includes('Q1') && e1.evidencias.includes('A1') && e1.evidencias.includes('S1'), 'E1: dois lados com evidência; a evidência do embate é a união da dele com a dos lados');
+      ok(e2.lados[1].ausente === true && e2.estado === 'sem contraparte documentada', 'E2: lado sem evidência fica marcado ausente e o estado vira "sem contraparte documentada" — não se inventa a posição de ninguém');
+      ok(vE.removidas.some(r => r.id === 'E3' && /nenhum lado/.test(r.motivo)) && vE.removidas.some(r => r.id === 'E4' && /toma partido/.test(r.motivo)) && vE.removidas.some(r => r.id === 'E5' && /menos de dois lados/.test(r.motivo)), 'E3 (sem fonte), E4 (toma partido) e E5 (um lado só) caem');
+      ok(vE.tese.emendas_sem_conflito.length === 1 && vE.tese.emendas_sem_conflito[0].emenda === 'EMP 1' && vE.removidas.some(r => r.id === 'EMP 3'), 'emenda declarada sem conflito só fica com evidência');
+      const uE = T.unidadesDaTese(vE.tese);
+      ok(uE.some(u => u.id === 'E1' && u.secao === 'embates' && /^Embate — quem senta à mesa/.test(u.texto) && /ADEPOL\) quer assento/.test(u.texto)) && /lado ausente nas fontes/.test(uE.find(u => u.id === 'E2').texto), 'unidades: cada embate vira uma linha com os lados; o lado ausente vem marcado');
+      ok(T.secoesAtivas(vE.tese, { temSerie: false }).includes('embates') && !T.secoesAtivas(v.tese, { temSerie: false }).includes('embates'), 'a seção "Quem disputa o quê" só entra quando a tese tem embate');
+      // contraditório: embate é fato — cai só com erro concreto
+      const cE = T.aplicarContraditorio(JSON.parse(JSON.stringify(vE.tese)), [{ id: 'E1', refutada: true, motivo: 'faltou a data' }, { id: 'E2', refutada: true, motivo: 'a fonte Q1 não sustenta que a CNM queira isso' }], cat);
+      ok(cE.tese.embates.length === 1 && cE.tese.embates[0].id === 'E1' && cE.ressalvas.some(r => r.id === 'E1') && cE.refutadas.some(r => r.id === 'E2' && r.tipo === 'embate'), 'contraditório: E1 refutado sem erro concreto vira ressalva; E2 com "não sustenta" sai');
+      ok(/EMBATE \(E\)/.test(T.promptContraditorio({ identificacao: 'x', tese: vE.tese, catalogo: cat, nivel: 'C' })) && /T, O, L, P, E, AT/.test(T.promptContraditorio({ identificacao: 'x', tese: vE.tese, catalogo: cat, nivel: 'C' })), 'o contraditório recebe os embates e a regra de não refutar por lado ausente');
+      // prompts da tese e da redação
+      const ptE = T.promptTese({ identificacao: 'x', ficha, catalogo: cat, nivel: 'C', emVigor: false });
+      ok(/"embates"/.test(ptE) && /"emendas_sem_conflito"/.test(ptE) && /EMBATES \(E\)/.test(ptE) && /coisas INCOMPATÍVEIS do mesmo dispositivo/.test(ptE) && /lado ausente nas\s+fontes/.test(ptE) && /\(M14\)/.test(ptE), 'prompt da tese pede embates com lados, tramitação e estado, e avisa da conferência M14');
+      const prE = T.promptRedacao({ identificacao: 'x', ficha, tese: vE.tese, catalogo: cat, nivel: 'C', temSerie: false, emVigor: false });
+      ok(/Quem disputa o quê: um bloco por embate/.test(prE) && /sem dizer quem tem razão/.test(prE) && /EMP 1 \(só explicita os aposentados\)/.test(prE) && /\[A1\]/.test(prE), 'prompt da redação: um bloco por embate, um parágrafo por lado, sem juiz; emendas sem conflito com evidência');
+      ok(T.conferirRedacao('Quem disputa o quê\n\nA disputa central é quem senta à mesa de negociação pelos servidores, e a EMP 2 desloca o ponto para o Plenário sem marcador algum.', { tese: vE.tese, catalogo: cat, ficha }).semEvidencia.some(x => x.secao === 'Quem disputa o quê'), 'parágrafo de embate sem identificador é apontado na conferência');
+      ok(T.limparMarcadores('A ADEPOL quer assento [E1]. Os municípios não se manifestaram [E2][Q1].') === 'A ADEPOL quer assento. Os municípios não se manifestaram.', 'limparMarcadores tira [E1]');
+      // rubrica M14: cada emenda da tramitação tem destino na tese
+      const procE = { cenario: 'Cenário 3', relator: { nome: 'André Figueiredo' }, emendas: [{ rotulo: 'EMP 1' }, { rotulo: 'EMP 2' }] };
+      const textoE = 'Síntese\n\nx [T1].\n\nContexto e processo\n\nO relator André Figueiredo acolheu a EMP 1 e rejeitou a EMP 2 [T1].\n\nAvaliação da política\n\nNão há dados oficiais que permitam comparar o antes e o depois da mudança [T1].\n\nConclusão: o que está em jogo na decisão\n\nDecide-se [CC]. Falta a estimativa [CC].';
+      const rubE = G.rubricaMaquina({ ficha, dossie: { avisos: [] }, tese: vE.tese, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] }, texto: textoE, processo: procE });
+      const m14 = rubE.itens.find(i => /^M14/.test(i.item));
+      ok(m14 && m14.ok, `M14 passa: EMP 2 está num embate e EMP 1 foi declarada sem conflito (${m14 && m14.detalhe})`);
+      const rubE2 = G.rubricaMaquina({ ficha, dossie: { avisos: [] }, tese: { ...vE.tese, emendas_sem_conflito: [] }, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] }, texto: textoE, processo: procE });
+      const m14b = rubE2.itens.find(i => /^M14/.test(i.item));
+      ok(m14b && !m14b.ok && /EMP 1/.test(m14b.detalhe), 'M14 reprova quando uma emenda não aparece em embate nem é declarada sem conflito');
+      ok(!G.rubricaMaquina({ ficha, dossie: { avisos: [] }, tese: v.tese, nivel: 'C', temSerie: false, texto: textoE, processo: { cenario: 'x', emendas: [] } }).itens.some(i => /^M14/.test(i.item)), 'sem emendas na tramitação, M14 não se aplica');
+      // impressão: quadro dos embates na seção, lado ausente dito em palavras, marcador limpo
+      const htmlE = H.htmlParecer({ texto: 'Síntese\n\nx [T1].\n\nQuem disputa o quê\n\nA ADEPOL quer assento na mesa [E1]. Os municípios não se manifestaram nas fontes [E2].', tese: vE.tese, ficha, nivel: 'C', emVigor: false, gates: { faixas: [], notas: [] }, rubrica: { itens: [], aprovado: true, resumo: '' } }, { materia: 'x' });
+      ok(/<h3 class="item-h">Quem disputa o quê<\/h3>/.test(htmlE) && /O que está em disputa/.test(htmlE) && /quem senta à mesa/.test(htmlE) && /não se manifestou nas fontes/.test(htmlE) && /Sem disputa identificada: EMP 1/.test(htmlE) && !/\[E1\]/.test(htmlE), 'o PDF traz o quadro "Quem disputa o quê" com os lados, o lado ausente em palavras, as emendas sem conflito e sem marcadores');
+      ok(H.normalizarParecer({ tese: { embates: [{ objeto: 'x' }] } }).tese.embates[0].lados.length === 0, 'parecer reaberto do Firebase sem "lados" não quebra');
+    }
     // gates: voto permitido na conclusão, proibido fora
     const baseG = { ficha, dossie: { avisos: [] }, tese: v.tese, nivel: 'C', temSerie: false, conferencia: { ok: true, semEvidencia: [], numerosSuspeitos: [], idsInexistentes: [] } };
     const corpo = 'Síntese\n\nx [T1].\n\nAvaliação da política\n\nNão há dados oficiais que permitam comparar o antes e o depois da mudança [T1].\n\nConclusão: o que está em jogo na decisão\n\nAo votar, decide-se instituir o marco nacional da negociação coletiva [CC]. Falta a estimativa de impacto fiscal, que nenhum documento do processo traz [CC].';

@@ -25,10 +25,16 @@ const _itensDoDossie = __dossie ? __dossie.itensDoDossie : (typeof itensDoDossie
 const __ficha = (typeof module !== 'undefined' && typeof require === 'function') ? require('./ficha-objeto.js') : null;
 const _fichaParaTexto = __ficha ? __ficha.fichaParaTexto : (typeof fichaParaTexto === 'function' ? fichaParaTexto : null);
 
-const SECOES_TESE = ['sintese', 'contexto', 'lei', 'jurisprudencia', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'atores', 'implementacao', 'lados', 'opcoes', 'redacional', 'viabilidade'];
-const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', jurisprudencia: 'Jurisprudência sobre normas análogas', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', atores: 'Quem se posicionou e como', implementacao: 'Implementação e custo de conformidade', lados: 'Os dois lados', opcoes: 'Opções e consequências', redacional: 'Aprimoramentos e sugestões de emenda', viabilidade: 'Prioridade e viabilidade', lentes: 'Respostas por lente', conclusao: 'Conclusão: o que está em jogo na decisão' };
+const SECOES_TESE = ['sintese', 'contexto', 'lei', 'jurisprudencia', 'previu', 'aconteceu', 'comparada', 'avaliacao', 'atores', 'implementacao', 'lados', 'embates', 'opcoes', 'redacional', 'viabilidade'];
+const TITULOS = { sintese: 'Síntese', contexto: 'Contexto e processo', lei: 'Lei vigente e datas de efeito', jurisprudencia: 'Jurisprudência sobre normas análogas', previu: 'O que se previu', aconteceu: 'O que aconteceu', comparada: 'Experiência de outros países e entes', avaliacao: 'Avaliação da política', atores: 'Quem se posicionou e como', implementacao: 'Implementação e custo de conformidade', lados: 'Os dois lados', embates: 'Quem disputa o quê', opcoes: 'Opções e consequências', redacional: 'Aprimoramentos e sugestões de emenda', viabilidade: 'Prioridade e viabilidade', lentes: 'Respostas por lente', conclusao: 'Conclusão: o que está em jogo na decisão' };
 // Seções que só entram quando a tese tem unidade para elas; as demais são fixas.
-const SECOES_CONDICIONAIS = ['jurisprudencia', 'aconteceu', 'comparada', 'atores', 'implementacao', 'redacional', 'viabilidade'];
+const SECOES_CONDICIONAIS = ['jurisprudencia', 'aconteceu', 'comparada', 'atores', 'implementacao', 'embates', 'redacional', 'viabilidade'];
+// Embate: duas ou mais partes identificáveis querendo coisas incompatíveis do
+// mesmo dispositivo. A forma é a mesma em qualquer seara (associação × sindicato
+// pelo assento na mesa; União × municípios pela competência; varejo × plataforma
+// pela tributação); o que muda é o objeto. O estado diz o que a tramitação fez
+// com a disputa.
+const ESTADOS_EMBATE = ['resolvido pelo substitutivo', 'aberto', 'deslocado para emenda', 'sem contraparte documentada'];
 // O parecer não recomenda voto nem toma partido — em nenhuma seção.
 const RE_POSICIONAMENTO = /\b(recomend\w*(?:-se)?|sugere-se|sugerimos|deve(?:m|ria)? ser (?:aprovad|rejeitad)|deve votar|merece (?:aprova|rejei)|a melhor (?:op[çc][ãa]o|alternativa|sa[íi]da)|opta-se pel|somos pel|opina-se pel|voto pel|posicionamento (?:favor[áa]vel|contr[áa]rio)|orienta(?:mos|-se)? (?:pel|a favor|contra))/i;
 
@@ -50,6 +56,7 @@ function secoesAtivas(tese = {}, { temSerie = false } = {}) {
     comparada: temAfirm('comparada'),
     atores: (tese.atores || []).length > 0,
     implementacao: (tese.implementacao || []).length > 0,
+    embates: (tese.embates || []).length > 0 || (tese.emendas_sem_conflito || []).length > 0,
     redacional: (tese.aprimoramentos || []).length > 0,
     viabilidade: (tese.viabilidade || []).length > 0,
   };
@@ -71,9 +78,9 @@ const numsRelevantes = s => (_numerosDoTexto(s) || []).filter(numeroRelevante);
 // Nem número de norma ou de artigo: "art. 62 da CF" numa opção foi removido
 // como "número fora das evidências" na rodada real. A pista é a palavra anterior.
 const REF_ANTES = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|MI|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|PDL|PRLP|PRLE|EMP|EMS|EMC|SBT-?A?|SSP|conven[çc][ãa]o|recomenda[çc][ãa]o|emenda|subemenda|substitutivo|parecer|item|art|artigo|arts|inciso|par[áa]grafo|al[íi]nea|n[.º°]?|§)\s*(n?[.º°]?\s*)?$/i;
-// Prefixos de identificador: unidades da tese (T O L P AT I R V CC) e evidências
+// Prefixos de identificador: unidades da tese (T O L P E AT I R V CC) e evidências
 // (A D LV F S W J N Q). Os mais longos vêm primeiro, senão "AT1" casaria como "A".
-const PREFIXOS_ID = 'CC|AT|LV|T|O|L|P|A|D|F|S|I|R|V|W|J|N|Q';
+const PREFIXOS_ID = 'CC|AT|LV|T|O|L|P|E|A|D|F|S|I|R|V|W|J|N|Q';
 // O modelo cita evidência dentro da prosa ("(A42)", "(A39, LV5)"). Sem tirar
 // esses tokens, "42" e "39" entravam como cifra inventada e derrubavam a
 // unidade inteira — foi assim que as quatro opções e a conclusão caíram.
@@ -130,7 +137,7 @@ function catalogoDeEvidencias({ achados = [], dossie = null, ficha = null, situa
   externo(comparada, 'W', c => `Experiência comparada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.lugar}${c.quando ? `, ${c.quando}` : ''} — ${c.medida}. O que se mediu: ${c.o_que_se_mediu || 'não informado'}. Resultado: ${c.resultado}.`);
   externo(jurisprudencia, 'J', c => `Jurisprudência (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.tribunal} — ${c.processo}${c.relator ? `, rel. ${c.relator}` : ''}${c.data ? `, ${c.data}` : ''}. Norma examinada: ${c.norma_examinada}. O que se decidiu: ${c.decisao}. Relação com esta proposição: ${c.relacao || 'não informada'}.`);
   externo(infralegal, 'N', c => `Norma infralegal já em vigor sobre a matéria (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.norma}${c.orgao ? ` (${c.orgao})` : ''}${c.data ? `, ${c.data}` : ''} — ${c.o_que_disciplina}. O que muda com a proposição: ${c.relacao || 'não informada'}.`);
-  externo(posicoes, 'Q', c => `Posição pública declarada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.ator}${c.tipo ? ` (${c.tipo})` : ''} — posição ${c.posicao || 'não declarada'}${c.data ? `, ${c.data}` : ''}. O que defende: ${c.o_que_defende}.`);
+  externo(posicoes, 'Q', c => `Posição pública declarada (busca na web feita pelo modelo; fonte não conferida pelo programa): ${c.ator}${c.tipo ? ` (${c.tipo})` : ''} — posição ${c.posicao || 'não declarada'}${c.data ? `, ${c.data}` : ''}${c.sobre ? `, sobre: ${c.sobre}` : ''}. O que defende: ${c.o_que_defende}.`);
   if (ficha) {
     const texto = _fichaParaTexto ? _fichaParaTexto(ficha) : JSON.stringify(ficha);
     itens.push({ id: 'F1', tipo: 'ficha', texto, numeros: _numerosDoTexto(texto), nivel: 'A', fonte: 'ficha do objeto' });
@@ -178,6 +185,18 @@ Responda SOMENTE com JSON neste formato:
     { "id": "P1", "opcao": "aprovar / alterar / rejeitar / condicionar — o que exatamente", "fiscal": "…", "juridica": "…", "politica": "…", "evidencias": ["F1", "D7"] }
   ],
   "fatores_concorrentes": [ { "fator": "câmbio, outra norma, sazonalidade…", "evidencias": ["D9"] } ],
+  "embates": [
+    { "id": "E1", "objeto": "o que está em disputa: direito, recurso, competência, mercado, prerrogativa, prazo",
+      "dispositivo": "onde a disputa se decide no texto (art. 11 do substitutivo; art. 3º da EMP 2)",
+      "lados": [
+        { "quem": "parte identificável", "quer": "o que essa parte quer, em uma ou duas frases", "evidencias": ["A12", "Q3"] },
+        { "quem": "a outra parte", "quer": "…", "evidencias": [] }
+      ],
+      "texto_original": "o que o texto original faz com a disputa", "substitutivo": "o que o substitutivo faz",
+      "emendas": "o que cada emenda faz (EMP 2: …)", "estado": "${ESTADOS_EMBATE.join('|')}",
+      "evidencias": ["A12", "S5"] }
+  ],
+  "emendas_sem_conflito": [ { "emenda": "EMP 1", "por_que": "o que ela faz e por que não opõe partes", "evidencias": ["A24"] } ],
   "atores": [
     { "id": "AT1", "ator": "nome de quem se manifestou", "tipo": "governo|entidade de classe|setor regulado|sociedade civil|parlamentar|órgão de controle",
       "posicao": "${POSICOES_ATOR.join('|')}", "o_que_defende": "uma a três frases", "evidencias": ["Q1", "A5"] }
@@ -237,6 +256,14 @@ ${temExterna('N') ? `- NORMAS INFRALEGAIS (N): entram na seção "lei" — o que
 - ATORES (AT): um por quem se manifestou, com posição e evidência (Q da busca, ou achado "posicao" do documento). Sem
   evidência, o ator não existe: não suponha a posição de ninguém. Governo é a exposição de motivos ou a manifestação
   oficial; entidade de classe, setor regulado e sociedade civil só com fonte.
+- EMBATES (E): um por DISPUTA identificável — duas ou mais partes querendo coisas INCOMPATÍVEIS do mesmo dispositivo. Não é
+  "a favor ou contra o projeto" (isso é L): é quem ganha e quem perde o quê. A forma é a mesma em qualquer matéria (quem
+  representa, quem paga, quem tem a competência, quem entra no mercado, quem fica de fora). Onde procurar: achados
+  "disputa", "emenda" e "posicao", justificações de emendas, pareceres (emendas rejeitadas e por quê) e posições Q. Cada
+  lado cita a SUA evidência; lado sem evidência fica com "evidencias": [] e o programa o imprime como "lado ausente nas
+  fontes" — NÃO invente a posição de ninguém. Diga o que o texto original, o substitutivo e cada emenda fazem com a disputa,
+  e o estado. Sem juízo de quem tem razão. TODA emenda ou substitutivo da tramitação aparece em algum embate OU em
+  "emendas_sem_conflito" com o motivo e evidência: o programa confere isso (M14).
 - IMPLEMENTAÇÃO (I): quem executa, o que ainda depende de regulamento, prazos, estrutura necessária, custo de conformidade
   e sobre quem recai, fiscalização. Cada um com evidência (achado "execucao", dispositivo, norma infralegal N).
 - APRIMORAMENTOS (R): pontos concretos do texto em votação — remissão errada, prazo sem termo inicial, conceito indefinido,
@@ -260,7 +287,8 @@ ${temExterna('N') ? `- NORMAS INFRALEGAIS (N): entram na seção "lei" — o que
   UMA por emenda ou substitutivo — autor, teor e destino (achados "emenda" e S5), as comissões (S6), com datas; lei: 2 e
   UMA afirmação por dispositivo alterado (achados "altera": o que vale hoje e o que muda); previu 2; aconteceu 5 (um por indicador, com o número); avaliacao: todos os objetivos declarados;
   lados: argumento e "o que a evidência diz" com duas a quatro frases cada; cada lente acionada 3;
-  atores: todos os que se manifestaram, com fonte; implementacao 3 (executor, regulamentação, custo); aprimoramentos 3 a 8;
+  atores: todos os que se manifestaram, com fonte; embates: todos os que os documentos e as posições mostrarem, cada um com
+  os lados que tiverem evidência; implementacao 3 (executor, regulamentação, custo); aprimoramentos 3 a 8;
   viabilidade 3 a 6 sinais; conclusao: uma. O mínimo NÃO autoriza inventar: sem evidência para uma afirmação, ela não existe
   e o mínimo não vale.`;
 }
@@ -372,6 +400,36 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
     atores.push(x);
   });
 
+  // Embates: cada lado com a sua evidência; lado sem evidência fica marcado
+  // "ausente" (o parecer diz que a parte não se manifestou nas fontes), e o
+  // embate só existe se ao menos um lado tiver evidência. Juízo de quem tem
+  // razão não entra.
+  const embates = [];
+  (tese.embates || []).forEach((x, i) => {
+    x.id = x.id || `E${i + 1}`;
+    if (!x.objeto || !Array.isArray(x.lados) || x.lados.length < 2) { removidas.push({ id: x.id, secao: 'embates', motivo: 'embate sem objeto ou com menos de dois lados', texto: x.objeto || '' }); return; }
+    x.lados = x.lados.filter(l => l && l.quem && l.quer).map(l => { const ids = (l.evidencias || []).map(String).filter(existe); return { quem: String(l.quem), quer: String(l.quer), evidencias: ids, ausente: !ids.length }; });
+    if (x.lados.length < 2) { removidas.push({ id: x.id, secao: 'embates', motivo: 'embate com menos de dois lados nomeados', texto: x.objeto }); return; }
+    if (!x.lados.some(l => !l.ausente)) { removidas.push({ id: x.id, secao: 'embates', motivo: 'nenhum lado do embate tem evidência', texto: x.objeto }); return; }
+    // A evidência do embate é a união da dele com a dos lados; os números são conferidos no conjunto.
+    x.evidencias = [...new Set([...(x.evidencias || []).map(String), ...x.lados.flatMap(l => l.evidencias)])];
+    const inteiro = `${x.objeto} ${x.dispositivo || ''} ${x.lados.map(l => `${l.quem} ${l.quer}`).join(' ')} ${x.texto_original || ''} ${x.substitutivo || ''} ${x.emendas || ''}`;
+    const erro = conferir(x, inteiro, x.id);
+    if (erro) { removidas.push({ id: x.id, secao: 'embates', motivo: erro, texto: x.objeto }); return; }
+    if (RE_POSICIONAMENTO.test(inteiro)) { removidas.push({ id: x.id, secao: 'embates', motivo: 'o embate toma partido — o parecer descreve a disputa, não a decide', texto: x.objeto }); return; }
+    const estado = String(x.estado || '').toLowerCase().trim();
+    x.estado = ESTADOS_EMBATE.includes(estado) ? estado : (x.lados.some(l => l.ausente) ? 'sem contraparte documentada' : 'aberto');
+    if (x.lados.some(l => l.ausente) && x.estado !== 'sem contraparte documentada') x.contraparteAusente = true;
+    embates.push(x);
+  });
+  const emendasSemConflito = [];
+  (tese.emendas_sem_conflito || []).forEach(x => {
+    if (!x || !x.emenda) return;
+    const ids = (x.evidencias || []).map(String).filter(existe);
+    if (!ids.length) { removidas.push({ id: x.emenda, secao: 'embates', motivo: 'emenda declarada sem conflito, mas sem evidência', texto: x.por_que || '' }); return; }
+    emendasSemConflito.push({ emenda: String(x.emenda), por_que: String(x.por_que || ''), evidencias: ids });
+  });
+
   const implementacao = [];
   (tese.implementacao || []).forEach((x, i) => {
     x.id = x.id || `I${i + 1}`;
@@ -421,8 +479,15 @@ function validarTese(tese, catalogo, { nivel = 'C', emVigor = true } = {}) {
     else conclusao = c;
   } else if (c) removidas.push({ id: 'CC', secao: 'conclusao', motivo: 'conclusão sem o ponto de decisão', texto: c.ponto_de_decisao || c.posicao || '' });
 
-  const limpa = { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: fatores, atores, implementacao, aprimoramentos, viabilidade, conclusao };
-  return { tese: limpa, removidas, rebaixadas, resumo: `${afirmacoes.length} afirmações, ${objetivos.length} objetivos, ${opcoes.length} opções, ${atores.length} atores, ${implementacao.length} itens de implementação, ${aprimoramentos.length} aprimoramentos, ${viabilidade.length} sinais de viabilidade, conclusão ${conclusao ? 'com posição' : 'ausente'}; ${removidas.length} removida(s), ${rebaixadas.length} veredito(s) rebaixado(s)` };
+  const limpa = { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: fatores, atores, embates, emendas_sem_conflito: emendasSemConflito, implementacao, aprimoramentos, viabilidade, conclusao };
+  return { tese: limpa, removidas, rebaixadas, resumo: `${afirmacoes.length} afirmações, ${objetivos.length} objetivos, ${opcoes.length} opções, ${atores.length} atores, ${embates.length} embates, ${implementacao.length} itens de implementação, ${aprimoramentos.length} aprimoramentos, ${viabilidade.length} sinais de viabilidade, conclusão ${conclusao ? 'com posição' : 'ausente'}; ${removidas.length} removida(s), ${rebaixadas.length} veredito(s) rebaixado(s)` };
+}
+
+/** Um embate em uma linha, para o contraditório, a redação e a conferência. */
+function textoDoEmbate(x) {
+  const lados = (x.lados || []).map(l => `${l.quem} quer ${l.quer}${l.ausente ? ' [lado ausente nas fontes]' : ''}`).join('; ');
+  const trami = [x.texto_original ? `texto original: ${x.texto_original}` : '', x.substitutivo ? `substitutivo: ${x.substitutivo}` : '', x.emendas ? `emendas: ${x.emendas}` : ''].filter(Boolean).join('; ');
+  return `Embate — ${x.objeto}${x.dispositivo ? ` (${x.dispositivo})` : ''}. Lados: ${lados}.${trami ? ` ${trami}.` : ''} Estado: ${x.estado || 'aberto'}.`;
 }
 
 /** Todas as unidades da tese com identificador, para o contraditório e a redação. */
@@ -433,6 +498,7 @@ function unidadesDaTese(t) {
   for (const k of ['apoia', 'opoe']) { const l = t.lados?.[k]; if (l) u.push({ id: l.id, tipo: 'juizo', secao: 'lados', texto: `${k === 'apoia' ? 'Quem apoia' : 'Quem se opõe'}: ${l.argumento} — o que a evidência diz: ${l.o_que_a_evidencia_diz || ''}`, evidencias: l.evidencias }); }
   for (const p of t.opcoes || []) u.push({ id: p.id, tipo: 'juizo', secao: 'opcoes', texto: `Opção: ${p.opcao}. Fiscal: ${p.fiscal || '—'}. Jurídica: ${p.juridica || '—'}. Política: ${p.politica || '—'}`, evidencias: p.evidencias });
   for (const x of t.atores || []) u.push({ id: x.id, tipo: 'fato', secao: 'atores', texto: `${x.ator} (${x.tipo || 'não classificado'}) — posição ${x.posicao}: ${x.o_que_defende}`, evidencias: x.evidencias });
+  for (const x of t.embates || []) u.push({ id: x.id, tipo: 'fato', secao: 'embates', texto: textoDoEmbate(x), evidencias: x.evidencias });
   for (const x of t.implementacao || []) u.push({ id: x.id, tipo: 'fato', secao: 'implementacao', texto: `${x.aspecto || 'implementação'}: ${x.texto}`, evidencias: x.evidencias });
   for (const x of t.aprimoramentos || []) u.push({ id: x.id, tipo: 'juizo', secao: 'redacional', texto: `${x.dispositivo} (${x.tipo || 'redacional'}) — problema: ${x.problema || '—'}; sugestão: ${x.sugestao}`, evidencias: x.evidencias });
   for (const x of t.viabilidade || []) u.push({ id: x.id, tipo: 'fato', secao: 'viabilidade', texto: `Sinal (${x.peso}): ${x.sinal}`, evidencias: x.evidencias });
@@ -481,11 +547,14 @@ CATÁLOGO DE EVIDÊNCIAS:
 ${catalogo.texto}
 
 Responda SOMENTE com JSON: [ { "id": "T3", "refutada": true, "motivo": "uma ou duas frases", "evidencias_contrarias": ["D4"] } ]
-REFUTE TAMBÉM, com o mesmo rigor: ator (AT) cuja posição a fonte não sustenta; item de implementação (I) que afirme
+REFUTE TAMBÉM, com o mesmo rigor: ator (AT) cuja posição a fonte não sustenta; EMBATE (E) que atribua a um lado o que a
+evidência dele não diz, que descreva errado o que o texto original, o substitutivo ou uma emenda fazem com a disputa, ou
+cujos "lados" não sejam de fato incompatíveis (lado marcado "ausente nas fontes" NÃO é motivo: é o programa dizendo que a
+parte não se manifestou); item de implementação (I) que afirme
 estrutura, prazo ou custo que nenhuma evidência mostra; aprimoramento (R) que invente vício, contrarie o texto ou proponha
 o que a lei já diz; sinal de viabilidade (V) que seja aposta e não fato da tramitação; e a CONCLUSÃO (CC) quando a posição
 descrever mal o que se decide, ignorar evidência contrária relevante ou deixar de dizer o que falta para decidir.
-Inclua TODAS as unidades (T, O, L, P, AT, I, R, V, CC), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
+Inclua TODAS as unidades (T, O, L, P, E, AT, I, R, V, CC), refutadas ou não. O "motivo" será IMPRESSO no parecer para um leitor leigo: escreva-o
 em palavras comuns ("os dados cobrem só 3 meses depois da mudança, e maio é parcial"), sem "nível de evidência" nem jargão.`;
 }
 
@@ -530,6 +599,7 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
     ressalvas.push({ id: x.id, motivo: r.motivo }); return true;
   });
   const atores = filtraFato(t.atores, 'ator', x => x.ator);
+  const embates = filtraFato(t.embates, 'embate', x => x.objeto);
   const implementacao = filtraFato(t.implementacao, 'implementacao', x => x.texto);
   const viabilidade = filtraFato(t.viabilidade, 'viabilidade', x => x.sinal);
   // Aprimoramento é juízo: refutado, sai (sugestão errada no parecer é pior que sugestão a menos).
@@ -538,7 +608,7 @@ function aplicarContraditorio(t, vereditos = [], catalogo = null) {
   // Conclusão contestada: como ela não toma partido, o que entra é a ressalva.
   let conclusao = t.conclusao || null;
   if (conclusao) { const r = ref(conclusao.id || 'CC'); if (r) { contestadas.push({ id: conclusao.id || 'CC', motivo: r.motivo, texto: conclusao.ponto_de_decisao }); conclusao = { ...conclusao, contestada: r.motivo }; } }
-  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [], atores, implementacao, aprimoramentos, viabilidade, conclusao }, refutadas, contestadas, ressalvas,
+  return { tese: { afirmacoes, objetivos, lados, opcoes, fatores_concorrentes: t.fatores_concorrentes || [], atores, embates, emendas_sem_conflito: t.emendas_sem_conflito || [], implementacao, aprimoramentos, viabilidade, conclusao }, refutadas, contestadas, ressalvas,
     resumo: `${refutadas.length} unidade(s) refutada(s) e removida(s); ${contestadas.length} juízo(s) contestado(s) e rebaixado(s)${ressalvas.length ? `; ${ressalvas.length} ressalva(s) mantida(s) com o dado` : ''}` };
 }
 
@@ -627,6 +697,11 @@ ${tem('jurisprudencia') ? `- Jurisprudência sobre normas análogas: um parágra
 ${tem('atores') ? `- Quem se posicionou e como: um parágrafo por ator (governo, entidades de classe, setor regulado, sociedade civil,
   parlamentares, órgãos de controle), com a posição e o que defende, sempre atribuído ("a CNTE sustenta que…"). Quem não se
   manifestou publicamente não aparece. Feche com uma frase dizendo quem NÃO se manifestou entre os diretamente afetados.` : ''}
+${tem('embates') ? `- Quem disputa o quê: um bloco por embate (E). Primeiro parágrafo: o que está em disputa, em qual dispositivo, e o que o
+  texto original, o substitutivo e cada emenda fazem com ela. Depois UM parágrafo por lado, sempre atribuído ("a ADEPOL
+  quer…", "a Condsef sustenta…"), sem dizer quem tem razão. Lado marcado "ausente nas fontes": escreva que não há
+  manifestação documentada dessa parte — não a suponha. Feche o bloco com o estado da disputa (resolvida pelo substitutivo,
+  aberta, deslocada para emenda, sem contraparte documentada). ${(tese.emendas_sem_conflito || []).length ? `Termine a seção com uma frase por emenda sem conflito: ${tese.emendas_sem_conflito.map(x => `${x.emenda} (${x.por_que})`).join('; ')} — cite as evidências ${tese.emendas_sem_conflito.map(x => x.evidencias.map(id => `[${id}]`).join('')).join(' ')}.` : ''}` : ''}
 ${tem('implementacao') ? `- Implementação e custo de conformidade: um parágrafo por aspecto — quem executa, o que ainda depende de regulamento,
   prazos, estrutura necessária, custo de conformidade e sobre quem recai, fiscalização. Diga o que o texto NÃO resolve.` : ''}
 ${tem('redacional') ? `- Aprimoramentos e sugestões de emenda: um parágrafo por ponto, sempre nesta ordem — o dispositivo, o problema concreto,
@@ -646,7 +721,7 @@ const RE_MARCADOR = new RegExp(`\\[(?:${PREFIXOS_ID})\\d*\\](?:\\[(?:${PREFIXOS_
 // Só entre colchetes: "V1" ou "N1" soltos no texto não são citação.
 const RE_ID = new RegExp(`\\[(${PREFIXOS_ID})(\\d*)\\]`, 'g');
 // Derivado de TITULOS: renomear uma seção não pode calar a conferência dela.
-const SECOES_COM_JUIZO = ['sintese', 'avaliacao', 'lados', 'opcoes', 'redacional', 'viabilidade', 'conclusao'].map(k => TITULOS[k]);
+const SECOES_COM_JUIZO = ['sintese', 'avaliacao', 'lados', 'embates', 'opcoes', 'redacional', 'viabilidade', 'conclusao'].map(k => TITULOS[k]);
 const REF_NORMATIVA_RE = /\b(lei|leis|decreto|decreto-lei|LC|EC|ADCT|s[úu]mula|vinculante|tema|ADI|ADC|ADPF|ADO|RE|ARE|AI|HC|MS|REsp|resolu[çc][ãa]o|portaria|instru[çc][ãa]o normativa|IN|medida provis[óo]ria|MP|MPV|PL|PLP|PEC|PLN|PLV|art|artigo|inciso|par[áa]grafo|al[íi]nea|n[.º°]?)\s*(n?[.º°]?\s*)?$/i;
 
 /** Divide o texto nas seções fixas (título em linha própria). */
@@ -697,6 +772,6 @@ function conferirRedacao(texto, { tese, catalogo, ficha }) {
 function limparMarcadores(texto) { return String(texto || '').replace(new RegExp(`\\s*\\[(?:${PREFIXOS_ID})\\d*\\]`, 'g'), ''); }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { SECOES_TESE, TITULOS, SECOES_CONDICIONAIS, secoesAtivas, POSICOES_ATOR, RE_POSICIONAMENTO, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese,
+  module.exports = { SECOES_TESE, TITULOS, SECOES_CONDICIONAIS, ESTADOS_EMBATE, secoesAtivas, POSICOES_ATOR, RE_POSICIONAMENTO, VEREDITOS, catalogoDeEvidencias, promptTese, validarTese, unidadesDaTese, textoDaTese, textoDoEmbate,
     promptContraditorio, aplicarContraditorio, promptRedacao, secoesDoTexto, conferirRedacao, limparMarcadores, RE_MARCADOR, numsRelevantes };
 }

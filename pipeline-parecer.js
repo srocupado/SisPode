@@ -15,7 +15,7 @@
 //   6 tese         MODELO  afirmações com evidências (JSON) → validação por máquina
 //   7 contraditório MODELO refutações → aplicadas por máquina
 //   8 redação      MODELO  texto com marcadores → conferência; reprovada, refaz UMA vez (5ª chamada)
-//   9 gates+rubrica JS     faixas, notas, reprovações; M1–M11
+//   9 gates+rubrica JS     faixas, notas, reprovações; M1–M14
 //
 // Script clássico (global na extensão) + module.exports para os testes.
 
@@ -230,12 +230,14 @@ async function gerarParecer(ctx, io) {
   if (io.semWeb !== true) {
     passo('buscando jurisprudência, normas infralegais e posições…');
     try {
-      const re = await chamar('externo', R.promptExterno({ identificacao: ctx.identificacao, ementa: ctx.ementa, regra: ficha.regraProposta?.texto || ficha.dispositivo || '', normas: (dossie.normas || []).map(n => n.literal).join('; ') }), [], { web: true });
+      // As disputas achadas nos documentos vão à busca: ela procura os dois lados de cada uma.
+      const disputas = conf.aprovados.filter(a => a.pergunta === 'disputa').map(a => a.achado);
+      const re = await chamar('externo', R.promptExterno({ identificacao: ctx.identificacao, ementa: ctx.ementa, regra: ficha.regraProposta?.texto || ficha.dispositivo || '', normas: (dossie.normas || []).map(n => n.literal).join('; '), disputas }), [], { web: true });
       const b = extrairJSONParecer(re.text) || {};
       const comFonte = (lista, obrig) => (Array.isArray(lista) ? lista : []).filter(x => x && obrig.every(k => x[k]) && /^https?:\/\/\S+$/i.test(String(x.fonte_url || '')) && x.fonte_nome);
       jurisprudencia = comFonte(b.jurisprudencia, ['tribunal', 'processo', 'decisao']).slice(0, 6);
       infralegal = comFonte(b.infralegal, ['norma', 'o_que_disciplina']).slice(0, 6);
-      posicoes = comFonte(b.posicoes, ['ator', 'o_que_defende']).slice(0, 8);
+      posicoes = comFonte(b.posicoes, ['ator', 'o_que_defende']).slice(0, disputas.length ? 12 : 8);
     } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'externo', motivo: `busca de contexto externo falhou: ${e.message}` }); }
   }
   const catalogo = T.catalogo({ achados: conf.aprovados, dossie, ficha, situacao: ctx.situacao || null, processo: ctx.processo || null, comparada, jurisprudencia, infralegal, posicoes });

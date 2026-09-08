@@ -229,6 +229,13 @@ ALÉM DAS LENTES, registre estes achados com "lente": "X" (são a FICHA DO OBJET
 - "pergunta": "execucao" — UM achado por elemento de implementação: qual órgão executa, o que depende de regulamento
   posterior, prazos que o texto fixa, estrutura ou sistema exigido, obrigação nova para quem é regulado (custo de
   conformidade) e quem fiscaliza. Com trecho. Até 8.
+- "pergunta": "disputa" — UM achado por DISPUTA que os documentos revelem: duas ou mais partes identificáveis querendo
+  coisas incompatíveis do mesmo dispositivo (quem representa quem; quem paga; quem tem a competência; quem entra ou fica
+  de fora; quem fiscaliza quem). Onde ela aparece: no que cada emenda ou substitutivo muda em relação ao texto anterior e
+  a quem isso favorece ou prejudica; na justificação de cada emenda; nas emendas que o relator rejeitou e por quê; em
+  votos em separado; na exposição de motivos quando responde a uma objeção. O achado diz: O QUE está em disputa, QUEM quer
+  o quê, QUEM perde o quê, e em qual dispositivo ("dispositivo"); "documento": onde está. Com trecho. Não há disputa
+  sem partes nomeadas nos documentos: não suponha lados. Até 8.
 ${blocoTramitacao(ctx.processo)}`}
 ${lentes.map(bloco).join('\n')}`;
 }
@@ -328,9 +335,11 @@ TEXTO ANALISADO: ${ctx.textoAnalisado || '(não identificado)'}. Leia os documen
  * endereço, e o parecer imprime que o programa não as conferiu.
  */
 function promptExterno(ctx = {}) {
+  const disputas = (ctx.disputas || []).filter(Boolean);
   return `Você levanta o CONTEXTO EXTERNO de um parecer técnico da Liderança do Podemos na Câmara dos Deputados sobre
 ${ctx.identificacao || '(não informada)'} — ${ctx.ementa || ''}.
 Regra em exame: ${ctx.regra || '(ver ementa)'}.${ctx.normas ? `\nNormas envolvidas: ${ctx.normas}.` : ''}
+${disputas.length ? `\nDISPUTAS já localizadas nos documentos do processo (procure os DOIS lados de cada uma):\n${disputas.map((d, i) => `  ${i + 1}. ${String(d).slice(0, 300)}`).join('\n')}\n` : ''}
 
 Use a busca na web e responda SOMENTE com JSON:
 {
@@ -349,7 +358,9 @@ Use a busca na web e responda SOMENTE com JSON:
   "posicoes": [
     { "ator": "nome da entidade, órgão, empresa ou coletivo", "tipo": "governo|entidade de classe|setor regulado|sociedade civil|órgão de controle",
       "posicao": "favorável|contrário|favorável com ressalvas|contrário com ressalvas|não declarada", "data": "…",
-      "o_que_defende": "o que sustentou publicamente, em uma a três frases", "fonte_nome": "…", "fonte_url": "https://…" }
+      "o_que_defende": "o que sustentou publicamente, em uma a três frases",
+      "sobre": "a disputa a que a posição se refere (número da lista acima) ou 'a proposição em geral'",
+      "fonte_nome": "…", "fonte_url": "https://…" }
   ]
 }
 
@@ -358,7 +369,10 @@ O QUE PROCURAR
   municipais análogas declaradas inconstitucionais; ADIs, ADCs, ADPFs, temas de repercussão geral, súmulas. Até 6.
 - infralegal: decretos, portarias, resoluções, instruções normativas e atos de agência que já disciplinam a matéria. Até 6.
 - posições: manifestações públicas (notas, ofícios, audiências, notícias com declaração atribuída) de governo, entidades de
-  classe, setor regulado, sociedade civil e órgãos de controle. Até 8. Ouça OS DOIS lados: procure quem apoia e quem se opõe.
+  classe, setor regulado, sociedade civil e órgãos de controle. Até ${disputas.length ? 12 : 8}. Ouça OS DOIS lados: procure quem apoia e quem se opõe.${disputas.length ? `
+  Para CADA disputa listada acima, procure a manifestação de cada parte nomeada (quem quer e quem perde) e diga em "sobre"
+  a qual disputa a posição se refere. Parte que não se manifestou publicamente não entra: o parecer dirá que ela não se
+  manifestou.` : ''}
 
 REGRAS: cada item TEM fonte com endereço (URL) real encontrado na busca; item sem fonte não existe. Não invente número de
 processo, de norma nem declaração: o que a fonte não traz, escreva "não informado". Não conclua nada — apenas relate.
