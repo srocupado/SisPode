@@ -2,8 +2,8 @@
 
 Ferramentas para a equipe da **Liderança do Podemos** na Câmara dos Deputados, em duas frentes:
 
-- **Extensão do Chrome** (MV3) — oito módulos integrados para acompanhamento de sessões, votações, aderência ao governo, gestão de comissões, análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC), acompanhamento dos vetos em tramitação no Congresso Nacional e preparação da lista do Colégio de Líderes.
-- **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#9-bot-do-telegram-sispode-bot).
+- **Extensão do Chrome** (MV3) — nove módulos integrados para acompanhamento de sessões, votações, aderência ao governo, comissões (gestão de vagas e pautas dos colegiados), análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC), acompanhamento dos vetos em tramitação no Congresso Nacional, preparação da lista do Colégio de Líderes e orçamento (emendas da bancada e notas técnicas das leis orçamentárias).
+- **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#10-bot-do-telegram-sispode-bot).
 
 ---
 
@@ -38,10 +38,12 @@ O usuário escolhe um dos três provedores (Google Gemini, OpenAI ChatGPT ou Ant
 | DVS de dispositivo do PL original (CASO 3) | PDF do próprio destaque ou inteiro teor via API |
 | Destaque de Preferência (CASO 4) | Upload manual de 2 PDFs pelo usuário |
 | **DVS de Subemenda Substitutiva (CASO 5)** | **PRLE (Parecer Preliminar às Emendas) mais recente, via histórico de pareceres** |
+| DVS de substitutivo em **Medida Provisória** (CASO 1-MPV) | **Projeto de Lei de Conversão (PLV)** adotado pela Comissão Mista, localizado na Câmara ou no Senado |
 
 - Todos os documentos são enviados ao modelo como **PDF nativo** (no formato específico de cada provedor: `inline_data` no Gemini, `input_file` na Responses API da OpenAI, `document` block no Anthropic), preservando a formatação e evitando truncamento de texto
 - O prompt instrui a IA a localizar o dispositivo exato (artigo, inciso, parágrafo) e descrever seu conteúdo com verbos normativos — sem inventar, sem usar conhecimento externo
 - **Destaque de Preferência**: o modal exibe automaticamente 2 inputs rotulados ("PDF que recebe preferência" / "PDF a ser comparado"); a IA compara as duas redações e aponta as diferenças
+- Em Medida Provisória, o "substitutivo" é o **PLV**, que não está na página de pareceres da Câmara: o sistema o busca no acervo do Senado/Comissão Mista e, **não o encontrando, não analisa nada** — cair no texto original da MP seria analisar o documento errado
 - Suporte a inserção manual de texto ou PDF para substituir a busca automática quando necessário
 - Três profundidades de análise configuráveis: **Resumo** (máx. 2 frases), **Completo** (máx. 3 frases) e **Com argumentos** — todas focadas em leitura rápida pelo deputado
 
@@ -79,7 +81,11 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 
 ---
 
-### 4. Controle de Comissões
+### 4. Comissões
+
+O card **Comissões** abre dois painéis, escolhidos num menu: **Gestão** (vagas da bancada) e **Pautas de Comissões** (reuniões e pareceres em votação em cada colegiado).
+
+#### 4.1 Gestão
 
 Gerencie a participação dos deputados do partido em **comissões permanentes, mistas (MPV) e temporárias**, controlando vagas, acordos e pedidos de designação. O menu superior separa as visões: **Permanentes · Temporárias · MPV · Deputados · Alertas**.
 
@@ -105,6 +111,19 @@ Gerencie a participação dos deputados do partido em **comissões permanentes, 
 - **Impressão da lista de membros em PDF**, com seleção dos grupos a incluir (Permanentes, Mistas, CPI, Especiais, Externas) — cada grupo em nova página
 - Exportação completa para **Excel (.xlsx)** (membros, vagas cedidas e pedidos, com o tipo de cada comissão)
 - Dados sincronizados entre a equipe via **Firebase**, com cache e atualização automática (auto-sync quando o cache passa de 12 h)
+
+#### 4.2 Pautas de Comissões
+
+Uma aba por colegiado e uma aba **Semana**: calendário das reuniões deliberativas, pauta importada da Câmara e nota por IA sobre **o parecer em votação** em cada item. É o módulo de Plenário aplicado às comissões — sem cenários de tramitação, porque na comissão há sempre um parecer único a analisar.
+
+- **Abas**: as **30 comissões permanentes** da Câmara, cada uma com seu calendário. A CCJC tem módulo próprio (item 6) e também aparece aqui
+- **Semana**: todas as reuniões deliberativas da semana, agrupadas por dia, com navegação entre semanas e badge de quantas reuniões cada comissão tem. Permite **gerar as análises de todas as pautas de todas as comissões** de uma vez, com limite de chamadas paralelas e intervalo entre elas (configurável), para não saturar o provedor
+- **Calendário por comissão**: os dias com reunião deliberativa são marcados; ao escolher o dia (e a reunião, quando há mais de uma), aparece a prévia dos itens antes de importar
+- **Importação da pauta**: lê os itens da reunião pela API da Câmara (`/eventos/{id}/pauta`), com relator, parecer (PRL), ementa e situação do item. O parecer e o inteiro teor da proposição são anexados ao modelo como **PDF nativo**
+- **Nota por item**: **Objetivo · O que a comissão vota · Principais disposições do texto em votação · Emendas na comissão · Papel da comissão neste item · Pontos de atenção para a bancada · Argumentos favoráveis e contrários**. O papel é derivado do colegiado — **admissibilidade** na CCJC, **adequação financeira e orçamentária** na CFT, **mérito** nas demais, e "misto" quando o próprio parecer também examina o mérito. Requerimentos têm formato próprio
+- **Provedor e prompt por comissão** (submenu em cada colegiado): o analista pode fixar um provedor/modelo diferente do global e escrever um **prompt extra** só daquela comissão — instruções permanentes que complementam o prompt base sem substituir a estrutura de seções. Sem configuração própria, vale o provedor global (o mesmo do Plenário)
+- **Edição inline** de cada nota (Quill, com autosave), **exportação em PDF institucional** da reunião e **apagar pauta importada** (botão na reunião e ✕ na lateral), que remove reunião, análises e índice
+- Reuniões, análises e configurações por comissão ficam no Firebase em `pautas-comissoes/` — **compartilhadas com a equipe**; o calendário e a lista de órgãos têm cache local
 
 ---
 
@@ -136,7 +155,8 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 | 5 — PRLP + subemenda substitutiva de plenário (SSP) | **PRLP/PRLE + SSP** + redação original |
 | 6 — retorno do Senado com emendas (EMS) | **EMS** + texto aprovado pela Câmara |
 | 7 — EMS + parecer de comissão/plenário | **EMS + PRLP/PRLE** + texto aprovado pela Câmara |
-| 8 — Medida Provisória (MPV) | **Nenhum** — edição de texto livre, escrita manualmente pelo analista (sem IA) |
+| 8a — MPV sem parecer da Comissão Mista | **Texto original da Medida Provisória** (inteiro teor editado pelo Executivo) |
+| 8b — MPV com PLV (Comissão Mista) | **Parecer da Comissão Mista** (relatório + conclusão + PLV anexo) ou **Relatório Legislativo do Senado + PLV**, mais o texto original para o cotejo |
 | 9 — PEC (Proposta de Emenda à Constituição) | **PRL + substitutivo adotado pela Comissão Especial** (texto de mérito) + redação original; o parecer de admissibilidade da CCJC entra como parecer de comissão |
 | 10 — PDL (Projeto de Decreto Legislativo) | **Inteiro teor do decreto** (texto + justificação) + parecer(es) de comissão — com nota técnica **moldada ao subtipo**: sustação de ato do Executivo, outorga de rádio/TV ou ato internacional |
 | Requerimento de urgência | Inteiro teor da proposição cuja urgência é solicitada |
@@ -144,7 +164,7 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 
 - O prompt-base de projetos/requerimentos produz uma **nota técnica** com as seções **Objetivo · Justificativa · Pareceres e substitutivos · Principais Disposições do último substitutivo apresentado · Argumentos favoráveis e contrários**, sob princípios de clareza, objetividade, imparcialidade e fundamentação
 - A seção "Pareceres e substitutivos" é **moldada ao cenário detectado**: a extensão diz à IA qual é o texto operativo (substitutivo de plenário, SBT-A de comissão, subemenda ou emendas do Senado) a ser descrito
-- **Cenário 8 — Medidas Provisórias (MPV)**: ao detectar uma MPV, o card **não aciona a IA**. O botão passa a ser **"Escrever análise"**, que abre um **editor de texto livre** em branco para o analista redigir a nota manualmente (sem estrutura de seções imposta), com o mesmo autosave/Firebase das demais. As MPVs ficam **fora do "Gerar todas"** e não exibem os botões de IA (Reanalisar/Regerar) nem o alerta de desatualização
+- **Cenário 8 — Medidas Provisórias (MPV)**: o acervo da MPV (emendas, relatório, PLV) é da **Comissão Mista**, no Senado/Congresso, não da Câmara. A extensão o localiza e escolhe o subcenário: **8a**, quando ainda não há parecer — a nota descreve o texto original do Executivo; **8b**, quando há **Projeto de Lei de Conversão**, e a nota relata as emendas acolhidas e compara o PLV com o texto original. Quando o PLV é **proposta do relator** e a Comissão Mista ainda não concluiu, a nota diz isso explicitamente e **nunca apresenta o PLV como texto aprovado**. Não se localizando nenhum documento, o card abre a **edição livre**, um editor em branco para o analista redigir a nota à mão, com o mesmo autosave das demais
 - **Cenário 9 — PEC (Proposta de Emenda à Constituição)**: a PEC tem rito próprio (CCJC para admissibilidade, Comissão Especial para o mérito). A extensão localiza o **último PRL (parecer do relator) e o substitutivo adotado pela Comissão Especial** — o texto de mérito que vai a Plenário — e os envia como documento operativo, com a redação original para o cotejo; o parecer da CCJC entra como parecer de comissão (admissibilidade)
 - **Cenário 10 — PDL (Projeto de Decreto Legislativo)**: o texto votado é o próprio decreto (inteiro teor + justificação) e a comissão dá a recomendação. A nota técnica é **moldada ao subtipo** detectado pela ementa: **sustação** de ato do Executivo (art. 49 — foca no ato barrado e no efeito), **outorga** de rádio/TV (nota enxuta: entidade, objeto, município/UF, prazo) ou **ato internacional** (objeto do acordo)
 - **Comissão Especial**: identificada pela sigla-dona da própria proposição (`PEC00619`, `PL629902`, `PL233823`…). Em **PECs** é o documento operativo (Cenário 9); em **PLs/PLPs** que passam por comissão especial, seu parecer é capturado e anexado como **"Parecer da Comissão Especial"**, ao lado das comissões permanentes
@@ -159,6 +179,22 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 - Botão **Completar** (amarelo) aparece quando uma análise ainda fica truncada após a auto-continuação — clique para emendar mais um pedaço
 - **Retry com backoff exponencial** (5 s / 15 s / 30 s) em respostas 429 (rate limit) e 5xx
 - Botão **Parar tudo** (vermelho) aparece quando há qualquer chamada de IA em voo (lote, individual ou Completar) — usa `AbortController` global para abortar fetches em andamento, sleeps de throttle e timers de retry
+
+**Parecer de Especialista** (documento longo, por item)
+
+Além da nota técnica, cada card pode gerar um **parecer de especialista**: um documento longo, com evidência rastreada, para subsidiar o analista em matéria que a bancada vai discutir a fundo. É um pipeline de **6 a 9 chamadas** ao modelo (7 a 12 minutos, 250 a 350 mil tokens) — o diálogo de geração avisa o custo antes de começar.
+
+- **Etapas**: apuração (achados com o trecho exato do documento) → conferência de cada trecho no PDF, descartando o que não se localiza → dossiê (lei vigente, séries e estimativas oficiais) → ficha do objeto (regra vigente → regra proposta → data de efeito) → tese em JSON com identificadores de evidência → **contraditório** (revisor adversarial que refuta unidades da tese) → redação → portões e rubrica mecânica
+- **Lei vigente por cascata declarada**: Portal da Legislação da Câmara (LEGIN, texto atualizado) → Planalto (texto compilado) → LexML/Senado (texto publicado) → transcrição no próprio documento analisado. A **origem de cada texto vai impressa na ficha**, e texto original de norma já alterada não vale como regra vigente
+- **Seções do documento**: Síntese · Contexto e processo · Lei vigente e datas de efeito · Jurisprudência sobre normas análogas · O que se previu · O que aconteceu · Experiência de outros países e entes · Avaliação da política · Quem se posicionou e como · Implementação e custo de conformidade · Os dois lados · Quem disputa o quê · Opções e consequências · Aprimoramentos e sugestões de emenda · Prioridade e viabilidade · Respostas por lente · Conclusão. As condicionais só entram quando a tese as alimenta
+- **14 lentes** temáticas (processo legislativo, constitucional, tributário, orçamentário, administrativo, previdência, regulação, consumidor, penal, ambiental, saúde, educação, trabalho, digital) são acionadas pela ementa e pelos temas oficiais da matéria; as aplicadas e as descartadas ficam registradas
+- **Busca na internet** (quando o provedor oferece): experiência comparada de outros países e entes, jurisprudência de normas análogas, normas infralegais e posições públicas de atores. As fontes vão **nomeadas no texto e listadas ao fim do parecer**, com a ressalva de que não são conferidas pelo programa
+- **"Quem disputa o quê"**: a seção captura os **embates** — duas ou mais partes identificáveis querendo coisas incompatíveis do mesmo dispositivo — com o que cada lado quer, o que a tramitação fez com a disputa e seu estado (resolvido pelo substitutivo, aberto, deslocado para emenda, sem contraparte documentada). Cada emenda da tramitação tem de aparecer num embate ou ser declarada sem conflito
+- **O parecer nunca recomenda voto nem defende posição** e não atribui causalidade à medida: apresenta as opções, as consequências de cada uma e o que falta saber. Posição de terceiros entra como relato, sempre atribuída a quem a defendeu
+- **Dois documentos, dois leitores**: o **parecer** que circula (ficha do objeto, o que está em jogo, tramitação, o que muda na lei, as seções, limites e fontes — sem identificadores, sem jargão do método) e o **relatório de conferência**, de uso interno, aberto por botão próprio no card (rubrica M1–M14, tese com evidências, achados descartados, refutações do contraditório, lentes, chamadas, tokens e duração)
+- **Pontos de atenção**: os portões mecânicos que se resolvem sozinhos são aplicados ao texto, e a redação é refeita **uma vez** com as correções. O que persistir **não reprova o parecer** — vira ponto de atenção no relatório de conferência ("SEM RESSALVAS" / "COM RESSALVAS"), dizendo ao analista onde olhar. O parecer sai sempre
+- **Modelo**: exige ao menos a **faixa intermediária** do provedor — a faixa econômica tende a completar lacuna com o plausível, que num parecer técnico é o erro de maior consequência. A escolha (e qualquer ressalva sobre ela) fica registrada no relatório
+- Pareceres salvos no Firebase em `/pareceres/{chave}`, com a meta lida à parte para não baixar o documento inteiro ao abrir a pauta
 
 **Biblioteca de prompts personalizados (Reanalisar com IA)**
 - Botão **Reanalisar com IA** em cada card abre o diálogo de prompts: escolha um prompt salvo na biblioteca ou escreva instruções avulsas
@@ -177,7 +213,7 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 **Persistência e organização**
 - Cada análise é salva no Firebase em `/analises_pauta/{chave}/{parecerKey}`, vinculada à versão exata do parecer (ou ao documento da Redação Final, para itens dessa categoria)
 - Biblioteca de prompts em `/prompts_analise/{id}` e prompt padrão da equipe em `/prompts_analise_padrao` — ambos compartilhados entre todos os membros
-- **Sidebar de pautas** com alternância entre pautas salvas e exclusão (que limpa também as análises órfãs)
+- **Sidebar de pautas** com alternância entre pautas salvas e exclusão (que limpa também as análises órfãs). Duas pautas do **mesmo dia** (sessões distintas) convivem sem se sobrescrever
 - Garbage collection de análises órfãs no painel de Configurações
 
 **Exportação em PDF institucional**
@@ -312,7 +348,59 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 
 ---
 
-### 9. Bot do Telegram (SisPode Bot)
+### 9. Orçamento
+
+O card **Orçamento** abre dois painéis: **Emendas** (o dinheiro da bancada, do proposto ao pago) e **Notas Técnicas Orçamentárias** (LOA, LDO e PPA na Comissão Mista de Orçamento). Cada um abre em aba própria.
+
+#### 9.1 Notas Técnicas Orçamentárias
+
+Acompanhe a tramitação da lei orçamentária na **CMO** e produza a nota técnica do exercício, com prazo de emendas, relatores, parâmetros macroeconômicos e os números do projeto — cada um conferido contra o documento de origem.
+
+**O que a tela lê, e de onde**
+- A matéria é achada pelo **apelido** no Dados Abertos do Senado (`PLOA 2027`), nunca por número fixo — o PLOA 2027 é o PLN 24/**2026**, então a busca varre o ano do orçamento e o anterior
+- Do portal do **Congresso Nacional** (`/web/orcamento/acompanhe/...`): as **10 etapas** da tramitação com o último estado, o **cronograma** (de onde sai o prazo de emendas), os **relatores** (presidente da CMO, relator-geral, da receita e os setoriais), os **documentos da fase de emendas** (Manual, instrução normativa, portarias e cartilhas) e as **notas técnicas das Consultorias** (CONOF/CD e CONORF/SF)
+- Do **Ministério do Planejamento e Orçamento** (gov.br): texto da lei, volumes do projeto, comparativo e Orçamento Cidadão, cada um descrito pelo que contém
+- Em PPA, também os projetos que alteram o plano no quadriênio
+- Campo que a CMO ainda não publicou aparece como **"ainda não publicado"**, distinto de **"não consegui ler"** — e o prazo de emendas nunca é estimado pelo ano anterior: enquanto a CMO não aprova o cronograma, o prazo simplesmente não existe
+
+**IA com conferência obrigatória** — a regra do módulo é **"a IA lê e redige; o JavaScript confere; nada passa sem conferência"**
+- **Cartilhas**: o modelo lista, por ação orçamentária, o que ela permite e o que não permite custear, sempre com **trecho literal** e página. O programa exige que o trecho exista no texto do PDF, que o código da ação apareça no documento e que **toda cifra citada** conste dele
+- **Ficha do exercício**: 20 campos operacionais (cota individual e de bancada, pisos de saúde, limites, prazos) extraídos do Manual de Emendas, cada um com cinco estados — aguardando, pendente, preenchido, conferido, divergente. **Valor sem documento de origem não entra**, e há barreira específica contra o número herdado de outro exercício
+- **Números do exercício**: catálogo de 27 indicadores lidos da Mensagem Presidencial e dos volumes, com trecho e valor conferidos
+- **Síntese analítica**: aqui o risco é invertido — os números vão **prontos** no prompt e a IA só redige; qualquer cifra que ela introduza é conferida contra a lista da base
+- A conferência usa o texto extraído pelo **pdf.js**, e não o que o modelo diz ter lido: se a conferência usasse a leitura do próprio modelo, não seria conferência
+- Fonte ilegível (menos de 500 caracteres extraídos) **não vira aprovação** — nada é dado por conferido. O que é recusado volta com o motivo, nunca some
+- Documento que não cabe no limite do provedor é enviado como **texto extraído** em vez de PDF nativo, e a tela **declara** essa diferença
+
+**Conferência por regra fixa (sem IA)**
+- **Normas e valores citados** na nota são comparados com o documento do exercício e devolvidos como confirmados, não confirmados e alertas — o programa **nunca corrige sozinho**. "Lei Complementar" é testada antes de "Lei", senão a LC 210/2024 viraria Lei 210/2024
+- **Comparação entre exercícios**: o que saiu, o que entrou e o que permaneceu de um ano para o outro
+- **Parâmetros macroeconômicos** (PIB, IPCA, Selic, câmbio, salário mínimo) e as tabelas por órgão saem da própria Mensagem Presidencial; o extrator **soma as linhas e compara com o total impresso** e, não batendo, declara a leitura incompleta e o tamanho da diferença
+- **Série histórica** das cotas monta-se das fichas salvas: exercício sem ficha aparece como **lacuna nomeada**, nunca interpolado nem estimado
+- **Guia de emendas**: casa as cartilhas da CMO com as 16 áreas temáticas do Anexo I da IN nº 01/2023 e com o relator setorial de cada área, marcando quando o relator é da bancada
+
+**Produto**
+- **Nota técnica** aberta em aba nova, em formato A4 com cartões e gráficos, e botão **"Salvar em PDF"**: identificação, estágio da tramitação, cronograma, ficha de parâmetros, série histórica, variação entre exercícios, números apurados, achados, síntese, ações das cartilhas, documentos do Executivo e alterações do PPA
+- A nota imprime a **ressalva de conferência** com os números não conferidos ("confirme na fonte antes de divulgar") e lembra que constar do documento não significa que a ação se aplique ao caso concreto — a adequação da emenda continua sendo análise do gabinete
+- Cada lote de IA pede **confirmação de custo** antes de começar
+- Nota e ficha ficam no Firebase (`/orcamento_ia/{lei}-{ano}` e `/orcamento_ficha/{lei}-{ano}`), compartilhadas com a equipe
+
+#### 9.2 Emendas da bancada
+
+Acompanhe as emendas dos parlamentares do Podemos — proposto, empenhado e pago — em duas fontes que não se consultam do mesmo jeito, com abas **Panorama por pasta · Propostas · saúde · Por parlamentar**.
+
+- **Fundo Nacional de Saúde**: a coleta baixa **uma planilha por UF** (27 requisições) em vez de abrir o detalhe de cada uma das dezenas de milhares de propostas do ano; o detalhe de uma proposta é buscado sob demanda. Os tempos (duas UFs simultâneas, intervalo entre elas, timeout de 4 minutos) foram medidos contra o portal — paralelismo alto não acelera nada ali
+- **Portal da Transparência**: emendas por parlamentar, com o empenhado e o pago. A consulta é **por nome e sensível a caixa** ("Renata Abreu" devolve zero; "RENATA ABREU" devolve treze), e exige **chave gratuita** do analista, cadastrada no portal e guardada só no navegador
+- **Quem é da bancada nunca é escrito à mão**: deputados vêm da API da Câmara e senadores do Dados Abertos do Senado, com o partido de hoje. Não conseguindo ler nenhuma das duas, o vínculo fica "não identificado" — afirmar "fora da bancada" seria inventar
+- As duas fontes se cruzam pelo **código da emenda** (ano + código do autor + número), que casa com o código político do FNS
+- **Coleta incremental por estado**, já que o FNS não oferece "o que mudou desde ontem", com **log copiável** da coleta: tempos, bytes e tentativas por UF e uma seção "mudanças desde a busca anterior" (pagou agora, pagamento novo, emenda nova)
+- **Exportação em Excel (.xlsx)** das propostas do FNS (com linha de total) e do panorama por pasta
+- Defeitos da fonte são **marcados, não consertados**: quando o Portal informa **pago maior que empenhado**, o item recebe o alerta "⚠ conferir" em vez de um teto de 100% que esconderia o problema. A coluna de partido da planilha do FNS é o **partido da época da emenda**, por isso o vínculo de hoje vai ao lado. **Transferência especial** não gera proposta no FNS, e a tela diz isso em vez de parecer defeito
+- Dados no Firebase em `/emendas-fns/{ano}/{uf}` (só o recorte do partido) e `/orcamento-transparencia/{ano}`; as chaves de API ficam no `chrome.storage` do analista, **nunca no Firebase nem no repositório**
+
+---
+
+### 10. Bot do Telegram (SisPode Bot)
 
 Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as análises e o **acompanhamento ao vivo do Plenário** para o grupo do Telegram. Usa o **mesmo Firebase** da extensão (as análises geradas no painel aparecem no bot) e roda a IA **na chave de cada usuário** (`/config`). Código em `bot/` — instalação em [`bot/INSTALACAO.md`](bot/INSTALACAO.md), guia de uso em [`bot/GUIA-ANALISTA.md`](bot/GUIA-ANALISTA.md).
 
@@ -357,7 +445,8 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - Acesso por allowlist (`/usuarios`, `/revogar`; entrada por palavra-chave ou aprovação do admin); menu de comandos por escopo (autorizados e admin veem comandos extras)
 - `/revisar_msg` — usuários autorizados corrigem, no privado, uma das últimas 5 mensagens que o bot enviou ao grupo (editado in-place; o admin recebe o antes/depois)
 - `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
-- `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo` (chave de IA por usuário)
+- `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo`/`/removerchave` (chave de IA por usuário), `/digestadd`/`/digestrem`/`/digestlista` (assinantes do radar de imprensa)
+- **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
 
 ---
 
@@ -377,9 +466,9 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 
 ## Configuração
 
-### Provedor de IA (para análise automática de destaques)
+### Provedor de IA
 
-O usuário pode escolher entre três provedores. Apenas um fica ativo por vez — ao trocar, é necessário colar a chave do novo provedor.
+Todos os módulos que usam IA compartilham a mesma configuração. O usuário escolhe entre três provedores; apenas um fica ativo por vez — ao trocar, é necessário colar a chave do novo provedor (as chaves já usadas ficam guardadas por provedor). As **Pautas de Comissões** admitem provedor e modelo próprios por colegiado, e o **Parecer de Especialista** pede o modelo no momento da geração.
 
 | Provedor | Onde obter a chave | Formato da chave |
 |---|---|---|
@@ -391,9 +480,13 @@ Na extensão:
 
 1. Abra **⚙ Configurações** → selecione o provedor no campo **Provedor de IA**
 2. Cole a chave de API no campo abaixo
-3. Clique em **Carregar disponíveis** para listar os modelos suportados (estática para Anthropic; dinâmica para Gemini e OpenAI)
+3. Clique em **Carregar disponíveis** para listar os modelos da própria chave, consultando a API de cada provedor (há uma lista de reserva quando a consulta falha)
 4. Escolha a profundidade da análise: **Resumo**, **Completo** ou **Com argumentos**
 5. Use **Testar conexão** para verificar se a chave está funcionando
+
+### Chave do Portal da Transparência (para o painel de emendas)
+
+O acompanhamento das emendas no Portal da Transparência exige uma chave gratuita, pedida no próprio painel de Emendas e obtida em [portaldatransparencia.gov.br/api-de-dados/cadastrar-email](https://portaldatransparencia.gov.br/api-de-dados/cadastrar-email). Como as chaves de IA, ela fica **apenas no navegador do analista** — nunca no Firebase (hoje com regras abertas) nem no repositório.
 
 ### Firebase (para sincronização entre dispositivos)
 
@@ -406,15 +499,33 @@ A sincronização usa o Firebase Realtime Database já configurado no projeto. N
 ```
 sispode/
 ├── manifest.json               # Manifesto da extensão (MV3)
-├── panel.html / panel.js       # Módulo: Destaques Legislativos
+├── panel.html / panel.js       # Painel inicial + módulo: Destaques Legislativos
 ├── panel.css                   # Estilos do painel principal
 ├── votacao.html / votacao.js      # Módulo: Painel de Votação
 ├── aderencia.html / aderencia.js  # Módulo: Aderência ao Governo
-├── comissoes.html / comissoes.js  # Módulo: Controle de Comissões
+├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
+├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
+├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
 ├── analise.html / analise.js      # Módulo: Análise de Pauta de Plenário
+├── analise.css                    # Estilos dos cards de análise (usados também nas pautas de comissões)
+├── ia-comum.js                    # Cliente de IA compartilhado (3 provedores, SSE, PDF, utilidades)
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (análise da lista + demandas + e-mail)
+├── emendas.html / emendas.js      # Orçamento · Emendas da bancada (FNS + Transparência)
+├── orcamento-notas.html / .js     # Orçamento · Notas técnicas das leis orçamentárias
+├── cmo.js                         # Leitura da tramitação na CMO (etapas, cronograma, relatores, documentos)
+├── orcamento-ia.js                # Camada de IA do orçamento: prompts e conferência de cada resposta
+├── ficha.js / serie.js            # Ficha de parâmetros do exercício e série histórica das cotas
+├── mensagem.js / normas.js        # Tabelas e parâmetros da Mensagem; conferência de normas e valores
+├── guia-emendas.js                # Cartilhas × áreas temáticas × relator setorial
+├── parecer.js / pipeline-parecer.js   # Parecer de Especialista: modelo e orquestração das etapas
+├── especialistas.js               # As 14 lentes temáticas e seus roteiros
+├── dossie.js / ficha-objeto.js    # Lei vigente, séries e estimativas; ficha do objeto
+├── tese.js / gates.js             # Tese com evidências, contraditório, portões e rubrica M1–M14
+├── parecer-html.js                # Os dois documentos: parecer que circula e relatório de conferência
+├── mpv.js                         # Acervo da Medida Provisória (PLV, relatório da Comissão Mista)
+├── pauta-parser.js                # Parser das pautas do Plenário
 ├── background.js                  # Service worker da extensão
 ├── icons/                         # Ícones da extensão + logo Podemos para o PDF
 ├── libs/
@@ -423,13 +534,17 @@ sispode/
 │   ├── xlsx.full.min.js                 # Exportação para Excel
 │   ├── docx.iife.js / docx.umd.js      # Exportação para Word
 │   └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
-├── testes/                         # Testes (Node, contra a API real da Câmara)
-│   ├── lideres.test.js             # Parser do PDF, cenários, situação/relatoria, Podemos
-│   ├── lideres-demandas.test.js    # Demandas de deputados + formato do e-mail
-│   ├── lideres-cura.test.js        # Reunião salva antes de um campo existir se atualiza
+├── testes/                         # Testes (Node; parte contra a API real da Câmara, parte com fixtures)
+│   ├── lideres*.test.js            # Parser do PDF, cenários, situação/relatoria, demandas, cura
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
-│   └── backup.test.js              # backup/restauração: ida e volta com Firebase falso
+│   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
+│   ├── parecer-v3.test.js          # Parecer de Especialista: pipeline, tese, portões, rubrica
+│   ├── parecer-tela.test.js        # Parecer no escopo real da página (vm + linkedom)
+│   ├── parecer-modelo.test.js      # Escolha de modelo por faixa e recusa da faixa econômica
+│   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
+│   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
+│   └── emendas-*.test.js           # Emendas: coleta, log e planilha
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
     └── src/
@@ -445,6 +560,7 @@ sispode/
         ├── comissoes.js / digest.js / rodaviva.js       # Comissões, imprensa, Roda Viva
         ├── materia.js              # /colegio — ficha de proposição avulsa
         ├── ata.js                  # /ata — anotação da reunião → mensagem da bancada
+        ├── reenvio.js              # Repete o envio quando a falha do Telegram é de rede
         ├── questaoordem.js / recursos.js / busca.js   # Questões de ordem, recursos, ranking BM25
         ├── qoprecedentes.js / qoembeddings.js         # Verbetes e vetores dos precedentes (gerados)
         ├── regimento.js / ricd.js  # Consulta ao Regimento Interno
@@ -457,6 +573,19 @@ sispode/
 
 ---
 
+## Testes
+
+Cada arquivo de `testes/` roda sozinho, sem framework e sem instalação na raiz:
+
+```bash
+node testes/parecer-v3.test.js       # um teste
+for t in testes/*.test.js; do node "$t"; done   # todos
+```
+
+Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tudo passou" ou no número de falhas (código de saída ≠ 0). Parte deles consulta a **API real da Câmara** (precisa de rede); os demais usam fixtures gravadas em `testes/fixtures/`. Os testes de tela carregam o script da página num contexto `vm` com **linkedom**, e as dependências de Node (linkedom, puppeteer, pdfjs) vêm de `bot/node_modules`.
+
+---
+
 ## APIs e serviços externos
 
 | Serviço | Uso |
@@ -465,12 +594,19 @@ sispode/
 | [Portal da Câmara](https://www.camara.leg.br) | Sessões em andamento, oradores, presença e documentos legislativos |
 | APIs públicas do app Infoleg (cosev / ws-plenario) | **Bot**: acompanhamento ao vivo do Plenário (presença, ODD, votações) — endpoints de leitura públicos |
 | [API do Telegram](https://core.telegram.org/bots/api) (via grammY) | **Bot**: mensageria no grupo e no privado |
-| [SISCON – Senado Federal](https://legis.senado.leg.br) | Relatório Resumo de Vetos em tramitação (PDF) |
+| [SISCON – Senado Federal](https://legis.senado.leg.br) | Relatório Resumo de Vetos em tramitação (PDF); Dados Abertos do Senado (matéria orçamentária, senadores) |
+| [Portal do Congresso — Acompanhe o Orçamento](https://www.congressonacional.leg.br) | **Orçamento**: etapas, cronograma, relatores, cartilhas e notas técnicas da CMO |
+| [Ministério do Planejamento e Orçamento](https://www.gov.br/planejamento) | **Orçamento**: texto da lei, volumes do projeto, comparativo e Orçamento Cidadão |
+| [Fundo Nacional de Saúde](https://consultafns.saude.gov.br) | **Emendas**: propostas por UF (planilha) e detalhe da proposta |
+| [API do Portal da Transparência](https://api.portaldatransparencia.gov.br) | **Emendas**: empenhado e pago por parlamentar (exige chave gratuita do analista) |
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
+| [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |
+| [Planalto](https://www.planalto.gov.br) e [LexML/Senado](https://www.lexml.gov.br) | Texto compilado e texto publicado das normas — as duas fontes seguintes da cascata |
+| [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Séries de câmbio, IPCA e arrecadação para o dossiê do Parecer de Especialista |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
-| [Google Gemini](https://aistudio.google.com) | Provedor de IA para análise de destaques |
-| [OpenAI](https://platform.openai.com) | Provedor de IA para análise de destaques |
-| [Anthropic](https://console.anthropic.com) | Provedor de IA para análise de destaques |
+| [Google Gemini](https://aistudio.google.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
+| [OpenAI](https://platform.openai.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
+| [Anthropic](https://console.anthropic.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
 | [Codetabs Proxy](https://codetabs.com) | Proxy CORS para acesso a páginas do portal da Câmara |
 
 ---
@@ -488,7 +624,8 @@ sispode/
 **Extensão**
 - Google Chrome (versão compatível com Manifest V3)
 - Conexão com internet para consultar as APIs da Câmara
-- Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA
+- Chave de API de um dos provedores suportados (Google Gemini, OpenAI ou Anthropic) — necessária para geração de análises por IA. O **Parecer de Especialista** exige modelo de faixa intermediária ou superior
+- Chave gratuita do Portal da Transparência — apenas para o painel de Emendas
 
 **Bot** (opcional — ver [`bot/INSTALACAO.md`](bot/INSTALACAO.md))
 - Node.js LTS
