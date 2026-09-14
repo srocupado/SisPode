@@ -22,13 +22,14 @@
     },
     {
       "n": 2,
-      "status": "pendente",
+      "status": "concluido",
       "areas": [
         "ccjc",
         "comissoes-gestao",
         "pautas-comissoes",
         "votacao-aderencia"
-      ]
+      ],
+      "nota": "Varrido em 14/09/2026. 15 achados; avaliação em varredura/achados/avaliacao-lote2.md: 7 confirmados (1 crítico, 1 alto), 8 refutados. pautas-comissoes não rendeu achado."
     },
     {
       "n": 3,
