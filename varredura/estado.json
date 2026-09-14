@@ -16,11 +16,9 @@
       "status": "concluido",
       "areas": [
         "lideres",
-        "congresso",
-        "x-firebase",
-        "x-segredos"
+        "congresso"
       ],
-      "nota": "Varrido em 14/09/2026 (finder econômico, contrato de texto). 9 achados; avaliação em varredura/achados/avaliacao-lote1.md: 5 confirmados (1 crítico), 2 refutados."
+      "nota": "Varrido em 14/09/2026 (finder econômico, contrato de texto). 9 achados; avaliação em varredura/achados/avaliacao-lote1.md: 5 confirmados (1 crítico), 2 refutados. x-firebase e x-segredos saíram deste lote sem serem varridos e foram para o lote 7."
     },
     {
       "n": 2,
@@ -70,6 +68,15 @@
         "x-concorrencia",
         "x-testes"
       ]
+    },
+    {
+      "n": 7,
+      "status": "pendente",
+      "areas": [
+        "x-firebase",
+        "x-segredos"
+      ],
+      "nota": "Estavam no lote 1 original; a corrida foi reduzida a duas áreas e estas não chegaram a rodar."
     }
   ],
   "como_retomar": [
