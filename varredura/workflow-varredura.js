@@ -92,9 +92,9 @@ const FINDINGS_SCHEMA = {
           title: { type: 'string' },
           summary: { type: 'string', description: 'o que o código faz de errado, em 1 a 3 frases' },
           failure_scenario: { type: 'string', description: 'entrada ou estado concreto e qual é o resultado errado' },
-          evidence: { type: 'string', description: 'trecho de código citado literalmente' },
+          evidence: { type: 'string', description: 'trecho de código citado literalmente (opcional)' },
         },
-        required: ['file', 'line', 'severity', 'title', 'summary', 'failure_scenario', 'evidence'],
+        required: ['file', 'line', 'severity', 'title', 'summary', 'failure_scenario'],
       },
     },
     cobertura: { type: 'string', description: 'o que leu e o que não conseguiu cobrir' },
@@ -105,17 +105,24 @@ const FINDINGS_SCHEMA = {
 const prompt = a => `${CONTEXTO}
 
 SUA ÁREA: ${a.arquivos}
+Os arquivos ficam em ${RAIZ}. Use SEMPRE caminho absoluto, por exemplo: Read ${RAIZ}/panel.js
 
 FOCO: ${a.foco}
 
-Trabalhe assim:
-1. Leia os arquivos da área (Read; arquivos grandes por partes, Grep para achar os pontos de decisão).
-   Leia os comentários: eles explicam decisões deliberadas.
-2. Para cada suspeita, VOLTE AO CÓDIGO e confirme lendo as funções chamadas; verifique se já não há
-   guarda em outro ponto do fluxo. Se puder, rode Node para provar.
-3. Reporte no máximo 6 achados, do mais grave ao menos grave. NÃO invente achados para preencher:
-   lista curta ou vazia é resposta válida e preferível a ruído.
-4. Cada achado precisa de arquivo, linha, cenário de falha CONCRETO e o trecho de código citado.`
+PASSO A PASSO (siga nesta ordem, sem inventar outro caminho):
+1. Read nos arquivos da área. Se o arquivo for grande, leia em pedaços com offset/limit, e use Grep
+   (com path absoluto) para localizar as funções de decisão. Leia os comentários: eles explicam
+   decisões deliberadas, e acusar uma decisão documentada é erro.
+2. Para cada suspeita, volte ao código e confirme lendo a função chamada e quem a chama. Verifique se
+   já não existe guarda em outro ponto do fluxo. Pode rodar node pelo Bash para provar.
+3. Termine SEMPRE chamando a ferramenta StructuredOutput com o objeto {findings, cobertura}.
+   - no máximo 6 achados, do mais grave ao menos grave;
+   - lista VAZIA é resposta válida e preferível a ruído: não invente achado para preencher;
+   - cada achado precisa de file, line, severity, title, summary e failure_scenario (cenário CONCRETO:
+     qual entrada, o que aparece errado na tela ou no documento);
+   - "cobertura" diz o que você leu e o que não conseguiu cobrir.
+Se alguma ferramenta falhar, tente outra vez com caminho absoluto; não desista sem chamar
+StructuredOutput ao menos uma vez.`
 
 const pedidas = Array.isArray(args) ? args : (args ? [args] : [])
 const lote = AREAS.filter(a => pedidas.includes(a.key))
