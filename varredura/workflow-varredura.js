@@ -78,28 +78,54 @@ const AREAS = [
   { key: 'x-testes', arquivos: 'testes/', foco: 'SAÚDE DA SUÍTE: rode cada arquivo de testes/ com node e reporte APENAS falha real de produto (o código está errado). Para cada uma, leia teste e código e diga qual é o defeito. Falha por falta de rede, dependência ausente ou fixture velha NÃO é achado: mencione no resumo. Reporte também teste que passa por engano (asserção que não verifica o que promete).' },
 ]
 
-const FINDINGS_SCHEMA = {
-  type: 'object',
-  properties: {
-    findings: {
-      type: 'array',
-      items: {
-        type: 'object',
-        properties: {
-          file: { type: 'string' },
-          line: { type: 'integer' },
-          severity: { type: 'string', enum: ['critica', 'alta', 'media'] },
-          title: { type: 'string' },
-          summary: { type: 'string', description: 'o que o código faz de errado, em 1 a 3 frases' },
-          failure_scenario: { type: 'string', description: 'entrada ou estado concreto e qual é o resultado errado' },
-          evidence: { type: 'string', description: 'trecho de código citado literalmente (opcional)' },
-        },
-        required: ['file', 'line', 'severity', 'title', 'summary', 'failure_scenario'],
-      },
-    },
-    cobertura: { type: 'string', description: 'o que leu e o que não conseguiu cobrir' },
-  },
-  required: ['findings', 'cobertura'],
+// SEM schema/StructuredOutput: em 14/09/2026 os quatro finders econômicos
+// estouraram o teto de 5 tentativas sem nunca produzir {findings, cobertura},
+// queimando 166 mil tokens para nada. Modelo econômico escreve texto bem e
+// preenche ferramenta estruturada mal — então o contrato passou a ser um
+// formato de texto delimitado, fatiado por quem chama (parseAchados abaixo).
+const FORMATO = `FORMATO DA RESPOSTA (texto puro, sem cercas de código, sem JSON, sem comentários):
+
+Para CADA achado, um bloco exatamente assim:
+
+@@ACHADO
+arquivo: <caminho relativo, ex.: panel.js ou bot/src/monitor.js>
+linha: <número>
+gravidade: <critica|alta|media>
+titulo: <uma frase curta>
+defeito: <o que o código faz de errado, 1 a 3 frases numa linha só>
+cenario: <entrada ou estado concreto e qual é o resultado errado que a assessoria veria>
+@@FIM
+
+Depois de todos os blocos, uma última linha começando com:
+COBERTURA: <o que você leu e o que não conseguiu cobrir>
+
+Se não houver achado, responda apenas com a linha COBERTURA:.`
+
+/** Fatia a resposta de texto do finder nos mesmos campos que o schema teria. */
+function parseAchados(texto, area) {
+  const out = []
+  const blocos = String(texto || '').split(/@@ACHADO/i).slice(1)
+  for (const b of blocos) {
+    const corpo = b.split(/@@FIM/i)[0]
+    const campo = nome => {
+      const m = new RegExp('^\\s*' + nome + '\\s*:\\s*(.+)$', 'im').exec(corpo)
+      return m ? m[1].trim() : ''
+    }
+    const file = campo('arquivo')
+    if (!file) continue
+    const sev = (campo('gravidade') || 'media').toLowerCase()
+    out.push({
+      area,
+      file,
+      line: parseInt(campo('linha'), 10) || 0,
+      severity: ['critica', 'alta', 'media'].includes(sev) ? sev : 'media',
+      title: campo('titulo'),
+      summary: campo('defeito'),
+      failure_scenario: campo('cenario'),
+    })
+  }
+  const cob = /^\s*COBERTURA\s*:\s*(.+)$/im.exec(String(texto || ''))
+  return { findings: out, cobertura: cob ? cob[1].trim() : '' }
 }
 
 const prompt = a => `${CONTEXTO}
@@ -115,14 +141,10 @@ PASSO A PASSO (siga nesta ordem, sem inventar outro caminho):
    decisões deliberadas, e acusar uma decisão documentada é erro.
 2. Para cada suspeita, volte ao código e confirme lendo a função chamada e quem a chama. Verifique se
    já não existe guarda em outro ponto do fluxo. Pode rodar node pelo Bash para provar.
-3. Termine SEMPRE chamando a ferramenta StructuredOutput com o objeto {findings, cobertura}.
-   - no máximo 6 achados, do mais grave ao menos grave;
-   - lista VAZIA é resposta válida e preferível a ruído: não invente achado para preencher;
-   - cada achado precisa de file, line, severity, title, summary e failure_scenario (cenário CONCRETO:
-     qual entrada, o que aparece errado na tela ou no documento);
-   - "cobertura" diz o que você leu e o que não conseguiu cobrir.
-Se alguma ferramenta falhar, tente outra vez com caminho absoluto; não desista sem chamar
-StructuredOutput ao menos uma vez.`
+3. Escreva a resposta final no formato abaixo. No máximo 6 achados, do mais grave ao menos grave.
+   Nenhum achado é resposta válida e preferível a ruído: não invente achado para preencher.
+
+${FORMATO}`
 
 const pedidas = Array.isArray(args) ? args : (args ? [args] : [])
 const lote = AREAS.filter(a => pedidas.includes(a.key))
@@ -133,8 +155,8 @@ if (!lote.length) return { erro: 'Nenhuma área válida no lote. Chaves disponí
 log('Lote de ' + lote.length + ' área(s): ' + lote.map(a => a.key).join(', '))
 
 const resultados = await parallel(lote.map(a => () =>
-  agent(prompt(a), { label: 'varre:' + a.key, phase: 'Varredura', schema: FINDINGS_SCHEMA, model: 'haiku' })
-    .then(r => ({ area: a.key, arquivos: a.arquivos, ...(r || { findings: [], cobertura: 'agente não devolveu resultado' }) }))))
+  agent(prompt(a), { label: 'varre:' + a.key, phase: 'Varredura', model: 'haiku' })
+    .then(texto => ({ area: a.key, arquivos: a.arquivos, bruto: String(texto || ''), ...parseAchados(texto, a.key) }))))
 
 const saida = resultados.filter(Boolean)
 for (const r of saida) log(r.area + ': ' + (r.findings || []).length + ' achado(s)')
