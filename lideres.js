@@ -312,6 +312,18 @@ async function lerListaDoPDF(file) {
 // Espécies que podem aparecer na coluna "Proposição".
 const RE_PROP = /\b(PL|PLP|PEC|PDL|PDC|PDS|PRC|PLV|PLN|MPV|MSC|PDN|INC|SUG)\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})\b/gi;
 
+/** A posição está dentro de um "(Principal: …)" ainda aberto? */
+function dentroDeParentesePrincipal(texto, pos) {
+  const t = String(texto || '');
+  const re = /\(\s*principal[^)]*\)?/gi;
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const fim = m[0].endsWith(')') ? m.index + m[0].length : t.length;   // parêntese não fechado vale até o fim
+    if (pos > m.index && pos < fim) return true;
+  }
+  return false;
+}
+
 /** O que a célula da lista traz ALÉM do número da proposição — na prática o
  *  "- EMS" que marca a matéria que voltou do Senado. É informação que a própria
  *  Liderança escreveu sobre o que está em jogo, e some se a interface mostrar
@@ -342,9 +354,12 @@ function proposicoesDoItem(item) {
       sigla:  m[1].toUpperCase(),
       numero: parseInt(m[2], 10),
       ano:    parseInt(m[3], 10),
-      // "(Principal: PL 23/2026)" — a proposição citada dentro dos parênteses
-      // é a principal; a que abre a célula é a que foi listada.
-      ehPrincipal: /\(\s*principal/i.test(item.prop.slice(0, m.index)),
+      // "(Principal: PL 23/2026)" — a proposição citada DENTRO dos parênteses é
+      // a principal; a que abre a célula é a que foi listada (apensada). Testar
+      // se existe "(Principal" em qualquer ponto antes marcava as DUAS como
+      // principal em "(Principal: PL 23/2026) PL 1242/2026", e o apensado saía
+      // com o selo na tela, no PDF e na planilha (varredura de 14/09/2026).
+      ehPrincipal: dentroDeParentesePrincipal(item.prop, m.index),
     });
   }
   return achados;
@@ -512,11 +527,21 @@ async function carregarDadosDaProposicao(it) {
   it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
   const trams = await buscarTramitacoes(item.id);
-  it.situacao  = situacaoDe(trams, it.regimePdf);
-  it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
-  it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
+  // Consulta falhada não vira fato: dizer "não há requerimento de urgência"
+  // porque a API caiu seria informação errada na mesa do líder.
+  if (!trams) {
+    it.situacao  = 'Não apurada — a consulta de tramitação na Câmara falhou; refaça a busca antes de usar.';
+    it.situacaoFalhou = true;
+    it.relatoria = it.relatoria || '';
+    it.despachos = it.despachos || [];
+  } else {
+    it.situacao  = situacaoDe(trams, it.regimePdf);
+    it.situacaoFalhou = false;
+    it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
+    it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
+  }
 
-  it.papel = await papelDe(detalhe, trams);
+  it.papel = await papelDe(detalhe, trams || []);
   it.apensadosPodemos = [];
   if (!it.papel.apensada && it.papel.temApensados) {
     const ap = await apensadosDoPodemos(item.id);
@@ -832,14 +857,23 @@ function fraseDoParecer(pp) {
   return partes.join(', ') + '.';
 }
 
+/**
+ * Tramitações da proposição. Devolve NULL quando a consulta falhou — falha e
+ * lista vazia são coisas diferentes, e confundi-las custava caro: `situacaoDe([])`
+ * responde "Não há requerimento de urgência apresentado.", de modo que uma
+ * oscilação da API da Câmara apagava a urgência aprovada do registro, gravava
+ * isso no Firebase da equipe e mandava a situação errada no e-mail ao
+ * Presidente (varredura de 14/09/2026).
+ */
 async function buscarTramitacoes(idCamara) {
+  if (!idCamara) return null;
   try {
     // Este endpoint NÃO aceita ?ordem/?itens (devolve 400). Vem em ordem
     // ascendente de sequência.
     const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     return (await res.json()).dados || [];
-  } catch (_) { return []; }
+  } catch (_) { return null; }
 }
 
 // ---------- SITUAÇÃO (regra fixa, não IA) ----------
@@ -2370,6 +2404,9 @@ async function fatosDaDemanda(ref) {
     if (rd.ok) detalhe = (await rd.json()).dados || item;
   } catch (_) { /* fica com o item da lista */ }
   const [autoria, trams] = await Promise.all([autoriaDemanda(item.id), buscarTramitacoes(item.id)]);
+  // O registro da demanda só existe com os fatos apurados na fonte: sem
+  // tramitação lida, não se inventa situação (o botão Registrar depende disto).
+  if (!trams) throw new Error(`${ref.chave}: não consegui ler a tramitação na Câmara agora. Tente de novo em instantes.`);
   // Situação: a regra de urgência do sistema 1 continua mandando quando há
   // sinal de urgência. Mas quando NÃO há ("Não há requerimento…"), a situação
   // oficial da ficha é o fato útil — para um RCP aguardando despacho do
@@ -2517,7 +2554,7 @@ function renderizarDemandas() {
     const d = app.demandas.find(x => x.id === btn.dataset.id);
     if (!d) return;
     if (btn.dataset.acao === 'apagar')    apagarDemanda(d);
-    if (btn.dataset.acao === 'atualizar') atualizarSituacaoDemanda(d);
+    if (btn.dataset.acao === 'atualizar') atualizarSituacaoDemanda(d).catch(e => mostrarToast(e.message, 'erro'));
     if (btn.dataset.acao === 'atender')   abrirModalAtender(d);
     if (btn.dataset.acao === 'reabrir')   reabrirDemanda(d);
   }));
@@ -2585,6 +2622,10 @@ async function apagarDemanda(d) {
 /** Reconsulta a situação na Câmara; devolve true se mudou. */
 async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
   const trams = await buscarTramitacoes(d.idCamara);
+  // Falha de consulta NÃO é "não há requerimento": sem isto, uma oscilação da
+  // API sobrescrevia "Urgência aprovada (REQ. n/aaaa)" no Firebase da equipe e
+  // ainda anunciava "situação atualizada".
+  if (!trams) throw new Error(`${d.chave}: a consulta de tramitação na Câmara falhou — a situação registrada foi mantida.`);
   const nova = situacaoDe(trams, '');
   const mudou = nova !== d.situacao;
   if (mudou) {
@@ -2915,13 +2956,17 @@ async function atualizarSituacoesEmail() {
   if (!sel.length) return mostrarToast('Marque as demandas antes de atualizar.', 'erro');
   const btn = document.getElementById('btn-email-atualizar');
   btn.disabled = true;
-  let mudadas = 0;
-  await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
+  let mudadas = 0, falhas = 0;
+  await mapLimit(sel, 4, async d => {
+    try { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; }
+    catch (_) { falhas++; }   // situação mantida; o aviso abaixo diz quantas não foram conferidas
+  });
   btn.disabled = false;
   renderizarEmail();
-  mostrarToast(mudadas
+  const parte = falhas ? ` ${falhas} não pôde(ram) ser conferida(s) na Câmara — a situação mostrada é a do registro.` : '';
+  mostrarToast((mudadas
     ? `${mudadas} situação(ões) mudou(aram) desde o registro — confira os blocos.`
-    : 'Nenhuma situação mudou.', mudadas ? 'aviso' : 'sucesso');
+    : 'Nenhuma situação mudou.') + parte, (mudadas || falhas) ? 'aviso' : 'sucesso');
 }
 
 /** Texto final do e-mail: reconsulta a situação das selecionadas na Câmara
@@ -2929,10 +2974,14 @@ async function atualizarSituacoesEmail() {
  *  situação velha é o defeito mais caro deste sistema) e busca a assinatura. */
 async function prepararEmailFinal() {
   const sel = demandasSelecionadas();
-  let mudadas = 0;
-  try {
-    await mapLimit(sel, 4, async d => { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; });
-  } catch (_) { /* segue com o que há */ }
+  let mudadas = 0, falhas = 0;
+  // Cada demanda é conferida por si: uma que falhe não pode calar as outras nem
+  // sair como se tivesse sido reconsultada — e-mail com situação velha e sem
+  // aviso é o defeito mais caro deste sistema.
+  await mapLimit(sel, 4, async d => {
+    try { if (await atualizarSituacaoDemanda(d, { silencioso: true })) mudadas++; }
+    catch (_) { falhas++; }
+  });
   let assinatura = _liderCache?.assinatura;
   if (!assinatura) {
     try { assinatura = (await liderDoPodemos()).assinatura; }
@@ -2941,6 +2990,7 @@ async function prepararEmailFinal() {
   renderizarEmail();
   const avisos = [];
   if (mudadas) avisos.push(`${mudadas} situação(ões) mudou(aram) desde o registro`);
+  if (falhas) avisos.push(`${falhas} situação(ões) NÃO pôde(ram) ser conferida(s) na Câmara — vai a do dia do registro`);
   if (!assinatura) avisos.push('não consegui buscar o líder na API — a assinatura ficou como marcador');
   return { texto: montarEmailDemandas(demandasSelecionadas(), assinatura), avisos };
 }

@@ -92,6 +92,34 @@ function raciocinioAdaptativo(modelo) {
   return maior >= 5 || (maior === 4 && menor >= 6);
 }
 
+// Resposta SEM TEXTO é falha, não resultado. Os três provedores têm caminhos
+// que devolvem HTTP 200 sem nenhum texto — bloqueio de conteúdo no Gemini
+// (promptFeedback.blockReason, finishReason SAFETY/RECITATION), recusa na
+// Anthropic, resposta incompleta na OpenAI, ou o teto de saída consumido
+// inteiro pelo raciocínio. Devolver '' nesses casos fazia o chamador salvar
+// uma análise VAZIA como pronta, com toast de sucesso e gravação no Firebase.
+const MOTIVO_SEM_TEXTO = {
+  SAFETY: 'o provedor barrou a resposta por política de conteúdo (SAFETY)',
+  RECITATION: 'o provedor barrou a resposta por recitação de conteúdo protegido (RECITATION)',
+  PROHIBITED_CONTENT: 'o provedor barrou a resposta por conteúdo proibido',
+  BLOCKLIST: 'o provedor barrou a resposta por lista de bloqueio',
+  SPII: 'o provedor barrou a resposta por dado pessoal sensível',
+  OTHER: 'o provedor interrompeu a geração sem detalhar a causa',
+  MAX_TOKENS: 'o limite de saída acabou antes de o modelo escrever qualquer texto (raciocínio longo demais para o teto)',
+  REFUSAL: 'o modelo recusou a solicitação',
+  INCOMPLETE: 'a resposta veio incompleta, sem texto',
+  END_TURN: 'o modelo encerrou o turno sem escrever nada',
+  STOP: 'o modelo encerrou a geração sem escrever nada',
+  COMPLETED: 'o provedor deu a resposta por concluída, mas ela não trazia texto',
+};
+function exigirTexto(texto, motivo) {
+  if (texto) return texto;
+  const chave = String(motivo || '').toUpperCase();
+  const explicacao = MOTIVO_SEM_TEXTO[chave]
+    || (motivo ? `o provedor informou "${motivo}"` : 'o provedor não informou a causa');
+  throw new Error(`O modelo não devolveu texto: ${explicacao}. Nada foi salvo — tente de novo, troque de modelo ou ajuste as instruções.`);
+}
+
 async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, opcoes = {} }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
   const maxSaida = opcoes.maxSaida || 12000;
@@ -122,13 +150,14 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         for (const pt of cand?.content?.parts || []) if (pt.text && !pt.thought) texto += pt.text;
         if (cand?.finishReason) fim = cand.finishReason;
       }
-      return { text: texto.trim(), truncated: fim.toUpperCase() === 'MAX_TOKENS' };
+      return { text: exigirTexto(texto.trim(), fim), truncated: fim.toUpperCase() === 'MAX_TOKENS' };
     }
     const json = await fetchIA(url, init);
     const cand = json.candidates?.[0];
+    // Com grounding o texto pode vir em vários parts — concatena todos.
+    const texto = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
     return {
-      // Com grounding o texto pode vir em vários parts — concatena todos.
-      text: (cand?.content?.parts || []).map(p => p.text || '').join('').trim(),
+      text: exigirTexto(texto, json.promptFeedback?.blockReason || cand?.finishReason),
       truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
     };
   }
@@ -159,7 +188,10 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         if (/^response\.(completed|incomplete|failed)$/.test(ev.evento || '')) fim = ev.dados?.response || null;
       }
       if (fim?.status === 'failed') throw new Error(fim.error?.message || 'resposta falhou');
-      return { text: texto.trim(), truncated: fim?.status === 'incomplete' || fim?.incomplete_details?.reason === 'max_output_tokens' };
+      return {
+        text: exigirTexto(texto.trim(), fim?.incomplete_details?.reason || fim?.status),
+        truncated: fim?.status === 'incomplete' || fim?.incomplete_details?.reason === 'max_output_tokens',
+      };
     }
     const json = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
@@ -177,7 +209,9 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     if (!texto) texto = (json.output_text || '').trim();
     const trunc = (json.status === 'incomplete')
       || (json.incomplete_details?.reason === 'max_output_tokens');
-    return { text: texto, truncated: trunc };
+    // Recusa da OpenAI vem como bloco "refusal", sem output_text.
+    const recusa = (json.output || []).some(i => (i.content || []).some(c => c.type === 'refusal'));
+    return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc };
   }
 
   if (provedorId === 'anthropic') {
@@ -213,7 +247,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         if (d.type === 'message_delta' && d.delta?.stop_reason) parada = d.delta.stop_reason;
       }
       if (parada === 'refusal') throw new Error('O modelo recusou a solicitação (stop_reason refusal).');
-      return { text: texto.trim(), truncated: parada === 'max_tokens' };
+      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens' };
     }
     const json = await fetchIA('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) });
     // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
@@ -221,7 +255,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     for (const item of (json.content || [])) {
       if (item.type === 'text' && item.text) texto += (texto ? '\n' : '') + item.text;
     }
-    return { text: texto.trim(), truncated: json.stop_reason === 'max_tokens' };
+    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens' };
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);
