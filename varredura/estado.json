@@ -2,14 +2,75 @@
   "descricao": "Varredura de bugs do SisPode, feita por lotes e retomável. Cada lote roda o workflow em varredura/workflow-varredura.js; os achados brutos ficam em varredura/achados/<chave>.json; a avaliação é feita depois pelo modelo da sessão, lendo o código. Este arquivo é a memória: se o contêiner for reciclado, clone o branch varredura-bugs e continue pelo primeiro lote com status pendente.",
   "iniciada_em": "2026-09-14",
   "lotes": [
-    { "n": 0, "status": "concluido", "areas": ["analise-cenarios", "analise-geracao"],
-      "nota": "Varrido em 14/09/2026 com modelo forte (antes da mudança para finder econômico). 11 achados; 9 avaliados, confirmados e corrigidos no branch correcoes-varredura." },
-    { "n": 1, "status": "pendente", "areas": ["lideres", "congresso", "x-firebase", "x-segredos"] },
-    { "n": 2, "status": "pendente", "areas": ["ccjc", "comissoes-gestao", "pautas-comissoes", "votacao-aderencia"] },
-    { "n": 3, "status": "pendente", "areas": ["orcamento-notas", "orcamento-conferencia", "emendas", "x-datas-numeros"] },
-    { "n": 4, "status": "pendente", "areas": ["parecer-nucleo", "parecer-dados", "ia-comum", "analise-parecer-tela"] },
-    { "n": 5, "status": "pendente", "areas": ["bot-nucleo", "bot-monitor", "bot-conteudo", "bot-infra"] },
-    { "n": 6, "status": "pendente", "areas": ["panel-destaques", "x-concorrencia", "x-testes"] }
+    {
+      "n": 0,
+      "status": "concluido",
+      "areas": [
+        "analise-cenarios",
+        "analise-geracao"
+      ],
+      "nota": "Varrido em 14/09/2026 com modelo forte (antes da mudança para finder econômico). 11 achados; 9 avaliados, confirmados e corrigidos no branch correcoes-varredura."
+    },
+    {
+      "n": 1,
+      "status": "concluido",
+      "areas": [
+        "lideres",
+        "congresso",
+        "x-firebase",
+        "x-segredos"
+      ],
+      "nota": "Varrido em 14/09/2026 (finder econômico, contrato de texto). 9 achados; avaliação em varredura/achados/avaliacao-lote1.md: 5 confirmados (1 crítico), 2 refutados."
+    },
+    {
+      "n": 2,
+      "status": "pendente",
+      "areas": [
+        "ccjc",
+        "comissoes-gestao",
+        "pautas-comissoes",
+        "votacao-aderencia"
+      ]
+    },
+    {
+      "n": 3,
+      "status": "pendente",
+      "areas": [
+        "orcamento-notas",
+        "orcamento-conferencia",
+        "emendas",
+        "x-datas-numeros"
+      ]
+    },
+    {
+      "n": 4,
+      "status": "pendente",
+      "areas": [
+        "parecer-nucleo",
+        "parecer-dados",
+        "ia-comum",
+        "analise-parecer-tela"
+      ]
+    },
+    {
+      "n": 5,
+      "status": "pendente",
+      "areas": [
+        "bot-nucleo",
+        "bot-monitor",
+        "bot-conteudo",
+        "bot-infra"
+      ]
+    },
+    {
+      "n": 6,
+      "status": "pendente",
+      "areas": [
+        "panel-destaques",
+        "x-concorrencia",
+        "x-testes"
+      ]
+    }
   ],
   "como_retomar": [
     "1. git checkout varredura-bugs (o branch tem o script, o estado e os achados já colhidos)",
