@@ -240,7 +240,17 @@ function drawAdherenceDonut(canvas, pct, size) {
 }
 
 // ── CANVAS: GRÁFICO TEMPORAL ──────────────────────────────────────────────────
-/** Agrupa qualifying por semana ou mês conforme extensão do período */
+/**
+ * Agrupa qualifying por semana ou mês conforme extensão do período.
+ *
+ * Cada balde carrega o que a barra precisa para ser uma PORCENTAGEM: os votos
+ * aderentes e os votos POSSÍVEIS do período — bancada × votações do balde, o
+ * mesmo denominador do número grande do topo (partySize × qualifying.length).
+ * Dividir a soma de aderentes de várias votações pela bancada de UMA dava mais
+ * de 100% e o clamp do desenho transformava isso em barra cheia: em agosto de
+ * 2026, 38 aderências em 4 votações de uma bancada de 27 viravam "100%" sob um
+ * cabeçalho que dizia 35,2%.
+ */
 function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
   const start   = new Date(dataIni);
   const end     = new Date(dataFim);
@@ -260,20 +270,27 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
       const d   = new Date(dt);
       const day = d.getDay() || 7; // 0 domingo → 7
       d.setDate(d.getDate() - day + 1);
-      key   = d.toISOString().slice(0, 10);
       const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
+      // A chave vem das partes LOCAIS da data, como o rótulo. Com
+      // toISOString() ela era convertida para UTC: no fuso de Brasília, uma
+      // votação registrada às 22h caía no dia seguinte em UTC e abria um
+      // segundo balde para a MESMA semana — duas barras com o mesmo rótulo.
+      key   = d.getFullYear() + '-' + mm + '-' + dd;
       label = dd + '/' + mm;
     }
-    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0 };
+    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0, possiveis: 0 };
     buckets[key].aderiu += e.adherentCount;
+    buckets[key].possiveis += partySize;
     buckets[key].count++;
   });
 
-  return Object.values(buckets).sort((a, b) => a.key.localeCompare(b.key));
+  return Object.values(buckets)
+    .map(b => ({ ...b, pct: b.possiveis > 0 ? (b.aderiu / b.possiveis) * 100 : 0 }))
+    .sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function drawTemporalChart(canvas, groups, partySize) {
+function drawTemporalChart(canvas, groups) {
   const dpr  = window.devicePixelRatio || 1;
   const W    = canvas.parentElement ? (canvas.parentElement.clientWidth - 32) : 496;
   const H    = 160;
@@ -313,7 +330,11 @@ function drawTemporalChart(canvas, groups, partySize) {
 
   // Barras
   groups.forEach((g, i) => {
-    const rawPct = partySize > 0 ? (g.aderiu / partySize) * 100 : 0;
+    // A porcentagem vem pronta de agruparPorPeriodo, sobre os votos POSSÍVEIS
+    // do período. O clamp abaixo é só proteção da geometria: com o denominador
+    // certo ele não tem mais o que cortar — era ele que escondia o 140% que
+    // virava barra cheia.
+    const rawPct = Number.isFinite(g.pct) ? g.pct : 0;
     const pct    = Math.max(0, Math.min(100, rawPct));
     const barH   = chartH * (pct / 100);
     const x      = padL + slotW * i + slotW / 2 - barW / 2;
@@ -604,7 +625,7 @@ function renderRelatorio(ctx) {
     const subEl = document.getElementById('temporal-sub');
     if (subEl) subEl.textContent = diffDias > 60 ? 'por mês' : 'por semana';
     if (canvas && groups.length > 0) {
-      drawTemporalChart(canvas, groups, partySize);
+      drawTemporalChart(canvas, groups);
     }
   });
 
