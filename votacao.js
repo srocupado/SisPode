@@ -960,9 +960,16 @@ async function processPortalDoc(doc, seq) {
   var votingDesc  = selectedOpt ? selectedOpt.textContent.trim() : 'Votação';
 
   // Contagens globais direto do HTML
+  // Contagem ausente na página NÃO é zero: se o portal mudar o HTML, um placar
+  // inteiro zerado seria apresentado como resultado da votação. Registra quais
+  // não foram lidas para avisar depois (varredura de 14/09/2026).
+  var qtdAusentes = [];
   function getQtd(cls) {
     var el = doc.querySelector('li.' + cls + ' .qtd');
-    return el ? parseInt(el.textContent.trim()) || 0 : 0;
+    if (!el) { qtdAusentes.push(cls); return 0; }
+    var n = parseInt(el.textContent.trim());
+    if (isNaN(n)) { qtdAusentes.push(cls); return 0; }
+    return n;
   }
   var quorum       = getQtd('quorum');
   var totalSim     = getQtd('sim');
@@ -1000,11 +1007,21 @@ async function processPortalDoc(doc, seq) {
       .replace(/[^A-ZÁÉÍÓÚÀÃÕÇÂÊÎ]/g, ''); // só letras, sem espaços ou pontuação
   }
   // Verdadeiro se as chaves normalizadas indicam o mesmo deputado
-  function mesmoDeputado(a, b) {
+  // Dois registros são o MESMO deputado quando o nome normalizado bate, ou
+  // quando um nome é começo do outro E partido/UF coincidem. Sem a segunda
+  // condição, "Ana Paula" engolia "Ana Paula Lima" e "Luiz Carlos" engolia
+  // "Luiz Carlos Motta" (medido) — parlamentares distintos, e o segundo
+  // sumia do placar da bancada por ser tomado como duplicata do primeiro
+  // (varredura de 14/09/2026).
+  function mesmoDeputado(a, b, puA, puB) {
     if (a === b) return true;
     var shorter = a.length <= b.length ? a : b;
     var longer  = a.length <= b.length ? b : a;
-    return shorter.length >= 6 && longer.startsWith(shorter);
+    if (!(shorter.length >= 6 && longer.startsWith(shorter))) return false;
+    return !!puA && !!puB && puA === puB;
+  }
+  function chavePartidoUf(d) {
+    return String(d.siglaPartido || '').toUpperCase() + '-' + String(d.siglaUf || '').toUpperCase();
   }
 
   // Deputados presentes na página
@@ -1078,13 +1095,14 @@ async function processPortalDoc(doc, seq) {
       var existingChaves = [];
       filtered.forEach(function (d) {
         if (d.id) existingIds[d.id] = true;
-        existingChaves.push(normNome(d.nome));
+        existingChaves.push({ nome: normNome(d.nome), pu: chavePartidoUf(d) });
       });
       roster.forEach(function (dep) {
         var depId    = String(dep.id || '');
         var depChave = normNome(dep.nome);
+        var depPu    = chavePartidoUf(dep);
         if (depId && existingIds[depId]) return;
-        if (existingChaves.some(function(c) { return mesmoDeputado(c, depChave); })) return;
+        if (existingChaves.some(function(c) { return mesmoDeputado(c.nome, depChave, c.pu, depPu); })) return;
         filtered.push({
           nome: dep.nome, siglaPartido: dep.siglaPartido, siglaUf: dep.siglaUf,
           tipoVoto: null, votoClass: 'absent'
@@ -1148,6 +1166,14 @@ async function processPortalDoc(doc, seq) {
   });
 
   var sourceBadge = '<span class="vote-source-badge" style="background:rgba(255,170,50,0.15);color:#ffb347;border:1px solid rgba(255,170,50,0.3);margin-left:6px;">🌐 Portal Web</span>';
+  // Contagem que não foi encontrada na página sai como zero na tela; o aviso
+  // diz quais, para ninguém ler zero como resultado da votação.
+  if (qtdAusentes.length) {
+    sourceBadge += '<span class="vote-source-badge" title="Não localizadas no HTML do portal: '
+      + qtdAusentes.join(', ') + '. O portal pode ter mudado o formato — confira na fonte."'
+      + ' style="background:rgba(220,70,70,0.15);color:#ff8a8a;border:1px solid rgba(220,70,70,0.35);margin-left:6px;">⚠ '
+      + qtdAusentes.length + ' contagem(ns) não lida(s)</span>';
+  }
 
   document.getElementById('portalStatusArea').innerHTML = '';
   document.getElementById('portalResultsArea').innerHTML =

@@ -104,6 +104,34 @@ async function fbGet(path) {
   return r.json();
 }
 
+/**
+ * Grava a composição de uma comissão relendo o que está no Firebase antes de
+ * aplicar a mudança, e só toca o estado local depois que a gravação deu certo.
+ *
+ * Os dois defeitos que isto corrige (varredura de 14/09/2026): a tela mudava
+ * antes da escrita, mostrando designação que o banco não tinha quando a
+ * gravação falhava; e cada mudança gravava o objeto INTEIRO a partir do estado
+ * local, de modo que dois analistas mexendo na mesma comissão ao mesmo tempo
+ * apagavam a designação um do outro. As regras do banco são abertas e não há
+ * transação, então relemos imediatamente antes — a janela de corrida não some,
+ * mas encolhe de "desde que a tela foi carregada" para "o tempo de uma leitura".
+ */
+async function gravarMembros(sigla, aplicar) {
+  let atual;
+  try {
+    atual = await fbGet(`/membros/${sigla}`) || {};
+  } catch (e) {
+    // Sem conseguir ler, parte do estado local — melhor do que não deixar
+    // trabalhar; a mudança continua sendo gravada com await.
+    console.warn(`[comissoes] não consegui reler /membros/${sigla} antes de gravar:`, e.message);
+    atual = JSON.parse(JSON.stringify(state.membros[sigla] || {}));
+  }
+  aplicar(atual);
+  await fbPut(`/membros/${sigla}`, atual);
+  state.membros[sigla] = atual;   // só depois de gravado
+  return atual;
+}
+
 async function fbPut(path, data) {
   const r = await fetch(`${FB_BASE}${path}.json`, {
     method: 'PUT',
@@ -738,26 +766,25 @@ async function adicionarMembro(sigla, depId, tipo, isAcordo = false) {
 
   const lista = tipo === 'titular' ? c.titulares : c.suplentes;
   if (lista.includes(depId)) return false;
-  lista.push(depId);
 
-  if (isAcordo) {
-    const acordoKey = tipo === 'titular' ? 'titulares_acordo' : 'suplentes_acordo';
-    if (!c[acordoKey]) c[acordoKey] = {};
-    c[acordoKey][depId] = true;
-  }
-
-  await fbPut(`/membros/${sigla}`, c);
+  const acordoKey = tipo === 'titular' ? 'titulares_acordo' : 'suplentes_acordo';
+  await gravarMembros(sigla, atual => {
+    const l = tipo === 'titular' ? (atual.titulares = atual.titulares || []) : (atual.suplentes = atual.suplentes || []);
+    if (!l.includes(depId)) l.push(depId);
+    if (isAcordo) { atual[acordoKey] = atual[acordoKey] || {}; atual[acordoKey][depId] = true; }
+  });
   return true;
 }
 
 async function removerMembro(sigla, depId) {
   const c = state.membros[sigla];
   if (!c) return;
-  c.titulares = (c.titulares || []).filter(id => id !== depId);
-  c.suplentes = (c.suplentes || []).filter(id => id !== depId);
-  if (c.titulares_acordo) delete c.titulares_acordo[depId];
-  if (c.suplentes_acordo) delete c.suplentes_acordo[depId];
-  await fbPut(`/membros/${sigla}`, c);
+  await gravarMembros(sigla, atual => {
+    atual.titulares = (atual.titulares || []).filter(id => id !== depId);
+    atual.suplentes = (atual.suplentes || []).filter(id => id !== depId);
+    if (atual.titulares_acordo) delete atual.titulares_acordo[depId];
+    if (atual.suplentes_acordo) delete atual.suplentes_acordo[depId];
+  });
 }
 
 // ---------- PEDIDOS ----------
@@ -1898,9 +1925,11 @@ async function salvarDepAcordo() {
   const entry   = state.transferencias[sigla]?.cedidas?.[transfId];
   if (!entry) return;
 
+  // Grava primeiro e só então muda a tela: falhando a escrita, o registro não
+  // pode ficar aparecendo como salvo (varredura de 14/09/2026).
   const updated = { ...entry, depNome: nome, depPartido: partido, depUf: uf };
-  state.transferencias[sigla].cedidas[transfId] = updated;
   await fbPut(`/transferencias/${sigla}/cedidas/${transfId}`, updated);
+  state.transferencias[sigla].cedidas[transfId] = updated;
 
   _depAcordoCtx = null;
   fecharModal('modal-dep-acordo');
