@@ -40,7 +40,7 @@
         "emendas",
         "x-datas-numeros"
       ],
-      "nota": "Adiado a pedido na primeira tentativa (15/09/2026) e rodado no fim, depois do lote 5. 12 achados; avaliação em varredura/achados/avaliacao-lote3.md: 5 confirmados (2 altos), 2 confirmados menores, 5 refutados. Com este lote as 25 frentes estão varridas."
+      "nota": "Adiado a pedido na primeira tentativa (15/09/2026) e rodado no fim, depois do lote 5. 12 achados; avaliação em varredura/achados/avaliacao-lote3.md: 5 confirmados (2 altos), 2 confirmados menores, 5 refutados. Com este lote as 25 frentes estão varridas. Os sete confirmados foram corrigidos no branch correcoes-varredura (commit bd7297c), com testes/correcoes-lote3.test.js."
     },
     {
       "n": 4,
