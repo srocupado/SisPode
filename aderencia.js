@@ -726,7 +726,9 @@ function buildDepDetailHTML(m, ctx) {
 
     listHTML +=
       '<div class="item">' +
-        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' + voto + '</div>' +
+        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' +
+          '<span class="rot">Voto:</span> ' + voto +
+        '</div>' +
         '<div class="item-corpo">' +
           '<div class="desc">' + desc + '</div>' +
           '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +

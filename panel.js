@@ -3358,7 +3358,7 @@ const MODULES = [
     titulo: 'Aderência ao Governo',
     desc:   'Calcule o índice de aderência do partido às orientações do governo por período, com análise individual por deputado.',
     cor:    'teal',
-    icone:  '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    icone:  '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
     acao:   abrirAderencia,
   },
   {

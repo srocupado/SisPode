@@ -93,8 +93,11 @@ ctx.__m = { dep: DEP, pct: 75, aderiu: 3, divergiu: 1, ausente: 0 };
 
   console.log('\n== o voto ocupa a esquerda, no lugar do ✓/✗ redundante ==');
   {
-    const votos = itens.map(i => i.querySelector('.mark').textContent.trim());
-    ok(votos.join(',') === 'Sim,Não,Não,Sim', `a esquerda traz o voto literal (${votos.join(', ')})`);
+    const votos = itens.map(i => i.querySelector('.mark').textContent.replace(/\s+/g, ' ').trim());
+    ok(votos.join(',') === 'Voto: Sim,Voto: Não,Voto: Não,Voto: Sim',
+       `a esquerda traz o voto literal, rotulado (${votos.join(', ')})`);
+    ok(itens.every(i => i.querySelector('.mark .rot').textContent.trim() === 'Voto:'),
+       'e o rótulo "Voto:" se repete em cada pastilha — a lista rola, um cabeçalho de coluna sumiria');
     ok(!itens.some(i => /[✓✗]/.test(i.querySelector('.mark').textContent)),
        'e não o ✓/✗, que repetia o veredito da direita');
     ok(itens[1].querySelector('.mark').getAttribute('title') === 'Voto do deputado: Não',
@@ -137,7 +140,7 @@ ctx.__m = { dep: DEP, pct: 75, aderiu: 3, divergiu: 1, ausente: 0 };
     ] };
     const d2 = new DOMParser().parseFromString('<div>' + av('buildDepDetailHTML(__m, __ctx)') + '</div>', 'text/html');
     const its = [...d2.querySelectorAll('.item')];
-    const ausente = its.find(i => i.querySelector('.mark').textContent.trim() === '—');
+    const ausente = its.find(i => /Voto:\s*—/.test(i.querySelector('.mark').textContent.replace(/\s+/g, ' ')));
     ok(!!ausente, 'quem não registrou voto tem a pastilha com um traço, não um voto inventado');
     ok(ausente.querySelector('.mark').getAttribute('title') === 'Não registrou voto nesta votação',
        'e o traço se explica ao passar o mouse');
