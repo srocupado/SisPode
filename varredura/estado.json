@@ -33,14 +33,14 @@
     },
     {
       "n": 3,
-      "status": "adiado",
+      "status": "concluido",
       "areas": [
         "orcamento-notas",
         "orcamento-conferencia",
         "emendas",
         "x-datas-numeros"
       ],
-      "nota": "Iniciado em 15/09/2026 e interrompido a pedido, sem nenhum agente concluir — nada aproveitável. Retomar depois do lote 4."
+      "nota": "Adiado a pedido na primeira tentativa (15/09/2026) e rodado no fim, depois do lote 5. 12 achados; avaliação em varredura/achados/avaliacao-lote3.md: 5 confirmados (2 altos), 2 confirmados menores, 5 refutados. Com este lote as 25 frentes estão varridas."
     },
     {
       "n": 4,
