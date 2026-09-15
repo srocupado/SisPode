@@ -431,13 +431,31 @@ body {
   transform: translateY(-1px);
   border-color: var(--border-soft);
 }
+/* Inativo = já votado (ou fora da página da Câmara). Continua CLICÁVEL: o
+   texto da assessoria se consulta ali. Por isso .45 subiu para .6 e o hover
+   volta a opacidade cheia — apagado demais e sem resposta ao mouse, o card
+   parecia morto e ninguém tentava abrir. */
 .destaque-card.inativo {
-  opacity: .45;
-  cursor: default;
+  opacity: .6;
+  cursor: pointer;
 }
 .destaque-card.inativo:hover {
+  opacity: 1;
   transform: none;
   box-shadow: none;
+}
+
+/* Faixa do modo consulta, no topo do card completo (neutra: não é alerta,
+   é estado). */
+.aviso-inativo {
+  margin: 8px 0 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-dim);
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border);
+  border-radius: 6px;
 }
 
 .destaque-card-header {
@@ -572,6 +590,27 @@ body {
 .campo-editavel:hover { border-color: var(--border-soft); background: rgba(255,255,255,0.03); }
 .campo-editavel:focus { outline: none; border-color: var(--accent); background: rgba(31,165,165,0.05); }
 .campo-editavel::placeholder { color: #4a6268; font-style: italic; }
+
+/* Modo consulta (destaque já votado): o texto fica selecionável e copiável,
+   mas nada sugere edição — sem realce de hover, sem borda de foco. A barra à
+   esquerda é o que diz "isto é registro". */
+.campo-editavel[readonly],
+.orientacao-input[readonly] {
+  cursor: text;
+  border-color: transparent;
+  border-left: 2px solid var(--border-soft);
+  border-radius: 0 6px 6px 0;
+  background: rgba(255,255,255,0.02);
+}
+.campo-editavel[readonly]:hover,
+.campo-editavel[readonly]:focus,
+.orientacao-input[readonly]:hover,
+.orientacao-input[readonly]:focus {
+  outline: none;
+  border-color: transparent;
+  border-left-color: var(--border-soft);
+  background: rgba(255,255,255,0.02);
+}
 
 .voto-sim .campo-editavel:focus { border-color: #3ad97d; }
 .voto-nao .campo-editavel:focus { border-color: #f05454; }
