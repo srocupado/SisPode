@@ -118,16 +118,25 @@ async function linhaAutoriaItem(item) {
     if (String(alvo.sigla).toUpperCase() === 'REQ') return '';
     const prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
     if (!prop) return '';
-    const a = await autoriaPodeDe(prop.id);
+    // Falha de consulta NÃO vira fato: sem apuração, a linha some (e a IA
+    // simplesmente não fala de autoria), em vez de afirmar "VERIFICADA ...
+    // nenhum do Podemos" sobre o que não se verificou — varredura de 15/09/2026.
+    let a;
+    try { a = await autoriaPodeDe(prop.id); }
+    catch (e) { console.warn('[perguntar] autoria não verificada:', e.message); return ''; }
     let linha = a.ehPode
       ? `AUTORIA VERIFICADA (API da Câmara): ✔ ${a.principal ? 'AUTORIA' : 'COAUTORIA'} PODEMOS${a.autores.length ? ` — ${a.autores.join(', ')}` : ''}.`
       : 'AUTORIA VERIFICADA (API da Câmara): nenhum(a) autor(a)/coautor(a) filiado(a) ao Podemos hoje.';
     const aps = [];
+    let apensadasIncertas = 0;
     for (const ap of await apensadosDe(prop.id)) {
-      const ra = await autoriaPodeDe(ap.id).catch(() => ({ ehPode: false }));
+      let ra = null;
+      try { ra = await autoriaPodeDe(ap.id); }
+      catch (_) { apensadasIncertas++; continue; }   // não vira "não é do Podemos"
       if (ra.ehPode) aps.push(`${ap.sigla} ${ap.numero}/${ap.ano}${ra.autores.length ? ` (${ra.autores.join(', ')})` : ''}`);
     }
     if (aps.length) linha += ` Apensada(s) de autoria/coautoria Podemos: ${aps.join('; ')}.`;
+    if (apensadasIncertas) linha += ` (${apensadasIncertas} apensada(s) não puderam ser verificadas agora.)`;
     return linha + '\n\n';
   } catch (_) { return ''; }
 }
@@ -175,13 +184,17 @@ async function fetchJsonCamara(url) {
 }
 
 /** Partido atual de um deputado (ultimoStatus), como fetchInfoDeputado do painel. */
+/**
+ * Sigla do partido do deputado hoje. Lança quando a CONSULTA falha — antes
+ * devolvia nulo e ainda GUARDAVA o nulo em cache, de modo que uma oscilação de
+ * segundos virava "não é do Podemos" e ficava assim enquanto o processo do bot
+ * vivesse (dias). A falha não é cacheada: a próxima pergunta tenta de novo.
+ * Varredura de 15/09/2026.
+ */
 async function siglaPartidoDep(idDep) {
   if (_depCache.has(idDep)) return _depCache.get(idDep);
-  let sig = null;
-  try {
-    const j = await fetchJsonCamara(`${API_CAMARA}/deputados/${idDep}`);
-    sig = j.dados?.ultimoStatus?.siglaPartido || null;
-  } catch (_) { sig = null; }
+  const j = await fetchJsonCamara(`${API_CAMARA}/deputados/${idDep}`);
+  const sig = j.dados?.ultimoStatus?.siglaPartido || null;
   _depCache.set(idDep, sig);
   return sig;
 }
@@ -285,7 +298,11 @@ async function resolverAutoriaPauta(pauta) {
           entrada.ehPode = a.ehPode; entrada.principal = a.principal; entrada.autores = a.autores;
           // Apensadas pela cadeia real da API (mesma da extensão), com autoria/coautoria
           for (const ap of await apensadosDe(prop.id)) {
-            const ra = await autoriaPodeDe(ap.id).catch(() => ({ ehPode: false }));
+            // Falha ao consultar a apensada é "não verificada", não "não é do
+            // Podemos": pular é melhor que afirmar (varredura de 15/09/2026).
+            let ra = null;
+            try { ra = await autoriaPodeDe(ap.id); }
+            catch (_) { entrada.apensadosIncertos = (entrada.apensadosIncertos || 0) + 1; continue; }
             if (ra.ehPode) entrada.apensadosPode.push({
               rotulo: `${ap.sigla} ${ap.numero}/${ap.ano}`, autores: ra.autores, principal: ra.principal,
             });

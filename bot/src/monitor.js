@@ -120,7 +120,11 @@ function registrarMsgGrupo(chat, msg, texto) {
   if (!msg || msg.message_id == null) return;
   _msgsGrupo.push({ message_id: msg.message_id, chat, texto: String(texto || ''), ts: Date.now() });
   if (_msgsGrupo.length > REVISAVEIS_MAX) _msgsGrupo = _msgsGrupo.slice(-REVISAVEIS_MAX);
-  fbPut('/bot/msgs_grupo', _msgsGrupo).catch(() => {});
+  // O registro é o que o /revisar_msg lista: falha silenciosa deixava lacuna e
+  // o analista procurava uma mensagem que o bot mandou e não achava
+  // (varredura de 15/09/2026).
+  fbPut('/bot/msgs_grupo', _msgsGrupo)
+    .catch(e => console.warn('[monitor] registro de mensagem do grupo não foi salvo no Firebase:', e.message));
 }
 
 /** Lista para o /revisar_msg — mais RECENTE primeiro, numerada de 1. */
@@ -143,7 +147,11 @@ async function revisarMsgGrupo(n, novoTexto) {
     return { ok: false, erro: /not modified/i.test(m) ? 'o texto novo é igual ao atual.' : m };
   }
   const i = _msgsGrupo.findIndex(x => x.message_id === alvo.message_id && x.chat === alvo.chat);
-  if (i >= 0) { _msgsGrupo[i].texto = texto; fbPut('/bot/msgs_grupo', _msgsGrupo).catch(() => {}); }
+  if (i >= 0) {
+    _msgsGrupo[i].texto = texto;
+    fbPut('/bot/msgs_grupo', _msgsGrupo)
+      .catch(e => console.warn('[monitor] texto revisado não foi salvo no registro:', e.message));
+  }
   return { ok: true, anterior: alvo.texto };
 }
 
