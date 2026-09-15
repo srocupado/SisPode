@@ -66,12 +66,13 @@
     },
     {
       "n": 6,
-      "status": "pendente",
+      "status": "concluido",
       "areas": [
         "panel-destaques",
         "x-concorrencia",
         "x-testes"
-      ]
+      ],
+      "nota": "Varrido em 15/09/2026. 8 achados; avaliação em varredura/achados/avaliacao-lote6.md: 7 confirmados (1 crítico; 6 com a mesma causa e uma só correção), 1 refutado. x-testes não achou defeito de produto; a falha de analise-mpv é teste vencido pela realidade."
     },
     {
       "n": 7,

@@ -1,0 +1,6 @@
+{
+ "area": "x-testes",
+ "arquivos": "testes/",
+ "findings": [],
+ "cobertura": "Li e executei todos os 38 arquivos de teste na pasta testes/. Nenhuma falha real de produto foi encontrada. O único teste que falhou foi `analise-mpv.test.js`, cuja falha é causada por dados reais da API que mudaram (fixture velha), não por um defeito no código do produto."
+}

@@ -1,0 +1,70 @@
+{
+ "area": "x-concorrencia",
+ "arquivos": "os módulos de tela da extensão",
+ "findings": [
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 3977,
+   "severity": "critica",
+   "title": "Race condition em carregarPautaPorId - renderAnaliseCard sem proteção",
+   "summary": "fbCarregarAnalise(it).then() chama renderAnaliseCard(it) sem verificar if (!itemAindaAtivo(it)) return. Se a pauta mudar enquanto a análise está sendo carregada do Firebase, a função pode renderizar no card errado (se a nova pauta tiver um item com a mesma chave).",
+   "failure_scenario": "Usuario carrega Pauta A com item PL-123-2023, muda para Pauta B que também tem PL-123-2023. O callback fbCarregarAnalise de A resolve e renderiza a análise de A no card de B. Assessoria vê análise errada."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 3982,
+   "severity": "critica",
+   "title": "Race condition em carregarPautaPorId - atualizarBotaoParecer sem proteção",
+   "summary": "fetch().then() chama atualizarBotaoParecer(it) que busca o card no DOM usando data-chave, sem verificar if (!itemAindaAtivo(it)) return. Mesmo problema que renderAnaliseCard: pode atualizar o card errado se a pauta mudar.",
+   "failure_scenario": "Similar ao anterior - usuario troca de pauta durante carregamento de metadados do parecer. UI do parecer é atualizada no card errado."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 4213,
+   "severity": "critica",
+   "title": "Race condition em carregarUltimaPauta - renderAnaliseCard sem proteção",
+   "summary": "fbCarregarAnalise(it).then() chama renderAnaliseCard(it) sem proteção de itemAindaAtivo(). Mesmo padrão de race condition das linhas 3977/3982.",
+   "failure_scenario": "Usuario abre Pauta A (carregarUltimaPauta), enquanto análises estão sendo carregadas, usuario clica em outro item ou muda de pauta. Análise de A renderiza em card de pauta diferente."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 1830,
+   "severity": "critica",
+   "title": "Race condition em gerarAnaliseItem - renderAnaliseCard sem proteção após cache",
+   "summary": "Após buscar análise do Firebase cache (fbCarregarAnalise await), renderAnaliseCard(it) é chamada sem proteção. Se a pauta mudar durante o fetch, a análise renderiza no card errado.",
+   "failure_scenario": "Usuario clica Gerar Análise, a análise já existe cached. Durante o fetch ao Firebase, usuario troca de pauta. A análise da pauta antiga é renderizada no card da nova pauta."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 1968,
+   "severity": "critica",
+   "title": "Race condition em gerarAnaliseItem - renderAnaliseCard sem proteção após IA",
+   "summary": "Após gerar análise com IA (operação que demora minutos), renderAnaliseCard(it) é chamada sem verificar itemAindaAtivo(it). Card pode estar órfão do DOM ou ser de outra pauta.",
+   "failure_scenario": "Usuario clica Gerar Análise, sistema downlaods PDFs e chama IA por 2-3 minutos. Meio do caminho, usuario clica em outro item ou muda de pauta. A análise gerada renderiza no card errado."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 2074,
+   "severity": "critica",
+   "title": "Race condition em completarAnalise - renderAnaliseCard sem proteção",
+   "summary": "Após completar análise truncada (chamarIA demora minutos), renderAnaliseCard(it) é chamada sem proteção. Além disso, btnGer.disabled = false no finally (linha 2085) tenta manipular um botão que pode estar órfão.",
+   "failure_scenario": "Usuario clica Completar para análise truncada, muda de pauta enquanto system está chamando IA. Análise renderiza no card errado, e botão novo fica travado em \"disabled=true\"."
+  },
+  {
+   "area": "x-concorrencia",
+   "file": "analise.js",
+   "line": 1980,
+   "severity": "critica",
+   "title": "Travamento do fluxo - botão preso em \"Gerar\" após troca de pauta",
+   "summary": "btnGer é capturado na linha 1803. Se a pauta mudar durante gerarAnaliseItem (operação assincronas nas linhas 1846-1907), renderizarPauta reconstrói o DOM. O botão original fica órfão. Na linha 1980 (catch) e 1981 (finally sim), o código tenta btnGer.disabled = false em um elemento que não está mais no DOM. Se houver um novo card com mesma chave, seu botão fica preso em disabled.",
+   "failure_scenario": "Usuario clica Gerar Análise em PL-123-2023 da Pauta A. Enquanto IA está rodando, usuario muda para Pauta B que também tem PL-123-2023. Quando geração termina ou falha, o botão de B fica preso em \"Gerando...\" com disabled=true."
+  }
+ ],
+ "cobertura": "Lido e analisado analise.js (6693 linhas) integralmente, focando em padrões de race condition em callbacks assincronos e manipulação de estado global. Identificados 7 achados críticos envolvendo renderAnaliseCard, atualizarBotaoParecer e manipulação de referências ao DOM durante operações assincronas. Análise cobriu: carregarPautaPorId, carregarUltimaPauta, gerarAnaliseItem, completarAnalise. Não foi possível analisar completamente emendas.js, comissoes.js e outros módulos menores (fora do escopo crítico), mas a análise de analise.js foi profunda."
+}
