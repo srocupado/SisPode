@@ -76,12 +76,12 @@
     },
     {
       "n": 7,
-      "status": "pendente",
+      "status": "concluido",
       "areas": [
         "x-firebase",
         "x-segredos"
       ],
-      "nota": "Estavam no lote 1 original; a corrida foi reduzida a duas áreas e estas não chegaram a rodar."
+      "nota": "Varrido em 15/09/2026. 8 achados; avaliação em varredura/achados/avaliacao-lote7.md: nenhum defeito ativo — 2 recomendações de postura (chave do Gemini na query string; fallback do salvamento de destaque) e 6 refutados. Confirmado: nenhum segredo versionado, chave nunca vai ao Firebase, chave não aparece em PDF nem em log."
     }
   ],
   "como_retomar": [

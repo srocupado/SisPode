@@ -1,0 +1,52 @@
+{
+ "area": "x-segredos",
+ "arquivos": "todo o repositório",
+ "findings": [
+  {
+   "area": "x-segredos",
+   "file": "bot/index.js",
+   "line": 2136,
+   "severity": "critica",
+   "title": "Handler global de erros imprime exceções inteiras com chaves potencialmente expostas",
+   "summary": "`bot.catch(err => console.error('Erro no bot:', err))` captura qualquer exceção não tratada e a imprime no console. Se uma exceção contiver a chave de API em seu stack trace (por exemplo, em uma URL que falhou), a chave será impressa nos logs do processo Node.js, onde pode ser persistida em arquivos de log do servidor.",
+   "failure_scenario": "Um usuário executa /perguntar ou outro comando que chama chamarIAtexto com sua apiKey; ocorre um erro de rede; a exceção propaga até bot.catch; a URL contendo a chave é impressa em console.error; se o processo estiver com log persistido, a chave fica gravada e acessível."
+  },
+  {
+   "area": "x-segredos",
+   "file": "bot/src/ia.js",
+   "line": 82,
+   "severity": "critica",
+   "title": "Chave de API do Gemini embutida diretamente na URL sem sanitização",
+   "summary": "Em chamarIAtexto, a chave é passada na query string: `const url = \\`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}\\`` (também linhas 133 e 170). Se fetch falhar, o stack trace da exceção conterá a URL inteira com a chave exposta.",
+   "failure_scenario": "Falha de conectividade na requisição ao Gemini; fetch lança AbortError ou erro de rede; a URL com a chave entra no stack trace; bot.catch imprime o erro inteiro; a chave fica registrada no log do processo."
+  },
+  {
+   "area": "x-segredos",
+   "file": "bot/index.js",
+   "line": 1913,
+   "severity": "alta",
+   "title": "Console.error de processamento de áudio imprime exceção que pode conter a chave",
+   "summary": "Ao processar mensagens de voz, `console.error('voz falhou:', e)` imprime a exceção inteira se transcreverAudio falhar. Como transcreverAudio usa a chave (linhas 1899 ou 1903), um erro no processamento de áudio pode expor a chave no console.",
+   "failure_scenario": "Usuário envia áudio com chave configurada; transcreverAudio encontra erro de rede; exceção é capturada e impressa em console.error com a chave no stack trace; logs do processo registram a chave."
+  },
+  {
+   "area": "x-segredos",
+   "file": "panel.js",
+   "line": 51,
+   "severity": "alta",
+   "title": "Chave de API do Gemini embutida na URL de listagem de modelos",
+   "summary": "Em PROVEDORES.gemini.listarModelos: `const res = await fetch(\\`${GEMINI_BASE}?key=${apiKey}&pageSize=50\\`)`. Se fetch falhar com erro de rede ou de codificação, a URL com a chave entra no stack trace de exceções impressas em console.error (visto em panel.js:271, 264, 585, 910).",
+   "failure_scenario": "Usuário abre painel e a função carregarModelosDisponiveis é chamada; conexão cai; fetch falha; console.error em registrarEventos (linha 271) imprime a URL com a chave no console do navegador do usuário."
+  },
+  {
+   "area": "x-segredos",
+   "file": "analise.js",
+   "line": 1554,
+   "severity": "alta",
+   "title": "Chave de API embutida na URL de embeddings do Gemini",
+   "summary": "`const url = \\`https://generativelanguage.googleapis.com/v1beta/models/${m}:embedContent?key=${cfg.apiKey}\\``. A chave aparece na URL e pode vazar se houver erro de fetch que lance exceção com a URL no stack trace.",
+   "failure_scenario": "Função de embeddings é chamada; erro de conectividade; exceção com URL exposta é capturada e potencialmente impressa em console.error (linhas 264, 271, 585, 910)."
+  }
+ ],
+ "cobertura": "Li todos os arquivos principais da extensão (panel.js, analise.js, emendas.js) e do bot (bot/index.js, bot/src/ia.js, bot/src/store.js, bot/src/config.js, bot/src/firebase.js). Verifiquei: (1) se chaves são salvas no Firebase (não são — estão protegidas em chrome.storage.local e bot/dados/usuarios.json); (2) se chaves aparecem em PDFs (não aparecem); (3) se há console.error/console.log expondo chaves (achei múltiplos); (4) se há chaves commitadas (não estão — .env não é versionado). Não consegui rastrear se há logs persistidos do processo Node.js e acessos reais a logs de servidor, pois isso depende do deployment."
+}
