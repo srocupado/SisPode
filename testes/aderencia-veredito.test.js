@@ -6,6 +6,11 @@
 // coisas se separam justamente no caso mais comum da oposição: votar NÃO
 // quando o governo orientou NÃO é ADERIR.
 //
+// Cada item passa a ter um lugar para cada coisa: à esquerda o VOTO (o fato),
+// embaixo a ORIENTAÇÃO DO GOVERNO e a data (contra o que), à direita o
+// VEREDITO. O ✓/✗ que ficava à esquerda saiu: era o mesmo veredito da direita,
+// dito duas vezes, enquanto o voto — o único fato da linha — não tinha lugar.
+//
 // Na captura de 15/09/2026 (Antonio Carlos Rodrigues, PODE-SP, 75%) isso
 // aparecia cru: o item "Rejeitada a Emenda de Plenário nº 1" trazia ✓ na
 // esquerda, "GOV: NÃO" embaixo e a etiqueta "NÃO" na direita.
@@ -84,27 +89,29 @@ ctx.__m = { dep: DEP, pct: 75, aderiu: 3, divergiu: 1, ausente: 0 };
     ok(i2.querySelector('.vote').textContent.trim() === 'Aderiu',
        'votar NÃO com o governo orientando NÃO aparece como Aderiu (antes: etiqueta "NÃO")');
     ok(i2.querySelector('.vote').className.includes('aderente'), 'com a cor de aderência, e não a do voto');
-    ok(i2.querySelector('.mark').textContent.trim() === '✓', 'a marca da esquerda concorda com a etiqueta');
   }
 
-  console.log('\n== o voto não se perde: vai para a linha de baixo, com a orientação ==');
+  console.log('\n== o voto ocupa a esquerda, no lugar do ✓/✗ redundante ==');
   {
+    const votos = itens.map(i => i.querySelector('.mark').textContent.trim());
+    ok(votos.join(',') === 'Sim,Não,Não,Sim', `a esquerda traz o voto literal (${votos.join(', ')})`);
+    ok(!itens.some(i => /[✓✗]/.test(i.querySelector('.mark').textContent)),
+       'e não o ✓/✗, que repetia o veredito da direita');
+    ok(itens[1].querySelector('.mark').getAttribute('title') === 'Voto do deputado: Não',
+       'a pastilha diz, ao passar o mouse, que aquilo é o voto');
+
+    // A linha lê-se: votou NÃO · governo pediu NÃO → Aderiu.
     const meta = itens.map(i => i.querySelector('.gov').textContent.replace(/\s+/g, ' ').trim());
-    ok(/^Votou Sim · Governo: Não/.test(meta[0]),
-       `o item divergente mostra o voto E a orientação enfrentada (${meta[0]})`);
-    ok(/^Votou Não · Governo: Não/.test(meta[1]),
-       `e o aderente também, que é onde a diferença se lê (${meta[1]})`);
-    ok(meta.every(t => /· \d{2}\/\d{2}\/\d{2}$/.test(t)), 'a data continua no fim da linha');
-    ok(itens[0].querySelector('.gov .voto').className.includes('nao') === false
-       && itens[0].querySelector('.gov .voto').className.includes('sim'),
-       'o voto mantém a cor do voto (SIM verde / NÃO vermelho) onde ele é o voto');
+    ok(/^Governo: Não/.test(meta[1]), `embaixo fica a orientação enfrentada (${meta[1]})`);
+    ok(meta.every(t => /· \d{2}\/\d{2}\/\d{2}$/.test(t)), 'com a data no fim da linha');
+    ok(!meta.some(t => /Votou/.test(t)), 'sem repetir o voto, que já está à esquerda');
   }
 
   console.log('\n== a orientação do governo aparece em TODOS os itens ==');
   {
     // O defeito do clamp: a linha vivia dentro da caixa de 2 linhas da ementa.
     ok(itens.every(i => !!i.querySelector('.item-corpo > .desc') && !!i.querySelector('.item-corpo > .gov')),
-       'descrição e linha do voto são irmãs, não mais aninhadas uma na outra');
+       'descrição e linha do governo são irmãs, não mais aninhadas uma na outra');
     ok(itens.every(i => !i.querySelector('.desc .gov')),
        'nada de linha do governo dentro do bloco recortado em 2 linhas');
 
@@ -112,9 +119,14 @@ ctx.__m = { dep: DEP, pct: 75, aderiu: 3, divergiu: 1, ausente: 0 };
     const regra = /\.dep-individual-list \.desc \{([^}]*)\}/.exec(css);
     ok(!!regra && /line-clamp:\s*2/.test(regra[1]), 'o recorte de 2 linhas continua — só que na descrição');
     const regraGov = /\.dep-individual-list \.gov \{([^}]*)\}/.exec(css);
-    ok(!!regraGov && !/line-clamp/.test(regraGov[1]), 'e a linha do voto/governo não é recortada');
+    ok(!!regraGov && !/line-clamp/.test(regraGov[1]), 'e a linha do governo não é recortada');
     ok(/\.dep-individual-list \.vote\.aderente/.test(css) && /\.dep-individual-list \.vote\.divergente/.test(css),
-       'a etiqueta tem as cores do veredito');
+       'a etiqueta do veredito tem as cores do veredito');
+    const regraMark = /\.dep-individual-list \.mark \{([^}]*)\}/.exec(css);
+    ok(!!regraMark && /min-width/.test(regraMark[1]),
+       'a pastilha do voto tem largura mínima — as descrições começam alinhadas');
+    ok(!!regraMark && !/#3ad97d|#f05454/.test(regraMark[1]),
+       'e é neutra: nesta lista a cor é do veredito, não do voto');
   }
 
   console.log('\n== ausência: nem voto nem falso veredito ==');
@@ -125,14 +137,15 @@ ctx.__m = { dep: DEP, pct: 75, aderiu: 3, divergiu: 1, ausente: 0 };
     ] };
     const d2 = new DOMParser().parseFromString('<div>' + av('buildDepDetailHTML(__m, __ctx)') + '</div>', 'text/html');
     const its = [...d2.querySelectorAll('.item')];
-    const ausente = its.find(i => /Não votou/.test(i.querySelector('.gov').textContent));
-    ok(!!ausente, 'quem não votou é descrito como "Não votou", não como voto vazio');
-    ok(ausente.querySelector('.vote').textContent.trim() === 'Ausente', 'e o veredito é Ausente');
-    const obstr = its.find(i => /Obstru/.test(i.querySelector('.gov').textContent));
-    ok(!!obstr && obstr.querySelector('.vote').textContent.trim() === 'Ausente',
-       'obstrução conta como ausente no cálculo — e a linha de baixo diz que houve obstrução');
-    ok(/Votou Obstrução/.test(obstr.querySelector('.gov').textContent),
-       'o registro do que foi feito em plenário não some');
+    const ausente = its.find(i => i.querySelector('.mark').textContent.trim() === '—');
+    ok(!!ausente, 'quem não registrou voto tem a pastilha com um traço, não um voto inventado');
+    ok(ausente.querySelector('.mark').getAttribute('title') === 'Não registrou voto nesta votação',
+       'e o traço se explica ao passar o mouse');
+    ok(ausente.querySelector('.vote').textContent.trim() === 'Ausente', 'o veredito é Ausente');
+    const obstr = its.find(i => /Obstru/.test(i.querySelector('.mark').textContent));
+    ok(!!obstr, 'obstrução aparece literalmente na pastilha do voto');
+    ok(obstr.querySelector('.vote').textContent.trim() === 'Ausente',
+       'e conta como ausente no cálculo — o que foi feito em plenário não some, nem vira adesão');
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');

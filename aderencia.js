@@ -710,30 +710,26 @@ function buildDepDetailHTML(m, ctx) {
       ? new Date(v.dataHoraRegistro).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
       : '—';
     const desc     = (v.descricao || '(sem descrição)').substring(0, 140);
-    const markSym  = d.status === 'aderente' ? '✓' : (d.status === 'divergente' ? '✗' : '—');
 
-    const tl = (d.tipoVoto || '').toLowerCase();
-    let voteCls = 'ausente';
-    if (tl === 'sim') voteCls = 'sim';
-    else if (tl === 'não' || tl === 'nao') voteCls = 'nao';
-
-    // A etiqueta da direita dizia SIM/NÃO — o VOTO do deputado —, e quem lia
-    // entendia "aderiu/divergiu", porque é esse o julgamento que a tela faz.
-    // São coisas diferentes: votar NÃO quando o governo orientou NÃO é ADERIR.
-    // Agora a etiqueta traz o veredito, e o voto (com a orientação que ele
-    // enfrentou) fica na linha de baixo, que é onde a comparação se lê.
+    // Cada item tem três coisas para dizer, e cada uma ocupa um lugar:
+    //   · à esquerda, O QUE O DEPUTADO FEZ — o voto, literal ("Sim", "Não",
+    //     "Obstrução", "Abstenção"), ou "—" quando não registrou voto;
+    //   · embaixo, CONTRA O QUE — a orientação do governo, e a data;
+    //   · à direita, O VEREDITO — aderiu, divergiu ou ausente.
+    // Antes a esquerda trazia ✓/✗, que é o mesmo veredito da direita: dois
+    // sinais para o mesmo significado, e o voto — o único fato da linha —
+    // aparecia como SIM/NÃO onde se esperava o julgamento. Votar NÃO quando o
+    // governo orientou NÃO é ADERIR, e a linha agora se lê nessa ordem.
     const veredito = d.status === 'aderente' ? 'Aderiu' : (d.status === 'divergente' ? 'Divergiu' : 'Ausente');
-    const votou    = d.tipoVoto ? 'Votou ' + d.tipoVoto : 'Não votou';
+    const voto     = d.tipoVoto || '—';
+    const votoTit  = d.tipoVoto ? 'Voto do deputado: ' + d.tipoVoto : 'Não registrou voto nesta votação';
 
     listHTML +=
       '<div class="item">' +
-        '<div class="mark ' + d.status + '">' + markSym + '</div>' +
+        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' + voto + '</div>' +
         '<div class="item-corpo">' +
           '<div class="desc">' + desc + '</div>' +
-          '<div class="gov">' +
-            '<span class="voto ' + voteCls + '">' + votou + '</span>' +
-            ' · Governo: ' + (d.e.govOrient || '—') + ' · ' + hora +
-          '</div>' +
+          '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +
         '</div>' +
         '<span class="vote ' + d.status + '">' + veredito + '</span>' +
       '</div>';
