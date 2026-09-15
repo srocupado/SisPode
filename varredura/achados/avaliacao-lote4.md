@@ -83,8 +83,15 @@ quebra).
 - **`pipeline-parecer.js:199` (só a primeira lei do dispositivo)** — impacto é
   buscar uma norma a menos no dossiê, não erro de conteúdo.
 
-## Não avaliado
+## Avaliado depois (15/09/2026, com o lote 3 já rodado)
 
-- **`dossie.js:430` (remoção de separadores em números muito grandes)** — exige
-  amostra real de PDF para julgar; fica para quando o lote 3 rodar, que cobre a
-  mesma família de defeito.
+- **`dossie.js` `repartirColados` (separadores em números muito grandes)** —
+  **refutado.** A regra implementada é a do formato pt-BR: depois de um
+  separador vêm exatamente três dígitos, e um quarto dígito começa outro
+  número. Exercitada nos formatos que os PDFs da RFB produzem
+  (`27.077.987`, `2 6.234.413`, dois números colados `1.2345.678`, e
+  `1.234.567.890`), devolve o valor certo em todos. A precisão também não é o
+  problema: o teto seguro do JavaScript é 9.007.199.254.740.991 — quinze
+  dígitos —, e o maior número destes relatórios (imposto de importação
+  arrecadado, em reais) tem dez. Era este o item que ficou pendente do lote 4;
+  não há correção a fazer.
