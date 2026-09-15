@@ -1181,7 +1181,12 @@ function splitArgumentos(texto) {
   const favorIdx = texto.search(/ARGUMENTOS FAVORÁVEIS|FAVORÁVEIS À APROVAÇÃO/i);
   const contrIdx = texto.search(/ARGUMENTOS CONTRÁRIOS|CONTRÁRIOS À APROVAÇÃO/i);
 
-  if (favorIdx === -1 && contrIdx === -1) return [texto, ''];
+  // Sem nenhum dos dois cabeçalhos não há como saber o que é favorável e o que
+  // é contrário. Até 14/09/2026 o texto inteiro ia para "favoráveis", e o que
+  // era argumento CONTRA aparecia ao deputado sob o rótulo de argumento a
+  // favor. Agora o texto sai inteiro, sem rótulo (o terceiro elemento diz que
+  // a separação não foi possível).
+  if (favorIdx === -1 && contrIdx === -1) return ['', '', texto];
 
   let fav = '';
   let con = '';
@@ -1290,20 +1295,33 @@ async function analisarProjeto(proj) {
 
     // 3. Argumentos favoráveis e contrários (ancorados no texto integral)
     const textoArgs = await gerarArgumentos(proj, teorUrl);
-    const [fav, con] = splitArgumentos(textoArgs);
+    const [fav, con, semSeparacao] = splitArgumentos(textoArgs);
     proj.argumentosFavoraveis  = fav;
     proj.argumentosContrarios  = con;
+    // O modelo não marcou os lados: o texto fica num campo próprio, e a tela o
+    // mostra sem afirmar de que lado cada argumento está.
+    proj.argumentosSemSeparacao = semSeparacao || '';
 
     // 4. Conferência automática de referências citadas vs. texto-fonte (anti-alucinação).
     // Confere o conteúdo descritivo do projeto (resumo + argumentos) contra o
     // inteiro teor. Não bloqueia a análise — apenas sinaliza para revisão manual.
+    // Fonte ilegível NÃO vira aprovação: sem o texto-fonte, a conferência não
+    // aconteceu, e uma lista de suspeitas vazia seria indistinguível de "conferi
+    // e nada é suspeito" (varredura de 14/09/2026).
     try {
       const fonteTeor = await _textoFonteDeURL(teorUrl);
+      if (!fonteTeor || fonteTeor.length < 100) throw new Error('texto-fonte vazio ou curto demais');
       proj.refsSuspeitas = _validarReferencias(
         `${proj.resumoOriginal || ''}\n${fav || ''}\n${con || ''}`,
         fonteTeor,
       );
-    } catch (_) { proj.refsSuspeitas = []; }
+      proj.refsConferidas = true;
+    } catch (e) {
+      proj.refsSuspeitas  = [];
+      proj.refsConferidas = false;
+      proj.refsMotivo     = `não foi possível ler o documento-fonte (${e.message})`;
+      console.warn(`[ccjc] conferência de referências não realizada em ${proj.chave || proj.id || ''}:`, e.message);
+    }
 
     // Metadados de geração: data e modelo usados (exibidos no cabeçalho).
     proj.analiseEm       = new Date().toISOString();
@@ -1616,14 +1634,17 @@ async function salvarPauta() {
   // no meio de um lote), sem mexer nos objetos em memória do lote em andamento.
   const snapshot = normalizarStatusProjetos(JSON.parse(JSON.stringify(app.pautaAtual)));
 
+  // Os dois destinos são independentes: no try único, falhar o armazenamento
+  // LOCAL pulava o Firebase e ainda anunciava "salva localmente" — mentira
+  // dupla (varredura de 14/09/2026).
+  let okLocal = true, okRemoto = true, erroRemoto = '';
+  try { await localSalvar(snapshot); } catch (_) { okLocal = false; }
+  try { await fbSalvarPauta(snapshot); } catch (e) { okRemoto = false; erroRemoto = e.message; }
   try {
-    await localSalvar(snapshot);
-    await fbSalvarPauta(snapshot);
-    mostrarToast('Pauta salva com sucesso!', 'sucesso');
-    carregarHistorico();
-  } catch (_) {
-    await localSalvar(snapshot);
-    mostrarToast('Firebase indisponível. Pauta salva localmente.', 'aviso');
+    if (okLocal && okRemoto)      { mostrarToast('Pauta salva com sucesso!', 'sucesso'); carregarHistorico(); }
+    else if (okRemoto)            { mostrarToast('Salva no Firebase; o armazenamento local do navegador falhou.', 'aviso'); carregarHistorico(); }
+    else if (okLocal)             mostrarToast(`Firebase indisponível (${erroRemoto}). Pauta salva só neste navegador.`, 'aviso');
+    else                          mostrarToast(`NÃO foi possível salvar: nem no navegador nem no Firebase (${erroRemoto}).`, 'erro');
   } finally {
     btn.disabled  = false;
     btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Salvar`;
@@ -2046,6 +2067,11 @@ function renderizarRevisao() {
         ⚠ <strong>Conferência automática de referências:</strong> a IA citou ${proj.refsSuspeitas.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${proj.refsSuspeitas.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto-fonte do projeto. Confirme na fonte antes de usar — heurística sujeita a falso positivo: ${proj.refsSuspeitas.map(esc).join('; ')}.
       </div>` : ''}
 
+    ${proj.refsConferidas === false ? `
+      <div class="ccjc-aviso-refs" style="margin:8px 0 14px;padding:10px 12px;border-left:3px solid #b03030;background:#fdf3f3;border-radius:4px;font-size:13px;color:#5a2020">
+        ⚠ <strong>Conferência automática de referências NÃO realizada:</strong> ${esc(proj.refsMotivo || 'o documento-fonte não pôde ser lido')}. As leis e decretos citados no texto abaixo não foram conferidos contra a fonte — confira antes de usar.
+      </div>` : ''}
+
     ${analisando ? `<div class="ccjc-loading-overlay"><span class="loading-spinner"></span> Gerando análise com IA…</div>` : ''}
 
     <div class="ccjc-secao">
@@ -2058,6 +2084,17 @@ function renderizarRevisao() {
     </div>
 
     ${secComissoes}
+
+    ${proj.argumentosSemSeparacao ? `
+    <div class="ccjc-secao">
+      <div class="ccjc-secao-header">
+        <span class="ccjc-secao-titulo">${nSecArgs}. Argumentos (o modelo não separou favoráveis de contrários)</span>
+      </div>
+      <div style="margin:0 0 8px;padding:8px 10px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">
+        ⚠ O texto abaixo veio sem os títulos que separam os dois lados. Leia antes de usar: parte dele pode ser argumento contrário.
+      </div>
+      <textarea id="campo-argumentos-sem" class="ccjc-textarea" ${roDisabled}>${esc(proj.argumentosSemSeparacao)}</textarea>
+    </div>` : ''}
 
     <div class="ccjc-secao">
       <div class="ccjc-secao-header">
