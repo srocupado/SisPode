@@ -1,0 +1,52 @@
+{
+ "area": "bot-conteudo",
+ "arquivos": "bot/src/materia.js, bot/src/perguntar.js, bot/src/pauta.js, bot/src/odd.js, bot/src/parser.js, bot/src/documentos.js, bot/src/comissoes.js e bot/src/ata.js",
+ "findings": [
+  {
+   "area": "bot-conteudo",
+   "file": "bot/src/materia.js",
+   "line": 49,
+   "severity": "critica",
+   "title": "Falha silenciosa ao buscar tramitações — apresenta dados vazios como legítimos",
+   "summary": "A função retorna [] quando a API falha (erro 5xx, timeout, rede). As chamadas em montarFicha (linhas 488-502) tratam lista vazia como \"sem urgência/relatoria/despachos válidos\" em vez de avisarem falha de busca.",
+   "failure_scenario": "API da Câmara indisponível (HTTP 503). O bot retorna ficha com \"Situação: Não há requerimento de urgência apresentado\" e \"Relatoria: Sem indicação\", ocultando que o scraping falhou. Analista recebe informação errada (ausência de dados parece ser falta de urgência real)."
+  },
+  {
+   "area": "bot-conteudo",
+   "file": "bot/src/pauta.js",
+   "line": 65,
+   "severity": "media",
+   "title": "Período invertido (ex: \"17 a 13 de julho\") é classificado como encerrado em vez de atual",
+   "summary": "parsePeriodo não valida se dia_inicio > dia_fim. Datas invertidas (\"17 a 13\") geram { inicio: \"2026-07-17\", fim: \"2026-07-13\" }. Depois situacaoPeriodo compara \"fim < hoje\" com lógica quebrada em períodos invertidos.",
+   "failure_scenario": "Digitação errada na pauta manual ou PDF com formatação não-padrão: \"17 a 13 de julho\". Se hoje é 2026-07-15, a pauta é classificada como \"encerrada\" (porque 2026-07-13 < 2026-07-15) em vez de \"atual\" (ela ainda está valendo em 15 de julho)."
+  },
+  {
+   "area": "bot-conteudo",
+   "file": "bot/src/perguntar.js",
+   "line": 296,
+   "severity": "critica",
+   "title": "Falha silenciosa na verificação de autoria Podemos é apresentada como \"nenhum autor Podemos\"",
+   "summary": "Em resolverAutoriaPauta, o catch engole exceções (linha 296), deixando ehPode=null. Depois, na linhaAutoriaItem (linha 122), ehPode === true é falso, e escreve \"nenhum(a) autor(a)…ao Podemos hoje\" — tratando falha de API como resultado legítimo.",
+   "failure_scenario": "API da Câmara retorna erro ao buscar autores (HTTP 500, timeout). O bot marca o item com \"AUTORIA VERIFICADA: nenhum(a) autor(a)…ao Podemos hoje\" quando na verdade a verificação falhou. Assessoria acredita que o projeto não é do Podemos."
+  },
+  {
+   "area": "bot-conteudo",
+   "file": "bot/src/materia.js",
+   "line": 297,
+   "severity": "critica",
+   "title": "Falha silenciosa ao buscar documentos relacionados — impacta cenário da proposição",
+   "summary": "buscarDocumentosRelacionados retorna [] se API falha. A funcão cenarioDe() (linha 405) usa resultado vazio para escolher cenário (1-10), podendo retornar cenário errado sem aviso.",
+   "failure_scenario": "API indisponível. Bot retorna cenário 1 (\"inteiro teor sem parecer\") quando deveria ser cenário 4+ com parecer de plenário. A ficha apresenta texto errado em votação (faz uso de documento que não estava disponível no momento da consulta)."
+  },
+  {
+   "area": "bot-conteudo",
+   "file": "bot/src/perguntar.js",
+   "line": 127,
+   "severity": "media",
+   "title": "Apensadas do Podemos não verificadas completamente se autoria cair",
+   "summary": "Loop acumula apensadas com `ra.ehPode` nulo se API falha em alguma. Se prop.id resolve mas apensado falha, a lista fica incompleta — algumas apensadas são adicionadas, outras não.",
+   "failure_scenario": "5 apensados: o 2º falha na API. A lista inclui apensados 1 e 3-5, ocultando que o 2º não foi verificado. Analista vê lista \"completa\" mas está truncada por falha silenciosa."
+  }
+ ],
+ "cobertura": "Leitura completa de materia.js (829 linhas), perguntar.js (646 linhas), pauta.js (352 linhas), odd.js (104 linhas), parser.js (13 linhas), documentos.js (150 linhas), comissoes.js (419 linhas), ata.js (339 linhas). Foco em: quebras silenciosas (catches vazios), informação errada (campos vazios parecem legítimos), corrupção de dados (inversão de período), vazamento (logs com URL). Não encontrei vazamento de chaves de API, travamentos em loops infinitos, ou exclusão em cascata não-autorizada nos arquivos analisados."
+}

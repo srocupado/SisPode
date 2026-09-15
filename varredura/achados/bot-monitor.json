@@ -1,0 +1,25 @@
+{
+ "area": "bot-monitor",
+ "arquivos": "bot/src/monitor.js, bot/src/plenariocosev.js, bot/src/oradores.js, bot/src/faltamvotar.js e bot/src/sessao.js",
+ "findings": [
+  {
+   "area": "bot-monitor",
+   "file": "bot/src/portal.js",
+   "line": 124,
+   "severity": "critica",
+   "title": "Tipo de voto vazio causa classificação incorreta como \"ausente\"",
+   "summary": "Se um deputado tem elemento de votação (vs), mas vs.textContent é vazio, tipoVoto fica string vazia. Na função classeVoto(), uma string vazia não casa com nenhum tipo válido, retornando 'ausente', marcando o deputado como não-votante quando ele in fato votou.",
+   "failure_scenario": "Painel carrega <span class=\"votou\"><span class=\"voto\"></span></span> vazio para um deputado do PODE; tipoVoto = '', classeVoto retorna 'ausente', placar final mostra deputado ausente quando na verdade votou sem tipo identificado."
+  },
+  {
+   "area": "bot-monitor",
+   "file": "bot/src/portal.js",
+   "line": 128,
+   "severity": "alta",
+   "title": "Contagem de votos incluí tipos vazios como \"tem votos\"",
+   "summary": "`temVotos >= 10` checa `votados.filter(v => v.tipoVoto)`, e string vazia é truthy em JavaScript. Se vários deputados tiverem tipoVoto='', são contados como votantes mesmo sem tipo identificado. Isto invalida o critério de \"votação encerrada\" (regra de ouro: votos individuais só aparecem após encerramento).",
+   "failure_scenario": "4 deputados com tipoVoto identificado + 6 deputados com tipoVoto=''; temVotos=true, imagem enviada prematuramente como se votação tivesse encerrado, quando na verdade dados incompletos."
+  }
+ ],
+ "cobertura": "Lidos integralmente monitor.js (1372 linhas) focando fluxos de quórum, ordem do dia, rede de faltantes, autocorreção de resultados simbólicos, oradores. Lidos plenariocosev.js, oradores.js, faltamvotar.js, sessao.js sem achados críticos. Analisado portal.js (parser do painel ao vivo), origem de placar e votos individuais. Não consegui executar testes práticos para confirmar se o painel realmente retorna textContent vazio (edge case), mas o código é defensivo insuficiente."
+}
