@@ -90,5 +90,9 @@
     "3. Workflow({ scriptPath: 'varredura/workflow-varredura.js', args: [<as areas do lote>] })",
     "4. Grave cada resultado em varredura/achados/<chave>.json, marque o lote como concluido aqui, commite e pushe ANTES de começar o próximo lote",
     "5. Avalie os achados lendo o código (o finder é econômico e erra; nada vira relatório sem conferência) e reporte ao usuário"
-  ]
+  ],
+  "branches": {
+    "varredura-bugs": "Branch ÚNICO da varredura desde 15/09/2026: script, estado, achados, avaliações E as correções. O correcoes-varredura foi unificado aqui e não recebe mais commits.",
+    "correcoes-varredura": "histórico — totalmente contido em varredura-bugs"
+  }
 }
