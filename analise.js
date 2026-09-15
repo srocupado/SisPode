@@ -6623,9 +6623,20 @@ async function gerarParecerEspecialista(it) {
     p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, pontos: (p.pontosDeAtencao || []).length };
     it.parecer = p;
     it.parecerMeta = p.meta;
-    await fetch(PARECER_PATH(chaveParecer(it)), {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
-    }).catch(e => console.warn('Firebase:', e.message));
+    // Um parecer custa de 7 a 12 minutos e centenas de milhares de tokens:
+    // falha de gravação NÃO pode passar como sucesso. Antes, o erro ia para o
+    // console, o toast dizia "gerado" e o documento sumia ao recarregar a pauta
+    // (varredura de 15/09/2026).
+    let salvoNoFirebase = true, erroSalvar = '';
+    try {
+      const r = await fetch(PARECER_PATH(chaveParecer(it)), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      salvoNoFirebase = false; erroSalvar = e.message;
+      console.warn('Firebase:', e.message);
+    }
     atualizarBotaoParecer(it);
 
     abrirParecerEspecialista(it);
@@ -6634,6 +6645,9 @@ async function gerarParecerEspecialista(it) {
       ? `Parecer gerado: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas. A conferência anotou ${pontos.length} ponto(s) de atenção (${pontos.map(x => x.codigo).join(', ')}) — veja no relatório de conferência.`
       : `Parecer gerado sem ressalvas na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`,
       pontos.length ? 'aviso' : 'sucesso');
+    if (!salvoNoFirebase) {
+      mostrarToast(`ATENÇÃO: o parecer NÃO foi salvo no Firebase (${erroSalvar}). Ele está aberto nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
+    }
 
   } catch (e) {
     if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }
