@@ -2940,6 +2940,12 @@ async function calcularEmendasSuspeitas(markdown, docs, pdfBuffers) {
 }
 
 function renderAnaliseCard(it) {
+  // O item ainda é da pauta aberta? Leitura no Firebase e geração por IA duram
+  // minutos, e a mesma proposição aparece em pautas de semanas diferentes: sem
+  // esta guarda, o resultado da pauta anterior era pintado no card homônimo da
+  // pauta nova (a checagem de card existente não pega isso, porque o card
+  // existe — é de outro item). Varredura de 15/09/2026.
+  if (!itemAindaAtivo(it)) return;
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
   const btnGer   = card.querySelector('[data-role=btn-gerar]');
@@ -6391,6 +6397,9 @@ const chaveParecer = it => `${state.pauta.id}__${it.chave}`;
  * desce do Firebase ao clicar.
  */
 function atualizarBotaoParecer(it, card) {
+  // Mesma guarda de renderAnaliseCard: sem `card` explícito, o seletor por
+  // chave acharia o card homônimo da pauta nova (varredura de 15/09/2026).
+  if (!card && !itemAindaAtivo(it)) return;
   const el = card || document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const btn = el?.querySelector('[data-role=btn-abrir-parecer]'), btnC = el?.querySelector('[data-role=btn-abrir-conferencia]');
   if (!btn) return;
