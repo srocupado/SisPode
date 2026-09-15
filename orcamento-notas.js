@@ -231,7 +231,14 @@ function cardPrazo(q) {
   }
   const p = c.prazoEmendas;
   let destaque = '<div class="on-vazio">O cronograma foi publicado, mas não traz um item de apresentação de emendas ao projeto.</div>';
-  if (p) {
+  if (p && p.dataIncompleta) {
+    // Sem ano não se conta dia: `diasAte` devolve null e a contagem abaixo
+    // cairia em "encerrado", afirmando o fim de um prazo que ninguém leu.
+    destaque = `<div class="on-prazo">${esc(p.inicio)} a ${esc(p.fim)}</div>
+      <div class="on-pend" style="margin-top:4px">⚠ O cronograma publicado não trouxe o ano deste prazo
+      (${esc(p.motivoData || 'ano ausente nas duas pontas')}). Não dá para dizer quantos dias faltam —
+      confira a data no documento antes de orientar o gabinete.</div>`;
+  } else if (p) {
     const faltaFim = diasAte(p.fim), faltaIni = diasAte(p.inicio);
     let situacao, classe = 'on-prazo';
     if (faltaIni > 0)       situacao = `abre em ${faltaIni} dia(s)`;
@@ -243,7 +250,7 @@ function cardPrazo(q) {
   return `<div class="on-card"><h3>Prazo de emendas${c.publicadoEm ? ` · cronograma de ${esc(c.publicadoEm)}` : ''}</h3>
     ${destaque}
     <table class="on-tab" style="margin-top:10px">
-      ${c.itens.map(i => `<tr><td class="a">${i.ordem}. ${esc(i.descricao)}</td><td>${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` <span style="color:var(--text-dim)">(${esc(i.observacao)})</span>` : ''}</td></tr>`).join('')}
+      ${c.itens.map(i => `<tr><td class="a">${i.ordem}. ${esc(i.descricao)}</td><td>${esc(i.inicio)} a ${esc(i.fim)}${i.observacao ? ` <span style="color:var(--text-dim)">(${esc(i.observacao)})</span>` : ''}${i.dataIncompleta ? `<br><span style="font-size:11px;color:var(--amarelo,#d9a406)">⚠ data incompleta — ${esc(i.motivoData || 'o cronograma não trouxe o ano')}; confira no documento</span>` : ''}</td></tr>`).join('')}
     </table>
   </div>`;
 }
@@ -571,7 +578,7 @@ async function aplicarParametrosDaMensagem(paginas) {
   // fica sabendo que a Mensagem deste exercício já foi lida, e o que faltou.
   estado.ficha.leituraMensagem = { em: new Date().toISOString(), documento, encontrados: res.encontrados, faltando: res.faltando,
                                    paginas: paginas.length };
-  if (!res.encontrados.length) { await salvarFicha().catch(e => console.warn('Firebase:', e.message)); return res; }
+  let erroSalvar = null;
   let novos = 0;
   for (const chave of res.encontrados) {
     if (estado.ficha.valores?.[chave]) continue;   // o analista já preencheu: não se sobrescreve
@@ -582,8 +589,16 @@ async function aplicarParametrosDaMensagem(paginas) {
     estado.ficha.valores[chave].conferencia = { localizado: true, fonte: documento, em: new Date().toISOString() };
     novos++;
   }
-  await salvarFicha().catch(e => console.warn('Firebase:', e.message));
-  if (novos) mostrarToast(`✓ ${novos} parâmetro(s) macroeconômico(s) lido(s) da Mensagem e gravado(s) na ficha, com página e trecho.`, 'sucesso');
+  await salvarFicha().catch(e => { erroSalvar = e; console.warn('Firebase:', e.message); });
+  // "gravado(s) na ficha" é afirmação de persistência: só se diz depois de o
+  // PUT ter voltado. A marca da leitura também vale para a equipe inteira, e
+  // sem gravação ela não existe para mais ninguém.
+  if (erroSalvar) {
+    mostrarToast(`${novos} parâmetro(s) lido(s) da Mensagem, mas a ficha NÃO foi salva no Firebase `
+      + `(${erroSalvar.message}) — nada disso valeu para a equipe. Tente de novo.`, 'erro');
+  } else if (novos) {
+    mostrarToast(`✓ ${novos} parâmetro(s) macroeconômico(s) lido(s) da Mensagem e gravado(s) na ficha, com página e trecho.`, 'sucesso');
+  }
   return res;
 }
 
@@ -910,7 +925,15 @@ async function resumirCartilha(url, rotulo) {
       mostrarToast(conf.conferido ? `${rotulo}: ${conf.resumo}` : conf.motivo,
                    conf.conferido && conf.aprovadas.length ? 'sucesso' : 'aviso');
     }
-    await salvarIA().catch(e => console.warn('Firebase:', e.message));
+    // O registro da leitura é o que impede a cartilha de voltar à fila a cada
+    // abertura da tela (e de gastar outra chamada de IA). Se ele não foi
+    // gravado, quem está na tela precisa saber — antes o toast acima já tinha
+    // anunciado o resultado e a falha morria num console.warn.
+    await salvarIA().catch(e => {
+      console.warn('Firebase:', e.message);
+      mostrarToast(`${rotulo}: a leitura FOI FEITA mas não ficou registrada no Firebase (${e.message}) — `
+        + 'ela não vale para a equipe e a tela vai pedi-la de novo.', 'erro');
+    });
     return estado.ia.acoes[chave];
   });
 }
@@ -1045,15 +1068,30 @@ function aceitarProposta(chave) {
 function aceitarTodasPropostas() {
   const chaves = (estado.propostas?.aceitas || []).map(p => p.campo);
   if (!chaves.length) return;
+  // `preencherCampo` RECUSA valor sem procedência — é essa recusa que impede
+  // número sem documento de entrar na ficha. Quem é recusado FICA na lista de
+  // propostas, com o motivo na tela: antes, o laço ignorava o retorno, esvaziava
+  // a lista inteira e anunciava "N campo(s) preenchido(s)" contando candidatos,
+  // então a proposta recusada desaparecia e o analista lia um ✓ por ela.
+  const recusadas = [];
+  let gravados = 0;
   for (const c of chaves) {
     const p = estado.propostas.aceitas.find(x => x.campo === c);
-    if (p) preencherCampo(estado.ficha, c, { valor: p.valor, documento: p.documento || estado.propostas.documento,
+    if (!p) continue;
+    const r = preencherCampo(estado.ficha, c, { valor: p.valor, documento: p.documento || estado.propostas.documento,
       pagina: p.pagina || '', trecho: p.trecho,
       preenchidoPor: `${estado.config?.nomeUsuario || 'equipe'} (proposta de IA conferida)` });
+    if (r.ok) gravados++;
+    else recusadas.push({ ...p, motivoRecusa: r.erro });
   }
-  estado.propostas.aceitas = [];
+  estado.propostas.aceitas = recusadas;
   render();
-  salvarFicha().then(() => mostrarToast(`✓ ${chaves.length} campo(s) preenchido(s)`, 'sucesso'))
+  if (!gravados) {
+    mostrarToast(`Nenhum campo entrou na ficha: ${recusadas[0]?.motivoRecusa || 'proposta recusada'}`, 'aviso');
+    return;
+  }
+  const sobra = recusadas.length ? ` · ${recusadas.length} recusada(s): ${recusadas[0].motivoRecusa}` : '';
+  salvarFicha().then(() => mostrarToast(`✓ ${gravados} campo(s) preenchido(s)${sobra}`, recusadas.length ? 'aviso' : 'sucesso'))
                .catch(e => mostrarToast('Não consegui salvar: ' + e.message, 'erro'));
 }
 
@@ -1068,7 +1106,8 @@ function cardPropostas() {
   }
   const linha = a => `<tr>
     <td class="a"><strong>${esc(a.rotulo)}</strong><br>
-      <span style="font-size:11px;color:var(--text-dim)">“${esc((a.trecho || '').slice(0, 150))}${(a.trecho || '').length > 150 ? '…' : ''}”${a.documento && a.documento !== p.documento ? ` — ${esc(a.documento)}` : ''}${a.pagina ? ` — p. ${esc(a.pagina)}` : ''}</span></td>
+      <span style="font-size:11px;color:var(--text-dim)">“${esc((a.trecho || '').slice(0, 150))}${(a.trecho || '').length > 150 ? '…' : ''}”${a.documento && a.documento !== p.documento ? ` — ${esc(a.documento)}` : ''}${a.pagina ? ` — p. ${esc(a.pagina)}` : ''}</span>
+      ${a.motivoRecusa ? `<br><span style="font-size:11px;color:var(--vermelho,#c0392b)">⚠ não entrou na ficha: ${esc(a.motivoRecusa)}</span>` : ''}</td>
     <td style="width:28%"><strong>${esc(a.valor)}</strong></td>
     <td style="width:14%;text-align:right"><a href="#" data-ia-aceitar="${esc(a.campo)}" style="color:#0a6cf0">aceitar</a></td></tr>`;
 
@@ -1475,10 +1514,56 @@ async function carregarFicha(tipo, ano) {
   } catch (_) { return vazia; }   // Firebase fora do ar não impede trabalhar
 }
 
+/** Data de referência de um valor da ficha (0 quando não há). */
+function _quandoValor(v) {
+  const t = Date.parse(v?.conferencia?.em || v?.preenchidoEm || '');
+  return Number.isFinite(t) ? t : 0;
+}
+
+/**
+ * A ficha é compartilhada — o comentário de aplicarParametrosDaMensagem diz
+ * isso: "a equipe inteira fica sabendo". Gravar o nó inteiro com PUT fazia a
+ * segunda aba a salvar apagar o campo que a primeira acabara de preencher, sem
+ * erro e sem aviso: cada aba mandava a SUA cópia, carregada na abertura.
+ *
+ * Agora a gravação lê o que está no banco e devolve a união, campo por campo,
+ * ficando com a versão mais recente de cada um (preenchidoEm/conferencia.em).
+ * O que o banco trouxe de novo entra também no estado local, para a tela não
+ * continuar mostrando o que já foi substituído.
+ *
+ * Não há, hoje, caminho na tela que APAGUE um campo da ficha (limparCampo não
+ * é chamado aqui). Se algum dia houver, a união precisa saber distinguir "não
+ * conheço este campo" de "apaguei este campo" — um PATCH do campo com null, ou
+ * um instantâneo do que foi carregado.
+ */
 async function salvarFicha() {
   const f = estado.ficha;
-  const r = await fetch(FICHA_PATH(`${f.tipo}-${f.ano}`), {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(f),
+  const url = FICHA_PATH(`${f.tipo}-${f.ano}`);
+
+  let remota = null;
+  try {
+    const r = await fetch(url);
+    if (r.ok) remota = await r.json();
+  } catch (_) { /* sem leitura: grava o que tem, que é melhor que não gravar */ }
+
+  let corpo = f;
+  if (remota && remota.valores) {
+    const valores = { ...remota.valores };
+    for (const [chave, meu] of Object.entries(f.valores || {})) {
+      const dela = remota.valores[chave];
+      if (!dela || _quandoValor(meu) >= _quandoValor(dela)) valores[chave] = meu;
+    }
+    // Marca da leitura da Mensagem: vale a mais recente das duas.
+    const quando = x => { const t = Date.parse(x?.em || ''); return Number.isFinite(t) ? t : 0; };
+    const leitura = quando(remota.leituraMensagem) > quando(f.leituraMensagem)
+      ? remota.leituraMensagem : f.leituraMensagem;
+    corpo = { ...remota, ...f, valores, ...(leitura ? { leituraMensagem: leitura } : {}) };
+    estado.ficha.valores = valores;
+    if (leitura) estado.ficha.leituraMensagem = leitura;
+  }
+
+  const r = await fetch(url, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
   });
   if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
 }
@@ -1613,9 +1698,15 @@ async function conferirNormas() {
     // preenchido é procurado na fonte do exercício.
     const rf = conferirFicha(estado.ficha, texto, manual.rotulo);
     if (rf.conferida) {
-      await salvarFicha().catch(e => console.warn('Firebase:', e.message));
-      mostrarToast(`Ficha conferida: ${rf.conferidos} localizado(s), ${rf.divergentes} não localizado(s).`,
-                   rf.divergentes ? 'aviso' : 'sucesso');
+      // Conferir cada número contra o Manual é trabalho que ninguém repete de
+      // graça: se a gravação falhou, dizer isso vale mais que o resultado.
+      let erroSalvar = null;
+      await salvarFicha().catch(e => { erroSalvar = e; console.warn('Firebase:', e.message); });
+      mostrarToast(erroSalvar
+        ? `Ficha conferida (${rf.conferidos} localizado(s), ${rf.divergentes} não localizado(s)), mas a conferência `
+          + `NÃO foi salva no Firebase (${erroSalvar.message}) — o próximo a abrir a ficha não vai encontrá-la.`
+        : `Ficha conferida: ${rf.conferidos} localizado(s), ${rf.divergentes} não localizado(s).`,
+        erroSalvar ? 'erro' : (rf.divergentes ? 'aviso' : 'sucesso'));
     }
     render();
   } catch (e) {
