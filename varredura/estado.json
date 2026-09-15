@@ -44,13 +44,14 @@
     },
     {
       "n": 4,
-      "status": "pendente",
+      "status": "concluido",
       "areas": [
         "parecer-nucleo",
         "parecer-dados",
         "ia-comum",
         "analise-parecer-tela"
-      ]
+      ],
+      "nota": "Varrido em 15/09/2026. 15 achados; avaliação em varredura/achados/avaliacao-lote4.md: 6 confirmados (1 crítico), 8 refutados, 1 não avaliado."
     },
     {
       "n": 5,
