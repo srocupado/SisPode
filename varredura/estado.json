@@ -33,13 +33,14 @@
     },
     {
       "n": 3,
-      "status": "pendente",
+      "status": "adiado",
       "areas": [
         "orcamento-notas",
         "orcamento-conferencia",
         "emendas",
         "x-datas-numeros"
-      ]
+      ],
+      "nota": "Iniciado em 15/09/2026 e interrompido a pedido, sem nenhum agente concluir — nada aproveitável. Retomar depois do lote 4."
     },
     {
       "n": 4,
