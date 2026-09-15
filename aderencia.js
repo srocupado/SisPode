@@ -710,7 +710,6 @@ function buildDepDetailHTML(m, ctx) {
       ? new Date(v.dataHoraRegistro).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
       : '—';
     const desc     = (v.descricao || '(sem descrição)').substring(0, 140);
-    const govLabel = 'Gov: ' + d.e.govOrient + ' · ' + hora;
     const markSym  = d.status === 'aderente' ? '✓' : (d.status === 'divergente' ? '✗' : '—');
 
     const tl = (d.tipoVoto || '').toLowerCase();
@@ -718,13 +717,25 @@ function buildDepDetailHTML(m, ctx) {
     if (tl === 'sim') voteCls = 'sim';
     else if (tl === 'não' || tl === 'nao') voteCls = 'nao';
 
+    // A etiqueta da direita dizia SIM/NÃO — o VOTO do deputado —, e quem lia
+    // entendia "aderiu/divergiu", porque é esse o julgamento que a tela faz.
+    // São coisas diferentes: votar NÃO quando o governo orientou NÃO é ADERIR.
+    // Agora a etiqueta traz o veredito, e o voto (com a orientação que ele
+    // enfrentou) fica na linha de baixo, que é onde a comparação se lê.
+    const veredito = d.status === 'aderente' ? 'Aderiu' : (d.status === 'divergente' ? 'Divergiu' : 'Ausente');
+    const votou    = d.tipoVoto ? 'Votou ' + d.tipoVoto : 'Não votou';
+
     listHTML +=
       '<div class="item">' +
         '<div class="mark ' + d.status + '">' + markSym + '</div>' +
-        '<div class="desc">' + desc +
-          '<span class="gov">' + govLabel + '</span>' +
+        '<div class="item-corpo">' +
+          '<div class="desc">' + desc + '</div>' +
+          '<div class="gov">' +
+            '<span class="voto ' + voteCls + '">' + votou + '</span>' +
+            ' · Governo: ' + (d.e.govOrient || '—') + ' · ' + hora +
+          '</div>' +
         '</div>' +
-        '<span class="vote ' + voteCls + '">' + (d.tipoVoto || 'Ausente') + '</span>' +
+        '<span class="vote ' + d.status + '">' + veredito + '</span>' +
       '</div>';
   });
 
