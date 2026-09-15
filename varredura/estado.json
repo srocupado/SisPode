@@ -55,13 +55,14 @@
     },
     {
       "n": 5,
-      "status": "pendente",
+      "status": "adiado",
       "areas": [
         "bot-nucleo",
         "bot-monitor",
         "bot-conteudo",
         "bot-infra"
-      ]
+      ],
+      "nota": "Iniciado em 15/09/2026 e interrompido a pedido, sem nenhum agente concluir — nada aproveitável. Volta à fila junto com o lote 3."
     },
     {
       "n": 6,
