@@ -1,0 +1,16 @@
+{
+ "area": "bot-infra",
+ "arquivos": "bot/src/store.js, bot/src/firebase.js, bot/src/config.js, bot/src/backup.js, bot/src/ia.js, bot/src/worker.js, bot/src/autoupdate.js, bot/src/reenvio.js e bot/src/portal.js",
+ "findings": [
+  {
+   "area": "bot-infra",
+   "file": "bot/src/ia.js",
+   "line": 105,
+   "severity": "critica",
+   "title": "Formato de requisição OpenAI completamente incorreto",
+   "summary": "O bloco OpenAI em chamarIAtexto usa endpoint /v1/responses que não existe na API do OpenAI (deveria ser /v1/chat/completions), além de estruturar a requisição e resposta em formato incompatível com a API real (espera output_text/output quando deveria esperar choices[0].message.content).",
+   "failure_scenario": "Um analista configura chave OpenAI. A validação em testarChave passa (usa /v1/models correto). Mas ao tentar usar /analisar, /perguntar ou qualquer comando que chama chamarIAtexto com provedor=openai, a chamada falha com HTTP 404/400. Após 4 tentativas de retry, lança exceção sem try/catch no bloco OpenAI, interrompendo silenciosamente a análise ou retornando string vazia como se fosse resposta válida."
+  }
+ ],
+ "cobertura": "Leitura completa de store.js (persistência de perfis/allowlist), firebase.js (helpers REST), config.js (variáveis de ambiente), backup.js (snapshots não-destrutivos com proteção contra vazio), ia.js (provedores de IA e retry/backoff), worker.js (Puppeteer com validação de API implícita), autoupdate.js (download e validação de sintaxe antes de sobrescrever), reenvio.js (retry para erros transitórios), portal.js (parse defensivo do painel de votação). Validei fluxo de falhas, proteção de dados, comparações de igualdade em restauração não-destrutiva, timeouts, e tratamento de erros temporários em fetch. Confirmei que testarChave() usa /v1/models (correto) enquanto chamarIAtexto() usa /v1/responses (errado) e que interesse.js usa /v1/embeddings (correto), evidenciando que o bug é específico do bloco OpenAI em ia.js linha 103-114."
+}

@@ -1,0 +1,52 @@
+{
+ "area": "congresso",
+ "arquivos": "congresso.js",
+ "findings": [
+  {
+   "area": "congresso",
+   "file": "congresso.js",
+   "line": 810,
+   "severity": "critica",
+   "title": "Sobrescrita de resumo de razões com resultado parcial ao interromper",
+   "summary": "No loop de `resumirRazoes` (linhas 800-811), se o usuário clica em \"Parar\" no meio do processamento de lotes de dispositivos, o código faz break do loop mas continua e persiste `veto.razoesGrupos = grupos` com apenas os grupos coletados até o ponto de interrupção, sobrescrevendo silenciosamente qualquer resumo anterior que existisse. Isto é uma perda/corrupção de dados porque uma interrupção intencional do usuário resulta em dados incompletos sendo gravados no Firebase.",
+   "failure_scenario": "Veto com 45 dispositivos (3 lotes de 15). Usuário abre o veto e clica \"Resumir Razões\". Ao completar o 1º lote (5 grupos) e começar o 2º, clica \"Parar\". O código persiste apenas os 5 grupos do 1º lote como resumo final das razões, destruindo qualquer resumo anterior que havia."
+  },
+  {
+   "area": "congresso",
+   "file": "congresso.js",
+   "line": 1794,
+   "severity": "alta",
+   "title": "Firebase PUT para metadados de pauta sem await — desincronização de índice",
+   "summary": "Em `fbSalvarPauta`, o fetch que salva os metadados (linha 1794) é disparado sem await e com .catch silencioso. Se falhar, a pauta fica salva em PAUTAS_PATH mas não em PAUTAS_META, deixando a sidebar mostrando números incorretos de vetos/PLNs ou a pauta desaparecendo.",
+   "failure_scenario": "Durante importação de pauta, o PUT da pauta em PAUTAS_PATH sucede, mas o PUT de metadados em PAUTAS_META falha (timeout/rede/Firebase). A sidebar mostra uma pauta \"fantasma\" que não tem metadados, ou totalVetos/totalPlns fica em zero."
+  },
+  {
+   "area": "congresso",
+   "file": "congresso.js",
+   "line": 1808,
+   "severity": "alta",
+   "title": "Timestamps de atualização salvos sem await — metadados desincronizados",
+   "summary": "Em `fbSalvarVetoSessao`, os dois fetches que atualizam `atualizadoEm` (linhas 1808-1809) são disparados sem await e com .catch silencioso. Se um falhar, os timestamps de PAUTAS_PATH e PAUTAS_META ficam desincronizados, dificultando rastreamento de qual é o estado mais recente.",
+   "failure_scenario": "Um veto é salvo com sucesso em PAUTAS_PATH/id/vetos/key. O timestamp de PAUTAS_PATH/id/atualizadoEm é atualizado, mas PAUTAS_META/id/atualizadoEm falha ao ser atualizado. Um sistema externo que lê PAUTAS_META vê um timestamp desatualizado."
+  },
+  {
+   "area": "congresso",
+   "file": "congresso.js",
+   "line": 1822,
+   "severity": "alta",
+   "title": "Deleção de metadados sem await — registro órfão na sidebar",
+   "summary": "Em `fbApagarPauta`, o DELETE para remover os metadados (linha 1822) é disparado sem await e com .catch silencioso. Se falhar, PAUTAS_PATH/id é deletado mas PAUTAS_META/id permanece, deixando um registro órfão que aparece na sidebar como uma pauta fantasma.",
+   "failure_scenario": "Usuário deleta uma pauta. A pauta some da lista de sessões, mas o registro em PAUTAS_META persiste. Horas depois, ao reabrir a extensão, a pauta reaparece na sidebar (leitura de PAUTAS_META) mas sem conteúdo (PAUTAS_PATH foi deletado)."
+  },
+  {
+   "area": "congresso",
+   "file": "congresso.js",
+   "line": 2265,
+   "severity": "media",
+   "title": "Deputados manuais não persistem em Firebase se fetch falhar",
+   "summary": "Em `garantirDeputadosManuais`, o fetch que salva deputados da lista manual (linha 2265) é disparado sem await e com .catch silencioso. Se falhar, o deputado fica em app.deputados (memória) mas não é persistido no Firebase, causando perda ao recarregar a página.",
+   "failure_scenario": "Um deputado manual é adicionado à bancada durante uma sessão. O fetch para salvar em Firebase/deputados falha silenciosamente. Ao recarregar a extensão, o deputado desaparece porque a leitura do Firebase mostra apenas o que foi persistido anteriormente."
+  }
+ ],
+ "cobertura": "Leitura completa de congresso.js (3014 linhas). Análise de todas as funções críticas: parsePdfVetos (parsing de PDF do relatório), parseDetalheHtml (extração de dispositivos vetados), resumirVeto (persistência incremental de resumos), resumirRazoes (processamento de razões agrupadas com potencial de abort), resumirProjeto (resumo do projeto), carregarListaVetos (guarda contra contaminação de pauta), fbSalvarResumo/fbSalvarVetoSessao/fbSalvarPauta/fbApagarPauta (persistência em Firebase), persistirResumo (defesa contra vazamento de veto), aplicarResumoCompartilhado (merge de resumos), importarPauta (importação de sessões), e todas as funções que manipulam interessados/deputados. Nenhuma evidência de vazamento de chaves de API, parsing de dados malformado que causa informação errada, ou travamento silencioso de fluxos (os únicos possíveis interrompimentos são capturados pelo try/catch ou verificações de abort). Não foi encontrada perda/corrupção em dispositivos vetados durante parse, mas há corrupção crítica em razões durante interrupt."
+}

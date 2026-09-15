@@ -1,0 +1,34 @@
+{
+ "area": "parecer-dados",
+ "arquivos": "dossie.js, ficha-objeto.js, parecer-html.js e especialistas.js",
+ "findings": [
+  {
+   "area": "parecer-dados",
+   "file": "dossie.js",
+   "line": 383,
+   "severity": "alta",
+   "title": "Lógica incorreta de repartição de números quebrados em PDF causa leitura de múltiplos números em vez de um",
+   "summary": "A função `repartirColados` tenta reconstructor números separados por \".\" ou \",\" que foram colados sem espaço pelo PDF. Mas se encontra padrões como \"1.2.3.4\" (separadores soltos), retorna [1, 2, 3, 4] em vez de detectar erro — causando leitura de quantidades como se fossem 4 valores diferentes em vez de um único número.",
+   "failure_scenario": "PDF do Relatório Remessa Conforme com quebra irregular de números (tipo \"1 . 2 . 3 . 4\"). A função retorna [1, 2, 3, 4] e código em linha 417 pega n[0]=1 como quantidade de remessas, quando original era 1234. Parecer registra quantidade errada e arrecadação errada no comparativo antes/depois."
+  },
+  {
+   "area": "parecer-dados",
+   "file": "dossie.js",
+   "line": 360,
+   "severity": "alta",
+   "title": "Deflatação silenciosa com fator 1 quando há gaps em série IPCA",
+   "summary": "Linha 360 usa `(deflator[m] || 1)` — se deflator tem gaps (mês sem valor porque série IPCA incompleta), valores são multiplicados por fator 1 (sem deflação). Sem aviso ou marcação de que deflação foi parcial/ausente para aqueles meses.",
+   "failure_scenario": "Série BCB retorna IPCA com meses faltando (raro, mas possível se corte de dados). Valores \"deflatados\" são misturados — alguns real, alguns nominal. Parecer mostra comparação antes/depois que mistura preços diferentes sem declarar isso, apresentando como informação precisa."
+  },
+  {
+   "area": "parecer-dados",
+   "file": "dossie.js",
+   "line": 430,
+   "severity": "media",
+   "title": "Remoção agressiva de separadores causa ambiguidade em números muito grandes",
+   "summary": "Regex `q[1].replace(/[^\\d]/g, '')` remove todos caracteres não-dígitos incluindo separadores de milhar. Se captura \"1.234.567\" (três pontos de milhar), retorna \"1234567\" — correto em reais, mas potencialmente ambíguo se havia decimais não-capturados antes.",
+   "failure_scenario": "PDF relatorio PRC com \"total de remessas foi de 1.234.567\" em formato pouco estruturado. Regex captura apenas \"1.234.567\", remove pontos, retorna 1234567. Se tivesse sido \"1.234.567.890\" mas regex casou só \"1.234.567\", perda silenciosa de magnitude. Raro porque regex para antes de vírgula, mas valor pode ser truncado."
+  }
+ ],
+ "cobertura": "Lidos completos os 4 arquivos (dossie.js 868 linhas, ficha-objeto.js 241 linhas, parecer-html.js 370 linhas, especialistas.js 766 linhas). Analisados fluxos críticos de coleta de dados (Fase 3-6), normalização de valores, deflatação, construção de ficha do objeto, montagem de HTML com escaping. Verificados catches vazios (encontrados em contextos declarados — fallbacks e PDFs ilegíveis). Não encontrados vazamentos de chaves de API ou dados sensíveis. Funções de escape HTML estão em uso correto. Cascata de lei vigente (lei lida > achado > padrão) funciona com fallbacks apropriados."
+}

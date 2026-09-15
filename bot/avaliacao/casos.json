@@ -1,0 +1,48 @@
+{
+  "_leia": [
+    "CONJUNTO DE AVALIAÇÃO da busca de questões de ordem.",
+    "",
+    "Cada caso é uma pergunta como ela seria feita ao bot, mais a(s) QO(s) que a",
+    "resposta PRECISA trazer. É contra este arquivo que toda mudança na busca é",
+    "medida — sem ele, 'melhorou' é opinião.",
+    "",
+    "COMO ACRESCENTAR UM CASO:",
+    "  pergunta  como você perguntaria, com suas palavras",
+    "  esperadas ['257/2013', '130/2015'] — as QOs que têm de aparecer",
+    "  onde      'topo' se precisa vir nos 3 primeiros; 'lista' se basta aparecer",
+    "  porque    por que essas são as certas (para conferência futura)",
+    "",
+    "Os casos com origem 'conversa-03-08' foram conferidos contra a ementa da",
+    "própria QO no acervo. Os que você acrescentar valem mais: vêm da rotina."
+  ],
+  "casos": [
+    {
+      "pergunta": "questão de ordem do Kim Kataguiri sobre avocação",
+      "esperadas": ["8/2023"],
+      "onde": "topo",
+      "porque": "Ementa: requer seja tornada sem efeito a decisão de avocação proferida em 4/5/2021 no processado da PEC 45/2019.",
+      "origem": "conversa-03-08"
+    },
+    {
+      "pergunta": "avocação de decisão pela Presidência",
+      "esperadas": ["8/2023"],
+      "onde": "lista",
+      "porque": "Mesmo caso, perguntado por tema em vez de por autor.",
+      "origem": "conversa-03-08"
+    },
+    {
+      "pergunta": "requerimento de adiamento de discussão fica prejudicado pela rejeição de retirada de pauta?",
+      "esperadas": ["257/2013", "130/2015"],
+      "onde": "topo",
+      "porque": "257/2013 deferiu (declarou prejudicados os adiamentos); 130/2015 indeferiu, firmando que a rejeição da retirada de pauta impede a apreciação do adiamento.",
+      "origem": "conversa-03-08"
+    },
+    {
+      "pergunta": "adiamento de discussão prejudicado por deliberação de retirada de pauta",
+      "esperadas": ["285/2013"],
+      "onde": "lista",
+      "porque": "Ementa: indaga se requerimentos de adiamento de discussão são prejudicados pela deliberação de requerimento de retirada de pauta.",
+      "origem": "conversa-03-08"
+    }
+  ]
+}

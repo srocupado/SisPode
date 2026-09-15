@@ -1,0 +1,16 @@
+{
+ "area": "panel-destaques",
+ "arquivos": "panel.js",
+ "findings": [
+  {
+   "area": "panel-destaques",
+   "file": "panel.js",
+   "line": 15,
+   "severity": "critica",
+   "title": "SITUACOES_INATIVAS incompleta causa exibição errada de status de destaques",
+   "summary": "A constante SITUACOES_INATIVAS não inclui \"aprovado\" nem \"mantido o texto\", que são situações de conclusão (não há votação pendente). Isso causa que destaques já votados sejam marcados como `ativo=true` (linhas 804 e 2972), aparecendo como \"Ativo\" no painel quando na verdade já foram votados/aprovados.",
+   "failure_scenario": "Assessor acessa o painel de destaques e vê um destaque com situação \"Aprovado\" marcado com label \"Ativo\" na aba de destaques ativos. A análise é feita baseado em premissa errada (o destaque ainda precisa de voto), quando na verdade já foi votado. Deputado recebe orientação sobre votação já concluída."
+  }
+ ],
+ "cobertura": "Leitura completa do arquivo panel.js (3672 linhas). Análise de fluxos críticos: parsing de destaques (parseDestaques, 790-837), filtragem e renderização (renderizarDestaques, 982-1028), sincronização com Firebase (fbSalvarDestaque, fbCarregarUma, iniciarSyncAutomatico, 2908-3237), busca de documentos para análise IA (buscarTextoEmenda, 1700-2251), geração de análise (gerarAnalise, gerarExplicacaoIA, 2347-2513). Não encontrei outras instâncias de informação errada apresentada como certa, perda de dados, ou quebras silenciosas que se enquadrem nos critérios de bug crítico do projeto. Campos documentados como decisão deliberada (ex: PATCH granular do Firebase, fallbacks em parsing) foram desconsiderados conforme instruções."
+}

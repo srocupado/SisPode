@@ -1,0 +1,25 @@
+{
+ "area": "orcamento-conferencia",
+ "arquivos": "orcamento-ia.js, normas.js, ficha.js, serie.js, mensagem.js, guia-emendas.js e cmo.js",
+ "findings": [
+  {
+   "area": "orcamento-conferencia",
+   "file": "mensagem.js",
+   "line": 234,
+   "severity": "alta",
+   "title": "Indexação de array com -1 causa TypeError em parametrosMacro",
+   "summary": "A função parametrosMacro() busca o índice do ano em anos.indexOf(ano), que retorna -1 se não encontrado. Este -1 é usado para indexar nums[col], retornando undefined, que é passado a fmt() que tenta fazer .replace() em undefined, causando TypeError.",
+   "failure_scenario": "Se a grade de parâmetros na página for publicada em formato diferente do esperado, ou se por qualquer motivo o ano procurado (ex, \"1999\" em vez de \"20XX\") não coincidir com o padrão capturado pela regex /\\b20\\d\\d\\b/, a função tenta acessar nums[-1] e chama pct(undefined), gerando \"Cannot read properties of undefined (reading 'replace')\"."
+  },
+  {
+   "area": "orcamento-conferencia",
+   "file": "cmo.js",
+   "line": 279,
+   "severity": "media",
+   "title": "Data incompleta quando ambas as pontas do cronograma faltam ano",
+   "summary": "A função comAno() tenta herdar o ano da outra data, mas se ambas as datas do item do cronograma vêm sem ano (ex, \"05/12 a 10/12\"), ambas `.slice(-4)` capturam apenas 4 últimos caracteres de datas já incompletas, não encontrando um ano válido, e retorna a data original sem adicionar ano.",
+   "failure_scenario": "Se o cronograma publicado tiver um item sem ano em ambas as datas (improvável mas possível), ex. \"5. Apresentação de 06/12 a 06/12\", o resultado será datas incompletas como \"06/12\" em vez de \"06/12/2026\", causando mal funcionamento na determinação do prazo de emendas."
+  }
+ ],
+ "cobertura": "Li todos os 7 arquivos da área especificada (orcamento-ia.js, normas.js, ficha.js, serie.js, mensagem.js, guia-emendas.js, cmo.js). Analisei as funções críticas de conferência de números contra documentos, validação de normas citadas, conferência de valores em tabelas, construção de séries históricas, cálculos de tolerância de arredondamento, extração de parâmetros macroeconômicos, parsing de cronogramas e mapeamento de cartilhas. Procurei especificamente por: (1) informação errada apresentada como certa (números truncados, arredondamentos fora de tolerância, conversões de escala inconsistentes), (2) perda ou corrupção de dados (sobrescrita de Firebase, chaves colindentes, apagamento em cascata), (3) vazamento de segredo (chaves de API expostas), (4) quebra silenciosa (catch vazio engolindo erros críticos, promessas não-aguardadas), (5) travamento (loops infinitos, recursão sem corte). Não encontrei vazamentos de segredo, perdas de dados ou travamentos. As duas questões encontradas são tanto de alta gravidade (TypeError silencioso em parametrosMacro) quanto de média gravidade (data incompleta em cronograma) com potencial de impactar a qualidade de informação entregue à assessoria."
+}

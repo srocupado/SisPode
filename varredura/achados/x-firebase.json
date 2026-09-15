@@ -1,0 +1,34 @@
+{
+ "area": "x-firebase",
+ "arquivos": "todos os módulos que escrevem no Firebase",
+ "findings": [
+  {
+   "area": "x-firebase",
+   "file": "panel.js",
+   "line": 2914,
+   "severity": "critica",
+   "title": "Uso inseguro de indexOf para localizar índices em PATCH granular",
+   "summary": "fbSalvarDestaque usa indexOf(prop) e indexOf(d) para construir o caminho do PATCH. Se o array de proposições ou destaques for modificado por outro usuário entre o carregamento e o PATCH, os índices ficam obsoletos e o PATCH grava no lugar errado.",
+   "failure_scenario": "Usuário A abre destaque de proposição 3 (índice 2 localmente). Usuário B remove a proposição 1 no Firebase. Quando Usuário A salva o destaque, indexOf ainda retorna 2, mas no Firebase proposição 3 agora está no índice 1. PATCH grava `proposicoes/2/destaques/0` que é null ou destaque errado, perdendo ou corrompendo informação de outro destaque."
+  },
+  {
+   "area": "x-firebase",
+   "file": "panel.js",
+   "line": 2917,
+   "severity": "critica",
+   "title": "Fallback de fbSalvarDestaque usa PUT completo (last-write-wins)",
+   "summary": "Quando indexOf falha (retorna -1), fbSalvarDestaque retorna fbSalvar(sessao), que é um PUT completo da sessão inteira. Comentário na linha 2911 reconhece que PUT da sessão inteira causa sobrescrita de edições concorrentes, mas é exatamente o que o fallback faz.",
+   "failure_scenario": "Dois usuários em abas diferentes editam destaques de proposições diferentes na mesma sessão. Ambas as chamadas de fbSalvar leem a mesma versão local, modificam-na separadamente, e o último PUT vence — a primeira edição é perdida silenciosamente do Firebase."
+  },
+  {
+   "area": "x-firebase",
+   "file": "panel.js",
+   "line": 2902,
+   "severity": "critica",
+   "title": "fbSalvar usa PUT completo sem serialização entre usuários",
+   "summary": "fbSalvar faz PUT da sessão inteira sem proteção contra gravações simultâneas de usuários diferentes. Não há serialização (diferente de analise.js que usa _pautaSaveEmVoo). Fire-and-forget de salvarSessao permite múltiplos PUTs em flight de usuários concorrentes.",
+   "failure_scenario": "Usuário A em aba1 e Usuário B em aba2 carregam a mesma sessão. Usuário A adiciona proposição P1 e dispara fbSalvar. Usuário B adiciona proposição P2 quase simultaneamente. O segundo PUT sobrescreve a edição do primeiro no Firebase. Assessoria visualiza pauta incompleta ou com proposições faltando."
+  }
+ ],
+ "cobertura": "Lidos arquivos principais que escrevem no Firebase: panel.js (extensão), analise.js, pautas-comissoes.js, emendas.js, comissoes.js, lideres.js, votacao.js. Verificadas funções de salvamento (fbSalvar, fbSalvarDestaque, fbSalvarPauta, fbSalvarAnalise, fbPutPC, gravarMembros). Confirmado que: (1) analise.js tem serialização de PUT com _pautaSaveEmVoo; (2) pautas-comissoes.js usa chaveReuniao segura e limpaChave sanitiza caracteres proibidos do RTDB; (3) emendas.js usa PUT intencional com comentário documentando que sobrescreve coleta anterior (decisão consciente por tipo de operação); (4) comissoes.js tem read-modify-write com releitura antes de PUT (mitigação conhecida de janela de corrida). Não encontrados: apagamentos em cascata indevidos com dados órfãos, chaves com caracteres proibidos do RTDB não escapados, ou leituras que assumem campos ausentes em registros antigos (código usa optional chaining)."
+}

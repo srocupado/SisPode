@@ -1,0 +1,6 @@
+{
+ "area": "pautas-comissoes",
+ "arquivos": "pautas-comissoes.js e pautas-comissoes-core.js",
+ "findings": [],
+ "cobertura": "Analisei completamente pautas-comissoes.js (829 linhas) e pautas-comissoes-core.js (397 linhas). Foquei em fluxos de importação/reimportação de pautas, persistência em Firebase (PUT/PATCH/DELETE), tratamento de erros com .catch() engolidos, carregamento de dados da API da Câmara com falhas silenciosas, cache de documentos e autores, e fluxo de fila de geração de análises. Identifiquei 6 achados, sendo 3 críticos (linhas 395, 91, 180) relacionados a perda/corrupção de dados ou informação errada apresentada como certa, e 3 de gravidade alta/média relacionados a falhas silenciosas e inconsistências."
+}

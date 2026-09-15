@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Notas Técnicas Orçamentárias – Podemos</title>
+  <link rel="stylesheet" href="panel.css">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    /* O panel.css define body { height:100vh; display:flex; overflow:hidden } e
+       conta com um contêiner INTERNO rolável — as outras telas usam
+       .main-content ou .em-body, que já trazem overflow-y:auto. Esta tela
+       montou layout próprio e ficou sem nenhum: o conteúdo além da primeira
+       dobra simplesmente não tinha como ser alcançado, sem barra de rolagem.
+       O cabeçalho e a barra de filtros ficam fixos; quem rola é o corpo. */
+    .on-topbar { display: flex; align-items: center; gap: 14px; padding: 12px 22px;
+      border-bottom: 1px solid var(--border-soft); flex-wrap: wrap; flex-shrink: 0; }
+    .on-rotulo { font-size: 10.5px; font-weight: 600; letter-spacing: .3px;
+      text-transform: uppercase; color: var(--text-dim); }
+    .on-topbar select { background: var(--bg); border: 1px solid var(--border-soft); border-radius: 8px;
+      padding: 7px 10px; font-family: inherit; font-size: 12.5px; color: var(--text); }
+    .on-corpo { padding: 20px 22px 60px; display: grid; gap: 16px;
+      grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); align-items: start;
+      /* min-height:0 é obrigatório: um item flex tem min-height:auto por
+         padrão e não encolhe abaixo do próprio conteúdo, o que anularia o
+         overflow e devolveria o corte. */
+      flex: 1; min-height: 0; overflow-y: auto; }
+    .on-card { border: 1px solid var(--border-soft); border-radius: 10px; background: var(--bg-elev, var(--bg));
+      padding: 14px 16px; }
+    .on-card.largo { grid-column: 1 / -1; }
+    .on-card h3 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .5px;
+      color: var(--text-dim); font-weight: 600; }
+    .on-linha { display: flex; gap: 10px; padding: 5px 0; border-bottom: 1px solid var(--border-soft); font-size: 13px; }
+    .on-linha:last-child { border-bottom: 0; }
+    .on-linha .r { min-width: 130px; color: var(--text-dim); flex-shrink: 0; }
+    .on-linha .v { flex: 1; }
+    .on-etapa { display: flex; align-items: center; gap: 10px; padding: 5px 0; font-size: 12.5px; }
+    .on-etapa .n { width: 20px; color: var(--text-dim); font-variant-numeric: tabular-nums; }
+    .on-etapa .nome { flex: 1; }
+    .on-selo { font-size: 10.5px; padding: 2px 8px; border-radius: 20px; white-space: nowrap; }
+    .selo-andamento { background: rgba(47,207,122,.14); color: #2fcf7a; font-weight: 600; }
+    .selo-naoini { background: rgba(255,255,255,.06); color: var(--text-dim); }
+    .selo-conc { background: rgba(31,165,165,.14); color: #1fa5a5; }
+    .selo-pend { background: rgba(214,138,0,.16); color: #d68a00; font-weight: 600; }
+    .selo-diverg { background: rgba(255,107,107,.16); color: #ff6b6b; font-weight: 600; }
+    .on-pend { border-left: 3px solid #d68a00; background: rgba(214,138,0,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; line-height: 1.55; }
+    .on-falha { border-left: 3px solid #ff6b6b; background: rgba(255,107,107,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; }
+    .on-ok { border-left: 3px solid #2fcf7a; background: rgba(47,207,122,.08); border-radius: 4px;
+      padding: 9px 12px; font-size: 12.5px; margin-top: 8px; }
+    .on-prazo { font-size: 15px; font-weight: 700; color: var(--text); }
+    .on-prazo.fechado { color: var(--text-dim); font-weight: 500; }
+    .on-lista { margin: 0; padding-left: 16px; font-size: 12.5px; line-height: 1.7; }
+    .on-lista a { color: #0a6cf0; text-decoration: none; }
+    .on-lista a:hover { text-decoration: underline; }
+    .on-pode { background: rgba(0,168,89,.16); color: #00a859; font-weight: 600;
+      padding: 1px 6px; border-radius: 4px; font-size: 10.5px; margin-left: 6px; }
+    .on-vazio { color: var(--text-dim); font-size: 12.5px; font-style: italic; }
+    .on-carregando { padding: 40px 22px; text-align: center; color: var(--text-dim); font-size: 13px; }
+    table.on-tab { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.on-tab td { padding: 4px 6px; border-bottom: 1px solid var(--border-soft); vertical-align: top; }
+    table.on-tab td.a { color: var(--text-dim); width: 46%; }
+    .on-spinner { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(255,255,255,.25);
+      border-top-color: var(--text); border-radius: 50%; animation: on-gira .7s linear infinite; }
+    @keyframes on-gira { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header class="app-header">
+    <div class="header-brand">
+      <div class="header-logo">
+        <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+          <circle cx="17" cy="17" r="17" fill="#00A859"/>
+          <text x="17" y="23" text-anchor="middle" font-size="14" font-weight="bold" fill="white" font-family="Arial">P</text>
+        </svg>
+      </div>
+      <div class="header-title">
+        <span class="header-main">Notas Técnicas Orçamentárias</span>
+        <span class="header-sub">LOA, LDO e PPA · Comissão Mista de Orçamento · Liderança do Podemos</span>
+      </div>
+    </div>
+    <div class="header-actions">
+      <button id="btn-voltar" class="btn btn-outline btn-sm" title="Voltar">← Início</button>
+      <button id="btn-atualizar" class="btn btn-outline btn-sm" title="Reconsulta o Senado e o portal do Congresso">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+        Atualizar
+      </button>
+      <button id="btn-config" class="btn btn-outline btn-sm" title="Provedor, chave e modelo de IA — usados para ler as cartilhas, extrair a ficha e redigir a síntese">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+        <span id="btn-config-rotulo">IA</span>
+      </button>
+      <button id="btn-conferir" class="btn btn-outline btn-sm" disabled title="Confere a base normativa da nota contra o Manual de Emendas do exercício">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Conferir normas
+      </button>
+      <button id="btn-nota" class="btn btn-primary btn-sm" disabled title="Gera a nota técnica com o quadro atual da matéria">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+        Gerar nota técnica
+      </button>
+      <button id="btn-nota-pdf" class="btn btn-primary btn-sm" disabled title="Abre a nota e já chama o diálogo de impressão — escolha 'Salvar como PDF'">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        Salvar em PDF
+      </button>
+    </div>
+  </header>
+
+  <div class="on-topbar">
+    <label style="display:flex;align-items:center;gap:8px">
+      <span class="on-rotulo">Lei</span>
+      <select id="f-tipo">
+        <option value="loa">LOA — Lei Orçamentária Anual</option>
+        <option value="ldo">LDO — Lei de Diretrizes Orçamentárias</option>
+        <option value="ppa">PPA — Plano Plurianual</option>
+      </select>
+    </label>
+    <label style="display:flex;align-items:center;gap:8px">
+      <span class="on-rotulo">Exercício</span>
+      <select id="f-ano"></select>
+    </label>
+    <span id="on-status" style="font-size:12px;color:var(--text-dim)"></span>
+  </div>
+
+  <div id="on-corpo" class="on-corpo">
+    <div class="on-carregando">Selecione a lei e o exercício para carregar o quadro da matéria.</div>
+  </div>
+
+  <!-- ===== MODAL: configurações de IA =====
+       A chave fica no chrome.storage LOCAL do analista, compartilhada com os
+       demais painéis da extensão — nunca no Firebase, nunca no repositório. -->
+  <div id="modal-configuracoes" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Configurações de IA</h3>
+        <button class="modal-close" data-fecha="modal-configuracoes">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Integração com Inteligência Artificial
+          </div>
+          <p class="config-desc">
+            Neste módulo a IA faz três leituras: o que cada <strong>cartilha</strong> permite custear,
+            os <strong>parâmetros</strong> escritos na orientação normativa do exercício, e a
+            <strong>síntese analítica</strong> da nota. Em todas, o que ela produz é conferido contra o texto
+            do próprio documento antes de entrar na nota.
+            <br><br>
+            A chave fica <strong>no seu navegador</strong> e é compartilhada com os outros painéis do SisPode.
+            Ela não vai para o Firebase nem para o repositório — cada analista usa a sua.
+          </p>
+
+          <div class="form-group" style="margin-top:14px">
+            <label>Provedor de IA</label>
+            <select id="config-provedor" class="form-input">
+              <option value="gemini">Google Gemini</option>
+              <option value="openai">OpenAI (ChatGPT)</option>
+              <option value="anthropic">Anthropic (Claude)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label>Chave de API</label>
+            <div style="display:flex;gap:8px">
+              <input type="password" id="config-api-key" class="form-input" placeholder="Cole aqui sua chave">
+              <button id="btn-toggle-key" class="btn btn-outline btn-sm" title="Mostrar/ocultar chave">👁</button>
+            </div>
+            <small id="config-hint-chave" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:block"></small>
+          </div>
+
+          <div class="form-group">
+            <label style="display:flex;align-items:center;justify-content:space-between">
+              Modelo
+              <button id="btn-carregar-modelos" class="btn btn-outline btn-sm" style="font-size:11px;padding:3px 8px">
+                ↻ Carregar disponíveis
+              </button>
+            </label>
+            <select id="config-modelo" class="form-input"></select>
+            <div id="modelos-status" style="font-size:11px;color:var(--text-dim);margin-top:4px;display:none"></div>
+            <small style="font-size:11px;color:var(--text-dim);margin-top:6px;display:block">
+              As cartilhas passam de 20 MB e a orientação normativa passa de 250 páginas. Documento que não couber
+              na requisição do provedor é enviado como texto extraído, e a tela avisa quando isso acontecer.
+            </small>
+          </div>
+
+          <button id="btn-testar-conexao" class="btn btn-outline btn-sm">Testar conexão</button>
+          <div id="config-status-ia" class="config-status" style="display:none;margin-top:8px"></div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-configuracoes">Cancelar</button>
+        <button id="btn-salvar-config" class="btn btn-primary">Salvar</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="libs/pdf.min.js"></script>
+  <script src="cmo.js"></script>
+  <script src="normas.js"></script>
+  <script src="ficha.js"></script>
+  <script src="mensagem.js"></script>
+  <script src="serie.js"></script>
+  <script src="guia-emendas.js"></script>
+  <script src="orcamento-ia.js"></script>
+  <script src="orcamento-notas.js"></script>
+</body>
+</html>

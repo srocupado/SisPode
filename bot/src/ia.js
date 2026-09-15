@@ -1,0 +1,233 @@
+'use strict';
+// Matriz dos 3 provedores de IA — portada de congresso.js (chamarIAtexto +
+// fetchIA), a implementação mais completa entre os módulos da extensão
+// (retry/backoff em 429/5xx). Toda chamada roda na chave do usuário.
+
+const ANTHROPIC_VER = '2023-06-01';
+
+const PROVEDORES = {
+  gemini: {
+    label: 'Google Gemini',
+    hintChave: 'Obtenha em aistudio.google.com → Get API key',
+    regexChave: /^[\w.-]{20,}$/,
+    modeloPadrao: 'gemini-3.1-flash-lite',
+  },
+  openai: {
+    label: 'OpenAI (ChatGPT)',
+    hintChave: 'Obtenha em platform.openai.com/api-keys',
+    regexChave: /^sk-[\w-]{20,}$/,
+    modeloPadrao: 'gpt-4o',
+  },
+  anthropic: {
+    label: 'Anthropic (Claude)',
+    hintChave: 'Obtenha em console.anthropic.com → Settings → API Keys',
+    regexChave: /^sk-ant-[\w-]{20,}$/,
+    modeloPadrao: 'claude-sonnet-4-6',
+  },
+};
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+// Teto por tentativa. O `fetch` do Node, sem isto, espera o padrão da
+// plataforma (~5 min) numa conexão pendurada — e com 4 tentativas o analista
+// ficaria vendo "digitando…" por até 20 minutos sem receber nada.
+// 90 s cobre com folga uma geração longa (o /analisar manda prompt grande).
+const TIMEOUT_IA_MS = 90000;
+
+/**
+ * Uma tentativa, sob teto de tempo. Devolve:
+ *   { ok:true, json }            → deu certo
+ *   { ok:false, repetir:true }   → instabilidade (rede, tempo, 429, 5xx)
+ *   { ok:false, repetir:false }  → erro do PEDIDO (4xx) — não adianta repetir
+ * O timer só é limpo DEPOIS de ler o corpo: limpá-lo na chegada dos cabeçalhos
+ * deixaria um corpo pendurado esperar sem limite.
+ */
+async function tentativaIA(url, init) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), TIMEOUT_IA_MS);
+  try {
+    const res = await fetch(url, { ...init, signal: ctrl.signal });
+    if (res.ok) return { ok: true, json: await res.json() };
+    const repetir = res.status === 429 || (res.status >= 500 && res.status < 600);
+    if (repetir) return { ok: false, repetir: true, erro: new Error(`HTTP ${res.status}`) };
+    let det; try { det = await res.json(); } catch (_) { det = null; }
+    return { ok: false, repetir: false,
+      erro: new Error(det?.error?.message || det?.error?.type || `HTTP ${res.status}`) };
+  } catch (e) {
+    // Rede caída e tempo esgotado são instabilidade, não erro do pedido.
+    return { ok: false, repetir: true,
+      erro: e.name === 'AbortError'
+        ? new Error(`provedor não respondeu em ${TIMEOUT_IA_MS / 1000}s`) : e };
+  } finally { clearTimeout(timer); }
+}
+
+/** fetch para IA com retry/backoff em 429 e 5xx (5s/15s/30s). */
+async function fetchIA(url, init) {
+  const delays = [0, 5000, 15000, 30000];
+  let ultima = null;
+  for (let i = 0; i < delays.length; i++) {
+    if (delays[i]) await sleep(delays[i]);
+    const r = await tentativaIA(url, init);
+    if (r.ok) return r.json;
+    if (!r.repetir) throw r.erro;
+    ultima = r.erro;
+  }
+  throw ultima || new Error('Falha após várias tentativas.');
+}
+
+/** Chamada de IA somente-texto, na chave do usuário. */
+async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 8000 }) {
+  if (provedor === 'gemini') {
+    const chamar = async (m) => {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+      const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      // Modelos "thinking" (3.x) podem devolver várias parts; junta todas as de
+      // texto (ignorando as de raciocínio), em vez de ler só a primeira.
+      return (j.candidates?.[0]?.content?.parts || [])
+        .filter(p => !p.thought && typeof p.text === 'string')
+        .map(p => p.text).join('').trim();
+    };
+    const m = modelo || PROVEDORES.gemini.modeloPadrao;
+    try { return await chamar(m); }
+    catch (e) {
+      // O Google aposenta modelos para chaves novas ("no longer available to
+      // new users" — ex.: gemini-2.5-*). Perfis antigos guardam esse modelo;
+      // em vez de quebrar o comando, refaz uma vez no modelo padrão.
+      if (m !== PROVEDORES.gemini.modeloPadrao && /no longer available/i.test(e.message || '')) {
+        return await chamar(PROVEDORES.gemini.modeloPadrao);
+      }
+      throw e;
+    }
+  }
+  if (provedor === 'openai') {
+    const m = modelo || PROVEDORES.openai.modeloPadrao;
+    const body = { model: m, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], temperature: 0.2, max_output_tokens: maxTokens };
+    const j = await fetchIA('https://api.openai.com/v1/responses', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (j.output_text) return j.output_text.trim();
+    for (const item of (j.output || [])) for (const c of (item.content || [])) if (c.type === 'output_text' && c.text) return c.text.trim();
+    return '';
+  }
+  if (provedor === 'anthropic') {
+    const m = modelo || PROVEDORES.anthropic.modeloPadrao;
+    const body = { model: m, max_tokens: maxTokens, messages: [{ role: 'user', content: prompt }] };
+    const j = await fetchIA('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    for (const item of (j.content || [])) if (item.type === 'text' && item.text) return item.text.trim();
+    return '';
+  }
+  throw new Error(`Provedor desconhecido: ${provedor}`);
+}
+
+/** Valida a chave com a chamada mais barata de cada provedor (listar modelos). */
+async function testarChave(provedor, apiKey) {
+  let res;
+  if (provedor === 'gemini') {
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=1`);
+  } else if (provedor === 'openai') {
+    res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+  } else if (provedor === 'anthropic') {
+    res = await fetch('https://api.anthropic.com/v1/models?limit=1', {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER },
+    });
+  } else {
+    throw new Error(`Provedor desconhecido: ${provedor}`);
+  }
+  if (!res.ok) {
+    let det; try { det = await res.json(); } catch (_) { det = null; }
+    throw new Error(det?.error?.message || `HTTP ${res.status}`);
+  }
+  return true;
+}
+
+// Vocabulário do domínio legislativo — orienta o reconhecimento de voz a
+// preferir termos/siglas da Câmara em vez de palavras foneticamente próximas
+// (ex.: "pauta nova" em vez de "pauta corrida").
+const VOCAB_LEGISLATIVO =
+  'pauta, pauta nova, pauta da semana, importar a pauta, plenário, sessão, ' +
+  'votação, urgência, destaque, parecer, substitutivo, emenda, ementa, ' +
+  'relator, comissão, bancada, orientação, veto, redação final, apensado, ' +
+  'nota técnica, tramitação, proposição, Liderança do Podemos, ' +
+  'PL, PLP, PEC, PDL, MPV, PRC, REQ, CCJC, SisPode';
+
+/**
+ * Transcreve uma mensagem de voz (buffer OGG/Opus do Telegram).
+ * Gemini e OpenAI aceitam áudio nas próprias APIs; Anthropic não — o
+ * chamador deve usar a chave-fallback de transcrição (TRANSCRIBE_GEMINI_KEY).
+ */
+async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audio/ogg' }) {
+  if (provedor === 'gemini') {
+    // Adota o modelo do /modelo do usuário quando for da família Gemini
+    // (o transcritor-fallback pode receber perfil Anthropic — aí usa o padrão).
+    const m = (modelo && /^gemini/i.test(modelo)) ? modelo : PROVEDORES.gemini.modeloPadrao;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    const body = {
+      contents: [{
+        parts: [
+          { text: 'Transcreva fielmente este áudio em Português do Brasil. ' +
+                  `Contexto: é um(a) assessor(a) legislativo(a) da Câmara dos Deputados falando com um sistema de acompanhamento de pautas; termos prováveis: ${VOCAB_LEGISLATIVO}. ` +
+                  'Na dúvida entre palavras parecidas, prefira as desse vocabulário. Responda APENAS com a transcrição, sem comentários.' },
+          { inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') } },
+        ],
+      }],
+      generationConfig: { temperature: 0 },
+    };
+    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
+  }
+  if (provedor === 'openai') {
+    const form = new FormData();
+    form.append('model', 'whisper-1');
+    form.append('language', 'pt');
+    // O campo "prompt" do Whisper enviesa o reconhecimento para o vocabulário dado.
+    form.append('prompt', VOCAB_LEGISLATIVO);
+    form.append('file', new Blob([buffer], { type: mime }), 'voz.ogg');
+    const res = await fetch('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${apiKey}` },
+      body: form,
+    });
+    const j = await res.json();
+    if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
+    return (j.text || '').trim();
+  }
+  throw new Error('Este provedor não aceita áudio.');
+}
+
+/** Escapa quebras de linha/tabs CRUS dentro de strings — o defeito mais comum
+ *  do JSON gerado por LLM em respostas longas (minutas, justificações). */
+function repararJson(t) {
+  let out = '', inStr = false, esc = false;
+  for (const ch of t) {
+    if (esc) { out += ch; esc = false; continue; }
+    if (ch === '\\') { out += ch; esc = true; continue; }
+    if (ch === '"') { inStr = !inStr; out += ch; continue; }
+    if (inStr && (ch === '\n' || ch === '\r' || ch === '\t')) {
+      out += ch === '\n' ? '\\n' : (ch === '\t' ? '\\t' : '');
+      continue;
+    }
+    out += ch;
+  }
+  return out;
+}
+
+/** Extrai o objeto JSON da resposta da IA, tolerando texto/cercas ao redor (de congresso.js). */
+function extrairJson(texto) {
+  if (!texto) return {};
+  let t = texto.replace(/```json/gi, '').replace(/```/g, '').trim();
+  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
+  if (ini >= 0 && fim > ini) t = t.slice(ini, fim + 1);
+  try { return JSON.parse(t); } catch (_) {}
+  // 2ª chance: conserta os defeitos clássicos (quebra crua em string, vírgula
+  // sobrando antes de } ou ]) e tenta de novo.
+  try { return JSON.parse(repararJson(t).replace(/,\s*([}\]])/g, '$1')); } catch (_) { return {}; }
+}
+
+module.exports = { PROVEDORES, chamarIAtexto, testarChave, transcreverAudio, extrairJson, fetchIA };

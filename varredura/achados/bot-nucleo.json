@@ -1,0 +1,25 @@
+{
+ "area": "bot-nucleo",
+ "arquivos": "bot/index.js e bot/src/agente.js",
+ "findings": [
+  {
+   "area": "bot-nucleo",
+   "file": "bot/index.js",
+   "line": 44,
+   "severity": "critica",
+   "title": "Quebra silenciosa ao registrar mensagem do grupo no Firebase",
+   "summary": "O try/catch vazio na função de interceptação de API engole falhas de registrarMsgGrupo sem nenhum log ou indicação. Se fbPut falhar dentro de registrarMsgGrupo (linhas 123 e 146 de monitor.js têm catch vazios), a mensagem não é gravada mas ninguém fica sabendo, quebrando o rastreamento do /revisar_msg.",
+   "failure_scenario": "Monitor envia mensagem ao grupo sobre votação; Firebase fica inacessível ou tem erro de escrita; mensagem vai para o Telegram com sucesso, mas não é registrada no Firebase; /revisar_msg lista falhas ou gaps de mensagens que deviam estar lá; assessoria acha que há rastreamento completo mas tem lacunas silenciosas."
+  },
+  {
+   "area": "bot-nucleo",
+   "file": "bot/src/agente.js",
+   "line": 271,
+   "severity": "critica",
+   "title": "Falta de timeout no await de ferramenta de DADOS no laço ReAct",
+   "summary": "O laço ReAct chama ferramentas injetadas (como varrer_comissoes, pauta_comissao, etc.) com await fn(...) sem nenhum timeout. Se a ferramenta fizer uma requisição HTTP ou operação async que nunca retorna, o await fica pendurado para sempre, travando todo o laço ReAct do agente.",
+   "failure_scenario": "Usuário pergunta ao agente \"tem projeto do Podemos nas comissões amanhã?\"; agente escolhe ferramenta varrer_comissoes; esta faz requisição HTTP a site externo; conexão TCP fica pendurada (ex.: timeout de rede não configurado); await nunca resolve; laço ReAct inteiro fica pendurado; usuário vê \"digitando...\" para sempre; nenhum feedback de erro."
+  }
+ ],
+ "cobertura": "Li bot/index.js (linhas 1-2212), bot/src/agente.js (linhas 1-286), e tracei fluxos de autorização, roteamento de comandos, conversa natural e tratamento de ferramentas. Verificuei allow-list rígida de domínios (OK), memória de conversa (OK com TTL), laço ReAct (problema de timeout identificado), e registrador de mensagens (problema de silêncio identificado). Não identifiquei vazamento de segredos em logs, corrupção de dados por race condition (tokens únicos protegem), ou falhas anti-alucinação que deixem passar informação errada. A quebra silenciosa em registrarMsgGrupo é o problema de PERDA/CORRUPÇÃO DE DADOS mais grave; o travamento no laço ReAct é o de TRAVAMENTO DO FLUXO mais grave."
+}
