@@ -12,7 +12,13 @@ const GEMINI_BASE   = 'https://generativelanguage.googleapis.com/v1beta/models';
 const FIREBASE_URL  = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const COD_ORGAO     = 180;
 
-const SITUACOES_INATIVAS = ['retirado', 'prejudicado', 'rejeitado', 'não admitido', 'nao admitido', 'inadmitido', 'não admitida', 'nao admitida'];
+// Situações em que o destaque NÃO está mais pendente de votação. "Aprovado" e
+// "mantido o texto" são resultados de votação já ocorrida e faltavam aqui: o
+// destaque continuava na aba de ativos com a etiqueta "Ativo" (e a cor de
+// concluído do mapa abaixo), e a assessoria preparava orientação para votação
+// que já tinha acontecido — varredura de 15/09/2026.
+const SITUACOES_INATIVAS = ['retirado', 'prejudicado', 'rejeitado', 'aprovado', 'mantido o texto',
+  'não admitido', 'nao admitido', 'inadmitido', 'não admitida', 'nao admitida'];
 
 const SITUACAO_CLASSES = {
   'retirado':        'status-retirado',
