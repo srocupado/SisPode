@@ -27,12 +27,13 @@ const modulo = new Function('XLSX', `
   ${trecho(/const COLUNAS = \{[\s\S]*?\n\};/)}
   ${trecho(/function normalizarCabecalho\([\s\S]*?\n}/)}
   ${trecho(/function dinheiro\([\s\S]*?\n}/)}
-  ${trecho(/let _avisouPrecisao[\s\S]*?\n}/)}
+  ${trecho(/const _ufsNumeroArredondado[\s\S]*?\n}/)}
+  ${trecho(/function numeroArredondadoEm\([^\n]*\n?/)}
   ${trecho(/function lerPlanilhaPodemos\([\s\S]*?\n}/)}
   ${trecho(/function etapaDe\([\s\S]*?\n}/)}
   ${trecho(/function somar\([\s\S]*?\n}/)}
   ${trecho(/function porDeputado\([\s\S]*?\n}/)}
-  return { lerPlanilhaPodemos, dinheiro, etapaDe, somar, porDeputado, normalizarCabecalho, numeroDaProposta };
+  return { lerPlanilhaPodemos, dinheiro, etapaDe, somar, porDeputado, normalizarCabecalho, numeroDaProposta, numeroArredondadoEm };
 `)(XLSX);
 
 const ler = arq => modulo.lerPlanilhaPodemos(

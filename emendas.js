@@ -178,11 +178,16 @@ function dinheiro(v) {
 // então o valor chega inteiro; se um dia vier como número, os últimos dígitos
 // já teriam sido arredondados ANTES de chegar aqui — não dá para recuperar,
 // mas dá para gritar em vez de exibir um número silenciosamente errado.
-let _avisouPrecisao = false;
+// Uma flag única para toda a coleta nomeava só o PRIMEIRO estado afetado: se SP
+// e TO vinham como número, o analista só ficava sabendo de SP — e só no
+// console, enquanto a tela exibia a lista com o toast de sucesso. Agora cada UF
+// afetada fica registrada e a coleta a leva para `falhas`, que aparece no toast
+// e no log.
+const _ufsNumeroArredondado = new Set();
 function numeroDaProposta(v, uf) {
   if (typeof v === 'number') {
-    if (!_avisouPrecisao) {
-      _avisouPrecisao = true;
+    if (!_ufsNumeroArredondado.has(uf)) {
+      _ufsNumeroArredondado.add(uf);
       console.warn(`[emendas] ATENÇÃO: a planilha de ${uf} trouxe o nº da proposta como NÚMERO, ` +
         'não como texto. Acima de 16 dígitos o JavaScript arredonda, então os números podem estar ' +
         'errados nos últimos dígitos. Confira uma proposta no site do FNS antes de usar a lista.');
@@ -192,8 +197,12 @@ function numeroDaProposta(v, uf) {
   return String(v ?? '').trim();
 }
 
+/** A UF trouxe nº de proposta como número (e portanto arredondado)? */
+function numeroArredondadoEm(uf) { return _ufsNumeroArredondado.has(uf); }
+
 /** Lê o XLSX e devolve SÓ as linhas do Podemos, já normalizadas. */
 function lerPlanilhaPodemos(buffer, uf, ano) {
+  _ufsNumeroArredondado.delete(uf);   // releitura do estado começa sem a marca da anterior
   const wb = XLSX.read(new Uint8Array(buffer), { type: 'array' });
   const aba = wb.Sheets[wb.SheetNames[0]];
   const linhas = XLSX.utils.sheet_to_json(aba, { header: 1, defval: '' });
@@ -331,6 +340,11 @@ async function buscarNoFns(escopo = 'tudo') {
         const itens = lerPlanilhaPodemos(buffer, uf, ano);
         reg.podemos = itens.length;
         encontrados.push(...itens);
+        if (numeroArredondadoEm(uf)) {
+          reg.precisao = false;
+          falhas.push(`${uf}: nº da proposta veio como NÚMERO na planilha do FNS — acima de 16 dígitos ` +
+            'os últimos dígitos podem estar arredondados; confira uma proposta no site antes de usar a lista');
+        }
         // Grava por UF assim que fica pronta: uma busca interrompida no meio
         // não joga fora o que já foi lido. Falha de GRAVAÇÃO conta como falha
         // do estado — antes era engolida, e como a tela recarregava do banco,
