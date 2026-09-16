@@ -30,7 +30,7 @@ const { document, window } = parseHTML(html);
 
 // ---------- API da Câmara de mentira ----------
 // `deputados` mapeia id → partido; `derrubar` força HTTP 500 no que casar.
-const api = { deputados: {}, autores: {}, derrubar: null, chamadas: [] };
+const api = { deputados: {}, autores: {}, bancada: [], derrubar: null, chamadas: [] };
 const resp = obj => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 const erro  = st => ({ ok: false, status: st, json: async () => ({}), text: async () => '' });
 
@@ -47,6 +47,7 @@ const ctx = {
       const p = api.deputados[m[1]];
       return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: p.uf } } }) : erro(404);
     }
+    if (/\/deputados\?siglaPartido=PODE/.test(u)) return resp({ dados: api.bancada });
     m = u.match(/\/proposicoes\/(\d+)\/autores/);
     if (m) return resp({ dados: api.autores[m[1]] || [] });
     return erro(599);
@@ -148,6 +149,57 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     ok(depois === antes, `o mesmo deputado não é consultado de novo (${antes} → ${depois})`);
   }
 
+  console.log('\n== relatoria: casada contra a bancada, e calada quando não casa ==');
+  {
+    api.bancada = [
+      { nome: 'Ana Paula Ferreira', nomeEleitoral: 'Ana Paula' },
+      { nome: 'Décio Rocha',        nomeEleitoral: 'Delegado Décio' },
+      { nome: 'Carla Dias' },
+    ];
+
+    ok(await av(`apurarRelatoria({ relator: 'Ana Paula' })`) === 'pode',
+       'relatora pelo nome eleitoral, como a pauta costuma escrever');
+    ok(await av(`apurarRelatoria({ relator: 'Ana Paula Ferreira' })`) === 'pode',
+       'e pelo nome civil também');
+    ok(await av(`apurarRelatoria({ relator: 'DELEGADO DÉCIO' })`) === 'pode',
+       'acento e caixa não atrapalham o casamento');
+    ok(await av(`apurarRelatoria({ relator: 'Bruno Lima' })`) === 'fora',
+       'quem não está na bancada é apurado como de fora');
+    ok(await av(`apurarRelatoria({ relator: '' })`) === null,
+       'item sem relator na pauta: nada a apurar');
+
+    const b = await av(`badgeRelatoria({ relatoria: 'pode', relator: 'Ana Paula' })`);
+    ok(b && /Relatoria Podemos/.test(b.texto), `o badge sai por extenso (${b ? b.texto : 'nenhum'})`);
+    ok(b.cls === 'rel' && /Ana Paula/.test(b.title), 'com o nome do relator ao passar o mouse');
+    ok(av(`badgeRelatoria({ relatoria: 'fora', relator: 'Bruno Lima' })`) === null,
+       'relator de fora NÃO ganha badge — a tela não precisa dizer de quem não é');
+    ok(av(`badgeRelatoria({ relatoria: null, relator: 'Fulano' })`) === null,
+       'e sem apuração também não');
+  }
+
+  console.log('\n== o nome que não casa se cala, em vez de negar ==');
+  {
+    // Um relator do Podemos que a pauta escreveu de um jeito que o cadastro não
+    // tem. A regra combinada: não afirma nem nega — apenas não marca.
+    ok(await av(`apurarRelatoria({ relator: 'Ana P. F.' })`) === 'fora',
+       'grafia divergente não casa (limite conhecido da apuração por nome)');
+    ok(av(`badgeRelatoria({ relatoria: 'fora', relator: 'Ana P. F.' })`) === null,
+       'e, porque "fora" não gera badge, o erro é SILÊNCIO e não uma afirmação errada');
+  }
+
+  console.log('\n== bancada fora do ar: nenhuma relatoria é negada ==');
+  {
+    // Zera o cache do módulo para a consulta acontecer de novo.
+    av('_bancadaPode = null');
+    api.derrubar = /siglaPartido=PODE/;
+    ok(await av(`apurarRelatoria({ relator: 'Ana Paula' })`) === null,
+       'sem a bancada, a relatora do Podemos não vira "fora" — vira indefinida');
+    api.derrubar = null;
+    av('_bancadaPode = null');
+    ok(await av(`apurarRelatoria({ relator: 'Ana Paula' })`) === 'pode',
+       'e com a API de volta, acerta');
+  }
+
   console.log('\n== a estrela da lista lateral ==');
   {
     const comPode = av(`marcasCompactas({ autoria: { podemos: true, principal: true, nomesPode: ['Ana Paula'] } })`);
@@ -159,6 +211,13 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     ok(av(`marcasCompactas({ autoria: { podemos: false, incerta: true, nomesPode: [] } })`) === '',
        'e dúvida também não: na lista, ausência de estrela não afirma nada — o badge está no cabeçalho');
     ok(av(`marcasCompactas({})`) === '', 'projeto ainda sem apuração não quebra a lista');
+
+    const comR = av(`marcasCompactas({ relatoria: 'pode', relator: 'Ana Paula' })`);
+    ok(/>R</.test(comR) && /Relatoria do Podemos/.test(comR), 'relatoria do Podemos vira um R na lista');
+    ok(av(`marcasCompactas({ relatoria: 'fora', relator: 'Bruno Lima' })`) === '',
+       'relatoria de fora não marca nada');
+    const ambos = av(`marcasCompactas({ autoria: { podemos: true, principal: true, nomesPode: ['Ana Paula'] }, relatoria: 'pode', relator: 'Ana Paula' })`);
+    ok(/★/.test(ambos) && />R</.test(ambos), 'autoria e relatoria convivem no mesmo item');
   }
 
   console.log('\n== o badge não entra no texto da nota ==');

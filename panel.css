@@ -1387,6 +1387,7 @@ body {
   cursor: help;
 }
 .ccjc-marca--pode { color: #2fcf7a; }
+.ccjc-marca--rel  { color: #9ecbff; font-weight: 800; font-size: 10px; }
 .ccjc-revisao-badge {
   font-size: 16px;
   font-weight: 800;

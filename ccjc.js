@@ -315,6 +315,11 @@ async function buscarMetadadosTodos(projetos) {
     } catch (e) {
       console.warn(`Erro ao buscar ${proj.chave}:`, e.message);
     }
+    // A relatoria vem da pauta (nome) + bancada do Podemos (uma chamada só,
+    // cacheada), então roda junto e não pesa: não depende do metadado acima e
+    // acontece mesmo que a busca da proposição tenha falhado.
+    try { proj.relatoria = await apurarRelatoria(proj); }
+    catch (e) { console.warn(`Relatoria de ${proj.chave} não apurada:`, e.message); proj.relatoria = null; }
   });
 }
 
@@ -422,6 +427,85 @@ async function apurarAutoria(idProp) {
   };
 }
 
+// ============================================================
+//  RELATORIA DO PODEMOS
+// ============================================================
+// Aqui a CCJC NÃO pôde copiar o Plenário. Lá a função é uma linha, porque a
+// pauta de Plenário traz o partido do relator:
+//     function relatoriaPodemos(it) { return /\bPODE\b/i.test(it.relator?.partido); }
+// A pauta da CCJC traz só o NOME ("relator nome" do XML, ou item.relator.nome).
+//
+// Descobrir o partido pelo nome é adivinhação, e adivinhação por aproximação já
+// nos mordeu antes (votacao.js, onde a correção foi exigir partido E UF para
+// aceitar um casamento de nome). Aqui não há partido para conferir, então a
+// apuração vai pelo caminho inverso: baixa a bancada do Podemos — conjunto
+// pequeno e fechado — e procura o nome do relator lá dentro.
+//
+// A regra que vem com isso, e que é deliberada: NOME QUE NÃO CASA NÃO GERA
+// BADGE NENHUM. Nem "é do Podemos", nem "não é". Um relator do Podemos que a
+// pauta escreveu de forma diferente do cadastro apenas não recebe marca; o que
+// não acontece é a tela afirmar o contrário do verdadeiro.
+
+let _bancadaPode = null;   // Set de nomes normalizados, ou null se não apurada
+
+/** Tira acento, pontuação e caixa: "Delegado Pablo" e "DELEGADO PABLO" casam. */
+function _normNome(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Nomes da bancada do Podemos na Câmara, normalizados. Uma chamada por sessão.
+ * Devolve null quando a consulta falha — e null NÃO é "bancada vazia": é o que
+ * faz o badge se calar em vez de dizer que ninguém é do Podemos.
+ */
+async function bancadaPodemos() {
+  if (_bancadaPode !== null) return _bancadaPode;
+  try {
+    const res = await fetch(`${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS_CCJC}&ordem=ASC&ordenarPor=nome&itens=100`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const dados = (await res.json()).dados || [];
+    if (!dados.length) throw new Error('lista vazia');
+    const nomes = new Set();
+    for (const d of dados) {
+      if (d.nome) nomes.add(_normNome(d.nome));
+      // nomeEleitoral aparece em parte dos registros e é a grafia que a pauta
+      // costuma usar ("Delegado Pablo" em vez do nome civil).
+      if (d.nomeEleitoral) nomes.add(_normNome(d.nomeEleitoral));
+    }
+    _bancadaPode = nomes;
+  } catch (e) {
+    console.warn('[ccjc] bancada do Podemos não apurada:', e.message);
+    _bancadaPode = null;
+  }
+  return _bancadaPode;
+}
+
+/**
+ * Relatoria do projeto. Devolve 'pode' | 'fora' | null.
+ * null cobre os dois casos em que a tela precisa se calar: sem relator na
+ * pauta, ou bancada não apurada. 'fora' só sai quando a bancada foi lida e o
+ * nome não está nela.
+ */
+async function apurarRelatoria(proj) {
+  const nome = _normNome(proj.relator);
+  if (!nome) return null;
+  const banc = await bancadaPodemos();
+  if (!banc) return null;
+  return banc.has(nome) ? 'pode' : 'fora';
+}
+
+/** Badge de relatoria — só existe quando o relator é do Podemos. */
+function badgeRelatoria(proj) {
+  if (proj.relatoria !== 'pode') return null;
+  return { cls: 'rel', texto: 'R · Relatoria Podemos',
+           title: `Relator(a): ${proj.relator} — deputado(a) da bancada do Podemos` };
+}
+
 /**
  * Marcas compactas para a LISTA lateral, que é estreita (a ementa já sai
  * cortada em 65 caracteres). Só o que o líder procura de relance: a estrela da
@@ -430,10 +514,16 @@ async function apurarAutoria(idProp) {
  * cabeçalho do projeto, a um clique.
  */
 function marcasCompactas(proj) {
+  const m = [];
   const a = proj.autoria;
-  if (!a?.podemos) return '';
-  const rot = a.principal ? 'Autoria' : 'Coautoria';
-  return `<span class="ccjc-marca ccjc-marca--pode" title="${esc(rot)} do Podemos${a.nomesPode.length ? ': ' + esc(a.nomesPode.join(', ')) : ''}">★</span>`;
+  if (a?.podemos) {
+    const rot = a.principal ? 'Autoria' : 'Coautoria';
+    m.push(`<span class="ccjc-marca ccjc-marca--pode" title="${esc(rot)} do Podemos${a.nomesPode.length ? ': ' + esc(a.nomesPode.join(', ')) : ''}">★</span>`);
+  }
+  if (proj.relatoria === 'pode') {
+    m.push(`<span class="ccjc-marca ccjc-marca--rel" title="Relatoria do Podemos${proj.relator ? ': ' + esc(proj.relator) : ''}">R</span>`);
+  }
+  return m.join('');
 }
 
 /** Badge de autoria: ★ Autoria/Coautoria · não verificada · não-Podemos. */
@@ -458,7 +548,7 @@ function badgeAutoria(proj) {
  * que foi verificado e o que o modelo escreveu.
  */
 function htmlBadgesProjeto(proj) {
-  const bs = [badgeAutoria(proj)].filter(Boolean);
+  const bs = [badgeAutoria(proj), badgeRelatoria(proj)].filter(Boolean);
   if (!bs.length) return '';
   return bs.map(b => `<span class="ccjc-badge ccjc-badge--${b.cls}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.texto)}</span>`).join('');
 }
