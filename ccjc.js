@@ -16,6 +16,7 @@ const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
 const ANTHROPIC_VER   = '2023-06-01';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
+const SIGLA_PODEMOS_CCJC = 'PODE';
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -307,6 +308,7 @@ async function buscarMetadadosTodos(projetos) {
         proj.idCamara       = dados.id;
         proj.ementa         = dados.ementa;
         proj.autores        = dados.autores;
+        proj.autoria        = dados.autoria;
         proj.statusApi      = dados.statusDesc;
         proj.urlInteiroTeor = dados.urlInteiroTeor || null;
       }
@@ -331,22 +333,134 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
     if (resD.ok) detalhe = (await resD.json()).dados || item;
   } catch (_) {}
 
-  let autores = [];
-  try {
-    const resA = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
-    if (resA.ok) {
-      const jA = await resA.json();
-      autores  = (jA.dados || []).slice(0, 3).map(a => a.nome).filter(Boolean);
-    }
-  } catch (_) {}
+  const apurada = await apurarAutoria(item.id);
 
   return {
     id:             item.id,
     ementa:         detalhe.ementa || item.ementa,
-    autores,
+    // `autores` continua sendo lista de NOMES: é o que o prompt da IA e o
+    // cabeçalho consomem. O juízo sobre o Podemos vai separado, em `autoria`.
+    autores:        apurada.nomes.slice(0, 3),
+    autoria:        apurada.autoria,
     statusDesc:     detalhe.statusProposicao?.descricaoSituacao || '',
     urlInteiroTeor: detalhe.urlInteiroTeor || null,
   };
+}
+
+// ============================================================
+//  AUTORIA DO PODEMOS
+// ============================================================
+// GÊMEO: a mesma apuração existe em analise.js (fetchAutoresProposicao /
+// fetchInfoDeputado, por volta da linha 900). São dois módulos que carregam
+// scripts diferentes — ccjc.html carrega só ccjc.js —, e a duplicação é
+// deliberada para não mexer no módulo de Plenário. Corrigiu aqui, confira lá.
+//
+// A regra que não pode se perder na cópia: falha de consulta NÃO é "não é do
+// Podemos". Fica marcada como autoria não verificada, e o badge diz isso —
+// senão a tela afirma o que não apurou.
+
+/** Cache por deputado. A FALHA não entra: a próxima apuração tenta de novo. */
+const _cacheDeputado = new Map();
+
+async function infoDeputado(idDep) {
+  if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
+  try {
+    const res = await fetch(`${API_BASE}/deputados/${idDep}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const us = (await res.json()).dados?.ultimoStatus || {};
+    const info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
+    _cacheDeputado.set(idDep, info);
+    return info;
+  } catch (e) {
+    console.warn(`[ccjc] não consegui consultar o deputado ${idDep}:`, e.message);
+    return { falhou: true };
+  }
+}
+
+/**
+ * Autoria de uma proposição: nomes para exibir + juízo sobre o Podemos.
+ * Devolve { nomes, autoria: { podemos, principal, incerta, nomesPode } }.
+ * `incerta` = algum autor não pôde ser consultado e nenhum dos consultados é
+ * do Podemos — o caso em que a tela precisa se calar em vez de afirmar.
+ */
+async function apurarAutoria(idProp) {
+  let dados;
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    dados = (await res.json()).dados || [];
+  } catch (e) {
+    console.warn(`[ccjc] autoria de ${idProp} não apurada:`, e.message);
+    return { nomes: [], autoria: { podemos: false, principal: false, incerta: true, nomesPode: [] } };
+  }
+
+  const autores = [];
+  for (const a of dados) {
+    const m = String(a.uri || '').match(/\/deputados\/(\d+)/);
+    if (!m) { autores.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
+    const info = await infoDeputado(m[1]);
+    const falhou = !!info.falhou;
+    autores.push({
+      nome:       a.nome || info.nome,
+      ordem:      a.ordemAssinatura,      // 1 = 1º signatário (autor); >1 = coautor
+      isPodemos:  !falhou && info.siglaPartido === SIGLA_PODEMOS_CCJC,
+      incerta:    falhou,
+    });
+  }
+
+  const pode = autores.filter(a => a.isPodemos);
+  // Sem informação de ordem (dado antigo da API), trata como autoria principal.
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  return {
+    nomes: autores.map(a => a.nome).filter(Boolean),
+    autoria: {
+      podemos:   pode.length > 0,
+      principal: temOrdem ? pode.some(a => Number(a.ordem) === 1) : pode.length > 0,
+      incerta:   !pode.length && autores.some(a => a.incerta),
+      nomesPode: pode.map(a => a.nome).filter(Boolean),
+    },
+  };
+}
+
+/**
+ * Marcas compactas para a LISTA lateral, que é estreita (a ementa já sai
+ * cortada em 65 caracteres). Só o que o líder procura de relance: a estrela da
+ * autoria do Podemos. "Não-Podemos" e "não verificada" não entram aqui — na
+ * lista, ausência de estrela não afirma nada, e o badge por extenso está no
+ * cabeçalho do projeto, a um clique.
+ */
+function marcasCompactas(proj) {
+  const a = proj.autoria;
+  if (!a?.podemos) return '';
+  const rot = a.principal ? 'Autoria' : 'Coautoria';
+  return `<span class="ccjc-marca ccjc-marca--pode" title="${esc(rot)} do Podemos${a.nomesPode.length ? ': ' + esc(a.nomesPode.join(', ')) : ''}">★</span>`;
+}
+
+/** Badge de autoria: ★ Autoria/Coautoria · não verificada · não-Podemos. */
+function badgeAutoria(proj) {
+  const a = proj.autoria;
+  if (!a) return null;
+  if (a.podemos) {
+    return { cls: 'pode', texto: `★ ${a.principal ? 'Autoria' : 'Coautoria'} Podemos`,
+             title: a.nomesPode.length ? a.nomesPode.join(', ') : 'Autoria do Podemos' };
+  }
+  if (a.incerta) {
+    return { cls: 'incerto', texto: 'Autoria: não verificada',
+             title: 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Recarregue a pauta para tentar de novo.' };
+  }
+  return { cls: 'neutro', texto: 'Autoria: não-Podemos', title: '' };
+}
+
+/**
+ * Os badges do projeto, por extenso, para o cabeçalho e para o PDF. Ficam
+ * SEMPRE fora do texto da nota: a nota é redação de IA e o badge é fato
+ * apurado na API da Câmara — misturados, o leitor perde a fronteira entre o
+ * que foi verificado e o que o modelo escreveu.
+ */
+function htmlBadgesProjeto(proj) {
+  const bs = [badgeAutoria(proj)].filter(Boolean);
+  if (!bs.length) return '';
+  return bs.map(b => `<span class="ccjc-badge ccjc-badge--${b.cls}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.texto)}</span>`).join('');
 }
 
 async function buscarTramitacoes(idCamara) {
@@ -1923,6 +2037,7 @@ function renderizarListaProjetos() {
       <div class="prop-item-content">
         <span class="prop-item-badge">${esc(proj.chave)}</span>
         ${rf ? '<span class="prop-item-rf" title="Bloco de Redação Final">Red. Final</span>' : ''}
+        ${marcasCompactas(proj)}
         <span class="prop-item-ementa">${esc(ementa)}${(proj.ementa || '').length > 65 ? '…' : ''}</span>
       </div>
       <span class="ccjc-status-dot ${statusCls}" title="${proj.statusAnalise}">${statusIcon}</span>
@@ -2044,6 +2159,7 @@ function renderizarRevisao() {
       <div class="ccjc-revisao-badge-wrap">
         <div class="ccjc-revisao-badge">${esc(proj.chave)}</div>
         ${ehRedacaoFinal(proj) ? '<span class="prop-item-rf" title="Bloco de Redação Final — apreciação do texto final">Redação Final</span>' : ''}
+        ${htmlBadgesProjeto(proj)}
         ${proj.idCamara ? `<a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${proj.idCamara}" target="_blank" class="ccjc-link-camara" title="Ver ficha na Câmara">↗ Ficha da proposição</a>` : ''}
       </div>
       <div class="ccjc-revisao-info">
