@@ -1388,6 +1388,29 @@ body {
 }
 .ccjc-marca--pode { color: #2fcf7a; }
 .ccjc-marca--rel  { color: #9ecbff; font-weight: 800; font-size: 10px; }
+
+/* Apelido da matéria — vai para o índice do PDF, e o analista corrige aqui. */
+.ccjc-apelido {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.ccjc-apelido input {
+  flex: 1;
+  min-width: 0;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  color: var(--text);
+  font-size: 11.5px;
+  font-family: inherit;
+}
+.ccjc-apelido input:focus { outline: none; border-color: var(--accent); }
+.ccjc-apelido input::placeholder { font-style: italic; color: #4a6268; }
 .ccjc-revisao-badge {
   font-size: 16px;
   font-weight: 800;

@@ -428,6 +428,90 @@ async function apurarAutoria(idProp) {
 }
 
 // ============================================================
+//  APELIDO DA MATÉRIA (para o índice do PDF)
+// ============================================================
+// GÊMEO de promptApelido/gerarApelidoIA/apelidoFallback em analise.js (~4420).
+//
+// O índice lista "PL 1234/2026 (Cota de aprendizes para pessoas com
+// deficiência)". A chave sozinha não diz nada a quem bate o olho na pauta; a
+// ementa inteira não cabe numa linha de índice. O apelido é o meio-termo.
+//
+// Sem chave de IA o apelido não some: cai na primeira oração da ementa,
+// encurtada. O índice fica mais cru e continua servindo.
+
+/**
+ * Apelido de reserva, sem IA: primeira oração da ementa, encurtada.
+ *
+ * O fim de oração exige espaço (ou fim do texto) DEPOIS do ponto. Sem isso,
+ * "Altera a Lei nº 9.503, de 1997, que institui o Código de Trânsito…" virava
+ * o apelido "Altera a Lei nº 9": o ponto do milhar era lido como fim de frase,
+ * e é justamente em ementa que altera lei que isso acontece. (O gêmeo em
+ * analise.js corta com `split(/[.;]/)` e só escapa porque normaliza as
+ * referências antes — vale conferir lá um dia.)
+ */
+function apelidoFallbackCCJC(proj) {
+  const e = String(proj.ementa || '').replace(/\s+/g, ' ').trim();
+  if (!e) return '';
+  const fim = e.search(/[.;](?=\s|$)/);
+  const corte = (fim > 0 ? e.slice(0, fim) : e).trim();
+  const max = 60;
+  if (corte.length <= max) return corte.replace(/[\s,;.:-]+$/, '');
+  const c = corte.slice(0, max), sp = c.lastIndexOf(' ');
+  return (sp > max * 0.6 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
+}
+
+function promptApelidoCCJC(proj) {
+  const ementa = String(proj.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${proj.chave}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+}
+
+/**
+ * Garante `proj.apelido` em todos os projetos. Gera por IA quando há chave;
+ * senão, usa a reserva da ementa. O apelido já existente — inclusive o
+ * corrigido à mão pelo analista — nunca é sobrescrito.
+ */
+async function prepararApelidos(projetos, aoAndar) {
+  const pend = projetos.filter(p => !String(p.apelido || '').trim());
+  if (!pend.length) return;
+  if (!app.config?.apiKey) {
+    for (const p of pend) p.apelido = apelidoFallbackCCJC(p);
+    return;
+  }
+  let feitos = 0;
+  await Promise.all(pend.map(async p => {
+    try {
+      const t = await aiCall(promptApelidoCCJC(p));
+      p.apelido = String(t || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim() || apelidoFallbackCCJC(p);
+    } catch (e) {
+      // Apelido é acessório: falhar a chamada não pode impedir o PDF de sair.
+      console.warn(`Apelido de ${p.chave} por IA falhou (${e.message}); usando a ementa.`);
+      p.apelido = apelidoFallbackCCJC(p);
+    }
+    if (aoAndar) aoAndar(++feitos, pend.length);
+  }));
+}
+
+/** "PL 1234/2026 (apelido)" — o texto de cada linha do índice e do bloco. */
+function tituloComApelido(proj) {
+  const ap = String(proj.apelido || '').trim();
+  return proj.chave + (ap ? ` (${ap})` : '');
+}
+
+/**
+ * Sufixo de marcas na linha do índice: "— A, AP, R".
+ * A = autoria do Podemos · CA = coautoria · AP = autoria em apensada ·
+ * R = relatoria. Dúvida não vira marca: o índice é leitura de relance, e uma
+ * marca só significa alguma coisa se significar sempre a mesma.
+ */
+function sufixoMarcasIndice(proj) {
+  const tags = [];
+  if (proj.autoria?.podemos) tags.push(proj.autoria.principal ? 'A' : 'CA');
+  if ((proj.apensados?.lista || []).length) tags.push('AP');
+  if (proj.relatoria === 'pode') tags.push('R');
+  return tags.length ? ' — ' + tags.join(', ') : '';
+}
+
+// ============================================================
 //  RELATORIA DO PODEMOS
 // ============================================================
 // Aqui a CCJC NÃO pôde copiar o Plenário. Lá a função é uma linha, porque a
@@ -649,6 +733,19 @@ function htmlBadgesProjeto(proj) {
   const bs = [badgeAutoria(proj), badgeRelatoria(proj), ...badgesApensados(proj)].filter(Boolean);
   if (!bs.length) return '';
   return bs.map(b => `<span class="ccjc-badge ccjc-badge--${b.cls}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.texto)}</span>`).join('');
+}
+
+/**
+ * Os mesmos badges, para o PDF. No papel entram só os POSITIVOS — autoria,
+ * coautoria, relatoria e apensada do Podemos. "Não-Podemos" e "não verificada"
+ * são estados da tela, para o analista decidir se refaz a apuração; no
+ * documento que circula, marca de ausência vira ruído em toda página.
+ */
+function badgesImpressao(proj) {
+  const bs = [badgeAutoria(proj), badgeRelatoria(proj), ...badgesApensados(proj)]
+    .filter(b => b && (b.cls === 'pode' || b.cls === 'rel' || b.cls === 'apens'));
+  if (!bs.length) return '';
+  return `<div class="pi-badges">${bs.map(b => `<span class="pi-badge pi-badge--${b.cls}">${escHtml(b.texto)}</span>`).join('')}</div>`;
 }
 
 async function buscarTramitacoes(idCamara) {
@@ -1966,6 +2063,11 @@ function coletarEdicoesAtivas() {
   const con = document.getElementById('campo-argumentos-con');
   if (con) proj.argumentosContrarios = con.value;
 
+  // O apelido corrigido à mão vale mais que o da IA: prepararApelidos só
+  // preenche o que está vazio, então o que o analista escreveu aqui permanece.
+  const ap = document.getElementById('campo-apelido');
+  if (ap) proj.apelido = ap.value.trim();
+
   (proj.comissoes || []).forEach((com, i) => {
     const el = document.getElementById(`campo-comissao-${i}`);
     if (el) com.resumo = el.value;
@@ -2016,21 +2118,73 @@ async function restaurarPauta(id) {
 // ============================================================
 //  GERAÇÃO DE PDF (impressão via nova janela)
 // ============================================================
-function gerarPDF() {
+async function gerarPDF() {
   if (!app.pautaAtual) { mostrarToast('Nenhuma pauta carregada.', 'aviso'); return; }
   coletarEdicoesAtivas();
 
-  const html = gerarHTMLImpressao(app.pautaAtual);
-  const win  = window.open('', '_blank', 'width=960,height=720');
+  // A janela abre AGORA, dentro do gesto do clique: pop-up aberto depois de um
+  // await é bloqueado pelo navegador.
+  const win = window.open('', '_blank', 'width=960,height=720');
   if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'aviso'); return; }
-  win.document.write(html);
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
+    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando os apelidos e montando o índice…</body></html>');
   win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 800);
+
+  try {
+    await prepararApelidos(app.pautaAtual.projetos,
+      (f, t) => mostrarToast(`Gerando apelidos… ${f}/${t}`, 'info'));
+  } catch (e) { console.warn('Apelidos:', e.message); }
+  if (win.closed) return;
+
+  const logo = await carregarLogoCCJC();
+  if (win.closed) return;
+
+  win.document.open();
+  win.document.write(gerarHTMLImpressao(app.pautaAtual, logo));
+  win.document.close();
+
+  // Paged.js pagina e resolve os nº de página do índice (target-counter). Antes
+  // havia um setTimeout(print, 800) fixo — palpite que, em pauta grande,
+  // mandava imprimir antes de a página terminar de montar.
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;            // sem a lib, imprime sem numeração no índice
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 30000);     // rede de segurança para pautas grandes
+  mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', 'info');
 }
 
-function gerarHTMLImpressao(pauta) {
-  const projetos = pauta.projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido');
+/** A logo institucional como data URL (nada de URL de extensão no popup). */
+async function carregarLogoCCJC() {
+  try {
+    const res = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((ok, err) => {
+      const fr = new FileReader();
+      fr.onloadend = () => ok(fr.result);
+      fr.onerror   = () => err(fr.error);
+      fr.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('Logo não carregada:', e.message);
+    return null;
+  }
+}
+
+function gerarHTMLImpressao(pauta, logoDataUrl = null) {
+  // TODOS os projetos entram, analisados ou não — o mesmo que o módulo de
+  // Plenário faz. Um índice que omite em silêncio o que ainda não foi analisado
+  // conta meia-verdade sobre a pauta: quem lê não tem como saber que faltou.
+  // O que falta aparece dito, no lugar do texto da análise.
+  const projetos = pauta.projetos;
+  const ancora = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  const pendente = proj => proj.statusAnalise === 'erro'
+    ? `Falha ao gerar a análise${proj.erroAnalise ? `: ${escHtml(proj.erroAnalise)}` : '.'}`
+    : 'Análise não gerada.';
 
   const html = projetos.map((proj, idx) => {
     const numBase = idx + 1;
@@ -2063,16 +2217,18 @@ function gerarHTMLImpressao(pauta) {
     const secNum = (n) => comissoesHtml ? n : n - 1;
 
     return `
-      <div class="pi-projeto">
+      <div class="pi-projeto" id="${ancora(proj.chave)}">
         <div class="pi-header">
-          <span class="pi-chave">${escHtml(proj.chave)}</span>
+          <span class="pi-chave">${numBase}. ${escHtml(tituloComApelido(proj))}</span>
           ${proj.autores?.length ? `<span class="pi-autores">Autoria: ${escHtml(proj.autores.join(', '))}</span>` : ''}
+          ${proj.relator ? `<span class="pi-autores">Relator(a): ${escHtml(proj.relator)}</span>` : ''}
         </div>
+        ${badgesImpressao(proj)}
         <p class="pi-ementa">${escHtml(proj.ementa || '')}</p>
 
         <h3>1. Resumo do Projeto Original</h3>
         ${proj.urlInteiroTeor ? `<p class="pi-comissao-docs"><em>Documento analisado: <a href="${escHtml(proj.urlInteiroTeor)}" target="_blank" rel="noopener">Inteiro teor da proposição</a></em></p>` : ''}
-        <p>${escHtml(proj.resumoOriginal || 'Análise não disponível.')}</p>
+        <p${proj.resumoOriginal ? '' : ' class="pi-pendente"'}>${proj.resumoOriginal ? escHtml(proj.resumoOriginal) : pendente(proj)}</p>
 
         ${comissoesHtml ? `<h3>2. Tramitação nas Comissões</h3>${comissoesHtml}` : ''}
 
@@ -2090,6 +2246,27 @@ function gerarHTMLImpressao(pauta) {
       </div>`;
   }).join('');
 
+  // Legenda: só entra a marca que de fato aparece em algum projeto. Legenda
+  // que explica marca inexistente faz o leitor procurar o que não há.
+  const leg = [];
+  if (projetos.some(p => p.autoria?.podemos && p.autoria.principal))  leg.push('<b>A</b> = Autoria do Podemos');
+  if (projetos.some(p => p.autoria?.podemos && !p.autoria.principal)) leg.push('<b>CA</b> = Coautoria do Podemos');
+  if (projetos.some(p => (p.apensados?.lista || []).length))          leg.push('<b>AP</b> = Autoria do Podemos em apensada');
+  if (projetos.some(p => p.relatoria === 'pode'))                     leg.push('<b>R</b> = Relatoria do Podemos');
+
+  const indice = projetos.length ? `
+  <section class="pi-indice">
+    <h2>Índice</h2>
+    ${leg.length ? `<p class="pi-indice-legenda">${leg.join(' · ')}</p>` : ''}
+    <ul>
+      ${projetos.map((p, i) => `<li><a href="#${ancora(p.chave)}"><span class="t">${i + 1}. ${escHtml(tituloComApelido(p))}${escHtml(sufixoMarcasIndice(p))}</span><span class="ld"></span></a></li>`).join('')}
+    </ul>
+  </section>` : '';
+
+  const analisados = projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido').length;
+  const meta = `${projetos.length} projeto(s) · ${analisados} com análise`
+    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '');
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -2098,9 +2275,36 @@ function gerarHTMLImpressao(pauta) {
   <style>
     *  { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:'Segoe UI',Arial,sans-serif; font-size:11pt; color:#1a1a1a; background:#fff; }
-    .pi-capa { background:#00A859; color:#fff; padding:22px 30px; }
-    .pi-capa h1 { font-size:17pt; font-weight:700; }
-    .pi-capa p  { font-size:9.5pt; opacity:.85; margin-top:4px; }
+    /* Cabeçalho institucional — o mesmo do módulo de Plenário, para os dois
+       documentos parecerem sair da mesma assessoria. */
+    .pi-cab { display:flex; align-items:center; gap:16px; padding:18px 30px 0; }
+    .pi-cab .pi-tit { flex:1; text-align:center; }
+    .pi-cab .pi-tit h1 { font-size:16pt; font-weight:700; color:#003c1f; }
+    .pi-cab .pi-tit p  { font-size:10pt; color:#003c1f; margin-top:2px; }
+    .pi-cab img { height:42px; }
+    .pi-cab .pi-sp { width:42px; }
+    .pi-rule { border-bottom:2px solid #00A859; margin:6px 30px 8px; }
+    .pi-meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    /* Índice: o "ld" é a linha pontilhada e o nº de página vem do
+       target-counter, que só o paged.js resolve. Sem a lib, o índice sai
+       clicável e sem número — degradação aceitável, nunca página em branco. */
+    .pi-indice { break-after:page; page-break-after:always; }
+    .pi-indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
+    .pi-indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
+    .pi-indice-legenda b { font-style:normal; color:#006633; }
+    .pi-indice ul { list-style:none; }
+    .pi-indice li { font-size:12pt; margin-bottom:4px; }
+    .pi-indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
+    .pi-indice a .t { }
+    .pi-indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
+    .pi-indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
+    /* Badges do bloco: fato apurado, fora do texto da análise. */
+    .pi-badges { margin:4px 0 6px; display:flex; flex-wrap:wrap; gap:6px; }
+    .pi-badge { font-size:8.5pt; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid; }
+    .pi-badge--pode  { color:#006633; border-color:#9ed7b6; background:#eaf7f0; }
+    .pi-badge--rel   { color:#1d4ed8; border-color:#b6c9f5; background:#eef3fe; }
+    .pi-badge--apens { color:#0f766e; border-color:#a7d8d4; background:#e9f6f5; }
+    .pi-pendente { font-style:italic; color:#8a6d00; }
     .pi-body { padding:20px 30px 30px; }
     .pi-projeto { margin-bottom:18px; border-bottom:2px solid #e5e7eb; padding-bottom:18px; }
     .pi-projeto:last-child { border-bottom:none; }
@@ -2123,17 +2327,24 @@ function gerarHTMLImpressao(pauta) {
     .pi-footer { margin-top:28px; padding-top:10px; border-top:1px solid #e5e7eb; font-size:9pt; color:#9ca3af; text-align:center; }
     @media print {
       @page { margin:14mm; size:A4; }
-      .pi-capa, .pi-fav, .pi-con, .pi-comissao { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .pi-cab, .pi-fav, .pi-con, .pi-comissao, .pi-badge { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     }
   </style>
 </head>
 <body>
-  <div class="pi-capa">
-    <h1>${escHtml(pauta.titulo)}</h1>
-    <p>Liderança do Podemos – Câmara dos Deputados &nbsp;·&nbsp; Gerado em ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+  <div class="pi-cab">
+    <div class="pi-sp"></div>
+    <div class="pi-tit">
+      <h1>${escHtml(pauta.titulo)}</h1>
+      <p>Liderança do Podemos na Câmara dos Deputados</p>
+    </div>
+    ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="pi-sp"></div>'}
   </div>
+  <div class="pi-rule"></div>
+  <div class="pi-meta">${meta}</div>
   <div class="pi-body">
-    ${html || '<p>Nenhum projeto com análise disponível.</p>'}
+    ${indice}
+    ${html || '<p>Pauta vazia.</p>'}
     <div class="pi-footer">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
   </div>
 </body>
@@ -2360,6 +2571,9 @@ function renderizarRevisao() {
       </div>
       <div class="ccjc-revisao-info">
         <div class="ccjc-revisao-ementa">${esc(proj.ementa || 'Buscando dados na API...')}</div>
+        <label class="ccjc-apelido" title="Resumo curto da matéria, usado no índice do PDF. Gerado por IA na exportação — corrija aqui se ficar impreciso.">
+          Apelido: <input type="text" id="campo-apelido" maxlength="140" placeholder="gerado na exportação do PDF" value="${esc(proj.apelido || '')}">
+        </label>
         ${proj.autores?.length ? `<div class="ccjc-revisao-meta">Autoria: ${esc(proj.autores.join(', '))}</div>` : ''}
         ${proj.statusApi ? `<div class="ccjc-revisao-meta">Situação: ${esc(proj.statusApi)}</div>` : ''}
         ${proj.analiseEm ? `<div class="ccjc-revisao-meta" style="opacity:.75">Análise gerada em ${esc(_formatDataHora(proj.analiseEm))}${proj.analiseProvedor ? ` · ${esc(proj.analiseProvedor)}` : ''}${proj.analiseModelo ? ` / ${esc(proj.analiseModelo)}` : ''}</div>` : ''}
