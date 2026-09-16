@@ -296,6 +296,107 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     ok(/★/.test(ambos) && />R</.test(ambos), 'autoria e relatoria convivem no mesmo item');
   }
 
+  console.log('\n== apelido para o índice ==');
+  {
+    // Sem chave de IA, o apelido cai na primeira oração da ementa.
+    av(`app.config = { apiKey: '' }`);
+    ctx.__ps = [
+      { chave: 'PL 100/2026', ementa: 'Institui a Política Nacional de Cuidados; e dá outras providências.' },
+      { chave: 'PL 200/2026', ementa: 'Altera a Lei nº 9.503, de 23 de setembro de 1997, que institui o Código de Trânsito Brasileiro, para dispor sobre a suspensão do direito de dirigir em caso de reincidência específica.' },
+      { chave: 'PL 300/2026', ementa: '', apelido: 'escrito à mão pelo analista' },
+    ];
+    await av('prepararApelidos(__ps)');
+    ok(av('__ps[0].apelido') === 'Institui a Política Nacional de Cuidados',
+       `primeira oração da ementa (${av('__ps[0].apelido')})`);
+    const longo = av('__ps[1].apelido');
+    ok(longo.length <= 61 && longo.endsWith('…'), `ementa longa é cortada com reticências (${longo})`);
+    // O ponto do milhar em "Lei nº 9.503" não é fim de oração: sem essa
+    // distinção o apelido saía "Altera a Lei nº 9".
+    ok(!/nº 9$/.test(longo) && /Altera a Lei/.test(longo),
+       'o ponto de "9.503" não é lido como fim de frase');
+    ok(av('__ps[2].apelido') === 'escrito à mão pelo analista',
+       'o apelido escrito pelo analista NÃO é sobrescrito');
+
+    ok(av(`tituloComApelido({ chave: 'PL 100/2026', apelido: 'Política de Cuidados' })`) === 'PL 100/2026 (Política de Cuidados)',
+       'o título do índice junta chave e apelido');
+    ok(av(`tituloComApelido({ chave: 'PL 100/2026' })`) === 'PL 100/2026',
+       'e sem apelido não sobra parêntese vazio');
+  }
+
+  console.log('\n== sufixo de marcas na linha do índice ==');
+  {
+    ok(av(`sufixoMarcasIndice({ autoria: { podemos: true, principal: true } })`) === ' — A', 'autoria vira A');
+    ok(av(`sufixoMarcasIndice({ autoria: { podemos: true, principal: false } })`) === ' — CA', 'coautoria vira CA');
+    ok(av(`sufixoMarcasIndice({ apensados: { lista: [{}] } })`) === ' — AP', 'apensada do Podemos vira AP');
+    ok(av(`sufixoMarcasIndice({ relatoria: 'pode' })`) === ' — R', 'relatoria vira R');
+    ok(av(`sufixoMarcasIndice({ autoria: { podemos: true, principal: true }, apensados: { lista: [{}] }, relatoria: 'pode' })`) === ' — A, AP, R',
+       'e as três convivem na mesma linha');
+    ok(av(`sufixoMarcasIndice({ autoria: { podemos: false, incerta: true } })`) === '',
+       'dúvida NÃO vira marca: no índice, marca só serve se significar sempre a mesma coisa');
+    ok(av(`sufixoMarcasIndice({})`) === '', 'projeto sem apuração não ganha sufixo');
+  }
+
+  console.log('\n== o PDF: índice, legenda e todos os projetos ==');
+  {
+    ctx.__pauta = {
+      titulo: 'Pauta CCJC — 16/09/2026',
+      projetos: [
+        { chave: 'PL 100/2026', ementa: 'Institui a Política Nacional de Cuidados.', apelido: 'Política de Cuidados',
+          resumoOriginal: 'Resumo do projeto.', statusAnalise: 'concluido',
+          autoria: { podemos: true, principal: true, nomesPode: ['Ana Paula'] }, relatoria: 'pode', relator: 'Ana Paula',
+          apensados: { lista: [{ siglaTipo: 'PL', numero: 2714, ano: 2025, nomes: ['Carla Dias'] }], falhou: false } },
+        { chave: 'PL 200/2026', ementa: 'Altera o Código de Trânsito.', apelido: 'Reincidência no trânsito',
+          statusAnalise: 'pendente', autoria: { podemos: false, incerta: false, nomesPode: [] }, relatoria: 'fora' },
+        { chave: 'PL 300/2026', ementa: 'Outro projeto.', apelido: 'Terceiro',
+          statusAnalise: 'erro', erroAnalise: 'estourou o limite de tokens' },
+      ],
+    };
+    const doc = av('gerarHTMLImpressao(__pauta, null)');
+
+    ok(/<section class="pi-indice">/.test(doc), 'o PDF tem índice');
+    ok(/1\. PL 100\/2026 \(Política de Cuidados\) — A, AP, R/.test(doc),
+       'com título, apelido e as três marcas na primeira linha');
+    ok(/2\. PL 200\/2026 \(Reincidência no trânsito\)</.test(doc), 'e o item sem marca sai sem sufixo');
+
+    ok(/<b>A<\/b> = Autoria do Podemos/.test(doc), 'a legenda explica o A');
+    ok(/<b>AP<\/b> = Autoria do Podemos em apensada/.test(doc), 'o AP');
+    ok(/<b>R<\/b> = Relatoria do Podemos/.test(doc), 'e o R');
+    ok(!/<b>CA<\/b>/.test(doc), 'e NÃO explica o CA, que não aparece em projeto nenhum desta pauta');
+
+    // Comportamento do Plenário: entra todo mundo.
+    ok((doc.match(/class="pi-projeto"/g) || []).length === 3, 'os três projetos entram, analisados ou não');
+    ok(/Análise não gerada\./.test(doc), 'o pendente diz que não foi gerada, em vez de sumir do PDF');
+    ok(/Falha ao gerar a análise: estourou o limite de tokens/.test(doc), 'e o que falhou diz por quê');
+    ok(/3 projeto\(s\) · 1 com análise · 2 sem análise/.test(doc),
+       'o cabeçalho conta quantos ficaram sem análise');
+
+    // Âncoras do índice batem com os blocos.
+    for (const a of ['i_PL_100_2026', 'i_PL_200_2026', 'i_PL_300_2026']) {
+      ok(doc.includes(`href="#${a}"`) && doc.includes(`id="${a}"`), `âncora ${a} liga índice e bloco`);
+    }
+
+    // Cabeçalho institucional no lugar da faixa verde.
+    ok(/class="pi-cab"/.test(doc) && /Liderança do Podemos na Câmara dos Deputados/.test(doc),
+       'cabeçalho institucional');
+    ok(!/class="pi-capa"/.test(doc), 'a faixa verde antiga saiu');
+    ok(/target-counter\(attr\(href url\), page\)/.test(doc), 'os nº de página do índice vêm do paged.js');
+
+    // Badges no bloco, e só os positivos.
+    ok(/pi-badge--pode/.test(doc) && /pi-badge--rel/.test(doc) && /pi-badge--apens/.test(doc),
+       'os badges positivos aparecem no bloco do projeto');
+    ok(!/não-Podemos/.test(doc) && !/não verificada/.test(doc),
+       'no papel não entram marcas de ausência — viraria ruído em toda página');
+  }
+
+  console.log('\n== a impressão não é mais um palpite de 800ms ==');
+  {
+    const src = fs.readFileSync(path.join(RAIZ, 'ccjc.js'), 'utf8');
+    ok(!/setTimeout\(\(\) => win\.print\(\), 800\)/.test(src), 'o setTimeout fixo saiu');
+    ok(/PagedConfig = \{ auto: true, after: imprimir \}/.test(src), 'quem manda imprimir é o paged.js, ao terminar');
+    ok(/s\.onerror = imprimir/.test(src), 'se a lib não carregar, imprime sem numeração em vez de travar');
+    ok(/setTimeout\(imprimir, 30000\)/.test(src), 'e há rede de segurança para pauta grande');
+  }
+
   console.log('\n== o badge não entra no texto da nota ==');
   {
     const cab = av(`htmlBadgesProjeto({ autoria: { podemos: true, principal: true, nomesPode: ['Ana Paula'] } })`);
