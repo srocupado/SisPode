@@ -499,6 +499,104 @@ async function apurarRelatoria(proj) {
   return banc.has(nome) ? 'pode' : 'fora';
 }
 
+// ============================================================
+//  APENSADOS DO PODEMOS
+// ============================================================
+// GÊMEO de fetchApensados/resolverApensados em analise.js (~linha 950).
+//
+// Por que SOB DEMANDA, e não junto do resto: o custo por projeto é 1 chamada de
+// relacionadas + 1 detalhe por relacionada + a subida até a raiz da cadeia +
+// a autoria de cada apensada. Numa pauta de 30 projetos isso vira centenas de
+// chamadas antes de a tela abrir. Roda ao abrir o projeto, uma vez, e o
+// resultado fica no projeto (e na pauta salva).
+
+const _cacheDetalheProp = new Map();
+
+async function _detalheProp(id) {
+  if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
+  let d = null;
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${id}`);
+    if (res.ok) d = (await res.json()).dados || null;
+  } catch (_) { d = null; }
+  _cacheDetalheProp.set(id, d);
+  return d;
+}
+
+/**
+ * Apensadas de uma proposição. O endpoint /relacionadas mistura tudo e quase
+ * nunca traz o tipo de relação, então a marca confiável é o DETALHE de cada
+ * candidata: "Tramitando em Conjunto" + uriPropPrincipal. Como o apensamento
+ * pode ser em cadeia (A apensada a B, B à principal), sobe-se até a RAIZ de
+ * cada uma e só entram as que compartilham a raiz da nossa matéria.
+ */
+async function _apensadasDe(idProp) {
+  let relacionadas = [];
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${idProp}/relacionadas`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    relacionadas = (await res.json()).dados || [];
+  } catch (e) {
+    throw new Error(`consulta de relacionadas falhou (${e.message})`);
+  }
+  if (!relacionadas.length) return [];
+
+  const idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
+  const raiz = async (id, nivel = 0) => {
+    if (nivel > 6) return id;
+    const pai = idDaUri((await _detalheProp(id))?.uriPropPrincipal);
+    return pai ? raiz(pai, nivel + 1) : id;
+  };
+
+  const raizAlvo = await raiz(Number(idProp));
+  const out = [];
+  for (const r of relacionadas) {
+    const d = await _detalheProp(r.id);
+    if (!d) continue;
+    const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
+    if (!d.uriPropPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
+    if (await raiz(r.id) !== raizAlvo) continue;
+    out.push({ id: r.id, siglaTipo: r.siglaTipo, numero: r.numero, ano: r.ano });
+  }
+  return out;
+}
+
+/**
+ * Apura as apensadas do projeto e quais são de autoria do Podemos.
+ * Grava em `proj.apensados` = { lista, falhou, motivo }. `falhou` é o que
+ * impede a ausência de badge de ser lida como "não há apensada do Podemos".
+ */
+async function apurarApensados(proj) {
+  if (!proj.idCamara) return;
+  if (proj.apensados && !proj.apensados.falhou) return;   // já apurado nesta pauta
+  try {
+    const aps = await _apensadasDe(proj.idCamara);
+    const doPode = [];
+    for (const ap of aps) {
+      const { autoria } = await apurarAutoria(ap.id);
+      if (autoria.podemos) doPode.push({ ...ap, nomes: autoria.nomesPode });
+    }
+    proj.apensados = { lista: doPode, falhou: false, motivo: '' };
+  } catch (e) {
+    proj.apensados = { lista: [], falhou: true, motivo: e.message };
+  }
+}
+
+/** Um badge por apensada do Podemos; um badge de aviso se a apuração falhou. */
+function badgesApensados(proj) {
+  const a = proj.apensados;
+  if (!a) return [];
+  if (a.falhou) {
+    return [{ cls: 'incerto', texto: 'Apensadas: não verificadas',
+              title: `Não consegui apurar as apensadas desta proposição — ${a.motivo}. Reabra o projeto para tentar de novo.` }];
+  }
+  return a.lista.map(ap => ({
+    cls: 'apens',
+    texto: `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}`,
+    title: ap.nomes?.length ? ap.nomes.join(', ') : 'Autoria do Podemos em proposição apensada',
+  }));
+}
+
 /** Badge de relatoria — só existe quando o relator é do Podemos. */
 function badgeRelatoria(proj) {
   if (proj.relatoria !== 'pode') return null;
@@ -548,7 +646,7 @@ function badgeAutoria(proj) {
  * que foi verificado e o que o modelo escreveu.
  */
 function htmlBadgesProjeto(proj) {
-  const bs = [badgeAutoria(proj), badgeRelatoria(proj)].filter(Boolean);
+  const bs = [badgeAutoria(proj), badgeRelatoria(proj), ...badgesApensados(proj)].filter(Boolean);
   if (!bs.length) return '';
   return bs.map(b => `<span class="ccjc-badge ccjc-badge--${b.cls}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.texto)}</span>`).join('');
 }
@@ -2198,6 +2296,14 @@ function selecionarProjeto(chave) {
   });
 
   renderizarRevisao();
+
+  // Apensadas: cara demais para a listagem (ver apurarApensados), então é aqui
+  // que roda — uma vez por projeto, sem segurar a tela. Quando termina, só
+  // redesenha se o analista ainda estiver neste projeto: em pauta grande dá
+  // tempo de ele trocar de item antes de a consulta voltar.
+  apurarApensados(proj)
+    .then(() => { if (app.projetoAtivo === proj) renderizarRevisao(); })
+    .catch(e => console.warn('Apensadas não apuradas:', e.message));
 }
 
 function renderizarRevisao() {

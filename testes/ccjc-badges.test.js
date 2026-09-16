@@ -30,7 +30,7 @@ const { document, window } = parseHTML(html);
 
 // ---------- API da Câmara de mentira ----------
 // `deputados` mapeia id → partido; `derrubar` força HTTP 500 no que casar.
-const api = { deputados: {}, autores: {}, bancada: [], derrubar: null, chamadas: [] };
+const api = { deputados: {}, autores: {}, bancada: [], relacionadas: {}, props: {}, derrubar: null, chamadas: [] };
 const resp = obj => ({ ok: true, status: 200, json: async () => obj, text: async () => JSON.stringify(obj) });
 const erro  = st => ({ ok: false, status: st, json: async () => ({}), text: async () => '' });
 
@@ -48,6 +48,10 @@ const ctx = {
       return p ? resp({ dados: { ultimoStatus: { nome: p.nome, siglaPartido: p.partido, siglaUf: p.uf } } }) : erro(404);
     }
     if (/\/deputados\?siglaPartido=PODE/.test(u)) return resp({ dados: api.bancada });
+    m = u.match(/\/proposicoes\/(\d+)\/relacionadas/);
+    if (m) return resp({ dados: api.relacionadas[m[1]] || [] });
+    m = u.match(/\/proposicoes\/(\d+)$/);
+    if (m) return api.props[m[1]] ? resp({ dados: api.props[m[1]] }) : erro(404);
     m = u.match(/\/proposicoes\/(\d+)\/autores/);
     if (m) return resp({ dados: api.autores[m[1]] || [] });
     return erro(599);
@@ -198,6 +202,78 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
     av('_bancadaPode = null');
     ok(await av(`apurarRelatoria({ relator: 'Ana Paula' })`) === 'pode',
        'e com a API de volta, acerta');
+  }
+
+  console.log('\n== apensadas do Podemos, apuradas sob demanda ==');
+  {
+    // 200 é a matéria da pauta. 201 é apensada a ela e é do Podemos; 202 é
+    // apensada mas de outro partido; 203 tramita em conjunto de OUTRA cadeia.
+    api.props = {
+      '200': { statusProposicao: { descricaoSituacao: 'Pronta para Pauta' } },
+      '201': { uriPropPrincipal: 'https://x/proposicoes/200', statusProposicao: { descricaoSituacao: 'Tramitando em Conjunto' } },
+      '202': { uriPropPrincipal: 'https://x/proposicoes/200', statusProposicao: { descricaoSituacao: 'Tramitando em Conjunto' } },
+      '203': { uriPropPrincipal: 'https://x/proposicoes/900', statusProposicao: { descricaoSituacao: 'Tramitando em Conjunto' } },
+      '900': { statusProposicao: { descricaoSituacao: 'Pronta para Pauta' } },
+      '204': { statusProposicao: { descricaoSituacao: 'Aguardando Parecer' } },
+    };
+    api.relacionadas['200'] = [
+      { id: 201, siglaTipo: 'PL', numero: 2714, ano: 2025 },
+      { id: 202, siglaTipo: 'PL', numero: 582,  ano: 2024 },
+      { id: 203, siglaTipo: 'PL', numero: 111,  ano: 2023 },
+      { id: 204, siglaTipo: 'PL', numero: 777,  ano: 2026 },
+    ];
+    api.autores['201'] = [dep('11', 1)];   // Ana Paula, PODE
+    api.autores['202'] = [dep('22', 1)];   // Bruno Lima, PL
+    api.autores['203'] = [dep('33', 1)];   // Carla Dias, PODE — mas outra cadeia
+
+    const proj = { idCamara: 200 };
+    ctx.__proj = proj;
+    await av('apurarApensados(__proj)');
+
+    ok(proj.apensados.falhou === false, 'apuração concluída');
+    const chaves = proj.apensados.lista.map(a => `${a.siglaTipo} ${a.numero}/${a.ano}`);
+    ok(chaves.join() === 'PL 2714/2025', `só a apensada do Podemos da MESMA cadeia entra (${chaves.join(', ') || 'nenhuma'})`);
+    ok(proj.apensados.lista[0].nomes.join() === 'Ana Paula', 'com o nome de quem assina');
+
+    const bs = av('badgesApensados(__proj)');
+    ok(bs.length === 1 && /Apensado Podemos: PL 2714\/2025/.test(bs[0].texto), `badge por apensada (${bs[0]?.texto})`);
+    ok(bs[0].cls === 'apens', 'na cor de apensado');
+  }
+
+  console.log('\n== falha na apuração das apensadas não vira "não há" ==');
+  {
+    const proj = { idCamara: 200, apensados: null };
+    ctx.__proj2 = proj;
+    api.derrubar = /\/proposicoes\/200\/relacionadas/;
+    await av('apurarApensados(__proj2)');
+    api.derrubar = null;
+
+    ok(proj.apensados.falhou === true, 'a falha fica registrada');
+    ok(proj.apensados.lista.length === 0, 'sem lista inventada');
+    const bs = av('badgesApensados(__proj2)');
+    ok(bs.length === 1 && /não verificadas/.test(bs[0].texto),
+       `e a tela diz que não verificou, em vez de ficar muda (${bs[0]?.texto})`);
+    ok(/Reabra o projeto/.test(bs[0].title), 'dizendo o que fazer');
+
+    // Falhou antes → a próxima abertura do projeto tenta de novo.
+    await av('apurarApensados(__proj2)');
+    ok(proj.apensados.falhou === false, 'reabrir o projeto refaz a apuração que falhou');
+  }
+
+  console.log('\n== projeto sem apensada e projeto sem id ==');
+  {
+    api.relacionadas['205'] = [];
+    api.props['205'] = { statusProposicao: {} };
+    ctx.__proj3 = { idCamara: 205 };
+    await av('apurarApensados(__proj3)');
+    ok(av('__proj3.apensados.lista.length') === 0 && av('__proj3.apensados.falhou') === false,
+       'sem apensadas, apuração concluída e vazia — que é diferente de falhada');
+    ok(av('badgesApensados(__proj3)').length === 0, 'e nenhum badge');
+
+    ctx.__proj4 = { idCamara: null };
+    await av('apurarApensados(__proj4)');
+    ok(av('__proj4.apensados') === undefined, 'projeto cuja proposição não foi resolvida não é apurado');
+    ok(av('badgesApensados(__proj4)').length === 0, 'e não quebra a montagem dos badges');
   }
 
   console.log('\n== a estrela da lista lateral ==');
