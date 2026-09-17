@@ -89,10 +89,10 @@ api.votacoes['2374400'] = [
   { id: '2374400-46', data: '2023-09-13', dataHoraRegistro: '2023-09-13T19:57:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Rejeitada a Emenda de Plenário nº 26. Sim: 82; não: 342; abstenção: 8; total: 432.' },
   { id: '2374400-53', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:26:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.' },
   { id: '2374400-58', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:37:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
-  { id: '2374400-121', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:28:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
+  { id: '2374400-121', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:28:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/71780', descricao: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
   // Sem correspondência na tramitação: é o caso em que o relatório precisa
   // dizer "objeto não identificado" em vez de aproximar.
-  { id: '2374400-89', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:40:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Realizar o encaminhamento do PL-3626/2023 à CCJC (tramitação simultânea).' },
+  { id: '2374400-89', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:40:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/71780', descricao: 'Realizar o encaminhamento do PL-3626/2023 à CCJC (tramitação simultânea).' },
 ];
 // Tramitação narrativa, como a Câmara publica: objeto, encaminhamento, resultado.
 api.tramitacoes['2374400'] = [
@@ -270,7 +270,7 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(/src="data:image\/png;base64,AAAA"/.test(doc), 'a logo entra embutida, não por URL de extensão');
 
     ok(/<h2>Consolidado<\/h2>/.test(doc), 'seção Consolidado');
-    ok(/<h2>Sessão de 13\/09\/2023<\/h2>/.test(doc) && /<h2>Sessão de 21\/12\/2023<\/h2>/.test(doc),
+    ok(/<h2>Sessão de 13\/09\/2023/.test(doc) && /<h2>Sessão de 21\/12\/2023/.test(doc),
        'uma tabela por sessão');
     ok(/<h2>Procedência dos dados<\/h2>/.test(doc), 'e a procedência dos dados');
 
@@ -309,23 +309,65 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     const V = av(`cvLinks({ id: 'sem-id-numerico' })`);
     ok(V.prop === null && V.evento === null, 'sem id numérico e sem evento, nenhum link é fabricado');
 
-    const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
-    const comLink = itens.filter(i => i.querySelector('.cv-links a'));
-    ok(comLink.length === itens.length, `todos os itens da tela têm link (${comLink.length}/${itens.length})`);
-    const hrefs = [...itens[1].querySelectorAll('.cv-links a')].map(a => a.getAttribute('href'));
-    ok(hrefs.some(h => /fichadetramitacao/.test(h)) && hrefs.some(h => /evento-legislativo/.test(h)),
-       'os dois links, ficha e sessão');
-    ok([...itens[1].querySelectorAll('.cv-links a')].every(a => a.getAttribute('target') === '_blank'),
+    // O link é do GRUPO, não do item: nesta consulta todas as votações são da
+    // mesma matéria e da mesma sessão, então repeti-lo em cada linha seria o
+    // mesmo endereço seis vezes.
+    const g = av('cvAgruparLinks(cv.ultimo.linhas)');
+    ok(/idProposicao=2374400/.test(g.fichaComum || ''),
+       'a ficha PREDOMINANTE é a do grupo (não precisa ser a única)');
+
+    const cab = document.querySelector('#cvResultado .cv-cab');
+    const hrefsCab = [...cab.querySelectorAll('.cv-links a')].map(a => a.getAttribute('href'));
+    ok(hrefsCab.some(h => /fichadetramitacao/.test(h)), 'por isso ela sobe para o cabeçalho');
+    ok([...cab.querySelectorAll('.cv-links a')].every(a => a.getAttribute('target') === '_blank'),
        'abrindo em aba nova, para não perder a consulta feita');
 
+    const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
+    const naLinha = itens.flatMap(i => [...i.querySelectorAll('.cv-links a')].map(a => a.getAttribute('href')));
+    ok(!naLinha.includes(g.fichaComum),
+       'e nenhuma linha repete a ficha que já está no cabeçalho');
+    ok(new Set(naLinha).size === naLinha.length,
+       `nenhum link se repete entre as linhas (${naLinha.length} links, ${new Set(naLinha).size} distintos)`);
+    const sessoesNaLinha = naLinha.filter(h => /evento-legislativo/.test(h));
+    ok(sessoesNaLinha.length === 2 && new Set(sessoesNaLinha).size === 2,
+       `cada sessão aparece UMA vez, na sua primeira votação — é separador, não etiqueta de linha (${sessoesNaLinha.length})`);
+
     const doc = av('cvHtmlPDF(null)');
-    ok(/href="https:\/\/www\.camara\.leg\.br\/proposicoesWeb\/fichadetramitacao/.test(doc),
-       'o PDF também sai com os links clicáveis');
-    ok(/href="https:\/\/www\.camara\.leg\.br\/evento-legislativo/.test(doc), 'inclusive o da sessão');
+    ok(/Ficha de tramitação no portal da Câmara/.test(doc), 'no PDF a ficha fica no cabeçalho');
+    ok(/ver a sessão no portal/.test(doc), 'e o link da sessão, no título de cada sessão');
+    const noPdf = [...doc.matchAll(/href="(https:\/\/www\.camara[^"]+)"/g)].map(m => m[1]);
+    ok(new Set(noPdf).size === noPdf.length,
+       `no PDF nenhum link se repete (${noPdf.length} links, ${new Set(noPdf).size} distintos)`);
+  }
+
+  console.log('\n== quando o link difere, ele fica na linha ==');
+  {
+    // Consulta por período: cada votação é de uma proposição diferente, e há
+    // dois dias de sessão. Aí o link é informação da linha, não do grupo.
+    av(`cv.ultimo = { linhas: [
+        { it: { votacao: { id: '111-1', data: '2026-08-10', uriEvento: 'https://x/eventos/900', descricao: 'A' }, govOrient: 'Sim', nominal: true, votos: [] }, s: { voto: null, situacao: 'ausente' } },
+        { it: { votacao: { id: '222-3', data: '2026-08-20', uriEvento: 'https://x/eventos/901', descricao: 'B' }, govOrient: 'Sim', nominal: true, votos: [] }, s: { voto: null, situacao: 'ausente' } }
+      ], objetos: {}, prop: null, periodo: ['2026-08-01','2026-08-31'],
+      dep: { nome: 'Fulano', partido: 'XX', uf: 'DF' }, retirados: [],
+      cont: { aderente: 0, divergente: 0, ausente: 2, 'sem-gov': 0, simbolica: 0 }, pct: null }`);
+
+    const g = av('cvAgruparLinks(cv.ultimo.linhas)');
+    ok(g.fichaComum === null, 'com uma proposição por linha, não há ficha predominante');
+
+    const doc = av('cvHtmlPDF(null)');
+    ok(/idProposicao=111/.test(doc) && /idProposicao=222/.test(doc),
+       'e cada linha leva a ficha da SUA proposição');
+    ok(/evento-legislativo\/900/.test(doc) && /evento-legislativo\/901/.test(doc),
+       'e cada sessão a sua');
+    ok(!/Ficha de tramitação no portal/.test(doc), 'sem link de matéria no cabeçalho, que aqui não existe');
   }
 
   console.log('\n== destaques retirados entram no documento ==');
   {
+    // Refaz a consulta: o bloco anterior trocou cv.ultimo por um caso sintético.
+    document.getElementById('cvNumero').value = '3626';
+    document.getElementById('cvAno').value = '2023';
+    await av('cvConsultar()');
     const ret = av('cv.ultimo.retirados');
     ok(Array.isArray(ret) && ret.length > 0, `os destaques retirados são colhidos da tramitação (${ret.length})`);
     ok(ret.every(t => !/^Retirado o /.test(t)), 'sem o prefixo "Retirado o", que a seção já diz');

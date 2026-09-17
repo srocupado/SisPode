@@ -1225,10 +1225,18 @@ async function cvPorPeriodo(dataIni, dataFim) {
  *     é proposição própria) o link vai para a anexa, que é o certo.
  *   · a SESSÃO, pela página do evento.
  *
- * Testados em 17/09/2026. O que NÃO serve, para ninguém tentar de novo:
- * camara.leg.br/votacoes/{id} devolve 404, e a página legada
- * internet/votacao/mostraVotacao.asp responde 200 com o corpo VAZIO — é morta,
- * e um 200 enganaria qualquer verificação superficial.
+ * NÃO existe página pública por VOTAÇÃO — procurada e não encontrada em
+ * 17/09/2026, por três caminhos: camara.leg.br/votacoes/{id} devolve 404; a
+ * página legada internet/votacao/mostraVotacao.asp responde 200 com o corpo
+ * VAZIO (morta, e o 200 engana quem só olha o status); e
+ * busca-portal/votacoes/{id} responde 200 mas renderiza, no navegador, a mesma
+ * casca vazia para um id válido e para um inventado.
+ *
+ * Consequência de desenho, em cvAgruparLinks: como os dois links são do GRUPO
+ * (a matéria, a sessão) e não do item, repeti-los em toda linha é ruído — na
+ * consulta por proposição eles seriam idênticos do primeiro ao último item. O
+ * link só aparece na linha quando difere do grupo; quando é um só para todos,
+ * vai uma vez no cabeçalho.
  */
 function cvLinks(v) {
   const idProp = String(v.id || '').split('-')[0];
@@ -1240,6 +1248,38 @@ function cvLinks(v) {
     evento: /^\d+$/.test(idEvento)
       ? 'https://www.camara.leg.br/evento-legislativo/' + idEvento : null,
   };
+}
+
+/**
+ * Separa o que é link do GRUPO do que é link da LINHA. Quando há um único
+ * valor para todas as votações, ele é do grupo e sobe para o cabeçalho; quando
+ * há mais de um, é informação de cada linha e fica nela.
+ *
+ * Na prática: consulta por proposição costuma ter uma ficha só (as exceções são
+ * as proposições anexas, como o requerimento de urgência) e uma sessão por dia;
+ * consulta por período tem uma proposição diferente em cada linha.
+ */
+function cvAgruparLinks(linhas) {
+  // A ficha PREDOMINANTE é a do grupo. "Uma única ficha" seria estrito demais:
+  // no PL 3.626/2023 são 21 votações da matéria e 1 do requerimento de urgência
+  // — com a regra do valor único, a ficha voltaria a se repetir nas 22 linhas.
+  const conta = new Map();
+  for (const { it } of linhas) {
+    const L = cvLinks(it.votacao);
+    if (L.prop) conta.set(L.prop, (conta.get(L.prop) || 0) + 1);
+  }
+  let fichaComum = null, maior = 1;
+  for (const [u, n] of conta) if (n > maior) { maior = n; fichaComum = u; }
+
+  // A sessão pertence ao DIA, não ao item: entra na linha só quando muda, o que
+  // na lista cronológica funciona como separador de sessão.
+  const primeiraDaSessao = new Set();
+  let anterior = null;
+  for (const { it } of linhas) {
+    const ev = cvLinks(it.votacao).evento;
+    if (ev && ev !== anterior) { primeiraDaSessao.add(it.votacao.id); anterior = ev; }
+  }
+  return { fichaComum, primeiraDaSessao };
 }
 
 // ---------- veredito de um item para o deputado escolhido ----------
@@ -1277,6 +1317,7 @@ function cvRender(dados) {
   const dep = cv.deputado;
   const linhas = itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
 
+  const comum = cvAgruparLinks(linhas);
   const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 };
   for (const l of linhas) cont[l.s.situacao]++;
   const qualificadas = cont.aderente + cont.divergente + cont.ausente;
@@ -1315,6 +1356,9 @@ function cvRender(dados) {
         A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
         de ${qualificadas} qualificada(s).
       </div>
+      ${comum.fichaComum ? `<div class="cv-links" style="margin-top:8px">
+        <a href="${comum.fichaComum}" target="_blank" rel="noopener">Ficha da proposição ↗</a>
+      </div>` : ''}
       <div class="cv-acoes">
         <button class="btn-gerar" id="cvExportarPdf" style="margin-top:0">Exportar PDF</button>
         <button class="btn-gerar" id="cvExportar" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Excel</button>
@@ -1337,8 +1381,12 @@ function cvRender(dados) {
             <div class="cv-res">${cvEsc(v.descricao || '')}</div>
             <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
             ${(() => { const L = cvLinks(v); const p = [];
-              if (L.prop)   p.push(`<a href="${L.prop}" target="_blank" rel="noopener">${cvEsc(L.rotuloProp || 'Ficha da proposição')} ↗</a>`);
-              if (L.evento) p.push(`<a href="${L.evento}" target="_blank" rel="noopener">Sessão ↗</a>`);
+              // Só entra o link que ACRESCENTA: o que vale para todas as
+              // votações já está no cabeçalho, e repetido aqui seria ruído.
+              if (L.prop && L.prop !== comum.fichaComum)
+                p.push(`<a href="${L.prop}" target="_blank" rel="noopener">${cvEsc(L.rotuloProp || 'Ficha da proposição')} ↗</a>`);
+              if (L.evento && comum.primeiraDaSessao.has(v.id))
+                p.push(`<a href="${L.evento}" target="_blank" rel="noopener">Sessão ↗</a>`);
               return p.length ? `<div class="cv-links">${p.join('')}</div>` : '';
             })()}
           </div>
@@ -1536,6 +1584,7 @@ function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
   const { linhas, objetos, prop, periodo, dep, retirados, cont, pct } = u;
   const e = cvEsc;
+  const comum = cvAgruparLinks(linhas);
 
   const titulo = prop
     ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}`
@@ -1553,6 +1602,12 @@ function cvHtmlPDF(logoDataUrl) {
   }
   const dias = [...porDia.keys()].sort();
 
+  // O link da sessão pertence ao DIA, não à linha: vai no título da tabela.
+  const sessaoDoDia = dia => {
+    const evs = new Set(porDia.get(dia).map(l => cvLinks(l.it.votacao).evento).filter(Boolean));
+    return evs.size === 1 ? [...evs][0] : null;
+  };
+
   const linhaHtml = ({ it, s }) => {
     const v = it.votacao;
     const obj = objetos[v.id];
@@ -1565,8 +1620,11 @@ function cvHtmlPDF(logoDataUrl) {
       <td><b>${obj ? e(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</b>
           <div class="res">${e(v.descricao || '')}</div>
           ${(() => { const L = cvLinks(v); const p = [];
-            if (L.prop)   p.push(`<a href="${L.prop}">${e(L.rotuloProp || 'ficha da proposição')}</a>`);
-            if (L.evento) p.push(`<a href="${L.evento}">sessão</a>`);
+            if (L.prop && L.prop !== comum.fichaComum)
+              p.push(`<a href="${L.prop}">${e(L.rotuloProp || 'ficha da proposição')}</a>`);
+            // A sessão está no título da tabela do dia; na linha, só se diferir.
+            if (L.evento && L.evento !== sessaoDoDia(String(v.data || '')))
+              p.push(`<a href="${L.evento}">sessão</a>`);
             return p.length ? `<div class="links">${p.join(' · ')}</div>` : '';
           })()}</td>
       <td class="c">${voto}</td>
@@ -1576,7 +1634,8 @@ function cvHtmlPDF(logoDataUrl) {
   };
 
   const tabela = dia => `
-    <h2>Sessão de ${e(dia.split('-').reverse().join('/'))}</h2>
+    <h2>Sessão de ${e(dia.split('-').reverse().join('/'))}${sessaoDoDia(dia)
+      ? ` <a href="${sessaoDoDia(dia)}" style="font-size:8.5pt;font-weight:400">ver a sessão no portal</a>` : ''}</h2>
     <table>
       <tr><th style="width:62px">Data</th><th>Objeto da votação</th><th style="width:74px">Voto</th>
           <th style="width:52px">Governo</th><th style="width:66px">Veredito</th></tr>
@@ -1599,7 +1658,8 @@ function cvHtmlPDF(logoDataUrl) {
     consultados em ${new Date().toLocaleDateString('pt-BR')}</div>
 
   <h2>Consolidado</h2>
-  ${prop ? `<div class="nota" style="margin-top:0"><b>${e(titulo)}</b> — ${e(subtitulo)}</div>` : ''}
+  ${prop ? `<div class="nota" style="margin-top:0"><b>${e(titulo)}</b> — ${e(subtitulo)}${
+      comum.fichaComum ? `<br><a href="${comum.fichaComum}" style="color:#1d4ed8">Ficha de tramitação no portal da Câmara</a>` : ''}</div>` : ''}
   <div class="resumo">
     <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
     <div class="bx"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
