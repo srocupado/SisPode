@@ -959,3 +959,468 @@ function exportarExcel() {
 
 // ── INICIAR ───────────────────────────────────────────────────────────────────
 btnGerar.addEventListener('click', gerarRelatorio);
+
+// ============================================================
+//  ABA 2 — CONSULTA DE VOTOS
+// ============================================================
+// A primeira aba responde "quanto o partido X aderiu ao governo no período".
+// Esta responde outra pergunta, que a assessoria faz o tempo todo e que não
+// tinha ferramenta: "como o deputado Fulano votou nisto aqui?" — por
+// proposição ou por período, para deputado de QUALQUER partido.
+//
+// Duas coisas aprendidas na apuração manual do PL 3.626/2023 e que moldam o
+// código abaixo:
+//
+//  1. A consulta por intervalo de datas PERDE as votações do último dia. Medido
+//     em 17/09/2026: 13/09 a 13/09 devolve 1 votação do Plenário; 13/09 a 14/09
+//     devolve 15, todas do dia 13. Por isso se pede à API até dataFim+1 e o
+//     excedente é descartado aqui.
+//  2. O objeto de cada votação ("DVS do §10 do art. 23, do PSB") NÃO existe em
+//     campo estruturado: objetosPossiveis e ultimaApresentacaoProposicao
+//     repetem o mesmo conteúdo em todas as votações do bloco. A única fonte é o
+//     texto da tramitação, lido em ordem — ver objetosDaTramitacao().
+
+const cvEl = {
+  aba:      document.getElementById('aba-consulta'),
+  abaAder:  document.getElementById('aba-aderencia'),
+  painel:   document.getElementById('painel-consulta'),
+  painelAd: document.getElementById('painel-aderencia'),
+  dep:      document.getElementById('cvDeputado'),
+  escolha:  document.getElementById('cvEscolha'),
+  modoProp: document.getElementById('cvModoProp'),
+  modoPer:  document.getElementById('cvModoPer'),
+  camposProp: document.getElementById('cvCamposProp'),
+  camposPer:  document.getElementById('cvCamposPer'),
+  sigla:    document.getElementById('cvSigla'),
+  numero:   document.getElementById('cvNumero'),
+  ano:      document.getElementById('cvAno'),
+  dataIni:  document.getElementById('cvDataIni'),
+  dataFim:  document.getElementById('cvDataFim'),
+  buscar:   document.getElementById('cvBuscar'),
+  status:   document.getElementById('cvStatus'),
+  resultado: document.getElementById('cvResultado'),
+};
+
+const cv = { modo: 'proposicao', deputado: null, ultimo: null };
+
+// ---------- infra ----------
+const API_PROP = 'https://dadosabertos.camara.leg.br/api/v2/proposicoes';
+const API_DEP  = 'https://dadosabertos.camara.leg.br/api/v2/deputados';
+
+function cvStatus(msg, tipo) {
+  if (!msg) { cvEl.status.innerHTML = ''; cvEl.status.className = 'status'; return; }
+  if (tipo === 'loading') {
+    cvEl.status.className = 'status';
+    cvEl.status.innerHTML = '<div class="spinner"></div><div>' + msg + '</div>';
+  } else {
+    cvEl.status.className = 'status' + (tipo === 'error' ? ' error' : '');
+    cvEl.status.textContent = msg;
+  }
+}
+
+/** Escapa para uso em HTML. */
+function cvEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Um dia depois, em ISO — a correção da perda do último dia. */
+function cvDiaSeguinte(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// ---------- deputado ----------
+/**
+ * Procura deputados pelo nome. Devolve SEMPRE a lista: homônimo e grafia
+ * parecida são resolvidos pelo usuário escolhendo, nunca por adivinhação do
+ * código — nome errado aqui contamina o relatório inteiro.
+ */
+async function cvBuscarDeputados(nome) {
+  const j = await fetchJson(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
+  return (j.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido, uf: d.siglaUf }));
+}
+
+function cvRenderEscolha(lista) {
+  if (!lista.length) {
+    cvEl.escolha.innerHTML = '<div class="cv-escolha cv-escolha-tit">Nenhum deputado com esse nome na legislatura atual.</div>';
+    return;
+  }
+  cvEl.escolha.innerHTML = '<div class="cv-escolha"><div class="cv-escolha-tit">'
+    + (lista.length === 1 ? 'Confirme:' : lista.length + ' deputados com esse nome — escolha:') + '</div>'
+    + lista.map(d => `<button class="cv-op" data-dep="${d.id}">${cvEsc(d.nome)} <span class="p">(${cvEsc(d.partido)}-${cvEsc(d.uf)})</span></button>`).join('')
+    + '</div>';
+  cvEl.escolha.querySelectorAll('[data-dep]').forEach(b => {
+    b.addEventListener('click', () => {
+      cv.deputado = lista.find(x => String(x.id) === b.dataset.dep);
+      cvRenderSelecionado();
+    });
+  });
+}
+
+function cvRenderSelecionado() {
+  const d = cv.deputado;
+  if (!d) { cvEl.escolha.innerHTML = ''; return; }
+  cvEl.escolha.innerHTML = `<div class="cv-sel">✓ <b>${cvEsc(d.nome)}</b> (${cvEsc(d.partido)}-${cvEsc(d.uf)})
+    <button class="x" id="cvLimparDep" title="Trocar de deputado">×</button></div>`;
+  document.getElementById('cvLimparDep').addEventListener('click', () => {
+    cv.deputado = null; cvEl.dep.value = ''; cvEl.escolha.innerHTML = '';
+  });
+}
+
+// ---------- objeto de cada votação, lido da tramitação ----------
+/**
+ * Amarra cada votação ao trecho da tramitação que diz O QUE estava em votação.
+ *
+ * A tramitação é narrativa e vem em ordem:
+ *     Votação do DTQ 1: Bloco UNIÃO (PSB): DVS do §10 do art. 23 …
+ *     Encaminhou a Votação o Dep. Felipe Carreras (PSB-PE).
+ *     Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.
+ *
+ * A última linha é IDÊNTICA ao campo `descricao` da votação — é esse o gancho.
+ * Achada a linha do resultado, sobe-se até a "Votação de…" mais próxima.
+ *
+ * Duas salvaguardas, porque objeto errado é pior que objeto nenhum:
+ *  · cada linha da tramitação é consumida UMA vez, na ordem cronológica das
+ *    votações — senão "Rejeitado o Requerimento." (que se repete) casaria
+ *    sempre com a primeira ocorrência;
+ *  · a subida para no máximo 8 linhas atrás. Passando disso, é outro assunto,
+ *    e o objeto sai como não identificado.
+ */
+function objetosDaTramitacao(votacoes, tramitacoes) {
+  const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
+  const RE_OBJETO = /^Vota(ção|ções)\s+d[oa]s?\s/i;
+  const linhas = (tramitacoes || []).slice().sort((a, b) => (a.sequencia || 0) - (b.sequencia || 0));
+  const ordenadas = (votacoes || []).slice()
+    .sort((a, b) => String(a.dataHoraRegistro || '').localeCompare(String(b.dataHoraRegistro || '')));
+
+  const usadas = new Set();
+  const mapa = {};
+  for (const v of ordenadas) {
+    const alvo = norm(v.descricao);
+    if (!alvo) continue;
+    let idx = -1;
+    for (let i = 0; i < linhas.length; i++) {
+      if (!usadas.has(i) && norm(linhas[i].despacho) === alvo) { idx = i; break; }
+    }
+    if (idx < 0) continue;
+    usadas.add(idx);
+    for (let i = idx - 1; i >= 0 && i > idx - 9; i--) {
+      const t = norm(linhas[i].despacho);
+      if (RE_OBJETO.test(t)) { mapa[v.id] = t; break; }
+    }
+  }
+  return mapa;
+}
+
+// ---------- votos e orientações de uma votação ----------
+async function cvEnriquecer(votacoes, aoAndar) {
+  return mapLimit(votacoes, 5, async v => {
+    const [votos, orients] = await Promise.all([
+      // Atenção: /votos NÃO aceita ?itens= — devolve HTTP 400 e a leitura vira
+      // "votação sem voto nominal", que é falso.
+      fetchJson(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJson(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+    ]);
+    const gov = (orients.d || []).find(o => /governo/i.test(o.siglaPartidoBloco || ''));
+    return {
+      votacao: v,
+      votos: votos.d,
+      falhou: !votos.ok || !orients.ok,
+      nominal: votos.ok && votos.d.length > 0,
+      govOrient: normGov(gov && gov.orientacaoVoto),
+      orientacoes: orients.d,
+    };
+  }, aoAndar);
+}
+
+// ---------- as duas buscas ----------
+async function cvPorProposicao(sigla, numero, ano) {
+  const busca = await fetchJson(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
+  const prop = (busca.dados || [])[0];
+  if (!prop) throw new Error(`${sigla} ${numero}/${ano} não foi localizado na base da Câmara.`);
+
+  const vots = (await fetchJson(API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro')).dados || [];
+  if (!vots.length) return { prop, itens: [], objetos: {} };
+
+  cvStatus(`Lendo ${vots.length} votação(ões)…`, 'loading');
+  const itens = await cvEnriquecer(vots, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
+
+  // O objeto de cada votação vem do texto da tramitação — ver
+  // objetosDaTramitacao. Falhar aqui não impede o resultado: os itens saem com
+  // "objeto não identificado", que é honesto, em vez de sumirem.
+  //
+  // Nem toda votação da matéria mora na tramitação DELA: o requerimento de
+  // urgência, por exemplo, é proposição própria (o PL 3.626 tem a votação
+  // 2414600-8, do REQ 4322/2023). O prefixo do id da votação é o id da
+  // proposição, então busca-se a tramitação de cada uma que aparecer.
+  const objetos = {};
+  const porProp = new Map();
+  for (const v of vots) {
+    const idp = String(v.id).split('-')[0];
+    if (!porProp.has(idp)) porProp.set(idp, []);
+    porProp.get(idp).push(v);
+  }
+  for (const [idp, lista] of porProp) {
+    try {
+      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      Object.assign(objetos, objetosDaTramitacao(lista, tram));
+    } catch (e) {
+      console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
+    }
+    // Votação de proposição ANEXA (o requerimento de urgência, por exemplo) não
+    // tem "Votação de…" na própria narrativa — ela é apresentada e votada. Aí o
+    // objeto é a proposição em si, que identifica a matéria com precisão.
+    if (idp !== String(prop.id) && lista.some(v => !objetos[v.id])) {
+      try {
+        const p = (await fetchJson(API_PROP + '/' + idp)).dados;
+        if (p) {
+          const rot = `${p.siglaTipo} ${p.numero}/${p.ano}` + (p.ementa ? ' — ' + String(p.ementa).replace(/\s+/g, ' ').slice(0, 180) : '');
+          for (const v of lista) if (!objetos[v.id]) objetos[v.id] = rot;
+        }
+      } catch (e) {
+        console.warn(`[consulta] proposição ${idp} não lida:`, e.message);
+      }
+    }
+  }
+  return { prop, itens: itens.filter(Boolean), objetos };
+}
+
+async function cvPorPeriodo(dataIni, dataFim) {
+  // dataFim+1: a API perde as votações do último dia do intervalo (medido em
+  // 17/09/2026). Pede-se um dia a mais e descarta-se o excedente aqui.
+  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + cvDiaSeguinte(dataFim)
+          + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
+  const todas = [];
+  let p = 0;
+  while (url && p < 40) {
+    const j = await fetchJson(url);
+    todas.push(...(j.dados || []));
+    const next = (j.links || []).find(l => l.rel === 'next');
+    url = next ? next.href : null;
+    p++;
+    cvStatus(`Buscando votações do período… ${todas.length}`, 'loading');
+  }
+  const plen = todas.filter(v => v.siglaOrgao === 'PLEN' && String(v.data) >= dataIni && String(v.data) <= dataFim);
+  if (!plen.length) return { itens: [], objetos: {} };
+  const itens = await cvEnriquecer(plen, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
+  return { itens: itens.filter(Boolean), objetos: {} };
+}
+
+// ---------- veredito de um item para o deputado escolhido ----------
+/**
+ * Devolve { voto, situacao, rotulo }. As situações são quatro, e a distinção
+ * entre elas é o ponto da tela:
+ *   simbolica  — não houve voto nominal; a Câmara não registra voto individual.
+ *                NÃO é ausência do deputado, e não entra em conta nenhuma.
+ *   sem-gov    — votou, mas o governo não orientou: fica fora do cálculo de
+ *                aderência, embora o voto exista e seja mostrado.
+ *   ausente    — votação nominal, com orientação, e ele não votou.
+ *   aderente / divergente — comparação feita.
+ */
+function cvSituacao(item, idDep) {
+  if (!item.nominal) return { voto: null, situacao: 'simbolica' };
+  const meu = item.votos.find(v => v.deputado_ && v.deputado_.id === idDep);
+  const voto = meu ? meu.tipoVoto : null;
+  if (!voto) return { voto: null, situacao: 'ausente' };
+  if (!item.govOrient) return { voto, situacao: 'sem-gov' };
+  return { voto, situacao: classifyVote(voto, item.govOrient) };
+}
+
+const CV_ROTULO = {
+  aderente: 'Aderiu', divergente: 'Divergiu', ausente: 'Ausente',
+  'sem-gov': 'Sem orientação', simbolica: 'Simbólica',
+};
+const CV_CLASSE = {
+  aderente: 'aderente', divergente: 'divergente', ausente: 'ausente',
+  'sem-gov': 'fora', simbolica: 'fora',
+};
+
+// ---------- render ----------
+function cvRender(dados) {
+  const { itens, objetos, prop, periodo } = dados;
+  const dep = cv.deputado;
+  const linhas = itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+
+  const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 };
+  for (const l of linhas) cont[l.s.situacao]++;
+  const qualificadas = cont.aderente + cont.divergente + cont.ausente;
+  const pct = (cont.aderente + cont.divergente) > 0
+    ? (cont.aderente / (cont.aderente + cont.divergente)) * 100 : null;
+
+  const falhas = itens.filter(i => i.falhou).length;
+
+  const cabecalho = prop
+    ? `<h3>${cvEsc(prop.siglaTipo)} ${cvEsc(prop.numero)}/${cvEsc(prop.ano)}</h3>
+       <div class="sub">${cvEsc(String(prop.ementa || '').slice(0, 300))}</div>`
+    : `<h3>Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}</h3>
+       <div class="sub">Todas as votações do Plenário no período.</div>`;
+
+  const html = `
+    ${falhas ? `<div class="cv-aviso">⚠ ${falhas} votação(ões) não puderam ser lidas na API da Câmara agora.
+       Elas aparecem abaixo sem voto e sem orientação — o que está faltando é a consulta, não o voto.
+       Refaça a busca para tentar de novo.</div>` : ''}
+
+    <div class="cv-cab">
+      ${cabecalho}
+      <div class="sub" style="margin-top:6px">
+        <b>${cvEsc(dep.nome)}</b> (${cvEsc(dep.partido)}-${cvEsc(dep.uf)})
+      </div>
+      <div class="cv-nums">
+        <div class="cv-num"><div class="v">${itens.length}</div><div class="l">Votações</div></div>
+        <div class="cv-num"><div class="v">${itens.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+        <div class="cv-num ade"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
+        <div class="cv-num div"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
+        <div class="cv-num aus"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+        <div class="cv-num"><div class="v">${pct == null ? '—' : pct.toFixed(1) + '%'}</div><div class="l">Aderência</div></div>
+      </div>
+      <div class="sub" style="margin-top:9px">
+        ${cont.simbolica ? `${cont.simbolica} votação(ões) simbólica(s) — sem registro individual de voto, não contam como ausência. ` : ''}
+        ${cont['sem-gov'] ? `${cont['sem-gov']} votação(ões) nominal(is) sem orientação do governo ficam fora do cálculo. ` : ''}
+        A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
+        de ${qualificadas} qualificada(s).
+      </div>
+      <div class="cv-acoes"><button class="btn-gerar" id="cvExportar" style="margin-top:0">Exportar Excel</button></div>
+    </div>
+
+    <div class="cv-lista">
+      ${linhas.map(({ it, s }) => {
+        const v = it.votacao;
+        const obj = objetos[v.id];
+        const data = String(v.data || '').split('-').reverse().join('/');
+        const hora = String(v.dataHoraRegistro || '').slice(11, 16);
+        const votoTxt = s.situacao === 'simbolica' ? '—' : (s.voto || '—');
+        return `<div class="cv-item${s.situacao === 'simbolica' ? ' simbolica' : ''}">
+          <div class="cv-voto${s.voto ? '' : ' ausente'}" title="${s.voto ? 'Voto do deputado: ' + cvEsc(s.voto) : (s.situacao === 'simbolica' ? 'Votação simbólica — a Câmara não registra voto individual' : 'Não registrou voto nesta votação')}">
+            <span class="rot">Voto:</span> ${cvEsc(votoTxt)}
+          </div>
+          <div class="cv-corpo">
+            <div class="cv-obj">${obj ? cvEsc(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</div>
+            <div class="cv-res">${cvEsc(v.descricao || '')}</div>
+            <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
+          </div>
+          <span class="cv-ver ${CV_CLASSE[s.situacao]}">${CV_ROTULO[s.situacao]}</span>
+        </div>`;
+      }).join('')}
+    </div>`;
+
+  cvEl.resultado.innerHTML = html;
+  cv.ultimo = { linhas, objetos, prop, periodo, dep };
+  const btn = document.getElementById('cvExportar');
+  if (btn) btn.addEventListener('click', cvExportar);
+}
+
+function cvExportar() {
+  if (!cv.ultimo) return;
+  const { linhas, objetos, prop, periodo, dep } = cv.ultimo;
+  const rows = [['Data', 'Hora', 'Votação', 'Objeto (tramitação)', 'Resultado registrado',
+                 'Voto do deputado', 'Orientação do Governo', 'Situação']];
+  for (const { it, s } of linhas) {
+    const v = it.votacao;
+    rows.push([
+      String(v.data || '').split('-').reverse().join('/'),
+      String(v.dataHoraRegistro || '').slice(11, 16),
+      v.id,
+      objetos[v.id] || 'não identificado na tramitação',
+      v.descricao || '',
+      s.situacao === 'simbolica' ? 'votação simbólica' : (s.voto || 'não votou'),
+      it.govOrient || '',
+      CV_ROTULO[s.situacao],
+    ]);
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 14 }, { wch: 70 }, { wch: 70 }, { wch: 16 }, { wch: 18 }, { wch: 15 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  XLSX.utils.book_append_sheet(wb, ws, 'Votos');
+  const alvo = prop ? `${prop.siglaTipo}${prop.numero}-${prop.ano}` : `${periodo[0]}_${periodo[1]}`;
+  XLSX.writeFile(wb, `votos_${dep.nome.replace(/\s+/g, '-')}_${alvo}.xlsx`);
+}
+
+// ---------- fluxo ----------
+async function cvConsultar() {
+  if (!cv.deputado) { cvStatus('Escolha o(a) deputado(a) primeiro.', 'error'); return; }
+  cvEl.resultado.innerHTML = '';
+  cvEl.buscar.disabled = true;
+  try {
+    let dados;
+    if (cv.modo === 'proposicao') {
+      const sigla  = cvEl.sigla.value.trim().toUpperCase();
+      const numero = cvEl.numero.value.trim();
+      const ano    = cvEl.ano.value.trim();
+      if (!sigla || !numero || !ano) throw new Error('Informe sigla, número e ano da proposição.');
+      cvStatus('Localizando a proposição…', 'loading');
+      dados = await cvPorProposicao(sigla, numero, ano);
+      if (!dados.itens.length) { cvStatus(`${sigla} ${numero}/${ano} não tem votação registrada na Câmara.`, 'error'); return; }
+    } else {
+      const ini = cvEl.dataIni.value, fim = cvEl.dataFim.value;
+      if (!ini || !fim) throw new Error('Informe as duas datas.');
+      if (ini > fim) throw new Error('A data inicial é posterior à final.');
+      cvStatus('Buscando votações do período…', 'loading');
+      dados = await cvPorPeriodo(ini, fim);
+      dados.periodo = [ini, fim];
+      if (!dados.itens.length) { cvStatus('Nenhuma votação do Plenário nesse período.', 'error'); return; }
+    }
+    cvStatus('');
+    cvRender(dados);
+  } catch (e) {
+    cvStatus('Erro: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    cvEl.buscar.disabled = false;
+  }
+}
+
+function cvTrocarAba(qual) {
+  const consulta = qual === 'consulta';
+  cvEl.painel.hidden   = !consulta;
+  cvEl.painelAd.hidden = consulta;
+  cvEl.aba.classList.toggle('ativa', consulta);
+  cvEl.abaAder.classList.toggle('ativa', !consulta);
+}
+
+function cvTrocarModo(modo) {
+  cv.modo = modo;
+  const prop = modo === 'proposicao';
+  cvEl.camposProp.hidden = !prop;
+  cvEl.camposPer.hidden  = prop;
+  cvEl.modoProp.classList.toggle('ativo', prop);
+  cvEl.modoPer.classList.toggle('ativo', !prop);
+}
+
+// Registro de eventos com guarda: um id ausente (pasta de extensão atualizada
+// pela metade) não pode matar o resto da tela — é o defeito que o teste da home
+// do painel existe para impedir.
+if (cvEl.aba && cvEl.painel) {
+  cvEl.aba.addEventListener('click', () => cvTrocarAba('consulta'));
+  cvEl.abaAder.addEventListener('click', () => cvTrocarAba('aderencia'));
+  cvEl.modoProp.addEventListener('click', () => cvTrocarModo('proposicao'));
+  cvEl.modoPer.addEventListener('click', () => cvTrocarModo('periodo'));
+  cvEl.buscar.addEventListener('click', cvConsultar);
+
+  let tBusca = null;
+  cvEl.dep.addEventListener('input', () => {
+    cv.deputado = null;
+    const nome = cvEl.dep.value.trim();
+    clearTimeout(tBusca);
+    if (nome.length < 3) { cvEl.escolha.innerHTML = ''; return; }
+    tBusca = setTimeout(async () => {
+      try {
+        cvRenderEscolha(await cvBuscarDeputados(nome));
+      } catch (e) {
+        // Falha de consulta NÃO é "não existe deputado com esse nome".
+        cvEl.escolha.innerHTML = '<div class="cv-escolha cv-escolha-tit">Não consegui consultar o cadastro da Câmara agora ('
+          + cvEsc(e.message) + '). Tente de novo.</div>';
+      }
+    }, 400);
+  });
+
+  [cvEl.dataIni, cvEl.dataFim].forEach(el => {
+    el.addEventListener('click', () => { if (typeof el.showPicker === 'function') { try { el.showPicker(); } catch (_) {} } });
+  });
+  const hoje = new Date(), mesAtras = new Date();
+  mesAtras.setDate(mesAtras.getDate() - 30);
+  cvEl.dataIni.value = mesAtras.toISOString().slice(0, 10);
+  cvEl.dataFim.value = hoje.toISOString().slice(0, 10);
+}
