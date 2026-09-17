@@ -3355,8 +3355,8 @@ const MODULES = [
   },
   {
     id:     'aderencia',
-    titulo: 'Aderência ao Governo',
-    desc:   'Calcule o índice de aderência do partido às orientações do governo por período, com análise individual por deputado.',
+    titulo: 'Relatórios',
+    desc:   'Dois relatórios sobre votações do Plenário: a aderência do partido às orientações do governo por período, e como votou um deputado — de qualquer partido — numa proposição ou num intervalo de datas.',
     cor:    'teal',
     icone:  '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
     acao:   abrirAderencia,

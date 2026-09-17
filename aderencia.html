@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aderência ao Governo — Podemos</title>
+<title>Relatórios — Podemos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -183,7 +183,7 @@
   .aba:hover { color: var(--text); }
   .aba.ativa { color: var(--accent-light); border-bottom-color: var(--accent); }
 
-  /* ---------- Consulta de votos ---------- */
+  /* ---------- Aba "Como votou o deputado" ---------- */
   .cv-modos { display: flex; gap: 6px; margin: 14px 0 12px; }
   .cv-modo {
     flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
@@ -628,14 +628,14 @@
 
 <div class="top-bar">
   <button class="top-bar-back" id="btn-voltar-home">← Início</button>
-  <div class="top-bar-title">Aderência ao Governo</div>
+  <div class="top-bar-title">Relatórios</div>
   <div class="top-bar-spacer"></div>
 </div>
 
 <div class="container">
   <div class="abas" role="tablist">
-    <button class="aba ativa" id="aba-aderencia" role="tab">Aderência ao Governo</button>
-    <button class="aba" id="aba-consulta" role="tab">Consulta de votos</button>
+    <button class="aba ativa" id="aba-aderencia" role="tab">Aderência</button>
+    <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
   </div>
 
   <div id="painel-aderencia">

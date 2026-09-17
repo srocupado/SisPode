@@ -961,7 +961,7 @@ function exportarExcel() {
 btnGerar.addEventListener('click', gerarRelatorio);
 
 // ============================================================
-//  ABA 2 — CONSULTA DE VOTOS
+//  ABA 2 — COMO VOTOU O DEPUTADO
 // ============================================================
 // A primeira aba responde "quanto o partido X aderiu ao governo no período".
 // Esta responde outra pergunta, que a assessoria faz o tempo todo e que não
