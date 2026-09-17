@@ -1591,6 +1591,7 @@ const CSS_PDF_VOTOS = `
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
+  .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; }
   .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
   @media print { .bx, .tag, th, tr.simb td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 `;
@@ -1704,6 +1705,9 @@ function cvHtmlPDF(logoDataUrl) {
       explicar por que a matéria tem menos votações do que destaques apresentados.</div>
     <ul class="ret">${retirados.map(t => `<li>${e(t.slice(0, 220))}</li>`).join('')}</ul>` : ''}
 
+  ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
+  <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
+
   <h2>Procedência dos dados</h2>
   <div class="nota">
     <b>Votos e orientações:</b> <code>/votacoes/{id}/votos</code> e <code>/votacoes/{id}/orientacoes</code>.<br>
@@ -1758,4 +1762,118 @@ async function cvExportarPDF() {
   s.onerror = imprimir;            // sem a lib, imprime sem numeração de página
   win.document.head.appendChild(s);
   setTimeout(imprimir, 30000);     // rede de segurança
+}
+
+// ---------- gráfico da distribuição (SVG inline) ----------
+// SVG inline pelo mesmo motivo das notas de orçamento: imprime, sobrevive ao
+// "Salvar como PDF" e não depende de script — a janela de impressão herda a CSP
+// da extensão e não roda script inline.
+//
+// São DUAS figuras, porque são duas perguntas e uma só barra as confundiria:
+//
+//   1. MEDIDOR — quantas das votações entraram no cálculo. No PL 182/2024 são 7
+//      de 40: sem isso, "100% de aderência" parece cobrir as 40. É a figura que
+//      impede a leitura errada do número grande.
+//   2. BARRA EMPILHADA — como se distribuem as qualificadas, que é parte-de-todo
+//      (o formato que o manual indica para essa função).
+//
+// A ordem dos segmentos é Aderiu → Ausente → Divergiu, e a razão é técnica: o
+// par verde/vermelho é o pior que existe para daltonismo (ΔE 1,2 em protanopia
+// com o verde do documento; 5,9 com o verde puro). Com o âmbar entre os dois,
+// nenhum par ADJACENTE — os únicos que se tocam numa barra empilhada — fica
+// abaixo do limite: o pior vira ΔE 16,2. Conferido com o validador do manual de
+// visualização, que reprova a ordem ingênua.
+const CV_COR = {
+  aderente:   '#008300',   // verde puro: o #006633 do texto reprova em protanopia
+  ausente:    '#eda100',
+  divergente: '#d03b3b',
+  tracoFora:  '#d8d8d2',
+  tracoCheio: '#52514e',
+  tinta:      '#0b0b0b',
+  tinta2:     '#52514e',
+  muda:       '#898781',
+  superficie: '#ffffff',
+};
+
+/** Retângulo com a ponta direita arredondada (4px) e a base reta. */
+function _cvBarra(x, y, w, h, cor, pontaRedonda) {
+  const r = 4;
+  if (!pontaRedonda || w <= r) return `<rect x="${x}" y="${y}" width="${Math.max(w, 0)}" height="${h}" fill="${cor}"/>`;
+  return `<path d="M${x},${y} h${w - r} a${r},${r} 0 0 1 ${r},${r} v${h - 2 * r} a${r},${r} 0 0 1 ${-r},${r} h${-(w - r)} z" fill="${cor}"/>`;
+}
+
+/**
+ * A figura da distribuição. `cont` vem de cvRender; `total` é o nº de votações.
+ * Devolve '' quando não há o que mostrar — figura de zero não informa nada.
+ */
+function cvSvgEstatistica(cont, total) {
+  const qual = cont.aderente + cont.divergente + cont.ausente;
+  if (!total || !qual) return '';
+
+  const L = 620, ALT_BARRA = 20, GAP = 2;   // gap de 2px na cor da superfície
+  const x0 = 0, larg = L;
+
+  // ---- 1) medidor: quantas votações entraram no cálculo ----
+  const fracao = qual / total;
+  const medidor = `
+    <g transform="translate(0,18)">
+      <text x="0" y="-4" font-size="10.5" fill="${CV_COR.tinta2}" font-weight="600">Quantas votações entraram no cálculo</text>
+      <rect x="${x0}" y="0" width="${larg}" height="${ALT_BARRA}" rx="4" fill="${CV_COR.tracoFora}"/>
+      ${_cvBarra(x0, 0, Math.max(larg * fracao, 3), ALT_BARRA, CV_COR.tracoCheio, true)}
+      ${(() => {
+        // Rótulo dentro do preenchimento só quando cabe COM FOLGA; senão vai
+        // para fora, em tinta. Posição e cor se decidem juntas — antes eram dois
+        // atributos `x` no mesmo <text>, e o segundo é ignorado: o rótulo ficava
+        // em tinta escura sobre o preenchimento escuro.
+        const rotulo = `${qual} de ${total}`;
+        const w = Math.max(larg * fracao, 3);
+        const larguraTexto = rotulo.length * 5.8;          // 10px, seminegrito
+        const dentro = w >= larguraTexto + 16;
+        return `<text x="${dentro ? x0 + 8 : x0 + w + 8}" y="${ALT_BARRA / 2 + 3.5}" font-size="10"
+          font-weight="700" fill="${dentro ? '#ffffff' : CV_COR.tinta}">${rotulo}</text>`;
+      })()}
+      <text x="${larg}" y="${ALT_BARRA + 13}" font-size="9" fill="${CV_COR.muda}" text-anchor="end">
+        ${total - qual} fora do cálculo — votação simbólica ou sem orientação do governo</text>
+    </g>`;
+
+  // ---- 2) barra empilhada: a conduta nas qualificadas ----
+  const partes = [
+    { k: 'aderente',   rot: 'Aderiu',   n: cont.aderente },
+    { k: 'ausente',    rot: 'Ausente',  n: cont.ausente },
+    { k: 'divergente', rot: 'Divergiu', n: cont.divergente },
+  ].filter(p => p.n > 0);          // segmento de zero não se desenha
+
+  const vaos = (partes.length - 1) * GAP;
+  const util = larg - vaos;
+  let cx = x0;
+  const segs = partes.map((p, i) => {
+    const w = (p.n / qual) * util;
+    const svg = _cvBarra(cx, 0, w, ALT_BARRA, CV_COR[p.k], i === partes.length - 1);
+    // Rótulo dentro só quando cabe com folga; senão a legenda carrega.
+    const rot = w >= 34
+      ? `<text x="${cx + w / 2}" y="${ALT_BARRA / 2 + 3.5}" font-size="10" font-weight="700" fill="#ffffff" text-anchor="middle">${p.n}</text>`
+      : '';
+    cx += w + GAP;
+    return svg + rot;
+  }).join('');
+
+  const legenda = partes.map((p, i) => {
+    const x = i * 118;
+    const pct = ((p.n / qual) * 100).toFixed(p.n / qual >= 0.995 || p.n === 0 ? 0 : 1);
+    return `<g transform="translate(${x},0)">
+      <rect x="0" y="0" width="9" height="9" rx="2" fill="${CV_COR[p.k]}"/>
+      <text x="14" y="8.5" font-size="9.5" fill="${CV_COR.tinta2}">${p.rot} — ${p.n} (${pct}%)</text>
+    </g>`;
+  }).join('');
+
+  return `<svg width="${L}" height="128" viewBox="0 0 ${L} 128" role="img"
+    aria-label="Distribuição das votações: ${qual} de ${total} entraram no cálculo; ${partes.map(p => p.rot + ' ' + p.n).join(', ')}."
+    style="max-width:100%;height:auto">
+    ${medidor}
+    <g transform="translate(0,84)">
+      <text x="0" y="-4" font-size="10.5" fill="${CV_COR.tinta2}" font-weight="600">Como se distribuem as ${qual} qualificadas</text>
+      ${segs}
+      <g transform="translate(0,${ALT_BARRA + 8})">${legenda}</g>
+    </g>
+  </svg>`;
 }

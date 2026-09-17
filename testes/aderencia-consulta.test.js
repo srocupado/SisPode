@@ -421,6 +421,55 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
        `a consulta de votações não passa \`itens\` — nesta rota isso devolve lista vazia (${chamada})`);
   }
 
+  console.log('\n== o gráfico da distribuição ==');
+  {
+    const svg = av(`cvSvgEstatistica({ aderente: 5, divergente: 0, ausente: 2, 'sem-gov': 0, simbolica: 33 }, 40)`);
+    ok(/^<svg /.test(svg), 'é SVG inline — imprime sem depender de script, como a CSP da janela exige');
+    ok(/7 de 40/.test(svg), 'o medidor diz quantas votações entraram no cálculo');
+    ok(/33 fora do cálculo/.test(svg), 'e quantas ficaram de fora, com o motivo');
+    ok(/aria-label="[^"]*7 de 40[^"]*"/.test(svg), 'com descrição textual para leitor de tela');
+
+    // A ordem NÃO é decorativa: âmbar entre verde e vermelho é o que salva o
+    // par adjacente na daltonia. Verde antes de âmbar antes de vermelho.
+    const ordem = [...svg.matchAll(/fill="(#008300|#eda100|#d03b3b)"/g)].map(m => m[1]);
+    ok(ordem[0] === '#008300' && ordem[1] === '#eda100',
+       `Aderiu vem antes de Ausente, e o vermelho nunca encosta no verde (${ordem.join(' → ')})`);
+    ok(!/#006633/.test(svg),
+       'o verde do texto (#006633) NÃO é usado no gráfico: reprova em protanopia contra o vermelho');
+
+    ok(!/#d03b3b/.test(svg), 'segmento de valor zero não é desenhado (Divergiu = 0)');
+    ok(/Aderiu — 5 \(71\.4%\)/.test(svg) && /Ausente — 2 \(28\.6%\)/.test(svg),
+       'a legenda traz rótulo, valor absoluto e percentual');
+    ok(!/Divergiu/.test(svg), 'e não lista a categoria que não ocorreu');
+  }
+  {
+    // O rótulo do medidor: dentro quando cabe, fora quando não cabe — e a cor
+    // acompanha. Era aqui que saía tinta escura sobre preenchimento escuro.
+    const largo = av(`cvSvgEstatistica({ aderente: 30, divergente: 5, ausente: 5, 'sem-gov': 0, simbolica: 0 }, 40)`);
+    ok(/fill="#ffffff">40 de 40<\/text>/.test(largo.replace(/\s+/g, ' ')),
+       'preenchimento largo: rótulo dentro, em branco');
+    const estreito = av(`cvSvgEstatistica({ aderente: 1, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 199 }, 200)`);
+    ok(/fill="#0b0b0b">1 de 200<\/text>/.test(estreito.replace(/\s+/g, ' ')),
+       'preenchimento estreito: rótulo fora, em tinta — nunca escuro sobre escuro');
+  }
+  {
+    ok(av(`cvSvgEstatistica({ aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 12 }, 12)`) === '',
+       'sem nenhuma votação qualificada, não se desenha figura de zero');
+    ok(av(`cvSvgEstatistica({ aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 }, 0)`) === '',
+       'nem com consulta vazia');
+  }
+  {
+    // No documento, a figura fecha o corpo, antes da procedência dos dados.
+    document.getElementById('cvNumero').value = '3626';
+    document.getElementById('cvAno').value = '2023';
+    await av('cvConsultar()');
+    const doc = av('cvHtmlPDF(null)');
+    ok(/<h2>Distribuição dos votos<\/h2>/.test(doc), 'a seção existe no PDF');
+    ok(doc.indexOf('Distribuição dos votos') < doc.indexOf('Procedência dos dados'),
+       'e vem antes da procedência, que é o fecho metodológico');
+    ok(/break-inside: avoid/.test(doc), 'a figura não se parte entre páginas');
+  }
+
   console.log('\n== proposição sem votação, e sem deputado escolhido ==');
   {
     api.props.push({ id: 999, siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'Sem votação.' });
