@@ -85,14 +85,14 @@ api.deputados = [
 ];
 api.props = [{ id: 2374400, siglaTipo: 'PL', numero: 3626, ano: 2023, ementa: 'Dispõe sobre a modalidade lotérica denominada apostas de quota fixa.' }];
 api.votacoes['2374400'] = [
-  { id: '2374400-23', data: '2023-09-13', dataHoraRegistro: '2023-09-13T18:18:00', siglaOrgao: 'PLEN', descricao: 'Rejeitado o Requerimento.' },
-  { id: '2374400-46', data: '2023-09-13', dataHoraRegistro: '2023-09-13T19:57:00', siglaOrgao: 'PLEN', descricao: 'Rejeitada a Emenda de Plenário nº 26. Sim: 82; não: 342; abstenção: 8; total: 432.' },
-  { id: '2374400-53', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:26:00', siglaOrgao: 'PLEN', descricao: 'Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.' },
-  { id: '2374400-58', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:37:00', siglaOrgao: 'PLEN', descricao: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
-  { id: '2374400-121', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:28:00', siglaOrgao: 'PLEN', descricao: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
+  { id: '2374400-23', data: '2023-09-13', dataHoraRegistro: '2023-09-13T18:18:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Rejeitado o Requerimento.' },
+  { id: '2374400-46', data: '2023-09-13', dataHoraRegistro: '2023-09-13T19:57:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Rejeitada a Emenda de Plenário nº 26. Sim: 82; não: 342; abstenção: 8; total: 432.' },
+  { id: '2374400-53', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:26:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.' },
+  { id: '2374400-58', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:37:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
+  { id: '2374400-121', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:28:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
   // Sem correspondência na tramitação: é o caso em que o relatório precisa
   // dizer "objeto não identificado" em vez de aproximar.
-  { id: '2374400-89', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:40:00', siglaOrgao: 'PLEN', descricao: 'Realizar o encaminhamento do PL-3626/2023 à CCJC (tramitação simultânea).' },
+  { id: '2374400-89', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:40:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Realizar o encaminhamento do PL-3626/2023 à CCJC (tramitação simultânea).' },
 ];
 // Tramitação narrativa, como a Câmara publica: objeto, encaminhamento, resultado.
 api.tramitacoes['2374400'] = [
@@ -220,9 +220,9 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
   console.log('\n== a perda do último dia do período está corrigida ==');
   {
     api.periodo.todas = [
-      { id: 'p-1', data: '2026-08-10', dataHoraRegistro: '2026-08-10T15:00', siglaOrgao: 'PLEN', descricao: 'Aprovado A.' },
-      { id: 'p-2', data: '2026-08-31', dataHoraRegistro: '2026-08-31T15:00', siglaOrgao: 'PLEN', descricao: 'Aprovado B.' },
-      { id: 'p-3', data: '2026-09-01', dataHoraRegistro: '2026-09-01T15:00', siglaOrgao: 'PLEN', descricao: 'Fora do período.' },
+      { id: 'p-1', data: '2026-08-10', dataHoraRegistro: '2026-08-10T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Aprovado A.' },
+      { id: 'p-2', data: '2026-08-31', dataHoraRegistro: '2026-08-31T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Aprovado B.' },
+      { id: 'p-3', data: '2026-09-01', dataHoraRegistro: '2026-09-01T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/69908', descricao: 'Fora do período.' },
       { id: 'p-4', data: '2026-08-20', dataHoraRegistro: '2026-08-20T15:00', siglaOrgao: 'CCJC', descricao: 'De comissão.' },
     ];
     api.votos['p-1'] = [voto('Sim')]; api.votos['p-2'] = [voto('Não')];
@@ -290,6 +290,38 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(/votação simbólica|tag-simb/.test(doc), 'as simbólicas são marcadas na tabela');
     ok(/Objeto não identificado na tramitação/.test(doc),
        'e item sem casamento seguro sai declarado, não com objeto aproximado');
+  }
+
+  console.log('\n== link público de cada item ==');
+  {
+    const L = av(`cvLinks({ id: '2374400-53', uriEvento: 'https://x/eventos/69908' })`);
+    ok(L.prop === 'https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=2374400',
+       `a ficha de tramitação sai do prefixo do id (${L.prop})`);
+    ok(L.evento === 'https://www.camara.leg.br/evento-legislativo/69908', `e a sessão, do uriEvento (${L.evento})`);
+
+    // Votação de proposição ANEXA aponta para a anexa, não para a matéria
+    // consultada — é lá que está o requerimento de urgência.
+    const A = av(`cvLinks({ id: '2414600-8', uriEvento: 'https://x/eventos/71780', proposicaoObjeto: 'REQ 4322/2023' })`);
+    ok(/idProposicao=2414600/.test(A.prop), 'votação de anexa linka para a anexa');
+    ok(A.rotuloProp === 'REQ 4322/2023', 'com o rótulo que a API dá, quando dá');
+
+    // Sem dado, sem link inventado.
+    const V = av(`cvLinks({ id: 'sem-id-numerico' })`);
+    ok(V.prop === null && V.evento === null, 'sem id numérico e sem evento, nenhum link é fabricado');
+
+    const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
+    const comLink = itens.filter(i => i.querySelector('.cv-links a'));
+    ok(comLink.length === itens.length, `todos os itens da tela têm link (${comLink.length}/${itens.length})`);
+    const hrefs = [...itens[1].querySelectorAll('.cv-links a')].map(a => a.getAttribute('href'));
+    ok(hrefs.some(h => /fichadetramitacao/.test(h)) && hrefs.some(h => /evento-legislativo/.test(h)),
+       'os dois links, ficha e sessão');
+    ok([...itens[1].querySelectorAll('.cv-links a')].every(a => a.getAttribute('target') === '_blank'),
+       'abrindo em aba nova, para não perder a consulta feita');
+
+    const doc = av('cvHtmlPDF(null)');
+    ok(/href="https:\/\/www\.camara\.leg\.br\/proposicoesWeb\/fichadetramitacao/.test(doc),
+       'o PDF também sai com os links clicáveis');
+    ok(/href="https:\/\/www\.camara\.leg\.br\/evento-legislativo/.test(doc), 'inclusive o da sessão');
   }
 
   console.log('\n== destaques retirados entram no documento ==');
