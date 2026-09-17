@@ -1156,6 +1156,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   // 2414600-8, do REQ 4322/2023). O prefixo do id da votação é o id da
   // proposição, então busca-se a tramitação de cada uma que aparecer.
   const objetos = {};
+  const retirados = [];
   const porProp = new Map();
   for (const v of vots) {
     const idp = String(v.id).split('-')[0];
@@ -1166,6 +1167,13 @@ async function cvPorProposicao(sigla, numero, ano) {
     try {
       const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
       Object.assign(objetos, objetosDaTramitacao(lista, tram));
+      // Destaque RETIRADO não foi votado — não há voto a registrar, e é
+      // justamente por isso que ele precisa ser dito: o relatório mostraria
+      // menos itens que o esperado sem explicar o que aconteceu com o resto.
+      for (const t of tram) {
+        const d = String(t.despacho || '').replace(/\s+/g, ' ').trim();
+        if (/^Retirado o DTQ/i.test(d)) retirados.push(d.replace(/^Retirado o /i, ''));
+      }
     } catch (e) {
       console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
     }
@@ -1184,7 +1192,7 @@ async function cvPorProposicao(sigla, numero, ano) {
       }
     }
   }
-  return { prop, itens: itens.filter(Boolean), objetos };
+  return { prop, itens: itens.filter(Boolean), objetos, retirados };
 }
 
 async function cvPorPeriodo(dataIni, dataFim) {
@@ -1281,7 +1289,10 @@ function cvRender(dados) {
         A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
         de ${qualificadas} qualificada(s).
       </div>
-      <div class="cv-acoes"><button class="btn-gerar" id="cvExportar" style="margin-top:0">Exportar Excel</button></div>
+      <div class="cv-acoes">
+        <button class="btn-gerar" id="cvExportarPdf" style="margin-top:0">Exportar PDF</button>
+        <button class="btn-gerar" id="cvExportar" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Excel</button>
+      </div>
     </div>
 
     <div class="cv-lista">
@@ -1306,9 +1317,11 @@ function cvRender(dados) {
     </div>`;
 
   cvEl.resultado.innerHTML = html;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep };
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados: dados.retirados || [], cont, pct };
   const btn = document.getElementById('cvExportar');
   if (btn) btn.addEventListener('click', cvExportar);
+  const btnPdf = document.getElementById('cvExportarPdf');
+  if (btnPdf) btnPdf.addEventListener('click', cvExportarPDF);
 }
 
 function cvExportar() {
@@ -1423,4 +1436,204 @@ if (cvEl.aba && cvEl.painel) {
   mesAtras.setDate(mesAtras.getDate() - 30);
   cvEl.dataIni.value = mesAtras.toISOString().slice(0, 10);
   cvEl.dataFim.value = hoje.toISOString().slice(0, 10);
+}
+
+// ---------- exportação em PDF ----------
+// O layout é o do documento de conferência que a assessoria já usa: cabeçalho
+// institucional, consolidado, a nota de "como ler" (que é o que impede a
+// contagem de ser mal interpretada), as votações agrupadas por sessão, os
+// destaques retirados e a procedência dos dados.
+//
+// Impressão pelo paged.js, como nos demais módulos: ele resolve o número de
+// página do rodapé e avisa quando terminou de montar. Sem ele, imprime mesmo
+// assim — só sem numeração.
+
+const CSS_PDF_VOTOS = `
+  @page { size: A4; margin: 15mm 14mm; @bottom-center { content: counter(page); font-size: 8pt; color: #888; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt; color: #1a1a1a; background: #fff; }
+  .cab { display: flex; align-items: center; gap: 14px; }
+  .cab .tit { flex: 1; text-align: center; }
+  .cab h1 { font-size: 15pt; color: #003c1f; }
+  .cab .sub { font-size: 9.5pt; color: #003c1f; margin-top: 2px; }
+  .cab img { height: 42px; }
+  .cab .sp { width: 42px; }
+  .rule { border-bottom: 2px solid #00A859; margin: 7px 0 10px; }
+  .meta { text-align: center; font-style: italic; font-size: 8.5pt; color: #6b7280; margin-bottom: 14px; }
+  h2 { font-size: 11.5pt; color: #003c1f; margin: 16px 0 6px; border-left: 3px solid #00A859; padding-left: 7px; }
+  h2:first-of-type { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  th { background: #eef4f0; color: #003c1f; font-size: 8pt; text-transform: uppercase; letter-spacing: .3px;
+       padding: 5px 6px; text-align: left; border-bottom: 1.5px solid #c9ddd2; }
+  td { padding: 6px; border-bottom: 1px solid #e6eae7; vertical-align: top; font-size: 9pt; }
+  td.c { text-align: center; white-space: nowrap; }
+  td.hora { white-space: nowrap; font-size: 8.5pt; }
+  tr.simb td { background: #fafafa; color: #6b7280; }
+  .res { font-size: 8pt; color: #6b7280; margin-top: 3px; font-style: italic; }
+  .naoident { color: #8a8f8c; font-style: italic; }
+  .nada { color: #9aa5a0; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; }
+  .tag-voto { color: #1a1a1a; border-color: #c9ccc9; background: #f4f5f4; }
+  .tag-ade  { color: #006633; border-color: #9ed7b6; background: #eaf7f0; }
+  .tag-div  { color: #b02a1f; border-color: #f0b4ad; background: #fdeeec; }
+  .tag-aus  { color: #8a6d00; border-color: #e8d28a; background: #fdf7e3; }
+  .tag-simb { color: #6b7280; border-color: #d8dcda; background: #f4f5f4; }
+  .resumo { display: flex; gap: 10px; margin: 4px 0 12px; }
+  .bx { flex: 1; border: 1px solid #d8e3dc; border-radius: 6px; padding: 9px; text-align: center; }
+  .bx .v { font-size: 17pt; font-weight: 700; color: #003c1f; }
+  .bx .l { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; margin-top: 2px; }
+  .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
+          padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
+  .nota b { color: #003c1f; }
+  ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
+  .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
+  @media print { .bx, .tag, th, tr.simb td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+`;
+
+const CV_TAG_PDF = {
+  aderente: 'tag-ade', divergente: 'tag-div', ausente: 'tag-aus',
+  'sem-gov': 'tag-simb', simbolica: 'tag-simb',
+};
+
+function cvHtmlPDF(logoDataUrl) {
+  const u = cv.ultimo;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct } = u;
+  const e = cvEsc;
+
+  const titulo = prop
+    ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}`
+    : `Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}`;
+  const subtitulo = prop
+    ? String(prop.ementa || '').replace(/\s+/g, ' ').slice(0, 260)
+    : 'Todas as votações do Plenário no período.';
+
+  // Uma tabela por dia de sessão, como o documento de conferência faz.
+  const porDia = new Map();
+  for (const l of linhas) {
+    const d = String(l.it.votacao.data || '');
+    if (!porDia.has(d)) porDia.set(d, []);
+    porDia.get(d).push(l);
+  }
+  const dias = [...porDia.keys()].sort();
+
+  const linhaHtml = ({ it, s }) => {
+    const v = it.votacao;
+    const obj = objetos[v.id];
+    const hora = String(v.dataHoraRegistro || '').slice(11, 16);
+    const voto = s.situacao === 'simbolica'
+      ? '<span class="tag tag-simb">simbólica</span>'
+      : (s.voto ? `<span class="tag tag-voto">${e(s.voto)}</span>` : '<span class="tag tag-aus">não votou</span>');
+    return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
+      <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
+      <td><b>${obj ? e(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</b>
+          <div class="res">${e(v.descricao || '')}</div></td>
+      <td class="c">${voto}</td>
+      <td class="c">${it.govOrient ? e(it.govOrient) : '<span class="nada">—</span>'}</td>
+      <td class="c"><span class="tag ${CV_TAG_PDF[s.situacao]}">${CV_ROTULO[s.situacao]}</span></td>
+    </tr>`;
+  };
+
+  const tabela = dia => `
+    <h2>Sessão de ${e(dia.split('-').reverse().join('/'))}</h2>
+    <table>
+      <tr><th style="width:62px">Data</th><th>Objeto da votação</th><th style="width:74px">Voto</th>
+          <th style="width:52px">Governo</th><th style="width:66px">Veredito</th></tr>
+      ${porDia.get(dia).map(linhaHtml).join('')}
+    </table>`;
+
+  const comparaveis = cont.aderente + cont.divergente;
+  const qualificadas = comparaveis + cont.ausente;
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>${e(dep.nome)} — ${e(titulo)}</title><style>${CSS_PDF_VOTOS}</style></head><body>
+  <div class="cab">
+    <div class="sp"></div>
+    <div class="tit"><h1>Dep. ${e(dep.nome)} (${e(dep.partido)}-${e(dep.uf)})</h1>
+      <div class="sub">${e(titulo)}</div></div>
+    ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
+  </div>
+  <div class="rule"></div>
+  <div class="meta">Documento de conferência · dados da API de Dados Abertos da Câmara dos Deputados,
+    consultados em ${new Date().toLocaleDateString('pt-BR')}</div>
+
+  <h2>Consolidado</h2>
+  ${prop ? `<div class="nota" style="margin-top:0"><b>${e(titulo)}</b> — ${e(subtitulo)}</div>` : ''}
+  <div class="resumo">
+    <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica - cont.ausente}</div><div class="l">Votos dele</div></div>
+    <div class="bx"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
+    <div class="bx"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
+    <div class="bx"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+  </div>
+  <div class="nota">
+    <b>Como ler.</b> "Aderiu/Divergiu" compara o voto com a orientação do <b>Governo</b>, que é o critério
+    do relatório de Aderência. Votações <b>simbólicas</b> não têm registro individual de voto — a Câmara
+    não o produz —, então não entram em conta nenhuma: não são ausência do deputado. Votação nominal
+    <b>sem orientação do Governo</b> também fica fora do cálculo, embora o voto exista e apareça.
+    A aderência é calculada sobre <b>${comparaveis} votação(ões) comparável(is)</b>, de ${qualificadas}
+    qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.
+  </div>
+
+  ${dias.map(tabela).join('')}
+
+  ${retirados.length ? `<h2>Destaques retirados antes da votação</h2>
+    <div class="nota">Retirados em acordo, sem votação — não há voto a registrar. Ficam listados para
+      explicar por que a matéria tem menos votações do que destaques apresentados.</div>
+    <ul class="ret">${retirados.map(t => `<li>${e(t.slice(0, 220))}</li>`).join('')}</ul>` : ''}
+
+  <h2>Procedência dos dados</h2>
+  <div class="nota">
+    <b>Votos e orientações:</b> <code>/votacoes/{id}/votos</code> e <code>/votacoes/{id}/orientacoes</code>.<br>
+    <b>Votações:</b> ${prop ? '<code>/proposicoes/{id}/votacoes</code>' : '<code>/votacoes</code> por intervalo de datas, restrito ao Plenário'}.<br>
+    ${prop ? `<b>Objeto de cada item:</b> lido do texto de <code>/proposicoes/{id}/tramitacoes</code>. Não existe
+      campo estruturado com essa informação — <code>objetosPossiveis</code> e
+      <code>ultimaApresentacaoProposicao</code> repetem o mesmo conteúdo em todas as votações do bloco —,
+      por isso esta coluna é transcrição do narrativo. Item sem casamento seguro sai como
+      "objeto não identificado", em vez de receber um objeto aproximado.<br>` : ''}
+    <b>Ressalva de método:</b> a consulta por intervalo de datas perde as votações do último dia do
+    período; o relatório pede à API até <b>dataFim + 1</b> e descarta o excedente.
+  </div>
+
+  <div class="ft">Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
+</body></html>`;
+}
+
+async function cvExportarPDF() {
+  if (!cv.ultimo) return;
+  // A janela abre AGORA, no gesto do clique: pop-up aberto depois de um await
+  // é bloqueado pelo navegador.
+  const win = window.open('', '_blank', 'width=960,height=720');
+  if (!win) { cvStatus('Permita pop-ups para gerar o PDF.', 'error'); return; }
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
+    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Montando o documento…</body></html>');
+  win.document.close();
+
+  let logo = null;
+  try {
+    const res = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (res.ok) {
+      const blob = await res.blob();
+      logo = await new Promise((ok, err) => {
+        const fr = new FileReader();
+        fr.onloadend = () => ok(fr.result);
+        fr.onerror = () => err(fr.error);
+        fr.readAsDataURL(blob);
+      });
+    }
+  } catch (e) { console.warn('Logo não carregada:', e.message); }
+  if (win.closed) return;
+
+  win.document.open();
+  win.document.write(cvHtmlPDF(logo));
+  win.document.close();
+
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;            // sem a lib, imprime sem numeração de página
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 30000);     // rede de segurança
 }

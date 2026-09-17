@@ -90,6 +90,9 @@ api.votacoes['2374400'] = [
   { id: '2374400-53', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:26:00', siglaOrgao: 'PLEN', descricao: 'Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.' },
   { id: '2374400-58', data: '2023-09-13', dataHoraRegistro: '2023-09-13T20:37:00', siglaOrgao: 'PLEN', descricao: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
   { id: '2374400-121', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:28:00', siglaOrgao: 'PLEN', descricao: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
+  // Sem correspondência na tramitação: é o caso em que o relatório precisa
+  // dizer "objeto não identificado" em vez de aproximar.
+  { id: '2374400-89', data: '2023-12-21', dataHoraRegistro: '2023-12-21T00:40:00', siglaOrgao: 'PLEN', descricao: 'Realizar o encaminhamento do PL-3626/2023 à CCJC (tramitação simultânea).' },
 ];
 // Tramitação narrativa, como a Câmara publica: objeto, encaminhamento, resultado.
 api.tramitacoes['2374400'] = [
@@ -107,6 +110,8 @@ api.tramitacoes['2374400'] = [
   { sequencia: 57, despacho: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
   { sequencia: 118, despacho: 'Votação das Emendas do Senado Federal nº 1 e outras, com parecer pela rejeição.' },
   { sequencia: 120, despacho: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
+  { sequencia: 121, despacho: 'Retirado o DTQ 9: Bloco UNIÃO (Solidariedade): emenda n. 38 do Senado Federal, com fins de sua aprovação (art. 161, II).' },
+  { sequencia: 122, despacho: 'Retirado o DTQ 10: PL: Destaque da emenda do Senado número 3 para fins de sua supressão (art. 161, II).' },
 ];
 const voto = t => ({ deputado_: GAMBALE, tipoVoto: t });
 api.votos['2374400-23']  = [];                       // simbólica
@@ -189,10 +194,10 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     await av('cvConsultar()');
 
     const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
-    ok(itens.length === 5, `as cinco votações aparecem (${itens.length})`);
+    ok(itens.length === 6, `as seis votações aparecem (${itens.length})`);
 
     const ver = itens.map(i => i.querySelector('.cv-ver').textContent.trim());
-    ok(ver.join(',') === 'Simbólica,Aderiu,Aderiu,Sem orientação,Ausente',
+    ok(ver.join(',') === 'Simbólica,Aderiu,Aderiu,Sem orientação,Ausente,Simbólica',
        `cada uma com o seu veredito (${ver.join(', ')})`);
 
     const votos = itens.map(i => i.querySelector('.cv-voto').textContent.replace(/\s+/g, ' ').trim());
@@ -247,6 +252,69 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
        'a tela avisa quantas votações não foram lidas');
     ok(/o que está faltando é a consulta, não o voto/.test(aviso.textContent),
        'e diz o que a lacuna significa, para ninguém ler como ausência do deputado');
+  }
+
+  console.log('\n== exportação em PDF, no padrão do documento de conferência ==');
+  {
+    // Refaz a consulta do PL 3626 para ter `cv.ultimo` populado.
+    document.getElementById('cvNumero').value = '3626';
+    document.getElementById('cvAno').value = '2023';
+    await av('cvConsultar()');
+
+    ok(!!document.getElementById('cvExportarPdf'), 'o botão de PDF está na tela');
+    ok(!!document.getElementById('cvExportar'), 'e o de Excel continua');
+
+    const doc = av(`cvHtmlPDF('data:image/png;base64,AAAA')`);
+    ok(/<h1>Dep\. Rodrigo Gambale \(PODE-SP\)<\/h1>/.test(doc), 'cabeçalho com o deputado');
+    ok(/PL 3626\/2023/.test(doc), 'e a matéria consultada');
+    ok(/src="data:image\/png;base64,AAAA"/.test(doc), 'a logo entra embutida, não por URL de extensão');
+
+    ok(/<h2>Consolidado<\/h2>/.test(doc), 'seção Consolidado');
+    ok(/<h2>Sessão de 13\/09\/2023<\/h2>/.test(doc) && /<h2>Sessão de 21\/12\/2023<\/h2>/.test(doc),
+       'uma tabela por sessão');
+    ok(/<h2>Procedência dos dados<\/h2>/.test(doc), 'e a procedência dos dados');
+
+    // O consolidado do documento tem de bater com o da tela.
+    const cx = av('cv.ultimo.cont');
+    const semEspaco = doc.replace(/\s+/g, ' ');
+    ok(semEspaco.includes(`<div class="v">${cx.aderente}</div><div class="l">Aderiu</div>`),
+       `as caixas repetem a contagem da tela (aderiu=${cx.aderente})`);
+    ok(semEspaco.includes(`<div class="v">${cx.ausente}</div><div class="l">Ausente</div>`),
+       `e a de ausências (ausente=${cx.ausente})`);
+
+    ok(/Como ler\./.test(doc), 'a nota de "como ler" vai junto');
+    ok(/simbólicas.*não são ausência do deputado/s.test(doc),
+       'dizendo que simbólica não é ausência — é o que impede a leitura errada do número');
+    ok(/sem orientação do Governo.*fica fora do cálculo/s.test(doc), 'e que sem orientação fica fora do cálculo');
+
+    ok(/votação simbólica|tag-simb/.test(doc), 'as simbólicas são marcadas na tabela');
+    ok(/Objeto não identificado na tramitação/.test(doc),
+       'e item sem casamento seguro sai declarado, não com objeto aproximado');
+  }
+
+  console.log('\n== destaques retirados entram no documento ==');
+  {
+    const ret = av('cv.ultimo.retirados');
+    ok(Array.isArray(ret) && ret.length > 0, `os destaques retirados são colhidos da tramitação (${ret.length})`);
+    ok(ret.every(t => !/^Retirado o /.test(t)), 'sem o prefixo "Retirado o", que a seção já diz');
+    const doc = av(`cvHtmlPDF(null)`);
+    ok(/<h2>Destaques retirados antes da votação<\/h2>/.test(doc), 'a seção existe quando há retirados');
+    ok(/não há voto a registrar/.test(doc), 'explicando que não houve votação');
+    ok(/menos votações do que destaques apresentados/.test(doc),
+       'e por que a matéria tem menos votações do que se esperaria');
+  }
+
+  console.log('\n== período: o documento se adapta ==');
+  {
+    av(`cv.ultimo = { linhas: [], objetos: {}, prop: null, periodo: ['2026-08-01','2026-08-31'],
+        dep: { nome: 'Fulano', partido: 'XX', uf: 'DF' }, retirados: [],
+        cont: { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 }, pct: null }`);
+    const doc = av('cvHtmlPDF(null)');
+    ok(/01\/08\/2026 a 31\/08\/2026/.test(doc), 'o título vira o período consultado');
+    ok(!/Destaques retirados/.test(doc), 'sem retirados, a seção não aparece vazia');
+    ok(/intervalo de datas, restrito ao Plenário/.test(doc), 'a procedência descreve a busca por período');
+    ok(/dataFim \+ 1/.test(doc), 'e registra a ressalva do último dia');
+    ok(!/objetosPossiveis/.test(doc), 'a nota sobre a tramitação só aparece no modo proposição');
   }
 
   console.log('\n== proposição sem votação, e sem deputado escolhido ==');
