@@ -173,6 +173,79 @@
 
   .status.error { color: var(--nao); }
 
+  /* ---------- Abas ---------- */
+  .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  .aba {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 14px; cursor: pointer; transition: color .15s, border-color .15s;
+  }
+  .aba:hover { color: var(--text); }
+  .aba.ativa { color: var(--accent-light); border-bottom-color: var(--accent); }
+
+  /* ---------- Consulta de votos ---------- */
+  .cv-modos { display: flex; gap: 6px; margin: 14px 0 12px; }
+  .cv-modo {
+    flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-dim); font-family: inherit; font-size: 12px;
+    font-weight: 600; padding: 7px; cursor: pointer;
+  }
+  .cv-modo.ativo { background: rgba(31,165,165,0.14); border-color: var(--accent); color: var(--accent-light); }
+  .cv-escolha { margin: 8px 0 0; }
+  .cv-escolha-tit { font-size: 11.5px; color: var(--text-dim); margin-bottom: 5px; }
+  .cv-op {
+    display: block; width: 100%; text-align: left; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    font-family: inherit; font-size: 12.5px; padding: 7px 10px; margin-bottom: 4px; cursor: pointer;
+  }
+  .cv-op:hover { border-color: var(--accent); }
+  .cv-op .p { color: var(--text-dim); font-size: 11px; }
+  .cv-sel {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 10px;
+    background: rgba(31,165,165,0.10); border: 1px solid rgba(31,165,165,0.35);
+    border-radius: 6px; font-size: 12.5px;
+  }
+  .cv-sel .x { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 15px; }
+
+  .cv-cab { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .cv-cab h3 { font-size: 14px; color: var(--text); margin-bottom: 3px; }
+  .cv-cab .sub { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+  .cv-nums { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .cv-num { flex: 1; min-width: 78px; text-align: center; background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border); border-radius: 8px; padding: 9px 6px; }
+  .cv-num .v { font-size: 18px; font-weight: 700; }
+  .cv-num .l { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-top: 2px; }
+  .cv-num.ade .v { color: var(--sim); }
+  .cv-num.div .v { color: var(--nao); }
+  .cv-num.aus .v { color: var(--absent); }
+
+  .cv-lista { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .cv-item { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border-bottom: 1px solid var(--border); }
+  .cv-item:last-child { border-bottom: none; }
+  .cv-item.simbolica { background: rgba(255,255,255,0.015); }
+  .cv-voto {
+    min-width: 92px; padding: 3px 7px; border-radius: 4px; display: flex; align-items: center;
+    justify-content: center; gap: 4px; flex-shrink: 0; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .3px; white-space: nowrap;
+    background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border);
+  }
+  .cv-voto .rot { font-weight: 600; color: var(--text-dim); letter-spacing: .2px; }
+  .cv-voto.ausente { color: var(--absent); }
+  .cv-corpo { flex: 1; min-width: 0; }
+  .cv-obj { font-size: 12.5px; color: var(--text); line-height: 1.4; }
+  .cv-obj .naoident { color: var(--text-dim); font-style: italic; }
+  .cv-res { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+  .cv-meta { font-size: 9.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .4px; margin-top: 4px; font-weight: 600; }
+  .cv-ver { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: .3px;
+            text-transform: uppercase; white-space: nowrap; flex-shrink: 0; }
+  .cv-ver.aderente   { background: rgba(58,217,125,0.15); color: var(--sim); }
+  .cv-ver.divergente { background: rgba(240,84,84,0.15); color: var(--nao); }
+  .cv-ver.ausente    { background: rgba(90,111,116,0.2); color: var(--absent); }
+  .cv-ver.fora       { background: rgba(255,255,255,0.05); color: var(--text-dim); }
+  .cv-aviso { font-size: 11.5px; color: var(--abstencao); background: rgba(240,192,64,0.08);
+              border: 1px solid rgba(240,192,64,0.3); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; line-height: 1.5; }
+  .cv-acoes { display: flex; gap: 8px; margin-top: 12px; }
+
   .spinner {
     display: inline-block;
     width: 24px;
@@ -560,24 +633,79 @@
 </div>
 
 <div class="container">
-  <div class="input-section">
-    <div class="date-row">
-      <div class="date-col">
-        <label>Data início</label>
-        <input type="date" id="dataIni" class="field">
-      </div>
-      <div class="date-col">
-        <label>Data fim</label>
-        <input type="date" id="dataFim" class="field">
-      </div>
-    </div>
-    <label>Partido (sigla)</label>
-    <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
-    <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+  <div class="abas" role="tablist">
+    <button class="aba ativa" id="aba-aderencia" role="tab">Aderência ao Governo</button>
+    <button class="aba" id="aba-consulta" role="tab">Consulta de votos</button>
   </div>
 
-  <div id="status"></div>
-  <div id="resultado"></div>
+  <div id="painel-aderencia">
+    <div class="input-section">
+      <div class="date-row">
+        <div class="date-col">
+          <label>Data início</label>
+          <input type="date" id="dataIni" class="field">
+        </div>
+        <div class="date-col">
+          <label>Data fim</label>
+          <input type="date" id="dataFim" class="field">
+        </div>
+      </div>
+      <label>Partido (sigla)</label>
+      <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
+      <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="resultado"></div>
+  </div>
+
+  <div id="painel-consulta" hidden>
+    <div class="input-section">
+      <label>Deputado(a) — qualquer partido</label>
+      <input type="text" id="cvDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
+      <div id="cvEscolha"></div>
+
+      <div class="cv-modos">
+        <button class="cv-modo ativo" id="cvModoProp">Por proposição</button>
+        <button class="cv-modo" id="cvModoPer">Por período</button>
+      </div>
+
+      <div id="cvCamposProp">
+        <div class="date-row">
+          <div class="date-col" style="flex:0 0 96px">
+            <label>Sigla</label>
+            <input type="text" id="cvSigla" class="field" placeholder="PL" maxlength="6" value="PL">
+          </div>
+          <div class="date-col">
+            <label>Número</label>
+            <input type="text" id="cvNumero" class="field" placeholder="3626" maxlength="7">
+          </div>
+          <div class="date-col" style="flex:0 0 110px">
+            <label>Ano</label>
+            <input type="text" id="cvAno" class="field" placeholder="2023" maxlength="4">
+          </div>
+        </div>
+      </div>
+
+      <div id="cvCamposPer" hidden>
+        <div class="date-row">
+          <div class="date-col">
+            <label>Data início</label>
+            <input type="date" id="cvDataIni" class="field">
+          </div>
+          <div class="date-col">
+            <label>Data fim</label>
+            <input type="date" id="cvDataFim" class="field">
+          </div>
+        </div>
+      </div>
+
+      <button id="cvBuscar" class="btn-gerar">Consultar votos</button>
+    </div>
+
+    <div id="cvStatus"></div>
+    <div id="cvResultado"></div>
+  </div>
 
   <div class="signature">
     <div class="signature-line"></div>
