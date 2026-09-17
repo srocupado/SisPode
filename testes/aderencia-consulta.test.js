@@ -424,10 +424,17 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
   console.log('\n== o gráfico da distribuição ==');
   {
     const svg = av(`cvSvgEstatistica({ aderente: 5, divergente: 0, ausente: 2, 'sem-gov': 0, simbolica: 33 }, 40)`);
+    const plano = svg.replace(/\s+/g, ' ');
     ok(/^<svg /.test(svg), 'é SVG inline — imprime sem depender de script, como a CSP da janela exige');
-    ok(/7 de 40/.test(svg), 'o medidor diz quantas votações entraram no cálculo');
-    ok(/33 fora do cálculo/.test(svg), 'e quantas ficaram de fora, com o motivo');
-    ok(/aria-label="[^"]*7 de 40[^"]*"/.test(svg), 'com descrição textual para leitor de tela');
+    ok(/>7<\/text>/.test(plano) && /qualificadas<\/text>/.test(plano) && />de 40<\/text>/.test(plano),
+       'o miolo da rosquinha diz quantas entraram no cálculo, e de que universo');
+    ok(/33 das 40 votações ficaram fora do cálculo/.test(plano), 'e quantas ficaram de fora, com o motivo');
+    ok(/aria-label="[^"]*de um universo de 40[^"]*"/.test(svg), 'com descrição textual para leitor de tela');
+
+    // O recorte "7 de 40" é razão de duas partes: vira número, nunca uma segunda
+    // rosquinha — pizza de duas fatias é justamente o que o manual reprova.
+    ok((plano.match(/<path /g) || []).length === 2,
+       'há um arco por categoria presente, e nenhuma figura extra para o recorte');
 
     // A ordem NÃO é decorativa: âmbar entre verde e vermelho é o que salva o
     // par adjacente na daltonia. Verde antes de âmbar antes de vermelho.
@@ -437,20 +444,28 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(!/#006633/.test(svg),
        'o verde do texto (#006633) NÃO é usado no gráfico: reprova em protanopia contra o vermelho');
 
-    ok(!/#d03b3b/.test(svg), 'segmento de valor zero não é desenhado (Divergiu = 0)');
-    ok(/Aderiu — 5 \(71\.4%\)/.test(svg) && /Ausente — 2 \(28\.6%\)/.test(svg),
+    ok(!/#d03b3b/.test(svg), 'fatia de valor zero não é desenhada (Divergiu = 0)');
+    ok(/>Aderiu<\/text> <text[^>]*>5 de 7 — 71\.4%/.test(plano) &&
+       />Ausente<\/text> <text[^>]*>2 de 7 — 28\.6%/.test(plano),
        'a legenda traz rótulo, valor absoluto e percentual');
     ok(!/Divergiu/.test(svg), 'e não lista a categoria que não ocorreu');
   }
   {
-    // O rótulo do medidor: dentro quando cabe, fora quando não cabe — e a cor
-    // acompanha. Era aqui que saía tinta escura sobre preenchimento escuro.
+    // Rótulo direto: dentro do anel quando a fatia comporta, fora quando não —
+    // e a cor acompanha. Era aqui que saía tinta escura sobre fundo escuro.
     const largo = av(`cvSvgEstatistica({ aderente: 30, divergente: 5, ausente: 5, 'sem-gov': 0, simbolica: 0 }, 40)`);
-    ok(/fill="#ffffff">40 de 40<\/text>/.test(largo.replace(/\s+/g, ' ')),
-       'preenchimento largo: rótulo dentro, em branco');
-    const estreito = av(`cvSvgEstatistica({ aderente: 1, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 199 }, 200)`);
-    ok(/fill="#0b0b0b">1 de 200<\/text>/.test(estreito.replace(/\s+/g, ' ')),
-       'preenchimento estreito: rótulo fora, em tinta — nunca escuro sobre escuro');
+    ok(/fill="#ffffff">30<\/text>/.test(largo.replace(/\s+/g, ' ')),
+       'fatia larga: número dentro do anel, em branco');
+    const fina = av(`cvSvgEstatistica({ aderente: 199, divergente: 1, ausente: 0, 'sem-gov': 0, simbolica: 0 }, 200)`);
+    ok(/fill="#0b0b0b">1<\/text>/.test(fina.replace(/\s+/g, ' ')),
+       'fatia fina: número fora do anel, em tinta — nunca escuro sobre escuro');
+  }
+  {
+    // Uma volta inteira não cabe num único comando de arco do SVG: o caso de
+    // categoria única se parte em duas metades, e sem vão.
+    const unica = av(`cvSvgEstatistica({ aderente: 3, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 8 }, 11)`);
+    ok(/fill-rule="evenodd"/.test(unica), 'categoria única fecha o anel inteiro, sem fatia fantasma');
+    ok(/3 de 3 — 100%/.test(unica.replace(/\s+/g, ' ')), 'e a legenda diz 100% sem casa decimal');
   }
   {
     ok(av(`cvSvgEstatistica({ aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 12 }, 12)`) === '',
