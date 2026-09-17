@@ -67,9 +67,13 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 
 ---
 
-### 3. Aderência ao Governo
+### 3. Relatórios
 
-Calcule o índice de aderência do partido às orientações do governo em qualquer período.
+Dois relatórios sobre as votações nominais do Plenário, em abas.
+
+#### 3.1 Aderência
+
+Índice de aderência do partido às orientações do governo em qualquer período.
 
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
@@ -78,6 +82,17 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 - Gráfico temporal da evolução da aderência no período
 - **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
 - Exporta o relatório completo em **Excel (.xlsx)**
+
+#### 3.2 Como votou o deputado
+
+Como um deputado — de **qualquer partido** — votou numa proposição ou num intervalo de datas.
+
+- Busca o parlamentar pelo nome; havendo homônimos, a escolha é do analista, com partido e UF à vista
+- **Por proposição** (sigla/número/ano): traz todas as votações da matéria, cada uma com o **objeto lido da tramitação** ("DTQ 1: Bloco UNIÃO (PSB): DVS do §10 do art. 23…"), que não existe em campo estruturado da API
+- **Por período**: todas as votações do Plenário no intervalo
+- Distingue quatro situações — aderiu, divergiu, ausente, e **votação simbólica**, que não tem registro individual de voto e por isso não é ausência do deputado; votação sem orientação do governo fica fora do cálculo, com o voto à vista
+- Corrige a perda das votações do último dia do intervalo (a API da Câmara as omite; a consulta pede `dataFim + 1` e descarta o excedente)
+- Exporta em **Excel (.xlsx)**, com o objeto e a situação em colunas próprias
 
 ---
 
@@ -502,7 +517,7 @@ sispode/
 ├── panel.html / panel.js       # Painel inicial + módulo: Destaques Legislativos
 ├── panel.css                   # Estilos do painel principal
 ├── votacao.html / votacao.js      # Módulo: Painel de Votação
-├── aderencia.html / aderencia.js  # Módulo: Aderência ao Governo
+├── aderencia.html / aderencia.js  # Módulo: Relatórios (aderência · como votou o deputado)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)

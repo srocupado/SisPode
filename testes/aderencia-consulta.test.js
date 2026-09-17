@@ -1,4 +1,4 @@
-// Aba "Consulta de votos" do módulo de Aderência.
+// Aba "Como votou o deputado" do módulo Relatórios (antes: Aderência ao Governo).
 //
 // A primeira aba responde "quanto o partido X aderiu ao governo no período".
 // Esta responde "como o deputado Fulano votou nisto aqui" — por proposição ou
