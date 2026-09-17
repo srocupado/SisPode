@@ -1216,6 +1216,32 @@ async function cvPorPeriodo(dataIni, dataFim) {
   return { itens: itens.filter(Boolean), objetos: {} };
 }
 
+// ---------- links públicos de cada item ----------
+/**
+ * Dois links por votação, ambos derivados do que a listagem já traz — nenhuma
+ * consulta a mais:
+ *   · a PROPOSIÇÃO votada, pela ficha de tramitação. O prefixo do id da votação
+ *     é o id da proposição, e para votação de anexa (o requerimento de urgência
+ *     é proposição própria) o link vai para a anexa, que é o certo.
+ *   · a SESSÃO, pela página do evento.
+ *
+ * Testados em 17/09/2026. O que NÃO serve, para ninguém tentar de novo:
+ * camara.leg.br/votacoes/{id} devolve 404, e a página legada
+ * internet/votacao/mostraVotacao.asp responde 200 com o corpo VAZIO — é morta,
+ * e um 200 enganaria qualquer verificação superficial.
+ */
+function cvLinks(v) {
+  const idProp = String(v.id || '').split('-')[0];
+  const idEvento = String(v.uriEvento || '').split('/').pop();
+  return {
+    prop: /^\d+$/.test(idProp)
+      ? 'https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=' + idProp : null,
+    rotuloProp: v.proposicaoObjeto || null,
+    evento: /^\d+$/.test(idEvento)
+      ? 'https://www.camara.leg.br/evento-legislativo/' + idEvento : null,
+  };
+}
+
 // ---------- veredito de um item para o deputado escolhido ----------
 /**
  * Devolve { voto, situacao, rotulo }. As situações são quatro, e a distinção
@@ -1310,6 +1336,11 @@ function cvRender(dados) {
             <div class="cv-obj">${obj ? cvEsc(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</div>
             <div class="cv-res">${cvEsc(v.descricao || '')}</div>
             <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
+            ${(() => { const L = cvLinks(v); const p = [];
+              if (L.prop)   p.push(`<a href="${L.prop}" target="_blank" rel="noopener">${cvEsc(L.rotuloProp || 'Ficha da proposição')} ↗</a>`);
+              if (L.evento) p.push(`<a href="${L.evento}" target="_blank" rel="noopener">Sessão ↗</a>`);
+              return p.length ? `<div class="cv-links">${p.join('')}</div>` : '';
+            })()}
           </div>
           <span class="cv-ver ${CV_CLASSE[s.situacao]}">${CV_ROTULO[s.situacao]}</span>
         </div>`;
@@ -1328,7 +1359,8 @@ function cvExportar() {
   if (!cv.ultimo) return;
   const { linhas, objetos, prop, periodo, dep } = cv.ultimo;
   const rows = [['Data', 'Hora', 'Votação', 'Objeto (tramitação)', 'Resultado registrado',
-                 'Voto do deputado', 'Orientação do Governo', 'Situação']];
+                 'Voto do deputado', 'Orientação do Governo', 'Situação',
+                 'Ficha da proposição', 'Sessão']];
   for (const { it, s } of linhas) {
     const v = it.votacao;
     rows.push([
@@ -1340,11 +1372,14 @@ function cvExportar() {
       s.situacao === 'simbolica' ? 'votação simbólica' : (s.voto || 'não votou'),
       it.govOrient || '',
       CV_ROTULO[s.situacao],
+      cvLinks(v).prop || '',
+      cvLinks(v).evento || '',
     ]);
   }
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(rows);
-  ws['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 14 }, { wch: 70 }, { wch: 70 }, { wch: 16 }, { wch: 18 }, { wch: 15 }];
+  ws['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 14 }, { wch: 70 }, { wch: 70 }, { wch: 16 }, { wch: 18 }, { wch: 15 },
+                 { wch: 62 }, { wch: 46 }];
   ws['!freeze'] = { xSplit: 0, ySplit: 1 };
   XLSX.utils.book_append_sheet(wb, ws, 'Votos');
   const alvo = prop ? `${prop.siglaTipo}${prop.numero}-${prop.ano}` : `${periodo[0]}_${periodo[1]}`;
@@ -1471,6 +1506,8 @@ const CSS_PDF_VOTOS = `
   tr.simb td { background: #fafafa; color: #6b7280; }
   .res { font-size: 8pt; color: #6b7280; margin-top: 3px; font-style: italic; }
   .naoident { color: #8a8f8c; font-style: italic; }
+  .links { font-size: 7.5pt; margin-top: 3px; }
+  .links a { color: #1d4ed8; text-decoration: none; }
   .nada { color: #9aa5a0; }
   .tag { display: inline-block; font-size: 8pt; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; }
   .tag-voto { color: #1a1a1a; border-color: #c9ccc9; background: #f4f5f4; }
@@ -1526,7 +1563,12 @@ function cvHtmlPDF(logoDataUrl) {
     return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
       <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
       <td><b>${obj ? e(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</b>
-          <div class="res">${e(v.descricao || '')}</div></td>
+          <div class="res">${e(v.descricao || '')}</div>
+          ${(() => { const L = cvLinks(v); const p = [];
+            if (L.prop)   p.push(`<a href="${L.prop}">${e(L.rotuloProp || 'ficha da proposição')}</a>`);
+            if (L.evento) p.push(`<a href="${L.evento}">sessão</a>`);
+            return p.length ? `<div class="links">${p.join(' · ')}</div>` : '';
+          })()}</td>
       <td class="c">${voto}</td>
       <td class="c">${it.govOrient ? e(it.govOrient) : '<span class="nada">—</span>'}</td>
       <td class="c"><span class="tag ${CV_TAG_PDF[s.situacao]}">${CV_ROTULO[s.situacao]}</span></td>
