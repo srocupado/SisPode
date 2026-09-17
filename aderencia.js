@@ -1141,7 +1141,27 @@ async function cvPorProposicao(sigla, numero, ano) {
   const prop = (busca.dados || [])[0];
   if (!prop) throw new Error(`${sigla} ${numero}/${ano} não foi localizado na base da Câmara.`);
 
-  const vots = (await fetchJson(API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro')).dados || [];
+  // TODAS as votações da matéria, de todos os anos — PL 2.148/2015, por
+  // exemplo, tem 40, entre 2023 e 2024, e as quatro décadas de tramitação de
+  // uma proposição antiga cabem na mesma lista.
+  //
+  // NÃO passar `itens` aqui: medido em 17/09/2026, este endpoint devolve LISTA
+  // VAZIA quando recebe o parâmetro — não um erro. Seria um zero silencioso, e
+  // o relatório sairia dizendo que a matéria nunca foi votada.
+  //
+  // A paginação é seguida por precaução: hoje a API devolve tudo de uma vez
+  // (conferido com 22 e com 40 votações, sem link `next`), mas se um dia
+  // passar a cortar, o corte seria mudo.
+  const vots = [];
+  let urlV = API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro';
+  let pag = 0;
+  while (urlV && pag < 20) {
+    const j = await fetchJson(urlV);
+    vots.push(...(j.dados || []));
+    const next = (j.links || []).find(l => l.rel === 'next');
+    urlV = next ? next.href : null;
+    pag++;
+  }
   if (!vots.length) return { prop, itens: [], objetos: {} };
 
   cvStatus(`Lendo ${vots.length} votação(ões)…`, 'loading');

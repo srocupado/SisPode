@@ -391,6 +391,36 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(!/objetosPossiveis/.test(doc), 'a nota sobre a tramitação só aparece no modo proposição');
   }
 
+  console.log('\n== todas as votações da matéria, de todos os anos ==');
+  {
+    // Uma matéria votada em anos diferentes: nada pode ficar de fora, e a
+    // paginação (se a API um dia passar a cortar) tem de ser seguida.
+    api.props.push({ id: 777, siglaTipo: 'PL', numero: 2148, ano: 2015, ementa: 'Matéria longeva.' });
+    api.votacoes['777'] = [
+      { id: '777-1', data: '2023-05-02', dataHoraRegistro: '2023-05-02T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/1', descricao: 'Aprovado em 2023.' },
+      { id: '777-2', data: '2024-04-10', dataHoraRegistro: '2024-04-10T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/2', descricao: 'Aprovado em 2024.' },
+    ];
+    api.votos['777-1'] = [voto('Sim')]; api.votos['777-2'] = [voto('Não')];
+    api.orientacoes['777-1'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }];
+    api.orientacoes['777-2'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }];
+
+    document.getElementById('cvNumero').value = '2148';
+    document.getElementById('cvAno').value = '2015';
+    av(`cv.deputado = { id: 220641, nome: 'Rodrigo Gambale', partido: 'PODE', uf: 'SP' }`);
+    await av('cvConsultar()');
+
+    const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
+    ok(itens.length === 2, `as votações dos DOIS anos entram (${itens.length})`);
+    const doc = av('cvHtmlPDF(null)');
+    ok(/Sessão de 02\/05\/2023/.test(doc) && /Sessão de 10\/04\/2024/.test(doc),
+       'e o PDF abre uma tabela para cada ano de sessão');
+
+    // O parâmetro que NÃO pode voltar: nesta rota ele zera a lista em silêncio.
+    const chamada = api.chamadas.find(u => /\/proposicoes\/777\/votacoes/.test(u));
+    ok(!/[?&]itens=/.test(chamada || ''),
+       `a consulta de votações não passa \`itens\` — nesta rota isso devolve lista vazia (${chamada})`);
+  }
+
   console.log('\n== proposição sem votação, e sem deputado escolhido ==');
   {
     api.props.push({ id: 999, siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'Sem votação.' });
