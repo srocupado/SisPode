@@ -1001,7 +1001,12 @@ const cvEl = {
   resultado: document.getElementById('cvResultado'),
 };
 
-const cv = { modo: 'proposicao', deputado: null, ultimo: null };
+// `completo` é tudo o que a API devolveu; `recorte` é a janela que o usuário
+// escolheu mostrar; `ultimo` é o que efetivamente sai na tela e nos exports.
+// A separação existe para que mudar o recorte não custe uma consulta nova — a
+// tramitação inteira já está em mãos — e para que o documento possa dizer
+// quanta coisa ficou de fora, que é o que impede o recorte de virar omissão.
+const cv = { modo: 'proposicao', deputado: null, completo: null, recorte: null, ultimo: null };
 
 // ---------- infra ----------
 const API_PROP = 'https://dadosabertos.camara.leg.br/api/v2/proposicoes';
@@ -1192,7 +1197,12 @@ async function cvPorProposicao(sigla, numero, ano) {
       // menos itens que o esperado sem explicar o que aconteceu com o resto.
       for (const t of tram) {
         const d = String(t.despacho || '').replace(/\s+/g, ' ').trim();
-        if (/^Retirado o DTQ/i.test(d)) retirados.push(d.replace(/^Retirado o /i, ''));
+        // A data vem junto porque o relatório pode ser recortado a um trecho da
+        // tramitação: destaque retirado em dezembro não pode aparecer num
+        // documento que cobre só setembro.
+        if (/^Retirado o DTQ/i.test(d)) {
+          retirados.push({ t: d.replace(/^Retirado o /i, ''), data: String(t.dataHora || '').slice(0, 10) });
+        }
       }
     } catch (e) {
       console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
@@ -1331,11 +1341,52 @@ const CV_CLASSE = {
   'sem-gov': 'fora', simbolica: 'fora',
 };
 
+// ---------- recorte do relatório ----------
+/** Menor e maior data do conjunto — os limites que o recorte pode assumir. */
+function cvLimites(linhas) {
+  const ds = linhas.map(l => String(l.it.votacao.data || '')).filter(Boolean).sort();
+  return ds.length ? { ini: ds[0], fim: ds[ds.length - 1] } : { ini: '', fim: '' };
+}
+
+/** A janela em vigor e se ela é mais estreita que o conjunto inteiro. */
+function cvJanela() {
+  const lim = cvLimites(cv.completo.linhas);
+  const r = cv.recorte && (cv.recorte.ini || cv.recorte.fim) ? cv.recorte : lim;
+  return { lim, r, parcial: r.ini !== lim.ini || r.fim !== lim.fim, invertido: !!(r.ini && r.fim && r.ini > r.fim) };
+}
+
 // ---------- render ----------
+/**
+ * Guarda o resultado inteiro da consulta e desenha. A partir daqui, mudar o
+ * recorte não refaz consulta nenhuma: cvDesenhar filtra o que já está em mãos.
+ */
 function cvRender(dados) {
-  const { itens, objetos, prop, periodo } = dados;
   const dep = cv.deputado;
-  const linhas = itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+  const linhas = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+  cv.completo = {
+    linhas, objetos: dados.objetos, prop: dados.prop, periodo: dados.periodo,
+    dep, retirados: dados.retirados || [],
+  };
+  cv.recorte = cvLimites(linhas);
+  cvDesenhar();
+}
+
+function cvDesenhar() {
+  if (!cv.completo) return;
+  const { objetos, prop, periodo, dep } = cv.completo;
+  const { lim, r, parcial, invertido } = cvJanela();
+
+  const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
+    const d = String(l.it.votacao.data || '');
+    return (!r.ini || d >= r.ini) && (!r.fim || d <= r.fim);
+  });
+  const fora = cv.completo.linhas.length - linhas.length;
+
+  // Destaque retirado tem data própria: fora do recorte, sai do documento
+  // junto com as votações do mesmo trecho da tramitação. Retirado sem data
+  // legível fica — some só o que se sabe que está fora.
+  const retirados = !parcial ? cv.completo.retirados : cv.completo.retirados.filter(x =>
+    !x.data || ((!r.ini || x.data >= r.ini) && (!r.fim || x.data <= r.fim)));
 
   const comum = cvAgruparLinks(linhas);
   const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 };
@@ -1344,7 +1395,20 @@ function cvRender(dados) {
   const pct = (cont.aderente + cont.divergente) > 0
     ? (cont.aderente / (cont.aderente + cont.divergente)) * 100 : null;
 
-  const falhas = itens.filter(i => i.falhou).length;
+  const falhas = linhas.filter(l => l.it.falhou).length;
+
+  // O recorte é registrado no estado, e não só aplicado, porque o documento
+  // PRECISA dizer que é recorte — senão sai um relatório que parece cobrir a
+  // tramitação inteira e cobre um pedaço.
+  //
+  // O que define recorte é DEIXAR COISA DE FORA, não a data digitada: uma
+  // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
+  // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
+  const corta = fora > 0;
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct,
+                recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
+
+  const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
 
   const cabecalho = prop
     ? `<h3>${cvEsc(prop.siglaTipo)} ${cvEsc(prop.numero)}/${cvEsc(prop.ano)}</h3>
@@ -1362,9 +1426,10 @@ function cvRender(dados) {
       <div class="sub" style="margin-top:6px">
         <b>${cvEsc(dep.nome)}</b> (${cvEsc(dep.partido)}-${cvEsc(dep.uf)})
       </div>
+      ${ctrl}
       <div class="cv-nums">
-        <div class="cv-num"><div class="v">${itens.length}</div><div class="l">Votações</div></div>
-        <div class="cv-num"><div class="v">${itens.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+        <div class="cv-num"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
+        <div class="cv-num"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
         <div class="cv-num ade"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
         <div class="cv-num div"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
         <div class="cv-num aus"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
@@ -1415,20 +1480,72 @@ function cvRender(dados) {
       }).join('')}
     </div>`;
 
-  cvEl.resultado.innerHTML = html;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados: dados.retirados || [], cont, pct };
+  // Recorte que não pega nada: mostra o cabeçalho e o controle, e diz o que
+  // houve. Não se desenha um consolidado de zero nem se oferece exportação —
+  // um PDF vazio seria um documento afirmando que o deputado não votou nada.
+  const vazio = `
+    <div class="cv-cab">
+      ${cabecalho}
+      <div class="sub" style="margin-top:6px"><b>${cvEsc(dep.nome)}</b> (${cvEsc(dep.partido)}-${cvEsc(dep.uf)})</div>
+      ${ctrl}
+      <div class="cv-aviso" style="margin-top:10px">${invertido
+        ? 'A data inicial do recorte é posterior à final.'
+        : `Nenhuma das ${cv.completo.linhas.length} votações da consulta cai nesse recorte.`}
+        As votações continuam carregadas — alargue o recorte ou clique em <b>Tudo</b>.</div>
+    </div>`;
+
+  cvEl.resultado.innerHTML = linhas.length ? html : vazio;
+  cvLigarRecorte();
   const btn = document.getElementById('cvExportar');
   if (btn) btn.addEventListener('click', cvExportar);
   const btnPdf = document.getElementById('cvExportarPdf');
   if (btnPdf) btnPdf.addEventListener('click', cvExportarPDF);
 }
 
+/** A faixa de recorte, redesenhada junto com o resultado. */
+function cvCtrlRecorte(mostradas, fora, lim, r, parcial, invertido) {
+  if (!lim.ini) return '';
+  return `<div class="cv-recorte">
+    <span class="rl">Recorte do relatório</span>
+    <input type="date" id="cvRecIni" value="${cvEsc(r.ini)}" min="${cvEsc(lim.ini)}" max="${cvEsc(lim.fim)}">
+    <span class="ate">a</span>
+    <input type="date" id="cvRecFim" value="${cvEsc(r.fim)}" min="${cvEsc(lim.ini)}" max="${cvEsc(lim.fim)}">
+    <button id="cvRecTudo"${parcial ? '' : ' disabled'}>Tudo</button>
+    <span class="cnt${fora > 0 ? ' ativo' : ''}">${invertido
+      ? 'intervalo invertido'
+      : (fora > 0
+        ? `${mostradas} de ${mostradas + fora} votações — ${fora} fora do recorte`
+        : `${mostradas} votação(ões), de ${formatarData(lim.ini)} a ${formatarData(lim.fim)}`)}</span>
+  </div>`;
+}
+
+/** Religa os campos do recorte depois de cada redesenho. */
+function cvLigarRecorte() {
+  const ini = document.getElementById('cvRecIni');
+  const fim = document.getElementById('cvRecFim');
+  const tudo = document.getElementById('cvRecTudo');
+  if (!ini || !fim) return;
+  const aplicar = () => { cv.recorte = { ini: ini.value, fim: fim.value }; cvDesenhar(); };
+  ini.addEventListener('change', aplicar);
+  fim.addEventListener('change', aplicar);
+  if (tudo) tudo.addEventListener('click', () => { cv.recorte = cvLimites(cv.completo.linhas); cvDesenhar(); });
+}
+
 function cvExportar() {
   if (!cv.ultimo) return;
-  const { linhas, objetos, prop, periodo, dep } = cv.ultimo;
-  const rows = [['Data', 'Hora', 'Votação', 'Objeto (tramitação)', 'Resultado registrado',
-                 'Voto do deputado', 'Orientação do Governo', 'Situação',
-                 'Ficha da proposição', 'Sessão']];
+  const { linhas, objetos, prop, periodo, dep, recorte } = cv.ultimo;
+  const rows = [];
+  // A planilha abre dizendo que é recorte. Sem isso, um arquivo com 7 linhas
+  // passa por ser a matéria inteira assim que sai da tela que o recortou.
+  if (recorte) {
+    rows.push([`RECORTE: ${formatarData(recorte.ini)} a ${formatarData(recorte.fim)} — `
+      + `${recorte.fora} de ${recorte.total} votação(ões) da consulta ficaram fora desta planilha `
+      + `(tudo: ${formatarData(recorte.limites.ini)} a ${formatarData(recorte.limites.fim)}).`]);
+    rows.push([]);
+  }
+  rows.push(['Data', 'Hora', 'Votação', 'Objeto (tramitação)', 'Resultado registrado',
+              'Voto do deputado', 'Orientação do Governo', 'Situação',
+              'Ficha da proposição', 'Sessão']);
   for (const { it, s } of linhas) {
     const v = it.votacao;
     rows.push([
@@ -1448,10 +1565,11 @@ function cvExportar() {
   const ws = XLSX.utils.aoa_to_sheet(rows);
   ws['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 14 }, { wch: 70 }, { wch: 70 }, { wch: 16 }, { wch: 18 }, { wch: 15 },
                  { wch: 62 }, { wch: 46 }];
-  ws['!freeze'] = { xSplit: 0, ySplit: 1 };
+  ws['!freeze'] = { xSplit: 0, ySplit: recorte ? 3 : 1 };
   XLSX.utils.book_append_sheet(wb, ws, 'Votos');
   const alvo = prop ? `${prop.siglaTipo}${prop.numero}-${prop.ano}` : `${periodo[0]}_${periodo[1]}`;
-  XLSX.writeFile(wb, `votos_${dep.nome.replace(/\s+/g, '-')}_${alvo}.xlsx`);
+  const corte = recorte ? `_recorte-${recorte.ini}_${recorte.fim}` : '';
+  XLSX.writeFile(wb, `votos_${dep.nome.replace(/\s+/g, '-')}_${alvo}${corte}.xlsx`);
 }
 
 // ---------- fluxo ----------
@@ -1590,6 +1708,10 @@ const CSS_PDF_VOTOS = `
   .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
+  /* O recorte é ressalva, não contexto: borda âmbar para não se confundir com
+     as notas de método, e para quem folheia o documento reparar. */
+  .nota.rec { border-left-color: #eda100; background: #fdf8ec; }
+  .nota.rec b { color: #7a5600; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; }
   .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
@@ -1603,13 +1725,14 @@ const CV_TAG_PDF = {
 
 function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
-  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct } = u;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte } = u;
   const e = cvEsc;
   const comum = cvAgruparLinks(linhas);
 
   const titulo = prop
     ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}`
     : `Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}`;
+  const faixa = recorte ? `${formatarData(recorte.ini)} a ${formatarData(recorte.fim)}` : '';
   const subtitulo = prop
     ? String(prop.ementa || '').replace(/\s+/g, ' ').slice(0, 260)
     : 'Todas as votações do Plenário no período.';
@@ -1667,11 +1790,11 @@ function cvHtmlPDF(logoDataUrl) {
   const qualificadas = comparaveis + cont.ausente;
 
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
-<title>${e(dep.nome)} — ${e(titulo)}</title><style>${CSS_PDF_VOTOS}</style></head><body>
+<title>${e(dep.nome)} — ${e(titulo)}${recorte ? ` (recorte ${e(faixa)})` : ''}</title><style>${CSS_PDF_VOTOS}</style></head><body>
   <div class="cab">
     <div class="sp"></div>
     <div class="tit"><h1>Dep. ${e(dep.nome)} (${e(dep.partido)}-${e(dep.uf)})</h1>
-      <div class="sub">${e(titulo)}</div></div>
+      <div class="sub">${e(titulo)}${recorte ? ` · recorte de ${e(faixa)}` : ''}</div></div>
     ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
   </div>
   <div class="rule"></div>
@@ -1698,12 +1821,21 @@ function cvHtmlPDF(logoDataUrl) {
     qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.
   </div>
 
+  ${recorte ? `<div class="nota rec">
+    <b>Este documento é um recorte.</b> Cobre as votações de <b>${e(faixa)}</b>, por escolha de quem
+    gerou o relatório. ${prop ? 'A matéria tem' : 'A consulta trouxe'} <b>${recorte.total} votação(ões)</b>,
+    de ${e(formatarData(recorte.limites.ini))} a ${e(formatarData(recorte.limites.fim))}:
+    <b>${recorte.fora}</b> ${recorte.fora === 1 ? 'ficou' : 'ficaram'} fora deste recorte e não
+    ${recorte.fora === 1 ? 'entra' : 'entram'} em nenhum número acima, nem no gráfico.
+  </div>` : ''}
+
   ${dias.map(tabela).join('')}
 
   ${retirados.length ? `<h2>Destaques retirados antes da votação</h2>
     <div class="nota">Retirados em acordo, sem votação — não há voto a registrar. Ficam listados para
-      explicar por que a matéria tem menos votações do que destaques apresentados.</div>
-    <ul class="ret">${retirados.map(t => `<li>${e(t.slice(0, 220))}</li>`).join('')}</ul>` : ''}
+      explicar por que a matéria tem menos votações do que destaques apresentados.${
+      recorte ? ' Listados apenas os do recorte.' : ''}</div>
+    <ul class="ret">${retirados.map(x => `<li>${e(String(x && x.t || x).slice(0, 220))}</li>`).join('')}</ul>` : ''}
 
   ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
   <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
