@@ -1513,6 +1513,7 @@ function cvDesenhar() {
         <div class="cv-num ade"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
         <div class="cv-num div"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
         <div class="cv-num aus"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+        <div class="cv-num fora"><div class="v">${cont['sem-gov']}</div><div class="l">Sem orientação</div></div>
         <div class="cv-num"><div class="v">${pct == null ? '—' : pct.toFixed(1) + '%'}</div><div class="l">Aderência</div></div>
       </div>
       <div class="sub" style="margin-top:9px">
@@ -1864,9 +1865,11 @@ const CSS_PDF_VOTOS = `
   .tag-aus  { color: #8a6d00; border-color: #e8d28a; background: #fdf7e3; }
   .tag-simb { color: #6b7280; border-color: #d8dcda; background: #f4f5f4; }
   .resumo { display: flex; gap: 10px; margin: 4px 0 12px; }
-  .bx { flex: 1; border: 1px solid #d8e3dc; border-radius: 6px; padding: 9px; text-align: center; }
+  .bx { flex: 1; border: 1px solid #d8e3dc; border-radius: 6px; padding: 9px 5px; text-align: center;
+        display: flex; flex-direction: column; justify-content: flex-start; }
   .bx .v { font-size: 17pt; font-weight: 700; color: #003c1f; }
-  .bx .l { font-size: 7.5pt; text-transform: uppercase; letter-spacing: .4px; color: #6b7280; margin-top: 2px; }
+  .bx .l { font-size: 7pt; text-transform: uppercase; letter-spacing: .3px; color: #6b7280; margin-top: 2px;
+           line-height: 1.25; }
   .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
@@ -2013,6 +2016,7 @@ function cvHtmlPDF(logoDataUrl) {
     <div class="bx"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
     <div class="bx"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
     <div class="bx"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+    <div class="bx"><div class="v">${cont['sem-gov']}</div><div class="l">Sem orientação</div></div>
   </div>
   <div class="nota">
     <b>Como ler.</b> "Aderiu/Divergiu" compara o voto com a orientação do <b>Governo</b>, que é o critério
@@ -2041,13 +2045,6 @@ function cvHtmlPDF(logoDataUrl) {
   <div class="dfs">
     <div class="dfs-rot">Posição ${e(DFS_POSICOES[defesa.posicao])}</div>
     ${defesa.texto.split(/\n\s*\n/).map(x => `<p>${e(x.trim())}</p>`).join('')}
-    <div class="dfs-nota">Texto <b>argumentativo</b>, ${defesa.editado
-      ? `rascunhado por ${e(defesa.modelo)} e <b>revisado pelo analista</b>`
-      : `gerado por ${e(defesa.modelo)} e <b>exportado sem revisão</b>`} a partir dos documentos e do
-      voto registrado. Não é registro de fato — o registro são as tabelas acima.${
-      defesa.registro && !defesa.registro.posicao
-        ? ' As votações do texto principal foram simbólicas ou sem voto nominal do deputado, então o voto registrado não estabelece a posição: esta sustentação se apoia no argumento.'
-        : ''}</div>
   </div>` : ''}
 
   <div class="ft">Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
