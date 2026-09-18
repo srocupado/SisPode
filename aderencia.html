@@ -174,9 +174,14 @@
   .status.error { color: var(--nao); }
 
   /* ---------- Abas ---------- */
-  .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border); }
+  /* Quatro abas não cabem lado a lado nos 560px do painel. Rolagem horizontal
+     em vez de quebrar em duas linhas ou de abreviar o nome das abas. */
+  .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
+          overflow-x: auto; scrollbar-width: thin; }
+  .abas::-webkit-scrollbar { height: 3px; }
+  .abas::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
   .aba {
-    background: none; border: none; border-bottom: 2px solid transparent;
+    background: none; border: none; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
     color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
     padding: 9px 14px; cursor: pointer; transition: color .15s, border-color .15s;
   }
@@ -263,6 +268,29 @@
   .cv-recorte button:not(:disabled):hover { color: var(--text); border-color: var(--accent); }
   .cv-recorte .cnt { color: var(--text-dim); margin-left: auto; }
   .cv-recorte .cnt.ativo { color: var(--abstencao); font-weight: 600; }
+
+  /* ---------- Abas "Produção legislativa" e "Radar temático" ---------- */
+  .prd-dica { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 4px; }
+  .prd-grupos { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .prd-grupo { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .prd-grupo-cab { display: flex; align-items: flex-start; gap: 12px; }
+  .prd-grupo-n { font-size: 22px; font-weight: 700; color: var(--accent-light); min-width: 44px; line-height: 1.1; }
+  .prd-grupo-rot { font-size: 13px; font-weight: 600; }
+  .prd-grupo-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
+  .prd-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  .prd-chip { font-size: 10.5px; color: var(--text-dim); background: rgba(255,255,255,0.05);
+              border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+  .prd-chip b { color: var(--text); }
+  .prd-tab { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  .prd-tab td { padding: 5px 4px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .prd-tab td.n { width: 40px; text-align: right; font-weight: 700; color: var(--text); padding-right: 10px; }
+  .prd-sig { min-width: 92px; flex-shrink: 0; font-size: 11px; font-weight: 700;
+             color: var(--accent-light); padding-top: 1px; }
+  .rdr-check { display: flex; align-items: center; gap: 6px; font-size: 11.5px;
+               color: var(--text-dim); text-transform: none; letter-spacing: 0; padding-bottom: 12px; }
+  .rdr-check input { accent-color: var(--accent); }
+  .cv-item.rdr-bancada { background: rgba(31,165,165,0.06); }
+  select.field { appearance: none; }
 
   .spinner {
     display: inline-block;
@@ -654,6 +682,8 @@
   <div class="abas" role="tablist">
     <button class="aba ativa" id="aba-aderencia" role="tab">Aderência</button>
     <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
+    <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
+    <button class="aba" id="aba-radar" role="tab">Radar temático</button>
   </div>
 
   <div id="painel-aderencia">
@@ -725,6 +755,70 @@
     <div id="cvResultado"></div>
   </div>
 
+  <div id="painel-producao" hidden>
+    <div class="input-section">
+      <label>Deputado(a) — qualquer partido</label>
+      <input type="text" id="prdDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
+      <div id="prdEscolha"></div>
+
+      <div class="date-row" style="margin-top:14px">
+        <div class="date-col" style="flex:0 0 130px">
+          <label>Ano (opcional)</label>
+          <input type="text" id="prdAno" class="field" placeholder="todos" maxlength="4">
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <div class="prd-dica">Sem ano, traz tudo o que a base tem em nome do deputado.
+            Um mandato inteiro passa de 800 registros.</div>
+        </div>
+      </div>
+
+      <button id="prdBuscar" class="btn-gerar">Levantar produção</button>
+    </div>
+
+    <div id="prdStatus"></div>
+    <div id="prdResultado"></div>
+  </div>
+
+  <div id="painel-radar" hidden>
+    <div class="input-section">
+      <label>Tema</label>
+      <select id="rdrTema" class="field"><option value="">carregando…</option></select>
+
+      <div class="date-row" style="margin-top:14px">
+        <div class="date-col">
+          <label>Palavra-chave (opcional)</label>
+          <input type="text" id="rdrPalavra" class="field" placeholder="Ex.: saneamento" maxlength="60">
+        </div>
+        <div class="date-col" style="flex:0 0 108px">
+          <label>Tipo</label>
+          <input type="text" id="rdrTipo" class="field" placeholder="PL" maxlength="6">
+        </div>
+      </div>
+
+      <div class="date-row">
+        <div class="date-col" style="flex:0 0 120px">
+          <label>De (ano)</label>
+          <input type="text" id="rdrAnoIni" class="field" maxlength="4">
+        </div>
+        <div class="date-col" style="flex:0 0 120px">
+          <label>Até (ano)</label>
+          <input type="text" id="rdrAnoFim" class="field" maxlength="4">
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <label class="rdr-check"><input type="checkbox" id="rdrSoBancada"> só da bancada</label>
+        </div>
+      </div>
+
+      <div class="prd-dica">O recorte é por ano porque a API recusa tema com intervalo de datas
+        (devolve HTTP 400). Máximo de 8 anos por consulta.</div>
+
+      <button id="rdrBuscar" class="btn-gerar">Buscar no radar</button>
+    </div>
+
+    <div id="rdrStatus"></div>
+    <div id="rdrResultado"></div>
+  </div>
+
   <div class="signature">
     <div class="signature-line"></div>
     <div class="signature-text">Liderança do Podemos</div>
@@ -734,5 +828,10 @@
 
 <script src="libs/xlsx.full.min.js"></script>
 <script src="aderencia.js"></script>
+<!-- Escopo global compartilhado (MV3, scripts clássicos): producao.js e radar.js
+     reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
+     API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
+<script src="producao.js"></script>
+<script src="radar.js"></script>
 </body>
 </html>

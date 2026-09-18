@@ -1651,12 +1651,25 @@ async function cvConsultar() {
   }
 }
 
-function cvTrocarAba(qual) {
-  const consulta = qual === 'consulta';
-  cvEl.painel.hidden   = !consulta;
-  cvEl.painelAd.hidden = consulta;
-  cvEl.aba.classList.toggle('ativa', consulta);
-  cvEl.abaAder.classList.toggle('ativa', !consulta);
+// As abas do módulo. Cada entrada é [id do botão, id do painel]; acrescentar
+// uma aba é acrescentar uma linha, e uma aba que falte no HTML é ignorada em
+// vez de derrubar a tela — a pasta da extensão pode estar atualizada pela
+// metade, e é o defeito que o teste da home do painel existe para impedir.
+const CV_ABAS = [
+  ['aba-aderencia', 'painel-aderencia'],
+  ['aba-consulta',  'painel-consulta'],
+  ['aba-producao',  'painel-producao'],
+  ['aba-radar',     'painel-radar'],
+];
+
+function cvTrocarAba(idBotao) {
+  for (const [bt, pn] of CV_ABAS) {
+    const b = document.getElementById(bt), p = document.getElementById(pn);
+    if (!b || !p) continue;
+    const ativa = bt === idBotao;
+    p.hidden = !ativa;
+    b.classList.toggle('ativa', ativa);
+  }
 }
 
 function cvTrocarModo(modo) {
@@ -1672,8 +1685,10 @@ function cvTrocarModo(modo) {
 // pela metade) não pode matar o resto da tela — é o defeito que o teste da home
 // do painel existe para impedir.
 if (cvEl.aba && cvEl.painel) {
-  cvEl.aba.addEventListener('click', () => cvTrocarAba('consulta'));
-  cvEl.abaAder.addEventListener('click', () => cvTrocarAba('aderencia'));
+  for (const [bt] of CV_ABAS) {
+    const b = document.getElementById(bt);
+    if (b) b.addEventListener('click', () => cvTrocarAba(bt));
+  }
   cvEl.modoProp.addEventListener('click', () => cvTrocarModo('proposicao'));
   cvEl.modoPer.addEventListener('click', () => cvTrocarModo('periodo'));
   cvEl.buscar.addEventListener('click', cvConsultar);

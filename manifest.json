@@ -57,6 +57,8 @@
         "libs/html2canvas.min.js",
         "aderencia.html",
         "aderencia.js",
+        "producao.js",
+        "radar.js",
         "libs/xlsx.full.min.js",
         "comissoes.html",
         "comissoes.js",
