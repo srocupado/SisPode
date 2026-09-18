@@ -308,6 +308,33 @@
   .rsm-literal summary { cursor: pointer; color: var(--accent-light); font-size: 10px;
                          text-transform: uppercase; letter-spacing: .3px; }
   .rsm-literal[open] summary { margin-bottom: 4px; }
+
+  /* Sustentação: fundo e borda próprios, porque é argumentação e não registro.
+     A distinção tem de ser visível antes de se ler uma palavra. */
+  .dfs-campo { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .dfs { margin-top: 12px; padding: 14px 16px; background: rgba(110,170,255,0.06);
+         border: 1px solid rgba(110,170,255,0.28); border-radius: 10px; }
+  .dfs-rot { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--art17); margin-bottom: 8px; }
+  .dfs p { font-size: 12.5px; line-height: 1.6; color: var(--text); margin-bottom: 9px; }
+  .dfs p:last-of-type { margin-bottom: 0; }
+  .dfs-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(110,170,255,0.2);
+              font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
+  .dfs-conflito { background: rgba(240,192,64,0.08); border-color: rgba(240,192,64,0.35);
+                  font-size: 11.5px; color: var(--text-dim); line-height: 1.6; }
+  .dfs-conflito .dfs-rot { color: var(--abstencao); }
+  .dfs-conflito b { color: var(--text); }
+  .dfs-edit { width: 100%; background: rgba(0,0,0,0.25); border: 1px solid rgba(110,170,255,0.25);
+              border-radius: 8px; color: var(--text); font-family: inherit; font-size: 12.5px;
+              line-height: 1.6; padding: 11px 13px; resize: vertical; outline: none; }
+  .dfs-edit:focus { border-color: var(--art17); }
+  .dfs-barra { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+  .dfs-estado { font-size: 10.5px; color: var(--text-dim); font-style: italic; }
+  .dfs-bt { margin-left: auto; background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-dim); font-family: inherit; font-size: 10.5px;
+            padding: 4px 10px; cursor: pointer; }
+  .dfs-bt:disabled { opacity: .35; cursor: default; }
+  .dfs-bt:not(:disabled):hover { color: var(--text); border-color: var(--art17); }
   select.field { appearance: none; }
 
   .spinner {
@@ -769,6 +796,20 @@
       <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
         trazer o resumo de cada item (lê o inteiro teor dos documentos — mais lento)</label>
 
+      <div class="dfs-campo">
+        <label>Precisa de defesa da posição?</label>
+        <select id="cvDefesa" class="field">
+          <option value="">Não — só o relatório de votos</option>
+          <option value="favoravel">Sim, sustentar posição FAVORÁVEL à matéria</option>
+          <option value="contraria">Sim, sustentar posição CONTRÁRIA à matéria</option>
+        </select>
+        <input type="text" id="cvDefesaEnfase" class="field" style="margin-top:8px"
+               placeholder="Ponto a enfatizar (opcional). Ex.: proteção de quem está endividado" maxlength="160">
+        <div class="prd-dica">A sustentação é texto argumentativo, gerado a partir dos documentos e do voto
+          registrado, e sai em seção própria — separada do registro de votos. Se a posição escolhida
+          contrariar o voto que consta da ata, o relatório recusa e explica.</div>
+      </div>
+
       <button id="cvBuscar" class="btn-gerar">Consultar votos</button>
     </div>
 
@@ -855,6 +896,7 @@
 <script src="libs/pdf.min.js"></script>
 <script src="ia-comum.js"></script>
 <script src="resumos.js"></script>
+<script src="defesa.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>
 </body>

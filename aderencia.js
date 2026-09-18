@@ -997,6 +997,8 @@ const cvEl = {
   dataIni:  document.getElementById('cvDataIni'),
   dataFim:  document.getElementById('cvDataFim'),
   resumos:  document.getElementById('cvResumos'),
+  defesa:   document.getElementById('cvDefesa'),
+  enfase:   document.getElementById('cvDefesaEnfase'),
   buscar:   document.getElementById('cvBuscar'),
   status:   document.getElementById('cvStatus'),
   resultado: document.getElementById('cvResultado'),
@@ -1442,6 +1444,7 @@ function cvRender(dados) {
     propDetalhada: dados.propDetalhada || null,
     objetosPossiveis: dados.objetosPossiveis || [],
     resumos: dados.resumos || null,
+    defesa: dados.defesa || null,
   };
   cv.recorte = cvLimites(linhas);
   cvDesenhar();
@@ -1449,7 +1452,7 @@ function cvRender(dados) {
 
 function cvDesenhar() {
   if (!cv.completo) return;
-  const { objetos, prop, periodo, dep, semObjeto, resumos } = cv.completo;
+  const { objetos, prop, periodo, dep, semObjeto, resumos, defesa } = cv.completo;
   const { lim, r, parcial, invertido } = cvJanela();
 
   const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
@@ -1481,7 +1484,7 @@ function cvDesenhar() {
   // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
   // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
   const corta = fora > 0;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos,
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos, defesa,
                 recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
 
   const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
@@ -1522,15 +1525,14 @@ function cvDesenhar() {
         const m = resumos.materia, p = [];
         if (m.simples) p.push(`<div class="rsm-linha rsm-simples"><span class="rsm-rot">Do que trata a matéria</span> ${cvEsc(m.simples)}</div>`);
         const lit = [];
-        if (m.palavras) lit.push(`<b>Indexação da Câmara:</b> ${cvEsc(m.palavras)}`);
         if (m.justificacao && m.justificacao.texto) lit.push(`<b>Justificação do autor:</b> ${cvEsc(m.justificacao.texto)}`);
         if (lit.length) p.push(m.simples
           ? `<details class="rsm-literal"><summary>texto literal do documento</summary>${lit.join('<br>')}</details>`
           : `<div class="rsm-linha">${lit.join('<br>')}</div>`);
-        const ger = resumos.gerado
-          ? `<div class="rsm-fontes rsm-ger">Explicação em linguagem comum gerada por ${cvEsc(resumos.gerado.modelo)} a partir dos trechos abaixo — o texto literal é a fonte.</div>`
-          : (resumos.explicacao && resumos.explicacao.motivo === 'sem-chave'
-            ? `<div class="rsm-fontes rsm-ger">Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.</div>` : '');
+        // Sem chave o relatório perde a linguagem comum, e isso precisa ser
+        // dito: o analista tem de saber por que a tela ficou em legalês.
+        const ger = (!resumos.gerado && resumos.explicacao && resumos.explicacao.motivo === 'sem-chave')
+          ? `<div class="rsm-fontes rsm-ger">Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.</div>` : '';
         return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${ger}${
           m.url ? `<div class="rsm-fontes">Fonte: <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
       })() : ''}
@@ -1572,7 +1574,8 @@ function cvDesenhar() {
           <span class="cv-ver ${CV_CLASSE[s.situacao]}">${CV_ROTULO[s.situacao]}</span>
         </div>`;
       }).join('')}
-    </div>`;
+    </div>
+    ${defesa ? dfsHtml(defesa) : ''}`;
 
   // Recorte que não pega nada: mostra o cabeçalho e o controle, e diz o que
   // houve. Não se desenha um consolidado de zero nem se oferece exportação —
@@ -1590,6 +1593,9 @@ function cvDesenhar() {
 
   cvEl.resultado.innerHTML = linhas.length ? html : vazio;
   cvLigarRecorte();
+  // O que o analista escrever passa a ser o texto do documento na hora. Sem
+  // botão de salvar, que seria mais uma chance de exportar a versão errada.
+  if (defesa && defesa.ok) dfsLigarEdicao(defesa, d => { if (cv.ultimo) cv.ultimo.defesa = d; });
   const btn = document.getElementById('cvExportar');
   if (btn) btn.addEventListener('click', cvExportar);
   const btnPdf = document.getElementById('cvExportarPdf');
@@ -1706,6 +1712,21 @@ async function cvConsultar() {
       dados.periodo = [ini, fim];
       if (!dados.itens.length) { cvStatus('Nenhuma votação do Plenário nesse período.', 'error'); return; }
     }
+    // A sustentação vem por último, porque se apoia no resumo de cada item.
+    // É argumentação, e sai em seção própria — nunca misturada ao registro.
+    const posicao = cvEl.defesa ? cvEl.defesa.value : '';
+    if (posicao && cv.modo === 'proposicao') {
+      cvStatus('Redigindo a sustentação do posicionamento…', 'loading');
+      const dep = cv.deputado;
+      const linhasPre = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }))
+        .filter(l => dados.objetos[l.it.votacao.id]);
+      dados.defesa = await dfsGerar({
+        posicao, dep, prop: dados.propDetalhada || dados.prop,
+        resumos: dados.resumos, linhas: linhasPre, objetos: dados.objetos,
+        enfase: cvEl.enfase ? cvEl.enfase.value.trim() : '',
+      });
+    }
+
     cvStatus('');
     cvRender(dados);
   } catch (e) {
@@ -1840,6 +1861,18 @@ const CSS_PDF_VOTOS = `
   .rsm i { color: #6b7280; }
   .rsm-fon { margin-top: 3px; font-size: 7.5pt; color: #6b7280; }
   .rsm-fon a { color: #1d4ed8; }
+  /* A sustentação é argumentação, não registro: moldura própria, para que a
+     diferença se veja antes de se ler uma palavra. */
+  h2.dfs-h { border-left-color: #2b6cb0; color: #14345c; }
+  .dfs { border: 1px solid #c3d6ee; background: #f5f9ff; border-radius: 4px;
+         padding: 10px 13px; margin: 6px 0 4px; break-inside: avoid; page-break-inside: avoid; }
+  .dfs .dfs-rot { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+                  color: #2b6cb0; margin-bottom: 6px; }
+  .dfs p { font-size: 9.5pt; line-height: 1.55; margin-bottom: 7px; text-align: justify; }
+  .dfs p:last-of-type { margin-bottom: 0; }
+  .dfs-nota { margin-top: 9px; padding-top: 6px; border-top: 1px solid #d8e6f5;
+              font-size: 8pt; color: #4a5a6b; font-style: italic; line-height: 1.45; }
+  .dfs-nota b { color: #14345c; }
   .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
@@ -1854,7 +1887,7 @@ const CV_TAG_PDF = {
 
 function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
-  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos } = u;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos, defesa } = u;
   const e = cvEsc;
   const comum = cvAgruparLinks(linhas);
 
@@ -1953,16 +1986,8 @@ function cvHtmlPDF(logoDataUrl) {
   ${resumos && resumos.materia ? (() => {
     const m = resumos.materia, p = [];
     if (m.simples) p.push(`<b>Do que trata a matéria:</b> ${e(m.simples)}`);
-    if (m.palavras) p.push(`<b>Indexação da Câmara:</b> ${e(m.palavras)}`);
     if (m.justificacao && m.justificacao.texto) p.push(`<b>Justificação do autor:</b> ${e(m.justificacao.texto)}`);
-    // A procedência de cada texto fica dita: o que é transcrição e o que foi
-    // gerado. Num documento de conferência isso não é rodapé, é conteúdo.
-    const proc = resumos.gerado
-      ? `As explicações "do que trata a matéria" e "o que o destaque fazia" foram <b>geradas por ${e(resumos.gerado.modelo)}</b>
-         a partir dos trechos literais dos documentos, e reescrevem apenas o que eles dizem. A indexação e a justificação
-         acima são transcrição literal do portal da Câmara.`
-      : `Os textos acima são transcrição literal do inteiro teor no portal da Câmara — não são resumo redigido por este relatório.`;
-    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}<br><br><i>${proc}</i></div>` : '';
+    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}</div>` : '';
   })() : ''}
   <div class="resumo">
     <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
@@ -1994,6 +2019,19 @@ function cvHtmlPDF(logoDataUrl) {
 
   ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
   <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
+
+  ${defesa && defesa.ok ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
+  <div class="dfs">
+    <div class="dfs-rot">Posição ${e(DFS_POSICOES[defesa.posicao])}</div>
+    ${defesa.texto.split(/\n\s*\n/).map(x => `<p>${e(x.trim())}</p>`).join('')}
+    <div class="dfs-nota">Texto <b>argumentativo</b>, ${defesa.editado
+      ? `rascunhado por ${e(defesa.modelo)} e <b>revisado pelo analista</b>`
+      : `gerado por ${e(defesa.modelo)} e <b>exportado sem revisão</b>`} a partir dos documentos e do
+      voto registrado. Não é registro de fato — o registro são as tabelas acima.${
+      defesa.registro && !defesa.registro.posicao
+        ? ' As votações do texto principal foram simbólicas ou sem voto nominal do deputado, então o voto registrado não estabelece a posição: esta sustentação se apoia no argumento.'
+        : ''}</div>
+  </div>` : ''}
 
   <div class="ft">Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
 </body></html>`;
