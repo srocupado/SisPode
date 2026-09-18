@@ -112,14 +112,15 @@ lista vazia que passa por ausência de fato:
    Relator, Dep. Fulano, pela aprovação", então a relatoria é contável numa só
    consulta. O que ela não dá é o vínculo com a matéria relatada:
    `uriPropPrincipal` vem vazio e `/relacionadas` não devolve nada.
-11. **`codTema` não compõe com `dataApresentacaoInicio/Fim`** — a combinação devolve
+10. **`codTema` não compõe com `dataApresentacaoInicio/Fim`** — a combinação devolve
     HTTP 400. Compõe com `ano`.
-12. **Marcar autoria de partido num conjunto grande não precisa de uma chamada por
-    proposição:** a mesma busca repetida com `siglaPartidoAutor` devolve o
-    subconjunto, e cruzar os ids resolve. Numa busca de 717 proposições, são 2
-    chamadas em vez de 717.
-10. Paginação: 100 itens por página é o teto; `links.next` precisa ser seguido.
+11. Paginação: 100 itens por página é o teto; `links.next` precisa ser seguido.
     Um corte mudo aqui vira "o deputado apresentou 100 proposições".
+
+E um atalho, não uma armadilha: **marcar autoria de partido num conjunto grande
+não precisa de uma chamada por proposição.** A mesma busca repetida com
+`siglaPartidoAutor` devolve o subconjunto, e cruzar os ids resolve. Numa busca de
+717 proposições, são 2 chamadas em vez de 717.
 
 ---
 
