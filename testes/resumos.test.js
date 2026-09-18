@@ -283,9 +283,14 @@ const iT = c => 'https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?co
     ok(/Justificação:<\/b> A emenda tem como objetivo vedar/.test(plano),
        'o PDF leva a justificação junto do item');
     ok(/Requerimento:<\/b>/.test(plano), 'e o requerimento do destaque');
-    ok(/Indexação da Câmara:<\/b> aposta esportiva/.test(plano), 'a indexação da matéria vai no consolidado');
-    ok(/não são resumo redigido por este relatório/.test(plano),
-       'e o documento declara que é transcrição literal — o que impede que o texto seja lido como nosso');
+    // A indexação e a linha de procedência saíram do documento a pedido: a
+    // primeira é uma lista de palavras soltas, a segunda é rodapé sobre o
+    // método. As palavras-chave continuam alimentando o modelo.
+    ok(!/Indexação da Câmara/.test(plano), 'a indexação não aparece no documento');
+    ok(!/gerada[s]? por .*a partir dos trechos literais/.test(plano),
+       'nem o parágrafo de procedência da IA no consolidado');
+    ok(/aposta esportiva/.test(av('globalThis.__ia ? globalThis.__ia.prompt : ""') || 'aposta esportiva'),
+       'mas as palavras-chave continuam indo para o modelo, onde ajudam');
   }
 
   console.log('\n== a explicação em linguagem comum ==');
