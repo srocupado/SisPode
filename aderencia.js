@@ -999,6 +999,7 @@ const cvEl = {
   resumos:  document.getElementById('cvResumos'),
   defesa:   document.getElementById('cvDefesa'),
   enfase:   document.getElementById('cvDefesaEnfase'),
+  defesaCampo: document.getElementById('cvDefesaCampo'),
   buscar:   document.getElementById('cvBuscar'),
   status:   document.getElementById('cvStatus'),
   resultado: document.getElementById('cvResultado'),
@@ -1765,6 +1766,22 @@ function cvTrocarModo(modo) {
   cvEl.camposPer.hidden  = prop;
   cvEl.modoProp.classList.toggle('ativo', prop);
   cvEl.modoPer.classList.toggle('ativo', !prop);
+
+  // A sustentação é de UMA matéria: defende-se posição favorável ou contrária a
+  // um projeto. No modo por período há dezenas de matérias diferentes e não há
+  // posição única a sustentar, então o campo sai da tela — antes ele ficava
+  // visível ali e o clique não fazia nada, que é a pior das três opções.
+  if (cvEl.defesaCampo) cvEl.defesaCampo.hidden = !prop;
+  if (!prop && cvEl.defesa) {
+    // Marca a opção vazia, em vez de atribuir `select.value`: a troca de modo é
+    // um toggle de interface e não pode estourar em ambiente nenhum — um throw
+    // aqui deixaria o painel meio trocado, com os dois conjuntos de campos
+    // errados. Num select de escolha única, marcar uma opção desmarca as
+    // outras; tocar nas irmãs, não.
+    const vazia = cvEl.defesa.querySelector('option[value=""]');
+    if (vazia) vazia.selected = true;
+    if (cvEl.enfase) cvEl.enfase.value = '';
+  }
 }
 
 // Registro de eventos com guarda: um id ausente (pasta de extensão atualizada
