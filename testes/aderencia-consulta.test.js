@@ -287,6 +287,16 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     // O consolidado do documento tem de bater com o da tela.
     const cx = av('cv.ultimo.cont');
     const semEspaco = doc.replace(/\s+/g, ' ');
+
+    // A faixa precisa FECHAR sozinha: votos dele = aderiu + divergiu + sem
+    // orientação. Sem essa caixa, um relatório com 6 votos, 5 adesões e 0
+    // divergências deixa o sexto voto sem explicação na própria linha, e a
+    // pergunta vai para quem recebeu o documento.
+    ok(/<div class="v">\d+<\/div><div class="l">Sem orientação<\/div>/.test(semEspaco),
+       'a faixa do consolidado tem a caixa "Sem orientação"');
+    const votosDele = (cx.aderente + cx.divergente + cx.ausente + cx['sem-gov']) - cx.ausente;
+    ok(votosDele === cx.aderente + cx.divergente + cx['sem-gov'],
+       'e a conta fecha: votos dele = aderiu + divergiu + sem orientação');
     ok(semEspaco.includes(`<div class="v">${cx.aderente}</div><div class="l">Aderiu</div>`),
        `as caixas repetem a contagem da tela (aderiu=${cx.aderente})`);
     ok(semEspaco.includes(`<div class="v">${cx.ausente}</div><div class="l">Ausente</div>`),

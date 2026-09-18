@@ -313,8 +313,13 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     ok(/Sustentação do posicionamento/.test(doc), 'agora sim a seção sai');
     ok(/Texto reescrito pelo analista/.test(doc), 'o PDF leva o texto do analista');
     ok(!/Texto rascunhado pelo provedor/.test(doc), 'e não o rascunho que ele substituiu');
-    ok(/<b>revisado pelo analista<\/b>/.test(doc.replace(/\s+/g, ' ')),
-       'declarando que houve revisão humana');
+    // A nota de procedência saiu do PDF a pedido: o documento que circula leva
+    // o texto, e o estado da revisão fica na TELA, que é onde o analista
+    // trabalha e decide.
+    ok(!/Texto <b>argumentativo<\/b>/.test(doc.replace(/\s+/g, ' ')),
+       'o PDF não carrega o parágrafo de procedência');
+    ok(/revisado pelo analista/.test(chamar('dfsHtml', d)),
+       'mas a tela continua dizendo que houve revisão humana');
 
     // Restaurar devolve o rascunho.
     document.getElementById('dfsRestaurar').dispatchEvent(new Event('click', { bubbles: true }));
@@ -326,8 +331,10 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
                 original: 'Um texto qualquer com tamanho.', editado: false, incluir: true,
                 modelo: 'm', registro: { posicao: 'favoravel' } };
     av(`cv.ultimo.defesa = ${JSON.stringify(d)}`);
-    ok(/<b>exportado sem revisão<\/b>/.test(av('cvHtmlPDF(null)').replace(/\s+/g, ' ')),
-       'sem revisão, o documento diz "exportado sem revisão" — quem lê sabe o que tem em mãos');
+    ok(!/exportado sem revisão/.test(av('cvHtmlPDF(null)')),
+       'o PDF não traz mais o aviso de revisão — ele saiu do documento a pedido');
+    ok(/revise antes de incluir/.test(chamar('dfsHtml', d)),
+       'quem avisa é a tela, antes de o analista marcar a inclusão');
   }
 
   console.log('\n== no documento, argumentação não se confunde com registro ==');
@@ -353,10 +360,14 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
        'depois do registro de votos, nunca antes');
     ok(/Primeiro parágrafo da sustentação/.test(doc) && /Segundo parágrafo/.test(doc),
        'com os parágrafos do texto');
-    ok(/Texto <b>argumentativo<\/b>, gerado por modelo-de-teste/.test(plano),
-       'declarado como argumentativo e com o modelo nomeado');
-    ok(/Não é registro de fato — o registro são as tabelas acima/.test(plano),
-       'e separado do registro em palavras, não só em cor');
+    // O que separa argumentação de registro no documento, agora que a nota de
+    // procedência saiu: a seção tem título próprio, rótulo de posição e
+    // moldura — e vem depois de todas as tabelas.
+    ok(/<div class="dfs-rot">Posição favorável à matéria<\/div>/.test(plano),
+       'a posição sustentada vai no rótulo da seção');
+    ok(/class="dfs"/.test(doc) && /h2\.dfs-h/.test(doc),
+       'com moldura e título próprios, que é o que separa argumentação de registro');
+    ok(!/Texto <b>argumentativo<\/b>/.test(plano), 'e sem o parágrafo de procedência');
 
     // Sem defesa, nada disso aparece.
     av(`cv.ultimo.defesa = null`);
