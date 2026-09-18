@@ -274,7 +274,8 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(/<h2>Consolidado<\/h2>/.test(doc), 'seção Consolidado');
     ok(/<h2>Sessão de 13\/09\/2023/.test(doc) && /<h2>Sessão de 21\/12\/2023/.test(doc),
        'uma tabela por sessão');
-    ok(/<h2>Procedência dos dados<\/h2>/.test(doc), 'e a procedência dos dados');
+    ok(!/<h2>Procedência dos dados<\/h2>/.test(doc) && !/objetosPossiveis/.test(doc),
+       'e NÃO leva a procedência dos dados: o documento é de conferência, não de método');
 
     // O consolidado do documento tem de bater com o da tela.
     const cx = av('cv.ultimo.cont');
@@ -417,14 +418,13 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
   }
   {
     const doc = av('cvHtmlPDF(null)');
-    ok(/Este documento é um recorte/.test(doc),
-       'o PDF DIZ que é recorte — senão passa por relatório da matéria inteira');
-    ok(/13\/09\/2023 a 13\/09\/2023/.test(doc), 'com a janela que foi escolhida');
-    ok(/<b>2<\/b> ficaram fora deste recorte/.test(doc.replace(/\s+/g, ' ')),
-       'e quantas votações ficaram de fora');
-    ok(/de 13\/09\/2023 a 21\/12\/2023/.test(doc), 'e qual é a extensão completa da tramitação');
+    ok(/recorte de 13\/09\/2023 a 13\/09\/2023/.test(doc),
+       'o recorte é marcado no subtítulo do documento, junto da matéria');
+    ok(/<title>[^<]*\(recorte 13\/09\/2023/.test(doc),
+       'e no título da janela, que é o nome sugerido do arquivo');
+    ok(!/Este documento é um recorte/.test(doc),
+       'sem caixa de aviso no corpo — o subtítulo basta');
     ok(!/21\/12\/2023<\/td>|Sessão de 21\/12\/2023/.test(doc), 'as votações de dezembro não aparecem');
-    ok(/recorte de 13\/09\/2023/.test(doc), 'o cabeçalho também marca, para quem lê só a primeira linha');
 
     // Destaque retirado em 21/12 num documento que cobre 13/09 seria um erro
     // factual: o documento diria que houve acordo numa sessão em que não houve.
@@ -442,6 +442,7 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     document.getElementById('cvRecTudo').dispatchEvent(new Event('click', { bubbles: true }));
     ok(av('cv.ultimo.linhas.length') === 6, '"Tudo" devolve a tramitação inteira');
     ok(av('cv.ultimo.recorte') === null, 'e o documento volta a não ser recorte');
+    ok(!/recorte/.test(av('cvHtmlPDF(null)')), 'nem no subtítulo');
   }
   {
     // Janela mais larga que a tramitação: nada fica de fora, logo não há
@@ -475,9 +476,8 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     const doc = av('cvHtmlPDF(null)');
     ok(/01\/08\/2026 a 31\/08\/2026/.test(doc), 'o título vira o período consultado');
     ok(!/Destaques retirados/.test(doc), 'sem retirados, a seção não aparece vazia');
-    ok(/intervalo de datas, restrito ao Plenário/.test(doc), 'a procedência descreve a busca por período');
-    ok(/dataFim \+ 1/.test(doc), 'e registra a ressalva do último dia');
-    ok(!/objetosPossiveis/.test(doc), 'a nota sobre a tramitação só aparece no modo proposição');
+    ok(!/dataFim \+ 1/.test(doc) && !/\/votacoes\/\{id\}/.test(doc),
+       'e o documento não carrega nota de método nem nome de rota da API');
   }
 
   console.log('\n== todas as votações da matéria, de todos os anos ==');
@@ -563,14 +563,15 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
        'nem com consulta vazia');
   }
   {
-    // No documento, a figura fecha o corpo, antes da procedência dos dados.
+    // No documento, a figura FECHA o corpo.
     document.getElementById('cvNumero').value = '3626';
     document.getElementById('cvAno').value = '2023';
     await av('cvConsultar()');
     const doc = av('cvHtmlPDF(null)');
     ok(/<h2>Distribuição dos votos<\/h2>/.test(doc), 'a seção existe no PDF');
-    ok(doc.indexOf('Distribuição dos votos') < doc.indexOf('Procedência dos dados'),
-       'e vem antes da procedência, que é o fecho metodológico');
+    ok(doc.indexOf('Distribuição dos votos') > doc.indexOf('<h2>Consolidado</h2>')
+       && /Distribuição dos votos[\s\S]*<div class="ft">/.test(doc),
+       'e fecha o corpo, entre as tabelas e a assinatura');
     ok(/break-inside: avoid/.test(doc), 'a figura não se parte entre páginas');
   }
 

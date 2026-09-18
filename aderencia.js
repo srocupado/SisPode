@@ -1708,10 +1708,6 @@ const CSS_PDF_VOTOS = `
   .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
-  /* O recorte é ressalva, não contexto: borda âmbar para não se confundir com
-     as notas de método, e para quem folheia o documento reparar. */
-  .nota.rec { border-left-color: #eda100; background: #fdf8ec; }
-  .nota.rec b { color: #7a5600; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; }
   .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
@@ -1821,13 +1817,6 @@ function cvHtmlPDF(logoDataUrl) {
     qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.
   </div>
 
-  ${recorte ? `<div class="nota rec">
-    <b>Este documento é um recorte.</b> Cobre as votações de <b>${e(faixa)}</b>, por escolha de quem
-    gerou o relatório. ${prop ? 'A matéria tem' : 'A consulta trouxe'} <b>${recorte.total} votação(ões)</b>,
-    de ${e(formatarData(recorte.limites.ini))} a ${e(formatarData(recorte.limites.fim))}:
-    <b>${recorte.fora}</b> ${recorte.fora === 1 ? 'ficou' : 'ficaram'} fora deste recorte e não
-    ${recorte.fora === 1 ? 'entra' : 'entram'} em nenhum número acima, nem no gráfico.
-  </div>` : ''}
 
   ${dias.map(tabela).join('')}
 
@@ -1839,19 +1828,6 @@ function cvHtmlPDF(logoDataUrl) {
 
   ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
   <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
-
-  <h2>Procedência dos dados</h2>
-  <div class="nota">
-    <b>Votos e orientações:</b> <code>/votacoes/{id}/votos</code> e <code>/votacoes/{id}/orientacoes</code>.<br>
-    <b>Votações:</b> ${prop ? '<code>/proposicoes/{id}/votacoes</code>' : '<code>/votacoes</code> por intervalo de datas, restrito ao Plenário'}.<br>
-    ${prop ? `<b>Objeto de cada item:</b> lido do texto de <code>/proposicoes/{id}/tramitacoes</code>. Não existe
-      campo estruturado com essa informação — <code>objetosPossiveis</code> e
-      <code>ultimaApresentacaoProposicao</code> repetem o mesmo conteúdo em todas as votações do bloco —,
-      por isso esta coluna é transcrição do narrativo. Item sem casamento seguro sai como
-      "objeto não identificado", em vez de receber um objeto aproximado.<br>` : ''}
-    <b>Ressalva de método:</b> a consulta por intervalo de datas perde as votações do último dia do
-    período; o relatório pede à API até <b>dataFim + 1</b> e descarta o excedente.
-  </div>
 
   <div class="ft">Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
 </body></html>`;
