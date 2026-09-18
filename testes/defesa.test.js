@@ -72,6 +72,45 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
        'defesa.js está em web_accessible_resources');
   }
 
+  console.log('\n== a sustentação é SÓ da aba "Como votou o deputado" ==');
+  {
+    // O campo mora no painel da consulta, e em nenhum outro.
+    let el = document.getElementById('cvDefesa'), pais = [];
+    while (el && el.parentNode) { el = el.parentNode; if (el.id) pais.push(el.id); }
+    ok(pais.includes('painel-consulta'),
+       'o campo de defesa vive dentro do painel "Como votou o deputado"');
+    ok(!pais.includes('painel-producao') && !pais.includes('painel-radar') && !pais.includes('painel-aderencia'),
+       'e em nenhum dos outros painéis');
+
+    // As outras abas não conhecem a sustentação nem por acidente.
+    for (const arq of ['producao.js', 'radar.js']) {
+      const fonte = fs.readFileSync(path.join(RAIZ, arq), 'utf8');
+      ok(!/\bdfs[A-Z]|defesa/.test(fonte),
+         `${arq} não toca na sustentação — os relatórios dele são só registro`);
+    }
+  }
+  {
+    // Dentro da aba, a defesa é do modo POR PROPOSIÇÃO: sustenta-se posição
+    // favorável ou contrária a UMA matéria, e por período há dezenas.
+    const campo = document.getElementById('cvDefesaCampo');
+    ok(!!campo, 'o bloco da defesa tem identidade própria, para poder ser escondido');
+
+    av("cvTrocarModo('proposicao')");
+    ok(campo.hidden === false, 'no modo por proposição, o campo aparece');
+
+    document.getElementById('cvDefesa').value = 'favoravel';
+    document.getElementById('cvDefesaEnfase').value = 'algum ponto';
+    av("cvTrocarModo('periodo')");
+    ok(campo.hidden === true,
+       'no modo por período, o campo SOME — antes ficava visível e o clique não fazia nada');
+    // linkedom não implementa `select.value`; o que se observa é qual opção
+    // está marcada, que é o mesmo invariante.
+    ok(document.getElementById('cvDefesa').querySelector('option[value=""]').selected === true,
+       'e a escolha é limpa, para não ficar pendurada uma posição que não vale mais');
+    ok(document.getElementById('cvDefesaEnfase').value === '', 'a ênfase também');
+    av("cvTrocarModo('proposicao')");
+  }
+
   console.log('\n== o que o voto registrado diz sobre a posição ==');
   {
     const favoravel = [item('v1', 'Votação da Redação Final.', 'Sim')];
