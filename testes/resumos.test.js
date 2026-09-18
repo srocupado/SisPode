@@ -1,10 +1,12 @@
 // Resumo de cada item votado, na aba "Como votou o deputado".
 //
 // A tramitação diz que se votou "DTQ 3: Bloco UNIÃO (SD): Emenda de Plenário
-// nº 26". Não diz o que a emenda 26 fazia. Este módulo vai buscar isso no
-// inteiro teor, e o que ele traz é TRANSCRIÇÃO — nada gerado, nada resumido por
-// modelo. Um relatório de conferência sobre o voto de um parlamentar precisa
-// que cada linha possa ser conferida na fonte.
+// nº 26". Não diz o que a emenda 26 fazia. Este módulo busca isso no inteiro
+// teor e entrega DUAS camadas: a TRANSCRIÇÃO literal, que é o que se confere, e
+// a EXPLICAÇÃO em linguagem comum, escrita pelo provedor de IA a partir dessa
+// transcrição e de mais nada. O que este teste guarda é a fronteira entre elas:
+// o modelo só reescreve o que recebe, id que ele invente é descartado, e o
+// documento diz o que é transcrito e o que é gerado.
 //
 // A armadilha que custou a achar, e que este teste existe para impedir de
 // voltar: `objetosPossiveis` CRESCE ao longo da sessão. Medido no PL 3.626/2023
@@ -65,6 +67,10 @@ const pdfResp = chave => ({
 
 const ctx = {
   document, window, DOMParser, Event, setTimeout, clearTimeout, URL, TextDecoder,
+  // aderencia.html passou a carregar ia-comum.js, que declara um
+  // AbortController no topo do arquivo. Sem ele no contexto, NENHUM script
+  // da página chega a ser avaliado.
+  AbortController, TextEncoder, Blob, Response, Headers, Request, btoa,
   console: { log: () => {}, warn: () => {}, error: () => {} },
   requestAnimationFrame: () => 0,
   XLSX: { utils: { book_new: () => ({}), aoa_to_sheet: () => ({}), book_append_sheet: () => {} }, writeFile: () => {} },
@@ -269,17 +275,109 @@ const iT = c => 'https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?co
   console.log('\n== na tela e no documento ==');
   {
     const tela = document.getElementById('cvResultado').innerHTML;
-    ok(/JUSTIFICAÇÃO DA EMENDA|Justificação da emenda/i.test(tela), 'a tela mostra a justificação');
-    ok(/Transcrito de/.test(tela), 'dizendo que é transcrição');
+    ok(/Justificação:/.test(tela), 'a tela mostra a justificação literal');
+    ok(/Transcrito de/.test(tela), 'dizendo de onde veio');
 
     const doc = av('cvHtmlPDF(null)');
     const plano = doc.replace(/\s+/g, ' ');
-    ok(/Justificação da emenda:<\/b> A emenda tem como objetivo vedar/.test(plano),
+    ok(/Justificação:<\/b> A emenda tem como objetivo vedar/.test(plano),
        'o PDF leva a justificação junto do item');
-    ok(/O destaque pedia:<\/b>/.test(plano), 'e o que o destaque pedia');
+    ok(/Requerimento:<\/b>/.test(plano), 'e o requerimento do destaque');
     ok(/Indexação da Câmara:<\/b> aposta esportiva/.test(plano), 'a indexação da matéria vai no consolidado');
-    ok(/não é resumo redigido por este relatório/.test(plano),
+    ok(/não são resumo redigido por este relatório/.test(plano),
        'e o documento declara que é transcrição literal — o que impede que o texto seja lido como nosso');
+  }
+
+  console.log('\n== a explicação em linguagem comum ==');
+  {
+    // A partir daqui há chave configurada e um provedor de mentira.
+    api.ia = { chamadas: [], responder: null };
+    av(`chrome.storage.local.get = (_k, cb) => cb({ config: { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'modelo-de-teste' } })`);
+    av(`chamarIA = async (args) => { globalThis.__ia = args; return { text: globalThis.__respostaIA }; }`);
+
+    const base = { materia: { ementa: 'Dispõe sobre apostas.', palavras: 'aposta esportiva',
+                              justificacao: { texto: 'A proposta regulamenta o setor.' } },
+                   itens: { 'v1': { pedido: { texto: 'Nos termos do art. 161, II, destaque para a Emenda 26.' },
+                                    justificacao: { texto: 'A emenda veda a participação de endividados.' },
+                                    fontes: [], falhou: false } } };
+    const objetos = { 'v1': 'Votação do DTQ 3: Emenda de Plenário nº 26 (art. 161, II).' };
+
+    av(`globalThis.__respostaIA = ${JSON.stringify(JSON.stringify({
+      materia: 'A proposta cria regras para apostas esportivas no Brasil.',
+      itens: { v1: 'A emenda queria impedir que pessoas endividadas apostassem.' },
+    }))}`);
+    const r1 = await chamar('rsmExplicar', base, objetos);
+    ok(r1.feito === true && r1.aplicados === 1, 'a explicação é gerada e aplicada ao item');
+    ok(base.itens.v1.simples === 'A emenda queria impedir que pessoas endividadas apostassem.',
+       'o item ganha a versão em linguagem comum');
+    ok(base.materia.simples === 'A proposta cria regras para apostas esportivas no Brasil.',
+       'e a matéria também');
+    ok(base.gerado.modelo === 'modelo-de-teste', 'o modelo fica registrado, para o documento poder dizer qual foi');
+    ok(base.itens.v1.justificacao.texto === 'A emenda veda a participação de endividados.',
+       'e a transcrição literal continua intacta ao lado — a explicação não a substitui no estado');
+
+    const prompt = av('globalThis.__ia.prompt');
+    ok(/A emenda veda a participação de endividados/.test(prompt),
+       'o modelo recebe a transcrição — ele reescreve o documento, não busca a matéria por fora');
+    ok(/NÃO cite dispositivo regimental/.test(prompt), 'com a ordem de não citar dispositivo regimental');
+    ok(/O documento não detalha o que a medida mudava/.test(prompt),
+       'e com a fórmula obrigatória para quando o trecho não disser o que mudava');
+    ok(/NÃO avalie mérito/.test(prompt), 'e a proibição de avaliar mérito ou atribuir intenção');
+  }
+  {
+    // Id que o modelo invente não pode colar texto em item nenhum.
+    const base = { materia: null, itens: {
+      'v1': { pedido: { texto: 'Destaque para a Emenda 26 do projeto.' }, fontes: [], falhou: false } } };
+    av(`globalThis.__respostaIA = ${JSON.stringify(JSON.stringify({
+      materia: '', itens: { v1: 'Explicação certa.', 'v-inventado': 'Explicação de um item que não existe.' },
+    }))}`);
+    const r = await chamar('rsmExplicar', base, { 'v1': 'Votação do DTQ 3.' });
+    ok(r.aplicados === 1, 'só o id conhecido recebe texto');
+    ok(base.itens.v1.simples === 'Explicação certa.', 'e recebe o texto certo');
+    ok(!base.itens['v-inventado'], 'o id inventado pelo modelo é descartado — colar no item errado seria pior que nada');
+  }
+  {
+    // Resposta ilegível e erro de rede não podem virar explicação inventada.
+    const base = { materia: null, itens: { 'v1': { pedido: { texto: 'Destaque para a Emenda 26.' }, fontes: [], falhou: false } } };
+    av(`globalThis.__respostaIA = 'isto não é json'`);
+    const r1 = await chamar('rsmExplicar', base, { 'v1': 'Votação do DTQ 3.' });
+    ok(r1.feito === false && r1.motivo === 'resposta-ilegivel', 'resposta que não é JSON é recusada');
+    ok(!base.itens.v1.simples, 'e o item fica sem explicação, não com uma inventada');
+
+    av(`chamarIA = async () => { throw new Error('rede caiu'); }`);
+    const r2 = await chamar('rsmExplicar', base, { 'v1': 'Votação do DTQ 3.' });
+    ok(r2.feito === false && r2.motivo === 'erro', 'falha de rede é registrada como falha');
+    ok(!base.itens.v1.simples, 'e continua sem explicação');
+  }
+  {
+    // A cerca de código do modelo não pode derrubar a leitura.
+    av(`chamarIA = async () => ({ text: '\u0060\u0060\u0060json\\n{"materia":"","itens":{"v1":"Com cerca."}}\\n\u0060\u0060\u0060' })`);
+    const base = { materia: null, itens: { 'v1': { pedido: { texto: 'Destaque para a Emenda 26.' }, fontes: [], falhou: false } } };
+    const r = await chamar('rsmExplicar', base, { 'v1': 'Votação do DTQ 3.' });
+    ok(r.feito === true && base.itens.v1.simples === 'Com cerca.', 'JSON em cerca de código é lido do mesmo jeito');
+  }
+  {
+    // Sem chave, a camada some e o relatório fica com a transcrição.
+    av(`chrome.storage.local.get = (_k, cb) => cb({ config: {} })`);
+    const base = { materia: null, itens: { 'v1': { pedido: { texto: 'Destaque para a Emenda 26.' }, fontes: [], falhou: false } } };
+    const r = await chamar('rsmExplicar', base, { 'v1': 'Votação do DTQ 3.' });
+    ok(r.feito === false && r.motivo === 'sem-chave',
+       'sem chave de IA, a camada não roda — e diz por quê, em vez de falhar calada');
+    ok(!base.itens.v1.simples, 'o item continua só com a transcrição, que é pior de ler e continua correta');
+    av(`chrome.storage.local.get = (_k, cb) => cb({})`);
+  }
+  {
+    // Na tela e no PDF, a explicação vem primeiro e o literal fica recolhido.
+    const r = { simples: 'A emenda queria impedir que pessoas endividadas apostassem.',
+                pedido: { texto: 'Nos termos do art. 161, II, destaque para a Emenda 26.' },
+                justificacao: { texto: 'A emenda veda a participação de endividados.' },
+                fontes: [{ papel: 'emenda', rotulo: 'EMP 26', url: 'https://x/emp26' }], falhou: false };
+    const h = chamar('rsmHtmlItem', r);
+    ok(h.indexOf('endividadas apostassem') < h.indexOf('art. 161'),
+       'a linguagem comum vem antes do texto regimental');
+    ok(/<details class="rsm-literal"><summary>texto literal do documento<\/summary>/.test(h),
+       'e o literal fica recolhido, disponível para quem quiser conferir');
+    ok(/O que o destaque fazia/.test(h), 'com o rótulo que responde à pergunta de quem lê');
   }
 
   console.log('\n== sem a caixa marcada, nada disso acontece ==');

@@ -32,6 +32,10 @@ const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m =>
 const { document, window } = parseHTML(html);
 const ctx = {
   document, window, DOMParser, setTimeout, clearTimeout, URL, TextDecoder,
+  // aderencia.html passou a carregar ia-comum.js, que declara um
+  // AbortController no topo do arquivo. Sem ele no contexto, NENHUM script
+  // da página chega a ser avaliado.
+  AbortController, TextEncoder, Blob, Response, Headers, Request, btoa,
   console: { log: () => {}, warn: () => {}, error: () => {} },
   fetch: async () => ({ ok: false, status: 599, json: async () => ({}), text: async () => '' }),
   requestAnimationFrame: () => 0,

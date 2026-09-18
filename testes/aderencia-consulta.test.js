@@ -39,6 +39,10 @@ const erro = s => ({ ok: false, status: s, json: async () => ({}), text: async (
 
 const ctx = {
   document, window, DOMParser, Event, setTimeout, clearTimeout, URL, TextDecoder,
+  // aderencia.html passou a carregar ia-comum.js, que declara um
+  // AbortController no topo do arquivo. Sem ele no contexto, NENHUM script
+  // da página chega a ser avaliado.
+  AbortController, TextEncoder, Blob, Response, Headers, Request, btoa,
   console: { log: () => {}, warn: () => {}, error: () => {} },
   requestAnimationFrame: () => 0,
   XLSX: { utils: { book_new: () => ({}), aoa_to_sheet: r => ({ _r: r }), book_append_sheet: () => {} }, writeFile: () => {} },
