@@ -110,7 +110,9 @@ api.tramitacoes['2374400'] = [
   { sequencia: 57, despacho: 'Aprovada a Emenda de Plenário nº 34. Sim: 203; não: 164; total: 367.' },
   { sequencia: 118, despacho: 'Votação das Emendas do Senado Federal nº 1 e outras, com parecer pela rejeição.' },
   { sequencia: 120, despacho: 'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1; total: 382.' },
-  { sequencia: 121, despacho: 'Retirado o DTQ 9: Bloco UNIÃO (Solidariedade): emenda n. 38 do Senado Federal, com fins de sua aprovação (art. 161, II).' },
+  // Um retirado COM data e outro SEM: o recorte do relatório trata os dois
+  // casos de forma diferente, e os dois precisam estar no material de teste.
+  { sequencia: 121, dataHora: '2023-12-21T00:50', despacho: 'Retirado o DTQ 9: Bloco UNIÃO (Solidariedade): emenda n. 38 do Senado Federal, com fins de sua aprovação (art. 161, II).' },
   { sequencia: 122, despacho: 'Retirado o DTQ 10: PL: Destaque da emenda do Senado número 3 para fins de sua supressão (art. 161, II).' },
 ];
 const voto = t => ({ deputado_: GAMBALE, tipoVoto: t });
@@ -370,12 +372,99 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     await av('cvConsultar()');
     const ret = av('cv.ultimo.retirados');
     ok(Array.isArray(ret) && ret.length > 0, `os destaques retirados são colhidos da tramitação (${ret.length})`);
-    ok(ret.every(t => !/^Retirado o /.test(t)), 'sem o prefixo "Retirado o", que a seção já diz');
+    ok(ret.every(x => !/^Retirado o /.test(x.t)), 'sem o prefixo "Retirado o", que a seção já diz');
     const doc = av(`cvHtmlPDF(null)`);
     ok(/<h2>Destaques retirados antes da votação<\/h2>/.test(doc), 'a seção existe quando há retirados');
     ok(/não há voto a registrar/.test(doc), 'explicando que não houve votação');
     ok(/menos votações do que destaques apresentados/.test(doc),
        'e por que a matéria tem menos votações do que se esperaria');
+  }
+
+  console.log('\n== recorte: delimitar o período que sai no relatório ==');
+  const telaCv = () => document.getElementById('cvResultado').textContent;
+  const recortar = (ini, fim) => {
+    const a = document.getElementById('cvRecIni'), b = document.getElementById('cvRecFim');
+    a.value = ini; b.value = fim;
+    b.dispatchEvent(new Event('change', { bubbles: true }));
+  };
+  {
+    // Estado de partida: a consulta do bloco anterior, com as 6 votações.
+    ok(av('cv.completo.linhas.length') === 6, 'a consulta guarda a tramitação INTEIRA (6 votações)');
+    const ini = document.getElementById('cvRecIni'), fim = document.getElementById('cvRecFim');
+    ok(!!ini && !!fim, 'a faixa de recorte aparece com o resultado');
+    ok(ini.value === '2023-09-13' && fim.value === '2023-12-21',
+       'já preenchida com os limites do que veio — o padrão é TUDO, não um recorte');
+    ok(ini.getAttribute('min') === '2023-09-13' && fim.getAttribute('max') === '2023-12-21',
+       'e o calendário não oferece data fora do que existe');
+    ok(document.getElementById('cvRecTudo').hasAttribute('disabled'),
+       'o botão "Tudo" nasce desabilitado, porque já se está vendo tudo');
+    const doc = av('cvHtmlPDF(null)');
+    ok(!/Este documento é um recorte/.test(doc) && !/recorte de \d/.test(doc),
+       'sem recorte, o documento não fala em recorte');
+  }
+  {
+    const antes = api.chamadas.length;
+    recortar('2023-09-13', '2023-09-13');
+
+    ok(api.chamadas.length === antes, 'mudar o recorte NÃO consulta a API de novo — os dados já estão em mãos');
+    ok(av('cv.ultimo.linhas.length') === 4, 'só as 4 votações da sessão de 13/09 entram (de 6)');
+    ok(av('cv.completo.linhas.length') === 6, 'e as 6 continuam carregadas, prontas para alargar');
+    ok(av('JSON.stringify(cv.ultimo.cont)') === JSON.stringify({ aderente: 2, divergente: 0, ausente: 0, 'sem-gov': 1, simbolica: 1 }),
+       'o consolidado é recalculado sobre o recorte, não herdado do total');
+    ok(!document.getElementById('cvRecTudo').hasAttribute('disabled'), 'e o botão "Tudo" se habilita');
+    ok(/2 fora do recorte/.test(document.querySelector('.cv-recorte .cnt').textContent),
+       'a tela diz quantas ficaram de fora');
+  }
+  {
+    const doc = av('cvHtmlPDF(null)');
+    ok(/Este documento é um recorte/.test(doc),
+       'o PDF DIZ que é recorte — senão passa por relatório da matéria inteira');
+    ok(/13\/09\/2023 a 13\/09\/2023/.test(doc), 'com a janela que foi escolhida');
+    ok(/<b>2<\/b> ficaram fora deste recorte/.test(doc.replace(/\s+/g, ' ')),
+       'e quantas votações ficaram de fora');
+    ok(/de 13\/09\/2023 a 21\/12\/2023/.test(doc), 'e qual é a extensão completa da tramitação');
+    ok(!/21\/12\/2023<\/td>|Sessão de 21\/12\/2023/.test(doc), 'as votações de dezembro não aparecem');
+    ok(/recorte de 13\/09\/2023/.test(doc), 'o cabeçalho também marca, para quem lê só a primeira linha');
+
+    // Destaque retirado em 21/12 num documento que cobre 13/09 seria um erro
+    // factual: o documento diria que houve acordo numa sessão em que não houve.
+    ok(!/DTQ 9/.test(doc), 'destaque retirado FORA do recorte sai do documento');
+    ok(/DTQ 10/.test(doc), 'e o que não tem data legível fica — some só o que se sabe estar fora');
+  }
+  {
+    // A distribuição precisa seguir o recorte; um gráfico do total sob um
+    // consolidado do recorte seria o pior dos dois mundos.
+    const svg = av('cvSvgEstatistica(cv.ultimo.cont, cv.ultimo.linhas.length)');
+    ok(/>2<\/text>/.test(svg.replace(/\s+/g, ' ')) && />de 4<\/text>/.test(svg.replace(/\s+/g, ' ')),
+       'o gráfico conta 2 qualificadas de 4 — os números do recorte');
+  }
+  {
+    document.getElementById('cvRecTudo').dispatchEvent(new Event('click', { bubbles: true }));
+    ok(av('cv.ultimo.linhas.length') === 6, '"Tudo" devolve a tramitação inteira');
+    ok(av('cv.ultimo.recorte') === null, 'e o documento volta a não ser recorte');
+  }
+  {
+    // Janela mais larga que a tramitação: nada fica de fora, logo não há
+    // recorte a declarar. O contrário seria o documento ressalvar "0 ficaram
+    // fora deste recorte", que é ruído se passando por rigor.
+    recortar('2020-01-01', '2030-12-31');
+    ok(av('cv.ultimo.linhas.length') === 6, 'janela larga demais mostra tudo');
+    ok(av('cv.ultimo.recorte') === null, 'e não se declara recorte quando nada ficou de fora');
+    ok(!/fora do recorte/.test(telaCv()), 'nem a tela fala em recorte');
+  }
+  {
+    recortar('2024-01-01', '2024-12-31');
+    ok(av('cv.ultimo.linhas.length') === 0, 'recorte que não pega nada não inventa linhas');
+    ok(/Nenhuma das 6 votações/.test(telaCv()), 'a tela diz o que houve');
+    ok(!document.getElementById('cvExportarPdf'), 'e não oferece exportar um documento vazio');
+    ok(!!document.getElementById('cvRecTudo'), 'o controle continua na tela, para poder voltar');
+  }
+  {
+    recortar('2023-12-21', '2023-09-13');
+    ok(/data inicial do recorte é posterior/.test(telaCv()),
+       'intervalo invertido é dito, em vez de sair um relatório vazio sem explicação');
+    document.getElementById('cvRecTudo').dispatchEvent(new Event('click', { bubbles: true }));
+    ok(av('cv.ultimo.linhas.length') === 6, 'e dá para voltar de lá');
   }
 
   console.log('\n== período: o documento se adapta ==');

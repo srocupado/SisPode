@@ -92,7 +92,8 @@ Como um deputado — de **qualquer partido** — votou numa proposição ou num 
 - **Por período**: todas as votações do Plenário no intervalo
 - Distingue quatro situações — aderiu, divergiu, ausente, e **votação simbólica**, que não tem registro individual de voto e por isso não é ausência do deputado; votação sem orientação do governo fica fora do cálculo, com o voto à vista
 - Corrige a perda das votações do último dia do intervalo (a API da Câmara as omite; a consulta pede `dataFim + 1` e descarta o excedente)
-- Exporta em **Excel (.xlsx)**, com o objeto e a situação em colunas próprias
+- **Recorte do relatório**: como a consulta traz a tramitação inteira, uma faixa de datas delimita o que sai no documento — sem consultar a API de novo. Consolidado, gráfico, destaques retirados e exports seguem o recorte, e tanto o PDF quanto a planilha **declaram** que são recorte, dizendo quantas votações ficaram de fora e qual é a extensão completa da matéria
+- Exporta em **PDF** (documento de conferência, com índice por sessão, links e o gráfico da distribuição) e em **Excel (.xlsx)**, com o objeto e a situação em colunas próprias
 
 ---
 
