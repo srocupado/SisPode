@@ -996,6 +996,7 @@ const cvEl = {
   ano:      document.getElementById('cvAno'),
   dataIni:  document.getElementById('cvDataIni'),
   dataFim:  document.getElementById('cvDataFim'),
+  resumos:  document.getElementById('cvResumos'),
   buscar:   document.getElementById('cvBuscar'),
   status:   document.getElementById('cvStatus'),
   resultado: document.getElementById('cvResultado'),
@@ -1222,7 +1223,35 @@ async function cvPorProposicao(sigla, numero, ano) {
       }
     }
   }
-  return { prop, itens: itens.filter(Boolean), objetos, retirados };
+  // A proposição DETALHADA (keywords e urlInteiroTeor não vêm na busca) e a
+  // lista de proposições de cada bloco de votação, que é de onde os resumos
+  // saem. `objetosPossiveis` repete dentro de um bloco e muda entre sessões,
+  // então lê-se uma votação por dia de sessão e junta-se.
+  let propDetalhada = prop;
+  try {
+    const d = await fetchJson(API_PROP + '/' + prop.id);
+    if (d.dados) propDetalhada = d.dados;
+  } catch (e) { console.warn('[consulta] detalhe da proposição não lido:', e.message); }
+
+  // A ÚLTIMA votação de cada dia, não a primeira: `objetosPossiveis` cresce ao
+  // longo da sessão, à medida que os documentos são apresentados. Medido no
+  // PL 3.626/2023 — a primeira votação de 13/09 lista 50 objetos e 1 destaque;
+  // a última do mesmo dia lista 79 e 8. Pela primeira, quase nenhum destaque
+  // era encontrado, e o relatório saía sem resumo quase nenhum, sem erro.
+  const objetosPossiveis = [];
+  const vistosObj = new Set();
+  const porDia = new Map();
+  for (const v of vots) porDia.set(String(v.data), v);
+  for (const v of porDia.values()) {
+    try {
+      const d = await fetchJson(API + '/' + v.id);
+      for (const o of ((d.dados || {}).objetosPossiveis || [])) {
+        if (!vistosObj.has(o.id)) { vistosObj.add(o.id); objetosPossiveis.push(o); }
+      }
+    } catch (e) { console.warn('[consulta] objetos do bloco', v.id, 'não lidos:', e.message); }
+  }
+
+  return { prop, propDetalhada, objetosPossiveis, itens: itens.filter(Boolean), objetos, retirados };
 }
 
 async function cvPorPeriodo(dataIni, dataFim) {
@@ -1410,6 +1439,9 @@ function cvRender(dados) {
   cv.completo = {
     linhas, objetos, prop: dados.prop, periodo: dados.periodo,
     dep, retirados: dados.retirados || [], semObjeto,
+    propDetalhada: dados.propDetalhada || null,
+    objetosPossiveis: dados.objetosPossiveis || [],
+    resumos: dados.resumos || null,
   };
   cv.recorte = cvLimites(linhas);
   cvDesenhar();
@@ -1417,7 +1449,7 @@ function cvRender(dados) {
 
 function cvDesenhar() {
   if (!cv.completo) return;
-  const { objetos, prop, periodo, dep, semObjeto } = cv.completo;
+  const { objetos, prop, periodo, dep, semObjeto, resumos } = cv.completo;
   const { lim, r, parcial, invertido } = cvJanela();
 
   const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
@@ -1449,7 +1481,7 @@ function cvDesenhar() {
   // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
   // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
   const corta = fora > 0;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto,
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos,
                 recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
 
   const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
@@ -1486,6 +1518,14 @@ function cvDesenhar() {
         A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
         de ${qualificadas} qualificada(s).
       </div>
+      ${resumos && resumos.materia ? (() => {
+        const m = resumos.materia, p = [];
+        if (m.palavras) p.push(`<div class="rsm-linha"><span class="rsm-rot">Indexação da Câmara</span> ${cvEsc(m.palavras)}</div>`);
+        if (m.justificacao && m.justificacao.texto)
+          p.push(`<div class="rsm-linha"><span class="rsm-rot">Justificação do autor</span> ${cvEsc(m.justificacao.texto)}</div>`);
+        return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${
+          m.url ? `<div class="rsm-fontes">Transcrito do <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
+      })() : ''}
       ${comum.fichaComum ? `<div class="cv-links" style="margin-top:8px">
         <a href="${comum.fichaComum}" target="_blank" rel="noopener">Ficha da proposição ↗</a>
       </div>` : ''}
@@ -1508,6 +1548,7 @@ function cvDesenhar() {
           </div>
           <div class="cv-corpo">
             <div class="cv-obj">${cvEsc(obj)}</div>
+            ${resumos ? rsmHtmlItem(resumos.itens[v.id]) : ''}
             <div class="cv-res">${cvEsc(v.descricao || '')}</div>
             <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
             ${(() => { const L = cvLinks(v); const p = [];
@@ -1632,6 +1673,16 @@ async function cvConsultar() {
       cvStatus('Localizando a proposição…', 'loading');
       dados = await cvPorProposicao(sigla, numero, ano);
       if (!dados.itens.length) { cvStatus(`${sigla} ${numero}/${ano} não tem votação registrada na Câmara.`, 'error'); return; }
+
+      // Os resumos são opcionais porque custam: um PDF por documento citado,
+      // lidos em série para não esbarrar no portal da Câmara.
+      if (cvEl.resumos && cvEl.resumos.checked) {
+        const prelim = dados.itens.map(it => ({ it }));
+        dados.resumos = await rsmCarregar(
+          prelim.filter(l => dados.objetos[l.it.votacao.id]),
+          dados.objetos, dados.propDetalhada, dados.objetosPossiveis,
+          (f, t) => cvStatus(`Lendo o inteiro teor de cada item… ${f}/${t}`, 'loading'));
+      }
     } else {
       const ini = cvEl.dataIni.value, fim = cvEl.dataFim.value;
       if (!ini || !fim) throw new Error('Informe as duas datas.');
@@ -1767,6 +1818,12 @@ const CSS_PDF_VOTOS = `
   .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
+  /* Transcrição: recuo e cor própria, para que não se confunda com o texto do
+     relatório. O que está aqui é palavra do documento, não nossa. */
+  .rsm { font-size: 8pt; color: #3c4a44; background: #f4f7f5; border-left: 2px solid #c9ddd2;
+         padding: 5px 8px; margin: 4px 0 5px; line-height: 1.45; }
+  .rsm b { color: #00552a; }
+  .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
   .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
@@ -1780,7 +1837,7 @@ const CV_TAG_PDF = {
 
 function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
-  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto } = u;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos } = u;
   const e = cvEsc;
   const comum = cvAgruparLinks(linhas);
 
@@ -1817,6 +1874,14 @@ function cvHtmlPDF(logoDataUrl) {
     return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
       <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
       <td><b>${e(obj)}</b>
+          ${(() => {
+            const r = resumos && resumos.itens[v.id];
+            if (!r) return '';
+            const p = [];
+            if (r.pedido && r.pedido.texto) p.push(`<b>O destaque pedia:</b> ${e(r.pedido.texto)}`);
+            if (r.justificacao && r.justificacao.texto) p.push(`<b>Justificação da emenda:</b> ${e(r.justificacao.texto)}`);
+            return p.length ? `<div class="rsm">${p.join('<br>')}</div>` : '';
+          })()}
           <div class="res">${e(v.descricao || '')}</div>
           ${(() => { const L = cvLinks(v); const p = [];
             if (L.prop && L.prop !== comum.fichaComum)
@@ -1859,6 +1924,13 @@ function cvHtmlPDF(logoDataUrl) {
   <h2>Consolidado</h2>
   ${prop ? `<div class="nota" style="margin-top:0"><b>${e(titulo)}</b> — ${e(subtitulo)}${
       comum.fichaComum ? `<br><a href="${comum.fichaComum}" style="color:#1d4ed8">Ficha de tramitação no portal da Câmara</a>` : ''}</div>` : ''}
+  ${resumos && resumos.materia ? (() => {
+    const m = resumos.materia, p = [];
+    if (m.palavras) p.push(`<b>Indexação da Câmara:</b> ${e(m.palavras)}`);
+    if (m.justificacao && m.justificacao.texto) p.push(`<b>Justificação do autor:</b> ${e(m.justificacao.texto)}`);
+    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}
+      <br><br><i>Transcrição literal do inteiro teor no portal da Câmara — não é resumo redigido por este relatório.</i></div>` : '';
+  })() : ''}
   <div class="resumo">
     <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
     <div class="bx"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
