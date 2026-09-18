@@ -150,7 +150,11 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase }
   // documento e pode ser reescrito pelo analista. A diferença entre os dois é
   // o que permite ao PDF dizer se o texto foi revisado — e revisado por gente
   // é um texto de outra natureza.
-  return { ok: true, texto, original: texto, editado: false, posicao,
+  // `incluir` nasce FALSO. Gerar e incluir são atos diferentes: o rascunho
+  // existe na tela para ser lido e corrigido, e só entra no documento quando o
+  // analista marca. Um texto argumentativo que escorrega para dentro de um
+  // documento de conferência sem alguém decidir é o pior caminho possível.
+  return { ok: true, texto, original: texto, editado: false, incluir: false, posicao,
            modelo: cfg.modelo || RSM_MODELO_PADRAO, registro };
 }
 
@@ -186,9 +190,15 @@ function dfsHtml(d) {
     <textarea id="dfsTexto" class="dfs-edit" rows="${linhas}"
       spellcheck="true">${cvEsc(d.texto)}</textarea>
     <div class="dfs-barra">
-      <span class="dfs-estado" id="dfsEstado">${d.editado ? 'revisado pelo analista' : 'como veio do provedor — revise antes de exportar'}</span>
+      <span class="dfs-estado" id="dfsEstado">${d.editado ? 'revisado pelo analista' : 'como veio do provedor — revise antes de incluir'}</span>
       <button id="dfsRestaurar" class="dfs-bt"${d.editado ? '' : ' disabled'}>restaurar texto gerado</button>
     </div>
+    <label class="dfs-incluir${d.incluir ? ' marcado' : ''}" id="dfsIncluirLinha">
+      <input type="checkbox" id="dfsIncluir"${d.incluir ? ' checked' : ''}>
+      <span><b>Incluir esta sustentação no PDF.</b> <span id="dfsIncluirEstado">${d.incluir
+        ? 'Marcado: a seção sai no documento.'
+        : 'Desmarcado: o documento sai só com o registro de votos.'}</span></span>
+    </label>
     <div class="dfs-nota">Texto argumentativo, rascunhado por ${cvEsc(d.modelo)} a partir dos documentos e do voto
       registrado, para ser revisado. Não é registro de fato: o registro é a tabela acima.${
       d.registro && !d.registro.posicao
@@ -211,10 +221,22 @@ function dfsLigarEdicao(d, aoMudar) {
     d.texto = ta.value;
     d.editado = ta.value.trim() !== String(d.original || '').trim();
     if (estado) estado.textContent = d.editado
-      ? 'revisado pelo analista' : 'como veio do provedor — revise antes de exportar';
+      ? 'revisado pelo analista' : 'como veio do provedor — revise antes de incluir';
     if (bt) bt.disabled = !d.editado;
     if (aoMudar) aoMudar(d);
   };
   ta.addEventListener('input', sincronizar);
   if (bt) bt.addEventListener('click', () => { ta.value = d.original || ''; sincronizar(); });
+
+  const cx = document.getElementById('dfsIncluir');
+  if (cx) cx.addEventListener('change', () => {
+    d.incluir = !!cx.checked;
+    const linha = document.getElementById('dfsIncluirLinha');
+    if (linha) linha.classList.toggle('marcado', d.incluir);
+    const est = document.getElementById('dfsIncluirEstado');
+    if (est) est.textContent = d.incluir
+      ? 'Marcado: a seção sai no documento.'
+      : 'Desmarcado: o documento sai só com o registro de votos.';
+    if (aoMudar) aoMudar(d);
+  });
 }

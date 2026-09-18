@@ -2020,7 +2020,7 @@ function cvHtmlPDF(logoDataUrl) {
   ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
   <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
 
-  ${defesa && defesa.ok ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
+  ${defesa && defesa.ok && defesa.incluir ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
   <div class="dfs">
     <div class="dfs-rot">Posição ${e(DFS_POSICOES[defesa.posicao])}</div>
     ${defesa.texto.split(/\n\s*\n/).map(x => `<p>${e(x.trim())}</p>`).join('')}

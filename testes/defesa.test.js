@@ -5,6 +5,11 @@
 // deputado é favorável" enquanto a ata da Câmara mostra voto contra o texto não
 // protege ninguém — é munição pronta para quem for questionar.
 //
+// E a segunda regra: gerar não é incluir. O rascunho existe na tela para ser
+// lido e corrigido, e só entra no PDF quando o analista MARCA. Um texto
+// argumentativo que escorrega para dentro de um documento de conferência sem
+// alguém decidir é o pior caminho possível.
+//
 // E a distinção que vem logo atrás: "o registro não estabelece a posição" NÃO é
 // o mesmo que "o registro concorda". Votação do texto principal costuma ser
 // simbólica, e aí não há voto nominal nenhum a comparar. Nesse caso a defesa
@@ -220,6 +225,8 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
                                          linhas, objetos: objetosDe(linhas), enfase: '' });
     ok(d.original === d.texto && d.editado === false,
        'ao nascer, o texto é o do provedor e está marcado como não revisado');
+    ok(d.incluir === false,
+       'e NÃO entra no PDF: gerar e incluir são atos diferentes');
 
     // Monta a tela como cvDesenhar faz, e liga a edição.
     document.getElementById('cvResultado').innerHTML = chamar('dfsHtml', d);
@@ -227,8 +234,8 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     const ta = document.getElementById('dfsTexto');
     ok(!!ta && ta.tagName === 'TEXTAREA', 'a sustentação aparece num campo editável, não como texto fixo');
     ok(ta.value.includes('Texto rascunhado pelo provedor'), 'já preenchido com o rascunho');
-    ok(/revise antes de exportar/.test(document.getElementById('dfsEstado').textContent),
-       'e a tela pede revisão antes de exportar');
+    ok(/revise antes de incluir/.test(document.getElementById('dfsEstado').textContent),
+       'e a tela pede revisão antes de incluir');
     ok(document.getElementById('dfsRestaurar').hasAttribute('disabled'),
        'o botão de restaurar nasce desabilitado, porque não há o que restaurar');
 
@@ -240,10 +247,31 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     ok(/revisado pelo analista/.test(document.getElementById('dfsEstado').textContent), 'a tela acompanha');
     ok(!document.getElementById('dfsRestaurar').hasAttribute('disabled'), 'e o restaurar se habilita');
 
+    // Sem marcar, o PDF sai sem a seção — mesmo com o texto pronto e revisado.
     av(`cv.ultimo = { linhas: [], objetos: {}, prop: ${JSON.stringify(PROP)}, periodo: null,
         dep: ${JSON.stringify(DEP)}, retirados: [], cont: { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 },
         pct: null, resumos: null, defesa: ${JSON.stringify(d)} }`);
+    ok(!/Sustentação do posicionamento/.test(av('cvHtmlPDF(null)')),
+       'com o texto pronto e revisado, mas sem a marcação, a seção NÃO sai no PDF');
+
+    // linkedom não reflete a propriedade `checked`; no HTML o que se vê é o
+    // atributo, e é ele que diz como a caixa nasce. No navegador o .checked
+    // funciona normalmente.
+    const cx = document.getElementById('dfsIncluir');
+    ok(!!cx && !cx.hasAttribute('checked'), 'a marcação existe na tela e nasce desmarcada');
+    ok(/Desmarcado: o documento sai só com o registro de votos/.test(
+       document.getElementById('dfsIncluirEstado').textContent),
+       'e a tela diz o que acontece enquanto estiver desmarcada');
+
+    cx.checked = true;
+    cx.dispatchEvent(new Event('change', { bubbles: true }));
+    ok(d.incluir === true, 'marcar liga a inclusão no estado');
+    ok(/Marcado: a seção sai no documento/.test(document.getElementById('dfsIncluirEstado').textContent),
+       'e a tela confirma');
+
+    av(`cv.ultimo.defesa = ${JSON.stringify({ ...JSON.parse(JSON.stringify(d)), incluir: true })}`);
     const doc = av('cvHtmlPDF(null)');
+    ok(/Sustentação do posicionamento/.test(doc), 'agora sim a seção sai');
     ok(/Texto reescrito pelo analista/.test(doc), 'o PDF leva o texto do analista');
     ok(!/Texto rascunhado pelo provedor/.test(doc), 'e não o rascunho que ele substituiu');
     ok(/<b>revisado pelo analista<\/b>/.test(doc.replace(/\s+/g, ' ')),
@@ -256,7 +284,8 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
   {
     // Exportar sem tocar no campo é possível, e o documento diz isso.
     const d = { ok: true, posicao: 'favoravel', texto: 'Um texto qualquer com tamanho.',
-                original: 'Um texto qualquer com tamanho.', editado: false, modelo: 'm', registro: { posicao: 'favoravel' } };
+                original: 'Um texto qualquer com tamanho.', editado: false, incluir: true,
+                modelo: 'm', registro: { posicao: 'favoravel' } };
     av(`cv.ultimo.defesa = ${JSON.stringify(d)}`);
     ok(/<b>exportado sem revisão<\/b>/.test(av('cvHtmlPDF(null)').replace(/\s+/g, ' ')),
        'sem revisão, o documento diz "exportado sem revisão" — quem lê sabe o que tem em mãos');
@@ -275,7 +304,7 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
                                          linhas, objetos: objetosDe(linhas), enfase: '' });
     av(`cv.ultimo = { linhas: [], objetos: {}, prop: ${JSON.stringify(PROP)}, periodo: null,
         dep: ${JSON.stringify(DEP)}, retirados: [], cont: { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 },
-        pct: null, resumos: null, defesa: ${JSON.stringify(d)} }`);
+        pct: null, resumos: null, defesa: ${JSON.stringify({ ...d, incluir: true })} }`);
     const doc = av('cvHtmlPDF(null)');
     const plano = doc.replace(/\s+/g, ' ');
 

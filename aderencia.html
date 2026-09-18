@@ -286,8 +286,13 @@
   .prd-tab td.n { width: 40px; text-align: right; font-weight: 700; color: var(--text); padding-right: 10px; }
   .prd-sig { min-width: 92px; flex-shrink: 0; font-size: 11px; font-weight: 700;
              color: var(--accent-light); padding-top: 1px; }
-  .rdr-check { display: flex; align-items: center; gap: 6px; font-size: 11.5px;
-               color: var(--text-dim); text-transform: none; letter-spacing: 0; padding-bottom: 12px; }
+  /* `.input-section label` põe tudo em caixa alta; um rótulo de caixa de
+     seleção é frase, não título, e precisa ganhar em especificidade. */
+  .input-section label.rdr-check,
+  .rdr-check { display: flex; align-items: flex-start; gap: 7px; font-size: 11.5px; font-weight: 400;
+               color: var(--text-dim); text-transform: none; letter-spacing: 0; line-height: 1.5;
+               padding-bottom: 12px; margin-bottom: 0; }
+  .rdr-check input { margin-top: 2px; flex-shrink: 0; }
   .rdr-check input { accent-color: var(--accent); }
   .cv-item.rdr-bancada { background: rgba(31,165,165,0.06); }
 
@@ -335,6 +340,16 @@
             padding: 4px 10px; cursor: pointer; }
   .dfs-bt:disabled { opacity: .35; cursor: default; }
   .dfs-bt:not(:disabled):hover { color: var(--text); border-color: var(--art17); }
+  /* A marcação de incluir é o gesto que põe a sustentação no documento, e por
+     isso tem peso visual próprio — e muda de cor quando marcada. */
+  .dfs-incluir { display: flex; align-items: flex-start; gap: 9px; margin-top: 11px;
+                 padding: 9px 11px; border: 1px dashed rgba(110,170,255,0.35); border-radius: 8px;
+                 font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+                 text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .dfs-incluir b { color: var(--text); }
+  .dfs-incluir input { accent-color: var(--art17); margin-top: 2px; flex-shrink: 0; }
+  .dfs-incluir.marcado { border-style: solid; border-color: var(--art17);
+                         background: rgba(110,170,255,0.08); }
   select.field { appearance: none; }
 
   .spinner {
