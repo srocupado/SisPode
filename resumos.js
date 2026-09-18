@@ -11,12 +11,20 @@
 //   No DTQ o que interessa é o PEDIDO ("Requeiro … destaque para a Emenda de
 //   Plenário nº 26"); na emenda, a JUSTIFICAÇÃO, que é a explicação do autor.
 //
-// TUDO É TRANSCRIÇÃO. Nada aqui é gerado nem resumido por modelo: o documento
-// de conferência precisa que cada linha possa ser conferida na fonte, e um
-// resumo escrito por máquina sobre o que um parlamentar votou é exatamente o
-// tipo de texto que não se pode defender depois. Quando o documento não traz
-// justificação — e há casos, o PL 3.626/2023 é um deles, 14 páginas sem uma —,
-// o relatório NÃO inventa: o item simplesmente sai sem resumo.
+// DUAS CAMADAS, e a distinção entre elas é o que sustenta o documento:
+//
+//   TRANSCRIÇÃO — o trecho literal do documento, com link para a fonte. É o que
+//   se confere. Quando o documento não traz justificação (o PL 3.626/2023 é
+//   esse caso, 14 páginas sem uma), não se inventa: o item sai sem transcrição.
+//
+//   EXPLICAÇÃO — a mesma coisa em português comum, escrita pelo provedor de IA
+//   a partir DA TRANSCRIÇÃO, e de mais nada. "Requeiro, nos termos do art. 161,
+//   II, destaque para a Emenda de Plenário nº 26" não diz a ninguém o que
+//   estava em jogo; é para isso que esta camada existe.
+//
+// O documento marca cada texto pelo que ele é, e a transcrição fica ao lado da
+// explicação. Sem chave de IA configurada, só a transcrição aparece — pior de
+// ler, e continua correta.
 //
 // Medição do acerto num lote real (PL 3.626/2023, 14 documentos):
 // justificação em 8 de 8 emendas, pedido em 6 de 6 destaques, zero erros.
@@ -181,7 +189,8 @@ async function rsmDoItem(objetoTexto, objetosPossiveis) {
  */
 async function rsmDaMateria(prop) {
   if (!prop) return null;
-  const out = { palavras: null, justificacao: null, url: null, falhou: false };
+  const out = { ementa: String(prop.ementa || '').replace(/\s+/g, ' ').trim() || null,
+                palavras: null, justificacao: null, url: null, falhou: false };
   const chaves = String(prop.keywords || '').replace(/\s+/g, ' ').trim();
   if (chaves) out.palavras = chaves;
   if (prop.urlInteiroTeor) {
@@ -193,7 +202,7 @@ async function rsmDaMateria(prop) {
       console.warn('[resumos] inteiro teor da matéria não lido:', e.message);
     }
   }
-  return (out.palavras || (out.justificacao && out.justificacao.texto) || out.falhou) ? out : null;
+  return (out.ementa || out.palavras || (out.justificacao && out.justificacao.texto) || out.falhou) ? out : null;
 }
 
 /**
@@ -227,11 +236,18 @@ function rsmHtmlItem(r) {
   if (!r) return '';
   const e = cvEsc;
   const p = [];
-  if (r.pedido && r.pedido.texto) {
-    p.push(`<div class="rsm-linha"><span class="rsm-rot">O destaque pedia</span> ${e(r.pedido.texto)}</div>`);
+  // A explicação em linguagem comum vem primeiro porque é o que se quer ler; a
+  // transcrição literal fica embaixo, recolhida, como a fonte que sustenta.
+  if (r.simples) {
+    p.push(`<div class="rsm-linha rsm-simples"><span class="rsm-rot">O que o destaque fazia</span> ${e(r.simples)}</div>`);
   }
-  if (r.justificacao && r.justificacao.texto) {
-    p.push(`<div class="rsm-linha"><span class="rsm-rot">Justificação da emenda</span> ${e(r.justificacao.texto)}</div>`);
+  const lit = [];
+  if (r.pedido && r.pedido.texto) lit.push(`<b>Requerimento:</b> ${e(r.pedido.texto)}`);
+  if (r.justificacao && r.justificacao.texto) lit.push(`<b>Justificação:</b> ${e(r.justificacao.texto)}`);
+  if (lit.length) {
+    p.push(r.simples
+      ? `<details class="rsm-literal"><summary>texto literal do documento</summary>${lit.join('<br>')}</details>`
+      : `<div class="rsm-linha">${lit.join('<br>')}</div>`);
   }
   if (r.falhou && !p.length) {
     p.push(`<div class="rsm-linha rsm-falha">O inteiro teor não pôde ser lido agora — o que faltou é a consulta, não o documento.</div>`);
@@ -240,4 +256,138 @@ function rsmHtmlItem(r) {
   const fontes = (r.fontes || []).map(f =>
     `<a href="${f.url}" target="_blank" rel="noopener">${e(f.rotulo)} ↗</a>`).join('');
   return `<div class="rsm">${p.join('')}${fontes ? `<div class="rsm-fontes">Transcrito de ${fontes}</div>` : ''}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+//  Explicação em linguagem comum
+// ---------------------------------------------------------------------------
+// A transcrição acima é a fonte: literal, conferível, e ilegível para quem não
+// milita no Regimento. "Requeiro, nos termos do art. 161, II, destaque para a
+// Emenda de Plenário nº 26" não diz a ninguém o que estava em jogo.
+//
+// Então o texto do documento vai ao provedor de IA já configurado na extensão,
+// que devolve uma frase em português comum. Três regras de desenho, porque isto
+// é texto gerado dentro de um documento de conferência:
+//
+//  1. o modelo só REESCREVE o que recebe. Ele não busca nada, não completa com
+//     o que "sabe" da matéria, e quando o trecho não diz o que mudava, a saída
+//     tem de dizer isso em vez de preencher;
+//  2. nada de mérito, de intenção ou de efeito político. O que o destaque fazia,
+//     não se era bom nem por que alguém votou como votou;
+//  3. o documento marca o texto como gerado e mantém o link da fonte ao lado.
+//     Quem duvidar abre o documento original e confere.
+//
+// Sem chave configurada, nada disso roda e o relatório fica com a transcrição —
+// que é pior de ler e continua correta.
+
+const RSM_MODELO_PADRAO = 'gemini-2.5-flash';
+
+async function rsmConfigIA() {
+  return new Promise(r => {
+    try { chrome.storage.local.get('config', d => r(d.config || {})); }
+    catch (e) { r({}); }
+  });
+}
+
+/** Recorta o que vai no prompt: só o que saiu dos documentos. */
+function rsmFonteDoItem(objetoTexto, r) {
+  const p = [];
+  if (objetoTexto) p.push('Registro da tramitação: ' + objetoTexto);
+  if (r && r.pedido && r.pedido.texto) p.push('Requerimento do destaque: ' + r.pedido.texto);
+  if (r && r.justificacao && r.justificacao.texto) p.push('Justificação da emenda: ' + r.justificacao.texto);
+  return p.join('\n');
+}
+
+function rsmPrompt(materia, itens) {
+  const m = [];
+  if (materia) {
+    if (materia.ementa) m.push('Ementa: ' + materia.ementa);
+    if (materia.palavras) m.push('Indexação da Câmara: ' + materia.palavras);
+    if (materia.justificacao && materia.justificacao.texto) m.push('Justificação do autor: ' + materia.justificacao.texto);
+  }
+  return `Você recebe trechos LITERAIS de documentos legislativos da Câmara dos Deputados.
+Sua tarefa é reescrever cada um em português comum, para uma pessoa que não conhece
+o Regimento Interno nem vocabulário jurídico.
+
+REGRAS, todas obrigatórias:
+- Use SOMENTE o que está nos trechos abaixo. Não acrescente contexto, histórico,
+  número de lei, efeito econômico ou qualquer informação que não esteja ali.
+- NÃO cite dispositivo regimental (art. 161, DVS, "nos termos do"), nem número de
+  emenda ou destaque. Diga o que a medida FAZIA, em termos concretos.
+- NÃO avalie mérito, não diga se é bom ou ruim, não atribua intenção a ninguém e
+  não explique por que alguém votou como votou.
+- Se o trecho não disser o que a medida mudava, responda exatamente:
+  "O documento não detalha o que a medida mudava."
+- Uma ou duas frases por item. Direto, sem preâmbulo.
+
+Responda SOMENTE com JSON válido, sem cercas de código, neste formato:
+{"materia":"<uma ou duas frases>","itens":{"<id>":"<uma ou duas frases>"}}
+
+=== MATÉRIA ===
+${m.join('\n') || '(sem dados)'}
+
+=== ITENS ===
+${itens.map(i => `[id ${i.id}]\n${i.fonte}`).join('\n\n')}`;
+}
+
+/** Tira cerca de código e devolve o objeto, ou null. */
+function rsmJson(texto) {
+  let s = String(texto || '').trim();
+  s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
+  const i = s.indexOf('{'), f = s.lastIndexOf('}');
+  if (i < 0 || f <= i) return null;
+  try { return JSON.parse(s.slice(i, f + 1)); } catch (e) { return null; }
+}
+
+/**
+ * Gera as explicações e as costura no resultado. Devolve o que aconteceu, para
+ * a tela poder dizer — uma explicação que não veio precisa aparecer como não
+ * veio, e não como item sem explicação.
+ */
+async function rsmExplicar(resultado, objetos, aoAndar) {
+  const cfg = await rsmConfigIA();
+  if (!cfg.apiKey) return { feito: false, motivo: 'sem-chave' };
+
+  const itens = [];
+  for (const [id, r] of Object.entries(resultado.itens || {})) {
+    const fonte = rsmFonteDoItem(objetos[id], r);
+    if (fonte) itens.push({ id, fonte });
+  }
+  const temMateria = resultado.materia &&
+    (resultado.materia.ementa || resultado.materia.palavras ||
+     (resultado.materia.justificacao && resultado.materia.justificacao.texto));
+  if (!itens.length && !temMateria) return { feito: false, motivo: 'sem-fonte' };
+
+  if (aoAndar) aoAndar('Pedindo a explicação em linguagem comum…');
+  let resposta;
+  try {
+    resposta = await chamarIA({
+      provedorId: cfg.provedor || 'gemini',
+      apiKey: cfg.apiKey,
+      modelo: cfg.modelo || RSM_MODELO_PADRAO,
+      prompt: rsmPrompt(resultado.materia, itens),
+      opcoes: { maxSaida: 8000 },
+    });
+  } catch (e) {
+    console.warn('[resumos] explicação não gerada:', e.message);
+    return { feito: false, motivo: 'erro', erro: e.message };
+  }
+
+  const j = rsmJson(resposta && resposta.text);
+  if (!j) return { feito: false, motivo: 'resposta-ilegivel' };
+
+  // Só entra o que casa com um item que existe. Id inventado pelo modelo é
+  // descartado em silêncio — colar texto no item errado seria pior que não ter.
+  let aplicados = 0;
+  const conhecidos = new Set(itens.map(i => i.id));
+  for (const [id, txt] of Object.entries(j.itens || {})) {
+    if (!conhecidos.has(id) || !txt || typeof txt !== 'string') continue;
+    resultado.itens[id].simples = txt.trim();
+    aplicados++;
+  }
+  if (j.materia && typeof j.materia === 'string' && resultado.materia) {
+    resultado.materia.simples = j.materia.trim();
+  }
+  resultado.gerado = { modelo: cfg.modelo || RSM_MODELO_PADRAO, provedor: cfg.provedor || 'gemini' };
+  return { feito: true, aplicados, total: itens.length };
 }

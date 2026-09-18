@@ -302,6 +302,12 @@
   .rsm-falha { color: var(--abstencao); }
   .rsm-fontes { margin-top: 5px; font-size: 10px; }
   .rsm-fontes a { color: var(--accent-light); text-decoration: none; margin-right: 8px; }
+  .rsm-simples { color: var(--text); font-size: 12px; }
+  .rsm-ger { color: var(--text-dim); font-style: italic; }
+  .rsm-literal { margin-top: 6px; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .rsm-literal summary { cursor: pointer; color: var(--accent-light); font-size: 10px;
+                         text-transform: uppercase; letter-spacing: .3px; }
+  .rsm-literal[open] summary { margin-bottom: 4px; }
   select.field { appearance: none; }
 
   .spinner {
@@ -847,6 +853,7 @@
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
 <script src="libs/pdf.min.js"></script>
+<script src="ia-comum.js"></script>
 <script src="resumos.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>

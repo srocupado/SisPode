@@ -1520,11 +1520,19 @@ function cvDesenhar() {
       </div>
       ${resumos && resumos.materia ? (() => {
         const m = resumos.materia, p = [];
-        if (m.palavras) p.push(`<div class="rsm-linha"><span class="rsm-rot">Indexação da Câmara</span> ${cvEsc(m.palavras)}</div>`);
-        if (m.justificacao && m.justificacao.texto)
-          p.push(`<div class="rsm-linha"><span class="rsm-rot">Justificação do autor</span> ${cvEsc(m.justificacao.texto)}</div>`);
-        return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${
-          m.url ? `<div class="rsm-fontes">Transcrito do <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
+        if (m.simples) p.push(`<div class="rsm-linha rsm-simples"><span class="rsm-rot">Do que trata a matéria</span> ${cvEsc(m.simples)}</div>`);
+        const lit = [];
+        if (m.palavras) lit.push(`<b>Indexação da Câmara:</b> ${cvEsc(m.palavras)}`);
+        if (m.justificacao && m.justificacao.texto) lit.push(`<b>Justificação do autor:</b> ${cvEsc(m.justificacao.texto)}`);
+        if (lit.length) p.push(m.simples
+          ? `<details class="rsm-literal"><summary>texto literal do documento</summary>${lit.join('<br>')}</details>`
+          : `<div class="rsm-linha">${lit.join('<br>')}</div>`);
+        const ger = resumos.gerado
+          ? `<div class="rsm-fontes rsm-ger">Explicação em linguagem comum gerada por ${cvEsc(resumos.gerado.modelo)} a partir dos trechos abaixo — o texto literal é a fonte.</div>`
+          : (resumos.explicacao && resumos.explicacao.motivo === 'sem-chave'
+            ? `<div class="rsm-fontes rsm-ger">Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.</div>` : '');
+        return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${ger}${
+          m.url ? `<div class="rsm-fontes">Fonte: <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
       })() : ''}
       ${comum.fichaComum ? `<div class="cv-links" style="margin-top:8px">
         <a href="${comum.fichaComum}" target="_blank" rel="noopener">Ficha da proposição ↗</a>
@@ -1682,6 +1690,12 @@ async function cvConsultar() {
           prelim.filter(l => dados.objetos[l.it.votacao.id]),
           dados.objetos, dados.propDetalhada, dados.objetosPossiveis,
           (f, t) => cvStatus(`Lendo o inteiro teor de cada item… ${f}/${t}`, 'loading'));
+
+        // A transcrição é a fonte; a explicação em linguagem comum é o que se
+        // lê. Sem chave de IA configurada o relatório fica só com a primeira,
+        // que é pior de ler e continua correta — e a tela diz isso.
+        dados.resumos.explicacao = await rsmExplicar(
+          dados.resumos, dados.objetos, msg => cvStatus(msg, 'loading'));
       }
     } else {
       const ini = cvEl.dataIni.value, fim = cvEl.dataFim.value;
@@ -1823,6 +1837,9 @@ const CSS_PDF_VOTOS = `
   .rsm { font-size: 8pt; color: #3c4a44; background: #f4f7f5; border-left: 2px solid #c9ddd2;
          padding: 5px 8px; margin: 4px 0 5px; line-height: 1.45; }
   .rsm b { color: #00552a; }
+  .rsm i { color: #6b7280; }
+  .rsm-fon { margin-top: 3px; font-size: 7.5pt; color: #6b7280; }
+  .rsm-fon a { color: #1d4ed8; }
   .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
@@ -1878,9 +1895,18 @@ function cvHtmlPDF(logoDataUrl) {
             const r = resumos && resumos.itens[v.id];
             if (!r) return '';
             const p = [];
-            if (r.pedido && r.pedido.texto) p.push(`<b>O destaque pedia:</b> ${e(r.pedido.texto)}`);
-            if (r.justificacao && r.justificacao.texto) p.push(`<b>Justificação da emenda:</b> ${e(r.justificacao.texto)}`);
-            return p.length ? `<div class="rsm">${p.join('<br>')}</div>` : '';
+            if (r.simples) p.push(`<b>O que o destaque fazia:</b> ${e(r.simples)}`);
+            else {
+              if (r.pedido && r.pedido.texto) p.push(`<b>Requerimento:</b> ${e(r.pedido.texto)}`);
+              if (r.justificacao && r.justificacao.texto) p.push(`<b>Justificação:</b> ${e(r.justificacao.texto)}`);
+            }
+            if (!p.length) return '';
+            // A fonte acompanha a explicação mesmo quando o texto literal sai
+            // do documento: sem o link, a frase em linguagem comum fica sem
+            // como ser conferida, que é o oposto do que este relatório é.
+            const fon = (r.fontes || []).map(f => `<a href="${f.url}">${e(f.rotulo)}</a>`).join(' · ');
+            return `<div class="rsm">${p.join('<br>')}${
+              fon ? `<div class="rsm-fon">fonte: ${fon}</div>` : ''}</div>`;
           })()}
           <div class="res">${e(v.descricao || '')}</div>
           ${(() => { const L = cvLinks(v); const p = [];
@@ -1926,10 +1952,17 @@ function cvHtmlPDF(logoDataUrl) {
       comum.fichaComum ? `<br><a href="${comum.fichaComum}" style="color:#1d4ed8">Ficha de tramitação no portal da Câmara</a>` : ''}</div>` : ''}
   ${resumos && resumos.materia ? (() => {
     const m = resumos.materia, p = [];
+    if (m.simples) p.push(`<b>Do que trata a matéria:</b> ${e(m.simples)}`);
     if (m.palavras) p.push(`<b>Indexação da Câmara:</b> ${e(m.palavras)}`);
     if (m.justificacao && m.justificacao.texto) p.push(`<b>Justificação do autor:</b> ${e(m.justificacao.texto)}`);
-    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}
-      <br><br><i>Transcrição literal do inteiro teor no portal da Câmara — não é resumo redigido por este relatório.</i></div>` : '';
+    // A procedência de cada texto fica dita: o que é transcrição e o que foi
+    // gerado. Num documento de conferência isso não é rodapé, é conteúdo.
+    const proc = resumos.gerado
+      ? `As explicações "do que trata a matéria" e "o que o destaque fazia" foram <b>geradas por ${e(resumos.gerado.modelo)}</b>
+         a partir dos trechos literais dos documentos, e reescrevem apenas o que eles dizem. A indexação e a justificação
+         acima são transcrição literal do portal da Câmara.`
+      : `Os textos acima são transcrição literal do inteiro teor no portal da Câmara — não são resumo redigido por este relatório.`;
+    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}<br><br><i>${proc}</i></div>` : '';
   })() : ''}
   <div class="resumo">
     <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
