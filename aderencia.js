@@ -1243,7 +1243,40 @@ async function cvPorPeriodo(dataIni, dataFim) {
   const plen = todas.filter(v => v.siglaOrgao === 'PLEN' && String(v.data) >= dataIni && String(v.data) <= dataFim);
   if (!plen.length) return { itens: [], objetos: {} };
   const itens = await cvEnriquecer(plen, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
-  return { itens: itens.filter(Boolean), objetos: {} };
+
+  // A consulta por período também lê a tramitação. Antes não lia, e o efeito
+  // era que NENHUM item tinha objeto — o relatório saía com uma lista de
+  // resultados sem dizer o que estava em votação. São poucas chamadas: as
+  // votações de um período se concentram em poucas proposições (medido em
+  // 18/09/2026: 20 proposições para 57 votações, ~4s).
+  const objetos = await cvObjetosDeVarias(plen);
+  return { itens: itens.filter(Boolean), objetos };
+}
+
+/**
+ * Objetos da tramitação para um conjunto qualquer de votações, agrupando por
+ * proposição — o prefixo do id da votação é o id da proposição.
+ * Falha de leitura não derruba o resto: a proposição sai sem objeto.
+ */
+async function cvObjetosDeVarias(votacoes) {
+  const porProp = new Map();
+  for (const v of votacoes) {
+    const idp = String(v.id).split('-')[0];
+    if (!porProp.has(idp)) porProp.set(idp, []);
+    porProp.get(idp).push(v);
+  }
+  const objetos = {};
+  let lidas = 0;
+  for (const [idp, lista] of porProp) {
+    try {
+      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      Object.assign(objetos, objetosDaTramitacao(lista, tram));
+    } catch (e) {
+      console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
+    }
+    cvStatus(`Lendo a tramitação… ${++lidas}/${porProp.size}`, 'loading');
+  }
+  return objetos;
 }
 
 // ---------- links públicos de cada item ----------
@@ -1362,10 +1395,21 @@ function cvJanela() {
  */
 function cvRender(dados) {
   const dep = cv.deputado;
-  const linhas = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+  const objetos = dados.objetos || {};
+
+  // Votação cujo objeto não foi identificado na tramitação NÃO entra no
+  // relatório. A linha existia com o rótulo "objeto não identificado" e só
+  // ocupava espaço: o resultado registrado ("Rejeitado o Requerimento.") não
+  // diz O QUE foi rejeitado, que é a única coisa que a linha precisava dizer.
+  // A contagem de descartadas fica guardada, e é dita — sumir em silêncio faria
+  // o total do documento divergir da ficha da Câmara sem explicação.
+  const todas = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+  const linhas = todas.filter(l => objetos[l.it.votacao.id]);
+  const semObjeto = todas.length - linhas.length;
+
   cv.completo = {
-    linhas, objetos: dados.objetos, prop: dados.prop, periodo: dados.periodo,
-    dep, retirados: dados.retirados || [],
+    linhas, objetos, prop: dados.prop, periodo: dados.periodo,
+    dep, retirados: dados.retirados || [], semObjeto,
   };
   cv.recorte = cvLimites(linhas);
   cvDesenhar();
@@ -1373,7 +1417,7 @@ function cvRender(dados) {
 
 function cvDesenhar() {
   if (!cv.completo) return;
-  const { objetos, prop, periodo, dep } = cv.completo;
+  const { objetos, prop, periodo, dep, semObjeto } = cv.completo;
   const { lim, r, parcial, invertido } = cvJanela();
 
   const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
@@ -1405,7 +1449,7 @@ function cvDesenhar() {
   // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
   // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
   const corta = fora > 0;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct,
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto,
                 recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
 
   const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
@@ -1436,6 +1480,7 @@ function cvDesenhar() {
         <div class="cv-num"><div class="v">${pct == null ? '—' : pct.toFixed(1) + '%'}</div><div class="l">Aderência</div></div>
       </div>
       <div class="sub" style="margin-top:9px">
+        ${semObjeto ? `${semObjeto} votação(ões) da ficha ficaram fora do relatório: a tramitação não diz o que estava em votação. ` : ''}
         ${cont.simbolica ? `${cont.simbolica} votação(ões) simbólica(s) — sem registro individual de voto, não contam como ausência. ` : ''}
         ${cont['sem-gov'] ? `${cont['sem-gov']} votação(ões) nominal(is) sem orientação do governo ficam fora do cálculo. ` : ''}
         A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
@@ -1462,7 +1507,7 @@ function cvDesenhar() {
             <span class="rot">Voto:</span> ${cvEsc(votoTxt)}
           </div>
           <div class="cv-corpo">
-            <div class="cv-obj">${obj ? cvEsc(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</div>
+            <div class="cv-obj">${cvEsc(obj)}</div>
             <div class="cv-res">${cvEsc(v.descricao || '')}</div>
             <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
             ${(() => { const L = cvLinks(v); const p = [];
@@ -1552,7 +1597,7 @@ function cvExportar() {
       String(v.data || '').split('-').reverse().join('/'),
       String(v.dataHoraRegistro || '').slice(11, 16),
       v.id,
-      objetos[v.id] || 'não identificado na tramitação',
+      objetos[v.id],
       v.descricao || '',
       s.situacao === 'simbolica' ? 'votação simbólica' : (s.voto || 'não votou'),
       it.govOrient || '',
@@ -1691,7 +1736,6 @@ const CSS_PDF_VOTOS = `
   td.hora { white-space: nowrap; font-size: 8.5pt; }
   tr.simb td { background: #fafafa; color: #6b7280; }
   .res { font-size: 8pt; color: #6b7280; margin-top: 3px; font-style: italic; }
-  .naoident { color: #8a8f8c; font-style: italic; }
   .links { font-size: 7.5pt; margin-top: 3px; }
   .links a { color: #1d4ed8; text-decoration: none; }
   .nada { color: #9aa5a0; }
@@ -1709,7 +1753,7 @@ const CSS_PDF_VOTOS = `
           padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
   .nota b { color: #003c1f; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
-  .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; }
+  .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
   .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
   @media print { .bx, .tag, th, tr.simb td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
 `;
@@ -1721,7 +1765,7 @@ const CV_TAG_PDF = {
 
 function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
-  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte } = u;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto } = u;
   const e = cvEsc;
   const comum = cvAgruparLinks(linhas);
 
@@ -1757,7 +1801,7 @@ function cvHtmlPDF(logoDataUrl) {
       : (s.voto ? `<span class="tag tag-voto">${e(s.voto)}</span>` : '<span class="tag tag-aus">não votou</span>');
     return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
       <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
-      <td><b>${obj ? e(obj) : '<span class="naoident">Objeto não identificado na tramitação</span>'}</b>
+      <td><b>${e(obj)}</b>
           <div class="res">${e(v.descricao || '')}</div>
           ${(() => { const L = cvLinks(v); const p = [];
             if (L.prop && L.prop !== comum.fichaComum)
@@ -1814,7 +1858,9 @@ function cvHtmlPDF(logoDataUrl) {
     não o produz —, então não entram em conta nenhuma: não são ausência do deputado. Votação nominal
     <b>sem orientação do Governo</b> também fica fora do cálculo, embora o voto exista e apareça.
     A aderência é calculada sobre <b>${comparaveis} votação(ões) comparável(is)</b>, de ${qualificadas}
-    qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.
+    qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.${semObjeto ? `
+    <br><b>${semObjeto} votação(ões)</b> da ficha não entraram neste documento porque a tramitação não
+    registra o que estava em votação — listá-las sem objeto não informaria nada.` : ''}
   </div>
 
 
@@ -1951,7 +1997,7 @@ function cvSvgEstatistica(cont, total) {
   // A folga vertical acima do anel é deliberada: o rótulo de uma fatia fina sai
   // para fora, a R_FORA+13, e sem essa folga ele bateria no título da figura.
   const L = 620, ALT = 220;
-  const cx = 112, cy = 114, R_FORA = 76, R_DENTRO = 48;
+  const cy = 114, R_FORA = 76, R_DENTRO = 48, VAO_LEG = 44;
   const rMeio = (R_FORA + R_DENTRO) / 2;
 
   // A ordem é a validada: Aderiu → Ausente → Divergiu (âmbar entre verde e vermelho).
@@ -1960,6 +2006,17 @@ function cvSvgEstatistica(cont, total) {
     { k: 'ausente',    rot: 'Ausente',  n: cont.ausente },
     { k: 'divergente', rot: 'Divergiu', n: cont.divergente },
   ].filter(p => p.n > 0);          // fatia de zero não se desenha
+
+  // O conjunto anel + legenda é centrado na figura, e a figura na página. A
+  // largura da legenda se estima do texto mais longo: sem isso o bloco fica
+  // encostado à esquerda com um vazio à direita, que foi como nasceu.
+  const larguraLegenda = 17 + Math.max(...partes.map(p => {
+    const pct = ((p.n / qual) * 100).toFixed(p.n / qual >= 0.995 ? 0 : 1);
+    return Math.max(p.rot.length * 6.4, `${p.n} de ${qual} — ${pct}%`.length * 5.4);
+  }));
+  const larguraBloco = 2 * R_FORA + VAO_LEG + larguraLegenda;
+  const x0 = Math.max((L - larguraBloco) / 2, 0);
+  const cx = x0 + R_FORA;
 
   // Vão de 2px na cor da superfície entre fatias vizinhas, convertido de pixels
   // para ângulo no raio médio do anel. Fatia única fecha a volta, sem vão.
@@ -2000,7 +2057,7 @@ function cvSvgEstatistica(cont, total) {
   return `<svg width="${L}" height="${ALT}" viewBox="0 0 ${L} ${ALT}" role="img"
     aria-label="Conduta nas ${qual} votações qualificadas, de um universo de ${total}: ${partes.map(p => p.rot + ' ' + p.n).join(', ')}."
     style="max-width:100%;height:auto">
-    <text x="0" y="12" font-size="10.5" font-weight="600" fill="${CV_COR.tinta2}">Conduta nas votações qualificadas</text>
+    <text x="${L / 2}" y="12" font-size="10.5" font-weight="600" text-anchor="middle" fill="${CV_COR.tinta2}">Conduta nas votações qualificadas</text>
     <g>
       ${fatias.join('\n      ')}
       ${rotulos.join('\n      ')}
@@ -2008,8 +2065,8 @@ function cvSvgEstatistica(cont, total) {
       <text x="${cx}" y="${cy + 14}" font-size="9.5" text-anchor="middle" fill="${CV_COR.muda}">qualificadas</text>
       <text x="${cx}" y="${cy + 26}" font-size="9.5" text-anchor="middle" fill="${CV_COR.muda}">de ${total}</text>
     </g>
-    <g transform="translate(232,${cy - (partes.length * 27) / 2 + 4})">${legenda}</g>
-    <text x="0" y="${ALT - 6}" font-size="9" fill="${CV_COR.muda}">
+    <g transform="translate(${(x0 + 2 * R_FORA + VAO_LEG).toFixed(1)},${cy - (partes.length * 27) / 2 + 4})">${legenda}</g>
+    <text x="${L / 2}" y="${ALT - 6}" font-size="9" text-anchor="middle" fill="${CV_COR.muda}">
       ${fora} das ${total} votações ${fora === 1 ? 'ficou' : 'ficaram'} fora do cálculo — votação simbólica ou sem orientação do governo</text>
   </svg>`;
 }
