@@ -107,6 +107,17 @@ lista vazia que passa por ausência de fato:
 9. **Não existe rota por relator.** `?idDeputadoRelator=` devolve 400. A relatoria
    só aparece em `statusProposicao.uriUltimoRelator` (uma proposição por vez) e em
    `/eventos/{id}/pauta.relator`. Qualquer relatório de relatoria é varredura.
+   **Correção, apurada depois:** há um caminho melhor — o **parecer é proposição**.
+   PRL, PRLP, PPP e RDF aparecem em `?idDeputadoAutor=` com a ementa "Parecer do
+   Relator, Dep. Fulano, pela aprovação", então a relatoria é contável numa só
+   consulta. O que ela não dá é o vínculo com a matéria relatada:
+   `uriPropPrincipal` vem vazio e `/relacionadas` não devolve nada.
+11. **`codTema` não compõe com `dataApresentacaoInicio/Fim`** — a combinação devolve
+    HTTP 400. Compõe com `ano`.
+12. **Marcar autoria de partido num conjunto grande não precisa de uma chamada por
+    proposição:** a mesma busca repetida com `siglaPartidoAutor` devolve o
+    subconjunto, e cruzar os ids resolve. Numa busca de 717 proposições, são 2
+    chamadas em vez de 717.
 10. Paginação: 100 itens por página é o teto; `links.next` precisa ser seguido.
     Um corte mudo aqui vira "o deputado apresentou 100 proposições".
 
@@ -136,7 +147,10 @@ esse número, isolado, é uma manchete. A mesma votação lida contra a orienta�
 - **Ressalva obrigatória no documento:** votação simbólica não tem voto individual,
   e liderança "Liberado" não é divergência. Sem isso o relatório inventa conduta.
 
-### B. Retrato da produção legislativa — *defesa e subsídio*
+### B. Retrato da produção legislativa — *defesa e subsídio* — **FEITO**
+
+> Implementado como a aba **Produção legislativa** do módulo Relatórios.
+
 
 **A pergunta:** "O que o deputado produziu no mandato?"
 
@@ -186,7 +200,10 @@ relatados, pareceres apresentados e votações de que participou.
   instalação) a leitura é mais direta. **A diferença precisa ser dita no documento**,
   ou ele vira exatamente o tipo de número que se volta contra quem o publicou.
 
-### E. Radar temático da bancada — *subsídio*
+### E. Radar temático da bancada — *subsídio* — **FEITO**
+
+> Implementado como a aba **Radar temático** do módulo Relatórios.
+
 
 **A pergunta:** "O que está andando na Casa sobre o tema X?"
 
@@ -219,7 +236,8 @@ Toda matéria em que um deputado da bancada é relator, com prazo, situação e 
 
 ## Parte 3 — Recomendação
 
-Se for para fazer um só: **A (ficha de conduta em votação)**. O dado já está em
+**B e E estão feitos** (abas "Produção legislativa" e "Radar temático").
+Dos que faltam, se for para fazer um só: **A (ficha de conduta em votação)**. O dado já está em
 mãos e descartado, o módulo de consulta já monta o documento, e é o relatório que
 responde à pergunta que mais chega de fora — hoje respondida com um número
 (aderência ao Governo) que, sozinho, trabalha contra o parlamentar.

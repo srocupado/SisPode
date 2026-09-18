@@ -98,6 +98,27 @@ Como um deputado — de **qualquer partido** — votou numa proposição ou num 
 
 ---
 
+#### 3.3 Produção legislativa
+
+O que um deputado — de **qualquer partido** — produziu, sem responder com um número só.
+
+- Traz **todas** as proposições de autoria, seguindo a paginação da API (o teto é 100 por página e a API não avisa que cortou; um mandato inteiro passa de 800 registros)
+- Separa **por natureza do instrumento**: mérito (PL, PLP, PEC), fiscalização e controle (RIC, RCP, PFC), relatoria, atuação sobre o texto (emendas, substitutivos, destaques), requerimentos de andamento e peças de processo. O total bruto soma projeto de lei com requerimento de sessão solene — o relatório diz isso em vez de esconder
+- Para as **matérias de mérito**, lê a situação de cada uma: quantas viraram norma, quantas aguardam relator, quantas foram arquivadas. É o destino que separa o relatório de um release
+- **Relatoria**: a base registra o parecer (PRL, PRLP, PPP, RDF) como proposição do relator, e é assim que a relatoria é contada — não existe rota por relator na API. Ressalva declarada no documento: o parecer não traz vínculo com a matéria relatada
+- Filtro opcional por ano · exporta em **PDF** e em **Excel** (resumo, mérito e a lista completa)
+
+#### 3.4 Radar temático
+
+O que está andando na Casa sobre um tema, marcando o que é da bancada.
+
+- Tema escolhido na lista da própria Câmara (`/referencias/proposicoes/codTema`), com palavra-chave e tipo opcionais
+- O recorte é **por ano**, não por intervalo de datas: a API recusa tema com intervalo (HTTP 400). Até 8 anos por consulta
+- A marca **Bancada** sai de uma segunda consulta com o mesmo filtro restrita ao partido, cruzada por identificador — autoria registrada na base, não inferência pelo nome do autor. Custa duas chamadas por ano, não uma por proposição
+- Filtro "só da bancada" na tela, sem reconsultar · exporta em **PDF** e em **Excel**
+
+---
+
 ### 4. Comissões
 
 O card **Comissões** abre dois painéis, escolhidos num menu: **Gestão** (vagas da bancada) e **Pautas de Comissões** (reuniões e pareceres em votação em cada colegiado).
