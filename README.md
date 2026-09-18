@@ -89,7 +89,8 @@ Como um deputado — de **qualquer partido** — votou numa proposição ou num 
 
 - Busca o parlamentar pelo nome; havendo homônimos, a escolha é do analista, com partido e UF à vista
 - **Por proposição** (sigla/número/ano): traz todas as votações da matéria, cada uma com o **objeto lido da tramitação** ("DTQ 1: Bloco UNIÃO (PSB): DVS do §10 do art. 23…"), que não existe em campo estruturado da API
-- **Por período**: todas as votações do Plenário no intervalo
+- **Por período**: todas as votações do Plenário no intervalo, também com o objeto lido da tramitação
+- Votação cujo objeto a tramitação não identifica **fica fora do relatório** — uma linha que só diz o resultado ("Rejeitado o Requerimento.") não diz o que foi rejeitado. O documento informa quantas saíram e por quê
 - Distingue quatro situações — aderiu, divergiu, ausente, e **votação simbólica**, que não tem registro individual de voto e por isso não é ausência do deputado; votação sem orientação do governo fica fora do cálculo, com o voto à vista
 - Corrige a perda das votações do último dia do intervalo (a API da Câmara as omite; a consulta pede `dataFim + 1` e descarta o excedente)
 - **Recorte do relatório**: como a consulta traz a tramitação inteira, uma faixa de datas delimita o que sai no documento — sem consultar a API de novo. Consolidado, gráfico, destaques retirados e exports seguem o recorte, e tanto o PDF quanto a planilha **declaram** que são recorte, dizendo quantas votações ficaram de fora e qual é a extensão completa da matéria

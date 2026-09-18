@@ -76,6 +76,7 @@ new vm.Script(scripts.map(s => fs.readFileSync(path.join(RAIZ, s), 'utf8')).join
 const av = e => vm.runInContext(e, ctx);
 const clicar = sel => { const el = document.querySelector(sel); if (!el) return false;
                         el.dispatchEvent(new Event('click', { bubbles: true })); return true; };
+const telaCvBruto = () => document.getElementById('cvResultado').innerHTML;
 
 // ---------- o caso real: PL 3626/2023 ----------
 const GAMBALE = { id: 220641, nome: 'Rodrigo Gambale', siglaPartido: 'PODE', siglaUf: 'SP' };
@@ -195,11 +196,13 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     document.getElementById('cvAno').value = '2023';
     await av('cvConsultar()');
 
+    // Cinco das seis: a votação 2374400-89 não tem correspondência na
+    // tramitação, e o que não foi identificado fica fora do relatório.
     const itens = [...document.querySelectorAll('#cvResultado .cv-item')];
-    ok(itens.length === 6, `as seis votações aparecem (${itens.length})`);
+    ok(itens.length === 5, `as votações com objeto identificado aparecem (${itens.length} de 6)`);
 
     const ver = itens.map(i => i.querySelector('.cv-ver').textContent.trim());
-    ok(ver.join(',') === 'Simbólica,Aderiu,Aderiu,Sem orientação,Ausente,Simbólica',
+    ok(ver.join(',') === 'Simbólica,Aderiu,Aderiu,Sem orientação,Ausente',
        `cada uma com o seu veredito (${ver.join(', ')})`);
 
     const votos = itens.map(i => i.querySelector('.cv-voto').textContent.replace(/\s+/g, ' ').trim());
@@ -291,8 +294,10 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(/sem orientação do Governo.*fica fora do cálculo/s.test(doc), 'e que sem orientação fica fora do cálculo');
 
     ok(/votação simbólica|tag-simb/.test(doc), 'as simbólicas são marcadas na tabela');
-    ok(/Objeto não identificado na tramitação/.test(doc),
-       'e item sem casamento seguro sai declarado, não com objeto aproximado');
+    ok(!/não identificado na tramitação/.test(doc),
+       'item sem casamento seguro NÃO entra: o documento não carrega linha sem objeto');
+    ok(/<b>1 votação\(ões\)<\/b> da ficha não entraram/.test(doc.replace(/\s+/g, ' ')),
+       'mas o documento diz quantas ficaram de fora, e por quê — some o item, não a informação');
   }
 
   console.log('\n== link público de cada item ==');
@@ -381,6 +386,53 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
        'e por que a matéria tem menos votações do que se esperaria');
   }
 
+  console.log('\n== o que a tramitação não identifica fica fora ==');
+  {
+    document.getElementById('cvNumero').value = '3626';
+    document.getElementById('cvAno').value = '2023';
+    await av('cvConsultar()');
+    const ids = av('cv.completo.linhas.map(l => l.it.votacao.id)');
+    ok(!ids.includes('2374400-89'),
+       'a votação sem casamento na tramitação não entra na lista');
+    ok(ids.length === 5 && av('cv.completo.semObjeto') === 1,
+       `sobram as 5 identificadas, e a descartada é contada (${ids.length}, descartadas: ${av('cv.completo.semObjeto')})`);
+    ok(!/não identificado/.test(telaCvBruto()),
+       'e o rótulo "objeto não identificado" não aparece mais na tela');
+    ok(/1 votação\(ões\) da ficha ficaram fora do relatório/.test(telaCvBruto()),
+       'a tela diz quantas saíram e por quê — some o item, não a informação');
+
+    // A conta tem de acompanhar: contar uma votação que não se mostra seria
+    // um consolidado que não fecha com a própria tabela.
+    const c = av('cv.ultimo.cont');
+    ok(c.simbolica === 1, `a simbólica descartada saiu também da contagem (simbólicas: ${c.simbolica})`);
+  }
+  {
+    // Modo período: antes NENHUM item tinha objeto, porque a tramitação não era
+    // lida. Aplicar a regra sem ler esvaziaria o relatório inteiro.
+    api.periodo.todas = [
+      { id: '888-1', data: '2026-03-10', dataHoraRegistro: '2026-03-10T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/5', descricao: 'Aprovado o Requerimento de urgência.' },
+      { id: '888-2', data: '2026-03-10', dataHoraRegistro: '2026-03-10T16:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/5', descricao: 'Sem eco na tramitação.' },
+    ];
+    api.tramitacoes['888'] = [
+      { sequencia: 1, despacho: 'Votação do Requerimento de urgência para o Projeto de Lei nº 1 de 2026.' },
+      { sequencia: 2, despacho: 'Aprovado o Requerimento de urgência.' },
+    ];
+    api.votos['888-1'] = [voto('Sim')]; api.votos['888-2'] = [voto('Sim')];
+    api.orientacoes['888-1'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }];
+    api.orientacoes['888-2'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }];
+
+    av("cvTrocarModo('periodo')");
+    document.getElementById('cvDataIni').value = '2026-03-01';
+    document.getElementById('cvDataFim').value = '2026-03-31';
+    await av('cvConsultar()');
+    ok(av('cv.completo.linhas.length') === 1,
+       'no modo período a tramitação também é lida: o item com objeto fica');
+    ok(av('cv.completo.semObjeto') === 1, 'e o sem objeto sai, como na consulta por proposição');
+    ok(/Votação do Requerimento de urgência/.test(telaCvBruto()),
+       'o objeto real aparece — antes o modo período não mostrava nenhum');
+    av("cvTrocarModo('proposicao')");
+  }
+
   console.log('\n== recorte: delimitar o período que sai no relatório ==');
   const telaCv = () => document.getElementById('cvResultado').textContent;
   const recortar = (ini, fim) => {
@@ -389,8 +441,12 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     b.dispatchEvent(new Event('change', { bubbles: true }));
   };
   {
-    // Estado de partida: a consulta do bloco anterior, com as 6 votações.
-    ok(av('cv.completo.linhas.length') === 6, 'a consulta guarda a tramitação INTEIRA (6 votações)');
+    // Refaz a consulta: o bloco anterior deixou o estado no modo período.
+    document.getElementById('cvNumero').value = '3626';
+    document.getElementById('cvAno').value = '2023';
+    await av('cvConsultar()');
+    ok(av('cv.completo.linhas.length') === 5, 'a consulta guarda a tramitação inteira, menos o que não se identificou (5 de 6)');
+    ok(av('cv.completo.semObjeto') === 1, 'e registra quantas foram descartadas por falta de objeto');
     const ini = document.getElementById('cvRecIni'), fim = document.getElementById('cvRecFim');
     ok(!!ini && !!fim, 'a faixa de recorte aparece com o resultado');
     ok(ini.value === '2023-09-13' && fim.value === '2023-12-21',
@@ -409,11 +465,11 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
 
     ok(api.chamadas.length === antes, 'mudar o recorte NÃO consulta a API de novo — os dados já estão em mãos');
     ok(av('cv.ultimo.linhas.length') === 4, 'só as 4 votações da sessão de 13/09 entram (de 6)');
-    ok(av('cv.completo.linhas.length') === 6, 'e as 6 continuam carregadas, prontas para alargar');
+    ok(av('cv.completo.linhas.length') === 5, 'e as 5 continuam carregadas, prontas para alargar');
     ok(av('JSON.stringify(cv.ultimo.cont)') === JSON.stringify({ aderente: 2, divergente: 0, ausente: 0, 'sem-gov': 1, simbolica: 1 }),
        'o consolidado é recalculado sobre o recorte, não herdado do total');
     ok(!document.getElementById('cvRecTudo').hasAttribute('disabled'), 'e o botão "Tudo" se habilita');
-    ok(/2 fora do recorte/.test(document.querySelector('.cv-recorte .cnt').textContent),
+    ok(/1 fora do recorte/.test(document.querySelector('.cv-recorte .cnt').textContent),
        'a tela diz quantas ficaram de fora');
   }
   {
@@ -440,7 +496,7 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
   }
   {
     document.getElementById('cvRecTudo').dispatchEvent(new Event('click', { bubbles: true }));
-    ok(av('cv.ultimo.linhas.length') === 6, '"Tudo" devolve a tramitação inteira');
+    ok(av('cv.ultimo.linhas.length') === 5, '"Tudo" devolve o conjunto inteiro');
     ok(av('cv.ultimo.recorte') === null, 'e o documento volta a não ser recorte');
     ok(!/recorte/.test(av('cvHtmlPDF(null)')), 'nem no subtítulo');
   }
@@ -449,14 +505,14 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     // recorte a declarar. O contrário seria o documento ressalvar "0 ficaram
     // fora deste recorte", que é ruído se passando por rigor.
     recortar('2020-01-01', '2030-12-31');
-    ok(av('cv.ultimo.linhas.length') === 6, 'janela larga demais mostra tudo');
+    ok(av('cv.ultimo.linhas.length') === 5, 'janela larga demais mostra tudo');
     ok(av('cv.ultimo.recorte') === null, 'e não se declara recorte quando nada ficou de fora');
     ok(!/fora do recorte/.test(telaCv()), 'nem a tela fala em recorte');
   }
   {
     recortar('2024-01-01', '2024-12-31');
     ok(av('cv.ultimo.linhas.length') === 0, 'recorte que não pega nada não inventa linhas');
-    ok(/Nenhuma das 6 votações/.test(telaCv()), 'a tela diz o que houve');
+    ok(/Nenhuma das 5 votações/.test(telaCv()), 'a tela diz o que houve');
     ok(!document.getElementById('cvExportarPdf'), 'e não oferece exportar um documento vazio');
     ok(!!document.getElementById('cvRecTudo'), 'o controle continua na tela, para poder voltar');
   }
@@ -465,7 +521,7 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(/data inicial do recorte é posterior/.test(telaCv()),
        'intervalo invertido é dito, em vez de sair um relatório vazio sem explicação');
     document.getElementById('cvRecTudo').dispatchEvent(new Event('click', { bubbles: true }));
-    ok(av('cv.ultimo.linhas.length') === 6, 'e dá para voltar de lá');
+    ok(av('cv.ultimo.linhas.length') === 5, 'e dá para voltar de lá');
   }
 
   console.log('\n== período: o documento se adapta ==');
@@ -488,6 +544,15 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     api.votacoes['777'] = [
       { id: '777-1', data: '2023-05-02', dataHoraRegistro: '2023-05-02T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/1', descricao: 'Aprovado em 2023.' },
       { id: '777-2', data: '2024-04-10', dataHoraRegistro: '2024-04-10T15:00', siglaOrgao: 'PLEN', uriEvento: 'https://x/eventos/2', descricao: 'Aprovado em 2024.' },
+    ];
+    // A tramitação precisa existir: item sem objeto identificado não entra no
+    // relatório, e sem ela as duas votações sumiriam — que é o que se quer
+    // provar aqui que NÃO acontece quando a tramitação responde.
+    api.tramitacoes['777'] = [
+      { sequencia: 1, despacho: 'Votação do Projeto de Lei, em turno único.' },
+      { sequencia: 2, despacho: 'Aprovado em 2023.' },
+      { sequencia: 3, despacho: 'Votação das Emendas do Senado ao Projeto de Lei.' },
+      { sequencia: 4, despacho: 'Aprovado em 2024.' },
     ];
     api.votos['777-1'] = [voto('Sim')]; api.votos['777-2'] = [voto('Não')];
     api.orientacoes['777-1'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }];
