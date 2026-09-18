@@ -290,6 +290,18 @@
                color: var(--text-dim); text-transform: none; letter-spacing: 0; padding-bottom: 12px; }
   .rdr-check input { accent-color: var(--accent); }
   .cv-item.rdr-bancada { background: rgba(31,165,165,0.06); }
+
+  /* Transcrição do inteiro teor: recuada e em tom próprio, porque é palavra do
+     documento e não do relatório. */
+  .rsm { margin: 6px 0; padding: 7px 9px; background: rgba(255,255,255,0.03);
+         border-left: 2px solid rgba(31,165,165,0.4); border-radius: 0 6px 6px 0; }
+  .rsm-linha { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 4px; }
+  .rsm-linha:last-child { margin-bottom: 0; }
+  .rsm-rot { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+             letter-spacing: .4px; color: var(--accent-light); margin-bottom: 1px; }
+  .rsm-falha { color: var(--abstencao); }
+  .rsm-fontes { margin-top: 5px; font-size: 10px; }
+  .rsm-fontes a { color: var(--accent-light); text-decoration: none; margin-right: 8px; }
   select.field { appearance: none; }
 
   .spinner {
@@ -748,6 +760,9 @@
         </div>
       </div>
 
+      <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
+        trazer o resumo de cada item (lê o inteiro teor dos documentos — mais lento)</label>
+
       <button id="cvBuscar" class="btn-gerar">Consultar votos</button>
     </div>
 
@@ -831,6 +846,8 @@
 <!-- Escopo global compartilhado (MV3, scripts clássicos): producao.js e radar.js
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
+<script src="libs/pdf.min.js"></script>
+<script src="resumos.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>
 </body>
