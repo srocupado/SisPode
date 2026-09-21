@@ -59,6 +59,7 @@
         "aderencia.js",
         "resumos.js",
         "defesa.js",
+        "imprensa.js",
         "libs/pdf.min.js",
         "producao.js",
         "radar.js",

@@ -997,6 +997,8 @@ const cvEl = {
   dataIni:  document.getElementById('cvDataIni'),
   dataFim:  document.getElementById('cvDataFim'),
   resumos:  document.getElementById('cvResumos'),
+  imprensa: document.getElementById('cvImprensa'),
+  imprensaLinha: document.getElementById('cvImprensaLinha'),
   defesa:   document.getElementById('cvDefesa'),
   enfase:   document.getElementById('cvDefesaEnfase'),
   defesaCampo: document.getElementById('cvDefesaCampo'),
@@ -1445,6 +1447,7 @@ function cvRender(dados) {
     propDetalhada: dados.propDetalhada || null,
     objetosPossiveis: dados.objetosPossiveis || [],
     resumos: dados.resumos || null,
+    imprensa: dados.imprensa || null,
     defesa: dados.defesa || null,
   };
   cv.recorte = cvLimites(linhas);
@@ -1453,7 +1456,7 @@ function cvRender(dados) {
 
 function cvDesenhar() {
   if (!cv.completo) return;
-  const { objetos, prop, periodo, dep, semObjeto, resumos, defesa } = cv.completo;
+  const { objetos, prop, periodo, dep, semObjeto, resumos, imprensa, defesa } = cv.completo;
   const { lim, r, parcial, invertido } = cvJanela();
 
   const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
@@ -1485,13 +1488,18 @@ function cvDesenhar() {
   // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
   // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
   const corta = fora > 0;
-  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos, defesa,
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos, imprensa, defesa,
                 recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
 
   const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
 
+  // O apelido público entra ao lado do número, e DECLARADO como apelido — é a
+  // única coisa vinda da web que sobe ao cabeçalho, e nunca ocupa o lugar da
+  // ementa, que é o que a matéria oficialmente diz de si.
+  const apelido = imprensa && imprensa.ok && imprensa.apelido && imprensa.usarApelido ? imprensa.apelido : '';
   const cabecalho = prop
-    ? `<h3>${cvEsc(prop.siglaTipo)} ${cvEsc(prop.numero)}/${cvEsc(prop.ano)}</h3>
+    ? `<h3>${cvEsc(prop.siglaTipo)} ${cvEsc(prop.numero)}/${cvEsc(prop.ano)}${
+         apelido ? ` <span class="cv-apelido">conhecida como ${cvEsc(apelido)}</span>` : ''}</h3>
        <div class="sub">${cvEsc(String(prop.ementa || '').slice(0, 300))}</div>`
     : `<h3>Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}</h3>
        <div class="sub">Todas as votações do Plenário no período.</div>`;
@@ -1577,6 +1585,7 @@ function cvDesenhar() {
         </div>`;
       }).join('')}
     </div>
+    ${imprensa ? impHtml(imprensa) : ''}
     ${defesa ? dfsHtml(defesa) : ''}`;
 
   // Recorte que não pega nada: mostra o cabeçalho e o controle, e diz o que
@@ -1598,6 +1607,7 @@ function cvDesenhar() {
   // O que o analista escrever passa a ser o texto do documento na hora. Sem
   // botão de salvar, que seria mais uma chance de exportar a versão errada.
   if (defesa && defesa.ok) dfsLigarEdicao(defesa, d => { if (cv.ultimo) cv.ultimo.defesa = d; });
+  if (imprensa && imprensa.ok) impLigar(imprensa, i => { if (cv.ultimo) cv.ultimo.imprensa = i; });
   const btn = document.getElementById('cvExportar');
   if (btn) btn.addEventListener('click', cvExportar);
   const btnPdf = document.getElementById('cvExportarPdf');
@@ -1705,6 +1715,17 @@ async function cvConsultar() {
         dados.resumos.explicacao = await rsmExplicar(
           dados.resumos, dados.objetos, msg => cvStatus(msg, 'loading'));
       }
+
+      // A repercussão vem depois dos resumos e antes da sustentação, porque é
+      // nessa ordem que ela serve: precisa do que a matéria faz para buscar bem,
+      // e precisa estar pronta para a sustentação saber ao que responder.
+      if (cvEl.imprensa && cvEl.imprensa.checked) {
+        dados.imprensa = await impLevantar({
+          prop: dados.propDetalhada || dados.prop,
+          resumos: dados.resumos,
+          aoAndar: msg => cvStatus(msg, 'loading'),
+        });
+      }
     } else {
       const ini = cvEl.dataIni.value, fim = cvEl.dataFim.value;
       if (!ini || !fim) throw new Error('Informe as duas datas.');
@@ -1726,6 +1747,7 @@ async function cvConsultar() {
         posicao, dep, prop: dados.propDetalhada || dados.prop,
         resumos: dados.resumos, linhas: linhasPre, objetos: dados.objetos,
         enfase: cvEl.enfase ? cvEl.enfase.value.trim() : '',
+        imprensa: dados.imprensa,
       });
     }
 
@@ -1773,6 +1795,10 @@ function cvTrocarModo(modo) {
   // posição única a sustentar, então o campo sai da tela — antes ele ficava
   // visível ali e o clique não fazia nada, que é a pior das três opções.
   if (cvEl.defesaCampo) cvEl.defesaCampo.hidden = !prop;
+  // A repercussão sai pela mesma razão: ela é de uma matéria. Num período com
+  // dezenas de matérias, "a repercussão" não tem sujeito.
+  if (cvEl.imprensaLinha) cvEl.imprensaLinha.hidden = !prop;
+  if (!prop && cvEl.imprensa) cvEl.imprensa.checked = false;
   if (!prop && cvEl.defesa) {
     // Marca a opção vazia, em vez de atribuir `select.value`: a troca de modo é
     // um toggle de interface e não pode estourar em ambiente nenhum — um throw
@@ -1845,7 +1871,10 @@ const CSS_PDF_VOTOS = `
   .cab .sp { width: 42px; }
   .rule { border-bottom: 2px solid #00A859; margin: 7px 0 10px; }
   .meta { text-align: center; font-style: italic; font-size: 8.5pt; color: #6b7280; margin-bottom: 14px; }
-  h2 { font-size: 11.5pt; color: #003c1f; margin: 16px 0 6px; border-left: 3px solid #00A859; padding-left: 7px; }
+  /* Título nunca fica sozinho no pé da página: um "Repercussão pública da
+     matéria" órfão na página 1, com o conteúdo na 2, parece seção vazia. */
+  h2 { font-size: 11.5pt; color: #003c1f; margin: 16px 0 6px; border-left: 3px solid #00A859; padding-left: 7px;
+       break-after: avoid; page-break-after: avoid; }
   h2:first-of-type { margin-top: 0; }
   table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
   th { background: #eef4f0; color: #003c1f; font-size: 8pt; text-transform: uppercase; letter-spacing: .3px;
@@ -1893,6 +1922,29 @@ const CSS_PDF_VOTOS = `
   .dfs-nota { margin-top: 9px; padding-top: 6px; border-top: 1px solid #d8e6f5;
               font-size: 8pt; color: #4a5a6b; font-style: italic; line-height: 1.45; }
   .dfs-nota b { color: #14345c; }
+  /* Repercussão: material de TERCEIRO. Terceira moldura, distinta do registro e
+     da sustentação — quem pegar a página no meio precisa saber o que está lendo. */
+  h2.imp-h { border-left-color: #7c3aed; color: #4c1d95; }
+  .imp-pdf { border: 1px solid #ddd0f5; background: #faf7ff; border-radius: 4px;
+             padding: 10px 13px; margin: 6px 0 4px; }
+  .imp-ap { font-size: 9.5pt; margin-bottom: 8px; break-after: avoid; page-break-after: avoid; }
+  /* O bloco inteiro pode quebrar — é longo, e forçá-lo inteiro para a página
+     seguinte deixaria meia página em branco. O que não pode quebrar é cada
+     grupo e cada ponto: frase cortada no meio da página perde a fonte que vem
+     logo depois dela. */
+  .imp-g { margin-bottom: 9px; break-inside: avoid; page-break-inside: avoid; }
+  .imp-pdf li { break-inside: avoid; page-break-inside: avoid; }
+  .imp-g:last-child { margin-bottom: 0; }
+  .imp-r { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+           color: #6d28d9; margin-bottom: 4px; }
+  .imp-pdf ul { margin: 0 0 0 16px; }
+  .imp-pdf li { font-size: 9.5pt; line-height: 1.5; margin-bottom: 4px; }
+  .imp-v { color: #6b7280; font-size: 8pt; font-style: italic; }
+  ol.imp-fs { margin: 0 0 0 18px; }
+  ol.imp-fs li { font-size: 8pt; color: #4a5a6b; line-height: 1.4; margin-bottom: 4px; }
+  .imp-u { color: #6d28d9; word-break: break-all; font-size: 7.5pt; }
+  .imp-bs { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e6dcf9;
+            font-size: 8pt; color: #4a5a6b; line-height: 1.45; }
   .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
@@ -1907,12 +1959,20 @@ const CV_TAG_PDF = {
 
 function cvHtmlPDF(logoDataUrl) {
   const u = cv.ultimo;
-  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos, defesa } = u;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos, imprensa, defesa } = u;
   const e = cvEsc;
   const comum = cvAgruparLinks(linhas);
 
+  // O apelido público só entra no título com a repercussão marcada para o
+  // documento: se o levantamento não vai sair, a origem do apelido não sai com
+  // ele, e nome sem origem num título é a pior forma de afirmar qualquer coisa.
+  const apelido = imprensa && imprensa.ok && imprensa.incluir && imprensa.usarApelido && imprensa.apelido
+    ? imprensa.apelido : '';
+  // Parênteses, e não travessão: o título reaparece no consolidado seguido de um
+  // travessão e da ementa, e dois travessões na mesma linha embaralham o que é
+  // apelido com o que é ementa.
   const titulo = prop
-    ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}`
+    ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}${apelido ? ` (“${apelido}”)` : ''}`
     : `Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}`;
   const faixa = recorte ? `${formatarData(recorte.ini)} a ${formatarData(recorte.fim)}` : '';
   const subtitulo = prop
@@ -2040,6 +2100,8 @@ function cvHtmlPDF(logoDataUrl) {
 
   ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
   <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
+
+  ${impHtmlPDF(imprensa, e)}
 
   ${defesa && defesa.ok && defesa.incluir ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
   <div class="dfs">

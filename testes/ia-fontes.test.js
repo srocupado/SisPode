@@ -63,6 +63,24 @@ const ia = args => vm.runInContext('chamarIA', ctx)(args);
        'o que o provedor não informou fica NULO — data que não veio não se inventa');
   }
 
+  console.log('\n== o redirecionador do Gemini ==');
+  {
+    // Medido em 21/09/2026: o Gemini nunca manda a URL do artigo. Manda um
+    // redirecionador e põe o DOMÍNIO no campo `title`. Sem tratar, toda fonte
+    // de toda consulta sairia como sendo do veículo "cloud.google.com".
+    const redir = 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQG2a0hu';
+    const f = chamar('iaFonte', redir, { titulo: 'www25.senado.leg.br' });
+    ok(f.veiculo === 'senado.leg.br', `o veículo sai do "título", que é o domínio (${f.veiculo})`);
+    ok(f.titulo === null, 'e o campo título fica nulo — domínio não é título de matéria');
+    ok(f.url === redir, 'a URL segue sendo a do redirecionador: é a única que temos, e ela abre');
+    const semTitulo = chamar('iaFonte', redir);
+    ok(semTitulo.veiculo === null,
+       'sem título, o veículo fica nulo em vez de virar "vertexaisearch.cloud.google.com"');
+    const normal = chamar('iaFonte', 'https://g1.globo.com/a', { titulo: 'Câmara aprova o texto' });
+    ok(normal.titulo === 'Câmara aprova o texto' && normal.veiculo === 'g1.globo.com',
+       'e um título de verdade continua sendo título');
+  }
+
   console.log('\n== a mesma URL em blocos diferentes se completa, não se duplica ==');
   {
     const acc = [];
