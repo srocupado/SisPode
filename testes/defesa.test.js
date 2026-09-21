@@ -365,7 +365,10 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     // moldura — e vem depois de todas as tabelas.
     ok(/<div class="dfs-rot">Posição favorável à matéria<\/div>/.test(plano),
        'a posição sustentada vai no rótulo da seção');
-    ok(/class="dfs"/.test(doc) && /h2\.dfs-h/.test(doc),
+    // A moldura e o título continuam sendo o que separa argumentação de
+    // registro. A cor não separa nada: as duas seções novas usam o mesmo verde
+    // do resto do documento, de propósito.
+    ok(/class="dfs"/.test(doc) && /<h2 class="dfs-h">Sustentação do posicionamento<\/h2>/.test(doc),
        'com moldura e título próprios, que é o que separa argumentação de registro');
     ok(!/Texto <b>argumentativo<\/b>/.test(plano), 'e sem o parágrafo de procedência');
 
