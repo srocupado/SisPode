@@ -397,6 +397,8 @@ const levantar = args => chamar('impLevantar', args);
        'e chega como objeção a enfrentar');
     ok(/NÃO repita como verdade o que está aí/.test(p) && /não diga "a imprensa afirma que"/.test(p),
        'com a proibição de repetir a crítica como fato: a sustentação é prosa livre, que ninguém confere frase a frase');
+    ok(/NÃO reaproveite número, percentual, valor em reais/.test(p),
+       'e a proibição específica de reaproveitar cifra de terceiro, que é o que ele mais tenta fazer');
     ok(/conhecida publicamente como "PL das bets"/.test(p), 'e o apelido vai, porque é como se fala da matéria');
 
     const sem = chamar('dfsPrompt', { posicao: 'favoravel', dep: { nome: 'F', partido: 'PODE', uf: 'SP' },
@@ -416,6 +418,14 @@ const levantar = args => chamar('impLevantar', args);
        'e o pedido dela NÃO liga busca na web: quem busca é a etapa que valida fonte por fonte');
     ok(d.usouImprensa === true, 'ela registra que foi orientada pela repercussão');
     ok(d.incluir === false, 'e continua nascendo fora do PDF');
+
+    // Medido contra o provedor: mesmo proibida, a sustentação reaproveita as
+    // cifras dos pontos contestados. A instrução reduz, não elimina — então a
+    // tela manda o analista olhar exatamente onde o defeito aparece.
+    ok(/Confira os números/.test(chamar('dfsHtml', d)),
+       'e a tela avisa, dirigido, para conferir os números quando o texto saiu da repercussão');
+    ok(!/Confira os números/.test(chamar('dfsHtml', Object.assign({}, d, { usouImprensa: false }))),
+       'sem repercussão, o aviso não aparece — aviso que aparece sempre ninguém lê');
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');

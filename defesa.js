@@ -102,6 +102,12 @@ Como usar esta parte: ela diz o que já foi dito lá fora, para a sustentação 
 deixar sem resposta a crítica que vai aparecer. NÃO repita como verdade o que
 está aí, não cite veículo, não diga "a imprensa afirma que". Trate cada ponto
 contestado como a objeção a enfrentar com argumento próprio.
+
+Em especial, NÃO reaproveite número, percentual, valor em reais, prazo nem nome
+de órgão que apareça acima. Eles vieram de terceiros e não foram conferidos no
+texto da matéria; repetidos numa sustentação assinada, um número errado deixa de
+ser erro de jornal e passa a ser erro do deputado. Responda à objeção pelo
+argumento, sem citar a cifra de que ela se vale.
 `;
 }
 
@@ -244,6 +250,14 @@ function dfsHtml(d) {
     <div class="dfs-nota">Texto argumentativo, rascunhado por ${cvEsc(d.modelo)} a partir dos documentos e do voto
       registrado${d.usouImprensa ? ', e orientado pelos pontos contestados que você marcou na repercussão' : ''},
       para ser revisado. Não é registro de fato: o registro é a tabela acima.${
+      // Aviso dirigido, e não genérico: medido contra o provedor, a sustentação
+      // gerada a partir da repercussão reaproveita número e valor dos pontos
+      // contestados mesmo com o prompt proibindo. A instrução ao modelo reduz,
+      // não elimina — quem elimina é o analista, e ele precisa saber ONDE olhar.
+      d.usouImprensa
+        ? ' <b>Confira os números:</b> a repercussão traz cifras de terceiros, e o texto pode ter reaproveitado'
+          + ' alguma. Número que sai numa sustentação assinada deixa de ser erro de jornal e vira erro do deputado.'
+        : ''}${
       d.registro && !d.registro.posicao
         ? ' As votações do texto principal foram simbólicas ou sem voto nominal do deputado, então o voto registrado não estabelece a posição — esta sustentação se apoia no argumento.'
         : ''}</div>
