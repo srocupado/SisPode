@@ -113,6 +113,34 @@ const levantar = args => chamar('impLevantar', args);
     av("cvTrocarModo('proposicao')");
   }
 
+  console.log('\n== aparte não veste cor de voto ==');
+  {
+    // Nesta extensão, matiz quer dizer tipo de voto: lilás é Obstrução, azul é
+    // Art. 17. As caixas de apoio — repercussão e sustentação — já tomaram
+    // essas duas emprestadas uma vez, e o empréstimo é invisível para quem
+    // escreve o CSS e evidente para quem lê a tela. Fica aferido.
+    const VOTO = [['--art17', 'Art. 17'], ['--obstrucao', 'Obstrução'],
+                  ['#6eaaff', 'Art. 17'], ['#c084fc', 'Obstrução'],
+                  ['110,170,255', 'Art. 17'], ['192,132,252', 'Obstrução']];
+    // As regras dos apartes ocupam um bloco contíguo: do primeiro `.dfs` até o
+    // fim do bloco `.imp`, que é como elas estão no arquivo.
+    const ini = html.indexOf('.dfs-campo {'), fim = html.indexOf('select.field {');
+    const bloco = html.slice(ini, fim);
+    ok(ini > 0 && fim > ini, 'os blocos de estilo dos apartes foram localizados');
+    for (const [tok, quem] of VOTO) {
+      ok(!bloco.includes(tok), `o CSS dos apartes não usa ${tok} — é a cor do voto "${quem}"`);
+    }
+    ok(/\.cv-apelido[^}]*var\(--aparte\)/.test(html), 'e o apelido também usa o tom neutro');
+
+    // No PDF, a mesma regra. Lá a distinção entre os dois apartes é de FORMA:
+    // a sustentação é caixa fechada, a repercussão é citação com filete.
+    const js = fs.readFileSync(path.join(RAIZ, 'aderencia.js'), 'utf8');
+    const cssPdf = js.slice(js.indexOf('const CSS_PDF_VOTOS'), js.indexOf('function cvHtmlPDF'));
+    ok(/\.dfs \{[^}]*border: 1px solid/.test(cssPdf), 'no PDF a sustentação é caixa');
+    ok(/\.imp-pdf \{[^}]*border-left: 3px solid/.test(cssPdf), 'e a repercussão é citação, com filete');
+    ok(!/#7c3aed|#6d28d9|#2b6cb0/.test(cssPdf), 'e nenhuma das duas usa matiz de categoria no impresso');
+  }
+
   console.log('\n== casar o veículo que o modelo citou com a fonte que ele consultou ==');
   {
     const fontes = [
