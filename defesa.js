@@ -36,7 +36,47 @@ const DFS_POSICOES = {
 // requerimento de adiamento ou de uma emenda avulsa. Só nesses itens o voto
 // diz algo sobre a posição do deputado quanto ao projeto em si; num destaque
 // para supressão, "Sim" quer dizer suprimir, não ser favorável ao projeto.
-const DFS_RE_TEXTO = /reda[çc][ãa]o final|subemenda substitutiva global|substitutivo global|vota[çc][ãa]o do projeto\b|projeto de lei n[º°.]?\s*[\d.]+\s*,?\s*de\s*\d{4}\s*$/i;
+//
+// Deixar de reconhecer uma votação de texto principal NÃO é erro inofensivo. É
+// o pior erro desta tela: sem reconhecê-la, o registro passa por mudo, o
+// conflito não é detectado e a extensão gera alegremente uma sustentação
+// contrária ao voto que consta da ata — que é exatamente o documento que esta
+// camada existe para impedir. Por isso a lista cobre as formas como a API
+// efetivamente descreve o resultado, e não só a forma da tramitação.
+const DFS_RE_TEXTO = new RegExp([
+  'reda[çc][ãa]o final',
+  'emenda substitutiva global',        // pega também "subemenda substitutiva global"
+  'substitutivo global',
+  'substitutivo d[oa] senado',         // "Aprovado o Substitutivo do Senado Federal ao PL…"
+  'texto[-\\s]?base',                  // "Aprovado o texto-base"
+  'projeto de lei de convers[ãa]o',    // medida provisória
+  'vota[çc][ãa]o do projeto\\b',
+  'projeto de lei n[º°.]?\\s*[\\d.-]+\\s*,?\\s*de\\s*\\d{4}\\s*\\.?\\s*$',
+].join('|'), 'i');
+
+// O que, mesmo citando o texto principal, é item acessório: o voto ali é sobre
+// o requerimento ou o destaque, não sobre a matéria. "Aprovado o Requerimento de
+// destaque do Substitutivo do Senado" cita o substitutivo e não é votação dele.
+const DFS_RE_ACESSORIO = /destaque|requerimento|\bDTQ\b|\bDVS\b|adiamento|retirada de pauta|urg[êe]ncia/i;
+
+/**
+ * Tira a ressalva antes de classificar o objeto.
+ *
+ * "Aprovado o Projeto de Lei nº 3.626, de 2023, ressalvados os destaques" é
+ * votação DO TEXTO, e das formas mais comuns na Câmara: a menção a destaque ali
+ * diz o que ficou de fora da votação, não o que se votou. Sem tirá-la, ela
+ * atrapalha das duas maneiras — faz o item parecer acessório, e ainda
+ * desancora o final da frase, que é por onde se reconhece a matéria.
+ */
+function dfsSemRessalva(alvo) {
+  return String(alvo == null ? '' : alvo).replace(/,?\s*ressalvad[oa]s?\s+[^.;]*/ig, '').trim();
+}
+
+/** O objeto da votação é o TEXTO da matéria? */
+function dfsEhTextoPrincipal(alvo) {
+  const t = dfsSemRessalva(alvo);
+  return DFS_RE_TEXTO.test(t) && !DFS_RE_ACESSORIO.test(t);
+}
 
 /**
  * O que o voto registrado diz sobre a posição do deputado na matéria.
@@ -48,7 +88,7 @@ function dfsPosicaoRegistrada(linhas, objetos) {
   for (const { it, s } of linhas) {
     const v = it.votacao;
     const alvo = String(objetos[v.id] || v.descricao || '');
-    if (!DFS_RE_TEXTO.test(alvo)) continue;
+    if (!dfsEhTextoPrincipal(alvo)) continue;
     if (!s.voto) continue;                       // simbólica ou ausência não dizem nada
     const voto = String(s.voto).trim().toLowerCase();
     if (voto !== 'sim' && voto !== 'não' && voto !== 'nao') continue;

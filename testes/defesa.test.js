@@ -131,6 +131,40 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     ok(chamar('dfsPosicaoRegistrada', requerimento, objetosDe(requerimento)).posicao === null,
        'nem voto em requerimento de andamento');
 
+    // Formas com que a API DESCREVE O RESULTADO — que não são as formas da
+    // tramitação, e são as que chegam aqui na consulta por proposição. Deixar
+    // de reconhecer uma delas é o pior erro desta tela: o registro passa por
+    // mudo, o conflito não é detectado, e sai uma sustentação contrária ao voto
+    // que consta da ata — o documento que esta camada existe para impedir.
+    const TEXTO_PRINCIPAL = [
+      'Aprovada a Redação Final assinada pelo Dep. Adolfo Viana (PSDB-BA).',
+      'Aprovado o Substitutivo do Senado Federal ao Projeto de Lei nº 442-A, de 1991.',
+      'Aprovado o texto-base do Projeto de Lei.',
+      'Aprovado o Projeto de Lei de Conversão nº 4, de 2024.',
+      'Aprovada a Emenda Substitutiva Global de Plenário nº 1.',
+      // A ressalva diz o que ficou FORA da votação, não o que se votou. É das
+      // formas mais comuns na Câmara, e atrapalha de dois jeitos: faz o item
+      // parecer destaque e desancora o fim da frase.
+      'Aprovado o Projeto de Lei nº 3.626, de 2023, ressalvados os destaques.',
+    ];
+    for (const obj of TEXTO_PRINCIPAL) {
+      const l = [item('v1', obj, 'Não')];
+      ok(chamar('dfsPosicaoRegistrada', l, objetosDe(l)).posicao === 'contraria',
+         `é votação do texto: ${obj.slice(0, 58)}…`);
+    }
+
+    // E o que cita o texto principal sem ser votação dele.
+    const ACESSORIO = [
+      'Aprovado o Requerimento de destaque do Substitutivo do Senado Federal.',
+      'Rejeitada a Emenda do Senado Federal nº 3. Sim: 120; não: 261; abstenção: 1.',
+      'Aprovada a parte da Emenda.',
+    ];
+    for (const obj of ACESSORIO) {
+      const l = [item('v1', obj, 'Não')];
+      ok(chamar('dfsPosicaoRegistrada', l, objetosDe(l)).posicao === null,
+         `NÃO é votação do texto: ${obj.slice(0, 55)}…`);
+    }
+
     const simbolica = [item('v1', 'Votação da Redação Final.', null, 'simbolica')];
     ok(chamar('dfsPosicaoRegistrada', simbolica, objetosDe(simbolica)).posicao === null,
        'votação simbólica do texto não registra posição — não há voto individual');
