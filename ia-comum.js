@@ -120,10 +120,126 @@ function exigirTexto(texto, motivo) {
   throw new Error(`O modelo não devolveu texto: ${explicacao}. Nada foi salvo — tente de novo, troque de modelo ou ajuste as instruções.`);
 }
 
+// ============================================================
+//  FONTES DA BUSCA NA WEB
+// ============================================================
+// Quando `web` está ligado, o provedor sai do material que a gente deu e vai
+// buscar texto de estranho na internet. Num documento de conferência isso só se
+// sustenta se der para conferir: de onde veio, de que veículo, de quando, e
+// QUAIS BUSCAS foram feitas.
+//
+// Essa última é a menos óbvia e a mais importante. Procurar "PL 3626 críticas"
+// devolve crítica; "PL 3626 benefícios" devolve o oposto. Quem escreve a
+// consulta escreve a conclusão — então a consulta precisa aparecer para quem
+// lê, e não ficar só dentro do modelo.
+//
+// Os três provedores devolvem isso em formatos diferentes:
+//   Gemini    → candidates[].groundingMetadata.{groundingChunks,webSearchQueries}
+//   OpenAI    → output[] com web_search_call (a consulta) e annotations
+//               url_citation nos blocos de texto
+//   Anthropic → content[] com server_tool_use (a consulta),
+//               web_search_tool_result (os resultados) e citations no texto
+//
+// Aqui tudo vira a mesma forma: { url, titulo, veiculo, data, trecho }.
+// O que o provedor não informa fica NULO — data que não veio não se inventa,
+// porque uma defesa montada sobre cobertura de outro ano lê perfeitamente bem.
+
+/** O domínio, que é o que identifica o veículo para quem lê. */
+function iaVeiculo(url) {
+  // www1/www2 são só o balanceamento do jornal (www1.folha.uol.com.br); o veículo é o resto.
+  try { return new URL(url).hostname.replace(/^www\d*\./, ''); } catch (_) { return null; }
+}
+
+/** Normaliza uma fonte. Devolve null quando não há URL — fonte sem link não é fonte. */
+function iaFonte(url, extra = {}) {
+  const u = String(url || '').trim();
+  if (!/^https?:\/\//i.test(u)) return null;
+  const lim = (v, n) => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t ? t.slice(0, n) : null; };
+  return {
+    url: u,
+    titulo: lim(extra.titulo, 300),
+    veiculo: iaVeiculo(u),
+    data: lim(extra.data, 40),
+    trecho: lim(extra.trecho, 600),
+  };
+}
+
+/** Junta preservando a ordem de chegada e sem repetir URL. */
+function iaJuntarFontes(destino, novas) {
+  for (const f of (novas || [])) {
+    if (!f) continue;
+    const ja = destino.find(x => x.url === f.url);
+    // Uma URL pode voltar em blocos diferentes, cada um com um pedaço do que se
+    // sabe dela. Completa-se o que faltava em vez de descartar o segundo.
+    if (ja) {
+      for (const k of ['titulo', 'data', 'trecho']) if (!ja[k] && f[k]) ja[k] = f[k];
+      continue;
+    }
+    destino.push(f);
+  }
+  return destino;
+}
+
+function iaJuntarBuscas(destino, novas) {
+  for (const q of (novas || [])) {
+    const t = String(q == null ? '' : q).replace(/\s+/g, ' ').trim();
+    if (t && !destino.includes(t)) destino.push(t);
+  }
+  return destino;
+}
+
+/** Gemini: groundingMetadata de um candidato. */
+function iaFontesGemini(gm, acc) {
+  if (!gm) return acc;
+  iaJuntarBuscas(acc.buscas, gm.webSearchQueries);
+  iaJuntarFontes(acc.fontes, (gm.groundingChunks || []).map(c =>
+    iaFonte(c && c.web && c.web.uri, { titulo: c && c.web && c.web.title })));
+  return acc;
+}
+
+/** OpenAI: itens de output da Responses API. */
+function iaFontesOpenAI(output, acc) {
+  for (const item of (output || [])) {
+    if (item.type === 'web_search_call') {
+      const q = (item.action && item.action.query) || item.query;
+      iaJuntarBuscas(acc.buscas, Array.isArray(q) ? q : [q]);
+    }
+    for (const c of (item.content || [])) {
+      iaJuntarFontes(acc.fontes, (c.annotations || [])
+        .filter(a => a && (a.type === 'url_citation' || a.url))
+        .map(a => iaFonte(a.url, { titulo: a.title })));
+    }
+  }
+  return acc;
+}
+
+/** Anthropic: blocos de content de uma mensagem. */
+function iaFontesAnthropic(blocos, acc) {
+  for (const b of (blocos || [])) {
+    if (!b) continue;
+    if (b.type === 'server_tool_use' && b.input && b.input.query) {
+      iaJuntarBuscas(acc.buscas, [b.input.query]);
+    }
+    if (b.type === 'web_search_tool_result') {
+      const res = Array.isArray(b.content) ? b.content : [];
+      iaJuntarFontes(acc.fontes, res.map(r =>
+        iaFonte(r && r.url, { titulo: r && r.title, data: r && r.page_age })));
+    }
+    if (b.type === 'text') {
+      iaJuntarFontes(acc.fontes, (b.citations || []).map(c =>
+        iaFonte(c && c.url, { titulo: c && c.title, trecho: c && c.cited_text })));
+    }
+  }
+  return acc;
+}
+
 async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, opcoes = {} }) {
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
   const maxSaida = opcoes.maxSaida || 12000;
   const pensarAlto = opcoes.pensar === 'alto';
+  // Sempre presente, mesmo sem `web`: quem chama não precisa se defender de
+  // campo ausente, e lista vazia diz "não buscou" com clareza.
+  const proc = { fontes: [], buscas: [] };
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
@@ -148,17 +264,20 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         if (ev.dados?.error) throw new Error(ev.dados.error.message || 'erro do Gemini');
         const cand = ev.dados?.candidates?.[0];
         for (const pt of cand?.content?.parts || []) if (pt.text && !pt.thought) texto += pt.text;
+        iaFontesGemini(cand?.groundingMetadata, proc);
         if (cand?.finishReason) fim = cand.finishReason;
       }
-      return { text: exigirTexto(texto.trim(), fim), truncated: fim.toUpperCase() === 'MAX_TOKENS' };
+      return { text: exigirTexto(texto.trim(), fim), truncated: fim.toUpperCase() === 'MAX_TOKENS', ...proc };
     }
     const json = await fetchIA(url, init);
     const cand = json.candidates?.[0];
     // Com grounding o texto pode vir em vários parts — concatena todos.
     const texto = (cand?.content?.parts || []).map(p => p.text || '').join('').trim();
+    iaFontesGemini(cand?.groundingMetadata, proc);
     return {
       text: exigirTexto(texto, json.promptFeedback?.blockReason || cand?.finishReason),
       truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
+      ...proc,
     };
   }
 
@@ -183,14 +302,19 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       body.stream = true;
       let texto = '', fim = null;
       for (const ev of await fetchIASse('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })) {
-        if (ev.evento === 'error' || ev.dados?.type === 'error') throw new Error(ev.dados?.error?.message || ev.dados?.message || 'erro da OpenAI');
-        if (ev.evento === 'response.output_text.delta' && ev.dados?.delta) texto += ev.dados.delta;
-        if (/^response\.(completed|incomplete|failed)$/.test(ev.evento || '')) fim = ev.dados?.response || null;
+        // O nome do evento vem na linha "event:", mas o próprio dado repete em "type".
+        // Fica nos dois: se a linha "event:" não chegar, o texto não se perde.
+        const tipo = ev.evento || ev.dados?.type || '';
+        if (tipo === 'error') throw new Error(ev.dados?.error?.message || ev.dados?.message || 'erro da OpenAI');
+        if (tipo === 'response.output_text.delta' && ev.dados?.delta) texto += ev.dados.delta;
+        if (/^response\.(completed|incomplete|failed)$/.test(tipo)) fim = ev.dados?.response || null;
       }
       if (fim?.status === 'failed') throw new Error(fim.error?.message || 'resposta falhou');
+      iaFontesOpenAI(fim?.output, proc);
       return {
         text: exigirTexto(texto.trim(), fim?.incomplete_details?.reason || fim?.status),
         truncated: fim?.status === 'incomplete' || fim?.incomplete_details?.reason === 'max_output_tokens',
+        ...proc,
       };
     }
     const json = await fetchIA('https://api.openai.com/v1/responses', {
@@ -211,7 +335,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       || (json.incomplete_details?.reason === 'max_output_tokens');
     // Recusa da OpenAI vem como bloco "refusal", sem output_text.
     const recusa = (json.output || []).some(i => (i.content || []).some(c => c.type === 'refusal'));
-    return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc };
+    iaFontesOpenAI(json.output, proc);
+    return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc, ...proc };
   }
 
   if (provedorId === 'anthropic') {
@@ -244,10 +369,13 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         const d = ev.dados || {};
         if (ev.evento === 'error' || d.type === 'error') throw new Error(d.error?.message || 'erro da Anthropic');
         if (d.type === 'content_block_delta' && d.delta?.type === 'text_delta') texto += d.delta.text || '';
+        // No streaming os blocos de busca e de citação chegam inteiros aqui;
+        // os deltas de texto acima não os carregam.
+        if (d.type === 'content_block_start' && d.content_block) iaFontesAnthropic([d.content_block], proc);
         if (d.type === 'message_delta' && d.delta?.stop_reason) parada = d.delta.stop_reason;
       }
       if (parada === 'refusal') throw new Error('O modelo recusou a solicitação (stop_reason refusal).');
-      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens' };
+      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens', ...proc };
     }
     const json = await fetchIA('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) });
     // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
@@ -255,7 +383,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     for (const item of (json.content || [])) {
       if (item.type === 'text' && item.text) texto += (texto ? '\n' : '') + item.text;
     }
-    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens' };
+    iaFontesAnthropic(json.content, proc);
+    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens', ...proc };
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);
