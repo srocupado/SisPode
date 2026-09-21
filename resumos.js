@@ -336,7 +336,12 @@ function rsmJson(texto) {
   s = s.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '');
   const i = s.indexOf('{'), f = s.lastIndexOf('}');
   if (i < 0 || f <= i) return null;
-  try { return JSON.parse(s.slice(i, f + 1)); } catch (e) { return null; }
+  const bruto = s.slice(i, f + 1);
+  try { return JSON.parse(bruto); } catch (e) { /* segunda chance abaixo */ }
+  // Vírgula sobrando antes de fechar é o defeito mais comum de JSON gerado por
+  // modelo, e é o único que dá para consertar sem adivinhar conteúdo. Tudo mais
+  // segue devolvendo null: JSON remendado às cegas viraria dado inventado.
+  try { return JSON.parse(bruto.replace(/,\s*([}\]])/g, '$1')); } catch (e) { return null; }
 }
 
 /**

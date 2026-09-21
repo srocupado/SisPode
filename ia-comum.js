@@ -146,22 +146,37 @@ function exigirTexto(texto, motivo) {
 
 /** O domínio, que é o que identifica o veículo para quem lê. */
 function iaVeiculo(url) {
-  // www1/www2 são só o balanceamento do jornal (www1.folha.uol.com.br); o veículo é o resto.
+  // www1/www25 são só o balanceamento do site (www25.senado.leg.br); o veículo é o resto.
   try { return new URL(url).hostname.replace(/^www\d*\./, ''); } catch (_) { return null; }
 }
+
+// Medido em 21/09/2026: o Gemini NÃO devolve a URL do artigo. Devolve sempre um
+// redirecionador próprio — vertexaisearch.cloud.google.com/grounding-api-redirect/…
+// — e põe o DOMÍNIO da origem no campo `title`. Sem tratar isso, todas as fontes
+// de uma consulta apareceriam como sendo do mesmo veículo, "cloud.google.com",
+// o que é pior do que não mostrar veículo nenhum.
+//
+// O redirecionador funciona no clique (302 para a URL real), mas não traz
+// Access-Control-Allow-Origin, então a extensão não pode segui-lo para descobrir
+// a URL verdadeira. Fica o link do redirecionador, e o veículo vindo do título.
+const IA_REDIR = /(^|\.)vertexaisearch\.cloud\.google\.com$/i;
+const IA_RE_DOMINIO = /^[a-z0-9][a-z0-9.-]*\.[a-z]{2,}$/i;
 
 /** Normaliza uma fonte. Devolve null quando não há URL — fonte sem link não é fonte. */
 function iaFonte(url, extra = {}) {
   const u = String(url || '').trim();
   if (!/^https?:\/\//i.test(u)) return null;
   const lim = (v, n) => { const t = String(v == null ? '' : v).replace(/\s+/g, ' ').trim(); return t ? t.slice(0, n) : null; };
-  return {
-    url: u,
-    titulo: lim(extra.titulo, 300),
-    veiculo: iaVeiculo(u),
-    data: lim(extra.data, 40),
-    trecho: lim(extra.trecho, 600),
-  };
+  let titulo = lim(extra.titulo, 300);
+  let veiculo = lim(extra.veiculo, 120) || iaVeiculo(u);
+  // Quando o "título" é só um domínio, ele é o veículo e não o título. Vale para
+  // o redirecionador do Gemini e para qualquer provedor que faça o mesmo.
+  if (titulo && IA_RE_DOMINIO.test(titulo) && !titulo.includes(' ')) {
+    if (!extra.veiculo) veiculo = titulo.replace(/^www\d*\./i, '');
+    titulo = null;
+  }
+  if (veiculo && IA_REDIR.test(veiculo)) veiculo = null;   // redirecionador não é veículo
+  return { url: u, titulo, veiculo, data: lim(extra.data, 40), trecho: lim(extra.trecho, 600) };
 }
 
 /** Junta preservando a ordem de chegada e sem repetir URL. */

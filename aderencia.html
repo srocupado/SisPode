@@ -215,6 +215,9 @@
   .cv-cab { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
   .cv-cab h3 { font-size: 14px; color: var(--text); margin-bottom: 3px; }
   .cv-cab .sub { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+  /* O apelido público não tem o peso do número da matéria: é como a rua chama,
+     não como a Câmara registra. Fica menor e em itálico, ao lado. */
+  .cv-apelido { font-size: 11px; font-weight: 400; font-style: italic; color: var(--obstrucao); }
   .cv-nums { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
   .cv-num { flex: 1; min-width: 78px; text-align: center; background: rgba(255,255,255,0.03);
             border: 1px solid var(--border); border-radius: 8px; padding: 9px 6px; }
@@ -351,6 +354,51 @@
   .dfs-incluir input { accent-color: var(--art17); margin-top: 2px; flex-shrink: 0; }
   .dfs-incluir.marcado { border-style: solid; border-color: var(--art17);
                          background: rgba(110,170,255,0.08); }
+  /* Repercussão: roxo, que não é o azul da sustentação nem o verde-azulado do
+     resto. São três naturezas de texto na mesma tela — registro, argumento e
+     material de terceiro —, e a de terceiro é a que mais precisa se anunciar. */
+  .imp { margin-top: 12px; padding: 14px 16px; background: rgba(192,132,252,0.06);
+         border: 1px solid rgba(192,132,252,0.28); border-radius: 10px; }
+  .imp-tit { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--obstrucao); margin-bottom: 9px; }
+  .imp-falha { background: rgba(240,192,64,0.08); border-color: rgba(240,192,64,0.35);
+               font-size: 11.5px; color: var(--text-dim); line-height: 1.6; }
+  .imp-falha .imp-tit { color: var(--abstencao); }
+  .imp-apelido { font-size: 12.5px; color: var(--text-dim); margin-bottom: 11px; }
+  .imp-apelido b { color: var(--text); }
+  .imp-vazio { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .imp-grupo { margin-bottom: 12px; }
+  .imp-rot { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--text-dim); margin-bottom: 6px; }
+  /* Cada ponto é desmarcável: o analista tira o que não se sustenta na leitura
+     dele sem precisar descartar o levantamento inteiro. */
+  .imp-ponto { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0;
+               font-size: 12.5px; line-height: 1.55; color: var(--text);
+               text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .imp-ponto input { accent-color: var(--obstrucao); margin-top: 3px; flex-shrink: 0; }
+  .imp-ponto.fora { color: var(--absent); text-decoration: line-through; }
+  .imp-vei { display: block; font-size: 10.5px; color: var(--text-dim); font-style: italic;
+             margin-top: 2px; }
+  .imp-fonte { font-size: 11px; color: var(--text-dim); line-height: 1.5; padding: 5px 0;
+               border-top: 1px solid rgba(192,132,252,0.14); word-break: break-all; }
+  .imp-fonte b { color: var(--text); }
+  .imp-fonte a { color: var(--obstrucao); text-decoration: none; }
+  .imp-fonte a:hover { text-decoration: underline; }
+  .imp-via { font-size: 10px; color: var(--absent); font-style: italic; }
+  .imp-buscas, .imp-desc { font-size: 10.5px; color: var(--text-dim); line-height: 1.5;
+                           margin-top: 8px; }
+  .imp-buscas b { color: var(--text-dim); }
+  .imp-desc { color: var(--abstencao); }
+  .imp-incluir { display: flex; align-items: flex-start; gap: 9px; margin-top: 11px;
+                 padding: 9px 11px; border: 1px dashed rgba(192,132,252,0.35); border-radius: 8px;
+                 font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+                 text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .imp-incluir b { color: var(--text); }
+  .imp-incluir input { accent-color: var(--obstrucao); margin-top: 2px; flex-shrink: 0; }
+  .imp-incluir.marcado { border-style: solid; border-color: var(--obstrucao);
+                         background: rgba(192,132,252,0.08); }
+  .imp-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(192,132,252,0.2);
+              font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
   select.field { appearance: none; }
 
   .spinner {
@@ -812,6 +860,10 @@
       <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
         trazer o resumo de cada item (lê o inteiro teor dos documentos — mais lento)</label>
 
+      <label class="rdr-check" id="cvImprensaLinha"><input type="checkbox" id="cvImprensa">
+        levantar a repercussão pública da matéria (a IA busca na web — apelido, foco da cobertura
+        e pontos contestados)</label>
+
       <div class="dfs-campo" id="cvDefesaCampo">
         <label>Precisa de defesa da posição?</label>
         <select id="cvDefesa" class="field">
@@ -823,7 +875,8 @@
                placeholder="Ponto a enfatizar (opcional). Ex.: proteção de quem está endividado" maxlength="160">
         <div class="prd-dica">A sustentação é texto argumentativo, gerado a partir dos documentos e do voto
           registrado, e sai em seção própria — separada do registro de votos. Se a posição escolhida
-          contrariar o voto que consta da ata, o relatório recusa e explica.</div>
+          contrariar o voto que consta da ata, o relatório recusa e explica. Com a repercussão marcada
+          acima, ela também responde ao que está sendo contestado.</div>
       </div>
 
       <button id="cvBuscar" class="btn-gerar">Consultar votos</button>
@@ -912,6 +965,7 @@
 <script src="libs/pdf.min.js"></script>
 <script src="ia-comum.js"></script>
 <script src="resumos.js"></script>
+<script src="imprensa.js"></script>
 <script src="defesa.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>

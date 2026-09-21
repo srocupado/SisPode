@@ -15,7 +15,17 @@
 // a defesa sai, e o documento diz que o voto registrado não estabelece a
 // posição, para que ninguém leia sustentação onde há só argumento.
 //
-// Depende de aderencia.js (cvEsc), ia-comum.js (chamarIA) e resumos.js.
+// A sustentação NÃO busca na web por conta própria, embora o pipeline consulte a
+// internet antes dela. Quem busca é imprensa.js, que valida ponto por ponto
+// contra as fontes que o provedor consultou e passa pela marcação do analista; o
+// que chega aqui é esse levantamento já conferido. Deixar a sustentação buscar
+// sozinha não daria a mesma garantia com outro nome: o texto dela é prosa
+// corrida, e não há como conferir depois, frase a frase, o que veio de fonte e o
+// que o modelo completou. Uma etapa que valida e outra que redige protege mais
+// do que uma etapa que faz as duas coisas.
+//
+// Depende de aderencia.js (cvEsc), ia-comum.js (chamarIA), resumos.js e
+// imprensa.js (impSelecionados).
 
 const DFS_POSICOES = {
   favoravel: 'favorável à matéria',
@@ -64,7 +74,38 @@ function dfsConflito(declarada, registro) {
   };
 }
 
-function dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase }) {
+/**
+ * O que o levantamento de repercussão acrescenta ao pedido, já filtrado pelo que
+ * o analista deixou marcado. Vazio quando não houve levantamento.
+ *
+ * Entra como PERGUNTA A RESPONDER, e não como fato a afirmar. A diferença é toda
+ * a segurança do bloco: a sustentação é prosa livre, que nenhuma conferência
+ * posterior consegue destrinchar afirmação por afirmação. Se a crítica da
+ * imprensa entrasse aqui como material a repetir, uma manchete errada viraria
+ * fato dentro de um documento com o nome do deputado. Entrando como pergunta, o
+ * pior caso é a sustentação responder a algo que não se sustenta — e isso o
+ * analista lê e corta.
+ */
+function dfsImprensaPrompt(imp) {
+  if (!imp || !imp.ok) return '';
+  const sel = impSelecionados(imp);
+  if (!sel.total) return '';
+  const lista = ps => ps.map(p => `- ${p.texto} (fonte: ${p.fontes.map(f => f.veiculo || 'origem não identificada').join(', ')})`).join('\n');
+  const p = [];
+  if (imp.apelido) p.push(`A matéria é conhecida publicamente como "${imp.apelido}".`);
+  if (sel.focos.length) p.push(`O que a cobertura pública destaca:\n${lista(sel.focos)}`);
+  if (sel.contencioso.length) p.push(`O QUE ESTÁ CONTESTADO publicamente — é a isto que a sustentação precisa dar resposta:\n${lista(sel.contencioso)}`);
+  return `\nREPERCUSSÃO PÚBLICA JÁ LEVANTADA (conferida pelo analista):
+${p.join('\n\n')}
+
+Como usar esta parte: ela diz o que já foi dito lá fora, para a sustentação não
+deixar sem resposta a crítica que vai aparecer. NÃO repita como verdade o que
+está aí, não cite veículo, não diga "a imprensa afirma que". Trate cada ponto
+contestado como a objeção a enfrentar com argumento próprio.
+`;
+}
+
+function dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa }) {
   const linhas = itens.map(i => `- ${i.objeto}${i.voto ? ` — voto do deputado: ${i.voto}` : ''}${
     i.simples ? `\n  (o que fazia: ${i.simples})` : ''}`).join('\n');
 
@@ -79,7 +120,7 @@ ${materia || '(não disponível)'}
 
 O QUE FOI VOTADO, E COMO O DEPUTADO VOTOU:
 ${linhas || '(nenhum item com voto nominal registrado)'}
-
+${dfsImprensaPrompt(imprensa)}
 REGISTRO DE VOTO SOBRE O TEXTO: ${registro && registro.posicao
   ? `o deputado votou de forma ${DFS_POSICOES[registro.posicao]} no texto.`
   : 'as votações do texto principal foram simbólicas ou não houve voto nominal dele, então o registro não estabelece a posição.'}
@@ -107,7 +148,7 @@ em branco. Sem título, sem marcadores, sem cercas de código.`;
  * Nenhum caminho de falha devolve texto: defesa que não veio precisa aparecer
  * como defesa que não veio.
  */
-async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase }) {
+async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, imprensa }) {
   if (!posicao || !DFS_POSICOES[posicao]) return { ok: false, motivo: 'sem-posicao' };
   const cfg = await rsmConfigIA();
   if (!cfg.apiKey) return { ok: false, motivo: 'sem-chave' };
@@ -135,7 +176,7 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase }
       provedorId: cfg.provedor || 'gemini',
       apiKey: cfg.apiKey,
       modelo: cfg.modelo || RSM_MODELO_PADRAO,
-      prompt: dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase }),
+      prompt: dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa }),
       opcoes: { maxSaida: 6000 },
     });
   } catch (e) {
@@ -155,7 +196,8 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase }
   // analista marca. Um texto argumentativo que escorrega para dentro de um
   // documento de conferência sem alguém decidir é o pior caminho possível.
   return { ok: true, texto, original: texto, editado: false, incluir: false, posicao,
-           modelo: cfg.modelo || RSM_MODELO_PADRAO, registro };
+           modelo: cfg.modelo || RSM_MODELO_PADRAO, registro,
+           usouImprensa: !!dfsImprensaPrompt(imprensa) };
 }
 
 /** A mensagem de recusa, que precisa dizer O QUE contraria o quê. */
@@ -200,7 +242,8 @@ function dfsHtml(d) {
         : 'Desmarcado: o documento sai só com o registro de votos.'}</span></span>
     </label>
     <div class="dfs-nota">Texto argumentativo, rascunhado por ${cvEsc(d.modelo)} a partir dos documentos e do voto
-      registrado, para ser revisado. Não é registro de fato: o registro é a tabela acima.${
+      registrado${d.usouImprensa ? ', e orientado pelos pontos contestados que você marcou na repercussão' : ''},
+      para ser revisado. Não é registro de fato: o registro é a tabela acima.${
       d.registro && !d.registro.posicao
         ? ' As votações do texto principal foram simbólicas ou sem voto nominal do deputado, então o voto registrado não estabelece a posição — esta sustentação se apoia no argumento.'
         : ''}</div>
