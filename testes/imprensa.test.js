@@ -113,12 +113,12 @@ const levantar = args => chamar('impLevantar', args);
     av("cvTrocarModo('proposicao')");
   }
 
-  console.log('\n== aparte não veste cor de voto ==');
+  console.log('\n== as seções novas seguem o padrão de cor do documento ==');
   {
-    // Nesta extensão, matiz quer dizer tipo de voto: lilás é Obstrução, azul é
-    // Art. 17. As caixas de apoio — repercussão e sustentação — já tomaram
-    // essas duas emprestadas uma vez, e o empréstimo é invisível para quem
-    // escreve o CSS e evidente para quem lê a tela. Fica aferido.
+    // Elas usam o verde-azulado da casa, como o resto do painel. O que não
+    // podem usar é cor de TIPO DE VOTO — lilás é Obstrução, azul é Art. 17 —,
+    // que é significado que não é delas. O empréstimo é invisível para quem
+    // escreve o CSS e evidente para quem lê a tela, então fica aferido.
     const VOTO = [['--art17', 'Art. 17'], ['--obstrucao', 'Obstrução'],
                   ['#6eaaff', 'Art. 17'], ['#c084fc', 'Obstrução'],
                   ['110,170,255', 'Art. 17'], ['192,132,252', 'Obstrução']];
@@ -130,15 +130,23 @@ const levantar = args => chamar('impLevantar', args);
     for (const [tok, quem] of VOTO) {
       ok(!bloco.includes(tok), `o CSS dos apartes não usa ${tok} — é a cor do voto "${quem}"`);
     }
-    ok(/\.cv-apelido[^}]*var\(--aparte\)/.test(html), 'e o apelido também usa o tom neutro');
+    ok(/--aparte:\s*var\(--accent-light\)/.test(html),
+       'o tom dos apartes é o verde-azulado do aplicativo, e não um matiz só deles');
+    ok(/\.cv-apelido[^}]*var\(--aparte\)/.test(html), 'e o apelido segue o mesmo tom');
 
-    // No PDF, a mesma regra. Lá a distinção entre os dois apartes é de FORMA:
-    // a sustentação é caixa fechada, a repercussão é citação com filete.
+    // No PDF, as duas seções novas usam o mesmo vocabulário do resto do
+    // documento: título verde padrão e caixa com a borda e o fundo das outras.
+    // O que diz que ali não é registro é o título da seção e a nota dela.
     const js = fs.readFileSync(path.join(RAIZ, 'aderencia.js'), 'utf8');
     const cssPdf = js.slice(js.indexOf('const CSS_PDF_VOTOS'), js.indexOf('function cvHtmlPDF'));
-    ok(/\.dfs \{[^}]*border: 1px solid/.test(cssPdf), 'no PDF a sustentação é caixa');
-    ok(/\.imp-pdf \{[^}]*border-left: 3px solid/.test(cssPdf), 'e a repercussão é citação, com filete');
-    ok(!/#7c3aed|#6d28d9|#2b6cb0/.test(cssPdf), 'e nenhuma das duas usa matiz de categoria no impresso');
+    ok(/\.dfs \{[^}]*border: 1px solid #c9ddd2/.test(cssPdf),
+       'no PDF a sustentação usa a borda verde do documento');
+    ok(/\.imp-pdf \{[^}]*border: 1px solid #c9ddd2/.test(cssPdf),
+       'e a repercussão usa exatamente a mesma');
+    ok(!/h2\.(dfs|imp)-h\s*[,{]/.test(cssPdf),
+       'os títulos das duas não sobrescrevem nada — caem no h2 verde padrão');
+    ok(!/#7c3aed|#6d28d9|#2b6cb0|#64748b|#94a3b8/.test(cssPdf),
+       'e nenhum roxo, azul ou ardósia sobrou no impresso');
   }
 
   console.log('\n== casar o veículo que o modelo citou com a fonte que ele consultou ==');

@@ -1910,24 +1910,21 @@ const CSS_PDF_VOTOS = `
   .rsm i { color: #6b7280; }
   .rsm-fon { margin-top: 3px; font-size: 7.5pt; color: #6b7280; }
   .rsm-fon a { color: #1d4ed8; }
-  /* Os dois apartes — sustentação e repercussão — são ardósia, e não uma cor
-     com matiz: no aplicativo, matiz quer dizer tipo de voto, e um bloco de apoio
-     vestido de voto empresta significado que não é dele. Um se distingue do
-     outro pela FORMA: a sustentação é CAIXA, porque é texto que a assessoria
-     assina; a repercussão é CITAÇÃO, porque é de terceiro. */
-  h2.dfs-h, h2.imp-h { border-left-color: #64748b; color: #334155; }
-  .dfs { border: 1px solid #dde3e8; background: #f8fafc; border-radius: 4px;
+  /* Sustentação e repercussão no mesmo verde do resto do documento: os títulos
+     usam o h2 padrão, e as caixas, a mesma borda e o mesmo fundo das outras.
+     O que diz que ali não é registro é o título da seção e a nota dela. */
+  .dfs { border: 1px solid #c9ddd2; background: #f4f9f6; border-radius: 4px;
          padding: 10px 13px; margin: 6px 0 4px; break-inside: avoid; page-break-inside: avoid; }
   .dfs .dfs-rot { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
-                  color: #475569; margin-bottom: 6px; }
+                  color: #00552a; margin-bottom: 6px; }
   .dfs p { font-size: 9.5pt; line-height: 1.55; margin-bottom: 7px; text-align: justify; }
   .dfs p:last-of-type { margin-bottom: 0; }
-  .dfs-nota { margin-top: 9px; padding-top: 6px; border-top: 1px solid #e2e8f0;
+  .dfs-nota { margin-top: 9px; padding-top: 6px; border-top: 1px solid #d7e6dd;
               font-size: 8pt; color: #4a5a6b; font-style: italic; line-height: 1.45; }
-  .dfs-nota b { color: #334155; }
+  .dfs-nota b { color: #003c1f; }
   /* Repercussão: material de TERCEIRO. Terceira moldura, distinta do registro e
      da sustentação — quem pegar a página no meio precisa saber o que está lendo. */
-  .imp-pdf { border-left: 3px solid #94a3b8; background: #f8fafc; border-radius: 0 4px 4px 0;
+  .imp-pdf { border: 1px solid #c9ddd2; background: #f4f9f6; border-radius: 4px;
              padding: 10px 13px; margin: 6px 0 4px; }
   .imp-ap { font-size: 9.5pt; margin-bottom: 8px; break-after: avoid; page-break-after: avoid; }
   /* O bloco inteiro pode quebrar — é longo, e forçá-lo inteiro para a página
@@ -1938,14 +1935,14 @@ const CSS_PDF_VOTOS = `
   .imp-pdf li { break-inside: avoid; page-break-inside: avoid; }
   .imp-g:last-child { margin-bottom: 0; }
   .imp-r { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
-           color: #475569; margin-bottom: 4px; }
+           color: #00552a; margin-bottom: 4px; }
   .imp-pdf ul { margin: 0 0 0 16px; }
   .imp-pdf li { font-size: 9.5pt; line-height: 1.5; margin-bottom: 4px; }
   .imp-v { color: #6b7280; font-size: 8pt; font-style: italic; }
   ol.imp-fs { margin: 0 0 0 18px; }
   ol.imp-fs li { font-size: 8pt; color: #4a5a6b; line-height: 1.4; margin-bottom: 4px; }
-  .imp-u { color: #475569; word-break: break-all; font-size: 7.5pt; }
-  .imp-bs { margin-top: 8px; padding-top: 6px; border-top: 1px solid #e2e8f0;
+  .imp-u { color: #1d4ed8; word-break: break-all; font-size: 7.5pt; }
+  .imp-bs { margin-top: 8px; padding-top: 6px; border-top: 1px solid #d7e6dd;
             font-size: 8pt; color: #4a5a6b; line-height: 1.45; }
   .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }

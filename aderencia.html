@@ -21,15 +21,13 @@
     --art17: #6eaaff;
     --obstrucao: #c084fc;
     --absent: #5a6f74;
-    /* Apartes (sustentação e repercussão). Neutros de propósito: toda cor com
-       matiz nesta extensão já quer dizer um tipo de voto — lilás é Obstrução,
-       azul é Art. 17, amarelo é Abstenção —, e um bloco de apoio que veste uma
-       delas empresta um significado que não é o dele. Os dois apartes se
-       distinguem um do outro pela FORMA, não pelo matiz: o de terceiro é
-       citação, com filete; o próprio é caixa. */
-    --aparte: #a4b8be;
-    --aparte-bg: rgba(255,255,255,0.04);
-    --aparte-br: rgba(255,255,255,0.14);
+    /* Apartes (sustentação e repercussão): mesmo vocabulário do resto do
+       painel — o verde-azulado da casa. Não vestem cor de TIPO DE VOTO (lilás é
+       Obstrução, azul é Art. 17, amarelo é Abstenção), que é significado que não
+       é deles; vestem a cor do aplicativo, como todo o resto. */
+    --aparte: var(--accent-light);
+    --aparte-bg: rgba(31,165,165,0.07);
+    --aparte-br: rgba(31,165,165,0.30);
     --border: rgba(255,255,255,0.06);
     --radius: 12px;
   }
@@ -327,9 +325,8 @@
                          text-transform: uppercase; letter-spacing: .3px; }
   .rsm-literal[open] summary { margin-bottom: 4px; }
 
-  /* Sustentação: CAIXA fechada, porque é texto próprio, que a assessoria assina.
-     A distinção em relação ao registro tem de ser visível antes de se ler uma
-     palavra — mas por moldura, não por cor de voto emprestada. */
+  /* Sustentação e repercussão: caixas no mesmo padrão do resto do painel. O que
+     as separa do registro é a moldura e o rótulo, não um matiz próprio. */
   .dfs-campo { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
   .dfs { margin-top: 12px; padding: 14px 16px; background: var(--aparte-bg);
          border: 1px solid var(--aparte-br); border-radius: 10px; }
@@ -346,14 +343,14 @@
   .dfs-edit { width: 100%; background: rgba(0,0,0,0.25); border: 1px solid var(--aparte-br);
               border-radius: 8px; color: var(--text); font-family: inherit; font-size: 12.5px;
               line-height: 1.6; padding: 11px 13px; resize: vertical; outline: none; }
-  .dfs-edit:focus { border-color: var(--aparte); }
+  .dfs-edit:focus { border-color: var(--accent); }
   .dfs-barra { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
   .dfs-estado { font-size: 10.5px; color: var(--text-dim); font-style: italic; }
   .dfs-bt { margin-left: auto; background: rgba(255,255,255,0.06); border: 1px solid var(--border);
             border-radius: 6px; color: var(--text-dim); font-family: inherit; font-size: 10.5px;
             padding: 4px 10px; cursor: pointer; }
   .dfs-bt:disabled { opacity: .35; cursor: default; }
-  .dfs-bt:not(:disabled):hover { color: var(--text); border-color: var(--aparte); }
+  .dfs-bt:not(:disabled):hover { color: var(--text); border-color: var(--accent); }
   /* A marcação de incluir é o gesto que põe a sustentação no documento, e por
      isso tem peso visual próprio — e muda de cor quando marcada. */
   .dfs-incluir { display: flex; align-items: flex-start; gap: 9px; margin-top: 11px;
@@ -361,19 +358,16 @@
                  font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
                  text-transform: none; letter-spacing: 0; cursor: pointer; }
   .dfs-incluir b { color: var(--text); }
-  .dfs-incluir input { accent-color: var(--aparte); margin-top: 2px; flex-shrink: 0; }
-  .dfs-incluir.marcado { border-style: solid; border-color: var(--aparte);
-                         background: rgba(255,255,255,0.07); }
-  /* Repercussão: CITAÇÃO, com filete à esquerda e sem caixa fechada. São três
-     naturezas de texto na mesma tela — registro, argumento próprio e material de
-     terceiro —, e a de terceiro é a que mais precisa se anunciar. Ela se anuncia
-     pela forma de quem cita alguém, e não por um matiz: todo matiz aqui já quer
-     dizer um tipo de voto. */
-  .imp { margin-top: 12px; padding: 12px 16px; background: var(--aparte-bg);
-         border-left: 3px solid var(--aparte); border-radius: 0 10px 10px 0; }
+  .dfs-incluir input { accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+  .dfs-incluir.marcado { border-style: solid; border-color: var(--accent);
+                         background: rgba(31,165,165,0.10); }
+  /* Repercussão: mesma caixa da sustentação. Quem diz que o material é de
+     terceiro é o título da seção e a nota de rodapé dela, não a cor. */
+  .imp { margin-top: 12px; padding: 14px 16px; background: var(--aparte-bg);
+         border: 1px solid var(--aparte-br); border-radius: 10px; }
   .imp-tit { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
              color: var(--aparte); margin-bottom: 9px; }
-  .imp-falha { background: rgba(240,192,64,0.08); border-left-color: var(--abstencao);
+  .imp-falha { background: rgba(240,192,64,0.08); border-color: rgba(240,192,64,0.35);
                font-size: 11.5px; color: var(--text-dim); line-height: 1.6; }
   .imp-falha .imp-tit { color: var(--abstencao); }
   .imp-apelido { font-size: 12.5px; color: var(--text-dim); margin-bottom: 11px; }
@@ -387,16 +381,15 @@
   .imp-ponto { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0;
                font-size: 12.5px; line-height: 1.55; color: var(--text);
                text-transform: none; letter-spacing: 0; cursor: pointer; }
-  .imp-ponto input { accent-color: var(--aparte); margin-top: 3px; flex-shrink: 0; }
+  .imp-ponto input { accent-color: var(--accent); margin-top: 3px; flex-shrink: 0; }
   .imp-ponto.fora { color: var(--absent); text-decoration: line-through; }
   .imp-vei { display: block; font-size: 10.5px; color: var(--text-dim); font-style: italic;
              margin-top: 2px; }
   .imp-fonte { font-size: 11px; color: var(--text-dim); line-height: 1.5; padding: 5px 0;
                border-top: 1px solid var(--aparte-br); word-break: break-all; }
   .imp-fonte b { color: var(--text); }
-  .imp-fonte a { color: var(--text); text-decoration: underline; text-underline-offset: 2px;
-                 text-decoration-color: var(--aparte-br); }
-  .imp-fonte a:hover { text-decoration-color: var(--aparte); }
+  .imp-fonte a { color: var(--accent-light); text-decoration: none; }
+  .imp-fonte a:hover { text-decoration: underline; }
   .imp-via { font-size: 10px; color: var(--absent); font-style: italic; }
   .imp-buscas, .imp-desc { font-size: 10.5px; color: var(--text-dim); line-height: 1.5;
                            margin-top: 8px; }
@@ -407,9 +400,9 @@
                  font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
                  text-transform: none; letter-spacing: 0; cursor: pointer; }
   .imp-incluir b { color: var(--text); }
-  .imp-incluir input { accent-color: var(--aparte); margin-top: 2px; flex-shrink: 0; }
-  .imp-incluir.marcado { border-style: solid; border-color: var(--aparte);
-                         background: rgba(255,255,255,0.07); }
+  .imp-incluir input { accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+  .imp-incluir.marcado { border-style: solid; border-color: var(--accent);
+                         background: rgba(31,165,165,0.10); }
   .imp-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--aparte-br);
               font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
   select.field { appearance: none; }
