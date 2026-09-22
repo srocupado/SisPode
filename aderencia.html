@@ -405,6 +405,18 @@
                          background: rgba(31,165,165,0.10); }
   .imp-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--aparte-br);
               font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
+  /* Escolha do modelo: fica no módulo porque é aqui que a escolha errada
+     aparece — como uma seção que volta vazia, não como um erro. */
+  .ia-campo { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .ia-linha { display: flex; gap: 8px; align-items: center; }
+  .ia-linha + .ia-linha { margin-top: 8px; }
+  .ia-linha .field { flex: 1; min-width: 0; }
+  .ia-teste { align-items: flex-start; }
+  .ia-teste .dfs-bt { margin-left: 0; flex-shrink: 0; }
+  .ia-estado { font-size: 11px; color: var(--text-dim); line-height: 1.5;
+               text-transform: none; letter-spacing: 0; }
+  .ia-estado b.bom  { color: var(--sim); }
+  .ia-estado b.ruim { color: var(--abstencao); }
   select.field { appearance: none; }
 
   .spinner {
@@ -863,6 +875,21 @@
         </div>
       </div>
 
+      <div class="ia-campo" id="cvIaCampo">
+        <label>Modelo de IA deste módulo</label>
+        <div class="ia-linha">
+          <select id="cvIaProvedor" class="field"></select>
+          <select id="cvIaModelo" class="field"></select>
+        </div>
+        <div class="ia-linha ia-teste">
+          <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
+          <span class="ia-estado" id="cvIaEstado"></span>
+        </div>
+        <div class="prd-dica">Vale para o resumo, a repercussão e a sustentação — as outras telas seguem com o
+          modelo das Configurações, e a chave continua vindo de lá. Nem todo modelo aciona a busca na web, e não
+          dá para saber pelo nome: o teste faz uma chamada de verdade e responde.</div>
+      </div>
+
       <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
         trazer o resumo de cada item (lê o inteiro teor dos documentos — mais lento)</label>
 
@@ -969,7 +996,9 @@
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
 <script src="libs/pdf.min.js"></script>
+<script src="parecer.js"></script>
 <script src="ia-comum.js"></script>
+<script src="modelo-ia.js"></script>
 <script src="resumos.js"></script>
 <script src="imprensa.js"></script>
 <script src="defesa.js"></script>

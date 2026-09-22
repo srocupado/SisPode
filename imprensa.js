@@ -410,9 +410,12 @@ function impHtml(imp) {
     <div class="imp-nota">Levantamento do que terceiros publicaram, feito por ${cvEsc(imp.modelo)} com busca na
       web. Não descreve a matéria — o que ela faz está na ementa e nos documentos citados acima.${
       // Trocar de modelo por baixo do analista sem avisar seria decidir por ele.
+      // "Previsto", e não "configurado": o modelo da primeira tentativa pode
+      // ter sido escolhido pelo próprio módulo, e dizer que o analista o
+      // configurou seria atribuir a ele uma escolha que não foi dele.
       imp.modeloConfigurado && imp.modelo !== imp.modeloConfigurado
-        ? ` O modelo configurado (${cvEsc(imp.modeloConfigurado)}) respondeu sem consultar a web, então este
-            levantamento usou ${cvEsc(imp.modelo)}. As outras seções seguem com o modelo configurado.`
+        ? ` ${cvEsc(imp.modeloConfigurado)}, que era o previsto, respondeu sem consultar a web — então este
+            levantamento saiu por ${cvEsc(imp.modelo)}. As outras seções seguem com o previsto.`
         : ''}</div>
   </div>`;
 }

@@ -282,10 +282,37 @@ function rsmHtmlItem(r) {
 
 const RSM_MODELO_PADRAO = 'gemini-2.5-flash';
 
+/**
+ * A configuração de IA que vale para os relatórios.
+ *
+ * O provedor e o modelo podem ser escolhidos aqui no módulo, e o que se escolhe
+ * aqui vence o das Configurações gerais. A razão é concreta: estas telas
+ * dependem de uma capacidade que nem todo modelo tem — a busca na web —, e o
+ * modelo bom para as outras telas pode ser inútil para esta. Sem poder trocar
+ * sem sair do módulo, o analista ficava com a escolha feita noutro lugar, para
+ * outro uso, e sem como saber que era ela o problema.
+ *
+ * A chave continua vindo das Configurações: chave é credencial, e credencial
+ * mora num lugar só.
+ */
 async function rsmConfigIA() {
   return new Promise(r => {
-    try { chrome.storage.local.get('config', d => r(d.config || {})); }
-    catch (e) { r({}); }
+    try {
+      chrome.storage.local.get('config', d => {
+        const bruto = d.config || {};
+        const c = Object.assign({}, bruto);
+        const pid = bruto.provedorRelatorios || bruto.provedor || 'gemini';
+        c.provedor = pid;
+        c.apiKey = (bruto.chaves || {})[pid] || (bruto.provedor === pid ? bruto.apiKey : '') || '';
+        // Ordem: o que o analista fixou aqui; senão o que o módulo escolheu
+        // sozinho; senão o padrão geral, e só se for do mesmo provedor.
+        c.modelo = bruto.modeloRelatorios
+          || bruto.modeloRelatoriosAuto
+          || (bruto.provedor === pid ? bruto.modelo : '')
+          || '';
+        r(c);
+      });
+    } catch (e) { r({}); }
   });
 }
 

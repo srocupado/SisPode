@@ -331,7 +331,7 @@ const levantar = args => chamar('impLevantar', args);
     ok(usados[0] === usados[1],
        `resposta ilegível repete o MESMO modelo — é sorteio, não capacidade (${usados.join(' → ')})`);
     ok(imp.modelo === imp.modeloConfigurado, 'e o resultado sai pelo modelo que o analista configurou');
-    ok(!/respondeu sem consultar a web/.test(chamar('impHtml', imp)),
+    ok(!/era o previsto, respondeu sem consultar a web/.test(chamar('impHtml', imp)),
        'sem aviso de troca, porque troca não houve');
   }
   {
@@ -352,7 +352,7 @@ const levantar = args => chamar('impLevantar', args);
     ok(usados[0] !== usados[1], `e o segundo modelo é OUTRO (${usados.join(' → ')})`);
     ok(imp.modelo !== imp.modeloConfigurado && imp.modelo === usados[1],
        'o resultado registra qual modelo de fato levantou');
-    ok(/respondeu sem consultar a web/.test(chamar('impHtml', imp))
+    ok(/era o previsto, respondeu sem consultar a web/.test(chamar('impHtml', imp))
        && new RegExp(imp.modeloConfigurado).test(chamar('impHtml', imp)),
        'e a tela avisa da troca — trocar por baixo do analista seria decidir por ele');
   }

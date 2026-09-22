@@ -183,11 +183,16 @@ REGRAS, todas obrigatórias:
 - Não afirme que o deputado votou de um jeito que não esteja na lista acima.
 - Se o registro não estabelece a posição, sustente pelo argumento e não afirme
   que o voto dele comprova a posição.
-${itens.some(i => i.voto) ? `- DIGA POR QUE AQUELE VOTO IMPORTOU. Para os itens acima em que consta voto do
-  deputado, explique o que estava em jogo naquele ponto e o que aquela escolha
-  preservava ou impedia, em termos concretos. A pergunta que se faz a um
-  parlamentar não é se ele é a favor da matéria em geral: é por que ele votou
-  como votou naquele ponto, e é essa que a sustentação precisa responder.
+- A POSIÇÃO É UMA SÓ, E É SOBRE A MATÉRIA INTEIRA. O deputado não tem uma
+  posição para cada destaque, emenda ou requerimento votado: tem a posição
+  declarada acima, sobre o projeto. Nunca escreva que ele "é favorável à emenda
+  X" ou "é contrário ao destaque Y" como se fossem posições dele à parte.
+${itens.some(i => i.voto) ? `- DENTRO DISSO, DIGA POR QUE CADA VOTO IMPORTOU. Para os itens em que consta
+  voto do deputado, explique o que aquele ponto decidia e COMO aquela escolha
+  serviu à posição sobre o projeto — o que ela preservou do texto, o que
+  impediu, o que manteve em pauta. O voto num item é instrumento da posição
+  sobre a matéria, e é assim que ele tem de aparecer: nunca como uma posição
+  nova, nem como opinião do deputado sobre aquele dispositivo.
 - Ao fazer isso, não invente a motivação dele ("votou assim porque acreditava
   que…") nem credite a um voto isolado o resultado da votação. O que se explica
   é o que aquele ponto decidia — não o que se passava na cabeça de alguém, nem
