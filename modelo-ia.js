@@ -21,16 +21,48 @@
 // combinação de modelo e pedido aciona. Ranking por nome não responde isso;
 // uma chamada de verdade responde. O resultado fica guardado por modelo.
 //
-// Depende de ia-comum.js (PROVEDORES_META, chamarIA) e aderencia.js (cvEsc).
+// A lista de modelos segue o desenho do Plenário, que é o padrão da casa, e
+// cada peça dele resolve um problema concreto:
+//
+//   - cada opção DIZ A SUA FAIXA, e a lista vem ordenada por faixa. Sem isso o
+//     analista escolhe por nome, e nome não diz se o modelo dá conta;
+//   - o modelo SALVO entra sempre, marcado quando o provedor não o oferta mais.
+//     Lista que mudou não apaga em silêncio a escolha de ninguém;
+//   - abaixo do campo, um aviso do que aquela faixa significa na prática.
+//
+// Depende de ia-comum.js (PROVEDORES_META, chamarIA), parecer.js
+// (faixaDoModelo, versaoDoModelo) e aderencia.js (cvEsc).
 
 const MDL_CHAVE_TESTE = 'buscaWeb';   // onde o resultado dos testes fica guardado
 
-const mdl = { cfg: null, modelos: [], ocupado: false };
+const mdl = { cfg: null, modelos: [], ocupado: false, ligado: false };
 const mdlEl = {};
 
-const MDL_IDS = ['cvIaProvedor', 'cvIaChave', 'cvIaChaveDica', 'cvIaModelo', 'cvIaListar',
-                 'cvIaModeloEstado', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo', 'cvIaSalvar',
+const MDL_IDS = ['cvIaProvedor', 'cvIaChave', 'cvIaChaveDica', 'cvIaOlho', 'cvIaModelo', 'cvIaListar',
+                 'cvIaModeloEstado', 'cvIaFaixa', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo', 'cvIaSalvar',
                  'cvIaCancelar', 'btn-config-ia', 'modalIa', 'modalIaFechar'];
+
+// Os mesmos rótulos e o mesmo texto do Plenário: a faixa quer dizer a mesma
+// coisa nos dois lugares, e dizer diferente seria inventar um segundo critério.
+const MDL_ROTULO_FAIXA = {
+  superior: 'faixa superior', intermediaria: 'faixa intermediária',
+  economica: 'faixa econômica', nao_identificada: 'faixa não identificada',
+};
+const MDL_AVISO_FAIXA = {
+  superior: ['bom', 'Faixa superior: adequada para análise densa.'],
+  intermediaria: ['', 'Faixa intermediária: dá conta do resumo e da repercussão. Para a sustentação, a superior escreve melhor.'],
+  economica: ['ruim', 'Faixa econômica: rápida e barata. Tende a completar lacuna com o plausível — o que num documento '
+    + 'de conferência é o erro de maior consequência.'],
+  nao_identificada: ['', 'Faixa não identificada pela convenção de nomes conhecida. O modelo funciona; só não dá para dizer se é adequado.'],
+};
+
+/** A faixa do modelo, do parecer.js. Sem ele, tudo vira "não identificada". */
+function mdlFaixa(id) {
+  return (typeof faixaDoModelo === 'function') ? faixaDoModelo(id) : 'nao_identificada';
+}
+function mdlVersao(id) {
+  return (typeof versaoDoModelo === 'function') ? versaoDoModelo(id) : 0;
+}
 
 function mdlPegarEl() {
   for (const id of MDL_IDS) mdlEl[id] = document.getElementById(id);
@@ -80,26 +112,47 @@ function mdlValorSel(sel) {
 }
 
 /**
- * Monta a lista de modelos. `lista` é a de reserva ou a viva; o modelo salvo
- * entra à força quando não aparece nela, para uma lista desatualizada não apagar
- * em silêncio a escolha que o analista já tinha feito.
+ * Monta a lista de modelos, no desenho do Plenário.
+ *
+ * `lista` é a viva quando ela veio, e a de reserva quando não veio. O modelo
+ * salvo entra à força e se anuncia quando o provedor não o oferta mais — lista
+ * que mudou não pode apagar em silêncio a escolha de ninguém. A ordem é por
+ * faixa, e dentro da faixa o mais novo primeiro, porque é essa a ordem em que
+ * se escolhe.
  */
 function mdlMontarModelos(pid, lista, escolher) {
   if (!mdlEl.cvIaModelo) return;
   const testes = mdlTestes();
-  const ids = (lista || []).map(m => m.id);
+  const base = (lista && lista.length ? lista : (PROVEDORES_META[pid] || {}).modelosFallback || [])
+    .map(m => ({ id: m.id, displayName: m.displayName || m.id }));
   const salvo = escolher || ((mdl.cfg || {}).provedor === pid ? (mdl.cfg || {}).modelo : '') || '';
-  const itens = (salvo && !ids.includes(salvo))
-    ? [{ id: salvo, displayName: salvo + ' (salvo)' }].concat(lista || [])
-    : (lista || []);
-  mdlEl.cvIaModelo.innerHTML = itens.map(m => {
+  if (salvo && !base.some(m => m.id === salvo)) base.push({ id: salvo, displayName: salvo, naoListado: true });
+
+  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
+  base.sort((a, b) => (peso[mdlFaixa(b.id)] - peso[mdlFaixa(a.id)]) || (mdlVersao(b.id) - mdlVersao(a.id)));
+
+  mdlEl.cvIaModelo.innerHTML = base.map(m => {
     const s = testes[`${pid}/${m.id}`];
-    const marca = s ? (s.ok ? ' · busca ✓' : ' · não busca ✗') : '';
-    return `<option value="${cvEsc(m.id)}">${cvEsc(m.displayName || m.id)}${marca}</option>`;
+    // O que se mediu sobre a busca vale mais que qualquer rótulo, então vem junto.
+    const marca = s ? (s.ok ? ', busca na web ✓' : ', não faz busca na web ✗') : '';
+    const extra = m.naoListado ? ', salvo — não ofertado pelo provedor agora' : '';
+    return `<option value="${cvEsc(m.id)}">${cvEsc(m.displayName)} — ${MDL_ROTULO_FAIXA[mdlFaixa(m.id)]}${extra}${marca}</option>`;
   }).join('') || '<option value="">nenhum modelo</option>';
-  mdl.modelos = itens;
+  mdl.modelos = base;
   mdlMarcar(mdlEl.cvIaModelo, salvo);
+  mdlPintarFaixa();
   mdlPintarTeste();
+}
+
+/** O que a faixa do modelo escolhido significa na prática. */
+function mdlPintarFaixa() {
+  const el = mdlEl.cvIaFaixa;
+  if (!el) return;
+  const id = mdlValorSel(mdlEl.cvIaModelo);
+  if (!id) { el.textContent = ''; el.className = 'ia-dica'; return; }
+  const [classe, txt] = MDL_AVISO_FAIXA[mdlFaixa(id)];
+  el.className = 'ia-dica' + (classe ? ' ' + classe : '');
+  el.textContent = txt;
 }
 
 /** A frase sobre a busca do modelo selecionado. */
@@ -253,10 +306,28 @@ function mdlAbrir(v) {
   if (mdlEl.modalIa) mdlEl.modalIa.hidden = !v;
 }
 
+/**
+ * Põe na tela o que está SALVO. Chamado ao abrir a engrenagem, e não só na
+ * montagem: quem mexeu nos campos e cancelou tem de reencontrar a configuração
+ * que vale, e não a edição que abandonou — inclusive o provedor, que é o campo
+ * onde essa confusão custa mais caro.
+ */
+function mdlRefletirConfig() {
+  const pid = (mdl.cfg || {}).provedor || 'gemini';
+  mdlMarcar(mdlEl.cvIaProvedor, pid);
+  mdlTrocarProvedor(pid);
+}
+
 /** Liga o bloco. Chamado uma vez, quando a tela monta. */
 async function mdlIniciar() {
   if (!mdlPegarEl()) return;
   mdl.cfg = await mdlLerConfig();
+
+  // Os ouvintes entram UMA vez. Chamar de novo relê a configuração e redesenha,
+  // mas sem empilhar ouvinte: dois ouvintes no olho fazem a chave alternar duas
+  // vezes por clique, isto é, não alternar.
+  if (mdl.ligado) { mdlRefletirConfig(); return; }
+  mdl.ligado = true;
 
   if (mdlEl.cvIaProvedor) {
     mdlEl.cvIaProvedor.innerHTML = Object.keys(PROVEDORES_META).map(p =>
@@ -264,7 +335,13 @@ async function mdlIniciar() {
     mdlMarcar(mdlEl.cvIaProvedor, mdl.cfg.provedor || 'gemini');
     mdlEl.cvIaProvedor.addEventListener('change', () => mdlTrocarProvedor(mdlValorSel(mdlEl.cvIaProvedor)));
   }
-  if (mdlEl.cvIaModelo) mdlEl.cvIaModelo.addEventListener('change', mdlPintarTeste);
+  if (mdlEl.cvIaModelo) mdlEl.cvIaModelo.addEventListener('change', () => { mdlPintarFaixa(); mdlPintarTeste(); });
+  if (mdlEl.cvIaOlho) mdlEl.cvIaOlho.addEventListener('click', () => {
+    const c = mdlEl.cvIaChave;
+    // setAttribute, e não `.type =`: a propriedade não existe em todo ambiente,
+    // e o atributo é o que vale nos dois.
+    if (c) c.setAttribute('type', (c.getAttribute('type') || 'password') === 'password' ? 'text' : 'password');
+  });
   if (mdlEl.cvIaChave) mdlEl.cvIaChave.addEventListener('input', mdlPintarTeste);
   if (mdlEl.cvIaListar) mdlEl.cvIaListar.addEventListener('click', mdlListarModelos);
   if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.addEventListener('click', mdlTestarBusca);
@@ -275,7 +352,7 @@ async function mdlIniciar() {
   const botao = mdlEl['btn-config-ia'], modal = mdlEl.modalIa;
   if (botao) botao.addEventListener('click', async () => {
     mdl.cfg = await mdlLerConfig();       // pode ter mudado noutra tela
-    mdlTrocarProvedor(mdlValorSel(mdlEl.cvIaProvedor));
+    mdlRefletirConfig();
     mdlAbrir(true);
   });
   if (mdlEl.modalIaFechar) mdlEl.modalIaFechar.addEventListener('click', () => mdlAbrir(false));
@@ -283,7 +360,7 @@ async function mdlIniciar() {
   if (modal) modal.addEventListener('click', e => { if (e.target === modal) mdlAbrir(false); });
   document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal && !modal.hidden) mdlAbrir(false); });
 
-  mdlTrocarProvedor(mdl.cfg.provedor || 'gemini');
+  mdlRefletirConfig();
 }
 
 // A tela monta o bloco sozinha ao carregar.

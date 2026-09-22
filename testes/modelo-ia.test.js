@@ -92,8 +92,8 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
     const manifest = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
     const rec = manifest.web_accessible_resources.flatMap(w => w.resources);
     ok(rec.includes('modelo-ia.js'), 'modelo-ia.js está em web_accessible_resources');
-    ok(!/<script src="parecer\.js"/.test(html),
-       'e a página não carrega parecer.js, que deixou de ser usado aqui');
+    ok(/<script src="parecer\.js"/.test(html) && rec.includes('parecer.js'),
+       'e parecer.js está carregado: é dele que vem a faixa do modelo, como no Plenário');
   }
 
   console.log('\n== o módulo configura o sistema INTEIRO, como os outros ==');
@@ -151,8 +151,48 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
        'com a contagem à vista');
   }
 
+  console.log('\n== a lista de modelos é a do Plenário, que é o padrão da casa ==');
+  {
+    const opcoes = () => [...document.getElementById('cvIaModelo').querySelectorAll('option')];
+    const textos = () => opcoes().map(o => o.textContent.trim());
+
+    // Cada opção diz a sua faixa. Escolher por nome não diz se o modelo dá conta.
+    ok(textos().every(t => /faixa (superior|intermediária|econômica|não identificada)/.test(t)),
+       `toda opção declara a faixa (${textos()[0]})`);
+
+    // Ordenada por faixa, e dentro da faixa o mais novo primeiro.
+    const faixas = opcoes().map(o => chamar('mdlFaixa', o.getAttribute('value')));
+    const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
+    ok(faixas.every((f, i) => i === 0 || peso[faixas[i - 1]] >= peso[f]),
+       `e vem ordenada da faixa mais alta para a mais baixa (${faixas.join(' > ')})`);
+
+    // O aviso do que aquela faixa significa.
+    ok(document.getElementById('cvIaFaixa').textContent.length > 20,
+       `abaixo do campo, o que a faixa escolhida significa ("${document.getElementById('cvIaFaixa').textContent.slice(0, 44)}…")`);
+
+    // Um modelo salvo que o provedor não oferta mais não some em silêncio.
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-modelo-aposentado', chaves: {} };
+    await chamar('mdlIniciar');
+    const salvo = opcoes().find(o => o.getAttribute('value') === 'gemini-modelo-aposentado');
+    ok(!!salvo, 'o modelo salvo entra na lista mesmo fora da oferta do provedor');
+    ok(/não ofertado pelo provedor agora/.test(salvo.textContent),
+       'e se anuncia como tal, em vez de sumir e trocar a escolha de alguém em silêncio');
+
+    // O olho, que é do Plenário também: chave é senha, mas dá para conferir.
+    const c = document.getElementById('cvIaChave');
+    ok(c.getAttribute('type') === 'password', 'a chave nasce oculta');
+    document.getElementById('cvIaOlho').dispatchEvent(new Event('click'));
+    ok(c.getAttribute('type') === 'text', 'e o olho revela, para conferir o que se colou');
+    document.getElementById('cvIaOlho').dispatchEvent(new Event('click'));
+    ok(c.getAttribute('type') === 'password', 'e esconde de novo');
+  }
+
   console.log('\n== salvar grava onde as outras telas leem ==');
   {
+    CONFIG = {};
+    await chamar('mdlIniciar');
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDeTesteComTamanhoSuficiente';
+    await chamar('mdlListarModelos');
     document.getElementById('cvIaModelo').querySelector('option[value="gemini-3.8-flash"]').selected = true;
     await chamar('mdlSalvar');
     ok(CONFIG.provedor === 'gemini' && CONFIG.modelo === 'gemini-3.8-flash',
@@ -191,6 +231,15 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
        'a chave do provedor anterior é preservada no mapa');
     ok(CONFIG.chaves.anthropic === 'sk-ant-chaveDeTesteComTamanhoSuficiente' && CONFIG.provedor === 'anthropic',
        'e a nova entra sem apagar a outra — quem experimenta e volta não recola nada');
+
+    // Reabrir tem de mostrar o que está SALVO, e não a edição abandonada. O
+    // provedor é onde isso custa mais caro: um campo que ficou em Anthropic
+    // manda a chamada seguinte para o provedor errado, com a chave do outro.
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-2.5-pro', chaves: {} };
+    document.getElementById('cvIaProvedor').querySelector('option[value="anthropic"]').selected = true;
+    await chamar('mdlIniciar');
+    ok(chamar('mdlValorSel', document.getElementById('cvIaProvedor')) === 'gemini',
+       'reabrir devolve o provedor salvo, e não o que ficou selecionado sem salvar');
   }
 
   console.log('\n== o teste de busca, que é o acréscimo desta tela ==');
@@ -207,7 +256,7 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
        'o resultado fica guardado por modelo, para não se testar a mesma coisa toda vez');
     ok(/Fez a busca na web/.test(document.getElementById('cvIaEstado').textContent),
        'e a tela diz o que se mediu');
-    ok(/busca ✓/.test(document.getElementById('cvIaModelo').innerHTML),
+    ok(/busca na web ✓/.test(document.getElementById('cvIaModelo').innerHTML),
        'a lista passa a marcar o modelo medido');
 
     respostaDeBusca = { comFontes: false };

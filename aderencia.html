@@ -434,6 +434,7 @@
   .ia-dica { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 6px; }
   .ia-dica.ruim { color: var(--abstencao); }
   .ia-dica.bom { color: var(--sim); }
+  .ia-linha .dfs-bt { flex-shrink: 0; margin-left: 0; }
   .ia-linha { display: flex; gap: 8px; align-items: center; }
   .ia-linha + .ia-linha { margin-top: 8px; }
   .ia-linha .field { flex: 1; min-width: 0; }
@@ -1016,14 +1017,19 @@
       <button class="modal-x" id="modalIaFechar" aria-label="Fechar">✕</button>
     </div>
     <div class="modal-corpo" id="cvIaCampo">
-      <p class="ia-aviso">Provedor, chave e modelo são os mesmos do resto do aplicativo: mudar aqui muda lá.
-        Servem ao resumo, à repercussão e à sustentação, na aba "Como votou o deputado".</p>
+      <p class="ia-aviso">A IA escreve o resumo de cada item, levanta a repercussão pública da matéria e
+        rascunha a sustentação do posicionamento, na aba "Como votou o deputado". Estas configurações são
+        compartilhadas com os outros painéis do SiSPode.</p>
 
       <label for="cvIaProvedor">Provedor de IA</label>
       <select id="cvIaProvedor" class="field"></select>
 
       <label for="cvIaChave" style="margin-top:14px">Chave de API</label>
-      <input type="password" id="cvIaChave" class="field" autocomplete="off" spellcheck="false">
+      <div class="ia-linha">
+        <input type="password" id="cvIaChave" class="field" autocomplete="off" spellcheck="false"
+               placeholder="Cole aqui sua chave">
+        <button type="button" id="cvIaOlho" class="dfs-bt" title="Mostrar/ocultar chave">👁</button>
+      </div>
       <div class="ia-dica" id="cvIaChaveDica"></div>
 
       <label for="cvIaModelo" style="margin-top:14px">Modelo
@@ -1031,6 +1037,7 @@
       </label>
       <select id="cvIaModelo" class="field"></select>
       <div class="ia-dica" id="cvIaModeloEstado"></div>
+      <div class="ia-dica" id="cvIaFaixa"></div>
 
       <div class="ia-teste">
         <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
@@ -1050,6 +1057,7 @@
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
 <script src="libs/pdf.min.js"></script>
+<script src="parecer.js"></script>
 <script src="ia-comum.js"></script>
 <script src="modelo-ia.js"></script>
 <script src="resumos.js"></script>
