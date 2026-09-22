@@ -548,8 +548,12 @@ function impHtmlPDF(imp, e) {
   const esc = e || cvEsc;
   if (!imp || !imp.ok || !imp.incluir) return '';
   const sel = impSelecionados(imp);
-  const fontes = impFontesUsadas(imp);
   if (!sel.total) return '';
+  // Cada ponto leva ao lado o veículo de onde saiu, e é só isso que vai ao
+  // papel. A lista de fontes ao pé, a ressalva sobre o redirecionador e as
+  // consultas feitas ficam na TELA, que é onde o analista confere — no
+  // documento eram três blocos sobre o processo de apuração, e não sobre a
+  // matéria, ocupando mais espaço do que o levantamento inteiro.
   const grupo = (rot, pontos) => pontos.length ? `<div class="imp-g"><div class="imp-r">${esc(rot)}</div>
     <ul>${pontos.map(p => `<li>${esc(p.texto)}
       <span class="imp-v">(${p.fontes.map(f => esc(f.veiculo || 'origem não identificada')).join(', ')})</span></li>`).join('')}</ul></div>` : '';
@@ -558,19 +562,6 @@ function impHtmlPDF(imp, e) {
     ${imp.apelido && imp.usarApelido ? `<div class="imp-ap">Conhecida publicamente como <b>${esc(imp.apelido)}</b>.</div>` : ''}
     ${grupo('O que a cobertura destaca', sel.focos)}
     ${grupo('O que está contestado', sel.contencioso)}
-    ${fontes.length ? `<div class="imp-g"><div class="imp-r">Fontes</div>
-      <ol class="imp-fs">${fontes.map(f => {
-        const cabeca = [esc(f.veiculo || 'origem não identificada'),
-                        f.data ? esc(f.data) : null, f.titulo ? esc(f.titulo) : null].filter(Boolean).join(' — ');
-        // Endereço de redirecionador não vai ao papel. São 130 caracteres de
-        // token opaco que ninguém digita, que não se distinguem uns dos outros
-        // e que ainda por cima estampam o domínio do buscador no lugar do
-        // veículo — parecendo dizer que a fonte é o Google. O que serve no
-        // impresso é o veículo; o link clicável fica na tela.
-        return `<li>${cabeca}${impRedirecionador(f.url) ? '' : `<br><span class="imp-u">${esc(f.url)}</span>`}</li>`;
-      }).join('')}</ol>
-      ${fontes.some(f => impRedirecionador(f.url)) ? `<div class="imp-bs">O provedor de busca não
-        informa o endereço da página, apenas o veículo. Os links estão na tela da extensão.</div>` : ''}</div>` : ''}
-    ${imp.buscas.length ? `<div class="imp-bs"><b>Buscas feitas:</b> ${esc(imp.buscas.join(' · '))}.</div>` : ''}
   </div>`;
 }
+

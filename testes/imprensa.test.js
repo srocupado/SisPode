@@ -321,14 +321,16 @@ const levantar = args => chamar('impLevantar', args);
     let pdf = chamar('impHtmlPDF', imp);
     ok(/Foco que fica/.test(pdf) && /Crítica que o analista vai cortar/.test(pdf),
        'marcada, a seção sai com os dois pontos');
-    ok(/g1\.globo\.com/.test(pdf), 'com o veículo de cada fonte — é por ele que se confere');
-    // No papel, o endereço do redirecionador é cem caracteres de token opaco que
-    // ninguém digita, iguais entre si, estampando o domínio do buscador no lugar
-    // do veículo. Fica de fora, e o documento diz por quê.
-    ok(!/vertexaisearch/.test(pdf), 'e SEM o endereço do redirecionador, que no impresso não serve a ninguém');
-    ok(/não informa o endereço da página, apenas o veículo/.test(pdf.replace(/\s+/g, ' ')),
-       'o documento explica a ausência, em vez de deixar a lista parecendo incompleta');
-    ok(/Buscas feitas/.test(pdf), 'e com as buscas feitas, que são o que orientou a resposta');
+    ok(/g1\.globo\.com/.test(pdf), 'com o veículo ao lado de cada ponto — é por ele que se confere');
+
+    // O DOCUMENTO NÃO CARREGA O PROCESSO DE APURAÇÃO. Lista de fontes ao pé,
+    // ressalva sobre o redirecionador e consultas feitas ficam na TELA, que é
+    // onde o analista confere. No papel eram três blocos sobre COMO se apurou,
+    // e não sobre a matéria, ocupando mais espaço que o levantamento inteiro.
+    ok(!/vertexaisearch|https?:\/\//.test(pdf), 'e sem endereço nenhum no impresso');
+    ok(!/>Fontes</.test(pdf), 'sem a lista de fontes ao pé');
+    ok(!/não informa o endereço da página/.test(pdf.replace(/\s+/g, ' ')), 'sem a ressalva do redirecionador');
+    ok(!/Buscas feitas/.test(pdf), 'e sem as buscas feitas');
 
     imp.contencioso[0].usar = false;
     pdf = chamar('impHtmlPDF', imp);
@@ -336,6 +338,12 @@ const levantar = args => chamar('impLevantar', args);
     ok(!/estadao\.com\.br/.test(pdf),
        'e a fonte que só ele citava sai também — fonte de nada não é fonte');
     ok(/Foco que fica/.test(pdf) && /g1\.globo\.com/.test(pdf), 'o resto fica');
+
+    // Nada disso se perdeu: a tela segue com a lista de fontes, os links e as
+    // consultas. Só o documento é que não carrega o processo de apuração.
+    const tela = chamar('impHtml', imp);
+    ok(/Fontes consultadas/.test(tela) && /Buscas feitas/.test(tela),
+       'na TELA, fontes e consultas continuam — é lá que o analista confere');
 
     imp.focos[0].usar = false;
     ok(chamar('impHtmlPDF', imp) === '',
@@ -349,11 +357,11 @@ const levantar = args => chamar('impLevantar', args);
                 fontes: [{ url: 'https://www1.folha.uol.com.br/poder/bets.shtml', veiculo: 'folha.uol.com.br' }] }],
       contencioso: [], fontes: [], modelo: 'm' };
     const pdf = chamar('impHtmlPDF', imp);
-    ok(/www1\.folha\.uol\.com\.br\/poder\/bets\.shtml/.test(pdf),
-       'endereço real sai impresso — quem confere consegue digitar esse');
-    ok(!/não informa o endereço da página/.test(pdf.replace(/\s+/g, ' ')),
-       'e a ressalva não aparece quando não há o que ressalvar');
-    ok(/href="https:\/\/www1\.folha/.test(chamar('impHtml', imp)), 'na tela, o veículo é link');
+    ok(!/www1\.folha\.uol\.com\.br\/poder/.test(pdf),
+       'nem o endereço real vai ao impresso: no papel ninguém digita URL');
+    ok(/folha\.uol\.com\.br/.test(pdf), 'o veículo, sim — é o que identifica a origem para quem lê');
+    ok(/href="https:\/\/www1\.folha/.test(chamar('impHtml', imp)),
+       'e na tela o veículo é link, que é onde clicar faz sentido');
   }
 
   console.log('\n== o que o modelo NÃO consegue fazer passar ==');
