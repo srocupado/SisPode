@@ -31,18 +31,24 @@ const PRD_GRUPOS = [
   { k: 'fiscal', rot: 'Fiscalização e controle',
     desc: 'Instrumentos de controle sobre o Executivo e sobre a Administração.',
     tipos: ['RIC', 'RCP', 'PFC', 'SIT', 'INC', 'INA'] },
+  // Os tipos de relatoria são muitos, e faltavam seis. Medido em 22/09/2026 na
+  // produção real de três deputados da bancada: PEP, PRLE, PSS, SBR, CVO e VTS
+  // apareciam e caíam em "Documentos e processo interno — sem conteúdo
+  // legislativo próprio". Chamar um Parecer às Emendas de Plenário ou um Voto
+  // em Separado de ofício sem conteúdo é errar justamente na parte do trabalho
+  // que este relatório existe para mostrar.
   { k: 'relatoria', rot: 'Relatoria',
-    desc: 'Pareceres dados como relator.',
-    tipos: ['PRL', 'PRLP', 'PPP', 'RDF', 'EMR'] },
+    desc: 'Pareceres e votos proferidos na análise de matérias, como relator ou em separado.',
+    tipos: ['PRL', 'PRLP', 'PRLE', 'PPP', 'PEP', 'PSS', 'RDF', 'EMR', 'SBR', 'CVO', 'VTS'] },
   { k: 'texto', rot: 'Atuação sobre o texto',
     desc: 'Emendas, substitutivos e destaques — a disputa do conteúdo.',
-    tipos: ['EMC', 'EMP', 'EMA', 'ERD', 'EMS', 'SBT', 'DTQ'] },
+    tipos: ['EMC', 'EMP', 'EMA', 'ERD', 'EMS', 'ESB', 'SBT', 'SLD', 'DTQ'] },
   { k: 'andamento', rot: 'Requerimentos de andamento',
     desc: 'Urgência, retirada de pauta, audiência, sessão solene, voto de pesar.',
     tipos: ['REQ', 'RPD', 'RQS'] },
   { k: 'outros', rot: 'Documentos e processo interno',
-    desc: 'Ofícios e peças de processo, sem conteúdo legislativo próprio.',
-    tipos: ['DOC', 'PROC'] },
+    desc: 'Ofícios, recursos e peças de processo, sem conteúdo legislativo próprio.',
+    tipos: ['DOC', 'PROC', 'REC'] },
 ];
 
 /** Em que grupo cai uma sigla. O que não está na taxonomia cai em "outros". */
@@ -81,16 +87,46 @@ function prdStatus(msg, tipo) {
 }
 
 // ---------- coleta ----------
+/** O ano em que a proposição foi APRESENTADA, que é o que o relatório recorta. */
+function prdAnoDe(p) {
+  return String((p && p.dataApresentacao) || '').slice(0, 4);
+}
+
+/**
+ * A designação da proposição — "PL 1234/2025".
+ *
+ * Quando a API manda `ano: 0`, que é o caso de pareceres, substitutivos e
+ * emendas, "PRL 3/0" não designa nada. Nesses o ano de apresentação é o que
+ * identifica a peça para quem vai procurá-la.
+ */
+function prdDesignacao(p) {
+  const ano = Number(p.ano) ? p.ano : prdAnoDe(p);
+  return `${p.siglaTipo} ${p.numero}${ano ? '/' + ano : ''}`;
+}
+
 /**
  * TODAS as proposições de autoria do deputado, seguindo a paginação.
  *
  * O teto por página é 100 e a API não avisa que cortou: sem seguir `links.next`
  * o relatório diria "apresentou 100 proposições" para quem tem 828. É o mesmo
  * erro de leitura que a aba de consulta já trata, aqui com outra roupa.
+ *
+ * O RECORTE POR ANO É FEITO AQUI, PELA DATA DE APRESENTAÇÃO, e não pelo
+ * parâmetro `ano` da API. Medido em 22/09/2026, em três deputados da bancada:
+ * de 13% a 28% das proposições vêm com `ano: 0` — e some de qualquer filtro
+ * por ano, em silêncio. São justamente os pareceres, substitutivos e emendas:
+ *
+ *   Bruno Ganem, 2025 .............. 79 pelo filtro da API, 130 pela data real
+ *   Antonio Carlos Rodrigues, 2025 . 56 pelo filtro da API,  83 pela data real
+ *   Cristiane Lopes, 2025 .......... 88 pelo filtro da API, 130 pela data real
+ *
+ * Nos três casos o que se perdia incluía a RELATORIA quase inteira — 18 PRL num
+ * deles —, que é um dos grupos que este relatório existe para mostrar. A lista
+ * já traz `dataApresentacao` em 100% dos itens (medido), então recortar aqui
+ * não custa chamada nenhuma: custa pedir todas as páginas em vez de um ano.
  */
 async function prdColetar(idDep, ano) {
-  let url = API_PROP + '?idDeputadoAutor=' + idDep + '&ordem=DESC&ordenarPor=id&itens=100'
-          + (ano ? '&ano=' + encodeURIComponent(ano) : '');
+  let url = API_PROP + '?idDeputadoAutor=' + idDep + '&ordem=DESC&ordenarPor=id&itens=100';
   const todas = [];
   let pag = 0;
   while (url && pag < 40) {
@@ -101,7 +137,16 @@ async function prdColetar(idDep, ano) {
     pag++;
     prdStatus(`Buscando proposições… ${todas.length}`, 'loading');
   }
-  return { todas, paginas: pag, truncado: !!url };
+  const truncado = !!url;
+  if (!ano) return { todas, paginas: pag, truncado, semData: 0 };
+
+  // Sem data não dá para dizer o ano; o item fica de fora do recorte e o
+  // relatório conta quantos foram, em vez de somem em silêncio.
+  const comData = todas.filter(p => prdAnoDe(p));
+  return {
+    todas: comData.filter(p => prdAnoDe(p) === String(ano)),
+    paginas: pag, truncado, semData: todas.length - comData.length,
+  };
 }
 
 /**
@@ -126,7 +171,7 @@ async function prdDetalhar(props) {
 
 // ---------- render ----------
 function prdRender(dados) {
-  const { todas, detalhes, dep, ano, truncado, teto } = dados;
+  const { todas, detalhes, dep, ano, truncado, teto, semData } = dados;
   const e = cvEsc;
 
   const porGrupo = {};
@@ -190,7 +235,10 @@ function prdRender(dados) {
 
     <div class="cv-cab">
       <h3>${e(dep.nome)} <span style="font-weight:400;color:var(--text-dim)">(${e(dep.partido)}-${e(dep.uf)})</span></h3>
-      <div class="sub">Produção legislativa${ano ? ` — proposições de ${e(ano)}` : ' — todo o período na base'}</div>
+      <div class="sub">Produção legislativa${ano
+        ? ` — apresentadas em ${e(ano)}`
+        : ' — todo o período na base'}</div>${semData ? `<div class="sub" style="margin-top:4px">${semData}
+        proposição(ões) ficaram fora do recorte por não trazerem data de apresentação na API.</div>` : ''}
 
       <div class="cv-nums" style="margin-top:12px">
         <div class="cv-num"><div class="v">${todas.length}</div><div class="l">Assinaturas</div></div>
@@ -233,7 +281,7 @@ function prdRender(dados) {
 
     ${merito.length ? `<div class="cv-lista" style="margin-top:12px">
       ${merito.map(m => `<div class="cv-item">
-        <div class="prd-sig">${e(m.siglaTipo)} ${e(m.numero)}/${e(m.ano)}</div>
+        <div class="prd-sig">${e(prdDesignacao(m))}</div>
         <div class="cv-corpo">
           <div class="cv-obj">${e(String(m.ementa || '').replace(/\s+/g, ' ').slice(0, 260) || '(sem ementa)')}</div>
           <div class="cv-meta">${m.status && m.status.siglaOrgao ? e(m.status.siglaOrgao) + ' · ' : ''}${
@@ -262,7 +310,7 @@ async function prdConsultar() {
   prdEl.buscar().disabled = true;
   try {
     prdStatus('Buscando proposições…', 'loading');
-    const { todas, truncado } = await prdColetar(prd.deputado.id, ano);
+    const { todas, truncado, semData } = await prdColetar(prd.deputado.id, ano);
     if (!todas.length) {
       prdStatus(ano ? `Nenhuma proposição de autoria em ${ano}.` : 'Nenhuma proposição de autoria na base.', 'error');
       return;
@@ -271,7 +319,7 @@ async function prdConsultar() {
     const teto = merito.length > PRD_TETO_DETALHE;
     const detalhes = await prdDetalhar(merito.slice(0, PRD_TETO_DETALHE));
     prdStatus('');
-    prdRender({ todas, detalhes, dep: prd.deputado, ano, truncado, teto });
+    prdRender({ todas, detalhes, dep: prd.deputado, ano, truncado, teto, semData });
   } catch (e) {
     prdStatus('Erro: ' + e.message, 'error');
     console.error(e);
@@ -302,7 +350,7 @@ function prdExportar() {
 
   const linhas = [['Tipo', 'Número', 'Ano', 'Ementa', 'Órgão atual', 'Situação', 'Temas', 'Ficha']];
   for (const m of merito) {
-    linhas.push([m.siglaTipo, m.numero, m.ano,
+    linhas.push([m.siglaTipo, m.numero, Number(m.ano) ? m.ano : prdAnoDe(m),
       String(m.ementa || '').replace(/\s+/g, ' '),
       (m.status || {}).siglaOrgao || '', (m.status || {}).descricaoSituacao || '',
       m.temas.join(', '),
@@ -315,7 +363,7 @@ function prdExportar() {
 
   const todasL = [['Tipo', 'Número', 'Ano', 'Grupo', 'Ementa']];
   for (const p of todas) {
-    todasL.push([p.siglaTipo, p.numero, p.ano,
+    todasL.push([p.siglaTipo, p.numero, Number(p.ano) ? p.ano : prdAnoDe(p),
       (PRD_GRUPOS.find(g => g.k === prdGrupoDe(p.siglaTipo)) || {}).rot || '',
       String(p.ementa || '').replace(/\s+/g, ' ').slice(0, 400)]);
   }
@@ -402,7 +450,7 @@ function prdHtmlPDF(logoDataUrl) {
   <table class="prdlista">
     <tr><th style="width:92px">Matéria</th><th>Ementa</th><th style="width:150px">Situação</th></tr>
     ${merito.map(m => `<tr>
-      <td><b><a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${m.id}">${e(m.siglaTipo)} ${e(m.numero)}/${e(m.ano)}</a></b></td>
+      <td><b><a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${m.id}">${e(prdDesignacao(m))}</a></b></td>
       <td>${e(String(m.ementa || '').replace(/\s+/g, ' ').slice(0, 300) || '—')}
         ${m.temas.length ? `<div class="res">${e(m.temas.join(' · '))}</div>` : ''}</td>
       <td>${(m.status || {}).siglaOrgao ? `<b>${e(m.status.siglaOrgao)}</b><br>` : ''}${
