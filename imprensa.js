@@ -33,57 +33,83 @@
 
 const IMP_MODELO_PADRAO = 'gemini-2.5-flash';
 
-// Modelos que, medidos em 22/09/2026, acionam a busca de forma confiável. Servem
-// de RESERVA quando o modelo configurado responde sem buscar — e não de escolha
-// fixa: o analista continua mandando no modelo, e só se troca quando o dele não
-// faz a única coisa de que este módulo depende. A lista envelhece; se um dia
-// nenhum deles existir para a chave, o levantamento falha dizendo o que tentou,
-// que é melhor do que falhar dizendo "verifique sua chave" quando a chave está boa.
+// Modelos de RESERVA, para o caso de o escolhido não buscar numa chamada. Não
+// são escolha fixa: o analista continua mandando no modelo. A lista envelhece,
+// e é por isso que ela é só rede — o que faz a busca acontecer é o formato
+// pedido ao modelo, não o nome dele.
 const IMP_MODELOS_BUSCA = ['gemini-3.8-flash', 'gemini-2.5-flash'];
 const IMP_TETO_PONTOS = 6;          // por lista; mais que isso ninguém confere
 
-function impPrompt({ prop, ementa, simples }) {
+// A BUSCA E A ESTRUTURA SÃO DUAS CHAMADAS, DE PROPÓSITO.
+//
+// Medido em 22/09/2026, e é o achado que explica tudo o que este módulo penou.
+// O que decide se o modelo aciona a ferramenta de busca não é o modelo: é o
+// PEDIDO. Mesma matéria, mesmo gemini-3.1-flash-lite —
+//
+//     pedido curto, resposta em prosa ............ buscou 4/4
+//     o mesmo, pedindo JSON ...................... buscou 0/3
+//     pedido longo e cheio de regras, em prosa ... buscou 0/4
+//
+// — ou seja, duas coisas desligam a busca: exigir JSON e encher o pedido de
+// regras. Com as duas juntas, como estava, a busca nunca acontecia, e o sintoma
+// aparecia como se fosse limitação do modelo. Não é: o mesmo modelo que
+// "nunca buscava" busca sempre quando se pede pouco e em texto corrido.
+//
+// Daí a separação, e daí o tamanho de cada parte. A primeira chamada é CURTA e
+// só pesquisa — é dela que saem as fontes e as consultas. A segunda recebe o
+// texto da primeira e faz o trabalho de disciplina: recorta, descarta o que não
+// tem domínio, e devolve em JSON. Buscar e obedecer a regras são coisas que o
+// modelo não faz bem ao mesmo tempo, então não se pedem na mesma chamada.
+
+function impPromptBusca({ prop, ementa, simples }) {
   const id = prop ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}` : 'a matéria';
-  return `Você pesquisa na web a repercussão pública de uma proposição do Congresso Nacional
-brasileiro e devolve um levantamento, para um analista da Câmara dos Deputados.
+  // Curto de propósito. Cada regra a mais aqui custa busca, e a busca é a única
+  // coisa que só esta chamada pode fazer — o resto a seguinte faz igual.
+  return `Pesquise na web a repercussão pública do ${id} no Brasil${ementa ? ` (${ementa})` : ''}.
+Busque os dois lados: termos de crítica ("críticas", "polêmica", "problemas") e
+de defesa ("benefícios", "avanços"). Relate:
 
-MATÉRIA: ${id}.
-EMENTA OFICIAL: ${ementa || '(não disponível)'}
-${simples ? `DO QUE TRATA, EM LINGUAGEM COMUM: ${simples}\n` : ''}
-BUSQUE OS DOIS LADOS. Faça consultas tanto com termos de crítica quanto com
-termos de defesa da matéria — "críticas", "problemas", "polêmica", e também
-"benefícios", "avanços", "defesa". Quem escolhe só um lado da busca recebe de
-volta só aquele lado, e o levantamento fica inútil para quem vai ter de
-responder ao outro.
+1. APELIDO pelo qual a matéria ficou conhecida publicamente, se houver.
+2. FOCOS: o que a cobertura destaca.
+3. CONTESTADO: os pontos criticados ou disputados, e por quem.
 
-O QUE DEVOLVER:
-- apelido: o nome pelo qual a matéria ficou conhecida publicamente ("PL das
-  Fake News", "marco temporal"), se houver um de uso corrente. Se não houver,
-  null. Não invente apelido nem use o número da matéria como apelido.
-- focos: o que a cobertura destaca da matéria — o ENQUADRAMENTO público, não o
-  conteúdo da lei. "A cobertura tratou sobretudo da tributação das empresas" é
-  foco; "o projeto institui normas de autorização e fiscalização" NÃO é, é
-  descrição da matéria, e essa já está na ementa acima.
-- contencioso: os pontos efetivamente contestados, criticados ou disputados, e
-  por quem. É a parte mais importante: se há crítica pública, ela tem de
-  aparecer aqui mesmo que seja desfavorável ao Parlamento.
+Uma linha por ponto, e ao final de cada linha os domínios de onde ela saiu,
+entre parênteses. Texto corrido.
+
+Não descreva o que a matéria faz — só o que se diz sobre ela. Não invente
+número nem citação. Não opine.`;
+}
+
+/**
+ * A segunda chamada: recebe o relato da primeira e faz a disciplina toda. Sem
+ * web — não há o que buscar, só o que recortar. É aqui que moram as regras que
+ * na chamada de busca custariam a própria busca.
+ */
+function impPromptEstruturar({ prop, relato }) {
+  const id = prop ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}` : 'a matéria';
+  return `Abaixo está um levantamento da repercussão pública de ${id}, feito por outro
+assistente a partir de busca na web. Sua ÚNICA tarefa é reorganizá-lo em JSON.
 
 REGRAS, todas obrigatórias:
-- Para CADA ponto, liste em "veiculos" os domínios das páginas de onde ele saiu
-  (por exemplo "g1.globo.com"). Ponto sem veículo será descartado.
-- Nunca use como veículo o domínio do buscador ou do redirecionador
-  ("vertexaisearch.cloud.google.com", "cloud.google.com", "google.com"): eles não
-  publicaram nada. Use o domínio de quem publicou a página.
-- NÃO descreva o que a matéria faz: isso já vem do documento oficial. Aqui só o
-  que se DIZ sobre ela.
-- NÃO invente número, percentual, pesquisa, valor ou citação. Se um número
-  aparecer numa fonte, pode citá-lo dizendo de onde veio; se não aparecer, não
-  existe.
-- Não opine sobre a matéria e não recomende posição. Você está relatando o
-  debate, não participando dele.
-- Se a busca não encontrar repercussão relevante, devolva as listas vazias e
-  "semCobertura": true. Matéria sem repercussão é um achado útil, não uma falha.
-- Uma frase por ponto, no máximo duas. Português comum.
+- NÃO acrescente ponto, domínio, número ou apelido que não esteja no texto.
+  Você não pesquisou nada: tudo o que você sabe está aí embaixo.
+- Os domínios de cada ponto estão no texto, entre parênteses. Passe-os para
+  "veiculos", um por um. Ponto sem domínio no texto vai com "veiculos" vazio.
+- Nunca use como veículo o domínio de um buscador ou redirecionador
+  ("vertexaisearch.cloud.google.com", "cloud.google.com", "google.com"): eles
+  não publicaram nada.
+- "apelido": só o nome pelo qual a matéria ficou conhecida, sem aspas e sem
+  alternativas. Se o texto não trouxer um de uso corrente, ou trouxer apenas o
+  número da matéria, devolva null.
+- "focos" é o ENQUADRAMENTO público, não o conteúdo da lei. Se uma linha do
+  texto descreve o que a matéria faz, em vez do que se diz sobre ela, deixe-a
+  de fora.
+- Se o texto disser que não há repercussão relevante, devolva as listas vazias
+  e "semCobertura": true.
+- Uma frase por ponto, no máximo duas. Português comum, sem marcação.
+
+=== LEVANTAMENTO ===
+${relato}
 
 Responda SOMENTE com JSON válido, sem cercas de código:
 {"apelido":"<texto ou null>","semCobertura":false,
@@ -157,6 +183,49 @@ function impLimparTexto(v) {
     .replace(/\s+/g, ' ').trim();
 }
 
+/** Palavras com peso, para comparar uma frase com outra. */
+function impPalavras(v) {
+  return new Set(String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().split(/[^a-z0-9]+/).filter(w => w.length > 3));
+}
+
+/**
+ * De onde veio este ponto, segundo o PROVEDOR.
+ *
+ * O caminho bom é `trechos`: o Gemini devolve, em groundingSupports, qual fonte
+ * sustenta qual pedaço do texto que ele escreveu. Como a etapa de estruturação
+ * copia as frases quase literalmente, basta casar a frase do ponto com a do
+ * trecho. Isso é atribuição do provedor, e não autodeclaração do modelo — que,
+ * medido, o modelo não faz quando o pedido é curto, e o pedido precisa ser
+ * curto para que ele busque.
+ *
+ * O caminho de reserva é o que o próprio texto declarou entre parênteses, que
+ * às vezes vem. Nenhum dos dois inventa: ponto sem nenhum dos dois é descartado.
+ */
+function impFontesDoPonto(texto, trechos, fontes, declarados) {
+  const achadas = [];
+  const alvo = impPalavras(texto);
+  for (const t of (trechos || [])) {
+    const p = impPalavras(t.texto);
+    if (p.size < 3) continue;
+    let comuns = 0;
+    for (const w of p) if (alvo.has(w)) comuns++;
+    // Metade das palavras de conteúdo em comum: a frase estruturada é a mesma
+    // frase do relato, com no máximo um corte.
+    if (comuns / Math.min(p.size, alvo.size || 1) < 0.5) continue;
+    for (const u of t.urls) {
+      const f = (fontes || []).find(x => x.url === u);
+      if (f && !achadas.includes(f)) achadas.push(f);
+    }
+  }
+  if (achadas.length) return achadas;
+  for (const nome of (declarados || [])) {
+    const f = impCasarVeiculo(nome, fontes || []);
+    if (f && !achadas.includes(f)) achadas.push(f);
+  }
+  return achadas;
+}
+
 /**
  * Valida os pontos contra as fontes que o provedor realmente consultou.
  *
@@ -167,25 +236,22 @@ function impLimparTexto(v) {
  * só faria a tela gritar quando não há nada errado — e, pior, a deixaria calada
  * na proporção errada quando há.
  */
-function impValidarPontos(lista, fontes) {
+function impValidarPontos(lista, fontes, trechos) {
   const pontos = [];
-  let descartados = 0, cortados = 0;
+  let descartados = 0, cortados = 0, comDeclaracao = 0;
   for (const item of (Array.isArray(lista) ? lista : [])) {
     const texto = impLimparTexto(item && item.ponto);
     if (!texto) continue;
-    const nomes = Array.isArray(item.veiculos) ? item.veiculos : [item.veiculos];
-    const achadas = [];
-    for (const nome of nomes) {
-      const f = impCasarVeiculo(nome, fontes);
-      if (f && !achadas.includes(f)) achadas.push(f);
-    }
+    const nomes = (Array.isArray(item.veiculos) ? item.veiculos : [item.veiculos]).filter(Boolean);
+    if (nomes.length) comDeclaracao++;
+    const achadas = impFontesDoPonto(texto, trechos, fontes, nomes);
     if (!achadas.length) { descartados++; continue; }
     if (pontos.length >= IMP_TETO_PONTOS) { cortados++; continue; }
     // `usar` nasce verdadeiro: o ponto passou pela conferência de fonte. O
     // analista desmarca o que não se sustenta na leitura dele.
     pontos.push({ texto, fontes: achadas, usar: true });
   }
-  return { pontos, descartados, cortados };
+  return { pontos, descartados, cortados, comDeclaracao };
 }
 
 /**
@@ -200,26 +266,20 @@ async function impLevantar({ prop, resumos, aoAndar }) {
   const ementa = String((prop && prop.ementa) || '').slice(0, 1200);
   const simples = resumos && resumos.materia && resumos.materia.simples ? resumos.materia.simples : '';
 
-  // As duas falhas abaixo parecem a mesma coisa na tela e têm causas opostas.
+  // A causa principal de "sem busca" era o formato pedido, e está resolvida na
+  // separação em duas chamadas (ver o comentário em impPromptBusca). O que
+  // sobra aqui é rede de segurança para o que ainda varia de chamada para
+  // chamada: mesmo com o prompt certo, um modelo pode devolver prosa que não
+  // se estrutura, ou deixar de buscar numa chamada e buscar na seguinte.
   //
-  // "Ilegível" é sorteio: o modelo devolve prosa em vez de JSON, e a chamada
-  // seguinte, com o mesmo prompt e o mesmo modelo, costuma sair certa. Repetir
-  // resolve.
-  //
-  // "Sem busca" quase nunca é sorteio: é o MODELO. Medido em 22/09/2026, com a
-  // mesma matéria e o mesmo prompt, três chamadas em cada um —
-  //
-  //     gemini-3.8-flash      buscou 3/3        gemini-3.5-flash      0/3
-  //     gemini-3.7-flash      buscou 3/3        gemini-3.6-flash      0/3
-  //     gemini-2.5-flash      buscou 2/3        gemini-3.5-flash-lite 0/3
-  //     gemini-2.5-pro        buscou 2/3        gemini-flash-latest   1/3
-  //
-  // — ou seja, há modelos que simplesmente NUNCA acionam a ferramenta de busca,
-  // por mais que o prompt peça. Contra esses, repetir é esperar duas vezes pelo
-  // mesmo "não". O que resolve é trocar de modelo, e é o que se faz aqui: como
-  // sem busca este módulo não tem o que relatar, ele prefere um modelo que
-  // busque a não entregar nada — e diz, na tela, qual usou.
-  const RETENTAVEIS = new Set(['resposta-ilegivel', 'sem-busca']);
+  // "Ilegível" é sorteio: repetir no MESMO modelo costuma resolver.
+  // "Sem busca" pode ser o modelo: passa-se ao PRÓXIMO, porque insistir num
+  // modelo que não buscou é esperar duas vezes pelo mesmo "não". Como sem busca
+  // este módulo não tem o que relatar, ele prefere um modelo que busque a não
+  // entregar nada — e diz, na tela, qual usou.
+  // "Sem atribuição" também se repete: numa segunda chamada o provedor costuma
+  // devolver o mapa de trechos que faltou na primeira.
+  const RETENTAVEIS = new Set(['resposta-ilegivel', 'sem-busca', 'sem-atribuicao']);
   const configurado = cfg.modelo || IMP_MODELO_PADRAO;
   const fila = [configurado];
   if ((cfg.provedor || 'gemini') === 'gemini') {
@@ -242,45 +302,76 @@ async function impLevantar({ prop, resumos, aoAndar }) {
     if (r.ok) return Object.assign(r, { tentativas: tentativa, modelo, modeloConfigurado: configurado });
     ultima = Object.assign(r, { tentativas: tentativa, tentados: tentados.slice(), modeloConfigurado: configurado });
     if (!RETENTAVEIS.has(r.motivo)) break;
-    // Ilegível é do sorteio: repete o mesmo modelo. Sem busca é do modelo:
-    // passa para o próximo, porque insistir nele não muda nada.
+    // Ilegível e sem atribuição são do sorteio: repete o mesmo modelo, que na
+    // chamada seguinte costuma sair certo. Sem busca pode ser do modelo, então
+    // passa para o próximo — insistir nele seria esperar duas vezes pelo mesmo
+    // "não".
     if (r.motivo === 'sem-busca' || tentativa >= 2) i++;
   }
   return ultima;
 }
 
-/** Uma tentativa de levantamento. Toda a decisão de repetir fica em impLevantar. */
+/**
+ * Uma tentativa de levantamento, em duas chamadas: a que BUSCA, em prosa, e a
+ * que ESTRUTURA o resultado dela. Toda a decisão de repetir fica em impLevantar.
+ */
 async function impTentar({ prop, ementa, simples, cfg, modelo }) {
-  let resposta;
+  const comum = {
+    provedorId: cfg.provedor || 'gemini',
+    apiKey: cfg.apiKey,
+    modelo: modelo || cfg.modelo || IMP_MODELO_PADRAO,
+  };
+
+  // 1. BUSCA. Em prosa, porque pedir JSON aqui desligaria a ferramenta de busca
+  //    — medido, e é a causa de todo o problema que este módulo teve.
+  let busca;
   try {
-    resposta = await chamarIA({
-      provedorId: cfg.provedor || 'gemini',
-      apiKey: cfg.apiKey,
-      modelo: modelo || cfg.modelo || IMP_MODELO_PADRAO,
-      prompt: impPrompt({ prop, ementa, simples }),
+    busca = await chamarIA(Object.assign({}, comum, {
+      prompt: impPromptBusca({ prop, ementa, simples }),
       web: true,                       // é o ponto do módulo: sem web não há o que levantar
-      // Teto alto porque a resposta traz doze pontos com listas de veículos, e
-      // no Gemini o raciocínio conta dentro do mesmo teto: apertado, o JSON vem
-      // cortado no meio e a falha aparece como "ilegível", que aponta para o
-      // lado errado do problema.
-      opcoes: { maxSaida: 12000 },
-    });
+      opcoes: { maxSaida: 8000 },
+    }));
   } catch (e) {
     return { ok: false, motivo: 'erro', erro: e.message };
   }
 
-  const j = rsmJson(resposta && resposta.text);
-  if (!j) return { ok: false, motivo: resposta && resposta.truncated ? 'resposta-cortada' : 'resposta-ilegivel' };
-
-  const fontes = (resposta && resposta.fontes) || [];
-  const buscas = (resposta && resposta.buscas) || [];
-  // Provedor que não buscou não tem o que relatar. Acontece quando a chave não
-  // tem a ferramenta habilitada, e o modelo responde de memória — que é
-  // exatamente o que este módulo não pode aceitar.
+  const fontes = (busca && busca.fontes) || [];
+  const buscas = (busca && busca.buscas) || [];
+  const relato = String((busca && busca.text) || '').trim();
+  // Provedor que não buscou não tem o que relatar. O que ele escreveria viria
+  // da memória dele, e é exatamente o que este módulo não pode aceitar.
   if (!fontes.length) return { ok: false, motivo: 'sem-busca', buscas };
+  if (!relato) return { ok: false, motivo: 'resposta-ilegivel' };
 
-  const f = impValidarPontos(j.focos, fontes);
-  const c = impValidarPontos(j.contencioso, fontes);
+  // 2. ESTRUTURA. Sem web: não há nada a buscar, só a reorganizar. Aqui o JSON
+  //    não custa nada, porque a busca já aconteceu.
+  let estrutura;
+  try {
+    estrutura = await chamarIA(Object.assign({}, comum, {
+      prompt: impPromptEstruturar({ prop, relato }),
+      opcoes: { maxSaida: 8000 },
+    }));
+  } catch (e) {
+    return { ok: false, motivo: 'erro', erro: e.message };
+  }
+
+  const j = rsmJson(estrutura && estrutura.text);
+  if (!j) return { ok: false, motivo: estrutura && estrutura.truncated ? 'resposta-cortada' : 'resposta-ilegivel' };
+
+  const trechos = (busca && busca.trechos) || [];
+  const f = impValidarPontos(j.focos, fontes, trechos);
+  const c = impValidarPontos(j.contencioso, fontes, trechos);
+
+  // Distinção que a tela precisa fazer, porque as duas se parecem e acusam
+  // coisas opostas. Caiu tudo porque o modelo inventou fonte? Ou porque o
+  // provedor não informou QUAL fonte sustenta QUAL ponto? A segunda não é culpa
+  // do modelo nem da matéria, e dizer "descartado por não indicar fonte" nesse
+  // caso seria acusar o inocente.
+  if (!f.pontos.length && !c.pontos.length
+      && (f.descartados + c.descartados) > 0
+      && !trechos.length && (f.comDeclaracao + c.comDeclaracao) === 0) {
+    return { ok: false, motivo: 'sem-atribuicao', buscas, fontes };
+  }
 
   // O apelido também é afirmação sobre o mundo: só vale se veio de uma busca que
   // trouxe fonte, e nunca quando é o próprio número da matéria.
@@ -367,6 +458,9 @@ function impHtml(imp) {
       'erro': 'A consulta falhou: ' + cvEsc(imp.erro || '') + '. Tente de novo.',
       'resposta-ilegivel': 'O provedor respondeu, em duas tentativas, em formato que não deu para ler. '
         + 'Tente de novo — a falha é de sorteio e costuma passar.',
+      'sem-atribuicao': 'A busca trouxe fontes, mas o provedor não informou qual delas sustenta cada '
+        + 'ponto — e sem isso não dá para pôr no documento uma afirmação com a fonte certa ao lado. '
+        + 'Tente de novo, ou troque de modelo no seletor acima.',
       'resposta-cortada': 'A resposta do provedor veio cortada no meio, por limite de tamanho. '
         + 'Tente de novo; se repetir, é a matéria que tem repercussão longa demais para uma volta só.',
       // A mensagem nomeia os modelos tentados porque a causa quase sempre é o
@@ -376,8 +470,8 @@ function impHtml(imp) {
       'sem-busca': 'Nenhum dos modelos tentados consultou a web'
         + (imp.tentados && imp.tentados.length ? ' (' + cvEsc(imp.tentados.join(', ')) + ')' : '')
         + ' — então não há repercussão a relatar: o que eles escreveriam viria da memória, e isso não '
-        + 'entra no documento. Há modelos que simplesmente não acionam a busca; troque o modelo em '
-        + 'Configurações (gemini-3.8-flash e gemini-3.7-flash buscam de forma confiável) e tente de novo.',
+        + 'entra no documento. Tente de novo; se repetir, troque o modelo no seletor acima e use o '
+        + 'botão de testar a busca para ver qual dos seus modelos está acionando a ferramenta.',
     }[imp.motivo] || 'A repercussão não foi levantada.';
     return msg ? `<div class="imp imp-falha"><div class="imp-tit">Repercussão pública não levantada</div>${msg}</div>` : '';
   }
