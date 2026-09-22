@@ -262,15 +262,22 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
        'e proibido inventar voto');
   }
 
-  console.log('\n== por que aquele voto importou ==');
+  console.log('\n== a posição é do projeto; o voto no item é instrumento dela ==');
   {
-    // A pergunta que se faz a um parlamentar não é se ele é a favor da matéria
-    // em geral: é por que votou como votou naquele ponto. Sem isso, a
-    // sustentação responde a uma pergunta que ninguém fez.
+    // Duas coisas que têm de valer ao mesmo tempo. A sustentação explica por que
+    // cada voto importou — senão responde a uma pergunta que ninguém fez. Mas a
+    // POSIÇÃO é uma só, sobre a matéria inteira: o deputado não é "favorável à
+    // emenda 1 e contrário ao destaque 3", como se tivesse uma posição por item.
     const base = { posicao: 'favoravel', dep: DEP, prop: PROP, materia: 'apostas', registro: { posicao: null } };
     const comVoto = chamar('dfsPrompt', { ...base,
       itens: [{ objeto: 'Votação da Redação Final.', voto: 'Sim', simples: null }] }).replace(/\s+/g, ' ');
-    ok(/DIGA POR QUE AQUELE VOTO IMPORTOU/.test(comVoto),
+    ok(/A POSIÇÃO É UMA SÓ, E É SOBRE A MATÉRIA INTEIRA/.test(comVoto),
+       'a posição declarada é sobre o projeto, não sobre cada elemento votado');
+    ok(/Nunca escreva que ele "é favorável à emenda X"/.test(comVoto),
+       'e o modelo é proibido de inventar uma posição por item');
+    ok(/O voto num item é instrumento da posição sobre a matéria/.test(comVoto),
+       'o voto no item entra como instrumento daquela posição, não como posição nova');
+    ok(/DENTRO DISSO, DIGA POR QUE CADA VOTO IMPORTOU/.test(comVoto),
        'havendo voto do deputado, o pedido manda explicar o que estava em jogo naquele ponto');
     ok(/não invente a motivação dele/.test(comVoto),
        'sem inventar a motivação: explicar o que o ponto decidia não é ler a cabeça de ninguém');
@@ -281,8 +288,10 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
     // um voto que não existe é convite para o modelo inventar um.
     const semVoto = chamar('dfsPrompt', { ...base,
       itens: [{ objeto: 'Votação da Redação Final.', voto: null, simples: null }] }).replace(/\s+/g, ' ');
-    ok(!/DIGA POR QUE AQUELE VOTO IMPORTOU/.test(semVoto),
+    ok(!/DIGA POR QUE CADA VOTO IMPORTOU/.test(semVoto),
        'sem voto nominal nenhum, o pedido NÃO aparece — não há voto dele para explicar');
+    ok(/A POSIÇÃO É UMA SÓ/.test(semVoto),
+       'mas a regra da posição única continua valendo: ela não depende de haver voto');
   }
 
   console.log('\n== falhas não viram defesa ==');

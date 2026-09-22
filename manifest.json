@@ -60,6 +60,8 @@
         "resumos.js",
         "defesa.js",
         "imprensa.js",
+        "parecer.js",
+        "modelo-ia.js",
         "libs/pdf.min.js",
         "producao.js",
         "radar.js",
