@@ -284,6 +284,87 @@ merito.forEach((p, i) => {
     await av('prdConsultar()');
   }
 
+  console.log('\n== o filtro de categorias ==');
+  {
+    const marcar = (k, v) => {
+      const i = document.querySelector(`#prdGrupos input[value="${k}"]`);
+      if (v) i.setAttribute('checked', ''); else i.removeAttribute('checked');
+      i.checked = v;
+      i.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    document.getElementById('prdAno').value = '';
+    api.chamadas.length = 0;
+    await av('prdConsultar()');
+    const cheio = av('prd.ultimo').todas.length;
+    const chamadasDaConsulta = api.chamadas.length;
+
+    // As caixas saem da taxonomia, não de uma lista escrita no HTML.
+    const cxs = [...document.querySelectorAll('#prdGrupos input')].map(i => i.getAttribute('value'));
+    const grupos = av('PRD_GRUPOS.map(g => g.k)');
+    ok(cxs.join(',') === grupos.join(','),
+       `há uma caixa por grupo da taxonomia, na mesma ordem (${cxs.join(', ')})`);
+    ok(/\(\d+\)/.test(document.querySelector('#prdGrupos [data-n="merito"]').textContent),
+       'cada caixa mostra quantos existem naquela categoria');
+
+    // Filtrar é de EXIBIÇÃO: não pode custar uma nova consulta.
+    api.chamadas.length = 0;
+    marcar('andamento', false);
+    marcar('outros', false);
+    ok(api.chamadas.length === 0,
+       `desmarcar não chama a API de novo (${api.chamadas.length} chamadas, contra ${chamadasDaConsulta} da consulta)`);
+
+    const u = av('prd.ultimo');
+    ok(u.todas.length === cheio - 220,
+       `o relatório encolhe para as categorias marcadas (${u.todas.length} de ${cheio})`);
+    ok(u.parcial === true && u.colhidas === cheio,
+       'e guarda que é recorte, junto do total colhido — o documento precisa dizer as duas coisas');
+    const tela = document.getElementById('prdResultado').innerHTML;
+    ok(/Recorte por categoria/.test(tela) && /Requerimentos de andamento/.test(tela) === false,
+       'a tela declara o recorte e não mostra o cartão da categoria desmarcada');
+
+    // O documento também.
+    const pdf = av('prdHtmlPDF(null)').replace(/\s+/g, ' ');
+    ok(/Este documento é um RECORTE/.test(pdf), 'o PDF avisa que é recorte');
+    ok(new RegExp(`de um total de <b>${cheio}</b>`).test(pdf),
+       'dizendo de que total ele saiu — sem isso o número pareceria a produção inteira');
+    ok(!/Requerimentos de andamento/.test(pdf), 'e não traz a categoria desmarcada');
+
+    // Nenhuma marcada: não se inventa relatório vazio.
+    for (const k of grupos) marcar(k, false);
+    ok(/Nenhuma categoria marcada/.test(document.getElementById('prdResultado').innerHTML),
+       'sem categoria nenhuma, a tela pede que se marque uma — não desenha relatório vazio');
+    ok(av('prd.ultimo') === null, 'e não deixa um "último" pela metade para o PDF exportar');
+
+    for (const k of grupos) marcar(k, true);
+    ok(av('prd.ultimo').todas.length === cheio, 'marcar tudo de volta devolve o relatório inteiro');
+  }
+  {
+    // Sem "mérito" marcado, ler a situação de cada matéria seria pago por nada.
+    // Mas marcar depois não pode deixar a seção sem o destino das matérias.
+    const marcar = (k, v) => {
+      const i = document.querySelector(`#prdGrupos input[value="${k}"]`);
+      if (v) i.setAttribute('checked', ''); else i.removeAttribute('checked');
+      i.checked = v;
+      i.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+    marcar('merito', false);
+    api.chamadas.length = 0;
+    await av('prdConsultar()');
+    const detalhe = api.chamadas.filter(c => /\/proposicoes\/\d+$/.test(c)).length;
+    ok(detalhe === 0, `sem "mérito" marcado, nenhuma situação é lida (${detalhe} chamadas de detalhe)`);
+    ok(av('prd.completo').detalhes === null,
+       'e o estado registra NÃO LIDO, que é diferente de lido e vazio');
+
+    marcar('merito', true);
+    await new Promise(r => setTimeout(r, 30));
+    ok(api.chamadas.filter(c => /\/proposicoes\/\d+$/.test(c)).length > 0,
+       'marcar "mérito" depois lê a situação naquele momento');
+    ok(av('prd.ultimo').destinoOrd.length > 0,
+       'e o destino das matérias aparece, em vez de a seção sair vazia');
+    for (const k of av('PRD_GRUPOS.map(g => g.k)')) marcar(k, true);
+    await av('prdConsultar()');
+  }
+
   console.log('\n== o documento ==');
   {
     const doc = av('prdHtmlPDF(null)');
