@@ -195,6 +195,27 @@ function iaJuntarFontes(destino, novas) {
   return destino;
 }
 
+/**
+ * Junta os TRECHOS: o provedor diz qual fonte sustenta qual pedaço do texto.
+ *
+ * Isto vale mais do que pedir ao modelo que declare a fonte de cada afirmação.
+ * Medido: num pedido curto — que é o único que faz o modelo buscar de verdade —
+ * ele ignora a instrução de anotar o domínio linha a linha. Já o
+ * `groundingSupports` vem do provedor, não do texto gerado, e diz a mesma coisa
+ * sem depender de o modelo obedecer.
+ */
+function iaJuntarTrechos(destino, novos) {
+  for (const t of (novos || [])) {
+    if (!t || !t.texto || !(t.urls || []).length) continue;
+    const texto = String(t.texto).replace(/\s+/g, ' ').trim();
+    if (!texto) continue;
+    const ja = destino.find(x => x.texto === texto);
+    if (ja) { for (const u of t.urls) if (!ja.urls.includes(u)) ja.urls.push(u); continue; }
+    destino.push({ texto, urls: t.urls.slice() });
+  }
+  return destino;
+}
+
 function iaJuntarBuscas(destino, novas) {
   for (const q of (novas || [])) {
     const t = String(q == null ? '' : q).replace(/\s+/g, ' ').trim();
@@ -207,8 +228,17 @@ function iaJuntarBuscas(destino, novas) {
 function iaFontesGemini(gm, acc) {
   if (!gm) return acc;
   iaJuntarBuscas(acc.buscas, gm.webSearchQueries);
-  iaJuntarFontes(acc.fontes, (gm.groundingChunks || []).map(c =>
-    iaFonte(c && c.web && c.web.uri, { titulo: c && c.web && c.web.title })));
+  const novas = (gm.groundingChunks || []).map(c =>
+    iaFonte(c && c.web && c.web.uri, { titulo: c && c.web && c.web.title }));
+  iaJuntarFontes(acc.fontes, novas);
+  // groundingSupports amarra cada trecho do texto às fontes que o sustentam.
+  for (const sup of (gm.groundingSupports || [])) {
+    const texto = sup && sup.segment && sup.segment.text;
+    if (!texto) continue;
+    const urls = (sup.groundingChunkIndices || [])
+      .map(i => novas[i] && novas[i].url).filter(Boolean);
+    iaJuntarTrechos(acc.trechos, [{ texto, urls }]);
+  }
   return acc;
 }
 
@@ -220,9 +250,19 @@ function iaFontesOpenAI(output, acc) {
       iaJuntarBuscas(acc.buscas, Array.isArray(q) ? q : [q]);
     }
     for (const c of (item.content || [])) {
-      iaJuntarFontes(acc.fontes, (c.annotations || [])
-        .filter(a => a && (a.type === 'url_citation' || a.url))
-        .map(a => iaFonte(a.url, { titulo: a.title })));
+      const cits = (c.annotations || []).filter(a => a && (a.type === 'url_citation' || a.url));
+      iaJuntarFontes(acc.fontes, cits.map(a => iaFonte(a.url, { titulo: a.title })));
+      // Trechos: a anotação da OpenAI delimita, por índice, o pedaço do texto
+      // que aquela fonte sustenta. Sem isto, um levantamento feito pela OpenAI
+      // ficaria sem saber qual fonte sustenta qual ponto — e, pela regra de
+      // "afirmação sem fonte não entra", perderia todos eles.
+      const txt = String(c.text || '');
+      for (const a of cits) {
+        const i = Number.isInteger(a.start_index) ? a.start_index : null;
+        const f = Number.isInteger(a.end_index) ? a.end_index : null;
+        const fatia = (i !== null && f !== null && f > i) ? txt.slice(i, f) : txt;
+        iaJuntarTrechos(acc.trechos, [{ texto: fatia, urls: [a.url].filter(Boolean) }]);
+      }
     }
   }
   return acc;
@@ -243,6 +283,10 @@ function iaFontesAnthropic(blocos, acc) {
     if (b.type === 'text') {
       iaJuntarFontes(acc.fontes, (b.citations || []).map(c =>
         iaFonte(c && c.url, { titulo: c && c.title, trecho: c && c.cited_text })));
+      // A Anthropic já cita por trecho: o texto do bloco é sustentado pelas
+      // fontes das citações dele.
+      const urls = (b.citations || []).map(c => c && c.url).filter(Boolean);
+      if (urls.length && b.text) iaJuntarTrechos(acc.trechos, [{ texto: b.text, urls }]);
     }
   }
   return acc;
@@ -254,7 +298,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
   const pensarAlto = opcoes.pensar === 'alto';
   // Sempre presente, mesmo sem `web`: quem chama não precisa se defender de
   // campo ausente, e lista vazia diz "não buscou" com clareza.
-  const proc = { fontes: [], buscas: [] };
+  const proc = { fontes: [], buscas: [], trechos: [] };
 
   if (provedorId === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';

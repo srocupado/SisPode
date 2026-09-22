@@ -1,31 +1,26 @@
 // Escolha do provedor e do modelo de IA para os relatórios, dentro do módulo.
 //
-// Existe por um caso concreto: o analista configurou gemini-3.1-flash-lite nas
-// Configurações gerais e a repercussão nunca trazia nada, numa matéria de farta
-// cobertura. O Parecer de Especialista, com a MESMA chave, funcionava — e é o
-// que dá a explicação: o parecer ignora o modelo configurado e escolhe sozinho,
-// por decisão da Liderança registrada em parecer.js ("o modo profundo não deve
-// depender de o analista lembrar de trocar"). O flash-lite cai na faixa
-// econômica e nem entra na disputa lá.
+// Existe por um caso concreto: o analista tinha gemini-3.1-flash-lite nas
+// Configurações gerais e a repercussão voltava vazia numa matéria de farta
+// cobertura, enquanto o Parecer de Especialista, com a MESMA chave, funcionava.
 //
-// Aqui vale o mesmo, e por motivo mais duro ainda: a repercussão depende de uma
-// capacidade que nem todo modelo tem — acionar a busca na web. Medido em
-// 22/09/2026, mesma matéria e mesmo prompt, três chamadas em cada:
+// A causa raiz ERA OUTRA, e está corrigida em imprensa.js: o pedido de
+// levantamento exigia JSON e vinha cheio de regras, e as duas coisas desligam a
+// ferramenta de busca. Medido em 22/09/2026, no próprio gemini-3.1-flash-lite:
+// pedido curto em prosa busca 4/4; o mesmo pedindo JSON, 0/3; longo e cheio de
+// regras, 0/4. O modelo do analista nunca foi o problema.
 //
-//     gemini-3.8-flash      3/3        gemini-3.1-flash-lite   0/3
-//     gemini-3.7-flash      3/3        gemini-3.1-pro-preview  0/3
-//     gemini-2.5-flash      2/3        gemini-3.5-flash        0/3
-//     gemini-2.5-pro        2/3        gemini-3.6-flash        0/3
+// Este campo continua fazendo falta por outra razão, mais simples: a escolha
+// nas Configurações gerais é feita para outro uso, e quem trabalha aqui precisa
+// poder trocar sem sair daqui — inclusive para comparar resultado entre modelos,
+// que é coisa que só se faz vendo. O parecer resolveu isso escolhendo sozinho
+// ("o modo profundo não deve depender de o analista lembrar de trocar"); aqui a
+// escolha automática é o padrão, mas fica à vista e pode ser trocada.
 //
-// Repare no pro-preview: NÃO é econômico, ganharia o ranqueamento por versão, e
-// mesmo assim não busca. Ou seja, a faixa pelo nome escolhe um modelo capaz de
-// redigir, e não prova nada sobre buscar. Ligar o raciocínio também não muda:
-// medido com `pensar: 'alto'`, os mesmos três seguem em 0/3.
-//
-// Daí o desenho: por padrão o módulo escolhe sozinho, como o parecer; o analista
-// pode fixar um modelo; e o botão "testar a busca" faz UMA chamada de verdade e
-// diz se aquele modelo buscou. Isso é medição, não dedução, e é a única coisa
-// que não envelhece quando o provedor troca a lista.
+// O botão de testar a busca continua valendo, e não como remendo: é a única
+// forma de saber, sem adivinhar, se uma combinação de modelo e pedido está
+// realmente acionando a ferramenta. Ranking por nome não responde isso —
+// gemini-3.1-pro-preview é caro, recente e não busca com o pedido errado.
 //
 // A chave continua vindo das Configurações gerais: chave é credencial, e
 // credencial mora num lugar só.

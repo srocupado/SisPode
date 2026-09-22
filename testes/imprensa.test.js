@@ -64,10 +64,15 @@ const chamar = (fn, ...args) => vm.runInContext(fn, ctx)(...args);
 
 const PROP = { siglaTipo: 'PL', numero: 3626, ano: 2023, ementa: 'Dispõe sobre as apostas de quota fixa.' };
 
-/** Uma resposta do Gemini com grounding, como ele devolve de verdade (medido). */
-const respostaGemini = (obj, fontes, buscas) => ({
+// O levantamento são DUAS chamadas: a que BUSCA, em prosa, e a que ESTRUTURA
+// aquele texto em JSON. A separação existe porque pedir JSON na mesma chamada
+// desliga a ferramenta de busca (medido em 22/09/2026: gemini-3.1-flash-lite
+// busca 4/4 com pedido curto em prosa e 0/3 pedindo JSON).
+
+/** A 1ª chamada: prosa + grounding, na forma REAL do Gemini. */
+const respostaBusca = (texto, fontes, buscas, suportes) => ({
   candidates: [{
-    content: { parts: [{ text: JSON.stringify(obj) }] },
+    content: { parts: [{ text: texto }] },
     finishReason: 'STOP',
     groundingMetadata: {
       webSearchQueries: buscas || ['PL 3626 críticas', 'PL 3626 benefícios'],
@@ -76,9 +81,27 @@ const respostaGemini = (obj, fontes, buscas) => ({
       groundingChunks: (fontes || []).map(d => ({
         web: { uri: 'https://vertexaisearch.cloud.google.com/grounding-api-redirect/' + encodeURIComponent(d), title: d },
       })),
+      // groundingSupports: o provedor dizendo qual fonte sustenta qual frase.
+      groundingSupports: (suportes || []).map(([texto, idx]) => ({
+        segment: { text: texto }, groundingChunkIndices: idx,
+      })),
     },
   }],
 });
+
+/** A 2ª chamada: só o JSON, sem busca nenhuma. */
+const respostaJson = obj => ({
+  candidates: [{ content: { parts: [{ text: JSON.stringify(obj) }] }, finishReason: 'STOP' }],
+});
+
+/** Enfileira o par de uma tentativa completa. */
+function enfileirar(obj, fontes, buscas, suportes, relato) {
+  respostas.push(respostaBusca(relato || 'relato da busca em prosa', fontes, buscas, suportes));
+  respostas.push(respostaJson(obj));
+}
+
+/** Compatível com o formato antigo: o ponto declara os veículos no JSON. */
+const respostaGemini = (obj, fontes, buscas) => { enfileirar(obj, fontes, buscas); return null; };
 
 const levantar = args => chamar('impLevantar', args);
 
@@ -202,9 +225,53 @@ const levantar = args => chamar('impLevantar', args);
        `o negrito de markdown e o rótulo redundante caem (${JSON.stringify(r.pontos[0].texto)})`);
   }
 
+  console.log('\n== quem diz de onde veio cada ponto é o PROVEDOR, não o modelo ==');
+  {
+    // O caminho principal de atribuição. O Gemini devolve, em groundingSupports,
+    // qual fonte sustenta qual frase do texto que ele escreveu. Isso vale mais
+    // do que pedir ao modelo que anote o domínio de cada linha — medido, num
+    // pedido curto (o único que o faz buscar) ele ignora essa instrução.
+    const RELATO = 'A bancada evangélica criticou a regulamentação do jogo. '
+                 + 'A tributação das operadoras foi objeto de disputa entre as Casas.';
+    respostas.push(respostaBusca(RELATO, ['gazetadopovo.com.br', 'senado.leg.br'], null, [
+      ['A bancada evangélica criticou a regulamentação do jogo.', [0]],
+      ['A tributação das operadoras foi objeto de disputa entre as Casas.', [1]],
+    ]));
+    // O JSON NÃO declara veículo nenhum: quem atribui é o grounding.
+    respostas.push(respostaJson({ apelido: null, focos: [], contencioso: [
+      { ponto: 'A bancada evangélica criticou a regulamentação do jogo.', veiculos: [] },
+      { ponto: 'A tributação das operadoras foi objeto de disputa entre as Casas.', veiculos: [] },
+    ] }));
+    const imp = await levantar({ prop: PROP });
+    ok(imp.ok === true, `o levantamento sai sem o modelo declarar fonte nenhuma (${imp.motivo || 'ok'})`);
+    ok(imp.contencioso.length === 2 && imp.descartados === 0,
+       `os dois pontos entram, atribuídos pelo grounding (${imp.contencioso.length} pontos, ${imp.descartados} descartados)`);
+    ok(imp.contencioso[0].fontes[0].veiculo === 'gazetadopovo.com.br'
+       && imp.contencioso[1].fontes[0].veiculo === 'senado.leg.br',
+       'e cada ponto recebe A SUA fonte, não a lista inteira da consulta');
+  }
+  {
+    // A falha que não pode ser confundida com a outra: a busca trouxe fontes,
+    // mas o provedor não disse qual sustenta o quê, e o modelo também não. Isso
+    // não é fonte inventada — é atribuição ausente, e a tela tem de distinguir.
+    // Três pares: ele repete no mesmo modelo e depois tenta o de reserva, e só
+    // então desiste. Sem atribuição é retentável — numa chamada seguinte o
+    // provedor costuma mandar o mapa de trechos que faltou.
+    for (let i = 0; i < 3; i++) {
+      respostas.push(respostaBusca('um relato sem suportes', ['g1.globo.com']));   // sem groundingSupports
+      respostas.push(respostaJson({ apelido: null, focos: [{ ponto: 'Um ponto qualquer.', veiculos: [] }], contencioso: [] }));
+    }
+    const imp = await levantar({ prop: PROP });
+    ok(imp.ok === false && imp.motivo === 'sem-atribuicao',
+       `sem saber qual fonte sustenta qual ponto, o levantamento é recusado (${imp.motivo})`);
+    const tela = chamar('impHtml', imp);
+    ok(/não informou qual delas sustenta cada ponto/.test(tela),
+       'e a tela diz o que de fato houve, em vez de acusar o modelo de inventar fonte');
+  }
+
   console.log('\n== o levantamento de ponta a ponta ==');
   {
-    respostas.push(respostaGemini({
+    void (respostaGemini({
       apelido: 'PL das bets',
       focos: [{ ponto: 'A cobertura tratou sobretudo da tributação das casas de aposta.', veiculos: ['g1.globo.com'] }],
       contencioso: [
@@ -215,8 +282,17 @@ const levantar = args => chamar('impLevantar', args);
 
     const imp = await levantar({ prop: PROP });
     ok(imp.ok === true, `o levantamento sai (${imp.motivo || 'ok'})`);
-    ok(pedidos.at(-1).body.tools && pedidos.at(-1).body.tools[0].google_search !== undefined,
-       'a busca na web É pedida ao provedor — sem isso não há o que levantar');
+    // O par: a 1ª chamada busca, a 2ª só estrutura. A 2ª NÃO pode pedir busca —
+    // é o que garante que o JSON nunca disputa espaço com a ferramenta.
+    const par = pedidos.slice(-2);
+    ok(par[0].body.tools && par[0].body.tools[0].google_search !== undefined,
+       'a 1ª chamada pede a busca na web — sem isso não há o que levantar');
+    ok(!par[1].body.tools,
+       'e a 2ª, que é a que pede JSON, NÃO pede busca: pedir JSON desliga a ferramenta');
+    ok(!/JSON/.test(par[0].body.contents[0].parts[0].text),
+       'o pedido de busca não menciona JSON em lugar nenhum');
+    ok(/JSON/.test(par[1].body.contents[0].parts[0].text),
+       'e o de estruturar menciona, que é o trabalho dele');
     ok(imp.apelido === 'PL das bets', 'o apelido público vem no levantamento');
     ok(imp.focos.length === 1 && imp.contencioso.length === 1,
        `o ponto de fonte inventada cai (${imp.focos.length} foco, ${imp.contencioso.length} contencioso)`);
@@ -234,7 +310,7 @@ const levantar = args => chamar('impLevantar', args);
 
   console.log('\n== o que vai ao PDF é o que o analista deixou marcado ==');
   {
-    respostas.push(respostaGemini({
+    void (respostaGemini({
       apelido: null,
       focos: [{ ponto: 'Foco que fica.', veiculos: ['g1.globo.com'] }],
       contencioso: [{ ponto: 'Crítica que o analista vai cortar.', veiculos: ['estadao.com.br'] }],
@@ -283,11 +359,11 @@ const levantar = args => chamar('impLevantar', args);
   console.log('\n== o que o modelo NÃO consegue fazer passar ==');
   {
     // Apelido é afirmação sobre o mundo como qualquer outra.
-    respostas.push(respostaGemini({ apelido: 'PL 3626/2023', focos: [], contencioso: [] }, ['g1.globo.com']));
+    void (respostaGemini({ apelido: 'PL 3626/2023', focos: [], contencioso: [] }, ['g1.globo.com']));
     ok((await levantar({ prop: PROP })).apelido === null,
        'o número da matéria não é apelido — ninguém chama o projeto assim na rua');
 
-    respostas.push(respostaGemini({ apelido: 'x', focos: [], contencioso: [] }, ['g1.globo.com']));
+    void (respostaGemini({ apelido: 'x', focos: [], contencioso: [] }, ['g1.globo.com']));
     ok((await levantar({ prop: PROP })).apelido === null, 'nem uma letra solta');
 
     // Provedor que respondeu de memória, sem buscar: é o caso mais perigoso,
@@ -307,9 +383,12 @@ const levantar = args => chamar('impLevantar', args);
        'a tela aponta o modelo, que é a causa, e não a chave, que costuma estar boa');
     ok(new RegExp(semBusca.tentados[0]).test(tela), 'e nomeia o que foi tentado');
 
-    const ilegivel = () => ({ candidates: [{ content: { parts: [{ text: 'não é json nenhum' }] }, finishReason: 'STOP',
-      groundingMetadata: { groundingChunks: [{ web: { uri: 'https://x/1', title: 'g1.globo.com' } }] } }] });
-    respostas.push(ilegivel(), ilegivel(), ilegivel());
+    // Aqui a BUSCA sai bem; quem vem quebrada é a estruturação.
+    const parIlegivel = () => {
+      respostas.push(respostaBusca('relato bom', ['g1.globo.com']));
+      respostas.push({ candidates: [{ content: { parts: [{ text: 'não é json nenhum' }] }, finishReason: 'STOP' }] });
+    };
+    parIlegivel(); parIlegivel(); parIlegivel();
     ok((await levantar({ prop: PROP })).motivo === 'resposta-ilegivel', 'resposta ilegível não vira meio levantamento');
 
     ok((await levantar({ prop: null })).motivo === 'sem-materia', 'sem matéria não há repercussão a buscar');
@@ -321,14 +400,14 @@ const levantar = args => chamar('impLevantar', args);
     // Repetir resolve, e trocar de modelo seria trocar o que não está quebrado.
     const modeloDe = u => (String(u).match(/models\/([^:]+):/) || [])[1];
     const antes = pedidos.length;
-    respostas.push({ candidates: [{ content: { parts: [{ text: 'desculpe, vou explicar em prosa' }] },
-                                    finishReason: 'STOP' }] });
-    respostas.push(respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
+    respostas.push(respostaBusca('relato bom', ['g1.globo.com']));
+    respostas.push({ candidates: [{ content: { parts: [{ text: 'não é json' }] }, finishReason: 'STOP' }] });
+    void (respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
                                     contencioso: [] }, ['g1.globo.com']));
     const imp = await levantar({ prop: PROP });
     ok(imp.ok === true, `a segunda tentativa salva o levantamento (${imp.motivo || 'ok'})`);
-    const usados = pedidos.slice(antes).map(p => modeloDe(p.url));
-    ok(usados[0] === usados[1],
+    const usados = [...new Set(pedidos.slice(antes).map(p => modeloDe(p.url)))];
+    ok(usados.length === 1,
        `resposta ilegível repete o MESMO modelo — é sorteio, não capacidade (${usados.join(' → ')})`);
     ok(imp.modelo === imp.modeloConfigurado, 'e o resultado sai pelo modelo que o analista configurou');
     ok(!/era o previsto, respondeu sem consultar a web/.test(chamar('impHtml', imp)),
@@ -342,9 +421,9 @@ const levantar = args => chamar('impLevantar', args);
     // resolve é trocar.
     const modeloDe = u => (String(u).match(/models\/([^:]+):/) || [])[1];
     const antes = pedidos.length;
-    respostas.push({ candidates: [{ content: { parts: [{ text: JSON.stringify({ apelido: null, focos: [], contencioso: [] }) }] },
+    respostas.push({ candidates: [{ content: { parts: [{ text: 'relato de memória' }] },
                                     finishReason: 'STOP' }] });   // sem grounding: não buscou
-    respostas.push(respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
+    void (respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
                                     contencioso: [] }, ['g1.globo.com']));
     const imp = await levantar({ prop: PROP });
     ok(imp.ok === true, `o levantamento sai pelo modelo de reserva (${imp.motivo || 'ok'})`);
@@ -379,7 +458,7 @@ const levantar = args => chamar('impLevantar', args);
 
   console.log('\n== matéria sem repercussão é um achado, não uma falha ==');
   {
-    respostas.push(respostaGemini({ apelido: null, semCobertura: true, focos: [], contencioso: [] },
+    void (respostaGemini({ apelido: null, semCobertura: true, focos: [], contencioso: [] },
                                   ['senado.leg.br']));
     const imp = await levantar({ prop: PROP });
     ok(imp.ok === true && imp.semCobertura === true, 'o levantamento sai dizendo que não há cobertura');
@@ -394,7 +473,7 @@ const levantar = args => chamar('impLevantar', args);
     // onde some coisa: o levantamento tem de atravessar cvRender, ficar em
     // cv.ultimo e chegar ao cvHtmlPDF ainda sendo o mesmo objeto — senão o
     // analista marca na tela e o documento sai sem.
-    respostas.push(respostaGemini({
+    void (respostaGemini({
       apelido: 'PL das Bets',
       focos: [{ ponto: 'A cobertura tratou da tributação.', veiculos: ['g1.globo.com'] }],
       contencioso: [{ ponto: 'Apontou-se risco de endividamento.', veiculos: ['estadao.com.br'] }],
@@ -427,18 +506,34 @@ const levantar = args => chamar('impLevantar', args);
        'e o apelido entra no título entre aspas, sem virar um segundo travessão na linha da ementa');
   }
 
-  console.log('\n== o prompt proíbe o que este módulo não pode fazer ==');
+  console.log('\n== cada chamada carrega o que é dela ==');
   {
-    const p = chamar('impPrompt', { prop: PROP, ementa: PROP.ementa, simples: 'trata de apostas' })
-      .replace(/\s+/g, ' ');
-    ok(/NÃO descreva o que a matéria faz/.test(p),
-       'o modelo é proibido de descrever a matéria: isso sai do documento oficial');
-    ok(/Ponto sem veículo será descartado/.test(p), 'e avisado de que ponto sem veículo cai');
-    ok(/BUSQUE OS DOIS LADOS/.test(p) && /críticas/.test(p) && /benefícios/.test(p),
+    // O PEDIDO DE BUSCA É CURTO DE PROPÓSITO. Medido em 22/09/2026: o mesmo
+    // gemini-3.1-flash-lite busca 4/4 com pedido curto em prosa, 0/4 com o
+    // pedido longo e cheio de regras, e 0/3 quando se pede JSON. Regra a mais
+    // nessa chamada custa a busca, que é a única coisa que só ela pode fazer.
+    const busca = chamar('impPromptBusca', { prop: PROP, ementa: PROP.ementa, simples: '' });
+    const linhas = busca.split('\n').length;
+    ok(linhas <= 20, `o pedido de busca é curto (${linhas} linhas)`);
+    ok(!/JSON/i.test(busca), 'e não menciona JSON, que é o que desligaria a ferramenta de busca');
+    const b = busca.replace(/\s+/g, ' ');
+    ok(/Busque os dois lados/i.test(b) && /críticas/.test(b) && /benefícios/.test(b),
        'a busca é pedida dos dois lados — consulta de um lado só devolve um lado só');
-    ok(/NÃO invente número/.test(p), 'e número inventado é proibido explicitamente');
-    ok(/Não opine sobre a matéria e não recomende posição/.test(p),
-       'relata o debate, não participa dele');
+    ok(/Não descreva o que a matéria faz/.test(b),
+       'e as duas travas que não cabe perder aqui: não descrever a matéria…');
+    ok(/Não invente número nem citação/.test(b) && /Não opine/.test(b),
+       '…e não inventar nem opinar');
+
+    // A DISCIPLINA TODA MORA NA SEGUNDA CHAMADA, onde não custa busca nenhuma.
+    const est = chamar('impPromptEstruturar', { prop: PROP, relato: 'um relato qualquer' })
+      .replace(/\s+/g, ' ');
+    ok(/NÃO acrescente ponto, domínio, número ou apelido que não esteja no texto/.test(est),
+       'a estruturação é proibida de acrescentar o que não estava no relato');
+    ok(/Você não pesquisou nada/.test(est), 'e é avisada de que não pesquisou nada');
+    ok(/vertexaisearch/.test(est), 'o redirecionador do buscador não pode virar veículo');
+    ok(/ENQUADRAMENTO público, não o conteúdo da lei/.test(est),
+       'foco é enquadramento, não descrição da matéria');
+    ok(/Responda SOMENTE com JSON/.test(est), 'e é aqui que o JSON aparece, quando já não custa nada');
   }
 
   console.log('\n== a sustentação usa a repercussão, mas não busca por conta própria ==');
