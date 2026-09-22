@@ -65,14 +65,27 @@ const av = e => vm.runInContext(e, ctx);
 const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
 
 (async () => {
-  console.log('== o campo existe na tela ==');
+  console.log('== a configuração está na ENGRENAGEM do módulo ==');
   {
     ok(!!document.getElementById('cvIaProvedor'), 'há seletor de provedor');
     ok(!!document.getElementById('cvIaModelo'), 'e de modelo');
     ok(!!document.getElementById('cvIaTestar'), 'e o botão de testar a busca');
+    ok(!!document.getElementById('btn-config-ia'), 'a engrenagem está na barra do topo');
+
+    // A configuração é do MÓDULO. Ela morava dentro da aba "Como votou o
+    // deputado", que nasce OCULTA — e o módulo abre na aba Aderência. Resultado:
+    // quem abria o módulo não via o campo em lugar nenhum. Fica aferido, porque
+    // é o tipo de defeito que só aparece abrindo a tela.
     let el = document.getElementById('cvIaModelo'), pais = [];
     while (el && el.parentNode) { el = el.parentNode; if (el.id) pais.push(el.id); }
-    ok(pais.includes('painel-consulta'), 'dentro do painel "Como votou o deputado"');
+    ok(!pais.includes('painel-consulta') && !pais.includes('painel-aderencia'),
+       'e NÃO vive dentro de nenhum painel de aba, que nascem ocultos');
+    ok(pais.includes('modalIa'), 'vive no modal da engrenagem');
+    let g = document.getElementById('btn-config-ia'), gp = [];
+    while (g && g.parentNode) { g = g.parentNode; if (g.className) gp.push(String(g.className)); }
+    ok(gp.some(c => /top-bar/.test(c)), 'e a engrenagem, na barra do topo — visível em qualquer aba');
+    ok(document.getElementById('modalIa').hasAttribute('hidden'),
+       'o modal nasce fechado: é ajuste, não é o trabalho');
     const manifest = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
     const rec = manifest.web_accessible_resources.flatMap(w => w.resources);
     ok(rec.includes('modelo-ia.js') && rec.includes('parecer.js'),

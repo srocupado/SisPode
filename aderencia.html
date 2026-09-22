@@ -407,11 +407,27 @@
               font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
   /* Escolha do modelo: fica no módulo porque é aqui que a escolha errada
      aparece — como uma seção que volta vazia, não como um erro. */
-  .ia-campo { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  /* Modal da engrenagem, no padrão das outras telas do aplicativo. */
+  .modal-fundo { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+                 display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal-fundo[hidden] { display: none; }
+  .modal-cx { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+              width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto; }
+  .modal-cab { display: flex; align-items: center; gap: 10px; padding: 14px 18px;
+               border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); }
+  .modal-cab h3 { font-size: 14px; color: var(--text); font-weight: 700; }
+  .modal-x { margin-left: auto; background: none; border: none; color: var(--text-dim);
+             font-size: 16px; cursor: pointer; line-height: 1; }
+  .modal-x:hover { color: var(--text); }
+  .modal-corpo { padding: 18px; }
+  .modal-corpo > label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.8px;
+                         text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
   .ia-linha { display: flex; gap: 8px; align-items: center; }
   .ia-linha + .ia-linha { margin-top: 8px; }
   .ia-linha .field { flex: 1; min-width: 0; }
-  .ia-teste { align-items: flex-start; }
+  /* Empilhado: o botão e o estado disputavam a mesma linha e o texto ficava
+     espremido numa coluna de 3 palavras. */
+  .ia-teste { flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
   .ia-teste .dfs-bt { margin-left: 0; flex-shrink: 0; }
   .ia-estado { font-size: 11px; color: var(--text-dim); line-height: 1.5;
                text-transform: none; letter-spacing: 0; }
@@ -802,7 +818,8 @@
 <div class="top-bar">
   <button class="top-bar-back" id="btn-voltar-home">← Início</button>
   <div class="top-bar-title">Relatórios</div>
-  <div class="top-bar-spacer"></div>
+  <button class="top-bar-back" id="btn-config-ia"
+          title="Modelo de IA usado pelos relatórios">⚙</button>
 </div>
 
 <div class="container">
@@ -812,6 +829,7 @@
     <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
     <button class="aba" id="aba-radar" role="tab">Radar temático</button>
   </div>
+
 
   <div id="painel-aderencia">
     <div class="input-section">
@@ -873,21 +891,6 @@
             <input type="date" id="cvDataFim" class="field">
           </div>
         </div>
-      </div>
-
-      <div class="ia-campo" id="cvIaCampo">
-        <label>Modelo de IA deste módulo</label>
-        <div class="ia-linha">
-          <select id="cvIaProvedor" class="field"></select>
-          <select id="cvIaModelo" class="field"></select>
-        </div>
-        <div class="ia-linha ia-teste">
-          <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
-          <span class="ia-estado" id="cvIaEstado"></span>
-        </div>
-        <div class="prd-dica">Vale para o resumo, a repercussão e a sustentação — as outras telas seguem com o
-          modelo das Configurações, e a chave continua vindo de lá. Nem todo modelo aciona a busca na web, e não
-          dá para saber pelo nome: o teste faz uma chamada de verdade e responde.</div>
       </div>
 
       <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
@@ -987,6 +990,32 @@
     <div class="signature-line"></div>
     <div class="signature-text">Liderança do Podemos</div>
     <div class="signature-sub">Câmara dos Deputados</div>
+  </div>
+</div>
+
+<!-- Configuração do MÓDULO, no mesmo padrão dos outros: engrenagem na barra do
+     topo abrindo um modal. Antes isto vivia dentro da aba "Como votou o
+     deputado", que nasce oculta — de modo que quem abria o módulo não via o
+     campo em lugar nenhum. -->
+<div class="modal-fundo" id="modalIa" hidden>
+  <div class="modal-cx" role="dialog" aria-modal="true" aria-labelledby="modalIaTit">
+    <div class="modal-cab">
+      <h3 id="modalIaTit">Modelo de IA dos relatórios</h3>
+      <button class="modal-x" id="modalIaFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal-corpo" id="cvIaCampo">
+      <label>Provedor</label>
+      <select id="cvIaProvedor" class="field"></select>
+      <label style="margin-top:12px">Modelo</label>
+      <select id="cvIaModelo" class="field"></select>
+      <div class="ia-linha ia-teste">
+        <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
+        <span class="ia-estado" id="cvIaEstado"></span>
+      </div>
+      <div class="prd-dica">Vale para o resumo, a repercussão e a sustentação, na aba "Como votou o deputado".
+        As outras telas seguem com o modelo das Configurações, e a chave continua vindo de lá. Nem todo pedido
+        faz o modelo acionar a busca na web — o teste faz uma chamada de verdade e responde.</div>
+    </div>
   </div>
 </div>
 
