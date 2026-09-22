@@ -1,0 +1,34 @@
+{
+ "area": "emendas",
+ "arquivos": "emendas.js",
+ "findings": [
+  {
+   "area": "emendas",
+   "file": "emendas.js",
+   "line": 407,
+   "severity": "critica",
+   "title": "Perda de dados quando Facebook falha ao salvar uma UF",
+   "summary": "Itens lidos com sucesso do FNS (linhas 331-333) são adicionados a state.itens (linha 408) mesmo quando fbSalvarUf falha (linhas 339-344). Na próxima recarga de página, carregarDoFirebase lê apenas dados salvos no Firebase, descartando silenciosamente itens que falharam na gravação.",
+   "failure_scenario": "Usuário executa \"Varredura completa\", SP é baixada com sucesso (10 mil propostas), mas a gravação no Firebase falha por timeout. A tela exibe as 10 mil propostas normalmente. Usuário recarrega a página (F5). Os dados de SP desaparecem porque não estão no Firebase. O analista perde horas de trabalho lido."
+  },
+  {
+   "area": "emendas",
+   "file": "emendas.js",
+   "line": 805,
+   "severity": "critica",
+   "title": "Perda de dados quando Firebase falha ao salvar panorama",
+   "summary": "Emendas lidas com sucesso do Portal (linhas 759-761) são atribuídas a state.emendas (linha 786) mesmo quando fbSalvarPanorama falha (linhas 805-808). Na próxima recarga, carregarPanorama lê apenas dados salvos no Firebase, descartando silenciosamente emendas que falharam na gravação.",
+   "failure_scenario": "Usuário executa \"Consultar Portal da Transparência\", coleta 500 emendas com sucesso, mas a gravação no Firebase falha. A tela exibe as 500 emendas normalmente. Usuário recarrega a página. Os dados desaparecem. Assessores perdem informações críticas para a Liderança."
+  },
+  {
+   "area": "emendas",
+   "file": "emendas.js",
+   "line": 184,
+   "severity": "media",
+   "title": "Aviso de precisão do número da proposta é emitido apenas uma vez",
+   "summary": "Quando uma planilha traz o número da proposta como número (em vez de texto), o código avisa uma vez via console.warn e define _avisouPrecisao=true. Se UFs subsequentes também trazem número, não há aviso adicional. O analista vê apenas um aviso e pode não perceber que múltiplas UFs têm o problema.",
+   "failure_scenario": "Planilhas de AC e SP vêm com número em vez de texto. Ao processar AC, aviso aparece no console. Ao processar SP com o mesmo problema, nenhum aviso adicional. Analista vê um aviso e conclui que é apenas AC, não sabe que SP também foi afetada."
+  }
+ ],
+ "cobertura": "Li todo o arquivo emendas.js (~1845 linhas). Analisei fluxos críticos: coleta do FNS (buscarNoFns, fbSalvarUf, carregarDoFirebase), coleta do Portal (buscarPanorama, fbSalvarPanorama, carregarPanorama), processamento de planilhas (lerPlanilhaPodemos, dinheiro, etapaDe, numeroDaProposta), filtros e agregação, render e exportação. Não analisei: HTML/CSS em emendas.html, testes (não existem), integração com otros módulos (aderencia.js, congresso.js, etc), configuração do manifest ou background script."
+}

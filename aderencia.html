@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aderência ao Governo — Podemos</title>
+<title>Relatórios — Podemos</title>
 <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
@@ -21,6 +21,13 @@
     --art17: #6eaaff;
     --obstrucao: #c084fc;
     --absent: #5a6f74;
+    /* Apartes (sustentação e repercussão): mesmo vocabulário do resto do
+       painel — o verde-azulado da casa. Não vestem cor de TIPO DE VOTO (lilás é
+       Obstrução, azul é Art. 17, amarelo é Abstenção), que é significado que não
+       é deles; vestem a cor do aplicativo, como todo o resto. */
+    --aparte: var(--accent-light);
+    --aparte-bg: rgba(31,165,165,0.07);
+    --aparte-br: rgba(31,165,165,0.30);
     --border: rgba(255,255,255,0.06);
     --radius: 12px;
   }
@@ -172,6 +179,274 @@
   }
 
   .status.error { color: var(--nao); }
+
+  /* ---------- Abas ---------- */
+  /* Quatro abas não cabem lado a lado nos 560px do painel. Rolagem horizontal
+     em vez de quebrar em duas linhas ou de abreviar o nome das abas. */
+  .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
+          overflow-x: auto; scrollbar-width: thin; }
+  .abas::-webkit-scrollbar { height: 3px; }
+  .abas::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  .aba {
+    background: none; border: none; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
+    color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
+    padding: 9px 14px; cursor: pointer; transition: color .15s, border-color .15s;
+  }
+  .aba:hover { color: var(--text); }
+  .aba.ativa { color: var(--accent-light); border-bottom-color: var(--accent); }
+
+  /* ---------- Aba "Como votou o deputado" ---------- */
+  .cv-modos { display: flex; gap: 6px; margin: 14px 0 12px; }
+  .cv-modo {
+    flex: 1; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    border-radius: 6px; color: var(--text-dim); font-family: inherit; font-size: 12px;
+    font-weight: 600; padding: 7px; cursor: pointer;
+  }
+  .cv-modo.ativo { background: rgba(31,165,165,0.14); border-color: var(--accent); color: var(--accent-light); }
+  .cv-escolha { margin: 8px 0 0; }
+  .cv-escolha-tit { font-size: 11.5px; color: var(--text-dim); margin-bottom: 5px; }
+  .cv-op {
+    display: block; width: 100%; text-align: left; background: rgba(255,255,255,0.03);
+    border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+    font-family: inherit; font-size: 12.5px; padding: 7px 10px; margin-bottom: 4px; cursor: pointer;
+  }
+  .cv-op:hover { border-color: var(--accent); }
+  .cv-op .p { color: var(--text-dim); font-size: 11px; }
+  .cv-sel {
+    display: flex; align-items: center; gap: 8px; margin-top: 8px; padding: 7px 10px;
+    background: rgba(31,165,165,0.10); border: 1px solid rgba(31,165,165,0.35);
+    border-radius: 6px; font-size: 12.5px;
+  }
+  .cv-sel .x { margin-left: auto; background: none; border: none; color: var(--text-dim); cursor: pointer; font-size: 15px; }
+
+  .cv-cab { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 12px; }
+  .cv-cab h3 { font-size: 14px; color: var(--text); margin-bottom: 3px; }
+  .cv-cab .sub { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+  /* O apelido público não tem o peso do número da matéria: é como a rua chama,
+     não como a Câmara registra. Fica menor e em itálico, ao lado. */
+  .cv-apelido { font-size: 11px; font-weight: 400; font-style: italic; color: var(--aparte); }
+  .cv-nums { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .cv-num { flex: 1; min-width: 78px; text-align: center; background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border); border-radius: 8px; padding: 9px 6px; }
+  .cv-num .v { font-size: 18px; font-weight: 700; }
+  .cv-num .l { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); margin-top: 2px; }
+  .cv-num.ade .v { color: var(--sim); }
+  .cv-num.div .v { color: var(--nao); }
+  .cv-num.aus .v { color: var(--absent); }
+  .cv-num.fora .v { color: var(--abstencao); }
+
+  .cv-lista { background: var(--card); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .cv-item { display: flex; align-items: flex-start; gap: 10px; padding: 11px 13px; border-bottom: 1px solid var(--border); }
+  .cv-item:last-child { border-bottom: none; }
+  .cv-item.simbolica { background: rgba(255,255,255,0.015); }
+  .cv-voto {
+    min-width: 92px; padding: 3px 7px; border-radius: 4px; display: flex; align-items: center;
+    justify-content: center; gap: 4px; flex-shrink: 0; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: .3px; white-space: nowrap;
+    background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border);
+  }
+  .cv-voto .rot { font-weight: 600; color: var(--text-dim); letter-spacing: .2px; }
+  .cv-voto.ausente { color: var(--absent); }
+  .cv-corpo { flex: 1; min-width: 0; }
+  .cv-obj { font-size: 12.5px; color: var(--text); line-height: 1.4; }
+  .cv-res { font-size: 10.5px; color: var(--text-dim); margin-top: 3px; line-height: 1.45; }
+  .cv-meta { font-size: 9.5px; color: var(--text-dim); text-transform: uppercase; letter-spacing: .4px; margin-top: 4px; font-weight: 600; }
+  .cv-links { display: flex; gap: 12px; margin-top: 4px; }
+  .cv-links a { font-size: 10.5px; color: var(--accent-light); text-decoration: none; }
+  .cv-links a:hover { text-decoration: underline; }
+  .cv-ver { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: .3px;
+            text-transform: uppercase; white-space: nowrap; flex-shrink: 0; }
+  .cv-ver.aderente   { background: rgba(58,217,125,0.15); color: var(--sim); }
+  .cv-ver.divergente { background: rgba(240,84,84,0.15); color: var(--nao); }
+  .cv-ver.ausente    { background: rgba(90,111,116,0.2); color: var(--absent); }
+  .cv-ver.fora       { background: rgba(255,255,255,0.05); color: var(--text-dim); }
+  .cv-aviso { font-size: 11.5px; color: var(--abstencao); background: rgba(240,192,64,0.08);
+              border: 1px solid rgba(240,192,64,0.3); border-radius: 8px; padding: 9px 12px; margin-bottom: 12px; line-height: 1.5; }
+  .cv-acoes { display: flex; gap: 8px; margin-top: 12px; }
+
+  .cv-recorte { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-top: 12px;
+                padding: 9px 11px; border: 1px solid var(--border); border-radius: 8px;
+                background: rgba(255,255,255,0.03); font-size: 11.5px; }
+  .cv-recorte .rl { color: var(--text-dim); font-weight: 600; letter-spacing: .2px; }
+  .cv-recorte .ate { color: var(--text-dim); }
+  .cv-recorte input[type="date"] { background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+                border-radius: 6px; color: var(--text); padding: 4px 7px; font-size: 11.5px;
+                font-family: inherit; color-scheme: dark; }
+  .cv-recorte button { background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+                border-radius: 6px; color: var(--text-dim); padding: 4px 11px; font-size: 11.5px;
+                font-family: inherit; cursor: pointer; }
+  .cv-recorte button:disabled { opacity: .4; cursor: default; }
+  .cv-recorte button:not(:disabled):hover { color: var(--text); border-color: var(--accent); }
+  .cv-recorte .cnt { color: var(--text-dim); margin-left: auto; }
+  .cv-recorte .cnt.ativo { color: var(--abstencao); font-weight: 600; }
+
+  /* ---------- Abas "Produção legislativa" e "Radar temático" ---------- */
+  .prd-dica { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 4px; }
+  .prd-grupos { display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px; }
+  .prd-grupo { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .prd-grupo-cab { display: flex; align-items: flex-start; gap: 12px; }
+  .prd-grupo-n { font-size: 22px; font-weight: 700; color: var(--accent-light); min-width: 44px; line-height: 1.1; }
+  .prd-grupo-rot { font-size: 13px; font-weight: 600; }
+  .prd-grupo-desc { font-size: 11px; color: var(--text-dim); margin-top: 2px; line-height: 1.45; }
+  .prd-chips { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+  .prd-chip { font-size: 10.5px; color: var(--text-dim); background: rgba(255,255,255,0.05);
+              border: 1px solid var(--border); border-radius: 999px; padding: 2px 9px; }
+  .prd-chip b { color: var(--text); }
+  .prd-tab { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 12px; }
+  .prd-tab td { padding: 5px 4px; border-bottom: 1px solid var(--border); color: var(--text-dim); }
+  .prd-tab td.n { width: 40px; text-align: right; font-weight: 700; color: var(--text); padding-right: 10px; }
+  .prd-sig { min-width: 92px; flex-shrink: 0; font-size: 11px; font-weight: 700;
+             color: var(--accent-light); padding-top: 1px; }
+  /* `.input-section label` põe tudo em caixa alta; um rótulo de caixa de
+     seleção é frase, não título, e precisa ganhar em especificidade. */
+  .input-section label.rdr-check,
+  .rdr-check { display: flex; align-items: flex-start; gap: 7px; font-size: 11.5px; font-weight: 400;
+               color: var(--text-dim); text-transform: none; letter-spacing: 0; line-height: 1.5;
+               padding-bottom: 12px; margin-bottom: 0; }
+  .rdr-check input { margin-top: 2px; flex-shrink: 0; }
+  .rdr-check input { accent-color: var(--accent); }
+  .cv-item.rdr-bancada { background: rgba(31,165,165,0.06); }
+
+  /* Transcrição do inteiro teor: recuada e em tom próprio, porque é palavra do
+     documento e não do relatório. */
+  .rsm { margin: 6px 0; padding: 7px 9px; background: rgba(255,255,255,0.03);
+         border-left: 2px solid rgba(31,165,165,0.4); border-radius: 0 6px 6px 0; }
+  .rsm-linha { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; margin-bottom: 4px; }
+  .rsm-linha:last-child { margin-bottom: 0; }
+  .rsm-rot { display: block; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+             letter-spacing: .4px; color: var(--accent-light); margin-bottom: 1px; }
+  .rsm-falha { color: var(--abstencao); }
+  .rsm-fontes { margin-top: 5px; font-size: 10px; }
+  .rsm-fontes a { color: var(--accent-light); text-decoration: none; margin-right: 8px; }
+  .rsm-simples { color: var(--text); font-size: 12px; }
+  .rsm-ger { color: var(--text-dim); font-style: italic; }
+  .rsm-literal { margin-top: 6px; font-size: 11px; color: var(--text-dim); line-height: 1.5; }
+  .rsm-literal summary { cursor: pointer; color: var(--accent-light); font-size: 10px;
+                         text-transform: uppercase; letter-spacing: .3px; }
+  .rsm-literal[open] summary { margin-bottom: 4px; }
+
+  /* Sustentação e repercussão: caixas no mesmo padrão do resto do painel. O que
+     as separa do registro é a moldura e o rótulo, não um matiz próprio. */
+  .dfs-campo { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .dfs { margin-top: 12px; padding: 14px 16px; background: var(--aparte-bg);
+         border: 1px solid var(--aparte-br); border-radius: 10px; }
+  .dfs-rot { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--aparte); margin-bottom: 8px; }
+  .dfs p { font-size: 12.5px; line-height: 1.6; color: var(--text); margin-bottom: 9px; }
+  .dfs p:last-of-type { margin-bottom: 0; }
+  .dfs-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--aparte-br);
+              font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
+  .dfs-conflito { background: rgba(240,192,64,0.08); border-color: rgba(240,192,64,0.35);
+                  font-size: 11.5px; color: var(--text-dim); line-height: 1.6; }
+  .dfs-conflito .dfs-rot { color: var(--abstencao); }
+  .dfs-conflito b { color: var(--text); }
+  .dfs-edit { width: 100%; background: rgba(0,0,0,0.25); border: 1px solid var(--aparte-br);
+              border-radius: 8px; color: var(--text); font-family: inherit; font-size: 12.5px;
+              line-height: 1.6; padding: 11px 13px; resize: vertical; outline: none; }
+  .dfs-edit:focus { border-color: var(--accent); }
+  .dfs-barra { display: flex; align-items: center; gap: 10px; margin-top: 7px; }
+  .dfs-estado { font-size: 10.5px; color: var(--text-dim); font-style: italic; }
+  .dfs-bt { margin-left: auto; background: rgba(255,255,255,0.06); border: 1px solid var(--border);
+            border-radius: 6px; color: var(--text-dim); font-family: inherit; font-size: 10.5px;
+            padding: 4px 10px; cursor: pointer; }
+  .dfs-bt:disabled { opacity: .35; cursor: default; }
+  .dfs-bt:not(:disabled):hover { color: var(--text); border-color: var(--accent); }
+  /* A marcação de incluir é o gesto que põe a sustentação no documento, e por
+     isso tem peso visual próprio — e muda de cor quando marcada. */
+  .dfs-incluir { display: flex; align-items: flex-start; gap: 9px; margin-top: 11px;
+                 padding: 9px 11px; border: 1px dashed var(--aparte-br); border-radius: 8px;
+                 font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+                 text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .dfs-incluir b { color: var(--text); }
+  .dfs-incluir input { accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+  .dfs-incluir.marcado { border-style: solid; border-color: var(--accent);
+                         background: rgba(31,165,165,0.10); }
+  /* Repercussão: mesma caixa da sustentação. Quem diz que o material é de
+     terceiro é o título da seção e a nota de rodapé dela, não a cor. */
+  .imp { margin-top: 12px; padding: 14px 16px; background: var(--aparte-bg);
+         border: 1px solid var(--aparte-br); border-radius: 10px; }
+  .imp-tit { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--aparte); margin-bottom: 9px; }
+  .imp-falha { background: rgba(240,192,64,0.08); border-color: rgba(240,192,64,0.35);
+               font-size: 11.5px; color: var(--text-dim); line-height: 1.6; }
+  .imp-falha .imp-tit { color: var(--abstencao); }
+  .imp-apelido { font-size: 12.5px; color: var(--text-dim); margin-bottom: 11px; }
+  .imp-apelido b { color: var(--text); }
+  .imp-vazio { font-size: 12px; color: var(--text-dim); line-height: 1.6; }
+  .imp-grupo { margin-bottom: 12px; }
+  .imp-rot { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+             color: var(--text-dim); margin-bottom: 6px; }
+  /* Cada ponto é desmarcável: o analista tira o que não se sustenta na leitura
+     dele sem precisar descartar o levantamento inteiro. */
+  .imp-ponto { display: flex; align-items: flex-start; gap: 9px; padding: 6px 0;
+               font-size: 12.5px; line-height: 1.55; color: var(--text);
+               text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .imp-ponto input { accent-color: var(--accent); margin-top: 3px; flex-shrink: 0; }
+  .imp-ponto.fora { color: var(--absent); text-decoration: line-through; }
+  .imp-vei { display: block; font-size: 10.5px; color: var(--text-dim); font-style: italic;
+             margin-top: 2px; }
+  .imp-fonte { font-size: 11px; color: var(--text-dim); line-height: 1.5; padding: 5px 0;
+               border-top: 1px solid var(--aparte-br); word-break: break-all; }
+  .imp-fonte b { color: var(--text); }
+  .imp-fonte a { color: var(--accent-light); text-decoration: none; }
+  .imp-fonte a:hover { text-decoration: underline; }
+  .imp-via { font-size: 10px; color: var(--absent); font-style: italic; }
+  .imp-buscas, .imp-desc { font-size: 10.5px; color: var(--text-dim); line-height: 1.5;
+                           margin-top: 8px; }
+  .imp-buscas b { color: var(--text-dim); }
+  .imp-desc { color: var(--abstencao); }
+  .imp-incluir { display: flex; align-items: flex-start; gap: 9px; margin-top: 11px;
+                 padding: 9px 11px; border: 1px dashed var(--aparte-br); border-radius: 8px;
+                 font-size: 11.5px; color: var(--text-dim); line-height: 1.5;
+                 text-transform: none; letter-spacing: 0; cursor: pointer; }
+  .imp-incluir b { color: var(--text); }
+  .imp-incluir input { accent-color: var(--accent); margin-top: 2px; flex-shrink: 0; }
+  .imp-incluir.marcado { border-style: solid; border-color: var(--accent);
+                         background: rgba(31,165,165,0.10); }
+  .imp-nota { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--aparte-br);
+              font-size: 10.5px; color: var(--text-dim); font-style: italic; line-height: 1.5; }
+  /* Escolha do modelo: fica no módulo porque é aqui que a escolha errada
+     aparece — como uma seção que volta vazia, não como um erro. */
+  /* Modal da engrenagem, no padrão das outras telas do aplicativo. */
+  .modal-fundo { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200;
+                 display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal-fundo[hidden] { display: none; }
+  .modal-cx { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+              width: 100%; max-width: 480px; max-height: 88vh; overflow-y: auto; }
+  .modal-cab { display: flex; align-items: center; gap: 10px; padding: 14px 18px;
+               border-bottom: 1px solid var(--border); position: sticky; top: 0; background: var(--card); }
+  .modal-cab h3 { font-size: 14px; color: var(--text); font-weight: 700; }
+  .modal-x { margin-left: auto; background: none; border: none; color: var(--text-dim);
+             font-size: 16px; cursor: pointer; line-height: 1; }
+  .modal-x:hover { color: var(--text); }
+  .modal-corpo { padding: 18px; }
+  .modal-corpo > label { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 600;
+                         letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim);
+                         margin-bottom: 8px; }
+  .modal-corpo > label .dfs-bt { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .modal-pe { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px;
+              border-top: 1px solid var(--border); }
+  .btn-salvar { background: var(--accent); color: #fff; border: none; border-radius: 6px;
+                font-family: inherit; font-size: 12px; font-weight: 700; padding: 7px 16px;
+                cursor: pointer; }
+  .btn-salvar:hover { background: var(--accent-light); }
+  .ia-aviso { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 16px; }
+  .ia-dica { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 6px; }
+  .ia-dica.ruim { color: var(--abstencao); }
+  .ia-dica.bom { color: var(--sim); }
+  .ia-linha .dfs-bt { flex-shrink: 0; margin-left: 0; }
+  .ia-linha { display: flex; gap: 8px; align-items: center; }
+  .ia-linha + .ia-linha { margin-top: 8px; }
+  .ia-linha .field { flex: 1; min-width: 0; }
+  /* Empilhado: o botão e o estado disputavam a mesma linha e o texto ficava
+     espremido numa coluna de 3 palavras. */
+  .ia-teste { flex-direction: column; align-items: flex-start; gap: 8px; margin-top: 14px; }
+  .ia-teste .dfs-bt { margin-left: 0; flex-shrink: 0; }
+  .ia-estado { font-size: 11px; color: var(--text-dim); line-height: 1.5;
+               text-transform: none; letter-spacing: 0; }
+  .ia-estado b.bom  { color: var(--sim); }
+  .ia-estado b.ruim { color: var(--abstencao); }
+  select.field { appearance: none; }
 
   .spinner {
     display: inline-block;
@@ -374,17 +649,31 @@
   .dep-individual-stats .stat.ausente .v { color: var(--absent); }
 
   .dep-individual-list { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
-  .dep-individual-list .item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
+  /* flex-start: com a descrição em duas linhas mais a linha do voto, a marca e
+     a etiqueta encostam no topo do item, junto do começo do texto. */
+  .dep-individual-list .item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border-bottom: 1px solid var(--border); font-size: 11px; }
   .dep-individual-list .item:last-child { border-bottom: none; }
-  .dep-individual-list .mark { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; font-size: 11px; font-weight: 700; }
-  .dep-individual-list .mark.aderente { background: rgba(58,217,125,0.15); color: #3ad97d; }
-  .dep-individual-list .mark.divergente { background: rgba(240,84,84,0.15); color: #f05454; }
-  .dep-individual-list .mark.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
-  .dep-individual-list .desc { flex: 1; min-width: 0; color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .dep-individual-list .desc .gov { display: block; font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 2px; font-weight: 600; }
+  /* À esquerda, o VOTO — um fato, não um julgamento. Por isso é uma pastilha
+     neutra: quem carrega cor nesta lista é o veredito, à direita. Largura
+     mínima fixa para "Sim", "Não" e "Obstrução" começarem a descrição no mesmo
+     ponto, em vez de escadinha. */
+  .dep-individual-list .mark { min-width: 96px; padding: 3px 7px; border-radius: 4px; display: flex; align-items: center; justify-content: center; gap: 4px; flex-shrink: 0; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.3px; white-space: nowrap; background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); }
+  /* "Voto:" fica em cada pastilha, e não num cabeçalho de coluna: a lista rola
+     dentro de 320px, e um cabeçalho sairia de vista logo no primeiro scroll. */
+  .dep-individual-list .mark .rot { font-weight: 600; color: var(--text-dim); letter-spacing: 0.2px; }
+  .dep-individual-list .mark.ausente { color: var(--absent); }
+  /* O clamp de 2 linhas vale só para a DESCRIÇÃO. Enquanto ele valia para a
+     caixa inteira, a linha "Gov: … · data" era cortada junto sempre que a
+     ementa ocupava as duas linhas — ou seja, quase sempre: o analista via a
+     orientação do governo em um item a cada quatro. */
+  .dep-individual-list .item-corpo { flex: 1; min-width: 0; }
+  .dep-individual-list .desc { color: var(--text); line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .dep-individual-list .gov { font-size: 9px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; font-weight: 600; }
+  /* A etiqueta da direita é o VEREDITO (aderiu/divergiu/ausente), nas mesmas
+     cores dos totais do topo — não o voto, que agora se lê na linha de baixo. */
   .dep-individual-list .vote { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 4px; letter-spacing: 0.3px; text-transform: uppercase; white-space: nowrap; }
-  .dep-individual-list .vote.sim { background: rgba(58,217,125,0.15); color: #3ad97d; }
-  .dep-individual-list .vote.nao { background: rgba(240,84,84,0.15); color: #f05454; }
+  .dep-individual-list .vote.aderente { background: rgba(58,217,125,0.15); color: #3ad97d; }
+  .dep-individual-list .vote.divergente { background: rgba(240,84,84,0.15); color: #f05454; }
   .dep-individual-list .vote.ausente { background: rgba(90,111,116,0.2); color: var(--absent); }
 
   /* ── LISTA DE VOTAÇÕES ── */
@@ -541,29 +830,174 @@
 
 <div class="top-bar">
   <button class="top-bar-back" id="btn-voltar-home">← Início</button>
-  <div class="top-bar-title">Aderência ao Governo</div>
-  <div class="top-bar-spacer"></div>
+  <div class="top-bar-title">Relatórios</div>
+  <button class="top-bar-back" id="btn-config-ia"
+          title="Modelo de IA usado pelos relatórios">⚙</button>
 </div>
 
 <div class="container">
-  <div class="input-section">
-    <div class="date-row">
-      <div class="date-col">
-        <label>Data início</label>
-        <input type="date" id="dataIni" class="field">
-      </div>
-      <div class="date-col">
-        <label>Data fim</label>
-        <input type="date" id="dataFim" class="field">
-      </div>
-    </div>
-    <label>Partido (sigla)</label>
-    <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
-    <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+  <div class="abas" role="tablist">
+    <button class="aba ativa" id="aba-aderencia" role="tab">Aderência</button>
+    <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
+    <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
+    <button class="aba" id="aba-radar" role="tab">Radar temático</button>
   </div>
 
-  <div id="status"></div>
-  <div id="resultado"></div>
+
+  <div id="painel-aderencia">
+    <div class="input-section">
+      <div class="date-row">
+        <div class="date-col">
+          <label>Data início</label>
+          <input type="date" id="dataIni" class="field">
+        </div>
+        <div class="date-col">
+          <label>Data fim</label>
+          <input type="date" id="dataFim" class="field">
+        </div>
+      </div>
+      <label>Partido (sigla)</label>
+      <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
+      <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+    </div>
+
+    <div id="status"></div>
+    <div id="resultado"></div>
+  </div>
+
+  <div id="painel-consulta" hidden>
+    <div class="input-section">
+      <label>Deputado(a) — qualquer partido</label>
+      <input type="text" id="cvDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
+      <div id="cvEscolha"></div>
+
+      <div class="cv-modos">
+        <button class="cv-modo ativo" id="cvModoProp">Por proposição</button>
+        <button class="cv-modo" id="cvModoPer">Por período</button>
+      </div>
+
+      <div id="cvCamposProp">
+        <div class="date-row">
+          <div class="date-col" style="flex:0 0 96px">
+            <label>Sigla</label>
+            <input type="text" id="cvSigla" class="field" placeholder="PL" maxlength="6" value="PL">
+          </div>
+          <div class="date-col">
+            <label>Número</label>
+            <input type="text" id="cvNumero" class="field" placeholder="3626" maxlength="7">
+          </div>
+          <div class="date-col" style="flex:0 0 110px">
+            <label>Ano</label>
+            <input type="text" id="cvAno" class="field" placeholder="2023" maxlength="4">
+          </div>
+        </div>
+      </div>
+
+      <div id="cvCamposPer" hidden>
+        <div class="date-row">
+          <div class="date-col">
+            <label>Data início</label>
+            <input type="date" id="cvDataIni" class="field">
+          </div>
+          <div class="date-col">
+            <label>Data fim</label>
+            <input type="date" id="cvDataFim" class="field">
+          </div>
+        </div>
+      </div>
+
+      <label class="rdr-check" id="cvResumosLinha"><input type="checkbox" id="cvResumos">
+        trazer o resumo de cada item (lê o inteiro teor dos documentos — mais lento)</label>
+
+      <label class="rdr-check" id="cvImprensaLinha"><input type="checkbox" id="cvImprensa">
+        levantar a repercussão pública da matéria (a IA busca na web — apelido, foco da cobertura
+        e pontos contestados)</label>
+
+      <div class="dfs-campo" id="cvDefesaCampo">
+        <label>Precisa de defesa da posição?</label>
+        <select id="cvDefesa" class="field">
+          <option value="">Não — só o relatório de votos</option>
+          <option value="favoravel">Sim, sustentar posição FAVORÁVEL à matéria</option>
+          <option value="contraria">Sim, sustentar posição CONTRÁRIA à matéria</option>
+        </select>
+        <input type="text" id="cvDefesaEnfase" class="field" style="margin-top:8px"
+               placeholder="Ponto a enfatizar (opcional). Ex.: proteção de quem está endividado" maxlength="160">
+        <div class="prd-dica">A sustentação é texto argumentativo, gerado a partir dos documentos e do voto
+          registrado, e sai em seção própria — separada do registro de votos. Se a posição escolhida
+          contrariar o voto que consta da ata, o relatório recusa e explica. Com a repercussão marcada
+          acima, ela também responde ao que está sendo contestado.</div>
+      </div>
+
+      <button id="cvBuscar" class="btn-gerar">Consultar votos</button>
+    </div>
+
+    <div id="cvStatus"></div>
+    <div id="cvResultado"></div>
+  </div>
+
+  <div id="painel-producao" hidden>
+    <div class="input-section">
+      <label>Deputado(a) — qualquer partido</label>
+      <input type="text" id="prdDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
+      <div id="prdEscolha"></div>
+
+      <div class="date-row" style="margin-top:14px">
+        <div class="date-col" style="flex:0 0 130px">
+          <label>Ano (opcional)</label>
+          <input type="text" id="prdAno" class="field" placeholder="todos" maxlength="4">
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <div class="prd-dica">Sem ano, traz tudo o que a base tem em nome do deputado.
+            Um mandato inteiro passa de 800 registros.</div>
+        </div>
+      </div>
+
+      <button id="prdBuscar" class="btn-gerar">Levantar produção</button>
+    </div>
+
+    <div id="prdStatus"></div>
+    <div id="prdResultado"></div>
+  </div>
+
+  <div id="painel-radar" hidden>
+    <div class="input-section">
+      <label>Tema</label>
+      <select id="rdrTema" class="field"><option value="">carregando…</option></select>
+
+      <div class="date-row" style="margin-top:14px">
+        <div class="date-col">
+          <label>Palavra-chave (opcional)</label>
+          <input type="text" id="rdrPalavra" class="field" placeholder="Ex.: saneamento" maxlength="60">
+        </div>
+        <div class="date-col" style="flex:0 0 108px">
+          <label>Tipo</label>
+          <input type="text" id="rdrTipo" class="field" placeholder="PL" maxlength="6">
+        </div>
+      </div>
+
+      <div class="date-row">
+        <div class="date-col" style="flex:0 0 120px">
+          <label>De (ano)</label>
+          <input type="text" id="rdrAnoIni" class="field" maxlength="4">
+        </div>
+        <div class="date-col" style="flex:0 0 120px">
+          <label>Até (ano)</label>
+          <input type="text" id="rdrAnoFim" class="field" maxlength="4">
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <label class="rdr-check"><input type="checkbox" id="rdrSoBancada"> só da bancada</label>
+        </div>
+      </div>
+
+      <div class="prd-dica">O recorte é por ano porque a API recusa tema com intervalo de datas
+        (devolve HTTP 400). Máximo de 8 anos por consulta.</div>
+
+      <button id="rdrBuscar" class="btn-gerar">Buscar no radar</button>
+    </div>
+
+    <div id="rdrStatus"></div>
+    <div id="rdrResultado"></div>
+  </div>
 
   <div class="signature">
     <div class="signature-line"></div>
@@ -572,7 +1006,64 @@
   </div>
 </div>
 
+<!-- Configuração do MÓDULO, no mesmo padrão dos outros: engrenagem na barra do
+     topo abrindo um modal. Antes isto vivia dentro da aba "Como votou o
+     deputado", que nasce oculta — de modo que quem abria o módulo não via o
+     campo em lugar nenhum. -->
+<div class="modal-fundo" id="modalIa" hidden>
+  <div class="modal-cx" role="dialog" aria-modal="true" aria-labelledby="modalIaTit">
+    <div class="modal-cab">
+      <h3 id="modalIaTit">Configurações</h3>
+      <button class="modal-x" id="modalIaFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal-corpo" id="cvIaCampo">
+      <p class="ia-aviso">A IA escreve o resumo de cada item, levanta a repercussão pública da matéria e
+        rascunha a sustentação do posicionamento, na aba "Como votou o deputado". Estas configurações são
+        compartilhadas com os outros painéis do SiSPode.</p>
+
+      <label for="cvIaProvedor">Provedor de IA</label>
+      <select id="cvIaProvedor" class="field"></select>
+
+      <label for="cvIaChave" style="margin-top:14px">Chave de API</label>
+      <div class="ia-linha">
+        <input type="password" id="cvIaChave" class="field" autocomplete="off" spellcheck="false"
+               placeholder="Cole aqui sua chave">
+        <button type="button" id="cvIaOlho" class="dfs-bt" title="Mostrar/ocultar chave">👁</button>
+      </div>
+      <div class="ia-dica" id="cvIaChaveDica"></div>
+
+      <label for="cvIaModelo" style="margin-top:14px">Modelo
+        <button type="button" id="cvIaListar" class="dfs-bt">↻ Carregar disponíveis</button>
+      </label>
+      <select id="cvIaModelo" class="field"></select>
+      <div class="ia-dica" id="cvIaModeloEstado"></div>
+      <div class="ia-dica" id="cvIaFaixa"></div>
+
+      <div class="ia-teste">
+        <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
+        <span class="ia-estado" id="cvIaEstado"></span>
+      </div>
+    </div>
+    <div class="modal-pe">
+      <button type="button" class="dfs-bt" id="cvIaCancelar">Cancelar</button>
+      <button type="button" class="btn-salvar" id="cvIaSalvar">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <script src="libs/xlsx.full.min.js"></script>
 <script src="aderencia.js"></script>
+<!-- Escopo global compartilhado (MV3, scripts clássicos): producao.js e radar.js
+     reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
+     API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
+<script src="libs/pdf.min.js"></script>
+<script src="parecer.js"></script>
+<script src="ia-comum.js"></script>
+<script src="modelo-ia.js"></script>
+<script src="resumos.js"></script>
+<script src="imprensa.js"></script>
+<script src="defesa.js"></script>
+<script src="producao.js"></script>
+<script src="radar.js"></script>
 </body>
 </html>

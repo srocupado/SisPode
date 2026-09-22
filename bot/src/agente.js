@@ -24,6 +24,20 @@ const { chamarIAtexto, extrairJson } = require('./ia');
 
 const MAX_CONSULTAS  = 3;          // teto de iterações de ferramenta por mensagem
 const OBS_MAX        = 12000;      // teto de caracteres de cada observação
+// Prazo de cada ferramenta de consulta. A varredura de sites e as APIs da
+// Câmara já têm timeout próprio; este é a rede de segurança para a conexão que
+// fica pendurada sem nenhum: sem ele, o laço inteiro travava e o usuário via
+// "digitando" para sempre.
+const TIMEOUT_FERRAMENTA_MS = 90000;
+
+/** Promessa com prazo: rejeita se `p` não resolver a tempo. */
+function comPrazo(p, ms, nome) {
+  let t;
+  const limite = new Promise((_, rej) => {
+    t = setTimeout(() => rej(new Error(`a consulta "${nome}" passou de ${Math.round(ms / 1000)}s sem responder`)), ms);
+  });
+  return Promise.race([p, limite]).finally(() => clearTimeout(t));
+}
 const MEMORIA_TTL    = 45 * 60e3;  // conversa é efêmera (como o /perguntar)
 const MEMORIA_TROCAS = 8;          // últimas N trocas lembradas
 const MEMORIA_CORTE  = 1200;       // teto de chars por troca lembrada
@@ -267,9 +281,14 @@ async function conversar({ userId, perfil, texto, dados = {} }) {
       observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado: 'ERRO: ferramenta de consulta inexistente. Escolha uma do catálogo.' });
       continue;
     }
+    // Prazo por ferramenta: uma conexão pendurada travava o laço inteiro, e o
+    // usuário ficava vendo "digitando" sem fim. Estourado o prazo, o laço segue
+    // com a observação de erro e o agente responde com o que tem
+    // (varredura de 15/09/2026).
     let resultado;
-    try { resultado = String(await fn(j.argumentos || {}) || '(vazio)').slice(0, OBS_MAX); }
-    catch (e) { resultado = `ERRO: ${e.message}`; }
+    try {
+      resultado = String(await comPrazo(fn(j.argumentos || {}), TIMEOUT_FERRAMENTA_MS, j.ferramenta) || '(vazio)').slice(0, OBS_MAX);
+    } catch (e) { resultado = `ERRO: ${e.message}`; }
     observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado });
   }
   // (não alcança — a volta final força resposta; por segurança:)

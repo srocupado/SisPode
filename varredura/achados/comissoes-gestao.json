@@ -1,0 +1,61 @@
+{
+ "area": "comissoes-gestao",
+ "arquivos": "comissoes.js",
+ "findings": [
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 1562,
+   "severity": "critica",
+   "title": "Partido de deputado não é verificado ao importar da API da Câmara",
+   "summary": "A comparação que detecta mudanças em deputados importados (linha 1562) verifica nome, UF e idCamara, mas ignora o campo partido. Se um deputado trocar de partido na API, esse cadastro não será atualizado no sistema.",
+   "failure_scenario": "Deputado \"João Silva\" cadastrado como PODE (SP, id 123). Na API da Câmara ele agora está em PTB (mesmo nome, UF, id). Ao clicar \"↻ Importar\", o sistema compara apenas nome/uf/idCamara, detecta que não mudou, e não atualiza. Resultado: sistema continua mostrando João como PODE quando é PTB — informação errada apresentada à assessoria."
+  },
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 694,
+   "severity": "critica",
+   "title": "Membros de comissão são sobrescritos sem versionamento ao remover deputado",
+   "summary": "A função removerDeputadoDB percorre todas as comissões e faz fbPut do nó inteiro /membros/sigla com a lista filtrada. Se outro usuário adiciona um membro à mesma comissão entre o read local e este write, essa adição é perdida na sobrescrita.",
+   "failure_scenario": "Tela aberta com state.membros carregado. Usuário B adiciona deputado X em comissão CCJC (Firebase atualizado). Usuário A clica para remover deputado Y. O código remove Y localmente, faz PUT de /membros/CCJC sem X (porque state.membros.CCJC foi carregado antes da mudança do B). Resultado: X desaparece do Firebase — perda de designação."
+  },
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 741,
+   "severity": "critica",
+   "title": "Deputado adicionado ao estado local antes da escrita no Firebase, sem tratamento de erro",
+   "summary": "Na função adicionarMembro, o deputado é adicionado ao array local (linha 741) antes do fbPut (linha 749). Se o PUT falhar (erro de rede, Firebase offline), a exceção não é tratada e propaga silenciosamente, deixando o estado local inconsistente com o Firebase.",
+   "failure_scenario": "Usuário clica \"Adicionar titular\" em comissão CCJC. Deputado é adicionado a state.membros.CCJC.titulares. Rede cai no meio do fbPut. Exceção é engolida pelo navegador. Tela renderiza mostrando deputado adicionado. Usuário exporta Excel: deputado aparece. Outro usuário não vê o deputado (não está no Firebase). Após reload, deputado desaparece da tela."
+  },
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 444,
+   "severity": "alta",
+   "title": "Comissões mistas são sobrescritas com estado local ao sincronizar",
+   "summary": "Ao sincronizar MPVs (sincronizarMistas), o código relê o Firebase (remoto) e adiciona comissões manuais de lá (linha 441-442), mas depois sobrescreve com as do state.mistas (linha 444-445), que é o estado local carregado na inicialização. Se outro usuário modificou uma comissão manual entre a abertura da tela e o sync, essa modificação é perdida.",
+   "failure_scenario": "10:00 Usuário A abre comissoes.js, carrega state.mistas. 10:05 Usuário B modifica comissão MPV134326 (nome, descrição), faz PUT no Firebase. 10:10 Usuário A clica \"Sincronizar MPVs\". Código relê Firebase e vê alteração de B (remoto.comissoes), mas depois sobrescreve com state.mistas de A (versão 10:00). Resultado: mudança de B é perdida no Firebase."
+  },
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 1903,
+   "severity": "media",
+   "title": "Deputado de acordo em transferência salvo sem tratamento de erro",
+   "summary": "A função salvarDepAcordo modifica state.transferencias (linha 1902) antes de fazer fbPut (linha 1903). Se o PUT falhar, o estado local está modificado mas Firebase não foi atualizado, deixando dados inconsistentes. Não há try/catch.",
+   "failure_scenario": "Usuário clica \"✎ Dep.\" em uma vaga cedida para editar deputado. Modifica nome e partido, clica salvar. Rede cai no fbPut. Estado local é modificado, Firebase não. Próximo sync pode não trazer a mudança de outro usuário porque a API de sincronização não sabe que local divergiu."
+  },
+  {
+   "area": "comissoes-gestao",
+   "file": "comissoes.js",
+   "line": 421,
+   "severity": "media",
+   "title": "Falhas individuais ao sincronizar MPVs são silenciosamente ignoradas",
+   "summary": "Quando a busca de tramitações de uma MPV falha (linha 391), o erro é capturado silenciosamente (linha 421) e a MPV é descartada dos resultados. Se algumas MPVs falham por erro de rede intermitente, elas desaparecem do sistema sem feedback ao usuário.",
+   "failure_scenario": "API da Câmara retorna 20 MPVs. Usuário clica \"Sincronizar\". Rede é intermitente: 3 MPVs falham ao buscar tramitações. Essas 3 são descartadas silenciosamente. Sistema mostra apenas 17 MPVs. Assessor não sabe se as 3 foram rejeitadas, perderam eficácia, ou se houve erro. Informação incompleta."
+  }
+ ],
+ "cobertura": "Li o arquivo inteiro (2117 linhas) e analisei: (1) fluxos de sincronização com API (MPVs e temporárias), (2) operações CRUD de deputados e membros, (3) lógica de vagas e transferências, (4) importação de dados da Câmara, (5) persistência no Firebase. Não encontrei: vazamento de chaves de API (dados sensíveis estão em chrome.storage.local, não em Firebase), laços infinitos óbvios, ou promises não aguardadas em fluxos críticos. Os achados cobrem os riscos maiores: sobrescrita de dados sem versionamento, falta de tratamento de erro em operações assíncronas, e verificação incompleta de mudanças em dados críticos."
+}

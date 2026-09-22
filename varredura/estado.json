@@ -1,0 +1,98 @@
+{
+  "descricao": "Varredura de bugs do SisPode, feita por lotes e retomável. Cada lote roda o workflow em varredura/workflow-varredura.js; os achados brutos ficam em varredura/achados/<chave>.json; a avaliação é feita depois pelo modelo da sessão, lendo o código. Este arquivo é a memória: se o contêiner for reciclado, clone o branch varredura-bugs e continue pelo primeiro lote com status pendente.",
+  "iniciada_em": "2026-09-14",
+  "lotes": [
+    {
+      "n": 0,
+      "status": "concluido",
+      "areas": [
+        "analise-cenarios",
+        "analise-geracao"
+      ],
+      "nota": "Varrido em 14/09/2026 com modelo forte (antes da mudança para finder econômico). 11 achados; 9 avaliados, confirmados e corrigidos no branch correcoes-varredura."
+    },
+    {
+      "n": 1,
+      "status": "concluido",
+      "areas": [
+        "lideres",
+        "congresso"
+      ],
+      "nota": "Varrido em 14/09/2026 (finder econômico, contrato de texto). 9 achados; avaliação em varredura/achados/avaliacao-lote1.md: 5 confirmados (1 crítico), 2 refutados. x-firebase e x-segredos saíram deste lote sem serem varridos e foram para o lote 7."
+    },
+    {
+      "n": 2,
+      "status": "concluido",
+      "areas": [
+        "ccjc",
+        "comissoes-gestao",
+        "pautas-comissoes",
+        "votacao-aderencia"
+      ],
+      "nota": "Varrido em 14/09/2026. 15 achados; avaliação em varredura/achados/avaliacao-lote2.md: 7 confirmados (1 crítico, 1 alto), 8 refutados. pautas-comissoes não rendeu achado."
+    },
+    {
+      "n": 3,
+      "status": "concluido",
+      "areas": [
+        "orcamento-notas",
+        "orcamento-conferencia",
+        "emendas",
+        "x-datas-numeros"
+      ],
+      "nota": "Adiado a pedido na primeira tentativa (15/09/2026) e rodado no fim, depois do lote 5. 12 achados; avaliação em varredura/achados/avaliacao-lote3.md: 5 confirmados (2 altos), 2 confirmados menores, 5 refutados. Com este lote as 25 frentes estão varridas. Os sete confirmados foram corrigidos no branch correcoes-varredura (commit bd7297c), com testes/correcoes-lote3.test.js."
+    },
+    {
+      "n": 4,
+      "status": "concluido",
+      "areas": [
+        "parecer-nucleo",
+        "parecer-dados",
+        "ia-comum",
+        "analise-parecer-tela"
+      ],
+      "nota": "Varrido em 15/09/2026. 15 achados; avaliação em varredura/achados/avaliacao-lote4.md: 6 confirmados (1 crítico), 8 refutados, 1 avaliado depois (refutado em 15/09/2026, com o lote 3 já rodado): nada ficou pendente neste lote."
+    },
+    {
+      "n": 5,
+      "status": "concluido",
+      "areas": [
+        "bot-nucleo",
+        "bot-monitor",
+        "bot-conteudo",
+        "bot-infra"
+      ],
+      "nota": "Varrido em 15/09/2026. 10 achados; avaliação em varredura/achados/avaliacao-lote5.md: 5 confirmados (2 críticos), 3 refutados, 2 de baixo impacto. O crítico é o mesmo defeito do lote 1 (falha de consulta virando fato), agora no bot."
+    },
+    {
+      "n": 6,
+      "status": "concluido",
+      "areas": [
+        "panel-destaques",
+        "x-concorrencia",
+        "x-testes"
+      ],
+      "nota": "Varrido em 15/09/2026. 8 achados; avaliação em varredura/achados/avaliacao-lote6.md: 7 confirmados (1 crítico; 6 com a mesma causa e uma só correção), 1 refutado. x-testes não achou defeito de produto; a falha de analise-mpv é teste vencido pela realidade."
+    },
+    {
+      "n": 7,
+      "status": "concluido",
+      "areas": [
+        "x-firebase",
+        "x-segredos"
+      ],
+      "nota": "Varrido em 15/09/2026. 8 achados; avaliação em varredura/achados/avaliacao-lote7.md: nenhum defeito ativo — 2 recomendações de postura (chave do Gemini na query string; fallback do salvamento de destaque) e 6 refutados. Confirmado: nenhum segredo versionado, chave nunca vai ao Firebase, chave não aparece em PDF nem em log."
+    }
+  ],
+  "como_retomar": [
+    "1. git checkout varredura-bugs (o branch tem o script, o estado e os achados já colhidos)",
+    "2. Ache o primeiro lote com status pendente neste arquivo",
+    "3. Workflow({ scriptPath: 'varredura/workflow-varredura.js', args: [<as areas do lote>] })",
+    "4. Grave cada resultado em varredura/achados/<chave>.json, marque o lote como concluido aqui, commite e pushe ANTES de começar o próximo lote",
+    "5. Avalie os achados lendo o código (o finder é econômico e erra; nada vira relatório sem conferência) e reporte ao usuário"
+  ],
+  "branches": {
+    "varredura-bugs": "Branch ÚNICO da varredura desde 15/09/2026: script, estado, achados, avaliações E as correções. O correcoes-varredura foi unificado aqui e não recebe mais commits.",
+    "correcoes-varredura": "histórico — totalmente contido em varredura-bugs"
+  }
+}

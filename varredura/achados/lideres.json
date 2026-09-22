@@ -1,0 +1,43 @@
+{
+ "area": "lideres",
+ "arquivos": "lideres.js",
+ "findings": [
+  {
+   "area": "lideres",
+   "file": "lideres.js",
+   "line": 347,
+   "severity": "critica",
+   "title": "ehPrincipal marca proposições erradas como principais com apensados",
+   "summary": "Quando há múltiplas proposições na célula como \"(Principal: PL 23/2026) PL 1242/2026\", o teste /\\(\\s*principal/i.test(item.prop.slice(0, m.index)) marca AMBAS como principais porque testa se há \"(Principal:\" em QUALQUER lugar antes da posição atual, não especificamente antes da proposição anterior.",
+   "failure_scenario": "Entrada \"(Principal: PL 23/2026) PL 1242/2026\". A função proposicoesDoItem retorna: PL 23/2026 com ehPrincipal=true (correto) e PL 1242/2026 com ehPrincipal=true (ERRADO — deveria ser false). A assessoria recebe grade de colunas marcando apensado como principal, informação errada na mão do líder."
+  },
+  {
+   "area": "lideres",
+   "file": "lideres.js",
+   "line": 210,
+   "severity": "critica",
+   "title": "Detecção de grade PDF falha silenciosamente e aplica padrão errado",
+   "summary": "A função detectarColunas tenta descobrir as 5 colunas do PDF analisando picos de posição horizontal. Se falha (grade não-plausível), retorna COLUNAS_PADRAO que pode estar completamente diferente (linha 185-186 documenta que a grade mudou de 38·66·129·256·333 para 38·108·236·358·493 entre reuniões). Nenhum aviso é mostrado.",
+   "failure_scenario": "PDF com grade diferente chega. Detecção tenta achar picos mas falha no teste de plausibilidade (linha 211-212). Retorna padrão obsoleto. Colunas são lidas errado: \"regime do item 66 vazava inteiro para dentro da descrição\" (citado no próprio comentário linha 186). Assessoria recebe proposições com campos trocados sem erro aparente."
+  },
+  {
+   "area": "lideres",
+   "file": "lideres.js",
+   "line": 2587,
+   "severity": "alta",
+   "title": "atualizarSituacaoDemanda falha silenciosamente com idCamara undefined",
+   "summary": "Função chama buscarTramitacoes(d.idCamara) sem verificar se idCamara existe. Se for undefined (demanda antiga carregada antes do campo ou criada parcialmente), a API falha. O erro é engolido em catch(_) silenciosamente. Depois em linha 2597, mostra \"situação não mudou\" sem avisar que a busca falhou.",
+   "failure_scenario": "Demanda antiga sem idCamara é atualizada. A busca falha silenciosamente. Assistente vê mensagem \"situação não mudou\" e presume que a Câmara consultada confirmou que a situação é igual. Na verdade, a consulta nunca aconteceu e o dado é antigo."
+  },
+  {
+   "area": "lideres",
+   "file": "lideres.js",
+   "line": 2934,
+   "severity": "alta",
+   "title": "E-mail com situação desatualizada é enviado sem aviso se API falha",
+   "summary": "prepararEmailFinal() em linha 2933-2934 tenta atualizar situação de todas as demandas antes de montar e-mail. Se a API falha em TODAS as chamadas, mudadas fica 0. O código em linha 2943 só mostra aviso se mudadas > 0, não se houve erro. Assessor envia e-mail com situação do dia do registro, não a situação atual.",
+   "failure_scenario": "API da Câmara está indisponível. Assistente clica em \"Copiar texto\" ou \"Abrir Outlook\". prepararEmailFinal tenta atualizar mas catch(_) silencia todos os erros. Usuario recebe \"Texto copiado\" ou abre Outlook sem saber que a situação das proposições é desatualizada. Envia e-mail com lista com status errado ao Presidente."
+  }
+ ],
+ "cobertura": "Leitura completa de lideres.js (3160 linhas). Análise de funções críticas: parser PDF (detectarColunas, linhasDaPagina, partirEmItens, proposicoesDoItem), camada factual (situacaoDe, relatoriaDe, papelDe, buscarDocumentosRelacionados), sistema de demandas (registrarDemanda, atualizarSituacaoDemanda, carregarDemandas), e-mail (prepararEmailFinal, copiarEmailDemandas), persistência (fbSalvar, localSalvar, coletarEdicoes), e exportação (exportarPlanilha, gerarPDF). Não foi possível testar execução real com PDFs de reunião, mas lógica de código está verificada linha a linha."
+}

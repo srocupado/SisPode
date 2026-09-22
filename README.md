@@ -67,9 +67,13 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 
 ---
 
-### 3. Aderência ao Governo
+### 3. Relatórios
 
-Calcule o índice de aderência do partido às orientações do governo em qualquer período.
+Dois relatórios sobre as votações nominais do Plenário, em abas.
+
+#### 3.1 Aderência
+
+Índice de aderência do partido às orientações do governo em qualquer período.
 
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
@@ -78,6 +82,45 @@ Calcule o índice de aderência do partido às orientações do governo em qualq
 - Gráfico temporal da evolução da aderência no período
 - **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
 - Exporta o relatório completo em **Excel (.xlsx)**
+
+#### 3.2 Como votou o deputado
+
+Como um deputado — de **qualquer partido** — votou numa proposição ou num intervalo de datas.
+
+- Busca o parlamentar pelo nome; havendo homônimos, a escolha é do analista, com partido e UF à vista
+- **Por proposição** (sigla/número/ano): traz todas as votações da matéria, cada uma com o **objeto lido da tramitação** ("DTQ 1: Bloco UNIÃO (PSB): DVS do §10 do art. 23…"), que não existe em campo estruturado da API
+- **Por período**: todas as votações do Plenário no intervalo, também com o objeto lido da tramitação
+- Votação cujo objeto a tramitação não identifica **fica fora do relatório** — uma linha que só diz o resultado ("Rejeitado o Requerimento.") não diz o que foi rejeitado. O documento informa quantas saíram e por quê
+- Distingue quatro situações — aderiu, divergiu, ausente, e **votação simbólica**, que não tem registro individual de voto e por isso não é ausência do deputado; votação sem orientação do governo fica fora do cálculo, com o voto à vista
+- Corrige a perda das votações do último dia do intervalo (a API da Câmara as omite; a consulta pede `dataFim + 1` e descarta o excedente)
+- **Resumo de cada item** (opcional, na consulta por proposição), em duas camadas:
+  - **transcrição literal** do inteiro teor — o que o destaque pedia, a justificação da emenda destacada, a indexação da Câmara e a justificação do autor do projeto —, com link para a fonte. Documento sem justificação sai sem transcrição, em vez de ganhar uma inventada
+  - **explicação em linguagem comum**, escrita pelo provedor de IA configurado **a partir dessa transcrição e de mais nada**: "a emenda queria impedir que pessoas endividadas apostassem", em vez de "destaque nos termos do art. 161, II". O modelo é instruído a não citar dispositivo regimental, a não avaliar mérito e a dizer que o documento não detalha quando for o caso. O relatório marca o que é transcrito e o que é gerado, e nomeia o modelo. Sem chave de IA configurada, fica só a transcrição
+- **Sustentação do posicionamento** (opcional): um campo pergunta se a matéria exige defesa — **favorável** ou **contrária** — e um campo livre recebe o ponto a enfatizar. O provedor de IA rascunha a argumentação a partir dos documentos e do voto registrado, em **campo editável**: o analista revisa, e o que sai no PDF é o texto dele. A seção **só entra no PDF quando o analista marca** — gerar e incluir são atos diferentes, e a marcação nasce desmarcada. A seção é própria, depois do registro de votos, e o documento declara que é texto argumentativo e se houve revisão humana
+  - **A defesa é recusada** quando a posição escolhida contraria o voto registrado no texto da matéria. O relatório diz qual votação contraria e com que voto. Quando as votações do texto foram simbólicas — o caso comum —, a sustentação sai e o documento registra que o voto não estabelece a posição, para que ninguém leia prova onde há só argumento
+- **Recorte do relatório**: como a consulta traz a tramitação inteira, uma faixa de datas delimita o que sai no documento — sem consultar a API de novo. Consolidado, gráfico, destaques retirados e exports seguem o recorte, e tanto o PDF quanto a planilha **declaram** que são recorte, dizendo quantas votações ficaram de fora e qual é a extensão completa da matéria
+- Exporta em **PDF** (documento de conferência, com índice por sessão, links e o gráfico da distribuição) e em **Excel (.xlsx)**, com o objeto e a situação em colunas próprias
+
+---
+
+#### 3.3 Produção legislativa
+
+O que um deputado — de **qualquer partido** — produziu, sem responder com um número só.
+
+- Traz **todas** as proposições de autoria, seguindo a paginação da API (o teto é 100 por página e a API não avisa que cortou; um mandato inteiro passa de 800 registros)
+- Separa **por natureza do instrumento**: mérito (PL, PLP, PEC), fiscalização e controle (RIC, RCP, PFC), relatoria, atuação sobre o texto (emendas, substitutivos, destaques), requerimentos de andamento e peças de processo. O total bruto soma projeto de lei com requerimento de sessão solene — o relatório diz isso em vez de esconder
+- Para as **matérias de mérito**, lê a situação de cada uma: quantas viraram norma, quantas aguardam relator, quantas foram arquivadas. É o destino que separa o relatório de um release
+- **Relatoria**: a base registra o parecer (PRL, PRLP, PPP, RDF) como proposição do relator, e é assim que a relatoria é contada — não existe rota por relator na API. Ressalva declarada no documento: o parecer não traz vínculo com a matéria relatada
+- Filtro opcional por ano · exporta em **PDF** e em **Excel** (resumo, mérito e a lista completa)
+
+#### 3.4 Radar temático
+
+O que está andando na Casa sobre um tema, marcando o que é da bancada.
+
+- Tema escolhido na lista da própria Câmara (`/referencias/proposicoes/codTema`), com palavra-chave e tipo opcionais
+- O recorte é **por ano**, não por intervalo de datas: a API recusa tema com intervalo (HTTP 400). Até 8 anos por consulta
+- A marca **Bancada** sai de uma segunda consulta com o mesmo filtro restrita ao partido, cruzada por identificador — autoria registrada na base, não inferência pelo nome do autor. Custa duas chamadas por ano, não uma por proposição
+- Filtro "só da bancada" na tela, sem reconsultar · exporta em **PDF** e em **Excel**
 
 ---
 
@@ -502,7 +545,7 @@ sispode/
 ├── panel.html / panel.js       # Painel inicial + módulo: Destaques Legislativos
 ├── panel.css                   # Estilos do painel principal
 ├── votacao.html / votacao.js      # Módulo: Painel de Votação
-├── aderencia.html / aderencia.js  # Módulo: Aderência ao Governo
+├── aderencia.html / aderencia.js  # Módulo: Relatórios (aderência · como votou o deputado)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
