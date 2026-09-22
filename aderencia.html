@@ -420,8 +420,20 @@
              font-size: 16px; cursor: pointer; line-height: 1; }
   .modal-x:hover { color: var(--text); }
   .modal-corpo { padding: 18px; }
-  .modal-corpo > label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.8px;
-                         text-transform: uppercase; color: var(--text-dim); margin-bottom: 8px; }
+  .modal-corpo > label { display: flex; align-items: center; gap: 10px; font-size: 11px; font-weight: 600;
+                         letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim);
+                         margin-bottom: 8px; }
+  .modal-corpo > label .dfs-bt { margin-left: auto; text-transform: none; letter-spacing: 0; }
+  .modal-pe { display: flex; gap: 8px; justify-content: flex-end; padding: 14px 18px;
+              border-top: 1px solid var(--border); }
+  .btn-salvar { background: var(--accent); color: #fff; border: none; border-radius: 6px;
+                font-family: inherit; font-size: 12px; font-weight: 700; padding: 7px 16px;
+                cursor: pointer; }
+  .btn-salvar:hover { background: var(--accent-light); }
+  .ia-aviso { font-size: 12px; color: var(--text-dim); line-height: 1.5; margin-bottom: 16px; }
+  .ia-dica { font-size: 11px; color: var(--text-dim); line-height: 1.5; margin-top: 6px; }
+  .ia-dica.ruim { color: var(--abstencao); }
+  .ia-dica.bom { color: var(--sim); }
   .ia-linha { display: flex; gap: 8px; align-items: center; }
   .ia-linha + .ia-linha { margin-top: 8px; }
   .ia-linha .field { flex: 1; min-width: 0; }
@@ -1000,21 +1012,34 @@
 <div class="modal-fundo" id="modalIa" hidden>
   <div class="modal-cx" role="dialog" aria-modal="true" aria-labelledby="modalIaTit">
     <div class="modal-cab">
-      <h3 id="modalIaTit">Modelo de IA dos relatórios</h3>
+      <h3 id="modalIaTit">Configurações</h3>
       <button class="modal-x" id="modalIaFechar" aria-label="Fechar">✕</button>
     </div>
     <div class="modal-corpo" id="cvIaCampo">
-      <label>Provedor</label>
+      <p class="ia-aviso">Provedor, chave e modelo são os mesmos do resto do aplicativo: mudar aqui muda lá.
+        Servem ao resumo, à repercussão e à sustentação, na aba "Como votou o deputado".</p>
+
+      <label for="cvIaProvedor">Provedor de IA</label>
       <select id="cvIaProvedor" class="field"></select>
-      <label style="margin-top:12px">Modelo</label>
+
+      <label for="cvIaChave" style="margin-top:14px">Chave de API</label>
+      <input type="password" id="cvIaChave" class="field" autocomplete="off" spellcheck="false">
+      <div class="ia-dica" id="cvIaChaveDica"></div>
+
+      <label for="cvIaModelo" style="margin-top:14px">Modelo
+        <button type="button" id="cvIaListar" class="dfs-bt">↻ Carregar disponíveis</button>
+      </label>
       <select id="cvIaModelo" class="field"></select>
-      <div class="ia-linha ia-teste">
+      <div class="ia-dica" id="cvIaModeloEstado"></div>
+
+      <div class="ia-teste">
         <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
         <span class="ia-estado" id="cvIaEstado"></span>
       </div>
-      <div class="prd-dica">Vale para o resumo, a repercussão e a sustentação, na aba "Como votou o deputado".
-        As outras telas seguem com o modelo das Configurações, e a chave continua vindo de lá. Nem todo pedido
-        faz o modelo acionar a busca na web — o teste faz uma chamada de verdade e responde.</div>
+    </div>
+    <div class="modal-pe">
+      <button type="button" class="dfs-bt" id="cvIaCancelar">Cancelar</button>
+      <button type="button" class="btn-salvar" id="cvIaSalvar">Salvar</button>
     </div>
   </div>
 </div>
@@ -1025,7 +1050,6 @@
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->
 <script src="libs/pdf.min.js"></script>
-<script src="parecer.js"></script>
 <script src="ia-comum.js"></script>
 <script src="modelo-ia.js"></script>
 <script src="resumos.js"></script>
