@@ -47,6 +47,7 @@ const MDL_IDS = ['cvIaProvedor', 'cvIaChave', 'cvIaChaveDica', 'cvIaOlho', 'cvIa
 const MDL_ROTULO_FAIXA = {
   superior: 'faixa superior', intermediaria: 'faixa intermediária',
   economica: 'faixa econômica', nao_identificada: 'faixa não identificada',
+  outra_modalidade: 'outra modalidade — não redige texto',
 };
 const MDL_AVISO_FAIXA = {
   superior: ['bom', 'Faixa superior: adequada para análise densa.'],
@@ -54,7 +55,14 @@ const MDL_AVISO_FAIXA = {
   economica: ['ruim', 'Faixa econômica: rápida e barata. Tende a completar lacuna com o plausível — o que num documento '
     + 'de conferência é o erro de maior consequência.'],
   nao_identificada: ['', 'Faixa não identificada pela convenção de nomes conhecida. O modelo funciona; só não dá para dizer se é adequado.'],
+  outra_modalidade: ['ruim', 'Este é um modelo de imagem, voz, vídeo ou embedding: ele não redige texto. '
+    + 'O resumo, a repercussão e a sustentação não funcionam com ele — troque por um modelo de texto.'],
 };
+
+// Faixa que o parecer.js conheça e esta tela não: em vez de quebrar a tela, cai
+// no texto de "não identificada", que é justamente o caso de convenção nova.
+function mdlRotulo(f) { return MDL_ROTULO_FAIXA[f] || MDL_ROTULO_FAIXA.nao_identificada; }
+function mdlAviso(f) { return MDL_AVISO_FAIXA[f] || MDL_AVISO_FAIXA.nao_identificada; }
 
 /** A faixa do modelo, do parecer.js. Sem ele, tudo vira "não identificada". */
 function mdlFaixa(id) {
@@ -121,27 +129,37 @@ function mdlValorSel(sel) {
  * se escolhe.
  */
 function mdlMontarModelos(pid, lista, escolher) {
-  if (!mdlEl.cvIaModelo) return;
+  if (!mdlEl.cvIaModelo) return 0;
   const testes = mdlTestes();
-  const base = (lista && lista.length ? lista : (PROVEDORES_META[pid] || {}).modelosFallback || [])
+  const bruta = (lista && lista.length ? lista : (PROVEDORES_META[pid] || {}).modelosFallback || [])
     .map(m => ({ id: m.id, displayName: m.displayName || m.id }));
+  // Modelo de imagem, voz, vídeo ou embedding fica fora da escolha, pela mesma
+  // regra do parecer: ele não redige. A lista viva do Gemini traz vários deles
+  // com generateContent, e oferecê-los é oferecer uma opção que quebra as três
+  // camadas de IA sem dizer por quê.
+  const base = bruta.filter(m => mdlFaixa(m.id) !== 'outra_modalidade');
   const salvo = escolher || ((mdl.cfg || {}).provedor === pid ? (mdl.cfg || {}).modelo : '') || '';
-  if (salvo && !base.some(m => m.id === salvo)) base.push({ id: salvo, displayName: salvo, naoListado: true });
+  // O modelo salvo entra sempre — inclusive se for de outra modalidade, e aí o
+  // rótulo diz o que ele é. Sumir com a escolha de alguém em silêncio é pior.
+  if (salvo && !base.some(m => m.id === salvo)) {
+    base.push({ id: salvo, displayName: salvo, naoListado: !bruta.some(m => m.id === salvo) });
+  }
 
-  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
-  base.sort((a, b) => (peso[mdlFaixa(b.id)] - peso[mdlFaixa(a.id)]) || (mdlVersao(b.id) - mdlVersao(a.id)));
+  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0, outra_modalidade: -1 };
+  base.sort((a, b) => ((peso[mdlFaixa(b.id)] ?? 2) - (peso[mdlFaixa(a.id)] ?? 2)) || (mdlVersao(b.id) - mdlVersao(a.id)));
 
   mdlEl.cvIaModelo.innerHTML = base.map(m => {
     const s = testes[`${pid}/${m.id}`];
     // O que se mediu sobre a busca vale mais que qualquer rótulo, então vem junto.
     const marca = s ? (s.ok ? ', busca na web ✓' : ', não faz busca na web ✗') : '';
     const extra = m.naoListado ? ', salvo — não ofertado pelo provedor agora' : '';
-    return `<option value="${cvEsc(m.id)}">${cvEsc(m.displayName)} — ${MDL_ROTULO_FAIXA[mdlFaixa(m.id)]}${extra}${marca}</option>`;
+    return `<option value="${cvEsc(m.id)}">${cvEsc(m.displayName)} — ${mdlRotulo(mdlFaixa(m.id))}${extra}${marca}</option>`;
   }).join('') || '<option value="">nenhum modelo</option>';
   mdl.modelos = base;
   mdlMarcar(mdlEl.cvIaModelo, salvo);
   mdlPintarFaixa();
   mdlPintarTeste();
+  return base.length;
 }
 
 /** O que a faixa do modelo escolhido significa na prática. */
@@ -150,7 +168,7 @@ function mdlPintarFaixa() {
   if (!el) return;
   const id = mdlValorSel(mdlEl.cvIaModelo);
   if (!id) { el.textContent = ''; el.className = 'ia-dica'; return; }
-  const [classe, txt] = MDL_AVISO_FAIXA[mdlFaixa(id)];
+  const [classe, txt] = mdlAviso(mdlFaixa(id));
   el.className = 'ia-dica' + (classe ? ' ' + classe : '');
   el.textContent = txt;
 }
@@ -214,8 +232,16 @@ async function mdlListarModelos() {
   try {
     const lista = await PROVEDORES_META[pid].listar(chave);
     if (mdlValorSel(mdlEl.cvIaProvedor) !== pid) return null;   // trocou enquanto carregava
-    mdlMontarModelos(pid, lista);
-    if (est) { est.className = 'ia-dica bom'; est.textContent = `✓ ${lista.length} modelo(s) disponíveis nesta chave.`; }
+    const n = mdlMontarModelos(pid, lista);
+    // Conta o que entrou no campo, não o que veio do provedor: a lista viva do
+    // Gemini mistura imagem, voz e embedding, e dizer "40 modelos" quando o
+    // campo mostra 22 faz o analista procurar o que não está lá.
+    const fora = lista.length - (lista.filter(m => mdlFaixa(m.id) !== 'outra_modalidade').length);
+    if (est) {
+      est.className = 'ia-dica bom';
+      est.textContent = `✓ ${n} modelo(s) de texto nesta chave`
+        + (fora > 0 ? ` (${fora} de imagem, voz ou embedding ficaram de fora — não redigem).` : '.');
+    }
     return lista;
   } catch (e) {
     // Lista que não veio não impede trabalhar: a de reserva continua servindo, e

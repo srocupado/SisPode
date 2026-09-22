@@ -35,7 +35,12 @@ const { document, window, Event } = parseHTML(html);
 // Começa VAZIA de propósito: é o caso que motivou esta tela — quem reseta o
 // sistema e entra direto neste módulo não tem chave nenhuma cadastrada.
 let CONFIG = {};
-const MODELOS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-flash'];
+// A lista viva do Gemini NÃO é só de modelos de texto: imagem, voz, vídeo e
+// embedding vêm junto, todos com generateContent. A fixture reproduz isso
+// porque foi exatamente o que quebrou a tela em 22/09/2026 — ver o bloco
+// "a lista viva traz modelos que não redigem".
+const MODELOS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-flash',
+                 'gemini-3-pro-image', 'gemini-2.5-pro-preview-tts', 'gemini-embedding-001'];
 const pedidos = [];
 let respostaDeBusca = { comFontes: true };
 
@@ -147,8 +152,71 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
     const vivos = [...document.getElementById('cvIaModelo').querySelectorAll('option')]
       .map(o => o.getAttribute('value'));
     ok(vivos.includes('gemini-3.8-flash'), `e a lista passa a ser a da chave (${vivos.length} modelos)`);
-    ok(/disponíveis nesta chave/.test(document.getElementById('cvIaModeloEstado').textContent),
+    ok(/modelo\(s\) de texto nesta chave/.test(document.getElementById('cvIaModeloEstado').textContent),
        'com a contagem à vista');
+  }
+
+  console.log('\n== a lista viva traz modelos que NÃO redigem ==');
+  {
+    // O erro de 22/09/2026, na tela: "Não consegui listar (undefined is not
+    // iterable (cannot read property Symbol(Symbol.iterator)))". A lista viva
+    // tinha chegado; quem quebrou foi a MONTAGEM dela, dentro do try — e o
+    // catch culpou o provedor. A causa: faixaDoModelo devolve
+    // 'outra_modalidade' para gemini-3-pro-image e afins, chave que esta tela
+    // não tinha nos seus mapas, e o `const [classe, txt] = MAPA[faixa]`
+    // destruturava undefined.
+    const ids = () => [...document.getElementById('cvIaModelo').querySelectorAll('option')]
+      .map(o => o.getAttribute('value'));
+
+    // SEM modelo salvo — que é o caso que originou esta tela: quem reseta o
+    // sistema e entra direto no módulo. Sem modelo salvo, a lista marca a
+    // PRIMEIRA opção, e a ordenação quebrada (peso[undefined] = NaN, que é
+    // falsy, então só a versão decidia) punha o gemini-3-pro-image no topo.
+    // Selecionado ele, o aviso da faixa estourava — dentro do try do listar.
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', chaves: {} };
+    await chamar('mdlIniciar');
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDoGemini1234567890';
+    const lista = await chamar('mdlListarModelos');
+
+    ok(lista && lista.length === MODELOS.length, 'a lista do provedor chega inteira');
+    let est = document.getElementById('cvIaModeloEstado').textContent;
+    ok(!/Não consegui listar/.test(est), `sem modelo salvo, listar não quebra na montagem (${est})`);
+    ok(chamar('mdlValorSel', document.getElementById('cvIaModelo')) === 'gemini-3.1-pro-preview',
+       'e a primeira opção é o melhor modelo de TEXTO, não o de imagem mais novo');
+
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-3.8-flash', chaves: {} };
+    await chamar('mdlIniciar');
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDoGemini1234567890';
+    await chamar('mdlListarModelos');
+    est = document.getElementById('cvIaModeloEstado').textContent;
+    ok(!/Não consegui listar/.test(est), `com modelo salvo, idem (${est})`);
+
+    ok(!ids().includes('gemini-3-pro-image'), 'modelo de imagem fica fora da escolha');
+    ok(!ids().includes('gemini-2.5-pro-preview-tts'), 'modelo de voz também');
+    ok(!ids().includes('gemini-embedding-001'), 'e o de embedding');
+    ok(ids().includes('gemini-3.8-flash') && ids().includes('gemini-3.1-pro-preview'),
+       'enquanto os de texto continuam todos lá');
+    ok(/3 de imagem, voz ou embedding ficaram de fora/.test(est),
+       'e a contagem diz quantos ficaram de fora, em vez de o analista procurar o que não está lá');
+
+    // Um modelo de outra modalidade JÁ SALVO não some em silêncio: some seria
+    // trocar a escolha de alguém sem avisar, e o sintoma seria uma análise que
+    // não sai. Ele entra, e o rótulo diz o que ele é.
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-3-pro-image', chaves: {} };
+    await chamar('mdlIniciar');
+    chamar('mdlMontarModelos', 'gemini', MODELOS.map(id => ({ id, displayName: id })));
+    ok(ids().includes('gemini-3-pro-image'), 'o modelo de imagem já salvo continua na lista');
+    const opt = [...document.getElementById('cvIaModelo').querySelectorAll('option')]
+      .find(o => o.getAttribute('value') === 'gemini-3-pro-image');
+    ok(/não redige texto/.test(opt.textContent), 'marcado com o que ele é');
+    ok(!/não ofertado pelo provedor agora/.test(opt.textContent),
+       'e sem dizer que o provedor não o oferta, porque oferta — só não serve aqui');
+
+    // O aviso abaixo do campo é onde o `[classe, txt] = undefined` estourava.
+    chamar('mdlMarcar', document.getElementById('cvIaModelo'), 'gemini-3-pro-image');
+    chamar('mdlPintarFaixa');
+    ok(/não redige texto/.test(document.getElementById('cvIaFaixa').textContent),
+       'e o aviso da faixa diz por que nada vai sair, em vez de derrubar a tela');
   }
 
   console.log('\n== a lista de modelos é a do Plenário, que é o padrão da casa ==');
@@ -157,12 +225,12 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
     const textos = () => opcoes().map(o => o.textContent.trim());
 
     // Cada opção diz a sua faixa. Escolher por nome não diz se o modelo dá conta.
-    ok(textos().every(t => /faixa (superior|intermediária|econômica|não identificada)/.test(t)),
+    ok(textos().every(t => /faixa (superior|intermediária|econômica|não identificada)|não redige texto/.test(t)),
        `toda opção declara a faixa (${textos()[0]})`);
 
     // Ordenada por faixa, e dentro da faixa o mais novo primeiro.
     const faixas = opcoes().map(o => chamar('mdlFaixa', o.getAttribute('value')));
-    const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
+    const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0, outra_modalidade: -1 };
     ok(faixas.every((f, i) => i === 0 || peso[faixas[i - 1]] >= peso[f]),
        `e vem ordenada da faixa mais alta para a mais baixa (${faixas.join(' > ')})`);
 

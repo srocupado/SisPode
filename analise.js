@@ -5419,7 +5419,13 @@ const ROTULO_FAIXA = {
   intermediaria:    'faixa intermediária',
   economica:        'faixa econômica',
   nao_identificada: 'faixa não identificada',
+  outra_modalidade: 'outra modalidade — não redige texto',
 };
+
+// Faixa que o parecer.js conheça e esta tela não cai no texto de "não
+// identificada", que é justamente o caso de convenção de nomes nova. Sem isto,
+// uma faixa nova quebrava a montagem inteira do seletor.
+function rotuloFaixa(f) { return ROTULO_FAIXA[f] || ROTULO_FAIXA.nao_identificada; }
 
 /**
  * Preenche o seletor de modelos.
@@ -5445,24 +5451,29 @@ function popularSelectModelos(selecionado, lista) {
   const sel = document.getElementById('config-modelo');
   const alvo = selecionado || (state.config?.provedor === pid ? state.config?.modelo : '') || '';
 
-  const modelos = (lista && lista.length ? lista : p.modelosFallback)
+  const bruta = (lista && lista.length ? lista : p.modelosFallback)
     .map(m => ({ id: m.id, displayName: m.displayName || m.id }));
+
+  // (0) modelo de imagem, voz, vídeo ou embedding fica fora da escolha, pela
+  // mesma regra do Parecer: ele não redige. A lista viva do Gemini traz vários
+  // deles com generateContent, e oferecê-los é oferecer uma análise que não sai.
+  const modelos = bruta.filter(m => faixaDoModelo(m.id) !== 'outra_modalidade');
 
   // (1) o modelo salvo entra de qualquer jeito.
   if (alvo && !modelos.some(m => m.id === alvo)) {
-    modelos.push({ id: alvo, displayName: alvo, naoListado: true });
+    modelos.push({ id: alvo, displayName: alvo, naoListado: !bruta.some(m => m.id === alvo) });
   }
 
   // (3) ordena por faixa; dentro da faixa, o mais novo primeiro.
-  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0 };
-  modelos.sort((a, b) => (peso[faixaDoModelo(b.id)] - peso[faixaDoModelo(a.id)])
+  const peso = { superior: 3, nao_identificada: 2, intermediaria: 1, economica: 0, outra_modalidade: -1 };
+  modelos.sort((a, b) => ((peso[faixaDoModelo(b.id)] ?? 2) - (peso[faixaDoModelo(a.id)] ?? 2))
     || (versaoDoModelo(b.id) - versaoDoModelo(a.id)));
 
   // (2) cada opção diz a sua faixa.
   sel.innerHTML = modelos.map(m => {
     const f = faixaDoModelo(m.id);
     const extra = m.naoListado ? ', salvo — não ofertado pelo provedor agora' : '';
-    return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName)} — ${ROTULO_FAIXA[f]}${extra}</option>`;
+    return `<option value="${escapeHtml(m.id)}">${escapeHtml(m.displayName)} — ${rotuloFaixa(f)}${extra}</option>`;
   }).join('');
   if (alvo) sel.value = alvo;
   avisarFaixaModelo();
@@ -5490,13 +5501,17 @@ function avisarFaixaModelo() {
   const id = document.getElementById('config-modelo').value;
   if (!id) { el.style.display = 'none'; return; }
   const f = faixaDoModelo(id);
-  const txt = {
+  const avisos = {
     superior: ['#2fcf7a', 'Faixa superior: adequada para análise densa e para o Parecer de Especialista.'],
     intermediaria: ['#8da3a8', 'Faixa intermediária: dá conta do resumo de pauta. Para análise densa, prefira a superior.'],
     economica: ['#d68a00', 'Faixa econômica: rápida e barata, boa para resumo de pauta. Tende a completar lacuna com o plausível, '
       + 'o que enfraquece análise densa — e o Parecer de Especialista recusa rodar nesta faixa, escolhendo sozinho um modelo superior.'],
     nao_identificada: ['#8da3a8', 'Faixa não identificada pela convenção de nomes conhecida. O modelo funciona; só não dá para dizer se é adequado à análise densa.'],
-  }[f];
+    outra_modalidade: ['#d68a00', 'Este é um modelo de imagem, voz, vídeo ou embedding: ele não redige texto. '
+      + 'Nenhuma análise sai com ele — troque por um modelo de texto.'],
+  };
+  // Faixa desconhecida desta tela não pode derrubar a montagem do seletor.
+  const txt = avisos[f] || avisos.nao_identificada;
   el.style.color = txt[0];
   el.textContent = txt[1];
   el.style.display = 'block';
@@ -5519,8 +5534,12 @@ async function carregarModelos({ silencioso = false } = {}) {
     // salvo, rotula a faixa e ordena. Repetir a montagem aqui era o que fazia
     // a lista ao vivo perder essas três coisas.
     popularSelectModelos(document.getElementById('config-modelo').value || state.config?.modelo, lista);
-    const sup = lista.filter(m => faixaDoModelo(m.id) === 'superior').length;
-    stEl.textContent = `✓ ${lista.length} modelo(s) do provedor, ${sup} de faixa superior.`;
+    // Conta o que entrou no campo, não o que veio do provedor: dizer "40
+    // modelos" quando o seletor mostra 22 faz procurar o que não está lá.
+    const texto = lista.filter(m => faixaDoModelo(m.id) !== 'outra_modalidade');
+    const sup = texto.filter(m => faixaDoModelo(m.id) === 'superior').length;
+    stEl.textContent = `✓ ${texto.length} modelo(s) de texto, ${sup} de faixa superior`
+      + (lista.length > texto.length ? ` (${lista.length - texto.length} de imagem, voz ou embedding ficaram de fora).` : '.');
   } catch (e) {
     // Em modo silencioso a lista de reserva já está na tela; dizer que a busca
     // falhou importa, porque o que se vê passa a ser catálogo possivelmente
