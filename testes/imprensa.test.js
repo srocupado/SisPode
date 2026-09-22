@@ -291,41 +291,70 @@ const levantar = args => chamar('impLevantar', args);
     ok((await levantar({ prop: PROP })).apelido === null, 'nem uma letra solta');
 
     // Provedor que respondeu de memória, sem buscar: é o caso mais perigoso,
-    // porque a resposta VEM e parece boa. Duas vezes seguidas, é recusa.
+    // porque a resposta VEM e parece boa. Em nenhum modelo, é recusa.
     const deMemoria = () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify({
       apelido: 'PL das bets',
       focos: [{ ponto: 'Sei de cabeça que houve polêmica.', veiculos: ['g1.globo.com'] }],
       contencioso: [] }) }] }, finishReason: 'STOP' }] });
-    respostas.push(deMemoria(), deMemoria());
+    respostas.push(deMemoria(), deMemoria(), deMemoria());
     const semBusca = await levantar({ prop: PROP });
     ok(semBusca.ok === false && semBusca.motivo === 'sem-busca',
        'resposta sem nenhuma busca é RECUSADA, mesmo vindo completa e plausível');
-    ok(semBusca.tentativas === 2, `e foi recusada depois de duas tentativas (${semBusca.tentativas})`);
-    ok(/sem consultar a web/.test(chamar('impHtml', semBusca)),
-       'e a tela diz por quê, em vez de mostrar campo vazio');
+    ok(semBusca.tentados.length >= 2 && new Set(semBusca.tentados).size === semBusca.tentados.length,
+       `e foram tentados modelos DIFERENTES, não o mesmo duas vezes (${semBusca.tentados.join(', ')})`);
+    const tela = chamar('impHtml', semBusca);
+    ok(/Nenhum dos modelos tentados consultou a web/.test(tela) && /troque o modelo/.test(tela),
+       'a tela aponta o modelo, que é a causa, e não a chave, que costuma estar boa');
+    ok(new RegExp(semBusca.tentados[0]).test(tela), 'e nomeia o que foi tentado');
 
     const ilegivel = () => ({ candidates: [{ content: { parts: [{ text: 'não é json nenhum' }] }, finishReason: 'STOP',
       groundingMetadata: { groundingChunks: [{ web: { uri: 'https://x/1', title: 'g1.globo.com' } }] } }] });
-    respostas.push(ilegivel(), ilegivel());
+    respostas.push(ilegivel(), ilegivel(), ilegivel());
     ok((await levantar({ prop: PROP })).motivo === 'resposta-ilegivel', 'resposta ilegível não vira meio levantamento');
 
     ok((await levantar({ prop: null })).motivo === 'sem-materia', 'sem matéria não há repercussão a buscar');
   }
 
-  console.log('\n== a falha de sorteio não custa o recurso ==');
+  console.log('\n== as duas falhas parecem iguais na tela e pedem remédios opostos ==');
   {
-    // Medido contra o provedor: em torno de um terço das chamadas o Gemini
-    // responde sem ter buscado, ou devolve texto que não é JSON. As duas falhas
-    // passam na chamada seguinte com o mesmo prompt. Se uma delas derrubasse o
-    // levantamento, o analista desistiria de marcar a caixa.
+    // ILEGÍVEL é sorteio: o mesmo modelo, chamado de novo, costuma acertar.
+    // Repetir resolve, e trocar de modelo seria trocar o que não está quebrado.
+    const modeloDe = u => (String(u).match(/models\/([^:]+):/) || [])[1];
+    const antes = pedidos.length;
     respostas.push({ candidates: [{ content: { parts: [{ text: 'desculpe, vou explicar em prosa' }] },
                                     finishReason: 'STOP' }] });
     respostas.push(respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
                                     contencioso: [] }, ['g1.globo.com']));
     const imp = await levantar({ prop: PROP });
     ok(imp.ok === true, `a segunda tentativa salva o levantamento (${imp.motivo || 'ok'})`);
-    ok(imp.tentativas === 2, 'e o resultado diz que foram duas');
-    ok(imp.focos.length === 1, 'com o conteúdo da tentativa que deu certo');
+    const usados = pedidos.slice(antes).map(p => modeloDe(p.url));
+    ok(usados[0] === usados[1],
+       `resposta ilegível repete o MESMO modelo — é sorteio, não capacidade (${usados.join(' → ')})`);
+    ok(imp.modelo === imp.modeloConfigurado, 'e o resultado sai pelo modelo que o analista configurou');
+    ok(!/respondeu sem consultar a web/.test(chamar('impHtml', imp)),
+       'sem aviso de troca, porque troca não houve');
+  }
+  {
+    // SEM BUSCA quase nunca é sorteio: medido em 22/09/2026, há modelos que
+    // NUNCA acionam a ferramenta (gemini-3.5-flash e gemini-3.6-flash: 0 em 3)
+    // e outros que sempre acionam (gemini-3.8-flash: 3 em 3). Contra um modelo
+    // que não busca, repetir é esperar duas vezes pelo mesmo "não" — o que
+    // resolve é trocar.
+    const modeloDe = u => (String(u).match(/models\/([^:]+):/) || [])[1];
+    const antes = pedidos.length;
+    respostas.push({ candidates: [{ content: { parts: [{ text: JSON.stringify({ apelido: null, focos: [], contencioso: [] }) }] },
+                                    finishReason: 'STOP' }] });   // sem grounding: não buscou
+    respostas.push(respostaGemini({ apelido: 'PL das bets', focos: [{ ponto: 'Foco bom.', veiculos: ['g1.globo.com'] }],
+                                    contencioso: [] }, ['g1.globo.com']));
+    const imp = await levantar({ prop: PROP });
+    ok(imp.ok === true, `o levantamento sai pelo modelo de reserva (${imp.motivo || 'ok'})`);
+    const usados = pedidos.slice(antes).map(p => modeloDe(p.url));
+    ok(usados[0] !== usados[1], `e o segundo modelo é OUTRO (${usados.join(' → ')})`);
+    ok(imp.modelo !== imp.modeloConfigurado && imp.modelo === usados[1],
+       'o resultado registra qual modelo de fato levantou');
+    ok(/respondeu sem consultar a web/.test(chamar('impHtml', imp))
+       && new RegExp(imp.modeloConfigurado).test(chamar('impHtml', imp)),
+       'e a tela avisa da troca — trocar por baixo do analista seria decidir por ele');
   }
   {
     // Mas só o que é sorteio se repete. Chave inválida na segunda volta dá o
