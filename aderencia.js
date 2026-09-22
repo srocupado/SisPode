@@ -1939,11 +1939,6 @@ const CSS_PDF_VOTOS = `
   .imp-pdf ul { margin: 0 0 0 16px; }
   .imp-pdf li { font-size: 9.5pt; line-height: 1.5; margin-bottom: 4px; }
   .imp-v { color: #6b7280; font-size: 8pt; font-style: italic; }
-  ol.imp-fs { margin: 0 0 0 18px; }
-  ol.imp-fs li { font-size: 8pt; color: #4a5a6b; line-height: 1.4; margin-bottom: 4px; }
-  .imp-u { color: #1d4ed8; word-break: break-all; font-size: 7.5pt; }
-  .imp-bs { margin-top: 8px; padding-top: 6px; border-top: 1px solid #d7e6dd;
-            font-size: 8pt; color: #4a5a6b; line-height: 1.45; }
   .rsm-nota { border-left-color: #9ed7b6; }
   ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
   .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
