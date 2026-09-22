@@ -62,7 +62,7 @@ function prdGrupoDe(sigla) {
 // alguém espera numa tela, e o ganho seria marginal.
 const PRD_TETO_DETALHE = 150;
 
-const prd = { deputado: null, ultimo: null, completo: null, filtro: '' };
+const prd = { deputado: null, ultimo: null };
 
 const prdEl = {
   dep:      () => document.getElementById('prdDeputado'),
@@ -72,34 +72,6 @@ const prdEl = {
   status:   () => document.getElementById('prdStatus'),
   resultado: () => document.getElementById('prdResultado'),
 };
-
-// ---------- filtro de categorias ----------
-// O filtro fica NO RESULTADO, depois de gerado, e não nos campos da consulta:
-// é escolha de leitura, não de consulta. A coleta já está toda na mão, então
-// trocar de categoria redesenha na hora e não custa ida à API — e as opções
-// saem de PRD_GRUPOS, para não existir uma segunda lista de grupos que possa
-// divergir da taxonomia.
-
-/** A categoria escolhida: '' quer dizer todas. */
-function prdCategoria() {
-  return prd.filtro || '';
-}
-
-/** O dropdown, com a contagem de cada categoria no material colhido. */
-function prdDropdown(colhidas) {
-  const n = {};
-  for (const g of PRD_GRUPOS) n[g.k] = 0;
-  for (const p of colhidas) n[prdGrupoDe(p.siglaTipo)]++;
-  const atual = prdCategoria();
-  const op = (v, rot) => `<option value="${v}"${v === atual ? ' selected' : ''}>${cvEsc(rot)}</option>`;
-  return `<div class="prd-filtro">
-    <span>Categoria</span>
-    <select class="field" id="prdCategoria">
-      ${op('', `Todas as categorias (${colhidas.length})`)}
-      ${PRD_GRUPOS.map(g => op(g.k, `${g.rot} (${n[g.k]})`)).join('')}
-    </select>
-  </div>`;
-}
 
 function prdStatus(msg, tipo) {
   const el = prdEl.status();
@@ -198,25 +170,9 @@ async function prdDetalhar(props) {
 }
 
 // ---------- render ----------
-/**
- * Guarda a coleta INTEIRA e desenha. O filtro de categorias é de exibição, e
- * mora no desenho — mesmo desenho do recorte da aba de consulta: trocar o que
- * se vê não pode custar uma nova ida à API.
- */
 function prdRender(dados) {
-  prd.completo = dados;
-  prdDesenhar();
-}
-
-function prdDesenhar() {
-  const { todas: colhidas, detalhes: detalhesTodos, dep, ano, truncado, teto, semData } = prd.completo;
+  const { todas, detalhes, dep, ano, truncado, teto, semData } = dados;
   const e = cvEsc;
-  const cat = prdCategoria();
-  const parcial = !!cat;
-  const sel = cat ? new Set([cat]) : new Set(PRD_GRUPOS.map(g => g.k));
-
-  const todas = cat ? colhidas.filter(p => prdGrupoDe(p.siglaTipo) === cat) : colhidas;
-  const detalhes = sel.has('merito') ? (detalhesTodos || []) : [];
 
   const porGrupo = {};
   for (const g of PRD_GRUPOS) porGrupo[g.k] = [];
@@ -282,27 +238,21 @@ function prdDesenhar() {
       <div class="sub">Produção legislativa${ano
         ? ` — apresentadas em ${e(ano)}`
         : ' — todo o período na base'}</div>${semData ? `<div class="sub" style="margin-top:4px">${semData}
-        proposição(ões) ficaram fora do recorte por não trazerem data de apresentação na API.</div>` : ''}${
-      parcial ? `<div class="sub" style="margin-top:4px"><b>Recorte:</b> só ${
-        e((PRD_GRUPOS.find(g => g.k === cat) || {}).rot || cat)} — ${todas.length} de ${colhidas.length}
-        registros colhidos.</div>` : ''}
+        proposição(ões) ficaram fora do recorte por não trazerem data de apresentação na API.</div>` : ''}
 
       <div class="cv-nums" style="margin-top:12px">
         <div class="cv-num"><div class="v">${todas.length}</div><div class="l">Assinaturas</div></div>
-        ${sel.has('merito') ? `<div class="cv-num ade"><div class="v">${porGrupo.merito.length}</div><div class="l">Mérito</div></div>` : ''}
-        ${sel.has('relatoria') ? `<div class="cv-num"><div class="v">${porGrupo.relatoria.length}</div><div class="l">Pareceres</div></div>` : ''}
-        ${sel.has('fiscal') ? `<div class="cv-num"><div class="v">${porGrupo.fiscal.length}</div><div class="l">Fiscalização</div></div>` : ''}
-        ${sel.has('texto') ? `<div class="cv-num"><div class="v">${porGrupo.texto.length}</div><div class="l">Emendas</div></div>` : ''}
+        <div class="cv-num ade"><div class="v">${porGrupo.merito.length}</div><div class="l">Mérito</div></div>
+        <div class="cv-num"><div class="v">${porGrupo.relatoria.length}</div><div class="l">Pareceres</div></div>
+        <div class="cv-num"><div class="v">${porGrupo.fiscal.length}</div><div class="l">Fiscalização</div></div>
+        <div class="cv-num"><div class="v">${porGrupo.texto.length}</div><div class="l">Emendas</div></div>
       </div>
 
-      <div class="sub" style="margin-top:9px">${parcial
-        ? '"Assinaturas" conta só a categoria escolhida. O total está na linha acima, e é dele que este recorte saiu.'
-        : `"Assinaturas" é o total bruto de registros em nome do deputado na base da Câmara — inclui
-           requerimento de andamento e documento de processo. É o número que não deve ser usado sozinho:
-           os blocos abaixo dizem do que ele se compõe.`}
+      <div class="sub" style="margin-top:9px">
+        "Assinaturas" é o total bruto de registros em nome do deputado na base da Câmara — inclui
+        requerimento de andamento e documento de processo. É o número que não deve ser usado sozinho:
+        os blocos abaixo dizem do que ele se compõe.
       </div>
-
-      ${prdDropdown(colhidas)}
 
       <div class="cv-acoes">
         <button class="btn-gerar" id="prdExportarPdf" style="margin-top:0">Exportar PDF</button>
@@ -310,7 +260,7 @@ function prdDesenhar() {
       </div>
     </div>
 
-    <div class="prd-grupos">${PRD_GRUPOS.filter(g => sel.has(g.k)).map(cartao).join('')}</div>
+    <div class="prd-grupos">${PRD_GRUPOS.map(cartao).join('')}</div>
 
     ${merito.length ? `<div class="cv-cab">
       <h3>Destino das ${merito.length} matéria(s) de mérito</h3>
@@ -344,14 +294,7 @@ function prdDesenhar() {
     </div>` : ''}`;
 
   prdEl.resultado().innerHTML = html;
-  prd.ultimo = { todas, merito, porGrupo, porTipo, destinoOrd, temasOrd, dep, ano, teto, porOrgao,
-                 sel, parcial, colhidas: colhidas.length };
-  // O dropdown é redesenhado junto com o resto, então se liga a cada desenho.
-  const fil = document.getElementById('prdCategoria');
-  if (fil) fil.addEventListener('change', () => {
-    prd.filtro = fil.value || '';
-    prdDesenhar();
-  });
+  prd.ultimo = { todas, merito, porGrupo, porTipo, destinoOrd, temasOrd, dep, ano, teto, porOrgao };
   const b1 = document.getElementById('prdExportar');
   if (b1) b1.addEventListener('click', prdExportar);
   const b2 = document.getElementById('prdExportarPdf');
@@ -366,8 +309,6 @@ async function prdConsultar() {
   prdEl.resultado().innerHTML = '';
   prdEl.buscar().disabled = true;
   try {
-    // Consulta nova começa mostrando tudo: o filtro é do relatório anterior.
-    prd.filtro = '';
     prdStatus('Buscando proposições…', 'loading');
     const { todas, truncado, semData } = await prdColetar(prd.deputado.id, ano);
     if (!todas.length) {
@@ -390,16 +331,14 @@ async function prdConsultar() {
 // ---------- exports ----------
 function prdExportar() {
   if (!prd.ultimo) return;
-  const { todas, merito, dep, ano, sel } = prd.ultimo;
+  const { todas, merito, dep, ano } = prd.ultimo;
   const wb = XLSX.utils.book_new();
 
   const resumo = [['Grupo', 'Quantidade', 'Tipos']];
   const porGrupo = {};
   for (const g of PRD_GRUPOS) porGrupo[g.k] = [];
   for (const p of todas) porGrupo[prdGrupoDe(p.siglaTipo)].push(p);
-  // Grupo fora do recorte não vira linha com zero: o zero se leria como
-  // "não produziu nada nessa categoria", e o que houve foi não ter pedido.
-  for (const g of PRD_GRUPOS.filter(g => sel.has(g.k))) {
+  for (const g of PRD_GRUPOS) {
     const lista = porGrupo[g.k];
     const tipos = {};
     for (const p of lista) tipos[p.siglaTipo] = (tipos[p.siglaTipo] || 0) + 1;
@@ -438,7 +377,7 @@ function prdExportar() {
 
 function prdHtmlPDF(logoDataUrl) {
   const u = prd.ultimo;
-  const { todas, merito, porGrupo, destinoOrd, temasOrd, dep, ano, teto, sel, parcial, colhidas } = u;
+  const { todas, merito, porGrupo, destinoOrd, temasOrd, dep, ano, teto } = u;
   const e = cvEsc;
 
   const grupo = g => {
@@ -464,8 +403,7 @@ function prdHtmlPDF(logoDataUrl) {
   <div class="cab">
     <div class="sp"></div>
     <div class="tit"><h1>Dep. ${e(dep.nome)} (${e(dep.partido)}-${e(dep.uf)})</h1>
-      <div class="sub">Produção legislativa${ano ? ` · ${e(ano)}` : ''}${parcial
-        ? ' · ' + e(PRD_GRUPOS.filter(g => sel.has(g.k)).map(g => g.rot).join(', ')) : ''}</div></div>
+      <div class="sub">Produção legislativa${ano ? ` · ${e(ano)}` : ''}</div></div>
     ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
   </div>
   <div class="rule"></div>
@@ -474,19 +412,14 @@ function prdHtmlPDF(logoDataUrl) {
 
   <h2>Por natureza do instrumento</h2>
   <div class="nota" style="margin-top:0">
-    <b>Como ler.</b> ${parcial
-      ? `Este documento é um RECORTE: traz <b>${todas.length}</b> registros, das categorias
-         ${e(PRD_GRUPOS.filter(g => sel.has(g.k)).map(g => g.rot).join(', '))}, de um total de
-         <b>${colhidas}</b> em nome do deputado na base da Câmara. As categorias não pedidas não estão
-         abaixo — e a ausência delas aqui não quer dizer que não haja produção nelas.`
-      : `São <b>${todas.length}</b> registros em nome do deputado na base da Câmara. Esse
-         número bruto não é medida de produção: ele soma projeto de lei com requerimento de sessão solene e
-         com peça de processo interno. O que informa é a separação abaixo — e, para as matérias de mérito,
-         o destino de cada uma.`}
+    <b>Como ler.</b> São <b>${todas.length}</b> registros em nome do deputado na base da Câmara. Esse
+    número bruto não é medida de produção: ele soma projeto de lei com requerimento de sessão solene e
+    com peça de processo interno. O que informa é a separação abaixo — e, para as matérias de mérito,
+    o destino de cada uma.
   </div>
   <table>
     <tr><th style="width:44px">Qtd.</th><th>Natureza</th><th style="width:200px">Tipos</th></tr>
-    ${PRD_GRUPOS.filter(g => sel.has(g.k)).map(grupo).join('')}
+    ${PRD_GRUPOS.map(grupo).join('')}
   </table>
 
   ${merito.length ? `<h2>Destino das matérias de mérito</h2>
