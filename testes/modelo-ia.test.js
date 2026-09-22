@@ -32,10 +32,12 @@ const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m =>
 const { document, window, Event } = parseHTML(html);
 
 // Config de mentira, que é o que a tela lê e grava.
-let CONFIG = { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'gemini-3.1-flash-lite' };
+// Começa VAZIA de propósito: é o caso que motivou esta tela — quem reseta o
+// sistema e entra direto neste módulo não tem chave nenhuma cadastrada.
+let CONFIG = {};
 const MODELOS = ['gemini-3.1-flash-lite', 'gemini-3.8-flash', 'gemini-3.1-pro-preview', 'gemini-2.5-flash'];
 const pedidos = [];
-let respostaBusca = { fontes: [] };
+let respostaDeBusca = { comFontes: true };
 
 const ctx = {
   document, window, DOMParser, Event, setTimeout, clearTimeout, URL, TextDecoder,
@@ -50,7 +52,12 @@ const ctx = {
       return { ok: true, status: 200, json: async () => ({ models: MODELOS.map(id => ({
         name: 'models/' + id, displayName: id, supportedGenerationMethods: ['generateContent'] })) }) };
     }
-    return { ok: false, status: 599, json: async () => ({}), text: async () => '' };
+    // A chamada de teste de busca: devolve grounding ou não, conforme o caso.
+    return { ok: true, status: 200, json: async () => ({ candidates: [{
+      content: { parts: [{ text: 'uma resposta' }] }, finishReason: 'STOP',
+      groundingMetadata: respostaDeBusca.comFontes
+        ? { groundingChunks: [{ web: { uri: 'https://x/1', title: 'g1.globo.com' } }] } : undefined,
+    }] }), text: async () => '' };
   },
   chrome: { storage: { local: {
     get: (_k, cb) => cb({ config: CONFIG }),
@@ -67,108 +74,148 @@ const chamar = (fn, ...a) => vm.runInContext(fn, ctx)(...a);
 (async () => {
   console.log('== a configuração está na ENGRENAGEM do módulo ==');
   {
-    ok(!!document.getElementById('cvIaProvedor'), 'há seletor de provedor');
-    ok(!!document.getElementById('cvIaModelo'), 'e de modelo');
-    ok(!!document.getElementById('cvIaTestar'), 'e o botão de testar a busca');
     ok(!!document.getElementById('btn-config-ia'), 'a engrenagem está na barra do topo');
+    let g = document.getElementById('btn-config-ia'), gp = [];
+    while (g && g.parentNode) { g = g.parentNode; if (g.className) gp.push(String(g.className)); }
+    ok(gp.some(c => /top-bar/.test(c)), 'na barra do topo — visível em qualquer aba');
 
-    // A configuração é do MÓDULO. Ela morava dentro da aba "Como votou o
-    // deputado", que nasce OCULTA — e o módulo abre na aba Aderência. Resultado:
-    // quem abria o módulo não via o campo em lugar nenhum. Fica aferido, porque
-    // é o tipo de defeito que só aparece abrindo a tela.
+    // O campo já morou dentro da aba "Como votou o deputado", que nasce OCULTA,
+    // e o módulo abre na aba Aderência: quem abria o módulo não o via em lugar
+    // nenhum. Fica aferido onde ele MORA, não só que existe.
     let el = document.getElementById('cvIaModelo'), pais = [];
     while (el && el.parentNode) { el = el.parentNode; if (el.id) pais.push(el.id); }
     ok(!pais.includes('painel-consulta') && !pais.includes('painel-aderencia'),
-       'e NÃO vive dentro de nenhum painel de aba, que nascem ocultos');
+       'e NÃO dentro de painel de aba nenhum, que nascem ocultos');
     ok(pais.includes('modalIa'), 'vive no modal da engrenagem');
-    let g = document.getElementById('btn-config-ia'), gp = [];
-    while (g && g.parentNode) { g = g.parentNode; if (g.className) gp.push(String(g.className)); }
-    ok(gp.some(c => /top-bar/.test(c)), 'e a engrenagem, na barra do topo — visível em qualquer aba');
-    ok(document.getElementById('modalIa').hasAttribute('hidden'),
-       'o modal nasce fechado: é ajuste, não é o trabalho');
+    ok(document.getElementById('modalIa').hasAttribute('hidden'), 'que nasce fechado');
+
     const manifest = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
     const rec = manifest.web_accessible_resources.flatMap(w => w.resources);
-    ok(rec.includes('modelo-ia.js') && rec.includes('parecer.js'),
-       'modelo-ia.js e parecer.js estão em web_accessible_resources');
+    ok(rec.includes('modelo-ia.js'), 'modelo-ia.js está em web_accessible_resources');
+    ok(!/<script src="parecer\.js"/.test(html),
+       'e a página não carrega parecer.js, que deixou de ser usado aqui');
   }
 
-  console.log('\n== a partida não acontece sozinha fora do navegador ==');
+  console.log('\n== o módulo configura o sistema INTEIRO, como os outros ==');
   {
-    // mdlIniciar faz chamada de rede. Num harness sem ciclo de vida de
-    // documento, disparar sozinho consumiria a resposta de outro teste.
-    const aoProvedor = pedidos.filter(u => /generativelanguage|api\.openai|api\.anthropic/.test(u));
-    ok(aoProvedor.length === 0,
-       `o script carregou sem chamar o provedor de IA (${aoProvedor.length}: ${aoProvedor.join(', ') || '—'})`);
-  }
+    // O caso de uso: reset do sistema, e o usuário entra só neste módulo. Ele
+    // precisa escolher provedor, colar a chave e escolher modelo daqui.
+    ok(!!document.getElementById('cvIaProvedor'), 'escolhe o provedor');
+    ok(!!document.getElementById('cvIaChave'), 'cola a chave de API');
+    ok(!!document.getElementById('cvIaModelo'), 'escolhe o modelo');
+    ok(!!document.getElementById('cvIaListar'), 'e pede a lista viva do provedor quando quiser');
+    ok(!!document.getElementById('cvIaSalvar'), 'e salva');
+    ok(document.getElementById('cvIaChave').getAttribute('type') === 'password',
+       'a chave é campo de senha: ela não fica à mostra na tela');
 
-  console.log('\n== por padrão, o módulo escolhe sozinho ==');
-  {
     await chamar('mdlIniciar');
-    const sel = document.getElementById('cvIaModelo');
-    const vals = [...sel.querySelectorAll('option')].map(o => o.getAttribute('value'));
-    ok(vals[0] === '', 'a primeira opção é o automático, e é a que fica marcada');
-    ok(/automático/.test(sel.querySelector('option').textContent), 'e ela se anuncia como automático');
-    ok(sel.querySelector('option').textContent.includes('gemini-3.8-flash'),
-       `dizendo QUAL modelo vai usar (${sel.querySelector('option').textContent.trim()})`);
-    ok(CONFIG.modeloRelatoriosAuto === 'gemini-3.8-flash',
-       `e o automático fica GRAVADO, para quem chama a IA poder ler (${CONFIG.modeloRelatoriosAuto})`);
-    ok(!vals.includes(undefined), 'a lista do provedor entra inteira');
-    const lite = [...sel.querySelectorAll('option')].find(o => o.getAttribute('value') === 'gemini-3.1-flash-lite');
-    ok(/econômica/.test(lite.textContent), 'e o modelo econômico aparece marcado como tal');
+    const provs = [...document.getElementById('cvIaProvedor').querySelectorAll('option')]
+      .map(o => o.getAttribute('value'));
+    ok(provs.includes('gemini') && provs.includes('openai') && provs.includes('anthropic'),
+       `os três provedores estão à escolha (${provs.join(', ')})`);
+    ok([...document.getElementById('cvIaProvedor').querySelectorAll('option')]
+         .every(o => /sem chave/.test(o.textContent)),
+       'e sem chave nenhuma cadastrada, todos avisam que estão sem chave');
   }
 
-  console.log('\n== o automático vence o padrão geral, que era o do problema ==');
+  console.log('\n== a lista de modelos NÃO trava esperando a rede ==');
   {
+    // As outras telas fazem assim, e é a diferença entre abrir instantâneo e
+    // abrir esperando o provedor responder para mostrar o que já estava escolhido.
+    const chamadasAoProvedor = () => pedidos.filter(u => /generativelanguage|api\.openai|api\.anthropic/.test(u)).length;
+    ok(chamadasAoProvedor() === 0,
+       `abrir a tela não chama o provedor (${chamadasAoProvedor()} chamada(s))`);
+    const opts = [...document.getElementById('cvIaModelo').querySelectorAll('option')]
+      .map(o => o.getAttribute('value'));
+    ok(opts.length >= 2, `mas a lista já vem preenchida, com a de reserva (${opts.length} modelos)`);
+    // Sem chave cadastrada, a tela diz isso; com chave, diz que a lista é a de
+    // reserva. Nos dois casos ela avisa que aquilo NÃO é a lista da chave.
+    ok(/Nenhuma chave deste provedor/.test(document.getElementById('cvIaModeloEstado').textContent),
+       'e diz que não há chave, em vez de deixar a lista de reserva passar por lista da chave');
+    chamar('mdlTrocarProvedor', 'gemini');
+
+    // Sem chave, listar é recusado com o motivo — e sem gastar chamada.
+    await chamar('mdlListarModelos');
+    ok(chamadasAoProvedor() === 0, 'sem chave, o botão não chega a chamar o provedor');
+    ok(/Cole a chave/.test(document.getElementById('cvIaModeloEstado').textContent),
+       'e diz o que falta');
+
+    // Com a chave, a lista viva vem — no clique, não antes.
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDeTesteComTamanhoSuficiente';
+    await chamar('mdlListarModelos');
+    ok(chamadasAoProvedor() === 1, 'no clique, uma chamada — e só então');
+    const vivos = [...document.getElementById('cvIaModelo').querySelectorAll('option')]
+      .map(o => o.getAttribute('value'));
+    ok(vivos.includes('gemini-3.8-flash'), `e a lista passa a ser a da chave (${vivos.length} modelos)`);
+    ok(/disponíveis nesta chave/.test(document.getElementById('cvIaModeloEstado').textContent),
+       'com a contagem à vista');
+  }
+
+  console.log('\n== salvar grava onde as outras telas leem ==');
+  {
+    document.getElementById('cvIaModelo').querySelector('option[value="gemini-3.8-flash"]').selected = true;
+    await chamar('mdlSalvar');
+    ok(CONFIG.provedor === 'gemini' && CONFIG.modelo === 'gemini-3.8-flash',
+       `provedor e modelo vão para a config do aplicativo (${CONFIG.provedor}/${CONFIG.modelo})`);
+    ok(CONFIG.apiKey === 'AIzaSyChaveDeTesteComTamanhoSuficiente'
+       && CONFIG.chaves.gemini === CONFIG.apiKey,
+       'a chave também, e no mapa por provedor');
+    ok(document.getElementById('modalIa').hidden === true, 'e o modal fecha');
+
+    // É a mesma configuração que as camadas de IA leem: sem isso haveria duas
+    // verdades sobre qual modelo está em uso.
     const cfg = await chamar('rsmConfigIA');
-    ok(cfg.modelo === 'gemini-3.8-flash',
-       `quem chama a IA recebe o automático, e não o gemini-3.1-flash-lite das Configurações (${cfg.modelo})`);
-    ok(cfg.apiKey === 'chave-de-teste', 'a chave continua vindo das Configurações gerais');
+    ok(cfg.modelo === 'gemini-3.8-flash' && cfg.apiKey === CONFIG.apiKey,
+       'e é exatamente o que o resumo, a repercussão e a sustentação vão usar');
+  }
+  {
+    // Chave com formato errado é recusada aqui, e não na primeira consulta,
+    // onde apareceria como um erro do provedor que não diz o que houve.
+    const antes = JSON.stringify(CONFIG);
+    document.getElementById('cvIaChave').value = 'isto-não-é-chave';
+    ok((await chamar('mdlSalvar')) === null, 'chave com formato inválido não salva');
+    ok(/formato inválido/.test(document.getElementById('cvIaModeloEstado').textContent),
+       'e a tela diz por quê');
+    ok(JSON.stringify(CONFIG) === antes, 'e a configuração anterior fica intacta');
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDeTesteComTamanhoSuficiente';
+  }
+  {
+    // Trocar de provedor não pode perder a chave do anterior.
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-3.8-flash', chaves: {} };
+    await chamar('mdlIniciar');
+    document.getElementById('cvIaProvedor').querySelector('option[value="anthropic"]').selected = true;
+    chamar('mdlTrocarProvedor', 'anthropic');
+    document.getElementById('cvIaChave').value = 'sk-ant-chaveDeTesteComTamanhoSuficiente';
+    await chamar('mdlSalvar');
+    ok(CONFIG.chaves.gemini === 'AIzaSyChaveDoGemini1234567890',
+       'a chave do provedor anterior é preservada no mapa');
+    ok(CONFIG.chaves.anthropic === 'sk-ant-chaveDeTesteComTamanhoSuficiente' && CONFIG.provedor === 'anthropic',
+       'e a nova entra sem apagar a outra — quem experimenta e volta não recola nada');
   }
 
-  console.log('\n== o analista pode fixar um modelo ==');
+  console.log('\n== o teste de busca, que é o acréscimo desta tela ==');
   {
-    const sel = document.getElementById('cvIaModelo');
-    sel.querySelector('option[value="gemini-2.5-flash"]').selected = true;
-    sel.dispatchEvent(new Event('change'));
-    await new Promise(r => setTimeout(r, 0));
-    ok(CONFIG.modeloRelatorios === 'gemini-2.5-flash', 'a escolha é gravada');
-    const cfg = await chamar('rsmConfigIA');
-    ok(cfg.modelo === 'gemini-2.5-flash', 'e vence o automático — quem manda no modelo é ele');
-    CONFIG.modeloRelatorios = '';
-  }
+    CONFIG = { provedor: 'gemini', apiKey: 'AIzaSyChaveDoGemini1234567890', modelo: 'gemini-3.8-flash', chaves: {} };
+    await chamar('mdlIniciar');
+    document.getElementById('cvIaChave').value = 'AIzaSyChaveDoGemini1234567890';
 
-  console.log('\n== medir vence deduzir ==');
-  {
-    // O ranqueamento por nome diz quem redige bem; não diz quem busca. Um
-    // modelo medido buscando passa à frente na escolha automática.
-    CONFIG.buscaWeb = { 'gemini/gemini-2.5-flash': { ok: true, em: Date.now() } };
-    const auto = chamar('mdlAutomatico', MODELOS, CONFIG);
-    ok(auto.modelo === 'gemini-2.5-flash',
-       `o modelo COMPROVADO buscando ganha do melhor ranqueado (${auto.modelo})`);
-    ok(/mediu buscando/.test(auto.motivo), 'e o motivo diz por quê');
+    // Ranking por nome diz quem redige bem; não diz quem busca. Só a chamada diz.
+    respostaDeBusca = { comFontes: true };
+    const r = await chamar('mdlTestarBusca');
+    ok(r && r.ok === true, 'o teste faz uma chamada de verdade e vê se houve busca');
+    ok((CONFIG.buscaWeb || {})['gemini/gemini-3.8-flash'].ok === true,
+       'o resultado fica guardado por modelo, para não se testar a mesma coisa toda vez');
+    ok(/Fez a busca na web/.test(document.getElementById('cvIaEstado').textContent),
+       'e a tela diz o que se mediu');
+    ok(/busca ✓/.test(document.getElementById('cvIaModelo').innerHTML),
+       'a lista passa a marcar o modelo medido');
 
-    CONFIG.buscaWeb = {};
-    ok(chamar('mdlAutomatico', MODELOS, CONFIG).modelo === 'gemini-3.8-flash',
-       'sem medição, vale o ranqueamento do parecer');
-  }
-
-  console.log('\n== a tela diz o que se sabe daquele modelo ==');
-  {
-    const semTeste = chamar('mdlEstadoHtml', 'gemini', 'gemini-3.8-flash', CONFIG);
-    ok(/ainda não foi testada/.test(semTeste) && /não dá para saber pelo nome/.test(semTeste),
-       'sem medição, admite que não sabe — em vez de deixar o analista supor');
-
-    const cfgOk = { ...CONFIG, buscaWeb: { 'gemini/gemini-3.8-flash': { ok: true, em: Date.now() } } };
-    ok(/fez a busca na web/.test(chamar('mdlEstadoHtml', 'gemini', 'gemini-3.8-flash', cfgOk)),
-       'medido e bom, diz que buscou');
-
-    const cfgRuim = { ...CONFIG, buscaWeb: { 'gemini/gemini-3.1-flash-lite': { ok: false, em: Date.now() } } };
-    const ruim = chamar('mdlEstadoHtml', 'gemini', 'gemini-3.1-flash-lite', cfgRuim);
-    ok(/NÃO fez a busca/.test(ruim) && /resumo e a sustentação funcionam/.test(ruim),
-       'medido e ruim, diz o que ainda funciona e o que vai cair na reserva');
-
-    ok(/Sem chave/.test(chamar('mdlEstadoHtml', 'anthropic', 'claude-x', CONFIG)),
-       'sem chave do provedor, manda cadastrar em Configurações — a chave não mora aqui');
+    respostaDeBusca = { comFontes: false };
+    await chamar('mdlTestarBusca');
+    ok((CONFIG.buscaWeb || {})['gemini/gemini-3.8-flash'].ok === false,
+       'e um "não buscou" também fica registrado, que é a informação mais útil das duas');
+    ok(/NÃO fez a busca/.test(document.getElementById('cvIaEstado').textContent),
+       'com a tela dizendo o que ainda funciona sem busca');
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');

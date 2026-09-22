@@ -1,44 +1,39 @@
-// Escolha do provedor e do modelo de IA para os relatórios, dentro do módulo.
+// Configurações de IA do módulo de Relatórios: provedor, chave e modelo.
 //
-// Existe por um caso concreto: o analista tinha gemini-3.1-flash-lite nas
-// Configurações gerais e a repercussão voltava vazia numa matéria de farta
-// cobertura, enquanto o Parecer de Especialista, com a MESMA chave, funcionava.
+// Mesmo desenho das outras telas (pautas-comissoes, analise): engrenagem na
+// barra do topo, modal com provedor, chave, modelo e botão de salvar. E, como
+// lá, o que se grava aqui é a configuração DO APLICATIVO — mudar aqui muda no
+// resto. Não é ajuste local deste módulo.
 //
-// A causa raiz ERA OUTRA, e está corrigida em imprensa.js: o pedido de
-// levantamento exigia JSON e vinha cheio de regras, e as duas coisas desligam a
-// ferramenta de busca. Medido em 22/09/2026, no próprio gemini-3.1-flash-lite:
-// pedido curto em prosa busca 4/4; o mesmo pedindo JSON, 0/3; longo e cheio de
-// regras, 0/4. O modelo do analista nunca foi o problema.
+// A razão de existir é o caso de quem reinstala ou reseta e entra direto neste
+// módulo: sem isto, ele não tem por onde cadastrar chave nenhuma sem sair daqui,
+// e as três camadas de IA da aba "Como votou o deputado" simplesmente não
+// funcionam, sem dizer por quê.
 //
-// Este campo continua fazendo falta por outra razão, mais simples: a escolha
-// nas Configurações gerais é feita para outro uso, e quem trabalha aqui precisa
-// poder trocar sem sair daqui — inclusive para comparar resultado entre modelos,
-// que é coisa que só se faz vendo. O parecer resolveu isso escolhendo sozinho
-// ("o modo profundo não deve depender de o analista lembrar de trocar"); aqui a
-// escolha automática é o padrão, mas fica à vista e pode ser trocada.
+// A LISTA DE MODELOS NÃO É BUSCADA SOZINHA. Abre-se com a lista de reserva do
+// programa, que é instantânea, e a lista viva do provedor vem só quando o
+// analista clica em "Carregar disponíveis" — que é como as outras telas fazem.
+// Buscar no carregamento deixaria o campo travado esperando rede para mostrar
+// uma escolha que, na maioria das vezes, já estava feita.
 //
-// O botão de testar a busca continua valendo, e não como remendo: é a única
-// forma de saber, sem adivinhar, se uma combinação de modelo e pedido está
-// realmente acionando a ferramenta. Ranking por nome não responde isso —
-// gemini-3.1-pro-preview é caro, recente e não busca com o pedido errado.
+// O botão de testar a busca é o acréscimo desta tela, e tem motivo medido: a
+// repercussão depende de o modelo acionar a ferramenta de busca, e nem toda
+// combinação de modelo e pedido aciona. Ranking por nome não responde isso;
+// uma chamada de verdade responde. O resultado fica guardado por modelo.
 //
-// A chave continua vindo das Configurações gerais: chave é credencial, e
-// credencial mora num lugar só.
-//
-// Depende de ia-comum.js (PROVEDORES_META, chamarIA), parecer.js
-// (ranquearModelos, escolherModelo) e aderencia.js (cvEsc).
+// Depende de ia-comum.js (PROVEDORES_META, chamarIA) e aderencia.js (cvEsc).
 
 const MDL_CHAVE_TESTE = 'buscaWeb';   // onde o resultado dos testes fica guardado
 
-const mdl = { cfg: null, modelos: [], carregando: false };
-
+const mdl = { cfg: null, modelos: [], ocupado: false };
 const mdlEl = {};
 
+const MDL_IDS = ['cvIaProvedor', 'cvIaChave', 'cvIaChaveDica', 'cvIaModelo', 'cvIaListar',
+                 'cvIaModeloEstado', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo', 'cvIaSalvar',
+                 'cvIaCancelar', 'btn-config-ia', 'modalIa', 'modalIaFechar'];
+
 function mdlPegarEl() {
-  for (const id of ['cvIaProvedor', 'cvIaModelo', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo',
-                    'btn-config-ia', 'modalIa', 'modalIaFechar']) {
-    mdlEl[id] = document.getElementById(id);
-  }
+  for (const id of MDL_IDS) mdlEl[id] = document.getElementById(id);
   return !!mdlEl.cvIaModelo;
 }
 
@@ -48,14 +43,10 @@ function mdlLerConfig() {
   });
 }
 
-function mdlGravarConfig(mudancas) {
+function mdlGravarConfig(cfg) {
   return new Promise(r => {
-    try {
-      chrome.storage.local.get('config', d => {
-        const c = Object.assign({}, d.config || {}, mudancas);
-        chrome.storage.local.set({ config: c }, () => { mdl.cfg = c; r(c); });
-      });
-    } catch (e) { r(null); }
+    try { chrome.storage.local.set({ config: cfg }, () => { mdl.cfg = cfg; r(cfg); }); }
+    catch (e) { r(null); }
   });
 }
 
@@ -65,167 +56,144 @@ function mdlChaveDe(pid, cfg) {
   return (c.chaves && c.chaves[pid]) || (c.provedor === pid ? c.apiKey : '') || '';
 }
 
-/** O provedor que vale para os relatórios: o do módulo, ou o geral. */
-function mdlProvedorAtual(cfg) {
-  const c = cfg || mdl.cfg || {};
-  return c.provedorRelatorios || c.provedor || 'gemini';
-}
-
-/** O modelo FIXADO pelo analista, ou '' quando ele deixou no automático. */
-function mdlModeloAtual(cfg) {
-  return String((cfg || mdl.cfg || {}).modeloRelatorios || '');
-}
-
-/** O modelo que de fato vai ser usado: o fixado, ou o do automático. */
-function mdlModeloEfetivo(cfg) {
-  const c = cfg || mdl.cfg || {};
-  return c.modeloRelatorios || c.modeloRelatoriosAuto || '';
-}
-
-/**
- * O modelo que o módulo escolhe sozinho, pela mesma regra do parecer: a versão
- * mais alta entre os não econômicos do provedor. Entre dois igualmente bem
- * ranqueados, prefere o que JÁ SE MEDIU buscando — o ranking fala de redigir,
- * o teste fala de buscar, e aqui é buscar que faz falta.
- */
-function mdlAutomatico(lista, cfg) {
-  const ids = (lista || mdl.modelos || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
-  if (!ids.length) return { modelo: '', motivo: 'a lista do provedor não veio' };
-  const pid = mdlProvedorAtual(cfg);
-  const testes = mdlTestes(cfg);
-  if (typeof escolherModelo !== 'function') return { modelo: ids[0], motivo: 'primeiro da lista' };
-
-  const rk = ranquearModelos(ids).filter(m => m.elegivel);
-  const comprovado = rk.find(m => (testes[`${pid}/${m.id}`] || {}).ok === true);
-  if (comprovado) {
-    return { modelo: comprovado.id,
-             motivo: `melhor modelo entre os que já se mediu buscando na web (${comprovado.id})` };
-  }
-  const e = escolherModelo(ids, {});
-  return e.erro ? { modelo: '', motivo: e.erro } : { modelo: e.modelo, motivo: e.motivo };
-}
-
 /** O que já se mediu sobre a busca de cada modelo: { "<pid>/<modelo>": {ok, em} } */
 function mdlTestes(cfg) { return ((cfg || mdl.cfg || {})[MDL_CHAVE_TESTE]) || {}; }
 
 function mdlSelo(pid, modelo, cfg) {
   const t = mdlTestes(cfg)[`${pid}/${modelo}`];
-  if (!t) return null;
-  return { ok: t.ok, em: t.em };
+  return t ? { ok: t.ok, em: t.em } : null;
 }
 
-/** A frase de estado, que é o que o analista lê para decidir. */
-function mdlEstadoHtml(pid, modelo, cfg) {
-  if (!mdlChaveDe(pid, cfg)) {
-    return `<b class="ruim">Sem chave para ${cvEsc((PROVEDORES_META[pid] || {}).label || pid)}.</b>
-            Cadastre em Configurações — a chave não se cadastra aqui.`;
-  }
-  if (!modelo) return 'Sem modelo definido: a lista do provedor não veio.';
-  const s = mdlSelo(pid, modelo, cfg);
-  if (!s) {
-    return `Vai usar <b>${cvEsc(modelo)}</b>. A busca na web ainda não foi testada nele — e não dá para `
-      + 'saber pelo nome: há modelos caros e recentes que nunca acionam a busca. Teste antes de contar '
-      + 'com a repercussão.';
-  }
-  const quando = s.em ? new Date(s.em).toLocaleDateString('pt-BR') : '';
-  return s.ok
-    ? `<b class="bom">${cvEsc(modelo)} fez a busca na web</b>${quando ? ` (testado em ${cvEsc(quando)})` : ''}.`
-    : `<b class="ruim">${cvEsc(modelo)} NÃO fez a busca na web</b>${quando ? ` (testado em ${cvEsc(quando)})` : ''}.
-       O resumo e a sustentação funcionam nele; a repercussão vai cair num modelo de reserva.`;
-}
-
-function mdlPintarEstado() {
-  const pid = mdlEl.cvIaProvedor ? mdlEl.cvIaProvedor.value : mdlProvedorAtual();
-  // Opção vazia = automático: o que o analista precisa ler é o modelo que VAI
-  // ser usado, e não a palavra "automático".
-  const modelo = (mdlEl.cvIaModelo && mdlEl.cvIaModelo.value) || mdlModeloEfetivo();
-
-  // A engrenagem carrega o modelo em uso no seu próprio title: o modal fica
-  // fechado, e configuração que só se vê depois de abrir é configuração que o
-  // analista não sabe que existe.
-  const eng = mdlEl['btn-config-ia'];
-  if (eng && modelo) {
-    const s = mdlSelo(pid, modelo, mdl.cfg);
-    const marca = s ? (s.ok ? ' — busca na web testada' : ' — NÃO faz busca na web') : '';
-    eng.title = `Modelo de IA dos relatórios: ${modelo}${mdlModeloAtual() ? '' : ' (automático)'}${marca}`;
-  }
-
-  if (!mdlEl.cvIaEstado) return;
-  mdlEl.cvIaEstado.innerHTML = mdlEstadoHtml(pid, modelo, mdl.cfg);
-  if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.disabled = !modelo || !mdlChaveDe(pid, mdl.cfg) || mdl.carregando;
-}
-
-/** Marca uma opção, sem usar `select.value` — que o ambiente de teste não implementa. */
+/** Marca uma opção sem usar `select.value`, que o ambiente de teste não implementa. */
 function mdlMarcar(sel, valor) {
   if (!sel) return;
-  const alvo = sel.querySelector(`option[value="${String(valor).replace(/"/g, '\\"')}"]`);
+  const alvo = valor && sel.querySelector(`option[value="${String(valor).replace(/"/g, '\\"')}"]`);
   if (alvo) alvo.selected = true;
   else if (sel.options && sel.options.length) sel.options[0].selected = true;
 }
 
-async function mdlCarregarModelos(pid, escolher) {
+function mdlValorSel(sel) {
+  if (!sel) return '';
+  if (sel.value) return sel.value;                       // navegador
+  const o = sel.querySelector('option[selected]') || (sel.options && sel.options[0]);
+  return o ? (o.getAttribute('value') || '') : '';       // linkedom
+}
+
+/**
+ * Monta a lista de modelos. `lista` é a de reserva ou a viva; o modelo salvo
+ * entra à força quando não aparece nela, para uma lista desatualizada não apagar
+ * em silêncio a escolha que o analista já tinha feito.
+ */
+function mdlMontarModelos(pid, lista, escolher) {
   if (!mdlEl.cvIaModelo) return;
-  const chave = mdlChaveDe(pid);
-  if (!chave) {
-    mdlEl.cvIaModelo.innerHTML = '<option value="">sem chave cadastrada</option>';
-    mdlPintarEstado();
-    return;
-  }
-  mdl.carregando = true;
-  mdlEl.cvIaModelo.innerHTML = '<option value="">carregando a lista do provedor…</option>';
-  mdlPintarEstado();
-  let lista = [];
-  try {
-    lista = await PROVEDORES_META[pid].listar(chave);
-  } catch (e) {
-    // Lista que não veio não impede trabalhar: os modelos de reserva do
-    // provedor continuam servindo, e o analista fica sabendo o que houve.
-    lista = (PROVEDORES_META[pid] || {}).modelosFallback || [];
-  }
-  mdl.modelos = lista;
   const testes = mdlTestes();
-  const rk = (typeof ranquearModelos === 'function') ? ranquearModelos(lista.map(m => m.id)) : lista.map(m => ({ id: m.id, elegivel: true }));
-  const auto = mdlAutomatico(lista);
-  // A primeira opção é o automático, e é o padrão. Mesma razão do parecer: o
-  // módulo não deve depender de o analista lembrar de trocar de modelo — e aqui
-  // a lembrança seria ainda mais improvável, porque o sintoma de esquecer é uma
-  // seção que volta vazia, e não um erro.
-  const opcoes = [`<option value="">automático — ${cvEsc(auto.modelo || 'sem modelo adequado')}</option>`];
-  for (const m of rk) {
+  const ids = (lista || []).map(m => m.id);
+  const salvo = escolher || ((mdl.cfg || {}).provedor === pid ? (mdl.cfg || {}).modelo : '') || '';
+  const itens = (salvo && !ids.includes(salvo))
+    ? [{ id: salvo, displayName: salvo + ' (salvo)' }].concat(lista || [])
+    : (lista || []);
+  mdlEl.cvIaModelo.innerHTML = itens.map(m => {
     const s = testes[`${pid}/${m.id}`];
-    const marca = s ? (s.ok ? ' · busca na web ✓' : ' · não busca ✗') : '';
-    const faixa = m.elegivel === false ? ' · faixa econômica' : '';
-    opcoes.push(`<option value="${cvEsc(m.id)}">${cvEsc(m.id)}${faixa}${marca}</option>`);
+    const marca = s ? (s.ok ? ' · busca ✓' : ' · não busca ✗') : '';
+    return `<option value="${cvEsc(m.id)}">${cvEsc(m.displayName || m.id)}${marca}</option>`;
+  }).join('') || '<option value="">nenhum modelo</option>';
+  mdl.modelos = itens;
+  mdlMarcar(mdlEl.cvIaModelo, salvo);
+  mdlPintarTeste();
+}
+
+/** A frase sobre a busca do modelo selecionado. */
+function mdlPintarTeste() {
+  if (!mdlEl.cvIaEstado) return;
+  const pid = mdlValorSel(mdlEl.cvIaProvedor);
+  const modelo = mdlValorSel(mdlEl.cvIaModelo);
+  const chave = mdlEl.cvIaChave ? String(mdlEl.cvIaChave.value || '').trim() : '';
+  if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.disabled = !modelo || !chave || mdl.ocupado;
+
+  const s = modelo ? mdlSelo(pid, modelo, mdl.cfg) : null;
+  const quando = s && s.em ? ` (testado em ${cvEsc(new Date(s.em).toLocaleDateString('pt-BR'))})` : '';
+  mdlEl.cvIaEstado.innerHTML = !modelo ? ''
+    : !s ? 'Busca na web ainda não testada neste modelo. Nem todo pedido faz o modelo acionar a '
+           + 'ferramenta, e isso não se sabe pelo nome — a repercussão depende disso.'
+    : s.ok ? `<b class="bom">Fez a busca na web</b>${quando}.`
+    : `<b class="ruim">NÃO fez a busca na web</b>${quando}. O resumo e a sustentação funcionam; `
+      + 'a repercussão vai depender de um modelo de reserva.';
+
+  const eng = mdlEl['btn-config-ia'];
+  if (eng) {
+    eng.title = modelo
+      ? `Configurações de IA — ${pid}/${modelo}${s ? (s.ok ? ' (busca testada)' : ' (não faz busca na web)') : ''}`
+      : 'Configurações de IA dos relatórios';
   }
-  mdlEl.cvIaModelo.innerHTML = opcoes.join('');
-  mdlMarcar(mdlEl.cvIaModelo, escolher !== undefined ? escolher : mdlModeloAtual());
-  // O automático fica GRAVADO, e não só calculado na tela: quem lê a
-  // configuração na hora de chamar a IA é resumos.js, que não tem a lista do
-  // provedor em mãos e não vai buscá-la a cada chamada.
-  if (auto.modelo && auto.modelo !== (mdl.cfg || {}).modeloRelatoriosAuto) {
-    await mdlGravarConfig({ modeloRelatoriosAuto: auto.modelo });
+}
+
+/**
+ * Troca de provedor: chave, dica e lista de RESERVA. Nada de rede aqui — a lista
+ * viva só vem no clique, como nas outras telas.
+ */
+function mdlTrocarProvedor(pid) {
+  const p = PROVEDORES_META[pid] || {};
+  if (mdlEl.cvIaChave) {
+    mdlEl.cvIaChave.placeholder = p.placeholderChave || '';
+    mdlEl.cvIaChave.value = mdlChaveDe(pid);
   }
-  mdl.carregando = false;
-  mdlPintarEstado();
+  if (mdlEl.cvIaChaveDica) mdlEl.cvIaChaveDica.textContent = p.hintChave || '';
+  mdlMontarModelos(pid, p.modelosFallback || []);
+  if (mdlEl.cvIaModeloEstado) {
+    mdlEl.cvIaModeloEstado.className = 'ia-dica';
+    mdlEl.cvIaModeloEstado.textContent = mdlChaveDe(pid)
+      ? 'Lista de reserva do programa. Clique em "Carregar disponíveis" para ver os modelos que a sua chave oferece hoje.'
+      : 'Nenhuma chave deste provedor. Cole a chave acima e clique em "Carregar disponíveis".';
+  }
+}
+
+/** A lista viva do provedor, só no clique. */
+async function mdlListarModelos() {
+  const pid = mdlValorSel(mdlEl.cvIaProvedor);
+  const chave = mdlEl.cvIaChave ? String(mdlEl.cvIaChave.value || '').trim() : '';
+  const est = mdlEl.cvIaModeloEstado;
+  if (!chave) {
+    if (est) { est.className = 'ia-dica ruim'; est.textContent = 'Cole a chave de API acima antes de listar.'; }
+    return null;
+  }
+  if (est) { est.className = 'ia-dica'; est.textContent = 'Listando modelos…'; }
+  mdl.ocupado = true;
+  try {
+    const lista = await PROVEDORES_META[pid].listar(chave);
+    if (mdlValorSel(mdlEl.cvIaProvedor) !== pid) return null;   // trocou enquanto carregava
+    mdlMontarModelos(pid, lista);
+    if (est) { est.className = 'ia-dica bom'; est.textContent = `✓ ${lista.length} modelo(s) disponíveis nesta chave.`; }
+    return lista;
+  } catch (e) {
+    // Lista que não veio não impede trabalhar: a de reserva continua servindo, e
+    // o analista fica sabendo o que houve em vez de ficar com um campo vazio.
+    if (est) {
+      est.className = 'ia-dica ruim';
+      est.textContent = `Não consegui listar (${e.message}). A lista continua sendo a de reserva do programa, que pode estar desatualizada.`;
+    }
+    return null;
+  } finally {
+    mdl.ocupado = false;
+    mdlPintarTeste();
+  }
 }
 
 /**
  * Faz UMA chamada de verdade e vê se o modelo acionou a busca.
  *
  * É medição, não dedução. A pergunta pede fato recente de propósito: um modelo
- * que ache que sabe a resposta não busca, e é exatamente esse comportamento que
- * precisa aparecer aqui, e não na hora em que o analista está montando o
- * documento.
+ * que ache que sabe a resposta não busca, e é esse comportamento que precisa
+ * aparecer aqui, e não na hora em que o analista monta o documento.
  */
 async function mdlTestarBusca() {
-  const pid = mdlEl.cvIaProvedor ? mdlEl.cvIaProvedor.value : mdlProvedorAtual();
-  const modelo = (mdlEl.cvIaModelo && mdlEl.cvIaModelo.value) || mdlModeloEfetivo();
-  const chave = mdlChaveDe(pid);
+  const pid = mdlValorSel(mdlEl.cvIaProvedor);
+  const modelo = mdlValorSel(mdlEl.cvIaModelo);
+  const chave = mdlEl.cvIaChave ? String(mdlEl.cvIaChave.value || '').trim() : '';
   if (!modelo || !chave) return null;
 
-  mdl.carregando = true;
+  mdl.ocupado = true;
   if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.disabled = true;
-  if (mdlEl.cvIaEstado) mdlEl.cvIaEstado.innerHTML = 'Testando a busca com uma chamada de verdade…';
+  if (mdlEl.cvIaEstado) mdlEl.cvIaEstado.textContent = 'Testando a busca com uma chamada de verdade…';
 
   let ok = false, erro = null;
   try {
@@ -236,27 +204,53 @@ async function mdlTestarBusca() {
       opcoes: { maxSaida: 2000 },
     });
     ok = !!(r && r.fontes && r.fontes.length);
-  } catch (e) {
-    erro = e.message;
-  }
+  } catch (e) { erro = e.message; }
 
-  mdl.carregando = false;
+  mdl.ocupado = false;
   if (erro) {
-    if (mdlEl.cvIaEstado) {
-      mdlEl.cvIaEstado.innerHTML = `<b class="ruim">O teste falhou:</b> ${cvEsc(erro)}.`;
-    }
+    if (mdlEl.cvIaEstado) mdlEl.cvIaEstado.innerHTML = `<b class="ruim">O teste falhou:</b> ${cvEsc(erro)}.`;
     if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.disabled = false;
     return { ok: false, erro };
   }
 
-  const testes = Object.assign({}, mdlTestes());
-  testes[`${pid}/${modelo}`] = { ok, em: Date.now() };
-  await mdlGravarConfig({ [MDL_CHAVE_TESTE]: testes });
-  // Reescreve o ✓/✗ na lista, preservando a escolha do analista: se ele estava
-  // no automático, continua no automático — que agora pode ter mudado de
-  // modelo, já que o automático prefere o que se mediu buscando.
-  await mdlCarregarModelos(pid, mdlModeloAtual());
+  const cfg = Object.assign({}, mdl.cfg || {});
+  cfg[MDL_CHAVE_TESTE] = Object.assign({}, mdlTestes(), { [`${pid}/${modelo}`]: { ok, em: Date.now() } });
+  await mdlGravarConfig(cfg);
+  mdlMontarModelos(pid, mdl.modelos, modelo);   // reescreve o ✓/✗ na lista
   return { ok };
+}
+
+/**
+ * Salva no mesmo lugar que as outras telas. A chave passa pelo formato do
+ * provedor antes: chave colada errada só apareceria na primeira consulta, como
+ * um erro do provedor que não diz o que houve.
+ */
+async function mdlSalvar() {
+  const pid = mdlValorSel(mdlEl.cvIaProvedor);
+  const p = PROVEDORES_META[pid] || {};
+  const chave = mdlEl.cvIaChave ? String(mdlEl.cvIaChave.value || '').trim() : '';
+  const modelo = mdlValorSel(mdlEl.cvIaModelo);
+  const est = mdlEl.cvIaModeloEstado;
+  const recusar = msg => { if (est) { est.className = 'ia-dica ruim'; est.textContent = msg; } return null; };
+
+  if (!chave) return recusar('Informe a chave de API.');
+  if (p.regexChave && !p.regexChave.test(chave)) return recusar(`Chave com formato inválido para ${p.label}.`);
+
+  const c = mdl.cfg || {};
+  const chaves = Object.assign({}, c.chaves || {});
+  // Preserva a chave do provedor anterior antes de trocar: quem experimenta
+  // outro provedor e volta não deveria ter de colar a chave de novo.
+  if (c.apiKey && c.provedor && !chaves[c.provedor]) chaves[c.provedor] = c.apiKey;
+  chaves[pid] = chave;
+
+  await mdlGravarConfig(Object.assign({}, c, { provedor: pid, apiKey: chave, modelo, chaves }));
+  if (est) { est.className = 'ia-dica bom'; est.textContent = '✓ Configurações salvas.'; }
+  mdlAbrir(false);
+  return { pid, modelo };
+}
+
+function mdlAbrir(v) {
+  if (mdlEl.modalIa) mdlEl.modalIa.hidden = !v;
 }
 
 /** Liga o bloco. Chamado uma vez, quando a tela monta. */
@@ -267,49 +261,37 @@ async function mdlIniciar() {
   if (mdlEl.cvIaProvedor) {
     mdlEl.cvIaProvedor.innerHTML = Object.keys(PROVEDORES_META).map(p =>
       `<option value="${p}">${cvEsc(PROVEDORES_META[p].label)}${mdlChaveDe(p) ? '' : ' — sem chave'}</option>`).join('');
-    mdlMarcar(mdlEl.cvIaProvedor, mdlProvedorAtual());
-    mdlEl.cvIaProvedor.addEventListener('change', async () => {
-      const pid = mdlEl.cvIaProvedor.value;
-      await mdlGravarConfig({ provedorRelatorios: pid, modeloRelatorios: '' });
-      await mdlCarregarModelos(pid);
-      // Trocar de provedor sem escolher modelo deixaria o módulo sem modelo:
-      // o primeiro da lista passa a valer, e fica gravado.
-      if (mdlEl.cvIaModelo && mdlEl.cvIaModelo.value) {
-        await mdlGravarConfig({ modeloRelatorios: mdlEl.cvIaModelo.value });
-      }
-      mdlPintarEstado();
-    });
+    mdlMarcar(mdlEl.cvIaProvedor, mdl.cfg.provedor || 'gemini');
+    mdlEl.cvIaProvedor.addEventListener('change', () => mdlTrocarProvedor(mdlValorSel(mdlEl.cvIaProvedor)));
   }
-
-  if (mdlEl.cvIaModelo) {
-    mdlEl.cvIaModelo.addEventListener('change', async () => {
-      await mdlGravarConfig({ modeloRelatorios: mdlEl.cvIaModelo.value });
-      mdlPintarEstado();
-    });
-  }
-
+  if (mdlEl.cvIaModelo) mdlEl.cvIaModelo.addEventListener('change', mdlPintarTeste);
+  if (mdlEl.cvIaChave) mdlEl.cvIaChave.addEventListener('input', mdlPintarTeste);
+  if (mdlEl.cvIaListar) mdlEl.cvIaListar.addEventListener('click', mdlListarModelos);
   if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.addEventListener('click', mdlTestarBusca);
+  if (mdlEl.cvIaSalvar) mdlEl.cvIaSalvar.addEventListener('click', mdlSalvar);
 
-  // A engrenagem abre e fecha o modal. Fechar pelo fundo e pelo Esc também,
-  // que é o que qualquer um tenta antes de procurar o ✕.
-  const modal = mdlEl.modalIa, botao = mdlEl['btn-config-ia'];
-  const abrir = v => { if (modal) modal.hidden = !v; };
-  if (botao) botao.addEventListener('click', () => abrir(true));
-  if (mdlEl.modalIaFechar) mdlEl.modalIaFechar.addEventListener('click', () => abrir(false));
-  if (modal) modal.addEventListener('click', e => { if (e.target === modal) abrir(false); });
-  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal && !modal.hidden) abrir(false); });
+  // A engrenagem abre e fecha. Fecha também pelo fundo e pelo Esc, que é o que
+  // qualquer um tenta antes de procurar o ✕.
+  const botao = mdlEl['btn-config-ia'], modal = mdlEl.modalIa;
+  if (botao) botao.addEventListener('click', async () => {
+    mdl.cfg = await mdlLerConfig();       // pode ter mudado noutra tela
+    mdlTrocarProvedor(mdlValorSel(mdlEl.cvIaProvedor));
+    mdlAbrir(true);
+  });
+  if (mdlEl.modalIaFechar) mdlEl.modalIaFechar.addEventListener('click', () => mdlAbrir(false));
+  if (mdlEl.cvIaCancelar) mdlEl.cvIaCancelar.addEventListener('click', () => mdlAbrir(false));
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) mdlAbrir(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal && !modal.hidden) mdlAbrir(false); });
 
-  await mdlCarregarModelos(mdlProvedorAtual());
+  mdlTrocarProvedor(mdl.cfg.provedor || 'gemini');
 }
 
 // A tela monta o bloco sozinha ao carregar.
 //
-// A partida é condicionada ao ciclo de vida do documento, e não só à presença
-// do campo. A razão é que `mdlIniciar` faz uma chamada de rede — a listagem de
-// modelos do provedor —, e num ambiente sem ciclo de vida de navegador (o
-// harness de teste, que monta o DOM em memória) essa chamada sai no meio de
-// outro teste e consome a resposta que era de outro. Quem quiser a partida ali
-// chama `mdlIniciar()` de propósito, que é como um teste deve pedir.
+// Condicionado ao ciclo de vida do documento, e não só à presença do campo:
+// num ambiente sem ciclo de vida de navegador (o harness de teste, que monta o
+// DOM em memória) a partida automática atropelaria outro teste. Quem quiser a
+// partida ali chama `mdlIniciar()` de propósito, que é como um teste deve pedir.
 function mdlArrancar() {
   if (!document.getElementById('cvIaModelo')) return;   // página sem o campo
   Promise.resolve().then(mdlIniciar).catch(e => console.warn('[modelo-ia]', e && e.message));
