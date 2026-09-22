@@ -183,7 +183,16 @@ REGRAS, todas obrigatórias:
 - Não afirme que o deputado votou de um jeito que não esteja na lista acima.
 - Se o registro não estabelece a posição, sustente pelo argumento e não afirme
   que o voto dele comprova a posição.
-- Três a cinco parágrafos. Comece pelo argumento central, não por preâmbulo.
+${itens.some(i => i.voto) ? `- DIGA POR QUE AQUELE VOTO IMPORTOU. Para os itens acima em que consta voto do
+  deputado, explique o que estava em jogo naquele ponto e o que aquela escolha
+  preservava ou impedia, em termos concretos. A pergunta que se faz a um
+  parlamentar não é se ele é a favor da matéria em geral: é por que ele votou
+  como votou naquele ponto, e é essa que a sustentação precisa responder.
+- Ao fazer isso, não invente a motivação dele ("votou assim porque acreditava
+  que…") nem credite a um voto isolado o resultado da votação. O que se explica
+  é o que aquele ponto decidia — não o que se passava na cabeça de alguém, nem
+  o que teria acontecido se o voto fosse outro.
+` : ''}- Três a cinco parágrafos. Comece pelo argumento central, não por preâmbulo.
 
 Responda SOMENTE com o texto da sustentação, em parágrafos separados por linha
 em branco. Sem título, sem marcadores, sem cercas de código.`;

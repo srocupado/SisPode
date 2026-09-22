@@ -32,6 +32,14 @@
 // Depende de aderencia.js (cvEsc), ia-comum.js (chamarIA) e resumos.js (rsmConfigIA).
 
 const IMP_MODELO_PADRAO = 'gemini-2.5-flash';
+
+// Modelos que, medidos em 22/09/2026, acionam a busca de forma confiável. Servem
+// de RESERVA quando o modelo configurado responde sem buscar — e não de escolha
+// fixa: o analista continua mandando no modelo, e só se troca quando o dele não
+// faz a única coisa de que este módulo depende. A lista envelhece; se um dia
+// nenhum deles existir para a chave, o levantamento falha dizendo o que tentou,
+// que é melhor do que falhar dizendo "verifique sua chave" quando a chave está boa.
+const IMP_MODELOS_BUSCA = ['gemini-3.8-flash', 'gemini-2.5-flash'];
 const IMP_TETO_PONTOS = 6;          // por lista; mais que isso ninguém confere
 
 function impPrompt({ prop, ementa, simples }) {
@@ -192,39 +200,63 @@ async function impLevantar({ prop, resumos, aoAndar }) {
   const ementa = String((prop && prop.ementa) || '').slice(0, 1200);
   const simples = resumos && resumos.materia && resumos.materia.simples ? resumos.materia.simples : '';
 
-  // Medido em 21/09/2026, três matérias reais: em cerca de um terço das
-  // chamadas o Gemini falha de um dos dois jeitos abaixo — responde sem ter
-  // buscado nada, ou devolve texto que não é JSON. As duas falhas são de
-  // amostragem, não de configuração: a chamada seguinte, com o mesmo prompt,
-  // costuma sair certa. Uma segunda tentativa leva o insucesso de um terço para
-  // cerca de um nono, e é o que separa um recurso que o analista usa de um que
-  // ele desiste de marcar.
+  // As duas falhas abaixo parecem a mesma coisa na tela e têm causas opostas.
   //
-  // Só se repete o que é falha de sorteio. Erro de rede, chave inválida e
-  // recusa do provedor não se repetem: repetir não muda o resultado e faz o
-  // analista esperar duas vezes por um "não".
+  // "Ilegível" é sorteio: o modelo devolve prosa em vez de JSON, e a chamada
+  // seguinte, com o mesmo prompt e o mesmo modelo, costuma sair certa. Repetir
+  // resolve.
+  //
+  // "Sem busca" quase nunca é sorteio: é o MODELO. Medido em 22/09/2026, com a
+  // mesma matéria e o mesmo prompt, três chamadas em cada um —
+  //
+  //     gemini-3.8-flash      buscou 3/3        gemini-3.5-flash      0/3
+  //     gemini-3.7-flash      buscou 3/3        gemini-3.6-flash      0/3
+  //     gemini-2.5-flash      buscou 2/3        gemini-3.5-flash-lite 0/3
+  //     gemini-2.5-pro        buscou 2/3        gemini-flash-latest   1/3
+  //
+  // — ou seja, há modelos que simplesmente NUNCA acionam a ferramenta de busca,
+  // por mais que o prompt peça. Contra esses, repetir é esperar duas vezes pelo
+  // mesmo "não". O que resolve é trocar de modelo, e é o que se faz aqui: como
+  // sem busca este módulo não tem o que relatar, ele prefere um modelo que
+  // busque a não entregar nada — e diz, na tela, qual usou.
   const RETENTAVEIS = new Set(['resposta-ilegivel', 'sem-busca']);
-  let ultima = null;
-  for (let tentativa = 1; tentativa <= 2; tentativa++) {
+  const configurado = cfg.modelo || IMP_MODELO_PADRAO;
+  const fila = [configurado];
+  if ((cfg.provedor || 'gemini') === 'gemini') {
+    for (const m of IMP_MODELOS_BUSCA) if (!fila.includes(m)) fila.push(m);
+  }
+
+  let ultima = null, i = 0, tentativa = 0;
+  const tentados = [];
+  while (i < fila.length && tentativa < 3) {
+    tentativa++;
+    const modelo = fila[i];
+    if (!tentados.includes(modelo)) tentados.push(modelo);
     if (aoAndar) aoAndar(tentativa === 1
       ? 'Consultando a repercussão pública da matéria…'
-      : 'A primeira consulta não trouxe busca utilizável — tentando outra vez…');
-    const r = await impTentar({ prop, ementa, simples, cfg });
-    if (r.ok) return Object.assign(r, { tentativas: tentativa });
-    ultima = Object.assign(r, { tentativas: tentativa });
+      : (modelo === fila[0]
+         ? 'A resposta veio ilegível — tentando outra vez…'
+         : `O modelo ${configurado} respondeu sem buscar na web — tentando com ${modelo}…`));
+
+    const r = await impTentar({ prop, ementa, simples, cfg, modelo });
+    if (r.ok) return Object.assign(r, { tentativas: tentativa, modelo, modeloConfigurado: configurado });
+    ultima = Object.assign(r, { tentativas: tentativa, tentados: tentados.slice(), modeloConfigurado: configurado });
     if (!RETENTAVEIS.has(r.motivo)) break;
+    // Ilegível é do sorteio: repete o mesmo modelo. Sem busca é do modelo:
+    // passa para o próximo, porque insistir nele não muda nada.
+    if (r.motivo === 'sem-busca' || tentativa >= 2) i++;
   }
   return ultima;
 }
 
 /** Uma tentativa de levantamento. Toda a decisão de repetir fica em impLevantar. */
-async function impTentar({ prop, ementa, simples, cfg }) {
+async function impTentar({ prop, ementa, simples, cfg, modelo }) {
   let resposta;
   try {
     resposta = await chamarIA({
       provedorId: cfg.provedor || 'gemini',
       apiKey: cfg.apiKey,
-      modelo: cfg.modelo || IMP_MODELO_PADRAO,
+      modelo: modelo || cfg.modelo || IMP_MODELO_PADRAO,
       prompt: impPrompt({ prop, ementa, simples }),
       web: true,                       // é o ponto do módulo: sem web não há o que levantar
       // Teto alto porque a resposta traz doze pontos com listas de veículos, e
@@ -337,9 +369,15 @@ function impHtml(imp) {
         + 'Tente de novo — a falha é de sorteio e costuma passar.',
       'resposta-cortada': 'A resposta do provedor veio cortada no meio, por limite de tamanho. '
         + 'Tente de novo; se repetir, é a matéria que tem repercussão longa demais para uma volta só.',
-      'sem-busca': 'O provedor respondeu, em duas tentativas, sem consultar a web — então não há '
-        + 'repercussão a relatar: o que ele escreveria viria da memória dele, e isso não entra no '
-        + 'documento. Verifique se a busca está habilitada para a sua chave.',
+      // A mensagem nomeia os modelos tentados porque a causa quase sempre é o
+      // modelo, e não a chave: há modelos que nunca acionam a busca. Mandar
+      // "verifique sua chave" quando a chave está boa manda o analista procurar
+      // no lugar errado.
+      'sem-busca': 'Nenhum dos modelos tentados consultou a web'
+        + (imp.tentados && imp.tentados.length ? ' (' + cvEsc(imp.tentados.join(', ')) + ')' : '')
+        + ' — então não há repercussão a relatar: o que eles escreveriam viria da memória, e isso não '
+        + 'entra no documento. Há modelos que simplesmente não acionam a busca; troque o modelo em '
+        + 'Configurações (gemini-3.8-flash e gemini-3.7-flash buscam de forma confiável) e tente de novo.',
     }[imp.motivo] || 'A repercussão não foi levantada.';
     return msg ? `<div class="imp imp-falha"><div class="imp-tit">Repercussão pública não levantada</div>${msg}</div>` : '';
   }
@@ -370,7 +408,12 @@ function impHtml(imp) {
         : 'Desmarcado: o levantamento fica só nesta tela, orientando a sustentação.'}</span></span>
     </label>
     <div class="imp-nota">Levantamento do que terceiros publicaram, feito por ${cvEsc(imp.modelo)} com busca na
-      web. Não descreve a matéria — o que ela faz está na ementa e nos documentos citados acima.</div>
+      web. Não descreve a matéria — o que ela faz está na ementa e nos documentos citados acima.${
+      // Trocar de modelo por baixo do analista sem avisar seria decidir por ele.
+      imp.modeloConfigurado && imp.modelo !== imp.modeloConfigurado
+        ? ` O modelo configurado (${cvEsc(imp.modeloConfigurado)}) respondeu sem consultar a web, então este
+            levantamento usou ${cvEsc(imp.modelo)}. As outras seções seguem com o modelo configurado.`
+        : ''}</div>
   </div>`;
 }
 

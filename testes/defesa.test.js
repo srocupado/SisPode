@@ -262,6 +262,29 @@ const objetosDe = linhas => Object.fromEntries(linhas.map(l => [l.it.votacao.id,
        'e proibido inventar voto');
   }
 
+  console.log('\n== por que aquele voto importou ==');
+  {
+    // A pergunta que se faz a um parlamentar não é se ele é a favor da matéria
+    // em geral: é por que votou como votou naquele ponto. Sem isso, a
+    // sustentação responde a uma pergunta que ninguém fez.
+    const base = { posicao: 'favoravel', dep: DEP, prop: PROP, materia: 'apostas', registro: { posicao: null } };
+    const comVoto = chamar('dfsPrompt', { ...base,
+      itens: [{ objeto: 'Votação da Redação Final.', voto: 'Sim', simples: null }] }).replace(/\s+/g, ' ');
+    ok(/DIGA POR QUE AQUELE VOTO IMPORTOU/.test(comVoto),
+       'havendo voto do deputado, o pedido manda explicar o que estava em jogo naquele ponto');
+    ok(/não invente a motivação dele/.test(comVoto),
+       'sem inventar a motivação: explicar o que o ponto decidia não é ler a cabeça de ninguém');
+    ok(/nem credite a um voto isolado o resultado da votação/.test(comVoto),
+       'e sem creditar a um voto isolado o resultado — o relatório não atribui causalidade');
+
+    // Só votação simbólica: não há voto dele a explicar, e pedir explicação de
+    // um voto que não existe é convite para o modelo inventar um.
+    const semVoto = chamar('dfsPrompt', { ...base,
+      itens: [{ objeto: 'Votação da Redação Final.', voto: null, simples: null }] }).replace(/\s+/g, ' ');
+    ok(!/DIGA POR QUE AQUELE VOTO IMPORTOU/.test(semVoto),
+       'sem voto nominal nenhum, o pedido NÃO aparece — não há voto dele para explicar');
+  }
+
   console.log('\n== falhas não viram defesa ==');
   {
     const linhas = [item('v1', 'Votação da Redação Final.', 'Sim')];
