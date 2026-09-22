@@ -284,13 +284,15 @@ merito.forEach((p, i) => {
     await av('prdConsultar()');
   }
 
-  console.log('\n== o filtro de categorias ==');
+  console.log('\n== o filtro de categorias, no resultado ==');
   {
-    const marcar = (k, v) => {
-      const i = document.querySelector(`#prdGrupos input[value="${k}"]`);
-      if (v) i.setAttribute('checked', ''); else i.removeAttribute('checked');
-      i.checked = v;
-      i.dispatchEvent(new Event('change', { bubbles: true }));
+    const escolher = k => {
+      const sel = document.getElementById('prdCategoria');
+      for (const o of sel.querySelectorAll('option')) o.removeAttribute('selected');
+      const alvo = sel.querySelector(`option[value="${k}"]`);
+      alvo.setAttribute('selected', ''); alvo.selected = true;
+      sel.value = k;
+      sel.dispatchEvent(new Event('change', { bubbles: true }));
     };
     document.getElementById('prdAno').value = '';
     api.chamadas.length = 0;
@@ -298,71 +300,65 @@ merito.forEach((p, i) => {
     const cheio = av('prd.ultimo').todas.length;
     const chamadasDaConsulta = api.chamadas.length;
 
-    // As caixas saem da taxonomia, não de uma lista escrita no HTML.
-    const cxs = [...document.querySelectorAll('#prdGrupos input')].map(i => i.getAttribute('value'));
-    const grupos = av('PRD_GRUPOS.map(g => g.k)');
-    ok(cxs.join(',') === grupos.join(','),
-       `há uma caixa por grupo da taxonomia, na mesma ordem (${cxs.join(', ')})`);
-    ok(/\(\d+\)/.test(document.querySelector('#prdGrupos [data-n="merito"]').textContent),
-       'cada caixa mostra quantos existem naquela categoria');
+    // O filtro nasce DEPOIS da geração, dentro do resultado — é escolha de
+    // leitura, e antes de gerar não há o que escolher.
+    const sel = document.getElementById('prdCategoria');
+    ok(!!sel, 'o dropdown aparece no resultado');
+    let el = sel, pais = [];
+    while (el && el.parentNode) { el = el.parentNode; if (el.id) pais.push(el.id); }
+    ok(pais.includes('prdResultado'), 'dentro do resultado, e não nos campos da consulta');
 
-    // Filtrar é de EXIBIÇÃO: não pode custar uma nova consulta.
+    const vals = [...sel.querySelectorAll('option')].map(o => o.getAttribute('value'));
+    ok(vals[0] === '' && vals.slice(1).join(',') === av('PRD_GRUPOS.map(g => g.k)').join(','),
+       `"todas" primeiro, e depois uma opção por grupo da taxonomia (${vals.slice(1).join(', ')})`);
+    const textos = [...sel.querySelectorAll('option')].map(o => o.textContent.trim());
+    ok(/\(\d+\)$/.test(textos[1]),
+       `cada opção diz quantos há naquela categoria (${textos[1]})`);
+
+    // Trocar de categoria é redesenho: não pode custar uma nova consulta.
     api.chamadas.length = 0;
-    marcar('andamento', false);
-    marcar('outros', false);
+    escolher('relatoria');
     ok(api.chamadas.length === 0,
-       `desmarcar não chama a API de novo (${api.chamadas.length} chamadas, contra ${chamadasDaConsulta} da consulta)`);
+       `trocar de categoria não chama a API (${api.chamadas.length}, contra ${chamadasDaConsulta} da consulta)`);
 
     const u = av('prd.ultimo');
-    ok(u.todas.length === cheio - 220,
-       `o relatório encolhe para as categorias marcadas (${u.todas.length} de ${cheio})`);
+    const esperado = api.props.filter(p => av(`prdGrupoDe('${p.siglaTipo}')`) === 'relatoria').length;
+    ok(u.todas.length === esperado && u.todas.every(p => av(`prdGrupoDe('${p.siglaTipo}')`) === 'relatoria'),
+       `o relatório passa a mostrar só a categoria escolhida (${u.todas.length} de ${esperado})`);
     ok(u.parcial === true && u.colhidas === cheio,
-       'e guarda que é recorte, junto do total colhido — o documento precisa dizer as duas coisas');
-    const tela = document.getElementById('prdResultado').innerHTML;
-    ok(/Recorte por categoria/.test(tela) && /Requerimentos de andamento/.test(tela) === false,
-       'a tela declara o recorte e não mostra o cartão da categoria desmarcada');
+       'e guarda que é recorte, junto do total colhido — o documento precisa das duas coisas');
 
-    // O documento também.
+    const tela = document.getElementById('prdResultado').innerHTML;
+    ok(/<b>Recorte:<\/b> só Relatoria/.test(tela), 'a tela declara o recorte e nomeia a categoria');
+    ok(!/Requerimentos de andamento/.test(tela.replace(/<option[^>]*>[^<]*<\/option>/g, '')),
+       'e não mostra o cartão das categorias de fora — só no dropdown, que é a escolha');
+
+    // O documento sai igual.
     const pdf = av('prdHtmlPDF(null)').replace(/\s+/g, ' ');
     ok(/Este documento é um RECORTE/.test(pdf), 'o PDF avisa que é recorte');
     ok(new RegExp(`de um total de <b>${cheio}</b>`).test(pdf),
        'dizendo de que total ele saiu — sem isso o número pareceria a produção inteira');
-    ok(!/Requerimentos de andamento/.test(pdf), 'e não traz a categoria desmarcada');
+    ok(!/Requerimentos de andamento/.test(pdf), 'e não traz as categorias de fora');
 
-    // Nenhuma marcada: não se inventa relatório vazio.
-    for (const k of grupos) marcar(k, false);
-    ok(/Nenhuma categoria marcada/.test(document.getElementById('prdResultado').innerHTML),
-       'sem categoria nenhuma, a tela pede que se marque uma — não desenha relatório vazio');
-    ok(av('prd.ultimo') === null, 'e não deixa um "último" pela metade para o PDF exportar');
-
-    for (const k of grupos) marcar(k, true);
-    ok(av('prd.ultimo').todas.length === cheio, 'marcar tudo de volta devolve o relatório inteiro');
+    // Voltar para "todas" devolve o relatório inteiro.
+    escolher('');
+    ok(av('prd.ultimo').todas.length === cheio && av('prd.ultimo').parcial === false,
+       'voltar a "todas as categorias" devolve o relatório inteiro');
+    ok(!/<b>Recorte:<\/b>/.test(document.getElementById('prdResultado').innerHTML),
+       'e a ressalva de recorte some junto');
   }
   {
-    // Sem "mérito" marcado, ler a situação de cada matéria seria pago por nada.
-    // Mas marcar depois não pode deixar a seção sem o destino das matérias.
-    const marcar = (k, v) => {
-      const i = document.querySelector(`#prdGrupos input[value="${k}"]`);
-      if (v) i.setAttribute('checked', ''); else i.removeAttribute('checked');
-      i.checked = v;
-      i.dispatchEvent(new Event('change', { bubbles: true }));
-    };
-    marcar('merito', false);
-    api.chamadas.length = 0;
+    // Consulta nova não herda o filtro da anterior: o recorte era daquele
+    // relatório, e sair um relatório já filtrado sem ninguém ter pedido é a
+    // forma mais fácil de ler um número parcial como se fosse o total.
+    const sel = () => document.getElementById('prdCategoria');
+    const alvo = sel().querySelector('option[value="fiscal"]');
+    alvo.setAttribute('selected', ''); alvo.selected = true; sel().value = 'fiscal';
+    sel().dispatchEvent(new Event('change', { bubbles: true }));
+    ok(av('prd.ultimo').parcial === true, 'com a categoria escolhida, o relatório está recortado');
     await av('prdConsultar()');
-    const detalhe = api.chamadas.filter(c => /\/proposicoes\/\d+$/.test(c)).length;
-    ok(detalhe === 0, `sem "mérito" marcado, nenhuma situação é lida (${detalhe} chamadas de detalhe)`);
-    ok(av('prd.completo').detalhes === null,
-       'e o estado registra NÃO LIDO, que é diferente de lido e vazio');
-
-    marcar('merito', true);
-    await new Promise(r => setTimeout(r, 30));
-    ok(api.chamadas.filter(c => /\/proposicoes\/\d+$/.test(c)).length > 0,
-       'marcar "mérito" depois lê a situação naquele momento');
-    ok(av('prd.ultimo').destinoOrd.length > 0,
-       'e o destino das matérias aparece, em vez de a seção sair vazia');
-    for (const k of av('PRD_GRUPOS.map(g => g.k)')) marcar(k, true);
-    await av('prdConsultar()');
+    ok(av('prd.filtro') === '' && av('prd.ultimo').parcial === false,
+       'a consulta seguinte começa mostrando todas as categorias');
   }
 
   console.log('\n== o documento ==');
