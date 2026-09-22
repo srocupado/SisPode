@@ -50,8 +50,9 @@ const ctx = {
     // paginação de verdade: 100 por página, com links.next
     if ((m = u.match(/\/proposicoes\?idDeputadoAutor=(\d+)/))) {
       const pag = Number((u.match(/[?&]pagina=(\d+)/) || [])[1] || 1);
-      const ano = (u.match(/[?&]ano=(\d{4})/) || [])[1];
-      const todas = api.props.filter(p => !ano || String(p.ano) === ano);
+      // A API filtraria por `ano`; o relatório deixou de usar esse parâmetro,
+      // então o fake devolve tudo — e falha se alguém voltar a mandá-lo.
+      const todas = api.props.slice();
       const fatia = todas.slice((pag - 1) * 100, pag * 100);
       const temMais = todas.length > pag * 100;
       const base = u.replace(/[?&]pagina=\d+/, '');
@@ -79,8 +80,14 @@ const av = e => vm.runInContext(e, ctx);
 // 240 registros: 12 de mérito, 3 pareceres, 2 de fiscalização, 3 emendas,
 // 180 requerimentos de andamento e 40 documentos. A desproporção é o ponto.
 let id = 1000;
-const nova = (siglaTipo, ano, ementa) => {
-  const p = { id: ++id, siglaTipo, numero: id, ano, ementa: ementa || `Ementa de ${siglaTipo}.` };
+// A forma REAL da lista, medida em 22/09/2026: ela traz `dataApresentacao`, e
+// o campo `ano` vem ZERO numa fatia grande dos itens — de 13% a 28% da produção
+// de um deputado, concentrada em pareceres, substitutivos e emendas.
+// `anoReal` é o ano de apresentação; `ano` é o campo cru da API.
+const nova = (siglaTipo, ano, ementa, anoReal) => {
+  const a = anoReal || ano;
+  const p = { id: ++id, siglaTipo, numero: id, ano, ementa: ementa || `Ementa de ${siglaTipo}.`,
+              dataApresentacao: a ? `${a}-06-15T10:00` : null };
   api.props.push(p);
   return p;
 };
@@ -199,12 +206,76 @@ merito.forEach((p, i) => {
     api.derrubarDetalhe = null;
   }
 
-  console.log('\n== o filtro por ano ==');
+  console.log('\n== a taxonomia cobre o que a API realmente devolve ==');
   {
+    // As siglas abaixo foram COLHIDAS da produção real de três deputados da
+    // bancada em 22/09/2026, não inventadas. Seis delas caíam em "Documentos e
+    // processo interno — sem conteúdo legislativo próprio": chamar um Parecer
+    // às Emendas de Plenário ou um Voto em Separado de ofício sem conteúdo é
+    // errar na parte do trabalho que este relatório existe para mostrar.
+    const ESPERADO = {
+      PRL: 'relatoria',   // Parecer do Relator
+      PRLP: 'relatoria',  // Parecer Preliminar de Plenário
+      PRLE: 'relatoria',  // Parecer Preliminar às Emendas de Plenário
+      PEP: 'relatoria',   // Parecer às Emendas de Plenário
+      PPP: 'relatoria',   // Parecer Proferido em Plenário
+      PSS: 'relatoria',   // Parecer às Emendas ou ao Substitutivo do Senado
+      RDF: 'relatoria',   // Redação Final
+      EMR: 'relatoria',   // Emenda de Relator
+      SBR: 'relatoria',   // Subemenda de Relator
+      CVO: 'relatoria',   // Complementação de Voto
+      VTS: 'relatoria',   // Voto em Separado
+      SBT: 'texto',       // Substitutivo
+      ESB: 'texto',       // Emenda ao Substitutivo
+      SLD: 'texto',       // Sugestão de Emenda à LDO
+      EMC: 'texto', EMP: 'texto', DTQ: 'texto',
+      PL: 'merito', PEC: 'merito', PLP: 'merito', PDL: 'merito', PRC: 'merito',
+      RIC: 'fiscal', RCP: 'fiscal', PFC: 'fiscal',
+      REQ: 'andamento', RPD: 'andamento',
+      DOC: 'outros', PROC: 'outros', REC: 'outros',
+    };
+    let erros = 0;
+    for (const [sigla, grupo] of Object.entries(ESPERADO)) {
+      const achou = av(`prdGrupoDe('${sigla}')`);
+      if (achou !== grupo) { erros++; console.log(`  ✗ ${sigla} caiu em "${achou}", devia ser "${grupo}"`); }
+    }
+    ok(erros === 0, `as ${Object.keys(ESPERADO).length} siglas vistas na produção real caem no grupo certo`);
+
+    // E a designação não pode sair com "/0": a API manda ano 0 em parecer,
+    // substitutivo e emenda, e "PRL 3/0" não designa nada.
+    ok(av(`prdDesignacao({ siglaTipo: 'PRL', numero: 3, ano: 0, dataApresentacao: '2024-11-19T14:50' })`) === 'PRL 3/2024',
+       'com ano 0, a designação usa o ano de apresentação');
+    ok(av(`prdDesignacao({ siglaTipo: 'PL', numero: 12, ano: 2025, dataApresentacao: '2025-03-01T10:00' })`) === 'PL 12/2025',
+       'e com ano de verdade, usa o ano de verdade');
+    ok(av(`prdDesignacao({ siglaTipo: 'PRL', numero: 3, ano: 0, dataApresentacao: null })`) === 'PRL 3',
+       'sem nenhum dos dois, sai sem ano — em vez de "/0"');
+  }
+
+  console.log('\n== o filtro por ano vai pela DATA DE APRESENTAÇÃO ==');
+  {
+    // O defeito que isto guarda, medido em três deputados da bancada: o
+    // parâmetro `ano` da API descarta em silêncio os itens que vêm com ano 0 —
+    // de 13% a 28% da produção, e a relatoria quase inteira. Em 2025, Bruno
+    // Ganem tinha 79 pelo filtro da API e 130 pela data real.
     nova('PL', 2024, 'De outro ano.');
+    const parecer = nova('PRL', 0, 'Parecer do relator, apresentado em 2024.', 2024);
+    const subst = nova('SBT', 0, 'Substitutivo apresentado em 2024.', 2024);
+    const semData = nova('EMC', 0, 'Sem data na API.');
     document.getElementById('prdAno').value = '2024';
     await av('prdConsultar()');
-    ok(av('prd.ultimo').todas.length === 1, 'o ano filtra na origem, não na tela');
+    const u2024 = av('prd.ultimo');
+    ok(u2024.todas.length === 3,
+       `o recorte traz os 3 apresentados em 2024, e não só o que tem o campo ano (${u2024.todas.length})`);
+    const ids = u2024.todas.map(p => p.id);
+    ok(ids.includes(parecer.id) && ids.includes(subst.id),
+       'o parecer e o substitutivo com ano 0 ENTRAM — é a relatoria que o filtro antigo apagava');
+    ok(!ids.includes(semData.id), 'e o que não tem data nenhuma fica de fora');
+    ok(/1\s*\n?\s*proposição\(ões\) ficaram fora do recorte/.test(
+         document.getElementById('prdResultado').innerHTML.replace(/\s+/g, ' ')
+       ) || /ficaram fora do recorte/.test(document.getElementById('prdResultado').innerHTML),
+       'e a tela diz quantas ficaram de fora por falta de data, em vez de sumir com elas');
+    ok(!api.chamadas.some(c => /[?&]ano=/.test(c)),
+       'o parâmetro `ano` da API não é mais usado: é ele que descartava em silêncio');
     document.getElementById('prdAno').value = 'abc';
     await av('prdConsultar()');
     ok(/quatro dígitos/.test(document.getElementById('prdStatus').textContent),
