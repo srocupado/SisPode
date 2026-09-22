@@ -35,7 +35,8 @@ const mdl = { cfg: null, modelos: [], carregando: false };
 const mdlEl = {};
 
 function mdlPegarEl() {
-  for (const id of ['cvIaProvedor', 'cvIaModelo', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo']) {
+  for (const id of ['cvIaProvedor', 'cvIaModelo', 'cvIaTestar', 'cvIaEstado', 'cvIaCampo',
+                    'btn-config-ia', 'modalIa', 'modalIaFechar']) {
     mdlEl[id] = document.getElementById(id);
   }
   return !!mdlEl.cvIaModelo;
@@ -134,11 +135,22 @@ function mdlEstadoHtml(pid, modelo, cfg) {
 }
 
 function mdlPintarEstado() {
-  if (!mdlEl.cvIaEstado) return;
   const pid = mdlEl.cvIaProvedor ? mdlEl.cvIaProvedor.value : mdlProvedorAtual();
   // Opção vazia = automático: o que o analista precisa ler é o modelo que VAI
   // ser usado, e não a palavra "automático".
   const modelo = (mdlEl.cvIaModelo && mdlEl.cvIaModelo.value) || mdlModeloEfetivo();
+
+  // A engrenagem carrega o modelo em uso no seu próprio title: o modal fica
+  // fechado, e configuração que só se vê depois de abrir é configuração que o
+  // analista não sabe que existe.
+  const eng = mdlEl['btn-config-ia'];
+  if (eng && modelo) {
+    const s = mdlSelo(pid, modelo, mdl.cfg);
+    const marca = s ? (s.ok ? ' — busca na web testada' : ' — NÃO faz busca na web') : '';
+    eng.title = `Modelo de IA dos relatórios: ${modelo}${mdlModeloAtual() ? '' : ' (automático)'}${marca}`;
+  }
+
+  if (!mdlEl.cvIaEstado) return;
   mdlEl.cvIaEstado.innerHTML = mdlEstadoHtml(pid, modelo, mdl.cfg);
   if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.disabled = !modelo || !mdlChaveDe(pid, mdl.cfg) || mdl.carregando;
 }
@@ -277,6 +289,15 @@ async function mdlIniciar() {
   }
 
   if (mdlEl.cvIaTestar) mdlEl.cvIaTestar.addEventListener('click', mdlTestarBusca);
+
+  // A engrenagem abre e fecha o modal. Fechar pelo fundo e pelo Esc também,
+  // que é o que qualquer um tenta antes de procurar o ✕.
+  const modal = mdlEl.modalIa, botao = mdlEl['btn-config-ia'];
+  const abrir = v => { if (modal) modal.hidden = !v; };
+  if (botao) botao.addEventListener('click', () => abrir(true));
+  if (mdlEl.modalIaFechar) mdlEl.modalIaFechar.addEventListener('click', () => abrir(false));
+  if (modal) modal.addEventListener('click', e => { if (e.target === modal) abrir(false); });
+  document.addEventListener('keydown', e => { if (e.key === 'Escape' && modal && !modal.hidden) abrir(false); });
 
   await mdlCarregarModelos(mdlProvedorAtual());
 }
