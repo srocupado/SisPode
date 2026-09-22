@@ -1,0 +1,25 @@
+{
+ "area": "x-datas-numeros",
+ "arquivos": "todo o código que formata ou calcula data, prazo e valor",
+ "findings": [
+  {
+   "area": "x-datas-numeros",
+   "file": "pauta-parser.js",
+   "line": 388,
+   "severity": "alta",
+   "title": "Conversão de ano com 2 dígitos usa pivot fixo em 50, pode errar para anos futuros 2050-2099",
+   "summary": "A conversão de ano com 2 dígitos usa `parseInt(ano2dig, 10) > 50` como pivot. Isso significa anos 51-99 viram 1951-1999, mas em um contexto de pautas do Congresso, um ano \"50\" ou acima poderia representar 2050+, não 1950-1999. Se houver um apensado com ano \"51\" referindo-se a 2051, seria incorretamente convertido para 1951.",
+   "failure_scenario": "Um item de pauta contém \"Tendo apensado o PL 123/51\" onde 51 deveria ser 2051. O código converte para ano=\"1951\", exibindo \"PL 123/1951\" na análise de pauta, apresentando um projeto histórico de 73 anos atrás como dependência."
+  },
+  {
+   "area": "x-datas-numeros",
+   "file": "orcamento-notas.js",
+   "line": 1703,
+   "severity": "media",
+   "title": "Conversão de valor para bilhões não exibe unidade quando resultado é menor que 1000 milhões",
+   "summary": "A função `rotuloValorNota` não adiciona unidade quando o valor é menor que 1000 (milhões). O resultado fica \"100,0\" em vez de \"100,0 mi\", deixando a unidade implícita e ambígua na apresentação de valores orçamentários.",
+   "failure_scenario": "Uma cota individual de 40 milhões é exibida como \"40,0\" em lugar de \"40,0 mi\", podendo ser confundido com 40 reais ou 40 unidades indefinidas na nota técnica apresentada ao deputado."
+  }
+ ],
+ "cobertura": "Lido completamente pauta-parser.js, mpv.js, orcamento-ia.js, orcamento-notas.js, serie.js, votacao.js, emendas.js, comissoes.js, lideres.js, congresso.js, parecer-html.js e referências cruzadas em panel.js. Verificadas conversões de datas ISO/BR, cálculos de percentagem, conversões de moeda brasileira, manipulações de anos com 2 dígitos, comparações de datas como texto, prazos de emendas, e funções de cálculo de variação. Não identifiquei divisão por zero silenciosa, perda de dados críticos, vazamento de segredos, ou travamentos. A maioria do código de manipulação de datas e valores segue padrões seguros com validações apropriadas."
+}

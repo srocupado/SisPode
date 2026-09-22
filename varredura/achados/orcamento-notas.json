@@ -1,0 +1,52 @@
+{
+ "area": "orcamento-notas",
+ "arquivos": "orcamento-notas.js",
+ "findings": [
+  {
+   "area": "orcamento-notas",
+   "file": "orcamento-notas.js",
+   "line": 1050,
+   "severity": "critica",
+   "title": "aceitarTodasPropostas não verifica falha de preencherCampo",
+   "summary": "A função chama preencherCampo() em um loop, mas ignora o resultado { ok:false }. Se algum campo falhar (valor vazio, documento faltando), o erro é silencioso. A lista de propostas é limpada, render() renderiza sucesso, e salvarFicha() grava com apenas os que preencheram, mas o toast reporta que X campos foram preenchidos quando na verdade menos foram.",
+   "failure_scenario": "Usuária aceita 5 propostas de ficha. Uma tem valor vazio (erro de leitura de IA). preencherCampo falha silenciosamente para essa. estado.propostas.aceitas é limpo, tela renderiza dizendo que não há mais propostas, Firebase grava ficha com apenas 4 campos, e toast diz \"✓ 5 campos preenchidos(s)\". Assessoria vê sucesso mas 1 campo não foi realmente preenchido. Na próxima abertura, as 4 propostas aceitas não reaparecem porque foram limpas, e a 5ª também desaparece."
+  },
+  {
+   "area": "orcamento-notas",
+   "file": "orcamento-notas.js",
+   "line": 1481,
+   "severity": "critica",
+   "title": "Sobrescrita silenciosa de ficha em múltiplas abas com PUT",
+   "summary": "salvarFicha() usa método PUT que substitui toda a entrada no Firebase, sem merge. Se duas abas navegarem para a mesma tela simultaneamente, cada uma carrega a ficha, faz edições em paralelo e depois grava. A segunda PUT sobrescreve o trabalho da primeira aba, perdendo dados sem aviso.",
+   "failure_scenario": "Aba A e Aba B ambas abrem orcamento-notas com LOA 2026. Aba A preenche campo \"cota_individual_deputado\" com R$ 40 milhões e grava com PUT. Aba B preenche campo \"salario_minimo\" com R$ 1.412,00 e grava com PUT. Firebase recebe a segunda PUT que só contém salario_minimo, apagando silenciosamente o cota_individual_deputado que Aba A gravou."
+  },
+  {
+   "area": "orcamento-notas",
+   "file": "orcamento-notas.js",
+   "line": 1616,
+   "severity": "critica",
+   "title": "Conferência de ficha não persiste se Firebase offline",
+   "summary": "Na função conferirNormas, a conferência (que modifica ficha.valores[].conferencia) é feita em memória, depois await salvarFicha().catch(e => console.warn(...)) tenta gravar mas silencia erro. O mostrarToast(\"Ficha conferida: ...\") é executado de qualquer forma. Se Firebase estiver offline, o usuário vê sucesso mas a marca de conferência nunca é gravada no Firebase.",
+   "failure_scenario": "Firebase está offline. Usuária clica \"Conferir normas\", função extrai PDF, confere em memória, mostrarToast mostra \"Ficha conferida: 8 localizado(s), 1 divergente\". Mas salvarFicha() falha silenciosamente (console.warn). Na próxima tela, a conferência desaparece porque nunca foi gravada. O trabalho de análise (marcar quais valores estão no Manual) é perdido."
+  },
+  {
+   "area": "orcamento-notas",
+   "file": "orcamento-notas.js",
+   "line": 913,
+   "severity": "critica",
+   "title": "Leitura de cartilhas com toast de sucesso falso",
+   "summary": "A função resumirCartilha chama mostrarToast() reportando sucesso (linha 910-911), depois await salvarIA().catch(e => console.warn(...)) (linha 913). Se Firebase falhar, o catch silencia mas o toast já foi mostrado. Dados de IA (ações orçamentárias lidas da cartilha) não foram gravados no Firebase, mas usuária vê sucesso.",
+   "failure_scenario": "Firebase está offline. Usuária clica \"Ler cartilha X\" (22 páginas sobre Saúde), modelo lê e extrai 8 ações. mostrarToast mostra \"Cartilha X: 8 ações conferidas contra o texto\". Mas salvarIA() falha silenciosamente. Na próxima tela, as 8 ações desaparecem porque nunca foram gravadas, e a cartilha aparece como não lida."
+  },
+  {
+   "area": "orcamento-notas",
+   "file": "orcamento-notas.js",
+   "line": 572,
+   "severity": "alta",
+   "title": "Marca de leitura da Mensagem não persiste se Firebase falha",
+   "summary": "A função aplicarParametrosDaMensagem marca leitura (estado.ficha.leituraMensagem) na memória (linha 572), depois tenta salvarFicha().catch(e => console.warn(...)) (linhas 574, 585). Se Firebase falhar, a marca fica na memória mas nunca é gravada. Na próxima abertura, o sistema tenta ler a Mensagem de novo, gastando uma chamada de API desnecessária (27 MB de download).",
+   "failure_scenario": "Usuária clica \"Ler parâmetros da Mensagem\", sistema lê 260 páginas do PDF, extrai PIB/IPCA/Selic/câmbio/salário, grava os 5 parâmetros na ficha. mostrarToast mostra sucesso. Mas Firebase está offline e salvarFicha() falha silenciosamente. Na próxima abertura, a marca de leituraMensagem não existe em Firebase, e o sistema tenta ler de novo (outro download de 27 MB, outro gasto de tokens de IA desnecessário)."
+  }
+ ],
+ "cobertura": "Lido integralmente orcamento-notas.js (2244 linhas), e verificado ficha.js (225 linhas) e orcamento-ia.js (391 linhas) para entender as funções de conferência e preenchimento. Analisadas todas as chamadas a salvarFicha(), salvarIA(), preencherCampo(), conferirFicha() e os padrões de error handling com Firebase. Nenhuma outra parte do código foi deixada de lado - toda a lógica de persistência e conferência foi coberta."
+}

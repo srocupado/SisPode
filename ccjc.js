@@ -16,6 +16,7 @@ const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
 const ANTHROPIC_VER   = '2023-06-01';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
+const SIGLA_PODEMOS_CCJC = 'PODE';
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -307,12 +308,18 @@ async function buscarMetadadosTodos(projetos) {
         proj.idCamara       = dados.id;
         proj.ementa         = dados.ementa;
         proj.autores        = dados.autores;
+        proj.autoria        = dados.autoria;
         proj.statusApi      = dados.statusDesc;
         proj.urlInteiroTeor = dados.urlInteiroTeor || null;
       }
     } catch (e) {
       console.warn(`Erro ao buscar ${proj.chave}:`, e.message);
     }
+    // A relatoria vem da pauta (nome) + bancada do Podemos (uma chamada só,
+    // cacheada), então roda junto e não pesa: não depende do metadado acima e
+    // acontece mesmo que a busca da proposição tenha falhado.
+    try { proj.relatoria = await apurarRelatoria(proj); }
+    catch (e) { console.warn(`Relatoria de ${proj.chave} não apurada:`, e.message); proj.relatoria = null; }
   });
 }
 
@@ -331,22 +338,414 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
     if (resD.ok) detalhe = (await resD.json()).dados || item;
   } catch (_) {}
 
-  let autores = [];
-  try {
-    const resA = await fetch(`${API_BASE}/proposicoes/${item.id}/autores`);
-    if (resA.ok) {
-      const jA = await resA.json();
-      autores  = (jA.dados || []).slice(0, 3).map(a => a.nome).filter(Boolean);
-    }
-  } catch (_) {}
+  const apurada = await apurarAutoria(item.id);
 
   return {
     id:             item.id,
     ementa:         detalhe.ementa || item.ementa,
-    autores,
+    // `autores` continua sendo lista de NOMES: é o que o prompt da IA e o
+    // cabeçalho consomem. O juízo sobre o Podemos vai separado, em `autoria`.
+    autores:        apurada.nomes.slice(0, 3),
+    autoria:        apurada.autoria,
     statusDesc:     detalhe.statusProposicao?.descricaoSituacao || '',
     urlInteiroTeor: detalhe.urlInteiroTeor || null,
   };
+}
+
+// ============================================================
+//  AUTORIA DO PODEMOS
+// ============================================================
+// GÊMEO: a mesma apuração existe em analise.js (fetchAutoresProposicao /
+// fetchInfoDeputado, por volta da linha 900). São dois módulos que carregam
+// scripts diferentes — ccjc.html carrega só ccjc.js —, e a duplicação é
+// deliberada para não mexer no módulo de Plenário. Corrigiu aqui, confira lá.
+//
+// A regra que não pode se perder na cópia: falha de consulta NÃO é "não é do
+// Podemos". Fica marcada como autoria não verificada, e o badge diz isso —
+// senão a tela afirma o que não apurou.
+
+/** Cache por deputado. A FALHA não entra: a próxima apuração tenta de novo. */
+const _cacheDeputado = new Map();
+
+async function infoDeputado(idDep) {
+  if (_cacheDeputado.has(idDep)) return _cacheDeputado.get(idDep);
+  try {
+    const res = await fetch(`${API_BASE}/deputados/${idDep}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const us = (await res.json()).dados?.ultimoStatus || {};
+    const info = { nome: us.nome, siglaPartido: us.siglaPartido, siglaUf: us.siglaUf };
+    _cacheDeputado.set(idDep, info);
+    return info;
+  } catch (e) {
+    console.warn(`[ccjc] não consegui consultar o deputado ${idDep}:`, e.message);
+    return { falhou: true };
+  }
+}
+
+/**
+ * Autoria de uma proposição: nomes para exibir + juízo sobre o Podemos.
+ * Devolve { nomes, autoria: { podemos, principal, incerta, nomesPode } }.
+ * `incerta` = algum autor não pôde ser consultado e nenhum dos consultados é
+ * do Podemos — o caso em que a tela precisa se calar em vez de afirmar.
+ */
+async function apurarAutoria(idProp) {
+  let dados;
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${idProp}/autores`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    dados = (await res.json()).dados || [];
+  } catch (e) {
+    console.warn(`[ccjc] autoria de ${idProp} não apurada:`, e.message);
+    return { nomes: [], autoria: { podemos: false, principal: false, incerta: true, nomesPode: [] } };
+  }
+
+  const autores = [];
+  for (const a of dados) {
+    const m = String(a.uri || '').match(/\/deputados\/(\d+)/);
+    if (!m) { autores.push({ nome: a.nome, ordem: a.ordemAssinatura, isPodemos: false }); continue; }
+    const info = await infoDeputado(m[1]);
+    const falhou = !!info.falhou;
+    autores.push({
+      nome:       a.nome || info.nome,
+      ordem:      a.ordemAssinatura,      // 1 = 1º signatário (autor); >1 = coautor
+      isPodemos:  !falhou && info.siglaPartido === SIGLA_PODEMOS_CCJC,
+      incerta:    falhou,
+    });
+  }
+
+  const pode = autores.filter(a => a.isPodemos);
+  // Sem informação de ordem (dado antigo da API), trata como autoria principal.
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  return {
+    nomes: autores.map(a => a.nome).filter(Boolean),
+    autoria: {
+      podemos:   pode.length > 0,
+      principal: temOrdem ? pode.some(a => Number(a.ordem) === 1) : pode.length > 0,
+      incerta:   !pode.length && autores.some(a => a.incerta),
+      nomesPode: pode.map(a => a.nome).filter(Boolean),
+    },
+  };
+}
+
+// ============================================================
+//  APELIDO DA MATÉRIA (para o índice do PDF)
+// ============================================================
+// GÊMEO de promptApelido/gerarApelidoIA/apelidoFallback em analise.js (~4420).
+//
+// O índice lista "PL 1234/2026 (Cota de aprendizes para pessoas com
+// deficiência)". A chave sozinha não diz nada a quem bate o olho na pauta; a
+// ementa inteira não cabe numa linha de índice. O apelido é o meio-termo.
+//
+// Sem chave de IA o apelido não some: cai na primeira oração da ementa,
+// encurtada. O índice fica mais cru e continua servindo.
+
+/**
+ * Apelido de reserva, sem IA: primeira oração da ementa, encurtada.
+ *
+ * O fim de oração exige espaço (ou fim do texto) DEPOIS do ponto. Sem isso,
+ * "Altera a Lei nº 9.503, de 1997, que institui o Código de Trânsito…" virava
+ * o apelido "Altera a Lei nº 9": o ponto do milhar era lido como fim de frase,
+ * e é justamente em ementa que altera lei que isso acontece. (O gêmeo em
+ * analise.js corta com `split(/[.;]/)` e só escapa porque normaliza as
+ * referências antes — vale conferir lá um dia.)
+ */
+function apelidoFallbackCCJC(proj) {
+  const e = String(proj.ementa || '').replace(/\s+/g, ' ').trim();
+  if (!e) return '';
+  const fim = e.search(/[.;](?=\s|$)/);
+  const corte = (fim > 0 ? e.slice(0, fim) : e).trim();
+  const max = 60;
+  if (corte.length <= max) return corte.replace(/[\s,;.:-]+$/, '');
+  const c = corte.slice(0, max), sp = c.lastIndexOf(' ');
+  return (sp > max * 0.6 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
+}
+
+function promptApelidoCCJC(proj) {
+  const ementa = String(proj.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${proj.chave}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+}
+
+/**
+ * Garante `proj.apelido` em todos os projetos. Gera por IA quando há chave;
+ * senão, usa a reserva da ementa. O apelido já existente — inclusive o
+ * corrigido à mão pelo analista — nunca é sobrescrito.
+ */
+async function prepararApelidos(projetos, aoAndar) {
+  const pend = projetos.filter(p => !String(p.apelido || '').trim());
+  if (!pend.length) return;
+  if (!app.config?.apiKey) {
+    for (const p of pend) p.apelido = apelidoFallbackCCJC(p);
+    return;
+  }
+  let feitos = 0;
+  await Promise.all(pend.map(async p => {
+    try {
+      const t = await aiCall(promptApelidoCCJC(p));
+      p.apelido = String(t || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim() || apelidoFallbackCCJC(p);
+    } catch (e) {
+      // Apelido é acessório: falhar a chamada não pode impedir o PDF de sair.
+      console.warn(`Apelido de ${p.chave} por IA falhou (${e.message}); usando a ementa.`);
+      p.apelido = apelidoFallbackCCJC(p);
+    }
+    if (aoAndar) aoAndar(++feitos, pend.length);
+  }));
+}
+
+/** "PL 1234/2026 (apelido)" — o texto de cada linha do índice e do bloco. */
+function tituloComApelido(proj) {
+  const ap = String(proj.apelido || '').trim();
+  return proj.chave + (ap ? ` (${ap})` : '');
+}
+
+/**
+ * Sufixo de marcas na linha do índice: "— A, AP, R".
+ * A = autoria do Podemos · CA = coautoria · AP = autoria em apensada ·
+ * R = relatoria. Dúvida não vira marca: o índice é leitura de relance, e uma
+ * marca só significa alguma coisa se significar sempre a mesma.
+ */
+function sufixoMarcasIndice(proj) {
+  const tags = [];
+  if (proj.autoria?.podemos) tags.push(proj.autoria.principal ? 'A' : 'CA');
+  if ((proj.apensados?.lista || []).length) tags.push('AP');
+  if (proj.relatoria === 'pode') tags.push('R');
+  return tags.length ? ' — ' + tags.join(', ') : '';
+}
+
+// ============================================================
+//  RELATORIA DO PODEMOS
+// ============================================================
+// Aqui a CCJC NÃO pôde copiar o Plenário. Lá a função é uma linha, porque a
+// pauta de Plenário traz o partido do relator:
+//     function relatoriaPodemos(it) { return /\bPODE\b/i.test(it.relator?.partido); }
+// A pauta da CCJC traz só o NOME ("relator nome" do XML, ou item.relator.nome).
+//
+// Descobrir o partido pelo nome é adivinhação, e adivinhação por aproximação já
+// nos mordeu antes (votacao.js, onde a correção foi exigir partido E UF para
+// aceitar um casamento de nome). Aqui não há partido para conferir, então a
+// apuração vai pelo caminho inverso: baixa a bancada do Podemos — conjunto
+// pequeno e fechado — e procura o nome do relator lá dentro.
+//
+// A regra que vem com isso, e que é deliberada: NOME QUE NÃO CASA NÃO GERA
+// BADGE NENHUM. Nem "é do Podemos", nem "não é". Um relator do Podemos que a
+// pauta escreveu de forma diferente do cadastro apenas não recebe marca; o que
+// não acontece é a tela afirmar o contrário do verdadeiro.
+
+let _bancadaPode = null;   // Set de nomes normalizados, ou null se não apurada
+
+/** Tira acento, pontuação e caixa: "Delegado Pablo" e "DELEGADO PABLO" casam. */
+function _normNome(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-zA-Z\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Nomes da bancada do Podemos na Câmara, normalizados. Uma chamada por sessão.
+ * Devolve null quando a consulta falha — e null NÃO é "bancada vazia": é o que
+ * faz o badge se calar em vez de dizer que ninguém é do Podemos.
+ */
+async function bancadaPodemos() {
+  if (_bancadaPode !== null) return _bancadaPode;
+  try {
+    const res = await fetch(`${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS_CCJC}&ordem=ASC&ordenarPor=nome&itens=100`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const dados = (await res.json()).dados || [];
+    if (!dados.length) throw new Error('lista vazia');
+    const nomes = new Set();
+    for (const d of dados) {
+      if (d.nome) nomes.add(_normNome(d.nome));
+      // nomeEleitoral aparece em parte dos registros e é a grafia que a pauta
+      // costuma usar ("Delegado Pablo" em vez do nome civil).
+      if (d.nomeEleitoral) nomes.add(_normNome(d.nomeEleitoral));
+    }
+    _bancadaPode = nomes;
+  } catch (e) {
+    console.warn('[ccjc] bancada do Podemos não apurada:', e.message);
+    _bancadaPode = null;
+  }
+  return _bancadaPode;
+}
+
+/**
+ * Relatoria do projeto. Devolve 'pode' | 'fora' | null.
+ * null cobre os dois casos em que a tela precisa se calar: sem relator na
+ * pauta, ou bancada não apurada. 'fora' só sai quando a bancada foi lida e o
+ * nome não está nela.
+ */
+async function apurarRelatoria(proj) {
+  const nome = _normNome(proj.relator);
+  if (!nome) return null;
+  const banc = await bancadaPodemos();
+  if (!banc) return null;
+  return banc.has(nome) ? 'pode' : 'fora';
+}
+
+// ============================================================
+//  APENSADOS DO PODEMOS
+// ============================================================
+// GÊMEO de fetchApensados/resolverApensados em analise.js (~linha 950).
+//
+// Por que SOB DEMANDA, e não junto do resto: o custo por projeto é 1 chamada de
+// relacionadas + 1 detalhe por relacionada + a subida até a raiz da cadeia +
+// a autoria de cada apensada. Numa pauta de 30 projetos isso vira centenas de
+// chamadas antes de a tela abrir. Roda ao abrir o projeto, uma vez, e o
+// resultado fica no projeto (e na pauta salva).
+
+const _cacheDetalheProp = new Map();
+
+async function _detalheProp(id) {
+  if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
+  let d = null;
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${id}`);
+    if (res.ok) d = (await res.json()).dados || null;
+  } catch (_) { d = null; }
+  _cacheDetalheProp.set(id, d);
+  return d;
+}
+
+/**
+ * Apensadas de uma proposição. O endpoint /relacionadas mistura tudo e quase
+ * nunca traz o tipo de relação, então a marca confiável é o DETALHE de cada
+ * candidata: "Tramitando em Conjunto" + uriPropPrincipal. Como o apensamento
+ * pode ser em cadeia (A apensada a B, B à principal), sobe-se até a RAIZ de
+ * cada uma e só entram as que compartilham a raiz da nossa matéria.
+ */
+async function _apensadasDe(idProp) {
+  let relacionadas = [];
+  try {
+    const res = await fetch(`${API_BASE}/proposicoes/${idProp}/relacionadas`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    relacionadas = (await res.json()).dados || [];
+  } catch (e) {
+    throw new Error(`consulta de relacionadas falhou (${e.message})`);
+  }
+  if (!relacionadas.length) return [];
+
+  const idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
+  const raiz = async (id, nivel = 0) => {
+    if (nivel > 6) return id;
+    const pai = idDaUri((await _detalheProp(id))?.uriPropPrincipal);
+    return pai ? raiz(pai, nivel + 1) : id;
+  };
+
+  const raizAlvo = await raiz(Number(idProp));
+  const out = [];
+  for (const r of relacionadas) {
+    const d = await _detalheProp(r.id);
+    if (!d) continue;
+    const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
+    if (!d.uriPropPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
+    if (await raiz(r.id) !== raizAlvo) continue;
+    out.push({ id: r.id, siglaTipo: r.siglaTipo, numero: r.numero, ano: r.ano });
+  }
+  return out;
+}
+
+/**
+ * Apura as apensadas do projeto e quais são de autoria do Podemos.
+ * Grava em `proj.apensados` = { lista, falhou, motivo }. `falhou` é o que
+ * impede a ausência de badge de ser lida como "não há apensada do Podemos".
+ */
+async function apurarApensados(proj) {
+  if (!proj.idCamara) return;
+  if (proj.apensados && !proj.apensados.falhou) return;   // já apurado nesta pauta
+  try {
+    const aps = await _apensadasDe(proj.idCamara);
+    const doPode = [];
+    for (const ap of aps) {
+      const { autoria } = await apurarAutoria(ap.id);
+      if (autoria.podemos) doPode.push({ ...ap, nomes: autoria.nomesPode });
+    }
+    proj.apensados = { lista: doPode, falhou: false, motivo: '' };
+  } catch (e) {
+    proj.apensados = { lista: [], falhou: true, motivo: e.message };
+  }
+}
+
+/** Um badge por apensada do Podemos; um badge de aviso se a apuração falhou. */
+function badgesApensados(proj) {
+  const a = proj.apensados;
+  if (!a) return [];
+  if (a.falhou) {
+    return [{ cls: 'incerto', texto: 'Apensadas: não verificadas',
+              title: `Não consegui apurar as apensadas desta proposição — ${a.motivo}. Reabra o projeto para tentar de novo.` }];
+  }
+  return a.lista.map(ap => ({
+    cls: 'apens',
+    texto: `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}`,
+    title: ap.nomes?.length ? ap.nomes.join(', ') : 'Autoria do Podemos em proposição apensada',
+  }));
+}
+
+/** Badge de relatoria — só existe quando o relator é do Podemos. */
+function badgeRelatoria(proj) {
+  if (proj.relatoria !== 'pode') return null;
+  return { cls: 'rel', texto: 'R · Relatoria Podemos',
+           title: `Relator(a): ${proj.relator} — deputado(a) da bancada do Podemos` };
+}
+
+/**
+ * Marcas compactas para a LISTA lateral, que é estreita (a ementa já sai
+ * cortada em 65 caracteres). Só o que o líder procura de relance: a estrela da
+ * autoria do Podemos. "Não-Podemos" e "não verificada" não entram aqui — na
+ * lista, ausência de estrela não afirma nada, e o badge por extenso está no
+ * cabeçalho do projeto, a um clique.
+ */
+function marcasCompactas(proj) {
+  const m = [];
+  const a = proj.autoria;
+  if (a?.podemos) {
+    const rot = a.principal ? 'Autoria' : 'Coautoria';
+    m.push(`<span class="ccjc-marca ccjc-marca--pode" title="${esc(rot)} do Podemos${a.nomesPode.length ? ': ' + esc(a.nomesPode.join(', ')) : ''}">★</span>`);
+  }
+  if (proj.relatoria === 'pode') {
+    m.push(`<span class="ccjc-marca ccjc-marca--rel" title="Relatoria do Podemos${proj.relator ? ': ' + esc(proj.relator) : ''}">R</span>`);
+  }
+  return m.join('');
+}
+
+/** Badge de autoria: ★ Autoria/Coautoria · não verificada · não-Podemos. */
+function badgeAutoria(proj) {
+  const a = proj.autoria;
+  if (!a) return null;
+  if (a.podemos) {
+    return { cls: 'pode', texto: `★ ${a.principal ? 'Autoria' : 'Coautoria'} Podemos`,
+             title: a.nomesPode.length ? a.nomesPode.join(', ') : 'Autoria do Podemos' };
+  }
+  if (a.incerta) {
+    return { cls: 'incerto', texto: 'Autoria: não verificada',
+             title: 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Recarregue a pauta para tentar de novo.' };
+  }
+  return { cls: 'neutro', texto: 'Autoria: não-Podemos', title: '' };
+}
+
+/**
+ * Os badges do projeto, por extenso, para o cabeçalho e para o PDF. Ficam
+ * SEMPRE fora do texto da nota: a nota é redação de IA e o badge é fato
+ * apurado na API da Câmara — misturados, o leitor perde a fronteira entre o
+ * que foi verificado e o que o modelo escreveu.
+ */
+function htmlBadgesProjeto(proj) {
+  const bs = [badgeAutoria(proj), badgeRelatoria(proj), ...badgesApensados(proj)].filter(Boolean);
+  if (!bs.length) return '';
+  return bs.map(b => `<span class="ccjc-badge ccjc-badge--${b.cls}"${b.title ? ` title="${esc(b.title)}"` : ''}>${esc(b.texto)}</span>`).join('');
+}
+
+/**
+ * Os mesmos badges, para o PDF. No papel entram só os POSITIVOS — autoria,
+ * coautoria, relatoria e apensada do Podemos. "Não-Podemos" e "não verificada"
+ * são estados da tela, para o analista decidir se refaz a apuração; no
+ * documento que circula, marca de ausência vira ruído em toda página.
+ */
+function badgesImpressao(proj) {
+  const bs = [badgeAutoria(proj), badgeRelatoria(proj), ...badgesApensados(proj)]
+    .filter(b => b && (b.cls === 'pode' || b.cls === 'rel' || b.cls === 'apens'));
+  if (!bs.length) return '';
+  return `<div class="pi-badges">${bs.map(b => `<span class="pi-badge pi-badge--${b.cls}">${escHtml(b.texto)}</span>`).join('')}</div>`;
 }
 
 async function buscarTramitacoes(idCamara) {
@@ -1181,7 +1580,12 @@ function splitArgumentos(texto) {
   const favorIdx = texto.search(/ARGUMENTOS FAVORÁVEIS|FAVORÁVEIS À APROVAÇÃO/i);
   const contrIdx = texto.search(/ARGUMENTOS CONTRÁRIOS|CONTRÁRIOS À APROVAÇÃO/i);
 
-  if (favorIdx === -1 && contrIdx === -1) return [texto, ''];
+  // Sem nenhum dos dois cabeçalhos não há como saber o que é favorável e o que
+  // é contrário. Até 14/09/2026 o texto inteiro ia para "favoráveis", e o que
+  // era argumento CONTRA aparecia ao deputado sob o rótulo de argumento a
+  // favor. Agora o texto sai inteiro, sem rótulo (o terceiro elemento diz que
+  // a separação não foi possível).
+  if (favorIdx === -1 && contrIdx === -1) return ['', '', texto];
 
   let fav = '';
   let con = '';
@@ -1290,20 +1694,33 @@ async function analisarProjeto(proj) {
 
     // 3. Argumentos favoráveis e contrários (ancorados no texto integral)
     const textoArgs = await gerarArgumentos(proj, teorUrl);
-    const [fav, con] = splitArgumentos(textoArgs);
+    const [fav, con, semSeparacao] = splitArgumentos(textoArgs);
     proj.argumentosFavoraveis  = fav;
     proj.argumentosContrarios  = con;
+    // O modelo não marcou os lados: o texto fica num campo próprio, e a tela o
+    // mostra sem afirmar de que lado cada argumento está.
+    proj.argumentosSemSeparacao = semSeparacao || '';
 
     // 4. Conferência automática de referências citadas vs. texto-fonte (anti-alucinação).
     // Confere o conteúdo descritivo do projeto (resumo + argumentos) contra o
     // inteiro teor. Não bloqueia a análise — apenas sinaliza para revisão manual.
+    // Fonte ilegível NÃO vira aprovação: sem o texto-fonte, a conferência não
+    // aconteceu, e uma lista de suspeitas vazia seria indistinguível de "conferi
+    // e nada é suspeito" (varredura de 14/09/2026).
     try {
       const fonteTeor = await _textoFonteDeURL(teorUrl);
+      if (!fonteTeor || fonteTeor.length < 100) throw new Error('texto-fonte vazio ou curto demais');
       proj.refsSuspeitas = _validarReferencias(
         `${proj.resumoOriginal || ''}\n${fav || ''}\n${con || ''}`,
         fonteTeor,
       );
-    } catch (_) { proj.refsSuspeitas = []; }
+      proj.refsConferidas = true;
+    } catch (e) {
+      proj.refsSuspeitas  = [];
+      proj.refsConferidas = false;
+      proj.refsMotivo     = `não foi possível ler o documento-fonte (${e.message})`;
+      console.warn(`[ccjc] conferência de referências não realizada em ${proj.chave || proj.id || ''}:`, e.message);
+    }
 
     // Metadados de geração: data e modelo usados (exibidos no cabeçalho).
     proj.analiseEm       = new Date().toISOString();
@@ -1616,14 +2033,17 @@ async function salvarPauta() {
   // no meio de um lote), sem mexer nos objetos em memória do lote em andamento.
   const snapshot = normalizarStatusProjetos(JSON.parse(JSON.stringify(app.pautaAtual)));
 
+  // Os dois destinos são independentes: no try único, falhar o armazenamento
+  // LOCAL pulava o Firebase e ainda anunciava "salva localmente" — mentira
+  // dupla (varredura de 14/09/2026).
+  let okLocal = true, okRemoto = true, erroRemoto = '';
+  try { await localSalvar(snapshot); } catch (_) { okLocal = false; }
+  try { await fbSalvarPauta(snapshot); } catch (e) { okRemoto = false; erroRemoto = e.message; }
   try {
-    await localSalvar(snapshot);
-    await fbSalvarPauta(snapshot);
-    mostrarToast('Pauta salva com sucesso!', 'sucesso');
-    carregarHistorico();
-  } catch (_) {
-    await localSalvar(snapshot);
-    mostrarToast('Firebase indisponível. Pauta salva localmente.', 'aviso');
+    if (okLocal && okRemoto)      { mostrarToast('Pauta salva com sucesso!', 'sucesso'); carregarHistorico(); }
+    else if (okRemoto)            { mostrarToast('Salva no Firebase; o armazenamento local do navegador falhou.', 'aviso'); carregarHistorico(); }
+    else if (okLocal)             mostrarToast(`Firebase indisponível (${erroRemoto}). Pauta salva só neste navegador.`, 'aviso');
+    else                          mostrarToast(`NÃO foi possível salvar: nem no navegador nem no Firebase (${erroRemoto}).`, 'erro');
   } finally {
     btn.disabled  = false;
     btn.innerHTML = `<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> Salvar`;
@@ -1642,6 +2062,11 @@ function coletarEdicoesAtivas() {
 
   const con = document.getElementById('campo-argumentos-con');
   if (con) proj.argumentosContrarios = con.value;
+
+  // O apelido corrigido à mão vale mais que o da IA: prepararApelidos só
+  // preenche o que está vazio, então o que o analista escreveu aqui permanece.
+  const ap = document.getElementById('campo-apelido');
+  if (ap) proj.apelido = ap.value.trim();
 
   (proj.comissoes || []).forEach((com, i) => {
     const el = document.getElementById(`campo-comissao-${i}`);
@@ -1693,21 +2118,73 @@ async function restaurarPauta(id) {
 // ============================================================
 //  GERAÇÃO DE PDF (impressão via nova janela)
 // ============================================================
-function gerarPDF() {
+async function gerarPDF() {
   if (!app.pautaAtual) { mostrarToast('Nenhuma pauta carregada.', 'aviso'); return; }
   coletarEdicoesAtivas();
 
-  const html = gerarHTMLImpressao(app.pautaAtual);
-  const win  = window.open('', '_blank', 'width=960,height=720');
+  // A janela abre AGORA, dentro do gesto do clique: pop-up aberto depois de um
+  // await é bloqueado pelo navegador.
+  const win = window.open('', '_blank', 'width=960,height=720');
   if (!win) { mostrarToast('Permita pop-ups para gerar o PDF.', 'aviso'); return; }
-  win.document.write(html);
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
+    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando os apelidos e montando o índice…</body></html>');
   win.document.close();
-  win.focus();
-  setTimeout(() => win.print(), 800);
+
+  try {
+    await prepararApelidos(app.pautaAtual.projetos,
+      (f, t) => mostrarToast(`Gerando apelidos… ${f}/${t}`, 'info'));
+  } catch (e) { console.warn('Apelidos:', e.message); }
+  if (win.closed) return;
+
+  const logo = await carregarLogoCCJC();
+  if (win.closed) return;
+
+  win.document.open();
+  win.document.write(gerarHTMLImpressao(app.pautaAtual, logo));
+  win.document.close();
+
+  // Paged.js pagina e resolve os nº de página do índice (target-counter). Antes
+  // havia um setTimeout(print, 800) fixo — palpite que, em pauta grande,
+  // mandava imprimir antes de a página terminar de montar.
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;            // sem a lib, imprime sem numeração no índice
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 30000);     // rede de segurança para pautas grandes
+  mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', 'info');
 }
 
-function gerarHTMLImpressao(pauta) {
-  const projetos = pauta.projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido');
+/** A logo institucional como data URL (nada de URL de extensão no popup). */
+async function carregarLogoCCJC() {
+  try {
+    const res = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (!res.ok) return null;
+    const blob = await res.blob();
+    return await new Promise((ok, err) => {
+      const fr = new FileReader();
+      fr.onloadend = () => ok(fr.result);
+      fr.onerror   = () => err(fr.error);
+      fr.readAsDataURL(blob);
+    });
+  } catch (e) {
+    console.warn('Logo não carregada:', e.message);
+    return null;
+  }
+}
+
+function gerarHTMLImpressao(pauta, logoDataUrl = null) {
+  // TODOS os projetos entram, analisados ou não — o mesmo que o módulo de
+  // Plenário faz. Um índice que omite em silêncio o que ainda não foi analisado
+  // conta meia-verdade sobre a pauta: quem lê não tem como saber que faltou.
+  // O que falta aparece dito, no lugar do texto da análise.
+  const projetos = pauta.projetos;
+  const ancora = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  const pendente = proj => proj.statusAnalise === 'erro'
+    ? `Falha ao gerar a análise${proj.erroAnalise ? `: ${escHtml(proj.erroAnalise)}` : '.'}`
+    : 'Análise não gerada.';
 
   const html = projetos.map((proj, idx) => {
     const numBase = idx + 1;
@@ -1740,16 +2217,18 @@ function gerarHTMLImpressao(pauta) {
     const secNum = (n) => comissoesHtml ? n : n - 1;
 
     return `
-      <div class="pi-projeto">
+      <div class="pi-projeto" id="${ancora(proj.chave)}">
         <div class="pi-header">
-          <span class="pi-chave">${escHtml(proj.chave)}</span>
+          <span class="pi-chave">${numBase}. ${escHtml(tituloComApelido(proj))}</span>
           ${proj.autores?.length ? `<span class="pi-autores">Autoria: ${escHtml(proj.autores.join(', '))}</span>` : ''}
+          ${proj.relator ? `<span class="pi-autores">Relator(a): ${escHtml(proj.relator)}</span>` : ''}
         </div>
+        ${badgesImpressao(proj)}
         <p class="pi-ementa">${escHtml(proj.ementa || '')}</p>
 
         <h3>1. Resumo do Projeto Original</h3>
         ${proj.urlInteiroTeor ? `<p class="pi-comissao-docs"><em>Documento analisado: <a href="${escHtml(proj.urlInteiroTeor)}" target="_blank" rel="noopener">Inteiro teor da proposição</a></em></p>` : ''}
-        <p>${escHtml(proj.resumoOriginal || 'Análise não disponível.')}</p>
+        <p${proj.resumoOriginal ? '' : ' class="pi-pendente"'}>${proj.resumoOriginal ? escHtml(proj.resumoOriginal) : pendente(proj)}</p>
 
         ${comissoesHtml ? `<h3>2. Tramitação nas Comissões</h3>${comissoesHtml}` : ''}
 
@@ -1767,6 +2246,27 @@ function gerarHTMLImpressao(pauta) {
       </div>`;
   }).join('');
 
+  // Legenda: só entra a marca que de fato aparece em algum projeto. Legenda
+  // que explica marca inexistente faz o leitor procurar o que não há.
+  const leg = [];
+  if (projetos.some(p => p.autoria?.podemos && p.autoria.principal))  leg.push('<b>A</b> = Autoria do Podemos');
+  if (projetos.some(p => p.autoria?.podemos && !p.autoria.principal)) leg.push('<b>CA</b> = Coautoria do Podemos');
+  if (projetos.some(p => (p.apensados?.lista || []).length))          leg.push('<b>AP</b> = Autoria do Podemos em apensada');
+  if (projetos.some(p => p.relatoria === 'pode'))                     leg.push('<b>R</b> = Relatoria do Podemos');
+
+  const indice = projetos.length ? `
+  <section class="pi-indice">
+    <h2>Índice</h2>
+    ${leg.length ? `<p class="pi-indice-legenda">${leg.join(' · ')}</p>` : ''}
+    <ul>
+      ${projetos.map((p, i) => `<li><a href="#${ancora(p.chave)}"><span class="t">${i + 1}. ${escHtml(tituloComApelido(p))}${escHtml(sufixoMarcasIndice(p))}</span><span class="ld"></span></a></li>`).join('')}
+    </ul>
+  </section>` : '';
+
+  const analisados = projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido').length;
+  const meta = `${projetos.length} projeto(s) · ${analisados} com análise`
+    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '');
+
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -1775,9 +2275,36 @@ function gerarHTMLImpressao(pauta) {
   <style>
     *  { box-sizing:border-box; margin:0; padding:0; }
     body { font-family:'Segoe UI',Arial,sans-serif; font-size:11pt; color:#1a1a1a; background:#fff; }
-    .pi-capa { background:#00A859; color:#fff; padding:22px 30px; }
-    .pi-capa h1 { font-size:17pt; font-weight:700; }
-    .pi-capa p  { font-size:9.5pt; opacity:.85; margin-top:4px; }
+    /* Cabeçalho institucional — o mesmo do módulo de Plenário, para os dois
+       documentos parecerem sair da mesma assessoria. */
+    .pi-cab { display:flex; align-items:center; gap:16px; padding:18px 30px 0; }
+    .pi-cab .pi-tit { flex:1; text-align:center; }
+    .pi-cab .pi-tit h1 { font-size:16pt; font-weight:700; color:#003c1f; }
+    .pi-cab .pi-tit p  { font-size:10pt; color:#003c1f; margin-top:2px; }
+    .pi-cab img { height:42px; }
+    .pi-cab .pi-sp { width:42px; }
+    .pi-rule { border-bottom:2px solid #00A859; margin:6px 30px 8px; }
+    .pi-meta { text-align:center; font-style:italic; font-size:9pt; color:#6b7280; margin-bottom:14px; }
+    /* Índice: o "ld" é a linha pontilhada e o nº de página vem do
+       target-counter, que só o paged.js resolve. Sem a lib, o índice sai
+       clicável e sem número — degradação aceitável, nunca página em branco. */
+    .pi-indice { break-after:page; page-break-after:always; }
+    .pi-indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
+    .pi-indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
+    .pi-indice-legenda b { font-style:normal; color:#006633; }
+    .pi-indice ul { list-style:none; }
+    .pi-indice li { font-size:12pt; margin-bottom:4px; }
+    .pi-indice a { display:flex; align-items:baseline; text-decoration:none; color:#003c1f; }
+    .pi-indice a .t { }
+    .pi-indice a .ld { flex:1 1 auto; border-bottom:1px dotted #b9c2cc; margin:0 5px; position:relative; top:-3px; }
+    .pi-indice a::after { content: target-counter(attr(href url), page); color:#444; white-space:nowrap; }
+    /* Badges do bloco: fato apurado, fora do texto da análise. */
+    .pi-badges { margin:4px 0 6px; display:flex; flex-wrap:wrap; gap:6px; }
+    .pi-badge { font-size:8.5pt; font-weight:600; padding:2px 8px; border-radius:999px; border:1px solid; }
+    .pi-badge--pode  { color:#006633; border-color:#9ed7b6; background:#eaf7f0; }
+    .pi-badge--rel   { color:#1d4ed8; border-color:#b6c9f5; background:#eef3fe; }
+    .pi-badge--apens { color:#0f766e; border-color:#a7d8d4; background:#e9f6f5; }
+    .pi-pendente { font-style:italic; color:#8a6d00; }
     .pi-body { padding:20px 30px 30px; }
     .pi-projeto { margin-bottom:18px; border-bottom:2px solid #e5e7eb; padding-bottom:18px; }
     .pi-projeto:last-child { border-bottom:none; }
@@ -1800,17 +2327,24 @@ function gerarHTMLImpressao(pauta) {
     .pi-footer { margin-top:28px; padding-top:10px; border-top:1px solid #e5e7eb; font-size:9pt; color:#9ca3af; text-align:center; }
     @media print {
       @page { margin:14mm; size:A4; }
-      .pi-capa, .pi-fav, .pi-con, .pi-comissao { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+      .pi-cab, .pi-fav, .pi-con, .pi-comissao, .pi-badge { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
     }
   </style>
 </head>
 <body>
-  <div class="pi-capa">
-    <h1>${escHtml(pauta.titulo)}</h1>
-    <p>Liderança do Podemos – Câmara dos Deputados &nbsp;·&nbsp; Gerado em ${new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'long', year: 'numeric' })}</p>
+  <div class="pi-cab">
+    <div class="pi-sp"></div>
+    <div class="pi-tit">
+      <h1>${escHtml(pauta.titulo)}</h1>
+      <p>Liderança do Podemos na Câmara dos Deputados</p>
+    </div>
+    ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="pi-sp"></div>'}
   </div>
+  <div class="pi-rule"></div>
+  <div class="pi-meta">${meta}</div>
   <div class="pi-body">
-    ${html || '<p>Nenhum projeto com análise disponível.</p>'}
+    ${indice}
+    ${html || '<p>Pauta vazia.</p>'}
     <div class="pi-footer">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
   </div>
 </body>
@@ -1902,6 +2436,7 @@ function renderizarListaProjetos() {
       <div class="prop-item-content">
         <span class="prop-item-badge">${esc(proj.chave)}</span>
         ${rf ? '<span class="prop-item-rf" title="Bloco de Redação Final">Red. Final</span>' : ''}
+        ${marcasCompactas(proj)}
         <span class="prop-item-ementa">${esc(ementa)}${(proj.ementa || '').length > 65 ? '…' : ''}</span>
       </div>
       <span class="ccjc-status-dot ${statusCls}" title="${proj.statusAnalise}">${statusIcon}</span>
@@ -1972,6 +2507,14 @@ function selecionarProjeto(chave) {
   });
 
   renderizarRevisao();
+
+  // Apensadas: cara demais para a listagem (ver apurarApensados), então é aqui
+  // que roda — uma vez por projeto, sem segurar a tela. Quando termina, só
+  // redesenha se o analista ainda estiver neste projeto: em pauta grande dá
+  // tempo de ele trocar de item antes de a consulta voltar.
+  apurarApensados(proj)
+    .then(() => { if (app.projetoAtivo === proj) renderizarRevisao(); })
+    .catch(e => console.warn('Apensadas não apuradas:', e.message));
 }
 
 function renderizarRevisao() {
@@ -2023,10 +2566,14 @@ function renderizarRevisao() {
       <div class="ccjc-revisao-badge-wrap">
         <div class="ccjc-revisao-badge">${esc(proj.chave)}</div>
         ${ehRedacaoFinal(proj) ? '<span class="prop-item-rf" title="Bloco de Redação Final — apreciação do texto final">Redação Final</span>' : ''}
+        ${htmlBadgesProjeto(proj)}
         ${proj.idCamara ? `<a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${proj.idCamara}" target="_blank" class="ccjc-link-camara" title="Ver ficha na Câmara">↗ Ficha da proposição</a>` : ''}
       </div>
       <div class="ccjc-revisao-info">
         <div class="ccjc-revisao-ementa">${esc(proj.ementa || 'Buscando dados na API...')}</div>
+        <label class="ccjc-apelido" title="Resumo curto da matéria, usado no índice do PDF. Gerado por IA na exportação — corrija aqui se ficar impreciso.">
+          Apelido: <input type="text" id="campo-apelido" maxlength="140" placeholder="gerado na exportação do PDF" value="${esc(proj.apelido || '')}">
+        </label>
         ${proj.autores?.length ? `<div class="ccjc-revisao-meta">Autoria: ${esc(proj.autores.join(', '))}</div>` : ''}
         ${proj.statusApi ? `<div class="ccjc-revisao-meta">Situação: ${esc(proj.statusApi)}</div>` : ''}
         ${proj.analiseEm ? `<div class="ccjc-revisao-meta" style="opacity:.75">Análise gerada em ${esc(_formatDataHora(proj.analiseEm))}${proj.analiseProvedor ? ` · ${esc(proj.analiseProvedor)}` : ''}${proj.analiseModelo ? ` / ${esc(proj.analiseModelo)}` : ''}</div>` : ''}
@@ -2046,6 +2593,11 @@ function renderizarRevisao() {
         ⚠ <strong>Conferência automática de referências:</strong> a IA citou ${proj.refsSuspeitas.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${proj.refsSuspeitas.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto-fonte do projeto. Confirme na fonte antes de usar — heurística sujeita a falso positivo: ${proj.refsSuspeitas.map(esc).join('; ')}.
       </div>` : ''}
 
+    ${proj.refsConferidas === false ? `
+      <div class="ccjc-aviso-refs" style="margin:8px 0 14px;padding:10px 12px;border-left:3px solid #b03030;background:#fdf3f3;border-radius:4px;font-size:13px;color:#5a2020">
+        ⚠ <strong>Conferência automática de referências NÃO realizada:</strong> ${esc(proj.refsMotivo || 'o documento-fonte não pôde ser lido')}. As leis e decretos citados no texto abaixo não foram conferidos contra a fonte — confira antes de usar.
+      </div>` : ''}
+
     ${analisando ? `<div class="ccjc-loading-overlay"><span class="loading-spinner"></span> Gerando análise com IA…</div>` : ''}
 
     <div class="ccjc-secao">
@@ -2058,6 +2610,17 @@ function renderizarRevisao() {
     </div>
 
     ${secComissoes}
+
+    ${proj.argumentosSemSeparacao ? `
+    <div class="ccjc-secao">
+      <div class="ccjc-secao-header">
+        <span class="ccjc-secao-titulo">${nSecArgs}. Argumentos (o modelo não separou favoráveis de contrários)</span>
+      </div>
+      <div style="margin:0 0 8px;padding:8px 10px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">
+        ⚠ O texto abaixo veio sem os títulos que separam os dois lados. Leia antes de usar: parte dele pode ser argumento contrário.
+      </div>
+      <textarea id="campo-argumentos-sem" class="ccjc-textarea" ${roDisabled}>${esc(proj.argumentosSemSeparacao)}</textarea>
+    </div>` : ''}
 
     <div class="ccjc-secao">
       <div class="ccjc-secao-header">

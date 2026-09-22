@@ -242,7 +242,15 @@ const itemMPV = (mpvRes, extra = {}) => ({
     // Ausência prevista é `notas` (console.debug); `avisos` fica só para o que
     // deu errado de fato, que é o que merece aparecer como erro.
     ok(s.avisos.length === 0, `MPV em tramitação não gera aviso algum (avisos=${JSON.stringify(s.avisos)})`);
-    ok(s.notas.length >= 1, `mas o diagnóstico continua registrado em notas (${s.notas.length})`);
+    // `notas` registra AUSÊNCIA PREVISTA. Exigir nota aqui era instantâneo do
+    // estado de 02/09/2026: quando a Comissão Mista concluiu e a MPV ganhou
+    // PLV, não sobrou ausência a registrar e a asserção quebrou sozinha —
+    // exatamente o que o comentário acima diz que não pode acontecer.
+    if (s.temPLV) {
+      ok(s.notas.every(a => !/^Nenhum/.test(a)), `com tudo em mãos, nada é declarado ausente (notas=${s.notas.length})`);
+    } else {
+      ok(s.notas.length >= 1, `sem PLV, o diagnóstico fica registrado em notas (${s.notas.length})`);
+    }
     if (!s.par && !s.plv) {
       ok(s.notas.some(a => /Sem PAR nem PLV entre as \d+ relacionadas na Câmara/.test(a)),
          `a Câmara é relatada numa linha só: "${s.notas.find(a => /relacionadas/.test(a))}"`);

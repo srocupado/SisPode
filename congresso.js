@@ -797,8 +797,9 @@ async function resumirRazoes(veto, { silencioso = false, render = true, force = 
       veto.razoesProjeto = limpo;
     } else {
       const grupos = [];
+      let interrompido = false;
       for (const lote of chunk(veto.dispositivos, CHUNK_DISP)) {
-        if (_abort.signal.aborted) break;
+        if (_abort.signal.aborted) { interrompido = true; break; }
         const arr = extrairJsonArray(await chamarIAtexto({ ...app.config, prompt: promptRazoesGrupos(veto, lote) }));
         for (const g of arr) {
           const codigos = (g.codigos || g.dispositivos || []).map(String);
@@ -807,7 +808,17 @@ async function resumirRazoes(veto, { silencioso = false, render = true, force = 
         }
       }
       if (!grupos.length) throw new Error('a IA não retornou razões reconhecíveis');
+      // Parar no meio NÃO pode substituir razões completas por razões parciais:
+      // ao contrário dos resumos de dispositivo, as razões não têm contador de
+      // restantes nem botão "Continuar", então a perda seria silenciosa e
+      // definitiva (varredura de 14/09/2026). Só grava o parcial quando não há
+      // nada gravado ainda; do contrário, mantém o que existe.
+      if (interrompido && veto.razoesGrupos && veto.razoesGrupos.length) {
+        if (!silencioso) mostrarToast(`Interrompido: as razões anteriores do VET ${veto.numero} foram mantidas.`, 'aviso');
+        return false;
+      }
       veto.razoesGrupos = grupos;
+      veto.razoesParciais = interrompido || undefined;
     }
     veto.resumoMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
     await persistirResumo(veto);
@@ -1819,7 +1830,15 @@ async function fbSalvarPlnPauta(id, pln) {
 async function fbApagarPauta(id) {
   const res = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/${id}.json`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
-  fetch(`${FIREBASE_URL}/${PAUTAS_META}/${id}.json`, { method: 'DELETE' }).catch(() => {});
+  // O espelho de índice é best-effort nas GRAVAÇÕES, mas na exclusão não pode
+  // ser: sobrando o registro em PAUTAS_META, a pauta reaparece na barra lateral
+  // sem conteúdo nenhum (varredura de 14/09/2026). Aqui se espera e se avisa.
+  try {
+    const r = await fetch(`${FIREBASE_URL}/${PAUTAS_META}/${id}.json`, { method: 'DELETE' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  } catch (e) {
+    mostrarToast(`Pauta apagada, mas o índice não: ela pode reaparecer vazia na lista (${e.message}).`, 'aviso');
+  }
 }
 
 async function carregarSessoes() {

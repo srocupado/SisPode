@@ -679,9 +679,13 @@ function ehPDL(it) {
   return it.tipoCategoria === 'projeto' && (it.sigla === 'PDL' || it.sigla === 'PDC');
 }
 // Subtipo do PDL, derivado da ementa, para ajustar a ênfase da nota técnica.
+// A forma do verbo sustar vai delimitada dos dois lados: "\bsust[ae]" casava
+// "desenvolvimento SUSTEntável" e "SUSTAbilidade", e um PDL que aprova acordo
+// internacional saía com o prompt inteiro de sustação de ato do Executivo.
+const RE_SUSTACAO = /\bsust(?:a|ar|am|ou|ando|ad[oa]s?)\b|\bsusta[çc][ãa]o\b/;
 function subtipoPDL(it) {
   const e = (it.ementa || '').toLowerCase();
-  if (/\bsust[ae]|sustaç|susta\s+os\s+efeitos/.test(e)) return 'sustacao';
+  if (RE_SUSTACAO.test(e)) return 'sustacao';
   if (/acordo|tratado|conven[çc][ãa]o|protocolo|ato\s+internacional/.test(e)) return 'tratado';
   if (/outorg|concess|permiss|radiodifus|retransmiss|r[áa]dio|televis/.test(e)) return 'outorga';
   return 'generico';
@@ -757,6 +761,9 @@ async function enriquecerItem(it) {
     it.enriquecimento.autores = autores;
     const podeAut = autores.filter(a => a.isPodemos);
     it.enriquecimento.autoriaPodemos = podeAut.length > 0;
+    // Nenhum autor do Podemos, mas algum não pôde ser consultado: o card diz
+    // "não verificada" em vez de afirmar "não-Podemos".
+    it.enriquecimento.autoriaIncerta = !podeAut.length && autores.some(a => a.autoriaIncerta);
     // Distingue autor principal (1º signatário, ordemAssinatura = 1) de coautor
     // (assina depois). Sem info de ordem (dados antigos), mantém o comportamento
     // antigo (autor).
@@ -899,6 +906,9 @@ async function fetchAutoresProposicao(idProp) {
     if (m) {
       const idDep = m[1];
       const info  = await fetchInfoDeputado(idDep);
+      // Falha na consulta NÃO é "não é do Podemos": fica registrada como
+      // autoria não verificada, para o card não afirmar o que não apurou.
+      const falhou = !!(info && info.falhou);
       out.push({
         idDeputado: idDep,
         nome:       a.nome || info?.nome,
@@ -907,7 +917,8 @@ async function fetchAutoresProposicao(idProp) {
         tipo:       a.tipo,
         ordem:      a.ordemAssinatura,   // 1 = 1º signatário (autor principal); >1 = coautor
         proponente: a.proponente,
-        isPodemos:  (info?.siglaPartido === SIGLA_PODEMOS),
+        isPodemos:  (!falhou && info?.siglaPartido === SIGLA_PODEMOS),
+        autoriaIncerta: falhou,
       });
     } else {
       out.push({ nome: a.nome, tipo: a.tipo, ordem: a.ordemAssinatura, proponente: a.proponente, isPodemos: false });
@@ -929,8 +940,11 @@ async function fetchInfoDeputado(idDep) {
     state.cacheAutoria.set(idDep, info);
     return info;
   } catch (e) {
-    state.cacheAutoria.set(idDep, null);
-    return null;
+    // Um 429 ou 5xx transitório num único deputado não pode contaminar a
+    // sessão inteira: a falha NÃO é cacheada (a próxima geração tenta de novo)
+    // e volta marcada, para o chamador não a ler como "não é do Podemos".
+    console.warn(`Não consegui consultar o deputado ${idDep}:`, e.message);
+    return { falhou: true };
   }
 }
 
@@ -1328,6 +1342,10 @@ function atualizarBadgesCard(it) {
   if (enr.autoriaPodemos) {
     flag.className = 'an-badge an-badge--pode';
     flag.textContent = `★ ${rotuloAutoriaPodemos(it)} Podemos`;
+  } else if (enr.autoriaIncerta) {
+    flag.className = 'an-badge an-badge--neutro';
+    flag.textContent = 'Autoria: não verificada';
+    flag.title = 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Gere de novo para tentar outra vez.';
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
@@ -1888,6 +1906,12 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       }
     }
 
+    // Última barreira antes de gravar: nota vazia NÃO é nota. O cliente de IA
+    // já converte resposta sem texto em erro; isto cobre qualquer caminho que
+    // chegue aqui com texto em branco, para não salvar no Firebase (e exportar
+    // no PDF) um item que parece analisado e está vazio.
+    if (!markdown || !markdown.trim()) throw new Error('O provedor devolveu uma análise vazia. Nada foi salvo — tente de novo.');
+
     const refsSuspeitas = [
       ...await calcularRefsSuspeitas(markdown, pdfBuffers),
       ...await calcularEmendasSuspeitas(markdown, docs, pdfBuffers),
@@ -1980,12 +2004,16 @@ ${trecho}
 function costurarContinuacao(parcial, continuacao) {
   if (!continuacao) return parcial;
   const c = continuacao.trim();
-  // Une com um espaço/quebra dependendo do contexto. Evita duplicar se
-  // o modelo começou repetindo as últimas palavras.
-  const fimParcial = parcial.slice(-200).toLowerCase();
-  const inicioCont = c.slice(0, 200).toLowerCase();
-  // Se houver overlap longo, recorta o início da continuação
-  for (let n = 200; n >= 30; n -= 10) {
+  const fimParcial = parcial.slice(-400).toLowerCase();
+  const inicioCont = c.slice(0, 400).toLowerCase();
+  // Procura o MAIOR trecho repetido e o recorta. O passo de 10 que havia aqui
+  // só acertava quando a repetição tinha exatamente 30, 40, … 200 caracteres:
+  // em qualquer outro tamanho a comparação saía desalinhada e o trecho entrava
+  // duas vezes na nota (e o trim() acima desloca mais um caractere quando o
+  // modelo recomeça com espaço). Piso de 12 para não recortar por coincidência
+  // ("de acordo com a", "nos termos do").
+  const maxOverlap = Math.min(fimParcial.length, inicioCont.length);
+  for (let n = maxOverlap; n >= 12; n--) {
     if (fimParcial.endsWith(inicioCont.slice(0, n))) {
       return parcial + c.slice(n);
     }
@@ -2026,9 +2054,17 @@ async function completarAnalise(it) {
       ...await calcularRefsSuspeitas(markdownCompleto, pdfBuffers),
       ...await calcularEmendasSuspeitas(markdownCompleto, docs, pdfBuffers),
     ];
+    // Nota já editada está em `formato: 'html'`, e é o html que a tela, o PDF e
+    // o Word leem. Gravar só o markdown deixava a continuação invisível em toda
+    // parte — e como `truncada` virava false, o botão "Completar" sumia e a nota
+    // ficava truncada para sempre. Acrescenta ao html só o trecho novo,
+    // preservando a formatação que o analista editou.
+    const emHtml = notaEhHtml(it);
+    const trechoNovo = markdownCompleto.slice(it.analise.markdown.length);
     it.analise = {
       ...it.analise,
       markdown:   markdownCompleto,
+      ...(emHtml && trechoNovo.trim() ? { html: (it.analise.html || '') + renderMarkdown(trechoNovo) } : {}),
       truncada:   cont.truncated,
       refsSuspeitas,
       apensadosStatus: extrairStatusAcolhimento(markdownCompleto),
@@ -2137,6 +2173,16 @@ async function escolherDocumentos(it) {
   const docs = [];
 
   if (it.tipoCategoria === 'projeto') {
+    // Corrida ao gerar logo após importar (ou com a pauta recém-carregada do
+    // Firebase): a espera de 30 s em gerarAnaliseItem pode estourar antes de o
+    // enriquecimento chegar aos pareceres, que é sua última etapa. Sem isto o
+    // item caía no ramo final e a nota saía sobre o inteiro teor, declarando
+    // "Cenário 1 — sem parecer" quando havia PRLP/SBT-A. Resolve sob demanda,
+    // como já se faz com MPV, EMS/SSP e apensados.
+    if (!enr.pareceresPlenario && enr.idProposicao) {
+      try { enr.pareceresPlenario = await buscarPareceresPlenario(enr.idProposicao); }
+      catch (e) { console.warn('Falha ao buscar pareceres de plenário sob demanda:', e.message); }
+    }
     const par = enr.pareceresPlenario || {};
 
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
@@ -2188,10 +2234,20 @@ async function escolherDocumentos(it) {
       // parecer de mérito da Comissão Especial. Anexa o ÚLTIMO PRL (parecer do
       // relator) dessa comissão como documento operativo e a redação original
       // para o cotejo. O parecer de admissibilidade da CCJC entra adiante (no
-      // laço de pareceres das comissões). Sem PRL da Especial ainda (PEC em
-      // fase de admissibilidade), restam a CCJC e o inteiro teor.
+      // laço de pareceres das comissões).
+      // Sem PRL da Especial, o parecer pode ter sido proferido DIRETAMENTE EM
+      // PLENÁRIO — é o caso da PEC 45/2019 (reforma tributária), cuja página de
+      // pareceres só traz PRLP 1 a 3 e SBT 1, sem nenhum PRL da Comissão
+      // Especial. Até 14/09/2026 esse ramo descartava PRLP/PRLE e a nota saía
+      // sobre o texto original afirmando que não havia parecer. Só restando o
+      // inteiro teor é que a PEC está mesmo em fase de admissibilidade.
       if (pe) docs.push({ tipo: 'PRL_ESPECIAL', rotulo: rotuloPRLESP, url: pe.url });
       if (se) docs.push({ tipo: 'SBT_A_ESPECIAL', rotulo: rotuloSBTAESP, url: se.url });
+      if (!pe && !se) {
+        if (par.prlp) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
+        if (par.prle) docs.push({ tipo: 'PRLE', rotulo: rotuloPRLE, url: par.prle.url });
+        if (par.sbtA) docs.push({ tipo: 'SBT_A', rotulo: rotuloSBTA, url: par.sbtA.url });
+      }
       if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
     } else if (ehPDL(it)) {
       // ── Cenário 10 (PDL) ──────────────────────────────────────────────
@@ -2447,9 +2503,17 @@ function montarPrompt(it, docs = [], instrucoesExtra = '') {
   if (ehPDL(it)) return promptPDL(it, docs, instrucoesExtra);
 
   if (it.tipoCategoria === 'redacao_final') {
+    // A Redação Final pode não estar publicada (ou a ficha de tramitação pode
+    // não ter sido lida): nesse caso o seletor anexa o INTEIRO TEOR. O prompt
+    // tem de dizer isso — afirmar ao modelo que o anexo "é a redação final
+    // aprovada" quando é o texto original faz a nota descrever como consolidado
+    // um texto que ainda vai mudar.
+    const temRF = docs.some(d => d.tipo === 'REDACAO_FINAL');
     return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos na Câmara dos Deputados.
 
-Analise o documento anexo (Redação Final) referente à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+${temRF
+  ? `Analise o documento anexo (Redação Final) referente à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.`
+  : `O item está na pauta como REDAÇÃO FINAL, mas o documento da Redação Final NÃO foi localizado. O que segue anexo é o INTEIRO TEOR da proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}** — o texto original, que pode divergir do que será votado. Analise o que está anexo, deixe claro na primeira frase que a Redação Final não foi localizada e que a descrição vale para o texto original, e NÃO afirme que algum trecho é a redação final aprovada nem descreva ajustes redacionais que não pode ver.`}
 
 Ementa/descrição extraída da Pauta:
 "${(it.ementa || '').slice(0, 800)}"
@@ -2458,7 +2522,7 @@ ${contextoPodemos ? 'Contexto político:\n' + contextoPodemos + '\n' : ''}
 Produza uma **breve análise** em **Português do Brasil**, formato **Markdown**, em **parágrafos corridos** (sem listas com bullets, sem itens marcados com "-" ou "*"), com as seguintes seções (use exatamente esses títulos com "##"):
 
 ## Resumo da Redação Final
-Dois a três parágrafos descrevendo objetivamente o que o texto final consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos. Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.
+Dois a três parágrafos descrevendo objetivamente o que o texto consolida: o objetivo central da proposição, as principais regras/obrigações que ela cria, altera ou revoga (cite artigos, leis e decretos referenciados), quem é afetado e como, e prazos/regras de vigência se previstos.${temRF ? ' Atente para o fato de que esta é a redação final aprovada — destaque eventuais ajustes redacionais notáveis em relação ao que se esperava (substitutivos adotados, emendas incorporadas), se o documento permitir identificá-los.' : ' Abra o resumo registrando que o documento da Redação Final não foi localizado e que o texto descrito é o inteiro teor original.'}
 ${secaoApensados}
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
@@ -2876,6 +2940,12 @@ async function calcularEmendasSuspeitas(markdown, docs, pdfBuffers) {
 }
 
 function renderAnaliseCard(it) {
+  // O item ainda é da pauta aberta? Leitura no Firebase e geração por IA duram
+  // minutos, e a mesma proposição aparece em pautas de semanas diferentes: sem
+  // esta guarda, o resultado da pauta anterior era pintado no card homônimo da
+  // pauta nova (a checagem de card existente não pega isso, porque o card
+  // existe — é de outro item). Varredura de 15/09/2026.
+  if (!itemAindaAtivo(it)) return;
   const card     = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   if (!card) return;
   const btnGer   = card.querySelector('[data-role=btn-gerar]');
@@ -3535,9 +3605,22 @@ function renderNotaTela(md) {
 
 // Para o PDF: remove integralmente as linhas que contêm o marcador (o status de
 // acolhimento é sensível e não deve constar no documento distribuível).
+/**
+ * Tira o MARCADOR de acolhimento, preservando o texto da linha. O marcador é
+ * sensível e não pode circular; a frase que vem depois dele ("a ideia do
+ * apensado foi incorporada em parte: o art. 7º…") é justamente a avaliação que
+ * a Liderança usa. Até 14/09/2026 esta função apagava a LINHA inteira, e como
+ * o editor carrega o texto já sem ela e o autosave regrava o markdown a partir
+ * do editor, a avaliação sumia do Firebase de forma permanente na primeira
+ * edição da nota.
+ */
 function mdSemAcolhimento(md) {
   if (!md) return md || '';
-  return md.split('\n').filter(l => !RE_ACOLH_LINHA.test(l)).join('\n');
+  return md
+    .replace(new RegExp(RE_ACOLH.source, 'gi'), '')
+    .split('\n')
+    .map(l => l.replace(/^(\s*[-*]\s*)\s+/, '$1'))   // o marcador saía logo após o hífen da lista
+    .join('\n');
 }
 
 // ============================================================
@@ -6314,6 +6397,9 @@ const chaveParecer = it => `${state.pauta.id}__${it.chave}`;
  * desce do Firebase ao clicar.
  */
 function atualizarBotaoParecer(it, card) {
+  // Mesma guarda de renderAnaliseCard: sem `card` explícito, o seletor por
+  // chave acharia o card homônimo da pauta nova (varredura de 15/09/2026).
+  if (!card && !itemAindaAtivo(it)) return;
   const el = card || document.querySelector(`.an-card[data-chave="${it.chave}"]`);
   const btn = el?.querySelector('[data-role=btn-abrir-parecer]'), btnC = el?.querySelector('[data-role=btn-abrir-conferencia]');
   if (!btn) return;
@@ -6546,9 +6632,20 @@ async function gerarParecerEspecialista(it) {
     p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, pontos: (p.pontosDeAtencao || []).length };
     it.parecer = p;
     it.parecerMeta = p.meta;
-    await fetch(PARECER_PATH(chaveParecer(it)), {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
-    }).catch(e => console.warn('Firebase:', e.message));
+    // Um parecer custa de 7 a 12 minutos e centenas de milhares de tokens:
+    // falha de gravação NÃO pode passar como sucesso. Antes, o erro ia para o
+    // console, o toast dizia "gerado" e o documento sumia ao recarregar a pauta
+    // (varredura de 15/09/2026).
+    let salvoNoFirebase = true, erroSalvar = '';
+    try {
+      const r = await fetch(PARECER_PATH(chaveParecer(it)), {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(p),
+      });
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    } catch (e) {
+      salvoNoFirebase = false; erroSalvar = e.message;
+      console.warn('Firebase:', e.message);
+    }
     atualizarBotaoParecer(it);
 
     abrirParecerEspecialista(it);
@@ -6557,6 +6654,9 @@ async function gerarParecerEspecialista(it) {
       ? `Parecer gerado: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas. A conferência anotou ${pontos.length} ponto(s) de atenção (${pontos.map(x => x.codigo).join(', ')}) — veja no relatório de conferência.`
       : `Parecer gerado sem ressalvas na conferência: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas, ${p.chamadas.length} chamadas.`,
       pontos.length ? 'aviso' : 'sucesso');
+    if (!salvoNoFirebase) {
+      mostrarToast(`ATENÇÃO: o parecer NÃO foi salvo no Firebase (${erroSalvar}). Ele está aberto nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
+    }
 
   } catch (e) {
     if (!isAbortError(e)) { console.error(e); mostrarToast('Falha ao gerar o parecer: ' + e.message, 'erro'); }

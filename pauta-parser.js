@@ -42,10 +42,31 @@ const TIPOS_PROPOSICAO = [
 ].map(t => ({
   ...t,
   // O prefixo aceita as variações de acento/cedilha que a extração produz.
+  padrao: prefixoTolerante(t.prefixo),
   regex: new RegExp(
-    t.prefixo.replace('À', '(?:À|A)').replace('Ç', '[ÇC]').replace('Ã', '[ÃA]').replace('Ó', '[ÓO]') +
-    `\\s+${NUM_ORD}\\s*[\\d.]+${SUF_LETRA}\\s*,?\\s*DE\\s+\\d{4}`, 'i'),
+    prefixoTolerante(t.prefixo) + `\\s+${NUM_ORD}\\s*[\\d.]+${SUF_LETRA}\\s*,?\\s*DE\\s+\\d{4}`, 'i'),
 }));
+
+/**
+ * Prefixo do tipo aceitando o que a extração de PDF faz com os acentos. A fonte
+ * embutida nem sempre traz os caracteres compostos, e "PROPOSTA DE EMENDA A
+ * CONSTITUICAO" aparece no lugar de "À CONSTITUIÇÃO" — com o prefixo cru, o
+ * cabeçalho não casava e a PEC sumia da pauta importada, em silêncio
+ * (varredura de 15/09/2026; antes disso o mesmo defeito engoliu as mensagens
+ * do Executivo da pauta de 01/09/2026).
+ */
+/** Texto sem acento, para comparar tipo extraído do PDF com a tabela. */
+function semAcento(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+}
+
+function prefixoTolerante(prefixo) {
+  return prefixo
+    .replace(/À/g, '(?:À|A)').replace(/Á/g, '(?:Á|A)').replace(/Â/g, '(?:Â|A)')
+    .replace(/Ã/g, '(?:Ã|A)').replace(/É/g, '(?:É|E)').replace(/Ê/g, '(?:Ê|E)')
+    .replace(/Í/g, '(?:Í|I)').replace(/Ó/g, '(?:Ó|O)').replace(/Ô/g, '(?:Ô|O)')
+    .replace(/Õ/g, '(?:Õ|O)').replace(/Ú/g, '(?:Ú|U)').replace(/Ç/g, '[ÇC]');
+}
 
 // pdf.js worker (só na extensão; no Node o bot fornece pdfjsLib sem chrome)
 if (typeof pdfjsLib !== 'undefined' && typeof chrome !== 'undefined') {
@@ -192,9 +213,13 @@ function parsearPautaExtenso(texto) {
     const ano    = rf[4];
     const bloco  = rf[5] || '';
 
-    // Mapeia o tipo por extenso → sigla (ex.: "PROJETO DE LEI" → PL).
-    const tipo = TIPOS_PROPOSICAO.find(t => t.prefixo === tipoExt)
-              || TIPOS_PROPOSICAO.find(t => tipoExt.startsWith(t.prefixo));
+    // Mapeia o tipo por extenso → sigla (ex.: "PROJETO DE LEI" → PL). A
+    // comparação ignora acento: a extração do PDF entrega "PROPOSTA DE EMENDA A
+    // CONSTITUICAO" tanto quanto a forma acentuada, e casar só a forma perfeita
+    // fazia a PEC entrar como PL (varredura de 15/09/2026).
+    const extNorm = semAcento(tipoExt);
+    const tipo = TIPOS_PROPOSICAO.find(t => semAcento(t.prefixo) === extNorm)
+              || TIPOS_PROPOSICAO.find(t => extNorm.startsWith(semAcento(t.prefixo)));
     const sigla = tipo ? tipo.sigla : 'PL';
 
     const autorMatch = bloco.match(/d[oa]s?\s+(?:Sr\.|Sra\.|Senhora?|Deputad[oa])[^,.]{0,80}/i);
@@ -287,7 +312,7 @@ function parsearPautaExtenso(texto) {
   // sensitive e ancorado ao início da linha evita falsos positivos quando o
   // mesmo nome aparece em title case dentro da ementa.
   const headerRegex = new RegExp(
-    `(?:^|\\n)\\s*(${tiposOrdenados.map(t => t.prefixo).join('|')})\\s+${NUM_ORD}\\s*([\\d.]+)${SUF_LETRA}\\s*,?\\s*DE\\s+(\\d{4})`,
+    `(?:^|\\n)\\s*(${tiposOrdenados.map(t => t.padrao).join('|')})\\s+${NUM_ORD}\\s*([\\d.]+)${SUF_LETRA}\\s*,?\\s*DE\\s+(\\d{4})`,
     'g'
   );
   const headers = [];
@@ -305,7 +330,11 @@ function parsearPautaExtenso(texto) {
 
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
-    const tipo = tiposOrdenados.find(t => t.prefixo === h.prefixo);
+    // Compara sem acento: o cabeçalho casado pode ter vindo do PDF sem crase,
+    // til ou cedilha, e exigir igualdade exata aqui anulava a tolerância do
+    // regex — o item era achado e logo descartado (varredura de 15/09/2026).
+    const prefNorm = semAcento(h.prefixo);
+    const tipo = tiposOrdenados.find(t => semAcento(t.prefixo) === prefNorm);
     if (!tipo) continue;
 
     const fim = i + 1 < headers.length ? headers[i + 1].idx : texto.length;
@@ -432,7 +461,10 @@ function parsearPautaCompacto(texto) {
   // Cabeçalhos de bloco detalhado: "[N] SIGLA NNN/AAAA [cód] STATUS"
   // PDC (Projeto de Decreto Legislativo, nomenclatura antiga) aparece no
   // dashboard ao lado de PDL — sem ele, esses decretos somem da importação.
-  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'PDC', 'MPV', 'PRC', 'PL'];
+  // MSC (Mensagem do Poder Executivo) entrou na tabela de tipos em 09/2026 para
+  // o formato extenso, mas faltava aqui: no dashboard, a mensagem era descartada
+  // sem aviso (varredura de 15/09/2026).
+  const SIGLAS = ['REQ', 'REC', 'PLP', 'PEC', 'PDL', 'PDC', 'MPV', 'MSC', 'PRC', 'PL'];
   const siglasAlt = SIGLAS.slice().sort((a, b) => b.length - a.length).join('|');
 
   // Região "REDAÇÕES FINAIS" (RICD, art. 83, I): os itens listados sob essa

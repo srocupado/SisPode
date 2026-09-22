@@ -1,0 +1,61 @@
+{
+ "area": "parecer-nucleo",
+ "arquivos": "pipeline-parecer.js, tese.js e gates.js",
+ "findings": [
+  {
+   "area": "parecer-nucleo",
+   "file": "gates.js",
+   "line": 159,
+   "severity": "alta",
+   "title": "Regex G3 substitui 'atingido' como nome, não só como veredito",
+   "summary": "A regex `/(?<!n[ãa]o )(?<!indícios de )\\batingido\\b/gi` substitui \"atingido\" em qualquer contexto, incluindo quando é um substantivo (pessoa afetada) ou adjetivo. Na seção de Avaliação, transforma \"o atingido pela medida\" em \"o indícios de atingimento pela medida\", corrompendo a gramática e alterando o significado.",
+   "failure_scenario": "Parecer menciona \"o atingido pela medida manifestou-se\" no texto. Após aplicarGates com nível B, o texto fica \"o indícios de atingimento pela medida manifestou-se\". Parecer apresenta informação corrompida à assessoria."
+  },
+  {
+   "area": "parecer-nucleo",
+   "file": "tese.js",
+   "line": 576,
+   "severity": "alta",
+   "title": "temContraria assume evidência sem validação se catalogo é null",
+   "summary": "A função `temContraria` retorna true para qualquer refutação com `evidencias_contrarias` listadas quando `catalogo` é null/falsy, sem validar que essas evidências existem no catálogo. Isso causaria remoção de afirmações da tese sem conferência.",
+   "failure_scenario": "Se por alguma razão catalogo é passado como null em aplicarContraditorio, e o modelo devolve veredito refutando T1 com evidencias_contrarias: [\"D999\"], a afirmação T1 é removida mesmo que D999 não existe no catálogo, porque temContraria retorna true sem validar."
+  },
+  {
+   "area": "parecer-nucleo",
+   "file": "pipeline-parecer.js",
+   "line": 222,
+   "severity": "media",
+   "title": "Regex de URL aceita caracteres inválidos (> < \" etc)",
+   "summary": "A regex `/^https?:\\/\\/\\S+$/i` usado para validar fonte_url aceita qualquer caractere não-espaço, incluindo `>`, `<`, `\"`, `)`. URLs como `https://example.com\"` ou `https://example.com<script>` passam na validação e entram no parecer.",
+   "failure_scenario": "Modelo devolve fonte_url com aspas ou colchetes: `\"fonte_url\": \"https://example.com\\\"\"`. A regex valida, e a URL malformada é usada no relatório de experiência comparada ou jurisprudência."
+  },
+  {
+   "area": "parecer-nucleo",
+   "file": "tese.js",
+   "line": 563,
+   "severity": "media",
+   "title": "RE_ERRO_CONCRETO marca 'não sustenta' como erro concreto",
+   "summary": "A regex `/...n[ãa]o sustenta|n[ãa]o mostra|n[ãa]o cita.../i` em RE_ERRO_CONCRETO marca refutações contendo \"não sustenta\" como erro concreto, mesmo quando o motivo é que a afirmação não é suficiente para o objetivo, não que há erro numérico. Isso causa remoção incorreta de afirmações válidas.",
+   "failure_scenario": "Modelo refuta objetivo dizendo \"o número 1.234 é correto, mas apenas não sustenta o objetivo declarado\". A regex pega \"não sustenta\", marca como RE_ERRO_CONCRETO, e a afirmação é removida sem conferência numérica."
+  },
+  {
+   "area": "parecer-nucleo",
+   "file": "pipeline-parecer.js",
+   "line": 199,
+   "severity": "media",
+   "title": "Regex de número de norma pega apenas o primeiro se há múltiplas leis",
+   "summary": "A regex usada em artigosExtra procura por número de norma usando `exec()`, que retorna apenas a primeira ocorrência. Se um dispositivo lista \"art. 5º da lei 1.234/2000 e art. 10 da lei 1.235/2000\", apenas 1.234 é capturado, não 1.235.",
+   "failure_scenario": "Achado \"altera art. 5º da lei 1.235/2000 e art. 2º da lei 1.234/2000\" passa por artigosExtra, que extrai apenas o primeiro número (1.234 se cassar primeiro). Dossiê procura pelos artigos errados da lei errada."
+  },
+  {
+   "area": "parecer-nucleo",
+   "file": "gates.js",
+   "line": 139,
+   "severity": "media",
+   "title": "tituloAval não escapa caracteres especiais em regex",
+   "summary": "Na função aplicarGates, `tituloAval` é interpolado diretamente em uma regex sem escapar caracteres especiais. Se TITULOS.avaliacao tiver caracteres como `.` ou `()`, a regex falharia.",
+   "failure_scenario": "Se TITULOS.avaliacao fosse definido como \"A. Avaliação (política)\" em vez de \"Avaliação da política\", a regex construída teria `.` não escapado, causando pattern matching incorreto."
+  }
+ ],
+ "cobertura": "Lidos pipeline-parecer.js (312 linhas), tese.js (778 linhas completas), gates.js (300 linhas). Foco em conferência de dados, expressões regulares, validação de evidências, rebaixamentos de vereditos e tratamento de erros. Testei com Node.js 5 cenários específicos (G3 com nomes, temContraria sem catalogo, RE_EXTENSO, URL regex, RE_ERRO_CONCRETO). Não encontrei vazamento de credenciais, engolimento silencioso de erros críticos (exceto esperados), ou viagens infinitas. A maioria das defesas está em lugar apropriado; os achados listados são desvios específicos onde a regex ou lógica não valida o contexto corretamente antes de alterar ou remover informação."
+}

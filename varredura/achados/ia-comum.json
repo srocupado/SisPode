@@ -1,0 +1,34 @@
+{
+ "area": "ia-comum",
+ "arquivos": "ia-comum.js, mpv.js e pauta-parser.js",
+ "findings": [
+  {
+   "area": "ia-comum",
+   "file": "pauta-parser.js",
+   "line": 198,
+   "severity": "critica",
+   "title": "Tipo de proposição assume PL padrão sem normalizar acentos",
+   "summary": "Quando o PDF extrai \"PROPOSTA DE EMENDA A CONSTITUIÇÃO\" (sem til), o código não confere com \"PROPOSTA DE EMENDA À CONSTITUIÇÃO\" (com til) na linha 196-197, assume tipo padrão 'PL' em linha 198, e cataloga erroneamente a proposição.",
+   "failure_scenario": "Pauta PDF com emenda constitucional digitada/extraída sem til: \"PROPOSTA DE EMENDA A CONSTITUIÇÃO Nº 5, DE 2024\". O parser não encontra 'PEC', assume 'PL', e a análise registra como projeto de lei em vez de PEC."
+  },
+  {
+   "area": "ia-comum",
+   "file": "pauta-parser.js",
+   "line": 290,
+   "severity": "critica",
+   "title": "Regex de tipos não tolera variação de acentos em prefixos",
+   "summary": "A regex em linha 289-291 constrói alternation com prefixos de TIPOS_PROPOSICAO que contêm acentos (À, Ç, Ã, Ó). Se o PDF extrai sem esses acentos, a regex falha em silêncio e o item não é parseado, embora o comentário em linha 44-46 documente tolerância de acentos apenas no campo .regex nunca utilizado.",
+   "failure_scenario": "Pauta com \"PROPOSTA DE EMENDA A CONSTITUIÇÃO Nº 1\" extraída do PDF sem til. A regex linha 290 procura por \"PROPOSTA DE EMENDA À CONSTITUIÇÃO\" (com til) e não encontra. PEC inteira desaparece da pauta parseada sem erro."
+  },
+  {
+   "area": "ia-comum",
+   "file": "pauta-parser.js",
+   "line": 435,
+   "severity": "critica",
+   "title": "MSC (Mensagem do Poder Executivo) falta da lista SIGLAS em formato compacto",
+   "summary": "SIGLAS (linha 435) não inclui 'MSC', embora TIPOS_PROPOSICAO inclua 'MSC' e o teste de formato compacto (linha 91) reconheça 'MSC'. Quando o parser constrói siglasAlt em linha 436, MSC é excluído; portanto sumarioRegex (linha 457) e headerRegex (linha 472) não reconhecem cabeçalhos com MSC.",
+   "failure_scenario": "Dashboard da Liderança (formato compacto) com \"5 - MSC 85/2023 ... APROVADO\". O parser testa formato como compacto (linha 91 detecta MSC), mas depois sumarioRegex não encontra a MSC, não registra em ordemPorChave, e headerRegex também não confere. O item MSC nunca é parseado e desaparece da análise."
+  }
+ ],
+ "cobertura": "Li ia-comum.js completamente (629 linhas) — analisei cliente de IA com retry/streaming, tratamento de resposta sem texto, normalização de MDarkdown, utilitários de PDF/tela; não encontrei bugs críticos (fallbacks em linha 209 OpenAI são defensivos). Li mpv.js completamente (200 linhas) — analisei busca de documentos no Senado/Câmara; async/await está correto. Li pauta-parser.js completamente (728 linhas) — concentrei análise em parsing de tipos (linhas 28-48, 186-198, 248-251, 285-310, 435-475) e identifiquei os três bugs. Não explorei a fundo casos de apensados ou relatores, mas esses parecem ter lógica mais robusta com tolerância case-insensitive."
+}

@@ -12,7 +12,13 @@ const GEMINI_BASE   = 'https://generativelanguage.googleapis.com/v1beta/models';
 const FIREBASE_URL  = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const COD_ORGAO     = 180;
 
-const SITUACOES_INATIVAS = ['retirado', 'prejudicado', 'rejeitado', 'não admitido', 'nao admitido', 'inadmitido', 'não admitida', 'nao admitida'];
+// Situações em que o destaque NÃO está mais pendente de votação. "Aprovado" e
+// "mantido o texto" são resultados de votação já ocorrida e faltavam aqui: o
+// destaque continuava na aba de ativos com a etiqueta "Ativo" (e a cor de
+// concluído do mapa abaixo), e a assessoria preparava orientação para votação
+// que já tinha acontecido — varredura de 15/09/2026.
+const SITUACOES_INATIVAS = ['retirado', 'prejudicado', 'rejeitado', 'aprovado', 'mantido o texto',
+  'não admitido', 'nao admitido', 'inadmitido', 'não admitida', 'nao admitida'];
 
 const SITUACAO_CLASSES = {
   'retirado':        'status-retirado',
@@ -467,12 +473,14 @@ function registrarEventos() {
     });
 
   // Delegação de eventos: cards de destaque
+  // O card INATIVO também abre — em consulta. Enquanto ele não abria, o voto,
+  // a explicação e a orientação que a assessoria escreveu desapareciam no
+  // instante em que o destaque era votado: a situação virava "aprovado", o
+  // destaque saía dos ativos e o trabalho ficava sem como ser lido.
   document.getElementById('lista-destaques')
     .addEventListener('click', e => {
       const card = e.target.closest('.destaque-card');
-      if (card && !card.classList.contains('inativo')) {
-        abrirDestaque(parseInt(card.dataset.index));
-      }
+      if (card) abrirDestaque(parseInt(card.dataset.index));
     });
 
   // Delegação: botões dentro do modal de destaque (dinâmico)
@@ -1056,8 +1064,14 @@ function abrirDestaque(index) {
 
   app.destinqueAtivo = d;
   const body = document.getElementById('modal-destaque-body');
-  body.innerHTML = renderizarCardCompleto(d, app.proposicaoAtiva);
+  // Destaque encerrado (ou que saiu da página da Câmara) abre em CONSULTA: o
+  // que a assessoria escreveu continua legível depois da votação. Sem edição,
+  // porque a anotação de um destaque já votado é registro do que foi
+  // orientado, não rascunho — e sem edição não há autosave a registrar.
+  const somenteLeitura = !d.ativo;
+  body.innerHTML = renderizarCardCompleto(d, app.proposicaoAtiva, { somenteLeitura });
   document.getElementById('modal-destaque').style.display = 'flex';
+  if (somenteLeitura) return;
 
   const badge  = document.getElementById('badge-salvo');
   const sessao = app.sessaoAtual;
@@ -1098,7 +1112,7 @@ function abrirDestaque(index) {
   Object.values(campos).forEach(el => el?.addEventListener('input', agendarSalvamento));
 }
 
-function renderizarCardCompleto(d, prop) {
+function renderizarCardCompleto(d, prop, { somenteLeitura = false } = {}) {
   const votoSim    = esc(d.votoSim    || '');
   const votoNao    = esc(d.votoNao    || '');
   const explicacao = esc(d.explicacao || '');
@@ -1109,6 +1123,16 @@ function renderizarCardCompleto(d, prop) {
     ? `<div class="aviso-rf">⚠ Item de <b>Redação Final</b> (RICD, art. 83, I): apreciação do texto final já aprovado — não é votação de mérito de destaque.</div>`
     : '';
 
+  // O modo consulta diz POR QUE está fechado — o analista precisa saber se o
+  // destaque foi votado ou se apenas sumiu da página da Câmara.
+  const ro = somenteLeitura ? ' readonly' : '';
+  const ph = t => somenteLeitura ? '(não preenchido)' : t;
+  const avisoInativo = !somenteLeitura ? '' : d.naoLocalizado
+    ? `<div class="aviso-inativo">🔒 <b>Somente consulta.</b> Este destaque não apareceu na última atualização
+         da página da Câmara. O texto abaixo foi preservado como a assessoria o escreveu.</div>`
+    : `<div class="aviso-inativo">🔒 <b>Somente consulta.</b> Destaque encerrado${d.situacao ? ` — <b>${esc(String(d.situacao))}</b>` : ''}.
+         O texto abaixo é o registro do que a assessoria orientou e não é mais editável.</div>`;
+
   return `
   <div class="card-completo">
     <div class="card-completo-header">
@@ -1116,6 +1140,7 @@ function renderizarCardCompleto(d, prop) {
       <div class="dest-subtitulo">${d.numero} – ${d.autoria}</div>
     </div>
     ${avisoRF}
+    ${avisoInativo}
 
     <div class="card-completo-descricao">
       ${d.descricao || '–'}
@@ -1129,6 +1154,7 @@ function renderizarCardCompleto(d, prop) {
          </div>`
       : ''}
 
+    ${somenteLeitura ? '' : `
     <div class="ia-toolbar">
       <button id="btn-salvar-destaque" class="btn btn-outline btn-sm">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
@@ -1191,34 +1217,34 @@ function renderizarCardCompleto(d, prop) {
       </div>
     </div>
     `) : ''}
-
+    `}
 
     <div class="votos-grid">
       <div class="voto-sim">
         <div class="voto-label">Voto SIM</div>
-        <textarea id="campo-voto-sim" class="campo-editavel"
-          placeholder="Descreva o efeito do voto SIM...">${votoSim}</textarea>
+        <textarea id="campo-voto-sim" class="campo-editavel"${ro}
+          placeholder="${ph('Descreva o efeito do voto SIM...')}">${votoSim}</textarea>
       </div>
       <div class="voto-nao">
         <div class="voto-label">Voto NÃO</div>
-        <textarea id="campo-voto-nao" class="campo-editavel"
-          placeholder="Descreva o efeito do voto NÃO...">${votoNao}</textarea>
+        <textarea id="campo-voto-nao" class="campo-editavel"${ro}
+          placeholder="${ph('Descreva o efeito do voto NÃO...')}">${votoNao}</textarea>
       </div>
     </div>
 
     <div class="explicacao-section">
       <div class="explicacao-label">Explicação</div>
-      <textarea id="campo-explicacao" class="campo-editavel"
+      <textarea id="campo-explicacao" class="campo-editavel"${ro}
         style="min-height:90px; background:var(--cinza-bg);"
-        placeholder="Clique em 'Gerar Análise' ou escreva manualmente...">${explicacao}</textarea>
+        placeholder="${ph("Clique em 'Gerar Análise' ou escreva manualmente...")}">${explicacao}</textarea>
     </div>
 
     <div class="orientacao-section">
       <span class="orientacao-label">Orientação:</span>
-      <input id="campo-orientacao" class="orientacao-input" type="text"
-        placeholder="Ex: FAVORÁVEL, CONTRÁRIO, LIBERADO..."
+      <input id="campo-orientacao" class="orientacao-input" type="text"${ro}
+        placeholder="${ph('Ex: FAVORÁVEL, CONTRÁRIO, LIBERADO...')}"
         value="${orientacao}">
-      <span class="salvo-badge" id="badge-salvo">✓ Salvo</span>
+      ${somenteLeitura ? '' : '<span class="salvo-badge" id="badge-salvo">✓ Salvo</span>'}
     </div>
   </div>`;
 }
@@ -3329,10 +3355,10 @@ const MODULES = [
   },
   {
     id:     'aderencia',
-    titulo: 'Aderência ao Governo',
-    desc:   'Calcule o índice de aderência do partido às orientações do governo por período, com análise individual por deputado.',
+    titulo: 'Relatórios',
+    desc:   'Dois relatórios sobre votações do Plenário: a aderência do partido às orientações do governo por período, e como votou um deputado — de qualquer partido — numa proposição ou num intervalo de datas.',
     cor:    'teal',
-    icone:  '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>',
+    icone:  '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
     acao:   abrirAderencia,
   },
   {

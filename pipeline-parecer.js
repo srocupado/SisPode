@@ -219,7 +219,7 @@ async function gerarParecer(ctx, io) {
     try {
       const rc = await chamar('comparada', R.promptComparada({ identificacao: ctx.identificacao, ementa: ctx.ementa, regra: ficha.regraProposta?.texto || ficha.dispositivo || '' }), [], { web: true });
       const brutoC = extrairJSONParecer(rc.text);
-      if (Array.isArray(brutoC)) comparada = brutoC.filter(c => c && c.lugar && c.medida && c.resultado && /^https?:\/\/\S+$/i.test(String(c.fonte_url || '')) && c.fonte_nome).slice(0, 6)
+      if (Array.isArray(brutoC)) comparada = brutoC.filter(c => c && c.lugar && c.medida && c.resultado && /^https?:\/\/[^\s"'<>()[\]{}|\\^`]+$/i.test(String(c.fonte_url || '')) && c.fonte_nome).slice(0, 6)
         .map(c => ({ lugar: String(c.lugar), quando: c.quando ? String(c.quando) : '', medida: String(c.medida), o_que_se_mediu: c.o_que_se_mediu ? String(c.o_que_se_mediu) : '', resultado: String(c.resultado), fonte_nome: String(c.fonte_nome), fonte_url: String(c.fonte_url) }));
     } catch (e) { conf.recusados.push({ lente: 'X', pergunta: 'comparada', motivo: `busca de experiência comparada falhou: ${e.message}` }); }
   }
@@ -235,7 +235,7 @@ async function gerarParecer(ctx, io) {
       const disputas = conf.aprovados.filter(a => a.pergunta === 'disputa').map(a => a.achado);
       const re = await chamar('externo', R.promptExterno({ identificacao: ctx.identificacao, ementa: ctx.ementa, regra: ficha.regraProposta?.texto || ficha.dispositivo || '', normas: (dossie.normas || []).map(n => n.literal).join('; '), disputas }), [], { web: true });
       const b = extrairJSONParecer(re.text) || {};
-      const comFonte = (lista, obrig) => (Array.isArray(lista) ? lista : []).filter(x => x && obrig.every(k => x[k]) && /^https?:\/\/\S+$/i.test(String(x.fonte_url || '')) && x.fonte_nome);
+      const comFonte = (lista, obrig) => (Array.isArray(lista) ? lista : []).filter(x => x && obrig.every(k => x[k]) && /^https?:\/\/[^\s"'<>()[\]{}|\\^`]+$/i.test(String(x.fonte_url || '')) && x.fonte_nome);
       jurisprudencia = comFonte(b.jurisprudencia, ['tribunal', 'processo', 'decisao']).slice(0, 6);
       infralegal = comFonte(b.infralegal, ['norma', 'o_que_disciplina']).slice(0, 6);
       posicoes = comFonte(b.posicoes, ['ator', 'o_que_defende']).slice(0, disputas.length ? 12 : 8);

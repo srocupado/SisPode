@@ -75,13 +75,17 @@ const scriptsDaPagina = () => [...fs.readFileSync(path.join(RAIZ, 'analise.html'
     av(`var __corpos = [], __urls = [], __viaSse = [];
         fetchIA = async (url, init) => { __corpos.push(JSON.parse(init.body)); __urls.push(url); __viaSse.push(false); return { candidates: [], output: [], content: [] }; };
         fetchIASse = async (url, init) => { __corpos.push(JSON.parse(init.body)); __urls.push(url); __viaSse.push(true); return []; };`);
-    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
-    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-2.5-pro", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
-    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-opus-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
-    await av('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
-    await av('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
-    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-haiku-4-5-20251001", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
-    await av('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    // O que se inspeciona aqui é o CORPO ENVIADO; a resposta dos stubs é vazia
+    // de propósito, e desde 14/09/2026 resposta sem texto é erro declarado
+    // (analise-correcoes.test.js cobre isso) — por isso a rejeição é ignorada.
+    const pedir = async expr => { try { await av(expr); } catch (_) {} };
+    await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-2.5-pro", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-opus-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "openai", apiKey: "k", modelo: "gpt-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "gemini", apiKey: "k", modelo: "gemini-3.8-flash", prompt: "p", pdfBuffers: [] })');
+    await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-haiku-4-5-20251001", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
+    await pedir('chamarIA({ provedorId: "anthropic", apiKey: "k", modelo: "claude-sonnet-5", prompt: "p", pdfBuffers: [], opcoes: { maxSaida: 32000, pensar: "alto" } })');
     const c = av('__corpos');
     ok(c[0].generationConfig.maxOutputTokens === 64000 && c[0].generationConfig.thinkingConfig?.thinkingLevel === 'high', 'Gemini 3: maxOutputTokens 64000 (o raciocínio conta no teto) e thinkingLevel high');
     ok(c[1].generationConfig.thinkingConfig?.thinkingBudget === 24576, 'Gemini 2.5: thinkingBudget');

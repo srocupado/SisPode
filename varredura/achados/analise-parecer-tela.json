@@ -1,0 +1,34 @@
+{
+ "area": "analise-parecer-tela",
+ "arquivos": "analise.js (linhas 5300 ao fim) e parecer.js",
+ "findings": [
+  {
+   "area": "analise-parecer-tela",
+   "file": "analise.js",
+   "line": 6626,
+   "severity": "critica",
+   "title": "Erro silencioso ao salvar parecer no Firebase",
+   "summary": "O erro do fetch ao salvar o parecer é capturado com `.catch(e => console.warn(...))`, engolindo a falha. Se o Firebase falhar, o parecer fica em memória mas não persiste, e o usuário recebe mensagem de sucesso.",
+   "failure_scenario": "Firebase offline ou retorna erro ao tentar salvar parecer. Interface mostra \"Parecer gerado... sucesso\" e abre o parecer. Ao recarregar a página, o parecer desaparece e a análise é perdida."
+  },
+  {
+   "area": "analise-parecer-tela",
+   "file": "analise.js",
+   "line": 3981,
+   "severity": "media",
+   "title": "Inconsistência na estrutura de persistência do parecer no Firebase",
+   "summary": "Ao abrir pauta, carrega meta em `/pareceres/{chave}/meta.json` (linha 3981). Ao gerar parecer, salva em `/pareceres/{chave}.json` sem separar meta em subpath (linha 6626). A estrutura de carga espera subdivisão que não existe na estrutura de save.",
+   "failure_scenario": "Pauta com parecer gerado é reaberta. Sistema tenta carregar `/pareceres/{chave}/meta.json` que não existe. Meta não carrega, botão \"Abrir parecer\" não aparece no card até que parecer seja aberto por outro caminho."
+  },
+  {
+   "area": "analise-parecer-tela",
+   "file": "analise.js",
+   "line": 6386,
+   "severity": "critica",
+   "title": "Chave de parecer inválida se pauta não tiver campo id",
+   "summary": "`chaveParecer` concatena `state.pauta.id` com chave do item. Se pauta for carregada do Firebase sem o campo `id` (pautas salvas com código antigo), `state.pauta.id` é undefined e chave fica `undefined__XXX`.",
+   "failure_scenario": "Pauta antiga salva antes do campo `id` ser implementado é carregada. Usuário tenta gerar parecer. Chave inválida é passada a `PARECER_PATH`, resultando em PUT em URL malformado que falha silenciosamente."
+  }
+ ],
+ "cobertura": "Lidos parecer.js (425 linhas) e analise.js linhas 5300-6679 (seção de Parecer de Especialista). Analisadas funções de geração, salva, carga e abertura de parecer. Não foi possível verificar estrutura completa do Firebase em produção ou testar comportamento em caso de perda de conectividade. Funções auxiliares como htmlParecer, gerarParecer (pipeline-parecer.js) não revisadas por estarem em arquivos separados."
+}

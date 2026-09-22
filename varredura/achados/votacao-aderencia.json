@@ -1,0 +1,34 @@
+{
+ "area": "votacao-aderencia",
+ "arquivos": "votacao.js e aderencia.js",
+ "findings": [
+  {
+   "area": "votacao-aderencia",
+   "file": "votacao.js",
+   "line": 1087,
+   "severity": "critica",
+   "title": "Deduplicação de deputados com falso positivo por prefixo de nome",
+   "summary": "A função mesmoDeputado() considera o mesmo deputado se uma chave normalizada é prefixo de outra (com >= 6 caracteres). Isso causa matching incorreto entre nomes como \"João Neves\" (9 chars) e \"João Neves Junior\" (15 chars), skippando a adição do segundo.",
+   "failure_scenario": "Portal lista \"João Neves\". Roster da API tem \"João Neves\" e \"João Neves Junior\". Ao enriquecer a lista, o código acha que \"João Neves Junior\" já existe (falso positivo de mesmoDeputado), não o adiciona, e a votação perde um deputado do cômputo final de votos."
+  },
+  {
+   "area": "votacao-aderencia",
+   "file": "votacao.js",
+   "line": 963,
+   "severity": "critica",
+   "title": "Contagens de votos podem ser zero quando parsing HTML falha, apresentadas como dados corretos",
+   "summary": "A função getQtd() retorna 0 se o elemento não existir no HTML. Se parsing falha (HTML estrutura mudou), todas as contagens (totalSim, totalNao, totalAbst, totalObst, totalArt17, totalVotantes) ficam 0 e são exibidas como se fossem resultado legítimo, sem error checking.",
+   "failure_scenario": "Portal da Câmara muda estrutura HTML. getQtd('sim'), getQtd('nao'), etc retornam 0. Assessoria vê \"Resultado final: Sim 0, Não 0, Abstenção 0, Total 0\" e confia que votação não teve votos nominais, quando na verdade o parsing falhou silenciosamente."
+  },
+  {
+   "area": "votacao-aderencia",
+   "file": "votacao.js",
+   "line": 1150,
+   "severity": "media",
+   "title": "Badge de fonte do portal sem validação de origem",
+   "summary": "O badge \"🌐 Portal Web\" é adicionado sem verificação se os dados vieram realmente do portal ou se houve fallback para API. Pode enganar assessora sobre origem dos dados se parse falhou e exibiu zeros.",
+   "failure_scenario": "HTML do portal falha de parse. Dados vazios (0 votos) são mostrados com badge \"Portal Web\", sugerindo que o portal reportou zero votos, quando na verdade o parsing falhou."
+  }
+ ],
+ "cobertura": "Lidos votacao.js (1360 linhas) e aderencia.js (932 linhas) integralmente. Foco em lógica de deduplicação, contagem de votos, validação de dados, tratamento de erros silenciosos, e comparação de siglas de partidos. Testei mesmoDeputado() e getQtd() com casos concretos para validar achados."
+}

@@ -240,7 +240,17 @@ function drawAdherenceDonut(canvas, pct, size) {
 }
 
 // ── CANVAS: GRÁFICO TEMPORAL ──────────────────────────────────────────────────
-/** Agrupa qualifying por semana ou mês conforme extensão do período */
+/**
+ * Agrupa qualifying por semana ou mês conforme extensão do período.
+ *
+ * Cada balde carrega o que a barra precisa para ser uma PORCENTAGEM: os votos
+ * aderentes e os votos POSSÍVEIS do período — bancada × votações do balde, o
+ * mesmo denominador do número grande do topo (partySize × qualifying.length).
+ * Dividir a soma de aderentes de várias votações pela bancada de UMA dava mais
+ * de 100% e o clamp do desenho transformava isso em barra cheia: em agosto de
+ * 2026, 38 aderências em 4 votações de uma bancada de 27 viravam "100%" sob um
+ * cabeçalho que dizia 35,2%.
+ */
 function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
   const start   = new Date(dataIni);
   const end     = new Date(dataFim);
@@ -260,20 +270,27 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
       const d   = new Date(dt);
       const day = d.getDay() || 7; // 0 domingo → 7
       d.setDate(d.getDate() - day + 1);
-      key   = d.toISOString().slice(0, 10);
       const dd = String(d.getDate()).padStart(2, '0');
       const mm = String(d.getMonth() + 1).padStart(2, '0');
+      // A chave vem das partes LOCAIS da data, como o rótulo. Com
+      // toISOString() ela era convertida para UTC: no fuso de Brasília, uma
+      // votação registrada às 22h caía no dia seguinte em UTC e abria um
+      // segundo balde para a MESMA semana — duas barras com o mesmo rótulo.
+      key   = d.getFullYear() + '-' + mm + '-' + dd;
       label = dd + '/' + mm;
     }
-    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0 };
+    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0, possiveis: 0 };
     buckets[key].aderiu += e.adherentCount;
+    buckets[key].possiveis += partySize;
     buckets[key].count++;
   });
 
-  return Object.values(buckets).sort((a, b) => a.key.localeCompare(b.key));
+  return Object.values(buckets)
+    .map(b => ({ ...b, pct: b.possiveis > 0 ? (b.aderiu / b.possiveis) * 100 : 0 }))
+    .sort((a, b) => a.key.localeCompare(b.key));
 }
 
-function drawTemporalChart(canvas, groups, partySize) {
+function drawTemporalChart(canvas, groups) {
   const dpr  = window.devicePixelRatio || 1;
   const W    = canvas.parentElement ? (canvas.parentElement.clientWidth - 32) : 496;
   const H    = 160;
@@ -313,7 +330,11 @@ function drawTemporalChart(canvas, groups, partySize) {
 
   // Barras
   groups.forEach((g, i) => {
-    const rawPct = partySize > 0 ? (g.aderiu / partySize) * 100 : 0;
+    // A porcentagem vem pronta de agruparPorPeriodo, sobre os votos POSSÍVEIS
+    // do período. O clamp abaixo é só proteção da geometria: com o denominador
+    // certo ele não tem mais o que cortar — era ele que escondia o 140% que
+    // virava barra cheia.
+    const rawPct = Number.isFinite(g.pct) ? g.pct : 0;
     const pct    = Math.max(0, Math.min(100, rawPct));
     const barH   = chartH * (pct / 100);
     const x      = padL + slotW * i + slotW / 2 - barW / 2;
@@ -604,7 +625,7 @@ function renderRelatorio(ctx) {
     const subEl = document.getElementById('temporal-sub');
     if (subEl) subEl.textContent = diffDias > 60 ? 'por mês' : 'por semana';
     if (canvas && groups.length > 0) {
-      drawTemporalChart(canvas, groups, partySize);
+      drawTemporalChart(canvas, groups);
     }
   });
 
@@ -689,21 +710,30 @@ function buildDepDetailHTML(m, ctx) {
       ? new Date(v.dataHoraRegistro).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
       : '—';
     const desc     = (v.descricao || '(sem descrição)').substring(0, 140);
-    const govLabel = 'Gov: ' + d.e.govOrient + ' · ' + hora;
-    const markSym  = d.status === 'aderente' ? '✓' : (d.status === 'divergente' ? '✗' : '—');
 
-    const tl = (d.tipoVoto || '').toLowerCase();
-    let voteCls = 'ausente';
-    if (tl === 'sim') voteCls = 'sim';
-    else if (tl === 'não' || tl === 'nao') voteCls = 'nao';
+    // Cada item tem três coisas para dizer, e cada uma ocupa um lugar:
+    //   · à esquerda, O QUE O DEPUTADO FEZ — o voto, literal ("Sim", "Não",
+    //     "Obstrução", "Abstenção"), ou "—" quando não registrou voto;
+    //   · embaixo, CONTRA O QUE — a orientação do governo, e a data;
+    //   · à direita, O VEREDITO — aderiu, divergiu ou ausente.
+    // Antes a esquerda trazia ✓/✗, que é o mesmo veredito da direita: dois
+    // sinais para o mesmo significado, e o voto — o único fato da linha —
+    // aparecia como SIM/NÃO onde se esperava o julgamento. Votar NÃO quando o
+    // governo orientou NÃO é ADERIR, e a linha agora se lê nessa ordem.
+    const veredito = d.status === 'aderente' ? 'Aderiu' : (d.status === 'divergente' ? 'Divergiu' : 'Ausente');
+    const voto     = d.tipoVoto || '—';
+    const votoTit  = d.tipoVoto ? 'Voto do deputado: ' + d.tipoVoto : 'Não registrou voto nesta votação';
 
     listHTML +=
       '<div class="item">' +
-        '<div class="mark ' + d.status + '">' + markSym + '</div>' +
-        '<div class="desc">' + desc +
-          '<span class="gov">' + govLabel + '</span>' +
+        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' +
+          '<span class="rot">Voto:</span> ' + voto +
         '</div>' +
-        '<span class="vote ' + voteCls + '">' + (d.tipoVoto || 'Ausente') + '</span>' +
+        '<div class="item-corpo">' +
+          '<div class="desc">' + desc + '</div>' +
+          '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +
+        '</div>' +
+        '<span class="vote ' + d.status + '">' + veredito + '</span>' +
       '</div>';
   });
 
@@ -929,3 +959,1342 @@ function exportarExcel() {
 
 // ── INICIAR ───────────────────────────────────────────────────────────────────
 btnGerar.addEventListener('click', gerarRelatorio);
+
+// ============================================================
+//  ABA 2 — COMO VOTOU O DEPUTADO
+// ============================================================
+// A primeira aba responde "quanto o partido X aderiu ao governo no período".
+// Esta responde outra pergunta, que a assessoria faz o tempo todo e que não
+// tinha ferramenta: "como o deputado Fulano votou nisto aqui?" — por
+// proposição ou por período, para deputado de QUALQUER partido.
+//
+// Duas coisas aprendidas na apuração manual do PL 3.626/2023 e que moldam o
+// código abaixo:
+//
+//  1. A consulta por intervalo de datas PERDE as votações do último dia. Medido
+//     em 17/09/2026: 13/09 a 13/09 devolve 1 votação do Plenário; 13/09 a 14/09
+//     devolve 15, todas do dia 13. Por isso se pede à API até dataFim+1 e o
+//     excedente é descartado aqui.
+//  2. O objeto de cada votação ("DVS do §10 do art. 23, do PSB") NÃO existe em
+//     campo estruturado: objetosPossiveis e ultimaApresentacaoProposicao
+//     repetem o mesmo conteúdo em todas as votações do bloco. A única fonte é o
+//     texto da tramitação, lido em ordem — ver objetosDaTramitacao().
+
+const cvEl = {
+  aba:      document.getElementById('aba-consulta'),
+  abaAder:  document.getElementById('aba-aderencia'),
+  painel:   document.getElementById('painel-consulta'),
+  painelAd: document.getElementById('painel-aderencia'),
+  dep:      document.getElementById('cvDeputado'),
+  escolha:  document.getElementById('cvEscolha'),
+  modoProp: document.getElementById('cvModoProp'),
+  modoPer:  document.getElementById('cvModoPer'),
+  camposProp: document.getElementById('cvCamposProp'),
+  camposPer:  document.getElementById('cvCamposPer'),
+  sigla:    document.getElementById('cvSigla'),
+  numero:   document.getElementById('cvNumero'),
+  ano:      document.getElementById('cvAno'),
+  dataIni:  document.getElementById('cvDataIni'),
+  dataFim:  document.getElementById('cvDataFim'),
+  resumos:  document.getElementById('cvResumos'),
+  imprensa: document.getElementById('cvImprensa'),
+  imprensaLinha: document.getElementById('cvImprensaLinha'),
+  defesa:   document.getElementById('cvDefesa'),
+  enfase:   document.getElementById('cvDefesaEnfase'),
+  defesaCampo: document.getElementById('cvDefesaCampo'),
+  buscar:   document.getElementById('cvBuscar'),
+  status:   document.getElementById('cvStatus'),
+  resultado: document.getElementById('cvResultado'),
+};
+
+// `completo` é tudo o que a API devolveu; `recorte` é a janela que o usuário
+// escolheu mostrar; `ultimo` é o que efetivamente sai na tela e nos exports.
+// A separação existe para que mudar o recorte não custe uma consulta nova — a
+// tramitação inteira já está em mãos — e para que o documento possa dizer
+// quanta coisa ficou de fora, que é o que impede o recorte de virar omissão.
+const cv = { modo: 'proposicao', deputado: null, completo: null, recorte: null, ultimo: null };
+
+// ---------- infra ----------
+const API_PROP = 'https://dadosabertos.camara.leg.br/api/v2/proposicoes';
+const API_DEP  = 'https://dadosabertos.camara.leg.br/api/v2/deputados';
+
+function cvStatus(msg, tipo) {
+  if (!msg) { cvEl.status.innerHTML = ''; cvEl.status.className = 'status'; return; }
+  if (tipo === 'loading') {
+    cvEl.status.className = 'status';
+    cvEl.status.innerHTML = '<div class="spinner"></div><div>' + msg + '</div>';
+  } else {
+    cvEl.status.className = 'status' + (tipo === 'error' ? ' error' : '');
+    cvEl.status.textContent = msg;
+  }
+}
+
+/** Escapa para uso em HTML. */
+function cvEsc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+/** Um dia depois, em ISO — a correção da perda do último dia. */
+function cvDiaSeguinte(iso) {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() + 1);
+  return d.toISOString().slice(0, 10);
+}
+
+// ---------- deputado ----------
+/**
+ * Procura deputados pelo nome. Devolve SEMPRE a lista: homônimo e grafia
+ * parecida são resolvidos pelo usuário escolhendo, nunca por adivinhação do
+ * código — nome errado aqui contamina o relatório inteiro.
+ */
+async function cvBuscarDeputados(nome) {
+  const j = await fetchJson(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
+  return (j.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido, uf: d.siglaUf }));
+}
+
+function cvRenderEscolha(lista) {
+  if (!lista.length) {
+    cvEl.escolha.innerHTML = '<div class="cv-escolha cv-escolha-tit">Nenhum deputado com esse nome na legislatura atual.</div>';
+    return;
+  }
+  cvEl.escolha.innerHTML = '<div class="cv-escolha"><div class="cv-escolha-tit">'
+    + (lista.length === 1 ? 'Confirme:' : lista.length + ' deputados com esse nome — escolha:') + '</div>'
+    + lista.map(d => `<button class="cv-op" data-dep="${d.id}">${cvEsc(d.nome)} <span class="p">(${cvEsc(d.partido)}-${cvEsc(d.uf)})</span></button>`).join('')
+    + '</div>';
+  cvEl.escolha.querySelectorAll('[data-dep]').forEach(b => {
+    b.addEventListener('click', () => {
+      cv.deputado = lista.find(x => String(x.id) === b.dataset.dep);
+      cvRenderSelecionado();
+    });
+  });
+}
+
+function cvRenderSelecionado() {
+  const d = cv.deputado;
+  if (!d) { cvEl.escolha.innerHTML = ''; return; }
+  cvEl.escolha.innerHTML = `<div class="cv-sel">✓ <b>${cvEsc(d.nome)}</b> (${cvEsc(d.partido)}-${cvEsc(d.uf)})
+    <button class="x" id="cvLimparDep" title="Trocar de deputado">×</button></div>`;
+  document.getElementById('cvLimparDep').addEventListener('click', () => {
+    cv.deputado = null; cvEl.dep.value = ''; cvEl.escolha.innerHTML = '';
+  });
+}
+
+// ---------- objeto de cada votação, lido da tramitação ----------
+/**
+ * Amarra cada votação ao trecho da tramitação que diz O QUE estava em votação.
+ *
+ * A tramitação é narrativa e vem em ordem:
+ *     Votação do DTQ 1: Bloco UNIÃO (PSB): DVS do §10 do art. 23 …
+ *     Encaminhou a Votação o Dep. Felipe Carreras (PSB-PE).
+ *     Suprimido o texto. Sim: 222; não: 242; abstenção: 2; total: 466.
+ *
+ * A última linha é IDÊNTICA ao campo `descricao` da votação — é esse o gancho.
+ * Achada a linha do resultado, sobe-se até a "Votação de…" mais próxima.
+ *
+ * Duas salvaguardas, porque objeto errado é pior que objeto nenhum:
+ *  · cada linha da tramitação é consumida UMA vez, na ordem cronológica das
+ *    votações — senão "Rejeitado o Requerimento." (que se repete) casaria
+ *    sempre com a primeira ocorrência;
+ *  · a subida para no máximo 8 linhas atrás. Passando disso, é outro assunto,
+ *    e o objeto sai como não identificado.
+ */
+function objetosDaTramitacao(votacoes, tramitacoes) {
+  const norm = s => String(s || '').replace(/\s+/g, ' ').trim();
+  const RE_OBJETO = /^Vota(ção|ções)\s+d[oa]s?\s/i;
+  const linhas = (tramitacoes || []).slice().sort((a, b) => (a.sequencia || 0) - (b.sequencia || 0));
+  const ordenadas = (votacoes || []).slice()
+    .sort((a, b) => String(a.dataHoraRegistro || '').localeCompare(String(b.dataHoraRegistro || '')));
+
+  const usadas = new Set();
+  const mapa = {};
+  for (const v of ordenadas) {
+    const alvo = norm(v.descricao);
+    if (!alvo) continue;
+    let idx = -1;
+    for (let i = 0; i < linhas.length; i++) {
+      if (!usadas.has(i) && norm(linhas[i].despacho) === alvo) { idx = i; break; }
+    }
+    if (idx < 0) continue;
+    usadas.add(idx);
+    for (let i = idx - 1; i >= 0 && i > idx - 9; i--) {
+      const t = norm(linhas[i].despacho);
+      if (RE_OBJETO.test(t)) { mapa[v.id] = t; break; }
+    }
+  }
+  return mapa;
+}
+
+// ---------- votos e orientações de uma votação ----------
+async function cvEnriquecer(votacoes, aoAndar) {
+  return mapLimit(votacoes, 5, async v => {
+    const [votos, orients] = await Promise.all([
+      // Atenção: /votos NÃO aceita ?itens= — devolve HTTP 400 e a leitura vira
+      // "votação sem voto nominal", que é falso.
+      fetchJson(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJson(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+    ]);
+    const gov = (orients.d || []).find(o => /governo/i.test(o.siglaPartidoBloco || ''));
+    return {
+      votacao: v,
+      votos: votos.d,
+      falhou: !votos.ok || !orients.ok,
+      nominal: votos.ok && votos.d.length > 0,
+      govOrient: normGov(gov && gov.orientacaoVoto),
+      orientacoes: orients.d,
+    };
+  }, aoAndar);
+}
+
+// ---------- as duas buscas ----------
+async function cvPorProposicao(sigla, numero, ano) {
+  const busca = await fetchJson(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
+  const prop = (busca.dados || [])[0];
+  if (!prop) throw new Error(`${sigla} ${numero}/${ano} não foi localizado na base da Câmara.`);
+
+  // TODAS as votações da matéria, de todos os anos — PL 2.148/2015, por
+  // exemplo, tem 40, entre 2023 e 2024, e as quatro décadas de tramitação de
+  // uma proposição antiga cabem na mesma lista.
+  //
+  // NÃO passar `itens` aqui: medido em 17/09/2026, este endpoint devolve LISTA
+  // VAZIA quando recebe o parâmetro — não um erro. Seria um zero silencioso, e
+  // o relatório sairia dizendo que a matéria nunca foi votada.
+  //
+  // A paginação é seguida por precaução: hoje a API devolve tudo de uma vez
+  // (conferido com 22 e com 40 votações, sem link `next`), mas se um dia
+  // passar a cortar, o corte seria mudo.
+  const vots = [];
+  let urlV = API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro';
+  let pag = 0;
+  while (urlV && pag < 20) {
+    const j = await fetchJson(urlV);
+    vots.push(...(j.dados || []));
+    const next = (j.links || []).find(l => l.rel === 'next');
+    urlV = next ? next.href : null;
+    pag++;
+  }
+  if (!vots.length) return { prop, itens: [], objetos: {} };
+
+  cvStatus(`Lendo ${vots.length} votação(ões)…`, 'loading');
+  const itens = await cvEnriquecer(vots, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
+
+  // O objeto de cada votação vem do texto da tramitação — ver
+  // objetosDaTramitacao. Falhar aqui não impede o resultado: os itens saem com
+  // "objeto não identificado", que é honesto, em vez de sumirem.
+  //
+  // Nem toda votação da matéria mora na tramitação DELA: o requerimento de
+  // urgência, por exemplo, é proposição própria (o PL 3.626 tem a votação
+  // 2414600-8, do REQ 4322/2023). O prefixo do id da votação é o id da
+  // proposição, então busca-se a tramitação de cada uma que aparecer.
+  const objetos = {};
+  const retirados = [];
+  const porProp = new Map();
+  for (const v of vots) {
+    const idp = String(v.id).split('-')[0];
+    if (!porProp.has(idp)) porProp.set(idp, []);
+    porProp.get(idp).push(v);
+  }
+  for (const [idp, lista] of porProp) {
+    try {
+      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      Object.assign(objetos, objetosDaTramitacao(lista, tram));
+      // Destaque RETIRADO não foi votado — não há voto a registrar, e é
+      // justamente por isso que ele precisa ser dito: o relatório mostraria
+      // menos itens que o esperado sem explicar o que aconteceu com o resto.
+      for (const t of tram) {
+        const d = String(t.despacho || '').replace(/\s+/g, ' ').trim();
+        // A data vem junto porque o relatório pode ser recortado a um trecho da
+        // tramitação: destaque retirado em dezembro não pode aparecer num
+        // documento que cobre só setembro.
+        if (/^Retirado o DTQ/i.test(d)) {
+          retirados.push({ t: d.replace(/^Retirado o /i, ''), data: String(t.dataHora || '').slice(0, 10) });
+        }
+      }
+    } catch (e) {
+      console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
+    }
+    // Votação de proposição ANEXA (o requerimento de urgência, por exemplo) não
+    // tem "Votação de…" na própria narrativa — ela é apresentada e votada. Aí o
+    // objeto é a proposição em si, que identifica a matéria com precisão.
+    if (idp !== String(prop.id) && lista.some(v => !objetos[v.id])) {
+      try {
+        const p = (await fetchJson(API_PROP + '/' + idp)).dados;
+        if (p) {
+          const rot = `${p.siglaTipo} ${p.numero}/${p.ano}` + (p.ementa ? ' — ' + String(p.ementa).replace(/\s+/g, ' ').slice(0, 180) : '');
+          for (const v of lista) if (!objetos[v.id]) objetos[v.id] = rot;
+        }
+      } catch (e) {
+        console.warn(`[consulta] proposição ${idp} não lida:`, e.message);
+      }
+    }
+  }
+  // A proposição DETALHADA (keywords e urlInteiroTeor não vêm na busca) e a
+  // lista de proposições de cada bloco de votação, que é de onde os resumos
+  // saem. `objetosPossiveis` repete dentro de um bloco e muda entre sessões,
+  // então lê-se uma votação por dia de sessão e junta-se.
+  let propDetalhada = prop;
+  try {
+    const d = await fetchJson(API_PROP + '/' + prop.id);
+    if (d.dados) propDetalhada = d.dados;
+  } catch (e) { console.warn('[consulta] detalhe da proposição não lido:', e.message); }
+
+  // A ÚLTIMA votação de cada dia, não a primeira: `objetosPossiveis` cresce ao
+  // longo da sessão, à medida que os documentos são apresentados. Medido no
+  // PL 3.626/2023 — a primeira votação de 13/09 lista 50 objetos e 1 destaque;
+  // a última do mesmo dia lista 79 e 8. Pela primeira, quase nenhum destaque
+  // era encontrado, e o relatório saía sem resumo quase nenhum, sem erro.
+  const objetosPossiveis = [];
+  const vistosObj = new Set();
+  const porDia = new Map();
+  for (const v of vots) porDia.set(String(v.data), v);
+  for (const v of porDia.values()) {
+    try {
+      const d = await fetchJson(API + '/' + v.id);
+      for (const o of ((d.dados || {}).objetosPossiveis || [])) {
+        if (!vistosObj.has(o.id)) { vistosObj.add(o.id); objetosPossiveis.push(o); }
+      }
+    } catch (e) { console.warn('[consulta] objetos do bloco', v.id, 'não lidos:', e.message); }
+  }
+
+  return { prop, propDetalhada, objetosPossiveis, itens: itens.filter(Boolean), objetos, retirados };
+}
+
+async function cvPorPeriodo(dataIni, dataFim) {
+  // dataFim+1: a API perde as votações do último dia do intervalo (medido em
+  // 17/09/2026). Pede-se um dia a mais e descarta-se o excedente aqui.
+  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + cvDiaSeguinte(dataFim)
+          + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
+  const todas = [];
+  let p = 0;
+  while (url && p < 40) {
+    const j = await fetchJson(url);
+    todas.push(...(j.dados || []));
+    const next = (j.links || []).find(l => l.rel === 'next');
+    url = next ? next.href : null;
+    p++;
+    cvStatus(`Buscando votações do período… ${todas.length}`, 'loading');
+  }
+  const plen = todas.filter(v => v.siglaOrgao === 'PLEN' && String(v.data) >= dataIni && String(v.data) <= dataFim);
+  if (!plen.length) return { itens: [], objetos: {} };
+  const itens = await cvEnriquecer(plen, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
+
+  // A consulta por período também lê a tramitação. Antes não lia, e o efeito
+  // era que NENHUM item tinha objeto — o relatório saía com uma lista de
+  // resultados sem dizer o que estava em votação. São poucas chamadas: as
+  // votações de um período se concentram em poucas proposições (medido em
+  // 18/09/2026: 20 proposições para 57 votações, ~4s).
+  const objetos = await cvObjetosDeVarias(plen);
+  return { itens: itens.filter(Boolean), objetos };
+}
+
+/**
+ * Objetos da tramitação para um conjunto qualquer de votações, agrupando por
+ * proposição — o prefixo do id da votação é o id da proposição.
+ * Falha de leitura não derruba o resto: a proposição sai sem objeto.
+ */
+async function cvObjetosDeVarias(votacoes) {
+  const porProp = new Map();
+  for (const v of votacoes) {
+    const idp = String(v.id).split('-')[0];
+    if (!porProp.has(idp)) porProp.set(idp, []);
+    porProp.get(idp).push(v);
+  }
+  const objetos = {};
+  let lidas = 0;
+  for (const [idp, lista] of porProp) {
+    try {
+      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      Object.assign(objetos, objetosDaTramitacao(lista, tram));
+    } catch (e) {
+      console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
+    }
+    cvStatus(`Lendo a tramitação… ${++lidas}/${porProp.size}`, 'loading');
+  }
+  return objetos;
+}
+
+// ---------- links públicos de cada item ----------
+/**
+ * Dois links por votação, ambos derivados do que a listagem já traz — nenhuma
+ * consulta a mais:
+ *   · a PROPOSIÇÃO votada, pela ficha de tramitação. O prefixo do id da votação
+ *     é o id da proposição, e para votação de anexa (o requerimento de urgência
+ *     é proposição própria) o link vai para a anexa, que é o certo.
+ *   · a SESSÃO, pela página do evento.
+ *
+ * NÃO existe página pública por VOTAÇÃO — procurada e não encontrada em
+ * 17/09/2026, por três caminhos: camara.leg.br/votacoes/{id} devolve 404; a
+ * página legada internet/votacao/mostraVotacao.asp responde 200 com o corpo
+ * VAZIO (morta, e o 200 engana quem só olha o status); e
+ * busca-portal/votacoes/{id} responde 200 mas renderiza, no navegador, a mesma
+ * casca vazia para um id válido e para um inventado.
+ *
+ * Consequência de desenho, em cvAgruparLinks: como os dois links são do GRUPO
+ * (a matéria, a sessão) e não do item, repeti-los em toda linha é ruído — na
+ * consulta por proposição eles seriam idênticos do primeiro ao último item. O
+ * link só aparece na linha quando difere do grupo; quando é um só para todos,
+ * vai uma vez no cabeçalho.
+ */
+function cvLinks(v) {
+  const idProp = String(v.id || '').split('-')[0];
+  const idEvento = String(v.uriEvento || '').split('/').pop();
+  return {
+    prop: /^\d+$/.test(idProp)
+      ? 'https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=' + idProp : null,
+    rotuloProp: v.proposicaoObjeto || null,
+    evento: /^\d+$/.test(idEvento)
+      ? 'https://www.camara.leg.br/evento-legislativo/' + idEvento : null,
+  };
+}
+
+/**
+ * Separa o que é link do GRUPO do que é link da LINHA. Quando há um único
+ * valor para todas as votações, ele é do grupo e sobe para o cabeçalho; quando
+ * há mais de um, é informação de cada linha e fica nela.
+ *
+ * Na prática: consulta por proposição costuma ter uma ficha só (as exceções são
+ * as proposições anexas, como o requerimento de urgência) e uma sessão por dia;
+ * consulta por período tem uma proposição diferente em cada linha.
+ */
+function cvAgruparLinks(linhas) {
+  // A ficha PREDOMINANTE é a do grupo. "Uma única ficha" seria estrito demais:
+  // no PL 3.626/2023 são 21 votações da matéria e 1 do requerimento de urgência
+  // — com a regra do valor único, a ficha voltaria a se repetir nas 22 linhas.
+  const conta = new Map();
+  for (const { it } of linhas) {
+    const L = cvLinks(it.votacao);
+    if (L.prop) conta.set(L.prop, (conta.get(L.prop) || 0) + 1);
+  }
+  let fichaComum = null, maior = 1;
+  for (const [u, n] of conta) if (n > maior) { maior = n; fichaComum = u; }
+
+  // A sessão pertence ao DIA, não ao item: entra na linha só quando muda, o que
+  // na lista cronológica funciona como separador de sessão.
+  const primeiraDaSessao = new Set();
+  let anterior = null;
+  for (const { it } of linhas) {
+    const ev = cvLinks(it.votacao).evento;
+    if (ev && ev !== anterior) { primeiraDaSessao.add(it.votacao.id); anterior = ev; }
+  }
+  return { fichaComum, primeiraDaSessao };
+}
+
+// ---------- veredito de um item para o deputado escolhido ----------
+/**
+ * Devolve { voto, situacao, rotulo }. As situações são quatro, e a distinção
+ * entre elas é o ponto da tela:
+ *   simbolica  — não houve voto nominal; a Câmara não registra voto individual.
+ *                NÃO é ausência do deputado, e não entra em conta nenhuma.
+ *   sem-gov    — votou, mas o governo não orientou: fica fora do cálculo de
+ *                aderência, embora o voto exista e seja mostrado.
+ *   ausente    — votação nominal, com orientação, e ele não votou.
+ *   aderente / divergente — comparação feita.
+ */
+function cvSituacao(item, idDep) {
+  if (!item.nominal) return { voto: null, situacao: 'simbolica' };
+  const meu = item.votos.find(v => v.deputado_ && v.deputado_.id === idDep);
+  const voto = meu ? meu.tipoVoto : null;
+  if (!voto) return { voto: null, situacao: 'ausente' };
+  if (!item.govOrient) return { voto, situacao: 'sem-gov' };
+  return { voto, situacao: classifyVote(voto, item.govOrient) };
+}
+
+const CV_ROTULO = {
+  aderente: 'Aderiu', divergente: 'Divergiu', ausente: 'Ausente',
+  'sem-gov': 'Sem orientação', simbolica: 'Simbólica',
+};
+const CV_CLASSE = {
+  aderente: 'aderente', divergente: 'divergente', ausente: 'ausente',
+  'sem-gov': 'fora', simbolica: 'fora',
+};
+
+// ---------- recorte do relatório ----------
+/** Menor e maior data do conjunto — os limites que o recorte pode assumir. */
+function cvLimites(linhas) {
+  const ds = linhas.map(l => String(l.it.votacao.data || '')).filter(Boolean).sort();
+  return ds.length ? { ini: ds[0], fim: ds[ds.length - 1] } : { ini: '', fim: '' };
+}
+
+/** A janela em vigor e se ela é mais estreita que o conjunto inteiro. */
+function cvJanela() {
+  const lim = cvLimites(cv.completo.linhas);
+  const r = cv.recorte && (cv.recorte.ini || cv.recorte.fim) ? cv.recorte : lim;
+  return { lim, r, parcial: r.ini !== lim.ini || r.fim !== lim.fim, invertido: !!(r.ini && r.fim && r.ini > r.fim) };
+}
+
+// ---------- render ----------
+/**
+ * Guarda o resultado inteiro da consulta e desenha. A partir daqui, mudar o
+ * recorte não refaz consulta nenhuma: cvDesenhar filtra o que já está em mãos.
+ */
+function cvRender(dados) {
+  const dep = cv.deputado;
+  const objetos = dados.objetos || {};
+
+  // Votação cujo objeto não foi identificado na tramitação NÃO entra no
+  // relatório. A linha existia com o rótulo "objeto não identificado" e só
+  // ocupava espaço: o resultado registrado ("Rejeitado o Requerimento.") não
+  // diz O QUE foi rejeitado, que é a única coisa que a linha precisava dizer.
+  // A contagem de descartadas fica guardada, e é dita — sumir em silêncio faria
+  // o total do documento divergir da ficha da Câmara sem explicação.
+  const todas = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }));
+  const linhas = todas.filter(l => objetos[l.it.votacao.id]);
+  const semObjeto = todas.length - linhas.length;
+
+  cv.completo = {
+    linhas, objetos, prop: dados.prop, periodo: dados.periodo,
+    dep, retirados: dados.retirados || [], semObjeto,
+    propDetalhada: dados.propDetalhada || null,
+    objetosPossiveis: dados.objetosPossiveis || [],
+    resumos: dados.resumos || null,
+    imprensa: dados.imprensa || null,
+    defesa: dados.defesa || null,
+  };
+  cv.recorte = cvLimites(linhas);
+  cvDesenhar();
+}
+
+function cvDesenhar() {
+  if (!cv.completo) return;
+  const { objetos, prop, periodo, dep, semObjeto, resumos, imprensa, defesa } = cv.completo;
+  const { lim, r, parcial, invertido } = cvJanela();
+
+  const linhas = !parcial ? cv.completo.linhas : cv.completo.linhas.filter(l => {
+    const d = String(l.it.votacao.data || '');
+    return (!r.ini || d >= r.ini) && (!r.fim || d <= r.fim);
+  });
+  const fora = cv.completo.linhas.length - linhas.length;
+
+  // Destaque retirado tem data própria: fora do recorte, sai do documento
+  // junto com as votações do mesmo trecho da tramitação. Retirado sem data
+  // legível fica — some só o que se sabe que está fora.
+  const retirados = !parcial ? cv.completo.retirados : cv.completo.retirados.filter(x =>
+    !x.data || ((!r.ini || x.data >= r.ini) && (!r.fim || x.data <= r.fim)));
+
+  const comum = cvAgruparLinks(linhas);
+  const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 };
+  for (const l of linhas) cont[l.s.situacao]++;
+  const qualificadas = cont.aderente + cont.divergente + cont.ausente;
+  const pct = (cont.aderente + cont.divergente) > 0
+    ? (cont.aderente / (cont.aderente + cont.divergente)) * 100 : null;
+
+  const falhas = linhas.filter(l => l.it.falhou).length;
+
+  // O recorte é registrado no estado, e não só aplicado, porque o documento
+  // PRECISA dizer que é recorte — senão sai um relatório que parece cobrir a
+  // tramitação inteira e cobre um pedaço.
+  //
+  // O que define recorte é DEIXAR COISA DE FORA, não a data digitada: uma
+  // janela mais larga que a tramitação (13/09/2023 a 31/12/2030) mostra tudo, e
+  // aí o documento não tem ressalva nenhuma a fazer — diria "0 ficaram fora".
+  const corta = fora > 0;
+  cv.ultimo = { linhas, objetos, prop, periodo, dep, retirados, cont, pct, semObjeto, resumos, imprensa, defesa,
+                recorte: corta ? { ini: r.ini, fim: r.fim, fora, total: cv.completo.linhas.length, limites: lim } : null };
+
+  const ctrl = cvCtrlRecorte(linhas.length, fora, lim, r, parcial, invertido);
+
+  // O apelido público entra ao lado do número, e DECLARADO como apelido — é a
+  // única coisa vinda da web que sobe ao cabeçalho, e nunca ocupa o lugar da
+  // ementa, que é o que a matéria oficialmente diz de si.
+  const apelido = imprensa && imprensa.ok && imprensa.apelido && imprensa.usarApelido ? imprensa.apelido : '';
+  const cabecalho = prop
+    ? `<h3>${cvEsc(prop.siglaTipo)} ${cvEsc(prop.numero)}/${cvEsc(prop.ano)}${
+         apelido ? ` <span class="cv-apelido">conhecida como ${cvEsc(apelido)}</span>` : ''}</h3>
+       <div class="sub">${cvEsc(String(prop.ementa || '').slice(0, 300))}</div>`
+    : `<h3>Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}</h3>
+       <div class="sub">Todas as votações do Plenário no período.</div>`;
+
+  const html = `
+    ${falhas ? `<div class="cv-aviso">⚠ ${falhas} votação(ões) não puderam ser lidas na API da Câmara agora.
+       Elas aparecem abaixo sem voto e sem orientação — o que está faltando é a consulta, não o voto.
+       Refaça a busca para tentar de novo.</div>` : ''}
+
+    <div class="cv-cab">
+      ${cabecalho}
+      <div class="sub" style="margin-top:6px">
+        <b>${cvEsc(dep.nome)}</b> (${cvEsc(dep.partido)}-${cvEsc(dep.uf)})
+      </div>
+      ${ctrl}
+      <div class="cv-nums">
+        <div class="cv-num"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
+        <div class="cv-num"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+        <div class="cv-num ade"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
+        <div class="cv-num div"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
+        <div class="cv-num aus"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+        <div class="cv-num fora"><div class="v">${cont['sem-gov']}</div><div class="l">Sem orientação</div></div>
+        <div class="cv-num"><div class="v">${pct == null ? '—' : pct.toFixed(1) + '%'}</div><div class="l">Aderência</div></div>
+      </div>
+      <div class="sub" style="margin-top:9px">
+        ${semObjeto ? `${semObjeto} votação(ões) da ficha ficaram fora do relatório: a tramitação não diz o que estava em votação. ` : ''}
+        ${cont.simbolica ? `${cont.simbolica} votação(ões) simbólica(s) — sem registro individual de voto, não contam como ausência. ` : ''}
+        ${cont['sem-gov'] ? `${cont['sem-gov']} votação(ões) nominal(is) sem orientação do governo ficam fora do cálculo. ` : ''}
+        A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
+        de ${qualificadas} qualificada(s).
+      </div>
+      ${resumos && resumos.materia ? (() => {
+        const m = resumos.materia, p = [];
+        if (m.simples) p.push(`<div class="rsm-linha rsm-simples"><span class="rsm-rot">Do que trata a matéria</span> ${cvEsc(m.simples)}</div>`);
+        const lit = [];
+        if (m.justificacao && m.justificacao.texto) lit.push(`<b>Justificação do autor:</b> ${cvEsc(m.justificacao.texto)}`);
+        if (lit.length) p.push(m.simples
+          ? `<details class="rsm-literal"><summary>texto literal do documento</summary>${lit.join('<br>')}</details>`
+          : `<div class="rsm-linha">${lit.join('<br>')}</div>`);
+        // Sem chave o relatório perde a linguagem comum, e isso precisa ser
+        // dito: o analista tem de saber por que a tela ficou em legalês.
+        const ger = (!resumos.gerado && resumos.explicacao && resumos.explicacao.motivo === 'sem-chave')
+          ? `<div class="rsm-fontes rsm-ger">Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.</div>` : '';
+        return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${ger}${
+          m.url ? `<div class="rsm-fontes">Fonte: <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
+      })() : ''}
+      ${comum.fichaComum ? `<div class="cv-links" style="margin-top:8px">
+        <a href="${comum.fichaComum}" target="_blank" rel="noopener">Ficha da proposição ↗</a>
+      </div>` : ''}
+      <div class="cv-acoes">
+        <button class="btn-gerar" id="cvExportarPdf" style="margin-top:0">Exportar PDF</button>
+        <button class="btn-gerar" id="cvExportar" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Excel</button>
+      </div>
+    </div>
+
+    <div class="cv-lista">
+      ${linhas.map(({ it, s }) => {
+        const v = it.votacao;
+        const obj = objetos[v.id];
+        const data = String(v.data || '').split('-').reverse().join('/');
+        const hora = String(v.dataHoraRegistro || '').slice(11, 16);
+        const votoTxt = s.situacao === 'simbolica' ? '—' : (s.voto || '—');
+        return `<div class="cv-item${s.situacao === 'simbolica' ? ' simbolica' : ''}">
+          <div class="cv-voto${s.voto ? '' : ' ausente'}" title="${s.voto ? 'Voto do deputado: ' + cvEsc(s.voto) : (s.situacao === 'simbolica' ? 'Votação simbólica — a Câmara não registra voto individual' : 'Não registrou voto nesta votação')}">
+            <span class="rot">Voto:</span> ${cvEsc(votoTxt)}
+          </div>
+          <div class="cv-corpo">
+            <div class="cv-obj">${cvEsc(obj)}</div>
+            ${resumos ? rsmHtmlItem(resumos.itens[v.id]) : ''}
+            <div class="cv-res">${cvEsc(v.descricao || '')}</div>
+            <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
+            ${(() => { const L = cvLinks(v); const p = [];
+              // Só entra o link que ACRESCENTA: o que vale para todas as
+              // votações já está no cabeçalho, e repetido aqui seria ruído.
+              if (L.prop && L.prop !== comum.fichaComum)
+                p.push(`<a href="${L.prop}" target="_blank" rel="noopener">${cvEsc(L.rotuloProp || 'Ficha da proposição')} ↗</a>`);
+              if (L.evento && comum.primeiraDaSessao.has(v.id))
+                p.push(`<a href="${L.evento}" target="_blank" rel="noopener">Sessão ↗</a>`);
+              return p.length ? `<div class="cv-links">${p.join('')}</div>` : '';
+            })()}
+          </div>
+          <span class="cv-ver ${CV_CLASSE[s.situacao]}">${CV_ROTULO[s.situacao]}</span>
+        </div>`;
+      }).join('')}
+    </div>
+    ${imprensa ? impHtml(imprensa) : ''}
+    ${defesa ? dfsHtml(defesa) : ''}`;
+
+  // Recorte que não pega nada: mostra o cabeçalho e o controle, e diz o que
+  // houve. Não se desenha um consolidado de zero nem se oferece exportação —
+  // um PDF vazio seria um documento afirmando que o deputado não votou nada.
+  const vazio = `
+    <div class="cv-cab">
+      ${cabecalho}
+      <div class="sub" style="margin-top:6px"><b>${cvEsc(dep.nome)}</b> (${cvEsc(dep.partido)}-${cvEsc(dep.uf)})</div>
+      ${ctrl}
+      <div class="cv-aviso" style="margin-top:10px">${invertido
+        ? 'A data inicial do recorte é posterior à final.'
+        : `Nenhuma das ${cv.completo.linhas.length} votações da consulta cai nesse recorte.`}
+        As votações continuam carregadas — alargue o recorte ou clique em <b>Tudo</b>.</div>
+    </div>`;
+
+  cvEl.resultado.innerHTML = linhas.length ? html : vazio;
+  cvLigarRecorte();
+  // O que o analista escrever passa a ser o texto do documento na hora. Sem
+  // botão de salvar, que seria mais uma chance de exportar a versão errada.
+  if (defesa && defesa.ok) dfsLigarEdicao(defesa, d => { if (cv.ultimo) cv.ultimo.defesa = d; });
+  if (imprensa && imprensa.ok) impLigar(imprensa, i => { if (cv.ultimo) cv.ultimo.imprensa = i; });
+  const btn = document.getElementById('cvExportar');
+  if (btn) btn.addEventListener('click', cvExportar);
+  const btnPdf = document.getElementById('cvExportarPdf');
+  if (btnPdf) btnPdf.addEventListener('click', cvExportarPDF);
+}
+
+/** A faixa de recorte, redesenhada junto com o resultado. */
+function cvCtrlRecorte(mostradas, fora, lim, r, parcial, invertido) {
+  if (!lim.ini) return '';
+  return `<div class="cv-recorte">
+    <span class="rl">Recorte do relatório</span>
+    <input type="date" id="cvRecIni" value="${cvEsc(r.ini)}" min="${cvEsc(lim.ini)}" max="${cvEsc(lim.fim)}">
+    <span class="ate">a</span>
+    <input type="date" id="cvRecFim" value="${cvEsc(r.fim)}" min="${cvEsc(lim.ini)}" max="${cvEsc(lim.fim)}">
+    <button id="cvRecTudo"${parcial ? '' : ' disabled'}>Tudo</button>
+    <span class="cnt${fora > 0 ? ' ativo' : ''}">${invertido
+      ? 'intervalo invertido'
+      : (fora > 0
+        ? `${mostradas} de ${mostradas + fora} votações — ${fora} fora do recorte`
+        : `${mostradas} votação(ões), de ${formatarData(lim.ini)} a ${formatarData(lim.fim)}`)}</span>
+  </div>`;
+}
+
+/** Religa os campos do recorte depois de cada redesenho. */
+function cvLigarRecorte() {
+  const ini = document.getElementById('cvRecIni');
+  const fim = document.getElementById('cvRecFim');
+  const tudo = document.getElementById('cvRecTudo');
+  if (!ini || !fim) return;
+  const aplicar = () => { cv.recorte = { ini: ini.value, fim: fim.value }; cvDesenhar(); };
+  ini.addEventListener('change', aplicar);
+  fim.addEventListener('change', aplicar);
+  if (tudo) tudo.addEventListener('click', () => { cv.recorte = cvLimites(cv.completo.linhas); cvDesenhar(); });
+}
+
+function cvExportar() {
+  if (!cv.ultimo) return;
+  const { linhas, objetos, prop, periodo, dep, recorte } = cv.ultimo;
+  const rows = [];
+  // A planilha abre dizendo que é recorte. Sem isso, um arquivo com 7 linhas
+  // passa por ser a matéria inteira assim que sai da tela que o recortou.
+  if (recorte) {
+    rows.push([`RECORTE: ${formatarData(recorte.ini)} a ${formatarData(recorte.fim)} — `
+      + `${recorte.fora} de ${recorte.total} votação(ões) da consulta ficaram fora desta planilha `
+      + `(tudo: ${formatarData(recorte.limites.ini)} a ${formatarData(recorte.limites.fim)}).`]);
+    rows.push([]);
+  }
+  rows.push(['Data', 'Hora', 'Votação', 'Objeto (tramitação)', 'Resultado registrado',
+              'Voto do deputado', 'Orientação do Governo', 'Situação',
+              'Ficha da proposição', 'Sessão']);
+  for (const { it, s } of linhas) {
+    const v = it.votacao;
+    rows.push([
+      String(v.data || '').split('-').reverse().join('/'),
+      String(v.dataHoraRegistro || '').slice(11, 16),
+      v.id,
+      objetos[v.id],
+      v.descricao || '',
+      s.situacao === 'simbolica' ? 'votação simbólica' : (s.voto || 'não votou'),
+      it.govOrient || '',
+      CV_ROTULO[s.situacao],
+      cvLinks(v).prop || '',
+      cvLinks(v).evento || '',
+    ]);
+  }
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols'] = [{ wch: 11 }, { wch: 6 }, { wch: 14 }, { wch: 70 }, { wch: 70 }, { wch: 16 }, { wch: 18 }, { wch: 15 },
+                 { wch: 62 }, { wch: 46 }];
+  ws['!freeze'] = { xSplit: 0, ySplit: recorte ? 3 : 1 };
+  XLSX.utils.book_append_sheet(wb, ws, 'Votos');
+  const alvo = prop ? `${prop.siglaTipo}${prop.numero}-${prop.ano}` : `${periodo[0]}_${periodo[1]}`;
+  const corte = recorte ? `_recorte-${recorte.ini}_${recorte.fim}` : '';
+  XLSX.writeFile(wb, `votos_${dep.nome.replace(/\s+/g, '-')}_${alvo}${corte}.xlsx`);
+}
+
+// ---------- fluxo ----------
+async function cvConsultar() {
+  if (!cv.deputado) { cvStatus('Escolha o(a) deputado(a) primeiro.', 'error'); return; }
+  cvEl.resultado.innerHTML = '';
+  cvEl.buscar.disabled = true;
+  try {
+    let dados;
+    if (cv.modo === 'proposicao') {
+      const sigla  = cvEl.sigla.value.trim().toUpperCase();
+      const numero = cvEl.numero.value.trim();
+      const ano    = cvEl.ano.value.trim();
+      if (!sigla || !numero || !ano) throw new Error('Informe sigla, número e ano da proposição.');
+      cvStatus('Localizando a proposição…', 'loading');
+      dados = await cvPorProposicao(sigla, numero, ano);
+      if (!dados.itens.length) { cvStatus(`${sigla} ${numero}/${ano} não tem votação registrada na Câmara.`, 'error'); return; }
+
+      // Os resumos são opcionais porque custam: um PDF por documento citado,
+      // lidos em série para não esbarrar no portal da Câmara.
+      if (cvEl.resumos && cvEl.resumos.checked) {
+        const prelim = dados.itens.map(it => ({ it }));
+        dados.resumos = await rsmCarregar(
+          prelim.filter(l => dados.objetos[l.it.votacao.id]),
+          dados.objetos, dados.propDetalhada, dados.objetosPossiveis,
+          (f, t) => cvStatus(`Lendo o inteiro teor de cada item… ${f}/${t}`, 'loading'));
+
+        // A transcrição é a fonte; a explicação em linguagem comum é o que se
+        // lê. Sem chave de IA configurada o relatório fica só com a primeira,
+        // que é pior de ler e continua correta — e a tela diz isso.
+        dados.resumos.explicacao = await rsmExplicar(
+          dados.resumos, dados.objetos, msg => cvStatus(msg, 'loading'));
+      }
+
+      // A repercussão vem depois dos resumos e antes da sustentação, porque é
+      // nessa ordem que ela serve: precisa do que a matéria faz para buscar bem,
+      // e precisa estar pronta para a sustentação saber ao que responder.
+      if (cvEl.imprensa && cvEl.imprensa.checked) {
+        dados.imprensa = await impLevantar({
+          prop: dados.propDetalhada || dados.prop,
+          resumos: dados.resumos,
+          aoAndar: msg => cvStatus(msg, 'loading'),
+        });
+      }
+    } else {
+      const ini = cvEl.dataIni.value, fim = cvEl.dataFim.value;
+      if (!ini || !fim) throw new Error('Informe as duas datas.');
+      if (ini > fim) throw new Error('A data inicial é posterior à final.');
+      cvStatus('Buscando votações do período…', 'loading');
+      dados = await cvPorPeriodo(ini, fim);
+      dados.periodo = [ini, fim];
+      if (!dados.itens.length) { cvStatus('Nenhuma votação do Plenário nesse período.', 'error'); return; }
+    }
+    // A sustentação vem por último, porque se apoia no resumo de cada item.
+    // É argumentação, e sai em seção própria — nunca misturada ao registro.
+    const posicao = cvEl.defesa ? cvEl.defesa.value : '';
+    if (posicao && cv.modo === 'proposicao') {
+      cvStatus('Redigindo a sustentação do posicionamento…', 'loading');
+      const dep = cv.deputado;
+      const linhasPre = dados.itens.map(it => ({ it, s: cvSituacao(it, dep.id) }))
+        .filter(l => dados.objetos[l.it.votacao.id]);
+      dados.defesa = await dfsGerar({
+        posicao, dep, prop: dados.propDetalhada || dados.prop,
+        resumos: dados.resumos, linhas: linhasPre, objetos: dados.objetos,
+        enfase: cvEl.enfase ? cvEl.enfase.value.trim() : '',
+        imprensa: dados.imprensa,
+      });
+    }
+
+    cvStatus('');
+    cvRender(dados);
+  } catch (e) {
+    cvStatus('Erro: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    cvEl.buscar.disabled = false;
+  }
+}
+
+// As abas do módulo. Cada entrada é [id do botão, id do painel]; acrescentar
+// uma aba é acrescentar uma linha, e uma aba que falte no HTML é ignorada em
+// vez de derrubar a tela — a pasta da extensão pode estar atualizada pela
+// metade, e é o defeito que o teste da home do painel existe para impedir.
+const CV_ABAS = [
+  ['aba-aderencia', 'painel-aderencia'],
+  ['aba-consulta',  'painel-consulta'],
+  ['aba-producao',  'painel-producao'],
+  ['aba-radar',     'painel-radar'],
+];
+
+function cvTrocarAba(idBotao) {
+  for (const [bt, pn] of CV_ABAS) {
+    const b = document.getElementById(bt), p = document.getElementById(pn);
+    if (!b || !p) continue;
+    const ativa = bt === idBotao;
+    p.hidden = !ativa;
+    b.classList.toggle('ativa', ativa);
+  }
+}
+
+function cvTrocarModo(modo) {
+  cv.modo = modo;
+  const prop = modo === 'proposicao';
+  cvEl.camposProp.hidden = !prop;
+  cvEl.camposPer.hidden  = prop;
+  cvEl.modoProp.classList.toggle('ativo', prop);
+  cvEl.modoPer.classList.toggle('ativo', !prop);
+
+  // A sustentação é de UMA matéria: defende-se posição favorável ou contrária a
+  // um projeto. No modo por período há dezenas de matérias diferentes e não há
+  // posição única a sustentar, então o campo sai da tela — antes ele ficava
+  // visível ali e o clique não fazia nada, que é a pior das três opções.
+  if (cvEl.defesaCampo) cvEl.defesaCampo.hidden = !prop;
+  // A repercussão sai pela mesma razão: ela é de uma matéria. Num período com
+  // dezenas de matérias, "a repercussão" não tem sujeito.
+  if (cvEl.imprensaLinha) cvEl.imprensaLinha.hidden = !prop;
+  if (!prop && cvEl.imprensa) cvEl.imprensa.checked = false;
+  if (!prop && cvEl.defesa) {
+    // Marca a opção vazia, em vez de atribuir `select.value`: a troca de modo é
+    // um toggle de interface e não pode estourar em ambiente nenhum — um throw
+    // aqui deixaria o painel meio trocado, com os dois conjuntos de campos
+    // errados. Num select de escolha única, marcar uma opção desmarca as
+    // outras; tocar nas irmãs, não.
+    const vazia = cvEl.defesa.querySelector('option[value=""]');
+    if (vazia) vazia.selected = true;
+    if (cvEl.enfase) cvEl.enfase.value = '';
+  }
+}
+
+// Registro de eventos com guarda: um id ausente (pasta de extensão atualizada
+// pela metade) não pode matar o resto da tela — é o defeito que o teste da home
+// do painel existe para impedir.
+if (cvEl.aba && cvEl.painel) {
+  for (const [bt] of CV_ABAS) {
+    const b = document.getElementById(bt);
+    if (b) b.addEventListener('click', () => cvTrocarAba(bt));
+  }
+  cvEl.modoProp.addEventListener('click', () => cvTrocarModo('proposicao'));
+  cvEl.modoPer.addEventListener('click', () => cvTrocarModo('periodo'));
+  cvEl.buscar.addEventListener('click', cvConsultar);
+
+  let tBusca = null;
+  cvEl.dep.addEventListener('input', () => {
+    cv.deputado = null;
+    const nome = cvEl.dep.value.trim();
+    clearTimeout(tBusca);
+    if (nome.length < 3) { cvEl.escolha.innerHTML = ''; return; }
+    tBusca = setTimeout(async () => {
+      try {
+        cvRenderEscolha(await cvBuscarDeputados(nome));
+      } catch (e) {
+        // Falha de consulta NÃO é "não existe deputado com esse nome".
+        cvEl.escolha.innerHTML = '<div class="cv-escolha cv-escolha-tit">Não consegui consultar o cadastro da Câmara agora ('
+          + cvEsc(e.message) + '). Tente de novo.</div>';
+      }
+    }, 400);
+  });
+
+  [cvEl.dataIni, cvEl.dataFim].forEach(el => {
+    el.addEventListener('click', () => { if (typeof el.showPicker === 'function') { try { el.showPicker(); } catch (_) {} } });
+  });
+  const hoje = new Date(), mesAtras = new Date();
+  mesAtras.setDate(mesAtras.getDate() - 30);
+  cvEl.dataIni.value = mesAtras.toISOString().slice(0, 10);
+  cvEl.dataFim.value = hoje.toISOString().slice(0, 10);
+}
+
+// ---------- exportação em PDF ----------
+// O layout é o do documento de conferência que a assessoria já usa: cabeçalho
+// institucional, consolidado, a nota de "como ler" (que é o que impede a
+// contagem de ser mal interpretada), as votações agrupadas por sessão, os
+// destaques retirados e a procedência dos dados.
+//
+// Impressão pelo paged.js, como nos demais módulos: ele resolve o número de
+// página do rodapé e avisa quando terminou de montar. Sem ele, imprime mesmo
+// assim — só sem numeração.
+
+const CSS_PDF_VOTOS = `
+  @page { size: A4; margin: 15mm 14mm; @bottom-center { content: counter(page); font-size: 8pt; color: #888; } }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: 'Segoe UI', Arial, sans-serif; font-size: 9.5pt; color: #1a1a1a; background: #fff; }
+  .cab { display: flex; align-items: center; gap: 14px; }
+  .cab .tit { flex: 1; text-align: center; }
+  .cab h1 { font-size: 15pt; color: #003c1f; }
+  .cab .sub { font-size: 9.5pt; color: #003c1f; margin-top: 2px; }
+  .cab img { height: 42px; }
+  .cab .sp { width: 42px; }
+  .rule { border-bottom: 2px solid #00A859; margin: 7px 0 10px; }
+  .meta { text-align: center; font-style: italic; font-size: 8.5pt; color: #6b7280; margin-bottom: 14px; }
+  /* Título nunca fica sozinho no pé da página: um "Repercussão pública da
+     matéria" órfão na página 1, com o conteúdo na 2, parece seção vazia. */
+  h2 { font-size: 11.5pt; color: #003c1f; margin: 16px 0 6px; border-left: 3px solid #00A859; padding-left: 7px;
+       break-after: avoid; page-break-after: avoid; }
+  h2:first-of-type { margin-top: 0; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 6px; }
+  th { background: #eef4f0; color: #003c1f; font-size: 8pt; text-transform: uppercase; letter-spacing: .3px;
+       padding: 5px 6px; text-align: left; border-bottom: 1.5px solid #c9ddd2; }
+  td { padding: 6px; border-bottom: 1px solid #e6eae7; vertical-align: top; font-size: 9pt; }
+  td.c { text-align: center; white-space: nowrap; }
+  td.hora { white-space: nowrap; font-size: 8.5pt; }
+  tr.simb td { background: #fafafa; color: #6b7280; }
+  .res { font-size: 8pt; color: #6b7280; margin-top: 3px; font-style: italic; }
+  .links { font-size: 7.5pt; margin-top: 3px; }
+  .links a { color: #1d4ed8; text-decoration: none; }
+  .nada { color: #9aa5a0; }
+  .tag { display: inline-block; font-size: 8pt; font-weight: 700; padding: 1px 7px; border-radius: 999px; border: 1px solid; }
+  .tag-voto { color: #1a1a1a; border-color: #c9ccc9; background: #f4f5f4; }
+  .tag-ade  { color: #006633; border-color: #9ed7b6; background: #eaf7f0; }
+  .tag-div  { color: #b02a1f; border-color: #f0b4ad; background: #fdeeec; }
+  .tag-aus  { color: #8a6d00; border-color: #e8d28a; background: #fdf7e3; }
+  .tag-simb { color: #6b7280; border-color: #d8dcda; background: #f4f5f4; }
+  .resumo { display: flex; gap: 10px; margin: 4px 0 12px; }
+  .bx { flex: 1; border: 1px solid #d8e3dc; border-radius: 6px; padding: 9px 5px; text-align: center;
+        display: flex; flex-direction: column; justify-content: flex-start; }
+  .bx .v { font-size: 17pt; font-weight: 700; color: #003c1f; }
+  .bx .l { font-size: 7pt; text-transform: uppercase; letter-spacing: .3px; color: #6b7280; margin-top: 2px;
+           line-height: 1.25; }
+  .nota { font-size: 8.5pt; color: #444; background: #f7f9f8; border-left: 3px solid #c9ddd2;
+          padding: 8px 10px; margin: 8px 0; line-height: 1.5; }
+  .nota b { color: #003c1f; }
+  /* Transcrição: recuo e cor própria, para que não se confunda com o texto do
+     relatório. O que está aqui é palavra do documento, não nossa. */
+  .rsm { font-size: 8pt; color: #3c4a44; background: #f4f7f5; border-left: 2px solid #c9ddd2;
+         padding: 5px 8px; margin: 4px 0 5px; line-height: 1.45; }
+  .rsm b { color: #00552a; }
+  .rsm i { color: #6b7280; }
+  .rsm-fon { margin-top: 3px; font-size: 7.5pt; color: #6b7280; }
+  .rsm-fon a { color: #1d4ed8; }
+  /* Sustentação e repercussão no mesmo verde do resto do documento: os títulos
+     usam o h2 padrão, e as caixas, a mesma borda e o mesmo fundo das outras.
+     O que diz que ali não é registro é o título da seção e a nota dela. */
+  .dfs { border: 1px solid #c9ddd2; background: #f4f9f6; border-radius: 4px;
+         padding: 10px 13px; margin: 6px 0 4px; break-inside: avoid; page-break-inside: avoid; }
+  .dfs .dfs-rot { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+                  color: #00552a; margin-bottom: 6px; }
+  .dfs p { font-size: 9.5pt; line-height: 1.55; margin-bottom: 7px; text-align: justify; }
+  .dfs p:last-of-type { margin-bottom: 0; }
+  .dfs-nota { margin-top: 9px; padding-top: 6px; border-top: 1px solid #d7e6dd;
+              font-size: 8pt; color: #4a5a6b; font-style: italic; line-height: 1.45; }
+  .dfs-nota b { color: #003c1f; }
+  /* Repercussão: material de TERCEIRO. Terceira moldura, distinta do registro e
+     da sustentação — quem pegar a página no meio precisa saber o que está lendo. */
+  .imp-pdf { border: 1px solid #c9ddd2; background: #f4f9f6; border-radius: 4px;
+             padding: 10px 13px; margin: 6px 0 4px; }
+  .imp-ap { font-size: 9.5pt; margin-bottom: 8px; break-after: avoid; page-break-after: avoid; }
+  /* O bloco inteiro pode quebrar — é longo, e forçá-lo inteiro para a página
+     seguinte deixaria meia página em branco. O que não pode quebrar é cada
+     grupo e cada ponto: frase cortada no meio da página perde a fonte que vem
+     logo depois dela. */
+  .imp-g { margin-bottom: 9px; break-inside: avoid; page-break-inside: avoid; }
+  .imp-pdf li { break-inside: avoid; page-break-inside: avoid; }
+  .imp-g:last-child { margin-bottom: 0; }
+  .imp-r { font-size: 7.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: .5px;
+           color: #00552a; margin-bottom: 4px; }
+  .imp-pdf ul { margin: 0 0 0 16px; }
+  .imp-pdf li { font-size: 9.5pt; line-height: 1.5; margin-bottom: 4px; }
+  .imp-v { color: #6b7280; font-size: 8pt; font-style: italic; }
+  .rsm-nota { border-left-color: #9ed7b6; }
+  ul.ret { font-size: 8pt; color: #555; margin: 4px 0 0 16px; line-height: 1.45; }
+  .figura { margin: 8px 0 4px; break-inside: avoid; page-break-inside: avoid; text-align: center; }
+  .ft { margin-top: 16px; padding-top: 7px; border-top: 1px solid #ddd; font-size: 7.5pt; color: #888; text-align: center; }
+  @media print { .bx, .tag, th, tr.simb td { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+`;
+
+const CV_TAG_PDF = {
+  aderente: 'tag-ade', divergente: 'tag-div', ausente: 'tag-aus',
+  'sem-gov': 'tag-simb', simbolica: 'tag-simb',
+};
+
+function cvHtmlPDF(logoDataUrl) {
+  const u = cv.ultimo;
+  const { linhas, objetos, prop, periodo, dep, retirados, cont, pct, recorte, semObjeto, resumos, imprensa, defesa } = u;
+  const e = cvEsc;
+  const comum = cvAgruparLinks(linhas);
+
+  // O apelido público só entra no título com a repercussão marcada para o
+  // documento: se o levantamento não vai sair, a origem do apelido não sai com
+  // ele, e nome sem origem num título é a pior forma de afirmar qualquer coisa.
+  const apelido = imprensa && imprensa.ok && imprensa.incluir && imprensa.usarApelido && imprensa.apelido
+    ? imprensa.apelido : '';
+  // Parênteses, e não travessão: o título reaparece no consolidado seguido de um
+  // travessão e da ementa, e dois travessões na mesma linha embaralham o que é
+  // apelido com o que é ementa.
+  const titulo = prop
+    ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}${apelido ? ` (“${apelido}”)` : ''}`
+    : `Votações do Plenário · ${formatarData(periodo[0])} a ${formatarData(periodo[1])}`;
+  const faixa = recorte ? `${formatarData(recorte.ini)} a ${formatarData(recorte.fim)}` : '';
+  const subtitulo = prop
+    ? String(prop.ementa || '').replace(/\s+/g, ' ').slice(0, 260)
+    : 'Todas as votações do Plenário no período.';
+
+  // Uma tabela por dia de sessão, como o documento de conferência faz.
+  const porDia = new Map();
+  for (const l of linhas) {
+    const d = String(l.it.votacao.data || '');
+    if (!porDia.has(d)) porDia.set(d, []);
+    porDia.get(d).push(l);
+  }
+  const dias = [...porDia.keys()].sort();
+
+  // O link da sessão pertence ao DIA, não à linha: vai no título da tabela.
+  const sessaoDoDia = dia => {
+    const evs = new Set(porDia.get(dia).map(l => cvLinks(l.it.votacao).evento).filter(Boolean));
+    return evs.size === 1 ? [...evs][0] : null;
+  };
+
+  const linhaHtml = ({ it, s }) => {
+    const v = it.votacao;
+    const obj = objetos[v.id];
+    const hora = String(v.dataHoraRegistro || '').slice(11, 16);
+    const voto = s.situacao === 'simbolica'
+      ? '<span class="tag tag-simb">simbólica</span>'
+      : (s.voto ? `<span class="tag tag-voto">${e(s.voto)}</span>` : '<span class="tag tag-aus">não votou</span>');
+    return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
+      <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
+      <td><b>${e(obj)}</b>
+          ${(() => {
+            const r = resumos && resumos.itens[v.id];
+            if (!r) return '';
+            const p = [];
+            if (r.simples) p.push(`<b>O que o destaque fazia:</b> ${e(r.simples)}`);
+            else {
+              if (r.pedido && r.pedido.texto) p.push(`<b>Requerimento:</b> ${e(r.pedido.texto)}`);
+              if (r.justificacao && r.justificacao.texto) p.push(`<b>Justificação:</b> ${e(r.justificacao.texto)}`);
+            }
+            if (!p.length) return '';
+            // A fonte acompanha a explicação mesmo quando o texto literal sai
+            // do documento: sem o link, a frase em linguagem comum fica sem
+            // como ser conferida, que é o oposto do que este relatório é.
+            const fon = (r.fontes || []).map(f => `<a href="${f.url}">${e(f.rotulo)}</a>`).join(' · ');
+            return `<div class="rsm">${p.join('<br>')}${
+              fon ? `<div class="rsm-fon">fonte: ${fon}</div>` : ''}</div>`;
+          })()}
+          <div class="res">${e(v.descricao || '')}</div>
+          ${(() => { const L = cvLinks(v); const p = [];
+            if (L.prop && L.prop !== comum.fichaComum)
+              p.push(`<a href="${L.prop}">${e(L.rotuloProp || 'ficha da proposição')}</a>`);
+            // A sessão está no título da tabela do dia; na linha, só se diferir.
+            if (L.evento && L.evento !== sessaoDoDia(String(v.data || '')))
+              p.push(`<a href="${L.evento}">sessão</a>`);
+            return p.length ? `<div class="links">${p.join(' · ')}</div>` : '';
+          })()}</td>
+      <td class="c">${voto}</td>
+      <td class="c">${it.govOrient ? e(it.govOrient) : '<span class="nada">—</span>'}</td>
+      <td class="c"><span class="tag ${CV_TAG_PDF[s.situacao]}">${CV_ROTULO[s.situacao]}</span></td>
+    </tr>`;
+  };
+
+  const tabela = dia => `
+    <h2>Sessão de ${e(dia.split('-').reverse().join('/'))}${sessaoDoDia(dia)
+      ? ` <a href="${sessaoDoDia(dia)}" style="font-size:8.5pt;font-weight:400">ver a sessão no portal</a>` : ''}</h2>
+    <table>
+      <tr><th style="width:62px">Data</th><th>Objeto da votação</th><th style="width:74px">Voto</th>
+          <th style="width:52px">Governo</th><th style="width:66px">Veredito</th></tr>
+      ${porDia.get(dia).map(linhaHtml).join('')}
+    </table>`;
+
+  const comparaveis = cont.aderente + cont.divergente;
+  const qualificadas = comparaveis + cont.ausente;
+
+  return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8">
+<title>${e(dep.nome)} — ${e(titulo)}${recorte ? ` (recorte ${e(faixa)})` : ''}</title><style>${CSS_PDF_VOTOS}</style></head><body>
+  <div class="cab">
+    <div class="sp"></div>
+    <div class="tit"><h1>Dep. ${e(dep.nome)} (${e(dep.partido)}-${e(dep.uf)})</h1>
+      <div class="sub">${e(titulo)}${recorte ? ` · recorte de ${e(faixa)}` : ''}</div></div>
+    ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
+  </div>
+  <div class="rule"></div>
+  <div class="meta">Documento de conferência · dados da API de Dados Abertos da Câmara dos Deputados,
+    consultados em ${new Date().toLocaleDateString('pt-BR')}</div>
+
+  <h2>Consolidado</h2>
+  ${prop ? `<div class="nota" style="margin-top:0"><b>${e(titulo)}</b> — ${e(subtitulo)}${
+      comum.fichaComum ? `<br><a href="${comum.fichaComum}" style="color:#1d4ed8">Ficha de tramitação no portal da Câmara</a>` : ''}</div>` : ''}
+  ${resumos && resumos.materia ? (() => {
+    const m = resumos.materia, p = [];
+    if (m.simples) p.push(`<b>Do que trata a matéria:</b> ${e(m.simples)}`);
+    if (m.justificacao && m.justificacao.texto) p.push(`<b>Justificação do autor:</b> ${e(m.justificacao.texto)}`);
+    return p.length ? `<div class="nota rsm-nota">${p.join('<br><br>')}</div>` : '';
+  })() : ''}
+  <div class="resumo">
+    <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica - cont.ausente}</div><div class="l">Votos dele</div></div>
+    <div class="bx"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
+    <div class="bx"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
+    <div class="bx"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
+    <div class="bx"><div class="v">${cont['sem-gov']}</div><div class="l">Sem orientação</div></div>
+  </div>
+  <div class="nota">
+    <b>Como ler.</b> "Aderiu/Divergiu" compara o voto com a orientação do <b>Governo</b>, que é o critério
+    do relatório de Aderência. Votações <b>simbólicas</b> não têm registro individual de voto — a Câmara
+    não o produz —, então não entram em conta nenhuma: não são ausência do deputado. Votação nominal
+    <b>sem orientação do Governo</b> também fica fora do cálculo, embora o voto exista e apareça.
+    A aderência é calculada sobre <b>${comparaveis} votação(ões) comparável(is)</b>, de ${qualificadas}
+    qualificada(s)${pct == null ? '' : `, e resulta em <b>${pct.toFixed(1)}%</b>`}.${semObjeto ? `
+    <br><b>${semObjeto} votação(ões)</b> da ficha não entraram neste documento porque a tramitação não
+    registra o que estava em votação — listá-las sem objeto não informaria nada.` : ''}
+  </div>
+
+
+  ${dias.map(tabela).join('')}
+
+  ${retirados.length ? `<h2>Destaques retirados antes da votação</h2>
+    <div class="nota">Retirados em acordo, sem votação — não há voto a registrar. Ficam listados para
+      explicar por que a matéria tem menos votações do que destaques apresentados.${
+      recorte ? ' Listados apenas os do recorte.' : ''}</div>
+    <ul class="ret">${retirados.map(x => `<li>${e(String(x && x.t || x).slice(0, 220))}</li>`).join('')}</ul>` : ''}
+
+  ${cvSvgEstatistica(cont, linhas.length) ? `<h2>Distribuição dos votos</h2>
+  <div class="figura">${cvSvgEstatistica(cont, linhas.length)}</div>` : ''}
+
+  ${impHtmlPDF(imprensa, e)}
+
+  ${defesa && defesa.ok && defesa.incluir ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
+  <div class="dfs">
+    <div class="dfs-rot">Posição ${e(DFS_POSICOES[defesa.posicao])}</div>
+    ${defesa.texto.split(/\n\s*\n/).map(x => `<p>${e(x.trim())}</p>`).join('')}
+  </div>` : ''}
+
+  <div class="ft">Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
+</body></html>`;
+}
+
+async function cvExportarPDF() {
+  if (!cv.ultimo) return;
+  // A janela abre AGORA, no gesto do clique: pop-up aberto depois de um await
+  // é bloqueado pelo navegador.
+  const win = window.open('', '_blank', 'width=960,height=720');
+  if (!win) { cvStatus('Permita pop-ups para gerar o PDF.', 'error'); return; }
+  win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
+    + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Montando o documento…</body></html>');
+  win.document.close();
+
+  let logo = null;
+  try {
+    const res = await fetch(chrome.runtime.getURL('icons/podemos-logo.png'));
+    if (res.ok) {
+      const blob = await res.blob();
+      logo = await new Promise((ok, err) => {
+        const fr = new FileReader();
+        fr.onloadend = () => ok(fr.result);
+        fr.onerror = () => err(fr.error);
+        fr.readAsDataURL(blob);
+      });
+    }
+  } catch (e) { console.warn('Logo não carregada:', e.message); }
+  if (win.closed) return;
+
+  win.document.open();
+  win.document.write(cvHtmlPDF(logo));
+  win.document.close();
+
+  let impresso = false;
+  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
+  win.PagedConfig = { auto: true, after: imprimir };
+  const s = win.document.createElement('script');
+  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
+  s.onerror = imprimir;            // sem a lib, imprime sem numeração de página
+  win.document.head.appendChild(s);
+  setTimeout(imprimir, 30000);     // rede de segurança
+}
+
+// ---------- gráfico da distribuição (SVG inline) ----------
+// SVG inline pelo mesmo motivo das notas de orçamento: imprime, sobrevive ao
+// "Salvar como PDF" e não depende de script — a janela de impressão herda a CSP
+// da extensão e não roda script inline.
+//
+// São DUAS figuras, porque são duas perguntas e uma só barra as confundiria:
+//
+//   1. MEDIDOR — quantas das votações entraram no cálculo. No PL 182/2024 são 7
+//      de 40: sem isso, "100% de aderência" parece cobrir as 40. É a figura que
+//      impede a leitura errada do número grande.
+//   2. BARRA EMPILHADA — como se distribuem as qualificadas, que é parte-de-todo
+//      (o formato que o manual indica para essa função).
+//
+// A ordem dos segmentos é Aderiu → Ausente → Divergiu, e a razão é técnica: o
+// par verde/vermelho é o pior que existe para daltonismo (ΔE 1,2 em protanopia
+// com o verde do documento; 5,9 com o verde puro). Com o âmbar entre os dois,
+// nenhum par ADJACENTE — os únicos que se tocam no anel da rosquinha — fica
+// abaixo do limite: o pior vira ΔE 16,2. Conferido com o validador do manual de
+// visualização, que reprova a ordem ingênua.
+const CV_COR = {
+  aderente:   '#008300',   // verde puro: o #006633 do texto reprova em protanopia
+  ausente:    '#eda100',
+  divergente: '#d03b3b',
+  tinta:      '#0b0b0b',
+  tinta2:     '#52514e',
+  muda:       '#898781',
+  superficie: '#ffffff',
+};
+
+/** Ponto do círculo, com o ângulo medido do topo no sentido do relógio. */
+function _cvPonto(cx, cy, r, a) {
+  return [cx + r * Math.sin(a), cy - r * Math.cos(a)];
+}
+
+/**
+ * Setor de anel (a fatia da rosquinha) entre dois ângulos, em radianos, medidos
+ * do topo no sentido do relógio. Uma volta inteira não cabe num único comando de
+ * arco do SVG, então o caso de 360° se parte em duas metades.
+ */
+function _cvArco(cx, cy, rFora, rDentro, a0, a1) {
+  if (a1 - a0 >= 2 * Math.PI - 1e-6) {
+    const meia = (r) => {
+      const [x0, y0] = _cvPonto(cx, cy, r, 0);
+      const [x1, y1] = _cvPonto(cx, cy, r, Math.PI);
+      return { x0, y0, x1, y1 };
+    };
+    const F = meia(rFora), D = meia(rDentro);
+    return `<path d="M${F.x0},${F.y0} A${rFora},${rFora} 0 0 1 ${F.x1},${F.y1}`
+      + ` A${rFora},${rFora} 0 0 1 ${F.x0},${F.y0}`
+      + ` M${D.x0},${D.y0} A${rDentro},${rDentro} 0 0 0 ${D.x1},${D.y1}`
+      + ` A${rDentro},${rDentro} 0 0 0 ${D.x0},${D.y0} z" fill-rule="evenodd"`;
+  }
+  const [xf0, yf0] = _cvPonto(cx, cy, rFora, a0);
+  const [xf1, yf1] = _cvPonto(cx, cy, rFora, a1);
+  const [xd1, yd1] = _cvPonto(cx, cy, rDentro, a1);
+  const [xd0, yd0] = _cvPonto(cx, cy, rDentro, a0);
+  const grande = a1 - a0 > Math.PI ? 1 : 0;
+  return `<path d="M${xf0},${yf0} A${rFora},${rFora} 0 ${grande} 1 ${xf1},${yf1}`
+    + ` L${xd1},${yd1} A${rDentro},${rDentro} 0 ${grande} 0 ${xd0},${yd0} z"`;
+}
+
+/**
+ * A figura da distribuição: rosquinha da conduta nas votações qualificadas, com
+ * o total no miolo e a razão sobre o universo na linha de baixo. `cont` vem de
+ * cvRender; `total` é o nº de votações.
+ *
+ * O recorte ("N de M entraram no cálculo") NÃO ganha figura própria: como razão
+ * de duas partes, uma rosquinha dele seria uma pizza de duas fatias, que o
+ * manual de visualização reprova. Ele vale mais como número, no miolo e no pé.
+ *
+ * Devolve '' quando não há o que mostrar — figura de zero não informa nada.
+ */
+function cvSvgEstatistica(cont, total) {
+  const qual = cont.aderente + cont.divergente + cont.ausente;
+  if (!total || !qual) return '';
+
+  // A folga vertical acima do anel é deliberada: o rótulo de uma fatia fina sai
+  // para fora, a R_FORA+13, e sem essa folga ele bateria no título da figura.
+  const L = 620, ALT = 220;
+  const cy = 114, R_FORA = 76, R_DENTRO = 48, VAO_LEG = 44;
+  const rMeio = (R_FORA + R_DENTRO) / 2;
+
+  // A ordem é a validada: Aderiu → Ausente → Divergiu (âmbar entre verde e vermelho).
+  const partes = [
+    { k: 'aderente',   rot: 'Aderiu',   n: cont.aderente },
+    { k: 'ausente',    rot: 'Ausente',  n: cont.ausente },
+    { k: 'divergente', rot: 'Divergiu', n: cont.divergente },
+  ].filter(p => p.n > 0);          // fatia de zero não se desenha
+
+  // O conjunto anel + legenda é centrado na figura, e a figura na página. A
+  // largura da legenda se estima do texto mais longo: sem isso o bloco fica
+  // encostado à esquerda com um vazio à direita, que foi como nasceu.
+  const larguraLegenda = 17 + Math.max(...partes.map(p => {
+    const pct = ((p.n / qual) * 100).toFixed(p.n / qual >= 0.995 ? 0 : 1);
+    return Math.max(p.rot.length * 6.4, `${p.n} de ${qual} — ${pct}%`.length * 5.4);
+  }));
+  const larguraBloco = 2 * R_FORA + VAO_LEG + larguraLegenda;
+  const x0 = Math.max((L - larguraBloco) / 2, 0);
+  const cx = x0 + R_FORA;
+
+  // Vão de 2px na cor da superfície entre fatias vizinhas, convertido de pixels
+  // para ângulo no raio médio do anel. Fatia única fecha a volta, sem vão.
+  const vao = partes.length > 1 ? 2 / rMeio : 0;
+  const VOLTA = 2 * Math.PI;
+
+  let a = 0;
+  const fatias = [];
+  const rotulos = [];
+  partes.forEach((p) => {
+    const fim = a + (p.n / qual) * VOLTA;
+    const a0 = a + vao / 2, a1 = fim - vao / 2;
+    fatias.push(`${_cvArco(cx, cy, R_FORA, R_DENTRO, a0, Math.max(a1, a0 + 1e-4))} fill="${CV_COR[p.k]}"/>`);
+
+    // Rótulo direto: dentro do anel quando a fatia comporta o número com folga;
+    // senão para fora, em tinta. Posição e cor se decidem juntas.
+    const meio = (a0 + a1) / 2;
+    const arco = (a1 - a0) * rMeio;
+    const dentro = arco >= 26;
+    const r = dentro ? rMeio : R_FORA + 13;
+    const [tx, ty] = _cvPonto(cx, cy, r, meio);
+    const ancora = dentro ? 'middle' : (Math.sin(meio) >= 0 ? 'start' : 'end');
+    rotulos.push(`<text x="${tx.toFixed(1)}" y="${(ty + 3.6).toFixed(1)}" font-size="11" font-weight="700"
+      text-anchor="${ancora}" fill="${dentro ? '#ffffff' : CV_COR.tinta}">${p.n}</text>`);
+    a = fim;
+  });
+
+  const legenda = partes.map((p, i) => {
+    const pct = ((p.n / qual) * 100).toFixed(p.n / qual >= 0.995 ? 0 : 1);
+    return `<g transform="translate(0,${i * 27})">
+      <rect x="0" y="0" width="10" height="10" rx="2" fill="${CV_COR[p.k]}"/>
+      <text x="17" y="9" font-size="11" font-weight="600" fill="${CV_COR.tinta}">${p.rot}</text>
+      <text x="17" y="22" font-size="10" fill="${CV_COR.tinta2}">${p.n} de ${qual} — ${pct}%</text>
+    </g>`;
+  }).join('');
+
+  const fora = total - qual;
+  return `<svg width="${L}" height="${ALT}" viewBox="0 0 ${L} ${ALT}" role="img"
+    aria-label="Conduta nas ${qual} votações qualificadas, de um universo de ${total}: ${partes.map(p => p.rot + ' ' + p.n).join(', ')}."
+    style="max-width:100%;height:auto">
+    <text x="${L / 2}" y="12" font-size="10.5" font-weight="600" text-anchor="middle" fill="${CV_COR.tinta2}">Conduta nas votações qualificadas</text>
+    <g>
+      ${fatias.join('\n      ')}
+      ${rotulos.join('\n      ')}
+      <text x="${cx}" y="${cy - 2}" font-size="30" font-weight="700" text-anchor="middle" fill="${CV_COR.tinta}">${qual}</text>
+      <text x="${cx}" y="${cy + 14}" font-size="9.5" text-anchor="middle" fill="${CV_COR.muda}">qualificadas</text>
+      <text x="${cx}" y="${cy + 26}" font-size="9.5" text-anchor="middle" fill="${CV_COR.muda}">de ${total}</text>
+    </g>
+    <g transform="translate(${(x0 + 2 * R_FORA + VAO_LEG).toFixed(1)},${cy - (partes.length * 27) / 2 + 4})">${legenda}</g>
+    <text x="${L / 2}" y="${ALT - 6}" font-size="9" text-anchor="middle" fill="${CV_COR.muda}">
+      ${fora} das ${total} votações ${fora === 1 ? 'ficou' : 'ficaram'} fora do cálculo — votação simbólica ou sem orientação do governo</text>
+  </svg>`;
+}

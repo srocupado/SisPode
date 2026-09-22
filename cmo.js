@@ -254,7 +254,15 @@ async function lerCronograma(tipo, anoOrcamento) {
   if (SEM_CONTEUDO.test(corpo)) {
     return semConteudo('A CMO ainda não publicou o cronograma de tramitação deste exercício.', { url });
   }
+  return { ...itensDoCronograma(corpo), url };
+}
 
+/**
+ * Os itens do cronograma a partir do texto da página. Separado de
+ * `lerCronograma` para poder ser exercitado sem rede: a regra de datas aqui é
+ * fina e cada exercício escreve a faixa de um jeito diferente.
+ */
+function itensDoCronograma(corpo) {
   // O portal entrega o cronograma inteiro numa ÚNICA linha:
   //   "1. Publicação em avulso eletrônico 16/10/2025 a 17/10/2025 2. Realização
   //    de Audiências Públicas 21/10/2025 a 21/10/2025 3. Apresentação de …"
@@ -282,11 +290,19 @@ async function lerCronograma(tipo, anoOrcamento) {
   while ((m = re.exec(texto)) !== null) {
     const descricao = m[2].replace(/\s+/g, ' ').trim();
     if (!descricao || itens.some(i => i.ordem === parseInt(m[1], 10))) continue;
+    const inicio = comAno(m[3], m[5]);
+    const fim    = comAno(m[5], m[3]);
+    // A herança acima pressupõe que UMA das pontas trouxe o ano. Quando
+    // nenhuma trouxe, o que sobra é "06/12" — data sem ano. Ela entrava no
+    // cronograma como se fosse data, e a nota exibia o prazo pela metade; o
+    // item passa a dizer que a data está incompleta, que é o que se sabe.
+    const incompleta = !/^\d{2}\/\d{2}\/\d{4}$/.test(inicio) || !/^\d{2}\/\d{2}\/\d{4}$/.test(fim);
     itens.push({
       ordem: parseInt(m[1], 10),
       descricao,
-      inicio: comAno(m[3], m[5]),
-      fim: comAno(m[5], m[3]),
+      inicio,
+      fim,
+      ...(incompleta ? { dataIncompleta: true, motivoData: 'o texto do cronograma não trouxe o ano em nenhuma das pontas do prazo' } : {}),
       observacao: [m[4], m[6]].filter(Boolean).map(x => x.trim()).join(' a ') || null,
     });
   }
@@ -298,7 +314,7 @@ async function lerCronograma(tipo, anoOrcamento) {
   return {
     disponivel: itens.length > 0,
     motivo: itens.length ? null : 'O cronograma foi publicado, mas não foi possível interpretar os itens.',
-    url, itens, prazoEmendas,
+    itens, prazoEmendas,
     publicadoEm: mPub ? mPub[1] : null,
   };
 }
@@ -744,7 +760,7 @@ async function carregarExercicio(tipo, anoOrcamento) {
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = {
     LEIS_ORCAMENTARIAS, CN_BASE, SENADO_CMO, urlCMO, urlSenado, txt, SEM_CONTEUDO,
-    buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, lerRelatores,
+    buscarMateriaOrcamentaria, lerAcompanhamento, lerCronograma, itensDoCronograma, lerRelatores,
     lerDocumentosEmendas, lerNotasTecnicas, lerAlteracoesPPA, lerMateriaisExecutivo, carregarExercicio,
     DESCRICAO_DOCS_EXECUTIVO, descreverDocumentoExecutivo,
   };

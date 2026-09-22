@@ -46,13 +46,20 @@ function parseReferencia(texto) {
 // ============================================================
 //  CAMADA FACTUAL (regra fixa, sem IA) — porte de lideres.js
 // ============================================================
+/**
+ * Tramitações da proposição. Devolve NULL quando a consulta falha — vazio e
+ * falha são coisas diferentes: `situacaoDe([])` responde que não há requerimento
+ * de urgência, e o /colegio é usado DURANTE a reunião, quando um fato errado
+ * custa mais. Mesmo defeito corrigido em lideres.js (varredura de 15/09/2026).
+ */
 async function buscarTramitacoes(idCamara) {
+  if (!idCamara) return null;
   try {
     // Este endpoint NÃO aceita ?ordem/?itens (devolve 400).
     const res = await fetch(`${API_BASE}/proposicoes/${idCamara}/tramitacoes`);
-    if (!res.ok) return [];
+    if (!res.ok) return null;
     return (await res.json()).dados || [];
-  } catch (_) { return []; }
+  } catch (_) { return null; }
 }
 
 // ---------- Situação (urgência) ----------
@@ -486,10 +493,14 @@ async function montarFicha(referencia) {
   it.autoriaPrincipalPodemos = temOrdem ? podeAut.some(a => Number(a.ordem) === 1) : podeAut.length > 0;
 
   const trams = await buscarTramitacoes(item.id);
-  it.situacao  = situacaoDe(trams);
-  it.relatoria = await relatoriaDe(trams, detalhe.statusProposicao);
-  it.despachos = despachosDeComissao(trams, detalhe.statusProposicao);
-  it.papel     = await papelDe(detalhe, trams);
+  // Consulta falhada não vira fato na ficha entregue durante a reunião.
+  it.situacaoFalhou = !trams;
+  it.situacao  = trams
+    ? situacaoDe(trams)
+    : 'Não apurada — a consulta de tramitação na Câmara falhou agora; peça de novo em instantes.';
+  it.relatoria = trams ? await relatoriaDe(trams, detalhe.statusProposicao) : '';
+  it.despachos = trams ? despachosDeComissao(trams, detalhe.statusProposicao) : [];
+  it.papel     = await papelDe(detalhe, trams || []);
   it.apensadosPodemos = [];
   if (!it.papel.apensada && it.papel.temApensados) {
     const ap = await apensadosDoPodemos(item.id);

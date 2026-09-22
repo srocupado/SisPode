@@ -270,15 +270,25 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(c.itens[0] && c.itens[0].inicio === '07/11/2023' && c.itens[0].fim === '07/11/2023',
        `datas com hora em ambas as pontas: ${c.itens[0]?.inicio} a ${c.itens[0]?.fim} (${c.itens[0]?.observacao})`);
 
+    // O portal publica (ou não) as alterações ao PPA conforme a fase — em
+    // 15/09/2026 ele respondeu sem a seção. Isso NÃO é defeito do módulo: a
+    // recusa declarada, com motivo, é exatamente o contrato. O que não se
+    // admite é lista vazia muda ou exceção. Por isso o teste exige um dos dois
+    // desfechos, e só cobra o conteúdo quando o portal publicou algo.
     const alt = await C.lerAlteracoesPPA('2024-2027');
-    ok(alt.disponivel && alt.alteracoes.length >= 2, `${alt.alteracoes.length} alterações listadas`);
-    ok(/14802/.test(alt.leiDoPlano || ''), `lei do plano em vigor: ${alt.leiDoPlano}`);
-    ok(alt.alteracoes.every(a => /^PLN\s*\d+\/\d{4}$/.test(a.projeto)), 'toda alteração é um PLN identificado');
-    const aprovada = alt.alteracoes.find(a => /aprovad/i.test(a.situacao || ''));
-    ok(aprovada && aprovada.normaGerada, `a aprovada traz a norma gerada: ${aprovada?.projeto} → ${aprovada?.normaGerada}`);
-    ok(Array.isArray(alt.emTramitacao), 'a lista do que está em tramitação existe');
-    if (alt.emTramitacao.length) {
-      ok(alt.emTramitacao.every(a => !a.normaGerada), 'e o que está em tramitação ainda não tem norma');
+    ok(alt.disponivel ? Array.isArray(alt.alteracoes) : !!alt.motivo,
+       alt.disponivel ? `${alt.alteracoes.length} alterações listadas`
+                      : `o portal não publicou a seção agora, e o módulo diz por quê: ${alt.motivo}`);
+    if (alt.disponivel) {
+      ok(alt.alteracoes.length >= 2, `${alt.alteracoes.length} alterações listadas`);
+      ok(/14802/.test(alt.leiDoPlano || ''), `lei do plano em vigor: ${alt.leiDoPlano}`);
+      ok(alt.alteracoes.every(a => /^PLN\s*\d+\/\d{4}$/.test(a.projeto)), 'toda alteração é um PLN identificado');
+      const aprovada = alt.alteracoes.find(a => /aprovad/i.test(a.situacao || ''));
+      ok(aprovada && aprovada.normaGerada, `a aprovada traz a norma gerada: ${aprovada?.projeto} → ${aprovada?.normaGerada}`);
+      ok(Array.isArray(alt.emTramitacao), 'a lista do que está em tramitação existe');
+      if (alt.emTramitacao.length) {
+        ok(alt.emTramitacao.every(a => !a.normaGerada), 'e o que está em tramitação ainda não tem norma');
+      }
     }
 
     // O PPA também não tem página de relatores.

@@ -1,0 +1,61 @@
+{
+ "area": "ccjc",
+ "arquivos": "ccjc.js",
+ "findings": [
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 420,
+   "severity": "critica",
+   "title": "Fallback de _selecionarDocsVigentes retorna PAR quando deveria avisar indisponibilidade",
+   "summary": "Quando uma comissão tem apenas documentos PAR (parecer) ou tipos desconhecidos, o fallback da linha 420-421 retorna o PAR com maior codteor para análise. Mas PAR é deliberadamente omitido (linhas 389-390) por ser \"peça formal que não traz o teor das alterações\". O fallback viola essa arquitetura documentada.",
+   "failure_scenario": "Comissão tem apenas um PAR com codteor=10 e um SBT com codteor=5. O fallback ordena por codteor DESC e retorna PAR. A IA analisa um documento formal vazio sem o conteúdo real das mudanças, gerando resumo genérico."
+  },
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 1184,
+   "severity": "critica",
+   "title": "splitArgumentos retorna texto inteiro como favoráveis se IA não seguir formato",
+   "summary": "Se a IA não incluir os cabeçalhos \"ARGUMENTOS FAVORÁVEIS\" e \"ARGUMENTOS CONTRÁRIOS\" no texto gerado, a função retorna [texto, ''] — todo o conteúdo vai para argumentosFavoraveis e argumentosContrarios fica vazio.",
+   "failure_scenario": "IA gera \"Favoráveis: arg1 arg2. Contrários: arg3 arg4\" sem os cabeçalhos esperados. Na linha 1184, ambos indexOf retornam -1, função retorna [textoCompleto, ''], causando argumentosContrarios vazio e argumentosFavoraveis contendo também os contrários."
+  },
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 534,
+   "severity": "alta",
+   "title": "Fallback de buscarDocumentosComissoes atribui tipo 'PRL' errado para documentos de página antiga",
+   "summary": "O fallback de _parsearPaginaPareceres extrai documentos de páginas HTML antigas e atribui tipo='PRL' (Parecer do Relator) a todos, independente de serem na verdade SBT (Substitutivo), CVO (Complementação de Voto), ou outro tipo. Isso causa análise com tipo de documento incorreto.",
+   "failure_scenario": "Página antiga tem links a um substitutivo e uma complementação de voto. O fallback extrai ambos como tipo='PRL'. Depois _selecionarDocsVigentes trata ambos como \"parecer\" quando deveriam ser \"substitutivo\" e \"complementacao\", perdendo a semântica do documento."
+  },
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 1072,
+   "severity": "alta",
+   "title": "_validarReferencias ignora referências com 3 dígitos, deixando alucinações passar",
+   "summary": "A regex nas linhas 1066-1070 captura números com 3+ dígitos em citações de leis/decretos, mas a linha 1072 faz continue para numNorm.length < 4, ignorando silenciosamente números com exatamente 3 dígitos. Alucinações de \"Lei nº 123\" não serão detectadas como suspeitas.",
+   "failure_scenario": "IA gera \"Lei nº 123 foi alterada pelo Decreto nº 456\". A regex captura \"123\" e \"456\", mas na linha 1072, \"123\" (length=3) é pulado. Só \"456\" (length=3, mas 0 pontos em \"456\", então regra não aplica... na verdade length=3, pula também). Ambos pulados por < 4? Não, \"456\" passa. Problema: \"123\" é pulado sem conferência."
+  },
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 1306,
+   "severity": "media",
+   "title": "Erro silenciado na conferência automática de referências",
+   "summary": "O bloco try/catch na linha 1300-1306 captura ANY erro em _textoFonteDeURL com catch (_), silenciando falhas de download do PDF/HTML. A conferência anti-alucinação fica desativada sem notificação do usuário, deixando refsSuspeitas = [].",
+   "failure_scenario": "PDF do inteiro teor não consegue ser baixado (proxy falha, servidor fora). A conferência de referências falha silenciosamente. Projeto é salvo com refsSuspeitas = [] e usuário acredita que a conferência passou quando na verdade não foi feita."
+  },
+  {
+   "area": "ccjc",
+   "file": "ccjc.js",
+   "line": 1624,
+   "severity": "media",
+   "title": "Falha em salvarPauta não tenta sincronizar com Firebase",
+   "summary": "Na linha 1620, se localSalvar falhar, a exceção pula direto para o catch (linha 1624). A linha 1621 fbSalvarPauta nunca é executada. Se local storage está danificado/cheio, Firebase também não é sincronizado.",
+   "failure_scenario": "Navegador tem armazenamento local limitado/danificado. localSalvar falha. Código trata com catch, mas fbSalvarPauta é pulado. Pauta fica salva apenas localmente (falha), ninguém sabe que Firebase não foi tentado."
+  }
+ ],
+ "cobertura": "Leitura completa de ccjc.js (2671 linhas). Analisei: importação de PDF, extração de referências, seleção de documentos vigentes, análise via IA, conferência anti-alucinação, salvamento em Firebase/local, calendário, renderização, edição de análises. Não foi possível executar testes de integração com APIs externas (Câmara, Firebase, provedores de IA) mas identifiquei lógica de tratamento de falhas e edge cases no fluxo de dados."
+}

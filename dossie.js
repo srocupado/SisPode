@@ -357,8 +357,19 @@ function janelas(serie, marcoISO, { meses = 12, deflator = null } = {}) {
     const ms = listaMeses(de, ate).filter(m => porMes[m] != null);
     if (!ms.length) return null;
     const soma = ms.reduce((s, m) => s + porMes[m], 0);
-    const real = deflator ? ms.reduce((s, m) => s + porMes[m] * (deflator[m] || 1), 0) : null;
-    return { de: ms[0], ate: ms[ms.length - 1], meses: ms.length, soma, media: soma / ms.length, mediaReal: real == null ? null : real / ms.length };
+    // Mês sem fator (IPCA ainda não publicado, por exemplo) NÃO entra como
+    // fator 1: isso somava valor nominal dentro de uma média "a preços de
+    // hoje", sem ressalva. Faltando qualquer mês, não há média real
+    // (varredura de 15/09/2026).
+    const semFator = deflator ? ms.filter(m => deflator[m] == null) : [];
+    const real = (deflator && !semFator.length)
+      ? ms.reduce((s, m) => s + porMes[m] * deflator[m], 0)
+      : null;
+    return {
+      de: ms[0], ate: ms[ms.length - 1], meses: ms.length, soma, media: soma / ms.length,
+      mediaReal: real == null ? null : real / ms.length,
+      semDeflator: semFator.length ? semFator : undefined,
+    };
   };
   const antes = agrega(antesDe, antesAte), depois = agrega(depoisDe, depoisAte);
   if (!antes || !depois) return { nivel: 'C', motivo: 'série não cobre o marco', antes, depois };
