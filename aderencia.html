@@ -446,6 +446,20 @@
                text-transform: none; letter-spacing: 0; }
   .ia-estado b.bom  { color: var(--sim); }
   .ia-estado b.ruim { color: var(--abstencao); }
+  /* Filtro de categorias da Produção: as caixas saem de PRD_GRUPOS, para não
+     existir uma segunda lista de grupos que possa divergir da taxonomia. */
+  .prd-filtro { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .prd-filtro-cxs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+  /* `.input-section label` deixa tudo em maiúscula; a caixa é rótulo de leitura,
+     não título de campo, e precisa vencer aquela regra pela especificidade. */
+  .input-section label.prd-cx { display: flex; align-items: center; gap: 6px; padding: 6px 10px;
+            background: rgba(255,255,255,0.03); border: 1px solid var(--border);
+            border-radius: 6px; font-size: 12px; font-weight: 500; color: var(--text-dim);
+            text-transform: none; letter-spacing: 0; cursor: pointer; margin-bottom: 0; }
+  .prd-cx input { accent-color: var(--accent); flex-shrink: 0; }
+  .prd-cx.marcado { border-color: rgba(31,165,165,0.45); background: rgba(31,165,165,0.10);
+                    color: var(--text); }
+  .prd-cx .n { font-weight: 700; }
   select.field { appearance: none; }
 
   .spinner {
@@ -950,6 +964,13 @@
           <div class="prd-dica">Sem ano, traz tudo o que a base tem em nome do deputado.
             Um mandato inteiro passa de 800 registros.</div>
         </div>
+      </div>
+
+      <div class="prd-filtro" id="prdFiltro">
+        <label>Categorias no relatório</label>
+        <div class="prd-filtro-cxs" id="prdGrupos"></div>
+        <div class="prd-dica">As categorias saem da própria taxonomia do relatório. Desmarcar é só de
+          exibição — a coleta continua inteira, e marcar de volta não refaz a consulta.</div>
       </div>
 
       <button id="prdBuscar" class="btn-gerar">Levantar produção</button>
