@@ -5,7 +5,7 @@ const { Bot, InlineKeyboard, InputFile } = require('grammy');
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO, ALLOWED_USER_IDS } = require('./src/config');
 const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
-const { PROVEDORES, testarChave, transcreverAudio } = require('./src/ia');
+const { PROVEDORES, testarChave, transcreverAudio, listarModelos } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
 const { gerarDigest, elaborarMinuta, pdfMinuta, listarAssinantes, assinar, desassinar, ehAssinante, jaEnviadoNaSemana, marcarEnvioDaSemana, ehHoraDoEnvio } = require('./src/digest');
 const { gerarResumoRodaViva, ultimoEpisodio, ehHoraDoEnvioRodaViva, jaEnviadoRodaViva, marcarEnvioRodaViva, episodioRecente, ajustarAgendaRodaViva } = require('./src/rodaviva');
@@ -89,7 +89,7 @@ const TEXTO_AJUDA =
   '/config — configura seu provedor e chave de IA (somente no privado)\n' +
   '/minhachave — mostra qual chave está configurada (mascarada)\n' +
   '/removerchave — apaga sua chave\n' +
-  '/modelo <id> — troca o modelo do seu provedor (opcional)\n' +
+  '/modelo <id> — troca o modelo do seu provedor (opcional); /modelo listar mostra os disponíveis\n' +
   '/ajuda — esta mensagem\n\n' +
   'Também converso em linguagem natural e por mensagens de voz (no privado; no grupo, me mencione ou responda a uma mensagem minha) — posso consultar a pauta, notas técnicas, comissões, o plenário ao vivo e os sites oficiais (Câmara/Senado/Planalto/DOU) para responder. Preciso da sua chave configurada em /config.';
 
@@ -615,13 +615,28 @@ bot.command('removerchave', ctx => {
   return ctx.reply('Chave removida. Use /config quando quiser configurar de novo.');
 });
 
-bot.command('modelo', ctx => {
+bot.command('modelo', async ctx => {
   const p = getPerfil(ctx.from.id);
   if (!p?.apiKey) return ctx.reply('Configure a chave primeiro com /config.');
-  const id = (ctx.match || '').trim();
-  if (!id) return ctx.reply(`Modelo atual: ${p.modelo}\nPara trocar: /modelo <id do modelo>`);
-  setPerfil(ctx.from.id, { modelo: id });
-  return ctx.reply(`Modelo alterado para: ${id}`);
+  const arg = (ctx.match || '').trim();
+
+  if (!arg) return ctx.reply(`Modelo atual: ${p.modelo}\nPara trocar: /modelo <id do modelo>\nPara ver os disponíveis: /modelo listar`);
+
+  if (arg.toLowerCase() === 'listar') {
+    await ctx.replyWithChatAction('typing');
+    let modelos;
+    try { modelos = await listarModelos(p.provedor, p.apiKey); }
+    catch (e) { return ctx.reply(`Não consegui listar os modelos: ${e.message}`); }
+    if (!modelos.length) return ctx.reply('A API não devolveu nenhum modelo de texto para essa chave.');
+    const linhas = modelos.map(m =>
+      `${m.id === p.modelo ? '➡️ ' : '• '}${m.id}${m.nome ? ` (${m.nome})` : ''}`);
+    return responderLongo(ctx,
+      `Modelos disponíveis em ${PROVEDORES[p.provedor]?.label || p.provedor} (${modelos.length}):\n\n` +
+      linhas.join('\n') + '\n\nPara trocar: /modelo <id>');
+  }
+
+  setPerfil(ctx.from.id, { modelo: arg });
+  return ctx.reply(`Modelo alterado para: ${arg}`);
 });
 
 // ---------- FASE 3a: /perguntar e /limpar ----------
