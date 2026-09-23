@@ -193,6 +193,11 @@
           overflow-x: auto; scrollbar-width: thin; }
   .abas::-webkit-scrollbar { height: 3px; }
   .abas::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* Uma linha dizendo o que a aba produz, antes de qualquer campo — quem abre
+     "Radar temático" pela primeira vez não devia precisar clicar em nada para
+     saber se é a ferramenta certa. */
+  .relatorio-desc { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin: 2px 0 14px; max-width: 640px; }
+
   .aba {
     background: none; border: none; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
     color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
@@ -852,6 +857,8 @@
 
 
   <div id="painel-aderencia">
+    <p class="relatorio-desc">Mede o quanto um partido votou de acordo com a orientação do Governo, num período —
+      percentual geral, evolução no tempo e ranking por deputado.</p>
     <div class="input-section">
       <div class="date-row">
         <div class="date-col">
@@ -873,6 +880,8 @@
   </div>
 
   <div id="painel-consulta" hidden>
+    <p class="relatorio-desc">O voto de um deputado específico numa proposição ou período, com a orientação do
+      partido, do bloco e do Governo lado a lado — e, se precisar, o rascunho de uma defesa da posição.</p>
     <div class="input-section">
       <label>Deputado(a) — qualquer partido</label>
       <input type="text" id="cvDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
@@ -943,6 +952,8 @@
   </div>
 
   <div id="painel-producao" hidden>
+    <p class="relatorio-desc">O que um deputado apresentou no mandato, separado por natureza do instrumento
+      (mérito, fiscalização, relatoria...) e pelo destino de cada matéria — não um número só.</p>
     <div class="input-section">
       <label>Deputado(a) — qualquer partido</label>
       <input type="text" id="prdDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
@@ -967,6 +978,8 @@
   </div>
 
   <div id="painel-radar" hidden>
+    <p class="relatorio-desc">Proposições em tramitação sobre um tema ou palavra-chave, cruzadas com a pauta da
+      semana e com a autoria/relatoria da bancada.</p>
     <div class="input-section">
       <label>Tema</label>
       <select id="rdrTema" class="field"><option value="">carregando…</option></select>
@@ -1007,6 +1020,8 @@
   </div>
 
   <div id="painel-leis" hidden>
+    <p class="relatorio-desc">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados em
+      lei — PL e PLP, por padrão — da 53ª à 57ª legislatura.</p>
     <div class="input-section">
       <label>Legislaturas</label>
       <div class="date-row" style="flex-wrap:wrap;gap:10px 16px">
@@ -1016,9 +1031,8 @@
         <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="54"> 54ª (2011–2015)</label>
         <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="53"> 53ª (2007–2011)</label>
       </div>
-      <div class="prd-dica" style="margin:8px 0 14px">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados
-        em lei — PL e PLP, por padrão. O dado é agregado pelo bot a partir dos arquivos oficiais da Câmara; esta tela só lê o
-        resultado, sem download manual.</div>
+      <div class="prd-dica" style="margin:8px 0 14px">O dado é agregado pelo bot a partir dos arquivos oficiais da
+        Câmara; esta tela só lê o resultado, sem download manual.</div>
 
       <div class="date-row">
         <div class="date-col">
