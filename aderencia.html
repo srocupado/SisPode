@@ -841,6 +841,7 @@
     <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
     <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
     <button class="aba" id="aba-radar" role="tab">Radar temático</button>
+    <button class="aba" id="aba-leis" role="tab">Leis aprovadas</button>
   </div>
 
 
@@ -999,6 +1000,55 @@
     <div id="rdrResultado"></div>
   </div>
 
+  <div id="painel-leis" hidden>
+    <div class="input-section">
+      <label>Legislaturas</label>
+      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px">
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="57"> 57ª (2023–2027)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="56"> 56ª (2019–2023)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="55"> 55ª (2015–2019)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="54"> 54ª (2011–2015)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="53"> 53ª (2007–2011)</label>
+      </div>
+      <div class="prd-dica" style="margin:8px 0 14px">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados
+        em lei — PL e PLP, por padrão. O dado é agregado pelo bot a partir dos arquivos oficiais da Câmara; esta tela só lê o
+        resultado, sem download manual.</div>
+
+      <div class="date-row">
+        <div class="date-col">
+          <label>Nome</label>
+          <input type="text" id="leaNome" class="field" placeholder="Buscar deputado..." maxlength="60">
+        </div>
+        <div class="date-col" style="flex:0 0 110px">
+          <label>Partido</label>
+          <input type="text" id="leaPartido" class="field" placeholder="PODE" maxlength="15">
+        </div>
+        <div class="date-col" style="flex:0 0 90px">
+          <label>UF</label>
+          <input type="text" id="leaUf" class="field" placeholder="SP" maxlength="2">
+        </div>
+      </div>
+      <div class="date-row">
+        <div class="date-col">
+          <label>Condição</label>
+          <select id="leaCondicao" class="field">
+            <option value="">Todas</option>
+            <option value="titular">Titulares (e efetivados)</option>
+            <option value="suplente">Suplentes</option>
+          </select>
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <label class="rdr-check"><input type="checkbox" id="leaSoComLei"> só com ≥ 1 projeto</label>
+        </div>
+      </div>
+
+      <button id="leaBuscar" class="btn-gerar">Buscar</button>
+    </div>
+
+    <div id="leaStatus"></div>
+    <div id="leaResultado"></div>
+  </div>
+
   <div class="signature">
     <div class="signature-line"></div>
     <div class="signature-text">Liderança do Podemos</div>
@@ -1065,5 +1115,6 @@
 <script src="defesa.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>
+<script src="leisaprovadas.js"></script>
 </body>
 </html>
