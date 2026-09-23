@@ -17,8 +17,8 @@
 // Para esse caso existe um segundo caminho, MANUAL: leaProcessarLocal e a
 // seção "processar arquivos baixados manualmente" da tela leem e filtram esses
 // arquivos aqui mesmo, no navegador — os arquivos não saem da máquina — e só
-// depois, se o analista clicar "Gravar no Firebase", o AGREGADO (nunca o
-// arquivo bruto) vai para o mesmo /leis_aprovadas/{legislatura} que o bot usa.
+// depois, se o analista clicar "Gravar no banco de dados", o AGREGADO (nunca
+// o arquivo bruto) vai para o mesmo /leis_aprovadas/{legislatura} que o bot usa.
 // A API de deputados/autores/histórico tem CORS liberado (só os arquivos em
 // massa não têm), então esse caminho manual busca autores e condição do jeito
 // normal, direto da API.
@@ -202,7 +202,7 @@ async function leaLimparFirebaseLeg(leg) {
 async function leaLimparClick() {
   const legsEscolhidas = [...leaEl.legs()].filter(c => c.checked).map(c => c.value);
   if (!legsEscolhidas.length) return leaStatus('Marque ao menos uma legislatura para limpar.', 'error');
-  if (!confirm(`Apagar o agregado de ${legsEscolhidas.join('ª, ')}ª no Firebase?\n\n` +
+  if (!confirm(`Apagar o agregado de ${legsEscolhidas.join('ª, ')}ª no banco de dados?\n\n` +
     'Isso remove o dado para TODA a equipe — não é só a sua tela. A próxima coleta ' +
     '(bot ou upload manual) precisa rodar de novo para repopular. Esta ação não tem desfazer.')) return;
 
@@ -210,7 +210,7 @@ async function leaLimparClick() {
   try {
     leaStatus('Apagando…', 'loading');
     await mapLimit(legsEscolhidas, 5, leaLimparFirebaseLeg);
-    leaStatus(`Apagado no Firebase: ${legsEscolhidas.join(', ')}ª. Clique em "Buscar" para conferir.`);
+    leaStatus(`Apagado no banco de dados: ${legsEscolhidas.join(', ')}ª. Clique em "Buscar" para conferir.`);
     lea.linhas = [];
     leaEl.resultado().innerHTML = '';
   } catch (e) {
@@ -228,7 +228,7 @@ async function leaConsultar() {
   leaEl.buscar().disabled = true;
   leaEl.resultado().innerHTML = '';
   try {
-    leaStatus('Buscando o agregado no Firebase…', 'loading');
+    leaStatus('Buscando o agregado no banco de dados…', 'loading');
     const faltando = legsEscolhidas.filter(leg => lea.cache[leg] === undefined);
     if (faltando.length) await mapLimit(faltando, 5, leaCarregarLegislatura);
 
@@ -504,7 +504,7 @@ function leaUpRenderResultado(resultado) {
       <div class="sub">${d.projetos.length} projeto(s) convertido(s) em lei · ${comLei} deputado(s) com ao menos 1</div>
       <div class="cv-acoes">
         <button class="btn-gerar lea-up-ver" data-leg="${leg}" style="margin-top:0">Ver no ranking acima</button>
-        <button class="btn-gerar lea-up-salvar" data-leg="${leg}" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Gravar no Firebase</button>
+        <button class="btn-gerar lea-up-salvar" data-leg="${leg}" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Gravar no banco de dados</button>
       </div>
     </div>`;
   }).join('');
@@ -520,11 +520,11 @@ function leaUpRenderResultado(resultado) {
   document.querySelectorAll('#leaUpResultado .lea-up-salvar').forEach(btn => {
     btn.addEventListener('click', async () => {
       const leg = btn.dataset.leg;
-      if (!confirm(`Gravar o agregado de ${resultado[leg].rotulo} no Firebase? Isso SUBSTITUI o que já estiver lá para essa legislatura, para toda a equipe.`)) return;
+      if (!confirm(`Gravar o agregado de ${resultado[leg].rotulo} no banco de dados? Isso SUBSTITUI o que já estiver lá para essa legislatura, para toda a equipe.`)) return;
       btn.disabled = true;
       try {
         await leaGravarFirebase(leg, resultado[leg]);
-        leaUpStatus(`${resultado[leg].rotulo}: gravado no Firebase.`);
+        leaUpStatus(`${resultado[leg].rotulo}: gravado no banco de dados.`);
       } catch (e) {
         leaUpStatus(`Erro ao gravar ${resultado[leg].rotulo}: ${e.message}`, 'error');
       } finally {
