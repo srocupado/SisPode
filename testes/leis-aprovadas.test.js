@@ -44,21 +44,58 @@ const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const FIRE = { '57': null, '56': null, '55': null, '54': null, '53': null };
 const chamadas = [];
 
+// Material do caminho MANUAL (upload de arquivos locais): roster, autores e
+// histórico da API — tudo com CORS liberado, diferente dos arquivos em massa.
+const API_ROSTER = { 53: [{ id: 10, nome: 'Duda Veterana', siglaPartido: 'PODE', siglaUf: 'BA' }] };
+const API_AUTORES = { 700: [10, 11] }; // 11 fora do roster — precisa aparecer mesmo assim
+const API_HISTORICO = { 10: [{ idLegislatura: 53, condicaoEleitoral: 'Titular' }] };
+
+// FileReader de mentira: o linkedom não implementa a API de verdade. Os
+// "arquivos" que os testes passam são objetos simples { name, size, _json },
+// e o shim só precisa devolver esse texto de forma assíncrona (readAsText).
+class FakeFileReader {
+  readAsText(file) {
+    setTimeout(() => {
+      if (this.onprogress) this.onprogress({ lengthComputable: true, loaded: file.size, total: file.size });
+      this.result = file._json;
+      if (this.onload) this.onload();
+    }, 0);
+  }
+}
+const arquivoFalso = (nome, dados) => {
+  const j = JSON.stringify(dados);
+  return { name: nome, size: j.length, _json: j };
+};
+
 const ctx = {
   document, window, DOMParser, Event, setTimeout, clearTimeout, URL, TextDecoder,
   AbortController, TextEncoder, Blob, Response, Headers, Request, btoa,
+  FileReader: FakeFileReader,
   console: { log: () => {}, warn: () => {}, error: () => {} },
   requestAnimationFrame: () => 0,
   XLSX: { utils: { book_new: () => ({ abas: {} }), json_to_sheet: r => ({ _r: r }),
                    book_append_sheet: (wb, ws, nome) => { wb.abas[nome] = ws; } },
           writeFile: (wb, nome) => { ctx._planilha = { wb, nome }; } },
-  fetch: async (url) => {
+  fetch: async (url, opcoes) => {
     const u = String(url);
-    chamadas.push(u);
-    const m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)\\.json'));
-    if (m) {
+    const metodo = (opcoes && opcoes.method) || 'GET';
+    chamadas.push(`${metodo} ${u}`);
+    let m;
+    if ((m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)\\.json')))) {
       const leg = m[1];
+      if (metodo === 'PUT') { FIRE[leg] = JSON.parse(opcoes.body); return { ok: true, status: 200, json: async () => FIRE[leg] }; }
+      if (metodo === 'DELETE') { FIRE[leg] = null; return { ok: true, status: 200, json: async () => null }; }
       return { ok: true, status: 200, json: async () => (leg in FIRE ? FIRE[leg] : null) };
+    }
+    if ((m = u.match(/\/deputados\?idLegislatura=(\d+)/))) {
+      return { ok: true, status: 200, json: async () => ({ dados: API_ROSTER[m[1]] || [] }) };
+    }
+    if ((m = u.match(/\/proposicoes\/(\d+)\/autores/))) {
+      const ids = API_AUTORES[m[1]] || [];
+      return { ok: true, status: 200, json: async () => ({ dados: ids.map(id => ({ codTipo: 10000, uri: `https://dadosabertos.camara.leg.br/api/v2/deputados/${id}`, nome: `Dep ${id}` })) }) };
+    }
+    if ((m = u.match(/\/deputados\/(\d+)\/historico/))) {
+      return { ok: true, status: 200, json: async () => ({ dados: API_HISTORICO[m[1]] || [] }) };
     }
     return { ok: false, status: 599, json: async () => ({}) };
   },
@@ -195,6 +232,77 @@ const av = e => vm.runInContext(e, ctx);
     ok(projetos.some(p => p.Deputado === 'Ana Fulana' && p.idProposicao === 900)
        && projetos.some(p => p.Deputado === 'Ana Fulana' && p.idProposicao === 901),
        'e nas duas linhas da Ana (901 é só dela)');
+  }
+
+  console.log('\n== caminho MANUAL: classificação e filtro (funções puras) ==');
+  {
+    ok(av(`leaClassificarPorLegislatura('2007-02-01')`) === '53', 'início exato da faixa entra (inclusive)');
+    ok(av(`leaClassificarPorLegislatura('2023-01-15')`) === '56',
+       'janeiro/2023 ainda é 56ª, mesmo que apareça no arquivo proposicoes-2023.json (mesma regra do bot)');
+    ok(av(`leaClassificarPorLegislatura(null)`) === null, 'sem data, não classifica');
+
+    const leis = av(`leaFiltrarProjetosLei([
+      { id: 1, siglaTipo: 'PL', numero: 1, ano: 2007, ementa: 'Vira lei.', dataApresentacao: '2007-05-01', ultimoStatus: { idSituacao: 1140 } },
+      { id: 2, siglaTipo: 'PL', numero: 2, ano: 2007, ementa: 'Ainda tramitando.', dataApresentacao: '2007-05-01', ultimoStatus: { idSituacao: 924 } },
+      { id: 3, siglaTipo: 'REQ', numero: 3, ano: 2007, ementa: 'Tipo fora do filtro.', dataApresentacao: '2007-05-01', ultimoStatus: { idSituacao: 1140 } },
+    ], ['PL', 'PLP'])`);
+    ok(leis.length === 1 && leis[0].id === 1, `só o PL com situação 1140 entra (${JSON.stringify(leis.map(l => l.id))})`);
+  }
+
+  console.log('\n== caminho MANUAL: processar arquivo(s) local(is) ==');
+  let resultado53;
+  {
+    // Um "arquivo" cobrindo a 53ª, com o mesmo ruído do teste do bot: tipo
+    // fora do filtro, situação errada, e um autor (11) fora do roster.
+    ctx.__arquivo2007 = arquivoFalso('proposicoes-2007.json', [
+      { id: 700, siglaTipo: 'PL', numero: 10, ano: 2007, ementa: 'Vira lei, coautoria com quem não está no roster.',
+        dataApresentacao: '2007-04-01', ultimoStatus: { idSituacao: 1140 } },
+      { id: 701, siglaTipo: 'PL', numero: 11, ano: 2007, ementa: 'Situação errada.',
+        dataApresentacao: '2007-04-01', ultimoStatus: { idSituacao: 924 } },
+    ]);
+    ctx.__fases = [];
+    chamadas.length = 0;
+    resultado53 = await av(`leaProcessarLocal(['53'], [__arquivo2007], { comCondicao: true, onFase: f => __fases.push(f) })`);
+
+    ok(resultado53['53'].projetos.length === 1 && resultado53['53'].projetos[0].id === 700,
+       `só o projeto com situação certa entra (${JSON.stringify(resultado53['53'].projetos.map(p => p.id))})`);
+    const porDep = Object.fromEntries(resultado53['53'].ranking.map(r => [r.depId, r]));
+    ok(porDep[10] && porDep[10].total === 1 && porDep[10].nome === 'Duda Veterana',
+       'o autor do roster aparece com o nome certo');
+    ok(porDep[11] && porDep[11].total === 1, 'o coautor FORA do roster aparece assim mesmo, com crédito');
+    ok(porDep[10].condicao === 'Titular', 'condição titular/suplente veio do histórico');
+    ok(porDep[11].condicao === '—', 'sem histórico cadastrado, condição fica "—" — não trava o processamento');
+    ok(ctx.__fases.some(f => /Lendo "proposicoes-2007\.json"/.test(f)), 'o progresso de leitura do arquivo é reportado');
+    ok(chamadas.some(c => c.includes('idLegislatura=53')) && chamadas.some(c => c.includes('/700/autores'))
+       && chamadas.some(c => c.includes('/historico')), 'busca roster, autores e histórico na API (tudo com CORS)');
+    ok(!chamadas.some(c => c.includes('leis_aprovadas')), 'processar sozinho NÃO grava nada no Firebase — é um passo à parte');
+  }
+
+  console.log('\n== caminho MANUAL: "Gravar no Firebase" e "Limpar no Firebase" ==');
+  {
+    ctx.__resultado53 = resultado53['53'];
+    FIRE['53'] = null;
+    chamadas.length = 0;
+    await av(`leaGravarFirebase('53', __resultado53)`);
+    ok(!!FIRE['53'], 'leaGravarFirebase grava no Firebase (falso)');
+    ok(FIRE['53'].projetos.length === 1 && FIRE['53'].ranking.length === 2, 'com o ranking e os projetos processados');
+    ok(chamadas.some(c => c.startsWith('PUT') && c.includes('/leis_aprovadas/53.json')), 'via PUT no caminho certo');
+    ok(av(`lea.cache['53']`).projetos.length === 1, 'e atualiza o cache local — a tela já reflete sem precisar buscar de novo');
+
+    // "Limpar no Firebase" pede confirmação: recusada, não apaga nada.
+    document.querySelectorAll('.lea-leg').forEach(c => { c.checked = c.value === '53'; });
+    ctx.confirm = () => false;
+    chamadas.length = 0;
+    await av('leaLimparClick()');
+    ok(!!FIRE['53'], 'confirmação recusada: nada é apagado');
+    ok(!chamadas.some(c => c.startsWith('DELETE')), 'e nenhuma chamada DELETE é feita');
+
+    // Aceita: apaga de verdade.
+    ctx.confirm = () => true;
+    await av('leaLimparClick()');
+    ok(FIRE['53'] === null, 'confirmação aceita: o agregado da 53ª é apagado no Firebase (falso)');
+    ok(av(`lea.linhas`).length === 0, 'e a tela local esvazia — precisa buscar de novo para repopular');
+    ctx.confirm = () => false; // devolve o padrão para o resto do arquivo
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
