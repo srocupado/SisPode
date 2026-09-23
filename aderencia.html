@@ -86,8 +86,12 @@
   .top-bar-spacer { flex-shrink: 0; width: 68px; }
 
   /* ── LAYOUT ── */
+  /* 560px era estreito demais para as abas do topo caberem lado a lado (a
+     página abre numa aba cheia do navegador via chrome.tabs.create — não é um
+     popup pequeno, então sobra espaço de sobra). 820px cabe as 5 abas atuais
+     numa linha só, sem rolagem, com folga pra próxima que vier. */
   .container {
-    max-width: 560px;
+    max-width: 820px;
     margin: 0 auto;
     padding: 16px;
   }
@@ -181,8 +185,10 @@
   .status.error { color: var(--nao); }
 
   /* ---------- Abas ---------- */
-  /* Quatro abas não cabem lado a lado nos 560px do painel. Rolagem horizontal
-     em vez de quebrar em duas linhas ou de abreviar o nome das abas. */
+  /* Com o container em 820px as abas atuais cabem numa linha só. A rolagem
+     horizontal fica como rede de segurança — se a janela for estreitada ou
+     entrar mais uma aba no futuro, em vez de quebrar em duas linhas ou
+     abreviar o nome das abas. */
   .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
           overflow-x: auto; scrollbar-width: thin; }
   .abas::-webkit-scrollbar { height: 3px; }
