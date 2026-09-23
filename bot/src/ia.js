@@ -147,6 +147,51 @@ async function testarChave(provedor, apiKey) {
   return true;
 }
 
+/**
+ * Lista ao vivo os modelos de texto disponíveis para a chave do usuário —
+ * direto na API de cada provedor, sem tabela fixa no código (que fica velha:
+ * foi exatamente isso que aconteceu com o modelo padrão do Gemini, aposentado
+ * "para chaves novas" sem aviso — ver o catch em chamarIAtexto). Devolve
+ * [{ id, nome }], ordenado por id.
+ */
+async function listarModelos(provedor, apiKey) {
+  if (provedor === 'gemini') {
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=200`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    return (j.models || [])
+      // Só os que aceitam texto (generateContent) — a lista também traz
+      // modelos de embedding e outros que não servem para conversar.
+      .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+      .map(m => ({ id: (m.name || '').replace(/^models\//, ''), nome: m.displayName || '' }))
+      .filter(m => m.id)
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+  if (provedor === 'openai') {
+    const res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    // A lista da OpenAI traz TUDO (whisper, tts, dall-e, embeddings,
+    // moderation...) — filtra pelos que servem para conversar em texto.
+    return (j.data || [])
+      .filter(m => /^(gpt-|o1|o3|o4|chatgpt)/i.test(m.id)
+        && !/(audio|realtime|transcribe|tts|embedding|moderation|instruct|search)/i.test(m.id))
+      .map(m => ({ id: m.id, nome: '' }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+  if (provedor === 'anthropic') {
+    const res = await fetch('https://api.anthropic.com/v1/models?limit=100', {
+      headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const j = await res.json();
+    return (j.data || [])
+      .map(m => ({ id: m.id, nome: m.display_name || '' }))
+      .sort((a, b) => a.id.localeCompare(b.id));
+  }
+  throw new Error(`Provedor desconhecido: ${provedor}`);
+}
+
 // Vocabulário do domínio legislativo — orienta o reconhecimento de voz a
 // preferir termos/siglas da Câmara em vez de palavras foneticamente próximas
 // (ex.: "pauta nova" em vez de "pauta corrida").
@@ -230,4 +275,4 @@ function extrairJson(texto) {
   try { return JSON.parse(repararJson(t).replace(/,\s*([}\]])/g, '$1')); } catch (_) { return {}; }
 }
 
-module.exports = { PROVEDORES, chamarIAtexto, testarChave, transcreverAudio, extrairJson, fetchIA };
+module.exports = { PROVEDORES, chamarIAtexto, testarChave, transcreverAudio, extrairJson, fetchIA, listarModelos };
