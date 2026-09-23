@@ -86,8 +86,12 @@
   .top-bar-spacer { flex-shrink: 0; width: 68px; }
 
   /* ── LAYOUT ── */
+  /* 560px era estreito demais para as abas do topo caberem lado a lado (a
+     página abre numa aba cheia do navegador via chrome.tabs.create — não é um
+     popup pequeno, então sobra espaço de sobra). 820px cabe as 5 abas atuais
+     numa linha só, sem rolagem, com folga pra próxima que vier. */
   .container {
-    max-width: 560px;
+    max-width: 820px;
     margin: 0 auto;
     padding: 16px;
   }
@@ -181,12 +185,19 @@
   .status.error { color: var(--nao); }
 
   /* ---------- Abas ---------- */
-  /* Quatro abas não cabem lado a lado nos 560px do painel. Rolagem horizontal
-     em vez de quebrar em duas linhas ou de abreviar o nome das abas. */
+  /* Com o container em 820px as abas atuais cabem numa linha só. A rolagem
+     horizontal fica como rede de segurança — se a janela for estreitada ou
+     entrar mais uma aba no futuro, em vez de quebrar em duas linhas ou
+     abreviar o nome das abas. */
   .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
           overflow-x: auto; scrollbar-width: thin; }
   .abas::-webkit-scrollbar { height: 3px; }
   .abas::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* Uma linha dizendo o que a aba produz, antes de qualquer campo — quem abre
+     "Radar temático" pela primeira vez não devia precisar clicar em nada para
+     saber se é a ferramenta certa. */
+  .relatorio-desc { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin: 2px 0 14px; max-width: 640px; }
+
   .aba {
     background: none; border: none; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
     color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
@@ -841,10 +852,13 @@
     <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
     <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
     <button class="aba" id="aba-radar" role="tab">Radar temático</button>
+    <button class="aba" id="aba-leis" role="tab">Leis aprovadas</button>
   </div>
 
 
   <div id="painel-aderencia">
+    <p class="relatorio-desc">Mede o quanto um partido votou de acordo com a orientação do Governo, num período —
+      percentual geral, evolução no tempo e ranking por deputado.</p>
     <div class="input-section">
       <div class="date-row">
         <div class="date-col">
@@ -866,6 +880,8 @@
   </div>
 
   <div id="painel-consulta" hidden>
+    <p class="relatorio-desc">O voto de um deputado específico numa proposição ou período, com a orientação do
+      partido, do bloco e do Governo lado a lado — e, se precisar, o rascunho de uma defesa da posição.</p>
     <div class="input-section">
       <label>Deputado(a) — qualquer partido</label>
       <input type="text" id="cvDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
@@ -936,6 +952,8 @@
   </div>
 
   <div id="painel-producao" hidden>
+    <p class="relatorio-desc">O que um deputado apresentou no mandato, separado por natureza do instrumento
+      (mérito, fiscalização, relatoria...) e pelo destino de cada matéria — não um número só.</p>
     <div class="input-section">
       <label>Deputado(a) — qualquer partido</label>
       <input type="text" id="prdDeputado" class="field" placeholder="Nome parlamentar. Ex.: Rodrigo Gambale" maxlength="60">
@@ -960,6 +978,8 @@
   </div>
 
   <div id="painel-radar" hidden>
+    <p class="relatorio-desc">Proposições em tramitação sobre um tema ou palavra-chave, cruzadas com a pauta da
+      semana e com a autoria/relatoria da bancada.</p>
     <div class="input-section">
       <label>Tema</label>
       <select id="rdrTema" class="field"><option value="">carregando…</option></select>
@@ -997,6 +1017,92 @@
 
     <div id="rdrStatus"></div>
     <div id="rdrResultado"></div>
+  </div>
+
+  <div id="painel-leis" hidden>
+    <p class="relatorio-desc">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados em
+      lei — PL e PLP, por padrão — da 53ª à 57ª legislatura.</p>
+    <div class="input-section">
+      <label>Legislaturas</label>
+      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px">
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="57"> 57ª (2023–2027)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="56"> 56ª (2019–2023)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="55"> 55ª (2015–2019)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="54"> 54ª (2011–2015)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="53"> 53ª (2007–2011)</label>
+      </div>
+      <div class="prd-dica" style="margin:8px 0 14px">O dado é agregado pelo bot a partir dos arquivos oficiais da
+        Câmara; esta tela só lê o resultado, sem download manual.</div>
+
+      <div class="date-row">
+        <div class="date-col">
+          <label>Nome</label>
+          <input type="text" id="leaNome" class="field" placeholder="Buscar deputado..." maxlength="60">
+        </div>
+        <div class="date-col" style="flex:0 0 110px">
+          <label>Partido</label>
+          <input type="text" id="leaPartido" class="field" placeholder="PODE" maxlength="15">
+        </div>
+        <div class="date-col" style="flex:0 0 90px">
+          <label>UF</label>
+          <input type="text" id="leaUf" class="field" placeholder="SP" maxlength="2">
+        </div>
+      </div>
+      <div class="date-row">
+        <div class="date-col">
+          <label>Condição</label>
+          <select id="leaCondicao" class="field">
+            <option value="">Todas</option>
+            <option value="titular">Titulares (e efetivados)</option>
+            <option value="suplente">Suplentes</option>
+          </select>
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <label class="rdr-check"><input type="checkbox" id="leaSoComLei"> só com ≥ 1 projeto</label>
+        </div>
+      </div>
+
+      <div class="date-row">
+        <div class="date-col"><button id="leaBuscar" class="btn-gerar" style="margin-top:0">Buscar</button></div>
+        <div class="date-col" style="flex:0 0 auto">
+          <button id="leaLimpar" class="btn-gerar" title="Apaga no banco de dados o agregado das legislaturas marcadas acima — use antes de reprocessar do zero"
+                  style="margin-top:0;background:rgba(240,84,84,0.12);color:var(--nao);border:1px solid rgba(240,84,84,0.35)">Limpar no banco de dados</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="leaStatus"></div>
+    <div id="leaResultado"></div>
+
+    <div class="input-section" style="margin-top:16px">
+      <label>Ou processe arquivos baixados manualmente</label>
+      <div class="prd-dica" style="margin-bottom:12px">Para quando você já tem os arquivos oficiais
+        (<code>proposicoes-AAAA.json</code>, 50–165 MB cada — baixados em
+        <a href="https://dadosabertos.camara.leg.br/arquivos/proposicoes/json/" target="_blank" rel="noopener">dadosabertos.camara.leg.br</a>)
+        e não quer esperar a próxima coleta do bot. O processamento roda aqui no navegador — os arquivos NÃO saem da sua máquina.
+        Depois de processar, dá para ver no ranking acima e, se quiser, gravar no banco de dados para a equipe toda usar.</div>
+
+      <label>Legislaturas cobertas pelos arquivos selecionados</label>
+      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px;margin-bottom:8px">
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="57"> 57ª (2023–2027)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="56"> 56ª (2019–2023)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="55"> 55ª (2015–2019)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="54"> 54ª (2011–2015)</label>
+        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="53"> 53ª (2007–2011)</label>
+      </div>
+
+      <label>Arquivo(s)</label>
+      <input type="file" id="leaUpArquivos" class="field" accept=".json,application/json" multiple>
+
+      <label class="rdr-check" style="margin-top:10px"><input type="checkbox" id="leaUpCondicao" checked>
+        identificar condição titular/suplente (uma busca extra por deputado — desmarque para processar mais rápido)</label>
+
+      <button id="leaUpProcessar" class="btn-gerar" disabled>Processar arquivos</button>
+      <div class="progress" id="leaUpProgressWrap" hidden><div class="progress-bar" id="leaUpProgressFill"></div></div>
+    </div>
+
+    <div id="leaUpStatus"></div>
+    <div id="leaUpResultado"></div>
   </div>
 
   <div class="signature">
@@ -1065,5 +1171,6 @@
 <script src="defesa.js"></script>
 <script src="producao.js"></script>
 <script src="radar.js"></script>
+<script src="leisaprovadas.js"></script>
 </body>
 </html>
