@@ -1770,6 +1770,7 @@ const CV_ABAS = [
   ['aba-consulta',  'painel-consulta'],
   ['aba-producao',  'painel-producao'],
   ['aba-radar',     'painel-radar'],
+  ['aba-leis',      'painel-leis'],
 ];
 
 function cvTrocarAba(idBotao) {
