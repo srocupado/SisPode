@@ -1364,8 +1364,20 @@ bot.command('update', async ctx => {
     `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) gravado(s).` +
     (r.pkgMudou ? '\n\n⚠️ O *package.json* mudou — rode `npm install` na pasta do bot (o restart sozinho não instala dependências).' : '') +
     '\n\n🔄 Reiniciando…', { parse_mode: 'Markdown' });
-  console.log(`[update] aplicado (${r.sha.slice(0, 7)}) — encerrando para o supervisor recarregar o código.`);
-  setTimeout(() => process.exit(0), 1500);
+  console.log(`[update] aplicado (${r.sha.slice(0, 7)}) — parando o polling antes de reiniciar.`);
+  // bot.stop() — NUNCA process.exit() direto aqui. O offset do long-polling só
+  // é confirmado ao Telegram na PRÓXIMA chamada de getUpdates; matar o
+  // processo antes dela deixa a própria mensagem /update "não confirmada", e
+  // ela volta no próximo boot — o bot reprocessa o /update, reinicia nele de
+  // novo, para sempre, sem nunca sobrar tempo pra atender o que vier depois
+  // dele na fila (foi exatamente o loop visto em 23/09: /update repetindo a
+  // cada restart, /ajuda e /config mudos atrás dele). bot.stop() é o jeito
+  // documentado do grammY de encerrar o polling confirmando esse offset antes.
+  // O timeout de 5s é só rede de segurança — não deve travar o restart se
+  // bot.stop() nunca resolver.
+  try { await Promise.race([bot.stop(), new Promise(res => setTimeout(res, 5000))]); }
+  catch (e) { console.warn('[update] bot.stop() falhou:', e.message); }
+  process.exit(0);
 });
 
 bot.callbackQuery(/^vot:(.+)$/, async ctx => {
