@@ -1360,6 +1360,11 @@ bot.command('update', async ctx => {
   try { r = await aplicarUpdate(); }
   catch (e) { return ctx.reply(`❌ Update falhou: ${e.message}. Continuo na versão atual (nada foi trocado).`); }
   if (!r.ok) return ctx.reply(`⚠️ Update abortado: ${r.erro}.\nNada foi trocado — o bot segue na versão atual.`);
+  // Já está nessa sha — não reinicia de novo. Isto é o que quebra o loop se
+  // esta mensagem /update for uma REENTREGA do Telegram (a mesma mensagem
+  // voltando porque um restart anterior não confirmou o offset a tempo): sem
+  // este corte, cada reentrega reiniciaria o bot outra vez, indefinidamente.
+  if (r.jaAtualizado) return ctx.reply(`✅ Já está na última versão (*${r.sha.slice(0, 7)}*) — nada a fazer.`, { parse_mode: 'Markdown' });
   await ctx.reply(
     `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) gravado(s).` +
     (r.pkgMudou ? '\n\n⚠️ O *package.json* mudou — rode `npm install` na pasta do bot (o restart sozinho não instala dependências).' : '') +

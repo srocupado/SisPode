@@ -84,12 +84,26 @@ function nodeCheck(arquivo) {
 
 /**
  * Baixa o main, valida e sobrescreve. Nada é escrito nos arquivos reais até
- * TODOS baixarem e passarem no node --check.
- * @returns {Promise<{ok:boolean, erro?, sha?, msg?, arquivos?, pkgMudou?}>}
+ * TODOS baixarem e passarem no node --check. Se a sha pedida já é a sha local
+ * (idempotência — ver comentário abaixo), não baixa nada: devolve
+ * `jaAtualizado: true` direto.
+ * @returns {Promise<{ok:boolean, erro?, sha?, msg?, arquivos?, pkgMudou?, jaAtualizado?}>}
  */
 async function aplicarUpdate() {
   if (!TOKEN) return { ok: false, erro: 'GH_TOKEN não configurado no .env' };
   const { sha, msg } = await commitMain();
+
+  // Idempotência: já está nessa sha? Não baixa nem reinicia de novo.
+  // Sem isso, um /update REENTREGUE pelo Telegram (o long-polling reenvia a
+  // mensagem se o processo sair antes de confirmar o offset — sempre um
+  // risco num restart abrupto) reinicia o bot pra sempre: cada boot reprocessa
+  // o /update de novo, e o bot nunca sobra vivo tempo suficiente pra atender
+  // o que vier depois dele na fila. Aqui é a segunda camada de defesa (a
+  // primeira é bot.stop() no lugar de process.exit() cru, em index.js).
+  let local = null;
+  try { local = JSON.parse(await fsp.readFile(VERSAO_JSON, 'utf8')); } catch (_) {}
+  if (local && local.sha === sha) return { ok: true, jaAtualizado: true, sha, msg };
+
   const lista = await listarArquivos();
 
   // 1) baixa TUDO para memória (falha aqui = nada foi escrito)
