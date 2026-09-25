@@ -172,7 +172,7 @@ async function montarContextoItem(analise, item) {
 //   - apensados pela cadeia real da API (/relacionadas + raiz uriPropPrincipal),
 //     não pelo texto do PDF — pega apensadas que o PDF não lista, e só as que
 //     pertencem à mesma cadeia de apensamento.
-const SIGLA_PODE = 'PODE';
+const SIGLA_PODE = require('./bancada').SIGLA;
 const _autoriaCache = new Map();   // pautaId → Map(chave → entrada)
 const _depCache = new Map();       // idDep → siglaPartido | null
 const _detCache = new Map();       // idProp → detalhe.dados | null

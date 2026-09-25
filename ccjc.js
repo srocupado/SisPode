@@ -16,7 +16,7 @@ const OPENAI_BASE     = 'https://api.openai.com/v1/responses';
 const ANTHROPIC_VER   = '2023-06-01';
 const FIREBASE_URL   = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const CCJC_ORGAO_ID  = 2003;
-const SIGLA_PODEMOS_CCJC = 'PODE';
+const SIGLA_PODEMOS_CCJC = BANCADA_SIGLA; // bancada.js
 const MESES_PT = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho',
                    'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 
@@ -550,10 +550,7 @@ function _normNome(s) {
 async function bancadaPodemos() {
   if (_bancadaPode !== null) return _bancadaPode;
   try {
-    const res = await fetch(`${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS_CCJC}&ordem=ASC&ordenarPor=nome&itens=100`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const dados = (await res.json()).dados || [];
-    if (!dados.length) throw new Error('lista vazia');
+    const dados = await membrosAtuais(); // bancada.js — falha ou lista vazia viram exceção
     const nomes = new Set();
     for (const d of dados) {
       if (d.nome) nomes.add(_normNome(d.nome));

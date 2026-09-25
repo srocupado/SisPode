@@ -14,6 +14,9 @@ const btnGerar    = document.getElementById('btnGerar');
 const statusEl    = document.getElementById('status');
 const resultadoEl = document.getElementById('resultado');
 
+// Sigla padrão: a da bancada (bancada.js) — o analista pode trocar por qualquer partido.
+if (!partidoEl.value) partidoEl.value = BANCADA_SIGLA;
+
 // ── PERÍODO PADRÃO ────────────────────────────────────────────────────────────
 (function inicializarDatas() {
   const hoje     = new Date();
@@ -247,32 +250,8 @@ function drawAdherenceDonut(canvas, pct, size) {
 // as votações anteriores. O /deputados/{id}/historico da Câmara é uma
 // sequência de eventos (dataHora, siglaPartido, situacao): o estado num
 // instante é o do último evento até ele. Eventos com situacao nula (o marco
-// "Nome/Partido no início da legislatura") só atualizam o partido.
-
-const cvHistoricoCache = new Map();
-
-/** Histórico de um deputado (cache da aba); null se a API falhar. */
-async function cvHistorico(id) {
-  if (cvHistoricoCache.has(id)) return cvHistoricoCache.get(id);
-  try {
-    const j = await fetchJson(API_DEPS + '/' + id + '/historico');
-    const h = (j.dados || []).filter(x => x.dataHora)
-      .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)));
-    cvHistoricoCache.set(id, h);
-    return h;
-  } catch (e) { return null; }
-}
-
-/** Partido e situação ('Exercício', 'Licença', …) de um deputado num instante 'AAAA-MM-DDTHH:MM'. */
-function estadoNoInstante(historico, instante) {
-  let partido = null, situacao = null;
-  for (const h of historico) {
-    if (String(h.dataHora).slice(0, 16) > instante) break;
-    if (h.siglaPartido) partido = h.siglaPartido;
-    if (h.situacao) situacao = h.situacao;
-  }
-  return { partido, situacao };
-}
+// "Nome/Partido no início da legislatura") só atualizam o partido — a leitura
+// do histórico (historicoDeputado, estadoNoInstante) está em bancada.js.
 
 /**
  * Ids dos membros da bancada `sigla` numa votação: quem o histórico diz que
@@ -580,7 +559,7 @@ async function gerarRelatorio() {
     }
 
     const idsCandidatos = [...infoDeps.keys()];
-    const historicosArr = await mapLimit(idsCandidatos, 8, id => cvHistorico(id), (feitos, total) =>
+    const historicosArr = await mapLimit(idsCandidatos, 8, id => historicoDeputado(id), (feitos, total) =>
       showStatus('Reconstituindo a bancada do ' + sigla + ' em cada votação (' + feitos + '/' + total + ')...',
         'loading', (feitos / total) * 100));
     const historicos = new Map(idsCandidatos.map((id, i) => [id, historicosArr[i] || null]));

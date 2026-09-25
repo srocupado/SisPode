@@ -104,7 +104,7 @@ async function gerar(ini, fim) {
   document.getElementById('dataIni').value = ini;
   document.getElementById('dataFim').value = fim;
   document.getElementById('partido').value = 'PODE';
-  av('cvHistoricoCache.clear()');
+  av('bancadaHistoricoCache.clear()');
   await av('gerarRelatorio()');
   return av('window._relatorioCtx');
 }

@@ -13,6 +13,7 @@
 // votacaoAtual do cosev.
 
 const { sessaoAtual } = require('./plenariocosev');
+const { SIGLA } = require('./bancada');
 
 const VOT_URL = id => `https://infoleg.camara.leg.br/ws-plenario/votacao/${id}`;
 const REGEX_PODE = /^PODE(MOS)?$/i;
@@ -40,7 +41,7 @@ function reDoPartido(sigla) {
  * @returns {Promise<{aberta:boolean, motivo?, prop?, total?, votaram?,
  *   presentesNaoVotaram?, foraDaCasa?, casaRegistrou?, casaTotal?, idVotacao?}>}
  */
-async function faltamVotar(sigla = 'PODE') {
+async function faltamVotar(sigla = SIGLA) {
   const sess = await sessaoAtual().catch(() => null);
   if (!sess || !sess.aberta) return { aberta: false, motivo: 'não há sessão aberta no momento' };
   const v = sess.votacao;
@@ -71,7 +72,7 @@ async function faltamVotar(sigla = 'PODE') {
 }
 
 /** Texto pronto (comando e agente). */
-function formatarFaltantes(r, { sigla = 'PODE' } = {}) {
+function formatarFaltantes(r, { sigla = SIGLA } = {}) {
   if (!r.aberta) return `Sem lista de faltantes agora — ${r.motivo}.`;
   const linhas = [`🗳 *${r.prop}* — bancada ${sigla} (${r.votaram}/${r.total} já votaram)`];
   if (r.presentesNaoVotaram.length) {

@@ -46,6 +46,7 @@ roteador — o bot conecta para fora (long polling), como um navegador.
      todos os autorizados; preencha só se quiser avisar TAMBÉM num grupo
    - `TRANSCRIBE_GEMINI_KEY` — (recomendado) chave Gemini do transcritor
      de voz padrão
+   - `BANCADA_SIGLA` — (opcional) sigla do partido acompanhado; padrão `PODE`
 4. Instale as dependências: `npm install`
 
 ## 5. Testar

@@ -3,6 +3,7 @@
 // (loadEvent + loadVotes + a preparação de dados do buildVotingHTML).
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
+const { SIGLA } = require('./bancada');
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -72,7 +73,7 @@ async function listarVotacoesDia(dataISO) {
  * Placar completo de uma votação para a bancada do partido:
  * contagens globais + da bancada (com ausentes via roster) + orientações.
  */
-async function placarVotacao(idVotacao, sigla = 'PODE') {
+async function placarVotacao(idVotacao, sigla = SIGLA) {
   const [rVot, rVotos, rOrient] = await Promise.all([
     fetchRetry(`${API}/votacoes/${idVotacao}`),
     fetchRetry(`${API}/votacoes/${idVotacao}/votos`),

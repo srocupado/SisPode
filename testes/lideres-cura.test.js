@@ -7,7 +7,8 @@
 // Uso: node testes/lideres-cura.test.js  (usa a API real da Câmara)
 const fs=require('fs'),path=require('path');
 const pdfjs=require(path.join(__dirname,'..','bot','node_modules','pdfjs-dist','legacy','build','pdf.js'));
-const fonte=fs.readFileSync(path.join(__dirname,'..','lideres.js'),'utf8');
+// Na página, bancada.js (BANCADA_SIGLA) vem antes de lideres.js.
+const fonte=fs.readFileSync(path.join(__dirname, '..', 'bancada.js'), 'utf8').replace(/^'use strict';/, '') + '\n;\n' + fs.readFileSync(path.join(__dirname,'..','lideres.js'),'utf8');
 // `value:''` não é enfeite: getElementById('lid-busca') no navegador devolve um
 // <input>, e aplicarBuscaLista() faz campo.value.trim(). Sem a propriedade, o
 // stub entregava um elemento que NÃO existe em navegador nenhum e o teste

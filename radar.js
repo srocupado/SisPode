@@ -17,7 +17,7 @@
 //
 // Depende de aderencia.js (fetchJson, cvEsc, API_PROP) — carregado antes.
 
-const RDR_PARTIDO = 'PODE';
+const RDR_PARTIDO = BANCADA_SIGLA; // bancada.js
 
 // Teto de páginas por ano. A API devolve 100 por página e não avisa que cortou;
 // 20 páginas são 2.000 proposições num ano num tema, o que já é mais do que

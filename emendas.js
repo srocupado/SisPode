@@ -25,7 +25,7 @@
 
 const FNS_BASE     = 'https://consultafns.saude.gov.br';
 const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
-const SIGLA_PODEMOS = 'PODE';
+const SIGLA_PODEMOS = BANCADA_SIGLA; // bancada.js
 
 const UFS = ['AC','AL','AM','AP','BA','CE','DF','ES','GO','MA','MG','MS','MT',
              'PA','PB','PE','PI','PR','RJ','RN','RO','RR','RS','SC','SE','SP','TO'];

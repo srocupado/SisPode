@@ -937,7 +937,7 @@ async function tickAbertura() {
         // votou ainda) e cobre o caso de ninguém ter pedido /faltamvotar.
         if (_faltantesAuto && !est.faltantesAvisados[v.id]) {
           try {
-            const r = await faltamVotar('PODE');
+            const r = await faltamVotar();
             if (r.aberta && r.casaTotal && (r.casaRegistrou / r.casaTotal) >= FALTANTES_LIMIAR
                 && r.presentesNaoVotaram.length) {
               est.faltantesAvisados[v.id] = true;

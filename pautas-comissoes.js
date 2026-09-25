@@ -7,7 +7,7 @@
 
 const FIREBASE_PC = 'https://plenario-podemos-default-rtdb.firebaseio.com/pautas-comissoes';
 const CACHE_ORGAOS_MS = 24 * 3600 * 1000, CACHE_EVENTOS_MS = 3600 * 1000, CACHE_DEPS_MS = 24 * 3600 * 1000;
-const SIGLA_PODEMOS_PC = 'PODE';
+const SIGLA_PODEMOS_PC = BANCADA_SIGLA; // bancada.js
 
 const pc = {
   config: null,
@@ -87,7 +87,7 @@ async function carregarComissoes() {
 async function carregarPodemos() {
   let ids = await cacheGet('pc_podemos', CACHE_DEPS_MS);
   if (!ids) {
-    try { const j = await apiCamara(`/deputados?siglaPartido=${SIGLA_PODEMOS_PC}&itens=100&ordem=ASC&ordenarPor=nome`); ids = (j.dados || []).map(d => Number(d.id)); await cacheSet('pc_podemos', ids); }
+    try { ids = (await membrosAtuais()).map(d => Number(d.idCamara)); await cacheSet('pc_podemos', ids); }
     catch (_) { ids = []; }
   }
   pc.podemosIds = new Set(ids);
@@ -446,7 +446,7 @@ function renderReuniao() {
   document.getElementById('pc-busca').addEventListener('input', e => { pc.busca = e.target.value; filtrarCards(); });
   document.getElementById('pc-reimportar').addEventListener('click', () => importarEAbrir({ orgaoId: r.orgaoId, id: r.eventoId, sigla: r.sigla, nomeOrgao: r.nomeOrgao, data: r.data, hora: r.hora, horaFim: r.horaFim, tipo: r.tipo, descricao: r.descricao, local: r.local, situacao: r.situacao }));
   document.getElementById('pc-gerar-todas').addEventListener('click', () => gerarTodasDaReuniao(r));
-  document.getElementById('pc-wa-partido').addEventListener('click', () => copiar(textoPropPartido(c, r, r.itens), 'Proposições do Partido copiadas'));
+  document.getElementById('pc-wa-partido').addEventListener('click', () => copiar(textoPropPartido(c, r, r.itens, SIGLA_PODEMOS_PC), 'Proposições do Partido copiadas'));
   document.getElementById('pc-wa-resumo').addEventListener('click', () => copiar(textoResumoReuniao(c, r, r.itens), 'Resumo da reunião copiado'));
   document.getElementById('pc-apagar').addEventListener('click', () => confirmarApagarReuniao({ chave: r.chave, orgaoId: r.orgaoId, eventoId: r.eventoId, sigla: r.sigla, data: r.data }));
   const lista = document.getElementById('pc-lista');

@@ -1268,8 +1268,8 @@ async function cmdFaltamVotar(ctx) {
   }
   await ctx.replyWithChatAction('typing');
   try {
-    const r = await faltamVotar('PODE');
-    return ctx.reply(formatarFaltantes(r, { sigla: 'PODE' }), { parse_mode: 'Markdown' });
+    const r = await faltamVotar();
+    return ctx.reply(formatarFaltantes(r), { parse_mode: 'Markdown' });
   } catch (e) {
     console.error('/faltamvotar falhou:', e);
     return ctx.reply(`Erro ao consultar o painel de votação: ${e.message}`);
@@ -1406,7 +1406,7 @@ bot.callbackQuery(/^vot:(.+)$/, async ctx => {
   await ctx.answerCallbackQuery();
   await ctx.replyWithChatAction('upload_photo');
   try {
-    const pl = await placarVotacao(ctx.match[1], 'PODE');
+    const pl = await placarVotacao(ctx.match[1]);
     const png = await imagemVotacao(pl);
     // SÓ a imagem — ela já traz título, placar e bancada (sem legenda escrita).
     return ctx.replyWithPhoto(new InputFile(png, 'votacao.png'));
@@ -1858,7 +1858,7 @@ function ferramentasDado(userId, perfil) {
         partido: partido || (deputado ? null : 'Podemos'),
         deputado: deputado || null,
       }),
-    faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
+    faltam_votar: async () => formatarFaltantes(await faltamVotar()),
     questao_ordem: async ({ termo, fase } = {}) =>
       formatarQO(await buscarQO(String(termo || ''), { fase: fase || undefined })),
     recurso: async ({ termo } = {}) => formatarRecurso(await buscarRecurso(String(termo || ''))),

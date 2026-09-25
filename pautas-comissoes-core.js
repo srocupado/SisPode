@@ -330,15 +330,19 @@ function criarFila({ paralelas = 2, intervaloMs = 3000, agora = () => Date.now()
 
 // ---------- saídas ----------
 
-/** Mensagem de WhatsApp com os itens do Podemos (autoria ou relatoria) numa reunião. */
-function textoPropPartido(comissao, reuniao, itens) {
-  const doPartido = (itens || []).filter(it => it.relator?.partido === 'PODE' || (it.autores || []).some(a => a.partido === 'PODE'));
+/**
+ * Mensagem de WhatsApp com os itens do Podemos (autoria ou relatoria) numa reunião.
+ * `sigla` vem de BANCADA_SIGLA (bancada.js) na extensão; este arquivo também
+ * roda puro no Node (testes), onde bancada.js não está carregado.
+ */
+function textoPropPartido(comissao, reuniao, itens, sigla = (typeof BANCADA_SIGLA !== 'undefined' ? BANCADA_SIGLA : 'PODE')) {
+  const doPartido = (itens || []).filter(it => it.relator?.partido === sigla || (it.autores || []).some(a => a.partido === sigla));
   const linhas = [`*${comissao.sigla} — ${tituloReuniao(reuniao)}*`, ''];
   if (!doPartido.length) { linhas.push('Nenhum item de autoria ou relatoria do Podemos nesta pauta.'); return linhas.join('\n'); }
   for (const it of doPartido) {
     const papeis = [];
-    if ((it.autores || []).some(a => a.partido === 'PODE')) papeis.push(`autoria: ${it.autores.filter(a => a.partido === 'PODE').map(a => a.nome).join(', ')}`);
-    if (it.relator?.partido === 'PODE') papeis.push(`relatoria: ${it.relator.nome}`);
+    if ((it.autores || []).some(a => a.partido === sigla)) papeis.push(`autoria: ${it.autores.filter(a => a.partido === sigla).map(a => a.nome).join(', ')}`);
+    if (it.relator?.partido === sigla) papeis.push(`relatoria: ${it.relator.nome}`);
     linhas.push(`• *${it.sigla} ${it.numero}/${it.ano}* (item ${it.ordem}) — ${papeis.join(' · ')}`);
     linhas.push(`  ${(it.ementa || '').slice(0, 160)}`);
     const voto = votoDoRelator(it.textoParecer); if (voto) linhas.push(`  🗳️ ${voto}`);

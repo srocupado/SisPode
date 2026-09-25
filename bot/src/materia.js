@@ -176,7 +176,7 @@ async function papelDe(detalhe, trams) {
 // Porte da extensão (lideres.js), mesma varredura deliberadamente limitada:
 // só apensado DIRETO, só quando as tramitações registram apensados, teto
 // declarado na resposta.
-const SIGLA_PODEMOS = 'PODE';
+const SIGLA_PODEMOS = require('./bancada').SIGLA;
 const TIPOS_PROPOSICAO = new Set(['PL', 'PLP', 'PEC', 'PDL', 'PDC', 'PDS', 'PRC', 'MPV']);
 const MAX_APENSADOS_VARRIDOS = 15;
 const _cacheDeputado = new Map();

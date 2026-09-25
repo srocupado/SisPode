@@ -580,7 +580,7 @@ async function carregarDadosDaProposicao(it) {
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
 // Mesmo critério do módulo de Plenário (analise.js): partido do deputado na
 // ficha dos Dados Abertos, sigla PODE.
-const SIGLA_PODEMOS = 'PODE';
+const SIGLA_PODEMOS = BANCADA_SIGLA; // bancada.js
 const _cacheDeputado = new Map();   // idDep → { nome, siglaPartido } — o mesmo autor assina várias
 
 async function infoDeputado(idDep) {

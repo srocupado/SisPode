@@ -193,8 +193,8 @@ const dep = (id, ordem) => ({ nome: api.deputados[id]?.nome || `Dep ${id}`, uri:
 
   console.log('\n== bancada fora do ar: nenhuma relatoria é negada ==');
   {
-    // Zera o cache do módulo para a consulta acontecer de novo.
-    av('_bancadaPode = null');
+    // Zera o cache do módulo (e o de bancada.js) para a consulta acontecer de novo.
+    av('_bancadaPode = null; _bancadaMemo = null');
     api.derrubar = /siglaPartido=PODE/;
     ok(await av(`apurarRelatoria({ relator: 'Ana Paula' })`) === null,
        'sem a bancada, a relatora do Podemos não vira "fora" — vira indefinida');

@@ -11,7 +11,7 @@
 // ---------- CONFIGURAÇÕES ----------
 const API_BASE     = 'https://dadosabertos.camara.leg.br/api/v2';
 const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
-const SIGLA_PODEMOS = 'PODE';
+const SIGLA_PODEMOS = BANCADA_SIGLA; // bancada.js
 
 
 // ---------- PROVEDORES DE IA (listagem de modelos) ----------
@@ -1446,22 +1446,11 @@ async function fbSalvarInteresseAtivo(v) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
-// Deputados a incluir manualmente além da lista ativa da API (ex.: afastados
-// do mandato que ainda compõem a bancada e devem retomar).
-const DEPUTADOS_EXTRA = [
-  { id: '178989', nome: 'Renata Abreu' },   // SP — afastada, retorna em breve
-];
-
+// Bancada em exercício + licenciados que continuam na bancada (bancada.js lê
+// os licenciados do cadastro reconciliado — era a lista fixa DEPUTADOS_EXTRA).
 async function carregarDeputadosPodemos() {
-  const out = [];
-  let url = `${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS}&ordem=ASC&ordenarPor=nome&itens=100`;
-  for (let pag = 0; pag < 5 && url; pag++) {   // segue a paginação (links rel=next)
-    const json = await fetchJson(url);
-    for (const d of (json.dados || [])) out.push({ id: String(d.id), nome: d.nome });
-    url = (json.links || []).find(l => l.rel === 'next')?.href || null;
-  }
-  // Acrescenta os extras (sem duplicar) e ordena por nome.
-  for (const ex of DEPUTADOS_EXTRA) if (!out.some(d => d.id === ex.id)) out.push({ ...ex });
+  const out = (await membrosAtuais({ comLicenciados: true }))
+    .map(d => ({ id: String(d.idCamara), nome: d.nome }));
   out.sort((a, b) => a.nome.localeCompare(b.nome, 'pt'));
   return out;
 }

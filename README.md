@@ -562,7 +562,7 @@ sispode/
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── legislatura.js                 # Legislaturas calculadas pela data (cópia idêntica em bot/src/)
-├── bancada.js                     # Bancada do partido: cadastro de deputados reconciliado com a Câmara
+├── bancada.js                     # Bancada do partido: a sigla única (BANCADA_SIGLA), quem está nela hoje e numa data, cadastro reconciliado
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -605,6 +605,7 @@ sispode/
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
+│   ├── bancada-sigla.test.js       # Sigla única (extensão e bot), membrosAtuais, membrosEm
 │   ├── bancada-cadastro.test.js    # Cadastro de deputados × Câmara: exercício, licença, ex-membro, PATCH
 │   ├── aderencia-bancada.test.js   # Aderência: bancada de cada votação (12 × 30), ranking por votações elegíveis
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
@@ -633,6 +634,7 @@ sispode/
         ├── autoupdate.js           # /update: baixa e valida os arquivos do main
         ├── leisaprovadas.js        # /leisaprovadas: coleta o relatório de Leis aprovadas (item 3.5)
         ├── legislatura.js          # Legislaturas pela data (cópia idêntica da raiz)
+        ├── bancada.js              # Sigla da bancada (BANCADA_SIGLA do .env), membros hoje e numa data
         ├── ia.js                   # Matriz dos 3 provedores de IA (chave do usuário)
         ├── store.js / firebase.js / config.js / backup.js   # Persistência e config
         └── cosevespiao.js          # Espião de calibração ao vivo (privado do admin)

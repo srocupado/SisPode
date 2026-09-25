@@ -17,11 +17,10 @@
 // (licenciados acompanhados — Renata Abreu), como no painel.
 
 const { fetchIA } = require('./ia');
+const { membrosAtuais } = require('./bancada');
 
 const FIREBASE_URL = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
-const SIGLA_PODEMOS = 'PODE';
-const DEPUTADOS_EXTRA = [{ id: '178989', nome: 'Renata Abreu' }];
 const ZMIN = 1.0;                 // mesmo limiar do painel
 const EMB_MODELO = { gemini: 'gemini-embedding-001', openai: 'text-embedding-3-small' };
 const CFG_TTL_MS = 30 * 60 * 1000;   // recarrega config/bancada a cada 30 min
@@ -29,18 +28,12 @@ const CFG_TTL_MS = 30 * 60 * 1000;   // recarrega config/bancada a cada 30 min
 // ---------- config compartilhada (bancada + temas/perfis) ----------
 let _cfg = null, _cfgEm = 0;
 
+// Bancada em exercício + licenciados do cadastro (./bancada — era a lista
+// fixa DEPUTADOS_EXTRA). Câmara fora do ar: lista vazia, como antes.
 async function carregarBancada() {
-  const out = [];
-  let url = `${API}/deputados?siglaPartido=${SIGLA_PODEMOS}&ordem=ASC&ordenarPor=nome&itens=100`;
-  for (let pag = 0; pag < 5 && url; pag++) {
-    const r = await fetch(url);
-    if (!r.ok) break;
-    const json = await r.json();
-    for (const d of (json.dados || [])) out.push({ id: String(d.id), nome: d.nome });
-    url = (json.links || []).find(l => l.rel === 'next')?.href || null;
-  }
-  for (const ex of DEPUTADOS_EXTRA) if (!out.some(d => d.id === ex.id)) out.push({ ...ex });
-  return out;
+  try {
+    return (await membrosAtuais({ comLicenciados: true })).map(d => ({ id: String(d.idCamara), nome: d.nome }));
+  } catch (e) { return []; }
 }
 
 async function carregarConfig() {

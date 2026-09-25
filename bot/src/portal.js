@@ -5,6 +5,7 @@
 // Regra de ouro observada em plenário: os votos individuais SÓ aparecem na
 // página depois que a votação nominal encerra — é o sinal de encerramento.
 const { DOMParser } = require('linkedom');
+const { SIGLA } = require('./bancada');
 
 const PORTAL_BASE = 'https://www.camara.leg.br/presenca-comissoes/votacao-portal';
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
@@ -77,7 +78,7 @@ function classeVoto(voto, el) {
  * `descricao` vem do chamador (rótulo do item); os votos individuais só
  * existem após o encerramento (temVotos=false ⇒ votação em curso).
  */
-async function parsePlacarPortal(html, { sigla = 'PODE', descricao = '' } = {}) {
+async function parsePlacarPortal(html, { sigla = SIGLA, descricao = '' } = {}) {
   const doc = new DOMParser().parseFromString(html, 'text/html');
 
   const getQtd = cls => {

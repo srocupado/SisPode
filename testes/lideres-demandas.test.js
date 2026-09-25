@@ -11,7 +11,8 @@
 const fs = require('fs');
 const path = require('path');
 
-const fonte = fs.readFileSync(path.join(__dirname, '..', 'lideres.js'), 'utf8');
+// Na página, bancada.js (BANCADA_SIGLA) vem antes de lideres.js.
+const fonte = fs.readFileSync(path.join(__dirname, '..', 'bancada.js'), 'utf8').replace(/^'use strict';/, '') + '\n;\n' + fs.readFileSync(path.join(__dirname, '..', 'lideres.js'), 'utf8');
 const sandbox = {
   document: { addEventListener() {}, getElementById: () => null, querySelectorAll: () => [] },
   chrome: { runtime: { getURL: x => x }, storage: { local: { get: (k, cb) => cb({}), set: (o, cb) => cb && cb() } } },
