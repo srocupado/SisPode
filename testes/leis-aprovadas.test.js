@@ -240,6 +240,11 @@ const av = e => vm.runInContext(e, ctx);
     ok(av(`leaClassificarPorLegislatura('2023-01-15')`) === '56',
        'janeiro/2023 ainda é 56ª, mesmo que apareça no arquivo proposicoes-2023.json (mesma regra do bot)');
     ok(av(`leaClassificarPorLegislatura(null)`) === null, 'sem data, não classifica');
+    ok(av(`leaClassificarPorLegislatura('2027-02-01')`) === '58', '01/02/2027 já é 58ª');
+    ok(av(`leaPadrao(new Date('2026-09-25T12:00:00-03:00')).join()`) === '57,56', 'antes da posse, abre com 57ª + 56ª marcadas');
+    ok(av(`leaPadrao(new Date('2027-02-01T12:00:00-03:00')).join()`) === '58,57', 'da posse da 58ª em diante, abre com 58ª + 57ª');
+    ok(!!document.querySelector('.lea-leg[value="58"]') && !!document.querySelector('.lea-up-leg[value="58"]'),
+       'a 58ª aparece para consulta e para o upload manual');
 
     const leis = av(`leaFiltrarProjetosLei([
       { id: 1, siglaTipo: 'PL', numero: 1, ano: 2007, ementa: 'Vira lei.', dataApresentacao: '2007-05-01', ultimoStatus: { idSituacao: 1140 } },

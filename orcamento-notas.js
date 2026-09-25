@@ -1884,7 +1884,7 @@ function htmlNota(q, conf, ficha, serie, variacao, ia) {
   const m = q.materia, r = q.relatores, c = q.cronograma, a = q.acompanhamento, e = q.emendas;
   const agora = new Date();
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
-  const legislatura = legislaturaDe(agora.getFullYear());
+  const legislatura = legislaturaDe(agora.getFullYear(), agora.getMonth() + 1);
   const nome = p => p ? `${p.casa === 'Senado' ? 'Sen.' : 'Dep.'} ${esc(p.nome)} (${esc(p.partido)}/${esc(p.uf)})` : '<span class="nd">Ainda não designado</span>';
   const logo = (typeof chrome !== 'undefined' && chrome.runtime?.getURL) ? chrome.runtime.getURL('icons/podemos-logo.png') : 'icons/podemos-logo.png';
 
@@ -2256,9 +2256,14 @@ Constar do documento não significa que a ação se aplique ao caso concreto —
 sendo análise do gabinete.</div>`;
 }
 
-/** 57ª Legislatura: 2023-2027. Cada legislatura dura 4 anos desde 1826. */
-function legislaturaDe(ano) {
-  return 57 + Math.floor((ano - 2023) / 4);
+/**
+ * 57ª Legislatura: 01/02/2023 a 31/01/2027. Cada legislatura dura 4 anos desde
+ * 1826 e começa em 1º de fevereiro — janeiro ainda é da anterior (jan/2027 é
+ * 57ª, não 58ª). Sem o mês, vale o ano "cheio" (a partir de fevereiro).
+ */
+function legislaturaDe(ano, mes = 12) {
+  const anoLeg = mes < 2 ? ano - 1 : ano;
+  return 57 + Math.floor((anoLeg - 2023) / 4);
 }
 
 // ============================================================

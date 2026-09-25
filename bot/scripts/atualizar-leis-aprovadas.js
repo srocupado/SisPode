@@ -5,12 +5,14 @@
 // jurídica e grava só o agregado (ranking + lista de projetos) em
 // /leis_aprovadas/{legislatura}.
 //
-// Legislaturas ENCERRADAS (53ª–56ª) são puladas se já tiverem dado salvo — use
-// --forcar para reprocessar mesmo assim. A CORRENTE (57ª) é sempre reprocessada
-// (é ela que o cron do bot atualiza sozinho, em bot/index.js).
+// Legislaturas ENCERRADAS são puladas se já tiverem dado salvo — use --forcar
+// para reprocessar mesmo assim. A CORRENTE (decidida pela data: 57ª até
+// 31/01/2027, 58ª depois) é sempre reprocessada, e a anterior também nos
+// primeiros anos da nova (é o que o cron do bot atualiza sozinho, em
+// bot/index.js — ver legislaturasEmRefresh).
 //
 // Uso:
-//   node bot/scripts/atualizar-leis-aprovadas.js                 (todas as 5)
+//   node bot/scripts/atualizar-leis-aprovadas.js                 (todas da tabela)
 //   node bot/scripts/atualizar-leis-aprovadas.js 57 56            (só as listadas)
 //   node bot/scripts/atualizar-leis-aprovadas.js --forcar 57      (ignora o "já tem dado")
 //   node bot/scripts/atualizar-leis-aprovadas.js --sem-condicao   (pula titular/suplente — mais rápido)

@@ -647,7 +647,12 @@ async function bancadaDoPodemos() {
   const vistos = new Set();
 
   try {
-    const leg = (await jsonCamara('legislaturas?ordem=DESC&ordenarPor=id&itens=1')).dados?.[0]?.id;
+    // A legislatura EM VIGOR hoje (?data=), não a de maior id: a Câmara pode
+    // cadastrar a 58ª antes da posse (01/02/2027), e aí a bancada viraria a
+    // dos eleitos que ainda não assumiram. Sem resposta, cai na de maior id.
+    const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+    const leg = (await jsonCamara(`legislaturas?data=${hoje}`)).dados?.[0]?.id
+      || (await jsonCamara('legislaturas?ordem=DESC&ordenarPor=id&itens=1')).dados?.[0]?.id;
     const lista = (await jsonCamara(
       `deputados?siglaPartido=${SIGLA_PODEMOS}&idLegislatura=${leg}&ordem=ASC&ordenarPor=nome&itens=100`)).dados || [];
     const ids = [...new Set(lista.map(d => d.id))];

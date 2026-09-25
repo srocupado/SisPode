@@ -30,7 +30,7 @@ const { abrirAta, ataAberta, anotar, apagarNota, descartarAta, fecharAta, ultima
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
-const { atualizarLeisAprovadas, LEGISLATURA_ATUAL, LEGISLATURAS: LEIS_LEGISLATURAS } = require('./src/leisaprovadas');
+const { atualizarLeisAprovadas, legislaturaAtual, legislaturasEmRefresh, LEGISLATURAS: LEIS_LEGISLATURAS } = require('./src/leisaprovadas');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -317,7 +317,7 @@ bot.command('leisaprovadas', async ctx => {
   const args = String(ctx.match || '').trim().split(/\s+/).filter(Boolean);
   const forcar = args.includes('--forcar');
   const legislaturas = args.filter(a => a !== '--forcar' && LEIS_LEGISLATURAS[a]);
-  const alvo = legislaturas.length ? legislaturas : [LEGISLATURA_ATUAL];
+  const alvo = legislaturas.length ? legislaturas : [legislaturaAtual()];
   await ctx.reply(`⏳ Atualizando leis aprovadas: ${alvo.join(', ')}${forcar ? ' (forçado)' : ''}. ` +
     `Baixa arquivos grandes da Câmara — pode levar alguns minutos. Aviso quando terminar.\n` +
     `(Uso: /leisaprovadas [legislaturas separadas por espaço] [--forcar])`);
@@ -2048,20 +2048,21 @@ async function tickBackup() {
 setInterval(tickBackup, 6 * 60 * 60 * 1000);
 tickBackup();
 
-// ---------- Leis aprovadas: refresh diário SÓ da legislatura corrente ----------
-// As encerradas (53ª–56ª) não mudam mais na prática e são populadas uma vez,
+// ---------- Leis aprovadas: refresh diário da legislatura corrente ----------
+// (e da anterior nos primeiros anos da nova — ver legislaturasEmRefresh; na
+// virada de fev/2027 a corrente passa sozinha de 57ª para 58ª).
+// As encerradas não mudam mais na prática e são populadas uma vez,
 // deliberadamente (/leisaprovadas <leg> ou bot/scripts/atualizar-leis-aprovadas.js)
 // — o cron nunca as toca sozinho, porque a primeira coleta de todas juntas é
 // pesada (dezenas de arquivos grandes) e não é hora de subida do bot que deve
 // decidir isso.
 async function tickLeisAprovadas() {
   try {
-    const r = await atualizarLeisAprovadas({ legislaturas: [LEGISLATURA_ATUAL] });
-    const p = r.processadas[0];
-    if (p) console.log(`leisaprovadas: ${p.rotulo} atualizada — ${p.leis} lei(s), ${p.deputados} deputado(s).`);
+    const r = await atualizarLeisAprovadas({ legislaturas: legislaturasEmRefresh() });
+    for (const p of r.processadas) console.log(`leisaprovadas: ${p.rotulo} atualizada — ${p.leis} lei(s), ${p.deputados} deputado(s).`);
     if (r.erros.length && ADMIN_USER_ID) {
       await bot.api.sendMessage(ADMIN_USER_ID,
-        `⚠️ Refresh diário de leis aprovadas (${LEGISLATURA_ATUAL}ª) falhou: ${r.erros[0].erro}`).catch(() => {});
+        `⚠️ Refresh diário de leis aprovadas falhou: ${r.erros.map(e => `${e.leg}ª (${e.erro})`).join('; ')}`).catch(() => {});
     }
   } catch (e) { console.warn('tick de leis aprovadas falhou:', e.message); }
 }

@@ -135,7 +135,7 @@ async function parsePlacarPortal(html, { sigla = 'PODE', descricao = '' } = {}) 
   });
   let roster = [];
   try {
-    const rr = await fetch(`${API}/deputados?siglaPartido=${S}&itens=100&ordem=ASC&ordenarPor=nome`);
+    const rr = await fetch(`${API}/deputados?siglaPartido=${S}&itens=1000&ordem=ASC&ordenarPor=nome`);
     if (rr.ok) roster = ((await rr.json()).dados) || [];
   } catch (_) { /* segue só com o painel */ }
 

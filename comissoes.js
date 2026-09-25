@@ -1571,7 +1571,8 @@ async function importarDeputadosDaCamara(btnEl) {
 
   try {
     let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
-    let importados = 0, atualizados = 0, inalterados = 0;
+    let importados = 0, atualizados = 0, inalterados = 0, removidos = 0;
+    const emExercicio = new Set();
 
     while (url) {
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -1580,6 +1581,7 @@ async function importarDeputadosDaCamara(btnEl) {
 
       for (const d of data.dados || []) {
         const id  = `cam_${d.id}`;
+        emExercicio.add(id);
         const dep = { nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id };
         const exist = state.deputados[id];
 
@@ -1598,9 +1600,17 @@ async function importarDeputadosDaCamara(btnEl) {
       url = next ? next.href : null;
     }
 
+    // A importação só acrescenta — sem este passo, na virada de legislatura
+    // (57ª → 58ª, 01/02/2027) quem não voltou continuaria na bancada para
+    // sempre. Candidato a sair: veio da API (cam_*), não está em exercício E
+    // não consta da legislatura em vigor pelo partido (essa lista inclui os
+    // licenciados, que continuam). Nunca remove sem confirmação.
+    if (emExercicio.size) removidos = await oferecerRemocaoForaDaLegislatura(emExercicio);
+
     const partes = [];
     if (importados)  partes.push(`${importados} novo${importados > 1 ? 's' : ''}`);
     if (atualizados) partes.push(`${atualizados} atualizado${atualizados > 1 ? 's' : ''}`);
+    if (removidos)   partes.push(`${removidos} removido${removidos > 1 ? 's' : ''}`);
     if (inalterados) partes.push(`${inalterados} sem mudança`);
     mostrarToast(`Atualização concluída: ${partes.join(', ') || 'nada a fazer'}.`);
 
@@ -1613,6 +1623,28 @@ async function importarDeputadosDaCamara(btnEl) {
   } finally {
     if (btn) { btn.disabled = false; btn.innerHTML = textoOriginal; }
   }
+}
+
+async function oferecerRemocaoForaDaLegislatura(emExercicio) {
+  const soltos = Object.entries(state.deputados).filter(([id]) => id.startsWith('cam_') && !emExercicio.has(id));
+  if (!soltos.length) return 0;
+
+  const hoje = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date());
+  const rl = await fetch(`${CAMARA_API}/legislaturas?data=${hoje}`, { headers: { Accept: 'application/json' } });
+  const leg = rl.ok ? (await rl.json()).dados?.[0]?.id : null;
+  if (!leg) return 0;   // sem saber a legislatura, não arrisca apagar ninguém
+  const rd = await fetch(`${CAMARA_API}/deputados?siglaPartido=PODE&idLegislatura=${leg}&itens=1000`,
+    { headers: { Accept: 'application/json' } });
+  if (!rd.ok) return 0;
+  const naLegislatura = new Set(((await rd.json()).dados || []).map(d => `cam_${d.id}`));
+
+  const fora = soltos.filter(([id]) => !naLegislatura.has(id));
+  if (!fora.length) return 0;
+  const nomes = fora.map(([, d]) => `• ${d.nome}${d.uf ? ` (${d.uf})` : ''}`).join('\n');
+  if (!confirm(`${fora.length} deputado(s) do cadastro não constam da ${leg}ª legislatura pelo Podemos:\n\n${nomes}\n\n` +
+    'Remover do cadastro? Eles também saem das composições e pedidos das comissões.')) return 0;
+  for (const [id] of fora) await removerDeputadoDB(id);
+  return fora.length;
 }
 
 // ---------- MODAL: ADICIONAR MEMBRO ----------

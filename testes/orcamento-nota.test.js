@@ -72,6 +72,7 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   {
     ok(M.legislaturaDe(2026) === 57 && M.legislaturaDe(2023) === 57, '2023-2026 → 57ª Legislatura');
     ok(M.legislaturaDe(2027) === 58, '2027 → 58ª (a legislatura vira no ano da posse)');
+    ok(M.legislaturaDe(2027, 1) === 57 && M.legislaturaDe(2027, 2) === 58, 'janeiro/2027 ainda é 57ª; fevereiro já é 58ª');
     ok(M.dataBR('2026-08-31') === '31/08/2026', 'ISO → dd/mm/aaaa');
     // Date com string ISO puxa fuso e adianta/atrasa o dia; dataDe monta local.
     const d = M.diasAte('31/12/2099');

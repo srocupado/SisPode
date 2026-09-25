@@ -90,7 +90,7 @@ async function placarVotacao(idVotacao, sigla = 'PODE') {
   const S = sigla.toUpperCase();
   let roster = [];
   try {
-    const rDep = await fetchRetry(`${API}/deputados?siglaPartido=${S}&itens=100&ordem=ASC&ordenarPor=nome`);
+    const rDep = await fetchRetry(`${API}/deputados?siglaPartido=${S}&itens=1000&ordem=ASC&ordenarPor=nome`);
     roster = (await rDep.json()).dados || [];
   } catch (_) { /* usa só os votos */ }
 

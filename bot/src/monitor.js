@@ -199,14 +199,34 @@ function legendaBancada(placar) {
       const coesao = Math.round((nMaioria / votantes.length) * 100);
       const dissidentes = votantes.filter(d => d.classe !== classeMaioria)
         .map(d => `${d.nome} (${ROTULO_VOTO[d.classe]})`);
-      partes.push(`🤝 Coesão: ${coesao}%` +
-        (dissidentes.length ? ` — divergiu: ${dissidentes.join(', ')}` : ' — bancada unida'));
+      partes.push({ cabeca: `🤝 Coesão: ${coesao}%`, dissidentes });
     }
   }
   if (ausentes.length && ausentes.length <= 4) {
     partes.push(`🚶 Ausentes: ${ausentes.map(d => d.nome).join(', ')}`);
   }
-  return partes.join('\n').slice(0, 1024);   // limite de caption do Telegram
+  return montarLegenda(partes);
+}
+
+// Limite de caption do Telegram. Com a bancada maior, a lista de quem divergiu
+// é a parte que pode estourar: ela é que encolhe ("… e mais N"), por nome
+// inteiro — o corte cego no fim do texto partia um nome ao meio e engolia a
+// linha de ausentes.
+const LIMITE_LEGENDA = 1024;
+
+function montarLegenda(partes) {
+  const linhaCoesao = (p, n) => {
+    if (!p.dissidentes.length) return `${p.cabeca} — bancada unida`;
+    const resto = p.dissidentes.length - n;
+    return `${p.cabeca} — divergiu: ${p.dissidentes.slice(0, n).join(', ')}` +
+      (resto > 0 ? `${n ? ' ' : ''}e mais ${resto}` : '');
+  };
+  const montar = n => partes.map(p => (typeof p === 'string' ? p : linhaCoesao(p, n))).join('\n');
+  const coesao = partes.find(p => typeof p !== 'string');
+  let n = coesao ? coesao.dissidentes.length : 0;
+  let txt = montar(n);
+  while (txt.length > LIMITE_LEGENDA && n > 0) txt = montar(--n);
+  return txt.slice(0, LIMITE_LEGENDA);
 }
 
 // ---------- Descrição curta da matéria ----------

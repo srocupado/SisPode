@@ -485,7 +485,7 @@ async function gerarRelatorio() {
 
     // 5. Bancada atual
     showStatus('Carregando bancada do ' + sigla + '...', 'loading');
-    const benchJ    = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
+    const benchJ    = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=1000');
     const bench     = benchJ.dados || [];
     const partySize = bench.length;
 
