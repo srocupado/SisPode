@@ -239,13 +239,85 @@ function drawAdherenceDonut(canvas, pct, size) {
   ctx.fillText(matched.toFixed(1) + '%', cx, cy);
 }
 
+// ── COMPOSIÇÃO DA BANCADA NO TEMPO ────────────────────────────────────────────
+// O denominador da aderência é QUEM ESTAVA NA BANCADA EM CADA VOTAÇÃO, não a
+// bancada de hoje. Com a bancada de hoje, uma votação de 2023 em que o partido
+// tinha 12 deputados era dividida pelos 30 atuais — 18 "ausências" de quem
+// nem era do partido — e deputado que chegou há um mês levava falta em todas
+// as votações anteriores. O /deputados/{id}/historico da Câmara é uma
+// sequência de eventos (dataHora, siglaPartido, situacao): o estado num
+// instante é o do último evento até ele. Eventos com situacao nula (o marco
+// "Nome/Partido no início da legislatura") só atualizam o partido.
+
+const cvHistoricoCache = new Map();
+
+/** Histórico de um deputado (cache da aba); null se a API falhar. */
+async function cvHistorico(id) {
+  if (cvHistoricoCache.has(id)) return cvHistoricoCache.get(id);
+  try {
+    const j = await fetchJson(API_DEPS + '/' + id + '/historico');
+    const h = (j.dados || []).filter(x => x.dataHora)
+      .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)));
+    cvHistoricoCache.set(id, h);
+    return h;
+  } catch (e) { return null; }
+}
+
+/** Partido e situação ('Exercício', 'Licença', …) de um deputado num instante 'AAAA-MM-DDTHH:MM'. */
+function estadoNoInstante(historico, instante) {
+  let partido = null, situacao = null;
+  for (const h of historico) {
+    if (String(h.dataHora).slice(0, 16) > instante) break;
+    if (h.siglaPartido) partido = h.siglaPartido;
+    if (h.situacao) situacao = h.situacao;
+  }
+  return { partido, situacao };
+}
+
+/**
+ * Ids dos membros da bancada `sigla` numa votação: quem o histórico diz que
+ * estava em exercício no partido naquele instante, UNIDO a quem votou com
+ * essa sigla (o voto registrado prova que estava lá). Deputado cujo histórico
+ * não veio da API cai no critério antigo: conta se está na bancada atual.
+ */
+function membrosDaVotacao(e, sigla, historicos, idsBancadaAtual) {
+  const instante = String(e.votacao.dataHoraRegistro || e.votacao.data || '').slice(0, 16);
+  const membros = new Set();
+  historicos.forEach((historico, id) => {
+    if (historico) {
+      const st = estadoNoInstante(historico, instante);
+      if (st.situacao === 'Exercício' && st.partido === sigla) membros.add(id);
+    } else if (idsBancadaAtual.has(id)) {
+      membros.add(id);
+    }
+  });
+  e.votos.forEach(v => {
+    if (v.deputado_ && v.deputado_.siglaPartido === sigla) membros.add(v.deputado_.id);
+  });
+  return membros;
+}
+
+/** Todos os deputados que passaram pelo partido no período (a API pagina de 100 em 100). */
+async function cvDeputadosDoPartidoNoPeriodo(sigla, dataIni, dataFim) {
+  const out = [];
+  for (let pagina = 1; pagina <= 10; pagina++) {
+    const j = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) +
+      '&dataInicio=' + dataIni + '&dataFim=' + dataFim + '&ordem=ASC&ordenarPor=nome&itens=100&pagina=' + pagina);
+    const dados = j.dados || [];
+    out.push(...dados);
+    if (dados.length < 100) break;
+  }
+  return out;
+}
+
 // ── CANVAS: GRÁFICO TEMPORAL ──────────────────────────────────────────────────
 /**
  * Agrupa qualifying por semana ou mês conforme extensão do período.
  *
  * Cada balde carrega o que a barra precisa para ser uma PORCENTAGEM: os votos
- * aderentes e os votos POSSÍVEIS do período — bancada × votações do balde, o
- * mesmo denominador do número grande do topo (partySize × qualifying.length).
+ * aderentes e os votos POSSÍVEIS do período — a soma, votação a votação, de
+ * quem estava na bancada (e.membros), o mesmo denominador do número grande do
+ * topo. `partySize` só vale para votação sem e.membros (chamada antiga).
  * Dividir a soma de aderentes de várias votações pela bancada de UMA dava mais
  * de 100% e o clamp do desenho transformava isso em barra cheia: em agosto de
  * 2026, 38 aderências em 4 votações de uma bancada de 27 viravam "100%" sob um
@@ -281,7 +353,7 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
     }
     if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0, possiveis: 0 };
     buckets[key].aderiu += e.adherentCount;
-    buckets[key].possiveis += partySize;
+    buckets[key].possiveis += e.membros ? e.membros.size : partySize;
     buckets[key].count++;
   });
 
@@ -483,21 +555,41 @@ async function gerarRelatorio() {
       return;
     }
 
-    // 5. Bancada atual
+    // 5. Bancada: a atual (para o rótulo e o fallback) e quem passou pelo
+    // partido no período, com o histórico de cada um — ver "COMPOSIÇÃO DA
+    // BANCADA NO TEMPO", lá em cima.
     showStatus('Carregando bancada do ' + sigla + '...', 'loading');
     const benchJ    = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
     const bench     = benchJ.dados || [];
     const partySize = bench.length;
+    const idsBancada = new Set(bench.map(d => d.id));
 
-    if (partySize === 0) {
+    const infoDeps = new Map();
+    const guardar = d => { if (d && d.id != null && !infoDeps.has(d.id)) infoDeps.set(d.id, { id: d.id, nome: d.nome, siglaUf: d.siglaUf }); };
+    bench.forEach(guardar);
+    let noPeriodo = [];
+    try { noPeriodo = await cvDeputadosDoPartidoNoPeriodo(sigla, dataIni, dataFim); }
+    catch (e) { console.warn('deputados do partido no período indisponíveis:', e.message); }
+    noPeriodo.forEach(guardar);
+    qualifying.forEach(e => e.votos.forEach(v => { if (v.deputado_ && v.deputado_.siglaPartido === sigla) guardar(v.deputado_); }));
+
+    if (infoDeps.size === 0) {
       clearStatus();
       resultadoEl.innerHTML = '<div class="status error">Nenhum deputado encontrado para "' + sigla + '".</div>';
       return;
     }
 
-    // 6. Métricas 3-state por votação
+    const idsCandidatos = [...infoDeps.keys()];
+    const historicosArr = await mapLimit(idsCandidatos, 8, id => cvHistorico(id), (feitos, total) =>
+      showStatus('Reconstituindo a bancada do ' + sigla + ' em cada votação (' + feitos + '/' + total + ')...',
+        'loading', (feitos / total) * 100));
+    const historicos = new Map(idsCandidatos.map((id, i) => [id, historicosArr[i] || null]));
+    const semHistorico = historicosArr.filter(h => !h).length;
+
+    // 6. Métricas 3-state por votação — denominador: quem estava na bancada nela
     qualifying.forEach(e => {
-      const partyVotes = e.votos.filter(v => v.deputado_ && v.deputado_.siglaPartido === sigla);
+      e.membros = membrosDaVotacao(e, sigla, historicos, idsBancada);
+      const partyVotes = e.votos.filter(v => v.deputado_ && e.membros.has(v.deputado_.id));
       let aderiu = 0, divergiu = 0;
       partyVotes.forEach(v => {
         const s = classifyVote(v.tipoVoto, e.govOrient);
@@ -506,37 +598,45 @@ async function gerarRelatorio() {
       });
       e.adherentCount  = aderiu;
       e.divergentCount = divergiu;
-      e.ausenteCount   = partySize - (aderiu + divergiu);
+      e.ausenteCount   = e.membros.size - (aderiu + divergiu);
       e.partyVotes     = partyVotes;
-      e.specificPct    = (aderiu / partySize) * 100;
+      e.specificPct    = e.membros.size > 0 ? (aderiu / e.membros.size) * 100 : 0;
     });
 
-    // 7. Métricas 3-state por deputado
-    const idsBancada = new Set(bench.map(d => d.id));
-    const depMetrics = bench.map(dep => {
-      let aderiu = 0, divergiu = 0, ausente = 0;
+    // 7. Métricas 3-state por deputado — só nas votações em que ele era da
+    // bancada (n); quem chegou há um mês não leva falta pelo ano inteiro.
+    const depMetrics = [];
+    infoDeps.forEach(dep => {
+      let aderiu = 0, divergiu = 0, ausente = 0, n = 0;
       qualifying.forEach(e => {
+        if (!e.membros.has(dep.id)) return;
+        n++;
         const voto = e.votos.find(v => v.deputado_ && v.deputado_.id === dep.id);
         const s    = classifyVote(voto ? voto.tipoVoto : null, e.govOrient);
         if (s === 'aderente')   aderiu++;
         else if (s === 'divergente') divergiu++;
         else                    ausente++;
       });
-      return { dep, aderiu, divergiu, ausente, pct: qualifying.length > 0 ? (aderiu / qualifying.length) * 100 : 0 };
+      if (n === 0) return;
+      depMetrics.push({ dep, aderiu, divergiu, ausente, n, atual: idsBancada.has(dep.id), pct: (aderiu / n) * 100 });
     });
-    depMetrics.sort((a, b) => b.pct - a.pct);
+    depMetrics.sort((a, b) => b.pct - a.pct || b.n - a.n);
 
     // 8. Totais gerais
     const totalAderiu   = qualifying.reduce((s, e) => s + e.adherentCount,  0);
     const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
     const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
-    const totalPossivel = partySize * qualifying.length;
+    const totalPossivel = qualifying.reduce((s, e) => s + e.membros.size,   0);
     const overallPct    = totalPossivel > 0 ? (totalAderiu / totalPossivel) * 100 : 0;
+    const bancadaMedia  = qualifying.length > 0 ? totalPossivel / qualifying.length : 0;
+    const legIni = legislaturaEm(dataIni), legFim = legislaturaEm(dataFim);
+    const atravessaLegislaturas = legIni !== legFim ? { de: legIni, ate: legFim } : null;
 
     clearStatus();
     renderRelatorio({
-      sigla, partySize, bench, idsBancada, qualifying, depMetrics,
+      sigla, partySize, bench, idsBancada, infoDeps, qualifying, depMetrics,
       overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
+      bancadaMedia, atravessaLegislaturas, semHistorico,
       dataIni, dataFim, emCache, aFetchar
     });
 
@@ -552,10 +652,11 @@ async function gerarRelatorio() {
 function renderRelatorio(ctx) {
   window._relatorioCtx = ctx;
   const {
-    sigla, partySize, qualifying, depMetrics,
+    sigla, qualifying,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   } = ctx;
+  const avisos = cvAvisosBancada(ctx);
 
   const cacheBadge = emCache > 0
     ? '<span class="cache-badge">⚡ ' + emCache + ' do cache</span>'
@@ -574,11 +675,12 @@ function renderRelatorio(ctx) {
           '<div class="state-item state-ausente"><span class="state-v">' + totalAusente + '</span><span class="state-l">— Ausente</span></div>' +
         '</div>' +
         '<div class="result-meta">' +
-          '<div class="meta-item"><span class="v">' + partySize + '</span><span class="l">Deputados</span></div>' +
+          '<div class="meta-item"><span class="v">' + cvNumBr(ctx.bancadaMedia) + '</span><span class="l">Bancada média</span></div>' +
           '<div class="meta-item"><span class="v">' + qualifying.length + '</span><span class="l">Votações</span></div>' +
           '<div class="meta-item"><span class="v">' + totalPossivel + '</span><span class="l">Votos possíveis</span></div>' +
         '</div>' +
         '<div class="result-period">' + formatarData(dataIni) + ' a ' + formatarData(dataFim) + '</div>' +
+        avisos.map(t => '<div class="cv-aviso" style="margin-top:8px">⚠ ' + cvEsc(t) + '</div>').join('') +
         '<button id="btnExportar" class="export-btn" type="button"><span class="icon">⬇</span> Exportar Excel</button>' +
       '</div>' +
     '</div>' +
@@ -620,7 +722,7 @@ function renderRelatorio(ctx) {
   // Gráfico temporal
   requestAnimationFrame(() => {
     const canvas = document.getElementById('temporal-canvas');
-    const groups = agruparPorPeriodo(qualifying, dataIni, dataFim, partySize);
+    const groups = agruparPorPeriodo(qualifying, dataIni, dataFim, ctx.partySize);
     const diffDias = (new Date(dataFim) - new Date(dataIni)) / 864e5;
     const subEl = document.getElementById('temporal-sub');
     if (subEl) subEl.textContent = diffDias > 60 ? 'por mês' : 'por semana';
@@ -657,7 +759,9 @@ function renderRankingDeputados(sortKey) {
         '<div class="rank-num">' + (rank + 1) + '</div>' +
         '<div class="rank-info">' +
           '<div class="rank-name">' + (m.dep.nome || '?') + '</div>' +
-          '<div class="rank-meta">' + ctx.sigla + ' · ' + (m.dep.siglaUf || '') + '</div>' +
+          '<div class="rank-meta">' + ctx.sigla + ' · ' + (m.dep.siglaUf || '') +
+            ' · ' + m.n + (m.n === 1 ? ' votação' : ' votações') + ' na bancada' +
+            (m.atual ? '' : ' · fora da bancada atual') + '</div>' +
         '</div>' +
         '<div class="rank-counts">' +
           '<span class="rank-ade" title="Aderiu">' + m.aderiu + '✓</span>' +
@@ -696,6 +800,7 @@ function renderRankingDeputados(sortKey) {
 function buildDepDetailHTML(m, ctx) {
   const detalhes = [];
   ctx.qualifying.forEach(e => {
+    if (e.membros && !e.membros.has(m.dep.id)) return; // votação em que ele não era da bancada
     const voto     = e.votos.find(v => v.deputado_ && v.deputado_.id === m.dep.id);
     const tipoVoto = voto ? voto.tipoVoto : null;
     const status   = classifyVote(tipoVoto, e.govOrient);
@@ -808,25 +913,7 @@ function renderVotingsList(ctx) {
 
 // ── DETALHE DE UMA VOTAÇÃO ────────────────────────────────────────────────────
 function renderVoteDetail(detailEl, e, ctx) {
-  const { bench } = ctx;
-
-  const votosPorId = {};
-  e.votos.forEach(v => {
-    if (v.deputado_ && v.deputado_.id != null) votosPorId[v.deputado_.id] = v.tipoVoto;
-  });
-
-  const merged = bench.map(d => ({
-    id: d.id, nome: d.nome, siglaUf: d.siglaUf, tipoVoto: votosPorId[d.id] || null
-  }));
-
-  const idsB = new Set(bench.map(d => d.id));
-  e.partyVotes.forEach(v => {
-    const dep = v.deputado_;
-    if (dep && !idsB.has(dep.id)) {
-      merged.push({ id: dep.id, nome: dep.nome, siglaUf: dep.siglaUf, tipoVoto: v.tipoVoto });
-    }
-  });
-  merged.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  const merged = membrosComVoto(e, ctx);
 
   let aderiu = 0, divergiu = 0, ausente = 0;
   merged.forEach(d => {
@@ -868,11 +955,45 @@ function renderVoteDetail(detailEl, e, ctx) {
   if (canvas) drawAdherenceDonut(canvas, pct, 120);
 }
 
+/** Membros da bancada NAQUELA votação, cada um com o voto que deu (ou null), por nome. */
+function membrosComVoto(e, ctx) {
+  const votosPorId = {};
+  e.votos.forEach(v => {
+    if (v.deputado_ && v.deputado_.id != null) votosPorId[v.deputado_.id] = v.tipoVoto;
+  });
+  const info = id => (ctx.infoDeps && ctx.infoDeps.get(id)) ||
+    ((e.votos.find(v => v.deputado_ && v.deputado_.id === id) || {}).deputado_) || { id };
+  const merged = [...e.membros].map(id => {
+    const d = info(id);
+    return { id, nome: d.nome, siglaUf: d.siglaUf, tipoVoto: votosPorId[id] || null };
+  });
+  merged.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+  return merged;
+}
+
+/** 12 → "12"; 27,5 → "27,5" */
+function cvNumBr(n) {
+  return Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+}
+
+/** Avisos sobre como a bancada foi apurada — mesmos textos na tela e na planilha. */
+function cvAvisosBancada(ctx) {
+  const avisos = [];
+  if (ctx.atravessaLegislaturas) {
+    avisos.push('O período atravessa legislaturas (' + ctx.atravessaLegislaturas.de + 'ª a ' +
+      ctx.atravessaLegislaturas.ate + 'ª): a bancada muda na posse, e foi apurada votação a votação.');
+  }
+  if (ctx.semHistorico) {
+    avisos.push('Histórico indisponível para ' + ctx.semHistorico + ' deputado(s): para eles, vale a bancada atual.');
+  }
+  return avisos;
+}
+
 // ── EXPORTAR EXCEL ────────────────────────────────────────────────────────────
 function exportarExcel() {
   const ctx = window._relatorioCtx;
   if (!ctx) return;
-  const { sigla, partySize, bench, qualifying, depMetrics, overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel, dataIni, dataFim } = ctx;
+  const { sigla, partySize, qualifying, depMetrics, overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel, dataIni, dataFim } = ctx;
 
   const wb = XLSX.utils.book_new();
 
@@ -882,7 +1003,9 @@ function exportarExcel() {
     [],
     ['Partido', sigla],
     ['Período', formatarData(dataIni) + ' a ' + formatarData(dataFim)],
-    ['Deputados na bancada', partySize],
+    ['Bancada atual (deputados)', partySize],
+    ['Bancada média por votação', Number((ctx.bancadaMedia || 0).toFixed(2))],
+    ['Deputados que passaram pela bancada no período', depMetrics.length],
     ['Votações consideradas', qualifying.length],
     ['Votos possíveis', totalPossivel],
     ['Votos aderentes (✓)', totalAderiu],
@@ -893,20 +1016,25 @@ function exportarExcel() {
     ['Critérios:'],
     ['- Apenas votações do Plenário (PLEN)'],
     ['- Apenas votações com pelo menos um voto Sim ou Não'],
-    ['- Apenas votações em que o Governo orientou Sim ou Não']
+    ['- Apenas votações em que o Governo orientou Sim ou Não'],
+    ['- Bancada apurada votação a votação: quem estava em exercício no partido naquele dia (histórico da Câmara) ou votou pela sigla'],
+    ['- Aderência de cada deputado: só nas votações em que ele era da bancada']
   ];
+  const avisos = cvAvisosBancada(ctx);
+  if (avisos.length) resumoData.push([], ...avisos.map(t => ['Atenção: ' + t]));
   const wsResumo = XLSX.utils.aoa_to_sheet(resumoData);
   wsResumo['!cols'] = [{ wch: 42 }, { wch: 30 }];
   XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
 
   // Aba 2 — Ranking de Deputados
-  const rankHeader = ['Posição', 'Deputado', 'UF', 'Aderiu (✓)', 'Divergiu (✗)', 'Ausente (—)', 'Aderência (%)'];
+  const rankHeader = ['Posição', 'Deputado', 'UF', 'Votações na bancada', 'Aderiu (✓)', 'Divergiu (✗)', 'Ausente (—)', 'Aderência (%)', 'Na bancada atual'];
   const rankRows   = [rankHeader];
-  depMetrics.slice().sort((a, b) => b.pct - a.pct).forEach((m, i) => {
-    rankRows.push([i + 1, m.dep.nome || '', m.dep.siglaUf || '', m.aderiu, m.divergiu, m.ausente, Number(m.pct.toFixed(2))]);
+  depMetrics.slice().sort((a, b) => b.pct - a.pct || b.n - a.n).forEach((m, i) => {
+    rankRows.push([i + 1, m.dep.nome || '', m.dep.siglaUf || '', m.n, m.aderiu, m.divergiu, m.ausente,
+      Number(m.pct.toFixed(2)), m.atual ? 'Sim' : 'Não']);
   });
   const wsRanking = XLSX.utils.aoa_to_sheet(rankRows);
-  wsRanking['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 5 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+  wsRanking['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 12 }];
   XLSX.utils.book_append_sheet(wb, wsRanking, 'Ranking Deputados');
 
   // Aba 3 — Votações
@@ -919,7 +1047,7 @@ function exportarExcel() {
       dt ? dt.toLocaleDateString('pt-BR') : '',
       dt ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
       v.id, v.descricao || '', result, e.govOrient,
-      e.adherentCount, e.divergentCount, e.ausenteCount, partySize, Number(e.specificPct.toFixed(2))
+      e.adherentCount, e.divergentCount, e.ausenteCount, e.membros.size, Number(e.specificPct.toFixed(2))
     ]);
   });
   const wsVot = XLSX.utils.aoa_to_sheet(votRows);
@@ -932,17 +1060,7 @@ function exportarExcel() {
     const v          = e.votacao;
     const dt         = v.dataHoraRegistro ? new Date(v.dataHoraRegistro) : null;
     const data       = dt ? dt.toLocaleDateString('pt-BR') : '';
-    const votosPorId = {};
-    e.votos.forEach(x => {
-      if (x.deputado_ && x.deputado_.id != null) votosPorId[x.deputado_.id] = x.tipoVoto;
-    });
-    const merged = bench.map(d => ({ ...d, tipoVoto: votosPorId[d.id] || null }));
-    const idsB   = new Set(bench.map(d => d.id));
-    e.partyVotes.forEach(x => {
-      const dep = x.deputado_;
-      if (dep && !idsB.has(dep.id)) merged.push({ id: dep.id, nome: dep.nome, siglaUf: dep.siglaUf, tipoVoto: x.tipoVoto });
-    });
-    merged.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
+    const merged = membrosComVoto(e, ctx);
     merged.forEach(d => {
       const s = classifyVote(d.tipoVoto, e.govOrient);
       const statusLabel = s === 'aderente' ? '✓ Aderiu' : (s === 'divergente' ? '✗ Divergiu' : '— Ausente');

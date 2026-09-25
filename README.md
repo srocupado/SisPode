@@ -77,7 +77,8 @@ Cinco relatórios em abas — sobre votações nominais, produção legislativa,
 
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
-- **Ranking individual** de deputados ordenável por aderência, divergência ou ausência
+- **Bancada apurada votação a votação**: o denominador de cada votação é quem estava em exercício no partido naquele dia (histórico de cada deputado na API da Câmara), mais quem votou pela sigla — não a bancada de hoje. Período que atravessa legislaturas é sinalizado na tela e na planilha
+- **Ranking individual** de deputados ordenável por aderência, divergência ou ausência; cada deputado é medido só nas votações em que era da bancada (o número aparece no ranking), e quem saiu do partido no período aparece marcado como fora da bancada atual
 - Permite filtrar e detalhar o histórico de votos de um deputado específico, com **gráfico circular (donut)** de aderência por votação no detalhe expandido
 - Gráfico temporal da evolução da aderência no período
 - **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
@@ -602,6 +603,7 @@ sispode/
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
+│   ├── aderencia-bancada.test.js   # Aderência: bancada de cada votação (12 × 30), ranking por votações elegíveis
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
 │   ├── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha, refresh diário
 │   └── legislatura.test.js         # Legislaturas pela data: virada de fevereiro, cópias raiz/bot idênticas
