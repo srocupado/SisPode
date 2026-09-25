@@ -22,7 +22,7 @@ Analise e oriente a votação de destaques de projetos de lei nas sessões do Pl
 **Navegação e edição**
 - Filtra destaques por **ativos** ou **todos** com contador por categoria
 - Busca por texto na lista de proposições
-- Campos editáveis por destaque: **Voto Sim**, **Voto Não**, **Explicação** e **Orientação** — com salvamento automático
+- Campos editáveis por destaque: **Voto Sim**, **Voto Não**, **Explicação** e **Orientação** — com salvamento automático. A gravação é **condicional**: localiza a proposição pela chave e o destaque pelo número no banco (não pela posição na tela) e só grava se ninguém mudou a proposição entre a leitura e a escrita — se mudou, relê e reaplica; se o destaque foi removido por outra pessoa, não grava e avisa
 - Link direto para a ficha da proposição na Câmara dos Deputados (abre no navegador)
 
 **Análise por IA (Gemini, OpenAI ou Anthropic)**
@@ -605,6 +605,7 @@ sispode/
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
+│   ├── destaque-gravacao.test.js   # Destaques: escrita condicional (ETag), re-localização, 412, item removido
 │   ├── bancada-sigla.test.js       # Sigla única (extensão e bot), membrosAtuais, membrosEm
 │   ├── bancada-cadastro.test.js    # Cadastro de deputados × Câmara: exercício, licença, ex-membro, PATCH
 │   ├── aderencia-bancada.test.js   # Aderência: bancada de cada votação (12 × 30), ranking por votações elegíveis

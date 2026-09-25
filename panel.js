@@ -2928,36 +2928,102 @@ async function fbSalvar(sessao) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
-/** Grava no Firebase APENAS os campos editáveis de um destaque (PATCH granular).
- *  Um PUT da sessão inteira aqui seria last-write-wins: dois usuários editando
- *  destaques diferentes ao mesmo tempo sobrescreveriam o trabalho um do outro. */
-async function fbSalvarDestaque(sessao, prop, d) {
-  const pIdx = (sessao.proposicoes || []).indexOf(prop);
-  const dIdx = (prop?.destaques || []).indexOf(d);
-  if (pIdx < 0 || dIdx < 0) return fbSalvar(sessao);   // estrutura mudou — fallback seguro
-  const res = await fetch(
-    `${FIREBASE_URL}/sessoes/${sessao.id}/proposicoes/${pIdx}/destaques/${dIdx}.json`, {
-    method:  'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      votoSim:    d.votoSim    || '',
-      votoNao:    d.votoNao    || '',
-      explicacao: d.explicacao || '',
-      orientacao: d.orientacao || '',
-    }),
-  });
-  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+/** Erro de "o destaque não está mais lá" — diferente de Firebase fora do ar. */
+function erroDestaqueRemovido(msg) {
+  const e = new Error(msg);
+  e.code = 'destaque-removido';
+  return e;
 }
 
-/** Salva localmente + PATCH granular do destaque no Firebase. */
+/** Posição (chave do array/objeto) da proposição `chave` na sessão do banco, ou null. */
+async function localizarProposicaoNoBanco(sessaoId, chave) {
+  const res = await fetch(`${FIREBASE_URL}/sessoes/${sessaoId}/proposicoes.json`);
+  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  const lista = (await res.json()) || [];
+  const achada = Object.entries(lista).find(([, p]) => p && p.chave === chave);
+  return achada ? achada[0] : null;
+}
+
+/**
+ * Grava os campos editáveis de um destaque com ESCRITA CONDICIONAL.
+ *
+ * Antes era um PATCH por posição (…/proposicoes/{i}/destaques/{j}): escrevia
+ * no que estivesse naquela posição do banco. Se outra pessoa tivesse
+ * atualizado a lista (destaque novo da Câmara, proposição removida), os votos
+ * iam parar no destaque ERRADO — ou criavam um nó órfão só com esses campos.
+ * E, quando o objeto local não era achado, o "fallback seguro" gravava a
+ * sessão inteira (PUT), apagando o trabalho concorrente de todo mundo.
+ *
+ * Agora: lê a proposição naquela posição com ETag, confere que é a mesma
+ * (chave) e acha o destaque pelo número — a mesma identidade do merge em
+ * atualizarDestaques —, e grava a proposição com if-match. Posição errada →
+ * re-localiza pela chave. 412 (alguém gravou entre a leitura e a escrita) →
+ * relê e tenta de novo. Sumiu do banco → NÃO grava e avisa. A estrutura
+ * continua em arrays, como as versões antigas da extensão esperam.
+ */
+async function fbSalvarDestaque(sessao, prop, d) {
+  if (!sessao?.id || !prop?.chave || d?.numero == null || d.numero === '') {
+    throw erroDestaqueRemovido('destaque sem identificação — não dá para gravar com segurança');
+  }
+  const campos = {
+    votoSim:    d.votoSim    || '',
+    votoNao:    d.votoNao    || '',
+    explicacao: d.explicacao || '',
+    orientacao: d.orientacao || '',
+  };
+  const local = (sessao.proposicoes || []).indexOf(prop);
+  let pos = local >= 0 ? String(local) : null;
+  let relocalizou = false;
+
+  for (let tentativa = 0; tentativa < 5; tentativa++) {
+    if (pos === null) {
+      if (relocalizou) break;
+      pos = await localizarProposicaoNoBanco(sessao.id, prop.chave);
+      relocalizou = true;
+      if (pos === null) {
+        throw erroDestaqueRemovido(`${prop.chave} não está mais nesta sessão no banco — nada foi gravado.`);
+      }
+    }
+    const url = `${FIREBASE_URL}/sessoes/${sessao.id}/proposicoes/${pos}.json`;
+    const lida = await fetch(url, { headers: { 'X-Firebase-ETag': 'true' } });
+    if (!lida.ok) throw new Error(`Firebase HTTP ${lida.status}`);
+    const etag = lida.headers.get('ETag');
+    const remota = await lida.json();
+    if (!remota || remota.chave !== prop.chave) { pos = null; continue; } // posição mudou: re-localiza
+
+    const destaques = remota.destaques || [];
+    const k = Object.keys(destaques).find(i => destaques[i] && String(destaques[i].numero) === String(d.numero));
+    if (k === undefined) {
+      throw erroDestaqueRemovido(`O destaque ${d.numero} de ${prop.chave} não está mais no banco — nada foi gravado.`);
+    }
+    const novosDestaques = Array.isArray(destaques) ? destaques.slice() : { ...destaques };
+    novosDestaques[k] = { ...destaques[k], ...campos };
+
+    const escrita = await fetch(url, {
+      method:  'PUT',
+      headers: { 'Content-Type': 'application/json', 'if-match': etag || '' },
+      body:    JSON.stringify({ ...remota, destaques: novosDestaques }),
+    });
+    if (escrita.status === 412) continue;              // alguém gravou no meio: relê e reaplica
+    if (!escrita.ok) throw new Error(`Firebase HTTP ${escrita.status}`);
+    return;
+  }
+  throw new Error('o destaque mudou no banco várias vezes seguidas — tente salvar de novo');
+}
+
+/** Salva localmente + escrita condicional do destaque no Firebase. */
 async function salvarDestaque(sessao, prop, d) {
   await salvarSessaoLocal(sessao);
   try {
     await fbSalvarDestaque(sessao, prop, d);
     atualizarStatusSync('ok');
   } catch (e) {
-    console.warn('Firebase indisponível:', e.message);
-    atualizarStatusSync('offline');
+    if (e.code === 'destaque-removido') {
+      mostrarToast(e.message + ' Recarregue a sessão.', 'aviso');
+    } else {
+      console.warn('Firebase indisponível:', e.message);
+      atualizarStatusSync('offline');
+    }
     throw e;
   }
 }
@@ -3116,8 +3182,8 @@ async function salvarDestaqueManual() {
 
   try {
     await salvarSessaoLocal(app.sessaoAtual);
-    // PATCH só dos campos do destaque — não sobrescreve edições concorrentes
-    // de outros usuários em outros destaques/proposições da sessão.
+    // Escrita condicional só da proposição deste destaque — não sobrescreve
+    // edições concorrentes de outros usuários (ver fbSalvarDestaque).
     await fbSalvarDestaque(app.sessaoAtual, app.proposicaoAtiva, d);
     atualizarStatusSync('ok');
     mostrarToast('Destaque salvo com sucesso!', 'sucesso');
@@ -3128,8 +3194,12 @@ async function salvarDestaqueManual() {
     }
   } catch (err) {
     console.error('Erro ao salvar destaque:', err);
-    atualizarStatusSync('offline');
-    mostrarToast('Salvo localmente. Firebase indisponível.', 'aviso');
+    if (err.code === 'destaque-removido') {
+      mostrarToast(err.message + ' Recarregue a sessão.', 'aviso');
+    } else {
+      atualizarStatusSync('offline');
+      mostrarToast('Salvo localmente. Firebase indisponível.', 'aviso');
+    }
   } finally {
     if (btn) {
       btn.disabled  = false;
