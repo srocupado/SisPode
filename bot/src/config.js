@@ -12,7 +12,9 @@ function obrigatoria(nome) {
 }
 
 module.exports = {
-  BOT_TOKEN: obrigatoria('BOT_TOKEN'),
+  // Getter: só exige o token quem o usa (o bot). Módulos que só precisam do
+  // Firebase — ex.: bot/scripts/atualizar-leis-aprovadas.js — rodam sem ele.
+  get BOT_TOKEN() { return obrigatoria('BOT_TOKEN'); },
 
   FIREBASE_URL: (process.env.FIREBASE_URL ||
     'https://plenario-podemos-default-rtdb.firebaseio.com').replace(/\/+$/, ''),

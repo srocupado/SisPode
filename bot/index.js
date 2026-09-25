@@ -30,7 +30,10 @@ const { abrirAta, ataAberta, anotar, apagarNota, descartarAta, fecharAta, ultima
 const { aplicarUpdate, statusUpdate } = require('./src/autoupdate');
 const { consultarRegimento, consultarRegimentoIA, formatarRegimento, aquecerRegimento } = require('./src/regimento');
 const { extrairTextoPdf, parsearPauta } = require('./src/parser');
-const { atualizarLeisAprovadas, LEGISLATURA_ATUAL, LEGISLATURAS: LEIS_LEGISLATURAS } = require('./src/leisaprovadas');
+const {
+  atualizarLeisAprovadas, legislaturaAtual, legislaturaValida, legislaturasEmRefresh,
+  conferirLegislaturaComApi, situacaoLeisAprovadas,
+} = require('./src/leisaprovadas');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -315,12 +318,28 @@ bot.callbackQuery(/^rest:([a-f0-9]+)$/, async ctx => {
 bot.command('leisaprovadas', async ctx => {
   if (String(ctx.from.id) !== ADMIN_USER_ID) return;
   const args = String(ctx.match || '').trim().split(/\s+/).filter(Boolean);
+  if (args[0] === 'status') {
+    try {
+      const fmt = iso => new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+      const linhas = (await situacaoLeisAprovadas()).map(s => {
+        if (s.erro) return `• ${s.rotulo}: erro ao ler (${s.erro})`;
+        if (!s.atualizadoEm) return `• ${s.rotulo}: sem dado coletado`;
+        const arqs = Object.values(s.dataArquivos || {}).sort();
+        return `• ${s.rotulo}: ${fmt(s.atualizadoEm)} (${s.origem || 'bot'})` +
+          (arqs.length ? ` — arquivos da Câmara de ${fmt(arqs[0])}` : '');
+      });
+      return ctx.reply(`📚 Leis aprovadas — última coleta (horário de Brasília):\n${linhas.join('\n')}\n\n` +
+        `Refresh automático: ${legislaturasEmRefresh().map(l => l + 'ª').join(' e ')}.`);
+    } catch (e) {
+      return ctx.reply(`Erro ao ler a situação: ${e.message}`);
+    }
+  }
   const forcar = args.includes('--forcar');
-  const legislaturas = args.filter(a => a !== '--forcar' && LEIS_LEGISLATURAS[a]);
-  const alvo = legislaturas.length ? legislaturas : [LEGISLATURA_ATUAL];
+  const legislaturas = args.filter(a => a !== '--forcar' && legislaturaValida(a));
+  const alvo = legislaturas.length ? legislaturas : [legislaturaAtual()];
   await ctx.reply(`⏳ Atualizando leis aprovadas: ${alvo.join(', ')}${forcar ? ' (forçado)' : ''}. ` +
     `Baixa arquivos grandes da Câmara — pode levar alguns minutos. Aviso quando terminar.\n` +
-    `(Uso: /leisaprovadas [legislaturas separadas por espaço] [--forcar])`);
+    `(Uso: /leisaprovadas [legislaturas separadas por espaço] [--forcar] · /leisaprovadas status)`);
   try {
     const r = await atualizarLeisAprovadas({
       legislaturas: alvo, forcar,
@@ -328,8 +347,9 @@ bot.command('leisaprovadas', async ctx => {
     });
     const linhas = r.processadas.map(p => `• ${p.rotulo}: ${p.leis} projeto(s) em lei, ${p.deputados} deputado(s) no ranking`).join('\n');
     const puladas = r.puladas.length ? `\nPuladas (já tinham dado salvo): ${r.puladas.join(', ')}` : '';
+    const aguardando = r.aguardando.length ? `\n⏸ ${r.aguardando.map(a => a.motivo).join('; ')}` : '';
     const erros = r.erros.length ? `\n⚠️ Erros: ${r.erros.map(e => `${e.leg} (${e.erro})`).join('; ')}` : '';
-    return ctx.reply(`✅ Leis aprovadas — coleta concluída.\n${linhas || '(nada processado)'}${puladas}${erros}`);
+    return ctx.reply(`✅ Leis aprovadas — coleta concluída.\n${linhas || '(nada processado)'}${puladas}${aguardando}${erros}`);
   } catch (e) {
     console.error('/leisaprovadas falhou:', e);
     return ctx.reply(`Erro ao atualizar leis aprovadas: ${e.message}`);
@@ -2048,20 +2068,35 @@ async function tickBackup() {
 setInterval(tickBackup, 6 * 60 * 60 * 1000);
 tickBackup();
 
-// ---------- Leis aprovadas: refresh diário SÓ da legislatura corrente ----------
-// As encerradas (53ª–56ª) não mudam mais na prática e são populadas uma vez,
-// deliberadamente (/leisaprovadas <leg> ou bot/scripts/atualizar-leis-aprovadas.js)
-// — o cron nunca as toca sozinho, porque a primeira coleta de todas juntas é
-// pesada (dezenas de arquivos grandes) e não é hora de subida do bot que deve
-// decidir isso.
+// ---------- Leis aprovadas: refresh diário da legislatura corrente ----------
+// A corrente é calculada pela data (vira sozinha: 58ª em fev/2027, 59ª em
+// fev/2031) e conferida com a API /legislaturas — divergência avisa o admin.
+// A anterior entra junto durante a carência de 12 meses depois do fim (com
+// refresh semanal, decidido em legislaturaPrecisaAtualizar). As encerradas
+// fora da carência são populadas uma vez, deliberadamente (/leisaprovadas
+// <leg> ou bot/scripts/atualizar-leis-aprovadas.js) — o cron nunca as toca
+// sozinho, porque a primeira coleta de todas juntas é pesada.
+let ultimaDivergenciaLeg = '';
 async function tickLeisAprovadas() {
   try {
-    const r = await atualizarLeisAprovadas({ legislaturas: [LEGISLATURA_ATUAL] });
-    const p = r.processadas[0];
-    if (p) console.log(`leisaprovadas: ${p.rotulo} atualizada — ${p.leis} lei(s), ${p.deputados} deputado(s).`);
+    try {
+      const c = await conferirLegislaturaComApi();
+      const chave = c.divergente ? JSON.stringify(c.api) : '';
+      if (c.divergente && chave !== ultimaDivergenciaLeg && ADMIN_USER_ID) {
+        await bot.api.sendMessage(ADMIN_USER_ID,
+          `⚠️ Leis aprovadas: a API da Câmara diz que a legislatura corrente é a ${c.api.id}ª ` +
+          `(${c.api.inicio} a ${c.api.fim}), mas a conta pela data dava ${c.calculada}ª. ` +
+          `Passei a usar a API — confira se o mandato mudou.`).catch(() => {});
+      }
+      ultimaDivergenciaLeg = chave;
+    } catch (e) { console.warn('leisaprovadas: conferência com a API falhou (segue pela conta):', e.message); }
+
+    const r = await atualizarLeisAprovadas({ legislaturas: legislaturasEmRefresh() });
+    for (const p of r.processadas) console.log(`leisaprovadas: ${p.rotulo} atualizada — ${p.leis} lei(s), ${p.deputados} deputado(s).`);
+    for (const a of r.aguardando) console.log(`leisaprovadas: ${a.motivo}.`);
     if (r.erros.length && ADMIN_USER_ID) {
       await bot.api.sendMessage(ADMIN_USER_ID,
-        `⚠️ Refresh diário de leis aprovadas (${LEGISLATURA_ATUAL}ª) falhou: ${r.erros[0].erro}`).catch(() => {});
+        `⚠️ Refresh diário de leis aprovadas falhou: ${r.erros.map(e => `${e.leg}ª — ${e.erro}`).join('; ')}`).catch(() => {});
     }
   } catch (e) { console.warn('tick de leis aprovadas falhou:', e.message); }
 }

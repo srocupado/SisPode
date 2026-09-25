@@ -1021,18 +1021,13 @@
 
   <div id="painel-leis" hidden>
     <p class="relatorio-desc">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados em
-      lei — PL e PLP, por padrão — da 53ª à 57ª legislatura.</p>
+      lei — PL e PLP, por padrão — <span id="leaFaixa">da 53ª à legislatura atual</span>.</p>
     <div class="input-section">
       <label>Legislaturas</label>
-      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px">
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="57"> 57ª (2023–2027)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="56"> 56ª (2019–2023)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="55"> 55ª (2015–2019)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="54"> 54ª (2011–2015)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="53"> 53ª (2007–2011)</label>
-      </div>
+      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px" id="leaLegs"></div>
       <div class="prd-dica" style="margin:8px 0 14px">O dado é agregado pelo bot a partir dos arquivos oficiais da
-        Câmara; esta tela só lê o resultado, sem download manual.</div>
+        Câmara; esta tela só lê o resultado, sem download manual. Se o bot parar, a coleta pode ser feita pela
+        extensão (seção abaixo).</div>
 
       <div class="date-row">
         <div class="date-col">
@@ -1075,7 +1070,14 @@
     <div id="leaResultado"></div>
 
     <div class="input-section" style="margin-top:16px">
-      <label>Ou processe arquivos baixados manualmente</label>
+      <label>Coletar pela extensão (sem o bot)</label>
+      <div class="prd-dica" style="margin-bottom:12px">Baixa os arquivos oficiais da legislatura corrente direto da Câmara
+        (4 a 5 arquivos de 50–165 MB — leva alguns minutos e usa bastante memória), monta o ranking aqui e, se você
+        conferir e clicar em gravar, atualiza o banco de dados para a equipe toda. A gravação é bloqueada se algum
+        arquivo não baixar ou se faltarem autores.</div>
+      <button id="leaColetar" class="btn-gerar lea-coletar" style="margin-top:0">Coletar agora pela extensão</button>
+
+      <label style="margin-top:18px">Ou processe arquivos baixados manualmente</label>
       <div class="prd-dica" style="margin-bottom:12px">Para quando você já tem os arquivos oficiais
         (<code>proposicoes-AAAA.json</code>, 50–165 MB cada — baixados em
         <a href="https://dadosabertos.camara.leg.br/arquivos/proposicoes/json/" target="_blank" rel="noopener">dadosabertos.camara.leg.br</a>)
@@ -1083,13 +1085,7 @@
         Depois de processar, dá para ver no ranking acima e, se quiser, gravar no banco de dados para a equipe toda usar.</div>
 
       <label>Legislaturas cobertas pelos arquivos selecionados</label>
-      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px;margin-bottom:8px">
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="57"> 57ª (2023–2027)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="56"> 56ª (2019–2023)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="55"> 55ª (2015–2019)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="54"> 54ª (2011–2015)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="53"> 53ª (2007–2011)</label>
-      </div>
+      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px;margin-bottom:8px" id="leaUpLegs"></div>
 
       <label>Arquivo(s)</label>
       <input type="file" id="leaUpArquivos" class="field" accept=".json,application/json" multiple>
