@@ -14,12 +14,18 @@
 // 51 KB de JSON filtrado — compressão de ~1000×): o histórico inteiro (53ª a
 // 57ª legislatura) cabe em poucos MB, folgado no RTDB.
 //
-// Legislaturas já ENCERRADAS (53ª–56ª) são processadas uma vez só — o
-// conteúdo delas não muda mais na prática. Só a CORRENTE precisa de refresh
-// periódico, porque projetos apresentados nela continuam podendo virar lei.
-// Ajustar LEGISLATURA_ATUAL quando uma nova legislatura assumir (fev/2027).
+// A legislatura CORRENTE é calculada pela data (./legislatura.js) — não há
+// número fixo para trocar na virada (fev/2027 → 58ª). Ela é atualizada todo
+// dia. As ENCERRADAS também mudam: projeto apresentado numa legislatura pode
+// virar lei na seguinte. Por isso o cron diário também reprocessa UMA
+// encerrada por vez, a mais desatualizada, quando o dado dela tem mais de
+// IDADE_MAX_ENCERRADA_DIAS — só as que já têm dado (a carga inicial de uma
+// encerrada é manual: /leisaprovadas <leg> ou bot/scripts/atualizar-leis-aprovadas.js).
 
 const { fbGet, fbPut } = require('./firebase');
+const {
+  LEG_PRIMEIRA_COM_ARQUIVOS, legislaturaEm, legislaturaInfo, legislaturasDesde, legislaturaDaData,
+} = require('./legislatura');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const ARQUIVOS_URL = 'https://dadosabertos.camara.leg.br/arquivos/proposicoes/json';
@@ -31,17 +37,15 @@ const RETRIES = 4;
 const TIMEOUT_MS = 45000; // arquivos em massa são grandes; a API paginada é rápida, mas o teto é o mesmo
 const FIREBASE_ROOT = '/leis_aprovadas';
 
-// A legislatura ainda em mandato — é a única que o cron atualiza sozinho.
-const LEGISLATURA_ATUAL = '57';
+const IDADE_MAX_ENCERRADA_DIAS = 30;
 
-// Mesma tabela do app standalone: faixa de apresentação + anos de arquivo por legislatura.
-const LEGISLATURAS = {
-  '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31', anos: [2023, 2024, 2025, 2026] },
-  '56': { rotulo: '56ª (2019–2023)', inicio: '2019-02-01', fim: '2023-01-31', anos: [2019, 2020, 2021, 2022, 2023] },
-  '55': { rotulo: '55ª (2015–2019)', inicio: '2015-02-01', fim: '2019-01-31', anos: [2015, 2016, 2017, 2018, 2019] },
-  '54': { rotulo: '54ª (2011–2015)', inicio: '2011-02-01', fim: '2015-01-31', anos: [2011, 2012, 2013, 2014, 2015] },
-  '53': { rotulo: '53ª (2007–2011)', inicio: '2007-02-01', fim: '2011-01-31', anos: [2007, 2008, 2009, 2010, 2011] },
-};
+/** Chave ('57', '58', …) da legislatura em mandato na data (default: agora). */
+function legislaturaAtual(agora) { return String(legislaturaEm(agora)); }
+
+/** Legislaturas que o relatório cobre: da 53ª até a corrente, da mais recente para a mais antiga. */
+function legislaturasValidas(agora) { return legislaturasDesde(LEG_PRIMEIRA_COM_ARQUIVOS, agora); }
+
+function ehLegislaturaValida(leg, agora) { return legislaturasValidas(agora).includes(String(leg)); }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -83,15 +87,9 @@ async function fetchDeputados(idLegislatura) {
   return (json.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' }));
 }
 
-/** Data de apresentação → chave de legislatura ("53".."57"), ou null se fora das faixas conhecidas. */
+/** Data de apresentação → chave de legislatura ('53', '57', …), ou null se não houver data. */
 function classificarPorLegislatura(dataApresentacao) {
-  if (!dataApresentacao) return null;
-  const data = dataApresentacao.slice(0, 10);
-  for (const chave of Object.keys(LEGISLATURAS)) {
-    const { inicio, fim } = LEGISLATURAS[chave];
-    if (data >= inicio && data <= fim) return chave;
-  }
-  return null;
+  return legislaturaDaData(dataApresentacao);
 }
 
 /**
@@ -153,9 +151,12 @@ function condicaoDaLegislatura(historico, leg) {
  * Falha parcial (um ano, um autor, uma condição) não derruba a coleta inteira —
  * mesma postura do app original: o que faltou fica de fora, não vira zero.
  */
-async function coletarLegislatura(leg, { tipos = TIPOS_PADRAO, comCondicao = true, onProgresso } = {}) {
-  const cfg = LEGISLATURAS[leg];
-  if (!cfg) throw new Error(`legislatura desconhecida: ${leg}`);
+async function coletarLegislatura(leg, { tipos = TIPOS_PADRAO, comCondicao = true, onProgresso, agora } = {}) {
+  if (!ehLegislaturaValida(leg, agora)) throw new Error(`legislatura desconhecida: ${leg}`);
+  const cfg = legislaturaInfo(leg);
+  // Ano que ainda não chegou não tem arquivo (a 57ª cobre até jan/2027, mas em
+  // 2026 o proposicoes-2027.json não existe) — pular em vez de contar como falha.
+  const anoCorrente = (agora instanceof Date ? agora : new Date()).getFullYear();
   const progresso = (fase) => { if (onProgresso) onProgresso(leg, fase); };
 
   progresso(`buscando o roster de deputados`);
@@ -163,7 +164,7 @@ async function coletarLegislatura(leg, { tipos = TIPOS_PADRAO, comCondicao = tru
   const infoDep = new Map(roster.map(d => [d.id, d]));
 
   const leisPorId = new Map();
-  for (const ano of cfg.anos) {
+  for (const ano of cfg.anos.filter(a => a <= anoCorrente)) {
     progresso(`baixando e filtrando proposicoes-${ano}.json`);
     let leis;
     try { leis = await baixarEFiltrarAno(ano, tipos); }
@@ -225,14 +226,14 @@ async function salvarLegislatura(leg, dados) {
 }
 
 /**
- * Uma legislatura ENCERRADA (todas menos a corrente) só precisa ser coletada
- * uma vez — sem `forcar`, pula se já tiver dado salvo. A CORRENTE sempre é
- * candidata a refresh (quem decide a cadência é quem chama: cron diário,
- * comando manual, etc.).
+ * Pedido avulso (comando/script): uma legislatura ENCERRADA sem `forcar` pula
+ * se já tiver dado salvo. A CORRENTE sempre é candidata a refresh. O
+ * reprocessamento periódico das encerradas é decidido por
+ * legislaturasDoRefreshDiario, não aqui.
  */
-async function legislaturaPrecisaAtualizar(leg, forcar) {
+async function legislaturaPrecisaAtualizar(leg, forcar, agora) {
   if (forcar) return true;
-  if (leg === LEGISLATURA_ATUAL) return true;
+  if (String(leg) === legislaturaAtual(agora)) return true;
   try {
     const atual = await fbGet(`${FIREBASE_ROOT}/${leg}/atualizadoEm`);
     return !atual;
@@ -240,19 +241,41 @@ async function legislaturaPrecisaAtualizar(leg, forcar) {
 }
 
 /**
+ * O que o cron diário atualiza: a corrente, sempre, e no máximo UMA encerrada
+ * — a de dado mais antigo, se esse dado tiver mais de `idadeMaxDias`. Encerrada
+ * sem dado nenhum não entra (carga inicial é manual e pesada). Uma por dia
+ * para não empilhar vários downloads de ~100 MB no mesmo tick.
+ */
+async function legislaturasDoRefreshDiario({ agora, idadeMaxDias = IDADE_MAX_ENCERRADA_DIAS } = {}) {
+  const atual = legislaturaAtual(agora);
+  const agoraMs = (agora instanceof Date ? agora : new Date()).getTime();
+  const limiteMs = idadeMaxDias * 24 * 60 * 60 * 1000;
+  let maisVelha = null;
+  for (const leg of legislaturasValidas(agora)) {
+    if (leg === atual) continue;
+    let em;
+    try { em = await fbGet(`${FIREBASE_ROOT}/${leg}/atualizadoEm`); } catch (e) { continue; }
+    const ms = em ? Date.parse(em) : NaN;
+    if (isNaN(ms) || agoraMs - ms <= limiteMs) continue;
+    if (!maisVelha || ms < maisVelha.ms) maisVelha = { leg, ms };
+  }
+  return maisVelha ? [atual, maisVelha.leg] : [atual];
+}
+
+/**
  * Orquestra a atualização de um conjunto de legislaturas. Uma legislatura que
  * falha não derruba as outras — cada uma é reportada em `erros` ou `processadas`.
  */
 async function atualizarLeisAprovadas({
-  legislaturas = Object.keys(LEGISLATURAS), tipos = TIPOS_PADRAO, comCondicao = true,
-  forcar = false, onProgresso,
+  legislaturas, tipos = TIPOS_PADRAO, comCondicao = true,
+  forcar = false, onProgresso, agora,
 } = {}) {
   const processadas = [], puladas = [], erros = [];
-  for (const leg of legislaturas) {
-    if (!LEGISLATURAS[leg]) { erros.push({ leg, erro: 'legislatura desconhecida' }); continue; }
+  for (const leg of legislaturas || legislaturasValidas(agora)) {
+    if (!ehLegislaturaValida(leg, agora)) { erros.push({ leg, erro: 'legislatura desconhecida' }); continue; }
     try {
-      if (!(await legislaturaPrecisaAtualizar(leg, forcar))) { puladas.push(leg); continue; }
-      const dados = await coletarLegislatura(leg, { tipos, comCondicao, onProgresso });
+      if (!(await legislaturaPrecisaAtualizar(leg, forcar, agora))) { puladas.push(leg); continue; }
+      const dados = await coletarLegislatura(leg, { tipos, comCondicao, onProgresso, agora });
       await salvarLegislatura(leg, dados);
       processadas.push({ leg, rotulo: dados.rotulo, leis: dados.projetos.length, deputados: dados.ranking.length });
     } catch (e) {
@@ -263,7 +286,8 @@ async function atualizarLeisAprovadas({
 }
 
 module.exports = {
-  LEGISLATURAS, LEGISLATURA_ATUAL, TIPOS_PADRAO, ID_SITUACAO_LEI, FIREBASE_ROOT,
+  TIPOS_PADRAO, ID_SITUACAO_LEI, FIREBASE_ROOT, IDADE_MAX_ENCERRADA_DIAS,
+  legislaturaAtual, legislaturasValidas, ehLegislaturaValida, legislaturasDoRefreshDiario,
   classificarPorLegislatura, baixarEFiltrarAno, fetchDeputados, fetchAutoresDeputados,
   fetchHistorico, condicaoDaLegislatura, coletarLegislatura, salvarLegislatura,
   legislaturaPrecisaAtualizar, atualizarLeisAprovadas,

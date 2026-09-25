@@ -5,8 +5,8 @@
 // jurídica e grava só o agregado (ranking + lista de projetos) em
 // /leis_aprovadas/{legislatura}.
 //
-// Legislaturas ENCERRADAS (53ª–56ª) são puladas se já tiverem dado salvo — use
-// --forcar para reprocessar mesmo assim. A CORRENTE (57ª) é sempre reprocessada
+// Legislaturas ENCERRADAS (da 53ª até a anterior à corrente) são puladas se já tiverem dado salvo — use
+// --forcar para reprocessar mesmo assim. A CORRENTE (calculada pela data) é sempre reprocessada
 // (é ela que o cron do bot atualiza sozinho, em bot/index.js).
 //
 // Uso:
@@ -18,18 +18,18 @@
 // Cada legislatura baixa de 4 a 5 arquivos de 50–165 MB — é coleta pesada,
 // deliberada (não roda sozinha por engano): rode de propósito, numa rede boa.
 
-const { atualizarLeisAprovadas, LEGISLATURAS } = require('../src/leisaprovadas');
+const { atualizarLeisAprovadas, legislaturasValidas, ehLegislaturaValida } = require('../src/leisaprovadas');
 
 (async () => {
   const args = process.argv.slice(2);
   const forcar = args.includes('--forcar');
   const comCondicao = !args.includes('--sem-condicao');
   const legislaturas = args.filter(a => !a.startsWith('--'));
-  const alvo = legislaturas.length ? legislaturas : Object.keys(LEGISLATURAS);
+  const alvo = legislaturas.length ? legislaturas : legislaturasValidas();
 
   for (const leg of alvo) {
-    if (!LEGISLATURAS[leg]) {
-      console.error(`Legislatura desconhecida: "${leg}". Válidas: ${Object.keys(LEGISLATURAS).join(', ')}`);
+    if (!ehLegislaturaValida(leg)) {
+      console.error(`Legislatura desconhecida: "${leg}". Válidas: ${legislaturasValidas().join(', ')}`);
       process.exit(1);
     }
   }

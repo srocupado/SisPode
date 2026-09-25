@@ -128,6 +128,20 @@ const av = e => vm.runInContext(e, ctx);
     ok(document.getElementById('painel-aderencia').hidden === true, 'todos eles');
   }
 
+  console.log('\n== as caixas de legislatura vêm da data, não do HTML ==');
+  {
+    ok(!/class="lea-(up-)?leg" value=/.test(html), 'aderencia.html não tem mais caixa de legislatura fixa');
+    const esperado = av('legislaturasDesde(53).join()');
+    const consulta = [...document.querySelectorAll('.lea-leg')].map(c => c.value).join();
+    const upload = [...document.querySelectorAll('.lea-up-leg')].map(c => c.value).join();
+    ok(consulta === esperado, `caixas da consulta: ${consulta}`);
+    ok(upload === esperado, `caixas do upload manual: ${upload}`);
+    const marcadas = [...document.querySelectorAll('.lea-leg')].filter(c => c.checked).map(c => c.value);
+    ok(marcadas.join() === esperado.split(',').slice(0, 2).join(), `marcadas ao abrir: a corrente e a anterior (${marcadas})`);
+    ok(document.querySelector('.lea-leg[value="53"]').parentNode.textContent.includes('53ª (2007–2011)'),
+       'o rótulo vem de legislaturaInfo');
+  }
+
   console.log('\n== material: duas legislaturas, com coautoria ==');
   {
     FIRE['57'] = {

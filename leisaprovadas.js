@@ -3,8 +3,8 @@
 //
 // Porte do app standalone (repo Relatorio, branch deputies-legislation-tracker):
 // ranking de deputados por projetos de sua autoria (autor OU coautor — todos os
-// signatários recebem crédito) transformados em norma jurídica, da 53ª à 57ª
-// legislatura.
+// signatários recebem crédito) transformados em norma jurídica, da 53ª à
+// legislatura corrente.
 //
 // O caminho PRINCIPAL desta aba é ler o AGREGADO que o bot/ já coletou em
 // https://plenario-podemos-default-rtdb.firebaseio.com/leis_aprovadas/{legislatura} —
@@ -23,19 +23,32 @@
 // massa não têm), então esse caminho manual busca autores e condição do jeito
 // normal, direto da API.
 //
-// A tabela de legislaturas (LEA_CFG) e o filtro (tipo + idSituacao) são
-// DUPLICADOS de bot/src/leisaprovadas.js de propósito — scripts clássicos da
+// As legislaturas vêm de legislatura.js (calculadas pela data — a 58ª aparece
+// sozinha em fev/2027). O filtro (tipo + idSituacao) é
+// DUPLICADO de bot/src/leisaprovadas.js de propósito — scripts clássicos da
 // extensão não importam módulos do bot/. Mudar um sem o outro só desalinha o
 // caminho MANUAL; o agregado que já está no Firebase não é afetado.
 //
-// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJson, cvEsc) —
-// carregado antes deste arquivo.
+// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJson, cvEsc) e de
+// legislatura.js (legislaturasDesde, legislaturaInfo, legislaturaDaData) —
+// carregados antes deste arquivo.
 
 const LEA_ROOT = '/leis_aprovadas';
-// Mesma tabela do coletor (bot/src/leisaprovadas.js) — só o rótulo e a ordem
-// de exibição importam aqui; o agregado em si já vem rotulado do Firebase.
-const LEA_LEGISLATURAS = ['57', '56', '55', '54', '53'];
-const LEA_PADRAO = ['57', '56'];
+/** Da corrente até a 53ª (primeira com arquivos em massa), mais recente primeiro. */
+function leaLegislaturas() { return legislaturasDesde(LEG_PRIMEIRA_COM_ARQUIVOS); }
+/** Marcadas ao abrir a aba: a corrente e a anterior. */
+function leaPadrao() { return leaLegislaturas().slice(0, 2); }
+
+/** Monta as caixas de legislatura (consulta e upload) a partir da data — nada fixo no HTML. */
+function leaMontarCaixasLegislatura() {
+  const caixa = (classe, leg) => `<label class="rdr-check" style="padding-bottom:0;flex:0 0 auto">` +
+    `<input type="checkbox" class="${classe}" value="${leg}"> ${legislaturaInfo(leg).rotulo}</label>`;
+  const legs = leaLegislaturas();
+  const alvoConsulta = document.getElementById('leaLegs');
+  const alvoUpload = document.getElementById('leaUpLegs');
+  if (alvoConsulta) alvoConsulta.innerHTML = legs.map(l => caixa('lea-leg', l)).join('');
+  if (alvoUpload) alvoUpload.innerHTML = legs.map(l => caixa('lea-up-leg', l)).join('');
+}
 
 const lea = { cache: {}, linhas: [], ordem: { coluna: 'total', asc: false } };
 
@@ -312,14 +325,6 @@ function leaExportar() {
 const LEA_API = 'https://dadosabertos.camara.leg.br/api/v2';
 const LEA_ID_SITUACAO_LEI = '1140'; // "Transformado em Norma Jurídica", no ultimoStatus do arquivo em massa
 const LEA_TIPOS_PADRAO = ['PL', 'PLP'];
-// Mesma tabela do coletor do bot (bot/src/leisaprovadas.js) — ver nota no topo do arquivo.
-const LEA_CFG = {
-  '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31' },
-  '56': { rotulo: '56ª (2019–2023)', inicio: '2019-02-01', fim: '2023-01-31' },
-  '55': { rotulo: '55ª (2015–2019)', inicio: '2015-02-01', fim: '2019-01-31' },
-  '54': { rotulo: '54ª (2011–2015)', inicio: '2011-02-01', fim: '2015-01-31' },
-  '53': { rotulo: '53ª (2007–2011)', inicio: '2007-02-01', fim: '2011-01-31' },
-};
 
 const leaUpEl = {
   legs:      () => document.querySelectorAll('.lea-up-leg'),
@@ -345,15 +350,9 @@ function leaUpProgresso(mostrar, pct) {
   if (typeof pct === 'number') fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
 }
 
-/** Data de apresentação → chave de legislatura ("53".."57"), ou null se fora das faixas conhecidas. */
+/** Data de apresentação → chave de legislatura ('53', '57', …), ou null se não houver data. */
 function leaClassificarPorLegislatura(dataApresentacao) {
-  if (!dataApresentacao) return null;
-  const data = dataApresentacao.slice(0, 10);
-  for (const leg of Object.keys(LEA_CFG)) {
-    const { inicio, fim } = LEA_CFG[leg];
-    if (data >= inicio && data <= fim) return leg;
-  }
-  return null;
+  return legislaturaDaData(dataApresentacao);
 }
 
 /** Filtra um arquivo em massa (já lido/parseado) para só os tipos pedidos transformados em lei. */
@@ -446,7 +445,7 @@ async function leaProcessarLocal(legsEscolhidas, arquivos, { tipos = LEA_TIPOS_P
 
   const resultado = {};
   for (const leg of legsEscolhidas) {
-    const rotulo = LEA_CFG[leg].rotulo;
+    const rotulo = legislaturaInfo(leg).rotulo;
     fase(`${rotulo}: buscando o roster de deputados…`);
     const roster = await leaBuscarRoster(leg);
     const infoDep = new Map(roster.map(d => [d.id, d]));
@@ -568,7 +567,9 @@ async function leaUpProcessarClick() {
 if (leaEl.buscar()) {
   leaEl.buscar().addEventListener('click', leaConsultar);
   if (leaEl.limpar()) leaEl.limpar().addEventListener('click', leaLimparClick);
-  document.querySelectorAll('.lea-leg').forEach(c => { if (LEA_PADRAO.includes(c.value)) c.checked = true; });
+  leaMontarCaixasLegislatura();
+  const padrao = leaPadrao();
+  document.querySelectorAll('.lea-leg').forEach(c => { if (padrao.includes(c.value)) c.checked = true; });
   ['leaNome', 'leaPartido', 'leaUf', 'leaCondicao', 'leaSoComLei'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;

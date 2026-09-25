@@ -124,9 +124,9 @@ O que está andando na Casa sobre um tema, marcando o que é da bancada.
 
 #### 3.5 Leis aprovadas
 
-Ranking de deputados por projetos de sua autoria — inclusive coautoria: todo signatário recebe crédito — transformados em norma jurídica, da **53ª à 57ª legislatura**. PL e PLP por padrão.
+Ranking de deputados por projetos de sua autoria — inclusive coautoria: todo signatário recebe crédito — transformados em norma jurídica, da **53ª à legislatura corrente** (calculada pela data — a 58ª entra sozinha em fev/2027). PL e PLP por padrão.
 
-- A API paginada da Câmara não filtra por situação de tramitação, e os arquivos oficiais em massa (`proposicoes-AAAA.json`, 50–165 MB, um por ano) não têm cabeçalho CORS — um navegador não consegue baixá-los sozinho. A coleta roda no **bot** (processo Node, sem essa barreira): baixa os arquivos, filtra os PL/PLP com situação "Transformado em Norma Jurídica" e grava **só o agregado** (ranking + lista de projetos) em `/leis_aprovadas/{legislatura}` no Firebase — nunca o arquivo bruto. Legislaturas encerradas (53ª–56ª) são coletadas uma vez; a corrente tem refresh diário automático
+- A API paginada da Câmara não filtra por situação de tramitação, e os arquivos oficiais em massa (`proposicoes-AAAA.json`, 50–165 MB, um por ano) não têm cabeçalho CORS — um navegador não consegue baixá-los sozinho. A coleta roda no **bot** (processo Node, sem essa barreira): baixa os arquivos, filtra os PL/PLP com situação "Transformado em Norma Jurídica" e grava **só o agregado** (ranking + lista de projetos) em `/leis_aprovadas/{legislatura}` no Firebase — nunca o arquivo bruto. A carga inicial de uma legislatura encerrada é manual, uma vez; depois, o refresh diário automático atualiza a corrente e, no máximo uma por dia, a encerrada cujo dado tiver mais de 30 dias (projeto de uma legislatura pode virar lei na seguinte)
 - **Caminho manual**: quando o analista já tem os arquivos baixados, dá para processá-los direto no navegador (mesma lógica de filtro/agregação do coletor) sem esperar o bot — os arquivos não saem da máquina, e o resultado só vai para o Firebase compartilhado se o analista clicar em **Gravar no banco de dados**
 - **Limpar no banco de dados**: apaga o agregado de legislaturas marcadas, para reprocessar do zero — pede confirmação, porque é destrutivo e visível para toda a equipe
 - Filtros locais (nome, partido, UF, condição titular/suplente, só com ≥ 1 projeto) e ranking expansível com a lista de projetos de cada deputado · exporta em **Excel** (ranking e projetos)
@@ -498,7 +498,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - `/revisar_msg` — usuários autorizados corrigem, no privado, uma das últimas 5 mensagens que o bot enviou ao grupo (editado in-place; o admin recebe o antes/depois)
 - `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
 - `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo`/`/removerchave` (chave de IA por usuário — `/modelo listar` busca ao vivo os modelos disponíveis na API do provedor configurado, marcando o atual), `/digestadd`/`/digestrem`/`/digestlista` (assinantes do radar de imprensa)
-- `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre só a legislatura corrente; as encerradas são coleta manual, uma vez
+- `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre a legislatura corrente e reprocessa, uma por dia, as encerradas já coletadas com dado de mais de 30 dias; a carga inicial de uma encerrada é manual
 - **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
 
 ---
@@ -559,6 +559,7 @@ sispode/
 ├── producao.js                    # Relatórios · Produção legislativa
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
+├── legislatura.js                 # Legislaturas calculadas pela data (cópia idêntica em bot/src/)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -602,7 +603,8 @@ sispode/
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
-│   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha
+│   ├── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha, refresh diário
+│   └── legislatura.test.js         # Legislaturas pela data: virada de fevereiro, cópias raiz/bot idênticas
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
     └── src/
@@ -625,6 +627,7 @@ sispode/
         ├── destaques.js            # Destaques (DTQ) para o monitor
         ├── autoupdate.js           # /update: baixa e valida os arquivos do main
         ├── leisaprovadas.js        # /leisaprovadas: coleta o relatório de Leis aprovadas (item 3.5)
+        ├── legislatura.js          # Legislaturas pela data (cópia idêntica da raiz)
         ├── ia.js                   # Matriz dos 3 provedores de IA (chave do usuário)
         ├── store.js / firebase.js / config.js / backup.js   # Persistência e config
         └── cosevespiao.js          # Espião de calibração ao vivo (privado do admin)

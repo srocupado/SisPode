@@ -1021,16 +1021,10 @@
 
   <div id="painel-leis" hidden>
     <p class="relatorio-desc">Ranking de deputados por projetos de autoria (inclusive coautoria) transformados em
-      lei — PL e PLP, por padrão — da 53ª à 57ª legislatura.</p>
+      lei — PL e PLP, por padrão — da 53ª à legislatura atual.</p>
     <div class="input-section">
       <label>Legislaturas</label>
-      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px">
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="57"> 57ª (2023–2027)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="56"> 56ª (2019–2023)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="55"> 55ª (2015–2019)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="54"> 54ª (2011–2015)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-leg" value="53"> 53ª (2007–2011)</label>
-      </div>
+      <div class="date-row" id="leaLegs" style="flex-wrap:wrap;gap:10px 16px"></div>
       <div class="prd-dica" style="margin:8px 0 14px">O dado é agregado pelo bot a partir dos arquivos oficiais da
         Câmara; esta tela só lê o resultado, sem download manual.</div>
 
@@ -1083,13 +1077,7 @@
         Depois de processar, dá para ver no ranking acima e, se quiser, gravar no banco de dados para a equipe toda usar.</div>
 
       <label>Legislaturas cobertas pelos arquivos selecionados</label>
-      <div class="date-row" style="flex-wrap:wrap;gap:10px 16px;margin-bottom:8px">
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="57"> 57ª (2023–2027)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="56"> 56ª (2019–2023)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="55"> 55ª (2015–2019)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="54"> 54ª (2011–2015)</label>
-        <label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="lea-up-leg" value="53"> 53ª (2007–2011)</label>
-      </div>
+      <div class="date-row" id="leaUpLegs" style="flex-wrap:wrap;gap:10px 16px;margin-bottom:8px"></div>
 
       <label>Arquivo(s)</label>
       <input type="file" id="leaUpArquivos" class="field" accept=".json,application/json" multiple>
@@ -1158,6 +1146,7 @@
 </div>
 
 <script src="libs/xlsx.full.min.js"></script>
+<script src="legislatura.js"></script>
 <script src="aderencia.js"></script>
 <!-- Escopo global compartilhado (MV3, scripts clássicos): producao.js e radar.js
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
