@@ -2262,79 +2262,43 @@ function wirePlnCards() {
 // ============================================================
 //  DEPUTADOS INTERESSADOS (por veto e por PLN)
 // ============================================================
-// Bancada do partido — fonte híbrida: lê o cadastro compartilhado /deputados
-// (mantido pelo módulo de Comissões, populado da API da Câmara) e, se estiver
-// vazio, busca direto da API da Câmara e popula. O marcador "interessados" é
-// compartilhado pela equipe (vetos ao vivo) e herdado pela pauta de sessão.
+// Bancada do partido — cadastro /deputados (deste módulo; o de Comissões é
+// outro, /comissoes-podemos/deputados), reconciliado com a API da Câmara por
+// bancada.js: quem saiu do partido fica marcado 'ex-membro' (não é apagado —
+// interessados antigos apontam para ele) e some do seletor; quem está de
+// licença fica como 'licenciado' e continua no seletor. Isso substitui a lista
+// fixa de "deputados manuais" que existia aqui para os licenciados. O
+// marcador "interessados" é compartilhado pela equipe (vetos ao vivo) e
+// herdado pela pauta de sessão.
+const CADASTRO_DEPUTADOS = '/deputados';
 
-// Deputados que a equipe ACOMPANHA mas NÃO vêm no filtro de "em exercício" da
-// API (ex.: licenciados). São sempre garantidos na bancada, à parte do refresh.
-// (id no padrão cam_<idCamara> para deduplicar caso voltem ao exercício.)
-const DEPUTADOS_MANUAIS = [
-  { id: 'cam_178989', nome: 'Renata Abreu', uf: 'SP', partido: 'PODE', idCamara: 178989 },
-];
-
-// Garante os deputados manuais na bancada em memória e no cadastro compartilhado.
-async function garantirDeputadosManuais() {
-  let mudou = false;
-  for (const m of DEPUTADOS_MANUAIS) {
-    if (app.deputados.some(d => d.id === m.id || (m.idCamara && d.idCamara === m.idCamara))) continue;
-    app.deputados.push({ ...m });
-    mudou = true;
-    fetch(`${FIREBASE_URL}/deputados/${m.id}.json`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ nome: m.nome, uf: m.uf, partido: m.partido, idCamara: m.idCamara }),
-    }).catch(() => {});
-  }
-  if (mudou) app.deputados.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-}
-
-async function fbCarregarDeputados() {
+async function fbCarregarCadastroDeputados() {
   try {
-    const r = await fetch(`${FIREBASE_URL}/deputados.json`);
-    if (!r.ok) return [];
-    const data = await r.json();
-    if (!data) return [];
-    return Object.entries(data)
-      .map(([id, d]) => ({ id, nome: d.nome || '(sem nome)', uf: d.uf || '', partido: d.partido || '', idCamara: d.idCamara }))
-      .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  } catch { return []; }
+    const r = await fetch(`${FIREBASE_URL}${CADASTRO_DEPUTADOS}.json`);
+    if (!r.ok) return {};
+    return (await r.json()) || {};
+  } catch { return {}; }
 }
 
-async function buscarBancadaCamara() {
-  let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
-  const out = [];
-  while (url) {
-    const r = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    const data = await r.json();
-    (data.dados || []).forEach(d => out.push({ id: `cam_${d.id}`, nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id }));
-    url = (data.links || []).find(l => l.rel === 'next')?.href || '';
-  }
-  return out;
+function cadastroParaLista(cadastro) {
+  return Object.entries(cadastro || {})
+    .map(([id, d]) => ({ id, nome: d.nome || '(sem nome)', uf: d.uf || '', partido: d.partido || '',
+      idCamara: d.idCamara, situacao: d.situacao || '' }))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
-// Busca na API e faz upsert no cadastro compartilhado /deputados (preserva
-// inclusões manuais, que têm outro padrão de id).
-async function atualizarBancadaCamara() {
-  const lista = await buscarBancadaCamara();
-  await Promise.all(lista.map(d => fetch(`${FIREBASE_URL}/deputados/${d.id}.json`, {
-    method: 'PUT', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ nome: d.nome, uf: d.uf, partido: d.partido, idCamara: d.idCamara }),
-  }).catch(() => {})));
-  app.deputados = await fbCarregarDeputados();
-  if (!app.deputados.length) app.deputados = lista.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
-  await garantirDeputadosManuais();
+// Reconcilia com a Câmara (forcar: ignora a janela de 24h) e recarrega a lista.
+async function atualizarBancadaCamara({ forcar = true } = {}) {
+  const cadastro = await fbCarregarCadastroDeputados();
+  const r = await sincronizarCadastroDeputados(CADASTRO_DEPUTADOS, cadastro, { forcar });
+  app.deputados = cadastroParaLista(r ? r.cadastro : cadastro);
   return app.deputados;
 }
 
 async function carregarDeputados() {
-  app.deputados = await fbCarregarDeputados();
-  if (!app.deputados.length) {
-    try { await atualizarBancadaCamara(); }
-    catch (e) { console.warn('Bancada da Câmara indisponível:', e.message); }
-  }
-  await garantirDeputadosManuais();
+  app.deputados = cadastroParaLista(await fbCarregarCadastroDeputados());
+  try { await atualizarBancadaCamara({ forcar: !app.deputados.length }); }
+  catch (e) { console.warn('Bancada da Câmara indisponível:', e.message); }
 }
 
 function aArray(x) { return Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []); }
@@ -2400,7 +2364,10 @@ function onKeydownInteresse(e) { if (e.key === 'Escape') fecharSeletorInteressad
 function popListaHtml(item, filtro, tipo) {
   const posPorId = new Map(aArray(item.interessados).map(d => [d.id, d.posicao || '']));
   const f = normalizar(filtro || '');
-  const filtrados = app.deputados.filter(d => !f || normalizar(`${d.nome} ${d.uf} ${d.partido}`).includes(f));
+  // Ex-membro sai do seletor — a não ser que já esteja marcado, para poder desmarcar.
+  const filtrados = app.deputados
+    .filter(d => depAtivoNaBancada(d) || posPorId.has(d.id))
+    .filter(d => !f || normalizar(`${d.nome} ${d.uf} ${d.partido}`).includes(f));
   if (!filtrados.length) {
     return `<div class="cn-interesse-vazio">${app.deputados.length ? 'Nenhum nome para o filtro.' : 'Bancada não carregada — clique em “↻ bancada”.'}</div>`;
   }
@@ -2417,7 +2384,7 @@ function popListaHtml(item, filtro, tipo) {
     return `<div class="cn-interesse-opt-row">
       <label class="cn-interesse-opt">
         <input type="checkbox" data-dep="${escapeHtml(d.id)}" ${marcado ? 'checked' : ''}>
-        <span>${escapeHtml(d.nome)}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}</span>
+        <span>${escapeHtml(d.nome)}${d.uf ? ` <small>${escapeHtml(d.uf)}</small>` : ''}${d.situacao === 'licenciado' || d.situacao === 'ex-membro' ? ` <small>(${escapeHtml(d.situacao)})</small>` : ''}</span>
       </label>${seletorPos}
     </div>`;
   }).join('');

@@ -196,6 +196,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   renderPainel();
   // Auto-sync silencioso se o cache de comissões mistas estiver velho (>12h).
   if (mistasDesatualizadas()) sincronizarMistasUI({ silencioso: true });
+  // Idem para o cadastro de deputados (>24h): marca quem saiu da bancada.
+  sincronizarDeputadosUI({ forcar: false }).catch(e => console.warn('Reconciliação da bancada falhou:', e.message));
 });
 
 function registrarEventos() {
@@ -703,6 +705,14 @@ async function sincronizarTemporariasUI({ silencioso = false } = {}) {
   }
 }
 
+/** 'licenciado' / 'ex-membro' para exibir; vazio para quem está em exercício. */
+function seloSituacao(d) {
+  if (!d) return '';
+  if (d.situacao === 'licenciado') return 'licenciado';
+  if (d.situacao === 'ex-membro') return 'ex-membro' + (d.ate ? ` desde ${d.ate.split('-').reverse().join('/')}` : '');
+  return '';
+}
+
 async function salvarDeputado(id, dep) {
   await fbPut(`/deputados/${id}`, dep);
   state.deputados[id] = dep;
@@ -1092,7 +1102,7 @@ function renderSidebarDeputados() {
 
   lista.innerHTML = deps.map(([id, d]) => {
     const conflitos = verificarConflitosDeputado(id);
-    const sub = [d.partido, d.uf].filter(Boolean).join(' · ');
+    const sub = [d.partido, d.uf, seloSituacao(d)].filter(Boolean).join(' · ');
     return `
       <div class="com-item${state.comissaoSel === id ? ' ativo' : ''}" data-sigla="${id}">
         <span class="com-item-nome">${d.nome}<br><small style="color:var(--text-dim)">${sub}</small></span>
@@ -1527,6 +1537,7 @@ function renderModalDeputadoLista() {
           <span class="dep-modal-nome">${d.nome}${d.idCamara ? '<span class="badge-api" title="Importado da API da Câmara">API</span>' : ''}</span>
           ${d.partido ? `<span class="dep-modal-uf">${d.partido}</span>` : ''}
           <span class="dep-modal-uf">${d.uf}</span>
+          ${seloSituacao(d) ? `<span class="dep-modal-uf">${seloSituacao(d)}</span>` : ''}
           <button class="btn-remover-membro btn-rem-dep" data-id="${id}">Remover</button>
         </div>`).join('')
     : `<p style="font-size:12px;color:var(--text-dim);text-align:center;padding:16px">Nenhum deputado cadastrado.</p>`;
@@ -1564,48 +1575,36 @@ async function adicionarDeputado() {
 
 // ---------- IMPORTAR DA API DA CÂMARA ----------
 
+const CADASTRO_DEPUTADOS = '/comissoes-podemos/deputados';
+
+// Reconciliação com a Câmara (bancada.js): quem entrou vira 'exercicio', quem
+// saiu do partido vira 'ex-membro' (fica no cadastro — comissões e pedidos
+// antigos apontam para ele), licença vira 'licenciado'. Inclusões manuais
+// (sem idCamara) não são tocadas.
+async function sincronizarDeputadosUI({ forcar }) {
+  const r = await sincronizarCadastroDeputados(CADASTRO_DEPUTADOS, state.deputados, { forcar });
+  if (!r) return null;
+  state.deputados = r.cadastro;
+  renderSidebar();
+  if (document.getElementById('dep-modal-lista')) renderModalDeputadoLista();
+  return r;
+}
+
 async function importarDeputadosDaCamara(btnEl) {
   const btn = btnEl || document.getElementById('btn-importar-camara');
   const textoOriginal = btn ? btn.innerHTML : '';
   if (btn) { btn.disabled = true; btn.textContent = 'Atualizando...'; }
 
   try {
-    let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
-    let importados = 0, atualizados = 0, inalterados = 0;
-
-    while (url) {
-      const r = await fetch(url, { headers: { Accept: 'application/json' } });
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      const data = await r.json();
-
-      for (const d of data.dados || []) {
-        const id  = `cam_${d.id}`;
-        const dep = { nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id };
-        const exist = state.deputados[id];
-
-        if (!exist) {
-          await salvarDeputado(id, dep);
-          importados++;
-        } else if (exist.nome !== dep.nome || exist.uf !== dep.uf || exist.idCamara !== dep.idCamara) {
-          await salvarDeputado(id, dep);
-          atualizados++;
-        } else {
-          inalterados++;
-        }
-      }
-
-      const next = (data.links || []).find(l => l.rel === 'next');
-      url = next ? next.href : null;
-    }
-
+    const r = await sincronizarDeputadosUI({ forcar: true });
+    const plural = (n, s, p) => `${n} ${n > 1 ? p : s}`;
     const partes = [];
-    if (importados)  partes.push(`${importados} novo${importados > 1 ? 's' : ''}`);
-    if (atualizados) partes.push(`${atualizados} atualizado${atualizados > 1 ? 's' : ''}`);
-    if (inalterados) partes.push(`${inalterados} sem mudança`);
+    if (r.novos)        partes.push(plural(r.novos, 'novo', 'novos'));
+    if (r.atualizados)  partes.push(plural(r.atualizados, 'atualizado', 'atualizados'));
+    if (r.licenciados)  partes.push(plural(r.licenciados, 'de licença', 'de licença'));
+    if (r.saidas)       partes.push(plural(r.saidas, 'saiu da bancada', 'saíram da bancada'));
+    if (r.inalterados)  partes.push(`${r.inalterados} sem mudança`);
     mostrarToast(`Atualização concluída: ${partes.join(', ') || 'nada a fazer'}.`);
-
-    renderModalDeputadoLista();
-    renderSidebar();
     return true;
   } catch (e) {
     mostrarToast('Falha ao atualizar deputados: ' + e.message, 'erro');
@@ -1648,6 +1647,7 @@ function abrirModalAddMembro(sigla, tipo) {
   const renderLista = (filtro = '') => {
     const f = filtro.trim().toLowerCase();
     const deps = Object.entries(state.deputados)
+      .filter(([, d]) => depAtivoNaBancada(d))
       .filter(([, d]) => !f
         || (d.nome || '').toLowerCase().includes(f)
         || (d.uf   || '').toLowerCase().includes(f))
@@ -1665,7 +1665,7 @@ function abrirModalAddMembro(sigla, tipo) {
             <div class="membro-select-item${bloqueado ? ' ja-membro' : ''}"
                  data-dep="${id}" data-sigla="${sigla}" data-tipo="${tipo}">
               <span class="membro-select-nome">${d.nome}</span>
-              <span class="membro-select-uf">${d.uf}</span>
+              <span class="membro-select-uf">${d.uf}${seloSituacao(d) ? ' · ' + seloSituacao(d) : ''}</span>
               ${aviso}
             </div>`;
         }).join('')
@@ -1720,6 +1720,7 @@ function abrirModalAddPedido(sigla) {
   document.getElementById('pedido-obs-input').value = '';
 
   const deps = Object.entries(state.deputados)
+    .filter(([, d]) => depAtivoNaBancada(d))
     .sort(([, a], [, b]) => a.nome.localeCompare(b.nome));
 
   const lista = document.getElementById('pedido-select-lista');

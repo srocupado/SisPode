@@ -161,6 +161,7 @@ Gerencie a participação dos deputados do partido em **comissões permanentes, 
 - **Ceder e receber vagas** por acordo entre partidos, com registro opcional do deputado externo que ocupa a vaga cedida
 - **Pedidos de designação**: registre o interesse de um deputado em uma vaga e depois nomeie-o ou rejeite o pedido
 - Visão **Por Deputado** com as comissões de cada parlamentar e **Alertas** de acúmulo (comissões mutuamente exclusivas como titular)
+- **Cadastro de deputados reconciliado com a Câmara** (sozinho a cada 24 h e no "↻ Atualizar"): quem entra na bancada é incluído; quem sai do partido ou termina o mandato fica marcado **ex-membro** (com data, sem ser apagado — comissões e pedidos antigos continuam apontando para ele) e some dos seletores; quem está de licença fica **licenciado** e continua selecionável. Inclusões manuais não são tocadas
 - **Impressão da lista de membros em PDF**, com seleção dos grupos a incluir (Permanentes, Mistas, CPI, Especiais, Externas) — cada grupo em nova página
 - Exportação completa para **Excel (.xlsx)** (membros, vagas cedidas e pedidos, com o tipo de cada comissão)
 - Dados sincronizados entre a equipe via **Firebase**, com cache e atualização automática (auto-sync quando o cache passa de 12 h)
@@ -344,7 +345,7 @@ Acompanhe os vetos presidenciais em tramitação e as **pautas de Sessão Conjun
 - **Perfis de prompt** (em ⚙ Configurações): biblioteca de instruções que complementam o prompt base, com um perfil marcado como **padrão da equipe** aplicado automaticamente — compartilhados via Firebase
 - **Sessões salvas** (sidebar à esquerda): salve o estado atual da lista (com resumos) como um snapshot nomeado e alterne entre versões; compartilhadas com a equipe
 - **Edição inline** também do Resumo do Projeto e das Razões do Veto (além dos resumos dos dispositivos), com autosave
-- **Deputados interessados**: em cada veto (lista ao vivo e pauta de sessão) e em cada PLN/MPV, uma faixa permite **marcar os deputados do partido com interesse** no item, com chips dos marcados e um seletor com a bancada. Nos **vetos**, cada deputado marcado pode ainda ter a **posição registrada** — **Derrubar** ou **Manter** o veto — indicada no seletor (botões por deputado) e destacada por cor no chip (vermelho = derrubar, verde = manter); a posição é opcional e clicar na já ativa a remove. A lista de deputados é **híbrida** — lê o cadastro compartilhado `/deputados` (o mesmo das Comissões, populado da API da Câmara) e, se vazio, busca a bancada do PODE direto da API (link "↻ bancada"). A marcação feita nos vetos ao vivo é **compartilhada pela equipe** (`/vetos_resumos`) e **herdada pela pauta** na importação; editável nos dois contextos
+- **Deputados interessados**: em cada veto (lista ao vivo e pauta de sessão) e em cada PLN/MPV, uma faixa permite **marcar os deputados do partido com interesse** no item, com chips dos marcados e um seletor com a bancada. Nos **vetos**, cada deputado marcado pode ainda ter a **posição registrada** — **Derrubar** ou **Manter** o veto — indicada no seletor (botões por deputado) e destacada por cor no chip (vermelho = derrubar, verde = manter); a posição é opcional e clicar na já ativa a remove. A lista de deputados vem do cadastro `/deputados` (próprio deste módulo; o das Comissões é `/comissoes-podemos/deputados`), reconciliado com a API da Câmara a cada 24 h e no link "↻ bancada": ex-membros saem do seletor (a não ser que já estejam marcados) e licenciados continuam nele. A marcação feita nos vetos ao vivo é **compartilhada pela equipe** (`/vetos_resumos`) e **herdada pela pauta** na importação; editável nos dois contextos
 - **Seleção de vetos** (checkbox por veto + "selecionar/desmarcar todos") para escolher o que entra na exportação
 - **Exportação para Word (.docx) e PDF** dos vetos selecionados (ou de todos os visíveis), com o mesmo conteúdo e formatação: **cabeçalho institucional** ("Pauta do Congresso Nacional" / "Liderança do Podemos na Câmara dos Deputados" centralizados, logo do Podemos à direita e régua verde), **índice na 1ª página** com a página de cada item (links internos clicáveis e **coloridos por casa iniciadora** — verde para Câmara, azul para Senado, com legenda), e, por veto, o Resumo do Projeto, os dispositivos (`código — Resumo: <análise>`) e as **razões agrupadas** (uma por grupo, exibida no primeiro dispositivo do grupo, com "aplica-se a art. X, art. Y…"); inclui também a seção de PLNs/MPVs
   - O **Word** numera o índice via campos (o Word preenche ao abrir); o **PDF** é gerado por impressão paginada com **Paged.js** (numeração de índice via `target-counter`), com "Salvar como PDF"
@@ -561,6 +562,7 @@ sispode/
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── legislatura.js                 # Legislaturas calculadas pela data (cópia idêntica em bot/src/)
+├── bancada.js                     # Bancada do partido: cadastro de deputados reconciliado com a Câmara
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -603,6 +605,7 @@ sispode/
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
+│   ├── bancada-cadastro.test.js    # Cadastro de deputados × Câmara: exercício, licença, ex-membro, PATCH
 │   ├── aderencia-bancada.test.js   # Aderência: bancada de cada votação (12 × 30), ranking por votações elegíveis
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
 │   ├── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha, refresh diário
