@@ -263,7 +263,7 @@ async function renderFiltered(seq) {
 
   var allDeputados = [];
   try {
-    var dResp = await fetch(API + '/deputados?siglaPartido=' + sigla + '&itens=100&ordem=ASC&ordenarPor=nome');
+    var dResp = await fetch(API + '/deputados?siglaPartido=' + sigla + '&itens=1000&ordem=ASC&ordenarPor=nome');
     if (dResp.ok) {
       var dData    = await dResp.json();
       allDeputados = dData.dados || [];
@@ -1087,7 +1087,7 @@ async function processPortalDoc(doc, seq) {
 
   // Completar com roster da API (para ausentes não listados)
   try {
-    var dResp = await fetch(API + '/deputados?siglaPartido=' + siglaAPI + '&itens=100&ordem=ASC&ordenarPor=nome');
+    var dResp = await fetch(API + '/deputados?siglaPartido=' + siglaAPI + '&itens=1000&ordem=ASC&ordenarPor=nome');
     if (dResp.ok) {
       var dData   = await dResp.json();
       var roster  = dData.dados || [];

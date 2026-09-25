@@ -3,7 +3,7 @@
 //
 // Porte do app standalone (repo Relatorio, branch deputies-legislation-tracker):
 // ranking de deputados por projetos de sua autoria (autor OU coautor — todos os
-// signatários recebem crédito) transformados em norma jurídica, da 53ª à 57ª
+// signatários recebem crédito) transformados em norma jurídica, da 53ª à 58ª
 // legislatura.
 //
 // O caminho PRINCIPAL desta aba é ler o AGREGADO que o bot/ já coletou em
@@ -34,8 +34,17 @@
 const LEA_ROOT = '/leis_aprovadas';
 // Mesma tabela do coletor (bot/src/leisaprovadas.js) — só o rótulo e a ordem
 // de exibição importam aqui; o agregado em si já vem rotulado do Firebase.
-const LEA_LEGISLATURAS = ['57', '56', '55', '54', '53'];
-const LEA_PADRAO = ['57', '56'];
+const LEA_LEGISLATURAS = ['58', '57', '56', '55', '54', '53'];
+
+/**
+ * Marcadas ao abrir a tela: a legislatura em curso e a anterior, decididas
+ * pela DATA — até 31/01/2027, 57ª + 56ª; da posse da 58ª em diante, 58ª + 57ª.
+ */
+function leaPadrao(hoje = new Date()) {
+  const iso = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(hoje);
+  const atual = leaClassificarPorLegislatura(iso) || LEA_LEGISLATURAS[0];
+  return [atual, String(Number(atual) - 1)];
+}
 
 const lea = { cache: {}, linhas: [], ordem: { coluna: 'total', asc: false } };
 
@@ -314,6 +323,7 @@ const LEA_ID_SITUACAO_LEI = '1140'; // "Transformado em Norma Jurídica", no ult
 const LEA_TIPOS_PADRAO = ['PL', 'PLP'];
 // Mesma tabela do coletor do bot (bot/src/leisaprovadas.js) — ver nota no topo do arquivo.
 const LEA_CFG = {
+  '58': { rotulo: '58ª (2027–2031)', inicio: '2027-02-01', fim: '2031-01-31' },
   '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31' },
   '56': { rotulo: '56ª (2019–2023)', inicio: '2019-02-01', fim: '2023-01-31' },
   '55': { rotulo: '55ª (2015–2019)', inicio: '2015-02-01', fim: '2019-01-31' },
@@ -345,7 +355,7 @@ function leaUpProgresso(mostrar, pct) {
   if (typeof pct === 'number') fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
 }
 
-/** Data de apresentação → chave de legislatura ("53".."57"), ou null se fora das faixas conhecidas. */
+/** Data de apresentação → chave de legislatura ("53".."58"), ou null se fora das faixas conhecidas. */
 function leaClassificarPorLegislatura(dataApresentacao) {
   if (!dataApresentacao) return null;
   const data = dataApresentacao.slice(0, 10);
@@ -568,7 +578,8 @@ async function leaUpProcessarClick() {
 if (leaEl.buscar()) {
   leaEl.buscar().addEventListener('click', leaConsultar);
   if (leaEl.limpar()) leaEl.limpar().addEventListener('click', leaLimparClick);
-  document.querySelectorAll('.lea-leg').forEach(c => { if (LEA_PADRAO.includes(c.value)) c.checked = true; });
+  const padrao = leaPadrao();
+  document.querySelectorAll('.lea-leg').forEach(c => { if (padrao.includes(c.value)) c.checked = true; });
   ['leaNome', 'leaPartido', 'leaUf', 'leaCondicao', 'leaSoComLei'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;

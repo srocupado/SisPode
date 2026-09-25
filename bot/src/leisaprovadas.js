@@ -14,10 +14,13 @@
 // 51 KB de JSON filtrado — compressão de ~1000×): o histórico inteiro (53ª a
 // 57ª legislatura) cabe em poucos MB, folgado no RTDB.
 //
-// Legislaturas já ENCERRADAS (53ª–56ª) são processadas uma vez só — o
-// conteúdo delas não muda mais na prática. Só a CORRENTE precisa de refresh
-// periódico, porque projetos apresentados nela continuam podendo virar lei.
-// Ajustar LEGISLATURA_ATUAL quando uma nova legislatura assumir (fev/2027).
+// Legislaturas antigas são processadas uma vez só — o conteúdo delas não muda
+// mais na prática. A CORRENTE recebe refresh periódico, e a IMEDIATAMENTE
+// ANTERIOR também, nos primeiros anos da nova: projetos apresentados nela
+// continuam virando lei (na virada de fev/2027, boa parte do que a 57ª aprovou
+// ainda está no Senado ou na sanção) e, sem isso, a 57ª congelaria no retrato
+// de janeiro/2027. A corrente é decidida pela DATA (legislaturaAtual), não por
+// constante editada à mão — o bot atravessa a virada sem intervenção.
 
 const { fbGet, fbPut } = require('./firebase');
 
@@ -31,17 +34,42 @@ const RETRIES = 4;
 const TIMEOUT_MS = 45000; // arquivos em massa são grandes; a API paginada é rápida, mas o teto é o mesmo
 const FIREBASE_ROOT = '/leis_aprovadas';
 
-// A legislatura ainda em mandato — é a única que o cron atualiza sozinho.
-const LEGISLATURA_ATUAL = '57';
-
-// Mesma tabela do app standalone: faixa de apresentação + anos de arquivo por legislatura.
+// Mesma tabela do app standalone: faixa de apresentação + anos de arquivo por
+// legislatura. O arquivo do ano da posse entra nas DUAS (janeiro é da que sai,
+// o resto da que entra); anos que ainda não chegaram são pulados na coleta.
 const LEGISLATURAS = {
-  '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31', anos: [2023, 2024, 2025, 2026] },
+  '58': { rotulo: '58ª (2027–2031)', inicio: '2027-02-01', fim: '2031-01-31', anos: [2027, 2028, 2029, 2030, 2031] },
+  '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31', anos: [2023, 2024, 2025, 2026, 2027] },
   '56': { rotulo: '56ª (2019–2023)', inicio: '2019-02-01', fim: '2023-01-31', anos: [2019, 2020, 2021, 2022, 2023] },
   '55': { rotulo: '55ª (2015–2019)', inicio: '2015-02-01', fim: '2019-01-31', anos: [2015, 2016, 2017, 2018, 2019] },
   '54': { rotulo: '54ª (2011–2015)', inicio: '2011-02-01', fim: '2015-01-31', anos: [2011, 2012, 2013, 2014, 2015] },
   '53': { rotulo: '53ª (2007–2011)', inicio: '2007-02-01', fim: '2011-01-31', anos: [2007, 2008, 2009, 2010, 2011] },
 };
+
+/** "AAAA-MM-DD" do dia em Brasília. */
+function hojeISO(agora = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(agora);
+}
+
+/** A legislatura em mandato na data (a mais recente da tabela, se a data passar do fim dela). */
+function legislaturaAtual(dataISO = hojeISO()) {
+  return classificarPorLegislatura(dataISO) || Object.keys(LEGISLATURAS).sort((a, b) => b - a)[0];
+}
+
+// Por quanto tempo, depois da posse da nova, a anterior continua no refresh.
+const ANOS_REFRESH_ANTERIOR = 2;
+
+/**
+ * Legislaturas que o refresh periódico cobre: a corrente e, nos primeiros
+ * ANOS_REFRESH_ANTERIOR anos dela, também a imediatamente anterior.
+ */
+function legislaturasEmRefresh(dataISO = hojeISO()) {
+  const atual = legislaturaAtual(dataISO);
+  const anterior = String(Number(atual) - 1);
+  const inicio = LEGISLATURAS[atual].inicio;
+  const limite = `${Number(inicio.slice(0, 4)) + ANOS_REFRESH_ANTERIOR}${inicio.slice(4)}`;
+  return LEGISLATURAS[anterior] && String(dataISO).slice(0, 10) < limite ? [atual, anterior] : [atual];
+}
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
@@ -83,7 +111,7 @@ async function fetchDeputados(idLegislatura) {
   return (json.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' }));
 }
 
-/** Data de apresentação → chave de legislatura ("53".."57"), ou null se fora das faixas conhecidas. */
+/** Data de apresentação → chave de legislatura ("53".."58"), ou null se fora das faixas conhecidas. */
 function classificarPorLegislatura(dataApresentacao) {
   if (!dataApresentacao) return null;
   const data = dataApresentacao.slice(0, 10);
@@ -163,7 +191,9 @@ async function coletarLegislatura(leg, { tipos = TIPOS_PADRAO, comCondicao = tru
   const infoDep = new Map(roster.map(d => [d.id, d]));
 
   const leisPorId = new Map();
-  for (const ano of cfg.anos) {
+  // O arquivo de um ano futuro não existe (404) — nem tenta.
+  const anoCorrente = Number(hojeISO().slice(0, 4));
+  for (const ano of cfg.anos.filter(a => a <= anoCorrente)) {
     progresso(`baixando e filtrando proposicoes-${ano}.json`);
     let leis;
     try { leis = await baixarEFiltrarAno(ano, tipos); }
@@ -225,14 +255,13 @@ async function salvarLegislatura(leg, dados) {
 }
 
 /**
- * Uma legislatura ENCERRADA (todas menos a corrente) só precisa ser coletada
- * uma vez — sem `forcar`, pula se já tiver dado salvo. A CORRENTE sempre é
- * candidata a refresh (quem decide a cadência é quem chama: cron diário,
- * comando manual, etc.).
+ * Uma legislatura antiga só precisa ser coletada uma vez — sem `forcar`, pula
+ * se já tiver dado salvo. A CORRENTE e a ANTERIOR sempre são candidatas a
+ * refresh (quem decide a cadência é quem chama: cron diário, comando manual).
  */
 async function legislaturaPrecisaAtualizar(leg, forcar) {
   if (forcar) return true;
-  if (leg === LEGISLATURA_ATUAL) return true;
+  if (legislaturasEmRefresh().includes(leg)) return true;
   try {
     const atual = await fbGet(`${FIREBASE_ROOT}/${leg}/atualizadoEm`);
     return !atual;
@@ -250,6 +279,12 @@ async function atualizarLeisAprovadas({
   const processadas = [], puladas = [], erros = [];
   for (const leg of legislaturas) {
     if (!LEGISLATURAS[leg]) { erros.push({ leg, erro: 'legislatura desconhecida' }); continue; }
+    // Antes da posse não há o que coletar — e gravar um agregado vazio faria a
+    // tela mostrar a legislatura como "sem nenhuma lei" em vez de "sem dado".
+    if (LEGISLATURAS[leg].inicio > hojeISO()) {
+      erros.push({ leg, erro: `ainda não começou (posse em ${LEGISLATURAS[leg].inicio.split('-').reverse().join('/')})` });
+      continue;
+    }
     try {
       if (!(await legislaturaPrecisaAtualizar(leg, forcar))) { puladas.push(leg); continue; }
       const dados = await coletarLegislatura(leg, { tipos, comCondicao, onProgresso });
@@ -263,7 +298,7 @@ async function atualizarLeisAprovadas({
 }
 
 module.exports = {
-  LEGISLATURAS, LEGISLATURA_ATUAL, TIPOS_PADRAO, ID_SITUACAO_LEI, FIREBASE_ROOT,
+  LEGISLATURAS, legislaturaAtual, legislaturasEmRefresh, TIPOS_PADRAO, ID_SITUACAO_LEI, FIREBASE_ROOT,
   classificarPorLegislatura, baixarEFiltrarAno, fetchDeputados, fetchAutoresDeputados,
   fetchHistorico, condicaoDaLegislatura, coletarLegislatura, salvarLegislatura,
   legislaturaPrecisaAtualizar, atualizarLeisAprovadas,

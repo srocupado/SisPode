@@ -100,7 +100,7 @@ async function ensureDeputados() {
   if (_deputadosInflight) return _deputadosInflight;
   _deputadosInflight = (async () => {
     const mapa = new Map();   // id → { nome, partido, uf }
-    for (let pagina = 1; pagina <= 5; pagina++) {   // ~513 deputados / 200 = 3 págs
+    for (let pagina = 1; pagina <= 5; pagina++) {   // 513 (531 a partir da 58ª) / 200 = 3 págs
       const dados = await apiGet('/deputados', { itens: 200, pagina });
       if (!dados.length) break;
       for (const d of dados) mapa.set(d.id, { nome: d.nome || '', partido: d.siglaPartido || '', uf: d.siglaUf || '' });

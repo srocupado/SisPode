@@ -16,7 +16,10 @@
 //     contagem de falha, não silêncio nem exceção fatal;
 //  e) legislatura ENCERRADA com dado salvo é pulada sem `forcar`; a CORRENTE
 //     nunca é pulada; `atualizarLeisAprovadas` isola erro de uma legislatura
-//     sem derrubar as outras.
+//     sem derrubar as outras;
+//  f) a virada 57ª → 58ª (01/02/2027) é decidida pela DATA: a corrente troca
+//     sozinha, a 57ª continua no refresh nos primeiros anos da 58ª, e a 58ª
+//     não é coletada (nem gravada vazia) antes da posse.
 //
 // Uso: node testes/bot-leis-aprovadas.test.js
 const path = require('path');
@@ -61,7 +64,7 @@ const destino = path.join(require('os').tmpdir(), 'sispode-leisaprovadas-teste.j
 fs.writeFileSync(destino, src);
 delete require.cache[destino];
 const {
-  LEGISLATURAS, LEGISLATURA_ATUAL, classificarPorLegislatura, coletarLegislatura,
+  LEGISLATURAS, legislaturaAtual, legislaturasEmRefresh, classificarPorLegislatura, coletarLegislatura,
   legislaturaPrecisaAtualizar, atualizarLeisAprovadas,
 } = require(destino);
 
@@ -145,6 +148,28 @@ global.fetch = fakeFetch;
     ok(classificarPorLegislatura('2011-02-01') === '54', 'início exato da faixa entra (inclusive)');
     ok(classificarPorLegislatura(null) === null, 'sem data, não classifica');
     ok(classificarPorLegislatura('1999-01-01') === null, 'fora de qualquer faixa conhecida, não inventa legislatura');
+    ok(classificarPorLegislatura('2027-01-31') === '57', '31/01/2027 ainda é 57ª');
+    ok(classificarPorLegislatura('2027-02-01') === '58', '01/02/2027 já é 58ª');
+    ok(LEGISLATURAS['57'].anos.includes(2027) && LEGISLATURAS['58'].anos.includes(2027),
+       'o arquivo de 2027 é lido pelas duas (janeiro é da 57ª, o resto da 58ª)');
+  }
+
+  console.log('\n== virada 57ª → 58ª pela data, sem constante editada à mão ==');
+  {
+    ok(legislaturaAtual('2026-09-25') === '57', 'set/2026: corrente é a 57ª');
+    ok(legislaturaAtual('2027-01-31') === '57', '31/01/2027: ainda 57ª');
+    ok(legislaturaAtual('2027-02-01') === '58', '01/02/2027: passa a 58ª sozinha');
+    ok(JSON.stringify(legislaturasEmRefresh('2026-09-25')) === '["57"]',
+       'set/2026: o refresh cobre só a 57ª (a 56ª já passou da janela) — custo do cron não muda');
+    ok(JSON.stringify(legislaturasEmRefresh('2027-02-01')) === '["58","57"]',
+       'na posse da 58ª, a 57ª continua no refresh (leis dela ainda saem)');
+    ok(JSON.stringify(legislaturasEmRefresh('2029-02-01')) === '["58"]',
+       'dois anos depois, a 57ª sai do refresh');
+    const antes = await atualizarLeisAprovadas({ legislaturas: ['58'], comCondicao: false });
+    if (legislaturaAtual() === '57') {
+      ok(antes.erros.length === 1 && /ainda não começou/.test(antes.erros[0].erro) && !leia('/leis_aprovadas/58'),
+         `58ª antes da posse: erro nomeado e nada gravado (${JSON.stringify(antes.erros)})`);
+    }
   }
 
   console.log('\n== coleta de uma legislatura: filtro, crédito e ruído ==');
@@ -190,9 +215,9 @@ global.fetch = fakeFetch;
     BANCO.leis_aprovadas['56'] = { atualizadoEm: '2026-01-01T00:00:00.000Z', ranking: [], projetos: [] };
     ok(await legislaturaPrecisaAtualizar('56', false) === false, 'com dado salvo, uma legislatura ENCERRADA é pulada');
     ok(await legislaturaPrecisaAtualizar('56', true) === true, '--forcar ignora o "já tem dado"');
-    BANCO.leis_aprovadas[LEGISLATURA_ATUAL] = { atualizadoEm: '2026-01-01T00:00:00.000Z', ranking: [], projetos: [] };
-    ok(await legislaturaPrecisaAtualizar(LEGISLATURA_ATUAL, false) === true,
-       `a legislatura CORRENTE (${LEGISLATURA_ATUAL}ª) nunca é pulada, mesmo com dado salvo`);
+    BANCO.leis_aprovadas[legislaturaAtual()] = { atualizadoEm: '2026-01-01T00:00:00.000Z', ranking: [], projetos: [] };
+    ok(await legislaturaPrecisaAtualizar(legislaturaAtual(), false) === true,
+       `a legislatura CORRENTE (${legislaturaAtual()}ª) nunca é pulada, mesmo com dado salvo`);
   }
 
   console.log('\n== atualizarLeisAprovadas: uma legislatura com erro não derruba as outras ==');

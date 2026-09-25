@@ -124,9 +124,9 @@ O que está andando na Casa sobre um tema, marcando o que é da bancada.
 
 #### 3.5 Leis aprovadas
 
-Ranking de deputados por projetos de sua autoria — inclusive coautoria: todo signatário recebe crédito — transformados em norma jurídica, da **53ª à 57ª legislatura**. PL e PLP por padrão.
+Ranking de deputados por projetos de sua autoria — inclusive coautoria: todo signatário recebe crédito — transformados em norma jurídica, da **53ª à 58ª legislatura**. PL e PLP por padrão. A tela abre com a legislatura em curso e a anterior marcadas, decididas pela data (57ª + 56ª até 31/01/2027; 58ª + 57ª depois).
 
-- A API paginada da Câmara não filtra por situação de tramitação, e os arquivos oficiais em massa (`proposicoes-AAAA.json`, 50–165 MB, um por ano) não têm cabeçalho CORS — um navegador não consegue baixá-los sozinho. A coleta roda no **bot** (processo Node, sem essa barreira): baixa os arquivos, filtra os PL/PLP com situação "Transformado em Norma Jurídica" e grava **só o agregado** (ranking + lista de projetos) em `/leis_aprovadas/{legislatura}` no Firebase — nunca o arquivo bruto. Legislaturas encerradas (53ª–56ª) são coletadas uma vez; a corrente tem refresh diário automático
+- A API paginada da Câmara não filtra por situação de tramitação, e os arquivos oficiais em massa (`proposicoes-AAAA.json`, 50–165 MB, um por ano) não têm cabeçalho CORS — um navegador não consegue baixá-los sozinho. A coleta roda no **bot** (processo Node, sem essa barreira): baixa os arquivos, filtra os PL/PLP com situação "Transformado em Norma Jurídica" e grava **só o agregado** (ranking + lista de projetos) em `/leis_aprovadas/{legislatura}` no Firebase — nunca o arquivo bruto. Legislaturas encerradas são coletadas uma vez; a corrente tem refresh diário automático — e a anterior também, nos dois primeiros anos da nova (na virada de fev/2027 a 57ª segue sendo atualizada, porque projetos dela continuam virando lei). A corrente é decidida pela data: o bot passa sozinho da 57ª para a 58ª em 01/02/2027, e a 58ª não é coletada antes da posse
 - **Caminho manual**: quando o analista já tem os arquivos baixados, dá para processá-los direto no navegador (mesma lógica de filtro/agregação do coletor) sem esperar o bot — os arquivos não saem da máquina, e o resultado só vai para o Firebase compartilhado se o analista clicar em **Gravar no banco de dados**
 - **Limpar no banco de dados**: apaga o agregado de legislaturas marcadas, para reprocessar do zero — pede confirmação, porque é destrutivo e visível para toda a equipe
 - Filtros locais (nome, partido, UF, condição titular/suplente, só com ≥ 1 projeto) e ranking expansível com a lista de projetos de cada deputado · exporta em **Excel** (ranking e projetos)
@@ -482,7 +482,7 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 
 **Monitor de sessão ao vivo (Plenário)**
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
-- Abertura do registro de presença/inscrições, **quórum** (ao atingir 257), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
+- Abertura do registro de presença/inscrições, **quórum** (ao atingir a maioria absoluta: 257 de 513 até a 57ª, 266 de 531 a partir da 58ª — `bot/src/composicao.js`), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
 - **Votações simbólicas**: anúncio e resultado a partir do sinal do cosev (~12 s), com **autocorreção** — o resultado assumido ("Aprovado") é editado na própria mensagem se o carimbo oficial da página do evento divergir
 - **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência), destaques (DTQ) com a explicação do módulo de Destaques
 - **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel) + encaminhamentos das matérias
@@ -498,7 +498,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - `/revisar_msg` — usuários autorizados corrigem, no privado, uma das últimas 5 mensagens que o bot enviou ao grupo (editado in-place; o admin recebe o antes/depois)
 - `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
 - `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo`/`/removerchave` (chave de IA por usuário — `/modelo listar` busca ao vivo os modelos disponíveis na API do provedor configurado, marcando o atual), `/digestadd`/`/digestrem`/`/digestlista` (assinantes do radar de imprensa)
-- `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre só a legislatura corrente; as encerradas são coleta manual, uma vez
+- `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre a legislatura corrente (e a anterior nos dois primeiros anos da nova); as encerradas são coleta manual, uma vez. Sem argumento, coleta a corrente
 - **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
 
 ---
@@ -608,6 +608,7 @@ sispode/
     └── src/
         ├── agente.js               # Conversa natural (laço ReAct) + web oficial
         ├── monitor.js              # Monitor de sessão ao vivo (Plenário)
+        ├── composicao.js           # Tamanho da Câmara e maioria absoluta por data (513 → 531 na 58ª)
         ├── plenariocosev.js        # APIs públicas cosev/ws-plenario (app Infoleg)
         ├── oradores.js             # Oradores inscritos da sessão
         ├── faltamvotar.js          # Quem da bancada não votou na nominal aberta

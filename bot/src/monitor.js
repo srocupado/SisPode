@@ -17,6 +17,7 @@ const { resumoSessao } = require('./worker');
 const { pautaAtualImportada } = require('./pauta');
 const { carregarAnaliseMaisRecente } = require('./perguntar');
 const { buscarDestaquePreparado } = require('./destaques');
+const { maioriaAbsoluta } = require('./composicao');
 const { InlineKeyboard } = require('grammy');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
@@ -787,7 +788,8 @@ async function oddEncerradaNoCosev() {
 // que este aviso comunica ao grupo. Poll leve e dedicado (não depende do
 // _sessao dos Dados Abertos, que é mais lento).
 const COSEV_ABERTURA_MS = 12e3;
-const QUORUM_MIN = 257;       // maioria absoluta (257 de 513) — quórum de deliberação
+// Quórum de deliberação = maioria absoluta da composição da Casa — 257 de 513
+// até a 57ª, 266 de 531 a partir da 58ª. Calculado por data em ./composicao.
 let _presencaSessao = null;   // numSessao com aviso de presença já enviado
 let _quorumSessao = null;     // numSessao com aviso de quórum já enviado (ambos persistidos)
 
@@ -858,8 +860,8 @@ async function tickAbertura() {
   }
 
   // Aviso de QUÓRUM — uma vez por sessão, quando a presença atinge a maioria
-  // absoluta (257). Mostra o número REAL do momento (a presença sobe em saltos).
-  if (num !== _quorumSessao && st && st.presentes >= QUORUM_MIN) {
+  // absoluta. Mostra o número REAL do momento (a presença sobe em saltos).
+  if (num !== _quorumSessao && st && st.presentes >= maioriaAbsoluta()) {
     _quorumSessao = num;
     marcarCosev({ quorumSessao: num });
     await enviar(`*Quórum: ${st.presentes} deputado(s) presente(s) na casa!*`, { md: true });
