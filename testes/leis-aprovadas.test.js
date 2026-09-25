@@ -11,7 +11,13 @@
 //  4. legislatura sem dado agregado ainda não derruba a tela: aparece um aviso,
 //     não um erro nem uma lista vazia sem explicação;
 //  5. os projetos de cada deputado são os dele (por id, entre os autores do
-//     projeto), não de outro.
+//     projeto), não de outro;
+//  6. as legislaturas saem da DATA (a 58ª aparece sozinha em fev/2027), com
+//     os checkboxes gerados e as duas mais recentes marcadas por padrão;
+//  7. dado velho da corrente mostra aviso com "Coletar agora", e a coleta pela
+//     extensão baixa os arquivos direto da Câmara; as travas impedem gravar
+//     coleta incompleta (ano faltando, autor não apurado) e pedem confirmação
+//     extra quando a coleta traz MENOS projetos que o salvo.
 //
 // Uso: node testes/leis-aprovadas.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -46,8 +52,18 @@ const chamadas = [];
 
 // Material do caminho MANUAL (upload de arquivos locais): roster, autores e
 // histórico da API — tudo com CORS liberado, diferente dos arquivos em massa.
-const API_ROSTER = { 53: [{ id: 10, nome: 'Duda Veterana', siglaPartido: 'PODE', siglaUf: 'BA' }] };
-const API_AUTORES = { 700: [10, 11] }; // 11 fora do roster — precisa aparecer mesmo assim
+const API_ROSTER = {
+  53: [{ id: 10, nome: 'Duda Veterana', siglaPartido: 'PODE', siglaUf: 'BA' }],
+  57: [{ id: 1, nome: 'Ana Fulana', siglaPartido: 'PODE', siglaUf: 'SP' }],
+};
+// Arquivos em massa servidos "direto da Câmara" para a coleta pela extensão.
+const ARQ_BASE = 'https://dadosabertos.camara.leg.br/arquivos/proposicoes/json';
+const ARQUIVOS_CAMARA = {
+  2023: [{ id: 950, siglaTipo: 'PL', numero: 1, ano: 2023, ementa: 'Lei da 57ª.', dataApresentacao: '2023-05-01', ultimoStatus: { idSituacao: 1140 } },
+         { id: 951, siglaTipo: 'PL', numero: 2, ano: 2023, ementa: 'Janeiro — ainda 56ª.', dataApresentacao: '2023-01-10', ultimoStatus: { idSituacao: 1140 } }],
+};
+let FALHAR_ANO = null;
+const API_AUTORES = { 700: [10, 11], 950: [1] }; // 11 fora do roster — precisa aparecer mesmo assim
 const API_HISTORICO = { 10: [{ idLegislatura: 53, condicaoEleitoral: 'Titular' }] };
 
 // FileReader de mentira: o linkedom não implementa a API de verdade. Os
@@ -81,6 +97,15 @@ const ctx = {
     const metodo = (opcoes && opcoes.method) || 'GET';
     chamadas.push(`${metodo} ${u}`);
     let m;
+    if ((m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)/projetos\\.json')))) {
+      const d = FIRE[m[1]];
+      return { ok: true, status: 200, json: async () => (d ? d.projetos : null) };
+    }
+    if ((m = u.match(new RegExp(ARQ_BASE + '/proposicoes-(\\d+)\\.json')))) {
+      if (Number(m[1]) === FALHAR_ANO) return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, headers: { get: k => (k.toLowerCase() === 'last-modified' ? 'Fri, 25 Sep 2026 04:33:51 GMT' : null) },
+               json: async () => ARQUIVOS_CAMARA[m[1]] || [] };
+    }
     if ((m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)\\.json')))) {
       const leg = m[1];
       if (metodo === 'PUT') { FIRE[leg] = JSON.parse(opcoes.body); return { ok: true, status: 200, json: async () => FIRE[leg] }; }
@@ -116,6 +141,25 @@ const av = e => vm.runInContext(e, ctx);
     ok(html.includes('<script src="leisaprovadas.js">'), 'e é carregado por aderencia.html');
     ok(html.indexOf('aderencia.js') < html.indexOf('leisaprovadas.js'),
        'vem DEPOIS de aderencia.js, de quem reaproveita FIREBASE_URL, mapLimit e cvEsc');
+  }
+
+  console.log('\n== legislaturas calculadas pela data ==');
+  {
+    ok(av(`leaLegislaturaAtual(new Date('2027-01-31T12:00:00Z'))`) === '57', '31/jan/2027 ainda é 57ª');
+    ok(av(`leaLegislaturaAtual(new Date('2027-02-01T12:00:00Z'))`) === '58', '1º/fev/2027 já é 58ª — sem editar código');
+    ok(av(`leaLegislaturaAtual(new Date('2031-02-01T12:00:00Z'))`) === '59', 'e 1º/fev/2031, 59ª');
+    ok(av(`leaCfg('58').rotulo`) === '58ª (2027–2031)', 'rótulo da 58ª calculado');
+    ok(av(`leaCfg('57').anos.join(',')`) === '2023,2024,2025,2026,2027', 'anos incluem o ano final (janeiro)');
+    ok(av(`leaAnosParaColetar('57', new Date('2026-09-25T12:00:00Z')).join(',')`) === '2023,2024,2025,2026',
+       'mas a coleta só pede arquivos até o ano corrente');
+    const legs = av('leaListarLegislaturas()');
+    const caixas = [...document.querySelectorAll('.lea-leg')].map(c => c.value);
+    ok(caixas.join(',') === legs.join(','), `os checkboxes da consulta são gerados da conta (${caixas.join(', ')})`);
+    ok([...document.querySelectorAll('.lea-up-leg')].length === legs.length, 'e os do upload também');
+    const marcadas = [...document.querySelectorAll('.lea-leg')].filter(c => c.checked).map(c => c.value);
+    ok(marcadas.join(',') === legs.slice(0, 2).join(','), `padrão: as duas mais recentes marcadas (${marcadas.join(', ')})`);
+    ok(document.getElementById('leaFaixa').textContent === `da 53ª à ${legs[0]}ª legislatura`, 'a descrição acompanha a faixa');
+    document.querySelectorAll('.lea-leg').forEach(c => { c.checked = false; });
   }
 
   console.log('\n== a aba existe e troca ==');
@@ -172,6 +216,16 @@ const av = e => vm.runInContext(e, ctx);
     const tela = document.getElementById('leaResultado').textContent;
     ok(/4 registro\(s\)/.test(tela) && /4 projeto\(s\)/.test(tela),
        'a tela soma os créditos (4), consistente com "todo coautor recebe crédito"');
+  }
+
+  console.log('\n== data/hora da coleta e aviso de dado velho ==');
+  {
+    const texto = av(`leaAtualizadoEmTexto(['57'])`);
+    ok(/20\/09\/2026/.test(texto) && /07:00/.test(texto) && /Brasília/.test(texto),
+       `mostra data E hora, no horário de Brasília (${texto})`);
+    ok(av(`leaAvisoDadoVelho(new Date('2026-09-21T10:00:00Z'))`) === '', 'dado da corrente com 1 dia: sem aviso');
+    const aviso = av(`leaAvisoDadoVelho(new Date('2026-09-30T10:00:00Z'))`);
+    ok(/não é atualizado desde/.test(aviso) && /Coletar agora/.test(aviso), 'com mais de 3 dias: aviso + botão "Coletar agora"');
   }
 
   console.log('\n== a coautoria credita os DOIS, e cada um só vê o que é dele ==');
@@ -276,6 +330,29 @@ const av = e => vm.runInContext(e, ctx);
     ok(chamadas.some(c => c.includes('idLegislatura=53')) && chamadas.some(c => c.includes('/700/autores'))
        && chamadas.some(c => c.includes('/historico')), 'busca roster, autores e histórico na API (tudo com CORS)');
     ok(!chamadas.some(c => c.includes('leis_aprovadas')), 'processar sozinho NÃO grava nada no Firebase — é um passo à parte');
+    ok(resultado53['53'].anosFaltando.join(',') === '2008,2009,2010,2011',
+       `anota os anos da legislatura que não vieram entre os arquivos (${resultado53['53'].anosFaltando.join(',')})`);
+    ok(av(`leaMotivosParaNaoGravar(${JSON.stringify(resultado53['53'])})`).length === 1, 'e isso vira motivo para NÃO gravar');
+  }
+
+  console.log('\n== coleta pela extensão, direto da Câmara ==');
+  {
+    chamadas.length = 0;
+    ctx.__fases = [];
+    const r = await av(`leaColetarDaCamara('57', { comCondicao: false, onFase: f => __fases.push(f) })`);
+    ok(chamadas.some(c => c.includes(ARQ_BASE + '/proposicoes-2023.json')), 'baixa os arquivos em massa direto (host_permissions da extensão)');
+    ok(r.projetos.length === 1 && r.projetos[0].id === 950, 'classifica pela data: o PL de janeiro/2023 (56ª) fica de fora');
+    ok(r.ranking.find(x => x.depId === 1).total === 1, 'e credita o autor');
+    ok(r.anosFaltando.length === 0 && r.dataArquivos['2023'] === '2026-09-25T04:33:51.000Z',
+       'sem ano faltando, e com a data do arquivo da Câmara (Last-Modified)');
+    ok(r.origem === 'extensão', 'origem registrada');
+    ok(av(`leaMotivosParaNaoGravar(${JSON.stringify(r)})`).length === 0, 'coleta completa: pode gravar');
+
+    FALHAR_ANO = 2024;
+    const r2 = await av(`leaColetarDaCamara('57', { comCondicao: false })`);
+    FALHAR_ANO = null;
+    ok(r2.anosFaltando.join(',') === '2024', 'um ano que não baixa é anotado, sem derrubar a coleta');
+    ok(/2024/.test(av(`leaMotivosParaNaoGravar(${JSON.stringify(r2)})`)[0] || ''), 'e bloqueia a gravação');
   }
 
   console.log('\n== caminho MANUAL: "Gravar no Firebase" e "Limpar no Firebase" ==');
@@ -303,6 +380,29 @@ const av = e => vm.runInContext(e, ctx);
     ok(FIRE['53'] === null, 'confirmação aceita: o agregado da 53ª é apagado no Firebase (falso)');
     ok(av(`lea.linhas`).length === 0, 'e a tela local esvazia — precisa buscar de novo para repopular');
     ctx.confirm = () => false; // devolve o padrão para o resto do arquivo
+  }
+
+  console.log('\n== travas no clique de gravar ==');
+  {
+    ctx.__st = [];
+    ctx.__incompleto = { rotulo: '57ª (2023–2027)', ranking: [], projetos: [], anosFaltando: [2024], falhasAutores: 0 };
+    chamadas.length = 0;
+    await av(`leaGravarComTravas('57', __incompleto, (m, t) => __st.push([m, t]))`);
+    ok(!chamadas.some(c => c.startsWith('PUT')), 'coleta com ano faltando: NENHUM PUT');
+    ok(ctx.__st.some(([m, t]) => t === 'error' && /NÃO gravado/.test(m)), 'e o motivo aparece como erro');
+
+    // 57ª salva com 2 projetos; coleta nova com 1 → confirmação extra, recusada.
+    let perguntas = [];
+    ctx.confirm = (msg) => { perguntas.push(msg); return false; };
+    ctx.__menor = { rotulo: '57ª (2023–2027)', ranking: [], projetos: [{ id: 1 }], anosFaltando: [], falhasAutores: 0 };
+    chamadas.length = 0;
+    await av(`leaGravarComTravas('57', __menor, (m, t) => __st.push([m, t]))`);
+    ok(perguntas.length === 1 && /MENOS que os 2 já salvos/.test(perguntas[0]), 'menos projetos que o salvo: confirmação específica');
+    ok(!chamadas.some(c => c.startsWith('PUT')), 'recusada: nada gravado');
+    ctx.confirm = () => true;
+    await av(`leaGravarComTravas('57', __menor, (m, t) => __st.push([m, t]))`);
+    ok(FIRE['57'].projetos.length === 1 && FIRE['57'].origem === 'extensão', 'aceita: grava, com a origem');
+    ctx.confirm = () => false;
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');

@@ -16,7 +16,13 @@
 //     contagem de falha, não silêncio nem exceção fatal;
 //  e) legislatura ENCERRADA com dado salvo é pulada sem `forcar`; a CORRENTE
 //     nunca é pulada; `atualizarLeisAprovadas` isola erro de uma legislatura
-//     sem derrubar as outras.
+//     sem derrubar as outras;
+//  f) a virada é automática: a legislatura corrente sai da DATA (58ª em
+//     fev/2027, 59ª em fev/2031), os anos de arquivo incluem o ano final, e a
+//     anterior tem carência de 12 meses com refresh semanal;
+//  g) travas: ano que não baixou, autor não apurado ou MENOS projetos que o
+//     salvo impedem a gravação; roster vazio (Câmara sem deputados cadastrados
+//     logo após a posse) adia sem gravar; a API /legislaturas só confere.
 //
 // Uso: node testes/bot-leis-aprovadas.test.js
 const path = require('path');
@@ -61,9 +67,14 @@ const destino = path.join(require('os').tmpdir(), 'sispode-leisaprovadas-teste.j
 fs.writeFileSync(destino, src);
 delete require.cache[destino];
 const {
-  LEGISLATURAS, LEGISLATURA_ATUAL, classificarPorLegislatura, coletarLegislatura,
+  legislaturaPelaConta, configLegislatura, legislaturaAtual, listarLegislaturas, anosParaColetar,
+  legislaturasEmRefresh, conferirLegislaturaComApi, classificarPorLegislatura, coletarLegislatura,
   legislaturaPrecisaAtualizar, atualizarLeisAprovadas,
 } = require(destino);
+
+// Datas fixas: o teste não pode mudar de resultado conforme o dia em que roda.
+const HOJE = new Date('2026-09-25T12:00:00Z');
+const LEGISLATURA_ATUAL = legislaturaAtual(HOJE);
 
 // ---------- material de mentira ----------
 const API_BASE = 'https://dadosabertos.camara.leg.br/api/v2';
@@ -112,8 +123,12 @@ function fakeFetch(url) {
   }
   if ((m = u.match(new RegExp(`${ARQ_BASE}/proposicoes-(\\d+)\\.json`)))) {
     const ano = Number(m[1]);
+    fakeFetch.anosPedidos.push(ano);
     if (ano === 2025 && fakeFetch.falhar2025) return Promise.reject(new Error('conexão recusada'));
-    return resposta(200, arquivos[ano] || []);
+    return resposta(200, arquivos[ano] || [], { 'last-modified': 'Fri, 25 Sep 2026 04:33:51 GMT' });
+  }
+  if (u.includes('/legislaturas?data=')) {
+    return resposta(200, { dados: fakeFetch.legislaturaApi ? [fakeFetch.legislaturaApi] : [] });
   }
   if ((m = u.match(/\/proposicoes\/(\d+)\/autores/))) {
     const id = Number(m[1]);
@@ -128,6 +143,7 @@ function fakeFetch(url) {
   }
   return resposta(404, {});
 }
+fakeFetch.anosPedidos = [];
 function resposta(status, body, headers) {
   return Promise.resolve({
     ok: status >= 200 && status < 300, status,
@@ -151,7 +167,7 @@ global.fetch = fakeFetch;
   let dados57;
   {
     const progresso = [];
-    dados57 = await coletarLegislatura('57', { comCondicao: true, onProgresso: (leg, fase) => progresso.push(fase) });
+    dados57 = await coletarLegislatura('57', { comCondicao: true, hoje: HOJE, onProgresso: (leg, fase) => progresso.push(fase) });
     ok(dados57.projetos.length === 2, `só os 2 projetos que passam tipo+situação+faixa entram (${dados57.projetos.length})`);
     const ids = dados57.projetos.map(p => p.id).sort();
     ok(ids[0] === 100 && ids[1] === 200, 'são exatamente 100 (mérito na faixa) e 200 (autor fora do roster)');
@@ -173,7 +189,7 @@ global.fetch = fakeFetch;
     fakeFetch.falharAutor = 200;
     fakeFetch.falharHistorico = 1;
     const progresso = [];
-    const r = await coletarLegislatura('57', { comCondicao: true, onProgresso: (leg, fase) => progresso.push(fase) });
+    const r = await coletarLegislatura('57', { comCondicao: true, hoje: HOJE, onProgresso: (leg, fase) => progresso.push(fase) });
     ok(r.projetos.length === 2, 'os outros anos continuam sendo lidos mesmo com 2025 falhando ao baixar');
     ok(progresso.some(f => /falha ao baixar 2025/.test(f)), 'a falha do ano é reportada no progresso, não engolida em silêncio');
     ok(r.falhasAutores === 1, 'falha ao buscar autores de um projeto conta como falha, não interrompe os outros');
@@ -185,13 +201,13 @@ global.fetch = fakeFetch;
 
   console.log('\n== legislatura ENCERRADA só coleta uma vez; a CORRENTE sempre ==');
   {
-    ok(await legislaturaPrecisaAtualizar('56', false) === true, 'sem dado salvo, precisa atualizar');
+    ok(await legislaturaPrecisaAtualizar('56', false, HOJE) === true, 'sem dado salvo, precisa atualizar');
     BANCO.leis_aprovadas = BANCO.leis_aprovadas || {};
     BANCO.leis_aprovadas['56'] = { atualizadoEm: '2026-01-01T00:00:00.000Z', ranking: [], projetos: [] };
-    ok(await legislaturaPrecisaAtualizar('56', false) === false, 'com dado salvo, uma legislatura ENCERRADA é pulada');
-    ok(await legislaturaPrecisaAtualizar('56', true) === true, '--forcar ignora o "já tem dado"');
+    ok(await legislaturaPrecisaAtualizar('56', false, HOJE) === false, 'com dado salvo, uma legislatura ENCERRADA é pulada');
+    ok(await legislaturaPrecisaAtualizar('56', true, HOJE) === true, '--forcar ignora o "já tem dado"');
     BANCO.leis_aprovadas[LEGISLATURA_ATUAL] = { atualizadoEm: '2026-01-01T00:00:00.000Z', ranking: [], projetos: [] };
-    ok(await legislaturaPrecisaAtualizar(LEGISLATURA_ATUAL, false) === true,
+    ok(await legislaturaPrecisaAtualizar(LEGISLATURA_ATUAL, false, HOJE) === true,
        `a legislatura CORRENTE (${LEGISLATURA_ATUAL}ª) nunca é pulada, mesmo com dado salvo`);
   }
 
@@ -203,17 +219,104 @@ global.fetch = fakeFetch;
       if (String(url).includes('idLegislatura=55')) return Promise.reject(new Error('Câmara fora do ar'));
       return fetchOriginal(url);
     };
-    const r = await atualizarLeisAprovadas({ legislaturas: ['57', '55'], comCondicao: false });
+    const r = await atualizarLeisAprovadas({ legislaturas: ['57', '55'], comCondicao: false, hoje: HOJE });
     ok(r.erros.length === 1 && r.erros[0].leg === '55', `55ª entra em erros, não derruba a coleta (${JSON.stringify(r.erros)})`);
     ok(r.processadas.length === 1 && r.processadas[0].leg === '57', '57ª é processada normalmente');
     ok(!!leia('/leis_aprovadas/57'), '57ª foi de fato gravada no Firebase (falso)');
     ok(!leia('/leis_aprovadas/55'), 'e 55ª NÃO foi gravada, já que falhou');
     global.fetch = fetchOriginal;
 
-    const r2 = await atualizarLeisAprovadas({ legislaturas: ['53'] });
-    ok(r2.erros.some(e => false) || true, 'sanity: legislatura válida sem erro simulado processa');
-    const r3 = await atualizarLeisAprovadas({ legislaturas: ['99'] });
+    const salvo57 = leia('/leis_aprovadas/57');
+    ok(salvo57.origem === 'bot', 'grava a ORIGEM da coleta (bot)');
+    ok(salvo57.dataArquivos && salvo57.dataArquivos['2023'] === '2026-09-25T04:33:51.000Z',
+       'e a data de cada arquivo da Câmara (Last-Modified), não só a hora da coleta');
+
+    const r2 = await atualizarLeisAprovadas({ legislaturas: ['53'], hoje: HOJE });
+    ok(r2.aguardando.length === 1 && r2.erros.length === 0 && !leia('/leis_aprovadas/53'),
+       'roster vazio (Câmara ainda sem os deputados) vai para "aguardando", sem gravar nada e sem virar erro');
+    const r3 = await atualizarLeisAprovadas({ legislaturas: ['99'], hoje: HOJE });
     ok(r3.erros.length === 1 && /desconhecida/.test(r3.erros[0].erro), 'legislatura inexistente vira erro nomeado, não exceção');
+    ok((await atualizarLeisAprovadas({ legislaturas: ['58'], hoje: HOJE })).erros.length === 1,
+       'legislatura futura (58ª antes da posse) também é recusada');
+  }
+
+  console.log('\n== travas: coleta incompleta não substitui dado bom ==');
+  {
+    BANCO = {};
+    await atualizarLeisAprovadas({ legislaturas: ['57'], comCondicao: false, hoje: HOJE });
+    const antes = leia('/leis_aprovadas/57');
+    ok(antes && antes.projetos.length === 2, 'ponto de partida: 57ª gravada com 2 projetos');
+
+    fakeFetch.falhar2025 = true;
+    let r = await atualizarLeisAprovadas({ legislaturas: ['57'], comCondicao: false, hoje: HOJE });
+    ok(r.erros.length === 1 && /2025 não baixaram/.test(r.erros[0].erro), `ano que não baixou bloqueia a gravação (${JSON.stringify(r.erros)})`);
+    ok(leia('/leis_aprovadas/57') === antes, 'e o dado salvo fica intacto');
+    fakeFetch.falhar2025 = false;
+
+    fakeFetch.falharAutor = 200;
+    r = await atualizarLeisAprovadas({ legislaturas: ['57'], comCondicao: false, hoje: HOJE });
+    ok(r.erros.length === 1 && /autores não apurados/.test(r.erros[0].erro), 'autor não apurado bloqueia a gravação');
+    fakeFetch.falharAutor = null;
+
+    const guardado = arquivos[2024];
+    arquivos[2024] = [];
+    r = await atualizarLeisAprovadas({ legislaturas: ['57'], comCondicao: false, hoje: HOJE });
+    ok(r.erros.length === 1 && /menos que os 2 já salvos/.test(r.erros[0].erro), 'MENOS projetos que o salvo bloqueia a gravação');
+    ok(leia('/leis_aprovadas/57').projetos.length === 2, 'e o salvo continua com 2');
+    r = await atualizarLeisAprovadas({ legislaturas: ['57'], comCondicao: false, forcar: true, hoje: HOJE });
+    ok(r.processadas.length === 1 && leia('/leis_aprovadas/57').projetos.length === 1, '--forcar passa por cima da comparação (correção deliberada)');
+    arquivos[2024] = guardado;
+  }
+
+  console.log('\n== virada automática de legislatura ==');
+  {
+    const d = s => new Date(s + 'T12:00:00Z');
+    ok(legislaturaPelaConta('2007-02-01') === '53' && legislaturaPelaConta('2011-01-31') === '53', '53ª: fev/2007 a jan/2011');
+    ok(legislaturaPelaConta('2023-02-01') === '57' && legislaturaPelaConta('2027-01-31') === '57', '57ª: fev/2023 a jan/2027');
+    ok(legislaturaPelaConta('2027-02-01') === '58', 'a 58ª começa sozinha em 1º/fev/2027');
+    ok(legislaturaPelaConta('2031-02-01') === '59' && legislaturaPelaConta('2031-01-31') === '58', 'e a 59ª em 1º/fev/2031');
+    ok(legislaturaAtual(d('2027-03-01')) === '58', 'legislaturaAtual segue a data');
+    ok(listarLegislaturas(d('2027-03-01')).join(',') === '58,57,56,55,54,53', 'a lista ganha a 58ª na virada, da mais nova para a mais antiga');
+
+    const c58 = configLegislatura('58');
+    ok(c58.rotulo === '58ª (2027–2031)' && c58.inicio === '2027-02-01' && c58.fim === '2031-01-31', `config da 58ª calculada (${JSON.stringify(c58)})`);
+    ok(configLegislatura('57').anos.join(',') === '2023,2024,2025,2026,2027',
+       'os anos incluem o ano FINAL — PL apresentado em janeiro/2027 ainda é da 57ª');
+    ok(anosParaColetar('57', HOJE).join(',') === '2023,2024,2025,2026', 'mas só baixa até o ano corrente (o arquivo de 2027 ainda não existe)');
+    ok(anosParaColetar('57', d('2027-03-01')).join(',') === '2023,2024,2025,2026,2027', 'e passa a baixar 2027 quando ele existir');
+    fakeFetch.anosPedidos = [];
+    await coletarLegislatura('57', { comCondicao: false, hoje: HOJE });
+    ok(!fakeFetch.anosPedidos.includes(2027), 'coletar hoje não pede o arquivo de um ano futuro');
+
+    ok(legislaturasEmRefresh(HOJE).join(',') === '57', 'hoje: refresh só da 57ª (a 56ª já saiu da carência)');
+    ok(legislaturasEmRefresh(d('2027-03-01')).join(',') === '58,57', 'depois da virada: 58ª + 57ª, que entra em carência');
+    ok(legislaturasEmRefresh(d('2028-01-30')).join(',') === '58,57', 'a 57ª continua na carência até 12 meses depois do fim');
+    ok(legislaturasEmRefresh(d('2028-02-02')).join(',') === '58', 'e sai dela depois disso');
+
+    BANCO = { leis_aprovadas: { '57': { atualizadoEm: '2027-02-27T12:00:00.000Z' } } };
+    ok(await legislaturaPrecisaAtualizar('57', false, d('2027-03-01')) === false, 'na carência, dado com 2 dias não é recoletado');
+    BANCO.leis_aprovadas['57'].atualizadoEm = '2027-02-20T12:00:00.000Z';
+    ok(await legislaturaPrecisaAtualizar('57', false, d('2027-03-01')) === true, 'com 7+ dias, é (refresh semanal)');
+    BANCO.leis_aprovadas['57'].atualizadoEm = '2027-06-01T12:00:00.000Z';
+    ok(await legislaturaPrecisaAtualizar('57', false, d('2028-06-01')) === false, 'fora da carência, com dado salvo, a 57ª vira encerrada comum');
+  }
+
+  console.log('\n== conferência com a API /legislaturas ==');
+  {
+    fakeFetch.legislaturaApi = null;
+    let c = await conferirLegislaturaComApi(new Date('2027-02-03T12:00:00Z'));
+    ok(c.api === null && c.divergente === false && legislaturaAtual(new Date('2027-02-03T12:00:00Z')) === '58',
+       'API ainda sem a 58ª (logo após a posse): vale a conta, sem alarme');
+    fakeFetch.legislaturaApi = { id: 57, dataInicio: '2023-02-01', dataFim: '2027-01-31' };
+    c = await conferirLegislaturaComApi(HOJE);
+    ok(c.divergente === false, 'API igual à conta: nenhuma divergência');
+    // Uma PEC hipotética: mandato de 5 anos a partir da 58ª.
+    fakeFetch.legislaturaApi = { id: 58, dataInicio: '2027-02-01', dataFim: '2032-01-31' };
+    c = await conferirLegislaturaComApi(new Date('2031-06-01T12:00:00Z'));
+    ok(c.divergente === true && c.calculada === '59', `API diverge da conta (conta: ${c.calculada}ª, API: 58ª) → sinaliza`);
+    ok(legislaturaAtual(new Date('2031-06-01T12:00:00Z')) === '58', 'e passa a valer a API');
+    ok(configLegislatura('58').fim === '2032-01-31' && configLegislatura('58').anos.includes(2032), 'com as datas e os anos da API');
+    fakeFetch.legislaturaApi = null;
   }
 
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');

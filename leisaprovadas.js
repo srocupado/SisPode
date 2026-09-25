@@ -4,38 +4,85 @@
 // Porte do app standalone (repo Relatorio, branch deputies-legislation-tracker):
 // ranking de deputados por projetos de sua autoria (autor OU coautor — todos os
 // signatários recebem crédito) transformados em norma jurídica, da 53ª à 57ª
-// legislatura.
+// legislatura — da 53ª até a corrente, que é CALCULADA pela data (58ª a partir
+// de fev/2027, 59ª em fev/2031…), sem lista fixa para editar na virada.
 //
 // O caminho PRINCIPAL desta aba é ler o AGREGADO que o bot/ já coletou em
 // https://plenario-podemos-default-rtdb.firebaseio.com/leis_aprovadas/{legislatura} —
 // sem download manual, sem processar nada pesado no navegador (funções
 // leaConsultar/leaCarregarLegislatura/leaAchatar, mais abaixo).
 //
-// Mas os arquivos oficiais em massa (`proposicoes-AAAA.json`, 50–165 MB cada,
-// sem CORS — só dá pra baixar clicando, não por fetch) às vezes já estão na
-// máquina do analista, baixados de uma coleta anterior ou de outra ferramenta.
-// Para esse caso existe um segundo caminho, MANUAL: leaProcessarLocal e a
-// seção "processar arquivos baixados manualmente" da tela leem e filtram esses
-// arquivos aqui mesmo, no navegador — os arquivos não saem da máquina — e só
-// depois, se o analista clicar "Gravar no banco de dados", o AGREGADO (nunca
-// o arquivo bruto) vai para o mesmo /leis_aprovadas/{legislatura} que o bot usa.
+// Se o bot parar, a extensão cobre a coleta sozinha: os arquivos oficiais em
+// massa (`proposicoes-AAAA.json`, 50–165 MB cada) não mandam cabeçalho CORS,
+// mas esta é uma PÁGINA DA EXTENSÃO e dadosabertos.camara.leg.br está em
+// host_permissions no manifest.json — então o fetch direto funciona aqui
+// (num site comum, não). É o botão "Coletar agora" (leaColetarDaCamara), que a
+// tela oferece quando o dado da legislatura corrente está velho. Continua
+// existindo o caminho com arquivos já baixados (leaProcessarLocal). Nos dois,
+// só se o analista clicar "Gravar no banco de dados" o AGREGADO (nunca o
+// arquivo bruto) vai para o mesmo /leis_aprovadas/{legislatura} que o bot usa,
+// e só depois das travas de leaMotivosParaNaoGravar.
 // A API de deputados/autores/histórico tem CORS liberado (só os arquivos em
 // massa não têm), então esse caminho manual busca autores e condição do jeito
 // normal, direto da API.
 //
-// A tabela de legislaturas (LEA_CFG) e o filtro (tipo + idSituacao) são
-// DUPLICADOS de bot/src/leisaprovadas.js de propósito — scripts clássicos da
-// extensão não importam módulos do bot/. Mudar um sem o outro só desalinha o
-// caminho MANUAL; o agregado que já está no Firebase não é afetado.
+// A conta da legislatura (leaCfg/leaLegislaturaAtual) e o filtro (tipo +
+// idSituacao) são DUPLICADOS de bot/src/leisaprovadas.js de propósito —
+// scripts clássicos da extensão não importam módulos do bot/. Mudar um sem o
+// outro desalinha a coleta pela extensão da coleta do bot.
 //
 // Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJson, cvEsc) —
 // carregado antes deste arquivo.
 
 const LEA_ROOT = '/leis_aprovadas';
-// Mesma tabela do coletor (bot/src/leisaprovadas.js) — só o rótulo e a ordem
-// de exibição importam aqui; o agregado em si já vem rotulado do Firebase.
-const LEA_LEGISLATURAS = ['57', '56', '55', '54', '53'];
-const LEA_PADRAO = ['57', '56'];
+const LEA_PRIMEIRA = 53;       // primeira legislatura coberta (2007)
+const LEA_DIAS_VELHO = 3;      // dado da corrente com mais que isso → aviso + "Coletar agora"
+
+// ---------- legislaturas: mesma conta de bot/src/leisaprovadas.js ----------
+function leaHojeISO(hoje) { return (hoje || new Date()).toISOString().slice(0, 10); }
+
+/** Posse em 1º/fev de 2023, 2027, 2031… → 57ª, 58ª, 59ª… */
+function leaLegislaturaAtual(hoje) {
+  const [ano, mes] = leaHojeISO(hoje).split('-').map(Number);
+  return String(Math.floor(((mes >= 2 ? ano : ano - 1) - 1795) / 4));
+}
+
+/** Rótulo, faixa de apresentação e anos de arquivo (inclui o ano final: janeiro ainda é da legislatura). */
+function leaCfg(leg) {
+  const n = Number(leg);
+  if (!Number.isInteger(n) || n < LEA_PRIMEIRA) return null;
+  const a0 = 1795 + 4 * n, a1 = a0 + 4;
+  const anos = [];
+  for (let a = a0; a <= a1; a++) anos.push(a);
+  return { rotulo: `${n}ª (${a0}–${a1})`, inicio: `${a0}-02-01`, fim: `${a1}-01-31`, anos };
+}
+
+/** Da corrente até a 53ª. */
+function leaListarLegislaturas(hoje) {
+  const out = [];
+  for (let n = Number(leaLegislaturaAtual(hoje)); n >= LEA_PRIMEIRA; n--) out.push(String(n));
+  return out;
+}
+
+/** Anos de arquivo que já existem (o de um ano futuro a Câmara ainda não publicou). */
+function leaAnosParaColetar(leg, hoje) {
+  const anoHoje = Number(leaHojeISO(hoje).slice(0, 4));
+  return (leaCfg(leg) || { anos: [] }).anos.filter(a => a <= anoHoje);
+}
+
+/** Checkboxes das legislaturas (consulta e upload), gerados da conta — a nova aparece sozinha na virada. */
+function leaRenderLegislaturas() {
+  const legs = leaListarLegislaturas();
+  const html = (classe) => legs.map(leg =>
+    `<label class="rdr-check" style="padding-bottom:0;flex:0 0 auto"><input type="checkbox" class="${classe}" value="${leg}"> ${leaCfg(leg).rotulo}</label>`).join('');
+  const consulta = document.getElementById('leaLegs');
+  if (consulta) consulta.innerHTML = html('lea-leg');
+  const upload = document.getElementById('leaUpLegs');
+  if (upload) upload.innerHTML = html('lea-up-leg');
+  const desc = document.getElementById('leaFaixa');
+  if (desc) desc.textContent = `da ${LEA_PRIMEIRA}ª à ${legs[0]}ª legislatura`;
+  return legs.slice(0, 2); // padrão: as duas mais recentes
+}
 
 const lea = { cache: {}, linhas: [], ordem: { coluna: 'total', asc: false } };
 
@@ -176,13 +223,36 @@ function leaRenderRanking() {
   if (contagem) contagem.textContent = `${linhas.length} registro(s) · ${totalProjetos} projeto(s) convertido(s) em lei`;
 }
 
+function leaFmtDataHora(iso) {
+  return new Date(iso).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo', dateStyle: 'short', timeStyle: 'short' });
+}
+
 function leaAtualizadoEmTexto(legsEscolhidas) {
-  const datas = legsEscolhidas.map(leg => lea.cache[leg] && lea.cache[leg].atualizadoEm).filter(Boolean);
-  if (!datas.length) return '';
-  const maisAntiga = datas.sort()[0];
-  const d = new Date(maisAntiga);
-  return `Dado agregado pelo bot em ${d.toLocaleDateString('pt-BR')} (a mais antiga das legislaturas escolhidas — ` +
-    `${LEA_ROOT.replace('/', '')}, atualizado periodicamente pelo bot/, sem downloads manuais).`;
+  const salvas = legsEscolhidas.map(leg => lea.cache[leg]).filter(d => d && d.atualizadoEm);
+  if (!salvas.length) return '';
+  const maisAntiga = salvas.slice().sort((a, b) => a.atualizadoEm.localeCompare(b.atualizadoEm))[0];
+  const arqs = Object.values(maisAntiga.dataArquivos || {}).sort();
+  return `Dado agregado em ${leaFmtDataHora(maisAntiga.atualizadoEm)} (horário de Brasília), por ${maisAntiga.origem || 'bot'}` +
+    (arqs.length ? `, a partir dos arquivos da Câmara de ${leaFmtDataHora(arqs[0])}` : '') +
+    (salvas.length > 1 ? ' — a mais antiga das legislaturas escolhidas.' : '.');
+}
+
+/**
+ * Aviso de dado VELHO da legislatura corrente (> LEA_DIAS_VELHO dias sem
+ * coleta) — é assim que uma parada do bot aparece para quem usa a tela, já
+ * com o botão para qualquer analista coletar pela extensão. Vazio se em dia.
+ */
+function leaAvisoDadoVelho(hoje) {
+  const atual = leaLegislaturaAtual(hoje);
+  const dados = lea.cache[atual];
+  const quando = dados && dados.atualizadoEm;
+  const dias = quando ? ((hoje || new Date()) - new Date(quando)) / 86400000 : Infinity;
+  if (dias <= LEA_DIAS_VELHO) return '';
+  const texto = quando
+    ? `⚠ O dado da ${atual}ª não é atualizado desde ${leaFmtDataHora(quando)} — a coleta automática do bot pode ter parado.`
+    : `⚠ Ainda não há dado coletado da ${atual}ª.`;
+  return `<div class="cv-aviso">${texto}
+    <button class="btn-gerar lea-coletar" style="margin-top:8px">Coletar agora pela extensão</button></div>`;
 }
 
 /** Apaga (DELETE) o agregado de uma legislatura no Firebase compartilhado. */
@@ -221,6 +291,10 @@ async function leaLimparClick() {
   }
 }
 
+function leaLigarColetar() {
+  document.querySelectorAll('#leaResultado .lea-coletar').forEach(b => b.addEventListener('click', () => leaColetarAgoraClick()));
+}
+
 async function leaConsultar() {
   const legsEscolhidas = [...leaEl.legs()].filter(c => c.checked).map(c => c.value);
   if (!legsEscolhidas.length) return leaStatus('Escolha ao menos uma legislatura.', 'error');
@@ -229,7 +303,8 @@ async function leaConsultar() {
   leaEl.resultado().innerHTML = '';
   try {
     leaStatus('Buscando o agregado no banco de dados…', 'loading');
-    const faltando = legsEscolhidas.filter(leg => lea.cache[leg] === undefined);
+    // A corrente entra sempre na busca — o aviso de dado velho depende dela.
+    const faltando = [...new Set([...legsEscolhidas, leaLegislaturaAtual()])].filter(leg => lea.cache[leg] === undefined);
     if (faltando.length) await mapLimit(faltando, 5, leaCarregarLegislatura);
 
     const semDado = legsEscolhidas.filter(leg => !lea.cache[leg]);
@@ -239,11 +314,13 @@ async function leaConsultar() {
     if (!lea.linhas.length) {
       leaEl.resultado().innerHTML = `<div class="cv-aviso">Nenhum dado agregado ainda para ${legsEscolhidas.join(', ')}ª.
         A coleta roda no bot/ (comando /leisaprovadas, admin) — ainda não foi feita para ${
-          semDado.length ? semDado.join(', ') : 'esta(s) legislatura(s)'}ª.</div>`;
+          semDado.length ? semDado.join(', ') : 'esta(s) legislatura(s)'}ª.</div>${leaAvisoDadoVelho()}`;
+      leaLigarColetar();
       return;
     }
 
     leaEl.resultado().innerHTML = `
+      ${leaAvisoDadoVelho()}
       ${semDado.length ? `<div class="cv-aviso">⚠ Sem dado agregado ainda para ${semDado.join(', ')}ª — não entram no ranking abaixo.</div>` : ''}
       <div class="prd-dica" style="margin-bottom:10px">${leaAtualizadoEmTexto(legsEscolhidas)}</div>
       <div class="ranking-card">
@@ -269,6 +346,7 @@ async function leaConsultar() {
       });
     });
     document.getElementById('leaExportar').addEventListener('click', leaExportar);
+    leaLigarColetar();
 
     lea.ordem = { coluna: 'total', asc: false };
     leaRenderRanking();
@@ -312,14 +390,7 @@ function leaExportar() {
 const LEA_API = 'https://dadosabertos.camara.leg.br/api/v2';
 const LEA_ID_SITUACAO_LEI = '1140'; // "Transformado em Norma Jurídica", no ultimoStatus do arquivo em massa
 const LEA_TIPOS_PADRAO = ['PL', 'PLP'];
-// Mesma tabela do coletor do bot (bot/src/leisaprovadas.js) — ver nota no topo do arquivo.
-const LEA_CFG = {
-  '57': { rotulo: '57ª (2023–2027)', inicio: '2023-02-01', fim: '2027-01-31' },
-  '56': { rotulo: '56ª (2019–2023)', inicio: '2019-02-01', fim: '2023-01-31' },
-  '55': { rotulo: '55ª (2015–2019)', inicio: '2015-02-01', fim: '2019-01-31' },
-  '54': { rotulo: '54ª (2011–2015)', inicio: '2011-02-01', fim: '2015-01-31' },
-  '53': { rotulo: '53ª (2007–2011)', inicio: '2007-02-01', fim: '2011-01-31' },
-};
+const LEA_ARQUIVOS_URL = 'https://dadosabertos.camara.leg.br/arquivos/proposicoes/json';
 
 const leaUpEl = {
   legs:      () => document.querySelectorAll('.lea-up-leg'),
@@ -345,12 +416,12 @@ function leaUpProgresso(mostrar, pct) {
   if (typeof pct === 'number') fill.style.width = Math.max(0, Math.min(100, pct)) + '%';
 }
 
-/** Data de apresentação → chave de legislatura ("53".."57"), ou null se fora das faixas conhecidas. */
+/** Data de apresentação → chave de legislatura ("53" até a corrente), ou null se fora das faixas conhecidas. */
 function leaClassificarPorLegislatura(dataApresentacao) {
   if (!dataApresentacao) return null;
   const data = dataApresentacao.slice(0, 10);
-  for (const leg of Object.keys(LEA_CFG)) {
-    const { inicio, fim } = LEA_CFG[leg];
+  for (const leg of leaListarLegislaturas()) {
+    const { inicio, fim } = leaCfg(leg);
     if (data >= inicio && data <= fim) return leg;
   }
   return null;
@@ -420,23 +491,76 @@ function leaCondicaoDaLegislatura(historico, leg) {
 }
 
 /**
+ * Monta o agregado de UMA legislatura (roster + autores + condição) a partir
+ * das leis já filtradas — o mesmo que o bot monta server-side. Falha parcial
+ * (um autor, uma condição) não derruba a coleta, mas é CONTADA: falha de
+ * autor impede a gravação (leaMotivosParaNaoGravar); de condição só vira "—".
+ */
+async function leaAgregar(leg, leis, { comCondicao = true, fase = () => {} } = {}) {
+  const rotulo = leaCfg(leg).rotulo;
+  fase(`${rotulo}: buscando o roster de deputados…`);
+  const roster = await leaBuscarRoster(leg);
+  if (!roster.length) throw new Error(`a Câmara ainda não publicou os deputados da ${leg}ª — tente de novo em alguns dias`);
+  const infoDep = new Map(roster.map(d => [d.id, d]));
+
+  fase(`${rotulo}: buscando autores de ${leis.length} projeto(s) convertido(s) em lei…`);
+  let falhasAutores = 0;
+  const autoresPorLei = await mapLimit(leis, 4, async (lei) => {
+    try { return await leaBuscarAutores(lei.id); } catch (e) { falhasAutores++; return []; }
+  });
+  const projetos = leis.map((lei, i) => ({ ...lei, autores: autoresPorLei[i] || [] }));
+
+  const totalPorDep = new Map();
+  for (const p of projetos) for (const depId of p.autores) {
+    totalPorDep.set(depId, (totalPorDep.get(depId) || 0) + 1);
+    if (!infoDep.has(depId)) infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' });
+  }
+
+  let condicaoPorDep = new Map();
+  if (comCondicao) {
+    fase(`${rotulo}: buscando condição titular/suplente de ${infoDep.size} deputado(s)…`);
+    const ids = [...infoDep.keys()];
+    const condicoes = await mapLimit(ids, 8, async (id) => {
+      try { return leaCondicaoDaLegislatura(await leaBuscarHistorico(id), leg); } catch (e) { return '—'; }
+    });
+    ids.forEach((id, i) => condicaoPorDep.set(id, condicoes[i]));
+  }
+
+  const ranking = [...infoDep.values()].map(d => ({
+    depId: d.id, nome: d.nome, partido: d.partido, uf: d.uf,
+    condicao: comCondicao ? (condicaoPorDep.get(d.id) || '—') : '—',
+    total: totalPorDep.get(d.id) || 0,
+  }));
+  return { rotulo, ranking, projetos, falhasAutores };
+}
+
+/**
  * Processa arquivos locais (já selecionados pelo usuário) para as legislaturas
  * escolhidas: lê e filtra cada arquivo, classifica cada lei pela DATA de
  * apresentação (não pelo ano do nome do arquivo — um arquivo de 2023 tem
  * proposições de janeiro/2023, que ainda são da legislatura anterior), e
- * depois monta o mesmo agregado (roster + autores + condição) que o bot monta
- * server-side. Falha parcial (um autor, uma condição) não derruba a coleta.
+ * depois monta o agregado. Anota quais anos da legislatura NÃO vieram entre
+ * os arquivos (pelo nome proposicoes-AAAA.json) — a gravação é bloqueada se
+ * faltar algum, porque cortaria um ano inteiro de leis.
  */
 async function leaProcessarLocal(legsEscolhidas, arquivos, { tipos = LEA_TIPOS_PADRAO, comCondicao = true, onFase } = {}) {
   const fase = (f) => { if (onFase) onFase(f); };
 
   const leisPorLeg = {};
+  const anosLidos = new Set();
+  const dataArquivos = {};
   for (const leg of legsEscolhidas) leisPorLeg[leg] = new Map();
   for (let i = 0; i < arquivos.length; i++) {
     const file = arquivos[i];
     fase(`Lendo "${file.name}" (arquivo ${i + 1}/${arquivos.length})…`);
     const json = await leaLerArquivoLocal(file, (rec, tot) =>
       fase(`Lendo "${file.name}"… ${(rec / 1048576).toFixed(1)}/${(tot / 1048576).toFixed(1)} MB`));
+    const m = String(file.name || '').match(/proposicoes-(\d{4})/);
+    if (m) {
+      anosLidos.add(Number(m[1]));
+      // Arquivo local: a melhor data disponível é a do arquivo no disco (≈ quando foi baixado).
+      if (file.lastModified) dataArquivos[m[1]] = new Date(file.lastModified).toISOString();
+    }
     fase(`Filtrando "${file.name}"…`);
     for (const lei of leaFiltrarProjetosLei(json, tipos)) {
       const leg = leaClassificarPorLegislatura(lei.dataApresentacao);
@@ -446,48 +570,83 @@ async function leaProcessarLocal(legsEscolhidas, arquivos, { tipos = LEA_TIPOS_P
 
   const resultado = {};
   for (const leg of legsEscolhidas) {
-    const rotulo = LEA_CFG[leg].rotulo;
-    fase(`${rotulo}: buscando o roster de deputados…`);
-    const roster = await leaBuscarRoster(leg);
-    const infoDep = new Map(roster.map(d => [d.id, d]));
-
-    const leis = [...leisPorLeg[leg].values()];
-    fase(`${rotulo}: buscando autores de ${leis.length} projeto(s) convertido(s) em lei…`);
-    const autoresPorLei = await mapLimit(leis, 4, async (lei) => {
-      try { return await leaBuscarAutores(lei.id); } catch (e) { return []; }
-    });
-    const projetos = leis.map((lei, i) => ({ ...lei, autores: autoresPorLei[i] || [] }));
-
-    const totalPorDep = new Map();
-    for (const p of projetos) for (const depId of p.autores) {
-      totalPorDep.set(depId, (totalPorDep.get(depId) || 0) + 1);
-      if (!infoDep.has(depId)) infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' });
-    }
-
-    let condicaoPorDep = new Map();
-    if (comCondicao) {
-      fase(`${rotulo}: buscando condição titular/suplente de ${infoDep.size} deputado(s)…`);
-      const ids = [...infoDep.keys()];
-      const condicoes = await mapLimit(ids, 8, async (id) => {
-        try { return leaCondicaoDaLegislatura(await leaBuscarHistorico(id), leg); } catch (e) { return '—'; }
-      });
-      ids.forEach((id, i) => condicaoPorDep.set(id, condicoes[i]));
-    }
-
-    const ranking = [...infoDep.values()].map(d => ({
-      depId: d.id, nome: d.nome, partido: d.partido, uf: d.uf,
-      condicao: comCondicao ? (condicaoPorDep.get(d.id) || '—') : '—',
-      total: totalPorDep.get(d.id) || 0,
-    }));
-
-    resultado[leg] = { rotulo, ranking, projetos };
+    const dados = await leaAgregar(leg, [...leisPorLeg[leg].values()], { comCondicao, fase });
+    const anosFaltando = leaAnosParaColetar(leg).filter(a => !anosLidos.has(a));
+    const datas = {};
+    for (const a of leaAnosParaColetar(leg)) if (dataArquivos[a]) datas[a] = dataArquivos[a];
+    resultado[leg] = { ...dados, anosFaltando, dataArquivos: datas, origem: 'extensão (arquivos locais)' };
   }
   return resultado;
 }
 
+/**
+ * "Coletar agora": baixa os arquivos em massa direto da Câmara (funciona
+ * porque esta é uma página da extensão com host_permissions — ver topo do
+ * arquivo), um ano por vez para não segurar dois arquivos grandes na memória,
+ * e monta o agregado. O Last-Modified de cada arquivo vira `dataArquivos` —
+ * a data do DADO da Câmara, não a do clique.
+ */
+async function leaColetarDaCamara(leg, { tipos = LEA_TIPOS_PADRAO, comCondicao = true, onFase } = {}) {
+  const fase = (f) => { if (onFase) onFase(f); };
+  const leis = new Map();
+  const anosFaltando = [];
+  const dataArquivos = {};
+  const anos = leaAnosParaColetar(leg);
+  for (let i = 0; i < anos.length; i++) {
+    const ano = anos[i];
+    fase(`Baixando proposicoes-${ano}.json da Câmara (${i + 1}/${anos.length}) — arquivo grande, pode levar um minuto…`);
+    try {
+      const res = await fetch(`${LEA_ARQUIVOS_URL}/proposicoes-${ano}.json`);
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      const lm = res.headers && res.headers.get ? res.headers.get('last-modified') : null;
+      if (lm) dataArquivos[ano] = new Date(lm).toISOString();
+      const json = await res.json();
+      fase(`Filtrando proposicoes-${ano}.json…`);
+      for (const lei of leaFiltrarProjetosLei(json, tipos)) {
+        if (leaClassificarPorLegislatura(lei.dataApresentacao) === leg && !leis.has(lei.id)) leis.set(lei.id, lei);
+      }
+    } catch (e) {
+      anosFaltando.push(ano);
+      fase(`⚠ ${ano} não baixou (${e.message}) — seguindo com os outros anos`);
+    }
+  }
+  const dados = await leaAgregar(leg, [...leis.values()], { comCondicao, fase });
+  return { ...dados, anosFaltando, dataArquivos, origem: 'extensão' };
+}
+
+/**
+ * Travas antes de gravar — o Firebase é da equipe toda, e o PUT substitui o
+ * dado inteiro. Bloqueia (devolve motivos) se faltou ano de arquivo ou se
+ * algum projeto ficou sem autores apurados. A comparação com o dado salvo
+ * (menos projetos que antes) não bloqueia: vira confirmação extra no clique.
+ */
+function leaMotivosParaNaoGravar(dados) {
+  const motivos = [];
+  if (dados.anosFaltando && dados.anosFaltando.length) {
+    motivos.push(`faltam os arquivos de ${dados.anosFaltando.join(', ')} — gravar assim cortaria esses anos inteiros`);
+  }
+  if (dados.falhasAutores) {
+    motivos.push(`autores não apurados para ${dados.falhasAutores} projeto(s) — o crédito dos deputados sairia menor`);
+  }
+  return motivos;
+}
+
+/** Nº de projetos já salvos no Firebase para a legislatura (lido na hora, sem cache). */
+async function leaProjetosSalvos(leg) {
+  const res = await fetch(FIREBASE_URL + LEA_ROOT + '/' + leg + '/projetos.json');
+  if (!res.ok) throw new Error('HTTP ' + res.status);
+  const p = await res.json();
+  return Array.isArray(p) ? p.length : (p ? Object.keys(p).length : 0);
+}
+
 /** Grava (PUT — substitui) o agregado de uma legislatura no Firebase compartilhado. */
 async function leaGravarFirebase(leg, dados) {
-  const body = { rotulo: dados.rotulo, ranking: dados.ranking, projetos: dados.projetos, atualizadoEm: new Date().toISOString() };
+  const body = {
+    rotulo: dados.rotulo, ranking: dados.ranking, projetos: dados.projetos,
+    atualizadoEm: new Date().toISOString(),
+    origem: dados.origem || 'extensão',
+    dataArquivos: dados.dataArquivos || {},
+  };
   const res = await fetch(FIREBASE_URL + LEA_ROOT + '/' + leg + '.json', {
     method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
   });
@@ -496,15 +655,39 @@ async function leaGravarFirebase(leg, dados) {
   return body;
 }
 
+/** Clique em "Gravar": travas, depois comparação com o salvo, depois confirmação. */
+async function leaGravarComTravas(leg, dados, status) {
+  const motivos = leaMotivosParaNaoGravar(dados);
+  if (motivos.length) return status(`${dados.rotulo}: NÃO gravado — ${motivos.join('; ')}.`, 'error');
+  let antes = null;
+  try { antes = await leaProjetosSalvos(leg); } catch (e) { /* sem comparação: segue para a confirmação normal */ }
+  if (antes !== null && antes > dados.projetos.length) {
+    if (!confirm(`Atenção: esta coleta tem ${dados.projetos.length} projeto(s) de ${dados.rotulo}, MENOS que os ${antes} já salvos.\n\n` +
+      'Lei não deixa de ser lei — isso costuma indicar coleta incompleta. Gravar mesmo assim, substituindo o dado da equipe toda?')) {
+      return status(`${dados.rotulo}: gravação cancelada (coleta com menos projetos que o dado salvo).`);
+    }
+  } else if (!confirm(`Gravar o agregado de ${dados.rotulo} no banco de dados? Isso SUBSTITUI o que já estiver lá para essa legislatura, para toda a equipe.`)) {
+    return;
+  }
+  try {
+    await leaGravarFirebase(leg, dados);
+    status(`${dados.rotulo}: gravado no banco de dados.`);
+  } catch (e) {
+    status(`Erro ao gravar ${dados.rotulo}: ${e.message}`, 'error');
+  }
+}
+
 function leaUpRenderResultado(resultado) {
   leaUpEl.resultado().innerHTML = Object.entries(resultado).map(([leg, d]) => {
     const comLei = d.ranking.filter(r => r.total > 0).length;
+    const motivos = leaMotivosParaNaoGravar(d);
     return `<div class="cv-cab" data-leg="${leg}" style="margin-top:10px">
       <h3>${cvEsc(d.rotulo)}</h3>
       <div class="sub">${d.projetos.length} projeto(s) convertido(s) em lei · ${comLei} deputado(s) com ao menos 1</div>
+      ${motivos.length ? `<div class="cv-aviso">⚠ Não pode ser gravado: ${cvEsc(motivos.join('; '))}.</div>` : ''}
       <div class="cv-acoes">
         <button class="btn-gerar lea-up-ver" data-leg="${leg}" style="margin-top:0">Ver no ranking acima</button>
-        <button class="btn-gerar lea-up-salvar" data-leg="${leg}" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)">Gravar no banco de dados</button>
+        <button class="btn-gerar lea-up-salvar" data-leg="${leg}" style="margin-top:0;background:rgba(255,255,255,0.06);color:var(--text-dim)"${motivos.length ? ' disabled' : ''}>Gravar no banco de dados</button>
       </div>
     </div>`;
   }).join('');
@@ -519,19 +702,19 @@ function leaUpRenderResultado(resultado) {
   });
   document.querySelectorAll('#leaUpResultado .lea-up-salvar').forEach(btn => {
     btn.addEventListener('click', async () => {
-      const leg = btn.dataset.leg;
-      if (!confirm(`Gravar o agregado de ${resultado[leg].rotulo} no banco de dados? Isso SUBSTITUI o que já estiver lá para essa legislatura, para toda a equipe.`)) return;
       btn.disabled = true;
-      try {
-        await leaGravarFirebase(leg, resultado[leg]);
-        leaUpStatus(`${resultado[leg].rotulo}: gravado no banco de dados.`);
-      } catch (e) {
-        leaUpStatus(`Erro ao gravar ${resultado[leg].rotulo}: ${e.message}`, 'error');
-      } finally {
-        btn.disabled = false;
-      }
+      try { await leaGravarComTravas(btn.dataset.leg, resultado[btn.dataset.leg], leaUpStatus); }
+      finally { btn.disabled = false; }
     });
   });
+}
+
+/** Põe o resultado de uma coleta/processamento no cache local (sem gravar) e mostra os botões. */
+function leaUpMostrar(resultado) {
+  for (const [leg, d] of Object.entries(resultado)) {
+    lea.cache[leg] = { rotulo: d.rotulo, ranking: d.ranking, projetos: d.projetos, atualizadoEm: null };
+  }
+  leaUpRenderResultado(resultado);
 }
 
 async function leaUpProcessarClick() {
@@ -551,10 +734,7 @@ async function leaUpProcessarClick() {
     });
     leaUpProgresso(false);
     leaUpStatus('Processamento concluído.');
-    for (const [leg, d] of Object.entries(resultado)) {
-      lea.cache[leg] = { rotulo: d.rotulo, ranking: d.ranking, projetos: d.projetos, atualizadoEm: null };
-    }
-    leaUpRenderResultado(resultado);
+    leaUpMostrar(resultado);
   } catch (e) {
     leaUpProgresso(false);
     leaUpStatus('Erro ao processar: ' + e.message, 'error');
@@ -564,7 +744,31 @@ async function leaUpProcessarClick() {
   }
 }
 
+/** "Coletar agora pela extensão" — legislatura corrente, direto da Câmara. */
+async function leaColetarAgoraClick(leg) {
+  leg = leg || leaLegislaturaAtual();
+  const botoes = document.querySelectorAll('.lea-coletar');
+  botoes.forEach(b => { b.disabled = true; });
+  leaUpEl.resultado().innerHTML = '';
+  try {
+    const dados = await leaColetarDaCamara(leg, {
+      comCondicao: leaUpEl.condicao() ? leaUpEl.condicao().checked : true,
+      onFase: (f) => { leaUpStatus(f, 'loading'); },
+    });
+    leaUpStatus(`Coleta da ${leg}ª concluída — confira e grave abaixo.`);
+    leaUpMostrar({ [leg]: dados });
+    const alvo = document.getElementById('leaUpResultado');
+    if (alvo && alvo.scrollIntoView) alvo.scrollIntoView({ behavior: 'smooth' });
+  } catch (e) {
+    leaUpStatus('Erro na coleta: ' + e.message, 'error');
+    console.error(e);
+  } finally {
+    botoes.forEach(b => { b.disabled = false; });
+  }
+}
+
 // ---------- ligação ----------
+const LEA_PADRAO = leaRenderLegislaturas();
 if (leaEl.buscar()) {
   leaEl.buscar().addEventListener('click', leaConsultar);
   if (leaEl.limpar()) leaEl.limpar().addEventListener('click', leaLimparClick);
@@ -582,4 +786,9 @@ if (leaUpEl.processar()) {
     leaUpEl.processar().disabled = !(leaUpEl.arquivos().files || []).length;
   });
   leaUpEl.processar().addEventListener('click', leaUpProcessarClick);
+}
+const leaBtnColetar = document.getElementById('leaColetar');
+if (leaBtnColetar) {
+  leaBtnColetar.textContent = `Coletar agora a ${leaLegislaturaAtual()}ª pela extensão`;
+  leaBtnColetar.addEventListener('click', () => leaColetarAgoraClick());
 }
