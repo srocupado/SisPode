@@ -49,6 +49,7 @@ let app = {
   config: { provedor: 'gemini', apiKey: '', modelo: 'gemini-2.5-flash' },
   sistema:  'analise',  // aba ativa: analise | demandas | email
   demandas: [],         // sistema 2 — registro de demandas (Firebase)
+  demSoAbertas: false,  // filtro "só não atendidas" — começa SEMPRE desligado (não é lembrado)
   selEmail: new Set(),  // sistema 3 — ids das demandas marcadas p/ e-mail
 };
 
@@ -147,6 +148,10 @@ function registrarEventos() {
   document.getElementById('btn-dem-buscar').addEventListener('click', buscarDadosDemanda);
   document.getElementById('btn-dem-registrar').addEventListener('click', registrarDemanda);
   document.getElementById('btn-relatorio-demandas').addEventListener('click', abrirModalRelatorio);
+  document.getElementById('dem-so-abertas')?.addEventListener('change', e => {
+    app.demSoAbertas = e.target.checked;
+    renderizarDemandas();
+  });
   document.getElementById('btn-rel-gerar').addEventListener('click', gerarRelatorioDemandas);
   const marcarRel = v => e => { e.preventDefault();
     document.querySelectorAll('#rel-deputados input').forEach(cb => { cb.checked = v; }); };
@@ -2517,6 +2522,14 @@ const grupoDemanda = d => `${d.tratamento || 'Deputado'} ${d.deputado}`.trim();
 const ordemPorNome = (a, b) =>
   a.replace(/^Deputad[oa] /, '').localeCompare(b.replace(/^Deputad[oa] /, ''), 'pt-BR');
 
+/** Liga/desliga o filtro "só não atendidas" e mantém o checkbox em sincronia. */
+function definirFiltroDemandas(soAbertas) {
+  app.demSoAbertas = !!soAbertas;
+  const cb = document.getElementById('dem-so-abertas');
+  if (cb) cb.checked = app.demSoAbertas;
+  renderizarDemandas();
+}
+
 function renderizarDemandas() {
   const wrap = document.getElementById('dem-wrap');
   const side = document.getElementById('dem-lista-deputados');
@@ -2526,29 +2539,47 @@ function renderizarDemandas() {
       Use <strong>+ Nova demanda</strong> na barra lateral: você informa deputado, proposição e a natureza da demanda — autoria, ementa e situação vêm da API da Câmara.</p></div>`;
     return;
   }
+  // Os grupos são de TODAS as demandas: a contagem "em aberto / total" de cada
+  // deputado não pode mudar com o filtro. O filtro decide só o que se mostra.
   const grupos = new Map();
   for (const d of app.demandas) {
     const g = grupoDemanda(d);
     if (!grupos.has(g)) grupos.set(g, []);
     grupos.get(g).push(d);
   }
-  const nomes = [...grupos.keys()].sort(ordemPorNome);
+  const abertasDe = ds => ds.filter(d => !d.atendimento);
+  const soAbertas = app.demSoAbertas;
+  const visiveis = ds => (soAbertas ? abertasDe(ds) : ds);
+  // Com o filtro ligado, deputado sem nenhuma demanda em aberto sai da lista.
+  const nomes = [...grupos.keys()].sort(ordemPorNome).filter(n => visiveis(grupos.get(n)).length);
+  const ocultas = soAbertas ? app.demandas.filter(d => d.atendimento).length : 0;
 
-  side.innerHTML = nomes.map(n => `
-    <div class="dem-side-dep" data-grupo="${esc(n)}">
+  side.innerHTML = nomes.length ? nomes.map(n => {
+    const ds = grupos.get(n);
+    return `
+    <div class="dem-side-dep" data-grupo="${esc(n)}" title="${abertasDe(ds).length} em aberto de ${ds.length}">
       <span>${esc(n.replace(/^Deputad[oa] /, ''))}</span>
-      <span class="qtd">${grupos.get(n).length}</span>
-    </div>`).join('');
+      <span class="qtd"><b>${abertasDe(ds).length}</b> / ${ds.length}</span>
+    </div>`;
+  }).join('') : '<div class="empty-state"><p>Nenhuma demanda em aberto</p></div>';
   side.querySelectorAll('.dem-side-dep').forEach(el => el.addEventListener('click', () => {
     document.querySelector(`.dem-grupo[data-grupo="${cssEscape(el.dataset.grupo)}"]`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }));
 
-  wrap.innerHTML = nomes.map(n => `
+  // O aviso é o que impede o filtro ligado de passar despercebido: ele esconde
+  // demandas, e quem esquece que ligou acha que o deputado tem menos pedidos.
+  const aviso = ocultas
+    ? `<div class="dem-aviso-filtro">Filtro ligado: ${ocultas} demanda(s) atendida(s) estão ocultas. <a data-mostrar-todas>Mostrar todas</a></div>`
+    : '';
+  wrap.innerHTML = aviso + (nomes.length
+    ? nomes.map(n => `
     <div class="dem-grupo" data-grupo="${esc(n)}">
       <div class="dem-grupo-titulo">${esc(n)}</div>
-      ${grupos.get(n).map(cardDemandaHTML).join('')}
-    </div>`).join('');
+      ${visiveis(grupos.get(n)).map(cardDemandaHTML).join('')}
+    </div>`).join('')
+    : `<div class="empty-state"><p>Nenhuma demanda em aberto — todas as ${app.demandas.length} registradas foram atendidas.</p></div>`);
+  wrap.querySelector('[data-mostrar-todas]')?.addEventListener('click', () => definirFiltroDemandas(false));
 
   wrap.querySelectorAll('[data-acao]').forEach(btn => btn.addEventListener('click', () => {
     const d = app.demandas.find(x => x.id === btn.dataset.id);
