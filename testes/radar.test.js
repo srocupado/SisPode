@@ -1,11 +1,14 @@
 // Aba "Radar temático" do módulo Relatórios.
 //
-// Duas medições da API em 18/09/2026 desenharam esta tela, e as duas estão
+// Duas medições da API (18/09/2026, a primeira revista em 28/09) desenharam esta tela, e as duas estão
 // travadas aqui:
 //
-//  1. `codTema` NÃO compõe com `dataApresentacaoInicio/Fim` — a combinação
-//     devolve HTTP 400. Compõe com `ano`. Se alguém "melhorar" a tela trocando
-//     o recorte por intervalo de datas, a busca passa a falhar sempre.
+//  1. A API recusa intervalo de datas maior que 3 meses, com qualquer filtro
+//     (HTTP 400, "A diferença entre as datas não pode ser maior que 3 meses" —
+//     medido em 28/09/2026; em 18/09 isso foi lido como "tema não compõe com
+//     datas"). Por isso o recorte é por TRIMESTRE de apresentação. E não por
+//     `ano=`: ele perde os itens com `ano: 0` (pareceres, emendas) — PRL com
+//     ano=2025 devolve 5; apresentados só em junho/2025 são 1.659.
 //  2. Marcar a autoria da bancada NÃO precisa de uma chamada por proposição:
 //     a mesma busca restrita a `siglaPartidoAutor` devolve o subconjunto do
 //     partido, e cruzar os ids resolve em duas chamadas por ano. Numa busca de
@@ -47,17 +50,22 @@ const ctx = {
     api.chamadas.push(u);
     if (/\/referencias\/proposicoes\/codTema/.test(u)) return resp({ dados: api.temas });
     if (/\/proposicoes\?/.test(u)) {
-      // A armadilha, reproduzida: tema com intervalo de datas é HTTP 400.
-      if (/codTema=/.test(u) && /dataApresentacao(Inicio|Fim)=/.test(u)) {
-        return erro(400, '{"status":400,"detail":"Parâmetro(s) inválido(s)."}');
-      }
       const q = new URL(u).searchParams;
+      // A armadilha, reproduzida: intervalo de datas maior que 3 meses é HTTP 400.
+      const di = q.get('dataApresentacaoInicio'), df = q.get('dataApresentacaoFim');
+      if (di && df) {
+        const lim = new Date(di + 'T00:00:00Z'); lim.setUTCMonth(lim.getUTCMonth() + 3);
+        if (new Date(df + 'T00:00:00Z') > lim) {
+          return erro(400, '{"status":400,"detail":"A diferença entre as datas não pode ser maior que 3 meses"}');
+        }
+      }
       const tema = q.get('codTema'), ano = q.get('ano'), tipo = q.get('siglaTipo');
       const partido = q.get('siglaPartidoAutor'), kw = q.get('keywords');
       const pag = Number(q.get('pagina') || 1);
       let lista = api.props.filter(p =>
         (!tema || String(p.tema) === tema) &&
         (!ano || String(p.ano) === ano) &&
+        (!di || p.dataApresentacao.slice(0, 10) >= di) && (!df || p.dataApresentacao.slice(0, 10) <= df) &&
         (!tipo || p.siglaTipo === tipo) &&
         (!partido || p.partido === partido) &&
         (!kw || new RegExp(kw, 'i').test(p.ementa)));
@@ -80,14 +88,17 @@ const av = e => vm.runInContext(e, ctx);
 // ---------- material ----------
 api.temas = [{ cod: 43, nome: 'Direito Penal e Processual Penal' }, { cod: 46, nome: 'Educação' }];
 let id = 5000;
-const nova = (tema, ano, partido, siglaTipo, ementa) => {
-  api.props.push({ id: ++id, siglaTipo: siglaTipo || 'PL', numero: id, ano, tema,
+const nova = (tema, ano, partido, siglaTipo, ementa, anoApi, mesDia) => {
+  api.props.push({ id: ++id, siglaTipo: siglaTipo || 'PL', numero: id, ano: anoApi === undefined ? ano : anoApi, tema,
                    partido, ementa: ementa || `Altera a lei sobre o assunto ${id}.`,
-                   dataApresentacao: `${ano}-05-10T10:00` });
+                   dataApresentacao: `${ano}-${mesDia || '05-10'}T10:00` });
 };
 // Tema 43 em 2026: 8 proposições, 3 do PODE. E um PL de outro tipo e outro ano.
 for (let i = 0; i < 5; i++) nova(43, 2026, 'PT');
-for (let i = 0; i < 3; i++) nova(43, 2026, 'PODE');
+for (let i = 0; i < 2; i++) nova(43, 2026, 'PODE');
+// Um parecer do PODE que a API manda com `ano: 0`, apresentado em outro trimestre:
+// com `ano=2026` ele sumia; pela data de apresentação, entra.
+nova(43, 2026, 'PODE', 'PRL', 'Parecer do Relator, pela aprovação.', 0, '10-20');
 nova(43, 2026, 'PT', 'PEC');
 nova(43, 2025, 'PODE');
 nova(46, 2026, 'PODE', 'PL', 'Trata de saneamento nas escolas.');
@@ -120,7 +131,7 @@ const marcarTema = cod => {
        'por /referencias/proposicoes/codTema');
   }
 
-  console.log('\n== o recorte é por ANO, porque a API recusa datas com tema ==');
+  console.log('\n== o recorte é por TRIMESTRE de apresentação, porque a API recusa mais de 3 meses ==');
   {
     marcarTema(43);
     document.getElementById('rdrAnoIni').value = '2026';
@@ -130,12 +141,14 @@ const marcarTema = cod => {
     api.chamadas.length = 0;
     await av('rdrConsultar()');
 
-    ok(!api.chamadas.some(c => /dataApresentacao/.test(c)),
-       'nenhuma chamada mistura tema com intervalo de datas — seria HTTP 400');
-    ok(api.chamadas.every(c => !/proposicoes\?/.test(c) || /[?&]ano=\d{4}/.test(c)),
-       'toda busca de proposição passa o ano');
+    const buscas = api.chamadas.filter(c => /proposicoes\?/.test(c));
+    ok(buscas.every(c => /dataApresentacaoInicio=2026-\d\d-01&dataApresentacaoFim=2026-\d\d-\d\d/.test(c)),
+       'toda busca de proposição passa um trimestre de apresentação');
+    ok(!buscas.some(c => /[?&]ano=/.test(c)), 'e nenhuma usa `ano=`, que perde os itens com ano 0');
+    ok(!/Erro/.test(document.getElementById('rdrStatus').textContent), 'nenhuma estoura o limite de 3 meses da API');
     const u = av('rdr.ultimo');
     ok(u.itens.length === 9, `as 9 do tema 43 em 2026 entram (${u.itens.length})`);
+    ok(u.itens.some(p => p.siglaTipo === 'PRL'), 'inclusive o parecer com `ano: 0`');
   }
 
   console.log('\n== a bancada é marcada sem uma chamada por proposição ==');
@@ -143,8 +156,8 @@ const marcarTema = cod => {
     const u = av('rdr.ultimo');
     ok(u.nBancada === 3, `3 são do PODE (${u.nBancada})`);
     const buscas = api.chamadas.filter(c => /proposicoes\?/.test(c)).length;
-    ok(buscas === 2,
-       `duas chamadas para nove proposições — a do conjunto e a do partido (${buscas})`);
+    ok(buscas === 8,
+       `oito chamadas para nove proposições — a do conjunto e a do partido, em cada trimestre (${buscas})`);
     ok(api.chamadas.some(c => /siglaPartidoAutor=PODE/.test(c)),
        'a segunda é a mesma busca restrita ao partido');
 
@@ -179,8 +192,8 @@ const marcarTema = cod => {
     const u = av('rdr.ultimo');
     ok(u.itens.length === 10, `os dois anos somam 10 (${u.itens.length})`);
     ok(new Set(u.itens.map(p => p.id)).size === u.itens.length, 'sem proposição repetida');
-    const anos = [...new Set(api.chamadas.map(c => (c.match(/[?&]ano=(\d{4})/) || [])[1]).filter(Boolean))];
-    ok(anos.sort().join(',') === '2025,2026', `uma consulta por ano (${anos.join(', ')})`);
+    const anos = [...new Set(api.chamadas.map(c => (c.match(/dataApresentacaoInicio=(\d{4})/) || [])[1]).filter(Boolean))];
+    ok(anos.sort().join(',') === '2025,2026', `os dois anos consultados (${anos.join(', ')})`);
   }
 
   console.log('\n== os filtros compõem ==');

@@ -5,10 +5,16 @@
 //
 // Duas medições de 18/09/2026 desenharam esta tela:
 //
-//  1. `codTema` NÃO compõe com `dataApresentacaoInicio/Fim`: a combinação
-//     devolve HTTP 400. Compõe com `ano`. Por isso o recorte aqui é por ano, e
-//     um intervalo de anos vira uma consulta por ano — não é preguiça de
-//     interface, é o que a API aceita.
+//  1. O recorte é pela DATA DE APRESENTAÇÃO, um TRIMESTRE por consulta. A
+//     API recusa intervalo de datas maior que 3 meses, com QUALQUER filtro
+//     ("A diferença entre as datas não pode ser maior que 3 meses", HTTP 400 —
+//     medido em 28/09/2026). Em 18/09 isso foi lido como "tema não compõe com
+//     datas", porque o teste usou o ano inteiro; tema com trimestre funciona
+//     (codTema=46 em jun–ago/2025: 200).
+//     O recorte antigo, por `ano=`, perdia em silêncio o que a API manda com
+//     `ano: 0` — pareceres, emendas, substitutivos. Medido: PRL com ano=2025
+//     devolve 5; PRL apresentados só em junho/2025 são 1.659. É o mesmo defeito
+//     que a aba Produção já contorna (prdColetar).
 //  2. Marcar a autoria da bancada NÃO precisa de uma chamada por proposição.
 //     A mesma busca, repetida com `siglaPartidoAutor=PODE`, devolve o
 //     subconjunto do partido; cruzar os ids resolve em UMA chamada a mais por
@@ -19,9 +25,9 @@
 
 const RDR_PARTIDO = 'PODE';
 
-// Teto de páginas por ano. A API devolve 100 por página e não avisa que cortou;
-// 20 páginas são 2.000 proposições num ano num tema, o que já é mais do que
-// alguém lê. Passando disso, a tela avisa em vez de mentir um total.
+// Teto de páginas por TRIMESTRE. A API devolve 100 por página e não avisa que
+// cortou; 20 páginas são 2.000 proposições num trimestre num recorte, o que já
+// é mais do que alguém lê. Passando disso, a tela avisa em vez de mentir um total.
 const RDR_TETO_PAGINAS = 20;
 
 const rdr = { temas: null, ultimo: null };
@@ -65,19 +71,36 @@ async function rdrCarregarTemas() {
   return rdr.temas;
 }
 
-/** Uma busca, paginada, para um ano. Devolve { itens, truncado }. */
+/** "PL 1234/2025"; com `ano: 0` (pareceres, emendas), o ano da apresentação — "PRL 3/0" não designa nada. */
+function rdrDesignacao(p) {
+  const ano = Number(p.ano) ? p.ano : String(p.dataApresentacao || '').slice(0, 4);
+  return `${p.siglaTipo} ${p.numero}${ano ? '/' + ano : ''}`;
+}
+
+/** Os quatro trimestres do ano — a API não aceita intervalo maior que 3 meses. */
+function rdrTrimestres(ano) {
+  return [['01-01', '03-31'], ['04-01', '06-30'], ['07-01', '09-30'], ['10-01', '12-31']]
+    .map(([i, f]) => [`${ano}-${i}`, `${ano}-${f}`]);
+}
+
+/** Uma busca, paginada, para um ano — um trimestre por vez. Devolve { itens, truncado }. */
 async function rdrBuscarAno(base, ano) {
-  let url = API_PROP + '?' + base + '&ano=' + ano + '&itens=100&ordem=DESC&ordenarPor=id';
   const itens = [];
-  let p = 0;
-  while (url && p < RDR_TETO_PAGINAS) {
-    const j = await fetchJson(url);
-    itens.push(...(j.dados || []));
-    const next = (j.links || []).find(l => l.rel === 'next');
-    url = next ? next.href : null;
-    p++;
+  let truncado = false;
+  for (const [ini, fim] of rdrTrimestres(ano)) {
+    let url = API_PROP + '?' + base + '&dataApresentacaoInicio=' + ini + '&dataApresentacaoFim=' + fim
+            + '&itens=100&ordem=DESC&ordenarPor=id';
+    let p = 0;
+    while (url && p < RDR_TETO_PAGINAS) {
+      const j = await fetchJson(url);
+      itens.push(...(j.dados || []));
+      const next = (j.links || []).find(l => l.rel === 'next');
+      url = next ? next.href : null;
+      p++;
+    }
+    truncado = truncado || !!url;
   }
-  return { itens, truncado: !!url };
+  return { itens, truncado };
 }
 
 /**
@@ -144,7 +167,7 @@ function rdrRender(dados) {
 
     ${lista.length ? `<div class="cv-lista">
       ${lista.map(p => `<div class="cv-item${daBancada.has(p.id) ? ' rdr-bancada' : ''}">
-        <div class="prd-sig">${e(p.siglaTipo)} ${e(p.numero)}/${e(p.ano)}</div>
+        <div class="prd-sig">${e(rdrDesignacao(p))}</div>
         <div class="cv-corpo">
           <div class="cv-obj">${e(String(p.ementa || '').replace(/\s+/g, ' ').slice(0, 300) || '(sem ementa)')}</div>
           <div class="cv-meta">Apresentada em ${e(formatarData(String(p.dataApresentacao || '').slice(0, 10)))}</div>
@@ -157,7 +180,9 @@ function rdrRender(dados) {
       Desmarque "só da bancada" para ver as ${itens.length} da Casa.</div>`}`;
 
   rdrEl.resultado().innerHTML = html;
-  rdr.ultimo = { itens, daBancada, filtro, lista, tipoOrd, nBancada };
+  // `truncado` fica guardado: o "só da bancada" redesenha a partir daqui, e
+  // sem ele o aviso de lista incompleta sumia ao marcar a caixa.
+  rdr.ultimo = { itens, daBancada, truncado, filtro, lista, tipoOrd, nBancada };
   const b1 = document.getElementById('rdrExportar');
   if (b1) b1.addEventListener('click', rdrExportar);
   const b2 = document.getElementById('rdrExportarPdf');
@@ -175,7 +200,8 @@ async function rdrConsultar() {
   if (!tema && !palavra) { rdrStatus('Escolha um tema ou informe uma palavra-chave.', 'error'); return; }
   if (!/^\d{4}$/.test(anoIni) || !/^\d{4}$/.test(anoFim)) { rdrStatus('Informe os anos com quatro dígitos.', 'error'); return; }
   if (Number(anoIni) > Number(anoFim)) { rdrStatus('O ano inicial é posterior ao final.', 'error'); return; }
-  if (Number(anoFim) - Number(anoIni) > 8) { rdrStatus('Limite de 8 anos por consulta.', 'error'); return; }
+  // 8 anos CONTANDO os dois extremos: 2019–2026 passa, 2018–2026 (9 anos) não.
+  if (Number(anoFim) - Number(anoIni) + 1 > 8) { rdrStatus('Limite de 8 anos por consulta.', 'error'); return; }
 
   rdrEl.resultado().innerHTML = '';
   rdrEl.buscar().disabled = true;
@@ -204,7 +230,7 @@ function rdrExportar() {
   const { lista, daBancada, filtro } = rdr.ultimo;
   const rows = [['Tipo', 'Número', 'Ano', 'Apresentada', 'Da bancada', 'Ementa', 'Ficha']];
   for (const p of lista) {
-    rows.push([p.siglaTipo, p.numero, p.ano,
+    rows.push([p.siglaTipo, p.numero, Number(p.ano) ? p.ano : String(p.dataApresentacao || '').slice(0, 4),
       String(p.dataApresentacao || '').slice(0, 10).split('-').reverse().join('/'),
       daBancada.has(p.id) ? 'sim' : '',
       String(p.ementa || '').replace(/\s+/g, ' '),
@@ -255,7 +281,7 @@ function rdrHtmlPDF(logoDataUrl) {
   <table>
     <tr><th style="width:92px">Matéria</th><th>Ementa</th><th style="width:70px">Apresentada</th></tr>
     ${lista.map(p => `<tr class="${daBancada.has(p.id) ? 'banc' : ''}">
-      <td><b><a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${p.id}">${e(p.siglaTipo)} ${e(p.numero)}/${e(p.ano)}</a></b>
+      <td><b><a href="https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${p.id}">${e(rdrDesignacao(p))}</a></b>
         ${daBancada.has(p.id) ? '<div class="marca">BANCADA</div>' : ''}</td>
       <td>${e(String(p.ementa || '').replace(/\s+/g, ' ').slice(0, 320) || '—')}</td>
       <td class="c">${e(String(p.dataApresentacao || '').slice(0, 10).split('-').reverse().join('/'))}</td>

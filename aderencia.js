@@ -15,12 +15,21 @@ const statusEl    = document.getElementById('status');
 const resultadoEl = document.getElementById('resultado');
 
 // ── PERÍODO PADRÃO ────────────────────────────────────────────────────────────
+/**
+ * Data LOCAL em AAAA-MM-DD. toISOString() converte para UTC: depois das 21h
+ * em Brasília ele já devolve o dia seguinte, e o formulário abria com a data
+ * final de amanhã.
+ */
+function isoLocal(d) {
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+
 (function inicializarDatas() {
   const hoje     = new Date();
   const mesAtras = new Date();
   mesAtras.setDate(mesAtras.getDate() - 30);
-  dataIniEl.value = mesAtras.toISOString().slice(0, 10);
-  dataFimEl.value = hoje.toISOString().slice(0, 10);
+  dataIniEl.value = isoLocal(mesAtras);
+  dataFimEl.value = isoLocal(hoje);
 })();
 
 [dataIniEl, dataFimEl].forEach(el => {
@@ -281,7 +290,9 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
     }
     if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0, possiveis: 0 };
     buckets[key].aderiu += e.adherentCount;
-    buckets[key].possiveis += partySize;
+    // A bancada de CADA votação (quem era do partido naquele dia); o
+    // partySize fixo fica só para quem chama sem essa informação.
+    buckets[key].possiveis += (e.possiveis != null ? e.possiveis : partySize);
     buckets[key].count++;
   });
 
@@ -376,9 +387,15 @@ function drawTemporalChart(canvas, groups) {
 }
 
 // ── FETCH VOTAÇÕES ────────────────────────────────────────────────────────────
+/**
+ * Votações do período. Pede-se à API um dia A MAIS e descarta-se o excedente:
+ * o intervalo da API perde quase todo o último dia — medido em 28/09/2026, a
+ * sessão de 13/09/2023 teve 14 votações no Plenário, e "13/09 a 13/09" devolve
+ * 1; "13/09 a 14/09", as 14. Mesma correção da aba "Como votou" (cvPorPeriodo).
+ */
 async function fetchVotacoesRange(dataIni, dataFim) {
   const pages = [];
-  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + dataFim + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
+  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + cvDiaSeguinte(dataFim) + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
   let paginas = 0;
   while (url && paginas < 20) {
     const json = await fetchJson(url);
@@ -387,7 +404,92 @@ async function fetchVotacoesRange(dataIni, dataFim) {
     url = next ? next.href : null;
     paginas++;
   }
-  return pages;
+  return pages.filter(v => !v.data || (String(v.data) >= dataIni && String(v.data) <= dataFim));
+}
+
+// ── BANCADA NA DATA DE CADA VOTAÇÃO ──────────────────────────────────────────
+// A aderência do partido é medida contra quem ERA do partido, e estava em
+// exercício, no momento de cada votação — não contra a bancada de hoje. Com a
+// bancada de hoje, o numerador contava votos de quem saiu do partido depois
+// (o voto registra a sigla da época) e o denominador cobrava presença de quem
+// só entrou depois; em período de janela partidária, "Ausente" podia sair
+// negativo.
+
+/** Legislatura de uma data: posse em 1º/fev de 2023 (57ª), 2027 (58ª)… */
+function aderLegislaturaDaData(iso) {
+  const [a, m] = String(iso).slice(0, 10).split('-').map(Number);
+  return Math.floor(((m >= 2 ? a : a - 1) - 1795) / 4);
+}
+
+/**
+ * Partido e situação do deputado num instante, pelo /historico. Só valem as
+ * entradas da legislatura daquele instante: a API data com 2023 registros de
+ * legislaturas antigas ("Partido no início da legislatura" da 54ª aparece em
+ * 01/02/2023), e ordenar tudo junto por data daria o partido errado.
+ */
+function aderSituacaoNaData(historico, quando) {
+  const t = String(quando || '').slice(0, 16);
+  const leg = aderLegislaturaDaData(t);
+  const doMandato = (historico || [])
+    .filter(h => Number(h.idLegislatura) === leg && String(h.dataHora || '').slice(0, 16) <= t)
+    .sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)));
+  if (!doMandato.length) return null;
+  const ultimo = doMandato[doMandato.length - 1];
+  // "Nome/partido no início da legislatura" vem sem situação: a situação em
+  // vigor é a da última entrada que a informa.
+  let situacao = null;
+  for (let i = doMandato.length - 1; i >= 0; i--) if (doMandato[i].situacao) { situacao = doMandato[i].situacao; break; }
+  return { partido: ultimo.siglaPartido || '', situacao };
+}
+
+/**
+ * Quem conta como bancada em cada votação. Candidatos: a bancada de hoje mais
+ * todo deputado que votou pela sigla em alguma votação do período. Para cada
+ * votação:
+ *  - quem VOTOU: é da bancada se o voto registra a sigla (o registro do voto é
+ *    a fonte mais direta do partido naquele momento);
+ *  - quem NÃO votou: é da bancada se o histórico diz que estava no partido e em
+ *    exercício — é esse o ausente que se cobra;
+ *  - histórico ilegível: cai na regra antiga (bancada de hoje) e é contado,
+ *    para a tela avisar.
+ * Limite conhecido: quem era do partido, faltou a TODAS as votações do período
+ * e já saiu não aparece como candidato — não há de onde tirá-lo sem varrer a
+ * Câmara inteira.
+ */
+async function aderBancadaPorVotacao(sigla, bench, qualifying, aoAndar) {
+  const candidatos = new Map();
+  for (const d of bench) {
+    candidatos.set(d.id, { id: d.id, nome: d.nome, siglaUf: d.siglaUf, naBancadaAtual: true, historico: null });
+  }
+  for (const e of qualifying) for (const v of e.votos) {
+    const d = v.deputado_;
+    if (d && d.siglaPartido === sigla && !candidatos.has(d.id)) {
+      candidatos.set(d.id, { id: d.id, nome: d.nome, siglaUf: d.siglaUf, naBancadaAtual: false, historico: null });
+    }
+  }
+  const lista = [...candidatos.values()];
+  let falhasHistorico = 0;
+  await mapLimit(lista, 8, async c => {
+    try { c.historico = (await fetchJson(API_DEPS + '/' + c.id + '/historico')).dados || []; }
+    catch (e) { falhasHistorico++; }
+  }, aoAndar);
+
+  for (const e of qualifying) {
+    const votoDe = new Map();
+    for (const v of e.votos) if (v.deputado_) votoDe.set(v.deputado_.id, v);
+    e.membros = [];
+    for (const c of lista) {
+      const v = votoDe.get(c.id);
+      let membro;
+      if (v) membro = v.deputado_.siglaPartido === sigla;
+      else if (c.historico) {
+        const s = aderSituacaoNaData(c.historico, e.votacao.dataHoraRegistro);
+        membro = !!s && s.partido === sigla && s.situacao === 'Exercício';
+      } else membro = c.naBancadaAtual;
+      if (membro) e.membros.push({ id: c.id, nome: c.nome, siglaUf: c.siglaUf, tipoVoto: v ? v.tipoVoto : null });
+    }
+  }
+  return { candidatos: lista, falhasHistorico };
 }
 
 // ── GERAR RELATÓRIO ───────────────────────────────────────────────────────────
@@ -483,59 +585,67 @@ async function gerarRelatorio() {
       return;
     }
 
-    // 5. Bancada atual
+    // 5. Bancada de hoje (ponto de partida dos candidatos) e bancada na data
+    //    de cada votação — ver aderBancadaPorVotacao.
     showStatus('Carregando bancada do ' + sigla + '...', 'loading');
-    const benchJ    = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
-    const bench     = benchJ.dados || [];
-    const partySize = bench.length;
+    const benchJ = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
+    const bench  = benchJ.dados || [];
+    const { candidatos, falhasHistorico } = await aderBancadaPorVotacao(sigla, bench, qualifying, (f, t) =>
+      showStatus('Conferindo o partido de cada deputado na data de cada votação (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
 
-    if (partySize === 0) {
+    if (!candidatos.length) {
       clearStatus();
       resultadoEl.innerHTML = '<div class="status error">Nenhum deputado encontrado para "' + sigla + '".</div>';
       return;
     }
 
-    // 6. Métricas 3-state por votação
+    // 6. Métricas 3-state por votação, sobre a bancada DAQUELA votação
     qualifying.forEach(e => {
-      const partyVotes = e.votos.filter(v => v.deputado_ && v.deputado_.siglaPartido === sigla);
       let aderiu = 0, divergiu = 0;
-      partyVotes.forEach(v => {
-        const s = classifyVote(v.tipoVoto, e.govOrient);
+      e.membros.forEach(m => {
+        const s = classifyVote(m.tipoVoto, e.govOrient);
         if (s === 'aderente')  aderiu++;
         if (s === 'divergente') divergiu++;
       });
+      e.possiveis      = e.membros.length;
       e.adherentCount  = aderiu;
       e.divergentCount = divergiu;
-      e.ausenteCount   = partySize - (aderiu + divergiu);
-      e.partyVotes     = partyVotes;
-      e.specificPct    = (aderiu / partySize) * 100;
+      e.ausenteCount   = e.possiveis - (aderiu + divergiu);
+      e.specificPct    = e.possiveis > 0 ? (aderiu / e.possiveis) * 100 : 0;
     });
 
-    // 7. Métricas 3-state por deputado
-    const idsBancada = new Set(bench.map(d => d.id));
-    const depMetrics = bench.map(dep => {
-      let aderiu = 0, divergiu = 0, ausente = 0;
+    // 7. Métricas 3-state por deputado — só nas votações em que ele era da
+    //    bancada. Quem entrou ou saiu no meio do período é medido na parte em
+    //    que esteve, não cobrado pelo resto.
+    const depMetrics = [];
+    for (const c of candidatos) {
+      let aderiu = 0, divergiu = 0, ausente = 0, n = 0;
       qualifying.forEach(e => {
-        const voto = e.votos.find(v => v.deputado_ && v.deputado_.id === dep.id);
-        const s    = classifyVote(voto ? voto.tipoVoto : null, e.govOrient);
+        const m = e.membros.find(x => x.id === c.id);
+        if (!m) return;
+        n++;
+        const s = classifyVote(m.tipoVoto, e.govOrient);
         if (s === 'aderente')   aderiu++;
         else if (s === 'divergente') divergiu++;
         else                    ausente++;
       });
-      return { dep, aderiu, divergiu, ausente, pct: qualifying.length > 0 ? (aderiu / qualifying.length) * 100 : 0 };
-    });
+      if (!n) continue;
+      depMetrics.push({ dep: { id: c.id, nome: c.nome, siglaUf: c.siglaUf }, naBancadaAtual: c.naBancadaAtual,
+                        votacoes: n, aderiu, divergiu, ausente, pct: (aderiu / n) * 100 });
+    }
     depMetrics.sort((a, b) => b.pct - a.pct);
+    const partySize = depMetrics.length;   // deputados que passaram pela bancada no período
 
     // 8. Totais gerais
     const totalAderiu   = qualifying.reduce((s, e) => s + e.adherentCount,  0);
     const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
     const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
-    const totalPossivel = partySize * qualifying.length;
+    const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
     const overallPct    = totalPossivel > 0 ? (totalAderiu / totalPossivel) * 100 : 0;
 
     clearStatus();
     renderRelatorio({
-      sigla, partySize, bench, idsBancada, qualifying, depMetrics,
+      sigla, partySize, bench, qualifying, depMetrics, falhasHistorico,
       overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
       dataIni, dataFim, emCache, aFetchar
     });
@@ -552,7 +662,7 @@ async function gerarRelatorio() {
 function renderRelatorio(ctx) {
   window._relatorioCtx = ctx;
   const {
-    sigla, partySize, qualifying, depMetrics,
+    sigla, partySize, qualifying, depMetrics, falhasHistorico,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   } = ctx;
@@ -562,6 +672,10 @@ function renderRelatorio(ctx) {
     : '';
 
   resultadoEl.innerHTML =
+    (falhasHistorico
+      ? '<div class="cv-aviso">⚠ O histórico de ' + falhasHistorico + ' deputado(s) não pôde ser lido agora. ' +
+        'Nas votações em que eles não votaram, foram considerados pela bancada de hoje. Refaça a busca para tentar de novo.</div>'
+      : '') +
     // ── Card resultado geral
     '<div class="result-card">' +
       '<div class="result-title-bar">Aderência geral ao Governo' + cacheBadge + '</div>' +
@@ -574,7 +688,8 @@ function renderRelatorio(ctx) {
           '<div class="state-item state-ausente"><span class="state-v">' + totalAusente + '</span><span class="state-l">— Ausente</span></div>' +
         '</div>' +
         '<div class="result-meta">' +
-          '<div class="meta-item"><span class="v">' + partySize + '</span><span class="l">Deputados</span></div>' +
+          '<div class="meta-item" title="Quem esteve no partido, em exercício, em ao menos uma votação do período">' +
+            '<span class="v">' + partySize + '</span><span class="l">Deputados no período</span></div>' +
           '<div class="meta-item"><span class="v">' + qualifying.length + '</span><span class="l">Votações</span></div>' +
           '<div class="meta-item"><span class="v">' + totalPossivel + '</span><span class="l">Votos possíveis</span></div>' +
         '</div>' +
@@ -656,8 +771,10 @@ function renderRankingDeputados(sortKey) {
       '<div class="ranking-summary">' +
         '<div class="rank-num">' + (rank + 1) + '</div>' +
         '<div class="rank-info">' +
-          '<div class="rank-name">' + (m.dep.nome || '?') + '</div>' +
-          '<div class="rank-meta">' + ctx.sigla + ' · ' + (m.dep.siglaUf || '') + '</div>' +
+          '<div class="rank-name">' + cvEsc(m.dep.nome || '?') + '</div>' +
+          '<div class="rank-meta">' + cvEsc(ctx.sigla) + ' · ' + cvEsc(m.dep.siglaUf || '') +
+            (m.votacoes < ctx.qualifying.length ? ' · no partido em ' + m.votacoes + ' de ' + ctx.qualifying.length + ' votações' : '') +
+            (m.naBancadaAtual ? '' : ' · não está mais no partido') + '</div>' +
         '</div>' +
         '<div class="rank-counts">' +
           '<span class="rank-ade" title="Aderiu">' + m.aderiu + '✓</span>' +
@@ -696,8 +813,10 @@ function renderRankingDeputados(sortKey) {
 function buildDepDetailHTML(m, ctx) {
   const detalhes = [];
   ctx.qualifying.forEach(e => {
-    const voto     = e.votos.find(v => v.deputado_ && v.deputado_.id === m.dep.id);
-    const tipoVoto = voto ? voto.tipoVoto : null;
+    // Só as votações em que ele era da bancada — as outras não entram na conta dele.
+    const membro = (e.membros || []).find(x => x.id === m.dep.id);
+    if (!membro) return;
+    const tipoVoto = membro.tipoVoto;
     const status   = classifyVote(tipoVoto, e.govOrient);
     detalhes.push({ e, tipoVoto, status });
   });
@@ -730,7 +849,7 @@ function buildDepDetailHTML(m, ctx) {
           '<span class="rot">Voto:</span> ' + voto +
         '</div>' +
         '<div class="item-corpo">' +
-          '<div class="desc">' + desc + '</div>' +
+          '<div class="desc">' + cvEsc(desc) + '</div>' +
           '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +
         '</div>' +
         '<span class="vote ' + d.status + '">' + veredito + '</span>' +
@@ -773,7 +892,7 @@ function renderVotingsList(ctx) {
           Math.round(e.specificPct) + '%' +
         '</div>' +
         '<div class="vote-info">' +
-          '<div class="vote-desc">' + desc + '</div>' +
+          '<div class="vote-desc">' + cvEsc(desc) + '</div>' +
           '<div class="vote-sub">' +
             '<span>' + hora + '</span>' +
             '<span>Gov: <span class="gov-mini ' + govClass + '">' + e.govOrient + '</span></span>' +
@@ -808,24 +927,8 @@ function renderVotingsList(ctx) {
 
 // ── DETALHE DE UMA VOTAÇÃO ────────────────────────────────────────────────────
 function renderVoteDetail(detailEl, e, ctx) {
-  const { bench } = ctx;
-
-  const votosPorId = {};
-  e.votos.forEach(v => {
-    if (v.deputado_ && v.deputado_.id != null) votosPorId[v.deputado_.id] = v.tipoVoto;
-  });
-
-  const merged = bench.map(d => ({
-    id: d.id, nome: d.nome, siglaUf: d.siglaUf, tipoVoto: votosPorId[d.id] || null
-  }));
-
-  const idsB = new Set(bench.map(d => d.id));
-  e.partyVotes.forEach(v => {
-    const dep = v.deputado_;
-    if (dep && !idsB.has(dep.id)) {
-      merged.push({ id: dep.id, nome: dep.nome, siglaUf: dep.siglaUf, tipoVoto: v.tipoVoto });
-    }
-  });
+  // A bancada DESTA votação — quem era do partido e estava em exercício nela.
+  const merged = (e.membros || []).map(d => ({ ...d }));
   merged.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
 
   let aderiu = 0, divergiu = 0, ausente = 0;
@@ -848,7 +951,7 @@ function renderVoteDetail(detailEl, e, ctx) {
     rowsHTML +=
       '<div class="dep-row">' +
         '<div class="match-mark ' + matchCls + '">' + matchSym + '</div>' +
-        '<div class="dep-name">' + (d.nome || '?') + '<span class="dep-uf">(' + (d.siglaUf || '?') + ')</span></div>' +
+        '<div class="dep-name">' + cvEsc(d.nome || '?') + '<span class="dep-uf">(' + cvEsc(d.siglaUf || '?') + ')</span></div>' +
         '<span class="dep-vote ' + cls + '">' + (d.tipoVoto || 'Ausente') + '</span>' +
       '</div>';
   });
@@ -872,7 +975,7 @@ function renderVoteDetail(detailEl, e, ctx) {
 function exportarExcel() {
   const ctx = window._relatorioCtx;
   if (!ctx) return;
-  const { sigla, partySize, bench, qualifying, depMetrics, overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel, dataIni, dataFim } = ctx;
+  const { sigla, partySize, qualifying, depMetrics, overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel, dataIni, dataFim } = ctx;
 
   const wb = XLSX.utils.book_new();
 
@@ -882,7 +985,7 @@ function exportarExcel() {
     [],
     ['Partido', sigla],
     ['Período', formatarData(dataIni) + ' a ' + formatarData(dataFim)],
-    ['Deputados na bancada', partySize],
+    ['Deputados no período (passaram pela bancada)', partySize],
     ['Votações consideradas', qualifying.length],
     ['Votos possíveis', totalPossivel],
     ['Votos aderentes (✓)', totalAderiu],
@@ -893,20 +996,23 @@ function exportarExcel() {
     ['Critérios:'],
     ['- Apenas votações do Plenário (PLEN)'],
     ['- Apenas votações com pelo menos um voto Sim ou Não'],
-    ['- Apenas votações em que o Governo orientou Sim ou Não']
+    ['- Apenas votações em que o Governo orientou Sim ou Não'],
+    ['- Bancada de cada votação: quem era do partido e estava em exercício na data dela'],
+    ['  (pelo registro do voto e, para quem não votou, pelo histórico do deputado)']
   ];
   const wsResumo = XLSX.utils.aoa_to_sheet(resumoData);
   wsResumo['!cols'] = [{ wch: 42 }, { wch: 30 }];
   XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo');
 
   // Aba 2 — Ranking de Deputados
-  const rankHeader = ['Posição', 'Deputado', 'UF', 'Aderiu (✓)', 'Divergiu (✗)', 'Ausente (—)', 'Aderência (%)'];
+  const rankHeader = ['Posição', 'Deputado', 'UF', 'Votações no partido', 'Aderiu (✓)', 'Divergiu (✗)', 'Ausente (—)', 'Aderência (%)', 'No partido hoje'];
   const rankRows   = [rankHeader];
   depMetrics.slice().sort((a, b) => b.pct - a.pct).forEach((m, i) => {
-    rankRows.push([i + 1, m.dep.nome || '', m.dep.siglaUf || '', m.aderiu, m.divergiu, m.ausente, Number(m.pct.toFixed(2))]);
+    rankRows.push([i + 1, m.dep.nome || '', m.dep.siglaUf || '', m.votacoes, m.aderiu, m.divergiu, m.ausente,
+                   Number(m.pct.toFixed(2)), m.naBancadaAtual ? 'sim' : 'não']);
   });
   const wsRanking = XLSX.utils.aoa_to_sheet(rankRows);
-  wsRanking['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 5 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }];
+  wsRanking['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
   XLSX.utils.book_append_sheet(wb, wsRanking, 'Ranking Deputados');
 
   // Aba 3 — Votações
@@ -919,7 +1025,7 @@ function exportarExcel() {
       dt ? dt.toLocaleDateString('pt-BR') : '',
       dt ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
       v.id, v.descricao || '', result, e.govOrient,
-      e.adherentCount, e.divergentCount, e.ausenteCount, partySize, Number(e.specificPct.toFixed(2))
+      e.adherentCount, e.divergentCount, e.ausenteCount, e.possiveis, Number(e.specificPct.toFixed(2))
     ]);
   });
   const wsVot = XLSX.utils.aoa_to_sheet(votRows);
@@ -932,16 +1038,7 @@ function exportarExcel() {
     const v          = e.votacao;
     const dt         = v.dataHoraRegistro ? new Date(v.dataHoraRegistro) : null;
     const data       = dt ? dt.toLocaleDateString('pt-BR') : '';
-    const votosPorId = {};
-    e.votos.forEach(x => {
-      if (x.deputado_ && x.deputado_.id != null) votosPorId[x.deputado_.id] = x.tipoVoto;
-    });
-    const merged = bench.map(d => ({ ...d, tipoVoto: votosPorId[d.id] || null }));
-    const idsB   = new Set(bench.map(d => d.id));
-    e.partyVotes.forEach(x => {
-      const dep = x.deputado_;
-      if (dep && !idsB.has(dep.id)) merged.push({ id: dep.id, nome: dep.nome, siglaUf: dep.siglaUf, tipoVoto: x.tipoVoto });
-    });
+    const merged = (e.membros || []).map(d => ({ ...d }));
     merged.sort((a, b) => (a.nome || '').localeCompare(b.nome || '', 'pt-BR'));
     merged.forEach(d => {
       const s = classifyVote(d.tipoVoto, e.govOrient);
@@ -1391,6 +1488,10 @@ function cvAgruparLinks(linhas) {
  *   aderente / divergente — comparação feita.
  */
 function cvSituacao(item, idDep) {
+  // Leitura que FALHOU não é votação simbólica: não se sabe se houve voto
+  // nominal. Contá-la como simbólica punha no consolidado "N simbólicas" que
+  // eram, na verdade, consultas que não voltaram.
+  if (item.falhou && !item.nominal) return { voto: null, situacao: 'falha' };
   if (!item.nominal) return { voto: null, situacao: 'simbolica' };
   const meu = item.votos.find(v => v.deputado_ && v.deputado_.id === idDep);
   const voto = meu ? meu.tipoVoto : null;
@@ -1401,11 +1502,11 @@ function cvSituacao(item, idDep) {
 
 const CV_ROTULO = {
   aderente: 'Aderiu', divergente: 'Divergiu', ausente: 'Ausente',
-  'sem-gov': 'Sem orientação', simbolica: 'Simbólica',
+  'sem-gov': 'Sem orientação', simbolica: 'Simbólica', falha: 'Não lida',
 };
 const CV_CLASSE = {
   aderente: 'aderente', divergente: 'divergente', ausente: 'ausente',
-  'sem-gov': 'fora', simbolica: 'fora',
+  'sem-gov': 'fora', simbolica: 'fora', falha: 'fora',
 };
 
 // ---------- recorte do relatório ----------
@@ -1472,7 +1573,7 @@ function cvDesenhar() {
     !x.data || ((!r.ini || x.data >= r.ini) && (!r.fim || x.data <= r.fim)));
 
   const comum = cvAgruparLinks(linhas);
-  const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0 };
+  const cont = { aderente: 0, divergente: 0, ausente: 0, 'sem-gov': 0, simbolica: 0, falha: 0 };
   for (const l of linhas) cont[l.s.situacao]++;
   const qualificadas = cont.aderente + cont.divergente + cont.ausente;
   const pct = (cont.aderente + cont.divergente) > 0
@@ -1517,7 +1618,7 @@ function cvDesenhar() {
       ${ctrl}
       <div class="cv-nums">
         <div class="cv-num"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
-        <div class="cv-num"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
+        <div class="cv-num"><div class="v">${linhas.length - cont.simbolica - cont.falha}</div><div class="l">Nominais</div></div>
         <div class="cv-num ade"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
         <div class="cv-num div"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
         <div class="cv-num aus"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
@@ -1527,6 +1628,7 @@ function cvDesenhar() {
       <div class="sub" style="margin-top:9px">
         ${semObjeto ? `${semObjeto} votação(ões) da ficha ficaram fora do relatório: a tramitação não diz o que estava em votação. ` : ''}
         ${cont.simbolica ? `${cont.simbolica} votação(ões) simbólica(s) — sem registro individual de voto, não contam como ausência. ` : ''}
+        ${cont.falha ? `${cont.falha} votação(ões) não puderam ser lidas agora e ficam fora da conta. ` : ''}
         ${cont['sem-gov'] ? `${cont['sem-gov']} votação(ões) nominal(is) sem orientação do governo ficam fora do cálculo. ` : ''}
         A aderência é calculada sobre ${cont.aderente + cont.divergente} votação(ões) comparável(is),
         de ${qualificadas} qualificada(s).
@@ -1541,8 +1643,17 @@ function cvDesenhar() {
           : `<div class="rsm-linha">${lit.join('<br>')}</div>`);
         // Sem chave o relatório perde a linguagem comum, e isso precisa ser
         // dito: o analista tem de saber por que a tela ficou em legalês.
-        const ger = (!resumos.gerado && resumos.explicacao && resumos.explicacao.motivo === 'sem-chave')
-          ? `<div class="rsm-fontes rsm-ger">Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.</div>` : '';
+        // Qualquer motivo de a explicação não ter vindo é dito, não só a falta
+        // de chave: um erro do provedor deixava a tela em legalês sem explicar.
+        const motivoSemExplicacao = {
+          'sem-chave': 'Sem chave de IA configurada: o relatório traz a transcrição literal, sem a versão em linguagem comum.',
+          'erro': 'A explicação em linguagem comum falhou' + (resumos.explicacao && resumos.explicacao.erro
+            ? ' (' + cvEsc(resumos.explicacao.erro) + ')' : '') + ': o relatório traz só a transcrição literal. Refaça a busca para tentar de novo.',
+          'resposta-ilegivel': 'O provedor de IA respondeu em formato que não deu para ler (em matéria com muitos itens, a resposta pode ter sido cortada): '
+            + 'o relatório traz só a transcrição literal. Refaça a busca para tentar de novo.',
+        };
+        const ger = (!resumos.gerado && resumos.explicacao && motivoSemExplicacao[resumos.explicacao.motivo])
+          ? `<div class="rsm-fontes rsm-ger">${motivoSemExplicacao[resumos.explicacao.motivo]}</div>` : '';
         return p.length ? `<div class="rsm" style="margin-top:10px">${p.join('')}${ger}${
           m.url ? `<div class="rsm-fontes">Fonte: <a href="${m.url}" target="_blank" rel="noopener">inteiro teor ↗</a></div>` : ''}</div>` : '';
       })() : ''}
@@ -1561,9 +1672,12 @@ function cvDesenhar() {
         const obj = objetos[v.id];
         const data = String(v.data || '').split('-').reverse().join('/');
         const hora = String(v.dataHoraRegistro || '').slice(11, 16);
-        const votoTxt = s.situacao === 'simbolica' ? '—' : (s.voto || '—');
-        return `<div class="cv-item${s.situacao === 'simbolica' ? ' simbolica' : ''}">
-          <div class="cv-voto${s.voto ? '' : ' ausente'}" title="${s.voto ? 'Voto do deputado: ' + cvEsc(s.voto) : (s.situacao === 'simbolica' ? 'Votação simbólica — a Câmara não registra voto individual' : 'Não registrou voto nesta votação')}">
+        const votoTxt = s.voto || '—';
+        const semVoto = s.situacao === 'simbolica' || s.situacao === 'falha';
+        return `<div class="cv-item${semVoto ? ' simbolica' : ''}">
+          <div class="cv-voto${s.voto ? '' : ' ausente'}" title="${s.voto ? 'Voto do deputado: ' + cvEsc(s.voto)
+            : (s.situacao === 'simbolica' ? 'Votação simbólica — a Câmara não registra voto individual'
+            : (s.situacao === 'falha' ? 'A votação não pôde ser lida na API agora' : 'Não registrou voto nesta votação'))}">
             <span class="rot">Voto:</span> ${cvEsc(votoTxt)}
           </div>
           <div class="cv-corpo">
@@ -1666,7 +1780,8 @@ function cvExportar() {
       v.id,
       objetos[v.id],
       v.descricao || '',
-      s.situacao === 'simbolica' ? 'votação simbólica' : (s.voto || 'não votou'),
+      s.situacao === 'simbolica' ? 'votação simbólica'
+        : (s.situacao === 'falha' ? 'não lida (falha na API)' : (s.voto || 'não votou')),
       it.govOrient || '',
       CV_ROTULO[s.situacao],
       cvLinks(v).prop || '',
@@ -1846,8 +1961,8 @@ if (cvEl.aba && cvEl.painel) {
   });
   const hoje = new Date(), mesAtras = new Date();
   mesAtras.setDate(mesAtras.getDate() - 30);
-  cvEl.dataIni.value = mesAtras.toISOString().slice(0, 10);
-  cvEl.dataFim.value = hoje.toISOString().slice(0, 10);
+  cvEl.dataIni.value = isoLocal(mesAtras);
+  cvEl.dataFim.value = isoLocal(hoje);
 }
 
 // ---------- exportação em PDF ----------
@@ -1949,7 +2064,7 @@ const CSS_PDF_VOTOS = `
 
 const CV_TAG_PDF = {
   aderente: 'tag-ade', divergente: 'tag-div', ausente: 'tag-aus',
-  'sem-gov': 'tag-simb', simbolica: 'tag-simb',
+  'sem-gov': 'tag-simb', simbolica: 'tag-simb', falha: 'tag-simb',
 };
 
 function cvHtmlPDF(logoDataUrl) {
@@ -1995,8 +2110,10 @@ function cvHtmlPDF(logoDataUrl) {
     const hora = String(v.dataHoraRegistro || '').slice(11, 16);
     const voto = s.situacao === 'simbolica'
       ? '<span class="tag tag-simb">simbólica</span>'
-      : (s.voto ? `<span class="tag tag-voto">${e(s.voto)}</span>` : '<span class="tag tag-aus">não votou</span>');
-    return `<tr class="${s.situacao === 'simbolica' ? 'simb' : ''}">
+      : s.situacao === 'falha'
+        ? '<span class="tag tag-simb">não lida</span>'
+        : (s.voto ? `<span class="tag tag-voto">${e(s.voto)}</span>` : '<span class="tag tag-aus">não votou</span>');
+    return `<tr class="${s.situacao === 'simbolica' || s.situacao === 'falha' ? 'simb' : ''}">
       <td class="hora">${e(String(v.data || '').split('-').reverse().join('/'))}<br><span class="nada">${e(hora)}</span></td>
       <td><b>${e(obj)}</b>
           ${(() => {
@@ -2066,8 +2183,8 @@ function cvHtmlPDF(logoDataUrl) {
   })() : ''}
   <div class="resumo">
     <div class="bx"><div class="v">${linhas.length}</div><div class="l">Votações</div></div>
-    <div class="bx"><div class="v">${linhas.length - cont.simbolica}</div><div class="l">Nominais</div></div>
-    <div class="bx"><div class="v">${linhas.length - cont.simbolica - cont.ausente}</div><div class="l">Votos dele</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica - (cont.falha || 0)}</div><div class="l">Nominais</div></div>
+    <div class="bx"><div class="v">${linhas.length - cont.simbolica - (cont.falha || 0) - cont.ausente}</div><div class="l">Votos dele</div></div>
     <div class="bx"><div class="v">${cont.aderente}</div><div class="l">Aderiu</div></div>
     <div class="bx"><div class="v">${cont.divergente}</div><div class="l">Divergiu</div></div>
     <div class="bx"><div class="v">${cont.ausente}</div><div class="l">Ausente</div></div>
