@@ -77,6 +77,8 @@ Cinco relatórios em abas — sobre votações nominais, produção legislativa,
 
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
+- A bancada é a de **cada votação**: quem era do partido e estava em exercício naquele dia (pelo registro do voto e, para quem não votou, pelo histórico do deputado) — não a bancada de hoje. Quem saiu do partido conta nas votações em que estava; quem entrou depois não é cobrado antes de entrar
+- O período inclui o último dia: a API perde quase todo o dia final do intervalo, então pede-se um dia a mais e descarta-se o excedente
 - **Ranking individual** de deputados ordenável por aderência, divergência ou ausência
 - Permite filtrar e detalhar o histórico de votos de um deputado específico, com **gráfico circular (donut)** de aderência por votação no detalhe expandido
 - Gráfico temporal da evolução da aderência no período
@@ -118,8 +120,8 @@ O que um deputado — de **qualquer partido** — produziu, sem responder com um
 O que está andando na Casa sobre um tema, marcando o que é da bancada.
 
 - Tema escolhido na lista da própria Câmara (`/referencias/proposicoes/codTema`), com palavra-chave e tipo opcionais
-- O recorte é **por ano**, não por intervalo de datas: a API recusa tema com intervalo (HTTP 400). Até 8 anos por consulta
-- A marca **Bancada** sai de uma segunda consulta com o mesmo filtro restrita ao partido, cruzada por identificador — autoria registrada na base, não inferência pelo nome do autor. Custa duas chamadas por ano, não uma por proposição
+- O recorte é pela **data de apresentação, um trimestre por consulta**: a API recusa intervalo de datas maior que 3 meses (HTTP 400). Não se usa o filtro `ano=`, que perde pareceres, emendas e substitutivos (a API os registra com ano 0). Até 8 anos por consulta
+- A marca **Bancada** sai de uma segunda consulta com o mesmo filtro restrita ao partido, cruzada por identificador — autoria registrada na base, não inferência pelo nome do autor. Custa duas chamadas por trimestre, não uma por proposição
 - Filtro "só da bancada" na tela, sem reconsultar · exporta em **PDF** e em **Excel**
 
 #### 3.5 Leis aprovadas
