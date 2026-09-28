@@ -1032,7 +1032,8 @@
       <div class="date-row">
         <div class="date-col">
           <label>Nome</label>
-          <input type="text" id="leaNome" class="field" placeholder="Buscar deputado..." maxlength="60">
+          <input type="text" id="leaNome" class="field" placeholder="Buscar deputado..." maxlength="60" autocomplete="off">
+          <div id="leaEscolha"></div>
         </div>
         <div class="date-col" style="flex:0 0 110px">
           <label>Partido</label>
@@ -1071,11 +1072,19 @@
 
     <div class="input-section" style="margin-top:16px">
       <label>Coletar pela extensão (sem o bot)</label>
-      <div class="prd-dica" style="margin-bottom:12px">Baixa os arquivos oficiais da legislatura corrente direto da Câmara
+      <div class="prd-dica" style="margin-bottom:12px">Baixa os arquivos oficiais da legislatura escolhida direto da Câmara
         (4 a 5 arquivos de 50–165 MB — leva alguns minutos e usa bastante memória), monta o ranking aqui e, se você
         conferir e clicar em gravar, atualiza o banco de dados para a equipe toda. A gravação é bloqueada se algum
         arquivo não baixar ou se faltarem autores.</div>
-      <button id="leaColetar" class="btn-gerar lea-coletar" style="margin-top:0">Coletar agora pela extensão</button>
+      <div class="date-row">
+        <div class="date-col" style="flex:0 0 190px">
+          <label>Legislatura</label>
+          <select id="leaColetarLeg" class="field"></select>
+        </div>
+        <div class="date-col" style="display:flex;align-items:flex-end">
+          <button id="leaColetar" class="btn-gerar lea-coletar" style="margin-top:0">Coletar agora pela extensão</button>
+        </div>
+      </div>
 
       <label style="margin-top:18px">Ou processe arquivos baixados manualmente</label>
       <div class="prd-dica" style="margin-bottom:12px">Para quando você já tem os arquivos oficiais
