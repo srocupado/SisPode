@@ -267,8 +267,17 @@ const av = e => vm.runInContext(e, ctx);
     const porPartido = av('leaFiltradas()').map(l => l.partido);
     ok(porPartido[0] === 'PL' && porPartido[porPartido.length - 1] === '',
        `ordem por partido: vazio no fim, não no topo (${porPartido.join(',')})`);
+    // Na tela, por partido, a lista é agrupada e a numeração recomeça por partido.
+    av('leaRenderRanking()');
+    const cabs = [...document.querySelectorAll('#leaRankingList .lea-grupo')].map(c => c.textContent);
+    ok(cabs.length === 3 && /^PL — 1 deputado\(s\) · 1 lei\(s\)$/.test(cabs[0]) && /^PODE — 2 deputado\(s\) · 2 lei\(s\)$/.test(cabs[1])
+       && /^Sem partido/.test(cabs[2]), `um cabeçalho por partido, com deputados e leis somadas (${cabs.join(' | ')})`);
+    const nums = [...document.querySelectorAll('#leaRankingList .rank-num')].map(n => n.textContent);
+    ok(nums.join(',') === '1,1,2,1', `a numeração recomeça em cada partido (${nums.join(',')})`);
     FIRE['57'].ranking.pop();
     av(`lea.linhas = leaAchatar(['57', '56']); lea.ordem = { coluna: 'total', asc: false }`);
+    av('leaRenderRanking()');
+    ok(!document.querySelector('#leaRankingList .lea-grupo'), 'em "Mais leis", sem agrupamento — ranking geral corrido');
 
     document.getElementById('leaCondicao').value = 'suplente';
     linhas = av('leaFiltradas()');

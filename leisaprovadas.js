@@ -265,12 +265,34 @@ function leaRenderRanking() {
   const listEl = document.getElementById('leaRankingList');
   if (!listEl) return;
   listEl.innerHTML = '';
+  // Por partido, a lista é AGRUPADA: cabeçalho por partido (deputados e leis
+  // somadas) e numeração que recomeça em cada grupo. Numeração corrida de 1 a
+  // N fazia parecer ranking geral — alguém com 2 leis ficava "atrás" de
+  // alguém com 0 só porque o partido vem depois na ordem alfabética.
+  const porPartido = lea.ordem.coluna === 'partido';
+  const grupos = new Map();
+  if (porPartido) for (const d of linhas) {
+    const g = grupos.get(d.partido) || { deputados: 0, leis: 0 };
+    g.deputados++; g.leis += d.total;
+    grupos.set(d.partido, g);
+  }
+  let partidoAtual = null, posicao = 0;
   linhas.forEach((d, idx) => {
+    if (porPartido && d.partido !== partidoAtual) {
+      partidoAtual = d.partido;
+      posicao = 0;
+      const g = grupos.get(d.partido);
+      const cab = document.createElement('div');
+      cab.className = 'lea-grupo';
+      cab.textContent = `${d.partido || 'Sem partido'} — ${g.deputados} deputado(s) · ${g.leis} lei(s)`;
+      listEl.appendChild(cab);
+    }
+    posicao = porPartido ? posicao + 1 : idx + 1;
     const row = document.createElement('div');
     row.className = 'ranking-row';
     row.innerHTML = `
       <div class="ranking-summary">
-        <div class="rank-num">${idx + 1}</div>
+        <div class="rank-num">${posicao}</div>
         <div class="rank-info">
           <div class="rank-name">${cvEsc(d.nome)}</div>
           <div class="rank-meta">${cvEsc(d.partido)}-${cvEsc(d.uf)} · ${cvEsc(d.rotulo)}${d.condicao !== '—' ? ' · ' + cvEsc(d.condicao) : ''}</div>
