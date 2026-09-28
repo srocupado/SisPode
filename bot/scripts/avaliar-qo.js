@@ -125,8 +125,8 @@ if (fs.existsSync(ARQ_EMB)) {
 async function vetorDaPergunta(texto) {
   const chave = process.env.GEMINI_API_KEY;
   if (!chave || !VET) return null;
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VET.modelo}:embedContent?key=${chave}`,
-    { method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${VET.modelo}:embedContent`,
+    { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': chave },
       body: JSON.stringify({ model: `models/${VET.modelo}`, content: { parts: [{ text: texto }] },
         outputDimensionality: VET.dim, taskType: 'RETRIEVAL_QUERY' }) });
   if (!r.ok) return null;

@@ -471,24 +471,38 @@ function promptApelidoCCJC(proj) {
  * corrigido à mão pelo analista — nunca é sobrescrito.
  */
 async function prepararApelidos(projetos, aoAndar) {
-  const pend = projetos.filter(p => !String(p.apelido || '').trim());
-  if (!pend.length) return;
+  // Pendentes: sem apelido, ou com o da RESERVA (ementa) de uma tentativa
+  // anterior em que a IA falhou — esse merece nova chance.
+  const pend = projetos.filter(p => !String(p.apelido || '').trim() || p.apelidoReserva);
+  if (!pend.length) return { reserva: 0 };
   if (!app.config?.apiKey) {
-    for (const p of pend) p.apelido = apelidoFallbackCCJC(p);
-    return;
+    for (const p of pend) { p.apelido = apelidoFallbackCCJC(p); p.apelidoReserva = true; }
+    return { reserva: 0, semChave: true };
   }
-  let feitos = 0;
-  await Promise.all(pend.map(async p => {
+  // No máximo APELIDOS_PARALELO chamadas ao mesmo tempo. Disparar todas de uma
+  // vez, numa pauta grande, esbarrava no limite de requisições do provedor, e
+  // cada recusa virava apelido da ementa em silêncio.
+  const APELIDOS_PARALELO = 4;
+  let feitos = 0, reserva = 0, prox = 0;
+  const um = async p => {
     try {
       const t = await aiCall(promptApelidoCCJC(p));
-      p.apelido = String(t || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim() || apelidoFallbackCCJC(p);
+      const ap = String(t || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim();
+      if (ap) { p.apelido = ap; p.apelidoReserva = false; }
+      else { p.apelido = apelidoFallbackCCJC(p); p.apelidoReserva = true; reserva++; }
     } catch (e) {
       // Apelido é acessório: falhar a chamada não pode impedir o PDF de sair.
       console.warn(`Apelido de ${p.chave} por IA falhou (${e.message}); usando a ementa.`);
       p.apelido = apelidoFallbackCCJC(p);
+      p.apelidoReserva = true;
+      reserva++;
     }
     if (aoAndar) aoAndar(++feitos, pend.length);
+  };
+  await Promise.all(Array.from({ length: Math.min(APELIDOS_PARALELO, pend.length) }, async () => {
+    while (prox < pend.length) await um(pend[prox++]);
   }));
+  return { reserva };
 }
 
 /** "PL 1234/2026 (apelido)" — o texto de cada linha do índice e do bloco. */
@@ -591,18 +605,28 @@ async function apurarRelatoria(proj) {
 // Por que SOB DEMANDA, e não junto do resto: o custo por projeto é 1 chamada de
 // relacionadas + 1 detalhe por relacionada + a subida até a raiz da cadeia +
 // a autoria de cada apensada. Numa pauta de 30 projetos isso vira centenas de
-// chamadas antes de a tela abrir. Roda ao abrir o projeto, uma vez, e o
-// resultado fica no projeto (e na pauta salva).
+// chamadas antes de a tela abrir. Roda ao abrir o projeto, e o resultado fica
+// no projeto (e na pauta salva) por APENSADOS_VALIDADE_MS — depois disso, a
+// próxima abertura refaz a apuração: apensamento novo acontece durante a
+// tramitação, e o resultado salvo não pode ficar congelado para sempre.
+//
+// A regra de sempre vale aqui também: FALHA DE CONSULTA NÃO É AUSÊNCIA. Um
+// detalhe de proposição que não voltou, ou uma autoria que não se apurou, torna
+// o resultado "não verificado" — nunca "não há apensada do Podemos".
 
+const APENSADOS_VALIDADE_MS = 24 * 60 * 60 * 1000;
+
+// Só o que VOLTOU entra no cache. Falha não é guardada: guardar `null` fazia a
+// relacionada ser descartada até o fim da sessão, sem que ninguém soubesse.
 const _cacheDetalheProp = new Map();
 
+/** Detalhe da proposição. Lança em falha — quem chama decide o que ela significa. */
 async function _detalheProp(id) {
   if (_cacheDetalheProp.has(id)) return _cacheDetalheProp.get(id);
-  let d = null;
-  try {
-    const res = await fetch(`${API_BASE}/proposicoes/${id}`);
-    if (res.ok) d = (await res.json()).dados || null;
-  } catch (_) { d = null; }
+  const res = await fetch(`${API_BASE}/proposicoes/${id}`);
+  if (!res.ok) throw new Error(`detalhe da proposição ${id}: HTTP ${res.status}`);
+  const d = (await res.json()).dados || null;
+  if (!d) throw new Error(`detalhe da proposição ${id} veio vazio`);
   _cacheDetalheProp.set(id, d);
   return d;
 }
@@ -613,6 +637,8 @@ async function _detalheProp(id) {
  * candidata: "Tramitando em Conjunto" + uriPropPrincipal. Como o apensamento
  * pode ser em cadeia (A apensada a B, B à principal), sobe-se até a RAIZ de
  * cada uma e só entram as que compartilham a raiz da nossa matéria.
+ * Devolve { lista, falhas } — `falhas` são as relacionadas que não se pôde
+ * examinar; a raiz da própria matéria que falha derruba tudo (lança).
  */
 async function _apensadasDe(idProp) {
   let relacionadas = [];
@@ -623,46 +649,54 @@ async function _apensadasDe(idProp) {
   } catch (e) {
     throw new Error(`consulta de relacionadas falhou (${e.message})`);
   }
-  if (!relacionadas.length) return [];
+  if (!relacionadas.length) return { lista: [], falhas: [] };
 
   const idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
   const raiz = async (id, nivel = 0) => {
     if (nivel > 6) return id;
-    const pai = idDaUri((await _detalheProp(id))?.uriPropPrincipal);
+    const pai = idDaUri((await _detalheProp(id)).uriPropPrincipal);
     return pai ? raiz(pai, nivel + 1) : id;
   };
 
   const raizAlvo = await raiz(Number(idProp));
-  const out = [];
+  const lista = [], falhas = [];
   for (const r of relacionadas) {
-    const d = await _detalheProp(r.id);
-    if (!d) continue;
-    const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
-    if (!d.uriPropPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
-    if (await raiz(r.id) !== raizAlvo) continue;
-    out.push({ id: r.id, siglaTipo: r.siglaTipo, numero: r.numero, ano: r.ano });
+    const rot = `${r.siglaTipo} ${r.numero}/${r.ano}`;
+    try {
+      const d = await _detalheProp(r.id);
+      const sit = ((d.statusProposicao || {}).descricaoSituacao || '').toLowerCase();
+      if (!d.uriPropPrincipal && !sit.includes('conjunto') && !sit.includes('apens')) continue;
+      if (await raiz(r.id) !== raizAlvo) continue;
+      lista.push({ id: r.id, siglaTipo: r.siglaTipo, numero: r.numero, ano: r.ano });
+    } catch (e) {
+      falhas.push(`${rot} (${e.message})`);
+    }
   }
-  return out;
+  return { lista, falhas };
 }
 
 /**
  * Apura as apensadas do projeto e quais são de autoria do Podemos.
- * Grava em `proj.apensados` = { lista, falhou, motivo }. `falhou` é o que
- * impede a ausência de badge de ser lida como "não há apensada do Podemos".
+ * Grava em `proj.apensados` = { lista, falhou, motivo, apuradoEm }. `falhou`
+ * é o que impede a ausência de badge de ser lida como "não há apensada do
+ * Podemos"; `lista` guarda o que SE APUROU mesmo quando algo falhou.
  */
-async function apurarApensados(proj) {
+async function apurarApensados(proj, agora = Date.now()) {
   if (!proj.idCamara) return;
-  if (proj.apensados && !proj.apensados.falhou) return;   // já apurado nesta pauta
+  const a = proj.apensados;
+  if (a && !a.falhou && a.apuradoEm && agora - a.apuradoEm < APENSADOS_VALIDADE_MS) return;
   try {
-    const aps = await _apensadasDe(proj.idCamara);
+    const { lista: aps, falhas } = await _apensadasDe(proj.idCamara);
     const doPode = [];
     for (const ap of aps) {
       const { autoria } = await apurarAutoria(ap.id);
       if (autoria.podemos) doPode.push({ ...ap, nomes: autoria.nomesPode });
+      else if (autoria.incerta) falhas.push(`autoria de ${ap.siglaTipo} ${ap.numero}/${ap.ano} não verificada`);
     }
-    proj.apensados = { lista: doPode, falhou: false, motivo: '' };
+    proj.apensados = { lista: doPode, falhou: falhas.length > 0,
+                       motivo: falhas.length ? `não consegui examinar: ${falhas.join('; ')}` : '', apuradoEm: agora };
   } catch (e) {
-    proj.apensados = { lista: [], falhou: true, motivo: e.message };
+    proj.apensados = { lista: [], falhou: true, motivo: e.message, apuradoEm: agora };
   }
 }
 
@@ -670,15 +704,18 @@ async function apurarApensados(proj) {
 function badgesApensados(proj) {
   const a = proj.apensados;
   if (!a) return [];
-  if (a.falhou) {
-    return [{ cls: 'incerto', texto: 'Apensadas: não verificadas',
-              title: `Não consegui apurar as apensadas desta proposição — ${a.motivo}. Reabra o projeto para tentar de novo.` }];
-  }
-  return a.lista.map(ap => ({
+  // O que se apurou aparece mesmo quando parte falhou; a falha vem junto, como
+  // aviso — senão a ausência de mais badges seria lida como "não há outras".
+  const bs = (a.lista || []).map(ap => ({
     cls: 'apens',
     texto: `Apensado Podemos: ${ap.siglaTipo} ${ap.numero}/${ap.ano}`,
     title: ap.nomes?.length ? ap.nomes.join(', ') : 'Autoria do Podemos em proposição apensada',
   }));
+  if (a.falhou) {
+    bs.push({ cls: 'incerto', texto: bs.length ? 'Outras apensadas: não verificadas' : 'Apensadas: não verificadas',
+              title: `Não consegui apurar as apensadas desta proposição — ${a.motivo}. Reabra o projeto para tentar de novo.` });
+  }
+  return bs;
 }
 
 /** Badge de relatoria — só existe quando o relator é do Podemos. */
@@ -1212,7 +1249,7 @@ const PROVEDORES_META = {
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
     ],
     async listar(key) {
-      const res = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
+      const res = await fetch(`${GEMINI_BASE}?pageSize=50`, { headers: { 'x-goog-api-key': key } });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
       return (j.models || [])
@@ -1365,10 +1402,10 @@ async function _callGemini(prompt, baixados = []) {
   });
   parts.push({ text: prompt });
 
-  const url = `${GEMINI_BASE}/${modelo}:generateContent?key=${apiKey}`;
+  const url = `${GEMINI_BASE}/${modelo}:generateContent`;
   const res  = await fetch(url, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
     body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: _MAX_OUT_TOKENS } }),
   });
   const json = await res.json();
@@ -2066,7 +2103,12 @@ function coletarEdicoesAtivas() {
   // O apelido corrigido à mão vale mais que o da IA: prepararApelidos só
   // preenche o que está vazio, então o que o analista escreveu aqui permanece.
   const ap = document.getElementById('campo-apelido');
-  if (ap) proj.apelido = ap.value.trim();
+  if (ap) {
+    const novo = ap.value.trim();
+    // Editado à mão deixa de ser "da reserva": é do analista, e fica.
+    if (novo !== String(proj.apelido || '')) proj.apelidoReserva = false;
+    proj.apelido = novo;
+  }
 
   (proj.comissoes || []).forEach((com, i) => {
     const el = document.getElementById(`campo-comissao-${i}`);
@@ -2130,9 +2172,10 @@ async function gerarPDF() {
     + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando os apelidos e montando o índice…</body></html>');
   win.document.close();
 
+  let apelidos = { reserva: 0 };
   try {
-    await prepararApelidos(app.pautaAtual.projetos,
-      (f, t) => mostrarToast(`Gerando apelidos… ${f}/${t}`, 'info'));
+    apelidos = await prepararApelidos(app.pautaAtual.projetos,
+      (f, t) => mostrarToast(`Gerando apelidos… ${f}/${t}`, 'info')) || apelidos;
   } catch (e) { console.warn('Apelidos:', e.message); }
   if (win.closed) return;
 
@@ -2154,7 +2197,9 @@ async function gerarPDF() {
   s.onerror = imprimir;            // sem a lib, imprime sem numeração no índice
   win.document.head.appendChild(s);
   setTimeout(imprimir, 30000);     // rede de segurança para pautas grandes
-  mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', 'info');
+  mostrarToast(apelidos.reserva
+    ? `Gerando PDF… ${apelidos.reserva} apelido(s) saíram da ementa porque a IA falhou — gere de novo para tentar outra vez.`
+    : 'Gerando PDF… escolha "Salvar como PDF" na janela.', apelidos.reserva ? 'aviso' : 'info');
 }
 
 /** A logo institucional como data URL (nada de URL de extensão no popup). */
@@ -2823,8 +2868,8 @@ async function testarConexao() {
 
 async function _testarProvedor(pid, key, modelo) {
   if (pid === 'gemini') {
-    const res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent?key=${key}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ contents: [{ parts: [{ text: 'Responda apenas: OK' }] }] }),
     });
     const j = await res.json();

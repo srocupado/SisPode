@@ -17,7 +17,7 @@ const PROVEDORES_META = {
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
     ],
     async listar(key) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=50`);
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=50`, { headers: { 'x-goog-api-key': key } });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
       return (j.models || [])
@@ -260,8 +260,12 @@ function iaFontesOpenAI(output, acc) {
       for (const a of cits) {
         const i = Number.isInteger(a.start_index) ? a.start_index : null;
         const f = Number.isInteger(a.end_index) ? a.end_index : null;
-        const fatia = (i !== null && f !== null && f > i) ? txt.slice(i, f) : txt;
-        iaJuntarTrechos(acc.trechos, [{ texto: fatia, urls: [a.url].filter(Boolean) }]);
+        // Sem posição, a citação não diz QUAL pedaço ela sustenta. Atribuir o
+        // texto inteiro a ela fazia qualquer afirmação da resposta parecer
+        // sustentada por essa fonte. A fonte continua listada (acima); o trecho
+        // só entra quando o provedor delimita.
+        if (i === null || f === null || f <= i) continue;
+        iaJuntarTrechos(acc.trechos, [{ texto: txt.slice(i, f), urls: [a.url].filter(Boolean) }]);
       }
     }
   }
@@ -305,8 +309,8 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // Com raciocínio (parecer) a resposta demora minutos; sem streaming o Chrome derruba a conexão
     // que fica sem receber byte algum. O streaming mantém bytes chegando; o texto é juntado no fim.
     const url = pensarAlto
-      ? `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse&key=${apiKey}`
-      : `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+      ? `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`
+      : `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
     const parts = pdfsBase64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } }));
     parts.push({ text: prompt });
     const body = {
@@ -316,7 +320,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     };
     if (pensarAlto) body.generationConfig.thinkingConfig = /gemini-2\.5/.test(m) ? { thinkingBudget: 24576 } : { thinkingLevel: 'high' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
-    const init = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) };
+    const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
     if (pensarAlto) {
       let texto = '', fim = '';
       for (const ev of await fetchIASse(url, init)) {

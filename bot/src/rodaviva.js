@@ -328,9 +328,9 @@ async function resumoDoVideoGemini(perfil, ep) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8 * 60_000);
   try {
-    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${perfil.apiKey}`, {
+    const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`, {
       method: 'POST', signal: ctrl.signal,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': perfil.apiKey },
       body: JSON.stringify({
         contents: [{ parts: [
           { fileData: { fileUri: ep.url } },
