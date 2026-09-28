@@ -114,6 +114,56 @@ function dfsConflito(declarada, registro) {
   };
 }
 
+// ---------------------------------------------------------------------------
+//  Sentido do voto num item — calculado pelo CÓDIGO, nunca pela IA
+// ---------------------------------------------------------------------------
+// Num destaque, "Sim" e "Não" mudam de sentido conforme o tipo: na emenda
+// destacada, "Sim" aprova a emenda; no DVS, "Sim" costuma ser MANTER o texto.
+// Se o modelo decifrasse isso sozinho e errasse, sairia a justificativa do voto
+// CONTRÁRIO com o nome do deputado. Por isso o sentido sai do resultado
+// registrado: "Rejeitada a Emenda de Plenário nº 26. Sim: 82; não: 342" diz que
+// o lado "Não" venceu e que vencer foi rejeitar — quem votou Não votou pela
+// rejeição; quem votou Sim, pela aprovação. Sem placar, ou com resultado de
+// forma desconhecida, o sentido fica NÃO DETERMINADO e o prompt é instruído a
+// não afirmar o que o voto significou.
+
+const DFS_RESULTADOS = [
+  { re: /^aprovad[oa]s?\b/i,  feito: 'aprovação',  contrario: 'rejeição' },
+  { re: /^rejeitad[oa]s?\b/i, feito: 'rejeição',   contrario: 'aprovação' },
+  { re: /^mantid[oa]s?\b/i,   feito: 'manutenção', contrario: 'supressão' },
+  { re: /^suprimid[oa]s?\b/i, feito: 'supressão',  contrario: 'manutenção' },
+];
+
+/** "a Emenda nº 26" → "da Emenda nº 26" (contração com a preposição "de"). */
+function dfsComDe(obj) {
+  const t = String(obj || '').trim();
+  const m = t.match(/^(os|as|o|a)\s+/i);
+  if (!m) return 'de ' + t;
+  return ({ o: 'do', a: 'da', os: 'dos', as: 'das' })[m[1].toLowerCase()] + ' ' + t.slice(m[0].length);
+}
+
+/**
+ * Sentido do voto do deputado num item, a partir do resultado registrado.
+ * Devolve { texto, venceu } — ex.: { texto: 'pela rejeição da Emenda de
+ * Plenário nº 26', venceu: true } — ou null quando não dá para determinar.
+ */
+function dfsSentidoDoVoto(voto, descricao) {
+  const v = String(voto || '').trim().toLowerCase();
+  if (v !== 'sim' && v !== 'não' && v !== 'nao') return null;
+  const d = String(descricao || '').replace(/\s+/g, ' ').trim();
+  const sim = d.match(/\bSim:\s*(\d+)/i), nao = d.match(/\bN[ãa]o:\s*(\d+)/i);
+  if (!sim || !nao) return null;
+  const nSim = Number(sim[1]), nNao = Number(nao[1]);
+  if (nSim === nNao) return null;
+  const tipo = DFS_RESULTADOS.find(r => r.re.test(d));
+  if (!tipo) return null;
+  // O objeto: o que vem depois do verbo, até o fim da frase (sem a ressalva).
+  const obj = dfsSemRessalva(d.replace(tipo.re, '').split(/\.\s|\.$/)[0]).trim();
+  if (!obj) return null;
+  const venceu = (nSim > nNao) === (v === 'sim');
+  return { texto: `pela ${venceu ? tipo.feito : tipo.contrario} ${dfsComDe(obj)}`, venceu };
+}
+
 /**
  * O que o levantamento de repercussão acrescenta ao pedido, já filtrado pelo que
  * o analista deixou marcado. Vazio quando não houve levantamento.
@@ -151,9 +201,10 @@ argumento, sem citar a cifra de que ela se vale.
 `;
 }
 
-function dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa }) {
+function dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa, foco }) {
   const linhas = itens.map(i => `- ${i.objeto}${i.voto ? ` — voto do deputado: ${i.voto}` : ''}${
     i.simples ? `\n  (o que fazia: ${i.simples})` : ''}`).join('\n');
+  if (foco && foco.length) return dfsPromptFoco({ posicao, dep, prop, materia, registro, enfase, imprensa, foco });
 
   return `Você escreve a sustentação pública do posicionamento de um parlamentar brasileiro.
 
@@ -204,11 +255,77 @@ em branco. Sem título, sem marcadores, sem cercas de código.`;
 }
 
 /**
+ * A sustentação FOCADA nos itens que o analista selecionou. A matéria entra
+ * como contexto; o que se sustenta é o voto em cada item, com o SENTIDO já
+ * determinado pelo código (dfsSentidoDoVoto) — o modelo não reinterpreta Sim/Não.
+ */
+function dfsPromptFoco({ posicao, dep, prop, materia, registro, enfase, imprensa, foco }) {
+  const itens = foco.map(i => `- ${i.objeto}
+  Voto do deputado: ${i.voto}.
+  ${i.sentido ? `SENTIDO DO VOTO (já determinado — use exatamente): ${i.sentido.texto}${i.sentido.venceu ? ' — foi o lado vencedor' : ' — foi o lado vencido'}.`
+              : 'SENTIDO DO VOTO: NÃO DETERMINADO — não afirme o que este voto aprovou, rejeitou, manteve ou suprimiu.'}
+  ${i.simples ? `O que o item fazia: ${i.simples}` : 'O conteúdo do item não foi transcrito: argumente só com o que está acima, sem supor o que ele fazia.'}${
+  i.literal ? `\n  Texto do documento: ${i.literal}` : ''}`).join('\n\n');
+
+  return `Você escreve a sustentação pública do VOTO de um parlamentar brasileiro em itens específicos de uma votação.
+
+QUEM: Dep. ${dep.nome} (${dep.partido}-${dep.uf}).
+MATÉRIA: ${prop ? `${prop.siglaTipo} ${prop.numero}/${prop.ano}` : 'a matéria consultada'}.
+POSIÇÃO DO DEPUTADO SOBRE A MATÉRIA (contexto): ${DFS_POSICOES[posicao]}.
+${enfase ? `PONTO A ENFATIZAR (pedido do analista): ${enfase}\n` : ''}
+DO QUE TRATA A MATÉRIA (contexto):
+${materia || '(não disponível)'}
+
+OS ITENS A SUSTENTAR — e SOMENTE estes:
+${itens}
+${dfsImprensaPrompt(imprensa)}
+REGRAS, todas obrigatórias:
+- Trate SOMENTE dos itens acima. Não comente os demais destaques, emendas ou
+  requerimentos da votação, nem a votação do texto principal, a não ser como
+  pano de fundo em uma frase.
+- O SENTIDO DO VOTO de cada item está determinado acima. Use-o exatamente como
+  está: nunca diga que o deputado aprovou o que rejeitou, ou o contrário. Onde
+  o sentido estiver "não determinado", não afirme o que o voto significou.
+- Explique o que o item decidia e por que o voto dado serve à posição do
+  deputado sobre a matéria. A explicação da matéria é contexto, não o assunto.
+- Escreva em português claro, para imprensa e para órgão de controle. Sem jargão
+  regimental: nada de "art. 161", "DVS", "destaque nos termos de".
+- NÃO invente número, percentual, estudo, valor, data ou citação que não esteja
+  acima. Efeito, só qualitativamente.
+- Não ataque adversários, não atribua má-fé, não fale de outros parlamentares
+  nominalmente, não invente a motivação pessoal do deputado.
+- ${foco.length === 1 ? 'Um a três parágrafos.' : 'Um parágrafo por item, no máximo dois; e um de abertura, se ajudar.'} Comece pelo argumento, sem preâmbulo.
+
+Responda SOMENTE com o texto da sustentação, em parágrafos separados por linha
+em branco. Sem título, sem marcadores, sem cercas de código.`;
+}
+
+/**
+ * Os itens de foco no formato do prompt e do documento, a partir das linhas
+ * selecionadas: objeto, voto, sentido calculado, resumo e texto literal.
+ */
+function dfsItensFoco(linhas, objetos, resumos) {
+  return linhas.map(({ it, s }) => {
+    const v = it.votacao;
+    const r = resumos && resumos.itens && resumos.itens[v.id];
+    const literal = [r && r.pedido && r.pedido.texto, r && r.justificacao && r.justificacao.texto].filter(Boolean).join(' ');
+    return {
+      id: v.id,
+      objeto: String(objetos[v.id] || v.descricao || '').slice(0, 300),
+      voto: s.voto,
+      sentido: dfsSentidoDoVoto(s.voto, v.descricao),
+      simples: r && r.simples ? r.simples : null,
+      literal: literal ? literal.slice(0, 800) : null,
+    };
+  });
+}
+
+/**
  * Gera a sustentação. Devolve { ok, texto, modelo } ou { ok:false, motivo, ... }.
  * Nenhum caminho de falha devolve texto: defesa que não veio precisa aparecer
  * como defesa que não veio.
  */
-async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, imprensa }) {
+async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, imprensa, focoIds }) {
   if (!posicao || !DFS_POSICOES[posicao]) return { ok: false, motivo: 'sem-posicao' };
   const cfg = await rsmConfigIA();
   if (!cfg.apiKey) return { ok: false, motivo: 'sem-chave' };
@@ -226,6 +343,16 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, 
     };
   }).filter(i => i.objeto);
 
+  // Foco: só as linhas selecionadas pelo analista que tenham voto Sim/Não. A
+  // trava de conflito acima continua olhando TODAS as linhas — o voto no texto
+  // principal é o que diz a posição, com ou sem foco.
+  const idsFoco = new Set(focoIds || []);
+  const linhasFoco = idsFoco.size
+    ? linhas.filter(l => idsFoco.has(l.it.votacao.id) && /^(sim|n[ãa]o)$/i.test(String(l.s.voto || '').trim()))
+    : [];
+  if (idsFoco.size && !linhasFoco.length) return { ok: false, motivo: 'foco-vazio' };
+  const foco = linhasFoco.length ? dfsItensFoco(linhasFoco, objetos, resumos) : null;
+
   const materia = resumos && resumos.materia
     ? [resumos.materia.simples, resumos.materia.ementa].filter(Boolean).join(' ')
     : (prop ? String(prop.ementa || '') : '');
@@ -236,7 +363,7 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, 
       provedorId: cfg.provedor || 'gemini',
       apiKey: cfg.apiKey,
       modelo: cfg.modelo || RSM_MODELO_PADRAO,
-      prompt: dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa }),
+      prompt: dfsPrompt({ posicao, dep, prop, materia, itens, registro, enfase, imprensa, foco }),
       opcoes: { maxSaida: 6000 },
     });
   } catch (e) {
@@ -257,7 +384,8 @@ async function dfsGerar({ posicao, dep, prop, resumos, linhas, objetos, enfase, 
   // documento de conferência sem alguém decidir é o pior caminho possível.
   return { ok: true, texto, original: texto, editado: false, incluir: false, posicao,
            modelo: cfg.modelo || RSM_MODELO_PADRAO, registro,
-           usouImprensa: !!dfsImprensaPrompt(imprensa) };
+           usouImprensa: !!dfsImprensaPrompt(imprensa),
+           foco: foco ? foco.map(f => ({ id: f.id, objeto: f.objeto, voto: f.voto, sentido: f.sentido })) : null };
 }
 
 /** A mensagem de recusa, que precisa dizer O QUE contraria o quê. */
@@ -281,6 +409,7 @@ function dfsHtml(d) {
       'erro': 'A geração falhou: ' + cvEsc(d.erro || '') + '. Tente de novo.',
       'resposta-curta': 'O provedor devolveu texto curto demais para servir. Tente de novo.',
       'sem-posicao': '',
+      'foco-vazio': 'Nenhum dos itens selecionados tem voto Sim ou Não do deputado dentro do recorte — não há voto a sustentar.',
     }[d.motivo] || 'A sustentação não foi gerada.';
     return msg ? `<div class="dfs dfs-conflito"><div class="dfs-rot">Sustentação não gerada</div>${msg}</div>` : '';
   }
@@ -288,7 +417,10 @@ function dfsHtml(d) {
   // não o provedor. O que sai no PDF é o que estiver aqui quando ele exportar.
   const linhas = Math.min(28, Math.max(10, d.texto.split('\n').length + Math.ceil(d.texto.length / 90)));
   return `<div class="dfs">
-    <div class="dfs-rot">Sustentação — posição ${cvEsc(DFS_POSICOES[d.posicao])}</div>
+    <div class="dfs-rot">${d.foco && d.foco.length
+      ? `Sustentação — voto ${d.foco.length === 1 ? 'no item selecionado' : `nos ${d.foco.length} itens selecionados`}`
+      : `Sustentação — posição ${cvEsc(DFS_POSICOES[d.posicao])}`}</div>
+    ${dfsChipsFoco(d.foco)}
     <textarea id="dfsTexto" class="dfs-edit" rows="${linhas}"
       spellcheck="true">${cvEsc(d.texto)}</textarea>
     <div class="dfs-barra">
@@ -301,8 +433,9 @@ function dfsHtml(d) {
         ? 'Marcado: a seção sai no documento.'
         : 'Desmarcado: o documento sai só com o registro de votos.'}</span></span>
     </label>
-    <div class="dfs-nota">Texto argumentativo, rascunhado por ${cvEsc(d.modelo)} a partir dos documentos e do voto
-      registrado${d.usouImprensa ? ', e orientado pelos pontos contestados que você marcou na repercussão' : ''},
+    <div class="dfs-nota">Texto argumentativo${d.foco && d.foco.length ? ', sobre o voto nos itens selecionados,' : ''}
+      rascunhado por ${cvEsc(d.modelo)} a partir dos documentos e do voto
+      registrado${d.foco && d.foco.length ? ' (o sentido de cada voto foi calculado do resultado registrado, não pela IA)' : ''}${d.usouImprensa ? ', e orientado pelos pontos contestados que você marcou na repercussão' : ''},
       para ser revisado. Não é registro de fato: o registro é a tabela acima.${
       // Aviso dirigido, e não genérico: medido contra o provedor, a sustentação
       // gerada a partir da repercussão reaproveita número e valor dos pontos
@@ -316,6 +449,16 @@ function dfsHtml(d) {
         ? ' As votações do texto principal foram simbólicas ou sem voto nominal do deputado, então o voto registrado não estabelece a posição — esta sustentação se apoia no argumento.'
         : ''}</div>
   </div>`;
+}
+
+/** Os itens de foco como etiquetas: "DTQ 3: … — voto pela rejeição da …". */
+function dfsRotuloFoco(f) {
+  const obj = String(f.objeto || '').replace(/^Vota[çc][ãa]o d[oa]s?\s+/i, '').slice(0, 90);
+  return `${obj} — voto ${f.sentido ? f.sentido.texto : `${String(f.voto || '').toUpperCase()} (sentido não determinado)`}`;
+}
+function dfsChipsFoco(foco) {
+  if (!foco || !foco.length) return '';
+  return `<div class="dfs-chips">${foco.map(f => `<span class="dfs-chip">${cvEsc(dfsRotuloFoco(f))}</span>`).join('')}</div>`;
 }
 
 /**
