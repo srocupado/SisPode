@@ -122,6 +122,10 @@ const ctx = {
       const ids = API_AUTORES[m[1]] || [];
       return { ok: true, status: 200, json: async () => ({ dados: ids.map(id => ({ codTipo: 10000, uri: `https://dadosabertos.camara.leg.br/api/v2/deputados/${id}`, nome: `Dep ${id}` })) }) };
     }
+    if ((m = u.match(/\/deputados\/(\d+)$/))) {
+      if (m[1] === '11') return { ok: true, status: 200, json: async () => ({ dados: { id: 11, ultimoStatus: { nome: 'Otto Avulso', siglaPartido: 'PSD', siglaUf: 'MG' } } }) };
+      return { ok: false, status: 404, json: async () => ({}) };
+    }
     if ((m = u.match(/\/deputados\/(\d+)\/historico/))) {
       return { ok: true, status: 200, json: async () => ({ dados: API_HISTORICO[m[1]] || [] }) };
     }
@@ -257,6 +261,15 @@ const av = e => vm.runInContext(e, ctx);
     ok(!linhas.some(l => l.nome === 'Carla Zero'), 'especificamente: Carla some da lista');
     document.getElementById('leaSoComLei').checked = false;
 
+    // Ordenar por partido: quem está sem partido (sem cadastro) vai para o FIM.
+    FIRE['57'].ranking.push({ depId: 99, nome: 'Deputado 99', partido: '', uf: '', condicao: '—', total: 9 });
+    av(`lea.linhas = leaAchatar(['57']); lea.ordem = { coluna: 'partido', asc: true }`);
+    const porPartido = av('leaFiltradas()').map(l => l.partido);
+    ok(porPartido[0] === 'PL' && porPartido[porPartido.length - 1] === '',
+       `ordem por partido: vazio no fim, não no topo (${porPartido.join(',')})`);
+    FIRE['57'].ranking.pop();
+    av(`lea.linhas = leaAchatar(['57', '56']); lea.ordem = { coluna: 'total', asc: false }`);
+
     document.getElementById('leaCondicao').value = 'suplente';
     linhas = av('leaFiltradas()');
     ok(linhas.length === 1 && linhas[0].nome === 'Beto Sicrano', 'filtro de condição isola o suplente (Beto)');
@@ -367,6 +380,7 @@ const av = e => vm.runInContext(e, ctx);
     ok(porDep[10] && porDep[10].total === 1 && porDep[10].nome === 'Duda Veterana',
        'o autor do roster aparece com o nome certo');
     ok(porDep[11] && porDep[11].total === 1, 'o coautor FORA do roster aparece assim mesmo, com crédito');
+    ok(porDep[11].nome === 'Otto Avulso' && porDep[11].partido === 'PSD', 'e com nome e partido do cadastro avulso, não "Deputado 11"');
     ok(porDep[10].condicao === 'Titular', 'condição titular/suplente veio do histórico');
     ok(porDep[11].condicao === '—', 'sem histórico cadastrado, condição fica "—" — não trava o processamento');
     ok(ctx.__fases.some(f => /Lendo "proposicoes-2007\.json"/.test(f)), 'o progresso de leitura do arquivo é reportado');

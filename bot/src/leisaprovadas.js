@@ -149,12 +149,38 @@ async function getComRetry(url) {
   throw new Error(`falhou após ${RETRIES} tentativas: ${last ? last.message : url}`);
 }
 
-/** Todos os deputados de uma legislatura — roster inteiro numa chamada (itens=1000). */
+/**
+ * Todos os deputados de uma legislatura, PAGINADO. A API devolve um registro
+ * por deputado-partido (quem trocou de partido aparece mais de uma vez), e
+ * legislaturas com muita troca passam de 1.000 registros — a 55ª tem 1.138, a
+ * 56ª 1.073. Ler só a primeira página cortava quem vinha depois na ordem
+ * alfabética, e esses deputados apareciam no ranking como "Deputado 160569",
+ * sem nome nem partido.
+ */
 async function fetchDeputados(idLegislatura) {
-  const url = `${API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=1000`;
-  const res = await getComRetry(url);
-  const json = await res.json();
-  return (json.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' }));
+  const ITENS = 1000, MAX_PAGINAS = 10;
+  const out = [];
+  for (let pagina = 1; pagina <= MAX_PAGINAS; pagina++) {
+    const url = `${API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`;
+    const json = await (await getComRetry(url)).json();
+    const dados = json.dados || [];
+    for (const d of dados) out.push({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' });
+    const temProxima = (json.links || []).some(l => l.rel === 'next');
+    if (dados.length < ITENS || !temProxima) break;
+  }
+  return out;
+}
+
+/**
+ * Um deputado avulso — para o autor que não está no roster da legislatura
+ * (ex.: coautor de outra legislatura). Partido/UF são os do último status, não
+ * necessariamente os da época; melhor que um "Deputado 12345" sem nome.
+ */
+async function fetchDeputado(id) {
+  const json = await (await getComRetry(`${API}/deputados/${id}`)).json();
+  const u = (json.dados && json.dados.ultimoStatus) || {};
+  if (!u.nome) throw new Error('sem nome no cadastro');
+  return { id, nome: u.nome, partido: u.siglaPartido || '', uf: u.siglaUf || '' };
 }
 
 /**
@@ -297,9 +323,17 @@ async function coletarLegislatura(leg, { tipos = TIPOS_PADRAO, comCondicao = tru
 
   // Totais por deputado (todos os autores — inclusive coautores — recebem crédito).
   const totalPorDep = new Map();
+  const foraDoRoster = new Set();
   for (const p of projetos) for (const depId of p.autores) {
     totalPorDep.set(depId, (totalPorDep.get(depId) || 0) + 1);
-    if (!infoDep.has(depId)) infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' });
+    if (!infoDep.has(depId)) foraDoRoster.add(depId);
+  }
+  if (foraDoRoster.size) {
+    progresso(`buscando o cadastro de ${foraDoRoster.size} autor(es) fora do roster`);
+    await mapLimit([...foraDoRoster], 5, async (depId) => {
+      try { infoDep.set(depId, await fetchDeputado(depId)); }
+      catch (e) { infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' }); }
+    });
   }
 
   let condicaoPorDep = new Map();
@@ -429,7 +463,7 @@ module.exports = {
   legislaturaPelaConta, configLegislatura, legislaturaAtual, listarLegislaturas,
   legislaturaValida, anosParaColetar, emCarencia, legislaturasEmRefresh,
   conferirLegislaturaComApi, classificarPorLegislatura, baixarEFiltrarAno,
-  fetchDeputados, fetchAutoresDeputados, fetchHistorico, condicaoDaLegislatura,
+  fetchDeputados, fetchDeputado, fetchAutoresDeputados, fetchHistorico, condicaoDaLegislatura,
   coletarLegislatura, salvarLegislatura, legislaturaPrecisaAtualizar,
   motivosParaNaoGravar, atualizarLeisAprovadas, situacaoLeisAprovadas,
 };

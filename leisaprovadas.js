@@ -238,6 +238,8 @@ function leaFiltradas() {
   linhas.sort((a, b) => {
     if (coluna === 'total') return asc ? a.total - b.total : b.total - a.total;
     const va = (a[coluna] || '').toLowerCase(), vb = (b[coluna] || '').toLowerCase();
+    // Vazio (deputado sem cadastro) vai sempre para o FIM, não para o topo.
+    if (!va !== !vb) return va ? -1 : 1;
     if (va < vb) return asc ? -1 : 1;
     if (va > vb) return asc ? 1 : -1;
     return b.total - a.total;
@@ -531,9 +533,27 @@ function leaLerArquivoLocal(file, onBytes) {
   });
 }
 
+/**
+ * Roster PAGINADO — mesma correção do coletor do bot: a API devolve um
+ * registro por deputado-partido, e a 55ª/56ª passam de 1.000 registros.
+ */
 async function leaBuscarRoster(idLegislatura) {
-  const j = await fetchJson(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=1000`);
-  return (j.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' }));
+  const ITENS = 1000, out = [];
+  for (let pagina = 1; pagina <= 10; pagina++) {
+    const j = await fetchJson(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`);
+    const dados = j.dados || [];
+    for (const d of dados) out.push({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' });
+    if (dados.length < ITENS || !(j.links || []).some(l => l.rel === 'next')) break;
+  }
+  return out;
+}
+
+/** Autor fora do roster: cadastro avulso (partido/UF do último status). */
+async function leaBuscarDeputado(id) {
+  const j = await fetchJson(`${LEA_API}/deputados/${id}`);
+  const u = (j.dados && j.dados.ultimoStatus) || {};
+  if (!u.nome) throw new Error('sem nome no cadastro');
+  return { id, nome: u.nome, partido: u.siglaPartido || '', uf: u.siglaUf || '' };
 }
 
 async function leaBuscarAutores(idProposicao) {
@@ -584,9 +604,17 @@ async function leaAgregar(leg, leis, { comCondicao = true, fase = () => {} } = {
   const projetos = leis.map((lei, i) => ({ ...lei, autores: autoresPorLei[i] || [] }));
 
   const totalPorDep = new Map();
+  const foraDoRoster = new Set();
   for (const p of projetos) for (const depId of p.autores) {
     totalPorDep.set(depId, (totalPorDep.get(depId) || 0) + 1);
-    if (!infoDep.has(depId)) infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' });
+    if (!infoDep.has(depId)) foraDoRoster.add(depId);
+  }
+  if (foraDoRoster.size) {
+    fase(`${rotulo}: buscando o cadastro de ${foraDoRoster.size} autor(es) fora do roster…`);
+    await mapLimit([...foraDoRoster], 5, async (depId) => {
+      try { infoDep.set(depId, await leaBuscarDeputado(depId)); }
+      catch (e) { infoDep.set(depId, { id: depId, nome: `Deputado ${depId}`, partido: '', uf: '' }); }
+    });
   }
 
   let condicaoPorDep = new Map();
