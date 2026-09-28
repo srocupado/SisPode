@@ -14,6 +14,9 @@
 //     projeto), não de outro;
 //  6. as legislaturas saem da DATA (a 58ª aparece sozinha em fev/2027), com
 //     os checkboxes gerados e as duas mais recentes marcadas por padrão;
+//  8. o campo Nome sugere deputados do agregado (sem acento, sem repetir quem
+//     está em mais de uma legislatura), e escolher uma sugestão filtra por id;
+//     a coleta pela extensão aceita qualquer legislatura, pelo seletor;
 //  7. dado velho da corrente mostra aviso com "Coletar agora", e a coleta pela
 //     extensão baixa os arquivos direto da Câmara; as travas impedem gravar
 //     coleta incompleta (ano faltando, autor não apurado) e pedem confirmação
@@ -258,6 +261,46 @@ const av = e => vm.runInContext(e, ctx);
     linhas = av('leaFiltradas()');
     ok(linhas.length === 1 && linhas[0].nome === 'Beto Sicrano', 'filtro de condição isola o suplente (Beto)');
     document.getElementById('leaCondicao').value = '';
+  }
+
+  console.log('\n== sugestões no campo Nome ==');
+  {
+    const sug = av(`leaSugestoes('ana', ['57', '56'])`);
+    ok(sug.length === 1 && sug[0].nome === 'Ana Fulana', `Ana aparece UMA vez, mesmo estando nas duas legislaturas (${sug.length})`);
+    ok(sug[0].legs.join(',') === '57,56' && sug[0].total === 3, 'com as legislaturas em que consta e o total somado (2 + 1)');
+    ok(av(`leaSugestoes('SICRANO', ['57'])`)[0].nome === 'Beto Sicrano', 'casa no meio do nome e sem diferenciar maiúsculas');
+    FIRE['57'].ranking.push({ depId: 4, nome: 'Zé Márcio', partido: 'PODE', uf: 'PR', condicao: 'Titular', total: 0 });
+    ok(av(`leaSugestoes('marcio', ['57'])`)[0].nome === 'Zé Márcio', 'ignora acento ("marcio" acha "Márcio")');
+    FIRE['57'].ranking.pop();
+    ok(av(`leaSugestoes('a', ['57'])`).length === 0, 'com menos de 2 letras, não sugere');
+    const ordem = av(`leaSugestoes('ca', ['57'])`).map(d => d.nome);
+    ok(ordem[0] === 'Carla Zero', `quem COMEÇA com o texto vem primeiro (${ordem.join(', ')})`);
+
+    document.querySelectorAll('.lea-leg').forEach(c => { c.checked = c.value === '57' || c.value === '56'; });
+    await av('leaConsultar()');
+    document.getElementById('leaNome').value = 'ana';
+    await av('leaNomeDigitado()');
+    const botoes = document.querySelectorAll('#leaEscolha [data-dep]');
+    ok(botoes.length === 1 && /Ana Fulana/.test(botoes[0].textContent), 'digitar mostra as sugestões na tela');
+    botoes[0].dispatchEvent(new Event('click'));
+    ok(document.getElementById('leaNome').value === 'Ana Fulana', 'clicar preenche o nome completo');
+    const filtradas = av('leaFiltradas()');
+    ok(filtradas.length === 2 && filtradas.every(l => l.depId === 1), 'e filtra pelo deputado escolhido (as duas legislaturas dela)');
+    document.getElementById('leaLimparDep').dispatchEvent(new Event('click'));
+    ok(av('lea.depEscolhido') === null && document.getElementById('leaNome').value === '', '× desfaz a escolha');
+  }
+
+  console.log('\n== coleta de outras legislaturas pela extensão ==');
+  {
+    const opcoes = [...document.querySelectorAll('#leaColetarLeg option')].map(o => o.getAttribute('value'));
+    ok(opcoes.join(',') === av('leaListarLegislaturas()').join(','), `o seletor oferece todas, da corrente à 53ª (${opcoes.join(', ')})`);
+    chamadas.length = 0;
+    document.getElementById('leaColetarLeg').value = '53';
+    document.getElementById('leaColetar').dispatchEvent(new Event('click'));
+    await new Promise(r => setTimeout(r, 50));
+    ok(chamadas.some(c => c.includes('/proposicoes-2007.json')) && chamadas.some(c => c.includes('idLegislatura=53')),
+       'escolher a 53ª e clicar baixa os arquivos DELA (2007…) e busca o roster dela');
+    ok(!chamadas.some(c => c.includes('/proposicoes-2023.json')), 'e não os da corrente');
   }
 
   console.log('\n== legislatura sem dado agregado: aviso, não erro nem silêncio ==');

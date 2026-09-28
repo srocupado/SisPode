@@ -84,7 +84,7 @@ function leaRenderLegislaturas() {
   return legs.slice(0, 2); // padrão: as duas mais recentes
 }
 
-const lea = { cache: {}, linhas: [], ordem: { coluna: 'total', asc: false } };
+const lea = { cache: {}, linhas: [], ordem: { coluna: 'total', asc: false }, depEscolhido: null };
 
 const leaEl = {
   legs:      () => document.querySelectorAll('.lea-leg'),
@@ -145,15 +145,88 @@ function leaGrupoCondicao(cond) {
   return '';
 }
 
+/** Nome para comparação: minúsculo e sem acento ("João" casa com "joao"). */
+function leaNormNome(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLowerCase();
+}
+
+/**
+ * Sugestões para o campo Nome, como no "Como votou o deputado" — mas a fonte
+ * é o próprio agregado das legislaturas marcadas (não a API /deputados), que
+ * cobre também quem já saiu da Câmara. Um deputado aparece uma vez só, com as
+ * legislaturas em que consta; o total é a soma delas.
+ */
+function leaSugestoes(texto, legsEscolhidas, limite = 8) {
+  const alvo = leaNormNome(texto);
+  if (alvo.length < 2) return [];
+  const porDep = new Map();
+  for (const leg of legsEscolhidas) {
+    const dados = lea.cache[leg];
+    for (const r of (dados && dados.ranking) || []) {
+      const n = leaNormNome(r.nome);
+      const pos = n.indexOf(alvo);
+      if (pos < 0) continue;
+      const atual = porDep.get(r.depId);
+      if (atual) { atual.legs.push(leg); atual.total += r.total || 0; continue; }
+      // Quem COMEÇA com o texto vem antes; depois, início de palavra; depois, o resto.
+      const nota = pos === 0 ? 0 : (n[pos - 1] === ' ' ? 1 : 2);
+      porDep.set(r.depId, { depId: r.depId, nome: r.nome, partido: r.partido, uf: r.uf, legs: [leg], total: r.total || 0, nota });
+    }
+  }
+  return [...porDep.values()]
+    .sort((a, b) => a.nota - b.nota || a.nome.localeCompare(b.nome, 'pt-BR'))
+    .slice(0, limite);
+}
+
+function leaRenderEscolha(lista) {
+  const el = document.getElementById('leaEscolha');
+  if (!el) return;
+  if (!lista.length) { el.innerHTML = ''; return; }
+  el.innerHTML = '<div class="cv-escolha"><div class="cv-escolha-tit">Sugestões — clique para escolher:</div>'
+    + lista.map(d => `<button class="cv-op" data-dep="${d.depId}">${cvEsc(d.nome)} <span class="p">(${cvEsc(d.partido)}-${cvEsc(d.uf)} · ${
+      d.legs.map(l => l + 'ª').join(', ')} · ${d.total} lei(s))</span></button>`).join('')
+    + '</div>';
+  el.querySelectorAll('[data-dep]').forEach(b => {
+    b.addEventListener('click', () => {
+      const d = lista.find(x => String(x.depId) === b.dataset.dep);
+      lea.depEscolhido = d.depId;
+      leaEl.nome().value = d.nome;
+      el.innerHTML = `<div class="cv-sel">✓ <b>${cvEsc(d.nome)}</b> (${cvEsc(d.partido)}-${cvEsc(d.uf)})
+        <button class="x" id="leaLimparDep" title="Trocar de deputado">×</button></div>`;
+      document.getElementById('leaLimparDep').addEventListener('click', () => {
+        lea.depEscolhido = null; leaEl.nome().value = ''; el.innerHTML = '';
+        if (lea.linhas.length) leaRenderRanking();
+      });
+      if (lea.linhas.length) leaRenderRanking();
+    });
+  });
+}
+
+/** Digitação no campo Nome: carrega (se preciso) as legislaturas marcadas e sugere. */
+async function leaNomeDigitado() {
+  lea.depEscolhido = null;
+  const texto = leaEl.nome().value;
+  const legs = [...leaEl.legs()].filter(c => c.checked).map(c => c.value);
+  if (leaNormNome(texto).length < 2 || !legs.length) { leaRenderEscolha([]); return; }
+  const faltando = legs.filter(leg => lea.cache[leg] === undefined);
+  if (faltando.length) {
+    try { await mapLimit(faltando, 5, leaCarregarLegislatura); }
+    catch (e) { return; } // sem sugestão; o filtro por texto continua funcionando
+  }
+  if (leaEl.nome().value !== texto) return; // o usuário continuou digitando
+  leaRenderEscolha(leaSugestoes(texto, legs));
+}
+
 function leaFiltradas() {
-  const nome = (leaEl.nome().value || '').trim().toLowerCase();
+  const nome = leaNormNome(leaEl.nome().value);
   const partido = (leaEl.partido().value || '').trim().toUpperCase();
   const uf = (leaEl.uf().value || '').trim().toUpperCase();
   const condicao = leaEl.condicao().value;
   const soComLei = leaEl.soComLei().checked;
 
   let linhas = lea.linhas.filter(d => {
-    if (nome && !d.nome.toLowerCase().includes(nome)) return false;
+    if (lea.depEscolhido) { if (d.depId !== lea.depEscolhido) return false; }
+    else if (nome && !leaNormNome(d.nome).includes(nome)) return false;
     if (partido && d.partido !== partido) return false;
     if (uf && d.uf !== uf) return false;
     if (condicao && leaGrupoCondicao(d.condicao) !== condicao) return false;
@@ -744,7 +817,11 @@ async function leaUpProcessarClick() {
   }
 }
 
-/** "Coletar agora pela extensão" — legislatura corrente, direto da Câmara. */
+/**
+ * "Coletar agora pela extensão", direto da Câmara. Sem argumento, a corrente
+ * (é o que o aviso de dado velho oferece); pela seção de coleta, a escolhida
+ * no seletor — qualquer uma da 53ª em diante, com as mesmas travas.
+ */
 async function leaColetarAgoraClick(leg) {
   leg = leg || leaLegislaturaAtual();
   const botoes = document.querySelectorAll('.lea-coletar');
@@ -773,6 +850,12 @@ if (leaEl.buscar()) {
   leaEl.buscar().addEventListener('click', leaConsultar);
   if (leaEl.limpar()) leaEl.limpar().addEventListener('click', leaLimparClick);
   document.querySelectorAll('.lea-leg').forEach(c => { if (LEA_PADRAO.includes(c.value)) c.checked = true; });
+  let leaTNome = null;
+  leaEl.nome().addEventListener('input', () => {
+    lea.depEscolhido = null; // antes do filtro abaixo: digitar desfaz a escolha
+    clearTimeout(leaTNome);
+    leaTNome = setTimeout(leaNomeDigitado, 250);
+  });
   ['leaNome', 'leaPartido', 'leaUf', 'leaCondicao', 'leaSoComLei'].forEach(id => {
     const el = document.getElementById(id);
     if (!el) return;
@@ -788,7 +871,12 @@ if (leaUpEl.processar()) {
   leaUpEl.processar().addEventListener('click', leaUpProcessarClick);
 }
 const leaBtnColetar = document.getElementById('leaColetar');
+const leaSelColetar = document.getElementById('leaColetarLeg');
+if (leaSelColetar) {
+  leaSelColetar.innerHTML = leaListarLegislaturas().map(leg =>
+    `<option value="${leg}">${leaCfg(leg).rotulo}${leg === leaLegislaturaAtual() ? ' — corrente' : ''}</option>`).join('');
+  leaSelColetar.value = leaLegislaturaAtual();
+}
 if (leaBtnColetar) {
-  leaBtnColetar.textContent = `Coletar agora a ${leaLegislaturaAtual()}ª pela extensão`;
-  leaBtnColetar.addEventListener('click', () => leaColetarAgoraClick());
+  leaBtnColetar.addEventListener('click', () => leaColetarAgoraClick(leaSelColetar ? leaSelColetar.value : undefined));
 }
