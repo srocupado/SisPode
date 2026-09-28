@@ -1,4 +1,4 @@
-// Filtro "Só não atendidas" da aba Demandas de Deputados (lideres.html).
+// Filtros "Só não atendidas" e "Só atendidas" da aba Demandas de Deputados (lideres.html).
 //
 // O que este teste trava:
 //  1. o filtro começa SEMPRE desligado — todas as demandas aparecem;
@@ -8,7 +8,9 @@
 //     aberto sai da lateral e da lista;
 //  4. ligado, um aviso diz quantas atendidas estão ocultas, e "Mostrar todas"
 //     desliga o filtro (e desmarca o checkbox);
-//  5. tudo atendido + filtro ligado: a tela diz isso, não fica em branco.
+//  5. tudo atendido + filtro ligado: a tela diz isso, não fica em branco;
+//  6. "Só atendidas" é o espelho, e os dois checkboxes se excluem;
+//  7. o relatório em PDF segue o filtro e diz no título que é recorte.
 //
 // Uso: node testes/lideres-filtro-demandas.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -61,7 +63,7 @@ const cb = () => document.getElementById('dem-so-abertas');
 
   console.log('== começa desligado ==');
   ok(!!cb() && !cb().checked, 'o checkbox "Só não atendidas" existe e começa desmarcado');
-  ok(av('app.demSoAbertas') === false, 'e o estado também começa desligado');
+  ok(av('app.demFiltro') === 'todas', 'e o estado também começa desligado (todas)');
   ok(cartoes().length === 5, `todas as 5 demandas aparecem (${cartoes().length})`);
   ok(!document.querySelector('.dem-aviso-filtro'), 'sem aviso de filtro');
 
@@ -73,7 +75,7 @@ const cb = () => document.getElementById('dem-so-abertas');
   console.log('\n== filtro ligado ==');
   cb().checked = true;
   cb().dispatchEvent(new Event('change'));
-  ok(av('app.demSoAbertas') === true, 'marcar o checkbox liga o filtro');
+  ok(av('app.demFiltro') === 'abertas', 'marcar o checkbox liga o filtro');
   ok(cartoes().join(',') === 'PL 1/2025,PL 3/2025,PL 4/2025', `só as 3 em aberto aparecem (${cartoes().join(', ')})`);
   const l1 = lado();
   ok(!l1.some(t => /Rodrigo Gambale/.test(t)), 'deputado sem demanda em aberto sai da lateral');
@@ -84,15 +86,43 @@ const cb = () => document.getElementById('dem-so-abertas');
 
   console.log('\n== "Mostrar todas" desliga ==');
   document.querySelector('[data-mostrar-todas]').dispatchEvent(new Event('click'));
-  ok(av('app.demSoAbertas') === false && cb().checked === false, 'desliga o filtro e desmarca o checkbox');
+  ok(av('app.demFiltro') === 'todas' && !cb().checked, 'desliga o filtro e desmarca o checkbox');
   ok(cartoes().length === 5 && !document.querySelector('.dem-aviso-filtro'), 'e volta a mostrar as 5, sem aviso');
 
   console.log('\n== tudo atendido, filtro ligado ==');
-  av(`app.demandas = __dem.map(d => ({ ...d, atendimento: { rotulo: 'ok', em: '2026-09-01' } })); definirFiltroDemandas(true)`);
+  av(`app.demandas = __dem.map(d => ({ ...d, atendimento: { rotulo: 'ok', em: '2026-09-01' } })); definirFiltroDemandas('abertas')`);
   ok(cartoes().length === 0, 'nenhum cartão');
   ok(/Nenhuma demanda em aberto — todas as 5 registradas foram atendidas/.test(document.getElementById('dem-wrap').textContent),
      'a tela diz que tudo foi atendido, em vez de ficar em branco');
   ok(/Nenhuma demanda em aberto/.test(document.getElementById('dem-lista-deputados').textContent), 'e a lateral também');
+
+  console.log('\n== "Só atendidas" ==');
+  const cbAt = () => document.getElementById('dem-so-atendidas');
+  av(`app.demandas = __dem; definirFiltroDemandas('abertas')`);
+  cbAt().checked = true;
+  cbAt().dispatchEvent(new Event('change'));
+  ok(av('app.demFiltro') === 'atendidas' && !cb().checked, 'marcar "Só atendidas" desmarca "Só não atendidas" — os dois se excluem');
+  ok(cartoes().join(',') === 'PL 2/2025,PL 5/2025', `só as 2 atendidas aparecem (${cartoes().join(', ')})`);
+  ok(!lado().some(t => /Nely Aquino/.test(t)), 'quem não tem atendida (Nely) sai da lateral');
+  ok(/3 demanda\(s\) em aberto estão ocultas/.test(document.querySelector('.dem-aviso-filtro').textContent), 'o aviso diz quantas em aberto estão ocultas');
+  cbAt().checked = false;
+  cbAt().dispatchEvent(new Event('change'));
+  ok(av('app.demFiltro') === 'todas' && cartoes().length === 5, 'desmarcar volta a mostrar todas');
+
+  console.log('\n== o relatório segue o filtro ==');
+  const rel = (filtro) => av(`_htmlRelatorioDemandas(filtrarDemandas(__dem, '${filtro}'), null, [], '${filtro}')`);
+  const hAt = rel('atendidas');
+  ok(/Somente demandas atendidas/i.test(hAt) && /PL 2\/2025/.test(hAt) && !/PL 1\/2025/.test(hAt),
+     'filtro "Só atendidas": o PDF traz só as atendidas e diz no título que é recorte');
+  ok(/as em aberto não entram neste relatório/.test(hAt), 'e a linha de totais avisa o que ficou de fora');
+  const hAb = rel('abertas');
+  ok(/Somente demandas em aberto/i.test(hAb) && /PL 3\/2025/.test(hAb) && !/PL 5\/2025/.test(hAb), 'filtro "Só não atendidas": só as em aberto');
+  const hTodas = rel('todas');
+  ok(!/Somente/.test(hTodas) && /PL 1\/2025/.test(hTodas) && /PL 5\/2025/.test(hTodas), 'sem filtro: relatório completo, sem aviso de recorte');
+  av(`definirFiltroDemandas('atendidas'); abrirModalRelatorio()`);
+  const itens = [...document.querySelectorAll('#rel-deputados input')].map(i => i.dataset.grupo);
+  ok(itens.length === 2 && !itens.some(g => /Nely/.test(g)), `o modal só oferece deputados com demanda no recorte (${itens.join(', ')})`);
+  ok(/só as demandas atendidas/.test(document.getElementById('rel-recorte').textContent), 'e avisa que o relatório segue o filtro');
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
