@@ -118,6 +118,14 @@ function fakeFetch(url) {
   const u = String(url);
   let m;
   if ((m = u.match(/\/deputados\?idLegislatura=(\d+)/))) {
+    if (m[1] === '56') {
+      // 56ª com MAIS de 1.000 registros (um por deputado-partido): 2 páginas.
+      const pagina = Number((u.match(/pagina=(\d+)/) || [])[1] || 1);
+      const dados = pagina === 1
+        ? Array.from({ length: 1000 }, (_, i) => ({ id: 5000 + i, nome: `Dep ${i}`, siglaPartido: 'PT', siglaUf: 'SP' }))
+        : [{ id: 160569, nome: 'Waldenor Pereira', siglaPartido: 'PT', siglaUf: 'BA' }];
+      return resposta(200, { dados, links: pagina === 1 ? [{ rel: 'next' }] : [] });
+    }
     const dados = m[1] === '57' ? roster57 : [];
     return resposta(200, { dados }, { 'x-total-count': String(dados.length) });
   }
@@ -135,6 +143,10 @@ function fakeFetch(url) {
     if (fakeFetch.falharAutor === id) return resposta(500, {});
     const ids = autores[id] || [];
     return resposta(200, { dados: ids.map(depId => ({ codTipo: 10000, uri: `${API_BASE}/deputados/${depId}`, nome: `Dep ${depId}` })) });
+  }
+  if ((m = u.match(/\/deputados\/(\d+)$/))) {
+    if (m[1] === '3') return resposta(200, { dados: { id: 3, ultimoStatus: { nome: 'Caio Terceiro', siglaPartido: 'MDB', siglaUf: 'GO' } } });
+    return resposta(404, {});
   }
   if ((m = u.match(/\/deputados\/(\d+)\/historico/))) {
     const id = Number(m[1]);
@@ -178,9 +190,18 @@ global.fetch = fakeFetch;
     const porDep = Object.fromEntries(dados57.ranking.map(r => [r.depId, r]));
     ok(porDep[1].total === 1 && porDep[2].total === 1, 'Ana e Beto, coautores do 100, recebem 1 crédito cada');
     ok(porDep[3] && porDep[3].total === 1, 'o autor 3 (fora do roster) aparece no ranking mesmo assim, com 1 crédito');
-    ok(porDep[3].nome !== `Deputado ${3}` || true, 'e tem alguma identificação (nome de fallback aceitável)');
+    ok(porDep[3].nome === 'Caio Terceiro' && porDep[3].partido === 'MDB' && porDep[3].uf === 'GO',
+       'e com nome, partido e UF do cadastro avulso — não "Deputado 3"');
     ok(porDep[1].condicao === 'Titular' && porDep[2].condicao === 'Suplente', 'condição titular/suplente veio do histórico de cada um');
     ok(porDep[3].condicao === '—', 'sem histórico cadastrado, condição fica "—" — não trava a coleta');
+  }
+
+  console.log('\n== roster paginado (legislaturas com mais de 1.000 registros) ==');
+  {
+    const { fetchDeputados } = require(destino);
+    const r = await fetchDeputados('56');
+    ok(r.length === 1001, `lê as duas páginas (${r.length} registros)`);
+    ok(r.some(d => d.nome === 'Waldenor Pereira'), 'quem vinha depois do milésimo na ordem alfabética não some mais');
   }
 
   console.log('\n== falha parcial não derruba a coleta ==');
