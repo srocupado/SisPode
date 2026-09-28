@@ -248,6 +248,15 @@
     }
     .dem-side-dep:hover { background: rgba(255,255,255,0.04); }
     .dem-side-dep .qtd { color: var(--text-dim); font-size: 11px; }
+    .dem-side-dep .qtd b { color: var(--accent-light); font-weight: 700; }
+    /* Filtro "só não atendidas" — o aviso no topo da lista é o que impede o
+       filtro ligado de passar despercebido (ele esconde demandas). */
+    .dem-filtro { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; user-select: none; }
+    .dem-filtro input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
+    .dem-filtro-side { padding: 6px 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+    .dem-aviso-filtro { font-size: 11.5px; color: var(--text-dim); margin: 0 0 14px; max-width: 900px; padding: 8px 12px;
+      border-left: 3px solid var(--accent); background: rgba(31,165,165,0.07); border-radius: 0 8px 8px 0; }
+    .dem-aviso-filtro a { color: var(--accent-light); cursor: pointer; }
     .dem-api-preview {
       margin-top: 12px; background: rgba(31,165,165,0.07); border: 1px solid rgba(31,165,165,0.25);
       border-radius: 8px; padding: 10px 12px; font-size: 12px; line-height: 1.55;
@@ -352,6 +361,9 @@
       <!-- Sistema 2: deputados com demandas registradas -->
       <div class="sidebar-section" data-sistema="demandas" style="display:none">
         <div class="sidebar-label">DEPUTADOS</div>
+        <div class="dem-filtro-side">
+          <label class="dem-filtro" title="Esconde as demandas já marcadas como atendidas"><input type="checkbox" id="dem-so-abertas"> Só não atendidas</label>
+        </div>
         <div id="dem-lista-deputados">
           <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
         </div>
