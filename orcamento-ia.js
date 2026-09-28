@@ -751,7 +751,7 @@ const PROVEDORES_ORCAMENTO = {
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
     ],
     async listar(key) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=50`);
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=50`, { headers: { 'x-goog-api-key': key } });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
       return (j.models || [])
@@ -852,8 +852,8 @@ async function chamarIAOrcamento({ provedorId, apiKey, modelo, prompt, pdfBuffer
     const parts = pdfs.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } }));
     parts.push({ text: prompt });
     const json = await fetchIAOrcamento(
-      `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1, maxOutputTokens: 16000 } }) },
       signal);
     const cand = json.candidates?.[0];

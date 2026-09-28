@@ -758,8 +758,8 @@ async function _chamarUmaVez({ provedor, apiKey, modelo, prompt, docs, signal })
       else parts.push({ text: d.texto });
     });
     parts.push({ text: prompt });
-    const j = await pedir(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent?key=${apiKey}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    const j = await pedir(`https://generativelanguage.googleapis.com/v1beta/models/${modelo}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts }],
         generationConfig: { temperature: 0.2, maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },

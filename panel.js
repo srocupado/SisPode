@@ -48,7 +48,7 @@ const PROVEDORES = {
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro'   },
     ],
     async listarModelos(apiKey) {
-      const res = await fetch(`${GEMINI_BASE}?key=${apiKey}&pageSize=50`);
+      const res = await fetch(`${GEMINI_BASE}?pageSize=50`, { headers: { 'x-goog-api-key': apiKey } });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error?.message || `Erro HTTP ${res.status}`);
       return (json.models || [])
@@ -69,8 +69,8 @@ const PROVEDORES = {
       }
       parts.push({ text: prompt });
       return {
-        url: `${GEMINI_BASE}/${modelo}:generateContent?key=${apiKey}`,
-        headers: { 'Content-Type': 'application/json' },
+        url: `${GEMINI_BASE}/${modelo}:generateContent`,
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
         body: {
           contents: [{ parts }],
           generationConfig: {
@@ -2928,25 +2928,65 @@ async function fbSalvar(sessao) {
   if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
 }
 
+/** Posições de uma lista do Firebase, que chega como array ou como objeto {"0":…}. */
+function fbEntradas(lista) {
+  if (!lista) return [];
+  return Array.isArray(lista) ? lista.map((v, i) => [String(i), v]) : Object.entries(lista);
+}
+
+/** Próxima posição livre de uma lista do Firebase — acrescentar sem sobrescrever. */
+function fbProximaPosicao(lista) {
+  const ns = fbEntradas(lista).map(([k]) => Number(k)).filter(Number.isInteger);
+  return ns.length ? Math.max(...ns) + 1 : 0;
+}
+
 /** Grava no Firebase APENAS os campos editáveis de um destaque (PATCH granular).
  *  Um PUT da sessão inteira aqui seria last-write-wins: dois usuários editando
- *  destaques diferentes ao mesmo tempo sobrescreveriam o trabalho um do outro. */
+ *  destaques diferentes ao mesmo tempo sobrescreveriam o trabalho um do outro.
+ *
+ *  A posição é procurada NA VERSÃO DO SERVIDOR, pela chave da proposição e pelo
+ *  número do destaque — não pela posição na cópia local. Pela cópia local, se a
+ *  lista tivesse mudado no servidor (outro analista atualizou os destaques), o
+ *  texto ia parar no destaque errado; e quando a cópia local não achava o
+ *  objeto, o código regravava a SESSÃO INTEIRA, que é o last-write-wins de que
+ *  este PATCH existe para fugir. Agora, o que não existe no servidor é
+ *  ACRESCENTADO no fim da lista, sem tocar em nada do que já está lá. */
 async function fbSalvarDestaque(sessao, prop, d) {
-  const pIdx = (sessao.proposicoes || []).indexOf(prop);
-  const dIdx = (prop?.destaques || []).indexOf(d);
-  if (pIdx < 0 || dIdx < 0) return fbSalvar(sessao);   // estrutura mudou — fallback seguro
-  const res = await fetch(
-    `${FIREBASE_URL}/sessoes/${sessao.id}/proposicoes/${pIdx}/destaques/${dIdx}.json`, {
-    method:  'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      votoSim:    d.votoSim    || '',
-      votoNao:    d.votoNao    || '',
-      explicacao: d.explicacao || '',
-      orientacao: d.orientacao || '',
-    }),
-  });
-  if (!res.ok) throw new Error(`Firebase HTTP ${res.status}`);
+  const base = `${FIREBASE_URL}/sessoes/${sessao.id}`;
+  const campos = {
+    votoSim:    d.votoSim    || '',
+    votoNao:    d.votoNao    || '',
+    explicacao: d.explicacao || '',
+    orientacao: d.orientacao || '',
+  };
+  const gravar = async (caminho, corpo, metodo = 'PATCH') => {
+    const r = await fetch(`${base}/${caminho}.json`, {
+      method: metodo, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(corpo),
+    });
+    if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+  };
+
+  const rs = await fetch(`${base}.json?shallow=true`);
+  if (!rs.ok) throw new Error(`Firebase HTTP ${rs.status}`);
+  // Sessão que ainda não existe no servidor: não há trabalho de ninguém a
+  // sobrescrever, e gravá-la inteira é o único jeito de o destaque chegar lá.
+  if (!(await rs.json())) return fbSalvar(sessao);
+
+  const rp = await fetch(`${base}/proposicoes.json`);
+  if (!rp.ok) throw new Error(`Firebase HTTP ${rp.status}`);
+  const remotas = await rp.json();
+  const pe = fbEntradas(remotas).find(([, p]) => p && p.chave === prop.chave);
+  if (!pe) {
+    // A proposição não está no servidor: entra no fim da lista, inteira.
+    return gravar(`proposicoes/${fbProximaPosicao(remotas)}`, prop, 'PUT');
+  }
+  const [pKey, pRemota] = pe;
+  const de = fbEntradas(pRemota.destaques).find(([, x]) => x && String(x.numero) === String(d.numero));
+  if (!de) {
+    // O destaque não está no servidor: entra no fim da lista de destaques dela.
+    return gravar(`proposicoes/${pKey}/destaques/${fbProximaPosicao(pRemota.destaques)}`, d, 'PUT');
+  }
+  await gravar(`proposicoes/${pKey}/destaques/${de[0]}`, campos);
 }
 
 /** Salva localmente + PATCH granular do destaque no Firebase. */
@@ -3356,7 +3396,7 @@ const MODULES = [
   {
     id:     'aderencia',
     titulo: 'Relatórios',
-    desc:   'Dois relatórios sobre votações do Plenário: a aderência do partido às orientações do governo por período, e como votou um deputado — de qualquer partido — numa proposição ou num intervalo de datas.',
+    desc:   'Cinco relatórios: aderência do partido ao governo, como votou um deputado, produção legislativa, radar temático e deputados com projetos convertidos em lei.',
     cor:    'teal',
     icone:  '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
     acao:   abrirAderencia,

@@ -79,9 +79,9 @@ async function fetchIA(url, init) {
 async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 8000 }) {
   if (provedor === 'gemini') {
     const chamar = async (m) => {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
       const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
-      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
       // Modelos "thinking" (3.x) podem devolver várias parts; junta todas as de
       // texto (ignorando as de raciocínio), em vez de ler só a primeira.
       return (j.candidates?.[0]?.content?.parts || [])
@@ -130,7 +130,7 @@ async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 800
 async function testarChave(provedor, apiKey) {
   let res;
   if (provedor === 'gemini') {
-    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=1`);
+    res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=1`, { headers: { 'x-goog-api-key': apiKey } });
   } else if (provedor === 'openai') {
     res = await fetch('https://api.openai.com/v1/models', { headers: { 'Authorization': `Bearer ${apiKey}` } });
   } else if (provedor === 'anthropic') {
@@ -156,7 +156,7 @@ async function testarChave(provedor, apiKey) {
  */
 async function listarModelos(provedor, apiKey) {
   if (provedor === 'gemini') {
-    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=200`);
+    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=200`, { headers: { 'x-goog-api-key': apiKey } });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const j = await res.json();
     return (j.models || [])
@@ -212,7 +212,7 @@ async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audi
     // Adota o modelo do /modelo do usuário quando for da família Gemini
     // (o transcritor-fallback pode receber perfil Anthropic — aí usa o padrão).
     const m = (modelo && /^gemini/i.test(modelo)) ? modelo : PROVEDORES.gemini.modeloPadrao;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
     const body = {
       contents: [{
         parts: [
@@ -224,7 +224,7 @@ async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audi
       }],
       generationConfig: { temperature: 0 },
     };
-    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
   if (provedor === 'openai') {

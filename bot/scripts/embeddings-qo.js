@@ -79,7 +79,7 @@ function normalizar(v) {
 const quantizar = v => Buffer.from(v.map(x => Math.max(-127, Math.min(127, Math.round(x * 127)))));
 
 async function embutirLote(textos, tipo) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:batchEmbedContents?key=${CHAVE}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:batchEmbedContents`;
   const body = {
     requests: textos.map(t => ({
       model: `models/${MODELO}`, content: { parts: [{ text: t }] },
@@ -95,7 +95,7 @@ async function embutirLote(textos, tipo) {
     let res;
     try {
       res = await fetch(url, { method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': CHAVE }, body: JSON.stringify(body) });
     } catch (e) { ultimo = e; await new Promise(r => setTimeout(r, 5000 * (tentativa + 1))); continue; }
     finally { clearTimeout(alarme); }
     if (res.ok) return (await res.json()).embeddings.map(e => normalizar(e.values));
