@@ -388,23 +388,55 @@ function drawTemporalChart(canvas, groups) {
 
 // ── FETCH VOTAÇÕES ────────────────────────────────────────────────────────────
 /**
- * Votações do período. Pede-se à API um dia A MAIS e descarta-se o excedente:
- * o intervalo da API perde quase todo o último dia — medido em 28/09/2026, a
- * sessão de 13/09/2023 teve 14 votações no Plenário, e "13/09 a 13/09" devolve
- * 1; "13/09 a 14/09", as 14. Mesma correção da aba "Como votou" (cvPorPeriodo).
+ * Janelas de consulta para um período qualquer. A API de votações recusa
+ * intervalo maior que 3 meses ("A diferença entre as datas não pode ser maior
+ * que 3 meses", HTTP 400 — medido em 28/09/2026), e cada janela é pedida com
+ * um dia A MAIS no fim, porque o intervalo da API perde quase todo o último dia
+ * (13/09/2023: "13/09 a 13/09" devolve 1 das 14 votações do Plenário). Janelas
+ * de até 80 dias, mais o dia extra, ficam folgadas dentro do limite.
+ * Devolve [[inicio, fimPedido]], em AAAA-MM-DD.
  */
-async function fetchVotacoesRange(dataIni, dataFim) {
-  const pages = [];
-  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + cvDiaSeguinte(dataFim) + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
-  let paginas = 0;
-  while (url && paginas < 20) {
-    const json = await fetchJson(url);
-    pages.push(...(json.dados || []));
-    const next = (json.links || []).find(l => l.rel === 'next');
-    url = next ? next.href : null;
-    paginas++;
+function janelasDeVotacao(dataIni, dataFim, dias = 80) {
+  const out = [];
+  const d = s => new Date(s + 'T12:00:00');
+  const iso = x => isoLocal(x);
+  let ini = d(dataIni);
+  const fim = d(dataFim);
+  while (ini <= fim) {
+    const f = new Date(ini); f.setDate(f.getDate() + dias - 1);
+    const fimJanela = f < fim ? f : fim;
+    const pedido = new Date(fimJanela); pedido.setDate(pedido.getDate() + 1);
+    out.push([iso(ini), iso(pedido)]);
+    ini = new Date(fimJanela); ini.setDate(ini.getDate() + 1);
   }
-  return pages.filter(v => !v.data || (String(v.data) >= dataIni && String(v.data) <= dataFim));
+  return out;
+}
+
+/**
+ * Votações do período, em janelas (ver janelasDeVotacao), sem repetir a mesma
+ * votação que apareça em duas janelas e sem o excedente do dia a mais.
+ */
+async function buscarVotacoesPeriodo(dataIni, dataFim, aoAndar) {
+  const vistos = new Set();
+  const todas = [];
+  for (const [ini, fimPedido] of janelasDeVotacao(dataIni, dataFim)) {
+    let url = API + '?dataInicio=' + ini + '&dataFim=' + fimPedido + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
+    let paginas = 0;
+    while (url && paginas < 40) {
+      const json = await fetchJson(url);
+      for (const v of (json.dados || [])) if (!vistos.has(v.id)) { vistos.add(v.id); todas.push(v); }
+      const next = (json.links || []).find(l => l.rel === 'next');
+      url = next ? next.href : null;
+      paginas++;
+      if (aoAndar) aoAndar(todas.length);
+    }
+  }
+  return todas.filter(v => !v.data || (String(v.data) >= dataIni && String(v.data) <= dataFim));
+}
+
+/** Votações do período para a aba Aderência (ver buscarVotacoesPeriodo). */
+async function fetchVotacoesRange(dataIni, dataFim) {
+  return buscarVotacoesPeriodo(dataIni, dataFim);
 }
 
 // ── BANCADA NA DATA DE CADA VOTAÇÃO ──────────────────────────────────────────
@@ -1359,20 +1391,10 @@ async function cvPorProposicao(sigla, numero, ano) {
 }
 
 async function cvPorPeriodo(dataIni, dataFim) {
-  // dataFim+1: a API perde as votações do último dia do intervalo (medido em
-  // 17/09/2026). Pede-se um dia a mais e descarta-se o excedente aqui.
-  let url = API + '?dataInicio=' + dataIni + '&dataFim=' + cvDiaSeguinte(dataFim)
-          + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
-  const todas = [];
-  let p = 0;
-  while (url && p < 40) {
-    const j = await fetchJson(url);
-    todas.push(...(j.dados || []));
-    const next = (j.links || []).find(l => l.rel === 'next');
-    url = next ? next.href : null;
-    p++;
-    cvStatus(`Buscando votações do período… ${todas.length}`, 'loading');
-  }
+  // Em janelas de até 80 dias, cada uma com um dia a mais no fim — ver
+  // janelasDeVotacao: a API recusa mais de 3 meses e perde o último dia.
+  const todas = await buscarVotacoesPeriodo(dataIni, dataFim,
+    n => cvStatus(`Buscando votações do período… ${n}`, 'loading'));
   const plen = todas.filter(v => v.siglaOrgao === 'PLEN' && String(v.data) >= dataIni && String(v.data) <= dataFim);
   if (!plen.length) return { itens: [], objetos: {} };
   const itens = await cvEnriquecer(plen, (f, t) => cvStatus(`Lendo votações… ${f}/${t}`, 'loading'));
