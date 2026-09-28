@@ -1107,7 +1107,7 @@ const PROVEDORES_META = {
       { id: 'gemini-2.5-pro',      displayName: 'Gemini 2.5 Pro' },
     ],
     async listar(key) {
-      const res = await fetch(`${GEMINI_BASE}?key=${key}&pageSize=50`);
+      const res = await fetch(`${GEMINI_BASE}?pageSize=50`, { headers: { 'x-goog-api-key': key } });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
       return (j.models || [])
@@ -1220,8 +1220,8 @@ async function callGemini(prompt, docs, signal) {
     else parts.push({ text: d.texto });
   });
   parts.push({ text: prompt });
-  const j = await fetchIA(`${GEMINI_BASE}/${modelo}:generateContent?key=${app.config.apiKey}`, {
-    method: 'POST', headers: { 'Content-Type': 'application/json' },
+  const j = await fetchIA(`${GEMINI_BASE}/${modelo}:generateContent`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': app.config.apiKey },
     body: JSON.stringify({
       contents: [{ parts }],
       // responseMimeType tira as cercas de código e o texto de acompanhamento.
@@ -3140,8 +3140,8 @@ async function testarConexao() {
 async function testarProvedor(pid, key, modelo) {
   let res;
   if (pid === 'gemini') {
-    res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent?key=${key}`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
+    res = await fetch(`${GEMINI_BASE}/${modelo || 'gemini-2.5-flash'}:generateContent`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': key },
       body: JSON.stringify({ contents: [{ parts: [{ text: 'Responda apenas: OK' }] }] }),
     });
   } else if (pid === 'anthropic') {

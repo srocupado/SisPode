@@ -144,7 +144,7 @@ function lerCota(corpo) {
 }
 
 async function chamar(prompt) {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent?key=${CHAVE}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
     generationConfig: { temperature: 0, maxOutputTokens: 2000, responseMimeType: 'application/json' },
@@ -161,7 +161,7 @@ async function chamar(prompt) {
     const alarme = setTimeout(() => ctrl.abort(), 120000);
     try {
       res = await fetch(url, { method: 'POST', signal: ctrl.signal,
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': CHAVE }, body: JSON.stringify(body) });
     } catch (e) { ultimo = e; await new Promise(r => setTimeout(r, 4000 * (tentativa + 1))); continue; }
     finally { clearTimeout(alarme); }
     if (res.ok) {

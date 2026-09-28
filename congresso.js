@@ -45,7 +45,7 @@ const PROVEDORES_META = {
       { id: 'gemini-2.5-pro',   displayName: 'Gemini 2.5 Pro' },
     ],
     async listar(key) {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${key}&pageSize=50`);
+      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?pageSize=50`, { headers: { 'x-goog-api-key': key } });
       const j = await res.json();
       if (!res.ok) throw new Error(j.error?.message || `HTTP ${res.status}`);
       return (j.models || [])
@@ -877,9 +877,9 @@ function extrairJsonArray(texto) {
 async function chamarIAtexto({ provedor, apiKey, modelo, prompt }) {
   if (provedor === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
     const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8000 } };
-    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
   if (provedor === 'openai') {
@@ -2172,8 +2172,8 @@ async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers }) {
   if (provedor === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
     const parts = b64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })); parts.push({ text: prompt });
-    const j = await fetchIA(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent?key=${apiKey}`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }) });
+    const j = await fetchIA(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
   if (provedor === 'openai') {
