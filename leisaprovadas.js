@@ -874,8 +874,9 @@ const leaBtnColetar = document.getElementById('leaColetar');
 const leaSelColetar = document.getElementById('leaColetarLeg');
 if (leaSelColetar) {
   leaSelColetar.innerHTML = leaListarLegislaturas().map(leg =>
-    `<option value="${leg}">${leaCfg(leg).rotulo}${leg === leaLegislaturaAtual() ? ' — corrente' : ''}</option>`).join('');
-  leaSelColetar.value = leaLegislaturaAtual();
+    leg === leaLegislaturaAtual()
+      ? `<option value="${leg}" selected>${leaCfg(leg).rotulo} — corrente</option>`
+      : `<option value="${leg}">${leaCfg(leg).rotulo}</option>`).join('');
 }
 if (leaBtnColetar) {
   leaBtnColetar.addEventListener('click', () => leaColetarAgoraClick(leaSelColetar ? leaSelColetar.value : undefined));
