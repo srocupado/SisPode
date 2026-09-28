@@ -52,11 +52,13 @@ const av = e => vm.runInContext(e, ctx);
 
 const DEP = { id: 204321, nome: 'Antonio Carlos Rodrigues', siglaPartido: 'PODE', siglaUf: 'SP' };
 
-/** Uma votação com a orientação do governo e o voto do deputado. */
+/** Uma votação com a orientação do governo e o voto do deputado. `membros` é
+ *  a bancada daquela votação (aderBancadaPorVotacao) — o deputado estava nela. */
 const votacao = (id, descricao, gov, voto, quando) => ({
   votacao: { id, descricao, dataHoraRegistro: quando },
   govOrient: gov,
   votos: voto ? [{ deputado_: DEP, tipoVoto: voto }] : [],
+  membros: [{ id: DEP.id, nome: DEP.nome, siglaUf: DEP.siglaUf, tipoVoto: voto || null }],
 });
 
 // As quatro votações da captura: a primeira divergindo (votou SIM contra a
