@@ -113,10 +113,10 @@ function embeddingsDisponivel(prov) { return prov === 'gemini' || prov === 'open
 async function embTextos(textos, perfil, taskType) {
   const prov = perfil.provedor;
   if (prov === 'gemini') {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMB_MODELO.gemini}:embedContent?key=${perfil.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${EMB_MODELO.gemini}:embedContent`;
     return Promise.all(textos.map(async t => {
       const body = { content: { parts: [{ text: t }] }, taskType };
-      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': perfil.apiKey }, body: JSON.stringify(body) });
       return j?.embedding?.values || null;
     }));
   }

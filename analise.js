@@ -1551,11 +1551,11 @@ async function embTextos(textos, cfg, taskType) {
   const prov = cfg.provedorId;
   if (prov === 'gemini') {
     const m = EMB_MODELO.gemini;
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:embedContent?key=${cfg.apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:embedContent`;
     // O Gemini só expõe embedContent (1 texto por chamada) de forma síncrona.
     return Promise.all(textos.map(async t => {
       const body = { content: { parts: [{ text: t }] }, taskType };
-      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': cfg.apiKey }, body: JSON.stringify(body) });
       return j?.embedding?.values || null;
     }));
   }
