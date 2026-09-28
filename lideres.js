@@ -49,7 +49,7 @@ let app = {
   config: { provedor: 'gemini', apiKey: '', modelo: 'gemini-2.5-flash' },
   sistema:  'analise',  // aba ativa: analise | demandas | email
   demandas: [],         // sistema 2 — registro de demandas (Firebase)
-  demSoAbertas: false,  // filtro "só não atendidas" — começa SEMPRE desligado (não é lembrado)
+  demFiltro: 'todas',   // filtro das demandas: 'todas' | 'abertas' | 'atendidas' — começa SEMPRE em 'todas' (não é lembrado)
   selEmail: new Set(),  // sistema 3 — ids das demandas marcadas p/ e-mail
 };
 
@@ -148,10 +148,11 @@ function registrarEventos() {
   document.getElementById('btn-dem-buscar').addEventListener('click', buscarDadosDemanda);
   document.getElementById('btn-dem-registrar').addEventListener('click', registrarDemanda);
   document.getElementById('btn-relatorio-demandas').addEventListener('click', abrirModalRelatorio);
-  document.getElementById('dem-so-abertas')?.addEventListener('change', e => {
-    app.demSoAbertas = e.target.checked;
-    renderizarDemandas();
-  });
+  // Os dois checkboxes se excluem: marcar um desmarca o outro (definirFiltroDemandas).
+  document.getElementById('dem-so-abertas')?.addEventListener('change', e =>
+    definirFiltroDemandas(e.target.checked ? 'abertas' : 'todas'));
+  document.getElementById('dem-so-atendidas')?.addEventListener('change', e =>
+    definirFiltroDemandas(e.target.checked ? 'atendidas' : 'todas'));
   document.getElementById('btn-rel-gerar').addEventListener('click', gerarRelatorioDemandas);
   const marcarRel = v => e => { e.preventDefault();
     document.querySelectorAll('#rel-deputados input').forEach(cb => { cb.checked = v; }); };
@@ -2522,11 +2523,20 @@ const grupoDemanda = d => `${d.tratamento || 'Deputado'} ${d.deputado}`.trim();
 const ordemPorNome = (a, b) =>
   a.replace(/^Deputad[oa] /, '').localeCompare(b.replace(/^Deputad[oa] /, ''), 'pt-BR');
 
-/** Liga/desliga o filtro "só não atendidas" e mantém o checkbox em sincronia. */
-function definirFiltroDemandas(soAbertas) {
-  app.demSoAbertas = !!soAbertas;
-  const cb = document.getElementById('dem-so-abertas');
-  if (cb) cb.checked = app.demSoAbertas;
+/** O filtro em vigor aplicado a uma lista de demandas. */
+function filtrarDemandas(ds, filtro = app.demFiltro) {
+  if (filtro === 'abertas')   return ds.filter(d => !d.atendimento);
+  if (filtro === 'atendidas') return ds.filter(d => d.atendimento);
+  return ds;
+}
+
+/** Define o filtro ('todas' | 'abertas' | 'atendidas') e mantém os dois checkboxes em sincronia. */
+function definirFiltroDemandas(filtro) {
+  app.demFiltro = filtro === 'abertas' || filtro === 'atendidas' ? filtro : 'todas';
+  const a = document.getElementById('dem-so-abertas');
+  const t = document.getElementById('dem-so-atendidas');
+  if (a) a.checked = app.demFiltro === 'abertas';
+  if (t) t.checked = app.demFiltro === 'atendidas';
   renderizarDemandas();
 }
 
@@ -2548,11 +2558,14 @@ function renderizarDemandas() {
     grupos.get(g).push(d);
   }
   const abertasDe = ds => ds.filter(d => !d.atendimento);
-  const soAbertas = app.demSoAbertas;
-  const visiveis = ds => (soAbertas ? abertasDe(ds) : ds);
-  // Com o filtro ligado, deputado sem nenhuma demanda em aberto sai da lista.
-  const nomes = [...grupos.keys()].sort(ordemPorNome).filter(n => visiveis(grupos.get(n)).length);
-  const ocultas = soAbertas ? app.demandas.filter(d => d.atendimento).length : 0;
+  const filtro = app.demFiltro;
+  // Com filtro ligado, deputado sem nenhuma demanda no recorte sai da lista.
+  const nomes = [...grupos.keys()].sort(ordemPorNome).filter(n => filtrarDemandas(grupos.get(n)).length);
+  const ocultas = app.demandas.length - filtrarDemandas(app.demandas).length;
+  const vazioFiltro = {
+    abertas:   `Nenhuma demanda em aberto — todas as ${app.demandas.length} registradas foram atendidas.`,
+    atendidas: `Nenhuma demanda atendida ainda — as ${app.demandas.length} registradas estão em aberto.`,
+  }[filtro];
 
   side.innerHTML = nomes.length ? nomes.map(n => {
     const ds = grupos.get(n);
@@ -2561,7 +2574,7 @@ function renderizarDemandas() {
       <span>${esc(n.replace(/^Deputad[oa] /, ''))}</span>
       <span class="qtd"><b>${abertasDe(ds).length}</b> / ${ds.length}</span>
     </div>`;
-  }).join('') : '<div class="empty-state"><p>Nenhuma demanda em aberto</p></div>';
+  }).join('') : `<div class="empty-state"><p>${filtro === 'atendidas' ? 'Nenhuma demanda atendida' : 'Nenhuma demanda em aberto'}</p></div>`;
   side.querySelectorAll('.dem-side-dep').forEach(el => el.addEventListener('click', () => {
     document.querySelector(`.dem-grupo[data-grupo="${cssEscape(el.dataset.grupo)}"]`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -2569,17 +2582,19 @@ function renderizarDemandas() {
 
   // O aviso é o que impede o filtro ligado de passar despercebido: ele esconde
   // demandas, e quem esquece que ligou acha que o deputado tem menos pedidos.
-  const aviso = ocultas
-    ? `<div class="dem-aviso-filtro">Filtro ligado: ${ocultas} demanda(s) atendida(s) estão ocultas. <a data-mostrar-todas>Mostrar todas</a></div>`
+  const oculto = filtro === 'abertas' ? `${ocultas} demanda(s) atendida(s) estão ocultas`
+                                      : `${ocultas} demanda(s) em aberto estão ocultas`;
+  const aviso = filtro !== 'todas' && ocultas
+    ? `<div class="dem-aviso-filtro">Filtro ligado: ${oculto}. O relatório em PDF segue o filtro. <a data-mostrar-todas>Mostrar todas</a></div>`
     : '';
   wrap.innerHTML = aviso + (nomes.length
     ? nomes.map(n => `
     <div class="dem-grupo" data-grupo="${esc(n)}">
       <div class="dem-grupo-titulo">${esc(n)}</div>
-      ${visiveis(grupos.get(n)).map(cardDemandaHTML).join('')}
+      ${filtrarDemandas(grupos.get(n)).map(cardDemandaHTML).join('')}
     </div>`).join('')
-    : `<div class="empty-state"><p>Nenhuma demanda em aberto — todas as ${app.demandas.length} registradas foram atendidas.</p></div>`);
-  wrap.querySelector('[data-mostrar-todas]')?.addEventListener('click', () => definirFiltroDemandas(false));
+    : `<div class="empty-state"><p>${vazioFiltro}</p></div>`);
+  wrap.querySelector('[data-mostrar-todas]')?.addEventListener('click', () => definirFiltroDemandas('todas'));
 
   wrap.querySelectorAll('[data-acao]').forEach(btn => btn.addEventListener('click', () => {
     const d = app.demandas.find(x => x.id === btn.dataset.id);
@@ -2756,8 +2771,12 @@ function _blocoRelatorioHTML(d, reunioes) {
 // O relatório é organizado POR DEPUTADO (pedido do usuário): cada um com o
 // próprio placar e, dentro, "Em aberto" antes de "Atendidas" — é o que cobra
 // ação na conversa com o gabinete.
-function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
+function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes, recorte = 'todas') {
   const { abertas, atendidas } = separarDemandasRelatorio(demandas);
+  // Relatório recortado pelo filtro da tela diz que é recorte, no título e na
+  // linha de totais — senão "Demandas de Deputados" com só as atendidas passa
+  // por ser o quadro completo.
+  const rotRecorte = { abertas: 'Somente demandas em aberto', atendidas: 'Somente demandas atendidas' }[recorte] || '';
   const grupos = new Map();
   for (const d of demandas || []) {
     const g = grupoDemanda(d);
@@ -2771,7 +2790,7 @@ function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
     const sub = (t, l) => l.length
       ? `<h3>${t} (${l.length})</h3>${l.map(d => _blocoRelatorioHTML(d, reunioes)).join('')}` : '';
     return `<section class="dep">
-      <h2>${esc(n)} <span class="h2m">· ${ds.length} demanda(s) · ${s.abertas.length} em aberto</span></h2>
+      <h2>${esc(n)} <span class="h2m">· ${ds.length} demanda(s)${recorte === 'todas' ? ` · ${s.abertas.length} em aberto` : ''}</span></h2>
       ${sub('Em aberto', s.abertas)}${sub('Atendidas', s.atendidas)}
     </section>`;
   }).join('');
@@ -2804,11 +2823,14 @@ function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
     </style></head><body>
     <div class="cab">
       <div class="sp"></div>
-      <div class="tit"><h1>Demandas de Deputados</h1><p>Reunião de Líderes · Liderança do Podemos na Câmara dos Deputados</p></div>
+      <div class="tit"><h1>Demandas de Deputados${rotRecorte ? ` <span style="font-weight:400">— ${rotRecorte.toLowerCase()}</span>` : ''}</h1><p>Reunião de Líderes · Liderança do Podemos na Câmara dos Deputados</p></div>
       ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
     </div>
     <div class="rule"></div>
-    <div class="meta">Relatório de ${hoje} · ${nomes.length} deputado(s) · ${abertas.length} em aberto · ${atendidas.length} atendida(s)</div>
+    <div class="meta">Relatório de ${hoje} · ${nomes.length} deputado(s) · ${
+      recorte === 'abertas' ? `${abertas.length} em aberto (as atendidas não entram neste relatório)`
+      : recorte === 'atendidas' ? `${atendidas.length} atendida(s) (as em aberto não entram neste relatório)`
+      : `${abertas.length} em aberto · ${atendidas.length} atendida(s)`}</div>
     ${secoes || '<p class="vazio">Nenhuma demanda selecionada.</p>'}
     <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
   </body></html>`;
@@ -2817,11 +2839,20 @@ function _htmlRelatorioDemandas(demandas, logoDataUrl, reunioes) {
 /** Modal de escolha: quais deputados entram no relatório (todos marcados). */
 function abrirModalRelatorio() {
   if (!app.demandas.length) return mostrarToast('Nenhuma demanda registrada.', 'erro');
+  // O relatório segue o filtro da tela: só entram os deputados com demanda no
+  // recorte, e o modal diz qual recorte é antes de gerar.
+  const noRecorte = filtrarDemandas(app.demandas);
+  if (!noRecorte.length) return mostrarToast(app.demFiltro === 'atendidas'
+    ? 'Nenhuma demanda atendida para o relatório.' : 'Nenhuma demanda em aberto para o relatório.', 'erro');
   const grupos = new Map();
-  for (const d of app.demandas) {
+  for (const d of noRecorte) {
     const g = grupoDemanda(d);
     grupos.set(g, (grupos.get(g) || 0) + 1);
   }
+  const rec = document.getElementById('rel-recorte');
+  if (rec) rec.innerHTML = app.demFiltro === 'todas' ? ''
+    : `<div class="rel-recorte">O relatório segue o filtro da tela: <b>${app.demFiltro === 'abertas'
+        ? 'só as demandas em aberto' : 'só as demandas atendidas'}</b>. Para o relatório completo, desmarque o filtro.</div>`;
   document.getElementById('rel-deputados').innerHTML =
     [...grupos.keys()].sort(ordemPorNome).map(n => `
       <label class="email-side-item">
@@ -2834,7 +2865,8 @@ function abrirModalRelatorio() {
 async function gerarRelatorioDemandas() {
   const marcados = new Set([...document.querySelectorAll('#rel-deputados input:checked')]
     .map(cb => cb.dataset.grupo));
-  const selecionadas = app.demandas.filter(d => marcados.has(grupoDemanda(d)));
+  const recorte = app.demFiltro;
+  const selecionadas = filtrarDemandas(app.demandas, recorte).filter(d => marcados.has(grupoDemanda(d)));
   if (!selecionadas.length) return mostrarToast('Marque ao menos um deputado.', 'erro');
 
   // Janela aberta no gesto do clique (evita bloqueio de pop-up), como no gerarPDF.
@@ -2847,7 +2879,7 @@ async function gerarRelatorioDemandas() {
   const logoDataUrl = await carregarLogoDataUrl();
   if (win.closed) return;
   win.document.open();
-  win.document.write(_htmlRelatorioDemandas(selecionadas, logoDataUrl, _reunioesCache));
+  win.document.write(_htmlRelatorioDemandas(selecionadas, logoDataUrl, _reunioesCache, recorte));
   win.document.close();
 
   let impresso = false;

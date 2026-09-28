@@ -253,7 +253,10 @@
        filtro ligado de passar despercebido (ele esconde demandas). */
     .dem-filtro { display: flex; align-items: center; gap: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; user-select: none; }
     .dem-filtro input { accent-color: var(--accent); width: 15px; height: 15px; margin: 0; }
-    .dem-filtro-side { padding: 6px 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border-soft); }
+    .dem-filtro-side { padding: 6px 8px 10px; margin-bottom: 8px; border-bottom: 1px solid var(--border-soft);
+      display: flex; flex-direction: column; gap: 7px; }
+    .rel-recorte { font-size: 12px; margin: 0 0 10px; padding: 7px 10px; border-left: 3px solid var(--accent);
+      background: rgba(31,165,165,0.07); border-radius: 0 8px 8px 0; color: var(--text); }
     .dem-aviso-filtro { font-size: 11.5px; color: var(--text-dim); margin: 0 0 14px; max-width: 900px; padding: 8px 12px;
       border-left: 3px solid var(--accent); background: rgba(31,165,165,0.07); border-radius: 0 8px 8px 0; }
     .dem-aviso-filtro a { color: var(--accent-light); cursor: pointer; }
@@ -363,6 +366,7 @@
         <div class="sidebar-label">DEPUTADOS</div>
         <div class="dem-filtro-side">
           <label class="dem-filtro" title="Esconde as demandas já marcadas como atendidas"><input type="checkbox" id="dem-so-abertas"> Só não atendidas</label>
+          <label class="dem-filtro" title="Esconde as demandas em aberto — útil para o relatório do que já foi atendido"><input type="checkbox" id="dem-so-atendidas"> Só atendidas</label>
         </div>
         <div id="dem-lista-deputados">
           <div class="empty-state"><p>Nenhuma demanda registrada</p></div>
@@ -601,6 +605,7 @@
         <p class="config-desc">Escolha quais deputados entram no relatório —
           <a href="#" id="rel-todos" class="lid-link">todos</a> ·
           <a href="#" id="rel-nenhum" class="lid-link">nenhum</a></p>
+        <div id="rel-recorte"></div>
         <div id="rel-deputados" style="max-height:280px;overflow-y:auto"></div>
       </div>
       <div class="modal-footer">
