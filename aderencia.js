@@ -1109,7 +1109,9 @@ const cvEl = {
 // A separação existe para que mudar o recorte não custe uma consulta nova — a
 // tramitação inteira já está em mãos — e para que o documento possa dizer
 // quanta coisa ficou de fora, que é o que impede o recorte de virar omissão.
-const cv = { modo: 'proposicao', deputado: null, completo: null, recorte: null, ultimo: null };
+// `selDefesa`: ids das votações que o analista marcou como foco da defesa
+// ("+ Usar na defesa"). Zera a cada consulta nova.
+const cv = { modo: 'proposicao', deputado: null, completo: null, recorte: null, ultimo: null, selDefesa: new Set() };
 
 // ---------- infra ----------
 const API_PROP = 'https://dadosabertos.camara.leg.br/api/v2/proposicoes';
@@ -1552,6 +1554,7 @@ function cvRender(dados) {
     defesa: dados.defesa || null,
   };
   cv.recorte = cvLimites(linhas);
+  cv.selDefesa = new Set();
   cvDesenhar();
 }
 
@@ -1674,7 +1677,12 @@ function cvDesenhar() {
         const hora = String(v.dataHoraRegistro || '').slice(11, 16);
         const votoTxt = s.voto || '—';
         const semVoto = s.situacao === 'simbolica' || s.situacao === 'falha';
-        return `<div class="cv-item${semVoto ? ' simbolica' : ''}">
+        // Só item com voto Sim/Não pode ser foco da defesa — não há voto a
+        // sustentar em simbólica, ausência, obstrução ou votação não lida.
+        const podeDefender = !!prop && /^(sim|n[ãa]o)$/i.test(String(s.voto || '').trim());
+        const naDefesa = podeDefender && cv.selDefesa.has(v.id);
+        const sentido = naDefesa ? dfsSentidoDoVoto(s.voto, v.descricao) : null;
+        return `<div class="cv-item${semVoto ? ' simbolica' : ''}${naDefesa ? ' na-defesa' : ''}">
           <div class="cv-voto${s.voto ? '' : ' ausente'}" title="${s.voto ? 'Voto do deputado: ' + cvEsc(s.voto)
             : (s.situacao === 'simbolica' ? 'Votação simbólica — a Câmara não registra voto individual'
             : (s.situacao === 'falha' ? 'A votação não pôde ser lida na API agora' : 'Não registrou voto nesta votação'))}">
@@ -1685,6 +1693,10 @@ function cvDesenhar() {
             ${resumos ? rsmHtmlItem(resumos.itens[v.id]) : ''}
             <div class="cv-res">${cvEsc(v.descricao || '')}</div>
             <div class="cv-meta">${cvEsc(data)}${hora ? ' · ' + cvEsc(hora) : ''} · Governo: ${it.govOrient || '—'}</div>
+            ${naDefesa ? `<div class="cv-sentido">${sentido
+              ? `Sentido do voto: <b>${cvEsc(sentido.texto)}</b> (${sentido.venceu ? 'lado vencedor' : 'lado vencido'})
+                 <span class="fonte">— calculado do resultado registrado, não pela IA</span>`
+              : `Sentido do voto: <b>não determinado</b> <span class="fonte">— o resultado registrado não permite calcular; a sustentação não afirmará o que o voto significou</span>`}</div>` : ''}
             ${(() => { const L = cvLinks(v); const p = [];
               // Só entra o link que ACRESCENTA: o que vale para todas as
               // votações já está no cabeçalho, e repetido aqui seria ruído.
@@ -1696,10 +1708,13 @@ function cvDesenhar() {
             })()}
           </div>
           <span class="cv-ver ${CV_CLASSE[s.situacao]}">${CV_ROTULO[s.situacao]}</span>
+          ${podeDefender ? `<button class="cv-sel-def${naDefesa ? ' on' : ''}" data-sel-defesa="${cvEsc(v.id)}"
+             title="${naDefesa ? 'Tirar este item do foco da defesa' : 'Usar este item como foco da sustentação'}">${naDefesa ? '✓ Na defesa' : '+ Usar na defesa'}</button>` : ''}
         </div>`;
       }).join('')}
     </div>
     ${imprensa ? impHtml(imprensa) : ''}
+    ${prop ? cvPainelDefesa(linhas) : ''}
     ${defesa ? dfsHtml(defesa) : ''}`;
 
   // Recorte que não pega nada: mostra o cabeçalho e o controle, e diz o que
@@ -1718,6 +1733,7 @@ function cvDesenhar() {
 
   cvEl.resultado.innerHTML = linhas.length ? html : vazio;
   cvLigarRecorte();
+  cvLigarDefesa();
   // O que o analista escrever passa a ser o texto do documento na hora. Sem
   // botão de salvar, que seria mais uma chance de exportar a versão errada.
   if (defesa && defesa.ok) dfsLigarEdicao(defesa, d => { if (cv.ultimo) cv.ultimo.defesa = d; });
@@ -1726,6 +1742,88 @@ function cvDesenhar() {
   if (btn) btn.addEventListener('click', cvExportar);
   const btnPdf = document.getElementById('cvExportarPdf');
   if (btnPdf) btnPdf.addEventListener('click', cvExportarPDF);
+}
+
+// ---------- defesa focada em itens ----------
+/** Itens marcados para a defesa que estão DENTRO do recorte em vigor. */
+function cvFocoNoRecorte(linhas) {
+  return linhas.filter(l => cv.selDefesa.has(l.it.votacao.id));
+}
+
+/**
+ * O painel da sustentação, depois da lista: gera (ou refaz) a defesa sem
+ * refazer a consulta. Com itens marcados, a defesa trata só deles; sem, da
+ * matéria inteira — como a opção do formulário.
+ */
+function cvPainelDefesa(linhas) {
+  const foco = cvFocoNoRecorte(linhas);
+  const foraDoRecorte = cv.selDefesa.size - foco.length;
+  const posAtual = (cv.completo.defesa && cv.completo.defesa.posicao) || (cvEl.defesa && cvEl.defesa.value) || '';
+  const enfAtual = (cvEl.enfase && cvEl.enfase.value) || '';
+  const chips = foco.map(({ it, s }) => {
+    const sen = dfsSentidoDoVoto(s.voto, it.votacao.descricao);
+    return `<span class="dfs-chip">${cvEsc(dfsRotuloFoco({ objeto: cv.completo.objetos[it.votacao.id], voto: s.voto, sentido: sen }))}</span>`;
+  }).join('');
+  return `<div class="dfs-painel">
+    <h4>Sustentação do posicionamento</h4>
+    ${foco.length
+      ? `<div class="dfs-foco">Defesa focada em <b>${foco.length} item(ns) selecionado(s)</b> — a explicação da matéria continua entrando como contexto.
+          <div>${chips}</div>
+          ${foraDoRecorte ? `<div class="fora">${foraDoRecorte} item(ns) marcado(s) está(ão) fora do recorte de datas e não entra(m).</div>` : ''}
+          <a data-limpar-defesa>limpar seleção (voltar à defesa da matéria inteira)</a></div>`
+      : `<div class="prd-dica" style="margin:0 0 10px">${foraDoRecorte
+          ? `Os ${foraDoRecorte} item(ns) marcado(s) estão fora do recorte de datas. `
+          : ''}Nenhum item selecionado: a defesa trata da matéria inteira. Use "+ Usar na defesa" nos itens para focar.</div>`}
+    <select id="cvDefPosicao" class="field">
+      <option value=""${posAtual ? '' : ' selected'}>Escolha a posição do deputado sobre a matéria…</option>
+      <option value="favoravel"${posAtual === 'favoravel' ? ' selected' : ''}>Posição FAVORÁVEL à matéria</option>
+      <option value="contraria"${posAtual === 'contraria' ? ' selected' : ''}>Posição CONTRÁRIA à matéria</option>
+    </select>
+    <input type="text" id="cvDefEnfase" class="field" style="margin-top:8px" maxlength="160"
+           value="${cvEsc(enfAtual)}" placeholder="Ponto a enfatizar (opcional). Ex.: proteção de quem está endividado">
+    <button class="btn-gerar" id="cvDefGerar" style="margin-top:10px">${foco.length
+      ? 'Gerar sustentação dos itens selecionados'
+      : (cv.completo.defesa ? 'Gerar de novo a sustentação da matéria' : 'Gerar sustentação da matéria')}</button>
+  </div>`;
+}
+
+/** Liga os botões de seleção e o painel, depois de cada redesenho. */
+function cvLigarDefesa() {
+  document.querySelectorAll('[data-sel-defesa]').forEach(b => b.addEventListener('click', () => {
+    const id = b.dataset.selDefesa;
+    if (cv.selDefesa.has(id)) cv.selDefesa.delete(id); else cv.selDefesa.add(id);
+    cvDesenhar();
+  }));
+  const limpar = document.querySelector('[data-limpar-defesa]');
+  if (limpar) limpar.addEventListener('click', () => { cv.selDefesa = new Set(); cvDesenhar(); });
+  const bt = document.getElementById('cvDefGerar');
+  if (bt) bt.addEventListener('click', cvGerarDefesaAgora);
+}
+
+/** Gera a sustentação a partir do painel, sem refazer a consulta. */
+async function cvGerarDefesaAgora() {
+  if (!cv.completo || !cv.ultimo) return;
+  const posicao = (document.getElementById('cvDefPosicao') || {}).value || '';
+  if (!posicao) { cvStatus('Escolha a posição do deputado sobre a matéria antes de gerar.', 'error'); return; }
+  const enfase = ((document.getElementById('cvDefEnfase') || {}).value || '').trim();
+  const focoIds = cvFocoNoRecorte(cv.ultimo.linhas).map(l => l.it.votacao.id);
+  const bt = document.getElementById('cvDefGerar');
+  if (bt) bt.disabled = true;
+  cvStatus(focoIds.length ? 'Redigindo a sustentação dos itens selecionados…' : 'Redigindo a sustentação do posicionamento…', 'loading');
+  try {
+    const c = cv.completo;
+    c.defesa = await dfsGerar({
+      posicao, dep: c.dep, prop: c.propDetalhada || c.prop,
+      // A trava de conflito olha TODAS as votações da consulta; o foco, só as marcadas.
+      resumos: c.resumos, linhas: c.linhas, objetos: c.objetos,
+      enfase, imprensa: c.imprensa, focoIds,
+    });
+    cvStatus('');
+    cvDesenhar();
+  } catch (e) {
+    cvStatus('Erro ao gerar a sustentação: ' + e.message, 'error');
+    if (bt) bt.disabled = false;
+  }
 }
 
 /** A faixa de recorte, redesenhada junto com o resultado. */
@@ -2215,9 +2313,13 @@ function cvHtmlPDF(logoDataUrl) {
 
   ${impHtmlPDF(imprensa, e)}
 
-  ${defesa && defesa.ok && defesa.incluir ? `<h2 class="dfs-h">Sustentação do posicionamento</h2>
+  ${defesa && defesa.ok && defesa.incluir ? `<h2 class="dfs-h">${defesa.foco && defesa.foco.length
+      ? (defesa.foco.length === 1 ? 'Sustentação do voto no item selecionado' : 'Sustentação do voto nos itens selecionados')
+      : 'Sustentação do posicionamento'}</h2>
   <div class="dfs">
-    <div class="dfs-rot">Posição ${e(DFS_POSICOES[defesa.posicao])}</div>
+    <div class="dfs-rot">${defesa.foco && defesa.foco.length
+      ? defesa.foco.map(f => e(dfsRotuloFoco(f))).join('<br>')
+      : `Posição ${e(DFS_POSICOES[defesa.posicao])}`}</div>
     ${defesa.texto.split(/\n\s*\n/).map(x => `<p>${e(x.trim())}</p>`).join('')}
   </div>` : ''}
 
