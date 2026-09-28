@@ -154,6 +154,31 @@ const HIST_ROMERO = [
     ok(grupos[0].possiveis === 4, `o gráfico usa a bancada de cada votação, não um tamanho fixo (${grupos[0].possiveis})`);
   }
 
+  console.log('\n== período longo: janelas de até 80 dias (a API recusa mais de 3 meses) ==');
+  {
+    const j = av(`janelasDeVotacao('2026-06-01', '2026-09-01')`);
+    ok(j.length === 2 && j[0][0] === '2026-06-01' && j[1][1] === '2026-09-02',
+       `3 meses exatos viram 2 janelas, a última com o dia a mais (${JSON.stringify(j)})`);
+    const dias = ([a, b]) => (new Date(b) - new Date(a)) / 864e5;
+    const j12 = av(`janelasDeVotacao('2025-09-01', '2026-09-01')`);
+    ok(j12.every(x => dias(x) <= 85), `nenhuma janela passa de 85 dias (${j12.map(dias).join(', ')})`);
+    ok(j12.every((x, i) => i === 0 || x[0] === j12[i - 1][1]), 'cada janela começa onde a anterior terminou — nenhum dia fica de fora');
+    // A API de mentira recusa mais de 3 meses, como a real.
+    const rotaAnt = rota;
+    const pedidos = [];
+    rota = (u) => {
+      const m = u.match(/\/votacoes\?dataInicio=([\d-]+)&dataFim=([\d-]+)/);
+      if (!m) return rotaAnt(u);
+      pedidos.push([m[1], m[2]]);
+      if ((new Date(m[2]) - new Date(m[1])) / 864e5 > 92) return resp({ detail: 'A diferença entre as datas não pode ser maior que 3 meses' }, 400);
+      return resp({ dados: [{ id: 'x-' + m[1], data: m[1], siglaOrgao: 'PLEN' }, { id: 'dup', data: '2026-08-20', siglaOrgao: 'PLEN' }], links: [] });
+    };
+    const r = await av(`buscarVotacoesPeriodo('2025-09-01', '2026-09-01')`);
+    ok(pedidos.length === j12.length, 'uma consulta por janela, nenhuma recusada');
+    ok(r.filter(v => v.id === 'dup').length === 1, 'a mesma votação vinda de duas janelas entra uma vez só');
+    rota = rotaAnt;
+  }
+
   console.log('\n== aderência: histórico ilegível cai na regra antiga e é avisado ==');
   {
     const rotaAnterior = rota;
