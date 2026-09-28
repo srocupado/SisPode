@@ -5,12 +5,13 @@
 // jurídica e grava só o agregado (ranking + lista de projetos) em
 // /leis_aprovadas/{legislatura}.
 //
-// Legislaturas ENCERRADAS (53ª–56ª) são puladas se já tiverem dado salvo — use
-// --forcar para reprocessar mesmo assim. A CORRENTE (57ª) é sempre reprocessada
-// (é ela que o cron do bot atualiza sozinho, em bot/index.js).
+// Legislaturas ENCERRADAS são puladas se já tiverem dado salvo — use --forcar
+// para reprocessar mesmo assim. A CORRENTE (calculada pela data) é sempre
+// reprocessada; a anterior, na carência de 12 meses, se o dado tiver > 7 dias.
+// Não precisa de BOT_TOKEN: roda em qualquer máquina com Node, mesmo sem o bot.
 //
 // Uso:
-//   node bot/scripts/atualizar-leis-aprovadas.js                 (todas as 5)
+//   node bot/scripts/atualizar-leis-aprovadas.js                 (todas, da 53ª à corrente)
 //   node bot/scripts/atualizar-leis-aprovadas.js 57 56            (só as listadas)
 //   node bot/scripts/atualizar-leis-aprovadas.js --forcar 57      (ignora o "já tem dado")
 //   node bot/scripts/atualizar-leis-aprovadas.js --sem-condicao   (pula titular/suplente — mais rápido)
@@ -18,18 +19,18 @@
 // Cada legislatura baixa de 4 a 5 arquivos de 50–165 MB — é coleta pesada,
 // deliberada (não roda sozinha por engano): rode de propósito, numa rede boa.
 
-const { atualizarLeisAprovadas, LEGISLATURAS } = require('../src/leisaprovadas');
+const { atualizarLeisAprovadas, listarLegislaturas, legislaturaValida } = require('../src/leisaprovadas');
 
 (async () => {
   const args = process.argv.slice(2);
   const forcar = args.includes('--forcar');
   const comCondicao = !args.includes('--sem-condicao');
   const legislaturas = args.filter(a => !a.startsWith('--'));
-  const alvo = legislaturas.length ? legislaturas : Object.keys(LEGISLATURAS);
+  const alvo = legislaturas.length ? legislaturas : listarLegislaturas();
 
   for (const leg of alvo) {
-    if (!LEGISLATURAS[leg]) {
-      console.error(`Legislatura desconhecida: "${leg}". Válidas: ${Object.keys(LEGISLATURAS).join(', ')}`);
+    if (!legislaturaValida(leg)) {
+      console.error(`Legislatura desconhecida: "${leg}". Válidas: ${listarLegislaturas().join(', ')}`);
       process.exit(1);
     }
   }
@@ -37,7 +38,7 @@ const { atualizarLeisAprovadas, LEGISLATURAS } = require('../src/leisaprovadas')
   console.log(`Atualizando: ${alvo.join(', ')}${forcar ? ' (forçado)' : ''}${comCondicao ? '' : ' (sem condição titular/suplente)'}\n`);
 
   const r = await atualizarLeisAprovadas({
-    legislaturas: alvo, comCondicao, forcar,
+    legislaturas: alvo, comCondicao, forcar, origem: 'script',
     onProgresso: (leg, fase) => console.log(`[${leg}] ${fase}`),
   });
 
@@ -47,6 +48,9 @@ const { atualizarLeisAprovadas, LEGISLATURAS } = require('../src/leisaprovadas')
   }
   for (const leg of r.puladas) {
     console.log(`— ${leg}: já tinha dado salvo, pulada (use --forcar para reprocessar).`);
+  }
+  for (const a of r.aguardando) {
+    console.log(`… ${a.leg}: ${a.motivo}.`);
   }
   for (const e of r.erros) {
     console.log(`✗ ${e.leg}: ${e.erro}`);

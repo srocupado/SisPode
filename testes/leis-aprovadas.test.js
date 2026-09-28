@@ -11,7 +11,16 @@
 //  4. legislatura sem dado agregado ainda não derruba a tela: aparece um aviso,
 //     não um erro nem uma lista vazia sem explicação;
 //  5. os projetos de cada deputado são os dele (por id, entre os autores do
-//     projeto), não de outro.
+//     projeto), não de outro;
+//  6. as legislaturas saem da DATA (a 58ª aparece sozinha em fev/2027), com
+//     os checkboxes gerados e as duas mais recentes marcadas por padrão;
+//  8. o campo Nome sugere deputados do agregado (sem acento, sem repetir quem
+//     está em mais de uma legislatura), e escolher uma sugestão filtra por id;
+//     a coleta pela extensão aceita qualquer legislatura, pelo seletor;
+//  7. dado velho da corrente mostra aviso com "Coletar agora", e a coleta pela
+//     extensão baixa os arquivos direto da Câmara; as travas impedem gravar
+//     coleta incompleta (ano faltando, autor não apurado) e pedem confirmação
+//     extra quando a coleta traz MENOS projetos que o salvo.
 //
 // Uso: node testes/leis-aprovadas.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
@@ -46,8 +55,18 @@ const chamadas = [];
 
 // Material do caminho MANUAL (upload de arquivos locais): roster, autores e
 // histórico da API — tudo com CORS liberado, diferente dos arquivos em massa.
-const API_ROSTER = { 53: [{ id: 10, nome: 'Duda Veterana', siglaPartido: 'PODE', siglaUf: 'BA' }] };
-const API_AUTORES = { 700: [10, 11] }; // 11 fora do roster — precisa aparecer mesmo assim
+const API_ROSTER = {
+  53: [{ id: 10, nome: 'Duda Veterana', siglaPartido: 'PODE', siglaUf: 'BA' }],
+  57: [{ id: 1, nome: 'Ana Fulana', siglaPartido: 'PODE', siglaUf: 'SP' }],
+};
+// Arquivos em massa servidos "direto da Câmara" para a coleta pela extensão.
+const ARQ_BASE = 'https://dadosabertos.camara.leg.br/arquivos/proposicoes/json';
+const ARQUIVOS_CAMARA = {
+  2023: [{ id: 950, siglaTipo: 'PL', numero: 1, ano: 2023, ementa: 'Lei da 57ª.', dataApresentacao: '2023-05-01', ultimoStatus: { idSituacao: 1140 } },
+         { id: 951, siglaTipo: 'PL', numero: 2, ano: 2023, ementa: 'Janeiro — ainda 56ª.', dataApresentacao: '2023-01-10', ultimoStatus: { idSituacao: 1140 } }],
+};
+let FALHAR_ANO = null;
+const API_AUTORES = { 700: [10, 11], 950: [1] }; // 11 fora do roster — precisa aparecer mesmo assim
 const API_HISTORICO = { 10: [{ idLegislatura: 53, condicaoEleitoral: 'Titular' }] };
 
 // FileReader de mentira: o linkedom não implementa a API de verdade. Os
@@ -81,6 +100,15 @@ const ctx = {
     const metodo = (opcoes && opcoes.method) || 'GET';
     chamadas.push(`${metodo} ${u}`);
     let m;
+    if ((m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)/projetos\\.json')))) {
+      const d = FIRE[m[1]];
+      return { ok: true, status: 200, json: async () => (d ? d.projetos : null) };
+    }
+    if ((m = u.match(new RegExp(ARQ_BASE + '/proposicoes-(\\d+)\\.json')))) {
+      if (Number(m[1]) === FALHAR_ANO) return { ok: false, status: 503, json: async () => ({}) };
+      return { ok: true, status: 200, headers: { get: k => (k.toLowerCase() === 'last-modified' ? 'Fri, 25 Sep 2026 04:33:51 GMT' : null) },
+               json: async () => ARQUIVOS_CAMARA[m[1]] || [] };
+    }
     if ((m = u.match(new RegExp(FIREBASE_URL + '/leis_aprovadas/(\\d+)\\.json')))) {
       const leg = m[1];
       if (metodo === 'PUT') { FIRE[leg] = JSON.parse(opcoes.body); return { ok: true, status: 200, json: async () => FIRE[leg] }; }
@@ -93,6 +121,10 @@ const ctx = {
     if ((m = u.match(/\/proposicoes\/(\d+)\/autores/))) {
       const ids = API_AUTORES[m[1]] || [];
       return { ok: true, status: 200, json: async () => ({ dados: ids.map(id => ({ codTipo: 10000, uri: `https://dadosabertos.camara.leg.br/api/v2/deputados/${id}`, nome: `Dep ${id}` })) }) };
+    }
+    if ((m = u.match(/\/deputados\/(\d+)$/))) {
+      if (m[1] === '11') return { ok: true, status: 200, json: async () => ({ dados: { id: 11, ultimoStatus: { nome: 'Otto Avulso', siglaPartido: 'PSD', siglaUf: 'MG' } } }) };
+      return { ok: false, status: 404, json: async () => ({}) };
     }
     if ((m = u.match(/\/deputados\/(\d+)\/historico/))) {
       return { ok: true, status: 200, json: async () => ({ dados: API_HISTORICO[m[1]] || [] }) };
@@ -116,6 +148,25 @@ const av = e => vm.runInContext(e, ctx);
     ok(html.includes('<script src="leisaprovadas.js">'), 'e é carregado por aderencia.html');
     ok(html.indexOf('aderencia.js') < html.indexOf('leisaprovadas.js'),
        'vem DEPOIS de aderencia.js, de quem reaproveita FIREBASE_URL, mapLimit e cvEsc');
+  }
+
+  console.log('\n== legislaturas calculadas pela data ==');
+  {
+    ok(av(`leaLegislaturaAtual(new Date('2027-01-31T12:00:00Z'))`) === '57', '31/jan/2027 ainda é 57ª');
+    ok(av(`leaLegislaturaAtual(new Date('2027-02-01T12:00:00Z'))`) === '58', '1º/fev/2027 já é 58ª — sem editar código');
+    ok(av(`leaLegislaturaAtual(new Date('2031-02-01T12:00:00Z'))`) === '59', 'e 1º/fev/2031, 59ª');
+    ok(av(`leaCfg('58').rotulo`) === '58ª (2027–2031)', 'rótulo da 58ª calculado');
+    ok(av(`leaCfg('57').anos.join(',')`) === '2023,2024,2025,2026,2027', 'anos incluem o ano final (janeiro)');
+    ok(av(`leaAnosParaColetar('57', new Date('2026-09-25T12:00:00Z')).join(',')`) === '2023,2024,2025,2026',
+       'mas a coleta só pede arquivos até o ano corrente');
+    const legs = av('leaListarLegislaturas()');
+    const caixas = [...document.querySelectorAll('.lea-leg')].map(c => c.value);
+    ok(caixas.join(',') === legs.join(','), `os checkboxes da consulta são gerados da conta (${caixas.join(', ')})`);
+    ok([...document.querySelectorAll('.lea-up-leg')].length === legs.length, 'e os do upload também');
+    const marcadas = [...document.querySelectorAll('.lea-leg')].filter(c => c.checked).map(c => c.value);
+    ok(marcadas.join(',') === legs.slice(0, 2).join(','), `padrão: as duas mais recentes marcadas (${marcadas.join(', ')})`);
+    ok(document.getElementById('leaFaixa').textContent === `da 53ª à ${legs[0]}ª legislatura`, 'a descrição acompanha a faixa');
+    document.querySelectorAll('.lea-leg').forEach(c => { c.checked = false; });
   }
 
   console.log('\n== a aba existe e troca ==');
@@ -174,6 +225,16 @@ const av = e => vm.runInContext(e, ctx);
        'a tela soma os créditos (4), consistente com "todo coautor recebe crédito"');
   }
 
+  console.log('\n== data/hora da coleta e aviso de dado velho ==');
+  {
+    const texto = av(`leaAtualizadoEmTexto(['57'])`);
+    ok(/20\/09\/2026/.test(texto) && /07:00/.test(texto) && /Brasília/.test(texto),
+       `mostra data E hora, no horário de Brasília (${texto})`);
+    ok(av(`leaAvisoDadoVelho(new Date('2026-09-21T10:00:00Z'))`) === '', 'dado da corrente com 1 dia: sem aviso');
+    const aviso = av(`leaAvisoDadoVelho(new Date('2026-09-30T10:00:00Z'))`);
+    ok(/não é atualizado desde/.test(aviso) && /Coletar agora/.test(aviso), 'com mais de 3 dias: aviso + botão "Coletar agora"');
+  }
+
   console.log('\n== a coautoria credita os DOIS, e cada um só vê o que é dele ==');
   {
     const linhas = av('lea.linhas');
@@ -200,10 +261,68 @@ const av = e => vm.runInContext(e, ctx);
     ok(!linhas.some(l => l.nome === 'Carla Zero'), 'especificamente: Carla some da lista');
     document.getElementById('leaSoComLei').checked = false;
 
+    // Ordenar por partido: quem está sem partido (sem cadastro) vai para o FIM.
+    FIRE['57'].ranking.push({ depId: 99, nome: 'Deputado 99', partido: '', uf: '', condicao: '—', total: 9 });
+    av(`lea.linhas = leaAchatar(['57']); lea.ordem = { coluna: 'partido', asc: true }`);
+    const porPartido = av('leaFiltradas()').map(l => l.partido);
+    ok(porPartido[0] === 'PL' && porPartido[porPartido.length - 1] === '',
+       `ordem por partido: vazio no fim, não no topo (${porPartido.join(',')})`);
+    // Na tela, por partido, a lista é agrupada e a numeração recomeça por partido.
+    av('leaRenderRanking()');
+    const cabs = [...document.querySelectorAll('#leaRankingList .lea-grupo')].map(c => c.textContent);
+    ok(cabs.length === 3 && /^PL — 1 deputado\(s\) · 1 lei\(s\)$/.test(cabs[0]) && /^PODE — 2 deputado\(s\) · 2 lei\(s\)$/.test(cabs[1])
+       && /^Sem partido/.test(cabs[2]), `um cabeçalho por partido, com deputados e leis somadas (${cabs.join(' | ')})`);
+    const nums = [...document.querySelectorAll('#leaRankingList .rank-num')].map(n => n.textContent);
+    ok(nums.join(',') === '1,1,2,1', `a numeração recomeça em cada partido (${nums.join(',')})`);
+    FIRE['57'].ranking.pop();
+    av(`lea.linhas = leaAchatar(['57', '56']); lea.ordem = { coluna: 'total', asc: false }`);
+    av('leaRenderRanking()');
+    ok(!document.querySelector('#leaRankingList .lea-grupo'), 'em "Mais leis", sem agrupamento — ranking geral corrido');
+
     document.getElementById('leaCondicao').value = 'suplente';
     linhas = av('leaFiltradas()');
     ok(linhas.length === 1 && linhas[0].nome === 'Beto Sicrano', 'filtro de condição isola o suplente (Beto)');
     document.getElementById('leaCondicao').value = '';
+  }
+
+  console.log('\n== sugestões no campo Nome ==');
+  {
+    const sug = av(`leaSugestoes('ana', ['57', '56'])`);
+    ok(sug.length === 1 && sug[0].nome === 'Ana Fulana', `Ana aparece UMA vez, mesmo estando nas duas legislaturas (${sug.length})`);
+    ok(sug[0].legs.join(',') === '57,56' && sug[0].total === 3, 'com as legislaturas em que consta e o total somado (2 + 1)');
+    ok(av(`leaSugestoes('SICRANO', ['57'])`)[0].nome === 'Beto Sicrano', 'casa no meio do nome e sem diferenciar maiúsculas');
+    FIRE['57'].ranking.push({ depId: 4, nome: 'Zé Márcio', partido: 'PODE', uf: 'PR', condicao: 'Titular', total: 0 });
+    ok(av(`leaSugestoes('marcio', ['57'])`)[0].nome === 'Zé Márcio', 'ignora acento ("marcio" acha "Márcio")');
+    FIRE['57'].ranking.pop();
+    ok(av(`leaSugestoes('a', ['57'])`).length === 0, 'com menos de 2 letras, não sugere');
+    const ordem = av(`leaSugestoes('ca', ['57'])`).map(d => d.nome);
+    ok(ordem[0] === 'Carla Zero', `quem COMEÇA com o texto vem primeiro (${ordem.join(', ')})`);
+
+    document.querySelectorAll('.lea-leg').forEach(c => { c.checked = c.value === '57' || c.value === '56'; });
+    await av('leaConsultar()');
+    document.getElementById('leaNome').value = 'ana';
+    await av('leaNomeDigitado()');
+    const botoes = document.querySelectorAll('#leaEscolha [data-dep]');
+    ok(botoes.length === 1 && /Ana Fulana/.test(botoes[0].textContent), 'digitar mostra as sugestões na tela');
+    botoes[0].dispatchEvent(new Event('click'));
+    ok(document.getElementById('leaNome').value === 'Ana Fulana', 'clicar preenche o nome completo');
+    const filtradas = av('leaFiltradas()');
+    ok(filtradas.length === 2 && filtradas.every(l => l.depId === 1), 'e filtra pelo deputado escolhido (as duas legislaturas dela)');
+    document.getElementById('leaLimparDep').dispatchEvent(new Event('click'));
+    ok(av('lea.depEscolhido') === null && document.getElementById('leaNome').value === '', '× desfaz a escolha');
+  }
+
+  console.log('\n== coleta de outras legislaturas pela extensão ==');
+  {
+    const opcoes = [...document.querySelectorAll('#leaColetarLeg option')].map(o => o.getAttribute('value'));
+    ok(opcoes.join(',') === av('leaListarLegislaturas()').join(','), `o seletor oferece todas, da corrente à 53ª (${opcoes.join(', ')})`);
+    chamadas.length = 0;
+    document.getElementById('leaColetarLeg').value = '53';
+    document.getElementById('leaColetar').dispatchEvent(new Event('click'));
+    await new Promise(r => setTimeout(r, 50));
+    ok(chamadas.some(c => c.includes('/proposicoes-2007.json')) && chamadas.some(c => c.includes('idLegislatura=53')),
+       'escolher a 53ª e clicar baixa os arquivos DELA (2007…) e busca o roster dela');
+    ok(!chamadas.some(c => c.includes('/proposicoes-2023.json')), 'e não os da corrente');
   }
 
   console.log('\n== legislatura sem dado agregado: aviso, não erro nem silêncio ==');
@@ -270,12 +389,36 @@ const av = e => vm.runInContext(e, ctx);
     ok(porDep[10] && porDep[10].total === 1 && porDep[10].nome === 'Duda Veterana',
        'o autor do roster aparece com o nome certo');
     ok(porDep[11] && porDep[11].total === 1, 'o coautor FORA do roster aparece assim mesmo, com crédito');
+    ok(porDep[11].nome === 'Otto Avulso' && porDep[11].partido === 'PSD', 'e com nome e partido do cadastro avulso, não "Deputado 11"');
     ok(porDep[10].condicao === 'Titular', 'condição titular/suplente veio do histórico');
     ok(porDep[11].condicao === '—', 'sem histórico cadastrado, condição fica "—" — não trava o processamento');
     ok(ctx.__fases.some(f => /Lendo "proposicoes-2007\.json"/.test(f)), 'o progresso de leitura do arquivo é reportado');
     ok(chamadas.some(c => c.includes('idLegislatura=53')) && chamadas.some(c => c.includes('/700/autores'))
        && chamadas.some(c => c.includes('/historico')), 'busca roster, autores e histórico na API (tudo com CORS)');
     ok(!chamadas.some(c => c.includes('leis_aprovadas')), 'processar sozinho NÃO grava nada no Firebase — é um passo à parte');
+    ok(resultado53['53'].anosFaltando.join(',') === '2008,2009,2010,2011',
+       `anota os anos da legislatura que não vieram entre os arquivos (${resultado53['53'].anosFaltando.join(',')})`);
+    ok(av(`leaMotivosParaNaoGravar(${JSON.stringify(resultado53['53'])})`).length === 1, 'e isso vira motivo para NÃO gravar');
+  }
+
+  console.log('\n== coleta pela extensão, direto da Câmara ==');
+  {
+    chamadas.length = 0;
+    ctx.__fases = [];
+    const r = await av(`leaColetarDaCamara('57', { comCondicao: false, onFase: f => __fases.push(f) })`);
+    ok(chamadas.some(c => c.includes(ARQ_BASE + '/proposicoes-2023.json')), 'baixa os arquivos em massa direto (host_permissions da extensão)');
+    ok(r.projetos.length === 1 && r.projetos[0].id === 950, 'classifica pela data: o PL de janeiro/2023 (56ª) fica de fora');
+    ok(r.ranking.find(x => x.depId === 1).total === 1, 'e credita o autor');
+    ok(r.anosFaltando.length === 0 && r.dataArquivos['2023'] === '2026-09-25T04:33:51.000Z',
+       'sem ano faltando, e com a data do arquivo da Câmara (Last-Modified)');
+    ok(r.origem === 'extensão', 'origem registrada');
+    ok(av(`leaMotivosParaNaoGravar(${JSON.stringify(r)})`).length === 0, 'coleta completa: pode gravar');
+
+    FALHAR_ANO = 2024;
+    const r2 = await av(`leaColetarDaCamara('57', { comCondicao: false })`);
+    FALHAR_ANO = null;
+    ok(r2.anosFaltando.join(',') === '2024', 'um ano que não baixa é anotado, sem derrubar a coleta');
+    ok(/2024/.test(av(`leaMotivosParaNaoGravar(${JSON.stringify(r2)})`)[0] || ''), 'e bloqueia a gravação');
   }
 
   console.log('\n== caminho MANUAL: "Gravar no Firebase" e "Limpar no Firebase" ==');
@@ -303,6 +446,29 @@ const av = e => vm.runInContext(e, ctx);
     ok(FIRE['53'] === null, 'confirmação aceita: o agregado da 53ª é apagado no Firebase (falso)');
     ok(av(`lea.linhas`).length === 0, 'e a tela local esvazia — precisa buscar de novo para repopular');
     ctx.confirm = () => false; // devolve o padrão para o resto do arquivo
+  }
+
+  console.log('\n== travas no clique de gravar ==');
+  {
+    ctx.__st = [];
+    ctx.__incompleto = { rotulo: '57ª (2023–2027)', ranking: [], projetos: [], anosFaltando: [2024], falhasAutores: 0 };
+    chamadas.length = 0;
+    await av(`leaGravarComTravas('57', __incompleto, (m, t) => __st.push([m, t]))`);
+    ok(!chamadas.some(c => c.startsWith('PUT')), 'coleta com ano faltando: NENHUM PUT');
+    ok(ctx.__st.some(([m, t]) => t === 'error' && /NÃO gravado/.test(m)), 'e o motivo aparece como erro');
+
+    // 57ª salva com 2 projetos; coleta nova com 1 → confirmação extra, recusada.
+    let perguntas = [];
+    ctx.confirm = (msg) => { perguntas.push(msg); return false; };
+    ctx.__menor = { rotulo: '57ª (2023–2027)', ranking: [], projetos: [{ id: 1 }], anosFaltando: [], falhasAutores: 0 };
+    chamadas.length = 0;
+    await av(`leaGravarComTravas('57', __menor, (m, t) => __st.push([m, t]))`);
+    ok(perguntas.length === 1 && /MENOS que os 2 já salvos/.test(perguntas[0]), 'menos projetos que o salvo: confirmação específica');
+    ok(!chamadas.some(c => c.startsWith('PUT')), 'recusada: nada gravado');
+    ctx.confirm = () => true;
+    await av(`leaGravarComTravas('57', __menor, (m, t) => __st.push([m, t]))`);
+    ok(FIRE['57'].projetos.length === 1 && FIRE['57'].origem === 'extensão', 'aceita: grava, com a origem');
+    ctx.confirm = () => false;
   }
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo passou.');
