@@ -480,7 +480,7 @@ api.orientacoes['2374400-121'] = [{ siglaPartidoBloco: 'Governo', orientacaoVoto
     ok(api.chamadas.length === antes, 'mudar o recorte NÃO consulta a API de novo — os dados já estão em mãos');
     ok(av('cv.ultimo.linhas.length') === 4, 'só as 4 votações da sessão de 13/09 entram (de 6)');
     ok(av('cv.completo.linhas.length') === 5, 'e as 5 continuam carregadas, prontas para alargar');
-    ok(av('JSON.stringify(cv.ultimo.cont)') === JSON.stringify({ aderente: 2, divergente: 0, ausente: 0, 'sem-gov': 1, simbolica: 1 }),
+    ok(av('JSON.stringify(cv.ultimo.cont)') === JSON.stringify({ aderente: 2, divergente: 0, ausente: 0, 'sem-gov': 1, simbolica: 1, falha: 0 }),
        'o consolidado é recalculado sobre o recorte, não herdado do total');
     ok(!document.getElementById('cvRecTudo').hasAttribute('disabled'), 'e o botão "Tudo" se habilita');
     ok(/1 fora do recorte/.test(document.querySelector('.cv-recorte .cnt').textContent),

@@ -62,6 +62,11 @@ function prdGrupoDe(sigla) {
 // alguém espera numa tela, e o ganho seria marginal.
 const PRD_TETO_DETALHE = 150;
 
+// Teto de páginas da coleta (100 proposições cada). O "Filtre por ano" que o
+// aviso de truncamento sugeria não ajudava: o recorte por ano é feito DEPOIS de
+// baixar as páginas (ver prdColetar), então o aviso agora diz o que de fato vale.
+const PRD_TETO_PAGINAS = 40;
+
 const prd = { deputado: null, ultimo: null };
 
 const prdEl = {
@@ -129,7 +134,7 @@ async function prdColetar(idDep, ano) {
   let url = API_PROP + '?idDeputadoAutor=' + idDep + '&ordem=DESC&ordenarPor=id&itens=100';
   const todas = [];
   let pag = 0;
-  while (url && pag < 40) {
+  while (url && pag < PRD_TETO_PAGINAS) {
     const j = await fetchJson(url);
     todas.push(...(j.dados || []));
     const next = (j.links || []).find(l => l.rel === 'next');
@@ -228,8 +233,9 @@ function prdRender(dados) {
   };
 
   const html = `
-    ${truncado ? `<div class="cv-aviso">⚠ A coleta parou no limite de páginas — o total abaixo está incompleto.
-       Filtre por ano para ver tudo.</div>` : ''}
+    ${truncado ? `<div class="cv-aviso">⚠ A coleta parou no limite de ${PRD_TETO_PAGINAS} páginas
+       (${PRD_TETO_PAGINAS * 100} proposições, das mais recentes para as mais antigas) — o total abaixo está incompleto${
+       ano ? ', e o ano escolhido pode ter ficado de fora em parte: o recorte por ano é feito depois de baixar as páginas' : ''}.</div>` : ''}
     ${falhas ? `<div class="cv-aviso">⚠ ${falhas} matéria(s) de mérito não puderam ter a situação lida agora.
        Aparecem sem situação — o que está faltando é a consulta, não o dado.</div>` : ''}
 

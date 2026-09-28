@@ -326,7 +326,10 @@ function leaFmtDataHora(iso) {
 
 function leaAtualizadoEmTexto(legsEscolhidas) {
   const salvas = legsEscolhidas.map(leg => lea.cache[leg]).filter(d => d && d.atualizadoEm);
-  if (!salvas.length) return '';
+  const naoGravadas = legsEscolhidas.filter(leg => lea.cache[leg] && lea.cache[leg].naoGravado);
+  if (!salvas.length) {
+    return naoGravadas.length ? `Coleta desta tela, ainda não gravada no banco de dados: ${naoGravadas.join(', ')}ª.` : '';
+  }
   const maisAntiga = salvas.slice().sort((a, b) => a.atualizadoEm.localeCompare(b.atualizadoEm))[0];
   const arqs = Object.values(maisAntiga.dataArquivos || {}).sort();
   return `Dado agregado em ${leaFmtDataHora(maisAntiga.atualizadoEm)} (horário de Brasília), por ${maisAntiga.origem || 'bot'}` +
@@ -342,6 +345,10 @@ function leaAtualizadoEmTexto(legsEscolhidas) {
 function leaAvisoDadoVelho(hoje) {
   const atual = leaLegislaturaAtual(hoje);
   const dados = lea.cache[atual];
+  if (dados && dados.naoGravado) {
+    return `<div class="cv-aviso">⚠ O ranking da ${atual}ª mostra uma coleta feita nesta tela e ainda NÃO gravada no
+      banco de dados — a equipe não a vê. Grave na seção de coleta abaixo, ou recarregue a página para voltar ao dado salvo.</div>`;
+  }
   const quando = dados && dados.atualizadoEm;
   const dias = quando ? ((hoje || new Date()) - new Date(quando)) / 86400000 : Infinity;
   if (dias <= LEA_DIAS_VELHO) return '';
@@ -835,7 +842,10 @@ function leaUpRenderResultado(resultado) {
 /** Põe o resultado de uma coleta/processamento no cache local (sem gravar) e mostra os botões. */
 function leaUpMostrar(resultado) {
   for (const [leg, d] of Object.entries(resultado)) {
-    lea.cache[leg] = { rotulo: d.rotulo, ranking: d.ranking, projetos: d.projetos, atualizadoEm: null };
+    // `naoGravado`: o ranking passa a mostrar esta coleta, e o aviso da tela
+    // precisa dizer que ela ainda NÃO está no banco — sem a marca, a falta de
+    // data fazia parecer que a legislatura não tinha dado nenhum.
+    lea.cache[leg] = { rotulo: d.rotulo, ranking: d.ranking, projetos: d.projetos, atualizadoEm: null, naoGravado: true };
   }
   leaUpRenderResultado(resultado);
 }
