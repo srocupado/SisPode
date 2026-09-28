@@ -34,6 +34,7 @@ const {
   atualizarLeisAprovadas, legislaturaAtual, legislaturaValida, legislaturasEmRefresh,
   conferirLegislaturaComApi, situacaoLeisAprovadas,
 } = require('./src/leisaprovadas');
+const { atualizarMapaTerritorial } = require('./src/labsmapa');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -353,6 +354,30 @@ bot.command('leisaprovadas', async ctx => {
   } catch (e) {
     console.error('/leisaprovadas falhou:', e);
     return ctx.reply(`Erro ao atualizar leis aprovadas: ${e.message}`);
+  }
+});
+
+// Labs · Mapa Territorial: votos por município (TSE) da bancada + emendas
+// pagas, gravados em /labs/mapa. Coleta pesada e deliberada (baixa o zip do
+// TSE, centenas de MB) — só roda quando o admin pede.
+bot.command('labsmapa', async ctx => {
+  if (String(ctx.from.id) !== ADMIN_USER_ID) return;
+  const arg = String(ctx.match || '').trim();
+  const ano = /^\d{4}$/.test(arg) ? arg : '2022';
+  await ctx.reply(`⏳ Mapa Territorial (Labs): processando a eleição de ${ano}. Baixa o arquivo do TSE ` +
+    `(centenas de MB) — pode levar vários minutos. Aviso quando terminar.\n(Uso: /labsmapa [ano da eleição])`);
+  try {
+    const r = await atualizarMapaTerritorial({ ano, onProgresso: m => console.log(`[labsmapa ${ano}] ${m}`) });
+    const deps = r.deputados.map(d => `• ${d.nome} (${d.uf}): ${d.total.toLocaleString('pt-BR')} votos em ${d.municipios} municípios`).join('\n');
+    const nao = r.naoEncontrados.length ? `\n⚠️ Não encontrados: ${r.naoEncontrados.map(n => `${n.nome} (${n.motivo})`).join('; ')}` : '';
+    const sem = r.semPar.length ? `\n${r.semPar.length} município(s) do TSE sem par no IBGE.` : '';
+    const em = r.emendas.anos.length
+      ? `\nEmendas agregadas: ${r.emendas.anos.join(' e ')}${r.emendas.erros.length ? ` (${r.emendas.erros.length} falha(s))` : ''}.`
+      : '\nEmendas: sem TRANSPARENCIA_CHAVE no .env — só os votos foram gravados.';
+    return ctx.reply(`✅ Mapa Territorial ${ano} gravado. Estados: ${r.ufs.join(', ')}.\n${deps || '(nenhum deputado encontrado)'}${nao}${sem}${em}`);
+  } catch (e) {
+    console.error('/labsmapa falhou:', e);
+    return ctx.reply(`Erro no Mapa Territorial: ${e.message}`);
   }
 });
 
