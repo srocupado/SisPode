@@ -35,6 +35,10 @@ module.exports = {
 
   TRANSCRIBE_GEMINI_KEY: (process.env.TRANSCRIBE_GEMINI_KEY || '').trim(),
 
+  // Chave da API do Portal da Transparência (opcional). Com ela, o /labsmapa
+  // também agrega as emendas pagas da bancada; sem ela, só os votos.
+  TRANSPARENCIA_CHAVE: (process.env.TRANSPARENCIA_CHAVE || '').trim(),
+
   // Monitor de sessão ao vivo: MONITOR_ATIVO=0 desliga de vez;
   // MONITOR_ENSAIO=1 (padrão) manda as mensagens SÓ para o admin — troque
   // para 0 depois de calibrar numa sessão real para publicar no grupo.

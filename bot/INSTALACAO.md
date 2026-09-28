@@ -46,6 +46,8 @@ roteador — o bot conecta para fora (long polling), como um navegador.
      todos os autorizados; preencha só se quiser avisar TAMBÉM num grupo
    - `TRANSCRIBE_GEMINI_KEY` — (recomendado) chave Gemini do transcritor
      de voz padrão
+   - `TRANSPARENCIA_CHAVE` — (opcional) chave do Portal da Transparência,
+     para o `/labsmapa` agregar também as emendas pagas (Labs → Mapa Territorial)
 4. Instale as dependências: `npm install`
 
 ## 5. Testar

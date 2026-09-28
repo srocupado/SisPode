@@ -505,7 +505,29 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
 - `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo`/`/removerchave` (chave de IA por usuário — `/modelo listar` busca ao vivo os modelos disponíveis na API do provedor configurado, marcando o atual), `/digestadd`/`/digestrem`/`/digestlista` (assinantes do radar de imprensa)
 - `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre a legislatura corrente (e a anterior, semanalmente, nos 12 meses de carência); as encerradas são coleta manual, uma vez. `--forcar` também libera gravar coleta com menos projetos que o salvo. `/leisaprovadas status` mostra data/hora da última coleta de cada legislatura, a origem (bot, script, extensão) e a data dos arquivos da Câmara
+- `/labsmapa [ano]` — **Labs · Mapa Territorial**: baixa o arquivo de votação por município do TSE (padrão 2022), agrega os votos da bancada por município e, com `TRANSPARENCIA_CHAVE` no `.env`, as emendas pagas (ano anterior e atual); grava em `/labs/mapa`
 - **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
+
+### 11. Labs
+
+**Área de desenvolvimento de novas soluções.** Dentro dela desenvolvemos e testamos funcionalidades; quando homologadas, elas saem para integrar novos módulos ou módulos já existentes. Cada protótipo depende só de `labs.js` (e de `ia-comum.js`, quando usa IA), para poder ser levado a outro módulo sem arrastar o resto. Tudo aqui é **experimental**.
+
+**Placar Preditivo e mapa de votos**
+- Para uma orientação de referência (Governo, PODE, Oposição, Maioria, Minoria ou qualquer partido — inclusive dentro de bloco/federação), estima quem tende a segui-la, pelo histórico de votações nominais do Plenário (6, 12 ou 24 meses)
+- Conta **aberta, sem IA**: `(vezes que seguiu + 1) / (votações comparáveis + 2)`; com tema escolhido, mistura o histórico no tema com peso `n_tema/(n_tema+5)`. Cada linha mostra a base da conta. Presença não é modelada
+- Faixas (quase nunca → quase sempre, com os **indecisos** no meio) e o placar esperado
+- **Campanha de votos** (opcional): registra quem foi procurado, por quem e com que resposta, no banco compartilhado (`/labs/placar/campanhas`) — o placar é ajustado pelos contatos
+
+**Simulador de Negociação**
+- Um agente de IA por bancada (as maiores, mais o Governo), cada um com perfil tirado das votações reais do partido: cadeiras, % de orientação igual à do Governo, coesão e as votações recentes em que divergiu do Governo
+- Cada agente responde posição (apoia / condiciona / rejeita), objeções, a concessão que destravaria o apoio, o argumento que pesa e o risco de ruptura; uma síntese final agrupa objeções, concessões e onde o acordo quebra
+- Mostra quantas chamadas de IA a rodada gastou (uma por bancada + a síntese), pela chave e modelo configurados. Serve para preparar argumentos — **não é previsão**
+
+**Mapa Territorial de Entregas**
+- Mapa do estado (malhas do IBGE) pintado pela **fatia** dos votos de deputado federal de cada município que foi do deputado (eleição de 2022, dados do TSE) e círculos nas emendas pagas com município identificado (Portal da Transparência, chave do analista); lista dos municípios com mais votos e das emendas sem município ("MÚLTIPLO")
+- Dados eleitorais processados **pelo bot** (`/labsmapa 2022`, ou `node bot/scripts/labs-mapa-territorial.js`) ou **à mão** na própria tela: o analista baixa o zip do TSE (link e passo a passo na tela), extrai e escolhe os CSV dos estados; o processamento roda no navegador e só o agregado é gravado, depois de confirmação
+- Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
+- Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas)
 
 ---
 
@@ -565,6 +587,11 @@ sispode/
 ├── producao.js                    # Relatórios · Produção legislativa
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
+├── labs.html / labs.js            # Módulo: Labs — abas e utilidades comuns dos protótipos
+├── labs-placar.js                 # Labs · Placar Preditivo e mapa de votos
+├── labs-simulador.js              # Labs · Simulador de Negociação (agentes de IA por bancada)
+├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
+├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -631,6 +658,7 @@ sispode/
         ├── destaques.js            # Destaques (DTQ) para o monitor
         ├── autoupdate.js           # /update: baixa e valida os arquivos do main
         ├── leisaprovadas.js        # /leisaprovadas: coleta o relatório de Leis aprovadas (item 3.5)
+        ├── labsmapa.js             # /labsmapa: Labs · Mapa Territorial (zip do TSE, IBGE, emendas)
         ├── ia.js                   # Matriz dos 3 provedores de IA (chave do usuário)
         ├── store.js / firebase.js / config.js / backup.js   # Persistência e config
         └── cosevespiao.js          # Espião de calibração ao vivo (privado do admin)
@@ -665,6 +693,8 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Fundo Nacional de Saúde](https://consultafns.saude.gov.br) | **Emendas**: propostas por UF (planilha) e detalhe da proposta |
 | [API do Portal da Transparência](https://api.portaldatransparencia.gov.br) | **Emendas**: empenhado e pago por parlamentar (exige chave gratuita do analista) |
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
+| [IBGE — API de serviços de dados](https://servicodados.ibge.gov.br) | **Labs**: malhas (contornos) e lista de municípios para o Mapa Territorial |
+| [Dados abertos do TSE](https://dadosabertos.tse.jus.br) | **Labs**: votação por município e zona (Mapa Territorial) — pelo bot ou baixado à mão |
 | [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |
 | [Planalto](https://www.planalto.gov.br) e [LexML/Senado](https://www.lexml.gov.br) | Texto compilado e texto publicado das normas — as duas fontes seguintes da cascata |
 | [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Séries de câmbio, IPCA e arrecadação para o dossiê do Parecer de Especialista |
