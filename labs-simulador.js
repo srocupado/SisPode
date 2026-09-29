@@ -3,8 +3,9 @@
 //
 // Ensaia uma rodada de negociação antes da mesa real: um agente de IA por
 // bancada, cada um com um PERFIL TIRADO DAS VOTAÇÕES REAIS do partido no
-// período (tamanho da bancada, quanto o partido orientou igual ao Governo,
-// coesão dos seus deputados, votações recentes em que divergiu do Governo).
+// período (tamanho da bancada, quanto a maioria dos seus deputados votou como o
+// Governo orientou, quanto a orientação do líder coincidiu com a do Governo,
+// coesão, votações recentes em que a bancada votou contra o Governo).
 // Cada agente responde em JSON: posição (apoia | condiciona | rejeita),
 // objeções, a concessão que destravaria o apoio e o argumento que mais pesa.
 // Uma última chamada sintetiza: mapa de objeções, concessões possíveis e onde
@@ -48,28 +49,46 @@ function smBancadasDe(deputados) {
 }
 
 /**
- * O perfil de cada partido, puro, a partir das votações do período:
- *  - orientou: votações em que o partido orientou Sim/Não;
- *  - comGoverno: dessas, quantas com o Governo também orientando Sim/Não, e em
- *    quantas as duas orientações coincidiram;
+ * O perfil de cada partido, puro, a partir das votações do período. Em toda
+ * conta com o Governo, só entram votações em que o Governo orientou Sim ou Não.
+ *  - alinhamentoGoverno (principal): em quantas a MAIORIA DOS DEPUTADOS do
+ *    partido votou como o Governo orientou (comparaveis = votações com ao menos
+ *    2 deputados do partido votando Sim, Não ou Obstrução — ou 1, se a bancada
+ *    só tem 1 — e maioria definida; empate não conta). Pelo voto, e não pela orientação, porque a Câmara só
+ *    publica a orientação do LÍDER DO BLOCO — partidos do mesmo bloco sairiam
+ *    todos com o mesmo número;
+ *  - alinhamentoOrientacao: em quantas a orientação do partido (própria ou do
+ *    bloco) foi igual à do Governo (comparaveisOrientacao). OBSTRUÇÃO contra
+ *    Sim/Não do Governo conta como divergência; "Liberado" não entra;
+ *  - orientou: votações em que o partido orientou Sim, Não ou Obstrução;
  *  - coesao: média, por votação, da fração dos deputados do partido (Sim/Não)
- *    que votou como a maioria do partido;
- *  - divergencias: até 5 votações mais recentes em que partido e Governo
- *    orientaram diferente (descrição da votação).
+ *    que votou como a maioria do partido (partido do deputado NA votação);
+ *  - divergencias: até 5 votações mais recentes em que a maioria do partido
+ *    votou diferente do Governo — com a proposição votada.
  */
 function smPerfis(itens, siglas) {
   const out = {};
-  for (const s of siglas) out[s] = { sigla: s, orientou: 0, comparaveis: 0, coincidiu: 0, coesaoSoma: 0, coesaoN: 0, divergencias: [] };
+  for (const s of siglas) out[s] = { sigla: s, orientou: 0, comparaveis: 0, coincidiu: 0, comparaveisOrientacao: 0, coincidiuOrientacao: 0, coesaoSoma: 0, coesaoN: 0, divergencias: [] };
   const ordenados = [...(itens || [])].sort((a, b) => String(b.votacao.dataHoraRegistro || b.votacao.data || '').localeCompare(String(a.votacao.dataHoraRegistro || a.votacao.data || '')));
+  // Bancada de 1 deputado (ex.: MISSÃO, DC) nunca teria "2 votos" numa votação:
+  // aí o voto dele é o da bancada. Nas demais, exige 2 para ter maioria.
+  const maxVotantes = {};
   for (const it of ordenados) {
-    const gov = labsOrientacao(it.orientacoes, 'Governo');
+    const n = {};
+    for (const v of it.votos) { const p = (v.deputado_ && v.deputado_.siglaPartido) || ''; if (out[p]) n[p] = (n[p] || 0) + 1; }
+    for (const [p, k] of Object.entries(n)) maxVotantes[p] = Math.max(maxVotantes[p] || 0, k);
+  }
+  for (const it of ordenados) {
+    const og = labsOrientacao(it.orientacoes, 'Governo');
+    const gov = og === 'Sim' || og === 'Não' ? og : null;
     const votosPorPartido = new Map();
     for (const v of it.votos) {
-      const sn = labsSimNao(v.tipoVoto);
+      const t = labsSigla(v.tipoVoto);
+      const tipo = t === 'sim' ? 'Sim' : t === 'nao' ? 'Não' : t.startsWith('obstru') ? 'Obstrução' : null;
       const p = (v.deputado_ && v.deputado_.siglaPartido) || '';
-      if (!sn || !out[p]) continue;
-      const c = votosPorPartido.get(p) || { Sim: 0, 'Não': 0 };
-      c[sn]++;
+      if (!tipo || !out[p]) continue;
+      const c = votosPorPartido.get(p) || { Sim: 0, 'Não': 0, 'Obstrução': 0 };
+      c[tipo]++;
       votosPorPartido.set(p, c);
     }
     for (const s of siglas) {
@@ -77,25 +96,34 @@ function smPerfis(itens, siglas) {
       const ori = labsOrientacao(it.orientacoes, s);
       if (ori) {
         pf.orientou++;
-        if (gov) {
-          pf.comparaveis++;
-          if (ori === gov) pf.coincidiu++;
-          else if (pf.divergencias.length < 5) {
-            const desc = String(it.votacao.descricao || it.votacao.proposicaoObjeto || '').replace(/\s+/g, ' ').trim().slice(0, 220);
-            if (desc) pf.divergencias.push(`${desc} (partido: ${ori}; Governo: ${gov})`);
-          }
-        }
+        if (gov) { pf.comparaveisOrientacao++; if (ori === gov) pf.coincidiuOrientacao++; }
       }
       const c = votosPorPartido.get(s);
-      if (c && (c.Sim + c['Não']) >= 2) {
+      if (!c) continue;
+      if (c.Sim + c['Não'] >= 2) {
         pf.coesaoSoma += Math.max(c.Sim, c['Não']) / (c.Sim + c['Não']);
         pf.coesaoN++;
+      }
+      const n = c.Sim + c['Não'] + c['Obstrução'];
+      if (!gov || n < Math.min(2, maxVotantes[s] || 0)) continue;
+      const ordem = Object.entries(c).sort((a, b) => b[1] - a[1]);
+      if (ordem[0][1] === ordem[1][1]) continue;          // empate: sem maioria
+      const maioria = ordem[0][0];
+      pf.comparaveis++;
+      if (maioria === gov) pf.coincidiu++;
+      else if (pf.divergencias.length < 5) {
+        const obj = String(it.votacao.proposicaoObjeto || '').trim();
+        const desc = String(it.votacao.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 200);
+        const dia = String(it.votacao.data || it.votacao.dataHoraRegistro || '').slice(0, 10);
+        const txt = [obj, desc].filter(Boolean).join(' — ');
+        if (txt) pf.divergencias.push(`${dia ? dia + ': ' : ''}${txt} (maioria da bancada: ${maioria}; Governo orientou: ${gov})`);
       }
     }
   }
   for (const s of siglas) {
     const pf = out[s];
     pf.alinhamentoGoverno = pf.comparaveis ? pf.coincidiu / pf.comparaveis : null;
+    pf.alinhamentoOrientacao = pf.comparaveisOrientacao ? pf.coincidiuOrientacao / pf.comparaveisOrientacao : null;
     pf.coesao = pf.coesaoN ? pf.coesaoSoma / pf.coesaoN : null;
   }
   return out;
@@ -144,11 +172,13 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico) {
   if (personalizado && ag.descricao) linhas.push('QUEM É E O QUE DEFENDE (descrito pela equipe):', ag.descricao, '');
   if (!personalizado && ag.sigla !== SM_GOVERNO && perfil) {
     linhas.push(`PERFIL (votações nominais do Plenário nos últimos ${meses} meses):`);
-    linhas.push(`- Orientou Sim/Não em ${perfil.orientou} votações.`);
-    linhas.push(`- Orientou igual ao Governo em ${smPct(perfil.alinhamentoGoverno)} das ${perfil.comparaveis} votações em que ambos orientaram.`);
-    linhas.push(`- Coesão (deputados votando com a maioria da bancada): ${smPct(perfil.coesao)}.`);
+    linhas.push(perfil.comparaveis
+      ? `- A maioria dos deputados da bancada votou como o Governo orientou em ${smPct(perfil.alinhamentoGoverno)} das ${perfil.comparaveis} votações em que o Governo orientou Sim ou Não.`
+      : '- Sem votações suficientes para medir o alinhamento da bancada com o Governo.');
+    if (perfil.comparaveisOrientacao) linhas.push(`- A orientação do líder (do partido ou do bloco) foi igual à do Governo em ${smPct(perfil.alinhamentoOrientacao)} de ${perfil.comparaveisOrientacao} votações (obstrução conta como divergência).`);
+    if (perfil.coesao != null) linhas.push(`- Coesão (deputados votando com a maioria da bancada): ${smPct(perfil.coesao)}.`);
     if (perfil.divergencias.length) {
-      linhas.push('- Votações recentes em que divergiu do Governo:');
+      linhas.push('- Votações recentes em que a maioria da bancada votou contra a orientação do Governo:');
       for (const d of perfil.divergencias) linhas.push('  • ' + d);
     }
     linhas.push('');
@@ -172,6 +202,20 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico) {
   return linhas.join('\n');
 }
 
+/**
+ * A posição declarada, tolerante à redação do modelo: "Apoia", "apoio" →
+ * apoia; "condicionado", "apoia parcialmente", "com ressalvas" → condiciona;
+ * "rejeita", "contrário" → rejeita. O resto é "indefinida" (respondeu, mas sem
+ * posição legível) — diferente de "sem resposta" (a chamada falhou).
+ */
+function smPosicao(txt) {
+  const t = labsSigla(txt);
+  if (/condic|ressalva|parcial/.test(t)) return 'condiciona';
+  if (/^apoi|^favor/.test(t)) return 'apoia';
+  if (/^rejeit|^contra|^recus/.test(t)) return 'rejeita';
+  return 'indefinida';
+}
+
 /** Lê o JSON devolvido pelo modelo (com ou sem cercas ```), normalizando campos. */
 function smLerResposta(texto) {
   let t = String(texto || '').trim();
@@ -180,9 +224,8 @@ function smLerResposta(texto) {
   const i = t.indexOf('{'), f = t.lastIndexOf('}');
   if (i < 0 || f <= i) throw new Error('resposta sem JSON');
   const j = JSON.parse(t.slice(i, f + 1));
-  const pos = String(j.posicao || '').toLowerCase().trim();
   return {
-    posicao: SM_POSICOES.includes(pos) ? pos : 'indefinida',
+    posicao: smPosicao(j.posicao),
     objecoes: (Array.isArray(j.objecoes) ? j.objecoes : []).map(x => String(x).trim()).filter(Boolean).slice(0, 5),
     concessao: String(j.concessao || '').trim(),
     argumento: String(j.argumento || '').trim(),
@@ -195,10 +238,10 @@ function smSomaCadeiras(ag) { return ag.sigla !== SM_GOVERNO && (!ag.tipo || ag.
 
 /** Cadeiras por posição declarada (só bancadas partidárias). */
 function smApoioEstimado(resultados) {
-  const t = { apoia: 0, condiciona: 0, rejeita: 0, indefinida: 0, total: 0 };
+  const t = { apoia: 0, condiciona: 0, rejeita: 0, indefinida: 0, semResposta: 0, total: 0 };
   for (const r of resultados) {
     if (!smSomaCadeiras(r.bancada)) continue;
-    const pos = r.resposta ? r.resposta.posicao : 'indefinida';
+    const pos = r.resposta ? r.resposta.posicao : 'semResposta';
     t[pos] += r.bancada.cadeiras;
     t.total += r.bancada.cadeiras;
   }
@@ -441,10 +484,19 @@ async function smBuscarProposicao() {
  */
 async function smRodar(sessao, proposta) {
   const { cfg, modelos } = sessao;
-  const chamar = (modelo, prompt) => {
+  // Custo: chamadas CONCLUÍDAS por modelo; as que falharam contam à parte
+  // (o provedor pode ou não cobrá-las — a tela diz as duas).
+  const chamar = async (modelo, prompt) => {
     const m = modelo || cfg.modelo || '';
-    sessao.custo[m || '(padrão do provedor)'] = (sessao.custo[m || '(padrão do provedor)'] || 0) + 1;
-    return chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: m || undefined, prompt, opcoes: { maxSaida: 1500 } });
+    const k = m || '(padrão do provedor)';
+    try {
+      const r = await chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: m || undefined, prompt, opcoes: { maxSaida: 4000 } });
+      sessao.custo[k] = (sessao.custo[k] || 0) + 1;
+      return r;
+    } catch (e) {
+      sessao.falhasIA = (sessao.falhasIA || 0) + 1;
+      throw e;
+    }
   };
   // o contexto vale o que está na tela AGORA (a equipe pode ter atualizado entre rodadas)
   for (const ag of sessao.agentes) {
@@ -456,7 +508,10 @@ async function smRodar(sessao, proposta) {
     const historico = sessao.rodadas.map(r => ({ proposta: r.proposta, resposta: (r.resultados.find(x => x.bancada.chave === ag.chave) || {}).resposta || null }));
     try {
       const r = await chamar(modelos.agentes, smPromptAgente(ag, sessao.perfis[ag.sigla], sessao.prop, proposta, sessao.meses, historico));
-      return { bancada: ag, perfil: sessao.perfis[ag.sigla], resposta: smLerResposta(r.text) };
+      let resposta;
+      try { resposta = smLerResposta(r.text); }
+      catch (e) { throw new Error(r.truncated ? 'resposta cortada pelo limite de tamanho do modelo' : e.message); }
+      return { bancada: ag, perfil: sessao.perfis[ag.sigla], resposta };
     } catch (e) {
       return { bancada: ag, perfil: sessao.perfis[ag.sigla], resposta: null, erro: e.message };
     } finally {
@@ -489,13 +544,13 @@ async function smSimularClick() {
     labsStatus('smStatus', 'Buscando a proposição…', 'loading');
     const prop = await smBuscarProposicao();
     const partidos = agentes.filter(a => a.tipo === 'partido').map(a => a.sigla);
-    let itens = [], falhas = 0;
+    let itens = [], falhas = 0, blocosFalhou = false;
     if (partidos.length) {
       labsStatus('smStatus', 'Montando os perfis pelas votações reais…', 'loading');
-      ({ itens, falhas } = await labsVotacoesPlenario(meses, m => labsStatus('smStatus', m, 'loading')));
+      ({ itens, falhas, blocosFalhou } = await labsVotacoesPlenario(meses, m => labsStatus('smStatus', m, 'loading')));
     }
     sm.sessao = {
-      cfg, prop, meses, falhas, votacoes: itens.length, agentes,
+      cfg, prop, meses, falhas, blocosFalhou, votacoes: itens.length, agentes,
       perfis: smPerfis(itens, partidos),
       modelos: { agentes: smEl('smModeloAgentes').value, sintese: smEl('smModeloSintese').value },
       rodadas: [], custo: {},
@@ -533,7 +588,7 @@ async function smNovaRodadaClick() {
 function smEvolucao(rodadas) {
   if (!rodadas.length) return [];
   return rodadas[0].resultados.map(x => {
-    const posicoes = rodadas.map(r => { const y = r.resultados.find(z => z.bancada.chave === x.bancada.chave); return y && y.resposta ? y.resposta.posicao : 'indefinida'; });
+    const posicoes = rodadas.map(r => { const y = r.resultados.find(z => z.bancada.chave === x.bancada.chave); return y && y.resposta ? y.resposta.posicao : 'sem resposta'; });
     return { nome: smNomeAgente(x.bancada), posicoes, mudou: new Set(posicoes).size > 1 };
   });
 }
@@ -547,14 +602,14 @@ function smRender(s) {
     const ag = x.bancada;
     const nome = ag.sigla === SM_GOVERNO ? 'Governo' : ag.nome;
     const pf = x.perfil;
-    const perfil = pf && ag.tipo === 'partido' ? `<div class="t">Perfil: ${ag.cadeiras} cadeiras · com o Governo em ${smPct(pf.alinhamentoGoverno)} (${pf.comparaveis} votações) · coesão ${smPct(pf.coesao)}</div>`
+    const perfil = pf && ag.tipo === 'partido' ? `<div class="t">Perfil: ${ag.cadeiras} cadeiras · votou como o Governo orientou em ${smPct(pf.alinhamentoGoverno)} (${pf.comparaveis} votações) · orientação do líder igual à do Governo em ${smPct(pf.alinhamentoOrientacao)} (${pf.comparaveisOrientacao}) · coesão ${smPct(pf.coesao)}</div>`
       : (ag.descricao ? `<div class="t">${labsEsc(SM_TIPOS[ag.tipo] || '')}: ${labsEsc(ag.descricao)}</div>` : '');
     const ctx = ag.contexto ? `<div class="t"><b>Contexto da equipe:</b> ${labsEsc(ag.contexto)}</div>` : '';
     if (!x.resposta) {
       return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos indefinida">sem resposta</span></div>${perfil}${ctx}<div class="t">${labsEsc(x.erro || '')}</div></div>`;
     }
     const a = x.resposta;
-    return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos ${a.posicao}">${a.posicao}</span></div>${perfil}${ctx}
+    return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos ${a.posicao}">${a.posicao === 'indefinida' ? 'posição não legível' : a.posicao}</span></div>${perfil}${ctx}
       ${a.objecoes.length ? `<div class="t"><b>Objeções:</b> ${a.objecoes.map(labsEsc).join(' · ')}</div>` : ''}
       ${a.concessao ? `<div class="t"><b>Destravaria:</b> ${labsEsc(a.concessao)}</div>` : ''}
       ${a.argumento ? `<div class="t"><b>Argumento que pesa:</b> ${labsEsc(a.argumento)}</div>` : ''}
@@ -566,13 +621,14 @@ function smRender(s) {
     const cad = s.rodadas.map(x => smApoioEstimado(x.resultados));
     evolucao = `<div class="labs-caixa"><h3>Evolução da negociação</h3>
       <table class="labs-tab sm-evol"><tr><th>Agente</th>${s.rodadas.map((_, i) => `<th>Rodada ${i + 1}</th>`).join('')}</tr>
-      ${ev.map(e => `<tr><td>${labsEsc(e.nome)}</td>${e.posicoes.map((p, i) => `<td class="${i && p !== e.posicoes[i - 1] ? 'mudou' : ''}"><span class="labs-pos ${p}">${p}</span></td>`).join('')}</tr>`).join('')}
+      ${ev.map(e => `<tr><td>${labsEsc(e.nome)}</td>${e.posicoes.map((p, i) => `<td class="${i && p !== e.posicoes[i - 1] ? 'mudou' : ''}"><span class="labs-pos ${SM_POSICOES.includes(p) ? p : 'indefinida'}">${p}</span></td>`).join('')}</tr>`).join('')}
       <tr><td class="base">Cadeiras que apoiam</td>${cad.map(c => `<td class="base">${c.apoia} de ${c.total}</td>`).join('')}</tr></table>
       ${s.rodadas.map((x, i) => `<div class="sub" style="margin-top:4px"><b>Proposta da rodada ${i + 1}:</b> ${labsEsc(x.proposta)}</div>`).join('')}</div>`;
   }
   const prop = s.prop ? `<div class="sub">${labsEsc(s.prop.sigla + ' ' + s.prop.numero + '/' + s.prop.ano)} — ${labsEsc(s.prop.ementa)}</div>` : '';
   const custo = Object.entries(s.custo).map(([m, c]) => `${c} com ${labsEsc(m)}`).join(', ');
   const total = Object.values(s.custo).reduce((a, b) => a + b, 0);
+  const falhasIA = s.falhasIA ? `; mais ${s.falhasIA} que falharam` : '';
   smEl('smResultado').innerHTML = `
     ${prop}
     <h3 style="margin-top:10px">Rodada ${n}</h3>
@@ -580,8 +636,11 @@ function smRender(s) {
       ${card('f5', ap.apoia, 'cadeiras: apoia')}
       ${card('f3', ap.condiciona, 'cadeiras: condiciona')}
       ${card('f1', ap.rejeita, 'cadeiras: rejeita')}
-      ${ap.indefinida ? card('f0', ap.indefinida, 'cadeiras: sem resposta') : ''}
+      ${ap.indefinida ? card('f0', ap.indefinida, 'cadeiras: posição não legível') : ''}
+      ${ap.semResposta ? card('f0', ap.semResposta, 'cadeiras: sem resposta (erro)') : ''}
     </div>
+    ${s.blocosFalhou ? `<div class="labs-aviso"><b>Atenção:</b> a lista de blocos da Câmara não carregou. Partidos que só orientam pelo bloco
+      podem ter ficado sem a medida de orientação — o alinhamento pelo voto da bancada não é afetado. Tente de novo em instantes.</div>` : ''}
     <div class="labs-aviso">Soma das cadeiras das bancadas partidárias simuladas (${ap.total}) pela posição que o <b>agente</b> declarou
       (Governo e agentes personalizados não somam). Não é previsão de placar: a bancada real pode se dividir e os agentes tendem a concordar mais do que as bancadas.</div>
     ${evolucao}
@@ -594,7 +653,7 @@ function smRender(s) {
       <textarea id="smPropostaNova" class="field" rows="4" maxlength="2500" style="margin-top:6px">${labsEsc(r.proposta)}</textarea>
       <button id="smNovaRodada" class="btn-gerar" style="margin-top:6px">Rodar a rodada ${n + 1}</button></div>
     <div class="labs-custo">${s.agentes.some(a => a.tipo === 'partido') ? `Perfis de ${s.votacoes} votações nominais do Plenário (últimos ${s.meses} meses)${s.falhas ? `; ${s.falhas} votações não puderam ser lidas` : ''}. ` : ''}
-      Custo até aqui: ${total} chamadas de IA pela sua chave (${labsEsc(s.cfg.provedor || 'gemini')}: ${custo}).</div>`;
+      Custo até aqui: ${total} chamadas de IA concluídas pela sua chave (${labsEsc(s.cfg.provedor || 'gemini')}: ${custo || '—'})${falhasIA}.</div>`;
   smEl('smNovaRodada').addEventListener('click', smNovaRodadaClick);
 }
 

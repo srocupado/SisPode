@@ -16,7 +16,7 @@ const puppeteer = require('puppeteer');
 // Pasta da EXTENSÃO SisPode (manifest.json, analise.html…). Padrão: a pasta-mãe
 // da pasta do bot (raiz do repo). Se o bot estiver instalado separado da
 // extensão, aponte BOT_EXT_DIR no .env para a pasta onde a extensão está.
-const EXT_DIR  = process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..');
+const EXT_DIR  = path.resolve(process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..'));
 const PAGED_JS = path.join(EXT_DIR, 'libs', 'paged.polyfill.js');  // paginador do PDF
 
 const FUNCOES_PAINEL = [

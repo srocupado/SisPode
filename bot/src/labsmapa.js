@@ -29,7 +29,14 @@ const { TRANSPARENCIA_CHAVE } = require('./config');
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const IBGE = 'https://servicodados.ibge.gov.br/api/v1/localidades/estados';
 const TRANSP = 'https://api.portaldatransparencia.gov.br/api-de-dados';
-const EXT_DIR = process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..');
+// resolve(): BOT_EXT_DIR relativo ("ext", "./ext") viraria nome de pacote no
+// require e falharia — relativo vale a partir da pasta onde o bot roda.
+const EXT_DIR = path.resolve(process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..'));
+// Eleições que a extensão sabe mostrar (labs-mapa.js, MP_ANO_ELEICAO).
+const ANOS_SUPORTADOS = ['2022'];
+// Portal da Transparência: 90 requisições/minuto de dia (300 à noite).
+const PORTAL_INTERVALO_MS = 700;
+const PORTAL_ESPERA_429_MS = 60000;
 
 function urlTse(ano) {
   return `https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`;
@@ -127,10 +134,16 @@ async function fluxoEntrada(arquivo, e) {
   try { cab = await lerTrecho(fh, e.offsetLocal, 30); } finally { await fh.close(); }
   if (cab.readUInt32LE(0) !== 0x04034b50) throw new Error(`cabeçalho local inválido em ${e.nome}`);
   const ini = e.offsetLocal + 30 + cab.readUInt16LE(26) + cab.readUInt16LE(28);
+  if (!e.comprimido) return Readable.from([]);        // entrada vazia: createReadStream recusaria o intervalo
   const bruto = fs.createReadStream(arquivo, { start: ini, end: ini + e.comprimido - 1 });
   if (e.metodo === 0) return bruto;
-  if (e.metodo !== 8) throw new Error(`método de compressão ${e.metodo} não suportado em ${e.nome}`);
-  return bruto.pipe(zlib.createInflateRaw());
+  if (e.metodo !== 8) { bruto.destroy(); throw new Error(`método de compressão ${e.metodo} não suportado em ${e.nome}`); }
+  const inflar = zlib.createInflateRaw();
+  // pipe() não repassa erro: erro de leitura travaria o laço; erro do inflate deixaria o arquivo aberto.
+  bruto.on('error', err => inflar.destroy(err));
+  inflar.on('error', () => bruto.destroy());
+  inflar.on('close', () => bruto.destroy());
+  return bruto.pipe(inflar);
 }
 
 /** Lê uma entrada latin1 linha a linha. */
@@ -180,16 +193,32 @@ async function baixar(url, destino, aoAndar) {
   return lidos;
 }
 
+// Ritmo do Portal: uma chamada a cada PORTAL_INTERVALO_MS; em 429, espera a
+// janela de 1 minuto e tenta de novo (até 3 vezes). Antes, as chamadas saíam
+// em rajada, estouravam o limite e os deputados ficavam sem emendas.
+let ultimaPortal = 0;
+async function portal(url) {
+  for (let t = 0; t < 4; t++) {
+    const espera = ultimaPortal + PORTAL_INTERVALO_MS - Date.now();
+    if (espera > 0) await new Promise(r => setTimeout(r, espera));
+    ultimaPortal = Date.now();
+    const r = await fetch(url, { headers: { Accept: 'application/json', 'chave-api-dados': TRANSPARENCIA_CHAVE } });
+    if (r.ok) return r.json();
+    if (r.status === 429 || r.status >= 500) { await new Promise(res => setTimeout(res, r.status === 429 ? PORTAL_ESPERA_429_MS : 3000)); continue; }
+    throw new Error(`Portal HTTP ${r.status}`);
+  }
+  throw new Error('Portal: limite de requisições (429) persistente');
+}
+
 async function emendasDoAutor(nome, ano) {
   const { lmnNomeAutor } = nucleo();
   const out = [];
-  for (let pagina = 1; pagina <= 60; pagina++) {
-    const lote = await json(`${TRANSP}/emendas?ano=${ano}&nomeAutor=${encodeURIComponent(lmnNomeAutor(nome))}&pagina=${pagina}`,
-      { 'chave-api-dados': TRANSPARENCIA_CHAVE });
-    if (!Array.isArray(lote) || !lote.length) break;
+  for (let pagina = 1; pagina <= 200; pagina++) {
+    const lote = await portal(`${TRANSP}/emendas?ano=${ano}&nomeAutor=${encodeURIComponent(lmnNomeAutor(nome))}&pagina=${pagina}`);
+    if (!Array.isArray(lote) || !lote.length) return out;
     out.push(...lote);
   }
-  return out;
+  throw new Error('mais de 200 páginas de emendas — resultado seria truncado');
 }
 
 // ---------- orquestração ----------
@@ -200,18 +229,22 @@ async function emendasDoAutor(nome, ano) {
 async function atualizarMapaTerritorial({ ano = '2022', arquivoZip, onProgresso } = {}) {
   const N = nucleo();
   const avisar = m => onProgresso && onProgresso(m);
+  if (!ANOS_SUPORTADOS.includes(String(ano))) {
+    throw new Error(`eleição de ${ano} não suportada — o mapa da extensão mostra ${ANOS_SUPORTADOS.join(', ')}.`);
+  }
   avisar('buscando a bancada');
   const alvos = await bancadaPodemos();
+  if (!alvos.length) throw new Error('a Câmara não devolveu nenhum deputado do PODE em exercício — nada a processar.');
   const ufsAlvo = new Set(alvos.map(a => a.uf));
 
   let zip = arquivoZip, temp = null;
-  if (!zip) {
-    temp = path.join(os.tmpdir(), `sispode-tse-munzona-${ano}-${Date.now()}.zip`);
-    avisar('baixando o arquivo do TSE');
-    await baixar(urlTse(ano), temp, avisar);
-    zip = temp;
-  }
   try {
+    if (!zip) {
+      temp = path.join(os.tmpdir(), `sispode-tse-munzona-${ano}-${Date.now()}.zip`);
+      avisar('baixando o arquivo do TSE');
+      await baixar(urlTse(ano), temp, avisar);   // dentro do try: download que cai no meio também é apagado
+      zip = temp;
+    }
     const entradas = (await entradasZip(zip)).filter(e => ufsAlvo.has(ufDaEntrada(e.nome)));
     if (!entradas.length) throw new Error('o zip não tem os CSV por estado esperados');
     const ag = N.lmnAgregador(alvos);
@@ -227,11 +260,8 @@ async function atualizarMapaTerritorial({ ano = '2022', arquivoZip, onProgresso 
 
     const base = `/labs/mapa/${ano}`;
     avisar('gravando no banco');
-    const metaAntiga = await fbGet(`${base}/meta`).catch(() => null);
-    if (Object.keys(reg.deputados).length) await fbPatch(`${base}/deputados`, reg.deputados);
-    for (const [uf, m] of Object.entries(reg.municipios)) await fbPut(`${base}/municipios/${uf}`, m);
-    const ufs = [...new Set([...((metaAntiga && metaAntiga.ufs) || []), ...res.ufs])].sort();
-    await fbPut(`${base}/meta`, { atualizadoEm: new Date().toISOString(), origem: 'bot', ufs, naoEncontrados: res.naoEncontrados.length, semPar: reg.semPar.length });
+    const metaAntiga = await fbGet(`${base}/meta`);   // falha aborta: sem ela, a lista de estados seria perdida
+    await fbPatch(base, N.lmnAtualizacao(reg, res, metaAntiga, 'bot'));   // tudo numa atualização só
 
     const emendas = { anos: [], erros: [] };
     if (TRANSPARENCIA_CHAVE) {
@@ -245,9 +275,9 @@ async function atualizarMapaTerritorial({ ano = '2022', arquivoZip, onProgresso 
             const resolv = {};
             for (const e of brutas) {
               const l = N.lmnLocalidade(e.localidadeDoGasto);
-              if (l.tipo === 'municipio' && !resolv[l.uf]) resolv[l.uf] = N.lmnResolvedor(await ibgeUf(l.uf).catch(() => []));
+              if (l.tipo === 'municipio' && !resolv[l.uf]) resolv[l.uf] = N.lmnResolvedor(await ibgeUf(l.uf).catch(() => []), l.uf);
             }
-            const agE = N.lmnAgregarEmendas(brutas, (n, uf) => resolv[uf] ? resolv[uf](n) : null);
+            const agE = N.lmnAgregarEmendas(brutas, (n, uf) => resolv[uf] ? resolv[uf](n) : null, al.nome);
             await fbPut(`/labs/mapa/emendas/${a}/${al.id}`, Object.assign({ atualizadoEm: new Date().toISOString(), origem: 'bot' }, agE));
           } catch (e) { emendas.erros.push(`${al.nome} ${a}: ${e.message}`); }
         }
@@ -263,4 +293,4 @@ async function atualizarMapaTerritorial({ ano = '2022', arquivoZip, onProgresso 
   }
 }
 
-module.exports = { atualizarMapaTerritorial, entradasZip, fluxoEntrada, lerLinhasEntrada, ufDaEntrada, urlTse };
+module.exports = { ANOS_SUPORTADOS, atualizarMapaTerritorial, entradasZip, fluxoEntrada, lerLinhasEntrada, ufDaEntrada, urlTse };

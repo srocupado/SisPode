@@ -50,6 +50,7 @@ async function labsJson(url, opcoes) {
       const r = await fetch(url, Object.assign({ headers: { Accept: 'application/json' } }, opcoes || {}));
       if (r.ok) return await r.json();
       ultimo = new Error('HTTP ' + r.status);
+      ultimo.status = r.status;
       if (r.status !== 429 && r.status < 500) break;
     } catch (e) { ultimo = e; }
   }
@@ -170,35 +171,48 @@ async function labsVotacoesPlenario(meses, aoAndar) {
   const lidos = await labsMapLimit(plen, 6, async v => {
     const c = await labsCacheLer(v.id);
     if (c) return { votacao: v, votos: c.votos, orientacoes: c.orientacoes };
+    // 404 = votação SEM lista de votos (simbólica/procedimental: urgência,
+    // regime de tramitação…). Não é falha de leitura: entra vazia (e vai para
+    // o cache, como faz aderencia.js) e sai do cálculo por não ter votos.
+    const ou404 = u => labsJson(u).catch(e => { if (e && e.status === 404) return { dados: [] }; throw e; });
     try {
       const [vt, or] = await Promise.all([
-        labsJson(`${LABS_API}/votacoes/${v.id}/votos`),
-        labsJson(`${LABS_API}/votacoes/${v.id}/orientacoes`),
+        ou404(`${LABS_API}/votacoes/${v.id}/votos`),
+        ou404(`${LABS_API}/votacoes/${v.id}/orientacoes`),
       ]);
       labsCacheGravar(v.id, vt.dados || [], or.dados || []);
       return { votacao: v, votos: vt.dados || [], orientacoes: or.dados || [] };
     } catch (e) { falhas++; return null; }
   }, (f, t) => aoAndar && aoAndar(`Lendo votos e orientações… ${f}/${t}`));
   const itens = lidos.filter(x => x && x.votos.length);
+  for (const it of itens) for (const vo of it.votos) {
+    const p = labsSigla(vo.deputado_ && vo.deputado_.siglaPartido);
+    if (p) LABS_SIGLAS.add(p);
+  }
   if (aoAndar) aoAndar('Lendo a composição dos blocos…');
   await labsCarregarBlocos();
-  return { itens, falhas, periodo: [ini, fim] };
+  return { itens, falhas, periodo: [ini, fim], blocosFalhou: LABS_BLOCOS_FALHOU };
 }
 
 // ---------- orientação ----------
 // A API escreve a orientação de bloco com o nome ABREVIADO e, muitas vezes,
-// CORTADO: "Bl MdbPsdRepPode", "Bl UniPpPsd..." (medido em 09/2026: o bloco
-// do PODE — UNIÃO, PP, PSD, REPUBLICANOS, MDB, PSDB-CIDADANIA, PODE — aparece
-// só como "Bl UniPpPsd..."). Pelas letras não dá para achar o PODE ali. Por
-// isso a composição vem da própria API (/blocos e /blocos/{id}/partidos): as
-// abreviações do rótulo são casadas, NA ORDEM, com os partidos do nome do
-// bloco ("uni" → UNIÃO, "pp" → PP, "psd" → PSD…), e só um bloco pode casar.
-// Sem a composição (ou bloco antigo que não existe mais), vale o rótulo:
-// sigla inteira igual à abreviação — conservador, prefere "sem orientação"
-// a atribuir o voto do bloco errado.
+// CORTADO: "Bl MdbPsdRepPode", "Bl UniPpPsd...", "Bl AvanSolidPrd...". Pelas
+// letras nem sempre dá para achar o partido. Por isso:
+//  1. a composição vem da própria API — TODOS os blocos da legislatura
+//     (/blocos?idLegislatura=…), não só os em vigor: bloco que acabou (ex.:
+//     AVANTE-SOLIDARIEDADE-PRD, até 05/2026) continua explicando as votações
+//     antigas. As abreviações do rótulo são casadas, NA ORDEM, com os partidos
+//     do nome do bloco ("uni" → UNIÃO, "avan" → AVANTE), e só um bloco pode casar;
+//  2. sem bloco que case, vale o rótulo: abreviação igual à sigla ou PREFIXO
+//     dela ("rep" → REPUBLICANOS, "solid" → SOLIDARIEDADE) — mas prefixo só
+//     quando a abreviação não é, ela mesma, sigla de outro partido ("psd" não
+//     vira PSDB) e aponta para um único partido conhecido.
+// Rótulo cortado que nenhum bloco explica (ex.: "Bl PlUniPpPsd...", 10/2025)
+// fica só com os partidos visíveis — o resto sai "sem orientação", nunca com
+// a orientação chutada.
 
 /** Normaliza sigla/abreviação: minúsculas, sem acento. */
-function labsSigla(s) { return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim(); }
+function labsSigla(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().trim(); }
 
 /** Abreviações do rótulo de bloco/federação: "Bl MdbPsdRepPode" → ['mdb','psd','rep','pode']. */
 function labsSiglasDoBloco(nome) {
@@ -208,66 +222,105 @@ function labsSiglasDoBloco(nome) {
   return [];
 }
 
-// Composição dos blocos em vigor: [{ ordem: ['uniao','pp',…] (como no nome), membros: Set }].
+// Composição dos blocos da legislatura: [{ ordem: ['uniao','pp',…] (como no nome), membros: Set }].
 let LABS_BLOCOS = null;
+// Se a última leitura dos blocos falhou (a tela avisa; a próxima tenta de novo).
+let LABS_BLOCOS_FALHOU = false;
+// Siglas de partido conhecidas (normalizadas), das votações lidas — base do casamento por prefixo.
+let LABS_SIGLAS = new Set();
 
-/** Lê os blocos em vigor na Câmara (uma vez por página). Falha → fica sem (vale o rótulo). */
+/** A ordem dos partidos no nome do bloco: "UNIÃO, PP, Federação PSDB CIDADANIA" → ['uniao','pp','psdb','cidadania']. */
+function labsOrdemDoBloco(nome) {
+  return String(nome || '').split(/\s*,\s*/)
+    .flatMap(p => /^federa/i.test(p) ? p.replace(/^federa\S*\s*/i, '').split(/\s+/) : [p])
+    .map(labsSigla).filter(Boolean);
+}
+
+/**
+ * Lê os blocos da legislatura corrente (os em vigor e os que já acabaram).
+ * Falha NÃO fica guardada: devolve [] desta vez, marca LABS_BLOCOS_FALHOU e a
+ * próxima chamada tenta de novo.
+ */
 async function labsCarregarBlocos() {
   if (LABS_BLOCOS) return LABS_BLOCOS;
   try {
-    const j = await labsJson(`${LABS_API}/blocos?itens=100`);
+    const leg = (((await labsJson(`${LABS_API}/legislaturas?ordem=DESC&ordenarPor=id&itens=1`)).dados || [])[0] || {}).id;
+    const listas = await Promise.all([
+      labsJson(`${LABS_API}/blocos?itens=100`),
+      leg ? labsJson(`${LABS_API}/blocos?idLegislatura=${leg}&itens=100`) : Promise.resolve({ dados: [] }),
+    ]);
+    const porId = new Map();
+    for (const l of listas) for (const b of (l.dados || [])) porId.set(String(b.id), b);
     const out = [];
-    for (const b of (j.dados || [])) {
+    for (const b of porId.values()) {
       if (b.federacao === true) continue;
-      const ordem = String(b.nome || '').split(/\s*,\s*/)
-        .flatMap(p => /^federa/i.test(p) ? p.replace(/^federa\S*\s*/i, '').split(/\s+/) : [p])
-        .map(labsSigla).filter(Boolean);
+      const ordem = labsOrdemDoBloco(b.nome);
+      if (ordem.length < 2) continue;
       let membros = ordem;
       try {
         const ps = ((await labsJson(`${LABS_API}/blocos/${b.id}/partidos`)).dados || []).map(p => labsSigla(p.sigla));
         if (ps.length) membros = ps;
-      } catch (_) {}
-      if (ordem.length > 1) out.push({ ordem, membros: new Set(membros) });
+      } catch (_) {}   // sem a lista de partidos, vale a ordem do nome (ex.: bloco 590 vem vazio)
+      out.push({ ordem, membros: new Set(membros) });
     }
     LABS_BLOCOS = out;
-  } catch (e) { LABS_BLOCOS = []; }
-  return LABS_BLOCOS;
+    LABS_BLOCOS_FALHOU = false;
+    return out;
+  } catch (e) {
+    LABS_BLOCOS_FALHOU = true;
+    return [];
+  }
 }
 
-/** O bloco em vigor que corresponde ao rótulo (abreviações casadas na ordem), ou null. */
-function labsBlocoDoRotulo(rotulo, blocos) {
+/**
+ * A abreviação `t` corresponde à sigla `s`? Igual, ou prefixo — desde que `t`
+ * não seja sigla de outro partido e, entre os conhecidos, só `s` comece com `t`.
+ */
+function labsAbrevCasa(t, s, conhecidas = LABS_SIGLAS) {
+  if (!t || !s) return false;
+  if (t === s) return true;
+  if (!s.startsWith(t) || t.length < 2) return false;
+  if (conhecidas.has(t)) return false;
+  const comeca = [...conhecidas].filter(k => k.startsWith(t));
+  return comeca.length ? (comeca.length === 1 && comeca[0] === s) : t.length >= 3;
+}
+
+/** O bloco da legislatura que corresponde ao rótulo (abreviações casadas na ordem), ou null. */
+function labsBlocoDoRotulo(rotulo, blocos, conhecidas = LABS_SIGLAS) {
   const abrev = labsSiglasDoBloco(rotulo).filter(t => t !== 'fdr');
   if (!/^bl\b/i.test(String(rotulo || '')) || !abrev.length) return null;
   const cortado = /\.\.\.$/.test(String(rotulo));
   const casam = (blocos || []).filter(b =>
     (cortado ? b.ordem.length >= abrev.length : b.ordem.length === abrev.length) &&
-    abrev.every((t, i) => b.ordem[i].startsWith(t)));
+    abrev.every((t, i) => labsAbrevCasa(t, b.ordem[i], new Set([...conhecidas].filter(k => k !== b.ordem[i])))));
   return casam.length === 1 ? casam[0] : null;
 }
 
 const LABS_REF_LIDERANCAS = ['governo', 'oposicao', 'maioria', 'minoria'];
 
+/** "Sim" | "Não" | "Obstrução" | null (liberado, abstenção, vazio…). */
+function labsTipoOrientacao(txt) {
+  const t = labsSigla(txt);
+  return t === 'sim' ? 'Sim' : t === 'nao' ? 'Não' : t.startsWith('obstru') ? 'Obstrução' : null;
+}
+
 /**
- * A orientação ("Sim"/"Não"/outra) da referência numa votação: liderança
- * (Governo, Oposição, Maioria, Minoria) pelo nome; partido pela sigla — e, se o
- * partido está em bloco ou federação, pela composição do bloco (ver acima).
- * Devolve 'Sim' | 'Não' | null (sem orientação Sim/Não para a referência).
+ * A orientação da referência numa votação: liderança (Governo, Oposição,
+ * Maioria, Minoria) pelo nome; partido pela sigla — e, se está em bloco ou
+ * federação, pela composição do bloco ou pela abreviação (ver acima).
+ * Devolve 'Sim' | 'Não' | 'Obstrução' | null.
  */
-function labsOrientacao(orientacoes, ref, blocos = LABS_BLOCOS) {
+function labsOrientacao(orientacoes, ref, blocos = LABS_BLOCOS, conhecidas = LABS_SIGLAS) {
   const alvo = labsSigla(ref);
-  const sn = o => {
-    const t = String(o && o.orientacaoVoto || '').trim().toLowerCase();
-    return t === 'sim' ? 'Sim' : (t === 'não' || t === 'nao') ? 'Não' : null;
-  };
   const exata = (orientacoes || []).find(o => labsSigla(o.siglaPartidoBloco) === alvo);
-  if (exata) return sn(exata);
+  if (exata) return labsTipoOrientacao(exata.orientacaoVoto);
   if (LABS_REF_LIDERANCAS.includes(alvo)) return null;
   const bloco = (orientacoes || []).find(o => {
-    const b = labsBlocoDoRotulo(o.siglaPartidoBloco, blocos);
+    const b = labsBlocoDoRotulo(o.siglaPartidoBloco, blocos, conhecidas);
     if (b) return b.membros.has(alvo);
-    return labsSiglasDoBloco(o.siglaPartidoBloco).includes(alvo);
+    return labsSiglasDoBloco(o.siglaPartidoBloco).some(t => labsAbrevCasa(t, alvo, conhecidas));
   });
-  return bloco ? sn(bloco) : null;
+  return bloco ? labsTipoOrientacao(bloco.orientacaoVoto) : null;
 }
 
 /** "Sim"/"Não" do voto; null para abstenção, obstrução, art. 17 ou ausência. */

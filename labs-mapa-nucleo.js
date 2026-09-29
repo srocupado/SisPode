@@ -76,6 +76,8 @@ function lmnAgregador(alvos) {
   }
   const municipios = {};   // codTse → { n, uf, t }
   const ufs = new Set();
+  const ufsAnteriores = new Set();   // UFs já lidas em arquivos ANTERIORES (repetição = soma em dobro)
+  const ufsDesteArquivo = new Set();
   let col = null, linhas = 0, arquivos = 0;
 
   const OBRIG = ['SG_UF', 'CD_MUNICIPIO', 'NM_MUNICIPIO', 'SQ_CANDIDATO', 'NM_CANDIDATO', 'NM_URNA_CANDIDATO'];
@@ -86,9 +88,13 @@ function lmnAgregador(alvos) {
     const falta = OBRIG.filter(k => idx[k] == null);
     const votos = idx.QT_VOTOS_NOMINAIS_VALIDOS != null ? idx.QT_VOTOS_NOMINAIS_VALIDOS : idx.QT_VOTOS_NOMINAIS;
     if (votos == null) falta.push('QT_VOTOS_NOMINAIS');
+    // Candidato "Anulado sub judice" na data do arquivo tem VALIDOS = 0, mas
+    // os votos existem (quem tomou posse os teve validados): usa NOMINAIS.
+    const nominais = idx.QT_VOTOS_NOMINAIS != null ? idx.QT_VOTOS_NOMINAIS : votos;
+    const destinacao = idx.NM_TIPO_DESTINACAO_VOTOS != null ? idx.NM_TIPO_DESTINACAO_VOTOS : idx.DS_TIPO_DESTINACAO_VOTOS;
     if (idx.CD_CARGO == null && idx.DS_CARGO == null) falta.push('CD_CARGO');
     if (falta.length) throw new Error('Arquivo fora do formato do TSE (votação por município e zona). Faltam as colunas: ' + falta.join(', '));
-    col = { idx, votos };
+    col = { idx, votos, nominais, destinacao };
   }
 
   function add(b, sq, cod, v, campos) {
@@ -98,7 +104,7 @@ function lmnAgregador(alvos) {
       b.set(sq, e);
     }
     e.total += v;
-    e.mun[cod] = (e.mun[cod] || 0) + v;
+    if (v > 0) e.mun[cod] = (e.mun[cod] || 0) + v;   // município só entra com voto
   }
 
   function linha(texto) {
@@ -112,7 +118,13 @@ function lmnAgregador(alvos) {
     linhas++;
     const uf = String(campos[I.SG_UF] || '').trim().toUpperCase();
     const cod = String(campos[I.CD_MUNICIPIO] || '').trim();
-    const v = parseInt(campos[col.votos], 10) || 0;
+    let v = parseInt(campos[col.votos], 10) || 0;
+    const subJudice = col.destinacao != null && /^anulado sub judice/.test(lmnNorm(campos[col.destinacao]));
+    if (subJudice) v = parseInt(campos[col.nominais], 10) || 0;
+    if (!ufsDesteArquivo.has(uf)) {
+      if (ufsAnteriores.has(uf)) throw new Error(`O estado ${uf} aparece em mais de um arquivo (ex.: o arquivo BRASIL junto com o do estado, ou o mesmo estado duas vezes) — os votos seriam somados em dobro. Escolha cada estado uma vez só.`);
+      ufsDesteArquivo.add(uf);
+    }
     ufs.add(uf);
     const m = municipios[cod] || (municipios[cod] = { n: campos[I.NM_MUNICIPIO], uf, t: 0 });
     m.t += v;
@@ -152,7 +164,7 @@ function lmnAgregador(alvos) {
 
   return {
     linha,
-    novoArquivo() { col = null; arquivos++; },
+    novoArquivo() { col = null; arquivos++; for (const u of ufsDesteArquivo) ufsAnteriores.add(u); ufsDesteArquivo.clear(); },
     resultado,
   };
 }
@@ -175,13 +187,30 @@ function lmnDistancia(a, b) {
  * normalizado igual; sem espaços igual; e, por fim, UM único candidato a no
  * máximo 2 letras de distância ("Moji Mirim" → "Mogi Mirim"). Devolve o id ou null.
  */
-function lmnResolvedor(ibgeDaUf) {
+// Municípios cujo nome no TSE não é o do IBGE (renomeados, grafia antiga) e
+// que nenhuma regra de grafia resolve sozinha. Chave: "UF|nome TSE normalizado".
+const LMN_APELIDOS = {
+  'AP|agua branca do amapari': 'Pedra Branca do Amapari',
+  'PB|santarem': 'Joca Claudino',
+  'PB|sao domingos de pombal': 'São Domingos',
+  'RN|ares': 'Arez',
+  'RN|boa saude': 'Januário Cicco',
+  'RR|sao luiz': 'São Luiz do Anauá',
+  'TO|couto de magalhaes': 'Couto Magalhães',
+  'TO|fortaleza do tabocao': 'Tabocão',
+  'TO|sao valerio da natividade': 'São Valério',
+  'SP|embu': 'Embu das Artes',
+};
+
+function lmnResolvedor(ibgeDaUf, uf) {
   const exato = new Map(), compacto = new Map();
   const lista = (ibgeDaUf || []).map(m => ({ id: String(m.id), n: lmnNorm(m.nome) }));
   for (const m of lista) { exato.set(m.n, m.id); compacto.set(m.n.replace(/ /g, ''), m.id); }
+  const U = String(uf || '').toUpperCase();
   return nome => {
-    const n = lmnNorm(nome);
+    let n = lmnNorm(nome);
     if (!n) return null;
+    if (U && LMN_APELIDOS[U + '|' + n] && exato.has(lmnNorm(LMN_APELIDOS[U + '|' + n]))) n = lmnNorm(LMN_APELIDOS[U + '|' + n]);
     if (exato.has(n)) return exato.get(n);
     const c = n.replace(/ /g, '');
     if (compacto.has(c)) return compacto.get(c);
@@ -202,12 +231,15 @@ function lmnParaIbge(res, ibgePorUf) {
   const municipios = {};
   for (const [cod, m] of Object.entries(res.municipios)) {
     const uf = m.uf;
-    if (!resolv[uf]) resolv[uf] = lmnResolvedor(ibgePorUf[uf] || []);
+    if (!resolv[uf]) resolv[uf] = lmnResolvedor(ibgePorUf[uf] || [], uf);
     const id = resolv[uf](m.n);
     if (!id) { semPar.push({ uf, n: m.n, t: m.t }); continue; }
     tseParaIbge[cod] = 'm' + id;
     if (!municipios[uf]) municipios[uf] = {};
-    municipios[uf]['m' + id] = { n: m.n, t: m.t };
+    // Dois nomes do TSE no mesmo município do IBGE: os totais SOMAM (os votos
+    // do deputado também somam, logo a fatia continua certa).
+    const prev = municipios[uf]['m' + id];
+    municipios[uf]['m' + id] = prev ? { n: prev.n, t: prev.t + m.t } : { n: m.n, t: m.t };
   }
   const deputados = {};
   for (const [id, d] of Object.entries(res.deputados)) {
@@ -247,26 +279,53 @@ function lmnDinheiro(v) {
 function lmnChave(s) { return String(s || '').replace(/[.#$\[\]\/]/g, ' ').trim() || '-'; }
 
 /**
- * Agrega as emendas (registros crus do Portal) por destino. `resolverMun(nome,
- * uf)` devolve o id IBGE ou null. Só entra valor PAGO.
- * Devolve { total, municipais: { mID: pago }, outros: { rotulo: pago }, n }.
+ * Agrega as emendas (registros crus do Portal, consultados com ?ano=X) por
+ * destino. `resolverMun(nome, uf)` devolve o id IBGE ou null.
+ * Valor = PAGO NO ANO (valorPago) + RESTOS A PAGAR PAGOS depois (valorRestoPago):
+ * boa parte das emendas é paga como resto a pagar, e só o valorPago subestimava
+ * os anos anteriores. `autor` (opcional): só entram registros desse autor — o
+ * filtro nomeAutor do Portal não é conferido do lado de lá.
+ * Devolve { total, pagoNoAno, restoPago, municipais: { mID: valor },
+ *   nomesMun: { mID: "NOME - UF" }, outros: { rotulo: valor }, n, deOutroAutor }.
  */
-function lmnAgregarEmendas(registros, resolverMun) {
-  const out = { total: 0, municipais: {}, outros: {}, n: 0 };
+function lmnAgregarEmendas(registros, resolverMun, autor) {
+  const out = { total: 0, pagoNoAno: 0, restoPago: 0, municipais: {}, nomesMun: {}, outros: {}, n: 0, deOutroAutor: 0 };
+  const alvo = autor ? lmnNomeAutor(autor) : '';
   for (const e of registros || []) {
-    const pago = lmnDinheiro(e.valorPago);
+    if (alvo && e.nomeAutor && lmnNomeAutor(e.nomeAutor) !== alvo) { out.deOutroAutor++; continue; }
+    const noAno = lmnDinheiro(e.valorPago);
+    const resto = lmnDinheiro(e.valorRestoPago);
+    const pago = noAno + resto;
     out.n++;
     if (!pago) continue;
-    out.total += pago;
+    out.total += pago; out.pagoNoAno += noAno; out.restoPago += resto;
     const loc = lmnLocalidade(e.localidadeDoGasto);
     const id = loc.tipo === 'municipio' ? resolverMun(loc.nome, loc.uf) : null;
-    if (id) out.municipais['m' + id] = (out.municipais['m' + id] || 0) + pago;
-    else {
+    if (id) {
+      out.municipais['m' + id] = (out.municipais['m' + id] || 0) + pago;
+      out.nomesMun['m' + id] = `${loc.nome} - ${loc.uf}`;
+    } else {
       const rot = lmnChave(loc.tipo === 'municipio' ? `${loc.nome} - ${loc.uf}` : loc.tipo === 'uf' ? `${loc.nome} (UF)` : loc.rotulo);
       out.outros[rot] = (out.outros[rot] || 0) + pago;
     }
   }
   return out;
+}
+
+/**
+ * A gravação de uma eleição processada, numa ÚNICA atualização multi-caminho
+ * (PATCH em /labs/mapa/{ano}): deputados, totais dos estados lidos e a
+ * situação vão juntos ou não vão — antes eram gravações em sequência, e uma
+ * falha no meio deixava votos novos ao lado de totais antigos.
+ * Deputado/estado não lido fica como estava.
+ */
+function lmnAtualizacao(reg, res, metaAntiga, origem, agora = new Date()) {
+  const upd = {};
+  for (const [id, d] of Object.entries(reg.deputados)) upd['deputados/' + lmnChave(id)] = d;
+  for (const [uf, m] of Object.entries(reg.municipios)) upd['municipios/' + uf] = m;
+  const ufs = [...new Set([...((metaAntiga && metaAntiga.ufs) || []), ...res.ufs])].sort();
+  upd.meta = { atualizadoEm: agora.toISOString(), origem, ufs, naoEncontrados: res.naoEncontrados.length, semPar: reg.semPar.length };
+  return upd;
 }
 
 /** Nome como o Portal guarda (maiúsculas, sem acento) — o filtro nomeAutor exige. */
@@ -278,5 +337,5 @@ function lmnNomeAutor(nome) {
 // Exportação para Node (bot). Na extensão, este bloco é inerte.
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia };
+  module.exports = { lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, LMN_APELIDOS };
 }
