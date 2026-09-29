@@ -125,9 +125,10 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   }
   ctx.__vs = vs;
   const pf = av(`smPerfis(__vs, ['PODE', 'PL'])`);
-  ok(pf.PODE.comparaveis === 4 && Math.abs(pf.PODE.alinhamentoGoverno - 0.75) < 1e-9, 'PODE (em bloco) com o Governo em 3 de 4');
-  ok(pf.PL.alinhamentoGoverno === 0 && pf.PL.divergencias.length === 4, 'PL nunca com o Governo; divergências listadas');
-  ok(/^Votação 3/.test(pf.PODE.divergencias[0]) && pf.PODE.divergencias.length === 1, 'divergência do PODE é a da votação 3 (mais recente primeiro)');
+  ok(pf.PODE.comparaveisOrientacao === 4 && Math.abs(pf.PODE.alinhamentoOrientacao - 0.75) < 1e-9, 'orientação do bloco do PODE igual à do Governo em 3 de 4');
+  ok(pf.PODE.comparaveis === 4 && pf.PODE.alinhamentoGoverno === 1 && !pf.PODE.divergencias.length, 'pelo VOTO, a maioria do PODE seguiu o Governo nas 4 (a orientação do bloco na 4ª não foi seguida)');
+  ok(pf.PL.alinhamentoGoverno === 0 && pf.PL.divergencias.length === 4, 'PL: maioria votou contra o Governo nas 4; divergências listadas');
+  ok(/^2025-04-10: Votação 3 \(maioria da bancada: Não; Governo orientou: Sim\)$/.test(pf.PL.divergencias[0]), 'divergência mais recente primeiro, com data e o voto da bancada');
   ok(Math.abs(pf.PODE.coesao - (2 / 3 + 1 + 1 + 1) / 4) < 1e-9, 'coesão = média da fração com a maioria da bancada');
   const lida = av(`smLerResposta('Claro:\\n\`\`\`json\\n{"posicao":"Condiciona","objecoes":["prazo","custo"],"concessao":"180 dias","argumento":"a","risco":"b"}\\n\`\`\`')`);
   ok(lida.posicao === 'condiciona' && lida.objecoes.length === 2 && lida.concessao === '180 dias', 'lê JSON cercado por ``` e normaliza a posição');
@@ -135,7 +136,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   let lancou = false; try { av(`smLerResposta('sem json aqui')`); } catch (e) { lancou = true; }
   ok(lancou, 'resposta sem JSON é erro (vira "sem resposta"), não posição inventada');
   const prompt = av(`smPromptAgente({sigla:'PL', cadeiras: 90}, smPerfis(__vs, ['PL']).PL, {sigla:'PL', numero:'1', ano:'2025', ementa:'Ementa X'}, 'Aprovar o texto do relator.', 6)`);
-  ok(/PL na Câmara dos Deputados \(90 deputados/.test(prompt) && /Orientou igual ao Governo em 0%/.test(prompt) && /Ementa X/.test(prompt) && /Aprovar o texto do relator\./.test(prompt) && /"posicao"/.test(prompt),
+  ok(/PL na Câmara dos Deputados \(90 deputados/.test(prompt) && /votou como o Governo orientou em 0% das 4 votações/.test(prompt) && /orientação do líder[\s\S]*0% de 4/.test(prompt) && /Ementa X/.test(prompt) && /Aprovar o texto do relator\./.test(prompt) && /"posicao"/.test(prompt),
     'prompt do agente traz cadeiras, perfil real, proposição, proposta e o formato JSON');
 
   // rodada completa, com a Câmara e a IA de mentira
@@ -143,6 +144,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       Array.from({length: 5}, (_, i) => ({id: i, nome: 'p' + i, partido: 'PL', uf: 'SP'})),
       Array.from({length: 3}, (_, i) => ({id: 10 + i, nome: 'q' + i, partido: 'PODE', uf: 'SP'})),
       [{id: 20, nome: 'r', partido: 'NOVO', uf: 'SP'}])`);
+  av(`__votacoesOrig = labsVotacoesPlenario`);
   av(`labsVotacoesPlenario = async () => ({ itens: __vs, falhas: 1, periodo: ['2025-01-01', '2025-06-30'] })`);
   ctx.__prompts = [];
   av(`chamarIA = async (o) => { __prompts.push(o); if (/SOMENTE com um objeto JSON/.test(o.prompt)) {
@@ -309,7 +311,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok((mapa.match(/<path /g) || []).length === 2 && (mapa.match(/<circle /g) || []).length === 1, 'SVG: um contorno por município, um círculo por município com emenda');
   ok(/data-k="m3550308"/.test(mapa) && /MÚLTIPLO/.test(mapa) && /83,3%/.test(mapa), 'tooltip por código; emenda sem município listada; 1.500 de 1.800 votos (83,3%) onde teve emenda');
   const q = av(`mpQuebras([0, 0.1, 0.2, 0.3, 0.4, 0.5])`);
-  ok(q.length === 4 && av(`mpCor(0, [0.1])`) === av(`MP_CORES[0]`), 'escala por quantis; zero voto na cor de fundo');
+  ok(q.length === 3 && q.every((x, i) => !i || x > q[i - 1]) && av(`mpCor(0, [0.1])`) === av(`MP_CORES[0]`), 'escala por quantis, sem quebra repetida; zero voto na cor de fundo');
 
   // ---------- 6. bot: leitor de ZIP ----------
   console.log('6. Bot — leitor de ZIP');
@@ -356,6 +358,160 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(txt === '%PDF', 'entrada sem compressão (método 0) também é lida');
     ok(/votacao_candidato_munzona_2022\.zip$/.test(B.urlTse('2022')), 'URL do TSE montada pelo ano');
   } finally { fs.unlinkSync(tmp); }
+
+  // ---------- 7. correções da varredura de bugs ----------
+  console.log('7. Correções da varredura');
+  // (1) bloco que acabou (AVANTE-SOLIDARIEDADE-PRD) e prefixo das abreviações
+  ctx.__ORI3 = [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }, { siglaPartidoBloco: 'Bl AvanSolidPrd...', orientacaoVoto: 'Sim' }];
+  av(`LABS_SIGLAS = new Set(['avante', 'solidariedade', 'prd', 'psd', 'psdb', 'pl', 'pp', 'uniao', 'republicanos'])`);
+  ok(av(`labsOrientacao(__ORI3, 'AVANTE', [])`) === 'Sim' && av(`labsOrientacao(__ORI3, 'SOLIDARIEDADE', [])`) === 'Sim' && av(`labsOrientacao(__ORI3, 'PRD', [])`) === 'Sim',
+    '"Bl AvanSolidPrd...": AVANTE e SOLIDARIEDADE achados pelo prefixo (antes só o PRD)');
+  ok(av(`labsOrientacao([{ siglaPartidoBloco: 'Bl PsdPp', orientacaoVoto: 'Sim' }], 'PSDB', [])`) === null, 'prefixo não confunde: "psd" é sigla de outro partido, não vira PSDB');
+  ok(av(`labsOrientacao([{ siglaPartidoBloco: 'Bl UniRep', orientacaoVoto: 'Não' }], 'REPUBLICANOS', [])`) === 'Não' && av(`labsOrientacao([{ siglaPartidoBloco: 'Bl UniRep', orientacaoVoto: 'Não' }], 'UNIÃO', [])`) === 'Não', '"Rep" → REPUBLICANOS, "Uni" → UNIÃO');
+  ok(av(`labsOrientacao([{ siglaPartidoBloco: 'PL', orientacaoVoto: 'Obstrução' }], 'PL', [])`) === 'Obstrução', 'obstrução é lida como orientação');
+  const vsOb = [{ votacao: { id: 'o1', data: '2026-05-01' }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }, { siglaPartidoBloco: 'PL', orientacaoVoto: 'Obstrução' }],
+    votos: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: 'Obstrução' }, { deputado_: { id: 2, siglaPartido: 'PL' }, tipoVoto: 'Obstrução' }, { deputado_: { id: 3, siglaPartido: 'PL' }, tipoVoto: 'Sim' }] }];
+  ctx.__vsOb = vsOb;
+  const pOb = av(`smPerfis(__vsOb, ['PL']).PL`);
+  ok(pOb.comparaveisOrientacao === 1 && pOb.alinhamentoOrientacao === 0 && pOb.comparaveis === 1 && pOb.alinhamentoGoverno === 0, 'obstrução contra o Sim do Governo conta como divergência (na orientação e no voto)');
+  ctx.__vsObj = [{ votacao: { id: 'd1', data: '2026-06-02', descricao: 'Aprovado o Requerimento de Urgência (Art. 155 do RICD).', proposicaoObjeto: 'REQ 3839/2025' },
+    orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }], votos: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: 'Não' }, { deputado_: { id: 2, siglaPartido: 'PL' }, tipoVoto: 'Não' }] }];
+  ctx.__vs1 = [{ votacao: { id: 'u1', data: '2026-06-03' }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }], votos: [{ deputado_: { id: 9, siglaPartido: 'MISSÃO' }, tipoVoto: 'Não' }, { deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: 'Sim' }] },
+                { votacao: { id: 'u2', data: '2026-06-04' }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }], votos: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: 'Sim' }, { deputado_: { id: 2, siglaPartido: 'PL' }, tipoVoto: 'Sim' }] }];
+  const p1 = av(`smPerfis(__vs1, ['MISSÃO', 'PL'])`);
+  ok(p1['MISSÃO'].comparaveis === 1 && p1['MISSÃO'].alinhamentoGoverno === 0 && p1.PL.comparaveis === 1, 'bancada de 1 deputado: o voto dele é o da bancada; nas maiores, 1 voto isolado não define maioria');
+  ok(/^2026-06-02: REQ 3839\/2025 — Aprovado o Requerimento de Urgência/.test(av(`smPerfis(__vsObj, ['PL']).PL.divergencias[0]`)), 'divergência diz a proposição votada (proposicaoObjeto), não só "requerimento de urgência"');
+
+  // (2) blocos: falha não fica guardada; carrega os da legislatura (inclusive os extintos)
+  const fAntes = ctx.fetch;
+  av(`LABS_BLOCOS = null`);
+  ctx.fetch = async () => { throw new Error('rede fora'); };
+  const b1 = await av(`labsCarregarBlocos()`);
+  ok(b1.length === 0 && av(`LABS_BLOCOS_FALHOU`) === true && av(`LABS_BLOCOS`) === null, 'falha ao ler os blocos: avisa e NÃO guarda o vazio');
+  const pedidas = [];
+  ctx.fetch = async url => {
+    pedidas.push(url);
+    const j = /legislaturas/.test(url) ? { dados: [{ id: 57 }] }
+      : /blocos\?itens/.test(url) ? { dados: [{ id: '589', nome: 'UNIÃO, PP, PSD, REPUBLICANOS, MDB, Federação PSDB CIDADANIA, PODE', federacao: false }] }
+      : /idLegislatura=57/.test(url) ? { dados: [{ id: '590', nome: 'AVANTE, SOLIDARIEDADE, PRD', federacao: false }, { id: '584', nome: 'Federação Brasil da Esperança', federacao: true }] }
+      : /blocos\/589\/partidos/.test(url) ? { dados: ['PSDB', 'CIDADANIA', 'UNIÃO', 'PP', 'REPUBLICANOS', 'PSD', 'MDB', 'PODE'].map(sigla => ({ sigla })) }
+      : { dados: [] };
+    return { ok: true, status: 200, json: async () => j };
+  };
+  const b2 = await av(`labsCarregarBlocos()`);
+  ok(b2.length === 2 && av(`LABS_BLOCOS_FALHOU`) === false && b2.some(b => b.ordem.join() === 'avante,solidariedade,prd' && b.membros.has('avante')), 'tenta de novo; traz o bloco extinto 590 (sem lista de partidos → vale a ordem do nome)');
+  ok(av(`labsOrientacao(__ORI3, 'AVANTE')`) === 'Sim', 'com os blocos da legislatura, "Bl AvanSolidPrd..." resolve pela composição');
+
+  // (3) votação sem lista de votos (404) não é "falha de leitura"
+  ctx.fetch = async (url, o) => {
+    if (o && o.method === 'PUT') return { ok: true, json: async () => ({}) };
+    if (/firebaseio/.test(url)) return { ok: true, status: 200, json: async () => null };
+    if (/\/votacoes\?/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: [
+      { id: 'n1', siglaOrgao: 'PLEN', data: av(`labsPeriodoMeses(6)[1]`) }, { id: 's1', siglaOrgao: 'PLEN', data: av(`labsPeriodoMeses(6)[1]`) }], links: [] }) };
+    if (/votacoes\/s1\//.test(url)) return { ok: false, status: 404, json: async () => ({}) };
+    if (/votacoes\/n1\/votos/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: 'Sim' }] }) };
+    if (/votacoes\/n1\/orientacoes/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: [] }) };
+    if (/votacoes\/.*\/votos|orientacoes/.test(url)) return { ok: false, status: 503, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ dados: [] }) };
+  };
+  av(`LABS_BLOCOS = []`);
+  const rv = await av(`__votacoesOrig(6)`);
+  ok(rv.falhas === 0 && rv.itens.length === 1, 'votação simbólica (404 nos votos) sai do cálculo sem contar como falha');
+  ctx.fetch = fAntes;
+
+  // (4) posição da IA lida com tolerância; "não legível" ≠ "sem resposta"
+  ok(av(`smPosicao('Apoia parcialmente')`) === 'condiciona' && av(`smPosicao('apoio')`) === 'apoia' && av(`smPosicao('condicionado')`) === 'condiciona'
+    && av(`smPosicao('Contrário')`) === 'rejeita' && av(`smPosicao('talvez')`) === 'indefinida', 'posição por prefixo: "apoio", "condicionado", "contrário", "apoia parcialmente"');
+  const apx = av(`smApoioEstimado([{ bancada: { tipo: 'partido', sigla: 'PL', cadeiras: 98 }, resposta: { posicao: 'indefinida' } }, { bancada: { tipo: 'partido', sigla: 'PT', cadeiras: 65 }, resposta: null }])`);
+  ok(apx.indefinida === 98 && apx.semResposta === 65 && apx.total === 163, 'cadeiras de quem respondeu sem posição legível separadas das de chamada que falhou');
+
+  // (5) núcleo do mapa
+  const ag2 = N.lmnAgregador(alvos);
+  ag2.novoArquivo(); CSV_SP.forEach(l => ag2.linha(l));
+  ag2.novoArquivo();
+  let dup = ''; try { CSV_SP.forEach(l => ag2.linha(l)); } catch (e) { dup = e.message; }
+  ok(/SP aparece em mais de um arquivo/.test(dup), 'mesmo estado em dois arquivos (ou BRASIL + estado): recusa em vez de somar em dobro');
+  const CAB2 = CAB.replace('"QT_VOTOS_NOMINAIS_VALIDOS"', '"QT_VOTOS_NOMINAIS";"QT_VOTOS_NOMINAIS_VALIDOS";"NM_TIPO_DESTINACAO_VOTOS"');
+  const l2 = (mun, nome, sq, civ, urna, nom, val, dest) => `"x";"SP";"${mun}";"${nome}";"1";"6";"DEPUTADO FEDERAL";"${sq}";"${civ}";"${urna}";"PODE";"${nom}";"${val}";"${dest}"`;
+  const ag3 = N.lmnAgregador(alvos);
+  ag3.novoArquivo();
+  [CAB2, l2('71072', 'SÃO PAULO', '111', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 700, 0, 'Anulado sub judice'),
+   l2('62910', 'MOJI MIRIM', '111', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 0, 0, 'Válido'),
+   l2('62910', 'MOJI MIRIM', '999', 'OUTRO', 'OUTRO', 50, 50, 'Válido')].forEach(l => ag3.linha(l));
+  const r3 = ag3.resultado().deputados['1'];
+  ok(r3.total === 700 && r3.municipios['71072'] === 700, 'candidato "Anulado sub judice" na data do arquivo: usa os votos nominais');
+  ok(!('62910' in r3.municipios), 'município sem voto não conta em "municípios com voto"');
+  const IBGE_RN = [{ id: 2401206, nome: 'Arez' }, { id: 2406403, nome: 'Lajes' }, { id: 2405306, nome: 'Januário Cicco' }];
+  const rRN = N.lmnResolvedor(IBGE_RN, 'RN');
+  ok(rRN('ARÊS') === '2401206' && rRN('BOA SAÚDE') === '2405306', 'apelidos TSE → IBGE: Arês → Arez, Boa Saúde → Januário Cicco');
+  const col = N.lmnParaIbge({ municipios: { a: { n: 'AREZ', uf: 'RN', t: 1000 }, b: { n: 'ARÊS', uf: 'RN', t: 100 } },
+    deputados: { 1: { nome: 'X', uf: 'RN', total: 150, municipios: { a: 100, b: 50 } } } }, { RN: IBGE_RN });
+  ok(col.municipios.RN.m2401206.t === 1100 && col.deputados['1'].municipios.m2401206 === 150, 'dois nomes do TSE no mesmo município: totais somam (fatia 150/1100, não 150%)');
+  const em2 = N.lmnAgregarEmendas([
+    { nomeAutor: 'MARIA SOUZA', valorPago: '1.000,00', valorRestoPago: '4.000,00', localidadeDoGasto: 'SÃO PAULO - SP' },
+    { nomeAutor: 'MARIA SOUZA FILHA', valorPago: '9.999,00', valorRestoPago: '0,00', localidadeDoGasto: 'MÚLTIPLO' },
+  ], (n, uf) => uf === 'SP' ? r2(n) : null, 'Maria Souza');
+  ok(em2.total === 5000 && em2.pagoNoAno === 1000 && em2.restoPago === 4000 && em2.deOutroAutor === 1 && em2.nomesMun.m3550308 === 'SÃO PAULO - SP',
+    'emendas: pago no ano + restos a pagar; registro de outro autor descartado; nome do município guardado');
+  const upd = N.lmnAtualizacao(reg, res, { ufs: ['MG'] }, 'teste', new Date('2026-09-29T12:00:00Z'));
+  ok(upd['deputados/1'] && upd['municipios/SP'] && upd.meta.ufs.join() === 'MG,SP' && upd.meta.origem === 'teste', 'gravação numa atualização só (multi-caminho), mantendo os estados já gravados');
+
+  // (6) tela do mapa
+  const agora = Date.parse('2026-09-29T12:00:00Z');
+  ctx.__agora = agora;
+  ok(av(`mpCacheFresco({ atualizadoEm: '2025-06-01T00:00:00Z', restoPago: 0 }, 2025, __agora)`) === false, 'cache de 2025 gravado em junho/2025 não fica congelado');
+  ok(av(`mpCacheFresco({ atualizadoEm: '2026-09-27T12:00:00Z', restoPago: 0 }, 2025, __agora)`) === true && av(`mpCacheFresco({ atualizadoEm: '2026-09-29T00:00:00Z', total: 5 }, 2026, __agora)`) === false,
+    'ano passado vale 7 dias; cache do formato antigo (sem restos a pagar) é refeito');
+  const leg = av(`mpLegenda(mpQuebras([0.0003, 0.0003, 0.0003, 0.0003, 0.0003, 0.0005, 0.0005, 0.4]))`);
+  ok(!leg.some(([, r]) => /(^|–)0%/.test(r) || /0%–0%/.test(r)) && new Set(leg.map(x => x[1])).size === leg.length, 'legenda sem "0%–0%": faixas únicas e fatias pequenas com 2 algarismos (' + leg.map(x => x[1]).join(' | ') + ')');
+  const U = { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 3], [2, 3], [2, 1], [1, 1], [1, 3], [0, 3], [0, 0]]] };
+  ctx.__U = U;
+  ok(av(`(() => { const pr = mpProjetar({ features: [{ geometry: __U }] }); const c = mpCentro(__U, pr.p); return mpDentro(c, __U.coordinates[0].map(pr.p)); })()`), 'círculo da emenda cai DENTRO de município côncavo (em forma de U)');
+  av(`mpRender(Object.assign({ total: 1800, partidoEleicao: 'PODE', nomeUrna: 'MARIA SOUZA', nome: 'Maria Souza' }, __reg.deputados['1']), __geo, __reg.municipios.SP,
+      { total: 1900, pagoNoAno: 1900, restoPago: 0, n: 2, municipais: { m3550308: 1000, m3106200: 900 }, nomesMun: { m3106200: 'BELO HORIZONTE - MG' }, outros: {} }, '2025')`);
+  const m2 = document.getElementById('mpResultado').innerHTML;
+  ok(/Em municípios de outros estados/.test(m2) && /BELO HORIZONTE - MG/.test(m2) && !/>m3106200</.test(m2) && (m2.match(/<circle /g) || []).length === 1 && /r="16\.0"/.test(m2),
+    'emenda de outro estado listada pelo nome, fora do mapa, sem encolher os círculos do estado');
+  ok(/votos NOMINAIS \(sem os votos só na legenda\)/.test(m2), 'a legenda diz o denominador da fatia');
+  const fBad = ctx.fetch;
+  ctx.fetch = async url => ({ ok: true, json: async () => /meta/.test(url) ? null : { 1: { nome: 'Ana', uf: 'SP' }, 2: { uf: 'SP' }, 3: 'lixo' } });
+  await av(`mpCarregar()`);
+  ok(document.querySelectorAll('#mpDep option').length === 1, 'registro torto no banco não trava a lista de deputados');
+  ctx.fetch = fBad;
+  ctx.__arqs = [{ name: 'votacao_candidato_munzona_2018_SP.csv' }, { name: 'votacao_candidato_munzona_2022_SP.csv' }];
+  Object.defineProperty(document.getElementById('mpArquivos'), 'files', { value: ctx.__arqs, configurable: true });
+  await av(`mpProcessarClick()`);
+  ok(/eleições diferentes \(2018, 2022\)/.test(document.getElementById('mpUpStatus').textContent), 'arquivos de eleições diferentes: recusa em vez de somar');
+
+  // (7) bot
+  const vazio = path.join(os.tmpdir(), `labs-zip0-${process.pid}.zip`);
+  {
+    const nome = Buffer.from('votacao_candidato_munzona_2022_AC.csv');
+    const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(nome.length, 26);
+    const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(nome.length, 28);
+    const eo = Buffer.alloc(22); eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(1, 8); eo.writeUInt16LE(1, 10);
+    eo.writeUInt32LE(46 + nome.length, 12); eo.writeUInt32LE(30 + nome.length, 16);
+    fs.writeFileSync(vazio, Buffer.concat([lh, nome, ch, nome, eo]));
+  }
+  try {
+    const [e0] = await B.entradasZip(vazio);
+    let li = 0; await B.lerLinhasEntrada(vazio, e0, () => li++);
+    ok(li === 0, 'entrada vazia no zip é lida como vazia (antes derrubava a coleta)');
+  } finally { fs.unlinkSync(vazio); }
+  let erroAno = ''; try { await B.atualizarMapaTerritorial({ ano: '2024' }); } catch (e) { erroAno = e.message; }
+  ok(/não suportada/.test(erroAno), '/labsmapa 2024 (eleição municipal) é recusado antes de baixar qualquer coisa');
+  const fetchNode = global.fetch;
+  const antes = new Set(fs.readdirSync(os.tmpdir()).filter(f => f.startsWith('sispode-tse-munzona-')));
+  global.fetch = async url => {
+    if (/\/deputados\?/.test(url)) return new Response(JSON.stringify({ dados: [{ id: 1, nome: 'Maria Souza', siglaUf: 'SP' }] }));
+    if (/\/deputados\/1/.test(url)) return new Response(JSON.stringify({ dados: { nomeCivil: 'Maria da Silva Souza' } }));
+    let n = 0;
+    return new Response(new ReadableStream({ pull(c) { if (++n > 3) c.error(new Error('ECONNRESET simulado')); else c.enqueue(new Uint8Array(100000)); } }));
+  };
+  let erroDl = ''; try { await B.atualizarMapaTerritorial({ ano: '2022' }); } catch (e) { erroDl = e.message; }
+  global.fetch = fetchNode;
+  const sobra = fs.readdirSync(os.tmpdir()).filter(f => f.startsWith('sispode-tse-munzona-') && !antes.has(f));
+  ok(/ECONNRESET/.test(erroDl) && !sobra.length, 'download que cai no meio: o arquivo parcial é apagado');
 
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);

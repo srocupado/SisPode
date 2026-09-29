@@ -34,7 +34,7 @@ const {
   atualizarLeisAprovadas, legislaturaAtual, legislaturaValida, legislaturasEmRefresh,
   conferirLegislaturaComApi, situacaoLeisAprovadas,
 } = require('./src/leisaprovadas');
-const { atualizarMapaTerritorial } = require('./src/labsmapa');
+const { atualizarMapaTerritorial, ANOS_SUPORTADOS: ANOS_LABSMAPA } = require('./src/labsmapa');
 
 const bot = new Bot(BOT_TOKEN);
 
@@ -359,26 +359,42 @@ bot.command('leisaprovadas', async ctx => {
 
 // Labs · Mapa Territorial: votos por município (TSE) da bancada + emendas
 // pagas, gravados em /labs/mapa. Coleta pesada e deliberada (baixa o zip do
-// TSE, centenas de MB) — só roda quando o admin pede.
+// TSE, centenas de MB, e pagina o Portal no ritmo do limite dele) — só roda
+// quando o admin pede. Roda SOLTA, sem prender o handler: o grammY processa as
+// mensagens em fila, e minutos de coleta aqui deixariam o bot inteiro mudo.
+let labsMapaRodando = false;
 bot.command('labsmapa', async ctx => {
   if (String(ctx.from.id) !== ADMIN_USER_ID) return;
   const arg = String(ctx.match || '').trim();
-  const ano = /^\d{4}$/.test(arg) ? arg : '2022';
+  const USO = `(Uso: /labsmapa [ano da eleição — hoje: ${ANOS_LABSMAPA.join(', ')}])`;
+  if (arg && !ANOS_LABSMAPA.includes(arg)) return ctx.reply(`Ano inválido: "${arg}". ${USO}`);
+  if (labsMapaRodando) return ctx.reply('⏳ O Mapa Territorial já está sendo processado. Aviso quando terminar.');
+  const ano = arg || ANOS_LABSMAPA[0];
+  const chatId = ctx.chat.id;
+  labsMapaRodando = true;
   await ctx.reply(`⏳ Mapa Territorial (Labs): processando a eleição de ${ano}. Baixa o arquivo do TSE ` +
-    `(centenas de MB) — pode levar vários minutos. Aviso quando terminar.\n(Uso: /labsmapa [ano da eleição])`);
-  try {
-    const r = await atualizarMapaTerritorial({ ano, onProgresso: m => console.log(`[labsmapa ${ano}] ${m}`) });
-    const deps = r.deputados.map(d => `• ${d.nome} (${d.uf}): ${d.total.toLocaleString('pt-BR')} votos em ${d.municipios} municípios`).join('\n');
-    const nao = r.naoEncontrados.length ? `\n⚠️ Não encontrados: ${r.naoEncontrados.map(n => `${n.nome} (${n.motivo})`).join('; ')}` : '';
-    const sem = r.semPar.length ? `\n${r.semPar.length} município(s) do TSE sem par no IBGE.` : '';
-    const em = r.emendas.anos.length
-      ? `\nEmendas agregadas: ${r.emendas.anos.join(' e ')}${r.emendas.erros.length ? ` (${r.emendas.erros.length} falha(s))` : ''}.`
-      : '\nEmendas: sem TRANSPARENCIA_CHAVE no .env — só os votos foram gravados.';
-    return ctx.reply(`✅ Mapa Territorial ${ano} gravado. Estados: ${r.ufs.join(', ')}.\n${deps || '(nenhum deputado encontrado)'}${nao}${sem}${em}`);
-  } catch (e) {
-    console.error('/labsmapa falhou:', e);
-    return ctx.reply(`Erro no Mapa Territorial: ${e.message}`);
-  }
+    `(centenas de MB) — pode levar vários minutos; o bot segue respondendo. Aviso quando terminar.\n${USO}`);
+  (async () => {
+    let texto;
+    try {
+      const r = await atualizarMapaTerritorial({ ano, onProgresso: m => console.log(`[labsmapa ${ano}] ${m}`) });
+      const deps = r.deputados.map(d => `• ${d.nome} (${d.uf}): ${d.total.toLocaleString('pt-BR')} votos em ${d.municipios} municípios`).join('\n');
+      const nao = r.naoEncontrados.length ? `\n⚠️ Não encontrados: ${r.naoEncontrados.map(n => `${n.nome} (${n.motivo})`).join('; ')}` : '';
+      const sem = r.semPar.length ? `\n${r.semPar.length} município(s) do TSE sem par no IBGE.` : '';
+      const em = r.emendas.anos.length
+        ? `\nEmendas agregadas: ${r.emendas.anos.join(' e ')}${r.emendas.erros.length ? ` (${r.emendas.erros.length} falha(s): ${r.emendas.erros.slice(0, 3).join('; ')})` : ''}.`
+        : '\nEmendas: sem TRANSPARENCIA_CHAVE no .env — só os votos foram gravados.';
+      texto = `✅ Mapa Territorial ${ano} gravado. Estados: ${r.ufs.join(', ')}.\n${deps || '(nenhum deputado encontrado)'}${nao}${sem}${em}`;
+    } catch (e) {
+      console.error('/labsmapa falhou:', e);
+      texto = `Erro no Mapa Territorial: ${e.message}`;
+    } finally {
+      labsMapaRodando = false;
+    }
+    // Telegram recusa mensagem acima de 4096 caracteres — o dado já está gravado; corta o relato.
+    if (texto.length > 4000) texto = texto.slice(0, 3990) + '\n…';
+    try { await bot.api.sendMessage(chatId, texto); } catch (e) { console.error('/labsmapa: aviso final não foi:', e.message); }
+  })();
 });
 
 // ---------- Administração (só o ADMIN_USER_ID) ----------
