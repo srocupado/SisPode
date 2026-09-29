@@ -919,6 +919,22 @@
   .labs-passos a { color: var(--accent-light); }
   .labs-custo { font-size: 11px; color: var(--text-dim); margin-top: 6px; }
   .labs-sintese { font-size: 12.5px; line-height: 1.6; }
+  .sm-agentes { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; max-height: 460px; overflow-y: auto; }
+  .sm-ag { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: rgba(255,255,255,0.02); }
+  .sm-ag.off { opacity: .55; }
+  .sm-ag-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+  .sm-ag-cab .tipo { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--accent-light); }
+  .sm-ag textarea { width: 100%; margin-top: 5px; background: rgba(0,0,0,0.25); color: var(--text); border: 1px solid var(--border);
+    border-radius: 6px; font: inherit; font-size: 11.5px; padding: 5px 7px; resize: vertical; }
+  .sm-ag .desc { font-size: 11px; color: var(--text-dim); margin-top: 3px; }
+  .sm-ag-acoes { display: flex; gap: 8px; align-items: center; margin-top: 4px; font-size: 10.5px; color: var(--text-dim); flex-wrap: wrap; }
+  .sm-bt { background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid var(--border); border-radius: 6px;
+    font: inherit; font-size: 11.5px; padding: 6px 10px; cursor: pointer; }
+  .sm-bt:hover { border-color: var(--accent-light); }
+  .sm-bt.mini { font-size: 10.5px; padding: 3px 7px; }
+  .sm-novo { margin-top: 8px; font-size: 12px; }
+  .sm-novo summary { cursor: pointer; color: var(--accent-light); }
+  .sm-evol td.mudou { font-weight: 700; }
   .labs-sintese h1, .labs-sintese h2, .labs-sintese h3 { font-size: 13px; color: var(--text); margin: 10px 0 4px; }
   .labs-sintese ul { margin: 4px 0 6px 18px; }
 </style>
@@ -990,7 +1006,7 @@
       um perfil tirado das votações reais do partido, e reagem à sua proposta — posição, objeções e o que destravaria o apoio.</p>
     <div class="labs-aviso"><b>Limites conhecidos.</b> Agentes de IA tendem a concordar entre si mais do que as bancadas
       reais e carregam viés político do modelo. Serve para preparar argumentos e antecipar objeções — <b>nunca como
-      previsão</b> do que as bancadas farão. Cada simulação faz uma chamada de IA por bancada, mais a síntese, pela chave
+      previsão</b> do que as bancadas farão. Cada rodada faz uma chamada de IA por agente, mais a síntese, pela chave
       configurada.</div>
     <div class="input-section">
       <div class="labs-row">
@@ -1001,12 +1017,37 @@
       <label style="margin-top:8px">Proposta em negociação</label>
       <textarea id="smProposta" class="field" rows="4" maxlength="2500"
         placeholder="O que se propõe às bancadas. Ex.: aprovar o texto do relator com a supressão do art. 12 e prazo de 180 dias para regulamentação."></textarea>
-      <label style="margin-top:8px">Bancadas na mesa</label>
-      <div id="smBancadas" class="labs-lista-sel"><span class="prd-dica">Carregando as bancadas…</span></div>
-      <div class="labs-row" style="margin-top:6px">
+      <label style="margin-top:8px">Agentes na mesa</label>
+      <div class="prd-dica">Marque quem participa. Em cada agente, o <b>contexto</b> registra o que as votações não mostram
+        (sinais do líder, divisões internas, compromissos) — ele pesa na resposta do agente. <b>Salvar para a equipe</b>
+        guarda o contexto no banco compartilhado e ele volta preenchido nas próximas simulações.</div>
+      <div id="smBancadas" class="sm-agentes"><span class="prd-dica">Carregando as bancadas…</span></div>
+      <div class="labs-row" style="margin-top:8px; align-items:flex-end">
+        <div><label>Adicionar partido</label><select id="smAddPartido" class="field"><option value="">—</option></select></div>
+        <div style="flex:0 0 auto"><button id="smAddPartidoBt" class="sm-bt">+ Partido</button></div>
+      </div>
+      <details class="sm-novo">
+        <summary>+ Agente personalizado (frente parlamentar, relator, bancada temática…)</summary>
+        <div class="labs-row" style="margin-top:6px">
+          <div><label>Nome</label><input type="text" id="smNovoNome" class="field" maxlength="80" placeholder="Ex.: Frente Parlamentar da Agropecuária"></div>
+          <div style="flex:0 0 170px"><label>Tipo</label>
+            <select id="smNovoTipo" class="field"><option value="frente">Frente parlamentar</option><option value="relator">Relator(a)</option><option value="outro">Outro</option></select></div>
+        </div>
+        <label style="margin-top:6px">Quem é e o que defende</label>
+        <textarea id="smNovoDesc" class="field" rows="3" maxlength="1500"
+          placeholder="Ex.: ~300 deputados de vários partidos; prioriza segurança jurídica no campo, resiste a novas exigências ambientais."></textarea>
+        <button id="smNovoAdd" class="sm-bt" style="margin-top:6px">Adicionar agente</button>
+        <div class="prd-dica">Agentes personalizados não somam cadeiras (sobrepõem os partidos) — aparecem só com a posição.</div>
+      </details>
+      <div class="labs-row" style="margin-top:8px">
         <div style="flex:0 0 190px"><label>Perfil a partir de</label>
           <select id="smMeses" class="field"><option value="6" selected>últimos 6 meses</option><option value="12">últimos 12 meses</option></select></div>
+        <div><label>Modelo dos agentes</label><select id="smModeloAgentes" class="field"><option value="">o configurado</option></select></div>
+        <div><label>Modelo da síntese</label><select id="smModeloSintese" class="field"><option value="">o configurado</option></select></div>
+        <div style="flex:0 0 180px"><label>Seu nome (para salvar)</label><input type="text" id="smQuem" class="field" maxlength="40"></div>
       </div>
+      <div class="prd-dica">Mesma chave e provedor do ⚙ de Relatórios. Dica: modelo mais barato nos agentes (uma chamada
+        cada) e mais forte na síntese (uma chamada só).</div>
       <button id="smSimular" class="btn-gerar">Simular rodada</button>
     </div>
     <div id="smStatus"></div>

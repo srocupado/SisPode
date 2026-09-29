@@ -519,9 +519,12 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Campanha de votos** (opcional): registra quem foi procurado, por quem e com que resposta, no banco compartilhado (`/labs/placar/campanhas`) — o placar é ajustado pelos contatos
 
 **Simulador de Negociação**
-- Um agente de IA por bancada (as maiores, mais o Governo), cada um com perfil tirado das votações reais do partido: cadeiras, % de orientação igual à do Governo, coesão e as votações recentes em que divergiu do Governo
-- Cada agente responde posição (apoia / condiciona / rejeita), objeções, a concessão que destravaria o apoio, o argumento que pesa e o risco de ruptura; uma síntese final agrupa objeções, concessões e onde o acordo quebra
-- Mostra quantas chamadas de IA a rodada gastou (uma por bancada + a síntese), pela chave e modelo configurados. Serve para preparar argumentos — **não é previsão**
+- Agentes de IA na mesa, configuráveis: o **Governo**, **qualquer partido** (as 10 maiores vêm listadas; as demais entram por "Adicionar partido") e **agentes personalizados** — frente parlamentar, relator ou outro —, descritos pela equipe (não somam cadeiras, porque sobrepõem os partidos)
+- Cada bancada tem perfil tirado das votações reais: cadeiras, % de orientação igual à do Governo, coesão e as votações recentes em que divergiu do Governo. O **contexto do analista** (o que as votações não mostram: sinais do líder, divisões internas) entra junto, com peso
+- **Perfis salvos para a equipe** em `/labs/simulador/perfis`: contexto e agentes personalizados voltam preenchidos nas próximas simulações, com quem salvou e quando
+- Cada agente responde posição (apoia / condiciona / rejeita), objeções, a concessão que destravaria o apoio, o argumento que pesa e o risco de ruptura; uma síntese agrupa objeções, concessões e onde o acordo quebra
+- **Rodadas encadeadas**: a proposta reformulada vai aos mesmos agentes, cada um com o que disse antes; a tela mostra a evolução (quem mudou de posição e as cadeiras que apoiam em cada rodada) e a síntese explica o que mudou
+- **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave configurados; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
 
 **Mapa Territorial de Entregas**
 - Mapa do estado (malhas do IBGE) pintado pela **fatia** dos votos de deputado federal de cada município que foi do deputado (eleição de 2022, dados do TSE) e círculos nas emendas pagas com município identificado (Portal da Transparência, chave do analista); lista dos municípios com mais votos e das emendas sem município ("MÚLTIPLO")

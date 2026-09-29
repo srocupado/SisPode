@@ -55,6 +55,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   vm.createContext(ctx);
   new vm.Script(scripts.map(s => fs.readFileSync(path.join(RAIZ, s), 'utf8')).join('\n;\n')).runInContext(ctx);
   const av = e => vm.runInContext(e, ctx);
+  // linkedom não deixa escrever select.value: marca a opção pelo atributo
+  const selecionar = (id, v) => { for (const o of document.getElementById(id).querySelectorAll('option')) { if (o.value === v) o.setAttribute('selected', ''); else o.removeAttribute('selected'); } };
 
   // ---------- 2. orientação e janelas ----------
   console.log('2. Orientação e janelas');
@@ -145,9 +147,12 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
         return { text: JSON.stringify({ posicao: pos, objecoes: ['obj ' + pos], concessao: 'c', argumento: 'a', risco: 'r' }) };
       } return { text: '## Mapa de objeções\\n- tudo certo' }; }`);
   av(`labsTrocarAba('aba-simulador')`);
-  await new Promise(r => setTimeout(r, 20));
-  const caixas = [...document.querySelectorAll('#smBancadas input[type=checkbox]')];
-  ok(caixas.length === 4 && caixas[0].value === '__governo' && caixas[1].value === 'PL', 'bancadas carregadas ao abrir a aba: Governo + partidos por tamanho');
+  for (let t = 0; t < 100 && !document.querySelector('#smBancadas [data-sm-marca]'); t++) await new Promise(r => setTimeout(r, 50));
+  await new Promise(r => setTimeout(r, 50));
+  const caixas = [...document.querySelectorAll('#smBancadas [data-sm-marca]')];
+  ok(caixas.length === 4 && av(`sm.agentes[0].chave`) === '__governo' && av(`sm.agentes[1].sigla`) === 'PL', 'agentes carregados ao abrir a aba: Governo + partidos por tamanho');
+  const modelos = [...document.querySelectorAll('#smModeloSintese option')].map(o => o.value);
+  ok(modelos[0] === '' && modelos.includes('gemini-2.5-pro'), 'modelos da síntese: "o configurado" + os do provedor');
   document.getElementById('smProposta').value = 'Aprovar o texto do relator com prazo de 180 dias.';
   document.getElementById('smNumero').value = '';
   document.getElementById('smAno').value = '';
@@ -160,10 +165,71 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(/<div class="v">3<\/div><div class="l">cadeiras: apoia/.test(saida) && /<div class="v">5<\/div><div class="l">cadeiras: rejeita/.test(saida) && /<div class="v">1<\/div><div class="l">cadeiras: condiciona/.test(saida),
     'cadeiras por posição (PODE 3 apoia, PL 5 rejeita, NOVO 1 condiciona; Governo sem cadeira)');
   ok(/Mapa de objeções/.test(saida) && /1 votações não puderam ser lidas/.test(saida), 'síntese e aviso de votações não lidas aparecem');
+  // ---- configuração dos agentes ----
+  console.log('4b. Agentes configuráveis');
+  const pCtx = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90, contexto: 'O líder já sinalizou apoio se o art. 5º cair.' }, null, null, 'Proposta qualquer aqui.', 6, [])`);
+  ok(/CONTEXTO DADO PELA EQUIPE[\s\S]*art\. 5º cair/.test(pCtx), 'o contexto do analista entra no prompt do agente');
+  const pFrente = av(`smPromptAgente({ tipo: 'frente', sigla: 'x-fpa', nome: 'Frente Parlamentar da Agropecuária', descricao: 'Prioriza segurança jurídica no campo.', cadeiras: 0 }, undefined, null, 'Proposta qualquer aqui.', 6, [])`);
+  ok(/Frente Parlamentar da Agropecuária \(frente parlamentar\)/.test(pFrente) && /QUEM É E O QUE DEFENDE[\s\S]*segurança jurídica/.test(pFrente) && !/PERFIL \(votações/.test(pFrente), 'agente personalizado: descrição da equipe no lugar do perfil de votações');
+  const pR2 = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, null, null, 'Prazo de 360 dias.', 6,
+      [{ proposta: 'Prazo de 180 dias.', resposta: { posicao: 'rejeita', objecoes: ['prazo curto'], concessao: '360 dias', argumento: '', risco: '' } }])`);
+  ok(/RODADAS ANTERIORES[\s\S]*Rodada 1\. Proposta: Prazo de 180 dias[\s\S]*Sua resposta: rejeita[\s\S]*360 dias[\s\S]*PROPOSTA REFORMULADA \(rodada 2\)[\s\S]*Prazo de 360 dias/.test(pR2), 'rodada 2: o agente recebe o que disse antes e a proposta reformulada');
+  ok(av(`smApoioEstimado([{ bancada: { tipo: 'frente', sigla: 'x', cadeiras: 300 }, resposta: { posicao: 'apoia' } }, { bancada: { tipo: 'partido', sigla: 'PL', cadeiras: 90 }, resposta: { posicao: 'apoia' } }]).apoia`) === 90, 'agente personalizado não soma cadeiras');
+  const montados = av(`smMontarAgentes([{ sigla: 'PL', cadeiras: 90 }, { sigla: 'PT', cadeiras: 60 }], {
+      PL: { tipo: 'partido', contexto: 'ctx salvo', quem: 'Ana', atualizadoEm: '2026-09-01T10:00:00Z' },
+      'x-fpa': { tipo: 'frente', nome: 'FPA', descricao: 'desc', contexto: 'c2', atualizadoEm: '2026-09-02T10:00:00Z' } })`);
+  ok(montados.length === 4 && montados[1].contexto === 'ctx salvo' && montados[1].salvo.quem === 'Ana' && montados[3].tipo === 'frente' && montados[3].descricao === 'desc' && !montados[3].marcado,
+    'perfis salvos voltam preenchidos (contexto, quem salvou); personalizado salvo aparece desmarcado');
+
+  // salvar perfil e adicionar agentes pela tela
+  const gravados = [];
+  const fetchAntes = ctx.fetch;
+  ctx.fetch = async (url, o) => { if (o && (o.method === 'PUT' || o.method === 'DELETE')) { gravados.push({ url, o }); return { ok: true, json: async () => ({}) }; } return fetchAntes(url, o); };
+  document.querySelector('[data-sm-ctx="1"]').value = 'Líder do PL fechou questão contra.';
+  document.querySelector('[data-sm-ctx="1"]').dispatchEvent(new Event('input'));
+  document.getElementById('smQuem').value = 'Beto';
+  await av(`smSalvarAgente(1)`);
+  const g = gravados[0];
+  ok(g && /\/labs\/simulador\/perfis\/PL\.json$/.test(g.url) && JSON.parse(g.o.body).contexto === 'Líder do PL fechou questão contra.' && JSON.parse(g.o.body).quem === 'Beto', 'Salvar para a equipe grava o contexto no banco compartilhado, com quem salvou');
+  document.getElementById('smNovoNome').value = 'Frente Parlamentar Evangélica';
+  document.getElementById('smNovoDesc').value = 'Pauta de costumes; resiste a mudanças no ECA.';
+  selecionar('smNovoTipo', 'frente');
+  av(`smNovoAgenteClick()`);
+  ok(av(`sm.agentes.some(a => a.chave === 'x-frente-parlamentar-evangelica' && a.tipo === 'frente' && a.marcado)`), 'agente personalizado adicionado e marcado');
+  document.getElementById('smAddPartido').value = 'NOVO';
+  av(`smAddPartidoClick()`);
+  ok(av(`sm.agentes.filter(a => a.sigla === 'NOVO').length`) === 1, 'partido avulso não duplica');
+
+  // rodada 1 + rodada 2 com modelos separados
+  ctx.__prompts = [];
+  armazenado.config = { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'modelo-de-teste' };
+  selecionar('smModeloAgentes', 'gemini-2.5-flash');
+  selecionar('smModeloSintese', 'gemini-2.5-pro');
+  av(`chamarIA = async (o) => { __prompts.push(o); if (/SOMENTE com um objeto JSON/.test(o.prompt)) {
+        const r2 = /PROPOSTA REFORMULADA/.test(o.prompt);
+        const pos = /do PL/.test(o.prompt) ? (r2 ? 'condiciona' : 'rejeita') : /do PODE/.test(o.prompt) ? 'apoia' : 'condiciona';
+        return { text: JSON.stringify({ posicao: pos, objecoes: ['obj'], concessao: 'c', argumento: 'a', risco: 'r' }) };
+      } return { text: '## O que mudou nesta rodada\\n- PL cedeu' }; }`);
+  await av(`smSimularClick()`);
+  const nAg = av(`sm.sessao.agentes.length`);
+  ok(ctx.__prompts.length === nAg + 1 && ctx.__prompts.slice(0, nAg).every(o => o.modelo === 'gemini-2.5-flash') && ctx.__prompts[nAg].modelo === 'gemini-2.5-pro',
+    `modelos separados: ${nAg} agentes no modelo dos agentes, a síntese no modelo da síntese`);
+  ok(ctx.__prompts.some(o => /fechou questão contra/.test(o.prompt)) && ctx.__prompts.some(o => /resiste a mudanças no ECA/.test(o.prompt)), 'contexto e agente personalizado chegam à IA');
+  document.getElementById('smPropostaNova').value = 'Aprovar o texto do relator com prazo de 360 dias.';
+  await av(`smNovaRodadaClick()`);
+  const s2 = document.getElementById('smResultado').innerHTML;
+  const r2Prompts = ctx.__prompts.slice(nAg + 1);
+  ok(r2Prompts.length === nAg + 1 && r2Prompts.filter(o => /PROPOSTA REFORMULADA \(rodada 2\)/.test(o.prompt)).length === nAg, 'rodada 2: mesmos agentes, cada um com seu histórico');
+  ok(/RODADAS ANTERIORES/.test(r2Prompts[nAg].prompt) && /O que mudou nesta rodada/.test(r2Prompts[nAg].prompt), 'síntese da rodada 2 recebe a rodada anterior e explica o que mudou');
+  ok(/Evolução da negociação/.test(s2) && /class="mudou"><span class="labs-pos condiciona">/.test(s2) && /Rodada 2/.test(s2), 'tela mostra a evolução, destacando quem mudou (PL: rejeita → condiciona)');
+  ok(new RegExp(`Custo até aqui: ${2 * (nAg + 1)} chamadas`).test(s2) && /gemini-2\.5-flash/.test(s2) && /gemini-2\.5-pro/.test(s2), 'custo acumulado das rodadas, por modelo');
+  ctx.fetch = fetchAntes;
+
+  const antesSemChave = ctx.__prompts.length;
   armazenado.config = {};
   document.getElementById('smResultado').innerHTML = '';
   await av(`smSimularClick()`);
-  ok(/Nenhuma chave de IA/.test(document.getElementById('smStatus').textContent) && ctx.__prompts.length === 5, 'sem chave de IA: avisa e não chama nada');
+  ok(/Nenhuma chave de IA/.test(document.getElementById('smStatus').textContent) && ctx.__prompts.length === antesSemChave, 'sem chave de IA: avisa e não chama nada');
 
   // ---------- 5. mapa: núcleo ----------
   console.log('5. Mapa Territorial — núcleo');
