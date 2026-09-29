@@ -26,7 +26,7 @@
 //    um com o que disse antes; a tela mostra quem mudou de posição;
 //  - modelos separados para os agentes (uma chamada cada — vale um mais
 //    barato) e para a síntese (uma chamada — vale um mais forte), no mesmo
-//    provedor e chave do ⚙ de Relatórios.
+//    provedor e chave do ⚙ desta página (configuração do aplicativo).
 //
 // Depende de labs.js e ia-comum.js (chamarIA).
 
@@ -342,7 +342,7 @@ async function smCarregarBancadas() {
 function smRenderAgentes() {
   const fmt = iso => { try { return new Date(iso).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }); } catch (_) { return ''; } };
   smEl('smBancadas').innerHTML = sm.agentes.map((a, i) => {
-    const tipo = a.tipo === 'partido' ? `<span class="prd-dica">${a.cadeiras} cadeiras</span>` : `<span class="tipo">${labsEsc(SM_TIPOS[a.tipo] || '')}</span>`;
+    const tipo = a.tipo === 'partido' ? `<span class="prd-dica">${a.cadeiras} cadeiras</span>` : a.tipo === 'governo' ? '<span class="prd-dica">liderança</span>' : `<span class="tipo">${labsEsc(SM_TIPOS[a.tipo] || '')}</span>`;
     const removivel = a.tipo !== 'governo' && !(a.tipo === 'partido' && sm.todas.findIndex(b => b.sigla === a.sigla) < SM_MAX_BANCADAS);
     return `<div class="sm-ag${a.marcado ? '' : ' off'}">
       <label class="sm-ag-cab"><input type="checkbox" data-sm-marca="${i}"${a.marcado ? ' checked' : ''}> <b>${labsEsc(a.nome)}</b> ${tipo}</label>
@@ -481,7 +481,7 @@ async function smSimularClick() {
   const agentes = (sm.agentes || []).filter(a => a.marcado).map(a => Object.assign({}, a));
   if (!agentes.length) { labsStatus('smStatus', 'Marque ao menos um agente.', 'error'); return; }
   const cfg = await labsConfigIA();
-  if (!cfg.apiKey) { labsStatus('smStatus', 'Nenhuma chave de IA configurada. Configure no ⚙ do módulo Relatórios e tente de novo.', 'error'); return; }
+  if (!cfg.apiKey) { labsStatus('smStatus', 'Nenhuma chave de IA configurada. Clique no ⚙ no alto da página, cadastre o provedor e a chave e tente de novo.', 'error'); return; }
   const meses = parseInt(smEl('smMeses').value, 10) || 6;
   smGuardarModelos();
   bt.disabled = true; res.innerHTML = '';
@@ -609,4 +609,10 @@ if (smEl('smSimular')) {
   document.addEventListener('labs:aba', ev => {
     if (ev.detail === 'aba-simulador' && !carregou) { carregou = true; smCarregarBancadas(); smCarregarModelos(); }
   });
+  // Trocou provedor/chave/modelo no ⚙: as listas de modelo dos agentes e da síntese acompanham.
+  try {
+    chrome.storage.onChanged.addListener((mud, area) => {
+      if (area === 'local' && mud.config && carregou) smCarregarModelos();
+    });
+  } catch (_) {}
 }

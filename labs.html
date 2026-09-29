@@ -922,7 +922,7 @@
   .sm-agentes { display: flex; flex-direction: column; gap: 6px; margin: 6px 0; max-height: 460px; overflow-y: auto; }
   .sm-ag { border: 1px solid var(--border); border-radius: 8px; padding: 7px 9px; background: rgba(255,255,255,0.02); }
   .sm-ag.off { opacity: .55; }
-  .sm-ag-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; }
+  .input-section label.sm-ag-cab, .sm-ag-cab { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 12.5px; text-transform: none; letter-spacing: 0; margin: 0; color: var(--text); font-weight: 400; }
   .sm-ag-cab .tipo { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--accent-light); }
   .sm-ag textarea { width: 100%; margin-top: 5px; background: rgba(0,0,0,0.25); color: var(--text); border: 1px solid var(--border);
     border-radius: 6px; font: inherit; font-size: 11.5px; padding: 5px 7px; resize: vertical; }
@@ -944,7 +944,8 @@
 <div class="top-bar">
   <button class="top-bar-back" id="btn-voltar-home">← Início</button>
   <div class="top-bar-title">Labs</div>
-  <div style="width:38px"></div>
+  <button class="top-bar-back" id="btn-config-ia"
+          title="Provedor, chave e modelo de IA">⚙</button>
 </div>
 
 <div class="container">
@@ -1046,7 +1047,7 @@
         <div><label>Modelo da síntese</label><select id="smModeloSintese" class="field"><option value="">o configurado</option></select></div>
         <div style="flex:0 0 180px"><label>Seu nome (para salvar)</label><input type="text" id="smQuem" class="field" maxlength="40"></div>
       </div>
-      <div class="prd-dica">Mesma chave e provedor do ⚙ de Relatórios. Dica: modelo mais barato nos agentes (uma chamada
+      <div class="prd-dica">Provedor e chave: ⚙ no alto da página (a mesma configuração dos outros painéis). Dica: modelo mais barato nos agentes (uma chamada
         cada) e mais forte na síntese (uma chamada só).</div>
       <button id="smSimular" class="btn-gerar">Simular rodada</button>
     </div>
@@ -1098,8 +1099,53 @@
   </div>
 </div>
 
+
+<!-- Configuração de IA: o mesmo modal (e o mesmo modelo-ia.js) do módulo
+     Relatórios. O que se grava aqui é a configuração DO APLICATIVO. -->
+<div class="modal-fundo" id="modalIa" hidden>
+  <div class="modal-cx" role="dialog" aria-modal="true" aria-labelledby="modalIaTit">
+    <div class="modal-cab">
+      <h3 id="modalIaTit">Configurações de IA</h3>
+      <button class="modal-x" id="modalIaFechar" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal-corpo" id="cvIaCampo">
+      <p class="ia-aviso">A IA move o Simulador de Negociação (agentes e síntese). Estas configurações são
+        compartilhadas com os outros painéis do SiSPode.</p>
+
+      <label for="cvIaProvedor">Provedor de IA</label>
+      <select id="cvIaProvedor" class="field"></select>
+
+      <label for="cvIaChave" style="margin-top:14px">Chave de API</label>
+      <div class="ia-linha">
+        <input type="password" id="cvIaChave" class="field" autocomplete="off" spellcheck="false"
+               placeholder="Cole aqui sua chave">
+        <button type="button" id="cvIaOlho" class="dfs-bt" title="Mostrar/ocultar chave">👁</button>
+      </div>
+      <div class="ia-dica" id="cvIaChaveDica"></div>
+
+      <label for="cvIaModelo" style="margin-top:14px">Modelo padrão
+        <button type="button" id="cvIaListar" class="dfs-bt">↻ Carregar disponíveis</button>
+      </label>
+      <select id="cvIaModelo" class="field"></select>
+      <div class="ia-dica" id="cvIaModeloEstado"></div>
+      <div class="ia-dica" id="cvIaFaixa"></div>
+
+      <div class="ia-teste">
+        <button type="button" id="cvIaTestar" class="dfs-bt">testar a busca na web</button>
+        <span class="ia-estado" id="cvIaEstado"></span>
+      </div>
+    </div>
+    <div class="modal-pe">
+      <button type="button" class="dfs-bt" id="cvIaCancelar">Cancelar</button>
+      <button type="button" class="btn-salvar" id="cvIaSalvar">Salvar</button>
+    </div>
+  </div>
+</div>
+
 <script src="ia-comum.js"></script>
 <script src="labs.js"></script>
+<script src="parecer.js"></script>
+<script src="modelo-ia.js"></script>
 <script src="labs-placar.js"></script>
 <script src="labs-simulador.js"></script>
 <script src="labs-mapa-nucleo.js"></script>
