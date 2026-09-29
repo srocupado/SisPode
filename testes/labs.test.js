@@ -47,7 +47,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     setTimeout, clearTimeout, URL, TextDecoder, TextEncoder, AbortController, Blob, Response, Headers, Request, btoa,
     console: { log: () => {}, warn: () => {}, error: () => {} },
     fetch: async () => ({ ok: false, status: 599, json: async () => ({}), text: async () => '' }),
-    chrome: { storage: { local: { get: (_k, cb) => cb(armazenado), set: () => {} } }, runtime: { getURL: p => p } },
+    chrome: { storage: { local: { get: (_k, cb) => cb(armazenado), set: (o, cb) => { Object.assign(armazenado, o); if (cb) cb(); } } }, runtime: { getURL: p => p } },
     localStorage: { getItem: () => null, setItem: () => {} },
     alert: () => {}, confirm: () => true,
   };
@@ -57,6 +57,27 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const av = e => vm.runInContext(e, ctx);
   // linkedom não deixa escrever select.value: marca a opção pelo atributo
   const selecionar = (id, v) => { for (const o of document.getElementById(id).querySelectorAll('option')) { if (o.value === v) o.setAttribute('selected', ''); else o.removeAttribute('selected'); } };
+
+  // ---------- 1b. ⚙ de IA na própria página ----------
+  console.log('1b. Configuração de IA no Labs');
+  ok(!!document.getElementById('btn-config-ia') && !!document.getElementById('modalIa') && document.getElementById('modalIa').hasAttribute('hidden'), 'engrenagem na barra do topo; modal começa fechado');
+  await av(`mdlIniciar()`);
+  const provs = [...document.querySelectorAll('#cvIaProvedor option')].map(o => o.getAttribute('value'));
+  ok(provs.join(',') === 'gemini,openai,anthropic', 'modal lista os três provedores');
+  document.getElementById('btn-config-ia').dispatchEvent(new Event('click'));
+  await new Promise(r => setTimeout(r, 20));
+  ok(!document.getElementById('modalIa').hasAttribute('hidden'), '⚙ abre o modal');
+  ok(document.getElementById('cvIaChave').value === 'chave-de-teste', 'modal mostra a chave já configurada no aplicativo');
+  for (const o of document.querySelectorAll('#cvIaProvedor option')) { if (o.getAttribute('value') === 'anthropic') o.setAttribute('selected', ''); else o.removeAttribute('selected'); }
+  document.getElementById('cvIaProvedor').dispatchEvent(new Event('change'));
+  document.getElementById('cvIaChave').value = 'sk-ant-' + 'x'.repeat(30);
+  const salvo = await av(`mdlSalvar()`);
+  ok(salvo && armazenado.config.provedor === 'anthropic' && armazenado.config.apiKey === 'sk-ant-' + 'x'.repeat(30) && armazenado.config.chaves.gemini === 'chave-de-teste',
+    'Salvar grava provedor e chave na configuração do aplicativo (a chave do Gemini fica guardada)');
+  ok(document.getElementById('modalIa').hasAttribute('hidden'), 'modal fecha ao salvar');
+  document.getElementById('cvIaChave').value = 'chave-errada';
+  ok(await av(`mdlSalvar()`) === null && /formato inválido/.test(document.getElementById('cvIaModeloEstado').textContent), 'chave fora do formato do provedor é recusada');
+  armazenado.config = { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'modelo-de-teste' };
 
   // ---------- 2. orientação e janelas ----------
   console.log('2. Orientação e janelas');

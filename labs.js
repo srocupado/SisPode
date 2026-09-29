@@ -26,6 +26,10 @@ function labsEsc(s) {
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
 
+// modelo-ia.js (o ⚙ de IA, compartilhado com Relatórios) usa o cvEsc de
+// aderencia.js, que esta página não carrega.
+if (typeof cvEsc === 'undefined') var cvEsc = labsEsc;   // eslint-disable-line no-var
+
 function labsNorm(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-zA-Z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();

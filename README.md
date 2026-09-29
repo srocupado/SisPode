@@ -511,6 +511,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 ### 11. Labs
 
 **Área de desenvolvimento de novas soluções.** Dentro dela desenvolvemos e testamos funcionalidades; quando homologadas, elas saem para integrar novos módulos ou módulos já existentes. Cada protótipo depende só de `labs.js` (e de `ia-comum.js`, quando usa IA), para poder ser levado a outro módulo sem arrastar o resto. Tudo aqui é **experimental**.
+- **⚙ na barra do topo**: provedor, chave e modelo de IA — o mesmo modal de Relatórios (`modelo-ia.js`), gravando a configuração do aplicativo
 
 **Placar Preditivo e mapa de votos**
 - Para uma orientação de referência (Governo, PODE, Oposição, Maioria, Minoria ou qualquer partido — inclusive dentro de bloco/federação), estima quem tende a segui-la, pelo histórico de votações nominais do Plenário (6, 12 ou 24 meses)
@@ -524,7 +525,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Perfis salvos para a equipe** em `/labs/simulador/perfis`: contexto e agentes personalizados voltam preenchidos nas próximas simulações, com quem salvou e quando
 - Cada agente responde posição (apoia / condiciona / rejeita), objeções, a concessão que destravaria o apoio, o argumento que pesa e o risco de ruptura; uma síntese agrupa objeções, concessões e onde o acordo quebra
 - **Rodadas encadeadas**: a proposta reformulada vai aos mesmos agentes, cada um com o que disse antes; a tela mostra a evolução (quem mudou de posição e as cadeiras que apoiam em cada rodada) e a síntese explica o que mudou
-- **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave configurados; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
+- **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave do ⚙ da página; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
 
 **Mapa Territorial de Entregas**
 - Mapa do estado (malhas do IBGE) pintado pela **fatia** dos votos de deputado federal de cada município que foi do deputado (eleição de 2022, dados do TSE) e círculos nas emendas pagas com município identificado (Portal da Transparência, chave do analista); lista dos municípios com mais votos e das emendas sem município ("MÚLTIPLO")
