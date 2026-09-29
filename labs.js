@@ -3,8 +3,8 @@
 //
 // Dentro dela se desenvolvem e testam funcionalidades; quando homologadas, elas
 // saem para integrar novos módulos ou módulos já existentes. Por isso o código
-// daqui é deliberadamente AUTOCONTIDO: cada protótipo (labs-placar.js,
-// labs-simulador.js, labs-mapa.js) depende só deste arquivo e de ia-comum.js,
+// daqui é deliberadamente AUTOCONTIDO: cada protótipo (labs-simulador.js,
+// labs-mapa.js) depende só deste arquivo e de ia-comum.js,
 // e pode ser levado para outro módulo sem arrastar o resto do Labs.
 //
 // Este arquivo tem o que os protótipos compartilham: acesso à API da Câmara,
@@ -283,7 +283,7 @@ async function labsDeputadosAtuais() {
 }
 
 // ---------- abas ----------
-const LABS_ABAS = [['aba-placar', 'painel-placar'], ['aba-simulador', 'painel-simulador'], ['aba-mapa', 'painel-mapa']];
+const LABS_ABAS = [['aba-simulador', 'painel-simulador'], ['aba-mapa', 'painel-mapa']];
 
 function labsTrocarAba(bt) {
   for (const [b, p] of LABS_ABAS) {
@@ -295,11 +295,14 @@ function labsTrocarAba(bt) {
   document.dispatchEvent(new CustomEvent('labs:aba', { detail: bt }));
 }
 
-if (document.getElementById('aba-placar')) {
+if (document.getElementById('aba-simulador')) {
   for (const [b] of LABS_ABAS) {
     const el = document.getElementById(b);
     if (el) el.addEventListener('click', () => labsTrocarAba(b));
   }
   const voltar = document.getElementById('btn-voltar-home');
   if (voltar) voltar.addEventListener('click', () => window.close());
+  // A aba que abre de saída também carrega seus dados. No `load`, e não já
+  // aqui: os scripts dos protótipos vêm depois deste e ainda não escutam.
+  window.addEventListener('load', () => labsTrocarAba(LABS_ABAS[0][0]));
 }

@@ -1,19 +1,19 @@
-// Labs — Placar Preditivo, Simulador de Negociação e Mapa Territorial.
+// Labs — Simulador de Negociação e Mapa Territorial.
 //
 // O que este teste trava:
 //  1. registro: o card "Labs" existe no painel com a descrição combinada, e o
-//     manifest expõe as páginas e libera o IBGE;
+//     manifest expõe as páginas e libera o IBGE; o Placar Preditivo saiu e o
+//     Simulador é a aba que abre;
 //  2. orientação: partido achado dentro do nome do bloco/federação; liderança
 //     (Governo/Oposição…) só pelo nome exato; janelas de consulta ≤ 80 dias;
-//  3. placar: conta de Laplace, mínimo de histórico, mistura do tema;
-//  4. simulador: perfil por partido (alinhamento ao Governo, coesão,
+//  3. simulador: perfil por partido (alinhamento ao Governo, coesão,
 //     divergências), leitura do JSON do agente, cadeiras por posição, e a
 //     rodada completa com IA de mentira — uma chamada por bancada + a síntese;
-//  5. mapa (núcleo): CSV do TSE com aspas, casamento por nome civil e, na falta,
+//  4. mapa (núcleo): CSV do TSE com aspas, casamento por nome civil e, na falta,
 //     por nome de urna único; soma das zonas; cargo diferente ignorado;
 //     ponte TSE → IBGE por nome (acento, "Moji"/"Mogi"); localidade e emendas;
-//  6. mapa (tela): leitura latin1 em pedaços de um File e o desenho do SVG;
-//  7. bot: leitor de ZIP (deflate e sem compressão) lendo o CSV de dentro do zip.
+//  5. mapa (tela): leitura latin1 em pedaços de um File e o desenho do SVG;
+//  6. bot: leitor de ZIP (deflate e sem compressão) lendo o CSV de dentro do zip.
 //
 // Uso: node testes/labs.test.js
 process.env.TZ = 'America/Sao_Paulo';
@@ -38,6 +38,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(scripts.every(s => recursos.includes(s) && fs.existsSync(path.join(RAIZ, s))), 'todos os scripts de labs.html existem e estão no manifest');
   ok(man.host_permissions.includes('https://servicodados.ibge.gov.br/*'), 'IBGE liberado no manifest');
   ok(/área de desenvolvimento de novas soluções/i.test(html) && /homologadas/.test(html), 'a página abre com a descrição do Labs');
+  ok(!/placar/i.test(scripts.join(' ')) && !recursos.includes('labs-placar.js') && !/id="(aba|painel)-placar"/.test(html) && !fs.existsSync(path.join(RAIZ, 'labs-placar.js')), 'Placar Preditivo removido (aba, painel, script e manifest)');
+  ok(/class="aba ativa" id="aba-simulador"/.test(html) && /<div id="painel-simulador">/.test(html) && /<div id="painel-mapa" hidden>/.test(html), 'Simulador é a aba que abre; Mapa começa oculto');
 
   // ---------- contexto da página ----------
   const { document, window, Event } = parseHTML(html);
@@ -106,28 +108,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const dias = ([a, b]) => (new Date(b) - new Date(a)) / 864e5;
   ok(jan.every(j => dias(j) <= 80) && jan[0][0] === '2025-01-01' && jan[jan.length - 1][1] === '2026-01-01', `12 meses em ${jan.length} janelas de ≤ 80 dias, cobrindo até o último dia (+1)`);
 
-  // ---------- 3. placar ----------
-  console.log('3. Placar');
-  const voto = (id, t) => ({ deputado_: { id, siglaPartido: 'X' }, tipoVoto: t });
-  const itens = [];
-  for (let i = 0; i < 10; i++) {
-    itens.push({ votacao: { id: 'v' + i }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }],
-      votos: [voto(1, 'Sim'), voto(2, i < 5 ? 'Sim' : 'Não'), voto(3, i < 2 ? 'Não' : 'Abstenção')] });
-  }
-  ctx.__itens = itens;
-  const r = av(`plCalcular(__itens, 'Governo', [{id:1,nome:'A'},{id:2,nome:'B'},{id:3,nome:'C'}], null)`);
-  const L = id => r.linhas.find(l => l.id === id);
-  ok(r.comparaveis === 10, '10 votações comparáveis');
-  ok(Math.abs(L(1).p - 11 / 12) < 1e-9 && L(1).faixa === 'f5', 'seguiu 10 de 10 → (10+1)/(10+2), "quase sempre" (sem 100%)');
-  ok(Math.abs(L(2).p - 0.5) < 1e-9 && L(2).faixa === 'f3', 'seguiu 5 de 10 → 50%, indeciso');
-  ok(L(3).p === null && L(3).faixa === 'f0', 'só 2 votos Sim/Não (abstenção não conta) → sem histórico suficiente');
-  ctx.__tema = new Set(['v5', 'v6', 'v7', 'v8', 'v9']);
-  const rt = av(`plCalcular(__itens, 'Governo', [{id:2,nome:'B'}], __tema)`);
-  const pt = (0 + 1) / (5 + 2), w = 5 / 10;
-  ok(Math.abs(rt.linhas[0].p - (w * pt + (1 - w) * 0.5)) < 1e-9, 'com tema: mistura p_tema e p_geral com peso n/(n+5)');
-
-  // ---------- 4. simulador ----------
-  console.log('4. Simulador de Negociação');
+  // ---------- 3. simulador ----------
+  console.log('3. Simulador de Negociação');
   const vs = [];
   for (let i = 0; i < 4; i++) {
     vs.push({
@@ -187,7 +169,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     'cadeiras por posição (PODE 3 apoia, PL 5 rejeita, NOVO 1 condiciona; Governo sem cadeira)');
   ok(/Mapa de objeções/.test(saida) && /1 votações não puderam ser lidas/.test(saida), 'síntese e aviso de votações não lidas aparecem');
   // ---- configuração dos agentes ----
-  console.log('4b. Agentes configuráveis');
+  console.log('3b. Agentes configuráveis');
   const pCtx = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90, contexto: 'O líder já sinalizou apoio se o art. 5º cair.' }, null, null, 'Proposta qualquer aqui.', 6, [])`);
   ok(/CONTEXTO DADO PELA EQUIPE[\s\S]*art\. 5º cair/.test(pCtx), 'o contexto do analista entra no prompt do agente');
   const pFrente = av(`smPromptAgente({ tipo: 'frente', sigla: 'x-fpa', nome: 'Frente Parlamentar da Agropecuária', descricao: 'Prioriza segurança jurídica no campo.', cadeiras: 0 }, undefined, null, 'Proposta qualquer aqui.', 6, [])`);
@@ -252,8 +234,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   await av(`smSimularClick()`);
   ok(/Nenhuma chave de IA/.test(document.getElementById('smStatus').textContent) && ctx.__prompts.length === antesSemChave, 'sem chave de IA: avisa e não chama nada');
 
-  // ---------- 5. mapa: núcleo ----------
-  console.log('5. Mapa Territorial — núcleo');
+  // ---------- 4. mapa: núcleo ----------
+  console.log('4. Mapa Territorial — núcleo');
   const N = require(path.join(RAIZ, 'labs-mapa-nucleo.js'));
   ok(JSON.stringify(N.lmnCampos('"a";"b;c";"d ""e"""')) === JSON.stringify(['a', 'b;c', 'd "e"']), 'CSV: ; dentro de aspas e aspas escapadas');
   const CAB = '"DT_GERACAO";"SG_UF";"CD_MUNICIPIO";"NM_MUNICIPIO";"NR_ZONA";"CD_CARGO";"DS_CARGO";"SQ_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"SG_PARTIDO";"QT_VOTOS_NOMINAIS_VALIDOS"';
@@ -305,8 +287,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     'emendas: só o pago; município identificado vira círculo; o resto fica listado pelo rótulo');
   ok(N.lmnNomeAutor('Fábio Macedo') === 'FABIO MACEDO', 'nome do autor na forma do Portal (maiúsculas, sem acento)');
 
-  // ---------- 6. mapa: tela ----------
-  console.log('6. Mapa Territorial — tela');
+  // ---------- 5. mapa: tela ----------
+  console.log('5. Mapa Territorial — tela');
   const bytes = Buffer.from(CSV_SP.join('\n'), 'latin1');
   ctx.__arquivo = {
     size: bytes.length,
@@ -329,8 +311,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const q = av(`mpQuebras([0, 0.1, 0.2, 0.3, 0.4, 0.5])`);
   ok(q.length === 4 && av(`mpCor(0, [0.1])`) === av(`MP_CORES[0]`), 'escala por quantis; zero voto na cor de fundo');
 
-  // ---------- 7. bot: leitor de ZIP ----------
-  console.log('7. Bot — leitor de ZIP');
+  // ---------- 6. bot: leitor de ZIP ----------
+  console.log('6. Bot — leitor de ZIP');
   // config/firebase de mentira: o teste não precisa de .env nem de dependências do bot
   const cfg = path.join(RAIZ, 'bot', 'src', 'config.js');
   require.cache[require.resolve(cfg)] = { id: cfg, filename: cfg, loaded: true, exports: { TRANSPARENCIA_CHAVE: '', FIREBASE_URL: 'http://x' } };

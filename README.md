@@ -513,12 +513,6 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 **Área de desenvolvimento de novas soluções.** Dentro dela desenvolvemos e testamos funcionalidades; quando homologadas, elas saem para integrar novos módulos ou módulos já existentes. Cada protótipo depende só de `labs.js` (e de `ia-comum.js`, quando usa IA), para poder ser levado a outro módulo sem arrastar o resto. Tudo aqui é **experimental**.
 - **⚙ na barra do topo**: provedor, chave e modelo de IA — o mesmo modal de Relatórios (`modelo-ia.js`), gravando a configuração do aplicativo
 
-**Placar Preditivo e mapa de votos**
-- Para uma orientação de referência (Governo, PODE, Oposição, Maioria, Minoria ou qualquer partido — inclusive dentro de bloco/federação), estima quem tende a segui-la, pelo histórico de votações nominais do Plenário (6, 12 ou 24 meses)
-- Conta **aberta, sem IA**: `(vezes que seguiu + 1) / (votações comparáveis + 2)`; com tema escolhido, mistura o histórico no tema com peso `n_tema/(n_tema+5)`. Cada linha mostra a base da conta. Presença não é modelada
-- Faixas (quase nunca → quase sempre, com os **indecisos** no meio) e o placar esperado
-- **Campanha de votos** (opcional): registra quem foi procurado, por quem e com que resposta, no banco compartilhado (`/labs/placar/campanhas`) — o placar é ajustado pelos contatos
-
 **Simulador de Negociação**
 - Agentes de IA na mesa, configuráveis: o **Governo**, **qualquer partido** (as 10 maiores vêm listadas; as demais entram por "Adicionar partido") e **agentes personalizados** — frente parlamentar, relator ou outro —, descritos pela equipe (não somam cadeiras, porque sobrepõem os partidos)
 - Cada bancada tem perfil tirado das votações reais: cadeiras, % de orientação igual à do Governo, coesão e as votações recentes em que divergiu do Governo. O **contexto do analista** (o que as votações não mostram: sinais do líder, divisões internas) entra junto, com peso
@@ -592,7 +586,6 @@ sispode/
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── labs.html / labs.js            # Módulo: Labs — abas e utilidades comuns dos protótipos
-├── labs-placar.js                 # Labs · Placar Preditivo e mapa de votos
 ├── labs-simulador.js              # Labs · Simulador de Negociação (agentes de IA por bancada)
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
