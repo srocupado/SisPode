@@ -29,7 +29,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   // ---------- 1. registro ----------
   console.log('1. Registro do módulo');
   const panel = fs.readFileSync(path.join(RAIZ, 'panel.js'), 'utf8');
-  ok(/id:\s+'labs'[\s\S]*?titulo: 'Labs'[\s\S]*?desenvolvimento de novas soluções[\s\S]*?homologadas[\s\S]*?acao:\s+abrirLabs/.test(panel), 'card Labs no painel, com a descrição combinada');
+  ok(/id:\s+'labs'[\s\S]*?titulo: 'Labs'[\s\S]*?desc:\s+'Área de desenvolvimento\.'[\s\S]*?acao:\s+abrirLabs/.test(panel), 'card Labs no painel: "Área de desenvolvimento."');
   ok(/function abrirLabs\(\)[\s\S]*?labs\.html/.test(panel), 'abrirLabs abre labs.html');
   const man = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
   const recursos = man.web_accessible_resources[0].resources;
