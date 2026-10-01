@@ -269,8 +269,9 @@ async function smTestarClick() {
         try { return smBtLerAgente(await ia(smBtPromptAgente(p.sigla, p.cadeiras, perfis[p.sigla], it, det, gov, op))); }
         catch (_) { return null; }
       });
+      const propRot = det.proposicao ? `${det.proposicao.siglaTipo} ${det.proposicao.numero}/${det.proposicao.ano}` : String(it.votacao.proposicaoObjeto || '');
       partidos.forEach((p, k) => linhas.push({
-        votacao: it.votacao, sigla: p.sigla,
+        votacao: it.votacao, sigla: p.sigla, gov, op, prop: propRot,
         verdade: smBtMaioria(it, p.sigla, Math.min(2, maxVot[p.sigla] || 0)),
         est: smBtEstatistica(perfis[p.sigla], gov, op), ing: ing[p.sigla] || null, ag: ags[k], contexto: smContexto(gov, op),
       }));
@@ -290,6 +291,7 @@ async function smTestarClick() {
         const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
         return [c, { estatistica: m('est').acuracia, ingenua: m('ing').acuracia, agentes: m('ag').acuracia, n: m('est').n }];
       })),
+      porVotacao: smBtPorVotacao(linhas),
       porPartido: Object.fromEntries(siglas.map(s => {
         const ls = linhas.filter(l => l.sigla === s);
         const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
@@ -326,21 +328,81 @@ function smBtComparar(linhas, kA, kB) {
   return { b, c, significativo };
 }
 
+/**
+ * O teste visto POR VOTAÇÃO. Pura. As bancadas votam em bloco: acertar uma
+ * votação de conflito costuma acertar 4 ou 5 bancadas de uma vez, e contar
+ * cada bancada como caso independente exagera a confiança. Aqui cada votação
+ * é um caso: quantas bancadas cada método acertou nela.
+ * Devolve [{ id, data, objeto, prop, gov, op, contexto, n, acertos: {est, ing, ag},
+ *   partidos: { SIGLA: { v, est, ing, ag } } }], em ordem de data.
+ */
+function smBtPorVotacao(linhas) {
+  const porId = new Map();
+  for (const l of linhas || []) {
+    const id = String(l.votacao.id);
+    if (!porId.has(id)) porId.set(id, {
+      id, data: String(l.votacao.data || l.votacao.dataHoraRegistro || '').slice(0, 10),
+      objeto: smBtObjeto(l.votacao.descricao).slice(0, 160), prop: l.prop || '', gov: l.gov || '', op: l.op || '',
+      contexto: l.contexto || '', n: 0, acertos: { est: 0, ing: 0, ag: 0 }, partidos: {},
+    });
+    const v = porId.get(id);
+    v.partidos[labsSanitizar(l.sigla)] = { v: l.verdade || '', est: l.est || '', ing: l.ing || '', ag: l.ag || '' };
+    if (!l.verdade) continue;
+    v.n++;
+    for (const k of ['est', 'ing', 'ag']) if (l[k] === l.verdade) v.acertos[k]++;
+  }
+  return [...porId.values()].sort((a, b) => a.data.localeCompare(b.data));
+}
+
+/** P-valor bilateral exato do teste do sinal (binomial, p = 1/2). */
+function smBtBinomial(k, n) {
+  if (!n) return 1;
+  const m = Math.min(k, n - k);
+  let soma = 0, c = 1;                        // C(n, 0)
+  for (let i = 0; i <= m; i++) { soma += c; c = c * (n - i) / (i + 1); }
+  return Math.min(1, 2 * soma / Math.pow(2, n));
+}
+
+/**
+ * Veredito por votação (teste do sinal): em quantas votações A acertou MAIS
+ * bancadas que B, em quantas menos, em quantas empatou. Empates ficam de fora;
+ * significativo se p < 0,05 (exige ao menos 6 votações com diferença).
+ */
+function smBtSinal(porVotacao, kA, kB) {
+  let melhor = 0, pior = 0, empate = 0;
+  for (const v of porVotacao || []) {
+    if (!v.n) continue;
+    const d = v.acertos[kA] - v.acertos[kB];
+    if (d > 0) melhor++; else if (d < 0) pior++; else empate++;
+  }
+  const p = smBtBinomial(melhor, melhor + pior);
+  return { melhor, pior, empate, p, significativo: melhor + pior >= 6 && p < 0.05 };
+}
+
 function smBtPct(x) { return x == null ? '—' : (x * 100).toFixed(0) + '%'; }
 
 function smBtRender(r) {
   const M = r.metricas;
   const linha = (rot, m, desc) => `<tr><td><b>${rot}</b><div class="base">${desc}</div></td><td style="text-align:right">${smBtPct(m.acuracia)}</td><td style="text-align:right">${smBtPct(m.macroF1)}</td><td style="text-align:right">${smBtPct(m.cobertura)}</td></tr>`;
   const melhorAg = M.agentes.acuracia != null && M.estatistica.acuracia != null ? M.agentes.acuracia - M.estatistica.acuracia : null;
-  const cmp = (r.comparacao || {}).agentesVsEstatistica;
-  const disc = cmp ? ` (pares em que só um acertou: agentes ${cmp.b} × estatística ${cmp.c})` : '';
   const pontos = melhorAg == null ? '' : `${Math.abs(melhorAg * 100).toFixed(0)} pontos ${melhorAg >= 0 ? 'a mais' : 'a menos'}`;
+  const cmp = (r.comparacao || {}).agentesVsEstatistica;
+  const pares = cmp ? ` Por bancada: ${cmp.b} acertos só dos agentes × ${cmp.c} só da estatística.` : '';
+  const sv = r.porVotacao && r.porVotacao.length ? smBtSinal(r.porVotacao, 'ag', 'est') : null;
+  const pTxt = sv ? (sv.p < 0.001 ? 'p < 0,001' : 'p = ' + sv.p.toFixed(3).replace('.', ',')) : '';
+  const contagem = sv ? `os agentes acertaram mais bancadas que a estatística em <b>${sv.melhor}</b> votação(ões), menos em <b>${sv.pior}</b> e empataram em ${sv.empate} (${pTxt})` : '';
+  // O veredito conta VOTAÇÕES (bancadas votam em bloco e não são casos independentes);
+  // sem o detalhe por votação (testes antigos), cai na contagem por bancada.
   const veredito = melhorAg == null ? ''
-    : cmp && !cmp.significativo
-      ? `<b>Empate técnico:</b> os agentes acertaram ${pontos} que a estatística, mas a diferença cabe no acaso${disc}. Rode com mais votações (20 ou 30) para separar um do outro.`
-      : melhorAg > 0
-        ? `Os agentes acertaram <b>${pontos}</b> que a estatística, e a diferença não parece acaso${disc}.`
-        : `Os agentes acertaram <b>${pontos}</b> que a estatística, e a diferença não parece acaso${disc}: para estimar posição, a estatística é melhor — use o Simulador para preparar argumentos.`;
+    : sv
+      ? (!sv.significativo
+          ? `<b>Empate técnico:</b> no total, os agentes acertaram ${pontos} que a estatística, mas, contando por votação, ${contagem} — a diferença cabe no acaso. Rode com mais votações ou em outro período.${pares}`
+          : sv.melhor > sv.pior
+            ? `<b>Agentes melhores:</b> ${pontos} no total e, contando por votação, ${contagem} — a diferença não parece acaso.${pares}`
+            : `<b>Estatística melhor:</b> ${pontos} para os agentes no total e, contando por votação, ${contagem}. Para estimar posição, use a estatística; o Simulador, para preparar argumentos.${pares}`)
+      : (cmp && !cmp.significativo
+          ? `<b>Empate técnico:</b> os agentes acertaram ${pontos} que a estatística, mas a diferença cabe no acaso.${pares}`
+          : `Os agentes acertaram <b>${pontos}</b> que a estatística (contagem por bancada).${pares}`);
   const partidos = Object.values(r.porPartido || {}).sort((a, b) => a.sigla.localeCompare(b.sigla));
   smEl('smTesteResultado').innerHTML = `
     <div class="sub" style="margin-top:8px">${r.votacoes} votações de ${labsEsc(r.periodoTeste[0])} a ${labsEsc(r.periodoTeste[1])} ·
@@ -359,9 +421,32 @@ function smBtRender(r) {
     <table class="labs-tab" style="margin-top:8px"><tr><th>Bancada</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th><th style="text-align:right">Votações</th></tr>
       ${partidos.map(p => `<tr><td>${labsEsc(p.sigla)}</td><td style="text-align:right">${smBtPct(p.estatistica)}</td><td style="text-align:right">${smBtPct(p.ingenua)}</td><td style="text-align:right">${smBtPct(p.agentes)}</td><td style="text-align:right">${p.n}</td></tr>`).join('')}
     </table>
+    ${smBtRenderVotacoes(r)}
     <div class="labs-custo">Cuidados: amostra pequena (poucas votações oscilam muito o resultado); o modelo pode ter visto na internet o
       resultado de votações anteriores à data de corte dele — votações recentes são o teste mais limpo; F1 macro pesa igualmente Sim, Não e
       Obstrução (acertar só a classe mais comum não basta). O contexto da equipe não entra no teste (é informação de hoje).</div>`;
+}
+
+const SM_BT_CTX_CURTO = { consenso: 'consenso', conflito: 'conflito', semOposicao: 'Oposição liberou' };
+
+/** Tabela por votação, com o detalhe por bancada recolhido. */
+function smBtRenderVotacoes(r) {
+  const vs = r.porVotacao || [];
+  if (!vs.length) return '';
+  const marca = (prev, v) => !prev ? '<span class="base">—</span>' : prev === v ? `<span class="sm-acao-apoia">${labsEsc(prev)} ✓</span>` : `<span class="sm-acao-rejeita">${labsEsc(prev)} ✗</span>`;
+  const cel = (v, k) => {
+    const x = v.acertos[k], melhor = Math.max(v.acertos.est, v.acertos.ing, v.acertos.ag);
+    return `<td style="text-align:right">${x === melhor && v.n ? '<b>' : ''}${x}/${v.n}${x === melhor && v.n ? '</b>' : ''}</td>`;
+  };
+  return `<div class="sub" style="margin-top:10px"><b>Por votação</b> — bancadas que cada método acertou; clique na votação para ver bancada a bancada.</div>
+    <div style="overflow-x:auto"><table class="labs-tab" style="margin-top:4px"><tr><th>Data</th><th>Votação</th><th>Contexto</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th></tr>
+    ${vs.map(v => `<tr><td>${labsEsc(v.data)}</td><td><details><summary>${labsEsc(v.prop ? v.prop + ' — ' : '')}${labsEsc(v.objeto || v.id)}</summary>
+        <div class="base">Governo: ${labsEsc(v.gov || '—')} · Oposição: ${labsEsc(v.op || 'liberou/não orientou')}</div>
+        <table class="labs-tab"><tr><th>Bancada</th><th>Votou</th><th>Estatística</th><th>IA ingênua</th><th>Agentes</th></tr>
+        ${Object.entries(v.partidos).sort((a, b) => a[0].localeCompare(b[0])).map(([sg, x]) => `<tr><td>${labsEsc(sg)}</td><td>${labsEsc(x.v || '—')}</td><td>${x.v ? marca(x.est, x.v) : '—'}</td><td>${x.v ? marca(x.ing, x.v) : '—'}</td><td>${x.v ? marca(x.ag, x.v) : '—'}</td></tr>`).join('')}
+        </table></details></td>
+      <td>${labsEsc(SM_BT_CTX_CURTO[v.contexto] || v.contexto)}</td>${cel(v, 'est')}${cel(v, 'ing')}${cel(v, 'ag')}</tr>`).join('')}
+    </table></div>`;
 }
 
 async function smBtCarregarHistorico() {
@@ -373,7 +458,9 @@ async function smBtCarregarHistorico() {
     el.innerHTML = itens.length ? `<div class="sub" style="margin-top:8px"><b>Testes anteriores</b> (acerto: estatística / IA ingênua / agentes)</div>
       <table class="labs-tab">${itens.map(x => `<tr><td>${labsEsc(new Date(x.em).toLocaleDateString('pt-BR'))}${x.quem ? ' · ' + labsEsc(x.quem) : ''}</td>
         <td>${labsEsc(x.modelo)} · ${x.votacoes} votações · ${(x.partidos || []).length} bancadas</td>
-        <td style="text-align:right">${smBtPct(x.metricas.estatistica.acuracia)} / ${smBtPct(x.metricas.ingenua.acuracia)} / <b>${smBtPct(x.metricas.agentes.acuracia)}</b></td></tr>`).join('')}</table>` : '';
+        <td style="text-align:right">${smBtPct(x.metricas.estatistica.acuracia)} / ${smBtPct(x.metricas.ingenua.acuracia)} / <b>${smBtPct(x.metricas.agentes.acuracia)}</b></td>
+        <td class="base">${(() => { if (!x.porVotacao) return 'sem detalhe por votação'; const v = smBtSinal(x.porVotacao, 'ag', 'est');
+          return `por votação: agentes melhores em ${v.melhor}, piores em ${v.pior}${v.significativo ? '' : ' (empate técnico)'}`; })()}</td></tr>`).join('')}</table>` : '';
   } catch (_) { el.innerHTML = ''; }
 }
 

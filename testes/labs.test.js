@@ -610,7 +610,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const nums = [...tr.matchAll(/<td style="text-align:right">(\d+|—)%?<\/td>/g)].map(m => m[1]);
   ok(/Estatística \(sem IA\)/.test(tr) && /IA ingênua/.test(tr) && /Agentes do Simulador/.test(tr), 'resultado com os três métodos');
   ok(nums[0] === '88' && nums[3] === '50' && nums[6] === '50', `acerto: estatística 7/8 (erra só a obstrução do PL), IA ingênua 4/8, agentes 4/8 (${nums.slice(0, 9).join(' ')})`);
-  ok(/Empate técnico:<\/b> os agentes acertaram 38 pontos a menos[\s\S]*agentes 0 × estatística 3/.test(tr), 'veredito com só 3 pares discordantes: empate técnico, não "38 pontos a menos"');
+  ok(/Empate técnico:<\/b> no total, os agentes acertaram 38 pontos a menos[\s\S]*menos em <b>3<\/b> e empataram em 1/.test(tr) && /0 acertos só dos agentes × 3 só da estatística/.test(tr),
+    'veredito contado por VOTAÇÃO (3 piores, 1 empate): empate técnico, não "38 pontos a menos"');
+  ok(/<b>Por votação<\/b>/.test(tr) && (tr.match(/<details><summary>PL 1\/2026 — PL \d+\.<\/summary>/g) || []).length === 4 && /<b>2\/2<\/b><\/td><td style="text-align:right">1\/2<\/td><td style="text-align:right">1\/2/.test(tr),
+    'tabela por votação: proposição, acertos de cada método (melhor em negrito) e detalhe bancada a bancada');
+  ok(/PL<\/td><td>Obstrução<\/td><td><span class="sm-acao-rejeita">Não ✗/.test(tr), 'detalhe mostra o voto real e o erro de cada método (PL em obstrução)');
   ok(JSON.stringify(av(`smBtComparar([...Array(12)].map((_, i) => ({ verdade: 'Sim', ag: 'Sim', est: i < 10 ? 'Não' : 'Sim' })), 'ag', 'est')`)) === JSON.stringify({ b: 10, c: 0, significativo: true })
     && av(`smBtComparar([{ verdade: 'Sim', ag: 'Sim', est: 'Não' }, { verdade: 'Sim', ag: 'Sim', est: 'Não' }], 'ag', 'est').significativo`) === false, 'McNemar: 10 × 0 é diferença real; 2 × 0 é acaso');
   ctx.__secreta = [{ votacao: { id: 'sec', data: '2026-05-30' }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }], votos: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: null }] }];
@@ -620,6 +624,16 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     'custo previsto (4 votações × 2 bancadas + 4 ingênuas) e a votação testada nunca leva o próprio resultado');
   ok(putsBt.some(u => /\/labs\/simulador\/validacoes\/\d+\.json$/.test(u)), 'resultado do teste guardado para a equipe');
   ctx.fetch = fB;
+
+  // teste do sinal por votação
+  ok(Math.abs(av(`smBtBinomial(0, 6)`) - 0.03125) < 1e-12 && av(`smBtBinomial(3, 6)`) === 1 && Math.abs(av(`smBtBinomial(1, 10)`) - 22 / 1024) < 1e-12, 'p-valor exato do teste do sinal');
+  ctx.__pv = [...Array(8)].map((_, i) => ({ n: 8, acertos: { est: 5, ing: 5, ag: i < 7 ? 8 : 5 } }));
+  const sg = av(`smBtSinal(__pv, 'ag', 'est')`);
+  ok(sg.melhor === 7 && sg.pior === 0 && sg.empate === 1 && sg.significativo, 'agentes melhores em 7 de 7 votações com diferença: significativo');
+  ctx.__pv2 = [{ n: 8, acertos: { est: 3, ing: 3, ag: 8 } }, { n: 8, acertos: { est: 3, ing: 3, ag: 8 } }, { n: 8, acertos: { est: 8, ing: 8, ag: 8 } }];
+  const sg2 = av(`smBtSinal(__pv2, 'ag', 'est')`);
+  ok(sg2.melhor === 2 && !sg2.significativo, '10 bancadas a mais concentradas em 2 votações: NÃO é significativo (bancadas votam em bloco)');
+  ok(putsBt.length && /historico|validacoes/.test(putsBt[0]), 'teste guardado com o detalhe por votação');
 
   // ---------- 9. contexto: consenso × conflito com a Oposição ----------
   console.log('9. Consenso × conflito');
