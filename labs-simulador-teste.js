@@ -7,7 +7,9 @@
 // cada bancada marcada, compara três previsões com o que a MAIORIA da bancada
 // de fato votou (Sim, Não ou Obstrução):
 //   1. Estatística — sem IA: se a bancada votou com o Governo em ≥ 50% das
-//      votações ANTERIORES, prevê o voto do Governo; senão, o contrário;
+//      votações ANTERIORES do mesmo contexto (consenso ou conflito entre
+//      Governo e Oposição — ver smContexto), prevê o voto do Governo; senão,
+//      o contrário;
 //   2. IA ingênua — uma pergunta só por votação, para todas as bancadas, sem
 //      perfil (o que o modelo "acha");
 //   3. Agentes do Simulador — um agente por bancada, com o perfil calculado
@@ -71,10 +73,25 @@ function smBtMaioria(it, sigla, minimo = 2) {
   return o[0][1] === o[1][1] ? null : o[0][0];
 }
 
-/** Previsão estatística: o voto do Governo se a bancada costuma segui-lo; senão o oposto. */
-function smBtEstatistica(perfil, gov) {
+/**
+ * Previsão estatística: o voto do Governo se a bancada costuma segui-lo NO
+ * MESMO CONTEXTO (consenso, conflito ou Oposição sem orientação — ver
+ * smContexto); senão o oposto. Contexto com menos de 3 votações no histórico
+ * cai no alinhamento geral. Sem a Oposição (oposicao undefined), vale o geral.
+ */
+function smBtEstatistica(perfil, gov, oposicao) {
   if (!perfil || perfil.alinhamentoGoverno == null) return null;
-  return perfil.alinhamentoGoverno >= 0.5 ? gov : (gov === 'Sim' ? 'Não' : 'Sim');
+  let al = perfil.alinhamentoGoverno;
+  if (oposicao !== undefined && perfil.porContexto) {
+    const x = perfil.porContexto[smContexto(gov, oposicao)];
+    if (x && x.n >= 3) al = x.alinhamento;
+  }
+  return al >= 0.5 ? gov : (gov === 'Sim' ? 'Não' : 'Sim');
+}
+
+/** Como a Oposição orientou, em texto para os prompts. */
+function smBtTextoOposicao(op) {
+  return op ? `A Oposição orientou: ${op}.` : 'A Oposição liberou a bancada ou não orientou Sim/Não.';
 }
 
 /**
@@ -100,7 +117,7 @@ function smBtTextoVotacao(it, det) {
 }
 
 /** Prompt do agente no teste: perfil (só do treino) + votação + orientação do Governo. Puro. */
-function smBtPromptAgente(sigla, cadeiras, perfil, it, det, gov) {
+function smBtPromptAgente(sigla, cadeiras, perfil, it, det, gov, op) {
   const linhas = [
     `Você representa a bancada do ${sigla} na Câmara dos Deputados (${cadeiras} deputados em exercício).`,
     'Com base APENAS no perfil abaixo e no conteúdo da votação, diga como a MAIORIA da bancada votou.',
@@ -109,6 +126,7 @@ function smBtPromptAgente(sigla, cadeiras, perfil, it, det, gov) {
   if (perfil && perfil.comparaveis) {
     linhas.push('PERFIL (votações nominais do Plenário ANTERIORES a esta):');
     linhas.push(`- A maioria da bancada votou como o Governo orientou em ${smPct(perfil.alinhamentoGoverno)} das ${perfil.comparaveis} votações.`);
+    linhas.push(...smLinhasContexto(perfil));
     if (perfil.comparaveisOrientacao) linhas.push(`- A orientação do líder foi igual à do Governo em ${smPct(perfil.alinhamentoOrientacao)} de ${perfil.comparaveisOrientacao}.`);
     if (perfil.coesao != null) linhas.push(`- Coesão: ${smPct(perfil.coesao)}.`);
     if (perfil.divergencias.length) {
@@ -118,17 +136,18 @@ function smBtPromptAgente(sigla, cadeiras, perfil, it, det, gov) {
   } else {
     linhas.push('PERFIL: sem votações anteriores suficientes.');
   }
-  linhas.push('', 'VOTAÇÃO:', smBtTextoVotacao(it, det), `O Governo orientou: ${gov}.`, '');
+  linhas.push('', 'VOTAÇÃO:', smBtTextoVotacao(it, det), `O Governo orientou: ${gov}.`, smBtTextoOposicao(op), '');
   linhas.push('Responda SOMENTE com um objeto JSON: {"voto":"Sim|Não|Obstrução","confianca":1}  (confiança de 1 a 5)');
   return linhas.join('\n');
 }
 
 /** Prompt da IA ingênua: uma pergunta por votação, todas as bancadas, sem perfil. Puro. */
-function smBtPromptIngenuo(siglas, it, det, gov) {
+function smBtPromptIngenuo(siglas, it, det, gov, op) {
   return [
     'Votação nominal no Plenário da Câmara dos Deputados:',
     smBtTextoVotacao(it, det),
     `O Governo orientou: ${gov}.`,
+    smBtTextoOposicao(op),
     '',
     'Para cada partido abaixo, diga como a MAIORIA da bancada votou.',
     `Partidos: ${siglas.join(', ')}`,
@@ -242,17 +261,18 @@ async function smTestarClick() {
     let feitas = 0;
     await labsMapLimit(teste, 2, async it => {
       const gov = labsOrientacao(it.orientacoes, 'Governo');
+      const op = labsOrientacao(it.orientacoes, 'Oposição');   // anunciada antes do voto: informação legítima
       const det = await smBtDetalhe(it);
       let ing = {};
-      try { ing = smBtLerIngenuo(await ia(smBtPromptIngenuo(siglas, it, det, gov)), siglas); } catch (_) {}
+      try { ing = smBtLerIngenuo(await ia(smBtPromptIngenuo(siglas, it, det, gov, op)), siglas); } catch (_) {}
       const ags = await labsMapLimit(partidos, 3, async p => {
-        try { return smBtLerAgente(await ia(smBtPromptAgente(p.sigla, p.cadeiras, perfis[p.sigla], it, det, gov))); }
+        try { return smBtLerAgente(await ia(smBtPromptAgente(p.sigla, p.cadeiras, perfis[p.sigla], it, det, gov, op))); }
         catch (_) { return null; }
       });
       partidos.forEach((p, k) => linhas.push({
         votacao: it.votacao, sigla: p.sigla,
         verdade: smBtMaioria(it, p.sigla, Math.min(2, maxVot[p.sigla] || 0)),
-        est: smBtEstatistica(perfis[p.sigla], gov), ing: ing[p.sigla] || null, ag: ags[k],
+        est: smBtEstatistica(perfis[p.sigla], gov, op), ing: ing[p.sigla] || null, ag: ags[k], contexto: smContexto(gov, op),
       }));
       feitas++;
       labsStatus('smTesteStatus', `Testando… ${feitas}/${teste.length} votações (${custo.ok} chamadas)`, 'loading');
@@ -265,6 +285,11 @@ async function smTestarClick() {
       partidos: siglas, chamadas: custo.ok, falhasIA: custo.erro,
       metricas: { estatistica: met('est'), ingenua: met('ing'), agentes: met('ag') },
       comparacao: { agentesVsEstatistica: smBtComparar(linhas, 'ag', 'est'), agentesVsIngenua: smBtComparar(linhas, 'ag', 'ing') },
+      porContexto: Object.fromEntries(['consenso', 'conflito', 'semOposicao'].map(c => {
+        const ls = linhas.filter(l => l.contexto === c);
+        const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
+        return [c, { estatistica: m('est').acuracia, ingenua: m('ing').acuracia, agentes: m('ag').acuracia, n: m('est').n }];
+      })),
       porPartido: Object.fromEntries(siglas.map(s => {
         const ls = linhas.filter(l => l.sigla === s);
         const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
@@ -322,11 +347,15 @@ function smBtRender(r) {
       ${r.partidos.length} bancadas · ${r.chamadas} chamadas (${labsEsc(r.provedor)} · ${labsEsc(r.modelo)})${r.falhasIA ? ` · ${r.falhasIA} falharam` : ''}.
       Acerto = previsão igual ao voto da MAIORIA da bancada.</div>
     <table class="labs-tab" style="margin-top:6px"><tr><th>Método</th><th style="text-align:right">Acerto</th><th style="text-align:right">F1 macro</th><th style="text-align:right">Cobertura</th></tr>
-      ${linha('Estatística (sem IA)', M.estatistica, 'segue o Governo se a bancada o seguiu em ≥ 50% das votações anteriores')}
+      ${linha('Estatística (sem IA)', M.estatistica, 'segue o Governo se a bancada o seguiu em ≥ 50% das votações anteriores do mesmo contexto (consenso ou conflito com a Oposição)')}
       ${linha('IA ingênua', M.ingenua, 'uma pergunta por votação, sem perfil')}
       ${linha('Agentes do Simulador', M.agentes, 'um agente por bancada, com o perfil das votações anteriores')}
     </table>
     ${veredito ? `<div class="labs-aviso" style="margin-top:8px">${veredito}</div>` : ''}
+    ${r.porContexto ? `<table class="labs-tab" style="margin-top:8px"><tr><th>Contexto da votação</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th><th style="text-align:right">Pares</th></tr>
+      ${['consenso', 'conflito', 'semOposicao'].filter(c => r.porContexto[c] && r.porContexto[c].n).map(c => { const x = r.porContexto[c];
+        return `<tr><td>${labsEsc(SM_ROT_CONTEXTO[c])}</td><td style="text-align:right">${smBtPct(x.estatistica)}</td><td style="text-align:right">${smBtPct(x.ingenua)}</td><td style="text-align:right">${smBtPct(x.agentes)}</td><td style="text-align:right">${x.n}</td></tr>`; }).join('')}
+    </table>` : ''}
     <table class="labs-tab" style="margin-top:8px"><tr><th>Bancada</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th><th style="text-align:right">Votações</th></tr>
       ${partidos.map(p => `<tr><td>${labsEsc(p.sigla)}</td><td style="text-align:right">${smBtPct(p.estatistica)}</td><td style="text-align:right">${smBtPct(p.ingenua)}</td><td style="text-align:right">${smBtPct(p.agentes)}</td><td style="text-align:right">${p.n}</td></tr>`).join('')}
     </table>
