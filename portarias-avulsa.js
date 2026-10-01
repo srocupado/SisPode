@@ -88,6 +88,7 @@ async function ptSalvarConfig() {
   ptEl('modal-configuracoes').style.display = 'none';
   ptSeloIA();
   pnRender();
+  if (typeof pcRender === 'function') pcRender();
 }
 
 /** Uma chamada de IA que devolve JSON. Erros com mensagem clara. */
@@ -337,7 +338,7 @@ function ptImprimir(el) {
   if (!el) return;
   let box = ptEl('pt-impressao');
   if (!box) { box = document.createElement('div'); box.id = 'pt-impressao'; document.body.appendChild(box); }
-  box.innerHTML = el.outerHTML.replace(/id="pn-doc"/, '');
+  box.innerHTML = el.outerHTML.replace(/id="p[nc]-doc"/, '');
   window.print();
 }
 
@@ -366,8 +367,6 @@ if (ptEl('pn-ato')) {
     if (c && pn.doc) { pn.doc[c] = ev.target.value.trim(); if (pn.nota) pnRender(); }
   });
   ptLigarRevisao(ptEl('pn-revisao'), 'pn', pnRevisar, pnDesfazer);
-  // Nota comparativa: a caixa já fica no lugar; habilita quando a etapa 2 gerar a nota.
-  ptEl('pc-revisao').innerHTML = ptRevisaoHtml({ prefixo: 'pc', habilitado: false, motivo: 'Disponível assim que a nota comparativa for gerada (etapa 2, em construção).', pedidos: [] });
   // Configuração de IA
   ptEl('btn-config').addEventListener('click', ptAbrirConfig);
   ptEl('config-provedor').addEventListener('change', ptTrocarProvedor);
@@ -377,6 +376,7 @@ if (ptEl('pn-ato')) {
   ptEl('btn-toggle-key').addEventListener('click', () => { const i = ptEl('config-api-key'); i.type = i.type === 'password' ? 'text' : 'password'; });
   document.querySelectorAll('[data-fecha]').forEach(b => b.addEventListener('click', () => { ptEl(b.dataset.fecha).style.display = 'none'; }));
   ptAba('seq');
-  ptCarregarConfigIA().then(pnRender);
+  // A nota comparativa (script seguinte) também depende da chave: re-renderiza quando ela chega.
+  ptCarregarConfigIA().then(() => { pnRender(); if (typeof pcRender === 'function') pcRender(); });
   pnRender();
 }

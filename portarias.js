@@ -105,6 +105,7 @@ function ptRender() {
   // Relações entre os atos (revoga/altera) e marcas de consolidação — por regra, sem IA.
   const seq = ptSequencia(pt.docs);
   ptEl('pt-faltando').innerHTML = seq.faltando.length ? `<div class="on-pend" style="margin-bottom:8px">Ato(s) alterado(s) que não estão na sequência — sem eles, o "como era" fica incompleto: ${seq.faltando.map(f => `<b>${ptEsc(f.rotulo)}</b> (alterado pelo ${ptEsc(f.citadoPor)})`).join('; ')}.</div>` : '';
+  const pares = typeof pcPares === 'function' ? pcPares(pt.docs, seq) : [];
   const origem = o => o.tipo === 'DOU' ? `DOU` : o.nome ? `${o.tipo}: ${o.nome}` : o.tipo;
   lista.innerHTML = pt.docs.map((d, i) => `
     <div class="pt-doc" data-id="${d.id}">
@@ -116,6 +117,7 @@ function ptRender() {
           <input class="pt-campo" type="date" data-campo="data" value="${ptEsc(d.data || '')}" title="Data do ato">
         </div>
         ${ptRelHtml(seq.atos.find(a => a.id === d.id))}
+        ${ptParHtml(d, pares.find(p => p.id === d.id))}
         <div class="meta">${ptEsc(origem(d.origem))} · ${d.texto.length.toLocaleString('pt-BR')} caracteres${ptLimpezaTxt(d.limpeza)}${d.avisos.length ? ' · <span style="color:#d68a00">' + d.avisos.map(ptEsc).join(' · ') + '</span>' : ''}</div>
         <details><summary>ver texto</summary><pre>${ptEsc(d.texto.slice(0, 20000))}${d.texto.length > 20000 ? '\n…' : ''}</pre></details>
       </div>
@@ -151,6 +153,21 @@ function ptRelHtml(a) {
   return chips.length ? `<div class="pt-rel">${chips.join('')}</div>` : '';
 }
 
+const PT_MODOS = { inicial: 'ponto de partida ("como era")', substituicao: 'substitui', alteracao: 'altera', novo: 'instrumento novo' };
+
+/** "Comparar com": o par da nota comparativa — automático pelas relações, ou escolhido. */
+function ptParHtml(d, par) {
+  if (!par) return '';
+  const base = par.baseId ? pt.docs.find(x => x.id === par.baseId) : null;
+  const rot = x => ptEsc((x.identificacao || 'ato sem identificação').slice(0, 70));
+  const atual = d.comparaCom || 'auto';
+  const opcoes = [`<option value="auto" ${atual === 'auto' ? 'selected' : ''}>automático</option>`,
+    `<option value="nenhum" ${atual === 'nenhum' ? 'selected' : ''}>nenhum (instrumento novo)</option>`,
+    ...pt.docs.filter(x => x.id !== d.id).map(x => `<option value="${x.id}" ${String(atual) === String(x.id) ? 'selected' : ''}>${rot(x)}</option>`)];
+  return `<div class="pt-par">Na nota comparativa: <b>${ptEsc(PT_MODOS[par.modo])}</b>${base ? ' ' + rot(base) : ''}${par.modo === 'inicial' ? '' : ` <span class="on-vazio">(${ptEsc(par.motivo)})</span>`}
+    · comparar com <select class="pt-campo pt-mini-sel" data-campo="comparaCom">${opcoes.join('')}</select></div>`;
+}
+
 function ptListaClick(ev) {
   const bt = ev.target.closest('[data-acao]');
   if (!bt) return;
@@ -161,6 +178,7 @@ function ptListaClick(ev) {
   if (a === 'remover') pt.docs.splice(i, 1);
   else if (a === 'subir' && i > 0) [pt.docs[i - 1], pt.docs[i]] = [pt.docs[i], pt.docs[i - 1]];
   else if (a === 'descer' && i < pt.docs.length - 1) [pt.docs[i + 1], pt.docs[i]] = [pt.docs[i], pt.docs[i + 1]];
+  if (typeof pcInvalidar === 'function') pcInvalidar();
   ptRender();
 }
 
@@ -177,7 +195,9 @@ function ptListaChange(ev) {
     if (c.data && !d.data) d.data = c.data;
     d.avisos = d.avisos.filter(a => !/cabeçalho não reconhecido/.test(a));
   }
-  if (campo === 'data' || campo === 'identificacao') ptRender();
+  if (campo === 'comparaCom') d.comparaCom = ev.target.value;
+  if (campo === 'data' || campo === 'identificacao' || campo === 'comparaCom') ptRender();
+  if (typeof pcInvalidar === 'function') pcInvalidar();
 }
 
 if (ptEl('pt-lista')) {
