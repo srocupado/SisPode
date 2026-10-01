@@ -184,7 +184,9 @@ async function labsVotacoesPlenario(meses, aoAndar) {
       return { votacao: v, votos: vt.dados || [], orientacoes: or.dados || [] };
     } catch (e) { falhas++; return null; }
   }, (f, t) => aoAndar && aoAndar(`Lendo votos e orientações… ${f}/${t}`));
-  const itens = lidos.filter(x => x && x.votos.length);
+  // Só votação com voto ABERTO: no voto secreto (ex.: indicação de autoridade)
+  // a Câmara lista os presentes com tipoVoto vazio — não há o que medir.
+  const itens = lidos.filter(x => x && x.votos.some(v => v && v.tipoVoto));
   for (const it of itens) for (const vo of it.votos) {
     const p = labsSigla(vo.deputado_ && vo.deputado_.siglaPartido);
     if (p) LABS_SIGLAS.add(p);
