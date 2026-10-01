@@ -96,7 +96,7 @@ console.log('4. Tela');
   ok($('pt-aba-nota').style.display === 'contents', 'aba "Nota de uma portaria" aparece');
   ok($('pt-aba-seq').style.display === 'none', 'e a da sequência some');
   ok(document.querySelector('[data-aba="nota"]').classList.contains('ativa') && !document.querySelector('[data-aba="seq"]').classList.contains('ativa'), 'botão da aba marcado');
-  ok(/Disponível assim que a nota comparativa/.test($('pc-revisao').textContent), 'nota comparativa: caixa de alterações no lugar, desabilitada até a etapa 2');
+  ok(/Gere a nota comparativa/.test($('pc-revisao').textContent), 'nota comparativa: caixa de alterações no lugar, esperando a nota');
   ok($('pn-gerar').disabled && /Gere a nota primeiro/.test($('pn-revisao').textContent), 'sem ato: "Gerar" desabilitado; caixa de alterações espera a nota');
 
   $('pn-texto').value = ATO;
