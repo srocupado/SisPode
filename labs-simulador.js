@@ -582,7 +582,9 @@ async function smRodar(sessao, proposta) {
     const m = modelo || cfg.modelo || '';
     const k = m || '(padrão do provedor)';
     try {
-      const r = await chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: m || undefined, prompt, opcoes: { maxSaida: 4000 } });
+      // 8.000: o raciocínio dos modelos mais fortes conta dentro do limite; com
+      // proposta em pontos, 4.000 podia cortar o JSON. Só se paga o gerado.
+      const r = await chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: m || undefined, prompt, opcoes: { maxSaida: 8000 } });
       sessao.custo[k] = (sessao.custo[k] || 0) + 1;
       return r;
     } catch (e) {
