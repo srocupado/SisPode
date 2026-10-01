@@ -166,7 +166,14 @@ function smTextoProposicao(prop) {
   const partes = [`${prop.sigla} ${prop.numero}/${prop.ano}`];
   if (prop.ementa) partes.push('Ementa: ' + prop.ementa);
   if (prop.keywords) partes.push('Palavras-chave: ' + prop.keywords);
+  if (smJaEhLei(prop)) partes.push(`SITUAÇÃO: esta proposição JÁ FOI TRANSFORMADA EM LEI (${prop.situacao}). O texto dela está em vigor: trate a proposta abaixo como ALTERAÇÃO da lei vigente e não peça, como condição, o que a lei já contém.`);
+  else if (prop.situacao) partes.push('Situação na Câmara: ' + prop.situacao);
   return partes.join('\n');
+}
+
+/** A proposição já virou lei? (situação "Transformado em Norma Jurídica" na Câmara) */
+function smJaEhLei(prop) {
+  return !!(prop && /transformad[oa] em (norma|lei)/i.test(String(prop.situacao || '')));
 }
 
 const SM_TIPOS = { governo: 'Governo', partido: 'partido', frente: 'frente parlamentar', relator: 'relator(a)', outro: 'agente' };
@@ -219,7 +226,9 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico, extra) {
   const personalizado = ['frente', 'relator', 'outro'].includes(ag.tipo);
   const linhas = [
     `Você representa ${smQuem(ag)} numa simulação de negociação preparatória, feita por assessoria parlamentar.`,
-    'Responda como o negociador desse ator responderia, de forma realista e sem caricatura, com base APENAS nas informações abaixo e no conteúdo da proposta. Se elas não dão base para uma posição, diga "condiciona" e explique o que falta.',
+    'Responda como o negociador desse ator responderia, de forma realista e sem caricatura, com base APENAS nas informações abaixo e no conteúdo da proposta.',
+    'TOME POSIÇÃO: "apoia" ou "rejeita" sempre que der. Use "condiciona" SÓ com uma condição concreta e verificável — o que exatamente precisa mudar no texto (ex.: "prazo de 360 dias em vez de 180"); pedido genérico ("precisa de estudos", "falta detalhamento técnico", "insegurança jurídica") não é condição. Se de fato não houver como decidir, use "indefinida" e diga em "concessao" que informação faltou.',
+    'O perfil de votações serve para CALIBRAR a posição deste ator — não é argumento: não cite percentuais de alinhamento, coesão ou histórico de votações como razão da posição; argumente pelo conteúdo da proposta e pelos interesses do ator.',
     '',
   ];
   if (personalizado && ag.descricao) linhas.push('QUEM É E O QUE DEFENDE (descrito pela equipe):', ag.descricao, '');
@@ -271,15 +280,16 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico, extra) {
   linhas.push('Em "notas", escreva para VOCÊ MESMO, em até 5 linhas, o estado da negociação: o que pediu, o que obteve, o que falta e sua linha vermelha — você as receberá na próxima rodada.');
   linhas.push('Responda SOMENTE com um objeto JSON, sem texto fora dele, neste formato:');
   const fmtPontos = pontos.length > 1 ? ',"pontos":[{"n":1,"acao":"apoia|rejeita|reformula|troca","importancia":3,"redacao":"nova redação, se reformula","troca":"o que pede em troca, se troca"}]' : '';
-  linhas.push(`{"posicao":"apoia|condiciona|rejeita","objecoes":[{"texto":"objeção concreta","base":"perfil|contexto|proposicao|proposta${ex.governo ? '|governo' : ''}|nenhuma"}],"concessao":"o que destravaria o apoio (ou vazio se já apoia)","argumento":"o argumento que mais pesaria para esse ator","risco":"o que faria esse ator abandonar o acordo"${fmtPontos},"notas":"suas notas para a próxima rodada"}`);
+  linhas.push(`{"posicao":"apoia|condiciona|rejeita|indefinida","objecoes":[{"texto":"objeção concreta","base":"perfil|contexto|proposicao|proposta${ex.governo ? '|governo' : ''}|nenhuma"}],"concessao":"o que destravaria o apoio (ou vazio se já apoia)","argumento":"o argumento que mais pesaria para esse ator","risco":"o que faria esse ator abandonar o acordo"${fmtPontos},"notas":"suas notas para a próxima rodada"}`);
   return linhas.join('\n');
 }
 
 /**
  * A posição declarada, tolerante à redação do modelo: "Apoia", "apoio" →
  * apoia; "condicionado", "apoia parcialmente", "com ressalvas" → condiciona;
- * "rejeita", "contrário" → rejeita. O resto é "indefinida" (respondeu, mas sem
- * posição legível) — diferente de "sem resposta" (a chamada falhou).
+ * "rejeita", "contrário" → rejeita. O resto é "indefinida" (o agente declarou
+ * que falta informação para decidir, ou a posição veio ilegível) — diferente
+ * de "sem resposta" (a chamada falhou).
  */
 function smPosicao(txt) {
   const t = labsSigla(txt);
@@ -287,6 +297,32 @@ function smPosicao(txt) {
   if (/^apoi|^favor/.test(t)) return 'apoia';
   if (/^rejeit|^contra|^recus/.test(t)) return 'rejeita';
   return 'indefinida';
+}
+
+/**
+ * Confere a base que o agente DECLAROU contra o que ele de fato RECEBEU. Pura.
+ * Ex.: "base: contexto da equipe" sem contexto preenchido é base inexistente —
+ * a objeção vira "nenhuma" e guarda o que foi declarado (baseDeclarada), para
+ * a tela dizer o que houve. `recebido`: { perfil, contexto, proposicao, governo } (booleanos).
+ */
+function smValidarBases(resposta, recebido) {
+  if (!resposta) return resposta;
+  const ok = b => b === 'proposta' || b === 'nenhuma' || !!recebido[b];
+  for (const o of resposta.objecoes || []) {
+    if (!ok(o.base)) { o.baseDeclarada = o.base; o.base = 'nenhuma'; }
+  }
+  return resposta;
+}
+
+/** O que um agente recebeu no prompt, para conferir as bases declaradas. */
+function smRecebido(ag, perfil, prop, extra) {
+  const partido = ag.tipo === 'partido' || (!ag.tipo && ag.sigla !== SM_GOVERNO);
+  return {
+    perfil: !!(partido && perfil && (perfil.comparaveis || perfil.comparaveisOrientacao)),
+    contexto: !!(String(ag.contexto || '').trim() || String(ag.descricao || '').trim()),
+    proposicao: !!prop,
+    governo: !!(extra && extra.governo),
+  };
 }
 
 /** Lê o JSON devolvido pelo modelo (com ou sem cercas ```), normalizando campos. */
@@ -566,7 +602,8 @@ async function smBuscarProposicao() {
   const p = (j.dados || [])[0];
   if (!p) throw new Error(`${sigla} ${numero}/${ano} não encontrada na Câmara.`);
   const d = (await labsJson(`${LABS_API}/proposicoes/${p.id}`)).dados || {};
-  return { id: p.id, sigla, numero, ano, ementa: d.ementa || p.ementa || '', keywords: d.keywords || '' };
+  return { id: p.id, sigla, numero, ano, ementa: d.ementa || p.ementa || '', keywords: d.keywords || '',
+    situacao: ((d.statusProposicao || {}).descricaoSituacao) || '' };
 }
 
 // ---------- rodadas ----------
@@ -605,6 +642,7 @@ async function smRodar(sessao, proposta) {
       let resposta;
       try { resposta = smLerResposta(r.text); }
       catch (e) { throw new Error(r.truncated ? 'resposta cortada pelo limite de tamanho do modelo' : e.message); }
+      smValidarBases(resposta, smRecebido(ag, sessao.perfis[ag.sigla], sessao.prop, extra));
       return { bancada: ag, perfil: sessao.perfis[ag.sigla], resposta };
     } catch (e) {
       return { bancada: ag, perfil: sessao.perfis[ag.sigla], resposta: null, erro: e.message };
@@ -768,9 +806,11 @@ function smRender(s) {
       return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos indefinida">sem resposta</span></div>${perfil}${ctx}<div class="t">${labsEsc(x.erro || '')}</div></div>`;
     }
     const a = x.resposta;
-    return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos ${a.posicao}">${a.posicao === 'indefinida' ? 'posição não legível' : a.posicao}</span></div>${perfil}${ctx}
+    return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos ${a.posicao}">${a.posicao === 'indefinida' ? 'indefinida' : a.posicao}</span></div>${perfil}${ctx}
       ${a.objecoes.length ? `<div class="t"><b>Objeções:</b> ${a.objecoes.map(o => labsEsc(smObjTexto(o)) + (o.base === 'nenhuma'
-        ? ' <span class="sm-sembase" title="O agente não apontou apoio nos dados que recebeu">sem base nos dados</span>'
+        ? (o.baseDeclarada
+          ? ` <span class="sm-sembase" title="O agente citou uma fonte que não recebeu">sem base — citou ${labsEsc((SM_ROT_BASE[o.baseDeclarada] || o.baseDeclarada).replace(/^base: /, ''))}, que ele não recebeu</span>`
+          : ' <span class="sm-sembase" title="O agente não apontou apoio nos dados que recebeu">sem base nos dados</span>')
         : ` <span class="sm-base">${labsEsc(SM_ROT_BASE[o.base] || o.base)}</span>`)).join(' · ')}</div>` : ''}
       ${a.concessao ? `<div class="t"><b>Destravaria:</b> ${labsEsc(a.concessao)}</div>` : ''}
       ${a.argumento ? `<div class="t"><b>Argumento que pesa:</b> ${labsEsc(a.argumento)}</div>` : ''}
@@ -790,7 +830,10 @@ function smRender(s) {
       <tr><td class="base">Cadeiras que apoiam</td>${cad.map(c => `<td class="base">${c.apoia} de ${c.total}</td>`).join('')}</tr></table>
       ${s.rodadas.map((x, i) => `<div class="sub" style="margin-top:4px"><b>Proposta da rodada ${i + 1}:</b> ${labsEsc(x.proposta)}</div>`).join('')}</div>`;
   }
-  const prop = s.prop ? `<div class="sub">${labsEsc(s.prop.sigla + ' ' + s.prop.numero + '/' + s.prop.ano)} — ${labsEsc(s.prop.ementa)}</div>` : '';
+  const prop = s.prop ? `<div class="sub">${labsEsc(s.prop.sigla + ' ' + s.prop.numero + '/' + s.prop.ano)} — ${labsEsc(s.prop.ementa)}</div>
+    ${smJaEhLei(s.prop) ? `<div class="labs-aviso"><b>Esta proposição já virou lei</b> (situação na Câmara: ${labsEsc(s.prop.situacao)}). Os agentes foram instruídos
+      a tratar a proposta como alteração da lei em vigor — mas, para simular uma negociação real, prefira indicar a proposição PENDENTE sobre o tema
+      (ou deixe número e ano em branco e descreva a mudança na lei).</div>` : ''}` : '';
   const custo = Object.entries(s.custo).map(([m, c]) => `${c} com ${labsEsc(m)}`).join(', ');
   const total = Object.values(s.custo).reduce((a, b) => a + b, 0);
   const falhasIA = s.falhasIA ? `; mais ${s.falhasIA} que falharam` : '';
@@ -801,7 +844,7 @@ function smRender(s) {
       ${card('f5', ap.apoia, 'cadeiras: apoia')}
       ${card('f3', ap.condiciona, 'cadeiras: condiciona')}
       ${card('f1', ap.rejeita, 'cadeiras: rejeita')}
-      ${ap.indefinida ? card('f0', ap.indefinida, 'cadeiras: posição não legível') : ''}
+      ${ap.indefinida ? card('f0', ap.indefinida, 'cadeiras: indefinida') : ''}
       ${ap.semResposta ? card('f0', ap.semResposta, 'cadeiras: sem resposta (erro)') : ''}
     </div>
     ${s.blocosFalhou ? `<div class="labs-aviso"><b>Atenção:</b> a lista de blocos da Câmara não carregou. Partidos que só orientam pelo bloco
