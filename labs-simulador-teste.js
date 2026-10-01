@@ -44,7 +44,10 @@ function smBtData(it) { return String(it.votacao.dataHoraRegistro || it.votacao.
  */
 function smBtSelecionar(itens, n) {
   const ord = [...(itens || [])].sort((a, b) => smBtData(a).localeCompare(smBtData(b)));
-  const comGov = ord.filter(it => { const g = labsOrientacao(it.orientacoes, 'Governo'); return g === 'Sim' || g === 'Não'; });
+  const comGov = ord.filter(it => {
+    const g = labsOrientacao(it.orientacoes, 'Governo');
+    return (g === 'Sim' || g === 'Não') && it.votos.some(v => smBtVoto(v.tipoVoto));   // voto secreto não mede nada
+  });
   const teste = comGov.slice(-n);
   if (!teste.length) return { teste: [], treino: [] };
   const corte = smBtData(teste[0]);
@@ -261,6 +264,7 @@ async function smTestarClick() {
       periodoTeste: [smBtData(teste[0]).slice(0, 10), smBtData(teste[teste.length - 1]).slice(0, 10)],
       partidos: siglas, chamadas: custo.ok, falhasIA: custo.erro,
       metricas: { estatistica: met('est'), ingenua: met('ing'), agentes: met('ag') },
+      comparacao: { agentesVsEstatistica: smBtComparar(linhas, 'ag', 'est'), agentesVsIngenua: smBtComparar(linhas, 'ag', 'ing') },
       porPartido: Object.fromEntries(siglas.map(s => {
         const ls = linhas.filter(l => l.sigla === s);
         const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
@@ -280,16 +284,38 @@ async function smTestarClick() {
   }
 }
 
+/**
+ * A diferença entre dois métodos é real ou acaso? Pura. Olha só os pares em
+ * que UM acertou e o OUTRO errou (b = A acertou e B errou; c = o contrário) —
+ * teste de McNemar, com aproximação normal: significativo se |b − c| > 1,96·√(b + c)
+ * e houver ao menos 6 pares discordantes. Com 5 votações, quase nunca é.
+ */
+function smBtComparar(linhas, kA, kB) {
+  let b = 0, c = 0;
+  for (const l of linhas) {
+    if (!l.verdade) continue;
+    const a = l[kA] === l.verdade, bb = l[kB] === l.verdade;
+    if (a && !bb) b++; else if (!a && bb) c++;
+  }
+  const significativo = b + c >= 6 && Math.abs(b - c) > 1.96 * Math.sqrt(b + c);
+  return { b, c, significativo };
+}
+
 function smBtPct(x) { return x == null ? '—' : (x * 100).toFixed(0) + '%'; }
 
 function smBtRender(r) {
   const M = r.metricas;
   const linha = (rot, m, desc) => `<tr><td><b>${rot}</b><div class="base">${desc}</div></td><td style="text-align:right">${smBtPct(m.acuracia)}</td><td style="text-align:right">${smBtPct(m.macroF1)}</td><td style="text-align:right">${smBtPct(m.cobertura)}</td></tr>`;
   const melhorAg = M.agentes.acuracia != null && M.estatistica.acuracia != null ? M.agentes.acuracia - M.estatistica.acuracia : null;
+  const cmp = (r.comparacao || {}).agentesVsEstatistica;
+  const disc = cmp ? ` (pares em que só um acertou: agentes ${cmp.b} × estatística ${cmp.c})` : '';
+  const pontos = melhorAg == null ? '' : `${Math.abs(melhorAg * 100).toFixed(0)} pontos ${melhorAg >= 0 ? 'a mais' : 'a menos'}`;
   const veredito = melhorAg == null ? ''
-    : melhorAg > 0.03 ? `Os agentes acertaram <b>${(melhorAg * 100).toFixed(0)} pontos a mais</b> que a estatística neste teste.`
-    : melhorAg < -0.03 ? `Os agentes acertaram <b>${(-melhorAg * 100).toFixed(0)} pontos a menos</b> que a estatística: para estimar posição, a estatística é melhor — use o Simulador para preparar argumentos.`
-    : 'Agentes e estatística empataram (diferença de até 3 pontos): os agentes não acrescentam precisão — o valor deles está nos argumentos e objeções.';
+    : cmp && !cmp.significativo
+      ? `<b>Empate técnico:</b> os agentes acertaram ${pontos} que a estatística, mas a diferença cabe no acaso${disc}. Rode com mais votações (20 ou 30) para separar um do outro.`
+      : melhorAg > 0
+        ? `Os agentes acertaram <b>${pontos}</b> que a estatística, e a diferença não parece acaso${disc}.`
+        : `Os agentes acertaram <b>${pontos}</b> que a estatística, e a diferença não parece acaso${disc}: para estimar posição, a estatística é melhor — use o Simulador para preparar argumentos.`;
   const partidos = Object.values(r.porPartido || {}).sort((a, b) => a.sigla.localeCompare(b.sigla));
   smEl('smTesteResultado').innerHTML = `
     <div class="sub" style="margin-top:8px">${r.votacoes} votações de ${labsEsc(r.periodoTeste[0])} a ${labsEsc(r.periodoTeste[1])} ·

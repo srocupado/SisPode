@@ -610,7 +610,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const nums = [...tr.matchAll(/<td style="text-align:right">(\d+|—)%?<\/td>/g)].map(m => m[1]);
   ok(/Estatística \(sem IA\)/.test(tr) && /IA ingênua/.test(tr) && /Agentes do Simulador/.test(tr), 'resultado com os três métodos');
   ok(nums[0] === '88' && nums[3] === '50' && nums[6] === '50', `acerto: estatística 7/8 (erra só a obstrução do PL), IA ingênua 4/8, agentes 4/8 (${nums.slice(0, 9).join(' ')})`);
-  ok(/acertaram <b>38 pontos a menos<\/b> que a estatística/.test(tr), 'veredito: agentes abaixo da estatística → usar para argumentos, não para estimar posição');
+  ok(/Empate técnico:<\/b> os agentes acertaram 38 pontos a menos[\s\S]*agentes 0 × estatística 3/.test(tr), 'veredito com só 3 pares discordantes: empate técnico, não "38 pontos a menos"');
+  ok(JSON.stringify(av(`smBtComparar([...Array(12)].map((_, i) => ({ verdade: 'Sim', ag: 'Sim', est: i < 10 ? 'Não' : 'Sim' })), 'ag', 'est')`)) === JSON.stringify({ b: 10, c: 0, significativo: true })
+    && av(`smBtComparar([{ verdade: 'Sim', ag: 'Sim', est: 'Não' }, { verdade: 'Sim', ag: 'Sim', est: 'Não' }], 'ag', 'est').significativo`) === false, 'McNemar: 10 × 0 é diferença real; 2 × 0 é acaso');
+  ctx.__secreta = [{ votacao: { id: 'sec', data: '2026-05-30' }, orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: 'Sim' }], votos: [{ deputado_: { id: 1, siglaPartido: 'PL' }, tipoVoto: null }] }];
+  ok(av(`smBtSelecionar(__vt.concat(__secreta), 4).teste.every(t => t.votacao.id !== 'sec')`), 'votação secreta (votos sem Sim/Não) fica fora do teste');
   const linhasVot = ctx.__prompts.map(o => (o.prompt.match(/Em votação: .*/) || [''])[0]);
   ok(ctx.__prompts.length === 4 * 2 + 4 && linhasVot.every(l => l && !/Sim: \d|Aprovad|Rejeitad/.test(l)),
     'custo previsto (4 votações × 2 bancadas + 4 ingênuas) e a votação testada nunca leva o próprio resultado');
