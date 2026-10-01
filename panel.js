@@ -355,6 +355,8 @@ function registrarEventos() {
     ?.addEventListener('click', () => abrirSubpainelOrcamento('emendas.html'));
   document.getElementById('btn-sub-notas')
     ?.addEventListener('click', () => abrirSubpainelOrcamento('orcamento-notas.html'));
+  document.getElementById('btn-sub-portarias')
+    ?.addEventListener('click', () => abrirSubpainelOrcamento('portarias.html'));
   // Sub-painéis de Comissões (Gestão / Pautas), pelo mesmo motivo.
   document.getElementById('btn-sub-gestao')
     ?.addEventListener('click', () => abrirSubpainelComissoes('comissoes.html'));
@@ -3444,7 +3446,7 @@ const MODULES = [
   {
     id:     'emendas',
     titulo: 'Orçamento',
-    desc:   'Dois painéis: acompanhamento das emendas da bancada (proposto, empenhado e pago) e notas técnicas das leis orçamentárias — LOA, LDO e PPA na Comissão Mista, com prazo de emendas e conferência da base normativa.',
+    desc:   'Três painéis: acompanhamento das emendas da bancada (proposto, empenhado e pago); notas técnicas das leis orçamentárias — LOA, LDO e PPA na Comissão Mista, com prazo de emendas e conferência da base normativa; e comparador de portarias, com nota técnica de como eram e como ficaram os procedimentos.',
     cor:    'verde',
     icone:  '<line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/>',
     acao:   abrirEmendas,
