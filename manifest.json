@@ -27,7 +27,8 @@
     "https://api.bcb.gov.br/*",
     "https://www.planalto.gov.br/*",
     "https://www.lexml.gov.br/*",
-    "https://www2.camara.leg.br/*"
+    "https://www2.camara.leg.br/*",
+    "https://www.in.gov.br/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'self'; img-src 'self' data: blob:"
@@ -82,7 +83,10 @@
         "pautas-comissoes-core.js",
         "ia-comum.js",
         "analise.css",
-        "icons/podemos-logo.png"
+        "icons/podemos-logo.png",
+        "portarias.html",
+        "portarias-leitura.js",
+        "portarias.js"
       ],
       "matches": [
         "<all_urls>"
