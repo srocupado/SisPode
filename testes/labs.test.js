@@ -621,6 +621,35 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(putsBt.some(u => /\/labs\/simulador\/validacoes\/\d+\.json$/.test(u)), 'resultado do teste guardado para a equipe');
   ctx.fetch = fB;
 
+  // ---------- 9. contexto: consenso × conflito com a Oposição ----------
+  console.log('9. Consenso × conflito');
+  ok(av(`smContexto('Sim', 'Sim')`) === 'consenso' && av(`smContexto('Sim', 'Não')`) === 'conflito' && av(`smContexto('Sim', 'Obstrução')`) === 'conflito' && av(`smContexto('Sim', null)`) === 'semOposicao', 'contexto pela orientação da Oposição');
+  // PL de mentira: sempre com o Governo no consenso, sempre contra no conflito
+  const vc = [];
+  for (let i = 0; i < 10; i++) {
+    const gov = i % 2 ? 'Sim' : 'Não', cons = i < 4, contra = gov === 'Sim' ? 'Não' : 'Sim';
+    vc.push({ votacao: { id: 'c' + i, data: `2026-03-${10 + i}` },
+      orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: gov }, { siglaPartidoBloco: 'Oposição', orientacaoVoto: cons ? gov : contra }],
+      votos: [1, 2, 3].map(id => ({ deputado_: { id, siglaPartido: 'PL' }, tipoVoto: cons ? gov : contra })) });
+  }
+  ctx.__vc = vc;
+  const pc = av(`smPerfis(__vc, ['PL']).PL`);
+  ok(pc.porContexto.consenso.n === 4 && pc.porContexto.consenso.alinhamento === 1 && pc.porContexto.conflito.n === 6 && pc.porContexto.conflito.alinhamento === 0 && Math.abs(pc.alinhamentoGoverno - 0.4) < 1e-9,
+    'perfil por contexto: PL 100% no consenso, 0% no conflito (geral 40% escondia isso)');
+  ctx.__pc = pc;
+  ok(av(`smBtEstatistica(__pc, 'Sim', 'Sim')`) === 'Sim' && av(`smBtEstatistica(__pc, 'Sim', 'Não')`) === 'Não', 'estatística por contexto: segue o Governo no consenso, vota contra no conflito');
+  ok(av(`smBtEstatistica(__pc, 'Sim')`) === 'Não', 'sem a Oposição, vale o alinhamento geral (40% → contra)');
+  ok(av(`smBtEstatistica(__pc, 'Sim', null)`) === 'Não', 'contexto com menos de 3 votações no histórico cai no geral');
+  const lc = av(`smLinhasContexto(__pc)`);
+  ok(lc.length === 2 && /consenso\), a maioria da bancada votou com o Governo em 100% de 4/.test(lc[0]) && /conflito\), a maioria da bancada votou com o Governo em 0% de 6/.test(lc[1]), 'linhas do perfil por contexto para os prompts');
+  const pbo = av(`smBtPromptAgente('PL', 90, __pc, __vc[9], null, 'Sim', 'Não')`);
+  ok(/O Governo orientou: Sim\.\nA Oposição orientou: Não\./.test(pbo) && /consenso\), a maioria/.test(pbo), 'teste contra o passado: agente recebe a orientação da Oposição e o perfil por contexto');
+  ok(/A Oposição liberou a bancada ou não orientou Sim\/Não\./.test(av(`smBtPromptIngenuo(['PL'], __vc[0], null, 'Não', null)`)), 'IA ingênua também recebe a Oposição (comparação justa)');
+  const pso = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, __pc, null, 'Proposta X qualquer.', 6, [], { oposicao: 'Sim' })`);
+  ok(/EXPECTATIVA DA EQUIPE: a liderança da OPOSIÇÃO deve orientar a FAVOR da proposta/.test(pso) && /consenso\), a maioria/.test(pso), 'Simulador: expectativa da Oposição e perfil por contexto no prompt');
+  ok(!/EXPECTATIVA DA EQUIPE/.test(av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, __pc, null, 'Proposta X qualquer.', 6, [])`)), '"não sei" (padrão): sem expectativa no prompt');
+  ok(/<option value="" selected>não sei<\/option>/.test(html), 'campo da Oposição começa em "não sei"');
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

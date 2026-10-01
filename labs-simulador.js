@@ -68,7 +68,8 @@ function smBancadasDe(deputados) {
  */
 function smPerfis(itens, siglas) {
   const out = {};
-  for (const s of siglas) out[s] = { sigla: s, orientou: 0, comparaveis: 0, coincidiu: 0, comparaveisOrientacao: 0, coincidiuOrientacao: 0, coesaoSoma: 0, coesaoN: 0, divergencias: [] };
+  for (const s of siglas) out[s] = { sigla: s, orientou: 0, comparaveis: 0, coincidiu: 0, comparaveisOrientacao: 0, coincidiuOrientacao: 0, coesaoSoma: 0, coesaoN: 0, divergencias: [],
+    porContexto: { consenso: { n: 0, c: 0 }, conflito: { n: 0, c: 0 }, semOposicao: { n: 0, c: 0 } } };
   const ordenados = [...(itens || [])].sort((a, b) => String(b.votacao.dataHoraRegistro || b.votacao.data || '').localeCompare(String(a.votacao.dataHoraRegistro || a.votacao.data || '')));
   // Bancada de 1 deputado (ex.: MISSÃO, DC) nunca teria "2 votos" numa votação:
   // aí o voto dele é o da bancada. Nas demais, exige 2 para ter maioria.
@@ -81,6 +82,7 @@ function smPerfis(itens, siglas) {
   for (const it of ordenados) {
     const og = labsOrientacao(it.orientacoes, 'Governo');
     const gov = og === 'Sim' || og === 'Não' ? og : null;
+    const ctxVot = smContexto(gov, labsOrientacao(it.orientacoes, 'Oposição'));
     const votosPorPartido = new Map();
     for (const v of it.votos) {
       const t = labsSigla(v.tipoVoto);
@@ -110,7 +112,8 @@ function smPerfis(itens, siglas) {
       if (ordem[0][1] === ordem[1][1]) continue;          // empate: sem maioria
       const maioria = ordem[0][0];
       pf.comparaveis++;
-      if (maioria === gov) pf.coincidiu++;
+      pf.porContexto[ctxVot].n++;
+      if (maioria === gov) { pf.coincidiu++; pf.porContexto[ctxVot].c++; }
       else if (pf.divergencias.length < 5) {
         const obj = String(it.votacao.proposicaoObjeto || '').trim();
         const desc = String(it.votacao.descricao || '').replace(/\s+/g, ' ').trim().slice(0, 200);
@@ -125,8 +128,34 @@ function smPerfis(itens, siglas) {
     pf.alinhamentoGoverno = pf.comparaveis ? pf.coincidiu / pf.comparaveis : null;
     pf.alinhamentoOrientacao = pf.comparaveisOrientacao ? pf.coincidiuOrientacao / pf.comparaveisOrientacao : null;
     pf.coesao = pf.coesaoN ? pf.coesaoSoma / pf.coesaoN : null;
+    for (const k of Object.keys(pf.porContexto)) { const x = pf.porContexto[k]; x.alinhamento = x.n ? x.c / x.n : null; }
   }
   return out;
+}
+
+/**
+ * O contexto da votação pela orientação da Oposição, anunciada ANTES do voto:
+ * "consenso" (Oposição orientou igual ao Governo), "conflito" (orientou
+ * diferente — inclui obstrução) ou "semOposicao" (liberou ou não orientou).
+ * Medido em 12 meses (169 votações): o PL acompanha o Governo em 100% dos
+ * consensos e em 4% dos conflitos — o alinhamento geral (≈ 30%) esconde isso.
+ */
+function smContexto(gov, oposicao) {
+  if (!oposicao) return 'semOposicao';
+  return oposicao === gov ? 'consenso' : 'conflito';
+}
+
+const SM_ROT_CONTEXTO = {
+  consenso: 'quando Governo e Oposição orientaram IGUAL (consenso)',
+  conflito: 'quando a Oposição orientou DIFERENTE do Governo (conflito)',
+  semOposicao: 'quando a Oposição liberou ou não orientou',
+};
+
+/** Linhas do perfil por contexto, para os prompts. Pura. */
+function smLinhasContexto(perfil) {
+  const pc = (perfil && perfil.porContexto) || {};
+  return Object.keys(SM_ROT_CONTEXTO).filter(k => pc[k] && pc[k].n)
+    .map(k => `- ${SM_ROT_CONTEXTO[k][0].toUpperCase() + SM_ROT_CONTEXTO[k].slice(1)}, a maioria da bancada votou com o Governo em ${smPct(pc[k].alinhamento)} de ${pc[k].n} votações.`);
 }
 
 function smPct(x) { return x == null ? 'sem dado' : Math.round(x * 100) + '%'; }
@@ -199,6 +228,7 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico, extra) {
     linhas.push(perfil.comparaveis
       ? `- A maioria dos deputados da bancada votou como o Governo orientou em ${smPct(perfil.alinhamentoGoverno)} das ${perfil.comparaveis} votações em que o Governo orientou Sim ou Não.`
       : '- Sem votações suficientes para medir o alinhamento da bancada com o Governo.');
+    linhas.push(...smLinhasContexto(perfil));
     if (perfil.comparaveisOrientacao) linhas.push(`- A orientação do líder (do partido ou do bloco) foi igual à do Governo em ${smPct(perfil.alinhamentoOrientacao)} de ${perfil.comparaveisOrientacao} votações (obstrução conta como divergência).`);
     if (perfil.coesao != null) linhas.push(`- Coesão (deputados votando com a maioria da bancada): ${smPct(perfil.coesao)}.`);
     if (perfil.divergencias.length) {
@@ -212,6 +242,9 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico, extra) {
   }
   const tp = smTextoProposicao(prop);
   if (tp) linhas.push('PROPOSIÇÃO EM PAUTA:', tp, '');
+  if (ex.oposicao && ag.sigla !== SM_GOVERNO) {
+    linhas.push(`EXPECTATIVA DA EQUIPE: a liderança da OPOSIÇÃO deve orientar ${ex.oposicao === 'Sim' ? 'a FAVOR da proposta' : ex.oposicao === 'Não' ? 'CONTRA a proposta' : 'OBSTRUÇÃO'}. Leve em conta como a bancada se comporta nesse contexto (perfil acima).`, '');
+  }
   if (ex.governo && ag.sigla !== SM_GOVERNO) {
     const g = ex.governo;
     linhas.push('POSIÇÃO JÁ DECLARADA PELA LIDERANÇA DO GOVERNO NESTA RODADA:',
@@ -584,15 +617,16 @@ async function smRodar(sessao, proposta) {
   // independentes: agentes de IA tendem a seguir a posição dominante, e a
   // ordem pode amplificar isso.
   const gov = sessao.govPrimeiro ? sessao.agentes.find(a => a.sigla === SM_GOVERNO) : null;
+  const base = sessao.oposicao ? { oposicao: sessao.oposicao } : {};
   let resultados;
   if (gov) {
-    const rg = await rodar(gov);
-    const extra = rg.resposta ? { governo: rg.resposta } : undefined;
+    const rg = await rodar(gov, base);
+    const extra = Object.assign({}, base, rg.resposta ? { governo: rg.resposta } : {});
     const outros = await labsMapLimit(sessao.agentes.filter(a => a !== gov), 3, ag => rodar(ag, extra));
     let k = 0;
     resultados = sessao.agentes.map(a => a === gov ? rg : outros[k++]);
   } else {
-    resultados = await labsMapLimit(sessao.agentes, 3, ag => rodar(ag));
+    resultados = await labsMapLimit(sessao.agentes, 3, ag => rodar(ag, base));
   }
   labsStatus('smStatus', 'Sintetizando a rodada…', 'loading');
   let sintese = '';
@@ -629,6 +663,7 @@ async function smSimularClick() {
       perfis: smPerfis(itens, partidos),
       modelos: { agentes: smEl('smModeloAgentes').value, sintese: smEl('smModeloSintese').value },
       govPrimeiro: !!(smEl('smGovPrimeiro') && smEl('smGovPrimeiro').checked),
+      oposicao: (smEl('smOposicao') && (smEl('smOposicao').value || (smEl('smOposicao').querySelector('option[selected]') || {}).value)) || '',
       rodadas: [], custo: {},
     };
     await smRodar(sm.sessao, proposta);
@@ -721,6 +756,8 @@ function smRender(s) {
     const pf = x.perfil;
     const perfil = pf && ag.tipo === 'partido' ? `<div class="t">Perfil: ${ag.cadeiras} cadeiras · ${[
         pf.comparaveis ? `votou como o Governo orientou em ${smPct(pf.alinhamentoGoverno)} (${pf.comparaveis} votações)` : 'sem votações para medir o alinhamento com o Governo',
+        pf.porContexto && pf.porContexto.consenso.n ? `no consenso ${smPct(pf.porContexto.consenso.alinhamento)} (${pf.porContexto.consenso.n})` : '',
+        pf.porContexto && pf.porContexto.conflito.n ? `no conflito ${smPct(pf.porContexto.conflito.alinhamento)} (${pf.porContexto.conflito.n})` : '',
         pf.comparaveisOrientacao ? `orientação do líder igual à do Governo em ${smPct(pf.alinhamentoOrientacao)} (${pf.comparaveisOrientacao})` : '',
         pf.coesao != null ? `coesão ${smPct(pf.coesao)}` : ''].filter(Boolean).join(' · ')}</div>`
       : (ag.descricao ? `<div class="t">${labsEsc(SM_TIPOS[ag.tipo] || '')}: ${labsEsc(ag.descricao)}</div>` : '');
