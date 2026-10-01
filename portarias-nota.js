@@ -115,6 +115,79 @@ ${JSON.stringify(atual)}
 Responda APENAS com o JSON completo da nota revisada, no mesmo formato, com o campo "resposta".`;
 }
 
+// ---------- várias portarias numa nota só ----------
+// Cada ato tem a sua nota (ptPromptNota, conferida contra o texto DELE). Com
+// mais de um, uma chamada a mais escreve a parte geral — assunto, resumo, o que
+// liga os atos (ou que não há ligação), atenção e recomendações — usando só o
+// que já foi conferido em cada nota.
+
+function ptPromptNotaConjunta({ tipo = 'informativa', foco = '', atos = [] } = {}) {
+  const tecnica = tipo === 'tecnica';
+  const lista = (xs, f) => (xs || []).slice(0, 12).map(f).join('; ');
+  return `Você redige a parte geral de uma ${tecnica ? 'NOTA TÉCNICA' : 'NOTA INFORMATIVA'} sobre ${atos.length} atos normativos, para a Liderança de um partido na Câmara.
+Cada ato já foi lido e resumido abaixo (conteúdo conferido no texto). Use SOMENTE isso; não acrescente números, prazos ou valores que não estejam aqui.
+${foco ? `Foco pedido pelo analista: ${foco}
+` : ''}
+${atos.map((a, i) => `ATO ${i + 1}: ${a.identificacao}${a.orgao ? ' — ' + a.orgao : ''}
+  Assunto: ${a.assunto || ''}
+  Resumo: ${a.resumo || ''}
+  Disposições: ${lista(a.pontos, x => `${x.tema}: ${x.descricao}`)}
+  Prazos: ${lista(a.prazos, x => `${x.prazo} — ${x.evento}`)}
+  Valores: ${lista(a.valores, x => `${x.valor} — ${x.descricao}`)}
+  Relações: ${(a.relacoes || []).join('; ') || 'nenhuma identificada'}`).join('\n\n')}
+
+Os atos podem não ter relação entre si — nesse caso diga isso em "conexoes" em vez de forçar uma ligação.
+
+Responda APENAS com JSON:
+{ "assunto": "uma frase sobre o conjunto", "resumo": "um parágrafo sobre o conjunto",
+  "conexoes": [ { "texto": "o que liga (ou distingue) os atos", "atos": [1, 2] } ],
+  ${tecnica ? '"impactos": [ { "para": "quem", "descricao": "…", "atos": [1] } ], "atencao": [ { "descricao": "…", "atos": [2] } ], "recomendacoes": [ "ação recomendada ao gabinete" ],' : ''}
+  "visuais": ${JSON.stringify(PT_VISUAIS_PADRAO)}, "extensao": "normal", "secoes": [] }`;
+}
+
+/** Parte geral normalizada (geração e revisão). Pura. n = número de atos. */
+function ptNormalizarGeral(r, n) {
+  r = r && typeof r === 'object' ? r : {};
+  const idx = a => (Array.isArray(a) ? a : []).map(Number).filter(x => x >= 1 && x <= n);
+  const lst = (x, k) => (Array.isArray(x) ? x : []).slice(0, k);
+  return {
+    assunto: String(r.assunto || '').trim(), resumo: String(r.resumo || '').trim(),
+    conexoes: lst(r.conexoes, 10).filter(c => c && c.texto).map(c => ({ texto: String(c.texto), atos: idx(c.atos) })),
+    impactos: lst(r.impactos, 10).filter(c => c && c.descricao).map(c => ({ para: String(c.para || ''), descricao: String(c.descricao), atos: idx(c.atos) })),
+    atencao: lst(r.atencao, 10).map(c => typeof c === 'string' ? { descricao: c, atos: [] } : c && c.descricao ? { descricao: String(c.descricao), atos: idx(c.atos) } : null).filter(Boolean),
+    recomendacoes: lst(r.recomendacoes, 10).map(String).filter(Boolean),
+    secoes: lst(r.secoes, 8).filter(x => x && (x.titulo || x.texto)).map(x => ({ titulo: String(x.titulo || ''), texto: String(x.texto || '') })),
+    visuais: Array.isArray(r.visuais) ? [...new Set(r.visuais.map(String).filter(v => PT_VISUAIS[v]))] : PT_VISUAIS_PADRAO.slice(),
+    extensao: PT_EXTENSOES[r.extensao] ? r.extensao : 'normal',
+    resposta: String(r.resposta || '').trim(),
+  };
+}
+
+/**
+ * Revisão da nota de várias portarias: devolve { geral, atos: [ … ] } na mesma
+ * ordem. As notas de cada ato voltam a ser conferidas contra o texto do ato.
+ */
+function ptPromptRevisaoConjunto({ nota, pedido, historico = [], tipo = 'informativa', identificacoes = [] } = {}) {
+  const limpa = it => it && typeof it === 'object' && !Array.isArray(it) ? (({ conferido, problemas, ...r }) => r)(it) : it;
+  const semMarcas = n => { const o = {}; for (const k of Object.keys(n)) o[k] = Array.isArray(n[k]) ? n[k].map(limpa) : limpa(n[k]); return o; };
+  const atual = { geral: (({ resposta, ...g }) => g)(nota.geral), atos: nota.atos.map((a, i) => Object.assign({ ato: identificacoes[i] || `ato ${i + 1}` }, semMarcas(a.nota))) };
+  return `Você revisa uma ${(PT_NOTA_TIPOS[tipo] || PT_NOTA_TIPOS.informativa).rotulo.toUpperCase()} sobre ${nota.atos.length} atos normativos.
+O analista pediu a seguinte alteração:
+<<<${String(pedido || '').trim()}>>>
+${historico.length ? `Pedidos anteriores, já atendidos (mantenha-os): ${historico.map(h => `«${h}»`).join('; ')}.\n` : ''}
+REGRAS (obrigatórias):
+1. Altere SOMENTE o que o pedido exige; o resto permanece igual.
+2. Em "atos", mantenha a MESMA ordem e a mesma quantidade. Conteúdo novo de um ato só do texto DELE (abaixo), com "artigos" e "trecho" LITERAL (40 a 300 caracteres).
+3. Parágrafo a mais sobre o conjunto: "geral.secoes"; sobre um ato: "secoes" daquele ato. Mais curto/longo: "geral.extensao" (${Object.keys(PT_EXTENSOES).join(' | ')}).
+   Gráficos: "geral.visuais", entre ${Object.entries(PT_VISUAIS).map(([k, v]) => `${k} = ${v}`).join('; ')}.
+4. Inclua "geral.resposta": uma frase dizendo o que foi alterado (ou por que não foi possível).
+
+NOTA ATUAL (JSON):
+${JSON.stringify(atual)}
+
+Responda APENAS com o JSON completo revisado: { "geral": { … }, "atos": [ … ] }.`;
+}
+
 /** Artigos existentes no ato: Set de números ("5", "12"). Pura. */
 function ptArtigosDoTexto(texto) {
   const s = new Set();
@@ -227,5 +300,5 @@ function ptNotaTexto(nota, meta = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PT_NOTA_TIPOS, PT_NOTA_LISTAS, PT_VISUAIS, PT_VISUAIS_PADRAO, PT_EXTENSOES, ptPromptNota, ptPromptRevisao, ptArtigosDoTexto, ptArtigosProprios, ptNumArtigo, ptConferirNota, ptPrazoDias, ptNotaTexto };
+  module.exports = { PT_NOTA_TIPOS, PT_NOTA_LISTAS, PT_VISUAIS, PT_VISUAIS_PADRAO, PT_EXTENSOES, ptPromptNota, ptPromptRevisao, ptPromptNotaConjunta, ptNormalizarGeral, ptPromptRevisaoConjunto, ptArtigosDoTexto, ptArtigosProprios, ptNumArtigo, ptConferirNota, ptPrazoDias, ptNotaTexto };
 }

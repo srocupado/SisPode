@@ -10,7 +10,8 @@
 // gera uma nova versão, que passa de novo pela conferência — e dá para desfazer.
 // O PDF sai pela impressão do navegador, só com a nota.
 
-const pn = { doc: null, tipo: 'informativa', nota: null, conf: null, versoes: [], pedidos: [], ocupado: '', config: null, aviso: '' };
+// nota = { geral: null (um ato) | parte geral (vários), atos: [{ docId, nota, total, conferidos }] }
+const pn = { docs: [], seq: 0, tipo: 'informativa', nota: null, versoes: [], pedidos: [], ocupado: '', config: null, aviso: '', progresso: '' };
 
 // ---------- IA: configuração (mesmo nó `config` do chrome.storage dos demais painéis) ----------
 
@@ -217,11 +218,9 @@ function ptCabecalhoNota({ tipo, titulo, sub }) {
     </div><div class="pn-filete"></div>`;
 }
 
-function pnNotaHtml(nota, meta) {
+/** Seções da nota de UM ato (resumo, objeto, listas, extras, vigência). sec(titulo, corpo) acumula. */
+function pnSecoesAto(nota, sec) {
   const curta = nota.extensao === 'curta';
-  const secoes = [];
-  let n = 0;
-  const sec = (t, corpo) => secoes.push(`<section><h4>${++n}. ${ptEsc(t)}</h4>${corpo}</section>`);
   if (nota.resumo) sec('Resumo', `<p>${ptEsc(nota.resumo)}</p>`);
   if (nota.objeto && nota.objeto.texto) sec('Objeto', `<p>${ptEsc(nota.objeto.texto)}</p>${pnArts(nota.objeto)}`);
   for (const [k, [rot, campos]] of Object.entries(PT_NOTA_LISTAS)) {
@@ -229,8 +228,15 @@ function pnNotaHtml(nota, meta) {
     if (!itens.length) continue;
     sec(rot, `<ul>${itens.map(it => `<li>${campos.map((c, i) => it[c] ? (i === 0 && campos.length > 1 ? `<b>${ptEsc(it[c])}:</b> ` : ptEsc(it[c])) : '').join('')}<div class="pn-fonte">${pnArts(it)}</div></li>`).join('')}</ul>`);
   }
-  for (const x of nota.secoes) sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto || '')}</p><div class="pn-fonte">${pnArts(x)}</div>`);
+  for (const x of nota.secoes || []) sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto || '')}</p><div class="pn-fonte">${pnArts(x)}</div>`);
   if (nota.vigencia && nota.vigencia.texto) sec('Vigência', `<p>${ptEsc(nota.vigencia.texto)}</p><div class="pn-fonte">${pnArts(nota.vigencia)}</div>`);
+}
+
+function pnNotaHtml(nota, meta) {
+  const secoes = [];
+  let n = 0;
+  const sec = (t, corpo) => secoes.push(`<section><h4>${++n}. ${ptEsc(t)}</h4>${corpo}</section>`);
+  pnSecoesAto(nota, sec);
   if (nota.recomendacoes.length) sec('Recomendações da assessoria', `<ul>${nota.recomendacoes.map(r => `<li>${ptEsc(r)}</li>`).join('')}</ul>`);
   const tipo = (PT_NOTA_TIPOS[meta.tipo] || PT_NOTA_TIPOS.informativa).rotulo;
   return `<div id="pn-doc" class="pn-doc">
@@ -243,25 +249,81 @@ function pnNotaHtml(nota, meta) {
   </div>`;
 }
 
+function pnCurto(d) { return typeof pcCurto === 'function' ? pcCurto(d) : (d.identificacao || 'ato'); }
+
+/** Nota de VÁRIOS atos: parte geral, quadros do conjunto e uma seção por ato. */
+function pnNotaConjuntaHtml(nota, docs, tipoId) {
+  const g = nota.geral;
+  const tipo = (PT_NOTA_TIPOS[tipoId] || PT_NOTA_TIPOS.informativa).rotulo;
+  const total = nota.atos.reduce((s, a) => s + a.total, 0), conferidos = nota.atos.reduce((s, a) => s + a.conferidos, 0);
+  const rot = i => pnCurto(docs[i - 1] || {});
+  const refs = l => (l || []).length ? ` <span class="pn-art">${l.map(i => ptEsc(rot(i))).join(' · ')}</span>` : '';
+  // quadros do conjunto: as listas de todos os atos, com o ato no rótulo
+  const junta = k => nota.atos.flatMap((a, i) => a.nota[k].map(x => Object.assign({}, x, k === 'prazos' ? { evento: `${x.evento || ''} (${rot(i + 1)})` }
+    : k === 'valores' ? { descricao: `${x.descricao || ''} (${rot(i + 1)})` } : k === 'aplicacao' ? { como: `${x.como || ''} (${rot(i + 1)})` } : {})));
+  const mesclada = { visuais: g.visuais.filter(v => v !== 'relacoes' && v !== 'temas'), pontos: junta('pontos'), prazos: junta('prazos'), valores: junta('valores'), aplicacao: junta('aplicacao') };
+  const nArt = docs.reduce((s, d) => s + d.nArtigos, 0);
+  let vis = pnVisuais(mesclada, { nArtigos: nArt, total, conferidos }).replace('<h5>Em números</h5>', `<h5>Em números · ${docs.length} atos</h5>`).replace('artigos no ato', 'artigos nos atos');
+  if (g.visuais.includes('relacoes')) {
+    const linhas = docs.map(d => {
+      const r = [...d.rel.revoga.map(x => `<span class="pn-seta revoga">revoga</span> ${ptEsc(x.rotulo)}`), ...d.rel.altera.map(x => `<span class="pn-seta altera">altera</span> ${ptEsc(x.rotulo)}`)];
+      return `<tr><td class="q">${ptEsc(pnCurto(d))}</td><td>${r.join('<br>') || '<span class="on-vazio">sem relação com outros atos</span>'}</td></tr>`;
+    }).join('');
+    vis = `<div class="pn-vis"><h5>Relações de cada ato</h5><table class="pn-tab">${linhas}</table></div>` + vis;
+  }
+  if (g.visuais.includes('temas')) {
+    const max = Math.max(1, ...nota.atos.map(a => a.total));
+    vis += `<div class="pn-vis"><h5>Conteúdo por ato (itens da nota)</h5>${nota.atos.map((a, i) =>
+      `<div class="pn-barra"><span class="r">${ptEsc(rot(i + 1))}</span><span class="b"><i style="width:${(100 * a.total / max).toFixed(1)}%"></i></span><span class="n">${a.total}</span></div>`).join('')}</div>`;
+  }
+  const secoes = [];
+  let n = 0;
+  const sec = (t, corpo) => secoes.push(`<section><h4>${++n}. ${ptEsc(t)}</h4>${corpo}</section>`);
+  if (g.resumo) sec('Resumo do conjunto', `<p>${ptEsc(g.resumo)}</p>`);
+  if (g.conexoes.length) sec('Como os atos se relacionam', `<ul>${g.conexoes.map(c => `<li>${ptEsc(c.texto)}${refs(c.atos)}</li>`).join('')}</ul>`);
+  for (const x of g.secoes) sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto)}</p>`);
+  nota.atos.forEach((a, i) => {
+    const d = docs[i];
+    const sub = [];
+    let m = 0;
+    pnSecoesAto(Object.assign({}, a.nota, { extensao: g.extensao === 'curta' ? 'curta' : a.nota.extensao }), (t, corpo) => sub.push(`<div class="pn-sub-sec"><h5>${n + 1}.${++m} ${ptEsc(t)}</h5>${corpo}</div>`));
+    secoes.push(`<section class="pn-ato"><h4>${++n}. ${ptEsc(d.identificacao || 'Ato ' + (i + 1))}</h4>
+      <div class="pn-sub">${[d.orgao, a.nota.assunto].filter(Boolean).map(ptEsc).join(' · ')}</div>${sub.join('')}</section>`);
+  });
+  if (g.impactos.length) sec('Impactos', `<ul>${g.impactos.map(x => `<li><b>${ptEsc(x.para)}:</b> ${ptEsc(x.descricao)}${refs(x.atos)}</li>`).join('')}</ul>`);
+  if (g.atencao.length) sec('Pontos de atenção', `<ul>${g.atencao.map(x => `<li>${ptEsc(x.descricao)}${refs(x.atos)}</li>`).join('')}</ul>`);
+  if (g.recomendacoes.length) sec('Recomendações da assessoria', `<ul>${g.recomendacoes.map(r => `<li>${ptEsc(r)}</li>`).join('')}</ul>`);
+  const cortados = docs.filter(d => d.texto.length > LIMITE_TEXTO_PROMPT).map(pnCurto);
+  return `<div id="pn-doc" class="pn-doc">
+    ${ptCabecalhoNota({ tipo, titulo: `Notas de portarias: ${docs.length} atos`, sub: g.assunto || docs.map(pnCurto).join(' · ') })}
+    ${vis}
+    ${secoes.join('')}
+    <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto dos atos: ${docs.map(d => ptEsc(pnCurto(d))).join('; ')}.
+      ${conferidos} de ${total} afirmações conferidas literalmente no texto do ato correspondente${total - conferidos ? ' — as marcadas com ⚠ precisam de conferência antes do uso' : ''}.
+      A parte geral foi escrita só a partir das notas de cada ato.${cortados.length ? ` Atos longos lidos só na parte inicial: ${cortados.map(ptEsc).join('; ')}.` : ''}</div>
+  </div>`;
+}
+
 // ---------- tela ----------
 
-function pnMeta() {
-  const d = pn.doc;
+function pnMeta(d, a) {
   return { tipo: pn.tipo, identificacao: d.identificacao, orgao: d.orgao, rel: d.rel, nArtigos: d.nArtigos,
-    total: pn.conf ? pn.conf.total : 0, conferidos: pn.conf ? pn.conf.conferidos : 0, cortado: d.texto.length > LIMITE_TEXTO_PROMPT };
+    total: a ? a.total : 0, conferidos: a ? a.conferidos : 0, cortado: d.texto.length > LIMITE_TEXTO_PROMPT };
 }
 
 function pnRender() {
-  const atoEl = ptEl('pn-ato');
-  if (!atoEl) return;
-  const d = pn.doc;
-  atoEl.innerHTML = !d ? '<div class="on-vazio">Nenhum ato lançado.</div>' : `
-    <div class="pt-doc" style="grid-template-columns:1fr">
+  const lista = ptEl('pn-ato');
+  if (!lista) return;
+  const docs = pn.docs;
+  ptEl('pn-contagem').textContent = docs.length ? `— ${docs.length} ato(s)` : '';
+  lista.innerHTML = !docs.length ? '<div class="on-vazio">Nenhum ato lançado. Inclua uma ou mais portarias — relacionadas ou não.</div>' : docs.map((d, i) => `
+    <div class="pt-doc" data-pn="${d.id}">
+      <div class="ord">${i + 1}</div>
       <div>
         <div class="campos">
-          <input class="pt-campo" id="pn-ident" value="${ptEsc(d.identificacao)}" placeholder="Identificação do ato">
-          <input class="pt-campo" id="pn-orgao" value="${ptEsc(d.orgao)}" placeholder="Órgão">
-          <input class="pt-campo" type="date" id="pn-data" value="${ptEsc(d.data || '')}">
+          <input class="pt-campo" data-pn-campo="identificacao" value="${ptEsc(d.identificacao)}" placeholder="Identificação do ato">
+          <input class="pt-campo" data-pn-campo="orgao" value="${ptEsc(d.orgao)}" placeholder="Órgão">
+          <input class="pt-campo" type="date" data-pn-campo="data" value="${ptEsc(d.data || '')}">
         </div>
         ${ptRelHtml({ revoga: d.rel.revoga.map(x => Object.assign({ presente: true }, x)), altera: d.rel.altera.map(x => Object.assign({ presente: true }, x)),
           revogadoPor: d.rel.revogadoPor ? Object.assign({ presente: true }, d.rel.revogadoPor) : null, marcadores: d.marcadores })}
@@ -270,68 +332,136 @@ function pnRender() {
           d.texto.length < PT_MIN_TEXTO ? ' · <span style="color:#d68a00">pouco texto — PDF escaneado? cole o texto</span>' : ''}</div>
         <details><summary>ver texto</summary><pre>${ptEsc(d.texto.slice(0, 20000))}</pre></details>
       </div>
-    </div>`;
+      <div class="acoes"><button class="pt-btn-mini" data-pn-acao="remover" title="Tirar da nota">✕</button></div>
+    </div>`).join('');
   const semIA = !ptIAConfigurada();
-  ptEl('pn-gerar').disabled = !d || !!pn.ocupado;
-  ptEl('pn-gerar').innerHTML = pn.ocupado === 'gerar' ? '<span class="on-spinner"></span> Redigindo e conferindo…' : (pn.nota ? 'Gerar de novo' : 'Gerar nota');
+  ptEl('pn-gerar').disabled = !docs.length || !!pn.ocupado;
+  ptEl('pn-gerar').innerHTML = pn.ocupado === 'gerar' ? `<span class="on-spinner"></span> ${ptEsc(pn.progresso || 'Redigindo e conferindo…')}`
+    : (pn.nota ? 'Gerar de novo' : docs.length > 1 ? `Gerar nota dos ${docs.length} atos` : 'Gerar nota');
   ptEl('pn-ia-aviso').innerHTML = semIA ? '<div class="on-pend">Configure o provedor de IA no botão <b>IA</b>, no topo. A chave fica no seu navegador.</div>' : '';
   ptEl('pn-status').innerHTML = pn.aviso;
-  ptEl('pn-resultado').innerHTML = pn.nota ? pnNotaHtml(pn.nota, pnMeta()) : '';
+  ptEl('pn-resultado').innerHTML = !pn.nota ? '' : pn.nota.geral ? pnNotaConjuntaHtml(pn.nota, pnDocsDaNota(), pn.tipo)
+    : pnNotaHtml(pn.nota.atos[0].nota, pnMeta(pnDocsDaNota()[0], pn.nota.atos[0]));
   ptEl('pn-acoes').style.display = pn.nota ? 'flex' : 'none';
+  const resposta = pn.nota && (pn.nota.geral ? pn.nota.geral.resposta : pn.nota.atos[0].nota.resposta);
   ptEl('pn-revisao').innerHTML = ptRevisaoHtml({ prefixo: 'pn', habilitado: !!pn.nota, motivo: 'Gere a nota primeiro; depois peça aqui as alterações.',
-    ocupado: pn.ocupado === 'revisar', pedidos: pn.pedidos, podeDesfazer: pn.versoes.length > 0, resposta: pn.nota && pn.nota.resposta });
+    ocupado: pn.ocupado === 'revisar', pedidos: pn.pedidos, podeDesfazer: pn.versoes.length > 0, resposta });
 }
+
+/** Os atos da nota, na ordem da nota (um ato tirado da lista depois de gerar some da nota). */
+function pnDocsDaNota() { return pn.nota.atos.map(a => pn.docs.find(d => d.id === a.docId)).map((d, i) => d || pn.nota.docs[i]); }
+
+/** A lista mudou depois da nota: ela deixa de valer. */
+const PN_AVISO_MUDOU = '<div class="on-pend">A lista de atos mudou depois da nota — gere de novo.</div>';
+function pnInvalidar() {
+  if (pn.nota) pn.aviso = PN_AVISO_MUDOU;
+  pn.nota = null; pn.versoes = []; pn.pedidos = [];
+}
+/** Aviso ao terminar uma inclusão: o erro, se houve; senão, o "lista mudou" (se a inclusão derrubou uma nota). */
+function pnAvisoFinal(erro, derrubouNota) { return erro ? `<div class="on-falha">${ptEsc(erro)}</div>` : derrubouNota ? PN_AVISO_MUDOU : ''; }
 
 function pnLancar(texto, origem) {
   const limpo = ptLimpar(texto);
   const cab = ptCabecalho(limpo.texto);
   const chave = ptChaveAto(cab.numero, cab.data ? cab.data.slice(0, 4) : '');
-  pn.doc = { texto: limpo.texto, origem, limpeza: limpo, identificacao: cab.identificacao, orgao: cab.orgao, data: cab.data,
+  const d = { id: ++pn.seq, texto: limpo.texto, origem, limpeza: limpo, identificacao: cab.identificacao, orgao: cab.orgao, data: cab.data, numero: cab.numero,
     rel: ptRelacoes(limpo.texto, chave), marcadores: ptMarcadores(limpo.texto), nArtigos: ptArtigosProprios(limpo.texto).size };
-  pn.nota = null; pn.conf = null; pn.versoes = []; pn.pedidos = []; pn.aviso = '';
-  pnRender();
+  pn.docs.push(d);
+  pn.docs = ptOrdenar(pn.docs);
+  pnInvalidar();
+  return d;
 }
 
 async function pnArquivoChange() {
-  const a = (ptEl('pn-arquivo').files || [])[0];
-  if (!a) return;
-  pn.aviso = `<div class="on-pend"><span class="on-spinner"></span> Lendo ${ptEsc(a.name)}…</div>`; pnRender();
-  try {
-    const buf = await a.arrayBuffer(), nome = a.name.toLowerCase();
-    const t = nome.endsWith('.docx') ? await ptLerDocx(buf) : nome.endsWith('.pdf') ? await ptLerPdf(buf) : (() => { throw new Error('use PDF ou .docx'); })();
-    pnLancar(t, `${nome.endsWith('.docx') ? 'Word' : 'PDF'}: ${a.name}`);
-  } catch (e) { pn.aviso = `<div class="on-falha">Não foi possível ler: ${ptEsc(e.message)}</div>`; pnRender(); }
+  const arqs = [...(ptEl('pn-arquivo').files || [])];
+  if (!arqs.length) return;
+  const erros = [], tinhaNota = !!pn.nota;
+  for (let i = 0; i < arqs.length; i++) {
+    const a = arqs[i];
+    pn.aviso = `<div class="on-pend"><span class="on-spinner"></span> Lendo ${ptEsc(a.name)} (${i + 1}/${arqs.length})…</div>`; pnRender();
+    try {
+      const buf = await a.arrayBuffer(), nome = a.name.toLowerCase();
+      const t = nome.endsWith('.docx') ? await ptLerDocx(buf) : nome.endsWith('.pdf') ? await ptLerPdf(buf) : (() => { throw new Error('use PDF ou .docx'); })();
+      pnLancar(t, `${nome.endsWith('.docx') ? 'Word' : 'PDF'}: ${a.name}`);
+    } catch (e) { erros.push(`${a.name}: ${e.message}`); }
+  }
+  pn.aviso = pnAvisoFinal(erros.length ? 'Não foi possível ler: ' + erros.join('; ') : '', tinhaNota);
   ptEl('pn-arquivo').value = '';
+  pnRender();
 }
 
 async function pnLinkClick() {
   const url = ptEl('pn-link').value.trim();
   if (!ptEhLinkDou(url)) { pn.aviso = '<div class="on-falha">Informe um endereço do DOU (https://www.in.gov.br/…).</div>'; pnRender(); return; }
+  const tinhaNota = !!pn.nota;
   pn.aviso = '<div class="on-pend"><span class="on-spinner"></span> Buscando no DOU…</div>'; pnRender();
-  try { const r = await ptLerDou(url); pnLancar(r.texto, 'DOU'); if (r.orgao && !pn.doc.orgao) { pn.doc.orgao = r.orgao; pnRender(); } }
-  catch (e) { pn.aviso = `<div class="on-falha">Não foi possível buscar: ${ptEsc(e.message)}</div>`; pnRender(); }
+  try {
+    const r = await ptLerDou(url);
+    const d = pnLancar(r.texto, 'DOU');
+    if (r.orgao && !d.orgao) d.orgao = r.orgao;
+    ptEl('pn-link').value = ''; pn.aviso = pnAvisoFinal('', tinhaNota);
+  } catch (e) { pn.aviso = pnAvisoFinal('Não foi possível buscar: ' + e.message, false); }
+  pnRender();
 }
 
+function pnRelacoesTexto(d) { return [...d.rel.revoga.map(x => 'revoga ' + x.rotulo), ...d.rel.altera.map(x => 'altera ' + x.rotulo)]; }
+
 async function pnGerar() {
-  if (!pn.doc || pn.ocupado) return;
+  if (!pn.docs.length || pn.ocupado) return;
   pn.tipo = (document.querySelector('input[name="pn-tipo"]:checked') || {}).value || 'informativa';
+  const foco = ptEl('pn-foco').value.trim();
+  const docs = pn.docs.slice();
   pn.ocupado = 'gerar'; pn.aviso = ''; pnRender();
   try {
-    const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptNota({ tipo: pn.tipo, foco: ptEl('pn-foco').value.trim(), cab: pn.doc, relacoes: pn.doc.rel }), pn.doc.texto));
-    pn.conf = ptConferirNota(j, pn.doc.texto);
-    pn.nota = pn.conf.nota; pn.versoes = []; pn.pedidos = [];
+    // 1. a nota de cada ato, conferida contra o texto DELE
+    const atos = [], falhas = [];
+    for (let i = 0; i < docs.length; i++) {
+      const d = docs[i];
+      pn.progresso = docs.length > 1 ? `Lendo ato ${i + 1} de ${docs.length}…` : 'Redigindo e conferindo…'; pnRender();
+      try {
+        const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptNota({ tipo: pn.tipo, foco, cab: d, relacoes: d.rel }), d.texto));
+        const c = ptConferirNota(j, d.texto);
+        atos.push({ docId: d.id, nota: c.nota, total: c.total, conferidos: c.conferidos });
+      } catch (e) { if (docs.length === 1) throw e; falhas.push(`${pnCurto(d)}: ${e.message}`); }
+    }
+    if (!atos.length) throw new Error('nenhum ato pôde ser lido');
+    // 2. com mais de um ato, a parte geral — só sobre o que já foi conferido
+    let geral = null;
+    const lidos = docs.filter(d => atos.some(a => a.docId === d.id));
+    if (atos.length > 1) {
+      pn.progresso = 'Redigindo a parte geral…'; pnRender();
+      geral = ptNormalizarGeral(await ptChamarIAJson(ptPromptNotaConjunta({ tipo: pn.tipo, foco,
+        atos: atos.map((a, i) => Object.assign({ identificacao: lidos[i].identificacao, orgao: lidos[i].orgao, relacoes: pnRelacoesTexto(lidos[i]) }, a.nota)) })), atos.length);
+    }
+    pn.nota = { geral, atos, docs: lidos }; pn.versoes = []; pn.pedidos = [];
+    if (falhas.length) pn.aviso = `<div class="on-falha">Ficaram de fora da nota (falha da IA): ${ptEsc(falhas.join('; '))}. Gere de novo para tentar outra vez.</div>`;
   } catch (e) { pn.aviso = `<div class="on-falha">Falhou: ${ptEsc(e.message)}</div>`; console.error(e); }
-  pn.ocupado = ''; pnRender();
+  pn.ocupado = ''; pn.progresso = ''; pnRender();
 }
 
 async function pnRevisar(pedido) {
   if (!pn.nota || pn.ocupado) return;
   pn.ocupado = 'revisar'; pn.aviso = ''; pnRender();
   try {
-    const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisao({ nota: pn.nota, pedido, historico: pn.pedidos, tipo: pn.tipo, cab: pn.doc }), pn.doc.texto));
-    const conf = ptConferirNota(j, pn.doc.texto);
-    pn.versoes.push({ nota: pn.nota, conf: pn.conf, pedidos: pn.pedidos.slice() });
-    pn.conf = conf; pn.nota = conf.nota; pn.pedidos = pn.pedidos.concat(pedido);
+    const docs = pnDocsDaNota();
+    let nova;
+    if (!pn.nota.geral) {
+      const d = docs[0];
+      const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisao({ nota: pn.nota.atos[0].nota, pedido, historico: pn.pedidos, tipo: pn.tipo, cab: d }), d.texto));
+      const c = ptConferirNota(j, d.texto);
+      nova = { geral: null, docs: pn.nota.docs, atos: [{ docId: d.id, nota: c.nota, total: c.total, conferidos: c.conferidos }] };
+    } else {
+      const textos = docs.map((d, i) => `=== ATO ${i + 1}: ${d.identificacao || ''} ===\n${d.texto}`).join('\n\n');
+      const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisaoConjunto({ nota: pn.nota, pedido, historico: pn.pedidos, tipo: pn.tipo,
+        identificacoes: docs.map(d => d.identificacao) }), textos));
+      const atosResp = Array.isArray(j.atos) && j.atos.length === pn.nota.atos.length ? j.atos : null;
+      nova = { docs: pn.nota.docs, geral: ptNormalizarGeral(j.geral || j, docs.length),
+        // ato que a resposta não devolveu (ou devolveu fora da ordem) fica como estava
+        atos: pn.nota.atos.map((a, i) => { if (!atosResp) return a; const c = ptConferirNota(atosResp[i], docs[i].texto); return { docId: a.docId, nota: c.nota, total: c.total, conferidos: c.conferidos }; }) };
+      if (!atosResp && !nova.geral.resposta) nova.geral.resposta = 'Alterada a parte geral; as notas de cada ato ficaram como estavam.';
+    }
+    pn.versoes.push({ nota: pn.nota, pedidos: pn.pedidos.slice() });
+    pn.nota = nova; pn.pedidos = pn.pedidos.concat(pedido);
   } catch (e) { pn.aviso = `<div class="on-falha">A alteração falhou: ${ptEsc(e.message)}. A nota anterior foi mantida.</div>`; }
   pn.ocupado = ''; pnRender();
 }
@@ -339,13 +469,23 @@ async function pnRevisar(pedido) {
 function pnDesfazer() {
   const v = pn.versoes.pop();
   if (!v) return;
-  pn.nota = v.nota; pn.conf = v.conf; pn.pedidos = v.pedidos; pn.aviso = '';
+  pn.nota = v.nota; pn.pedidos = v.pedidos; pn.aviso = '';
   pnRender();
 }
 
 function pnCopiar() {
-  const t = ptNotaTexto(pn.nota, { tipo: pn.tipo, identificacao: pn.doc.identificacao, orgao: pn.doc.orgao,
-    relacoes: [...pn.doc.rel.revoga.map(x => 'revoga ' + x.rotulo), ...pn.doc.rel.altera.map(x => 'altera ' + x.rotulo)] });
+  const docs = pnDocsDaNota();
+  const corpo = pn.nota.atos.map((a, i) => ptNotaTexto(a.nota, { tipo: pn.tipo, identificacao: docs[i].identificacao, orgao: docs[i].orgao, relacoes: pnRelacoesTexto(docs[i]) }));
+  let t = corpo[0];
+  if (pn.nota.geral) {
+    const g = pn.nota.geral;
+    const cab = [`${(PT_NOTA_TIPOS[pn.tipo] || PT_NOTA_TIPOS.informativa).rotulo.toUpperCase()} — ${docs.length} ATOS`, g.assunto, '', g.resumo,
+      ...g.conexoes.map(c => '- ' + c.texto), ...g.secoes.map(x => `\n${x.titulo.toUpperCase()}\n${x.texto}`)].filter(x => x !== undefined).join('\n');
+    const fim = [g.impactos.length ? 'IMPACTOS\n' + g.impactos.map(x => `- ${x.para}: ${x.descricao}`).join('\n') : '',
+      g.atencao.length ? 'PONTOS DE ATENÇÃO\n' + g.atencao.map(x => '- ' + x.descricao).join('\n') : '',
+      g.recomendacoes.length ? 'RECOMENDAÇÕES\n' + g.recomendacoes.map(x => '- ' + x).join('\n') : ''].filter(Boolean).join('\n\n');
+    t = [cab, ...corpo.map((c, i) => `\n===== ATO ${i + 1} =====\n` + c.split('\n').slice(1).join('\n')), fim].join('\n\n');
+  }
   navigator.clipboard.writeText(t).then(() => { pn.aviso = '<div class="on-ok">Texto da nota copiado.</div>'; pnRender(); },
     () => { pn.aviso = '<div class="on-falha">Não foi possível copiar.</div>'; pnRender(); });
 }
@@ -359,7 +499,7 @@ function ptImprimir(el) {
   window.print();
 }
 
-/** Abas: "Comparar sequência" × "Nota de uma portaria". */
+/** Abas: "Comparar sequência" × "Notas de portarias". */
 function ptAba(qual) {
   document.querySelectorAll('.pt-aba[data-aba]').forEach(b => b.dataset.aba === qual ? b.classList.add('ativa') : b.classList.remove('ativa'));
   ptEl('pt-aba-seq').style.display = qual === 'seq' ? 'contents' : 'none';
@@ -373,15 +513,26 @@ if (ptEl('pn-ato')) {
   ptEl('pn-usar-texto').addEventListener('click', () => {
     const t = ptEl('pn-texto').value.trim();
     if (t.length < 40) { pn.aviso = '<div class="on-falha">Cole o texto completo do ato.</div>'; pnRender(); return; }
-    pnLancar(t, 'texto colado'); ptEl('pn-texto').value = '';
+    const tinhaNota = !!pn.nota;
+    pnLancar(t, 'texto colado'); ptEl('pn-texto').value = ''; pn.aviso = pnAvisoFinal('', tinhaNota); pnRender();
   });
   ptEl('pn-buscar-link').addEventListener('click', pnLinkClick);
   ptEl('pn-gerar').addEventListener('click', pnGerar);
   ptEl('pn-copiar').addEventListener('click', pnCopiar);
   ptEl('pn-pdf').addEventListener('click', () => ptImprimir(ptEl('pn-doc')));
   ptEl('pn-ato').addEventListener('change', ev => {
-    const c = { 'pn-ident': 'identificacao', 'pn-orgao': 'orgao', 'pn-data': 'data' }[ev.target.id];
-    if (c && pn.doc) { pn.doc[c] = ev.target.value.trim(); if (pn.nota) pnRender(); }
+    const c = ev.target.dataset && ev.target.dataset.pnCampo;
+    const d = c && pn.docs.find(x => x.id === +ev.target.closest('[data-pn]').dataset.pn);
+    if (!d) return;
+    d[c] = ev.target.value.trim() || (c === 'data' ? null : '');
+    if (c === 'data') pn.docs = ptOrdenar(pn.docs);
+    pnRender();
+  });
+  ptEl('pn-ato').addEventListener('click', ev => {
+    const b = ev.target.closest('[data-pn-acao="remover"]');
+    if (!b) return;
+    pn.docs = pn.docs.filter(x => x.id !== +b.closest('[data-pn]').dataset.pn);
+    pnInvalidar(); pnRender();
   });
   ptLigarRevisao(ptEl('pn-revisao'), 'pn', pnRevisar, pnDesfazer);
   // Configuração de IA
