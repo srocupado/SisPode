@@ -513,6 +513,110 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const sobra = fs.readdirSync(os.tmpdir()).filter(f => f.startsWith('sispode-tse-munzona-') && !antes.has(f));
   ok(/ECONNRESET/.test(erroDl) && !sobra.length, 'download que cai no meio: o arquivo parcial é apagado');
 
+  // ---------- 8. estudos recentes: pontos, notas, ancoragem, Governo primeiro, teste contra o passado ----------
+  console.log('8. Ajustes vindos dos estudos');
+  // (2) proposta em pontos
+  ok(JSON.stringify(av(`smPontos('1. Prazo de 180 dias\\n2) Supressão do art. 12\\n   e do art. 13\\n- Fundo de compensação')`)) === JSON.stringify(['Prazo de 180 dias', 'Supressão do art. 12 e do art. 13', 'Fundo de compensação']),
+    'pontos: números e traços; linha de continuação junta ao ponto anterior');
+  ok(av(`smPontos('Aprovar o texto do relator.')`).length === 1, 'texto corrido = um ponto só');
+  const pP = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, null, null, '1. Prazo de 180 dias\\n2. Supressão do art. 12', 6, [])`);
+  ok(/1\. Prazo de 180 dias\n2\. Supressão do art\. 12/.test(pP) && /Para CADA um dos 2 pontos/.test(pP) && /"pontos":\[\{"n":1,"acao":"apoia\|rejeita\|reformula\|troca","importancia"/.test(pP), 'prompt pede ação e importância (1–5) por ponto');
+  const lr = av(`smLerResposta('{"posicao":"rejeita","objecoes":[{"texto":"prazo curto","base":"perfil"},{"texto":"custo","base":"chute"},"sem objeto"],"pontos":[{"n":1,"acao":"Reformular","importancia":5,"redacao":"360 dias"},{"n":2,"acao":"apoio","importancia":"2"}],"notas":"Pedi 360 dias; linha vermelha: prazo."}')`);
+  ok(lr.objecoes[0].base === 'perfil' && lr.objecoes[1].base === 'nenhuma' && lr.objecoes[2].base === 'nenhuma', 'ancoragem: base declarada é lida; base inválida ou ausente vira "sem base"');
+  ok(lr.pontos[0].acao === 'reformula' && lr.pontos[0].importancia === 5 && lr.pontos[0].redacao === '360 dias' && lr.pontos[1].acao === 'apoia' && lr.pontos[1].importancia === 2, 'pontos lidos com tolerância ("Reformular", "apoio", "2")');
+  ok(lr.notas === 'Pedi 360 dias; linha vermelha: prazo.', 'notas do agente lidas');
+  // (3) notas próprias voltam ao MESMO agente na rodada seguinte
+  ctx.__lr = lr;
+  const pN = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, null, null, 'Prazo de 360 dias.', 6, [{ proposta: 'Prazo de 180 dias.', resposta: __lr }])`);
+  ok(/SUAS PRÓPRIAS NOTAS DA RODADA ANTERIOR[\s\S]*Pedi 360 dias; linha vermelha: prazo\./.test(pN), 'rodada 2: o agente recebe as notas que ELE escreveu (não um resumo pronto)');
+  ok(/"notas":"suas notas para a próxima rodada"/.test(pN) && /Defenda os interesses desse ator com firmeza/.test(pN), 'pede as notas de novo e instrui a não ceder só para agradar');
+  // (4) ancoragem no prompt e na tela
+  ok(/"base": "perfil" \(dados de votação acima\)[\s\S]*"nenhuma" \(sem apoio nos dados — prefira isso a inventar\)/.test(pP), 'prompt exige a base de cada objeção, com "nenhuma" como saída honesta');
+  // mapa por ponto
+  const mapaP = av(`smMapaPontos({ proposta: '1. A\\n2. B', resultados: [
+    { bancada: { tipo: 'partido', sigla: 'PL', cadeiras: 90, nome: 'PL' }, resposta: { pontos: [{ n: 1, acao: 'apoia', importancia: 2 }, { n: 2, acao: 'rejeita', importancia: 5 }] } },
+    { bancada: { tipo: 'partido', sigla: 'PT', cadeiras: 60, nome: 'PT' }, resposta: { pontos: [{ n: 1, acao: 'rejeita', importancia: 3 }, { n: 2, acao: 'apoia', importancia: 4 }] } },
+    { bancada: { tipo: 'governo', sigla: '__governo', cadeiras: 0, nome: 'Governo' }, resposta: { pontos: [{ n: 1, acao: 'apoia', importancia: 5 }] } }] })`);
+  ok(mapaP.linhas[0].cadeirasApoio === 90 && mapaP.linhas[0].cadeirasRejeicao === 60 && mapaP.linhas[1].cadeirasRejeicao === 90 && mapaP.linhas[1].celulas[2].acao === null,
+    'mapa por ponto: cadeiras que apoiam/rejeitam cada ponto; Governo não soma cadeiras');
+
+  // (5) Governo primeiro — ligado e desligado
+  armazenado.config = { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'modelo-de-teste' };
+  av(`sm.agentes.forEach(a => { a.marcado = a.tipo === 'governo' || (a.tipo === 'partido' && ['PL', 'PODE'].includes(a.sigla)); })`);
+  av(`chamarIA = async (o) => { __prompts.push(o); if (/SOMENTE com um objeto JSON/.test(o.prompt)) {
+        const gov = /LIDERANÇA DO GOVERNO na Câmara/.test(o.prompt);
+        return { text: JSON.stringify({ posicao: gov ? 'apoia' : 'condiciona', objecoes: [{ texto: gov ? 'nenhuma' : 'x', base: 'proposta' }], concessao: '', argumento: '', risco: '',
+          pontos: [{ n: 1, acao: 'apoia', importancia: 3 }, { n: 2, acao: gov ? 'apoia' : 'troca', importancia: 4, troca: 'aceito se cair o 1' }], notas: 'nota ' + (gov ? 'gov' : 'bancada') }) };
+      } return { text: '## Por ponto\\n- ok' }; }`);
+  document.getElementById('smProposta').value = '1. Prazo de 180 dias para regulamentar\n2. Supressão do art. 12 do substitutivo';
+  const gp = document.getElementById('smGovPrimeiro');
+  gp.checked = true; gp.setAttribute('checked', '');
+  ctx.__prompts = [];
+  await av(`smSimularClick()`);
+  const pr = ctx.__prompts.filter(o => /SOMENTE com um objeto JSON/.test(o.prompt));
+  ok(pr.length === 3 && /LIDERANÇA DO GOVERNO na Câmara/.test(pr[0].prompt) && pr.slice(1).every(o => /POSIÇÃO JÁ DECLARADA PELA LIDERANÇA DO GOVERNO NESTA RODADA:\napoia\./.test(o.prompt)),
+    'Governo primeiro LIGADO: o Governo responde antes e as bancadas recebem a posição dele');
+  const htmlGP = document.getElementById('smResultado').innerHTML;
+  ok(/Governo respondeu primeiro/.test(htmlGP) && /Mapa por ponto/.test(htmlGP) && /⇄ troca/.test(htmlGP) && /base: proposta/.test(htmlGP) && /Notas do agente/.test(htmlGP),
+    'tela: aviso do modo, mapa por ponto, base das objeções e notas do agente');
+  gp.checked = false; gp.removeAttribute('checked');
+  ctx.__prompts = [];
+  await av(`smSimularClick()`);
+  ok(!ctx.__prompts.some(o => /POSIÇÃO JÁ DECLARADA/.test(o.prompt)) && !/Governo respondeu primeiro/.test(document.getElementById('smResultado').innerHTML),
+    'Governo primeiro DESLIGADO (padrão): todos respondem independentes');
+  ok(document.getElementById('smGovPrimeiro') && !document.getElementById('smGovPrimeiro').hasAttribute('checked') && /id="smGovPrimeiro">/.test(html), 'a caixa começa desmarcada');
+
+  // (1) teste contra o passado — funções puras
+  ok(av(`smBtObjeto('Aprovado o Substitutivo ao Projeto de Lei Complementar nº 230, de 2025. Sim: 333; Não: 91; Total: 424.')`) === 'Substitutivo ao Projeto de Lei Complementar nº 230, de 2025.'
+    && av(`smBtObjeto('Rejeitada a Emenda de Plenário nº 3. Sim: 120; não: 300.')`) === 'Emenda de Plenário nº 3.', 'a votação vai ao modelo SEM o resultado (sem "Aprovado" e sem placar)');
+  const vt = [];
+  for (let i = 0; i < 12; i++) {
+    const gov = i % 2 ? 'Sim' : 'Não', contra = gov === 'Sim' ? 'Não' : 'Sim';
+    vt.push({ votacao: { id: 'b' + i, data: `2026-0${1 + Math.floor(i / 3)}-1${i % 3}`, descricao: `Aprovado o PL ${i}. Sim: 300; Não: 100.`, proposicaoObjeto: 'PL ' + i + '/2026' },
+      orientacoes: [{ siglaPartidoBloco: 'Governo', orientacaoVoto: gov }],
+      votos: [{ deputado_: { id: 1, siglaPartido: 'PODE' }, tipoVoto: gov }, { deputado_: { id: 2, siglaPartido: 'PODE' }, tipoVoto: gov },
+              { deputado_: { id: 3, siglaPartido: 'PL' }, tipoVoto: contra }, { deputado_: { id: 4, siglaPartido: 'PL' }, tipoVoto: i === 11 ? 'Obstrução' : contra }, { deputado_: { id: 5, siglaPartido: 'PL' }, tipoVoto: i === 11 ? 'Obstrução' : contra }] });
+  }
+  ctx.__vt = vt;
+  const sel = av(`smBtSelecionar(__vt.slice().reverse(), 4)`);
+  ok(sel.teste.length === 4 && sel.teste[0].votacao.id === 'b8' && sel.treino.length === 8 && sel.treino.every(t => t.votacao.data < sel.teste[0].votacao.data), 'teste = as mais recentes; perfil só com votações ANTERIORES (sem ver o futuro)');
+  ok(av(`smBtMaioria(__vt[11], 'PL')`) === 'Obstrução' && av(`smBtMaioria(__vt[0], 'PODE')`) === 'Não' && av(`smBtMaioria(__vt[0], 'NOVO')`) === null, 'verdade = voto da maioria da bancada (inclui obstrução)');
+  ok(av(`smBtEstatistica({ alinhamentoGoverno: 0.8 }, 'Sim')`) === 'Sim' && av(`smBtEstatistica({ alinhamentoGoverno: 0.2 }, 'Sim')`) === 'Não' && av(`smBtEstatistica({ alinhamentoGoverno: null }, 'Sim')`) === null, 'previsão estatística');
+  const mt = av(`smBtMetricas([{ verdade: 'Sim', previsto: 'Sim' }, { verdade: 'Sim', previsto: 'Sim' }, { verdade: 'Não', previsto: 'Sim' }, { verdade: 'Não', previsto: null }, { verdade: null, previsto: 'Sim' }])`);
+  ok(mt.n === 4 && mt.acuracia === 0.5 && Math.abs(mt.macroF1 - (0.8 + 0) / 2) < 1e-9 && mt.cobertura === 0.75, 'métricas: acerto, F1 macro (Sim 0,8 · Não 0) e cobertura; sem previsão conta como erro');
+  ok(JSON.stringify(av(`smBtLerIngenuo('{"PODE":"sim","Pl":"NÃO","UNIAO":"Obstrução"}', ['PODE', 'PL', 'UNIÃO', 'PT'])`)) === JSON.stringify({ PODE: 'Sim', PL: 'Não', 'UNIÃO': 'Obstrução', PT: null }), 'IA ingênua: chaves sem acento/caixa casam com as siglas');
+  const pb = av(`smBtPromptAgente('PL', 90, null, __vt[3], { proposicao: { siglaTipo: 'PL', numero: 3, ano: 2026, ementa: 'Ementa três' } }, 'Sim')`);
+  ok(!/Sim: 300/.test(pb) && !/Aprovado/.test(pb) && /Em votação: PL 3\./.test(pb) && /Ementa três/.test(pb) && /O Governo orientou: Sim/.test(pb), 'prompt do teste sem o resultado, com ementa e orientação do Governo');
+
+  // (1) teste contra o passado — rodada completa (PODE sempre com o Governo, PL sempre contra)
+  av(`labsVotacoesPlenario = async () => ({ itens: __vt, falhas: 0, periodo: ['2026-01-01', '2026-04-30'] })`);
+  const putsBt = [];
+  const fB = ctx.fetch;
+  ctx.fetch = async (url, o) => {
+    if (o && o.method === 'PUT') { putsBt.push(url); return { ok: true, json: async () => ({}) }; }
+    if (/\/votacoes\/b\d+$/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: { proposicoesAfetadas: [{ siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'X' }] } }) };
+    if (/validacoes/.test(url)) return { ok: true, status: 200, json: async () => null };
+    return fB(url, o);
+  };
+  // agente: repete a orientação do Governo (erra o PL); ingênua: tudo "Sim"
+  av(`chamarIA = async (o) => { __prompts.push(o);
+      if (/Para cada partido abaixo/.test(o.prompt)) return { text: '{"PL":"Sim","PODE":"Sim"}' };
+      const g = (o.prompt.match(/O Governo orientou: (Sim|Não)/) || [])[1];
+      return { text: JSON.stringify({ voto: g, confianca: 3 }) }; }`);
+  document.getElementById('smTesteN').innerHTML = '<option value="4" selected>4</option>';
+  ctx.__prompts = [];
+  await av(`smTestarClick()`);
+  const tr = document.getElementById('smTesteResultado').innerHTML;
+  const nums = [...tr.matchAll(/<td style="text-align:right">(\d+|—)%?<\/td>/g)].map(m => m[1]);
+  ok(/Estatística \(sem IA\)/.test(tr) && /IA ingênua/.test(tr) && /Agentes do Simulador/.test(tr), 'resultado com os três métodos');
+  ok(nums[0] === '88' && nums[3] === '50' && nums[6] === '50', `acerto: estatística 7/8 (erra só a obstrução do PL), IA ingênua 4/8, agentes 4/8 (${nums.slice(0, 9).join(' ')})`);
+  ok(/acertaram <b>38 pontos a menos<\/b> que a estatística/.test(tr), 'veredito: agentes abaixo da estatística → usar para argumentos, não para estimar posição');
+  const linhasVot = ctx.__prompts.map(o => (o.prompt.match(/Em votação: .*/) || [''])[0]);
+  ok(ctx.__prompts.length === 4 * 2 + 4 && linhasVot.every(l => l && !/Sim: \d|Aprovad|Rejeitad/.test(l)),
+    'custo previsto (4 votações × 2 bancadas + 4 ingênuas) e a votação testada nunca leva o próprio resultado');
+  ok(putsBt.some(u => /\/labs\/simulador\/validacoes\/\d+\.json$/.test(u)), 'resultado do teste guardado para a equipe');
+  ctx.fetch = fB;
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

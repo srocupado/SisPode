@@ -87,6 +87,7 @@
         "labs.html",
         "labs.js",
         "labs-simulador.js",
+        "labs-simulador-teste.js",
         "labs-mapa-nucleo.js",
         "labs-mapa.js"
       ],

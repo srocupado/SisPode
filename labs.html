@@ -890,6 +890,7 @@
   .labs-caixa { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; margin-top: 12px; }
   .labs-caixa h3 { font-size: 13px; color: var(--accent-light); margin-bottom: 6px; }
   .labs-caixa .sub { font-size: 11.5px; color: var(--text-dim); line-height: 1.5; }
+  .labs-caixa label { display: block; font-size: 11px; font-weight: 600; letter-spacing: 0.8px; text-transform: uppercase; color: var(--text-dim); margin-bottom: 6px; }
   .labs-lista-sel { max-height: 220px; overflow-y: auto; display: flex; flex-wrap: wrap; gap: 6px 14px; margin: 6px 0; }
   .labs-agente { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 11px 13px; margin-top: 8px; }
   .labs-agente .cab { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; }
@@ -933,6 +934,13 @@
   .sm-novo { margin-top: 8px; font-size: 12px; }
   .sm-novo summary { cursor: pointer; color: var(--accent-light); }
   .sm-evol td.mudou { font-weight: 700; }
+  .sm-base { font-size: 9.5px; color: var(--text-dim); border: 1px solid var(--border); border-radius: 999px; padding: 0 6px; }
+  .sm-sembase { font-size: 9.5px; color: var(--abstencao); border: 1px solid var(--abstencao); border-radius: 999px; padding: 0 6px; }
+  .sm-mapa-pontos td { white-space: nowrap; }
+  .sm-mapa-pontos td:first-child { white-space: normal; min-width: 220px; }
+  .sm-acao-apoia { color: var(--sim); } .sm-acao-rejeita { color: var(--nao); }
+  .sm-acao-reformula, .sm-acao-troca { color: var(--abstencao); }
+  .sm-linha-vermelha { box-shadow: inset 0 0 0 1px var(--nao); font-weight: 700; }
   .labs-sintese h1, .labs-sintese h2, .labs-sintese h3 { font-size: 13px; color: var(--text); margin: 10px 0 4px; }
   .labs-sintese ul { margin: 4px 0 6px 18px; }
 </style>
@@ -971,6 +979,8 @@
         <div style="flex:0 0 100px"><label>Ano</label><input type="text" id="smAno" class="field" maxlength="4"></div>
       </div>
       <label style="margin-top:8px">Proposta em negociação</label>
+      <div class="prd-dica">Para negociar ponto a ponto, escreva um ponto por linha, começando com número ou traço
+        ("1. …", "- …"): cada agente diz, em cada ponto, se apoia, rejeita, reformula ou troca, e quanto o ponto importa para ele.</div>
       <textarea id="smProposta" class="field" rows="4" maxlength="2500"
         placeholder="O que se propõe às bancadas. Ex.: aprovar o texto do relator com a supressão do art. 12 e prazo de 180 dias para regulamentação."></textarea>
       <label style="margin-top:8px">Agentes na mesa</label>
@@ -1002,12 +1012,32 @@
         <div><label>Modelo da síntese</label><select id="smModeloSintese" class="field"><option value="">o configurado</option></select></div>
         <div style="flex:0 0 180px"><label>Seu nome (para salvar)</label><input type="text" id="smQuem" class="field" maxlength="40"></div>
       </div>
+      <label class="sm-ag-cab" style="margin-top:8px"><input type="checkbox" id="smGovPrimeiro"> <b>Governo responde primeiro</b>
+        <span class="prd-dica">— as bancadas respondem já sabendo a posição do Governo. Desligado, todos respondem independentes
+        (recomendado: a ordem pode puxar os agentes para a posição do Governo).</span></label>
       <div class="prd-dica">Provedor e chave: ⚙ no alto da página (a mesma configuração dos outros painéis). Dica: modelo mais barato nos agentes (uma chamada
         cada) e mais forte na síntese (uma chamada só).</div>
       <button id="smSimular" class="btn-gerar">Simular rodada</button>
     </div>
     <div id="smStatus"></div>
     <div id="smResultado"></div>
+
+    <div class="labs-caixa">
+      <h3>Teste contra o passado</h3>
+      <div class="sub">Mede se os agentes acertam: nas últimas votações nominais em que o Governo orientou, compara o que a maioria
+        de cada bancada marcada <b>de fato votou</b> com três previsões — a estatística (sem IA), uma pergunta simples à IA e os agentes
+        do Simulador (com o perfil só das votações anteriores). Se os agentes não superarem a estatística, use o Simulador para
+        preparar argumentos, não para estimar posição. Os resultados ficam guardados para a equipe comparar modelos e ajustes.</div>
+      <div class="labs-row" style="margin-top:8px">
+        <div style="flex:0 0 200px"><label>Votações a testar</label>
+          <select id="smTesteN" class="field"><option value="5">5</option><option value="10" selected>10</option><option value="20">20</option><option value="30">30</option></select></div>
+      </div>
+      <div class="labs-custo" id="smTesteCusto"></div>
+      <button id="smTestar" class="btn-gerar" style="margin-top:6px">Rodar teste</button>
+      <div id="smTesteStatus"></div>
+      <div id="smTesteResultado"></div>
+      <div id="smTesteHistorico"></div>
+    </div>
   </div>
 
   <!-- ===================== MAPA TERRITORIAL ===================== -->
@@ -1102,6 +1132,7 @@
 <script src="parecer.js"></script>
 <script src="modelo-ia.js"></script>
 <script src="labs-simulador.js"></script>
+<script src="labs-simulador-teste.js"></script>
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
 </body>
