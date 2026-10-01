@@ -241,9 +241,7 @@ function pcNotaHtml(nota) {
   let n = 0;
   const sec = (t, corpo) => `<section><h4>${++n}. ${ptEsc(t)}</h4>${corpo}</section>`;
   return `<div id="pc-doc" class="pn-doc">
-    <div class="pn-cab"><div class="pn-tipo">${tipo}</div>
-      <div class="pn-tit">Como eram e como ficaram os procedimentos: ${ptEsc(pcCurto(docs[0]))} → ${ptEsc(pcCurto(docs[docs.length - 1]))}</div>
-      <div class="pn-sub">${docs.length} atos · ${pc.comparacoes.length} comparações · ${total} mudanças conferidas no texto</div></div>
+    ${ptCabecalhoNota({ tipo, titulo: `Como eram e como ficaram os procedimentos: ${pcCurto(docs[0])} → ${pcCurto(docs[docs.length - 1])}`, sub: `${docs.length} atos · ${pc.comparacoes.length} comparações · ${total} mudanças conferidas no texto` })}
     ${pcVisuais(nota)}
     ${nota.resumo ? sec('Resumo', nota.resumo.split(/\n+/).map(p => `<p>${ptEsc(p)}</p>`).join('')) : ''}
     ${nota.destaques.length ? sec('Principais mudanças', `<ul>${nota.destaques.map(d => `<li><b>${ptEsc(d.titulo)}:</b> ${ptEsc(d.texto)}${d.tema ? ` <span class="pn-art">${ptEsc(d.tema)}</span>` : ''}</li>`).join('')}</ul>`) : ''}

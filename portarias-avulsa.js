@@ -199,6 +199,24 @@ function pnVisuais(nota, meta) {
   return out.join('');
 }
 
+/**
+ * Cabeçalho das notas, no padrão das notas do Orçamento: logo do Podemos,
+ * tipo + legislatura, título, carimbo da Coordenação e o filete colorido.
+ */
+function ptCabecalhoNota({ tipo, titulo, sub }) {
+  const logo = typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.getURL ? chrome.runtime.getURL('icons/podemos-logo.png') : 'icons/podemos-logo.png';
+  const agora = new Date();
+  const dd = n => String(n).padStart(2, '0');
+  const carimbo = `${dd(agora.getDate())}/${dd(agora.getMonth() + 1)}/${agora.getFullYear()} ${dd(agora.getHours())}:${dd(agora.getMinutes())}`;
+  const legislatura = 57 + Math.floor((agora.getFullYear() - 2023) / 4);
+  return `<div class="pn-cab">
+      <img src="${ptEsc(logo)}" alt="Podemos">
+      <div class="pn-cab-tit"><div class="pn-tipo">${ptEsc(tipo)} · ${legislatura}ª Legislatura</div>
+        <div class="pn-tit">${ptEsc(titulo)}</div>${sub ? `<div class="pn-sub">${ptEsc(sub)}</div>` : ''}</div>
+      <div class="pn-cab-meta">Coordenação de Orçamento<br>Liderança do Podemos<br>Gerada em ${carimbo}</div>
+    </div><div class="pn-filete"></div>`;
+}
+
 function pnNotaHtml(nota, meta) {
   const curta = nota.extensao === 'curta';
   const secoes = [];
@@ -216,8 +234,7 @@ function pnNotaHtml(nota, meta) {
   if (nota.recomendacoes.length) sec('Recomendações da assessoria', `<ul>${nota.recomendacoes.map(r => `<li>${ptEsc(r)}</li>`).join('')}</ul>`);
   const tipo = (PT_NOTA_TIPOS[meta.tipo] || PT_NOTA_TIPOS.informativa).rotulo;
   return `<div id="pn-doc" class="pn-doc">
-    <div class="pn-cab"><div class="pn-tipo">${ptEsc(tipo)}</div><div class="pn-tit">${ptEsc(meta.identificacao || 'Ato normativo')}</div>
-      <div class="pn-sub">${[meta.orgao, nota.assunto].filter(Boolean).map(ptEsc).join(' · ')}</div></div>
+    ${ptCabecalhoNota({ tipo, titulo: meta.identificacao || 'Ato normativo', sub: [meta.orgao, nota.assunto].filter(Boolean).join(' · ') })}
     ${pnVisuais(nota, meta)}
     ${secoes.join('')}
     <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.
