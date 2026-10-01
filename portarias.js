@@ -28,12 +28,15 @@ function ptStatus(msg, tipo) {
 
 /** Inclui um ato na sequência (com o cabeçalho reconhecido) e reordena por data. */
 function ptIncluir(texto, origem, extra) {
-  const t = String(texto || '').trim();
+  // Tira a moldura do site (gov.br/Transferegov) e conserta ligaduras partidas.
+  const limpo = ptLimpar(texto);
+  const t = limpo.texto;
   const cab = ptCabecalho(t);
   const doc = Object.assign({
     id: ++pt.seq, texto: t, origem,
     tipo: cab.tipo, sigla: cab.sigla, numero: cab.numero, data: cab.data, orgao: cab.orgao,
     identificacao: cab.identificacao,
+    limpeza: { removidas: limpo.removidas, ligaduras: limpo.ligaduras },
     avisos: [],
   }, extra || {});
   if (extra && extra.orgao && !cab.orgao) doc.orgao = extra.orgao;
@@ -98,7 +101,10 @@ function ptRender() {
   ptEl('pt-contagem').textContent = pt.docs.length ? `— ${pt.docs.length} ato(s)` : '';
   ptEl('pt-ordenar').disabled = pt.docs.length < 2;
   ptEl('pt-limpar').disabled = !pt.docs.length;
-  if (!pt.docs.length) { lista.innerHTML = '<div class="on-vazio">Nenhum ato incluído ainda.</div>'; return; }
+  if (!pt.docs.length) { lista.innerHTML = '<div class="on-vazio">Nenhum ato incluído ainda.</div>'; ptEl('pt-faltando').innerHTML = ''; return; }
+  // Relações entre os atos (revoga/altera) e marcas de consolidação — por regra, sem IA.
+  const seq = ptSequencia(pt.docs);
+  ptEl('pt-faltando').innerHTML = seq.faltando.length ? `<div class="on-pend" style="margin-bottom:8px">Ato(s) alterado(s) que não estão na sequência — sem eles, o "como era" fica incompleto: ${seq.faltando.map(f => `<b>${ptEsc(f.rotulo)}</b> (alterado pelo ${ptEsc(f.citadoPor)})`).join('; ')}.</div>` : '';
   const origem = o => o.tipo === 'DOU' ? `DOU` : o.nome ? `${o.tipo}: ${o.nome}` : o.tipo;
   lista.innerHTML = pt.docs.map((d, i) => `
     <div class="pt-doc" data-id="${d.id}">
@@ -109,7 +115,8 @@ function ptRender() {
           <input class="pt-campo" data-campo="orgao" value="${ptEsc(d.orgao)}" placeholder="Órgão">
           <input class="pt-campo" type="date" data-campo="data" value="${ptEsc(d.data || '')}" title="Data do ato">
         </div>
-        <div class="meta">${ptEsc(origem(d.origem))} · ${d.texto.length.toLocaleString('pt-BR')} caracteres${d.avisos.length ? ' · <span style="color:#d68a00">' + d.avisos.map(ptEsc).join(' · ') + '</span>' : ''}</div>
+        ${ptRelHtml(seq.atos.find(a => a.id === d.id))}
+        <div class="meta">${ptEsc(origem(d.origem))} · ${d.texto.length.toLocaleString('pt-BR')} caracteres${ptLimpezaTxt(d.limpeza)}${d.avisos.length ? ' · <span style="color:#d68a00">' + d.avisos.map(ptEsc).join(' · ') + '</span>' : ''}</div>
         <details><summary>ver texto</summary><pre>${ptEsc(d.texto.slice(0, 20000))}${d.texto.length > 20000 ? '\n…' : ''}</pre></details>
       </div>
       <div class="acoes">
@@ -118,6 +125,30 @@ function ptRender() {
         <button class="pt-btn-mini" data-acao="remover" title="Tirar da sequência">✕</button>
       </div>
     </div>`).join('');
+}
+
+function ptLimpezaTxt(l) {
+  if (!l || (!l.removidas && !l.ligaduras)) return '';
+  const p = [];
+  if (l.removidas) p.push(`${l.removidas} linha(s) de moldura do site removidas`);
+  if (l.ligaduras) p.push(`${l.ligaduras} palavra(s) com "fi/fl" partido consertadas`);
+  return ' · ' + p.join(', ');
+}
+
+/** Chips de relação de um ato: revoga / altera / revogado por / versão consolidada. */
+function ptRelHtml(a) {
+  if (!a) return '';
+  const fora = x => x.presente ? '' : ' <span class="fora" title="não está na sequência">(fora da lista)</span>';
+  const chips = [];
+  if (a.revogadoPor) chips.push(`<span class="pt-chip revogada">revogado pela ${ptEsc(a.revogadoPor.chave)}${fora(a.revogadoPor)}</span>`);
+  for (const x of a.revoga) chips.push(`<span class="pt-chip revoga" title="${ptEsc(x.rotulo)}">revoga ${ptEsc(x.chave)}${fora(x)}</span>`);
+  for (const x of a.altera) chips.push(`<span class="pt-chip altera" title="${ptEsc(x.rotulo)}">altera ${ptEsc(x.chave)}${fora(x)}</span>`);
+  const m = a.marcadores.slice(0, 4);
+  if (m.length) {
+    const tit = 'Texto consolidado: dispositivos com nova redação / incluídos / revogados por ato posterior';
+    chips.push(`<span class="pt-chip consol" title="${tit}">consolidado com: ${m.map(x => `${ptEsc(x.chave)} (${x.total})`).join(', ')}${a.marcadores.length > 4 ? '…' : ''}</span>`);
+  }
+  return chips.length ? `<div class="pt-rel">${chips.join('')}</div>` : '';
 }
 
 function ptListaClick(ev) {
