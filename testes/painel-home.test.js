@@ -90,6 +90,10 @@ function montarPainel(htmlBruto = HTML) {
     p.clicar('.home-card[data-modulo="emendas"]');
     p.clicar('#btn-sub-emendas');
     ok(p.abertas.some(u => u.endsWith('emendas.html')), 'e o outro sub-painel abre o acompanhamento de emendas');
+
+    p.clicar('.home-card[data-modulo="emendas"]');
+    ok(p.clicar('#btn-sub-portarias'), 'o sub-painel do comparador de portarias está no modal');
+    ok(p.abertas.some(u => u.endsWith('portarias.html')), 'e abre o comparador de portarias');
   }
 
   console.log('\n== pasta atualizada pela metade: panel.js novo, panel.html antigo ==');
