@@ -664,6 +664,38 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(!/EXPECTATIVA DA EQUIPE/.test(av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, __pc, null, 'Proposta X qualquer.', 6, [])`)), '"não sei" (padrão): sem expectativa no prompt');
   ok(/<option value="" selected>não sei<\/option>/.test(html), 'campo da Oposição começa em "não sei"');
 
+  // ---------- 10. limite de resposta e conteúdo desconhecido ----------
+  console.log('10. Limite de resposta e conteúdo desconhecido');
+  ok(av(`smBtConteudoDesconhecido('Rejeitado o Requerimento. Sim: 126; Não: 274; Abstenção: 2; Total: 402.')`) && av(`smBtConteudoDesconhecido('Aprovado o Requerimento.')`)
+    && av(`smBtConteudoDesconhecido('Resultado.')`) && av(`smBtConteudoDesconhecido('')`), '"Requerimento." / "Resultado." sem descrição = conteúdo desconhecido');
+  ok(!av(`smBtConteudoDesconhecido('Aprovado o Requerimento de Urgência (Art. 155 do RICD). Sim: 320; Não: 67.')`) && !av(`smBtConteudoDesconhecido('Aprovado o Substitutivo ao PLP 230/2025.')`)
+    && !av(`smBtConteudoDesconhecido('Aprovado o Requerimento nº 4.491/2024, dos Senhores Líderes, que solicita a quebra de interstício')`), 'urgência, substitutivo e requerimento descrito NÃO são desconhecidos');
+  ok(/maxSaida: SM_BT_MAX_SAIDA/.test(fs.readFileSync(path.join(RAIZ, 'labs-simulador-teste.js'), 'utf8')) && av(`SM_BT_MAX_SAIDA`) >= 8000
+    && /maxSaida: 8000/.test(fs.readFileSync(path.join(RAIZ, 'labs-simulador.js'), 'utf8')), 'limite de resposta folgado (8.000) no teste e nos agentes');
+  // rodada do teste com 1 votação desconhecida e 1 resposta cortada
+  const vd = vt.map((x, i) => i === 10 ? Object.assign({}, x, { votacao: Object.assign({}, x.votacao, { descricao: 'Rejeitado o Requerimento. Sim: 100; Não: 300.' }) }) : x);
+  ctx.__vd = vd;
+  av(`labsVotacoesPlenario = async () => ({ itens: __vd, falhas: 0, periodo: ['2026-01-01', '2026-04-30'] })`);
+  const fD = ctx.fetch;
+  ctx.fetch = async (url, o) => {
+    if (o && o.method === 'PUT') return { ok: true, json: async () => ({}) };
+    if (/\/votacoes\/b\d+$/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: { proposicoesAfetadas: [{ siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'X' }] } }) };
+    if (/validacoes/.test(url)) return { ok: true, status: 200, json: async () => null };
+    return fD(url, o);
+  };
+  av(`chamarIA = async (o) => { __prompts.push(o);
+      if (/Para cada partido abaixo/.test(o.prompt)) return { text: '{"PL":"Sim","PODE":"Sim"}' };
+      if (!__cortou && /bancada do PL/.test(o.prompt)) { __cortou = true; return { text: '{"voto":', truncated: true }; }
+      const g = (o.prompt.match(/O Governo orientou: (Sim|Não)/) || [])[1];
+      return { text: JSON.stringify({ voto: g, confianca: 3 }) }; }`);
+  ctx.__cortou = false;
+  await av(`smTestarClick()`);
+  const td = document.getElementById('smTesteResultado').innerHTML;
+  ok(/1 respostas cortadas pelo limite/.test(td), 'resposta cortada pelo limite aparece no cabeçalho do resultado');
+  ok(/Sem as 1 votação\(ões\) de conteúdo desconhecido[\s\S]*sobre 3 votações/.test(td) && (td.match(/conteúdo desconhecido<\/span>/g) || []).length === 1,
+    'resultado também SEM as votações de conteúdo desconhecido, que ficam marcadas na tabela');
+  ctx.fetch = fD;
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

@@ -29,6 +29,19 @@
 
 const SM_BT_HIST = '/labs/simulador/validacoes';
 const SM_BT_VOTOS = ['Sim', 'Não', 'Obstrução'];
+const SM_BT_MAX_SAIDA = 8000;
+
+/**
+ * Votação cujo conteúdo a Câmara não informa: a descrição, sem o resultado,
+ * fica só "Requerimento." ou "Resultado." (ex.: "Rejeitado o Requerimento.").
+ * Medido em 05/2026: requerimentos de procedimento em que o Centrão foi com a
+ * Oposição contra o Governo — nenhum método acerta sem saber o que se pedia, e
+ * a API não diz. Entram no teste, mas o resultado também sai SEM elas.
+ */
+function smBtConteudoDesconhecido(descricao) {
+  const o = labsSigla(smBtObjeto(descricao)).replace(/[^a-z ]/g, '').trim();
+  return !o || ['requerimento', 'resultado'].includes(o);
+}
 
 /** Voto normalizado: 'Sim' | 'Não' | 'Obstrução' | null. */
 function smBtVoto(t) {
@@ -233,11 +246,17 @@ async function smTestarClick() {
   const chamadas = n * partidos.length + n;
   if (!confirm(`O teste faz cerca de ${chamadas} chamadas de IA pela sua chave. Continuar?`)) return;
   const modelo = (smEl('smModeloAgentes') && smEl('smModeloAgentes').value) || cfg.modelo || '';
-  const custo = { ok: 0, erro: 0 };
+  const custo = { ok: 0, erro: 0, cortadas: 0 };
   const ia = async prompt => {
     try {
-      const r = await chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: modelo || undefined, prompt, opcoes: { maxSaida: 1500 } });
+      // Limite folgado: nos modelos que "pensam" (Gemini 2.5+/3, raciocínio da
+      // OpenAI/Anthropic), o raciocínio conta dentro do limite de saída — com
+      // 1.500 a resposta de um modelo mais forte era cortada e virava "sem
+      // previsão", punindo-o pelo limite e não pela qualidade. Só se paga o
+      // que é gerado; a resposta útil tem poucas dezenas de tokens.
+      const r = await chamarIA({ provedorId: cfg.provedor || 'gemini', apiKey: cfg.apiKey, modelo: modelo || undefined, prompt, opcoes: { maxSaida: SM_BT_MAX_SAIDA } });
       custo.ok++;
+      if (r.truncated) custo.cortadas++;
       return r.text;
     } catch (e) { custo.erro++; throw e; }
   };
@@ -271,7 +290,7 @@ async function smTestarClick() {
       });
       const propRot = det.proposicao ? `${det.proposicao.siglaTipo} ${det.proposicao.numero}/${det.proposicao.ano}` : String(it.votacao.proposicaoObjeto || '');
       partidos.forEach((p, k) => linhas.push({
-        votacao: it.votacao, sigla: p.sigla, gov, op, prop: propRot,
+        votacao: it.votacao, sigla: p.sigla, gov, op, prop: propRot, desconhecido: smBtConteudoDesconhecido(it.votacao.descricao),
         verdade: smBtMaioria(it, p.sigla, Math.min(2, maxVot[p.sigla] || 0)),
         est: smBtEstatistica(perfis[p.sigla], gov, op), ing: ing[p.sigla] || null, ag: ags[k], contexto: smContexto(gov, op),
       }));
@@ -283,7 +302,7 @@ async function smTestarClick() {
       em: new Date().toISOString(), quem: (smEl('smQuem') && smEl('smQuem').value.trim()) || '',
       provedor: cfg.provedor || 'gemini', modelo: modelo || '(padrão)', meses, votacoes: teste.length,
       periodoTeste: [smBtData(teste[0]).slice(0, 10), smBtData(teste[teste.length - 1]).slice(0, 10)],
-      partidos: siglas, chamadas: custo.ok, falhasIA: custo.erro,
+      partidos: siglas, chamadas: custo.ok, falhasIA: custo.erro, cortadas: custo.cortadas, maxSaida: SM_BT_MAX_SAIDA,
       metricas: { estatistica: met('est'), ingenua: met('ing'), agentes: met('ag') },
       comparacao: { agentesVsEstatistica: smBtComparar(linhas, 'ag', 'est'), agentesVsIngenua: smBtComparar(linhas, 'ag', 'ing') },
       porContexto: Object.fromEntries(['consenso', 'conflito', 'semOposicao'].map(c => {
@@ -292,6 +311,11 @@ async function smTestarClick() {
         return [c, { estatistica: m('est').acuracia, ingenua: m('ing').acuracia, agentes: m('ag').acuracia, n: m('est').n }];
       })),
       porVotacao: smBtPorVotacao(linhas),
+      semDesconhecido: (() => {
+        const ls = linhas.filter(l => !l.desconhecido);
+        const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
+        return { votacoes: new Set(ls.map(l => String(l.votacao.id))).size, estatistica: m('est'), ingenua: m('ing'), agentes: m('ag') };
+      })(),
       porPartido: Object.fromEntries(siglas.map(s => {
         const ls = linhas.filter(l => l.sigla === s);
         const m = k => smBtMetricas(ls.map(l => ({ verdade: l.verdade, previsto: l[k] })));
@@ -343,7 +367,7 @@ function smBtPorVotacao(linhas) {
     if (!porId.has(id)) porId.set(id, {
       id, data: String(l.votacao.data || l.votacao.dataHoraRegistro || '').slice(0, 10),
       objeto: smBtObjeto(l.votacao.descricao).slice(0, 160), prop: l.prop || '', gov: l.gov || '', op: l.op || '',
-      contexto: l.contexto || '', n: 0, acertos: { est: 0, ing: 0, ag: 0 }, partidos: {},
+      contexto: l.contexto || '', desconhecido: !!l.desconhecido, n: 0, acertos: { est: 0, ing: 0, ag: 0 }, partidos: {},
     });
     const v = porId.get(id);
     v.partidos[labsSanitizar(l.sigla)] = { v: l.verdade || '', est: l.est || '', ing: l.ing || '', ag: l.ag || '' };
@@ -406,7 +430,7 @@ function smBtRender(r) {
   const partidos = Object.values(r.porPartido || {}).sort((a, b) => a.sigla.localeCompare(b.sigla));
   smEl('smTesteResultado').innerHTML = `
     <div class="sub" style="margin-top:8px">${r.votacoes} votações de ${labsEsc(r.periodoTeste[0])} a ${labsEsc(r.periodoTeste[1])} ·
-      ${r.partidos.length} bancadas · ${r.chamadas} chamadas (${labsEsc(r.provedor)} · ${labsEsc(r.modelo)})${r.falhasIA ? ` · ${r.falhasIA} falharam` : ''}.
+      ${r.partidos.length} bancadas · ${r.chamadas} chamadas (${labsEsc(r.provedor)} · ${labsEsc(r.modelo)})${r.falhasIA ? ` · ${r.falhasIA} falharam` : ''}${r.cortadas ? ` · <b>${r.cortadas} respostas cortadas pelo limite</b> (contam como sem previsão)` : ''}.
       Acerto = previsão igual ao voto da MAIORIA da bancada.</div>
     <table class="labs-tab" style="margin-top:6px"><tr><th>Método</th><th style="text-align:right">Acerto</th><th style="text-align:right">F1 macro</th><th style="text-align:right">Cobertura</th></tr>
       ${linha('Estatística (sem IA)', M.estatistica, 'segue o Governo se a bancada o seguiu em ≥ 50% das votações anteriores do mesmo contexto (consenso ou conflito com a Oposição)')}
@@ -414,6 +438,7 @@ function smBtRender(r) {
       ${linha('Agentes do Simulador', M.agentes, 'um agente por bancada, com o perfil das votações anteriores')}
     </table>
     ${veredito ? `<div class="labs-aviso" style="margin-top:8px">${veredito}</div>` : ''}
+    ${smBtRenderSemDesconhecido(r)}
     ${r.porContexto ? `<table class="labs-tab" style="margin-top:8px"><tr><th>Contexto da votação</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th><th style="text-align:right">Pares</th></tr>
       ${['consenso', 'conflito', 'semOposicao'].filter(c => r.porContexto[c] && r.porContexto[c].n).map(c => { const x = r.porContexto[c];
         return `<tr><td>${labsEsc(SM_ROT_CONTEXTO[c])}</td><td style="text-align:right">${smBtPct(x.estatistica)}</td><td style="text-align:right">${smBtPct(x.ingenua)}</td><td style="text-align:right">${smBtPct(x.agentes)}</td><td style="text-align:right">${x.n}</td></tr>`; }).join('')}
@@ -425,6 +450,19 @@ function smBtRender(r) {
     <div class="labs-custo">Cuidados: amostra pequena (poucas votações oscilam muito o resultado); o modelo pode ter visto na internet o
       resultado de votações anteriores à data de corte dele — votações recentes são o teste mais limpo; F1 macro pesa igualmente Sim, Não e
       Obstrução (acertar só a classe mais comum não basta). O contexto da equipe não entra no teste (é informação de hoje).</div>`;
+}
+
+/** Linha "sem as votações de conteúdo desconhecido" (só quando houver alguma). */
+function smBtRenderSemDesconhecido(r) {
+  const sd = r.semDesconhecido;
+  const nDesc = (r.porVotacao || []).filter(v => v.desconhecido).length;
+  if (!sd || !nDesc) return '';
+  const sv = smBtSinal((r.porVotacao || []).filter(v => !v.desconhecido), 'ag', 'est');
+  const p = sv.p < 0.001 ? 'p < 0,001' : 'p = ' + sv.p.toFixed(3).replace('.', ',');
+  return `<div class="labs-custo" style="margin-top:6px"><b>Sem as ${nDesc} votação(ões) de conteúdo desconhecido</b> (a Câmara descreve só
+    "Requerimento." ou "Resultado.", sem dizer o que se votava — marcadas na tabela por votação), sobre ${sd.votacoes} votações:
+    estatística ${smBtPct(sd.estatistica.acuracia)} · IA ingênua ${smBtPct(sd.ingenua.acuracia)} · <b>agentes ${smBtPct(sd.agentes.acuracia)}</b>;
+    por votação, agentes melhores em ${sv.melhor}, piores em ${sv.pior}, empate em ${sv.empate} (${p}${sv.significativo ? '' : ' — empate técnico'}).</div>`;
 }
 
 const SM_BT_CTX_CURTO = { consenso: 'consenso', conflito: 'conflito', semOposicao: 'Oposição liberou' };
@@ -440,7 +478,7 @@ function smBtRenderVotacoes(r) {
   };
   return `<div class="sub" style="margin-top:10px"><b>Por votação</b> — bancadas que cada método acertou; clique na votação para ver bancada a bancada.</div>
     <div style="overflow-x:auto"><table class="labs-tab" style="margin-top:4px"><tr><th>Data</th><th>Votação</th><th>Contexto</th><th style="text-align:right">Estatística</th><th style="text-align:right">IA ingênua</th><th style="text-align:right">Agentes</th></tr>
-    ${vs.map(v => `<tr><td>${labsEsc(v.data)}</td><td><details><summary>${labsEsc(v.prop ? v.prop + ' — ' : '')}${labsEsc(v.objeto || v.id)}</summary>
+    ${vs.map(v => `<tr><td>${labsEsc(v.data)}</td><td><details><summary>${labsEsc(v.prop ? v.prop + ' — ' : '')}${labsEsc(v.objeto || v.id)}${v.desconhecido ? ' <span class="sm-sembase" title="A Câmara não informa o que se votava">conteúdo desconhecido</span>' : ''}</summary>
         <div class="base">Governo: ${labsEsc(v.gov || '—')} · Oposição: ${labsEsc(v.op || 'liberou/não orientou')}</div>
         <table class="labs-tab"><tr><th>Bancada</th><th>Votou</th><th>Estatística</th><th>IA ingênua</th><th>Agentes</th></tr>
         ${Object.entries(v.partidos).sort((a, b) => a[0].localeCompare(b[0])).map(([sg, x]) => `<tr><td>${labsEsc(sg)}</td><td>${labsEsc(x.v || '—')}</td><td>${x.v ? marca(x.est, x.v) : '—'}</td><td>${x.v ? marca(x.ing, x.v) : '—'}</td><td>${x.v ? marca(x.ag, x.v) : '—'}</td></tr>`).join('')}
