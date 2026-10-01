@@ -145,6 +145,32 @@ console.log('4. Tela');
   clica($('pn-desfazer'));
   ok(!doc().querySelector('.pn-tab') && !/Análise do plano/.test(doc().textContent) && $('pn-desfazer').disabled && !/Pedidos aplicados/.test($('pn-revisao').textContent), 'desfazer volta à versão anterior');
 
+  // ⚠ na tela, fora do PDF
+  let htmlPdf = '';
+  ctx.window.print = () => { htmlPdf = $('pt-impressao').innerHTML; };
+  vm.runInContext('window.print = globalThis.window.print', ctx);
+  ok($('pn-doc').querySelectorAll('.pn-conf').length === 2 && /audiência pública/.test($('pn-doc').textContent), 'tela: itens não conferidos aparecem, com ⚠');
+  clica($('pn-pdf'));
+  ok(htmlPdf && !/audiência pública/.test(htmlPdf) && !/pn-conf/.test(htmlPdf) && !/R\$ 2\.000\.000/.test(htmlPdf), 'PDF: itens não conferidos ficam de fora');
+  ok(/2 item\(ns\) cujo trecho não foi localizado ficaram fora deste PDF/.test(htmlPdf) && !/pn-tirar/.test(htmlPdf), 'PDF: rodapé diz quantos ficaram de fora; sem botões');
+
+  // ✕ tira o item, sem IA
+  const nPrompts = prompts.length;
+  const tirar = [...$('pn-doc').querySelectorAll('[data-tirar]')].find(b => /audiência pública/.test(b.parentNode.textContent));
+  clica(tirar);
+  ok(!/audiência pública/.test($('pn-doc').textContent) && prompts.length === nPrompts && /Item tirado/.test($('pn-status').textContent), '✕ tira o item da nota na hora, sem chamar a IA');
+  ok(/6\/7/.test($('pn-doc').querySelector('.pn-tiles').textContent), 'contagem de conferidas refeita (6/7)');
+  clica($('pn-desfazer'));
+  ok(/audiência pública/.test($('pn-doc').textContent), 'desfazer devolve o item');
+
+  // IA diz que alterou e devolve a nota igual
+  respostas.push(Object.assign({}, RESP1, { resposta: 'Removi o item da audiência pública.' }));
+  const versoesAntes = vm.runInContext('pn.versoes.length', ctx);
+  $('pn-pedido').value = 'Remova o item da audiência pública';
+  clica($('pn-pedir'));
+  await espera(() => /voltou igual/.test($('pn-status').textContent));
+  ok(/nada foi alterado/.test($('pn-status').textContent) && vm.runInContext('pn.versoes.length', ctx) === versoesAntes && !/Removi o item/.test($('pn-revisao').textContent), 'IA diz que alterou mas devolve igual: avisa e não cria versão');
+
   clica($('pn-copiar'));
   await espera(() => copiado);
   ok(/^NOTA TÉCNICA/.test(copiado) && /altera Portaria Conjunta MGI\/MF\/CGU nº 28/.test(copiado), 'copiar: texto corrido com relações');
@@ -193,11 +219,20 @@ Art. 2º Esta Portaria entra em vigor na data de sua publicação.`;
   await espera(() => /Resumi/.test($('pn-revisao').textContent));
   ok(/=== ATO 1: PORTARIA MS Nº 7/.test(prompts[3]) && /=== ATO 2: PORTARIA CONJUNTA/.test(prompts[3]) && /"atos"/.test(prompts[3]), 'revisão do conjunto leva a nota e o texto de todos os atos');
   ok(/Versão resumida/.test($('pn-doc').textContent) && /Parágrafo pedido/.test($('pn-doc').textContent) && /Repasse em 10 dias/.test($('pn-doc').textContent), 'revisão aplicada na parte geral e na nota de um ato');
+  // resposta só com o ato que mudou, identificado pelo número
+  const RESP1sem = Object.assign({}, RESP1, { pontos: RESP1.pontos.filter(p => p.tema !== 'Inventado') });
+  respostas.push({ geral: { resumo: 'Versão resumida.', resposta: 'Tirei a audiência pública do ato 2.' }, atos: [Object.assign({ ato: 2 }, RESP1sem)] });
+  $('pn-pedido').value = 'Tire o item da audiência pública';
+  clica($('pn-pedir'));
+  await espera(() => /Tirei a audiência/.test($('pn-revisao').textContent));
+  ok(!/audiência pública/.test($('pn-doc').textContent) && /Repasse em 10 dias/.test($('pn-doc').textContent), 'resposta só com o ato alterado ("ato": 2): aplica nele e mantém o outro');
+  clica($('pn-desfazer'));
+
   respostas.push({ geral: { resumo: 'Só a geral.', resposta: '' }, atos: [{}] });
   $('pn-pedido').value = 'Outra coisa';
   clica($('pn-pedir'));
   await espera(() => /Só a geral/.test($('pn-doc').textContent));
-  ok(/Repasse em 10 dias/.test($('pn-doc').textContent) && /notas de cada ato ficaram como estavam/.test($('pn-revisao').textContent), 'resposta sem os atos completos: notas dos atos preservadas, e isso é dito');
+  ok(/Repasse em 10 dias/.test($('pn-doc').textContent) && /formato utilizável; essas ficaram como estavam/.test($('pn-revisao').textContent), 'resposta com ato vazio: notas dos atos preservadas, e isso é dito');
   clica($('pn-desfazer'));
   ok(/Versão resumida/.test($('pn-doc').textContent), 'desfazer no conjunto');
   copiado = '';

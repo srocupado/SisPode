@@ -145,6 +145,27 @@ function pnValorNum(v) {
   return m ? +m[1].replace(/\./g, '').replace(',', '.') : null;
 }
 
+/** Botão "✕" para tirar um item da nota (só na tela). chave = "ato|lista|índice". */
+function pnTirar(chave) { return chave ? `<button class="pn-tirar" data-tirar="${ptEsc(chave)}" title="Tirar este item da nota">✕</button>` : ''; }
+
+/** Cópia da nota só com o que foi conferido (para o PDF). Devolve { nota, omitidos }. */
+function pnSoConferidos(nota) {
+  let omitidos = 0;
+  const ok = it => { if (it && it.conferido === false) { omitidos++; return false; } return true; };
+  const c = Object.assign({}, nota);
+  for (const k of Object.keys(PT_NOTA_LISTAS)) c[k] = (nota[k] || []).filter(ok);
+  c.secoes = (nota.secoes || []).filter(ok);
+  c.objeto = nota.objeto && ok(nota.objeto) ? nota.objeto : null;
+  c.vigencia = nota.vigencia && ok(nota.vigencia) ? nota.vigencia : null;
+  return { nota: c, omitidos };
+}
+
+/** Recontagem depois de tirar item: { total, conferidos }. */
+function pnRecontar(nota) {
+  const itens = [...Object.keys(PT_NOTA_LISTAS).flatMap(k => nota[k] || []), ...(nota.secoes || []), nota.objeto, nota.vigencia].filter(it => it && 'conferido' in it);
+  return { total: itens.length, conferidos: itens.filter(it => it.conferido).length };
+}
+
 function pnArts(it) {
   if (!it) return '';
   const a = (it.artigos || []).map(x => `<span class="pn-art">${ptEsc(x)}</span>`).join('');
@@ -219,24 +240,28 @@ function ptCabecalhoNota({ tipo, titulo, sub }) {
 }
 
 /** Seções da nota de UM ato (resumo, objeto, listas, extras, vigência). sec(titulo, corpo) acumula. */
-function pnSecoesAto(nota, sec) {
+function pnSecoesAto(nota, sec, op = {}) {
   const curta = nota.extensao === 'curta';
+  const ch = (k, i) => op.pdf || op.ato == null ? '' : pnTirar(`${op.ato}|${k}|${i}`);
   if (nota.resumo) sec('Resumo', `<p>${ptEsc(nota.resumo)}</p>`);
-  if (nota.objeto && nota.objeto.texto) sec('Objeto', `<p>${ptEsc(nota.objeto.texto)}</p>${pnArts(nota.objeto)}`);
+  if (nota.objeto && nota.objeto.texto) sec('Objeto', `<p>${ptEsc(nota.objeto.texto)}${ch('objeto', -1)}</p>${pnArts(nota.objeto)}`);
   for (const [k, [rot, campos]] of Object.entries(PT_NOTA_LISTAS)) {
     const itens = curta ? nota[k].slice(0, 5) : nota[k];
     if (!itens.length) continue;
-    sec(rot, `<ul>${itens.map(it => `<li>${campos.map((c, i) => it[c] ? (i === 0 && campos.length > 1 ? `<b>${ptEsc(it[c])}:</b> ` : ptEsc(it[c])) : '').join('')}<div class="pn-fonte">${pnArts(it)}</div></li>`).join('')}</ul>`);
+    sec(rot, `<ul>${itens.map((it, j) => `<li>${campos.map((c, i) => it[c] ? (i === 0 && campos.length > 1 ? `<b>${ptEsc(it[c])}:</b> ` : ptEsc(it[c])) : '').join('')}${ch(k, j)}<div class="pn-fonte">${pnArts(it)}</div></li>`).join('')}</ul>`);
   }
-  for (const x of nota.secoes || []) sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto || '')}</p><div class="pn-fonte">${pnArts(x)}</div>`);
-  if (nota.vigencia && nota.vigencia.texto) sec('Vigência', `<p>${ptEsc(nota.vigencia.texto)}</p><div class="pn-fonte">${pnArts(nota.vigencia)}</div>`);
+  (nota.secoes || []).forEach((x, j) => sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto || '')}${ch('secoes', j)}</p><div class="pn-fonte">${pnArts(x)}</div>`));
+  if (nota.vigencia && nota.vigencia.texto) sec('Vigência', `<p>${ptEsc(nota.vigencia.texto)}${ch('vigencia', -1)}</p><div class="pn-fonte">${pnArts(nota.vigencia)}</div>`);
 }
 
-function pnNotaHtml(nota, meta) {
+function pnNotaHtml(nota, meta, op = {}) {
+  let omitidos = 0;
+  // PDF: só o que foi conferido no texto; o ⚠ fica na tela, para o analista decidir.
+  if (op.pdf) { const f = pnSoConferidos(nota); nota = f.nota; omitidos = f.omitidos; meta = Object.assign({}, meta, { total: meta.conferidos }); }
   const secoes = [];
   let n = 0;
   const sec = (t, corpo) => secoes.push(`<section><h4>${++n}. ${ptEsc(t)}</h4>${corpo}</section>`);
-  pnSecoesAto(nota, sec);
+  pnSecoesAto(nota, sec, { pdf: op.pdf, ato: 0 });
   if (nota.recomendacoes.length) sec('Recomendações da assessoria', `<ul>${nota.recomendacoes.map(r => `<li>${ptEsc(r)}</li>`).join('')}</ul>`);
   const tipo = (PT_NOTA_TIPOS[meta.tipo] || PT_NOTA_TIPOS.informativa).rotulo;
   return `<div id="pn-doc" class="pn-doc">
@@ -244,15 +269,24 @@ function pnNotaHtml(nota, meta) {
     ${pnVisuais(nota, meta)}
     ${secoes.join('')}
     <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.
-      ${meta.conferidos} de ${meta.total} afirmações conferidas literalmente no texto${meta.total - meta.conferidos ? ' — as marcadas com ⚠ precisam de conferência antes do uso' : ''}.
+      ${pnRodapeConferencia(meta.conferidos, meta.total, omitidos, op)}
       ${meta.cortado ? 'Atenção: o ato é longo e só a parte inicial foi lida pela IA.' : ''}</div>
   </div>`;
+}
+
+function pnRodapeConferencia(conferidos, total, omitidos, op) {
+  if (op.pdf) return `Todas as ${conferidos} afirmações desta nota foram conferidas literalmente no texto${omitidos ? `; ${omitidos} item(ns) cujo trecho não foi localizado ficaram fora deste PDF` : ''}.`;
+  return `${conferidos} de ${total} afirmações conferidas literalmente no texto${total - conferidos ? ' — as marcadas com ⚠ aparecem só na tela e ficam fora do PDF' : ''}.`;
 }
 
 function pnCurto(d) { return typeof pcCurto === 'function' ? pcCurto(d) : (d.identificacao || 'ato'); }
 
 /** Nota de VÁRIOS atos: parte geral, quadros do conjunto e uma seção por ato. */
-function pnNotaConjuntaHtml(nota, docs, tipoId) {
+function pnNotaConjuntaHtml(nota, docs, tipoId, op = {}) {
+  let omitidos = 0;
+  if (op.pdf) {
+    nota = Object.assign({}, nota, { atos: nota.atos.map(a => { const f = pnSoConferidos(a.nota); omitidos += f.omitidos; return Object.assign({}, a, { nota: f.nota, total: a.conferidos }); }) });
+  }
   const g = nota.geral;
   const tipo = (PT_NOTA_TIPOS[tipoId] || PT_NOTA_TIPOS.informativa).rotulo;
   const total = nota.atos.reduce((s, a) => s + a.total, 0), conferidos = nota.atos.reduce((s, a) => s + a.conferidos, 0);
@@ -286,7 +320,7 @@ function pnNotaConjuntaHtml(nota, docs, tipoId) {
     const d = docs[i];
     const sub = [];
     let m = 0;
-    pnSecoesAto(Object.assign({}, a.nota, { extensao: g.extensao === 'curta' ? 'curta' : a.nota.extensao }), (t, corpo) => sub.push(`<div class="pn-sub-sec"><h5>${n + 1}.${++m} ${ptEsc(t)}</h5>${corpo}</div>`));
+    pnSecoesAto(Object.assign({}, a.nota, { extensao: g.extensao === 'curta' ? 'curta' : a.nota.extensao }), (t, corpo) => sub.push(`<div class="pn-sub-sec"><h5>${n + 1}.${++m} ${ptEsc(t)}</h5>${corpo}</div>`), { pdf: op.pdf, ato: i });
     secoes.push(`<section class="pn-ato"><h4>${++n}. ${ptEsc(d.identificacao || 'Ato ' + (i + 1))}</h4>
       <div class="pn-sub">${[d.orgao, a.nota.assunto].filter(Boolean).map(ptEsc).join(' · ')}</div>${sub.join('')}</section>`);
   });
@@ -299,7 +333,7 @@ function pnNotaConjuntaHtml(nota, docs, tipoId) {
     ${vis}
     ${secoes.join('')}
     <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto dos atos: ${docs.map(d => ptEsc(pnCurto(d))).join('; ')}.
-      ${conferidos} de ${total} afirmações conferidas literalmente no texto do ato correspondente${total - conferidos ? ' — as marcadas com ⚠ precisam de conferência antes do uso' : ''}.
+      ${pnRodapeConferencia(conferidos, total, omitidos, op)}
       A parte geral foi escrita só a partir das notas de cada ato.${cortados.length ? ` Atos longos lidos só na parte inicial: ${cortados.map(ptEsc).join('; ')}.` : ''}</div>
   </div>`;
 }
@@ -340,12 +374,33 @@ function pnRender() {
     : (pn.nota ? 'Gerar de novo' : docs.length > 1 ? `Gerar nota dos ${docs.length} atos` : 'Gerar nota');
   ptEl('pn-ia-aviso').innerHTML = semIA ? '<div class="on-pend">Configure o provedor de IA no botão <b>IA</b>, no topo. A chave fica no seu navegador.</div>' : '';
   ptEl('pn-status').innerHTML = pn.aviso;
-  ptEl('pn-resultado').innerHTML = !pn.nota ? '' : pn.nota.geral ? pnNotaConjuntaHtml(pn.nota, pnDocsDaNota(), pn.tipo)
-    : pnNotaHtml(pn.nota.atos[0].nota, pnMeta(pnDocsDaNota()[0], pn.nota.atos[0]));
+  ptEl('pn-resultado').innerHTML = pn.nota ? pnHtml() : '';
   ptEl('pn-acoes').style.display = pn.nota ? 'flex' : 'none';
   const resposta = pn.nota && (pn.nota.geral ? pn.nota.geral.resposta : pn.nota.atos[0].nota.resposta);
   ptEl('pn-revisao').innerHTML = ptRevisaoHtml({ prefixo: 'pn', habilitado: !!pn.nota, motivo: 'Gere a nota primeiro; depois peça aqui as alterações.',
     ocupado: pn.ocupado === 'revisar', pedidos: pn.pedidos, podeDesfazer: pn.versoes.length > 0, resposta });
+}
+
+function pnHtml(op = {}) {
+  return pn.nota.geral ? pnNotaConjuntaHtml(pn.nota, pnDocsDaNota(), pn.tipo, op)
+    : pnNotaHtml(pn.nota.atos[0].nota, pnMeta(pnDocsDaNota()[0], pn.nota.atos[0]), op);
+}
+
+/** Cópia da nota para guardar versão (desfazer), sem copiar o texto dos atos. */
+function pnCopiaNota(n) { return Object.assign({}, n, { geral: n.geral && JSON.parse(JSON.stringify(n.geral)), atos: JSON.parse(JSON.stringify(n.atos)) }); }
+
+/** "✕" num item: sai da nota (a tela e o PDF), com desfazer. Não depende da IA. */
+function pnTirarItem(chave) {
+  const [a, lista, i] = chave.split('|');
+  const ato = pn.nota && pn.nota.atos[+a];
+  if (!ato) return;
+  pn.versoes.push({ nota: pnCopiaNota(pn.nota), pedidos: pn.pedidos.slice() });
+  const n = ato.nota;
+  if (lista === 'objeto' || lista === 'vigencia') n[lista] = null;
+  else if (Array.isArray(n[lista])) n[lista].splice(+i, 1);
+  Object.assign(ato, pnRecontar(n));
+  pn.aviso = '<div class="on-ok">Item tirado da nota. Use "Desfazer" para voltar.</div>';
+  pnRender();
 }
 
 /** Os atos da nota, na ordem da nota (um ato tirado da lista depois de gerar some da nota). */
@@ -454,16 +509,46 @@ async function pnRevisar(pedido) {
       const textos = docs.map((d, i) => `=== ATO ${i + 1}: ${d.identificacao || ''} ===\n${d.texto}`).join('\n\n');
       const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisaoConjunto({ nota: pn.nota, pedido, historico: pn.pedidos, tipo: pn.tipo,
         identificacoes: docs.map(d => d.identificacao) }), textos));
-      const atosResp = Array.isArray(j.atos) && j.atos.length === pn.nota.atos.length ? j.atos : null;
+      // A resposta pode trazer só os atos que mudou (com "ato": número ou identificação).
+      const lista = Array.isArray(j.atos) ? j.atos : [];
+      const daResposta = i => {
+        if (lista.length === pn.nota.atos.length && !lista.some(x => x && x.ato != null && pnIndiceAto(x.ato, docs) !== null && pnIndiceAto(x.ato, docs) !== i)) return lista[i];
+        return lista.find(x => x && pnIndiceAto(x.ato, docs) === i) || null;
+      };
+      let ignorados = 0;
       nova = { docs: pn.nota.docs, geral: ptNormalizarGeral(j.geral || j, docs.length),
-        // ato que a resposta não devolveu (ou devolveu fora da ordem) fica como estava
-        atos: pn.nota.atos.map((a, i) => { if (!atosResp) return a; const c = ptConferirNota(atosResp[i], docs[i].texto); return { docId: a.docId, nota: c.nota, total: c.total, conferidos: c.conferidos }; }) };
-      if (!atosResp && !nova.geral.resposta) nova.geral.resposta = 'Alterada a parte geral; as notas de cada ato ficaram como estavam.';
+        atos: pn.nota.atos.map((a, i) => {
+          const r = daResposta(i);
+          if (!r || typeof r !== 'object' || !Object.keys(r).some(k => k !== 'ato')) { if (lista.length) ignorados++; return a; }
+          const c = ptConferirNota(r, docs[i].texto); return { docId: a.docId, nota: c.nota, total: c.total, conferidos: c.conferidos };
+        }) };
+      if (ignorados) nova.geral.resposta = `${nova.geral.resposta ? nova.geral.resposta + ' ' : ''}(Atenção: a resposta da IA não trouxe ${ignorados} nota(s) de ato num formato utilizável; essas ficaram como estavam.)`;
+    }
+    // A IA às vezes diz que alterou e devolve a nota igual: isso não vira versão nova.
+    if (pnMesmaNota(nova, pn.nota)) {
+      pn.aviso = '<div class="on-falha">A IA respondeu, mas a nota voltou igual — nada foi alterado. Para tirar um item específico, use o ✕ ao lado dele; para outras mudanças, reformule o pedido.</div>';
+      pn.ocupado = ''; pnRender(); return;
     }
     pn.versoes.push({ nota: pn.nota, pedidos: pn.pedidos.slice() });
     pn.nota = nova; pn.pedidos = pn.pedidos.concat(pedido);
   } catch (e) { pn.aviso = `<div class="on-falha">A alteração falhou: ${ptEsc(e.message)}. A nota anterior foi mantida.</div>`; }
   pn.ocupado = ''; pnRender();
+}
+
+/** Índice (0…) de um ato citado na resposta: número (1, 2…) ou identificação. */
+function pnIndiceAto(x, docs) {
+  if (x == null) return null;
+  const n = Number(x);
+  if (Number.isInteger(n) && n >= 1 && n <= docs.length) return n - 1;
+  const t = ptNorm(String(x));
+  const i = docs.findIndex(d => d.identificacao && (ptNorm(d.identificacao) === t || ptNorm(d.identificacao).startsWith(t) || t.startsWith(ptNorm(d.identificacao))));
+  return i >= 0 ? i : null;
+}
+
+/** As duas notas têm o mesmo conteúdo (ignorando a frase de resposta da IA)? */
+function pnMesmaNota(a, b) {
+  const limpa = n => JSON.stringify({ g: n.geral ? Object.assign({}, n.geral, { resposta: '' }) : null, a: n.atos.map(x => Object.assign({}, x.nota, { resposta: '' })) });
+  return limpa(a) === limpa(b);
 }
 
 function pnDesfazer() {
@@ -491,13 +576,13 @@ function pnCopiar() {
 }
 
 /** PDF pela impressão do navegador: só a nota, num contêiner fora do layout da tela. */
-function ptImprimir(el) {
-  if (!el) return;
+function ptImprimirHtml(html) {
   let box = ptEl('pt-impressao');
   if (!box) { box = document.createElement('div'); box.id = 'pt-impressao'; document.body.appendChild(box); }
-  box.innerHTML = el.outerHTML.replace(/id="p[nc]-doc"/, '');
+  box.innerHTML = html.replace(/id="p[nc]-doc"/, '');
   window.print();
 }
+function ptImprimir(el) { if (el) ptImprimirHtml(el.outerHTML); }
 
 /** Abas: "Comparar sequência" × "Notas de portarias". */
 function ptAba(qual) {
@@ -519,7 +604,8 @@ if (ptEl('pn-ato')) {
   ptEl('pn-buscar-link').addEventListener('click', pnLinkClick);
   ptEl('pn-gerar').addEventListener('click', pnGerar);
   ptEl('pn-copiar').addEventListener('click', pnCopiar);
-  ptEl('pn-pdf').addEventListener('click', () => ptImprimir(ptEl('pn-doc')));
+  ptEl('pn-pdf').addEventListener('click', () => ptImprimirHtml(pnHtml({ pdf: true })));
+  ptEl('pn-resultado').addEventListener('click', ev => { const b = ev.target.closest('[data-tirar]'); if (b) pnTirarItem(b.dataset.tirar); });
   ptEl('pn-ato').addEventListener('change', ev => {
     const c = ev.target.dataset && ev.target.dataset.pnCampo;
     const d = c && pn.docs.find(x => x.id === +ev.target.closest('[data-pn]').dataset.pn);
