@@ -696,6 +696,48 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     'resultado também SEM as votações de conteúdo desconhecido, que ficam marcadas na tabela');
   ctx.fetch = fD;
 
+  // ---------- 11. correções do teste real (PL 3626/2023) ----------
+  console.log('11. Correções do teste real');
+  const p11 = av(`smPromptAgente({ tipo: 'partido', sigla: 'PL', cadeiras: 90 }, null, null, 'Vedar apostas por beneficiários do Bolsa Família.', 6, [])`);
+  ok(!/diga "condiciona" e explique o que falta/.test(p11) && /TOME POSIÇÃO/.test(p11) && /"condiciona" SÓ com uma condição concreta e verificável/.test(p11) && /"apoia\|condiciona\|rejeita\|indefinida"/.test(p11),
+    '(1) sem "na dúvida, condiciona": condição tem de ser concreta; "indefinida" quando falta informação');
+  ok(/não é argumento: não cite percentuais de alinhamento/.test(p11), '(3) perfil calibra a posição, não vira argumento');
+  ok(av(`smPosicao('indefinida')`) === 'indefinida', '"indefinida" é posição legítima');
+  // (2) base declarada × recebida
+  const rv2 = av(`smValidarBases({ objecoes: [{ texto: 'a', base: 'contexto' }, { texto: 'b', base: 'proposta' }, { texto: 'c', base: 'governo' }, { texto: 'd', base: 'perfil' }, { texto: 'e', base: 'proposicao' }] },
+                  smRecebido({ tipo: 'governo', sigla: '__governo', contexto: '' }, undefined, null, {}))`);
+  ok(rv2.objecoes[0].base === 'nenhuma' && rv2.objecoes[0].baseDeclarada === 'contexto' && rv2.objecoes[1].base === 'proposta'
+    && rv2.objecoes[2].base === 'nenhuma' && rv2.objecoes[3].base === 'nenhuma' && rv2.objecoes[4].base === 'nenhuma',
+    '(2) Governo sem contexto, sem perfil, sem proposição: "contexto/governo/votações/ementa" declarados viram "sem base"');
+  const rv3 = av(`smValidarBases({ objecoes: [{ texto: 'a', base: 'contexto' }, { texto: 'd', base: 'perfil' }, { texto: 'g', base: 'governo' }] },
+                  smRecebido({ tipo: 'partido', sigla: 'PL', contexto: 'O líder fechou questão.' }, { comparaveis: 10 }, { sigla: 'PL' }, { governo: { posicao: 'apoia' } }))`);
+  ok(rv3.objecoes.every(o => o.base !== 'nenhuma'), 'com contexto, perfil e posição do Governo recebidos, as bases valem');
+  // (4) proposição que já virou lei
+  ctx.__lei = { sigla: 'PL', numero: '3626', ano: '2023', ementa: 'Apostas de quota fixa', situacao: 'Transformado em Norma Jurídica' };
+  ok(av(`smJaEhLei(__lei)`) && !av(`smJaEhLei({ situacao: 'Aguardando Deliberação' })`), '(4) detecta proposição transformada em lei');
+  ok(/JÁ FOI TRANSFORMADA EM LEI \(Transformado em Norma Jurídica\)[\s\S]*ALTERAÇÃO da lei vigente/.test(av(`smTextoProposicao(__lei)`)), 'prompt avisa os agentes que o texto está em vigor');
+  // rodada completa: aviso de lei na tela + base inexistente marcada
+  const fL = ctx.fetch;
+  ctx.fetch = async (url, o) => {
+    if (/proposicoes\?siglaTipo=PL&numero=3626/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: [{ id: 2370108 }] }) };
+    if (/proposicoes\/2370108$/.test(url)) return { ok: true, status: 200, json: async () => ({ dados: { ementa: 'Apostas de quota fixa', statusProposicao: { descricaoSituacao: 'Transformado em Norma Jurídica' } } }) };
+    return fL(url, o);
+  };
+  armazenado.config = { provedor: 'gemini', apiKey: 'chave-de-teste', modelo: 'modelo-de-teste' };
+  av(`sm.agentes.forEach(a => { a.marcado = a.tipo === 'governo'; a.contexto = ''; })`);
+  av(`chamarIA = async (o) => { __prompts.push(o); if (/SOMENTE com um objeto JSON/.test(o.prompt))
+        return { text: JSON.stringify({ posicao: 'condiciona', objecoes: [{ texto: 'não há integração de dados', base: 'contexto' }], concessao: 'x', argumento: '', risco: '' }) };
+      return { text: 'síntese' }; }`);
+  document.getElementById('smSigla').value = 'PL'; document.getElementById('smNumero').value = '3626'; document.getElementById('smAno').value = '2023';
+  document.getElementById('smProposta').value = 'Vedar apostas por beneficiários do Bolsa Família, com bloqueio por CPF.';
+  ctx.__prompts = [];
+  await av(`smSimularClick()`);
+  const h11 = document.getElementById('smResultado').innerHTML;
+  ok(/Esta proposição já virou lei<\/b> \(situação na Câmara: Transformado em Norma Jurídica\)/.test(h11) && /JÁ FOI TRANSFORMADA EM LEI/.test(ctx.__prompts[0].prompt), 'tela e prompt avisam que a proposição já é lei');
+  ok(/sem base — citou contexto da equipe, que ele não recebeu/.test(h11), 'objeção com base inexistente aparece como tal');
+  document.getElementById('smNumero').value = ''; document.getElementById('smAno').value = '';
+  ctx.fetch = fL;
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });
