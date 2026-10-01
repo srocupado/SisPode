@@ -93,7 +93,7 @@ console.log('4. Tela');
   ok(scripts.includes('orcamento-ia.js') && scripts.indexOf('portarias-avulsa.js') > scripts.indexOf('portarias.js'), 'scripts: camada de IA e tela da nota');
   ok($('pt-aba-seq').style.display === 'contents' && $('pt-aba-nota').style.display === 'none', 'abre na aba da sequência');
   clica(document.querySelector('[data-aba="nota"]'));
-  ok($('pt-aba-nota').style.display === 'contents', 'aba "Nota de uma portaria" aparece');
+  ok($('pt-aba-nota').style.display === 'contents', 'aba "Notas de portarias" aparece');
   ok($('pt-aba-seq').style.display === 'none', 'e a da sequência some');
   ok(document.querySelector('[data-aba="nota"]').classList.contains('ativa') && !document.querySelector('[data-aba="seq"]').classList.contains('ativa'), 'botão da aba marcado');
   ok(/Gere a nota comparativa/.test($('pc-revisao').textContent), 'nota comparativa: caixa de alterações no lugar, esperando a nota');
@@ -101,7 +101,7 @@ console.log('4. Tela');
 
   $('pn-texto').value = ATO;
   clica($('pn-usar-texto'));
-  ok($('pn-ident').getAttribute('value').startsWith('PORTARIA CONJUNTA MGI/MF/CGU Nº 46') && /altera 28\/2024/.test($('pn-ato').textContent) && /4 artigo/.test($('pn-ato').textContent), 'ato lançado: identificação, relação e artigos por regra');
+  ok(document.querySelector('[data-pn-campo="identificacao"]').getAttribute('value').startsWith('PORTARIA CONJUNTA MGI/MF/CGU Nº 46') && /altera 28\/2024/.test($('pn-ato').textContent) && /4 artigo/.test($('pn-ato').textContent), 'ato lançado: identificação, relação e artigos por regra');
   ok(!$('pn-gerar').disabled, '"Gerar nota" habilitado');
 
   respostas.push(RESP1);
@@ -154,6 +154,60 @@ console.log('4. Tela');
   clica($('pn-pdf'));
   ok(imprimiu === 1 && $('pt-impressao') && $('pt-impressao').parentNode === document.body && /Nota técnica/.test($('pt-impressao').textContent), 'PDF: a nota vai para o contêiner de impressão e abre a impressão');
   ok(/body > \*:not\(#pt-impressao\)/.test(html), 'PDF: na impressão, só o contêiner aparece');
+
+  // ---- várias portarias, sem relação entre si, numa nota só ----
+  const ATO2 = `PORTARIA MS Nº 7, DE 3 DE FEVEREIRO DE 2025
+Dispõe sobre o repasse fundo a fundo para a atenção primária.
+Art. 1º O Fundo Nacional de Saúde repassará os recursos em até 10 (dez) dias após a habilitação do município.
+Art. 2º Esta Portaria entra em vigor na data de sua publicação.`;
+  const RESP2ATO = { assunto: 'Repasse fundo a fundo na atenção primária', resumo: 'Fixa prazo de repasse.',
+    prazos: [{ prazo: '10 (dez) dias', evento: 'repasse após habilitação', artigos: ['Art. 1º'], trecho: 'O Fundo Nacional de Saúde repassará os recursos em até 10 (dez) dias' }],
+    vigencia: { texto: 'Na publicação', artigos: ['Art. 2º'], trecho: 'Esta Portaria entra em vigor na data de sua publicação' } };
+  $('pn-texto').value = ATO2;
+  clica($('pn-usar-texto'));
+  ok(document.querySelectorAll('#pn-ato .pt-doc').length === 2 && !$('pn-doc') && /A lista de atos mudou/.test($('pn-status').textContent), 'segundo ato entra na lista; a nota anterior deixa de valer');
+  ok(/Gerar nota dos 2 atos/.test($('pn-gerar').textContent) && /2 ato\(s\)/.test($('pn-contagem').textContent), 'botão e contagem para vários atos');
+  const ordem = [...document.querySelectorAll('[data-pn-campo="identificacao"]')].map(i => i.getAttribute('value'));
+  ok(/MS Nº 7/.test(ordem[0]) && /Nº 46/.test(ordem[1]), 'atos em ordem cronológica');
+  prompts.length = 0;
+  respostas.push(RESP2ATO, RESP1, { assunto: 'Dois atos sem relação', resumo: 'Os atos tratam de assuntos distintos.',
+    conexoes: [{ texto: 'Não há relação entre os atos: um trata de saúde, o outro de convênios.', atos: [1, 2] }], atencao: [{ descricao: 'Prazo curto de repasse', atos: [1] }],
+    recomendacoes: ['Acompanhar a habilitação dos municípios.'], visuais: ['numeros', 'relacoes', 'prazos', 'temas'] });
+  clica($('pn-gerar'));
+  await espera(() => $('pn-doc') && /Notas de portarias: 2 atos/.test($('pn-doc').textContent));
+  ok(prompts.length === 3 && /Portaria MS Nº 7|PORTARIA MS Nº 7/.test(prompts[0]) && /Nº 46/.test(prompts[1]) && /parte geral/.test(prompts[2]) && /ATO 1:/.test(prompts[2]) && /ATO 2:/.test(prompts[2]), 'uma nota por ato + a parte geral sobre as duas');
+  ok(!/TEXTO EXTRAÍDO/.test(prompts[2]), 'a parte geral não relê os textos: usa só as notas conferidas');
+  const dm = $('pn-doc').textContent;
+  ok(/Resumo do conjunto/.test(dm) && /Não há relação entre os atos/.test(dm) && /PORTARIA MS Nº 7/.test(dm) && /PORTARIA CONJUNTA MGI\/MF\/CGU Nº 46/.test(dm), 'nota única: resumo do conjunto, relação (ou falta dela) e uma seção por ato');
+  ok(/Pontos de atenção/.test(dm) && /Acompanhar a habilitação/.test(dm), 'atenção e recomendações do conjunto');
+  ok(/Em números · 2 atos/.test(dm) && /Relações de cada ato/.test(dm) && /sem relação com outros atos/.test(dm) && /Conteúdo por ato/.test(dm), 'quadros do conjunto');
+  ok($('pn-doc').querySelectorAll('.pn-regua .marco').length === 3 && /\(Portaria Ms nº 7\/2025\)|\(Portaria MS nº 7\/2025\)/.test($('pn-doc').querySelector('.pn-regua').textContent), 'régua de prazos junta os atos, com o ato no rótulo');
+  ok(/8 de 10 afirmações/.test(dm), 'conferência somada de todos os atos (2/2 + 6/8)');
+
+  // revisão sobre o conjunto
+  respostas.push({ geral: { assunto: 'Dois atos sem relação', resumo: 'Versão resumida.', conexoes: [], recomendacoes: [], visuais: ['numeros'], extensao: 'curta',
+      secoes: [{ titulo: 'Contexto', texto: 'Parágrafo pedido pelo analista.' }], resposta: 'Resumi e incluí um parágrafo de contexto.' },
+    atos: [Object.assign({ ato: 'MS 7' }, RESP2ATO, { resumo: 'Repasse em 10 dias.' }), Object.assign({ ato: 'PC 46' }, RESP1)] });
+  $('pn-pedido').value = 'Resuma e inclua um parágrafo de contexto';
+  clica($('pn-pedir'));
+  await espera(() => /Resumi/.test($('pn-revisao').textContent));
+  ok(/=== ATO 1: PORTARIA MS Nº 7/.test(prompts[3]) && /=== ATO 2: PORTARIA CONJUNTA/.test(prompts[3]) && /"atos"/.test(prompts[3]), 'revisão do conjunto leva a nota e o texto de todos os atos');
+  ok(/Versão resumida/.test($('pn-doc').textContent) && /Parágrafo pedido/.test($('pn-doc').textContent) && /Repasse em 10 dias/.test($('pn-doc').textContent), 'revisão aplicada na parte geral e na nota de um ato');
+  respostas.push({ geral: { resumo: 'Só a geral.', resposta: '' }, atos: [{}] });
+  $('pn-pedido').value = 'Outra coisa';
+  clica($('pn-pedir'));
+  await espera(() => /Só a geral/.test($('pn-doc').textContent));
+  ok(/Repasse em 10 dias/.test($('pn-doc').textContent) && /notas de cada ato ficaram como estavam/.test($('pn-revisao').textContent), 'resposta sem os atos completos: notas dos atos preservadas, e isso é dito');
+  clica($('pn-desfazer'));
+  ok(/Versão resumida/.test($('pn-doc').textContent), 'desfazer no conjunto');
+  copiado = '';
+  clica($('pn-copiar'));
+  await espera(() => copiado);
+  ok(/— 2 ATOS/.test(copiado) && /===== ATO 1 =====/.test(copiado) && /===== ATO 2 =====/.test(copiado), 'copiar: texto do conjunto');
+
+  // tirar um ato
+  clica(document.querySelector('[data-pn-acao="remover"]'));
+  ok(document.querySelectorAll('#pn-ato .pt-doc').length === 1 && !$('pn-doc'), 'tirar um ato: sai da lista e a nota deixa de valer');
 
   const man = JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8'));
   ok(['portarias-nota.js', 'portarias-avulsa.js'].every(f => man.web_accessible_resources[0].resources.includes(f)), 'scripts no manifest');

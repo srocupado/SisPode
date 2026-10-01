@@ -145,6 +145,8 @@
     .pn-tab { width: 100%; border-collapse: collapse; font-size: 11.5px; }
     .pn-tab td { border-bottom: 1px solid #e3e7ec; padding: 4px 6px; vertical-align: top; }
     .pn-tab td.q { font-weight: 700; width: 28%; } .pn-tab td.a { color: #6b7480; width: 16%; }
+    .pn-ato { border-top: 1px solid #e3e7ec; margin-top: 14px; padding-top: 2px; }
+    .pn-sub-sec h5 { margin: 10px 0 3px; font-size: 12px; color: #0f5f5f; }
     .pn-rodape { margin-top: 18px; border-top: 1px solid #e3e7ec; padding-top: 8px; font-size: 10.5px; color: #6b7480; }
     .pt-par { font-size: 11.5px; margin-top: 5px; color: var(--text-dim); }
     .pt-par b { color: var(--text); }
@@ -213,7 +215,7 @@
   <div class="on-corpo">
     <div class="on-card largo pt-abas">
       <button class="pt-aba ativa" data-aba="seq">Comparar sequência de portarias</button>
-      <button class="pt-aba" data-aba="nota">Nota de uma portaria</button>
+      <button class="pt-aba" data-aba="nota">Notas de portarias</button>
     </div>
 
     <div id="pt-aba-seq" style="display:contents">
@@ -281,19 +283,19 @@
 
     <div id="pt-aba-nota" style="display:none">
     <div class="on-card largo">
-      <h3>1 · O ato</h3>
-      <div class="on-vazio" style="font-style:normal;margin-bottom:10px">Lance uma portaria (ou outro ato) e receba a nota informativa ou técnica dela.
-        Identificação e relações (revoga/altera) saem por regra; o conteúdo é redigido pela IA com o artigo e o trecho literal de cada afirmação, conferidos aqui.</div>
+      <h3>1 · Os atos <span id="pn-contagem" class="on-vazio" style="text-transform:none;letter-spacing:0"></span></h3>
+      <div class="on-vazio" style="font-style:normal;margin-bottom:10px">Lance uma ou várias portarias (ou outros atos), relacionadas ou não, e receba uma nota informativa ou técnica que considera todas.
+        Identificação e relações (revoga/altera) saem por regra; o conteúdo é redigido pela IA com o artigo e o trecho literal de cada afirmação, conferidos no texto do ato correspondente.</div>
       <div class="pt-entrada">
         <div class="bloco">
-          <h4>Arquivo</h4>
-          <div class="dica">PDF com texto ou Word (.docx).</div>
-          <input type="file" id="pn-arquivo" class="pt-campo" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document">
+          <h4>Arquivos</h4>
+          <div class="dica">PDF com texto ou Word (.docx). Pode escolher vários de uma vez.</div>
+          <input type="file" id="pn-arquivo" class="pt-campo" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple>
         </div>
         <div class="bloco">
           <h4>Texto colado</h4>
           <textarea id="pn-texto" class="pt-campo" placeholder="PORTARIA … Nº …, DE …&#10;…"></textarea>
-          <button id="pn-usar-texto" class="pt-btn-mini" style="margin-top:6px">Usar este texto</button>
+          <button id="pn-usar-texto" class="pt-btn-mini" style="margin-top:6px">Adicionar texto</button>
         </div>
         <div class="bloco">
           <h4>Link do DOU</h4>
