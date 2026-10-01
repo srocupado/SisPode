@@ -158,6 +158,40 @@ REGRAS DO DEPOIS:
 ${fmt(depois.regras) || '(nenhuma neste tema)'}`;
 }
 
+/**
+ * Ato que ALTERA outro. Cada dispositivo que ele muda é uma mudança:
+ * nova redação → "alterada", inclusão/acréscimo → "nova", revogação →
+ * "suprimida". O "como ficou" sai do próprio ato alterador. O "como era" só
+ * quando o ato alterado do conjunto ainda traz a redação ANTERIOR — se ele já
+ * é a versão consolidada com esta alteração (marcas "Redação dada pela…"),
+ * a redação anterior não está no conjunto e fica em branco. Nada de "mantidas":
+ * o que o alterador não menciona simplesmente não é assunto dele.
+ */
+function pcPromptAlteracao({ alterador, alterado, regras, regrasAlterado = [], consolidado, temas }) {
+  const fmt = rs => rs.map(r => `[${r.tema}] ${r.aspecto}: ${r.regra} (${(r.artigos || []).join('; ')}) «${r.trecho}»`).join('\n');
+  return `O ato ALTERADOR abaixo muda o ato ALTERADO. Liste CADA dispositivo que ele muda — sem pular nenhum.
+ALTERADOR: ${alterador.identificacao}
+ALTERADO: ${alterado ? alterado.identificacao : '(ato que não está no conjunto)'}
+Temas (use exatamente um destes nomes): ${temas.join(' | ')}
+
+Para cada mudança:
+- "tipo": "alterada" (nova redação de dispositivo existente), "nova" (dispositivo incluído/acrescido) ou "suprimida" (dispositivo revogado);
+- "depois": o que o dispositivo passa a dizer (para "suprimida": qual dispositivo deixa de existir);
+- "trecho_depois": cópia LITERAL do ALTERADOR (o texto entre « » nas regras dele) — obrigatório em todas, inclusive na revogação;
+- "antes" e "trecho_antes": ${consolidado || !alterado
+    ? 'deixe VAZIOS — o texto do ato alterado no conjunto já é a versão consolidada (ou o ato não está no conjunto), então a redação anterior não está disponível. Não a reconstitua de memória.'
+    : 'a redação anterior, copiando o trecho entre « » das REGRAS DO ALTERADO; se não houver regra correspondente, deixe vazios.'}
+- "efeito": consequência prática, em uma frase.
+
+Responda APENAS com JSON:
+{ "mudancas": [ { "tema": "…", "aspecto": "…", "tipo": "alterada|nova|suprimida", "antes": "", "depois": "…", "artigos_antes": [], "artigos_depois": ["…"],
+    "trecho_antes": "", "trecho_depois": "…", "efeito": "…" } ] }
+
+REGRAS DO ALTERADOR:
+${fmt(regras) || '(nenhuma)'}
+${!consolidado && alterado && regrasAlterado.length ? `\nREGRAS DO ALTERADO (redação anterior, para "antes"):\n${fmt(regrasAlterado)}` : ''}`;
+}
+
 function pcPromptNovo({ ato, regras, temas }) {
   return `O ato abaixo é um INSTRUMENTO NOVO na sequência (não substitui nem altera outro ato da lista).
 Ato: ${ato.identificacao}
@@ -208,8 +242,12 @@ function pcConfereRegras(regras, texto, temas) {
   });
 }
 
-/** Confere as mudanças: trecho de antes no ato anterior, de depois no posterior. Pura. */
-function pcConfereMudancas(resp, textoAntes, textoDepois, temas) {
+/**
+ * Confere as mudanças: trecho de antes no ato anterior, de depois no posterior. Pura.
+ * op.alteracao: ato alterador — todo item precisa do trecho LITERAL do alterador
+ * (inclusive a revogação), e "mantidas" não se aplicam.
+ */
+function pcConfereMudancas(resp, textoAntes, textoDepois, temas, op = {}) {
   const fa = pcCompacto(textoAntes), fd = pcCompacto(textoDepois);
   const nomes = new Set((temas || []).map(t => t.nome));
   const r = resp && typeof resp === 'object' ? resp : {};
@@ -218,14 +256,14 @@ function pcConfereMudancas(resp, textoAntes, textoDepois, temas) {
     const problemas = [];
     if (m.tipo !== 'nova' && m.trecho_antes && !ok(fa, m.trecho_antes)) problemas.push('trecho de antes não localizado');
     if (m.tipo !== 'nova' && !m.trecho_antes && m.antes) problemas.push('sem trecho de antes');
-    if (m.tipo !== 'suprimida' && !ok(fd, m.trecho_depois)) problemas.push('trecho de depois não localizado');
+    if ((m.tipo !== 'suprimida' || op.alteracao) && !ok(fd, m.trecho_depois)) problemas.push('trecho de depois não localizado');
     return { tema: nomes.has(m.tema) ? m.tema : 'Outros', aspecto: String(m.aspecto || '').trim(), tipo: m.tipo,
       antes: String(m.antes || '').trim(), depois: String(m.depois || '').trim(),
       artigos_antes: [].concat(m.artigos_antes || []).map(String), artigos_depois: [].concat(m.artigos_depois || []).map(String),
       trecho_antes: String(m.trecho_antes || '').trim(), trecho_depois: String(m.trecho_depois || '').trim(),
       efeito: String(m.efeito || '').trim(), conferido: !problemas.length, problemas };
   });
-  const mantidas = (Array.isArray(r.mantidas) ? r.mantidas : []).filter(Boolean).map(m => ({ tema: nomes.has(m.tema) ? m.tema : 'Outros', aspecto: String(m.aspecto || '') }));
+  const mantidas = (op.alteracao || !Array.isArray(r.mantidas) ? [] : r.mantidas).filter(Boolean).map(m => ({ tema: nomes.has(m.tema) ? m.tema : 'Outros', aspecto: String(m.aspecto || '') }));
   return { mudancas, mantidas };
 }
 
@@ -243,6 +281,14 @@ function pcLotes(temas, regrasAntes, regrasDepois, max = PC_LOTE_COMPARACAO) {
   }
   if (atual.temas.length) lotes.push(atual);
   return lotes;
+}
+
+/** Impressão digital do texto (FNV-1a, 32 bits) — chave das leituras guardadas. Pura. */
+function pcHash(texto) {
+  let h = 0x811c9dc5;
+  const t = String(texto || '');
+  for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return h.toString(36) + '-' + t.length.toString(36);
 }
 
 // ---------- visuais e nota ----------
@@ -331,6 +377,6 @@ Responda APENAS com o JSON completo revisado.`;
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { PC_PARTE, PC_TIPOS, PC_VISUAIS, PC_VISUAIS_PADRAO, pcEstrutura, pcPartes, pcPares, pcPromptTemas, pcPromptExtracao,
-    pcPromptComparar, pcPromptNovo, pcPromptSintese, pcConfereRegras, pcConfereMudancas, pcLotes, pcMatriz, pcNotaTexto,
+    pcPromptComparar, pcPromptAlteracao, pcPromptNovo, pcHash, pcPromptSintese, pcConfereRegras, pcConfereMudancas, pcLotes, pcMatriz, pcNotaTexto,
     pcNormalizarSintese, pcPromptRevisao };
 }

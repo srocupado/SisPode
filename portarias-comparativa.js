@@ -4,7 +4,7 @@
 // ficam a execução passo a passo (com progresso, cancelamento e reaproveitamento
 // do que já foi lido), o desenho da nota e a caixa "Pedir alterações".
 
-const pc = { temas: null, chaveTemas: '', regras: {}, comparacoes: [], nota: null, versoes: [], pedidos: [],
+const pc = { temas: null, regras: {}, comparacoes: [], nota: null, versoes: [], pedidos: [],
   ocupado: '', cancelar: false, passos: [], aviso: '', chamadas: 0, tipo: 'informativa' };
 
 /** A lista mudou (ato incluído, removido, par trocado): a nota deixa de valer; as leituras por ato continuam. */
@@ -26,6 +26,26 @@ function pcCurto(d) {
 
 function pcPasso(rotulo) { const p = { rotulo, estado: 'rodando', obs: '' }; pc.passos.push(p); pcRender(); return p; }
 
+// ---------- leituras guardadas no navegador ----------
+// Ler os atos é a parte cara (dezenas de chamadas). O que foi lido fica no
+// chrome.storage.local deste analista, pela impressão digital do TEXTO do ato:
+// recarregar a extensão ou gerar de novo não relê o que não mudou.
+const PC_CACHE = 'portariasLeituras';
+const PC_CACHE_MAX = 40;   // atos guardados (os mais antigos saem)
+
+async function pcCacheLer() {
+  try { return await new Promise(r => chrome.storage.local.get(PC_CACHE, d => r((d && d[PC_CACHE]) || { temas: {}, regras: {} }))); }
+  catch (_) { return { temas: {}, regras: {} }; }
+}
+async function pcCacheGravar(cache) {
+  const chaves = Object.keys(cache.regras).sort((a, b) => (cache.regras[b].em || 0) - (cache.regras[a].em || 0));
+  for (const k of chaves.slice(PC_CACHE_MAX)) delete cache.regras[k];
+  const kt = Object.keys(cache.temas);
+  for (const k of kt.slice(0, Math.max(0, kt.length - 10))) delete cache.temas[k];
+  try { await new Promise(r => chrome.storage.local.set({ [PC_CACHE]: cache }, r)); } catch (_) {}
+}
+function pcChaveAtoDoc(d) { return ptChaveAto(d.numero, d.data ? d.data.slice(0, 4) : ''); }
+
 /** Uma chamada com uma nova tentativa; cancela entre chamadas. */
 async function pcChamar(prompt) {
   if (pc.cancelar) throw new Error('cancelado');
@@ -45,30 +65,42 @@ async function pcGerar() {
   const docs = pt.docs.slice();
   const seq = ptSequencia(docs);
   const pares = pcPares(docs, seq);
-  const partes = docs.map(d => pc.regras[d.id] && pc.regras[d.id].tam === d.texto.length && pc.chaveTemas ? 0 : pcPartes(d.texto).length).reduce((a, b) => a + b, 0);
-  const estimativa = 1 + partes + pares.filter(p => p.modo !== 'inicial').length * 2 + 1;
-  if (!confirm(`A nota comparativa lê todos os ${docs.length} atos por inteiro e compara cada mudança.\nSerão cerca de ${estimativa} chamadas à IA (pode levar alguns minutos). Continuar?`)) return;
+  const cache = await pcCacheLer();
+  const hashes = new Map(docs.map(d => [d.id, pcHash(d.texto)]));
+  const chaveTemas = pcHash([...hashes.values()].sort().join(','));
+  const temasGuardados = cache.temas[chaveTemas];
+  const naoLidos = docs.filter(d => !(temasGuardados && cache.regras[hashes.get(d.id) + '|' + chaveTemas]));
+  const partes = naoLidos.reduce((a, d) => a + pcPartes(d.texto).length, 0);
+  const estimativa = (temasGuardados ? 0 : 1) + partes + pares.filter(p => p.modo !== 'inicial').length * 2 + 1;
+  if (!confirm(`A nota comparativa lê todos os ${docs.length} atos por inteiro e compara cada mudança.${naoLidos.length < docs.length ? `\n${docs.length - naoLidos.length} ato(s) já lido(s) antes — a leitura guardada será reaproveitada.` : ''}\nSerão cerca de ${estimativa} chamadas à IA (pode levar alguns minutos). Continuar?`)) return;
 
   pc.ocupado = 'gerar'; pc.cancelar = false; pc.passos = []; pc.aviso = ''; pc.chamadas = 0;
   pc.comparacoes = []; pc.nota = null; pc.versoes = []; pc.pedidos = [];
   try {
-    // 1. temas, a partir da estrutura de todos os atos
-    const chaveTemas = docs.map(d => d.id + ':' + d.texto.length).join(',');
-    if (!pc.temas || pc.chaveTemas !== chaveTemas) {
+    // 1. temas, a partir da estrutura de todos os atos (guardados por conjunto de textos)
+    if (temasGuardados) { pc.temas = temasGuardados; pcPasso('Temas: reaproveitados da geração anterior').estado = 'ok'; }
+    else {
       const p = pcPasso('Temas: estrutura de todos os atos');
       const atos = docs.map(d => ({ identificacao: pcIdent(d), estrutura: pcEstrutura(d.texto), ementa: d.texto.slice(0, 400) }));
       const r = await pcChamar(pcPromptTemas(atos));
       let temas = (Array.isArray(r.temas) ? r.temas : []).filter(t => t && t.nome).map(t => ({ nome: String(t.nome).trim(), descricao: String(t.descricao || '') }));
       if (!temas.some(t => /^outros$/i.test(t.nome))) temas.push({ nome: 'Outros', descricao: 'demais assuntos' });
       if (temas.length < 3) throw new Error('a IA não devolveu a lista de temas');
-      pc.temas = temas; pc.chaveTemas = chaveTemas; pc.regras = {};
+      pc.temas = temas; cache.temas[chaveTemas] = temas; await pcCacheGravar(cache);
       p.estado = 'ok'; p.obs = `${temas.length} temas`;
     }
+    pc.regras = {};
     const nomes = pc.temas.map(t => t.nome);
 
     // 2. extração de todas as regras de cada ato
     for (const d of docs) {
-      if (pc.regras[d.id] && pc.regras[d.id].tam === d.texto.length) continue;
+      const chaveLeitura = hashes.get(d.id) + '|' + chaveTemas;
+      if (cache.regras[chaveLeitura]) {
+        pc.regras[d.id] = cache.regras[chaveLeitura];
+        const p = pcPasso(`Leitura: ${pcCurto(d)} — reaproveitada`);
+        p.estado = 'ok'; p.obs = `${pc.regras[d.id].regras.length} regras conferidas`;
+        continue;
+      }
       const par = pares.find(x => x.id === d.id);
       const partesD = pcPartes(d.texto);
       const p = pcPasso(`Leitura: ${pcCurto(d)} (${partesD.length} parte${partesD.length > 1 ? 's' : ''})`);
@@ -81,7 +113,9 @@ async function pcGerar() {
         } catch (e) { if (pc.cancelar) throw e; falhas.push(i + 1); }
       }
       const conf = regras.filter(r => r.conferido);
-      pc.regras[d.id] = { tam: d.texto.length, regras: conf, descartadas: regras.length - conf.length, falhas };
+      pc.regras[d.id] = { regras: conf, descartadas: regras.length - conf.length, falhas, em: Date.now() };
+      // Só guarda leitura completa: parte que falhou é relida na próxima vez.
+      if (!falhas.length) { cache.regras[chaveLeitura] = pc.regras[d.id]; await pcCacheGravar(cache); }
       p.estado = falhas.length ? 'aviso' : 'ok';
       p.obs = `${conf.length} regras conferidas${regras.length - conf.length ? `, ${regras.length - conf.length} descartadas (trecho não localizado)` : ''}${falhas.length ? ` · parte(s) ${falhas.join(', ')} não lida(s)` : ''}`;
     }
@@ -94,16 +128,23 @@ async function pcGerar() {
       const p = pcPasso(`Comparação: ${rotulo}`);
       const regrasD = pc.regras[d.id].regras;
       const regrasB = b ? pc.regras[b.id].regras : [];
-      const temasDoPar = par.modo === 'alteracao' ? nomes.filter(t => regrasD.some(r => r.tema === t)) : nomes;
-      const lotes = pcLotes(temasDoPar, b ? regrasB : [], regrasD);
-      const c = { parId: par.id, antesId: b ? b.id : null, depoisId: d.id, modo: par.modo, rotulo, mudancas: [], mantidas: [], falhas: 0, descartadas: 0 };
+      const alteracao = par.modo === 'alteracao';
+      // O ato alterado do conjunto já traz as marcas desta alteração? Então é a
+      // versão consolidada, e a redação anterior não está aqui.
+      const consolidado = alteracao && !!b && ptMarcadores(b.texto).some(m => m.chave === pcChaveAtoDoc(d));
+      const temasDoPar = alteracao ? nomes.filter(t => regrasD.some(r => r.tema === t)) : nomes;
+      const lotes = pcLotes(temasDoPar, alteracao ? [] : regrasB, regrasD);
+      const c = { parId: par.id, antesId: b ? b.id : null, depoisId: d.id, modo: par.modo, rotulo, consolidado, mudancas: [], mantidas: [], falhas: 0, descartadas: 0 };
       for (let i = 0; i < lotes.length; i++) {
         p.obs = `${i + 1}/${lotes.length} grupo(s) de temas`; pcRender();
         const l = lotes[i];
         try {
-          const prompt = b ? pcPromptComparar({ antes: { identificacao: pcIdent(b), regras: l.antes }, depois: { identificacao: pcIdent(d), regras: l.depois }, temas: l.temas, modo: par.modo })
+          const prompt = alteracao
+            ? pcPromptAlteracao({ alterador: { identificacao: pcIdent(d) }, alterado: b ? { identificacao: pcIdent(b) } : null, regras: l.depois,
+                regrasAlterado: b && !consolidado ? regrasB.filter(r => l.temas.includes(r.tema)) : [], consolidado, temas: l.temas })
+            : b ? pcPromptComparar({ antes: { identificacao: pcIdent(b), regras: l.antes }, depois: { identificacao: pcIdent(d), regras: l.depois }, temas: l.temas, modo: par.modo })
             : pcPromptNovo({ ato: { identificacao: pcIdent(d) }, regras: l.depois, temas: l.temas });
-          const r = pcConfereMudancas(await pcChamar(prompt), b ? b.texto : '', d.texto, pc.temas);
+          const r = pcConfereMudancas(await pcChamar(prompt), b ? b.texto : '', d.texto, pc.temas, { alteracao });
           c.mudancas.push(...r.mudancas.filter(m => m.conferido));
           c.descartadas += r.mudancas.filter(m => !m.conferido).length;
           c.mantidas.push(...r.mantidas);
@@ -112,7 +153,7 @@ async function pcGerar() {
       pc.comparacoes.push(c);
       const n = t => c.mudancas.filter(m => m.tipo === t).length;
       p.estado = c.falhas ? 'aviso' : 'ok';
-      p.obs = `${n('nova')} nova(s), ${n('alterada')} alterada(s), ${n('suprimida')} suprimida(s), ${c.mantidas.length} mantida(s)${c.descartadas ? ` · ${c.descartadas} descartada(s) na conferência` : ''}${c.falhas ? ` · ${c.falhas} grupo(s) falharam` : ''}`;
+      p.obs = `${n('nova')} nova(s), ${n('alterada')} alterada(s), ${n('suprimida')} suprimida(s)${alteracao ? (consolidado ? ' · ato alterado já consolidado: redação anterior indisponível' : '') : `, ${c.mantidas.length} mantida(s)`}${c.descartadas ? ` · ${c.descartadas} descartada(s) na conferência` : ''}${c.falhas ? ` · ${c.falhas} grupo(s) falharam` : ''}`;
     }
 
     // 4. síntese
@@ -219,7 +260,9 @@ function pcQuadro(nota) {
     const porTema = {};
     c.mudancas.filter(m => !ocultos.has(m.tema)).forEach(m => (porTema[m.tema] = porTema[m.tema] || []).push(m));
     const temas = Object.keys(porTema);
-    const avisoBase = c.modo === 'alteracao' ? '<div class="pn-mini">Ato alterador: "como era" vem do ato alterado; em versão consolidada, a redação anterior pode não constar do conjunto.</div>' : '';
+    const avisoBase = c.modo !== 'alteracao' ? '' : c.consolidado || !c.antesId
+      ? `<div class="pn-mini">${c.antesId ? 'O ato alterado, neste conjunto, já é a versão consolidada com esta alteração' : 'O ato alterado não está no conjunto'}: a redação anterior não está disponível, e "como era" fica em branco. Cada linha é um dispositivo mudado por este ato.</div>`
+      : '<div class="pn-mini">Cada linha é um dispositivo mudado por este ato; "como era" vem do ato alterado.</div>';
     return `<section><h4>${ptEsc(c.rotulo)}</h4>${avisoBase}${!temas.length ? '<p class="pn-mini">Nenhuma mudança conferida nesta comparação.</p>' : temas.map(t => {
       const xs = curta ? porTema[t].filter(m => m.tipo !== 'nova').slice(0, 3).concat(porTema[t].filter(m => m.tipo === 'nova').slice(0, 1)) : porTema[t];
       return `<div class="pc-tema"><div class="pc-tema-t">${ptEsc(t)} <span class="on-vazio">· ${porTema[t].length} mudança(s)</span></div>
