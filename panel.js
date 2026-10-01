@@ -3454,7 +3454,7 @@ const MODULES = [
   {
     id:     'labs',
     titulo: 'Labs',
-    desc:   'Área de desenvolvimento de novas soluções. Dentro dela desenvolvemos e testamos funcionalidades; quando homologadas, elas saem para integrar novos módulos ou módulos já existentes.',
+    desc:   'Área de desenvolvimento.',
     cor:    'roxo',
     icone:  '<path d="M9 2h6"/><path d="M10 2v6.5L4.5 18.5A2 2 0 0 0 6.3 21.5h11.4a2 2 0 0 0 1.8-3L14 8.5V2"/><line x1="7" y1="15" x2="17" y2="15"/>',
     acao:   abrirLabs,
