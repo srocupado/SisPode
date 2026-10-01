@@ -24,9 +24,12 @@ function ptLimpar(texto) {
   // privado (U+E000–F8FF) e setas "〉" de vários códigos — tirados antes.
   const seta = '[\u232a\u3009\u27e9\u203a\u00bb\u2304\u2335>]';
   const lixo = [/^Ir para o conte[úu]do\b.*$/i, /^Transferegov\.br\W{0,8}$/i, new RegExp('^' + seta + '[\\s' + seta.slice(1, -1) + ']*(?:$|PORTARIA|INSTRU|DECRETO|Portaria)', 'i'), /^Compartilhe\s*:?\s*$/i, /^Rede\s?fi\s?nir\s+Cookies\b/i, /^[^\p{L}\p{N}]{1,6}$/u];
-  const linhas = String(texto || '').replace(/[\ue000-\uf8ff]/g, '').split('\n').filter(l => {
+  // Menu do gov.br impresso no alto da página — só nas primeiras linhas, onde
+  // não há texto do ato (no corpo, "Legislação" sozinha numa linha seria do ato).
+  const menu = /^(?:Institucional|Legisla[çc][ãa]o|Acessibilidade|Participe|Acesso [àa] Informa[çc][ãa]o|Atalhos gov\.br\b.*|.*[ÓO]rg[ãa]os do Governo|Gest[ãa]o e da… Acesso [àa] Informa[çc][ãa]o|Entrar com gov\.br)$/i;
+  const linhas = String(texto || '').replace(/[\ue000-\uf8ff]/g, '').split('\n').filter((l, i) => {
     const t = l.replace(/[\u200b-\u200d\ufeff]/g, '').trim();
-    if (t && lixo.some(r => r.test(t))) { removidas++; return false; }
+    if (t && (lixo.some(r => r.test(t)) || (i < 40 && menu.test(t)))) { removidas++; return false; }
     return true;
   });
   let t = linhas.join('\n')

@@ -87,6 +87,8 @@
         "portarias.html",
         "portarias-leitura.js",
         "portarias-sequencia.js",
+        "portarias-nota.js",
+        "portarias-avulsa.js",
         "portarias.js"
       ],
       "matches": [
