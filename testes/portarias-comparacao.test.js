@@ -81,15 +81,31 @@ const mz = C.pcMatriz([{ parId: 2, mudancas: [{ tema: 'P', tipo: 'nova' }, { tem
 ok(mz.temas.join() === 'P' && mz.celula('P', 2).total === 2 && mz.celula('X', 2).total === 0, 'matriz tema × comparação');
 ok(C.pcNormalizarSintese({ visuais: ['calor', 'xx'], extensao: 'gigante' }).visuais.join() === 'calor' && C.pcNormalizarSintese({}).extensao === 'normal', 'síntese normalizada (visuais e extensão válidos)');
 
+const pa = C.pcPromptAlteracao({ alterador: { identificacao: 'PC 29' }, alterado: { identificacao: 'PC 33' }, regras: [{ tema: 'T', aspecto: 'a', regra: 'r', artigos: [], trecho: 'x' }],
+  regrasAlterado: [{ tema: 'T', aspecto: 'a', regra: 'antiga', artigos: [], trecho: 'y' }], consolidado: true, temas: ['T'] });
+ok(/deixe VAZIOS/.test(pa) && !/REGRAS DO ALTERADO \(/.test(pa), 'alteração sobre versão consolidada: "como era" em branco, sem regras do alterado no prompt');
+const pa2 = C.pcPromptAlteracao({ alterador: { identificacao: 'PC 29' }, alterado: { identificacao: 'PC 33' }, regras: [], regrasAlterado: [{ tema: 'T', aspecto: 'a', regra: 'antiga', artigos: [], trecho: 'y' }], consolidado: false, temas: ['T'] });
+ok(/REGRAS DO ALTERADO \(/.test(pa2) && /«y»/.test(pa2), 'alteração sobre redação original: regras do alterado vão como "antes"');
+const ma = C.pcConfereMudancas({ mudancas: [
+  { tema: 'Proposta', aspecto: 'rev', tipo: 'suprimida', antes: '', depois: 'revoga o art. 4º', trecho_depois: 'texto de revogação que não está no ato alterador' },
+  { tema: 'Proposta', aspecto: 'prazo', tipo: 'alterada', antes: '', depois: '20 dias', trecho_depois: 'cadastrará a proposta no sistema em até 20 dias' }],
+  mantidas: [{ tema: 'Proposta', aspecto: 'z' }] }, B, D, temas, { alteracao: true });
+ok(!ma.mudancas[0].conferido && ma.mudancas[1].conferido && !ma.mantidas.length, 'alteração: revogação também precisa do trecho do alterador; "mantidas" não se aplicam');
+ok(C.pcHash('abc') === C.pcHash('abc') && C.pcHash('abc') !== C.pcHash('abd'), 'impressão digital do texto');
+
 console.log('3. Tela');
 (async () => {
   const html = fs.readFileSync(path.join(RAIZ, 'portarias.html'), 'utf8');
   const scripts = [...html.matchAll(/<script src="([^"]+)"><\/script>/g)].map(m => m[1]).filter(s => !s.startsWith('libs/'));
   const { document, window, Event } = parseHTML(html);
   let copiado = '', confirmou = 0;
+  // chrome.storage.local de verdade (em memória): a chave de IA e as leituras guardadas
+  const guardado = { config: { provedor: 'gemini', apiKey: 'AIzaSyTESTE1234567890abc' } };
+  const armazenamento = { get: (k, cb) => cb(typeof k === 'string' ? { [k]: guardado[k] && JSON.parse(JSON.stringify(guardado[k])) } : {}),
+    set: (o, cb) => { for (const k in o) guardado[k] = JSON.parse(JSON.stringify(o[k])); cb && cb(); } };
   const ctx = { document, window, DOMParser, Event, setTimeout, clearTimeout, TextDecoder, console, confirm: () => { confirmou++; return true; },
     navigator: { clipboard: { writeText: t => { copiado = t; return Promise.resolve(); } } },
-    chrome: { runtime: { getURL: p => p }, storage: { local: { get: (k, cb) => cb({ config: { provedor: 'gemini', apiKey: 'AIzaSyTESTE1234567890abc' } }), set: (o, cb) => cb() } } } };
+    chrome: { runtime: { getURL: p => p }, storage: { local: armazenamento } } };
   ctx.globalThis = ctx;
   vm.createContext(ctx);
   new vm.Script(scripts.map(s => fs.readFileSync(path.join(RAIZ, s), 'utf8')).join('\n;\n')).runInContext(ctx);
@@ -128,6 +144,13 @@ console.log('3. Tela');
       mudancas.push({ tema: 'Transparência', aspecto: 'inventada', tipo: 'nova', antes: '', depois: 'audiência pública', trecho_antes: '', trecho_depois: 'realizará audiência pública com a comunidade antes da celebração' });
       return { mudancas, mantidas };
     }
+    if (/O ato ALTERADOR abaixo muda/.test(prompt)) {
+      log.push('alteracao');
+      const parse = bloco => (bloco || '').split('\n').filter(l => l.startsWith('[')).map(l => ({ tema: l.match(/^\[(.*?)\]/)[1], aspecto: l.match(/\] (.*?):/)[1], regra: l.split(': ').slice(1).join(': ').split(' (Art')[0], trecho: l.match(/«(.*)»/)[1] }));
+      const alt = parse(prompt.split('REGRAS DO ALTERADOR:')[1].split('REGRAS DO ALTERADO')[0]), ant = parse(prompt.split('REGRAS DO ALTERADO (redação anterior')[1]);
+      return { mantidas: [{ tema: 'x', aspecto: 'não deve contar' }], mudancas: alt.map(d => { const a = ant.find(x => x.aspecto === d.aspecto);
+        return { tema: d.tema, aspecto: d.aspecto, tipo: 'alterada', antes: a ? a.regra : '', depois: d.regra, artigos_antes: a ? ['Art. 1º'] : [], artigos_depois: ['Art. 1º'], trecho_antes: a ? a.trecho : '', trecho_depois: d.trecho, efeito: 'muda o prazo' }; }) };
+    }
     if (/INSTRUMENTO NOVO/.test(prompt)) { log.push('novo'); return { mudancas: [], mantidas: [] }; }
     if (/redige a síntese/.test(prompt)) { log.push('sintese'); return { resumo: 'Os prazos mudaram ao longo da sequência.', destaques: [{ titulo: 'Prazo de cadastro', texto: 'caiu de 30 para 15 e subiu para 20 dias', tema: 'Proposta e contrapartida' }], visuais: ['linha', 'placar', 'calor', 'quadro'] }; }
     if (/revisa a síntese/.test(prompt)) { log.push('revisao'); return { resumo: 'Versão curta.', destaques: [], visuais: ['calor', 'quadro', 'tamanho'], extensao: 'curta', secoes: [{ titulo: 'Contrapartida', texto: 'A contrapartida caiu.' }], resposta: 'Encurtei e incluí o gráfico de tamanho.' }; }
@@ -150,11 +173,11 @@ console.log('3. Tela');
   await espera(() => $('pc-doc'));
   const doc = () => $('pc-doc');
   ok(confirmou === 1 && doc(), 'confirma o custo e gera a nota');
-  ok(log.join() === 'temas,extracao,extracao,extracao,comparacao,comparacao,sintese', `passos: ${log.join(' → ')}`);
+  ok(log.join() === 'temas,extracao,extracao,extracao,comparacao,alteracao,sintese', `passos: ${log.join(' → ')}`);
   const passos = [...document.querySelectorAll('.pc-passos li')].map(l => l.textContent);
   ok(passos.length === 7 && passos.every(p => p.startsWith('✓')) && /4 temas/.test(passos[0]), 'progresso: todos os passos concluídos');
   ok(/1 nova\(s\), 3 alterada\(s\), 1 suprimida\(s\), 0 mantida\(s\) · 1 descartada/.test(passos[4]), `substituição: nova, alteradas, suprimida; a inventada descartada (${passos[4]})`);
-  ok(/0 nova\(s\), 1 alterada\(s\), 0 suprimida/.test(passos[5]), 'alteração: só o dispositivo alterado');
+  ok(/0 nova\(s\), 1 alterada\(s\), 0 suprimida\(s\)$/.test(passos[5]) && !/mantida/.test(passos[5]), `alteração: só o dispositivo alterado, sem "mantidas" (${passos[5]})`);
   const quadro = doc().textContent;
   ok(/em até 30 dias/.test(quadro) && /em até 15 dias/.test(quadro) && /em até 20 dias/.test(quadro), 'quadro "como era × como ficou" com o texto dos atos');
   ok(!/audiência pública/.test(quadro), 'mudança inventada não entra na nota');
@@ -187,10 +210,29 @@ console.log('3. Tela');
   await espera(() => $('pc-doc'));
   ok(log.join() === 'comparacao,novo,sintese', `de novo: sem reler temas nem atos (${log.join(' → ')})`);
 
+  // "recarregar a extensão": outra página, mesmo chrome.storage — nada de reler
+  {
+    const dom2 = parseHTML(html);
+    const ctx2 = Object.assign({}, ctx, { document: dom2.document, window: dom2.window });
+    ctx2.globalThis = ctx2;
+    vm.createContext(ctx2);
+    new vm.Script(scripts.map(s => fs.readFileSync(path.join(RAIZ, s), 'utf8')).join('\n;\n')).runInContext(ctx2);
+    ctx2.ptChamarIAJson = ctx.ptChamarIAJson;
+    vm.runInContext('ptChamarIAJson = globalThis.ptChamarIAJson', ctx2);
+    ctx2.__t = [D, A, B];
+    vm.runInContext(`__t.forEach(t => ptIncluir(t, { tipo: 'texto colado' }))`, ctx2);
+    log.length = 0;
+    const d2 = dom2.document;
+    await espera(() => !d2.getElementById('pc-gerar').disabled);
+    clica(d2.getElementById('pc-gerar'));
+    await espera(() => d2.getElementById('pc-doc'));
+    const ps = [...d2.querySelectorAll('.pc-passos li')].map(l => l.textContent);
+    ok(log.join() === 'comparacao,alteracao,sintese' && ps.filter(x => /reaproveitad/.test(x)).length === 4, `depois de recarregar: temas e leituras reaproveitados (${log.join(' → ')})`);
+  }
+
   // cancelar
   let solta;
   travar = new Promise(r => { solta = r; });
-  vm.runInContext('pc.temas = null', ctx);
   clica($('pc-gerar'));
   await espera(() => $('pc-cancelar').style.display === '');
   clica($('pc-cancelar'));
