@@ -151,10 +151,33 @@ function smQuem(ag) {
   return `a bancada do ${ag.sigla} na Câmara dos Deputados (${ag.cadeiras} deputados em exercício)`;
 }
 
+/** Texto de uma objeção (objeto { texto, base } ou, no formato antigo, string). */
+function smObjTexto(o) { return typeof o === 'string' ? o : String((o && o.texto) || ''); }
+
+// De onde uma objeção pode vir. "nenhuma" = o agente admite que não tem base
+// nos dados dados a ele — a tela marca, em vez de deixar passar como fato.
+const SM_BASES = ['perfil', 'contexto', 'proposicao', 'proposta', 'governo', 'nenhuma'];
+
 /** Resumo de uma resposta anterior, para o histórico das rodadas. */
 function smResumoResposta(x) {
   if (!x) return 'sem resposta';
-  return `${x.posicao}. Objeções: ${x.objecoes.join('; ') || '—'}. Concessão pedida: ${x.concessao || '—'}. Risco: ${x.risco || '—'}.`;
+  return `${x.posicao}. Objeções: ${x.objecoes.map(smObjTexto).join('; ') || '—'}. Concessão pedida: ${x.concessao || '—'}. Risco: ${x.risco || '—'}.`;
+}
+
+/**
+ * A proposta em PONTOS: linhas começando com número ("1.", "2)") ou marcador
+ * ("-", "•", "*"). Com menos de 2 pontos, a proposta é um ponto só. Pura.
+ * Cada agente reage a cada ponto — o mapa ponto × bancada mostra onde trava.
+ */
+function smPontos(texto) {
+  const linhas = String(texto || '').split(/\r?\n/);
+  const pontos = [];
+  for (const l of linhas) {
+    const m = l.match(/^\s*(?:\d+\s*[.)\-–]|[-•*])\s+(.+)$/);
+    if (m) pontos.push(m[1].trim());
+    else if (pontos.length && l.trim()) pontos[pontos.length - 1] += ' ' + l.trim();
+  }
+  return pontos.length >= 2 ? pontos : [String(texto || '').trim()].filter(Boolean);
 }
 
 /**
@@ -162,7 +185,8 @@ function smResumoResposta(x) {
  * ag: { sigla, cadeiras, tipo?, nome?, descricao?, contexto? } — bancada, Governo ou personalizado.
  * historico: [{ proposta, resposta }] das rodadas anteriores deste agente (vazio na 1ª).
  */
-function smPromptAgente(ag, perfil, prop, proposta, meses, historico) {
+function smPromptAgente(ag, perfil, prop, proposta, meses, historico, extra) {
+  const ex = extra || {};
   const personalizado = ['frente', 'relator', 'outro'].includes(ag.tipo);
   const linhas = [
     `Você representa ${smQuem(ag)} numa simulação de negociação preparatória, feita por assessoria parlamentar.`,
@@ -188,17 +212,33 @@ function smPromptAgente(ag, perfil, prop, proposta, meses, historico) {
   }
   const tp = smTextoProposicao(prop);
   if (tp) linhas.push('PROPOSIÇÃO EM PAUTA:', tp, '');
+  if (ex.governo && ag.sigla !== SM_GOVERNO) {
+    const g = ex.governo;
+    linhas.push('POSIÇÃO JÁ DECLARADA PELA LIDERANÇA DO GOVERNO NESTA RODADA:',
+      `${g.posicao}. Objeções: ${g.objecoes.map(smObjTexto).join('; ') || '—'}. Concessão que pede: ${g.concessao || '—'}.`, '');
+  }
   const hist = historico || [];
+  const pontos = smPontos(proposta);
+  const listaPontos = pontos.length > 1 ? pontos.map((p, i) => `${i + 1}. ${p}`).join('\n') : proposta;
   if (hist.length) {
     linhas.push('RODADAS ANTERIORES DESTA NEGOCIAÇÃO:');
     hist.forEach((h, i) => linhas.push(`- Rodada ${i + 1}. Proposta: ${h.proposta}`, `  Sua resposta: ${smResumoResposta(h.resposta)}`));
-    linhas.push('', `PROPOSTA REFORMULADA (rodada ${hist.length + 1}) APRESENTADA PELA LIDERANÇA DO PODEMOS:`, proposta, '');
+    const notas = hist[hist.length - 1].resposta && hist[hist.length - 1].resposta.notas;
+    if (notas) linhas.push('', 'SUAS PRÓPRIAS NOTAS DA RODADA ANTERIOR (você as escreveu para si):', notas);
+    linhas.push('', `PROPOSTA REFORMULADA (rodada ${hist.length + 1}) APRESENTADA PELA LIDERANÇA DO PODEMOS:`, listaPontos, '');
     linhas.push('Seja coerente com o que você já disse: mude de posição só se a reformulação atender, de fato, às suas objeções ou à concessão que pediu; diga o que ainda falta.', '');
   } else {
-    linhas.push('PROPOSTA DE ACORDO APRESENTADA PELA LIDERANÇA DO PODEMOS:', proposta, '');
+    linhas.push('PROPOSTA DE ACORDO APRESENTADA PELA LIDERANÇA DO PODEMOS:', listaPontos, '');
   }
+  linhas.push('Defenda os interesses desse ator com firmeza: não ceda só para agradar; ceda quando a proposta de fato atender ao que ele pede.');
+  linhas.push(`Em cada objeção, diga em que ela se apoia — "base": "perfil" (dados de votação acima), "contexto" (informação da equipe), "proposicao" (ementa), "proposta" (texto em negociação)${ex.governo ? ', "governo" (posição do Governo acima)' : ''} ou "nenhuma" (sem apoio nos dados — prefira isso a inventar).`);
+  if (pontos.length > 1) {
+    linhas.push(`Para CADA um dos ${pontos.length} pontos, diga a ação: "apoia", "rejeita", "reformula" (com a nova redação) ou "troca" (aceita o ponto em troca de outro — diga qual e como), e a importância do ponto para esse ator de 1 (indiferente) a 5 (linha vermelha).`);
+  }
+  linhas.push('Em "notas", escreva para VOCÊ MESMO, em até 5 linhas, o estado da negociação: o que pediu, o que obteve, o que falta e sua linha vermelha — você as receberá na próxima rodada.');
   linhas.push('Responda SOMENTE com um objeto JSON, sem texto fora dele, neste formato:');
-  linhas.push('{"posicao":"apoia|condiciona|rejeita","objecoes":["até 3 objeções concretas"],"concessao":"o que destravaria o apoio (ou vazio se já apoia)","argumento":"o argumento que mais pesaria para esse ator","risco":"o que faria esse ator abandonar o acordo"}');
+  const fmtPontos = pontos.length > 1 ? ',"pontos":[{"n":1,"acao":"apoia|rejeita|reformula|troca","importancia":3,"redacao":"nova redação, se reformula","troca":"o que pede em troca, se troca"}]' : '';
+  linhas.push(`{"posicao":"apoia|condiciona|rejeita","objecoes":[{"texto":"objeção concreta","base":"perfil|contexto|proposicao|proposta${ex.governo ? '|governo' : ''}|nenhuma"}],"concessao":"o que destravaria o apoio (ou vazio se já apoia)","argumento":"o argumento que mais pesaria para esse ator","risco":"o que faria esse ator abandonar o acordo"${fmtPontos},"notas":"suas notas para a próxima rodada"}`);
   return linhas.join('\n');
 }
 
@@ -224,12 +264,28 @@ function smLerResposta(texto) {
   const i = t.indexOf('{'), f = t.lastIndexOf('}');
   if (i < 0 || f <= i) throw new Error('resposta sem JSON');
   const j = JSON.parse(t.slice(i, f + 1));
+  const base = b => { const t = labsSigla(b).replace(/[^a-z]/g, ''); return SM_BASES.includes(t) ? t : 'nenhuma'; };
+  const acoes = ['apoia', 'rejeita', 'reformula', 'troca'];
   return {
     posicao: smPosicao(j.posicao),
-    objecoes: (Array.isArray(j.objecoes) ? j.objecoes : []).map(x => String(x).trim()).filter(Boolean).slice(0, 5),
+    // Objeção sem "base" declarada conta como "nenhuma": a tela não a trata como fato.
+    objecoes: (Array.isArray(j.objecoes) ? j.objecoes : []).map(x => (typeof x === 'string'
+      ? { texto: x.trim(), base: 'nenhuma' }
+      : { texto: String((x && x.texto) || '').trim(), base: base(x && x.base) })).filter(o => o.texto).slice(0, 5),
     concessao: String(j.concessao || '').trim(),
     argumento: String(j.argumento || '').trim(),
     risco: String(j.risco || '').trim(),
+    pontos: (Array.isArray(j.pontos) ? j.pontos : []).map(p => {
+      const a = labsSigla(p && p.acao);
+      return {
+        n: parseInt(p && p.n, 10) || 0,
+        acao: acoes.find(x => a.startsWith(x.slice(0, 5))) || (a.startsWith('apoi') ? 'apoia' : a.startsWith('rejeit') ? 'rejeita' : 'indefinida'),
+        importancia: Math.min(5, Math.max(1, parseInt(p && p.importancia, 10) || 0)) || null,
+        redacao: String((p && p.redacao) || '').trim(),
+        troca: String((p && p.troca) || '').trim(),
+      };
+    }).filter(p => p.n > 0),
+    notas: String(j.notas || '').trim().slice(0, 800),
   };
 }
 
@@ -266,7 +322,8 @@ function smPromptSintese(resultados, prop, proposta, anteriores) {
   const linhas = [
     'Você é analista de articulação política da Liderança do Podemos na Câmara. Abaixo estão as reações SIMULADAS (por agentes de IA) de cada ator a uma proposta de acordo.',
     'Escreva uma síntese em Markdown, em português, com as seções: ' + secoes,
-    'Seja direto. Não invente dados além dos fornecidos. Lembre que são simulações, não posições reais.',
+    'Seja direto. Não invente dados além dos fornecidos. Lembre que são simulações, não posições reais. Objeções marcadas [sem base nos dados] são hipóteses do modelo: não as trate como fato.',
+    ...(smPontos(proposta).length > 1 ? ['A proposta tem pontos numerados: inclua a seção "Por ponto" (quais pontos passam, quais travam e quem os trava; trocas possíveis entre pontos; linhas vermelhas = importância 5).'] : []),
     '',
   ];
   const tp = smTextoProposicao(prop);
@@ -285,7 +342,8 @@ function smPromptSintese(resultados, prop, proposta, anteriores) {
     const nome = smNomeAgente(r.bancada);
     if (!r.resposta) { linhas.push(`- ${nome}: sem resposta (${r.erro || 'erro'})`); continue; }
     const x = r.resposta;
-    linhas.push(`- ${nome}: ${x.posicao}. Objeções: ${x.objecoes.join('; ') || '—'}. Concessão: ${x.concessao || '—'}. Argumento: ${x.argumento || '—'}. Risco: ${x.risco || '—'}.`);
+    linhas.push(`- ${nome}: ${x.posicao}. Objeções: ${x.objecoes.map(o => smObjTexto(o) + (o.base === 'nenhuma' ? ' [sem base nos dados]' : '')).join('; ') || '—'}. Concessão: ${x.concessao || '—'}. Argumento: ${x.argumento || '—'}. Risco: ${x.risco || '—'}.`);
+    if ((x.pontos || []).length) linhas.push('  Pontos: ' + x.pontos.map(p => `${p.n}: ${p.acao}${p.importancia ? ` (importância ${p.importancia}/5)` : ''}${p.redacao ? ` — nova redação: ${p.redacao}` : ''}${p.troca ? ` — troca: ${p.troca}` : ''}`).join('; '));
   }
   return linhas.join('\n');
 }
@@ -408,6 +466,7 @@ function smRenderAgentes() {
   cx.querySelectorAll('[data-sm-ctx]').forEach(t => t.addEventListener('input', () => { sm.agentes[+t.dataset.smCtx].contexto = t.value; }));
   cx.querySelectorAll('[data-sm-salvar]').forEach(b => b.addEventListener('click', () => smSalvarAgente(+b.dataset.smSalvar)));
   cx.querySelectorAll('[data-sm-remover]').forEach(b => b.addEventListener('click', () => smRemoverAgente(+b.dataset.smRemover)));
+  if (typeof smBtAtualizarCusto === 'function') smBtAtualizarCusto();   // custo do teste depende das bancadas marcadas
 }
 
 function smQuemSalva() {
@@ -504,10 +563,10 @@ async function smRodar(sessao, proposta) {
     if (atual) ag.contexto = atual.contexto;
   }
   let feitas = 0;
-  const resultados = await labsMapLimit(sessao.agentes, 3, async ag => {
+  const rodar = async (ag, extra) => {
     const historico = sessao.rodadas.map(r => ({ proposta: r.proposta, resposta: (r.resultados.find(x => x.bancada.chave === ag.chave) || {}).resposta || null }));
     try {
-      const r = await chamar(modelos.agentes, smPromptAgente(ag, sessao.perfis[ag.sigla], sessao.prop, proposta, sessao.meses, historico));
+      const r = await chamar(modelos.agentes, smPromptAgente(ag, sessao.perfis[ag.sigla], sessao.prop, proposta, sessao.meses, historico, extra));
       let resposta;
       try { resposta = smLerResposta(r.text); }
       catch (e) { throw new Error(r.truncated ? 'resposta cortada pelo limite de tamanho do modelo' : e.message); }
@@ -518,7 +577,23 @@ async function smRodar(sessao, proposta) {
       feitas++;
       labsStatus('smStatus', `Rodada ${sessao.rodadas.length + 1}: agentes respondendo… ${feitas}/${sessao.agentes.length}`, 'loading');
     }
-  });
+  };
+  // "Governo responde primeiro" (opcional): a liderança do Governo declara a
+  // posição e as bancadas respondem SABENDO dela — como líder e liderados no
+  // Political Actor Agent (AAAI 2025). Desligado (padrão), todos respondem
+  // independentes: agentes de IA tendem a seguir a posição dominante, e a
+  // ordem pode amplificar isso.
+  const gov = sessao.govPrimeiro ? sessao.agentes.find(a => a.sigla === SM_GOVERNO) : null;
+  let resultados;
+  if (gov) {
+    const rg = await rodar(gov);
+    const extra = rg.resposta ? { governo: rg.resposta } : undefined;
+    const outros = await labsMapLimit(sessao.agentes.filter(a => a !== gov), 3, ag => rodar(ag, extra));
+    let k = 0;
+    resultados = sessao.agentes.map(a => a === gov ? rg : outros[k++]);
+  } else {
+    resultados = await labsMapLimit(sessao.agentes, 3, ag => rodar(ag));
+  }
   labsStatus('smStatus', 'Sintetizando a rodada…', 'loading');
   let sintese = '';
   if (resultados.some(r => r.resposta)) {
@@ -553,6 +628,7 @@ async function smSimularClick() {
       cfg, prop, meses, falhas, blocosFalhou, votacoes: itens.length, agentes,
       perfis: smPerfis(itens, partidos),
       modelos: { agentes: smEl('smModeloAgentes').value, sintese: smEl('smModeloSintese').value },
+      govPrimeiro: !!(smEl('smGovPrimeiro') && smEl('smGovPrimeiro').checked),
       rodadas: [], custo: {},
     };
     await smRodar(sm.sessao, proposta);
@@ -593,6 +669,47 @@ function smEvolucao(rodadas) {
   });
 }
 
+const SM_ROT_BASE = { perfil: 'base: votações', contexto: 'base: contexto da equipe', proposicao: 'base: ementa', proposta: 'base: proposta', governo: 'base: posição do Governo' };
+const SM_ROT_ACAO = { apoia: '✓ apoia', rejeita: '✗ rejeita', reformula: '✎ reformula', troca: '⇄ troca', indefinida: '?' };
+
+/**
+ * Mapa ponto × agente de uma rodada (só quando a proposta tem 2+ pontos).
+ * Pura no cálculo: { pontos, linhas: [{ ponto, celulas: [{agente, acao, importancia, redacao, troca}], cadeirasApoio, cadeirasRejeicao }] }.
+ */
+function smMapaPontos(rodada) {
+  const pontos = smPontos(rodada.proposta);
+  if (pontos.length < 2) return null;
+  const linhas = pontos.map((ponto, i) => {
+    const celulas = [];
+    let cadeirasApoio = 0, cadeirasRejeicao = 0;
+    for (const x of rodada.resultados) {
+      const p = x.resposta && (x.resposta.pontos || []).find(q => q.n === i + 1);
+      celulas.push({ agente: x.bancada, acao: p ? p.acao : null, importancia: p ? p.importancia : null, redacao: p ? p.redacao : '', troca: p ? p.troca : '' });
+      if (p && smSomaCadeiras(x.bancada)) {
+        if (p.acao === 'apoia') cadeirasApoio += x.bancada.cadeiras;
+        if (p.acao === 'rejeita') cadeirasRejeicao += x.bancada.cadeiras;
+      }
+    }
+    return { ponto, celulas, cadeirasApoio, cadeirasRejeicao };
+  });
+  return { pontos, linhas };
+}
+
+function smRenderPontos(rodada) {
+  const m = smMapaPontos(rodada);
+  if (!m) return '';
+  const cab = rodada.resultados.map(x => `<th>${labsEsc(x.bancada.sigla === SM_GOVERNO ? 'Governo' : x.bancada.nome)}</th>`).join('');
+  const corpo = m.linhas.map((l, i) => `<tr><td><b>${i + 1}.</b> ${labsEsc(l.ponto)}<div class="base">cadeiras: ${l.cadeirasApoio} apoiam · ${l.cadeirasRejeicao} rejeitam</div></td>${l.celulas.map(c => {
+    if (!c.acao) return '<td class="base">—</td>';
+    const det = [c.redacao && 'Nova redação: ' + c.redacao, c.troca && 'Troca: ' + c.troca].filter(Boolean).join(' | ');
+    const linha = c.importancia === 5 ? ' sm-linha-vermelha' : '';
+    return `<td class="sm-acao-${c.acao}${linha}" title="${labsEsc(det)}">${SM_ROT_ACAO[c.acao] || '?'}${c.importancia ? ` <span class="base">${c.importancia}/5</span>` : ''}${det ? ' *' : ''}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<div class="labs-caixa"><h3>Mapa por ponto</h3>
+    <div class="sub">Ação de cada agente em cada ponto e a importância que ele dá ao ponto (5/5 = linha vermelha, destacada). * = passe o mouse para ver a nova redação ou a troca proposta.</div>
+    <div style="overflow-x:auto"><table class="labs-tab sm-mapa-pontos"><tr><th>Ponto</th>${cab}</tr>${corpo}</table></div></div>`;
+}
+
 function smRender(s) {
   const r = s.rodadas[s.rodadas.length - 1];
   const n = s.rodadas.length;
@@ -602,7 +719,10 @@ function smRender(s) {
     const ag = x.bancada;
     const nome = ag.sigla === SM_GOVERNO ? 'Governo' : ag.nome;
     const pf = x.perfil;
-    const perfil = pf && ag.tipo === 'partido' ? `<div class="t">Perfil: ${ag.cadeiras} cadeiras · votou como o Governo orientou em ${smPct(pf.alinhamentoGoverno)} (${pf.comparaveis} votações) · orientação do líder igual à do Governo em ${smPct(pf.alinhamentoOrientacao)} (${pf.comparaveisOrientacao}) · coesão ${smPct(pf.coesao)}</div>`
+    const perfil = pf && ag.tipo === 'partido' ? `<div class="t">Perfil: ${ag.cadeiras} cadeiras · ${[
+        pf.comparaveis ? `votou como o Governo orientou em ${smPct(pf.alinhamentoGoverno)} (${pf.comparaveis} votações)` : 'sem votações para medir o alinhamento com o Governo',
+        pf.comparaveisOrientacao ? `orientação do líder igual à do Governo em ${smPct(pf.alinhamentoOrientacao)} (${pf.comparaveisOrientacao})` : '',
+        pf.coesao != null ? `coesão ${smPct(pf.coesao)}` : ''].filter(Boolean).join(' · ')}</div>`
       : (ag.descricao ? `<div class="t">${labsEsc(SM_TIPOS[ag.tipo] || '')}: ${labsEsc(ag.descricao)}</div>` : '');
     const ctx = ag.contexto ? `<div class="t"><b>Contexto da equipe:</b> ${labsEsc(ag.contexto)}</div>` : '';
     if (!x.resposta) {
@@ -610,11 +730,17 @@ function smRender(s) {
     }
     const a = x.resposta;
     return `<div class="labs-agente"><div class="cab"><b>${labsEsc(nome)}</b><span class="labs-pos ${a.posicao}">${a.posicao === 'indefinida' ? 'posição não legível' : a.posicao}</span></div>${perfil}${ctx}
-      ${a.objecoes.length ? `<div class="t"><b>Objeções:</b> ${a.objecoes.map(labsEsc).join(' · ')}</div>` : ''}
+      ${a.objecoes.length ? `<div class="t"><b>Objeções:</b> ${a.objecoes.map(o => labsEsc(smObjTexto(o)) + (o.base === 'nenhuma'
+        ? ' <span class="sm-sembase" title="O agente não apontou apoio nos dados que recebeu">sem base nos dados</span>'
+        : ` <span class="sm-base">${labsEsc(SM_ROT_BASE[o.base] || o.base)}</span>`)).join(' · ')}</div>` : ''}
       ${a.concessao ? `<div class="t"><b>Destravaria:</b> ${labsEsc(a.concessao)}</div>` : ''}
       ${a.argumento ? `<div class="t"><b>Argumento que pesa:</b> ${labsEsc(a.argumento)}</div>` : ''}
-      ${a.risco ? `<div class="t"><b>Risco de ruptura:</b> ${labsEsc(a.risco)}</div>` : ''}</div>`;
+      ${a.risco ? `<div class="t"><b>Risco de ruptura:</b> ${labsEsc(a.risco)}</div>` : ''}
+      ${a.notas ? `<details class="t"><summary>Notas do agente para a próxima rodada</summary>${labsEsc(a.notas)}</details>` : ''}</div>`;
   }).join('');
+  const matriz = smRenderPontos(r);
+  const semBase = r.resultados.reduce((n, x) => n + (x.resposta ? x.resposta.objecoes.filter(o => o.base === 'nenhuma').length : 0), 0);
+  const totalObj = r.resultados.reduce((n, x) => n + (x.resposta ? x.resposta.objecoes.length : 0), 0);
   let evolucao = '';
   if (n > 1) {
     const ev = smEvolucao(s.rodadas);
@@ -643,6 +769,9 @@ function smRender(s) {
       podem ter ficado sem a medida de orientação — o alinhamento pelo voto da bancada não é afetado. Tente de novo em instantes.</div>` : ''}
     <div class="labs-aviso">Soma das cadeiras das bancadas partidárias simuladas (${ap.total}) pela posição que o <b>agente</b> declarou
       (Governo e agentes personalizados não somam). Não é previsão de placar: a bancada real pode se dividir e os agentes tendem a concordar mais do que as bancadas.</div>
+    ${s.govPrimeiro ? '<div class="labs-aviso">Nesta simulação o <b>Governo respondeu primeiro</b> e as bancadas responderam conhecendo a posição dele.</div>' : ''}
+    ${totalObj ? `<div class="labs-custo">${semBase} de ${totalObj} objeções sem base declarada nos dados (marcadas) — trate-as como hipótese do modelo, não como informação.</div>` : ''}
+    ${matriz}
     ${evolucao}
     ${r.sintese ? `<div class="labs-caixa"><h3>Síntese da rodada ${n}</h3><div class="labs-sintese">${renderMarkdown(r.sintese)}</div></div>` : ''}
     <h3 style="margin-top:14px">Reação por agente</h3>

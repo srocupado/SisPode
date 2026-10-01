@@ -519,6 +519,11 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Perfis salvos para a equipe** em `/labs/simulador/perfis`: contexto e agentes personalizados voltam preenchidos nas próximas simulações, com quem salvou e quando
 - Cada agente responde posição (apoia / condiciona / rejeita), objeções, a concessão que destravaria o apoio, o argumento que pesa e o risco de ruptura; uma síntese agrupa objeções, concessões e onde o acordo quebra
 - **Rodadas encadeadas**: a proposta reformulada vai aos mesmos agentes, cada um com o que disse antes; a tela mostra a evolução (quem mudou de posição e as cadeiras que apoiam em cada rodada) e a síntese explica o que mudou
+- **Proposta em pontos**: um ponto por linha ("1. …", "- …"); cada agente diz, em cada ponto, se apoia, rejeita, reformula (com nova redação) ou troca (aceita em troca de outro), e a importância de 1 a 5 (5 = linha vermelha). Mapa ponto × bancada com as cadeiras que apoiam e rejeitam cada ponto
+- **Notas próprias**: cada agente escreve notas para si mesmo sobre o estado da negociação e as recebe na rodada seguinte (agentes sem memória estruturada quase nunca chegam a acordo — Andric, 2026)
+- **Ancoragem**: cada objeção declara em que se apoia (votações, contexto da equipe, ementa, proposta, posição do Governo) ou "nenhuma"; as sem base são marcadas como hipótese do modelo (Van Mulders et al., 2026)
+- **Governo responde primeiro** (opcional, desligado por padrão): a liderança do Governo declara a posição e as bancadas respondem sabendo dela (como líderes e liderados no Political Actor Agent, AAAI 2025). Desligado, todos respondem independentes — agentes de IA tendem a seguir a posição dominante
+- **Teste contra o passado**: nas últimas N votações em que o Governo orientou, compara o voto real da maioria de cada bancada com três previsões — estatística sem IA, uma pergunta simples à IA e os agentes (perfil só com votações anteriores; a votação vai sem o resultado). Mostra acerto, F1 macro e cobertura, por método e por bancada, e guarda em `/labs/simulador/validacoes`
 - **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave do ⚙ da página; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
 
 **Mapa Territorial de Entregas**
@@ -588,6 +593,7 @@ sispode/
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── labs.html / labs.js            # Módulo: Labs — abas e utilidades comuns dos protótipos
 ├── labs-simulador.js              # Labs · Simulador de Negociação (agentes de IA por bancada)
+├── labs-simulador-teste.js        # Labs · Simulador: teste contra o passado (validação dos agentes)
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
