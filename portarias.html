@@ -86,6 +86,13 @@
     .pt-btn-mini { background: rgba(255,255,255,.06); border: 1px solid var(--border-soft); color: var(--text); border-radius: 6px;
       font: inherit; font-size: 12px; padding: 4px 8px; cursor: pointer; }
     .pt-btn-mini:disabled { opacity: .35; cursor: default; }
+    .pt-rel { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; }
+    .pt-chip { font-size: 11px; border-radius: 10px; padding: 1px 8px; border: 1px solid var(--border-soft); background: rgba(255,255,255,.04); }
+    .pt-chip.revoga { border-color: rgba(214,70,70,.5); }
+    .pt-chip.altera { border-color: rgba(214,138,0,.55); }
+    .pt-chip.revogada { border-color: rgba(130,130,130,.6); color: var(--text-dim); }
+    .pt-chip.consol { border-color: rgba(31,165,165,.5); }
+    .pt-chip .fora { color: #d68a00; }
     @media (max-width: 760px) { .pt-doc .campos { grid-template-columns: 1fr; } }
   </style>
 </head>
@@ -138,6 +145,7 @@
 
     <div class="on-card largo">
       <h3>Sequência cronológica <span id="pt-contagem" class="on-vazio" style="text-transform:none;letter-spacing:0"></span></h3>
+      <div id="pt-faltando"></div>
       <div id="pt-lista"><div class="on-vazio">Nenhum ato incluído ainda.</div></div>
       <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap">
         <button id="pt-ordenar" class="pt-btn-mini" disabled>Reordenar por data</button>
@@ -155,6 +163,7 @@
 
   <script src="libs/pdf.min.js"></script>
   <script src="portarias-leitura.js"></script>
+  <script src="portarias-sequencia.js"></script>
   <script src="portarias.js"></script>
 </body>
 </html>

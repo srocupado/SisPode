@@ -86,6 +86,7 @@
         "icons/podemos-logo.png",
         "portarias.html",
         "portarias-leitura.js",
+        "portarias-sequencia.js",
         "portarias.js"
       ],
       "matches": [
