@@ -141,6 +141,32 @@
     .pn-tab td { border-bottom: 1px solid #e3e7ec; padding: 4px 6px; vertical-align: top; }
     .pn-tab td.q { font-weight: 700; width: 28%; } .pn-tab td.a { color: #6b7480; width: 16%; }
     .pn-rodape { margin-top: 18px; border-top: 1px solid #e3e7ec; padding-top: 8px; font-size: 10.5px; color: #6b7480; }
+    .pt-par { font-size: 11.5px; margin-top: 5px; color: var(--text-dim); }
+    .pt-par b { color: var(--text); }
+    .pt-mini-sel { width: auto; display: inline-block; padding: 2px 6px; font-size: 11.5px; max-width: 320px; }
+    .pc-passos { margin: 10px 0 0; padding-left: 18px; font-size: 12px; line-height: 1.7; }
+    .pc-passos li.erro { color: #ff6b6b; } .pc-passos li.aviso { color: #d68a00; }
+    .pc-linha { display: flex; gap: 0; overflow-x: auto; padding: 6px 0 2px; position: relative; }
+    .pc-no { flex: 1 0 110px; text-align: center; position: relative; font-size: 10.5px; padding: 0 4px; }
+    .pc-no::before { content: ''; position: absolute; top: 25px; left: 0; right: 0; height: 3px; background: #1fa5a5; }
+    .pc-no:first-child::before { left: 50%; } .pc-no:last-child::before { right: 50%; }
+    .pc-no i { position: relative; display: block; width: 14px; height: 14px; border-radius: 50%; background: #00a859; border: 2px solid #fff; margin: 3px auto 4px; }
+    .pc-no .ano { font-weight: 700; color: #0f5f5f; }
+    .pc-no .nome { font-weight: 600; } .pc-no .rel { margin-top: 2px; line-height: 1.35; }
+    .pc-pilha { display: flex; } .pc-pilha i { height: 100%; }
+    .pc-legenda { display: flex; gap: 12px; font-size: 10.5px; margin-top: 6px; color: #5b6574; }
+    .pc-legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+    .pc-calor { border-collapse: collapse; font-size: 11px; width: 100%; }
+    .pc-calor th { font-weight: 600; padding: 3px 4px; font-size: 10px; color: #5b6574; }
+    .pc-calor td { border: 1px solid #eef1f4; text-align: center; padding: 3px 4px; min-width: 34px; }
+    .pc-calor td.t { text-align: left; white-space: nowrap; }
+    .pc-tema { margin: 8px 0 12px; break-inside: avoid-page; }
+    .pc-tema-t { font-weight: 700; font-size: 12.5px; margin-bottom: 4px; }
+    .pc-quadro { width: 100%; border-collapse: collapse; font-size: 11.5px; table-layout: fixed; }
+    .pc-quadro th { text-align: left; background: #f2f8f8; padding: 4px 6px; font-size: 10.5px; color: #0f5f5f; }
+    .pc-quadro td { border-bottom: 1px solid #e3e7ec; padding: 5px 6px; vertical-align: top; }
+    .pc-quadro tr { break-inside: avoid; }
+    .pc-tipo { display: inline-block; color: #fff; font-size: 9.5px; border-radius: 3px; padding: 0 5px; font-weight: 700; }
     /* PDF: a nota é copiada para #pt-impressao (filho direto do body) e só ele é impresso. */
     #pt-impressao { display: none; }
     @media print {
@@ -220,12 +246,28 @@
       </div>
     </div>
 
-    <div class="on-card largo">
-      <h3>2 · Comparação e nota técnica</h3>
-      <div class="on-pend">Próxima etapa, em construção: leitura estruturada de cada ato (etapas, prazos, responsáveis, exigências,
-        valores — sempre com o artigo de origem), quadro "como era × como ficou", linha do tempo, fluxograma e gráficos, e a nota
-        técnica em PDF. Será calibrada com o conjunto real de portarias enviado pela equipe.</div>
-      <div id="pc-revisao" style="margin-top:12px"></div>
+    <div class="on-card largo" id="pc-painel">
+      <h3>2 · Nota comparativa</h3>
+      <div class="on-vazio" style="font-style:normal;margin-bottom:10px">Avalia <b>todas</b> as mudanças: os temas saem da estrutura dos próprios atos, cada ato é lido por inteiro,
+        e cada ato é comparado com o que ele substitui ou altera (veja "Na nota comparativa" em cada ato acima — dá para trocar o par).
+        Cada regra e cada mudança só entra com o trecho literal localizado no texto do ato.</div>
+      <div class="pn-opcoes">
+        <label><input type="radio" name="pc-tipo" value="informativa" checked> <b>Nota informativa comparativa</b> — o que mudou, tema a tema</label>
+        <label><input type="radio" name="pc-tipo" value="tecnica"> <b>Nota técnica comparativa</b> — e também pontos de atenção e recomendações</label>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center">
+        <button id="pc-gerar" class="btn btn-primary btn-sm" disabled>Gerar nota comparativa</button>
+        <button id="pc-cancelar" class="btn btn-outline btn-sm" style="display:none">Cancelar</button>
+        <span id="pc-acoes" style="display:none;gap:8px">
+          <button id="pc-pdf" class="btn btn-outline btn-sm" title="Abre a impressão: escolha &quot;Salvar como PDF&quot;">Exportar PDF</button>
+          <button id="pc-copiar" class="btn btn-outline btn-sm">Copiar texto</button>
+        </span>
+        <span id="pc-requisito" class="on-vazio"></span>
+      </div>
+      <div id="pc-progresso"></div>
+      <div id="pc-status"></div>
+      <div id="pc-resultado" style="margin-top:14px"></div>
+      <div id="pc-revisao" style="margin-top:14px"></div>
     </div>
     </div>
 
@@ -345,7 +387,9 @@
   <script src="portarias-sequencia.js"></script>
   <script src="orcamento-ia.js"></script>
   <script src="portarias-nota.js"></script>
+  <script src="portarias-comparacao.js"></script>
   <script src="portarias.js"></script>
   <script src="portarias-avulsa.js"></script>
+  <script src="portarias-comparativa.js"></script>
 </body>
 </html>

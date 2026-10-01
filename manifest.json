@@ -96,6 +96,8 @@
         "portarias-sequencia.js",
         "portarias-nota.js",
         "portarias-avulsa.js",
+        "portarias-comparacao.js",
+        "portarias-comparativa.js",
         "portarias.js"
       ],
       "matches": [
