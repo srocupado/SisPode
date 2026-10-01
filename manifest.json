@@ -28,7 +28,8 @@
     "https://www.planalto.gov.br/*",
     "https://www.lexml.gov.br/*",
     "https://www2.camara.leg.br/*",
-    "https://servicodados.ibge.gov.br/*"
+    "https://servicodados.ibge.gov.br/*",
+    "https://www.in.gov.br/*"
   ],
   "content_security_policy": {
     "extension_pages": "script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; object-src 'self'; img-src 'self' data: blob:"
@@ -89,7 +90,13 @@
         "labs-simulador.js",
         "labs-simulador-teste.js",
         "labs-mapa-nucleo.js",
-        "labs-mapa.js"
+        "labs-mapa.js",
+        "portarias.html",
+        "portarias-leitura.js",
+        "portarias-sequencia.js",
+        "portarias-nota.js",
+        "portarias-avulsa.js",
+        "portarias.js"
       ],
       "matches": [
         "<all_urls>"
