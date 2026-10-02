@@ -228,6 +228,21 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(/RODADAS ANTERIORES/.test(r2Prompts[nAg].prompt) && /O que mudou nesta rodada/.test(r2Prompts[nAg].prompt), 'síntese da rodada 2 recebe a rodada anterior e explica o que mudou');
   ok(/Evolução da negociação/.test(s2) && /class="mudou"><span class="labs-pos condiciona">/.test(s2) && /Rodada 2/.test(s2), 'tela mostra a evolução, destacando quem mudou (PL: rejeita → condiciona)');
   ok(new RegExp(`Custo até aqui: ${2 * (nAg + 1)} chamadas`).test(s2) && /gemini-2\.5-flash/.test(s2) && /gemini-2\.5-pro/.test(s2), 'custo acumulado das rodadas, por modelo');
+  // relatório em PDF: aba própria com todas as rodadas
+  let escrito = '', impresso = 0;
+  const ouvintes = {};
+  const aba = { document: { write: h => { escrito += h; }, close: () => {}, readyState: 'complete',
+    getElementById: id => id === 'btn-pdf' ? { addEventListener: (_e, f) => { ouvintes.pdf = f; } } : null }, print: () => { impresso++; }, addEventListener: () => {} };
+  ctx.window.open = () => aba;
+  vm.runInContext('window.open = globalThis.window.open', ctx);
+  ok(document.getElementById('smRelatorio') && /Exportar relatório/.test(document.getElementById('smRelatorio').textContent), 'botão "Exportar relatório (PDF)" no resultado');
+  await av(`smExportarRelatorio()`);
+  ok(/Relatório de simulação de negociação/.test(escrito) && /<h2>Rodada 1<\/h2>/.test(escrito) && /<h2>Rodada 2<\/h2>/.test(escrito), 'relatório traz todas as rodadas');
+  ok(/Evolução da negociação/.test(escrito) && /class="mudou"/.test(escrito) && /Parâmetros da simulação/.test(escrito) && /Aprovar o texto do relator com prazo de 360 dias/.test(escrito), 'evolução, parâmetros e a proposta de cada rodada');
+  ok(/Não é previsão de placar/.test(escrito) && /print-color-adjust: exact/.test(escrito) && /O que mudou nesta rodada/.test(escrito), 'cautelas da tela, cores na impressão e a síntese');
+  ok(new RegExp(`${2 * (nAg + 1)} concluídas`).test(escrito), 'custo das chamadas no relatório');
+  ouvintes.pdf && ouvintes.pdf();
+  ok(impresso === 1, '"Salvar em PDF" abre o diálogo de impressão');
   ctx.fetch = fetchAntes;
 
   const antesSemChave = ctx.__prompts.length;

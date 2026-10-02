@@ -839,7 +839,10 @@ function smRender(s) {
   const falhasIA = s.falhasIA ? `; mais ${s.falhasIA} que falharam` : '';
   smEl('smResultado').innerHTML = `
     ${prop}
-    <h3 style="margin-top:10px">Rodada ${n}</h3>
+    <div style="display:flex;align-items:center;gap:10px;margin-top:10px;flex-wrap:wrap">
+      <h3 style="margin:0">Rodada ${n}</h3>
+      <button id="smRelatorio" class="sm-bt" title="Abre o relatório com todas as rodadas em uma aba; lá, &quot;Salvar em PDF&quot;">⬇ Exportar relatório (PDF)</button>
+    </div>
     <div class="labs-cards">
       ${card('f5', ap.apoia, 'cadeiras: apoia')}
       ${card('f3', ap.condiciona, 'cadeiras: condiciona')}
@@ -866,6 +869,7 @@ function smRender(s) {
     <div class="labs-custo">${s.agentes.some(a => a.tipo === 'partido') ? `Perfis de ${s.votacoes} votações nominais do Plenário (últimos ${s.meses} meses)${s.falhas ? `; ${s.falhas} votações não puderam ser lidas` : ''}. ` : ''}
       Custo até aqui: ${total} chamadas de IA concluídas pela sua chave (${labsEsc(s.cfg.provedor || 'gemini')}: ${custo || '—'})${falhasIA}.</div>`;
   smEl('smNovaRodada').addEventListener('click', smNovaRodadaClick);
+  if (typeof smExportarRelatorio === 'function') smEl('smRelatorio').addEventListener('click', smExportarRelatorio);
 }
 
 if (smEl('smSimular')) {
