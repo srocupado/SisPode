@@ -64,7 +64,9 @@ function smRelAgente(x) {
 function smRelPontos(rodada) {
   const m = smMapaPontos(rodada);
   if (!m) return '';
-  const cab = rodada.resultados.map(x => `<th>${smRelEsc(smRelNome(x.bancada))}</th>`).join('');
+  // Cabeçalho estreito com muitos agentes: nome longo abreviado ("REPUBLICANOS" → "REPUBL."), o completo no title.
+  const curto = n => n.length > 9 ? n.slice(0, 6) + '.' : n;
+  const cab = rodada.resultados.map(x => `<th title="${smRelEsc(smRelNome(x.bancada))}">${smRelEsc(curto(smRelNome(x.bancada)))}</th>`).join('');
   const notas = [];
   const corpo = m.linhas.map((l, i) => `<tr><td class="pt"><b>${i + 1}.</b> ${smRelEsc(l.ponto)}<div class="nd">cadeiras: ${l.cadeirasApoio} apoiam · ${l.cadeirasRejeicao} rejeitam</div></td>${l.celulas.map(c => {
     if (!c.acao) return '<td class="nd">—</td>';
@@ -97,10 +99,10 @@ function smRelEvolucao(s) {
   const ev = smEvolucao(s.rodadas);
   const cad = s.rodadas.map(x => smApoioEstimado(x.resultados));
   return `<section><h2>Evolução da negociação</h2>
+    <div class="fonte" style="margin:0 0 4px">Célula com borda = o agente mudou de posição naquela rodada.</div>
     <table class="evol"><tr><th>Agente</th>${s.rodadas.map((_, i) => `<th>Rodada ${i + 1}</th>`).join('')}</tr>
     ${ev.map(e => `<tr><td>${smRelEsc(e.nome)}</td>${e.posicoes.map((p, i) => `<td${i && p !== e.posicoes[i - 1] ? ' class="mudou"' : ''}><span class="pos" style="background:${SM_REL_COR[p] || SM_REL_COR.indefinida}">${smRelEsc(SM_REL_POS[p] || p)}</span></td>`).join('')}</tr>`).join('')}
-    <tr><td class="nd">Cadeiras que apoiam</td>${cad.map(c => `<td class="nd">${c.apoia} de ${c.total}</td>`).join('')}</tr></table>
-    <div class="fonte">Célula com borda = o agente mudou de posição naquela rodada.</div></section>`;
+    <tr><td class="nd">Cadeiras que apoiam</td>${cad.map(c => `<td class="nd">${c.apoia} de ${c.total}</td>`).join('')}</tr></table></section>`;
 }
 
 /**
@@ -162,7 +164,11 @@ function smRelatorioHtml(s, op = {}) {
   .fonte { font-size: 8pt; color: var(--tinta2); font-style: italic; margin-top: 3px; }
   .nd { color: var(--tinta2); font-size: 8.5pt; }
   .proposta { background: #f7f8f6; border-left: 4px solid var(--verde); padding: 7px 12px; border-radius: 0 6px 6px 0; font-size: 9.5pt; }
-  .mapa td.acao { text-align: center; font-weight: 600; font-size: 8.5pt; }
+  /* Muitos agentes: colunas de largura fixa, o texto do ponto com ~30% da linha. */
+  .mapa { table-layout: fixed; }
+  .mapa th:first-child, .mapa td.pt { width: 30%; }
+  .mapa th { font-size: 7.5pt; overflow-wrap: normal; word-break: normal; }
+  .mapa td.acao { text-align: center; font-weight: 600; font-size: 8pt; padding: 4px 2px; }
   .acao-apoia { background: #e3f4ea; color: #0B6E3C; } .acao-rejeita { background: #fbe6e3; color: #A93226; }
   .acao-reformula { background: #fff3d6; color: #8a5a00; } .acao-troca { background: #e6eefb; color: #1F5FA8; }
   .vermelha { outline: 2px solid #C0392B; outline-offset: -2px; }
@@ -176,6 +182,10 @@ function smRelatorioHtml(s, op = {}) {
   .tag { font-size: 7.5pt; background: #eef3f6; color: #3b5568; border-radius: 3px; padding: 0 4px; }
   .tag.semBase { background: #fff1d6; color: #8a5a00; }
   .evol td.mudou { outline: 2px solid #1F5FA8; outline-offset: -2px; }
+  /* Primeira página: resultado, parâmetros e evolução cabem juntos, mesmo com 10+ agentes. */
+  .evol td, .evol th, .param td { padding: 2px 6px; }
+  .evol .pos { font-size: 7.5pt; padding: 0 7px; }
+  .cartao { padding: 4px 10px; } .cartao b { font-size: 14pt; }
   .rodada { break-before: page; }
   .rodape { margin-top: 22px; border-top: 1px solid var(--grade); padding-top: 6px; font-size: 8pt; color: var(--tinta2); }
   .barra-ferramentas { background: #eef3fb; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 10px; border-radius: 6px; }
@@ -209,7 +219,7 @@ function smRelatorioHtml(s, op = {}) {
 ${smRelBarra(ap)}
 
 <h2>Parâmetros da simulação</h2>
-<table>${param.map(([r, v]) => `<tr><td class="r">${smRelEsc(r)}</td><td>${smRelEsc(v)}</td></tr>`).join('')}</table>
+<table class="param">${param.map(([r, v]) => `<tr><td class="r">${smRelEsc(r)}</td><td>${smRelEsc(v)}</td></tr>`).join('')}</table>
 
 ${smRelEvolucao(s)}
 ${s.rodadas.map((r, i) => smRelRodada(r, i, s)).join('')}
