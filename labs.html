@@ -943,6 +943,48 @@
   .sm-linha-vermelha { box-shadow: inset 0 0 0 1px var(--nao); font-weight: 700; }
   .labs-sintese h1, .labs-sintese h2, .labs-sintese h3 { font-size: 13px; color: var(--text); margin: 10px 0 4px; }
   .labs-sintese ul { margin: 4px 0 6px 18px; }
+  /* ---------- Apuração 2026 ---------- */
+  /* O painel ao vivo pede tela inteira: com a aba aberta, a página alarga. */
+  .container:has(#painel-apuracao:not([hidden])) { max-width: 1500px; }
+  .ap-topo { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; margin: 6px 0 10px; }
+  .ap-status { font-size: 12px; color: var(--text-dim); }
+  .ap-botoes { display: flex; gap: 6px; align-items: center; }
+  .ap-botoes .field { width: 200px; margin: 0; }
+  .ap-pulso { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #00a859; margin-right: 4px; opacity: .45; }
+  .ap-pulso.on { opacity: 1; box-shadow: 0 0 0 4px rgba(0,168,89,.25); }
+  .ap-falha { color: #d68a00; }
+  .ap-grade { display: grid; grid-template-columns: minmax(320px, 1.05fr) 0.95fr; gap: 16px; align-items: start; margin-top: 10px; }
+  @media (max-width: 900px) { .ap-grade { grid-template-columns: 1fr; } }
+  .ap-mapa { position: sticky; top: 8px; background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 10px; padding: 8px; }
+  .ap-svg { width: 100%; height: auto; display: block; }
+  .ap-svg path { stroke: #0f1720; stroke-width: 0.8; cursor: pointer; transition: fill .6s; }
+  .ap-svg path:hover { stroke: #fff; stroke-width: 1.4; }
+  .ap-svg path.sel { stroke: #ffd24a; stroke-width: 2; }
+  .ap-rot { pointer-events: none; }
+  .ap-rot text { fill: #fff; font-size: 10px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 2.4px; }
+  .ap-rot text.pct { font-size: 9px; font-weight: 600; }
+  .ap-rot.peq text { font-size: 8px; } .ap-rot.peq text.pct { font-size: 7.5px; }
+  .ap-rot circle { fill: #ffd24a; stroke: #0f1720; stroke-width: 1; }
+  .ap-rot text.el { fill: #1b1b1b; stroke: none; font-size: 8px; }
+  .ap-legenda { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 10.5px; color: var(--text-dim); margin-top: 6px; }
+  .ap-legenda i { display: inline-block; width: 90px; height: 8px; border-radius: 4px; }
+  .ap-bola { display: inline-block; background: #ffd24a; color: #1b1b1b; border-radius: 50%; width: 14px; height: 14px; text-align: center; font-size: 9px; font-weight: 700; line-height: 14px; margin-left: 10px; }
+  .ap-uf { border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; margin-bottom: 10px; background: rgba(255,255,255,0.02); }
+  .ap-uf.sel { border-color: #ffd24a; box-shadow: 0 0 0 1px #ffd24a inset; }
+  .ap-uf-cab { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 14px; }
+  .ap-sigla { font-size: 10.5px; color: var(--text-dim); }
+  .ap-uf-pct { margin-left: auto; font-size: 12px; font-weight: 600; color: #2fcf7a; }
+  .ap-barra { height: 6px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; margin: 5px 0; }
+  .ap-barra i { display: block; height: 100%; background: linear-gradient(90deg, #1fa5a5, #00a859); transition: width .6s; }
+  .ap-uf-meta { font-size: 11px; color: var(--text-dim); margin-bottom: 4px; }
+  .ap-tab td, .ap-tab th { padding: 3px 6px; font-size: 12px; }
+  .ap-tab td.r, .ap-tab th.r { text-align: right; font-variant-numeric: tabular-nums; }
+  .ap-tab td.pos { color: var(--text-dim); width: 30px; }
+  .ap-tab .num { color: var(--text-dim); font-size: 10.5px; }
+  .ap-tab tr.el td { background: rgba(0,168,89,.12); }
+  .ap-sit { font-size: 10.5px; color: var(--text-dim); }
+  .ap-sit.el { color: #2fcf7a; font-weight: 700; }
+  .ap-mais summary { cursor: pointer; font-size: 11.5px; color: var(--text-dim); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -963,6 +1005,7 @@
   <div class="abas" role="tablist">
     <button class="aba ativa" id="aba-simulador" role="tab">Simulador de Negociação <span class="labs-tag">experimental</span></button>
     <button class="aba" id="aba-mapa" role="tab">Mapa Territorial <span class="labs-tag">experimental</span></button>
+    <button class="aba" id="aba-apuracao" role="tab">Apuração 2026 <span class="labs-tag">ao vivo</span></button>
   </div>
 
   <!-- ===================== SIMULADOR DE NEGOCIAÇÃO ===================== -->
@@ -1085,6 +1128,26 @@
     </div>
   </div>
 
+  <div id="painel-apuracao" hidden>
+    <p class="relatorio-desc">Deputados federais do Podemos na apuração de 4 de outubro de 2026, direto da divulgação oficial do TSE.
+      O painel relê os 27 estados a cada 30 segundos; o mapa mostra quanto de cada estado já foi apurado. Clique num estado para destacá-lo.</p>
+    <div class="ap-topo">
+      <div id="apStatus" class="ap-status"></div>
+      <div class="ap-botoes">
+        <input type="search" id="apBusca" class="field" placeholder="Buscar candidato(a)">
+        <button id="apAgora" class="sm-bt">↻ Atualizar agora</button>
+        <button id="apPausar" class="sm-bt">⏸ Pausar</button>
+      </div>
+    </div>
+    <div class="labs-cards" id="apCards"></div>
+    <div class="ap-grade" id="apConteudo">
+      <div class="ap-mapa" id="apMapa"></div>
+      <div class="ap-lista" id="apLista"></div>
+    </div>
+    <div class="labs-custo">Fonte: TSE — divulgação oficial de resultados (resultados.tse.jus.br). A situação de cada candidato (eleito, suplente…) é a informada pelo TSE
+      e pode mudar até a totalização final; percentuais de votos sobre os votos válidos da UF.</div>
+  </div>
+
   <div class="signature">
     <div class="signature-line"></div>
     <div class="signature-text">Liderança do Podemos</div>
@@ -1143,5 +1206,7 @@
 <script src="labs-simulador-teste.js"></script>
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
+<script src="labs-apuracao-mapa.js"></script>
+<script src="labs-apuracao.js"></script>
 </body>
 </html>

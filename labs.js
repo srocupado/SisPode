@@ -338,7 +338,7 @@ async function labsDeputadosAtuais() {
 }
 
 // ---------- abas ----------
-const LABS_ABAS = [['aba-simulador', 'painel-simulador'], ['aba-mapa', 'painel-mapa']];
+const LABS_ABAS = [['aba-simulador', 'painel-simulador'], ['aba-mapa', 'painel-mapa'], ['aba-apuracao', 'painel-apuracao']];
 
 function labsTrocarAba(bt) {
   for (const [b, p] of LABS_ABAS) {
