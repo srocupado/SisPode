@@ -30,16 +30,16 @@ function apNum(s) { const n = parseFloat(String(s == null ? '' : s).replace(/\./
 function apFmt(n) { return Math.round(n).toLocaleString('pt-BR'); }
 function apPct(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: n > 0 && n < 100 ? 2 : 0, maximumFractionDigits: 2 }) + '%'; }
 
-/** Código da eleição de Deputado Federal no ciclo, pela configuração do TSE. Pura. */
-function apEleicaoDaConfig(cfg) {
+/** Código da eleição (1º turno) que tem o cargo, pela configuração do TSE. Pura. */
+function apEleicaoDaConfig(cfg, cargo = AP_CARGO) {
   const pl = ((cfg && cfg.pl) || []).find(p => p.c === AP_CICLO);
   if (!pl) return null;
-  const e = (pl.e || []).find(x => (x.abr || []).some(a => (a.cp || []).some(c => +c.cd === AP_CARGO)) && String(x.t) === '1');
+  const e = (pl.e || []).find(x => (x.abr || []).some(a => (a.cp || []).some(c => +c.cd === +cargo)) && String(x.t) === '1');
   return e ? String(e.cd) : null;
 }
 
-function apUrl(uf, eleicao = ap.eleicao) {
-  const c = String(AP_CARGO).padStart(4, '0'), e = String(eleicao).padStart(6, '0');
+function apUrl(uf, eleicao = ap.eleicao, cargo = AP_CARGO) {
+  const c = String(cargo).padStart(4, '0'), e = String(eleicao).padStart(6, '0');
   return `${AP_BASE}/${AP_CICLO}/${eleicao}/dados/${uf}/${uf}-c${c}-e${e}-u.json`;
 }
 
@@ -72,6 +72,44 @@ function apLerUF(j, uf, partido = AP_PARTIDO) {
     partido: par ? { sigla: par.sg, nominais, legenda, total: nominais + legenda,
       vagas: agr ? apNum(agr.vag) : 0, federacao: agr && agr.tp !== 'i' ? agr.nm : '' } : null,
     candidatos,
+  };
+}
+
+/**
+ * Lê o arquivo de uma UF com TODOS os partidos e candidatos. Pura.
+ * Durante a apuração o TSE não marca eleitos, mas informa as vagas que cada
+ * agremiação (partido isolado ou federação) obtém no momento: os N mais votados
+ * dela ficam como "projetado" (eleito pela parcial). Nos cargos majoritários
+ * (presidente, governador, senador) a projeção é estar entre os nv mais votados.
+ * A marcação oficial do TSE (e/st) sempre prevalece.
+ */
+function apLerUFTodos(j, uf) {
+  const s = j.s || {}, v = j.v || {};
+  const cargo = (j.carg || [])[0] || {};
+  const majoritario = [1, 3, 5].includes(+cargo.cd);
+  const nv = apNum(cargo.nv);
+  const partidos = [], candidatos = [];
+  for (const a of cargo.agr || []) {
+    const vag = apNum(a.vag), doAgr = [];
+    for (const p of a.par || []) {
+      const nominais = apNum(p.tvtn), legenda = apNum(p.tvtl);
+      partidos.push({ numero: String(p.n), sigla: p.sg, nome: p.nm, nominais, legenda, total: nominais + legenda, vagas: vag, federacao: a.tp !== 'i' ? (a.nm || '') : '' });
+      for (const c of p.cand || []) {
+        doAgr.push({ numero: c.n, nome: c.nmu || c.nm, nomeCompleto: c.nm, partido: p.sg, partidoNum: String(p.n),
+          votos: apNum(c.vap), pct: apNum(c.pvap), eleito: apEleito(c), situacao: c.st || '', projetado: false });
+      }
+    }
+    doAgr.sort((x, y) => y.votos - x.votos);
+    if (!majoritario) doAgr.forEach((c, i) => { c.projetado = !c.eleito && i < vag && c.votos > 0; });
+    candidatos.push(...doAgr);
+  }
+  candidatos.sort((x, y) => y.votos - x.votos || x.nome.localeCompare(y.nome));
+  if (majoritario && !candidatos.some(c => c.eleito)) candidatos.forEach((c, i) => { c.projetado = i < nv && c.votos > 0; });
+  return {
+    uf, nome: uf === 'br' ? 'Brasil' : (AP_UFS[uf] || uf.toUpperCase()), cargo: +cargo.cd, cargoNome: cargo.nmn || '', majoritario,
+    secoes: apNum(s.ts), apuradas: apNum(s.st), pct: apNum(s.pst),
+    atualizado: [j.dg, j.hg].filter(Boolean).join(' '), final: j.tf === 's',
+    vagasUF: nv, quociente: apNum(cargo.qe), validos: apNum(v.vv), partidos, candidatos,
   };
 }
 
@@ -225,5 +263,5 @@ if (typeof document !== 'undefined' && apEl('apConteudo')) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicaoDaConfig, apUrl, apLerUF, apResumo, apEleito, apCor, apNum };
+  module.exports = { apEleicaoDaConfig, apUrl, apLerUF, apLerUFTodos, apResumo, apEleito, apCor, apNum };
 }

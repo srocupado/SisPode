@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f1720">
-<title>Apuração 2026 · Deputados Federais do Podemos</title>
+<title>Apuração 2026 · Liderança do Podemos</title>
 <link rel="icon" href="{{LOGO}}">
 <style>
   :root { --bg: #0f1720; --bg2: #16212c; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; }
@@ -29,6 +29,7 @@
   .seg { display: inline-flex; border: 1px solid var(--borda); border-radius: 9px; overflow: hidden; }
   .seg button { border: 0; border-radius: 0; background: transparent; color: var(--dim); }
   .seg button.ativo { background: rgba(0,168,89,.18); color: var(--texto); font-weight: 600; }
+  select { font: inherit; font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 8px; }
   input[type=search] { font: inherit; font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 10px; width: 210px; }
   label.cx { font-size: 12.5px; color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
   .filtros { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
@@ -74,7 +75,9 @@
   td.pos { color: var(--dim); width: 34px; }
   .num { color: var(--dim); font-size: 11px; }
   tr.el td { background: rgba(0,168,89,.13); }
-  .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; }
+  tr.pj td { background: rgba(255,210,74,.07); }
+  td.pt { color: var(--dim); font-size: 12px; }
+  .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; } .sit.pj { color: var(--ama); font-weight: 600; }
   details summary { cursor: pointer; font-size: 12px; color: var(--dim); margin-top: 5px; }
   .vazio { font-size: 12.5px; color: var(--dim); padding: 4px 0; } .vazio.grande { padding: 24px 12px; text-align: center; background: var(--bg2); border: 1px dashed var(--borda); border-radius: 12px; }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
@@ -85,6 +88,7 @@
     .cards { grid-template-columns: repeat(2, 1fr); }
     .topo h1 { font-size: 17px; } .topo img { height: 38px; }
     input[type=search] { width: 100%; }
+    select { flex: 1 1 45%; }
     .ctl { width: 100%; }
   }
 </style>
@@ -94,7 +98,7 @@
   <div class="topo">
     <img src="{{LOGO}}" alt="Podemos">
     <div>
-      <h1>Apuração 2026 · Deputados Federais do Podemos</h1>
+      <h1 id="saTitulo">Apuração 2026</h1>
       <div class="sub">Painel desenvolvido pela <b>Liderança do Podemos na Câmara dos Deputados</b> · resultados oficiais do TSE, ao vivo</div>
     </div>
   </div>
@@ -104,7 +108,9 @@
   <div class="barra-ctl">
     <div class="status" id="saStatus"></div>
     <div class="ctl">
-      <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos do Podemos</button></div>
+      <select id="saCargo" title="Cargo"><option value="1">Presidente</option><option value="3">Governador</option><option value="5">Senador</option><option value="6" selected>Deputado Federal</option><option value="7">Deputado Estadual / Distrital</option></select>
+      <select id="saPartido" title="Partido"><option value="20">PODE (Podemos)</option><option value="">Todos os partidos</option></select>
+      <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos</button></div>
       <label class="cx" id="saSoEleitosCx"><input type="checkbox" id="saSoEleitos"> só eleitos</label>
       <input type="search" id="saBusca" placeholder="Buscar candidato(a)">
       <button id="saAgora">↻ Atualizar</button>
@@ -121,7 +127,7 @@
 <footer>
   Painel desenvolvido pela <b>Liderança do Podemos na Câmara dos Deputados</b>. Fonte: Tribunal Superior Eleitoral — divulgação oficial de resultados
   (resultados.tse.jus.br). Os dados vão do TSE direto para o seu navegador a cada 30 segundos; a última leitura fica guardada neste aparelho.
-  A situação de cada candidato (eleito, suplente…) é a informada pelo TSE e pode mudar até a totalização final. Percentuais de votos sobre os votos válidos de cada estado.
+  Durante a apuração o TSE não marca eleitos: "eleito (projeção)" são os mais votados de cada partido/federação dentro das vagas que o TSE informa na parcial, e "à frente" nos cargos majoritários. A marcação oficial do TSE prevalece e pode mudar até a totalização final. Percentuais sobre os votos válidos.
 </footer>
 {{SCRIPTS}}
 </body>
