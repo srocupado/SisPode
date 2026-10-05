@@ -95,6 +95,8 @@
         "labs-mapa.js",
         "labs-apuracao-mapa.js",
         "labs-apuracao.js",
+        "apuracao/extensao.html",
+        "apuracao/apuracao-site.js",
         "portarias.html",
         "portarias-leitura.js",
         "portarias-sequencia.js",

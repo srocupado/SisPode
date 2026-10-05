@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0f1720">
+<title>Apuração 2026 · Liderança do Podemos</title>
+<link rel="icon" href="{{LOGO}}">
+<style>
+  :root { --bg: #0f1720; --bg2: #16212c; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--texto); font-family: "DM Sans", "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
+  header { background: linear-gradient(180deg, #13202b, #0f1a24); border-bottom: 2px solid var(--verde); }
+  .topo { max-width: 1500px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
+  .topo img { height: 46px; width: auto; background: #fff; border-radius: 8px; padding: 4px 6px; }
+  .topo h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+  .topo .sub { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .topo .sub b { color: var(--verde2); font-weight: 600; }
+  .filete { height: 4px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+  main { max-width: 1500px; margin: 0 auto; padding: 12px 16px 40px; }
+  .barra-ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .status { font-size: 12px; color: var(--dim); }
+  .status .aviso, .aviso { color: var(--aviso); }
+  .pulso { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--verde); margin-right: 4px; opacity: .45; vertical-align: 0; }
+  .pulso.on { opacity: 1; box-shadow: 0 0 0 4px rgba(0,168,89,.25); }
+  .ctl { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  button, .chip { font: inherit; font-size: 12.5px; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg2); color: var(--texto); padding: 7px 11px; cursor: pointer; }
+  button:hover { border-color: #3c4f63; }
+  .seg { display: inline-flex; border: 1px solid var(--borda); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--dim); }
+  .seg button.ativo { background: rgba(0,168,89,.18); color: var(--texto); font-weight: 600; }
+  select { font: inherit; font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 8px; }
+  input[type=search] { font: inherit; font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 10px; width: 210px; }
+  label.cx { font-size: 12.5px; color: var(--dim); display: inline-flex; align-items: center; gap: 5px; }
+  .filtros { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 0 0 10px; }
+  .filtros .rot { font-size: 12px; color: var(--dim); margin-right: 2px; }
+  .chip { padding: 4px 9px; font-size: 12px; border-radius: 14px; }
+  .chip.limpar { color: var(--dim); }
+  .chip.neutro { cursor: default; color: var(--dim); }
+  .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
+  .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
+  .card .v { font-size: 22px; font-weight: 700; } .card.ama .v { color: var(--ama); } .card.ver .v { color: var(--verde2); }
+  .card .l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); margin-top: 2px; }
+  .grade { display: grid; grid-template-columns: minmax(320px, 1.05fr) 0.95fr; gap: 16px; align-items: start; }
+  .grade > * { min-width: 0; }
+  .grade.so-lista { grid-template-columns: minmax(0, 1fr); } .grade.so-lista .mapa { display: none; }
+  .mapa { position: sticky; top: 8px; background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px; }
+  .mapa-svg { width: 100%; height: auto; display: block; }
+  .mapa-svg path { stroke: #0b121a; stroke-width: .8; cursor: pointer; transition: fill .6s; }
+  .mapa-svg path:hover { stroke: #fff; stroke-width: 1.4; }
+  .mapa-svg path.sel { stroke: var(--ama); stroke-width: 2.2; }
+  .rot { pointer-events: none; }
+  .rot text { fill: #fff; font-size: 10px; font-weight: 700; text-anchor: middle; paint-order: stroke; stroke: rgba(0,0,0,.6); stroke-width: 2.4px; }
+  .rot text.pct { font-size: 9px; font-weight: 600; }
+  .rot.peq text { font-size: 8px; } .rot.peq text.pct { font-size: 7.5px; }
+  .rot circle { fill: var(--ama); stroke: #0b121a; stroke-width: 1; }
+  .rot text.el { fill: #1b1b1b; stroke: none; font-size: 8px; }
+  .legenda { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; font-size: 11px; color: var(--dim); margin-top: 6px; }
+  .legenda i { display: inline-block; width: 90px; height: 8px; border-radius: 4px; }
+  .bola { display: inline-block; background: var(--ama); color: #1b1b1b; border-radius: 50%; width: 15px; height: 15px; text-align: center; font-size: 9px; font-weight: 700; line-height: 15px; margin-left: 8px; }
+  .dica { font-size: 11px; color: var(--dim); margin-top: 3px; }
+  .uf { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 12px; margin-bottom: 10px; }
+  .uf.sel { border-color: var(--ama); }
+  .uf-cab { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 15px; }
+  .sigla { font-size: 11px; color: var(--dim); }
+  .uf-pct { margin-left: auto; font-size: 12.5px; font-weight: 600; color: var(--verde2); }
+  .barra { height: 6px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; margin: 6px 0; }
+  .barra i { display: block; height: 100%; background: linear-gradient(90deg, #1fa5a5, var(--verde)); transition: width .6s; }
+  .uf-meta { font-size: 11.5px; color: var(--dim); margin-bottom: 4px; }
+  .tab-rolagem { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); font-weight: 600; padding: 4px 6px; border-bottom: 1px solid var(--borda); }
+  td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; white-space: nowrap; }
+  td:nth-child(2) { white-space: normal; }
+  .r { text-align: right; font-variant-numeric: tabular-nums; }
+  td.pos { color: var(--dim); width: 34px; }
+  .num { color: var(--dim); font-size: 11px; }
+  tr.el td { background: rgba(0,168,89,.13); }
+  tr.pj td { background: rgba(255,210,74,.07); }
+  td.pt { color: var(--dim); font-size: 12px; }
+  .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; } .sit.pj { color: var(--ama); font-weight: 600; }
+  details summary { cursor: pointer; font-size: 12px; color: var(--dim); margin-top: 5px; }
+  .vazio { font-size: 12.5px; color: var(--dim); padding: 4px 0; } .vazio.grande { padding: 24px 12px; text-align: center; background: var(--bg2); border: 1px dashed var(--borda); border-radius: 12px; }
+  .cl-ok { color: var(--verde2); font-weight: 700; } .cl-nao { color: #ff7a6b; font-weight: 700; }
+  tr.cl-fora td { background: rgba(255,122,107,.07); }
+  .cl-regra { font-size: 12px; color: var(--dim); line-height: 1.45; margin: 2px 0 8px; }
+  .cl-regra b { color: var(--texto); }
+  .cl-quase { color: var(--ama); font-size: 11.5px; }
+  .cl-pdf { margin-left: 8px; border-color: var(--verde); }
+  .cl-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+  .cl-num { border: 1px solid var(--borda); border-radius: 10px; padding: 7px 8px; text-align: center; }
+  .cl-num .v { font-size: 20px; font-weight: 700; } .cl-num .v small { font-size: 12px; font-weight: 600; color: var(--dim); }
+  .cl-num .l { font-size: 11px; color: var(--texto); margin-top: 1px; } .cl-num .m { font-size: 10.5px; color: var(--dim); }
+  .cl-num.ok { border-color: rgba(47,207,122,.5); } .cl-num.ok .v { color: var(--verde2); }
+  .cl-num.nao { border-color: rgba(255,122,107,.5); } .cl-num.nao .v { color: #ff7a6b; }
+  #saImpressao { display: none; }
+  @media print {
+    @page { size: A4; margin: 12mm 11mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body > *:not(#saImpressao) { display: none !important; }
+    body { background: #fff; color: #1b2430; font-size: 10.5pt; }
+    #saImpressao { display: block; --dim: #5b6b7b; --texto: #1b2430; --borda: #cfd8e1; --verde2: #0b8a4b; --ama: #9a6a00; --aviso: #9a6a00; }
+    .imp-cab { display: flex; align-items: center; gap: 12px; }
+    .imp-cab img { height: 44px; }
+    .imp-org { font-size: 9pt; font-weight: 700; color: #0b8a4b; text-transform: uppercase; letter-spacing: .4px; }
+    #saImpressao h1 { font-size: 15pt; margin: 2px 0; }
+    #saImpressao h2 { font-size: 12pt; margin: 14px 0 6px; }
+    .imp-sub { font-size: 8.5pt; color: #5b6b7b; }
+    .imp-filete { height: 4px; margin: 8px 0 6px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+    .imp-aviso { color: #9a6a00; font-size: 9pt; margin: 4px 0; }
+    .imp-resumo { background: #eef6f1; border: 1px solid #bfe0cc; border-radius: 6px; padding: 6px 9px; font-size: 10pt; margin: 6px 0; }
+    .imp-quebra { break-before: page; }
+    .imp-rodape { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cfd8e1; font-size: 8pt; color: #5b6b7b; }
+    #saImpressao .uf { background: #fff; border: 1px solid #cfd8e1; break-inside: avoid; }
+    #saImpressao .cl-regra b, #saImpressao .uf-cab b { color: #1b2430; }
+    #saImpressao td { color: #1b2430; font-size: 9pt; padding: 3px 5px; border-bottom: 1px solid #e4e9ee; }
+    #saImpressao th { font-size: 8pt; }
+    #saImpressao .tab-rolagem { overflow: visible; }
+    #saImpressao tr.el td { background: #e3f4ea; } #saImpressao tr.pj td { background: #fff6dc; } #saImpressao tr.cl-fora td { background: #fdecea; }
+    #saImpressao .cl-ok, #saImpressao .sit.el { color: #0b8a4b; } #saImpressao .cl-nao, #saImpressao .cl-num.nao .v { color: #c0392b; }
+    #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; }
+    #saImpressao .cl-num.ok .v { color: #0b8a4b; } #saImpressao .cl-num.ok { border-color: #9fd3b4; } #saImpressao .cl-num.nao { border-color: #efb3ab; }
+    #saImpressao .num, #saImpressao td.pt, #saImpressao td.pos { color: #5b6b7b; }
+  }
+  footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
+  footer b { color: var(--texto); }
+  @media (max-width: 900px) {
+    .grade { grid-template-columns: minmax(0, 1fr); }
+    .mapa { position: static; }
+    .cards { grid-template-columns: repeat(2, 1fr); }
+    .topo h1 { font-size: 17px; } .topo img { height: 38px; }
+    input[type=search] { width: 100%; }
+    select { flex: 1 1 45%; }
+    .ctl { width: 100%; }
+    .cl-nums { gap: 5px; } .cl-num .v { font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="topo">
+    <img src="{{LOGO}}" alt="Podemos">
+    <div>
+      <h1 id="saTitulo">Apuração 2026</h1>
+      <div class="sub">Painel desenvolvido pela <b>Liderança do Podemos na Câmara dos Deputados</b> · resultados oficiais do TSE, ao vivo</div>
+    </div>
+  </div>
+  <div class="filete"></div>
+</header>
+<main>
+  <div class="barra-ctl">
+    <div class="status" id="saStatus"></div>
+    <div class="ctl">
+      <select id="saCargo" title="Cargo"><option value="1">Presidente</option><option value="3">Governador</option><option value="5">Senador</option><option value="6" selected>Deputado Federal</option><option value="7">Deputado Estadual / Distrital</option></select>
+      <select id="saPartido" title="Partido"><option value="20">PODE (Podemos)</option><option value="">Todos os partidos</option></select>
+      <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos</button><button data-visao="clausula" id="saVisaoClausula">Cláusula de barreira</button></div>
+      <label class="cx" id="saSoEleitosCx"><input type="checkbox" id="saSoEleitos"> só eleitos</label>
+      <input type="search" id="saBusca" placeholder="Buscar candidato(a)">
+      <button id="saAgora">↻ Atualizar</button>
+      <button id="saPausar">⏸ Pausar</button>
+    </div>
+  </div>
+  <div class="filtros"><span class="rot">Estados:</span><span id="saSel"></span></div>
+  <div class="cards" id="saCards"></div>
+  <div class="grade">
+    <div class="mapa" id="saMapa"></div>
+    <div id="saLista"></div>
+  </div>
+</main>
+<footer>
+  Painel desenvolvido pela <b>Liderança do Podemos na Câmara dos Deputados</b>. Fonte: Tribunal Superior Eleitoral — divulgação oficial de resultados
+  (resultados.tse.jus.br). Os dados vão do TSE direto para o seu navegador a cada 30 segundos; a última leitura fica guardada neste aparelho.
+  Durante a apuração o TSE não marca eleitos: "eleito (projeção)" são os mais votados de cada partido/federação dentro das vagas que o TSE informa na parcial, e "à frente" nos cargos majoritários. A marcação oficial do TSE prevalece e pode mudar até a totalização final. Percentuais sobre os votos válidos.
+</footer>
+{{SCRIPTS}}
+</body>
+</html>
