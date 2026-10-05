@@ -180,6 +180,32 @@ function saEleitosHtml() {
     <div class="tab-rolagem"><table>${saCabTab(true)}${saLinhas(lista, null, 0, true)}</table></div></div>`;
 }
 
+// Cláusula de barreira: sempre o Brasil todo (é nacional), com todos os partidos.
+function saClausulaHtml() {
+  const ufs = Object.keys(AP_UFS).map(uf => sa.dados[uf]).filter(Boolean);
+  if (!ufs.length) return '<div class="vazio grande">Lendo os resultados do TSE…</div>';
+  const l = apClausula(ufs), fora = l.filter(x => !x.atinge);
+  const pend = ufs.filter(d => !d.final).map(d => d.uf.toUpperCase());
+  const pctF = n => n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+  const nomeG = x => `<b>${saEsc(x.nome)}</b>${x.federacao ? ` <span class="num">(${saEsc(x.siglas.join(', '))})</span>` : ''}`;
+  const aviso = (ufs.length < 27 ? `<span class="aviso">Só ${ufs.length} de 27 UFs lidas — resultado parcial.</span> ` : '')
+    + (pend.length ? `<span class="aviso">Totalização do TSE pendente em ${saEsc(pend.join(', '))}: os eleitos dali entram por projeção.</span>` : '');
+  const linha = x => `<tr class="${x.atinge ? '' : 'cl-fora'}"><td>${x.atinge ? '<span class="cl-ok">✓ atinge</span>' : '<span class="cl-nao">✗ não atinge</span>'}</td>
+    <td>${nomeG(x)}${x.proxima ? `<div class="cl-quase">faltou 1,5% em mais ${AP_CLAUSULA.ufs - x.ufsMin} UF — a mais perto: ${x.proxima.uf.toUpperCase()} com ${pctF(x.proxima.pct)}</div>` : ''}</td>
+    <td class="r">${saFmt(x.votos)}</td><td class="r">${pctF(x.pct)}</td><td class="r">${x.ufsMin}</td><td class="r">${x.eleitos.length}${x.projetados ? ` <span class="num">(${x.projetados} proj.)</span>` : ''}</td><td class="r">${x.ufsEleitos}</td>
+    <td>${[x.atingeA ? 'votos' : '', x.atingeB ? 'eleitos' : ''].filter(Boolean).join(' e ') || '—'}</td></tr>`;
+  const tabela = `<div class="tab-rolagem"><table><tr><th></th><th>Partido / federação</th><th class="r">Votos</th><th class="r">% Brasil</th><th class="r">UFs ≥ 1,5%</th><th class="r">Eleitos</th><th class="r">UFs c/ eleito</th><th>Atinge por</th></tr>${l.map(linha).join('')}</table></div>`;
+  const comEleitos = fora.filter(x => x.eleitos.length);
+  const listas = comEleitos.map(x => `<div class="uf"><div class="uf-cab">${nomeG(x)}<span class="uf-pct" style="color:#ff7a6b">${x.eleitos.length} deputado(s) eleito(s)</span></div>
+    <div class="uf-meta">${pctF(x.pct)} dos válidos do país · 1,5% ou mais em ${x.ufsMin} UF(s) · eleitos em ${x.ufsEleitos} UF(s)</div>
+    <div class="tab-rolagem"><table><tr><th></th><th>Deputado(a)</th><th>Partido</th><th>UF</th><th class="r">Votos</th><th>Situação</th></tr>
+    ${x.eleitos.map((c, i) => `<tr class="${c.eleito ? 'el' : 'pj'}"><td class="pos">${i + 1}º</td><td><b>${saEsc(c.nome)}</b> <span class="num">${saEsc(c.numero)}</span></td><td class="pt">${saEsc(c.partido)}</td><td>${c.uf.toUpperCase()}</td><td class="r">${saFmt(c.votos)}</td><td>${saSit(c, false)}</td></tr>`).join('')}</table></div></div>`).join('');
+  return `<div class="uf"><div class="uf-cab"><b>Cláusula de barreira 2026 — Câmara dos Deputados</b><span class="uf-pct">${l.length - fora.length} atingem · <span style="color:#ff7a6b">${fora.length} não</span></span></div>
+    <div class="cl-regra">EC 97/2017, art. 3º, par. único, III. Atinge quem tiver <b>2,5% dos votos válidos do país, com pelo menos 1,5% em 9 UFs</b>,
+      ou quem eleger <b>13 deputados federais em pelo menos 9 UFs</b>. Federação conta como um partido só (Lei 14.208/2021). ${aviso}</div>${tabela}</div>
+    ${comEleitos.length ? `<div class="uf-cab" style="margin:14px 2px 8px"><b>Eleitos por partidos/federações que não atingiram a cláusula</b><span class="uf-pct" style="color:#ff7a6b">${comEleitos.reduce((s, x) => s + x.eleitos.length, 0)} deputados</span></div>${listas}` : ''}`;
+}
+
 function saOpcoesPartido() {
   const sel = saEl('saPartido');
   const nums = Object.keys(sa.siglas).sort((a, b) => sa.siglas[a].localeCompare(sa.siglas[b]));
@@ -213,11 +239,15 @@ function saRender() {
     : '<span class="chip neutro">Brasil todo</span>';
   saEl('saCargo').value = sa.cargo;
   saOpcoesPartido();
+  if (sa.visao === 'clausula' && sa.cargo !== '6') sa.visao = 'ufs';
+  saEl('saVisaoClausula').style.display = sa.cargo === '6' ? '' : 'none';
   document.querySelectorAll('[data-visao]').forEach(b => b.classList.toggle('ativo', b.dataset.visao === sa.visao));
   saEl('saSoEleitosCx').style.display = sa.visao === 'ufs' ? '' : 'none';
+  saEl('saMapa').parentNode.classList.toggle('so-lista', sa.visao === 'clausula');   // tabela larga: sem o mapa
   saEl('saTitulo').textContent = `Apuração 2026 · ${c.nome}${sa.partido ? ' · ' + saPartidoNome() : ''}`;
   if (!escopo.length && !sa.br) { saEl('saLista').innerHTML = '<div class="vazio grande">Lendo os resultados do TSE…</div>'; saStatus(); return; }
-  if (sa.visao === 'eleitos') saEl('saLista').innerHTML = saEleitosHtml();
+  if (sa.visao === 'clausula') saEl('saLista').innerHTML = saClausulaHtml();
+  else if (sa.visao === 'eleitos') saEl('saLista').innerHTML = saEleitosHtml();
   else {
     const blocos = (usaBr ? [sa.br] : []).concat(escopo.sort((a, b) => a.nome.localeCompare(b.nome)));
     saEl('saLista').innerHTML = blocos.map(saBlocoUF).join('') || '<div class="vazio grande">Nenhum candidato com esse filtro.</div>';

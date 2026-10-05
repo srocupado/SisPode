@@ -43,6 +43,7 @@
   .card .l { font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); margin-top: 2px; }
   .grade { display: grid; grid-template-columns: minmax(320px, 1.05fr) 0.95fr; gap: 16px; align-items: start; }
   .grade > * { min-width: 0; }
+  .grade.so-lista { grid-template-columns: minmax(0, 1fr); } .grade.so-lista .mapa { display: none; }
   .mapa { position: sticky; top: 8px; background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px; }
   .mapa-svg { width: 100%; height: auto; display: block; }
   .mapa-svg path { stroke: #0b121a; stroke-width: .8; cursor: pointer; transition: fill .6s; }
@@ -80,6 +81,11 @@
   .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; } .sit.pj { color: var(--ama); font-weight: 600; }
   details summary { cursor: pointer; font-size: 12px; color: var(--dim); margin-top: 5px; }
   .vazio { font-size: 12.5px; color: var(--dim); padding: 4px 0; } .vazio.grande { padding: 24px 12px; text-align: center; background: var(--bg2); border: 1px dashed var(--borda); border-radius: 12px; }
+  .cl-ok { color: var(--verde2); font-weight: 700; } .cl-nao { color: #ff7a6b; font-weight: 700; }
+  tr.cl-fora td { background: rgba(255,122,107,.07); }
+  .cl-regra { font-size: 12px; color: var(--dim); line-height: 1.45; margin: 2px 0 8px; }
+  .cl-regra b { color: var(--texto); }
+  .cl-quase { color: var(--ama); font-size: 11.5px; }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
   footer b { color: var(--texto); }
   @media (max-width: 900px) {
@@ -110,7 +116,7 @@
     <div class="ctl">
       <select id="saCargo" title="Cargo"><option value="1">Presidente</option><option value="3">Governador</option><option value="5">Senador</option><option value="6" selected>Deputado Federal</option><option value="7">Deputado Estadual / Distrital</option></select>
       <select id="saPartido" title="Partido"><option value="20">PODE (Podemos)</option><option value="">Todos os partidos</option></select>
-      <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos</button></div>
+      <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos</button><button data-visao="clausula" id="saVisaoClausula">Cláusula de barreira</button></div>
       <label class="cx" id="saSoEleitosCx"><input type="checkbox" id="saSoEleitos"> só eleitos</label>
       <input type="search" id="saBusca" placeholder="Buscar candidato(a)">
       <button id="saAgora">↻ Atualizar</button>

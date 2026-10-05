@@ -75,6 +75,52 @@ function apLerUFTodos(j, uf) {
   };
 }
 
+/**
+ * Cláusula de desempenho (barreira) de 2026 — EC 97/2017, art. 3º, parágrafo
+ * único, III: o partido atinge se, para a Câmara, (a) tiver 2,5% dos votos
+ * válidos do país, distribuídos em pelo menos 1/3 das UFs (9) com no mínimo
+ * 1,5% dos válidos em cada uma; OU (b) eleger 13 deputados federais em pelo
+ * menos 9 UFs. A federação conta como um partido só (Lei 14.208/2021).
+ * Recebe as UFs lidas por apLerUFTodos (Deputado Federal). Conta como eleito o
+ * oficial e o projetado. Pura.
+ */
+const AP_CLAUSULA = { pctBR: 2.5, pctUF: 1.5, ufs: 9, eleitos: 13 };
+function apClausula(ufs) {
+  const g = {};
+  let validosBR = 0;
+  const grupo = p => p.federacao || p.sigla;
+  for (const d of ufs) {
+    validosBR += d.validos;
+    const daUF = {};
+    for (const p of d.partidos) {
+      const k = grupo(p);
+      const x = g[k] = g[k] || { nome: k, federacao: !!p.federacao, siglas: [], votos: 0, ufs: [], eleitos: [] };
+      if (!x.siglas.includes(p.sigla)) x.siglas.push(p.sigla);
+      x.votos += p.total;
+      daUF[k] = (daUF[k] || 0) + p.total;
+    }
+    for (const k of Object.keys(daUF)) g[k].ufs.push({ uf: d.uf, pct: d.validos ? 100 * daUF[k] / d.validos : 0 });
+    for (const c of d.candidatos) {
+      if (!c.eleito && !c.projetado) continue;
+      const p = d.partidos.find(x => x.numero === c.partidoNum);
+      if (p) g[grupo(p)].eleitos.push(Object.assign({ uf: d.uf }, c));
+    }
+  }
+  return Object.values(g).map(x => {
+    const pct = validosBR ? 100 * x.votos / validosBR : 0;
+    x.ufs.sort((a, b) => b.pct - a.pct);
+    const ufsMin = x.ufs.filter(u => u.pct >= AP_CLAUSULA.pctUF);
+    const ufsEleitos = new Set(x.eleitos.map(c => c.uf)).size;
+    const atingeA = pct >= AP_CLAUSULA.pctBR && ufsMin.length >= AP_CLAUSULA.ufs;
+    const atingeB = x.eleitos.length >= AP_CLAUSULA.eleitos && ufsEleitos >= AP_CLAUSULA.ufs;
+    x.eleitos.sort((a, b) => a.uf.localeCompare(b.uf) || b.votos - a.votos);
+    // A UF que faltava, quando o partido passou dos 2,5% mas não das 9 UFs.
+    const proxima = pct >= AP_CLAUSULA.pctBR && ufsMin.length < AP_CLAUSULA.ufs ? x.ufs[ufsMin.length] || null : null;
+    return Object.assign(x, { pct, ufsMin: ufsMin.length, ufsEleitos, atingeA, atingeB, atinge: atingeA || atingeB,
+      projetados: x.eleitos.filter(c => !c.eleito).length, proxima });
+  }).sort((a, b) => b.votos - a.votos);
+}
+
 /** Cor da UF pelo percentual apurado: cinza (0%) → verde do partido (100%). */
 function apCor(pct) {
   if (!(pct > 0)) return '#2b3440';
@@ -83,5 +129,5 @@ function apCor(pct) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicaoDaConfig, apUrl, apLerUFTodos, apEleito, apCor, apNum };
+  module.exports = { apEleicaoDaConfig, apUrl, apLerUFTodos, apClausula, AP_CLAUSULA, apEleito, apCor, apNum };
 }

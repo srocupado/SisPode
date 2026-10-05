@@ -38,6 +38,19 @@ const gov = A.apLerUFTodos({ s: { ts: '10', st: '5', pst: '50,00' }, carg: [{ cd
 ok(gov.majoritario && gov.candidatos[0].numero === '13' && gov.candidatos[0].projetado && !gov.candidatos[1].projetado, 'majoritário: à frente = entre os mais votados nas vagas');
 const sem = A.apLerUFTodos({ s: { ts: '10', st: '0', pst: '0,00' }, carg: [{ nv: '8', agr: [] }] }, 'al');
 ok(sem.partidos.length === 0 && sem.candidatos.length === 0 && sem.nome === 'Alagoas', 'UF ainda sem dados');
+// Cláusula de barreira: 10 UFs fictícias com 1.000 válidos cada.
+const ufC = (uf, votosA, votosB, eleitosB) => A.apLerUFTodos({ s: { ts: '1', st: '1', pst: '100,00' }, tf: 's', v: { vv: '1000' }, carg: [{ cd: '6', nv: '8', agr: [
+  { n: '1', nm: 'FED A', tp: 'f', vag: '0', par: [{ n: '10', sg: 'A1', tvtn: String(votosA - 5), tvtl: '0', cand: [] }, { n: '11', sg: 'A2', tvtn: '5', tvtl: '0', cand: [] }] },
+  { n: '2', nm: 'B', tp: 'i', vag: String(eleitosB), par: [{ n: '20', sg: 'B', tvtn: String(votosB), tvtl: '0',
+    cand: Array.from({ length: eleitosB }, (_, i) => ({ n: '20' + i, nmu: 'B' + uf + i, vap: '10', e: 's', st: 'Eleito por QP' })) }] }] }] }, uf);
+const lc = A.apClausula(['ac', 'al', 'am', 'ap', 'ba', 'ce', 'df', 'es', 'go', 'ma'].map((uf, i) => ufC(uf, i < 8 ? 30 : i === 8 ? 14 : 400, 10, i < 9 ? 2 : 0)));
+const fa = lc.find(x => x.nome === 'FED A'), pb = lc.find(x => x.nome === 'B');
+ok(fa.federacao && fa.siglas.join() === 'A1,A2' && Math.abs(fa.pct - 6.54) < 0.01 && fa.ufsMin === 9 && fa.atingeA, 'federação soma os partidos; 2,5% no país e 1,5% em 9 UFs atinge');
+ok(pb.pct === 1 && !pb.atingeA && pb.eleitos.length === 18 && pb.ufsEleitos === 9 && pb.atingeB && pb.atinge, '13 eleitos em 9 UFs atinge mesmo sem os votos');
+const lc2 = A.apClausula(['ac', 'al', 'am', 'ap', 'ba', 'ce', 'df', 'es', 'go'].map((uf, i) => ufC(uf, i < 8 ? 30 : 14, 10, i < 8 ? 2 : 0)));
+const fa2 = lc2.find(x => x.nome === 'FED A'), pb2 = lc2.find(x => x.nome === 'B');
+ok(!fa2.atinge && fa2.ufsMin === 8 && fa2.proxima.uf === 'go' && Math.abs(fa2.proxima.pct - 1.4) < 1e-9, '1,4% na 9ª UF não basta; aponta a UF mais perto');
+ok(!pb2.atinge && pb2.eleitos.length === 16 && pb2.ufsEleitos === 8, '16 eleitos em só 8 UFs não atinge');
 ok(A.apCor(0) === '#2b3440' && A.apCor(100) === '#00a859', 'cor do mapa: 0% cinza, 100% verde');
 ok(Object.keys(AP_MAPA.uf).length === 27 && Object.keys(AP_MAPA.centro).length === 27, 'mapa embutido com as 27 UFs');
 console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
