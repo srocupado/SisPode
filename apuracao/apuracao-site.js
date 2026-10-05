@@ -1,7 +1,8 @@
 'use strict';
-// Apuração 2026 — versão SITE (arquivo único, sem extensão).
-// Reaproveita a leitura dos arquivos do TSE de labs-apuracao.js (apLerUFTodos,
-// apCor, apUrl, apEleicaoDaConfig) e acrescenta o que o site precisa:
+// Apuração 2026 — a tela do painel, a mesma no site (apuracao/index.html, arquivo
+// único) e na aba Apuração do Labs (apuracao/extensao.html, num iframe).
+// Usa a leitura dos arquivos do TSE de labs-apuracao.js (apLerUFTodos,
+// apCor, apUrl, apEleicaoDaConfig) e acrescenta:
 //  - cargo (Presidente, Governador, Senador, Deputado Federal, Deputado
 //    Estadual/Distrital) e partido (Podemos, um partido qualquer ou todos);
 //    só o cargo escolhido é lido a cada 30 s;

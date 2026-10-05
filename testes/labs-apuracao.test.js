@@ -22,15 +22,22 @@ const arq = { ele: '6259', dg: '04/10/2026', hg: '19:42:10', tf: 'n',
       { n: '2017', nm: 'MIRELLE FABIANA TREVISAN', nmu: 'MIRELLE TREVISAN', vap: '500', pvap: '0,50', e: 'n', st: 'Suplente' },
       { n: '2020', nm: 'CANDIDATO A', nmu: 'CAND A', vap: '1000', pvap: '1,00', e: 's', st: 'Eleito por QP' },
       { n: '2099', nm: 'CANDIDATO B', nmu: 'CAND B', vap: '0', pvap: '0,00', e: 'n', st: 'Não eleito' }] }] }] }] };
-const sp = A.apLerUF(arq, 'sp');
+const sp = A.apLerUFTodos(arq, 'sp');
 ok(sp.pct === 50 && sp.secoes === 103656 && sp.apuradas === 51828 && sp.atualizado === '04/10/2026 19:42:10' && !sp.final, 'seções apuradas, percentual e hora da divulgação');
-ok(sp.vagasUF === 70 && sp.quociente === 312456, 'vagas da UF e quociente eleitoral');
-ok(sp.partido.total === 1580 && sp.partido.legenda === 80 && sp.partido.vagas === 2 && sp.partido.federacao === '', 'Podemos: votos nominais + legenda, vagas, sem federação');
-ok(sp.candidatos.map(c => c.numero).join() === '2020,2017,2099' && sp.candidatos[0].eleito && !sp.candidatos[1].eleito && !sp.candidatos[2].eleito, 'candidatos em ordem de votos; "Não eleito" não conta como eleito');
-const sem = A.apLerUF({ s: { ts: '10', st: '0', pst: '0,00' }, carg: [{ nv: '8', agr: [] }] }, 'al');
-ok(sem.partido === null && sem.candidatos.length === 0, 'UF sem candidatos do Podemos');
-const r = A.apResumo({ sp, al: Object.assign(sem, { secoes: 103656, apuradas: 103656, pct: 100 }) });
-ok(Math.round(r.pct) === 75 && r.votos === 1580 && r.eleitos === 1 && r.concluidas === 1, 'resumo do Brasil ponderado pelas seções');
+ok(sp.vagasUF === 70 && sp.quociente === 312456 && !sp.majoritario, 'vagas da UF e quociente eleitoral');
+const pode = sp.partidos.find(p => p.numero === '20');
+ok(sp.partidos.length === 2 && pode.total === 1580 && pode.legenda === 80 && pode.vagas === 2 && pode.federacao === ''
+  && sp.partidos.find(p => p.numero === '13').federacao === 'FEDERAÇÃO X', 'todos os partidos: votos nominais + legenda, vagas e federação');
+ok(sp.candidatos.map(c => c.numero).join() === '2020,1300,2017,2099', 'todos os candidatos em ordem de votos');
+const c = n => sp.candidatos.find(x => x.numero === n);
+ok(c('2020').eleito && !c('2020').projetado && c('2017').projetado && !c('2017').eleito, 'eleito oficial prevalece; os demais dentro das vagas do partido ficam em projeção');
+ok(!c('2099').eleito && !c('2099').projetado && c('1300').projetado, '"Não eleito" e candidato sem votos não contam; projeção vale por agremiação');
+const gov = A.apLerUFTodos({ s: { ts: '10', st: '5', pst: '50,00' }, carg: [{ cd: '3', nv: '1', agr: [
+  { n: '1', tp: 'i', par: [{ n: '20', sg: 'PODE', cand: [{ n: '20', nmu: 'A', vap: '10', e: 'n' }] }] },
+  { n: '2', tp: 'i', par: [{ n: '13', sg: 'PT', cand: [{ n: '13', nmu: 'B', vap: '20', e: 'n' }] }] }] }] }, 'go');
+ok(gov.majoritario && gov.candidatos[0].numero === '13' && gov.candidatos[0].projetado && !gov.candidatos[1].projetado, 'majoritário: à frente = entre os mais votados nas vagas');
+const sem = A.apLerUFTodos({ s: { ts: '10', st: '0', pst: '0,00' }, carg: [{ nv: '8', agr: [] }] }, 'al');
+ok(sem.partidos.length === 0 && sem.candidatos.length === 0 && sem.nome === 'Alagoas', 'UF ainda sem dados');
 ok(A.apCor(0) === '#2b3440' && A.apCor(100) === '#00a859', 'cor do mapa: 0% cinza, 100% verde');
 ok(Object.keys(AP_MAPA.uf).length === 27 && Object.keys(AP_MAPA.centro).length === 27, 'mapa embutido com as 27 UFs');
 console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');

@@ -348,6 +348,9 @@ function labsTrocarAba(bt) {
     ep.hidden = b !== bt;
   }
   document.dispatchEvent(new CustomEvent('labs:aba', { detail: bt }));
+  // Apuração: a página do painel só carrega (e começa a ler o TSE) na 1ª abertura.
+  const fr = bt === 'aba-apuracao' && document.getElementById('apFrame');
+  if (fr && !fr.getAttribute('src')) fr.setAttribute('src', 'apuracao/extensao.html');
 }
 
 if (document.getElementById('aba-simulador')) {
