@@ -945,8 +945,9 @@
   .labs-sintese ul { margin: 4px 0 6px 18px; }
   /* ---------- Apuração 2026 ---------- */
   /* O painel ao vivo pede tela inteira: com a aba aberta, a página alarga. */
-  .container:has(#painel-apuracao:not([hidden])) { max-width: 1500px; }
-  #apFrame { display: block; width: 100%; height: calc(100vh - 150px); min-height: 640px; border: 1px solid var(--border); border-radius: 10px; background: #0f1720; }
+  /* Apuração: largura toda da janela; a altura (até o pé da janela) vem de labsAjustarApFrame. */
+  .container:has(#painel-apuracao:not([hidden])) { max-width: none; padding-bottom: 0; }
+  #apFrame { display: block; width: calc(100% + 32px); margin: 0 -16px; height: calc(100vh - 230px); min-height: 560px; border: 0; border-top: 1px solid var(--border); background: #0f1720; }
 </style>
 </head>
 <body>
