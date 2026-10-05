@@ -86,6 +86,42 @@
   .cl-regra { font-size: 12px; color: var(--dim); line-height: 1.45; margin: 2px 0 8px; }
   .cl-regra b { color: var(--texto); }
   .cl-quase { color: var(--ama); font-size: 11.5px; }
+  .cl-pdf { margin-left: 8px; border-color: var(--verde); }
+  .cl-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 8px 0; }
+  .cl-num { border: 1px solid var(--borda); border-radius: 10px; padding: 7px 8px; text-align: center; }
+  .cl-num .v { font-size: 20px; font-weight: 700; } .cl-num .v small { font-size: 12px; font-weight: 600; color: var(--dim); }
+  .cl-num .l { font-size: 11px; color: var(--texto); margin-top: 1px; } .cl-num .m { font-size: 10.5px; color: var(--dim); }
+  .cl-num.ok { border-color: rgba(47,207,122,.5); } .cl-num.ok .v { color: var(--verde2); }
+  .cl-num.nao { border-color: rgba(255,122,107,.5); } .cl-num.nao .v { color: #ff7a6b; }
+  #saImpressao { display: none; }
+  @media print {
+    @page { size: A4; margin: 12mm 11mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body > *:not(#saImpressao) { display: none !important; }
+    body { background: #fff; color: #1b2430; font-size: 10.5pt; }
+    #saImpressao { display: block; --dim: #5b6b7b; --texto: #1b2430; --borda: #cfd8e1; --verde2: #0b8a4b; --ama: #9a6a00; --aviso: #9a6a00; }
+    .imp-cab { display: flex; align-items: center; gap: 12px; }
+    .imp-cab img { height: 44px; }
+    .imp-org { font-size: 9pt; font-weight: 700; color: #0b8a4b; text-transform: uppercase; letter-spacing: .4px; }
+    #saImpressao h1 { font-size: 15pt; margin: 2px 0; }
+    #saImpressao h2 { font-size: 12pt; margin: 14px 0 6px; }
+    .imp-sub { font-size: 8.5pt; color: #5b6b7b; }
+    .imp-filete { height: 4px; margin: 8px 0 6px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+    .imp-aviso { color: #9a6a00; font-size: 9pt; margin: 4px 0; }
+    .imp-resumo { background: #eef6f1; border: 1px solid #bfe0cc; border-radius: 6px; padding: 6px 9px; font-size: 10pt; margin: 6px 0; }
+    .imp-quebra { break-before: page; }
+    .imp-rodape { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cfd8e1; font-size: 8pt; color: #5b6b7b; }
+    #saImpressao .uf { background: #fff; border: 1px solid #cfd8e1; break-inside: avoid; }
+    #saImpressao .cl-regra b, #saImpressao .uf-cab b { color: #1b2430; }
+    #saImpressao td { color: #1b2430; font-size: 9pt; padding: 3px 5px; border-bottom: 1px solid #e4e9ee; }
+    #saImpressao th { font-size: 8pt; }
+    #saImpressao .tab-rolagem { overflow: visible; }
+    #saImpressao tr.el td { background: #e3f4ea; } #saImpressao tr.pj td { background: #fff6dc; } #saImpressao tr.cl-fora td { background: #fdecea; }
+    #saImpressao .cl-ok, #saImpressao .sit.el { color: #0b8a4b; } #saImpressao .cl-nao, #saImpressao .cl-num.nao .v { color: #c0392b; }
+    #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; }
+    #saImpressao .cl-num.ok .v { color: #0b8a4b; } #saImpressao .cl-num.ok { border-color: #9fd3b4; } #saImpressao .cl-num.nao { border-color: #efb3ab; }
+    #saImpressao .num, #saImpressao td.pt, #saImpressao td.pos { color: #5b6b7b; }
+  }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
   footer b { color: var(--texto); }
   @media (max-width: 900px) {
@@ -96,6 +132,7 @@
     input[type=search] { width: 100%; }
     select { flex: 1 1 45%; }
     .ctl { width: 100%; }
+    .cl-nums { gap: 5px; } .cl-num .v { font-size: 16px; }
   }
 </style>
 </head>
