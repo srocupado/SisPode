@@ -9,6 +9,10 @@
 <style>
   :root { --bg: #0f1720; --bg2: #16212c; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; }
   * { box-sizing: border-box; }
+  /* Barra de rolagem fina e escura (Chrome/Edge/Firefox). */
+  html { scrollbar-width: thin; scrollbar-color: #2e3d4d transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2e3d4d; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #3f5266; }
   body { margin: 0; background: var(--bg); color: var(--texto); font-family: "DM Sans", "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
   header { background: linear-gradient(180deg, #13202b, #0f1a24); border-bottom: 2px solid var(--verde); }
   .topo { max-width: 1500px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
@@ -134,6 +138,7 @@
     .ctl { width: 100%; }
     .cl-nums { gap: 5px; } .cl-num .v { font-size: 16px; }
   }
+  .topo, main, footer { max-width: none; }
 </style>
 </head>
 <body>
