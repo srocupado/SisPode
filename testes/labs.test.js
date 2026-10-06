@@ -463,11 +463,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     deputados: { 1: { nome: 'X', uf: 'RN', total: 150, municipios: { a: 100, b: 50 } } } }, { RN: IBGE_RN });
   ok(col.municipios.RN.m2401206.t === 1100 && col.deputados['1'].municipios.m2401206 === 150, 'dois nomes do TSE no mesmo município: totais somam (fatia 150/1100, não 150%)');
   const em2 = N.lmnAgregarEmendas([
-    { nomeAutor: 'MARIA SOUZA', valorPago: '1.000,00', valorRestoPago: '4.000,00', localidadeDoGasto: 'SÃO PAULO - SP' },
+    { nomeAutor: 'MARIA SOUZA', valorEmpenhado: '6.500,00', valorPago: '1.000,00', valorRestoPago: '4.000,00', localidadeDoGasto: 'SÃO PAULO - SP' },
     { nomeAutor: 'MARIA SOUZA FILHA', valorPago: '9.999,00', valorRestoPago: '0,00', localidadeDoGasto: 'MÚLTIPLO' },
   ], (n, uf) => uf === 'SP' ? r2(n) : null, 'Maria Souza');
-  ok(em2.total === 5000 && em2.pagoNoAno === 1000 && em2.restoPago === 4000 && em2.deOutroAutor === 1 && em2.nomesMun.m3550308 === 'SÃO PAULO - SP',
-    'emendas: pago no ano + restos a pagar; registro de outro autor descartado; nome do município guardado');
+  ok(em2.empenhado === 6500 && em2.total === 5000 && em2.pagoNoAno === 1000 && em2.restoPago === 4000 && em2.deOutroAutor === 1 && em2.nomesMun.m3550308 === 'SÃO PAULO - SP',
+    'emendas: empenhado; pago no ano + restos a pagar; registro de outro autor descartado; nome do município guardado');
   const upd = N.lmnAtualizacao(reg, res, { ufs: ['MG'] }, 'teste', new Date('2026-09-29T12:00:00Z'));
   ok(upd['deputados/1'] && upd['municipios/SP'] && upd.meta.ufs.join() === 'MG,SP' && upd.meta.origem === 'teste', 'gravação numa atualização só (multi-caminho), mantendo os estados já gravados');
 
@@ -475,8 +475,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const agora = Date.parse('2026-09-29T12:00:00Z');
   ctx.__agora = agora;
   ok(av(`mpCacheFresco({ atualizadoEm: '2025-06-01T00:00:00Z', restoPago: 0 }, 2025, __agora)`) === false, 'cache de 2025 gravado em junho/2025 não fica congelado');
-  ok(av(`mpCacheFresco({ atualizadoEm: '2026-09-27T12:00:00Z', restoPago: 0 }, 2025, __agora)`) === true && av(`mpCacheFresco({ atualizadoEm: '2026-09-29T00:00:00Z', total: 5 }, 2026, __agora)`) === false,
-    'ano passado vale 7 dias; cache do formato antigo (sem restos a pagar) é refeito');
+  ok(av(`mpCacheFresco({ atualizadoEm: '2026-09-27T12:00:00Z', restoPago: 0, empenhado: 0 }, 2025, __agora)`) === true && av(`mpCacheFresco({ atualizadoEm: '2026-09-27T12:00:00Z', restoPago: 0 }, 2025, __agora)`) === false && av(`mpCacheFresco({ atualizadoEm: '2026-09-29T00:00:00Z', total: 5 }, 2026, __agora)`) === false,
+    'ano passado vale 7 dias; cache do formato antigo (sem restos a pagar ou sem empenhado) é refeito');
   const leg = av(`mpLegenda(mpQuebras([0.0003, 0.0003, 0.0003, 0.0003, 0.0003, 0.0005, 0.0005, 0.4]))`);
   ok(!leg.some(([, r]) => /(^|–)0%/.test(r) || /0%–0%/.test(r)) && new Set(leg.map(x => x[1])).size === leg.length, 'legenda sem "0%–0%": faixas únicas e fatias pequenas com 2 algarismos (' + leg.map(x => x[1]).join(' | ') + ')');
   const U = { type: 'Polygon', coordinates: [[[0, 0], [3, 0], [3, 3], [2, 3], [2, 1], [1, 1], [1, 3], [0, 3], [0, 0]]] };
@@ -926,7 +926,12 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       '"202600010003";"RENATA ABREU";"202606";"SANTA CASA";"SP";"SOROCABA";"30,00"',
       '"202500010001";"RENATA ABREU";"202606";"X";"SP";"LEME";"999,00"',
       '"202600020001";"PR. MARCO FELICIANO";"202606";"Y";"SP";"GUARULHOS";"10,00"',
-      '"202600030001";"OUTRO AUTOR";"202606";"Z";"SP";"LEME";"10,00"'].forEach(l => L.favorecidos.linha(l));
+      '"202600030001";"OUTRO AUTOR";"202606";"Z";"SP";"LEME";"10,00"',
+      '"202400010009";"RENATA ABREU";"202603";"W";"SP";"LEME";"7,00"',
+      '"202400010009";"RENATA ABREU";"202512";"W";"SP";"LEME";"500,00"'].forEach(l => L.favorecidos.linha(l));
+    const pg = L.pagamentos();
+    ok(pg['RENATA ABREU']['2026'] === 1186 && !pg['RENATA ABREU']['2025'] && !pg['OUTRO AUTOR'] && pg['PR  MARCO FELICIANO']['2026'] === 10,
+      'pago DENTRO do ano: tudo o que o autor recebeu no ano (Ano/Mês), inclusive restos de emendas antigas e emendas com município');
     const r = L.resultado(), ra = r['RENATA ABREU'] && r['RENATA ABREU']['2026'];
     ok(ra && ra.total === 130 && ra.mun['CAMPINAS - SP'] === 80 && ra.mun['SOROCABA - SP'] === 30 && ra.mun['FAVORECIDO SEM MUNICÍPIO'] === 20 && !ra.mun['EMBU - SP'],
       'favorecido: só emendas sem município (MÚLTIPLO e UF) do autor e do ano; pessoa física fica "sem município"');

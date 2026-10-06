@@ -135,10 +135,10 @@ function mpDia(iso) { try { return new Date(iso).toLocaleDateString('pt-BR'); } 
  * O cache de emendas ainda vale? Ano corrente: 24 h. Ano passado: 7 dias —
  * restos a pagar das emendas daquele ano continuam sendo pagos nos anos
  * seguintes, e cache gravado DURANTE o ano ficaria congelado para sempre.
- * Cache sem o campo restoPago é do formato antigo (só pago no ano): refaz.
+ * Cache sem o campo restoPago ou sem empenhado é de formato antigo: refaz.
  */
 function mpCacheFresco(cache, ano, agora = Date.now()) {
-  if (!cache || !cache.atualizadoEm || cache.restoPago == null) return false;
+  if (!cache || !cache.atualizadoEm || cache.restoPago == null || cache.empenhado == null) return false;
   const idade = agora - new Date(cache.atualizadoEm).getTime();
   const anoCorrente = String(ano) === String(new Date(agora).getFullYear());
   return idade >= 0 && idade < (anoCorrente ? 24 : 7 * 24) * 3600e3;
@@ -177,15 +177,40 @@ async function mpFavMeta() {
 
 /** O agregado do deputado com o valor "sem município" levado aos municípios pelo favorecido (se já processado). */
 async function mpComFavorecidos(emendas, dep, ano) {
-  if (!emendas || emendas.erro || emendas.semChave || !Object.keys(emendas.outros || {}).length) return emendas;
+  if (!emendas || emendas.erro || emendas.semChave) return emendas;
   const meta = await mpFavMeta();
-  const fav = meta ? await mpFb(`${MP_BASE}/favorecidos/autores/${lmnChave(lmnNomeAutor(dep.nome))}/${ano}`).catch(() => null) : null;
+  const autor = lmnChave(lmnNomeAutor(dep.nome));
+  // Tudo o que o autor teve pago DENTRO do ano (restos de anos anteriores incluídos), pelo arquivo do Portal.
+  if (meta && (meta.anos || []).map(String).includes(String(ano)) && meta.pagamentos) {
+    const v = await mpFb(`${MP_BASE}/favorecidos/pagamentos/${autor}/${ano}`).catch(() => null);
+    emendas = Object.assign({}, emendas, { pagoDentroDoAno: Number(v) || 0, favMeta: meta });
+  }
+  if (!Object.keys(emendas.outros || {}).length) return Object.assign({}, emendas, { favMeta: meta, favPendente: !meta || !meta.pagamentos });
+  const fav = meta ? await mpFb(`${MP_BASE}/favorecidos/autores/${autor}/${ano}`).catch(() => null) : null;
   if (!fav) return Object.assign({}, emendas, { favMeta: meta, favPendente: true });
   const ufs = new Set();
   for (const n of Object.keys(fav.mun || {})) { const l = lmnLocalidade(n); if (l.tipo === 'municipio') ufs.add(l.uf); }
   const resolv = {};
   for (const uf of ufs) { try { resolv[uf] = lmnResolvedor(await mpIbgeUf(uf), uf); } catch (_) {} }
   return Object.assign(lmnRedistribuir(emendas, fav, (n, uf) => resolv[uf] ? resolv[uf](n) : null), { favMeta: meta });
+}
+
+/**
+ * Os três números das emendas de um ano: empenhado das emendas do ano, pago
+ * das emendas do ano (no ano + restos depois) e tudo o que foi pago DENTRO do
+ * ano, com restos de emendas de anos anteriores (arquivo mensal do Portal).
+ */
+function mpTresNumerosDados(emendas, ano) {
+  return [
+    { v: emendas.empenhado, l: `empenhado das emendas de ${ano}` },
+    { v: emendas.total, l: `pago das emendas de ${ano}` },
+    { v: emendas.pagoDentroDoAno, l: `pago em ${ano}, com restos de anos anteriores`, nota: emendas.pagoDentroDoAno != null ? `arquivo do Portal de ${mpDataArquivo(emendas.favMeta)}` : 'localize pelo favorecido abaixo' },
+  ];
+}
+function mpTresNumeros(emendas, ano) {
+  return `<div style="margin-bottom:8px">${mpTresNumerosDados(emendas, ano).map(x => `<div style="display:flex;align-items:baseline;gap:8px;background:rgba(255,255,255,.04);border-radius:6px;padding:5px 8px;margin-bottom:4px">
+    <div class="sub" style="flex:1;min-width:0;line-height:1.3">${labsEsc(x.l)}${x.nota ? ` <i style="opacity:.75">(${labsEsc(x.nota)})</i>` : ''}</div>
+    <div style="font-weight:700;font-size:14px;color:#f0c040;white-space:nowrap">${x.v != null ? mpReais(x.v) : '—'}</div></div>`).join('')}</div>`;
 }
 
 function mpDataArquivo(meta) {
@@ -230,9 +255,9 @@ async function mpFavProcessarClick() {
       await mpLerEntradaRemota(url, e, l => leitor.linha(l), n => st(`${rot} — ${fmt((feito + n) / 1e6)} de ${fmt(mb)} MB`));
       feito += e.comprimido;
     }
-    const meta = { atualizadoEm: new Date().toISOString(), arquivo, anos, autores: nomes.size, emendas: L.emendasSemMunicipio(), origem: 'extensão (Portal, 1 clique)' };
+    const meta = { atualizadoEm: new Date().toISOString(), arquivo, anos, autores: nomes.size, emendas: L.emendasSemMunicipio(), pagamentos: true, origem: 'extensão (Portal, 1 clique)' };
     st('Gravando no banco…');
-    await mpFbEscrever('PUT', `${MP_BASE}/favorecidos`, { meta, autores: L.resultado() });
+    await mpFbEscrever('PUT', `${MP_BASE}/favorecidos`, { meta, autores: L.resultado(), pagamentos: L.pagamentos() });
     mp.favMeta = meta;
     labsStatus('mpStatus', '');
     await mpMostrarClick();
@@ -431,7 +456,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
   } else {
     const partes = emendas.restoPago != null ? ` = ${mpReais(emendas.pagoNoAno)} pagos em ${ano} + ${mpReais(emendas.restoPago)} de restos a pagar pagos depois` : '';
     const foraLista = Object.entries(foraUf).sort((a, b) => b[1] - a[1]);
-    blocoEmendas = `<div class="sub">Emendas do orçamento de ${ano}, valor pago: <b>${mpReais(emendas.total)}</b>${partes}
+    blocoEmendas = `${mpTresNumeros(emendas, ano)}<div class="sub">Pago das emendas de ${ano}: <b>${mpReais(emendas.total)}</b>${partes}
       (${mpNum(emendas.n)} registro(s) no Portal)${emendas.aviso ? ' — ' + labsEsc(emendas.aviso) : ''}.</div>
       ${!emendas.n && lmnBancadaDoArquivo(ANO) && !(ant && /^eleito/i.test(ant.situacao || '')) ? `<div class="sub">Sem emendas: se o mandato começa em ${Number(ANO) + 1}, ainda não há emendas deste autor.</div>` : ''}
       ${emendas.deOutroAutor ? `<div class="sub">${mpNum(emendas.deOutroAutor)} registro(s) de outro autor devolvidos pelo Portal foram descartados.</div>` : ''}

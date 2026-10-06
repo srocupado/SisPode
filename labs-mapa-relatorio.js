@@ -73,12 +73,14 @@ function mpRelatorioHtml(u, op = {}) {
   const tab = (linhas, cab) => `<table>${cab}${linhas.join('')}</table>`;
   const listaEm = obj => Object.entries(obj).sort((a, b) => b[1] - a[1]).map(([k, v]) => `<tr><td>${mprEsc((emendas.nomesMun || {})[k] || nomeMun(k))}</td><td class="num">${mpReais(v)}</td></tr>`);
 
+  const cartao = (v, l, cor) => `<div class="cartao" style="border-top-color:${cor}"><b>${v}</b><span>${l}</span></div>`;
   let blocoEm;
   if (!emendas || emendas.semChave) blocoEm = '<p class="nd">Emendas não consultadas: sem a chave do Portal da Transparência no navegador que gerou o relatório.</p>';
   else if (emendas.erro) blocoEm = `<p class="nd">Não foi possível buscar as emendas: ${mprEsc(emendas.erro)}</p>`;
   else {
     const outros = Object.entries(emendas.outros || {}).sort((a, b) => b[1] - a[1]).map(([r, v]) => `<tr><td>${mprEsc(r)}</td><td class="num">${mpReais(v)}</td></tr>`);
-    blocoEm = `<p>Emendas do orçamento de ${mprEsc(anoEm)}, valor pago: <b>${mpReais(emendas.total)}</b>${emendas.restoPago != null ? ` (${mpReais(emendas.pagoNoAno)} pagos no ano + ${mpReais(emendas.restoPago)} de restos a pagar pagos depois)` : ''} · ${mpNum(emendas.n)} registro(s) no Portal.</p>
+    blocoEm = `<div class="cartoes" style="grid-template-columns: repeat(3, 1fr)">${mpTresNumerosDados(emendas, anoEm).map(x => cartao(x.v != null ? mpReais(x.v) : '—', mprEsc(x.l) + (x.nota && x.v != null ? ` <small>(${mprEsc(x.nota)})</small>` : ''), '#C9A227')).join('')}</div>
+      <p>Pago das emendas de ${mprEsc(anoEm)}: <b>${mpReais(emendas.total)}</b>${emendas.restoPago != null ? ` (${mpReais(emendas.pagoNoAno)} pagos no ano + ${mpReais(emendas.restoPago)} de restos a pagar pagos depois)` : ''} · ${mpNum(emendas.n)} registro(s) no Portal.</p>
       ${Object.keys(mun).length ? `<h3>Com município identificado (círculos no mapa)</h3>${tab(listaEm(mun), '<tr><th>Município</th><th class="num">Pago</th></tr>')}` : ''}
       ${Object.keys(foraUf).length ? `<h3>Em municípios de outros estados</h3>${tab(listaEm(foraUf), '<tr><th>Município</th><th class="num">Pago</th></tr>')}` : ''}
       ${outros.length ? `<h3>Sem município${emendas.viaFavorecido != null ? '' : ' no Portal'}</h3>${tab(outros, '<tr><th>Localidade</th><th class="num">Pago</th></tr>')}` : ''}
@@ -87,7 +89,6 @@ function mpRelatorioHtml(u, op = {}) {
         : 'O Portal registra boa parte das emendas como “MÚLTIPLO”, sem o município de destino.'}</p>`;
   }
 
-  const cartao = (v, l, cor) => `<div class="cartao" style="border-top-color:${cor}"><b>${v}</b><span>${l}</span></div>`;
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Mapa Territorial — ${mprEsc(dep.nome)} (${mprEsc(dep.uf)}) — ${ANO}</title><style>
   :root { --verde: #0B8A4B; --verde-esc: #0b5e3a; --tinta: #1d2733; --tinta2: #5b6b7b; --grade: #dfe5ea; }
   * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
