@@ -154,6 +154,23 @@ function lpnTrajetorias(cad, achados, partido = LPN_PARTIDO) {
   return cad;
 }
 
+/**
+ * O caminho dos eleitos da eleição ANTERIOR na atual (achados do leitor da
+ * atual com procurar = lpnProcurados(anterior)): grava em r.dest
+ * ("Deputado federal pelo PODE — Eleito por qp") ou "Sem candidatura em …".
+ */
+function lpnDestinos(cadAnt, achadosAtual, anoAtual) {
+  for (const r of Object.values(cadAnt.c)) {
+    if (!lpnEleito(r.s)) continue;
+    let l = achadosAtual[r.civil + '|' + r.u];
+    if (!l || !l.length) { const lu = achadosAtual['u:' + lpnNorm(r.n) + '|' + r.u]; if (lu && lu.length === 1) l = lu; }
+    if (!l || !l.length) { r.dest = `Sem candidatura encontrada em ${anoAtual}`; continue; }
+    const x = l.find(y => lpnEleito(y.sit)) || l[0];
+    r.dest = `${lpnCap(x.dsCargo)} pelo ${x.partido} — ${lpnCap(x.sit)}`;
+  }
+  return cadAnt;
+}
+
 /** Registro para gravar no banco: sem nome civil (só servia para a trajetória). */
 function lpnParaBanco(cad, meta) {
   const c = {};
@@ -215,5 +232,5 @@ function lpnResumo(dados, grupo) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { LPN_PARTIDO, LPN_ANOS, LPN_GRUPOS, LPN_RECORTES, LPN_ORDEM, LPN_REGIAO, lpnNorm, lpnIdade, lpnCategoria, lpnEleito,
-    lpnLeitorCadastro, lpnSomadorVotos, lpnProcurados, lpnTrajetorias, lpnParaBanco, lpnDoGrupo, lpnTabela, lpnResumo };
+    lpnLeitorCadastro, lpnSomadorVotos, lpnProcurados, lpnTrajetorias, lpnDestinos, lpnParaBanco, lpnDoGrupo, lpnTabela, lpnResumo };
 }

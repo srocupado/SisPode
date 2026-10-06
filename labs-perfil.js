@@ -102,6 +102,7 @@ async function lpCarregar() {
 function lpRender() {
   const ok = LPN_ANOS.every(a => lp.dados[a]);
   lpEl('lpPdf').disabled = !ok;
+  if (lpEl('lpMulheres')) lpEl('lpMulheres').disabled = !ok;
   lpEl('lpResultado').innerHTML = ok ? lpConteudoHtml(lp.dados, lp.grupo) : '<p class="sub">Sem dados processados ainda.</p>';
 }
 
@@ -126,7 +127,8 @@ async function lpProcessarClick() {
       if (comVotos) vot[a] = await lpIndice(MP_TSE_ZIP(a), e => !!mpUfDaEntrada(e.nome));
     }
     const ixs = Object.values(cad).concat(Object.values(vot));
-    const mb = ixs.reduce((s, ix) => s + ix.entradas.reduce((t, e) => t + e.comprimido, 0), 0) / 1e6;
+    // O cadastro do ano atual é lido duas vezes (a segunda para o destino dos eleitos anteriores).
+    const mb = [cad[LPN_ANOS[1]]].concat(ixs).reduce((s, ix) => s + ix.entradas.reduce((t, e) => t + e.comprimido, 0), 0) / 1e6;
     labsStatus('lpUpStatus', '');
     if (!confirm(`Baixar ${mb.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} MB do TSE — cadastro de candidaturas de ${LPN_ANOS.join(' e ')}${comVotos ? ' e os votos por município de todos os estados' : ''}?\n\nO processamento roda aqui; nada é gravado antes da sua confirmação. CPF, e-mail e título de eleitor do cadastro não são lidos.`)) return;
     let feito = 0;
@@ -144,6 +146,10 @@ async function lpProcessarClick() {
     await ler(cad[a0], `Cadastro de ${a0}`, l => l0.linha(l));
     const c0 = l0.resultado();
     lpnTrajetorias(c1, c0.achados);
+    // E o caminho dos eleitos de a0 em a1 (o cadastro de a1 de novo, agora procurando por eles; ~1,5 MB).
+    const l1b = lpnLeitorCadastro(a1, LPN_PARTIDO, lpnProcurados(c0));
+    await ler(cad[a1], `Cadastro de ${a1} (trajetórias)`, l => l1b.linha(l));
+    lpnDestinos(c0, l1b.resultado().achados, a1);
     if (comVotos) for (const [a, c] of [[a0, c0], [a1, c1]]) {
       const s = lpnSomadorVotos(c);
       for (const e of vot[a].entradas) {

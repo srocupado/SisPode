@@ -918,12 +918,14 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '3', 'CARLA DIAS', 'CARLA', 'PODE', '01/01/1960', 'FEMININO', 'SUPERIOR COMPLETO', 'PRETA', 'MÉDICO', 'SUPLENTE'),
       L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '4', 'DIEGO NOVO', 'DIEGO', 'PODE', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
       L('04/10/2026', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '5', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'ELEITO POR QP'),
-      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '9', 'OUTRO PARTIDO', 'OUTRO', 'PT', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'X', 'ELEITO POR QP')];
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '9', 'OUTRO PARTIDO', 'OUTRO', 'PT', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'X', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'RS', '6', 'DEPUTADO FEDERAL', '11', 'FABIANA REIS', 'FABI', 'PL', '01/01/1985', 'FEMININO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP')];
     const C22 = [CAB,
       L('02/10/2022', 1, 'SP', '7', 'DEPUTADO ESTADUAL', '101', 'ANA SOUZA', 'ANA SOUZA', 'MDB', '05/10/1980', 'FEMININO', 'SUPERIOR COMPLETO', 'PARDA', 'ADVOGADO', 'ELEITO POR QP'),
       L('02/10/2022', 1, 'MG', '6', 'DEPUTADO FEDERAL', '104', 'DIEGO NOVO', 'DIEGO', 'PL', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
       L('02/10/2022', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '105', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'SUPLENTE'),
-      L('02/10/2022', 1, 'SP', '6', 'DEPUTADO FEDERAL', '110', 'JOSE ANTIGO', 'JOSE', 'PODE', '01/01/1950', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP')];
+      L('02/10/2022', 1, 'SP', '6', 'DEPUTADO FEDERAL', '110', 'JOSE ANTIGO', 'JOSE', 'PODE', '01/01/1950', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '106', 'FABIANA REIS', 'FABI', 'PODE', '01/01/1985', 'FEMININO', 'SUPERIOR COMPLETO', 'BRANCA', 'VEREADOR', 'ELEITO POR QP')];
     const l26 = P.lpnLeitorCadastro('2026'); C26.forEach(x => l26.linha(x)); const c26 = l26.resultado();
     const l22 = P.lpnLeitorCadastro('2022', 'PODE', P.lpnProcurados(c26)); C22.forEach(x => l22.linha(x)); const c22 = l22.resultado();
     P.lpnTrajetorias(c26, c22.achados);
@@ -932,6 +934,10 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(c26.c[1].t === 'Veio de outro cargo eletivo' && c26.c[4].t === 'Tinha mandato por outro partido' && c26.c[5].t === 'Concorreu na eleição anterior sem se eleger' && c26.c[2].t === 'Estreante' && !c26.c[3].t,
       'trajetória dos eleitos: outro cargo, mandato por outro partido, candidatura sem eleição, estreante (suplente não entra)');
     ok(/Deputado estadual pelo MDB — Eleito por qp/i.test(c26.c[1].ant), 'trajetória: o que a pessoa fez na anterior, por extenso');
+    const l26b = P.lpnLeitorCadastro('2026', 'PODE', P.lpnProcurados(c22)); C26.forEach(x => l26b.linha(x));
+    P.lpnDestinos(c22, l26b.resultado().achados, '2026');
+    ok(/Deputado federal pelo PL — Eleito por qp/i.test(c22.c[106].dest) && /Sem candidatura encontrada em 2026/.test(c22.c[110].dest) && !c22.c[105].dest,
+      'destino dos eleitos da eleição anterior: o que fizeram na atual (suplente não entra)');
     const b26 = P.lpnParaBanco(c26, { votos: false }), b22 = P.lpnParaBanco(c22, { votos: false });
     const txt = JSON.stringify(b26);
     ok(!/12345678900|x@y\.z|ANA SOUZA|civil/.test(txt) && b26.c.s1.n === 'ANA DO POVO', 'gravado no banco: sem CPF, e-mail nem nome civil — só o que os recortes usam');
@@ -953,6 +959,13 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     const rel = av(`lpRelatorioHtml(__porAno, 'est', { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) })`);
     ok(/<h1>Deputado\(a\) estadual e distrital<\/h1>/.test(rel) && /Gerado em 07\/10\/2026 09:00/.test(rel) && /id="btn-pdf"/.test(rel) && /print-color-adjust: exact/.test(rel) && /pretas \+ pardas/.test(rel),
       'relatório em PDF: título do cargo, data, botão Salvar em PDF, cores e notas de método');
+    const mu = av(`lpRelatorioMulheresHtml(__porAno, { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) })`);
+    ok(/Mulheres/.test(mu) && /id="btn-pdf"/.test(mu) && /<svg/.test(mu) && /30%/.test(mu) && /Ana do Povo/.test(mu) && /Fabi/.test(mu) && /Deputado federal pelo PL|Deputada federal pelo PL/i.test(mu),
+      'relatório das mulheres: gráficos com a cota, eleitas da atual com a trajetória e das anteriores com o destino');
+    ok(!/primeira senadora/i.test(mu), 'relatório das mulheres: não afirma "primeira senadora" (não dá para provar só com duas eleições)');
+    const tx = av(`lpmTextos(__porAno)`);
+    ok(tx && tx.resumo.length > 0 && Array.isArray(tx.alertas) && /de <b>0 para 1<\/b>/.test(tx.resumo[0]), 'relatório das mulheres: resumo e alertas gerados dos números');
+    ok(html.includes('id="lpMulheres"') && scripts.indexOf('labs-perfil-mulheres.js') > scripts.indexOf('labs-perfil.js'), 'botão do relatório das mulheres na aba, script depois do Perfil');
     ok(html.includes('id="aba-perfil"') && scripts.includes('labs-perfil.js') && scripts.indexOf('labs-perfil-nucleo.js') > scripts.indexOf('labs-mapa-nucleo.js'), 'aba Perfil da Bancada registrada, com o núcleo depois do leitor de CSV do Mapa');
   }
 
