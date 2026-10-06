@@ -70,8 +70,9 @@ const semTags = h => h.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 (async () => {
   console.log('== utilitários de data e legislatura ==');
   {
-    ok(M.legislaturaDe(2026) === 57 && M.legislaturaDe(2023) === 57, '2023-2026 → 57ª Legislatura');
-    ok(M.legislaturaDe(2027) === 58, '2027 → 58ª (a legislatura vira no ano da posse)');
+    ok(M.legislaturaDe(new Date(2026, 9, 6)) === 57 && M.legislaturaDe(new Date(2023, 1, 1)) === 57, '2023-2026 → 57ª Legislatura');
+    ok(M.legislaturaDe(new Date(2027, 0, 31)) === 57 && M.legislaturaDe(new Date(2027, 1, 1)) === 58,
+      'a 58ª começa na posse, em 1º/02/2027 — em janeiro ainda é a 57ª');
     ok(M.dataBR('2026-08-31') === '31/08/2026', 'ISO → dd/mm/aaaa');
     // Date com string ISO puxa fuso e adianta/atrasa o dia; dataDe monta local.
     const d = M.diasAte('31/12/2099');

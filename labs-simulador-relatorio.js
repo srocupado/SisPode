@@ -113,7 +113,8 @@ function smRelatorioHtml(s, op = {}) {
   const agora = op.agora || new Date();
   const dd = n => String(n).padStart(2, '0');
   const carimbo = `${dd(agora.getDate())}/${dd(agora.getMonth() + 1)}/${agora.getFullYear()} ${dd(agora.getHours())}:${dd(agora.getMinutes())}`;
-  const legislatura = 57 + Math.floor((agora.getFullYear() - 2023) / 4);
+  // Posse em 1º/fev (2023: 57ª, 2027: 58ª…): em janeiro ainda vale a anterior.
+  const legislatura = Math.floor(((agora.getMonth() >= 1 ? agora.getFullYear() : agora.getFullYear() - 1) - 1795) / 4);
   const titulo = s.prop ? `${s.prop.sigla} ${s.prop.numero}/${s.prop.ano}` : 'Proposta em negociação';
   const ultima = s.rodadas[s.rodadas.length - 1];
   const ap = smApoioEstimado(ultima.resultados);

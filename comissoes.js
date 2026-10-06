@@ -1564,6 +1564,31 @@ async function adicionarDeputado() {
 
 // ---------- IMPORTAR DA API DA CÂMARA ----------
 
+// Deputados acompanhados mesmo fora do filtro "em exercício" da API (ex.:
+// licenciados) — nunca saem do cadastro na atualização. Mesma lista de
+// DEPUTADOS_MANUAIS em congresso.js.
+const DEPS_SEMPRE_NO_CADASTRO = ['cam_178989'];   // Renata Abreu (SP)
+// Abaixo disso a resposta da API é tratada como incompleta e ninguém é removido.
+const DEPS_MINIMO_API = 10;
+
+/**
+ * Quem do cadastro saiu da bancada em exercício (fim de mandato, troca de
+ * partido): só os que vieram da API (id cam_…), fora das exceções. Quem ainda
+ * ocupa vaga numa comissão fica — tirá-lo do cadastro tiraria também da
+ * comissão, e isso é decisão de quem cuida das vagas. Pura.
+ */
+function depsForaDeExercicio(deputados, idsApi, membros, excecoes = DEPS_SEMPRE_NO_CADASTRO) {
+  const remover = [], emComissao = [];
+  if (idsApi.size < DEPS_MINIMO_API) return { remover, emComissao };
+  const naComissao = new Set();
+  for (const m of Object.values(membros || {})) for (const id of [...(m.titulares || []), ...(m.suplentes || [])]) naComissao.add(id);
+  for (const id of Object.keys(deputados || {})) {
+    if (!id.startsWith('cam_') || idsApi.has(id) || excecoes.includes(id)) continue;
+    (naComissao.has(id) ? emComissao : remover).push(id);
+  }
+  return { remover, emComissao };
+}
+
 async function importarDeputadosDaCamara(btnEl) {
   const btn = btnEl || document.getElementById('btn-importar-camara');
   const textoOriginal = btn ? btn.innerHTML : '';
@@ -1572,6 +1597,7 @@ async function importarDeputadosDaCamara(btnEl) {
   try {
     let url = 'https://dadosabertos.camara.leg.br/api/v2/deputados?siglaPartido=PODE&itens=100&ordem=ASC&ordenarPor=nome';
     let importados = 0, atualizados = 0, inalterados = 0;
+    const idsApi = new Set();
 
     while (url) {
       const r = await fetch(url, { headers: { Accept: 'application/json' } });
@@ -1580,6 +1606,7 @@ async function importarDeputadosDaCamara(btnEl) {
 
       for (const d of data.dados || []) {
         const id  = `cam_${d.id}`;
+        idsApi.add(id);
         const dep = { nome: d.nome, uf: d.siglaUf, partido: d.siglaPartido, idCamara: d.id };
         const exist = state.deputados[id];
 
@@ -1598,11 +1625,20 @@ async function importarDeputadosDaCamara(btnEl) {
       url = next ? next.href : null;
     }
 
+    // Quem saiu da bancada em exercício sai do cadastro (ex.: os não reeleitos,
+    // na posse da nova legislatura) — antes a atualização só acrescentava.
+    const fora = depsForaDeExercicio(state.deputados, idsApi, state.membros);
+    for (const id of fora.remover) await removerDeputadoDB(id);
+
     const partes = [];
     if (importados)  partes.push(`${importados} novo${importados > 1 ? 's' : ''}`);
     if (atualizados) partes.push(`${atualizados} atualizado${atualizados > 1 ? 's' : ''}`);
+    if (fora.remover.length) partes.push(`${fora.remover.length} fora de exercício removido${fora.remover.length > 1 ? 's' : ''}`);
     if (inalterados) partes.push(`${inalterados} sem mudança`);
-    mostrarToast(`Atualização concluída: ${partes.join(', ') || 'nada a fazer'}.`);
+    const nomes = ids => ids.map(id => (state.deputados[id] || {}).nome || id).join(', ');
+    mostrarToast(`Atualização concluída: ${partes.join(', ') || 'nada a fazer'}.`
+      + (fora.emComissao.length ? ` Fora de exercício, mas ainda em comissão (retire da comissão para sair do cadastro): ${nomes(fora.emComissao)}.` : ''),
+      fora.emComissao.length ? 'erro' : 'ok', fora.emComissao.length ? 12000 : 3000);
 
     renderModalDeputadoLista();
     renderSidebar();
@@ -2135,11 +2171,11 @@ function fecharModal(id) {
 }
 
 let _toastTimer = null;
-function mostrarToast(msg, tipo = 'ok') {
+function mostrarToast(msg, tipo = 'ok', ms = 3000) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.className   = `toast toast-${tipo}`;
   t.style.display = 'block';
   clearTimeout(_toastTimer);
-  _toastTimer = setTimeout(() => { t.style.display = 'none'; }, 3000);
+  _toastTimer = setTimeout(() => { t.style.display = 'none'; }, ms);
 }
