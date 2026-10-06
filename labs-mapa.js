@@ -588,7 +588,11 @@ async function mpUfsComEleitos(ano) {
   // Estado que não respondeu entra por precaução: quem é eleito sai do zip, então
   // o resultado não muda — só baixa um estado a mais. Nenhum respondeu: erro.
   if (lidos.every(d => !d)) throw new Error('o painel de resultados do TSE não respondeu — tente de novo em instantes');
-  return ufs.filter((uf, i) => !lidos[i] || lidos[i].candidatos.some(c => c.partido === MP_PARTIDO.sigla && (c.eleito || c.projetado))).map(u => u.toUpperCase());
+  // Também entra a UF com a totalização reaberta (o TSE zera as vagas e as
+  // marcações enquanto retotaliza — PE em 06/10/2026) se o partido tem candidato.
+  const doPartido = c => c.partido === MP_PARTIDO.sigla;
+  return ufs.filter((uf, i) => !lidos[i] || lidos[i].candidatos.some(c => doPartido(c) && (c.eleito || c.projetado))
+    || (!lidos[i].final && lidos[i].candidatos.some(doPartido))).map(u => u.toUpperCase());
 }
 
 async function mpBaixarTseClick() {

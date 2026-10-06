@@ -875,7 +875,13 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     // Painel de resultados instável: o estado que não responde entra por precaução, em vez de derrubar tudo.
     const fOk = ctx.fetch;
     ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
-    const ufsInst = await av(`mpUfsComEleitos('2026')`);
+    let ufsInst = await av(`mpUfsComEleitos('2026')`);
+    // Totalização reaberta (vagas zeradas, ninguém marcado) com candidato do partido: entra também.
+    ctx.fetch = async (url, op) => /\/dados\/pe\//.test(String(url)) ? new Response(JSON.stringify({ s: { pst: '100,00' }, tf: 'n', carg: [{ cd: '6', nv: '25', agr: [
+      { n: '1', tp: 'i', vag: '0', par: [{ n: '20', sg: 'PODE', cand: [{ n: '2000', nmu: 'X', vap: '100', e: 'n', st: '' }] }] }] }] })) : fOk(url, op);
+    ok((await av(`mpUfsComEleitos('2026')`)).join() === 'PE,SP', 'UF com a totalização reaberta pelo TSE (vagas zeradas) e candidato do partido entra por precaução');
+    ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    ufsInst = await av(`mpUfsComEleitos('2026')`);
     ok(ufsInst.join() === 'MG,RJ,SP', 'resultado do TSE fora do ar em MG e RJ: entram por precaução (SP pelos eleitos) — ' + ufsInst.join());
     ctx.fetch = async (url, op) => /\/dados\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
     let semTse = ''; try { await av(`mpUfsComEleitos('2026')`); } catch (e) { semTse = e.message; }
