@@ -316,11 +316,12 @@ function lmnChave(s) { return String(s || '').replace(/[.#$\[\]\/]/g, ' ').trim(
  * boa parte das emendas é paga como resto a pagar, e só o valorPago subestimava
  * os anos anteriores. `autor` (opcional): só entram registros desse autor — o
  * filtro nomeAutor do Portal não é conferido do lado de lá.
- * Devolve { total, pagoNoAno, restoPago, municipais: { mID: valor },
+ * empenhado = valorEmpenhado (o que já foi empenhado das emendas do ano).
+ * Devolve { total, pagoNoAno, restoPago, empenhado, municipais: { mID: valor },
  *   nomesMun: { mID: "NOME - UF" }, outros: { rotulo: valor }, n, deOutroAutor }.
  */
 function lmnAgregarEmendas(registros, resolverMun, autor) {
-  const out = { total: 0, pagoNoAno: 0, restoPago: 0, municipais: {}, nomesMun: {}, outros: {}, n: 0, deOutroAutor: 0 };
+  const out = { total: 0, pagoNoAno: 0, restoPago: 0, empenhado: 0, municipais: {}, nomesMun: {}, outros: {}, n: 0, deOutroAutor: 0 };
   const alvo = autor ? lmnNomeAutor(autor) : '';
   for (const e of registros || []) {
     if (alvo && e.nomeAutor && lmnNomeAutor(e.nomeAutor) !== alvo) { out.deOutroAutor++; continue; }
@@ -328,6 +329,7 @@ function lmnAgregarEmendas(registros, resolverMun, autor) {
     const resto = lmnDinheiro(e.valorRestoPago);
     const pago = noAno + resto;
     out.n++;
+    out.empenhado += lmnDinheiro(e.valorEmpenhado);
     if (!pago) continue;
     out.total += pago; out.pagoNoAno += noAno; out.restoPago += resto;
     const loc = lmnLocalidade(e.localidadeDoGasto);
@@ -431,12 +433,14 @@ function lmnRotuloFavorecido(mun, uf) {
  * pedidos (nome parlamentar, qualquer grafia), nos `anos` pedidos (ano da emenda).
  * resultado(): { [chaveAutor]: { [ano]: { total, n, mun: { [chave "NOME - UF"]: valor } } } }
  * — chaves já seguras para o banco (lmnChave).
+ * pagamentos(): { [chaveAutor]: { [ano]: valor } } — TUDO o que o autor teve pago
+ * DENTRO de cada ano (coluna Ano/Mês), de emendas de qualquer ano (restos incluídos).
  */
 function lmnLeitorFavorecidos(autores, anos) {
   const quero = new Set((autores || []).map(lmnNomeAutor).filter(Boolean));
   const queroAno = new Set((anos || []).map(String));
   const cods = new Map();
-  const out = {};
+  const out = {}, pg = {};
   const leitor = (arquivo, exigidos, fn) => {
     let ix = null;
     return linha => {
@@ -457,17 +461,22 @@ function lmnLeitorFavorecidos(autores, anos) {
     if (lmnLocalidade(v('LOCALIDADE DE APLICACAO DO RECURSO')).tipo === 'municipio') return;
     cods.set(cod, { a: lmnChave(autor), ano });
   });
-  const favorecidos = leitor('EmendasParlamentares_PorFavorecido.csv', ['CODIGO DA EMENDA', 'UF FAVORECIDO', 'MUNICIPIO FAVORECIDO', 'VALOR RECEBIDO'], v => {
-    const e = cods.get(v('CODIGO DA EMENDA').trim());
-    if (!e) return;
+  const favorecidos = leitor('EmendasParlamentares_PorFavorecido.csv', ['CODIGO DA EMENDA', 'NOME DO AUTOR DA EMENDA', 'ANO/MES', 'UF FAVORECIDO', 'MUNICIPIO FAVORECIDO', 'VALOR RECEBIDO'], v => {
     const valor = lmnDinheiro(v('VALOR RECEBIDO'));
     if (!valor) return;
+    const autor = lmnNomeAutor(v('NOME DO AUTOR DA EMENDA')), anoPg = v('ANO/MES').trim().slice(0, 4);
+    if (quero.has(autor) && queroAno.has(anoPg)) {
+      const a = lmnChave(autor);
+      (pg[a] = pg[a] || {})[anoPg] = (pg[a][anoPg] || 0) + valor;
+    }
+    const e = cods.get(v('CODIGO DA EMENDA').trim());
+    if (!e) return;
     const g = ((out[e.a] = out[e.a] || {})[e.ano] = out[e.a][e.ano] || { total: 0, n: 0, mun: {} });
     const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
     g.mun[k] = (g.mun[k] || 0) + valor;
     g.total += valor; g.n++;
   });
-  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out };
+  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out, pagamentos: () => pg };
 }
 
 /**
