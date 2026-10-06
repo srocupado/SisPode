@@ -374,8 +374,10 @@ function mpRender(dep, geo, totais, emendas, ano) {
     const cab = `<tr><th>Município</th><th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">${ANO}</th><th style="text-align:right">Dif.</th></tr>`;
     blocoVar = `<div class="labs-caixa"><h3>Desde ${labsEsc(ant.ano)}</h3>
       <div class="sub">Em ${labsEsc(ant.ano)}: ${mpNum(ant.total)} votos pelo ${labsEsc(ant.partido || '?')}${ant.situacao ? ` (${labsEsc(ant.situacao.toLowerCase())})` : ''}.</div>
-      ${ganhos.length ? `<div class="sub" style="margin-top:6px"><b>Onde mais ganhou votos</b></div><table class="labs-tab">${cab}${ganhos.map(linha).join('')}</table>` : ''}
-      ${perdas.length ? `<div class="sub" style="margin-top:6px"><b>Onde mais perdeu votos</b></div><table class="labs-tab">${cab}${perdas.map(linha).join('')}</table>` : ''}</div>`;
+      <div class="labs-var">
+        ${ganhos.length ? `<div><div class="sub" style="margin-top:6px"><b>Onde mais ganhou votos</b></div><table class="labs-tab">${cab}${ganhos.map(linha).join('')}</table></div>` : ''}
+        ${perdas.length ? `<div><div class="sub" style="margin-top:6px"><b>Onde mais perdeu votos</b></div><table class="labs-tab">${cab}${perdas.map(linha).join('')}</table></div>` : ''}
+      </div></div>`;
     seletor = `<div class="labs-mapa-modo">Cor do mapa:
       <button class="sm-bt${modoVar ? '' : ' ativo'}" data-mp-modo="fatia">fatia dos votos em ${ANO}</button>
       <button class="sm-bt${modoVar ? ' ativo' : ''}" data-mp-modo="variacao">ganho/perda desde ${labsEsc(ant.ano)}</button></div>`;
@@ -398,6 +400,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
         <div class="labs-dica-mapa" id="mpDica" hidden></div>
         <div class="labs-legenda">${legenda} · <span style="color:#f0c040">●</span> emenda paga</div>
         ${modoVar ? '' : '<div class="labs-legenda">A fatia é sobre os votos NOMINAIS (sem os votos só na legenda) — sai alguns pontos acima da fatia sobre todos os votos válidos.</div>'}
+        ${blocoVar}
       </div>
       <div class="labs-lado">
         <div class="labs-caixa" style="margin-top:0"><h3>Onde teve mais votos</h3>
@@ -405,7 +408,6 @@ function mpRender(dep, geo, totais, emendas, ano) {
           ${top.map(([k, v]) => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right">${mpPct(fatia(k))}</td></tr>`).join('')}</table>
           ${dep.foraDoMapa ? `<div class="sub" style="margin-top:4px">${mpNum(dep.foraDoMapa)} voto(s) em municípios sem correspondência no IBGE.</div>` : ''}
         </div>
-        ${blocoVar}
         <div class="labs-caixa"><h3>Emendas</h3>${blocoEmendas}</div>
       </div>
     </div>
