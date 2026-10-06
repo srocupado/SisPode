@@ -2,7 +2,7 @@
 
 Ferramentas para a equipe da **Liderança do Podemos** na Câmara dos Deputados, em duas frentes:
 
-- **Extensão do Chrome** (MV3) — nove módulos integrados para acompanhamento de sessões, votações, aderência ao governo, comissões (gestão de vagas e pautas dos colegiados), análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC), acompanhamento dos vetos em tramitação no Congresso Nacional, preparação da lista do Colégio de Líderes e orçamento (emendas da bancada e notas técnicas das leis orçamentárias).
+- **Extensão do Chrome** (MV3) — nove módulos integrados para acompanhamento de sessões, votações, relatórios (aderência ao governo, produção legislativa e apuração eleitoral ao vivo, entre outros), comissões (gestão de vagas e pautas dos colegiados), análise técnica da pauta semanal por IA, produção de pautas da Comissão de Constituição e Justiça (CCJC), acompanhamento dos vetos em tramitação no Congresso Nacional, preparação da lista do Colégio de Líderes e orçamento (emendas da bancada, notas técnicas das leis orçamentárias e comparador de portarias) — além do **Labs**, a área de protótipos.
 - **Bot do Telegram** (`bot/`, Node.js) — leva a pauta, as análises e o acompanhamento **ao vivo** do Plenário para o grupo da equipe, com conversa em linguagem natural. Compartilha a mesma base no Firebase da extensão. Ver a [seção do bot](#10-bot-do-telegram-sispode-bot).
 
 ---
@@ -69,7 +69,7 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 
 ### 3. Relatórios
 
-Cinco relatórios em abas — sobre votações nominais, produção legislativa, tramitação por tema e leis aprovadas —, cada aba com uma linha de descrição do que produz logo abaixo da barra de abas.
+Seis relatórios em abas — sobre votações nominais, produção legislativa, tramitação por tema, leis aprovadas e a apuração eleitoral do TSE —, cada aba com uma linha de descrição do que produz logo abaixo da barra de abas.
 
 #### 3.1 Aderência
 
@@ -136,6 +136,19 @@ Ranking de deputados por projetos de sua autoria — inclusive coautoria: todo s
 - Campo **Nome** com sugestões de deputados (como no "Como votou o deputado"), tiradas do próprio agregado das legislaturas marcadas — inclui quem já saiu da Câmara, ignora acento e não repete quem está em mais de uma legislatura; escolher uma sugestão filtra por aquele deputado
 - Filtros locais (nome, partido, UF, condição titular/suplente, só com ≥ 1 projeto) e ranking expansível com a lista de projetos de cada deputado · exporta em **Excel** (ranking e projetos)
 
+#### 3.6 Apuração eleitoral
+
+Painel ao vivo da divulgação oficial do **TSE** (`resultados.tse.jus.br`), relido a cada 30 segundos. Os dados vão do TSE direto para o navegador — nada passa por servidor.
+
+- **Eleição e turno** escolhidos da lista que o próprio TSE publica (`ele-c.json`): só as eleições gerais ordinárias (sem municipais, suplementares e consultas). O **2º turno** entra como "aguardando o TSE" pelo código que o TSE já reserva no 1º e, publicado, vira o padrão — lendo só as UFs que têm 2º turno. Eleições futuras entram sozinhas, se o formato se mantiver; anteriores a 2024 não estão mais no servidor de resultados
+- **Todos os cargos** (Presidente, Governador, Senador, Deputado Federal, Deputado Estadual/Distrital) e **todos os partidos**, ou um só (Podemos por padrão; no 2º turno, todos)
+- **Mapa do Brasil** (malha do IBGE embutida) colorido pelo percentual de seções apuradas, com o número de eleitos do partido em cada UF; tocar nos estados filtra a lista (vários de uma vez)
+- Visões **Por estado** (candidatos em ordem de votos, com a situação do TSE), **Eleitos** (Brasil ou estados escolhidos) e **Cláusula de barreira**
+- **Eleito (projeção)**: o TSE só marca eleitos na totalização. Antes disso, são os mais votados de cada partido/federação dentro das vagas que o TSE informa na parcial (nos majoritários, "à frente"). A marcação oficial sempre prevalece, e a tela avisa onde a totalização ainda está pendente
+- **Cláusula de barreira** (Deputado Federal) pela regra do ano da eleição — EC 97/2017 (2018: 1,5%/1%/9; 2022: 2%/1%/11; 2026: 2,5%/1,5%/13; de 2030 em diante: 3%/2%/15) —, com federação contando como um partido só. Mostra, por partido, o % no país, os estados com o mínimo e os eleitos (em quantos estados), aponta o estado que faltou a quem passou do % nacional e lista os deputados eleitos por quem não atingiu. **Exporta em PDF** (A4, tema claro, logo do Podemos)
+- A última leitura fica guardada no navegador e volta ao reabrir
+- A mesma tela existe como **site em arquivo único** (`apuracao/index.html`), para hospedagem estática (Netlify e afins). As duas versões saem do mesmo modelo (`apuracao/apuracao.base.html` + `apuracao/apuracao-site.js`) pelo gerador `node apuracao/gerar-apuracao.js`, que grava o `index.html` (scripts e logo embutidos) e o `extensao.html` (scripts por arquivo, como a extensão exige)
+
 ---
 
 ### 4. Comissões
@@ -168,6 +181,7 @@ Gerencie a participação dos deputados do partido em **comissões permanentes, 
 - **Impressão da lista de membros em PDF**, com seleção dos grupos a incluir (Permanentes, Mistas, CPI, Especiais, Externas) — cada grupo em nova página
 - Exportação completa para **Excel (.xlsx)** (membros, vagas cedidas e pedidos, com o tipo de cada comissão)
 - Dados sincronizados entre a equipe via **Firebase**, com cache e atualização automática (auto-sync quando o cache passa de 12 h)
+- **Cadastro de deputados** (compartilhado com a Pauta do Congresso): **Atualizar da Câmara** puxa a bancada em exercício da API, acrescenta quem chegou e **retira quem saiu** (fim de mandato na posse da nova legislatura, troca de partido, licença). Não saem: quem ainda ocupa vaga em comissão (o aviso lista para retirar da comissão antes), os incluídos à mão e as exceções fixas de licenciados acompanhados; com resposta da API incompleta, ninguém sai
 
 #### 4.2 Pautas de Comissões
 
@@ -408,7 +422,7 @@ A divisão de trabalho é deliberada e vale para os três: **o que é fato vem d
 
 ### 9. Orçamento
 
-O card **Orçamento** abre dois painéis: **Emendas** (o dinheiro da bancada, do proposto ao pago) e **Notas Técnicas Orçamentárias** (LOA, LDO e PPA na Comissão Mista de Orçamento). Cada um abre em aba própria.
+O card **Orçamento** abre três painéis: **Emendas** (o dinheiro da bancada, do proposto ao pago), **Notas Técnicas Orçamentárias** (LOA, LDO e PPA na Comissão Mista de Orçamento) e **Comparador de Portarias** (como eram e como ficaram os procedimentos regulados por portarias). Cada um abre em aba própria.
 
 #### 9.1 Notas Técnicas Orçamentárias
 
@@ -455,6 +469,17 @@ Acompanhe as emendas dos parlamentares do Podemos — proposto, empenhado e pago
 - **Exportação em Excel (.xlsx)** das propostas do FNS (com linha de total) e do panorama por pasta
 - Defeitos da fonte são **marcados, não consertados**: quando o Portal informa **pago maior que empenhado**, o item recebe o alerta "⚠ conferir" em vez de um teto de 100% que esconderia o problema. A coluna de partido da planilha do FNS é o **partido da época da emenda**, por isso o vínculo de hoje vai ao lado. **Transferência especial** não gera proposta no FNS, e a tela diz isso em vez de parecer defeito
 - Dados no Firebase em `/emendas-fns/{ano}/{uf}` (só o recorte do partido) e `/orcamento-transparencia/{ano}`; as chaves de API ficam no `chrome.storage` do analista, **nunca no Firebase nem no repositório**
+
+#### 9.3 Comparador de Portarias
+
+Notas técnicas sobre os atos que regulam procedimentos orçamentários (portarias, instruções normativas), de um ou mais órgãos, em duas abas.
+
+- **Entrada**: PDF com texto, Word (.docx, lido sem biblioteca extra), texto colado ou **link do DOU** (in.gov.br). O **cabeçalho** de cada ato (tipo, órgão, número, data) é reconhecido por regra, sem IA, e o analista corrige o que vier errado
+- **Comparar sequência de portarias**: os atos entram em ordem cronológica e a nota comparativa mostra, tema a tema, **como era → como ficou** a cada novo ato. Avalia **todas** as mudanças (substituição, alteração por dispositivo, revogação, conteúdo novo), não só as principais; cancelável, e as leituras de cada ato já feitas são reaproveitadas
+- **Notas de portarias**: nota informativa ou técnica de um ou **vários atos**, relacionados ou não, com foco opcional. O **✕** ao lado de um ato ou de um item o tira da nota (tela e PDF), com desfazer, sem depender da IA
+- **IA com conferência**: a IA redige citando artigo e **trecho literal**; o JavaScript confere se o trecho existe no texto do ato. O que não for conferido aparece na tela com ⚠, mas **não vai para o PDF**
+- **Pedir alterações** (nas duas notas): ajustes em texto livre ("mais curta", "tire o item sobre…"); cada pedido gera nova versão, conferida de novo, e dá para desfazer. Pedido que não muda nada é avisado, em vez de dar por feito
+- **PDF** pela impressão do navegador, só com a nota: cabeçalho com a logo do Podemos, legislatura e data, e as cores preservadas na impressão
 
 ---
 
@@ -525,6 +550,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Governo responde primeiro** (opcional, desligado por padrão): a liderança do Governo declara a posição e as bancadas respondem sabendo dela (como líderes e liderados no Political Actor Agent, AAAI 2025). Desligado, todos respondem independentes — agentes de IA tendem a seguir a posição dominante
 - **Consenso × conflito**: o perfil separa o comportamento da bancada quando a Oposição orienta igual ao Governo (consenso), diferente (conflito) ou não orienta — medido em 12 meses, o PL acompanha o Governo em 100% dos consensos e em 3–4% dos conflitos. No Simulador, o campo "A Oposição deve orientar" leva a expectativa da equipe aos agentes
 - **Teste contra o passado**: nas últimas N votações em que o Governo orientou, compara o voto real da maioria de cada bancada com três previsões — estatística sem IA (por contexto: consenso ou conflito com a Oposição), uma pergunta simples à IA e os agentes (perfil só com votações anteriores; a votação vai sem o resultado). Mostra acerto, F1 macro e cobertura, por método, por contexto e por bancada, e o **detalhe por votação** (bancada a bancada). O veredito conta VOTAÇÕES (teste do sinal), não bancadas: as bancadas votam em bloco e não são casos independentes. Votações de conteúdo desconhecido (a Câmara descreve só "Requerimento." ou "Resultado.") ficam marcadas e o resultado também sai sem elas; respostas cortadas pelo limite de saída são contadas à parte Guarda em `/labs/simulador/validacoes`
+- **Relatório em PDF** da negociação: cada rodada (proposta, cadeiras por posição, mapa por ponto, síntese), a evolução entre rodadas, o resultado da última e os parâmetros da simulação, com a logo do Podemos — abre em aba própria, com botão "Salvar em PDF"
 - **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave do ⚙ da página; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
 
 **Mapa Territorial de Entregas**
@@ -592,9 +618,18 @@ sispode/
 ├── producao.js                    # Relatórios · Produção legislativa
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
+├── labs-apuracao.js               # Relatórios · Apuração eleitoral: leitura do TSE, projeção, cláusula de barreira (funções puras)
+├── labs-apuracao-mapa.js          # Malha simplificada das 27 UFs (IBGE) para o mapa da apuração
+├── apuracao/                      # Apuração eleitoral: tela comum à extensão e ao site
+│   ├── apuracao.base.html         #   modelo da página
+│   ├── apuracao-site.js           #   tela (filtros, visões, cláusula, PDF)
+│   ├── gerar-apuracao.js          #   gera os dois HTML abaixo (node apuracao/gerar-apuracao.js)
+│   ├── extensao.html              #   aba da extensão (gerado; scripts por arquivo)
+│   └── index.html                 #   site em arquivo único para hospedar (gerado)
 ├── labs.html / labs.js            # Módulo: Labs — abas e utilidades comuns dos protótipos
 ├── labs-simulador.js              # Labs · Simulador de Negociação (agentes de IA por bancada)
 ├── labs-simulador-teste.js        # Labs · Simulador: teste contra o passado (validação dos agentes)
+├── labs-simulador-relatorio.js    # Labs · Simulador: relatório da negociação em PDF
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
@@ -608,6 +643,12 @@ sispode/
 ├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (análise da lista + demandas + e-mail)
 ├── emendas.html / emendas.js      # Orçamento · Emendas da bancada (FNS + Transparência)
 ├── orcamento-notas.html / .js     # Orçamento · Notas técnicas das leis orçamentárias
+├── portarias.html / portarias.js  # Orçamento · Comparador de Portarias: tela e sequência dos atos
+├── portarias-leitura.js           # Leitura dos atos (PDF, .docx, DOU) e cabeçalho por regra
+├── portarias-sequencia.js         # Temas e pares de atos (inicial, substituição, alteração, novo)
+├── portarias-comparacao.js        # Motor da nota comparativa: prompts e conferência dos trechos
+├── portarias-comparativa.js       # Tela da nota comparativa (progresso, versões, pedir alterações)
+├── portarias-nota.js / portarias-avulsa.js   # Notas de portarias (um ou vários atos) e pedir alterações
 ├── cmo.js                         # Leitura da tramitação na CMO (etapas, cronograma, relatores, documentos)
 ├── orcamento-ia.js                # Camada de IA do orçamento: prompts e conferência de cada resposta
 ├── ficha.js / serie.js            # Ficha de parâmetros do exercício e série histórica das cotas
@@ -640,6 +681,9 @@ sispode/
 │   ├── orcamento-*.test.js         # Orçamento: CMO, ficha, séries, normas, números, telas
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
+│   ├── labs-apuracao.test.js       # Apuração: eleições do TSE, projeção de eleitos, cláusula por ano
+│   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
+│   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
     ├── index.js                    # Núcleo: comandos, agente, menu, wiring do monitor
@@ -700,6 +744,8 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
 | [IBGE — API de serviços de dados](https://servicodados.ibge.gov.br) | **Labs**: malhas (contornos) e lista de municípios para o Mapa Territorial |
 | [Dados abertos do TSE](https://dadosabertos.tse.jus.br) | **Labs**: votação por município e zona (Mapa Territorial) — pelo bot ou baixado à mão |
+| [Divulgação de resultados do TSE](https://resultados.tse.jus.br) | **Relatórios · Apuração eleitoral**: resultados ao vivo por UF e cargo, lista de eleições e turnos |
+| [Diário Oficial da União](https://www.in.gov.br) | **Orçamento · Comparador de Portarias**: texto dos atos pelo link do DOU |
 | [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |
 | [Planalto](https://www.planalto.gov.br) e [LexML/Senado](https://www.lexml.gov.br) | Texto compilado e texto publicado das normas — as duas fontes seguintes da cascata |
 | [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Séries de câmbio, IPCA e arrecadação para o dossiê do Parecer de Especialista |
