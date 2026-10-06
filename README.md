@@ -560,16 +560,18 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Download com um clique** ("Baixar do TSE e processar"): a extensão lê o **índice** do zip do TSE (centenas de MB) e baixa **só os arquivos dos estados da bancada**, por pedidos parciais (HTTP Range), descompactando em fluxo no navegador. Os estados com eleitos vêm do painel de resultados do TSE (poucos KB por estado). Pede confirmação com o tamanho do download; nada é gravado antes de **Gravar no banco de dados**
 - **Dica ao passar o mouse** em cada município: votos na eleição e fatia do município; com a comparação, os votos da anterior e a diferença em votos e em %
 - **Relatório em PDF** do deputado (botão "Relatório em PDF"): cartões, o mapa da fatia e o de ganho/perda (cores de papel), onde teve mais votos (com a variação), onde mais ganhou e perdeu, e as emendas — com a logo do Podemos, em aba própria com "Salvar em PDF"
+- **Emendas "MÚLTIPLO" localizadas pelo favorecido**: a API do Portal devolve a maior parte das emendas sem município ("MÚLTIPLO" ou só a UF). Com um clique ("📍 Localizar os municípios pelo favorecido", no quadro de emendas), a extensão lê do arquivo de dados abertos do Portal (`EmendasParlamentares.zip`, ~28 MB lidos por Range) quem recebeu cada pagamento (prefeitura, fundo municipal, entidade) e o município dele, para toda a bancada e os anos de emendas de uma vez; grava em `/labs/mapa/favorecidos` (~50 KB). O valor vira círculo no mapa e entra na lista, na dica e no PDF. O arquivo sai uma vez por mês e a API é diária: os valores do favorecido são ajustados à soma sem município da API — o que o arquivo ainda não cobre continua "MÚLTIPLO". Pagamento a pessoa física aparece como "favorecido sem município"
 - Emendas de um ano = **pago no ano + restos a pagar pagos depois** (só o pago no ano subestimava os anos anteriores); cache de 24 h no ano corrente e 7 dias nos anteriores
 - Outros caminhos: **pelo bot** (`/labsmapa [2026|2022]`, ou `node bot/scripts/labs-mapa-territorial.js`), que também busca as emendas pagas, ou **à mão** na própria tela, com os CSV já baixados (sem a comparação); só o agregado é gravado, depois de confirmação
 - Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
-- Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas)
+- Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas) e `/labs/mapa/favorecidos` (destino das emendas sem município, por autor e ano)
 
 **Perfil da Bancada**
 - Quem o partido lançou e quem elegeu em **2022 e 2026**, por cargo (deputado federal, estadual e distrital, senador), com os recortes: **gênero**, **cor/raça** (e pessoas negras = pretas + pardas), **faixa etária** (idade na data da eleição), **escolaridade**, **região**, **ocupação declarada** e a **trajetória dos eleitos de 2026** (reeleitos pelo partido, com mandato por outro partido, vindos de outro cargo eletivo, que concorreram em 2022 sem se eleger, estreantes)
 - Cada recorte mostra eleitos, candidaturas e — se processados — votos, com a fatia de cada categoria; cartões de capa e a lista dos eleitos com o perfil de cada um
 - **Um clique** baixa do TSE o cadastro de candidaturas (~4 MB) e, opcionalmente, os votos por município de todos os estados (por Range), processa no navegador e grava em `/labs/perfil/{ano}` só ao confirmar. **CPF, e-mail e título de eleitor do cadastro não são lidos nem gravados**; o nome civil serve só para casar a trajetória e não é gravado
 - **Relatório em PDF** por cargo, com a logo do Podemos e as notas de método
+- **Mulheres no partido (PDF)**: candidaturas, eleitas e votos de mulheres em 2022 e 2026 por cargo, gráficos com a linha da cota de 30% (Lei 9.504/1997, art. 10, § 3º), resumo e alertas escritos a partir dos números, as eleitas de 2026 com a trajetória e as eleitas de 2022 com o que fizeram em 2026
 
 ---
 
@@ -646,6 +648,7 @@ sispode/
 ├── labs-mapa-relatorio.js         # Labs · Mapa Territorial: relatório do deputado em PDF
 ├── labs-perfil-nucleo.js          # Labs · Perfil da Bancada: leitura do cadastro do TSE, recortes e trajetória (puro)
 ├── labs-perfil.js                 # Labs · Perfil da Bancada: tela, download com um clique e relatório em PDF
+├── labs-perfil-mulheres.js        # Labs · Perfil da Bancada: relatório "Mulheres no partido" em PDF
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -756,6 +759,7 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Fundo Nacional de Saúde](https://consultafns.saude.gov.br) | **Emendas**: propostas por UF (planilha) e detalhe da proposta |
 | [API do Portal da Transparência](https://api.portaldatransparencia.gov.br) | **Emendas**: empenhado e pago por parlamentar (exige chave gratuita do analista) |
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
+| [Dados abertos do Portal da Transparência](https://portaldatransparencia.gov.br/download-de-dados/emendas-parlamentares) (`dadosabertos-download.cgu.gov.br`) | **Labs**: emendas por favorecido, para localizar o município das emendas "MÚLTIPLO" no Mapa Territorial |
 | [IBGE — API de serviços de dados](https://servicodados.ibge.gov.br) | **Labs**: malhas (contornos) e lista de municípios para o Mapa Territorial |
 | [Dados abertos do TSE](https://dadosabertos.tse.jus.br) (`cdn.tse.jus.br`) | **Labs**: votação por município e zona (Mapa Territorial) — pela extensão (só os estados, por Range), pelo bot ou baixado à mão |
 | [Divulgação de resultados do TSE](https://resultados.tse.jus.br) | **Relatórios · Apuração eleitoral**: resultados ao vivo por UF e cargo, lista de eleições e turnos |

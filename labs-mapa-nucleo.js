@@ -407,9 +407,107 @@ function lmnNomeAutor(nome) {
   return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
 }
 
+// ------------------------------------------------------------
+// Destino das emendas pelo FAVORECIDO.
+// A API do Portal devolve a maior parte das emendas com a localidade
+// "MÚLTIPLO" (ou só a UF): o município não vem. O arquivo de dados abertos
+// "Emendas parlamentares" do Portal (um zip de ~32 MB) traz, em
+// EmendasParlamentares_PorFavorecido.csv, cada pagamento com quem o recebeu
+// (prefeitura, fundo municipal de saúde, entidade) e o município dele.
+// ------------------------------------------------------------
+
+/** Rótulo do município do favorecido: "NOME - UF" (pessoa física e afins vêm sem município). */
+function lmnRotuloFavorecido(mun, uf) {
+  const m = String(mun || '').trim(), u = String(uf || '').trim().toUpperCase();
+  if (m && /^[A-Z]{2}$/.test(u)) return `${m} - ${u}`;
+  return u && /^[A-Z]{2}$/.test(u) ? `FAVORECIDO SEM MUNICÍPIO (${u})` : 'FAVORECIDO SEM MUNICÍPIO';
+}
+
+/**
+ * Leitor dos dois CSVs do zip do Portal, nesta ordem:
+ *   emendas.linha(l)      ← EmendasParlamentares.csv (código → autor, ano, localidade)
+ *   favorecidos.linha(l)  ← EmendasParlamentares_PorFavorecido.csv
+ * Só entram as emendas SEM município (MÚLTIPLO, UF, nacional…) dos `autores`
+ * pedidos (nome parlamentar, qualquer grafia), nos `anos` pedidos (ano da emenda).
+ * resultado(): { [chaveAutor]: { [ano]: { total, n, mun: { [chave "NOME - UF"]: valor } } } }
+ * — chaves já seguras para o banco (lmnChave).
+ */
+function lmnLeitorFavorecidos(autores, anos) {
+  const quero = new Set((autores || []).map(lmnNomeAutor).filter(Boolean));
+  const queroAno = new Set((anos || []).map(String));
+  const cods = new Map();
+  const out = {};
+  const leitor = (arquivo, exigidos, fn) => {
+    let ix = null;
+    return linha => {
+      const c = lmnCampos(linha);
+      if (!ix) {
+        ix = {};
+        c.forEach((h, i) => { ix[lmnNomeAutor(h.replace(/^﻿/, ''))] = i; });
+        const falta = exigidos.filter(h => !(h in ix));
+        if (falta.length) throw new Error(`Faltam colunas em ${arquivo}: ${falta.join(', ')}`);
+        return;
+      }
+      fn(k => c[ix[k]] == null ? '' : c[ix[k]]);
+    };
+  };
+  const emendas = leitor('EmendasParlamentares.csv', ['CODIGO DA EMENDA', 'ANO DA EMENDA', 'NOME DO AUTOR DA EMENDA', 'LOCALIDADE DE APLICACAO DO RECURSO'], v => {
+    const ano = v('ANO DA EMENDA').trim(), autor = lmnNomeAutor(v('NOME DO AUTOR DA EMENDA')), cod = v('CODIGO DA EMENDA').trim();
+    if (!queroAno.has(ano) || !quero.has(autor) || !/^\d+$/.test(cod)) return;
+    if (lmnLocalidade(v('LOCALIDADE DE APLICACAO DO RECURSO')).tipo === 'municipio') return;
+    cods.set(cod, { a: lmnChave(autor), ano });
+  });
+  const favorecidos = leitor('EmendasParlamentares_PorFavorecido.csv', ['CODIGO DA EMENDA', 'UF FAVORECIDO', 'MUNICIPIO FAVORECIDO', 'VALOR RECEBIDO'], v => {
+    const e = cods.get(v('CODIGO DA EMENDA').trim());
+    if (!e) return;
+    const valor = lmnDinheiro(v('VALOR RECEBIDO'));
+    if (!valor) return;
+    const g = ((out[e.a] = out[e.a] || {})[e.ano] = out[e.a][e.ano] || { total: 0, n: 0, mun: {} });
+    const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
+    g.mun[k] = (g.mun[k] || 0) + valor;
+    g.total += valor; g.n++;
+  });
+  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out };
+}
+
+/**
+ * Leva para os municípios, pelo favorecido, o valor que o agregado das emendas
+ * (lmnAgregarEmendas) deixou "sem município". `fav` = { total, mun } do autor
+ * no ano (lmnLeitorFavorecidos). O arquivo do Portal sai uma vez por mês e a
+ * API é diária: os valores do favorecido são ajustados à soma "sem município"
+ * do agregado (iguais quando as duas fontes estão em dia) — se o arquivo cobre
+ * menos, o resto fica como estava.
+ * Devolve um novo agregado com municipais/nomesMun/outros atualizados e
+ * viaFavorecido (valor localizado), favMun ({ mID: valor } localizado assim).
+ */
+function lmnRedistribuir(ag, fav, resolverMun) {
+  if (!ag || !fav || !(fav.total > 0) || !fav.mun) return ag;
+  const sem = Object.values(ag.outros || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+  if (!(sem > 0)) return ag;
+  const usado = Math.min(sem, fav.total), k = usado / fav.total, resta = (sem - usado) / sem;
+  const out = Object.assign({}, ag, { municipais: Object.assign({}, ag.municipais), nomesMun: Object.assign({}, ag.nomesMun), outros: {}, viaFavorecido: 0, favMun: {} });
+  if (resta > 0) for (const [r, v] of Object.entries(ag.outros)) if (v * resta >= 0.01) out.outros[r] = v * resta;
+  for (const [nome, v0] of Object.entries(fav.mun)) {
+    const v = v0 * k;
+    if (!(v > 0)) continue;
+    const loc = lmnLocalidade(nome);
+    const id = loc.tipo === 'municipio' ? resolverMun(loc.nome, loc.uf) : null;
+    if (id) {
+      const m = 'm' + id;
+      out.municipais[m] = (out.municipais[m] || 0) + v;
+      if (!out.nomesMun[m]) out.nomesMun[m] = nome;
+      out.favMun[m] = (out.favMun[m] || 0) + v;
+      out.viaFavorecido += v;
+    } else {
+      out.outros[nome] = (out.outros[nome] || 0) + v;
+    }
+  }
+  return out;
+}
+
 // ============================================================
 // Exportação para Node (bot). Na extensão, este bloco é inerte.
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { LMN_ANOS, LMN_ANTERIOR, lmnBancadaDoArquivo, lmnNomeProprio, lmnAlvosAnterior, lmnAnexarAnterior, lmnVariacao, lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, LMN_APELIDOS };
+  module.exports = { LMN_ANOS, LMN_ANTERIOR, lmnBancadaDoArquivo, lmnNomeProprio, lmnAlvosAnterior, lmnAnexarAnterior, lmnVariacao, lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, lmnRotuloFavorecido, lmnLeitorFavorecidos, lmnRedistribuir, LMN_APELIDOS };
 }

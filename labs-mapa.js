@@ -15,7 +15,10 @@
 // Em 2026 a bancada são os eleitos do partido no próprio arquivo, e a eleição
 // anterior (2022) entra como comparação: ganho e perda de votos por município.
 // As emendas vêm do Portal da Transparência, pela chave do analista (a mesma
-// do módulo Orçamento → Emendas), e ficam em cache no banco por ano.
+// do módulo Orçamento → Emendas), e ficam em cache no banco por ano. As
+// emendas que a API devolve como "MÚLTIPLO" (sem município) são localizadas
+// pelo favorecido de cada pagamento, no arquivo de dados abertos do Portal
+// (um zip de ~32 MB, lido uma vez para toda a bancada: /labs/mapa/favorecidos).
 // Contornos dos municípios: malhas do IBGE.
 //
 // Depende de labs.js e labs-mapa-nucleo.js.
@@ -25,6 +28,7 @@ const MP_PARTIDO = { sigla: 'PODE', numero: '20' };
 const MP_CORES_VAR = { perda: ['#7a2a2a', '#b5483f', '#e07a6a'], ganho: ['#2b6e4f', '#3fa36f', '#7fdca4'] };
 const MP_BASE = '/labs/mapa';
 const MP_TRANSP = 'https://api.portaldatransparencia.gov.br/api-de-dados';
+const MP_EMENDAS_ZIP = 'https://dadosabertos-download.cgu.gov.br/PortalDaTransparencia/saida/emendas-parlamentares/EmendasParlamentares.zip';
 const MP_IBGE = 'https://servicodados.ibge.gov.br/api';
 const MP_CORES = ['#17363c', '#1f5a5f', '#23807f', '#2fa89a', '#58d0b0', '#a6f0cf'];
 
@@ -165,6 +169,79 @@ async function mpEmendas(depId, dep, ano) {
   return reg;
 }
 
+// ---------- destino das emendas "MÚLTIPLO" pelo favorecido ----------
+async function mpFavMeta() {
+  if (mp.favMeta === undefined) mp.favMeta = await mpFb(`${MP_BASE}/favorecidos/meta`).catch(() => null);
+  return mp.favMeta;
+}
+
+/** O agregado do deputado com o valor "sem município" levado aos municípios pelo favorecido (se já processado). */
+async function mpComFavorecidos(emendas, dep, ano) {
+  if (!emendas || emendas.erro || emendas.semChave || !Object.keys(emendas.outros || {}).length) return emendas;
+  const meta = await mpFavMeta();
+  const fav = meta ? await mpFb(`${MP_BASE}/favorecidos/autores/${lmnChave(lmnNomeAutor(dep.nome))}/${ano}`).catch(() => null) : null;
+  if (!fav) return Object.assign({}, emendas, { favMeta: meta, favPendente: true });
+  const ufs = new Set();
+  for (const n of Object.keys(fav.mun || {})) { const l = lmnLocalidade(n); if (l.tipo === 'municipio') ufs.add(l.uf); }
+  const resolv = {};
+  for (const uf of ufs) { try { resolv[uf] = lmnResolvedor(await mpIbgeUf(uf), uf); } catch (_) {} }
+  return Object.assign(lmnRedistribuir(emendas, fav, (n, uf) => resolv[uf] ? resolv[uf](n) : null), { favMeta: meta });
+}
+
+function mpDataArquivo(meta) {
+  const d = new Date((meta && (meta.arquivo || meta.atualizadoEm)) || '');
+  return isNaN(d) ? '?' : d.toLocaleDateString('pt-BR');
+}
+
+/**
+ * Um clique: lê do zip de emendas do Portal (pedidos com Range, só os dois CSVs
+ * que interessam) as emendas sem município dos deputados das eleições
+ * processadas e para onde foi cada pagamento; grava em /labs/mapa/favorecidos.
+ */
+async function mpFavProcessarClick() {
+  const bt = mpEl('mpFavBaixar');
+  if (bt) bt.disabled = true;
+  const st = m => labsStatus('mpStatus', m, 'loading');
+  const fmt = x => x.toLocaleString('pt-BR', { maximumFractionDigits: 0 });
+  try {
+    st('Lendo o índice do arquivo de emendas do Portal da Transparência…');
+    const url = MP_EMENDAS_ZIP;
+    const r0 = await mpFaixa(url, 0, 0);
+    const total = Number(String(r0.headers.get('content-range') || '').split('/')[1]);
+    const arquivo = r0.headers.get('last-modified') || '';
+    try { await r0.arrayBuffer(); } catch (_) {}
+    if (!(total > 0)) throw new Error('o Portal não informou o tamanho do arquivo');
+    const ents = await mpEntradasZip(total, async (ini, n) => new Uint8Array(await (await mpFaixa(url, ini, ini + n - 1)).arrayBuffer()));
+    const eE = ents.find(e => /^EmendasParlamentares\.csv$/i.test(e.nome)), eF = ents.find(e => /PorFavorecido\.csv$/i.test(e.nome));
+    if (!eE || !eF) throw new Error('o arquivo do Portal mudou de formato (faltam os CSVs de emendas e de pagamentos por favorecido)');
+    const nomes = new Set();
+    for (const a of LMN_ANOS) {
+      const d = a === mpAno() && mp.dados ? mp.dados : await mpFb(`${MP_BASE}/${a}/deputados`).catch(() => null);
+      for (const x of Object.values(d || {})) if (x && x.nome) nomes.add(String(x.nome));
+    }
+    if (!nomes.size) throw new Error('nenhuma eleição processada: processe a bancada antes');
+    const anos = [...mpEl('mpAnoEmendas').options].map(o => o.value);
+    const mb = (eE.comprimido + eF.comprimido) / 1e6;
+    labsStatus('mpStatus', '');
+    if (!confirm(`Baixar ${fmt(mb)} MB do Portal da Transparência (arquivo de emendas por favorecido, de ${mpDataArquivo({ arquivo })}) e localizar o município das emendas sem município de ${nomes.size} deputado(s), anos ${anos.join(', ')}?\n\nÉ uma vez para toda a bancada; o resultado fica no banco.`)) { if (bt) bt.disabled = false; return; }
+    const L = lmnLeitorFavorecidos([...nomes], anos);
+    let feito = 0;
+    for (const [e, leitor, rot] of [[eE, L.emendas, 'Emendas'], [eF, L.favorecidos, 'Pagamentos por favorecido']]) {
+      await mpLerEntradaRemota(url, e, l => leitor.linha(l), n => st(`${rot} — ${fmt((feito + n) / 1e6)} de ${fmt(mb)} MB`));
+      feito += e.comprimido;
+    }
+    const meta = { atualizadoEm: new Date().toISOString(), arquivo, anos, autores: nomes.size, emendas: L.emendasSemMunicipio(), origem: 'extensão (Portal, 1 clique)' };
+    st('Gravando no banco…');
+    await mpFbEscrever('PUT', `${MP_BASE}/favorecidos`, { meta, autores: L.resultado() });
+    mp.favMeta = meta;
+    labsStatus('mpStatus', '');
+    await mpMostrarClick();
+  } catch (e) {
+    labsStatus('mpStatus', 'Erro: ' + e.message, 'error');
+    if (bt) bt.disabled = false;
+  }
+}
+
 // ---------- mapa ----------
 function mpAneis(geom) {
   if (!geom) return [];
@@ -273,7 +350,7 @@ async function mpMostrarClick() {
     labsStatus('mpStatus', 'Carregando o mapa do IBGE e os totais do estado…', 'loading');
     const [geo, totais] = await Promise.all([mpMalha(dep.uf), mpFb(`${MP_BASE}/${mpAno()}/municipios/${dep.uf}`)]);
     let emendas;
-    try { emendas = await mpEmendas(depId, dep, ano); }
+    try { emendas = await mpComFavorecidos(await mpEmendas(depId, dep, ano), dep, ano); }
     catch (e) { emendas = { erro: e.message }; }
     labsStatus('mpStatus', '');
     mp.modo = 'fatia';
@@ -358,15 +435,24 @@ function mpRender(dep, geo, totais, emendas, ano) {
       (${mpNum(emendas.n)} registro(s) no Portal)${emendas.aviso ? ' — ' + labsEsc(emendas.aviso) : ''}.</div>
       ${!emendas.n && lmnBancadaDoArquivo(ANO) && !(ant && /^eleito/i.test(ant.situacao || '')) ? `<div class="sub">Sem emendas: se o mandato começa em ${Number(ANO) + 1}, ainda não há emendas deste autor.</div>` : ''}
       ${emendas.deOutroAutor ? `<div class="sub">${mpNum(emendas.deOutroAutor)} registro(s) de outro autor devolvidos pelo Portal foram descartados.</div>` : ''}
-      ${comEmenda.length ? `<div class="sub" style="margin-top:6px"><b>Com município identificado</b> (círculos no mapa):</div>
-        <table class="labs-tab">${comEmenda.sort((a, b) => mun[b] - mun[a]).map(k => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpReais(mun[k])}</td></tr>`).join('')}</table>
+      ${comEmenda.length ? `<div class="sub" style="margin-top:6px"><b>Com município identificado</b> (círculos no mapa${emendas.viaFavorecido ? `; ${mpReais(emendas.viaFavorecido)} localizados pelo favorecido` : ''}):</div>
+        <div style="max-height:320px;overflow-y:auto"><table class="labs-tab">${comEmenda.sort((a, b) => mun[b] - mun[a]).map(k => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpReais(mun[k])}</td></tr>`).join('')}</table></div>
+        ${comEmenda.length > 12 ? `<div class="sub">${mpNum(comEmenda.length)} municípios — role a lista.</div>` : ''}
         <div class="sub" style="margin-top:4px">${mpPct(dep.total ? votosOndeTemEmenda / dep.total : 0)} dos votos do deputado vieram desses municípios.</div>` : ''}
       ${foraLista.length ? `<div class="sub" style="margin-top:6px"><b>Em municípios de outros estados</b> (fora do mapa):</div>
         <table class="labs-tab">${foraLista.map(([k, v]) => `<tr><td>${labsEsc(nomesEm[k] || k)}</td><td style="text-align:right">${mpReais(v)}</td></tr>`).join('')}</table>` : ''}
-      ${outros.length ? `<div class="sub" style="margin-top:6px"><b>Sem município no Portal</b>:</div>
+      ${outros.length ? `<div class="sub" style="margin-top:6px"><b>Sem município${emendas.viaFavorecido != null ? '' : ' no Portal'}</b>:</div>
         <table class="labs-tab">${outros.map(([r, v]) => `<tr><td>${labsEsc(r)}</td><td style="text-align:right">${mpReais(v)}</td></tr>`).join('')}</table>` : ''}
-      <div class="sub" style="margin-top:6px">O Portal registra a maior parte das emendas como “MÚLTIPLO” — o município de destino
-        não vem na fonte. Por isso muitas entregas não aparecem como círculo. Para saúde, o detalhe por município está no FNS (Orçamento → Emendas).</div>`;
+      ${emendas.viaFavorecido != null
+        ? `<div class="sub" style="margin-top:6px">A consulta do Portal devolve a maior parte das emendas como “MÚLTIPLO”. O município delas vem do
+            <b>favorecido</b> de cada pagamento (prefeitura, fundo municipal, entidade) no arquivo de dados abertos do Portal de ${mpDataArquivo(emendas.favMeta)}.
+            <button id="mpFavBaixar" class="btn-mini" title="Baixa de novo o arquivo do Portal (sai uma vez por mês)">atualizar</button></div>`
+        : emendas.favPendente
+          ? `<div class="sub" style="margin-top:6px">A consulta do Portal devolve a maior parte das emendas como “MÚLTIPLO”, sem o município. O arquivo de dados abertos do
+              Portal traz o <b>favorecido</b> de cada pagamento, com o município dele.</div>
+              <button id="mpFavBaixar" class="btn-gerar" style="margin-top:6px">📍 Localizar os municípios pelo favorecido</button>
+              ${emendas.favMeta ? `<div class="sub">O arquivo processado em ${mpDataArquivo(emendas.favMeta)} não tem este autor neste ano — atualize.</div>` : ''}`
+          : ''}`;
   }
 
   // Comparação com a eleição anterior (só quando ela existe para o deputado).
@@ -440,6 +526,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
   });
   tabMun.addEventListener('mouseleave', () => { for (const x of mpEl('mpMapa').querySelectorAll('path.destaque')) x.classList.remove('destaque'); });
   if (typeof mpExportarRelatorio === 'function') mpEl('mpRelatorio').addEventListener('click', mpExportarRelatorio);
+  if (mpEl('mpFavBaixar')) mpEl('mpFavBaixar').addEventListener('click', mpFavProcessarClick);
   for (const b of mpEl('mpResultado').querySelectorAll('[data-mp-modo]')) {
     b.addEventListener('click', () => { mp.modo = b.dataset.mpModo; const u = mp.ultimo; mpRender(u.dep, u.geo, u.totais, u.emendas, u.ano); });
   }
@@ -474,7 +561,7 @@ async function mpFaixa(url, ini, fim) {
     try { r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } }); }
     catch (e) { ultimo = e; continue; }                               // queda de rede: tenta de novo
     if (r.status === 206) return r;
-    ultimo = new Error(`o servidor do TSE não atendeu o pedido parcial (HTTP ${r.status})`);
+    ultimo = new Error(`o servidor de dados não atendeu o pedido parcial (HTTP ${r.status})`);
     if (r.status < 500 && r.status !== 429) break;                    // 200 (sem Range), 404…: não adianta repetir
   }
   throw ultimo;

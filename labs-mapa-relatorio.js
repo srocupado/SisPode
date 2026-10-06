@@ -81,8 +81,10 @@ function mpRelatorioHtml(u, op = {}) {
     blocoEm = `<p>Emendas do orçamento de ${mprEsc(anoEm)}, valor pago: <b>${mpReais(emendas.total)}</b>${emendas.restoPago != null ? ` (${mpReais(emendas.pagoNoAno)} pagos no ano + ${mpReais(emendas.restoPago)} de restos a pagar pagos depois)` : ''} · ${mpNum(emendas.n)} registro(s) no Portal.</p>
       ${Object.keys(mun).length ? `<h3>Com município identificado (círculos no mapa)</h3>${tab(listaEm(mun), '<tr><th>Município</th><th class="num">Pago</th></tr>')}` : ''}
       ${Object.keys(foraUf).length ? `<h3>Em municípios de outros estados</h3>${tab(listaEm(foraUf), '<tr><th>Município</th><th class="num">Pago</th></tr>')}` : ''}
-      ${outros.length ? `<h3>Sem município no Portal</h3>${tab(outros, '<tr><th>Localidade</th><th class="num">Pago</th></tr>')}` : ''}
-      <p class="fonte">O Portal registra boa parte das emendas como “MÚLTIPLO”, sem o município de destino.</p>`;
+      ${outros.length ? `<h3>Sem município${emendas.viaFavorecido != null ? '' : ' no Portal'}</h3>${tab(outros, '<tr><th>Localidade</th><th class="num">Pago</th></tr>')}` : ''}
+      <p class="fonte">${emendas.viaFavorecido != null
+        ? `A consulta do Portal devolve boa parte das emendas como “MÚLTIPLO”; o município delas (${mpReais(emendas.viaFavorecido)}) vem do favorecido de cada pagamento — prefeitura, fundo municipal, entidade — no arquivo de dados abertos do Portal da Transparência${emendas.favMeta ? ` de ${mprEsc(mpDataArquivo(emendas.favMeta))}` : ''}.`
+        : 'O Portal registra boa parte das emendas como “MÚLTIPLO”, sem o município de destino.'}</p>`;
   }
 
   const cartao = (v, l, cor) => `<div class="cartao" style="border-top-color:${cor}"><b>${v}</b><span>${l}</span></div>`;

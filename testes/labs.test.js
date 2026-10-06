@@ -906,6 +906,46 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(Bm.ANOS_SUPORTADOS[0] === '2026' && Bm.ANOS_SUPORTADOS.includes('2022'), 'bot: /labsmapa aceita 2026 (padrão) e 2022');
   }
 
+  // ---------- 12b. Emendas "MÚLTIPLO" pelo favorecido ----------
+  console.log('12b. Emendas pelo favorecido');
+  {
+    const N2 = require(path.join(RAIZ, 'labs-mapa-nucleo.js'));
+    const L = N2.lmnLeitorFavorecidos(['Renata Abreu', 'Pr. Marco Feliciano'], ['2026']);
+    ['"Código da Emenda";"Ano da Emenda";"Nome do Autor da Emenda";"Localidade de aplicação do recurso";"Valor Pago"',
+      '"202600010001";"2026";"RENATA ABREU";"MÚLTIPLO";"100,00"',
+      '"202600010002";"2026";"RENATA ABREU";"EMBU - SP";"50,00"',
+      '"202600010003";"2026";"RENATA ABREU";"SÃO PAULO (UF)";"30,00"',
+      '"202500010001";"2025";"RENATA ABREU";"MÚLTIPLO";"999,00"',
+      '"202600020001";"2026";"PR. MARCO FELICIANO";"MÚLTIPLO";"10,00"',
+      '"202600030001";"2026";"OUTRO AUTOR";"MÚLTIPLO";"10,00"'].forEach(l => L.emendas.linha(l));
+    ['"Código da Emenda";"Nome do Autor da Emenda";"Ano/Mês";"Favorecido";"UF Favorecido";"Município Favorecido";"Valor Recebido"',
+      '"202600010001";"RENATA ABREU";"202606";"MUNICIPIO DE CAMPINAS";"SP";"CAMPINAS";"60,00"',
+      '"202600010001";"RENATA ABREU";"202607";"FUNDO MUNICIPAL DE SAUDE";"SP";"CAMPINAS";"20,00"',
+      '"202600010001";"RENATA ABREU";"202607";"FULANO";"";"";"20,00"',
+      '"202600010002";"RENATA ABREU";"202606";"MUNICIPIO DE EMBU DAS ARTES";"SP";"EMBU";"50,00"',
+      '"202600010003";"RENATA ABREU";"202606";"SANTA CASA";"SP";"SOROCABA";"30,00"',
+      '"202500010001";"RENATA ABREU";"202606";"X";"SP";"LEME";"999,00"',
+      '"202600020001";"PR. MARCO FELICIANO";"202606";"Y";"SP";"GUARULHOS";"10,00"',
+      '"202600030001";"OUTRO AUTOR";"202606";"Z";"SP";"LEME";"10,00"'].forEach(l => L.favorecidos.linha(l));
+    const r = L.resultado(), ra = r['RENATA ABREU'] && r['RENATA ABREU']['2026'];
+    ok(ra && ra.total === 130 && ra.mun['CAMPINAS - SP'] === 80 && ra.mun['SOROCABA - SP'] === 30 && ra.mun['FAVORECIDO SEM MUNICÍPIO'] === 20 && !ra.mun['EMBU - SP'],
+      'favorecido: só emendas sem município (MÚLTIPLO e UF) do autor e do ano; pessoa física fica "sem município"');
+    ok(!r['OUTRO AUTOR'] && !r['RENATA ABREU']['2025'] && r['PR  MARCO FELICIANO']['2026'].total === 10 && L.emendasSemMunicipio() === 3, 'favorecido: outros autores e anos não entram; chave do autor segura para o banco');
+    let erro = ''; try { N2.lmnLeitorFavorecidos(['A'], ['2026']).favorecidos.linha('"A";"B"'); } catch (e) { erro = e.message; }
+    ok(/Faltam colunas/.test(erro), 'favorecido: arquivo fora do formato dá erro claro');
+    const res = n => ({ CAMPINAS: 'C', SOROCABA: 'S' })[n] || null;
+    const ag = { total: 180, municipais: { mE: 50 }, nomesMun: { mE: 'EMBU - SP' }, outros: { 'MÚLTIPLO': 100, 'SÃO PAULO (UF)': 30 } };
+    const d = N2.lmnRedistribuir(ag, ra, res);
+    ok(d.municipais.mC === 80 && d.municipais.mS === 30 && d.municipais.mE === 50 && d.viaFavorecido === 110 && d.outros['FAVORECIDO SEM MUNICÍPIO'] === 20 && !d.outros['MÚLTIPLO'] && ag.outros['MÚLTIPLO'] === 100,
+      'redistribuição: MÚLTIPLO e UF viram municípios pelo favorecido, sem mexer no agregado original');
+    const meio = N2.lmnRedistribuir({ total: 260, municipais: {}, nomesMun: {}, outros: { 'MÚLTIPLO': 260 } }, ra, res);
+    ok(Math.abs(meio.outros['MÚLTIPLO'] - 130) < 1e-9 && meio.municipais.mC === 80 && Math.abs(Object.values(meio.municipais).reduce((x, y) => x + y, 0) + Object.values(meio.outros).reduce((x, y) => x + y, 0) - 260) < 1e-6,
+      'redistribuição: arquivo do Portal atrás da API — o que ele não cobre continua "MÚLTIPLO", e o total fecha');
+    const mais = N2.lmnRedistribuir({ total: 65, municipais: {}, nomesMun: {}, outros: { 'MÚLTIPLO': 65 } }, ra, res);
+    ok(mais.municipais.mC === 40 && !mais.outros['MÚLTIPLO'], 'redistribuição: favorecido somando mais que o agregado é ajustado à soma do agregado');
+    ok(N2.lmnRedistribuir(ag, null, res) === ag, 'sem dado do favorecido: agregado intacto');
+  }
+
   // ---------- 13. Perfil da Bancada ----------
   console.log('13. Perfil da Bancada');
   {
