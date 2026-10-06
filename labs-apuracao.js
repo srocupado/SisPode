@@ -121,7 +121,22 @@ function apLerUFTodos(j, uf) {
     secoes: apNum(s.ts), apuradas: apNum(s.st), pct: apNum(s.pst),
     atualizado: [j.dg, j.hg].filter(Boolean).join(' '), final: j.tf === 's',
     vagasUF: nv, quociente: apNum(cargo.qe), validos: apNum(v.vv), partidos, candidatos,
+    retotalizando: apRetotalizando({ final: j.tf === 's', pct: apNum(s.pst), majoritario, partidos, candidatos }),
   };
+}
+
+/**
+ * A UF está em RETOTALIZAÇÃO? Com 100% das seções apuradas, o TSE reabre a
+ * totalização (decisão judicial, candidatura que muda de situação…) e, até
+ * concluir, publica o estado como não finalizado, com as vagas das
+ * agremiações zeradas e sem nenhum eleito marcado — PE, deputados, em
+ * 06/10/2026. Sem vagas não há projeção: os eleitos dali somem das contagens.
+ * Vale para qualquer UF e cargo. Pura.
+ */
+function apRetotalizando(d) {
+  if (!d || d.final || !(d.pct >= 100)) return false;
+  if ((d.candidatos || []).some(c => c.eleito)) return false;
+  return d.majoritario ? true : !(d.partidos || []).some(p => p.vagas > 0);
 }
 
 /**
@@ -194,5 +209,5 @@ function apCor(pct) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apCor, apNum };
+  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apRetotalizando, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apCor, apNum };
 }

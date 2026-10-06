@@ -41,6 +41,9 @@
   .chip { padding: 4px 9px; font-size: 12px; border-radius: 14px; }
   .chip.limpar { color: var(--dim); }
   .chip.neutro { cursor: default; color: var(--dim); }
+  .retot { border: 1px solid var(--aviso); background: rgba(224,160,48,.10); color: var(--texto); border-radius: 8px; padding: 9px 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.45; }
+  .retot b.t { color: var(--aviso); }
+  .uf.retot-uf { border-color: var(--aviso); }
   .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px; }
   .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
   .card .v { font-size: 22px; font-weight: 700; } .card.ama .v { color: var(--ama); } .card.ver .v { color: var(--verde2); }
@@ -167,6 +170,7 @@
     </div>
   </div>
   <div class="filtros"><span class="rot">Estados:</span><span id="saSel"></span></div>
+  <div class="retot" id="saRetot" hidden></div>
   <div class="cards" id="saCards"></div>
   <div class="grade">
     <div class="mapa" id="saMapa"></div>
