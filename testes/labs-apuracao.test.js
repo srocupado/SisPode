@@ -74,6 +74,16 @@ ok(!fa2.atinge && fa2.ufsMin === 8 && fa2.proxima.uf === 'go' && Math.abs(fa2.pr
 ok(!pb2.atinge && pb2.eleitos.length === 16 && pb2.ufsEleitos === 8, '16 eleitos em só 8 UFs não atinge');
 const fa22 = A.apClausula(['ac', 'al', 'am', 'ap', 'ba', 'ce', 'df', 'es', 'go'].map((uf, i) => ufC(uf, i < 8 ? 30 : 14, 10, 0)), A.apClausulaRegra(2022)).find(x => x.nome === 'FED A');
 ok(fa22.ufsMin === 9 && fa22.atingeA, 'regra de 2022: 1,4% já conta (mínimo 1% por estado)');
+// Retotalização (PE, 06/10/2026): 100% apurado, não finalizado, vagas zeradas, nenhum eleito marcado.
+const retotJ = (tf, vag, st) => ({ s: { ts: '10', st: '10', pst: '100,00' }, tf, v: { vv: '100' }, carg: [{ cd: '6', nv: '25', agr: [
+  { tp: 'i', vag, par: [{ n: '20', sg: 'PODE', tvtn: '90', tvtl: '10', cand: [{ n: '2000', nmu: 'FULANO', vap: '90', pvap: '90,00', st }] }] }] }] });
+const pe = A.apLerUFTodos(retotJ('n', '0', ''), 'pe');
+ok(pe.retotalizando && pe.candidatos[0].projetado === false, 'retotalização: 100% apurado, não final, sem vagas nem eleito → marcada (e sem projeção)');
+ok(!A.apLerUFTodos(retotJ('s', '3', 'Eleito por QP'), 'pe').retotalizando, 'UF finalizada com eleitos não é retotalização');
+ok(!A.apLerUFTodos(retotJ('n', '3', ''), 'pe').retotalizando, 'não final mas com vagas (projeção possível) não é retotalização');
+ok(!A.apLerUFTodos(Object.assign(retotJ('n', '0', ''), { s: { ts: '10', st: '5', pst: '50,00' } }), 'pe').retotalizando, 'apuração em andamento (50%) não é retotalização');
+ok(A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: false }] }) && !A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: true }] }),
+  'retotalização também em cargo majoritário (sem eleito marcado com 100% apurado)');
 ok(A.apCor(0) === '#2b3440' && A.apCor(100) === '#00a859', 'cor do mapa: 0% cinza, 100% verde');
 ok(Object.keys(AP_MAPA.uf).length === 27 && Object.keys(AP_MAPA.centro).length === 27, 'mapa embutido com as 27 UFs');
 console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');

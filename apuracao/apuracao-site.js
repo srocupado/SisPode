@@ -147,13 +147,13 @@ function saMapa() {
   const m = AP_MAPA;
   const paths = Object.keys(m.uf).map(uf => {
     const d = sa.dados[uf];
-    return `<path d="${m.uf[uf]}" fill="${apCor(d ? d.pct : 0)}" data-uf="${uf}" class="${sa.sel.has(uf) ? 'sel' : ''}"><title>${saEsc(AP_UFS[uf])}: ${d ? saPct(d.pct) + ' apurado' : 'sem dados'}</title></path>`;
+    return `<path d="${m.uf[uf]}" fill="${apCor(d ? d.pct : 0)}" data-uf="${uf}" class="${sa.sel.has(uf) ? 'sel' : ''}"><title>${saEsc(AP_UFS[uf])}: ${d ? saPct(d.pct) + ' apurado' + (d.retotalizando ? ' · em retotalização no TSE' : '') : 'sem dados'}</title></path>`;
   }).join('');
   const rot = Object.keys(m.centro).map(uf => {
     const d = sa.dados[uf], [x, y] = m.centro[uf];
     const el = d && !saCargo().nacional ? d.candidatos.filter(c => saDoPartido(c) && saEleitoOuProj(c)).length : 0;
     const peq = ['df', 'se', 'al', 'rn', 'pb', 'es', 'rj'].includes(uf);
-    return `<g class="rot${peq ? ' peq' : ''}"><text x="${x}" y="${y - 2}">${uf.toUpperCase()}</text><text x="${x}" y="${y + 9}" class="pct">${d ? Math.floor(d.pct) + '%' : '–'}</text>`
+    return `<g class="rot${peq ? ' peq' : ''}"><text x="${x}" y="${y - 2}">${uf.toUpperCase()}</text><text x="${x}" y="${y + 9}" class="pct">${d ? (d.retotalizando ? '↻' : Math.floor(d.pct) + '%') : '–'}</text>`
       + (el ? `<circle cx="${x + 13}" cy="${y - 6}" r="6.5"></circle><text x="${x + 13}" y="${y - 3.2}" class="el">${el}</text>` : '') + '</g>';
   }).join('');
   const leg = saCargo().nacional ? '' : `<span class="bola">n</span> eleitos/projetados (${saEsc(saPartidoNome())})`;
@@ -187,9 +187,10 @@ function saBlocoUF(d) {
   const meta = [d.majoritario ? '' : `${d.vagasUF} vagas`, d.quociente ? `quociente ${saFmt(d.quociente)}` : '', d.validos ? `${saFmt(d.validos)} votos válidos` : '',
     p && !d.majoritario ? `${saEsc(p.sigla)}: ${saFmt(p.total)} votos (${saFmt(p.nominais)} nominais + ${saFmt(p.legenda)} legenda) · ${p.vagas} vaga(s)${p.federacao ? ' na ' + saEsc(p.federacao) : ''}` : '',
     `TSE ${saEsc(d.atualizado || '—')}`].filter(Boolean).join(' · ');
-  return `<div class="uf${sa.sel.has(d.uf) ? ' sel' : ''}">
+  return `<div class="uf${sa.sel.has(d.uf) ? ' sel' : ''}${d.retotalizando ? ' retot-uf' : ''}">
     <div class="uf-cab"><b>${saEsc(d.nome)}</b> <span class="sigla">${d.uf === 'br' ? '' : d.uf.toUpperCase()}</span><span class="uf-pct">${saPct(d.pct)} das seções apuradas${d.final ? ' · <b>final</b>' : ''}</span>
-      ${sa.falhas[d.uf] ? '<span class="aviso">sem resposta na última leitura</span>' : ''}</div>
+      ${sa.falhas[d.uf] ? '<span class="aviso">sem resposta na última leitura</span>' : ''}
+      ${d.retotalizando ? '<span class="aviso">⚠ em retotalização no TSE — eleitos ainda não marcados</span>' : ''}</div>
     <div class="barra"><i style="width:${Math.min(100, d.pct)}%"></i></div>
     <div class="uf-meta">${meta}</div>
     ${!cands.length ? `<div class="vazio">${sa.partido ? saEsc(saPartidoNome()) + ' não tem candidato(a) a ' + saEsc(saCargo().nome.toLowerCase()) + ' aqui.' : 'Sem candidatos.'}</div>`
@@ -215,7 +216,8 @@ function saClausulaDados() {
   const ufs = Object.keys(AP_UFS).map(uf => sa.dados[uf]).filter(Boolean);
   const regra = apClausulaRegra(saOp().ano);
   const l = ufs.length && regra ? apClausula(ufs, regra) : [];
-  return { ufs, l, regra, fora: l.filter(x => !x.atinge), pend: ufs.filter(d => !d.final).map(d => d.uf.toUpperCase()) };
+  return { ufs, l, regra, fora: l.filter(x => !x.atinge), pend: ufs.filter(d => !d.final && !d.retotalizando).map(d => d.uf.toUpperCase()),
+    retot: ufs.filter(d => d.retotalizando).map(d => d.uf.toUpperCase()) };
 }
 function saPctF(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'; }
 function saClNome(x) { return `<b>${saEsc(x.nome)}</b>${x.federacao ? ` <span class="num">(${saEsc(x.siglas.join(', '))})</span>` : ''}`; }
@@ -226,7 +228,8 @@ function saClRegra(R) {
 }
 function saClAviso(cd) {
   return (cd.ufs.length < 27 ? `Só ${cd.ufs.length} de 27 estados lidos — resultado parcial. ` : '')
-    + (cd.pend.length ? `Totalização do TSE pendente em ${saEsc(cd.pend.join(', '))}: os eleitos dali entram por projeção (mais votados dentro das vagas do partido/federação).` : '');
+    + (cd.pend.length ? `Totalização do TSE pendente em ${saEsc(cd.pend.join(', '))}: os eleitos dali entram por projeção (mais votados dentro das vagas do partido/federação). ` : '')
+    + (cd.retot.length ? `Em retotalização no TSE: ${saEsc(cd.retot.join(', '))} — sem vagas nem eleitos marcados até o TSE concluir, os eleitos dali não entram na contagem de eleitos (os votos entram).` : '');
 }
 // Os três números da cláusula, cada um com o mínimo exigido.
 function saClNumeros(x, R) {
@@ -329,9 +332,12 @@ function saRender() {
   const eleitos = fontes.reduce((s, d) => s + d.candidatos.filter(x => saDoPartido(x) && saEleitoOuProj(x)).length, 0);
   const onde = sa.sel.size ? [...sa.sel].map(u => u.toUpperCase()).join(', ') : 'Brasil';
   const card = (v, l, cls) => `<div class="card ${cls || ''}"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  const retot = c.nacional ? [] : escopo.filter(d => d.retotalizando);
+  saRetotAviso(retot);
   saEl('saCards').innerHTML = card(saPct(secoes ? 100 * apuradas / secoes : 0), `seções apuradas — ${saEsc(onde)}`, 'ama')
     + card(saFmt(votos), `votos nominais — ${saEsc(saPartidoNome())}`, 'ver')
-    + card(eleitos, c.nacional || c.cargo === 3 || c.cargo === 5 ? 'à frente / eleitos' : 'eleitos + projetados', 'ver')
+    + card(eleitos, (c.nacional || c.cargo === 3 || c.cargo === 5 ? 'à frente / eleitos' : 'eleitos + projetados')
+      + (retot.length ? ` <span class="aviso">— sem ${saEsc(retot.map(d => d.uf.toUpperCase()).join(', '))} (retotalização)</span>` : ''), 'ver')
     + card(`${escopo.filter(d => d.final || d.pct >= 100).length}/${escopo.length || (sa.sel.size || 27)}`, 'estados com 100% apurado');
   saEl('saMapa').innerHTML = saMapa();
   saEl('saSel').innerHTML = sa.sel.size
@@ -359,6 +365,23 @@ function saRender() {
     saEl('saLista').innerHTML = blocos.map(saBlocoUF).join('') || '<div class="vazio grande">Nenhum candidato com esse filtro.</div>';
   }
   saStatus();
+}
+
+/** Aviso no topo: estados em retotalização no TSE (qualquer UF, qualquer cargo). */
+function saRetotAviso(retot) {
+  const el = saEl('saRetot');
+  if (!el) return;
+  el.hidden = !retot.length;
+  if (!retot.length) { el.innerHTML = ''; return; }
+  const nomes = retot.map(d => `<b>${saEsc(d.nome)}</b> (desde ${saEsc(d.atualizado || '—')})`).join(', ');
+  const um = retot.length === 1;
+  const votos = sa.partido ? retot.map(d => {
+    const p = d.partidos.find(x => x.numero === sa.partido);
+    return p ? `${d.uf.toUpperCase()}: ${saFmt(p.total)} votos do ${saEsc(p.sigla)}` : '';
+  }).filter(Boolean).join(' · ') : '';
+  el.innerHTML = `<b class="t">⚠ ${um ? 'Estado' : 'Estados'} em retotalização no TSE:</b> ${nomes}. Enquanto retotaliza, o TSE publica ${um ? 'o estado' : 'os estados'}
+    sem vagas e sem nenhum eleito marcado — por isso os eleitos dali não aparecem nas contagens desta tela (nem por projeção).
+    Os números voltam sozinhos quando o TSE concluir; o resultado pode mudar.${votos ? ` <span class="num">${votos}</span>` : ''}`;
 }
 
 // ---------- início ----------
