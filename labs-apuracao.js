@@ -1,15 +1,17 @@
 'use strict';
-// Apuração 2026 — leitura da divulgação oficial do TSE (resultados.tse.jus.br).
+// Apuração — leitura da divulgação oficial do TSE (resultados.tse.jus.br).
 //
 // Funções puras compartilhadas pela aba Apuração do Labs e pelo site
-// (apuracao/): endereço de cada arquivo por UF e cargo, código da eleição lido
-// da configuração do TSE (com os códigos de 2026 conferidos em 03/10 como
-// reserva), leitura de todos os partidos e candidatos com a projeção de eleitos
-// e a cor do mapa. A tela fica em apuracao/apuracao-site.js.
+// (apuracao/): as eleições gerais e turnos que o TSE publica (lidos da
+// configuração dele, com 2026 1º turno conferido em 03/10 como reserva),
+// endereço de cada arquivo por UF e cargo, leitura de todos os partidos e
+// candidatos com a projeção de eleitos, cláusula de barreira do ano e a cor do
+// mapa. A tela fica em apuracao/apuracao-site.js.
 
 const AP_BASE = 'https://resultados.tse.jus.br/oficial';
-const AP_CICLO = 'ele2026';
+const AP_CICLO = 'ele2026';         // reserva, se a configuração do TSE não carregar
 const AP_ELEICAO_PADRAO = '6259';   // Eleição Ordinária Estadual 2026, 1º turno (conferido em 03/10/2026)
+const AP_CARGOS_GERAIS = [1, 3, 5, 6, 7, 8];   // Presidente, Governador, Senador, Dep. Federal, Estadual, Distrital
 const AP_CARGO = 6;                 // Deputado Federal
 const AP_INTERVALO = 30000;
 const AP_UFS = { ac: 'Acre', al: 'Alagoas', am: 'Amazonas', ap: 'Amapá', ba: 'Bahia', ce: 'Ceará', df: 'Distrito Federal', es: 'Espírito Santo',
@@ -19,17 +21,64 @@ const AP_UFS = { ac: 'Acre', al: 'Alagoas', am: 'Amazonas', ap: 'Amapá', ba: 'B
 
 function apNum(s) { const n = parseFloat(String(s == null ? '' : s).replace(/\./g, '').replace(',', '.')); return isNaN(n) ? 0 : n; }
 
-/** Código da eleição (1º turno) que tem o cargo, pela configuração do TSE. Pura. */
-function apEleicaoDaConfig(cfg, cargo = AP_CARGO) {
-  const pl = ((cfg && cfg.pl) || []).find(p => p.c === AP_CICLO);
-  if (!pl) return null;
-  const e = (pl.e || []).find(x => (x.abr || []).some(a => (a.cp || []).some(c => +c.cd === +cargo)) && String(x.t) === '1');
-  return e ? String(e.cd) : null;
+/**
+ * Eleições GERAIS publicadas na configuração do TSE (ele-c.json), uma opção
+ * por pleito e turno, da mais recente para a mais antiga. Só as ordinárias
+ * federal (tp 8) e estadual (tp 1): ficam de fora municipais, suplementares e
+ * consultas. Cada opção traz, por cargo, o código
+ * da eleição e as UFs com arquivo (null = todas; no 2º turno de governador, só
+ * as UFs que têm 2º turno). O 2º turno ainda não publicado entra pelo código
+ * que o TSE já reserva no 1º (cdt2), quando a data do 1º turno já passou —
+ * assim o painel acompanha o 2º turno desde a primeira divulgação. Pura.
+ */
+function apEleicoesGerais(cfg, hoje = new Date()) {
+  const data = s => { const m = /(\d+)\/(\d+)\/(\d+)/.exec(s || ''); return m ? new Date(+m[3], m[2] - 1, +m[1]) : null; };
+  const ops = [], vistos = new Set();
+  for (const pl of (cfg && cfg.pl) || []) {
+    const op = { id: '', ciclo: pl.c, ano: +String(pl.c).replace(/\D/g, '') || 0, data: pl.dt || '', turno: 0, cargos: {} };
+    for (const e of pl.e || []) {
+      if (!['1', '8'].includes(String(e.tp))) continue;
+      for (const a of e.abr || []) for (const cp of a.cp || []) {
+        const cd = +cp.cd;
+        if (!AP_CARGOS_GERAIS.includes(cd)) continue;
+        op.turno = +e.t || 1;
+        const c = op.cargos[cd] = op.cargos[cd] || { eleicao: String(e.cd), ufs: [] };
+        if (a.cd === 'br') c.ufs = null; else if (c.ufs) c.ufs.push(a.cd);
+        if (e.cdt2) op.cdt2 = Object.assign(op.cdt2 || {}, { [cd]: String(e.cdt2) });
+      }
+    }
+    if (!Object.keys(op.cargos).length) continue;
+    op.id = `${pl.c}-${op.turno}-${pl.cd}`;
+    vistos.add(`${pl.c}-${op.turno}`);
+    ops.push(op);
+  }
+  // 2º turno ainda não publicado: só Presidente e Governador vão a 2º turno.
+  for (const op of ops.slice()) {
+    if (op.turno !== 1 || !op.cdt2 || vistos.has(`${op.ciclo}-2`)) continue;
+    const d1 = data(op.data);
+    if (!d1 || hoje < d1) continue;
+    const cargos = {};
+    for (const cd of [1, 3]) if (op.cdt2[cd]) cargos[cd] = { eleicao: op.cdt2[cd], ufs: null };
+    if (Object.keys(cargos).length) ops.push({ id: `${op.ciclo}-2-previsto`, ciclo: op.ciclo, ano: op.ano, data: '', turno: 2, cargos, previsto: true });
+  }
+  for (const op of ops) delete op.cdt2;
+  const chave = op => (data(op.data) || new Date(op.ano, 11, 31)).getTime() + op.turno;
+  return ops.sort((a, b) => chave(b) - chave(a));
 }
 
-function apUrl(uf, eleicao = AP_ELEICAO_PADRAO, cargo = AP_CARGO) {
+/** A opção que o painel abre: a mais recente já publicada (o 2º turno previsto só quando escolhido). */
+function apEleicaoInicial(ops) { return ops.find(o => !o.previsto) || ops[0] || apEleicaoReserva(); }
+
+/** Reserva, se a configuração do TSE não carregar: 2026, 1º turno (códigos conferidos em 03/10/2026). */
+function apEleicaoReserva() {
+  return { id: 'ele2026-1-3220', ciclo: AP_CICLO, ano: 2026, data: '04/10/2026', turno: 1, cargos: {
+    1: { eleicao: '6257', ufs: null }, 3: { eleicao: AP_ELEICAO_PADRAO, ufs: null }, 5: { eleicao: AP_ELEICAO_PADRAO, ufs: null },
+    6: { eleicao: AP_ELEICAO_PADRAO, ufs: null }, 7: { eleicao: AP_ELEICAO_PADRAO, ufs: null }, 8: { eleicao: AP_ELEICAO_PADRAO, ufs: null } } };
+}
+
+function apUrl(uf, eleicao = AP_ELEICAO_PADRAO, cargo = AP_CARGO, ciclo = AP_CICLO) {
   const c = String(cargo).padStart(4, '0'), e = String(eleicao).padStart(6, '0');
-  return `${AP_BASE}/${AP_CICLO}/${eleicao}/dados/${uf}/${uf}-c${c}-e${e}-u.json`;
+  return `${AP_BASE}/${ciclo}/${eleicao}/dados/${uf}/${uf}-c${c}-e${e}-u.json`;
 }
 
 /** Candidato eleito? O TSE marca "e":"s" e/ou descreve na situação ("Eleito por QP", "Eleito por média"…). */
@@ -76,16 +125,32 @@ function apLerUFTodos(j, uf) {
 }
 
 /**
- * Cláusula de desempenho (barreira) de 2026 — EC 97/2017, art. 3º, parágrafo
- * único, III: o partido atinge se, para a Câmara, (a) tiver 2,5% dos votos
- * válidos do país, distribuídos em pelo menos 1/3 das UFs (9) com no mínimo
- * 1,5% dos válidos em cada uma; OU (b) eleger 13 deputados federais em pelo
- * menos 9 UFs. A federação conta como um partido só (Lei 14.208/2021).
- * Recebe as UFs lidas por apLerUFTodos (Deputado Federal). Conta como eleito o
- * oficial e o projetado. Pura.
+ * Cláusula de desempenho (barreira) — EC 97/2017, art. 3º, parágrafo único
+ * (transição até 2030) e art. 17, § 3º, da Constituição (a partir de 2030): o
+ * partido atinge se, para a Câmara, (a) tiver pctBR% dos votos válidos do país,
+ * distribuídos em pelo menos 1/3 das UFs (9) com no mínimo pctUF% em cada uma;
+ * OU (b) eleger `eleitos` deputados federais em pelo menos 9 UFs. A federação
+ * conta como um partido só (Lei 14.208/2021, a partir de 2022).
  */
-const AP_CLAUSULA = { pctBR: 2.5, pctUF: 1.5, ufs: 9, eleitos: 13 };
-function apClausula(ufs) {
+const AP_CLAUSULA_ANOS = {
+  2018: { pctBR: 1.5, pctUF: 1, ufs: 9, eleitos: 9, base: 'EC 97/2017, art. 3º, parágrafo único, I' },
+  2022: { pctBR: 2, pctUF: 1, ufs: 9, eleitos: 11, base: 'EC 97/2017, art. 3º, parágrafo único, II' },
+  2026: { pctBR: 2.5, pctUF: 1.5, ufs: 9, eleitos: 13, base: 'EC 97/2017, art. 3º, parágrafo único, III' },
+  2030: { pctBR: 3, pctUF: 2, ufs: 9, eleitos: 15, base: 'Constituição, art. 17, § 3º (redação da EC 97/2017)' },
+};
+/** Regra da cláusula para o ano da eleição (null antes de 2018, quando não havia). Pura. */
+function apClausulaRegra(ano) {
+  const anos = Object.keys(AP_CLAUSULA_ANOS).map(Number).filter(a => a <= ano);
+  return anos.length ? Object.assign({ ano }, AP_CLAUSULA_ANOS[Math.max(...anos)]) : null;
+}
+const AP_CLAUSULA = apClausulaRegra(2026);
+
+/**
+ * Aplica a cláusula às UFs lidas por apLerUFTodos (Deputado Federal). Conta
+ * como eleito o oficial e o projetado. Pura.
+ */
+function apClausula(ufs, regra = AP_CLAUSULA) {
+  const R = regra;
   const g = {};
   let validosBR = 0;
   const grupo = p => p.federacao || p.sigla;
@@ -109,13 +174,13 @@ function apClausula(ufs) {
   return Object.values(g).map(x => {
     const pct = validosBR ? 100 * x.votos / validosBR : 0;
     x.ufs.sort((a, b) => b.pct - a.pct);
-    const ufsMin = x.ufs.filter(u => u.pct >= AP_CLAUSULA.pctUF);
+    const ufsMin = x.ufs.filter(u => u.pct >= R.pctUF);
     const ufsEleitos = new Set(x.eleitos.map(c => c.uf)).size;
-    const atingeA = pct >= AP_CLAUSULA.pctBR && ufsMin.length >= AP_CLAUSULA.ufs;
-    const atingeB = x.eleitos.length >= AP_CLAUSULA.eleitos && ufsEleitos >= AP_CLAUSULA.ufs;
+    const atingeA = pct >= R.pctBR && ufsMin.length >= R.ufs;
+    const atingeB = x.eleitos.length >= R.eleitos && ufsEleitos >= R.ufs;
     x.eleitos.sort((a, b) => a.uf.localeCompare(b.uf) || b.votos - a.votos);
     // A UF que faltava, quando o partido passou dos 2,5% mas não das 9 UFs.
-    const proxima = pct >= AP_CLAUSULA.pctBR && ufsMin.length < AP_CLAUSULA.ufs ? x.ufs[ufsMin.length] || null : null;
+    const proxima = pct >= R.pctBR && ufsMin.length < R.ufs ? x.ufs[ufsMin.length] || null : null;
     return Object.assign(x, { pct, ufsMin: ufsMin.length, ufsEleitos, atingeA, atingeB, atinge: atingeA || atingeB,
       projetados: x.eleitos.filter(c => !c.eleito).length, proxima });
   }).sort((a, b) => b.votos - a.votos);
@@ -129,5 +194,5 @@ function apCor(pct) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicaoDaConfig, apUrl, apLerUFTodos, apClausula, AP_CLAUSULA, apEleito, apCor, apNum };
+  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apCor, apNum };
 }
