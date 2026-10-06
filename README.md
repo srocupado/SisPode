@@ -565,6 +565,12 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
 - Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas)
 
+**Perfil da Bancada**
+- Quem o partido lançou e quem elegeu em **2022 e 2026**, por cargo (deputado federal, estadual e distrital, senador), com os recortes: **gênero**, **cor/raça** (e pessoas negras = pretas + pardas), **faixa etária** (idade na data da eleição), **escolaridade**, **região**, **ocupação declarada** e a **trajetória dos eleitos de 2026** (reeleitos pelo partido, com mandato por outro partido, vindos de outro cargo eletivo, que concorreram em 2022 sem se eleger, estreantes)
+- Cada recorte mostra eleitos, candidaturas e — se processados — votos, com a fatia de cada categoria; cartões de capa e a lista dos eleitos com o perfil de cada um
+- **Um clique** baixa do TSE o cadastro de candidaturas (~4 MB) e, opcionalmente, os votos por município de todos os estados (por Range), processa no navegador e grava em `/labs/perfil/{ano}` só ao confirmar. **CPF, e-mail e título de eleitor do cadastro não são lidos nem gravados**; o nome civil serve só para casar a trajetória e não é gravado
+- **Relatório em PDF** por cargo, com a logo do Podemos e as notas de método
+
 ---
 
 ## Instalação
@@ -638,6 +644,8 @@ sispode/
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
 ├── labs-mapa-relatorio.js         # Labs · Mapa Territorial: relatório do deputado em PDF
+├── labs-perfil-nucleo.js          # Labs · Perfil da Bancada: leitura do cadastro do TSE, recortes e trajetória (puro)
+├── labs-perfil.js                 # Labs · Perfil da Bancada: tela, download com um clique e relatório em PDF
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)

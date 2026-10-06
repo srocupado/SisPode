@@ -200,7 +200,7 @@ function lpRelatorioHtml(porAno, grupo, op = {}) {
   .lp-caixa { break-inside: avoid; margin: 0 0 8px; } .lp-caixa h3 { font-size: 11pt; color: var(--verde-esc); margin: 10px 0 4px; padding-bottom: 2px; border-bottom: 2px solid var(--verde); }
   .lp-tab { width: 100%; border-collapse: collapse; } .lp-tab td, .lp-tab th { border-bottom: 1px solid var(--grade); padding: 2.5px 5px; text-align: left; font-size: 8.5pt; }
   .lp-tab th { background: #f2f6f3; color: var(--verde-esc); font-size: 7.8pt; } .lp-tab tr { break-inside: avoid; } .lp-tab tr.tot td { font-weight: 700; border-top: 1px solid #b8c4cc; }
-  .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } .p { color: var(--tinta2); font-size: 7.5pt; }
+  .lp-tab .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; } .p { color: var(--tinta2); font-size: 7.5pt; }
   .barras { width: 22%; } .lp-barras i { display: block; height: 5px; border-radius: 2px; margin: 1px 0; } .lp-b0 { background: #9fc6e0; } .lp-b1 { background: #0B8A4B; }
   .legenda { font-size: 8pt; color: var(--tinta2); margin: 2px 0 6px; } .legenda i { display: inline-block; width: 12px; height: 6px; border-radius: 2px; margin: 0 3px 0 8px; }
   .lp-lista { break-before: page; } .lp-lista td { font-size: 8pt; }
