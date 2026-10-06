@@ -753,6 +753,262 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   document.getElementById('smNumero').value = ''; document.getElementById('smAno').value = '';
   ctx.fetch = fL;
 
+  // ---------- 12. Mapa Territorial: eleição de 2026 (bancada eleita, comparação, 1 clique) ----------
+  console.log('12. Mapa Territorial — 2026');
+  {
+    const CAB26 = '"SG_UF";"CD_MUNICIPIO";"NM_MUNICIPIO";"CD_CARGO";"SQ_CANDIDATO";"NR_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"SG_PARTIDO";"QT_VOTOS_NOMINAIS_VALIDOS";"DS_SIT_TOT_TURNO"';
+    const l26 = (mun, nome, sq, nr, civ, urna, part, v, sit, cargo = '6') => `"SP";"${mun}";"${nome}";"${cargo}";"${sq}";"${nr}";"${civ}";"${urna}";"${part}";"${v}";"${sit}"`;
+    const CSV26 = [CAB26,
+      l26('71072', 'SÃO PAULO', '111', '2020', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 900, 'ELEITO POR QP'),
+      l26('62910', 'MOJI MIRIM', '111', '2020', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 600, 'ELEITO POR QP'),
+      l26('71072', 'SÃO PAULO', '112', '2021', 'JOAO SUPLENTE', 'JOAO', 'PODE', 300, 'SUPLENTE'),
+      l26('71072', 'SÃO PAULO', '113', '2022', 'NAO ELEITO DE TAL', 'NAO ELEITO', 'PODE', 10, 'NÃO ELEITO'),
+      l26('71072', 'SÃO PAULO', '999', '1313', 'OUTRO CANDIDATO', 'OUTRO', 'PT', 5000, 'ELEITO POR QP'),
+      l26('71072', 'SÃO PAULO', '111', '20200', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 77777, 'ELEITO', '7')];
+    const CSV22 = [CAB26,
+      l26('71072', 'SÃO PAULO', '501', '1500', 'MARIA DA SILVA SOUZA', 'MARIA DO BAIRRO', 'MDB', 1200, 'ELEITO POR MÉDIA'),
+      l26('71072', 'SÃO PAULO', '502', '1313', 'OUTRO CANDIDATO', 'OUTRO', 'PT', 4000, 'ELEITO POR QP')];
+    const a26 = N.lmnAgregador([], { eleitosDoPartido: 'PODE' });
+    a26.novoArquivo(); CSV26.forEach(l => a26.linha(l));
+    const r26 = a26.resultado();
+    const m = r26.deputados.tse111;
+    ok(Object.keys(r26.deputados).join() === 'tse111' && m.total === 1500 && m.nome === 'Maria Souza' && m.nomeCivil === 'MARIA DA SILVA SOUZA' && m.situacao === 'ELEITO POR QP' && m.numero === '2020',
+      '2026: a bancada sai do arquivo — só os ELEITOS do PODE (suplente, "não eleito", outro partido e outro cargo ficam de fora)');
+    ok(r26.municipios['71072'].t === 6210, 'totais do município contam todos os candidatos a deputado federal');
+    let semSit = ''; try { const x = N.lmnAgregador([], { eleitosDoPartido: 'PODE' }); x.novoArquivo(); x.linha(CAB); } catch (e) { semSit = e.message; }
+    ok(/DS_SIT_TOT_TURNO/.test(semSit), 'arquivo sem a situação dos candidatos: erro claro (não dá para saber quem foi eleito)');
+    const a22 = N.lmnAgregador(N.lmnAlvosAnterior(r26.deputados));
+    a22.novoArquivo(); CSV22.forEach(l => a22.linha(l));
+    const reg26 = N.lmnParaIbge(r26, { SP: IBGE_SP });
+    N.lmnAnexarAnterior(reg26, N.lmnParaIbge(a22.resultado(), { SP: IBGE_SP }), '2022');
+    const ant = reg26.deputados.tse111.anterior;
+    ok(ant && ant.total === 1200 && ant.partido === 'MDB' && ant.nomeUrna === 'MARIA DO BAIRRO' && ant.municipios.m3550308 === 1200,
+      'comparação: a mesma pessoa em 2022 pelo nome civil, mesmo com outro partido e outro nome de urna');
+    const v = N.lmnVariacao(reg26.deputados.tse111.municipios, ant.municipios);
+    ok(v.length === 2 && v[0].k === 'm3530805' && v[0].d === 600 && v[1].k === 'm3550308' && v[1].d === -300, 'variação por município: do maior ganho à maior perda');
+    ok(N.lmnNomeProprio('DR. JAIME GAZOLA') === 'Dr. Jaime Gazola' && N.lmnNomeProprio('DA COSTA DO PERDEU PIÁ') === 'Da Costa do Perdeu Piá', 'nome de urna para exibir: "Dr.", "do"/"da" no meio');
+    ok(av(`mpVarPct(1200, 900)`) === '−25%' && av(`mpVarPct(400, 600)`) === '+50%' && av(`mpVarPct(0, 50)`) === 'novo', 'variação em %: queda, alta e município sem voto na eleição anterior');
+    ok(N.LMN_ANOS[0] === '2026' && N.lmnBancadaDoArquivo('2026') && !N.lmnBancadaDoArquivo('2022'), '2026 é a eleição padrão; 2022 continua pela bancada da Câmara');
+
+    // Tela: mapa com a comparação e o modo ganho/perda.
+    ctx.__d26 = Object.assign({ nome: 'Maria Souza', partidoEleicao: 'PODE', nomeUrna: 'MARIA SOUZA', situacao: 'ELEITO POR QP' }, reg26.deputados.tse111);
+    ctx.__reg26 = reg26;
+    av(`mp.modo = 'fatia'; mpRender(__d26, __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    let h = document.getElementById('mpResultado').innerHTML;
+    ok(/votos em 2022 \(MDB\)/.test(h) && /\+25%/.test(h) && /Onde mais ganhou votos/.test(h) && /Onde mais perdeu votos/.test(h) && /ganho\/perda desde 2022/.test(h),
+      'tela: cartão 2022 → 2026 (+25%), onde mais ganhou e perdeu, e o botão do modo ganho/perda');
+    ok(/Sem emendas: se o mandato começa em 2027/.test(h) === false, 'quem já era eleito em 2022 não recebe o aviso de mandato novo');
+    av(`mp.modo = 'variacao'; mpRender(__d26, __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    h = document.getElementById('mpResultado').innerHTML;
+    ok(h.includes('fill="#2b6e4f"') && h.includes('fill="#7a2a2a"') && /perdeu/.test(h), 'modo ganho/perda: verde onde ganhou, vermelho onde perdeu');
+    av(`mp.modo = 'fatia'; mpRender(Object.assign({}, __d26, { anterior: null }), __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    h = document.getElementById('mpResultado').innerHTML;
+    ok(/Não concorreu a deputado federal por SP em 2022/.test(h) && /Sem emendas: se o mandato começa em 2027/.test(h), 'sem 2022: diz que não concorreu, e avisa que deputado novo ainda não tem emendas');
+
+    // Relatório em PDF do deputado: cartões, os dois mapas, as tabelas e as emendas.
+    const rel = av(`mpRelatorioHtml({ dep: __d26, geo: __geo, totais: __reg26.municipios.SP, emendas: { total: 1000, pagoNoAno: 1000, restoPago: 0, n: 1, municipais: { m3550308: 1000 }, nomesMun: {}, outros: { 'MÚLTIPLO': 50 } }, ano: '2026' },
+      { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 6, 14, 5), anoEleicao: '2026' })`);
+    ok(/<h1>Maria Souza \(SP\)<\/h1>/.test(rel) && /Gerado em 06\/10\/2026 14:05/.test(rel) && /<img src="data:image\/png;base64,AA"/.test(rel) && /id="btn-pdf"/.test(rel),
+      'relatório: título, data, logo e botão Salvar em PDF');
+    ok(/Total do município/.test(rel) && rel.includes(`<td class="num">${av(`mpNum(__reg26.municipios.SP.m3550308.t)`)}</td>`), 'relatório: total de votos do município ao lado dos votos do deputado e da fatia');
+    ok((rel.match(/<svg /g) || []).length === 2 && /Ganho e perda de votos desde 2022/.test(rel) && /\+25%/.test(rel) && /−25%/.test(rel) && /\+600/.test(rel),
+      'relatório: mapa da fatia e mapa de ganho/perda, com a variação total (+25%) e por município');
+    ok(/MÚLTIPLO/.test(rel) && /<circle /.test(rel) && /print-color-adjust: exact/.test(rel), 'relatório: emendas (com círculo no mapa e as sem município) e cores preservadas na impressão');
+    const rel2 = av(`mpRelatorioHtml({ dep: Object.assign({}, __d26, { anterior: null }), geo: __geo, totais: __reg26.municipios.SP, emendas: { semChave: true }, ano: '2026' }, { anoEleicao: '2026' })`);
+    ok((rel2.match(/<svg /g) || []).length === 1 && /não concorreu em 2022/.test(rel2) && /sem a chave do Portal/.test(rel2), 'relatório de deputado novo: só o mapa da fatia; diz que não concorreu e que as emendas não foram consultadas');
+
+    // Um clique: índice do zip + só os bytes dos estados, por Range.
+    const zipDe = ents => {
+      const loc = [], cen = []; let off = 0;
+      for (const e of ents) {
+        const nome = Buffer.from(e.nome), dado = zlib.deflateRawSync(e.dado);
+        const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(8, 8); lh.writeUInt32LE(dado.length, 18); lh.writeUInt32LE(e.dado.length, 22); lh.writeUInt16LE(nome.length, 26);
+        const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(8, 10); ch.writeUInt32LE(dado.length, 20); ch.writeUInt32LE(e.dado.length, 24); ch.writeUInt16LE(nome.length, 28); ch.writeUInt32LE(off, 42);
+        loc.push(lh, nome, dado); cen.push(ch, nome); off += 30 + nome.length + dado.length;
+      }
+      const cd = Buffer.concat(cen), eo = Buffer.alloc(22);
+      eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(ents.length, 8); eo.writeUInt16LE(ents.length, 10); eo.writeUInt32LE(cd.length, 12); eo.writeUInt32LE(off, 16);
+      return Buffer.concat([...loc, cd, eo]);
+    };
+    const enorme = Buffer.alloc(200000, 0x41);   // o "BRASIL": não pode ser baixado
+    const zips = {
+      2026: zipDe([{ nome: 'leiame.pdf', dado: Buffer.from('%PDF') }, { nome: 'votacao_candidato_munzona_2026_BRASIL.csv', dado: enorme },
+        { nome: 'votacao_candidato_munzona_2026_SP.csv', dado: Buffer.from(CSV26.join('\n'), 'latin1') }, { nome: 'votacao_candidato_munzona_2026_MG.csv', dado: enorme }]),
+      2022: zipDe([{ nome: 'votacao_candidato_munzona_2022_SP.csv', dado: Buffer.from(CSV22.join('\r\n'), 'latin1') }, { nome: 'votacao_candidato_munzona_2022_RJ.csv', dado: enorme }]),
+    };
+    const pedidos = [];
+    const cfgTse = { pl: [{ cd: '3220', c: 'ele2026', dt: '04/10/2026', e: [{ cd: '6259', cdt2: '6260', t: '1', tp: '1', abr: [{ cd: 'br', cp: [{ cd: '6' }] }] }] }] };
+    const resUf = uf => ({ s: { ts: '1', st: '1', pst: '100,00' }, tf: 's', v: { vv: '1' }, carg: [{ cd: '6', nv: '1', agr: uf !== 'sp' ? [] : [
+      { n: '1', tp: 'i', vag: '1', par: [{ n: '20', sg: 'PODE', cand: [{ n: '2020', nmu: 'MARIA SOUZA', vap: '1500', e: 's', st: 'Eleito por QP' }] }] }] }] });
+    ctx.fetch = async (url, op) => {
+      url = String(url);
+      const m26 = url.match(/munzona_(\d{4})\.zip$/);
+      if (m26) {
+        const z = zips[m26[1]], r = /bytes=(\d+)-(\d+)/.exec((op && op.headers && op.headers.Range) || '');
+        if (!r) return new Response(z, { status: 200 });
+        const ini = +r[1], fim = Math.min(+r[2], z.length - 1);
+        pedidos.push({ ano: m26[1], ini, fim });
+        return new Response(z.subarray(ini, fim + 1), { status: 206, headers: { 'content-range': `bytes ${ini}-${fim}/${z.length}` } });
+      }
+      if (/ele-c\.json/.test(url)) return new Response(JSON.stringify(cfgTse));
+      const u = url.match(/\/dados\/(\w\w)\//); if (u) return new Response(JSON.stringify(resUf(u[1])));
+      if (/localidades\/estados\/SP\/municipios/.test(url)) return new Response(JSON.stringify(IBGE_SP));
+      return new Response('null');
+    };
+    Object.assign(ctx, { DecompressionStream, TransformStream, ReadableStream });
+    let confirmou = '';
+    ctx.confirm = msg => { confirmou = msg; return true; };
+    // linkedom não lê o "checked" inicial da caixa; no Chrome ela vem marcada.
+    Object.defineProperty(document.getElementById('mpComparar'), 'checked', { value: true, configurable: true });
+    await av(`mpBaixarTseClick()`);
+    const proc = av(`mp.processado`);
+    const dep = proc && proc.reg.deputados.tse111;
+    ok(dep && dep.total === 1500 && dep.anterior && dep.anterior.total === 1200 && proc.ano === '2026', '1 clique: lê os eleitos de 2026 e a votação de 2022 pelos arquivos remotos (' + (document.getElementById('mpUpStatus').textContent || 'ok') + ')');
+    ok(/só dos estados SP/.test(confirmou) && /e de 2022 \(comparação\)/.test(confirmou), 'pede confirmação dizendo o tamanho, as eleições e os estados');
+    const baixado = pedidos.reduce((t, p) => t + (p.fim - p.ini + 1), 0);
+    ok(pedidos.length && baixado < (enorme.length / 2) && !pedidos.some(p => p.fim - p.ini + 1 > 70000 && p.fim - p.ini + 1 >= 65557 + 1),
+      `só os pedaços necessários: ${baixado} bytes baixados (BRASIL, MG e RJ, de ${enorme.length} bytes cada, ficaram de fora)`);
+    ok(/Maria Souza/.test(document.getElementById('mpUpResultado').innerHTML) && /1\.200/.test(document.getElementById('mpUpResultado').innerHTML) && /mpGravar/.test(document.getElementById('mpUpResultado').innerHTML),
+      'resumo antes de gravar: deputado, votos de 2022 e o botão de gravar');
+    const zeros = av(`mpUfDaEntrada('votacao_candidato_munzona_2026_BRASIL.csv') === null && mpUfDaEntrada('x_2026_BR.csv') === null && mpUfDaEntrada('x_2026_sp.csv') === 'SP'`);
+    ok(zeros, 'entradas do zip: BRASIL e BR não contam como estado');
+    // Rede instável: um bloco do download falha uma vez e é pedido de novo.
+    const fBase = ctx.fetch;
+    let falhou = 0;
+    ctx.fetch = async (url, op) => {
+      const r = /bytes=(\d+)-(\d+)/.exec((op && op.headers && op.headers.Range) || '');
+      if (r && confirmou && +r[2] - +r[1] > 100 && !falhou) { falhou++; throw new TypeError('Failed to fetch'); }   // já no download dos dados
+      return fBase(url, op);
+    };
+    av(`mp.processado = null`);
+    confirmou = '';
+    await av(`mpBaixarTseClick()`);
+    ok(falhou === 1 && av(`mp.processado && mp.processado.reg.deputados.tse111.total`) === 1500, 'bloco do download que cai é pedido de novo, sem perder o processamento');
+    ctx.fetch = fBase;
+    // Painel de resultados instável: o estado que não responde entra por precaução, em vez de derrubar tudo.
+    const fOk = ctx.fetch;
+    ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    let ufsInst = await av(`mpUfsComEleitos('2026')`);
+    // Totalização reaberta (vagas zeradas, ninguém marcado) com candidato do partido: entra também.
+    ctx.fetch = async (url, op) => /\/dados\/pe\//.test(String(url)) ? new Response(JSON.stringify({ s: { pst: '100,00' }, tf: 'n', carg: [{ cd: '6', nv: '25', agr: [
+      { n: '1', tp: 'i', vag: '0', par: [{ n: '20', sg: 'PODE', cand: [{ n: '2000', nmu: 'X', vap: '100', e: 'n', st: '' }] }] }] }] })) : fOk(url, op);
+    ok((await av(`mpUfsComEleitos('2026')`)).join() === 'PE,SP', 'UF com a totalização reaberta pelo TSE (vagas zeradas) e candidato do partido entra por precaução');
+    ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    ufsInst = await av(`mpUfsComEleitos('2026')`);
+    ok(ufsInst.join() === 'MG,RJ,SP', 'resultado do TSE fora do ar em MG e RJ: entram por precaução (SP pelos eleitos) — ' + ufsInst.join());
+    ctx.fetch = async (url, op) => /\/dados\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    let semTse = ''; try { await av(`mpUfsComEleitos('2026')`); } catch (e) { semTse = e.message; }
+    ok(/não respondeu/.test(semTse), 'TSE todo fora do ar: erro claro');
+    ctx.fetch = fOk;
+  }
+  {
+    const Bm = require(path.join(RAIZ, 'bot', 'src', 'labsmapa.js'));
+    ok(Bm.ANOS_SUPORTADOS[0] === '2026' && Bm.ANOS_SUPORTADOS.includes('2022'), 'bot: /labsmapa aceita 2026 (padrão) e 2022');
+  }
+
+  // ---------- 12b. Emendas "MÚLTIPLO" pelo favorecido ----------
+  console.log('12b. Emendas pelo favorecido');
+  {
+    const N2 = require(path.join(RAIZ, 'labs-mapa-nucleo.js'));
+    const L = N2.lmnLeitorFavorecidos(['Renata Abreu', 'Pr. Marco Feliciano'], ['2026']);
+    ['"Código da Emenda";"Ano da Emenda";"Nome do Autor da Emenda";"Localidade de aplicação do recurso";"Valor Pago"',
+      '"202600010001";"2026";"RENATA ABREU";"MÚLTIPLO";"100,00"',
+      '"202600010002";"2026";"RENATA ABREU";"EMBU - SP";"50,00"',
+      '"202600010003";"2026";"RENATA ABREU";"SÃO PAULO (UF)";"30,00"',
+      '"202500010001";"2025";"RENATA ABREU";"MÚLTIPLO";"999,00"',
+      '"202600020001";"2026";"PR. MARCO FELICIANO";"MÚLTIPLO";"10,00"',
+      '"202600030001";"2026";"OUTRO AUTOR";"MÚLTIPLO";"10,00"'].forEach(l => L.emendas.linha(l));
+    ['"Código da Emenda";"Nome do Autor da Emenda";"Ano/Mês";"Favorecido";"UF Favorecido";"Município Favorecido";"Valor Recebido"',
+      '"202600010001";"RENATA ABREU";"202606";"MUNICIPIO DE CAMPINAS";"SP";"CAMPINAS";"60,00"',
+      '"202600010001";"RENATA ABREU";"202607";"FUNDO MUNICIPAL DE SAUDE";"SP";"CAMPINAS";"20,00"',
+      '"202600010001";"RENATA ABREU";"202607";"FULANO";"";"";"20,00"',
+      '"202600010002";"RENATA ABREU";"202606";"MUNICIPIO DE EMBU DAS ARTES";"SP";"EMBU";"50,00"',
+      '"202600010003";"RENATA ABREU";"202606";"SANTA CASA";"SP";"SOROCABA";"30,00"',
+      '"202500010001";"RENATA ABREU";"202606";"X";"SP";"LEME";"999,00"',
+      '"202600020001";"PR. MARCO FELICIANO";"202606";"Y";"SP";"GUARULHOS";"10,00"',
+      '"202600030001";"OUTRO AUTOR";"202606";"Z";"SP";"LEME";"10,00"'].forEach(l => L.favorecidos.linha(l));
+    const r = L.resultado(), ra = r['RENATA ABREU'] && r['RENATA ABREU']['2026'];
+    ok(ra && ra.total === 130 && ra.mun['CAMPINAS - SP'] === 80 && ra.mun['SOROCABA - SP'] === 30 && ra.mun['FAVORECIDO SEM MUNICÍPIO'] === 20 && !ra.mun['EMBU - SP'],
+      'favorecido: só emendas sem município (MÚLTIPLO e UF) do autor e do ano; pessoa física fica "sem município"');
+    ok(!r['OUTRO AUTOR'] && !r['RENATA ABREU']['2025'] && r['PR  MARCO FELICIANO']['2026'].total === 10 && L.emendasSemMunicipio() === 3, 'favorecido: outros autores e anos não entram; chave do autor segura para o banco');
+    let erro = ''; try { N2.lmnLeitorFavorecidos(['A'], ['2026']).favorecidos.linha('"A";"B"'); } catch (e) { erro = e.message; }
+    ok(/Faltam colunas/.test(erro), 'favorecido: arquivo fora do formato dá erro claro');
+    const res = n => ({ CAMPINAS: 'C', SOROCABA: 'S' })[n] || null;
+    const ag = { total: 180, municipais: { mE: 50 }, nomesMun: { mE: 'EMBU - SP' }, outros: { 'MÚLTIPLO': 100, 'SÃO PAULO (UF)': 30 } };
+    const d = N2.lmnRedistribuir(ag, ra, res);
+    ok(d.municipais.mC === 80 && d.municipais.mS === 30 && d.municipais.mE === 50 && d.viaFavorecido === 110 && d.outros['FAVORECIDO SEM MUNICÍPIO'] === 20 && !d.outros['MÚLTIPLO'] && ag.outros['MÚLTIPLO'] === 100,
+      'redistribuição: MÚLTIPLO e UF viram municípios pelo favorecido, sem mexer no agregado original');
+    const meio = N2.lmnRedistribuir({ total: 260, municipais: {}, nomesMun: {}, outros: { 'MÚLTIPLO': 260 } }, ra, res);
+    ok(Math.abs(meio.outros['MÚLTIPLO'] - 130) < 1e-9 && meio.municipais.mC === 80 && Math.abs(Object.values(meio.municipais).reduce((x, y) => x + y, 0) + Object.values(meio.outros).reduce((x, y) => x + y, 0) - 260) < 1e-6,
+      'redistribuição: arquivo do Portal atrás da API — o que ele não cobre continua "MÚLTIPLO", e o total fecha');
+    const mais = N2.lmnRedistribuir({ total: 65, municipais: {}, nomesMun: {}, outros: { 'MÚLTIPLO': 65 } }, ra, res);
+    ok(mais.municipais.mC === 40 && !mais.outros['MÚLTIPLO'], 'redistribuição: favorecido somando mais que o agregado é ajustado à soma do agregado');
+    ok(N2.lmnRedistribuir(ag, null, res) === ag, 'sem dado do favorecido: agregado intacto');
+  }
+
+  // ---------- 13. Perfil da Bancada ----------
+  console.log('13. Perfil da Bancada');
+  {
+    const P = require(path.join(RAIZ, 'labs-perfil-nucleo.js'));
+    const CAB = '"DT_GERACAO";"DT_ELEICAO";"NR_TURNO";"SG_UF";"CD_CARGO";"DS_CARGO";"SQ_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"NR_CPF_CANDIDATO";"DS_EMAIL";"SG_PARTIDO";"DT_NASCIMENTO";"DS_GENERO";"DS_GRAU_INSTRUCAO";"DS_COR_RACA";"DS_OCUPACAO";"DS_SIT_TOT_TURNO"';
+    const L = (dtE, t, uf, cd, ds, sq, civ, urna, part, nasc, gen, esc, raca, ocup, sit) => `"05/10/2026";"${dtE}";"${t}";"${uf}";"${cd}";"${ds}";"${sq}";"${civ}";"${urna}";"12345678900";"x@y.z";"${part}";"${nasc}";"${gen}";"${esc}";"${raca}";"${ocup}";"${sit}"`;
+    const C26 = [CAB,
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '1', 'ANA SOUZA', 'ANA DO POVO', 'PODE', '05/10/1980', 'FEMININO', 'SUPERIOR COMPLETO', 'PARDA', 'ADVOGADO', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '2', 'BRUNO LIMA', 'BRUNO', 'PODE', '04/10/1996', 'MASCULINO', 'ENSINO MÉDIO COMPLETO', 'BRANCA', 'EMPRESÁRIO', 'ELEITO POR MÉDIA'),
+      L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '3', 'CARLA DIAS', 'CARLA', 'PODE', '01/01/1960', 'FEMININO', 'SUPERIOR COMPLETO', 'PRETA', 'MÉDICO', 'SUPLENTE'),
+      L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '4', 'DIEGO NOVO', 'DIEGO', 'PODE', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '5', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '9', 'OUTRO PARTIDO', 'OUTRO', 'PT', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'X', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'RS', '6', 'DEPUTADO FEDERAL', '11', 'FABIANA REIS', 'FABI', 'PL', '01/01/1985', 'FEMININO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP')];
+    const C22 = [CAB,
+      L('02/10/2022', 1, 'SP', '7', 'DEPUTADO ESTADUAL', '101', 'ANA SOUZA', 'ANA SOUZA', 'MDB', '05/10/1980', 'FEMININO', 'SUPERIOR COMPLETO', 'PARDA', 'ADVOGADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'MG', '6', 'DEPUTADO FEDERAL', '104', 'DIEGO NOVO', 'DIEGO', 'PL', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '105', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'SUPLENTE'),
+      L('02/10/2022', 1, 'SP', '6', 'DEPUTADO FEDERAL', '110', 'JOSE ANTIGO', 'JOSE', 'PODE', '01/01/1950', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '106', 'FABIANA REIS', 'FABI', 'PODE', '01/01/1985', 'FEMININO', 'SUPERIOR COMPLETO', 'BRANCA', 'VEREADOR', 'ELEITO POR QP')];
+    const l26 = P.lpnLeitorCadastro('2026'); C26.forEach(x => l26.linha(x)); const c26 = l26.resultado();
+    const l22 = P.lpnLeitorCadastro('2022', 'PODE', P.lpnProcurados(c26)); C22.forEach(x => l22.linha(x)); const c22 = l22.resultado();
+    P.lpnTrajetorias(c26, c22.achados);
+    ok(Object.keys(c26.c).join() === '1,2,3,4,5' && c26.data === '04/10/2026' && c26.gerado === '05/10/2026', 'cadastro: só as candidaturas do partido; data da eleição e de geração do arquivo');
+    ok(c26.c[1].i === 45 && c26.c[2].i === 30 && P.lpnIdade('31/12/2010', '04/10/2026') === null, 'idade completa na data da eleição: aniversário no dia seguinte não conta, no próprio dia conta; data absurda vira "não informada"');
+    ok(c26.c[1].t === 'Veio de outro cargo eletivo' && c26.c[4].t === 'Tinha mandato por outro partido' && c26.c[5].t === 'Concorreu na eleição anterior sem se eleger' && c26.c[2].t === 'Estreante' && !c26.c[3].t,
+      'trajetória dos eleitos: outro cargo, mandato por outro partido, candidatura sem eleição, estreante (suplente não entra)');
+    ok(/Deputado estadual pelo MDB — Eleito por qp/i.test(c26.c[1].ant), 'trajetória: o que a pessoa fez na anterior, por extenso');
+    const l26b = P.lpnLeitorCadastro('2026', 'PODE', P.lpnProcurados(c22)); C26.forEach(x => l26b.linha(x));
+    P.lpnDestinos(c22, l26b.resultado().achados, '2026');
+    ok(/Deputado federal pelo PL — Eleito por qp/i.test(c22.c[106].dest) && /Sem candidatura encontrada em 2026/.test(c22.c[110].dest) && !c22.c[105].dest,
+      'destino dos eleitos da eleição anterior: o que fizeram na atual (suplente não entra)');
+    const b26 = P.lpnParaBanco(c26, { votos: false }), b22 = P.lpnParaBanco(c22, { votos: false });
+    const txt = JSON.stringify(b26);
+    ok(!/12345678900|x@y\.z|ANA SOUZA|civil/.test(txt) && b26.c.s1.n === 'ANA DO POVO', 'gravado no banco: sem CPF, e-mail nem nome civil — só o que os recortes usam');
+    const porAno = { 2022: b22, 2026: b26 };
+    const tg = P.lpnTabela(porAno, 'fed', 'genero');
+    ok(tg[0].cat === 'Mulheres' && tg[0].el.join() === '0,1' && tg[0].cand.join() === '0,2' && tg[1].el.join() === '1,2', 'recorte de gênero no cargo federal: eleitos e candidaturas por eleição');
+    ok(P.lpnTabela(porAno, 'fed', 'raca').map(x => x.cat).join() === 'Branca,Preta,Parda' && P.lpnTabela(porAno, 'est', 'regiao')[0].cat === 'Sul', 'cor/raça na ordem do IBGE; região pela UF');
+    const rs = P.lpnResumo(b26, 'fed');
+    ok(rs.eleitos === 3 && rs.mulheresEl === 1 && rs.negrosEl === 1 && Math.round(rs.idadeMedia) === 44 && rs.estreantes === 1, 'resumo: eleitos, mulheres, pessoas negras (pretas e pardas), idade média, estreantes');
+    let semCol = ''; try { P.lpnLeitorCadastro('2026').linha('"A";"B"'); } catch (e) { semCol = e.message; }
+    ok(/Faltam/.test(semCol), 'arquivo fora do formato do cadastro: erro claro');
+    const sv = P.lpnSomadorVotos(c26);
+    ['"SG_PARTIDO";"NR_TURNO";"SQ_CANDIDATO";"QT_VOTOS_NOMINAIS_VALIDOS"', '"PODE";"1";"1";"100"', '"PODE";"1";"1";"50"', '"PODE";"2";"1";"999"', '"PT";"1";"9";"500"'].forEach(x => sv.linha(x));
+    ok(c26.c[1].v === 150 && sv.linhas() === 2, 'votos: soma por candidatura, só 1º turno e só do partido');
+    // tela e PDF
+    ctx.__porAno = JSON.parse(JSON.stringify(porAno));
+    const h = av(`lpConteudoHtml(__porAno, 'fed')`);
+    ok(/1 → 3/.test(h) && /mulheres eleitas/.test(h) && /De onde vieram os eleitos de 2026/.test(h) && /Ana do Povo/.test(h) && /Estreante/.test(h), 'tela: cartões, recortes, trajetória e lista dos eleitos');
+    const rel = av(`lpRelatorioHtml(__porAno, 'est', { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) })`);
+    ok(/<h1>Deputado\(a\) estadual e distrital<\/h1>/.test(rel) && /Gerado em 07\/10\/2026 09:00/.test(rel) && /id="btn-pdf"/.test(rel) && /print-color-adjust: exact/.test(rel) && /pretas \+ pardas/.test(rel),
+      'relatório em PDF: título do cargo, data, botão Salvar em PDF, cores e notas de método');
+    const mu = av(`lpRelatorioMulheresHtml(__porAno, { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) })`);
+    ok(/Mulheres/.test(mu) && /id="btn-pdf"/.test(mu) && /<svg/.test(mu) && /30%/.test(mu) && /Ana do Povo/.test(mu) && /Fabi/.test(mu) && /Deputado federal pelo PL|Deputada federal pelo PL/i.test(mu),
+      'relatório das mulheres: gráficos com a cota, eleitas da atual com a trajetória e das anteriores com o destino');
+    ok(!/primeira senadora/i.test(mu), 'relatório das mulheres: não afirma "primeira senadora" (não dá para provar só com duas eleições)');
+    const tx = av(`lpmTextos(__porAno)`);
+    ok(tx && tx.resumo.length > 0 && Array.isArray(tx.alertas) && /de <b>0 para 1<\/b>/.test(tx.resumo[0]), 'relatório das mulheres: resumo e alertas gerados dos números');
+    ok(html.includes('id="lpMulheres"') && scripts.indexOf('labs-perfil-mulheres.js') > scripts.indexOf('labs-perfil.js'), 'botão do relatório das mulheres na aba, script depois do Perfil');
+    ok(html.includes('id="aba-perfil"') && scripts.includes('labs-perfil.js') && scripts.indexOf('labs-perfil-nucleo.js') > scripts.indexOf('labs-mapa-nucleo.js'), 'aba Perfil da Bancada registrada, com o núcleo depois do leitor de CSV do Mapa');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

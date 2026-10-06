@@ -95,6 +95,9 @@
     margin: 0 auto;
     padding: 16px;
   }
+  /* As abas do Labs (Simulador e Mapa) usam 2/3 da janela (nunca menos que os
+     820px de antes): mapas e quadros por bancada pedem espaço. */
+  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])), .container:has(#painel-perfil:not([hidden])) { max-width: max(820px, 66vw); padding: 16px 24px; }
 
   .input-section {
     background: var(--card);
@@ -153,6 +156,8 @@
     letter-spacing: 0.5px;
   }
 
+  .btn-mini { background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 8px; font-size: 11px; cursor: pointer; margin-left: 4px; }
+  .btn-mini:disabled { opacity: .5; cursor: default; }
   .btn-gerar {
     background: var(--accent);
     color: #fff;
@@ -902,17 +907,42 @@
   .labs-pos.indefinida { background: rgba(255,255,255,0.06); color: var(--text-dim); }
   .labs-agente .t { font-size: 12px; line-height: 1.5; color: var(--text-dim); margin-top: 3px; }
   .labs-agente .t b { color: var(--text); }
+  .labs-var { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
+  .labs-var td, .labs-var th { padding: 4px 5px; font-size: 12px; }
+  .labs-mapa .labs-caixa { margin-top: 12px; }
+  /* Perfil da Bancada */
+  .lp-cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 12px 0; }
+  .lp-cartao { background: var(--card); border: 1px solid var(--border); border-top: 4px solid; border-radius: var(--radius); padding: 8px 12px; }
+  .lp-cartao b { display: block; font-size: 20px; } .lp-cartao b small { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+  .lp-cartao span { font-size: 11.5px; color: var(--text-dim); }
+  .lp-grade { display: grid; grid-template-columns: 1fr; gap: 12px; }   /* um recorte por linha: com os votos, a tabela tem 8 colunas */
+  .lp-caixa { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-top: 12px; overflow-x: auto; }
+  .lp-grade .lp-caixa { margin-top: 0; }
+  .lp-caixa h3 { margin: 0 0 6px; font-size: 13px; color: var(--accent-light); }
+  .lp-tab { width: 100%; border-collapse: collapse; } .lp-tab td, .lp-tab th { padding: 4px 6px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
+  .lp-tab th { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; } .lp-tab .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .lp-tab tr.tot td { font-weight: 700; } .lp-caixa .p { color: var(--text-dim); font-size: 10.5px; }
+  .lp-tab td.barras, .lp-tab th.barras { width: 22%; min-width: 90px; }
+  .lp-barras i { display: block; height: 5px; border-radius: 2px; margin: 1px 0; } .lp-b0 { background: #6f9fc0; } .lp-b1 { background: var(--accent); }
+  .labs-mapa-modo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin-top: 10px; }
+  .labs-mapa-modo .sm-bt.ativo { border-color: var(--accent); color: var(--accent-light); }
+  .cx-mp { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; text-transform: none; letter-spacing: 0; font-weight: 400; }
   .labs-mapa-wrap { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
-  .labs-mapa { flex: 2; min-width: 320px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; position: relative; }
-  .labs-mapa svg { width: 100%; height: auto; display: block; }
+  .labs-mapa { flex: 1.6; min-width: 320px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; position: relative; }
+  .labs-mapa svg { width: 100%; height: auto; max-height: 78vh; display: block; }
   .labs-mapa path { stroke: rgba(14,28,31,0.9); stroke-width: 0.4; vector-effect: non-scaling-stroke; }
   .labs-mapa path:hover { stroke: #fff; stroke-width: 1.2; }
+  .labs-mapa path.destaque { stroke: #ffd24a; stroke-width: 2.2; }
+  .labs-rolagem { max-height: 62vh; overflow: auto; scrollbar-width: thin; }
+  .labs-rolagem td, .labs-rolagem th { padding: 4px 5px; font-size: 12px; }
+  .labs-rolagem thead th { position: sticky; top: 0; background: var(--card); z-index: 1; }
   .labs-mapa circle { fill: rgba(240,192,64,0.55); stroke: #f0c040; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
   .labs-dica-mapa { position: absolute; pointer-events: none; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px;
-    padding: 6px 8px; border-radius: 6px; line-height: 1.45; display: none; max-width: 260px; z-index: 5; }
+    padding: 6px 8px; border-radius: 6px; line-height: 1.45; display: block; max-width: 260px; z-index: 5; }
+  .labs-dica-mapa[hidden] { display: none; }   /* antes era sempre display:none — a dica nunca aparecia */
   .labs-legenda { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-dim); margin: 6px 4px 0; flex-wrap: wrap; }
   .labs-legenda i { display: inline-block; width: 18px; height: 10px; border-radius: 2px; }
-  .labs-lado { flex: 1; min-width: 260px; }
+  .labs-lado { flex: 1.2; min-width: 300px; }
   .labs-passos { font-size: 12px; color: var(--text-dim); line-height: 1.6; margin: 6px 0 10px 18px; }
   .labs-passos b, .labs-passos code { color: var(--text); }
   .labs-passos a { color: var(--accent-light); }
@@ -963,6 +993,7 @@
   <div class="abas" role="tablist">
     <button class="aba ativa" id="aba-simulador" role="tab">Simulador de Negociação <span class="labs-tag">experimental</span></button>
     <button class="aba" id="aba-mapa" role="tab">Mapa Territorial <span class="labs-tag">experimental</span></button>
+    <button class="aba" id="aba-perfil" role="tab">Perfil da Bancada <span class="labs-tag">experimental</span></button>
   </div>
 
   <!-- ===================== SIMULADOR DE NEGOCIAÇÃO ===================== -->
@@ -1049,10 +1080,11 @@
 
   <!-- ===================== MAPA TERRITORIAL ===================== -->
   <div id="painel-mapa" hidden>
-    <p class="relatorio-desc">Onde cada deputado da bancada teve votos (eleição de 2022, por município) e onde as emendas
-      pagas chegaram — para planejar a distribuição de emendas e a prestação de contas.</p>
+    <p class="relatorio-desc">Onde cada deputado da bancada teve votos (por município) e onde as emendas pagas chegaram —
+      para planejar a distribuição de emendas e a prestação de contas. Em 2026, a bancada eleita, com a comparação com 2022.</p>
     <div class="input-section">
       <div class="labs-row">
+        <div style="flex:0 0 120px"><label>Eleição</label><select id="mpEleicao" class="field"></select></div>
         <div><label>Deputado(a)</label><select id="mpDep" class="field"><option value="">Carregando…</option></select></div>
         <div style="flex:0 0 150px"><label>Emendas do ano</label><select id="mpAnoEmendas" class="field"></select></div>
       </div>
@@ -1064,27 +1096,58 @@
     <div class="labs-caixa">
       <h3>De onde vêm os dados — pelo bot ou à mão</h3>
       <div class="sub" id="mpSituacao">Conferindo o que já foi processado…</div>
-      <p class="sub" style="margin-top:8px"><b>Pelo bot</b> (administrador): <code>/labsmapa 2022</code> baixa o arquivo do TSE,
-        agrega e grava aqui — votos por município de cada deputado da bancada e as emendas pagas.</p>
-      <p class="sub" style="margin-top:8px"><b>À mão</b>, nesta tela, quando o bot não estiver disponível:</p>
+      <p class="sub" style="margin-top:8px"><b>Com um clique</b>: a extensão lê o índice do arquivo do TSE de <span data-mp-ano></span> e baixa
+        <b>só os estados da bancada</b> (não o arquivo inteiro), processa aqui no navegador e mostra o resumo; nada vai para o banco antes
+        de você clicar em <b>Gravar no banco de dados</b>. Em 2026 a bancada são os eleitos do partido no próprio arquivo do TSE.</p>
+      <label class="cx-mp" id="mpCompararLinha"><input type="checkbox" id="mpComparar" checked> comparar com a eleição de <span id="mpCompararAno"></span>
+        (ganho e perda de votos por município — baixa também o arquivo dessa eleição)</label>
+      <button id="mpBaixarTse" class="btn-gerar">Baixar do TSE e processar</button>
+      <p class="sub" style="margin-top:12px"><b>Pelo bot</b> (administrador): <code>/labsmapa <span data-mp-ano></span></code> faz o mesmo na máquina do bot,
+        grava direto e busca as emendas pagas.</p>
+      <details class="sub" style="margin-top:8px"><summary><b>À mão</b>, com os arquivos já baixados</summary>
       <ol class="labs-passos">
         <li>Baixe o arquivo de votação por município do TSE:
-          <a href="https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_candidato_munzona/votacao_candidato_munzona_2022.zip" target="_blank" rel="noopener">votacao_candidato_munzona_2022.zip</a>
-          (página do conjunto de dados: <a href="https://dadosabertos.tse.jus.br/dataset/resultados-2022" target="_blank" rel="noopener">Resultados 2022 — TSE</a>).</li>
+          <a id="mpLinkZip" href="#" target="_blank" rel="noopener">votacao_candidato_munzona.zip</a>
+          (conjuntos de dados em <a href="https://dadosabertos.tse.jus.br/dataset/" target="_blank" rel="noopener">dadosabertos.tse.jus.br</a>).</li>
         <li>Descompacte (no Windows: botão direito → <b>Extrair tudo</b>). Dentro há um arquivo por estado:
-          <code>votacao_candidato_munzona_2022_SP.csv</code>, <code>…_MG.csv</code> etc.</li>
+          <code>votacao_candidato_munzona_<span data-mp-ano></span>_SP.csv</code> etc.</li>
         <li>Escolha abaixo os arquivos dos estados da bancada (pode marcar vários de uma vez). O processamento roda aqui,
-          no navegador — os arquivos não saem da sua máquina.</li>
-        <li>As emendas pagas vêm do Portal da Transparência, com a chave que você já usa no módulo Orçamento → Emendas.</li>
+          no navegador — os arquivos não saem da sua máquina. (Por este caminho não há a comparação com a eleição anterior.)</li>
         <li>Confira o resumo e clique em <b>Gravar no banco de dados</b> para a equipe toda ver.</li>
       </ol>
       <input type="file" id="mpArquivos" class="field" accept=".csv,.txt" multiple>
       <button id="mpProcessar" class="btn-gerar" disabled>Processar arquivos</button>
+      </details>
       <div id="mpUpStatus"></div>
       <div id="mpUpResultado"></div>
     </div>
   </div>
 
+
+  <div id="painel-perfil" hidden>
+    <p class="relatorio-desc">Quem o partido lançou e quem elegeu em 2022 e em 2026, por cargo: gênero, cor/raça, faixa etária,
+      escolaridade, região, ocupação e a trajetória dos eleitos de 2026. Dados do TSE; relatório em PDF.</p>
+    <div class="input-section">
+      <div class="labs-row">
+        <div><label>Cargo</label><select id="lpGrupo" class="field"></select></div>
+        <div style="flex:0 0 220px;display:flex;align-items:flex-end"><button id="lpPdf" class="btn-gerar" style="margin-top:0" disabled>⬇ Relatório em PDF</button></div>
+        <div style="flex:0 0 240px;display:flex;align-items:flex-end"><button id="lpMulheres" class="btn-gerar" style="margin-top:0" disabled title="Mulheres no partido: candidaturas, eleitas e votos, comparando as eleições">♀ Mulheres no partido (PDF)</button></div>
+      </div>
+    </div>
+    <div id="lpResultado"></div>
+
+    <div class="labs-caixa">
+      <h3>De onde vêm os dados</h3>
+      <div class="sub" id="lpSituacao">Conferindo o que já foi processado…</div>
+      <p class="sub" style="margin-top:8px"><b>Com um clique</b>: a extensão baixa do TSE o cadastro de candidaturas de 2022 e de 2026 (cerca de 4 MB)
+        e, se marcado, os votos por município de todos os estados (centenas de MB), processa aqui e mostra a prévia;
+        nada vai para o banco antes de <b>Gravar no banco de dados</b>. CPF, e-mail e título de eleitor do cadastro não são lidos.</p>
+      <label class="cx-mp"><input type="checkbox" id="lpComVotos" checked> incluir os votos (fatia dos votos do partido por recorte — download maior)</label>
+      <button id="lpBaixar" class="btn-gerar">Baixar do TSE e processar</button>
+      <div id="lpUpStatus"></div>
+      <div id="lpUpResultado"></div>
+    </div>
+  </div>
 
   <div class="signature">
     <div class="signature-line"></div>
@@ -1142,7 +1205,12 @@
 <script src="labs-simulador.js"></script>
 <script src="labs-simulador-relatorio.js"></script>
 <script src="labs-simulador-teste.js"></script>
+<script src="labs-apuracao.js"></script>
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
+<script src="labs-mapa-relatorio.js"></script>
+<script src="labs-perfil-nucleo.js"></script>
+<script src="labs-perfil.js"></script>
+<script src="labs-perfil-mulheres.js"></script>
 </body>
 </html>

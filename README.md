@@ -530,7 +530,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - `/backup`/`/backups` — **rede de segurança do Firebase**, cujas regras são abertas (qualquer aba pode apagar). O bot tira snapshots **em disco na máquina dele** (fora do banco) ao subir e a cada 6h, cobrindo **todos os nós de trabalho** — pautas, análises, prompts, CCJC, Congresso/vetos, Reunião de Líderes (reuniões e demandas), cadastros e estado do bot; ficam de fora só o cache de aderência (regenerável) e a versão da extensão. `/backups` lista os snapshots como botões e **restaurar é não-destrutivo**: repõe apenas o que está faltando, nunca sobrescreve o que existe. Se o banco vier vazio, o snapshot é **descartado** (não grava por cima do bom) e o admin é avisado
 - `/monitor` (liga/desliga o monitor), `/config`/`/minhachave`/`/modelo`/`/removerchave` (chave de IA por usuário — `/modelo listar` busca ao vivo os modelos disponíveis na API do provedor configurado, marcando o atual), `/digestadd`/`/digestrem`/`/digestlista` (assinantes do radar de imprensa)
 - `/leisaprovadas [legislaturas] [--forcar]` — coleta o relatório de **Leis aprovadas** (item 3.5): baixa os arquivos oficiais em massa da Câmara e grava o agregado no Firebase. Sem coletar de novo o que já está na versão pedida — o refresh diário automático cobre a legislatura corrente (e a anterior, semanalmente, nos 12 meses de carência); as encerradas são coleta manual, uma vez. `--forcar` também libera gravar coleta com menos projetos que o salvo. `/leisaprovadas status` mostra data/hora da última coleta de cada legislatura, a origem (bot, script, extensão) e a data dos arquivos da Câmara
-- `/labsmapa [ano]` — **Labs · Mapa Territorial** (roda em segundo plano, sem travar o bot; uma coleta por vez; respeita o limite de 90 req/min do Portal): baixa o arquivo de votação por município do TSE (padrão 2022), agrega os votos da bancada por município e, com `TRANSPARENCIA_CHAVE` no `.env`, as emendas pagas (ano anterior e atual); grava em `/labs/mapa`
+- `/labsmapa [ano]` — **Labs · Mapa Territorial** (roda em segundo plano, sem travar o bot; uma coleta por vez; respeita o limite de 90 req/min do Portal): baixa o arquivo de votação por município do TSE (padrão 2026: os eleitos do PODE no arquivo, com a comparação com 2022; em 2022, a bancada de hoje), agrega os votos por município e, com `TRANSPARENCIA_CHAVE` no `.env`, as emendas pagas (ano anterior e atual); grava em `/labs/mapa`
 - **Reenvio automático** quando a falha do Telegram é de **rede** (DNS, TLS, conexão cortada), 429 ou 5xx — a recusa definitiva (bot bloqueado, chat inexistente) não é repetida. Sem isso, um soluço de meio minuto custava o digest inteiro da semana
 
 ### 11. Labs
@@ -554,11 +554,24 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Modelos separados** para os agentes (uma chamada cada — vale um mais barato) e para a síntese (uma chamada — vale um mais forte), no provedor e chave do ⚙ da página; o custo acumulado aparece por modelo. Serve para preparar argumentos — **não é previsão**
 
 **Mapa Territorial de Entregas**
-- Mapa do estado (malhas do IBGE) pintado pela **fatia** dos votos nominais válidos para deputado federal de cada município que foi do deputado (eleição de 2022, dados do TSE; sem os votos só de legenda) e círculos nas emendas pagas com município identificado (Portal da Transparência, chave do analista); lista dos municípios com mais votos, das emendas em outros estados e das sem município ("MÚLTIPLO")
+- Mapa do estado (malhas do IBGE) pintado pela **fatia** dos votos nominais válidos para deputado federal de cada município que foi do deputado (dados do TSE; sem os votos só de legenda) e círculos nas emendas pagas com município identificado (Portal da Transparência, chave do analista); lista dos municípios com mais votos, das emendas em outros estados e das sem município ("MÚLTIPLO")
+- **Eleição de 2026 ou 2022**. Em **2026** a bancada são os **eleitos do partido no próprio arquivo do TSE** (situação "eleito por QP/média") — os novos só entram na API da Câmara na posse; em 2022, os deputados de hoje na Câmara
+- **Comparação com 2022** (em 2026): a mesma pessoa no arquivo de 2022 pelo nome civil, mesmo que tenha concorrido por outro partido ou com outro nome de urna. Cartão com os votos de 2022 e a variação, lista de **onde mais ganhou e mais perdeu votos**, e o mapa no modo **ganho/perda** (verde/vermelho). Quem não concorreu a deputado federal na mesma UF em 2022 aparece como tal
+- **Download com um clique** ("Baixar do TSE e processar"): a extensão lê o **índice** do zip do TSE (centenas de MB) e baixa **só os arquivos dos estados da bancada**, por pedidos parciais (HTTP Range), descompactando em fluxo no navegador. Os estados com eleitos vêm do painel de resultados do TSE (poucos KB por estado). Pede confirmação com o tamanho do download; nada é gravado antes de **Gravar no banco de dados**
+- **Dica ao passar o mouse** em cada município: votos na eleição e fatia do município; com a comparação, os votos da anterior e a diferença em votos e em %
+- **Relatório em PDF** do deputado (botão "Relatório em PDF"): cartões, o mapa da fatia e o de ganho/perda (cores de papel), onde teve mais votos (com a variação), onde mais ganhou e perdeu, e as emendas — com a logo do Podemos, em aba própria com "Salvar em PDF"
+- **Emendas "MÚLTIPLO" localizadas pelo favorecido**: a API do Portal devolve a maior parte das emendas sem município ("MÚLTIPLO" ou só a UF). Com um clique ("📍 Localizar os municípios pelo favorecido", no quadro de emendas), a extensão lê do arquivo de dados abertos do Portal (`EmendasParlamentares.zip`, ~28 MB lidos por Range) quem recebeu cada pagamento (prefeitura, fundo municipal, entidade) e o município dele, para toda a bancada e os anos de emendas de uma vez; grava em `/labs/mapa/favorecidos` (~50 KB). O valor vira círculo no mapa e entra na lista, na dica e no PDF. O arquivo sai uma vez por mês e a API é diária: os valores do favorecido são ajustados à soma sem município da API — o que o arquivo ainda não cobre continua "MÚLTIPLO". Pagamento a pessoa física aparece como "favorecido sem município"
 - Emendas de um ano = **pago no ano + restos a pagar pagos depois** (só o pago no ano subestimava os anos anteriores); cache de 24 h no ano corrente e 7 dias nos anteriores
-- Dados eleitorais processados **pelo bot** (`/labsmapa 2022`, ou `node bot/scripts/labs-mapa-territorial.js`) ou **à mão** na própria tela: o analista baixa o zip do TSE (link e passo a passo na tela), extrai e escolhe os CSV dos estados; o processamento roda no navegador e só o agregado é gravado, depois de confirmação
+- Outros caminhos: **pelo bot** (`/labsmapa [2026|2022]`, ou `node bot/scripts/labs-mapa-territorial.js`), que também busca as emendas pagas, ou **à mão** na própria tela, com os CSV já baixados (sem a comparação); só o agregado é gravado, depois de confirmação
 - Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
-- Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas)
+- Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas) e `/labs/mapa/favorecidos` (destino das emendas sem município, por autor e ano)
+
+**Perfil da Bancada**
+- Quem o partido lançou e quem elegeu em **2022 e 2026**, por cargo (deputado federal, estadual e distrital, senador), com os recortes: **gênero**, **cor/raça** (e pessoas negras = pretas + pardas), **faixa etária** (idade na data da eleição), **escolaridade**, **região**, **ocupação declarada** e a **trajetória dos eleitos de 2026** (reeleitos pelo partido, com mandato por outro partido, vindos de outro cargo eletivo, que concorreram em 2022 sem se eleger, estreantes)
+- Cada recorte mostra eleitos, candidaturas e — se processados — votos, com a fatia de cada categoria; cartões de capa e a lista dos eleitos com o perfil de cada um
+- **Um clique** baixa do TSE o cadastro de candidaturas (~4 MB) e, opcionalmente, os votos por município de todos os estados (por Range), processa no navegador e grava em `/labs/perfil/{ano}` só ao confirmar. **CPF, e-mail e título de eleitor do cadastro não são lidos nem gravados**; o nome civil serve só para casar a trajetória e não é gravado
+- **Relatório em PDF** por cargo, com a logo do Podemos e as notas de método
+- **Mulheres no partido (PDF)**: candidaturas, eleitas e votos de mulheres em 2022 e 2026 por cargo, gráficos com a linha da cota de 30% (Lei 9.504/1997, art. 10, § 3º), resumo e alertas escritos a partir dos números, as eleitas de 2026 com a trajetória e as eleitas de 2022 com o que fizeram em 2026
 
 ---
 
@@ -632,6 +645,10 @@ sispode/
 ├── labs-simulador-relatorio.js    # Labs · Simulador: relatório da negociação em PDF
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
+├── labs-mapa-relatorio.js         # Labs · Mapa Territorial: relatório do deputado em PDF
+├── labs-perfil-nucleo.js          # Labs · Perfil da Bancada: leitura do cadastro do TSE, recortes e trajetória (puro)
+├── labs-perfil.js                 # Labs · Perfil da Bancada: tela, download com um clique e relatório em PDF
+├── labs-perfil-mulheres.js        # Labs · Perfil da Bancada: relatório "Mulheres no partido" em PDF
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
@@ -742,8 +759,9 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Fundo Nacional de Saúde](https://consultafns.saude.gov.br) | **Emendas**: propostas por UF (planilha) e detalhe da proposta |
 | [API do Portal da Transparência](https://api.portaldatransparencia.gov.br) | **Emendas**: empenhado e pago por parlamentar (exige chave gratuita do analista) |
 | [Portal do Congresso Nacional](https://www.congressonacional.leg.br) | Páginas de detalhe dos vetos e dispositivos vetados |
+| [Dados abertos do Portal da Transparência](https://portaldatransparencia.gov.br/download-de-dados/emendas-parlamentares) (`dadosabertos-download.cgu.gov.br`) | **Labs**: emendas por favorecido, para localizar o município das emendas "MÚLTIPLO" no Mapa Territorial |
 | [IBGE — API de serviços de dados](https://servicodados.ibge.gov.br) | **Labs**: malhas (contornos) e lista de municípios para o Mapa Territorial |
-| [Dados abertos do TSE](https://dadosabertos.tse.jus.br) | **Labs**: votação por município e zona (Mapa Territorial) — pelo bot ou baixado à mão |
+| [Dados abertos do TSE](https://dadosabertos.tse.jus.br) (`cdn.tse.jus.br`) | **Labs**: votação por município e zona (Mapa Territorial) — pela extensão (só os estados, por Range), pelo bot ou baixado à mão |
 | [Divulgação de resultados do TSE](https://resultados.tse.jus.br) | **Relatórios · Apuração eleitoral**: resultados ao vivo por UF e cargo, lista de eleições e turnos |
 | [Diário Oficial da União](https://www.in.gov.br) | **Orçamento · Comparador de Portarias**: texto dos atos pelo link do DOU |
 | [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |

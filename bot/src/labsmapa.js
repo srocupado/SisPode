@@ -3,15 +3,19 @@
 //
 // O navegador não baixa o arquivo do TSE (centenas de MB, sem CORS); o bot
 // baixa. Fluxo:
-//   1. bancada do PODE hoje, com nome civil (API da Câmara);
+//   1. a bancada: em 2022, o PODE de hoje na Câmara (com nome civil); em 2026,
+//      os eleitos do PODE no próprio arquivo do TSE (os novos só entram na API
+//      da Câmara na posse);
 //   2. baixa votacao_candidato_munzona_{ano}.zip do CDN do TSE para um arquivo
 //      temporário e lê SÓ os CSV dos estados da bancada, direto de dentro do zip
 //      (leitor mínimo abaixo — sem dependência nova), linha a linha;
 //   3. agrega com o núcleo compartilhado com a extensão (labs-mapa-nucleo.js,
 //      na raiz — mesmo padrão de pauta-parser.js), casa município TSE → IBGE;
 //   4. com TRANSPARENCIA_CHAVE, agrega as emendas pagas (ano anterior e atual);
-//   5. grava em /labs/mapa/{ano} e /labs/mapa/emendas/{ano} — o mesmo formato
-//      que a extensão grava no processamento manual.
+//   5. em 2026, a comparação: os mesmos deputados no arquivo de 2022 (ganho e
+//      perda de votos por município), em `anterior` de cada um;
+//   6. grava em /labs/mapa/{ano} e /labs/mapa/emendas/{ano} — o mesmo formato
+//      que a extensão grava (botão "Baixar do TSE e processar").
 //
 // O núcleo é carregado só na hora do comando: o /update baixa bot/src, não a
 // raiz; se o arquivo da raiz faltar, o comando avisa em vez de derrubar o bot.
@@ -32,8 +36,8 @@ const TRANSP = 'https://api.portaldatransparencia.gov.br/api-de-dados';
 // resolve(): BOT_EXT_DIR relativo ("ext", "./ext") viraria nome de pacote no
 // require e falharia — relativo vale a partir da pasta onde o bot roda.
 const EXT_DIR = path.resolve(process.env.BOT_EXT_DIR || path.join(__dirname, '..', '..'));
-// Eleições que a extensão sabe mostrar (labs-mapa.js, MP_ANO_ELEICAO).
-const ANOS_SUPORTADOS = ['2022'];
+// Eleições que a extensão sabe mostrar (LMN_ANOS em labs-mapa-nucleo.js), a mais recente primeiro.
+const ANOS_SUPORTADOS = ['2026', '2022'];
 // Portal da Transparência: 90 requisições/minuto de dia (300 à noite).
 const PORTAL_INTERVALO_MS = 700;
 const PORTAL_ESPERA_429_MS = 60000;
@@ -222,75 +226,99 @@ async function emendasDoAutor(nome, ano) {
 }
 
 // ---------- orquestração ----------
+/** Baixa o zip do TSE da eleição para um temporário (ou usa `arquivoZip`) e chama fn(zip); apaga o temporário. */
+async function comZip(ano, arquivoZip, avisar, fn) {
+  if (arquivoZip) return fn(arquivoZip);
+  const temp = path.join(os.tmpdir(), `sispode-tse-munzona-${ano}-${Date.now()}.zip`);
+  try {
+    avisar(`baixando o arquivo do TSE de ${ano}`);
+    await baixar(urlTse(ano), temp, avisar);   // dentro do try: download que cai no meio também é apagado
+    return await fn(temp);
+  } finally { await fsp.unlink(temp).catch(() => {}); }
+}
+
+/** Lê do zip os CSV das UFs pedidas (null = todas) no agregador e devolve o resultado. */
+async function lerUfs(zip, ufs, ag, avisar) {
+  const entradas = (await entradasZip(zip)).filter(e => { const uf = ufDaEntrada(e.nome); return uf && (!ufs || ufs.has(uf)); });
+  if (!entradas.length) throw new Error('o zip não tem os CSV por estado esperados');
+  for (const e of entradas) {
+    avisar(`lendo ${e.nome}`);
+    ag.novoArquivo();
+    await lerLinhasEntrada(zip, e, l => ag.linha(l));
+  }
+  return ag.resultado();
+}
+
+async function paraIbge(N, res) {
+  const ibgePorUf = {};
+  for (const uf of res.ufs) ibgePorUf[uf] = await ibgeUf(uf);
+  return N.lmnParaIbge(res, ibgePorUf);
+}
+
 /**
- * Processa a eleição `ano` (padrão 2022) e grava no banco.
- * Opções: arquivoZip (usa um zip já baixado em vez de baixar), onProgresso(msg).
+ * Processa a eleição `ano` (padrão: a mais recente) e grava no banco.
+ * Opções: arquivoZip / arquivoZipAnterior (zips já baixados), comparar
+ * (padrão true: em 2026, junta a votação de 2022), onProgresso(msg).
  */
-async function atualizarMapaTerritorial({ ano = '2022', arquivoZip, onProgresso } = {}) {
-  const N = nucleo();
+async function atualizarMapaTerritorial({ ano = ANOS_SUPORTADOS[0], arquivoZip, arquivoZipAnterior, comparar = true, onProgresso } = {}) {
   const avisar = m => onProgresso && onProgresso(m);
   if (!ANOS_SUPORTADOS.includes(String(ano))) {
     throw new Error(`eleição de ${ano} não suportada — o mapa da extensão mostra ${ANOS_SUPORTADOS.join(', ')}.`);
   }
-  avisar('buscando a bancada');
-  const alvos = await bancadaPodemos();
-  if (!alvos.length) throw new Error('a Câmara não devolveu nenhum deputado do PODE em exercício — nada a processar.');
-  const ufsAlvo = new Set(alvos.map(a => a.uf));
+  const N = nucleo();
+  const doArquivo = N.lmnBancadaDoArquivo(ano);
+  let alvos = [], ufsAlvo = null;
+  if (!doArquivo) {
+    avisar('buscando a bancada');
+    alvos = await bancadaPodemos();
+    if (!alvos.length) throw new Error('a Câmara não devolveu nenhum deputado do PODE em exercício — nada a processar.');
+    ufsAlvo = new Set(alvos.map(a => a.uf));
+  }
+  const res = await comZip(ano, arquivoZip, avisar, zip =>
+    lerUfs(zip, ufsAlvo, N.lmnAgregador(alvos, doArquivo ? { eleitosDoPartido: 'PODE' } : {}), avisar));
+  if (doArquivo && !Object.keys(res.deputados).length) throw new Error(`nenhum eleito do PODE no arquivo de ${ano} — o TSE já publicou a situação dos candidatos?`);
+  const reg = await paraIbge(N, res);
 
-  let zip = arquivoZip, temp = null;
-  try {
-    if (!zip) {
-      temp = path.join(os.tmpdir(), `sispode-tse-munzona-${ano}-${Date.now()}.zip`);
-      avisar('baixando o arquivo do TSE');
-      await baixar(urlTse(ano), temp, avisar);   // dentro do try: download que cai no meio também é apagado
-      zip = temp;
-    }
-    const entradas = (await entradasZip(zip)).filter(e => ufsAlvo.has(ufDaEntrada(e.nome)));
-    if (!entradas.length) throw new Error('o zip não tem os CSV por estado esperados');
-    const ag = N.lmnAgregador(alvos);
-    for (const e of entradas) {
-      avisar(`lendo ${e.nome}`);
-      ag.novoArquivo();
-      await lerLinhasEntrada(zip, e, l => ag.linha(l));
-    }
-    const res = ag.resultado();
-    const ibgePorUf = {};
-    for (const uf of res.ufs) ibgePorUf[uf] = await ibgeUf(uf);
-    const reg = N.lmnParaIbge(res, ibgePorUf);
+  let anterior = null;
+  const anoAnt = comparar ? N.LMN_ANTERIOR[ano] : null;
+  if (anoAnt) {
+    const ufsDeps = new Set(Object.values(res.deputados).map(d => d.uf));
+    const resA = await comZip(anoAnt, arquivoZipAnterior, avisar, zip => lerUfs(zip, ufsDeps, N.lmnAgregador(N.lmnAlvosAnterior(res.deputados)), avisar));
+    N.lmnAnexarAnterior(reg, await paraIbge(N, resA), anoAnt);
+    anterior = { ano: anoAnt, encontrados: Object.keys(resA.deputados).length, naoEncontrados: resA.naoEncontrados.length };
+  }
 
-    const base = `/labs/mapa/${ano}`;
-    avisar('gravando no banco');
-    const metaAntiga = await fbGet(`${base}/meta`);   // falha aborta: sem ela, a lista de estados seria perdida
-    await fbPatch(base, N.lmnAtualizacao(reg, res, metaAntiga, 'bot'));   // tudo numa atualização só
+  const base = `/labs/mapa/${ano}`;
+  avisar('gravando no banco');
+  const metaAntiga = await fbGet(`${base}/meta`);   // falha aborta: sem ela, a lista de estados seria perdida
+  await fbPatch(base, N.lmnAtualizacao(reg, res, metaAntiga, 'bot'));   // tudo numa atualização só
 
-    const emendas = { anos: [], erros: [] };
-    if (TRANSPARENCIA_CHAVE) {
-      const atual = new Date().getFullYear();
-      for (const a of [atual - 1, atual]) {
-        avisar(`emendas de ${a}`);
-        emendas.anos.push(a);
-        for (const al of alvos) {
-          try {
-            const brutas = await emendasDoAutor(al.nome, a);
-            const resolv = {};
-            for (const e of brutas) {
-              const l = N.lmnLocalidade(e.localidadeDoGasto);
-              if (l.tipo === 'municipio' && !resolv[l.uf]) resolv[l.uf] = N.lmnResolvedor(await ibgeUf(l.uf).catch(() => []), l.uf);
-            }
-            const agE = N.lmnAgregarEmendas(brutas, (n, uf) => resolv[uf] ? resolv[uf](n) : null, al.nome);
-            await fbPut(`/labs/mapa/emendas/${a}/${al.id}`, Object.assign({ atualizadoEm: new Date().toISOString(), origem: 'bot' }, agE));
-          } catch (e) { emendas.erros.push(`${al.nome} ${a}: ${e.message}`); }
-        }
+  const emendas = { anos: [], erros: [] };
+  if (TRANSPARENCIA_CHAVE) {
+    const deps = Object.entries(reg.deputados).map(([id, d]) => ({ id, nome: d.nome }));
+    const atual = new Date().getFullYear();
+    for (const a of [atual - 1, atual]) {
+      avisar(`emendas de ${a}`);
+      emendas.anos.push(a);
+      for (const al of deps) {
+        try {
+          const brutas = await emendasDoAutor(al.nome, a);
+          const resolv = {};
+          for (const e of brutas) {
+            const l = N.lmnLocalidade(e.localidadeDoGasto);
+            if (l.tipo === 'municipio' && !resolv[l.uf]) resolv[l.uf] = N.lmnResolvedor(await ibgeUf(l.uf).catch(() => []), l.uf);
+          }
+          const agE = N.lmnAgregarEmendas(brutas, (n, uf) => resolv[uf] ? resolv[uf](n) : null, al.nome);
+          await fbPut(`/labs/mapa/emendas/${a}/${N.lmnChave(al.id)}`, Object.assign({ atualizadoEm: new Date().toISOString(), origem: 'bot' }, agE));
+        } catch (e) { emendas.erros.push(`${al.nome} ${a}: ${e.message}`); }
       }
     }
-    return {
-      ano, ufs: res.ufs,
-      deputados: Object.values(reg.deputados).map(d => ({ nome: d.nome, uf: d.uf, total: d.total, municipios: Object.keys(d.municipios).length })),
-      naoEncontrados: res.naoEncontrados, semPar: reg.semPar, emendas,
-    };
-  } finally {
-    if (temp) await fsp.unlink(temp).catch(() => {});
   }
+  return {
+    ano, ufs: res.ufs, anterior,
+    deputados: Object.values(reg.deputados).map(d => ({ nome: d.nome, uf: d.uf, total: d.total, municipios: Object.keys(d.municipios).length, anterior: d.anterior ? d.anterior.total : null })),
+    naoEncontrados: res.naoEncontrados, semPar: reg.semPar, emendas,
+  };
 }
 
 module.exports = { ANOS_SUPORTADOS, atualizarMapaTerritorial, entradasZip, fluxoEntrada, lerLinhasEntrada, ufDaEntrada, urlTse };

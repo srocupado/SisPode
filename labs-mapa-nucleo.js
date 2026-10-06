@@ -18,6 +18,13 @@
 // dígitos faz o Firebase transformar o objeto em array.
 
 const LMN_CARGO_DEPUTADO_FEDERAL = '6';
+// Eleições que o mapa mostra, da mais recente para a mais antiga. Em 2026 a
+// bancada vem do PRÓPRIO arquivo (os eleitos do partido) — os novos só entram
+// na API da Câmara depois da posse; em 2022, dos deputados de hoje na Câmara.
+const LMN_ANOS = ['2026', '2022'];
+// Eleição usada na comparação ("como foi na anterior") de cada eleição.
+const LMN_ANTERIOR = { 2026: '2022' };
+function lmnBancadaDoArquivo(ano) { return Number(ano) >= 2026; }
 
 function lmnNorm(s) {
   return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -59,6 +66,9 @@ function lmnLinhas(aoLer) {
 
 /**
  * Agregador dos votos de uma lista de deputados-alvo.
+ * Com opcoes.eleitosDoPartido ('PODE'), os alvos saem do próprio arquivo: os
+ * candidatos a deputado federal do partido com situação "ELEITO POR QP/MÉDIA"
+ * (DS_SIT_TOT_TURNO) — id "tse<SQ_CANDIDATO>", nome = nome de urna.
  * alvos: [{ id, nome (parlamentar), nomeCivil, uf }].
  * Casamento, sempre dentro da UF e só no cargo Deputado Federal:
  *   1º NM_CANDIDATO = nome civil (normalizados);
@@ -67,7 +77,9 @@ function lmnLinhas(aoLer) {
  * Uso: const ag = lmnAgregador(alvos); ag.linha(texto) para CADA linha
  * (a 1ª é o cabeçalho; cada arquivo novo recomeça com ag.novoArquivo()); ag.resultado().
  */
-function lmnAgregador(alvos) {
+function lmnAgregador(alvos, opcoes = {}) {
+  const siglaEleitos = opcoes.eleitosDoPartido ? String(opcoes.eleitosDoPartido).toUpperCase() : '';
+  const eleitos = new Map();   // sq → entrada (modo eleitosDoPartido)
   const porUf = new Map();
   for (const a of alvos || []) {
     const uf = String(a.uf || '').toUpperCase();
@@ -93,6 +105,7 @@ function lmnAgregador(alvos) {
     const nominais = idx.QT_VOTOS_NOMINAIS != null ? idx.QT_VOTOS_NOMINAIS : votos;
     const destinacao = idx.NM_TIPO_DESTINACAO_VOTOS != null ? idx.NM_TIPO_DESTINACAO_VOTOS : idx.DS_TIPO_DESTINACAO_VOTOS;
     if (idx.CD_CARGO == null && idx.DS_CARGO == null) falta.push('CD_CARGO');
+    if (siglaEleitos) for (const k of ['SG_PARTIDO', 'DS_SIT_TOT_TURNO']) if (idx[k] == null) falta.push(k);
     if (falta.length) throw new Error('Arquivo fora do formato do TSE (votação por município e zona). Faltam as colunas: ' + falta.join(', '));
     col = { idx, votos, nominais, destinacao };
   }
@@ -100,7 +113,9 @@ function lmnAgregador(alvos) {
   function add(b, sq, cod, v, campos) {
     let e = b.get(sq);
     if (!e) {
-      e = { sq, nomeUrna: campos[col.idx.NM_URNA_CANDIDATO], partido: col.idx.SG_PARTIDO != null ? campos[col.idx.SG_PARTIDO] : '', total: 0, mun: {} };
+      const I = col.idx;
+      e = { sq, nomeUrna: campos[I.NM_URNA_CANDIDATO], nomeCivil: campos[I.NM_CANDIDATO], partido: I.SG_PARTIDO != null ? campos[I.SG_PARTIDO] : '',
+        numero: I.NR_CANDIDATO != null ? String(campos[I.NR_CANDIDATO]).trim() : '', situacao: I.DS_SIT_TOT_TURNO != null ? campos[I.DS_SIT_TOT_TURNO] : '', total: 0, mun: {} };
       b.set(sq, e);
     }
     e.total += v;
@@ -128,11 +143,19 @@ function lmnAgregador(alvos) {
     ufs.add(uf);
     const m = municipios[cod] || (municipios[cod] = { n: campos[I.NM_MUNICIPIO], uf, t: 0 });
     m.t += v;
+    const sq = String(campos[I.SQ_CANDIDATO] || '').trim();
+    if (siglaEleitos) {
+      // "NÃO ELEITO" normalizado é "nao eleito": não começa por "eleito".
+      if (String(campos[I.SG_PARTIDO]).trim().toUpperCase() === siglaEleitos && /^eleito/.test(lmnNorm(campos[I.DS_SIT_TOT_TURNO]))) {
+        if (!eleitos.has(sq)) eleitos.set(sq, { uf, b: new Map() });
+        add(eleitos.get(sq).b, sq, cod, v, campos);
+      }
+      return;
+    }
     const lista = porUf.get(uf);
     if (!lista) return;
     const nc = lmnNorm(campos[I.NM_CANDIDATO]);
     const nu = lmnNorm(campos[I.NM_URNA_CANDIDATO]);
-    const sq = String(campos[I.SQ_CANDIDATO] || '').trim();
     for (const x of lista) {
       if (x.civil && nc === x.civil) add(x.bCivil, sq, cod, v, campos);
       else if (x.urna && nu === x.urna) add(x.bUrna, sq, cod, v, campos);
@@ -146,8 +169,15 @@ function lmnAgregador(alvos) {
     return null;
   }
 
+  const ficha = (id, nome, uf, e) => ({ id, nome, uf, sq: e.sq, nomeUrna: e.nomeUrna, nomeCivil: e.nomeCivil, numero: e.numero,
+    situacao: e.situacao, partidoEleicao: e.partido, total: e.total, municipios: e.mun });
+
   function resultado() {
     const deputados = {}, naoEncontrados = [];
+    if (siglaEleitos) {
+      for (const [sq, { uf, b }] of eleitos) { const e = b.get(sq); deputados['tse' + sq] = ficha('tse' + sq, lmnNomeProprio(e.nomeUrna), uf, e); }
+      return { deputados, naoEncontrados, municipios, ufs: [...ufs].sort(), linhas, arquivos };
+    }
     for (const [uf, lista] of porUf) {
       for (const x of lista) {
         const e = escolher(x);
@@ -156,7 +186,7 @@ function lmnAgregador(alvos) {
             motivo: !ufs.has(uf) ? `arquivo de ${uf} não processado` : (x.bUrna.size > 1 ? 'nome de urna ambíguo' : 'nome não encontrado no arquivo') });
           continue;
         }
-        deputados[x.alvo.id] = { id: x.alvo.id, nome: x.alvo.nome, uf, sq: e.sq, nomeUrna: e.nomeUrna, partidoEleicao: e.partido, total: e.total, municipios: e.mun };
+        deputados[x.alvo.id] = ficha(x.alvo.id, x.alvo.nome, uf, e);
       }
     }
     return { deputados, naoEncontrados, municipios, ufs: [...ufs].sort(), linhas, arquivos };
@@ -250,6 +280,7 @@ function lmnParaIbge(res, ibgePorUf) {
       if (k) mun[k] = (mun[k] || 0) + v; else foraDoMapa += v;
     }
     deputados[id] = { nome: d.nome, uf: d.uf, nomeUrna: d.nomeUrna, partidoEleicao: d.partidoEleicao, total: d.total, foraDoMapa, municipios: mun };
+    for (const k of ['nomeCivil', 'numero', 'situacao']) if (d[k]) deputados[id][k] = d[k];
   }
   return { deputados, municipios, semPar };
 }
@@ -328,14 +359,155 @@ function lmnAtualizacao(reg, res, metaAntiga, origem, agora = new Date()) {
   return upd;
 }
 
+/**
+ * "DELEGADO BRUNO LIMA" → "Delegado Bruno Lima" (de/da/do/dos/das/e em
+ * minúsculas; siglas curtas sem vogal, como "MC", ficam). Para exibir o nome
+ * de urna dos eleitos, que o TSE grava em maiúsculas.
+ */
+function lmnNomeProprio(s) {
+  return String(s || '').toLowerCase().split(/(\s+)/).map((p, i) => {
+    if (/^\s+$/.test(p) || !p) return p;
+    if (i && /^(de|da|do|dos|das|e)$/.test(p)) return p;
+    if (!/[aeiouáéíóúâêôãõ]/.test(p) && !/\./.test(p)) return p.toUpperCase();
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }).join('');
+}
+
+/** Alvos para procurar os eleitos de uma eleição na ANTERIOR: mesmo nome civil (ou nome de urna único) na mesma UF, qualquer partido. */
+function lmnAlvosAnterior(deputados) {
+  return Object.entries(deputados || {}).map(([id, d]) => ({ id, nome: d.nomeUrna || d.nome, nomeCivil: d.nomeCivil || '', uf: d.uf }));
+}
+
+/**
+ * Junta a eleição anterior (registro já no código IBGE, de lmnParaIbge) a cada
+ * deputado da atual, em `anterior` — quem não concorreu a deputado federal na
+ * mesma UF fica sem o campo. Muda `reg` e o devolve.
+ */
+function lmnAnexarAnterior(reg, regAnterior, ano) {
+  for (const [id, d] of Object.entries(reg.deputados || {})) {
+    const a = regAnterior && regAnterior.deputados && regAnterior.deputados[id];
+    if (!a) continue;
+    d.anterior = { ano: String(ano), total: a.total, partido: a.partidoEleicao || '', nomeUrna: a.nomeUrna || '', situacao: a.situacao || '', foraDoMapa: a.foraDoMapa || 0, municipios: a.municipios || {} };
+  }
+  return reg;
+}
+
+/**
+ * Ganho/perda de votos por município entre a anterior e a atual:
+ * [{ k, antes, agora, d }] com d = agora − antes, do maior ganho à maior perda.
+ */
+function lmnVariacao(atual, anterior) {
+  const ks = new Set([...Object.keys(atual || {}), ...Object.keys(anterior || {})]);
+  return [...ks].map(k => { const a = (anterior || {})[k] || 0, b = (atual || {})[k] || 0; return { k, antes: a, agora: b, d: b - a }; })
+    .filter(x => x.d).sort((x, y) => y.d - x.d);
+}
+
 /** Nome como o Portal guarda (maiúsculas, sem acento) — o filtro nomeAutor exige. */
 function lmnNomeAutor(nome) {
   return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+// ------------------------------------------------------------
+// Destino das emendas pelo FAVORECIDO.
+// A API do Portal devolve a maior parte das emendas com a localidade
+// "MÚLTIPLO" (ou só a UF): o município não vem. O arquivo de dados abertos
+// "Emendas parlamentares" do Portal (um zip de ~32 MB) traz, em
+// EmendasParlamentares_PorFavorecido.csv, cada pagamento com quem o recebeu
+// (prefeitura, fundo municipal de saúde, entidade) e o município dele.
+// ------------------------------------------------------------
+
+/** Rótulo do município do favorecido: "NOME - UF" (pessoa física e afins vêm sem município). */
+function lmnRotuloFavorecido(mun, uf) {
+  const m = String(mun || '').trim(), u = String(uf || '').trim().toUpperCase();
+  if (m && /^[A-Z]{2}$/.test(u)) return `${m} - ${u}`;
+  return u && /^[A-Z]{2}$/.test(u) ? `FAVORECIDO SEM MUNICÍPIO (${u})` : 'FAVORECIDO SEM MUNICÍPIO';
+}
+
+/**
+ * Leitor dos dois CSVs do zip do Portal, nesta ordem:
+ *   emendas.linha(l)      ← EmendasParlamentares.csv (código → autor, ano, localidade)
+ *   favorecidos.linha(l)  ← EmendasParlamentares_PorFavorecido.csv
+ * Só entram as emendas SEM município (MÚLTIPLO, UF, nacional…) dos `autores`
+ * pedidos (nome parlamentar, qualquer grafia), nos `anos` pedidos (ano da emenda).
+ * resultado(): { [chaveAutor]: { [ano]: { total, n, mun: { [chave "NOME - UF"]: valor } } } }
+ * — chaves já seguras para o banco (lmnChave).
+ */
+function lmnLeitorFavorecidos(autores, anos) {
+  const quero = new Set((autores || []).map(lmnNomeAutor).filter(Boolean));
+  const queroAno = new Set((anos || []).map(String));
+  const cods = new Map();
+  const out = {};
+  const leitor = (arquivo, exigidos, fn) => {
+    let ix = null;
+    return linha => {
+      const c = lmnCampos(linha);
+      if (!ix) {
+        ix = {};
+        c.forEach((h, i) => { ix[lmnNomeAutor(h.replace(/^﻿/, ''))] = i; });
+        const falta = exigidos.filter(h => !(h in ix));
+        if (falta.length) throw new Error(`Faltam colunas em ${arquivo}: ${falta.join(', ')}`);
+        return;
+      }
+      fn(k => c[ix[k]] == null ? '' : c[ix[k]]);
+    };
+  };
+  const emendas = leitor('EmendasParlamentares.csv', ['CODIGO DA EMENDA', 'ANO DA EMENDA', 'NOME DO AUTOR DA EMENDA', 'LOCALIDADE DE APLICACAO DO RECURSO'], v => {
+    const ano = v('ANO DA EMENDA').trim(), autor = lmnNomeAutor(v('NOME DO AUTOR DA EMENDA')), cod = v('CODIGO DA EMENDA').trim();
+    if (!queroAno.has(ano) || !quero.has(autor) || !/^\d+$/.test(cod)) return;
+    if (lmnLocalidade(v('LOCALIDADE DE APLICACAO DO RECURSO')).tipo === 'municipio') return;
+    cods.set(cod, { a: lmnChave(autor), ano });
+  });
+  const favorecidos = leitor('EmendasParlamentares_PorFavorecido.csv', ['CODIGO DA EMENDA', 'UF FAVORECIDO', 'MUNICIPIO FAVORECIDO', 'VALOR RECEBIDO'], v => {
+    const e = cods.get(v('CODIGO DA EMENDA').trim());
+    if (!e) return;
+    const valor = lmnDinheiro(v('VALOR RECEBIDO'));
+    if (!valor) return;
+    const g = ((out[e.a] = out[e.a] || {})[e.ano] = out[e.a][e.ano] || { total: 0, n: 0, mun: {} });
+    const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
+    g.mun[k] = (g.mun[k] || 0) + valor;
+    g.total += valor; g.n++;
+  });
+  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out };
+}
+
+/**
+ * Leva para os municípios, pelo favorecido, o valor que o agregado das emendas
+ * (lmnAgregarEmendas) deixou "sem município". `fav` = { total, mun } do autor
+ * no ano (lmnLeitorFavorecidos). O arquivo do Portal sai uma vez por mês e a
+ * API é diária: os valores do favorecido são ajustados à soma "sem município"
+ * do agregado (iguais quando as duas fontes estão em dia) — se o arquivo cobre
+ * menos, o resto fica como estava.
+ * Devolve um novo agregado com municipais/nomesMun/outros atualizados e
+ * viaFavorecido (valor localizado), favMun ({ mID: valor } localizado assim).
+ */
+function lmnRedistribuir(ag, fav, resolverMun) {
+  if (!ag || !fav || !(fav.total > 0) || !fav.mun) return ag;
+  const sem = Object.values(ag.outros || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+  if (!(sem > 0)) return ag;
+  const usado = Math.min(sem, fav.total), k = usado / fav.total, resta = (sem - usado) / sem;
+  const out = Object.assign({}, ag, { municipais: Object.assign({}, ag.municipais), nomesMun: Object.assign({}, ag.nomesMun), outros: {}, viaFavorecido: 0, favMun: {} });
+  if (resta > 0) for (const [r, v] of Object.entries(ag.outros)) if (v * resta >= 0.01) out.outros[r] = v * resta;
+  for (const [nome, v0] of Object.entries(fav.mun)) {
+    const v = v0 * k;
+    if (!(v > 0)) continue;
+    const loc = lmnLocalidade(nome);
+    const id = loc.tipo === 'municipio' ? resolverMun(loc.nome, loc.uf) : null;
+    if (id) {
+      const m = 'm' + id;
+      out.municipais[m] = (out.municipais[m] || 0) + v;
+      if (!out.nomesMun[m]) out.nomesMun[m] = nome;
+      out.favMun[m] = (out.favMun[m] || 0) + v;
+      out.viaFavorecido += v;
+    } else {
+      out.outros[nome] = (out.outros[nome] || 0) + v;
+    }
+  }
+  return out;
 }
 
 // ============================================================
 // Exportação para Node (bot). Na extensão, este bloco é inerte.
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, LMN_APELIDOS };
+  module.exports = { LMN_ANOS, LMN_ANTERIOR, lmnBancadaDoArquivo, lmnNomeProprio, lmnAlvosAnterior, lmnAnexarAnterior, lmnVariacao, lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, lmnRotuloFavorecido, lmnLeitorFavorecidos, lmnRedistribuir, LMN_APELIDOS };
 }

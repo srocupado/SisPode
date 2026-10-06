@@ -378,7 +378,8 @@ bot.command('labsmapa', async ctx => {
     let texto;
     try {
       const r = await atualizarMapaTerritorial({ ano, onProgresso: m => console.log(`[labsmapa ${ano}] ${m}`) });
-      const deps = r.deputados.map(d => `• ${d.nome} (${d.uf}): ${d.total.toLocaleString('pt-BR')} votos em ${d.municipios} municípios`).join('\n');
+      const deps = r.deputados.map(d => `• ${d.nome} (${d.uf}): ${d.total.toLocaleString('pt-BR')} votos em ${d.municipios} municípios` +
+        (r.anterior ? (d.anterior != null ? ` · ${r.anterior.ano}: ${d.anterior.toLocaleString('pt-BR')}` : ` · não concorreu em ${r.anterior.ano}`) : '')).join('\n');
       const nao = r.naoEncontrados.length ? `\n⚠️ Não encontrados: ${r.naoEncontrados.map(n => `${n.nome} (${n.motivo})`).join('; ')}` : '';
       const sem = r.semPar.length ? `\n${r.semPar.length} município(s) do TSE sem par no IBGE.` : '';
       const em = r.emendas.anos.length
