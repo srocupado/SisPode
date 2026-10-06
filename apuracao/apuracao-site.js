@@ -1,8 +1,10 @@
 'use strict';
-// Apuração 2026 — a tela do painel, a mesma no site (apuracao/index.html, arquivo
+// Apuração — a tela do painel, a mesma no site (apuracao/index.html, arquivo
 // único) e na aba Apuração do Labs (apuracao/extensao.html, num iframe).
 // Usa a leitura dos arquivos do TSE de labs-apuracao.js (apLerUFTodos,
 // apCor, apUrl, apEleicaoDaConfig) e acrescenta:
+//  - eleição e turno: as eleições gerais que o TSE publica (lidas da
+//    configuração dele), inclusive o 2º turno assim que sai;
 //  - cargo (Presidente, Governador, Senador, Deputado Federal, Deputado
 //    Estadual/Distrital) e partido (Podemos, um partido qualquer ou todos);
 //    só o cargo escolhido é lido a cada 30 s;
@@ -13,15 +15,15 @@
 //  - no celular, a página suspensa lê de novo assim que volta à tela.
 // Os dados vão do TSE direto para o navegador de quem vê; nada passa por servidor.
 
-const SA_CHAVE = 'apuracao2026-v2';
+const SA_CHAVE = 'apuracao-v3';
 const SA_CARGOS = {
-  '1': { nome: 'Presidente', cargo: 1, eleicao: '6257', nacional: true },
-  '3': { nome: 'Governador', cargo: 3, eleicao: '6259' },
-  '5': { nome: 'Senador', cargo: 5, eleicao: '6259' },
-  '6': { nome: 'Deputado Federal', cargo: 6, eleicao: '6259' },
-  '7': { nome: 'Deputado Estadual / Distrital', cargo: 7, eleicao: '6259', df: 8 },
+  '1': { nome: 'Presidente', cargo: 1, nacional: true },
+  '3': { nome: 'Governador', cargo: 3 },
+  '5': { nome: 'Senador', cargo: 5 },
+  '6': { nome: 'Deputado Federal', cargo: 6 },
+  '7': { nome: 'Deputado Estadual / Distrital', cargo: 7, df: 8 },
 };
-const sa = { cargo: '6', partido: '20', dados: {}, br: null, falhas: {}, sel: new Set(), visao: 'ufs', soEleitos: false, busca: '',
+const sa = { eleicoes: [apEleicaoReserva()], eleicaoId: '', cargo: '6', partido: '20', dados: {}, br: null, falhas: {}, sel: new Set(), visao: 'ufs', soEleitos: false, busca: '',
   pausado: false, timer: null, proxima: 0, lendo: false, ultima: null, salvoEm: null, doCache: false, siglas: {} };
 
 function saEl(id) { return document.getElementById(id); }
@@ -31,18 +33,28 @@ function saHora(d) { return d ? new Date(d).toLocaleTimeString('pt-BR', { hour: 
 function saFmt(n) { return Math.round(n).toLocaleString('pt-BR'); }
 function saPct(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: n > 0 && n < 100 ? 2 : 0, maximumFractionDigits: 2 }) + '%'; }
 function saCargo() { return SA_CARGOS[sa.cargo]; }
-function saPartidoNome() { return sa.partido ? (sa.siglas[sa.partido] || 'partido ' + sa.partido) : 'todos os partidos'; }
+function saOp() { return sa.eleicoes.find(o => o.id === sa.eleicaoId) || apEleicaoInicial(sa.eleicoes); }
+function saNomeEleicao(o = saOp()) { return `${o.ano}${o.turno === 2 ? ' · 2º turno' : ''}`; }
+// Cargos da eleição escolhida (o Distrital vem junto do Estadual, como no TSE).
+function saCargosDaOp(o = saOp()) { return Object.keys(SA_CARGOS).filter(k => o.cargos[k] || (k === '7' && o.cargos[8])); }
+// Mantém o cargo se a eleição o tiver; senão Dep. Federal, Presidente ou o primeiro que houver.
+function saAjustarCargo() {
+  const l = saCargosDaOp();
+  if (!l.includes(sa.cargo)) sa.cargo = ['6', '1'].find(k => l.includes(k)) || l[0] || '6';
+}
+function saPartidoNome() { return sa.partido ? (sa.siglas[sa.partido] || (sa.partido === '20' ? 'PODE' : 'partido ' + sa.partido)) : 'todos os partidos'; }
 
 // ---------- navegador: última leitura ----------
 function saGravar() {
-  try { localStorage.setItem(SA_CHAVE, JSON.stringify({ v: 2, salvoEm: Date.now(), cargo: sa.cargo, partido: sa.partido, dados: sa.dados, br: sa.br })); }
+  try { localStorage.setItem(SA_CHAVE, JSON.stringify({ v: 3, salvoEm: Date.now(), eleicao: saOp(), cargo: sa.cargo, partido: sa.partido, dados: sa.dados, br: sa.br })); }
   catch (_) { /* sem armazenamento ou cheio: segue sem gravar */ }
 }
 function saRecuperar() {
   try {
     const x = JSON.parse(localStorage.getItem(SA_CHAVE) || 'null');
-    if (x && x.v === 2 && SA_CARGOS[x.cargo] && x.dados && Object.keys(x.dados).length) {
-      Object.assign(sa, { cargo: x.cargo, partido: x.partido == null ? '20' : x.partido, dados: x.dados, br: x.br || null, salvoEm: x.salvoEm, doCache: true });
+    if (x && x.v === 3 && x.eleicao && SA_CARGOS[x.cargo] && x.dados && Object.keys(x.dados).length) {
+      if (!sa.eleicoes.some(o => o.id === x.eleicao.id)) sa.eleicoes.push(x.eleicao);
+      Object.assign(sa, { eleicaoId: x.eleicao.id, cargo: x.cargo, partido: x.partido == null ? '20' : x.partido, dados: x.dados, br: x.br || null, salvoEm: x.salvoEm, doCache: true });
       return true;
     }
   } catch (_) {}
@@ -54,36 +66,54 @@ async function saDescobrirEleicoes() {
   try {
     const r = await fetch(`${AP_BASE}/comum/config/ele-c.json`, { cache: 'no-cache' });
     if (!r.ok) return;
-    const cfg = await r.json();
-    for (const c of Object.values(SA_CARGOS)) { const e = apEleicaoDaConfig(cfg, c.cargo); if (e) c.eleicao = e; }
-  } catch (_) {}
+    const ops = apEleicoesGerais(await r.json());
+    if (!ops.length) return;
+    sa.eleicoes = ops;
+    if (!ops.some(o => o.id === sa.eleicaoId)) {      // a gravada saiu da lista (ou 1ª visita)
+      sa.eleicaoId = apEleicaoInicial(ops).id; sa.dados = {}; sa.br = null; sa.doCache = false;
+      if (saOp().turno === 2) sa.partido = '';
+    }
+  } catch (_) { /* fica a reserva (2026, 1º turno) */ }
+  saAjustarCargo();
 }
 
+// Arquivos a ler: um por UF (só as UFs da eleição, quando o TSE as lista) e o
+// do Brasil nos cargos nacionais. No DF, o Estadual é o Distrital (cargo 8).
 function saArquivos() {
-  const c = saCargo();
-  const l = Object.keys(AP_UFS).map(uf => ({ uf, cargo: uf === 'df' && c.df ? c.df : c.cargo }));
-  if (c.nacional) l.push({ uf: 'br', cargo: c.cargo });
+  const o = saOp(), c = saCargo();
+  const doCargo = cd => o.cargos[cd] ? Object.assign({ cargo: cd }, o.cargos[cd]) : null;
+  const l = [];
+  for (const uf of Object.keys(AP_UFS)) {
+    const a = (uf === 'df' && c.df && doCargo(c.df)) || doCargo(c.cargo);
+    if (a && (!a.ufs || a.ufs.includes(uf))) l.push({ uf, cargo: a.cargo, eleicao: a.eleicao, ciclo: o.ciclo });
+  }
+  if (c.nacional && doCargo(c.cargo)) l.push({ uf: 'br', cargo: c.cargo, eleicao: o.cargos[c.cargo].eleicao, ciclo: o.ciclo });
   return l;
 }
 
 async function saLerTudo() {
   if (sa.lendo) return;
   sa.lendo = true; saStatus();
-  const cargoLido = sa.cargo, c = saCargo();
+  const lido = () => sa.eleicaoId + '|' + sa.cargo, chave = lido();
   let ok = 0;
-  await Promise.all(saArquivos().map(async a => {
+  const arqs = saArquivos();
+  sa.naoPublicados = 0;
+  await Promise.all(arqs.map(async a => {
     try {
-      const r = await fetch(apUrl(a.uf, c.eleicao, a.cargo), { cache: 'no-cache' });
+      const r = await fetch(apUrl(a.uf, a.eleicao, a.cargo, a.ciclo), { cache: 'no-cache' });
+      // 404/403: o TSE ainda não publicou (eleição prevista) ou a UF não tem esse turno.
+      if (r.status === 404 || r.status === 403) { if (lido() === chave) { sa.naoPublicados++; delete sa.falhas[a.uf]; } return; }
       if (!r.ok) throw new Error('HTTP ' + r.status);
       const d = apLerUFTodos(await r.json(), a.uf);
-      if (sa.cargo !== cargoLido) return;            // trocou de cargo no meio da leitura
+      if (lido() !== chave) return;                  // trocou de eleição ou cargo no meio da leitura
       for (const p of d.partidos) sa.siglas[p.numero] = p.sigla;
       if (a.uf === 'br') sa.br = d; else sa.dados[a.uf] = d;
       delete sa.falhas[a.uf]; ok++;
     } catch (e) { sa.falhas[a.uf] = e.message; }
   }));
   sa.lendo = false; sa.ultima = Date.now();
-  if (ok && sa.cargo === cargoLido) { sa.doCache = false; saGravar(); }
+  sa.totalArquivos = arqs.length;
+  if (ok && lido() === chave) { sa.doCache = false; saGravar(); }
   saRender();
 }
 
@@ -183,33 +213,35 @@ function saEleitosHtml() {
 // Cláusula de barreira: sempre o Brasil todo (é nacional), com todos os partidos.
 function saClausulaDados() {
   const ufs = Object.keys(AP_UFS).map(uf => sa.dados[uf]).filter(Boolean);
-  const l = ufs.length ? apClausula(ufs) : [];
-  return { ufs, l, fora: l.filter(x => !x.atinge), pend: ufs.filter(d => !d.final).map(d => d.uf.toUpperCase()) };
+  const regra = apClausulaRegra(saOp().ano);
+  const l = ufs.length && regra ? apClausula(ufs, regra) : [];
+  return { ufs, l, regra, fora: l.filter(x => !x.atinge), pend: ufs.filter(d => !d.final).map(d => d.uf.toUpperCase()) };
 }
 function saPctF(n) { return n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'; }
 function saClNome(x) { return `<b>${saEsc(x.nome)}</b>${x.federacao ? ` <span class="num">(${saEsc(x.siglas.join(', '))})</span>` : ''}`; }
-function saClRegra() {
-  return `EC 97/2017, art. 3º, parágrafo único, III. Atinge quem tiver <b>2,5% dos votos válidos do país, com pelo menos 1,5% em 9 estados</b>,
-    ou quem eleger <b>13 deputados federais em pelo menos 9 estados</b>. Federação conta como um partido só (Lei 14.208/2021).`;
+function saPctR(n) { return n.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%'; }
+function saClRegra(R) {
+  return `${saEsc(R.base)} — regra de ${R.ano}. Atinge quem tiver <b>${saPctR(R.pctBR)} dos votos válidos do país, com pelo menos ${saPctR(R.pctUF)} em ${R.ufs} estados</b>,
+    ou quem eleger <b>${R.eleitos} deputados federais em pelo menos ${R.ufs} estados</b>.${R.ano >= 2022 ? ' Federação conta como um partido só (Lei 14.208/2021).' : ''}`;
 }
 function saClAviso(cd) {
   return (cd.ufs.length < 27 ? `Só ${cd.ufs.length} de 27 estados lidos — resultado parcial. ` : '')
     + (cd.pend.length ? `Totalização do TSE pendente em ${saEsc(cd.pend.join(', '))}: os eleitos dali entram por projeção (mais votados dentro das vagas do partido/federação).` : '');
 }
 // Os três números da cláusula, cada um com o mínimo exigido.
-function saClNumeros(x) {
+function saClNumeros(x, R) {
   const n = (v, rot, min, ok) => `<div class="cl-num ${ok ? 'ok' : 'nao'}"><div class="v">${v}</div><div class="l">${rot}</div><div class="m">${min}</div></div>`;
-  return `<div class="cl-nums">${n(saPctF(x.pct), 'dos votos válidos no país', 'mínimo 2,5%', x.pct >= AP_CLAUSULA.pctBR)}`
-    + n(x.ufsMin, 'estados com 1,5% ou mais', 'mínimo 9', x.ufsMin >= AP_CLAUSULA.ufs)
-    + n(`${x.eleitos.length} <small>em ${x.ufsEleitos} UF${x.ufsEleitos === 1 ? '' : 's'}</small>`, 'deputados eleitos', 'mínimo 13 em 9 estados', x.atingeB) + '</div>'
-    + (x.proxima ? `<div class="cl-quase">Faltou 1,5% em mais ${AP_CLAUSULA.ufs - x.ufsMin} estado — o mais perto: ${x.proxima.uf.toUpperCase()} com ${saPctF(x.proxima.pct)}.</div>` : '');
+  return `<div class="cl-nums">${n(saPctF(x.pct), 'dos votos válidos no país', `mínimo ${saPctR(R.pctBR)}`, x.pct >= R.pctBR)}`
+    + n(x.ufsMin, `estados com ${saPctR(R.pctUF)} ou mais`, `mínimo ${R.ufs}`, x.ufsMin >= R.ufs)
+    + n(`${x.eleitos.length} <small>em ${x.ufsEleitos} UF${x.ufsEleitos === 1 ? '' : 's'}</small>`, 'deputados eleitos', `mínimo ${R.eleitos} em ${R.ufs} estados`, x.atingeB) + '</div>'
+    + (x.proxima ? `<div class="cl-quase">Faltou ${saPctR(R.pctUF)} em mais ${R.ufs - x.ufsMin} estado — o mais perto: ${x.proxima.uf.toUpperCase()} com ${saPctF(x.proxima.pct)}.</div>` : '');
 }
 function saClTabela(cd) {
   const linha = x => `<tr class="${x.atinge ? '' : 'cl-fora'}"><td>${x.atinge ? '<span class="cl-ok">✓ atinge</span>' : '<span class="cl-nao">✗ não atinge</span>'}</td>
-    <td>${saClNome(x)}${x.proxima ? `<div class="cl-quase">faltou 1,5% em mais ${AP_CLAUSULA.ufs - x.ufsMin} UF — a mais perto: ${x.proxima.uf.toUpperCase()} com ${saPctF(x.proxima.pct)}</div>` : ''}</td>
+    <td>${saClNome(x)}${x.proxima ? `<div class="cl-quase">faltou ${saPctR(cd.regra.pctUF)} em mais ${cd.regra.ufs - x.ufsMin} UF — a mais perto: ${x.proxima.uf.toUpperCase()} com ${saPctF(x.proxima.pct)}</div>` : ''}</td>
     <td class="r">${saFmt(x.votos)}</td><td class="r">${saPctF(x.pct)}</td><td class="r">${x.ufsMin}</td><td class="r">${x.eleitos.length}${x.projetados ? ` <span class="num">(${x.projetados} proj.)</span>` : ''}</td><td class="r">${x.ufsEleitos}</td>
     <td>${[x.atingeA ? 'votos' : '', x.atingeB ? 'eleitos' : ''].filter(Boolean).join(' e ') || '—'}</td></tr>`;
-  return `<div class="tab-rolagem"><table><tr><th></th><th>Partido / federação</th><th class="r">Votos</th><th class="r">% no país</th><th class="r">Estados ≥ 1,5%</th><th class="r">Eleitos</th><th class="r">Estados c/ eleito</th><th>Atinge por</th></tr>${cd.l.map(linha).join('')}</table></div>`;
+  return `<div class="tab-rolagem"><table><tr><th></th><th>Partido / federação</th><th class="r">Votos</th><th class="r">% no país</th><th class="r">Estados ≥ ${saPctR(cd.regra.pctUF)}</th><th class="r">Eleitos</th><th class="r">Estados c/ eleito</th><th>Atinge por</th></tr>${cd.l.map(linha).join('')}</table></div>`;
 }
 function saClDeputados(x) {
   return `<div class="tab-rolagem"><table><tr><th></th><th>Deputado(a)</th><th>Partido</th><th>UF</th><th class="r">Votos</th><th>Situação</th></tr>
@@ -217,15 +249,15 @@ function saClDeputados(x) {
 }
 function saClBlocos(cd) {
   return cd.fora.filter(x => x.eleitos.length).map(x => `<div class="uf cl-bloco"><div class="uf-cab">${saClNome(x)}<span class="uf-pct cl-nao">não atinge a cláusula</span></div>
-    ${saClNumeros(x)}${saClDeputados(x)}</div>`).join('');
+    ${saClNumeros(x, cd.regra)}${saClDeputados(x)}</div>`).join('');
 }
 function saClausulaHtml() {
   const cd = saClausulaDados();
   if (!cd.ufs.length) return '<div class="vazio grande">Lendo os resultados do TSE…</div>';
   const comEleitos = cd.fora.filter(x => x.eleitos.length), aviso = saClAviso(cd);
-  return `<div class="uf"><div class="uf-cab"><b>Cláusula de barreira 2026 — Câmara dos Deputados</b><span class="uf-pct">${cd.l.length - cd.fora.length} atingem · <span class="cl-nao">${cd.fora.length} não</span></span>
+  return `<div class="uf"><div class="uf-cab"><b>Cláusula de barreira ${cd.regra.ano} — Câmara dos Deputados</b><span class="uf-pct">${cd.l.length - cd.fora.length} atingem · <span class="cl-nao">${cd.fora.length} não</span></span>
       <button id="saClPdf" class="cl-pdf">⬇ Gerar PDF</button></div>
-    <div class="cl-regra">${saClRegra()} ${aviso ? `<span class="aviso">${aviso}</span>` : ''}</div>${saClTabela(cd)}</div>
+    <div class="cl-regra">${saClRegra(cd.regra)} ${aviso ? `<span class="aviso">${aviso}</span>` : ''}</div>${saClTabela(cd)}</div>
     ${comEleitos.length ? `<div class="uf-cab" style="margin:14px 2px 8px"><b>Eleitos por partidos/federações que não atingiram a cláusula</b><span class="uf-pct cl-nao">${comEleitos.reduce((s, x) => s + x.eleitos.length, 0)} deputados</span></div>${saClBlocos(cd)}` : ''}`;
 }
 
@@ -242,10 +274,10 @@ async function saClausulaPdf() {
   let el = saEl('saImpressao');
   if (!el) { el = document.createElement('div'); el.id = 'saImpressao'; document.body.appendChild(el); }
   el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
-      <h1>Cláusula de barreira 2026 — Câmara dos Deputados</h1>
-      <div class="imp-sub">Resultado das eleições de 4/10/2026 · fonte: TSE (divulgação oficial) · dados até ${saEsc(datas[datas.length - 1] || '—')} · gerado em ${saEsc(agora)}</div></div></div>
+      <h1>Cláusula de barreira ${cd.regra.ano} — Câmara dos Deputados</h1>
+      <div class="imp-sub">Resultado das eleições de ${saEsc(saOp().data || saOp().ano)} · fonte: TSE (divulgação oficial) · dados até ${saEsc(datas[datas.length - 1] || '—')} · gerado em ${saEsc(agora)}</div></div></div>
     <div class="imp-filete"></div>
-    <p class="cl-regra">${saClRegra()}</p>
+    <p class="cl-regra">${saClRegra(cd.regra)}</p>
     ${aviso ? `<p class="imp-aviso">${aviso}</p>` : ''}
     <div class="imp-resumo"><b>${cd.l.length - cd.fora.length}</b> partidos/federações atingem a cláusula · <b>${cd.fora.length}</b> não atingem
       · <b>${comEleitos.reduce((s, x) => s + x.eleitos.length, 0)}</b> deputados eleitos por quem não atingiu.</div>
@@ -254,12 +286,24 @@ async function saClausulaPdf() {
     <div class="imp-rodape">Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados. "Eleito (projeção)": mais votados do partido/federação dentro das vagas
       que o TSE informa enquanto a totalização não termina; a marcação oficial do TSE prevalece.</div>`;
   const titulo = document.title;
-  document.title = 'Clausula de barreira 2026 - ' + new Date().toISOString().slice(0, 10);
+  document.title = `Clausula de barreira ${cd.regra.ano} - ` + new Date().toISOString().slice(0, 10);
   const volta = () => { document.title = titulo; window.removeEventListener('afterprint', volta); };
   window.addEventListener('afterprint', volta);
   // A logo acabou de entrar na página: imprime só depois de ela carregar.
   await Promise.all([...el.querySelectorAll('img')].map(i => (i.decode ? i.decode() : Promise.resolve()).catch(() => {})));
   window.print();
+}
+
+// Seletores de eleição e de cargo, conforme as eleições que o TSE publica.
+function saOpcoesEleicao() {
+  const se = saEl('saEleicao'), sc = saEl('saCargo');
+  const rot = o => `${o.ano} · ${o.turno}º turno${o.data ? ' (' + o.data + ')' : ''}${o.previsto ? ' — aguardando o TSE' : ''}`;
+  const chaveE = sa.eleicoes.map(o => o.id).join(',');
+  if (se.dataset.chave !== chaveE) { se.innerHTML = sa.eleicoes.map(o => `<option value="${saEsc(o.id)}">${saEsc(rot(o))}</option>`).join(''); se.dataset.chave = chaveE; }
+  se.value = saOp().id;
+  const cargos = saCargosDaOp(), chaveC = cargos.join(',');
+  if (sc.dataset.chave !== chaveC) { sc.innerHTML = cargos.map(k => `<option value="${k}">${saEsc(SA_CARGOS[k].nome)}</option>`).join(''); sc.dataset.chave = chaveC; }
+  sc.value = sa.cargo;
 }
 
 function saOpcoesPartido() {
@@ -293,15 +337,21 @@ function saRender() {
   saEl('saSel').innerHTML = sa.sel.size
     ? [...sa.sel].map(u => `<button class="chip" data-tira="${u}" title="Tirar do filtro">${u.toUpperCase()} ✕</button>`).join('') + '<button class="chip limpar" data-tira="*">Brasil todo</button>'
     : '<span class="chip neutro">Brasil todo</span>';
-  saEl('saCargo').value = sa.cargo;
+  saOpcoesEleicao();
   saOpcoesPartido();
-  if (sa.visao === 'clausula' && sa.cargo !== '6') sa.visao = 'ufs';
-  saEl('saVisaoClausula').style.display = sa.cargo === '6' ? '' : 'none';
+  const temClausula = sa.cargo === '6' && !!apClausulaRegra(saOp().ano);
+  if (sa.visao === 'clausula' && !temClausula) sa.visao = 'ufs';
+  saEl('saVisaoClausula').style.display = temClausula ? '' : 'none';
   document.querySelectorAll('[data-visao]').forEach(b => b.classList.toggle('ativo', b.dataset.visao === sa.visao));
   saEl('saSoEleitosCx').style.display = sa.visao === 'ufs' ? '' : 'none';
   saEl('saMapa').parentNode.classList.toggle('so-lista', sa.visao === 'clausula');   // tabela larga: sem o mapa
-  saEl('saTitulo').textContent = `Apuração 2026 · ${c.nome}${sa.partido ? ' · ' + saPartidoNome() : ''}`;
-  if (!escopo.length && !sa.br) { saEl('saLista').innerHTML = '<div class="vazio grande">Lendo os resultados do TSE…</div>'; saStatus(); return; }
+  saEl('saTitulo').textContent = `Apuração ${saNomeEleicao()} · ${c.nome}${sa.partido ? ' · ' + saPartidoNome() : ''}`;
+  document.title = `Apuração ${saNomeEleicao()} · Liderança do Podemos`;
+  if (!escopo.length && !sa.br) {
+    const nada = sa.totalArquivos && sa.naoPublicados >= sa.totalArquivos;
+    saEl('saLista').innerHTML = `<div class="vazio grande">${nada ? `O TSE ainda não publicou resultados de ${saEsc(c.nome.toLowerCase())} nesta eleição (${saEsc(saNomeEleicao())}). O painel continua verificando a cada 30 s.` : 'Lendo os resultados do TSE…'}</div>`;
+    saStatus(); return;
+  }
   if (sa.visao === 'clausula') saEl('saLista').innerHTML = saClausulaHtml();
   else if (sa.visao === 'eleitos') saEl('saLista').innerHTML = saEleitosHtml();
   else {
@@ -326,9 +376,15 @@ function saIniciar() {
     if (b.dataset.tira === '*') sa.sel.clear(); else sa.sel.delete(b.dataset.tira);
     saRender();
   });
-  saEl('saCargo').addEventListener('change', async ev => {
-    sa.cargo = ev.target.value; sa.dados = {}; sa.br = null; sa.falhas = {}; sa.doCache = false;
+  const trocar = async () => {
+    sa.dados = {}; sa.br = null; sa.falhas = {}; sa.doCache = false; sa.totalArquivos = 0; sa.naoPublicados = 0;
     saRender(); await saLerTudo(); saAgendar();
+  };
+  saEl('saCargo').addEventListener('change', ev => { sa.cargo = ev.target.value; trocar(); });
+  saEl('saEleicao').addEventListener('change', ev => {
+    sa.eleicaoId = ev.target.value; sa.sel.clear(); saAjustarCargo();
+    sa.partido = saOp().turno === 2 ? '' : '20';      // 2º turno: são 2 candidatos por disputa, mostra todos
+    trocar();
   });
   saEl('saPartido').addEventListener('change', ev => { sa.partido = ev.target.value; saGravar(); saRender(); });
   document.querySelectorAll('[data-visao]').forEach(b => b.addEventListener('click', () => { sa.visao = b.dataset.visao; saRender(); }));

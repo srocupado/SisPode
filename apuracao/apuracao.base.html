@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#0f1720">
-<title>Apuração 2026 · Liderança do Podemos</title>
+<title>Apuração · Liderança do Podemos</title>
 <link rel="icon" href="{{LOGO}}">
 <style>
   :root { --bg: #0f1720; --bg2: #16212c; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; }
@@ -145,7 +145,7 @@
   <div class="topo">
     <img src="{{LOGO}}" alt="Podemos">
     <div>
-      <h1 id="saTitulo">Apuração 2026</h1>
+      <h1 id="saTitulo">Apuração</h1>
       <div class="sub">Painel desenvolvido pela <b>Liderança do Podemos na Câmara dos Deputados</b> · resultados oficiais do TSE, ao vivo</div>
     </div>
   </div>
@@ -155,7 +155,8 @@
   <div class="barra-ctl">
     <div class="status" id="saStatus"></div>
     <div class="ctl">
-      <select id="saCargo" title="Cargo"><option value="1">Presidente</option><option value="3">Governador</option><option value="5">Senador</option><option value="6" selected>Deputado Federal</option><option value="7">Deputado Estadual / Distrital</option></select>
+      <select id="saEleicao" title="Eleição e turno"></select>
+      <select id="saCargo" title="Cargo"></select>
       <select id="saPartido" title="Partido"><option value="20">PODE (Podemos)</option><option value="">Todos os partidos</option></select>
       <div class="seg"><button data-visao="ufs" class="ativo">Por estado</button><button data-visao="eleitos">Eleitos</button><button data-visao="clausula" id="saVisaoClausula">Cláusula de barreira</button></div>
       <label class="cx" id="saSoEleitosCx"><input type="checkbox" id="saSoEleitos"> só eleitos</label>
