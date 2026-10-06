@@ -753,6 +753,118 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   document.getElementById('smNumero').value = ''; document.getElementById('smAno').value = '';
   ctx.fetch = fL;
 
+  // ---------- 12. Mapa Territorial: eleição de 2026 (bancada eleita, comparação, 1 clique) ----------
+  console.log('12. Mapa Territorial — 2026');
+  {
+    const CAB26 = '"SG_UF";"CD_MUNICIPIO";"NM_MUNICIPIO";"CD_CARGO";"SQ_CANDIDATO";"NR_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"SG_PARTIDO";"QT_VOTOS_NOMINAIS_VALIDOS";"DS_SIT_TOT_TURNO"';
+    const l26 = (mun, nome, sq, nr, civ, urna, part, v, sit, cargo = '6') => `"SP";"${mun}";"${nome}";"${cargo}";"${sq}";"${nr}";"${civ}";"${urna}";"${part}";"${v}";"${sit}"`;
+    const CSV26 = [CAB26,
+      l26('71072', 'SÃO PAULO', '111', '2020', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 900, 'ELEITO POR QP'),
+      l26('62910', 'MOJI MIRIM', '111', '2020', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 600, 'ELEITO POR QP'),
+      l26('71072', 'SÃO PAULO', '112', '2021', 'JOAO SUPLENTE', 'JOAO', 'PODE', 300, 'SUPLENTE'),
+      l26('71072', 'SÃO PAULO', '113', '2022', 'NAO ELEITO DE TAL', 'NAO ELEITO', 'PODE', 10, 'NÃO ELEITO'),
+      l26('71072', 'SÃO PAULO', '999', '1313', 'OUTRO CANDIDATO', 'OUTRO', 'PT', 5000, 'ELEITO POR QP'),
+      l26('71072', 'SÃO PAULO', '111', '20200', 'MARIA DA SILVA SOUZA', 'MARIA SOUZA', 'PODE', 77777, 'ELEITO', '7')];
+    const CSV22 = [CAB26,
+      l26('71072', 'SÃO PAULO', '501', '1500', 'MARIA DA SILVA SOUZA', 'MARIA DO BAIRRO', 'MDB', 1200, 'ELEITO POR MÉDIA'),
+      l26('71072', 'SÃO PAULO', '502', '1313', 'OUTRO CANDIDATO', 'OUTRO', 'PT', 4000, 'ELEITO POR QP')];
+    const a26 = N.lmnAgregador([], { eleitosDoPartido: 'PODE' });
+    a26.novoArquivo(); CSV26.forEach(l => a26.linha(l));
+    const r26 = a26.resultado();
+    const m = r26.deputados.tse111;
+    ok(Object.keys(r26.deputados).join() === 'tse111' && m.total === 1500 && m.nome === 'Maria Souza' && m.nomeCivil === 'MARIA DA SILVA SOUZA' && m.situacao === 'ELEITO POR QP' && m.numero === '2020',
+      '2026: a bancada sai do arquivo — só os ELEITOS do PODE (suplente, "não eleito", outro partido e outro cargo ficam de fora)');
+    ok(r26.municipios['71072'].t === 6210, 'totais do município contam todos os candidatos a deputado federal');
+    let semSit = ''; try { const x = N.lmnAgregador([], { eleitosDoPartido: 'PODE' }); x.novoArquivo(); x.linha(CAB); } catch (e) { semSit = e.message; }
+    ok(/DS_SIT_TOT_TURNO/.test(semSit), 'arquivo sem a situação dos candidatos: erro claro (não dá para saber quem foi eleito)');
+    const a22 = N.lmnAgregador(N.lmnAlvosAnterior(r26.deputados));
+    a22.novoArquivo(); CSV22.forEach(l => a22.linha(l));
+    const reg26 = N.lmnParaIbge(r26, { SP: IBGE_SP });
+    N.lmnAnexarAnterior(reg26, N.lmnParaIbge(a22.resultado(), { SP: IBGE_SP }), '2022');
+    const ant = reg26.deputados.tse111.anterior;
+    ok(ant && ant.total === 1200 && ant.partido === 'MDB' && ant.nomeUrna === 'MARIA DO BAIRRO' && ant.municipios.m3550308 === 1200,
+      'comparação: a mesma pessoa em 2022 pelo nome civil, mesmo com outro partido e outro nome de urna');
+    const v = N.lmnVariacao(reg26.deputados.tse111.municipios, ant.municipios);
+    ok(v.length === 2 && v[0].k === 'm3530805' && v[0].d === 600 && v[1].k === 'm3550308' && v[1].d === -300, 'variação por município: do maior ganho à maior perda');
+    ok(N.lmnNomeProprio('DR. JAIME GAZOLA') === 'Dr. Jaime Gazola' && N.lmnNomeProprio('DA COSTA DO PERDEU PIÁ') === 'Da Costa do Perdeu Piá', 'nome de urna para exibir: "Dr.", "do"/"da" no meio');
+    ok(N.LMN_ANOS[0] === '2026' && N.lmnBancadaDoArquivo('2026') && !N.lmnBancadaDoArquivo('2022'), '2026 é a eleição padrão; 2022 continua pela bancada da Câmara');
+
+    // Tela: mapa com a comparação e o modo ganho/perda.
+    ctx.__d26 = Object.assign({ nome: 'Maria Souza', partidoEleicao: 'PODE', nomeUrna: 'MARIA SOUZA', situacao: 'ELEITO POR QP' }, reg26.deputados.tse111);
+    ctx.__reg26 = reg26;
+    av(`mp.modo = 'fatia'; mpRender(__d26, __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    let h = document.getElementById('mpResultado').innerHTML;
+    ok(/votos em 2022 \(MDB\)/.test(h) && /\+25%/.test(h) && /Onde mais ganhou votos/.test(h) && /Onde mais perdeu votos/.test(h) && /ganho\/perda desde 2022/.test(h),
+      'tela: cartão 2022 → 2026 (+25%), onde mais ganhou e perdeu, e o botão do modo ganho/perda');
+    ok(/Sem emendas: se o mandato começa em 2027/.test(h) === false, 'quem já era eleito em 2022 não recebe o aviso de mandato novo');
+    av(`mp.modo = 'variacao'; mpRender(__d26, __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    h = document.getElementById('mpResultado').innerHTML;
+    ok(h.includes('fill="#2b6e4f"') && h.includes('fill="#7a2a2a"') && /perdeu/.test(h), 'modo ganho/perda: verde onde ganhou, vermelho onde perdeu');
+    av(`mp.modo = 'fatia'; mpRender(Object.assign({}, __d26, { anterior: null }), __geo, __reg26.municipios.SP, { total: 0, n: 0, municipais: {}, outros: {} }, '2026')`);
+    h = document.getElementById('mpResultado').innerHTML;
+    ok(/Não concorreu a deputado federal por SP em 2022/.test(h) && /Sem emendas: se o mandato começa em 2027/.test(h), 'sem 2022: diz que não concorreu, e avisa que deputado novo ainda não tem emendas');
+
+    // Um clique: índice do zip + só os bytes dos estados, por Range.
+    const zipDe = ents => {
+      const loc = [], cen = []; let off = 0;
+      for (const e of ents) {
+        const nome = Buffer.from(e.nome), dado = zlib.deflateRawSync(e.dado);
+        const lh = Buffer.alloc(30); lh.writeUInt32LE(0x04034b50, 0); lh.writeUInt16LE(8, 8); lh.writeUInt32LE(dado.length, 18); lh.writeUInt32LE(e.dado.length, 22); lh.writeUInt16LE(nome.length, 26);
+        const ch = Buffer.alloc(46); ch.writeUInt32LE(0x02014b50, 0); ch.writeUInt16LE(8, 10); ch.writeUInt32LE(dado.length, 20); ch.writeUInt32LE(e.dado.length, 24); ch.writeUInt16LE(nome.length, 28); ch.writeUInt32LE(off, 42);
+        loc.push(lh, nome, dado); cen.push(ch, nome); off += 30 + nome.length + dado.length;
+      }
+      const cd = Buffer.concat(cen), eo = Buffer.alloc(22);
+      eo.writeUInt32LE(0x06054b50, 0); eo.writeUInt16LE(ents.length, 8); eo.writeUInt16LE(ents.length, 10); eo.writeUInt32LE(cd.length, 12); eo.writeUInt32LE(off, 16);
+      return Buffer.concat([...loc, cd, eo]);
+    };
+    const enorme = Buffer.alloc(200000, 0x41);   // o "BRASIL": não pode ser baixado
+    const zips = {
+      2026: zipDe([{ nome: 'leiame.pdf', dado: Buffer.from('%PDF') }, { nome: 'votacao_candidato_munzona_2026_BRASIL.csv', dado: enorme },
+        { nome: 'votacao_candidato_munzona_2026_SP.csv', dado: Buffer.from(CSV26.join('\n'), 'latin1') }, { nome: 'votacao_candidato_munzona_2026_MG.csv', dado: enorme }]),
+      2022: zipDe([{ nome: 'votacao_candidato_munzona_2022_SP.csv', dado: Buffer.from(CSV22.join('\r\n'), 'latin1') }, { nome: 'votacao_candidato_munzona_2022_RJ.csv', dado: enorme }]),
+    };
+    const pedidos = [];
+    const cfgTse = { pl: [{ cd: '3220', c: 'ele2026', dt: '04/10/2026', e: [{ cd: '6259', cdt2: '6260', t: '1', tp: '1', abr: [{ cd: 'br', cp: [{ cd: '6' }] }] }] }] };
+    const resUf = uf => ({ s: { ts: '1', st: '1', pst: '100,00' }, tf: 's', v: { vv: '1' }, carg: [{ cd: '6', nv: '1', agr: uf !== 'sp' ? [] : [
+      { n: '1', tp: 'i', vag: '1', par: [{ n: '20', sg: 'PODE', cand: [{ n: '2020', nmu: 'MARIA SOUZA', vap: '1500', e: 's', st: 'Eleito por QP' }] }] }] }] });
+    ctx.fetch = async (url, op) => {
+      url = String(url);
+      const m26 = url.match(/munzona_(\d{4})\.zip$/);
+      if (m26) {
+        const z = zips[m26[1]], r = /bytes=(\d+)-(\d+)/.exec((op && op.headers && op.headers.Range) || '');
+        if (!r) return new Response(z, { status: 200 });
+        const ini = +r[1], fim = Math.min(+r[2], z.length - 1);
+        pedidos.push({ ano: m26[1], ini, fim });
+        return new Response(z.subarray(ini, fim + 1), { status: 206, headers: { 'content-range': `bytes ${ini}-${fim}/${z.length}` } });
+      }
+      if (/ele-c\.json/.test(url)) return new Response(JSON.stringify(cfgTse));
+      const u = url.match(/\/dados\/(\w\w)\//); if (u) return new Response(JSON.stringify(resUf(u[1])));
+      if (/localidades\/estados\/SP\/municipios/.test(url)) return new Response(JSON.stringify(IBGE_SP));
+      return new Response('null');
+    };
+    Object.assign(ctx, { DecompressionStream, TransformStream, ReadableStream });
+    let confirmou = '';
+    ctx.confirm = msg => { confirmou = msg; return true; };
+    // linkedom não lê o "checked" inicial da caixa; no Chrome ela vem marcada.
+    Object.defineProperty(document.getElementById('mpComparar'), 'checked', { value: true, configurable: true });
+    await av(`mpBaixarTseClick()`);
+    const proc = av(`mp.processado`);
+    const dep = proc && proc.reg.deputados.tse111;
+    ok(dep && dep.total === 1500 && dep.anterior && dep.anterior.total === 1200 && proc.ano === '2026', '1 clique: lê os eleitos de 2026 e a votação de 2022 pelos arquivos remotos (' + (document.getElementById('mpUpStatus').textContent || 'ok') + ')');
+    ok(/só dos estados SP/.test(confirmou) && /e de 2022 \(comparação\)/.test(confirmou), 'pede confirmação dizendo o tamanho, as eleições e os estados');
+    const baixado = pedidos.reduce((t, p) => t + (p.fim - p.ini + 1), 0);
+    ok(pedidos.length && baixado < (enorme.length / 2) && !pedidos.some(p => p.fim - p.ini + 1 > 70000 && p.fim - p.ini + 1 >= 65557 + 1),
+      `só os pedaços necessários: ${baixado} bytes baixados (BRASIL, MG e RJ, de ${enorme.length} bytes cada, ficaram de fora)`);
+    ok(/Maria Souza/.test(document.getElementById('mpUpResultado').innerHTML) && /1\.200/.test(document.getElementById('mpUpResultado').innerHTML) && /mpGravar/.test(document.getElementById('mpUpResultado').innerHTML),
+      'resumo antes de gravar: deputado, votos de 2022 e o botão de gravar');
+    const zeros = av(`mpUfDaEntrada('votacao_candidato_munzona_2026_BRASIL.csv') === null && mpUfDaEntrada('x_2026_BR.csv') === null && mpUfDaEntrada('x_2026_sp.csv') === 'SP'`);
+    ok(zeros, 'entradas do zip: BRASIL e BR não contam como estado');
+  }
+  {
+    const Bm = require(path.join(RAIZ, 'bot', 'src', 'labsmapa.js'));
+    ok(Bm.ANOS_SUPORTADOS[0] === '2026' && Bm.ANOS_SUPORTADOS.includes('2022'), 'bot: /labsmapa aceita 2026 (padrão) e 2022');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

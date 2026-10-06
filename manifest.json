@@ -30,6 +30,7 @@
     "https://www2.camara.leg.br/*",
     "https://servicodados.ibge.gov.br/*",
     "https://resultados.tse.jus.br/*",
+    "https://cdn.tse.jus.br/*",
     "https://www.in.gov.br/*"
   ],
   "content_security_policy": {

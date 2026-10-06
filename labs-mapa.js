@@ -1,28 +1,37 @@
 'use strict';
 // Labs · Mapa Territorial de Entregas.
 //
-// Onde cada deputado da bancada teve votos (eleição de 2022, por município) e
+// Onde cada deputado da bancada teve votos (eleição de 2026 ou 2022, por município) e
 // onde as emendas pagas chegaram. O mapa pinta cada município pela FATIA dos
 // votos de deputado federal daquele município que foram do deputado (e não
 // pelo número absoluto, que só repetiria o mapa da população); os círculos
 // são as emendas pagas com município identificado.
 //
 // Os dados eleitorais vêm processados no banco (/labs/mapa/{ano}), gravados
-// pelo bot (/labsmapa) ou por esta tela, à mão, a partir dos CSV do TSE — o
+// pelo bot (/labsmapa), por esta tela com UM CLIQUE — a extensão lê o índice do
+// zip do TSE e baixa só os arquivos dos estados da bancada (pedidos HTTP com
+// Range; o zip inteiro tem centenas de MB) — ou à mão, a partir dos CSV. O
 // processamento roda no navegador e só o agregado vai para o banco.
+// Em 2026 a bancada são os eleitos do partido no próprio arquivo, e a eleição
+// anterior (2022) entra como comparação: ganho e perda de votos por município.
 // As emendas vêm do Portal da Transparência, pela chave do analista (a mesma
 // do módulo Orçamento → Emendas), e ficam em cache no banco por ano.
 // Contornos dos municípios: malhas do IBGE.
 //
 // Depende de labs.js e labs-mapa-nucleo.js.
 
-const MP_ANO_ELEICAO = '2022';
+const MP_TSE_ZIP = ano => `https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`;
+const MP_PARTIDO = { sigla: 'PODE', numero: '20' };
+const MP_CORES_VAR = { perda: ['#7a2a2a', '#b5483f', '#e07a6a'], ganho: ['#2b6e4f', '#3fa36f', '#7fdca4'] };
 const MP_BASE = '/labs/mapa';
 const MP_TRANSP = 'https://api.portaldatransparencia.gov.br/api-de-dados';
 const MP_IBGE = 'https://servicodados.ibge.gov.br/api';
 const MP_CORES = ['#17363c', '#1f5a5f', '#23807f', '#2fa89a', '#58d0b0', '#a6f0cf'];
 
-const mp = { dados: null, malhas: {}, ibgeUf: {}, processado: null };
+const mp = { dados: null, malhas: {}, ibgeUf: {}, processado: null, modo: 'fatia', ultimo: null };
+
+/** Eleição escolhida na tela (padrão: a mais recente). */
+function mpAno() { const el = mpEl('mpEleicao'); return (el && el.value) || LMN_ANOS[0]; }
 
 function mpEl(id) { return document.getElementById(id); }
 function mpNum(n) { return Number(n || 0).toLocaleString('pt-BR'); }
@@ -72,8 +81,8 @@ async function mpMalha(uf) {
 async function mpCarregar() {
   try {
     const [meta, deps] = await Promise.all([
-      mpFb(`${MP_BASE}/${MP_ANO_ELEICAO}/meta`),
-      mpFb(`${MP_BASE}/${MP_ANO_ELEICAO}/deputados`),
+      mpFb(`${MP_BASE}/${mpAno()}/meta`),
+      mpFb(`${MP_BASE}/${mpAno()}/deputados`),
     ]);
     // Registro torto no banco (regras abertas, gravação pela metade) não pode
     // travar a tela: entra só quem é objeto com nome e UF.
@@ -86,10 +95,10 @@ async function mpCarregar() {
     mpEl('mpMostrar').disabled = !lista.length;
     if (meta) {
       const em = meta.atualizadoEm ? new Date(meta.atualizadoEm).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' }) : '?';
-      mpEl('mpSituacao').innerHTML = `Eleição de ${MP_ANO_ELEICAO}: processada em <b>${labsEsc(em)}</b> (${labsEsc(meta.origem || '?')}) —
+      mpEl('mpSituacao').innerHTML = `Eleição de ${mpAno()}: processada em <b>${labsEsc(em)}</b> (${labsEsc(meta.origem || '?')}) —
         ${lista.length} deputado(s), estados ${labsEsc((meta.ufs || []).join(', ') || '—')}.`;
     } else {
-      mpEl('mpSituacao').innerHTML = `<b>Nada processado ainda para ${MP_ANO_ELEICAO}.</b> Rode o comando do bot ou siga os passos abaixo.`;
+      mpEl('mpSituacao').innerHTML = `<b>Nada processado ainda para ${mpAno()}.</b> Use <b>Baixar do TSE e processar</b> abaixo.`;
     }
   } catch (e) {
     mpEl('mpSituacao').textContent = 'Não foi possível ler o banco: ' + e.message;
@@ -262,11 +271,12 @@ async function mpMostrarClick() {
   mpEl('mpResultado').innerHTML = '';
   try {
     labsStatus('mpStatus', 'Carregando o mapa do IBGE e os totais do estado…', 'loading');
-    const [geo, totais] = await Promise.all([mpMalha(dep.uf), mpFb(`${MP_BASE}/${MP_ANO_ELEICAO}/municipios/${dep.uf}`)]);
+    const [geo, totais] = await Promise.all([mpMalha(dep.uf), mpFb(`${MP_BASE}/${mpAno()}/municipios/${dep.uf}`)]);
     let emendas;
     try { emendas = await mpEmendas(depId, dep, ano); }
     catch (e) { emendas = { erro: e.message }; }
     labsStatus('mpStatus', '');
+    mp.modo = 'fatia';
     mpRender(dep, geo, totais || {}, emendas, ano);
   } catch (e) {
     labsStatus('mpStatus', 'Erro: ' + e.message, 'error');
@@ -275,12 +285,28 @@ async function mpMostrarClick() {
   }
 }
 
+/** Cor do ganho/perda de votos: vermelhos para perda, verdes para ganho, em 3 faixas pelo tamanho relativo. */
+function mpCorVar(d, max) {
+  if (!d || !max) return MP_CORES[0];
+  const f = Math.abs(d) / max, i = f > 0.4 ? 0 : f > 0.12 ? 1 : 2;
+  return (d > 0 ? MP_CORES_VAR.ganho : MP_CORES_VAR.perda)[i];
+}
+
 function mpRender(dep, geo, totais, emendas, ano) {
+  mp.ultimo = { dep, geo, totais, emendas, ano };
+  const ANO = mpAno();
+  const ant = dep.anterior || null;
+  const modoVar = mp.modo === 'variacao' && !!ant;
   const { p, larg, alt } = mpProjetar(geo);
   const votos = dep.municipios || {};
   const fatia = k => { const t = (totais[k] || {}).t; return t ? (votos[k] || 0) / t : 0; };
   const chaves = (geo.features || []).map(f => 'm' + (f.properties && f.properties.codarea));
   const quebras = mpQuebras(chaves.map(fatia));
+  const variacao = ant ? lmnVariacao(votos, ant.municipios) : [];
+  const dVar = Object.fromEntries(variacao.map(x => [x.k, x.d]));
+  // Escala do ganho/perda pelo 95º percentil do |d|: São Paulo sozinha não achata o resto do estado.
+  const absVar = variacao.map(x => Math.abs(x.d)).sort((x, y) => x - y);
+  const maxVar = absVar.length ? absVar[Math.min(absVar.length - 1, Math.floor(0.95 * absVar.length))] : 0;
   const doEstado = new Set(chaves);
   // Emendas com município: as do estado viram círculo; as de outro estado
   // (o deputado pode destinar para fora) vão para uma lista à parte e não
@@ -293,13 +319,18 @@ function mpRender(dep, geo, totais, emendas, ano) {
   let paths = '', circulos = '';
   for (const f of geo.features || []) {
     const k = 'm' + (f.properties && f.properties.codarea);
-    paths += `<path d="${mpCaminho(f.geometry, p)}" fill="${mpCor(fatia(k), quebras)}" data-k="${k}"></path>`;
+    const cor = modoVar ? mpCorVar(dVar[k] || 0, maxVar) : mpCor(fatia(k), quebras);
+    paths += `<path d="${mpCaminho(f.geometry, p)}" fill="${cor}" data-k="${k}"></path>`;
     if (mun[k] && maxEm) {
       const c = mpCentro(f.geometry, p);
       if (c) circulos += `<circle cx="${c[0].toFixed(1)}" cy="${c[1].toFixed(1)}" r="${(3 + 13 * Math.sqrt(mun[k] / maxEm)).toFixed(1)}"></circle>`;
     }
   }
-  const legenda = mpLegenda(quebras).map(([c, rot]) => `<i style="background:${c}"></i>${rot}`).join(' ');
+  const legenda = modoVar
+    ? `Ganho/perda de votos desde ${labsEsc(ant.ano)}: ${MP_CORES_VAR.perda.map(c => `<i style="background:${c}"></i>`).join('')} perdeu
+       <i style="background:${MP_CORES[0]}"></i> igual ${MP_CORES_VAR.ganho.slice().reverse().map(c => `<i style="background:${c}"></i>`).join('')} ganhou
+       (tons mais fortes: maior variação)`
+    : `Fatia dos votos nominais válidos para deputado federal no município: <i style="background:${MP_CORES[0]}"></i>0 ${mpLegenda(quebras).map(([c, rot]) => `<i style="background:${c}"></i>${rot}`).join(' ')}`;
   const comVoto = Object.entries(votos).filter(([, v]) => v > 0);
   const top = comVoto.sort((a, b) => b[1] - a[1]).slice(0, 12);
   const nomeMun = k => (totais[k] || {}).n || nomesEm[k] || k;
@@ -317,6 +348,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
     const foraLista = Object.entries(foraUf).sort((a, b) => b[1] - a[1]);
     blocoEmendas = `<div class="sub">Emendas do orçamento de ${ano}, valor pago: <b>${mpReais(emendas.total)}</b>${partes}
       (${mpNum(emendas.n)} registro(s) no Portal)${emendas.aviso ? ' — ' + labsEsc(emendas.aviso) : ''}.</div>
+      ${!emendas.n && lmnBancadaDoArquivo(ANO) && !(ant && /^eleito/i.test(ant.situacao || '')) ? `<div class="sub">Sem emendas: se o mandato começa em ${Number(ANO) + 1}, ainda não há emendas deste autor.</div>` : ''}
       ${emendas.deOutroAutor ? `<div class="sub">${mpNum(emendas.deOutroAutor)} registro(s) de outro autor devolvidos pelo Portal foram descartados.</div>` : ''}
       ${comEmenda.length ? `<div class="sub" style="margin-top:6px"><b>Com município identificado</b> (círculos no mapa):</div>
         <table class="labs-tab">${comEmenda.sort((a, b) => mun[b] - mun[a]).map(k => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpReais(mun[k])}</td></tr>`).join('')}</table>
@@ -329,19 +361,43 @@ function mpRender(dep, geo, totais, emendas, ano) {
         não vem na fonte. Por isso muitas entregas não aparecem como círculo. Para saúde, o detalhe por município está no FNS (Orçamento → Emendas).</div>`;
   }
 
+  // Comparação com a eleição anterior (só quando ela existe para o deputado).
+  const nAnt = LMN_ANTERIOR[ANO];
+  let cardAnt = '', blocoVar = '', seletor = '';
+  if (ant) {
+    const dTot = dep.total - ant.total, pTot = ant.total ? dTot / ant.total : 0;
+    cardAnt = `<div class="labs-card"><div class="v">${mpNum(ant.total)}</div><div class="l">votos em ${labsEsc(ant.ano)} (${labsEsc(ant.partido || '?')}) ·
+      <b style="color:${dTot >= 0 ? '#7fdca4' : '#e07a6a'}">${dTot >= 0 ? '+' : ''}${mpPct(pTot)}</b></div></div>`;
+    const ganhos = variacao.filter(x => x.d > 0).slice(0, 6), perdas = variacao.filter(x => x.d < 0).slice(-6).reverse();
+    const linha = x => `<tr><td>${labsEsc(nomeMun(x.k))}</td><td style="text-align:right">${mpNum(x.antes)}</td><td style="text-align:right">${mpNum(x.agora)}</td>
+      <td style="text-align:right;color:${x.d > 0 ? '#7fdca4' : '#e07a6a'}">${x.d > 0 ? '+' : ''}${mpNum(x.d)}</td></tr>`;
+    const cab = `<tr><th>Município</th><th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">${ANO}</th><th style="text-align:right">Dif.</th></tr>`;
+    blocoVar = `<div class="labs-caixa"><h3>Desde ${labsEsc(ant.ano)}</h3>
+      <div class="sub">Em ${labsEsc(ant.ano)}: ${mpNum(ant.total)} votos pelo ${labsEsc(ant.partido || '?')}${ant.situacao ? ` (${labsEsc(ant.situacao.toLowerCase())})` : ''}.</div>
+      ${ganhos.length ? `<div class="sub" style="margin-top:6px"><b>Onde mais ganhou votos</b></div><table class="labs-tab">${cab}${ganhos.map(linha).join('')}</table>` : ''}
+      ${perdas.length ? `<div class="sub" style="margin-top:6px"><b>Onde mais perdeu votos</b></div><table class="labs-tab">${cab}${perdas.map(linha).join('')}</table>` : ''}</div>`;
+    seletor = `<div class="labs-mapa-modo">Cor do mapa:
+      <button class="sm-bt${modoVar ? '' : ' ativo'}" data-mp-modo="fatia">fatia dos votos em ${ANO}</button>
+      <button class="sm-bt${modoVar ? ' ativo' : ''}" data-mp-modo="variacao">ganho/perda desde ${labsEsc(ant.ano)}</button></div>`;
+  } else if (nAnt) {
+    blocoVar = `<div class="labs-caixa"><h3>Desde ${nAnt}</h3><div class="sub">Não concorreu a deputado federal por ${labsEsc(dep.uf)} em ${nAnt}
+      (ou o nome não bate com o arquivo daquela eleição) — sem comparação.</div></div>`;
+  }
+
   mpEl('mpResultado').innerHTML = `
     <div class="labs-cards">
-      <div class="labs-card"><div class="v">${mpNum(dep.total)}</div><div class="l">votos em ${MP_ANO_ELEICAO}</div></div>
+      <div class="labs-card"><div class="v">${mpNum(dep.total)}</div><div class="l">votos em ${ANO}</div></div>
+      ${cardAnt}
       <div class="labs-card"><div class="v">${mpNum(comVoto.length)}</div><div class="l">municípios com voto</div></div>
       <div class="labs-card f3"><div class="v">${emendas && emendas.total != null ? mpReais(emendas.total) : '—'}</div><div class="l">emendas de ${ano}: pago (no ano + restos)</div></div>
     </div>
+    ${seletor}
     <div class="labs-mapa-wrap">
       <div class="labs-mapa" id="mpMapa">
         <svg viewBox="0 0 ${larg} ${alt}" preserveAspectRatio="xMidYMid meet">${paths}${circulos}</svg>
         <div class="labs-dica-mapa" id="mpDica" hidden></div>
-        <div class="labs-legenda">Fatia dos votos nominais válidos para deputado federal no município: <i style="background:${MP_CORES[0]}"></i>0 ${legenda}
-          · <span style="color:#f0c040">●</span> emenda paga</div>
-        <div class="labs-legenda">A fatia é sobre os votos NOMINAIS (sem os votos só na legenda) — sai alguns pontos acima da fatia sobre todos os votos válidos.</div>
+        <div class="labs-legenda">${legenda} · <span style="color:#f0c040">●</span> emenda paga</div>
+        ${modoVar ? '' : '<div class="labs-legenda">A fatia é sobre os votos NOMINAIS (sem os votos só na legenda) — sai alguns pontos acima da fatia sobre todos os votos válidos.</div>'}
       </div>
       <div class="labs-lado">
         <div class="labs-caixa" style="margin-top:0"><h3>Onde teve mais votos</h3>
@@ -349,18 +405,25 @@ function mpRender(dep, geo, totais, emendas, ano) {
           ${top.map(([k, v]) => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right">${mpPct(fatia(k))}</td></tr>`).join('')}</table>
           ${dep.foraDoMapa ? `<div class="sub" style="margin-top:4px">${mpNum(dep.foraDoMapa)} voto(s) em municípios sem correspondência no IBGE.</div>` : ''}
         </div>
+        ${blocoVar}
         <div class="labs-caixa"><h3>Emendas</h3>${blocoEmendas}</div>
       </div>
     </div>
-    <div class="labs-custo">Eleito(a) em ${MP_ANO_ELEICAO} pelo ${labsEsc(dep.partidoEleicao || '?')} como “${labsEsc(dep.nomeUrna || dep.nome)}”. Fontes: TSE (votação por município), IBGE (malhas), Portal da Transparência (emendas).</div>`;
+    <div class="labs-custo">Eleito(a) em ${ANO} pelo ${labsEsc(dep.partidoEleicao || '?')} como “${labsEsc(dep.nomeUrna || dep.nome)}”${dep.situacao ? ` (${labsEsc(dep.situacao.toLowerCase())})` : ''}.
+      Fontes: TSE (votação por município), IBGE (malhas), Portal da Transparência (emendas).</div>`;
 
+  for (const b of mpEl('mpResultado').querySelectorAll('[data-mp-modo]')) {
+    b.addEventListener('click', () => { mp.modo = b.dataset.mpModo; const u = mp.ultimo; mpRender(u.dep, u.geo, u.totais, u.emendas, u.ano); });
+  }
   const svg = mpEl('mpMapa').querySelector('svg');
   const dica = mpEl('mpDica');
+  const antMun = (ant && ant.municipios) || {};
   svg.addEventListener('mousemove', ev => {
     const k = ev.target && ev.target.dataset && ev.target.dataset.k;
     if (!k) { dica.hidden = true; return; }
     const caixa = mpEl('mpMapa').getBoundingClientRect();
     dica.innerHTML = `<b>${labsEsc(nomeMun(k))}</b><br>${mpNum(votos[k] || 0)} votos · ${mpPct(fatia(k))} do município` +
+      (ant ? `<br>Em ${labsEsc(ant.ano)}: ${mpNum(antMun[k] || 0)} votos (${(dVar[k] || 0) >= 0 ? '+' : ''}${mpNum(dVar[k] || 0)})` : '') +
       (mun[k] ? `<br>Emendas pagas: ${mpReais(mun[k])}` : '');
     dica.style.left = (ev.clientX - caixa.left + 12) + 'px';
     dica.style.top = (ev.clientY - caixa.top + 12) + 'px';
@@ -369,10 +432,195 @@ function mpRender(dep, geo, totais, emendas, ano) {
   svg.addEventListener('mouseleave', () => { dica.hidden = true; });
 }
 
+// ---------- download do TSE com um clique (só os estados da bancada) ----------
+// O zip do TSE tem centenas de MB, mas é um arquivo por estado lá dentro. O
+// servidor (cdn.tse.jus.br) atende pedidos com Range: lê-se o índice no fim do
+// zip (diretório central), e de cada estado só os bytes dele, descompactados
+// em fluxo (DecompressionStream 'deflate-raw') e lidos linha a linha.
+
+async function mpFaixa(url, ini, fim) {
+  const r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } });
+  if (r.status !== 206) throw new Error(`o servidor do TSE não atendeu o pedido parcial (HTTP ${r.status})`);
+  return r;
+}
+
+/** Tamanho total do arquivo remoto, pelo Content-Range de um pedido de 1 byte. */
+async function mpTamanhoRemoto(url) {
+  const r = await mpFaixa(url, 0, 0);
+  const t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+  try { await r.arrayBuffer(); } catch (_) {}
+  if (!(t > 0)) throw new Error('o TSE não informou o tamanho do arquivo');
+  return t;
+}
+
+/**
+ * Entradas de um zip: [{ nome, metodo, comprimido, tamanho, offsetLocal }],
+ * lendo só o fim do arquivo. `ler(ini, n)` devolve Uint8Array. Suporta ZIP64
+ * (o CSV do Brasil inteiro passa de 4 GB). Pura (a leitura vem de fora).
+ */
+async function mpEntradasZip(total, ler) {
+  const nCauda = Math.min(total, 65557);
+  const cauda = await ler(total - nCauda, nCauda);
+  const dv = new DataView(cauda.buffer, cauda.byteOffset, cauda.byteLength);
+  let eocd = -1;
+  for (let i = cauda.length - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('arquivo do TSE não é um zip válido');
+  let n = dv.getUint16(eocd + 10, true), tamCd = dv.getUint32(eocd + 12, true), offCd = dv.getUint32(eocd + 16, true);
+  if (offCd === 0xffffffff || tamCd === 0xffffffff || n === 0xffff) {
+    const loc = eocd - 20;
+    if (loc < 0 || dv.getUint32(loc, true) !== 0x07064b50) throw new Error('zip64 sem localizador');
+    const e64 = await ler(Number(dv.getBigUint64(loc + 8, true)), 56);
+    const d64 = new DataView(e64.buffer, e64.byteOffset, e64.byteLength);
+    if (d64.getUint32(0, true) !== 0x06064b50) throw new Error('zip64: registro de fim inválido');
+    n = Number(d64.getBigUint64(32, true)); tamCd = Number(d64.getBigUint64(40, true)); offCd = Number(d64.getBigUint64(48, true));
+  }
+  const cd = offCd >= total - nCauda ? cauda.subarray(offCd - (total - nCauda), offCd - (total - nCauda) + tamCd) : await ler(offCd, tamCd);
+  const c = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+  const out = [];
+  let p = 0;
+  for (let k = 0; k < n && p + 46 <= cd.length; k++) {
+    if (c.getUint32(p, true) !== 0x02014b50) throw new Error('índice do zip corrompido');
+    const metodo = c.getUint16(p + 10, true);
+    let comprimido = c.getUint32(p + 20, true), tamanho = c.getUint32(p + 24, true), offsetLocal = c.getUint32(p + 42, true);
+    const nLen = c.getUint16(p + 28, true), xLen = c.getUint16(p + 30, true), cLen = c.getUint16(p + 32, true);
+    const nome = new TextDecoder().decode(cd.subarray(p + 46, p + 46 + nLen));
+    for (let x = p + 46 + nLen, fimX = x + xLen; x + 4 <= fimX;) {
+      const id = c.getUint16(x, true), len = c.getUint16(x + 2, true);
+      if (id === 0x0001) {
+        let q = x + 4;
+        if (tamanho === 0xffffffff) { tamanho = Number(c.getBigUint64(q, true)); q += 8; }
+        if (comprimido === 0xffffffff) { comprimido = Number(c.getBigUint64(q, true)); q += 8; }
+        if (offsetLocal === 0xffffffff) { offsetLocal = Number(c.getBigUint64(q, true)); q += 8; }
+      }
+      x += 4 + len;
+    }
+    out.push({ nome, metodo, comprimido, tamanho, offsetLocal });
+    p += 46 + nLen + xLen + cLen;
+  }
+  return out;
+}
+
+/** UF da entrada "…_munzona_2026_SP.csv" (null para BRASIL, BR, leia-me). */
+function mpUfDaEntrada(nome) {
+  const m = String(nome).match(/_([A-Z]{2})\.(csv|txt)$/i);
+  return m && m[1].toUpperCase() !== 'BR' ? m[1].toUpperCase() : null;
+}
+
+/** Lê uma entrada do zip remoto linha a linha. aoAndar(bytesComprimidosLidos). */
+async function mpLerEntradaRemota(url, e, aoLer, aoAndar) {
+  const cab = new Uint8Array(await (await mpFaixa(url, e.offsetLocal, e.offsetLocal + 29)).arrayBuffer());
+  const dv = new DataView(cab.buffer);
+  if (dv.getUint32(0, true) !== 0x04034b50) throw new Error(`cabeçalho inválido em ${e.nome}`);
+  if (!e.comprimido) return;
+  const ini = e.offsetLocal + 30 + dv.getUint16(26, true) + dv.getUint16(28, true);
+  const r = await mpFaixa(url, ini, ini + e.comprimido - 1);
+  let lidos = 0;
+  let fluxo = r.body.pipeThrough(new TransformStream({ transform(ch, c) { lidos += ch.length; if (aoAndar) aoAndar(lidos); c.enqueue(ch); } }));
+  if (e.metodo === 8) fluxo = fluxo.pipeThrough(new DecompressionStream('deflate-raw'));
+  else if (e.metodo !== 0) throw new Error(`compressão ${e.metodo} não suportada em ${e.nome}`);
+  const dec = new TextDecoder('latin1');
+  const lin = lmnLinhas(aoLer);
+  const leitor = fluxo.getReader();
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    lin.empurrar(dec.decode(value, { stream: true }));
+  }
+  lin.empurrar(dec.decode());
+  lin.fim();
+}
+
+/** Índice do zip do TSE de uma eleição, só com as entradas dos estados pedidos. */
+async function mpIndiceTse(ano, ufs) {
+  const url = MP_TSE_ZIP(ano);
+  const total = await mpTamanhoRemoto(url);
+  const todas = await mpEntradasZip(total, async (ini, n) => new Uint8Array(await (await mpFaixa(url, ini, ini + n - 1)).arrayBuffer()));
+  const quero = new Set(ufs);
+  return { url, ano, entradas: todas.filter(e => quero.has(mpUfDaEntrada(e.nome))) };
+}
+
+/**
+ * Estados com eleito do partido na eleição, pelo painel de resultados do TSE
+ * (resultados.tse.jus.br — poucos KB por estado, o mesmo da aba Apuração).
+ * Serve para baixar só esses estados do zip; quem é eleito sai do próprio zip.
+ */
+async function mpUfsComEleitos(ano) {
+  const ops = apEleicoesGerais(await labsJson(`${AP_BASE}/comum/config/ele-c.json`));
+  const op = ops.find(o => String(o.ano) === String(ano) && o.turno === 1 && o.cargos[6]);
+  if (!op) throw new Error(`o TSE não lista a eleição de ${ano} na divulgação de resultados`);
+  const ufs = Object.keys(AP_UFS);
+  const lidos = await labsMapLimit(ufs, 6, async uf => apLerUFTodos(await labsJson(apUrl(uf, op.cargos[6].eleicao, 6, op.ciclo)), uf));
+  if (lidos.some(d => !d)) throw new Error('o painel de resultados do TSE não respondeu para todos os estados — tente de novo');
+  return ufs.filter((uf, i) => lidos[i].candidatos.some(c => c.partido === MP_PARTIDO.sigla && (c.eleito || c.projetado))).map(u => u.toUpperCase());
+}
+
+async function mpBaixarTseClick() {
+  const bt = mpEl('mpBaixarTse');
+  const ano = mpAno();
+  const anoAnt = mpEl('mpComparar') && mpEl('mpComparar').checked ? LMN_ANTERIOR[ano] : null;
+  bt.disabled = true;
+  mpEl('mpUpResultado').innerHTML = '';
+  const st = m => labsStatus('mpUpStatus', m, 'loading');
+  try {
+    let alvos = [], ufs;
+    if (lmnBancadaDoArquivo(ano)) {
+      st(`Conferindo no TSE os estados com eleitos do ${MP_PARTIDO.sigla} em ${ano}…`);
+      ufs = await mpUfsComEleitos(ano);
+    } else {
+      st('Buscando a bancada na Câmara…');
+      alvos = await mpBancada();
+      ufs = [...new Set(alvos.map(a => a.uf))];
+    }
+    if (!ufs.length) throw new Error('nenhum estado a processar');
+    st('Lendo o índice dos arquivos do TSE…');
+    const indices = [await mpIndiceTse(ano, ufs)];
+    if (anoAnt) indices.push(await mpIndiceTse(anoAnt, ufs));
+    const mb = indices.reduce((s, ix) => s + ix.entradas.reduce((t, e) => t + e.comprimido, 0), 0) / 1e6;
+    const falta = ufs.filter(u => !indices[0].entradas.some(e => mpUfDaEntrada(e.nome) === u));
+    if (falta.length) throw new Error(`o arquivo do TSE de ${ano} não tem os estados ${falta.join(', ')}`);
+    labsStatus('mpUpStatus', '');
+    if (!confirm(`Baixar ${mb.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} MB do TSE — votação de ${ano}${anoAnt ? ` e de ${anoAnt} (comparação)` : ''}, só dos estados ${ufs.sort().join(', ')}?\n\nO processamento roda aqui; nada é gravado antes da sua confirmação.`)) return;
+
+    let feitoMb = 0;
+    const ler = async (ix, ag) => {
+      for (let i = 0; i < ix.entradas.length; i++) {
+        const e = ix.entradas[i];
+        ag.novoArquivo();
+        await mpLerEntradaRemota(ix.url, e, l => ag.linha(l), lidos =>
+          st(`Baixando e lendo ${ix.ano} · ${labsEsc(mpUfDaEntrada(e.nome))} (${i + 1}/${ix.entradas.length}) — ${(feitoMb + lidos / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} de ${mb.toLocaleString('pt-BR', { maximumFractionDigits: 0 })} MB`));
+        feitoMb += e.comprimido / 1e6;
+      }
+      return ag.resultado();
+    };
+    const res = await ler(indices[0], lmnAgregador(alvos, lmnBancadaDoArquivo(ano) ? { eleitosDoPartido: MP_PARTIDO.sigla } : {}));
+    st('Casando os municípios do TSE com os do IBGE…');
+    const reg = await mpParaIbge(res);
+    let anterior = null;
+    if (anoAnt) {
+      const resA = await ler(indices[1], lmnAgregador(lmnAlvosAnterior(res.deputados)));
+      lmnAnexarAnterior(reg, await mpParaIbge(resA), anoAnt);
+      anterior = { ano: anoAnt, naoEncontrados: resA.naoEncontrados };
+    }
+    mp.processado = { ano, reg, res, anterior, origem: 'extensão (TSE, 1 clique)' };
+    labsStatus('mpUpStatus', '');
+    mpRenderProcessado();
+  } catch (e) {
+    labsStatus('mpUpStatus', 'Erro: ' + e.message, 'error');
+  } finally {
+    bt.disabled = false;
+  }
+}
+
+async function mpParaIbge(res) {
+  const ibgePorUf = {};
+  for (const uf of res.ufs) ibgePorUf[uf] = await mpIbgeUf(uf);
+  return lmnParaIbge(res, ibgePorUf);
+}
+
 // ---------- processamento manual dos CSV do TSE ----------
 /** Deputados do PODE em exercício, com nome civil (para casar com o TSE). */
 async function mpBancada() {
-  const j = await labsJson(`${LABS_API}/deputados?siglaPartido=PODE&ordem=ASC&ordenarPor=nome&itens=100`);
+  const j = await labsJson(`${LABS_API}/deputados?siglaPartido=${MP_PARTIDO.sigla}&ordem=ASC&ordenarPor=nome&itens=100`);
   const lista = j.dados || [];
   const det = await labsMapLimit(lista, 4, async d => ((await labsJson(`${LABS_API}/deputados/${d.id}`)).dados || {}));
   return lista.map((d, i) => ({ id: String(d.id), nome: d.nome, uf: d.siglaUf, nomeCivil: (det[i] || {}).nomeCivil || '' }));
@@ -403,15 +651,17 @@ async function mpProcessarClick() {
   mpEl('mpUpResultado').innerHTML = '';
   try {
     // Um arquivo por eleição: arquivos de anos diferentes seriam SOMADOS. E só
-    // a eleição que a tela mostra (MP_ANO_ELEICAO) — outra iria para um lugar
-    // que ninguém lê.
+    // a eleição escolhida na tela — outra iria para um lugar que ninguém lê.
+    const ano = mpAno();
     const anos = [...new Set(arquivos.map(a => (a.name.match(/munzona_(\d{4})/) || [])[1]).filter(Boolean))];
-    if (anos.length > 1) throw new Error(`Os arquivos são de eleições diferentes (${anos.join(', ')}). Escolha só os de ${MP_ANO_ELEICAO}.`);
-    if (anos.length && anos[0] !== MP_ANO_ELEICAO) throw new Error(`Arquivo da eleição de ${anos[0]}; o mapa usa a de ${MP_ANO_ELEICAO}. Baixe o arquivo de ${MP_ANO_ELEICAO} pelo link acima.`);
-    const anoArq = MP_ANO_ELEICAO;
-    labsStatus('mpUpStatus', 'Buscando a bancada na Câmara…', 'loading');
-    const alvos = await mpBancada();
-    const ag = lmnAgregador(alvos);
+    if (anos.length > 1) throw new Error(`Os arquivos são de eleições diferentes (${anos.join(', ')}). Escolha só os de ${ano}.`);
+    if (anos.length && anos[0] !== ano) throw new Error(`Arquivo da eleição de ${anos[0]}; a tela está na de ${ano}. Troque a eleição acima ou baixe o arquivo de ${ano}.`);
+    let alvos = [];
+    if (!lmnBancadaDoArquivo(ano)) {
+      labsStatus('mpUpStatus', 'Buscando a bancada na Câmara…', 'loading');
+      alvos = await mpBancada();
+    }
+    const ag = lmnAgregador(alvos, lmnBancadaDoArquivo(ano) ? { eleitosDoPartido: MP_PARTIDO.sigla } : {});
     for (let i = 0; i < arquivos.length; i++) {
       const a = arquivos[i];
       ag.novoArquivo();
@@ -420,10 +670,8 @@ async function mpProcessarClick() {
     }
     const res = ag.resultado();
     labsStatus('mpUpStatus', 'Casando os municípios do TSE com os do IBGE…', 'loading');
-    const ibgePorUf = {};
-    for (const uf of res.ufs) ibgePorUf[uf] = await mpIbgeUf(uf);
-    const reg = lmnParaIbge(res, ibgePorUf);
-    mp.processado = { ano: anoArq, reg, res };
+    const reg = await mpParaIbge(res);
+    mp.processado = { ano, reg, res, anterior: null, origem: 'extensão (manual)' };
     labsStatus('mpUpStatus', '');
     mpRenderProcessado();
   } catch (e) {
@@ -434,13 +682,16 @@ async function mpProcessarClick() {
 }
 
 function mpRenderProcessado() {
-  const { ano, reg, res } = mp.processado;
+  const { ano, reg, res, anterior } = mp.processado;
   const deps = Object.entries(reg.deputados).sort((a, b) => b[1].total - a[1].total);
   const nao = res.naoEncontrados;
+  const colAnt = anterior ? `<th style="text-align:right">${labsEsc(anterior.ano)}</th>` : '';
+  const celAnt = d => anterior ? `<td style="text-align:right">${d.anterior ? `${mpNum(d.anterior.total)} <span class="base">(${labsEsc(d.anterior.partido)})</span>` : '<span class="base">não concorreu</span>'}</td>` : '';
   mpEl('mpUpResultado').innerHTML = `
-    <div class="sub" style="margin-top:8px">Eleição de <b>${labsEsc(ano)}</b> · estados lidos: ${labsEsc(res.ufs.join(', ') || '—')} · ${mpNum(res.linhas)} linhas de deputado federal.</div>
-    ${deps.length ? `<table class="labs-tab" style="margin-top:6px"><tr><th>Deputado(a)</th><th>UF</th><th style="text-align:right">Votos</th><th style="text-align:right">Municípios</th></tr>
-      ${deps.map(([, d]) => `<tr><td>${labsEsc(d.nome)} <span class="base">(urna: ${labsEsc(d.nomeUrna)}, ${labsEsc(d.partidoEleicao)})</span></td><td>${labsEsc(d.uf)}</td><td style="text-align:right">${mpNum(d.total)}</td><td style="text-align:right">${mpNum(Object.keys(d.municipios).length)}</td></tr>`).join('')}</table>` : ''}
+    <div class="sub" style="margin-top:8px">Eleição de <b>${labsEsc(ano)}</b> · estados lidos: ${labsEsc(res.ufs.join(', ') || '—')} · ${mpNum(res.linhas)} linhas de deputado federal
+      · <b>${deps.length}</b> deputado(s)${lmnBancadaDoArquivo(ano) ? ` eleito(s) pelo ${MP_PARTIDO.sigla}` : ''}${anterior ? ` · ${deps.filter(([, d]) => d.anterior).length} com votação em ${labsEsc(anterior.ano)}` : ''}.</div>
+    ${deps.length ? `<table class="labs-tab" style="margin-top:6px"><tr><th>Deputado(a)</th><th>UF</th><th style="text-align:right">Votos</th><th style="text-align:right">Municípios</th>${colAnt}</tr>
+      ${deps.map(([, d]) => `<tr><td>${labsEsc(d.nome)} <span class="base">(urna: ${labsEsc(d.nomeUrna)}, ${labsEsc(d.partidoEleicao)}${d.situacao ? ', ' + labsEsc(d.situacao.toLowerCase()) : ''})</span></td><td>${labsEsc(d.uf)}</td><td style="text-align:right">${mpNum(d.total)}</td><td style="text-align:right">${mpNum(Object.keys(d.municipios).length)}</td>${celAnt(d)}</tr>`).join('')}</table>` : ''}
     ${nao.length ? `<div class="sub" style="margin-top:6px"><b>Não encontrados</b> (não serão gravados): ${nao.map(n => `${labsEsc(n.nome)} (${labsEsc(n.uf)}: ${labsEsc(n.motivo)})`).join('; ')}.</div>` : ''}
     ${reg.semPar.length ? `<div class="sub" style="margin-top:4px">${reg.semPar.length} município(s) do TSE sem correspondência no IBGE: ${reg.semPar.slice(0, 8).map(m => labsEsc(m.n + '/' + m.uf)).join(', ')}${reg.semPar.length > 8 ? '…' : ''}</div>` : ''}
     ${deps.length ? `<button id="mpGravar" class="btn-gerar" style="margin-top:8px">Gravar no banco de dados</button>` : ''}`;
@@ -449,7 +700,7 @@ function mpRenderProcessado() {
 }
 
 async function mpGravarClick() {
-  const { ano, reg, res } = mp.processado;
+  const { ano, reg, res, origem } = mp.processado;
   const n = Object.keys(reg.deputados).length;
   if (!confirm(`Gravar no banco compartilhado os votos de ${ano} de ${n} deputado(s) (${res.ufs.join(', ')})? Substitui o que houver para esses deputados e estados.`)) return;
   const bt = mpEl('mpGravar');
@@ -458,7 +709,7 @@ async function mpGravarClick() {
     labsStatus('mpUpStatus', 'Gravando…', 'loading');
     const base = `${MP_BASE}/${ano}`;
     const metaAntiga = await mpFb(`${base}/meta`);   // falha aqui aborta: sem ela, a lista de estados seria perdida
-    await mpFbEscrever('PATCH', base, lmnAtualizacao(reg, res, metaAntiga, 'extensão (manual)'));
+    await mpFbEscrever('PATCH', base, lmnAtualizacao(reg, res, metaAntiga, origem || 'extensão (manual)'));
     labsStatus('mpUpStatus', `Gravado: ${n} deputado(s).`);
     mp.processado = null;
     mpEl('mpUpResultado').innerHTML = '';
@@ -469,13 +720,33 @@ async function mpGravarClick() {
   }
 }
 
+/** Eleição escolhida: atualiza o link do arquivo, a opção de comparação e recarrega a lista. */
+function mpTrocarEleicao() {
+  const ano = mpAno();
+  const link = mpEl('mpLinkZip');
+  if (link) { link.href = MP_TSE_ZIP(ano); link.textContent = `votacao_candidato_munzona_${ano}.zip`; }
+  for (const el of document.querySelectorAll('[data-mp-ano]')) el.textContent = ano;
+  const cmp = mpEl('mpCompararLinha');
+  if (cmp) { cmp.hidden = !LMN_ANTERIOR[ano]; const t = mpEl('mpCompararAno'); if (t) t.textContent = LMN_ANTERIOR[ano] || ''; }
+  mpEl('mpResultado').innerHTML = '';
+  mp.processado = null;
+  mpEl('mpUpResultado').innerHTML = '';
+  mpCarregar();
+}
+
 if (mpEl('mpMostrar')) {
   mpPreencherAnos();
+  const selE = mpEl('mpEleicao');
+  if (selE) {
+    selE.innerHTML = LMN_ANOS.map(a => `<option value="${a}">${a}</option>`).join('');
+    selE.addEventListener('change', mpTrocarEleicao);
+  }
   mpEl('mpMostrar').addEventListener('click', mpMostrarClick);
   mpEl('mpArquivos').addEventListener('change', () => { mpEl('mpProcessar').disabled = !mpEl('mpArquivos').files.length; });
   mpEl('mpProcessar').addEventListener('click', mpProcessarClick);
+  if (mpEl('mpBaixarTse')) mpEl('mpBaixarTse').addEventListener('click', mpBaixarTseClick);
   let carregou = false;
   document.addEventListener('labs:aba', ev => {
-    if (ev.detail === 'aba-mapa' && !carregou) { carregou = true; mpCarregar(); }
+    if (ev.detail === 'aba-mapa' && !carregou) { carregou = true; mpTrocarEleicao(); }
   });
 }
