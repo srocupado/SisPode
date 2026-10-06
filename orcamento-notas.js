@@ -1884,7 +1884,7 @@ function htmlNota(q, conf, ficha, serie, variacao, ia) {
   const m = q.materia, r = q.relatores, c = q.cronograma, a = q.acompanhamento, e = q.emendas;
   const agora = new Date();
   const carimbo = `${String(agora.getDate()).padStart(2, '0')}/${String(agora.getMonth() + 1).padStart(2, '0')}/${agora.getFullYear()} ${String(agora.getHours()).padStart(2, '0')}:${String(agora.getMinutes()).padStart(2, '0')}`;
-  const legislatura = legislaturaDe(agora.getFullYear());
+  const legislatura = legislaturaDe(agora);
   const nome = p => p ? `${p.casa === 'Senado' ? 'Sen.' : 'Dep.'} ${esc(p.nome)} (${esc(p.partido)}/${esc(p.uf)})` : '<span class="nd">Ainda não designado</span>';
   const logo = (typeof chrome !== 'undefined' && chrome.runtime?.getURL) ? chrome.runtime.getURL('icons/podemos-logo.png') : 'icons/podemos-logo.png';
 
@@ -2256,9 +2256,10 @@ Constar do documento não significa que a ação se aplique ao caso concreto —
 sendo análise do gabinete.</div>`;
 }
 
-/** 57ª Legislatura: 2023-2027. Cada legislatura dura 4 anos desde 1826. */
-function legislaturaDe(ano) {
-  return 57 + Math.floor((ano - 2023) / 4);
+/** Legislatura de uma data: posse em 1º/fev de 2023 (57ª), 2027 (58ª)… — em janeiro ainda vale a anterior. */
+function legislaturaDe(data = new Date()) {
+  const a = data.getFullYear(), m = data.getMonth() + 1;
+  return Math.floor(((m >= 2 ? a : a - 1) - 1795) / 4);
 }
 
 // ============================================================
