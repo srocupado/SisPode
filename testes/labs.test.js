@@ -859,6 +859,15 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       'resumo antes de gravar: deputado, votos de 2022 e o botão de gravar');
     const zeros = av(`mpUfDaEntrada('votacao_candidato_munzona_2026_BRASIL.csv') === null && mpUfDaEntrada('x_2026_BR.csv') === null && mpUfDaEntrada('x_2026_sp.csv') === 'SP'`);
     ok(zeros, 'entradas do zip: BRASIL e BR não contam como estado');
+    // Painel de resultados instável: o estado que não responde entra por precaução, em vez de derrubar tudo.
+    const fOk = ctx.fetch;
+    ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    const ufsInst = await av(`mpUfsComEleitos('2026')`);
+    ok(ufsInst.join() === 'MG,RJ,SP', 'resultado do TSE fora do ar em MG e RJ: entram por precaução (SP pelos eleitos) — ' + ufsInst.join());
+    ctx.fetch = async (url, op) => /\/dados\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);
+    let semTse = ''; try { await av(`mpUfsComEleitos('2026')`); } catch (e) { semTse = e.message; }
+    ok(/não respondeu/.test(semTse), 'TSE todo fora do ar: erro claro');
+    ctx.fetch = fOk;
   }
   {
     const Bm = require(path.join(RAIZ, 'bot', 'src', 'labsmapa.js'));

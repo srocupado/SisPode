@@ -550,8 +550,10 @@ async function mpUfsComEleitos(ano) {
   if (!op) throw new Error(`o TSE não lista a eleição de ${ano} na divulgação de resultados`);
   const ufs = Object.keys(AP_UFS);
   const lidos = await labsMapLimit(ufs, 6, async uf => apLerUFTodos(await labsJson(apUrl(uf, op.cargos[6].eleicao, 6, op.ciclo)), uf));
-  if (lidos.some(d => !d)) throw new Error('o painel de resultados do TSE não respondeu para todos os estados — tente de novo');
-  return ufs.filter((uf, i) => lidos[i].candidatos.some(c => c.partido === MP_PARTIDO.sigla && (c.eleito || c.projetado))).map(u => u.toUpperCase());
+  // Estado que não respondeu entra por precaução: quem é eleito sai do zip, então
+  // o resultado não muda — só baixa um estado a mais. Nenhum respondeu: erro.
+  if (lidos.every(d => !d)) throw new Error('o painel de resultados do TSE não respondeu — tente de novo em instantes');
+  return ufs.filter((uf, i) => !lidos[i] || lidos[i].candidatos.some(c => c.partido === MP_PARTIDO.sigla && (c.eleito || c.projetado))).map(u => u.toUpperCase());
 }
 
 async function mpBaixarTseClick() {
