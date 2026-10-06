@@ -65,7 +65,7 @@ function mpRelatorioHtml(u, op = {}) {
 
   const comVoto = Object.entries(votos).filter(([, v]) => v > 0).sort((a, b) => b[1] - a[1]);
   const dTot = ant ? dep.total - ant.total : 0;
-  const linhaTop = ([k, v], i) => `<tr><td class="n">${i + 1}</td><td>${mprEsc(nomeMun(k))}</td><td class="num">${mpNum(v)}</td><td class="num">${mpPct(fatia(k))}</td>` +
+  const linhaTop = ([k, v], i) => `<tr><td class="n">${i + 1}</td><td>${mprEsc(nomeMun(k))}</td><td class="num">${mpNum(v)}</td><td class="num">${mpNum((totais[k] || {}).t || 0)}</td><td class="num">${mpPct(fatia(k))}</td>` +
     (ant ? `<td class="num">${mpNum(antMun[k] || 0)}</td><td class="num ${(votos[k] || 0) >= (antMun[k] || 0) ? 'sobe' : 'cai'}">${mpVarPct(antMun[k] || 0, v)}</td>` : '') + '</tr>';
   const cabVar = `<tr><th>Município</th><th class="num">${mprEsc(ant ? ant.ano : '')}</th><th class="num">${ANO}</th><th class="num">Diferença</th><th class="num">%</th></tr>`;
   const linhaVar = x => `<tr><td>${mprEsc(nomeMun(x.k))}</td><td class="num">${mpNum(x.antes)}</td><td class="num">${mpNum(x.agora)}</td>
@@ -150,11 +150,11 @@ function mpRelatorioHtml(u, op = {}) {
 <h2>Fatia dos votos por município — ${ANO}</h2>
 <div class="mapa">${mprSvg(geo, corFatia, mun)}
   <div class="legenda"><span><i style="background:${MPR_FATIA[0]}"></i>sem voto</span>${legFatia}${Object.keys(mun).length ? '<span><i style="background:rgba(232,160,0,0.6)"></i>emenda paga</span>' : ''}</div>
-  <div class="fonte">Fatia dos votos nominais válidos para deputado federal no município que foram do deputado.</div>
+  <div class="fonte">Fatia = votos do deputado ÷ total de votos nominais válidos para deputado federal no município (todos os candidatos; sem os votos só na legenda).</div>
 </div>
 
 <h2>Onde teve mais votos</h2>
-${tab(comVoto.slice(0, 20).map(linhaTop), `<tr><th></th><th>Município</th><th class="num">Votos ${ANO}</th><th class="num">Fatia</th>${ant ? `<th class="num">Votos ${mprEsc(ant.ano)}</th><th class="num">Variação</th>` : ''}</tr>`)}
+${tab(comVoto.slice(0, 20).map(linhaTop), `<tr><th></th><th>Município</th><th class="num">Votos ${ANO}</th><th class="num">Total do município</th><th class="num">Fatia</th>${ant ? `<th class="num">Votos ${mprEsc(ant.ano)}</th><th class="num">Variação</th>` : ''}</tr>`)}
 
 ${ant ? `<h2 class="quebra">Ganho e perda de votos desde ${mprEsc(ant.ano)}</h2>
 <p>Em ${mprEsc(ant.ano)}: <b>${mpNum(ant.total)}</b> votos pelo ${mprEsc(ant.partido || '?')}${ant.situacao ? ` (${mprEsc(ant.situacao.toLowerCase())})` : ''}; em ${ANO}: <b>${mpNum(dep.total)}</b>
@@ -173,7 +173,7 @@ ${ant ? `<h2 class="quebra">Ganho e perda de votos desde ${mprEsc(ant.ano)}</h2>
 ${blocoEm}
 
 ${comVoto.length > 20 ? `<h2 class="quebra">Anexo — todos os ${mpNum(comVoto.length)} municípios com voto</h2>
-<div class="anexo">${tab(comVoto.map((x, i) => linhaTop(x, i)), `<tr><th></th><th>Município</th><th class="num">${ANO}</th><th class="num">Fatia</th>${ant ? `<th class="num">${mprEsc(ant.ano)}</th><th class="num">Var.</th>` : ''}</tr>`)}</div>` : ''}
+<div class="anexo">${tab(comVoto.map((x, i) => linhaTop(x, i)), `<tr><th></th><th>Município</th><th class="num">${ANO}</th><th class="num">Total mun.</th><th class="num">Fatia</th>${ant ? `<th class="num">${mprEsc(ant.ano)}</th><th class="num">Var.</th>` : ''}</tr>`)}</div>` : ''}
 
 <div class="rodape">Liderança do Podemos · Labs — Mapa Territorial. Fontes: TSE (votação por município e zona, dados abertos), IBGE (malhas municipais),
   Portal da Transparência (emendas). Votos nominais válidos (sem os votos só na legenda); a comparação com a eleição anterior casa o candidato pelo nome civil na mesma UF.</div>

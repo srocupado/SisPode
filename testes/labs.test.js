@@ -810,6 +810,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 6, 14, 5), anoEleicao: '2026' })`);
     ok(/<h1>Maria Souza \(SP\)<\/h1>/.test(rel) && /Gerado em 06\/10\/2026 14:05/.test(rel) && /<img src="data:image\/png;base64,AA"/.test(rel) && /id="btn-pdf"/.test(rel),
       'relatório: título, data, logo e botão Salvar em PDF');
+    ok(/Total do município/.test(rel) && rel.includes(`<td class="num">${av(`mpNum(__reg26.municipios.SP.m3550308.t)`)}</td>`), 'relatório: total de votos do município ao lado dos votos do deputado e da fatia');
     ok((rel.match(/<svg /g) || []).length === 2 && /Ganho e perda de votos desde 2022/.test(rel) && /\+25%/.test(rel) && /−25%/.test(rel) && /\+600/.test(rel),
       'relatório: mapa da fatia e mapa de ganho/perda, com a variação total (+25%) e por município');
     ok(/MÚLTIPLO/.test(rel) && /<circle /.test(rel) && /print-color-adjust: exact/.test(rel), 'relatório: emendas (com círculo no mapa e as sem município) e cores preservadas na impressão');

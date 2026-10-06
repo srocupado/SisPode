@@ -415,8 +415,8 @@ function mpRender(dep, geo, totais, emendas, ano) {
       <div class="labs-lado">
         <div class="labs-caixa" style="margin-top:0"><h3>Votos por município <span class="base">(${mpNum(comVoto.length)})</span></h3>
           <input type="search" id="mpFiltroMun" class="field" placeholder="Filtrar município" style="margin:4px 0 6px">
-          <div class="labs-rolagem"><table class="labs-tab" id="mpTabMun"><thead><tr><th></th><th>Município</th><th style="text-align:right">${ANO}</th><th style="text-align:right" title="Fatia dos votos do município">Fatia</th>${ant ? `<th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">Var.</th>` : ''}</tr></thead><tbody>
-          ${comVoto.map(([k, v], i) => `<tr data-k="${k}" data-busca="${labsEsc(lmnNorm(nomeMun(k)))}"><td class="base">${i + 1}</td><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right">${mpPct(fatia(k))}</td>` +
+          <div class="labs-rolagem"><table class="labs-tab" id="mpTabMun"><thead><tr><th></th><th>Município</th><th style="text-align:right">${ANO}</th><th style="text-align:right" title="Total de votos nominais válidos para deputado federal no município">Total</th><th style="text-align:right" title="Votos do deputado ÷ total do município">Fatia</th>${ant ? `<th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">Var.</th>` : ''}</tr></thead><tbody>
+          ${comVoto.map(([k, v], i) => `<tr data-k="${k}" data-busca="${labsEsc(lmnNorm(nomeMun(k)))}"><td class="base">${i + 1}</td><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right" class="base">${mpNum((totais[k] || {}).t || 0)}</td><td style="text-align:right">${mpPct(fatia(k))}</td>` +
             (ant ? `<td style="text-align:right">${mpNum(antMun[k] || 0)}</td><td style="text-align:right;color:${v >= (antMun[k] || 0) ? '#7fdca4' : '#e07a6a'}">${mpVarPct(antMun[k] || 0, v)}</td>` : '') + '</tr>').join('')}</tbody></table></div>
           ${dep.foraDoMapa ? `<div class="sub" style="margin-top:4px">${mpNum(dep.foraDoMapa)} voto(s) em municípios sem correspondência no IBGE.</div>` : ''}
         </div>
@@ -450,7 +450,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
     if (!k) { dica.hidden = true; return; }
     const caixa = mpEl('mpMapa').getBoundingClientRect();
     const d = dVar[k] || 0, cor = d > 0 ? '#7fdca4' : d < 0 ? '#e07a6a' : '#ccc';
-    dica.innerHTML = `<b>${labsEsc(nomeMun(k))}</b><br>${ANO}: ${mpNum(votos[k] || 0)} votos · ${mpPct(fatia(k))} do município` +
+    dica.innerHTML = `<b>${labsEsc(nomeMun(k))}</b><br>${ANO}: ${mpNum(votos[k] || 0)} de ${mpNum((totais[k] || {}).t || 0)} votos do município (${mpPct(fatia(k))})` +
       (ant ? `<br>${labsEsc(ant.ano)}: ${mpNum(antMun[k] || 0)} votos<br><b style="color:${cor}">${d > 0 ? '+' : ''}${mpNum(d)} votos (${mpVarPct(antMun[k] || 0, votos[k] || 0)})</b>` : '') +
       (mun[k] ? `<br>Emendas pagas: ${mpReais(mun[k])}` : '');
     dica.style.left = (ev.clientX - caixa.left + 12) + 'px';
