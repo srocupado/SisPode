@@ -914,7 +914,8 @@
   .labs-mapa path:hover { stroke: #fff; stroke-width: 1.2; }
   .labs-mapa circle { fill: rgba(240,192,64,0.55); stroke: #f0c040; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
   .labs-dica-mapa { position: absolute; pointer-events: none; background: rgba(0,0,0,0.85); color: #fff; font-size: 11px;
-    padding: 6px 8px; border-radius: 6px; line-height: 1.45; display: none; max-width: 260px; z-index: 5; }
+    padding: 6px 8px; border-radius: 6px; line-height: 1.45; display: block; max-width: 260px; z-index: 5; }
+  .labs-dica-mapa[hidden] { display: none; }   /* antes era sempre display:none — a dica nunca aparecia */
   .labs-legenda { display: flex; align-items: center; gap: 6px; font-size: 10.5px; color: var(--text-dim); margin: 6px 4px 0; flex-wrap: wrap; }
   .labs-legenda i { display: inline-block; width: 18px; height: 10px; border-radius: 2px; }
   .labs-lado { flex: 1; min-width: 260px; }

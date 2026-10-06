@@ -787,6 +787,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     const v = N.lmnVariacao(reg26.deputados.tse111.municipios, ant.municipios);
     ok(v.length === 2 && v[0].k === 'm3530805' && v[0].d === 600 && v[1].k === 'm3550308' && v[1].d === -300, 'variação por município: do maior ganho à maior perda');
     ok(N.lmnNomeProprio('DR. JAIME GAZOLA') === 'Dr. Jaime Gazola' && N.lmnNomeProprio('DA COSTA DO PERDEU PIÁ') === 'Da Costa do Perdeu Piá', 'nome de urna para exibir: "Dr.", "do"/"da" no meio');
+    ok(av(`mpVarPct(1200, 900)`) === '−25%' && av(`mpVarPct(400, 600)`) === '+50%' && av(`mpVarPct(0, 50)`) === 'novo', 'variação em %: queda, alta e município sem voto na eleição anterior');
     ok(N.LMN_ANOS[0] === '2026' && N.lmnBancadaDoArquivo('2026') && !N.lmnBancadaDoArquivo('2022'), '2026 é a eleição padrão; 2022 continua pela bancada da Câmara');
 
     // Tela: mapa com a comparação e o modo ganho/perda.

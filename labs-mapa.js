@@ -285,6 +285,13 @@ async function mpMostrarClick() {
   }
 }
 
+/** "+25%", "−40%", ou "novo" quando não houve voto na eleição anterior. */
+function mpVarPct(antes, agora) {
+  if (!antes) return agora ? 'novo' : '—';
+  const p = (agora - antes) / antes;
+  return (p > 0 ? '+' : p < 0 ? '−' : '') + mpPct(Math.abs(p));
+}
+
 /** Cor do ganho/perda de votos: vermelhos para perda, verdes para ganho, em 3 faixas pelo tamanho relativo. */
 function mpCorVar(d, max) {
   if (!d || !max) return MP_CORES[0];
@@ -370,8 +377,9 @@ function mpRender(dep, geo, totais, emendas, ano) {
       <b style="color:${dTot >= 0 ? '#7fdca4' : '#e07a6a'}">${dTot >= 0 ? '+' : ''}${mpPct(pTot)}</b></div></div>`;
     const ganhos = variacao.filter(x => x.d > 0).slice(0, 6), perdas = variacao.filter(x => x.d < 0).slice(-6).reverse();
     const linha = x => `<tr><td>${labsEsc(nomeMun(x.k))}</td><td style="text-align:right">${mpNum(x.antes)}</td><td style="text-align:right">${mpNum(x.agora)}</td>
-      <td style="text-align:right;color:${x.d > 0 ? '#7fdca4' : '#e07a6a'}">${x.d > 0 ? '+' : ''}${mpNum(x.d)}</td></tr>`;
-    const cab = `<tr><th>Município</th><th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">${ANO}</th><th style="text-align:right">Dif.</th></tr>`;
+      <td style="text-align:right;color:${x.d > 0 ? '#7fdca4' : '#e07a6a'}">${x.d > 0 ? '+' : ''}${mpNum(x.d)}</td>
+      <td style="text-align:right;color:${x.d > 0 ? '#7fdca4' : '#e07a6a'}">${mpVarPct(x.antes, x.agora)}</td></tr>`;
+    const cab = `<tr><th>Município</th><th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">${ANO}</th><th style="text-align:right">Dif.</th><th style="text-align:right">%</th></tr>`;
     blocoVar = `<div class="labs-caixa"><h3>Desde ${labsEsc(ant.ano)}</h3>
       <div class="sub">Em ${labsEsc(ant.ano)}: ${mpNum(ant.total)} votos pelo ${labsEsc(ant.partido || '?')}${ant.situacao ? ` (${labsEsc(ant.situacao.toLowerCase())})` : ''}.</div>
       <div class="labs-var">
@@ -424,8 +432,9 @@ function mpRender(dep, geo, totais, emendas, ano) {
     const k = ev.target && ev.target.dataset && ev.target.dataset.k;
     if (!k) { dica.hidden = true; return; }
     const caixa = mpEl('mpMapa').getBoundingClientRect();
-    dica.innerHTML = `<b>${labsEsc(nomeMun(k))}</b><br>${mpNum(votos[k] || 0)} votos · ${mpPct(fatia(k))} do município` +
-      (ant ? `<br>Em ${labsEsc(ant.ano)}: ${mpNum(antMun[k] || 0)} votos (${(dVar[k] || 0) >= 0 ? '+' : ''}${mpNum(dVar[k] || 0)})` : '') +
+    const d = dVar[k] || 0, cor = d > 0 ? '#7fdca4' : d < 0 ? '#e07a6a' : '#ccc';
+    dica.innerHTML = `<b>${labsEsc(nomeMun(k))}</b><br>${ANO}: ${mpNum(votos[k] || 0)} votos · ${mpPct(fatia(k))} do município` +
+      (ant ? `<br>${labsEsc(ant.ano)}: ${mpNum(antMun[k] || 0)} votos<br><b style="color:${cor}">${d > 0 ? '+' : ''}${mpNum(d)} votos (${mpVarPct(antMun[k] || 0, votos[k] || 0)})</b>` : '') +
       (mun[k] ? `<br>Emendas pagas: ${mpReais(mun[k])}` : '');
     dica.style.left = (ev.clientX - caixa.left + 12) + 'px';
     dica.style.top = (ev.clientY - caixa.top + 12) + 'px';
