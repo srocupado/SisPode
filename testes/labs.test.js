@@ -859,6 +859,19 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
       'resumo antes de gravar: deputado, votos de 2022 e o botão de gravar');
     const zeros = av(`mpUfDaEntrada('votacao_candidato_munzona_2026_BRASIL.csv') === null && mpUfDaEntrada('x_2026_BR.csv') === null && mpUfDaEntrada('x_2026_sp.csv') === 'SP'`);
     ok(zeros, 'entradas do zip: BRASIL e BR não contam como estado');
+    // Rede instável: um bloco do download falha uma vez e é pedido de novo.
+    const fBase = ctx.fetch;
+    let falhou = 0;
+    ctx.fetch = async (url, op) => {
+      const r = /bytes=(\d+)-(\d+)/.exec((op && op.headers && op.headers.Range) || '');
+      if (r && confirmou && +r[2] - +r[1] > 100 && !falhou) { falhou++; throw new TypeError('Failed to fetch'); }   // já no download dos dados
+      return fBase(url, op);
+    };
+    av(`mp.processado = null`);
+    confirmou = '';
+    await av(`mpBaixarTseClick()`);
+    ok(falhou === 1 && av(`mp.processado && mp.processado.reg.deputados.tse111.total`) === 1500, 'bloco do download que cai é pedido de novo, sem perder o processamento');
+    ctx.fetch = fBase;
     // Painel de resultados instável: o estado que não responde entra por precaução, em vez de derrubar tudo.
     const fOk = ctx.fetch;
     ctx.fetch = async (url, op) => /\/dados\/(rj|mg)\//.test(String(url)) ? new Response('erro', { status: 503 }) : fOk(url, op);

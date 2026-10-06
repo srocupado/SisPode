@@ -439,9 +439,17 @@ function mpRender(dep, geo, totais, emendas, ano) {
 // em fluxo (DecompressionStream 'deflate-raw') e lidos linha a linha.
 
 async function mpFaixa(url, ini, fim) {
-  const r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } });
-  if (r.status !== 206) throw new Error(`o servidor do TSE não atendeu o pedido parcial (HTTP ${r.status})`);
-  return r;
+  let ultimo;
+  for (let t = 0; t < 3; t++) {
+    if (t) await labsDormir(1500 * t);
+    let r;
+    try { r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } }); }
+    catch (e) { ultimo = e; continue; }                               // queda de rede: tenta de novo
+    if (r.status === 206) return r;
+    ultimo = new Error(`o servidor do TSE não atendeu o pedido parcial (HTTP ${r.status})`);
+    if (r.status < 500 && r.status !== 429) break;                    // 200 (sem Range), 404…: não adianta repetir
+  }
+  throw ultimo;
 }
 
 /** Tamanho total do arquivo remoto, pelo Content-Range de um pedido de 1 byte. */
@@ -506,6 +514,34 @@ function mpUfDaEntrada(nome) {
   return m && m[1].toUpperCase() !== 'BR' ? m[1].toUpperCase() : null;
 }
 
+// Blocos do download: 8 MB, cada um com até 3 tentativas — numa queda de rede
+// perde-se um bloco, não os ~100 MB de um estado grande.
+const MP_BLOCO = 8 * 1024 * 1024;
+
+/** Os bytes [ini, fim] do arquivo remoto como fluxo, pedidos em blocos com nova tentativa. */
+function mpFluxoRemoto(url, ini, fim, aoReceber) {
+  let pos = ini;
+  return new ReadableStream({
+    async pull(c) {
+      if (pos > fim) { c.close(); return; }
+      const ate = Math.min(fim, pos + MP_BLOCO - 1);
+      let erro = null;
+      for (let t = 0; t < 3; t++) {
+        if (t) await labsDormir(1500 * t);
+        try {
+          const b = new Uint8Array(await (await mpFaixa(url, pos, ate)).arrayBuffer());
+          if (b.length !== ate - pos + 1) throw new Error('bloco incompleto');
+          pos = ate + 1;
+          if (aoReceber) aoReceber(b.length);
+          c.enqueue(b);
+          return;
+        } catch (e) { erro = e; }
+      }
+      c.error(new Error('download do TSE interrompido: ' + erro.message));
+    },
+  });
+}
+
 /** Lê uma entrada do zip remoto linha a linha. aoAndar(bytesComprimidosLidos). */
 async function mpLerEntradaRemota(url, e, aoLer, aoAndar) {
   const cab = new Uint8Array(await (await mpFaixa(url, e.offsetLocal, e.offsetLocal + 29)).arrayBuffer());
@@ -513,9 +549,8 @@ async function mpLerEntradaRemota(url, e, aoLer, aoAndar) {
   if (dv.getUint32(0, true) !== 0x04034b50) throw new Error(`cabeçalho inválido em ${e.nome}`);
   if (!e.comprimido) return;
   const ini = e.offsetLocal + 30 + dv.getUint16(26, true) + dv.getUint16(28, true);
-  const r = await mpFaixa(url, ini, ini + e.comprimido - 1);
   let lidos = 0;
-  let fluxo = r.body.pipeThrough(new TransformStream({ transform(ch, c) { lidos += ch.length; if (aoAndar) aoAndar(lidos); c.enqueue(ch); } }));
+  let fluxo = mpFluxoRemoto(url, ini, ini + e.comprimido - 1, n => { lidos += n; if (aoAndar) aoAndar(lidos); });
   if (e.metodo === 8) fluxo = fluxo.pipeThrough(new DecompressionStream('deflate-raw'));
   else if (e.metodo !== 0) throw new Error(`compressão ${e.metodo} não suportada em ${e.nome}`);
   const dec = new TextDecoder('latin1');
