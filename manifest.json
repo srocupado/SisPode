@@ -95,6 +95,8 @@
         "labs-mapa-nucleo.js",
         "labs-mapa.js",
         "labs-mapa-relatorio.js",
+        "labs-perfil-nucleo.js",
+        "labs-perfil.js",
         "labs-apuracao-mapa.js",
         "labs-apuracao.js",
         "apuracao/extensao.html",

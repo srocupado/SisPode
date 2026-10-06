@@ -906,6 +906,56 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(Bm.ANOS_SUPORTADOS[0] === '2026' && Bm.ANOS_SUPORTADOS.includes('2022'), 'bot: /labsmapa aceita 2026 (padrão) e 2022');
   }
 
+  // ---------- 13. Perfil da Bancada ----------
+  console.log('13. Perfil da Bancada');
+  {
+    const P = require(path.join(RAIZ, 'labs-perfil-nucleo.js'));
+    const CAB = '"DT_GERACAO";"DT_ELEICAO";"NR_TURNO";"SG_UF";"CD_CARGO";"DS_CARGO";"SQ_CANDIDATO";"NM_CANDIDATO";"NM_URNA_CANDIDATO";"NR_CPF_CANDIDATO";"DS_EMAIL";"SG_PARTIDO";"DT_NASCIMENTO";"DS_GENERO";"DS_GRAU_INSTRUCAO";"DS_COR_RACA";"DS_OCUPACAO";"DS_SIT_TOT_TURNO"';
+    const L = (dtE, t, uf, cd, ds, sq, civ, urna, part, nasc, gen, esc, raca, ocup, sit) => `"05/10/2026";"${dtE}";"${t}";"${uf}";"${cd}";"${ds}";"${sq}";"${civ}";"${urna}";"12345678900";"x@y.z";"${part}";"${nasc}";"${gen}";"${esc}";"${raca}";"${ocup}";"${sit}"`;
+    const C26 = [CAB,
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '1', 'ANA SOUZA', 'ANA DO POVO', 'PODE', '05/10/1980', 'FEMININO', 'SUPERIOR COMPLETO', 'PARDA', 'ADVOGADO', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '2', 'BRUNO LIMA', 'BRUNO', 'PODE', '04/10/1996', 'MASCULINO', 'ENSINO MÉDIO COMPLETO', 'BRANCA', 'EMPRESÁRIO', 'ELEITO POR MÉDIA'),
+      L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '3', 'CARLA DIAS', 'CARLA', 'PODE', '01/01/1960', 'FEMININO', 'SUPERIOR COMPLETO', 'PRETA', 'MÉDICO', 'SUPLENTE'),
+      L('04/10/2026', 1, 'MG', '6', 'DEPUTADO FEDERAL', '4', 'DIEGO NOVO', 'DIEGO', 'PODE', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '5', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'ELEITO POR QP'),
+      L('04/10/2026', 1, 'SP', '6', 'DEPUTADO FEDERAL', '9', 'OUTRO PARTIDO', 'OUTRO', 'PT', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'X', 'ELEITO POR QP')];
+    const C22 = [CAB,
+      L('02/10/2022', 1, 'SP', '7', 'DEPUTADO ESTADUAL', '101', 'ANA SOUZA', 'ANA SOUZA', 'MDB', '05/10/1980', 'FEMININO', 'SUPERIOR COMPLETO', 'PARDA', 'ADVOGADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'MG', '6', 'DEPUTADO FEDERAL', '104', 'DIEGO NOVO', 'DIEGO', 'PL', '01/01/1970', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP'),
+      L('02/10/2022', 1, 'RS', '7', 'DEPUTADO ESTADUAL', '105', 'EVA ROSA', 'EVA', 'PODE', '01/01/1990', 'FEMININO', 'SUPERIOR INCOMPLETO', 'BRANCA', 'VEREADOR', 'SUPLENTE'),
+      L('02/10/2022', 1, 'SP', '6', 'DEPUTADO FEDERAL', '110', 'JOSE ANTIGO', 'JOSE', 'PODE', '01/01/1950', 'MASCULINO', 'SUPERIOR COMPLETO', 'BRANCA', 'DEPUTADO', 'ELEITO POR QP')];
+    const l26 = P.lpnLeitorCadastro('2026'); C26.forEach(x => l26.linha(x)); const c26 = l26.resultado();
+    const l22 = P.lpnLeitorCadastro('2022', 'PODE', P.lpnProcurados(c26)); C22.forEach(x => l22.linha(x)); const c22 = l22.resultado();
+    P.lpnTrajetorias(c26, c22.achados);
+    ok(Object.keys(c26.c).join() === '1,2,3,4,5' && c26.data === '04/10/2026' && c26.gerado === '05/10/2026', 'cadastro: só as candidaturas do partido; data da eleição e de geração do arquivo');
+    ok(c26.c[1].i === 45 && c26.c[2].i === 30 && P.lpnIdade('31/12/2010', '04/10/2026') === null, 'idade completa na data da eleição: aniversário no dia seguinte não conta, no próprio dia conta; data absurda vira "não informada"');
+    ok(c26.c[1].t === 'Veio de outro cargo eletivo' && c26.c[4].t === 'Tinha mandato por outro partido' && c26.c[5].t === 'Concorreu na eleição anterior sem se eleger' && c26.c[2].t === 'Estreante' && !c26.c[3].t,
+      'trajetória dos eleitos: outro cargo, mandato por outro partido, candidatura sem eleição, estreante (suplente não entra)');
+    ok(/Deputado estadual pelo MDB — Eleito por qp/i.test(c26.c[1].ant), 'trajetória: o que a pessoa fez na anterior, por extenso');
+    const b26 = P.lpnParaBanco(c26, { votos: false }), b22 = P.lpnParaBanco(c22, { votos: false });
+    const txt = JSON.stringify(b26);
+    ok(!/12345678900|x@y\.z|ANA SOUZA|civil/.test(txt) && b26.c.s1.n === 'ANA DO POVO', 'gravado no banco: sem CPF, e-mail nem nome civil — só o que os recortes usam');
+    const porAno = { 2022: b22, 2026: b26 };
+    const tg = P.lpnTabela(porAno, 'fed', 'genero');
+    ok(tg[0].cat === 'Mulheres' && tg[0].el.join() === '0,1' && tg[0].cand.join() === '0,2' && tg[1].el.join() === '1,2', 'recorte de gênero no cargo federal: eleitos e candidaturas por eleição');
+    ok(P.lpnTabela(porAno, 'fed', 'raca').map(x => x.cat).join() === 'Branca,Preta,Parda' && P.lpnTabela(porAno, 'est', 'regiao')[0].cat === 'Sul', 'cor/raça na ordem do IBGE; região pela UF');
+    const rs = P.lpnResumo(b26, 'fed');
+    ok(rs.eleitos === 3 && rs.mulheresEl === 1 && rs.negrosEl === 1 && Math.round(rs.idadeMedia) === 44 && rs.estreantes === 1, 'resumo: eleitos, mulheres, pessoas negras (pretas e pardas), idade média, estreantes');
+    let semCol = ''; try { P.lpnLeitorCadastro('2026').linha('"A";"B"'); } catch (e) { semCol = e.message; }
+    ok(/Faltam/.test(semCol), 'arquivo fora do formato do cadastro: erro claro');
+    const sv = P.lpnSomadorVotos(c26);
+    ['"SG_PARTIDO";"NR_TURNO";"SQ_CANDIDATO";"QT_VOTOS_NOMINAIS_VALIDOS"', '"PODE";"1";"1";"100"', '"PODE";"1";"1";"50"', '"PODE";"2";"1";"999"', '"PT";"1";"9";"500"'].forEach(x => sv.linha(x));
+    ok(c26.c[1].v === 150 && sv.linhas() === 2, 'votos: soma por candidatura, só 1º turno e só do partido');
+    // tela e PDF
+    ctx.__porAno = JSON.parse(JSON.stringify(porAno));
+    const h = av(`lpConteudoHtml(__porAno, 'fed')`);
+    ok(/1 → 3/.test(h) && /mulheres eleitas/.test(h) && /De onde vieram os eleitos de 2026/.test(h) && /Ana do Povo/.test(h) && /Estreante/.test(h), 'tela: cartões, recortes, trajetória e lista dos eleitos');
+    const rel = av(`lpRelatorioHtml(__porAno, 'est', { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) })`);
+    ok(/<h1>Deputado\(a\) estadual e distrital<\/h1>/.test(rel) && /Gerado em 07\/10\/2026 09:00/.test(rel) && /id="btn-pdf"/.test(rel) && /print-color-adjust: exact/.test(rel) && /pretas \+ pardas/.test(rel),
+      'relatório em PDF: título do cargo, data, botão Salvar em PDF, cores e notas de método');
+    ok(html.includes('id="aba-perfil"') && scripts.includes('labs-perfil.js') && scripts.indexOf('labs-perfil-nucleo.js') > scripts.indexOf('labs-mapa-nucleo.js'), 'aba Perfil da Bancada registrada, com o núcleo depois do leitor de CSV do Mapa');
+  }
+
   console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

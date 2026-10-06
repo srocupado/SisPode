@@ -97,7 +97,7 @@
   }
   /* As abas do Labs (Simulador e Mapa) usam 2/3 da janela (nunca menos que os
      820px de antes): mapas e quadros por bancada pedem espaço. */
-  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])) { max-width: max(820px, 66vw); padding: 16px 24px; }
+  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])), .container:has(#painel-perfil:not([hidden])) { max-width: max(820px, 66vw); padding: 16px 24px; }
 
   .input-section {
     background: var(--card);
@@ -908,6 +908,20 @@
   .labs-var { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; }
   .labs-var td, .labs-var th { padding: 4px 5px; font-size: 12px; }
   .labs-mapa .labs-caixa { margin-top: 12px; }
+  /* Perfil da Bancada */
+  .lp-cartoes { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 8px; margin: 12px 0; }
+  .lp-cartao { background: var(--card); border: 1px solid var(--border); border-top: 4px solid; border-radius: var(--radius); padding: 8px 12px; }
+  .lp-cartao b { display: block; font-size: 20px; } .lp-cartao b small { font-size: 12px; color: var(--text-dim); font-weight: 600; }
+  .lp-cartao span { font-size: 11.5px; color: var(--text-dim); }
+  .lp-grade { display: grid; grid-template-columns: repeat(auto-fit, minmax(460px, 1fr)); gap: 12px; }
+  .lp-caixa { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 12px; margin-top: 12px; overflow-x: auto; }
+  .lp-grade .lp-caixa { margin-top: 0; }
+  .lp-caixa h3 { margin: 0 0 6px; font-size: 13px; color: var(--accent-light); }
+  .lp-tab { width: 100%; border-collapse: collapse; } .lp-tab td, .lp-tab th { padding: 4px 6px; border-bottom: 1px solid var(--border); font-size: 12px; text-align: left; }
+  .lp-tab th { font-size: 10.5px; color: var(--text-dim); text-transform: uppercase; } .lp-tab .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .lp-tab tr.tot td { font-weight: 700; } .lp-caixa .p { color: var(--text-dim); font-size: 10.5px; }
+  .lp-tab td.barras, .lp-tab th.barras { width: 22%; min-width: 90px; }
+  .lp-barras i { display: block; height: 5px; border-radius: 2px; margin: 1px 0; } .lp-b0 { background: #6f9fc0; } .lp-b1 { background: var(--accent); }
   .labs-mapa-modo { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; font-size: 12px; color: var(--text-dim); margin-top: 10px; }
   .labs-mapa-modo .sm-bt.ativo { border-color: var(--accent); color: var(--accent-light); }
   .cx-mp { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; text-transform: none; letter-spacing: 0; font-weight: 400; }
@@ -977,6 +991,7 @@
   <div class="abas" role="tablist">
     <button class="aba ativa" id="aba-simulador" role="tab">Simulador de Negociação <span class="labs-tag">experimental</span></button>
     <button class="aba" id="aba-mapa" role="tab">Mapa Territorial <span class="labs-tag">experimental</span></button>
+    <button class="aba" id="aba-perfil" role="tab">Perfil da Bancada <span class="labs-tag">experimental</span></button>
   </div>
 
   <!-- ===================== SIMULADOR DE NEGOCIAÇÃO ===================== -->
@@ -1107,6 +1122,30 @@
   </div>
 
 
+  <div id="painel-perfil" hidden>
+    <p class="relatorio-desc">Quem o partido lançou e quem elegeu em 2022 e em 2026, por cargo: gênero, cor/raça, faixa etária,
+      escolaridade, região, ocupação e a trajetória dos eleitos de 2026. Dados do TSE; relatório em PDF.</p>
+    <div class="input-section">
+      <div class="labs-row">
+        <div><label>Cargo</label><select id="lpGrupo" class="field"></select></div>
+        <div style="flex:0 0 220px;display:flex;align-items:flex-end"><button id="lpPdf" class="btn-gerar" style="margin-top:0" disabled>⬇ Relatório em PDF</button></div>
+      </div>
+    </div>
+    <div id="lpResultado"></div>
+
+    <div class="labs-caixa">
+      <h3>De onde vêm os dados</h3>
+      <div class="sub" id="lpSituacao">Conferindo o que já foi processado…</div>
+      <p class="sub" style="margin-top:8px"><b>Com um clique</b>: a extensão baixa do TSE o cadastro de candidaturas de 2022 e de 2026 (cerca de 4 MB)
+        e, se marcado, os votos por município de todos os estados (centenas de MB), processa aqui e mostra a prévia;
+        nada vai para o banco antes de <b>Gravar no banco de dados</b>. CPF, e-mail e título de eleitor do cadastro não são lidos.</p>
+      <label class="cx-mp"><input type="checkbox" id="lpComVotos" checked> incluir os votos (fatia dos votos do partido por recorte — download maior)</label>
+      <button id="lpBaixar" class="btn-gerar">Baixar do TSE e processar</button>
+      <div id="lpUpStatus"></div>
+      <div id="lpUpResultado"></div>
+    </div>
+  </div>
+
   <div class="signature">
     <div class="signature-line"></div>
     <div class="signature-text">Liderança do Podemos</div>
@@ -1167,5 +1206,7 @@
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
 <script src="labs-mapa-relatorio.js"></script>
+<script src="labs-perfil-nucleo.js"></script>
+<script src="labs-perfil.js"></script>
 </body>
 </html>
