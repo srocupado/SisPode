@@ -3398,7 +3398,7 @@ const MODULES = [
   {
     id:     'aderencia',
     titulo: 'Relatórios',
-    desc:   'Cinco relatórios: aderência do partido ao governo, como votou um deputado, produção legislativa, radar temático e deputados com projetos convertidos em lei.',
+    desc:   'Seis relatórios: aderência do partido ao governo, como votou um deputado, produção legislativa, radar temático, deputados com projetos convertidos em lei e apuração eleitoral ao vivo do TSE.',
     cor:    'teal',
     icone:  '<line x1="19" y1="5" x2="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
     acao:   abrirAderencia,

@@ -943,11 +943,6 @@
   .sm-linha-vermelha { box-shadow: inset 0 0 0 1px var(--nao); font-weight: 700; }
   .labs-sintese h1, .labs-sintese h2, .labs-sintese h3 { font-size: 13px; color: var(--text); margin: 10px 0 4px; }
   .labs-sintese ul { margin: 4px 0 6px 18px; }
-  /* ---------- Apuração eleitoral ---------- */
-  /* O painel ao vivo pede tela inteira: com a aba aberta, a página alarga. */
-  /* Apuração: largura toda da janela; a altura (até o pé da janela) vem de labsAjustarApFrame. */
-  .container:has(#painel-apuracao:not([hidden])) { max-width: none; padding-bottom: 0; }
-  #apFrame { display: block; width: calc(100% + 32px); margin: 0 -16px; height: calc(100vh - 230px); min-height: 560px; border: 0; border-top: 1px solid var(--border); background: #0f1720; }
 </style>
 </head>
 <body>
@@ -968,7 +963,6 @@
   <div class="abas" role="tablist">
     <button class="aba ativa" id="aba-simulador" role="tab">Simulador de Negociação <span class="labs-tag">experimental</span></button>
     <button class="aba" id="aba-mapa" role="tab">Mapa Territorial <span class="labs-tag">experimental</span></button>
-    <button class="aba" id="aba-apuracao" role="tab">Apuração eleitoral <span class="labs-tag">ao vivo</span></button>
   </div>
 
   <!-- ===================== SIMULADOR DE NEGOCIAÇÃO ===================== -->
@@ -1091,11 +1085,6 @@
     </div>
   </div>
 
-  <div id="painel-apuracao" hidden>
-    <!-- A mesma tela do site (apuracao/index.html), gerada do mesmo modelo por
-         apuracao/gerar-apuracao.js. Carrega só quando a aba é aberta. -->
-    <iframe id="apFrame" title="Apuração eleitoral"></iframe>
-  </div>
 
   <div class="signature">
     <div class="signature-line"></div>
