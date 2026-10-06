@@ -95,9 +95,9 @@
     margin: 0 auto;
     padding: 16px;
   }
-  /* As abas do Labs (Simulador e Mapa) usam a largura toda da janela, como a
-     Apuração eleitoral em Relatórios: mapas e quadros por bancada pedem espaço. */
-  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])) { max-width: none; padding: 16px 24px; }
+  /* As abas do Labs (Simulador e Mapa) usam 2/3 da janela (nunca menos que os
+     820px de antes): mapas e quadros por bancada pedem espaço. */
+  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])) { max-width: max(820px, 66vw); padding: 16px 24px; }
 
   .input-section {
     background: var(--card);
