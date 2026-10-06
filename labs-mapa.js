@@ -303,6 +303,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
   mp.ultimo = { dep, geo, totais, emendas, ano };
   const ANO = mpAno();
   const ant = dep.anterior || null;
+  const antMun = (ant && ant.municipios) || {};
   const modoVar = mp.modo === 'variacao' && !!ant;
   const { p, larg, alt } = mpProjetar(geo);
   const votos = dep.municipios || {};
@@ -339,7 +340,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
        (tons mais fortes: maior variação)`
     : `Fatia dos votos nominais válidos para deputado federal no município: <i style="background:${MP_CORES[0]}"></i>0 ${mpLegenda(quebras).map(([c, rot]) => `<i style="background:${c}"></i>${rot}`).join(' ')}`;
   const comVoto = Object.entries(votos).filter(([, v]) => v > 0);
-  const top = comVoto.sort((a, b) => b[1] - a[1]).slice(0, 12);
+  comVoto.sort((a, b) => b[1] - a[1]);
   const nomeMun = k => (totais[k] || {}).n || nomesEm[k] || k;
   const comEmenda = Object.keys(mun);
   const votosOndeTemEmenda = comEmenda.reduce((s, k) => s + (votos[k] || 0), 0);
@@ -412,9 +413,11 @@ function mpRender(dep, geo, totais, emendas, ano) {
         ${blocoVar}
       </div>
       <div class="labs-lado">
-        <div class="labs-caixa" style="margin-top:0"><h3>Onde teve mais votos</h3>
-          <table class="labs-tab"><tr><th>Município</th><th style="text-align:right">Votos</th><th style="text-align:right">do município</th></tr>
-          ${top.map(([k, v]) => `<tr><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right">${mpPct(fatia(k))}</td></tr>`).join('')}</table>
+        <div class="labs-caixa" style="margin-top:0"><h3>Votos por município <span class="base">(${mpNum(comVoto.length)})</span></h3>
+          <input type="search" id="mpFiltroMun" class="field" placeholder="Filtrar município" style="margin:4px 0 6px">
+          <div class="labs-rolagem"><table class="labs-tab" id="mpTabMun"><thead><tr><th></th><th>Município</th><th style="text-align:right">${ANO}</th><th style="text-align:right" title="Fatia dos votos do município">Fatia</th>${ant ? `<th style="text-align:right">${labsEsc(ant.ano)}</th><th style="text-align:right">Var.</th>` : ''}</tr></thead><tbody>
+          ${comVoto.map(([k, v], i) => `<tr data-k="${k}" data-busca="${labsEsc(lmnNorm(nomeMun(k)))}"><td class="base">${i + 1}</td><td>${labsEsc(nomeMun(k))}</td><td style="text-align:right">${mpNum(v)}</td><td style="text-align:right">${mpPct(fatia(k))}</td>` +
+            (ant ? `<td style="text-align:right">${mpNum(antMun[k] || 0)}</td><td style="text-align:right;color:${v >= (antMun[k] || 0) ? '#7fdca4' : '#e07a6a'}">${mpVarPct(antMun[k] || 0, v)}</td>` : '') + '</tr>').join('')}</tbody></table></div>
           ${dep.foraDoMapa ? `<div class="sub" style="margin-top:4px">${mpNum(dep.foraDoMapa)} voto(s) em municípios sem correspondência no IBGE.</div>` : ''}
         </div>
         <div class="labs-caixa"><h3>Emendas</h3>${blocoEmendas}</div>
@@ -423,13 +426,25 @@ function mpRender(dep, geo, totais, emendas, ano) {
     <div class="labs-custo">Eleito(a) em ${ANO} pelo ${labsEsc(dep.partidoEleicao || '?')} como “${labsEsc(dep.nomeUrna || dep.nome)}”${dep.situacao ? ` (${labsEsc(dep.situacao.toLowerCase())})` : ''}.
       Fontes: TSE (votação por município), IBGE (malhas), Portal da Transparência (emendas).</div>`;
 
+  const tabMun = mpEl('mpTabMun');
+  mpEl('mpFiltroMun').addEventListener('input', ev => {
+    const q = lmnNorm(ev.target.value);
+    for (const tr of tabMun.querySelectorAll('tbody tr')) tr.hidden = !!q && !tr.dataset.busca.includes(q);
+  });
+  // Passar o mouse numa linha destaca o município no mapa.
+  tabMun.addEventListener('mouseover', ev => {
+    const tr = ev.target.closest('tr[data-k]');
+    for (const x of mpEl('mpMapa').querySelectorAll('path.destaque')) x.classList.remove('destaque');
+    const pth = tr && mpEl('mpMapa').querySelector(`path[data-k="${tr.dataset.k}"]`);
+    if (pth) { pth.classList.add('destaque'); pth.parentNode.appendChild(pth); }
+  });
+  tabMun.addEventListener('mouseleave', () => { for (const x of mpEl('mpMapa').querySelectorAll('path.destaque')) x.classList.remove('destaque'); });
   if (typeof mpExportarRelatorio === 'function') mpEl('mpRelatorio').addEventListener('click', mpExportarRelatorio);
   for (const b of mpEl('mpResultado').querySelectorAll('[data-mp-modo]')) {
     b.addEventListener('click', () => { mp.modo = b.dataset.mpModo; const u = mp.ultimo; mpRender(u.dep, u.geo, u.totais, u.emendas, u.ano); });
   }
   const svg = mpEl('mpMapa').querySelector('svg');
   const dica = mpEl('mpDica');
-  const antMun = (ant && ant.municipios) || {};
   svg.addEventListener('mousemove', ev => {
     const k = ev.target && ev.target.dataset && ev.target.dataset.k;
     if (!k) { dica.hidden = true; return; }

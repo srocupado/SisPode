@@ -118,6 +118,7 @@ function mpRelatorioHtml(u, op = {}) {
   .duas { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .nd, .fonte { font-size: 8.5pt; color: var(--tinta2); } .fonte { font-style: italic; }
   .quebra { break-before: page; }
+  .anexo td, .anexo th { font-size: 7.5pt; padding: 1px 4px; }
   .rodape { margin-top: 18px; border-top: 1px solid var(--grade); padding-top: 6px; font-size: 8pt; color: var(--tinta2); }
   .barra-ferramentas { background: #eef3fb; padding: 8px 12px; margin-bottom: 12px; font-size: 12px; display: flex; align-items: center; gap: 10px; border-radius: 6px; }
   .barra-ferramentas button { background: var(--verde); color: #fff; border: 0; border-radius: 6px; padding: 7px 14px; font-size: 12.5px; font-weight: 600; cursor: pointer; }
@@ -170,6 +171,9 @@ ${ant ? `<h2 class="quebra">Ganho e perda de votos desde ${mprEsc(ant.ano)}</h2>
 
 <h2${ant ? '' : ' class="quebra"'}>Emendas</h2>
 ${blocoEm}
+
+${comVoto.length > 20 ? `<h2 class="quebra">Anexo — todos os ${mpNum(comVoto.length)} municípios com voto</h2>
+<div class="anexo">${tab(comVoto.map((x, i) => linhaTop(x, i)), `<tr><th></th><th>Município</th><th class="num">${ANO}</th><th class="num">Fatia</th>${ant ? `<th class="num">${mprEsc(ant.ano)}</th><th class="num">Var.</th>` : ''}</tr>`)}</div>` : ''}
 
 <div class="rodape">Liderança do Podemos · Labs — Mapa Territorial. Fontes: TSE (votação por município e zona, dados abertos), IBGE (malhas municipais),
   Portal da Transparência (emendas). Votos nominais válidos (sem os votos só na legenda); a comparação com a eleição anterior casa o candidato pelo nome civil na mesma UF.</div>
