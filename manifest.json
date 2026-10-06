@@ -94,6 +94,7 @@
         "labs-simulador-teste.js",
         "labs-mapa-nucleo.js",
         "labs-mapa.js",
+        "labs-mapa-relatorio.js",
         "labs-apuracao-mapa.js",
         "labs-apuracao.js",
         "apuracao/extensao.html",

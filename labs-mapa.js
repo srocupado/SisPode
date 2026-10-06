@@ -386,9 +386,9 @@ function mpRender(dep, geo, totais, emendas, ano) {
         ${ganhos.length ? `<div><div class="sub" style="margin-top:6px"><b>Onde mais ganhou votos</b></div><table class="labs-tab">${cab}${ganhos.map(linha).join('')}</table></div>` : ''}
         ${perdas.length ? `<div><div class="sub" style="margin-top:6px"><b>Onde mais perdeu votos</b></div><table class="labs-tab">${cab}${perdas.map(linha).join('')}</table></div>` : ''}
       </div></div>`;
-    seletor = `<div class="labs-mapa-modo">Cor do mapa:
+    seletor = `Cor do mapa:
       <button class="sm-bt${modoVar ? '' : ' ativo'}" data-mp-modo="fatia">fatia dos votos em ${ANO}</button>
-      <button class="sm-bt${modoVar ? ' ativo' : ''}" data-mp-modo="variacao">ganho/perda desde ${labsEsc(ant.ano)}</button></div>`;
+      <button class="sm-bt${modoVar ? ' ativo' : ''}" data-mp-modo="variacao">ganho/perda desde ${labsEsc(ant.ano)}</button>`;
   } else if (nAnt) {
     blocoVar = `<div class="labs-caixa"><h3>Desde ${nAnt}</h3><div class="sub">Não concorreu a deputado federal por ${labsEsc(dep.uf)} em ${nAnt}
       (ou o nome não bate com o arquivo daquela eleição) — sem comparação.</div></div>`;
@@ -401,7 +401,8 @@ function mpRender(dep, geo, totais, emendas, ano) {
       <div class="labs-card"><div class="v">${mpNum(comVoto.length)}</div><div class="l">municípios com voto</div></div>
       <div class="labs-card f3"><div class="v">${emendas && emendas.total != null ? mpReais(emendas.total) : '—'}</div><div class="l">emendas de ${ano}: pago (no ano + restos)</div></div>
     </div>
-    ${seletor}
+    <div class="labs-mapa-modo">${seletor}
+      <button class="sm-bt" id="mpRelatorio" style="margin-left:auto" title="Abre o relatório deste deputado em uma aba; lá, &quot;Salvar em PDF&quot;">⬇ Relatório em PDF</button></div>
     <div class="labs-mapa-wrap">
       <div class="labs-mapa" id="mpMapa">
         <svg viewBox="0 0 ${larg} ${alt}" preserveAspectRatio="xMidYMid meet">${paths}${circulos}</svg>
@@ -422,6 +423,7 @@ function mpRender(dep, geo, totais, emendas, ano) {
     <div class="labs-custo">Eleito(a) em ${ANO} pelo ${labsEsc(dep.partidoEleicao || '?')} como “${labsEsc(dep.nomeUrna || dep.nome)}”${dep.situacao ? ` (${labsEsc(dep.situacao.toLowerCase())})` : ''}.
       Fontes: TSE (votação por município), IBGE (malhas), Portal da Transparência (emendas).</div>`;
 
+  if (typeof mpExportarRelatorio === 'function') mpEl('mpRelatorio').addEventListener('click', mpExportarRelatorio);
   for (const b of mpEl('mpResultado').querySelectorAll('[data-mp-modo]')) {
     b.addEventListener('click', () => { mp.modo = b.dataset.mpModo; const u = mp.ultimo; mpRender(u.dep, u.geo, u.totais, u.emendas, u.ano); });
   }

@@ -805,6 +805,17 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     h = document.getElementById('mpResultado').innerHTML;
     ok(/Não concorreu a deputado federal por SP em 2022/.test(h) && /Sem emendas: se o mandato começa em 2027/.test(h), 'sem 2022: diz que não concorreu, e avisa que deputado novo ainda não tem emendas');
 
+    // Relatório em PDF do deputado: cartões, os dois mapas, as tabelas e as emendas.
+    const rel = av(`mpRelatorioHtml({ dep: __d26, geo: __geo, totais: __reg26.municipios.SP, emendas: { total: 1000, pagoNoAno: 1000, restoPago: 0, n: 1, municipais: { m3550308: 1000 }, nomesMun: {}, outros: { 'MÚLTIPLO': 50 } }, ano: '2026' },
+      { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 6, 14, 5), anoEleicao: '2026' })`);
+    ok(/<h1>Maria Souza \(SP\)<\/h1>/.test(rel) && /Gerado em 06\/10\/2026 14:05/.test(rel) && /<img src="data:image\/png;base64,AA"/.test(rel) && /id="btn-pdf"/.test(rel),
+      'relatório: título, data, logo e botão Salvar em PDF');
+    ok((rel.match(/<svg /g) || []).length === 2 && /Ganho e perda de votos desde 2022/.test(rel) && /\+25%/.test(rel) && /−25%/.test(rel) && /\+600/.test(rel),
+      'relatório: mapa da fatia e mapa de ganho/perda, com a variação total (+25%) e por município');
+    ok(/MÚLTIPLO/.test(rel) && /<circle /.test(rel) && /print-color-adjust: exact/.test(rel), 'relatório: emendas (com círculo no mapa e as sem município) e cores preservadas na impressão');
+    const rel2 = av(`mpRelatorioHtml({ dep: Object.assign({}, __d26, { anterior: null }), geo: __geo, totais: __reg26.municipios.SP, emendas: { semChave: true }, ano: '2026' }, { anoEleicao: '2026' })`);
+    ok((rel2.match(/<svg /g) || []).length === 1 && /não concorreu em 2022/.test(rel2) && /sem a chave do Portal/.test(rel2), 'relatório de deputado novo: só o mapa da fatia; diz que não concorreu e que as emendas não foram consultadas');
+
     // Um clique: índice do zip + só os bytes dos estados, por Range.
     const zipDe = ents => {
       const loc = [], cen = []; let off = 0;

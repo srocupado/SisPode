@@ -95,6 +95,9 @@
     margin: 0 auto;
     padding: 16px;
   }
+  /* As abas do Labs (Simulador e Mapa) usam a largura toda da janela, como a
+     Apuração eleitoral em Relatórios: mapas e quadros por bancada pedem espaço. */
+  .container:has(#painel-simulador:not([hidden])), .container:has(#painel-mapa:not([hidden])) { max-width: none; padding: 16px 24px; }
 
   .input-section {
     background: var(--card);
@@ -909,7 +912,7 @@
   .cx-mp { display: flex; gap: 6px; align-items: center; font-size: 12.5px; color: var(--text-dim); margin: 8px 0 0; text-transform: none; letter-spacing: 0; font-weight: 400; }
   .labs-mapa-wrap { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 10px; }
   .labs-mapa { flex: 2; min-width: 320px; background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px; position: relative; }
-  .labs-mapa svg { width: 100%; height: auto; display: block; }
+  .labs-mapa svg { width: 100%; height: auto; max-height: 78vh; display: block; }
   .labs-mapa path { stroke: rgba(14,28,31,0.9); stroke-width: 0.4; vector-effect: non-scaling-stroke; }
   .labs-mapa path:hover { stroke: #fff; stroke-width: 1.2; }
   .labs-mapa circle { fill: rgba(240,192,64,0.55); stroke: #f0c040; stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -1158,5 +1161,6 @@
 <script src="labs-apuracao.js"></script>
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
+<script src="labs-mapa-relatorio.js"></script>
 </body>
 </html>

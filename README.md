@@ -558,6 +558,8 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Eleição de 2026 ou 2022**. Em **2026** a bancada são os **eleitos do partido no próprio arquivo do TSE** (situação "eleito por QP/média") — os novos só entram na API da Câmara na posse; em 2022, os deputados de hoje na Câmara
 - **Comparação com 2022** (em 2026): a mesma pessoa no arquivo de 2022 pelo nome civil, mesmo que tenha concorrido por outro partido ou com outro nome de urna. Cartão com os votos de 2022 e a variação, lista de **onde mais ganhou e mais perdeu votos**, e o mapa no modo **ganho/perda** (verde/vermelho). Quem não concorreu a deputado federal na mesma UF em 2022 aparece como tal
 - **Download com um clique** ("Baixar do TSE e processar"): a extensão lê o **índice** do zip do TSE (centenas de MB) e baixa **só os arquivos dos estados da bancada**, por pedidos parciais (HTTP Range), descompactando em fluxo no navegador. Os estados com eleitos vêm do painel de resultados do TSE (poucos KB por estado). Pede confirmação com o tamanho do download; nada é gravado antes de **Gravar no banco de dados**
+- **Dica ao passar o mouse** em cada município: votos na eleição e fatia do município; com a comparação, os votos da anterior e a diferença em votos e em %
+- **Relatório em PDF** do deputado (botão "Relatório em PDF"): cartões, o mapa da fatia e o de ganho/perda (cores de papel), onde teve mais votos (com a variação), onde mais ganhou e perdeu, e as emendas — com a logo do Podemos, em aba própria com "Salvar em PDF"
 - Emendas de um ano = **pago no ano + restos a pagar pagos depois** (só o pago no ano subestimava os anos anteriores); cache de 24 h no ano corrente e 7 dias nos anteriores
 - Outros caminhos: **pelo bot** (`/labsmapa [2026|2022]`, ou `node bot/scripts/labs-mapa-territorial.js`), que também busca as emendas pagas, ou **à mão** na própria tela, com os CSV já baixados (sem a comparação); só o agregado é gravado, depois de confirmação
 - Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
@@ -635,6 +637,7 @@ sispode/
 ├── labs-simulador-relatorio.js    # Labs · Simulador: relatório da negociação em PDF
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
+├── labs-mapa-relatorio.js         # Labs · Mapa Territorial: relatório do deputado em PDF
 ├── comissoes.html / comissoes.js  # Comissões · Gestão (vagas da bancada)
 ├── pautas-comissoes.html / .js    # Comissões · Pautas (calendário, pauta e nota por item)
 ├── pautas-comissoes-core.js       # Regras puras das pautas de comissões (testável em Node)
