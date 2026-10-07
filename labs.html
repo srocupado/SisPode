@@ -156,6 +156,23 @@
     letter-spacing: 0.5px;
   }
 
+  .ma-botoes { display: flex; gap: 8px; flex-wrap: wrap; } .ma-botoes .btn-gerar { flex: 1 1 180px; }
+  .ma-tit { margin: 4px 0 8px; } .ma-tit b { font-size: 15px; }
+  .ma-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 10px; }
+  .ma-kpi { background: var(--card); border-radius: 8px; padding: 10px 12px; } .ma-kpi .v { font-size: 21px; font-weight: 700; }
+  .ma-kpi .l { color: var(--text-dim); font-size: 11.5px; } .ma-kpi .d { font-size: 11.5px; margin-top: 2px; color: var(--text-dim); }
+  .ma-kpi .up { color: #5fd08f; } .ma-kpi .down { color: #ec7a72; }
+  .ma-grade { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .ma-graf { background: var(--card); border-radius: 8px; padding: 12px 14px; min-width: 0; } .ma-graf.largo { grid-column: span 2; }
+  .ma-graf h3 { font-size: 13.5px; margin: 0 0 4px; color: var(--text); }
+  .ma-graf svg text { fill: var(--text-dim); font-size: 11px; } .ma-graf svg text.l { fill: var(--text); } .ma-graf svg text.p { font-size: 10px; }
+  .ma-graf svg line.g { stroke: #21393e; } .ma-graf svg line.b { stroke: #2f4a50; }
+  .ma-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--text-dim); margin: 2px 0 6px; align-items: center; }
+  .ma-leg i, .ma-mini b i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .ma-nota { color: #6f8589; font-size: 11px; margin-top: 6px; line-height: 1.4; }
+  .ma-mini { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; } .ma-mini b { display: block; font-size: 12px; }
+  #maDica { position: fixed; pointer-events: none; background: #0a1416; border: 1px solid #2f4a50; border-radius: 6px; padding: 6px 9px; font-size: 12px; display: none; z-index: 50; max-width: 270px; color: var(--text); }
+  @media (max-width: 900px) { .ma-grade { grid-template-columns: 1fr; } .ma-graf.largo { grid-column: auto; } .ma-kpis { grid-template-columns: repeat(2, 1fr); } .ma-mini { grid-template-columns: repeat(2, 1fr); } }
   .btn-mini { background: transparent; color: var(--accent); border: 1px solid var(--accent); border-radius: 4px; padding: 1px 8px; font-size: 11px; cursor: pointer; margin-left: 4px; }
   .btn-mini:disabled { opacity: .5; cursor: default; }
   .btn-gerar {
@@ -1088,7 +1105,11 @@
         <div><label>Deputado(a)</label><select id="mpDep" class="field"><option value="">Carregando…</option></select></div>
         <div style="flex:0 0 150px"><label>Emendas do ano</label><select id="mpAnoEmendas" class="field"></select></div>
       </div>
-      <button id="mpMostrar" class="btn-gerar">Mostrar no mapa</button>
+      <div class="ma-botoes">
+        <button id="mpMostrar" class="btn-gerar">Mostrar no mapa</button>
+        <button id="maRetorno" class="btn-gerar" title="Emendas pagas na legislatura × variação da fatia do deputado nos votos de cada município">Emendas × votos</button>
+        <button id="maBancada" class="btn-gerar" title="Os eleitos do partido no estado do deputado escolhido, juntos">Bancada no estado</button>
+      </div>
     </div>
     <div id="mpStatus"></div>
     <div id="mpResultado"></div>
@@ -1209,6 +1230,7 @@
 <script src="labs-mapa-nucleo.js"></script>
 <script src="labs-mapa.js"></script>
 <script src="labs-mapa-relatorio.js"></script>
+<script src="labs-mapa-analises.js"></script>
 <script src="labs-perfil-nucleo.js"></script>
 <script src="labs-perfil.js"></script>
 <script src="labs-perfil-mulheres.js"></script>
