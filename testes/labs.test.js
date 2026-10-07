@@ -951,6 +951,53 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(N2.lmnRedistribuir(ag, null, res) === ag, 'sem dado do favorecido: agregado intacto');
   }
 
+  // ---------- 12c. Emendas × votos e Bancada no estado ----------
+  console.log('12c. Emendas × votos e Bancada no estado');
+  {
+    const N3 = require(path.join(RAIZ, 'labs-mapa-nucleo.js'));
+    const A = require(path.join(RAIZ, 'labs-mapa-analises.js'));
+    // totais da anterior: anexados ao registro e gravados em anterior/municipios
+    const reg = { deputados: { 1: { nome: 'A', uf: 'SP', municipios: {} } }, municipios: { SP: {} }, semPar: [] };
+    N3.lmnAnexarAnterior(reg, { deputados: {}, municipios: { SP: { m1: { n: 'X', t: 100 } } } }, '2022');
+    const upd = N3.lmnAtualizacao(reg, { ufs: ['SP'], naoEncontrados: [] }, null, 'teste');
+    ok(upd['anterior/municipios/SP'].m1.t === 100, 'totais de votos válidos da eleição anterior gravados com a atual (para a fatia)');
+    // legislatura: tudo pago no período, por município do favorecido, com ou sem município na API
+    const L = N3.lmnLeitorFavorecidos(['Renata Abreu'], ['2026'], { 2026: ['202302', '202610'] });
+    L.emendas.linha('"Código da Emenda";"Ano da Emenda";"Nome do Autor da Emenda";"Localidade de aplicação do recurso"');
+    ['"Código da Emenda";"Nome do Autor da Emenda";"Ano/Mês";"UF Favorecido";"Município Favorecido";"Valor Recebido"',
+      '"1";"RENATA ABREU";"202301";"SP";"LEME";"5,00"', '"1";"RENATA ABREU";"202302";"SP";"LEME";"10,00"', '"2";"RENATA ABREU";"202610";"SP";"LEME";"1,00"',
+      '"2";"RENATA ABREU";"202611";"SP";"LEME";"99,00"', '"3";"RENATA ABREU";"202405";"DF";"BRASÍLIA";"7,00"', '"4";"OUTRO";"202405";"SP";"LEME";"3,00"'].forEach(l => L.favorecidos.linha(l));
+    const lg = L.legislatura()['2026']['RENATA ABREU'];
+    ok(lg['LEME - SP'] === 11 && lg['BRASÍLIA - DF'] === 7 && !L.legislatura()['2026']['OUTRO'], 'legislatura: do início do mandato (fev) ao mês da eleição, por município do favorecido');
+    const res = n => ({ LEME: '1', CAMPINAS: '2' })[N3.lmnNorm(n).toUpperCase()] || ({ leme: '1', campinas: '2' })[N3.lmnNorm(n)] || null;
+    const em = A.lmaEmendasDaUf({ 'LEME - SP': 11, 'BRASÍLIA - DF': 7, 'FAVORECIDO SEM MUNICÍPIO': 2 }, 'SP', res);
+    ok(em.mun.m1 === 11 && em.fora === 9 && em.total === 20, 'emendas da UF: município resolvido; outro estado e sem município ficam "fora"');
+    // retorno: fatia em p.p., régua do estado, mediana, voto que ficou no partido
+    const t1 = { m1: { n: 'LEME', t: 1000 }, m2: { n: 'CAMPINAS', t: 1000 }, m3: { n: 'RIO CLARO', t: 1000 } };
+    const t0 = { m1: { t: 500 }, m2: { t: 1000 }, m3: { t: 1000 } };
+    const dep = { total: 300, municipios: { m1: 100, m2: 100, m3: 100 }, anterior: { municipios: { m1: 100, m2: 50, m3: 200 } } };
+    const outro = { municipios: { m3: 150 }, anterior: { municipios: { m3: 20 } } };
+    const R = A.lmaRetorno(dep, [outro], t1, t0, { m1: 2e5, m3: 5e6 });
+    const l1 = R.linhas.find(x => x.k === 'm1'), l3 = R.linhas.find(x => x.k === 'm3');
+    ok(R.met === 'pp' && Math.abs(l1.var - (-0.1)) < 1e-9 && l1.d === 0, 'fatia: mesmos votos com o dobro de comparecimento = −10 p.p. (não "estável")');
+    ok(Math.abs(R.kpi.geral.var - (300 / 3000 - 350 / 2500)) < 1e-9, 'régua: variação da fatia do deputado no estado todo');
+    const f0 = R.faixas[0], fMais = R.faixas[4];
+    ok(f0.r === 'Sem emenda' && f0.n === 1 && Math.abs(f0.var - 0.05) < 1e-9 && fMais.n === 1 && Math.abs(fMais.mediana - (-0.1)) < 1e-9, 'faixas: variação somada, mediana e número de municípios');
+    ok(l3.d === -100 && l3.outrosD === 130, 'perda no município com o ganho de outro eleito do partido ao lado');
+    ok(R.quad.ce === 0 && R.quad.ca === 2 && R.quad.se === 1, 'quadrantes: com/sem emenda × fatia maior/menor');
+    const Rp = A.lmaRetorno(dep, [], t1, null, {});
+    ok(Rp.met === 'pct' && Math.abs(Rp.linhas.find(x => x.k === 'm2').var - 1) < 1e-9, 'sem os totais da anterior: cai para a variação % dos votos (e a tela avisa)');
+    ok(A.lmaMediana([3, 1, 2]) === 2 && A.lmaMediana([4, 1, 2, 3]) === 2.5 && A.lmaMediana([null]) === null, 'mediana');
+    // bancada
+    const deps = [{ id: 'a', nome: 'Ana', total: 1100, municipios: { m1: 600, m2: 500 } }, { id: 'b', nome: 'Bia', total: 700, municipios: { m1: 400, m2: 0, m3: 300 } }, { id: 'c', nome: 'Cid', total: 10, municipios: { m1: 10 } }];
+    const tB = { m1: { t: 10000 }, m2: { t: 10000 }, m3: { t: 100000 }, m4: { t: 1000 } };
+    const B = A.lmaBancada(deps, tB, { a: { m1: 100 }, b: { m1: 50, m3: 10 } });
+    ok(B.DS[0].id === 'a' && B.disputa.join() === 'm1' && B.pares.find(p => p.a === 'a' && p.b === 'b').muns.length === 1 && B.pares.find(p => p.b === 'c').muns.length === 0,
+      'bancada: disputa = 500+ votos do partido e dois eleitos com 25%+ cada');
+    ok(B.vazios.sort().join() === 'm3,m4' && B.emB.m1 === 150 && B.totPode === 1810 && B.divididos.length === 0, 'bancada: vazios (<2%), emendas somadas, total do partido, municípios divididos');
+    ok(html.includes('id="maRetorno"') && html.includes('id="maBancada"') && scripts.indexOf('labs-mapa-analises.js') > scripts.indexOf('labs-mapa.js'), 'botões das análises na aba do Mapa; script depois do Mapa');
+  }
+
   // ---------- 13. Perfil da Bancada ----------
   console.log('13. Perfil da Bancada');
   {

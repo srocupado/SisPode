@@ -249,17 +249,21 @@ async function mpFavProcessarClick() {
     const mb = (eE.comprimido + eF.comprimido) / 1e6;
     labsStatus('mpStatus', '');
     if (!confirm(`Baixar ${fmt(mb)} MB do Portal da Transparência (arquivo de emendas por favorecido, de ${mpDataArquivo({ arquivo })}) e localizar o município das emendas sem município de ${nomes.size} deputado(s), anos ${anos.join(', ')}?\n\nÉ uma vez para toda a bancada; o resultado fica no banco.`)) { if (bt) bt.disabled = false; return; }
-    const L = lmnLeitorFavorecidos([...nomes], anos);
+    // Período de cada eleição com comparação: do início do mandato anterior (fevereiro) ao mês da eleição.
+    const legis = {};
+    for (const [el, ant] of Object.entries(LMN_ANTERIOR)) legis[el] = [`${Number(ant) + 1}02`, `${el}10`];
+    const L = lmnLeitorFavorecidos([...nomes], anos, legis);
     let feito = 0;
     for (const [e, leitor, rot] of [[eE, L.emendas, 'Emendas'], [eF, L.favorecidos, 'Pagamentos por favorecido']]) {
       await mpLerEntradaRemota(url, e, l => leitor.linha(l), n => st(`${rot} — ${fmt((feito + n) / 1e6)} de ${fmt(mb)} MB`));
       feito += e.comprimido;
     }
-    const meta = { atualizadoEm: new Date().toISOString(), arquivo, anos, autores: nomes.size, emendas: L.emendasSemMunicipio(), pagamentos: true, origem: 'extensão (Portal, 1 clique)' };
+    const meta = { atualizadoEm: new Date().toISOString(), arquivo, anos, autores: nomes.size, emendas: L.emendasSemMunicipio(), pagamentos: true, legislaturas: legis, origem: 'extensão (Portal, 1 clique)' };
     st('Gravando no banco…');
-    await mpFbEscrever('PUT', `${MP_BASE}/favorecidos`, { meta, autores: L.resultado(), pagamentos: L.pagamentos() });
+    await mpFbEscrever('PUT', `${MP_BASE}/favorecidos`, { meta, autores: L.resultado(), pagamentos: L.pagamentos(), legislatura: L.legislatura() });
     mp.favMeta = meta;
     labsStatus('mpStatus', '');
+    if (typeof maReexibir === 'function' && maReexibir()) return;
     await mpMostrarClick();
   } catch (e) {
     labsStatus('mpStatus', 'Erro: ' + e.message, 'error');

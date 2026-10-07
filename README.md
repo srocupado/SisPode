@@ -566,6 +566,9 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - Emendas de um ano = **pago no ano + restos a pagar pagos depois** (só o pago no ano subestimava os anos anteriores); cache de 24 h no ano corrente e 7 dias nos anteriores
 - Outros caminhos: **pelo bot** (`/labsmapa [2026|2022]`, ou `node bot/scripts/labs-mapa-territorial.js`), que também busca as emendas pagas, ou **à mão** na própria tela, com os CSV já baixados (sem a comparação); só o agregado é gravado, depois de confirmação
 - Código do município no TSE ≠ código IBGE: a ponte é pelo nome dentro da UF (com tolerância a grafias como "Moji"/"Mogi"); o que não casar é listado
+- **Emendas × votos** (botão ao lado de "Mostrar no mapa", painel em grade): o que foi pago ao deputado na legislatura (do início do mandato ao mês da eleição, por município do favorecido) contra a variação da **fatia** dele nos votos válidos de cada município entre 2022 e 2026, em pontos percentuais — neutraliza o comparecimento e a base pequena. Quatro gráficos: variação por faixa de emenda (com a **mediana** e o número de municípios de cada faixa e a **variação do deputado no estado** como régua), cada município (emenda × variação), os 15 que mais receberam (com **↔ +N** onde outros eleitos do partido ganharam votos no mesmo município) e o mapa. As notas dizem o limite da leitura: associação, não efeito. Pagamentos a favorecidos fora do estado (bancos intermediários incluídos) aparecem à parte
+- **Bancada no estado**: os eleitos do partido na UF juntos — onde cada um é forte (seis mapas na mesma escala), quem levou cada parte dos 15 municípios com mais votos do partido, a **sobreposição** (pares de eleitos que disputam o mesmo eleitorado) e a força somada com os **vazios** (menos de 2%) e as emendas da bancada
+- As duas análises usam os totais por município da eleição anterior (gravados no processamento com comparação — reprocesse uma vez) e o mesmo clique do favorecido
 - Dados em `/labs/mapa/{ano}` (deputados, totais por município, situação) e `/labs/mapa/emendas/{ano}/{deputado}` (cache das emendas) e `/labs/mapa/favorecidos` (destino das emendas sem município, por autor e ano)
 
 **Perfil da Bancada**
@@ -648,6 +651,7 @@ sispode/
 ├── labs-mapa.js                   # Labs · Mapa Territorial de Entregas (mapa, processamento manual)
 ├── labs-mapa-nucleo.js            # Núcleo puro do Mapa Territorial (extensão + bot)
 ├── labs-mapa-relatorio.js         # Labs · Mapa Territorial: relatório do deputado em PDF
+├── labs-mapa-analises.js          # Labs · Mapa Territorial: Emendas × votos e Bancada no estado (painéis)
 ├── labs-perfil-nucleo.js          # Labs · Perfil da Bancada: leitura do cadastro do TSE, recortes e trajetória (puro)
 ├── labs-perfil.js                 # Labs · Perfil da Bancada: tela, download com um clique e relatório em PDF
 ├── labs-perfil-mulheres.js        # Labs · Perfil da Bancada: relatório "Mulheres no partido" em PDF

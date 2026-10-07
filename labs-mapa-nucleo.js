@@ -356,6 +356,7 @@ function lmnAtualizacao(reg, res, metaAntiga, origem, agora = new Date()) {
   const upd = {};
   for (const [id, d] of Object.entries(reg.deputados)) upd['deputados/' + lmnChave(id)] = d;
   for (const [uf, m] of Object.entries(reg.municipios)) upd['municipios/' + uf] = m;
+  for (const [uf, m] of Object.entries(reg.municipiosAnterior || {})) upd['anterior/municipios/' + uf] = m;
   const ufs = [...new Set([...((metaAntiga && metaAntiga.ufs) || []), ...res.ufs])].sort();
   upd.meta = { atualizadoEm: agora.toISOString(), origem, ufs, naoEncontrados: res.naoEncontrados.length, semPar: reg.semPar.length };
   return upd;
@@ -391,6 +392,9 @@ function lmnAnexarAnterior(reg, regAnterior, ano) {
     if (!a) continue;
     d.anterior = { ano: String(ano), total: a.total, partido: a.partidoEleicao || '', nomeUrna: a.nomeUrna || '', situacao: a.situacao || '', foraDoMapa: a.foraDoMapa || 0, municipios: a.municipios || {} };
   }
+  // Totais de votos válidos por município na anterior: a fatia de cada deputado
+  // nas duas eleições (Emendas × votos) mede a variação sem o efeito do comparecimento.
+  if (regAnterior && regAnterior.municipios) reg.municipiosAnterior = regAnterior.municipios;
   return reg;
 }
 
@@ -435,12 +439,18 @@ function lmnRotuloFavorecido(mun, uf) {
  * — chaves já seguras para o banco (lmnChave).
  * pagamentos(): { [chaveAutor]: { [ano]: valor } } — TUDO o que o autor teve pago
  * DENTRO de cada ano (coluna Ano/Mês), de emendas de qualquer ano (restos incluídos).
+ * legislaturas (opcional): { [eleição]: ['AAAAMM', 'AAAAMM'] } — período de pagamento
+ * (inclusive) de cada eleição, p.ex. { 2026: ['202302', '202610'] }: do início do
+ * mandato até o mês da eleição. legislatura(): { [eleição]: { [chaveAutor]:
+ * { [chave "NOME - UF"]: valor } } } — tudo o que foi pago por município do
+ * favorecido no período, de qualquer emenda do autor (com ou sem município na API).
  */
-function lmnLeitorFavorecidos(autores, anos) {
+function lmnLeitorFavorecidos(autores, anos, legislaturas) {
   const quero = new Set((autores || []).map(lmnNomeAutor).filter(Boolean));
   const queroAno = new Set((anos || []).map(String));
   const cods = new Map();
-  const out = {}, pg = {};
+  const out = {}, pg = {}, leg = {};
+  const periodos = Object.entries(legislaturas || {});
   const leitor = (arquivo, exigidos, fn) => {
     let ix = null;
     return linha => {
@@ -469,6 +479,15 @@ function lmnLeitorFavorecidos(autores, anos) {
       const a = lmnChave(autor);
       (pg[a] = pg[a] || {})[anoPg] = (pg[a][anoPg] || 0) + valor;
     }
+    if (periodos.length && quero.has(autor)) {
+      const am = v('ANO/MES').trim(), a = lmnChave(autor);
+      for (const [el, [ini, fim]] of periodos) {
+        if (am < ini || am > fim) continue;
+        const g = ((leg[el] = leg[el] || {})[a] = leg[el][a] || {});
+        const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
+        g[k] = (g[k] || 0) + valor;
+      }
+    }
     const e = cods.get(v('CODIGO DA EMENDA').trim());
     if (!e) return;
     const g = ((out[e.a] = out[e.a] || {})[e.ano] = out[e.a][e.ano] || { total: 0, n: 0, mun: {} });
@@ -476,7 +495,7 @@ function lmnLeitorFavorecidos(autores, anos) {
     g.mun[k] = (g.mun[k] || 0) + valor;
     g.total += valor; g.n++;
   });
-  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out, pagamentos: () => pg };
+  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out, pagamentos: () => pg, legislatura: () => leg };
 }
 
 /**
