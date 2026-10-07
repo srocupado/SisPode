@@ -29,16 +29,37 @@ async function zrIndice(url) {
   return { url, total, entradas };
 }
 
+// O firewall do TSE recusa, de vez em quando, um pedido qualquer (403, ou — no
+// navegador, sem cabeçalho CORS na recusa — "Failed to fetch"): medido em
+// 07/10/2026, 2 de 12 pedidos seguidos. Isso passa ao repetir, então 403 e
+// queda de rede são repetidos, com espera crescente (1, 2, 4, 8 s).
+const ZR_TENTATIVAS = 5;
+
 async function zrFaixa(url, ini, fim) {
   let ultimo;
-  for (let t = 0; t < 3; t++) {
-    if (t) await zrDormir(1500 * t);
+  for (let t = 0; t < ZR_TENTATIVAS; t++) {
+    if (t) await zrDormir(1000 * 2 ** (t - 1));
     let r;
     try { r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } }); }
-    catch (e) { ultimo = e; continue; }                               // queda de rede: tenta de novo
+    catch (e) { ultimo = e; continue; }                               // queda de rede ou recusa sem CORS: tenta de novo
     if (r.status === 206) return r;
     ultimo = new Error(`o servidor de dados não atendeu o pedido parcial (HTTP ${r.status})`);
-    if (r.status < 500 && r.status !== 429) break;                    // 200 (sem Range), 404…: não adianta repetir
+    if (r.status < 500 && r.status !== 429 && r.status !== 403) break; // 200 (sem Range), 404…: não adianta repetir
+  }
+  throw ultimo;
+}
+
+/** fetch com as mesmas novas tentativas (JSON do TSE e do IBGE). */
+async function zrJson(url) {
+  let ultimo;
+  for (let t = 0; t < ZR_TENTATIVAS; t++) {
+    if (t) await zrDormir(1000 * 2 ** (t - 1));
+    try {
+      const r = await fetch(url);
+      if (r.ok) return await r.json();
+      ultimo = new Error('HTTP ' + r.status);
+      if (r.status === 404) break;
+    } catch (e) { ultimo = e; }
   }
   throw ultimo;
 }
@@ -53,7 +74,10 @@ async function zrTamanhoRemoto(url) {
   // vem então do Content-Length de um HEAD, que o navegador sempre deixa ler.
   // Na extensão (permissão de host) o Content-Range já basta.
   if (!(t > 0)) {
-    try { const h = await fetch(url, { method: 'HEAD' }); t = Number(h.headers.get('content-length')); } catch (_) {}
+    for (let i = 0; i < ZR_TENTATIVAS && !(t > 0); i++) {
+      if (i) await zrDormir(1000 * 2 ** (i - 1));
+      try { const h = await fetch(url, { method: 'HEAD' }); if (h.ok) t = Number(h.headers.get('content-length')); } catch (_) {}
+    }
   }
   if (!(t > 0)) throw new Error('o servidor não informou o tamanho do arquivo');
   return t;

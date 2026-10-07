@@ -471,16 +471,37 @@ async function zrIndice(url) {
   return { url, total, entradas };
 }
 
+// O firewall do TSE recusa, de vez em quando, um pedido qualquer (403, ou — no
+// navegador, sem cabeçalho CORS na recusa — "Failed to fetch"): medido em
+// 07/10/2026, 2 de 12 pedidos seguidos. Isso passa ao repetir, então 403 e
+// queda de rede são repetidos, com espera crescente (1, 2, 4, 8 s).
+const ZR_TENTATIVAS = 5;
+
 async function zrFaixa(url, ini, fim) {
   let ultimo;
-  for (let t = 0; t < 3; t++) {
-    if (t) await zrDormir(1500 * t);
+  for (let t = 0; t < ZR_TENTATIVAS; t++) {
+    if (t) await zrDormir(1000 * 2 ** (t - 1));
     let r;
     try { r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } }); }
-    catch (e) { ultimo = e; continue; }                               // queda de rede: tenta de novo
+    catch (e) { ultimo = e; continue; }                               // queda de rede ou recusa sem CORS: tenta de novo
     if (r.status === 206) return r;
     ultimo = new Error(`o servidor de dados não atendeu o pedido parcial (HTTP ${r.status})`);
-    if (r.status < 500 && r.status !== 429) break;                    // 200 (sem Range), 404…: não adianta repetir
+    if (r.status < 500 && r.status !== 429 && r.status !== 403) break; // 200 (sem Range), 404…: não adianta repetir
+  }
+  throw ultimo;
+}
+
+/** fetch com as mesmas novas tentativas (JSON do TSE e do IBGE). */
+async function zrJson(url) {
+  let ultimo;
+  for (let t = 0; t < ZR_TENTATIVAS; t++) {
+    if (t) await zrDormir(1000 * 2 ** (t - 1));
+    try {
+      const r = await fetch(url);
+      if (r.ok) return await r.json();
+      ultimo = new Error('HTTP ' + r.status);
+      if (r.status === 404) break;
+    } catch (e) { ultimo = e; }
   }
   throw ultimo;
 }
@@ -495,7 +516,10 @@ async function zrTamanhoRemoto(url) {
   // vem então do Content-Length de um HEAD, que o navegador sempre deixa ler.
   // Na extensão (permissão de host) o Content-Range já basta.
   if (!(t > 0)) {
-    try { const h = await fetch(url, { method: 'HEAD' }); t = Number(h.headers.get('content-length')); } catch (_) {}
+    for (let i = 0; i < ZR_TENTATIVAS && !(t > 0); i++) {
+      if (i) await zrDormir(1000 * 2 ** (i - 1));
+      try { const h = await fetch(url, { method: 'HEAD' }); if (h.ok) t = Number(h.headers.get('content-length')); } catch (_) {}
+    }
   }
   if (!(t > 0)) throw new Error('o servidor não informou o tamanho do arquivo');
   return t;
@@ -1362,6 +1386,7 @@ function aoRelatorioHtml(r) {
       ${moldura ? `<div>${aoMapaLocais(geoUf, det, 380, moldura)}<div class="ao-nota">Detalhe: ${saEsc(locais[0].bairro || 'local mais forte')} — ${saFmt(vDet)} votos (${aoPct(total ? vDet / total : 0)}) em ${det.length} locais. Números = posição na tabela de locais.</div></div>` : ''}</div>
       <div class="ao-nota">Cada círculo é um local de votação; a área é proporcional aos votos. ${semCoord ? saFmt(semCoord) + ' voto(s) em locais sem coordenada no cadastro do TSE ficam só nas tabelas.' : ''}</div>`;
   }
+  if (r.semMapa && !um) h += '<div class="ao-nota">Mapa indisponível: o serviço de malhas do IBGE não respondeu. As tabelas estão completas; para o mapa, feche e abra de novo em instantes.</div>';
   if (mz && geoMun && !um) {
     h += `<h3 class="ao-h">Onde vieram os votos — por município</h3>${aoMapaMunicipios(geoMun, porIbge)}
       ${semPar && semPar.length ? `<div class="ao-nota">Sem par no mapa do IBGE: ${saEsc(semPar.join(', '))} (estão na tabela).</div>` : ''}`;
@@ -1407,7 +1432,9 @@ function aoFechar() { const el = document.getElementById('aoPainel'); if (el) el
 function aoSt(m) { const s = document.getElementById('aoStatus'); if (s) s.innerHTML = m ? `<span class="pulso on"></span> ${m}` : ''; }
 function aoMb(n) { return (n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: n < 1e7 ? 1 : 0 }) + ' MB'; }
 
-async function aoJson(url) { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status + ' em ' + url); return r.json(); }
+async function aoJson(url) { return zrJson(url); }
+/** Põe o nome da fonte na mensagem de erro (qual servidor não respondeu). */
+function aoFonte(p, nome) { return p.catch(e => { throw new Error(`${nome}: ${e && e.message || e}`); }); }
 async function aoIndice(url) {
   if (!ao.indices[url]) ao.indices[url] = zrIndice(url).catch(e => { delete ao.indices[url]; throw e; });
   return ao.indices[url];
@@ -1448,29 +1475,31 @@ async function aoCarregar(cand, uf, detalhar) {
     aoSt('Lendo o índice dos arquivos do TSE…');
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
-    const [ixMz, ibge] = await Promise.all([aoIndice(AO_ZIP.munzona(ano)), aoIbge(uf)]);
+    // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
+    const [ixMz, ibge] = await Promise.all([aoFonte(aoIndice(AO_ZIP.munzona(ano)), 'arquivo de votação do TSE'), aoIbge(uf).catch(() => null)]);
     if (!r.mz) {
       r.mz = await aoLerEntrada(ixMz, e => zrUfDaEntrada(e.nome) === U, aoLeitorMunzona(cargo, cand.numero), `Votação por município (${U})`);
       if (r.mz.cand) Object.assign(r.cand, { sit: r.mz.cand.sit, partido: r.mz.cand.partido || r.cand.partido });
-      const res = lmnResolvedor(ibge.lista, U);
+      const res = ibge ? lmnResolvedor(ibge.lista, U) : () => null;
+      r.semMapa = !ibge;
       r.porIbge = {}; r.semPar = [];
       for (const m of Object.values(r.mz.mun)) {
         if (!m.v && !m.t) continue;
         const id = res(m.n);
         if (id) { const k = 'm' + id, x = (r.porIbge[k] = r.porIbge[k] || { n: m.n, v: 0, t: 0 }); x.v += m.v; x.t += m.t; }
-        else if (m.v) r.semPar.push(m.n);
+        else if (m.v && ibge) r.semPar.push(m.n);
       }
-      r.geoMun = ibge.mun; r.geoUf = ibge.uf;
+      r.geoMun = ibge && ibge.mun; r.geoUf = ibge && ibge.uf;
     }
     if (!r.mz.total) throw new Error(`nenhum voto do número ${cand.numero} para ${cargoNome.toLowerCase()} em ${U} no arquivo do TSE de ${ano}`);
     if (porLocal && !r.sec) {
-      const ixS = await aoIndice(AO_ZIP.secao(ano, uf));
+      const ixS = await aoFonte(aoIndice(AO_ZIP.secao(ano, uf)), 'votação por seção do TSE');
       const tam = ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0);
       if (uf !== 'df' && !confirm(`Detalhar por local de votação: baixa ${aoMb(tam)} do TSE (votação por seção de ${U}) e o cadastro de locais. Pode levar alguns minutos. Continuar?`)) {
         aoSt('');
       } else {
         const sec = await aoLerEntrada(ixS, e => /\.csv$/i.test(e.nome), aoLeitorSecao(cargo, cand.numero), `Votação por seção (${U})`);
-        const ixL = await aoIndice(AO_ZIP.locais(ano));
+        const ixL = await aoFonte(aoIndice(AO_ZIP.locais(ano)), 'cadastro de locais de votação do TSE');
         sec.coord = await aoLerEntrada(ixL, e => new RegExp(`_${U}\\.csv$`, 'i').test(e.nome), aoLeitorLocais(), `Locais de votação (${U})`);
         r.sec = sec;
       }
@@ -1485,7 +1514,13 @@ async function aoCarregar(cand, uf, detalhar) {
     }
   } catch (e) {
     aoSt('');
-    corpo.innerHTML = `<div class="vazio grande">Não foi possível montar o relatório: ${saEsc(e.message)}.${/HTTP 404/.test(e.message) ? ' O TSE publica esses arquivos alguns dias depois da eleição.' : ''}</div>`;
+    const rede = /failed to fetch|load failed|networkerror|HTTP 403/i.test(e.message);
+    corpo.innerHTML = `<div class="vazio grande">Não foi possível montar o relatório: ${saEsc(e.message)}.
+      ${/HTTP 404/.test(e.message) ? ' O TSE publica esses arquivos alguns dias depois da eleição.' : ''}
+      ${rede ? '<br>O servidor do TSE recusa pedidos de vez em quando, por alguns segundos (o painel já tentou 5 vezes). Tente de novo em instantes; se persistir, confira a conexão — e abra a página pelo endereço publicado, não como arquivo dentro de outro aplicativo.' : ''}
+      <br><button id="aoDeNovo" class="ao-bt" style="font-size:13px;padding:6px 12px;margin-top:10px">↻ Tentar de novo</button></div>`;
+    const dn = document.getElementById('aoDeNovo');
+    if (dn) dn.addEventListener('click', () => aoCarregar(cand, uf, detalhar));
   } finally {
     ao.ocupado = false;
   }
