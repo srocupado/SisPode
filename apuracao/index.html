@@ -100,6 +100,29 @@
   .cl-num .l { font-size: 11px; color: var(--texto); margin-top: 1px; } .cl-num .m { font-size: 10.5px; color: var(--dim); }
   .cl-num.ok { border-color: rgba(47,207,122,.5); } .cl-num.ok .v { color: var(--verde2); }
   .cl-num.nao { border-color: rgba(255,122,107,.5); } .cl-num.nao .v { color: #ff7a6b; }
+  /* De onde vieram os votos (apuracao-onde.js) */
+  .ao-bt { background: none; border: 1px solid var(--borda); border-radius: 6px; padding: 0 5px; font-size: 11px; cursor: pointer; margin-left: 4px; vertical-align: 1px; }
+  .ao-bt:hover { border-color: var(--verde2); }
+  #aoPainel { position: fixed; inset: 0; background: rgba(5,10,14,.72); display: none; align-items: flex-start; justify-content: center; z-index: 40; overflow-y: auto; padding: 24px 12px; }
+  .ao-caixa { background: var(--bg); border: 1px solid var(--borda); border-radius: 12px; width: min(1100px, 100%); padding: 14px 16px 18px; }
+  .ao-topo { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; } .ao-topo > b { flex: 1; font-size: 15px; }
+  .ao-acoes { display: flex; gap: 6px; flex-wrap: wrap; } .ao-acoes button { background: var(--bg2); color: var(--texto); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12.5px; }
+  .ao-acoes button:disabled { opacity: .5; cursor: default; } #aoPdf:not(:disabled) { background: var(--verde); border-color: var(--verde); color: #fff; }
+  .ao-status { color: var(--dim); font-size: 12.5px; min-height: 18px; }
+  .ao-cab b { font-size: 18px; } .ao-sub { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
+  .ao-cards { grid-template-columns: repeat(4, 1fr); }
+  .ao-h { font-size: 13.5px; margin: 14px 0 6px; color: var(--verde2); }
+  .ao-mapas { display: grid; grid-template-columns: 1.6fr 1fr; gap: 10px; align-items: start; }
+  .ao-mapa { width: 100%; display: block; }
+  .ao-mapa path { stroke: var(--bg); stroke-width: .4; } .ao-mapa .ao-uf { fill: #1d2b38; stroke: #3a4d5e; stroke-width: 1; } .ao-mapa .ao-zoom { fill: #1a2531; stroke: #3a4d5e; }
+  .ao-q0 { fill: #1d2b38; background: #1d2b38; } .ao-q1 { fill: #1f5a5f; background: #1f5a5f; } .ao-q2 { fill: #23807f; background: #23807f; }
+  .ao-q3 { fill: #2fa89a; background: #2fa89a; } .ao-q4 { fill: #58d0b0; background: #58d0b0; } .ao-q5 { fill: #a6f0cf; background: #a6f0cf; }
+  .ao-pt { fill: rgba(47,207,122,.45); stroke: #2fcf7a; stroke-width: 1; } .ao-rot { fill: #fff; font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+  .ao-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--dim); margin-top: 4px; } .ao-leg i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .ao-duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .ao-tab td.r, .ao-tab th.r { text-align: right; } .ao-end { color: var(--dim); font-size: 11px; }
+  .ao-nota { color: var(--dim); font-size: 11.5px; margin-top: 4px; }
+  @media (max-width: 760px) { .ao-mapas { grid-template-columns: 1fr; } .ao-cards { grid-template-columns: repeat(2, 1fr); } }
   #saImpressao { display: none; }
   @media print {
     @page { size: A4; margin: 12mm 11mm; }
@@ -128,6 +151,16 @@
     #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; }
     #saImpressao .cl-num.ok .v { color: #0b8a4b; } #saImpressao .cl-num.ok { border-color: #9fd3b4; } #saImpressao .cl-num.nao { border-color: #efb3ab; }
     #saImpressao .num, #saImpressao td.pt, #saImpressao td.pos { color: #5b6b7b; }
+    #saImpressao .card { background: #fff; border: 1px solid #cfd8e1; } #saImpressao .card .v { color: #0b5e3a; }
+    #saImpressao .ao-cab, #saImpressao .ao-sub { display: none; }
+    #saImpressao .ao-h { color: #0b5e3a; break-after: avoid; } #saImpressao .ao-mapa { break-inside: avoid; max-height: 120mm; }
+    /* A folha A4 tem menos de 760 px: sem isto, a regra de celular empilharia os mapas e os cartões. */
+    #saImpressao .ao-mapas { grid-template-columns: 1.6fr 1fr; break-inside: avoid; } #saImpressao .ao-cards { grid-template-columns: repeat(4, 1fr); }
+    #saImpressao .ao-mapa path { stroke: #fff; } #saImpressao .ao-mapa .ao-uf { fill: #eef2f1; stroke: #9fb3ad; } #saImpressao .ao-mapa .ao-zoom { fill: #f6f8f7; stroke: #9fb3ad; }
+    #saImpressao .ao-q0 { fill: #eef2f1; background: #eef2f1; } #saImpressao .ao-q1 { fill: #d3ece2; background: #d3ece2; } #saImpressao .ao-q2 { fill: #a6d9c4; background: #a6d9c4; }
+    #saImpressao .ao-q3 { fill: #6cbf9f; background: #6cbf9f; } #saImpressao .ao-q4 { fill: #2f9a77; background: #2f9a77; } #saImpressao .ao-q5 { fill: #0b6e4f; background: #0b6e4f; }
+    #saImpressao .ao-pt { fill: rgba(11,138,75,.45); stroke: #0b5e3a; } #saImpressao .ao-nota, #saImpressao .ao-end, #saImpressao .ao-leg { color: #5b6b7b; }
+    #saImpressao .ao-duas { display: block; }
   }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
   footer b { color: var(--texto); }
@@ -406,6 +439,1095 @@ if (typeof module !== 'undefined' && module.exports) {
 }
 
 </script>
+<script>/* zip-remoto.js */
+'use strict';
+// Leitura de um zip REMOTO por partes (HTTP Range), sem baixar o arquivo
+// inteiro: o índice (diretório central, com ZIP64) vem do fim do arquivo e cada
+// entrada é pedida em blocos de 8 MB com nova tentativa, descompactada em fluxo
+// (DecompressionStream 'deflate-raw') e entregue linha a linha (latin1, como os
+// CSV do TSE e do Portal da Transparência).
+// Usado pelo Labs (Mapa Territorial, Perfil da Bancada) e pela Apuração
+// (extensão e site). Sem dependências.
+
+const zrDormir = ms => new Promise(r => setTimeout(r, ms));
+
+/** Separa um fluxo de texto em linhas: { empurrar(texto), fim() }. */
+function zrLinhas(aoLer) {
+  let resto = '';
+  return {
+    empurrar(txt) {
+      const partes = (resto + txt).split('\n');
+      resto = partes.pop();
+      for (const l of partes) if (l) aoLer(l);
+    },
+    fim() { if (resto) aoLer(resto); resto = ''; },
+  };
+}
+
+/** Índice de um zip remoto: { url, total, entradas }. */
+async function zrIndice(url) {
+  const total = await zrTamanhoRemoto(url);
+  const entradas = await zrEntradasZip(total, async (ini, n) => new Uint8Array(await (await zrFaixa(url, ini, ini + n - 1)).arrayBuffer()));
+  return { url, total, entradas };
+}
+
+async function zrFaixa(url, ini, fim) {
+  let ultimo;
+  for (let t = 0; t < 3; t++) {
+    if (t) await zrDormir(1500 * t);
+    let r;
+    try { r = await fetch(url, { headers: { Range: `bytes=${ini}-${fim}` } }); }
+    catch (e) { ultimo = e; continue; }                               // queda de rede: tenta de novo
+    if (r.status === 206) return r;
+    ultimo = new Error(`o servidor de dados não atendeu o pedido parcial (HTTP ${r.status})`);
+    if (r.status < 500 && r.status !== 429) break;                    // 200 (sem Range), 404…: não adianta repetir
+  }
+  throw ultimo;
+}
+
+/** Tamanho total do arquivo remoto, pelo Content-Range de um pedido de 1 byte. */
+async function zrTamanhoRemoto(url) {
+  const r = await zrFaixa(url, 0, 0);
+  let t = Number(String(r.headers.get('content-range') || '').split('/')[1]);
+  try { await r.arrayBuffer(); } catch (_) {}
+  // Numa página comum (o site da Apuração), o servidor do TSE libera o acesso
+  // mas não expõe o Content-Range (sem Access-Control-Expose-Headers): o tamanho
+  // vem então do Content-Length de um HEAD, que o navegador sempre deixa ler.
+  // Na extensão (permissão de host) o Content-Range já basta.
+  if (!(t > 0)) {
+    try { const h = await fetch(url, { method: 'HEAD' }); t = Number(h.headers.get('content-length')); } catch (_) {}
+  }
+  if (!(t > 0)) throw new Error('o servidor não informou o tamanho do arquivo');
+  return t;
+}
+
+/**
+ * Entradas de um zip: [{ nome, metodo, comprimido, tamanho, offsetLocal }],
+ * lendo só o fim do arquivo. `ler(ini, n)` devolve Uint8Array. Suporta ZIP64
+ * (o CSV do Brasil inteiro passa de 4 GB). Pura (a leitura vem de fora).
+ */
+async function zrEntradasZip(total, ler) {
+  const nCauda = Math.min(total, 65557);
+  const cauda = await ler(total - nCauda, nCauda);
+  const dv = new DataView(cauda.buffer, cauda.byteOffset, cauda.byteLength);
+  let eocd = -1;
+  for (let i = cauda.length - 22; i >= 0; i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) throw new Error('o arquivo não é um zip válido');
+  let n = dv.getUint16(eocd + 10, true), tamCd = dv.getUint32(eocd + 12, true), offCd = dv.getUint32(eocd + 16, true);
+  if (offCd === 0xffffffff || tamCd === 0xffffffff || n === 0xffff) {
+    const loc = eocd - 20;
+    if (loc < 0 || dv.getUint32(loc, true) !== 0x07064b50) throw new Error('zip64 sem localizador');
+    const e64 = await ler(Number(dv.getBigUint64(loc + 8, true)), 56);
+    const d64 = new DataView(e64.buffer, e64.byteOffset, e64.byteLength);
+    if (d64.getUint32(0, true) !== 0x06064b50) throw new Error('zip64: registro de fim inválido');
+    n = Number(d64.getBigUint64(32, true)); tamCd = Number(d64.getBigUint64(40, true)); offCd = Number(d64.getBigUint64(48, true));
+  }
+  const cd = offCd >= total - nCauda ? cauda.subarray(offCd - (total - nCauda), offCd - (total - nCauda) + tamCd) : await ler(offCd, tamCd);
+  const c = new DataView(cd.buffer, cd.byteOffset, cd.byteLength);
+  const out = [];
+  let p = 0;
+  for (let k = 0; k < n && p + 46 <= cd.length; k++) {
+    if (c.getUint32(p, true) !== 0x02014b50) throw new Error('índice do zip corrompido');
+    const metodo = c.getUint16(p + 10, true);
+    let comprimido = c.getUint32(p + 20, true), tamanho = c.getUint32(p + 24, true), offsetLocal = c.getUint32(p + 42, true);
+    const nLen = c.getUint16(p + 28, true), xLen = c.getUint16(p + 30, true), cLen = c.getUint16(p + 32, true);
+    const nome = new TextDecoder().decode(cd.subarray(p + 46, p + 46 + nLen));
+    for (let x = p + 46 + nLen, fimX = x + xLen; x + 4 <= fimX;) {
+      const id = c.getUint16(x, true), len = c.getUint16(x + 2, true);
+      if (id === 0x0001) {
+        let q = x + 4;
+        if (tamanho === 0xffffffff) { tamanho = Number(c.getBigUint64(q, true)); q += 8; }
+        if (comprimido === 0xffffffff) { comprimido = Number(c.getBigUint64(q, true)); q += 8; }
+        if (offsetLocal === 0xffffffff) { offsetLocal = Number(c.getBigUint64(q, true)); q += 8; }
+      }
+      x += 4 + len;
+    }
+    out.push({ nome, metodo, comprimido, tamanho, offsetLocal });
+    p += 46 + nLen + xLen + cLen;
+  }
+  return out;
+}
+
+/** UF da entrada "…_munzona_2026_SP.csv" (null para BRASIL, BR, leia-me). */
+function zrUfDaEntrada(nome) {
+  const m = String(nome).match(/_([A-Z]{2})\.(csv|txt)$/i);
+  return m && m[1].toUpperCase() !== 'BR' ? m[1].toUpperCase() : null;
+}
+
+// Blocos do download: 8 MB, cada um com até 3 tentativas — numa queda de rede
+// perde-se um bloco, não os ~100 MB de um estado grande.
+const ZR_BLOCO = 8 * 1024 * 1024;
+
+/** Os bytes [ini, fim] do arquivo remoto como fluxo, pedidos em blocos com nova tentativa. */
+function zrFluxoRemoto(url, ini, fim, aoReceber) {
+  let pos = ini;
+  return new ReadableStream({
+    async pull(c) {
+      if (pos > fim) { c.close(); return; }
+      const ate = Math.min(fim, pos + ZR_BLOCO - 1);
+      let erro = null;
+      for (let t = 0; t < 3; t++) {
+        if (t) await zrDormir(1500 * t);
+        try {
+          const b = new Uint8Array(await (await zrFaixa(url, pos, ate)).arrayBuffer());
+          if (b.length !== ate - pos + 1) throw new Error('bloco incompleto');
+          pos = ate + 1;
+          if (aoReceber) aoReceber(b.length);
+          c.enqueue(b);
+          return;
+        } catch (e) { erro = e; }
+      }
+      c.error(new Error('download interrompido: ' + erro.message));
+    },
+  });
+}
+
+/** Lê uma entrada do zip remoto linha a linha. aoAndar(bytesComprimidosLidos). */
+async function zrLerEntradaRemota(url, e, aoLer, aoAndar) {
+  const cab = new Uint8Array(await (await zrFaixa(url, e.offsetLocal, e.offsetLocal + 29)).arrayBuffer());
+  const dv = new DataView(cab.buffer);
+  if (dv.getUint32(0, true) !== 0x04034b50) throw new Error(`cabeçalho inválido em ${e.nome}`);
+  if (!e.comprimido) return;
+  const ini = e.offsetLocal + 30 + dv.getUint16(26, true) + dv.getUint16(28, true);
+  let lidos = 0;
+  let fluxo = zrFluxoRemoto(url, ini, ini + e.comprimido - 1, n => { lidos += n; if (aoAndar) aoAndar(lidos); });
+  if (e.metodo === 8) fluxo = fluxo.pipeThrough(new DecompressionStream('deflate-raw'));
+  else if (e.metodo !== 0) throw new Error(`compressão ${e.metodo} não suportada em ${e.nome}`);
+  const dec = new TextDecoder('latin1');
+  const lin = zrLinhas(aoLer);
+  const leitor = fluxo.getReader();
+  for (;;) {
+    const { done, value } = await leitor.read();
+    if (done) break;
+    lin.empurrar(dec.decode(value, { stream: true }));
+  }
+  lin.empurrar(dec.decode());
+  lin.fim();
+}
+
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { zrEntradasZip, zrUfDaEntrada, zrLinhas };
+
+</script>
+<script>/* labs-mapa-nucleo.js */
+'use strict';
+// Labs · Mapa Territorial — NÚCLEO compartilhado entre a extensão (labs-mapa.js,
+// processamento manual no navegador) e o bot (bot/src/labsmapa.js, /labsmapa).
+// Mesmo padrão de pauta-parser.js: na extensão as funções ficam no escopo
+// global; no Node, o bloco do fim exporta.
+//
+// Tudo aqui é PURO (sem rede, sem disco): a leitura do CSV do TSE linha a
+// linha, a agregação dos votos por município, a ponte entre o código de
+// município do TSE e o do IBGE (são numerações DIFERENTES — a ponte é pelo nome
+// dentro da UF) e a leitura da localidade das emendas.
+//
+// Arquivo do TSE: votacao_candidato_munzona_{ano}_{UF}.csv — latin1, ';',
+// campos entre aspas, UMA linha por candidato × município × zona (a soma por
+// município junta as zonas). As colunas são lidas pelo NOME do cabeçalho, não
+// pela posição, para sobreviver a mudanças de layout entre eleições.
+//
+// No banco, chaves de município levam prefixo "m" (m3550308): chave só com
+// dígitos faz o Firebase transformar o objeto em array.
+
+const LMN_CARGO_DEPUTADO_FEDERAL = '6';
+// Eleições que o mapa mostra, da mais recente para a mais antiga. Em 2026 a
+// bancada vem do PRÓPRIO arquivo (os eleitos do partido) — os novos só entram
+// na API da Câmara depois da posse; em 2022, dos deputados de hoje na Câmara.
+const LMN_ANOS = ['2026', '2022'];
+// Eleição usada na comparação ("como foi na anterior") de cada eleição.
+const LMN_ANTERIOR = { 2026: '2022' };
+function lmnBancadaDoArquivo(ano) { return Number(ano) >= 2026; }
+
+function lmnNorm(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .replace(/['’`´]/g, '').replace(/[^a-zA-Z0-9]+/g, ' ').trim().toLowerCase();
+}
+
+/** Campos de uma linha CSV com ';' e aspas ("" dentro de aspas = aspa). */
+function lmnCampos(linha) {
+  const out = [];
+  let cur = '', q = false;
+  for (let i = 0; i < linha.length; i++) {
+    const c = linha[i];
+    if (q) {
+      if (c === '"') { if (linha[i + 1] === '"') { cur += '"'; i++; } else q = false; }
+      else cur += c;
+    } else if (c === '"') q = true;
+    else if (c === ';') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur.replace(/\r$/, ''));
+  return out;
+}
+
+/**
+ * Separa um fluxo de texto em linhas, entregando cada linha completa a
+ * `aoLer`. Devolve { empurrar(texto), fim() } — `fim` entrega a última linha.
+ */
+function lmnLinhas(aoLer) {
+  let resto = '';
+  return {
+    empurrar(txt) {
+      const partes = (resto + txt).split('\n');
+      resto = partes.pop();
+      for (const l of partes) if (l) aoLer(l);
+    },
+    fim() { if (resto) aoLer(resto); resto = ''; },
+  };
+}
+
+/**
+ * Agregador dos votos de uma lista de deputados-alvo.
+ * Com opcoes.eleitosDoPartido ('PODE'), os alvos saem do próprio arquivo: os
+ * candidatos a deputado federal do partido com situação "ELEITO POR QP/MÉDIA"
+ * (DS_SIT_TOT_TURNO) — id "tse<SQ_CANDIDATO>", nome = nome de urna.
+ * alvos: [{ id, nome (parlamentar), nomeCivil, uf }].
+ * Casamento, sempre dentro da UF e só no cargo Deputado Federal:
+ *   1º NM_CANDIDATO = nome civil (normalizados);
+ *   2º se nada casou pelo civil, NM_URNA_CANDIDATO = nome parlamentar — e só se
+ *      um único candidato casar (nome de urna repetido não é aceito).
+ * Uso: const ag = lmnAgregador(alvos); ag.linha(texto) para CADA linha
+ * (a 1ª é o cabeçalho; cada arquivo novo recomeça com ag.novoArquivo()); ag.resultado().
+ */
+function lmnAgregador(alvos, opcoes = {}) {
+  const siglaEleitos = opcoes.eleitosDoPartido ? String(opcoes.eleitosDoPartido).toUpperCase() : '';
+  const eleitos = new Map();   // sq → entrada (modo eleitosDoPartido)
+  const porUf = new Map();
+  for (const a of alvos || []) {
+    const uf = String(a.uf || '').toUpperCase();
+    if (!porUf.has(uf)) porUf.set(uf, []);
+    porUf.get(uf).push({ alvo: a, civil: lmnNorm(a.nomeCivil), urna: lmnNorm(a.nome), bCivil: new Map(), bUrna: new Map() });
+  }
+  const municipios = {};   // codTse → { n, uf, t }
+  const ufs = new Set();
+  const ufsAnteriores = new Set();   // UFs já lidas em arquivos ANTERIORES (repetição = soma em dobro)
+  const ufsDesteArquivo = new Set();
+  let col = null, linhas = 0, arquivos = 0;
+
+  const OBRIG = ['SG_UF', 'CD_MUNICIPIO', 'NM_MUNICIPIO', 'SQ_CANDIDATO', 'NM_CANDIDATO', 'NM_URNA_CANDIDATO'];
+
+  function cabecalho(campos) {
+    const idx = {};
+    campos.forEach((c, i) => { idx[String(c).trim().toUpperCase()] = i; });
+    const falta = OBRIG.filter(k => idx[k] == null);
+    const votos = idx.QT_VOTOS_NOMINAIS_VALIDOS != null ? idx.QT_VOTOS_NOMINAIS_VALIDOS : idx.QT_VOTOS_NOMINAIS;
+    if (votos == null) falta.push('QT_VOTOS_NOMINAIS');
+    // Candidato "Anulado sub judice" na data do arquivo tem VALIDOS = 0, mas
+    // os votos existem (quem tomou posse os teve validados): usa NOMINAIS.
+    const nominais = idx.QT_VOTOS_NOMINAIS != null ? idx.QT_VOTOS_NOMINAIS : votos;
+    const destinacao = idx.NM_TIPO_DESTINACAO_VOTOS != null ? idx.NM_TIPO_DESTINACAO_VOTOS : idx.DS_TIPO_DESTINACAO_VOTOS;
+    if (idx.CD_CARGO == null && idx.DS_CARGO == null) falta.push('CD_CARGO');
+    if (siglaEleitos) for (const k of ['SG_PARTIDO', 'DS_SIT_TOT_TURNO']) if (idx[k] == null) falta.push(k);
+    if (falta.length) throw new Error('Arquivo fora do formato do TSE (votação por município e zona). Faltam as colunas: ' + falta.join(', '));
+    col = { idx, votos, nominais, destinacao };
+  }
+
+  function add(b, sq, cod, v, campos) {
+    let e = b.get(sq);
+    if (!e) {
+      const I = col.idx;
+      e = { sq, nomeUrna: campos[I.NM_URNA_CANDIDATO], nomeCivil: campos[I.NM_CANDIDATO], partido: I.SG_PARTIDO != null ? campos[I.SG_PARTIDO] : '',
+        numero: I.NR_CANDIDATO != null ? String(campos[I.NR_CANDIDATO]).trim() : '', situacao: I.DS_SIT_TOT_TURNO != null ? campos[I.DS_SIT_TOT_TURNO] : '', total: 0, mun: {} };
+      b.set(sq, e);
+    }
+    e.total += v;
+    if (v > 0) e.mun[cod] = (e.mun[cod] || 0) + v;   // município só entra com voto
+  }
+
+  function linha(texto) {
+    const campos = lmnCampos(texto);
+    if (!col) { cabecalho(campos); return; }
+    const I = col.idx;
+    const cargoOk = I.CD_CARGO != null
+      ? String(campos[I.CD_CARGO]).trim() === LMN_CARGO_DEPUTADO_FEDERAL
+      : lmnNorm(campos[I.DS_CARGO]) === 'deputado federal';
+    if (!cargoOk) return;
+    linhas++;
+    const uf = String(campos[I.SG_UF] || '').trim().toUpperCase();
+    const cod = String(campos[I.CD_MUNICIPIO] || '').trim();
+    let v = parseInt(campos[col.votos], 10) || 0;
+    const subJudice = col.destinacao != null && /^anulado sub judice/.test(lmnNorm(campos[col.destinacao]));
+    if (subJudice) v = parseInt(campos[col.nominais], 10) || 0;
+    if (!ufsDesteArquivo.has(uf)) {
+      if (ufsAnteriores.has(uf)) throw new Error(`O estado ${uf} aparece em mais de um arquivo (ex.: o arquivo BRASIL junto com o do estado, ou o mesmo estado duas vezes) — os votos seriam somados em dobro. Escolha cada estado uma vez só.`);
+      ufsDesteArquivo.add(uf);
+    }
+    ufs.add(uf);
+    const m = municipios[cod] || (municipios[cod] = { n: campos[I.NM_MUNICIPIO], uf, t: 0 });
+    m.t += v;
+    const sq = String(campos[I.SQ_CANDIDATO] || '').trim();
+    if (siglaEleitos) {
+      // "NÃO ELEITO" normalizado é "nao eleito": não começa por "eleito".
+      if (String(campos[I.SG_PARTIDO]).trim().toUpperCase() === siglaEleitos && /^eleito/.test(lmnNorm(campos[I.DS_SIT_TOT_TURNO]))) {
+        if (!eleitos.has(sq)) eleitos.set(sq, { uf, b: new Map() });
+        add(eleitos.get(sq).b, sq, cod, v, campos);
+      }
+      return;
+    }
+    const lista = porUf.get(uf);
+    if (!lista) return;
+    const nc = lmnNorm(campos[I.NM_CANDIDATO]);
+    const nu = lmnNorm(campos[I.NM_URNA_CANDIDATO]);
+    for (const x of lista) {
+      if (x.civil && nc === x.civil) add(x.bCivil, sq, cod, v, campos);
+      else if (x.urna && nu === x.urna) add(x.bUrna, sq, cod, v, campos);
+    }
+  }
+
+  function escolher(x) {
+    const maior = b => [...b.values()].sort((a, c) => c.total - a.total)[0];
+    if (x.bCivil.size) return maior(x.bCivil);
+    if (x.bUrna.size === 1) return maior(x.bUrna);
+    return null;
+  }
+
+  const ficha = (id, nome, uf, e) => ({ id, nome, uf, sq: e.sq, nomeUrna: e.nomeUrna, nomeCivil: e.nomeCivil, numero: e.numero,
+    situacao: e.situacao, partidoEleicao: e.partido, total: e.total, municipios: e.mun });
+
+  function resultado() {
+    const deputados = {}, naoEncontrados = [];
+    if (siglaEleitos) {
+      for (const [sq, { uf, b }] of eleitos) { const e = b.get(sq); deputados['tse' + sq] = ficha('tse' + sq, lmnNomeProprio(e.nomeUrna), uf, e); }
+      return { deputados, naoEncontrados, municipios, ufs: [...ufs].sort(), linhas, arquivos };
+    }
+    for (const [uf, lista] of porUf) {
+      for (const x of lista) {
+        const e = escolher(x);
+        if (!e) {
+          naoEncontrados.push({ id: x.alvo.id, nome: x.alvo.nome, uf,
+            motivo: !ufs.has(uf) ? `arquivo de ${uf} não processado` : (x.bUrna.size > 1 ? 'nome de urna ambíguo' : 'nome não encontrado no arquivo') });
+          continue;
+        }
+        deputados[x.alvo.id] = ficha(x.alvo.id, x.alvo.nome, uf, e);
+      }
+    }
+    return { deputados, naoEncontrados, municipios, ufs: [...ufs].sort(), linhas, arquivos };
+  }
+
+  return {
+    linha,
+    novoArquivo() { col = null; arquivos++; for (const u of ufsDesteArquivo) ufsAnteriores.add(u); ufsDesteArquivo.clear(); },
+    resultado,
+  };
+}
+
+function lmnDistancia(a, b) {
+  if (Math.abs(a.length - b.length) > 2) return 3;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    }
+  }
+  return d[a.length][b.length];
+}
+
+/**
+ * Resolve um nome de município (qualquer grafia) para o código IBGE, dentro da
+ * UF. `ibgeDaUf`: [{ id, nome }] da API de localidades do IBGE. Ordem: nome
+ * normalizado igual; sem espaços igual; e, por fim, UM único candidato a no
+ * máximo 2 letras de distância ("Moji Mirim" → "Mogi Mirim"). Devolve o id ou null.
+ */
+// Municípios cujo nome no TSE não é o do IBGE (renomeados, grafia antiga) e
+// que nenhuma regra de grafia resolve sozinha. Chave: "UF|nome TSE normalizado".
+const LMN_APELIDOS = {
+  'AP|agua branca do amapari': 'Pedra Branca do Amapari',
+  'PB|santarem': 'Joca Claudino',
+  'PB|sao domingos de pombal': 'São Domingos',
+  'RN|ares': 'Arez',
+  'RN|boa saude': 'Januário Cicco',
+  'RR|sao luiz': 'São Luiz do Anauá',
+  'TO|couto de magalhaes': 'Couto Magalhães',
+  'TO|fortaleza do tabocao': 'Tabocão',
+  'TO|sao valerio da natividade': 'São Valério',
+  'SP|embu': 'Embu das Artes',
+};
+
+function lmnResolvedor(ibgeDaUf, uf) {
+  const exato = new Map(), compacto = new Map();
+  const lista = (ibgeDaUf || []).map(m => ({ id: String(m.id), n: lmnNorm(m.nome) }));
+  for (const m of lista) { exato.set(m.n, m.id); compacto.set(m.n.replace(/ /g, ''), m.id); }
+  const U = String(uf || '').toUpperCase();
+  return nome => {
+    let n = lmnNorm(nome);
+    if (!n) return null;
+    if (U && LMN_APELIDOS[U + '|' + n] && exato.has(lmnNorm(LMN_APELIDOS[U + '|' + n]))) n = lmnNorm(LMN_APELIDOS[U + '|' + n]);
+    if (exato.has(n)) return exato.get(n);
+    const c = n.replace(/ /g, '');
+    if (compacto.has(c)) return compacto.get(c);
+    const perto = lista.filter(m => lmnDistancia(m.n, n) <= 2);
+    return perto.length === 1 ? perto[0].id : null;
+  };
+}
+
+/**
+ * Converte o resultado do agregador (códigos TSE) para o registro do banco
+ * (códigos IBGE com prefixo "m"). `ibgePorUf`: { UF: [{id, nome}] }.
+ * Devolve { deputados, municipios: { UF: { mID: {n, t} } }, semPar: [{uf, n}] }.
+ */
+function lmnParaIbge(res, ibgePorUf) {
+  const resolv = {};
+  const tseParaIbge = {};
+  const semPar = [];
+  const municipios = {};
+  for (const [cod, m] of Object.entries(res.municipios)) {
+    const uf = m.uf;
+    if (!resolv[uf]) resolv[uf] = lmnResolvedor(ibgePorUf[uf] || [], uf);
+    const id = resolv[uf](m.n);
+    if (!id) { semPar.push({ uf, n: m.n, t: m.t }); continue; }
+    tseParaIbge[cod] = 'm' + id;
+    if (!municipios[uf]) municipios[uf] = {};
+    // Dois nomes do TSE no mesmo município do IBGE: os totais SOMAM (os votos
+    // do deputado também somam, logo a fatia continua certa).
+    const prev = municipios[uf]['m' + id];
+    municipios[uf]['m' + id] = prev ? { n: prev.n, t: prev.t + m.t } : { n: m.n, t: m.t };
+  }
+  const deputados = {};
+  for (const [id, d] of Object.entries(res.deputados)) {
+    const mun = {};
+    let foraDoMapa = 0;
+    for (const [cod, v] of Object.entries(d.municipios)) {
+      const k = tseParaIbge[cod];
+      if (k) mun[k] = (mun[k] || 0) + v; else foraDoMapa += v;
+    }
+    deputados[id] = { nome: d.nome, uf: d.uf, nomeUrna: d.nomeUrna, partidoEleicao: d.partidoEleicao, total: d.total, foraDoMapa, municipios: mun };
+    for (const k of ['nomeCivil', 'numero', 'situacao']) if (d[k]) deputados[id][k] = d[k];
+  }
+  return { deputados, municipios, semPar };
+}
+
+/**
+ * A localidade de uma emenda, como o Portal da Transparência escreve:
+ *   "CAMPINAS - SP"            → { tipo: 'municipio', nome: 'CAMPINAS', uf: 'SP' }
+ *   "SÃO PAULO (UF)"           → { tipo: 'uf', nome: 'SÃO PAULO' }
+ *   "MÚLTIPLO", "NACIONAL"…    → { tipo: 'outro', rotulo }
+ */
+function lmnLocalidade(txt) {
+  const s = String(txt || '').trim();
+  let m = s.match(/^(.+?)\s+[-–]\s+([A-Za-z]{2})$/);
+  if (m) return { tipo: 'municipio', nome: m[1].trim(), uf: m[2].toUpperCase() };
+  m = s.match(/^(.+?)\s*\(UF\)$/i);
+  if (m) return { tipo: 'uf', nome: m[1].trim() };
+  return { tipo: 'outro', rotulo: s || 'SEM LOCALIDADE' };
+}
+
+function lmnDinheiro(v) {
+  if (typeof v === 'number') return v;
+  const n = parseFloat(String(v == null ? '' : v).replace(/[R$\s.]/g, '').replace(',', '.'));
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Chave segura para o Firebase (sem . # $ [ ] /). */
+function lmnChave(s) { return String(s || '').replace(/[.#$\[\]\/]/g, ' ').trim() || '-'; }
+
+/**
+ * Agrega as emendas (registros crus do Portal, consultados com ?ano=X) por
+ * destino. `resolverMun(nome, uf)` devolve o id IBGE ou null.
+ * Valor = PAGO NO ANO (valorPago) + RESTOS A PAGAR PAGOS depois (valorRestoPago):
+ * boa parte das emendas é paga como resto a pagar, e só o valorPago subestimava
+ * os anos anteriores. `autor` (opcional): só entram registros desse autor — o
+ * filtro nomeAutor do Portal não é conferido do lado de lá.
+ * empenhado = valorEmpenhado (o que já foi empenhado das emendas do ano).
+ * Devolve { total, pagoNoAno, restoPago, empenhado, municipais: { mID: valor },
+ *   nomesMun: { mID: "NOME - UF" }, outros: { rotulo: valor }, n, deOutroAutor }.
+ */
+function lmnAgregarEmendas(registros, resolverMun, autor) {
+  const out = { total: 0, pagoNoAno: 0, restoPago: 0, empenhado: 0, municipais: {}, nomesMun: {}, outros: {}, n: 0, deOutroAutor: 0 };
+  const alvo = autor ? lmnNomeAutor(autor) : '';
+  for (const e of registros || []) {
+    if (alvo && e.nomeAutor && lmnNomeAutor(e.nomeAutor) !== alvo) { out.deOutroAutor++; continue; }
+    const noAno = lmnDinheiro(e.valorPago);
+    const resto = lmnDinheiro(e.valorRestoPago);
+    const pago = noAno + resto;
+    out.n++;
+    out.empenhado += lmnDinheiro(e.valorEmpenhado);
+    if (!pago) continue;
+    out.total += pago; out.pagoNoAno += noAno; out.restoPago += resto;
+    const loc = lmnLocalidade(e.localidadeDoGasto);
+    const id = loc.tipo === 'municipio' ? resolverMun(loc.nome, loc.uf) : null;
+    if (id) {
+      out.municipais['m' + id] = (out.municipais['m' + id] || 0) + pago;
+      out.nomesMun['m' + id] = `${loc.nome} - ${loc.uf}`;
+    } else {
+      const rot = lmnChave(loc.tipo === 'municipio' ? `${loc.nome} - ${loc.uf}` : loc.tipo === 'uf' ? `${loc.nome} (UF)` : loc.rotulo);
+      out.outros[rot] = (out.outros[rot] || 0) + pago;
+    }
+  }
+  return out;
+}
+
+/**
+ * A gravação de uma eleição processada, numa ÚNICA atualização multi-caminho
+ * (PATCH em /labs/mapa/{ano}): deputados, totais dos estados lidos e a
+ * situação vão juntos ou não vão — antes eram gravações em sequência, e uma
+ * falha no meio deixava votos novos ao lado de totais antigos.
+ * Deputado/estado não lido fica como estava.
+ */
+function lmnAtualizacao(reg, res, metaAntiga, origem, agora = new Date()) {
+  const upd = {};
+  for (const [id, d] of Object.entries(reg.deputados)) upd['deputados/' + lmnChave(id)] = d;
+  for (const [uf, m] of Object.entries(reg.municipios)) upd['municipios/' + uf] = m;
+  for (const [uf, m] of Object.entries(reg.municipiosAnterior || {})) upd['anterior/municipios/' + uf] = m;
+  const ufs = [...new Set([...((metaAntiga && metaAntiga.ufs) || []), ...res.ufs])].sort();
+  upd.meta = { atualizadoEm: agora.toISOString(), origem, ufs, naoEncontrados: res.naoEncontrados.length, semPar: reg.semPar.length };
+  return upd;
+}
+
+/**
+ * "DELEGADO BRUNO LIMA" → "Delegado Bruno Lima" (de/da/do/dos/das/e em
+ * minúsculas; siglas curtas sem vogal, como "MC", ficam). Para exibir o nome
+ * de urna dos eleitos, que o TSE grava em maiúsculas.
+ */
+function lmnNomeProprio(s) {
+  return String(s || '').toLowerCase().split(/(\s+)/).map((p, i) => {
+    if (/^\s+$/.test(p) || !p) return p;
+    if (i && /^(de|da|do|dos|das|e)$/.test(p)) return p;
+    if (!/[aeiouáéíóúâêôãõ]/.test(p) && !/\./.test(p)) return p.toUpperCase();
+    return p.charAt(0).toUpperCase() + p.slice(1);
+  }).join('');
+}
+
+/** Alvos para procurar os eleitos de uma eleição na ANTERIOR: mesmo nome civil (ou nome de urna único) na mesma UF, qualquer partido. */
+function lmnAlvosAnterior(deputados) {
+  return Object.entries(deputados || {}).map(([id, d]) => ({ id, nome: d.nomeUrna || d.nome, nomeCivil: d.nomeCivil || '', uf: d.uf }));
+}
+
+/**
+ * Junta a eleição anterior (registro já no código IBGE, de lmnParaIbge) a cada
+ * deputado da atual, em `anterior` — quem não concorreu a deputado federal na
+ * mesma UF fica sem o campo. Muda `reg` e o devolve.
+ */
+function lmnAnexarAnterior(reg, regAnterior, ano) {
+  for (const [id, d] of Object.entries(reg.deputados || {})) {
+    const a = regAnterior && regAnterior.deputados && regAnterior.deputados[id];
+    if (!a) continue;
+    d.anterior = { ano: String(ano), total: a.total, partido: a.partidoEleicao || '', nomeUrna: a.nomeUrna || '', situacao: a.situacao || '', foraDoMapa: a.foraDoMapa || 0, municipios: a.municipios || {} };
+  }
+  // Totais de votos válidos por município na anterior: a fatia de cada deputado
+  // nas duas eleições (Emendas × votos) mede a variação sem o efeito do comparecimento.
+  if (regAnterior && regAnterior.municipios) reg.municipiosAnterior = regAnterior.municipios;
+  return reg;
+}
+
+/**
+ * Ganho/perda de votos por município entre a anterior e a atual:
+ * [{ k, antes, agora, d }] com d = agora − antes, do maior ganho à maior perda.
+ */
+function lmnVariacao(atual, anterior) {
+  const ks = new Set([...Object.keys(atual || {}), ...Object.keys(anterior || {})]);
+  return [...ks].map(k => { const a = (anterior || {})[k] || 0, b = (atual || {})[k] || 0; return { k, antes: a, agora: b, d: b - a }; })
+    .filter(x => x.d).sort((x, y) => y.d - x.d);
+}
+
+/** Nome como o Portal guarda (maiúsculas, sem acento) — o filtro nomeAutor exige. */
+function lmnNomeAutor(nome) {
+  return String(nome || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+}
+
+// ------------------------------------------------------------
+// Destino das emendas pelo FAVORECIDO.
+// A API do Portal devolve a maior parte das emendas com a localidade
+// "MÚLTIPLO" (ou só a UF): o município não vem. O arquivo de dados abertos
+// "Emendas parlamentares" do Portal (um zip de ~32 MB) traz, em
+// EmendasParlamentares_PorFavorecido.csv, cada pagamento com quem o recebeu
+// (prefeitura, fundo municipal de saúde, entidade) e o município dele.
+// ------------------------------------------------------------
+
+/** Rótulo do município do favorecido: "NOME - UF" (pessoa física e afins vêm sem município). */
+function lmnRotuloFavorecido(mun, uf) {
+  const m = String(mun || '').trim(), u = String(uf || '').trim().toUpperCase();
+  if (m && /^[A-Z]{2}$/.test(u)) return `${m} - ${u}`;
+  return u && /^[A-Z]{2}$/.test(u) ? `FAVORECIDO SEM MUNICÍPIO (${u})` : 'FAVORECIDO SEM MUNICÍPIO';
+}
+
+/**
+ * Leitor dos dois CSVs do zip do Portal, nesta ordem:
+ *   emendas.linha(l)      ← EmendasParlamentares.csv (código → autor, ano, localidade)
+ *   favorecidos.linha(l)  ← EmendasParlamentares_PorFavorecido.csv
+ * Só entram as emendas SEM município (MÚLTIPLO, UF, nacional…) dos `autores`
+ * pedidos (nome parlamentar, qualquer grafia), nos `anos` pedidos (ano da emenda).
+ * resultado(): { [chaveAutor]: { [ano]: { total, n, mun: { [chave "NOME - UF"]: valor } } } }
+ * — chaves já seguras para o banco (lmnChave).
+ * pagamentos(): { [chaveAutor]: { [ano]: valor } } — TUDO o que o autor teve pago
+ * DENTRO de cada ano (coluna Ano/Mês), de emendas de qualquer ano (restos incluídos).
+ * legislaturas (opcional): { [eleição]: ['AAAAMM', 'AAAAMM'] } — período de pagamento
+ * (inclusive) de cada eleição, p.ex. { 2026: ['202302', '202610'] }: do início do
+ * mandato até o mês da eleição. legislatura(): { [eleição]: { [chaveAutor]:
+ * { [chave "NOME - UF"]: valor } } } — tudo o que foi pago por município do
+ * favorecido no período, de qualquer emenda do autor (com ou sem município na API).
+ */
+function lmnLeitorFavorecidos(autores, anos, legislaturas) {
+  const quero = new Set((autores || []).map(lmnNomeAutor).filter(Boolean));
+  const queroAno = new Set((anos || []).map(String));
+  const cods = new Map();
+  const out = {}, pg = {}, leg = {};
+  const periodos = Object.entries(legislaturas || {});
+  const leitor = (arquivo, exigidos, fn) => {
+    let ix = null;
+    return linha => {
+      const c = lmnCampos(linha);
+      if (!ix) {
+        ix = {};
+        c.forEach((h, i) => { ix[lmnNomeAutor(h.replace(/^﻿/, ''))] = i; });
+        const falta = exigidos.filter(h => !(h in ix));
+        if (falta.length) throw new Error(`Faltam colunas em ${arquivo}: ${falta.join(', ')}`);
+        return;
+      }
+      fn(k => c[ix[k]] == null ? '' : c[ix[k]]);
+    };
+  };
+  const emendas = leitor('EmendasParlamentares.csv', ['CODIGO DA EMENDA', 'ANO DA EMENDA', 'NOME DO AUTOR DA EMENDA', 'LOCALIDADE DE APLICACAO DO RECURSO'], v => {
+    const ano = v('ANO DA EMENDA').trim(), autor = lmnNomeAutor(v('NOME DO AUTOR DA EMENDA')), cod = v('CODIGO DA EMENDA').trim();
+    if (!queroAno.has(ano) || !quero.has(autor) || !/^\d+$/.test(cod)) return;
+    if (lmnLocalidade(v('LOCALIDADE DE APLICACAO DO RECURSO')).tipo === 'municipio') return;
+    cods.set(cod, { a: lmnChave(autor), ano });
+  });
+  const favorecidos = leitor('EmendasParlamentares_PorFavorecido.csv', ['CODIGO DA EMENDA', 'NOME DO AUTOR DA EMENDA', 'ANO/MES', 'UF FAVORECIDO', 'MUNICIPIO FAVORECIDO', 'VALOR RECEBIDO'], v => {
+    const valor = lmnDinheiro(v('VALOR RECEBIDO'));
+    if (!valor) return;
+    const autor = lmnNomeAutor(v('NOME DO AUTOR DA EMENDA')), anoPg = v('ANO/MES').trim().slice(0, 4);
+    if (quero.has(autor) && queroAno.has(anoPg)) {
+      const a = lmnChave(autor);
+      (pg[a] = pg[a] || {})[anoPg] = (pg[a][anoPg] || 0) + valor;
+    }
+    if (periodos.length && quero.has(autor)) {
+      const am = v('ANO/MES').trim(), a = lmnChave(autor);
+      for (const [el, [ini, fim]] of periodos) {
+        if (am < ini || am > fim) continue;
+        const g = ((leg[el] = leg[el] || {})[a] = leg[el][a] || {});
+        const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
+        g[k] = (g[k] || 0) + valor;
+      }
+    }
+    const e = cods.get(v('CODIGO DA EMENDA').trim());
+    if (!e) return;
+    const g = ((out[e.a] = out[e.a] || {})[e.ano] = out[e.a][e.ano] || { total: 0, n: 0, mun: {} });
+    const k = lmnChave(lmnRotuloFavorecido(v('MUNICIPIO FAVORECIDO'), v('UF FAVORECIDO')));
+    g.mun[k] = (g.mun[k] || 0) + valor;
+    g.total += valor; g.n++;
+  });
+  return { emendas: { linha: emendas }, favorecidos: { linha: favorecidos }, emendasSemMunicipio: () => cods.size, resultado: () => out, pagamentos: () => pg, legislatura: () => leg };
+}
+
+/**
+ * Leva para os municípios, pelo favorecido, o valor que o agregado das emendas
+ * (lmnAgregarEmendas) deixou "sem município". `fav` = { total, mun } do autor
+ * no ano (lmnLeitorFavorecidos). O arquivo do Portal sai uma vez por mês e a
+ * API é diária: os valores do favorecido são ajustados à soma "sem município"
+ * do agregado (iguais quando as duas fontes estão em dia) — se o arquivo cobre
+ * menos, o resto fica como estava.
+ * Devolve um novo agregado com municipais/nomesMun/outros atualizados e
+ * viaFavorecido (valor localizado), favMun ({ mID: valor } localizado assim).
+ */
+function lmnRedistribuir(ag, fav, resolverMun) {
+  if (!ag || !fav || !(fav.total > 0) || !fav.mun) return ag;
+  const sem = Object.values(ag.outros || {}).reduce((s, v) => s + (Number(v) || 0), 0);
+  if (!(sem > 0)) return ag;
+  const usado = Math.min(sem, fav.total), k = usado / fav.total, resta = (sem - usado) / sem;
+  const out = Object.assign({}, ag, { municipais: Object.assign({}, ag.municipais), nomesMun: Object.assign({}, ag.nomesMun), outros: {}, viaFavorecido: 0, favMun: {} });
+  if (resta > 0) for (const [r, v] of Object.entries(ag.outros)) if (v * resta >= 0.01) out.outros[r] = v * resta;
+  for (const [nome, v0] of Object.entries(fav.mun)) {
+    const v = v0 * k;
+    if (!(v > 0)) continue;
+    const loc = lmnLocalidade(nome);
+    const id = loc.tipo === 'municipio' ? resolverMun(loc.nome, loc.uf) : null;
+    if (id) {
+      const m = 'm' + id;
+      out.municipais[m] = (out.municipais[m] || 0) + v;
+      if (!out.nomesMun[m]) out.nomesMun[m] = nome;
+      out.favMun[m] = (out.favMun[m] || 0) + v;
+      out.viaFavorecido += v;
+    } else {
+      out.outros[nome] = (out.outros[nome] || 0) + v;
+    }
+  }
+  return out;
+}
+
+// ============================================================
+// Exportação para Node (bot). Na extensão, este bloco é inerte.
+// ============================================================
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = { LMN_ANOS, LMN_ANTERIOR, lmnBancadaDoArquivo, lmnNomeProprio, lmnAlvosAnterior, lmnAnexarAnterior, lmnVariacao, lmnNorm, lmnCampos, lmnLinhas, lmnAgregador, lmnResolvedor, lmnParaIbge, lmnLocalidade, lmnDinheiro, lmnChave, lmnAgregarEmendas, lmnNomeAutor, lmnDistancia, lmnAtualizacao, lmnRotuloFavorecido, lmnLeitorFavorecidos, lmnRedistribuir, LMN_APELIDOS };
+}
+
+</script>
+<script>/* apuracao/apuracao-onde.js */
+'use strict';
+// Apuração · De onde vieram os votos — para qualquer candidato a deputado
+// federal, estadual ou distrital (botão 📍 na linha do candidato).
+//
+// Dois níveis, pelos arquivos de dados abertos do TSE (cdn.tse.jus.br, lidos
+// por partes — zip-remoto.js — direto no navegador, sem servidor):
+//   · município e zona eleitoral: votacao_candidato_munzona_{ano}.zip, só o
+//     arquivo do estado (de menos de 1 MB a ~42 MB comprimidos, em SP);
+//   · local de votação (escola): votacao_secao_{ano}_{UF}.zip + coordenadas do
+//     cadastro de locais (eleitorado_local_votacao_{ano}.zip). No DF — um
+//     município só — é o nível que interessa e vem junto (~31 MB); nos outros
+//     estados é opcional, com o tamanho dito antes (SP: ~770 MB).
+// O mapa por município usa a malha do IBGE; o de locais, as coordenadas que o
+// TSE publica. O relatório sai na tela e em PDF (impressão de #saImpressao,
+// como a cláusula de barreira).
+//
+// Depende de zip-remoto.js, labs-mapa-nucleo.js (CSV e nomes de município) e
+// apuracao-site.js (saEsc, saFmt, saOp).
+
+const AO_TSE = 'https://cdn.tse.jus.br/estatistica/sead/odsele';
+const AO_IBGE = 'https://servicodados.ibge.gov.br/api';
+const AO_ZIP = {
+  munzona: ano => `${AO_TSE}/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`,
+  secao: (ano, uf) => `${AO_TSE}/votacao_secao/votacao_secao_${ano}_${uf.toUpperCase()}.zip`,
+  locais: ano => `${AO_TSE}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip`,
+};
+const ao = { indices: {}, ibge: {}, atual: null, ocupado: false };
+// No Node (testes), o leitor de CSV vem por require; na página já é global.
+const AO_CAMPOS = typeof lmnCampos === 'function' ? lmnCampos : require('../labs-mapa-nucleo.js').lmnCampos;
+
+// ============================================================
+// Leitura (pura)
+// ============================================================
+/** Lê um CSV do TSE pelo cabeçalho: devolve linha(l) que chama fn(v) com v('COLUNA'). */
+function aoCsv(exigidas, fn) {
+  let ix = null;
+  return l => {
+    const c = AO_CAMPOS(l);
+    if (!ix) {
+      ix = {};
+      c.forEach((h, i) => { ix[h.replace(/^﻿/, '').trim()] = i; });
+      const falta = exigidas.filter(h => !(h in ix));
+      if (falta.length) throw new Error('arquivo do TSE fora do formato esperado (faltam ' + falta.join(', ') + ')');
+      return;
+    }
+    fn(k => (ix[k] == null ? '' : (c[ix[k]] || '').trim()));
+  };
+}
+
+/**
+ * Votos do candidato por município e por zona, no 1º turno, e o total de votos
+ * nominais do cargo em cada um (para a fatia). cargo: '6', '7' ou '8'.
+ * resultado(): { cand: { nome, partido, sit } | null, total, mun: { cd: { n, v, t } }, zonas: { 'cd|z': { cd, n, z, v, t } } }
+ */
+function aoLeitorMunzona(cargo, numero) {
+  const mun = {}, zonas = {};
+  let cand = null, total = 0;
+  const linha = aoCsv(['CD_MUNICIPIO', 'NM_MUNICIPIO', 'NR_ZONA', 'CD_CARGO', 'NR_CANDIDATO', 'NR_TURNO'], v => {
+    if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
+    const q = Number(v('QT_VOTOS_NOMINAIS_VALIDOS') || v('QT_VOTOS_NOMINAIS')) || 0;
+    const cd = v('CD_MUNICIPIO'), z = v('NR_ZONA'), kz = cd + '|' + z;
+    const m = (mun[cd] = mun[cd] || { n: v('NM_MUNICIPIO'), v: 0, t: 0 });
+    const zz = (zonas[kz] = zonas[kz] || { cd, n: m.n, z, v: 0, t: 0 });
+    m.t += q; zz.t += q;
+    if (v('NR_CANDIDATO') === String(numero)) {
+      m.v += q; zz.v += q; total += q;
+      if (!cand) cand = { nome: v('NM_URNA_CANDIDATO'), partido: v('SG_PARTIDO'), sit: v('DS_SIT_TOT_TURNO') };
+    }
+  });
+  return { linha, resultado: () => ({ cand, total, mun, zonas }) };
+}
+
+/** Votos por local de votação (soma das seções), 1º turno: { 'z|local': { z, l, nome, end, v, t } }. */
+function aoLeitorSecao(cargo, numero) {
+  const loc = {};
+  let total = 0;
+  const linha = aoCsv(['NR_ZONA', 'CD_CARGO', 'NR_VOTAVEL', 'QT_VOTOS', 'NR_LOCAL_VOTACAO', 'NR_TURNO'], v => {
+    if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
+    const z = v('NR_ZONA'), l = v('NR_LOCAL_VOTACAO'), k = z + '|' + l, nr = v('NR_VOTAVEL'), q = Number(v('QT_VOTOS')) || 0;
+    const x = (loc[k] = loc[k] || { z, l, nome: v('NM_LOCAL_VOTACAO'), end: v('DS_LOCAL_VOTACAO_ENDERECO'), mun: v('NM_MUNICIPIO'), v: 0, t: 0 });
+    if (nr.length >= 4) x.t += q;   // nominal: número de candidato (legenda, branco e nulo têm 2 dígitos)
+    if (nr === String(numero)) { x.v += q; total += q; }
+  });
+  return { linha, resultado: () => ({ total, loc }) };
+}
+
+/** Coordenadas e bairro dos locais de votação: { 'z|local': { la, lo, bairro } }. */
+function aoLeitorLocais() {
+  const out = {};
+  const linha = aoCsv(['NR_ZONA', 'NR_LOCAL_VOTACAO', 'NR_LATITUDE', 'NR_LONGITUDE'], v => {
+    const k = v('NR_ZONA') + '|' + v('NR_LOCAL_VOTACAO');
+    if (out[k]) return;
+    const la = parseFloat(v('NR_LATITUDE').replace(',', '.')), lo = parseFloat(v('NR_LONGITUDE').replace(',', '.'));
+    out[k] = { la: isFinite(la) && la !== -1 && la !== 0 ? la : null, lo: isFinite(lo) && lo !== -1 && lo !== 0 ? lo : null, bairro: v('NM_BAIRRO') };
+  });
+  return { linha, resultado: () => out };
+}
+
+/** Os itens com voto, do maior para o menor, e a fatia dos `n` primeiros no total. */
+function aoOrdenar(obj) { return Object.values(obj).filter(x => x.v > 0).sort((a, b) => b.v - a.v); }
+function aoConcentracao(lista, total, n = 10) { return total ? lista.slice(0, n).reduce((s, x) => s + x.v, 0) / total : 0; }
+
+/** Quebras por quantis (5 classes) das fatias positivas. */
+function aoQuebras(vals) {
+  const s = vals.filter(x => x > 0).sort((a, b) => a - b);
+  if (!s.length) return [];
+  return [0.2, 0.4, 0.6, 0.8].map(q => s[Math.min(s.length - 1, Math.floor(q * s.length))]);
+}
+
+// ============================================================
+// Desenho (SVG com classes: a tela e a impressão pintam cada uma no seu tema)
+// ============================================================
+function aoAneis(g) { return !g ? [] : g.type === 'Polygon' ? g.coordinates : g.type === 'MultiPolygon' ? g.coordinates.flat() : []; }
+function aoProj(features, larg) {
+  let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+  for (const f of features) for (const a of aoAneis(f.geometry)) for (const [x, y] of a) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  const k = Math.cos((y0 + y1) / 2 * Math.PI / 180), e = larg / ((x1 - x0) * k || 1);
+  return { p: ([x, y]) => [(x - x0) * k * e, (y1 - y) * e], alt: Math.max(1, (y1 - y0) * e) };
+}
+function aoCaminho(g, p) { return aoAneis(g).map(a => a.map((c, i) => (i ? 'L' : 'M') + p(c).map(v => v.toFixed(1)).join(' ')).join('') + 'Z').join(''); }
+function aoPct(x) { return (x * 100).toLocaleString('pt-BR', { maximumFractionDigits: x && x < 0.01 ? 2 : 1 }) + '%'; }
+
+/** Mapa por município: cor pela fatia do candidato nos votos nominais do cargo no município. */
+function aoMapaMunicipios(geo, porIbge) {
+  const feats = geo.features || [];
+  const { p, alt } = aoProj(feats, 760);
+  const fat = k => { const m = porIbge[k]; return m && m.t ? m.v / m.t : 0; };
+  const qb = aoQuebras(feats.map(f => fat('m' + f.properties.codarea)));
+  const classe = f => { if (!f) return 0; let i = 1; for (const q of qb) if (f > q) i++; return Math.min(5, i); };
+  let s = '';
+  for (const f of feats) {
+    const k = 'm' + f.properties.codarea, m = porIbge[k];
+    s += `<path class="ao-q${classe(fat(k))}" d="${aoCaminho(f.geometry, p)}"><title>${saEsc(m ? m.n : '')}${m ? `: ${saFmt(m.v)} votos (${aoPct(fat(k))} dos votos nominais)` : ''}</title></path>`;
+  }
+  const leg = qb.length ? ['sem voto', `até ${aoPct(qb[0])}`, `${aoPct(qb[0])} a ${aoPct(qb[1])}`, `${aoPct(qb[1])} a ${aoPct(qb[2])}`, `${aoPct(qb[2])} a ${aoPct(qb[3])}`, `acima de ${aoPct(qb[3])}`] : [];
+  return `<svg class="ao-mapa" viewBox="0 0 760 ${Math.round(alt)}" role="img" aria-label="Mapa dos votos por município">${s}</svg>
+    <div class="ao-leg">${leg.map((r, i) => `<span><i class="ao-q${i}"></i>${r}</span>`).join('')}<span>dos votos nominais do cargo no município</span></div>`;
+}
+
+/** Mapa por local de votação: contorno do estado e um círculo por escola (área ∝ votos). */
+function aoMapaLocais(geo, pontos, larg = 760, moldura = null) {
+  const feats = geo.features || [];
+  let p, alt, fundo = '';
+  if (moldura) {
+    const { la0, lo0, meia, k } = moldura;
+    p = ([lo, la]) => [((lo - (lo0 - meia / k)) / (2 * meia / k)) * larg, (((la0 + meia) - la) / (2 * meia)) * larg];
+    alt = larg;
+    fundo = `<rect class="ao-zoom" width="${larg}" height="${larg}"></rect>`;
+  } else {
+    ({ p, alt } = aoProj(feats, larg));
+    fundo = feats.map(f => `<path class="ao-uf" d="${aoCaminho(f.geometry, p)}"></path>`).join('');
+  }
+  const vmax = Math.max(1, ...pontos.map(x => x.v));
+  const c = pontos.slice().sort((a, b) => b.v - a.v).map(x => {
+    const [cx, cy] = p([x.lo, x.la]);
+    return `<circle class="ao-pt" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="${((moldura ? 5 : 3) + (moldura ? 24 : 15) * Math.sqrt(x.v / vmax)).toFixed(1)}"><title>${saEsc(x.nome)}: ${saFmt(x.v)} voto(s)</title></circle>`
+      + (x.ordem && x.ordem <= (moldura ? 20 : 6) ? `<text class="ao-rot" x="${cx.toFixed(1)}" y="${(cy + 4).toFixed(1)}">${x.ordem}</text>` : '');
+  }).join('');
+  return `<svg class="ao-mapa" viewBox="0 0 ${larg} ${Math.round(alt)}" role="img" aria-label="Mapa dos locais de votação">${fundo}${c}</svg>`;
+}
+
+/** Moldura do detalhe: todos os locais do bairro mais forte, com folga. */
+function aoMoldura(pts) {
+  if (pts.length < 2) return null;
+  const las = pts.map(x => x.la), los = pts.map(x => x.lo);
+  const la0 = (Math.min(...las) + Math.max(...las)) / 2, lo0 = (Math.min(...los) + Math.max(...los)) / 2;
+  const k = Math.cos(la0 * Math.PI / 180);
+  const meia = Math.max((Math.max(...las) - Math.min(...las)) / 2, (Math.max(...los) - Math.min(...los)) * k / 2, 0.002) * 1.5;
+  return { la0, lo0, meia, k };
+}
+
+function aoTabela(cab, linhas) {
+  return `<div class="tab-rolagem"><table class="ao-tab"><tr>${cab.map(([t, r]) => `<th${r ? ' class="r"' : ''}>${t}</th>`).join('')}</tr>${linhas.join('')}</table></div>`;
+}
+
+/** O relatório (mesmo HTML na tela e no PDF). */
+function aoRelatorioHtml(r) {
+  const { cand, uf, cargoNome, ano, mz, sec, geoMun, geoUf, porIbge, semPar } = r;
+  const total = mz ? mz.total : sec.total;
+  const muns = mz ? aoOrdenar(mz.mun) : [];
+  const zonas = mz ? aoOrdenar(mz.zonas) : [];
+  const um = muns.length <= 1 && uf === 'df';
+  let locais = [], porBairro = [], moldura = null, semCoord = 0;
+  if (sec) {
+    locais = aoOrdenar(sec.loc).map((x, i) => Object.assign({ ordem: i + 1 }, x, sec.coord[x.z + '|' + x.l] || {}));
+    semCoord = locais.filter(x => x.la == null).reduce((s, x) => s + x.v, 0);
+    const b = {};
+    for (const x of locais) { const n = (x.bairro || 'Sem bairro no cadastro') + (uf !== 'df' && x.mun ? ' (' + x.mun + ')' : ''); b[n] = (b[n] || 0) + x.v; }
+    porBairro = Object.entries(b).map(([n, v]) => ({ n, v })).sort((a, b2) => b2.v - a.v);
+    const top = locais[0];
+    if (top && top.la != null) moldura = aoMoldura(locais.filter(x => x.la != null && x.bairro === top.bairro && x.mun === top.mun));
+  }
+  const kpi = (v, l) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`;
+  const nLoc = sec ? locais.length : muns.length;
+  let h = `<div class="ao-cab"><b>${saEsc(cand.nome)}</b> <span class="sigla">${saEsc(cand.partido)} · ${saEsc(cand.numero)}</span>
+      <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}</div></div>
+    <div class="cards ao-cards">${kpi(saFmt(total), 'votos no 1º turno')}${kpi(saFmt(nLoc), sec ? 'locais de votação com voto' : 'municípios com voto')}
+      ${kpi(saFmt(new Set((zonas.length ? zonas : locais).map(x => x.z)).size), 'zonas eleitorais')}${kpi(aoPct(aoConcentracao(sec ? locais : muns, total)), `dos votos nos 10 ${sec ? 'locais' : 'municípios'} mais fortes`)}</div>`;
+  // mapas
+  if (sec && geoUf) {
+    const pts = locais.filter(x => x.la != null);
+    const det = moldura ? pts.filter(x => Math.abs(x.la - moldura.la0) <= moldura.meia && Math.abs(x.lo - moldura.lo0) <= moldura.meia / moldura.k) : [];
+    const vDet = det.reduce((s, x) => s + x.v, 0);
+    h += `<h3 class="ao-h">Onde vieram os votos — por local de votação</h3><div class="ao-mapas">
+      <div>${aoMapaLocais(geoUf, pts)}</div>
+      ${moldura ? `<div>${aoMapaLocais(geoUf, det, 380, moldura)}<div class="ao-nota">Detalhe: ${saEsc(locais[0].bairro || 'local mais forte')} — ${saFmt(vDet)} votos (${aoPct(total ? vDet / total : 0)}) em ${det.length} locais. Números = posição na tabela de locais.</div></div>` : ''}</div>
+      <div class="ao-nota">Cada círculo é um local de votação; a área é proporcional aos votos. ${semCoord ? saFmt(semCoord) + ' voto(s) em locais sem coordenada no cadastro do TSE ficam só nas tabelas.' : ''}</div>`;
+  }
+  if (mz && geoMun && !um) {
+    h += `<h3 class="ao-h">Onde vieram os votos — por município</h3>${aoMapaMunicipios(geoMun, porIbge)}
+      ${semPar && semPar.length ? `<div class="ao-nota">Sem par no mapa do IBGE: ${saEsc(semPar.join(', '))} (estão na tabela).</div>` : ''}`;
+  }
+  // tabelas
+  const linha = (cols) => `<tr>${cols.map(([t, r]) => `<td${r ? ' class="r"' : ''}>${t}</td>`).join('')}</tr>`;
+  const blocos = [];
+  if (mz && !um) blocos.push(`<div><h3 class="ao-h">Por município</h3>${aoTabela([['#'], ['Município'], ['Votos', 1], ['% dos votos dele(a)', 1], ['% no município', 1]],
+    muns.slice(0, 40).map((x, i) => linha([[i + 1 + 'º'], [saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
+    ${muns.length > 40 ? `<div class="ao-nota">E mais ${saFmt(muns.length - 40)} municípios com voto.</div>` : ''}</div>`);
+  if (sec && porBairro.length) blocos.push(`<div><h3 class="ao-h">Por bairro do local de votação</h3>${aoTabela([['Bairro'], ['Votos', 1], ['%', 1]],
+    porBairro.slice(0, 15).map(x => linha([[saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1]])))}</div>`);
+  if (zonas.length) blocos.push(`<div><h3 class="ao-h">Por zona eleitoral</h3>${aoTabela([['Zona'], ['Município'], ['Votos', 1], ['%', 1]],
+    zonas.slice(0, 20).map(x => linha([[x.z + 'ª'], [saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1]])))}</div>`);
+  h += `<div class="ao-duas">${blocos.join('')}</div>`;
+  if (sec) h += `<h3 class="ao-h">Os ${Math.min(20, locais.length)} locais de votação com mais votos</h3>${aoTabela([['#'], ['Local de votação'], ['Bairro'], ['Votos', 1], ['% no local', 1]],
+    locais.slice(0, 20).map(x => linha([[x.ordem + 'º'], [`${saEsc(x.nome)}<div class="ao-end">${saEsc(x.end || '')}${uf !== 'df' && x.mun ? ' · ' + saEsc(x.mun) : ''}</div>`], [saEsc(x.bairro || '')], [saFmt(x.v), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
+    <div class="ao-nota">"% no local" e "% no município": votos dele(a) ÷ votos nominais em todos os candidatos ao cargo ali (sem legenda, brancos e nulos).</div>`;
+  h += `<div class="ao-nota">Fontes: TSE — dados abertos (votação por município e zona${sec ? ', votação por seção e cadastro de locais de votação com coordenadas' : ''}); IBGE — malhas. 1º turno.</div>`;
+  return h;
+}
+
+// ============================================================
+// Tela
+// ============================================================
+function aoPainel() {
+  let el = document.getElementById('aoPainel');
+  if (el) return el;
+  el = document.createElement('div');
+  el.id = 'aoPainel';
+  el.innerHTML = `<div class="ao-caixa"><div class="ao-topo"><b>📍 De onde vieram os votos</b><span class="ao-acoes">
+      <button id="aoDetalhar" hidden></button><button id="aoPdf" disabled>⬇ Salvar em PDF</button><button id="aoFechar" title="Fechar">✕</button></span></div>
+    <div id="aoStatus" class="ao-status"></div><div id="aoCorpo"></div></div>`;
+  document.body.appendChild(el);
+  el.addEventListener('click', ev => { if (ev.target === el) aoFechar(); });
+  el.querySelector('#aoFechar').addEventListener('click', aoFechar);
+  el.querySelector('#aoPdf').addEventListener('click', aoPdf);
+  el.querySelector('#aoDetalhar').addEventListener('click', () => ao.atual && aoCarregar(ao.atual.cand, ao.atual.uf, true));
+  document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && el.style.display === 'flex') aoFechar(); });
+  return el;
+}
+function aoFechar() { const el = document.getElementById('aoPainel'); if (el) el.style.display = 'none'; }
+function aoSt(m) { const s = document.getElementById('aoStatus'); if (s) s.innerHTML = m ? `<span class="pulso on"></span> ${m}` : ''; }
+function aoMb(n) { return (n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: n < 1e7 ? 1 : 0 }) + ' MB'; }
+
+async function aoJson(url) { const r = await fetch(url); if (!r.ok) throw new Error('HTTP ' + r.status + ' em ' + url); return r.json(); }
+async function aoIndice(url) {
+  if (!ao.indices[url]) ao.indices[url] = zrIndice(url).catch(e => { delete ao.indices[url]; throw e; });
+  return ao.indices[url];
+}
+async function aoIbge(uf) {
+  const U = uf.toUpperCase();
+  if (!ao.ibge[U]) {
+    ao.ibge[U] = Promise.all([
+      aoJson(`${AO_IBGE}/v3/malhas/estados/${U}?formato=application/vnd.geo%2Bjson&intrarregiao=municipio&qualidade=minima`),
+      aoJson(`${AO_IBGE}/v3/malhas/estados/${U}?formato=application/vnd.geo%2Bjson&qualidade=minima`),
+      aoJson(`${AO_IBGE}/v1/localidades/estados/${U}/municipios`),
+    ]).then(([mun, uf1, lista]) => ({ mun, uf: uf1, lista: (lista || []).map(m => ({ id: m.id, nome: m.nome })) }))
+      .catch(e => { delete ao.ibge[U]; throw e; });
+  }
+  return ao.ibge[U];
+}
+async function aoLerEntrada(ix, filtro, leitor, rotulo) {
+  const e = ix.entradas.find(filtro);
+  if (!e) throw new Error(`o arquivo do TSE não tem ${rotulo}`);
+  await zrLerEntradaRemota(ix.url, e, l => leitor.linha(l), n => aoSt(`${rotulo}: ${aoMb(n)} de ${aoMb(e.comprimido)}…`));
+  return leitor.resultado();
+}
+
+/** Abre o painel e carrega (cand: { nome, numero, partido }, uf: 'sp'…; detalhar: ler também por local de votação). */
+async function aoCarregar(cand, uf, detalhar) {
+  if (ao.ocupado) return;
+  const op = saOp(), ano = String(op.ano), U = uf.toUpperCase();
+  const cargo = sa.cargo === '7' && uf === 'df' ? '8' : sa.cargo;
+  const cargoNome = { 6: 'Deputado(a) federal', 7: 'Deputado(a) estadual', 8: 'Deputado(a) distrital' }[cargo];
+  const painel = aoPainel();
+  painel.style.display = 'flex';
+  const corpo = document.getElementById('aoCorpo'), btDet = document.getElementById('aoDetalhar'), btPdf = document.getElementById('aoPdf');
+  if (!detalhar) { corpo.innerHTML = ''; btPdf.disabled = true; }
+  btDet.hidden = true;
+  ao.ocupado = true;
+  try {
+    const porLocal = detalhar || uf === 'df';
+    aoSt('Lendo o índice dos arquivos do TSE…');
+    const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
+      : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
+    const [ixMz, ibge] = await Promise.all([aoIndice(AO_ZIP.munzona(ano)), aoIbge(uf)]);
+    if (!r.mz) {
+      r.mz = await aoLerEntrada(ixMz, e => zrUfDaEntrada(e.nome) === U, aoLeitorMunzona(cargo, cand.numero), `Votação por município (${U})`);
+      if (r.mz.cand) Object.assign(r.cand, { sit: r.mz.cand.sit, partido: r.mz.cand.partido || r.cand.partido });
+      const res = lmnResolvedor(ibge.lista, U);
+      r.porIbge = {}; r.semPar = [];
+      for (const m of Object.values(r.mz.mun)) {
+        if (!m.v && !m.t) continue;
+        const id = res(m.n);
+        if (id) { const k = 'm' + id, x = (r.porIbge[k] = r.porIbge[k] || { n: m.n, v: 0, t: 0 }); x.v += m.v; x.t += m.t; }
+        else if (m.v) r.semPar.push(m.n);
+      }
+      r.geoMun = ibge.mun; r.geoUf = ibge.uf;
+    }
+    if (!r.mz.total) throw new Error(`nenhum voto do número ${cand.numero} para ${cargoNome.toLowerCase()} em ${U} no arquivo do TSE de ${ano}`);
+    if (porLocal && !r.sec) {
+      const ixS = await aoIndice(AO_ZIP.secao(ano, uf));
+      const tam = ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0);
+      if (uf !== 'df' && !confirm(`Detalhar por local de votação: baixa ${aoMb(tam)} do TSE (votação por seção de ${U}) e o cadastro de locais. Pode levar alguns minutos. Continuar?`)) {
+        aoSt('');
+      } else {
+        const sec = await aoLerEntrada(ixS, e => /\.csv$/i.test(e.nome), aoLeitorSecao(cargo, cand.numero), `Votação por seção (${U})`);
+        const ixL = await aoIndice(AO_ZIP.locais(ano));
+        sec.coord = await aoLerEntrada(ixL, e => new RegExp(`_${U}\\.csv$`, 'i').test(e.nome), aoLeitorLocais(), `Locais de votação (${U})`);
+        r.sec = sec;
+      }
+    }
+    ao.atual = r;
+    aoSt('');
+    corpo.innerHTML = aoRelatorioHtml(r);
+    btPdf.disabled = false;
+    if (!r.sec && uf !== 'df') {
+      const ixS = await aoIndice(AO_ZIP.secao(ano, uf)).catch(() => null);
+      if (ixS) { btDet.hidden = false; btDet.textContent = `🏫 Detalhar por local de votação (${aoMb(ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0))})`; }
+    }
+  } catch (e) {
+    aoSt('');
+    corpo.innerHTML = `<div class="vazio grande">Não foi possível montar o relatório: ${saEsc(e.message)}.${/HTTP 404/.test(e.message) ? ' O TSE publica esses arquivos alguns dias depois da eleição.' : ''}</div>`;
+  } finally {
+    ao.ocupado = false;
+  }
+}
+
+/** PDF: o mesmo relatório em #saImpressao (tema claro, com a logo), como a cláusula de barreira. */
+async function aoPdf() {
+  const r = ao.atual;
+  if (!r) return;
+  const logo = (document.querySelector('.topo img') || {}).src || '';
+  const agora = new Date().toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+  let el = saEl('saImpressao');
+  if (!el) { el = document.createElement('div'); el.id = 'saImpressao'; document.body.appendChild(el); }
+  el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
+      <h1>De onde vieram os votos — ${saEsc(r.cand.nome)}</h1>
+      <div class="imp-sub">${saEsc(r.cargoNome)} · ${saEsc(r.uf.toUpperCase())} · eleição de ${saEsc(r.ano)} · fonte: TSE (dados abertos) e IBGE · gerado em ${saEsc(agora)}</div></div></div>
+    <div class="imp-filete"></div><div class="ao-imp">${aoRelatorioHtml(r)}</div>
+    <div class="imp-rodape">Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
+  const titulo = document.title;
+  document.title = `Votos - ${r.cand.nome} - ${r.uf.toUpperCase()} ${r.ano}`;
+  const volta = () => { document.title = titulo; window.removeEventListener('afterprint', volta); };
+  window.addEventListener('afterprint', volta);
+  await Promise.all([...el.querySelectorAll('img')].map(i => (i.decode ? i.decode() : Promise.resolve()).catch(() => {})));
+  window.print();
+}
+
+/** Botão na linha do candidato (só deputados; majoritários não). */
+function aoBotao(c, uf) {
+  if (!uf || uf === 'br' || !['6', '7'].includes(sa.cargo) || saOp().turno === 2) return '';
+  return ` <button class="ao-bt" data-ao="${saEsc(uf)}|${saEsc(c.numero)}|${saEsc(c.partido || '')}|${saEsc(c.nome)}" title="De onde vieram os votos (mapa e PDF)">📍</button>`;
+}
+function aoClique(ev) {
+  const b = ev.target.closest && ev.target.closest('[data-ao]');
+  if (!b) return false;
+  const [uf, numero, partido, ...nome] = b.dataset.ao.split('|');
+  aoCarregar({ numero, partido, nome: nome.join('|') }, uf, false);
+  return true;
+}
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { aoLeitorMunzona, aoLeitorSecao, aoLeitorLocais, aoQuebras, aoConcentracao, aoOrdenar, aoMoldura };
+
+</script>
 <script>/* apuracao/apuracao-site.js */
 'use strict';
 // Apuração — a tela do painel, a mesma no site (apuracao/index.html, arquivo
@@ -579,7 +1701,8 @@ function saSit(c, maj) {
 
 function saLinhas(cands, d, inicio, comUF) {
   const todos = !sa.partido;
-  return cands.map((c, i) => `<tr class="${c.eleito ? 'el' : c.projetado ? 'pj' : ''}"><td class="pos">${inicio + i + 1}º</td><td><b>${saEsc(c.nome)}</b> <span class="num">${saEsc(c.numero)}</span></td>`
+  const bt = typeof aoBotao === 'function' ? aoBotao : () => '';
+  return cands.map((c, i) => `<tr class="${c.eleito ? 'el' : c.projetado ? 'pj' : ''}"><td class="pos">${inicio + i + 1}º</td><td><b>${saEsc(c.nome)}</b> <span class="num">${saEsc(c.numero)}</span>${bt(c, d ? d.uf : c.uf)}</td>`
     + (todos ? `<td class="pt">${saEsc(c.partido)}</td>` : '') + (comUF ? `<td>${saEsc((c.uf || '').toUpperCase())}</td>` : '')
     + `<td class="r">${saFmt(c.votos)}</td><td class="r">${saPct(c.pct)}</td><td>${saSit(c, d ? d.majoritario : c.majoritario)}</td></tr>`).join('');
 }
@@ -823,7 +1946,10 @@ function saIniciar() {
   saEl('saSoEleitos').addEventListener('change', ev => { sa.soEleitos = ev.target.checked; saRender(); });
   saEl('saBusca').addEventListener('input', ev => { sa.busca = ev.target.value.trim(); saRender(); });
   saEl('saPausar').addEventListener('click', () => { sa.pausado = !sa.pausado; saAgendar(); });
-  saEl('saLista').addEventListener('click', ev => { if (ev.target.closest('#saClPdf')) saClausulaPdf(); });
+  saEl('saLista').addEventListener('click', ev => {
+    if (ev.target.closest('#saClPdf')) saClausulaPdf();
+    else if (typeof aoClique === 'function') aoClique(ev);
+  });
   saEl('saAgora').addEventListener('click', async () => { await saLerTudo(); saAgendar(); });
   // Celular: a página suspensa (tela bloqueada, outro app) lê de novo ao voltar.
   document.addEventListener('visibilitychange', async () => {

@@ -147,6 +147,7 @@ Painel ao vivo da divulgação oficial do **TSE** (`resultados.tse.jus.br`), rel
 - **Eleito (projeção)**: o TSE só marca eleitos na totalização. Antes disso, são os mais votados de cada partido/federação dentro das vagas que o TSE informa na parcial (nos majoritários, "à frente"). A marcação oficial sempre prevalece, e a tela avisa onde a totalização ainda está pendente
 - **Cláusula de barreira** (Deputado Federal) pela regra do ano da eleição — EC 97/2017 (2018: 1,5%/1%/9; 2022: 2%/1%/11; 2026: 2,5%/1,5%/13; de 2030 em diante: 3%/2%/15) —, com federação contando como um partido só. Mostra, por partido, o % no país, os estados com o mínimo e os eleitos (em quantos estados), aponta o estado que faltou a quem passou do % nacional e lista os deputados eleitos por quem não atingiu. **Exporta em PDF** (A4, tema claro, logo do Podemos)
 - **Retotalização**: quando o TSE reabre a totalização de um estado (100% apurado, não finalizado, vagas zeradas e nenhum eleito marcado — PE em 06/10/2026), a tela avisa no topo, marca o estado na lista e no mapa (↻), diz no cartão de eleitos que o estado está fora da contagem e ajusta o aviso da cláusula de barreira. Vale para qualquer estado e cargo; some sozinho quando o TSE concluir
+- **De onde vieram os votos** (botão 📍 na linha de cada candidato a deputado federal, estadual ou distrital, de qualquer partido): mapa e tabelas por **município** e **zona eleitoral**, com a fatia do candidato nos votos nominais do cargo em cada município, e — no DF automaticamente, nos outros estados sob pedido, com o tamanho do download avisado — por **local de votação** (escolas no mapa pelas coordenadas do TSE, detalhe do bairro mais forte, tabela por bairro e os 20 locais com mais votos). Lê os arquivos de dados abertos do TSE por partes (só o estado; SP por município ≈ 42 MB, DF por local ≈ 32 MB), direto no navegador, na extensão e no site. **Salvar em PDF** como o da cláusula
 - A última leitura fica guardada no navegador e volta ao reabrir
 - A mesma tela existe como **site em arquivo único** (`apuracao/index.html`), para hospedagem estática (Netlify e afins). As duas versões saem do mesmo modelo (`apuracao/apuracao.base.html` + `apuracao/apuracao-site.js`) pelo gerador `node apuracao/gerar-apuracao.js`, que grava o `index.html` (scripts e logo embutidos) e o `extensao.html` (scripts por arquivo, como a extensão exige)
 
@@ -638,10 +639,12 @@ sispode/
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── labs-apuracao.js               # Relatórios · Apuração eleitoral: leitura do TSE, projeção, cláusula de barreira (funções puras)
+├── zip-remoto.js                  # Leitura de zip remoto por partes (HTTP Range), compartilhada pelo Labs e pela Apuração
 ├── labs-apuracao-mapa.js          # Malha simplificada das 27 UFs (IBGE) para o mapa da apuração
 ├── apuracao/                      # Apuração eleitoral: tela comum à extensão e ao site
 │   ├── apuracao.base.html         #   modelo da página
 │   ├── apuracao-site.js           #   tela (filtros, visões, cláusula, PDF)
+│   ├── apuracao-onde.js           #   📍 de onde vieram os votos (município, zona, local de votação; PDF)
 │   ├── gerar-apuracao.js          #   gera os dois HTML abaixo (node apuracao/gerar-apuracao.js)
 │   ├── extensao.html              #   aba da extensão (gerado; scripts por arquivo)
 │   └── index.html                 #   site em arquivo único para hospedar (gerado)

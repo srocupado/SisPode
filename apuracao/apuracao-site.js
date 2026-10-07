@@ -170,7 +170,8 @@ function saSit(c, maj) {
 
 function saLinhas(cands, d, inicio, comUF) {
   const todos = !sa.partido;
-  return cands.map((c, i) => `<tr class="${c.eleito ? 'el' : c.projetado ? 'pj' : ''}"><td class="pos">${inicio + i + 1}º</td><td><b>${saEsc(c.nome)}</b> <span class="num">${saEsc(c.numero)}</span></td>`
+  const bt = typeof aoBotao === 'function' ? aoBotao : () => '';
+  return cands.map((c, i) => `<tr class="${c.eleito ? 'el' : c.projetado ? 'pj' : ''}"><td class="pos">${inicio + i + 1}º</td><td><b>${saEsc(c.nome)}</b> <span class="num">${saEsc(c.numero)}</span>${bt(c, d ? d.uf : c.uf)}</td>`
     + (todos ? `<td class="pt">${saEsc(c.partido)}</td>` : '') + (comUF ? `<td>${saEsc((c.uf || '').toUpperCase())}</td>` : '')
     + `<td class="r">${saFmt(c.votos)}</td><td class="r">${saPct(c.pct)}</td><td>${saSit(c, d ? d.majoritario : c.majoritario)}</td></tr>`).join('');
 }
@@ -414,7 +415,10 @@ function saIniciar() {
   saEl('saSoEleitos').addEventListener('change', ev => { sa.soEleitos = ev.target.checked; saRender(); });
   saEl('saBusca').addEventListener('input', ev => { sa.busca = ev.target.value.trim(); saRender(); });
   saEl('saPausar').addEventListener('click', () => { sa.pausado = !sa.pausado; saAgendar(); });
-  saEl('saLista').addEventListener('click', ev => { if (ev.target.closest('#saClPdf')) saClausulaPdf(); });
+  saEl('saLista').addEventListener('click', ev => {
+    if (ev.target.closest('#saClPdf')) saClausulaPdf();
+    else if (typeof aoClique === 'function') aoClique(ev);
+  });
   saEl('saAgora').addEventListener('click', async () => { await saLerTudo(); saAgendar(); });
   // Celular: a página suspensa (tela bloqueada, outro app) lê de novo ao voltar.
   document.addEventListener('visibilitychange', async () => {

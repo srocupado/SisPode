@@ -10,7 +10,7 @@ const ler = f => fs.readFileSync(path.join(RAIZ, f), 'utf8');
 const logo = 'data:image/png;base64,' + fs.readFileSync(path.join(RAIZ, 'icons', 'podemos-logo.png')).toString('base64');
 // "</script" dentro de um script inline fecharia a tag antes da hora.
 const inline = f => `<script>/* ${f} */\n${ler(f).replace(/<\/script/gi, '<\\/script')}\n</script>`;
-const ARQUIVOS = ['labs-apuracao-mapa.js', 'labs-apuracao.js', 'apuracao/apuracao-site.js'];
+const ARQUIVOS = ['labs-apuracao-mapa.js', 'labs-apuracao.js', 'zip-remoto.js', 'labs-mapa-nucleo.js', 'apuracao/apuracao-onde.js', 'apuracao/apuracao-site.js'];   // onde antes do site: o botão 📍 já sai na 1ª pintura
 const modelo = ler('apuracao/apuracao.base.html');
 function gravar(nome, logoSrc, scripts, css = '') {
   const html = modelo.split('{{LOGO}}').join(logoSrc).replace('{{SCRIPTS}}', () => scripts).replace('</style>', () => css + '</style>');

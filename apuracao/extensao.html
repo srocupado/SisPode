@@ -100,6 +100,29 @@
   .cl-num .l { font-size: 11px; color: var(--texto); margin-top: 1px; } .cl-num .m { font-size: 10.5px; color: var(--dim); }
   .cl-num.ok { border-color: rgba(47,207,122,.5); } .cl-num.ok .v { color: var(--verde2); }
   .cl-num.nao { border-color: rgba(255,122,107,.5); } .cl-num.nao .v { color: #ff7a6b; }
+  /* De onde vieram os votos (apuracao-onde.js) */
+  .ao-bt { background: none; border: 1px solid var(--borda); border-radius: 6px; padding: 0 5px; font-size: 11px; cursor: pointer; margin-left: 4px; vertical-align: 1px; }
+  .ao-bt:hover { border-color: var(--verde2); }
+  #aoPainel { position: fixed; inset: 0; background: rgba(5,10,14,.72); display: none; align-items: flex-start; justify-content: center; z-index: 40; overflow-y: auto; padding: 24px 12px; }
+  .ao-caixa { background: var(--bg); border: 1px solid var(--borda); border-radius: 12px; width: min(1100px, 100%); padding: 14px 16px 18px; }
+  .ao-topo { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; } .ao-topo > b { flex: 1; font-size: 15px; }
+  .ao-acoes { display: flex; gap: 6px; flex-wrap: wrap; } .ao-acoes button { background: var(--bg2); color: var(--texto); border: 1px solid var(--borda); border-radius: 8px; padding: 6px 10px; cursor: pointer; font-size: 12.5px; }
+  .ao-acoes button:disabled { opacity: .5; cursor: default; } #aoPdf:not(:disabled) { background: var(--verde); border-color: var(--verde); color: #fff; }
+  .ao-status { color: var(--dim); font-size: 12.5px; min-height: 18px; }
+  .ao-cab b { font-size: 18px; } .ao-sub { color: var(--dim); font-size: 12.5px; margin-bottom: 8px; }
+  .ao-cards { grid-template-columns: repeat(4, 1fr); }
+  .ao-h { font-size: 13.5px; margin: 14px 0 6px; color: var(--verde2); }
+  .ao-mapas { display: grid; grid-template-columns: 1.6fr 1fr; gap: 10px; align-items: start; }
+  .ao-mapa { width: 100%; display: block; }
+  .ao-mapa path { stroke: var(--bg); stroke-width: .4; } .ao-mapa .ao-uf { fill: #1d2b38; stroke: #3a4d5e; stroke-width: 1; } .ao-mapa .ao-zoom { fill: #1a2531; stroke: #3a4d5e; }
+  .ao-q0 { fill: #1d2b38; background: #1d2b38; } .ao-q1 { fill: #1f5a5f; background: #1f5a5f; } .ao-q2 { fill: #23807f; background: #23807f; }
+  .ao-q3 { fill: #2fa89a; background: #2fa89a; } .ao-q4 { fill: #58d0b0; background: #58d0b0; } .ao-q5 { fill: #a6f0cf; background: #a6f0cf; }
+  .ao-pt { fill: rgba(47,207,122,.45); stroke: #2fcf7a; stroke-width: 1; } .ao-rot { fill: #fff; font-size: 10px; font-weight: 700; text-anchor: middle; pointer-events: none; }
+  .ao-leg { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--dim); margin-top: 4px; } .ao-leg i { display: inline-block; width: 12px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+  .ao-duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; }
+  .ao-tab td.r, .ao-tab th.r { text-align: right; } .ao-end { color: var(--dim); font-size: 11px; }
+  .ao-nota { color: var(--dim); font-size: 11.5px; margin-top: 4px; }
+  @media (max-width: 760px) { .ao-mapas { grid-template-columns: 1fr; } .ao-cards { grid-template-columns: repeat(2, 1fr); } }
   #saImpressao { display: none; }
   @media print {
     @page { size: A4; margin: 12mm 11mm; }
@@ -128,6 +151,16 @@
     #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; }
     #saImpressao .cl-num.ok .v { color: #0b8a4b; } #saImpressao .cl-num.ok { border-color: #9fd3b4; } #saImpressao .cl-num.nao { border-color: #efb3ab; }
     #saImpressao .num, #saImpressao td.pt, #saImpressao td.pos { color: #5b6b7b; }
+    #saImpressao .card { background: #fff; border: 1px solid #cfd8e1; } #saImpressao .card .v { color: #0b5e3a; }
+    #saImpressao .ao-cab, #saImpressao .ao-sub { display: none; }
+    #saImpressao .ao-h { color: #0b5e3a; break-after: avoid; } #saImpressao .ao-mapa { break-inside: avoid; max-height: 120mm; }
+    /* A folha A4 tem menos de 760 px: sem isto, a regra de celular empilharia os mapas e os cartões. */
+    #saImpressao .ao-mapas { grid-template-columns: 1.6fr 1fr; break-inside: avoid; } #saImpressao .ao-cards { grid-template-columns: repeat(4, 1fr); }
+    #saImpressao .ao-mapa path { stroke: #fff; } #saImpressao .ao-mapa .ao-uf { fill: #eef2f1; stroke: #9fb3ad; } #saImpressao .ao-mapa .ao-zoom { fill: #f6f8f7; stroke: #9fb3ad; }
+    #saImpressao .ao-q0 { fill: #eef2f1; background: #eef2f1; } #saImpressao .ao-q1 { fill: #d3ece2; background: #d3ece2; } #saImpressao .ao-q2 { fill: #a6d9c4; background: #a6d9c4; }
+    #saImpressao .ao-q3 { fill: #6cbf9f; background: #6cbf9f; } #saImpressao .ao-q4 { fill: #2f9a77; background: #2f9a77; } #saImpressao .ao-q5 { fill: #0b6e4f; background: #0b6e4f; }
+    #saImpressao .ao-pt { fill: rgba(11,138,75,.45); stroke: #0b5e3a; } #saImpressao .ao-nota, #saImpressao .ao-end, #saImpressao .ao-leg { color: #5b6b7b; }
+    #saImpressao .ao-duas { display: block; }
   }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
   footer b { color: var(--texto); }
@@ -185,6 +218,9 @@
 <!-- GERADO por apuracao/gerar-apuracao.js a partir de apuracao.base.html; não editar à mão -->
 <script src="../labs-apuracao-mapa.js"></script>
 <script src="../labs-apuracao.js"></script>
+<script src="../zip-remoto.js"></script>
+<script src="../labs-mapa-nucleo.js"></script>
+<script src="apuracao-onde.js"></script>
 <script src="apuracao-site.js"></script>
 </body>
 </html>
