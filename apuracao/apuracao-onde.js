@@ -18,12 +18,33 @@
 // apuracao-site.js (saEsc, saFmt, saOp).
 
 const AO_TSE = 'https://cdn.tse.jus.br/estatistica/sead/odsele';
+// O servidor de arquivos do TSE responde com o cabeçalho CORS DUPLICADO
+// ("Access-Control-Allow-Origin: *, *" — conferido em 07/10/2026) e todo
+// navegador recusa a resposta numa página comum. A extensão não passa por isso
+// (permissão de host). No site publicado, os arquivos vêm pelo PRÓPRIO endereço:
+// /tse-dados/* é repassado ao TSE pela hospedagem (apuracao/_redirects, Netlify),
+// e sem pedido entre origens não há checagem de CORS.
+const AO_TSE_PROXY = '/tse-dados';
 const AO_IBGE = 'https://servicodados.ibge.gov.br/api';
 const AO_ZIP = {
-  munzona: ano => `${AO_TSE}/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`,
-  secao: (ano, uf) => `${AO_TSE}/votacao_secao/votacao_secao_${ano}_${uf.toUpperCase()}.zip`,
-  locais: ano => `${AO_TSE}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip`,
+  munzona: (b, ano) => `${b}/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`,
+  secao: (b, ano, uf) => `${b}/votacao_secao/votacao_secao_${ano}_${uf.toUpperCase()}.zip`,
+  locais: (b, ano) => `${b}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip`,
 };
+
+/** De onde ler os arquivos do TSE: direto (extensão) ou pelo repasse do site. */
+async function aoBaseTse(ano) {
+  if (ao.base) return ao.base;
+  const proto = typeof location !== 'undefined' ? location.protocol : '';
+  if (proto === 'chrome-extension:' || proto === 'moz-extension:') return (ao.base = AO_TSE);
+  if (proto === 'http:' || proto === 'https:') {
+    try {
+      const r = await fetch(AO_ZIP.munzona(AO_TSE_PROXY, ano), { headers: { Range: 'bytes=0-0' } });
+      if (r.status === 206) { try { await r.arrayBuffer(); } catch (_) {} return (ao.base = AO_TSE_PROXY); }
+    } catch (_) {}
+  }
+  return AO_TSE;   // sem repasse: tenta direto (falha enquanto o TSE duplicar o cabeçalho; a mensagem explica)
+}
 const ao = { indices: {}, ibge: {}, atual: null, ocupado: false };
 // No Node (testes), o leitor de CSV vem por require; na página já é global.
 const AO_CAMPOS = typeof lmnCampos === 'function' ? lmnCampos : require('../labs-mapa-nucleo.js').lmnCampos;
@@ -296,7 +317,8 @@ async function aoCarregar(cand, uf, detalhar) {
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
     // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
-    const [ixMz, ibge] = await Promise.all([aoFonte(aoIndice(AO_ZIP.munzona(ano)), 'arquivo de votação do TSE'), aoIbge(uf).catch(() => null)]);
+    const base = await aoBaseTse(ano);
+    const [ixMz, ibge] = await Promise.all([aoFonte(aoIndice(AO_ZIP.munzona(base, ano)), 'arquivo de votação do TSE'), aoIbge(uf).catch(() => null)]);
     if (!r.mz) {
       r.mz = await aoLerEntrada(ixMz, e => zrUfDaEntrada(e.nome) === U, aoLeitorMunzona(cargo, cand.numero), `Votação por município (${U})`);
       if (r.mz.cand) Object.assign(r.cand, { sit: r.mz.cand.sit, partido: r.mz.cand.partido || r.cand.partido });
@@ -313,13 +335,13 @@ async function aoCarregar(cand, uf, detalhar) {
     }
     if (!r.mz.total) throw new Error(`nenhum voto do número ${cand.numero} para ${cargoNome.toLowerCase()} em ${U} no arquivo do TSE de ${ano}`);
     if (porLocal && !r.sec) {
-      const ixS = await aoFonte(aoIndice(AO_ZIP.secao(ano, uf)), 'votação por seção do TSE');
+      const ixS = await aoFonte(aoIndice(AO_ZIP.secao(base, ano, uf)), 'votação por seção do TSE');
       const tam = ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0);
       if (uf !== 'df' && !confirm(`Detalhar por local de votação: baixa ${aoMb(tam)} do TSE (votação por seção de ${U}) e o cadastro de locais. Pode levar alguns minutos. Continuar?`)) {
         aoSt('');
       } else {
         const sec = await aoLerEntrada(ixS, e => /\.csv$/i.test(e.nome), aoLeitorSecao(cargo, cand.numero), `Votação por seção (${U})`);
-        const ixL = await aoFonte(aoIndice(AO_ZIP.locais(ano)), 'cadastro de locais de votação do TSE');
+        const ixL = await aoFonte(aoIndice(AO_ZIP.locais(base, ano)), 'cadastro de locais de votação do TSE');
         sec.coord = await aoLerEntrada(ixL, e => new RegExp(`_${U}\\.csv$`, 'i').test(e.nome), aoLeitorLocais(), `Locais de votação (${U})`);
         r.sec = sec;
       }
@@ -329,15 +351,17 @@ async function aoCarregar(cand, uf, detalhar) {
     corpo.innerHTML = aoRelatorioHtml(r);
     btPdf.disabled = false;
     if (!r.sec && uf !== 'df') {
-      const ixS = await aoIndice(AO_ZIP.secao(ano, uf)).catch(() => null);
+      const ixS = await aoIndice(AO_ZIP.secao(base, ano, uf)).catch(() => null);
       if (ixS) { btDet.hidden = false; btDet.textContent = `🏫 Detalhar por local de votação (${aoMb(ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0))})`; }
     }
   } catch (e) {
     aoSt('');
     const rede = /failed to fetch|load failed|networkerror|HTTP 403/i.test(e.message);
+    const semRepasse = rede && ao.base !== AO_TSE_PROXY && !/^(chrome|moz)-extension:$/.test(location.protocol) && /arquivo de votação|seção|locais/.test(e.message);
     corpo.innerHTML = `<div class="vazio grande">Não foi possível montar o relatório: ${saEsc(e.message)}.
       ${/HTTP 404/.test(e.message) ? ' O TSE publica esses arquivos alguns dias depois da eleição.' : ''}
-      ${rede ? '<br>O servidor do TSE recusa pedidos de vez em quando, por alguns segundos (o painel já tentou 5 vezes). Tente de novo em instantes; se persistir, confira a conexão — e abra a página pelo endereço publicado, não como arquivo dentro de outro aplicativo.' : ''}
+      ${semRepasse ? '<br>O servidor de arquivos do TSE envia um cabeçalho de permissão duplicado, que os navegadores recusam numa página comum. Este relatório funciona <b>na extensão</b> e no <b>site publicado com o repasse</b> /tse-dados (arquivo <code>_redirects</code> junto do index.html); aberto direto do computador ou num aplicativo, não.' : ''}
+      ${rede && !semRepasse ? '<br>O servidor do TSE recusa pedidos de vez em quando, por alguns segundos (o painel já tentou 5 vezes). Tente de novo em instantes; se persistir, confira a conexão — e abra a página pelo endereço publicado, não como arquivo dentro de outro aplicativo.' : ''}
       <br><button id="aoDeNovo" class="ao-bt" style="font-size:13px;padding:6px 12px;margin-top:10px">↻ Tentar de novo</button></div>`;
     const dn = document.getElementById('aoDeNovo');
     if (dn) dn.addEventListener('click', () => aoCarregar(cand, uf, detalhar));
