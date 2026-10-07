@@ -1406,7 +1406,7 @@ async function _callGemini(prompt, baixados = []) {
   const res  = await fetch(url, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-    body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: _MAX_OUT_TOKENS } }),
+    body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: _MAX_OUT_TOKENS } }),
   });
   const json = await res.json();
   if (!res.ok) throw new Error(json.error?.message || `Gemini HTTP ${res.status}`);

@@ -74,7 +74,7 @@ const PROVEDORES_META = {
  * de saída (padrão 12000; o parecer pede 32000, porque no Gemini o raciocínio
  * conta dentro do limite e 12000 truncava a redação); pensar: 'alto' — liga o
  * raciocínio no nível máximo em cada provedor (Gemini 3: thinkingLevel high;
- * Gemini 2.5: thinkingBudget; Anthropic: extended thinking; OpenAI, modelos
+ * Gemini 2.5: raciocínio padrão do modelo; Anthropic: extended thinking; OpenAI, modelos
  * de raciocínio: reasoning effort high). Sem `opcoes`, a chamada é a da nota
  * comum, intacta.
  */
@@ -316,9 +316,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const body = {
       contents: [{ parts }],
       // Com raciocínio ligado, o pensamento conta dentro de maxOutputTokens: o teto sobe.
-      generationConfig: { temperature: 0.2, maxOutputTokens: pensarAlto ? Math.min(65536, maxSaida * 2) : maxSaida },
+      generationConfig: { maxOutputTokens: pensarAlto ? Math.min(65536, maxSaida * 2) : maxSaida },
     };
-    if (pensarAlto) body.generationConfig.thinkingConfig = /gemini-2\.5/.test(m) ? { thinkingBudget: 24576 } : { thinkingLevel: 'high' };
+    // Gemini 3: thinkingLevel. O Google deprecou thinkingBudget e os parâmetros de amostragem
+    // (temperature/topP/topK) no Gemini — os 2.5 ficam com o raciocínio padrão deles.
+    if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
     if (pensarAlto) {

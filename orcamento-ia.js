@@ -854,7 +854,7 @@ async function chamarIAOrcamento({ provedorId, apiKey, modelo, prompt, pdfBuffer
     const json = await fetchIAOrcamento(
       `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
       { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
-        body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.1, maxOutputTokens: 16000 } }) },
+        body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 16000 } }) },
       signal);
     const cand = json.candidates?.[0];
     return { text: (cand?.content?.parts || []).map(p => p.text || '').join('').trim(),

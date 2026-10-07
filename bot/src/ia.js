@@ -80,7 +80,7 @@ async function chamarIAtexto({ provedor, apiKey, modelo, prompt, maxTokens = 800
   if (provedor === 'gemini') {
     const chamar = async (m) => {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
-      const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: maxTokens } };
+      const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: maxTokens } };
       const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
       // Modelos "thinking" (3.x) podem devolver várias parts; junta todas as de
       // texto (ignorando as de raciocínio), em vez de ler só a primeira.
@@ -222,7 +222,6 @@ async function transcreverAudio({ provedor, apiKey, modelo, buffer, mime = 'audi
           { inline_data: { mime_type: mime, data: Buffer.from(buffer).toString('base64') } },
         ],
       }],
-      generationConfig: { temperature: 0 },
     };
     const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';

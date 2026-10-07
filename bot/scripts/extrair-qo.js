@@ -147,7 +147,7 @@ async function chamar(prompt) {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODELO}:generateContent`;
   const body = {
     contents: [{ parts: [{ text: prompt }] }],
-    generationConfig: { temperature: 0, maxOutputTokens: 2000, responseMimeType: 'application/json' },
+    generationConfig: { maxOutputTokens: 2000, responseMimeType: 'application/json' },
   };
   let ultimo = null;
   for (let tentativa = 0; tentativa < 5; tentativa++) {

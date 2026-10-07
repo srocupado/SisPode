@@ -762,7 +762,7 @@ async function _chamarUmaVez({ provedor, apiKey, modelo, prompt, docs, signal })
       method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey },
       body: JSON.stringify({
         contents: [{ parts }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },
+        generationConfig: { maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },
       }),
     });
     const cand = j.candidates?.[0];
