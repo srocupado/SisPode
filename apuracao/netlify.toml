@@ -1,0 +1,6 @@
+# Mesmo repasse do arquivo _redirects (vale um ou outro; os dois juntos não atrapalham).
+# /tse-dados/* → servidor de arquivos do TSE, pelo próprio endereço do site.
+[[redirects]]
+  from = "/tse-dados/*"
+  to = "https://cdn.tse.jus.br/estatistica/sead/odsele/:splat"
+  status = 200

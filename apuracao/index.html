@@ -1214,6 +1214,31 @@ function aoNaExtensao() {
   const p = typeof location !== 'undefined' ? location.protocol : '';
   return p === 'chrome-extension:' || p === 'moz-extension:';
 }
+
+// Site publicado no Netlify com o apuracao/_redirects: /tse-dados/* é repassado
+// ao servidor de arquivos do TSE pelo próprio endereço do site (sem pedido entre
+// origens, o cabeçalho CORS duplicado do TSE não importa). Os dados continuam
+// sendo os do TSE, lidos na hora — a hospedagem só repassa.
+const AO_TSE_REPASSE = '/tse-dados';
+
+/** Base dos arquivos do TSE: direto (extensão), pelo repasse do site, ou null (sem acesso aos arquivos). */
+async function aoBaseArquivos(ano) {
+  if (aoNaExtensao()) return AO_TSE;
+  if (ao.repasse !== undefined) return ao.repasse;
+  ao.repasse = null;
+  const proto = typeof location !== 'undefined' ? location.protocol : '';
+  if (proto === 'http:' || proto === 'https:') {
+    // Pedido de 1 byte; se a hospedagem ignorar o Range e mandar o arquivo inteiro
+    // (centenas de MB), o download é cancelado na hora e o repasse não é usado.
+    const ac = new AbortController();
+    try {
+      const r = await fetch(AO_ZIP.munzona(AO_TSE_REPASSE, ano), { headers: { Range: 'bytes=0-0' }, signal: ac.signal });
+      if (r.status === 206 && /^bytes 0-0\//.test(r.headers.get('content-range') || '')) ao.repasse = AO_TSE_REPASSE;
+      ac.abort();
+    } catch (_) {}
+  }
+  return ao.repasse;
+}
 const ao = { indices: {}, ibge: {}, atual: null, ocupado: false };
 
 // Zonas eleitorais do DF (um município só: a zona é o recorte que importa). Nome
@@ -1601,7 +1626,7 @@ async function aoCarregar(cand, uf, detalhar) {
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
     // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
-    const base = AO_TSE, naExt = aoNaExtensao();
+    const base = (await aoBaseArquivos(ano)) || AO_TSE, naExt = !!(await aoBaseArquivos(ano));   // naExt: lê os arquivos (extensão ou repasse)
     const ibgeP = aoIbge(uf).catch(() => null);
     if (!r.mz && !naExt) {
       // Site: o servidor de RESULTADOS do TSE (o do painel), um arquivo por município — ou por zona no DF.
