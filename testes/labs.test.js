@@ -995,6 +995,15 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     ok(B.DS[0].id === 'a' && B.disputa.join() === 'm1' && B.pares.find(p => p.a === 'a' && p.b === 'b').muns.length === 1 && B.pares.find(p => p.b === 'c').muns.length === 0,
       'bancada: disputa = 500+ votos do partido e dois eleitos com 25%+ cada');
     ok(B.vazios.sort().join() === 'm3,m4' && B.emB.m1 === 150 && B.totPode === 1810 && B.divididos.length === 0, 'bancada: vazios (<2%), emendas somadas, total do partido, municípios divididos');
+    // PDF das duas análises: A4 deitado, cores de papel, logo, botão; a tela continua no tema escuro
+    const relB = av(`(function () { const B = lmaBancada([Object.assign({ id: 'x' }, __d26)], __reg26.municipios.SP, {});
+      return maRelatorioHtml({ visao: 'bancada', uf: 'SP', B, geo: __geo, t1: __reg26.municipios.SP, nomeMun: k => k, ano: '2026', semEmendas: true }, { logo: 'data:image/png;base64,AA', agora: new Date(2026, 9, 7, 9, 0) }); })()`);
+    ok(/size: A4 landscape/.test(relB) && /<h1>Bancada do PODE · SP<\/h1>/.test(relB) && /Gerado em 07\/10\/2026 09:00/.test(relB) && /id="btn-pdf"/.test(relB) && /<img src="data:image\/png;base64,AA"/.test(relB),
+      'PDF da bancada: A4 deitado, título, data, logo e botão Salvar em PDF');
+    ok(relB.includes('#eef2f1') && !relB.includes('fill="#17363c"') && av('MA_T === MA_TEMAS.escuro'), 'PDF nas cores de papel; a tela volta ao tema escuro');
+    const relR = av(`(function () { const R = lmaRetorno(__d26, [], __reg26.municipios.SP, null, {});
+      return maRelatorioHtml({ visao: 'retorno', dep: __d26, R, geo: __geo, em: { mun: {}, fora: 0 }, nomeMun: k => k, ano: '2026' }, {}); })()`);
+    ok(/Emendas pagas na legislatura × variação/.test(relR) && /Variação da votação por faixa/.test(relR) && /associação, não efeito/.test(relR), 'PDF de Emendas × votos: os gráficos e a nota de leitura');
     ok(html.includes('id="maRetorno"') && html.includes('id="maBancada"') && scripts.indexOf('labs-mapa-analises.js') > scripts.indexOf('labs-mapa.js'), 'botões das análises na aba do Mapa; script depois do Mapa');
   }
 
