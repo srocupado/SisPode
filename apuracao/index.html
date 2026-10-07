@@ -160,7 +160,7 @@
     #saImpressao .ao-q0 { fill: #eef2f1; background: #eef2f1; } #saImpressao .ao-q1 { fill: #d3ece2; background: #d3ece2; } #saImpressao .ao-q2 { fill: #a6d9c4; background: #a6d9c4; }
     #saImpressao .ao-q3 { fill: #6cbf9f; background: #6cbf9f; } #saImpressao .ao-q4 { fill: #2f9a77; background: #2f9a77; } #saImpressao .ao-q5 { fill: #0b6e4f; background: #0b6e4f; }
     #saImpressao .ao-pt { fill: rgba(11,138,75,.45); stroke: #0b5e3a; } #saImpressao .ao-nota, #saImpressao .ao-end, #saImpressao .ao-leg { color: #5b6b7b; }
-    #saImpressao .ao-duas { display: block; }
+    #saImpressao .ao-duas { display: block; } #saImpressao .ao-duas > div { break-inside: avoid; }
   }
   footer { max-width: 1500px; margin: 0 auto; padding: 14px 16px 30px; font-size: 11.5px; color: var(--dim); border-top: 1px solid var(--borda); }
   footer b { color: var(--texto); }
@@ -1234,6 +1234,37 @@ const AO_ZONAS_DF = {
   21: ['Recanto das Emas e Samambaia', -15.907, -48.078],
 };
 function aoZonaDf(z) { return AO_ZONAS_DF[Number(z)] || null; }
+
+// Bairro do local de votação (cadastro do TSE, DF) → região administrativa.
+// Os nomes genéricos dependem da zona: "Setor Norte/Sul" é Gama na 17ª e Brazlândia na 16ª.
+// Atribuições aproximadas (o cadastro não traz a RA): Setor Militar Urbano/Complementar,
+// Setor de Indústrias Gráficas e Granja do Torto → Plano Piloto; Areal → Arniqueira;
+// "Zona rural" da 18ª → São Sebastião.
+const AO_RA_DF = [
+  [/^ASA (NORTE|SUL)$|^SETOR MILITAR|^SETOR DE INDUSTRIAS GRAFICAS$|^GRANJA DO TORTO$/, 'Plano Piloto'],
+  [/^AREAL/, 'Arniqueira'], [/AGUAS CLARAS/, 'Águas Claras'], [/^ARAPOANGA$/, 'Arapoanga'],
+  [/^AREA OCTOGONAL|^SETOR SUDOESTE$/, 'Sudoeste/Octogonal'], [/^CRUZEIRO/, 'Cruzeiro'],
+  [/^BRAZLANDIA$|^VILA SAO JOSE$|^SETOR VEREDAS$|^N\.?R\.? ?ALEX|^SETOR TRADICIONAL$/, 'Brazlândia'],
+  [/^CANDANGOLANDIA$/, 'Candangolândia'], [/^CEILANDIA/, 'Ceilândia'],
+  [/^CIDADE ESTRUTURAL$|^ZONA INDUSTRIAL$/, 'SCIA/Estrutural'],
+  [/^SANTA MARIA$|^CIDADE NOVA$|^RESIDENCIAL SANTOS DUMONT$/, 'Santa Maria'], [/VICENTE PIRES/, 'Vicente Pires'],
+  [/^ENGENHO DAS LAJES$|^PONTE ALTA/, 'Gama'], [/^GUARA/, 'Guará'], [/^ITAPOA$/, 'Itapoã'],
+  [/^JARDINS MANGUEIRAL$|JARDIM BOTANICO/, 'Jardim Botânico'], [/^LAGO NORTE$|^TAQUARI$/, 'Lago Norte'], [/^LAGO SUL$/, 'Lago Sul'],
+  [/^NUCLEO BANDEIRANTE$/, 'Núcleo Bandeirante'], [/^PARANOA$/, 'Paranoá'], [/PARK WAY/, 'Park Way'],
+  [/^PLANALTINA$|^ESTANCIA MESTRE|^JARDIM RORIZ$|^VALE DO AMANHECER$|^SETOR RESIDENCIAL (LESTE|NORTE)$/, 'Planaltina'],
+  [/^RECANTO DAS EMAS$/, 'Recanto das Emas'], [/^RIACHO FUNDO II$/, 'Riacho Fundo II'], [/^RIACHO FUNDO$/, 'Riacho Fundo'],
+  [/^SAMAMBAIA/, 'Samambaia'], [/SAO SEBASTIAO|SAO BARTOLOMEU/, 'São Sebastião'],
+  [/^SOBRADINHO II$/, 'Sobradinho II'], [/^SOBRADINHO$|CORREGO DO ARROZAL/, 'Sobradinho'], [/^TAGUATINGA/, 'Taguatinga'], [/^VARJAO$/, 'Varjão'],
+];
+function aoRaDf(bairro, zona) {
+  const b = String(bairro || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  const z = Number(zona);
+  if (/^SETOR (NORTE|SUL)$/.test(b)) return z === 16 ? 'Brazlândia' : z === 17 ? 'Gama' : null;
+  if (/^SETOR (CENTRAL|LESTE|OESTE)$/.test(b) && z === 17) return 'Gama';
+  if (b === 'ZONA RURAL' && z === 18) return 'São Sebastião';
+  for (const [re, ra] of AO_RA_DF) if (re.test(b)) return ra;
+  return null;
+}
 // No Node (testes), o leitor de CSV vem por require; na página já é global.
 const AO_CAMPOS = typeof lmnCampos === 'function' ? lmnCampos : require('../labs-mapa-nucleo.js').lmnCampos;
 
@@ -1394,8 +1425,12 @@ function aoRelatorioHtml(r) {
     locais = aoOrdenar(sec.loc).map((x, i) => Object.assign({ ordem: i + 1 }, x, sec.coord[x.z + '|' + x.l] || {}));
     semCoord = locais.filter(x => x.la == null).reduce((s, x) => s + x.v, 0);
     const b = {};
-    for (const x of locais) { const n = (x.bairro || 'Sem bairro no cadastro') + (uf !== 'df' && x.mun ? ' (' + x.mun + ')' : ''); b[n] = (b[n] || 0) + x.v; }
-    porBairro = Object.entries(b).map(([n, v]) => ({ n, v })).sort((a, b2) => b2.v - a.v);
+    for (const x of locais) {
+      const n = uf === 'df' ? (aoRaDf(x.bairro, x.z) || (x.bairro ? 'Outros (' + x.bairro + ')' : 'Sem bairro no cadastro'))
+        : (x.bairro || 'Sem bairro no cadastro') + (x.mun ? ' (' + x.mun + ')' : '');
+      b[n] = b[n] || { v: 0, t: 0, locais: 0 }; b[n].v += x.v; b[n].t += x.t; b[n].locais++;
+    }
+    porBairro = Object.entries(b).map(([n, o]) => ({ n, v: o.v, t: o.t, locais: o.locais })).sort((a, b2) => b2.v - a.v);
     const top = locais[0];
     if (top && top.la != null) moldura = aoMoldura(locais.filter(x => x.la != null && x.bairro === top.bairro && x.mun === top.mun));
   }
@@ -1439,7 +1474,10 @@ function aoRelatorioHtml(r) {
   if (mz && !um) blocos.push(`<div><h3 class="ao-h">Por município</h3>${aoTabela([['#'], ['Município'], ['Votos', 1], ['% dos votos dele(a)', 1], ['% no município', 1]],
     muns.slice(0, 40).map((x, i) => linha([[i + 1 + 'º'], [saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
     ${muns.length > 40 ? `<div class="ao-nota">E mais ${saFmt(muns.length - 40)} municípios com voto.</div>` : ''}</div>`);
-  if (sec && porBairro.length) blocos.push(`<div><h3 class="ao-h">Por bairro do local de votação</h3>${aoTabela([['Bairro'], ['Votos', 1], ['%', 1]],
+  if (sec && porBairro.length && uf === 'df') blocos.push(`<div><h3 class="ao-h">Por região administrativa</h3>${aoTabela([['#'], ['Região administrativa'], ['Locais', 1], ['Votos', 1], ['%', 1], ['% na RA', 1]],
+    porBairro.map((x, i) => linha([[i + 1 + 'º'], [saEsc(x.n)], [saFmt(x.locais), 1], [saFmt(x.v), 1], [aoPct(x.v / total), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
+    <div class="ao-nota">RA pelo bairro do local de votação no cadastro do TSE (onde o eleitor vota, não onde mora). "% na RA": votos dele(a) ÷ votos nominais no cargo nos locais da RA onde teve voto.</div></div>`);
+  else if (sec && porBairro.length) blocos.push(`<div><h3 class="ao-h">Por bairro do local de votação</h3>${aoTabela([['Bairro'], ['Votos', 1], ['%', 1]],
     porBairro.slice(0, 15).map(x => linha([[saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1]])))}</div>`);
   if (zonas.length && uf === 'df') blocos.push(`<div><h3 class="ao-h">Por zona eleitoral</h3>${aoTabela([['#'], ['Zona'], ['Regiões que atende'], ['Votos', 1], ['%', 1], ['% na zona', 1]],
     zonas.map((x, i) => linha([[i + 1 + 'º'], [x.z + 'ª'], [saEsc((aoZonaDf(x.z) || ['—'])[0])], [saFmt(x.v), 1], [aoPct(x.v / total), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
@@ -1663,7 +1701,7 @@ function aoClique(ev) {
   return true;
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { aoLeitorMunzona, aoLeitorSecao, aoLeitorLocais, aoQuebras, aoConcentracao, aoOrdenar, aoMoldura };
+if (typeof module !== 'undefined' && module.exports) module.exports = { aoRaDf, aoLeitorMunzona, aoLeitorSecao, aoLeitorLocais, aoQuebras, aoConcentracao, aoOrdenar, aoMoldura };
 
 </script>
 <script>/* apuracao/apuracao-site.js */
