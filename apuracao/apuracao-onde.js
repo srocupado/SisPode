@@ -35,6 +35,25 @@ function aoNaExtensao() {
   return p === 'chrome-extension:' || p === 'moz-extension:';
 }
 const ao = { indices: {}, ibge: {}, atual: null, ocupado: false };
+
+// Zonas eleitorais do DF (um município só: a zona é o recorte que importa). Nome
+// pelas regiões administrativas que cada zona atende e ponto central (média das
+// coordenadas dos locais de votação, pesada pelo eleitorado) — tirados do
+// cadastro de locais de votação do TSE de 2026 (eleitorado_local_votacao_2026_DF);
+// os bairros genéricos ("Setor Leste"…) foram lidos pela região (17ª = Gama).
+const AO_ZONAS_DF = {
+  1: ['Asa Sul (Plano Piloto)', -15.819, -47.9063], 2: ['Paranoá, Itapoã, Lago Norte e Varjão', -15.7511, -47.8061],
+  3: ['Taguatinga Norte', -15.8153, -48.0903], 4: ['Santa Maria', -16.0212, -48.0128],
+  5: ['Sobradinho e Sobradinho II', -15.6442, -47.8112], 6: ['Planaltina', -15.6263, -47.6492],
+  8: ['Ceilândia (Norte e Sul)', -15.8169, -48.1132], 9: ['Guará e Cidade Estrutural', -15.8227, -47.9807],
+  10: ['Núcleo Bandeirante, Riacho Fundo I e II e Candangolândia', -15.8883, -47.9999], 11: ['Cruzeiro, Sudoeste e Octogonal', -15.7955, -47.9348],
+  13: ['Samambaia', -15.8787, -48.1022], 14: ['Asa Norte (Plano Piloto)', -15.7608, -47.8882],
+  15: ['Águas Claras e Taguatinga Sul', -15.8413, -48.0346], 16: ['Ceilândia Norte e Brazlândia', -15.7604, -48.1546],
+  17: ['Gama', -16.0168, -48.0678], 18: ['São Sebastião, Lago Sul e Jardim Botânico', -15.8861, -47.799],
+  19: ['Taguatinga Norte e Vicente Pires', -15.8094, -48.0531], 20: ['Ceilândia Sul', -15.8402, -48.1162],
+  21: ['Recanto das Emas e Samambaia', -15.907, -48.078],
+};
+function aoZonaDf(z) { return AO_ZONAS_DF[Number(z)] || null; }
 // No Node (testes), o leitor de CSV vem por require; na página já é global.
 const AO_CAMPOS = typeof lmnCampos === 'function' ? lmnCampos : require('../labs-mapa-nucleo.js').lmnCampos;
 
@@ -128,7 +147,7 @@ function aoProj(features, larg) {
   return { p: ([x, y]) => [(x - x0) * k * e, (y1 - y) * e], alt: Math.max(1, (y1 - y0) * e) };
 }
 function aoCaminho(g, p) { return aoAneis(g).map(a => a.map((c, i) => (i ? 'L' : 'M') + p(c).map(v => v.toFixed(1)).join(' ')).join('') + 'Z').join(''); }
-function aoPct(x) { return (x * 100).toLocaleString('pt-BR', { maximumFractionDigits: x && x < 0.01 ? 2 : 1 }) + '%'; }
+function aoPct(x) { if (x > 0 && x < 0.00005) return '<0,01%'; return (x * 100).toLocaleString('pt-BR', { maximumFractionDigits: x && x < 0.01 ? 2 : 1 }) + '%'; }
 
 /** Mapa por município: cor pela fatia do candidato nos votos nominais do cargo no município. */
 function aoMapaMunicipios(geo, porIbge) {
@@ -214,6 +233,12 @@ function aoRelatorioHtml(r) {
             : kpi(aoPct(muns.reduce((s2, x) => s2 + x.t, 0) ? total / muns.reduce((s2, x) => s2 + x.t, 0) : 0), 'dos votos nominais do cargo no estado'))
           + kpi(aoPct(aoConcentracao(sec ? locais : muns, total)), `dos votos nos 10 ${sec ? 'locais' : 'municípios'} mais fortes`)}</div>`;
   // mapas
+  if (!sec && uf === 'df' && zonas.length && geoUf) {
+    // DF sem o detalhe por escola: uma bolha por zona, no centro da região que ela atende.
+    const pts = zonas.map((x, i) => { const zd = aoZonaDf(x.z); return zd ? { la: zd[1], lo: zd[2], v: x.v, nome: `${x.z}ª zona — ${zd[0]}`, ordem: i + 1 } : null; }).filter(Boolean);
+    h += `<h3 class="ao-h">Onde vieram os votos — por zona eleitoral</h3>${aoMapaLocais(geoUf, pts)}
+      <div class="ao-nota">Cada círculo é uma zona eleitoral, no centro da região que ela atende; a área é proporcional aos votos. Números = posição na tabela de zonas.</div>`;
+  }
   if (sec && geoUf) {
     const pts = locais.filter(x => x.la != null);
     const det = moldura ? pts.filter(x => Math.abs(x.la - moldura.la0) <= moldura.meia && Math.abs(x.lo - moldura.lo0) <= moldura.meia / moldura.k) : [];
@@ -236,7 +261,10 @@ function aoRelatorioHtml(r) {
     ${muns.length > 40 ? `<div class="ao-nota">E mais ${saFmt(muns.length - 40)} municípios com voto.</div>` : ''}</div>`);
   if (sec && porBairro.length) blocos.push(`<div><h3 class="ao-h">Por bairro do local de votação</h3>${aoTabela([['Bairro'], ['Votos', 1], ['%', 1]],
     porBairro.slice(0, 15).map(x => linha([[saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1]])))}</div>`);
-  if (zonas.length) blocos.push(`<div><h3 class="ao-h">Por zona eleitoral</h3>${aoTabela([['Zona'], ['Município'], ['Votos', 1], ['%', 1]],
+  if (zonas.length && uf === 'df') blocos.push(`<div><h3 class="ao-h">Por zona eleitoral</h3>${aoTabela([['#'], ['Zona'], ['Regiões que atende'], ['Votos', 1], ['%', 1], ['% na zona', 1]],
+    zonas.map((x, i) => linha([[i + 1 + 'º'], [x.z + 'ª'], [saEsc((aoZonaDf(x.z) || ['—'])[0])], [saFmt(x.v), 1], [aoPct(x.v / total), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
+    <div class="ao-nota">"% na zona": votos dele(a) ÷ votos nominais em todos os candidatos ao cargo na zona. Regiões pela lista de locais de votação do TSE de 2026.</div></div>`);
+  else if (zonas.length) blocos.push(`<div><h3 class="ao-h">Por zona eleitoral</h3>${aoTabela([['Zona'], ['Município'], ['Votos', 1], ['%', 1]],
     zonas.slice(0, 20).map(x => linha([[x.z + 'ª'], [saEsc(x.n)], [saFmt(x.v), 1], [aoPct(x.v / total), 1]])))}</div>`);
   h += `<div class="ao-duas">${blocos.join('')}</div>`;
   if (sec) h += `<h3 class="ao-h">Os ${Math.min(20, locais.length)} locais de votação com mais votos</h3>${aoTabela([['#'], ['Local de votação'], ['Bairro'], ['Votos', 1], ['% no local', 1]],
