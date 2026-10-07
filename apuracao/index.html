@@ -1384,8 +1384,15 @@ function aoRelatorioHtml(r) {
   const nLoc = sec ? locais.length : muns.length;
   let h = `<div class="ao-cab"><b>${saEsc(cand.nome)}</b> <span class="sigla">${saEsc(cand.partido)} · ${saEsc(cand.numero)}</span>
       <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}</div></div>
-    <div class="cards ao-cards">${kpi(saFmt(total), 'votos no 1º turno')}${kpi(saFmt(nLoc), sec ? 'locais de votação com voto' : 'municípios com voto')}
-      ${kpi(saFmt(new Set((zonas.length ? zonas : locais).map(x => x.z)).size), 'zonas eleitorais')}${kpi(aoPct(aoConcentracao(sec ? locais : muns, total)), `dos votos nos 10 ${sec ? 'locais' : 'municípios'} mais fortes`)}</div>`;
+    <div class="cards ao-cards">${kpi(saFmt(total), 'votos no 1º turno')}${um && !sec
+        // DF sem o detalhe por escola: a unidade é a zona eleitoral
+        ? kpi(saFmt(zonas.length), 'zonas eleitorais com voto') + kpi(aoPct(muns[0] && muns[0].t ? total / muns[0].t : 0), 'dos votos nominais do cargo no DF')
+          + kpi(aoPct(aoConcentracao(zonas, total, 3)), 'dos votos nas 3 zonas mais fortes')
+        : kpi(saFmt(nLoc), sec ? 'locais de votação com voto' : 'municípios com voto')
+          + (zonas.length || locais.length
+            ? kpi(saFmt(new Set((zonas.length ? zonas : locais).map(x => x.z)).size), 'zonas eleitorais')
+            : kpi(aoPct(muns.reduce((s2, x) => s2 + x.t, 0) ? total / muns.reduce((s2, x) => s2 + x.t, 0) : 0), 'dos votos nominais do cargo no estado'))
+          + kpi(aoPct(aoConcentracao(sec ? locais : muns, total)), `dos votos nos 10 ${sec ? 'locais' : 'municípios'} mais fortes`)}</div>`;
   // mapas
   if (sec && geoUf) {
     const pts = locais.filter(x => x.la != null);
@@ -1415,7 +1422,9 @@ function aoRelatorioHtml(r) {
   if (sec) h += `<h3 class="ao-h">Os ${Math.min(20, locais.length)} locais de votação com mais votos</h3>${aoTabela([['#'], ['Local de votação'], ['Bairro'], ['Votos', 1], ['% no local', 1]],
     locais.slice(0, 20).map(x => linha([[x.ordem + 'º'], [`${saEsc(x.nome)}<div class="ao-end">${saEsc(x.end || '')}${uf !== 'df' && x.mun ? ' · ' + saEsc(x.mun) : ''}</div>`], [saEsc(x.bairro || '')], [saFmt(x.v), 1], [aoPct(x.t ? x.v / x.t : 0), 1]])))}
     <div class="ao-nota">"% no local" e "% no município": votos dele(a) ÷ votos nominais em todos os candidatos ao cargo ali (sem legenda, brancos e nulos).</div>`;
-  h += `<div class="ao-nota">Fontes: TSE — dados abertos (votação por município e zona${sec ? ', votação por seção e cadastro de locais de votação com coordenadas' : ''}); IBGE — malhas. 1º turno.</div>`;
+  h += r.fonteSite
+    ? `<div class="ao-nota">Fontes: TSE — divulgação oficial de resultados, por ${um ? 'zona eleitoral' : 'município'}; IBGE — malhas. 1º turno. O detalhe por local de votação (escolas) e por zona em todos os estados fica na extensão SisPode.</div>`
+    : `<div class="ao-nota">Fontes: TSE — dados abertos (votação por município e zona${sec ? ', votação por seção e cadastro de locais de votação com coordenadas' : ''}); IBGE — malhas. 1º turno.</div>`;
   return h;
 }
 
@@ -1468,6 +1477,46 @@ async function aoLerEntrada(ix, filtro, leitor, rotulo) {
   return leitor.resultado();
 }
 
+/**
+ * Votos por município (ou por zona, no DF) pelo servidor de RESULTADOS do TSE —
+ * o caminho do site, que não pode ler os zips (cabeçalho CORS duplicado no
+ * servidor de arquivos). O índice da eleição (config/mun-e…-cm.json) lista os
+ * municípios de cada UF com o código IBGE e as zonas; cada arquivo traz todos os
+ * candidatos do cargo ali (~50 KB comprimidos). Mesmo formato de aoLeitorMunzona.
+ */
+async function aoMunzonaResultados(op, cargo, uf, numero) {
+  const c = op.cargos[cargo] || op.cargos[sa.cargo];
+  const el = c.eleicao, e6 = String(el).padStart(6, '0'), c4 = String(cargo).padStart(4, '0');
+  const raiz = `${AP_BASE}/${op.ciclo}/${el}`;
+  if (!ao.cm || ao.cm.el !== el) ao.cm = { el, d: await zrJson(`${raiz}/config/mun-e${e6}-cm.json`) };
+  const abr = (ao.cm.d.abr || []).find(x => String(x.cd).toLowerCase() === uf);
+  if (!abr) throw new Error('o TSE não lista os municípios de ' + uf.toUpperCase());
+  const muns = abr.mu || [];
+  const umSo = muns.length === 1;
+  // DF: um município só — o detalhe é a zona eleitoral.
+  const alvos = umSo ? muns[0].z.map(z => ({ m: muns[0], z })) : muns.map(m => ({ m }));
+  const out = { cand: null, total: 0, mun: {}, zonas: {} };
+  let feitos = 0;
+  const um = async ({ m, z }) => {
+    const url = `${raiz}/dados/${uf}/${uf}${m.cd}${z ? '-z' + z : ''}-c${c4}-e${e6}-u.json`;
+    const d = apLerUFTodos(await zrJson(url), uf);
+    feitos++;
+    if (feitos % 10 === 0 || feitos === alvos.length) aoSt(`Resultados do TSE: ${feitos} de ${alvos.length} ${umSo ? 'zonas' : 'municípios'}…`);
+    const x = d.candidatos.find(k => String(k.numero) === String(numero));
+    const t = d.candidatos.reduce((s, k) => s + k.votos, 0);
+    const v = x ? x.votos : 0;
+    if (x && !out.cand) out.cand = { nome: x.nome, partido: x.partido, sit: x.situacao };
+    const mm = (out.mun[m.cd] = out.mun[m.cd] || { n: m.nm, cdi: m.cdi, v: 0, t: 0 });
+    mm.v += v; mm.t += t;
+    if (z) out.zonas[m.cd + '|' + Number(z)] = { cd: m.cd, n: m.nm, z: String(Number(z)), v, t };
+    out.total += v;
+  };
+  // 8 pedidos de cada vez: SP são 645 arquivos.
+  let i = 0;
+  await Promise.all(Array.from({ length: 8 }, async () => { while (i < alvos.length) await um(alvos[i++]); }));
+  return out;
+}
+
 /** Abre o painel e carrega (cand: { nome, numero, partido }, uf: 'sp'…; detalhar: ler também por local de votação). */
 async function aoCarregar(cand, uf, detalhar) {
   if (ao.ocupado) return;
@@ -1486,9 +1535,24 @@ async function aoCarregar(cand, uf, detalhar) {
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
     // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
-    const base = AO_TSE;
-    const [ixMz, ibge] = await Promise.all([aoFonte(aoIndice(AO_ZIP.munzona(base, ano)), 'arquivo de votação do TSE'), aoIbge(uf).catch(() => null)]);
+    const base = AO_TSE, naExt = aoNaExtensao();
+    const ibgeP = aoIbge(uf).catch(() => null);
+    if (!r.mz && !naExt) {
+      // Site: o servidor de RESULTADOS do TSE (o do painel), um arquivo por município — ou por zona no DF.
+      r.mz = await aoFonte(aoMunzonaResultados(op, cargo, uf, cand.numero), 'resultados do TSE por município');
+      const ibge = await ibgeP;
+      r.semMapa = !ibge; r.semPar = [];
+      r.porIbge = {};
+      for (const m of Object.values(r.mz.mun)) if (m.cdi) r.porIbge['m' + m.cdi] = { n: m.n, v: m.v, t: m.t };
+      r.geoMun = ibge && ibge.mun; r.geoUf = ibge && ibge.uf;
+      r.fonteSite = true;
+      // A situação final (eleito/suplente) vem do arquivo do estado, que o painel já leu.
+      const doUf = sa.dados[uf] && sa.dados[uf].candidatos.find(k => String(k.numero) === String(cand.numero));
+      if (doUf && doUf.situacao) r.cand.sit = doUf.situacao;
+      else if (r.mz.cand && r.mz.cand.sit) r.cand.sit = r.mz.cand.sit;
+    }
     if (!r.mz) {
+      const [ixMz, ibge] = await Promise.all([aoFonte(aoIndice(AO_ZIP.munzona(base, ano)), 'arquivo de votação do TSE'), ibgeP]);
       r.mz = await aoLerEntrada(ixMz, e => zrUfDaEntrada(e.nome) === U, aoLeitorMunzona(cargo, cand.numero), `Votação por município (${U})`);
       if (r.mz.cand) Object.assign(r.cand, { sit: r.mz.cand.sit, partido: r.mz.cand.partido || r.cand.partido });
       const res = ibge ? lmnResolvedor(ibge.lista, U) : () => null;
@@ -1503,7 +1567,7 @@ async function aoCarregar(cand, uf, detalhar) {
       r.geoMun = ibge && ibge.mun; r.geoUf = ibge && ibge.uf;
     }
     if (!r.mz.total) throw new Error(`nenhum voto do número ${cand.numero} para ${cargoNome.toLowerCase()} em ${U} no arquivo do TSE de ${ano}`);
-    if (porLocal && !r.sec) {
+    if (porLocal && !r.sec && naExt) {
       const ixS = await aoFonte(aoIndice(AO_ZIP.secao(base, ano, uf)), 'votação por seção do TSE');
       const tam = ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0);
       if (uf !== 'df' && !confirm(`Detalhar por local de votação: baixa ${aoMb(tam)} do TSE (votação por seção de ${U}) e o cadastro de locais. Pode levar alguns minutos. Continuar?`)) {
@@ -1519,7 +1583,7 @@ async function aoCarregar(cand, uf, detalhar) {
     aoSt('');
     corpo.innerHTML = aoRelatorioHtml(r);
     btPdf.disabled = false;
-    if (!r.sec && uf !== 'df') {
+    if (!r.sec && uf !== 'df' && naExt) {
       const ixS = await aoIndice(AO_ZIP.secao(base, ano, uf)).catch(() => null);
       if (ixS) { btDet.hidden = false; btDet.textContent = `🏫 Detalhar por local de votação (${aoMb(ixS.entradas.filter(e => /\.csv$/i.test(e.nome)).reduce((s, e) => s + e.comprimido, 0))})`; }
     }
@@ -1547,7 +1611,7 @@ async function aoPdf() {
   if (!el) { el = document.createElement('div'); el.id = 'saImpressao'; document.body.appendChild(el); }
   el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
       <h1>De onde vieram os votos — ${saEsc(r.cand.nome)}</h1>
-      <div class="imp-sub">${saEsc(r.cargoNome)} · ${saEsc(r.uf.toUpperCase())} · eleição de ${saEsc(r.ano)} · fonte: TSE (dados abertos) e IBGE · gerado em ${saEsc(agora)}</div></div></div>
+      <div class="imp-sub">${saEsc(r.cargoNome)} · ${saEsc(r.uf.toUpperCase())} · eleição de ${saEsc(r.ano)} · fonte: TSE (${r.fonteSite ? 'divulgação oficial de resultados' : 'dados abertos'}) e IBGE · gerado em ${saEsc(agora)}</div></div></div>
     <div class="imp-filete"></div><div class="ao-imp">${aoRelatorioHtml(r)}</div>
     <div class="imp-rodape">Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
   const titulo = document.title;
@@ -1560,7 +1624,7 @@ async function aoPdf() {
 
 /** Botão na linha do candidato (só deputados; majoritários não). */
 function aoBotao(c, uf) {
-  if (!aoNaExtensao() || !uf || uf === 'br' || !['6', '7'].includes(sa.cargo) || saOp().turno === 2) return '';
+  if (!uf || uf === 'br' || !['6', '7'].includes(sa.cargo) || saOp().turno === 2) return '';
   return ` <button class="ao-bt" data-ao="${saEsc(uf)}|${saEsc(c.numero)}|${saEsc(c.partido || '')}|${saEsc(c.nome)}" title="De onde vieram os votos (mapa e PDF)">📍</button>`;
 }
 function aoClique(ev) {
