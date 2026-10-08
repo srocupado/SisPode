@@ -184,6 +184,17 @@ ok(el30.map(o => o.ano + o.fonte).join() === '2030abertos,2026abertos,2022aberto
 ok(S.snEleicoes([], new Date(2026, 9, 8)).length === 1, 'o ano em curso só entra pelos dados abertos depois da apuração');
 ok(S.snUrlsAbertos(2022).candidato.endsWith('/votacao_candidato_munzona/votacao_candidato_munzona_2022.zip') && S.snUrlsAbertos(2022, '/x').partido === '/x/votacao_partido_munzona/votacao_partido_munzona_2022.zip',
   'endereços dos dados abertos');
+ok(S.snUrlsAbertos(2026).detalhe.endsWith('/detalhe_votacao_munzona/detalhe_votacao_munzona_2026.zip') && S.snUrlsAbertos(2026).locais.endsWith('/eleitorado_locais_votacao/eleitorado_local_votacao_2026.zip'),
+  'endereços do detalhe (eleitores aptos) e dos locais de votação (coordenadas), para o distrital');
+// O distrital entra na comparação como os outros (o desenho vem pronto em op.porUf).
+const SDx = require(path.join(__dirname, '..', 'sistemas-distrital.js'));
+const ufD = uf(4, [agr('A', 600, [300, 200, 100]), agr('B', 400, [250, 150])]);
+const baseD = { unidades: [{ id: 'm:w', mun: 'w', zonas: ['1'], aptos: 500, x: 0, y: 0, area: 1 }, { id: 'm:e', mun: 'e', zonas: ['1'], aptos: 500, x: 10, y: 0, area: 1 }],
+  viz: { 'm:w': new Set(['m:e']), 'm:e': new Set(['m:w']) } };
+const [ca1, ca2, ca3] = ufD.agrs[0].cands, [cb1, cb2] = ufD.agrs[1].cands;
+const votosD = { 'w|1': { c: { [ca1.sq]: 250, [ca2.sq]: 50, [cb1.sq]: 60 }, l: {} }, 'e|1': { c: { [ca1.sq]: 50, [ca2.sq]: 150, [ca3.sq]: 100, [cb1.sq]: 190, [cb2.sq]: 150 }, l: {} } };
+const cmpD = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'Distrital misto', tipo: 'distrital', op: { regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } } } }]);
+ok(cmpD.sims[0].total === 4 && cmpD.sims[0].porUf.xx.nDistritos === 2 && cmpD.sims[0].porUf.xx.distritos.length === 2, 'distrital misto na comparação: vagas, distritos e vencedores por estado');
 
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

@@ -193,44 +193,63 @@ function snDhondt(votos, n, ja = {}, limiar = 0, teto = null) {
 function snDistritaoMisto(d, op = {}) {
   const vagas = op.vagas != null ? op.vagas : d.vagas;
   const nMais = Math.round(vagas * (op.pctMaisVotados != null ? op.pctMaisVotados : 0.5));
-  const nLista = vagas - nMais;
-  const limiar = op.limiar || 0;
   const parte1 = snDistritao(d, { vagas: nMais });
-  const ja = new Set(parte1.eleitos.map(x => x.sq));
+  const r = snCompletarLista(d, parte1.eleitos.map(x => Object.assign({}, x, { fase: 'mais votados' })), vagas, op);
+  return Object.assign(r, { nMais, corte: parte1.corte });
+}
+
+/**
+ * A parte "lista" dos sistemas mistos (distritão misto e distrital misto): as
+ * vagas que sobram depois de `primeiros` (os eleitos pelo voto no candidato)
+ * vão pela votação da agremiação (nominal + legenda), em maiores médias.
+ *  · paralelo: a lista divide só as suas vagas;
+ *  · compensatório: a proporção vale para o TOTAL e a lista completa quem ficou
+ *    abaixo dela (quem já passou guarda as suas — o total de vagas não muda).
+ *  · limiar: cláusula de desempenho para a lista, em fração dos válidos do estado.
+ * A lista é preenchida pelos candidatos da agremiação ainda não eleitos, na
+ * ordem de votos; agremiação sem candidatos bastantes cede a vaga à média seguinte.
+ * Devolve { vagas, eleitos, porAgr, nLista }.
+ */
+function snCompletarLista(d, primeiros, vagas, op = {}) {
+  const nLista = vagas - primeiros.length;
+  const limiar = op.limiar || 0;
+  const ja = new Set(primeiros.map(x => x.sq));
+  const p1 = {};
+  for (const x of primeiros) p1[x.agr] = (p1[x.agr] || 0) + 1;
+  const n1 = id => p1[id] || 0;
   const votos = Object.fromEntries(d.agrs.map(a => [a.id, a.votos]));
   const teto = Object.fromEntries(d.agrs.map(a => [a.id, a.cands.filter(c => c.valido && !ja.has(c.sq)).length]));
-  const p1 = id => parte1.porAgr[id] || 0;
   let lista;
   if (op.modelo === 'compensatorio') {
     const alvo = snDhondt(votos, vagas, {}, limiar);
     lista = {};
-    for (const id of Object.keys(votos)) lista[id] = Math.min(teto[id], Math.max(0, (alvo[id] || 0) - p1(id)));
+    for (const id of Object.keys(votos)) lista[id] = Math.min(teto[id], Math.max(0, (alvo[id] || 0) - n1(id)));
     let soma = Object.values(lista).reduce((s, v) => s + v, 0);
-    // mais do que cabe: corta de quem fica com a menor média com a cadeira a mais
+    // mais do que cabe: corta de quem fica com a menor média com a vaga a mais
     while (soma > nLista) {
       let pior = null;
-      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / (p1(id) + lista[id]) < votos[pior] / (p1(pior) + lista[pior]))) pior = id;
+      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / (n1(id) + lista[id]) < votos[pior] / (n1(pior) + lista[pior]))) pior = id;
       lista[pior]--; soma--;
     }
     // menos do que cabe: o resto pelas maiores médias, contando o que cada uma já tem
     if (soma < nLista) {
       const tem = {}, resta = {};
-      for (const id of Object.keys(votos)) { tem[id] = p1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
+      for (const id of Object.keys(votos)) { tem[id] = n1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
       const mais = snDhondt(votos, nLista - soma, tem, limiar, resta);
       for (const id of Object.keys(mais)) lista[id] += mais[id];
     }
   } else {
-    lista = snDhondt(votos, nLista, {}, limiar, teto);
+    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto);
   }
-  const eleitos = parte1.eleitos.map(x => Object.assign({}, x, { fase: 'mais votados' }));
+  const eleitos = primeiros.slice();
   for (const a of d.agrs) {
     const fila = a.cands.filter(c => c.valido && !ja.has(c.sq));
     for (const c of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: c.sq, agr: a.id, fase: 'lista', cand: c });
   }
   const porAgr = {};
   for (const a of d.agrs) porAgr[a.id] = 0;
-  for (const x of eleitos) porAgr[x.agr]++;
-  return { vagas, eleitos, porAgr, nMais, nLista, corte: parte1.corte };
+  for (const x of eleitos) porAgr[x.agr] = (porAgr[x.agr] || 0) + 1;
+  return { vagas, eleitos, porAgr, nLista: Math.max(0, nLista) };
 }
 
 // ------------------------------------------------------------
@@ -245,6 +264,11 @@ const SN_TIPOS = {
   proporcional: (d, op) => snProporcional(d, op),
   distritao: (d, op) => snDistritao(d, op),
   misto: (d, op) => snDistritaoMisto(d, op),
+  // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado
+  distrital: (d, op) => {
+    const f = typeof sdDistritalMisto === 'function' ? sdDistritalMisto : require('./sistemas-distrital.js').sdDistritalMisto;
+    return f(d, Object.assign({}, op, op.porUf[d.uf]));
+  },
 };
 
 /**
@@ -274,7 +298,7 @@ function snSimular(dados, sistemas) {
       const r = SN_TIPOS[s.tipo](dados[uf], s.op || {});
       const ru = real.porUf[uf];
       const sim = new Set(r.eleitos.map(x => x.sq)), rs = new Set(ru ? ru.eleitos.map(x => x.sq) : []);
-      out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista,
+      out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista, nDistritos: r.nDistritos, distritos: r.distritos,
         entram: ru ? r.eleitos.filter(x => !rs.has(x.sq)).sort(porVotos) : [], saem: ru ? ru.eleitos.filter(x => !sim.has(x.sq)).sort(porVotos) : [] };
       if (comparadas.includes(uf)) snSomar(out, r.eleitos);
     }
@@ -340,10 +364,16 @@ function snEleicoes(ops, hoje = new Date()) {
   return out.sort((a, b) => b.ano - a.ano);
 }
 
-/** Arquivos de dados abertos do TSE de um ano (votação por candidato e por partido, por município/zona). */
+/**
+ * Arquivos de dados abertos do TSE de um ano: votação por candidato e por partido
+ * (por município e zona); e, para o distrital, o detalhe da votação (eleitores
+ * aptos por município e zona) e o cadastro de locais de votação (coordenadas).
+ */
 function snUrlsAbertos(ano, base = 'https://cdn.tse.jus.br/estatistica/sead/odsele') {
   return { candidato: `${base}/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`,
-    partido: `${base}/votacao_partido_munzona/votacao_partido_munzona_${ano}.zip` };
+    partido: `${base}/votacao_partido_munzona/votacao_partido_munzona_${ano}.zip`,
+    detalhe: `${base}/detalhe_votacao_munzona/detalhe_votacao_munzona_${ano}.zip`,
+    locais: `${base}/eleitorado_locais_votacao/eleitorado_local_votacao_${ano}.zip` };
 }
 
 // ------------------------------------------------------------
@@ -450,5 +480,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snSimular, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, snSimular, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }
