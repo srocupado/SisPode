@@ -524,6 +524,9 @@ function sdMedir(partes, U, viz, alvo, k) {
 }
 
 // ------------------------------------------------------------ eleição
+/** Nome curto da agremiação: as siglas (federação: "PT/PCdoB/PV"). */
+function sdSiglas(a) { return a ? ((a.siglas || []).join('/') || a.nome || a.id) : ''; }
+
 /**
  * Votos de cada distrito: por candidato (sq) e por agremiação (nominais válidos + legenda).
  * d: o estado (snLerUF / dados abertos); desenho: sdDistritar; base: sdUnidades; votos: geo.votos[cargo].
@@ -593,8 +596,8 @@ function sdDistritalMisto(d, op) {
     if (k) primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id });
     return { id: dt.id, aptos: dt.aptos, desvio: dt.desvio, validos: x.validos,
       vencedor: k ? { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
-        agrNome: k.a.nome, agrVotos: x.porAgr[k.a.id] || 0, agrPct: (x.porAgr[k.a.id] || 0) / (x.validos || 1) } : null,
-      segundo: seg ? { agr: seg[0], nome: (agr.get(seg[0]) || {}).nome || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null };
+        agrNome: sdSiglas(k.a), agrVotos: x.porAgr[k.a.id] || 0, agrPct: (x.porAgr[k.a.id] || 0) / (x.validos || 1) } : null,
+      segundo: seg ? { agr: seg[0], nome: sdSiglas(agr.get(seg[0])) || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null };
   });
   const r = sdCompletarLista(d, primeiros, vagas, op);
   return Object.assign(r, { nDistritos: primeiros.length, distritos });

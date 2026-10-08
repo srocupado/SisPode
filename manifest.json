@@ -107,6 +107,7 @@
         "apuracao/apuracao-site.js",
         "apuracao/apuracao-onde.js",
         "sistemas-nucleo.js",
+        "sistemas-distrital.js",
         "sistemas/sistemas.html",
         "sistemas/sistemas-tela.js",
         "portarias.html",

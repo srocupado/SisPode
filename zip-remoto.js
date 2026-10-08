@@ -24,9 +24,18 @@ function zrLinhas(aoLer) {
 
 /** Índice de um zip remoto: { url, total, entradas }. */
 async function zrIndice(url) {
-  const total = await zrTamanhoRemoto(url);
-  const entradas = await zrEntradasZip(total, async (ini, n) => new Uint8Array(await (await zrFaixa(url, ini, ini + n - 1)).arrayBuffer()));
-  return { url, total, entradas };
+  // Uma resposta recusada pelo firewall do TSE pode chegar como página, não como
+  // pedaço do zip ("não é um zip válido"): lê o fim do arquivo de novo.
+  let ultimo;
+  for (let t = 0; t < 3; t++) {
+    if (t) await zrDormir(2000 * t);
+    try {
+      const total = await zrTamanhoRemoto(url);
+      const entradas = await zrEntradasZip(total, async (ini, n) => new Uint8Array(await (await zrFaixa(url, ini, ini + n - 1)).arrayBuffer()));
+      return { url, total, entradas };
+    } catch (e) { ultimo = e; if (!/zip válido/.test(e && e.message)) throw e; }
+  }
+  throw ultimo;
 }
 
 // O firewall do TSE recusa, de vez em quando, um pedido qualquer (403, ou — no

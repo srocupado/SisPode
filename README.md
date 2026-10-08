@@ -160,12 +160,17 @@ A eleição de deputados **simulada em outros sistemas**, com os votos oficiais 
 - **Proporcional (atual)** — Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF (ADIs 7228/7263/7325): quociente eleitoral (fração acima de meio arredonda), QP com candidato de 10% do QE, sobras pelas maiores médias entre agremiações com 80% do QE e candidatos com 20%, 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. **Com a regra vigente reproduz o resultado oficial**: 2026 em 54 de 54 (27 UFs × Câmara e Assembleia) e 2022 em 27 de 27 nos dois cargos. Parâmetros ajustáveis: os três percentuais, a 3ª fase (aberta ou só com 80%) e as federações (desligadas: cada partido sozinho, com os seus votos nominais e de legenda)
 - **Distritão**: os mais votados de cada estado; voto de legenda não elege. Mostra o "corte" (votos do último eleito) em cada estado
 - **Distritão misto**: parte das vagas aos mais votados, parte à votação da agremiação (nominal + legenda) pelas maiores médias; **% mais votados × lista** ajustável, modelo **paralelo** (a lista divide só a sua parte) ou **compensatório** (a proporção vale para o total e a lista completa quem ficou abaixo), e cláusula de desempenho para a lista. A lista é preenchida pelos candidatos da agremiação ainda não eleitos, na ordem de votos; os dados têm um voto por eleitor, então o "segundo voto" (na lista) segue o primeiro
-- **Distrital misto**: em construção (distritos desenhados com os dados do TSE e a malha do IBGE)
+- **Distrital misto**: parte das vagas (ajustável, 50% por padrão) em distritos de um eleito, o resto pela lista, **paralela** ou **compensatória**, com cláusula opcional para a lista. Quem leva o distrito: a **agremiação mais votada** ali, com o seu candidato mais votado no distrito (padrão), ou o **candidato mais votado**; um candidato ganha um distrito só. Os distritos não existem no Brasil — são **desenhados na hora**, só com dados públicos:
+  - **unidades**: os municípios (malha do IBGE em TopoJSON: contorno e vizinhança exata pelas divisas comuns); o município com mais eleitores que 60% de um distrito entra **dividido nas zonas eleitorais** (posição = média das coordenadas dos locais de votação pesada pelos eleitores; vizinhança = zonas mais próximas e as da divisa); ilhas ganham uma "ponte" para a unidade mais próxima
+  - **peso**: eleitores aptos (TSE, `detalhe_votacao_munzona`); votos por candidato e legenda por município e zona (`votacao_candidato_munzona`, `votacao_partido_munzona`); coordenadas (`eleitorado_local_votacao`) — lidos por partes, só os estados pedidos (SP ≈ 80 MB; o país em 2026 ≈ 245 MB, com confirmação), guardados no navegador enquanto os arquivos do TSE forem os mesmos
+  - **desenho**: bisseção recursiva (cada pedaço cresce de uma ponta, ao longo de um eixo, até a proporção de eleitores dos distritos que lhe cabem; vários eixos e pesos testados, fica o melhor) e trocas na fronteira que reduzem o desvio sem romper a contiguidade (levando junto pedaços que ficariam soltos). Conferido com os dados de 2026: SP federal em 35 distritos com desvio máximo de 5% (médio 1,3%), MG 2,3%, ES 1,1%, DF 2,5%, RJ estadual 10,5% — todos contíguos; SP em ~0,5 s
+  - **métricas** na tela: desvio máximo e médio do eleitorado (aviso acima de ±15%, a referência alemã), compacidade média, municípios divididos, contiguidade, unidades usadas. Com muitos distritos (ex.: 100% distrital), a zona eleitoral é a menor peça e o desvio sobe (SP: 17%)
+  - **mapa** dos distritos no detalhe do estado (cor por distrito, vizinhos sempre de cores diferentes, ou pelo partido eleito), recorte da capital por zona eleitoral e a **tabela dos distritos**: eleitores, desvio, municípios e zonas, eleito, votos no distrito, fatia da agremiação e a 2ª colocada
 - **Resultado**: bancada do Podemos em cada sistema (com a diferença para o oficial e quantas cadeiras mudam de mãos), **hemiciclos** lado a lado com a mesma ordem de partidos, **bancadas por partido** com Δ, **quem entra e quem sai** do Podemos em cada sistema, e a tabela **estado a estado** (vagas, QE, corte, Podemos por sistema, trocas) — clicar num estado abre o detalhe dele (partidos e quem entra/sai, de todos os partidos)
 - Os parâmetros recalculam na hora, sem reler o TSE; **Voltar à regra vigente** desfaz tudo
 - Estado em **retotalização** ou com apuração em andamento: a tela avisa e o deixa fora da comparação nacional
-- **Salvar em PDF** (A4): parâmetros de cada sistema, cartões, hemiciclos, tabelas e o detalhe do estado aberto
-- O núcleo (`sistemas-nucleo.js`) é puro e testado (`testes/sistemas.test.js`)
+- **Salvar em PDF** (A4): parâmetros de cada sistema, cartões, hemiciclos, tabelas e o detalhe do estado aberto, com o mapa e a tabela dos distritos
+- Os núcleos (`sistemas-nucleo.js`, `sistemas-distrital.js`) são puros e testados (`testes/sistemas.test.js`, `testes/sistemas-distrital.test.js`)
 
 ---
 
@@ -656,6 +661,7 @@ sispode/
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── labs-apuracao.js               # Relatórios · Apuração eleitoral: leitura do TSE, projeção, cláusula de barreira (funções puras)
 ├── sistemas-nucleo.js             # Relatórios · Sistemas eleitorais: proporcional, distritão, distritão misto, comparação (funções puras)
+├── sistemas-distrital.js          # Relatórios · Sistemas eleitorais: distrital misto — distritos desenhados (malha IBGE + TSE) e eleição (funções puras)
 ├── sistemas/                      # Relatórios · Sistemas eleitorais: a tela (sistemas.html + sistemas-tela.js; PDF)
 ├── zip-remoto.js                  # Leitura de zip remoto por partes (HTTP Range), compartilhada pelo Labs e pela Apuração
 ├── labs-apuracao-mapa.js          # Malha simplificada das 27 UFs (IBGE) para o mapa da apuração
@@ -728,6 +734,7 @@ sispode/
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
 │   ├── labs-apuracao.test.js       # Apuração: eleições do TSE, projeção de eleitos, cláusula por ano
 │   ├── sistemas.test.js            # Sistemas eleitorais: regras do proporcional, distritão, distritão misto, dados abertos, hemiciclo
+│   ├── sistemas-distrital.test.js  # Distrital misto: malha TopoJSON, leitura por zona, unidades, desenho dos distritos, eleição
 │   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
 │   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha

@@ -53,18 +53,27 @@
   .sis .lin { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
   .sis .lin > span:first-child { flex: 1 1 140px; color: var(--dim); }
   .sis .nota { font-size: 11.5px; color: var(--dim); border-top: 1px dashed var(--borda); padding-top: 5px; margin-top: 6px; }
-  .sis.breve { opacity: .65; border-style: dashed; }
+  .sis .geo { margin-top: 6px; font-size: 12px; color: var(--dim); } .sis .geo button { margin-right: 6px; }
+  .sis .geo .ok { color: var(--verde2); }
   .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
   /* Resultado */
   h2 { font-size: 15px; margin: 18px 0 8px; }
   h2 small { color: var(--dim); font-weight: 400; font-size: 12px; }
-  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+  .cards { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
   .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
   .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); }
   .card .v { font-size: 26px; font-weight: 700; color: var(--verde2); line-height: 1.2; }
   .card .d { font-size: 12px; font-weight: 600; } .mais { color: var(--verde2); } .menos { color: var(--verm); } .igual { color: var(--dim); }
   .card .l { font-size: 11px; color: var(--dim); margin-top: 2px; }
-  .hemis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .hemis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 10px; }
+  /* Distritos: mapa e tabela */
+  .mapas-d { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+  .mapa-d { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px; }
+  .mapa-d svg { width: 100%; height: auto; display: block; }
+  .mapa-d path { stroke: #0b121a; stroke-width: .4; } .mapa-d path.div { fill: #2a3a4a; } .mapa-d path.fora { fill: #1b2835; }
+  .mapa-d circle.z { stroke: #0b121a; stroke-width: .6; } .mapa-d text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 2.5px; pointer-events: none; }
+  .mapa-d .t { font-size: 12px; color: var(--dim); margin-bottom: 4px; } .mapa-d .t b { color: var(--texto); }
+  .metr { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--dim); margin: 2px 0 8px; } .metr b { color: var(--texto); } .metr .ruim b { color: var(--aviso); }
   .hemi { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px 10px; text-align: center; }
   .hemi .t { font-size: 13px; font-weight: 600; } .hemi .s { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .hemi svg { width: 100%; height: auto; display: block; margin-top: 4px; }
@@ -83,7 +92,7 @@
   tr.pode td { background: rgba(0,168,89,.12); font-weight: 600; }
   tr.clic { cursor: pointer; } tr.clic:hover td { background: rgba(255,255,255,.04); } tr.sel td { background: rgba(255,210,74,.10); }
   .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
-  .duas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
   .bloco { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 11px; min-width: 0; }
   .bloco h3 { margin: 0 0 6px; font-size: 13.5px; }
   .bloco .vazio { color: var(--dim); font-size: 12.5px; }
@@ -91,7 +100,7 @@
   .ent { color: var(--verde2); font-weight: 700; } .sai { color: var(--verm); font-weight: 700; }
   .dica { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
   .rodape { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--borda); font-size: 11.5px; color: var(--dim); line-height: 1.5; }
-  @media (max-width: 1100px) { .sistemas, .hemis, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .duas { grid-template-columns: 1fr; } }
+  @media (max-width: 1100px) { .sistemas, .hemis, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .duas, .mapas-d { grid-template-columns: 1fr; } }
   @media (max-width: 640px) { .sistemas, .hemis, .cards { grid-template-columns: 1fr; } .ctl .dir { margin-left: 0; } }
   /* Impressão: só o relatório montado em #siImpressao, em papel claro. */
   #siImpressao { display: none; }
@@ -109,10 +118,13 @@
     .imp-filete { height: 4px; margin: 8px 0 6px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
     .imp-param { font-size: 8.5pt; color: #33414f; margin: 3px 0; } .imp-param b { color: #1b2430; }
     .imp-quebra { break-before: page; }
-    #siImpressao .cards, #siImpressao .hemis { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    #siImpressao .cards, #siImpressao .hemis { grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 6px; }
+    #siImpressao .mapas-d { grid-template-columns: 1.5fr 1fr; break-inside: avoid; } #siImpressao .mapa-d { background: #fff; border: 1px solid #cfd8e1; }
+    #siImpressao .mapa-d path { stroke: #fff; } #siImpressao .mapa-d path.div { fill: #e4e9ee; } #siImpressao .mapa-d path.fora { fill: #f3f5f7; }
+    #siImpressao .metr { color: #5b6b7b; } #siImpressao .metr b { color: #1b2430; }
     #siImpressao .card, #siImpressao .hemi, #siImpressao .bloco { background: #fff; border: 1px solid #cfd8e1; break-inside: avoid; }
     #siImpressao .card .v { color: #0b5e3a; font-size: 20pt; }
-    #siImpressao .duas { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    #siImpressao .duas { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
     #siImpressao .bloco { padding: 6px 7px; } #siImpressao .bloco td { font-size: 8pt; padding: 2px 3px; }
     #siImpressao td { color: #1b2430; font-size: 8.5pt; padding: 2px 4px; border-bottom: 1px solid #e4e9ee; }
     #siImpressao th { font-size: 7.5pt; color: #5b6b7b; } #siImpressao th.grupo { color: #1b2430; }
@@ -133,7 +145,7 @@
     <img src="../icons/podemos-logo.png" alt="Podemos">
     <div>
       <h1>Sistemas eleitorais</h1>
-      <div class="sub">A mesma eleição em outros sistemas, com os votos oficiais do <b>TSE</b> lidos na hora · proporcional (atual), distritão e distritão misto</div>
+      <div class="sub">A mesma eleição em outros sistemas, com os votos oficiais do <b>TSE</b> lidos na hora · proporcional (atual), distritão, distritão misto e distrital misto</div>
     </div>
   </div>
   <div class="filete"></div>
@@ -175,10 +187,16 @@
       <div class="nota"><b>Paralelo</b>: a lista divide só a sua parte. <b>Compensatório</b>: a proporção vale para o total, e a lista completa quem ficou abaixo dela.
         Os dados do TSE têm um voto por eleitor; com dois votos, o da lista seria separado — aqui a lista usa a votação da agremiação (nominal + legenda).</div>
     </div>
-    <div class="sis breve" data-sis="distrital">
-      <h3><i style="background:#64748b"></i>Distrital misto</h3>
-      <p>Metade das vagas em distritos de um eleito, metade pela lista.</p>
-      <div class="nota">Em construção: os distritos serão desenhados com os dados do TSE (eleitores e votos por zona) e a malha do IBGE.</div>
+    <div class="sis" data-sis="distrital">
+      <h3><i style="background:#14b8a6"></i>Distrital misto<span class="alterado" id="siAltD" hidden>parâmetros alterados</span></h3>
+      <p>Parte das vagas em distritos de um eleito, desenhados aqui com o eleitorado do TSE e a malha do IBGE; o resto pela lista.</p>
+      <div class="lin"><span>Distritos <b id="dPctV">50%</b> · lista <b id="dPctL">50%</b></span><input type="range" id="dPct" min="0" max="100" step="5" value="50"></div>
+      <div class="lin"><span>Quem leva o distrito</span><div class="seg" id="dRegra"><button data-r="partido" class="ativo" title="A agremiação mais votada no distrito leva a vaga, com o seu candidato mais votado ali">Partido</button><button data-r="candidato" title="O candidato mais votado no distrito">Candidato</button></div></div>
+      <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
+      <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
+      <div class="geo" id="siGeo"></div>
+      <div class="nota">Os distritos não existem: são desenhados com eleitorado parecido, contíguos e compactos, a partir dos municípios (e das zonas eleitorais, onde o município é grande demais).
+        <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.</div>
     </div>
   </div>
   <div class="ctl"><button id="siRegra">Voltar à regra vigente</button><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span></div>
@@ -192,7 +210,9 @@
 <div id="siImpressao"></div>
 <script src="../labs-apuracao.js"></script>
 <script src="../zip-remoto.js"></script>
+<script src="../labs-mapa-nucleo.js"></script>
 <script src="../sistemas-nucleo.js"></script>
+<script src="../sistemas-distrital.js"></script>
 <script src="sistemas-tela.js"></script>
 </body>
 </html>
