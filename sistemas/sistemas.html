@@ -55,6 +55,7 @@
   .sis .nota { font-size: 11.5px; color: var(--dim); border-top: 1px dashed var(--borda); padding-top: 5px; margin-top: 6px; }
   .sis .geo { margin-top: 6px; font-size: 12px; color: var(--dim); } .sis .geo button { margin-right: 6px; }
   .sis .geo .ok { color: var(--verde2); }
+  .sis .senado-ok { color: var(--verde2); font-size: 11.5px; font-weight: 600; }
   .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
   /* Resultado */
   h2 { font-size: 15px; margin: 18px 0 8px; }
@@ -194,13 +195,17 @@
       <h3><i style="background:#14b8a6"></i>Distrital misto<span class="alterado" id="siAltD" hidden>parâmetros alterados</span></h3>
       <p>Parte das vagas em distritos de um eleito, desenhados aqui com o eleitorado do TSE e a malha do IBGE; o resto pela lista.</p>
       <div class="lin"><span>Distritos <b id="dPctV">50%</b> · lista <b id="dPctL">50%</b></span><input type="range" id="dPct" min="0" max="100" step="5" value="50"></div>
+      <div class="lin"><span>Nº de distritos</span><div class="seg" id="dArr"><button data-a="proximo" class="ativo" title="Vagas × fração, arredondado (9 vagas, 50% → 5 distritos)">Arredondado</button><button data-a="baixo" title="Só a parte inteira (9 vagas, 50% → 4 distritos), como no PL 9.212/2017">Parte inteira</button></div></div>
       <div class="lin"><span>Quem leva o distrito</span><div class="seg" id="dRegra"><button data-r="partido" class="ativo" title="A agremiação mais votada no distrito leva a vaga, com o seu candidato mais votado ali">Partido</button><button data-r="candidato" title="O candidato mais votado no distrito">Candidato</button></div></div>
       <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
       <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
       <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
+      <div class="lin"><button id="dSenado" title="Aplica as regras do PL 9.212/2017 (PLS 86 e 345/2017, aprovados pelo Senado em 21/11/2017): metade das vagas em distritos (parte inteira), distritos por população, compensatório, sem cláusula">Como no projeto do Senado (PL 9.212/2017)</button><span class="senado-ok" id="dSenadoOk" hidden>✓ regras do projeto</span></div>
       <div class="geo" id="siGeo"></div>
       <div class="nota">Os distritos não existem: são desenhados com eleitorado (ou população, pelo Censo 2022) parecido, contíguos e compactos, a partir dos municípios (e das zonas eleitorais, onde o município é grande demais).
-        <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.</div>
+        <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.
+        <br><b>Projeto do Senado</b> (PL 9.212/2017): metade das vagas em distritos (parte inteira), desenhados por habitantes com até ±5% do alvo (±10% em 1 distrito ou em 10% deles);
+        o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos.</div>
     </div>
   </div>
   <div class="ctl"><button id="siRegra">Voltar à regra vigente</button><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span></div>

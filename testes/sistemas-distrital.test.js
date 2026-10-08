@@ -155,5 +155,21 @@ ok(pp.geo.mun['1'].zonas['1'].aptos === 1000 && z['2'].aptos === 2000 && z['3'].
 ok(Math.abs(pp.geo.mun['3'].zonas['5'].aptos - 100 * 7000 / 1000) < 1e-9 && pp.semPopulacao.join() === 'C,D' && pp.geo.votos === geo.votos && geo.mun['1'].zonas['1'].aptos === 100,
   'sem par no IBGE: eleitores × razão do estado (avisado); votos iguais; o original intocado');
 
+console.log('Regras do PL 9.212/2017 (Senado)');
+ok(SD.sdNumeroDistritos(9, 0.5) === 5 && SD.sdNumeroDistritos(9, 0.5, 'baixo') === 4 && SD.sdNumeroDistritos(70, 0.5, 'baixo') === 35 && SD.sdNumeroDistritos(8, 0.5, 'baixo') === 4,
+  'número de distritos: arredondado (9 → 5) ou a parte inteira da metade, como no projeto (9 → 4)');
+ok(SD.sdNumeroDistritos(10, 0.3, 'baixo') === 3 && SD.sdNumeroDistritos(10, 0.7, 'baixo') === 7, 'parte inteira sem erro de ponto flutuante');
+const dv = xs => xs.map(desvio => ({ desvio }));
+const t1 = SD.sdToleranciaSenado(dv([0.04, -0.05, 0.02, -0.01]));
+ok(t1.ok && t1.ate5 === 4 && t1.permitidos === 1, 'todos até ±5%: dentro');
+const t2 = SD.sdToleranciaSenado(dv([0.08, -0.03, 0.01, 0]));
+ok(t2.ok && t2.entre5e10 === 1, 'um distrito entre 5% e 10%: permitido (até 1 ou 10% deles)');
+const t3 = SD.sdToleranciaSenado(dv([0.08, -0.07, 0.01, 0]));
+ok(!t3.ok && t3.entre5e10 === 2, 'dois entre 5% e 10% em 4 distritos: fora');
+const t4 = SD.sdToleranciaSenado(dv(Array.from({ length: 35 }, (_, i) => i < 3 ? 0.09 : 0.01)));
+ok(t4.ok && t4.permitidos === 3, '35 distritos: até 3 (10%, parte inteira) entre 5% e 10%');
+const t5 = SD.sdToleranciaSenado(dv([0.11, 0, 0, 0]));
+ok(!t5.ok && t5.acima10 === 1, 'acima de 10%: fora');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

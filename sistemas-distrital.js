@@ -354,6 +354,31 @@ function sdPesoPopulacao(geo, pop, ibgeDe) {
   return { geo: { mun, votos: geo.votos }, semPopulacao };
 }
 
+// ------------------------------------------------------------ regras do PL 9.212/2017 (aprovado pelo Senado: PLS 86 e 345/2017)
+/**
+ * Quantos distritos: vagas × fração. 'proximo' arredonda (9 vagas → 5);
+ * 'baixo' fica com a parte inteira, como no PL 9.212/2017 (Lei 9.504, art. 10, § 3º proposto: 9 vagas → 4).
+ */
+function sdNumeroDistritos(vagas, pct, arred = 'proximo') {
+  const x = vagas * pct;
+  return arred === 'baixo' ? Math.floor(x + 1e-9) : Math.round(x);
+}
+/**
+ * Tolerância de tamanho do PL 9.212/2017 (art. 10, § 4º, I e II propostos): cada distrito até ±5%
+ * do alvo; até ±10% em 1 distrito ou em 10% deles (parte inteira), o que for maior.
+ * Devolve { ok, ate5, entre5e10, acima10, permitidos }.
+ */
+function sdToleranciaSenado(distritos) {
+  const n = distritos.length, eps = 1e-9;
+  const permitidos = Math.max(1, Math.floor(n * 0.1 + eps));
+  let ate5 = 0, entre5e10 = 0, acima10 = 0;
+  for (const d of distritos) {
+    const a = Math.abs(d.desvio);
+    if (a <= 0.05 + eps) ate5++; else if (a <= 0.10 + eps) entre5e10++; else acima10++;
+  }
+  return { ok: !acima10 && entre5e10 <= permitidos, ate5, entre5e10, acima10, permitidos };
+}
+
 // ------------------------------------------------------------ desenho dos distritos
 /** Fila de prioridade mínima (heap binário) — [prioridade, valor]. */
 function sdFila() {
@@ -648,5 +673,5 @@ function sdDistritalMisto(d, op) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado };
 }
