@@ -430,12 +430,15 @@ async function siPrepararDistritos(op, calc) {
 
 /** Desenho afinado pelos locais: primeiro as zonas da fronteira; se ainda passa da tolerância, também os municípios da fronteira. Fica o melhor. */
 function siAfinar(x, locais) {
+  // melhor: dentro da tolerância; depois, menos distritos acima de 5%; depois, menor desvio máximo
+  const nota = d => { const t = sdToleranciaSenado(d.distritos); return [t.ok ? 0 : 1, t.entre5e10 + t.acima10, d.metricas.desvioMax]; };
+  const melhor = (a, b) => { const na = nota(a), nb = nota(b); for (let i = 0; i < 3; i++) if (na[i] !== nb[i]) return na[i] < nb[i] - (i === 2 ? 1e-9 : 0); return false; };
   let r = sdRefinarLocais(x.base, x.desenho, locais);
   if (r && !sdToleranciaSenado(r.desenho.distritos).ok) {
     const r2 = sdRefinarLocais(r.base, r.desenho, locais, { municipios: true });
-    if (r2 && r2.desenho.metricas.desvioMax < r.desenho.metricas.desvioMax) r = r2;
+    if (r2 && r2.desenho.metricas.contiguos && melhor(r2.desenho, r.desenho)) r = r2;
   }
-  if (!r || r.desenho.metricas.desvioMax >= x.desenho.metricas.desvioMax || !r.desenho.metricas.contiguos) return x;
+  if (!r || !r.desenho.metricas.contiguos || !melhor(r.desenho, x.desenho)) return x;
   return { desenho: r.desenho, base: r.base, k: x.k };
 }
 
@@ -926,8 +929,8 @@ function siDistritosHtml(uf, sd, impressao) {
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
   const botoes = impressao ? '' : `<div class="seg" id="siMapaModo" style="margin-bottom:6px"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>`;
-  h += botoes + `<div class="mapas-d"><div class="mapa-d"><div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
-    + (cap ? `<div class="mapa-d"><div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
+  h += botoes + `<div class="mapas-d"><div class="mapa-d"><div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${desenho.locais ? '; pontos menores = locais de votação' : ''}${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
+    + (cap ? `<div class="mapa-d"><div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral${desenho.locais ? ' e local de votação' : ''}</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
   // tabela
   const nomes = d => {
     const porMun = {};
