@@ -69,7 +69,7 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 
 ### 3. Relatórios
 
-Seis relatórios em abas — sobre votações nominais, produção legislativa, tramitação por tema, leis aprovadas e a apuração eleitoral do TSE —, cada aba com uma linha de descrição do que produz logo abaixo da barra de abas.
+Sete relatórios em abas — sobre votações nominais, produção legislativa, tramitação por tema, leis aprovadas, a apuração eleitoral do TSE e a simulação de sistemas eleitorais —, cada aba com uma linha de descrição do que produz logo abaixo da barra de abas.
 
 #### 3.1 Aderência
 
@@ -150,6 +150,22 @@ Painel ao vivo da divulgação oficial do **TSE** (`resultados.tse.jus.br`), rel
 - **De onde vieram os votos** (botão 📍 na linha de cada candidato a deputado federal, estadual ou distrital, de qualquer partido): mapa e tabelas por **município** e **zona eleitoral**, com a fatia do candidato nos votos nominais do cargo em cada município, e — no DF automaticamente, nos outros estados sob pedido, com o tamanho do download avisado — por **local de votação** (escolas no mapa pelas coordenadas do TSE, detalhe do bairro mais forte, tabela por bairro e os 20 locais com mais votos). Lê os arquivos de dados abertos do TSE por partes (só o estado; SP por município ≈ 42 MB, DF por local ≈ 32 MB), direto no navegador. **Salvar em PDF** como o da cláusula. **No site** (que não pode ler os zips: o servidor de arquivos do TSE envia o cabeçalho CORS duplicado `*, *` e o navegador recusa) o relatório vem do servidor de **resultados** do TSE, o mesmo do painel, sem intermediário: um arquivo por município (~50 KB; SP inteiro em ~30 s) ou, no DF, por zona eleitoral; o detalhe por local de votação e por zona nos demais estados fica na extensão — ou no site publicado no **Netlify com o `apuracao/_redirects`** (ou `netlify.toml`), que repassa `/tse-dados/*` ao servidor de arquivos do TSE pelo próprio endereço: aí o site faz a leitura completa, igual à extensão, com os dados do TSE lidos na hora (a página detecta o repasse sozinha)
 - A última leitura fica guardada no navegador e volta ao reabrir
 - A mesma tela existe como **site em arquivo único** (`apuracao/index.html`), para hospedagem estática (Netlify e afins). As duas versões saem do mesmo modelo (`apuracao/apuracao.base.html` + `apuracao/apuracao-site.js`) pelo gerador `node apuracao/gerar-apuracao.js`, que grava o `index.html` (scripts e logo embutidos) e o `extensao.html` (scripts por arquivo, como a extensão exige)
+
+#### 3.7 Sistemas eleitorais
+
+A eleição de deputados **simulada em outros sistemas**, com os votos oficiais do **TSE** lidos na hora — nenhum voto vem embutido na extensão. Só na extensão (página `sistemas/sistemas.html`, em iframe, como a apuração).
+
+- **Eleição**: a corrente pelo servidor oficial de resultados (um arquivo por estado; 2026 inteiro em segundos), e os anos gerais desde 2022 que o servidor já não guarda pelos **dados abertos** (`votacao_candidato_munzona` + `votacao_partido_munzona`), lidos por partes direto no navegador — só as entradas dos estados pedidos, os dois cargos numa leitura. O Brasil inteiro de 2022 são ~290 MB (a tela avisa e pede confirmação; SP sozinho ~90 MB, em ~25 s; o resto do país ~85 s); a leitura fica guardada no navegador (IndexedDB) **só enquanto o arquivo do TSE for o mesmo** (ETag/data/tamanho conferidos a cada leitura)
+- **Cargo**: deputado federal, ou estadual e distrital; **abrangência**: Brasil ou um estado
+- **Proporcional (atual)** — Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF (ADIs 7228/7263/7325): quociente eleitoral (fração acima de meio arredonda), QP com candidato de 10% do QE, sobras pelas maiores médias entre agremiações com 80% do QE e candidatos com 20%, 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. **Com a regra vigente reproduz o resultado oficial**: 2026 em 54 de 54 (27 UFs × Câmara e Assembleia) e 2022 em 27 de 27 nos dois cargos. Parâmetros ajustáveis: os três percentuais, a 3ª fase (aberta ou só com 80%) e as federações (desligadas: cada partido sozinho, com os seus votos nominais e de legenda)
+- **Distritão**: os mais votados de cada estado; voto de legenda não elege. Mostra o "corte" (votos do último eleito) em cada estado
+- **Distritão misto**: parte das vagas aos mais votados, parte à votação da agremiação (nominal + legenda) pelas maiores médias; **% mais votados × lista** ajustável, modelo **paralelo** (a lista divide só a sua parte) ou **compensatório** (a proporção vale para o total e a lista completa quem ficou abaixo), e cláusula de desempenho para a lista. A lista é preenchida pelos candidatos da agremiação ainda não eleitos, na ordem de votos; os dados têm um voto por eleitor, então o "segundo voto" (na lista) segue o primeiro
+- **Distrital misto**: em construção (distritos desenhados com os dados do TSE e a malha do IBGE)
+- **Resultado**: bancada do Podemos em cada sistema (com a diferença para o oficial e quantas cadeiras mudam de mãos), **hemiciclos** lado a lado com a mesma ordem de partidos, **bancadas por partido** com Δ, **quem entra e quem sai** do Podemos em cada sistema, e a tabela **estado a estado** (vagas, QE, corte, Podemos por sistema, trocas) — clicar num estado abre o detalhe dele (partidos e quem entra/sai, de todos os partidos)
+- Os parâmetros recalculam na hora, sem reler o TSE; **Voltar à regra vigente** desfaz tudo
+- Estado em **retotalização** ou com apuração em andamento: a tela avisa e o deixa fora da comparação nacional
+- **Salvar em PDF** (A4): parâmetros de cada sistema, cartões, hemiciclos, tabelas e o detalhe do estado aberto
+- O núcleo (`sistemas-nucleo.js`) é puro e testado (`testes/sistemas.test.js`)
 
 ---
 
@@ -639,6 +655,8 @@ sispode/
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)
 ├── labs-apuracao.js               # Relatórios · Apuração eleitoral: leitura do TSE, projeção, cláusula de barreira (funções puras)
+├── sistemas-nucleo.js             # Relatórios · Sistemas eleitorais: proporcional, distritão, distritão misto, comparação (funções puras)
+├── sistemas/                      # Relatórios · Sistemas eleitorais: a tela (sistemas.html + sistemas-tela.js; PDF)
 ├── zip-remoto.js                  # Leitura de zip remoto por partes (HTTP Range), compartilhada pelo Labs e pela Apuração
 ├── labs-apuracao-mapa.js          # Malha simplificada das 27 UFs (IBGE) para o mapa da apuração
 ├── apuracao/                      # Apuração eleitoral: tela comum à extensão e ao site
@@ -709,6 +727,7 @@ sispode/
 │   ├── emendas-*.test.js           # Emendas: coleta, log e planilha
 │   ├── leis-aprovadas.test.js      # Relatórios · Leis aprovadas: tela, filtros, upload manual, exportação
 │   ├── labs-apuracao.test.js       # Apuração: eleições do TSE, projeção de eleitos, cláusula por ano
+│   ├── sistemas.test.js            # Sistemas eleitorais: regras do proporcional, distritão, distritão misto, dados abertos, hemiciclo
 │   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
 │   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha

@@ -29,7 +29,7 @@ function snNum(x) { return Number(String(x == null ? 0 : x).replace(/\./g, '').r
  * Lê o arquivo de resultados de um estado/cargo (…/dados/{uf}/{uf}-c{cargo}-e{eleição}-u.json).
  * Votos da agremiação = votos VÁLIDOS dos seus candidatos + legenda dos seus
  * partidos (candidato "anulado sub judice" fica fora, como nos votos válidos do TSE).
- * Devolve { uf, cargo, vagas, validos, qeTse, final, agrs: [{ id, nome, tipo, siglas, votos, legenda, porSigla, cands }] }
+ * Devolve { uf, cargo, vagas, validos, qeTse, final, pct, atualizado, eleitosReal, agrs: [{ id, nome, tipo, siglas, votos, legenda, porSigla, cands }] }
  * (porSigla: votos de cada partido da agremiação — para simular sem federação)
  * com cands = [{ sq, n, nome, partido, votos, valido, eleitoReal, situacao }], em ordem de votos.
  */
@@ -55,7 +55,17 @@ function snLerUF(j, uf) {
     agrs.push(ag);
   }
   return { uf: String(uf || j.cdabr || '').toLowerCase(), cargo: snNum(cargo.cd), vagas: snNum(cargo.nv), validos: snNum((j.v || {}).vv),
-    qeTse: snNum(cargo.qe), final: j.tf === 's', agrs };
+    qeTse: snNum(cargo.qe), final: j.tf === 's', pct: snNum((j.s || {}).pst), atualizado: [j.dg, j.hg].filter(Boolean).join(' '),
+    eleitosReal: agrs.reduce((s, a) => s + a.cands.filter(c => c.eleitoReal).length, 0), agrs };
+}
+
+/**
+ * Situação do arquivo do estado: 'final'; 'retotalizando' (tudo apurado, mas o
+ * TSE reabriu a totalização e não há eleito marcado — PE em 06/10/2026); 'parcial'.
+ */
+function snSituacao(d) {
+  if (d.final) return 'final';
+  return d.pct >= 100 && !d.eleitosReal ? 'retotalizando' : 'parcial';
 }
 
 /** QE do art. 106: fração ≤ 0,5 desprezada; > 0,5 arredonda para cima. */
@@ -152,15 +162,17 @@ function snDistritao(d, op = {}) {
  * Divisão de `n` cadeiras pelas maiores médias (D'Hondt) entre agremiações com
  * os votos dados; `ja` = cadeiras que cada uma já tem (compensatório) — devolve
  * as cadeiras da LISTA de cada uma. limiar: fração dos votos válidos para entrar.
+ * teto: { id: máximo de cadeiras da lista } (candidatos que ainda restam).
  */
-function snDhondt(votos, n, ja = {}, limiar = 0) {
+function snDhondt(votos, n, ja = {}, limiar = 0, teto = null) {
   const total = Object.values(votos).reduce((s, v) => s + v, 0);
   const ids = Object.keys(votos).filter(id => votos[id] > 0 && votos[id] >= limiar * total);
   const lugares = Object.fromEntries(ids.map(id => [id, ja[id] || 0]));
   const lista = Object.fromEntries(ids.map(id => [id, 0]));
+  const cabe = id => !teto || lista[id] < (teto[id] || 0);
   for (let i = 0; i < n; i++) {
     let m = null;
-    for (const id of ids) if (!m || votos[id] / (lugares[id] + 1) > votos[m] / (lugares[m] + 1)) m = id;
+    for (const id of ids) if (cabe(id) && (!m || votos[id] / (lugares[id] + 1) > votos[m] / (lugares[m] + 1))) m = id;
     if (!m) break;
     lugares[m]++; lista[m]++;
   }
@@ -168,57 +180,170 @@ function snDhondt(votos, n, ja = {}, limiar = 0) {
 }
 
 /**
- * Distritão misto. op: { pctMaisVotados: 0.5, modelo: 'paralelo'|'compensatorio', lista: 'aberta'|'fechada' }.
+ * Distritão misto. op: { pctMaisVotados: 0.5, modelo: 'paralelo'|'compensatorio', limiar: 0 }.
  *  · A parte "mais votados" = os N mais votados do estado (como o distritão).
  *  · A parte "lista" vai pela votação da agremiação (nominal + legenda) em maiores
  *    médias; paralelo: só essas cadeiras; compensatório: a proporção vale para o
  *    TOTAL e a lista completa o que falta (quem já passou do que teria guarda as suas).
- *  · Lista aberta: os candidatos da agremiação ainda não eleitos, na ordem de votos
- *    (a "fechada" pré-ordenada pelo partido não existe nos dados — usa a mesma ordem).
+ *  · limiar: cláusula de desempenho para a lista, em fração dos votos válidos do estado.
+ *  · A lista é preenchida pelos candidatos da agremiação ainda não eleitos, na
+ *    ordem de votos (uma lista pré-ordenada pelo partido não existe nos dados);
+ *    agremiação sem candidatos bastantes cede a cadeira à média seguinte.
  */
 function snDistritaoMisto(d, op = {}) {
   const vagas = op.vagas != null ? op.vagas : d.vagas;
   const nMais = Math.round(vagas * (op.pctMaisVotados != null ? op.pctMaisVotados : 0.5));
   const nLista = vagas - nMais;
+  const limiar = op.limiar || 0;
   const parte1 = snDistritao(d, { vagas: nMais });
+  const ja = new Set(parte1.eleitos.map(x => x.sq));
   const votos = Object.fromEntries(d.agrs.map(a => [a.id, a.votos]));
+  const teto = Object.fromEntries(d.agrs.map(a => [a.id, a.cands.filter(c => c.valido && !ja.has(c.sq)).length]));
+  const p1 = id => parte1.porAgr[id] || 0;
   let lista;
   if (op.modelo === 'compensatorio') {
-    const alvo = snDhondt(votos, vagas);
+    const alvo = snDhondt(votos, vagas, {}, limiar);
     lista = {};
-    for (const id of Object.keys(votos)) lista[id] = Math.max(0, (alvo[id] || 0) - (parte1.porAgr[id] || 0));
-    // ajusta ao número de cadeiras da lista (sobra-ajuste por maiores médias, sem tirar de ninguém)
+    for (const id of Object.keys(votos)) lista[id] = Math.min(teto[id], Math.max(0, (alvo[id] || 0) - p1(id)));
     let soma = Object.values(lista).reduce((s, v) => s + v, 0);
-    if (soma > nLista) {
-      // corta de quem tem a menor média com a cadeira a mais, até caber
-      while (soma > nLista) {
-        let pior = null;
-        for (const id of Object.keys(lista)) if (lista[id] > 0) {
-          const t = (parte1.porAgr[id] || 0) + lista[id];
-          if (!pior || votos[id] / t < votos[pior] / ((parte1.porAgr[pior] || 0) + lista[pior])) pior = id;
-        }
-        lista[pior]--; soma--;
-      }
-    } else if (soma < nLista) {
-      const ja = {};
-      for (const id of Object.keys(votos)) ja[id] = (parte1.porAgr[id] || 0) + lista[id];
-      const mais = snDhondt(votos, nLista - soma, ja);
-      for (const id of Object.keys(mais)) lista[id] = (lista[id] || 0) + mais[id];
+    // mais do que cabe: corta de quem fica com a menor média com a cadeira a mais
+    while (soma > nLista) {
+      let pior = null;
+      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / (p1(id) + lista[id]) < votos[pior] / (p1(pior) + lista[pior]))) pior = id;
+      lista[pior]--; soma--;
+    }
+    // menos do que cabe: o resto pelas maiores médias, contando o que cada uma já tem
+    if (soma < nLista) {
+      const tem = {}, resta = {};
+      for (const id of Object.keys(votos)) { tem[id] = p1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
+      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta);
+      for (const id of Object.keys(mais)) lista[id] += mais[id];
     }
   } else {
-    lista = snDhondt(votos, nLista);
+    lista = snDhondt(votos, nLista, {}, limiar, teto);
   }
-  const ja = new Set(parte1.eleitos.map(x => x.sq));
   const eleitos = parte1.eleitos.map(x => Object.assign({}, x, { fase: 'mais votados' }));
   for (const a of d.agrs) {
-    const k = lista[a.id] || 0;
     const fila = a.cands.filter(c => c.valido && !ja.has(c.sq));
-    for (const c of fila.slice(0, k)) eleitos.push({ sq: c.sq, agr: a.id, fase: 'lista', cand: c });
+    for (const c of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: c.sq, agr: a.id, fase: 'lista', cand: c });
   }
   const porAgr = {};
   for (const a of d.agrs) porAgr[a.id] = 0;
   for (const x of eleitos) porAgr[x.agr]++;
-  return { vagas, eleitos, porAgr, nMais, nLista };
+  return { vagas, eleitos, porAgr, nMais, nLista, corte: parte1.corte };
+}
+
+// ------------------------------------------------------------
+// Comparação dos sistemas (a aba): todas as UFs, somas por partido.
+// ------------------------------------------------------------
+/** Soma os eleitos por partido (sigla do candidato — numa federação, o partido de cada um). */
+function snSomar(alvo, eleitos) {
+  for (const x of eleitos) { alvo.porPartido[x.cand.partido] = (alvo.porPartido[x.cand.partido] || 0) + 1; alvo.total++; }
+}
+
+const SN_TIPOS = {
+  proporcional: (d, op) => snProporcional(d, op),
+  distritao: (d, op) => snDistritao(d, op),
+  misto: (d, op) => snDistritaoMisto(d, op),
+};
+
+/**
+ * Roda os sistemas em cada UF e compara com o resultado oficial (a marcação do TSE).
+ * dados: { uf: d }; sistemas: [{ id, nome, tipo: 'proporcional'|'distritao'|'misto', op }].
+ * Devolve { ufs, comparadas, real, sims }:
+ *  · real: { porPartido, total, porUf: { uf: { eleitos } }, semReal: [uf] } — UF sem eleito
+ *    marcado (retotalização, apuração em curso) fica fora do real;
+ *  · sims[i]: { id, nome, tipo, porPartido, total, porUf: { uf: { eleitos, entram, saem, qe, corte, nMais, nLista } } }.
+ * As somas nacionais contam só as UFs comparáveis (com o real), para a comparação
+ * ser de igual para igual; sem nenhuma, contam todas.
+ */
+function snSimular(dados, sistemas) {
+  const ufs = Object.keys(dados).sort();
+  const real = { id: 'real', nome: 'Resultado oficial', porPartido: {}, total: 0, porUf: {}, semReal: [] };
+  for (const uf of ufs) {
+    const eleitos = dados[uf].agrs.flatMap(a => a.cands.filter(c => c.eleitoReal).map(c => ({ sq: c.sq, agr: a.id, fase: 'oficial', cand: c })));
+    if (!eleitos.length) { real.semReal.push(uf); continue; }
+    real.porUf[uf] = { eleitos };
+    snSomar(real, eleitos);
+  }
+  const comparadas = real.semReal.length === ufs.length ? ufs : ufs.filter(uf => !real.semReal.includes(uf));
+  const porVotos = (x, y) => y.cand.votos - x.cand.votos;
+  const sims = sistemas.map(s => {
+    const out = { id: s.id, nome: s.nome, tipo: s.tipo, porPartido: {}, total: 0, porUf: {} };
+    for (const uf of ufs) {
+      const r = SN_TIPOS[s.tipo](dados[uf], s.op || {});
+      const ru = real.porUf[uf];
+      const sim = new Set(r.eleitos.map(x => x.sq)), rs = new Set(ru ? ru.eleitos.map(x => x.sq) : []);
+      out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista,
+        entram: ru ? r.eleitos.filter(x => !rs.has(x.sq)).sort(porVotos) : [], saem: ru ? ru.eleitos.filter(x => !sim.has(x.sq)).sort(porVotos) : [] };
+      if (comparadas.includes(uf)) snSomar(out, r.eleitos);
+    }
+    return out;
+  });
+  return { ufs, comparadas, real, sims };
+}
+
+/** Partidos na ordem de exibição: bancada oficial, depois a maior simulada, depois a sigla. */
+function snOrdemPartidos(res) {
+  const todas = new Set([...Object.keys(res.real.porPartido), ...res.sims.flatMap(s => Object.keys(s.porPartido))]);
+  const max = sg => Math.max(0, ...res.sims.map(s => s.porPartido[sg] || 0));
+  return [...todas].sort((a, b) => (res.real.porPartido[b] || 0) - (res.real.porPartido[a] || 0) || max(b) - max(a) || a.localeCompare(b));
+}
+
+/**
+ * Posições das cadeiras num hemiciclo (unidades: raio externo 1, centro na base),
+ * da esquerda para a direita — a ordem em que se pintam os partidos. Devolve
+ * { pontos: [{ x, y }], r } (r = raio de cada bolinha).
+ */
+function snHemiciclo(n) {
+  if (!n) return { pontos: [], r: 0 };
+  const linhas = Math.max(1, Math.min(14, Math.round(Math.sqrt(n / 3.2))));
+  const interno = linhas === 1 ? 1 : 0.38;
+  const raios = Array.from({ length: linhas }, (_, i) => linhas === 1 ? 1 : interno + (1 - interno) * i / (linhas - 1));
+  const soma = raios.reduce((s, r) => s + r, 0);
+  const cotas = raios.map(r => n * r / soma), qtd = cotas.map(Math.floor);
+  let falta = n - qtd.reduce((s, v) => s + v, 0);
+  cotas.map((c, i) => [c - qtd[i], i]).sort((a, b) => b[0] - a[0]).slice(0, falta).forEach(([, i]) => qtd[i]++);
+  const pts = [];
+  raios.forEach((r, i) => {
+    const k = qtd[i];
+    for (let j = 0; j < k; j++) {
+      const a = k === 1 ? Math.PI / 2 : Math.PI * j / (k - 1);
+      pts.push({ x: -Math.cos(a) * r, y: Math.max(0, Math.sin(a) * r), a, r });
+    }
+  });
+  pts.sort((p, q) => p.a - q.a || q.r - p.r);
+  const passo = linhas === 1 ? Math.PI / Math.max(1, n) : (1 - interno) / (linhas - 1);
+  const arco = Math.PI * interno / Math.max(1, qtd[0] - 1);
+  return { pontos: pts.map(p => ({ x: p.x, y: p.y })), r: Math.min(passo, arco, 0.12) * 0.42 };
+}
+
+/**
+ * Eleições que a aba oferece, da mais recente para a mais antiga:
+ *  · as gerais do servidor de resultados do TSE (1º turno, com deputados) — ops de apEleicoesGerais;
+ *  · os anos gerais desde 2022 (federações; mesma regra de hoje) que o servidor
+ *    já não guarda, pelos dados abertos do TSE.
+ * Devolve [{ id, ano, fonte: 'resultados'|'abertos', ciclo, eleicao: { 6, 7, 8 } }].
+ */
+function snEleicoes(ops, hoje = new Date()) {
+  const out = [];
+  for (const o of ops || []) {
+    if (o.previsto || o.turno !== 1 || !o.cargos || !o.cargos[6]) continue;
+    out.push({ id: o.id, ano: o.ano, fonte: 'resultados', ciclo: o.ciclo,
+      eleicao: { 6: o.cargos[6].eleicao, 7: (o.cargos[7] || o.cargos[6]).eleicao, 8: (o.cargos[8] || o.cargos[6]).eleicao } });
+  }
+  for (let ano = 2022; ano <= hoje.getFullYear(); ano += 4) {
+    const fim = new Date(ano, 9, 31);   // a apuração de outubro já terminou
+    if (hoje < fim || out.some(o => o.ano === ano)) continue;
+    out.push({ id: 'abertos-' + ano, ano, fonte: 'abertos' });
+  }
+  return out.sort((a, b) => b.ano - a.ano);
+}
+
+/** Arquivos de dados abertos do TSE de um ano (votação por candidato e por partido, por município/zona). */
+function snUrlsAbertos(ano, base = 'https://cdn.tse.jus.br/estatistica/sead/odsele') {
+  return { candidato: `${base}/votacao_candidato_munzona/votacao_candidato_munzona_${ano}.zip`,
+    partido: `${base}/votacao_partido_munzona/votacao_partido_munzona_${ano}.zip` };
 }
 
 // ------------------------------------------------------------
@@ -230,13 +355,19 @@ function snDistritaoMisto(d, op = {}) {
 // ------------------------------------------------------------
 /** Campos de uma linha CSV do TSE (separador ';', aspas). */
 function snCampos(linha) {
+  // Atalho: o TSE põe todo campo entre aspas — "a";"b";"c" — e quase nunca há aspas dentro.
+  const l = linha.replace(/\r$/, '');
+  if (l.length > 1 && l[0] === '"' && l[l.length - 1] === '"' && l.indexOf('""') < 0) {
+    const out = l.slice(1, -1).split('";"');
+    if (!out.some(c => c.indexOf('"') >= 0)) return out;
+  }
   const out = []; let cur = '', q = false;
-  for (let i = 0; i < linha.length; i++) {
-    const c = linha[i];
-    if (q) { if (c === '"') { if (linha[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+  for (let i = 0; i < l.length; i++) {
+    const c = l[i];
+    if (q) { if (c === '"') { if (l[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
     else if (c === '"') q = true; else if (c === ';') { out.push(cur); cur = ''; } else cur += c;
   }
-  out.push(cur.replace(/\r$/, ''));
+  out.push(cur);
   return out;
 }
 function snCsv(exigidas, fn) {
@@ -260,20 +391,25 @@ function snVagasAssembleia(uf, vagasCamara) {
 }
 
 /**
- * Leitor dos dois arquivos de dados abertos para UM cargo ('6' federal, '7' estadual, '8' distrital).
- * candidato.linha(l) / partido.linha(l); resultado(vagasPorUf) → { uf: dados como snLerUF }.
+ * Leitor dos dois arquivos de dados abertos para um ou mais cargos ('6' federal,
+ * '7' estadual, '8' distrital — ou ['6', '7', '8'], numa leitura só do arquivo).
+ * candidato.linha(l) / partido.linha(l); resultado(vagasPorUf, cargo) → { uf: dados como snLerUF }
+ * (cargo: o pedido, ou o primeiro da lista).
  */
 function snLeitorDadosAbertos(cargo) {
-  const ufs = {};
-  const ag = (uf, v) => {
+  const cargos = [].concat(cargo).map(String);
+  const porCargo = Object.fromEntries(cargos.map(c => [c, {}]));
+  const ag = (cg, uf, v) => {
     const fed = v('NR_FEDERACAO') && v('NR_FEDERACAO') !== '-1';
     const id = fed ? 'f' + v('NR_FEDERACAO') : 'p' + v('NR_PARTIDO');
-    const u = (ufs[uf] = ufs[uf] || { agrs: {} });
+    const u = (porCargo[cg][uf] = porCargo[cg][uf] || { agrs: {} });
     return (u.agrs[id] = u.agrs[id] || { id, nome: fed ? v('NM_FEDERACAO') : v('NM_PARTIDO'), tipo: fed ? 'federacao' : 'partido', siglas: [], votos: 0, legenda: 0, porSigla: {}, vagasReal: null, cands: {} });
   };
+  const doCargo = v => { const cg = v('CD_CARGO'); return porCargo[cg] && v('NR_TURNO') === '1' ? cg : null; };
   const candidato = snCsv(['SG_UF', 'CD_CARGO', 'NR_TURNO', 'SQ_CANDIDATO', 'NR_PARTIDO', 'SG_PARTIDO', 'QT_VOTOS_NOMINAIS_VALIDOS', 'DS_SIT_TOT_TURNO'], v => {
-    if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
-    const uf = v('SG_UF').toLowerCase(), a = ag(uf, v), sq = v('SQ_CANDIDATO');
+    const cg = doCargo(v);
+    if (!cg) return;
+    const uf = v('SG_UF').toLowerCase(), a = ag(cg, uf, v), sq = v('SQ_CANDIDATO');
     if (!a.siglas.includes(v('SG_PARTIDO'))) a.siglas.push(v('SG_PARTIDO'));
     const dest = v('NM_TIPO_DESTINACAO_VOTOS');
     const c = (a.cands[sq] = a.cands[sq] || { sq, n: v('NR_CANDIDATO'), nome: v('NM_URNA_CANDIDATO') || v('NM_CANDIDATO'), partido: v('SG_PARTIDO'), votos: 0,
@@ -281,8 +417,9 @@ function snLeitorDadosAbertos(cargo) {
     c.votos += Number(v('QT_VOTOS_NOMINAIS_VALIDOS')) || 0;
   });
   const partido = snCsv(['SG_UF', 'CD_CARGO', 'NR_TURNO', 'NR_PARTIDO', 'QT_VOTOS_NOMINAIS_VALIDOS', 'QT_TOTAL_VOTOS_LEG_VALIDOS'], v => {
-    if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
-    const a = ag(v('SG_UF').toLowerCase(), v);
+    const cg = doCargo(v);
+    if (!cg) return;
+    const a = ag(cg, v('SG_UF').toLowerCase(), v);
     if (!a.siglas.includes(v('SG_PARTIDO'))) a.siglas.push(v('SG_PARTIDO'));
     const leg = Number(v('QT_TOTAL_VOTOS_LEG_VALIDOS')) || 0;     // legenda + nominais convertidos para a legenda
     const votos = leg + (Number(v('QT_VOTOS_NOMINAIS_VALIDOS')) || 0);
@@ -290,13 +427,13 @@ function snLeitorDadosAbertos(cargo) {
     a.votos += votos;
     a.porSigla[v('SG_PARTIDO')] = (a.porSigla[v('SG_PARTIDO')] || 0) + votos;
   });
-  const resultado = (vagasPorUf = {}) => {
+  const resultado = (vagasPorUf = {}, cg = cargos[0]) => {
     const out = {};
-    for (const [uf, u] of Object.entries(ufs)) {
-      const agrs = Object.values(u.agrs).map(a => Object.assign(a, { cands: Object.values(a.cands).sort((x, y) => y.votos - x.votos || x.nome.localeCompare(y.nome)) }));
+    for (const [uf, u] of Object.entries(porCargo[String(cg)] || {})) {
+      const agrs = Object.values(u.agrs).map(a => Object.assign({}, a, { cands: Object.values(a.cands).sort((x, y) => y.votos - x.votos || x.nome.localeCompare(y.nome)) }));
       const validos = agrs.reduce((s, a) => s + a.votos, 0);
       const eleitosReal = agrs.reduce((s, a) => s + a.cands.filter(c => c.eleitoReal).length, 0);
-      out[uf] = { uf, cargo: Number(cargo), vagas: vagasPorUf[uf] || eleitosReal, validos, qeTse: null, final: true, eleitosReal, agrs };
+      out[uf] = { uf, cargo: Number(cg), vagas: vagasPorUf[uf] || eleitosReal, validos, qeTse: null, final: true, pct: 100, atualizado: '', eleitosReal, agrs };
     }
     return out;
   };
@@ -312,5 +449,6 @@ function snConferir(d, res) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt, snDistritaoMisto, snConferir };
+  module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
+    snDistritaoMisto, snSimular, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

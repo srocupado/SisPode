@@ -2007,6 +2007,14 @@ const CV_ABAS = [
   ['aba-radar',     'painel-radar'],
   ['aba-leis',      'painel-leis'],
   ['aba-apuracao',  'painel-apuracao'],
+  ['aba-sistemas',  'painel-sistemas'],
+];
+
+// Abas que são uma página à parte, num iframe: [botão, iframe, página]. A página
+// só carrega (e começa a ler o TSE) na 1ª abertura.
+const CV_FRAMES = [
+  ['aba-apuracao', 'apFrame', 'apuracao/extensao.html'],
+  ['aba-sistemas', 'siFrame', 'sistemas/sistemas.html'],
 ];
 
 function cvTrocarAba(idBotao) {
@@ -2017,18 +2025,22 @@ function cvTrocarAba(idBotao) {
     p.hidden = !ativa;
     b.classList.toggle('ativa', ativa);
   }
-  // Apuração: a página do painel só carrega (e começa a ler o TSE) na 1ª abertura.
-  const fr = idBotao === 'aba-apuracao' && document.getElementById('apFrame');
-  if (fr && !fr.getAttribute('src')) fr.setAttribute('src', 'apuracao/extensao.html');
-  if (fr) cvAjustarApFrame();
+  for (const [bt, idFrame, pagina] of CV_FRAMES) {
+    const fr = bt === idBotao && document.getElementById(idFrame);
+    if (!fr) continue;
+    if (!fr.getAttribute('src')) fr.setAttribute('src', pagina);
+    cvAjustarApFrame();
+  }
 }
 
-// O painel de apuração rola por dentro: ocupa da sua posição até o pé da janela.
+// As páginas em iframe rolam por dentro: ocupam da sua posição até o pé da janela.
 function cvAjustarApFrame() {
-  const fr = document.getElementById('apFrame');
-  if (!fr || !fr.offsetParent) return;
-  const topo = fr.getBoundingClientRect().top + window.scrollY;
-  fr.style.height = Math.max(560, window.innerHeight - topo) + 'px';
+  for (const [, idFrame] of CV_FRAMES) {
+    const fr = document.getElementById(idFrame);
+    if (!fr || !fr.offsetParent) continue;
+    const topo = fr.getBoundingClientRect().top + window.scrollY;
+    fr.style.height = Math.max(560, window.innerHeight - topo) + 'px';
+  }
 }
 if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('resize', cvAjustarApFrame);
 

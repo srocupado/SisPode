@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistemas eleitorais · Liderança do Podemos</title>
+<link rel="icon" href="../icons/podemos-logo.png">
+<!-- Relatórios · aba "Sistemas eleitorais": simula a mesma eleição em outros
+     sistemas, com os votos oficiais do TSE lidos na hora. Só na extensão.
+     Núcleo puro em ../sistemas-nucleo.js; tela em sistemas-tela.js. -->
+<style>
+  :root { --bg: #0f1720; --bg2: #16212c; --bg3: #1b2835; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; --verm: #ff7a6b; }
+  * { box-sizing: border-box; }
+  html { scrollbar-width: thin; scrollbar-color: #2e3d4d transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2e3d4d; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #3f5266; }
+  body { margin: 0; background: var(--bg); color: var(--texto); font-family: "DM Sans", "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
+  header { background: linear-gradient(180deg, #13202b, #0f1a24); border-bottom: 2px solid var(--verde); }
+  .topo { max-width: 1500px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
+  .topo img { height: 46px; width: auto; background: #fff; border-radius: 8px; padding: 4px 6px; }
+  .topo h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+  .topo .sub { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .topo .sub b { color: var(--verde2); font-weight: 600; }
+  .filete { height: 4px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+  main { max-width: 1500px; margin: 0 auto; padding: 12px 16px 40px; }
+  button, select, input { font: inherit; }
+  button { font-size: 12.5px; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg2); color: var(--texto); padding: 7px 11px; cursor: pointer; }
+  button:hover { border-color: #3c4f63; } button:disabled { opacity: .45; cursor: default; }
+  button.pri { background: rgba(0,168,89,.2); border-color: var(--verde); font-weight: 600; }
+  select { font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 8px; }
+  input[type=number] { width: 58px; font-size: 13px; background: var(--bg); border: 1px solid var(--borda); color: var(--texto); border-radius: 6px; padding: 4px 6px; text-align: right; }
+  input[type=range] { accent-color: var(--verde); width: 140px; vertical-align: middle; }
+  input[type=checkbox] { accent-color: var(--verde); }
+  .seg { display: inline-flex; border: 1px solid var(--borda); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--dim); }
+  .seg button.ativo { background: rgba(0,168,89,.18); color: var(--texto); font-weight: 600; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .ctl label.rot { font-size: 12px; color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  .ctl .dir { margin-left: auto; display: flex; gap: 6px; }
+  .status { font-size: 12.5px; color: var(--dim); min-height: 18px; margin: 4px 0 8px; }
+  .status b { color: var(--texto); }
+  .barra { height: 5px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; margin: 5px 0 0; max-width: 520px; }
+  .barra i { display: block; height: 100%; background: linear-gradient(90deg, #1fa5a5, var(--verde)); transition: width .3s; }
+  .aviso { border: 1px solid var(--aviso); background: rgba(224,160,48,.10); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.45; }
+  .aviso b { color: var(--aviso); }
+  .erro { border-color: var(--verm); background: rgba(255,122,107,.08); } .erro b { color: var(--verm); }
+  /* Sistemas e parâmetros */
+  .sistemas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .sis { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; }
+  .sis h3 { margin: 0 0 4px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+  .sis h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .sis p { margin: 0 0 6px; color: var(--dim); }
+  .sis .lin { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+  .sis .lin > span:first-child { flex: 1 1 140px; color: var(--dim); }
+  .sis .nota { font-size: 11.5px; color: var(--dim); border-top: 1px dashed var(--borda); padding-top: 5px; margin-top: 6px; }
+  .sis.breve { opacity: .65; border-style: dashed; }
+  .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
+  /* Resultado */
+  h2 { font-size: 15px; margin: 18px 0 8px; }
+  h2 small { color: var(--dim); font-weight: 400; font-size: 12px; }
+  .cards { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+  .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
+  .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); }
+  .card .v { font-size: 26px; font-weight: 700; color: var(--verde2); line-height: 1.2; }
+  .card .d { font-size: 12px; font-weight: 600; } .mais { color: var(--verde2); } .menos { color: var(--verm); } .igual { color: var(--dim); }
+  .card .l { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .hemis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+  .hemi { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px 10px; text-align: center; }
+  .hemi .t { font-size: 13px; font-weight: 600; } .hemi .s { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hemi svg { width: 100%; height: auto; display: block; margin-top: 4px; }
+  .hemi .pode { font-size: 12px; margin-top: 2px; } .hemi .pode b { color: var(--verde2); }
+  .legenda { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--dim); margin: 8px 0 0; }
+  .legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .tab-rolagem { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); font-weight: 600; padding: 5px 6px; border-bottom: 1px solid var(--borda); white-space: nowrap; }
+  td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  table.compacta { width: auto; min-width: min(100%, 640px); }
+  table.compacta td.n, table.compacta th.n { min-width: 64px; padding-left: 12px; }
+  th.grupo { text-align: center; border-bottom: 1px solid var(--borda); color: var(--texto); }
+  td.d { text-align: right; font-size: 12px; width: 44px; }
+  tr.pode td { background: rgba(0,168,89,.12); font-weight: 600; }
+  tr.clic { cursor: pointer; } tr.clic:hover td { background: rgba(255,255,255,.04); } tr.sel td { background: rgba(255,210,74,.10); }
+  .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .duas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+  .bloco { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 11px; min-width: 0; }
+  .bloco h3 { margin: 0 0 6px; font-size: 13.5px; }
+  .bloco .vazio { color: var(--dim); font-size: 12.5px; }
+  .bloco td { font-size: 12.5px; white-space: normal; } .bloco td.n, .bloco td.ent, .bloco td.sai { white-space: nowrap; }
+  .ent { color: var(--verde2); font-weight: 700; } .sai { color: var(--verm); font-weight: 700; }
+  .dica { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+  .rodape { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--borda); font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+  @media (max-width: 1100px) { .sistemas, .hemis, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .duas { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .sistemas, .hemis, .cards { grid-template-columns: 1fr; } .ctl .dir { margin-left: 0; } }
+  /* Impressão: só o relatório montado em #siImpressao, em papel claro. */
+  #siImpressao { display: none; }
+  @media print {
+    @page { size: A4; margin: 12mm 11mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body > *:not(#siImpressao) { display: none !important; }
+    body { background: #fff; color: #1b2430; font-size: 10pt; }
+    #siImpressao { display: block; --dim: #5b6b7b; --texto: #1b2430; --borda: #cfd8e1; --verde2: #0b8a4b; --verm: #c0392b; --ama: #9a6a00; --bg2: #fff; }
+    .imp-cab { display: flex; align-items: center; gap: 12px; } .imp-cab img { height: 44px; }
+    .imp-org { font-size: 9pt; font-weight: 700; color: #0b8a4b; text-transform: uppercase; letter-spacing: .4px; }
+    #siImpressao h1 { font-size: 15pt; margin: 2px 0; }
+    #siImpressao h2 { font-size: 12pt; margin: 12px 0 6px; break-after: avoid; color: #0b5e3a; }
+    .imp-sub { font-size: 8.5pt; color: #5b6b7b; }
+    .imp-filete { height: 4px; margin: 8px 0 6px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+    .imp-param { font-size: 8.5pt; color: #33414f; margin: 3px 0; } .imp-param b { color: #1b2430; }
+    .imp-quebra { break-before: page; }
+    #siImpressao .cards, #siImpressao .hemis { grid-template-columns: repeat(4, 1fr); gap: 6px; }
+    #siImpressao .card, #siImpressao .hemi, #siImpressao .bloco { background: #fff; border: 1px solid #cfd8e1; break-inside: avoid; }
+    #siImpressao .card .v { color: #0b5e3a; font-size: 20pt; }
+    #siImpressao .duas { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+    #siImpressao .bloco { padding: 6px 7px; } #siImpressao .bloco td { font-size: 8pt; padding: 2px 3px; }
+    #siImpressao td { color: #1b2430; font-size: 8.5pt; padding: 2px 4px; border-bottom: 1px solid #e4e9ee; }
+    #siImpressao th { font-size: 7.5pt; color: #5b6b7b; } #siImpressao th.grupo { color: #1b2430; }
+    #siImpressao table.compacta td.n, #siImpressao table.compacta th.n { min-width: 0; padding-left: 8px; }
+    #siImpressao tr.sel td { background: none; }
+    #siImpressao tr { break-inside: avoid; }
+    #siImpressao tr.pode td { background: #e3f4ea; }
+    #siImpressao .tab-rolagem { overflow: visible; }
+    #siImpressao .hemi circle.vazio { fill: #e4e9ee; }
+    #siImpressao .aviso { border-color: #e0a030; background: #fff8e6; color: #1b2430; }
+    .imp-rodape { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cfd8e1; font-size: 8pt; color: #5b6b7b; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="topo">
+    <img src="../icons/podemos-logo.png" alt="Podemos">
+    <div>
+      <h1>Sistemas eleitorais</h1>
+      <div class="sub">A mesma eleição em outros sistemas, com os votos oficiais do <b>TSE</b> lidos na hora · proporcional (atual), distritão e distritão misto</div>
+    </div>
+  </div>
+  <div class="filete"></div>
+</header>
+<main>
+  <div class="ctl">
+    <label class="rot">Eleição <select id="siEleicao"><option value="">carregando…</option></select></label>
+    <div class="seg" id="siCargo" role="group" aria-label="Cargo">
+      <button data-c="6" class="ativo">Deputado federal</button><button data-c="7">Estadual e distrital</button>
+    </div>
+    <label class="rot">Abrangência <select id="siUf"><option value="">Brasil (27 UFs)</option></select></label>
+    <button id="siLer" class="pri">Ler dados do TSE</button>
+    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF (imprimir → salvar como PDF)">Salvar em PDF</button></div>
+  </div>
+  <div class="status" id="siStatus"></div>
+  <div id="siAvisos"></div>
+
+  <div class="sistemas" id="siSistemas">
+    <div class="sis" data-sis="proporcional">
+      <h3><i style="background:#3b82f6"></i>Proporcional (atual)<span class="alterado" id="siAltP" hidden>parâmetros alterados</span></h3>
+      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111).</p>
+      <div class="lin"><span>Votos mínimos do candidato no QP (% do QE)</span><input type="number" id="pQP" min="0" max="100" step="1" value="10"></div>
+      <div class="lin"><span>Sobras: agremiação com (% do QE)</span><input type="number" id="pPart" min="0" max="100" step="1" value="80"></div>
+      <div class="lin"><span>Sobras: candidato com (% do QE)</span><input type="number" id="pCand" min="0" max="100" step="1" value="20"></div>
+      <div class="lin"><label><input type="checkbox" id="pTerc" checked> 3ª fase aberta a todas as agremiações (STF, ADIs 7228/7263/7325)</label></div>
+      <div class="lin"><label><input type="checkbox" id="pFed" checked> Federações (desmarcado: cada partido sozinho)</label></div>
+    </div>
+    <div class="sis" data-sis="distritao">
+      <h3><i style="background:#f59e0b"></i>Distritão</h3>
+      <p>O estado inteiro é um distrito: elegem-se os mais votados, até o número de vagas. Voto de legenda não elege ninguém.</p>
+      <div class="nota">Sem parâmetro: é o mais simples dos sistemas. A régua é o "corte" — os votos do último eleito em cada estado.</div>
+    </div>
+    <div class="sis" data-sis="misto">
+      <h3><i style="background:#a855f7"></i>Distritão misto<span class="alterado" id="siAltM" hidden>parâmetros alterados</span></h3>
+      <p>Parte das vagas vai aos mais votados (distritão); a outra, à votação da agremiação, pelas maiores médias.</p>
+      <div class="lin"><span>Mais votados <b id="mPctV">50%</b> · lista <b id="mPctL">50%</b></span><input type="range" id="mPct" min="0" max="100" step="5" value="50"></div>
+      <div class="lin"><span>Modelo</span><div class="seg" id="mModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
+      <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="mLim" min="0" max="50" step="0.5" value="0"></div>
+      <div class="nota"><b>Paralelo</b>: a lista divide só a sua parte. <b>Compensatório</b>: a proporção vale para o total, e a lista completa quem ficou abaixo dela.
+        Os dados do TSE têm um voto por eleitor; com dois votos, o da lista seria separado — aqui a lista usa a votação da agremiação (nominal + legenda).</div>
+    </div>
+    <div class="sis breve" data-sis="distrital">
+      <h3><i style="background:#64748b"></i>Distrital misto</h3>
+      <p>Metade das vagas em distritos de um eleito, metade pela lista.</p>
+      <div class="nota">Em construção: os distritos serão desenhados com os dados do TSE (eleitores e votos por zona) e a malha do IBGE.</div>
+    </div>
+  </div>
+  <div class="ctl"><button id="siRegra">Voltar à regra vigente</button><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span></div>
+
+  <div id="siResultado"></div>
+  <div class="rodape">Fonte: Tribunal Superior Eleitoral — servidor oficial de resultados (eleição corrente) e repositório de dados abertos
+    (votação por candidato e por partido, por município e zona), lidos na hora. Nenhum voto vem embutido na extensão; a leitura dos dados abertos
+    fica guardada neste navegador só enquanto o arquivo do TSE for o mesmo (a versão é conferida a cada leitura).
+    O proporcional com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs). As simulações mantêm os votos como foram dados — num outro sistema, eleitores e partidos se comportariam de outro jeito.</div>
+</main>
+<div id="siImpressao"></div>
+<script src="../labs-apuracao.js"></script>
+<script src="../zip-remoto.js"></script>
+<script src="../sistemas-nucleo.js"></script>
+<script src="sistemas-tela.js"></script>
+</body>
+</html>

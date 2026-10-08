@@ -208,9 +208,9 @@
   /* ---------- Aba "Apuração eleitoral" ---------- */
   /* Largura toda da janela; a altura (até o pé da janela) vem de cvAjustarApFrame,
      e a assinatura sai para o painel não empurrar a página. */
-  .container:has(#painel-apuracao:not([hidden])) { max-width: none; padding-bottom: 0; }
-  .container:has(#painel-apuracao:not([hidden])) .signature { display: none; }
-  #apFrame { display: block; width: calc(100% + 32px); margin: 0 -16px; height: calc(100vh - 160px); min-height: 560px;
+  .container:has(#painel-apuracao:not([hidden])), .container:has(#painel-sistemas:not([hidden])) { max-width: none; padding-bottom: 0; }
+  .container:has(#painel-apuracao:not([hidden])) .signature, .container:has(#painel-sistemas:not([hidden])) .signature { display: none; }
+  #apFrame, #siFrame { display: block; width: calc(100% + 32px); margin: 0 -16px; height: calc(100vh - 160px); min-height: 560px;
              border: 0; border-top: 1px solid var(--border); background: #0f1720; }
   .aba.ativa { color: var(--accent-light); border-bottom-color: var(--accent); }
 
@@ -884,6 +884,7 @@
     <button class="aba" id="aba-radar" role="tab">Radar temático</button>
     <button class="aba" id="aba-leis" role="tab">Leis aprovadas</button>
     <button class="aba" id="aba-apuracao" role="tab">Apuração eleitoral</button>
+    <button class="aba" id="aba-sistemas" role="tab">Sistemas eleitorais</button>
   </div>
 
 
@@ -1146,6 +1147,13 @@
          gerada do mesmo modelo por apuracao/gerar-apuracao.js. Carrega só
          quando a aba é aberta. -->
     <iframe id="apFrame" title="Apuração eleitoral"></iframe>
+  </div>
+
+  <div id="painel-sistemas" hidden>
+    <!-- Sistemas eleitorais: a eleição simulada em outros sistemas (proporcional,
+         distritão, distritão misto), com os votos do TSE lidos na hora
+         (sistemas/sistemas.html). Carrega só quando a aba é aberta. -->
+    <iframe id="siFrame" title="Sistemas eleitorais"></iframe>
   </div>
 
   <div class="signature">
