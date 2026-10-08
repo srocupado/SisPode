@@ -497,6 +497,9 @@ function siRelatorioHtml(impressao) {
       + `<div class="l">${temReal ? siFmt(siTrocas(s, comp)) + (siTrocas(s, comp) === 1 ? ' cadeira muda' : ' cadeiras mudam') + ' de mãos' : ''}</div></div>`;
   }
   h += '</div>';
+  const ind = snIndicadores(res, si.dados);
+  h = siResumoHtml(ind) + h;
+  h += siIndicadoresHtml(ind);
   // Hemiciclos
   const vagas = res.vagas;
   h += `<h2>Composição em cada sistema <small>${siFmt(vagas)} cadeiras · mesma ordem de partidos em todos</small></h2><div class="hemis" style="--n:${nCol}">`;
@@ -545,6 +548,7 @@ function siRelatorioHtml(impressao) {
     }
     h += '</tbody></table></div>';
   }
+  h += siDistritosEstadosHtml();
   const ufDet = umaUf ? Object.keys(si.dados)[0] : si.ufSel;
   if (ufDet) h += siDetalheUfHtml(ufDet, impressao);
   return h;
@@ -583,6 +587,112 @@ function siDetalheUfHtml(uf, impressao) {
   return h;
 }
 
+// ------------------------------------------------------------ comparação: resumo, indicadores, método
+const siDec = (x, n = 1) => Number(x).toLocaleString('pt-BR', { minimumFractionDigits: n, maximumFractionDigits: n });
+const siSinal = d => (d > 0 ? '+' + d : d < 0 ? '−' + -d : '=');
+
+/** Resumo em frases, escrito a partir dos números (nada de opinião: o que muda e quanto). */
+function siResumoHtml(ind) {
+  const res = si.res, temReal = res.real.total > 0, vagas = res.vagas;
+  const totV = Object.values(ind.votos).reduce((s, v) => s + v, 0) || 1;
+  const podeV = (ind.votos[SI_PARTIDO] || 0) / totV;
+  const pode = x => x.porPartido[SI_PARTIDO] || 0;
+  const itens = [];
+  if (temReal) {
+    const oficial = pode(res.real);
+    const outros = res.sims.filter(s => !(s.tipo === 'proporcional' && !siTrocas(s, res.comparadas)));
+    itens.push(`Com <b>${siPct(podeV)}</b> dos votos (nominais e de legenda), o Podemos fez <b>${oficial}</b> cadeira${oficial === 1 ? '' : 's'} no resultado oficial `
+      + `(${siPct(oficial / (res.real.total || 1))} das ${siFmt(res.real.total)}). `
+      + (outros.length ? 'Nos outros sistemas: ' + outros.map(s => `${siEsc(s.nome.toLowerCase())}, <b>${pode(s)}</b> (${siSinal(pode(s) - oficial)})`).join('; ') + '.' : ''));
+    const melhor = res.sims.slice().sort((a, b) => pode(b) - pode(a))[0], pior = res.sims.slice().sort((a, b) => pode(a) - pode(b))[0];
+    if (pode(melhor) !== pode(pior)) itens.push(`Para o Podemos, o sistema mais favorável é o <b>${siEsc(melhor.nome.toLowerCase())}</b> (${pode(melhor)}) e o menos, o <b>${siEsc(pior.nome.toLowerCase())}</b> (${pode(pior)}).`);
+  } else {
+    itens.push(`Com <b>${siPct(podeV)}</b> dos votos, o Podemos faria: ` + res.sims.map(s => `${siEsc(s.nome.toLowerCase())}, <b>${pode(s)}</b>`).join('; ') + '. (Sem eleitos marcados pelo TSE ainda, não há resultado oficial para comparar.)');
+  }
+  const todos = [...(ind.real ? [['resultado oficial', ind.real]] : []), ...res.sims.map(s => [s.nome.toLowerCase(), ind.sims[s.id]])];
+  const porG = todos.slice().sort((a, b) => a[1].gallagher - b[1].gallagher);
+  itens.push(`Proporcionalidade (índice de Gallagher, 0 = cadeiras exatamente na proporção dos votos): de <b>${siDec(porG[0][1].gallagher)}</b> (${siEsc(porG[0][0])}) a <b>${siDec(porG[porG.length - 1][1].gallagher)}</b> (${siEsc(porG[porG.length - 1][0])}).`);
+  const porN = todos.slice().sort((a, b) => a[1].nep - b[1].nep);
+  itens.push(`Fragmentação (número efetivo de partidos): de <b>${siDec(porN[0][1].nep)}</b> (${siEsc(porN[0][0])}) a <b>${siDec(porN[porN.length - 1][1].nep)}</b> (${siEsc(porN[porN.length - 1][0])}); `
+    + `partidos com cadeira: de ${Math.min(...todos.map(t => t[1].partidos))} a ${Math.max(...todos.map(t => t[1].partidos))}.`);
+  if (temReal) {
+    const mud = res.sims.filter(s => siTrocas(s, res.comparadas));
+    if (mud.length) itens.push('Quem mais ganha e quem mais perde: ' + mud.map(s => {
+      const x = ind.sims[s.id];
+      return `${siEsc(s.nome.toLowerCase())} — ${x.ganha ? `${siEsc(x.ganha.sg)} ${siSinal(x.ganha.d)}` : '—'}, ${x.perde ? `${siEsc(x.perde.sg)} ${siSinal(x.perde.d)}` : '—'} `
+        + `(${siFmt(siTrocas(s, res.comparadas))} de ${siFmt(vagas)} cadeiras mudam de mãos)`;
+    }).join('; ') + '.');
+  }
+  const sd = res.sims.find(s => s.tipo === 'distrital');
+  if (sd) {
+    const op = si.sistemas.find(s => s.tipo === 'distrital').op;
+    const des = Object.entries(op.porUf).filter(([, x]) => x.desenho.metricas);
+    if (des.length) {
+      const pior = des.slice().sort((a, b) => b[1].desenho.metricas.desvioMax - a[1].desenho.metricas.desvioMax)[0];
+      const nd = des.reduce((s, [, x]) => s + x.desenho.distritos.length, 0);
+      const venc = {};
+      for (const uf of res.comparadas) for (const d of (sd.porUf[uf].distritos || [])) if (d.vencedor) venc[d.vencedor.partido] = (venc[d.vencedor.partido] || 0) + 1;
+      const top = Object.entries(venc).sort((a, b) => b[1] - a[1]).slice(0, 3);
+      itens.push(`Distrital misto: <b>${siFmt(nd)}</b> distritos desenhados em ${des.length} estado${des.length === 1 ? '' : 's'}, por ${op.base === 'populacao' ? 'população (Censo 2022)' : 'eleitorado'}; `
+        + `maior desvio de tamanho <b>${siPct(pior[1].desenho.metricas.desvioMax)}</b> (${pior[0].toUpperCase()}).`
+        + (top.length ? ` Mais distritos ganhos: ${top.map(([sg, n]) => `${siEsc(sg)} ${n}`).join(', ')}${venc[SI_PARTIDO] && !top.some(([sg]) => sg === SI_PARTIDO) ? `; Podemos ${venc[SI_PARTIDO]}` : ''}.` : ''));
+    }
+  }
+  return `<h2>Resumo</h2><ul class="resumo">${itens.map(t => `<li>${t}</li>`).join('')}</ul>`;
+}
+
+function siIndicadoresHtml(ind) {
+  const res = si.res, temReal = res.real.total > 0;
+  const linhas = [...(ind.real ? [{ nome: 'Resultado oficial', x: ind.real, pode: res.real.porPartido[SI_PARTIDO] || 0, troca: null }] : []),
+    ...res.sims.map(s => ({ nome: s.nome, x: ind.sims[s.id], pode: s.porPartido[SI_PARTIDO] || 0, troca: temReal ? siTrocas(s, res.comparadas) : null }))];
+  let h = `<h2>Indicadores <small>sobre ${res.comparadas.length === 1 ? siUfNome(res.comparadas[0]) : res.comparadas.length + ' estados'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead><tr><th>Sistema</th><th class="n">Podemos</th>`
+    + '<th class="n">Partidos com cadeira</th><th class="n">Nº efetivo de partidos</th><th class="n">Gallagher</th><th>Maior bancada</th>'
+    + (temReal ? '<th class="n">Mudam de mãos</th><th>Mais ganha</th><th>Mais perde</th>' : '') + '</tr></thead><tbody>';
+  for (const l of linhas) {
+    h += `<tr><td>${siEsc(l.nome)}</td><td class="n"><b>${l.pode}</b></td><td class="n">${l.x.partidos}</td><td class="n">${siDec(l.x.nep, 2)}</td><td class="n">${siDec(l.x.gallagher, 2)}</td>`
+      + `<td>${l.x.maior ? `${siEsc(l.x.maior.sg)} ${l.x.maior.n} (${siPct(l.x.maior.pct)})` : '—'}</td>`
+      + (temReal ? `<td class="n">${l.troca == null ? '—' : siFmt(l.troca)}</td><td>${l.x.ganha ? `${siEsc(l.x.ganha.sg)} <span class="mais">${siSinal(l.x.ganha.d)}</span>` : '—'}</td>`
+        + `<td>${l.x.perde ? `${siEsc(l.x.perde.sg)} <span class="menos">${siSinal(l.x.perde.d)}</span>` : '—'}</td>` : '') + '</tr>';
+  }
+  return h + '</tbody></table></div><div class="dica">Nº efetivo de partidos (Laakso-Taagepera): 1 ÷ soma dos quadrados das fatias de cadeiras — quanto maior, mais fragmentada a Casa. '
+    + 'Gallagher: desproporcionalidade entre votos e cadeiras, em pontos percentuais (0 = proporção perfeita); os votos são os nominais e de legenda de cada partido.</div>';
+}
+
+/** Distritos por estado (Brasil ou vários estados): quantos, tamanho, qualidade. */
+function siDistritosEstadosHtml() {
+  const s = si.sistemas.find(x => x.tipo === 'distrital');
+  if (!s || Object.keys(s.op.porUf).length < 2) return '';
+  const pop = s.op.base === 'populacao';
+  let h = `<h2>Distritos por estado <small>distrital misto · tamanho por ${pop ? 'população (Censo 2022)' : 'eleitorado'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead><tr><th>UF</th><th class="n">Distritos</th>`
+    + `<th class="n">Alvo (${pop ? 'habitantes' : 'eleitores'})</th><th class="n">Desvio máx.</th><th class="n">Desvio médio</th><th class="n">Compacidade</th><th class="n">Municípios divididos</th><th class="n">Zonas usadas</th></tr></thead><tbody>`;
+  for (const uf of Object.keys(s.op.porUf).sort()) {
+    const d = s.op.porUf[uf].desenho, m = d.metricas;
+    h += m ? `<tr><td>${uf.toUpperCase()}</td><td class="n">${d.distritos.length}</td><td class="n">${siFmt(Math.round(d.alvo))}</td><td class="n${m.desvioMax > 0.15 ? ' menos' : ''}">${siPct(m.desvioMax)}</td>`
+      + `<td class="n">${siPct(m.desvioMedio)}</td><td class="n">${siDec(m.compacidadeMedia, 2)}</td><td class="n">${m.municipiosDivididos}</td><td class="n">${m.zonas}</td></tr>`
+      : `<tr><td>${uf.toUpperCase()}</td><td class="n">0</td><td colspan="6">${siEsc(d.erro || 'todas as vagas pela lista')}</td></tr>`;
+  }
+  return h + '</tbody></table></div>';
+}
+
+/** Método e fontes — vai no fim do relatório em PDF. */
+function siMetodoHtml() {
+  const d = s => siEsc(siDescricao(s));
+  const sist = Object.fromEntries(si.sistemas.map(s => [s.tipo, s]));
+  const li = [];
+  li.push(`<b>Votos.</b> ${si.op.fonte === 'resultados' ? `Servidor oficial de resultados do TSE (divulgação da eleição de ${si.op.ano}), um arquivo por estado` : `Dados abertos do TSE de ${si.op.ano} (votação por candidato e por partido, por município e zona)`}, lidos na hora. `
+    + 'Votos válidos de cada candidato e de legenda de cada partido; candidato com voto anulado (sub judice) fica fora. A simulação mantém os votos como foram dados — noutro sistema, partidos, candidatos e eleitores agiriam de outro jeito.');
+  if (sist.proporcional) li.push(`<b>Proporcional (atual)</b> — ${d(sist.proporcional)}. Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF nas ADIs 7228, 7263 e 7325: `
+    + 'quociente eleitoral (fração acima de meio arredonda), quociente partidário com candidato de 10% do QE, sobras pelas maiores médias (agremiação com 80% do QE e candidato com 20%), 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. Com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs).');
+  if (sist.distritao) li.push('<b>Distritão</b> — o estado inteiro é um distrito: elegem-se os mais votados, até o número de vagas; voto de legenda não elege.');
+  if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
+  if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
+    + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `
+    + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
+  li.push('<b>Indicadores.</b> Número efetivo de partidos (Laakso-Taagepera) e índice de desproporcionalidade de Gallagher, sobre os estados comparáveis.');
+  li.push(`<b>Fontes.</b> Tribunal Superior Eleitoral (resultados, dados abertos: votação por candidato e por partido, detalhe da votação e locais de votação); IBGE (malha municipal${sist.distrital && sist.distrital.op.base === 'populacao' ? ' e Censo Demográfico 2022, tabela 4709' : ''}). Nenhum dado de voto vem embutido na extensão.`);
+  return `<h2 class="imp-quebra">Método e fontes</h2><ul class="metodo">${li.map(t => `<li>${t}</li>`).join('')}</ul>`;
+}
+
 // ------------------------------------------------------------ distritos: mapa e tabela
 /** Cor de cada distrito: vizinhos (pela vizinhança das unidades) nunca com a mesma. */
 function siCoresDistritos(base, desenho) {
@@ -606,7 +716,7 @@ function siCoresDistritos(base, desenho) {
  * Municípios inteiros pintados; município dividido em zonas fica neutro, com uma
  * bolinha por zona (tamanho pelo eleitorado). caixa: recorte [x0, y0, x1, y1] em km (zoom).
  */
-function siMapaSvg(uf, x, eleicao, modo, caixa, larg) {
+function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
   const g = si.geo[siChaveGeo(uf)], { base, desenho } = x, proj = base.proj;
   const { cor, de } = siCoresDistritos(base, desenho);
   const cores = siCores(snOrdemPartidos(si.res));
@@ -642,6 +752,8 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg) {
   const fonte = caixa ? 11 : desenho.distritos.length > 30 ? 8 : 10;
   for (const d of desenho.distritos) {
     if (caixa && (d.x < x0 || d.x > x1 || d.y < y0 || d.y > y1)) continue;
+    // no mapa do estado, os distritos da capital ficam numerados só no recorte ao lado
+    if (semRotulo && d.x >= semRotulo[0] && d.x <= semRotulo[2] && d.y >= semRotulo[1] && d.y <= semRotulo[3]) continue;
     h += `<text x="${sx(d.x)}" y="${sy(d.y)}" font-size="${fonte}">${d.id}</text>`;
   }
   return `<svg viewBox="0 0 ${W} ${H}" role="img">${h}</svg>`;
@@ -685,7 +797,7 @@ function siDistritosHtml(uf, sd, impressao) {
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
   const botoes = impressao ? '' : `<div class="seg" id="siMapaModo" style="margin-bottom:6px"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>`;
-  h += botoes + `<div class="mapas-d"><div class="mapa-d"><div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido</div>${siMapaSvg(uf, x, el, modo, null, 640)}</div>`
+  h += botoes + `<div class="mapas-d"><div class="mapa-d"><div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
     + (cap ? `<div class="mapa-d"><div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
   // tabela
   const nomes = d => {
@@ -718,12 +830,13 @@ async function siPdf() {
   const alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
   const el = $('siImpressao');
   el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
-      <h1>Sistemas eleitorais — ${siEsc(siCargoNome())}, ${si.op.ano} (${siEsc(alvo)})</h1>
+      <h1>Sistemas eleitorais: relatório comparativo — ${siEsc(siCargoNome())}, ${si.op.ano} (${siEsc(alvo)})</h1>
       <div class="imp-sub">Os votos oficiais da eleição redistribuídos por sistema · fonte: TSE (${si.op.fonte === 'resultados' ? 'servidor oficial de resultados' : 'dados abertos'}) · gerado em ${siEsc(agora)}</div></div></div>
     <div class="imp-filete"></div>
     ${si.sistemas.map(s => `<div class="imp-param"><b>${siEsc(s.nome)}:</b> ${siEsc(siDescricao(s))}</div>`).join('')}
     ${$('siAvisos').innerHTML}
     ${siRelatorioHtml(true)}
+    ${siMetodoHtml()}
     <div class="imp-rodape">As simulações mantêm os votos como foram dados — noutro sistema, eleitores e partidos se comportariam de outro jeito. O proporcional com a regra vigente
       reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
   const titulo = document.title;

@@ -169,7 +169,8 @@ A eleição de deputados **simulada em outros sistemas**, com os votos oficiais 
 - **Resultado**: bancada do Podemos em cada sistema (com a diferença para o oficial e quantas cadeiras mudam de mãos), **hemiciclos** lado a lado com a mesma ordem de partidos, **bancadas por partido** com Δ, **quem entra e quem sai** do Podemos em cada sistema, e a tabela **estado a estado** (vagas, QE, corte, Podemos por sistema, trocas) — clicar num estado abre o detalhe dele (partidos e quem entra/sai, de todos os partidos)
 - Os parâmetros recalculam na hora, sem reler o TSE; **Voltar à regra vigente** desfaz tudo
 - Estado em **retotalização** ou com apuração em andamento: a tela avisa e o deixa fora da comparação nacional
-- **Salvar em PDF** (A4): parâmetros de cada sistema, cartões, hemiciclos, tabelas e o detalhe do estado aberto, com o mapa e a tabela dos distritos
+- **Resumo** escrito a partir dos números (bancada do Podemos em cada sistema, o mais e o menos favorável, faixa de proporcionalidade e de fragmentação, quem mais ganha e perde, distritos ganhos) e **indicadores** por sistema: partidos com cadeira, **número efetivo de partidos** (Laakso-Taagepera), **índice de desproporcionalidade de Gallagher** (votos nominais e de legenda de cada partido × cadeiras), maior bancada, cadeiras que mudam de mãos, quem mais ganha e quem mais perde
+- **Relatório em PDF** (A4), o comparativo completo: parâmetros, resumo, indicadores, bancada do Podemos, hemiciclos, bancadas por partido, quem entra e quem sai, estado a estado, distritos por estado (qualidade do desenho em cada UF), o detalhe do estado aberto com o mapa e a tabela dos distritos, e **método e fontes**
 - Os núcleos (`sistemas-nucleo.js`, `sistemas-distrital.js`) são puros e testados (`testes/sistemas.test.js`, `testes/sistemas-distrital.test.js`)
 
 ---

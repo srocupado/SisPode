@@ -307,6 +307,44 @@ function snSimular(dados, sistemas) {
   return { ufs, comparadas, real, sims };
 }
 
+/**
+ * Indicadores de cada sistema (e do oficial), sobre as UFs comparáveis:
+ *  · partidos: quantos têm ao menos uma cadeira;
+ *  · nep: número efetivo de partidos (Laakso-Taagepera, 1 ÷ Σ fatia²);
+ *  · gallagher: desproporcionalidade (√(½ Σ (votos% − cadeiras%)²)), em pontos percentuais,
+ *    pelos votos de cada partido (nominais + legenda; numa federação, os de cada partido);
+ *  · maior: a fatia de cadeiras do maior partido; ganha/perde: maior variação contra o oficial.
+ * Devolve { votos: { sigla: n }, real: ind, sims: { id: ind } }.
+ */
+function snIndicadores(res, dados) {
+  const votos = {};
+  for (const uf of res.comparadas) for (const a of dados[uf].agrs) {
+    const ps = a.porSigla && Object.keys(a.porSigla).length ? a.porSigla : { [a.siglas[0] || a.id]: a.votos };
+    for (const [sg, v] of Object.entries(ps)) votos[sg] = (votos[sg] || 0) + v;
+  }
+  const totV = Object.values(votos).reduce((s, v) => s + v, 0) || 1;
+  const ind = (porPartido, ref) => {
+    const tot = Object.values(porPartido).reduce((s, v) => s + v, 0) || 1;
+    const comCadeira = Object.entries(porPartido).filter(([, n]) => n > 0);
+    const nep = 1 / comCadeira.reduce((s, [, n]) => s + (n / tot) ** 2, 0);
+    const siglas = new Set([...Object.keys(votos), ...Object.keys(porPartido)]);
+    let q = 0;
+    for (const sg of siglas) q += (100 * (votos[sg] || 0) / totV - 100 * (porPartido[sg] || 0) / tot) ** 2;
+    const out = { partidos: comCadeira.length, nep: comCadeira.length ? nep : 0, gallagher: Math.sqrt(q / 2),
+      maior: comCadeira.reduce((m, [sg, n]) => (!m || n > m.n ? { sg, n, pct: n / tot } : m), null) };
+    if (ref) {
+      const dif = [...new Set([...Object.keys(ref), ...Object.keys(porPartido)])].map(sg => ({ sg, d: (porPartido[sg] || 0) - (ref[sg] || 0) }));
+      dif.sort((a, b) => b.d - a.d || a.sg.localeCompare(b.sg));
+      out.ganha = dif[0] && dif[0].d > 0 ? dif[0] : null;
+      out.perde = dif[dif.length - 1] && dif[dif.length - 1].d < 0 ? dif[dif.length - 1] : null;
+    }
+    return out;
+  };
+  const temReal = res.real.total > 0;
+  return { votos, real: temReal ? ind(res.real.porPartido) : null,
+    sims: Object.fromEntries(res.sims.map(s => [s.id, ind(s.porPartido, temReal ? res.real.porPartido : null)])) };
+}
+
 /** Partidos na ordem de exibição: bancada oficial, depois a maior simulada, depois a sigla. */
 function snOrdemPartidos(res) {
   const todas = new Set([...Object.keys(res.real.porPartido), ...res.sims.flatMap(s => Object.keys(s.porPartido))]);
@@ -480,5 +518,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, snSimular, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

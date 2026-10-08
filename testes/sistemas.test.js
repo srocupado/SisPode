@@ -158,6 +158,19 @@ ok(todasSem.comparadas.join() === 'xb' && todasSem.sims[1].total === 3, 'nenhuma
 ok(S.snSituacao({ final: true }) === 'final' && S.snSituacao({ final: false, pct: 100, eleitosReal: 0 }) === 'retotalizando' && S.snSituacao({ final: false, pct: 87, eleitosReal: 0 }) === 'parcial',
   'situação do arquivo: final, retotalização, parcial');
 
+console.log('Indicadores comparativos');
+// ufA (base): votos A 500, B 250, C 150, D 100 (siglas PA..PD, sem porSigla → usa a sigla da agremiação).
+ufA.agrs.forEach(a => { a.siglas = ['P' + a.id]; });   // como no arquivo do TSE: a sigla da agremiação é a do candidato
+const indA = S.snIndicadores(cmp, { ya: ufA, xb: ufB });
+ok(indA.votos.PA === 500 && indA.votos.PD === 100 && !('PE' in indA.votos), 'votos por partido só nas UFs comparáveis');
+ok(indA.real.partidos === 3 && Math.abs(indA.real.nep - 1 / ((3 / 5) ** 2 + (1 / 5) ** 2 + (1 / 5) ** 2)) < 1e-9 && indA.real.maior.sg === 'PA' && indA.real.maior.n === 3,
+  'partidos com cadeira, número efetivo de partidos, maior bancada');
+const galOf = Math.sqrt(((50 - 60) ** 2 + (25 - 20) ** 2 + (15 - 20) ** 2 + (10 - 0) ** 2) / 2);
+ok(Math.abs(indA.real.gallagher - galOf) < 1e-9, 'índice de Gallagher (pontos percentuais), contando o partido com voto e sem cadeira');
+const dzI = indA.sims.d;
+ok(dzI.ganha && dzI.ganha.sg === 'PD' && dzI.ganha.d === 1 && dzI.perde.sg === 'PB' && dzI.perde.d === -1, 'quem mais ganha e quem mais perde contra o oficial');
+ok(indA.sims.p.gallagher === indA.real.gallagher && !indA.sims.p.ganha, 'proporcional vigente = oficial: mesmos indicadores, ninguém ganha');
+
 console.log('Distritão misto: teto e cláusula da lista');
 const poucos = uf(4, [agr('A', 900, [300, 200]), agr('B', 100, [90])]);
 const pt = S.snDistritaoMisto(poucos, { pctMaisVotados: 0.5, modelo: 'paralelo' });
