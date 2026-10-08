@@ -310,6 +310,50 @@ function sdComponentes(ids, viz) {
   return comps;
 }
 
+// ------------------------------------------------------------ peso pela população (Censo 2022, IBGE)
+/** Endereço da população residente do Censo 2022 por município de uma UF (agregado 4709, variável 93). */
+function sdUrlPopulacao(ibgeUf, base = 'https://servicodados.ibge.gov.br/api') {
+  return `${base}/v3/agregados/4709/periodos/2022/variaveis/93?localidades=${encodeURIComponent(`N6[N3[${ibgeUf}]]`)}`;
+}
+/** Resposta da API de agregados do IBGE → { códigoIBGE: população }. */
+function sdLerPopulacao(json) {
+  const out = {};
+  for (const v of json || []) for (const r of v.resultados || []) for (const s of r.series || []) {
+    const n = Number(Object.values(s.serie || {})[0]);
+    if (s.localidade && isFinite(n) && n > 0) out[String(s.localidade.id)] = n;
+  }
+  return out;
+}
+/**
+ * Troca o peso das unidades (eleitores aptos) pela população: cada município
+ * recebe a sua população do censo; num município dividido, ela se reparte entre
+ * as zonas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).
+ * Município sem par no IBGE fica com os eleitores × (população ÷ eleitores do resto do estado).
+ * Devolve { geo (cópia, mesmos votos), semPopulacao: [nomes] }.
+ */
+function sdPesoPopulacao(geo, pop, ibgeDe) {
+  const mun = {}, semPopulacao = [];
+  let somaPop = 0, somaApt = 0;
+  const aptosDe = m => Object.values(m.zonas).reduce((s, z) => s + z.aptos, 0);
+  for (const [cd, m] of Object.entries(geo.mun)) {
+    const id = ibgeDe(cd, m.nome), p = id && pop[id];
+    if (p) { somaPop += p; somaApt += aptosDe(m); }
+  }
+  const fator = somaApt ? somaPop / somaApt : 1;
+  // Dois municípios do TSE no mesmo do IBGE (raro): a população se reparte pelos eleitores de cada um.
+  const aptIbge = {};
+  for (const [cd, m] of Object.entries(geo.mun)) { const id = ibgeDe(cd, m.nome); if (id) aptIbge[id] = (aptIbge[id] || 0) + aptosDe(m); }
+  for (const [cd, m] of Object.entries(geo.mun)) {
+    const id = ibgeDe(cd, m.nome), p = id && pop[id], a = aptosDe(m);
+    if (!p) semPopulacao.push(m.nome || cd);
+    const total = p ? p * (a / (aptIbge[id] || a || 1)) : a * fator;
+    const zonas = {};
+    for (const [z, x] of Object.entries(m.zonas)) zonas[z] = Object.assign({}, x, { aptos: a ? total * x.aptos / a : 0 });
+    mun[cd] = { nome: m.nome, zonas };
+  }
+  return { geo: { mun, votos: geo.votos }, semPopulacao };
+}
+
 // ------------------------------------------------------------ desenho dos distritos
 /** Fila de prioridade mínima (heap binário) — [prioridade, valor]. */
 function sdFila() {
@@ -604,5 +648,5 @@ function sdDistritalMisto(d, op) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao };
 }

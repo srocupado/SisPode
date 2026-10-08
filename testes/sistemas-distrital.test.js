@@ -144,5 +144,16 @@ const conta = r => { const o = {}; for (const x of r.eleitos) o[x.agr] = (o[x.ag
 ok(conta(rcomp) === '{"A":2,"B":2}' && rcomp.eleitos.length === 4, 'compensatório: o total segue a proporção da votação');
 ok(rp.distritos.every(x => x.segundo && x.segundo.agr !== x.vencedor.agr && x.vencedor.agrPct > 0), 'segundo colocado (agremiação) e a fatia do vencedor no distrito');
 
+console.log('Peso pela população (Censo 2022)');
+ok(SD.sdUrlPopulacao(35) === 'https://servicodados.ibge.gov.br/api/v3/agregados/4709/periodos/2022/variaveis/93?localidades=' + encodeURIComponent('N6[N3[35]]'), 'endereço do agregado 4709 (população residente), municípios da UF');
+const popJ = [{ id: '93', resultados: [{ series: [{ localidade: { id: '1' }, serie: { 2022: '1000' } }, { localidade: { id: '2' }, serie: { 2022: '6000' } }, { localidade: { id: '9' }, serie: { 2022: '-' } }] }] }];
+const pop = SD.sdLerPopulacao(popJ);
+ok(pop['1'] === 1000 && pop['2'] === 6000 && !('9' in pop), 'leitura da resposta do IBGE');
+const pp = SD.sdPesoPopulacao(geo, pop, (cd) => ({ 1: '1', 2: '2', 3: null, 4: null })[cd]);
+const z = pp.geo.mun['2'].zonas;
+ok(pp.geo.mun['1'].zonas['1'].aptos === 1000 && z['2'].aptos === 2000 && z['3'].aptos === 2000 && z['4'].aptos === 2000 && z['3'].la === 0.8, 'município com a sua população; zonas pela proporção de eleitores; posições preservadas');
+ok(Math.abs(pp.geo.mun['3'].zonas['5'].aptos - 100 * 7000 / 1000) < 1e-9 && pp.semPopulacao.join() === 'C,D' && pp.geo.votos === geo.votos && geo.mun['1'].zonas['1'].aptos === 100,
+  'sem par no IBGE: eleitores × razão do estado (avisado); votos iguais; o original intocado');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

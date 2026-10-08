@@ -27,7 +27,7 @@ const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
-  geo: {}, desenhos: {}, calc: 0, mapaModo: 'distrito' };
+  geo: {}, desenhos: {}, pop: {}, calc: 0, mapaModo: 'distrito' };
 const $ = id => document.getElementById(id);
 const siEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const siFmt = n => Number(n || 0).toLocaleString('pt-BR');
@@ -52,14 +52,15 @@ function siSistemas() {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100 } },
     { id: 'distrital', nome: SI_NOMES.distrital, tipo: 'distrital', op: {
       pctDistrital: siNumero('dPct', 50) / 100, regra: ($('dRegra').querySelector('.ativo') || {}).dataset.r || 'partido',
-      modelo: ($('dModelo').querySelector('.ativo') || {}).dataset.m || 'paralelo', limiar: siNumero('dLim', 0) / 100 } },
+      modelo: ($('dModelo').querySelector('.ativo') || {}).dataset.m || 'paralelo', limiar: siNumero('dLim', 0) / 100,
+      base: ($('dBase').querySelector('.ativo') || {}).dataset.b || 'eleitorado' } },
   ];
 }
 function siAlterado(s) {
   const o = s.op;
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0;
-  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0;
+  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado';
   return false;
 }
 function siDescricao(s, curta) {
@@ -75,7 +76,8 @@ function siDescricao(s, curta) {
   }
   if (s.tipo === 'distrital') {
     return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato' : 'o partido'} mais votado leva) · ${siPct(1 - o.pctDistrital)} lista, `
-      + `${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}` + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '');
+      + `${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}` + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
+      + (o.base === 'populacao' ? (curta ? ' · por população' : ' · distritos de população parecida (Censo 2022)') : (curta ? '' : ' · distritos de eleitorado parecido'));
   }
   return 'os mais votados de cada estado';
 }
@@ -94,6 +96,7 @@ function siRegraVigente() {
   $('mPct').value = 50; $('mLim').value = 0; $('dPct').value = 50; $('dLim').value = 0;
   for (const id of ['mModelo', 'dModelo']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.m === 'paralelo');
   for (const b of $('dRegra').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.r === 'partido');
+  for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
   siParametrosMudaram();
 }
 function siParametrosMudaram() {
@@ -360,25 +363,53 @@ async function siPrepararDistritos(op, calc) {
   for (const uf of ufs) {
     const d = si.dados[uf], g = si.geo[siChaveGeo(uf)];
     const k = Math.round(d.vagas * op.pctDistrital);
-    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}`;
+    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}|${op.base}`;
     if (!si.desenhos[chave]) {
       siProgresso(`Desenhando os distritos: ${siUfNome(uf)} (${k})…`, i / ufs.length);
       await new Promise(r => setTimeout(r, 0));
       if (calc !== si.calc) return null;
-      const aptos = Object.values(g.mun).reduce((s, m) => s + Object.values(m.zonas).reduce((a, z) => a + z.aptos, 0), 0);
+      // Base do tamanho: eleitores aptos (TSE) ou população residente (Censo 2022, IBGE).
+      let gp = g, semPopulacao = [], popErro = '';
+      if (op.base === 'populacao' && k > 0) {
+        try {
+          const pop = await siPopulacao(uf, g);
+          if (calc !== si.calc) return null;
+          const r = sdPesoPopulacao(g, pop, (cd, nome) => g.resolver(nome));
+          gp = r.geo; semPopulacao = r.semPopulacao;
+        } catch (e) { popErro = (e && e.message) || String(e); }
+      }
+      const aptos = Object.values(gp.mun).reduce((s, m) => s + Object.values(m.zonas).reduce((a, z) => a + z.aptos, 0), 0);
       let base = { unidades: [], viz: {} }, desenho = { distritos: [], metricas: null };
       if (k > 0) {
-        base = sdUnidades(g, g.malha, (cd, nome) => g.resolver(nome), SI_FRACAO_DIVIDE * aptos / k);
+        base = sdUnidades(gp, g.malha, (cd, nome) => g.resolver(nome), SI_FRACAO_DIVIDE * aptos / k);
         desenho = sdDistritar(base, Math.min(k, base.unidades.length));
         if (k > base.unidades.length) desenho.pedidos = k;
+        desenho.base = op.base === 'populacao' && !popErro ? 'populacao' : 'eleitorado';
+        desenho.semPopulacao = semPopulacao;
+        desenho.popErro = popErro;
       }
-      si.desenhos[chave] = { desenho, base, k };
+      // sem a população (IBGE fora do ar), o desenho fica pelo eleitorado e não vai para a memória
+      if (!popErro) si.desenhos[chave] = { desenho, base, k };
+      else { porUf[uf] = { desenho, base, votos: g.votos[siCargoArq(uf)] || {} }; i++; continue; }
     }
     const x = si.desenhos[chave];
     porUf[uf] = { desenho: x.desenho, base: x.base, votos: g.votos[siCargoArq(uf)] || {} };
     i++;
   }
   return porUf;
+}
+
+/** População residente do Censo 2022 por município da UF (IBGE, lida na hora; guardada só na memória da página). */
+function siPopulacao(uf, g) {
+  if (!si.pop[uf]) {
+    const ibgeUf = (Object.keys(g.malha.feicoes)[0] || '').slice(0, 2);
+    si.pop[uf] = zrJson(sdUrlPopulacao(ibgeUf, SI_IBGE)).then(j => {
+      const p = sdLerPopulacao(j);
+      if (!Object.keys(p).length) throw new Error('o IBGE não devolveu a população dos municípios');
+      return p;
+    }).catch(e => { delete si.pop[uf]; throw e; });
+  }
+  return si.pop[uf];
 }
 
 // ------------------------------------------------------------ simulação e tela
@@ -638,14 +669,18 @@ function siDistritosHtml(uf, sd, impressao) {
   if (!desenho.distritos.length) return h + '<div class="dica">Nenhuma vaga em distritos: todas pela lista.</div>';
   if (desenho.erro) return h + `<div class="aviso">${siEsc(desenho.erro)}</div>`;
   const m = desenho.metricas, U = new Map(base.unidades.map(u => [u.id, u]));
+  const pop = desenho.base === 'populacao';
+  if (desenho.popErro) h += `<div class="aviso">A população do Censo 2022 não veio do IBGE (${siEsc(desenho.popErro)}): os distritos foram desenhados pelo eleitorado. Mude qualquer parâmetro para tentar de novo.</div>`;
+  if (pop && desenho.semPopulacao && desenho.semPopulacao.length) h += `<div class="dica">Sem população no IBGE para ${siEsc(desenho.semPopulacao.join(', '))}: entram pelos eleitores, na razão população/eleitores do estado.</div>`;
   const ruim = m.desvioMax > 0.15;
   h += `<div class="metr"><span><b>${desenho.distritos.length}</b> distritos${desenho.pedidos ? ` (pedidos ${desenho.pedidos}: o estado não tem unidades para tantos)` : ''}</span>`
-    + `<span>alvo <b>${siFmt(Math.round(desenho.alvo))}</b> eleitores por distrito</span>`
+    + `<span>alvo <b>${siFmt(Math.round(desenho.alvo))}</b> ${pop ? 'habitantes (Censo 2022)' : 'eleitores'} por distrito</span>`
     + `<span${ruim ? ' class="ruim"' : ''}>desvio máximo <b>${siPct(m.desvioMax)}</b> (médio ${siPct(m.desvioMedio)})</span>`
     + `<span>compacidade média <b>${m.compacidadeMedia.toFixed(2).replace('.', ',')}</b> (1 = círculo)</span>`
     + `<span>municípios divididos <b>${m.municipiosDivididos}</b></span>`
     + `<span>${m.contiguos ? 'todos contíguos' : '<b>há distrito não contíguo</b>'}</span>`
     + `<span>unidades: ${m.unidades - m.zonas} municípios + ${m.zonas} zonas</span></div>`;
+  if (pop) h += `<div class="dica">Tamanho pela população residente do Censo 2022 (IBGE). Num município dividido em zonas, a população se reparte entre elas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).</div>`;
   if (ruim) h += `<div class="dica">Desvio acima de 15% (a referência alemã: até ±15%, e redesenho obrigatório acima de ±25%): as zonas eleitorais são grandes para distritos deste tamanho — a menor peça do desenho é a zona.</div>`;
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
@@ -661,10 +696,10 @@ function siDistritosHtml(uf, sd, impressao) {
   };
   const venc = {};
   for (const d of el.distritos || []) venc[d.id] = d;
-  h += `<div class="tab-rolagem" style="margin-top:10px"><table><thead><tr><th class="n">Distrito</th><th class="n">Eleitores</th><th class="n">Desvio</th><th>Municípios</th><th>Eleito</th><th>Partido</th><th class="n">Votos no distrito</th><th class="n">Agremiação</th><th>2ª agremiação</th></tr></thead><tbody>`;
+  h += `<div class="tab-rolagem" style="margin-top:10px"><table><thead><tr><th class="n">Distrito</th><th class="n">${pop ? 'Habitantes' : 'Eleitores'}</th><th class="n">Desvio</th><th>Municípios</th><th>Eleito</th><th>Partido</th><th class="n">Votos no distrito</th><th class="n">Agremiação</th><th>2ª agremiação</th></tr></thead><tbody>`;
   for (const d of desenho.distritos) {
     const v = venc[d.id] || {}, w = v.vencedor, s2 = v.segundo;
-    h += `<tr${w && w.partido === SI_PARTIDO ? ' class="pode"' : ''}><td class="n">${d.id}</td><td class="n">${siFmt(d.aptos)}</td><td class="n">${(d.desvio >= 0 ? '+' : '') + siPct(d.desvio)}</td>`
+    h += `<tr${w && w.partido === SI_PARTIDO ? ' class="pode"' : ''}><td class="n">${d.id}</td><td class="n">${siFmt(Math.round(d.aptos))}</td><td class="n">${(d.desvio >= 0 ? '+' : '') + siPct(d.desvio)}</td>`
       + `<td style="white-space:normal">${nomes(d)}</td><td>${w ? siEsc(w.nome) : '—'}</td><td>${w ? siEsc(w.partido) : ''}</td>`
       + `<td class="n">${w ? siFmt(w.votos) + ' (' + siPct(w.pct) + ')' : ''}</td><td class="n">${w ? siPct(w.agrPct) : ''}</td>`
       + `<td>${s2 ? siEsc(s2.nome) + ' · ' + siPct(s2.pct) : ''}</td></tr>`;
@@ -716,7 +751,7 @@ async function siIniciar() {
     for (const x of $('siCargo').querySelectorAll('button')) x.classList.toggle('ativo', x === b);
     siLer();
   });
-  for (const [id, attr] of [['mModelo', 'm'], ['dModelo', 'm'], ['dRegra', 'r']]) {
+  for (const [id, attr] of [['mModelo', 'm'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);
       if (!b) return;
