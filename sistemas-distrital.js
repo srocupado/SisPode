@@ -196,6 +196,108 @@ function sdLeitorGeo(uf, cargos = ['6', '7', '8']) {
   return { candidato: { linha: candidato }, partido: { linha: partido }, detalhe: { linha: detalhe }, locais: { linha: locais }, resultado };
 }
 
+// ------------------------------------------------------------ locais de votação (para afinar o desenho)
+/** Votação por seção eleitoral de um estado (dados abertos do TSE): um arquivo por UF. */
+function sdUrlSecao(ano, uf, base = 'https://cdn.tse.jus.br/estatistica/sead/odsele') {
+  return `${base}/votacao_secao/votacao_secao_${ano}_${String(uf).toUpperCase()}.zip`;
+}
+/**
+ * Leitor dos locais de votação de UM estado e UM cargo, para dividir as zonas grandes:
+ *  · locais.linha — eleitorado_local_votacao: eleitores e posição de cada local (município, zona, local);
+ *  · secao.linha  — votacao_secao: votos de cada candidato e de legenda (pelo número do partido) por local.
+ * resultado() → { locais: { 'cd|z': { loc: { aptos, la, lo } } }, votos: { 'cd|z|loc': { c: { sq: n }, n: { nº do partido: n } } },
+ *   prefixo: { sq: nº do partido } } (o número do partido são os 2 primeiros dígitos do número do candidato).
+ * A votação por seção traz o número do local na data da eleição; o cadastro, o de hoje, com o antigo em
+ * NR_LOCAL_VOTACAO_ORIGINAL: os votos de um local que mudou de número vão para o local de hoje.
+ */
+function sdLeitorLocais(uf, cargo) {
+  const U = String(uf).toUpperCase(), cg = String(cargo);
+  const locais = {}, votos = {}, prefixo = {}, antigo = {};
+  const locaisL = sdCsv(['SG_UF', 'CD_MUNICIPIO', 'NR_ZONA', 'NR_LOCAL_VOTACAO', 'NR_LATITUDE', 'NR_LONGITUDE', 'QT_ELEITOR_SECAO'], v => {
+    const t = v('NR_TURNO');
+    if (v('SG_UF') !== U || (t && t !== '1')) return;
+    const q = Number(v('QT_ELEITOR_SECAO')) || 0;
+    if (!q) return;
+    const kz = sdCod(v('CD_MUNICIPIO')) + '|' + sdCod(v('NR_ZONA')), loc = sdCod(v('NR_LOCAL_VOTACAO'));
+    const orig = v('NR_LOCAL_VOTACAO_ORIGINAL') ? sdCod(v('NR_LOCAL_VOTACAO_ORIGINAL')) : loc;
+    if (orig !== loc && orig !== '-1') { const a = (antigo[kz + '|' + orig] = antigo[kz + '|' + orig] || {}); a[loc] = (a[loc] || 0) + q; }
+    const z = (locais[kz] = locais[kz] || {});
+    const l = (z[loc] = z[loc] || { aptos: 0, la: 0, lo: 0, qp: 0 });
+    l.aptos += q;
+    const la = sdCoord(v('NR_LATITUDE')), lo = sdCoord(v('NR_LONGITUDE'));
+    if (la != null && lo != null) { l.la += la * q; l.lo += lo * q; l.qp += q; }
+  });
+  const secao = sdCsv(['SG_UF', 'CD_MUNICIPIO', 'NR_ZONA', 'NR_LOCAL_VOTACAO', 'CD_CARGO', 'NR_TURNO', 'NR_VOTAVEL', 'QT_VOTOS', 'SQ_CANDIDATO'], v => {
+    if (v('CD_CARGO') !== cg || v('NR_TURNO') !== '1' || v('SG_UF') !== U) return;
+    const n = Number(v('QT_VOTOS')) || 0;
+    if (!n) return;
+    const sq = v('SQ_CANDIDATO'), nr = v('NR_VOTAVEL');
+    const k = sdCod(v('CD_MUNICIPIO')) + '|' + sdCod(v('NR_ZONA')) + '|' + sdCod(v('NR_LOCAL_VOTACAO'));
+    const x = (votos[k] = votos[k] || { c: {}, n: {} });
+    if (Number(sq) > 0) { x.c[sq] = (x.c[sq] || 0) + n; if (!prefixo[sq]) prefixo[sq] = nr.slice(0, 2); }
+    else if (nr.length === 2 && nr !== '95' && nr !== '96') x.n[nr] = (x.n[nr] || 0) + n;   // legenda (95 branco, 96 nulo)
+  });
+  const resultado = () => {
+    for (const z of Object.values(locais)) for (const l of Object.values(z)) {
+      if (l.qp) { l.la /= l.qp; l.lo /= l.qp; } else { l.la = null; l.lo = null; }
+      delete l.qp;
+    }
+    for (const k of Object.keys(votos)) {
+      const i = k.lastIndexOf('|'), kz = k.slice(0, i);
+      if ((locais[kz] || {})[k.slice(i + 1)] || !antigo[k]) continue;
+      const hoje = Object.entries(antigo[k]).sort((a, b) => b[1] - a[1])[0][0], de = votos[k];
+      const x = (votos[kz + '|' + hoje] = votos[kz + '|' + hoje] || { c: {}, n: {} });
+      for (const sq in de.c) x.c[sq] = (x.c[sq] || 0) + de.c[sq];
+      for (const nr in de.n) x.n[nr] = (x.n[nr] || 0) + de.n[nr];
+      delete votos[k];
+    }
+    return { locais, votos, prefixo };
+  };
+  return { locais: { linha: locaisL }, secao: { linha: secao }, resultado };
+}
+/** Reparte n inteiro pelos pesos (maiores restos); sem peso, por igual. */
+function sdReparte(n, pesos) {
+  const t = pesos.reduce((s, p) => s + p, 0);
+  const ps = t > 0 ? pesos : pesos.map(() => 1), tt = t > 0 ? t : pesos.length;
+  const q = ps.map(p => n * p / tt), out = q.map(Math.floor);
+  let falta = n - out.reduce((s, x) => s + x, 0);
+  const ordem = q.map((x, i) => [x - Math.floor(x), i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let j = 0; falta > 0 && j < ordem.length; j++, falta--) out[ordem[j][1]]++;
+  return out;
+}
+/**
+ * Votos de cada local de votação no formato dos votos por zona ({ 'cd|z|loc': { c: { sq: n }, l: { sigla: n } } }),
+ * fechando com os totais da zona (votacao_*_munzona: só os válidos, e a legenda com os nominais que a lei
+ * manda para ela): o total da zona se reparte entre os seus locais na proporção dos votos de cada um na
+ * votação por seção (sem nenhum, na proporção dos eleitores). Só os locais com eleitores (os que viram unidade).
+ * votos: geo.votos[cargo]; lido: sdLeitorLocais(...).resultado(); siglaDe(nº do partido) → sigla.
+ */
+function sdVotosLocais(votos, lido, siglaDe) {
+  const out = {};
+  for (const [kz, locs] of Object.entries(lido.locais)) {
+    const vz = votos[kz];
+    if (!vz) continue;
+    const ls = Object.keys(locs).filter(loc => locs[loc].aptos > 0);
+    if (!ls.length) continue;
+    const vs = ls.map(loc => lido.votos[kz + '|' + loc] || { c: {}, n: {} });
+    const ap = ls.map(loc => locs[loc].aptos);
+    const o = ls.map(() => ({ c: {}, l: {} }));
+    for (const sq in vz.c) {
+      const pesos = vs.map(v => v.c[sq] || 0);
+      const r = sdReparte(vz.c[sq], pesos.some(x => x > 0) ? pesos : ap);
+      r.forEach((x, i) => { if (x) o[i].c[sq] = x; });
+    }
+    const leg = vs.map(v => { const m = {}; for (const nr in v.n) { const sg = siglaDe(nr); if (sg) m[sg] = (m[sg] || 0) + v.n[nr]; } return m; });
+    for (const sg in vz.l) {
+      const pesos = leg.map(m => m[sg] || 0);
+      const r = sdReparte(vz.l[sg], pesos.some(x => x > 0) ? pesos : ap);
+      r.forEach((x, i) => { if (x) o[i].l[sg] = x; });
+    }
+    ls.forEach((loc, i) => { out[kz + '|' + loc] = o[i]; });
+  }
+  return out;
+}
+
 // ------------------------------------------------------------ unidades e vizinhança
 /**
  * As unidades do desenho e a vizinhança entre elas.
@@ -512,9 +614,12 @@ function sdCortar(ids, k, U, viz, soma, t) {
  * destino segue contíguo). A unidade não pode ficar longe do novo distrito: até
  * 2× a distância ao centro do atual + 5 km, ou até 1,3× o raio que o novo já
  * ocupa (distritos compridos, no interior, têm o centro longe de tudo).
+ * ate: para quando todo distrito estiver a essa fração do alvo. forma: peso da compacidade
+ * (a troca paga o quanto afasta a unidade do centro do distrito: peças pequenas, como os
+ * locais de votação, iriam para longe só para acertar o tamanho).
  * Devolve o número de trocas.
  */
-function sdRefinar(partes, U, viz, alvo, maxIt) {
+function sdRefinar(partes, U, viz, alvo, maxIt, ate = 0, forma = 0) {
   const dist = new Map();
   partes.forEach((p, d) => { for (const i of p) dist.set(i, d); });
   const apt = partes.map(p => p.reduce((s, i) => s + U.get(i).aptos, 0));
@@ -527,9 +632,11 @@ function sdRefinar(partes, U, viz, alvo, maxIt) {
     for (const i of partes[d]) { const u = U.get(i); raio[d] = Math.max(raio[d], Math.hypot(u.x - cx[d], u.y - cy[d])); }
   };
   partes.forEach((_, d) => centro(d));
+  const R2 = (raio.reduce((s, r) => s + r * r, 0) / (raio.length || 1)) || 1;
   const desv = a => (a / alvo - 1) ** 2;
   let it = 0;
   for (; it < maxIt; it++) {
+    if (ate && apt.every(a => Math.abs(a / alvo - 1) <= ate)) break;
     let melhor = null;
     for (const [i, a] of dist) {
       if (partes[a].length <= 1) continue;
@@ -542,7 +649,8 @@ function sdRefinar(partes, U, viz, alvo, maxIt) {
         const da = Math.hypot(u.x - cx[a], u.y - cy[a]), db = Math.hypot(u.x - cx[b], u.y - cy[b]);
         if (db > 2 * da + 5 && db > 1.3 * raio[b]) continue;
         // ganho só com a unidade (cota inferior barata para o caso com pedaços soltos)
-        const so = desv(apt[a] - u.aptos) + desv(apt[b] + u.aptos) - desv(apt[a]) - desv(apt[b]);
+        const custo = forma ? forma * (db * db - da * da) / R2 : 0;
+        const so = desv(apt[a] - u.aptos) + desv(apt[b] + u.aptos) - desv(apt[a]) - desv(apt[b]) + custo * u.aptos / alvo;
         if (melhor && so >= melhor.delta && so < 0) continue;
         const resto = partes[a].filter(x => x !== i);
         const comps = sdComponentes(resto, viz);
@@ -551,7 +659,7 @@ function sdRefinar(partes, U, viz, alvo, maxIt) {
           comps.sort((x, y) => y.reduce((s, j) => s + U.get(j).aptos, 0) - x.reduce((s, j) => s + U.get(j).aptos, 0));
           for (const c of comps.slice(1)) for (const j of c) { leva.push(j); q += U.get(j).aptos; }
         }
-        const delta = desv(apt[a] - q) + desv(apt[b] + q) - desv(apt[a]) - desv(apt[b]);
+        const delta = desv(apt[a] - q) + desv(apt[b] + q) - desv(apt[a]) - desv(apt[b]) + custo * q / alvo;
         if (delta < -1e-12 && (!melhor || delta < melhor.delta)) melhor = { delta, leva, q, a, b };
       }
     }
@@ -564,6 +672,96 @@ function sdRefinar(partes, U, viz, alvo, maxIt) {
     centro(a); centro(b);
   }
   return it;
+}
+
+/** Liga os pedaços soltos de `ids` (no grafo viz) pelo par de unidades mais perto. Devolve quantas ligações fez. */
+function sdEmendar(ids, U, viz) {
+  const ligar = (a, b) => { (viz[a] = viz[a] || new Set()).add(b); (viz[b] = viz[b] || new Set()).add(a); };
+  let n = 0;
+  for (;;) {
+    const comps = sdComponentes(ids, viz);
+    if (comps.length <= 1) return n;
+    comps.sort((a, b) => b.length - a.length);
+    const resto = comps[0], pedaco = comps[1];
+    let melhor = null;
+    for (const i of pedaco) {
+      const u = U.get(i);
+      for (const j of resto) { const w = U.get(j), d = (u.x - w.x) ** 2 + (u.y - w.y) ** 2; if (!melhor || d < melhor.d) melhor = { d, i, j }; }
+    }
+    ligar(melhor.i, melhor.j);
+    n++;
+  }
+}
+
+/**
+ * Afina um desenho com os locais de votação: as zonas eleitorais na fronteira entre
+ * distritos (e, com op.municipios, também os municípios inteiros na fronteira com ao
+ * menos op.minimo do alvo) se dividem nos seus locais de votação — cada um com a sua
+ * fatia do peso da unidade (eleitores ou população), pela proporção dos eleitores — e
+ * as trocas na fronteira continuam com essas peças menores, até todo distrito ficar a
+ * op.ate do alvo (ou acabar o que melhora). Os locais herdam o distrito da unidade.
+ * Vizinhança: dentro da unidade, os 4 locais mais perto; com uma unidade vizinha
+ * dividida, os pares de locais mais perto dos dois lados; com uma vizinha inteira, os
+ * 3 locais mais perto dela. locais: sdLeitorLocais(...).resultado().locais.
+ * Devolve { base, desenho } (unidades 'l:cd:z:loc', com .loc) ou null se não há o que dividir.
+ */
+function sdRefinarLocais(base, desenho, locais, op = {}) {
+  if (!desenho || !desenho.distritos || !desenho.distritos.length) return null;
+  const de = new Map();
+  for (const d of desenho.distritos) for (const i of d.unidades) de.set(i, d.id);
+  const alvo = desenho.alvo, proj = base.proj;
+  const minimo = (op.minimo != null ? op.minimo : 0.02) * alvo;
+  const naFronteira = u => [...(base.viz[u.id] || [])].some(w => de.get(w) !== de.get(u.id));
+  const divide = new Map();
+  for (const u of base.unidades) {
+    if (!de.has(u.id)) continue;
+    const ok = u.id.startsWith('z:') || (op.municipios && u.id.startsWith('m:') && u.aptos >= minimo);
+    if (!ok || !naFronteira(u)) continue;
+    const ls = [];
+    let q = 0;
+    for (const z of u.zonas) for (const [loc, l] of Object.entries(locais[u.mun + '|' + z] || {})) if (l.aptos > 0) { ls.push({ z, loc, l }); q += l.aptos; }
+    if (ls.length < 2 || !q) continue;
+    const nome = u.nome.split(' · ')[0];
+    divide.set(u.id, ls.map(({ z, loc, l }, i) => {
+      const p = l.la != null && l.lo != null && proj ? proj([l.lo, l.la]) : [u.x + Math.cos(i) * 0.3, u.y + Math.sin(i) * 0.3];
+      return { id: `l:${u.mun}:${z}:${loc}`, mun: u.mun, zonas: [z], loc, nome: `${nome} · zona ${z} · local ${loc}`,
+        aptos: u.aptos * l.aptos / q, x: p[0], y: p[1], area: u.area * l.aptos / q, ibge: u.ibge, de: u.id };
+    }));
+  }
+  if (!divide.size) return null;
+  const unidades = [], viz = {};
+  const ligar = (a, b) => { if (a === b) return; (viz[a] = viz[a] || new Set()).add(b); (viz[b] = viz[b] || new Set()).add(a); };
+  for (const u of base.unidades) { if (divide.has(u.id)) unidades.push(...divide.get(u.id)); else unidades.push(u); }
+  for (const [a, vs] of Object.entries(base.viz)) if (!divide.has(a)) for (const b of vs) if (!divide.has(b)) ligar(a, b);
+  const d2 = (a, b) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2;
+  const perto = (lista, p, n) => lista.filter(x => x !== p).sort((a, b) => d2(a, p) - d2(b, p)).slice(0, n);
+  const Un = new Map(unidades.map(u => [u.id, u]));
+  const passo = {};   // distância de cada local ao local mais perto da própria unidade
+  for (const ls of divide.values()) {
+    for (const a of ls) { const ps = perto(ls, a, 4); ps.forEach(b => ligar(a.id, b.id)); passo[a.id] = ps.length ? d2(a, ps[0]) : 0; }
+    sdEmendar(ls.map(x => x.id), Un, viz);
+  }
+  for (const [id, ls] of divide) {
+    for (const w of base.viz[id] || []) {
+      if (divide.has(w)) {
+        if (w < id) continue;
+        const lw = divide.get(w), pares = [];
+        for (const a of ls) { const b = perto(lw, a, 1)[0]; pares.push([d2(a, b), a, b]); }
+        for (const b of lw) { const a = perto(ls, b, 1)[0]; pares.push([d2(a, b), a, b]); }
+        pares.sort((x, y) => x[0] - y[0]);
+        pares.forEach(([d, a, b], i) => { if (i < 3 || d <= 2.25 * Math.max(passo[a.id], passo[b.id])) ligar(a.id, b.id); });
+      } else {
+        const u = Un.get(w);
+        if (u) for (const a of perto(ls, u, 3)) ligar(a.id, w);
+      }
+    }
+  }
+  sdEmendar(unidades.map(u => u.id), Un, viz);
+  const partes = desenho.distritos.map(d => d.unidades.flatMap(i => divide.has(i) ? divide.get(i).map(x => x.id) : [i]));
+  const it = sdRefinar(partes, Un, viz, alvo, op.iteracoes || 4000, op.ate != null ? op.ate : 0.01, op.forma != null ? op.forma : 0.05);
+  const r = sdMedir(partes, Un, viz, alvo, partes.length);
+  r.metricas.trocas = (desenho.metricas && desenho.metricas.trocas || 0) + it;
+  return { base: { unidades, viz, semMapa: base.semMapa, pontes: base.pontes, proj }, desenho: Object.assign({}, desenho, r, { alvo, locais: true }) };
 }
 
 /** Distritos (numerados de norte a sul, de oeste a leste) e as métricas de qualidade. */
@@ -587,7 +785,7 @@ function sdMedir(partes, U, viz, alvo, k) {
     compacidadeMedia: distritos.reduce((s, d) => s + d.compacidade, 0) / k, compacidadeMin: Math.min(...distritos.map(d => d.compacidade)),
     contiguos: distritos.every(d => sdComponentes(d.unidades, viz).length === 1),
     municipiosDivididos: Object.values(munDist).filter(s => s.size > 1).length,
-    unidades: U.size, zonas: [...U.keys()].filter(i => i.startsWith('z:')).length,
+    unidades: U.size, zonas: [...U.keys()].filter(i => i.startsWith('z:')).length, locais: [...U.keys()].filter(i => i.startsWith('l:')).length,
   };
   return { distritos, metricas };
 }
@@ -610,7 +808,7 @@ function sdVotosDistritos(d, desenho, base, votos) {
     for (const id of dt.unidades) {
       const u = U.get(id);
       for (const z of u.zonas) {
-        const v = votos[u.mun + '|' + z];
+        const v = votos[u.mun + '|' + z + (u.loc != null ? '|' + u.loc : '')];
         if (!v) continue;
         for (const sq in v.c) {
           const x = cand.get(sq);
@@ -673,5 +871,5 @@ function sdDistritalMisto(d, op) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
 }

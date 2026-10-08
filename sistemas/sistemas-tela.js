@@ -27,7 +27,7 @@ const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
-  geo: {}, desenhos: {}, pop: {}, calc: 0, mapaModo: 'distrito' };
+  geo: {}, desenhos: {}, pop: {}, locais: {}, calc: 0, mapaModo: 'distrito' };
 const $ = id => document.getElementById(id);
 const siEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const siFmt = n => Number(n || 0).toLocaleString('pt-BR');
@@ -409,11 +409,93 @@ async function siPrepararDistritos(op, calc) {
       if (!popErro) si.desenhos[chave] = { desenho, base, k };
       else { porUf[uf] = { desenho, base, votos: g.votos[siCargoArq(uf)] || {} }; i++; continue; }
     }
-    const x = si.desenhos[chave];
-    porUf[uf] = { desenho: x.desenho, base: x.base, votos: g.votos[siCargoArq(uf)] || {} };
+    let x = si.desenhos[chave];
+    // Afinação pelos locais de votação (lida a pedido): só onde o desenho passa da tolerância do PL 9.212.
+    const lc = si.locais[siChaveLocais(uf)];
+    if (lc && x.desenho.metricas && !sdToleranciaSenado(x.desenho.distritos).ok) {
+      if (!si.desenhos[chave + '|loc']) {
+        siProgresso(`Afinando os distritos com os locais de votação: ${siUfNome(uf)}…`, i / ufs.length);
+        await new Promise(r => setTimeout(r, 0));
+        if (calc !== si.calc) return null;
+        si.desenhos[chave + '|loc'] = siAfinar(x, lc.locais);
+      }
+      x = si.desenhos[chave + '|loc'];
+    }
+    const vz = g.votos[siCargoArq(uf)] || {};
+    porUf[uf] = { desenho: x.desenho, base: x.base, votos: x.desenho.locais && lc ? Object.assign({}, vz, lc.votos) : vz };
     i++;
   }
   return porUf;
+}
+
+/** Desenho afinado pelos locais: primeiro as zonas da fronteira; se ainda passa da tolerância, também os municípios da fronteira. Fica o melhor. */
+function siAfinar(x, locais) {
+  let r = sdRefinarLocais(x.base, x.desenho, locais);
+  if (r && !sdToleranciaSenado(r.desenho.distritos).ok) {
+    const r2 = sdRefinarLocais(r.base, r.desenho, locais, { municipios: true });
+    if (r2 && r2.desenho.metricas.desvioMax < r.desenho.metricas.desvioMax) r = r2;
+  }
+  if (!r || r.desenho.metricas.desvioMax >= x.desenho.metricas.desvioMax || !r.desenho.metricas.contiguos) return x;
+  return { desenho: r.desenho, base: r.base, k: x.k };
+}
+
+const siChaveLocais = uf => `${si.op.ano}|${uf}|${siCargoArq(uf)}`;
+/** Estados cujo desenho passa da tolerância do PL 9.212 e ainda não têm os locais de votação lidos. */
+function siForaDaTolerancia() {
+  const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital');
+  if (!s || !s.op.porUf) return [];
+  return Object.keys(s.op.porUf).filter(uf => { const d = s.op.porUf[uf].desenho; return d.metricas && !sdToleranciaSenado(d.distritos).ok && !si.locais[siChaveLocais(uf)]; }).sort();
+}
+function siBotaoLocais(ufs) {
+  if (!ufs.length) return '';
+  return `<div class="dica"><button data-locais="${ufs.join(',')}">Afinar com os locais de votação (${ufs.map(u => u.toUpperCase()).join(', ')})</button>
+    As zonas eleitorais são a menor peça do desenho e, nestes estados, grandes demais para caber na tolerância. Com a votação por seção do TSE (um arquivo por estado, lido só desta vez e guardado só na memória da página),
+    as zonas da fronteira entre distritos se dividem nos seus locais de votação.</div>`;
+}
+
+/**
+ * Lê, para os estados pedidos, a votação por seção (TSE, um arquivo por estado) e o
+ * cadastro dos locais de votação, e guarda na memória da página os locais (eleitores,
+ * posição) e os votos de cada local já fechados com os totais da zona.
+ */
+async function siLerLocais(ufs) {
+  if (si.lendo || !si.op || !ufs.length) return;
+  const ano = si.op.ano, urls = snUrlsAbertos(ano);
+  siTravar(true);
+  $('siAvisos').innerHTML = '';
+  try {
+    siProgresso('Conferindo os arquivos do TSE…', 0);
+    const il = await zrIndice(urls.locais);
+    const locaisPais = il.entradas.find(e => /\.csv$/i.test(e.nome) && !zrUfDaEntrada(e.nome) && !/BRASIL/i.test(e.nome));
+    const tarefas = [];
+    for (const uf of ufs) {
+      const us = sdUrlSecao(ano, uf), is = await zrIndice(us);
+      const s = is.entradas.find(e => /\.csv$/i.test(e.nome));
+      const l = il.entradas.find(e => (zrUfDaEntrada(e.nome) || '').toLowerCase() === uf) || locaisPais;
+      if (!s || !l) throw new Error(`os arquivos de ${ano} do TSE não trazem ${uf.toUpperCase()}`);
+      tarefas.push({ uf, us, s, l });
+    }
+    const total = tarefas.reduce((t, x) => t + x.s.comprimido + x.l.comprimido, 0);
+    if (total > SI_GRANDE && !(await siConfirmar(ano, total, 'da votação por seção e do cadastro dos locais de votação'))) return;
+    let base = 0;
+    for (const t of tarefas) {
+      const cargo = siCargoArq(t.uf), L = sdLeitorLocais(t.uf, cargo);
+      for (const [url, e, fn, oque] of [[t.us, t.s, L.secao.linha, 'votação por seção'], [urls.locais, t.l, L.locais.linha, 'locais de votação']]) {
+        await zrLerEntradaRemota(url, e, fn, n => siProgresso(`${oque[0].toUpperCase() + oque.slice(1)} de ${ano}: ${siUfNome(t.uf)} — ${siMb(base + n)} de ${siMb(total)}`, (base + n) / total));
+        base += e.comprimido;
+      }
+      const lido = L.resultado(), d = si.dados[t.uf], sigla = {};
+      for (const a of d.agrs) for (const c of a.cands) { const p = lido.prefixo[c.sq]; if (p && !sigla[p]) sigla[p] = c.partido; }
+      const vz = si.geo[siChaveGeo(t.uf)].votos[cargo] || {};
+      si.locais[siChaveLocais(t.uf)] = { locais: lido.locais, votos: sdVotosLocais(vz, lido, nr => sigla[nr] || null) };
+    }
+  } catch (e) {
+    $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível ler os locais de votação.</b> ${siEsc(e && e.message || e)} — tente de novo em instantes.</div>`;
+  } finally {
+    siTravar(false);
+    siStatus(si.res ? siResumoStatus() : '');
+  }
+  siSimular();
 }
 
 /** População residente do Censo 2022 por município da UF (IBGE, lida na hora; guardada só na memória da página). */
@@ -695,12 +777,13 @@ function siDistritosEstadosHtml() {
   for (const uf of Object.keys(s.op.porUf).sort()) {
     const d = s.op.porUf[uf].desenho, m = d.metricas;
     h += m ? `<tr><td>${uf.toUpperCase()}</td><td class="n">${d.distritos.length}</td><td class="n">${siFmt(Math.round(d.alvo))}</td><td class="n${m.desvioMax > 0.15 ? ' menos' : ''}">${siPct(m.desvioMax)}</td>`
-      + `<td class="n">${siPct(m.desvioMedio)}</td><td class="n">${siDec(m.compacidadeMedia, 2)}</td><td class="n">${m.municipiosDivididos}</td><td class="n">${m.zonas}</td>`
+      + `<td class="n">${siPct(m.desvioMedio)}</td><td class="n">${siDec(m.compacidadeMedia, 2)}</td><td class="n">${m.municipiosDivididos}</td><td class="n">${m.zonas}${m.locais ? ` + ${siFmt(m.locais)} locais` : ''}</td>`
       + (pop ? (t => `<td${t.ok ? '' : ' class="menos"'}>${siToleranciaTxt(t)}</td>`)(sdToleranciaSenado(d.distritos)) : '') + '</tr>'
       : `<tr><td>${uf.toUpperCase()}</td><td class="n">0</td><td colspan="${pop ? 7 : 6}">${siEsc(d.erro || 'todas as vagas pela lista')}</td></tr>`;
   }
   return h + '</tbody></table></div>' + (pop ? '<div class="dica">Tolerância do PL 9.212/2017 (aprovado pelo Senado): cada distrito até ±5% da população-alvo; até ±10% em 1 distrito ou em 10% deles, o que for maior. '
-    + 'O desenho daqui busca o menor desvio, mas não é obrigado a caber nela: a menor peça é o município (ou a zona eleitoral, no município grande demais).</div>' : '');
+    + 'O desenho daqui busca o menor desvio, mas não é obrigado a caber nela: a menor peça é o município (ou a zona eleitoral, no município grande demais).</div>' : '')
+    + siBotaoLocais(siForaDaTolerancia());
 }
 
 /** Método e fontes — vai no fim do relatório em PDF. */
@@ -717,6 +800,10 @@ function siMetodoHtml() {
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
     + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `
     + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
+  if (sist.distrital && Object.values(sist.distrital.op.porUf || {}).some(x => x.desenho.locais)) li.push('<b>Locais de votação.</b> Onde as zonas eleitorais eram grandes demais para caber na tolerância do PL 9.212 ('
+    + Object.entries(sist.distrital.op.porUf).filter(([, x]) => x.desenho.locais).map(([uf]) => uf.toUpperCase()).sort().join(', ')
+    + '), as zonas na fronteira entre distritos (e, se preciso, os municípios) se dividiram nos seus locais de votação (cadastro de locais do TSE: eleitores e posição), e as trocas na fronteira continuaram com essas peças, pesando também a compacidade. '
+    + 'Os votos de cada local vêm da votação por seção do TSE, repartindo o total da zona na proporção dos votos de cada local (o local que mudou de número depois da eleição vai com o número de hoje).');
   if (sist.distrital && siEhSenado(sist.distrital.op)) li.push('<b>Projeto do Senado.</b> O distrital misto segue o PL 9.212/2017 (PLS 86/2017 e 345/2017, aprovados pelo Senado em 21/11/2017, na Câmara desde então): '
     + 'distritos em número igual à parte inteira da metade das vagas, desenhados por habitantes (tolerância de ±5%, ou ±10% em 1 distrito ou em 10% deles), contíguos e compactos; o mais votado leva o distrito; '
     + 'as vagas de cada partido saem das maiores médias sobre todas as vagas do estado (art. 105-B), as dos distritos contam dentro delas e, se um partido ganha mais distritos do que isso, fica com eles e as vagas saem das últimas posições da lista (art. 105-C), sem aumentar a Casa; sem quociente eleitoral nem cláusula (arts. 106 a 111 revogados). '
@@ -771,7 +858,7 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
   let h = '';
   for (const [id, rs] of Object.entries(aneis)) {
     const us = porIbge[id] || [];
-    const dividido = us.some(u => u.id.startsWith('z:'));
+    const dividido = us.some(u => u.id.startsWith('z:') || u.id.startsWith('l:'));
     const fill = !us.length ? '' : dividido ? '' : ` fill="${corDe(de.get(us[0].id))}"`;
     const cls = !us.length ? ' class="fora"' : dividido ? ' class="div"' : '';
     const d = rs.map(r => 'M' + r.map(([a, b]) => sx(a) + ',' + sy(b)).join('L') + 'Z').join('');
@@ -782,6 +869,11 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
   const rz = caixa || Object.keys(g.malha.feicoes).length <= 1 ? 10 : 4.5;   // DF: o estado é um município só
   for (const u of zonas) {
     h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${(rz * Math.sqrt(u.aptos / maxApt) + 1.5).toFixed(1)}" fill="${corDe(de.get(u.id))}"><title>${siEsc(u.nome)} — distrito ${de.get(u.id)}</title></circle>`;
+  }
+  // locais de votação (desenho afinado): pontos pequenos
+  const rl = caixa || Object.keys(g.malha.feicoes).length <= 1 ? 2.6 : 1.6;
+  for (const u of base.unidades) if (u.id.startsWith('l:')) {
+    h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${rl}" fill="${corDe(de.get(u.id))}"><title>${siEsc(u.nome)} — distrito ${de.get(u.id)}</title></circle>`;
   }
   const fonte = caixa ? 11 : desenho.distritos.length > 30 ? 8 : 10;
   for (const d of desenho.distritos) {
@@ -797,7 +889,7 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
 function siCaixaCapital(uf, base) {
   const g = si.geo[siChaveGeo(uf)];
   const conta = {};
-  for (const u of base.unidades) if (u.id.startsWith('z:') && u.ibge) conta[u.ibge] = (conta[u.ibge] || 0) + u.aptos;
+  for (const u of base.unidades) if ((u.id.startsWith('z:') || u.id.startsWith('l:')) && u.ibge) conta[u.ibge] = (conta[u.ibge] || 0) + u.aptos;
   const ibge = Object.keys(conta).sort((a, b) => conta[b] - conta[a])[0];
   if (!ibge || !g.malha.feicoes[ibge]) return null;
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
@@ -825,8 +917,10 @@ function siDistritosHtml(uf, sd, impressao) {
     + `<span>compacidade média <b>${m.compacidadeMedia.toFixed(2).replace('.', ',')}</b> (1 = círculo)</span>`
     + `<span>municípios divididos <b>${m.municipiosDivididos}</b></span>`
     + `<span>${m.contiguos ? 'todos contíguos' : '<b>há distrito não contíguo</b>'}</span>`
-    + `<span>unidades: ${m.unidades - m.zonas} municípios + ${m.zonas} zonas</span>`
+    + `<span>unidades: ${m.unidades - m.zonas - (m.locais || 0)} municípios + ${m.zonas} zonas${m.locais ? ` + ${siFmt(m.locais)} locais de votação` : ''}</span>`
     + (pop ? (t => `<span${t.ok ? '' : ' class="ruim"'}>tolerância do PL 9.212 (±5%): <b>${siToleranciaTxt(t)}</b></span>`)(sdToleranciaSenado(desenho.distritos)) : '') + '</div>';
+  if (desenho.locais) h += `<div class="dica">Afinado com os locais de votação: as zonas na fronteira entre distritos${m.municipiosDivididos ? ' (e, se preciso, os municípios)' : ''} se dividiram nos seus locais (pontos menores no mapa), cada um com os seus eleitores e os seus votos na votação por seção do TSE.</div>`;
+  else if (!sdToleranciaSenado(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
   if (pop) h += `<div class="dica">Tamanho pela população residente do Censo 2022 (IBGE). Num município dividido em zonas, a população se reparte entre elas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).</div>`;
   if (ruim) h += `<div class="dica">Desvio acima de 15% (a referência alemã: até ±15%, e redesenho obrigatório acima de ±25%): as zonas eleitorais são grandes para distritos deste tamanho — a menor peça do desenho é a zona.</div>`;
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
@@ -837,7 +931,12 @@ function siDistritosHtml(uf, sd, impressao) {
   // tabela
   const nomes = d => {
     const porMun = {};
-    for (const i of d.unidades) { const u = U.get(i), n = u.nome.split(' · ')[0]; (porMun[n] = porMun[n] || { n, apt: 0, zonas: [] }).apt += u.aptos; if (u.id.startsWith('z:')) porMun[n].zonas.push(u.zonas[0]); }
+    for (const i of d.unidades) {
+      const u = U.get(i), n = u.nome.split(' · ')[0];
+      (porMun[n] = porMun[n] || { n, apt: 0, zonas: [] }).apt += u.aptos;
+      const z = u.id.startsWith('z:') ? u.zonas[0] : u.id.startsWith('l:') ? u.zonas[0] + ' (parte)' : null;
+      if (z && !porMun[n].zonas.includes(z)) porMun[n].zonas.push(z);
+    }
     const l = Object.values(porMun).sort((a, b) => b.apt - a.apt);
     return l.slice(0, 4).map(o => siEsc(o.n) + (o.zonas.length ? ` <span class="igual">(zona${o.zonas.length > 1 ? 's' : ''} ${o.zonas.join(', ')})</span>` : '')).join(', ') + (l.length > 4 ? ` <span class="igual">+${l.length - 4}</span>` : '');
   };
@@ -913,6 +1012,8 @@ async function siIniciar() {
     $(id).addEventListener('change', siParametrosMudaram);
   }
   $('siResultado').addEventListener('click', ev => {
+    const bl = ev.target.closest('button[data-locais]');
+    if (bl) { siLerLocais(bl.dataset.locais.split(',')); return; }
     const mm = ev.target.closest('button[data-mm]');
     if (mm) { si.mapaModo = mm.dataset.mm; $('siResultado').innerHTML = siRelatorioHtml(false); return; }
     const tr = ev.target.closest('tr[data-uf]');

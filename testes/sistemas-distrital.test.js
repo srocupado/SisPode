@@ -171,5 +171,44 @@ ok(t4.ok && t4.permitidos === 3, '35 distritos: até 3 (10%, parte inteira) entr
 const t5 = SD.sdToleranciaSenado(dv([0.11, 0, 0, 0]));
 ok(!t5.ok && t5.acima10 === 1, 'acima de 10%: fora');
 
+console.log('Locais de votação (para afinar o desenho)');
+ok(SD.sdUrlSecao(2026, 'rr') === 'https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_secao/votacao_secao_2026_RR.zip', 'endereço da votação por seção do estado');
+const rep = SD.sdReparte(10, [1, 1, 1]);
+ok(rep.join() === '4,3,3' && SD.sdReparte(7, [0, 0]).reduce((a, b) => a + b) === 7 && SD.sdReparte(5, [3, 1]).join() === '4,1', 'repartição inteira pelos maiores restos (sem peso: por igual)');
+const LL = SD.sdLeitorLocais('rr', '6');
+const hl = '"DT_GERACAO";"NR_TURNO";"SG_UF";"CD_MUNICIPIO";"NR_ZONA";"NR_SECAO";"NR_LOCAL_VOTACAO";"NR_LATITUDE";"NR_LONGITUDE";"QT_ELEITOR_SECAO";"NR_LOCAL_VOTACAO_ORIGINAL"';
+LL.locais.linha(hl);
+for (const l of ['"x";1;"RR";"03018";1;10;2445;"2,8";"-60,6";100;2445', '"x";1;"RR";"03018";1;11;2445;"2,8";"-60,6";50;2445', '"x";2;"RR";"03018";1;10;2445;"2,8";"-60,6";100;2445',
+  '"x";1;"RR";"03018";1;12;3824;"-1";"-1";80;2208', '"x";1;"AM";"02000";1;12;1;"-3";"-60";80;1']) LL.locais.linha(l);
+const hs = '"DT_GERACAO";"NR_TURNO";"SG_UF";"CD_MUNICIPIO";"NR_ZONA";"NR_SECAO";"CD_CARGO";"NR_VOTAVEL";"QT_VOTOS";"NR_LOCAL_VOTACAO";"SQ_CANDIDATO"';
+LL.secao.linha(hs);
+for (const l of ['"x";1;"RR";3018;1;10;6;2200;30;2445;111', '"x";1;"RR";3018;1;11;6;2200;10;2445;111', '"x";1;"RR";3018;1;10;6;22;5;2445;-3', '"x";1;"RR";3018;1;10;6;95;7;2445;-1',
+  '"x";1;"RR";3018;1;12;6;2200;20;2208;111', '"x";1;"RR";3018;1;12;7;22000;9;2208;222', '"x";2;"RR";3018;1;12;6;2200;99;2208;111']) LL.secao.linha(l);
+const lido = LL.resultado();
+const l1 = lido.locais['3018|1'];
+ok(l1['2445'].aptos === 150 && perto(l1['2445'].la, 2.8) && l1['3824'].aptos === 80 && l1['3824'].la == null && !lido.locais['2000|1'], 'locais: eleitores do 1º turno, posição; sem coordenada fica sem posição; só o estado pedido');
+ok(lido.votos['3018|1|2445'].c['111'] === 40 && lido.votos['3018|1|2445'].n['22'] === 5 && !lido.votos['3018|1|2445'].n['95'] && lido.prefixo['111'] === '22', 'votos por local: candidato, legenda pelo nº do partido; branco e nulo fora; só o cargo e o 1º turno');
+ok(lido.votos['3018|1|3824'] && lido.votos['3018|1|3824'].c['111'] === 20 && !lido.votos['3018|1|2208'], 'local que mudou de número: os votos vão para o número de hoje');
+const vzL = { '3018|1': { c: { 111: 61, 333: 9 }, l: { PX: 11 } } };
+const vlL = SD.sdVotosLocais(vzL, lido, nr => (nr === '22' ? 'PX' : null));
+ok(vlL['3018|1|2445'].c['111'] + vlL['3018|1|3824'].c['111'] === 61 && vlL['3018|1|2445'].c['111'] === 41, 'o total da zona (só válidos) se reparte pelos votos de cada local na votação por seção');
+ok((vlL['3018|1|2445'].c['333'] || 0) + (vlL['3018|1|3824'].c['333'] || 0) === 9 && vlL['3018|1|2445'].c['333'] === 6, 'sem voto na seção: pela proporção dos eleitores');
+ok(vlL['3018|1|2445'].l.PX === 11 && !vlL['3018|1|3824'].l.PX, 'legenda: pelo número do partido convertido em sigla');
+// Afinação: zona A (800, à esquerda) e zona B (200, à direita), um distrito cada; A tem 8 locais de 100.
+const baseL = { unidades: [{ id: 'z:1:1', mun: '1', zonas: ['1'], nome: 'M · zona 1', aptos: 800, x: 0, y: 0, area: 8, ibge: 'M' }, { id: 'z:1:2', mun: '1', zonas: ['2'], nome: 'M · zona 2', aptos: 200, x: 10, y: 0, area: 2, ibge: 'M' }],
+  viz: { 'z:1:1': new Set(['z:1:2']), 'z:1:2': new Set(['z:1:1']) }, proj: p => [p[0], p[1]] };
+const desL = SD.sdDistritar(baseL, 2);
+const locaisL = { '1|1': Object.fromEntries(Array.from({ length: 8 }, (_, i) => [String(i + 1), { aptos: 50, la: 0, lo: i - 3 }])), '1|2': { 9: { aptos: 30, la: 0, lo: 9 }, 10: { aptos: 30, la: 0, lo: 11 } } };
+ok(desL.metricas.desvioMax > 0.5, 'antes: as zonas são grandes demais (desvio de 60%)');
+const rL = SD.sdRefinarLocais(baseL, desL, locaisL);
+ok(rL && rL.desenho.metricas.desvioMax === 0 && rL.desenho.metricas.contiguos && rL.desenho.metricas.locais === 10, 'com os locais: desvio zero, contíguos');
+const doB = rL.desenho.distritos.find(d => d.unidades.includes('l:1:2:9'));
+ok(doB.unidades.filter(i => i.startsWith('l:1:1:')).sort().join() === 'l:1:1:6,l:1:1:7,l:1:1:8', 'passam os locais da zona A do lado da zona B');
+ok(rL.base.unidades.every(u => u.loc && perto(u.aptos, u.id.startsWith('l:1:1:') ? 100 : 100)) && rL.desenho.locais, 'cada local com a sua fatia do peso da zona');
+ok(SD.sdRefinarLocais(baseL, desL, {}) === null, 'sem locais: nada a afinar');
+const vdL = SD.sdVotosDistritos({ agrs: [{ id: 'X', siglas: ['PX'], cands: [{ sq: '111', valido: true }] }] }, rL.desenho, rL.base,
+  Object.fromEntries(Object.keys(locaisL).flatMap(kz => Object.keys(locaisL[kz]).map(l => [kz + '|' + l, { c: { 111: 1 }, l: {} }]))));
+ok(vdL.map(x => x.validos).sort().join() === '5,5', 'votos do distrito somam os locais');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);
