@@ -174,7 +174,8 @@ A eleição de deputados **simulada em outros sistemas**, com os votos oficiais 
 - Estado em **retotalização** ou com apuração em andamento: a tela avisa e o deixa fora da comparação nacional
 - **Resumo** escrito a partir dos números (bancada do Podemos em cada sistema, o mais e o menos favorável, faixa de proporcionalidade e de fragmentação, quem mais ganha e perde, distritos ganhos) e **indicadores** por sistema: partidos com cadeira, **número efetivo de partidos** (Laakso-Taagepera), **índice de desproporcionalidade de Gallagher** (votos nominais e de legenda de cada partido × cadeiras), maior bancada, cadeiras que mudam de mãos, quem mais ganha e quem mais perde
 - **Relatório em PDF** (A4), o comparativo completo: parâmetros, resumo, indicadores, bancada do Podemos, hemiciclos, bancadas por partido, quem entra e quem sai, estado a estado, distritos por estado (qualidade do desenho em cada UF), o detalhe do estado aberto com o mapa e a tabela dos distritos, e **método e fontes**
-- Os núcleos (`sistemas-nucleo.js`, `sistemas-distrital.js`) são puros e testados (`testes/sistemas.test.js`, `testes/sistemas-distrital.test.js`)
+- **Memorial de cálculo** (planilha Excel, botão ao lado do PDF): cada conta refeita por **fórmula**, a partir dos votos de cada candidato — aba *Candidatos* (os votos do TSE) → *Votos* (nominais válidos por SOMASES + legenda) → *Estados* (válidos contra a soma das agremiações; QE do art. 106 por fórmula, contra o QE do arquivo do TSE) → uma aba por sistema: **proporcional** (QP = INT(votos ÷ QE), eleitos no QP = mín(QP; candidatos com 10% do QE), as **sobras rodada a rodada** com a média de cada agremiação que pode disputar e a maior média por ÍNDICE/CORRESP), **distritão** (ranking e linha de corte), **distritão misto** e **distrital misto** (a tabela de quocientes votos ÷ 1, 2, 3… e as cadeiras = quocientes entre os N maiores, por CONT.SE com MAIOR; no compensatório, o alvo, a lista = mín(candidatos que restam; máx(0; alvo − 1ª parte)) e os **cortes do excedente** passo a passo pela menor média; no distrital, o tamanho de cada distrito somado na aba *Distritos (composição)* — municípios, zonas e locais de votação — e quem leva cada distrito) → *Eleitos* → *Bancadas* (CONT.SES) → *Indicadores* (nº efetivo de partidos e Gallagher por fórmula). Cada conta tem a coluna **Confere** (CONFERE/DIVERGE) contra o simulador; o *Leia-me* soma as divergências de cada aba. A planilha leva também os valores calculados; o Excel ou o LibreOffice recalculam ao abrir. Conferido em 2026 recalculando no LibreOffice
+- Os núcleos (`sistemas-nucleo.js`, `sistemas-distrital.js`, `sistemas-memorial.js`) são puros e testados (`testes/sistemas.test.js`, `testes/sistemas-distrital.test.js`, `testes/sistemas-memorial.test.js`)
 
 ---
 
@@ -666,6 +667,7 @@ sispode/
 ├── labs-apuracao.js               # Relatórios · Apuração eleitoral: leitura do TSE, projeção, cláusula de barreira (funções puras)
 ├── sistemas-nucleo.js             # Relatórios · Sistemas eleitorais: proporcional, distritão, distritão misto, comparação (funções puras)
 ├── sistemas-distrital.js          # Relatórios · Sistemas eleitorais: distrital misto — distritos desenhados (malha IBGE + TSE) e eleição (funções puras)
+├── sistemas-memorial.js           # Relatórios · Sistemas eleitorais: memorial de cálculo — planilha com as contas por fórmula e a coluna Confere (funções puras)
 ├── sistemas/                      # Relatórios · Sistemas eleitorais: a tela (sistemas.html + sistemas-tela.js; PDF)
 ├── zip-remoto.js                  # Leitura de zip remoto por partes (HTTP Range), compartilhada pelo Labs e pela Apuração
 ├── labs-apuracao-mapa.js          # Malha simplificada das 27 UFs (IBGE) para o mapa da apuração
@@ -739,6 +741,7 @@ sispode/
 │   ├── labs-apuracao.test.js       # Apuração: eleições do TSE, projeção de eleitos, cláusula por ano
 │   ├── sistemas.test.js            # Sistemas eleitorais: regras do proporcional, distritão, distritão misto, dados abertos, hemiciclo
 │   ├── sistemas-distrital.test.js  # Distrital misto: malha TopoJSON, leitura por zona, unidades, desenho dos distritos, eleição, regras do PL 9.212, locais de votação
+│   ├── sistemas-memorial.test.js   # Memorial de cálculo: abas, fórmulas (QE, QP, sobras, listas, excedente, distritos, bancadas, indicadores), conferências, xlsx
 │   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
 │   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha

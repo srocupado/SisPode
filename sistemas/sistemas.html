@@ -162,7 +162,7 @@
     </div>
     <label class="rot">Abrangência <select id="siUf"><option value="">Brasil (27 UFs)</option></select></label>
     <button id="siLer" class="pri">Ler dados do TSE</button>
-    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF: resumo, indicadores, composição, Podemos, estados, distritos, método (imprimir → salvar como PDF)">Relatório em PDF</button></div>
+    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF: resumo, indicadores, composição, Podemos, estados, distritos, método (imprimir → salvar como PDF)">Relatório em PDF</button><button id="siMemorial" disabled title="Planilha (Excel) com cada conta refeita por fórmula — quociente eleitoral, quociente partidário, sobras rodada a rodada, maiores médias das listas, distritos, bancadas e indicadores — e a coluna Confere contra o resultado do simulador">Memorial de cálculo</button></div>
   </div>
   <div class="status" id="siStatus"></div>
   <div id="siAvisos"></div>
@@ -222,6 +222,8 @@
 <script src="../labs-mapa-nucleo.js"></script>
 <script src="../sistemas-nucleo.js"></script>
 <script src="../sistemas-distrital.js"></script>
+<script src="../libs/xlsx.full.min.js"></script>
+<script src="../sistemas-memorial.js"></script>
 <script src="sistemas-tela.js"></script>
 </body>
 </html>

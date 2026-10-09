@@ -233,7 +233,7 @@ async function siLer(forcar) {
     return;
   }
   siTravar(true);
-  $('siPdf').disabled = true; $('siAvisos').innerHTML = '';
+  $('siPdf').disabled = true; $('siMemorial').disabled = true; $('siAvisos').innerHTML = '';
   try {
     const dados = op.fonte === 'resultados' ? await siLerResultados(op, si.cargo, ufs) : await siLerAbertos(op.ano, si.cargo, ufs);
     if (!dados) { siStatus(si.res ? siResumoStatus() : ''); return; }
@@ -534,7 +534,7 @@ async function siSimular() {
   siStatus(siResumoStatus());
   $('siAvisos').innerHTML = siAvisosHtml();
   $('siResultado').innerHTML = siRelatorioHtml(false);
-  $('siPdf').disabled = false;
+  $('siPdf').disabled = false; $('siMemorial').disabled = false;
 }
 
 function siResumoStatus() {
@@ -959,6 +959,27 @@ function siDistritosHtml(uf, sd, impressao) {
 }
 
 // ------------------------------------------------------------ PDF
+/**
+ * Memorial de cálculo: planilha (Excel) com cada conta refeita por fórmula a partir
+ * dos votos de cada candidato e a coluna "Confere" contra o resultado do simulador.
+ */
+function siMemorial() {
+  if (!si.res || typeof smMemorial !== 'function' || typeof XLSX === 'undefined') return;
+  const ufs = Object.keys(si.dados), alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
+  const atual = [...new Set(ufs.map(uf => si.dados[uf].atualizado).filter(Boolean))];
+  const memo = smMemorial({ dados: si.dados, res: si.res, sistemas: si.sistemas, ind: snIndicadores(si.res, si.dados), ordem: snOrdemPartidos(si.res),
+    meta: { titulo: `Memorial de cálculo — sistemas eleitorais: ${siCargoNome()}, ${si.op.ano} (${alvo})`,
+      eleicao: `${si.op.ano}, 1º turno`, cargo: siCargoNome(),
+      fonte: si.op.fonte === 'resultados' ? 'TSE — servidor oficial de resultados (um arquivo por estado), lido na hora' : 'TSE — dados abertos (votação por candidato e por partido, por município e zona), lidos na hora',
+      versoes: atual.length ? 'Atualização do TSE: ' + (atual.length > 3 ? atual.slice(0, 3).join('; ') + '…' : atual.join('; ')) : '',
+      gerado: new Date().toLocaleString('pt-BR'),
+      parametros: si.sistemas.map(s => [s.nome, siDescricao(s)]) } });
+  const wb = smParaXlsx(XLSX, memo);
+  const nao = Object.values(memo.conferencias).reduce((t, x) => t + x.nao, 0), n = Object.values(memo.conferencias).reduce((t, x) => t + x.n, 0);
+  XLSX.writeFile(wb, `memorial-sistemas-${si.cargo === '6' ? 'federal' : 'estadual'}-${si.op.ano}-${alvo.toLowerCase().replace(/\s+/g, '-')}.xlsx`);
+  $('siAvisos').innerHTML = `<div class="aviso${nao ? ' erro' : ''}"><b>Memorial de cálculo gerado.</b> ${siFmt(n)} conferências — ${nao ? `<b>${siFmt(nao)} divergem</b> (veja a aba Leia-me)` : 'todas conferem com o simulador'}. A planilha refaz as contas por fórmula ao abrir.</div>`;
+}
+
 async function siPdf() {
   if (!si.res) return;
   const logo = (document.querySelector('.topo img') || {}).src || '';
@@ -993,6 +1014,7 @@ async function siIniciar() {
   $('siUf').addEventListener('change', () => siLer());
   $('siLer').addEventListener('click', () => siLer(true));
   $('siPdf').addEventListener('click', siPdf);
+  $('siMemorial').addEventListener('click', siMemorial);
   $('siRegra').addEventListener('click', siRegraVigente);
   $('siCargo').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-c]');
