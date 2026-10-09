@@ -73,6 +73,44 @@
   .mapa-d svg { width: 100%; height: auto; display: block; }
   .mapa-d path { stroke: #0b121a; stroke-width: .4; } .mapa-d path.div { fill: #2a3a4a; } .mapa-d path.fora { fill: #1b2835; }
   .mapa-d circle.z { stroke: #0b121a; stroke-width: .6; } .mapa-d text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 2.5px; pointer-events: none; }
+
+  /* faixa dos sistemas: resumo sempre visível; os controles de um sistema abrem embaixo */
+  .faixa { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; }
+  .fx { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 11px 14px; }
+  .fx.clic { cursor: pointer; } .fx.clic:hover { border-color: #3c4f63; }
+  .fx .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; } .fx .t i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .fx .t a { margin-left: auto; color: var(--verde2); font-weight: 500; font-size: 12.5px; } .fx .t .alt { color: var(--ama); font-size: 10.5px; font-weight: 600; }
+  .fx .x { color: var(--dim); font-size: 12.5px; margin-top: 3px; line-height: 1.35; }
+  .fx.aberto { border-color: var(--verde); box-shadow: 0 0 0 1px rgba(0,168,89,.3); }
+  #siSistemas { display: block; margin-top: 10px; } #siSistemas.fechado { display: none; }
+  #siSistemas .sis { display: none; } #siSistemas .sis.aberto { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 28px; align-items: center;
+    border: 1px solid var(--verde); border-radius: 14px; padding: 14px 20px; }
+  #siSistemas .sis.aberto > h3 { display: none; } #siSistemas .sis.aberto > p, #siSistemas .sis.aberto > .nota { grid-column: 1 / -1; }
+  #siSistemas .sis.aberto > p { margin: 0 0 4px; }
+  .faixa-pe { margin: 10px 0 0; } .faixa-pe .geo { font-size: 12.5px; color: var(--dim); } .faixa-pe .geo button { margin-right: 8px; } .faixa-pe .geo .ok { color: var(--verde2); }
+  /* relatório na tela: seções arejadas */
+  #siResultado .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--dim); font-weight: 600; }
+  #siResultado .sec-cab { margin: 38px 0 14px; } #siResultado .sec-cab .h { font-size: 18px; margin: 4px 0 2px; } #siResultado .sec-cab .h.grande { font-size: 23px; }
+  #siResultado .sec-cab .lead { color: var(--dim); margin: 2px 0 0; font-size: 13px; }
+  .kpis { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+  .kpi { background: var(--bg2); border: 1px solid var(--borda); border-radius: 16px; padding: 16px 18px; }
+  .kpi .n { font-size: 42px; font-weight: 800; line-height: 1; margin: 10px 0 6px; letter-spacing: -.02em; } .kpi .d { font-size: 12.5px; }
+  .kpi .eyebrow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi.of { background: linear-gradient(160deg, rgba(0,168,89,.16), rgba(0,168,89,.04)); border-color: rgba(0,168,89,.45); }
+  .kpi.pior .n { color: #ffb4a9; } .kpi.melhor .n { color: var(--verde2); }
+  .caixa { background: var(--bg2); border: 1px solid var(--borda); border-radius: 16px; padding: 16px 18px; }
+  .caixa .hemis .hemi { background: transparent; border: 0; } .caixa .hemis { gap: 14px; }
+  .caixa.tabela { padding: 6px 8px 12px; } .caixa.tabela table { border: 0; }
+  button.ver { background: transparent; border: 0; color: var(--verde2); padding: 8px 10px 0; }
+  .accs { margin-top: 34px; }
+  details.acc { border: 1px solid var(--borda); border-radius: 14px; background: var(--bg2); margin-top: 10px; }
+  details.acc > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: flex; align-items: center; gap: 14px; } details.acc > summary::-webkit-details-marker { display: none; }
+  details.acc > summary .t { font-weight: 600; font-size: 14.5px; white-space: nowrap; } details.acc > summary .x { color: var(--dim); font-size: 12.5px; }
+  details.acc > summary .seta { margin-left: auto; color: var(--dim); transition: transform .15s; } details.acc[open] > summary .seta { transform: rotate(90deg); }
+  details.acc[open] > summary { border-bottom: 1px solid var(--borda); }
+  details.acc > .acc-c { padding: 6px 18px 16px; }
+  @media (max-width: 1100px) { .faixa { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } #siSistemas .sis.aberto { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) { .faixa, .kpis, #siSistemas .sis.aberto { grid-template-columns: 1fr; } }
   .mapa-img { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; overflow: hidden; margin-bottom: 12px; } .mapa-img > svg { width: 100%; height: auto; display: block; } .mapa-img, .mapa-d svg { user-select: none; -webkit-user-select: none; }
   .mapa-img.claro { background: #fff; }
   .mapa-img, .mapa-d { position: relative; }
@@ -179,7 +217,8 @@
   <div class="status" id="siStatus"></div>
   <div id="siAvisos"></div>
 
-  <div class="sistemas" id="siSistemas">
+  <div class="faixa" id="siFaixa"></div>
+  <div class="sistemas fechado" id="siSistemas">
     <div class="sis" data-sis="proporcional">
       <h3><i style="background:#3b82f6"></i>Proporcional (atual)<span class="alterado" id="siAltP" hidden>parâmetros alterados</span></h3>
       <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111).</p>
@@ -213,14 +252,13 @@
       <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
       <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
       <div class="lin"><button id="dSenado" title="Aplica as regras do PL 9.212/2017 (PLS 86 e 345/2017, aprovados pelo Senado em 21/11/2017): metade das vagas em distritos (parte inteira), distritos por população, compensatório, sem cláusula">Como no projeto do Senado (PL 9.212/2017)</button><span class="senado-ok" id="dSenadoOk" hidden>✓ regras do projeto</span></div>
-      <div class="geo" id="siGeo"></div>
       <div class="nota">Os distritos não existem: são desenhados com eleitorado (ou população, pelo Censo 2022) parecido, contíguos e compactos, a partir dos municípios (e das zonas eleitorais, onde o município é grande demais).
         <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.
         <br><b>Projeto do Senado</b> (PL 9.212/2017): metade das vagas em distritos (parte inteira), desenhados por habitantes com até ±5% do alvo (±10% em 1 distrito ou em 10% deles);
         o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos.</div>
     </div>
   </div>
-  <div class="ctl"><button id="siRegra">Voltar à regra vigente</button><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span></div>
+  <div class="ctl faixa-pe"><div class="geo" id="siGeo"></div><div class="dir"><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span><button id="siRegra">Voltar à regra vigente</button></div></div>
 
   <div id="siResultado"></div>
   <div class="rodape">Fonte: Tribunal Superior Eleitoral — servidor oficial de resultados (eleição corrente) e repositório de dados abertos

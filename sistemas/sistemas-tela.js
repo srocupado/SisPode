@@ -27,7 +27,8 @@ const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
-  geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito' };
+  geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito',
+  abertoSis: '', secAbertas: new Set(), todosPartidos: false };
 const $ = id => document.getElementById(id);
 const siEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const siFmt = n => Number(n || 0).toLocaleString('pt-BR');
@@ -99,6 +100,24 @@ function siMarcarAlterados() {
   $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
   $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
   $('dSenadoOk').hidden = !siEhSenado(ss[3].op);
+  siFaixa(ss);
+}
+
+// ------------------------------------------------------------ faixa dos sistemas (os parâmetros, compactos)
+const SI_COR_SIS = { proporcional: '#3b82f6', distritao: '#f59e0b', misto: '#a855f7', distrital: '#14b8a6' };
+/** Uma linha com os quatro sistemas e o resumo dos parâmetros; "Ajustar" abre os controles daquele sistema logo abaixo. */
+function siFaixa(ss) {
+  const el = $('siFaixa');
+  if (!el) return;
+  ss = ss || siSistemas();
+  el.innerHTML = ss.map(s => {
+    const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
+    return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
+      + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
+      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, s.tipo === 'distrital' && siEhSenado(s.op)))}</div></div>`;
+  }).join('');
+  for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
+  $('siSistemas').classList.toggle('fechado', !si.abertoSis);
 }
 function siRegraVigente() {
   $('pQP').value = 10; $('pPart').value = 80; $('pCand').value = 20; $('pTerc').checked = true; $('pFed').checked = true;
@@ -587,61 +606,101 @@ function siDelta(n, ref) {
 }
 function siTrocas(sim, ufs) { return ufs.reduce((s, uf) => s + ((sim.porUf[uf] || {}).entram || []).length, 0); }
 
-function siRelatorioHtml(impressao) {
+/** Cabeçalho de seção na tela: sobretítulo, título e uma linha de explicação. */
+function siCabSec(sobre, titulo, lead) {
+  return `<div class="sec-cab"><div class="eyebrow">${sobre}</div><h2 class="h">${titulo}</h2>${lead ? `<p class="lead">${lead}</p>` : ''}</div>`;
+}
+/** Bloco recolhível (lembra se estava aberto quando a página se redesenha). */
+function siAcordeao(chave, titulo, resumo, corpo) {
+  if (!corpo) return '';
+  return `<details class="acc" data-sec="${chave}"${si.secAbertas.has(chave) ? ' open' : ''}><summary><span class="t">${titulo}</span><span class="x">${resumo}</span><span class="seta">▸</span></summary><div class="acc-c">${corpo}</div></details>`;
+}
+const siSemH2 = h => h.replace(/^\s*<h2[^>]*>[\s\S]*?<\/h2>/, '');
+
+/** As partes do relatório (a tela e o PDF montam com elas, em ordens diferentes). */
+function siPartes(impressao) {
   const res = si.res, ordem = snOrdemPartidos(res), cores = siCores(ordem), comp = res.comparadas;
   const temReal = res.real.total > 0;
   const real = res.real.porPartido, pode = x => (x.porPartido[SI_PARTIDO] || 0);
   const umaUf = Object.keys(si.dados).length === 1;
-  let h = '';
-  // Podemos em cada sistema
   const nCol = res.sims.length + 1;
   const porId = id => res.sims.find(x => x.id === id);
-  h += `<h2>Bancada do Podemos <small>${umaUf ? siUfNome(Object.keys(si.dados)[0]) : 'no país'}${comp.length < Object.keys(si.dados).length ? ' · ' + comp.length + ' estados comparáveis' : ''}</small></h2><div class="cards" style="--n:${nCol}">`;
+  const P = { umaUf, temReal, nCol };
+  // Podemos em cada sistema (o PDF: os cartões de sempre)
+  let h = `<h2>Bancada do Podemos <small>${umaUf ? siUfNome(Object.keys(si.dados)[0]) : 'no país'}${comp.length < Object.keys(si.dados).length ? ' · ' + comp.length + ' estados comparáveis' : ''}</small></h2><div class="cards" style="--n:${nCol}">`;
   h += `<div class="card"><div class="t">Resultado oficial</div><div class="v">${temReal ? pode(res.real) : '—'}</div><div class="l">${temReal ? 'eleitos marcados pelo TSE' : 'sem eleitos marcados ainda'}</div></div>`;
   for (const s of res.sims) {
     h += `<div class="card"><div class="t">${siEsc(s.nome)}</div><div class="v">${pode(s)}</div><div class="d">${temReal ? siDelta(pode(s), pode(res.real)) + ' <span class="igual">vs. oficial</span>' : '&nbsp;'}</div>`
       + `<div class="l">${temReal ? siFmt(siTrocas(s, comp)) + (siTrocas(s, comp) === 1 ? ' cadeira muda' : ' cadeiras mudam') + ' de mãos' : ''}</div></div>`;
   }
-  h += '</div>';
+  P.podemos = h + '</div>';
+  // Podemos em cada sistema (a tela: a frase e os números grandes)
+  const ns = res.sims.map(pode), lo = Math.min(...ns, ...(temReal ? [pode(res.real)] : [])), hi = Math.max(...ns, ...(temReal ? [pode(res.real)] : []));
+  const onde = umaUf ? siUfNome(Object.keys(si.dados)[0]) : 'na Câmara';
+  P.destaques = `<div class="sec-cab" style="margin-top:22px"><div class="eyebrow">Podemos ${umaUf ? 'em ' + siEsc(onde) : 'na Câmara'} · ${siFmt(res.vagas)} cadeiras${comp.length < Object.keys(si.dados).length ? ' · ' + comp.length + ' estados comparáveis' : ''}</div>`
+    + `<h2 class="h grande">Com os mesmos votos de ${si.op.ano}, o Podemos teria ${lo === hi ? lo : `de ${lo} a ${hi}`} deputado${hi === 1 ? '' : 's'}</h2></div>`
+    + `<div class="kpis" style="--n:${nCol}"><div class="kpi of"><div class="eyebrow">Oficial (TSE)</div><div class="n">${temReal ? pode(res.real) : '—'}</div><div class="d igual">${temReal ? 'eleitos marcados pelo TSE' : 'sem eleitos marcados ainda'}</div></div>`
+    + res.sims.map(s => {
+      const n = pode(s), dd = temReal ? n - pode(res.real) : 0, tr = temReal ? siTrocas(s, comp) : 0;
+      return `<div class="kpi${dd <= -3 ? ' pior' : dd >= 3 ? ' melhor' : ''}"><div class="eyebrow" title="${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id)))}">${siEsc(s.nome)}</div><div class="n">${n}</div>`
+        + `<div class="d">${temReal ? siDelta(n, pode(res.real)) + ` <span class="igual">· ${siFmt(tr)} ${tr === 1 ? 'troca' : 'trocas'}</span>` : '&nbsp;'}</div></div>`;
+    }).join('') + '</div>';
   const ind = snIndicadores(res, si.dados);
-  h = siResumoHtml(ind) + h;
-  h += siIndicadoresHtml(ind);
+  P.resumo = siResumoHtml(ind);
+  P.indicadores = siIndicadoresHtml(ind);
   // Hemiciclos
   const vagas = res.vagas;
-  h += `<h2>Composição em cada sistema <small>${siFmt(vagas)} cadeiras · mesma ordem de partidos em todos</small></h2><div class="hemis" style="--n:${nCol}">`;
+  h = `<div class="hemis" style="--n:${nCol}">`;
   h += `<div class="hemi"><div class="t">Resultado oficial (TSE)</div><div class="s">${temReal ? 'como o TSE totalizou' : 'aguardando a totalização'}</div>${siHemicicloSvg(real, ordem, cores, vagas)}<div class="pode">Podemos: <b>${temReal ? pode(res.real) : '—'}</b></div></div>`;
   for (const s of res.sims) {
     const igual = temReal && !siTrocas(s, comp);
     h += `<div class="hemi"><div class="t">${siEsc(s.nome)}</div><div class="s">${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id), true))}</div>${siHemicicloSvg(s.porPartido, ordem, cores, vagas)}`
-      + `<div class="pode">Podemos: <b>${pode(s)}</b>${igual ? ' · <span class="mais">idêntico ao oficial</span>' : ''}</div></div>`;
+      + `<div class="pode">Podemos: <b>${pode(s)}</b>${igual ? ' · <span class="mais">idêntico ao oficial</span>' : temReal ? ` · <span class="igual">${siFmt(siTrocas(s, comp))} trocas</span>` : ''}</div></div>`;
   }
   h += '</div><div class="legenda">' + ordem.filter(sg => cores[sg] !== SI_COR_OUTROS).map(sg => `<span><i style="background:${cores[sg]}"></i>${siEsc(sg)}</span>`).join('')
     + (ordem.some(sg => cores[sg] === SI_COR_OUTROS) ? `<span><i style="background:${SI_COR_OUTROS}"></i>demais partidos</span>` : '') + '</div>';
-  // Tabela por partido
-  h += `<h2>Bancadas por partido <small>Δ = diferença para o resultado oficial</small></h2><div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>`
-    + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
-  for (const sg of ordem) {
-    h += `<tr${sg === SI_PARTIDO ? ' class="pode"' : ''}><td><span class="sw" style="background:${cores[sg]}"></span>${siEsc(sg)}</td><td class="n">${temReal ? real[sg] || 0 : '—'}</td>`
-      + res.sims.map(s => `<td class="n">${s.porPartido[sg] || 0}</td><td class="d">${temReal ? siDelta(s.porPartido[sg] || 0, real[sg] || 0) : ''}</td>`).join('') + '</tr>';
-  }
-  h += `<tr><td><b>Total</b></td><td class="n"><b>${temReal ? res.real.total : '—'}</b></td>` + res.sims.map(s => `<td class="n"><b>${s.total}</b></td><td></td>`).join('') + '</tr></tbody></table></div>';
+  P.hemisCorpo = h;
+  P.hemis = `<h2>Composição em cada sistema <small>${siFmt(vagas)} cadeiras · mesma ordem de partidos em todos</small></h2>` + h;
+  // Tabela por partido (na tela, os 10 maiores; "ver todos" abre o resto)
+  const tabela = limite => {
+    let t = `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>`
+      + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
+    ordem.forEach((sg, i) => {
+      if (limite && i >= limite) return;
+      t += `<tr${sg === SI_PARTIDO ? ' class="pode"' : ''}><td><span class="sw" style="background:${cores[sg]}"></span>${siEsc(sg)}</td><td class="n">${temReal ? real[sg] || 0 : '—'}</td>`
+        + res.sims.map(s => `<td class="n">${s.porPartido[sg] || 0}</td><td class="d">${temReal ? siDelta(s.porPartido[sg] || 0, real[sg] || 0) : ''}</td>`).join('') + '</tr>';
+    });
+    if (limite && ordem.length > limite && !ordem.slice(0, limite).includes(SI_PARTIDO)) {   // o Podemos sempre aparece
+      t += `<tr class="pode"><td><span class="sw" style="background:${cores[SI_PARTIDO]}"></span>${SI_PARTIDO}</td><td class="n">${temReal ? real[SI_PARTIDO] || 0 : '—'}</td>`
+        + res.sims.map(s => `<td class="n">${s.porPartido[SI_PARTIDO] || 0}</td><td class="d">${temReal ? siDelta(s.porPartido[SI_PARTIDO] || 0, real[SI_PARTIDO] || 0) : ''}</td>`).join('') + '</tr>';
+    }
+    t += `<tr><td><b>Total</b></td><td class="n"><b>${temReal ? res.real.total : '—'}</b></td>` + res.sims.map(s => `<td class="n"><b>${s.total}</b></td><td></td>`).join('') + '</tr></tbody></table></div>';
+    return t;
+  };
+  P.bancadas = `<h2>Bancadas por partido <small>Δ = diferença para o resultado oficial</small></h2>` + tabela(0);
+  P.bancadasTela = tabela(si.todosPartidos ? 0 : 10)
+    + (ordem.length > 10 ? `<button class="ver" data-todos="1">${si.todosPartidos ? 'Mostrar só os 10 maiores ▴' : `Ver os ${ordem.length} partidos ▾`}</button>` : '');
   // Quem entra e quem sai no Podemos
+  P.entraSai = '';
+  P.nEntra = 0; P.nSai = 0;
   if (temReal) {
-    h += `<h2>Podemos: quem entra e quem sai <small>em relação aos eleitos oficiais</small></h2><div class="duas">`;
+    h = `<div class="duas">`;
     for (const s of res.sims) {
       const ent = comp.flatMap(uf => s.porUf[uf].entram.filter(x => x.cand.partido === SI_PARTIDO).map(x => ({ uf, x })));
       const sai = comp.flatMap(uf => s.porUf[uf].saem.filter(x => x.cand.partido === SI_PARTIDO).map(x => ({ uf, x })));
+      P.nEntra += ent.length; P.nSai += sai.length;
       h += `<div class="bloco"><h3>${siEsc(s.nome)}</h3>` + (ent.length || sai.length ? '<table><tbody>'
         + ent.sort((a, b) => b.x.cand.votos - a.x.cand.votos).map(({ uf, x }) => `<tr><td class="ent">entra</td><td>${siEsc(x.cand.nome)}</td><td>${uf.toUpperCase()}</td><td class="n">${siFmt(x.cand.votos)}</td></tr>`).join('')
         + sai.sort((a, b) => b.x.cand.votos - a.x.cand.votos).map(({ uf, x }) => `<tr><td class="sai">sai</td><td>${siEsc(x.cand.nome)}</td><td>${uf.toUpperCase()}</td><td class="n">${siFmt(x.cand.votos)}</td></tr>`).join('')
         + '</tbody></table>' : '<div class="vazio">Ninguém entra nem sai: a mesma bancada.</div>') + '</div>';
     }
-    h += '</div>';
+    P.entraSai = `<h2>Podemos: quem entra e quem sai <small>em relação aos eleitos oficiais</small></h2>` + h + '</div>';
   }
   // Estado a estado
+  P.estados = '';
   if (!umaUf) {
     const curtos = res.sims.map(s => `<th class="n">${siEsc(SI_CURTOS[s.tipo] || s.nome)}</th>`).join('');
-    h += `<h2${impressao ? ' class="imp-quebra"' : ''}>Estado a estado <small>${impressao ? '' : 'clique num estado para ver quem entra e quem sai'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead>`
+    h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Estado a estado <small>${impressao ? '' : 'clique num estado para ver quem entra e quem sai'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead>`
       + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th><th rowspan="2" class="n">Corte do<br>distritão</th>`
       + `<th colspan="${res.sims.length + 1}" class="grupo">Podemos</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
@@ -652,12 +711,37 @@ function siRelatorioHtml(impressao) {
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
         + res.sims.map(s => `<td class="n">${r ? s.porUf[uf].entram.length : '—'}</td>`).join('') + '</tr>';
     }
-    h += '</tbody></table></div>';
+    P.estados = h + '</tbody></table></div>';
   }
-  h += siMapaBrasilHtml(impressao);
-  h += siDistritosEstadosHtml();
-  const ufDet = umaUf ? Object.keys(si.dados)[0] : si.ufSel;
-  if (ufDet) h += siDetalheUfHtml(ufDet, impressao);
+  P.mapa = siMapaBrasilHtml(impressao);
+  P.distritos = siDistritosEstadosHtml();
+  P.ufDet = umaUf ? Object.keys(si.dados)[0] : si.ufSel;
+  P.detalhe = P.ufDet ? siDetalheUfHtml(P.ufDet, impressao) : '';
+  return P;
+}
+
+function siRelatorioHtml(impressao) {
+  const P = siPartes(impressao);
+  // PDF: o relatório completo, na ordem de sempre
+  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + P.mapa + P.distritos + P.detalhe;
+  // Tela: destaques → a Câmara em cada sistema → os distritos → bancadas; o resto recolhido
+  let h = P.destaques;
+  h += siCabSec('Composição', 'A Câmara em cada sistema', `${siFmt(si.res.vagas)} cadeiras, com os partidos sempre na mesma ordem — da esquerda para a direita, a bancada oficial.`)
+    + `<div class="caixa">${P.hemisCorpo}</div>`;
+  if (P.umaUf) h += P.detalhe;
+  else if (P.mapa) h += P.mapa;
+  h += siCabSec('Partidos', 'Bancadas por partido', 'Cadeiras em cada sistema e a diferença (Δ) para o resultado oficial.') + `<div class="caixa tabela">${P.bancadasTela}</div>`;
+  const s = si.sistemas.find(x => x.tipo === 'distrital');
+  const des = s && s.op.porUf ? Object.values(s.op.porUf).filter(x => x.desenho && x.desenho.metricas) : [];
+  const fora = s && s.op.base === 'populacao' ? des.filter(x => !sdToleranciaSenado(x.desenho.distritos).ok).length : 0;
+  h += '<div class="accs">'
+    + siAcordeao('resumo', 'Resumo em texto', 'O que muda em cada sistema, escrito a partir dos números', siSemH2(P.resumo))
+    + siAcordeao('indicadores', 'Indicadores', 'Proporcionalidade (Gallagher), número efetivo de partidos, maior bancada, quem mais ganha e perde', siSemH2(P.indicadores))
+    + siAcordeao('entrasai', 'Quem entra e quem sai do Podemos', P.temReal ? `Os nomes, sistema a sistema · ${P.nEntra} entradas e ${P.nSai} saídas no total` : 'Sem eleitos oficiais para comparar', siSemH2(P.entraSai))
+    + (P.umaUf ? '' : siAcordeao('estados', 'Estado a estado', `Vagas, quociente, Podemos e trocas nas ${si.res.ufs.length} UFs · clique num estado para ver o detalhe${si.ufSel ? ` (aberto: ${siUfNome(si.ufSel)})` : ''}`, siSemH2(P.estados) + (si.ufSel ? P.detalhe : '')))
+    + (P.umaUf || !P.distritos ? '' : siAcordeao('distritos', 'Distritos por estado', `Tamanho, desvio e compacidade em ${des.length} estados${fora ? ` · <span class="menos">${fora} fora da tolerância do PL 9.212</span>` : ''}`, siSemH2(P.distritos)))
+    + siAcordeao('metodo', 'Método e fontes', 'Regras de cada sistema, dados do TSE e do IBGE', siSemH2(siMetodoHtml()))
+    + '</div>';
   return h;
 }
 
@@ -1194,7 +1278,9 @@ function siMapaBrasilHtml(impressao) {
     si.mapaBr = { res: si.res, modo, tema, contorno: !!si.malhaBr, svg: siMapaImagemSvg(ufs, modo, 1200, tema) };
   }
   const ctl = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>${siBotoesImagem('brasil')}</div>`;
-  return `<h2${impressao ? ' class="imp-quebra"' : ''}>Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}${impressao ? '' : ' · passe o mouse sobre um distrito · zoom: botões, Ctrl + roda do mouse ou duplo clique; arraste para mover'}</small></h2>${ctl}<div class="mapa-img${impressao ? ' claro' : ''}" data-zoom="brasil">${impressao ? '' : siBotoesZoom()}${si.mapaBr.svg}</div>`;
+  const cab = impressao ? `<h2 class="imp-quebra">Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}</small></h2>`
+    : siCabSec('Distrital misto', `Os ${siFmt(ufs.reduce((t, uf) => t + ((s.op.porUf[uf].desenho || {}).distritos || []).length, 0))} distritos${ufs.length === 27 ? '' : ` de ${ufs.length} estados`}`, 'Passe o mouse sobre um distrito para ver os dados dele · zoom: botões, Ctrl + roda do mouse ou duplo clique; arraste para mover.');
+  return `${cab}${ctl}<div class="mapa-img${impressao ? ' claro' : ''}" data-zoom="brasil">${impressao ? '' : siBotoesZoom()}${si.mapaBr.svg}</div>`;
 }
 
 /** Recorte do maior município dividido em zonas (a capital, quase sempre), com folga. */
@@ -1346,6 +1432,18 @@ async function siIniciar() {
     $(id).addEventListener('change', siParametrosMudaram);
   }
   siLigarZoom();
+  $('siFaixa').addEventListener('click', ev => {
+    const f = ev.target.closest('.fx.clic');
+    if (!f) return;
+    si.abertoSis = si.abertoSis === f.dataset.fx ? '' : f.dataset.fx;
+    siFaixa();
+  });
+  // blocos recolhíveis: lembra quais estão abertos (o "toggle" não sobe, mas passa pela captura)
+  $('siResultado').addEventListener('toggle', ev => {
+    const d = ev.target;
+    if (!d.matches || !d.matches('details.acc')) return;
+    if (d.open) si.secAbertas.add(d.dataset.sec); else si.secAbertas.delete(d.dataset.sec);
+  }, true);
   $('siResultado').addEventListener('mousemove', siDicaMapa);
   $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('click', ev => {
@@ -1356,6 +1454,7 @@ async function siIniciar() {
       siBaixarImagem(siMapaImagemSvg(ufs, si.mapaModo, ufs.length > 1 ? 1200 : 1000, 'claro'), siNomeImagem(ufs), bi.dataset.img);
       return;
     }
+    if (ev.target.closest('button[data-todos]')) { si.todosPartidos = !si.todosPartidos; $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); return; }
     const bl = ev.target.closest('button[data-locais]');
     if (bl) { siLerLocais(bl.dataset.locais.split(',')); return; }
     const mm = ev.target.closest('button[data-mm]');
