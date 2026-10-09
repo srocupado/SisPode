@@ -1114,6 +1114,13 @@ function siZoom(svg, f, cx, cy) {
 }
 function siPorVb(svg, vb) {
   svg.setAttribute('viewBox', vb.map(v => +v.toFixed(3)).join(' '));
+  // os números dos distritos ficam do mesmo tamanho na tela, qualquer que seja o zoom
+  const k = svg.dataset.vb0 ? vb[2] / Number(svg.dataset.vb0.split(' ')[2]) : 1;
+  for (const t of svg.querySelectorAll('text')) {
+    if (!t.dataset.fs) t.dataset.fs = t.getAttribute('font-size') || '10';
+    t.setAttribute('font-size', (Number(t.dataset.fs) * k).toFixed(3));
+    t.style.strokeWidth = (2.5 * k).toFixed(3) + 'px';
+  }
   const box = svg.closest('[data-zoom]');
   if (box) si.zoom[box.dataset.zoom] = svg.getAttribute('viewBox');
   svg.classList.toggle('ampliado', !!svg.dataset.vb0 && svg.getAttribute('viewBox') !== svg.dataset.vb0);
