@@ -221,6 +221,7 @@ function lmnDistancia(a, b) {
 // que nenhuma regra de grafia resolve sozinha. Chave: "UF|nome TSE normalizado".
 const LMN_APELIDOS = {
   'AP|agua branca do amapari': 'Pedra Branca do Amapari',
+  'GO|bom jesus': 'Bom Jesus de Goiás',
   'PB|santarem': 'Joca Claudino',
   'PB|sao domingos de pombal': 'São Domingos',
   'RN|ares': 'Arez',
