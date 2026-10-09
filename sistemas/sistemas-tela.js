@@ -27,7 +27,7 @@ const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
-  geo: {}, desenhos: {}, pop: {}, locais: {}, calc: 0, mapaModo: 'distrito' };
+  geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito' };
 const $ = id => document.getElementById(id);
 const siEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const siFmt = n => Number(n || 0).toLocaleString('pt-BR');
@@ -537,7 +537,7 @@ async function siSimular() {
   if (si.ufSel && !si.dados[si.ufSel]) si.ufSel = '';
   siStatus(siResumoStatus());
   $('siAvisos').innerHTML = siAvisosHtml();
-  $('siResultado').innerHTML = siRelatorioHtml(false);
+  $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
   $('siPdf').disabled = false; $('siMemorial').disabled = false;
 }
 
@@ -891,7 +891,7 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
     if (semRotulo && d.x >= semRotulo[0] && d.x <= semRotulo[2] && d.y >= semRotulo[1] && d.y <= semRotulo[3]) continue;
     h += `<text x="${sx(d.x)}" y="${sy(d.y)}" font-size="${fonte}">${d.id}</text>`;
   }
-  return `<svg viewBox="0 0 ${W} ${H}" role="img">${h}</svg>`;
+  return `<svg class="zoomavel" viewBox="0 0 ${W} ${H}" role="img">${h}</svg>`;
 }
 
 // ------------------------------------------------------------ mapa para imagem (Brasil ou um estado)
@@ -917,10 +917,11 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
   }
   const kx = Math.cos((la0 + la1) / 2 * Math.PI / 180);
   const pad = 24, topo = 74, W = larg - 2 * pad, esc = W / (((lo1 - lo0) * kx) || 1), Hm = Math.round((la1 - la0) * esc);
-  const X = lon => (pad + (lon - lo0) * kx * esc).toFixed(1), Y = lat => (topo + (la1 - lat) * esc).toFixed(1);
+  // duas casas: o mapa amplia (zoom) na tela
+  const X = lon => (pad + (lon - lo0) * kx * esc).toFixed(2), Y = lat => (topo + (la1 - lat) * esc).toFixed(2);
   const anel = r => 'M' + r.map(([a, b]) => X(a) + ',' + Y(b)).join('L') + 'Z';
   let corpo = '', pontos = '';
-  const divididos = new Set();
+  const divididos = new Set(), multi = new Set();
   const venc = {}, nD = { total: 0 };
   for (const uf of ufs) {
     const g = si.geo[siChaveGeo(uf)], x = op.porUf[uf];
@@ -938,19 +939,20 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
     for (const f of Object.values(g.malha.feicoes)) {
       const w = peso[f.id], ds = w ? Object.keys(w) : [];
       let fill = T.semD, dd = null;
+      if (ds.length > 1) multi.add(f.id);
       if (ds.length === 1 || (ds.length > 1 && !umEstado)) { dd = Number(ds.sort((a, b) => w[b] - w[a])[0]); fill = corDe(dd); }
       else if (ds.length > 1) { fill = T.div; divididos.add(f.id); }
       const d = f.poligonos.map(p => p.map(anel).join('')).join('');
       // data-d: o distrito (para a dica ao passar o mouse); data-m: o município
       corpo += `<path d="${d}" fill="${fill}" stroke="${fill === T.div ? T.divS : fill}" stroke-width="${fill === T.div ? 0.5 : tema === 'escuro' ? 0.8 : 0.35}" fill-rule="evenodd"${dd != null ? ` data-d="${uf}|${dd}"` : ''}${nome[f.id] ? ` data-m="${siEsc(nome[f.id])}"` : ''}/>`;
     }
-    // num estado só: as zonas e os locais de votação dos municípios divididos, em pontos
-    if (umEstado && tem) {
+    // as zonas e os locais de votação dos municípios divididos, em pontos (no Brasil, pequenos: aparecem com o zoom)
+    if (tem) {
       const pj = x.base.proj, o = pj([0, 0]), ex = pj([1, 0])[0] - o[0], ey = pj([0, 1])[1] - o[1];
       for (const u of x.base.unidades) {
-        if (!(u.id.startsWith('z:') || u.id.startsWith('l:')) || !de.has(u.id) || !divididos.has(u.ibge)) continue;
-        const lon = (u.x - o[0]) / ex, lat = (u.y - o[1]) / ey;
-        pontos += `<circle cx="${X(lon)}" cy="${Y(lat)}" r="${u.id.startsWith('z:') ? 3.2 : 1.8}" fill="${corDe(de.get(u.id))}" stroke="${T.ponto}" stroke-width="0.4" data-d="${uf}|${de.get(u.id)}" data-m="${siEsc(u.nome || '')}"/>`;
+        if (!(u.id.startsWith('z:') || u.id.startsWith('l:')) || !de.has(u.id) || !(umEstado ? divididos : multi).has(u.ibge)) continue;
+        const lon = (u.x - o[0]) / ex, lat = (u.y - o[1]) / ey, z = u.id.startsWith('z:');
+        pontos += `<circle cx="${X(lon)}" cy="${Y(lat)}" r="${umEstado ? (z ? 3.2 : 1.8) : (z ? 0.5 : 0.28)}" fill="${corDe(de.get(u.id))}"${umEstado ? ` stroke="${T.ponto}" stroke-width="0.4"` : ''} data-d="${uf}|${de.get(u.id)}" data-m="${siEsc(u.nome || '')}"/>`;
       }
     }
   }
@@ -1004,7 +1006,9 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
     + `<rect width="${larg}" height="${H}" fill="${T.bg}"/>`
     + `<text x="${pad}" y="32" font-size="20" font-weight="700" fill="${T.tit}">${siEsc(tit)}</text>`
     + `<text x="${pad}" y="54" font-size="12.5" fill="${T.sub}">${siEsc(sub)}${modo === 'partido' ? ' · cor: partido do eleito no distrito' : ''}</text>`
-    + `<g>${corpo}</g><g>${contorno}</g><g>${pontos}</g>${leg}</svg>`;
+    // a área do mapa num <svg> próprio: o zoom mexe só nele (título e legenda ficam)
+    + `<svg class="zoomavel" x="0" y="${topo - 6}" width="${larg}" height="${Hm + 12}" viewBox="0 ${topo - 6} ${larg} ${Hm + 12}">`
+    + `<g>${corpo}</g><g>${contorno}</g><g>${pontos}</g></svg>${leg}</svg>`;
 }
 
 /** Baixa o SVG como arquivo .svg ou como imagem .png (escala 2,5×). */
@@ -1084,6 +1088,94 @@ function siDicaMapa(ev) {
   dica.style.top = (y + r.height > window.innerHeight - 8 ? ev.clientY - r.height - 12 : y) + 'px';
 }
 
+// ------------------------------------------------------------ zoom dos mapas
+function siBotoesZoom() {
+  return '<div class="zoom-bt"><button data-zm="+" title="Aproximar">+</button><button data-zm="-" title="Afastar">−</button><button data-zm="0" title="Mapa inteiro">⟲</button></div>';
+}
+const siVb = svg => svg.getAttribute('viewBox').split(/[\s,]+/).map(Number);
+/** Retângulo do mapa na tela. Um <svg> dentro de outro: o Chrome devolve a caixa do conteúdo (que cresce com o zoom), então a conta vem do de fora. */
+function siRectSvg(svg) {
+  const fora = svg.ownerSVGElement;
+  if (!fora) return svg.getBoundingClientRect();
+  const R = fora.getBoundingClientRect(), [, , W, H] = siVb(fora);
+  const x = +svg.getAttribute('x') || 0, y = +svg.getAttribute('y') || 0, w = +svg.getAttribute('width'), h = +svg.getAttribute('height');
+  return { left: R.left + x / W * R.width, top: R.top + y / H * R.height, width: w / W * R.width, height: h / H * R.height };
+}
+/** Amplia (f < 1) ou afasta (f > 1) em torno do ponto (cx, cy) da tela; sem ponto, o centro. Até 40×; nunca além do mapa inteiro. */
+function siZoom(svg, f, cx, cy) {
+  if (!svg.dataset.vb0) svg.dataset.vb0 = svg.getAttribute('viewBox');
+  const [x0, y0, w0, h0] = svg.dataset.vb0.split(' ').map(Number), [x, y, w, h] = siVb(svg);
+  const r = siRectSvg(svg);
+  const fx = cx == null ? 0.5 : (cx - r.left) / r.width, fy = cy == null ? 0.5 : (cy - r.top) / r.height;
+  const nw = Math.min(w0, Math.max(w0 / 40, w * f)), nh = nw * h0 / w0;
+  let nx = x + fx * w - fx * nw, ny = y + fy * h - fy * nh;
+  nx = Math.min(Math.max(nx, x0), x0 + w0 - nw); ny = Math.min(Math.max(ny, y0), y0 + h0 - nh);
+  siPorVb(svg, [nx, ny, nw, nh]);
+}
+function siPorVb(svg, vb) {
+  svg.setAttribute('viewBox', vb.map(v => +v.toFixed(3)).join(' '));
+  const box = svg.closest('[data-zoom]');
+  if (box) si.zoom[box.dataset.zoom] = svg.getAttribute('viewBox');
+  svg.classList.toggle('ampliado', !!svg.dataset.vb0 && svg.getAttribute('viewBox') !== svg.dataset.vb0);
+}
+/** Depois de redesenhar o relatório, cada mapa volta ao zoom em que estava. */
+function siRestaurarZoom() {
+  for (const box of document.querySelectorAll('#siResultado [data-zoom]')) {
+    const v = si.zoom[box.dataset.zoom], svg = box.querySelector('svg.zoomavel');
+    if (!v || !svg) continue;
+    svg.dataset.vb0 = svg.getAttribute('viewBox');
+    if (v.split(' ')[2] - svg.dataset.vb0.split(' ')[2] > 1e-6) continue;
+    siPorVb(svg, v.split(' ').map(Number));
+  }
+}
+function siLigarZoom() {
+  const raiz = $('siResultado');
+  // o mapa sob o cursor (também no fundo, fora dos municípios): o <svg> com zoom, ou o que está dentro do <svg> de fora
+  const doMapa = (t, so) => {
+    const s = t && t.closest && t.closest('svg');
+    if (!s) return null;
+    const z = s.classList.contains('zoomavel') ? s : (s.ownerSVGElement && s.ownerSVGElement.classList.contains('zoomavel') ? s.ownerSVGElement : s.querySelector('svg.zoomavel'));
+    return z && (!so || z.classList.contains(so)) ? z : null;
+  };
+  raiz.addEventListener('wheel', ev => {
+    const svg = doMapa(ev.target);
+    if (!svg || !(ev.ctrlKey || ev.metaKey)) return;   // sem Ctrl, a roda rola a página (pinça do trackpad vem com Ctrl)
+    ev.preventDefault();
+    siZoom(svg, Math.exp(ev.deltaY * 0.0025), ev.clientX, ev.clientY);
+  }, { passive: false });
+  raiz.addEventListener('dblclick', ev => {
+    const svg = doMapa(ev.target);
+    if (!svg) return;
+    ev.preventDefault();
+    siZoom(svg, ev.shiftKey ? 2 : 0.5, ev.clientX, ev.clientY);
+  });
+  raiz.addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-zm]');
+    if (!b) return;
+    const svg = b.closest('[data-zoom]').querySelector('svg.zoomavel');
+    if (b.dataset.zm === '0') { if (svg.dataset.vb0) siPorVb(svg, svg.dataset.vb0.split(' ').map(Number)); }
+    else siZoom(svg, b.dataset.zm === '+' ? 0.5 : 2);
+  });
+  // arrastar para mover (com o mapa ampliado)
+  let arr = null;
+  raiz.addEventListener('mousedown', ev => {
+    const svg = ev.button === 0 && doMapa(ev.target, 'ampliado');
+    if (!svg) return;
+    ev.preventDefault();
+    const r = siRectSvg(svg);
+    arr = { svg, x: ev.clientX, y: ev.clientY, vb: siVb(svg), k: siVb(svg)[2] / r.width };
+    svg.classList.add('arrastando');
+  });
+  window.addEventListener('mousemove', ev => {
+    if (!arr) return;
+    const [x0, y0, w0, h0] = arr.svg.dataset.vb0.split(' ').map(Number), [, , w, h] = arr.vb;
+    let nx = arr.vb[0] - (ev.clientX - arr.x) * arr.k, ny = arr.vb[1] - (ev.clientY - arr.y) * arr.k;
+    nx = Math.min(Math.max(nx, x0), x0 + w0 - w); ny = Math.min(Math.max(ny, y0), y0 + h0 - h);
+    siPorVb(arr.svg, [nx, ny, w, h]);
+  });
+  window.addEventListener('mouseup', () => { if (arr) { arr.svg.classList.remove('arrastando'); arr = null; } });
+}
+
 /** Mapa dos distritos do Brasil (os estados lidos), com os botões de imagem. */
 function siMapaBrasilHtml(impressao) {
   const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital');
@@ -1095,7 +1187,7 @@ function siMapaBrasilHtml(impressao) {
     si.mapaBr = { res: si.res, modo, tema, contorno: !!si.malhaBr, svg: siMapaImagemSvg(ufs, modo, 1200, tema) };
   }
   const ctl = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>${siBotoesImagem('brasil')}</div>`;
-  return `<h2${impressao ? ' class="imp-quebra"' : ''}>Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}${impressao ? '' : ' · passe o mouse sobre um distrito'}</small></h2>${ctl}<div class="mapa-img${impressao ? ' claro' : ''}">${si.mapaBr.svg}</div>`;
+  return `<h2${impressao ? ' class="imp-quebra"' : ''}>Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}${impressao ? '' : ' · passe o mouse sobre um distrito · zoom: botões, Ctrl + roda do mouse ou duplo clique; arraste para mover'}</small></h2>${ctl}<div class="mapa-img${impressao ? ' claro' : ''}" data-zoom="brasil">${impressao ? '' : siBotoesZoom()}${si.mapaBr.svg}</div>`;
 }
 
 /** Recorte do maior município dividido em zonas (a capital, quase sempre), com folga. */
@@ -1139,8 +1231,8 @@ function siDistritosHtml(uf, sd, impressao) {
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
   const botoes = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg" id="siMapaModo"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>${siBotoesImagem(uf)}</div>`;
-  h += botoes + `<div class="mapas-d"><div class="mapa-d"><div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${desenho.locais ? '; pontos menores = locais de votação' : ''}${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
-    + (cap ? `<div class="mapa-d"><div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral${desenho.locais ? ' e local de votação' : ''}</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
+  h += botoes + `<div class="mapas-d"><div class="mapa-d" data-zoom="${uf}">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${desenho.locais ? '; pontos menores = locais de votação' : ''}${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
+    + (cap ? `<div class="mapa-d" data-zoom="${uf}:cap">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral${desenho.locais ? ' e local de votação' : ''}</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
   // tabela
   const nomes = d => {
     const porMun = {};
@@ -1246,6 +1338,7 @@ async function siIniciar() {
     $(id).addEventListener('input', siParametrosMudaram);
     $(id).addEventListener('change', siParametrosMudaram);
   }
+  siLigarZoom();
   $('siResultado').addEventListener('mousemove', siDicaMapa);
   $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('click', ev => {
@@ -1259,11 +1352,11 @@ async function siIniciar() {
     const bl = ev.target.closest('button[data-locais]');
     if (bl) { siLerLocais(bl.dataset.locais.split(',')); return; }
     const mm = ev.target.closest('button[data-mm]');
-    if (mm) { si.mapaModo = mm.dataset.mm; $('siResultado').innerHTML = siRelatorioHtml(false); return; }
+    if (mm) { si.mapaModo = mm.dataset.mm; $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); return; }
     const tr = ev.target.closest('tr[data-uf]');
     if (!tr) return;
     si.ufSel = si.ufSel === tr.dataset.uf ? '' : tr.dataset.uf;
-    $('siResultado').innerHTML = siRelatorioHtml(false);
+    $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
     const det = $('siDetalhe');
     if (det && si.ufSel) det.scrollIntoView({ behavior: 'smooth', block: 'start' });
   });
