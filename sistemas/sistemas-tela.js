@@ -405,7 +405,10 @@ async function siPrepararDistritos(op, calc) {
     const k = sdNumeroDistritos(d.vagas, op.pctDistrital, op.arred);
     const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}|${op.base}`;
     if (!si.desenhos[chave]) {
-      siProgresso(`Desenhando os distritos: ${siUfNome(uf)} (${k})…`, i / ufs.length);
+      // a barra diz de onde vem o que se lê: população do IBGE (lida na hora) ou o eleitorado do TSE (já na memória)
+      siProgresso(op.base === 'populacao'
+        ? `${si.pop[uf] ? '' : 'Lendo a população do Censo 2022 (IBGE) e '}desenhando os distritos por população: ${siUfNome(uf)} (${k})…`
+        : `Desenhando os distritos pelo eleitorado (TSE, já lido): ${siUfNome(uf)} (${k})…`, i / ufs.length);
       await new Promise(r => setTimeout(r, 0));
       if (calc !== si.calc) return null;
       // Base do tamanho: eleitores aptos (TSE) ou população residente (Censo 2022, IBGE).
@@ -565,7 +568,8 @@ function siResumoStatus() {
   const ufs = Object.keys(si.dados || {});
   const atual = ufs.map(uf => si.dados[uf].atualizado).filter(Boolean).sort((a, b) => siData(b) - siData(a))[0];
   return `<b>${si.op.ano}</b> · ${siCargoNome()} · ${ufs.length === 1 ? siUfNome(ufs[0]) : ufs.length + ' estados'} · ${siFmt(si.res.vagas)} vagas · `
-    + (si.op.fonte === 'resultados' ? `servidor de resultados do TSE${atual ? ' (divulgação de ' + siEsc(atual) + ')' : ''}` : 'dados abertos do TSE');
+    + (si.op.fonte === 'resultados' ? `votos: servidor de resultados do TSE${atual ? ' (divulgação de ' + siEsc(atual) + ')' : ''}` : 'votos: dados abertos do TSE')
+    + (si.sistemas && si.sistemas.some(x => x.tipo === 'distrital' && x.op.base === 'populacao') ? ' · distritos por população: Censo 2022 (IBGE)' : '');
 }
 function siData(s) { const m = /(\d+)\/(\d+)\/(\d+)\s*(\d+)?:?(\d+)?:?(\d+)?/.exec(s || ''); return m ? new Date(+m[3], m[2] - 1, +m[1], +(m[4] || 0), +(m[5] || 0), +(m[6] || 0)).getTime() : 0; }
 
