@@ -216,5 +216,27 @@ const vdL = SD.sdVotosDistritos({ agrs: [{ id: 'X', siglas: ['PX'], cands: [{ sq
   Object.fromEntries(Object.keys(locaisL).flatMap(kz => Object.keys(locaisL[kz]).map(l => [kz + '|' + l, { c: { 111: 1 }, l: {} }]))));
 ok(vdL.map(x => x.validos).sort().join() === '5,5', 'votos do distrito somam os locais');
 
+console.log('Segundo voto (cenário)');
+const dSV = { agrs: [
+  { id: 'A', siglas: ['PA'], cands: [{ sq: 'a1' }, { sq: 'a2' }] }, { id: 'B', siglas: ['PB'], cands: [{ sq: 'b1' }] },
+  { id: 'C', siglas: ['PC'], cands: [{ sq: 'c1' }] }, { id: 'F', siglas: ['PX', 'PY'], cands: [{ sq: 'f1' }] }] };
+const vdSV = [{ id: 1, validos: 1000, porAgr: { A: 400, B: 300, C: 200, F: 100 }, porCand: { a1: 300, a2: 80, b1: 290, c1: 190, f1: 95 } }];
+ok(SD.sdSegundoVoto(vdSV, dSV, {}) === vdSV, 'desligado: os votos do distrito ficam como estão');
+const u = SD.sdSegundoVoto(vdSV, dSV, { votoUtil: 0.5 })[0];
+ok(u.porAgr.C === 100 && u.porAgr.F === 50 && u.porAgr.A === 475 && u.porAgr.B === 375 && u.validos === 1000,
+  'voto útil 50%: metade dos votos das de fora dos dois primeiros vai para eles, meio a meio');
+ok(u.porCand.a1 === 375 && u.porCand.a2 === 80 && u.porCand.c1 === 95 && vdSV[0].porAgr.C === 200, 'o voto vai para o candidato mais votado da agremiação; o original intocado');
+const ua = SD.sdSegundoVoto(vdSV, dSV, { votoUtil: 0.5, aliancas: [['PC', 'PB']] })[0];
+ok(ua.porAgr.B === 525 && ua.porAgr.A === 425 && ua.porAgr.C === 0, 'com aliança e voto útil: a aliada concorre junto (e o voto útil das outras segue meio a meio)');
+const vd4 = [{ id: 1, validos: 1000, porAgr: { A: 360, B: 340, C: 300 }, porCand: { a1: 360, b1: 340, c1: 300 } }];
+const ub = SD.sdSegundoVoto(vd4, dSV, { votoUtil: 1, aliancas: [['PC', 'PB']] })[0];
+ok(ub.porAgr.B === 640 && ub.porAgr.A === 360, 'voto útil de quem tem aliada entre as duas primeiras vai todo para ela');
+const al = SD.sdSegundoVoto(vdSV, dSV, { aliancas: [['PB', 'PC']] })[0];
+ok(al.porAgr.B === 500 && al.porAgr.C === 0 && al.porCand.b1 === 490 && !('c1' in al.porCand), 'aliança: a mais votada no distrito concorre com os votos da aliada, que não lança candidato');
+const al2 = SD.sdSegundoVoto(vdSV, dSV, { aliancas: [['PC', 'PY'], ['PB', 'PC']] })[0];
+ok(al2.porAgr.B === 600 && al2.porAgr.C === 0 && al2.porAgr.F === 0, 'pares encadeados formam um grupo (federação pela sigla de qualquer partido dela)');
+const r2 = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'paralelo', desenho: desE, base: baseE, votos, aliancas: [['PA', 'PB']] });
+ok(r2.distritos.every(x => x.vencedor.agr === 'A' || x.vencedor.agr === 'B') && r2.distritos.length === 2, 'o distrital misto usa o segundo voto para escolher quem leva o distrito');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

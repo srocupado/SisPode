@@ -55,6 +55,18 @@
   .sis .nota { font-size: 11.5px; color: var(--dim); border-top: 1px dashed var(--borda); padding-top: 5px; margin-top: 6px; }
   .sis .geo { margin-top: 6px; font-size: 12px; color: var(--dim); } .sis .geo button { margin-right: 6px; }
   .sis .geo .ok { color: var(--verde2); }
+  .sis .lin.larga { grid-column: 1 / -1; } .sis .lin.larga > span:first-child { flex: 0 0 230px; }
+  .tog { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-weight: 600; color: var(--texto); white-space: nowrap; }
+  .tog input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .tog i { width: 34px; height: 18px; border-radius: 9px; background: #2e3d4d; position: relative; transition: background .15s; flex: none; }
+  .tog i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #cfd8e1; transition: left .15s; }
+  .tog input:checked + i { background: var(--verde); } .tog input:checked + i::after { left: 18px; background: #fff; }
+  .tog input:focus-visible + i { outline: 2px solid var(--verde2); outline-offset: 2px; }
+  .tog-c { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--dim); font-size: 12.5px; }
+  .lin.off .tog-c { opacity: .45; }
+  .tog-c select { background: var(--bg3); color: var(--texto); border: 1px solid var(--borda); border-radius: 8px; padding: 4px 6px; }
+  .chip-al { display: inline-flex; align-items: center; gap: 6px; background: rgba(0,168,89,.14); border: 1px solid rgba(0,168,89,.45); color: var(--texto); border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 12px; }
+  .chip-al button { border: 0; background: transparent; color: var(--dim); padding: 0 5px; font-size: 14px; line-height: 1; }
   .sis .senado-ok { color: var(--verde2); font-size: 11.5px; font-weight: 600; }
   .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
   /* Resultado */
@@ -251,9 +263,12 @@
       <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
       <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
       <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
+      <div class="lin larga" id="dUtilLin"><span><label class="tog"><input type="checkbox" id="dUtil"><i></i>Voto útil no distrito</label></span><span class="tog-c"><input type="number" id="dUtilPct" min="0" max="100" step="5" value="20"> % dos votos de quem não está entre os dois primeiros do distrito vai para eles</span></div>
+      <div class="lin larga" id="dAliLin"><span><label class="tog"><input type="checkbox" id="dAli"><i></i>Alianças no distrito</label></span><span class="tog-c"><span id="dAliLista"></span><select id="dAliA"></select> apoia e é apoiado por <select id="dAliB"></select><button id="dAliAdd">Adicionar</button></span></div>
       <div class="lin"><button id="dSenado" title="Aplica as regras do PL 9.212/2017 (PLS 86 e 345/2017, aprovados pelo Senado em 21/11/2017): metade das vagas em distritos (parte inteira), distritos por população, compensatório, sem cláusula">Como no projeto do Senado (PL 9.212/2017)</button><span class="senado-ok" id="dSenadoOk" hidden>✓ regras do projeto</span></div>
       <div class="nota">Os distritos não existem: são desenhados com eleitorado (ou população, pelo Censo 2022) parecido, contíguos e compactos, a partir dos municípios (e das zonas eleitorais, onde o município é grande demais).
         <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.
+        <br><b>Segundo voto</b> (cenário — os dados do TSE têm um voto só): com dois votos, parte do eleitor vota no distrito diferente da lista. <b>Voto útil</b>: a fração escolhida dos votos de quem não está entre os dois primeiros de cada distrito passa para eles — meio a meio, ou toda para o aliado, se um dos dois é aliado. <b>Alianças</b>: em cada distrito, dos aliados só o mais votado ali lança candidato, com os votos dos outros. A lista (voto partidário) não muda.
         <br><b>Projeto do Senado</b> (PL 9.212/2017): metade das vagas em distritos (parte inteira), desenhados por habitantes com até ±5% do alvo (±10% em 1 distrito ou em 10% deles);
         o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos.</div>
     </div>
