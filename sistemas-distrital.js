@@ -427,13 +427,25 @@ function sdLerPopulacao(json) {
   return out;
 }
 /**
+ * Municípios criados depois do Censo 2022, por estado: { nome do novo: nome do município de onde saiu }.
+ * O censo conta a população do novo dentro do de origem; sem isso, ela entraria duas vezes
+ * (no de origem, pelo censo, e no novo, pela estimativa).
+ */
+const SD_DESMEMBRADOS = {
+  MT: { 'BOA ESPERANCA DO NORTE': 'SORRISO' },   // saiu de Sorriso; instalado em 2025
+};
+const sdNome = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+
+/**
  * Troca o peso das unidades (eleitores aptos) pela população: cada município
  * recebe a sua população do censo; num município dividido, ela se reparte entre
  * as zonas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).
- * Município sem par no IBGE fica com os eleitores × (população ÷ eleitores do resto do estado).
- * Devolve { geo (cópia, mesmos votos), semPopulacao: [nomes] }.
+ * Município sem par no IBGE fica com os eleitores × (população ÷ eleitores do resto do estado);
+ * se ele saiu de outro depois do censo (origens: { novo: de origem }, por nome), essa estimativa
+ * sai da população do de origem, que o censo contou com o território dele.
+ * Devolve { geo (cópia, mesmos votos), semPopulacao: [nomes], descontos: [{ de, para, n }] }.
  */
-function sdPesoPopulacao(geo, pop, ibgeDe) {
+function sdPesoPopulacao(geo, pop, ibgeDe, origens = {}) {
   const mun = {}, semPopulacao = [];
   let somaPop = 0, somaApt = 0;
   const aptosDe = m => Object.values(m.zonas).reduce((s, z) => s + z.aptos, 0);
@@ -445,15 +457,29 @@ function sdPesoPopulacao(geo, pop, ibgeDe) {
   // Dois municípios do TSE no mesmo do IBGE (raro): a população se reparte pelos eleitores de cada um.
   const aptIbge = {};
   for (const [cd, m] of Object.entries(geo.mun)) { const id = ibgeDe(cd, m.nome); if (id) aptIbge[id] = (aptIbge[id] || 0) + aptosDe(m); }
+  const total = {};
   for (const [cd, m] of Object.entries(geo.mun)) {
     const id = ibgeDe(cd, m.nome), p = id && pop[id], a = aptosDe(m);
     if (!p) semPopulacao.push(m.nome || cd);
-    const total = p ? p * (a / (aptIbge[id] || a || 1)) : a * fator;
-    const zonas = {};
-    for (const [z, x] of Object.entries(m.zonas)) zonas[z] = Object.assign({}, x, { aptos: a ? total * x.aptos / a : 0 });
+    total[cd] = p ? p * (a / (aptIbge[id] || a || 1)) : a * fator;
+  }
+  // o novo município sai do de origem: desconta a estimativa dele (o censo a contou lá)
+  const descontos = [], porNome = {};
+  for (const [cd, m] of Object.entries(geo.mun)) porNome[sdNome(m.nome)] = cd;
+  const orig = Object.fromEntries(Object.entries(origens || {}).map(([k, v]) => [sdNome(k), sdNome(v)]));
+  for (const [cd, m] of Object.entries(geo.mun)) {
+    const de = orig[sdNome(m.nome)], cdo = de && porNome[de];
+    if (!cdo || !semPopulacao.includes(m.nome || cd) || semPopulacao.includes(geo.mun[cdo].nome || cdo)) continue;
+    const n = Math.min(total[cd], total[cdo] * 0.9);
+    total[cdo] -= n;
+    descontos.push({ de: geo.mun[cdo].nome || cdo, para: m.nome || cd, n });
+  }
+  for (const [cd, m] of Object.entries(geo.mun)) {
+    const a = aptosDe(m), zonas = {};
+    for (const [z, x] of Object.entries(m.zonas)) zonas[z] = Object.assign({}, x, { aptos: a ? total[cd] * x.aptos / a : 0 });
     mun[cd] = { nome: m.nome, zonas };
   }
-  return { geo: { mun, votos: geo.votos }, semPopulacao };
+  return { geo: { mun, votos: geo.votos }, semPopulacao, descontos };
 }
 
 // ------------------------------------------------------------ regras do PL 9.212/2017 (aprovado pelo Senado: PLS 86 e 345/2017)
@@ -871,5 +897,5 @@ function sdDistritalMisto(d, op) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, SD_DESMEMBRADOS, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
 }

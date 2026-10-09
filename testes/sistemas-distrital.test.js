@@ -154,6 +154,12 @@ const z = pp.geo.mun['2'].zonas;
 ok(pp.geo.mun['1'].zonas['1'].aptos === 1000 && z['2'].aptos === 2000 && z['3'].aptos === 2000 && z['4'].aptos === 2000 && z['3'].la === 0.8, 'município com a sua população; zonas pela proporção de eleitores; posições preservadas');
 ok(Math.abs(pp.geo.mun['3'].zonas['5'].aptos - 100 * 7000 / 1000) < 1e-9 && pp.semPopulacao.join() === 'C,D' && pp.geo.votos === geo.votos && geo.mun['1'].zonas['1'].aptos === 100,
   'sem par no IBGE: eleitores × razão do estado (avisado); votos iguais; o original intocado');
+// município criado depois do censo (D saiu de B): a estimativa de D sai da população de B
+const pd = SD.sdPesoPopulacao(geo, pop, (cd) => ({ 1: '1', 2: '2', 3: null, 4: null })[cd], { 'D': 'B' });
+const somaB = Object.values(pd.geo.mun['2'].zonas).reduce((t, z) => t + z.aptos, 0), estD = Object.values(pd.geo.mun['4'].zonas).reduce((t, z) => t + z.aptos, 0);
+ok(perto(somaB + estD, 6000) && estD > 0 && pd.descontos.length === 1 && pd.descontos[0].de === 'B' && pd.descontos[0].para === 'D',
+  'município novo: a estimativa dele sai do de origem (sem contar a população duas vezes)');
+ok(SD.SD_DESMEMBRADOS.MT && SD.SD_DESMEMBRADOS.MT['BOA ESPERANCA DO NORTE'] === 'SORRISO', 'Boa Esperança do Norte (MT) saiu de Sorriso');
 
 console.log('Regras do PL 9.212/2017 (Senado)');
 ok(SD.sdNumeroDistritos(9, 0.5) === 5 && SD.sdNumeroDistritos(9, 0.5, 'baixo') === 4 && SD.sdNumeroDistritos(70, 0.5, 'baixo') === 35 && SD.sdNumeroDistritos(8, 0.5, 'baixo') === 4,

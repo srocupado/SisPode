@@ -409,13 +409,13 @@ async function siPrepararDistritos(op, calc) {
       await new Promise(r => setTimeout(r, 0));
       if (calc !== si.calc) return null;
       // Base do tamanho: eleitores aptos (TSE) ou população residente (Censo 2022, IBGE).
-      let gp = g, semPopulacao = [], popErro = '';
+      let gp = g, semPopulacao = [], descontos = [], popErro = '';
       if (op.base === 'populacao' && k > 0) {
         try {
           const pop = await siPopulacao(uf, g);
           if (calc !== si.calc) return null;
-          const r = sdPesoPopulacao(g, pop, (cd, nome) => g.resolver(nome));
-          gp = r.geo; semPopulacao = r.semPopulacao;
+          const r = sdPesoPopulacao(g, pop, (cd, nome) => g.resolver(nome), SD_DESMEMBRADOS[uf.toUpperCase()]);
+          gp = r.geo; semPopulacao = r.semPopulacao; descontos = r.descontos;
         } catch (e) { popErro = (e && e.message) || String(e); }
       }
       const aptos = Object.values(gp.mun).reduce((s, m) => s + Object.values(m.zonas).reduce((a, z) => a + z.aptos, 0), 0);
@@ -426,6 +426,7 @@ async function siPrepararDistritos(op, calc) {
         if (k > base.unidades.length) desenho.pedidos = k;
         desenho.base = op.base === 'populacao' && !popErro ? 'populacao' : 'eleitorado';
         desenho.semPopulacao = semPopulacao;
+        desenho.descontos = descontos;
         desenho.popErro = popErro;
       }
       // sem a população (IBGE fora do ar), o desenho fica pelo eleitorado e não vai para a memória
@@ -724,13 +725,11 @@ function siRelatorioHtml(impressao) {
   const P = siPartes(impressao);
   // PDF: o relatório completo, na ordem de sempre
   if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + P.mapa + P.distritos + P.detalhe;
-  // Tela: destaques → a Câmara em cada sistema → os distritos → bancadas; o resto recolhido
+  // Tela: destaques → a Câmara em cada sistema → blocos recolhíveis → os distritos → bancadas
   let h = P.destaques;
   h += siCabSec('Composição', 'A Câmara em cada sistema', `${siFmt(si.res.vagas)} cadeiras, com os partidos sempre na mesma ordem — da esquerda para a direita, a bancada oficial.`)
     + `<div class="caixa">${P.hemisCorpo}</div>`;
-  if (P.umaUf) h += P.detalhe;
-  else if (P.mapa) h += P.mapa;
-  h += siCabSec('Partidos', 'Bancadas por partido', 'Cadeiras em cada sistema e a diferença (Δ) para o resultado oficial.') + `<div class="caixa tabela">${P.bancadasTela}</div>`;
+  // os blocos recolhíveis vêm antes do mapa
   const s = si.sistemas.find(x => x.tipo === 'distrital');
   const des = s && s.op.porUf ? Object.values(s.op.porUf).filter(x => x.desenho && x.desenho.metricas) : [];
   const fora = s && s.op.base === 'populacao' ? des.filter(x => !sdToleranciaSenado(x.desenho.distritos).ok).length : 0;
@@ -742,6 +741,9 @@ function siRelatorioHtml(impressao) {
     + (P.umaUf || !P.distritos ? '' : siAcordeao('distritos', 'Distritos por estado', `Tamanho, desvio e compacidade em ${des.length} estados${fora ? ` · <span class="menos">${fora} fora da tolerância do PL 9.212</span>` : ''}`, siSemH2(P.distritos)))
     + siAcordeao('metodo', 'Método e fontes', 'Regras de cada sistema, dados do TSE e do IBGE', siSemH2(siMetodoHtml()))
     + '</div>';
+  if (P.umaUf) h += P.detalhe;
+  else if (P.mapa) h += P.mapa;
+  h += siCabSec('Partidos', 'Bancadas por partido', 'Cadeiras em cada sistema e a diferença (Δ) para o resultado oficial.') + `<div class="caixa tabela">${P.bancadasTela}</div>`;
   return h;
 }
 
@@ -1307,7 +1309,8 @@ function siDistritosHtml(uf, sd, impressao) {
   const m = desenho.metricas, U = new Map(base.unidades.map(u => [u.id, u]));
   const pop = desenho.base === 'populacao';
   if (desenho.popErro) h += `<div class="aviso">A população do Censo 2022 não veio do IBGE (${siEsc(desenho.popErro)}): os distritos foram desenhados pelo eleitorado. Mude qualquer parâmetro para tentar de novo.</div>`;
-  if (pop && desenho.semPopulacao && desenho.semPopulacao.length) h += `<div class="dica">Sem população no IBGE para ${siEsc(desenho.semPopulacao.join(', '))}: entram pelos eleitores, na razão população/eleitores do estado.</div>`;
+  if (pop && desenho.semPopulacao && desenho.semPopulacao.length) h += `<div class="dica">Sem população no Censo 2022 para ${siEsc(desenho.semPopulacao.join(', '))}: entram pelos eleitores, na razão população/eleitores do estado`
+    + `${(desenho.descontos || []).length ? `; criado${desenho.descontos.length > 1 ? 's' : ''} depois do censo, a estimativa sai da população de onde saiu (${desenho.descontos.map(x => `${siEsc(x.para)}: −${siFmt(Math.round(x.n))} habitantes de ${siEsc(x.de)}`).join('; ')})` : ''}.</div>`;
   const ruim = m.desvioMax > 0.15;
   h += `<div class="metr"><span><b>${desenho.distritos.length}</b> distritos${desenho.pedidos ? ` (pedidos ${desenho.pedidos}: o estado não tem unidades para tantos)` : ''}</span>`
     + `<span>alvo <b>${siFmt(Math.round(desenho.alvo))}</b> ${pop ? 'habitantes (Censo 2022)' : 'eleitores'} por distrito</span>`
