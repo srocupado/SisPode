@@ -870,18 +870,19 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
     const fill = !us.length ? '' : dividido ? '' : ` fill="${corDe(de.get(us[0].id))}"`;
     const cls = !us.length ? ' class="fora"' : dividido ? ' class="div"' : '';
     const d = rs.map(r => 'M' + r.map(([a, b]) => sx(a) + ',' + sy(b)).join('L') + 'Z').join('');
-    h += `<path${cls}${fill} d="${d}"><title>${siEsc(us[0] ? (us[0].nome.split(' · ')[0] + (dividido ? ' (dividido em zonas)' : ' — distrito ' + de.get(us[0].id))) : '')}</title></path>`;
+    h += !us.length || dividido ? `<path${cls}${fill} d="${d}"><title>${siEsc(us[0] ? us[0].nome.split(' · ')[0] + ' (dividido em zonas)' : '')}</title></path>`
+      : `<path${cls}${fill} d="${d}" data-d="${uf}|${de.get(us[0].id)}" data-m="${siEsc(us[0].nome.split(' · ')[0])}"></path>`;
   }
   const zonas = base.unidades.filter(u => u.id.startsWith('z:'));
   const maxApt = Math.max(1, ...zonas.map(u => u.aptos));
   const rz = caixa || Object.keys(g.malha.feicoes).length <= 1 ? 10 : 4.5;   // DF: o estado é um município só
   for (const u of zonas) {
-    h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${(rz * Math.sqrt(u.aptos / maxApt) + 1.5).toFixed(1)}" fill="${corDe(de.get(u.id))}"><title>${siEsc(u.nome)} — distrito ${de.get(u.id)}</title></circle>`;
+    h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${(rz * Math.sqrt(u.aptos / maxApt) + 1.5).toFixed(1)}" fill="${corDe(de.get(u.id))}" data-d="${uf}|${de.get(u.id)}" data-m="${siEsc(u.nome)}"></circle>`;
   }
   // locais de votação (desenho afinado): pontos pequenos
   const rl = caixa || Object.keys(g.malha.feicoes).length <= 1 ? 2.6 : 1.6;
   for (const u of base.unidades) if (u.id.startsWith('l:')) {
-    h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${rl}" fill="${corDe(de.get(u.id))}"><title>${siEsc(u.nome)} — distrito ${de.get(u.id)}</title></circle>`;
+    h += `<circle class="z" cx="${sx(u.x)}" cy="${sy(u.y)}" r="${rl}" fill="${corDe(de.get(u.id))}" data-d="${uf}|${de.get(u.id)}" data-m="${siEsc(u.nome)}"></circle>`;
   }
   const fonte = caixa ? 11 : desenho.distritos.length > 30 ? 8 : 10;
   for (const d of desenho.distritos) {
@@ -900,7 +901,12 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
  * eleito. Município dividido entre distritos: no mapa do Brasil, a cor do distrito com
  * mais peso nele; no de um estado, cinza, com as zonas e os locais de votação em pontos.
  */
-function siMapaImagemSvg(ufs, modo, larg = 1200) {
+const SI_TEMAS_MAPA = {
+  claro: { bg: '#ffffff', tit: '#111827', sub: '#4b5563', txt: '#111827', nota: '#4b5563', rod: '#6b7280', semD: '#e5e7eb', div: '#eef1f4', divS: '#cfd6de', cont: '#1f2937', ponto: '#ffffff' },
+  escuro: { bg: '#16212c', tit: '#e8edf2', sub: '#93a1b0', txt: '#e8edf2', nota: '#93a1b0', rod: '#7d8b99', semD: '#22303d', div: '#2a3a4a', divS: '#3a4b5c', cont: '#0b121a', ponto: '#0b121a' },
+};
+function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
+  const T = SI_TEMAS_MAPA[tema] || SI_TEMAS_MAPA.claro;
   const s = si.sistemas.find(x => x.tipo === 'distrital'), sd = si.res.sims.find(x => x.tipo === 'distrital');
   const op = s.op, umEstado = ufs.length === 1;
   const coresP = siCores(snOrdemPartidos(si.res));
@@ -923,16 +929,20 @@ function siMapaImagemSvg(ufs, modo, larg = 1200) {
     const vu = {};
     for (const dt of ((sd.porUf[uf] || {}).distritos || [])) if (dt.vencedor) { vu[dt.id] = dt.vencedor.partido; venc[dt.vencedor.partido] = (venc[dt.vencedor.partido] || 0) + 1; }
     if (tem) nD.total += x.desenho.distritos.length;
-    const corDe = id => (modo === 'partido' ? (vu[id] ? coresP[vu[id]] || SI_COR_OUTROS : '#cbd5e1') : cor[id] || '#cbd5e1');
-    const peso = {};
-    if (tem) for (const u of x.base.unidades) if (u.ibge && de.has(u.id)) { const w = (peso[u.ibge] = peso[u.ibge] || {}); w[de.get(u.id)] = (w[de.get(u.id)] || 0) + u.aptos; }
+    const corDe = id => (modo === 'partido' ? (vu[id] ? coresP[vu[id]] || SI_COR_OUTROS : T.semD) : cor[id] || T.semD);
+    const peso = {}, nome = {};
+    if (tem) for (const u of x.base.unidades) if (u.ibge && de.has(u.id)) {
+      const w = (peso[u.ibge] = peso[u.ibge] || {}); w[de.get(u.id)] = (w[de.get(u.id)] || 0) + u.aptos;
+      nome[u.ibge] = (u.nome || '').split(' · ')[0];
+    }
     for (const f of Object.values(g.malha.feicoes)) {
       const w = peso[f.id], ds = w ? Object.keys(w) : [];
-      let fill = '#e5e7eb';
-      if (ds.length === 1 || (ds.length > 1 && !umEstado)) fill = corDe(Number(ds.sort((a, b) => w[b] - w[a])[0]));
-      else if (ds.length > 1) { fill = '#eef1f4'; divididos.add(f.id); }
+      let fill = T.semD, dd = null;
+      if (ds.length === 1 || (ds.length > 1 && !umEstado)) { dd = Number(ds.sort((a, b) => w[b] - w[a])[0]); fill = corDe(dd); }
+      else if (ds.length > 1) { fill = T.div; divididos.add(f.id); }
       const d = f.poligonos.map(p => p.map(anel).join('')).join('');
-      corpo += `<path d="${d}" fill="${fill}" stroke="${fill === '#eef1f4' ? '#cfd6de' : fill}" stroke-width="${fill === '#eef1f4' ? 0.5 : 0.35}" fill-rule="evenodd"/>`;
+      // data-d: o distrito (para a dica ao passar o mouse); data-m: o município
+      corpo += `<path d="${d}" fill="${fill}" stroke="${fill === T.div ? T.divS : fill}" stroke-width="${fill === T.div ? 0.5 : tema === 'escuro' ? 0.8 : 0.35}" fill-rule="evenodd"${dd != null ? ` data-d="${uf}|${dd}"` : ''}${nome[f.id] ? ` data-m="${siEsc(nome[f.id])}"` : ''}/>`;
     }
     // num estado só: as zonas e os locais de votação dos municípios divididos, em pontos
     if (umEstado && tem) {
@@ -940,7 +950,7 @@ function siMapaImagemSvg(ufs, modo, larg = 1200) {
       for (const u of x.base.unidades) {
         if (!(u.id.startsWith('z:') || u.id.startsWith('l:')) || !de.has(u.id) || !divididos.has(u.ibge)) continue;
         const lon = (u.x - o[0]) / ex, lat = (u.y - o[1]) / ey;
-        pontos += `<circle cx="${X(lon)}" cy="${Y(lat)}" r="${u.id.startsWith('z:') ? 3.2 : 1.8}" fill="${corDe(de.get(u.id))}" stroke="#fff" stroke-width="0.4"/>`;
+        pontos += `<circle cx="${X(lon)}" cy="${Y(lat)}" r="${u.id.startsWith('z:') ? 3.2 : 1.8}" fill="${corDe(de.get(u.id))}" stroke="${T.ponto}" stroke-width="0.4" data-d="${uf}|${de.get(u.id)}" data-m="${siEsc(u.nome || '')}"/>`;
       }
     }
   }
@@ -950,7 +960,7 @@ function siMapaImagemSvg(ufs, modo, larg = 1200) {
     const cods = new Set(ufs.map(uf => (Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes)[0] || '').slice(0, 2)));
     for (const f of Object.values(si.malhaBr.feicoes)) {
       if (umEstado && !cods.has(String(f.id))) continue;
-      contorno += `<path d="${f.poligonos.map(p => p.map(anel).join('')).join('')}" fill="none" stroke="#1f2937" stroke-width="${umEstado ? 1.2 : 0.8}" stroke-linejoin="round"/>`;
+      contorno += `<path d="${f.poligonos.map(p => p.map(anel).join('')).join('')}" fill="none" stroke="${T.cont}" stroke-width="${tema === 'escuro' ? 1 : 0.8}" stroke-linejoin="round" pointer-events="none"/>`;
     }
   }
   // legenda
@@ -961,21 +971,21 @@ function siMapaImagemSvg(ufs, modo, larg = 1200) {
   if (modo === 'partido') {
     const itens = Object.entries(venc).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const porLinha = Math.max(1, Math.floor(W / 150));
-    leg += `<text x="${pad}" y="${yL}" font-size="13" font-weight="700" fill="#111827">Distritos ganhos, por partido do eleito</text>`;
+    leg += `<text x="${pad}" y="${yL}" font-size="13" font-weight="700" fill="${T.txt}">Distritos ganhos, por partido do eleito</text>`;
     itens.forEach(([sg, n], i) => {
       const cx = pad + (i % porLinha) * 150, cy = yL + 22 + Math.floor(i / porLinha) * 22;
-      leg += `<rect x="${cx}" y="${cy - 11}" width="14" height="14" rx="3" fill="${coresP[sg] || SI_COR_OUTROS}"/><text x="${cx + 20}" y="${cy}" font-size="13" fill="#111827">${siEsc(sg)} <tspan font-weight="700">${n}</tspan></text>`;
+      leg += `<rect x="${cx}" y="${cy - 11}" width="14" height="14" rx="3" fill="${coresP[sg] || SI_COR_OUTROS}"/><text x="${cx + 20}" y="${cy}" font-size="13" fill="${T.txt}">${siEsc(sg)} <tspan font-weight="700">${n}</tspan></text>`;
     });
     yL += 22 + Math.ceil(itens.length / porLinha) * 22;
   } else {
-    leg += `<text x="${pad}" y="${yL}" font-size="12.5" fill="#374151">Cada cor é um distrito; distritos vizinhos no mesmo estado têm cores diferentes.</text>`;
+    leg += `<text x="${pad}" y="${yL}" font-size="12.5" fill="${T.txt}">Cada cor é um distrito; distritos vizinhos no mesmo estado têm cores diferentes.</text>`;
     yL += 20;
   }
   const nota = umEstado ? 'Em cinza, os municípios divididos entre distritos; os pontos são as zonas eleitorais (maiores) e os locais de votação (menores), na cor do seu distrito.'
     : 'Município dividido entre distritos (as capitais, sobretudo): a cor do distrito com mais peso nele — o detalhe de cada estado mostra a divisão.';
   const notas = [];
   for (let t = nota, max = Math.max(40, Math.floor(W / 6.3)); t; ) { if (t.length <= max) { notas.push(t); break; } const i = t.lastIndexOf(' ', max); notas.push(t.slice(0, i)); t = t.slice(i + 1); }
-  for (const t of notas) { leg += `<text x="${pad}" y="${yL}" font-size="12" fill="#4b5563">${siEsc(t)}</text>`; yL += 17; }
+  for (const t of notas) { leg += `<text x="${pad}" y="${yL}" font-size="12" fill="${T.nota}">${siEsc(t)}</text>`; yL += 17; }
   yL += 9;
   // textos longos quebram em linhas (≈ 6 px por caractere a 11–12 px)
   const linhas = (t, px) => {
@@ -986,14 +996,14 @@ function siMapaImagemSvg(ufs, modo, larg = 1200) {
     return out;
   };
   for (const t of linhas(`Simulação com os votos de ${si.op.ano} — os distritos não existem: desenhados com dados públicos. Fontes: TSE (votos, eleitorado, locais de votação) e IBGE (malhas${op.base === 'populacao' ? ', Censo 2022' : ''}). SisPode · Liderança do Podemos na Câmara dos Deputados.`, 11)) {
-    leg += `<text x="${pad}" y="${yL}" font-size="11" fill="#6b7280">${siEsc(t)}</text>`;
+    leg += `<text x="${pad}" y="${yL}" font-size="11" fill="${T.rod}">${siEsc(t)}</text>`;
     yL += 15;
   }
   const H = yL + 4;
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${larg} ${H}" width="${larg}" height="${H}" font-family="Arial, Helvetica, sans-serif">`
-    + `<rect width="${larg}" height="${H}" fill="#ffffff"/>`
-    + `<text x="${pad}" y="32" font-size="20" font-weight="700" fill="#111827">${siEsc(tit)}</text>`
-    + `<text x="${pad}" y="54" font-size="12.5" fill="#4b5563">${siEsc(sub)}${modo === 'partido' ? ' · cor: partido do eleito no distrito' : ''}</text>`
+    + `<rect width="${larg}" height="${H}" fill="${T.bg}"/>`
+    + `<text x="${pad}" y="32" font-size="20" font-weight="700" fill="${T.tit}">${siEsc(tit)}</text>`
+    + `<text x="${pad}" y="54" font-size="12.5" fill="${T.sub}">${siEsc(sub)}${modo === 'partido' ? ' · cor: partido do eleito no distrito' : ''}</text>`
     + `<g>${corpo}</g><g>${contorno}</g><g>${pontos}</g>${leg}</svg>`;
 }
 
@@ -1026,18 +1036,66 @@ function siBotoesImagem(alvo) {
   return `<span class="img-bt"><button data-img="png" data-alvo="${alvo}" title="Imagem PNG em alta resolução, para apresentações e documentos">Baixar imagem (PNG)</button><button data-img="svg" data-alvo="${alvo}" title="Imagem vetorial (SVG), que amplia sem perder qualidade">SVG</button></span>`;
 }
 
+/** O que a dica mostra de um distrito: tamanho, desvio, municípios, eleito e as duas primeiras agremiações. */
+function siInfoDistrito(uf, id, mun) {
+  const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital'), x = s && s.op.porUf && s.op.porUf[uf];
+  const sd = si.res && si.res.sims.find(y => y.tipo === 'distrital');
+  if (!x || !sd) return '';
+  const dt = x.desenho.distritos.find(d => d.id === id), el = ((sd.porUf[uf] || {}).distritos || []).find(d => d.id === id);
+  if (!dt) return '';
+  const U = new Map(x.base.unidades.map(u => [u.id, u])), muns = {};
+  for (const i of dt.unidades) { const u = U.get(i) || {}, n = (u.nome || '').split(' · ')[0]; muns[n] = (muns[n] || 0) + (u.aptos || 0); }
+  const lm = Object.entries(muns).sort((a, b) => b[1] - a[1]);
+  const pop = x.desenho.base === 'populacao';
+  let h = `<div class="t">${siEsc(siUfNome(uf))} · distrito ${id}</div>`;
+  if (mun) h += `<div class="m">${siEsc(mun)}</div>`;
+  h += `<div>${siFmt(Math.round(dt.aptos))} ${pop ? 'habitantes' : 'eleitores'} · desvio ${dt.desvio >= 0 ? '+' : ''}${siPct(dt.desvio)}</div>`
+    + `<div class="m">${lm.length} município${lm.length === 1 ? '' : 's'}: ${lm.slice(0, 5).map(([n]) => siEsc(n)).join(', ')}${lm.length > 5 ? ` e mais ${lm.length - 5}` : ''}</div>`;
+  if (el && el.vencedor) {
+    const w = el.vencedor;
+    h += `<div class="e${w.partido === SI_PARTIDO ? ' pode' : ''}">Eleito: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`
+      + `<div>1ª: ${siEsc(w.agrNome)} ${siPct(w.agrPct)}${el.segundo ? ` · 2ª: ${siEsc(el.segundo.nome)} ${siPct(el.segundo.pct)}` : ''}</div>`;
+  }
+  return h;
+}
+
+/** Dica dos mapas: ao passar o mouse sobre um distrito, os dados dele, e o distrito em destaque. */
+function siDicaMapa(ev) {
+  const dica = $('siDicaMapa');
+  const el = ev.type === 'mouseleave' ? null : ev.target.closest && ev.target.closest('[data-d]');
+  const chave = el ? el.dataset.d : '';
+  if (chave !== si.dicaChave) {
+    for (const e of document.querySelectorAll('#siResultado .realce')) e.classList.remove('realce');
+    si.dicaChave = chave;
+    if (chave) {
+      const svg = el.closest('svg');
+      for (const e of svg.querySelectorAll(`[data-d="${chave}"]`)) e.classList.add('realce');
+      const [uf, id] = chave.split('|');
+      dica.innerHTML = siInfoDistrito(uf, Number(id), el.dataset.m || '');
+    }
+  } else if (chave && el.dataset.m) {
+    const m = dica.querySelector('.m');
+    if (m && m.textContent !== el.dataset.m) m.textContent = el.dataset.m;
+  }
+  if (!chave || !dica.innerHTML) { dica.hidden = true; return; }
+  dica.hidden = false;
+  const r = dica.getBoundingClientRect(), x = ev.clientX + 16, y = ev.clientY + 16;
+  dica.style.left = Math.min(x, window.innerWidth - r.width - 8) + 'px';
+  dica.style.top = (y + r.height > window.innerHeight - 8 ? ev.clientY - r.height - 12 : y) + 'px';
+}
+
 /** Mapa dos distritos do Brasil (os estados lidos), com os botões de imagem. */
 function siMapaBrasilHtml(impressao) {
   const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital');
   if (!s || !s.op.porUf) return '';
   const ufs = Object.keys(s.op.porUf).filter(uf => si.geo[siChaveGeo(uf)]).sort();
   if (ufs.length < 2 || !si.res.sims.some(x => x.tipo === 'distrital')) return '';
-  const modo = si.mapaModo;
-  if (!si.mapaBr || si.mapaBr.res !== si.res || si.mapaBr.modo !== modo || si.mapaBr.contorno !== !!si.malhaBr) {
-    si.mapaBr = { res: si.res, modo, contorno: !!si.malhaBr, svg: siMapaImagemSvg(ufs, modo, 1200) };
+  const modo = si.mapaModo, tema = impressao ? 'claro' : 'escuro';
+  if (!si.mapaBr || si.mapaBr.res !== si.res || si.mapaBr.modo !== modo || si.mapaBr.contorno !== !!si.malhaBr || si.mapaBr.tema !== tema) {
+    si.mapaBr = { res: si.res, modo, tema, contorno: !!si.malhaBr, svg: siMapaImagemSvg(ufs, modo, 1200, tema) };
   }
   const ctl = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>${siBotoesImagem('brasil')}</div>`;
-  return `<h2${impressao ? ' class="imp-quebra"' : ''}>Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}</small></h2>${ctl}<div class="mapa-img">${si.mapaBr.svg}</div>`;
+  return `<h2${impressao ? ' class="imp-quebra"' : ''}>Mapa dos distritos <small>distrital misto · ${ufs.length === 27 ? 'Brasil' : ufs.length + ' estados'}${impressao ? '' : ' · passe o mouse sobre um distrito'}</small></h2>${ctl}<div class="mapa-img${impressao ? ' claro' : ''}">${si.mapaBr.svg}</div>`;
 }
 
 /** Recorte do maior município dividido em zonas (a capital, quase sempre), com folga. */
@@ -1188,12 +1246,14 @@ async function siIniciar() {
     $(id).addEventListener('input', siParametrosMudaram);
     $(id).addEventListener('change', siParametrosMudaram);
   }
+  $('siResultado').addEventListener('mousemove', siDicaMapa);
+  $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('click', ev => {
     const bi = ev.target.closest('button[data-img]');
     if (bi) {
       const s = si.sistemas.find(x => x.tipo === 'distrital');
       const ufs = bi.dataset.alvo === 'brasil' ? Object.keys(s.op.porUf).filter(uf => si.geo[siChaveGeo(uf)]).sort() : [bi.dataset.alvo];
-      siBaixarImagem(ufs.length > 1 ? (si.mapaBr && si.mapaBr.modo === si.mapaModo && si.mapaBr.res === si.res ? si.mapaBr.svg : siMapaImagemSvg(ufs, si.mapaModo, 1200)) : siMapaImagemSvg(ufs, si.mapaModo, 1000), siNomeImagem(ufs), bi.dataset.img);
+      siBaixarImagem(siMapaImagemSvg(ufs, si.mapaModo, ufs.length > 1 ? 1200 : 1000, 'claro'), siNomeImagem(ufs), bi.dataset.img);
       return;
     }
     const bl = ev.target.closest('button[data-locais]');
