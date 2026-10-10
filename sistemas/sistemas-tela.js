@@ -985,7 +985,10 @@ function siResumoHtml(ind) {
 /** O excedente no compensatório, somado nos estados comparáveis: quem passou da cota, o que a regra fez. */
 function siExcedenteResumo(sd, op) {
   if (op.modelo !== 'compensatorio') return '';
-  const res = si.res, nome = (uf, id) => { const a = si.dados[uf].agrs.find(x => x.id === id); return a ? sdSiglas(a) : id; };
+  // a federação sempre com o mesmo nome: as siglas da mais à menos votada no país
+  const vt = {};
+  for (const d of Object.values(si.dados)) for (const a of d.agrs) for (const [sg, n] of Object.entries(a.porSigla || {})) vt[sg] = (vt[sg] || 0) + n;
+  const res = si.res, nome = (uf, id) => { const a = si.dados[uf].agrs.find(x => x.id === id); return a ? (a.siglas && a.siglas.length ? a.siglas.slice().sort((x, y) => (vt[y] || 0) - (vt[x] || 0) || x.localeCompare(y)).join('/') : sdSiglas(a)) : id; };
   const exc = {}, cor = {};
   let extra = 0, sem = 0;
   for (const uf of res.comparadas) {
