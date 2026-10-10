@@ -800,7 +800,7 @@ function siPartes(impressao) {
   h += `<div class="hemi"><div class="t">Resultado oficial (TSE)</div><div class="s">${temReal ? 'como o TSE totalizou' : 'aguardando a totalização'}</div>${siHemicicloSvg(real, ordem, cores, vagas)}<div class="pode">Podemos: <b>${temReal ? pode(res.real) : '—'}</b></div></div>`;
   for (const s of res.sims) {
     const igual = temReal && !siTrocas(s, comp);
-    h += `<div class="hemi"><div class="t">${siEsc(s.nome)}</div><div class="s">${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id), true))}${s.total !== vagas ? ` · <b class="casa">${siFmt(s.total)} cadeiras (${siSinal(s.total - vagas)})</b>` : ''}</div>${siHemicicloSvg(s.porPartido, ordem, cores, Math.max(vagas, s.total))}`
+    h += `<div class="hemi"><div class="t">${siEsc(s.nome)}</div><div class="s">${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id), true))}</div>${s.total !== vagas ? `<div class="s casa">Câmara de ${siFmt(s.total)} cadeiras (${siSinal(s.total - vagas)})</div>` : ''}${siHemicicloSvg(s.porPartido, ordem, cores, Math.max(vagas, s.total))}`
       + `<div class="pode">Podemos: <b>${pode(s)}</b>${igual ? ' · <span class="mais">idêntico ao oficial</span>' : temReal ? ` · <span class="igual">${siFmt(siTrocas(s, comp))} trocas</span>` : ''}</div></div>`;
   }
   h += '</div><div class="legenda">' + ordem.filter(sg => cores[sg] !== SI_COR_OUTROS).map(sg => `<span><i style="background:${cores[sg]}"></i>${siEsc(sg)}</span>`).join('')

@@ -79,6 +79,7 @@
   .exc-op.ativo { border-color: var(--verde); background: rgba(0,168,89,.12); }
   .aviso-p { color: var(--aviso); }
   .casa { color: var(--ama); font-weight: 600; }
+  .hemi .s.casa { color: var(--ama); font-weight: 600; }
   .kpi .d.casa { font-size: 11.5px; margin-top: 2px; }
   .dlg { background: var(--bg2); color: var(--texto); border: 1px solid var(--borda); border-radius: 14px; padding: 16px 18px; width: min(560px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
   .dlg::backdrop { background: rgba(5,10,15,.6); }
@@ -332,10 +333,10 @@
     <h4>Excedente e divisor</h4>
     <p class="dlg-t">No compensatório, cada partido tem uma cota (o alvo) pelas maiores médias sobre todas as vagas do estado. O excedente é quando ele ganha mais distritos que a cota.</p>
     <p class="dlg-t aviso-p" id="eParalelo" hidden>O distrital misto está no modelo <b>paralelo</b>: lá não há excedente (a lista divide só a sua parte) — vale só o divisor.</p>
-    <div class="exc-op" data-er="corta"><b>Corta das listas</b> <span class="fonte">PL 9.212 (Senado), art. 105-C</span><div>O partido fica com os distritos; as vagas saem das listas dos outros, de quem tem a menor média. A Câmara fica com 513.</div></div>
+    <div class="exc-op" data-er="corta"><b>Corta das listas</b> <span class="fonte">PL 9.212 (Senado), art. 105-C</span><div>O partido fica com os distritos; as vagas saem das listas dos outros, de quem tem a menor média. A Câmara não cresce.</div></div>
     <div class="exc-op" data-er="cresce"><b>A Câmara cresce</b> <span class="fonte">PL 9.213 (Senado), art. 105-B, § 2º</span><div>O partido fica com os distritos e ninguém perde: cada distrito a mais vira uma cadeira a mais.</div></div>
     <div class="exc-op" data-er="compensa"><b>Compensação total</b> <span class="fonte">Alemanha, 2013–2023</span><div>A Casa cresce até a cota de todos os partidos cobrir os distritos: a proporção volta inteira.</div></div>
-    <div class="exc-op" data-er="naoLeva"><b>Excedente não leva</b> <span class="fonte">Alemanha, desde 2023</span><div>O distrito além da cota não dá cadeira (sai o vencedor de menor votação relativa, que segue na disputa da lista). A Câmara fica com 513.</div></div>
+    <div class="exc-op" data-er="naoLeva"><b>Excedente não leva</b> <span class="fonte">Alemanha, desde 2023</span><div>O distrito além da cota não dá cadeira (sai o vencedor de menor votação relativa, que segue na disputa da lista). A Câmara não cresce.</div></div>
     <div class="dlg-l" id="eTetoLin"><label class="tog"><input type="checkbox" id="eTeto"><i></i>Teto de cadeiras a mais</label>
       <span class="tog-c">até <input type="number" id="eTetoPct" min="0" max="100" step="1"> % das vagas de cada estado; o que passar, corta das listas</span></div>
     <div class="dlg-l"><span>Divisor</span><div class="seg" id="eDiv"><button type="button" data-dv="dhondt" title="÷ 1, 2, 3… — o dos projetos">D'Hondt</button><button type="button" data-dv="sl" title="÷ 1, 3, 5… — mais neutro entre grandes e pequenos">Sainte-Laguë</button></div></div>
