@@ -492,19 +492,28 @@ function sdNumeroDistritos(vagas, pct, arred = 'proximo') {
   return arred === 'baixo' ? Math.floor(x + 1e-9) : Math.round(x);
 }
 /**
- * Tolerância de tamanho do PL 9.212/2017 (art. 10, § 4º, I e II propostos): cada distrito até ±5%
- * do alvo; até ±10% em 1 distrito ou em 10% deles (parte inteira), o que for maior.
- * Devolve { ok, ate5, entre5e10, acima10, permitidos }.
+ * Tolerâncias de tamanho dos distritos. pct: o desvio admitido em todos; exc: um desvio maior
+ * admitido em até excN distritos ou na parte inteira de excFrac dos distritos, o que for maior (0 = sem exceção).
+ *  · PL 9.212/2017 (art. 10, § 4º, I e II propostos): habitantes, ±5%; ±10% em 1 distrito ou em 10% deles.
+ *  · PL 9.213/2017 (PLS 345/2017) e substitutivo da CCJ da Câmara (2019/2021): eleitores, ±10%.
  */
-function sdToleranciaSenado(distritos) {
-  const n = distritos.length, eps = 1e-9;
-  const permitidos = Math.max(1, Math.floor(n * 0.1 + eps));
-  let ate5 = 0, entre5e10 = 0, acima10 = 0;
+const SD_TOL_SENADO = Object.freeze({ pct: 0.05, exc: 0.10, excN: 1, excFrac: 0.10 });
+const SD_TOL_CCJ = Object.freeze({ pct: 0.10, exc: 0, excN: 0, excFrac: 0 });
+/** Confere os distritos com a tolerância. Devolve { ok, dentro, excecao, fora, permitidos, tol }. */
+function sdTolerancia(distritos, tol = SD_TOL_SENADO) {
+  const n = distritos.length, eps = 1e-9, temExc = tol.exc > tol.pct;
+  const permitidos = temExc ? Math.max(tol.excN || 0, Math.floor(n * (tol.excFrac || 0) + eps)) : 0;
+  let dentro = 0, excecao = 0, fora = 0;
   for (const d of distritos) {
     const a = Math.abs(d.desvio);
-    if (a <= 0.05 + eps) ate5++; else if (a <= 0.10 + eps) entre5e10++; else acima10++;
+    if (a <= tol.pct + eps) dentro++; else if (temExc && a <= tol.exc + eps) excecao++; else fora++;
   }
-  return { ok: !acima10 && entre5e10 <= permitidos, ate5, entre5e10, acima10, permitidos };
+  return { ok: !fora && excecao <= permitidos, dentro, excecao, fora, permitidos, tol };
+}
+/** A do PL 9.212/2017, com os nomes de antes: { ok, ate5, entre5e10, acima10, permitidos }. */
+function sdToleranciaSenado(distritos) {
+  const t = sdTolerancia(distritos, SD_TOL_SENADO);
+  return Object.assign(t, { ate5: t.dentro, entre5e10: t.excecao, acima10: t.fora });
 }
 
 // ------------------------------------------------------------ desenho dos distritos
@@ -530,6 +539,8 @@ function sdFila() {
  * base: sdUnidades(...). op: { iteracoes: 20000 }.
  * Várias tentativas (pesos e eixos diferentes no corte); fica a de menor desvio
  * máximo e, empatadas, a mais compacta.
+ * Com op.tol e op.ateTol (desenhar até a tolerância): as trocas na fronteira param quando todos
+ * os distritos cabem em ±tol.pct, e, das tentativas que cabem na tolerância, fica a mais compacta.
  * Devolve { distritos: [{ id, unidades: [id], aptos, desvio, x, y, compacidade }], alvo, metricas } ou { erro }.
  */
 function sdDistritar(base, k, op = {}) {
@@ -544,13 +555,15 @@ function sdDistritar(base, k, op = {}) {
     { peso: 3, angulos: 6, pulos: 4 }, { peso: 1.5, angulos: 6, pulos: 4 }, { peso: 6, angulos: 6, pulos: 4 },
     { peso: 3, angulos: 2, pulos: 0 }, { peso: 3, angulos: 12, pulos: 8 },
   ];
+  const ate = op.tol && op.ateTol ? op.tol.pct : 0;
   let melhor = null;
   for (const t of tentativas) {
     const partes = sdCortar(ids, k, U, viz, soma, t);
-    const it = sdRefinar(partes, U, viz, alvo, op.iteracoes || 20000);
+    const it = sdRefinar(partes, U, viz, alvo, op.iteracoes || 20000, ate);
     const r = sdMedir(partes, U, viz, alvo, k);
     r.metricas.trocas = it;
-    const nota = Math.round(r.metricas.desvioMax * 200) * 10 - r.metricas.compacidadeMedia;   // degraus de 0,5% no desvio; depois, compacidade
+    let nota = Math.round(r.metricas.desvioMax * 200) * 10 - r.metricas.compacidadeMedia;   // degraus de 0,5% no desvio; depois, compacidade
+    if (ate && sdTolerancia(r.distritos, op.tol).ok) nota = -1e6 - r.metricas.compacidadeMedia;   // cabe: a mais compacta
     if (!melhor || nota < melhor.nota) melhor = Object.assign(r, { nota });
   }
   delete melhor.nota;
@@ -919,7 +932,7 @@ function sdSegundoVoto(vd, d, op = {}) {
 }
 
 /**
- * Distrital misto num estado. op: { regra: 'partido'|'candidato', modelo: 'paralelo'|'compensatorio', limiar }
+ * Distrital misto num estado. op: { regra: 'partido'|'candidato', modelo: 'paralelo'|'compensatorio', limiar, divisor, excedente, tetoExtra (snCompletarLista) }
  * + desenho (sdDistritar), base (sdUnidades) e votos (geo.votos[cargo]).
  * Devolve como os outros sistemas ({ vagas, eleitos, porAgr, nLista }) e mais
  * nDistritos e distritos: [{ id, aptos, desvio, validos, vencedor: { sq, agr, votos, pct }, segundo: { agr, votos, pct } }].
@@ -951,16 +964,19 @@ function sdDistritalMisto(d, op) {
     const x = vd[i], sq = ganha.get(i), k = sq && cand.get(sq);
     const lid = lider[i];
     const seg = k ? lid.find(([id]) => id !== k.a.id) : lid[1];
-    if (k) primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id });
+    if (k) primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id, pct: x.porCand[sq] / (x.validos || 1) });
     return { id: dt.id, aptos: dt.aptos, desvio: dt.desvio, validos: x.validos,
       vencedor: k ? { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
         agrNome: sdSiglas(k.a), agrVotos: x.porAgr[k.a.id] || 0, agrPct: (x.porAgr[k.a.id] || 0) / (x.validos || 1) } : null,
       segundo: seg ? { agr: seg[0], nome: sdSiglas(agr.get(seg[0])) || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null };
   });
   const r = sdCompletarLista(d, primeiros, vagas, op);
-  return Object.assign(r, { nDistritos: primeiros.length, distritos });
+  // excedente que não leva (op.excedente 'naoLeva'): o distrito fica sem a cadeira do vencedor
+  const sem = new Set(r.descobertos || []);
+  for (const dt of distritos) if (dt.vencedor && sem.has(dt.vencedor.sq)) dt.semCadeira = true;
+  return Object.assign(r, { nDistritos: primeiros.length - sem.size, distritos });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdTolerancia, SD_TOL_SENADO, SD_TOL_CCJ, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
 }

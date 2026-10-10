@@ -206,8 +206,9 @@ function smAbaDistritao(s, dados, ufs, res) {
  * alvo pelas maiores médias, lista = mín(candidatos que restam, máx(0, alvo − 1ª parte)),
  * cortes pela menor média (excedente) e acréscimos pela maior média (falta).
  */
-function smListaPassos(d, primeiros, vagas, op) {
-  const nLista = vagas - primeiros.length, limiar = op.limiar || 0;
+function smListaPassos(d, primeiros, vagas, op, casa = vagas) {
+  // vagas: as do alvo (na compensação total, a Casa já crescida); casa: o tamanho final da Casa
+  const nLista = casa - primeiros.length, limiar = op.limiar || 0, sl = op.divisor === 'sl', dv = k => (sl ? 2 * k + 1 : k + 1);
   const ja = new Set(primeiros.map(x => x.sq));
   const n1 = {};
   for (const x of primeiros) n1[x.agr] = (n1[x.agr] || 0) + 1;
@@ -221,7 +222,7 @@ function smListaPassos(d, primeiros, vagas, op) {
     const ids = Object.keys(votos).filter(entra), lug = Object.fromEntries(ids.map(id => [id, tem[id] || 0])), out = Object.fromEntries(ids.map(id => [id, 0]));
     for (let i = 0; i < n; i++) {
       let m = null;
-      for (const id of ids) if ((!resta || out[id] < (resta[id] || 0)) && (!m || votos[id] / (lug[id] + 1) > votos[m] / (lug[m] + 1))) m = id;
+      for (const id of ids) if ((!resta || out[id] < (resta[id] || 0)) && (!m || votos[id] / dv(lug[id]) > votos[m] / dv(lug[m]))) m = id;
       if (!m) break;
       if (resta) passos.push({ tipo: 'acrescenta', id: m, lug: Object.assign({}, lug), ok: Object.keys(lug).filter(id => out[id] < (resta[id] || 0)) });
       lug[m]++; out[m]++;
@@ -234,7 +235,7 @@ function smListaPassos(d, primeiros, vagas, op) {
     let soma = Object.values(lista).reduce((s, v) => s + v, 0);
     while (soma > nLista) {
       let pior = null;
-      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / ((n1[id] || 0) + lista[id]) < votos[pior] / ((n1[pior] || 0) + lista[pior]))) pior = id;
+      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / dv((n1[id] || 0) + lista[id] - 1) < votos[pior] / dv((n1[pior] || 0) + lista[pior] - 1))) pior = id;
       passos.push({ tipo: 'corta', id: pior, lista: Object.assign({}, lista) });
       lista[pior]--; soma--;
     }
@@ -248,7 +249,7 @@ function smListaPassos(d, primeiros, vagas, op) {
     lista = dh(Math.max(0, nLista), {}, teto);
     passos.length = 0;   // no paralelo, o teto só pesa se faltar candidato (aparece na conferência)
   }
-  return { nLista: Math.max(0, nLista), n1, teto, alvo, lista, passos, entra, votos };
+  return { nLista: Math.max(0, nLista), n1, teto, alvo, lista, passos, entra, votos, dv, sl };
 }
 
 /**
@@ -259,23 +260,29 @@ function smListaPassos(d, primeiros, vagas, op) {
  * ajustes, passo a passo, pela menor (ou maior) média.
  */
 function smBlocoLista(aba, d, sim, op, primeiros) {
-  const comp = op.modelo === 'compensatorio';
-  const p = smListaPassos(d, primeiros, d.vagas, op);
+  const comp = op.modelo === 'compensatorio', exc = comp ? (op.excedente || 'corta') : 'corta';
+  const total = sim.vagas || d.vagas, vAlvo = exc === 'compensa' ? total : d.vagas;
+  const p = smListaPassos(d, primeiros, vAlvo, op, total);
+  const div = i => (p.sl ? 2 * i - 1 : i);   // o divisor da i-ésima cadeira
   // na ordem do arquivo do TSE: é a do desempate do simulador (em médias iguais, a que vem antes)
   const agrs = d.agrs.filter(a => p.entra(a.id));
-  const N = comp ? d.vagas : p.nLista;
+  const N = comp ? vAlvo : p.nLista;
   if (!N || !agrs.length) { aba.add(['Lista: nenhuma vaga.']); return; }
   const porAgrLista = {};
   for (const x of sim.eleitos) if (x.fase === 'lista') porAgrLista[x.agr] = (porAgrLista[x.agr] || 0) + 1;
   const ndiv = N;
-  aba.add([comp ? `Lista (compensatório): alvo de cada agremiação pelas maiores médias sobre TODAS as ${d.vagas} vagas; a lista completa o que a 1ª parte não deu (${p.nLista} vagas).`
+  const excTxt = { corta: `excedente: quem ganha na 1ª parte mais que o alvo fica com as cadeiras e as vagas saem das listas pela menor média (a Casa fica com ${d.vagas})`,
+    cresce: `excedente: quem ganha na 1ª parte mais que o alvo fica com as cadeiras e a Casa cresce o tanto do excedente${op.tetoExtra != null ? ` (até ${Math.round(op.tetoExtra * 100)}% das vagas; o resto corta)` : ''} — aqui ${total} vagas`,
+    compensa: `compensação total: a Casa cresce até o alvo de todas cobrir a 1ª parte${op.tetoExtra != null ? ` (até ${Math.round(op.tetoExtra * 100)}% das vagas; o resto corta)` : ''} — o alvo abaixo já é sobre as ${total} vagas`,
+    naoLeva: `excedente não leva: o distrito além do alvo fica sem cadeira (sai o vencedor de menor votação relativa); a 1ª parte abaixo conta só os que ficaram${(sim.descobertos || []).length ? ` (sem cadeira: ${sim.descobertos.length})` : ''}` }[exc];
+  aba.add([comp ? `Lista (compensatório): alvo de cada agremiação pelas maiores médias sobre ${vAlvo === d.vagas ? 'TODAS as ' + d.vagas : 'as ' + vAlvo} vagas; a lista completa o que a 1ª parte não deu (${p.nLista} vagas); ${excTxt}.`
     : `Lista (paralelo): as ${p.nLista} vagas da lista pelas maiores médias.`,
-    'Quociente = votos ÷ divisor − ordem × 0,000000001 (o desempate: em médias iguais, leva a agremiação que vem antes no arquivo do TSE, como no simulador).']
+    `Quociente = votos ÷ divisor (${p.sl ? 'Sainte-Laguë: 1, 3, 5…' : "D'Hondt: 1, 2, 3…"}) − ordem × 0,000000001 (o desempate: em médias iguais, leva a agremiação que vem antes no arquivo do TSE, como no simulador).`]
     .concat(op.limiar ? [`Cláusula: ${op.limiar * 100}% dos válidos do estado.`] : []));
   const rc = aba.prox();
   const cab = ['Agremiação', 'Votos', '1ª parte (simulador)', 'Candidatos que restam', 'Ordem (desempate)'];
   const cq = cab.length;
-  for (let i = 1; i <= ndiv; i++) cab.push('÷ ' + i);
+  for (let i = 1; i <= ndiv; i++) cab.push('÷ ' + div(i));
   const cAlvo = cq + ndiv;
   if (comp) cab.push('Alvo (fórmula)', 'Lista = mín(restam; máx(0; alvo − 1ª parte))', 'Lista depois dos ajustes', 'Lista (simulador)', 'Confere');
   else cab.push('Lista (fórmula)', 'Lista (simulador)', 'Confere');
@@ -283,7 +290,7 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
   const r1 = rc + 1, rN = rc + agrs.length;
   const mat = `${smAbs(cq, r1)}:${smAbs(cq + ndiv - 1, rN)}`;
   // valores (para as células) — a N-ésima maior média da tabela
-  const q = (a, i) => a.votos / i - agrs.indexOf(a) * 1e-9;
+  const q = (a, i) => a.votos / div(i) - agrs.indexOf(a) * 1e-9;
   const todosQ = [];
   for (const a of agrs) for (let i = 1; i <= ndiv; i++) todosQ.push(q(a, i));
   todosQ.sort((x, y) => y - x);
@@ -299,7 +306,7 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
     const r = aba.prox();
     linha[a.id] = r;
     const row = [smSiglas(a), a.votos, p.n1[a.id] || 0, p.teto[a.id], agrs.indexOf(a)];
-    for (let i = 1; i <= ndiv; i++) row.push({ f: `${smAbs(1, r)}/${i}-${smAbs(4, r)}*1E-9`, v: q(a, i) });
+    for (let i = 1; i <= ndiv; i++) row.push({ f: `${smAbs(1, r)}/${div(i)}-${smAbs(4, r)}*1E-9`, v: q(a, i) });
     const rng = `${smRef(cq, r)}:${smRef(cq + ndiv - 1, r)}`;
     const conta = Array.from({ length: ndiv }, (_, i) => q(a, i + 1)).filter(x => x >= corte).length;
     row.push({ f: `COUNTIF(${rng},">="&LARGE(${mat},${N}))`, v: conta });
@@ -330,7 +337,7 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
   void rs;
   // ajustes do compensatório, passo a passo
   if (comp && p.passos.length) {
-    aba.add(['Ajustes: quando as listas somam mais que as vagas da lista (alguém ganhou na 1ª parte mais do que o alvo), corta-se, uma a uma, a vaga de quem fica com a MENOR média votos ÷ (1ª parte + lista); se somam menos (falta candidato), acrescenta-se pela MAIOR média votos ÷ (cadeiras + 1).']);
+    aba.add([`Ajustes: quando as listas somam mais que as vagas da lista (alguém ganhou na 1ª parte mais do que o alvo), corta-se, uma a uma, a vaga de quem fica com a MENOR média votos ÷ ${p.sl ? '(2 × (1ª parte + lista) − 1)' : '(1ª parte + lista)'}; se somam menos (falta candidato), acrescenta-se pela MAIOR média votos ÷ ${p.sl ? '(2 × cadeiras + 1)' : '(cadeiras + 1)'}.`]);
     const ra = aba.prox();
     aba.add(['Passo', 'Operação', ...agrs.map(smSiglas), 'Escolhida (simulador)', 'Pela conta (fórmula)', 'Confere']);
     const c0 = 2, c1 = c0 + agrs.length - 1;
@@ -338,9 +345,9 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
       const r = aba.prox();
       let cel;
       if (ps.tipo === 'corta') {
-        cel = agrs.map(a => (ps.lista[a.id] > 0 ? { f: `${smAbs(1, linha[a.id])}/(${smAbs(2, linha[a.id])}+${ps.lista[a.id]})`, v: a.votos / ((p.n1[a.id] || 0) + ps.lista[a.id]) } : null));
+        cel = agrs.map(a => (ps.lista[a.id] > 0 ? { f: p.sl ? `${smAbs(1, linha[a.id])}/(2*(${smAbs(2, linha[a.id])}+${ps.lista[a.id]})-1)` : `${smAbs(1, linha[a.id])}/(${smAbs(2, linha[a.id])}+${ps.lista[a.id]})`, v: a.votos / p.dv((p.n1[a.id] || 0) + ps.lista[a.id] - 1) } : null));
       } else {
-        cel = agrs.map(a => (ps.ok.includes(a.id) ? { f: `${smAbs(1, linha[a.id])}/(${ps.lug[a.id]}+1)`, v: a.votos / (ps.lug[a.id] + 1) } : null));
+        cel = agrs.map(a => (ps.ok.includes(a.id) ? { f: p.sl ? `${smAbs(1, linha[a.id])}/(2*${ps.lug[a.id]}+1)` : `${smAbs(1, linha[a.id])}/(${ps.lug[a.id]}+1)`, v: a.votos / p.dv(ps.lug[a.id]) } : null));
       }
       const vals = cel.map(c => (c ? c.v : null)).filter(v => v != null);
       const alvoV = ps.tipo === 'corta' ? Math.min(...vals) : Math.max(...vals);
@@ -405,7 +412,7 @@ function smAbaDistrital(s, dados, ufs, res) {
       aba.add([dt.id, { f: `SUMIFS(${DC}!G:G,${DC}!A:A,${smAbs(0, r0)},${DC}!B:B,A${r})`, v: q.aptos }, dt.aptos, { f: `IF(ABS(B${r}-C${r})<0.5,"${SM_SIM}","${SM_NAO}")`, v: smPerto(q.aptos, dt.aptos, 0.5) ? SM_SIM : SM_NAO },
         { f: `B${r}/${smAbs(6, r0)}-1`, v: q.aptos / (soma / k) - 1 }, dt.validos, w ? w.agrNome : '—', v1, sg ? sg.nome : '—', v2,
         { f: `IF(${op.regra === 'candidato' ? 'TRUE' : `H${r}>=J${r}`},"${SM_SIM}","${SM_NAO}")`, v: op.regra === 'candidato' || v1 >= v2 ? SM_SIM : SM_NAO },
-        w ? w.nome : '—', w ? w.partido : '', w ? w.votos : 0]);
+        w ? w.nome + (dt.semCadeira ? ' (sem cadeira: excedente)' : '') : '—', w ? w.partido : '', w ? w.votos : 0]);
     }
     const primeiros = sim.eleitos.filter(e => e.fase !== 'lista');
     smBlocoLista(aba, d, sim, op, primeiros);

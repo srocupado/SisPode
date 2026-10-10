@@ -209,5 +209,27 @@ const votosD = { 'w|1': { c: { [ca1.sq]: 250, [ca2.sq]: 50, [cb1.sq]: 60 }, l: {
 const cmpD = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'Distrital misto', tipo: 'distrital', op: { regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } } } }]);
 ok(cmpD.sims[0].total === 4 && cmpD.sims[0].porUf.xx.nDistritos === 2 && cmpD.sims[0].porUf.xx.distritos.length === 2, 'distrital misto na comparação: vagas, distritos e vencedores por estado');
 
+console.log('Excedente no compensatório (PL 9.212, PL 9.213, Alemanha) e divisor');
+// 6 vagas; A 600, B 300, C 100 → alvo pelas maiores médias: A 4, B 2, C 0.
+// Na 1ª parte, B ganha 3 distritos e C 1: excedente de 1 de cada.
+const exU = uf(6, [agr('A', 600, [90, 80, 70, 60, 50, 40, 30]), agr('B', 300, [60, 50, 40, 30]), agr('C', 100, [50])]);
+const prim = [['B', 0, 0.40], ['B', 1, 0.35], ['B', 2, 0.30], ['C', 0, 0.38]].map(([id, i, pct]) => { const a = exU.agrs.find(x => x.id === id), c = a.cands[i]; return { sq: c.sq, agr: id, fase: 'distrito', cand: c, pct }; });
+const excL = (excedente, extra = {}) => S.snCompletarLista(exU, prim, 6, Object.assign({ modelo: 'compensatorio', excedente }, extra));
+const eCorta = excL('corta'), eCresce = excL('cresce'), eComp = excL('compensa'), eNao = excL('naoLeva'), eTeto = excL('compensa', { tetoExtra: 0.34 });
+ok(conta(eCorta) === '{"A":2,"B":3,"C":1}' && eCorta.vagas === 6 && eCorta.cortes.A === 2 && eCorta.excedentes.B === 1 && eCorta.excedentes.C === 1,
+  'corta (PL 9.212, art. 105-C): B e C ficam com os distritos e as 2 vagas saem da lista de A (menor média); Casa de 6');
+ok(conta(eCresce) === '{"A":4,"B":3,"C":1}' && eCresce.vagas === 8 && eCresce.extra === 2 && !Object.keys(eCresce.cortes).length,
+  'Câmara cresce (PL 9.213, art. 105-B, § 2º): A mantém o alvo e a Casa vai a 8');
+ok(conta(eComp) === '{"A":6,"B":3,"C":1}' && eComp.vagas === 10 && eComp.extra === 4,
+  'compensação total: a Casa cresce até as maiores médias darem 3 a B e 1 a C (10 vagas)');
+ok(conta(eTeto) === '{"A":4,"B":3,"C":1}' && eTeto.vagas === 8 && eTeto.cortes.A === 2,
+  'compensação com teto de 34% (2 cadeiras): para em 8 e corta o resto de A');
+ok(conta(eNao) === '{"A":4,"B":2}' && eNao.vagas === 6 && eNao.descobertos.length === 2 && eNao.descobertos.includes(prim[2].sq) && eNao.descobertos.includes(prim[3].sq),
+  'excedente não leva (Alemanha 2023): o distrito de menor votação relativa de B e o de C ficam sem cadeira; Casa de 6, proporcional');
+const pSl = S.snDhondt({ A: 600, B: 300, C: 100 }, 6, {}, 0, null, 'sl'), pDh = S.snDhondt({ A: 600, B: 300, C: 100 }, 6);
+ok(pSl.A === 3 && pSl.B === 2 && pSl.C === 1 && pDh.A === 4 && pDh.B === 2 && !pDh.C, "Sainte-Laguë (÷1, 3, 5…): A 3, B 2, C 1 — D'Hondt: A 4, B 2");
+ok(conta(excL('corta', { divisor: 'sl' })) === '{"A":2,"B":3,"C":1}' && !Object.keys(excL('corta', { divisor: 'sl' }).excedentes).includes('C'), 'com Sainte-Laguë, C já tem alvo 1: só B passa do alvo');
+ok(conta(S.snCompletarLista(exU, prim, 6, { modelo: 'paralelo', excedente: 'cresce' })) === '{"A":2,"B":3,"C":1}', 'no paralelo não há excedente: a regra não pesa');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

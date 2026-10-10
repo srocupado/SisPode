@@ -164,7 +164,10 @@ function snDistritao(d, op = {}) {
  * as cadeiras da LISTA de cada uma. limiar: fração dos votos válidos para entrar.
  * teto: { id: máximo de cadeiras da lista } (candidatos que ainda restam).
  */
-function snDhondt(votos, n, ja = {}, limiar = 0, teto = null) {
+// Divisor da (k+1)-ésima cadeira: D'Hondt (1, 2, 3…) ou Sainte-Laguë (1, 3, 5…).
+const SN_DIV = { dhondt: k => k + 1, sl: k => 2 * k + 1 };
+function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt') {
+  const dv = SN_DIV[divisor] || SN_DIV.dhondt;
   const total = Object.values(votos).reduce((s, v) => s + v, 0);
   const ids = Object.keys(votos).filter(id => votos[id] > 0 && votos[id] >= limiar * total);
   const lugares = Object.fromEntries(ids.map(id => [id, ja[id] || 0]));
@@ -172,7 +175,7 @@ function snDhondt(votos, n, ja = {}, limiar = 0, teto = null) {
   const cabe = id => !teto || lista[id] < (teto[id] || 0);
   for (let i = 0; i < n; i++) {
     let m = null;
-    for (const id of ids) if (cabe(id) && (!m || votos[id] / (lugares[id] + 1) > votos[m] / (lugares[m] + 1))) m = id;
+    for (const id of ids) if (cabe(id) && (!m || votos[id] / dv(lugares[id]) > votos[m] / dv(lugares[m]))) m = id;
     if (!m) break;
     lugares[m]++; lista[m]++;
   }
@@ -210,36 +213,71 @@ function snDistritaoMisto(d, op = {}) {
  * ordem de votos; agremiação sem candidatos bastantes cede a vaga à média seguinte.
  * Devolve { vagas, eleitos, porAgr, nLista }.
  */
+/**
+ * A parte "lista" dos mistos. op: { modelo, limiar, divisor: 'dhondt'|'sl', excedente, tetoExtra }.
+ * No compensatório, o alvo de cada agremiação sai das maiores médias sobre todas as vagas, e a lista
+ * completa o que a 1ª parte não deu. Quem ganha na 1ª parte mais do que o alvo (o excedente):
+ *  · 'corta' (PL 9.212/2017, art. 105-C): fica com elas e as vagas saem das listas de quem tem a menor média (a Casa não cresce);
+ *  · 'cresce' (PL 9.213/2017, art. 105-B, § 2º): fica com elas e a Casa cresce o tanto do excedente;
+ *  · 'compensa' (Alemanha, 2013–2023): a Casa cresce até o alvo de todas cobrir a 1ª parte;
+ *  · 'naoLeva' (Alemanha, desde 2023): o distrito além do alvo não dá cadeira — saem os vencedores
+ *    de menor votação relativa (pct; sem ela, de menos votos), que continuam na disputa da lista.
+ * tetoExtra: as cadeiras a mais (cresce/compensa) vão até essa fração das vagas; o que passar, corta.
+ * Devolve { vagas (o tamanho final), extra, eleitos, porAgr, nLista, excedentes: { agr: n }, cortes: { agr: n }, descobertos: [sq] }.
+ */
 function snCompletarLista(d, primeiros, vagas, op = {}) {
-  const nLista = vagas - primeiros.length;
-  const limiar = op.limiar || 0;
-  const ja = new Set(primeiros.map(x => x.sq));
-  const p1 = {};
-  for (const x of primeiros) p1[x.agr] = (p1[x.agr] || 0) + 1;
-  const n1 = id => p1[id] || 0;
+  const limiar = op.limiar || 0, div = op.divisor === 'sl' ? 'sl' : 'dhondt', dv = SN_DIV[div];
+  const comp = op.modelo === 'compensatorio', exc = comp ? (op.excedente || 'corta') : 'corta';
   const votos = Object.fromEntries(d.agrs.map(a => [a.id, a.votos]));
+  const contar = lista => { const n = {}; for (const x of lista) n[x.agr] = (n[x.agr] || 0) + 1; return n; };
+  let p1 = contar(primeiros);
+  const excedentes = {}, cortes = {}, descobertos = [];
+  let N = vagas, alvo = null;
+  if (comp) {
+    alvo = snDhondt(votos, vagas, {}, limiar, null, div);
+    for (const id of Object.keys(p1)) if (p1[id] > (alvo[id] || 0)) excedentes[id] = p1[id] - (alvo[id] || 0);
+    const sobra = () => Object.keys(p1).reduce((s, id) => s + Math.max(0, p1[id] - (alvo[id] || 0)), 0);
+    const cabe = op.tetoExtra == null ? 4 * vagas : Math.floor(vagas * op.tetoExtra + 1e-9);   // sem teto: até 4× (segurança)
+    if (exc === 'naoLeva') {
+      for (const id of Object.keys(excedentes)) {
+        const meus = primeiros.filter(x => x.agr === id).sort((x, y) => (x.pct != null ? x.pct - y.pct : x.cand.votos - y.cand.votos) || String(x.sq).localeCompare(String(y.sq)));
+        descobertos.push(...meus.slice(0, excedentes[id]));
+      }
+      const fora = new Set(descobertos.map(x => x.sq));
+      primeiros = primeiros.filter(x => !fora.has(x.sq));
+      p1 = contar(primeiros);
+    } else if (exc === 'compensa') {
+      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, limiar, null, div); }
+    } else if (exc === 'cresce') {
+      N = vagas + Math.min(sobra(), cabe);
+    }
+  }
+  const nLista = N - primeiros.length;
+  const n1 = id => p1[id] || 0;
+  const ja = new Set(primeiros.map(x => x.sq));
   const teto = Object.fromEntries(d.agrs.map(a => [a.id, a.cands.filter(c => c.valido && !ja.has(c.sq)).length]));
   let lista;
-  if (op.modelo === 'compensatorio') {
-    const alvo = snDhondt(votos, vagas, {}, limiar);
+  if (comp) {
     lista = {};
     for (const id of Object.keys(votos)) lista[id] = Math.min(teto[id], Math.max(0, (alvo[id] || 0) - n1(id)));
     let soma = Object.values(lista).reduce((s, v) => s + v, 0);
-    // mais do que cabe: corta de quem fica com a menor média com a vaga a mais
+    // mais do que cabe: corta de quem fica com a menor média com a vaga a mais (a última posição da lista ordenada)
+    const ultima = id => votos[id] / dv(n1(id) + lista[id] - 1);
     while (soma > nLista) {
       let pior = null;
-      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || votos[id] / (n1(id) + lista[id]) < votos[pior] / (n1(pior) + lista[pior]))) pior = id;
+      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || ultima(id) < ultima(pior))) pior = id;
       lista[pior]--; soma--;
+      cortes[pior] = (cortes[pior] || 0) + 1;
     }
     // menos do que cabe: o resto pelas maiores médias, contando o que cada uma já tem
     if (soma < nLista) {
       const tem = {}, resta = {};
       for (const id of Object.keys(votos)) { tem[id] = n1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
-      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta);
+      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta, div);
       for (const id of Object.keys(mais)) lista[id] += mais[id];
     }
   } else {
-    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto);
+    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto, div);
   }
   const eleitos = primeiros.slice();
   for (const a of d.agrs) {
@@ -249,7 +287,8 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
   const porAgr = {};
   for (const a of d.agrs) porAgr[a.id] = 0;
   for (const x of eleitos) porAgr[x.agr] = (porAgr[x.agr] || 0) + 1;
-  return { vagas, eleitos, porAgr, nLista: Math.max(0, nLista) };
+  return { vagas: eleitos.length > N ? eleitos.length : N, extra: N - vagas, eleitos, porAgr, nLista: Math.max(0, nLista),
+    excedentes, cortes, descobertos: descobertos.map(x => x.sq) };
 }
 
 // ------------------------------------------------------------
@@ -299,6 +338,7 @@ function snSimular(dados, sistemas) {
       const ru = real.porUf[uf];
       const sim = new Set(r.eleitos.map(x => x.sq)), rs = new Set(ru ? ru.eleitos.map(x => x.sq) : []);
       out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista, nDistritos: r.nDistritos, distritos: r.distritos,
+        vagas: r.vagas, extra: r.extra || 0, excedentes: r.excedentes, cortes: r.cortes, descobertos: r.descobertos,
         entram: ru ? r.eleitos.filter(x => !rs.has(x.sq)).sort(porVotos) : [], saem: ru ? ru.eleitos.filter(x => !sim.has(x.sq)).sort(porVotos) : [] };
       if (comparadas.includes(uf)) snSomar(out, r.eleitos);
     }
@@ -518,5 +558,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, SN_DIV, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

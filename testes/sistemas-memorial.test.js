@@ -89,6 +89,20 @@ const indA = aba('Indicadores');
 ok(celulas(indA).some(c => /^1\/SUMPRODUCT/.test(c.f)) && celulas(indA).some(c => /^SQRT\(SUM/.test(c.f)), 'número efetivo de partidos e Gallagher por fórmula');
 ok(celulas(aba('Leia-me')).some(c => c.f === `COUNTIF(Proporcional!A:ZZ,"${M.SM_NAO}")`), 'leia-me: quantas conferências deram ' + M.SM_NAO + ', por aba (recalculado)');
 
+console.log('Excedente e divisor no memorial');
+for (const [excedente, extra] of [['cresce', {}], ['compensa', {}], ['compensa', { tetoExtra: 0.25 }], ['naoLeva', {}], ['corta', { divisor: 'sl' }], ['cresce', { divisor: 'sl' }]]) {
+  const ss = [{ id: 'mistoC', nome: 'Distritão misto comp.', tipo: 'misto', op: Object.assign({ pctMaisVotados: 0.75, modelo: 'compensatorio', excedente }, extra) },
+    { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: Object.assign({ pctDistrital: 0.5, regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf, excedente }, extra) }];
+  const rr = S.snSimular(dados, ss);
+  const mm = M.smMemorial({ dados, res: rr, sistemas: ss, ind: S.snIndicadores(rr, dados), ordem: S.snOrdemPartidos(rr), meta: { titulo: 'Teste', eleicao: 'teste', parametros: [] } });
+  const n = Object.values(mm.conferencias).reduce((t, x) => t + x.n, 0), nao = Object.values(mm.conferencias).reduce((t, x) => t + x.nao, 0);
+  const casa = rr.sims.map(x => x.total).join('/');
+  ok(nao === 0 && n > 20, `${excedente}${extra.divisor ? ' + Sainte-Laguë' : ''}${extra.tetoExtra ? ' + teto' : ''}: as ${n} conferências batem (Casa ${casa})`);
+}
+const ssl = [Object.assign({}, sistemas[4], { op: Object.assign({}, sistemas[4].op, { divisor: 'sl' }) })], rsl = S.snSimular(dados, ssl);
+const msl = M.smMemorial({ dados, res: rsl, sistemas: ssl, ind: S.snIndicadores(rsl, dados), ordem: S.snOrdemPartidos(rsl), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+ok(celulas(msl.abas.find(x => x.nome === 'Distritão misto comp.')).some(c => /^\$B\$\d+\/3-\$E\$\d+\*1E-9$/.test(c.f || '')), 'Sainte-Laguë: quociente votos ÷ 3 na 2ª coluna');
+
 console.log('Planilha (SheetJS)');
 const wb = M.smParaXlsx(XLSX, memo);
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });

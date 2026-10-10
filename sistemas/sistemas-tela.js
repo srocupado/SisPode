@@ -28,7 +28,9 @@ const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abert
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito',
-  abertoSis: '', secAbertas: new Set(), todosPartidos: false, aliancas: [] };
+  abertoSis: '', secAbertas: new Set(), todosPartidos: false, aliancas: [],
+  tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
+  exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
 const $ = id => document.getElementById(id);
 const siEsc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const siFmt = n => Number(n || 0).toLocaleString('pt-BR');
@@ -58,19 +60,120 @@ function siSistemas() {
       arred: ($('dArr').querySelector('.ativo') || {}).dataset.a || 'proximo',
       // segundo voto (cenário): só o voto do distrito muda
       votoUtil: $('dUtil').checked ? siNumero('dUtilPct', 20) / 100 : 0,
-      aliancas: $('dAli').checked ? si.aliancas.map(x => x.slice()) : [] } },
+      aliancas: $('dAli').checked ? si.aliancas.map(x => x.slice()) : [], tol: Object.assign({}, si.tol),
+      excedente: si.exc.regra, tetoExtra: si.exc.teto, divisor: si.exc.divisor } },
   ];
 }
 function siAlterado(s) {
   const o = s.op;
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0;
-  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.votoUtil > 0 || o.aliancas.length > 0;
+  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.votoUtil > 0 || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
   return false;
 }
-/** Distrital misto com as regras do PL 9.212/2017 (PLS 86 e 345/2017, aprovados pelo Senado). */
+/** Distrital misto com as regras do PL 9.212/2017 (PLS 86/2017, aprovado pelo Senado). */
 function siEhSenado(o) {
-  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'baixo';
+  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
+}
+/** Distrital misto com as regras do PL 9.213/2017 (PLS 345/2017, aprovado pelo Senado e apensado ao 9.212): por eleitores, ±10%, e o excedente aumenta a Câmara. */
+function siEh9213(o) {
+  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ)
+    && o.excedente === 'cresce' && o.tetoExtra == null && o.divisor === 'dhondt';
+}
+// ------------------------------------------------------------ excedente (compensatório)
+/** Excedente como no PL 9.212 (corta das listas, D'Hondt, sem teto). */
+const siExcPadrao = o => (o.excedente || 'corta') === 'corta' && o.tetoExtra == null && (o.divisor || 'dhondt') === 'dhondt';
+const SI_EXC_NOMES = { corta: 'corta das listas', cresce: 'a Câmara cresce', compensa: 'compensação total', naoLeva: 'excedente não leva' };
+/** O excedente num texto curto ("a Câmara cresce, até 15%" · Sainte-Laguë). */
+function siExcNome(o, curta = true) {
+  const comp = o.modelo === 'compensatorio';
+  const r = comp ? SI_EXC_NOMES[o.excedente || 'corta'] + ((o.excedente === 'cresce' || o.excedente === 'compensa') && o.tetoExtra != null ? `, até ${siPct(o.tetoExtra)}` : '') : '';
+  const d = o.divisor === 'sl' ? 'Sainte-Laguë' : (curta ? '' : "D'Hondt");
+  return [r && (curta ? r : 'excedente: ' + r), d].filter(Boolean).join(' · ');
+}
+/** Distrital misto com as regras do substitutivo da CCJ da Câmara ao PL 9.212/2017 (Samuel Moreira, 2019/2021): por eleitores, ±10%. */
+function siEhCcj(o) {
+  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ) && siExcPadrao(o);
+}
+// ------------------------------------------------------------ tolerância de tamanho dos distritos
+const SI_TOL_ALEMANHA = Object.freeze({ pct: 0.15, exc: 0, excN: 0, excFrac: 0 });
+const siTolIgual = (a, b) => !!a && Math.abs(a.pct - b.pct) < 1e-9 && Math.abs((a.exc > a.pct ? a.exc : 0) - (b.exc > b.pct ? b.exc : 0)) < 1e-9
+  && (!(b.exc > b.pct) || (a.excN === b.excN && Math.abs(a.excFrac - b.excFrac) < 1e-9));
+/** "±5% (±10% em 1 distrito ou 10% deles)" / "±10%". */
+function siTolNome(t) {
+  return `±${siPct(t.pct)}` + (t.exc > t.pct ? ` (±${siPct(t.exc)} em ${t.excN} distrito${t.excN === 1 ? '' : 's'}${t.excFrac ? ` ou ${siPct(t.excFrac)} deles` : ''})` : '');
+}
+/** De qual texto é a tolerância (para os rótulos). */
+const siTolFonte = t => siTolIgual(t, SD_TOL_SENADO) ? 'PL 9.212' : siTolIgual(t, SD_TOL_CCJ) ? 'PL 9.213 e substitutivo da CCJ' : siTolIgual(t, SI_TOL_ALEMANHA) ? 'referência alemã' : 'escolhida';
+const siTolChave = t => `${t.pct}|${t.exc > t.pct ? `${t.exc}|${t.excN}|${t.excFrac}` : '-'}`;
+/** A tolerância do distrital em uso (a do cálculo feito; sem cálculo, a dos controles). */
+const siTolAtual = () => { const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital'); return (s && s.op.tol) || si.tol; };
+const siTolConf = distritos => sdTolerancia(distritos, siTolAtual());
+/** A caixa de diálogo do excedente: regra, teto de cadeiras a mais e divisor. */
+function siLigarExcedente() {
+  const dlg = $('dExcDlg');
+  let regra = 'corta', divisor = 'dhondt';
+  const pinta = () => {
+    for (const el of dlg.querySelectorAll('[data-er]')) el.classList.toggle('ativo', el.dataset.er === regra);
+    for (const b of $('eDiv').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.dv === divisor);
+    const temTeto = regra === 'cresce' || regra === 'compensa';
+    $('eTetoLin').classList.toggle('off', !temTeto || !$('eTeto').checked);
+    $('eTeto').disabled = !temTeto;
+    $('eParalelo').hidden = ((siSistemas()[3].op || {}).modelo === 'compensatorio');
+  };
+  $('dExcBtn').addEventListener('click', () => {
+    regra = si.exc.regra; divisor = si.exc.divisor;
+    $('eTeto').checked = si.exc.teto != null; $('eTetoPct').value = si.exc.teto != null ? +(si.exc.teto * 100).toFixed(2) : 15;
+    pinta(); dlg.returnValue = ''; dlg.showModal();
+  });
+  dlg.addEventListener('click', ev => {
+    const r = ev.target.closest('[data-er]'); if (r) { regra = r.dataset.er; pinta(); }
+    const d = ev.target.closest('button[data-dv]'); if (d) { divisor = d.dataset.dv; pinta(); }
+  });
+  $('eTeto').addEventListener('change', pinta);
+  $('eCancelar').addEventListener('click', () => dlg.close('cancel'));
+  dlg.addEventListener('close', () => {
+    if (dlg.returnValue !== 'ok') return;
+    const temTeto = (regra === 'cresce' || regra === 'compensa') && $('eTeto').checked;
+    si.exc = { regra, teto: temTeto ? siNumero('eTetoPct', 15) / 100 : null, divisor };
+    siParametrosMudaram();
+  });
+}
+/** A caixa de diálogo da tolerância: abre com a de agora, aplica ao confirmar. */
+function siLigarTolerancia() {
+  const dlg = $('dTolDlg');
+  let modo = 'conferir';
+  const pinta = () => {
+    for (const b of $('tModo').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.t === modo);
+    $('tExcC').parentElement.classList.toggle('off', !$('tExc').checked);
+    $('tModoTxt').textContent = modo === 'desenhar'
+      ? 'O desenho para de trocar unidades na fronteira quando todos os distritos cabem e, entre as tentativas que cabem, fica a mais compacta: com tolerância maior, distritos mais compactos e menos municípios divididos — e outro resultado.'
+      : 'O desenho busca o menor desvio possível (como sempre) e a tolerância só confere quais estados cabem nela; os estados fora dela podem ser afinados com os locais de votação.';
+  };
+  const poe = t => {
+    $('tPct').value = +(t.pct * 100).toFixed(2);
+    $('tExc').checked = t.exc > t.pct;
+    $('tExcPct').value = +((t.exc > t.pct ? t.exc : Math.max(t.pct * 2, 0.1)) * 100).toFixed(2);
+    $('tExcN').value = t.exc > t.pct ? t.excN : 1;
+    $('tExcFrac').value = +((t.exc > t.pct ? t.excFrac : 0.1) * 100).toFixed(2);
+    if (t.modo) modo = t.modo;
+    pinta();
+  };
+  $('dTolBtn').addEventListener('click', () => { poe(si.tol); dlg.returnValue = ''; dlg.showModal(); });
+  $('tCancelar').addEventListener('click', () => dlg.close('cancel'));
+  $('tExc').addEventListener('change', pinta);
+  $('tModo').addEventListener('click', ev => { const b = ev.target.closest('button[data-t]'); if (b) { modo = b.dataset.t; pinta(); } });
+  dlg.querySelector('.atalhos').addEventListener('click', ev => {
+    const b = ev.target.closest('button[data-tp]');
+    if (b) poe({ senado: SD_TOL_SENADO, ccj: SD_TOL_CCJ, alemanha: SI_TOL_ALEMANHA }[b.dataset.tp]);
+  });
+  dlg.addEventListener('close', () => {
+    if (dlg.returnValue !== 'ok') return;
+    const pct = siNumero('tPct', 5) / 100, exc = $('tExc').checked ? siNumero('tExcPct', 10) / 100 : 0;
+    const tem = exc > pct;
+    si.tol = { pct, exc: tem ? exc : 0, excN: tem ? Math.round(siNumero('tExcN', 1)) : 0, excFrac: tem ? siNumero('tExcFrac', 10) / 100 : 0, modo };
+    siParametrosMudaram();
+  });
 }
 function siDescricao(s, curta) {
   const o = s.op;
@@ -86,12 +189,18 @@ function siDescricao(s, curta) {
   if (s.tipo === 'distrital') {
     const voto = (o.votoUtil ? ` · voto útil ${siPct(o.votoUtil)}` : '')
       + (o.aliancas && o.aliancas.length ? (curta ? ` · ${o.aliancas.length} aliança${o.aliancas.length > 1 ? 's' : ''}` : ` · alianças no distrito: ${o.aliancas.map(x => x.join(' + ')).join('; ')}`) : '');
+    const des = o.tol.modo === 'desenhar' ? (curta ? ' · desenho até a tolerância' : ' · desenho que para ao caber na tolerância (o mais compacto que cabe)') : '';
     if (siEhSenado(o)) return (curta ? 'como no PL 9.212/2017 (Senado)'
-      : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + voto;
+      : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
+    if (siEhCcj(o)) return (curta ? 'como no substitutivo da CCJ (PL 9.212)'
+      : 'como no substitutivo da CCJ da Câmara ao PL 9.212/2017 (2021): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
+    if (siEh9213(o)) return (curta ? 'como no PL 9.213/2017 (Senado)'
+      : 'como no PL 9.213/2017 (PLS 345/2017, apensado): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, e o excedente aumenta a Câmara') + des + voto;
     return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato' : 'o partido'} mais votado leva) · ${siPct(1 - o.pctDistrital)} lista, `
       + `${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}` + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
       + (o.base === 'populacao' ? (curta ? ' · por população' : ' · distritos de população parecida (Censo 2022)') : (curta ? '' : ' · distritos de eleitorado parecido'))
-      + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de distritos pela parte inteira') : '') + voto;
+      + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de distritos pela parte inteira') : '')
+      + (siTolIgual(o.tol, SD_TOL_SENADO) ? '' : ` · tolerância ${siTolNome(o.tol)}`) + (siExcPadrao(o) ? '' : ' · ' + siExcNome(o, curta)) + des + voto;
   }
   return 'os mais votados de cada estado';
 }
@@ -104,7 +213,12 @@ function siMarcarAlterados() {
   $('siAltD').hidden = !siAlterado(ss[3]);
   $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
   $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
-  $('dSenadoOk').hidden = !siEhSenado(ss[3].op);
+  $('dSenado').classList.toggle('proj-ok', siEhSenado(ss[3].op));
+  $('dCcj').classList.toggle('proj-ok', siEhCcj(ss[3].op));
+  $('d9213').classList.toggle('proj-ok', siEh9213(ss[3].op));
+  $('dExcBtn').textContent = (ss[3].op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
+    + (si.exc.divisor === 'sl' ? ' · Sainte-Laguë' : " · D'Hondt") + ' ✎';
+  $('dTolBtn').textContent = siTolNome(si.tol) + (si.tol.modo === 'desenhar' ? ' · desenho até ela' : '') + ' ✎';
   $('dUtilLin').classList.toggle('off', !$('dUtil').checked);
   $('dAliLin').classList.toggle('off', !$('dAli').checked);
   $('dAliLista').innerHTML = si.aliancas.map((x, i) => `<span class="chip-al">${siEsc(x.join(' + '))}<button data-rm="${i}" title="Tirar a aliança">×</button></span>`).join('');
@@ -131,7 +245,7 @@ function siFaixa(ss) {
     const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, s.tipo === 'distrital' && siEhSenado(s.op)))}</div></div>`;
+      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
@@ -144,15 +258,21 @@ function siRegraVigente() {
   for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
   for (const b of $('dArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
   $('dUtil').checked = false; $('dAli').checked = false;
+  si.tol = Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' });
+  si.exc = { regra: 'corta', teto: null, divisor: 'dhondt' };
   siParametrosMudaram();
 }
-/** Distrital misto como no PL 9.212/2017; os outros sistemas ficam como estão. */
-function siRegraSenado() {
+/** Distrital misto como num projeto: 'senado' (PL 9.212/2017), 'ccj' (substitutivo da CCJ) ou '9213' (PL 9.213/2017); os outros sistemas ficam como estão. */
+function siRegraProjeto(qual) {
   $('dPct').value = 50; $('dLim').value = 0;
   const marca = (id, attr, v) => { for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset[attr] === v); };
-  marca('dRegra', 'r', 'partido'); marca('dModelo', 'm', 'compensatorio'); marca('dBase', 'b', 'populacao'); marca('dArr', 'a', 'baixo');
+  const eleit = qual !== 'senado';
+  marca('dRegra', 'r', 'partido'); marca('dModelo', 'm', 'compensatorio'); marca('dBase', 'b', eleit ? 'eleitorado' : 'populacao'); marca('dArr', 'a', 'baixo');
+  si.tol = Object.assign({}, eleit ? SD_TOL_CCJ : SD_TOL_SENADO, { modo: si.tol.modo });
+  si.exc = { regra: qual === '9213' ? 'cresce' : 'corta', teto: null, divisor: 'dhondt' };
   siParametrosMudaram();
 }
+const siRegraSenado = () => siRegraProjeto('senado');
 function siParametrosMudaram() {
   siMarcarAlterados();
   clearTimeout(si.tempo);
@@ -422,7 +542,8 @@ async function siPrepararDistritos(op, calc) {
   for (const uf of ufs) {
     const d = si.dados[uf], g = si.geo[siChaveGeo(uf)];
     const k = sdNumeroDistritos(d.vagas, op.pctDistrital, op.arred);
-    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}|${op.base}`;
+    // a tolerância só muda o desenho quando ele vai até ela
+    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
     if (!si.desenhos[chave]) {
       // a barra diz de onde vem o que se lê: população do IBGE (lida na hora) ou o eleitorado do TSE (já na memória)
       siProgresso(op.base === 'populacao'
@@ -444,7 +565,7 @@ async function siPrepararDistritos(op, calc) {
       let base = { unidades: [], viz: {} }, desenho = { distritos: [], metricas: null };
       if (k > 0) {
         base = sdUnidades(gp, g.malha, (cd, nome) => g.resolver(nome), SI_FRACAO_DIVIDE * aptos / k);
-        desenho = sdDistritar(base, Math.min(k, base.unidades.length));
+        desenho = sdDistritar(base, Math.min(k, base.unidades.length), { tol: op.tol, ateTol: op.tol.modo === 'desenhar' });
         if (k > base.unidades.length) desenho.pedidos = k;
         desenho.base = op.base === 'populacao' && !popErro ? 'populacao' : 'eleitorado';
         desenho.semPopulacao = semPopulacao;
@@ -456,16 +577,16 @@ async function siPrepararDistritos(op, calc) {
       else { porUf[uf] = { desenho, base, votos: g.votos[siCargoArq(uf)] || {} }; i++; continue; }
     }
     let x = si.desenhos[chave];
-    // Afinação pelos locais de votação (lida a pedido): só onde o desenho passa da tolerância do PL 9.212.
-    const lc = si.locais[siChaveLocais(uf)];
-    if (lc && x.desenho.metricas && !sdToleranciaSenado(x.desenho.distritos).ok) {
-      if (!si.desenhos[chave + '|loc']) {
+    // Afinação pelos locais de votação (lida a pedido): só onde o desenho passa da tolerância.
+    const lc = si.locais[siChaveLocais(uf)], chLoc = chave + '|loc|' + siTolChave(op.tol);
+    if (lc && x.desenho.metricas && !sdTolerancia(x.desenho.distritos, op.tol).ok) {
+      if (!si.desenhos[chLoc]) {
         siProgresso(`Afinando os distritos com os locais de votação: ${siUfNome(uf)}…`, i / ufs.length);
         await new Promise(r => setTimeout(r, 0));
         if (calc !== si.calc) return null;
-        si.desenhos[chave + '|loc'] = siAfinar(x, lc.locais);
+        si.desenhos[chLoc] = siAfinar(x, lc.locais, op.tol);
       }
-      x = si.desenhos[chave + '|loc'];
+      x = si.desenhos[chLoc];
     }
     const vz = g.votos[siCargoArq(uf)] || {};
     porUf[uf] = { desenho: x.desenho, base: x.base, votos: x.desenho.locais && lc ? Object.assign({}, vz, lc.votos) : vz };
@@ -475,12 +596,12 @@ async function siPrepararDistritos(op, calc) {
 }
 
 /** Desenho afinado pelos locais: primeiro as zonas da fronteira; se ainda passa da tolerância, também os municípios da fronteira. Fica o melhor. */
-function siAfinar(x, locais) {
-  // melhor: dentro da tolerância; depois, menos distritos acima de 5%; depois, menor desvio máximo
-  const nota = d => { const t = sdToleranciaSenado(d.distritos); return [t.ok ? 0 : 1, t.entre5e10 + t.acima10, d.metricas.desvioMax]; };
+function siAfinar(x, locais, tol) {
+  // melhor: dentro da tolerância; depois, menos distritos acima do desvio admitido em todos; depois, menor desvio máximo
+  const nota = d => { const t = sdTolerancia(d.distritos, tol); return [t.ok ? 0 : 1, t.excecao + t.fora, d.metricas.desvioMax]; };
   const melhor = (a, b) => { const na = nota(a), nb = nota(b); for (let i = 0; i < 3; i++) if (na[i] !== nb[i]) return na[i] < nb[i] - (i === 2 ? 1e-9 : 0); return false; };
   let r = sdRefinarLocais(x.base, x.desenho, locais);
-  if (r && !sdToleranciaSenado(r.desenho.distritos).ok) {
+  if (r && !sdTolerancia(r.desenho.distritos, tol).ok) {
     const r2 = sdRefinarLocais(r.base, r.desenho, locais, { municipios: true });
     if (r2 && r2.desenho.metricas.contiguos && melhor(r2.desenho, r.desenho)) r = r2;
   }
@@ -489,11 +610,11 @@ function siAfinar(x, locais) {
 }
 
 const siChaveLocais = uf => `${si.op.ano}|${uf}|${siCargoArq(uf)}`;
-/** Estados cujo desenho passa da tolerância do PL 9.212 e ainda não têm os locais de votação lidos. */
+/** Estados cujo desenho passa da tolerância e ainda não têm os locais de votação lidos. */
 function siForaDaTolerancia() {
   const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital');
   if (!s || !s.op.porUf) return [];
-  return Object.keys(s.op.porUf).filter(uf => { const d = s.op.porUf[uf].desenho; return d.metricas && !sdToleranciaSenado(d.distritos).ok && !si.locais[siChaveLocais(uf)]; }).sort();
+  return Object.keys(s.op.porUf).filter(uf => { const d = s.op.porUf[uf].desenho; return d.metricas && !sdTolerancia(d.distritos, s.op.tol).ok && !si.locais[siChaveLocais(uf)]; }).sort();
 }
 function siBotaoLocais(ufs) {
   if (!ufs.length) return '';
@@ -667,7 +788,8 @@ function siPartes(impressao) {
     + res.sims.map(s => {
       const n = pode(s), dd = temReal ? n - pode(res.real) : 0, tr = temReal ? siTrocas(s, comp) : 0;
       return `<div class="kpi${dd <= -3 ? ' pior' : dd >= 3 ? ' melhor' : ''}"><div class="eyebrow" title="${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id)))}">${siEsc(s.nome)}</div><div class="n">${n}</div>`
-        + `<div class="d">${temReal ? siDelta(n, pode(res.real)) + ` <span class="igual">· ${siFmt(tr)} ${tr === 1 ? 'troca' : 'trocas'}</span>` : '&nbsp;'}</div></div>`;
+        + `<div class="d">${temReal ? siDelta(n, pode(res.real)) + ` <span class="igual">· ${siFmt(tr)} ${tr === 1 ? 'troca' : 'trocas'}</span>` : '&nbsp;'}</div>`
+        + (s.total !== res.vagas ? `<div class="d casa">Câmara de ${siFmt(s.total)} (${siSinal(s.total - res.vagas)}) · ${siPct(n / s.total)} das cadeiras</div>` : '') + '</div>';
     }).join('') + '</div>';
   const ind = snIndicadores(res, si.dados);
   P.resumo = siResumoHtml(ind);
@@ -678,7 +800,7 @@ function siPartes(impressao) {
   h += `<div class="hemi"><div class="t">Resultado oficial (TSE)</div><div class="s">${temReal ? 'como o TSE totalizou' : 'aguardando a totalização'}</div>${siHemicicloSvg(real, ordem, cores, vagas)}<div class="pode">Podemos: <b>${temReal ? pode(res.real) : '—'}</b></div></div>`;
   for (const s of res.sims) {
     const igual = temReal && !siTrocas(s, comp);
-    h += `<div class="hemi"><div class="t">${siEsc(s.nome)}</div><div class="s">${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id), true))}</div>${siHemicicloSvg(s.porPartido, ordem, cores, vagas)}`
+    h += `<div class="hemi"><div class="t">${siEsc(s.nome)}</div><div class="s">${siEsc(siDescricao(si.sistemas.find(x => x.id === s.id), true))}${s.total !== vagas ? ` · <b class="casa">${siFmt(s.total)} cadeiras (${siSinal(s.total - vagas)})</b>` : ''}</div>${siHemicicloSvg(s.porPartido, ordem, cores, Math.max(vagas, s.total))}`
       + `<div class="pode">Podemos: <b>${pode(s)}</b>${igual ? ' · <span class="mais">idêntico ao oficial</span>' : temReal ? ` · <span class="igual">${siFmt(siTrocas(s, comp))} trocas</span>` : ''}</div></div>`;
   }
   h += '</div><div class="legenda">' + ordem.filter(sg => cores[sg] !== SI_COR_OUTROS).map(sg => `<span><i style="background:${cores[sg]}"></i>${siEsc(sg)}</span>`).join('')
@@ -755,13 +877,13 @@ function siRelatorioHtml(impressao) {
   // os blocos recolhíveis vêm antes do mapa
   const s = si.sistemas.find(x => x.tipo === 'distrital');
   const des = s && s.op.porUf ? Object.values(s.op.porUf).filter(x => x.desenho && x.desenho.metricas) : [];
-  const fora = s && s.op.base === 'populacao' ? des.filter(x => !sdToleranciaSenado(x.desenho.distritos).ok).length : 0;
+  const fora = s ? des.filter(x => !sdTolerancia(x.desenho.distritos, s.op.tol).ok).length : 0;
   h += '<div class="accs">'
     + siAcordeao('resumo', 'Resumo em texto', 'O que muda em cada sistema, escrito a partir dos números', siSemH2(P.resumo))
     + siAcordeao('indicadores', 'Indicadores', 'Proporcionalidade (Gallagher), número efetivo de partidos, maior bancada, quem mais ganha e perde', siSemH2(P.indicadores))
     + siAcordeao('entrasai', 'Quem entra e quem sai do Podemos', P.temReal ? `Os nomes, sistema a sistema · ${P.nEntra} entradas e ${P.nSai} saídas no total` : 'Sem eleitos oficiais para comparar', siSemH2(P.entraSai))
     + (P.umaUf ? '' : siAcordeao('estados', 'Estado a estado', `Vagas, quociente, Podemos e trocas nas ${si.res.ufs.length} UFs · clique num estado para ver o detalhe${si.ufSel ? ` (aberto: ${siUfNome(si.ufSel)})` : ''}`, siSemH2(P.estados) + (si.ufSel ? P.detalhe : '')))
-    + (P.umaUf || !P.distritos ? '' : siAcordeao('distritos', 'Distritos por estado', `Tamanho, desvio e compacidade em ${des.length} estados${fora ? ` · <span class="menos">${fora} fora da tolerância do PL 9.212</span>` : ''}`, siSemH2(P.distritos)))
+    + (P.umaUf || !P.distritos ? '' : siAcordeao('distritos', 'Distritos por estado', `Tamanho, desvio e compacidade em ${des.length} estados${fora ? ` · <span class="menos">${fora} fora da tolerância (${siTolNome(s.op.tol)})</span>` : ''}`, siSemH2(P.distritos)))
     + siAcordeao('metodo', 'Método e fontes', 'Regras de cada sistema, dados do TSE e do IBGE', siSemH2(siMetodoHtml()))
     + '</div>';
   if (P.umaUf) h += P.detalhe;
@@ -851,11 +973,37 @@ function siResumoHtml(ind) {
       const top = Object.entries(venc).sort((a, b) => b[1] - a[1]).slice(0, 3);
       itens.push(`Distrital misto: <b>${siFmt(nd)}</b> distritos desenhados em ${des.length} estado${des.length === 1 ? '' : 's'}, por ${op.base === 'populacao' ? 'população (Censo 2022)' : 'eleitorado'}; `
         + `maior desvio de tamanho <b>${siPct(pior[1].desenho.metricas.desvioMax)}</b> (${pior[0].toUpperCase()}).`
-        + (op.base === 'populacao' ? (dentro => ` Na tolerância de tamanho do PL 9.212/2017 (±5%): ${dentro.length === des.length ? `todos os ${des.length}` : `${dentro.length} de ${des.length}`} estados.`)(des.filter(([, x]) => sdToleranciaSenado(x.desenho.distritos).ok)) : '')
+        + (dentro => ` Na tolerância de tamanho (${siTolNome(op.tol)}, ${siTolFonte(op.tol)}): ${dentro.length === des.length ? `todos os ${des.length}` : `${dentro.length} de ${des.length}`} estados.`)(des.filter(([, x]) => sdTolerancia(x.desenho.distritos, op.tol).ok))
         + (top.length ? ` Mais distritos ganhos: ${top.map(([sg, n]) => `${siEsc(sg)} ${n}`).join(', ')}${venc[SI_PARTIDO] && !top.some(([sg]) => sg === SI_PARTIDO) ? `; Podemos ${venc[SI_PARTIDO]}` : ''}.` : ''));
     }
+    const ex = siExcedenteResumo(sd, op);
+    if (ex) itens.push(ex);
   }
   return `<h2>Resumo</h2><ul class="resumo">${itens.map(t => `<li>${t}</li>`).join('')}</ul>`;
+}
+
+/** O excedente no compensatório, somado nos estados comparáveis: quem passou da cota, o que a regra fez. */
+function siExcedenteResumo(sd, op) {
+  if (op.modelo !== 'compensatorio') return '';
+  const res = si.res, nome = (uf, id) => { const a = si.dados[uf].agrs.find(x => x.id === id); return a ? sdSiglas(a) : id; };
+  const exc = {}, cor = {};
+  let extra = 0, sem = 0;
+  for (const uf of res.comparadas) {
+    const x = sd.porUf[uf];
+    for (const [id, n] of Object.entries(x.excedentes || {})) { const k = nome(uf, id); exc[k] = (exc[k] || 0) + n; }
+    for (const [id, n] of Object.entries(x.cortes || {})) { const k = nome(uf, id); cor[k] = (cor[k] || 0) + n; }
+    extra += x.extra || 0; sem += (x.descobertos || []).length;
+  }
+  const lista = o => Object.entries(o).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([k, n]) => `${siEsc(k)} ${n}`).join(', ');
+  const tot = Object.values(exc).reduce((s, n) => s + n, 0);
+  if (!tot) return `Excedente: nenhum partido ganhou mais distritos que a sua cota (${siExcNome(op, false)}).`;
+  const totC = Object.values(cor).reduce((s, n) => s + n, 0);
+  const regra = op.excedente || 'corta';
+  return `Excedente: <b>${siFmt(tot)}</b> distrito${tot === 1 ? '' : 's'} além da cota proporcional (${lista(exc)}). `
+    + (regra === 'naoLeva' ? `Regra: o excedente não leva — <b>${sem}</b> distrito${sem === 1 ? '' : 's'} ficam sem cadeira e a Câmara fica com ${siFmt(res.vagas)}.`
+      : regra === 'corta' ? `Regra: corta das listas — as vagas saíram das listas de: ${lista(cor)}.`
+        : `Regra: ${SI_EXC_NOMES[regra]} — <b>${siSinal(extra)}</b> cadeira${extra === 1 ? '' : 's'} (Câmara de ${siFmt(res.vagas + extra)})${totC ? `; acima do teto, saíram das listas de: ${lista(cor)}` : ''}.`)
+    + (op.divisor === 'sl' ? ' Divisor: Sainte-Laguë.' : '');
 }
 
 function siIndicadoresHtml(ind) {
@@ -875,12 +1023,13 @@ function siIndicadoresHtml(ind) {
     + 'Gallagher: desproporcionalidade entre votos e cadeiras, em pontos percentuais (0 = proporção perfeita); os votos são os nominais e de legenda de cada partido.</div>';
 }
 
-/** Tolerância de tamanho do PL 9.212/2017 num texto curto: "dentro" ou o que passa. */
+/** A conferência da tolerância (sdTolerancia) num texto curto: "dentro" ou o que passa. */
 function siToleranciaTxt(t) {
-  if (t.ok) return t.entre5e10 ? `dentro (${t.entre5e10} entre 5% e 10%)` : 'dentro (todos até ±5%)';
+  const a = siPct(t.tol.pct), b = siPct(t.tol.exc), exc = t.tol.exc > t.tol.pct;
+  if (t.ok) return t.excecao ? `dentro (${t.excecao} entre ${a} e ${b})` : `dentro (todos até ±${a})`;
   const p = [];
-  if (t.entre5e10 > t.permitidos) p.push(`${t.entre5e10} entre 5% e 10% (cabem ${t.permitidos})`);
-  if (t.acima10) p.push(`${t.acima10} acima de 10%`);
+  if (t.excecao > t.permitidos) p.push(`${t.excecao} entre ${a} e ${b} (cabem ${t.permitidos})`);
+  if (t.fora) p.push(`${t.fora} acima de ${exc ? b : a}`);
   return 'fora: ' + p.join(', ');
 }
 
@@ -890,16 +1039,17 @@ function siDistritosEstadosHtml() {
   if (!s || Object.keys(s.op.porUf).length < 2) return '';
   const pop = s.op.base === 'populacao';
   let h = `<h2>Distritos por estado <small>distrital misto · tamanho por ${pop ? 'população (Censo 2022)' : 'eleitorado'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead><tr><th>UF</th><th class="n">Distritos</th>`
-    + `<th class="n">Alvo (${pop ? 'habitantes' : 'eleitores'})</th><th class="n">Desvio máx.</th><th class="n">Desvio médio</th><th class="n">Compacidade</th><th class="n">Municípios divididos</th><th class="n">Zonas usadas</th>${pop ? '<th>Tolerância do PL 9.212 (±5%)</th>' : ''}</tr></thead><tbody>`;
+    + `<th class="n">Alvo (${pop ? 'habitantes' : 'eleitores'})</th><th class="n">Desvio máx.</th><th class="n">Desvio médio</th><th class="n">Compacidade</th><th class="n">Municípios divididos</th><th class="n">Zonas usadas</th><th>Tolerância (${siEsc(siTolNome(s.op.tol))})</th></tr></thead><tbody>`;
   for (const uf of Object.keys(s.op.porUf).sort()) {
     const d = s.op.porUf[uf].desenho, m = d.metricas;
     h += m ? `<tr><td>${uf.toUpperCase()}</td><td class="n">${d.distritos.length}</td><td class="n">${siFmt(Math.round(d.alvo))}</td><td class="n${m.desvioMax > 0.15 ? ' menos' : ''}">${siPct(m.desvioMax)}</td>`
       + `<td class="n">${siPct(m.desvioMedio)}</td><td class="n">${siDec(m.compacidadeMedia, 2)}</td><td class="n">${m.municipiosDivididos}</td><td class="n">${m.zonas}${m.locais ? ` + ${siFmt(m.locais)} locais` : ''}</td>`
-      + (pop ? (t => `<td${t.ok ? '' : ' class="menos"'}>${siToleranciaTxt(t)}</td>`)(sdToleranciaSenado(d.distritos)) : '') + '</tr>'
-      : `<tr><td>${uf.toUpperCase()}</td><td class="n">0</td><td colspan="${pop ? 7 : 6}">${siEsc(d.erro || 'todas as vagas pela lista')}</td></tr>`;
+      + (t => `<td${t.ok ? '' : ' class="menos"'}>${siToleranciaTxt(t)}</td>`)(sdTolerancia(d.distritos, s.op.tol)) + '</tr>'
+      : `<tr><td>${uf.toUpperCase()}</td><td class="n">0</td><td colspan="7">${siEsc(d.erro || 'todas as vagas pela lista')}</td></tr>`;
   }
-  return h + '</tbody></table></div>' + (pop ? '<div class="dica">Tolerância do PL 9.212/2017 (aprovado pelo Senado): cada distrito até ±5% da população-alvo; até ±10% em 1 distrito ou em 10% deles, o que for maior. '
-    + 'O desenho daqui busca o menor desvio, mas não é obrigado a caber nela: a menor peça é o município (ou a zona eleitoral, no município grande demais).</div>' : '')
+  return h + '</tbody></table></div>' + `<div class="dica">Tolerância ${siEsc(siTolFonte(s.op.tol))}: cada distrito até ${siEsc(siTolNome(s.op.tol))} do alvo${s.op.tol.exc > s.op.tol.pct ? ' (o que for maior)' : ''}. `
+    + (s.op.tol.modo === 'desenhar' ? 'O desenho para de trocar unidades na fronteira quando todos cabem e, entre as tentativas que cabem, fica a mais compacta; ' : 'O desenho daqui busca o menor desvio e a tolerância só confere; ')
+    + 'nem sempre cabe: a menor peça é o município (ou a zona eleitoral, no município grande demais).</div>'
     + siBotaoLocais(siForaDaTolerancia());
 }
 
@@ -925,11 +1075,31 @@ function siMetodoHtml() {
     + (sist.distrital.op.votoUtil > 0 ? `Voto útil: ${siPct(sist.distrital.op.votoUtil)} dos votos de cada agremiação fora das duas primeiras de cada distrito passam para elas — meio a meio (a hipótese neutra) ou toda para a aliada, se uma das duas é aliada — e vão para o candidato mais votado dela no distrito. ` : '')
     + ((sist.distrital.op.aliancas || []).length ? `Alianças no distrito (${sist.distrital.op.aliancas.map(x => siEsc(x.join(' + '))).join('; ')}): em cada distrito, das aliadas só a mais votada ali lança candidato, com os votos das outras. ` : '')
     + 'A lista (voto partidário) segue a votação de cada agremiação. São hipóteses de comportamento, não dados.');
-  if (sist.distrital && siEhSenado(sist.distrital.op)) li.push('<b>Projeto do Senado.</b> O distrital misto segue o PL 9.212/2017 (PLS 86/2017 e 345/2017, aprovados pelo Senado em 21/11/2017, na Câmara desde então): '
+  if (sist.distrital) {
+    const o = sist.distrital.op;
+    li.push(`<b>Tamanho dos distritos.</b> Tolerância ${siEsc(siTolNome(o.tol))} (${siEsc(siTolFonte(o.tol))}) sobre o alvo (${o.base === 'populacao' ? 'habitantes' : 'eleitores'} ÷ nº de distritos)${o.tol.exc > o.tol.pct ? ', o que for maior' : ''}. `
+      + (o.tol.modo === 'desenhar' ? 'Desenho até a tolerância: as trocas na fronteira param quando todos os distritos cabem nela e, entre as tentativas que cabem, fica a mais compacta.' : 'A tolerância só confere: o desenho busca o menor desvio possível.'));
+  }
+  if (sist.distrital && (sist.distrital.op.modelo === 'compensatorio' || sist.distrital.op.divisor === 'sl')) {
+    const o = sist.distrital.op, r = o.excedente || 'corta', teto = (r === 'cresce' || r === 'compensa') && o.tetoExtra != null ? ` Teto: até ${siPct(o.tetoExtra)} das vagas de cada estado a mais; o que passar, corta das listas.` : '';
+    li.push(`<b>Excedente e divisor.</b> ${o.divisor === 'sl' ? 'Maiores médias por Sainte-Laguë (votos ÷ 1, 3, 5…)' : "Maiores médias por D'Hondt (votos ÷ 1, 2, 3…), como nos projetos"}. `
+      + (o.modelo !== 'compensatorio' ? 'Paralelo: sem excedente.' : {
+        corta: 'Excedente (um partido ganha mais distritos que a sua cota): fica com eles, e as vagas saem das listas de quem tem a menor média — a última posição da lista ordenada (PL 9.212/2017, art. 105-C); a Casa não cresce.',
+        cresce: 'Excedente: o partido fica com os distritos e a Casa cresce o tanto do excedente (PL 9.213/2017, art. 105-B, § 2º).',
+        compensa: 'Excedente: a Casa cresce até a cota de todos cobrir os distritos ganhos (compensação total, como na Alemanha de 2013 a 2023).',
+        naoLeva: 'Excedente: o distrito além da cota não dá cadeira — sai o vencedor de menor votação relativa no distrito, que segue na disputa da lista (como na Alemanha desde 2023); a Casa não cresce.' }[r]) + teto);
+  }
+  if (sist.distrital && siEh9213(sist.distrital.op)) li.push('<b>PL 9.213/2017.</b> O distrital misto segue o PL 9.213/2017 (PLS 345/2017, do senador Eunício Oliveira, aprovado pelo Senado em 21/11/2017 com o PLS 86 e apensado ao PL 9.212 na Câmara): '
+    + 'distritos em número igual à parte inteira da metade das vagas, desenhados por eleitores com até ±10% do alvo, contíguos; o total de cada partido pelo princípio da proporcionalidade (aqui, as maiores médias) e, se um partido ganha mais distritos do que isso, a diferença é acrescida ao total de deputados (art. 105-B, § 2º).');
+  if (sist.distrital && siEhSenado(sist.distrital.op)) li.push('<b>Projeto do Senado.</b> O distrital misto segue o PL 9.212/2017 (PLS 86/2017, do senador José Serra, aprovado pelo Senado em 21/11/2017 e na CCJ da Câmara desde então; o PLS 345/2017, aprovado no mesmo dia, é o PL 9.213/2017, apensado): '
     + 'distritos em número igual à parte inteira da metade das vagas, desenhados por habitantes (tolerância de ±5%, ou ±10% em 1 distrito ou em 10% deles), contíguos e compactos; o mais votado leva o distrito; '
-    + 'as vagas de cada partido saem das maiores médias sobre todas as vagas do estado (art. 105-B), as dos distritos contam dentro delas e, se um partido ganha mais distritos do que isso, fica com eles e as vagas saem das últimas posições da lista (art. 105-C), sem aumentar a Casa; sem quociente eleitoral nem cláusula (arts. 106 a 111 revogados). '
-    + 'Aproximações: o projeto tem dois votos (no candidato do distrito e no partido) e lista preordenada pelo partido; os dados do TSE têm um voto, que vale para as duas partes, e a lista é preenchida na ordem de votos. '
-    + 'O projeto é anterior às federações; aqui a federação conta como uma agremiação.');
+    + 'as vagas de cada partido saem das maiores médias sobre todas as vagas do estado (art. 105-B), as dos distritos contam dentro delas e, se um partido ganha mais distritos do que isso, fica com eles e as vagas saem das últimas posições da lista (art. 105-C), sem aumentar a Casa; sem quociente eleitoral nem cláusula (arts. 106 a 111 revogados).');
+  if (sist.distrital && siEhCcj(sist.distrital.op)) li.push('<b>Substitutivo da CCJ.</b> O distrital misto segue o substitutivo da CCJ da Câmara ao PL 9.212/2017 (relator Samuel Moreira; parecer de 2019, reapresentado em 02/03/2021, não votado): '
+    + 'distritos em número igual à parte inteira da metade das vagas, desenhados por eleitores com até ±10% do alvo (redesenho a cada 10 anos ou acima de 15%), contíguos e compactos; '
+    + 'a conta das vagas e do excedente é a do texto do Senado (arts. 106 a 108 do substitutivo); lista preordenada com um candidato de outro sexo a cada três posições.');
+  if (sist.distrital) li.push('<b>Premissas da simulação.</b> Os projetos têm dois votos (no candidato do distrito e no partido) e lista preordenada pelo partido. '
+    + 'Os dados do TSE têm um voto: ele vale para as duas partes (salvo o cenário de segundo voto), cada partido leva ao distrito os votos de todos os seus candidatos ali (o mais votado deles é o candidato), e a lista é preenchida na ordem de votos — o que muda os nomes, não o número de cadeiras de cada partido. '
+    + 'Os projetos são anteriores às federações; aqui a federação conta como uma agremiação.');
   li.push('<b>Indicadores.</b> Número efetivo de partidos (Laakso-Taagepera) e índice de desproporcionalidade de Gallagher, sobre os estados comparáveis.');
   li.push(`<b>Fontes.</b> Tribunal Superior Eleitoral (resultados, dados abertos: votação por candidato e por partido, detalhe da votação e locais de votação); IBGE (malha municipal${sist.distrital && sist.distrital.op.base === 'populacao' ? ' e Censo Demográfico 2022, tabela 4709' : ''}). Nenhum dado de voto vem embutido na extensão.`);
   return `<h2 class="imp-quebra">Método e fontes</h2><ul class="metodo">${li.map(t => `<li>${t}</li>`).join('')}</ul>`;
@@ -963,7 +1133,7 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
   const { cor, de } = siCoresDistritos(base, desenho);
   const cores = siCores(snOrdemPartidos(si.res));
   const venc = {};
-  for (const d of eleicao.distritos || []) venc[d.id] = d.vencedor;
+  for (const d of eleicao.distritos || []) if (!d.semCadeira) venc[d.id] = d.vencedor;
   const corDe = id => modo === 'partido' ? (venc[id] ? cores[venc[id].partido] || SI_COR_OUTROS : '#2a3a4a') : cor[id];
   const porIbge = {};
   for (const u of base.unidades) if (u.ibge) (porIbge[u.ibge] = porIbge[u.ibge] || []).push(u);
@@ -1041,7 +1211,7 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
     const tem = x && x.desenho && x.desenho.distritos && x.desenho.distritos.length;
     const { cor, de } = tem ? siCoresDistritos(x.base, x.desenho) : { cor: {}, de: new Map() };
     const vu = {};
-    for (const dt of ((sd.porUf[uf] || {}).distritos || [])) if (dt.vencedor) { vu[dt.id] = dt.vencedor.partido; venc[dt.vencedor.partido] = (venc[dt.vencedor.partido] || 0) + 1; }
+    for (const dt of ((sd.porUf[uf] || {}).distritos || [])) if (dt.vencedor && !dt.semCadeira) { vu[dt.id] = dt.vencedor.partido; venc[dt.vencedor.partido] = (venc[dt.vencedor.partido] || 0) + 1; } else if (dt.semCadeira) nD.sem = (nD.sem || 0) + 1;
     if (tem) nD.total += x.desenho.distritos.length;
     const corDe = id => (modo === 'partido' ? (vu[id] ? coresP[vu[id]] || SI_COR_OUTROS : T.semD) : cor[id] || T.semD);
     const peso = {}, nome = {};
@@ -1086,7 +1256,7 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
   if (modo === 'partido') {
     const itens = Object.entries(venc).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
     const porLinha = Math.max(1, Math.floor(W / 150));
-    leg += `<text x="${pad}" y="${yL}" font-size="13" font-weight="700" fill="${T.txt}">Distritos ganhos, por partido do eleito</text>`;
+    leg += `<text x="${pad}" y="${yL}" font-size="13" font-weight="700" fill="${T.txt}">Distritos ganhos, por partido do eleito${nD.sem ? ` · sem cadeira (excedente não leva): ${nD.sem}, sem cor` : ''}</text>`;
     itens.forEach(([sg, n], i) => {
       const cx = pad + (i % porLinha) * 150, cy = yL + 22 + Math.floor(i / porLinha) * 22;
       leg += `<rect x="${cx}" y="${cy - 11}" width="14" height="14" rx="3" fill="${coresP[sg] || SI_COR_OUTROS}"/><text x="${cx + 20}" y="${cy}" font-size="13" fill="${T.txt}">${siEsc(sg)} <tspan font-weight="700">${n}</tspan></text>`;
@@ -1170,7 +1340,7 @@ function siInfoDistrito(uf, id, mun) {
     + `<div class="m">${lm.length} município${lm.length === 1 ? '' : 's'}: ${lm.slice(0, 5).map(([n]) => siEsc(n)).join(', ')}${lm.length > 5 ? ` e mais ${lm.length - 5}` : ''}</div>`;
   if (el && el.vencedor) {
     const w = el.vencedor;
-    h += `<div class="e${w.partido === SI_PARTIDO ? ' pode' : ''}">Eleito: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`
+    h += `<div class="e${w.partido === SI_PARTIDO ? ' pode' : ''}">${el.semCadeira ? 'Venceu, <b>sem cadeira</b> (excedente não leva)' : 'Eleito'}: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`
       + `<div>1ª: ${siEsc(w.agrNome)} ${siPct(w.agrPct)}${el.segundo ? ` · 2ª: ${siEsc(el.segundo.nome)} ${siPct(el.segundo.pct)}` : ''}</div>`;
   }
   return h;
@@ -1346,9 +1516,9 @@ function siDistritosHtml(uf, sd, impressao) {
     + `<span>municípios divididos <b>${m.municipiosDivididos}</b></span>`
     + `<span>${m.contiguos ? 'todos contíguos' : '<b>há distrito não contíguo</b>'}</span>`
     + `<span>unidades: ${m.unidades - m.zonas - (m.locais || 0)} municípios + ${m.zonas} zonas${m.locais ? ` + ${siFmt(m.locais)} locais de votação` : ''}</span>`
-    + (pop ? (t => `<span${t.ok ? '' : ' class="ruim"'}>tolerância do PL 9.212 (±5%): <b>${siToleranciaTxt(t)}</b></span>`)(sdToleranciaSenado(desenho.distritos)) : '') + '</div>';
+    + (t => `<span${t.ok ? '' : ' class="ruim"'}>tolerância ${siEsc(siTolNome(t.tol))}: <b>${siToleranciaTxt(t)}</b></span>`)(siTolConf(desenho.distritos)) + '</div>';
   if (desenho.locais) h += `<div class="dica">Afinado com os locais de votação: as zonas na fronteira entre distritos${m.municipiosDivididos ? ' (e, se preciso, os municípios)' : ''} se dividiram nos seus locais (pontos menores no mapa), cada um com os seus eleitores e os seus votos na votação por seção do TSE.</div>`;
-  else if (!sdToleranciaSenado(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
+  else if (!siTolConf(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
   if (pop) h += `<div class="dica">Tamanho pela população residente do Censo 2022 (IBGE). Num município dividido em zonas, a população se reparte entre elas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).</div>`;
   if (ruim) h += `<div class="dica">Desvio acima de 15% (a referência alemã: até ±15%, e redesenho obrigatório acima de ±25%): as zonas eleitorais são grandes para distritos deste tamanho — a menor peça do desenho é a zona.</div>`;
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
@@ -1374,7 +1544,7 @@ function siDistritosHtml(uf, sd, impressao) {
   for (const d of desenho.distritos) {
     const v = venc[d.id] || {}, w = v.vencedor, s2 = v.segundo;
     h += `<tr${w && w.partido === SI_PARTIDO ? ' class="pode"' : ''}><td class="n">${d.id}</td><td class="n">${siFmt(Math.round(d.aptos))}</td><td class="n">${(d.desvio >= 0 ? '+' : '') + siPct(d.desvio)}</td>`
-      + `<td style="white-space:normal">${nomes(d)}</td><td>${w ? siEsc(w.nome) : '—'}</td><td>${w ? siEsc(w.partido) : ''}</td>`
+      + `<td style="white-space:normal">${nomes(d)}</td><td>${w ? siEsc(w.nome) + (v.semCadeira ? ' <span class="menos">(sem cadeira: excedente)</span>' : '') : '—'}</td><td>${w ? siEsc(w.partido) : ''}</td>`
       + `<td class="n">${w ? siFmt(w.votos) + ' (' + siPct(w.pct) + ')' : ''}</td><td class="n">${w ? siPct(w.agrPct) : ''}</td>`
       + `<td>${s2 ? siEsc(s2.nome) + ' · ' + siPct(s2.pct) : ''}</td></tr>`;
   }
@@ -1449,6 +1619,10 @@ async function siIniciar() {
     siLer();
   });
   $('dSenado').addEventListener('click', siRegraSenado);
+  $('dCcj').addEventListener('click', () => siRegraProjeto('ccj'));
+  $('d9213').addEventListener('click', () => siRegraProjeto('9213'));
+  siLigarTolerancia();
+  siLigarExcedente();
   for (const [id, attr] of [['mModelo', 'm'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);

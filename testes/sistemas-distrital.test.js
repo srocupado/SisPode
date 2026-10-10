@@ -177,6 +177,23 @@ ok(t4.ok && t4.permitidos === 3, '35 distritos: até 3 (10%, parte inteira) entr
 const t5 = SD.sdToleranciaSenado(dv([0.11, 0, 0, 0]));
 ok(!t5.ok && t5.acima10 === 1, 'acima de 10%: fora');
 
+console.log('Tolerância ajustável (PL 9.213 e substitutivo da CCJ: eleitores, ±10%)');
+const c1 = SD.sdTolerancia(dv([0.09, -0.1, 0.02]), SD.SD_TOL_CCJ);
+ok(c1.ok && c1.dentro === 3 && c1.permitidos === 0, '±10% sem exceção: todos até 10% cabem');
+const c2 = SD.sdTolerancia(dv([0.11, 0, 0]), SD.SD_TOL_CCJ);
+ok(!c2.ok && c2.fora === 1, '±10% sem exceção: acima de 10% fica fora');
+const c3 = SD.sdTolerancia(dv([0.07, 0.12, 0, 0, 0]), { pct: 0.08, exc: 0.15, excN: 1, excFrac: 0 });
+ok(c3.ok && c3.excecao === 1 && c3.permitidos === 1, 'tolerância qualquer: ±8%, ±15% em 1 distrito');
+const c4 = SD.sdTolerancia(dv([0.04, 0.08]), SD.SD_TOL_SENADO), c4b = SD.sdToleranciaSenado(dv([0.04, 0.08]));
+ok(c4.ok === c4b.ok && c4b.entre5e10 === c4.excecao && c4b.ate5 === c4.dentro, 'a do Senado é um caso da genérica (mesmos números)');
+// desenho até a tolerância: entre as tentativas que cabem, a mais compacta (troca desvio por forma)
+const g8 = grade(8, (i, j) => 100 + ((i * 7 + j * 13) % 11) * 40 + (j < 2 ? 300 : 0));
+const justo = SD.sdDistritar(g8, 5), solto = SD.sdDistritar(g8, 5, { tol: { pct: 0.15, exc: 0 }, ateTol: true });
+ok(SD.sdTolerancia(solto.distritos, { pct: 0.15, exc: 0 }).ok && solto.metricas.contiguos && solto.metricas.desvioMax > justo.metricas.desvioMax
+  && solto.metricas.compacidadeMedia > justo.metricas.compacidadeMedia,
+  `desenho até ±15%: cabe, mais compacto (${justo.metricas.compacidadeMedia.toFixed(2)} → ${solto.metricas.compacidadeMedia.toFixed(2)}) com mais desvio (${(justo.metricas.desvioMax * 100).toFixed(1)}% → ${(solto.metricas.desvioMax * 100).toFixed(1)}%)`);
+ok(SD.sdDistritar(g8, 5, { tol: { pct: 0.15, exc: 0 } }).metricas.desvioMax === justo.metricas.desvioMax, 'só conferir: o desenho não muda');
+
 console.log('Locais de votação (para afinar o desenho)');
 ok(SD.sdUrlSecao(2026, 'rr') === 'https://cdn.tse.jus.br/estatistica/sead/odsele/votacao_secao/votacao_secao_2026_RR.zip', 'endereço da votação por seção do estado');
 const rep = SD.sdReparte(10, [1, 1, 1]);
