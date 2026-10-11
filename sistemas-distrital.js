@@ -872,16 +872,12 @@ function sdVotosDistritos(d, desenho, base, votos) {
  * (voto partidário) segue a votação de cada agremiação.
  *  · op.aliancas: [[sigla, sigla], …] — em cada distrito, das agremiações aliadas (pares
  *    encadeados formam um grupo) só a mais votada ali lança candidato, com os votos das outras;
- *  · op.votoUtil: fração (0 a 1) dos votos de quem não está entre as duas primeiras do
- *    distrito que passa para elas (voto útil): para a aliada, se uma das duas é aliada;
- *    senão, meio a meio (sem saber a preferência do eleitor, a hipótese neutra — repartir
- *    na proporção da força das duas nunca mudaria quem ganha).
  * O voto que muda de agremiação vai para o candidato dela mais votado no distrito.
  * Devolve uma cópia de vd (sem cenário, o próprio vd). Votos inteiros (arredondados).
  */
 function sdSegundoVoto(vd, d, op = {}) {
-  const util = Math.min(1, Math.max(0, op.votoUtil || 0)), pares = op.aliancas || [];
-  if (!util && !pares.length) return vd;
+  const pares = op.aliancas || [];
+  if (!pares.length) return vd;
   const agrDe = {}, dono = {};
   for (const a of d.agrs) { for (const sg of a.siglas || []) agrDe[sg] = a.id; for (const c of a.cands) dono[String(c.sq)] = a.id; }
   // grupos de aliados: pares encadeados (A+B e B+C fazem A+B+C), só os que existem no estado
@@ -905,26 +901,6 @@ function sdSegundoVoto(vd, d, op = {}) {
         porAgr[lider] += v; porAgr[id] = 0;
         for (const sq in porCand) if (dono[sq] === id) delete porCand[sq];
         if (sqL) porCand[sqL] += v;
-      }
-    }
-    if (util) {
-      const ord = Object.keys(porAgr).filter(id => porAgr[id] > 0).sort((a, b) => porAgr[b] - porAgr[a]);
-      if (ord.length > 2) {
-        const [a, b] = ord, ca = melhor(a), cb = melhor(b);
-        const grupo = id => (pai[id] !== undefined ? raiz(id) : null);
-        let va = 0, vb = 0;
-        for (const id of ord.slice(2)) {
-          const v = Math.round(porAgr[id] * util);
-          porAgr[id] -= v;
-          // tira dos candidatos dela na mesma fração
-          for (const sq in porCand) if (dono[sq] === id) porCand[sq] = Math.round(porCand[sq] * (1 - util));
-          const g = grupo(id);
-          if (g && g === grupo(a)) va += v;
-          else if (g && g === grupo(b)) vb += v;
-          else { const m = Math.floor(v / 2); va += v - m; vb += m; }
-        }
-        porAgr[a] += va; porAgr[b] += vb;
-        if (ca) porCand[ca] += va; if (cb) porCand[cb] += vb;
       }
     }
     return Object.assign({}, x, { porAgr, porCand });

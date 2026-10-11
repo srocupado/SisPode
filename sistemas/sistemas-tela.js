@@ -59,7 +59,6 @@ function siSistemas() {
       base: ($('dBase').querySelector('.ativo') || {}).dataset.b || 'eleitorado',
       arred: ($('dArr').querySelector('.ativo') || {}).dataset.a || 'proximo',
       // segundo voto (cenário): só o voto do distrito muda
-      votoUtil: $('dUtil').checked ? siNumero('dUtilPct', 20) / 100 : 0,
       aliancas: $('dAli').checked ? si.aliancas.map(x => x.slice()) : [], tol: Object.assign({}, si.tol),
       excedente: si.exc.regra, tetoExtra: si.exc.teto, divisor: si.exc.divisor } },
   ];
@@ -68,7 +67,7 @@ function siAlterado(s) {
   const o = s.op;
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0;
-  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.votoUtil > 0 || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
+  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
   return false;
 }
 /** Distrital misto com as regras do PL 9.212/2017 (PLS 86/2017, aprovado pelo Senado). */
@@ -187,8 +186,7 @@ function siDescricao(s, curta) {
       + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '');
   }
   if (s.tipo === 'distrital') {
-    const voto = (o.votoUtil ? ` · voto útil ${siPct(o.votoUtil)}` : '')
-      + (o.aliancas && o.aliancas.length ? (curta ? ` · ${o.aliancas.length} aliança${o.aliancas.length > 1 ? 's' : ''}` : ` · alianças no distrito: ${o.aliancas.map(x => x.join(' + ')).join('; ')}`) : '');
+    const voto = (o.aliancas && o.aliancas.length ? (curta ? ` · ${o.aliancas.length} aliança${o.aliancas.length > 1 ? 's' : ''}` : ` · alianças no distrito: ${o.aliancas.map(x => x.join(' + ')).join('; ')}`) : '');
     const des = o.tol.modo === 'desenhar' ? (curta ? ' · desenho até a tolerância' : ' · desenho que para ao caber na tolerância (o mais compacto que cabe)') : '';
     if (siEhSenado(o)) return (curta ? 'como no PL 9.212/2017 (Senado)'
       : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
@@ -219,7 +217,6 @@ function siMarcarAlterados() {
   $('dExcBtn').textContent = (ss[3].op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
     + (si.exc.divisor === 'sl' ? ' · Sainte-Laguë' : " · D'Hondt") + ' ✎';
   $('dTolBtn').textContent = siTolNome(si.tol) + (si.tol.modo === 'desenhar' ? ' · desenho até ela' : '') + ' ✎';
-  $('dUtilLin').classList.toggle('off', !$('dUtil').checked);
   $('dAliLin').classList.toggle('off', !$('dAli').checked);
   $('dAliLista').innerHTML = si.aliancas.map((x, i) => `<span class="chip-al">${siEsc(x.join(' + '))}<button data-rm="${i}" title="Tirar a aliança">×</button></span>`).join('');
   siFaixa(ss);
@@ -257,7 +254,7 @@ function siRegraVigente() {
   for (const b of $('dRegra').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.r === 'partido');
   for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
   for (const b of $('dArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
-  $('dUtil').checked = false; $('dAli').checked = false;
+  $('dAli').checked = false;
   si.tol = Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' });
   si.exc = { regra: 'corta', teto: null, divisor: 'dhondt' };
   siParametrosMudaram();
@@ -1074,9 +1071,8 @@ function siMetodoHtml() {
     + Object.entries(sist.distrital.op.porUf).filter(([, x]) => x.desenho.locais).map(([uf]) => uf.toUpperCase()).sort().join(', ')
     + '), as zonas na fronteira entre distritos (e, se preciso, os municípios) se dividiram nos seus locais de votação (cadastro de locais do TSE: eleitores e posição), e as trocas na fronteira continuaram com essas peças, pesando também a compacidade. '
     + 'Os votos de cada local vêm da votação por seção do TSE, repartindo o total da zona na proporção dos votos de cada local (o local que mudou de número depois da eleição vai com o número de hoje).');
-  if (sist.distrital && (sist.distrital.op.votoUtil > 0 || (sist.distrital.op.aliancas || []).length)) li.push('<b>Segundo voto (cenário).</b> Os dados do TSE têm um voto por eleitor; com dois votos, parte do eleitor votaria no distrito diferente da lista. '
-    + (sist.distrital.op.votoUtil > 0 ? `Voto útil: ${siPct(sist.distrital.op.votoUtil)} dos votos de cada agremiação fora das duas primeiras de cada distrito passam para elas — meio a meio (a hipótese neutra) ou toda para a aliada, se uma das duas é aliada — e vão para o candidato mais votado dela no distrito. ` : '')
-    + ((sist.distrital.op.aliancas || []).length ? `Alianças no distrito (${sist.distrital.op.aliancas.map(x => siEsc(x.join(' + '))).join('; ')}): em cada distrito, das aliadas só a mais votada ali lança candidato, com os votos das outras. ` : '')
+  if (sist.distrital && (sist.distrital.op.aliancas || []).length) li.push('<b>Segundo voto (cenário).</b> Os dados do TSE têm um voto por eleitor; com dois votos, parte do eleitor votaria no distrito diferente da lista. '
+    + `Alianças no distrito (${sist.distrital.op.aliancas.map(x => siEsc(x.join(' + '))).join('; ')}): em cada distrito, das aliadas só a mais votada ali lança candidato, com os votos das outras. `
     + 'A lista (voto partidário) segue a votação de cada agremiação. São hipóteses de comportamento, não dados.');
   if (sist.distrital) {
     const o = sist.distrital.op;
@@ -1647,7 +1643,7 @@ async function siIniciar() {
     si.aliancas.splice(Number(b.dataset.rm), 1);
     siParametrosMudaram();
   });
-  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'dPct', 'dLim', 'dUtil', 'dUtilPct', 'dAli']) {
+  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'dPct', 'dLim', 'dAli']) {
     $(id).addEventListener('input', siParametrosMudaram);
     $(id).addEventListener('change', siParametrosMudaram);
   }

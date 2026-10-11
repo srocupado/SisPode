@@ -239,15 +239,6 @@ const dSV = { agrs: [
   { id: 'C', siglas: ['PC'], cands: [{ sq: 'c1' }] }, { id: 'F', siglas: ['PX', 'PY'], cands: [{ sq: 'f1' }] }] };
 const vdSV = [{ id: 1, validos: 1000, porAgr: { A: 400, B: 300, C: 200, F: 100 }, porCand: { a1: 300, a2: 80, b1: 290, c1: 190, f1: 95 } }];
 ok(SD.sdSegundoVoto(vdSV, dSV, {}) === vdSV, 'desligado: os votos do distrito ficam como estão');
-const u = SD.sdSegundoVoto(vdSV, dSV, { votoUtil: 0.5 })[0];
-ok(u.porAgr.C === 100 && u.porAgr.F === 50 && u.porAgr.A === 475 && u.porAgr.B === 375 && u.validos === 1000,
-  'voto útil 50%: metade dos votos das de fora dos dois primeiros vai para eles, meio a meio');
-ok(u.porCand.a1 === 375 && u.porCand.a2 === 80 && u.porCand.c1 === 95 && vdSV[0].porAgr.C === 200, 'o voto vai para o candidato mais votado da agremiação; o original intocado');
-const ua = SD.sdSegundoVoto(vdSV, dSV, { votoUtil: 0.5, aliancas: [['PC', 'PB']] })[0];
-ok(ua.porAgr.B === 525 && ua.porAgr.A === 425 && ua.porAgr.C === 0, 'com aliança e voto útil: a aliada concorre junto (e o voto útil das outras segue meio a meio)');
-const vd4 = [{ id: 1, validos: 1000, porAgr: { A: 360, B: 340, C: 300 }, porCand: { a1: 360, b1: 340, c1: 300 } }];
-const ub = SD.sdSegundoVoto(vd4, dSV, { votoUtil: 1, aliancas: [['PC', 'PB']] })[0];
-ok(ub.porAgr.B === 640 && ub.porAgr.A === 360, 'voto útil de quem tem aliada entre as duas primeiras vai todo para ela');
 const al = SD.sdSegundoVoto(vdSV, dSV, { aliancas: [['PB', 'PC']] })[0];
 ok(al.porAgr.B === 500 && al.porAgr.C === 0 && al.porCand.b1 === 490 && !('c1' in al.porCand), 'aliança: a mais votada no distrito concorre com os votos da aliada, que não lança candidato');
 const al2 = SD.sdSegundoVoto(vdSV, dSV, { aliancas: [['PC', 'PY'], ['PB', 'PC']] })[0];
