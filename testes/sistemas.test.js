@@ -231,5 +231,34 @@ ok(pSl.A === 3 && pSl.B === 2 && pSl.C === 1 && pDh.A === 4 && pDh.B === 2 && !p
 ok(conta(excL('corta', { divisor: 'sl' })) === '{"A":2,"B":3,"C":1}' && !Object.keys(excL('corta', { divisor: 'sl' }).excedentes).includes('C'), 'com Sainte-Laguë, C já tem alvo 1: só B passa do alvo');
 ok(conta(S.snCompletarLista(exU, prim, 6, { modelo: 'paralelo', excedente: 'cresce' })) === '{"A":2,"B":3,"C":1}', 'no paralelo não há excedente: a regra não pesa');
 
+console.log('Estratégia: margem de cada cadeira e federação hipotética');
+// 10 vagas; A 5000, B 3000, C 1200, D 800 → maiores médias: A 6, B 3, C 1, D 0 (a 10ª média é a 6ª de A, 833)
+const mg = uf(10, [agr('A', 5000, [900, 800, 700, 600, 500, 400, 300]), agr('B', 3000, [700, 600, 500, 400]), agr('C', 1200, [500, 300]), agr('D', 800, [400, 200])]);
+const dhM = dd => { const v = Object.fromEntries(dd.agrs.map(g => [g.id, g.votos])); return x => S.snDhondt(v, dd.vagas)[x] || 0; };
+const pelaCota = id => dd => dhM(dd)(id);
+const fecha = (dd, id) => {   // a conta fechada: a k-ésima cadeira precisa vencer o (vagas − k + 1)-ésimo quociente dos outros
+  const g = dd.agrs.find(x => x.id === id), s0 = pelaCota(id)(dd), outros = [];
+  for (const o of dd.agrs) if (o.id !== id) for (let k = 1; k <= dd.vagas + 1; k++) outros.push(o.votos / k);
+  outros.sort((x, y) => y - x);
+  return { s0, falta: Math.floor((s0 + 1) * outros[dd.vagas - s0 - 1] - g.votos) + 1, folga: s0 ? Math.ceil(g.votos - s0 * outros[dd.vagas - s0]) - 1 : null };
+};
+for (const id of ['A', 'C', 'D']) {
+  const m = S.snMargem(mg, id, pelaCota(id)), f = fecha(mg, id);
+  ok(m.cadeiras === f.s0 && Math.abs(m.falta - f.falta) <= 1 && (m.folga == null ? f.folga == null : Math.abs(m.folga - f.folga) <= 1),
+    `margem de ${id} pelas maiores médias: ${m.cadeiras} cadeira(s), faltam ${m.falta}, folga ${m.folga} (a conta fechada: ${f.falta}, ${f.folga})`);
+}
+const mA = S.snMargem(mg, 'A', pelaCota('A'));
+const maisM = Object.assign({}, mg, { agrs: mg.agrs.map(g => g.id === 'A' ? Object.assign({}, g, { votos: g.votos + mA.falta }) : g) });
+const menosM = Object.assign({}, mg, { agrs: mg.agrs.map(g => g.id === 'A' ? Object.assign({}, g, { votos: g.votos + mA.falta - 1 }) : g) });
+ok(pelaCota('A')(maisM) === mA.cadeiras + 1 && pelaCota('A')(menosM) === mA.cadeiras, 'com os votos que faltam, a cadeira vem; com um a menos, não');
+const mP = S.snMargem(mg, 'C', dd => S.snProporcional(dd).porAgr.C || 0);
+ok(mP.cadeiras >= 0 && mP.falta > 0, `margem pela regra atual (QE, 80/20): C com ${mP.cadeiras}, faltam ${mP.falta}`);
+const fedH = S.snFederar({ xx: mg }, 'C', 'D');
+const fx = fedH.xx.agrs.find(g => g.siglas.includes('C'));
+ok(fx && fx.siglas.join() === 'C,D' && fx.votos === 2000 && fx.cands.length === 4 && fx.cands[0].votos === 500 && fedH.xx.agrs.length === 3 && mg.agrs.length === 4,
+  'federação hipotética: C e D numa agremiação só (votos e candidatos somados, na ordem de votos); os dados originais intocados');
+ok(S.snDhondt({ A: 5000, B: 3000, CD: 2000 }, 10).CD === (S.snDhondt(Object.fromEntries(fedH.xx.agrs.map(g => [g.id, g.votos])), 10)[fx.id]), 'a federação disputa as maiores médias como uma agremiação');
+ok(S.snFederar({ xx: mg }, 'C', 'Z').xx === mg, 'parceiro sem chapa no estado: nada muda');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

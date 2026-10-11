@@ -292,6 +292,63 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
 }
 
 // ------------------------------------------------------------
+// Estratégia: a margem de cada cadeira e a federação hipotética
+// ------------------------------------------------------------
+/**
+ * A margem de uma agremiação num estado, por uma regra qualquer: conta(d) → cadeiras dela.
+ * Os votos entram (ou saem) como legenda (do partido `sigla`, numa federação); os dos outros ficam como estão.
+ * Devolve { cadeiras, falta (votos a mais para a próxima; null se nem com o dobro dos válidos), folga (votos que pode perder sem perder cadeira; null sem cadeira) }.
+ */
+function snMargem(d, id, conta, sigla) {
+  const a0 = d.agrs.find(a => a.id === id);
+  if (!a0) return { cadeiras: 0, falta: null, folga: null };
+  const sg = sigla && a0.porSigla && a0.porSigla[sigla] != null ? sigla : null;   // numa federação, a legenda vai para o partido
+  const com = x => conta(Object.assign({}, d, { validos: d.validos + x,
+    agrs: d.agrs.map(a => (a.id === id ? Object.assign({}, a, { votos: a.votos + x, legenda: (a.legenda || 0) + x },
+      sg ? { porSigla: Object.assign({}, a.porSigla, { [sg]: a.porSigla[sg] + x }) } : {}) : a)) }));
+  const s = com(0), teto = 2 * d.validos + 1000;
+  let falta = null, hi = Math.max(100, Math.round(d.validos / Math.max(1, d.vagas) / 4));
+  while (hi < teto && com(hi) <= s) hi *= 2;
+  if (com(hi) > s) {
+    let lo = 0;
+    while (hi - lo > 1) { const m = Math.floor((lo + hi) / 2); if (com(m) > s) hi = m; else lo = m; }
+    falta = hi;
+  }
+  let folga = null;
+  if (s > 0) {
+    let lo = 0, hi2 = a0.votos;
+    if (com(-hi2) >= s) folga = hi2;
+    else {
+      while (hi2 - lo > 1) { const m = Math.floor((lo + hi2) / 2); if (com(-m) >= s) lo = m; else hi2 = m; }
+      folga = lo;
+    }
+  }
+  return { cadeiras: s, falta, folga };
+}
+
+/**
+ * Federação hipotética: em cada estado, junta numa agremiação só a do partido `a` e a do
+ * partido `b` (se um deles já é federado, entra a federação inteira). Os votos, a legenda e os
+ * candidatos se somam; os candidatos na ordem de votos. Devolve dados novos (os de entrada intocados).
+ */
+function snFederar(dados, a, b) {
+  const out = {};
+  for (const [uf, d] of Object.entries(dados)) {
+    const x = d.agrs.find(g => (g.siglas || []).includes(a)), y = d.agrs.find(g => (g.siglas || []).includes(b));
+    if (!x || !y || x === y) { out[uf] = d; continue; }
+    const porSigla = Object.assign({}, x.porSigla || {}, y.porSigla || {});
+    const junta = { id: x.id + '+' + y.id, nome: [...x.siglas, ...y.siglas].join('/'), tipo: 'federacao', siglas: [...x.siglas, ...y.siglas],
+      votos: x.votos + y.votos, legenda: (x.legenda || 0) + (y.legenda || 0), porSigla, vagasReal: null,
+      cands: [...x.cands, ...y.cands].sort((p, q) => q.votos - p.votos) };
+    const i = Math.min(d.agrs.indexOf(x), d.agrs.indexOf(y));
+    const agrs = d.agrs.filter(g => g !== x && g !== y);
+    agrs.splice(i, 0, junta);
+    out[uf] = Object.assign({}, d, { agrs });
+  }
+  return out;
+}
+
+// ------------------------------------------------------------
 // Comparação dos sistemas (a aba): todas as UFs, somas por partido.
 // ------------------------------------------------------------
 /** Soma os eleitos por partido (sigla do candidato — numa federação, o partido de cada um). */
@@ -558,5 +615,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, SN_DIV, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

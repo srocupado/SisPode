@@ -27,7 +27,7 @@ const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abert
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito',
-  abertoSis: '', secAbertas: new Set(), todosPartidos: false, aliancas: [], partido: 'PODE',
+  abertoSis: '', secAbertas: new Set(), todosPartidos: false, aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
 const $ = id => document.getElementById(id);
@@ -870,7 +870,8 @@ function siPartes(impressao) {
 function siRelatorioHtml(impressao) {
   const P = siPartes(impressao);
   // PDF: o relatório completo, na ordem de sempre
-  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + P.mapa + P.distritos + P.detalhe;
+  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados
+    + siProximaHtml(true) + siFederacaoHtml(true) + siAlcanceHtml(true) + P.mapa + P.distritos + P.detalhe;
   // Tela: destaques → a Câmara em cada sistema → blocos recolhíveis → os distritos → bancadas
   let h = P.destaques;
   h += siCabSec('Composição', 'A Câmara em cada sistema', `${siFmt(si.res.vagas)} cadeiras, com os partidos sempre na mesma ordem — da esquerda para a direita, a bancada oficial.`)
@@ -883,6 +884,9 @@ function siRelatorioHtml(impressao) {
     + siAcordeao('resumo', 'Resumo em texto', 'O que muda em cada sistema, escrito a partir dos números', siSemH2(P.resumo))
     + siAcordeao('indicadores', 'Indicadores', 'Proporcionalidade (Gallagher), número efetivo de partidos, maior bancada, quem mais ganha e perde', siSemH2(P.indicadores))
     + siAcordeao('entrasai', 'Quem entra e quem sai do ' + siEsc(siPNome()), P.temReal ? `Os nomes, sistema a sistema · ${P.nEntra} entradas e ${P.nSai} saídas no total` : 'Sem eleitos oficiais para comparar', siSemH2(P.entraSai))
+    + siAcordeao('proxima', `Próxima cadeira do ${siEsc(siPNome())}, estado a estado`, siProximaResumo(), siSemH2(siProximaHtml(false)))
+    + siAcordeao('federacao', 'Federação hipotética', si.fedParceiro ? `${siEsc(siPNome())} + ${siEsc(si.fedParceiro)}: ${siFederacaoResumo()}` : `Escolha um parceiro e veja quantas cadeiras a soma daria ao ${siEsc(siPNome())}`, siSemH2(siFederacaoHtml(false)))
+    + (s && s.op.porUf ? siAcordeao('alcance', `Distritos ao alcance do ${siEsc(siPNome())}`, siAlcanceResumo(), siSemH2(siAlcanceHtml(false))) : '')
     + (P.umaUf ? '' : siAcordeao('estados', 'Estado a estado', `Vagas, quociente, ${siEsc(siPNome())} e trocas nas ${si.res.ufs.length} UFs · clique num estado para ver o detalhe${si.ufSel ? ` (aberto: ${siUfNome(si.ufSel)})` : ''}`, siSemH2(P.estados) + (si.ufSel ? P.detalhe : '')))
     + (P.umaUf || !P.distritos ? '' : siAcordeao('distritos', 'Distritos por estado', `Tamanho, desvio e compacidade em ${des.length} estados${fora ? ` · <span class="menos">${fora} fora da tolerância (${siTolNome(s.op.tol)})</span>` : ''}`, siSemH2(P.distritos)))
     + siAcordeao('metodo', 'Método e fontes', 'Regras de cada sistema, dados do TSE e do IBGE', siSemH2(siMetodoHtml()))
@@ -1025,6 +1029,175 @@ function siIndicadoresHtml(ind) {
   }
   return h + '</tbody></table></div><div class="dica">Nº efetivo de partidos (Laakso-Taagepera): 1 ÷ soma dos quadrados das fatias de cadeiras — quanto maior, mais fragmentada a Casa. '
     + 'Gallagher: desproporcionalidade entre votos e cadeiras, em pontos percentuais (0 = proporção perfeita); os votos são os nominais e de legenda de cada partido.</div>';
+}
+
+// ------------------------------------------------------------ estratégia (o partido em foco)
+/** A agremiação do partido em foco num estado (a federação inteira, se ele é federado). */
+const siAgrFoco = d => d.agrs.find(a => (a.siglas || []).includes(si.partido));
+const siCache = (chave, f) => { const c = si.res.estr = si.res.estr || {}; if (!(chave in c)) c[chave] = f(); return c[chave]; };
+
+/** Estado a estado: as cadeiras do partido em foco, os votos que faltam para a próxima e a folga da última — na regra atual e na cota do projeto. */
+function siProxima() {
+  return siCache('prox|' + si.partido, () => {
+    const opP = (si.sistemas.find(x => x.tipo === 'proporcional') || {}).op || {};
+    const dist = si.sistemas.find(x => x.tipo === 'distrital'), opD = dist ? dist.op : {};
+    const sd = si.res.sims.find(x => x.tipo === 'distrital');
+    const linhas = [];
+    for (const uf of si.res.ufs) {
+      const d = si.dados[uf], a = siAgrFoco(d);
+      if (!a) { linhas.push({ uf, d, a: null }); continue; }
+      const dele = e => (a.siglas || [si.partido]).includes(e.cand.partido);
+      const atual = snMargem(d, a.id, dd => snProporcional(dd, opP).eleitos.filter(dele).length, si.partido);
+      const cota = snMargem(d, a.id, dd => {
+        const v = Object.fromEntries(dd.agrs.map(g => [g.id, g.votos]));
+        return snDhondt(v, dd.vagas, {}, opD.limiar || 0, null, opD.divisor || 'dhondt')[a.id] || 0;
+      }, si.partido);
+      const efetivo = sd && sd.porUf[uf] ? sd.porUf[uf].eleitos.filter(dele).length : null;
+      linhas.push({ uf, d, a, votos: a.votos, pct: a.votos / (d.validos || 1), atual, cota, efetivo, federada: (a.siglas || []).length > 1 });
+    }
+    return linhas;
+  });
+}
+/** Os N estados de próxima cadeira mais barata (uma por estado): votos somados e cadeiras. */
+function siMaisBaratas(linhas, chave, n = 6) {
+  const l = linhas.filter(x => x.a && x[chave].falta != null).sort((x, y) => x[chave].falta / (x.d.validos || 1) - y[chave].falta / (y.d.validos || 1)).slice(0, n);
+  return { ufs: l.map(x => x.uf.toUpperCase()), votos: l.reduce((t, x) => t + x[chave].falta, 0), n: l.length };
+}
+function siProximaResumo() {
+  const l = siProxima(), b = siMaisBaratas(l, 'cota');
+  return b.n ? `${siFmt(b.votos)} votos nos ${b.n} estados mais baratos (${b.ufs.join(', ')}) valem +${b.n} na cota do projeto` : 'Sem cadeira ao alcance';
+}
+function siProximaHtml(impressao) {
+  const l = siProxima(), temD = l.some(x => x.efetivo != null);
+  const opD = (si.sistemas.find(x => x.tipo === 'distrital') || {}).op || {};
+  const num = (m, x, chave) => x[chave] == null ? '—' : `${siFmt(x[chave])} <span class="igual">(${siPct(x[chave] / (m.d.validos || 1))})</span>`;
+  const risco = (m, x) => x.folga != null && x.folga / (m.d.validos || 1) < 0.005;
+  const ord = l.slice().sort((x, y) => (x.a ? 0 : 1) - (y.a ? 0 : 1) || ((x.cota && x.cota.falta != null ? x.cota.falta / x.d.validos : 9) - (y.cota && y.cota.falta != null ? y.cota.falta / y.d.validos : 9)));
+  let h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Próxima cadeira do ${siEsc(siPNome())} <small>votos a mais para a próxima e folga da última, estado a estado</small></h2>`
+    + `<div class="tab-rolagem"><table class="compacta"><thead><tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">Votos (% dos válidos)</th>`
+    + `<th colspan="3" class="grupo">Regra atual (proporcional)</th><th colspan="3" class="grupo">Projeto: cota pelas maiores médias${opD.divisor === 'sl' ? ' (Sainte-Laguë)' : ''}</th>${temD ? '<th rowspan="2" class="n">No distrital<br>simulado</th>' : ''}</tr>`
+    + '<tr><th class="n">Cadeiras</th><th class="n">Faltam p/ +1</th><th class="n">Folga</th><th class="n">Cota</th><th class="n">Faltam p/ +1</th><th class="n">Folga</th></tr></thead><tbody>';
+  for (const m of ord) {
+    if (!m.a) { h += `<tr><td>${m.uf.toUpperCase()}</td><td class="n">${m.d.vagas}</td><td colspan="${temD ? 8 : 7}" class="igual">sem chapa do ${siEsc(si.partido)} nos dados</td></tr>`; continue; }
+    h += `<tr><td>${m.uf.toUpperCase()}</td><td class="n">${m.d.vagas}</td><td class="n">${siFmt(m.votos)} <span class="igual">(${siPct(m.pct)})</span></td>`
+      + `<td class="n"><b>${m.atual.cadeiras}</b></td><td class="n">${num(m, m.atual, 'falta')}</td><td class="n${risco(m, m.atual) ? ' menos' : ''}">${num(m, m.atual, 'folga')}</td>`
+      + `<td class="n"><b>${m.cota.cadeiras}</b></td><td class="n">${num(m, m.cota, 'falta')}</td><td class="n${risco(m, m.cota) ? ' menos' : ''}">${num(m, m.cota, 'folga')}</td>`
+      + (temD ? `<td class="n${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ' menos' : ''}">${m.efetivo == null ? '—' : m.efetivo}${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ` <span class="igual">(${siSinal(m.efetivo - m.cota.cadeiras)} pelo excedente)</span>` : ''}</td>` : '') + '</tr>';
+  }
+  const ta = l.reduce((t, x) => t + (x.a ? x.atual.cadeiras : 0), 0), tc = l.reduce((t, x) => t + (x.a ? x.cota.cadeiras : 0), 0), te = l.reduce((t, x) => t + (x.efetivo || 0), 0);
+  h += `<tr><td colspan="3"><b>Total</b></td><td class="n"><b>${ta}</b></td><td></td><td></td><td class="n"><b>${tc}</b></td><td></td><td></td>${temD ? `<td class="n"><b>${te}</b></td>` : ''}</tr></tbody></table></div>`;
+  const ba = siMaisBaratas(l, 'atual'), bc = siMaisBaratas(l, 'cota');
+  const riscos = l.filter(x => x.a && risco(x, x.cota)).map(x => `${x.uf.toUpperCase()} (${siFmt(x.cota.folga)})`);
+  h += '<div class="dica">'
+    + (bc.n ? `<b>Crescer:</b> na cota do projeto, ${siFmt(bc.votos)} votos nos ${bc.n} estados mais baratos (${bc.ufs.join(', ')}) valem +${bc.n} cadeiras; na regra atual, ${siFmt(ba.votos)} votos (${ba.ufs.join(', ')}). ` : '')
+    + (riscos.length ? `<b>Defender:</b> folga abaixo de 0,5% dos válidos na cota do projeto em ${riscos.join(', ')} — quem tem a última cadeira do estado é o primeiro a ser cortado pelo excedente dos outros. ` : '')
+    + `Os votos entram (ou saem) como voto no partido, com os dos outros partidos parados; "faltam" = os votos a mais para a próxima cadeira; "folga" = os votos que pode perder sem perder a última. `
+    + `Regra atual: quociente eleitoral e sobras como no card do proporcional. Projeto: a cota de cada partido pelas maiores médias sobre todas as vagas do estado (art. 105-B), antes dos cortes do excedente${temD ? '; "no distrital simulado", o que ficou depois deles' : ''}.`
+    + (l.some(x => x.federada) ? ` O ${siEsc(si.partido)} é federado: as contas são da federação.` : '') + '</div>';
+  return h;
+}
+
+/** Federação hipotética: o partido em foco com um parceiro, em todos os sistemas. */
+function siFederacao() {
+  const b = si.fedParceiro;
+  if (!b) return null;
+  return siCache('fed|' + si.partido + '|' + b, () => {
+    const dados2 = snFederar(si.dados, si.partido, b);
+    return { res2: snSimular(dados2, si.sistemas) };
+  });
+}
+function siFederacaoResumo() {
+  const f = siFederacao();
+  if (!f) return '';
+  const s0 = si.res.sims.find(x => x.tipo === 'distrital') || si.res.sims[0], s1 = f.res2.sims.find(x => x.id === s0.id);
+  const a = si.partido, b = si.fedParceiro;
+  const d = (s1.porPartido[a] || 0) + (s1.porPartido[b] || 0) - (s0.porPartido[a] || 0) - (s0.porPartido[b] || 0);
+  return `no ${s0.nome.toLowerCase()}, a soma ${d > 0 ? 'ganha' : d < 0 ? 'perde' : 'fica igual'}${d ? ' ' + Math.abs(d) : ''} (${siEsc(a)} ${siSinal((s1.porPartido[a] || 0) - (s0.porPartido[a] || 0))}, ${siEsc(b)} ${siSinal((s1.porPartido[b] || 0) - (s0.porPartido[b] || 0))})`;
+}
+function siFederacaoHtml(impressao) {
+  const v = {};
+  for (const d of Object.values(si.dados || {})) for (const a of d.agrs) for (const [sg, n] of Object.entries(a.porSigla || {})) v[sg] = (v[sg] || 0) + n;
+  const ops = Object.keys(v).filter(sg => sg !== si.partido).sort((a, b) => v[b] - v[a]);
+  if (impressao && !si.fedParceiro) return '';
+  let h = `<h2>Federação hipotética <small>${siEsc(siPNome())} com um parceiro, em todos os estados</small></h2>`;
+  if (!impressao) h += `<div class="ctl" style="margin:4px 0 8px"><label class="rot">Parceiro <select id="siFedSel"><option value="">—</option>${ops.map(sg => `<option value="${siEsc(sg)}"${sg === si.fedParceiro ? ' selected' : ''}>${siEsc(sg)}</option>`).join('')}</select></label></div>`;
+  const f = siFederacao();
+  if (!f) return h + '<div class="dica">Numa federação, os dois partidos disputam as vagas como uma agremiação só: as sobras de votos de cada um se somam, e onde a soma passa do preço de uma cadeira a federação leva uma que nenhum dos dois levaria sozinho. Escolha o parceiro acima.</div>';
+  const a = si.partido, b = si.fedParceiro, res = si.res, comp = res.comparadas;
+  h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th rowspan="2">Sistema</th><th colspan="3" class="grupo">Separados</th><th colspan="3" class="grupo">Federados</th><th rowspan="2" class="n">Ganho da soma</th></tr>`
+    + `<tr><th class="n">${siEsc(a)}</th><th class="n">${siEsc(b)}</th><th class="n">Soma</th><th class="n">${siEsc(a)}</th><th class="n">${siEsc(b)}</th><th class="n">Soma</th></tr></thead><tbody>`;
+  for (const s0 of res.sims) {
+    const s1 = f.res2.sims.find(x => x.id === s0.id), x0 = s0.porPartido[a] || 0, y0 = s0.porPartido[b] || 0, x1 = s1.porPartido[a] || 0, y1 = s1.porPartido[b] || 0;
+    h += `<tr><td>${siEsc(s0.nome)}</td><td class="n">${x0}</td><td class="n">${y0}</td><td class="n">${x0 + y0}</td><td class="n"><b>${x1}</b> ${siDelta(x1, x0)}</td><td class="n">${y1} ${siDelta(y1, y0)}</td><td class="n"><b>${x1 + y1}</b></td><td class="n">${siDelta(x1 + y1, x0 + y0)}</td></tr>`;
+  }
+  h += '</tbody></table></div>';
+  // estado a estado (proporcional e distrital, se houver): onde a federação muda algo
+  const ids = res.sims.filter(s => s.tipo === 'proporcional' || s.tipo === 'distrital').map(s => s.id);
+  const conta = (sim, uf, sg) => ((sim.porUf[uf] || {}).eleitos || []).filter(e => e.cand.partido === sg).length;
+  const mud = [];
+  for (const uf of comp) {
+    const cel = ids.map(id => { const s0 = res.sims.find(x => x.id === id), s1 = f.res2.sims.find(x => x.id === id);
+      return { a: conta(s1, uf, a) - conta(s0, uf, a), b: conta(s1, uf, b) - conta(s0, uf, b) }; });
+    if (cel.some(c => c.a || c.b)) mud.push({ uf, cel });
+  }
+  if (mud.length) {
+    h += `<div class="tab-rolagem" style="margin-top:8px"><table class="compacta"><thead><tr><th>UF</th>${ids.map(id => `<th class="n">${siEsc(res.sims.find(x => x.id === id).nome)}: ${siEsc(a)} / ${siEsc(b)}</th>`).join('')}</tr></thead><tbody>`
+      + mud.map(m => `<tr><td>${m.uf.toUpperCase()}</td>${m.cel.map(c => `<td class="n">${siSinal(c.a)} / ${siSinal(c.b)}</td>`).join('')}</tr>`).join('') + '</tbody></table></div>';
+  }
+  return h + `<div class="dica">A federação junta, em cada estado, as duas agremiações numa só (votos, legenda e candidatos somados; se um dos dois já é federado, entra a federação inteira) e roda todos os sistemas com os parâmetros de agora. `
+    + 'Dentro da federação, as cadeiras vão aos candidatos na ordem de votos, de um partido ou do outro. Os votos ficam como foram dados; uma federação de verdade dura quatro anos e vale no país inteiro.</div>';
+}
+
+/** Distritos ao alcance: onde o partido em foco é o segundo, e por quanto; e os que ele ganhou, com a margem. */
+function siAlcance() {
+  return siCache('alc|' + si.partido, () => {
+    const sd = si.res.sims.find(x => x.tipo === 'distrital'), dist = si.sistemas.find(x => x.tipo === 'distrital');
+    if (!sd || !dist || !dist.op.porUf) return null;
+    const perto = [], ganhos = [];
+    for (const uf of si.res.ufs) {
+      const d = si.dados[uf], a = siAgrFoco(d), x = sd.porUf[uf];
+      if (!a || !x) continue;
+      const nome = id => { const g = d.agrs.find(y => y.id === id); return g ? sdSiglas(g) : id; };
+      for (const dt of x.distritos || []) {
+        const w = dt.vencedor, s2 = dt.segundo;
+        if (!w || !s2 || !dt.validos) continue;
+        if (w.agr === a.id) ganhos.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: s2.nome, meu: w.agrPct });
+        else if (s2.agr === a.id) perto.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: nome(w.agr), meu: s2.pct, deles: w.agrPct,
+          excedente: ((x.excedentes || {})[w.agr] || 0) > 0 });
+      }
+    }
+    perto.sort((p, q) => p.pct - q.pct); ganhos.sort((p, q) => p.pct - q.pct);
+    return { perto, ganhos };
+  });
+}
+function siAlcanceResumo() {
+  const r = siAlcance();
+  if (!r) return 'Leia os votos por município para desenhar os distritos';
+  const ate = lim => r.perto.filter(x => x.pct <= lim).length;
+  return `${r.ganhos.length} ganhos · em 2º lugar em ${r.perto.length} (a até 5 pontos em ${ate(0.05)}, a até 10 em ${ate(0.10)})`;
+}
+function siAlcanceHtml(impressao) {
+  const r = siAlcance();
+  if (!r) return impressao ? '' : '<h2>Distritos ao alcance</h2><div class="dica">Os distritos aparecem depois de ler os votos por município e zona.</div>';
+  const dist = si.sistemas.find(x => x.tipo === 'distrital');
+  const muns = (uf, id) => {
+    const x = dist.op.porUf[uf], dt = x.desenho.distritos.find(q => q.id === id), U = new Map(x.base.unidades.map(u => [u.id, u])), m = {};
+    for (const i of (dt ? dt.unidades : [])) { const u = U.get(i) || {}, n = (u.nome || '').split(' · ')[0]; m[n] = (m[n] || 0) + (u.aptos || 0); }
+    const l = Object.entries(m).sort((p, q) => q[1] - p[1]);
+    return l.slice(0, 3).map(([n]) => siEsc(n)).join(', ') + (l.length > 3 ? ` <span class="igual">+${l.length - 3}</span>` : '');
+  };
+  const max = impressao ? 25 : 40;
+  let h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Distritos ao alcance do ${siEsc(siPNome())} <small>${siEsc(siDescricao(dist, true))}</small></h2>`;
+  if (r.perto.length) {
+    h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>UF</th><th class="n">Distrito</th><th>Municípios</th><th>Vencedor</th><th class="n">Vencedor</th><th class="n">${siEsc(si.partido)}</th><th class="n">Diferença</th><th>Vencedor passou da cota no estado?</th></tr></thead><tbody>`
+      + r.perto.slice(0, max).map(x => `<tr><td>${x.uf.toUpperCase()}</td><td class="n">${x.dt.id}</td><td style="white-space:normal">${muns(x.uf, x.dt.id)}</td><td>${siEsc(x.contra)}</td><td class="n">${siPct(x.deles)}</td><td class="n">${siPct(x.meu)}</td>`
+        + `<td class="n"><b>${siFmt(x.margem)}</b> <span class="igual">(${siDec(x.pct * 100, 1)} pts)</span></td><td>${x.excedente ? '<span class="mais">sim — virar este distrito diminui o corte</span>' : ''}</td></tr>`).join('')
+      + '</tbody></table></div>' + (r.perto.length > max ? `<div class="dica">E mais ${r.perto.length - max} distritos em 2º lugar.</div>` : '');
+  } else h += `<div class="dica">O ${siEsc(siPNome())} não é o 2º colocado em nenhum distrito.</div>`;
+  if (r.ganhos.length) h += `<h3 style="margin:12px 0 4px;font-size:13px">Distritos ganhos, da menor para a maior margem</h3><div class="tab-rolagem"><table class="compacta"><thead><tr><th>UF</th><th class="n">Distrito</th><th>Municípios</th><th class="n">${siEsc(si.partido)}</th><th>2º colocado</th><th class="n">Margem</th></tr></thead><tbody>`
+    + r.ganhos.map(x => `<tr><td>${x.uf.toUpperCase()}</td><td class="n">${x.dt.id}</td><td style="white-space:normal">${muns(x.uf, x.dt.id)}</td><td class="n">${siPct(x.meu)}</td><td>${siEsc(x.contra)}</td><td class="n"><b>${siFmt(x.margem)}</b> <span class="igual">(${siDec(x.pct * 100, 1)} pts)</span></td></tr>`).join('') + '</tbody></table></div>';
+  return h + '<div class="dica">Pela votação de cada agremiação no distrito (nominais + legenda), com os distritos desenhados aqui. No compensatório, ganhar um distrito não aumenta a bancada — ela vem da cota —, mas tirar um distrito de quem passou da cota diminui o excedente e o corte nas listas, que costuma cair sobre a última cadeira do estado. '
+    + 'No paralelo, cada distrito ganho é uma cadeira a mais.</div>';
 }
 
 /** A conferência da tolerância (sdTolerancia) num texto curto: "dentro" ou o que passa. */
@@ -1615,6 +1788,7 @@ async function siIniciar() {
   $('siPdf').addEventListener('click', siPdf);
   $('siFoco').addEventListener('change', () => {
     si.partido = $('siFoco').value || 'PODE';
+    if (si.fedParceiro === si.partido) si.fedParceiro = '';
     if (si.res) { $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); }
   });
   $('siMemorial').addEventListener('click', siMemorial);
@@ -1669,6 +1843,12 @@ async function siIniciar() {
     if (!d.matches || !d.matches('details.acc')) return;
     if (d.open) si.secAbertas.add(d.dataset.sec); else si.secAbertas.delete(d.dataset.sec);
   }, true);
+  $('siResultado').addEventListener('change', ev => {
+    if (ev.target.id !== 'siFedSel') return;
+    si.fedParceiro = ev.target.value;
+    si.secAbertas.add('federacao');
+    $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
+  });
   $('siResultado').addEventListener('mousemove', siDicaMapa);
   $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('click', ev => {
