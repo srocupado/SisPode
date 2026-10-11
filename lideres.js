@@ -1231,7 +1231,7 @@ async function callGemini(prompt, docs, signal) {
     body: JSON.stringify({
       contents: [{ parts }],
       // responseMimeType tira as cercas de código e o texto de acompanhamento.
-      generationConfig: { temperature: 0.2, maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },
+      generationConfig: { maxOutputTokens: MAX_OUT_TOKENS, responseMimeType: 'application/json' },
     }),
   }, signal);
   const cand = j.candidates?.[0];

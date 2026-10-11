@@ -878,7 +878,7 @@ async function chamarIAtexto({ provedor, apiKey, modelo, prompt }) {
   if (provedor === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
-    const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { temperature: 0.2, maxOutputTokens: 8000 } };
+    const body = { contents: [{ parts: [{ text: prompt }] }], generationConfig: { maxOutputTokens: 8000 } };
     const j = await fetchIA(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
@@ -2173,7 +2173,7 @@ async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers }) {
     const m = modelo || 'gemini-2.5-flash';
     const parts = b64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })); parts.push({ text: prompt });
     const j = await fetchIA(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { temperature: 0.2, maxOutputTokens: 4000 } }) });
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 4000 } }) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
   if (provedor === 'openai') {

@@ -1,0 +1,8 @@
+# Netlify: repassa os arquivos de dados abertos do TSE pelo próprio endereço do site.
+# O servidor de arquivos do TSE (cdn.tse.jus.br) responde com o cabeçalho CORS
+# duplicado ("Access-Control-Allow-Origin: *, *") e o navegador recusa a resposta
+# numa página comum; pelo mesmo endereço não há checagem de CORS. Os dados são
+# os do TSE, lidos na hora — a hospedagem só repassa.
+# Usado pelo botão 📍 "De onde vieram os votos" (apuracao-onde.js). Sem este
+# arquivo o site continua funcionando, por zona eleitoral.
+/tse-dados/*  https://cdn.tse.jus.br/estatistica/sead/odsele/:splat  200

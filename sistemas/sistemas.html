@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sistemas eleitorais · Liderança do Podemos</title>
+<link rel="icon" href="../icons/podemos-logo.png">
+<!-- Relatórios · aba "Sistemas eleitorais": simula a mesma eleição em outros
+     sistemas, com os votos oficiais do TSE lidos na hora. Só na extensão.
+     Núcleo puro em ../sistemas-nucleo.js; tela em sistemas-tela.js. -->
+<style>
+  :root { --bg: #0f1720; --bg2: #16212c; --bg3: #1b2835; --borda: #263443; --texto: #e8edf2; --dim: #93a1b0; --verde: #00a859; --verde2: #2fcf7a; --ama: #ffd24a; --aviso: #e0a030; --verm: #ff7a6b; }
+  * { box-sizing: border-box; }
+  html { scrollbar-width: thin; scrollbar-color: #2e3d4d transparent; }
+  ::-webkit-scrollbar { width: 8px; height: 8px; } ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2e3d4d; border-radius: 4px; } ::-webkit-scrollbar-thumb:hover { background: #3f5266; }
+  body { margin: 0; background: var(--bg); color: var(--texto); font-family: "DM Sans", "Segoe UI", Roboto, Arial, sans-serif; font-size: 14px; }
+  header { background: linear-gradient(180deg, #13202b, #0f1a24); border-bottom: 2px solid var(--verde); }
+  .topo { max-width: 1500px; margin: 0 auto; padding: 12px 16px; display: flex; align-items: center; gap: 14px; }
+  .topo img { height: 46px; width: auto; background: #fff; border-radius: 8px; padding: 4px 6px; }
+  .topo h1 { margin: 0; font-size: 20px; line-height: 1.2; }
+  .topo .sub { color: var(--dim); font-size: 12.5px; margin-top: 2px; }
+  .topo .sub b { color: var(--verde2); font-weight: 600; }
+  .filete { height: 4px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+  main { max-width: 1500px; margin: 0 auto; padding: 12px 16px 40px; }
+  button, select, input { font: inherit; }
+  button { font-size: 12.5px; border-radius: 8px; border: 1px solid var(--borda); background: var(--bg2); color: var(--texto); padding: 7px 11px; cursor: pointer; }
+  button:hover { border-color: #3c4f63; } button:disabled { opacity: .45; cursor: default; }
+  button.pri { background: rgba(0,168,89,.2); border-color: var(--verde); font-weight: 600; }
+  select { font-size: 13px; background: var(--bg2); border: 1px solid var(--borda); color: var(--texto); border-radius: 8px; padding: 7px 8px; }
+  input[type=number] { width: 58px; font-size: 13px; background: var(--bg); border: 1px solid var(--borda); color: var(--texto); border-radius: 6px; padding: 4px 6px; text-align: right; }
+  input[type=range] { accent-color: var(--verde); width: 140px; vertical-align: middle; }
+  input[type=checkbox] { accent-color: var(--verde); }
+  .seg { display: inline-flex; border: 1px solid var(--borda); border-radius: 9px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; background: transparent; color: var(--dim); }
+  .seg button.ativo { background: rgba(0,168,89,.18); color: var(--texto); font-weight: 600; }
+  .ctl { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 8px; }
+  .ctl label.rot { font-size: 12px; color: var(--dim); display: inline-flex; gap: 6px; align-items: center; }
+  .ctl .dir { margin-left: auto; display: flex; gap: 6px; }
+  .status { font-size: 12.5px; color: var(--dim); min-height: 18px; margin: 4px 0 8px; }
+  .status b { color: var(--texto); }
+  .barra { height: 5px; background: rgba(255,255,255,.07); border-radius: 3px; overflow: hidden; margin: 5px 0 0; max-width: 520px; }
+  .barra i { display: block; height: 100%; background: linear-gradient(90deg, #1fa5a5, var(--verde)); transition: width .3s; }
+  .aviso { border: 1px solid var(--aviso); background: rgba(224,160,48,.10); border-radius: 8px; padding: 8px 12px; margin-bottom: 10px; font-size: 13px; line-height: 1.45; }
+  .aviso b { color: var(--aviso); }
+  .erro { border-color: var(--verm); background: rgba(255,122,107,.08); } .erro b { color: var(--verm); }
+  /* Sistemas e parâmetros */
+  .sistemas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .sis { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; }
+  .sis h3 { margin: 0 0 4px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+  .sis h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  .sis p { margin: 0 0 6px; color: var(--dim); }
+  .sis .lin { display: flex; align-items: center; gap: 6px; margin: 4px 0; flex-wrap: wrap; }
+  .sis .lin > span:first-child { flex: 1 1 140px; color: var(--dim); }
+  .sis .nota { font-size: 11.5px; color: var(--dim); border-top: 1px dashed var(--borda); padding-top: 5px; margin-top: 6px; }
+  .sis .geo { margin-top: 6px; font-size: 12px; color: var(--dim); } .sis .geo button { margin-right: 6px; }
+  .sis .geo .ok { color: var(--verde2); }
+  .sis .lin.larga { grid-column: 1 / -1; } .sis .lin.larga > span:first-child { flex: 0 0 230px; }
+  .tog { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-weight: 600; color: var(--texto); white-space: nowrap; }
+  .tog input { position: absolute; opacity: 0; width: 0; height: 0; }
+  .tog i { width: 34px; height: 18px; border-radius: 9px; background: #2e3d4d; position: relative; transition: background .15s; flex: none; }
+  .tog i::after { content: ''; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #cfd8e1; transition: left .15s; }
+  .tog input:checked + i { background: var(--verde); } .tog input:checked + i::after { left: 18px; background: #fff; }
+  .tog input:focus-visible + i { outline: 2px solid var(--verde2); outline-offset: 2px; }
+  .tog-c { display: inline-flex; align-items: center; gap: 8px; flex-wrap: wrap; color: var(--dim); font-size: 12.5px; }
+  .lin.off .tog-c { opacity: .45; }
+  .tog-c select { background: var(--bg3); color: var(--texto); border: 1px solid var(--borda); border-radius: 8px; padding: 4px 6px; }
+  .chip-al { display: inline-flex; align-items: center; gap: 6px; background: rgba(0,168,89,.14); border: 1px solid rgba(0,168,89,.45); color: var(--texto); border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 12px; }
+  .chip-al button { border: 0; background: transparent; color: var(--dim); padding: 0 5px; font-size: 14px; line-height: 1; }
+  .tol-btn { padding: 4px 10px; font-weight: 600; }
+  .sis .proj > span:first-child { flex: 0 0 140px; }
+  .proj-b { display: inline-flex; flex-wrap: wrap; gap: 6px; }
+  .proj-b button { padding: 5px 10px; }
+  .proj-b button.proj-ok { border-color: var(--verde); background: rgba(0,168,89,.18); font-weight: 600; }
+  .proj-b button.proj-ok::before { content: '✓ '; color: var(--verde2); }
+  .exc-op { border: 1px solid var(--borda); border-radius: 10px; padding: 8px 11px; margin: 6px 0; cursor: pointer; font-size: 12.5px; color: var(--dim); line-height: 1.4; }
+  .exc-op b { color: var(--texto); font-size: 13px; } .exc-op .fonte { font-size: 11px; color: var(--dim); margin-left: 6px; }
+  .exc-op:hover { border-color: #3c4f63; }
+  .exc-op.ativo { border-color: var(--verde); background: rgba(0,168,89,.12); }
+  .aviso-p { color: var(--aviso); }
+  .casa { color: var(--ama); font-weight: 600; }
+  .hemi .s.casa { color: var(--ama); font-weight: 600; }
+  .kpi .d.casa { font-size: 11.5px; margin-top: 2px; }
+  .dlg { background: var(--bg2); color: var(--texto); border: 1px solid var(--borda); border-radius: 14px; padding: 16px 18px; width: min(560px, calc(100vw - 32px)); box-shadow: 0 18px 50px rgba(0,0,0,.5); }
+  .dlg::backdrop { background: rgba(5,10,15,.6); }
+  .dlg h4 { margin: 0 0 4px; font-size: 15px; }
+  .dlg-t { color: var(--dim); font-size: 12.5px; margin: 0 0 10px; line-height: 1.45; }
+  .dlg-l { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; margin: 8px 0; font-size: 13px; }
+  .dlg-l > span:first-child { flex: 0 0 150px; color: var(--dim); }
+  .dlg-l.off .tog-c { opacity: .45; }
+  .dlg .atalhos button { margin: 0 4px 4px 0; font-size: 12px; padding: 5px 9px; }
+  .dlg-acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
+  /* Resultado */
+  h2 { font-size: 15px; margin: 18px 0 8px; }
+  h2 small { color: var(--dim); font-weight: 400; font-size: 12px; }
+  .cards { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 8px; margin-bottom: 6px; }
+  .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
+  .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); }
+  .card .v { font-size: 26px; font-weight: 700; color: var(--verde2); line-height: 1.2; }
+  .card .d { font-size: 12px; font-weight: 600; } .mais { color: var(--verde2); } .menos { color: var(--verm); } .igual { color: var(--dim); }
+  .card .l { font-size: 11px; color: var(--dim); margin-top: 2px; }
+  .hemis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 10px; }
+  /* Distritos: mapa e tabela */
+  .mapas-d { display: grid; grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); gap: 10px; align-items: start; }
+  .mapa-d { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px; }
+  .mapa-d svg { width: 100%; height: auto; display: block; }
+  .mapa-d path { stroke: #0b121a; stroke-width: .4; } .mapa-d path.div { fill: #2a3a4a; } .mapa-d path.fora { fill: #1b2835; }
+  .mapa-d circle.z { stroke: #0b121a; stroke-width: .6; } .mapa-d text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 2.5px; pointer-events: none; }
+
+  /* faixa dos sistemas: resumo sempre visível; os controles de um sistema abrem embaixo */
+  .faixa { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; }
+  .fx { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 11px 14px; }
+  .fx.clic { cursor: pointer; } .fx.clic:hover { border-color: #3c4f63; }
+  .fx .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; } .fx .t i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
+  .fx .t a { margin-left: auto; color: var(--verde2); font-weight: 500; font-size: 12.5px; } .fx .t .alt { color: var(--ama); font-size: 10.5px; font-weight: 600; }
+  .fx .x { color: var(--dim); font-size: 12.5px; margin-top: 3px; line-height: 1.35; }
+  .fx.aberto { border-color: var(--verde); box-shadow: 0 0 0 1px rgba(0,168,89,.3); }
+  #siSistemas { display: block; margin-top: 10px; } #siSistemas.fechado { display: none; }
+  #siSistemas .sis { display: none; } #siSistemas .sis.aberto { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 2px 28px; align-items: center;
+    border: 1px solid var(--verde); border-radius: 14px; padding: 14px 20px; }
+  #siSistemas .sis.aberto > h3 { display: none; } #siSistemas .sis.aberto > p, #siSistemas .sis.aberto > .nota { grid-column: 1 / -1; }
+  #siSistemas .sis.aberto > p { margin: 0 0 4px; }
+  .faixa-pe { margin: 10px 0 0; } .faixa-pe .geo { font-size: 12.5px; color: var(--dim); } .faixa-pe .geo button { margin-right: 8px; } .faixa-pe .geo .ok { color: var(--verde2); }
+  /* relatório na tela: seções arejadas */
+  #siResultado .eyebrow { text-transform: uppercase; letter-spacing: .08em; font-size: 11px; color: var(--dim); font-weight: 600; }
+  #siResultado .sec-cab { margin: 38px 0 14px; } #siResultado .sec-cab .h { font-size: 18px; margin: 4px 0 2px; } #siResultado .sec-cab .h.grande { font-size: 23px; }
+  #siResultado .sec-cab .lead { color: var(--dim); margin: 2px 0 0; font-size: 13px; }
+  .kpis { display: grid; grid-template-columns: repeat(var(--n, 5), minmax(0, 1fr)); gap: 12px; margin-top: 14px; }
+  .kpi { background: var(--bg2); border: 1px solid var(--borda); border-radius: 16px; padding: 16px 18px; }
+  .kpi .n { font-size: 42px; font-weight: 800; line-height: 1; margin: 10px 0 6px; letter-spacing: -.02em; } .kpi .d { font-size: 12.5px; }
+  .kpi .eyebrow { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .kpi.of { background: linear-gradient(160deg, rgba(0,168,89,.16), rgba(0,168,89,.04)); border-color: rgba(0,168,89,.45); }
+  .kpi.pior .n { color: #ffb4a9; } .kpi.melhor .n { color: var(--verde2); }
+  .caixa { background: var(--bg2); border: 1px solid var(--borda); border-radius: 16px; padding: 16px 18px; }
+  .caixa .hemis .hemi { background: transparent; border: 0; } .caixa .hemis { gap: 14px; }
+  .caixa.tabela { padding: 6px 8px 12px; } .caixa.tabela table { border: 0; width: 100%; }
+  button.ver { background: transparent; border: 0; color: var(--verde2); padding: 8px 10px 0; }
+  .accs { margin-top: 34px; }
+  details.acc { border: 1px solid var(--borda); border-radius: 14px; background: var(--bg2); margin-top: 10px; }
+  details.acc > summary { list-style: none; cursor: pointer; padding: 14px 18px; display: flex; align-items: center; gap: 14px; } details.acc > summary::-webkit-details-marker { display: none; }
+  details.acc > summary .t { font-weight: 600; font-size: 14.5px; white-space: nowrap; } details.acc > summary .x { color: var(--dim); font-size: 12.5px; }
+  details.acc > summary .seta { margin-left: auto; color: var(--dim); transition: transform .15s; } details.acc[open] > summary .seta { transform: rotate(90deg); }
+  details.acc[open] > summary { border-bottom: 1px solid var(--borda); }
+  details.acc > .acc-c { padding: 6px 18px 16px; }
+  @media (max-width: 1100px) { .faixa { grid-template-columns: repeat(2, minmax(0, 1fr)); } .kpis { grid-template-columns: repeat(3, minmax(0, 1fr)); } #siSistemas .sis.aberto { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 640px) { .faixa, .kpis, #siSistemas .sis.aberto { grid-template-columns: 1fr; } }
+  .mapa-img { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; overflow: hidden; margin-bottom: 12px; } .mapa-img > svg { width: 100%; height: auto; display: block; } .mapa-img, .mapa-d svg { user-select: none; -webkit-user-select: none; }
+  .mapa-img.claro { background: #fff; }
+  .mapa-img, .mapa-d { position: relative; }
+  .zoom-bt { position: absolute; right: 10px; bottom: 10px; z-index: 2; display: flex; flex-direction: column; gap: 4px; }
+  .zoom-bt button { width: 30px; height: 30px; padding: 0; font-size: 17px; line-height: 1; background: rgba(22,33,44,.9); }
+  #siResultado svg.zoomavel { touch-action: none; } #siResultado svg.zoomavel.ampliado, #siResultado svg.zoomavel.ampliado [data-d], #siResultado .mapa-img svg:has(svg.zoomavel.ampliado) { cursor: grab; } #siResultado svg.zoomavel.arrastando { cursor: grabbing; }
+  #siResultado svg.zoomavel path, #siResultado svg.zoomavel circle { vector-effect: non-scaling-stroke; }
+  #siResultado svg [data-d] { cursor: pointer; } #siResultado svg [data-d].realce { stroke: #ffffff !important; stroke-width: 1.3 !important; filter: brightness(1.15); }
+  .dica-mapa { position: fixed; z-index: 50; pointer-events: none; max-width: 340px; background: var(--bg3); border: 1px solid #3a4b5c; border-radius: 10px; padding: 8px 10px;
+    font-size: 12px; line-height: 1.45; color: var(--texto); box-shadow: 0 6px 20px rgba(0,0,0,.45); }
+  .dica-mapa .t { font-weight: 700; font-size: 13px; margin-bottom: 2px; } .dica-mapa .m { color: var(--dim); } .dica-mapa .e { margin-top: 4px; } .dica-mapa .e.pode b { color: var(--verde2); }
+  .img-bt { display: inline-flex; gap: 6px; margin-left: auto; }
+  .mapa-d .t { font-size: 12px; color: var(--dim); margin-bottom: 4px; } .mapa-d .t b { color: var(--texto); }
+  .metr { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12.5px; color: var(--dim); margin: 2px 0 8px; } .metr b { color: var(--texto); } .metr .ruim b { color: var(--aviso); }
+  .hemi { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 8px 10px; text-align: center; }
+  .hemi .t { font-size: 13px; font-weight: 600; } .hemi .s { font-size: 11px; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .hemi svg { width: 100%; height: auto; display: block; margin-top: 4px; }
+  .hemi .pode { font-size: 12px; margin-top: 2px; } .hemi .pode b { color: var(--verde2); }
+  .legenda { display: flex; flex-wrap: wrap; gap: 4px 12px; font-size: 11.5px; color: var(--dim); margin: 8px 0 0; }
+  .legenda i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; }
+  .tab-rolagem { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { text-align: left; font-size: 10.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); font-weight: 600; padding: 5px 6px; border-bottom: 1px solid var(--borda); white-space: nowrap; }
+  td { padding: 4px 6px; border-bottom: 1px solid rgba(255,255,255,.05); font-size: 13px; white-space: nowrap; }
+  td.n, th.n { text-align: right; font-variant-numeric: tabular-nums; }
+  table.compacta { width: auto; min-width: min(100%, 640px); }
+  table.compacta td.n, table.compacta th.n { min-width: 64px; padding-left: 12px; }
+  th.grupo { text-align: center; border-bottom: 1px solid var(--borda); color: var(--texto); }
+  td.d { text-align: right; font-size: 12px; width: 44px; }
+  tr.pode td { background: rgba(0,168,89,.12); font-weight: 600; }
+  tr.clic { cursor: pointer; } tr.clic:hover td { background: rgba(255,255,255,.04); } tr.sel td { background: rgba(255,210,74,.10); }
+  .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
+  .duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  .bloco { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 11px; min-width: 0; }
+  .bloco h3 { margin: 0 0 6px; font-size: 13.5px; }
+  .bloco .vazio { color: var(--dim); font-size: 12.5px; }
+  .bloco td { font-size: 12.5px; white-space: normal; } .bloco td.n, .bloco td.ent, .bloco td.sai { white-space: nowrap; }
+  .ent { color: var(--verde2); font-weight: 700; } .sai { color: var(--verm); font-weight: 700; }
+  .dica { font-size: 11.5px; color: var(--dim); margin-top: 4px; }
+  ul.resumo, ul.metodo { margin: 4px 0 8px; padding-left: 18px; font-size: 13px; line-height: 1.5; } ul.resumo li, ul.metodo li { margin-bottom: 4px; } ul.resumo b { color: var(--verde2); }
+  .rodape { margin-top: 18px; padding-top: 10px; border-top: 1px solid var(--borda); font-size: 11.5px; color: var(--dim); line-height: 1.5; }
+  @media (max-width: 1100px) { .sistemas, .hemis, .cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } .duas, .mapas-d { grid-template-columns: 1fr; } }
+  @media (max-width: 640px) { .sistemas, .hemis, .cards { grid-template-columns: 1fr; } .ctl .dir { margin-left: 0; } }
+  /* Impressão: só o relatório montado em #siImpressao, em papel claro. */
+  #siImpressao { display: none; }
+  @media print {
+    @page { size: A4; margin: 12mm 11mm; }
+    * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body > *:not(#siImpressao) { display: none !important; }
+    body { background: #fff; color: #1b2430; font-size: 10pt; }
+    #siImpressao { display: block; --dim: #5b6b7b; --texto: #1b2430; --borda: #cfd8e1; --verde2: #0b8a4b; --verm: #c0392b; --ama: #9a6a00; --bg2: #fff; }
+    .imp-cab { display: flex; align-items: center; gap: 12px; } .imp-cab img { height: 44px; }
+    .imp-org { font-size: 9pt; font-weight: 700; color: #0b8a4b; text-transform: uppercase; letter-spacing: .4px; }
+    #siImpressao h1 { font-size: 15pt; margin: 2px 0; }
+    #siImpressao h2 { font-size: 12pt; margin: 12px 0 6px; break-after: avoid; color: #0b5e3a; }
+    .imp-sub { font-size: 8.5pt; color: #5b6b7b; }
+    .imp-filete { height: 4px; margin: 8px 0 6px; background: linear-gradient(90deg, #0B8A4B 0 40%, #7C9A2F 40% 62%, #1F5FA8 62% 82%, #D9531E 82% 100%); }
+    .imp-param { font-size: 8.5pt; color: #33414f; margin: 3px 0; } .imp-param b { color: #1b2430; }
+    .imp-quebra { break-before: page; }
+    #siImpressao .cards, #siImpressao .hemis { grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 6px; }
+    #siImpressao .mapas-d { grid-template-columns: 1.5fr 1fr; break-inside: avoid; } #siImpressao .mapa-d { background: #fff; border: 1px solid #cfd8e1; }
+    #siImpressao .mapa-d path { stroke: #fff; } #siImpressao .mapa-d path.div { fill: #e4e9ee; } #siImpressao .mapa-d path.fora { fill: #f3f5f7; }
+    #siImpressao .metr { color: #5b6b7b; } #siImpressao .metr b { color: #1b2430; }
+    #siImpressao .card, #siImpressao .hemi, #siImpressao .bloco { background: #fff; border: 1px solid #cfd8e1; break-inside: avoid; }
+    #siImpressao .card .v { color: #0b5e3a; font-size: 20pt; }
+    #siImpressao .duas { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+    #siImpressao .bloco { padding: 6px 7px; } #siImpressao .bloco td { font-size: 8pt; padding: 2px 3px; }
+    #siImpressao td { color: #1b2430; font-size: 8.5pt; padding: 2px 4px; border-bottom: 1px solid #e4e9ee; }
+    #siImpressao th { font-size: 7.5pt; color: #5b6b7b; } #siImpressao th.grupo { color: #1b2430; }
+    #siImpressao table.compacta td.n, #siImpressao table.compacta th.n { min-width: 0; padding-left: 8px; }
+    #siImpressao tr.sel td { background: none; }
+    #siImpressao tr { break-inside: avoid; }
+    #siImpressao tr.pode td { background: #e3f4ea; }
+    #siImpressao .tab-rolagem { overflow: visible; }
+    #siImpressao .hemi circle.vazio { fill: #e4e9ee; }
+    #siImpressao .aviso { border-color: #e0a030; background: #fff8e6; color: #1b2430; }
+    #siImpressao ul.resumo, #siImpressao ul.metodo { font-size: 9.5pt; color: #1b2430; } #siImpressao ul.resumo b { color: #0b5e3a; } #siImpressao ul.resumo li { break-inside: avoid; }
+    #siImpressao td.menos, #siImpressao .menos { color: #c0392b; }
+    .imp-rodape { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cfd8e1; font-size: 8pt; color: #5b6b7b; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="topo">
+    <img src="../icons/podemos-logo.png" alt="Podemos">
+    <div>
+      <h1>Sistemas eleitorais</h1>
+      <div class="sub">A mesma eleição em outros sistemas, com os votos oficiais do <b>TSE</b> lidos na hora · proporcional (atual), distritão, distritão misto e distrital misto</div>
+    </div>
+  </div>
+  <div class="filete"></div>
+</header>
+<main>
+  <div class="ctl">
+    <label class="rot">Eleição <select id="siEleicao"><option value="">carregando…</option></select></label>
+    <div class="seg" id="siCargo" role="group" aria-label="Cargo">
+      <button data-c="6" class="ativo">Deputado federal</button><button data-c="7">Estadual e distrital</button>
+    </div>
+    <label class="rot">Abrangência <select id="siUf"><option value="">Brasil (27 UFs)</option></select></label>
+    <label class="rot" title="O partido dos destaques: os números grandes, a frase, quem entra e quem sai, a cor verde nos hemiciclos e no mapa, o resumo e o PDF">Partido em foco <select id="siFoco"><option value="PODE">PODE</option></select></label>
+    <button id="siLer" class="pri">Ler dados do TSE</button>
+    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF: resumo, indicadores, composição, partido em foco, estados, distritos, método (imprimir → salvar como PDF)">Relatório em PDF</button><button id="siMemorial" disabled title="Planilha (Excel) com cada conta refeita por fórmula — quociente eleitoral, quociente partidário, sobras rodada a rodada, maiores médias das listas, distritos, bancadas e indicadores — e a coluna Confere contra o resultado do simulador">Memorial de cálculo</button></div>
+  </div>
+  <div class="status" id="siStatus"></div>
+  <div id="siAvisos"></div>
+
+  <div class="faixa" id="siFaixa"></div>
+  <div class="sistemas fechado" id="siSistemas">
+    <div class="sis" data-sis="proporcional">
+      <h3><i style="background:#3b82f6"></i>Proporcional (atual)<span class="alterado" id="siAltP" hidden>parâmetros alterados</span></h3>
+      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111).</p>
+      <div class="lin"><span>Votos mínimos do candidato no QP (% do QE)</span><input type="number" id="pQP" min="0" max="100" step="1" value="10"></div>
+      <div class="lin"><span>Sobras: agremiação com (% do QE)</span><input type="number" id="pPart" min="0" max="100" step="1" value="80"></div>
+      <div class="lin"><span>Sobras: candidato com (% do QE)</span><input type="number" id="pCand" min="0" max="100" step="1" value="20"></div>
+      <div class="lin"><label><input type="checkbox" id="pTerc" checked> 3ª fase aberta a todas as agremiações (STF, ADIs 7228/7263/7325)</label></div>
+      <div class="lin"><label><input type="checkbox" id="pFed" checked> Federações (desmarcado: cada partido sozinho)</label></div>
+    </div>
+    <div class="sis" data-sis="distritao">
+      <h3><i style="background:#f59e0b"></i>Distritão</h3>
+      <p>O estado inteiro é um distrito: elegem-se os mais votados, até o número de vagas. Voto de legenda não elege ninguém.</p>
+      <div class="nota">Sem parâmetro: é o mais simples dos sistemas. A régua é o "corte" — os votos do último eleito em cada estado.</div>
+    </div>
+    <div class="sis" data-sis="misto">
+      <h3><i style="background:#a855f7"></i>Distritão misto<span class="alterado" id="siAltM" hidden>parâmetros alterados</span></h3>
+      <p>Parte das vagas vai aos mais votados (distritão); a outra, à votação da agremiação, pelas maiores médias.</p>
+      <div class="lin"><span>Mais votados <b id="mPctV">50%</b> · lista <b id="mPctL">50%</b></span><input type="range" id="mPct" min="0" max="100" step="5" value="50"></div>
+      <div class="lin"><span>Modelo</span><div class="seg" id="mModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
+      <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="mLim" min="0" max="50" step="0.5" value="0"></div>
+      <div class="nota"><b>Paralelo</b>: a lista divide só a sua parte. <b>Compensatório</b>: a proporção vale para o total, e a lista completa quem ficou abaixo dela.
+        Os dados do TSE têm um voto por eleitor; com dois votos, o da lista seria separado — aqui a lista usa a votação da agremiação (nominal + legenda).</div>
+    </div>
+    <div class="sis" data-sis="distrital">
+      <h3><i style="background:#14b8a6"></i>Distrital misto<span class="alterado" id="siAltD" hidden>parâmetros alterados</span></h3>
+      <p>Parte das vagas em distritos de um eleito, desenhados aqui com o eleitorado do TSE e a malha do IBGE; o resto pela lista.</p>
+      <div class="lin"><span>Distritos <b id="dPctV">50%</b> · lista <b id="dPctL">50%</b></span><input type="range" id="dPct" min="0" max="100" step="5" value="50"></div>
+      <div class="lin"><span>Nº de distritos</span><div class="seg" id="dArr"><button data-a="proximo" class="ativo" title="Vagas × fração, arredondado (9 vagas, 50% → 5 distritos)">Arredondado</button><button data-a="baixo" title="Só a parte inteira (9 vagas, 50% → 4 distritos), como no PL 9.212/2017">Parte inteira</button></div></div>
+      <div class="lin"><span>Quem leva o distrito</span><div class="seg" id="dRegra"><button data-r="partido" class="ativo" title="A agremiação mais votada no distrito leva a vaga, com o seu candidato mais votado ali">Partido</button><button data-r="candidato" title="O candidato mais votado no distrito">Candidato</button></div></div>
+      <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
+      <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
+      <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
+      <div class="lin"><span>Excedente e divisor</span><button id="dExcBtn" class="tol-btn" title="O que acontece quando um partido ganha mais distritos que a sua cota proporcional — abre o ajuste">corta das listas ✎</button></div>
+      <div class="lin"><span>Tolerância de tamanho</span><button id="dTolBtn" class="tol-btn" title="Quanto cada distrito pode se afastar do tamanho-alvo — abre o ajuste">±5% ✎</button></div>
+      <div class="lin larga" id="dAliLin"><span><label class="tog"><input type="checkbox" id="dAli"><i></i>Alianças no distrito</label></span><span class="tog-c"><span id="dAliLista"></span><select id="dAliA"></select> apoia e é apoiado por <select id="dAliB"></select><button id="dAliAdd">Adicionar</button></span></div>
+      <div class="lin larga proj"><span>Regras de um projeto</span><span class="proj-b">
+        <button id="dSenado" title="PL 9.212/2017 como veio do Senado (PLS 86/2017, de José Serra, aprovado em 21/11/2017): metade das vagas em distritos (parte inteira), por população, ±5% (±10% em 1 distrito ou 10% deles), compensatório; o excedente sai das últimas vagas da lista">PL 9.212 (Senado)</button>
+        <button id="dCcj" title="Substitutivo da CCJ da Câmara ao PL 9.212/2017 (relator Samuel Moreira, 2019/2021, não votado): o mesmo, mas por eleitorado, ±10%">Substitutivo da CCJ (2021)</button>
+        <button id="d9213" title="PL 9.213/2017 (PLS 345/2017, de Eunício Oliveira, aprovado pelo Senado no mesmo dia e apensado ao 9.212): por eleitorado, ±10%, e o excedente aumenta a Câmara">PL 9.213 (apensado)</button></span></div>
+      <div class="nota">Os distritos não existem: são desenhados com eleitorado (ou população, pelo Censo 2022) parecido, contíguos e compactos, a partir dos municípios (e das zonas eleitorais, onde o município é grande demais).
+        <b>Partido</b>: a agremiação mais votada no distrito leva, com o seu candidato mais votado ali. <b>Candidato</b>: o mais votado do distrito. Um candidato ganha um distrito só.
+        <br><b>Segundo voto</b> (cenário — os dados do TSE têm um voto só): com dois votos, parte do eleitor vota no distrito diferente da lista. <b>Alianças</b>: em cada distrito, dos aliados só o mais votado ali lança candidato, com os votos dos outros. A lista (voto partidário) não muda.
+        <br><b>Substitutivo da CCJ</b> (2021): o mesmo, mas distritos por eleitores com até ±10% do alvo. <b>PL 9.213</b> (apensado): por eleitores, ±10%, e o excedente aumenta a Câmara.
+        <b>Tolerância</b> e <b>excedente</b>: nos botões ✎.
+        <br><b>Projeto do Senado</b> (PL 9.212/2017): metade das vagas em distritos (parte inteira), desenhados por habitantes com até ±5% do alvo (±10% em 1 distrito ou em 10% deles);
+        o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos.</div>
+    </div>
+  </div>
+  <div class="ctl faixa-pe"><div class="geo" id="siGeo"></div><div class="dir"><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span><button id="siRegra">Voltar à regra vigente</button></div></div>
+
+  <div id="siResultado"></div>
+  <div class="rodape">Fonte: Tribunal Superior Eleitoral — servidor oficial de resultados (eleição corrente) e repositório de dados abertos
+    (votação por candidato e por partido, por município e zona), lidos na hora. Nenhum voto vem embutido na extensão; a leitura dos dados abertos
+    fica guardada neste navegador só enquanto o arquivo do TSE for o mesmo (a versão é conferida a cada leitura).
+    O proporcional com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs). As simulações mantêm os votos como foram dados — num outro sistema, eleitores e partidos se comportariam de outro jeito.</div>
+</main>
+<div id="siImpressao"></div>
+<div id="siDicaMapa" class="dica-mapa" hidden></div>
+<dialog id="dTolDlg" class="dlg">
+  <form method="dialog">
+    <h4>Tolerância de tamanho dos distritos</h4>
+    <p class="dlg-t">Quanto cada distrito pode se afastar do alvo — habitantes (ou eleitores) do estado ÷ nº de distritos.</p>
+    <div class="dlg-l"><span>Todos os distritos até</span><span>± <input type="number" id="tPct" min="0" max="50" step="0.5"> %</span></div>
+    <div class="dlg-l"><label class="tog"><input type="checkbox" id="tExc"><i></i>Exceção</label>
+      <span class="tog-c" id="tExcC">até ± <input type="number" id="tExcPct" min="0" max="50" step="0.5"> % em até <input type="number" id="tExcN" min="0" max="99" step="1"> distrito(s) ou <input type="number" id="tExcFrac" min="0" max="100" step="1"> % deles, o que for maior</span></div>
+    <div class="dlg-l"><span>Uso</span><div class="seg" id="tModo"><button type="button" data-t="conferir">Só conferir</button><button type="button" data-t="desenhar">Desenhar até a tolerância</button></div></div>
+    <p class="dlg-t" id="tModoTxt"></p>
+    <div class="dlg-l atalhos"><span>Atalhos</span><span>
+      <button type="button" data-tp="senado" title="PL 9.212/2017, como veio do Senado (habitantes)">PL 9.212 (Senado): ±5%, ±10% em 1 ou 10%</button>
+      <button type="button" data-tp="ccj" title="PL 9.213/2017 (PLS 345/2017) e substitutivo da CCJ da Câmara (eleitores)">PL 9.213 e substitutivo da CCJ: ±10%</button>
+      <button type="button" data-tp="alemanha" title="Lei eleitoral alemã: até ±15% (redesenho obrigatório acima de ±25%)">Alemanha: ±15%</button></span></div>
+    <div class="dlg-acoes"><button type="button" id="tCancelar">Cancelar</button><button value="ok" id="tOk" class="pri">Aplicar</button></div>
+  </form>
+</dialog>
+<dialog id="dExcDlg" class="dlg">
+  <form method="dialog">
+    <h4>Excedente e divisor</h4>
+    <p class="dlg-t">No compensatório, cada partido tem uma cota (o alvo) pelas maiores médias sobre todas as vagas do estado. O excedente é quando ele ganha mais distritos que a cota.</p>
+    <p class="dlg-t aviso-p" id="eParalelo" hidden>O distrital misto está no modelo <b>paralelo</b>: lá não há excedente (a lista divide só a sua parte) — vale só o divisor.</p>
+    <div class="exc-op" data-er="corta"><b>Corta das listas</b> <span class="fonte">PL 9.212 (Senado), art. 105-C</span><div>O partido fica com os distritos; as vagas saem das listas dos outros, de quem tem a menor média. A Câmara não cresce.</div></div>
+    <div class="exc-op" data-er="cresce"><b>A Câmara cresce</b> <span class="fonte">PL 9.213 (Senado), art. 105-B, § 2º</span><div>O partido fica com os distritos e ninguém perde: cada distrito a mais vira uma cadeira a mais.</div></div>
+    <div class="exc-op" data-er="compensa"><b>Compensação total</b> <span class="fonte">Alemanha, 2013–2023</span><div>A Casa cresce até a cota de todos os partidos cobrir os distritos: a proporção volta inteira.</div></div>
+    <div class="exc-op" data-er="naoLeva"><b>Excedente não leva</b> <span class="fonte">Alemanha, desde 2023</span><div>O distrito além da cota não dá cadeira (sai o vencedor de menor votação relativa, que segue na disputa da lista). A Câmara não cresce.</div></div>
+    <div class="dlg-l" id="eTetoLin"><label class="tog"><input type="checkbox" id="eTeto"><i></i>Teto de cadeiras a mais</label>
+      <span class="tog-c">até <input type="number" id="eTetoPct" min="0" max="100" step="1"> % das vagas de cada estado; o que passar, corta das listas</span></div>
+    <div class="dlg-l"><span>Divisor</span><div class="seg" id="eDiv"><button type="button" data-dv="dhondt" title="÷ 1, 2, 3… — o dos projetos">D'Hondt</button><button type="button" data-dv="sl" title="÷ 1, 3, 5… — mais neutro entre grandes e pequenos">Sainte-Laguë</button></div></div>
+    <div class="dlg-acoes"><button type="button" id="eCancelar">Cancelar</button><button value="ok" class="pri">Aplicar</button></div>
+  </form>
+</dialog>
+<script src="../labs-apuracao.js"></script>
+<script src="../zip-remoto.js"></script>
+<script src="../labs-mapa-nucleo.js"></script>
+<script src="../sistemas-nucleo.js"></script>
+<script src="../sistemas-distrital.js"></script>
+<script src="../libs/xlsx.full.min.js"></script>
+<script src="../sistemas-memorial.js"></script>
+<script src="sistemas-tela.js"></script>
+</body>
+</html>

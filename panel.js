@@ -74,7 +74,6 @@ const PROVEDORES = {
         body: {
           contents: [{ parts }],
           generationConfig: {
-            temperature:      0,
             maxOutputTokens:  1500,
             responseMimeType: 'application/json',
           },

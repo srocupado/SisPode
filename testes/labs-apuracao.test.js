@@ -84,6 +84,31 @@ ok(!A.apLerUFTodos(retotJ('n', '3', ''), 'pe').retotalizando, 'não final mas co
 ok(!A.apLerUFTodos(Object.assign(retotJ('n', '0', ''), { s: { ts: '10', st: '5', pst: '50,00' } }), 'pe').retotalizando, 'apuração em andamento (50%) não é retotalização');
 ok(A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: false }] }) && !A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: true }] }),
   'retotalização também em cargo majoritário (sem eleito marcado com 100% apurado)');
+// De onde vieram os votos (apuracao-onde.js): leitura dos arquivos de dados abertos do TSE
+const O = require(path.join(__dirname, '..', 'apuracao', 'apuracao-onde.js'));
+const MZ = O.aoLeitorMunzona('8', '20456');
+['"CD_MUNICIPIO";"NM_MUNICIPIO";"NR_ZONA";"CD_CARGO";"NR_CANDIDATO";"NR_TURNO";"NM_URNA_CANDIDATO";"SG_PARTIDO";"DS_SIT_TOT_TURNO";"QT_VOTOS_NOMINAIS_VALIDOS"',
+  '"97012";"BRASÍLIA";"9";"8";"20456";"1";"CLEIDIANE VITALINO";"PODE";"SUPLENTE";"231"', '"97012";"BRASÍLIA";"9";"8";"99999";"1";"OUTRO";"PT";"ELEITO";"1000"',
+  '"97012";"BRASÍLIA";"11";"8";"20456";"1";"CLEIDIANE VITALINO";"PODE";"SUPLENTE";"23"', '"97012";"BRASÍLIA";"9";"6";"20456";"1";"X";"PODE";"";"500"',
+  '"97012";"BRASÍLIA";"9";"8";"20456";"2";"CLEIDIANE VITALINO";"PODE";"SUPLENTE";"7"'].forEach(l => MZ.linha(l));
+const mz = MZ.resultado();
+ok(mz.total === 254 && mz.mun['97012'].v === 254 && mz.mun['97012'].t === 1254 && mz.zonas['97012|9'].v === 231 && mz.cand.sit === 'SUPLENTE',
+  'votos por município e zona: só o cargo e o 1º turno; total nominal do cargo para a fatia');
+const SE = O.aoLeitorSecao('8', '20456');
+['"NR_ZONA";"NR_SECAO";"CD_CARGO";"NR_VOTAVEL";"QT_VOTOS";"NR_LOCAL_VOTACAO";"NM_LOCAL_VOTACAO";"NR_TURNO"',
+  '"9";"1";"8";"20456";"40";"1015";"CEF 02";"1"', '"9";"2";"8";"20456";"33";"1015";"CEF 02";"1"', '"9";"1";"8";"20";"10";"1015";"CEF 02";"1"', '"9";"1";"8";"95";"5";"1015";"CEF 02";"1"',
+  '"9";"1";"8";"12345";"927";"1015";"CEF 02";"1"'].forEach(l => SE.linha(l));
+const se = SE.resultado();
+ok(se.total === 73 && se.loc['9|1015'].v === 73 && se.loc['9|1015'].t === 1000, 'por local de votação: soma as seções; fatia sobre votos nominais (sem legenda, branco e nulo)');
+const LO = O.aoLeitorLocais();
+['"NR_ZONA";"NR_LOCAL_VOTACAO";"NM_BAIRRO";"NR_LATITUDE";"NR_LONGITUDE"', '"9";"1015";"CIDADE ESTRUTURAL";"-15,78";"-47,99"', '"9";"2000";"X";"-1";"-1"'].forEach(l => LO.linha(l));
+const lo = LO.resultado();
+ok(Math.abs(lo['9|1015'].la + 15.78) < 1e-9 && lo['9|1015'].bairro === 'CIDADE ESTRUTURAL' && lo['9|2000'].la === null, 'coordenadas dos locais (−1 = sem coordenada)');
+ok(O.aoQuebras([0, 0.1, 0.2, 0.3, 0.4, 0.5]).length === 4 && Math.abs(O.aoConcentracao([{ v: 6 }, { v: 3 }, { v: 1 }], 10, 1) - 0.6) < 1e-9, 'quebras do mapa e concentração nos mais fortes');
+const mol = O.aoMoldura([{ la: -15.78, lo: -47.99 }, { la: -15.79, lo: -47.98 }]);
+ok(mol && mol.meia > 0.0074 && Math.abs(mol.la0 + 15.785) < 1e-9, 'moldura do detalhe cobre os locais do bairro com folga');
+let errCsv = ''; try { O.aoLeitorMunzona('6', '1').linha('"A";"B"'); } catch (e) { errCsv = e.message; }
+ok(/fora do formato/.test(errCsv), 'arquivo do TSE fora do formato: erro claro');
 ok(A.apCor(0) === '#2b3440' && A.apCor(100) === '#00a859', 'cor do mapa: 0% cinza, 100% verde');
 ok(Object.keys(AP_MAPA.uf).length === 27 && Object.keys(AP_MAPA.centro).length === 27, 'mapa embutido com as 27 UFs');
 console.log(falhas ? `\n${falhas} falha(s).` : '\nTudo certo.');

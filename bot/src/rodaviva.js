@@ -336,7 +336,7 @@ async function resumoDoVideoGemini(perfil, ep) {
           { fileData: { fileUri: ep.url } },
           { text: promptResumo(ep, '(a entrevista está no VÍDEO anexado — resuma a partir do áudio dele)') },
         ] }],
-        generationConfig: { temperature: 0.2, maxOutputTokens: 8000 },
+        generationConfig: { maxOutputTokens: 8000 },
       }),
     });
     const j = await r.json().catch(() => ({}));
