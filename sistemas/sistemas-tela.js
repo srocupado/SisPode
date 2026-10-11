@@ -1120,7 +1120,8 @@ function siFederacaoHtml(impressao) {
   const ops = Object.keys(v).filter(sg => sg !== si.partido).sort((a, b) => v[b] - v[a]);
   if (impressao && !si.fedParceiro) return '';
   let h = `<h2>Federação hipotética <small>${siEsc(siPNome())} com um parceiro, em todos os estados</small></h2>`;
-  if (!impressao) h += `<div class="ctl" style="margin:4px 0 8px"><label class="rot">Parceiro <select id="siFedSel"><option value="">—</option>${ops.map(sg => `<option value="${siEsc(sg)}"${sg === si.fedParceiro ? ' selected' : ''}>${siEsc(sg)}</option>`).join('')}</select></label></div>`;
+  if (!impressao) h += `<div class="ctl" style="margin:4px 0 8px"><label class="rot">Parceiro <select id="siFedSel"><option value="">—</option>${ops.map(sg => `<option value="${siEsc(sg)}"${sg === si.fedParceiro ? ' selected' : ''}>${siEsc(sg)}</option>`).join('')}</select></label>`
+    + (si.fedParceiro ? '<button id="siFedMemo" title="Planilha com todas as contas do cenário federado, por fórmula, como o memorial principal">Memorial do cenário federado</button>' : '') + '</div>';
   const f = siFederacao();
   if (!f) return h + '<div class="dica">Numa federação, os dois partidos disputam as vagas como uma agremiação só: as sobras de votos de cada um se somam, e onde a soma passa do preço de uma cadeira a federação leva uma que nenhum dos dois levaria sozinho. Escolha o parceiro acima.</div>';
   const a = si.partido, b = si.fedParceiro, res = si.res, comp = res.comparadas;
@@ -1734,12 +1735,17 @@ function siDistritosHtml(uf, sd, impressao) {
  * Memorial de cálculo: planilha (Excel) com cada conta refeita por fórmula a partir
  * dos votos de cada candidato e a coluna "Confere" contra o resultado do simulador.
  */
-function siMemorial() {
+/** Memorial de cálculo (planilha). federado: o do cenário da federação hipotética (arquivo à parte). */
+function siMemorial(federado) {
   if (!si.res || typeof smMemorial !== 'function' || typeof XLSX === 'undefined') return;
+  federado = federado === true && si.fedParceiro;
   const ufs = Object.keys(si.dados), alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
   const atual = [...new Set(ufs.map(uf => si.dados[uf].atualizado).filter(Boolean))];
-  const memo = smMemorial({ dados: si.dados, res: si.res, sistemas: si.sistemas, ind: snIndicadores(si.res, si.dados), ordem: snOrdemPartidos(si.res),
-    meta: { titulo: `Memorial de cálculo — sistemas eleitorais: ${siCargoNome()}, ${si.op.ano} (${alvo})`,
+  const f = si.fedParceiro ? siFederacao() : null;
+  const dados = federado ? snFederar(si.dados, si.partido, si.fedParceiro) : si.dados, res = federado ? f.res2 : si.res;
+  const memo = smMemorial({ dados, res, sistemas: si.sistemas, ind: snIndicadores(res, dados), ordem: snOrdemPartidos(res),
+    estrategia: federado ? null : { partido: si.partido, parceiro: si.fedParceiro, dados2: f ? snFederar(si.dados, si.partido, si.fedParceiro) : null, res2: f ? f.res2 : null },
+    meta: { titulo: `Memorial de cálculo — sistemas eleitorais${federado ? ` — cenário com a federação hipotética ${si.partido} + ${si.fedParceiro}` : ''}: ${siCargoNome()}, ${si.op.ano} (${alvo})`,
       eleicao: `${si.op.ano}, 1º turno`, cargo: siCargoNome(),
       fonte: si.op.fonte === 'resultados' ? 'TSE — servidor oficial de resultados (um arquivo por estado), lido na hora' : 'TSE — dados abertos (votação por candidato e por partido, por município e zona), lidos na hora',
       versoes: atual.length ? 'Atualização do TSE: ' + (atual.length > 3 ? atual.slice(0, 3).join('; ') + '…' : atual.join('; ')) : '',
@@ -1747,7 +1753,7 @@ function siMemorial() {
       parametros: si.sistemas.map(s => [s.nome, siDescricao(s)]) } });
   const wb = smParaXlsx(XLSX, memo);
   const nao = Object.values(memo.conferencias).reduce((t, x) => t + x.nao, 0), n = Object.values(memo.conferencias).reduce((t, x) => t + x.n, 0);
-  XLSX.writeFile(wb, `memorial-sistemas-${si.cargo === '6' ? 'federal' : 'estadual'}-${si.op.ano}-${alvo.toLowerCase().replace(/\s+/g, '-')}.xlsx`);
+  XLSX.writeFile(wb, `memorial-sistemas-${si.cargo === '6' ? 'federal' : 'estadual'}-${si.op.ano}-${alvo.toLowerCase().replace(/\s+/g, '-')}${federado ? `-federacao-${si.partido}-${si.fedParceiro}`.toLowerCase() : ''}.xlsx`);
   $('siAvisos').innerHTML = `<div class="aviso${nao ? ' erro' : ''}"><b>Memorial de cálculo gerado.</b> ${siFmt(n)} conferências — ${nao ? `<b>${siFmt(nao)} divergem</b> (veja a aba Leia-me)` : 'todas conferem com o simulador'}. A planilha refaz as contas por fórmula ao abrir.</div>`;
 }
 
@@ -1791,7 +1797,7 @@ async function siIniciar() {
     if (si.fedParceiro === si.partido) si.fedParceiro = '';
     if (si.res) { $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); }
   });
-  $('siMemorial').addEventListener('click', siMemorial);
+  $('siMemorial').addEventListener('click', () => siMemorial(false));
   $('siRegra').addEventListener('click', siRegraVigente);
   $('siCargo').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-c]');
@@ -1859,6 +1865,7 @@ async function siIniciar() {
       siBaixarImagem(siMapaImagemSvg(ufs, si.mapaModo, ufs.length > 1 ? 1200 : 1000, 'claro'), siNomeImagem(ufs), bi.dataset.img);
       return;
     }
+    if (ev.target.closest('#siFedMemo')) { siMemorial(true); return; }
     if (ev.target.closest('button[data-todos]')) { si.todosPartidos = !si.todosPartidos; $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); return; }
     const bl = ev.target.closest('button[data-locais]');
     if (bl) { siLerLocais(bl.dataset.locais.split(',')); return; }

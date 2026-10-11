@@ -103,6 +103,26 @@ const ssl = [Object.assign({}, sistemas[4], { op: Object.assign({}, sistemas[4].
 const msl = M.smMemorial({ dados, res: rsl, sistemas: ssl, ind: S.snIndicadores(rsl, dados), ordem: S.snOrdemPartidos(rsl), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
 ok(celulas(msl.abas.find(x => x.nome === 'Distritão misto comp.')).some(c => /^\$B\$\d+\/3-\$E\$\d+\*1E-9$/.test(c.f || '')), 'Sainte-Laguë: quociente votos ÷ 3 na 2ª coluna');
 
+console.log('Estratégia: tolerância, próxima cadeira, distritos ao alcance, federação');
+const dis = aba('Distrital misto');
+ok(celulas(dis).some(c => /^IF\(ABS\(E\d+\)<=0\.05\+1E-9,"dentro",IF\(ABS\(E\d+\)<=0\.1\+1E-9,"exceção","fora"\)\)$/.test(c.f || ''))
+  && celulas(dis).some(c => /^MAX\(1,INT\(0\.1\*\$E\$\d+\+1E-9\)\)$/.test(c.f || '')), 'tolerância: cada distrito (dentro/exceção/fora) e o estado contra as exceções permitidas, por fórmula');
+global.snMargem = S.snMargem; global.snProporcional = S.snProporcional; global.snDhondt = S.snDhondt;
+for (const foco of ['B', 'C', 'D']) {
+  const sF = sistemas.slice(), dados2 = S.snFederar(dados, foco, 'A'), res2 = S.snSimular(dados2, sF);
+  const me = M.smMemorial({ dados, res, sistemas: sF, ind, ordem: S.snOrdemPartidos(res), meta: { titulo: 'T', eleicao: 't', parametros: [] }, estrategia: { partido: foco, parceiro: 'A', dados2, res2 } });
+  const nomes = me.abas.map(x => x.nome);
+  const n = Object.values(me.conferencias).reduce((t2, x) => t2 + x.n, 0), nao = Object.values(me.conferencias).reduce((t2, x) => t2 + x.nao, 0);
+  const prox = me.abas.find(x => x.nome === `Próxima cadeira (${foco})`);
+  ok(nomes.includes(`Próxima cadeira (${foco})`) && nomes.includes(`Distritos ao alcance (${foco})`) && nomes.includes(`Federação ${foco}+A`) && nao === 0,
+    `foco ${foco}: abas da estratégia e ${n} conferências, todas batem`);
+  ok(celulas(prox).some(c => /^COUNTIF\(\$D\$\d+:\$\w+\$\d+,">="&LARGE\(/.test(c.f || '')) && celulas(prox).some(c => /^IF\(B\d+-E\d+<1,"—",INT\(\(LARGE\(/.test(c.f || '')),
+    'próxima cadeira: cota, faltam e folga por fórmula (LARGE na tabela de quocientes)');
+}
+const meSL = M.smMemorial({ dados, res: S.snSimular(dados, sistemas.map(x => x.tipo === 'distrital' ? Object.assign({}, x, { op: Object.assign({}, x.op, { divisor: 'sl' }) }) : x)),
+  sistemas: sistemas.map(x => x.tipo === 'distrital' ? Object.assign({}, x, { op: Object.assign({}, x.op, { divisor: 'sl' }) }) : x), ind, ordem: [], meta: { titulo: 'T', eleicao: 't', parametros: [] }, estrategia: { partido: 'C' } });
+ok(Object.values(meSL.conferencias).every(x => x.nao === 0) && celulas(meSL.abas.find(x => x.nome === 'Próxima cadeira (C)')).some(c => /\(2\*\(E\d+\+1\)-1\)/.test(c.f || '')), 'com Sainte-Laguë: o divisor da próxima cadeira é 2 × (cota + 1) − 1, e tudo confere');
+
 console.log('Planilha (SheetJS)');
 const wb = M.smParaXlsx(XLSX, memo);
 const buf = XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
