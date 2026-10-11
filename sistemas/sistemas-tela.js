@@ -1092,7 +1092,7 @@ function siProximaHtml(impressao) {
     + (bc.n ? `<b>Crescer:</b> na cota do projeto, ${siFmt(bc.votos)} votos nos ${bc.n} estados mais baratos (${bc.ufs.join(', ')}) valem +${bc.n} cadeiras; na regra atual, ${siFmt(ba.votos)} votos (${ba.ufs.join(', ')}). ` : '')
     + (riscos.length ? `<b>Defender:</b> folga abaixo de 0,5% dos válidos na cota do projeto em ${riscos.join(', ')} — quem tem a última cadeira do estado é o primeiro a ser cortado pelo excedente dos outros. ` : '')
     + `Os votos entram (ou saem) como voto no partido, com os dos outros partidos parados; "faltam" = os votos a mais para a próxima cadeira; "folga" = os votos que pode perder sem perder a última. `
-    + `Regra atual: quociente eleitoral e sobras como no card do proporcional. Projeto: a cota de cada partido pelas maiores médias sobre todas as vagas do estado (art. 105-B), antes dos cortes do excedente${temD ? '; "no distrital simulado", o que ficou depois deles' : ''}.`
+    + `Regra atual: quociente eleitoral e sobras como no card do proporcional — voto só no partido não elege quem não tem candidato com 10% do quociente (1ª fase) ou 20% (sobras); nesses estados, só a 3ª fase dá a cadeira, e o número de votos fica alto. Projeto: a cota de cada partido pelas maiores médias sobre todas as vagas do estado (art. 105-B), antes dos cortes do excedente${temD ? '; "no distrital simulado", o que ficou depois deles' : ''}.`
     + (l.some(x => x.federada) ? ` O ${siEsc(si.partido)} é federado: as contas são da federação.` : '') + '</div>';
   return h;
 }

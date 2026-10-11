@@ -479,7 +479,7 @@ function smAbaProxima(dados, ufs, sistemas, votosLinha, partido) {
   const V = smAbaRef('Votos');
   aba.add([`Próxima cadeira do ${partido}, estado a estado: os votos a mais para a próxima cadeira ("faltam") e os que pode perder sem perder a última ("folga"), com os votos dos outros parados; os votos entram ou saem como voto no partido.`]);
   aba.add([`Cota do projeto: maiores médias (${sl ? 'Sainte-Laguë: ÷ 1, 3, 5…' : "D'Hondt: ÷ 1, 2, 3…"}) sobre todas as vagas do estado, antes dos cortes do excedente — por fórmula, nas tabelas de quocientes abaixo (quociente = votos ÷ divisor − ordem × 0,000000001, o desempate do simulador).`]);
-  aba.add(['Regra atual (quociente eleitoral e sobras): sem conta fechada, porque o quociente e as sobras mudam junto com os votos — a planilha traz o valor do simulador e a prova: com os votos que faltam, a cadeira vem; com um a menos, não (e o mesmo para a folga).']);
+  aba.add(['Regra atual (quociente eleitoral e sobras): sem conta fechada, porque o quociente e as sobras mudam junto com os votos — a planilha traz o valor do simulador e a prova: com os votos que faltam, a cadeira vem (às vezes mais de uma); com um a menos, não (e o mesmo para a folga). Voto só no partido não elege quem não tem candidato com 10% do quociente (1ª fase) ou 20% (sobras): nesses estados, só a 3ª fase dá a cadeira, e o número fica alto.']);
   const cab = ['UF', 'Vagas', 'Agremiação', 'Votos', 'Cota (fórmula)', 'Faltam p/ +1 (fórmula)', 'Folga (fórmula)', 'Cota (simulador)', 'Faltam (simulador)', 'Folga (simulador)', 'Confere', 'Confere', 'Confere',
     'Regra atual: cadeiras', 'Faltam p/ +1', 'Folga', 'Cadeiras com + faltam', 'Com + faltam − 1', 'Confere', 'Cadeiras com − folga', 'Com − (folga + 1)', 'Confere'];
   const rCab = aba.prox();
@@ -528,9 +528,9 @@ function smAbaProxima(dados, ufs, sistemas, votosLinha, partido) {
       mc.cadeiras, nv(mc.falta), nv(mc.folga),
       smFConfere(`E${r}`, `H${r}`, s, mc.cadeiras), smFConfere(`F${r}`, `I${r}`, faltaV, nv(mc.falta)), smFConfere(`G${r}`, `J${r}`, folgaV, nv(mc.folga)),
       ma.cadeiras, nv(ma.falta), nv(ma.folga), pF1, pF0,
-      ma.falta == null ? '—' : { f: `IF(AND(Q${r}=N${r}+1,R${r}=N${r}),"${SM_SIM}","${SM_NAO}")`, v: pF1 === ma.cadeiras + 1 && pF0 === ma.cadeiras ? SM_SIM : SM_NAO },
+      ma.falta == null ? '—' : { f: `IF(AND(Q${r}>N${r},R${r}=N${r}),"${SM_SIM}","${SM_NAO}")`, v: pF1 > ma.cadeiras && pF0 === ma.cadeiras ? SM_SIM : SM_NAO },
       pG1, pG0,
-      ma.folga == null ? '—' : { f: `IF(AND(T${r}=N${r},U${r}=N${r}-1),"${SM_SIM}","${SM_NAO}")`, v: pG1 === ma.cadeiras && pG0 === ma.cadeiras - 1 ? SM_SIM : SM_NAO }]);
+      ma.folga == null ? '—' : { f: `IF(AND(T${r}>=N${r},U${r}<N${r}),"${SM_SIM}","${SM_NAO}")`, v: pG1 >= ma.cadeiras && pG0 < ma.cadeiras ? SM_SIM : SM_NAO }]);
   }
   aba.add([]);
   aba.add([`Tabelas de quocientes da cota (por estado): a agremiação do ${partido} na 1ª linha, as outras embaixo; votos da aba Votos.`]);
