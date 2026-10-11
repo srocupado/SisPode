@@ -34,6 +34,10 @@ const M = montar(globalThis.fetch);
 
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
+// PDF do Senado: o sdleg-getter, em https. Em 10/2026 a API de dados abertos passou a devolver
+// /sdleg-getter/dadosabertos/documento/<uuid> no lugar de /sdleg-getter/documento?dm=<n>
+// (mesmo domínio, PDF direto, sem redirecionar); as páginas do Congresso seguem com ?dm=.
+const PDF_SENADO = /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/(documento\?dm=\d+|dadosabertos\/documento\/[0-9a-f-]{36})$/;
 
 (async () => {
   console.log('== código da matéria no Senado ==');
@@ -52,8 +56,13 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   // sobre a contagem.
   const nums = [...new Set(em.map(e => e.numero))].sort((a, b) => a - b);
   ok(nums[0] === 1 && nums.every((n, i) => n === i + 1), `numeração contígua 1..${nums[nums.length - 1]}`);
-  ok(em.every(e => /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(e.url)),
+  ok(em.every(e => PDF_SENADO.test(e.url)),
      'todo PDF em https no sdleg-getter (o Senado responde http:// e a extensão só fala https)');
+  {
+    const r = await fetch(em[0].url, { method: 'HEAD' }).catch(() => null);
+    ok(r && r.ok && /pdf/i.test(r.headers.get('content-type') || '') && new URL(r.url).host === 'legis.senado.leg.br',
+       `o link baixa o PDF, no mesmo domínio (${r ? r.status + ' ' + r.headers.get('content-type') : 'sem resposta'})`);
+  }
   const e1 = em.find(e => e.numero === 1);
   ok(e1 && e1.autor === 'Aureo Ribeiro' && e1.partido === 'SOLIDARIEDADE',
      `emenda nº 1: ${e1?.autor} (${e1?.partido})`);
@@ -101,7 +110,7 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
     chamadas.length = 0;
     const viaSenado = await semPLVnaCamara.buscarPLVdaMPV(mpv1366);
     ok(viaSenado && viaSenado.rotulo === 'PLV 10/2026', `sem PLV na Câmara, o Senado resolve: ${viaSenado?.rotulo}`);
-    ok(viaSenado && /^https:\/\/legis\.senado\.leg\.br\/sdleg-getter\/documento\?dm=\d+$/.test(viaSenado.url),
+    ok(viaSenado && PDF_SENADO.test(viaSenado.url),
        'PDF do Senado em https');
     ok(viaSenado && /Senado/.test(viaSenado.fonte), `fonte declarada: ${viaSenado?.fonte}`);
     ok(chamadas.some(c => /Sem PAR nem PLV entre as \d+ relacionadas na Câmara/.test(c)),
