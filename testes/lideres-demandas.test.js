@@ -27,7 +27,8 @@ const sandbox = {
 const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
                   'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
                   'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail', 'historicoEmListas',
-                  'separarDemandasRelatorio', '_htmlRelatorioDemandas'];
+                  'separarDemandasRelatorio', '_htmlRelatorioDemandas',
+                  'tramiteDemanda', 'linhasTramite', 'situacaoDemanda', 'camposTramiteHTML'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -91,6 +92,111 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.montarEmailDemandas([dA]).includes('<Líder do PODEMOS>'), 'sem assinatura da API, fica o marcador — nunca nome errado');
   const jaComPonto = { ...dA, situacao: 'Urgência aprovada (REQ. 2708/2026).' };
   ok(!/\.\.$/m.test(L.blocoDemandaEmail(jaComPonto)), 'situação que já termina em ponto não ganha outro');
+
+  console.log('\n== tramiteDemanda: regime, relator e parecer (tramitações reais, congeladas) ==');
+  // Trechos das tramitações reais da API (ordem ascendente, como ela devolve).
+  const T = (dataHora, siglaOrgao, codTipoTramitacao, descricaoTramitacao, despacho) =>
+    ({ dataHora: dataHora + 'T10:00', siglaOrgao, codTipoTramitacao, descricaoTramitacao, despacho });
+  // PL 5839/2025 em 13/10/2026: relator designado na CME, sem parecer.
+  const tr5839 = L.tramiteDemanda(
+    { regime: 'Ordinário (Art. 151, III, RICD)', siglaOrgao: 'CME', descricaoSituacao: 'Aguardando Parecer' }, [
+      T('2025-11-13', 'MESA', '100', 'Apresentação de Proposição', 'Apresentação do PL n. 5839/2025'),
+      T('2025-11-14', 'MESA', '110', 'Distribuição', 'Às Comissões de Minas e Energia; Finanças e Tributação'),
+      T('2025-11-18', 'CME', '500', 'Recebimento', 'Recebimento pela CME.'),
+      T('2026-03-11', 'CME', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Adriano do Baldy (PP-GO).'),
+      T('2026-03-24', 'CME', '600', 'Encerramento de Prazo', 'Encerrado o prazo de 5 sessões.'),
+    ]);
+  const l5839 = L.linhasTramite(tr5839);
+  ok(l5839.regime === 'Ordinário (Art. 151, III, RICD)', 'regime vem da ficha');
+  ok(l5839.relator === 'Dep. Adriano do Baldy (PP-GO), na CME, desde 11/03/2026', `relator da comissão atual (${l5839.relator})`);
+  ok(l5839.parecer === 'não apresentado na CME', `sem parecer (${l5839.parecer})`);
+  ok(l5839.anteriores === '', 'sem comissões anteriores');
+
+  // PLP 78/2025: a ficha diz MESA (último ato foi um REQ), mas o projeto está
+  // na CTUR, cujo relator saiu; a CDU já aprovou parecer pela rejeição.
+  const tr78 = L.tramiteDemanda(
+    { regime: 'Prioridade (Art. 151, II, RICD)', siglaOrgao: 'MESA' }, [
+      T('2025-06-09', 'CDU', '500', 'Recebimento', 'Recebimento pela CDU.'),
+      T('2025-07-09', 'CDU', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Icaro de Valmir (PL-SE).'),
+      T('2025-11-12', 'CDU', '322', 'Parecer do(a) Relator(a)', 'Parecer do Relator, Dep. Icaro de Valmir (PL-SE), pela rejeição.'),
+      T('2025-11-26', 'CDU', '336', 'Aprovação do Parecer', 'Aprovado o Parecer.'),
+      T('2025-11-27', 'CCP', '604', 'Publicação de Proposição', 'Parecer recebido para publicação.'),
+      T('2025-11-27', 'CTUR', '500', 'Recebimento', 'Recebimento pelo(a) CTUR.'),
+      T('2025-12-02', 'CTUR', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Vermelho (PP-PR).'),
+      T('2026-04-22', 'CTUR', '1250', 'Saída de Relator(a) da Comissão - Sem Parecer', 'O Relator, Dep. Vermelho, deixou de ser membro da Comissão'),
+      T('2026-05-08', 'CTUR', '507', 'Recebimento - Relator(a) (Sem Manifestação)', 'Devolvida pelo Relator sem Manifestação.'),
+      T('2026-05-12', 'MESA', '194', 'Apresentação de Requerimento', 'Apresentação do REQ n. 2778/2026 (Requerimento de Urgência (Art. 155 do RICD))'),
+    ]);
+  const l78 = L.linhasTramite(tr78);
+  ok(tr78.orgao === 'CTUR', `comissão atual é a CTUR, não a MESA da ficha (${tr78.orgao})`);
+  ok(l78.relator === 'não designado na CTUR — Dep. Vermelho (PP-PR) deixou a relatoria em 22/04/2026', `relator que saiu não conta (${l78.relator})`);
+  ok(l78.parecer === 'não apresentado na CTUR', 'parecer da CDU não passa por parecer da CTUR');
+  ok(l78.anteriores === 'CDU: aprovado em 26/11/2025 (pela rejeição)', `parecer da comissão anterior (${l78.anteriores})`);
+
+  // PL 3052/2023: relator com ponto no nome, parecer aprovado na CCJC na forma
+  // do substitutivo de outra comissão; CCULT antes, com relatores que saíram.
+  const tr3052 = L.tramiteDemanda({ regime: 'Urgência', siglaOrgao: 'CCP' }, [
+    T('2023-08-04', 'CCULT', '500', 'Recebimento', 'Recebimento pela CCULT.'),
+    T('2023-08-24', 'CCULT', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Jeferson Rodrigues (REPUBLIC-GO)'),
+    T('2023-12-12', 'CCULT', '1250', 'Saída de Relator(a) da Comissão - Sem Parecer', 'O Relator, Dep. Jeferson Rodrigues, deixou de ser membro da Comissão'),
+    T('2024-08-14', 'CCULT', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Douglas Viegas (UNIÃO-SP)'),
+    T('2025-05-26', 'CCULT', '322', 'Parecer do(a) Relator(a)', 'Parecer do Relator, Dep. Douglas Viegas (UNIÃO-SP), pela aprovação, com substitutivo.'),
+    T('2025-05-28', 'CCULT', '336', 'Aprovação do Parecer', 'Aprovado o Parecer.'),
+    T('2025-06-12', 'CCJC', '500', 'Recebimento', 'Recebimento pela CCJC.'),
+    T('2025-11-03', 'CCJC', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Dr. Victor Linhalis (PODE-ES).'),
+    T('2025-11-18', 'CCJC', '322', 'Parecer do(a) Relator(a)', 'Parecer do Relator, Dep. Dr. Victor Linhalis (PODE-ES), pela constitucionalidade, juridicidade, técnica legislativa e, no mérito, pela aprovação deste, na forma do Substitutivo da Comissão de Cultura.'),
+    T('2025-11-26', 'CCJC', '336', 'Aprovação do Parecer', 'Aprovado o Parecer.'),
+    T('2025-11-27', 'CCP', '604', 'Publicação de Proposição', 'Encaminhada à publicação.'),
+  ]);
+  const l3052 = L.linhasTramite(tr3052);
+  ok(l3052.relator === 'Dep. Dr. Victor Linhalis (PODE-ES), na CCJC, desde 03/11/2025', `nome com ponto inteiro (${l3052.relator})`);
+  ok(l3052.parecer === 'apresentado em 18/11/2025 (pela aprovação, na forma do substitutivo da Comissão de Cultura); aprovado na comissão em 26/11/2025',
+     `conclusão de mérito e aprovação (${l3052.parecer})`);
+  ok(l3052.anteriores === 'CCULT: aprovado em 28/05/2025 (pela aprovação, com substitutivo)', `CCULT anterior (${l3052.anteriores})`);
+
+  // PL 3932/2024: urgência aprovada direto no Plenário, nenhum relator.
+  const l3932 = L.linhasTramite(L.tramiteDemanda({ regime: 'Urgência (Art. 155, RICD)', siglaOrgao: 'PLEN' }, [
+    T('2024-11-04', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Aprovado o requerimento nº 4402/2024'),
+  ]));
+  ok(l3932.relator === 'não designado no Plenário' && l3932.parecer === 'não apresentado no Plenário',
+     `sem relator nem parecer no Plenário (${l3932.relator} / ${l3932.parecer})`);
+
+  // Parecer de relator que já saiu, ainda não votado, diz de quem é.
+  const lSaiu = L.linhasTramite(L.tramiteDemanda({ siglaOrgao: 'CFT' }, [
+    T('2026-01-10', 'CFT', '500', 'Recebimento', 'Recebimento pela CFT.'),
+    T('2026-02-01', 'CFT', '320', 'Designação de Relator(a)', 'Designada Relatora, Dep. Ana Silva (PODE-SP).'),
+    T('2026-03-01', 'CFT', '322', 'Parecer do(a) Relator(a)', 'Parecer da Relatora, Dep. Ana Silva (PODE-SP), pela aprovação.'),
+    T('2026-04-01', 'CFT', '1255', 'Saída de Relator(a) da Comissão - Com Parecer', 'A Relatora, Dep. Ana Silva, deixou de ser membro da Comissão'),
+    T('2026-05-01', 'CFT', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. João Souza (PSD-MG).'),
+  ]));
+  ok(lSaiu.relator === 'Dep. João Souza (PSD-MG), na CFT, desde 01/05/2026', 'novo relator é o atual');
+  ok(lSaiu.parecer === 'apresentado em 01/03/2026 pela Dep. Ana Silva (PODE-SP) (pela aprovação); ainda não votado na comissão',
+     `parecer do relator anterior leva o nome (${lSaiu.parecer})`);
+  const lRegimeVazio = L.linhasTramite(L.tramiteDemanda(null, []));
+  ok(lRegimeVazio.regime === 'não informado' && lRegimeVazio.relator === 'não designado', 'sem ficha nem tramitação não quebra');
+  ok(L.linhasTramite(undefined) === null, 'demanda antiga (sem tramite) → null');
+  ok(L.camposTramiteHTML(undefined, 'x') === '', 'demanda antiga não ganha linhas vazias no cartão/PDF');
+  ok(/Pareceres anteriores: CDU/.test(L.camposTramiteHTML(tr78, 'dem-l', false)), 'PDF/cartão trazem os pareceres anteriores');
+  // Firebase devolve sem null nem lista vazia: campos ausentes são "não há".
+  const doFirebase = JSON.parse(JSON.stringify({ ...tr5839, parecer: undefined, anteriores: undefined, relatorSaiu: undefined }));
+  ok(JSON.stringify(L.linhasTramite(doFirebase)) === JSON.stringify(l5839), 'campos que o Firebase omite não mudam as linhas');
+
+  console.log('\n== situacaoDemanda: a mesma regra no registro e no ↻ ==');
+  ok(L.situacaoDemanda([], { descricaoSituacao: 'Aguardando Parecer' }) === 'Aguardando Parecer', 'sem urgência → situação oficial da ficha');
+  ok(L.situacaoDemanda([], null) === 'Não há requerimento de urgência apresentado.', 'sem ficha → frase fixa');
+  ok(L.situacaoDemanda([T('2024-11-04', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Aprovado o requerimento nº 4402/2024, que solicita urgência')],
+     { descricaoSituacao: 'Pronta para Pauta' }) === 'Urgência aprovada (REQ. 4402/2024)', 'urgência manda sobre a ficha');
+
+  console.log('\n== e-mail com regime, relator e parecer ==');
+  const blocoTr = L.blocoDemandaEmail({ ...dA, tramite: tr78 });
+  ok(blocoTr === [
+    '•\tPL 3932/2024', 'Autoria: Romero Rodrigues', `Ementa: ${dA.ementa}`, 'Situação: Urgência aprovada.',
+    'Regime de tramitação: Prioridade (Art. 151, II, RICD).',
+    'Relator: não designado na CTUR — Dep. Vermelho (PP-PR) deixou a relatoria em 22/04/2026.',
+    'Parecer: não apresentado na CTUR.',
+    'Pareceres anteriores: CDU: aprovado em 26/11/2025 (pela rejeição).'].join('\n'),
+    'bloco ganha as linhas depois da situação, com ponto final');
+  ok(!L.blocoDemandaEmail({ ...dA, tramite: tr5839 }).includes('Pareceres anteriores'), 'sem comissão anterior, sem a linha');
 
   console.log('\n== historicoEmListas: a demanda entrou em lista do sistema 1? ==');
   const reunioes = [
@@ -176,6 +282,11 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   // três frases fixas de situacaoDe (a do exemplo era o REQ 2778/2026).
   ok(/^(Urgência aprovada|Requerimento de urgência apresentado \(REQ n\. \d+\/\d{4}\)|Não há requerimento|Urgência indicada na lista)/.test(fatos.situacao),
      `situação numa das formas fixas (obtida: "${fatos.situacao}")`);
+
+  ok(fatos.tramite && /\(Art\. \d+/.test(fatos.tramite.regime), `regime da ficha veio (${fatos.tramite?.regime})`);
+  const lf = L.linhasTramite(fatos.tramite);
+  ok(lf && lf.relator && lf.parecer, `relator e parecer em frase (${lf?.relator} | ${lf?.parecer})`);
+  ok(/CDU: aprovado em 26\/11\/2025/.test(lf?.anteriores || ''), `parecer da CDU nas anteriores (${lf?.anteriores})`);
 
   const inexistente = await L.fatosDaDemanda(L.refDemanda('PL 999999/2026')).then(() => null, e => e.message);
   ok(/não localizada/.test(inexistente || ''), 'proposição inexistente dá erro claro, não registro vazio');

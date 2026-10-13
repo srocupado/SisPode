@@ -53,7 +53,8 @@ function siSistemas() {
       terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked } },
     { id: 'distritao', nome: SI_NOMES.distritao, tipo: 'distritao', op: {} },
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
-      pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100 } },
+      pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
+      arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
     { id: 'distrital', nome: SI_NOMES.distrital, tipo: 'distrital', op: {
       pctDistrital: siNumero('dPct', 50) / 100, regra: ($('dRegra').querySelector('.ativo') || {}).dataset.r || 'partido',
       modelo: ($('dModelo').querySelector('.ativo') || {}).dataset.m || 'paralelo', limiar: siNumero('dLim', 0) / 100,
@@ -67,9 +68,18 @@ function siSistemas() {
 function siAlterado(s) {
   const o = s.op;
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
-  if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0;
+  if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0 || o.arred !== 'proximo' || !!o.votoLiquido;
   if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
   return false;
+}
+/** Distritão misto com redução v3: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
+function siEhReducaoV3(o) {
+  return o.pctMaisVotados === 0.5 && o.arred === 'baixo' && !!o.votoLiquido && o.modelo === 'compensatorio' && o.limiar === 0;
+}
+/** Distrital misto da Versão Minuta: metade (arredondada para cima), por população, ±5%; vence o distrito o candidato mais votado (um por partido: o mais votado de cada partido ali); compensatório. */
+function siEhMinuta(o) {
+  return o.pctDistrital === 0.5 && o.regra === 'candidato' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'proximo'
+    && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
 }
 /** Distrital misto com as regras do PL 9.212/2017 (PLS 86/2017, aprovado pelo Senado). */
 function siEhSenado(o) {
@@ -183,8 +193,11 @@ function siDescricao(s, curta) {
       + `3ª fase ${o.terceiraFaseAberta ? 'aberta a todas' : 'só com as de ' + siPct(o.pctPartido)}; ${o.federacoes ? 'com' : 'sem'} federações` : 'regra vigente (10% · 80/20 · 3ª fase aberta · federações)';
   }
   if (s.tipo === 'misto') {
+    if (siEhReducaoV3(o)) return curta ? 'Distritão Misto com redução v3' : 'Distritão Misto com redução v3: metade das vagas (parte inteira) aos mais votados; as vagas da Casa pelas maiores médias sobre o voto partidário líquido (a votação do partido menos a dos seus eleitos na 1ª parte); excedente cortado das últimas posições da lista, sem aumentar a Casa';
     return `${siPct(o.pctMaisVotados)} mais votados · ${siPct(1 - o.pctMaisVotados)} lista, ${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}`
-      + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '');
+      + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
+      + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de mais votados pela parte inteira') : '')
+      + (o.votoLiquido ? ' · voto partidário líquido' : '');
   }
   if (s.tipo === 'distrital') {
     const voto = (o.aliancas && o.aliancas.length ? (curta ? ` · ${o.aliancas.length} aliança${o.aliancas.length > 1 ? 's' : ''}` : ` · alianças no distrito: ${o.aliancas.map(x => x.join(' + ')).join('; ')}`) : '');
@@ -193,9 +206,11 @@ function siDescricao(s, curta) {
       : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
     if (siEhCcj(o)) return (curta ? 'como no substitutivo da CCJ (PL 9.212)'
       : 'como no substitutivo da CCJ da Câmara ao PL 9.212/2017 (2021): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
+    if (siEhMinuta(o)) return (curta ? 'Versão Minuta'
+      : 'Versão Minuta: voto único; metade das vagas em distritos (arredondada para cima), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); vence o distrito o candidato com mais votos nominais (a legenda não conta); cota pelas maiores médias; excedente sem aumentar a Casa') + des + voto;
     if (siEh9213(o)) return (curta ? 'como no PL 9.213/2017 (Senado)'
       : 'como no PL 9.213/2017 (PLS 345/2017, apensado): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, e o excedente aumenta a Câmara') + des + voto;
-    return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato' : 'o partido'} mais votado leva) · ${siPct(1 - o.pctDistrital)} lista, `
+    return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato mais votado leva' : o.regra === 'partidoNominal' ? 'o partido com mais votos nominais leva' : 'o partido mais votado leva'}) · ${siPct(1 - o.pctDistrital)} lista, `
       + `${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}` + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
       + (o.base === 'populacao' ? (curta ? ' · por população' : ' · distritos de população parecida (Censo 2022)') : (curta ? '' : ' · distritos de eleitorado parecido'))
       + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de distritos pela parte inteira') : '')
@@ -213,6 +228,9 @@ function siMarcarAlterados() {
   $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
   $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
   $('dSenado').classList.toggle('proj-ok', siEhSenado(ss[3].op));
+  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(ss[3].op));
+  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(ss[2].op));
+  $('mLiqLin').classList.toggle('off', !$('mLiq').checked);
   $('dCcj').classList.toggle('proj-ok', siEhCcj(ss[3].op));
   $('d9213').classList.toggle('proj-ok', siEh9213(ss[3].op));
   $('dExcBtn').textContent = (ss[3].op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
@@ -246,14 +264,15 @@ function siFaixa(ss) {
     const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op))))}</div></div>`;
+      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
 }
 function siRegraVigente() {
   $('pQP').value = 10; $('pPart').value = 80; $('pCand').value = 20; $('pTerc').checked = true; $('pFed').checked = true;
-  $('mPct').value = 50; $('mLim').value = 0; $('dPct').value = 50; $('dLim').value = 0;
+  $('mPct').value = 50; $('mLim').value = 0; $('dPct').value = 50; $('dLim').value = 0; $('mLiq').checked = false;
+  for (const b of $('mArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
   for (const id of ['mModelo', 'dModelo']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.m === 'paralelo');
   for (const b of $('dRegra').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.r === 'partido');
   for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
@@ -267,10 +286,20 @@ function siRegraVigente() {
 function siRegraProjeto(qual) {
   $('dPct').value = 50; $('dLim').value = 0;
   const marca = (id, attr, v) => { for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset[attr] === v); };
-  const eleit = qual !== 'senado';
+  const eleit = qual === 'ccj' || qual === '9213';
   marca('dRegra', 'r', 'partido'); marca('dModelo', 'm', 'compensatorio'); marca('dBase', 'b', eleit ? 'eleitorado' : 'populacao'); marca('dArr', 'a', 'baixo');
   si.tol = Object.assign({}, eleit ? SD_TOL_CCJ : SD_TOL_SENADO, { modo: si.tol.modo });
   si.exc = { regra: qual === '9213' ? 'cresce' : 'corta', teto: null, divisor: 'dhondt' };
+  if (qual === 'minuta') {   // por população, ±5%, metade arredondada para cima, vence o distrito o candidato com mais votos nominais
+    marca('dRegra', 'r', 'candidato'); marca('dBase', 'b', 'populacao'); marca('dArr', 'a', 'proximo');
+    si.tol = Object.assign({}, SD_TOL_SENADO, { modo: si.tol.modo });
+  }
+  siParametrosMudaram();
+}
+/** Distritão misto com redução v3; os outros sistemas ficam como estão. */
+function siReducaoV3() {
+  $('mPct').value = 50; $('mLim').value = 0; $('mLiq').checked = true;
+  for (const [id, attr, v] of [['mModelo', 'm', 'compensatorio'], ['mArr', 'a', 'baixo']]) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset[attr] === v);
   siParametrosMudaram();
 }
 const siRegraSenado = () => siRegraProjeto('senado');
@@ -1244,7 +1273,7 @@ function siMetodoHtml() {
   if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
     + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `
-    + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
+    + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : sist.distrital.op.regra === 'partidoNominal' ? 'a agremiação com mais votos nominais nele (a legenda não conta), com o seu candidato mais votado ali — com um candidato por partido, os votos nominais do partido no distrito seriam os dele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
   if (sist.distrital && Object.values(sist.distrital.op.porUf || {}).some(x => x.desenho.locais)) li.push('<b>Locais de votação.</b> Onde as zonas eleitorais eram grandes demais para caber na tolerância do PL 9.212 ('
     + Object.entries(sist.distrital.op.porUf).filter(([, x]) => x.desenho.locais).map(([uf]) => uf.toUpperCase()).sort().join(', ')
     + '), as zonas na fronteira entre distritos (e, se preciso, os municípios) se dividiram nos seus locais de votação (cadastro de locais do TSE: eleitores e posição), e as trocas na fronteira continuaram com essas peças, pesando também a compacidade. '
@@ -1266,6 +1295,12 @@ function siMetodoHtml() {
         compensa: 'Excedente: a Casa cresce até a cota de todos cobrir os distritos ganhos (compensação total, como na Alemanha de 2013 a 2023).',
         naoLeva: 'Excedente: o distrito além da cota não dá cadeira — sai o vencedor de menor votação relativa no distrito, que segue na disputa da lista (como na Alemanha desde 2023); a Casa não cresce.' }[r]) + teto);
   }
+  if (sist.misto && siEhReducaoV3(sist.misto.op)) li.push('<b>Distritão Misto com redução v3.</b> O distritão misto segue a minuta de projeto de lei do distritão misto com redução (v3, 2026): metade das cadeiras da circunscrição, apurada pela parte inteira, aos candidatos mais votados (art. 10, § 3º, da Lei 9.504 proposto); '
+    + 'o voto partidário é a votação do partido (nominais + legenda) menos os votos nominais dos seus eleitos na 1ª parte — o voto partidário líquido (art. 106, § 1º); as cadeiras da Casa são distribuídas pelas maiores médias sobre ele (art. 107), os eleitos na 1ª parte contam dentro delas, '
+    + 'e, se um partido elegeu mais do que isso, fica com eles e as vagas saem das últimas posições da lista, sem aumentar a Casa (art. 108, parágrafo único). Lista preordenada com alternância de sexo a cada duas posições (aqui, na ordem de votos). Reproduz a simulação do próprio projeto (9 vagas: A 3, B 3, C 3).');
+  if (sist.distrital && siEhMinuta(sist.distrital.op)) li.push('<b>Versão Minuta.</b> O distrital misto segue a minuta de projeto de lei de distrital misto de voto único (2025): voto único, dado ao candidato do distrito ou à legenda (art. 59, § 2º, proposto) — como nos dados do TSE; '
+    + 'distritos em número igual à metade das vagas, arredondada para cima (art. 10, § 5º), por habitantes do último Censo com até ±5% (±10% em 1 distrito ou em 10% deles), contíguos e compactos; vence o distrito o candidato com mais votos nominais válidos (art. 105-A) — um por partido: aqui, o mais votado de cada partido no distrito, com os seus votos pessoais (a alternativa "Partido (só nominais)" supõe que todos os votos nominais do partido se juntariam no candidato único); '
+    + 'a cota de cada partido pelas maiores médias sobre nominais + legenda (art. 105-B); o excedente substitui as vagas de outros na ordem inversa da lista, sem aumentar a Casa (art. 105-C). Simulada só para deputado federal (para estaduais, o projeto não diz quantos vencem em cada distrito).');
   if (sist.distrital && siEh9213(sist.distrital.op)) li.push('<b>PL 9.213/2017.</b> O distrital misto segue o PL 9.213/2017 (PLS 345/2017, do senador Eunício Oliveira, aprovado pelo Senado em 21/11/2017 com o PLS 86 e apensado ao PL 9.212 na Câmara): '
     + 'distritos em número igual à parte inteira da metade das vagas, desenhados por eleitores com até ±10% do alvo, contíguos; o total de cada partido pelo princípio da proporcionalidade (aqui, as maiores médias) e, se um partido ganha mais distritos do que isso, a diferença é acrescida ao total de deputados (art. 105-B, § 2º).');
   if (sist.distrital && siEhSenado(sist.distrital.op)) li.push('<b>Projeto do Senado.</b> O distrital misto segue o PL 9.212/2017 (PLS 86/2017, do senador José Serra, aprovado pelo Senado em 21/11/2017 e na CCJ da Câmara desde então; o PLS 345/2017, aprovado no mesmo dia, é o PL 9.213/2017, apensado): '
@@ -1809,9 +1844,11 @@ async function siIniciar() {
   $('dSenado').addEventListener('click', siRegraSenado);
   $('dCcj').addEventListener('click', () => siRegraProjeto('ccj'));
   $('d9213').addEventListener('click', () => siRegraProjeto('9213'));
+  $('dMinuta').addEventListener('click', () => siRegraProjeto('minuta'));
+  $('mReducaoV3').addEventListener('click', siReducaoV3);
   siLigarTolerancia();
   siLigarExcedente();
-  for (const [id, attr] of [['mModelo', 'm'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a']]) {
+  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);
       if (!b) return;
@@ -1832,7 +1869,7 @@ async function siIniciar() {
     si.aliancas.splice(Number(b.dataset.rm), 1);
     siParametrosMudaram();
   });
-  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'dPct', 'dLim', 'dAli']) {
+  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'dPct', 'dLim', 'dAli', 'mLiq']) {
     $(id).addEventListener('input', siParametrosMudaram);
     $(id).addEventListener('change', siParametrosMudaram);
   }
