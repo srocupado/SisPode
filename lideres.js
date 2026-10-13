@@ -2398,6 +2398,195 @@ async function autoriaDemanda(idProp) {
   return `${a.nome || ''}${sufixo}`.trim();
 }
 
+// ---------- Regime, relator e parecer (regra fixa, não IA) ----------
+// Lidos da ficha (statusProposicao.regime) e da tramitação. O que importa é a
+// comissão ONDE O PROJETO ESTÁ: a do último recebimento ou designação de
+// relator — o statusProposicao.siglaOrgao não serve sozinho, porque aponta
+// MESA ou CCP sempre que o último ato foi um requerimento ou uma publicação
+// (PLP 78/2025 está na CTUR, e a ficha diz MESA). Das comissões por onde ele
+// já passou, fica uma linha curta com o parecer de cada uma.
+const _ORGAOS_SEM_RELATOR = new Set(['MESA', 'CCP', 'SGM', 'SECAP', 'COPER']);
+const _dia = t => String(t?.dataHora || '').slice(0, 10);
+const _ehDesignacao = t => t.codTipoTramitacao === '320' || /designa[çc][ãa]o de relator/i.test(t.descricaoTramitacao || '');
+const _ehSaida = t => ['1250', '1255', '507'].includes(t.codTipoTramitacao) ||
+  /sa[íi]da de relator|devolvida pel[oa] relator[a]? sem manifesta/i.test(`${t.descricaoTramitacao || ''} ${t.despacho || ''}`);
+const _ehParecer = t => t.codTipoTramitacao === '322' || /^parecer do\(a\) relator/i.test(t.descricaoTramitacao || '');
+const _ehAprovacao = t => t.codTipoTramitacao === '336' || /aprova[çc][ãa]o do parecer/i.test(t.descricaoTramitacao || '');
+const _ehRejeicao = t => /rejei[çc][ãa]o do parecer/i.test(t.descricaoTramitacao || '');
+
+/** "Designado Relator, Dep. Adriano do Baldy (PP-GO)." → "Dep. Adriano do Baldy (PP-GO)". */
+function _deputadoDoDespacho(desp) {
+  // O nome pode ter ponto ("Dep. Dr. Victor Linhalis (PODE-ES)"): o que
+  // encerra o nome é o parêntese do partido, ou a vírgula quando não há.
+  const m = String(desp || '').match(/Dep(?:utad[oa])?\.?\s*([^(,;]+?)\s*\(([^)]+)\)/i);
+  if (m) return `Dep. ${m[1].trim()} (${m[2].trim().replace(/\s*\/\s*/, '-')})`;
+  const s = String(desp || '').match(/Dep(?:utad[oa])?\.?\s*([^(,;]+)/i);
+  return s ? `Dep. ${s[1].trim().replace(/\.$/, '')}` : '';
+}
+
+/** O voto do parecer em poucas palavras: "pela aprovação, com substitutivo". */
+function _conclusaoParecer(desp) {
+  const s = String(desp || '');
+  const merito = [...s.matchAll(/pela?\s+(aprova[çc][ãa]o|rejei[çc][ãa]o)/gi)].pop();
+  if (!merito) return '';
+  const voto = /rejei/i.test(merito[1]) ? 'pela rejeição' : 'pela aprovação';
+  if (voto === 'pela rejeição' || !/substitutivo/i.test(s)) return voto;
+  // "na forma do Substitutivo da Comissão de Cultura" — o substitutivo é de
+  // outra comissão, e isso é o fato que interessa.
+  const de = s.match(/na forma do substitutivo d[ao] (Comiss[ãa]o d[eao]s? [^.,;]+?|[A-Z]{3,})(?=[.,;]|$)/i);
+  return de ? `${voto}, na forma do substitutivo da ${de[1].replace(/^Comiss[ãa]o/i, 'Comissão')}` : `${voto}, com substitutivo`;
+}
+
+/** Fatos de relatoria e parecer, por comissão, a partir da tramitação
+ *  (ordem ascendente, como vem da API) e do statusProposicao da ficha. */
+function tramiteDemanda(status, trams) {
+  const lista = trams || [];
+  // Fases: uma por órgão, na ordem em que o projeto passou por eles.
+  const fases = new Map();
+  const fase = o => {
+    if (!fases.has(o)) fases.set(o, { orgao: o, ultimo: -1, designacoes: [], saidas: [], pareceres: [], aprovacoes: [], rejeicoes: [] });
+    return fases.get(o);
+  };
+  lista.forEach((t, i) => {
+    const o = t.siglaOrgao;
+    if (!o || _ORGAOS_SEM_RELATOR.has(o)) return;
+    const f = fase(o);
+    const recebe = t.codTipoTramitacao === '500' || /^recebimento$/i.test(t.descricaoTramitacao || '');
+    if (recebe || _ehDesignacao(t)) f.ultimo = i;
+    if (_ehDesignacao(t)) f.designacoes.push(i);
+    if (_ehSaida(t)) f.saidas.push(i);
+    if (_ehParecer(t)) f.pareceres.push(i);
+    if (_ehAprovacao(t)) f.aprovacoes.push(i);
+    if (_ehRejeicao(t)) f.rejeicoes.push(i);
+  });
+  const comPasso = [...fases.values()].filter(f => f.ultimo >= 0);
+  const st = status?.siglaOrgao;
+  let atual = comPasso.length ? comPasso.reduce((a, b) => (b.ultimo > a.ultimo ? b : a)) : null;
+  // Sem recebimento nem designação lidos, vale o órgão da ficha (PL 3932/2024:
+  // urgência aprovada direto no Plenário).
+  if (!atual && st && !_ORGAOS_SEM_RELATOR.has(st)) atual = fase(st);
+
+  const parecerDe = f => {
+    const ip = f.pareceres[f.pareceres.length - 1];
+    if (ip === undefined) return null;
+    const t = lista[ip];
+    const ia = f.aprovacoes.find(i => i > ip);
+    const ir = f.rejeicoes.find(i => i > ip);
+    return {
+      data: _dia(t),
+      relator: _deputadoDoDespacho(t.despacho),
+      relatora: /relatora/i.test(t.despacho || ''),
+      conclusao: _conclusaoParecer(t.despacho),
+      plenario: f.orgao === 'PLEN',
+      aprovadoEm: ia !== undefined && (ir === undefined || ia > ir) ? _dia(lista[ia]) : '',
+      rejeitadoEm: ir !== undefined && (ia === undefined || ir > ia) ? _dia(lista[ir]) : '',
+    };
+  };
+
+  let relator = null, relatorSaiu = null, parecer = null;
+  if (atual) {
+    const id = atual.designacoes[atual.designacoes.length - 1];
+    if (id !== undefined) {
+      const t = lista[id];
+      const nome = _deputadoDoDespacho(t.despacho);
+      const saida = atual.saidas.find(i => i > id);
+      if (saida === undefined) relator = { nome, desde: _dia(t), relatora: /relatora/i.test(t.despacho || '') };
+      else relatorSaiu = { nome, em: _dia(lista[saida]) };
+    }
+    parecer = parecerDe(atual);
+  }
+  const anteriores = comPasso
+    .filter(f => f !== atual)
+    .map(f => ({ orgao: f.orgao, parecer: parecerDe(f) }))
+    .filter(a => a.parecer)
+    .map(a => ({ orgao: a.orgao, ...a.parecer }));
+
+  return {
+    regime: String(status?.regime || '').trim(),
+    orgao: atual?.orgao || '',
+    relator, relatorSaiu, parecer, anteriores,
+  };
+}
+
+/** Os fatos de tramiteDemanda em frases, as mesmas no cartão, no PDF e no
+ *  e-mail. Demanda registrada antes deste campo (sem `tramite`) → null, e
+ *  nada se mostra até o próximo ↻. O Firebase não guarda null nem lista
+ *  vazia — campo ausente é tratado como "não há". */
+function linhasTramite(tr) {
+  if (!tr) return null;
+  // Comissão especial tem sigla de proposição ("PL233823") — dizer o nome.
+  const no = tr.orgao === 'PLEN' ? 'no Plenário'
+    : /^[A-Z]+\d{5,}$/.test(tr.orgao || '') ? 'na comissão especial'
+    : tr.orgao ? `na ${tr.orgao}` : '';
+  let relator;
+  if (tr.relator) {
+    relator = `${tr.relator.nome || 'designado'}${tr.orgao ? `, ${no}` : ''}, desde ${dataBR(tr.relator.desde)}`;
+  } else if (tr.relatorSaiu) {
+    relator = `não designado${tr.orgao ? ` ${no}` : ''} — ${tr.relatorSaiu.nome || 'o relator anterior'} deixou a relatoria em ${dataBR(tr.relatorSaiu.em)}`;
+  } else {
+    relator = `não designado${tr.orgao ? ` ${no}` : ''}`;
+  }
+  const frase = (p, comRelator) => {
+    let f = p.plenario ? `proferido em Plenário em ${dataBR(p.data)}` : `apresentado em ${dataBR(p.data)}`;
+    if (comRelator && p.relator) f += ` ${p.relatora ? 'pela' : 'pelo'} ${p.relator}`;
+    if (p.conclusao) f += ` (${p.conclusao})`;
+    if (p.aprovadoEm) f += `; aprovado na comissão em ${dataBR(p.aprovadoEm)}`;
+    else if (p.rejeitadoEm) f += `; rejeitado na comissão em ${dataBR(p.rejeitadoEm)}`;
+    else if (!p.plenario) f += '; ainda não votado na comissão';
+    return f;
+  };
+  let parecer;
+  if (tr.parecer) {
+    // Parecer de quem já não é o relator diz de quem é — senão parece do atual.
+    const outro = !tr.relator || (tr.parecer.relator && tr.relator.nome !== tr.parecer.relator);
+    parecer = frase(tr.parecer, outro);
+  } else {
+    parecer = `não apresentado${tr.orgao ? ` ${no}` : ''}`;
+  }
+  const anteriores = (tr.anteriores || []).map(a => {
+    if (a.plenario) return `PLEN: proferido em ${dataBR(a.data)}`;
+    if (a.aprovadoEm) return `${a.orgao}: aprovado em ${dataBR(a.aprovadoEm)}${a.conclusao ? ` (${a.conclusao})` : ''}`;
+    if (a.rejeitadoEm) return `${a.orgao}: rejeitado em ${dataBR(a.rejeitadoEm)}`;
+    return `${a.orgao}: apresentado em ${dataBR(a.data)}, não votado`;
+  }).join('; ');
+  return { regime: tr.regime || 'não informado', relator, parecer, anteriores };
+}
+
+/** Situação da demanda: a regra de urgência do sistema 1 manda quando há
+ *  sinal de urgência; quando NÃO há, a situação oficial da ficha é o fato
+ *  útil — para um RCP aguardando despacho do Presidente, dizer "não há
+ *  requerimento de urgência" é verdadeiro e inútil. A mesma regra no registro
+ *  e no ↻: com regras diferentes, o ↻ trocava a situação oficial por "Não há
+ *  requerimento…" e acendia "situação mudou" sem nada ter mudado. */
+function situacaoDemanda(trams, status) {
+  const sit = situacaoDe(trams, '');
+  const oficial = String(status?.descricaoSituacao || '').trim();
+  return /^Não há requerimento/.test(sit) && oficial ? oficial : sit;
+}
+
+/** As linhas de regime, relator e parecer em HTML, com a classe de cada
+ *  lugar (prévia do registro, cartão, PDF). `negrito` = false no PDF, onde
+ *  as demais linhas também vão sem negrito. */
+function camposTramiteHTML(tr, classe, negrito = true) {
+  const l = linhasTramite(tr);
+  if (!l) return '';
+  const v = x => negrito ? `<b>${esc(x)}</b>` : esc(x);
+  return `<div class="${classe}">Regime de tramitação: ${v(l.regime)}</div>
+    <div class="${classe}">Relator: ${v(l.relator)}</div>
+    <div class="${classe}">Parecer: ${v(l.parecer)}</div>${l.anteriores
+      ? `\n    <div class="${classe}">Pareceres anteriores: ${esc(l.anteriores)}</div>` : ''}`;
+}
+
+/** statusProposicao da ficha; null quando a consulta falhou. */
+async function buscarStatusProposicao(idCamara) {
+  if (!idCamara) return null;
+  try {
+    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}`);
+    if (!r.ok) return null;
+    return (await r.json()).dados?.statusProposicao || null;
+  } catch (_) { return null; }
+}
+
 /** Fatos da proposição para o registro — sem IA, direto da fonte. */
 async function fatosDaDemanda(ref) {
   const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${ref.sigla}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
@@ -2413,18 +2602,12 @@ async function fatosDaDemanda(ref) {
   // O registro da demanda só existe com os fatos apurados na fonte: sem
   // tramitação lida, não se inventa situação (o botão Registrar depende disto).
   if (!trams) throw new Error(`${ref.chave}: não consegui ler a tramitação na Câmara agora. Tente de novo em instantes.`);
-  // Situação: a regra de urgência do sistema 1 continua mandando quando há
-  // sinal de urgência. Mas quando NÃO há ("Não há requerimento…"), a situação
-  // oficial da ficha é o fato útil — para um RCP aguardando despacho do
-  // Presidente, dizer "não há requerimento de urgência" é verdadeiro e inútil.
-  let situacao = situacaoDe(trams, '');
-  const oficial = detalhe.statusProposicao?.descricaoSituacao || '';
-  if (/^Não há requerimento/.test(situacao) && oficial.trim()) situacao = oficial.trim();
   return {
     idCamara: item.id,
     ementa:   detalhe.ementa || item.ementa || '',
     autoria,
-    situacao,
+    situacao: situacaoDemanda(trams, detalhe.statusProposicao),
+    tramite:  tramiteDemanda(detalhe.statusProposicao, trams),
   };
 }
 
@@ -2456,7 +2639,8 @@ async function buscarDadosDemanda() {
     prev.innerHTML = `<div class="rot">${esc(ref.chave)} — dados da API da Câmara</div>
       <div class="campo-fixo">Autoria: <b>${esc(fatos.autoria || 'não informada')}</b></div>
       <div class="campo-fixo">Ementa: <b>${esc(fatos.ementa || '—')}</b></div>
-      <div class="campo-fixo">Situação: <b>${esc(fatos.situacao)}</b></div>`;
+      <div class="campo-fixo">Situação: <b>${esc(fatos.situacao)}</b></div>
+      ${camposTramiteHTML(fatos.tramite, 'campo-fixo')}`;
     document.getElementById('btn-dem-registrar').disabled = false;
   } catch (e) {
     _demandaPreparada = null;
@@ -2643,7 +2827,7 @@ function cardDemandaHTML(d) {
       ${mudou ? '<span class="dem-pill-mudou" title="A situação de hoje é diferente da do dia do registro">situação mudou desde o registro</span>' : ''}
       <span class="dem-card-acoes">
         ${btnAtend}
-        <button class="dem-btn-ico" data-acao="atualizar" data-id="${esc(d.id)}" title="Reconsultar a situação na Câmara">↻</button>
+        <button class="dem-btn-ico" data-acao="atualizar" data-id="${esc(d.id)}" title="Reconsultar na Câmara a situação, o regime, o relator e o parecer">↻</button>
         <button class="dem-btn-ico" data-acao="apagar" data-id="${esc(d.id)}" title="Apagar demanda">🗑</button>
       </span>
     </div>
@@ -2651,6 +2835,8 @@ function cardDemandaHTML(d) {
     <div class="dem-campo">Autoria: <b>${esc(d.autoria || 'não informada')}</b></div>
     <div class="dem-campo">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-campo">Situação: <b>${esc(d.situacao)}</b></div>
+    ${d.tramite ? camposTramiteHTML(d.tramite, 'dem-campo')
+      : '<div class="dem-campo">Regime, relator e parecer: <span class="dem-listas-nunca">registrada antes destes campos — ↻ busca na Câmara</span></div>'}
     <div class="dem-campo">Listas do Colégio: ${listas}</div>
     <div class="dem-meta">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))}${ficha}</div>
   </div>`;
@@ -2667,21 +2853,29 @@ async function apagarDemanda(d) {
 
 /** Reconsulta a situação na Câmara; devolve true se mudou. */
 async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
-  const trams = await buscarTramitacoes(d.idCamara);
+  const [trams, status] = await Promise.all([buscarTramitacoes(d.idCamara), buscarStatusProposicao(d.idCamara)]);
   // Falha de consulta NÃO é "não há requerimento": sem isto, uma oscilação da
   // API sobrescrevia "Urgência aprovada (REQ. n/aaaa)" no Firebase da equipe e
-  // ainda anunciava "situação atualizada".
-  if (!trams) throw new Error(`${d.chave}: a consulta de tramitação na Câmara falhou — a situação registrada foi mantida.`);
-  const nova = situacaoDe(trams, '');
+  // ainda anunciava "situação atualizada". O mesmo vale para a ficha: sem ela
+  // não há regime nem situação oficial, e o registro fica como estava.
+  if (!trams || !status) throw new Error(`${d.chave}: a consulta à Câmara falhou — a situação registrada foi mantida.`);
+  const nova = situacaoDemanda(trams, status);
+  const tramite = tramiteDemanda(status, trams);
   const mudou = nova !== d.situacao;
-  if (mudou) {
+  // Relator e parecer novos também se gravam, mas quem acende "situação
+  // mudou" e conta no aviso do e-mail continua sendo só a situação.
+  const tramiteMudou = JSON.stringify(linhasTramite(tramite)) !== JSON.stringify(linhasTramite(d.tramite));
+  if (mudou || tramiteMudou) {
     d.situacao = nova;
+    d.tramite = tramite;
     d.atualizadaEm = new Date().toISOString();
     try { await fbDemandaSalvar(d); } catch (_) { /* fica na tela */ }
   }
   if (!silencioso) {
     renderizarDemandas();
-    mostrarToast(mudou ? `Situação de ${d.chave} atualizada.` : `${d.chave}: situação não mudou.`, mudou ? 'sucesso' : '');
+    mostrarToast(mudou ? `Situação de ${d.chave} atualizada.`
+      : tramiteMudou ? `${d.chave}: regime, relator ou parecer atualizado.`
+      : `${d.chave}: nada mudou.`, mudou || tramiteMudou ? 'sucesso' : '');
   }
   return mudou;
 }
@@ -2762,6 +2956,7 @@ function _blocoRelatorioHTML(d, reunioes) {
     <div class="dem-t">${esc(d.chave)} — ${esc(d.natureza)}</div>
     <div class="dem-l">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))} · Autoria: ${esc(d.autoria || 'não informada')}</div>
     <div class="dem-l">Situação: ${esc(sit)}</div>
+    ${camposTramiteHTML(d.tramite, 'dem-l', false)}
     <div class="dem-l">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-l">Listas do Colégio: ${esc(listas)}</div>
     ${d.atendimento ? `<div class="dem-l dem-ok">✔ Atendida — ${esc(d.atendimento.rotulo)}${d.atendimento.em ? ` (marcada em ${dataBR(String(d.atendimento.em).slice(0, 10))})` : ''}</div>` : ''}
@@ -2912,12 +3107,23 @@ function autoriaSemPartido(autoria) {
   return String(autoria || '').replace(/\s+[^\s/]+\/[A-Z]{2}(?=( e outros)?$)/, '');
 }
 
+// Regime, relator e parecer vêm DEPOIS da situação, uma linha cada, com o
+// mesmo ponto final; demanda registrada antes desses campos (sem `tramite`)
+// sai exatamente no modelo de 11/08/2026 até o próximo ↻.
 function blocoDemandaEmail(d) {
-  const sit = (d.situacao || '').trim();
-  return [`•\t${d.chave}`,
+  const ponto = x => { const t = String(x || '').trim(); return /[.!?]$/.test(t) ? t : t + '.'; };
+  const linhas = [`•\t${d.chave}`,
           `Autoria: ${autoriaSemPartido(d.autoria) || 'não informada'}`,
           `Ementa: ${d.ementa || '—'}`,
-          `Situação: ${/[.!?]$/.test(sit) ? sit : sit + '.'}`].join('\n');
+          `Situação: ${ponto(d.situacao)}`];
+  const tr = linhasTramite(d.tramite);
+  if (tr) {
+    linhas.push(`Regime de tramitação: ${ponto(tr.regime)}`,
+                `Relator: ${ponto(tr.relator)}`,
+                `Parecer: ${ponto(tr.parecer)}`);
+    if (tr.anteriores) linhas.push(`Pareceres anteriores: ${ponto(tr.anteriores)}`);
+  }
+  return linhas.join('\n');
 }
 
 /** E-mail completo no modelo da Liderança. A assinatura vem de

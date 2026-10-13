@@ -77,13 +77,24 @@ function carregarPagina(html, extras = {}) {
     ok(L.av('__d.situacao') === 'Urgência aprovada (REQ. 123/2026)', 'a urgência aprovada permanece no registro');
     ok(L.av('__gravou') === 0, 'e nada é gravado no Firebase compartilhado');
 
+    // 3b. tramitação respondendo, mas a FICHA (regime, situação oficial) fora
+    // do ar: também não grava nada — o ↻ lê as duas.
+    L.ctx.__rotas.length = 0;
+    rota(/\/tramitacoes/, json({ dados: [] }));
+    erro = null;
+    try { await L.av('atualizarSituacaoDemanda(__d)'); } catch (e) { erro = e; }
+    ok(!!erro && L.av('__d.situacao') === 'Urgência aprovada (REQ. 123/2026)' && L.av('__gravou') === 0,
+       'ficha fora do ar: falha declarada, situação mantida, nada gravado');
+
     // 4. com a API respondendo, a mudança real é registrada
     L.ctx.__rotas.length = 0;
     rota(/\/tramitacoes/, json({ dados: [{ descricaoTramitacao: 'Aprovação de Urgência', despacho: 'Aprovado o Requerimento n. 999/2026 de urgência' }] }));
+    rota(/\/proposicoes\/\d+$/, json({ dados: { statusProposicao: { regime: 'Urgência (Art. 155, RICD)', siglaOrgao: 'PLEN', descricaoSituacao: 'Pronta para Pauta' } } }));
     L.av(`__d2 = { id: 'd2', chave: 'PL 2/2026', idCamara: 222, situacao: 'Não há requerimento de urgência apresentado.' }`);
     const mudou = await L.av('atualizarSituacaoDemanda(__d2, { silencioso: true })');
     ok(mudou === true && /999\/2026/.test(L.av('__d2.situacao')), `mudança real continua sendo apurada e gravada (${L.av('__d2.situacao')})`);
     ok(L.av('__gravou') === 1, 'e aí sim grava no Firebase');
+    ok(L.av('__d2.tramite.regime') === 'Urgência (Art. 155, RICD)', 'e o regime da ficha vai junto');
   }
 
   console.log('\n== e-mail avisa quando não conseguiu conferir a situação ==');
