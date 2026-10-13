@@ -379,7 +379,8 @@ function renderizarPauta() {
       <span class="an-selbar-info" id="an-selbar-info"></span>
       <button class="btn btn-ghost btn-sm" id="an-sel-todos">Selecionar todos</button>
       <button class="btn btn-ghost btn-sm" id="an-sel-limpar">Limpar seleção</button>
-    </div>`);
+    </div>
+    <div class="an-aviso-vinculo" id="an-aviso-vinculo" style="display:none"></div>`);
   cont.querySelector('#an-sel-todos').addEventListener('click', () => {
     state.pauta.itens.forEach(it => state.selecionados.add(it.chave));
     document.querySelectorAll('.an-card').forEach(c => { const cb = c.querySelector('[data-role=sel-pdf]'); if (cb) { cb.checked = true; c.classList.add('sel-on'); } });
@@ -409,6 +410,7 @@ function renderizarPauta() {
     projs.forEach(it => cont.appendChild(renderCard(it)));
   }
   atualizarSelecaoPdf();
+  atualizarAvisoVinculos();
 }
 
 // ---------- Renomear a pauta (nome editável, não-destrutivo) ----------
@@ -477,7 +479,7 @@ function renderCard(it) {
         <div class="an-card-meta">
           <span data-role="autor-linha">${(it.autorTexto || (it.enriquecimento?.autores || []).length) ? `<b>Autor:</b> ${htmlAutorRealcado(it)}` : ''}</span>
           ${it.relator ? `<span><b>Relator:</b> Dep. ${escapeHtml(it.relator.nome)} (${it.relator.partido}-${it.relator.uf}) — ${it.relator.data}</span>` : ''}
-          ${it.projetoUrgenciado ? `<span><b>Urgência p/ </b> ${it.projetoUrgenciado.sigla} ${it.projetoUrgenciado.numero}/${it.projetoUrgenciado.ano}</span>` : ''}
+          <span data-role="urg-linha">${htmlLinhaUrgencia(it)}</span>
         </div>
         <div class="an-badges" data-rolebadges>
           ${it.temUrgencia ? `<span class="an-badge an-badge--urg">Urgência aprovada</span>` : ''}
@@ -718,10 +720,136 @@ async function enriquecerItens() {
   }
 }
 
+// ============================================================
+//  VÍNCULO REQUERIMENTO → PROJETO DA URGÊNCIA (três fontes)
+//  O vínculo lido só do texto do PDF quebrou a cada grafia nova da Câmara
+//  (12/08, 13/08, 01/09, 15/09, 13/10/2026), e em silêncio: o card virava
+//  "Sem projeto associado". Agora ele é apurado em três fontes, nesta ordem
+//  de prioridade:
+//    1. a pauta estruturada da sessão nos Dados Abertos (/eventos/{id}/pauta,
+//       campo proposicaoRelacionada_) — só existe no dia, quando a sessão é
+//       criada;
+//    2. a ficha do próprio requerimento (/proposicoes?siglaTipo=REQ…), cuja
+//       ementa nomeia o projeto ("…regime de urgência do Projeto de Lei nº
+//       1.381, de 2026") — existe desde a apresentação do REQ, antes do PDF;
+//    3. o texto do PDF da pauta (o que o parser leu).
+//  O vínculo feito à mão ("🔗 Vincular projeto") vale sobre todas. Fontes que
+//  discordam viram aviso no card — nunca escolha calada.
+// ============================================================
+const mesmoAlvo = (a, b) => !!a && !!b && a.sigla === b.sigla &&
+  String(a.numero) === String(b.numero) && String(a.ano) === String(b.ano);
+const rotuloAlvo = a => (a ? `${a.sigla} ${a.numero}/${a.ano}` : '—');
+const ROTULO_FONTE_VINCULO = { manual: 'vínculo manual', evento: 'pauta da sessão nos Dados Abertos',
+  ficha: 'ficha do requerimento nos Dados Abertos', pdf: 'texto do PDF da pauta' };
+
+/** Decide o vínculo a partir das fontes ({ manual, evento, ficha, pdf }, cada
+ *  uma { sigla, numero, ano } ou null). Devolve { alvo, fonte, divergencia }:
+ *  divergencia lista as fontes que apontam para outro projeto. */
+function decidirVinculo(fontes) {
+  const ordem = ['manual', 'evento', 'ficha', 'pdf'];
+  const fonte = ordem.find(f => fontes[f]) || null;
+  const alvo = fonte ? fontes[fonte] : null;
+  const divergencia = alvo ? ordem.filter(f => f !== fonte && fontes[f] && !mesmoAlvo(fontes[f], alvo))
+    .map(f => ({ fonte: f, alvo: fontes[f] })) : [];
+  return { alvo, fonte, divergencia };
+}
+
+/** Pauta estruturada do Plenário numa data: Map 'REQ-numero-ano' → alvo.
+ *  Uma consulta por data (cache); sessão ainda não criada → Map vazio. */
+const _vinculosEvento = new Map();
+function vinculosDoEvento(dataISO) {
+  if (!dataISO) return Promise.resolve(new Map());
+  if (!_vinculosEvento.has(dataISO)) {
+    const p = (async () => {
+      const mapa = new Map();
+      const sessoes = await acharSessoesDeliberativas(dataISO);
+      for (const s of sessoes) {
+        const json = await fetchJson(`${API_BASE}/eventos/${s.id}/pauta`);
+        for (const x of json.dados || []) {
+          const p = x.proposicao_ || {}, r = x.proposicaoRelacionada_;
+          if (!/^(REQ|REC)$/i.test(p.siglaTipo || '') || !r || !r.siglaTipo) continue;
+          mapa.set(`${String(p.siglaTipo).toUpperCase()}-${p.numero}-${p.ano}`,
+            { sigla: String(r.siglaTipo).toUpperCase(), numero: String(r.numero), ano: String(r.ano) });
+        }
+      }
+      return mapa;
+    })().catch(() => { _vinculosEvento.delete(dataISO); return new Map(); });   // falha não fica no cache
+    _vinculosEvento.set(dataISO, p);
+  }
+  return _vinculosEvento.get(dataISO);
+}
+
+/** Apura o vínculo de um requerimento nas três fontes e grava o resultado em
+ *  it.projetoUrgenciado e it.vinculo. Devolve true se o vínculo mudou. */
+async function apurarVinculoReq(it) {
+  const antes = it.projetoUrgenciado ? { ...it.projetoUrgenciado } : null;
+  const v = it.vinculo || {};
+  if (v.fonte === 'manual') return false;
+  // O que o PDF disse fica guardado à parte: depois da primeira apuração,
+  // it.projetoUrgenciado já é a decisão, não a leitura do PDF.
+  const pdf = 'pdf' in v ? v.pdf : (antes ? { sigla: antes.sigla, numero: String(antes.numero), ano: String(antes.ano) } : null);
+  let ficha = null, fichaFalhou = false;
+  if (/^\d+$/.test(String(it.numero))) {
+    try { ficha = detectarProjetoUrgenciado((await resolveProposicao(it.sigla, it.numero, it.ano)).ementa); }
+    catch (_) { fichaFalhou = true; }
+  }
+  const evento = (await vinculosDoEvento(dataPautaISO())).get(`${it.sigla}-${it.numero}-${it.ano}`) || null;
+  const d = decidirVinculo({ evento, ficha, pdf });
+  it.vinculo = { fonte: d.fonte, pdf, ficha, evento, divergencia: d.divergencia, fichaFalhou };
+  if (d.alvo) {
+    it.projetoUrgenciado = mesmoAlvo(d.alvo, antes) ? antes : { sigla: d.alvo.sigla, numero: String(d.alvo.numero), ano: String(d.alvo.ano) };
+  } else {
+    it.projetoUrgenciado = null;
+  }
+  return !mesmoAlvo(it.projetoUrgenciado, antes) && !!(it.projetoUrgenciado || antes);
+}
+
+/** Aviso no topo da lista: requerimentos que ficaram sem projeto depois das
+ *  três fontes, e os que têm fontes discordando. Só conta o que já foi apurado. */
+function atualizarAvisoVinculos() {
+  const el = document.getElementById('an-aviso-vinculo');
+  if (!el || !state.pauta) return;
+  const reqs = state.pauta.itens.filter(i => i.tipoCategoria === 'requerimento' && i.vinculo);
+  const sem = reqs.filter(i => !i.projetoUrgenciado);
+  const div = reqs.filter(i => i.projetoUrgenciado && (i.vinculo.divergencia || []).length);
+  const partes = [];
+  if (sem.length) partes.push(`<b>${sem.length} requerimento(s) sem projeto vinculado</b> — nem o PDF nem os Dados Abertos o identificaram: ${sem.map(i => escapeHtml(`${i.sigla} ${i.numero}/${i.ano}`)).join(', ')}. Use 🔗 Vincular projeto no card.`);
+  if (div.length) partes.push(`<b>${div.length} requerimento(s) com fontes divergentes</b> — confira no card: ${div.map(i => escapeHtml(`${i.sigla} ${i.numero}/${i.ano}`)).join(', ')}.`);
+  el.innerHTML = partes.map(p => `<div>⚠ ${p}</div>`).join('');
+  el.style.display = partes.length ? '' : 'none';
+}
+
+/** Redesenha a linha "Urgência p/" de um card e o aviso do topo. */
+function atualizarLinhaUrgencia(it) {
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const el = card && card.querySelector('[data-role=urg-linha]');
+  if (el) el.innerHTML = htmlLinhaUrgencia(it);
+  atualizarAvisoVinculos();
+}
+
+/** Linha "Urgência p/" do card, com a fonte e, se houver, a divergência. */
+function htmlLinhaUrgencia(it) {
+  const a = it.projetoUrgenciado, v = it.vinculo || {};
+  if (!a) return it.tipoCategoria === 'requerimento' && it.vinculo ? '<b>Urgência p/ </b> <span class="an-vinc-sem">projeto não identificado</span>' : '';
+  const fonte = v.fonte ? ` <span class="an-vinc-fonte" title="De onde veio o vínculo">(${escapeHtml(ROTULO_FONTE_VINCULO[v.fonte] || v.fonte)})</span>` : '';
+  const div = (v.divergencia || []).length
+    ? ` <span class="an-vinc-div" title="As fontes discordam — confira e, se preciso, use 🔗 Vincular projeto">⚠ ${v.divergencia.map(x => `${escapeHtml(ROTULO_FONTE_VINCULO[x.fonte] || x.fonte)} diz ${escapeHtml(rotuloAlvo(x.alvo))}`).join('; ')}</span>` : '';
+  return `<b>Urgência p/ </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}`;
+}
+
 async function enriquecerItem(it) {
   if (!itemAindaAtivo(it)) return;
   it.enriquecimento = { status: 'carregando' };
   atualizarBadgesCard(it);
+
+  // Requerimento: o projeto da urgência é apurado nas fontes antes de tudo
+  // (o resto do enriquecimento usa esse projeto como alvo).
+  if (it.tipoCategoria === 'requerimento') {
+    const mudou = await apurarVinculoReq(it);
+    if (!itemAindaAtivo(it)) return;
+    if (mudou) marcarSujo();   // o auto-save grava a pauta
+    atualizarLinhaUrgencia(it);
+  }
 
   // Para requerimentos, o "projeto alvo" é o projeto cuja urgência é pedida.
   // Usamos esse projeto como base para autoria e apensados.
@@ -4097,6 +4225,7 @@ async function _fbSalvarPautaExec(pauta) {
           apensadosTexto: it.apensadosTexto, relator: it.relator,
           temUrgencia: it.temUrgencia, urgenciaCondicional: it.urgenciaCondicional || null,
           projetoUrgenciado: it.projetoUrgenciado || null,
+          vinculo: it.vinculo || null,
           chave: it.chave,
         })),
       }),
@@ -6132,6 +6261,11 @@ async function confirmarVincular() {
   stEl.textContent = 'Vinculando e rebuscando na API da Câmara…';
 
   it.projetoUrgenciado = { sigla, numero, ano };
+  // Vínculo à mão vale sobre as fontes automáticas; o que elas diziam fica
+  // registrado para o card mostrar se discordarem.
+  const v = it.vinculo || {};
+  const d = decidirVinculo({ manual: { sigla, numero, ano }, evento: v.evento || null, ficha: v.ficha || null, pdf: v.pdf || null });
+  it.vinculo = { ...v, fonte: 'manual', manual: { sigla, numero, ano }, divergencia: d.divergencia };
   it.enriquecimento = { status: 'pendente' };
   marcarSujo();
   fbSalvarPauta(state.pauta).catch(e => console.warn('Firebase save falhou:', e.message));

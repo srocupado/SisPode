@@ -508,3 +508,13 @@
 .an-sync.offline  .an-sync-dot { background: #ff8e8e; }
 .an-sync.pendente .an-sync-dot { background: #1fa5a5; }
 @keyframes anpulse { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(.6); opacity: .5; } }
+
+/* ---- Vínculo requerimento → projeto da urgência (fonte e divergência) ---- */
+.an-aviso-vinculo {
+  padding: 8px 12px; margin-bottom: 10px; border-radius: 8px; font-size: 12.5px; line-height: 1.5;
+  background: rgba(255,170,0,.10); border: 1px solid rgba(255,170,0,.35); color: #ffcc66;
+}
+.an-aviso-vinculo b { color: #ffdd88; }
+.an-vinc-fonte { color: var(--text-dim); font-size: 10.5px; }
+.an-vinc-div { color: #ffcc66; font-weight: 600; }
+.an-vinc-sem { color: #ffcc66; font-weight: 600; }
