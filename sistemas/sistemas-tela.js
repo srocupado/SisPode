@@ -652,7 +652,7 @@ async function siPrepararDistritos(op, calc) {
         if (calc !== si.calc) return null;
         if (x.desenho.encaixeFalhou || x.desenho.aninhado) {
           // encaixado: cada federal se afina sozinho (sdAfinarAninhado); se ainda passa da tolerância — ou se o
-          // encaixe nem coube nas zonas —, o encaixe se refaz sobre a base com as zonas divididas nos locais; fica o melhor
+          // encaixe nem coube nas zonas —, o encaixe se refaz sobre a base com zonas e municípios divididos nos locais; fica o melhor
           let y = null;
           if (x.desenho.aninhado) { const r = sdAfinarAninhado(x.base, x.desenho, lc.locais, { tol: op.tol }); y = r ? { desenho: r.desenho, base: r.base, k: x.k } : x; }
           if (!y || !sdTolerancia(y.desenho.distritos, op.tol).ok) {
@@ -698,7 +698,7 @@ function siMelhorDesenho(a, b, tol) {
   return false;
 }
 
-/** Encaixe refeito sobre a base com todas as zonas divididas nos locais de votação (e afinado por federal, se preciso). Devolve { desenho, base, k } ou null. */
+/** Encaixe refeito sobre a base com todas as unidades divididas nos locais de votação (e afinado por federal, se preciso). Devolve { desenho, base, k } ou null. */
 function siEncaixarLocais(x, locais, kF, n, tol) {
   const b2 = sdBaseLocais(x.base, locais);
   const an = b2 ? sdDistritarAninhado(b2, kF, n, { tol, ateTol: tol.modo === 'desenhar' }) : null;
@@ -1834,7 +1834,7 @@ function siDistritosHtml(uf, sd, impressao) {
   // Estaduais e distritais: como este mapa se relaciona com o dos deputados federais
   if (x.modoEstadual === 'ani') h += `<div class="dica"><b>Encaixado nos distritos federais</b> (GT do TSE, 2019): ${x.kF} distritos federais, cada um dividido em ${x.kE / x.kF} estaduais — ${x.kE} no total; a coluna "Federal" diz em qual cada um está. Afinado pelos locais de votação, cada federal se afina sozinho — o encaixe não se desfaz.</div>`;
   else if (x.modoEstadual === 'ind') h += `<div class="dica"><b>Mapa próprio, sem encaixe</b>: ${x.kE} distritos estaduais e ${x.kF} federais — `
-    + (x.encaixeFalhou ? `${x.kE} é múltiplo de ${x.kF}, mas o encaixe não coube nas zonas e municípios (${siEsc(x.encaixeFalhou)}). Com os locais de votação lidos, as zonas se dividem nos seus locais e o encaixe se refaz sobre eles. `
+    + (x.encaixeFalhou ? `${x.kE} é múltiplo de ${x.kF}, mas o encaixe não coube nas zonas e municípios (${siEsc(x.encaixeFalhou)}). Com os locais de votação lidos, zonas e municípios se dividem nos seus locais e o encaixe se refaz sobre eles. `
       : `${x.kE} não é múltiplo de ${x.kF}, e encaixar obrigaria distritos estaduais fora da tolerância de tamanho. `)
     + (x.encaixe ? `Contra um desenho federal de referência (mesmo método, mesma base): <b>${x.encaixe.atravessam} de ${x.encaixe.total}</b> distritos estaduais atravessam a fronteira de um distrito federal; em média, ${siPct(x.encaixe.foraMedia)} do tamanho de cada um fica fora do federal que mais o contém.` : '') + '</div>';
   else if (x.modoEstadual === 'fed') h += `<div class="dica"><b>Nos distritos federais</b> (Versão Minuta, leitura com vários eleitos por distrito): ${x.kF} distritos, os mesmos dos deputados federais, com as ${x.kE} cadeiras distritais da Assembleia repartidas na proporção do tamanho de cada um (maiores restos); em cada distrito, elegem-se os mais votados, até ${x.capPartido} da mesma agremiação (${x.vagasFederais} deputados federais: ${x.vagasFederais <= 20 ? 'até 20' : 'mais de 20'}).</div>`;

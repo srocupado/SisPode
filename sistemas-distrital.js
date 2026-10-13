@@ -816,10 +816,12 @@ function sdDividir(base, locais, quais) {
   return { unidades, viz, divide, Un };
 }
 
-/** A base com todas as zonas eleitorais divididas nos seus locais de votação (para o encaixe dos estaduais
- *  quando um distrito federal tem menos zonas do que estaduais a conter). Devolve a base nova ou null. */
+/** A base com todas as unidades (zonas e municípios) divididas nos seus locais de votação, para o encaixe
+ *  dos estaduais quando as zonas e os municípios inteiros não deixam dividir cada federal na tolerância
+ *  (medido em 13/10/2026: só as zonas da capital divididas, AC ficava em 47% e TO em 122%; tudo dividido,
+ *  0,2% e 0,1%). Devolve a base nova ou null. */
 function sdBaseLocais(base, locais) {
-  const dv = sdDividir(base, locais, u => u.id.startsWith('z:'));
+  const dv = sdDividir(base, locais, () => true);
   return dv ? { unidades: dv.unidades, viz: dv.viz, semMapa: base.semMapa, pontes: base.pontes, proj: base.proj } : null;
 }
 
