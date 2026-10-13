@@ -903,10 +903,20 @@ function situacaoDe(trams, regimePdf) {
       return n ? `Urgência aprovada (REQ. ${n})` : 'Urgência aprovada';
     }
   }
+  // Requerimento apresentado, nas duas grafias do despacho: a de hoje ("Apresentação
+  // do REQ n. 900/2026 (Requerimento de Urgência…") e a antiga ("Apresentação do
+  // Requerimento de Urgência (Art. 155 do RICD) n. 2468/2015", PL 4744/2012).
+  // Requerimento que o Plenário rejeitou não conta como pendente (REQ 894/2015).
+  const rejeitados = new Set();
+  for (const t of trams) {
+    const r = `${t.despacho || ''}`.match(/Rejeitado o Requerimento(?: de Urg[êe]ncia)?\s*n?[º°.]*\s*(\d{1,5})\s*\/\s*(\d{4})/i);
+    if (r) rejeitados.add(`${+r[1]}/${r[2]}`);
+  }
   for (const t of rev) {
     const desp = t.despacho || '';
-    const m = desp.match(/Apresenta[çc][ãa]o do REQ n\.?\s*(\d{1,5})\s*\/\s*(\d{4})\s*\(Requerimento de Urg[êe]ncia/i);
-    if (m) return `Requerimento de urgência apresentado (REQ n. ${m[1]}/${m[2]})`;
+    const m = desp.match(/Apresenta[çc][ãa]o do REQ n\.?\s*(\d{1,5})\s*\/\s*(\d{4})\s*\(Requerimento de Urg[êe]ncia/i) ||
+              desp.match(/Apresenta[çc][ãa]o do Requerimento de Urg[êe]ncia[\s\S]{0,60}?\bn\.\s*(\d{1,5})\s*\/\s*(\d{4})/i);
+    if (m && !rejeitados.has(`${+m[1]}/${m[2]}`)) return `Requerimento de urgência apresentado (REQ n. ${m[1]}/${m[2]})`;
   }
 
   // Sem registro na API, vale o que está no PDF da reunião — mas só o trecho
@@ -998,8 +1008,12 @@ async function papelDe(detalhe, trams, signal) {
     } catch (_) { /* fica sem o nome */ }
     return { apensada: true, principal };
   }
+  // "Apensação da proposição X a esta proposição", "Apense-se a este o PL
+  // 1872/2026" e a grafia antiga "Apense-se a este(a) o(a) PL-1820/2023."
+  // (PL 4744/2012, com dezenas de apensados).
   const temApensados = trams.some(t =>
-    /apensa[çc][ãa]o d/i.test(t.despacho || '') && /a esta proposi/i.test(t.despacho || ''));
+    (/apensa[çc][ãa]o d/i.test(t.despacho || '') && /a esta proposi/i.test(t.despacho || '')) ||
+    /apense-se a est[ea]\b/i.test(t.despacho || ''));
   return { apensada: false, temApensados };
 }
 
@@ -2549,6 +2563,11 @@ function linhasTramite(tr) {
     if (a.rejeitadoEm) return `${a.orgao}: rejeitado em ${dataBR(a.rejeitadoEm)}`;
     return `${a.orgao}: apresentado em ${dataBR(a.data)}, não votado`;
   }).join('; ');
+  // Apensado: relator e parecer são os do principal — e é preciso dizê-lo.
+  if (tr.doPrincipal) {
+    relator += ` (do principal, ${tr.doPrincipal})`;
+    parecer += ` (do principal, ${tr.doPrincipal})`;
+  }
   return { regime: tr.regime || 'não informado', relator, parecer, anteriores };
 }
 
@@ -2577,14 +2596,222 @@ function camposTramiteHTML(tr, classe, negrito = true) {
       ? `\n    <div class="${classe}">Pareceres anteriores: ${esc(l.anteriores)}</div>` : ''}`;
 }
 
-/** statusProposicao da ficha; null quando a consulta falhou. */
-async function buscarStatusProposicao(idCamara) {
-  if (!idCamara) return null;
+// ---------- Tramitação em conjunto (regra fixa, não IA) ----------
+// "Tramitando em Conjunto" é a situação oficial de todo apensado, e não diz o
+// que importa: apensado a quem, qual é o principal (é ele que anda), e de quem
+// é a urgência. A ficha do apensado aponta o pai DIRETO (uriPropPrincipal) — o
+// PL 1872/2026 aponta o PL 3983/2023, que aponta o PL 3851/2021… —, então a
+// cadeia é seguida até a proposição sem pai, que é o principal do conjunto.
+const MAX_CADEIA_APENSACAO = 6;
+const MAX_APENSADOS_URGENCIA = 30;
+
+/** Proposições citadas num despacho, inclusive na grafia "PL-4744/2012". */
+function refsDespacho(txt) {
+  const out = [];
+  for (const m of String(txt || '').matchAll(/\b(PLP|PLV|PL|PEC|PDL|PDC|PRC|MPV)\s*-?\s*n?[º°.]*\s*(\d[\d.]*)\s*\/\s*(\d{4})/gi)) {
+    out.push(`${m[1].toUpperCase()} ${parseInt(m[2].replace(/\./g, ''), 10)}/${m[3]}`);
+  }
+  return out;
+}
+
+/** Apensados registrados nas tramitações do principal: os diretos ("Apense-se
+ *  a este(a) o(a) PL-1820/2023", "Apensação do PL X a esta proposição") e os
+ *  apensados aos apensados ("Apensação da proposição X à proposição Y"), menos
+ *  os desapensados depois ("Retirado o PL 623/2015", código 104). */
+function apensadosDe(trams) {
+  const diretos = new Set(), todos = new Set();
+  for (const t of trams || []) {
+    const d = String(t.despacho || '');
+    if (t.codTipoTramitacao === '104' || /desapensa/i.test(`${t.descricaoTramitacao || ''} ${d}`)) {
+      for (const r of refsDespacho(d)) { diretos.delete(r); todos.delete(r); }
+      continue;
+    }
+    let m = d.match(/apense-se a est[ea](?:\(a\))?\s+(?:o\(a\)|[oa])\s+(.+)/i) ||
+            d.match(/apensa[çc][ãa]o d[oa]\s+(?:proposi[çc][ãa]o\s+)?(.+?)\s+a esta proposi/i);
+    if (m) { const r = refsDespacho(m[1])[0]; if (r) { diretos.add(r); todos.add(r); } continue; }
+    m = d.match(/apensa[çc][ãa]o da proposi[çc][ãa]o\s+(.+?)\s+[àa]\s+proposi[çc][ãa]o/i);
+    if (m) { const r = refsDespacho(m[1])[0]; if (r) todos.add(r); }
+  }
+  return { diretos: [...diretos], todos: [...todos] };
+}
+
+/** Data do último despacho de apensação desta proposição (código 129). */
+function dataApensacao(trams) {
+  let data = '';
+  for (const t of trams || []) {
+    if (t.codTipoTramitacao === '129' || /^Apense-se [àa]/i.test(t.despacho || '')) data = String(t.dataHora || '').slice(0, 10);
+    if (t.codTipoTramitacao === '104') data = '';
+  }
+  return data;
+}
+
+/** A urgência de uma proposição (a frase de situacaoDe) e PARA QUEM é o
+ *  requerimento. O REQ aprovado num apensado aparece também na tramitação do
+ *  principal ("Aprovado o requerimento nº 1258/2026, … que solicita urgência
+ *  (art. 155) para o PL 101/2026" está nas duas): sem o alvo, os dois pareceriam
+ *  ter urgência própria. O alvo sai do próprio despacho; sem ele, ''. */
+function urgenciaDe(trams) {
+  const urgencia = situacaoDe(trams || [], '');
+  const alvoEm = txt => [...propsCitadas(txt), ...refsDespacho(txt)][0] || '';
+  const rev = [...(trams || [])].reverse();
+  let alvo = '';
+  if (/^Urgência aprovada/.test(urgencia)) {
+    // "…que solicita urgência (art. 155) para o PL 101/2026" ou, no principal,
+    // "Alteração do Regime … em virtude da alteração do regime do PL 101/2026".
+    const aprov = rev.filter(x => /aprova[çc][ãa]o de urg[êe]ncia/i.test(x.descricaoTramitacao || '') ||
+                                  /aprovad[oa]\s+o\s+requerimento[^]{0,160}urg[êe]ncia/i.test(x.despacho || ''));
+    for (const t of aprov) {
+      const d = String(t.despacho || '');
+      const m = d.match(/urg[êe]ncia[^]*?\bpara\s+(?:o|a)\s+([^]+)/i) || d.match(/altera[çc][ãa]o do regime d[oa]\s+([^]+)/i);
+      if (m && (alvo = alvoEm(m[1]))) break;
+    }
+  } else {
+    const r = urgencia.match(/REQ n\. (\d+)\/(\d{4})/);
+    const t = r && rev.find(x => new RegExp(`(?:REQ|Requerimento)[^]{0,60}?n\\.\\s*${r[1]}\\s*\\/\\s*${r[2]}`, 'i').test(x.despacho || ''));
+    const m = t && String(t.despacho).match(/\bque:?\s*([^]+)/i);
+    alvo = m ? alvoEm(m[1]) : '';
+  }
+  return { urgencia, alvo };
+}
+
+const chaveDe = d => `${d.siglaTipo} ${d.numero}/${d.ano}`;
+const idDaUri = uri => Number(String(uri || '').split('/').pop()) || null;
+
+async function buscarDetalheProposicao(id) {
+  if (!id) return null;
   try {
-    const r = await fetch(`${API_BASE}/proposicoes/${idCamara}`);
+    const r = await fetch(`${API_BASE}/proposicoes/${id}`);
     if (!r.ok) return null;
-    return (await r.json()).dados?.statusProposicao || null;
+    return (await r.json()).dados || null;
   } catch (_) { return null; }
+}
+
+/** Algum apensado do conjunto com urgência APROVADA. Só se procura quando o
+ *  regime do principal é de urgência e ele próprio não a tem aprovada — é o
+ *  caso em que a urgência veio de um apensado. Teto declarado. */
+async function urgenciaNosApensados(apensados) {
+  const alvo = apensados.slice(-MAX_APENSADOS_URGENCIA);
+  let achado = null;
+  await mapLimit(alvo, 4, async chave => {
+    if (achado) return;
+    const m = chave.match(/^(\S+) (\d+)\/(\d{4})$/);
+    try {
+      const r = await fetch(`${API_BASE}/proposicoes?siglaTipo=${m[1]}&numero=${m[2]}&ano=${m[3]}&itens=1`);
+      const id = r.ok ? (await r.json()).dados?.[0]?.id : null;
+      const trams = id ? await buscarTramitacoes(id) : null;
+      const u = trams ? situacaoDe(trams, '') : '';
+      if (!achado && /^Urgência aprovada/.test(u)) achado = { chave, urgencia: u };
+    } catch (_) { /* segue para o próximo */ }
+  });
+  return achado;
+}
+
+/** Situação, regime/relator/parecer e conjunto de uma demanda, a partir da
+ *  ficha e das tramitações. Um apensado leva a situação, o regime, o relator e
+ *  o parecer do PRINCIPAL (é o principal que anda), e a urgência de cada um.
+ *  Consulta que falha lança erro — nada se inventa (o chamador mantém o que
+ *  havia). */
+async function apurarDemanda(detalhe, trams) {
+  const status = detalhe.statusProposicao;
+  if (detalhe.uriPropPrincipal) {
+    const cadeia = [];
+    let atual = detalhe;
+    while (atual.uriPropPrincipal && cadeia.length < MAX_CADEIA_APENSACAO) {
+      const pai = await buscarDetalheProposicao(idDaUri(atual.uriPropPrincipal));
+      if (!pai) throw new Error('não consegui ler na Câmara a proposição a que esta está apensada. Tente de novo em instantes.');
+      const tramsPai = await buscarTramitacoes(pai.id);
+      if (!tramsPai) throw new Error(`não consegui ler a tramitação do ${chaveDe(pai)} (a que esta está apensada). Tente de novo em instantes.`);
+      cadeia.push({ id: pai.id, chave: chaveDe(pai), ...urgenciaDe(tramsPai), detalhe: pai, trams: tramsPai });
+      atual = pai;
+    }
+    const raiz = cadeia[cadeia.length - 1];
+    const stRaiz = raiz.detalhe.statusProposicao || {};
+    const conjunto = {
+      papel: 'apensado',
+      cadeia: cadeia.map(c => ({ id: c.id, chave: c.chave, urgencia: c.urgencia, alvo: c.alvo })),
+      desde: dataApensacao(trams),
+      propria: urgenciaDe(trams).urgencia,
+      proprioAlvo: urgenciaDe(trams).alvo,
+    };
+    const algumaAprovada = [conjunto.propria, ...cadeia.map(c => c.urgencia)].some(u => /^Urgência aprovada/.test(u));
+    if (/urg[êe]ncia/i.test(stRaiz.regime || '') && !algumaAprovada) {
+      const outro = await urgenciaNosApensados(apensadosDe(raiz.trams).todos.filter(c => c !== chaveDe(detalhe)));
+      if (outro) conjunto.outroApensado = outro;
+    }
+    const oficial = String(stRaiz.descricaoSituacao || '').trim() || situacaoDemanda(raiz.trams, stRaiz);
+    return {
+      situacao: `${oficial} (situação do principal, ${raiz.chave})`,
+      tramite: { ...tramiteDemanda(stRaiz, raiz.trams), doPrincipal: raiz.chave },
+      conjunto,
+    };
+  }
+  const ap = apensadosDe(trams);
+  let conjunto = null;
+  if (ap.todos.length) {
+    const u = urgenciaDe(trams);
+    conjunto = { papel: 'principal', diretos: ap.diretos.length, total: ap.todos.length, propria: u.urgencia, proprioAlvo: u.alvo };
+    if (/urg[êe]ncia/i.test(status?.regime || '') && !/^Urgência aprovada/.test(conjunto.propria)) {
+      const outro = await urgenciaNosApensados(ap.todos);
+      if (outro) conjunto.outroApensado = outro;
+    }
+  }
+  return { situacao: situacaoDemanda(trams, status), tramite: tramiteDemanda(status, trams), conjunto };
+}
+
+/** A urgência de uma proposição em poucas palavras, a partir de situacaoDe. */
+function urgenciaCurta(u, alvo = '', chave = '') {
+  const s = String(u || '');
+  const deOutro = alvo && chave && alvo !== chave;
+  if (/^Urgência aprovada/.test(s)) {
+    const req = (s.match(/\((REQ[^)]*)\)/) || [])[1];
+    // O REQ foi aprovado para outra proposição do conjunto: este tramita em
+    // urgência por arrastamento, não por requerimento próprio.
+    if (deOutro) return `urgência por extensão — ${req ? `o ${req} foi aprovado` : 'a urgência foi aprovada'} para o ${alvo}`;
+    return (alvo && alvo === chave ? 'urgência aprovada — requerimento próprio' : 'urgência aprovada') + s.slice('Urgência aprovada'.length);
+  }
+  const m = s.match(/^Requerimento de urgência apresentado (\(.+\))/);
+  if (m) return `requerimento de urgência ${alvo && alvo === chave ? 'próprio ' : ''}apresentado${deOutro ? ` para o ${alvo}` : ''}, ainda não aprovado ${m[1]}`;
+  return 'nenhum requerimento de urgência';
+}
+
+/** As linhas "Tramitação em conjunto" e "Urgência" (esta só quando diz algo
+ *  que a situação não diz). Sem conjunto → null. */
+function linhasConjunto(cj, chave) {
+  if (!cj) return null;
+  if (cj.papel === 'apensado') {
+    const cadeia = cj.cadeia || [];
+    const raiz = cadeia[cadeia.length - 1] || {};
+    const desde = cj.desde ? ` desde ${dataBR(cj.desde)}` : '';
+    const conjunto = cadeia.length <= 1
+      ? `apensado ao ${raiz.chave || 'principal não identificado'} (o principal)${desde}`
+      : `apensado ao ${cadeia[0].chave}${desde}, que também é apensado — cadeia até o principal: ${[chave, ...cadeia.map(c => c.chave)].join(' → ')} (principal)`;
+    const partes = [`no principal (${raiz.chave}), ${urgenciaCurta(raiz.urgencia, raiz.alvo, raiz.chave)}`];
+    for (const c of cadeia.slice(0, -1)) {
+      if (!/^nenhum/.test(urgenciaCurta(c.urgencia))) partes.push(`no ${c.chave} (apensado intermediário), ${urgenciaCurta(c.urgencia, c.alvo, c.chave)}`);
+    }
+    partes.push(`neste (${chave}, o apensado), ${urgenciaCurta(cj.propria, cj.proprioAlvo, chave)}`);
+    if (cj.outroApensado) partes.push(`no ${cj.outroApensado.chave} (outro apensado do conjunto), ${urgenciaCurta(cj.outroApensado.urgencia)}`);
+    return { conjunto, urgencia: partes.join('; ') };
+  }
+  const n = cj.total || 0;
+  const conjunto = `é o principal — ${n} ${n === 1 ? 'proposição apensada' : 'proposições apensadas'}` +
+    (cj.diretos && cj.diretos < n ? ` (${cj.diretos} diretamente, as demais apensadas a elas)` : '');
+  // Para o principal, a linha só aparece quando a urgência não é dele: veio
+  // de um apensado (a situação já diz a urgência própria).
+  const deApensado = cj.proprioAlvo && cj.proprioAlvo !== chave && !/^Não há/.test(cj.propria || '');
+  const urgencia = cj.outroApensado
+    ? `no apensado ${cj.outroApensado.chave}, ${urgenciaCurta(cj.outroApensado.urgencia)}; neste (${chave}, o principal), ${urgenciaCurta(cj.propria, cj.proprioAlvo, chave)}`
+    : deApensado ? `neste (${chave}, o principal), ${urgenciaCurta(cj.propria, cj.proprioAlvo, chave)}` : '';
+  return { conjunto, urgencia };
+}
+
+/** As linhas do conjunto em HTML (prévia, cartão, PDF). */
+function camposConjuntoHTML(cj, chave, classe, negrito = true) {
+  const l = linhasConjunto(cj, chave);
+  if (!l) return '';
+  const v = x => negrito ? `<b>${esc(x)}</b>` : esc(x);
+  return `<div class="${classe}">Tramitação em conjunto: ${v(l.conjunto)}</div>${l.urgencia
+    ? `\n    <div class="${classe}">Urgência: ${v(l.urgencia)}</div>` : ''}`;
 }
 
 /** Fatos da proposição para o registro — sem IA, direto da fonte. */
@@ -2602,12 +2829,14 @@ async function fatosDaDemanda(ref) {
   // O registro da demanda só existe com os fatos apurados na fonte: sem
   // tramitação lida, não se inventa situação (o botão Registrar depende disto).
   if (!trams) throw new Error(`${ref.chave}: não consegui ler a tramitação na Câmara agora. Tente de novo em instantes.`);
+  let apurado;
+  try { apurado = await apurarDemanda(detalhe, trams); }
+  catch (e) { throw new Error(`${ref.chave}: ${e.message}`); }
   return {
     idCamara: item.id,
     ementa:   detalhe.ementa || item.ementa || '',
     autoria,
-    situacao: situacaoDemanda(trams, detalhe.statusProposicao),
-    tramite:  tramiteDemanda(detalhe.statusProposicao, trams),
+    ...apurado,
   };
 }
 
@@ -2640,6 +2869,7 @@ async function buscarDadosDemanda() {
       <div class="campo-fixo">Autoria: <b>${esc(fatos.autoria || 'não informada')}</b></div>
       <div class="campo-fixo">Ementa: <b>${esc(fatos.ementa || '—')}</b></div>
       <div class="campo-fixo">Situação: <b>${esc(fatos.situacao)}</b></div>
+      ${camposConjuntoHTML(fatos.conjunto, ref.chave, 'campo-fixo')}
       ${camposTramiteHTML(fatos.tramite, 'campo-fixo')}`;
     document.getElementById('btn-dem-registrar').disabled = false;
   } catch (e) {
@@ -2835,6 +3065,7 @@ function cardDemandaHTML(d) {
     <div class="dem-campo">Autoria: <b>${esc(d.autoria || 'não informada')}</b></div>
     <div class="dem-campo">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-campo">Situação: <b>${esc(d.situacao)}</b></div>
+    ${camposConjuntoHTML(d.conjunto, d.chave, 'dem-campo')}
     ${d.tramite ? camposTramiteHTML(d.tramite, 'dem-campo')
       : '<div class="dem-campo">Regime, relator e parecer: <span class="dem-listas-nunca">registrada antes destes campos — ↻ busca na Câmara</span></div>'}
     <div class="dem-campo">Listas do Colégio: ${listas}</div>
@@ -2853,28 +3084,40 @@ async function apagarDemanda(d) {
 
 /** Reconsulta a situação na Câmara; devolve true se mudou. */
 async function atualizarSituacaoDemanda(d, { silencioso = false } = {}) {
-  const [trams, status] = await Promise.all([buscarTramitacoes(d.idCamara), buscarStatusProposicao(d.idCamara)]);
+  const [trams, detalhe] = await Promise.all([buscarTramitacoes(d.idCamara), buscarDetalheProposicao(d.idCamara)]);
+  const status = detalhe?.statusProposicao;
   // Falha de consulta NÃO é "não há requerimento": sem isto, uma oscilação da
   // API sobrescrevia "Urgência aprovada (REQ. n/aaaa)" no Firebase da equipe e
   // ainda anunciava "situação atualizada". O mesmo vale para a ficha: sem ela
   // não há regime nem situação oficial, e o registro fica como estava.
   if (!trams || !status) throw new Error(`${d.chave}: a consulta à Câmara falhou — a situação registrada foi mantida.`);
-  const nova = situacaoDemanda(trams, status);
-  const tramite = tramiteDemanda(status, trams);
+  let apurado;
+  try { apurado = await apurarDemanda(detalhe, trams); }
+  catch (e) { throw new Error(`${d.chave}: ${e.message} A situação registrada foi mantida.`); }
+  const nova = apurado.situacao, tramite = apurado.tramite, conjunto = apurado.conjunto;
+  // Demanda de apensado registrada antes da leitura do conjunto ficou com
+  // "Tramitando em Conjunto": trocar isso pela situação do principal é a mesma
+  // situação dita direito, não mudança — a referência do registro acompanha.
+  if (d.situacaoRegistro === 'Tramitando em Conjunto' && conjunto?.papel === 'apensado' && d.situacao === d.situacaoRegistro) {
+    d.situacaoRegistro = nova;
+    d.situacao = nova;
+  }
   const mudou = nova !== d.situacao;
-  // Relator e parecer novos também se gravam, mas quem acende "situação
-  // mudou" e conta no aviso do e-mail continua sendo só a situação.
-  const tramiteMudou = JSON.stringify(linhasTramite(tramite)) !== JSON.stringify(linhasTramite(d.tramite));
+  // Relator, parecer e conjunto novos também se gravam, mas quem acende
+  // "situação mudou" e conta no aviso do e-mail continua sendo só a situação.
+  const tramiteMudou = JSON.stringify([linhasTramite(tramite), linhasConjunto(conjunto, d.chave)])
+    !== JSON.stringify([linhasTramite(d.tramite), linhasConjunto(d.conjunto, d.chave)]);
   if (mudou || tramiteMudou) {
     d.situacao = nova;
     d.tramite = tramite;
+    d.conjunto = conjunto;
     d.atualizadaEm = new Date().toISOString();
     try { await fbDemandaSalvar(d); } catch (_) { /* fica na tela */ }
   }
   if (!silencioso) {
     renderizarDemandas();
     mostrarToast(mudou ? `Situação de ${d.chave} atualizada.`
-      : tramiteMudou ? `${d.chave}: regime, relator ou parecer atualizado.`
+      : tramiteMudou ? `${d.chave}: conjunto, regime, relator ou parecer atualizado.`
       : `${d.chave}: nada mudou.`, mudou || tramiteMudou ? 'sucesso' : '');
   }
   return mudou;
@@ -2956,6 +3199,7 @@ function _blocoRelatorioHTML(d, reunioes) {
     <div class="dem-t">${esc(d.chave)} — ${esc(d.natureza)}</div>
     <div class="dem-l">Registrada em ${dataBR((d.registradaEm || '').slice(0, 10))} · Autoria: ${esc(d.autoria || 'não informada')}</div>
     <div class="dem-l">Situação: ${esc(sit)}</div>
+    ${camposConjuntoHTML(d.conjunto, d.chave, 'dem-l', false)}
     ${camposTramiteHTML(d.tramite, 'dem-l', false)}
     <div class="dem-l">Ementa: ${esc(d.ementa || '—')}</div>
     <div class="dem-l">Listas do Colégio: ${esc(listas)}</div>
@@ -3116,6 +3360,11 @@ function blocoDemandaEmail(d) {
           `Autoria: ${autoriaSemPartido(d.autoria) || 'não informada'}`,
           `Ementa: ${d.ementa || '—'}`,
           `Situação: ${ponto(d.situacao)}`];
+  const cj = linhasConjunto(d.conjunto, d.chave);
+  if (cj) {
+    linhas.push(`Tramitação em conjunto: ${ponto(cj.conjunto)}`);
+    if (cj.urgencia) linhas.push(`Urgência: ${ponto(cj.urgencia)}`);
+  }
   const tr = linhasTramite(d.tramite);
   if (tr) {
     linhas.push(`Regime de tramitação: ${ponto(tr.regime)}`,
