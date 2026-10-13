@@ -184,35 +184,56 @@
 
   .status.error { color: var(--nao); }
 
-  /* ---------- Abas ---------- */
-  /* Com o container em 820px as abas atuais cabem numa linha só. A rolagem
-     horizontal fica como rede de segurança — se a janela for estreitada ou
-     entrar mais uma aba no futuro, em vez de quebrar em duas linhas ou
-     abreviar o nome das abas. */
-  .abas { display: flex; gap: 4px; margin-bottom: 14px; border-bottom: 1px solid var(--border);
-          overflow-x: auto; scrollbar-width: thin; }
-  .abas::-webkit-scrollbar { height: 3px; }
-  .abas::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  /* ---------- Menu lateral dos relatórios ---------- */
+  /* Os relatórios numa coluna à esquerda, em grupos: com sete (e contando), a
+     barra de abas no alto passava da largura e escondia os últimos atrás de uma
+     rolagem lateral que ninguém via. A coluna acompanha a rolagem da página e
+     recolhe para só os ícones (botão «, lembrado; e sozinha em janela estreita). */
+  .rel-layout { display: flex; align-items: flex-start; min-height: calc(100vh - 52px); }
+  .rel-menu { position: sticky; top: 52px; flex: none; width: 236px; height: calc(100vh - 52px); overflow-y: auto;
+              background: #112326; border-right: 1px solid var(--border); padding: 12px 10px 16px; display: flex; flex-direction: column; }
+  .rel-grupo { font-size: 10.5px; letter-spacing: 1.1px; font-weight: 800; color: var(--text-dim); text-transform: uppercase; margin: 14px 10px 6px; white-space: nowrap; }
+  .rel-grupo:first-of-type { margin-top: 4px; }
+  .rel-recolher { align-self: flex-end; background: none; border: 1px solid var(--border); border-radius: 7px; color: var(--text-dim);
+                  font: inherit; font-size: 13px; line-height: 1; padding: 4px 8px; cursor: pointer; margin-bottom: 2px; }
+  .rel-recolher:hover { color: var(--text); border-color: rgba(255,255,255,0.18); }
+  .rel-main { flex: 1; min-width: 0; }
+  .rel-main .container { margin: 0; padding: 18px 28px; max-width: 876px; }
+  .rel-titulo { font-size: 17px; font-weight: 700; margin: 0 0 4px; }
+  .container:has(#painel-apuracao:not([hidden])) .rel-titulo, .container:has(#painel-sistemas:not([hidden])) .rel-titulo { display: none; }
+  .rel-layout.recolhido .rel-menu { width: 60px; padding-left: 8px; padding-right: 8px; }
+  .rel-layout.recolhido .rel-grupo { visibility: hidden; height: 0; margin: 8px 0; border-top: 1px solid var(--border); }
+  .rel-layout.recolhido .aba .tx { display: none; }
+  .rel-layout.recolhido .rel-recolher { align-self: center; transform: scaleX(-1); }
+  @media (max-width: 960px) {
+    .rel-menu { width: 60px; padding-left: 8px; padding-right: 8px; }
+    .rel-grupo { visibility: hidden; height: 0; margin: 8px 0; border-top: 1px solid var(--border); }
+    .aba .tx { display: none; }
+    .rel-recolher { display: none; }
+    .rel-main .container { padding: 16px; }
+  }
   /* Uma linha dizendo o que a aba produz, antes de qualquer campo — quem abre
      "Radar temático" pela primeira vez não devia precisar clicar em nada para
      saber se é a ferramenta certa. */
   .relatorio-desc { font-size: 12.5px; color: var(--text-dim); line-height: 1.5; margin: 2px 0 14px; max-width: 640px; }
 
   .aba {
-    background: none; border: none; border-bottom: 2px solid transparent; white-space: nowrap; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+    background: none; border: none; border-radius: 9px; white-space: nowrap; margin-bottom: 2px;
     color: var(--text-dim); font-family: inherit; font-size: 13px; font-weight: 600;
-    padding: 9px 14px; cursor: pointer; transition: color .15s, border-color .15s;
+    padding: 9px 10px; cursor: pointer; transition: color .15s, background .15s;
   }
-  .aba:hover { color: var(--text); }
+  .aba .ic { width: 20px; flex: none; text-align: center; font-size: 15px; line-height: 1; }
+  .aba:hover { background: rgba(255,255,255,0.03); }
 
   /* ---------- Aba "Apuração eleitoral" ---------- */
   /* Largura toda da janela; a altura (até o pé da janela) vem de cvAjustarApFrame,
      e a assinatura sai para o painel não empurrar a página. */
-  .container:has(#painel-apuracao:not([hidden])), .container:has(#painel-sistemas:not([hidden])) { max-width: none; padding-bottom: 0; }
+  .rel-main .container:has(#painel-apuracao:not([hidden])), .rel-main .container:has(#painel-sistemas:not([hidden])) { max-width: none; padding: 0 16px; }
   .container:has(#painel-apuracao:not([hidden])) .signature, .container:has(#painel-sistemas:not([hidden])) .signature { display: none; }
   #apFrame, #siFrame { display: block; width: calc(100% + 32px); margin: 0 -16px; height: calc(100vh - 160px); min-height: 560px;
              border: 0; border-top: 1px solid var(--border); background: #0f1720; }
-  .aba.ativa { color: var(--accent-light); border-bottom-color: var(--accent); }
+  .aba.ativa { color: var(--accent-light); background: rgba(31,165,165,0.14); box-shadow: inset 3px 0 0 var(--accent); }
 
   /* ---------- Aba "Como votou o deputado" ---------- */
   .cv-modos { display: flex; gap: 6px; margin: 14px 0 12px; }
@@ -876,16 +897,23 @@
           title="Modelo de IA usado pelos relatórios">⚙</button>
 </div>
 
+<div class="rel-layout" id="relLayout">
+<nav class="rel-menu" role="tablist" aria-label="Relatórios" aria-orientation="vertical">
+  <button class="rel-recolher" id="relRecolher" type="button" title="Recolher o menu (só os ícones)" aria-label="Recolher o menu">«</button>
+  <div class="rel-grupo">Votações</div>
+  <button class="aba ativa" id="aba-aderencia" role="tab" title="Aderência"><span class="ic">📊</span><span class="tx">Aderência</span></button>
+  <button class="aba" id="aba-consulta" role="tab" title="Como votou o deputado"><span class="ic">🗳️</span><span class="tx">Como votou o deputado</span></button>
+  <div class="rel-grupo">Produção</div>
+  <button class="aba" id="aba-producao" role="tab" title="Produção legislativa"><span class="ic">📑</span><span class="tx">Produção legislativa</span></button>
+  <button class="aba" id="aba-radar" role="tab" title="Radar temático"><span class="ic">📡</span><span class="tx">Radar temático</span></button>
+  <button class="aba" id="aba-leis" role="tab" title="Leis aprovadas"><span class="ic">📜</span><span class="tx">Leis aprovadas</span></button>
+  <div class="rel-grupo">Eleições</div>
+  <button class="aba" id="aba-apuracao" role="tab" title="Apuração eleitoral"><span class="ic">🧮</span><span class="tx">Apuração eleitoral</span></button>
+  <button class="aba" id="aba-sistemas" role="tab" title="Sistemas eleitorais"><span class="ic">🏛️</span><span class="tx">Sistemas eleitorais</span></button>
+</nav>
+<div class="rel-main">
 <div class="container">
-  <div class="abas" role="tablist">
-    <button class="aba ativa" id="aba-aderencia" role="tab">Aderência</button>
-    <button class="aba" id="aba-consulta" role="tab">Como votou o deputado</button>
-    <button class="aba" id="aba-producao" role="tab">Produção legislativa</button>
-    <button class="aba" id="aba-radar" role="tab">Radar temático</button>
-    <button class="aba" id="aba-leis" role="tab">Leis aprovadas</button>
-    <button class="aba" id="aba-apuracao" role="tab">Apuração eleitoral</button>
-    <button class="aba" id="aba-sistemas" role="tab">Sistemas eleitorais</button>
-  </div>
+  <h2 class="rel-titulo" id="relTitulo">Aderência</h2>
 
 
   <div id="painel-aderencia">
@@ -1161,6 +1189,8 @@
     <div class="signature-text">Liderança do Podemos</div>
     <div class="signature-sub">Câmara dos Deputados</div>
   </div>
+</div>
+</div>
 </div>
 
 <!-- Configuração do MÓDULO, no mesmo padrão dos outros: engrenagem na barra do

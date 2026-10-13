@@ -2024,6 +2024,9 @@ function cvTrocarAba(idBotao) {
     const ativa = bt === idBotao;
     p.hidden = !ativa;
     b.classList.toggle('ativa', ativa);
+    b.setAttribute('aria-selected', ativa ? 'true' : 'false');
+    const tit = ativa && document.getElementById('relTitulo');
+    if (tit) tit.textContent = (b.querySelector('.tx') || b).textContent.trim();
   }
   for (const [bt, idFrame, pagina] of CV_FRAMES) {
     const fr = bt === idBotao && document.getElementById(idFrame);
@@ -2043,6 +2046,26 @@ function cvAjustarApFrame() {
   }
 }
 if (typeof window !== 'undefined' && window.addEventListener) window.addEventListener('resize', cvAjustarApFrame);
+
+// Menu lateral: recolhe para só os ícones (o nome fica na dica do botão), e o
+// módulo lembra a escolha. Sem armazenamento (janela anônima), só não lembra.
+(function relMenu() {
+  const lay = typeof document !== 'undefined' && document.getElementById('relLayout');
+  const bt = lay && document.getElementById('relRecolher');
+  if (!bt) return;
+  const aplicar = rec => {
+    lay.classList.toggle('recolhido', rec);
+    bt.title = rec ? 'Mostrar os nomes dos relatórios' : 'Recolher o menu (só os ícones)';
+    bt.setAttribute('aria-label', bt.title);
+    cvAjustarApFrame();
+  };
+  try { aplicar(localStorage.getItem('relMenuRecolhido') === '1'); } catch (e) { /* sem armazenamento */ }
+  bt.addEventListener('click', () => {
+    const rec = !lay.classList.contains('recolhido');
+    aplicar(rec);
+    try { localStorage.setItem('relMenuRecolhido', rec ? '1' : '0'); } catch (e) { /* sem armazenamento */ }
+  });
+})();
 
 function cvTrocarModo(modo) {
   cv.modo = modo;

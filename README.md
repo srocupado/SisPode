@@ -69,7 +69,7 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 
 ### 3. Relatórios
 
-Sete relatórios em abas — sobre votações nominais, produção legislativa, tramitação por tema, leis aprovadas, a apuração eleitoral do TSE e a simulação de sistemas eleitorais —, cada aba com uma linha de descrição do que produz logo abaixo da barra de abas.
+Sete relatórios — sobre votações nominais, produção legislativa, tramitação por tema, leis aprovadas, a apuração eleitoral do TSE e a simulação de sistemas eleitorais — num **menu lateral** em grupos (**Votações**: Aderência, Como votou o deputado; **Produção**: Produção legislativa, Radar temático, Leis aprovadas; **Eleições**: Apuração eleitoral, Sistemas eleitorais), todos à vista sem rolar; o menu acompanha a rolagem da página e recolhe para só os ícones (botão «, lembrado; sozinho em janela estreita, com o nome na dica). Cada relatório abre com o título e uma linha de descrição do que produz; a Apuração e os Sistemas eleitorais ocupam o resto da janela ao lado do menu.
 
 #### 3.1 Aderência
 
