@@ -195,10 +195,10 @@ function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt'
  */
 function snDistritaoMisto(d, op = {}) {
   const vagas = op.vagas != null ? op.vagas : d.vagas, x = vagas * (op.pctMaisVotados != null ? op.pctMaisVotados : 0.5);
-  // nº de mais votados: arredondado (padrão) ou só a parte inteira (Versão Renata: 9 vagas → 4)
+  // nº de mais votados: arredondado (padrão) ou só a parte inteira (Distritão Misto com redução v3: 9 vagas → 4)
   const nMais = op.arred === 'baixo' ? Math.floor(x + 1e-9) : Math.round(x);
   const parte1 = snDistritao(d, { vagas: nMais });
-  // Voto partidário líquido (Versão Renata): a votação da agremiação menos os votos nominais
+  // Voto partidário líquido (Distritão Misto com redução v3): a votação da agremiação menos os votos nominais
   // dos seus eleitos entre os mais votados — o voto que já elegeu não conta de novo na lista.
   let dl = d, liquido = null;
   if (op.votoLiquido) {

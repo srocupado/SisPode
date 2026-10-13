@@ -72,12 +72,12 @@ function siAlterado(s) {
   if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
   return false;
 }
-/** Distritão misto da Versão Renata: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
-function siEhRenata(o) {
+/** Distritão misto com redução v3: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
+function siEhReducaoV3(o) {
   return o.pctMaisVotados === 0.5 && o.arred === 'baixo' && !!o.votoLiquido && o.modelo === 'compensatorio' && o.limiar === 0;
 }
-/** Distrital misto da Versão Antonio Brito: metade (arredondada para cima), por população, ±5%; vence o distrito o candidato mais votado (um por partido: o mais votado de cada partido ali); compensatório. */
-function siEhBrito(o) {
+/** Distrital misto da Versão Minuta: metade (arredondada para cima), por população, ±5%; vence o distrito o candidato mais votado (um por partido: o mais votado de cada partido ali); compensatório. */
+function siEhMinuta(o) {
   return o.pctDistrital === 0.5 && o.regra === 'candidato' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'proximo'
     && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
 }
@@ -193,7 +193,7 @@ function siDescricao(s, curta) {
       + `3ª fase ${o.terceiraFaseAberta ? 'aberta a todas' : 'só com as de ' + siPct(o.pctPartido)}; ${o.federacoes ? 'com' : 'sem'} federações` : 'regra vigente (10% · 80/20 · 3ª fase aberta · federações)';
   }
   if (s.tipo === 'misto') {
-    if (siEhRenata(o)) return curta ? 'Versão Renata' : 'Versão Renata: metade das vagas (parte inteira) aos mais votados; as vagas da Casa pelas maiores médias sobre o voto partidário líquido (a votação do partido menos a dos seus eleitos na 1ª parte); excedente cortado das últimas posições da lista, sem aumentar a Casa';
+    if (siEhReducaoV3(o)) return curta ? 'Distritão Misto com redução v3' : 'Distritão Misto com redução v3: metade das vagas (parte inteira) aos mais votados; as vagas da Casa pelas maiores médias sobre o voto partidário líquido (a votação do partido menos a dos seus eleitos na 1ª parte); excedente cortado das últimas posições da lista, sem aumentar a Casa';
     return `${siPct(o.pctMaisVotados)} mais votados · ${siPct(1 - o.pctMaisVotados)} lista, ${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}`
       + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
       + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de mais votados pela parte inteira') : '')
@@ -206,8 +206,8 @@ function siDescricao(s, curta) {
       : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
     if (siEhCcj(o)) return (curta ? 'como no substitutivo da CCJ (PL 9.212)'
       : 'como no substitutivo da CCJ da Câmara ao PL 9.212/2017 (2021): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
-    if (siEhBrito(o)) return (curta ? 'Versão Antonio Brito'
-      : 'Versão Antonio Brito: voto único; metade das vagas em distritos (arredondada para cima), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); vence o distrito o candidato com mais votos nominais (a legenda não conta); cota pelas maiores médias; excedente sem aumentar a Casa') + des + voto;
+    if (siEhMinuta(o)) return (curta ? 'Versão Minuta'
+      : 'Versão Minuta: voto único; metade das vagas em distritos (arredondada para cima), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); vence o distrito o candidato com mais votos nominais (a legenda não conta); cota pelas maiores médias; excedente sem aumentar a Casa') + des + voto;
     if (siEh9213(o)) return (curta ? 'como no PL 9.213/2017 (Senado)'
       : 'como no PL 9.213/2017 (PLS 345/2017, apensado): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, e o excedente aumenta a Câmara') + des + voto;
     return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato mais votado leva' : o.regra === 'partidoNominal' ? 'o partido com mais votos nominais leva' : 'o partido mais votado leva'}) · ${siPct(1 - o.pctDistrital)} lista, `
@@ -228,8 +228,8 @@ function siMarcarAlterados() {
   $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
   $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
   $('dSenado').classList.toggle('proj-ok', siEhSenado(ss[3].op));
-  $('dBrito').classList.toggle('proj-ok', siEhBrito(ss[3].op));
-  $('mRenata').classList.toggle('proj-ok', siEhRenata(ss[2].op));
+  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(ss[3].op));
+  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(ss[2].op));
   $('mLiqLin').classList.toggle('off', !$('mLiq').checked);
   $('dCcj').classList.toggle('proj-ok', siEhCcj(ss[3].op));
   $('d9213').classList.toggle('proj-ok', siEh9213(ss[3].op));
@@ -264,7 +264,7 @@ function siFaixa(ss) {
     const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhBrito(s.op))) || (s.tipo === 'misto' && siEhRenata(s.op))))}</div></div>`;
+      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
@@ -290,14 +290,14 @@ function siRegraProjeto(qual) {
   marca('dRegra', 'r', 'partido'); marca('dModelo', 'm', 'compensatorio'); marca('dBase', 'b', eleit ? 'eleitorado' : 'populacao'); marca('dArr', 'a', 'baixo');
   si.tol = Object.assign({}, eleit ? SD_TOL_CCJ : SD_TOL_SENADO, { modo: si.tol.modo });
   si.exc = { regra: qual === '9213' ? 'cresce' : 'corta', teto: null, divisor: 'dhondt' };
-  if (qual === 'brito') {   // por população, ±5%, metade arredondada para cima, vence o distrito o candidato com mais votos nominais
+  if (qual === 'minuta') {   // por população, ±5%, metade arredondada para cima, vence o distrito o candidato com mais votos nominais
     marca('dRegra', 'r', 'candidato'); marca('dBase', 'b', 'populacao'); marca('dArr', 'a', 'proximo');
     si.tol = Object.assign({}, SD_TOL_SENADO, { modo: si.tol.modo });
   }
   siParametrosMudaram();
 }
-/** Distritão misto da Versão Renata; os outros sistemas ficam como estão. */
-function siVersaoRenata() {
+/** Distritão misto com redução v3; os outros sistemas ficam como estão. */
+function siReducaoV3() {
   $('mPct').value = 50; $('mLim').value = 0; $('mLiq').checked = true;
   for (const [id, attr, v] of [['mModelo', 'm', 'compensatorio'], ['mArr', 'a', 'baixo']]) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset[attr] === v);
   siParametrosMudaram();
@@ -1295,10 +1295,10 @@ function siMetodoHtml() {
         compensa: 'Excedente: a Casa cresce até a cota de todos cobrir os distritos ganhos (compensação total, como na Alemanha de 2013 a 2023).',
         naoLeva: 'Excedente: o distrito além da cota não dá cadeira — sai o vencedor de menor votação relativa no distrito, que segue na disputa da lista (como na Alemanha desde 2023); a Casa não cresce.' }[r]) + teto);
   }
-  if (sist.misto && siEhRenata(sist.misto.op)) li.push('<b>Versão Renata.</b> O distritão misto segue a minuta de projeto de lei da Versão Renata (2026): metade das cadeiras da circunscrição, apurada pela parte inteira, aos candidatos mais votados (art. 10, § 3º, da Lei 9.504 proposto); '
+  if (sist.misto && siEhReducaoV3(sist.misto.op)) li.push('<b>Distritão Misto com redução v3.</b> O distritão misto segue a minuta de projeto de lei do distritão misto com redução (v3, 2026): metade das cadeiras da circunscrição, apurada pela parte inteira, aos candidatos mais votados (art. 10, § 3º, da Lei 9.504 proposto); '
     + 'o voto partidário é a votação do partido (nominais + legenda) menos os votos nominais dos seus eleitos na 1ª parte — o voto partidário líquido (art. 106, § 1º); as cadeiras da Casa são distribuídas pelas maiores médias sobre ele (art. 107), os eleitos na 1ª parte contam dentro delas, '
     + 'e, se um partido elegeu mais do que isso, fica com eles e as vagas saem das últimas posições da lista, sem aumentar a Casa (art. 108, parágrafo único). Lista preordenada com alternância de sexo a cada duas posições (aqui, na ordem de votos). Reproduz a simulação do próprio projeto (9 vagas: A 3, B 3, C 3).');
-  if (sist.distrital && siEhBrito(sist.distrital.op)) li.push('<b>Versão Antonio Brito.</b> O distrital misto segue a minuta de projeto de lei do Dep. Antônio Brito e outros (2025): voto único, dado ao candidato do distrito ou à legenda (art. 59, § 2º, proposto) — como nos dados do TSE; '
+  if (sist.distrital && siEhMinuta(sist.distrital.op)) li.push('<b>Versão Minuta.</b> O distrital misto segue a minuta de projeto de lei de distrital misto de voto único (2025): voto único, dado ao candidato do distrito ou à legenda (art. 59, § 2º, proposto) — como nos dados do TSE; '
     + 'distritos em número igual à metade das vagas, arredondada para cima (art. 10, § 5º), por habitantes do último Censo com até ±5% (±10% em 1 distrito ou em 10% deles), contíguos e compactos; vence o distrito o candidato com mais votos nominais válidos (art. 105-A) — um por partido: aqui, o mais votado de cada partido no distrito, com os seus votos pessoais (a alternativa "Partido (só nominais)" supõe que todos os votos nominais do partido se juntariam no candidato único); '
     + 'a cota de cada partido pelas maiores médias sobre nominais + legenda (art. 105-B); o excedente substitui as vagas de outros na ordem inversa da lista, sem aumentar a Casa (art. 105-C). Simulada só para deputado federal (para estaduais, o projeto não diz quantos vencem em cada distrito).');
   if (sist.distrital && siEh9213(sist.distrital.op)) li.push('<b>PL 9.213/2017.</b> O distrital misto segue o PL 9.213/2017 (PLS 345/2017, do senador Eunício Oliveira, aprovado pelo Senado em 21/11/2017 com o PLS 86 e apensado ao PL 9.212 na Câmara): '
@@ -1844,8 +1844,8 @@ async function siIniciar() {
   $('dSenado').addEventListener('click', siRegraSenado);
   $('dCcj').addEventListener('click', () => siRegraProjeto('ccj'));
   $('d9213').addEventListener('click', () => siRegraProjeto('9213'));
-  $('dBrito').addEventListener('click', () => siRegraProjeto('brito'));
-  $('mRenata').addEventListener('click', siVersaoRenata);
+  $('dMinuta').addEventListener('click', () => siRegraProjeto('minuta'));
+  $('mReducaoV3').addEventListener('click', siReducaoV3);
   siLigarTolerancia();
   siLigarExcedente();
   for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a']]) {

@@ -260,7 +260,7 @@ ok(fx && fx.siglas.join() === 'C,D' && fx.votos === 2000 && fx.cands.length === 
 ok(S.snDhondt({ A: 5000, B: 3000, CD: 2000 }, 10).CD === (S.snDhondt(Object.fromEntries(fedH.xx.agrs.map(g => [g.id, g.votos])), 10)[fx.id]), 'a federação disputa as maiores médias como uma agremiação');
 ok(S.snFederar({ xx: mg }, 'C', 'Z').xx === mg, 'parceiro sem chapa no estado: nada muda');
 
-console.log('Distritão misto, Versão Renata (a simulação do próprio projeto)');
+console.log('Distritão misto, Distritão Misto com redução v3 (a simulação do próprio projeto)');
 // 9 vagas; A 39.000 (15.000, 10.000, 9.000, 2.500 + 2.500 de legenda), B 20.000 (8.000, 5.000, 4.000, 2.000 + 1.000), C 14.000 (6.000, 4.000, 3.000, 500 + 500).
 const ren = uf(9, [agr('A', 39000, [15000, 10000, 9000, 2500]), agr('B', 20000, [8000, 5000, 4000, 2000]), agr('C', 14000, [6000, 4000, 3000, 500])]);
 const opRen = { pctMaisVotados: 0.5, arred: 'baixo', votoLiquido: true, modelo: 'compensatorio' };

@@ -123,7 +123,7 @@ const meSL = M.smMemorial({ dados, res: S.snSimular(dados, sistemas.map(x => x.t
   sistemas: sistemas.map(x => x.tipo === 'distrital' ? Object.assign({}, x, { op: Object.assign({}, x.op, { divisor: 'sl' }) }) : x), ind, ordem: [], meta: { titulo: 'T', eleicao: 't', parametros: [] }, estrategia: { partido: 'C' } });
 ok(Object.values(meSL.conferencias).every(x => x.nao === 0) && celulas(meSL.abas.find(x => x.nome === 'Próxima cadeira (C)')).some(c => /\(2\*\(E\d+\+1\)-1\)/.test(c.f || '')), 'com Sainte-Laguë: o divisor da próxima cadeira é 2 × (cota + 1) − 1, e tudo confere');
 
-console.log('Versão Renata e Versão Antonio Brito no memorial');
+console.log('Distritão Misto com redução v3 e Versão Minuta no memorial');
 {
   const ssR = [{ id: 'mistoR', nome: 'Distritão misto', tipo: 'misto', op: { pctMaisVotados: 0.5, arred: 'baixo', votoLiquido: true, modelo: 'compensatorio', limiar: 0 } },
     { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, regra: 'candidato', modelo: 'compensatorio', limiar: 0, porUf } }];
@@ -132,7 +132,7 @@ console.log('Versão Renata e Versão Antonio Brito no memorial');
   const nR = Object.values(mR.conferencias).reduce((t2, x) => t2 + x.n, 0), naoR = Object.values(mR.conferencias).reduce((t2, x) => t2 + x.nao, 0);
   const aR = mR.abas.find(x => x.nome === 'Distritão misto');
   ok(naoR === 0 && celulas(aR).some(c => /^INT\(C\d+\*0\.5\+1E-9\)$/.test(c.f || '')) && celulas(aR).some(c => /^SUMIFS\(Eleitos!F:F,Eleitos!A:A,"Distritão misto",.*"mais votados"\)$/.test(c.f || '')),
-    `Versão Renata: mais votados pela parte inteira e voto líquido por fórmula (votos − os dos eleitos na 1ª parte); ${nR} conferências, todas batem`);
+    `Distritão Misto com redução v3: mais votados pela parte inteira e voto líquido por fórmula (votos − os dos eleitos na 1ª parte); ${nR} conferências, todas batem`);
 }
 
 console.log('Planilha (SheetJS)');

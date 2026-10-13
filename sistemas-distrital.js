@@ -920,7 +920,7 @@ function sdDistritalMisto(d, op) {
   for (const a of d.agrs) for (const c of a.cands) cand.set(String(c.sq), { a, c });
   const ganha = new Map(), usados = new Set();
   // A votação de cada agremiação no distrito: nominais + legenda, ou só os nominais
-  // (regra 'partidoNominal', Versão Antonio Brito: a legenda não conta para o distrito).
+  // (regra 'partidoNominal', Versão Minuta: a legenda não conta para o distrito).
   const dono = {};
   for (const a of d.agrs) for (const c of a.cands) dono[String(c.sq)] = a.id;
   const noDistrito = x => {
