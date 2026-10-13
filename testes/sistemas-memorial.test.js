@@ -75,9 +75,9 @@ ok(rod.length === 4 && rod[0][1] === '80/20' && rod[1][1] === '3ª fase' && rod[
 const r1 = rod[0];
 ok(r1[2].f === '$B$6/3' && r1[2].v === 500 / 3 && r1[3] === null && r1[4] === null, 'média = votos ÷ (lugares + 1), só de quem pode disputar (B e C abaixo de 80% ficam em branco)');
 const comp = aba('Distritão misto comp.');
-ok(celulas(comp).some(c => /^COUNTIF\(F\d+:I\d+,">="&LARGE\(\$F\$\d+:\$I\$\d+,4\)\)$/.test(c.f)) && celulas(comp).some(c => /^\$B\$\d+\/2-\$E\$\d+\*1E-9$/.test(c.f)),
-  'compensatório: quociente votos ÷ divisor (com o desempate); alvo = quocientes entre os N maiores (CONT.SE com MAIOR)');
-ok(celulas(aba('Distritão misto')).filter(c => /^COUNTIF/.test(c.f)).map(c => c.v).join() === '2,0,0,0,2,0', 'empate na última vaga da lista: leva quem vem antes no arquivo (como no simulador)');
+ok(celulas(comp).some(c => /^SUMPRODUCT\(\(F\d+:I\d+>=LARGE\(\$F\$\d+:\$I\$\d+,4\)\)\*1\)$/.test(c.f)) && celulas(comp).some(c => /^\$B\$\d+\/2-\$E\$\d+\*1E-9$/.test(c.f)),
+  'compensatório: quociente votos ÷ divisor (com o desempate); alvo = quocientes entre os N maiores (SOMARPRODUTO com MAIOR)');
+ok(celulas(aba('Distritão misto')).filter(c => /^SUMPRODUCT/.test(c.f)).map(c => c.v).join() === '2,0,0,0,2,0', 'empate na última vaga da lista: leva quem vem antes no arquivo (como no simulador)');
 const ajustes = comp.linhas.filter(l => l[1] === 'corta (menor média)');
 ok(ajustes.length >= 1 && ajustes.every(l => l[l.length - 1].v === M.SM_SIM), 'excedente: cada corte pela menor média, conferido passo a passo');
 ok(celulas(comp).some(c => /-COUNTIFS\(/.test(c.f || '')), 'lista depois dos ajustes = lista − cortes (+ acréscimos), por fórmula');
@@ -116,7 +116,7 @@ for (const foco of ['B', 'C', 'D']) {
   const prox = me.abas.find(x => x.nome === `Próxima cadeira (${foco})`);
   ok(nomes.includes(`Próxima cadeira (${foco})`) && nomes.includes(`Distritos ao alcance (${foco})`) && nomes.includes(`Federação ${foco}+A`) && nao === 0,
     `foco ${foco}: abas da estratégia e ${n} conferências, todas batem`);
-  ok(celulas(prox).some(c => /^COUNTIF\(\$D\$\d+:\$\w+\$\d+,">="&LARGE\(/.test(c.f || '')) && celulas(prox).some(c => /^IF\(B\d+-E\d+<1,"—",INT\(\(LARGE\(/.test(c.f || '')),
+  ok(celulas(prox).some(c => /^SUMPRODUCT\(\(\$D\$\d+:\$\w+\$\d+>=LARGE\(/.test(c.f || '')) && celulas(prox).some(c => /^IF\(B\d+-E\d+<1,"—",INT\(\(LARGE\(/.test(c.f || '')),
     'próxima cadeira: cota, faltam e folga por fórmula (LARGE na tabela de quocientes)');
 }
 const meSL = M.smMemorial({ dados, res: S.snSimular(dados, sistemas.map(x => x.tipo === 'distrital' ? Object.assign({}, x, { op: Object.assign({}, x.op, { divisor: 'sl' }) }) : x)),
@@ -156,6 +156,53 @@ console.log('Distritão Misto com redução v3 e Versão Minuta no memorial');
   const rErr = S.snSimular(dados, ssErr);
   const mErr = M.smMemorial({ dados, res: rErr, sistemas: ssErr, ind: S.snIndicadores(rErr, dados), ordem: S.snOrdemPartidos(rErr), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
   ok(mErr.conferencias['Distrital misto'].nao === 1, 'nº de distritos que não segue a regra (5 vagas, metade arredondada, desenhadas 2) dá DIVERGE');
+}
+
+console.log('Deputados estaduais: nos distritos federais (Minuta, leitura b) e encaixado');
+// Um estado com 24 vagas na Assembleia (8 federais, como o AC): 4 distritos federais, 12 cadeiras distritais.
+const estadual = (() => {
+  const cands = (n, base, passo) => Array.from({ length: n }, (_, i) => base - i * passo);
+  const xc = uf('xc', 24, [agr('A', 4200, cands(16, 400, 20)), agr('B', 3000, cands(14, 300, 15)), agr('C', 1500, cands(10, 200, 15))]);
+  // 16 unidades (malha 4×4); os votos de cada candidato vão para uma unidade, girando
+  const un = [], viz = {}, id = (x, y) => `m:${x}${y}`;
+  for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) { un.push({ id: id(x, y), mun: `${x}${y}`, zonas: ['1'], nome: `M${x}${y}`, aptos: 1000 + ((x * 5 + y * 3) % 4) * 10, x: x * 10, y: y * 10, area: 1 }); viz[id(x, y)] = new Set(); }
+  for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) for (const [a, b] of [[1, 0], [0, 1]]) if (x + a < 4 && y + b < 4) { viz[id(x, y)].add(id(x + a, y + b)); viz[id(x + a, y + b)].add(id(x, y)); }
+  const base = { unidades: un, viz }, votos = {};
+  let j = 0;
+  for (const a of xc.agrs) for (const c of a.cands) { const u = un[(j++ * 5) % 16]; (votos[`${u.mun}|1`] = votos[`${u.mun}|1`] || { c: {}, l: {} }).c[c.sq] = c.votos; }
+  return { xc, base, votos };
+})();
+{
+  const { xc, base, votos } = estadual;
+  const desF = SD.sdDistritar(base, 4);
+  const cad = SD.sdCadeirasPorDistrito(desF.distritos, 12);
+  const desenhoFed = Object.assign({}, desF, { distritos: desF.distritos.map((d, i) => Object.assign({}, d, { cadeiras: cad[i] })) });
+  const opF = { pctDistrital: 0.5, arred: 'proximo', regra: 'candidato', modelo: 'compensatorio', limiar: 0,
+    porUf: { xc: { desenho: desenhoFed, base, votos, modoEstadual: 'fed', kF: 4, kE: 12, vagasFederais: 8, capPartido: 3 } } };
+  const ssF = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: opF }];
+  const rF = S.snSimular({ xc }, ssF);
+  const mF = M.smMemorial({ dados: { xc }, res: rF, sistemas: ssF, ind: S.snIndicadores(rF, { xc }), ordem: S.snOrdemPartidos(rF), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const aF = mF.abas.find(x => x.nome === 'Distrital misto'), cF = mF.conferencias['Distrital misto'];
+  const dF = rF.sims[0].porUf.xc.distritos;
+  ok(dF.length === 4 && dF.every(d => d.cadeiras === 3 && d.vencedores.length === 3) && rF.sims[0].porUf.xc.eleitos.filter(e => e.fase !== 'lista').length === 12,
+    'nos distritos federais: 4 distritos de 3 cadeiras, 12 eleitos distritais');
+  ok(cF && cF.nao === 0 && celulas(aF).some(c => c.f === `IF(C${aF.linhas.findIndex(l => l[0] === 'XC') + 1}<=36,ROUND(C${aF.linhas.findIndex(l => l[0] === 'XC') + 1}/3,0),C${aF.linhas.findIndex(l => l[0] === 'XC') + 1}-24)`),
+    `bancada federal pelo art. 27 por fórmula; ${cF ? cF.n : 0} conferências, todas batem`);
+  ok(celulas(aF).filter(c => /^U\d+\+IF\(W\d+<=\$P\$\d+-SUM\(\$U\$\d+:\$U\$\d+\),1,0\)$/.test(c.f || '')).length === 4, 'cadeiras de cada distrito pelos maiores restos, por fórmula (uma por distrito)');
+  ok(celulas(aF).filter(c => /^IF\(N\d+>=R\d+,/.test(c.f || '')).every(c => c.v === M.SM_SIM), 'o último eleito de cada distrito contra o concorrente');
+
+  const an = SD.sdDistritarAninhado(base, 4, 3);
+  const opA = { pctDistrital: 0.5, arred: 'proximo', regra: 'partido', modelo: 'compensatorio', limiar: 0,
+    porUf: { xc: { desenho: an, base, votos, modoEstadual: 'ani', kF: 4, kE: 12, vagasFederais: 8 } } };
+  const ssA = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: opA }];
+  const rA = S.snSimular({ xc }, ssA);
+  const mA = M.smMemorial({ dados: { xc }, res: rA, sistemas: ssA, ind: S.snIndicadores(rA, { xc }), ordem: S.snOrdemPartidos(rA), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const aA = mA.abas.find(x => x.nome === 'Distrital misto'), cA = mA.conferencias['Distrital misto'];
+  const enc = celulas(aA).filter(c => /^COUNTIFS\('Distritos \(composição\)'!A:A,\$A\$\d+,'Distritos \(composição\)'!B:B,A\d+,'Distritos \(composição\)'!H:H,"<>"&T\d+\)$/.test(c.f || ''));
+  ok(an.distritos.length === 12 && enc.length === 12 && enc.every(c => c.v === 0) && cA && cA.nao === 0,
+    `encaixado (regra do partido): 12 estaduais, cada um com 0 unidades fora do seu federal, conferido na composição; ${cA ? cA.n : 0} conferências, todas batem`);
+  ok(mA.abas.find(x => x.nome === 'Distritos (composição)').linhas[0][7] === 'Distrito federal (encaixe)', 'composição traz o distrito federal de cada unidade');
+  global.__estadual = { mF, mA };
 }
 
 console.log('Planilha (SheetJS)');

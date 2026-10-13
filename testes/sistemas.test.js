@@ -273,5 +273,16 @@ ok(conta(rRen) === '{"A":3,"B":3,"C":3}' && rRen.cortes.B === 1 && rRen.cortes.C
 ok(conta(S.snDistritaoMisto(ren, Object.assign({}, opRen, { votoLiquido: false }))) === '{"A":4,"B":3,"C":2}', 'sem o voto líquido, a votação inteira daria A 4 (5 pela conta, mas só tem 4 candidatos), B 3, C 2');
 ok(S.snDistritaoMisto(ren, { pctMaisVotados: 0.5 }).nMais === 5, 'arredondado (padrão): 5 mais votados');
 
+console.log('Cláusula com o voto partidário líquido');
+{
+  // A elege os 2 mais votados com todos os seus 1.000 votos (líquido 0). Válidos 1.100.
+  // Cláusula de 5% = 55 votos: B (60) entra; C (40) não. Pela soma líquida (100),
+  // a cláusula seria 5 votos e C entraria — e levaria a 2ª vaga da lista (40 > 60/2).
+  const u = uf(4, [agr('A', 1000, [500, 500]), agr('B', 60, [30, 30]), agr('C', 40, [40])]);
+  const r = S.snDistritaoMisto(u, { pctMaisVotados: 0.5, modelo: 'paralelo', votoLiquido: true, limiar: 0.05 });
+  ok(r.liquido.A === 0 && !r.eleitos.some(x => x.agr === 'C') && r.eleitos.filter(x => x.agr === 'B').length === 2,
+    'cláusula de 5% medida sobre os válidos do estado: C (3,6% dos válidos) fica fora da lista, mesmo com 40% da soma líquida');
+}
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);

@@ -748,14 +748,31 @@ function sdRefinarLocais(base, desenho, locais, op = {}) {
   if (!desenho || !desenho.distritos || !desenho.distritos.length) return null;
   const de = new Map();
   for (const d of desenho.distritos) for (const i of d.unidades) de.set(i, d.id);
-  const alvo = desenho.alvo, proj = base.proj;
+  const alvo = desenho.alvo;
   const minimo = (op.minimo != null ? op.minimo : 0.02) * alvo;
   const naFronteira = u => [...(base.viz[u.id] || [])].some(w => de.get(w) !== de.get(u.id));
+  const dv = sdDividir(base, locais, u => de.has(u.id) && (u.id.startsWith('z:') || (op.municipios && u.id.startsWith('m:') && u.aptos >= minimo)) && naFronteira(u));
+  if (!dv) return null;
+  const { unidades, viz, divide, Un } = dv;
+  const partes = desenho.distritos.map(d => d.unidades.flatMap(i => divide.has(i) ? divide.get(i).map(x => x.id) : [i]));
+  const it = sdRefinar(partes, Un, viz, alvo, op.iteracoes || 4000, op.ate != null ? op.ate : 0.01, op.forma != null ? op.forma : 0.05);
+  const r = sdMedir(partes, Un, viz, alvo, partes.length);
+  r.metricas.trocas = (desenho.metricas && desenho.metricas.trocas || 0) + it;
+  return { base: { unidades, viz, semMapa: base.semMapa, pontes: base.pontes, proj: base.proj }, desenho: Object.assign({}, desenho, r, { alvo, locais: true }) };
+}
+
+/**
+ * Divide as unidades escolhidas (quais(u) → true) nos seus locais de votação, cada local
+ * com a sua fatia do peso da unidade (pela proporção dos eleitores), e refaz a vizinhança:
+ * dentro da unidade, os 4 locais mais perto; com uma vizinha dividida, os pares mais perto
+ * dos dois lados; com uma vizinha inteira, os 3 locais mais perto dela. Unidade com menos
+ * de 2 locais fica inteira. Devolve { unidades, viz, divide (id → locais), Un } ou null.
+ */
+function sdDividir(base, locais, quais) {
+  const proj = base.proj;
   const divide = new Map();
   for (const u of base.unidades) {
-    if (!de.has(u.id)) continue;
-    const ok = u.id.startsWith('z:') || (op.municipios && u.id.startsWith('m:') && u.aptos >= minimo);
-    if (!ok || !naFronteira(u)) continue;
+    if (!quais(u)) continue;
     const ls = [];
     let q = 0;
     for (const z of u.zonas) for (const [loc, l] of Object.entries(locais[u.mun + '|' + z] || {})) if (l.aptos > 0) { ls.push({ z, loc, l }); q += l.aptos; }
@@ -796,11 +813,14 @@ function sdRefinarLocais(base, desenho, locais, op = {}) {
     }
   }
   sdEmendar(unidades.map(u => u.id), Un, viz);
-  const partes = desenho.distritos.map(d => d.unidades.flatMap(i => divide.has(i) ? divide.get(i).map(x => x.id) : [i]));
-  const it = sdRefinar(partes, Un, viz, alvo, op.iteracoes || 4000, op.ate != null ? op.ate : 0.01, op.forma != null ? op.forma : 0.05);
-  const r = sdMedir(partes, Un, viz, alvo, partes.length);
-  r.metricas.trocas = (desenho.metricas && desenho.metricas.trocas || 0) + it;
-  return { base: { unidades, viz, semMapa: base.semMapa, pontes: base.pontes, proj }, desenho: Object.assign({}, desenho, r, { alvo, locais: true }) };
+  return { unidades, viz, divide, Un };
+}
+
+/** A base com todas as zonas eleitorais divididas nos seus locais de votação (para o encaixe dos estaduais
+ *  quando um distrito federal tem menos zonas do que estaduais a conter). Devolve a base nova ou null. */
+function sdBaseLocais(base, locais) {
+  const dv = sdDividir(base, locais, u => u.id.startsWith('z:'));
+  return dv ? { unidades: dv.unidades, viz: dv.viz, semMapa: base.semMapa, pontes: base.pontes, proj: base.proj } : null;
 }
 
 /** Distritos (numerados de norte a sul, de oeste a leste) e as métricas de qualidade. */
@@ -827,6 +847,138 @@ function sdMedir(partes, U, viz, alvo, k) {
     unidades: U.size, zonas: [...U.keys()].filter(i => i.startsWith('z:')).length, locais: [...U.keys()].filter(i => i.startsWith('l:')).length,
   };
   return { distritos, metricas };
+}
+
+// ------------------------------------------------------------ deputados estaduais e distritais
+/**
+ * Cadeiras de cada distrito quando os estaduais votam nos distritos federais
+ * (Versão Minuta, leitura com vários eleitos por distrito): o total de cadeiras
+ * distritais se reparte entre os distritos na proporção do tamanho de cada um
+ * (eleitores ou habitantes), pelos maiores restos (Hamilton); todo distrito
+ * fica com ao menos 1. Devolve [n] na ordem dos distritos.
+ */
+function sdCadeirasPorDistrito(distritos, total) {
+  const k = distritos.length;
+  if (!k) return [];
+  const soma = distritos.reduce((s, d) => s + d.aptos, 0) || 1;
+  const cota = distritos.map(d => d.aptos / soma * total);
+  const n = cota.map(c => Math.max(1, Math.floor(c + 1e-9)));
+  let falta = total - n.reduce((s, x) => s + x, 0);
+  const ordem = cota.map((c, i) => [c - Math.floor(c + 1e-9), i]).sort((a, b) => b[0] - a[0] || a[1] - b[1]);
+  for (let j = 0; falta > 0; j = (j + 1) % k) { n[ordem[j][1]]++; falta--; }
+  // (falta < 0 só se total < k; aí cada distrito fica com 1)
+  return n;
+}
+
+/**
+ * Distritos estaduais ENCAIXADOS nos federais (GT do TSE, 2019, critério 4(e):
+ * "distritos estaduais devem estar contidos nos limites dos distritos
+ * federais"). Só cabe quando o nº de distritos estaduais é múltiplo do de
+ * federais (n por federal); senão os tamanhos não fecham na tolerância.
+ * Desenha os kF federais e divide cada um em n, com o mesmo método. Devolve o
+ * desenho no formato de sdDistritar (numeração e métricas sobre todos os
+ * estaduais), com .aninhado = { kF, n, federais } e .pai em cada distrito
+ * (o id do federal que o contém); ou { erro }.
+ */
+function sdDistritarAninhado(base, kF, n, op = {}) {
+  const fed = sdDistritar(base, kF, op);
+  if (fed.erro) return fed;
+  const U = new Map(base.unidades.map(u => [u.id, u]));
+  const paiDe = new Map();
+  const partes = [];
+  for (const f of fed.distritos) {
+    const ids = new Set(f.unidades);
+    for (const id of f.unidades) paiDe.set(id, f.id);
+    const viz = {};
+    for (const id of f.unidades) viz[id] = new Set([...(base.viz[id] || [])].filter(w => ids.has(w)));
+    const sub = sdDistritar({ unidades: f.unidades.map(id => U.get(id)), viz }, n, op);
+    if (sub.erro) return { erro: `distrito federal ${f.id}: ${sub.erro}` };
+    for (const d of sub.distritos) partes.push(d.unidades);
+  }
+  const k = kF * n, alvo = base.unidades.reduce((s, u) => s + u.aptos, 0) / k;
+  const r = sdMedir(partes, U, base.viz, alvo, k);
+  for (const d of r.distritos) d.pai = paiDe.get(d.unidades[0]);
+  return Object.assign(r, { alvo, aninhado: { kF, n, federais: fed.distritos } });
+}
+
+/**
+ * Afinação pelos locais de votação de um desenho ENCAIXADO (sdDistritarAninhado):
+ * cada distrito federal é afinado sozinho, com a base só das suas unidades, então
+ * as trocas na fronteira nunca levam uma peça para outro federal — o encaixe fica.
+ * Em cada federal, primeiro as zonas da fronteira entre os seus estaduais; se ainda
+ * passa da tolerância (op.tol), também os municípios da fronteira; fica o melhor.
+ * Devolve { base, desenho } (como sdRefinarLocais) ou null se nada mudou.
+ */
+function sdAfinarAninhado(base, desenho, locais, op = {}) {
+  if (!desenho || !desenho.aninhado) return null;
+  const U = new Map(base.unidades.map(u => [u.id, u]));
+  const tol = op.tol || SD_TOL_SENADO, alvo = desenho.alvo;
+  const nota = ds => { const t = sdTolerancia(ds, tol); return [t.ok ? 0 : 1, t.excecao + t.fora, Math.max(...ds.map(d => Math.abs(d.desvio)))]; };
+  const melhor = (a, b) => { const na = nota(a), nb = nota(b); for (let i = 0; i < 3; i++) if (na[i] !== nb[i]) return na[i] < nb[i] - (i === 2 ? 1e-9 : 0); return false; };
+  const unidades = [], viz = {}, partes = [], federais = [];
+  let mudou = false;
+  for (const f of desenho.aninhado.federais) {
+    const ids = new Set(f.unidades);
+    const vizF = {};
+    for (const id of f.unidades) vizF[id] = new Set([...(base.viz[id] || [])].filter(w => ids.has(w)));
+    const subBase = { unidades: f.unidades.map(id => U.get(id)), viz: vizF, proj: base.proj };
+    // desvio de cada estadual contra o alvo do ESTADO (o da tolerância)
+    const subDes = { distritos: desenho.distritos.filter(d => d.pai === f.id), alvo };
+    let r = sdRefinarLocais(subBase, subDes, locais, op);
+    if (r && !sdTolerancia(r.desenho.distritos, tol).ok) {
+      const r2 = sdRefinarLocais(r.base, r.desenho, locais, Object.assign({}, op, { municipios: true }));
+      if (r2 && r2.desenho.metricas.contiguos && melhor(r2.desenho.distritos, r.desenho.distritos)) r = r2;
+    }
+    if (r && (!r.desenho.metricas.contiguos || !melhor(r.desenho.distritos, subDes.distritos))) r = null;
+    const b = r ? r.base : subBase, ds = r ? r.desenho.distritos : subDes.distritos;
+    if (r) mudou = true;
+    unidades.push(...b.unidades);
+    for (const [a, vs] of Object.entries(b.viz)) viz[a] = new Set(vs);
+    for (const d of ds) partes.push(d.unidades);
+    federais.push(Object.assign({}, f, { unidades: ds.flatMap(d => d.unidades) }));
+  }
+  if (!mudou) return null;
+  // vizinhança entre federais: as unidades que não foram divididas mantêm a que tinham
+  for (const [a, vs] of Object.entries(base.viz)) if (viz[a]) for (const b of vs) if (viz[b]) { viz[a].add(b); viz[b].add(a); }
+  const Un = new Map(unidades.map(u => [u.id, u]));
+  const k = partes.length, r = sdMedir(partes, Un, viz, alvo, k);
+  const paiDe = new Map();
+  for (const f of federais) for (const id of f.unidades) paiDe.set(id, f.id);
+  for (const d of r.distritos) d.pai = paiDe.get(d.unidades[0]);
+  return { base: { unidades, viz, semMapa: base.semMapa, pontes: base.pontes, proj: base.proj },
+    desenho: Object.assign({}, desenho, r, { alvo, locais: true, aninhado: Object.assign({}, desenho.aninhado, { federais }) }) };
+}
+
+/**
+ * Quantos distritos estaduais atravessam a fronteira de um distrito federal
+ * (mapa estadual desenhado sem encaixe). federais: os distritos de um desenho
+ * federal de referência na mesma base. Uma unidade afinada por local de
+ * votação ('l:cd:z:loc') vale pela zona ('z:cd:z') ou pelo município ('m:cd').
+ * Devolve { atravessam, total, foraMedia } — foraMedia: a fração média do
+ * tamanho de cada distrito estadual que fica fora do federal que mais o contém.
+ */
+function sdCruzamentos(estaduais, federais, U) {
+  const fedDe = new Map();
+  for (const f of federais) for (const id of f.unidades) fedDe.set(id, f.id);
+  const achar = id => {
+    if (fedDe.has(id)) return fedDe.get(id);
+    const m = id.match(/^l:([^:]+):([^:]+):/);
+    if (m) return fedDe.get(`z:${m[1]}:${m[2]}`) ?? fedDe.get(`m:${m[1]}`);
+    const z = id.match(/^z:([^:]+):/);
+    return z ? fedDe.get(`m:${z[1]}`) : undefined;
+  };
+  let atravessam = 0, fora = 0;
+  for (const d of estaduais) {
+    const peso = new Map();
+    let tot = 0;
+    for (const id of d.unidades) {
+      const a = (U.get(id) || {}).aptos || 0, f = achar(id);
+      peso.set(f, (peso.get(f) || 0) + a); tot += a;
+    }
+    if (peso.size > 1) atravessam++;
+    fora += tot ? 1 - Math.max(...peso.values()) / tot : 0;
+  }
+  return { atravessam, total: estaduais.length, foraMedia: estaduais.length ? fora / estaduais.length : 0 };
 }
 
 // ------------------------------------------------------------ eleição
@@ -942,45 +1094,69 @@ function sdDistritalMisto(d, op) {
     }
   });
   pares.sort((p, q) => q[0] - p[0] || q[2].localeCompare(p[2]));
+  // Cadeiras de cada distrito: 1 (uninominal) ou o que o desenho disser
+  // (estaduais nos distritos federais, Versão Minuta: vários eleitos por
+  // distrito, os mais votados). op.capPartido: no máximo tantos eleitos da
+  // mesma agremiação num distrito (Minuta: até 3 candidatos por partido nas
+  // UFs com até 20 deputados federais, até 2 nas demais).
+  const cadeiras = i => Math.max(1, (op.desenho.distritos[i] || {}).cadeiras || 1);
+  const cap = op.capPartido > 0 ? op.capPartido : Infinity;
+  const noDist = new Map();   // 'i|agr' → eleitos da agremiação no distrito
   for (const [, i, sq] of pares) {
-    if (ganha.has(i) || usados.has(sq)) continue;
-    ganha.set(i, sq); usados.add(sq);
+    const lista = ganha.get(i) || [];
+    if (lista.length >= cadeiras(i) || usados.has(sq)) continue;
+    const kk = i + '|' + cand.get(sq).a.id;
+    if ((noDist.get(kk) || 0) >= cap) continue;
+    lista.push(sq); ganha.set(i, lista); usados.add(sq); noDist.set(kk, (noDist.get(kk) || 0) + 1);
   }
   const primeiros = [];
   // Regra 'candidato': para o memorial provar quem levou, o concorrente de cada
-  // distrito é o candidato mais votado ali fora o eleito e fora quem já levou
-  // outro distrito (com proporção maior, por isso antes). Quem teve mais votos
-  // que o eleito ali e levou outro distrito vai listado à parte.
-  const levou = new Map([...ganha].map(([i, sq]) => [sq, i]));
-  const disputa = (x, i, sq) => {
-    if (op.regra !== 'candidato' || !sq) return {};
-    const lado = Object.entries(x.porCand).filter(([q]) => q !== sq && cand.has(q)).sort((p, q) => q[1] - p[1] || p[0].localeCompare(q[0]));
-    const fora = lado.filter(([q]) => levou.has(q) && levou.get(q) !== i);
-    const livre = lado.find(([q]) => !levou.has(q));
+  // distrito é o candidato mais votado ali fora os eleitos, fora quem já levou
+  // outro distrito (com proporção maior, por isso antes) e fora quem a cota da
+  // agremiação no distrito barrou. Quem teve mais votos que o último eleito ali
+  // e ficou de fora por um desses motivos vai listado à parte.
+  const levou = new Map();
+  for (const [i, lista] of ganha) for (const sq of lista) levou.set(sq, i);
+  const disputa = (x, i, lista) => {
+    if (op.regra !== 'candidato' || !lista.length) return {};
+    const eleitos = new Set(lista), menor = Math.min(...lista.map(q => x.porCand[q]));
+    const lado = Object.entries(x.porCand).filter(([q]) => !eleitos.has(q) && cand.has(q)).sort((p, q) => q[1] - p[1] || p[0].localeCompare(q[0]));
+    const barrado = q => (noDist.get(i + '|' + cand.get(q).a.id) || 0) >= cap;
     const info = ([q, v]) => { const k = cand.get(q); return { sq: q, nome: k.c.nome, partido: k.c.partido, votos: v }; };
+    const livre = lado.find(([q]) => !levou.has(q) && !barrado(q));
     return {
       concorrente: livre ? info(livre) : null,
-      acima: fora.filter(([, v]) => v > x.porCand[sq]).map(e => Object.assign(info(e), { distrito: op.desenho.distritos[levou.get(e[0])].id })),
+      acima: lado.filter(([q, v]) => v > menor && (levou.has(q) || barrado(q))).map(e => levou.has(e[0])
+        ? Object.assign(info(e), { distrito: op.desenho.distritos[levou.get(e[0])].id })
+        : Object.assign(info(e), { motivo: `limite de ${cap} eleito(s) por agremiação no distrito` })),
     };
   };
   const distritos = op.desenho.distritos.map((dt, i) => {
-    const x = vd[i], sq = ganha.get(i), k = sq && cand.get(sq);
+    const x = vd[i], lista = (ganha.get(i) || []).slice().sort((p, q) => x.porCand[q] - x.porCand[p] || q.localeCompare(p));
     const lid = lider[i];
-    const seg = k ? lid.find(([id]) => id !== k.a.id) : lid[1];
-    if (k) primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id, pct: x.porCand[sq] / (x.validos || 1) });
-    return { id: dt.id, aptos: dt.aptos, desvio: dt.desvio, validos: x.validos,
-      vencedor: k ? { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
-        agrNome: sdSiglas(k.a), agrVotos: porAgrD[i][k.a.id] || 0, agrPct: (porAgrD[i][k.a.id] || 0) / (x.validos || 1) } : null,
+    const ws = lista.map(sq => {
+      const k = cand.get(sq);
+      primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id, pct: x.porCand[sq] / (x.validos || 1) });
+      return { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
+        agrNome: sdSiglas(k.a), agrVotos: porAgrD[i][k.a.id] || 0, agrPct: (porAgrD[i][k.a.id] || 0) / (x.validos || 1) };
+    });
+    const w = ws[0] || null;
+    const seg = w ? lid.find(([id]) => id !== w.agr) : lid[1];
+    return { id: dt.id, aptos: dt.aptos, desvio: dt.desvio, validos: x.validos, cadeiras: cadeiras(i),
+      vencedor: w, vencedores: ws,
       segundo: seg ? { agr: seg[0], nome: sdSiglas(agr.get(seg[0])) || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null,
-      ...disputa(x, i, sq) };
+      ...disputa(x, i, lista) };
   });
   const r = sdCompletarLista(d, primeiros, vagas, op);
   // excedente que não leva (op.excedente 'naoLeva'): o distrito fica sem a cadeira do vencedor
   const sem = new Set(r.descobertos || []);
-  for (const dt of distritos) if (dt.vencedor && sem.has(dt.vencedor.sq)) dt.semCadeira = true;
+  for (const dt of distritos) {
+    for (const w of dt.vencedores) if (sem.has(w.sq)) w.semCadeira = true;
+    if (dt.vencedor && dt.vencedor.semCadeira) dt.semCadeira = true;
+  }
   return Object.assign(r, { nDistritos: primeiros.length - sem.size, distritos });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdTolerancia, SD_TOL_SENADO, SD_TOL_CCJ, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdTolerancia, SD_TOL_SENADO, SD_TOL_CCJ, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais, sdCadeirasPorDistrito, sdDistritarAninhado, sdAfinarAninhado, sdCruzamentos, sdDividir, sdBaseLocais };
 }

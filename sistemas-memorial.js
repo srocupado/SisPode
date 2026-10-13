@@ -191,7 +191,8 @@ function smListaPassos(d, primeiros, vagas, op, casa = vagas) {
   for (const x of primeiros) n1[x.agr] = (n1[x.agr] || 0) + 1;
   const votos = Object.fromEntries(d.agrs.map(a => [a.id, a.votos]));
   const teto = Object.fromEntries(d.agrs.map(a => [a.id, a.cands.filter(c => c.valido && !ja.has(c.sq)).length]));
-  const total = Object.values(votos).reduce((s, v) => s + v, 0);
+  // a cláusula vale sobre os válidos do estado (como no simulador), não sobre a soma (que encolhe com o voto líquido)
+  const total = d.validos != null ? d.validos : Object.values(votos).reduce((s, v) => s + v, 0);
   const entra = id => votos[id] > 0 && votos[id] >= limiar * total;
   const passos = [];
   let alvo = null, lista = {};
@@ -286,7 +287,8 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
     for (let i = 1; i <= ndiv; i++) row.push({ f: `${smAbs(1, r)}/${div(i)}-${smAbs(4, r)}*1E-9`, v: q(a, i) });
     const rng = `${smRef(cq, r)}:${smRef(cq + ndiv - 1, r)}`;
     const conta = Array.from({ length: ndiv }, (_, i) => q(a, i + 1)).filter(x => x >= corte).length;
-    row.push({ f: `COUNTIF(${rng},">="&LARGE(${mat},${N}))`, v: conta });
+    // SUMPRODUCT compara número com número; COUNTIF(">="&x) passa x para texto com 15 dígitos e pode errar o próprio x
+    row.push({ f: `SUMPRODUCT((${rng}>=LARGE(${mat},${N}))*1)`, v: conta });
     const simL = porAgrLista[a.id] || 0;
     if (comp) {
       const l0 = Math.min(p.teto[a.id], Math.max(0, conta - (p.n1[a.id] || 0)));
@@ -392,7 +394,11 @@ function smAbaDistrital(s, dados, ufs, res) {
   const tol = op.tol || { pct: 0.05, exc: 0.10, excN: 1, excFrac: 0.10 }, temExc = tol.exc > tol.pct, pc = x => Math.round(x * 1000) / 10 + '%';
   const tolTxt = `±${pc(tol.pct)}` + (temExc ? ` (±${pc(tol.exc)} em até ${tol.excN} distrito(s) ou ${pc(tol.excFrac)} deles, o que for maior)` : '');
   const classe = x => (Math.abs(x) <= tol.pct + 1e-9 ? 'dentro' : temExc && Math.abs(x) <= tol.exc + 1e-9 ? 'exceção' : 'fora');
-  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de um eleito (${op.regra === 'candidato' ? 'o candidato mais votado do distrito; quem é o mais votado em mais de um fica com aquele em que teve a maior proporção dos votos, e o outro distrito vai ao seguinte — a coluna do concorrente mostra quem o eleito precisava superar' : op.regra === 'partidoNominal' ? 'a agremiação com mais votos NOMINAIS leva (a legenda não conta), com o seu candidato mais votado ali' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.`]);
+  const algumFed = ufs.some(uf => ((op.porUf || {})[uf] || {}).modoEstadual === 'fed');
+  if (ufs.some(uf => ['ani', 'ind', 'fed'].includes(((op.porUf || {})[uf] || {}).modoEstadual))) aba.add([`Deputados estaduais e distritais: a bancada federal de cada estado sai das vagas da Assembleia pelo art. 27 da Constituição (até 36 vagas: um terço; acima: vagas − 24; DF: 8). `
+    + (algumFed ? 'Nos distritos federais (Versão Minuta, leitura com vários eleitos por distrito): as cadeiras distritais da Assembleia se repartem entre os distritos federais na proporção do tamanho (maiores restos, mínimo 1), e cada distrito elege os mais votados, até 3 da mesma agremiação nas UFs com até 20 deputados federais e até 2 nas demais.'
+      : 'Mapa próprio: onde o nº de distritos estaduais é múltiplo do de federais, cada distrito federal se divide em estaduais (GT do TSE, 2019, critério 4(e)) e a coluna "Unidades fora dele" confere, pela aba de composição, que nenhuma unidade está em outro federal; nos demais estados, mapa independente.')]);
+  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de ${algumFed ? 'um ou mais eleitos' : 'um eleito'} (${op.regra === 'candidato' ? 'o candidato mais votado do distrito; quem é o mais votado em mais de um fica com aquele em que teve a maior proporção dos votos, e o outro distrito vai ao seguinte — a coluna do concorrente mostra quem o eleito precisava superar' : op.regra === 'partidoNominal' ? 'a agremiação com mais votos NOMINAIS leva (a legenda não conta), com o seu candidato mais votado ali' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.`]);
   const DC = smAbaRef('Distritos (composição)');
   for (const uf of ufs) {
     const d = dados[uf], sim = res.porUf[uf], x = (op.porUf || {})[uf];
@@ -404,19 +410,44 @@ function smAbaDistrital(s, dados, ufs, res) {
     // Nº de distritos = vagas × fração, arredondado (metade para cima: 9 → 5) ou
     // só a parte inteira (9 → 4), por fórmula; confere com os desenhados.
     const fr = op.pctDistrital != null ? op.pctDistrital : 0.5, baixo = op.arred === 'baixo';
-    const kF = baixo ? Math.floor(d.vagas * fr + 1e-9) : Math.round(d.vagas * fr);
-    aba.add([uf.toUpperCase(), 'Vagas', d.vagas, `Distritos = ${baixo ? 'INT' : 'ARRED'}(vagas × ${fr})`, { f: baixo ? `INT(C${r0}*${fr}+1E-9)` : `ROUND(C${r0}*${fr},0)`, v: kF },
+    const nArr = (v, c) => (baixo ? { f: `INT(${c}*${fr}+1E-9)`, v: Math.floor(v * fr + 1e-9) } : { f: `ROUND(${c}*${fr},0)`, v: Math.round(v * fr) });
+    // Estaduais e distritais: a bancada federal pelo art. 27 da CF (L), os
+    // distritos federais (N) e, no encaixe, quantos estaduais por federal (P);
+    // nos distritos federais (Minuta, leitura b), as cadeiras distritais (P).
+    const me = x.modoEstadual, est = me === 'ani' || me === 'ind' || me === 'fed';
+    const vF = x.vagasFederais, kFed = nArr(vF || 0, `L${r0}`);
+    const kForm = me === 'fed' ? { f: `N${r0}`, v: kFed.v } : nArr(d.vagas, `C${r0}`);
+    aba.add([uf.toUpperCase(), est ? 'Vagas na Assembleia' : 'Vagas', d.vagas, me === 'fed' ? 'Distritos = os distritos federais (N)' : `Distritos = ${baixo ? 'INT' : 'ARRED'}(vagas × ${fr})`, kForm,
       `Alvo (${pop ? 'habitantes' : 'eleitores'}) = soma ÷ distritos`, { f: k ? `SUMIF(${DC}!A:A,A${r0},${DC}!G:G)/E${r0}` : '0', v: k ? soma / k : 0 },
-      'Distritos desenhados (simulador)', k, smFConfere(`E${r0}`, `I${r0}`, kF, k)]);
+      'Distritos desenhados (simulador)', k, smFConfere(`E${r0}`, `I${r0}`, kForm.v, k),
+      ...(est ? ['Deputados federais (CF, art. 27)', uf === 'df' ? 8 : { f: `IF(C${r0}<=36,ROUND(C${r0}/3,0),C${r0}-24)`, v: vF },
+        `Distritos federais = ${baixo ? 'INT' : 'ARRED'}(federais × ${fr})`, kFed,
+        ...(me === 'ani' ? ['Estaduais por distrito federal = E ÷ N', { f: `E${r0}/N${r0}`, v: x.kE / x.kF }]
+          : me === 'fed' ? ['Cadeiras distritais da Assembleia', nArr(d.vagas, `C${r0}`), 'Até da mesma agremiação por distrito (art. 10, II)', { f: `IF(L${r0}<=20,3,2)`, v: x.capPartido }]
+          : ['Encaixe', x.encaixeFalhou ? `mapa próprio: o encaixe não coube (${x.encaixeFalhou}) — ler os locais de votação` : `mapa próprio: ${x.kE} não é múltiplo de ${x.kF}`])] : [])]);
+    if (x.cobertura != null && x.cobertura < 0.95) aba.add([`ATENÇÃO: os votos por município e zona do TSE (dados abertos) cobrem só ${Math.round(x.cobertura * 1000) / 10}% dos válidos deste cargo em ${uf.toUpperCase()} — o arquivo publicado não traz os votos dos candidatos; os distritos não têm com o que eleger e as conferências abaixo divergem por isso.`]);
     if (!k) { smBlocoLista(aba, d, sim, op, []); continue; }
     const rc = aba.prox();
-    const porCand = op.regra === 'candidato';
+    const porCand = op.regra === 'candidato', multi = me === 'fed', ani = me === 'ani';
+    const rD1p = aba.prox() + 1, rD2p = rD1p + k - 1;   // as linhas dos distritos (para as fórmulas de coluna)
     aba.add(['Distrito', `Tamanho (soma da composição)`, 'Tamanho (simulador)', 'Confere', 'Desvio = tamanho ÷ alvo − 1', 'Votos válidos no distrito',
       porCand ? 'Agremiação do eleito' : '1ª agremiação', 'Votos', porCand ? 'Outra agremiação mais votada' : '2ª agremiação', 'Votos',
-      porCand ? 'Confere (o eleito tem mais votos que o concorrente)' : 'Confere (a 1ª tem mais)', 'Eleito', 'Partido', 'Votos do eleito', `Tolerância ${tolTxt}`,
-      ...(porCand ? ['Concorrente: o mais votado ali fora o eleito e quem levou outro distrito', 'Partido', 'Votos', 'Mais votados que o eleito ali, mas eleitos em outro distrito'] : [])]);
+      porCand ? (multi ? 'Confere (o último eleito tem mais votos que o concorrente)' : 'Confere (o eleito tem mais votos que o concorrente)') : 'Confere (a 1ª tem mais)',
+      multi ? 'Eleitos' : 'Eleito', 'Partido', multi ? 'Votos do último eleito' : 'Votos do eleito', `Tolerância ${tolTxt}`,
+      ...(porCand ? [multi ? 'Concorrente: o mais votado ali fora os eleitos, quem levou outro distrito e quem o limite da agremiação barrou' : 'Concorrente: o mais votado ali fora o eleito e quem levou outro distrito', 'Partido', 'Votos',
+        multi ? 'Mais votados que o último eleito ali, mas eleitos em outro distrito ou barrados pelo limite da agremiação' : 'Mais votados que o eleito ali, mas eleitos em outro distrito'] : []),
+      ...(ani ? ['Federal que o contém', 'Unidades fora dele (composição)', 'Confere (encaixado)'] : []),
+      ...(multi ? ['Cota = tamanho ÷ soma × cadeiras', 'Parte inteira (mín. 1)', 'Resto', 'Posição do resto', 'Cadeiras (fórmula)', 'Cadeiras (simulador)', 'Confere'] : [])]);
     void rc;
     const des = new Map(x.desenho.distritos.map(q => [q.id, q]));
+    // posição do resto de cada distrito (maiores restos; empate: o que vem antes)
+    const posResto = new Map();
+    if (multi) {
+      const rs = x.desenho.distritos.map(z => { const c = z.aptos / soma * x.kE; return c - Math.floor(c + 1e-9); });
+      x.desenho.distritos.forEach((z, j) => posResto.set(z.id, rs.filter(v => v > rs[j]).length + rs.slice(0, j + 1).filter(v => v === rs[j]).length));
+    }
+    const fedDe = new Map();
+    if (ani && x.desenho.aninhado) for (const f of x.desenho.aninhado.federais) for (const u of f.unidades) fedDe.set(u, f.id);
     const rD1 = aba.prox();
     for (const dt of dist) {
       const r = aba.prox(), w = dt.vencedor, sg = dt.segundo;
@@ -427,12 +458,25 @@ function smAbaDistrital(s, dados, ufs, res) {
         { f: `B${r}/${smAbs(6, r0)}-1`, v: q.aptos / (soma / k) - 1 }, dt.validos, w ? w.agrNome : '—', v1, sg ? sg.nome : '—', v2,
         // regra 'candidato': o eleito contra o concorrente (coluna R); sem
         // concorrente (ninguém mais votou ali), conta zero
-        porCand ? { f: `IF(N${r}>=R${r},"${SM_SIM}","${SM_NAO}")`, v: !w || w.votos >= (dt.concorrente ? dt.concorrente.votos : 0) ? SM_SIM : SM_NAO }
+        porCand ? { f: `IF(N${r}>=R${r},"${SM_SIM}","${SM_NAO}")`, v: !w || (multi ? Math.min(...dt.vencedores.map(y => y.votos)) : w.votos) >= (dt.concorrente ? dt.concorrente.votos : 0) ? SM_SIM : SM_NAO }
           : { f: `IF(H${r}>=J${r},"${SM_SIM}","${SM_NAO}")`, v: v1 >= v2 ? SM_SIM : SM_NAO },
-        w ? w.nome + (dt.semCadeira ? ' (sem cadeira: excedente)' : '') : '—', w ? w.partido : '', w ? w.votos : 0,
+        ...(multi
+          ? [(dt.vencedores || []).map(y => y.nome + (y.semCadeira ? ' (sem cadeira: excedente)' : '')).join('; ') || '—', (dt.vencedores || []).map(y => y.partido).join('; '),
+            (dt.vencedores || []).length ? Math.min(...dt.vencedores.map(y => y.votos)) : 0]
+          : [w ? w.nome + (dt.semCadeira ? ' (sem cadeira: excedente)' : '') : '—', w ? w.partido : '', w ? w.votos : 0]),
         { f: temExc ? `IF(ABS(E${r})<=${tol.pct}+1E-9,"dentro",IF(ABS(E${r})<=${tol.exc}+1E-9,"exceção","fora"))` : `IF(ABS(E${r})<=${tol.pct}+1E-9,"dentro","fora")`, v: classe(q.aptos / (soma / k) - 1) },
         ...(porCand ? [dt.concorrente ? dt.concorrente.nome : '—', dt.concorrente ? dt.concorrente.partido : '', dt.concorrente ? dt.concorrente.votos : 0,
-          (dt.acima || []).map(c => `${c.nome} (${c.partido}, ${c.votos} votos; eleito no distrito ${c.distrito})`).join('; ')] : [])]);
+          (dt.acima || []).map(c => `${c.nome} (${c.partido}, ${c.votos} votos; ${c.distrito != null ? `eleito no distrito ${c.distrito}` : c.motivo})`).join('; ')] : (ani || multi ? ['', '', '', ''] : [])),
+        // encaixe: o federal que contém o distrito, e as unidades da composição que estão em outro federal (tem de dar 0)
+        ...(ani ? (() => { const fora = x.desenho.distritos.find(q => q.id === dt.id); const pai = fora && fora.pai;
+          const nFora = fora ? fora.unidades.filter(u => fedDe.get(u) !== pai).length : 0;
+          return [pai, { f: `COUNTIFS(${DC}!A:A,${smAbs(0, r0)},${DC}!B:B,A${r},${DC}!H:H,"<>"&T${r})`, v: nFora }, { f: `IF(U${r}=0,"${SM_SIM}","${SM_NAO}")`, v: nFora === 0 ? SM_SIM : SM_NAO }]; })() : []),
+        // cadeiras do distrito (maiores restos), por fórmula contra o simulador
+        ...(multi ? (() => { const qd = x.desenho.distritos.find(z => z.id === dt.id) || q, cota = qd.aptos / soma * x.kE, pi = Math.max(1, Math.floor(cota + 1e-9));
+          return [{ f: `B${r}/SUM(${smAbs(1, rD1p)}:${smAbs(1, rD2p)})*${smAbs(15, r0)}`, v: cota }, { f: `MAX(1,INT(T${r}+1E-9))`, v: pi }, { f: `T${r}-INT(T${r}+1E-9)`, v: cota - Math.floor(cota + 1e-9) },
+            // posição do resto: SUMPRODUCT compara número com número (COUNTIF com ">"&V passa V para texto e erra — medido no CE)
+            { f: `SUMPRODUCT((${smAbs(21, rD1p)}:${smAbs(21, rD2p)}>V${r})*1)+SUMPRODUCT((${smAbs(21, rD1p)}:V${r}=V${r})*1)`, v: posResto.get(dt.id) },
+            { f: `U${r}+IF(W${r}<=${smAbs(15, r0)}-SUM(${smAbs(20, rD1p)}:${smAbs(20, rD2p)}),1,0)`, v: dt.cadeiras }, dt.cadeiras, smFConfere(`X${r}`, `Y${r}`, dt.cadeiras, dt.cadeiras)]; })() : [])]);
     }
     // o estado na tolerância: fórmula contra o simulador (pelo desvio que o simulador calculou)
     const rD2 = aba.prox() - 1, faixa = `O${rD1}:O${rD2}`, rt = aba.prox();
@@ -452,15 +496,20 @@ function smAbaDistrital(s, dados, ufs, res) {
 function smAbaComposicao(s, ufs) {
   const aba = smNovaAba('Distritos (composição)', [5, 8, 22, 30, 8, 8, 14]);
   const pop = (s.op || {}).base === 'populacao';
-  aba.add(['UF', 'Distrito', 'Unidade', 'Município', 'Zona', 'Local', pop ? 'Habitantes (Censo 2022)' : 'Eleitores aptos']);
+  const temFed = ufs.some(uf => ((((s.op || {}).porUf || {})[uf] || {}).desenho || {}).aninhado);
+  aba.add(['UF', 'Distrito', 'Unidade', 'Município', 'Zona', 'Local', pop ? 'Habitantes (Censo 2022)' : 'Eleitores aptos', ...(temFed ? ['Distrito federal (encaixe)'] : [])]);
   for (const uf of ufs) {
     const x = ((s.op || {}).porUf || {})[uf];
     if (!x || !x.desenho || !x.desenho.distritos) continue;
     const U = new Map(x.base.unidades.map(u => [u.id, u]));
+    // no encaixe, o distrito federal de cada unidade (do desenho federal, independente do estadual)
+    const fedDe = new Map();
+    if (x.desenho.aninhado) for (const f of x.desenho.aninhado.federais) for (const u of f.unidades) fedDe.set(u, f.id);
     for (const dt of x.desenho.distritos) for (const id of dt.unidades) {
       const u = U.get(id) || {};
       const tipo = id.startsWith('z:') ? 'zona eleitoral' : id.startsWith('l:') ? 'local de votação' : 'município';
-      aba.add([uf.toUpperCase(), dt.id, tipo, (u.nome || '').split(' · ')[0], id.startsWith('m:') ? (u.zonas || []).join(', ') : (u.zonas || [])[0] || '', u.loc != null ? u.loc : '', u.aptos || 0]);
+      aba.add([uf.toUpperCase(), dt.id, tipo, (u.nome || '').split(' · ')[0], id.startsWith('m:') ? (u.zonas || []).join(', ') : (u.zonas || [])[0] || '', u.loc != null ? u.loc : '', u.aptos || 0,
+        ...(temFed ? [fedDe.has(id) ? fedDe.get(id) : ''] : [])]);
     }
   }
   return aba;
@@ -509,7 +558,7 @@ function smAbaProxima(dados, ufs, sistemas, votosLinha, partido) {
     e.rT = rB; e.rF = rB + 2; e.rO1 = rB + 3; e.rO2 = rB + 2 + e.outros.length;
     rB = e.rO2 + 2;
   }
-  const cota = (d, id) => dd => N.snDhondt(Object.fromEntries(dd.agrs.map(g => [g.id, g.votos])), dd.vagas, {}, lim, null, opD.divisor || 'dhondt')[id] || 0;
+  const cota = (d, id) => dd => N.snDhondt(Object.fromEntries(dd.agrs.map(g => [g.id, g.votos])), dd.vagas, {}, lim, null, opD.divisor || 'dhondt', dd.validos)[id] || 0;
   for (const e of est) {
     const r = aba.prox(), d = e.d;
     if (!e.fa || !e.outros.length) { aba.add([e.uf.toUpperCase(), d.vagas, e.semChapa ? `sem chapa do ${partido}` : 'sem cota possível']); continue; }
@@ -534,7 +583,7 @@ function smAbaProxima(dados, ufs, sistemas, votosLinha, partido) {
     const pG1 = ma.folga != null ? prova(-ma.folga) : '—', pG0 = ma.folga != null ? prova(-(ma.folga + 1)) : '—';
     const nv = x => (x == null ? '—' : x);
     aba.add([e.uf.toUpperCase(), d.vagas, smSiglas(fa), { f: smAbs(2, e.rF), v: fa.votos },
-      { f: `COUNTIF(${focoR},">="&LARGE(${todosR},B${r}))`, v: s },
+      { f: `SUMPRODUCT((${focoR}>=LARGE(${todosR},B${r}))*1)`, v: s },
       { f: `IF(B${r}-E${r}<1,"—",INT((LARGE(${outrosR},B${r}-E${r})+${smAbs(1, e.rF)}*1E-9)*${divF(`E${r}+1`)})+1-D${r})`, v: faltaV },
       { f: `IF(E${r}<1,"—",D${r}-INT((LARGE(${outrosR},B${r}-E${r}+1)+${smAbs(1, e.rF)}*1E-9)*${divF(`E${r}`)})-1)`, v: folgaV },
       mc.cadeiras, nv(mc.falta), nv(mc.folga),
@@ -574,7 +623,7 @@ function smAbaAlcance(res, dados, ufs, abaDist, partido) {
     if (!x || !fa) continue;
     for (const dt of x.distritos || []) {
       const w = dt.vencedor, s2 = dt.segundo, rr = abaDist.linhaDist && abaDist.linhaDist[uf + '|' + dt.id];
-      if (!w || !s2 || !rr || (w.agr !== fa.id && s2.agr !== fa.id)) continue;
+      if (!w || !s2 || !rr || (dt.cadeiras || 1) > 1 || (w.agr !== fa.id && s2.agr !== fa.id)) continue;
       linhas.push({ uf, dt, w, s2, rr, pos: w.agr === fa.id ? '1º' : '2º', exc: ((x.excedentes || {})[w.agr] || 0) > 0, pct: (w.agrVotos - s2.votos) / (dt.validos || 1) });
     }
   }
