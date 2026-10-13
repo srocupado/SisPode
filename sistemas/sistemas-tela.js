@@ -16,8 +16,8 @@
 const SI_COR_PODE = '#00a859', SI_COR_OUTROS = '#5b6b7b';
 // Paleta neutra por tamanho de bancada (sem cor "ideológica"); sem verdes: o verde é do partido em foco.
 const SI_PALETA = ['#3b82f6', '#ef4444', '#f59e0b', '#a855f7', '#22d3ee', '#ec4899', '#b45309', '#fda4af', '#6366f1', '#fde047', '#93c5fd', '#d8b4fe'];
-const SI_NOMES = { proporcional: 'Proporcional', distritao: 'Distritão', misto: 'Distritão misto', distrital: 'Distrital misto' };
-const SI_CURTOS = { proporcional: 'Prop.', distritao: 'Distritão', misto: 'D. misto', distrital: 'Distrital' };
+const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', distrital: 'Distrital misto' };
+const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', distrital: 'Distrital' };
 const SI_IBGE = 'https://servicodados.ibge.gov.br/api';
 // Cores dos distritos no mapa (vizinhos nunca com a mesma).
 const SI_CORES_DIST = ['#3b82f6', '#f59e0b', '#a855f7', '#22d3ee', '#ef4444', '#84cc16', '#ec4899', '#f97316', '#14b8a6', '#eab308', '#6366f1', '#fb7185'];
@@ -51,7 +51,6 @@ function siSistemas() {
     { id: 'proporcional', nome: SI_NOMES.proporcional, tipo: 'proporcional', op: {
       pctQP: siNumero('pQP', 10) / 100, pctPartido: siNumero('pPart', 80) / 100, pctCandidato: siNumero('pCand', 20) / 100,
       terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked } },
-    { id: 'distritao', nome: SI_NOMES.distritao, tipo: 'distritao', op: {} },
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
       arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
@@ -220,20 +219,22 @@ function siDescricao(s, curta) {
 }
 function siMarcarAlterados() {
   const ss = siSistemas();
-  $('siAltP').hidden = !siAlterado(ss[0]);
-  $('siAltM').hidden = !siAlterado(ss[2]);
-  $('mPctV').textContent = siPct(ss[2].op.pctMaisVotados);
-  $('mPctL').textContent = siPct(1 - ss[2].op.pctMaisVotados);
-  $('siAltD').hidden = !siAlterado(ss[3]);
-  $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
-  $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
-  $('dSenado').classList.toggle('proj-ok', siEhSenado(ss[3].op));
-  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(ss[3].op));
-  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(ss[2].op));
+  // pelo tipo, nunca pela posição na lista (a lista já mudou: saiu o distritão puro)
+  const P = ss.find(x => x.tipo === 'proporcional'), M = ss.find(x => x.tipo === 'misto'), D = ss.find(x => x.tipo === 'distrital');
+  $('siAltP').hidden = !siAlterado(P);
+  $('siAltM').hidden = !siAlterado(M);
+  $('mPctV').textContent = siPct(M.op.pctMaisVotados);
+  $('mPctL').textContent = siPct(1 - M.op.pctMaisVotados);
+  $('siAltD').hidden = !siAlterado(D);
+  $('dPctV').textContent = siPct(D.op.pctDistrital);
+  $('dPctL').textContent = siPct(1 - D.op.pctDistrital);
+  $('dSenado').classList.toggle('proj-ok', siEhSenado(D.op));
+  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(D.op));
+  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(M.op));
   $('mLiqLin').classList.toggle('off', !$('mLiq').checked);
-  $('dCcj').classList.toggle('proj-ok', siEhCcj(ss[3].op));
-  $('d9213').classList.toggle('proj-ok', siEh9213(ss[3].op));
-  $('dExcBtn').textContent = (ss[3].op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
+  $('dCcj').classList.toggle('proj-ok', siEhCcj(D.op));
+  $('d9213').classList.toggle('proj-ok', siEh9213(D.op));
+  $('dExcBtn').textContent = (D.op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
     + (si.exc.divisor === 'sl' ? ' · Sainte-Laguë' : " · D'Hondt") + ' ✎';
   $('dTolBtn').textContent = siTolNome(si.tol) + (si.tol.modo === 'desenhar' ? ' · desenho até ela' : '') + ' ✎';
   $('dAliLin').classList.toggle('off', !$('dAli').checked);
@@ -242,7 +243,7 @@ function siMarcarAlterados() {
 }
 
 // ------------------------------------------------------------ faixa dos sistemas (os parâmetros, compactos)
-const SI_COR_SIS = { proporcional: '#3b82f6', distritao: '#f59e0b', misto: '#a855f7', distrital: '#14b8a6' };
+const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', distrital: '#14b8a6' };
 /** Os partidos para as alianças: os do pleito lido, do mais ao menos votado no país. */
 function siPreencherPartidos() {
   const v = {};
@@ -255,16 +256,16 @@ function siPreencherPartidos() {
   if ($('dAliA').value === $('dAliB').value && $('dAliB').options.length > 1) $('dAliB').selectedIndex = 1;
 }
 
-/** Uma linha com os quatro sistemas e o resumo dos parâmetros; "Ajustar" abre os controles daquele sistema logo abaixo. */
+/** Uma linha com os três sistemas e o resumo dos parâmetros; "Ajustar" abre os controles daquele sistema logo abaixo. */
 function siFaixa(ss) {
   const el = $('siFaixa');
   if (!el) return;
   ss = ss || siSistemas();
   el.innerHTML = ss.map(s => {
-    const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
+    const temPar = true, aberto = si.abertoSis === s.tipo;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
+      + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
@@ -877,13 +878,13 @@ function siPartes(impressao) {
   if (!umaUf) {
     const curtos = res.sims.map(s => `<th class="n">${siEsc(SI_CURTOS[s.tipo] || s.nome)}</th>`).join('');
     h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Estado a estado <small>${impressao ? '' : 'clique num estado para ver quem entra e quem sai'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead>`
-      + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th><th rowspan="2" class="n">Corte do<br>distritão</th>`
+      + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th>`
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
     for (const uf of res.ufs) {
-      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf], dz = porId('distritao').porUf[uf];
+      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf];
       const podeUf = eleitos => eleitos.filter(x => x.cand.partido === si.partido).length;
-      h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td><td class="n">${siFmt(dz.corte)}</td>`
+      h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td>`
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
         + res.sims.map(s => `<td class="n">${r ? s.porUf[uf].entram.length : '—'}</td>`).join('') + '</tr>';
     }
@@ -934,9 +935,9 @@ function siDetalheUfHtml(uf, impressao) {
   const sims = res.sims.map(s => conta(s.porUf[uf].eleitos));
   const partidos = ordem.filter(sg => real[sg] || sims.some(o => o[sg]));
   const pid = id => res.sims.find(x => x.id === id).porUf[uf];
-  const p = pid('proporcional'), dz = pid('distritao'), m = pid('misto');
+  const p = pid('proporcional'), m = pid('misto');
   let h = `<h2 id="siDetalhe"${impressao && Object.keys(si.dados).length > 1 ? ' class="imp-quebra"' : ''}>${siEsc(siUfNome(uf))} <small>${d.vagas} vagas · ${siFmt(d.validos)} votos válidos · QE ${siFmt(p.qe)}`
-    + ` · corte do distritão ${siFmt(dz.corte)} votos · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
+    + ` · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
   const umaUf = Object.keys(si.dados).length === 1;   // com um estado só, a tabela por partido já está acima
   if (!umaUf) h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>` + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
   if (!umaUf) for (const sg of partidos) {
@@ -1269,7 +1270,6 @@ function siMetodoHtml() {
     + 'Votos válidos de cada candidato e de legenda de cada partido; candidato com voto anulado (sub judice) fica fora. A simulação mantém os votos como foram dados — noutro sistema, partidos, candidatos e eleitores agiriam de outro jeito.');
   if (sist.proporcional) li.push(`<b>Proporcional (atual)</b> — ${d(sist.proporcional)}. Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF nas ADIs 7228, 7263 e 7325: `
     + 'quociente eleitoral (fração acima de meio arredonda), quociente partidário com candidato de 10% do QE, sobras pelas maiores médias (agremiação com 80% do QE e candidato com 20%), 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. Com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs).');
-  if (sist.distritao) li.push('<b>Distritão</b> — o estado inteiro é um distrito: elegem-se os mais votados, até o número de vagas; voto de legenda não elege.');
   if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
     + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `

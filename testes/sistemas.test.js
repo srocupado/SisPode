@@ -142,13 +142,14 @@ ufA.agrs[0].cands.forEach(c => { c.partido = 'PA'; }); ufA.agrs[1].cands.forEach
 ufA.agrs[2].cands.forEach(c => { c.partido = 'PC'; }); ufA.agrs[3].cands.forEach(c => { c.partido = 'PD'; });
 ufB.agrs[0].cands.forEach(c => { c.partido = 'PA'; }); ufB.agrs[1].cands.forEach(c => { c.partido = 'PE'; });
 for (const c of [...ufA.agrs[0].cands.slice(0, 3), ufA.agrs[1].cands[0], ufA.agrs[2].cands[0]]) c.eleitoReal = true;
-const sist = [{ id: 'p', nome: 'Proporcional', tipo: 'proporcional', op: {} }, { id: 'd', nome: 'Distritão', tipo: 'distritao' }, { id: 'm', nome: 'Misto', tipo: 'misto', op: { modelo: 'paralelo' } }];
+const sist = [{ id: 'p', nome: 'Proporcional', tipo: 'proporcional', op: {} }, { id: 'd', nome: 'Misto 100% mais votados', tipo: 'misto', op: { pctMaisVotados: 1, modelo: 'paralelo' } }, { id: 'm', nome: 'Misto', tipo: 'misto', op: { modelo: 'paralelo' } }];
 const cmp = S.snSimular({ ya: ufA, xb: ufB }, sist);
 ok(cmp.ufs.join() === 'xb,ya' && cmp.real.semReal.join() === 'xb' && cmp.comparadas.join() === 'ya', 'UF sem eleito marcado (retotalização) fica fora do real e das somas');
 ok(JSON.stringify(cmp.real.porPartido) === '{"PA":3,"PB":1,"PC":1}' && cmp.real.total === 5, 'real: eleitos marcados pelo TSE, por partido');
 ok(cmp.sims[0].total === 5 && !cmp.sims[0].porUf.ya.entram.length && !cmp.sims[0].porUf.ya.saem.length && cmp.sims[0].porUf.ya.qe === 200, 'proporcional com a regra vigente = oficial (ninguém entra nem sai)');
 const dtz = cmp.sims[1].porUf.ya;
-ok(dtz.entram.map(x => x.cand.votos).join() === '100' && dtz.saem.map(x => x.cand.votos).join() === '18' && dtz.corte === 45, 'distritão: quem entra e quem sai, por votos; corte do estado');
+// o distritão puro saiu da comparação; o misto com 100% aos mais votados é o mesmo cálculo
+ok(dtz.entram.map(x => x.cand.votos).join() === '100' && dtz.saem.map(x => x.cand.votos).join() === '18' && dtz.nLista === 0, 'misto com 100% aos mais votados (= distritão): quem entra e quem sai, por votos');
 ok(JSON.stringify(cmp.sims[1].porPartido) === '{"PA":3,"PC":1,"PD":1}', 'somas nacionais por sigla do candidato');
 ok(cmp.sims[1].porUf.xb.eleitos.length === 3 && !cmp.sims[1].porUf.xb.entram.length, 'a UF sem real ainda é simulada (sem entra/sai)');
 ok(S.snOrdemPartidos(cmp).join() === 'PA,PB,PC,PD', 'ordem: bancada oficial, depois a maior simulada');

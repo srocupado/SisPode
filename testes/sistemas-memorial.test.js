@@ -45,7 +45,6 @@ for (const [sg, d] of Object.entries(dados)) {
 const sistemas = [
   { id: 'proporcional', nome: 'Proporcional', tipo: 'proporcional', op: {} },
   { id: 'semfed', nome: 'Sem federações', tipo: 'proporcional', op: { federacoes: false } },
-  { id: 'distritao', nome: 'Distritão', tipo: 'distritao', op: {} },
   { id: 'mistoP', nome: 'Distritão misto', tipo: 'misto', op: { pctMaisVotados: 0.5, modelo: 'paralelo' } },
   { id: 'mistoC', nome: 'Distritão misto comp.', tipo: 'misto', op: { pctMaisVotados: 0.75, modelo: 'compensatorio' } },
   // 2 distritos em cada estado: com 5 vagas (XA), 50% pela parte inteira
@@ -58,7 +57,7 @@ const aba = n => memo.abas.find(a => a.nome === n);
 const celulas = a => a.linhas.flat().filter(c => c && typeof c === 'object');
 
 console.log('Abas');
-ok(memo.abas.map(a => a.nome).join('|') === 'Leia-me|Estados|Votos|Candidatos|Proporcional|Sem federações|Distritão|Distritão misto|Distritão misto comp.|Distrital misto|Distritos (composição)|Eleitos|Bancadas|Indicadores',
+ok(memo.abas.map(a => a.nome).join('|') === 'Leia-me|Estados|Votos|Candidatos|Proporcional|Sem federações|Distritão misto|Distritão misto comp.|Distrital misto|Distritos (composição)|Eleitos|Bancadas|Indicadores',
   'leia-me, dados, uma aba por sistema (o distrital com a composição dos distritos), eleitos, bancadas, indicadores');
 ok(Object.values(memo.conferencias).every(x => x.nao === 0) && Object.values(memo.conferencias).reduce((s, x) => s + x.n, 0) > 60,
   'todas as conferências batem com o simulador (' + Object.values(memo.conferencias).reduce((s, x) => s + x.n, 0) + ')');
@@ -100,7 +99,7 @@ for (const [excedente, extra] of [['cresce', {}], ['compensa', {}], ['compensa',
   const casa = rr.sims.map(x => x.total).join('/');
   ok(nao === 0 && n > 20, `${excedente}${extra.divisor ? ' + Sainte-Laguë' : ''}${extra.tetoExtra ? ' + teto' : ''}: as ${n} conferências batem (Casa ${casa})`);
 }
-const ssl = [Object.assign({}, sistemas[4], { op: Object.assign({}, sistemas[4].op, { divisor: 'sl' }) })], rsl = S.snSimular(dados, ssl);
+const ssl = [Object.assign({}, sistemas.find(x => x.id === 'mistoC'), { op: Object.assign({}, sistemas.find(x => x.id === 'mistoC').op, { divisor: 'sl' }) })], rsl = S.snSimular(dados, ssl);
 const msl = M.smMemorial({ dados, res: rsl, sistemas: ssl, ind: S.snIndicadores(rsl, dados), ordem: S.snOrdemPartidos(rsl), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
 ok(celulas(msl.abas.find(x => x.nome === 'Distritão misto comp.')).some(c => /^\$B\$\d+\/3-\$E\$\d+\*1E-9$/.test(c.f || '')), 'Sainte-Laguë: quociente votos ÷ 3 na 2ª coluna');
 

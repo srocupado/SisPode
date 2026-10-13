@@ -17,7 +17,8 @@
 //         sem as exigências de 80%/20% (art. 109, III, como o STF fixou);
 //      5. se nenhuma agremiação alcançar o QE, elegem-se os mais votados (art. 111).
 //    Federação conta como uma agremiação só (Lei 14.208/2021).
-//  · Distritão — os mais votados do estado, sem quociente; legenda não elege.
+//  · Distritão (snDistritao) — os mais votados do estado, sem quociente; legenda não elege.
+//    Não é mais um sistema da comparação: é a 1ª parte do distritão misto.
 //  · Distritão misto — parte das vagas pelos mais votados, parte pela votação
 //    da agremiação (lista), paralelo ou compensatório.
 // Os parâmetros de cada sistema vêm em `op`; o padrão é a regra vigente.
@@ -368,7 +369,6 @@ function snSomar(alvo, eleitos) {
 
 const SN_TIPOS = {
   proporcional: (d, op) => snProporcional(d, op),
-  distritao: (d, op) => snDistritao(d, op),
   misto: (d, op) => snDistritaoMisto(d, op),
   // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado
   distrital: (d, op) => {
@@ -379,7 +379,7 @@ const SN_TIPOS = {
 
 /**
  * Roda os sistemas em cada UF e compara com o resultado oficial (a marcação do TSE).
- * dados: { uf: d }; sistemas: [{ id, nome, tipo: 'proporcional'|'distritao'|'misto', op }].
+ * dados: { uf: d }; sistemas: [{ id, nome, tipo: 'proporcional'|'misto'|'distrital', op }].
  * Devolve { ufs, comparadas, real, sims }:
  *  · real: { porPartido, total, porUf: { uf: { eleitos } }, semReal: [uf] } — UF sem eleito
  *    marcado (retotalização, apuração em curso) fica fora do real;

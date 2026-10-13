@@ -177,29 +177,6 @@ function smAbaProporcional(s, dados, ufs, res) {
   return aba;
 }
 
-// ------------------------------------------------------------ distritão
-/** Distritão: o ranking dos candidatos válidos, com a linha de corte. */
-function smAbaDistritao(s, dados, ufs, res) {
-  const aba = smNovaAba(s.nome.slice(0, 31), [6, 6, 32, 10, 16, 12, 10, 9]);
-  aba.add([`${s.nome}: os candidatos (válidos) mais votados do estado, até o número de vagas; legenda não elege. Mostra até 5 posições abaixo do corte.`]);
-  for (const uf of ufs) {
-    const d = dados[uf], sim = res.porUf[uf];
-    if (!sim) continue;
-    const vagas = d.vagas, eleitos = new Set(sim.eleitos.map(x => x.sq));
-    const todos = d.agrs.flatMap(a => a.cands.filter(c => c.valido).map(c => ({ a, c }))).sort((x, y) => y.c.votos - x.c.votos);
-    aba.add([]);
-    const r0 = aba.prox();
-    aba.add([uf.toUpperCase(), 'Vagas', vagas]);
-    aba.add(['UF', 'Posição', 'Candidato', 'Partido', 'Agremiação', 'Votos', 'Eleito (simulador)', 'Confere']);
-    todos.slice(0, vagas + 5).forEach(({ a, c }, i) => {
-      const r = aba.prox(), el = eleitos.has(c.sq) ? 'sim' : 'não', pela = i + 1 <= vagas ? 'sim' : 'não';
-      aba.add([uf.toUpperCase(), i + 1, c.nome, c.partido, smSiglas(a), c.votos, el,
-        { f: `IF(IF(B${r}<=${smAbs(2, r0)},"sim","não")=G${r},"${SM_SIM}","${SM_NAO}")`, v: smConfere(pela, el) }]);
-    });
-  }
-  return aba;
-}
-
 // ------------------------------------------------------------ mistos (lista)
 /**
  * Repete a parte "lista" do simulador (snCompletarLista) guardando os passos:
@@ -748,7 +725,6 @@ function smMemorial(ent) {
     const def = sistemas.find(x => x.id === s.id) || s;
     const sx = Object.assign({}, def, { nome: s.nome });
     if (s.tipo === 'proporcional') abas.push(smAbaProporcional(sx, dados, ufs, s));
-    else if (s.tipo === 'distritao') abas.push(smAbaDistritao(sx, dados, ufs, s));
     else if (s.tipo === 'misto') abas.push(smAbaDistritaoMisto(sx, dados, ufs, s, votos.linhaDe));
     else if (s.tipo === 'distrital') { abaDist = smAbaDistrital(sx, dados, ufs, s); abas.push(abaDist); abas.push(smAbaComposicao(sx, ufs)); }
   }
