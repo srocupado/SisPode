@@ -362,17 +362,21 @@ function smBlocoLista(aba, d, sim, op, primeiros) {
 }
 
 /** Distritão misto: os N mais votados (com a linha de corte) e a lista. */
-function smAbaDistritaoMisto(s, dados, ufs, res) {
+function smAbaDistritaoMisto(s, dados, ufs, res, votosLinha) {
   const op = s.op || {};
   const aba = smNovaAba(s.nome.slice(0, 31), [16, 14, 12, 12, 10, 10, 10, 10, 10, 10]);
-  aba.add([`${s.nome}: ${Math.round((op.pctMaisVotados != null ? op.pctMaisVotados : 0.5) * 100)}% das vagas aos mais votados (nº = vagas × fração, arredondado), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Lista: votos da agremiação (nominais + legenda), maiores médias; preenchida pelos não eleitos, na ordem de votos.`]);
+  const baixo = op.arred === 'baixo';
+  aba.add([`${s.nome}: ${Math.round((op.pctMaisVotados != null ? op.pctMaisVotados : 0.5) * 100)}% das vagas aos mais votados (nº = vagas × fração, ${baixo ? 'parte inteira' : 'arredondado'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. `
+    + `Lista: ${op.votoLiquido ? 'voto partidário LÍQUIDO (votos da agremiação, nominais + legenda, menos os votos nominais dos seus eleitos na 1ª parte)' : 'votos da agremiação (nominais + legenda)'}, maiores médias; preenchida pelos não eleitos, na ordem de votos.`]);
+  const E = smAbaRef('Eleitos'), V = smAbaRef('Votos');
   for (const uf of ufs) {
     const d = dados[uf], sim = res.porUf[uf];
     if (!sim) continue;
     const nMais = sim.nMais != null ? sim.nMais : Math.round(d.vagas * (op.pctMaisVotados != null ? op.pctMaisVotados : 0.5));
     aba.add([]);
     const r0 = aba.prox();
-    aba.add([uf.toUpperCase(), 'Vagas', d.vagas, 'Mais votados (fórmula)', { f: `ROUND(C${r0}*${op.pctMaisVotados != null ? op.pctMaisVotados : 0.5},0)`, v: nMais }, 'Simulador', nMais,
+    const fr = op.pctMaisVotados != null ? op.pctMaisVotados : 0.5;
+    aba.add([uf.toUpperCase(), 'Vagas', d.vagas, 'Mais votados (fórmula)', { f: baixo ? `INT(C${r0}*${fr}+1E-9)` : `ROUND(C${r0}*${fr},0)`, v: nMais }, 'Simulador', nMais,
       smFConfere(`E${r0}`, `G${r0}`, nMais, nMais)]);
     const primeiros = sim.eleitos.filter(x => x.fase !== 'lista');
     const todos = d.agrs.flatMap(a => a.cands.filter(c => c.valido).map(c => ({ a, c }))).sort((x, y) => y.c.votos - x.c.votos);
@@ -380,7 +384,23 @@ function smAbaDistritaoMisto(s, dados, ufs, res) {
     aba.add([`1ª parte: os ${nMais} mais votados (o último eleito: ${corte ? corte.c.nome + ', ' + corte.c.votos + ' votos' : '—'}; o 1º de fora: ${todos[nMais] ? todos[nMais].c.nome + ', ' + todos[nMais].c.votos + ' votos' : '—'}). Lista completa na aba Eleitos.`]);
     const ok = primeiros.length === nMais && primeiros.every(x => todos.slice(0, nMais).some(t => t.c.sq === x.sq));
     aba.add(['Confere: os eleitos na 1ª parte são exatamente os ' + nMais + ' mais votados', ok ? SM_SIM : SM_NAO]);
-    smBlocoLista(aba, d, sim, op, primeiros);
+    let dl = d;
+    if (op.votoLiquido) {
+      // voto partidário líquido: total da agremiação (aba Votos) − votos nominais dos seus eleitos na 1ª parte (aba Eleitos)
+      const usado = {};
+      for (const x of primeiros) usado[x.agr] = (usado[x.agr] || 0) + x.cand.votos;
+      aba.add(['Voto partidário líquido = votos da agremiação − votos nominais dos seus eleitos entre os mais votados']);
+      aba.add(['Agremiação (id)', 'Agremiação', 'Votos (aba Votos)', 'Votos dos eleitos na 1ª parte (aba Eleitos)', 'Voto líquido (fórmula)', 'Voto líquido (simulador)', 'Confere']);
+      for (const a of d.agrs) {
+        const r = aba.prox(), liq = a.votos - (usado[a.id] || 0), simLiq = sim.liquido && sim.liquido[a.id] != null ? sim.liquido[a.id] : a.votos;
+        const vr = votosLinha && votosLinha[uf + '|' + a.id];
+        aba.add([a.id, smSiglas(a), vr ? { f: `${V}!$G$${vr}`, v: a.votos } : a.votos,
+          { f: `SUMIFS(${E}!F:F,${E}!A:A,${smTxt(s.nome)},${E}!B:B,${smTxt(uf.toUpperCase())},${E}!E:E,A${r},${E}!G:G,"mais votados")`, v: usado[a.id] || 0 },
+          { f: `C${r}-D${r}`, v: liq }, simLiq, smFConfere(`E${r}`, `F${r}`, liq, simLiq)]);
+      }
+      dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: a.votos - usado[a.id] }) : a)) });
+    }
+    smBlocoLista(aba, dl, sim, op, primeiros);
   }
   return aba;
 }
@@ -395,7 +415,7 @@ function smAbaDistrital(s, dados, ufs, res) {
   const tol = op.tol || { pct: 0.05, exc: 0.10, excN: 1, excFrac: 0.10 }, temExc = tol.exc > tol.pct, pc = x => Math.round(x * 1000) / 10 + '%';
   const tolTxt = `±${pc(tol.pct)}` + (temExc ? ` (±${pc(tol.exc)} em até ${tol.excN} distrito(s) ou ${pc(tol.excFrac)} deles, o que for maior)` : '');
   const classe = x => (Math.abs(x) <= tol.pct + 1e-9 ? 'dentro' : temExc && Math.abs(x) <= tol.exc + 1e-9 ? 'exceção' : 'fora');
-  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de um eleito (${op.regra === 'candidato' ? 'o candidato mais votado do distrito' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.`]);
+  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de um eleito (${op.regra === 'candidato' ? 'o candidato mais votado do distrito' : op.regra === 'partidoNominal' ? 'a agremiação com mais votos NOMINAIS leva (a legenda não conta), com o seu candidato mais votado ali' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.`]);
   const DC = smAbaRef('Distritos (composição)');
   for (const uf of ufs) {
     const d = dados[uf], sim = res.porUf[uf], x = (op.porUf || {})[uf];
@@ -714,7 +734,7 @@ function smMemorial(ent) {
     const sx = Object.assign({}, def, { nome: s.nome });
     if (s.tipo === 'proporcional') abas.push(smAbaProporcional(sx, dados, ufs, s));
     else if (s.tipo === 'distritao') abas.push(smAbaDistritao(sx, dados, ufs, s));
-    else if (s.tipo === 'misto') abas.push(smAbaDistritaoMisto(sx, dados, ufs, s));
+    else if (s.tipo === 'misto') abas.push(smAbaDistritaoMisto(sx, dados, ufs, s, votos.linhaDe));
     else if (s.tipo === 'distrital') { abaDist = smAbaDistrital(sx, dados, ufs, s); abas.push(abaDist); abas.push(smAbaComposicao(sx, ufs)); }
   }
   abas.push(smAbaEleitos(res, ufs));

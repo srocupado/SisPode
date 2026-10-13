@@ -260,5 +260,17 @@ ok(fx && fx.siglas.join() === 'C,D' && fx.votos === 2000 && fx.cands.length === 
 ok(S.snDhondt({ A: 5000, B: 3000, CD: 2000 }, 10).CD === (S.snDhondt(Object.fromEntries(fedH.xx.agrs.map(g => [g.id, g.votos])), 10)[fx.id]), 'a federação disputa as maiores médias como uma agremiação');
 ok(S.snFederar({ xx: mg }, 'C', 'Z').xx === mg, 'parceiro sem chapa no estado: nada muda');
 
+console.log('Distritão misto, Versão Renata (a simulação do próprio projeto)');
+// 9 vagas; A 39.000 (15.000, 10.000, 9.000, 2.500 + 2.500 de legenda), B 20.000 (8.000, 5.000, 4.000, 2.000 + 1.000), C 14.000 (6.000, 4.000, 3.000, 500 + 500).
+const ren = uf(9, [agr('A', 39000, [15000, 10000, 9000, 2500]), agr('B', 20000, [8000, 5000, 4000, 2000]), agr('C', 14000, [6000, 4000, 3000, 500])]);
+const opRen = { pctMaisVotados: 0.5, arred: 'baixo', votoLiquido: true, modelo: 'compensatorio' };
+const rRen = S.snDistritaoMisto(ren, opRen);
+ok(rRen.nMais === 4 && rRen.eleitos.filter(x => x.fase === 'mais votados').map(x => x.cand.votos).join() === '15000,10000,9000,8000', 'metade pela parte inteira: os 4 mais votados (9 vagas)');
+ok(rRen.liquido.A === 5000 && rRen.liquido.B === 12000 && rRen.liquido.C === 14000, 'voto partidário líquido: A 5.000, B 12.000, C 14.000 (como no projeto)');
+ok(conta(rRen) === '{"A":3,"B":3,"C":3}' && rRen.cortes.B === 1 && rRen.cortes.C === 1 && rRen.vagas === 9,
+  'maiores médias sobre o voto líquido (A 1, B 4, C 4) e o excedente de A tirado da 9ª (B) e da 8ª (C): A 3, B 3, C 3 — o resultado do projeto');
+ok(conta(S.snDistritaoMisto(ren, Object.assign({}, opRen, { votoLiquido: false }))) === '{"A":4,"B":3,"C":2}', 'sem o voto líquido, a votação inteira daria A 4 (5 pela conta, mas só tem 4 candidatos), B 3, C 2');
+ok(S.snDistritaoMisto(ren, { pctMaisVotados: 0.5 }).nMais === 5, 'arredondado (padrão): 5 mais votados');
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);
