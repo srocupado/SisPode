@@ -1,0 +1,25 @@
+{
+  "fonte": "Pauta do Plenário de 13/10/2026 (Sessão Deliberativa Extraordinária, inteiro teor 3183326). Incidente: a linha quebrou antes de \"urgência para apreciação do Projeto de Lei…\" e os 8 requerimentos ficaram sem vínculo. Vínculos conferidos com /eventos/83047/pauta (proposicaoRelacionada_) e com a ementa de cada REQ nos Dados Abertos.",
+  "itens": 17,
+  "vinculos": {
+    "REQ-1634-2026": "PL-1381-2026",
+    "REQ-1716-2026": "PL-3220-2025",
+    "REQ-2510-2026": "PL-888-2025",
+    "REQ-2659-2026": "PL-252-2024",
+    "REQ-4282-2026": "PL-79-2020",
+    "REQ-4287-2026": "PL-3998-2025",
+    "REQ-4288-2026": "PL-3716-2026",
+    "REQ-4289-2026": "PL-5538-2026"
+  },
+  "projetos": ["PL-5538-2019", "PLP-281-2019", "PL-1435-2023", "PL-68-2025", "PL-1123-2025", "PL-4553-2025", "PL-5239-2025", "PDL-274-2026", "PL-5902-2023"],
+  "ementasReq": {
+    "REQ-1634-2026": "Requer, nos termos do artigo 155 do Regimento Interno, tramitação sob o regime urgência do Projeto de Lei nº 1.381, de 2026.",
+    "REQ-1716-2026": "Requer, nos termos do artigo 155 do Regimento Interno, tramitação sob o regime urgência do Projeto de Lei nº 3.220, de 2025.",
+    "REQ-2510-2026": "Requer regime de urgência na apreciação do Projeto de Lei nº 888/2025",
+    "REQ-2659-2026": "Requer urgência urgentíssima para apreciação do Projeto de Lei n° 252 de 2024.",
+    "REQ-4282-2026": "Requer, nos termos do artigo 155 do Regimento Interno, tramitação sob o regime urgência do Projeto de Lei nº 79/2020.",
+    "REQ-4287-2026": "Requer regime de urgência para apreciação do PL nº 3998, de 2025, que “Altera a Lei nº 9.394, de 20 de dezembro de 1996, para permitir que despesas com programas suplementares…",
+    "REQ-4288-2026": "Requer\tregime\tde\turgência para apreciação do PL nº 3.716/2026.",
+    "REQ-4289-2026": "Requer urgência do art. 155 para apreciação imediata do PL 5.538/2026."
+  }
+}

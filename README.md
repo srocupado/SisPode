@@ -250,6 +250,8 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 - Aceita os dois formatos de pauta: **dashboard compacto** da Liderança e **pauta extensa** oficial da Câmara
 - O parser identifica **PL, PLP, PEC, PDL/PDC, MPV, PRC, REQ e Redações Finais** (categoria própria, RICD art. 83, I), captando ordem, número, ano e ementa
 - Suporte a requerimentos de urgência **sem número de protocolo** ("Requerimento s/nº") — a identidade do item vem do projeto cuja urgência é solicitada
+- **Projeto da urgência apurado em três fontes**, não só no texto do PDF (que quebrou a cada grafia nova da Câmara): **(1)** a pauta estruturada da sessão nos Dados Abertos (`/eventos/{id}/pauta`, campo `proposicaoRelacionada_`), que existe no dia da sessão; **(2)** a **ficha do próprio requerimento**, cuja ementa nomeia o projeto ("…regime de urgência do Projeto de Lei nº 1.381, de 2026") e existe desde a apresentação do REQ, antes do PDF; **(3)** o texto do PDF. O vínculo feito à mão (🔗 Vincular projeto) vale sobre todas. O card diz **de onde veio** o vínculo e, quando as fontes **discordam**, mostra o que cada uma diz; no topo da lista, um aviso conta os requerimentos **sem projeto** depois das três fontes e os **com fontes divergentes** — nada fica "sem projeto" em silêncio. Pautas já salvas se corrigem ao serem reabertas
+- **Acervo de regressão** (`testes/pautas/`): o texto real de cada pauta que já deu problema, com os vínculos esperados, conferido a cada rodada de testes — cada incidente novo entra ali e não volta
 - Enriquecimento automático via API da Câmara: autoria, relator, apensados e classificação de **autoria Podemos** / **apensados Podemos** (badge no card). Decretos legislativos antigos usam fallback **PDL ↔ PDC** quando a sigla atual não retorna na API
 - Busca os pareceres de plenário **PRLP/PRLE** mais recentes via scraping da página "Histórico de Pareceres" do portal
 - Para Redações Finais, localiza o documento próprio na caixa "Documentos Anexos e Referenciados" da ficha de tramitação
@@ -745,6 +747,7 @@ sispode/
 │   ├── docx.iife.js / docx.umd.js      # Exportação para Word
 │   └── paged.polyfill.js               # Paginação do PDF (índice com nº de página)
 ├── testes/                         # Testes (Node; parte contra a API real da Câmara, parte com fixtures)
+│   ├── pautas-acervo.test.js       # Acervo de pautas reais (testes/pautas/): itens, vínculo REQ → projeto pelo PDF e pela ficha do REQ, regra das fontes
 │   ├── lideres*.test.js            # Parser do PDF, cenários, situação/relatoria, demandas, cura
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
