@@ -204,7 +204,10 @@ function parsearPautaExtenso(texto) {
   // que institui ...". O tipo vem por extenso; mapeamos para a sigla.
   // Mesmo kerning do "1 ." dos requerimentos (medido em 01/09/2026): o ponto
   // da ordem tolera UM espaço antes — [ \t]?, nunca \s*.
-  const rfRegex = /(\d{1,2})[ \t]?\.\s+Reda[çc][ãa]o\s+Final\s+a[oa]\s+(.+?)\s+n\s*[º°o]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*de\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}[ \t]?\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  // SEM a flag i — ver a nota do reqRegex, abaixo: com ela, os marcadores de
+  // fim de bloco (título "URGÊNCIA", linha toda em maiúsculas) casavam com
+  // linhas comuns do texto. As grafias do cabeçalho vão escritas por extenso.
+  const rfRegex = /(\d{1,2})[ \t]?\.\s+(?:Reda[çc][ãa]o\s+[Ff]inal|REDA[ÇC][ÃA]O\s+FINAL)\s+(?:a[oa]|A[OA])\s+(.+?)\s+[nN]\s*[º°oO]?\.?\s*([\d.]+)(?:\s*[-–—]\s*[A-Z]{1,3})?\s*,?\s*(?:de|DE)\s+(\d{4})([\s\S]{0,800}?)(?=\n\d{1,2}[ \t]?\.\s|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/g;
   let rf;
   while ((rf = rfRegex.exec(texto)) !== null) {
     const ordem  = parseInt(rf[1], 10);
@@ -260,7 +263,15 @@ function parsearPautaExtenso(texto) {
   // (kerning do PDF) e sumiam em silêncio. O espaço tolerado é [ \t]? — nunca
   // \s*, que atravessaria quebra de linha e deixaria "…2026\n. Requerimento"
   // capturar dígitos do ano como ordem.
-  const reqRegex = /(\d{1,2})[ \t]?\.\s+Requerimento\s+(?:n\s*[º°o]\.?\s*)?(?:([\d.]+)|s\/\s*n\s*[º°o]?)\s*,\s*de\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+Requerimento|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/gi;
+  // SEM a flag i. Os marcadores de fim do bloco são o título "URGÊNCIA" e uma
+  // linha toda em MAIÚSCULAS (título de seção); com a flag i eles casavam com
+  // qualquer linha que começasse por "urgência" ou que só tivesse letras. MEDIDO
+  // na pauta de 13/10/2026: a quebra de linha caiu antes de "urgência para
+  // apreciação do Projeto de Lei nº 1.381…", o bloco de cada requerimento era
+  // cortado ali e os 8 requerimentos ficaram sem o projeto da urgência. As
+  // grafias do cabeçalho ("Requerimento"/"REQUERIMENTO", "nº"/"Nº", "de"/"DE")
+  // vão escritas por extenso no lugar da flag.
+  const reqRegex = /(\d{1,2})[ \t]?\.\s+(?:Requerimento|REQUERIMENTO)\s+(?:[nN]\s*[º°oO]\.?\s*)?(?:([\d.]+)|[sS]\/\s*[nN]\s*[º°oO]?)\s*,\s*(?:de|DE)\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+(?:Requerimento|REQUERIMENTO)|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/g;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);

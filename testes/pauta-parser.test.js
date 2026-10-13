@@ -162,6 +162,34 @@ const req = (ordem, comoEscreve, projeto) =>
   ok(P.parsearPauta(pauta([req(1, 'nº 1.000', '2.000')])).periodo === '12/08/2026',
      'período lido do cabeçalho por extenso');
 
+  console.log('\n== quebra de linha antes de "urgência" (pauta de 13/10/2026) ==');
+  // O texto do PDF quebrou a linha logo antes de "urgência para apreciação do
+  // Projeto de Lei…". Com a flag i, o marcador de fim de bloco "\nURGÊNCIA"
+  // (título de seção) casava com essa linha: o bloco de cada requerimento era
+  // cortado antes do projeto e os 8 da pauta ficaram sem vínculo.
+  const p1310 = 'CÂMARA DOS DEPUTADOS\nEm 13 de outubro de 2026 (Terça-feira)\nORDEM DO DIA\nMATÉRIA SOBRE A MESA\n' +
+    '1. Requerimento nº 1.634, de 2026 , dos Srs. Líderes, que requer, nos termos\n' +
+    'do artigo 155 do Regimento Interno da Câmara dos Deputados, regime de\n' +
+    'urgência para apreciação do Projeto de Lei nº 1.381, de 2026 , do Sr. José\n' +
+    'Guimarães, que institui o Dia Nacional do Ceará e do Cearense e da Cearense.\n(REQ NT62 NT64)\n' +
+    '2. Requerimento nº 4.289, de 2026 , dos Srs. Líderes, que requer, nos termos\n' +
+    'do artigo 155 do Regimento Interno da Câmara dos Deputados, regime de\n' +
+    'urgência para apreciação do Projeto de Lei nº 5.538, de 2026 , do Sr. Aureo\n' +
+    'Ribeiro, que altera a Lei nº 12.764, de 27 de dezembro de 2012.\n(REQ NT62 NT64)\n' +
+    'URGÊNCIA\n(Art. 155 do Regimento Interno)\n' +
+    '3. Redação Final ao Projeto de Lei nº 900, de 2026 , que\n' +
+    'urgência e outras palavras soltas na linha\n' +
+    'dispõe sobre coisa nenhuma.\n';
+  const r1310 = P.parsearPauta(p1310);
+  const u = n => r1310.itens.find(i => i.ordem === n && i.tipoCategoria === 'requerimento')?.projetoUrgenciado;
+  ok(u(1)?.sigla === 'PL' && u(1)?.numero === '1381' && u(1)?.ano === '2026', `REQ 1.634 → PL 1.381/2026 (obtido: ${JSON.stringify(u(1))})`);
+  ok(u(2)?.numero === '5538' && u(2)?.ano === '2026', `REQ 4.289 → PL 5.538/2026 (obtido: ${JSON.stringify(u(2))})`);
+  const rf = r1310.itens.find(i => i.tipoCategoria === 'redacao_final');
+  ok(rf && /dispõe sobre coisa nenhuma/.test(rf.ementa), `redação final: linha começando por "urgência" não corta o bloco (ementa: ${rf?.ementa})`);
+  // O título de seção de verdade (em maiúsculas) continua encerrando o bloco.
+  ok(!/Art\. 155 do Regimento Interno\)/.test(r1310.itens.find(i => i.ordem === 2 && i.tipoCategoria === 'requerimento')?.ementa || ''),
+     'o título "URGÊNCIA" em maiúsculas segue encerrando o bloco do requerimento');
+
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })();
