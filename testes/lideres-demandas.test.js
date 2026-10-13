@@ -28,7 +28,8 @@ const exportar = ['refDemanda', 'blocoDemandaEmail', 'montarEmailDemandas',
                   'fatosDaDemanda', 'autoriaDemanda', 'situacaoDe', 'grupoDemanda',
                   'autoriaSemPartido', 'liderDoPodemos', 'mailtoDoEmail', 'historicoEmListas',
                   'separarDemandasRelatorio', '_htmlRelatorioDemandas',
-                  'tramiteDemanda', 'linhasTramite', 'situacaoDemanda', 'camposTramiteHTML'];
+                  'tramiteDemanda', 'linhasTramite', 'situacaoDemanda', 'camposTramiteHTML',
+                  'apensadosDe', 'urgenciaDe', 'linhasConjunto', 'dataApensacao', 'refsDespacho'];
 const fn = new Function(...Object.keys(sandbox), `${fonte}\n; return { ${exportar.join(', ')} };`);
 const L = fn(...Object.values(sandbox));
 
@@ -187,6 +188,62 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   ok(L.situacaoDemanda([T('2024-11-04', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Aprovado o requerimento nº 4402/2024, que solicita urgência')],
      { descricaoSituacao: 'Pronta para Pauta' }) === 'Urgência aprovada (REQ. 4402/2024)', 'urgência manda sobre a ficha');
 
+  console.log('\n== tramitação em conjunto: apensado a quem, principal, de quem é a urgência ==');
+  // Despachos reais do PL 4744/2012 (o principal do PL 1820/2023), nas três grafias.
+  const t4744 = [
+    T('2012-12-27', 'MESA', '504', 'Notificação de Apensação', 'Apense-se a este(a) o(a) PL-7113/2010.'),
+    T('2015-03-10', 'MESA', '194', 'Apresentação de Requerimento', 'Apresentação do Requerimento de Urgência (Art. 155 do RICD) n. 894/2015, pela Deputada Renata Abreu (PTN-SP) e outros Líderes, que: "Requer nos termos do artigo 155, urgência para apreciação do Projeto de Lei 623/2015."'),
+    T('2015-03-17', 'MESA', '504', 'Notificação de Apensação', 'Apense-se a este(a) o(a) PL-623/2015.'),
+    T('2015-03-24', 'PLEN', '197', 'Rejeição de Proposicao', 'Rejeitado o Requerimento de Urgência n. 894/2015 apresentado ao PL n. 623/2015, apensado (art. 155 do RICD).'),
+    T('2015-03-30', 'MESA', '104', 'Desapensação', 'Retirado o PL 623/2015, em razão do deferimento do Requerimento 1174/2015.'),
+    T('2015-07-09', 'PLEN', '194', 'Apresentação de Requerimento', 'Apresentação do Requerimento de Urgência (Art. 155 do RICD) n. 2468/2015, pelo Deputado Sergio Souza (PMDB-PR) e Líderes, que: "Requer nos termos do artigo 155 do Regimento Interno da Câmara dos Deputados, urgência para apreciação do Projeto de Lei 4744/2012."'),
+    T('2023-05-22', 'MESA', '504', 'Notificação de Apensação', 'Apense-se a este(a) o(a) PL-1820/2023.'),
+    T('2026-06-08', 'MESA', '504', 'Notificação de Apensação', 'Apensação da proposição PL 1872/2026 à proposição PL 3983/2023.'),
+    T('2026-06-09', 'CCP', '504', 'Notificação de Apensação', 'Apensação do PL 1900/2026 a esta proposição.'),
+  ];
+  const ap4744 = L.apensadosDe(t4744);
+  ok(ap4744.diretos.join() === 'PL 7113/2010,PL 1820/2023,PL 1900/2026', `apensados diretos, nas grafias antiga e nova, sem o desapensado (${ap4744.diretos.join(', ')})`);
+  ok(ap4744.todos.length === 4 && ap4744.todos.includes('PL 1872/2026'), 'conta também o apensado a um apensado');
+  ok(L.refsDespacho('Apense-se à(ao) PL-4744/2012.')[0] === 'PL 4744/2012', 'lê "PL-4744/2012" (grafia com hífen)');
+  ok(L.dataApensacao([T('2023-05-22', 'MESA', '129', 'Despacho de Apensação', 'Apense-se à(ao) PL-4744/2012.')]) === '2023-05-22', 'data do despacho de apensação');
+  ok(L.situacaoDe(t4744, '') === 'Requerimento de urgência apresentado (REQ n. 2468/2015)',
+     'requerimento na grafia antiga é lido, e o REQ 894/2015, rejeitado, não conta como pendente');
+  const u4744 = L.urgenciaDe(t4744);
+  ok(u4744.alvo === 'PL 4744/2012', `o REQ 2468/2015 é do próprio principal (${u4744.alvo})`);
+  ok(L.situacaoDe(t4744.filter(t => !/2468/.test(t.despacho)), '') === 'Não há requerimento de urgência apresentado.', 'só o rejeitado → não há requerimento');
+
+  // PL 101/2026 (apensado) e PL 23/2026 (principal): o REQ 1258/2026 pediu urgência
+  // para o APENSADO, e a aprovação aparece na tramitação dos dois.
+  const aprov1258 = T('2026-05-26', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Aprovado o requerimento nº 1258/2026,dos Srs. Marangoni e Augusto Coutinho, que solicita urgência (art. 155) para o PL 101/2026.');
+  const t23 = [aprov1258, T('2026-05-26', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Alteração do Regime de Tramitação desta proposição em virtude da alteração do regime do PL 101/2026, por ter sido aprovado o REQ 1258/2026 que está apensado ao primeiro.')];
+  const u23 = L.urgenciaDe(t23), u101 = L.urgenciaDe([aprov1258]);
+  ok(u23.urgencia === 'Urgência aprovada (REQ. 1258/2026)' && u23.alvo === 'PL 101/2026' && u101.alvo === 'PL 101/2026', 'o alvo do REQ aprovado sai do despacho');
+  const cj101 = { papel: 'apensado', desde: '2026-03-13', propria: u101.urgencia, proprioAlvo: u101.alvo,
+    cadeia: [{ id: 1, chave: 'PL 23/2026', urgencia: u23.urgencia, alvo: u23.alvo }] };
+  const l101 = L.linhasConjunto(cj101, 'PL 101/2026');
+  ok(l101.conjunto === 'apensado ao PL 23/2026 (o principal) desde 13/03/2026', `apensado a quem (${l101.conjunto})`);
+  ok(l101.urgencia === 'no principal (PL 23/2026), urgência por extensão — o REQ. 1258/2026 foi aprovado para o PL 101/2026; neste (PL 101/2026, o apensado), urgência aprovada — requerimento próprio (REQ. 1258/2026)',
+     `de quem é a urgência (${l101.urgencia})`);
+  const l23 = L.linhasConjunto({ papel: 'principal', diretos: 4, total: 5, propria: u23.urgencia, proprioAlvo: u23.alvo }, 'PL 23/2026');
+  ok(l23.conjunto === 'é o principal — 5 proposições apensadas (4 diretamente, as demais apensadas a elas)', `principal (${l23.conjunto})`);
+  ok(l23.urgencia === 'neste (PL 23/2026, o principal), urgência por extensão — o REQ. 1258/2026 foi aprovado para o PL 101/2026',
+     'principal com urgência que veio do apensado diz isso');
+  ok(L.linhasConjunto({ papel: 'principal', diretos: 1, total: 1, propria: 'Urgência aprovada (REQ. 4402/2024)', proprioAlvo: 'PL 3932/2024' }, 'PL 3932/2024').urgencia === '',
+     'principal com urgência própria: a situação já diz, sem linha repetida');
+  // Cadeia: o PL 1872/2026 aponta o pai direto, não o principal.
+  const lCad = L.linhasConjunto({ papel: 'apensado', desde: '2026-06-08', propria: 'Não há requerimento de urgência apresentado.',
+    cadeia: [{ chave: 'PL 3983/2023', urgencia: 'Não há requerimento de urgência apresentado.' }, { chave: 'PL 4744/2012', urgencia: 'Requerimento de urgência apresentado (REQ n. 2468/2015)', alvo: 'PL 4744/2012' }] }, 'PL 1872/2026');
+  ok(lCad.conjunto === 'apensado ao PL 3983/2023 desde 08/06/2026, que também é apensado — cadeia até o principal: PL 1872/2026 → PL 3983/2023 → PL 4744/2012 (principal)',
+     `cadeia de apensação até o principal (${lCad.conjunto})`);
+  ok(/^no principal \(PL 4744\/2012\), requerimento de urgência próprio apresentado, ainda não aprovado \(REQ n\. 2468\/2015\); neste \(PL 1872\/2026, o apensado\), nenhum requerimento de urgência$/.test(lCad.urgencia),
+     'intermediário sem urgência não polui a linha');
+  ok(L.linhasConjunto(undefined, 'PL 1/2026') === null, 'sem conjunto → nada');
+  const blocoCj = L.blocoDemandaEmail({ ...dA, chave: 'PL 101/2026', situacao: 'Pronta para Pauta (situação do principal, PL 23/2026)', conjunto: cj101 });
+  ok(/\nSituação: Pronta para Pauta \(situação do principal, PL 23\/2026\)\.\nTramitação em conjunto: apensado ao PL 23\/2026 \(o principal\) desde 13\/03\/2026\.\nUrgência: no principal/.test(blocoCj),
+     'e-mail: conjunto e urgência logo depois da situação');
+  const trP = L.linhasTramite({ ...tr5839, doPrincipal: 'PL 23/2026' });
+  ok(/\(do principal, PL 23\/2026\)$/.test(trP.relator) && /\(do principal, PL 23\/2026\)$/.test(trP.parecer), 'relator e parecer do apensado dizem que são do principal');
+
   console.log('\n== e-mail com regime, relator e parecer ==');
   const blocoTr = L.blocoDemandaEmail({ ...dA, tramite: tr78 });
   ok(blocoTr === [
@@ -287,6 +344,18 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
   const lf = L.linhasTramite(fatos.tramite);
   ok(lf && lf.relator && lf.parecer, `relator e parecer em frase (${lf?.relator} | ${lf?.parecer})`);
   ok(/CDU: aprovado em 26\/11\/2025/.test(lf?.anteriores || ''), `parecer da CDU nas anteriores (${lf?.anteriores})`);
+
+  console.log('\n== conjunto pela API real (PL 1820/2023 e PL 101/2026) ==');
+  const f1820 = await L.fatosDaDemanda(L.refDemanda('PL 1820/2023'));
+  const raiz1820 = f1820.conjunto?.cadeia?.slice(-1)[0];
+  ok(f1820.conjunto?.papel === 'apensado' && raiz1820?.chave === 'PL 4744/2012', `PL 1820/2023 é apensado ao PL 4744/2012 (${raiz1820?.chave})`);
+  ok(!/Tramitando em Conjunto/.test(f1820.situacao) && /situação do principal, PL 4744\/2012/.test(f1820.situacao), `situação é a do principal (${f1820.situacao})`);
+  ok(f1820.tramite?.doPrincipal === 'PL 4744/2012', 'regime, relator e parecer são os do principal');
+  const f101 = await L.fatosDaDemanda(L.refDemanda('PL 101/2026'));
+  const l101r = L.linhasConjunto(f101.conjunto, 'PL 101/2026');
+  console.log(`  · PL 101/2026 → ${l101r?.conjunto} | ${l101r?.urgencia}`);
+  ok(f101.conjunto?.papel === 'apensado' && (!/^Urgência aprovada/.test(f101.conjunto.propria) || f101.conjunto.proprioAlvo === 'PL 101/2026'),
+     'urgência do REQ 1258/2026 atribuída ao apensado, para quem foi pedida');
 
   const inexistente = await L.fatosDaDemanda(L.refDemanda('PL 999999/2026')).then(() => null, e => e.message);
   ok(/não localizada/.test(inexistente || ''), 'proposição inexistente dá erro claro, não registro vazio');
