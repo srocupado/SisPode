@@ -147,6 +147,15 @@ ok(lesteDe(rLeg).vencedor.agr === 'A' && lesteDe(rNom).vencedor.agr === 'B' && l
 const rc = SD.sdDistritalMisto(dEst, { regra: 'candidato', modelo: 'paralelo', desenho: desE, base: baseE, votos });
 ok(rc.distritos.map(x => x.vencedor.nome).sort().join() === 'C' + 'a1,C' + 'b1' && new Set(rc.eleitos.map(x => x.sq)).size === 4,
   'regra do candidato: o mais votado do distrito; quem já ganhou um distrito não ganha outro');
+// b1 é o mais votado nos DOIS distritos: fica com o leste (57,7% × 46,8%); o oeste vai a a1, e o
+// concorrente que a1 precisava superar é a2 (b1 já levou o leste) — é o que o memorial confere.
+const votosD = { 'w|1': { c: { b1: 220, a1: 200, a2: 50 }, l: {} }, 'e|1': { c: { b1: 300, a3: 100, b2: 120 }, l: {} } };
+const rd = SD.sdDistritalMisto(dEst, { regra: 'candidato', modelo: 'paralelo', desenho: desE, base: baseE, votos: votosD });
+const dW = rd.distritos.find(x => x.vencedor.sq === 'a1'), dE = rd.distritos.find(x => x.vencedor.sq === 'b1');
+ok(dW && dE && dW.concorrente.sq === 'a2' && dW.concorrente.votos === 50 && dW.acima.length === 1 && dW.acima[0].sq === 'b1' && dW.acima[0].distrito === dE.id
+  && dE.concorrente.sq === 'b2' && dE.acima.length === 0,
+  'regra do candidato: concorrente = o mais votado ali fora o eleito e quem levou outro distrito; quem tinha mais votos e levou outro vai listado');
+ok(rp.distritos.every(x => !('concorrente' in x)), 'nas regras por agremiação, sem concorrente de candidato');
 const rcomp = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensatorio', desenho: desE, base: baseE, votos });
 const conta = r => { const o = {}; for (const x of r.eleitos) o[x.agr] = (o[x.agr] || 0) + 1; return JSON.stringify(o); };
 ok(conta(rcomp) === '{"A":2,"B":2}' && rcomp.eleitos.length === 4, 'compensatório: o total segue a proporção da votação');

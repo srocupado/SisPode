@@ -947,6 +947,22 @@ function sdDistritalMisto(d, op) {
     ganha.set(i, sq); usados.add(sq);
   }
   const primeiros = [];
+  // Regra 'candidato': para o memorial provar quem levou, o concorrente de cada
+  // distrito é o candidato mais votado ali fora o eleito e fora quem já levou
+  // outro distrito (com proporção maior, por isso antes). Quem teve mais votos
+  // que o eleito ali e levou outro distrito vai listado à parte.
+  const levou = new Map([...ganha].map(([i, sq]) => [sq, i]));
+  const disputa = (x, i, sq) => {
+    if (op.regra !== 'candidato' || !sq) return {};
+    const lado = Object.entries(x.porCand).filter(([q]) => q !== sq && cand.has(q)).sort((p, q) => q[1] - p[1] || p[0].localeCompare(q[0]));
+    const fora = lado.filter(([q]) => levou.has(q) && levou.get(q) !== i);
+    const livre = lado.find(([q]) => !levou.has(q));
+    const info = ([q, v]) => { const k = cand.get(q); return { sq: q, nome: k.c.nome, partido: k.c.partido, votos: v }; };
+    return {
+      concorrente: livre ? info(livre) : null,
+      acima: fora.filter(([, v]) => v > x.porCand[sq]).map(e => Object.assign(info(e), { distrito: op.desenho.distritos[levou.get(e[0])].id })),
+    };
+  };
   const distritos = op.desenho.distritos.map((dt, i) => {
     const x = vd[i], sq = ganha.get(i), k = sq && cand.get(sq);
     const lid = lider[i];
@@ -955,7 +971,8 @@ function sdDistritalMisto(d, op) {
     return { id: dt.id, aptos: dt.aptos, desvio: dt.desvio, validos: x.validos,
       vencedor: k ? { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
         agrNome: sdSiglas(k.a), agrVotos: porAgrD[i][k.a.id] || 0, agrPct: (porAgrD[i][k.a.id] || 0) / (x.validos || 1) } : null,
-      segundo: seg ? { agr: seg[0], nome: sdSiglas(agr.get(seg[0])) || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null };
+      segundo: seg ? { agr: seg[0], nome: sdSiglas(agr.get(seg[0])) || seg[0], votos: seg[1], pct: seg[1] / (x.validos || 1) } : null,
+      ...disputa(x, i, sq) };
   });
   const r = sdCompletarLista(d, primeiros, vagas, op);
   // excedente que não leva (op.excedente 'naoLeva'): o distrito fica sem a cadeira do vencedor

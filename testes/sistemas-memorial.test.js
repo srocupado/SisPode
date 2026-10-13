@@ -48,7 +48,8 @@ const sistemas = [
   { id: 'distritao', nome: 'Distritão', tipo: 'distritao', op: {} },
   { id: 'mistoP', nome: 'Distritão misto', tipo: 'misto', op: { pctMaisVotados: 0.5, modelo: 'paralelo' } },
   { id: 'mistoC', nome: 'Distritão misto comp.', tipo: 'misto', op: { pctMaisVotados: 0.75, modelo: 'compensatorio' } },
-  { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf } },
+  // 2 distritos em cada estado: com 5 vagas (XA), 50% pela parte inteira
+  { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf } },
 ];
 const res = S.snSimular(dados, sistemas);
 const ind = S.snIndicadores(res, dados);
@@ -92,7 +93,7 @@ ok(celulas(aba('Leia-me')).some(c => c.f === `COUNTIF(Proporcional!A:ZZ,"${M.SM_
 console.log('Excedente e divisor no memorial');
 for (const [excedente, extra] of [['cresce', {}], ['compensa', {}], ['compensa', { tetoExtra: 0.25 }], ['naoLeva', {}], ['corta', { divisor: 'sl' }], ['cresce', { divisor: 'sl' }]]) {
   const ss = [{ id: 'mistoC', nome: 'Distritão misto comp.', tipo: 'misto', op: Object.assign({ pctMaisVotados: 0.75, modelo: 'compensatorio', excedente }, extra) },
-    { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: Object.assign({ pctDistrital: 0.5, regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf, excedente }, extra) }];
+    { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: Object.assign({ pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf, excedente }, extra) }];
   const rr = S.snSimular(dados, ss);
   const mm = M.smMemorial({ dados, res: rr, sistemas: ss, ind: S.snIndicadores(rr, dados), ordem: S.snOrdemPartidos(rr), meta: { titulo: 'Teste', eleicao: 'teste', parametros: [] } });
   const n = Object.values(mm.conferencias).reduce((t, x) => t + x.n, 0), nao = Object.values(mm.conferencias).reduce((t, x) => t + x.nao, 0);
@@ -125,14 +126,37 @@ ok(Object.values(meSL.conferencias).every(x => x.nao === 0) && celulas(meSL.abas
 
 console.log('Distritão Misto com redução v3 e Versão Minuta no memorial');
 {
+  // Versão Minuta: metade ARREDONDADA (XA, 5 vagas → 3 distritos; XB, 4 → 2)
+  const porUfM = Object.assign({}, porUf);
+  {
+    const base = { unidades: ['w', 'c', 'e'].map((m, i) => ({ id: 'm:' + m, mun: m, zonas: ['1'], nome: m, aptos: 500 + i * 10, x: i * 10, y: 0, area: 1 })),
+      viz: { 'm:w': new Set(['m:c']), 'm:c': new Set(['m:w', 'm:e']), 'm:e': new Set(['m:c']) } };
+    const votos = {};
+    xa.agrs.forEach((a, i) => a.cands.forEach((c, j) => {
+      const k = ['w', 'c', 'e'][(i + j) % 3] + '|1';
+      (votos[k] = votos[k] || { c: {}, l: {} }).c[c.sq] = c.votos;
+    }));
+    porUfM.xa = { desenho: SD.sdDistritar(base, 3), base, votos };
+  }
   const ssR = [{ id: 'mistoR', nome: 'Distritão misto', tipo: 'misto', op: { pctMaisVotados: 0.5, arred: 'baixo', votoLiquido: true, modelo: 'compensatorio', limiar: 0 } },
-    { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, regra: 'candidato', modelo: 'compensatorio', limiar: 0, porUf } }];
+    { id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, arred: 'proximo', regra: 'candidato', modelo: 'compensatorio', limiar: 0, porUf: porUfM } }];
   const rrR = S.snSimular(dados, ssR);
   const mR = M.smMemorial({ dados, res: rrR, sistemas: ssR, ind: S.snIndicadores(rrR, dados), ordem: S.snOrdemPartidos(rrR), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
   const nR = Object.values(mR.conferencias).reduce((t2, x) => t2 + x.n, 0), naoR = Object.values(mR.conferencias).reduce((t2, x) => t2 + x.nao, 0);
   const aR = mR.abas.find(x => x.nome === 'Distritão misto');
   ok(naoR === 0 && celulas(aR).some(c => /^INT\(C\d+\*0\.5\+1E-9\)$/.test(c.f || '')) && celulas(aR).some(c => /^SUMIFS\(Eleitos!F:F,Eleitos!A:A,"Distritão misto",.*"mais votados"\)$/.test(c.f || '')),
     `Distritão Misto com redução v3: mais votados pela parte inteira e voto líquido por fórmula (votos − os dos eleitos na 1ª parte); ${nR} conferências, todas batem`);
+  const aM = mR.abas.find(x => x.nome === 'Distrital misto');
+  ok(celulas(aM).some(c => /^ROUND\(C\d+\*0\.5,0\)$/.test(c.f || '') && c.v === 3),
+    'Versão Minuta: nº de distritos por fórmula, metade arredondada (5 vagas → 3), conferido com os desenhados');
+  const linhasM = aM.linhas.filter(l => /^IF\(N\d+>=R\d+,/.test((l[10] || {}).f || ''));
+  ok(linhasM.length === 5 && linhasM.every(l => l[10].v === 'CONFERE' && l[13] >= l[17]),
+    `Versão Minuta: em cada distrito, o eleito contra o concorrente por fórmula (${linhasM.map(l => `${l[11]} ${l[13]} × ${l[15]} ${l[17]}`).join('; ')})`);
+  // A conferência pega o desenho errado: 2 distritos onde a regra dá 3.
+  const ssErr = [Object.assign({}, ssR[1], { op: Object.assign({}, ssR[1].op, { porUf }) })];
+  const rErr = S.snSimular(dados, ssErr);
+  const mErr = M.smMemorial({ dados, res: rErr, sistemas: ssErr, ind: S.snIndicadores(rErr, dados), ordem: S.snOrdemPartidos(rErr), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  ok(mErr.conferencias['Distrital misto'].nao === 1, 'nº de distritos que não segue a regra (5 vagas, metade arredondada, desenhadas 2) dá DIVERGE');
 }
 
 console.log('Planilha (SheetJS)');
