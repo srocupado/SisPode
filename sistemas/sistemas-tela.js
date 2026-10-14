@@ -16,8 +16,8 @@
 const SI_COR_PODE = '#00a859', SI_COR_OUTROS = '#5b6b7b';
 // Paleta neutra por tamanho de bancada (sem cor "ideológica"); sem verdes: o verde é do partido em foco.
 const SI_PALETA = ['#3b82f6', '#ef4444', '#f59e0b', '#a855f7', '#22d3ee', '#ec4899', '#b45309', '#fda4af', '#6366f1', '#fde047', '#93c5fd', '#d8b4fe'];
-const SI_NOMES = { proporcional: 'Proporcional', distritao: 'Distritão', misto: 'Distritão misto', distrital: 'Distrital misto' };
-const SI_CURTOS = { proporcional: 'Prop.', distritao: 'Distritão', misto: 'D. misto', distrital: 'Distrital' };
+const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', distrital: 'Distrital misto' };
+const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', distrital: 'Distrital' };
 const SI_IBGE = 'https://servicodados.ibge.gov.br/api';
 // Cores dos distritos no mapa (vizinhos nunca com a mesma).
 const SI_CORES_DIST = ['#3b82f6', '#f59e0b', '#a855f7', '#22d3ee', '#ef4444', '#84cc16', '#ec4899', '#f97316', '#14b8a6', '#eab308', '#6366f1', '#fb7185'];
@@ -51,12 +51,14 @@ function siSistemas() {
     { id: 'proporcional', nome: SI_NOMES.proporcional, tipo: 'proporcional', op: {
       pctQP: siNumero('pQP', 10) / 100, pctPartido: siNumero('pPart', 80) / 100, pctCandidato: siNumero('pCand', 20) / 100,
       terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked } },
-    { id: 'distritao', nome: SI_NOMES.distritao, tipo: 'distritao', op: {} },
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
       arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
     { id: 'distrital', nome: SI_NOMES.distrital, tipo: 'distrital', op: {
-      pctDistrital: siNumero('dPct', 50) / 100, regra: ($('dRegra').querySelector('.ativo') || {}).dataset.r || 'partido',
+      pctDistrital: siNumero('dPct', 50) / 100,
+      // estaduais nos distritos federais: vários eleitos por distrito, sempre os mais votados (regra do candidato)
+      regra: si.cargo !== '6' && siMapaEstadual() === 'federais' ? 'candidato' : ($('dRegra').querySelector('.ativo') || {}).dataset.r || 'partido',
+      mapaEstadual: siMapaEstadual(),
       modelo: ($('dModelo').querySelector('.ativo') || {}).dataset.m || 'paralelo', limiar: siNumero('dLim', 0) / 100,
       base: ($('dBase').querySelector('.ativo') || {}).dataset.b || 'eleitorado',
       arred: ($('dArr').querySelector('.ativo') || {}).dataset.a || 'proximo',
@@ -65,11 +67,13 @@ function siSistemas() {
       excedente: si.exc.regra, tetoExtra: si.exc.teto, divisor: si.exc.divisor } },
   ];
 }
+/** Como os estaduais e distritais votam no distrital: 'proprio' (mapa da Assembleia) ou 'federais' (os distritos federais, vários eleitos em cada). */
+const siMapaEstadual = () => (($('dEst') && $('dEst').querySelector('.ativo')) || { dataset: {} }).dataset.e || 'proprio';
 function siAlterado(s) {
   const o = s.op;
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0 || o.arred !== 'proximo' || !!o.votoLiquido;
-  if (s.tipo === 'distrital') return o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
+  if (s.tipo === 'distrital') return (si.cargo !== '6' && o.mapaEstadual === 'federais') || o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o);
   return false;
 }
 /** Distritão misto com redução v3: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
@@ -78,16 +82,16 @@ function siEhReducaoV3(o) {
 }
 /** Distrital misto da Versão Minuta: metade (arredondada para cima), por população, ±5%; vence o distrito o candidato mais votado (um por partido: o mais votado de cada partido ali); compensatório. */
 function siEhMinuta(o) {
-  return o.pctDistrital === 0.5 && o.regra === 'candidato' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'proximo'
+  return (si.cargo === '6' || o.mapaEstadual === 'federais') && o.pctDistrital === 0.5 && o.regra === 'candidato' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'proximo'
     && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
 }
 /** Distrital misto com as regras do PL 9.212/2017 (PLS 86/2017, aprovado pelo Senado). */
 function siEhSenado(o) {
-  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
+  return (si.cargo === '6' || o.mapaEstadual !== 'federais') && o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'populacao' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_SENADO) && siExcPadrao(o);
 }
 /** Distrital misto com as regras do PL 9.213/2017 (PLS 345/2017, aprovado pelo Senado e apensado ao 9.212): por eleitores, ±10%, e o excedente aumenta a Câmara. */
 function siEh9213(o) {
-  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ)
+  return (si.cargo === '6' || o.mapaEstadual !== 'federais') && o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ)
     && o.excedente === 'cresce' && o.tetoExtra == null && o.divisor === 'dhondt';
 }
 // ------------------------------------------------------------ excedente (compensatório)
@@ -103,7 +107,7 @@ function siExcNome(o, curta = true) {
 }
 /** Distrital misto com as regras do substitutivo da CCJ da Câmara ao PL 9.212/2017 (Samuel Moreira, 2019/2021): por eleitores, ±10%. */
 function siEhCcj(o) {
-  return o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ) && siExcPadrao(o);
+  return (si.cargo === '6' || o.mapaEstadual !== 'federais') && o.pctDistrital === 0.5 && o.regra === 'partido' && o.modelo === 'compensatorio' && o.limiar === 0 && o.base === 'eleitorado' && o.arred === 'baixo' && siTolIgual(o.tol, SD_TOL_CCJ) && siExcPadrao(o);
 }
 // ------------------------------------------------------------ tolerância de tamanho dos distritos
 const SI_TOL_ALEMANHA = Object.freeze({ pct: 0.15, exc: 0, excN: 0, excFrac: 0 });
@@ -201,48 +205,56 @@ function siDescricao(s, curta) {
   }
   if (s.tipo === 'distrital') {
     const voto = (o.aliancas && o.aliancas.length ? (curta ? ` · ${o.aliancas.length} aliança${o.aliancas.length > 1 ? 's' : ''}` : ` · alianças no distrito: ${o.aliancas.map(x => x.join(' + ')).join('; ')}`) : '');
+    const est = si.cargo === '6' ? '' : o.mapaEstadual === 'federais'
+      ? (curta ? ' · estaduais nos distritos federais' : ' · estaduais e distritais nos distritos federais: vários eleitos por distrito (os mais votados), na proporção do tamanho; até 3 eleitos da mesma agremiação por distrito nas UFs com até 20 deputados federais, até 2 nas demais')
+      : (curta ? '' : ' · estaduais e distritais em mapa próprio, encaixado nos distritos federais onde o nº de distritos estaduais é múltiplo do de federais');
     const des = o.tol.modo === 'desenhar' ? (curta ? ' · desenho até a tolerância' : ' · desenho que para ao caber na tolerância (o mais compacto que cabe)') : '';
     if (siEhSenado(o)) return (curta ? 'como no PL 9.212/2017 (Senado)'
-      : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
+      : 'como no PL 9.212/2017 (Senado): metade das vagas em distritos (parte inteira), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto + est;
     if (siEhCcj(o)) return (curta ? 'como no substitutivo da CCJ (PL 9.212)'
-      : 'como no substitutivo da CCJ da Câmara ao PL 9.212/2017 (2021): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto;
+      : 'como no substitutivo da CCJ da Câmara ao PL 9.212/2017 (2021): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, sem cláusula') + des + voto + est;
     if (siEhMinuta(o)) return (curta ? 'Versão Minuta'
-      : 'Versão Minuta: voto único; metade das vagas em distritos (arredondada para cima), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); vence o distrito o candidato com mais votos nominais (a legenda não conta); cota pelas maiores médias; excedente sem aumentar a Casa') + des + voto;
+      : 'Versão Minuta: voto único; metade das vagas em distritos (arredondada para cima), por população (Censo 2022), ±5% (±10% em 1 distrito ou 10% deles); vence o distrito o candidato com mais votos nominais (a legenda não conta); cota pelas maiores médias; excedente sem aumentar a Casa') + des + voto + est;
     if (siEh9213(o)) return (curta ? 'como no PL 9.213/2017 (Senado)'
-      : 'como no PL 9.213/2017 (PLS 345/2017, apensado): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, e o excedente aumenta a Câmara') + des + voto;
+      : 'como no PL 9.213/2017 (PLS 345/2017, apensado): metade das vagas em distritos (parte inteira), por eleitorado, ±10%; a agremiação mais votada leva o distrito; compensatório, e o excedente aumenta a Câmara') + des + voto + est;
     return `${siPct(o.pctDistrital)} em distritos (${o.regra === 'candidato' ? 'o candidato mais votado leva' : o.regra === 'partidoNominal' ? 'o partido com mais votos nominais leva' : 'o partido mais votado leva'}) · ${siPct(1 - o.pctDistrital)} lista, `
       + `${o.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}` + (o.limiar ? ` · cláusula de ${siPct(o.limiar)}${curta ? '' : ' para a lista'}` : '')
       + (o.base === 'populacao' ? (curta ? ' · por população' : ' · distritos de população parecida (Censo 2022)') : (curta ? '' : ' · distritos de eleitorado parecido'))
       + (o.arred === 'baixo' ? (curta ? ' · parte inteira' : ' · nº de distritos pela parte inteira') : '')
-      + (siTolIgual(o.tol, SD_TOL_SENADO) ? '' : ` · tolerância ${siTolNome(o.tol)}`) + (siExcPadrao(o) ? '' : ' · ' + siExcNome(o, curta)) + des + voto;
+      + (siTolIgual(o.tol, SD_TOL_SENADO) ? '' : ` · tolerância ${siTolNome(o.tol)}`) + (siExcPadrao(o) ? '' : ' · ' + siExcNome(o, curta)) + des + voto + est;
   }
   return 'os mais votados de cada estado';
 }
 function siMarcarAlterados() {
   const ss = siSistemas();
-  $('siAltP').hidden = !siAlterado(ss[0]);
-  $('siAltM').hidden = !siAlterado(ss[2]);
-  $('mPctV').textContent = siPct(ss[2].op.pctMaisVotados);
-  $('mPctL').textContent = siPct(1 - ss[2].op.pctMaisVotados);
-  $('siAltD').hidden = !siAlterado(ss[3]);
-  $('dPctV').textContent = siPct(ss[3].op.pctDistrital);
-  $('dPctL').textContent = siPct(1 - ss[3].op.pctDistrital);
-  $('dSenado').classList.toggle('proj-ok', siEhSenado(ss[3].op));
-  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(ss[3].op));
-  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(ss[2].op));
+  // pelo tipo, nunca pela posição na lista (a lista já mudou: saiu o distritão puro)
+  const P = ss.find(x => x.tipo === 'proporcional'), M = ss.find(x => x.tipo === 'misto'), D = ss.find(x => x.tipo === 'distrital');
+  $('siAltP').hidden = !siAlterado(P);
+  $('siAltM').hidden = !siAlterado(M);
+  $('mPctV').textContent = siPct(M.op.pctMaisVotados);
+  $('mPctL').textContent = siPct(1 - M.op.pctMaisVotados);
+  $('siAltD').hidden = !siAlterado(D);
+  $('dPctV').textContent = siPct(D.op.pctDistrital);
+  $('dPctL').textContent = siPct(1 - D.op.pctDistrital);
+  $('dSenado').classList.toggle('proj-ok', siEhSenado(D.op));
+  $('dMinuta').classList.toggle('proj-ok', siEhMinuta(D.op));
+  $('mReducaoV3').classList.toggle('proj-ok', siEhReducaoV3(M.op));
   $('mLiqLin').classList.toggle('off', !$('mLiq').checked);
-  $('dCcj').classList.toggle('proj-ok', siEhCcj(ss[3].op));
-  $('d9213').classList.toggle('proj-ok', siEh9213(ss[3].op));
-  $('dExcBtn').textContent = (ss[3].op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
+  $('dCcj').classList.toggle('proj-ok', siEhCcj(D.op));
+  $('d9213').classList.toggle('proj-ok', siEh9213(D.op));
+  $('dExcBtn').textContent = (D.op.modelo === 'compensatorio' ? SI_EXC_NOMES[si.exc.regra] + ((si.exc.regra === 'cresce' || si.exc.regra === 'compensa') && si.exc.teto != null ? `, até ${siPct(si.exc.teto)}` : '') : 'sem excedente (paralelo)')
     + (si.exc.divisor === 'sl' ? ' · Sainte-Laguë' : " · D'Hondt") + ' ✎';
   $('dTolBtn').textContent = siTolNome(si.tol) + (si.tol.modo === 'desenhar' ? ' · desenho até ela' : '') + ' ✎';
   $('dAliLin').classList.toggle('off', !$('dAli').checked);
+  $('dEstLin').hidden = si.cargo === '6';
+  // estaduais nos distritos federais: quem leva é sempre o candidato (os mais votados)
+  for (const b of $('dRegra').querySelectorAll('button')) b.disabled = si.cargo !== '6' && D.op.mapaEstadual === 'federais';
   $('dAliLista').innerHTML = si.aliancas.map((x, i) => `<span class="chip-al">${siEsc(x.join(' + '))}<button data-rm="${i}" title="Tirar a aliança">×</button></span>`).join('');
   siFaixa(ss);
 }
 
 // ------------------------------------------------------------ faixa dos sistemas (os parâmetros, compactos)
-const SI_COR_SIS = { proporcional: '#3b82f6', distritao: '#f59e0b', misto: '#a855f7', distrital: '#14b8a6' };
+const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', distrital: '#14b8a6' };
 /** Os partidos para as alianças: os do pleito lido, do mais ao menos votado no país. */
 function siPreencherPartidos() {
   const v = {};
@@ -255,16 +267,16 @@ function siPreencherPartidos() {
   if ($('dAliA').value === $('dAliB').value && $('dAliB').options.length > 1) $('dAliB').selectedIndex = 1;
 }
 
-/** Uma linha com os quatro sistemas e o resumo dos parâmetros; "Ajustar" abre os controles daquele sistema logo abaixo. */
+/** Uma linha com os três sistemas e o resumo dos parâmetros; "Ajustar" abre os controles daquele sistema logo abaixo. */
 function siFaixa(ss) {
   const el = $('siFaixa');
   if (!el) return;
   ss = ss || siSistemas();
   el.innerHTML = ss.map(s => {
-    const temPar = s.tipo !== 'distritao', aberto = si.abertoSis === s.tipo;
+    const temPar = true, aberto = si.abertoSis === s.tipo;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(s.tipo === 'distritao' ? 'os mais votados de cada estado · sem parâmetro' : siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
+      + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && siEhReducaoV3(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
@@ -277,6 +289,7 @@ function siRegraVigente() {
   for (const b of $('dRegra').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.r === 'partido');
   for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
   for (const b of $('dArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
+  for (const b of $('dEst').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.e === 'proprio');
   $('dAli').checked = false;
   si.tol = Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' });
   si.exc = { regra: 'corta', teto: null, divisor: 'dhondt' };
@@ -288,6 +301,7 @@ function siRegraProjeto(qual) {
   const marca = (id, attr, v) => { for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset[attr] === v); };
   const eleit = qual === 'ccj' || qual === '9213';
   marca('dRegra', 'r', 'partido'); marca('dModelo', 'm', 'compensatorio'); marca('dBase', 'b', eleit ? 'eleitorado' : 'populacao'); marca('dArr', 'a', 'baixo');
+  marca('dEst', 'e', qual === 'minuta' ? 'federais' : 'proprio');
   si.tol = Object.assign({}, eleit ? SD_TOL_CCJ : SD_TOL_SENADO, { modo: si.tol.modo });
   si.exc = { regra: qual === '9213' ? 'cresce' : 'corta', teto: null, divisor: 'dhondt' };
   if (qual === 'minuta') {   // por população, ±5%, metade arredondada para cima, vence o distrito o candidato com mais votos nominais
@@ -367,6 +381,9 @@ function siConfirmar(ano, total, oque) {
       <div style="margin-top:6px"><button class="pri" id="siSim">Ler agora</button> <button id="siNao">Cancelar</button></div></div>`;
     $('siSim').onclick = () => { $('siAvisos').innerHTML = ''; ok(true); };
     $('siNao').onclick = () => { $('siAvisos').innerHTML = ''; ok(false); };
+    // a pergunta fica no topo; quem clicou lá embaixo (ex.: "Afinar com os locais", no fim da tabela) tem de vê-la
+    $('siAvisos').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('siSim').focus({ preventScroll: true });
   });
 }
 
@@ -571,9 +588,18 @@ async function siPrepararDistritos(op, calc) {
   let i = 0;
   for (const uf of ufs) {
     const d = si.dados[uf], g = si.geo[siChaveGeo(uf)];
-    const k = sdNumeroDistritos(d.vagas, op.pctDistrital, op.arred);
+    // Estaduais e distritais: o mapa depende do da bancada federal do estado
+    // (CF, art. 27: vagas da Assembleia → deputados federais).
+    //  · 'fed' — os distritos federais, cada um com várias cadeiras (Minuta, leitura b);
+    //  · 'ani' — mapa próprio encaixado: cada distrito federal dividido em n (só quando kE é múltiplo de kF);
+    //  · 'ind' — mapa próprio independente (os demais casos), com um federal de referência para medir quantos atravessam a fronteira.
+    const estadual = si.cargo !== '6';
+    const kE = sdNumeroDistritos(d.vagas, op.pctDistrital, op.arred);
+    const vF = estadual ? snVagasCamara(uf, d.vagas) : d.vagas, kF = sdNumeroDistritos(vF, op.pctDistrital, op.arred);
+    const modo = !estadual ? 'u' : op.mapaEstadual === 'federais' ? 'fed' : (kF > 0 && kE > kF && kE % kF === 0) ? 'ani' : 'ind';
+    const k = modo === 'fed' ? kF : kE;
     // a tolerância só muda o desenho quando ele vai até ela
-    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${k}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
+    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${modo}|${k}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
     if (!si.desenhos[chave]) {
       // a barra diz de onde vem o que se lê: população do IBGE (lida na hora) ou o eleitorado do TSE (já na memória)
       siProgresso(op.base === 'populacao'
@@ -595,8 +621,18 @@ async function siPrepararDistritos(op, calc) {
       let base = { unidades: [], viz: {} }, desenho = { distritos: [], metricas: null };
       if (k > 0) {
         base = sdUnidades(gp, g.malha, (cd, nome) => g.resolver(nome), SI_FRACAO_DIVIDE * aptos / k);
-        desenho = sdDistritar(base, Math.min(k, base.unidades.length), { tol: op.tol, ateTol: op.tol.modo === 'desenhar' });
+        const opD = { tol: op.tol, ateTol: op.tol.modo === 'desenhar' };
+        if (modo === 'ani') {
+          desenho = sdDistritarAninhado(base, kF, kE / kF, opD);
+          // sem como encaixar (um distrito federal com menos zonas e municípios do que estaduais a conter):
+          // fica independente, e a tela diz o motivo — com os locais de votação lidos, o encaixe se refaz sobre eles
+          if (desenho.erro) { const motivo = desenho.erro; desenho = sdDistritar(base, Math.min(k, base.unidades.length), opD); desenho.encaixeFalhou = motivo; }
+        } else {
+          desenho = sdDistritar(base, Math.min(k, base.unidades.length), opD);
+        }
         if (k > base.unidades.length) desenho.pedidos = k;
+        // independente: o federal de referência na mesma base, para medir o encaixe
+        if ((modo === 'ind' || desenho.encaixeFalhou) && kF > 0 && !desenho.erro) desenho.federalRef = sdDistritar(base, Math.min(kF, base.unidades.length), opD).distritos;
         desenho.base = op.base === 'populacao' && !popErro ? 'populacao' : 'eleitorado';
         desenho.semPopulacao = semPopulacao;
         desenho.descontos = descontos;
@@ -608,28 +644,81 @@ async function siPrepararDistritos(op, calc) {
     }
     let x = si.desenhos[chave];
     // Afinação pelos locais de votação (lida a pedido): só onde o desenho passa da tolerância.
+    // O desenho encaixado se afina distrito federal por distrito federal (sdAfinarAninhado):
+    // as trocas ficam dentro de cada federal, e o encaixe não se desfaz.
+    // O encaixe que não coube nas zonas se refaz sobre a base com as zonas divididas nos seus locais.
     const lc = si.locais[siChaveLocais(uf)], chLoc = chave + '|loc|' + siTolChave(op.tol);
-    if (lc && x.desenho.metricas && !sdTolerancia(x.desenho.distritos, op.tol).ok) {
+    if (lc && x.desenho.metricas && (x.desenho.encaixeFalhou || !sdTolerancia(x.desenho.distritos, op.tol).ok)) {
       if (!si.desenhos[chLoc]) {
         siProgresso(`Afinando os distritos com os locais de votação: ${siUfNome(uf)}…`, i / ufs.length);
         await new Promise(r => setTimeout(r, 0));
         if (calc !== si.calc) return null;
-        si.desenhos[chLoc] = siAfinar(x, lc.locais, op.tol);
+        if (x.desenho.encaixeFalhou || x.desenho.aninhado) {
+          // encaixado: cada federal se afina sozinho (sdAfinarAninhado); se ainda passa da tolerância — ou se o
+          // encaixe nem coube nas zonas —, o encaixe se refaz sobre a base com zonas e municípios divididos nos locais; fica o melhor
+          let y = null;
+          if (x.desenho.aninhado) { const r = sdAfinarAninhado(x.base, x.desenho, lc.locais, { tol: op.tol }); y = r ? { desenho: r.desenho, base: r.base, k: x.k } : x; }
+          if (!y || !sdTolerancia(y.desenho.distritos, op.tol).ok) {
+            const z = siEncaixarLocais(x, lc.locais, kF, kE / kF, op.tol);
+            if (z && (!y || siMelhorDesenho(z.desenho, y.desenho, op.tol))) y = z;
+          }
+          si.desenhos[chLoc] = y || siAfinar(x, lc.locais, op.tol);
+        } else si.desenhos[chLoc] = siAfinar(x, lc.locais, op.tol);
       }
       x = si.desenhos[chLoc];
     }
     const vz = g.votos[siCargoArq(uf)] || {};
-    porUf[uf] = { desenho: x.desenho, base: x.base, votos: x.desenho.locais && lc ? Object.assign({}, vz, lc.votos) : vz };
+    let desenho = x.desenho;
+    // Cobertura dos votos por município e zona: o arquivo de dados abertos do TSE pode vir sem o cargo
+    // (medido em 13/10/2026: o de RO trazia só governador e senador) — sem os votos dos candidatos, o
+    // distrito não tem quem eleger, e isso tem de aparecer, não passar em silêncio.
+    const somaVz = Object.values(vz).reduce((t, c) => t + Object.values(c.c).reduce((a, b) => a + b, 0) + Object.values(c.l).reduce((a, b) => a + b, 0), 0);
+    // o modo que valeu: 'ani' só com o encaixe feito
+    const modoEf = modo === 'ani' && !desenho.aninhado ? 'ind' : modo;
+    const extra = { retotalizando: snSituacao(d) === 'retotalizando', modoEstadual: modoEf, encaixeFalhou: modoEf !== modo ? (si.desenhos[chave] || x).desenho.encaixeFalhou || '' : '', kF, kE, vagasFederais: vF, cobertura: d.validos ? somaVz / d.validos : 1 };
+    if (modo === 'fed' && desenho.distritos && desenho.distritos.length) {
+      // cadeiras de cada distrito federal: as kE cadeiras distritais da Assembleia, na proporção do tamanho
+      const n = sdCadeirasPorDistrito(desenho.distritos, kE);
+      desenho = Object.assign({}, desenho, { distritos: desenho.distritos.map((dt, j) => Object.assign({}, dt, { cadeiras: n[j] })) });
+      extra.capPartido = vF <= 20 ? 3 : 2;   // Minuta, art. 10, II
+    }
+    const ref = (si.desenhos[chave] || x).desenho.federalRef;   // o afinado por locais não a carrega
+    if (modoEf === 'ind' && ref) {
+      const U = new Map(x.base.unidades.map(u => [u.id, u]));
+      extra.encaixe = sdCruzamentos(desenho.distritos, ref, U);
+    }
+    porUf[uf] = Object.assign({ desenho, base: x.base, votos: x.desenho.locais && lc ? Object.assign({}, vz, lc.votos) : vz }, extra);
     i++;
   }
   return porUf;
 }
 
+/** a é melhor que b: dentro da tolerância; depois, menos distritos acima do desvio admitido em todos; depois, menor desvio máximo. */
+function siMelhorDesenho(a, b, tol) {
+  const nota = d => { const t = sdTolerancia(d.distritos, tol); return [t.ok ? 0 : 1, t.excecao + t.fora, d.metricas.desvioMax]; };
+  const na = nota(a), nb = nota(b);
+  for (let i = 0; i < 3; i++) if (na[i] !== nb[i]) return na[i] < nb[i] - (i === 2 ? 1e-9 : 0);
+  return false;
+}
+
+/** Encaixe refeito sobre a base com todas as unidades divididas nos locais de votação (e afinado por federal, se preciso). Devolve { desenho, base, k } ou null. */
+function siEncaixarLocais(x, locais, kF, n, tol) {
+  const b2 = sdBaseLocais(x.base, locais);
+  const an = b2 ? sdDistritarAninhado(b2, kF, n, { tol, ateTol: tol.modo === 'desenhar' }) : null;
+  if (!an || an.erro || !an.metricas.contiguos) return null;
+  for (const c of ['base', 'semPopulacao', 'descontos', 'popErro', 'pedidos']) if (c in x.desenho) an[c] = x.desenho[c];
+  an.locais = true;
+  let y = { desenho: an, base: b2, k: x.k };
+  if (!sdTolerancia(an.distritos, tol).ok) {
+    const r = sdAfinarAninhado(b2, an, locais, { tol });
+    if (r && r.desenho.metricas.contiguos && siMelhorDesenho(r.desenho, an, tol)) y = { desenho: r.desenho, base: r.base, k: x.k };
+  }
+  return y;
+}
+
 /** Desenho afinado pelos locais: primeiro as zonas da fronteira; se ainda passa da tolerância, também os municípios da fronteira. Fica o melhor. */
 function siAfinar(x, locais, tol) {
-  // melhor: dentro da tolerância; depois, menos distritos acima do desvio admitido em todos; depois, menor desvio máximo
-  const nota = d => { const t = sdTolerancia(d.distritos, tol); return [t.ok ? 0 : 1, t.excecao + t.fora, d.metricas.desvioMax]; };
-  const melhor = (a, b) => { const na = nota(a), nb = nota(b); for (let i = 0; i < 3; i++) if (na[i] !== nb[i]) return na[i] < nb[i] - (i === 2 ? 1e-9 : 0); return false; };
+  const melhor = (a, b) => siMelhorDesenho(a, b, tol);
   let r = sdRefinarLocais(x.base, x.desenho, locais);
   if (r && !sdTolerancia(r.desenho.distritos, tol).ok) {
     const r2 = sdRefinarLocais(r.base, r.desenho, locais, { municipios: true });
@@ -644,12 +733,12 @@ const siChaveLocais = uf => `${si.op.ano}|${uf}|${siCargoArq(uf)}`;
 function siForaDaTolerancia() {
   const s = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital');
   if (!s || !s.op.porUf) return [];
-  return Object.keys(s.op.porUf).filter(uf => { const d = s.op.porUf[uf].desenho; return d.metricas && !sdTolerancia(d.distritos, s.op.tol).ok && !si.locais[siChaveLocais(uf)]; }).sort();
+  return Object.keys(s.op.porUf).filter(uf => { const p = s.op.porUf[uf], d = p.desenho; return d.metricas && (p.encaixeFalhou || !sdTolerancia(d.distritos, s.op.tol).ok) && !si.locais[siChaveLocais(uf)]; }).sort();
 }
 function siBotaoLocais(ufs) {
   if (!ufs.length) return '';
   return `<div class="dica"><button data-locais="${ufs.join(',')}">Afinar com os locais de votação (${ufs.map(u => u.toUpperCase()).join(', ')})</button>
-    As zonas eleitorais são a menor peça do desenho e, nestes estados, grandes demais para caber na tolerância. Com a votação por seção do TSE (um arquivo por estado, lido só desta vez e guardado só na memória da página),
+    As zonas eleitorais são a menor peça do desenho e, nestes estados, grandes demais para caber na tolerância (ou para encaixar os distritos estaduais nos federais). Com a votação por seção do TSE (um arquivo por estado, lido só desta vez e guardado só na memória da página),
     as zonas da fronteira entre distritos se dividem nos seus locais de votação.</div>`;
 }
 
@@ -663,6 +752,7 @@ async function siLerLocais(ufs) {
   const ano = si.op.ano, urls = snUrlsAbertos(ano);
   siTravar(true);
   $('siAvisos').innerHTML = '';
+  si.erroLocais = '';
   try {
     siProgresso('Conferindo os arquivos do TSE…', 0);
     const il = await zrIndice(urls.locais);
@@ -690,7 +780,9 @@ async function siLerLocais(ufs) {
       si.locais[siChaveLocais(t.uf)] = { locais: lido.locais, votos: sdVotosLocais(vz, lido, nr => sigla[nr] || null) };
     }
   } catch (e) {
-    $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível ler os locais de votação.</b> ${siEsc(e && e.message || e)} — tente de novo em instantes.</div>`;
+    // fica em si.erroLocais: o siSimular abaixo refaz os avisos, e o erro não pode sumir com eles
+    si.erroLocais = `${ufs.map(u => u.toUpperCase()).join(', ')}: ${(e && e.message) || e}`;
+    $('siAvisos').innerHTML = siAvisosHtml();
   } finally {
     siTravar(false);
     siStatus(si.res ? siResumoStatus() : '');
@@ -748,11 +840,17 @@ function siAvisosHtml() {
   const ret = ufs.filter(uf => snSituacao(si.dados[uf]) === 'retotalizando'), par = ufs.filter(uf => snSituacao(si.dados[uf]) === 'parcial' && !ret.includes(uf));
   const sem = si.res.real.semReal.filter(uf => !ret.includes(uf) && !par.includes(uf));
   const lista = l => l.map(uf => uf.toUpperCase()).join(', ');
-  let h = '';
+  let h = si.erroLocais ? `<div class="aviso erro"><b>Não foi possível ler os locais de votação</b> (${siEsc(si.erroLocais)}) — tente de novo em instantes.</div>` : '';
   if (ret.length) h += `<div class="aviso"><b>Em retotalização: ${lista(ret)}.</b> O TSE reabriu a totalização e ainda não marcou os eleitos; `
     + `a simulação usa os votos publicados, mas ${ret.length === 1 ? 'o estado fica' : 'os estados ficam'} fora da comparação nacional até a conclusão.</div>`;
   if (par.length) h += `<div class="aviso"><b>Apuração em andamento: ${lista(par)}.</b> Os votos ainda vão mudar; ${si.res.real.semReal.length === ufs.length ? 'sem eleitos marcados, a comparação com o oficial fica para o fim da apuração' : 'sem o resultado final, a comparação é parcial'}.</div>`;
   if (sem.length) h += `<div class="aviso"><b>Sem eleitos marcados pelo TSE: ${lista(sem)}.</b> Fora da comparação nacional.</div>`;
+  // distrital: estados cujos votos por município e zona (dados abertos do TSE) não cobrem os válidos do cargo
+  const sd = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital'), pu = (sd && sd.op.porUf) || {};
+  const falta = Object.keys(pu).filter(uf => pu[uf].cobertura != null && pu[uf].cobertura < 0.95).sort();
+  if (falta.length) h += `<div class="aviso erro"><b>Distrital misto sem os votos por zona: ${falta.map(uf => `${uf.toUpperCase()} (${siPct(pu[uf].cobertura)} dos válidos)`).join(', ')}.</b> `
+    + `O arquivo de dados abertos do TSE (votação por município e zona) não traz os votos dos candidatos deste cargo ${falta.length === 1 ? 'nesse estado' : 'nesses estados'} — sem eles, os distritos não têm quem eleger e o resultado do distrital ${falta.length === 1 ? 'desse estado' : 'desses estados'} não vale. Os demais sistemas não dependem desse arquivo.`
+    + (falta.some(uf => pu[uf].retotalizando) ? ` ${lista(falta.filter(uf => pu[uf].retotalizando))} ${falta.filter(uf => pu[uf].retotalizando).length === 1 ? 'está' : 'estão'} em retotalização, provável causa do arquivo incompleto — ao recarregar depois da conclusão, o distrital passa a valer se o arquivo vier completo.` : '') + '</div>';
   return h;
 }
 
@@ -877,13 +975,13 @@ function siPartes(impressao) {
   if (!umaUf) {
     const curtos = res.sims.map(s => `<th class="n">${siEsc(SI_CURTOS[s.tipo] || s.nome)}</th>`).join('');
     h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Estado a estado <small>${impressao ? '' : 'clique num estado para ver quem entra e quem sai'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead>`
-      + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th><th rowspan="2" class="n">Corte do<br>distritão</th>`
+      + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th>`
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
     for (const uf of res.ufs) {
-      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf], dz = porId('distritao').porUf[uf];
+      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf];
       const podeUf = eleitos => eleitos.filter(x => x.cand.partido === si.partido).length;
-      h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td><td class="n">${siFmt(dz.corte)}</td>`
+      h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td>`
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
         + res.sims.map(s => `<td class="n">${r ? s.porUf[uf].entram.length : '—'}</td>`).join('') + '</tr>';
     }
@@ -934,9 +1032,9 @@ function siDetalheUfHtml(uf, impressao) {
   const sims = res.sims.map(s => conta(s.porUf[uf].eleitos));
   const partidos = ordem.filter(sg => real[sg] || sims.some(o => o[sg]));
   const pid = id => res.sims.find(x => x.id === id).porUf[uf];
-  const p = pid('proporcional'), dz = pid('distritao'), m = pid('misto');
+  const p = pid('proporcional'), m = pid('misto');
   let h = `<h2 id="siDetalhe"${impressao && Object.keys(si.dados).length > 1 ? ' class="imp-quebra"' : ''}>${siEsc(siUfNome(uf))} <small>${d.vagas} vagas · ${siFmt(d.validos)} votos válidos · QE ${siFmt(p.qe)}`
-    + ` · corte do distritão ${siFmt(dz.corte)} votos · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
+    + ` · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
   const umaUf = Object.keys(si.dados).length === 1;   // com um estado só, a tabela por partido já está acima
   if (!umaUf) h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>` + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
   if (!umaUf) for (const sg of partidos) {
@@ -1003,7 +1101,8 @@ function siResumoHtml(ind) {
       const pior = des.slice().sort((a, b) => b[1].desenho.metricas.desvioMax - a[1].desenho.metricas.desvioMax)[0];
       const nd = des.reduce((s, [, x]) => s + x.desenho.distritos.length, 0);
       const venc = {};
-      for (const uf of res.comparadas) for (const d of (sd.porUf[uf].distritos || [])) if (d.vencedor) venc[d.vencedor.partido] = (venc[d.vencedor.partido] || 0) + 1;
+      // todos os eleitos no distrito (estaduais nos distritos federais: vários por distrito)
+      for (const uf of res.comparadas) for (const d of (sd.porUf[uf].distritos || [])) for (const w of d.vencedores || []) venc[w.partido] = (venc[w.partido] || 0) + 1;
       const top = Object.entries(venc).sort((a, b) => b[1] - a[1]).slice(0, 3);
       itens.push(`Distrital misto: <b>${siFmt(nd)}</b> distritos desenhados em ${des.length} estado${des.length === 1 ? '' : 's'}, por ${op.base === 'populacao' ? 'população (Censo 2022)' : 'eleitorado'}; `
         + `maior desvio de tamanho <b>${siPct(pior[1].desenho.metricas.desvioMax)}</b> (${pior[0].toUpperCase()}).`
@@ -1079,7 +1178,7 @@ function siProxima() {
       const atual = snMargem(d, a.id, dd => snProporcional(dd, opP).eleitos.filter(dele).length, si.partido);
       const cota = snMargem(d, a.id, dd => {
         const v = Object.fromEntries(dd.agrs.map(g => [g.id, g.votos]));
-        return snDhondt(v, dd.vagas, {}, opD.limiar || 0, null, opD.divisor || 'dhondt')[a.id] || 0;
+        return snDhondt(v, dd.vagas, {}, opD.limiar || 0, null, opD.divisor || 'dhondt', dd.validos)[a.id] || 0;
       }, si.partido);
       const efetivo = sd && sd.porUf[uf] ? sd.porUf[uf].eleitos.filter(dele).length : null;
       linhas.push({ uf, d, a, votos: a.votos, pct: a.votos / (d.validos || 1), atual, cota, efetivo, federada: (a.siglas || []).length > 1 });
@@ -1190,7 +1289,8 @@ function siAlcance() {
       const nome = id => { const g = d.agrs.find(y => y.id === id); return g ? sdSiglas(g) : id; };
       for (const dt of x.distritos || []) {
         const w = dt.vencedor, s2 = dt.segundo;
-        if (!w || !s2 || !dt.validos) continue;
+        // distrito de várias cadeiras não tem "ao alcance" de 1º contra 2º
+        if (!w || !s2 || !dt.validos || (dt.cadeiras || 1) > 1) continue;
         if (w.agr === a.id) ganhos.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: s2.nome, meu: w.agrPct });
         else if (s2.agr === a.id) perto.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: nome(w.agr), meu: s2.pct, deles: w.agrPct,
           excedente: ((x.excedentes || {})[w.agr] || 0) > 0 });
@@ -1269,11 +1369,13 @@ function siMetodoHtml() {
     + 'Votos válidos de cada candidato e de legenda de cada partido; candidato com voto anulado (sub judice) fica fora. A simulação mantém os votos como foram dados — noutro sistema, partidos, candidatos e eleitores agiriam de outro jeito.');
   if (sist.proporcional) li.push(`<b>Proporcional (atual)</b> — ${d(sist.proporcional)}. Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF nas ADIs 7228, 7263 e 7325: `
     + 'quociente eleitoral (fração acima de meio arredonda), quociente partidário com candidato de 10% do QE, sobras pelas maiores médias (agremiação com 80% do QE e candidato com 20%), 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. Com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs).');
-  if (sist.distritao) li.push('<b>Distritão</b> — o estado inteiro é um distrito: elegem-se os mais votados, até o número de vagas; voto de legenda não elege.');
   if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
     + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `
     + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : sist.distrital.op.regra === 'partidoNominal' ? 'a agremiação com mais votos nominais nele (a legenda não conta), com o seu candidato mais votado ali — com um candidato por partido, os votos nominais do partido no distrito seriam os dele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
+  if (sist.distrital && si.cargo !== '6') li.push(sist.distrital.op.mapaEstadual === 'federais'
+    ? '<b>Deputados estaduais e distritais nos distritos federais</b> (Versão Minuta, art. 10, II, e § 6º, na leitura com vários eleitos por distrito): os distritos são os dos deputados federais — a bancada federal de cada estado sai das vagas da Assembleia pelo art. 27 da Constituição (até 36: um terço; acima: vagas − 24; DF: 8) —, e as cadeiras distritais da Assembleia (metade, com o arredondamento escolhido) se repartem entre eles na proporção do tamanho de cada um (maiores restos, ao menos 1 por distrito). Em cada distrito elegem-se os mais votados, até 3 da mesma agremiação nas UFs com até 20 deputados federais e até 2 nas demais; a minuta não diz quantos vencem por distrito — esta é uma leitura.'
+    : '<b>Deputados estaduais e distritais em mapa próprio</b>: metade das cadeiras da Assembleia em distritos (com o arredondamento escolhido). Onde o nº de distritos estaduais é múltiplo do de federais (a bancada federal pelo art. 27 da Constituição), cada distrito federal se divide nos estaduais — o critério 4(e) da proposta do grupo de trabalho do TSE (2019): "distritos estaduais devem estar contidos nos limites dos distritos federais"; o desenho encaixado se afina pelos locais de votação dentro de cada federal. Nos demais estados, encaixar obrigaria distritos estaduais fora da tolerância de tamanho (em SP, 35 federais para 47 estaduais: 1 estadual num federal fica 34% grande demais; 2, 33% pequenos demais), e o mapa é independente — a tabela do estado diz quantos atravessam a fronteira de um distrito federal de referência.');
   if (sist.distrital && Object.values(sist.distrital.op.porUf || {}).some(x => x.desenho.locais)) li.push('<b>Locais de votação.</b> Onde as zonas eleitorais eram grandes demais para caber na tolerância do PL 9.212 ('
     + Object.entries(sist.distrital.op.porUf).filter(([, x]) => x.desenho.locais).map(([uf]) => uf.toUpperCase()).sort().join(', ')
     + '), as zonas na fronteira entre distritos (e, se preciso, os municípios) se dividiram nos seus locais de votação (cadastro de locais do TSE: eleitores e posição), e as trocas na fronteira continuaram com essas peças, pesando também a compacidade. '
@@ -1423,7 +1525,10 @@ function siMapaImagemSvg(ufs, modo, larg = 1200, tema = 'claro') {
     const tem = x && x.desenho && x.desenho.distritos && x.desenho.distritos.length;
     const { cor, de } = tem ? siCoresDistritos(x.base, x.desenho) : { cor: {}, de: new Map() };
     const vu = {};
-    for (const dt of ((sd.porUf[uf] || {}).distritos || [])) if (dt.vencedor && !dt.semCadeira) { vu[dt.id] = dt.vencedor.partido; venc[dt.vencedor.partido] = (venc[dt.vencedor.partido] || 0) + 1; } else if (dt.semCadeira) nD.sem = (nD.sem || 0) + 1;
+    for (const dt of ((sd.porUf[uf] || {}).distritos || [])) {
+      if (dt.vencedor && !dt.semCadeira) vu[dt.id] = dt.vencedor.partido;
+      for (const w of dt.vencedores || []) if (!w.semCadeira) venc[w.partido] = (venc[w.partido] || 0) + 1; else nD.sem = (nD.sem || 0) + 1;
+    }
     if (tem) nD.total += x.desenho.distritos.length;
     const corDe = id => (modo === 'partido' ? (vu[id] ? coresP[vu[id]] || SI_COR_OUTROS : T.semD) : cor[id] || T.semD);
     const peso = {}, nome = {};
@@ -1550,7 +1655,10 @@ function siInfoDistrito(uf, id, mun) {
   if (mun) h += `<div class="m">${siEsc(mun)}</div>`;
   h += `<div>${siFmt(Math.round(dt.aptos))} ${pop ? 'habitantes' : 'eleitores'} · desvio ${dt.desvio >= 0 ? '+' : ''}${siPct(dt.desvio)}</div>`
     + `<div class="m">${lm.length} município${lm.length === 1 ? '' : 's'}: ${lm.slice(0, 5).map(([n]) => siEsc(n)).join(', ')}${lm.length > 5 ? ` e mais ${lm.length - 5}` : ''}</div>`;
-  if (el && el.vencedor) {
+  if (el && (el.vencedores || []).length > 1) {
+    h += `<div class="m">${el.cadeiras} cadeiras neste distrito</div>` + el.vencedores.map(w =>
+      `<div class="e${w.partido === si.partido ? ' pode' : ''}">${w.semCadeira ? 'Eleito, <b>sem cadeira</b> (excedente não leva)' : 'Eleito'}: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`).join('');
+  } else if (el && el.vencedor) {
     const w = el.vencedor;
     h += `<div class="e${w.partido === si.partido ? ' pode' : ''}">${el.semCadeira ? 'Venceu, <b>sem cadeira</b> (excedente não leva)' : 'Eleito'}: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`
       + `<div>1ª: ${siEsc(w.agrNome)} ${siPct(w.agrPct)}${el.segundo ? ` · 2ª: ${siEsc(el.segundo.nome)} ${siPct(el.segundo.pct)}` : ''}</div>`;
@@ -1717,6 +1825,7 @@ function siDistritosHtml(uf, sd, impressao) {
   if (desenho.erro) return h + `<div class="aviso">${siEsc(desenho.erro)}</div>`;
   const m = desenho.metricas, U = new Map(base.unidades.map(u => [u.id, u]));
   const pop = desenho.base === 'populacao';
+  if (x.cobertura != null && x.cobertura < 0.95) h += `<div class="aviso erro">Os votos por município e zona do TSE (dados abertos) cobrem só ${siPct(x.cobertura)} dos votos válidos deste cargo em ${siEsc(siUfNome(uf))}: faltam os votos dos candidatos no arquivo publicado. Os distritos abaixo não têm com o que eleger — o resultado do distrital neste estado não vale.</div>`;
   if (desenho.popErro) h += `<div class="aviso">A população do Censo 2022 não veio do IBGE (${siEsc(desenho.popErro)}): os distritos foram desenhados pelo eleitorado. Mude qualquer parâmetro para tentar de novo.</div>`;
   if (pop && desenho.semPopulacao && desenho.semPopulacao.length) h += `<div class="dica">Sem população no Censo 2022 para ${siEsc(desenho.semPopulacao.join(', '))}: entram pelos eleitores, na razão população/eleitores do estado`
     + `${(desenho.descontos || []).length ? `; criado${desenho.descontos.length > 1 ? 's' : ''} depois do censo, a estimativa sai da população de onde saiu (${desenho.descontos.map(x => `${siEsc(x.para)}: −${siFmt(Math.round(x.n))} habitantes de ${siEsc(x.de)}`).join('; ')})` : ''}.</div>`;
@@ -1729,6 +1838,13 @@ function siDistritosHtml(uf, sd, impressao) {
     + `<span>${m.contiguos ? 'todos contíguos' : '<b>há distrito não contíguo</b>'}</span>`
     + `<span>unidades: ${m.unidades - m.zonas - (m.locais || 0)} municípios + ${m.zonas} zonas${m.locais ? ` + ${siFmt(m.locais)} locais de votação` : ''}</span>`
     + (t => `<span${t.ok ? '' : ' class="ruim"'}>tolerância ${siEsc(siTolNome(t.tol))}: <b>${siToleranciaTxt(t)}</b></span>`)(siTolConf(desenho.distritos)) + '</div>';
+  // Estaduais e distritais: como este mapa se relaciona com o dos deputados federais
+  if (x.modoEstadual === 'ani') h += `<div class="dica"><b>Encaixado nos distritos federais</b> (GT do TSE, 2019): ${x.kF} distritos federais, cada um dividido em ${x.kE / x.kF} estaduais — ${x.kE} no total; a coluna "Federal" diz em qual cada um está. Afinado pelos locais de votação, cada federal se afina sozinho — o encaixe não se desfaz.</div>`;
+  else if (x.modoEstadual === 'ind') h += `<div class="dica"><b>Mapa próprio, sem encaixe</b>: ${x.kE} distritos estaduais e ${x.kF} federais — `
+    + (x.encaixeFalhou ? `${x.kE} é múltiplo de ${x.kF}, mas o encaixe não coube nas zonas e municípios (${siEsc(x.encaixeFalhou)}). Com os locais de votação lidos, zonas e municípios se dividem nos seus locais e o encaixe se refaz sobre eles. `
+      : `${x.kE} não é múltiplo de ${x.kF}, e encaixar obrigaria distritos estaduais fora da tolerância de tamanho. `)
+    + (x.encaixe ? `Contra um desenho federal de referência (mesmo método, mesma base): <b>${x.encaixe.atravessam} de ${x.encaixe.total}</b> distritos estaduais atravessam a fronteira de um distrito federal; em média, ${siPct(x.encaixe.foraMedia)} do tamanho de cada um fica fora do federal que mais o contém.` : '') + '</div>';
+  else if (x.modoEstadual === 'fed') h += `<div class="dica"><b>Nos distritos federais</b> (Versão Minuta, leitura com vários eleitos por distrito): ${x.kF} distritos, os mesmos dos deputados federais, com as ${x.kE} cadeiras distritais da Assembleia repartidas na proporção do tamanho de cada um (maiores restos); em cada distrito, elegem-se os mais votados, até ${x.capPartido} da mesma agremiação (${x.vagasFederais} deputados federais: ${x.vagasFederais <= 20 ? 'até 20' : 'mais de 20'}).</div>`;
   if (desenho.locais) h += `<div class="dica">Afinado com os locais de votação: as zonas na fronteira entre distritos${m.municipiosDivididos ? ' (e, se preciso, os municípios)' : ''} se dividiram nos seus locais (pontos menores no mapa), cada um com os seus eleitores e os seus votos na votação por seção do TSE.</div>`;
   else if (!siTolConf(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
   if (pop) h += `<div class="dica">Tamanho pela população residente do Censo 2022 (IBGE). Num município dividido em zonas, a população se reparte entre elas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).</div>`;
@@ -1752,13 +1868,19 @@ function siDistritosHtml(uf, sd, impressao) {
   };
   const venc = {};
   for (const d of el.distritos || []) venc[d.id] = d;
-  h += `<div class="tab-rolagem" style="margin-top:10px"><table><thead><tr><th class="n">Distrito</th><th class="n">${pop ? 'Habitantes' : 'Eleitores'}</th><th class="n">Desvio</th><th>Municípios</th><th>Eleito</th><th>Partido</th><th class="n">Votos no distrito</th><th class="n">Agremiação</th><th>2ª agremiação</th></tr></thead><tbody>`;
+  const comPai = x.modoEstadual === 'ani', multi = x.modoEstadual === 'fed';
+  h += `<div class="tab-rolagem" style="margin-top:10px"><table><thead><tr><th class="n">Distrito</th>${comPai ? '<th class="n">Federal</th>' : ''}${multi ? '<th class="n">Cadeiras</th>' : ''}<th class="n">${pop ? 'Habitantes' : 'Eleitores'}</th><th class="n">Desvio</th><th>Municípios</th><th>Eleito${multi ? 's' : ''}</th><th>Partido</th><th class="n">Votos no distrito</th>${multi ? '' : '<th class="n">Agremiação</th><th>2ª agremiação</th>'}</tr></thead><tbody>`;
   for (const d of desenho.distritos) {
-    const v = venc[d.id] || {}, w = v.vencedor, s2 = v.segundo;
-    h += `<tr${w && w.partido === si.partido ? ' class="pode"' : ''}><td class="n">${d.id}</td><td class="n">${siFmt(Math.round(d.aptos))}</td><td class="n">${(d.desvio >= 0 ? '+' : '') + siPct(d.desvio)}</td>`
-      + `<td style="white-space:normal">${nomes(d)}</td><td>${w ? siEsc(w.nome) + (v.semCadeira ? ' <span class="menos">(sem cadeira: excedente)</span>' : '') : '—'}</td><td>${w ? siEsc(w.partido) : ''}</td>`
-      + `<td class="n">${w ? siFmt(w.votos) + ' (' + siPct(w.pct) + ')' : ''}</td><td class="n">${w ? siPct(w.agrPct) : ''}</td>`
-      + `<td>${s2 ? siEsc(s2.nome) + ' · ' + siPct(s2.pct) : ''}</td></tr>`;
+    const v = venc[d.id] || {}, w = v.vencedor, s2 = v.segundo, ws = v.vencedores || [];
+    const pode = multi ? ws.some(y => y.partido === si.partido) : w && w.partido === si.partido;
+    const sem = y => (y.semCadeira ? ' <span class="menos">(sem cadeira: excedente)</span>' : '');
+    h += `<tr${pode ? ' class="pode"' : ''}><td class="n">${d.id}</td>${comPai ? `<td class="n">${d.pai || ''}</td>` : ''}${multi ? `<td class="n">${d.cadeiras || 1}</td>` : ''}<td class="n">${siFmt(Math.round(d.aptos))}</td><td class="n">${(d.desvio >= 0 ? '+' : '') + siPct(d.desvio)}</td>`
+      + `<td style="white-space:normal">${nomes(d)}</td>`
+      + (multi
+        ? `<td style="white-space:normal">${ws.map(y => siEsc(y.nome) + sem(y)).join('<br>') || '—'}</td><td>${ws.map(y => siEsc(y.partido)).join('<br>')}</td><td class="n">${ws.map(y => siFmt(y.votos) + ' (' + siPct(y.pct) + ')').join('<br>')}</td></tr>`
+        : `<td>${w ? siEsc(w.nome) + sem(v) : '—'}</td><td>${w ? siEsc(w.partido) : ''}</td>`
+          + `<td class="n">${w ? siFmt(w.votos) + ' (' + siPct(w.pct) + ')' : ''}</td><td class="n">${w ? siPct(w.agrPct) : ''}</td>`
+          + `<td>${s2 ? siEsc(s2.nome) + ' · ' + siPct(s2.pct) : ''}</td></tr>`);
   }
   h += '</tbody></table></div><div class="dica">"Agremiação": a fatia da agremiação do eleito nos votos válidos do distrito (nominais + legenda). '
     + 'Os votos são os do proporcional: num distrital, cada partido lançaria um candidato por distrito — por isso o eleito pode ter poucos votos pessoais ali.</div>';
@@ -1848,7 +1970,7 @@ async function siIniciar() {
   $('mReducaoV3').addEventListener('click', siReducaoV3);
   siLigarTolerancia();
   siLigarExcedente();
-  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a']]) {
+  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a'], ['dEst', 'e']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);
       if (!b) return;

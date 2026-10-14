@@ -17,7 +17,8 @@
 //         sem as exigências de 80%/20% (art. 109, III, como o STF fixou);
 //      5. se nenhuma agremiação alcançar o QE, elegem-se os mais votados (art. 111).
 //    Federação conta como uma agremiação só (Lei 14.208/2021).
-//  · Distritão — os mais votados do estado, sem quociente; legenda não elege.
+//  · Distritão (snDistritao) — os mais votados do estado, sem quociente; legenda não elege.
+//    Não é mais um sistema da comparação: é a 1ª parte do distritão misto.
 //  · Distritão misto — parte das vagas pelos mais votados, parte pela votação
 //    da agremiação (lista), paralelo ou compensatório.
 // Os parâmetros de cada sistema vêm em `op`; o padrão é a regra vigente.
@@ -166,9 +167,11 @@ function snDistritao(d, op = {}) {
  */
 // Divisor da (k+1)-ésima cadeira: D'Hondt (1, 2, 3…) ou Sainte-Laguë (1, 3, 5…).
 const SN_DIV = { dhondt: k => k + 1, sl: k => 2 * k + 1 };
-function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt') {
+function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt', base = null) {
   const dv = SN_DIV[divisor] || SN_DIV.dhondt;
-  const total = Object.values(votos).reduce((s, v) => s + v, 0);
+  // base da cláusula: os votos válidos do estado (com o voto partidário líquido,
+  // a soma das agremiações é menor que os válidos — a cláusula não pode encolher junto)
+  const total = base != null ? base : Object.values(votos).reduce((s, v) => s + v, 0);
   const ids = Object.keys(votos).filter(id => votos[id] > 0 && votos[id] >= limiar * total);
   const lugares = Object.fromEntries(ids.map(id => [id, ja[id] || 0]));
   const lista = Object.fromEntries(ids.map(id => [id, 0]));
@@ -244,7 +247,7 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
   const excedentes = {}, cortes = {}, descobertos = [];
   let N = vagas, alvo = null;
   if (comp) {
-    alvo = snDhondt(votos, vagas, {}, limiar, null, div);
+    alvo = snDhondt(votos, vagas, {}, limiar, null, div, d.validos);
     for (const id of Object.keys(p1)) if (p1[id] > (alvo[id] || 0)) excedentes[id] = p1[id] - (alvo[id] || 0);
     const sobra = () => Object.keys(p1).reduce((s, id) => s + Math.max(0, p1[id] - (alvo[id] || 0)), 0);
     const cabe = op.tetoExtra == null ? 4 * vagas : Math.floor(vagas * op.tetoExtra + 1e-9);   // sem teto: até 4× (segurança)
@@ -257,7 +260,7 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
       primeiros = primeiros.filter(x => !fora.has(x.sq));
       p1 = contar(primeiros);
     } else if (exc === 'compensa') {
-      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, limiar, null, div); }
+      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, limiar, null, div, d.validos); }
     } else if (exc === 'cresce') {
       N = vagas + Math.min(sobra(), cabe);
     }
@@ -283,11 +286,11 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
     if (soma < nLista) {
       const tem = {}, resta = {};
       for (const id of Object.keys(votos)) { tem[id] = n1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
-      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta, div);
+      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta, div, d.validos);
       for (const id of Object.keys(mais)) lista[id] += mais[id];
     }
   } else {
-    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto, div);
+    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto, div, d.validos);
   }
   const eleitos = primeiros.slice();
   for (const a of d.agrs) {
@@ -368,7 +371,6 @@ function snSomar(alvo, eleitos) {
 
 const SN_TIPOS = {
   proporcional: (d, op) => snProporcional(d, op),
-  distritao: (d, op) => snDistritao(d, op),
   misto: (d, op) => snDistritaoMisto(d, op),
   // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado
   distrital: (d, op) => {
@@ -379,7 +381,7 @@ const SN_TIPOS = {
 
 /**
  * Roda os sistemas em cada UF e compara com o resultado oficial (a marcação do TSE).
- * dados: { uf: d }; sistemas: [{ id, nome, tipo: 'proporcional'|'distritao'|'misto', op }].
+ * dados: { uf: d }; sistemas: [{ id, nome, tipo: 'proporcional'|'misto'|'distrital', op }].
  * Devolve { ufs, comparadas, real, sims }:
  *  · real: { porPartido, total, porUf: { uf: { eleitos } }, semReal: [uf] } — UF sem eleito
  *    marcado (retotalização, apuração em curso) fica fora do real;
@@ -564,6 +566,11 @@ function snVagasAssembleia(uf, vagasCamara) {
   if (String(uf).toLowerCase() === 'df') return 24;
   return vagasCamara <= 12 ? 3 * vagasCamara : 36 + (vagasCamara - 12);
 }
+/** A inversa (CF, art. 27): a bancada federal do estado a partir das vagas da Assembleia (DF: 24 distritais → 8). */
+function snVagasCamara(uf, vagasAssembleia) {
+  if (String(uf).toLowerCase() === 'df') return 8;
+  return vagasAssembleia <= 36 ? Math.round(vagasAssembleia / 3) : vagasAssembleia - 24;
+}
 
 /**
  * Leitor dos dois arquivos de dados abertos para um ou mais cargos ('6' federal,
@@ -624,6 +631,6 @@ function snConferir(d, res) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { snCampos, snVagasAssembleia, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
+  module.exports = { snCampos, snVagasAssembleia, snVagasCamara, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
     snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

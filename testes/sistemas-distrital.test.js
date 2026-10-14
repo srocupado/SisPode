@@ -263,5 +263,82 @@ ok(al2.porAgr.B === 600 && al2.porAgr.C === 0 && al2.porAgr.F === 0, 'pares enca
 const r2 = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'paralelo', desenho: desE, base: baseE, votos, aliancas: [['PA', 'PB']] });
 ok(r2.distritos.every(x => x.vencedor.agr === 'A' || x.vencedor.agr === 'B') && r2.distritos.length === 2, 'o distrital misto usa o segundo voto para escolher quem leva o distrito');
 
+console.log('Deputados estaduais e distritais');
+{
+  const S = require('../sistemas-nucleo.js');
+  ok([['sp', 70], ['mg', 53], ['ce', 22], ['al', 9], ['ac', 8]].every(([uf, f]) => S.snVagasCamara(uf, S.snVagasAssembleia(uf, f)) === f) && S.snVagasCamara('df', 24) === 8,
+    'CF, art. 27 de volta: vagas da Assembleia → bancada federal (SP 94 → 70, AC 24 → 8, DF 24 → 8)');
+  const ig = n => Array.from({ length: n }, () => ({ aptos: 100 }));
+  ok(SD.sdCadeirasPorDistrito(ig(4), 12).join() === '3,3,3,3', 'cadeiras por distrito: 12 em 4 iguais → 3 cada (AC, Minuta)');
+  const sp = SD.sdCadeirasPorDistrito(Array.from({ length: 35 }, (_, i) => ({ aptos: 1000 + (i % 7) * 10 })), 47);
+  ok(sp.reduce((a, b) => a + b) === 47 && sp.every(n => n === 1 || n === 2), 'SP: 47 cadeiras em 35 distritos — 1 ou 2 cada, soma 47');
+  ok(SD.sdCadeirasPorDistrito([{ aptos: 110 }, { aptos: 95 }, { aptos: 100 }, { aptos: 100 }, { aptos: 96 }], 14).join() === '3,2,3,3,3', 'maiores restos: o menor distrito fica com a cadeira a menos');
+
+  // malha 6×6, 2 federais × 3 estaduais
+  const un = [], viz = {}, id = (x, y) => `m:${x}_${y}`;
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) { un.push({ id: id(x, y), mun: `${x}_${y}`, zonas: ['1'], aptos: 100 + ((x * 7 + y * 3) % 5), x: x * 10, y: y * 10, area: 1 }); viz[id(x, y)] = new Set(); }
+  for (let x = 0; x < 6; x++) for (let y = 0; y < 6; y++) for (const [a, b] of [[1, 0], [0, 1]]) if (x + a < 6 && y + b < 6) { viz[id(x, y)].add(id(x + a, y + b)); viz[id(x + a, y + b)].add(id(x, y)); }
+  const baseG = { unidades: un, viz }, U = new Map(un.map(u => [u.id, u]));
+  const an = SD.sdDistritarAninhado(baseG, 2, 3);
+  const fedDe = new Map(); for (const f of an.aninhado.federais) for (const u of f.unidades) fedDe.set(u, f.id);
+  ok(an.distritos.length === 6 && an.distritos.every(d => new Set(d.unidades.map(u => fedDe.get(u))).size === 1 && fedDe.get(d.unidades[0]) === d.pai) && an.metricas.contiguos,
+    'encaixe: 2 federais × 3 = 6 estaduais, cada um inteiro dentro do federal que diz (.pai), contíguos');
+  ok([1, 2].every(f => an.distritos.filter(d => d.pai === f).length === 3), 'encaixe: 3 estaduais em cada federal');
+  ok(SD.sdCruzamentos(an.distritos, an.aninhado.federais, U).atravessam === 0, 'encaixado: nenhum atravessa a fronteira federal');
+  const cz = SD.sdCruzamentos(SD.sdDistritar(baseG, 6).distritos, SD.sdDistritar(baseG, 4).distritos, U);
+  ok(cz.total === 6 && cz.atravessam > 0 && cz.foraMedia > 0 && cz.foraMedia < 0.5, `independente (6 estaduais × 4 federais): ${cz.atravessam} atravessam a fronteira, ${Math.round(cz.foraMedia * 100)}% fora em média`);
+  ok(SD.sdCruzamentos([{ unidades: ['l:9:1:5'] }], [{ id: 1, unidades: ['z:9:1'] }], new Map([['l:9:1:5', { aptos: 10 }]])).atravessam === 0, 'local de votação vale pela zona (afinação não conta como cruzamento)');
+
+  // encaixado + locais de votação: cada federal se afina sozinho, e o encaixe fica
+  {
+    const un2 = [], viz2 = {}, idf = (x, y) => (x === 0 && y < 2 ? 'z:9:' + y : 'm:' + x + '_' + y);
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) { const z = x === 0 && y < 2; un2.push({ id: idf(x, y), mun: z ? '9' : x + '_' + y, zonas: [z ? String(y) : '1'], nome: idf(x, y), aptos: z ? 900 : 100, x: x * 10, y: y * 10, area: 1 }); viz2[idf(x, y)] = new Set(); }
+    for (let x = 0; x < 4; x++) for (let y = 0; y < 4; y++) for (const [a, b] of [[1, 0], [0, 1]]) if (x + a < 4 && y + b < 4) { viz2[idf(x, y)].add(idf(x + a, y + b)); viz2[idf(x + a, y + b)].add(idf(x, y)); }
+    const b2 = { unidades: un2, viz: viz2, proj: p => p };
+    const loc = {};
+    for (let y = 0; y < 2; y++) { loc['9|' + y] = {}; for (let l = 0; l < 9; l++) loc['9|' + y][String(l)] = { aptos: 100, lo: -4 + (l % 3) * 4, la: y * 10 - 4 + Math.floor(l / 3) * 4 }; }
+    const an2 = SD.sdDistritarAninhado(b2, 2, 2);
+    const af = SD.sdAfinarAninhado(b2, an2, loc, { tol: SD.SD_TOL_SENADO });
+    const fd2 = new Map(); for (const f of af.desenho.aninhado.federais) for (const u of f.unidades) fd2.set(u, f.id);
+    ok(an2.metricas.desvioMax > 0.12 && af.desenho.metricas.desvioMax < 0.01 && af.desenho.distritos.every(d => new Set(d.unidades.map(u => fd2.get(u))).size === 1 && fd2.get(d.unidades[0]) === d.pai)
+      && Math.round(af.base.unidades.reduce((t, u) => t + u.aptos, 0)) === 3200,
+      `encaixado afinado pelos locais: desvio ${Math.round(an2.metricas.desvioMax * 1000) / 10}% → ${Math.round(af.desenho.metricas.desvioMax * 1000) / 10}%, cada estadual ainda dentro do seu federal, peso conservado`);
+  }
+
+  // encaixe que não cabe nas zonas (federal com 2 zonas para 3 estaduais) e se refaz sobre os locais de votação (AC, AP, RR)
+  {
+    const un3 = [], viz3 = {}, loc3 = {}, pos = [[0, 0], [10, 0], [0, 10], [10, 10]];
+    pos.forEach(([x, y], z) => {
+      un3.push({ id: 'z:9:' + z, mun: '9', zonas: [String(z)], nome: 'Capital · zona ' + z, aptos: 300, x, y, area: 1 }); viz3['z:9:' + z] = new Set();
+      loc3['9|' + z] = {}; for (let l = 0; l < 6; l++) loc3['9|' + z][String(l)] = { aptos: 50, lo: x - 3 + (l % 3) * 3, la: y - 2 + Math.floor(l / 3) * 4 };
+    });
+    for (const [a, b] of [[0, 1], [0, 2], [1, 3], [2, 3]]) { viz3['z:9:' + a].add('z:9:' + b); viz3['z:9:' + b].add('z:9:' + a); }
+    const b3 = { unidades: un3, viz: viz3, proj: p => p };
+    ok(!!SD.sdDistritarAninhado(b3, 2, 3).erro, 'encaixe sem como caber: federal com 2 zonas para 3 estaduais → erro (a tela cai no mapa próprio e diz o motivo)');
+    const bl = SD.sdBaseLocais(b3, loc3);
+    ok(bl.unidades.length === 24 && bl.unidades.every(u => u.id.startsWith('l:9:')) && Math.round(bl.unidades.reduce((t, u) => t + u.aptos, 0)) === 1200,
+      'base com as zonas divididas nos locais: 24 locais, peso conservado');
+    const an3 = SD.sdDistritarAninhado(bl, 2, 3);
+    const fd3 = new Map(); for (const f of an3.aninhado.federais) for (const u of f.unidades) fd3.set(u, f.id);
+    ok(!an3.erro && an3.distritos.length === 6 && an3.metricas.contiguos && an3.distritos.every(d => new Set(d.unidades.map(u => fd3.get(u))).size === 1 && fd3.get(d.unidades[0]) === d.pai)
+      && an3.metricas.desvioMax < 0.01,
+      `sobre os locais o encaixe cabe: 2 federais × 3 estaduais, contíguos, desvio ${Math.round(an3.metricas.desvioMax * 1000) / 10}%`);
+  }
+
+  // eleição em distrito de várias cadeiras, com limite por agremiação
+  const desM = { distritos: [Object.assign({}, desE.distritos[0], { cadeiras: 3 }), Object.assign({}, desE.distritos[1], { cadeiras: 2 })] };
+  const vM = { 'w|1': { c: { a1: 200, a2: 150, a3: 120, b1: 100, b3: 90 }, l: {} }, 'e|1': { c: { a1: 10, b1: 300, b2: 200, b3: 150, a2: 5 }, l: {} } };
+  const dM = Object.assign({}, dEst, { vagas: 6 });
+  const r3 = SD.sdDistritalMisto(dM, { regra: 'candidato', modelo: 'paralelo', desenho: desM, base: baseE, votos: vM });
+  const oeste3 = r3.distritos.find(x => x.cadeiras === 3), leste2 = r3.distritos.find(x => x.cadeiras === 2);
+  ok(oeste3.vencedores.map(x => x.sq).join() === 'a1,a2,a3' && leste2.vencedores.map(x => x.sq).join() === 'b1,b2' && r3.eleitos.filter(x => x.fase !== 'lista').length === 5,
+    'distrito de 3 cadeiras elege os 3 mais votados; o de 2, os 2 — 5 cadeiras distritais');
+  ok(oeste3.concorrente.sq === 'b3' && leste2.concorrente.sq === 'b3', 'concorrente: o mais votado fora dos eleitos e de quem levou outro distrito (b1 levou o leste)');
+  const rc2 = SD.sdDistritalMisto(dM, { regra: 'candidato', modelo: 'paralelo', desenho: desM, base: baseE, votos: vM, capPartido: 2 });
+  const o2 = rc2.distritos.find(x => x.cadeiras === 3);
+  ok(o2.vencedores.map(x => x.sq).join() === 'a1,a2,b3' && o2.acima.some(x => x.sq === 'a3' && /limite/.test(x.motivo)) && o2.concorrente === null,
+    'limite de 2 da mesma agremiação: o 3º do partido A cede a vaga ao mais votado livre de B, e aparece como barrado pelo limite');
+}
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);
