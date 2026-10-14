@@ -2470,13 +2470,13 @@ async function gerarExplicacaoIA() {
     if (btn) btn.innerHTML = `<span class="loading-spinner"></span> Gerando análise...`;
 
     const prompt    = montarPrompt(d, prop, infoEmenda);
-    const resultado = corrigirSentidoDoVoto(await gerarAnalise({
+    const resultado = await gerarAnalise({
       prompt,
       infoEmenda,
       modelo:     app.config.modelo,
       apiKey:     key,
       provedorId: app.config.provedor || 'gemini',
-    }), sentidoDoVotoDestaque(d, infoEmenda));
+    });
 
     // Converte bullets em lista formatada com "• "
     function formatarExplicacao(texto) {
@@ -2537,40 +2537,6 @@ async function gerarExplicacaoIA() {
       btn.innerHTML = `${iconeIA} Gerar Análise`;
     }
   }
-}
-
-/**
- * O que o voto SIM decide num destaque, pela prática do Plenário da Câmara:
- *  · 'manutencao' — DVS de dispositivo do texto em votação (substitutivo, PL,
- *    PLV, parecer; RICD art. 161, I): vota-se a MANUTENÇÃO do trecho
- *    destacado — SIM mantém, NÃO retira. Quem quer o dispositivo no texto é
- *    quem precisa dos votos.
- *  · 'emenda' — destaque de emenda (ou parte dela): SIM aprova a emenda, que
- *    passa a integrar o texto; NÃO a rejeita.
- *  · 'preferencia' — SIM: prevalece o texto que recebe a preferência.
- * O prompt antigo dizia "SIM = aprova o destaque (suprime o dispositivo)" e a
- * análise saía com SIM e NÃO trocados nos DVS de dispositivo.
- */
-function sentidoDoVotoDestaque(d, infoEmenda) {
-  const tipo = infoEmenda?.tipo || '';
-  if (/preferencia/.test(tipo) || /prefer[êe]ncia/i.test(d?.descricao || '')) return 'preferencia';
-  if (tipo === 'emenda') return 'emenda';
-  if (tipo) return 'manutencao';
-  // sem documento: pela descrição — emenda que não é o substitutivo em votação
-  const desc = d?.descricao || '';
-  return /\bemenda\b/i.test(desc) && !/substitutiv|parecer|PLV|projeto de lei de convers/i.test(desc) ? 'emenda' : 'manutencao';
-}
-
-/** Trava contra a inversão: num DVS de dispositivo, SIM que "suprime" e NÃO que "mantém" estão trocados — destroca. */
-function corrigirSentidoDoVoto(r, sentido) {
-  if (sentido !== 'manutencao' || !r) return r;
-  const tira = /^\s*(?:voto\s+)?(?:sim|n[ãa]o)?\s*[:\-–]?\s*(suprim|retir|remov|exclu|elimin|derrub|impede|veda)/i;
-  const fica = /^\s*(?:voto\s+)?(?:sim|n[ãa]o)?\s*[:\-–]?\s*(mant[ée]m|preserv|conserv|permanec|aprova o texto)/i;
-  if (tira.test(r.votoSim || '') && fica.test(r.votoNao || '')) {
-    console.warn('[IA] DVS de dispositivo: SIM e NÃO vieram trocados — destrocados (SIM mantém o texto destacado).');
-    return Object.assign({}, r, { votoSim: r.votoNao, votoNao: r.votoSim, destrocado: true });
-  }
-  return r;
 }
 
 function montarPrompt(d, prop, infoEmenda) {
@@ -2692,21 +2658,6 @@ REGRA CRÍTICA PARA A EXPLICAÇÃO:
 → Use verbos concretos: "passa a proibir", "determina que", "veda", "amplia", "suprime", "restringe"
 → NÃO invente, NÃO infira, NÃO use conhecimento externo ao ${fonteRef}`;
 
-  // ── Sentido do voto (Plenário da Câmara) ─────────────────────────────
-  const sentido = sentidoDoVotoDestaque(d, infoEmenda);
-  const regraVoto = sentido === 'emenda'
-    ? `"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Destaque de EMENDA: SIM = APROVA a emenda — o texto dela passa a integrar a proposição. Comece por um verbo que diga o efeito da emenda ("Inclui…", "Amplia…", "Proíbe…").
-
-"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. NÃO = REJEITA a emenda — fica o texto do relator, sem ela.`
-    : sentido === 'preferencia'
-    ? `"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Destaque de PREFERÊNCIA: SIM = o texto que recebe a preferência (PDF nº 1) é votado antes e prevalece.
-
-"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. NÃO = mantém a ordem regimental — prevalece o texto comparado (PDF nº 2).`
-    : `"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. DVS de dispositivo do texto em votação: no Plenário da Câmara vota-se a MANUTENÇÃO do trecho destacado — SIM = MANTÉM o dispositivo no texto. Comece com "Mantém…".
-
-"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. NÃO = RETIRA (suprime) o dispositivo do texto. Comece com "Retira…" ou "Suprime…".
-→ ATENÇÃO: não inverta. Quem pediu o destaque quer, em regra, retirar o dispositivo e por isso orienta NÃO; o voto SIM é sempre o da manutenção.`;
-
   return `Você é um assessor legislativo da Câmara dos Deputados do Brasil. Seja direto e objetivo — o deputado precisa entender o essencial em segundos.
 ${blocoFonte}${avisPDF}
 TAREFA: Analise o destaque abaixo ${instrucaoBase}.
@@ -2719,7 +2670,9 @@ DESTAQUE A ANALISAR:
 
 INSTRUÇÕES PARA CADA CAMPO DO JSON:
 
-${regraVoto}
+"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = rejeita o destaque, mantém o texto do relator/substitutivo.
+
+"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = aprova o destaque (suprime/altera o dispositivo destacado).
 
 "explicacao": ${instrucaoExplicacao}
 ${regraExplicacao}
