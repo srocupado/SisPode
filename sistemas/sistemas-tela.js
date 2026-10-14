@@ -381,6 +381,9 @@ function siConfirmar(ano, total, oque) {
       <div style="margin-top:6px"><button class="pri" id="siSim">Ler agora</button> <button id="siNao">Cancelar</button></div></div>`;
     $('siSim').onclick = () => { $('siAvisos').innerHTML = ''; ok(true); };
     $('siNao').onclick = () => { $('siAvisos').innerHTML = ''; ok(false); };
+    // a pergunta fica no topo; quem clicou lá embaixo (ex.: "Afinar com os locais", no fim da tabela) tem de vê-la
+    $('siAvisos').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('siSim').focus({ preventScroll: true });
   });
 }
 
