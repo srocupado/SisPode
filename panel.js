@@ -2670,9 +2670,9 @@ DESTAQUE A ANALISAR:
 
 INSTRUÇÕES PARA CADA CAMPO DO JSON:
 
-"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = mantém o dispositivo destacado no texto do relator/substitutivo.
+"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = rejeita o destaque, mantém o texto do relator/substitutivo.
 
-"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = suprime o dispositivo destacado do texto.
+"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = aprova o destaque (suprime/altera o dispositivo destacado).
 
 "explicacao": ${instrucaoExplicacao}
 ${regraExplicacao}
