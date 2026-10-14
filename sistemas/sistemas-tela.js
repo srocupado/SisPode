@@ -749,6 +749,7 @@ async function siLerLocais(ufs) {
   const ano = si.op.ano, urls = snUrlsAbertos(ano);
   siTravar(true);
   $('siAvisos').innerHTML = '';
+  si.erroLocais = '';
   try {
     siProgresso('Conferindo os arquivos do TSE…', 0);
     const il = await zrIndice(urls.locais);
@@ -776,7 +777,9 @@ async function siLerLocais(ufs) {
       si.locais[siChaveLocais(t.uf)] = { locais: lido.locais, votos: sdVotosLocais(vz, lido, nr => sigla[nr] || null) };
     }
   } catch (e) {
-    $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível ler os locais de votação.</b> ${siEsc(e && e.message || e)} — tente de novo em instantes.</div>`;
+    // fica em si.erroLocais: o siSimular abaixo refaz os avisos, e o erro não pode sumir com eles
+    si.erroLocais = `${ufs.map(u => u.toUpperCase()).join(', ')}: ${(e && e.message) || e}`;
+    $('siAvisos').innerHTML = siAvisosHtml();
   } finally {
     siTravar(false);
     siStatus(si.res ? siResumoStatus() : '');
@@ -834,7 +837,7 @@ function siAvisosHtml() {
   const ret = ufs.filter(uf => snSituacao(si.dados[uf]) === 'retotalizando'), par = ufs.filter(uf => snSituacao(si.dados[uf]) === 'parcial' && !ret.includes(uf));
   const sem = si.res.real.semReal.filter(uf => !ret.includes(uf) && !par.includes(uf));
   const lista = l => l.map(uf => uf.toUpperCase()).join(', ');
-  let h = '';
+  let h = si.erroLocais ? `<div class="aviso erro"><b>Não foi possível ler os locais de votação</b> (${siEsc(si.erroLocais)}) — tente de novo em instantes.</div>` : '';
   if (ret.length) h += `<div class="aviso"><b>Em retotalização: ${lista(ret)}.</b> O TSE reabriu a totalização e ainda não marcou os eleitos; `
     + `a simulação usa os votos publicados, mas ${ret.length === 1 ? 'o estado fica' : 'os estados ficam'} fora da comparação nacional até a conclusão.</div>`;
   if (par.length) h += `<div class="aviso"><b>Apuração em andamento: ${lista(par)}.</b> Os votos ainda vão mudar; ${si.res.real.semReal.length === ufs.length ? 'sem eleitos marcados, a comparação com o oficial fica para o fim da apuração' : 'sem o resultado final, a comparação é parcial'}.</div>`;
