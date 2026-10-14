@@ -672,7 +672,7 @@ async function siPrepararDistritos(op, calc) {
     const somaVz = Object.values(vz).reduce((t, c) => t + Object.values(c.c).reduce((a, b) => a + b, 0) + Object.values(c.l).reduce((a, b) => a + b, 0), 0);
     // o modo que valeu: 'ani' só com o encaixe feito
     const modoEf = modo === 'ani' && !desenho.aninhado ? 'ind' : modo;
-    const extra = { modoEstadual: modoEf, encaixeFalhou: modoEf !== modo ? (si.desenhos[chave] || x).desenho.encaixeFalhou || '' : '', kF, kE, vagasFederais: vF, cobertura: d.validos ? somaVz / d.validos : 1 };
+    const extra = { retotalizando: snSituacao(d) === 'retotalizando', modoEstadual: modoEf, encaixeFalhou: modoEf !== modo ? (si.desenhos[chave] || x).desenho.encaixeFalhou || '' : '', kF, kE, vagasFederais: vF, cobertura: d.validos ? somaVz / d.validos : 1 };
     if (modo === 'fed' && desenho.distritos && desenho.distritos.length) {
       // cadeiras de cada distrito federal: as kE cadeiras distritais da Assembleia, na proporção do tamanho
       const n = sdCadeirasPorDistrito(desenho.distritos, kE);
@@ -843,7 +843,8 @@ function siAvisosHtml() {
   const sd = si.sistemas && si.sistemas.find(x => x.tipo === 'distrital'), pu = (sd && sd.op.porUf) || {};
   const falta = Object.keys(pu).filter(uf => pu[uf].cobertura != null && pu[uf].cobertura < 0.95).sort();
   if (falta.length) h += `<div class="aviso erro"><b>Distrital misto sem os votos por zona: ${falta.map(uf => `${uf.toUpperCase()} (${siPct(pu[uf].cobertura)} dos válidos)`).join(', ')}.</b> `
-    + `O arquivo de dados abertos do TSE (votação por município e zona) não traz os votos dos candidatos deste cargo ${falta.length === 1 ? 'nesse estado' : 'nesses estados'} — sem eles, os distritos não têm quem eleger e o resultado do distrital ${falta.length === 1 ? 'desse estado' : 'desses estados'} não vale. Os demais sistemas não dependem desse arquivo.</div>`;
+    + `O arquivo de dados abertos do TSE (votação por município e zona) não traz os votos dos candidatos deste cargo ${falta.length === 1 ? 'nesse estado' : 'nesses estados'} — sem eles, os distritos não têm quem eleger e o resultado do distrital ${falta.length === 1 ? 'desse estado' : 'desses estados'} não vale. Os demais sistemas não dependem desse arquivo.`
+    + (falta.some(uf => pu[uf].retotalizando) ? ` ${lista(falta.filter(uf => pu[uf].retotalizando))} ${falta.filter(uf => pu[uf].retotalizando).length === 1 ? 'está' : 'estão'} em retotalização, provável causa do arquivo incompleto — ao recarregar depois da conclusão, o distrital passa a valer se o arquivo vier completo.` : '') + '</div>';
   return h;
 }
 

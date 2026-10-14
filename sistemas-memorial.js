@@ -425,7 +425,7 @@ function smAbaDistrital(s, dados, ufs, res) {
         ...(me === 'ani' ? ['Estaduais por distrito federal = E ÷ N', { f: `E${r0}/N${r0}`, v: x.kE / x.kF }]
           : me === 'fed' ? ['Cadeiras distritais da Assembleia', nArr(d.vagas, `C${r0}`), 'Até da mesma agremiação por distrito (art. 10, II)', { f: `IF(L${r0}<=20,3,2)`, v: x.capPartido }]
           : ['Encaixe', x.encaixeFalhou ? `mapa próprio: o encaixe não coube (${x.encaixeFalhou}) — ler os locais de votação` : `mapa próprio: ${x.kE} não é múltiplo de ${x.kF}`])] : [])]);
-    if (x.cobertura != null && x.cobertura < 0.95) aba.add([`ATENÇÃO: os votos por município e zona do TSE (dados abertos) cobrem só ${Math.round(x.cobertura * 1000) / 10}% dos válidos deste cargo em ${uf.toUpperCase()} — o arquivo publicado não traz os votos dos candidatos; os distritos não têm com o que eleger e as conferências abaixo divergem por isso.`]);
+    if (x.cobertura != null && x.cobertura < 0.95) aba.add([`ATENÇÃO: os votos por município e zona do TSE (dados abertos) cobrem só ${Math.round(x.cobertura * 1000) / 10}% dos válidos deste cargo em ${uf.toUpperCase()} — o arquivo publicado não traz os votos dos candidatos; os distritos não têm com o que eleger e as conferências abaixo divergem por isso.${x.retotalizando ? ' O estado está em retotalização, provável causa do arquivo incompleto.' : ''}`]);
     if (!k) { smBlocoLista(aba, d, sim, op, []); continue; }
     const rc = aba.prox();
     const porCand = op.regra === 'candidato', multi = me === 'fed', ani = me === 'ani';
