@@ -204,6 +204,53 @@ async function ptLerDou(url) {
   return { texto, orgao };
 }
 
+// ---------- o ato que o ato novo ALTERA, buscado no DOU ----------
+// A nota técnica de um ato que altera outro precisa do texto alterado para dizer
+// o que muda (antes × depois). O ato novo só cita o alterado pelo nome
+// ("Portaria Conjunta MPO/MGI/SRI-PR nº 2, de 15 de janeiro de 2026"); a busca
+// do DOU (in.gov.br/consulta) acha a página dele pelo nome, numa janela de
+// publicação a partir da data de assinatura.
+
+/** Endereço da busca do DOU por um ato citado pelo nome. Pura. null se o nome não tem número e data. */
+function ptUrlBuscaDou(rotulo) {
+  const cab = ptCabecalho(String(rotulo || '').toUpperCase());
+  if (!cab.numero || !cab.data) return null;
+  const nome = cab.identificacao.replace(/,\s*DE\s+\d{1,2}º?\s+DE\s+.*$/, '').trim();
+  const br = iso => iso.split('-').reverse().join('-');
+  const ate = new Date(cab.data + 'T12:00:00Z'); ate.setUTCDate(ate.getUTCDate() + 20);
+  const q = new URLSearchParams({ q: `"${nome}"`, s: 'todos', exactDate: 'personalizado', sortType: '0',
+    publishFrom: br(cab.data), publishTo: br(ate.toISOString().slice(0, 10)) });
+  return { url: `https://www.in.gov.br/consulta/-/buscar/dou?${q}`, nome, data: cab.data };
+}
+
+/** Resultados da página de busca do DOU: [{ titulo, url }]. Pura sobre o HTML + um DOMParser. */
+function ptResultadosBuscaDou(html, Parser) {
+  const P = Parser || (typeof DOMParser !== 'undefined' ? DOMParser : null);
+  if (!P) throw new Error('sem DOMParser');
+  const doc = new P().parseFromString(String(html || ''), 'text/html');
+  const el = doc.querySelector('script[id$="BuscaDouPortlet_params"]');
+  let lista = [];
+  try { lista = (JSON.parse(el ? el.textContent : '{}').jsonArray || []); } catch (_) { lista = []; }
+  return lista.filter(x => x && x.urlTitle).map(x => ({
+    titulo: String(x.title || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim(),
+    url: `https://www.in.gov.br/web/dou/-/${x.urlTitle}`,
+  }));
+}
+
+/** Busca no DOU o ato citado pelo nome e devolve { texto, orgao, url, identificacao }. Lança erro com o motivo. */
+async function ptBuscarAtoDou(rotulo) {
+  const b = ptUrlBuscaDou(rotulo);
+  if (!b) throw new Error(`não sei buscar "${rotulo}" (sem número e data)`);
+  const r = await fetch(b.url);
+  if (!r.ok) throw new Error('a busca do DOU respondeu HTTP ' + r.status);
+  const alvo = ptNorm(b.nome).replace(/[^a-z0-9]/g, '');
+  const achado = ptResultadosBuscaDou(await r.text()).find(x => ptNorm(x.titulo).replace(/[^a-z0-9]/g, '').startsWith(alvo));
+  if (!achado) throw new Error(`a busca do DOU não achou "${b.nome}" publicado a partir de ${b.data.split('-').reverse().join('/')}`);
+  const lido = await ptLerDou(achado.url);
+  return Object.assign(lido, { url: achado.url, identificacao: achado.titulo });
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { ptNorm, ptData, ptCabecalho, ptOrdenar, ptLinhasDoPdf, ptZipEntradas, ptZipConteudo, ptTextoDocxXml, ptLerDocx, ptEhLinkDou, ptTextoDouHtml };
+  module.exports = { ptNorm, ptData, ptCabecalho, ptOrdenar, ptLinhasDoPdf, ptZipEntradas, ptZipConteudo, ptTextoDocxXml, ptLerDocx, ptEhLinkDou, ptTextoDouHtml,
+    ptUrlBuscaDou, ptResultadosBuscaDou };
 }

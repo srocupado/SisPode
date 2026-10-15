@@ -1,0 +1,284 @@
+PORTARIA CONJUNTA MPO/MGI/SRI-PR Nº 2, DE 15 DE JANEIRO DE 2026
+Dispõe sobre procedimentos e prazos para operacionalização de emendas individuais, de bancada estadual, de comissão permanente do Senado Federal, da Câmara dos Deputados e de comissão mista permanente do Congresso Nacional, e superação de impedimentos de ordem técnica, em atendimento ao disposto nos arts. 166, §§ 9º a 20, e 166-A da Constituição, na Lei Complementar nº 210, de 25 de novembro de 2024, às disposições da Lei de Diretrizes Orçamentárias e da Lei Orçamentária Anual, às decisões do Supremo Tribunal Federal no âmbito da ADPF 854, e dá outras providências.
+AS MINISTRAS DE ESTADO DO PLANEJAMENTO E ORÇAMENTO, DA GESTÃO E DA INOVAÇÃO EM SERVIÇOS PÚBLICOS e DE RELAÇÕES INSTITUCIONAIS DA PRESIDÊNCIA DA REPÚBLICA, no uso das atribuições que lhes confere o art. 87, parágrafo único, incisos I e II, da Constituição, e tendo em vista o disposto no Decreto nº 11.353, de 1º de janeiro de 2023, no Decreto nº 12.102, de 8 de julho de 2024, e no Decreto nº 11.364, de 1º de janeiro de 2023, resolvem:
+Art. 1º Esta Portaria Conjunta dispõe sobre procedimentos e prazos para operacionalização de emendas individuais (RP 6), de bancada estadual (RP 7), de comissão permanente do Senado Federal, da Câmara dos Deputados e de comissão mista permanente do Congresso Nacional (RP 8), bem como de superação de impedimentos de ordem técnica, no que couber, em atendimento ao disposto nos arts. 166, §§ 9º a 20, e 166-A da Constituição Federal, no art. 10 da Lei Complementar nº 210, de 25 de novembro de 2024, às disposições da Lei nº 15.321, de 31 de dezembro de 2025 (Lei de Diretrizes Orçamentárias - LDO) e da Lei nº 15.346, de 14 de janeiro de 2026 (Lei Orçamentária Anual - LOA).
+§ 1º Entendem-se como emendas, para fins desta Portaria, as dotações discriminadas na Lei Orçamentária Anual com identificadores próprios, conforme disposto no § 2º do art. 11 da Lei Complementar nº 210, de 25 novembro de 2024.
+§ 2º O código de emenda da dotação ou programação incluída ou acrescida por emendas, de que trata o § 1º, constará dos sistemas de acompanhamento da execução financeira e orçamentária, tendo como finalidade a identificação do autor da inclusão ou do acréscimo da programação.
+§ 3º A execução das programações das emendas individuais e de Bancadas deverá observar as indicações de beneficiários e de ordem de prioridades feitas pelos respectivos autores, e, no caso das demais emendas, as diretrizes e os critérios técnicos dos órgãos setoriais, sem prejuízo às disposições aplicáveis.
+§ 4º No âmbito dos remanejamentos de dotações de que trata o inciso X do caput do art. 2º desta Portaria, devem-se observar as diretrizes e os critérios estabelecidos em ato específico do Poder Executivo Federal quando envolver aplicação de recursos em programações orçamentárias do Novo Programa de Aceleração do Crescimento - PAC.
+TÍTULO I
+DAS DISPOSIÇÕES GERAIS
+CAPÍTULO I
+DOS CONCEITOS
+Art. 2º Para fins desta Portaria, considera-se:
+I - Órgão Central do Sistema de Planejamento e de Orçamento Federal - SPOF: Ministério do Planejamento e Orçamento - MPO, nos termos da Lei nº 10.180, de 6 de fevereiro de 2001;
+II - Órgão Setorial do SPOF: unidades de planejamento e orçamento dos Ministérios, da Advocacia-Geral da União, da Vice-Presidência e da Casa Civil da Presidência da República, e demais unidades equiparadas a órgãos setoriais nos termos da Lei nº 10.180, de 2001;
+III - Sistema Integrado de Planejamento e Orçamento - Siop: sistema informatizado de planejamento e orçamento do Governo Federal;
+IV - Sistema Integrado de Administração Financeira do Governo Federal - Siafi: sistema de registro, acompanhamento e controle da execução orçamentária, financeira e patrimonial do Governo Federal, instituído pelo Decreto nº 3.590, de 6 de setembro de 2000;
+V - Transferegov.br: plataforma tecnológica integrada e centralizada, com dados abertos, destinada à gestão, informatização e operacionalização das parcerias, instituída pelo Decreto nº 11.271, de 5 de dezembro de 2022;
+VI - beneficiário: órgão ou entidade da administração pública direta ou indireta da União, dos Estados e Municípios e do Distrito Federal, consórcio público, organização da sociedade civil ou serviço social autônomo, indicados por autores de emendas para fins de recebimento de recursos dos Orçamentos Fiscal e da Seguridade Social da União;
+VII - indicação de beneficiário:
+a) no caso de emendas individuais, é o procedimento pelo qual o autor determinará, no módulo Emendas Individuais do Siop, os beneficiários de suas emendas, seus respectivos valores e ordem de prioridade para fins de execução orçamentária e financeira;
+b) no caso das emendas de bancada estadual ou distrital, é o procedimento pelo qual o autor indica aos órgãos setoriais, por ofício, os beneficiários de suas emendas; e
+c) no caso de emendas não impositivas sujeitas ao limite de que trata o art. 11 da Lei Complementar nº 210, de 25 de novembro de 2024, é o procedimento pelo qual o autor indica aos órgãos setoriais, por ofício, os potenciais beneficiários de suas emendas.
+VIII - impedimento de ordem técnica: situação ou evento de ordem fática ou legal que obste ou suspenda a execução da programação orçamentária, nos termos do art. 10 da Lei Complementar nº 210, de 25 de novembro de 2024, e da LDO, que possam ser superados com ou sem a necessidade de remanejamento de programações orçamentárias;
+IX - medida saneadora de emendas individuais: procedimento por meio do qual os autores indicarão medidas para superação de impedimentos de ordem técnica;
+X - alteração orçamentária:
+a) no caso de emendas individuais, é a alteração da programação orçamentária de emenda, efetuada diretamente no Siop pelo autor, conforme procedimentos e prazos de alterações orçamentárias estabelecidos em portaria da Secretaria de Orçamento Federal do Ministério do Planejamento e Orçamento - SOF/MPO, que resultará em normativos de créditos adicionais fora do fluxo de superação dos impedimentos de ordem técnica, definido no art. 166, § 14, da Constituição, e na LDO;
+b) no caso das emendas de bancada estadual, é a alteração da programação orçamentária de emenda, por meio de ofício aos órgãos setoriais em que é manifesta a concordância ou solicitação do autor, conforme procedimentos e prazos de alterações orçamentárias estabelecidos em Portaria da SOF/MPO; e
+c) no caso das emendas não impositivas sujeitas ao limite de que trata o art. 11 da Lei Complementar nº 210, de 25 de novembro de 2024, é a alteração da programação orçamentária de emenda, indicada por meio de ofício aos órgãos setoriais em que é manifesta a solicitação do autor, conforme procedimentos e prazos de alterações orçamentárias estabelecidos em Portaria da SOF/MPO.
+XI - proponente: beneficiário que manifeste interesse em receber recursos oriundos de emendas;
+XII - concedente: órgão ou entidade da administração pública federal, direta ou indireta, responsável pela transferência de recursos, verificação da conformidade financeira, acompanhamento da execução e avaliação do cumprimento do objeto do instrumento;
+XIII - proposta de trabalho: peça processual inicial utilizada para manifestação formal dos proponentes, cujo conteúdo contempla descrição do objeto, justificativa, indicação do público-alvo, estimativa dos recursos do concedente, e de contrapartida e informações relativas à capacidade técnica e gerencial do proponente;
+XIV - plano de trabalho: peça processual integrante dos instrumentos, que evidencia o detalhamento do objeto, da justificativa, dos cronogramas físico e financeiro, do plano de aplicação das despesas, bem como das informações da conta corrente específica, dos partícipes e dos seus representantes;
+XV - programa: peça inicial disponibilizada pelo concedente aos proponentes no Transferegov.br, com código específico, contendo, sempre que possível, descrição, exigências, padrões, procedimentos, critérios de elegibilidade, estatísticas e outros elementos que possam auxiliar a avaliação das necessidades locais, incluindo dados como Órgão executor, tipo de instrumento, período para recebimento de proposta do proponente, valor de repasse da proposta, número da emenda, inclusão dos objetos do programa e regras de contrapartida;
+XVI - mandatária: instituição financeira oficial federal, que celebra e operacionaliza, em nome da União, os instrumentos regulados pelas Portarias Conjuntas MGI/MF/CGU nº 33, de 30 de agosto de 2023, nº 32, de 4 de junho de 2024, e nº 28, de 21 de maio de 2024, ou outras que vierem a substituí-las;
+XVII - cláusula suspensiva: condição suspensiva, prevista na celebração de convênio, contrato de repasse ou termos de compromisso, conforme o disposto pelas Portarias Conjuntas MGI/MF/CGU nº 33, de 30 de agosto de 2023, nº 32, de 4 de junho de 2024, e nº 28, de 21 de maio de 2024, ou outras que vierem a substituí-las, que suspende os efeitos do instrumento até que seja cumprida determinada condição pelo proponente;
+XVIII - faixa de priorização:
+a) no caso das emendas individuais: delimitação decorrente da ordem de prioridade estabelecida pelo autor, identificada na tela 'Prioridade' do Módulo Emendas Individuais do Siop, em função dos limites disponíveis para empenho; e
+b) no caso das demais emendas: delimitação decorrente da ordem de prioridade estabelecida pelo autor, por ofício, em função dos limites disponíveis para empenho.
+XIX - procedimentos de execução: ações operacionais preparatórias ou atos de gestão necessários à execução da despesa;
+XX - análise setorial: marcação no Siop efetuada pelo Órgão ou Unidade Orçamentária denotando que a execução orçamentária é iminente, isto é, em condições de os recursos serem empenhados;
+XXI - projetos e ações estruturantes: projetos e ações que observem o disposto na Lei Complementar nº 210, de 25 de novembro de 2024, e constem em portaria específica do respectivo órgão setorial;
+XXII - projetos e ações de interesse nacional ou regional: projetos e ações que observem o disposto na LDO e constem em portaria específica do respectivo órgão setorial;
+XXIII - ciclo de execução: etapas a serem executadas pelos diversos atores governamentais para processamento das transferências especiais, cujo início se dá com a geração da base de dados no Siop e se conclui com a emissão da nota de empenho; e
+XXIV - objeto: detalhamento da despesa com o objetivo de especificar o resultado esperado a ser implementado pelo ente beneficiário.
+Parágrafo único: Para fins do disposto nos incisos XXI e XXII do caput, cabe aos Órgãos Setoriais do Sistema de Planejamento e de Orçamento Federal - SPOF a indicação, por meio de portaria específica, das ações orçamentárias consideradas como projetos e ações estruturantes ou prioritárias, e projetos e ações de interesse nacional ou regional.
+CAPÍTULO II
+DOS PRAZOS COMUNS
+Art. 3º As alterações orçamentárias, bem como outros procedimentos relacionados à previsão, alteração e execução de emendas, quando couber, deverão observar os prazos previstos em cronograma a ser informado pela Secretaria de Relações Institucionais da Presidência da República - SRI/PR, em cada comunicado aos autores, observados os procedimentos e requisitos previstos em Portaria da SOF/MPO.
+Parágrafo único. Os prazos referidos no caput poderão ser modificados mediante comunicação aos autores das emendas pela SOF/MPO, ou pela SRI/PR, condicionada, neste último caso, à concordância da SOF/MPO.
+Art. 4º O Siop será aberto em até dez dias anteriores ao início da captação de pedidos de alteração orçamentária, para que os autores de emendas individuais incluam as solicitações de alterações orçamentárias.
+Parágrafo Único. Os autores das emendas classificadas como RP 7 e RP 8 deverão enviar ofícios aos órgãos setoriais responsáveis pela respectiva programação com as solicitações de remanejamento no mesmo prazo do caput, as quais, caso não atendam aos requisitos expressos no âmbito da Lei Complementar nº 210, de 25 de novembro de 2024, da legislação aplicável, bem como de decisões judiciais, deverão ser rejeitadas e devolvidas pelos Órgãos Setoriais do SPOF.
+CAPÍTULO III
+DOS IMPEDIMENTOS DE ORDEM TÉCNICA
+Art. 5º São hipóteses de impedimento de ordem técnica as dispostas no art. 10 da Lei Complementar nº 210, de 25 de novembro de 2024, bem como aquelas constantes da LDO.
+§ 1º Não constitui impedimento de ordem técnica a indevida classificação de Modalidade de Aplicação e de Grupo de Natureza de Despesa, ressalvada, neste último caso, a classificação incompatível com a despesa ou programação.
+§ 2º O pedido de mudança ou exclusão de beneficiário ou destinação de emendas de bancada ou de comissão só poderá ser efetivado caso o órgão ou unidade executora avalie que a mudança não resultará em prejuízo aos procedimentos de execução orçamentária e financeira já iniciados, observado no caso de emendas individuais, o art. 30 desta Portaria.
+Art. 6º Os Órgãos Setoriais do SPOF constantes dos Orçamentos Fiscal e da Seguridade Social que tenham sido contemplados com emendas, após análise, concluirão pela existência ou não de impedimento de ordem técnica à execução da despesa.
+§ 1º No caso das emendas individuais, as ocorrências de impedimento de ordem técnica à execução da despesa e seus respectivos valores deverão ser cadastradas no módulo Emendas Individuais do Siop pelos Órgãos Setoriais do SPOF, independentemente da modalidade de aplicação utilizada.
+§ 2º Os Órgãos Setoriais do SPOF poderão, a seu critério, delegar as atribuições de que trata este artigo às suas respectivas Unidades Orçamentárias - UOs, bem como definir prazos e condições para o seu cumprimento.
+§ 3º Durante o exercício, identificado impedimento de ordem técnica na forma do art. 5º desta Portaria, os Órgãos Setoriais do SPOF, cujas UOs tenham sido contempladas com emendas classificadas com RPs 7 e 8, deverão informar ao autor da emenda sobre os impedimentos verificados.
+§ 4º Os impedimentos de ordem técnica das emendas classificadas com RP 6 serão tratados nos termos do art. 12, caput, inciso II, desta Portaria.
+TÍTULO II
+DAS EMENDAS INDIVIDUAIS DE EXECUÇÃO OBRIGATÓRIA
+CAPÍTULO I
+DAS DISPOSIÇÕES PRELIMINARES
+Art. 7º O regime de execução estabelecido neste Título tem como finalidade garantir a efetiva entrega à sociedade dos bens e serviços decorrentes de emendas individuais, independentemente de autoria.
+§ 1º Os recursos de emendas individuais serão executados por meio das seguintes modalidades:
+I - transferência especial; ou
+II - transferência com finalidade definida.
+§ 2º Os recursos originários de emendas individuais executados na modalidade transferência com finalidade definida serão vinculados à programação estabelecida na emenda parlamentar e aplicados nas áreas de competência constitucional da União, em atendimento ao disposto no art. 166-A, § 4º, da Constituição.
+§ 3º Normas adicionais de execução orçamentária e financeira da transferência especial a Estados, Distrito Federal e Municípios poderão ser estabelecidas em ato específico do Poder Executivo federal.
+CAPÍTULO II
+DOS PROCEDIMENTOS
+Seção I
+Da Indicação, Alteração e Priorização de Beneficiários
+Art. 8º Os autores das emendas individuais deverão indicar ou atualizar, nos prazos estabelecidos pelo Órgão Central do SPOF, após efetivação das alterações orçamentárias, quando for o caso, os beneficiários de suas emendas, o objeto e a ordem de prioridade no módulo Emendas Individuais do Siop, sem prejuízo do disposto no art. 30, caput, desta Portaria.
+§ 1º A indicação de beneficiários de que trata o caput deverá observar o disposto no art. 166, § 9º, da Constituição, no tocante à destinação obrigatória de, pelo menos, 50% (cinquenta por cento) dos valores para ações e serviços públicos de saúde.
+§ 2º Para as transferências fundo a fundo deverão ser indicados como beneficiários no módulo Emendas Individuais do Siop somente os fundos estaduais, distritais ou municipais, e não as entidades a serem indiretamente beneficiadas.
+§ 3º Os órgãos ou entidades da administração pública direta e indireta dos Estados e Municípios e do Distrito Federal beneficiários das emendas que serão executadas por meio de convênios e contratos de repasse deverão ser registrados no Siop e na plataforma Transferegov.br pelo número de inscrição no Cadastro Nacional da Pessoa Jurídica - CNPJ na condição de estabelecimento-matriz, em atenção ao disposto no art. 29, § 3º, da Portaria Conjunta MGI/MF/CGU nº 33, de 30 de agosto de 2023.
+§ 4º Cabe aos autores de que trata o caput, manter os beneficiários com execução orçamentária já iniciada dentro da faixa de priorização constante da tela de Prioridade do módulo Emendas Individuais do Siop, a fim de assegurar a regularidade da execução orçamentária das emendas.
+§ 5º No caso de transferências especiais, a indicação do beneficiário de emenda será feita ao número do Cadastro Nacional da Pessoa Jurídica - CNPJ principal do Estado, do Distrito Federal ou do Município, nos termos do art. 166-A, § 2º, inciso I, da Constituição.
+§ 6º A indicação de emenda parlamentar, cujo beneficiário seja consórcio público, serviço social autônomo ou organização da sociedade civil, deve se dar na modalidade transferência com finalidade definida.
+§ 7º No caso das emendas individuais na modalidade transferência especial, quando da indicação de beneficiário, o autor da emenda deverá:
+I - informar o objeto, com destinação preferencial para obras inacabadas de sua autoria, conforme disposto no art. 7º da Lei Complementar nº 210, de 25 de novembro de 2024, sendo que:
+a) deverá, preferencialmente, escolher um objeto padronizado, previamente indicado pelos órgãos setoriais; e
+b) caso o objeto não esteja na lista previamente informada pelos órgãos setoriais, poderá informar outro objeto, desde que observado o disposto no art. 166-A, § 2º, inciso III, da Constituição.
+II - observar os seguintes valores mínimos para cada objeto:
+a) R$ 400.000,00 (quatrocentos mil reais) para a execução de obras e serviços de engenharia; e
+b) R$ 200.000,00 (duzentos mil reais) para a execução de outros objetos que não envolvam obras e serviços de engenharia.
+Seção II
+Da Análise das Emendas e dos Impedimentos de Ordem Técnica
+Art. 9º A Secretaria de Gestão e Inovação do Ministério da Gestão e da Inovação em Serviços Públicos divulgará e atualizará no Transferegov.br os cronogramas para análise, identificação e registro dos impedimentos de ordem técnica das emendas operacionalizadas no Transferegov.br, inclusive quando houver abertura do Siop aos autores para fins das indicações ou atualizações de que trata o art. 8º desta Portaria.
+§ 1º Quando o beneficiário for entidade privada sem fins lucrativos, a celebração dependerá do atendimento dos requisitos constantes da Lei Complementar nº 101, de 4 de maio de 2000 - Lei de Responsabilidade Fiscal - LRF, da LDO, e dos requisitos exigidos pela legislação aplicável a cada tipo de instrumento, da seguinte forma:
+I - Lei nº 13.019, de 31 de julho de 2014, e Decreto nº 8.726, de 27 de abril de 2016, nos casos de termo de fomento, ou termo de colaboração com organização da sociedade civil;
+II - Lei nº 9.790, de 23 de março de 1999, e Decreto nº 3.100, de 30 de junho de 1999, nos casos de termos de parceria com organização da sociedade civil qualificada como Organização da Sociedade Civil de Interesse Público - OSCIP; e
+III - Decreto nº 11.531, de 16 de maio de 2023, e Portaria Conjunta MGI/MF/CGU nº 33, de 30 de agosto de 2023, nos casos de convênios ou contratos de repasse com entidades filantrópicas e sem fins lucrativos, nos termos do art. 199, § 1º, da Constituição, ou com serviços sociais autônomos.
+§ 2º O não atendimento aos requisitos das legislações específicas de que trata o § 1º ou a não divulgação na internet dos valores recebidos e aplicados a partir de 2020, nos casos de emendas parlamentares destinadas às entidades privadas sem fins lucrativos, impedirá a celebração dos instrumentos.
+§ 3º As condições para celebração de convênio, contrato de repasse ou termo de compromisso que possam ser objeto de cláusula suspensiva, previstas nas Portarias Conjuntas MGI/MF/CGU nº 33, de 30 de agosto de 2023, nº 28, de 21 de maio de 2024, e nº 32, de 4 de junho de 2024, deverão ser caracterizadas como obrigações a termo de responsabilidade exclusiva do proponente, e não serão indicadas como impedimento de ordem técnica para fins de cumprimento dos prazos do cronograma disposto no caput.
+§ 4º O não atendimento de quaisquer dos requisitos de prazo dispostos neste artigo será consignado no Transferegov.br, a fim de que o proponente seja informado para adoção dos procedimentos necessários à regularização da situação.
+§ 5º O descumprimento pelo proponente dos prazos estabelecidos no cronograma de que trata o caput, bem como a intempestividade no registro das informações no módulo Emendas Individuais do Siop, de que trata o art. 8º desta Portaria, implicarão impedimento de ordem técnica à execução da emenda individual objeto da proposta e plano de trabalho.
+§ 6° Para cumprir o dever de transparência, a entidade privada sem fins lucrativos deverá garantir a publicação dos valores recebidos e aplicados oriundos de emendas parlamentares a partir de 2020, por meio de divulgação na internet, podendo utilizar planilha extraída do painel gerencial Transferegov.br.
+§ 7° A entidade privada sem fins lucrativos deverá informar ao órgão transferidor de recursos o endereço na internet para acesso às informações de que trata o § 6º.
+§ 8° Para fins de aferição de regularidade, os órgãos executores deverão seguir os procedimentos previstos na Lei nº 13.019, de 31 de julho de 2014, e atestar que todos os instrumentos firmados entre o Poder Executivo federal e a entidade beneficiada, constantes no Transferegov.br, que motivaram repasses financeiros de emendas parlamentares, estão devidamente publicados, e inserir no processo administrativo a manifestação formal que comprove a verificação, previamente à sua execução.
+§ 9º Os registros de impedimento cadastrados no Transferegov.br também deverão ser registrados no módulo Emendas Individuais do Siop, na forma do disposto no caput do art. 5º desta Portaria, para fins de atendimento ao disposto no art. 166, § 14, da Constituição.
+Art. 10. Os Órgãos Setoriais do SPOF contemplados com emendas que tenham sido objeto de alteração de valores, exclusão e adição de beneficiários, e que não utilizem o Transferegov.br, definirão os prazos e etapas para recebimento ou complementação das propostas e análises técnicas, inclusive daquelas que sofreram alteração, para atendimento ao procedimento disposto no art. 6º, caput, desta Portaria.
+Seção III
+Dos prazos e procedimentos para a superação de impedimentos de ordem técnica
+Art. 11. O Órgão Central do SPOF promoverá a abertura do módulo Emendas Individuais do Siop para que os autores indiquem os beneficiários das emendas, o objeto e a ordem de prioridade na forma do art. 8º desta Portaria.
+Art. 12. Os procedimentos de divulgação de programas e ações, cadastramento, envio e análise de propostas, bem como de registro e divulgação de impedimentos de ordem técnica, obedecerão às seguintes etapas, observados os prazos fixados na LDO, conforme disposto no art. 166, § 14, da Constituição:
+I - os Órgãos Setoriais do SPOF analisarão as propostas dos beneficiários indicados, na forma do disposto no art. 6º, caput, desta Portaria, e cadastrarão os impedimentos de ordem técnica no módulo Emendas Individuais do Siop; e
+II - a SOF/MPO consolidará e divulgará no sítio eletrônico do Ministério do Planejamento e Orçamento as justificativas de impedimento de ordem técnica cadastradas no módulo Emendas Individuais do Siop.
+§ 1º Os beneficiários que incidirem em impedimento de ordem técnica terão os respectivos valores bloqueados no Siop, com reflexo no Siafi, para ajustes até o fim dos procedimentos dispostos nesta Seção.
+§ 2º Após finalizada a etapa de que trata o inciso I do caput, serão reservados, no mínimo, dez dias para que os beneficiários indicados possam enviar as propostas.
+Art. 13. Os autores de emendas procederão ao saneamento de impedimentos de ordem técnica na tela Saneamento de Impedimentos do módulo Emendas Individuais do Siop, no período estabelecido na LDO.
+Art. 14. O Poder Executivo promoverá as alterações orçamentárias propostas na forma do disposto no caput do art. 13 desta Portaria, mediante ato próprio, no prazo estabelecido na LDO.
+Parágrafo único. A SOF/MPO viabilizará as alterações orçamentárias no Siop até dez dias após as alterações previstas no art. 14.
+Seção IV
+Da Execução Orçamentária
+Art. 15. A fim de manter a regularidade da execução orçamentária das emendas, os Órgãos Setoriais do SPOF deverão se abster de efetuar empenho em favor de beneficiário fora da faixa de priorização realizada pelo respectivo autor no Siop.
+Parágrafo único. O valor priorizado referido no caput deverá ser consultado na tela Emendas do módulo Emendas Individuais do Siop.
+Art. 16. Se a análise técnica de que trata o art. 6º desta Portaria concluir pela inexistência de impedimento de ordem técnica, os Órgãos Setoriais e as UOs do SPOF deverão proceder à execução orçamentária da despesa, ressalvados os casos de emendas com beneficiários fora da faixa de priorização do Siop e as programações objeto de crédito adicional em tramitação.
+Art. 17. Caso o autor da emenda mantenha beneficiário de recurso já empenhado fora da faixa de prioridade, contrariando o disposto no art. 8º, § 4º, desta Portaria, o Órgão Setorial do SPOF fica autorizado a cancelar a execução orçamentária do respectivo beneficiário, ressalvados os casos de execução já iniciada, previstos nos incisos I e II do § 5º do art. 68 do Decreto nº 93.872, de 23 de dezembro de 1986.
+Art. 18. A distribuição das emendas, no âmbito das transferências especiais, deverá observar, por autor, a aplicação mínima obrigatória de 70% (setenta por cento) em despesas de capital, conforme disposto no art. 166-A, § 5º, da Constituição, sendo a verificação da aplicação mínima realizada:
+I - pelo Ministério do Planejamento e Orçamento, no âmbito do orçamento, considerando as dotações autorizadas e alterações em tramitação, resultando na rejeição ou devolução do pleito de remanejamento, caso resulte na inobservância da referida aplicação mínima; e
+II - pelo Ministério da Gestão e da Inovação em Serviços Públicos (MGI), após a indicação de beneficiários pelos autores.
+§ 1º A inexecução de despesas em virtude de impedimento técnico ou legal não caracteriza descumprimento da aplicação mínima e não prejudica a execução das demais emendas do autor, nos termos da LDO.
+§ 2º Caso as verificações de que trata o inciso II do caput apontem descumprimento da aplicação mínima em despesas de capital, o Ministério da Gestão e da Inovação em Serviços Públicos (MGI) registrará impedimentos de ordem técnica nos beneficiários de transferências especiais de custeio que excedam o limite disposto no art. 166-A, § 5º, da Constituição, observada a ordem de prioridade.
+Art. 19. A inexecução de despesas referente a emendas individuais em virtude de impedimento de ordem técnica ou legal não caracteriza descumprimento do disposto nos art. 166, § 9º da Constituição, e não prejudica a execução das despesas relativas às demais emendas do autor.
+Art. 20. O Siop disponibilizará a base de dados atualizada das transferências especiais, contendo lista de beneficiários, objetos indicados pelos parlamentares, valores a serem transferidos e ordem de prioridade registrados no Transferegov.br, a ser divulgada em consulta com acesso livre.
+§ 1º Caso o autor não tenha priorizado seus beneficiários no período próprio para essa finalidade, para fins de execução, será adotada a ordem de cadastramento dos beneficiários, a qual permanecerá estática até o pagamento.
+§ 2º Eventuais ajustes de priorização, após ter sido gerada a base de dados das transferências especiais, somente serão considerados no próximo ciclo de execução.
+Art. 21. Os ajustes necessários no âmbito das transferências especiais serão efetivados exclusivamente:
+I - por iniciativa dos parlamentares, quando relativos aos beneficiários das emendas, ao objeto, à priorização e aos remanejamentos de dotações, sem prejuízo ao disposto no art. 30, desta Portaria; e
+II - pelo Órgão Setorial do Ministério responsável pela execução, quando relativos à Modalidade de Aplicação, observados os procedimentos estabelecidos pela SOF/MPO.
+Seção V
+Das restrições de empenho: bloqueio de despesas e limites de movimentação e empenho
+Art. 22. O Órgão Central do SPOF, após a publicação do Decreto de Programação Orçamentária e Financeira e suas alterações, fará, caso necessário, a atualização das medidas de restrição de empenho, envolvendo limite de movimentação e empenho, bem como bloqueio de dotações em atendimento a metas fiscais e limite de gastos, no módulo Emendas Individuais do Siop.
+Art. 23. O módulo Emendas Individuais do Siop, caso haja a atualização referida no art. 22, será aberto aos autores para fins de priorização, alteração de valores, exclusão ou adição de beneficiários, sem prejuízo do disposto nos arts. 8º e 30 desta Portaria, por prazo a ser definido pela SOF/MPO em conjunto com a SRI/PR.
+§ 1º A indicação da ordem de prioridade de que trata o caput deste artigo:
+I - será considerada como anuência do autor sobre as consequências decorrentes do implemento das restrições de que trata o art. 22, inclusive para fins de eventual cancelamento necessário ao atendimento do limite de gastos, que deverá incidir na ordem inversa das prioridades definidas no Siop pelos autores das emendas; e
+II - deverá observar a aplicação mínima de recursos em ações e serviços públicos de saúde, bem como manter, no caso das transferências especiais, a proporção de que trata o art. 166-A, § 5º, da Constituição.
+§ 2º Caso a atualização de que trata o caput ocorra concomitantemente com o processo de saneamento dos impedimentos de ordem técnica, disposto no art. 166, § 14, da Constituição, e na LDO, o Siop somente será aberto após a etapa prevista no art. 14, parágrafo único, desta Portaria.
+§ 3º Na hipótese de ocorrência de medidas de restrição de empenho de que trata o caput, o não implemento da priorização pelo autor nos termos deste artigo poderá resultar na impossibilidade de execução das dotações e de realização de outras operações no Siop, até que a ordem de prioridade seja resolvida.
+Art. 24. O Órgão Central do SPOF, concluído o procedimento constante do caput do art. 23 desta Portaria, adotará providências com vistas aos ajustes de programação orçamentária e à atualização dos valores de movimentação e empenho por Órgão no Siafi.
+Seção VI
+Das Alterações Orçamentárias
+Art. 25. Os Órgãos Setoriais do SPOF, caso seja necessário promover alterações orçamentárias nas emendas individuais, exceto as previstas na Seção IV deste Capítulo, deverão enviar pedido de crédito adicional ao Órgão Central do SPOF, mediante solicitação do autor da emenda diretamente no Siop, desde que atendidos os procedimentos e prazos estabelecidos na Portaria de procedimentos e prazos para alterações orçamentárias da SOF/MPO, e observado o prazo estabelecido no art. 4º desta Portaria.
+§ 1º As solicitações de crédito adicional de que trata o caput deverão ser iniciadas no módulo Emendas Individuais do Siop e enviadas ao Órgão Central do SPOF por intermédio do módulo Alterações Orçamentárias do Siop.
+§ 2º Para as alterações orçamentárias a serem atendidas por meio de ato do Poder Executivo, deverão ser observados os requisitos constantes da LDO, da LOA e da Portaria de que trata o caput.
+§ 3º Ficam os Órgãos Setoriais do SPOF autorizados a estabelecer cronograma próprio para implementação de procedimentos na plataforma Transferegov.br, caso o Poder Executivo promova alterações em programações orçamentárias ou limites para movimentação e empenho de emendas individuais no último mês do exercício financeiro.
+§ 4º Até dois dias antes do prazo de que trata o art. 4º desta Portaria, a SOF/MPO consolidará e divulgará no sítio eletrônico do Ministério do Planejamento e Orçamento as justificativas de impedimento de ordem técnica cadastradas no módulo Emendas Individuais do Siop.
+Seção VII
+Das disposições comuns às medidas saneadoras e às alterações orçamentárias
+Art. 26. As medidas saneadoras propostas pelos autores de emendas individuais, nos termos do disposto no art. 166, § 14, da Constituição, e na LDO, e as alterações orçamentárias recebidas na forma do disposto no art. 25 desta Portaria, serão atendidas:
+I - por meio de ato do Poder Executivo, para os casos que possam ser atendidos na forma da LOA;
+II - por meio de projeto de lei de abertura de crédito adicional, a ser enviado ao Congresso Nacional, nos casos que não possam ser atendidos na forma do inciso I do caput; ou
+III - por meio de ajuste de beneficiário ou valor pelos autores diretamente na tela Saneamento de Emendas do módulo Emendas Individuais do Siop.
+§ 1º As medidas saneadoras de que trata o caput serão processadas independentemente de consulta aos Órgãos Setoriais do SPOF.
+§ 2º As medidas saneadoras eventualmente não processadas em razão de inconsistência no Siop poderão ser objeto de regularização a qualquer tempo.
+§ 3º As alterações orçamentárias previstas no inciso I do caput poderão ser efetuadas exclusivamente entre Grupos de Natureza de Despesa - GND, desde que atendidas as condições previstas na LDO.
+Art. 27. As dotações orçamentárias das emendas modificadas por medida saneadora, na forma do disposto no art. 166, § 14, da Constituição, e na LDO, ou por alteração orçamentária, na forma do disposto no art. 25 desta Portaria, não poderão ser objeto de execução ou de outras alterações até a efetivação dos respectivos atos normativos no Siop.
+§ 1º A SOF/MPO, para cumprimento do disposto no caput, realizará o bloqueio no Siafi das dotações orçamentárias objeto de medida saneadora ou alteração orçamentária, salvo se estiver bloqueado nos termos do art. 12, § 1º, desta Portaria.
+§ 2º O Siop, efetivadas as medidas previstas no caput, será aberto para que os autores indiquem ou atualizem os beneficiários de suas emendas e a ordem de prioridade no módulo Emendas Individuais do Siop, respeitado o disposto no art. 8º desta Portaria.
+§ 3º Os Órgãos Setoriais do SPOF, após o procedimento descrito no § 2º deste artigo, deverão proceder à análise técnica de que trata o art. 6º desta Portaria, obedecendo o cronograma em vigor, nos termos do disposto nos arts. 9º e 10 desta Portaria.
+CAPÍTULO III
+DAS DISPOSIÇÕES FINAIS
+Art. 28. As informações iniciais do cadastro de autores de emendas individuais no Siop são de responsabilidade da SOF/MPO, com a carga do autógrafo recebida da Comissão Mista de Planos, Orçamentos Públicos e Fiscalização do Congresso Nacional e as atualizações posteriores de responsabilidade da SRI/PR.
+Art. 29. Os Órgãos Setoriais do SPOF, inclusive aqueles em que a execução ocorra por meio de instituições financeiras federais, na condição de mandatária da União, deverão realizar o registro no módulo Emendas Individuais do Siop, até 20 de janeiro, de todas as justificativas para os beneficiários relativos às emendas individuais que permaneceram com impedimento de ordem técnica, observado o disposto na LDO.
+Art. 30. Iniciados os procedimentos de execução das emendas individuais, os Órgãos Setoriais do SPOF responsáveis pela execução orçamentária, considerando o disposto no art. 8º desta Portaria, poderão incluir no módulo emendas individuais do Siop marcação denominada "análise setorial" identificando os beneficiários que não poderão ser alterados ou excluídos, nesse período, por solicitação dos autores.
+§ 1º Os Órgãos Setoriais do SPOF responsáveis pela execução orçamentária poderão proceder com ajustes no registro de beneficiários de emendas individuais em períodos distintos dos previstos no art. 8º desta Portaria, mediante solicitação do autor, sem prejuízo do disposto no caput.
+§ 2º No âmbito das transferências especiais, não se aplica a possibilidade de alteração de beneficiário ou objeto após a internalização no Transferegov.br.
+Art. 31. A transferência obrigatória da União para a execução de emendas individuais a Estados, Municípios e ao Distrito Federal independerá da adimplência do ente federativo destinatário, conforme o disposto no art. 166, § 16, da Constituição.
+Art. 32 Os órgãos e entidades da administração pública federal deverão manter controles próprios de verificação da conformidade de registro sobre as alterações, limites e cronogramas das emendas.
+TÍTULO III
+DAS EMENDAS DE BANCADA ESTADUAL OU DISTRITAL DE EXECUÇÃO OBRIGATÓRIA
+CAPÍTULO I
+DOS PROCEDIMENTOS
+Art. 33. A Secretaria de Gestão e Inovação do Ministério da Gestão e da Inovação em Serviços Públicos divulgará e atualizará no Transferegov.br os fluxos a serem observados pelos órgãos e entidades setoriais, para análise e indicação dos impedimentos de ordem técnica das emendas operacionalizadas nessa plataforma.
+Art. 34. A indicação de beneficiários deve ser tratada pelos coordenadores das Bancadas estaduais ou distrital por meio de ofício enviado aos Órgãos Setoriais do SPOF responsáveis pela execução das emendas.
+§1º O ofício deve ser acompanhado da publicização no Portal da Transparência da ata da reunião na qual conste o registro da(s) indicação(ões) da bancada e dos votos que resultaram na decisão colegiada.
+§ 2º Compete ao órgão detentor da emenda avaliar:
+I - a individualização da emenda para não descaracterizar seu caráter estruturante, conforme disposto na Lei Complementar nº 210, de 25 de novembro de 2024; e
+II - se existem os registros nos Obrasgov.br, nos termos da LDO.
+§ 3º A SRI/PR definirá os procedimentos para o envio das informações relacionadas às indicações de beneficiários das emendas de bancada pelos órgãos mencionados no caput.
+CAPÍTULO II
+DAS ALTERAÇÕES ORÇAMENTÁRIAS
+Art. 35. As solicitações de remanejamento encaminhadas pelas Bancadas autoras das emendas, por meio de ofício enviado aos Órgãos Setoriais do SPOF responsáveis pela execução das emendas, deverão informar, na forma do Anexo a esta Portaria, as programações de origem e de destino em seu menor nível para fins de análise e inclusão de proposta de alteração orçamentária no Siop, obedecidos os prazos estabelecidos para solicitação de alterações orçamentárias.
+§ 1º As solicitações de remanejamento das emendas de bancada estadual que não atendam aos requisitos expressos no âmbito da Lei Complementar nº 210, de 25 de novembro de 2024, e legislação aplicável, bem como de decisões judiciais, deverão ser rejeitadas e devolvidas pelos Órgãos Setoriais do SPOF.
+§ 2º As programações de destino a que se refere o caput não devem ser caracterizadas por impedimento de ordem técnica para empenho nos termos do disposto no art. 5º desta Portaria, salvo sanar o impedimento apontado.
+§ 3º As solicitações de remanejamentos propostas pelos autores de emendas de bancada estadual de execução obrigatória deverão ser enviadas, no prazo estabelecido no art. 4º desta Portaria, a todos os Órgãos Setoriais do SPOF responsáveis pelas programações orçamentárias envolvidas, tanto as que serão objeto de cancelamento quanto de suplementação de recursos, para que aqueles Órgãos procedam ao cadastramento da solicitação de remanejamento no Siop, observado o caput.
+§ 4º Quando a solicitação de créditos adicionais no âmbito de Órgãos do Poder Executivo envolver remanejamento de dotações entre Órgãos Setoriais do SPOF distintos, cada Órgão deverá detalhar a parte do remanejamento envolvendo suas UOs e solicitar à SOF/MPO a tramitação da referida solicitação no Siop.
+§ 5º A SOF/MPO procederá a tramitação disposta no § 4º somente quando os Órgãos Setoriais do SPOF envolvidos concluírem, no Siop, o devido detalhamento da parte do remanejamento envolvendo suas respectivas UOs, conforme indicação da bancada autora.
+§ 6º A solicitação de alteração da programação orçamentária deve incluir a indicação do autor da proposta de alteração, garantindo assim a transparência e rastreabilidade das emendas parlamentares.
+Art. 36. As dotações orçamentárias relativas às programações de emendas de bancada com impedimento de ordem técnica para o empenho não estarão sujeitas à execução obrigatória, enquanto não superados os impedimentos.
+Art. 37. As programações das emendas de bancada poderão ser canceladas para abertura de créditos suplementares, conforme autorização disposta na LOA, desde que compatíveis com a obtenção da meta de resultado primário fixada na LDO, e com os limites de despesas primárias de que trata o art. 3º da Lei Complementar nº 200, de 30 de agosto 2023, observado o disposto no art. 8º, parágrafo único, da LRF, e disposições constantes da Portaria de procedimentos e prazos para alterações orçamentárias da SOF/MPO.
+Parágrafo único. Os remanejamentos propostos nas solicitações de alteração das Bancadas não poderão aumentar a quantidade de suas respectivas emendas, de modo que não resultem em quantidade de emendas superior àquela aprovada na LOA.
+CAPÍTULO III
+DA EXECUÇÃO ORÇAMENTÁRIA
+Art. 38. A SOF/MPO, após a publicação de Decreto de Programação Orçamentária e Financeira e suas alterações, indicará aos Órgãos Setoriais do SPOF os valores a serem bloqueados em atendimento a medidas de restrição de empenho, envolvendo limite de movimentação e empenho, bem como bloqueio de dotações em atendimento a metas fiscais e limite de gastos.
+§ 1º A restrição de que trata o caput será distribuída conforme indicação da bancada estadual autora das emendas, observada a disponibilidade orçamentária de forma equitativa entre Estados e o Distrito Federal.
+§ 2º A SOF/MPO, após a publicação do Decreto de que trata o caput, encaminhará à SRI/PR, no prazo de até cinco dias, contado da data da divulgação, detalhamento da indicação proporcional de valores disponíveis por bancada estadual, respeitada a equidade disposta no § 1º.
+§ 3º A SRI/PR consultará as Bancadas estaduais e distrital sobre a distribuição dos montantes a serem bloqueados entre as programações de autoria de cada bancada e comunicará à SOF/MPO, para fins de adequação da distribuição dos limites, no prazo de até quinze dias, contado da data de recebimento do detalhamento descrito no § 2º.
+§ 4º A SRI/PR definirá o prazo para recebimento das manifestações das Bancadas autoras visando ao cumprimento do prazo estabelecido no § 3º.
+§ 5º A SOF/MPO adotará providências para encaminhar aos Órgãos Setoriais do SPOF a distribuição dos bloqueios conforme comunicado da SRI/PR, ouvidas as Bancadas autoras das emendas, após transcorrido o prazo estabelecido no § 4º.
+§ 6º Os Órgãos Setoriais do SPOF, por meio do Siop, efetuarão o bloqueio das dotações orçamentárias sujeitas aos valores estabelecidos no decreto de que trata o caput.
+§ 7º A SOF/MPO, transcorrido o prazo estabelecido no § 3º, encaminhará aos Órgãos Setoriais do SPOF os valores a serem bloqueados, na forma de que trata o § 2º, para as programações de autoria de Bancadas estaduais que não se manifestarem.
+§ 8º As Bancadas estaduais, em resposta à consulta estabelecida no § 3º, deverão observar os valores executados em suas respectivas programações, com o objetivo de evitar inconsistências nos saldos orçamentários correlatos, decorrentes da distribuição de montantes a serem indicados.
+§ 9º Para garantir a realização dos bloqueios conforme indicados pelas Bancadas, a realização de empenhos poderá ser suspensa no período compreendido entre a divulgação do Relatório de Avaliação de Receitas e Despesas Primárias e a efetivação no SIAFI dos bloqueios ou desbloqueios estabelecidos no DPOF.
+§ 10. Os Órgãos Setoriais do SPOF deverão proceder com a anulação de empenhos quando necessário para a efetivação dos bloqueios indicados pelas Bancadas.
+§ 11. As indicações de prioridades de que trata o § 3º serão consideradas como anuência do autor sobre as consequências decorrentes do implemento das restrições de que trata o caput, inclusive para fins de eventual cancelamento necessário ao atendimento do limite de gastos.
+§ 12. As indicações de que trata o § 11, quando do encaminhamento ao Poder Executivo, deverão ser informadas pelas Bancadas, especificando separadamente cada medida de restrição de empenho.
+§ 13. Na ausência de indicação expressa em atendimento ao § 12, as medidas incidirão proporcionalmente às dotações do autor, observado o saldo não empenhado.
+§ 14. Em caso de desbloqueio, serão adotados os mesmos procedimentos previstos neste artigo.
+Art. 39. Os Órgãos Setoriais do SPOF deverão registrar no Módulo Acompanhamento das Despesas Discricionárias do Siop, até 31 de janeiro, justificativa da execução da programação incluída na LOA, por emendas de bancada estadual de execução obrigatória, conforme dispõe a LDO, em casos de execução orçamentária com valores empenhados inferiores a noventa e nove por cento da dotação orçamentária.
+TÍTULO IV
+DAS EMENDAS NÃO IMPOSITIVAS
+Art. 40. A indicação de beneficiários, caso ocorra, deve ser tratada pelos presidentes das comissões por meio de ofício enviado aos Órgãos Setoriais do SPOF responsáveis pela execução das emendas, sem prejuízo ao disposto no art. 1º desta Portaria.
+§ 1º O ofício deve ser acompanhado da publicização no Portal da Transparência da ata da reunião na qual conste o registro do(s) parlamentar(es) solicitante(s) e dos votos que resultaram na decisão colegiada.
+§ 2º A SRI/PR definirá os procedimentos para o envio das informações relacionadas às indicações de beneficiários das emendas de comissão pelos órgãos setoriais do SPOF.
+Art. 41. A SOF/MPO, após a publicação de Decreto de Programação Orçamentária e Financeira e suas alterações, indicará aos Órgãos Setoriais do SPOF os valores a serem bloqueados em atendimento a medidas de restrição de empenho, envolvendo limite de movimentação e empenho, bem como bloqueio de dotações em atendimento a metas fiscais e limite de gastos.
+§ 1º A restrição de que trata o caput será distribuída conforme indicação do Poder Legislativo, observada a disponibilidade orçamentária.
+§ 2º A SRI/PR consultará o Poder Legislativo sobre a distribuição dos montantes a serem bloqueados entre as programações de autoria das comissões e comunicará à SOF/MPO, para fins de adequação da distribuição dos limites, no prazo de quinze dias contados da solicitação da SOF/MPO.
+§ 3º A SRI/PR definirá o prazo para recebimento das manifestações do Poder Legislativo visando ao cumprimento do prazo estabelecido no § 2º.
+§ 4º A SOF/MPO adotará providências para encaminhar aos Órgãos Setoriais do SPOF a distribuição dos bloqueios conforme comunicado da SRI/PR, após transcorrido o prazo estabelecido no § 3º.
+§ 5º Os Órgãos Setoriais do SPOF, por meio do Siop, efetuarão o bloqueio das dotações orçamentárias sujeitas aos valores estabelecidos no decreto de que trata o caput.
+§ 6º A SRI/PR, transcorrido o prazo estabelecido no § 3º, informará à SOF/MPO, que, por sua vez, encaminhará aos Órgãos Setoriais do SPOF os valores a serem bloqueados referentes à parcela das programações de autoria das comissões em que não houve manifestação do Poder Legislativo.
+§ 7º As indicações de prioridades, mencionadas no § 1º deste artigo:
+I - serão consideradas como anuência do autor sobre as consequências decorrentes do implemento das restrições de que trata o caput, inclusive para fins de eventual cancelamento necessário ao atendimento do limite de gastos, que deverão:
+a) quando do encaminhamento ao Poder Executivo, ser informadas pelo Poder Legislativo, especificando separadamente cada medida de restrição de empenho; e
+b) na ausência de indicação expressa em atendimento ao § 1º, as medidas incidirão proporcionalmente às dotações do autor, observado o saldo não empenhado.
+II - deverão respeitar a aplicação mínima de recursos destinados às ações e serviços públicos de saúde, conforme disposto no art. 4º, § 4º, da Lei Complementar n° 210, de 25 de novembro de 2024.
+§ 8º Em caso de desbloqueio, serão adotados os mesmos procedimentos previstos neste artigo.
+Art. 42. Os Órgãos Setoriais do SPOF deverão registrar no Módulo Acompanhamento das Despesas Discricionárias do Siop, até 31 de janeiro, justificativa da execução das programações classificadas com RP 8, nos termos do disposto na LDO, nos casos em que os valores empenhados sejam inferiores a 99% (noventa e nove por cento) da dotação orçamentária.
+Art. 43. As solicitações de remanejamento das emendas de Comissão que não atendam aos requisitos expressos no âmbito da Lei Complementar nº 210, de 25 de novembro de 2024, da legislação aplicável, bem como de decisões judiciais, deverão ser rejeitadas e devolvidas pelos Órgãos Setoriais do SPOF.
+Parágrafo Único A solicitação de alteração da programação orçamentária deve incluir a indicação do autor da proposta de alteração, garantindo assim a transparência e rastreabilidade das emendas parlamentares.
+TÍTULO V
+DAS DISPOSIÇÕES FINAIS
+Art. 44. A SRI/PR, no âmbito das suas competências regimentais, fará o acompanhamento dos níveis de execução das emendas, por meio de acesso irrestrito à plataforma Transferegov.br e ao Siop, promovendo inclusive comunicações aos autores das emendas acerca de normas e procedimentos afetos à matéria.
+Parágrafo único. Os autores das emendas devem consultar periodicamente os sítios eletrônicos do Transferegov.br e do Siop para fins de acompanhamento dos procedimentos e prazos de que trata este Título.
+Art. 45. Constitui requisito para a execução das emendas de Bancada (RP 7) e de comissão (RP 8) a aprovação ou convalidação da destinação dos recursos, registrada em ata de reunião das respectivas Bancadas ou comissões, e, no caso das emendas de comissão (RP 8), com a identificação do(s) parlamentar(es) solicitante(s).
+§ 1º As atas de que trata o caput devem ser inseridas no Transferegov.br, quando da abertura do programa para recebimento das propostas, e devem ser devidamente publicadas no Portal da Transparência.
+§ 2º Para emendas de execução direta, os órgãos setoriais responsáveis deverão realizar a identificação do(s) solicitante(s) no SIAFI no campo "Plano Interno (PI)" da nota de empenho, com um código previamente cadastrado na tabela de solicitantes de emendas desse sistema.
+§ 3º Para as emendas de execução indireta, os órgãos setoriais responsáveis deverão realizar a identificação do(s) solicitante(s) em campo específico no Transferegov.br.
+Art. 46. No âmbito da execução de emendas parlamentares, os órgãos e unidades envolvidos com o custeio de serviços de operacionalização dos projetos e das atividades de fiscalização deverão observar a LDO, em especial quanto aos requisitos e limites da dedução dos valores a serem transferidos, inclusive sobre transferências a que se refere o inciso I do caput do art. 166-A da Constituição e transferências fundo a fundo financiadas por recursos de emenda parlamentar.
+Parágrafo único. No caso das transferências a que se refere o art. 166-A, caput, inciso I, da Constituição, a dedução de que trata o caput será realizada pelo órgão central do Sistema de Gestão de Parcerias da União (Sigpar), após a finalização da indicação do beneficiário no Siop, para fins de desenvolvimento e aprimoramento dos sistemas estruturantes necessários à operacionalização das transferências e ações de assistência técnica realizadas pelo órgão central.
+Art. 47. Todas as comunicações referentes a indicações ou solicitações realizadas entre autores de emendas, ou Poder Legislativo, e os Órgãos do Poder Executivo que sejam relacionadas às emendas de que trata esta Portaria, exceto as classificadas com RP 6, deverão:
+I - ser divulgadas nos sítios eletrônicos de livre acesso dos respectivos Ministérios, na forma do disposto no art. 8º da Lei nº 12.527, de 18 de novembro de 2011;
+II - ser organizadas de acordo com as programações orçamentárias correspondentes; e
+III - constar de campo descritivo do programa na plataforma Transferegov.br, prevista no Decreto nº 11.271, de 5 de dezembro de 2022, quando couber.
+Parágrafo único. Aplica-se o disposto neste artigo ao conjunto de dotações e programações afetadas durante a vigência do Decreto nº 10.888, de 9 de dezembro de 2021.
+Art. 48 Havendo comunicação formal do(s) parlamentar(es) solicitante(s), para fins de transparência, com relação ao pagamento de restos a pagar de RPs 8 e 9, o órgão executor deverá fazer constar no campo observação da ordem bancária a identificação nominal do(s) parlamentar(es) "solicitante(s)", no formato "ATENDER INDICAÇÃO DO SOLICITANTE [CÓDIGO PARLAMENTAR (4 DÍGITOS) - NOME COMPLETO]".
+Parágrafo único. Para as notas de empenho emitidas a partir de 2025, a indicação nominal do(s) parlamentar(es) solicitante(s) ocorrerá na forma do disposto nos §§ 2º e 3º do art. 45 desta Portaria.
+Art. 49. As definições constantes desta Portaria Conjunta não trazem prejuízo aos procedimentos e prazos para alterações orçamentárias previstos na Portaria de procedimentos e prazos para alterações orçamentárias da SOF/MPO.
+Art. 50. É vedada a inscrição de Restos a Pagar de emendas com impedimentos de ordem técnica.
+Art. 51. Esta Portaria entra em vigor na data de sua publicação.
+SIMONE TEBET
+Ministra de Estado do Planejamento e Orçamento
+ESTHER DWECK
+Ministra de Estado da Gestão e da Inovação em Serviços Públicos
+GLEISI HOFFMANN
+Ministra de Estado da Secretaria de Relações Institucionais da Presidência da República
+ANEXO
+ANEXO
+Ofício nº _______________
+(Local, data).
+A Sua Excelência o(a) Senhor(a)
+Nome do(a) Ministro(a) de Estado ____________________________________
+C/C: Ministra de Estado da Secretaria de Relações Institucionais da Presidência da República
+Endereço
+Assunto: (inserir aqui objeto a sofrer alteração na emenda parlamentar - ex: ação, localizador, GND, etc).
+Senhor(a) Ministro(a),
+Cumprimentando-o(a) cordialmente, dirijo-me a Vossa Excelência para informar que apresentei emenda parlamentar ao Orçamento Geral da União.
+Ante o exposto, solicito as alterações a seguir descritas:
+DE:
+EMENDA / ÓRGÃO / UNIDADE ORÇAMENTÁRIA / FUNCIONAL PROGRAMÁTICA / GND / VALOR
+PARA:
+EMENDA / ÓRGÃO / UNIDADE ORÇAMENTÁRIA / FUNCIONAL PROGRAMÁTICA / GND / VALOR
+JUSTIFICATIVA PARA ALTERAÇÃO:
+Atenciosamente,
+___________________________________________________________
+Nome do(a) Coordenador(a) da Bancada Estadual Autora da Emenda
+OU
+Nome do Presidente de comissão permanente do Senado Federal, da Câmara dos Deputados ou de comissão mista permanente do Congresso Nacional.

@@ -157,12 +157,14 @@ function pnSoConferidos(nota) {
   c.secoes = (nota.secoes || []).filter(ok);
   c.objeto = nota.objeto && ok(nota.objeto) ? nota.objeto : null;
   c.vigencia = nota.vigencia && ok(nota.vigencia) ? nota.vigencia : null;
+  if (nota.alteracoes) c.alteracoes = nota.alteracoes.filter(ok);
+  c.aplicacao_temporal = nota.aplicacao_temporal && ok(nota.aplicacao_temporal) ? nota.aplicacao_temporal : null;
   return { nota: c, omitidos };
 }
 
 /** Recontagem depois de tirar item: { total, conferidos }. */
 function pnRecontar(nota) {
-  const itens = [...Object.keys(PT_NOTA_LISTAS).flatMap(k => nota[k] || []), ...(nota.secoes || []), nota.objeto, nota.vigencia].filter(it => it && 'conferido' in it);
+  const itens = [...Object.keys(PT_NOTA_LISTAS).flatMap(k => nota[k] || []), ...(nota.secoes || []), ...(nota.alteracoes || []), nota.objeto, nota.vigencia, nota.aplicacao_temporal].filter(it => it && 'conferido' in it);
   return { total: itens.length, conferidos: itens.filter(it => it.conferido).length };
 }
 
@@ -179,7 +181,7 @@ function pnVisuais(nota, meta) {
   const v = new Set(nota.visuais || []);
   const out = [];
   if (v.has('numeros')) {
-    const tiles = [['artigos no ato', meta.nArtigos], ['disposições', nota.pontos.length], ['prazos', nota.prazos.length], ['valores', nota.valores.length],
+    const tiles = [['artigos no ato', meta.nArtigos], ['alterações analisadas', (nota.alteracoes || []).length], ['disposições', nota.pontos.length], ['prazos', nota.prazos.length], ['valores', nota.valores.length],
       ['afirmações conferidas', `${meta.conferidos}/${meta.total}`]];
     out.push(`<div class="pn-vis"><h5>Em números</h5><div class="pn-tiles">${tiles.filter(([, n]) => n !== 0).map(([r, n]) => `<div class="pn-tile"><b>${ptEsc(n)}</b><span>${ptEsc(r)}</span></div>`).join('')}</div></div>`);
   }
@@ -245,14 +247,32 @@ function pnSecoesAto(nota, sec, op = {}) {
   const curta = nota.extensao === 'curta';
   const ch = (k, i) => op.pdf || op.ato == null ? '' : pnTirar(`${op.ato}|${k}|${i}`);
   if (nota.resumo) sec('Resumo', `<p>${ptEsc(nota.resumo)}</p>`);
+  if (nota.analise && nota.analise.length) sec('Análise', nota.analise.map(p => `<p>${ptEsc(p)}</p>`).join(''));
   if (nota.objeto && nota.objeto.texto) sec('Objeto', `<p>${ptEsc(nota.objeto.texto)}${ch('objeto', -1)}</p>${pnArts(nota.objeto)}`);
+  if (nota.alteracoes && nota.alteracoes.length) {
+    // nota técnica de ato que altera outro: antes × agora, efeito, impactados e base legal de cada dispositivo
+    sec('O que muda, ponto a ponto', nota.alteracoes.map((a, j) => `<div class="pn-sub-sec"><h5>${ptEsc(a.tema)} — ${ptEsc((a.dispositivos || []).join(', '))}${a.natureza ? ` (${ptEsc(a.natureza)})` : ''}${ch('alteracoes', j)}</h5><ul>
+      <li><b>Antes:</b> ${ptEsc(a.antes)}${!op.pdf && a.verificado === 'sem_prova' ? ` <span class="pn-conf">⚠ conferir o "antes": possível antecedente ${ptEsc(a.antecedenteSugerido || 'no ato alterado')}</span>` : ''}</li>
+      <li><b>Agora:</b> ${ptEsc(a.depois)}</li><li><b>Efeito:</b> ${ptEsc(a.efeito)}</li>
+      ${(a.impactados || []).map(x => `<li><b>Impacto — ${ptEsc(x.quem)}:</b> ${ptEsc(x.como)}</li>`).join('')}
+      ${a.base_legal ? `<li><b>Base legal:</b> ${ptEsc(a.base_legal)}</li>` : ''}</ul><div class="pn-fonte">${pnArts(Object.assign({}, a, { artigos: [] }))}</div></div>`).join(''));
+  }
   for (const [k, [rot, campos]] of Object.entries(PT_NOTA_LISTAS)) {
     const itens = curta ? nota[k].slice(0, 5) : nota[k];
     if (!itens.length) continue;
     sec(rot, `<ul>${itens.map((it, j) => `<li>${campos.map((c, i) => it[c] ? (i === 0 && campos.length > 1 ? `<b>${ptEsc(it[c])}:</b> ` : ptEsc(it[c])) : '').join('')}${ch(k, j)}<div class="pn-fonte">${pnArts(it)}</div></li>`).join('')}</ul>`);
   }
   (nota.secoes || []).forEach((x, j) => sec(x.titulo || 'Complemento', `<p>${ptEsc(x.texto || '')}${ch('secoes', j)}</p><div class="pn-fonte">${pnArts(x)}</div>`));
+  if (nota.aplicacao_temporal && nota.aplicacao_temporal.texto) sec('Aplicação no tempo', `<p>${ptEsc(nota.aplicacao_temporal.texto)}${ch('aplicacao_temporal', -1)}</p><div class="pn-fonte">${pnArts(nota.aplicacao_temporal)}</div>`);
   if (nota.vigencia && nota.vigencia.texto) sec('Vigência', `<p>${ptEsc(nota.vigencia.texto)}${ch('vigencia', -1)}</p><div class="pn-fonte">${pnArts(nota.vigencia)}</div>`);
+}
+
+/** Rodapé da nota técnica de ato que altera outro: o ato alterado lido e o resultado da segunda leitura do "antes". */
+function pnRodapeAlteracao(nota) {
+  if (!nota || !nota.atoAlterado) return '';
+  const v = nota.verificacao;
+  return ` Comparada com o ato que ela altera: ${ptEsc(nota.atoAlterado.identificacao || '')}${nota.atoAlterado.origem === 'DOU' ? ' (texto do DOU)' : ''}.${
+    v && v.verificados ? ` Os "antes" que negavam regra anterior passaram por segunda leitura: ${v.corrigidos} corrigido(s), com o trecho antigo localizado literalmente; ${v.confirmados} confirmado(s)${v.semProva ? `; ${v.semProva} sem prova (marcados na tela)` : ''}.` : ''}`;
 }
 
 function pnNotaHtml(nota, meta, op = {}) {
@@ -269,7 +289,7 @@ function pnNotaHtml(nota, meta, op = {}) {
     ${ptCabecalhoNota({ tipo, titulo: meta.identificacao || 'Ato normativo', sub: [meta.orgao, nota.assunto].filter(Boolean).join(' · ') })}
     ${pnVisuais(nota, meta)}
     ${secoes.join('')}
-    <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.
+    <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.${pnRodapeAlteracao(nota)}
       ${pnRodapeConferencia(meta.conferidos, meta.total, omitidos, op)}
       ${meta.cortado ? 'Atenção: o ato é longo e só a parte inicial foi lida pela IA.' : ''}</div>
   </div>`;
@@ -397,7 +417,7 @@ function pnTirarItem(chave) {
   if (!ato) return;
   pn.versoes.push({ nota: pnCopiaNota(pn.nota), pedidos: pn.pedidos.slice() });
   const n = ato.nota;
-  if (lista === 'objeto' || lista === 'vigencia') n[lista] = null;
+  if (lista === 'objeto' || lista === 'vigencia' || lista === 'aplicacao_temporal') n[lista] = null;
   else if (Array.isArray(n[lista])) n[lista].splice(+i, 1);
   Object.assign(ato, pnRecontar(n));
   pn.aviso = '<div class="on-ok">Item tirado da nota. Use "Desfazer" para voltar.</div>';
@@ -460,6 +480,80 @@ async function pnLinkClick() {
   pnRender();
 }
 
+/**
+ * O ato que d ALTERA: o lançado na lista (se o analista lançou), senão o do DOU
+ * (buscado pelo nome e guardado no próprio ato para não buscar de novo).
+ */
+async function pnAtoAlterado(d) {
+  const r = (d.rel.altera || [])[0];
+  if (!r) return null;
+  const lancado = pn.docs.find(x => x !== d && x.numero && ptChaveAto(x.numero, (x.data || '').slice(0, 4)) === r.chave);
+  if (lancado) return { identificacao: lancado.identificacao || r.rotulo, texto: lancado.texto, origem: 'lista' };
+  if (!d.atoAlterado) {
+    const a = await ptBuscarAtoDou(r.rotulo);
+    d.atoAlterado = { identificacao: a.identificacao || r.rotulo, texto: ptLimpar(a.texto).texto, url: a.url, origem: 'DOU' };
+  }
+  return d.atoAlterado;
+}
+
+/**
+ * Nota técnica de ato que altera outro (ver portarias-nota.js): parte geral,
+ * alterações em lotes, complemento do que faltar, segunda leitura do "antes" e
+ * conferência. Devolve o resultado de ptConferirNotaTecnica, ou null quando o ato
+ * não tem dispositivos entre aspas (aí vale a nota técnica comum).
+ */
+async function pnGerarTecnicaAlteracao(d, alterado, foco, progresso) {
+  const inv = ptInventarioAlteracoes(d.texto, alterado.texto);
+  if (!inv.length) return null;
+  const LOTE = 7;
+  const lotes = l => { const o = []; for (let i = 0; i < l.length; i += LOTE) o.push(l.slice(i, i + LOTE)); return o; };
+  progresso(`Comparando com ${alterado.identificacao}: parte geral…`);
+  const geral = await ptChamarIAJson(ptPromptTecnicaGeral({ cab: d, rel: d.rel, inv, texto: d.texto, alterado, foco }));
+  let alteracoes = [];
+  const pedir = async (lote, complemento) => {
+    try {
+      const j = await ptChamarIAJson(ptPromptTecnicaAlteracoes({ cab: d, rel: d.rel, lote, alterado, complemento }));
+      const ks = new Set(lote.map(b => ptChaveDispositivo(b.id)));
+      const cob = new Set(alteracoes.flatMap(a => a.dispositivos.map(ptChaveDispositivo)));
+      // agrupamento fora da regra é descartado (volta no complemento); só entra o que é deste lote e ainda falta
+      alteracoes = alteracoes.concat(((j && j.alteracoes) || []).filter(ptAgrupamentoValido)
+        .filter(a => a.dispositivos.some(x => ks.has(ptChaveDispositivo(x)) && !cob.has(ptChaveDispositivo(x)))));
+    } catch (e) { if (/cortada|formato esperado/.test(e.message)) return; throw e; }
+  };
+  const L = lotes(inv);
+  for (let i = 0; i < L.length; i++) { progresso(`Analisando as alterações (${i + 1}/${L.length})…`); await pedir(L[i], false); }
+  for (let rodada = 0; rodada < 2; rodada++) {
+    const f = ptInventarioFaltando(inv, alteracoes);
+    if (!f.length) break;
+    progresso(`Completando ${f.length} dispositivo(s) que ficaram de fora…`);
+    for (const l of lotes(f)) await pedir(l, true);
+  }
+  alteracoes = ptOrdenarAlteracoes(inv, alteracoes);
+  // segunda leitura de todo "antes" que nega regra anterior, por artigo-base; só troca com prova literal
+  const alvo = alteracoes.filter(a => ptNegaRegraAnterior(a.antes));
+  const grupos = {};
+  for (const a of alvo) { const b = ptArtigoBase(a.dispositivos[0]); (grupos[b] = grupos[b] || []).push(a); }
+  const gs = Object.entries(grupos);
+  for (let i = 0; i < gs.length; i++) {
+    progresso(`Conferindo o "antes" no ato alterado (${i + 1}/${gs.length})…`);
+    try { ptAplicarVerificacao(gs[i][1], await ptChamarIAJson(ptPromptVerificacaoAntes({ base: gs[i][0], itens: gs[i][1], inv, alterado })), alterado.texto); }
+    catch (e) { if (!/cortada|formato esperado/.test(e.message)) throw e; }
+  }
+  for (const a of alvo.filter(x => x.verificado === 'sem_prova')) {
+    try { ptAplicarVerificacao([a], await ptChamarIAJson(ptPromptVerificacaoAntes({ base: ptArtigoBase(a.dispositivos[0]), itens: [a], inv, alterado, pista: a.antecedenteSugerido })), alterado.texto); }
+    catch (e) { if (!/cortada|formato esperado/.test(e.message)) throw e; }
+  }
+  const conta = v => alvo.filter(a => a.verificado === v).length;
+  return ptConferirNotaTecnica(Object.assign({}, geral, { alteracoes,
+    atoAlterado: { identificacao: alterado.identificacao, url: alterado.url || '', origem: alterado.origem },
+    verificacao: { verificados: alvo.length, corrigidos: conta('corrigido'), confirmados: conta('confirmado'), semProva: conta('sem_prova') } }), d.texto, alterado.texto);
+}
+
+/** Confere a resposta da IA para o ato d: técnica com comparação, quando a nota tem alterações e o ato alterado foi lido; senão a comum. */
+function pnConferir(r, d) {
+  return r && Array.isArray(r.alteracoes) && d.atoAlterado ? ptConferirNotaTecnica(r, d.texto, d.atoAlterado.texto) : ptConferirNota(r, d.texto);
+}
+
 function pnRelacoesTexto(d) { return [...d.rel.revoga.map(x => 'revoga ' + x.rotulo), ...d.rel.altera.map(x => 'altera ' + x.rotulo)]; }
 
 async function pnGerar() {
@@ -470,13 +564,23 @@ async function pnGerar() {
   pn.ocupado = 'gerar'; pn.aviso = ''; pnRender();
   try {
     // 1. a nota de cada ato, conferida contra o texto DELE
-    const atos = [], falhas = [];
+    const atos = [], falhas = [], avisos = [];
     for (let i = 0; i < docs.length; i++) {
       const d = docs[i];
       pn.progresso = docs.length > 1 ? `Lendo ato ${i + 1} de ${docs.length}…` : 'Redigindo e conferindo…'; pnRender();
       try {
-        const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptNota({ tipo: pn.tipo, foco, cab: d, relacoes: d.rel }), d.texto));
-        const c = ptConferirNota(j, d.texto);
+        let c = null;
+        // nota técnica de ato que altera outro: compara com o ato alterado (do DOU ou da lista)
+        if (pn.tipo === 'tecnica' && d.rel.altera.length) {
+          let alterado = null;
+          try { pn.progresso = `Buscando ${d.rel.altera[0].rotulo} no DOU…`; pnRender(); alterado = await pnAtoAlterado(d); }
+          catch (e) { avisos.push(`${pnCurto(d)}: não achei o ato alterado (${e.message}) — a nota técnica saiu sem o comparativo; para comparar, lance também o ato alterado na lista`); }
+          if (alterado) c = await pnGerarTecnicaAlteracao(d, alterado, foco, m => { pn.progresso = (docs.length > 1 ? `Ato ${i + 1}/${docs.length}: ` : '') + m; pnRender(); });
+        }
+        if (!c) {
+          const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptNota({ tipo: pn.tipo, foco, cab: d, relacoes: d.rel }), d.texto));
+          c = ptConferirNota(j, d.texto);
+        }
         atos.push({ docId: d.id, nota: c.nota, total: c.total, conferidos: c.conferidos });
       } catch (e) { if (docs.length === 1) throw e; falhas.push(`${pnCurto(d)}: ${e.message}`); }
     }
@@ -491,6 +595,7 @@ async function pnGerar() {
     }
     pn.nota = { geral, atos, docs: lidos }; pn.versoes = []; pn.pedidos = [];
     if (falhas.length) pn.aviso = `<div class="on-falha">Ficaram de fora da nota (falha da IA): ${ptEsc(falhas.join('; '))}. Gere de novo para tentar outra vez.</div>`;
+    if (avisos.length) pn.aviso += `<div class="on-pend">${ptEsc(avisos.join('; '))}.</div>`;
   } catch (e) { pn.aviso = `<div class="on-falha">Falhou: ${ptEsc(e.message)}</div>`; console.error(e); }
   pn.ocupado = ''; pn.progresso = ''; pnRender();
 }
@@ -503,8 +608,12 @@ async function pnRevisar(pedido) {
     let nova;
     if (!pn.nota.geral) {
       const d = docs[0];
-      const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisao({ nota: pn.nota.atos[0].nota, pedido, historico: pn.pedidos, tipo: pn.tipo, cab: d }), d.texto));
-      const c = ptConferirNota(j, d.texto);
+      const alt = pn.nota.atos[0].nota.alteracoes && d.atoAlterado;
+      const j = await ptChamarIAJson(comTextoDoDocumento(ptPromptRevisao({ nota: pn.nota.atos[0].nota, pedido, historico: pn.pedidos, tipo: pn.tipo, cab: d, alterado: alt ? d.atoAlterado : null }),
+        alt ? `${d.texto}\n\nATO ALTERADO (${d.atoAlterado.identificacao}):\n${d.atoAlterado.texto}` : d.texto));
+      // a revisão não volta a fazer a busca nem a segunda leitura: o que já foi verificado segue com a nota
+      if (alt) Object.assign(j, { atoAlterado: pn.nota.atos[0].nota.atoAlterado, verificacao: pn.nota.atos[0].nota.verificacao });
+      const c = pnConferir(j, d);
       nova = { geral: null, docs: pn.nota.docs, atos: [{ docId: d.id, nota: c.nota, total: c.total, conferidos: c.conferidos }] };
     } else {
       const textos = docs.map((d, i) => `=== ATO ${i + 1}: ${d.identificacao || ''} ===\n${d.texto}`).join('\n\n');
@@ -521,7 +630,8 @@ async function pnRevisar(pedido) {
         atos: pn.nota.atos.map((a, i) => {
           const r = daResposta(i);
           if (!r || typeof r !== 'object' || !Object.keys(r).some(k => k !== 'ato')) { if (lista.length) ignorados++; return a; }
-          const c = ptConferirNota(r, docs[i].texto); return { docId: a.docId, nota: c.nota, total: c.total, conferidos: c.conferidos };
+          if (a.nota.atoAlterado) Object.assign(r, { atoAlterado: a.nota.atoAlterado, verificacao: a.nota.verificacao });
+          const c = pnConferir(r, docs[i]); return { docId: a.docId, nota: c.nota, total: c.total, conferidos: c.conferidos };
         }) };
       if (ignorados) nova.geral.resposta = `${nova.geral.resposta ? nova.geral.resposta + ' ' : ''}(Atenção: a resposta da IA não trouxe ${ignorados} nota(s) de ato num formato utilizável; essas ficaram como estavam.)`;
     }
