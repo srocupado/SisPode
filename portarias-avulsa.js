@@ -223,6 +223,9 @@ function pnVisuais(nota, meta) {
   return out.join('');
 }
 
+/** Rodapé das notas no PDF: só a assinatura. O método e a conferência ficam na tela (.pn-rodape-tela some na impressão). */
+const PT_RODAPE_ASSINATURA = 'Liderança do Podemos na Câmara';
+
 /**
  * Cabeçalho das notas, no padrão das notas do Orçamento: logo do Podemos,
  * tipo + legislatura, título, carimbo da Coordenação e o filete colorido.
@@ -289,9 +292,9 @@ function pnNotaHtml(nota, meta, op = {}) {
     ${ptCabecalhoNota({ tipo, titulo: meta.identificacao || 'Ato normativo', sub: [meta.orgao, nota.assunto].filter(Boolean).join(' · ') })}
     ${pnVisuais(nota, meta)}
     ${secoes.join('')}
-    <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.${pnRodapeAlteracao(nota)}
+    <div class="pn-rodape">${PT_RODAPE_ASSINATURA}<span class="pn-rodape-tela"> · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto do ato.${pnRodapeAlteracao(nota)}
       ${pnRodapeConferencia(meta.conferidos, meta.total, omitidos, op)}
-      ${meta.cortado ? 'Atenção: o ato é longo e só a parte inicial foi lida pela IA.' : ''}</div>
+      ${meta.cortado ? 'Atenção: o ato é longo e só a parte inicial foi lida pela IA.' : ''}</span></div>
   </div>`;
 }
 
@@ -353,9 +356,9 @@ function pnNotaConjuntaHtml(nota, docs, tipoId, op = {}) {
     ${ptCabecalhoNota({ tipo, titulo: `Notas de portarias: ${docs.length} atos`, sub: g.assunto || docs.map(pnCurto).join(' · ') })}
     ${vis}
     ${secoes.join('')}
-    <div class="pn-rodape">Liderança do Podemos · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto dos atos: ${docs.map(d => ptEsc(pnCurto(d))).join('; ')}.
+    <div class="pn-rodape">${PT_RODAPE_ASSINATURA}<span class="pn-rodape-tela"> · ${ptEsc(tipo)} redigida com apoio de IA a partir do texto dos atos: ${docs.map(d => ptEsc(pnCurto(d))).join('; ')}.
       ${pnRodapeConferencia(conferidos, total, omitidos, op)}
-      A parte geral foi escrita só a partir das notas de cada ato.${cortados.length ? ` Atos longos lidos só na parte inicial: ${cortados.map(ptEsc).join('; ')}.` : ''}</div>
+      A parte geral foi escrita só a partir das notas de cada ato.${cortados.length ? ` Atos longos lidos só na parte inicial: ${cortados.map(ptEsc).join('; ')}.` : ''}</span></div>
   </div>`;
 }
 
