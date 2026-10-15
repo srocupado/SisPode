@@ -2189,6 +2189,22 @@ async function buscarTextoEmenda(d, prop) {
           console.log('[IA] Caso 3-MPV: sem PLV adotado — o DVS é sobre o texto original da MPV.');
         }
       }
+      // Dispositivo "apresentado ao PL" sem citar o texto original: presume-se o
+      // substitutivo — lê o ÚLTIMO (maior codteor entre SBT/PRLP). Sem ele, o original.
+      if (!ehMPV && !/original/i.test(descricao)) {
+        const htmlSbt = await fetchCamara(`https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${prop.idCamara}`);
+        if (htmlSbt) {
+          const cod = href => { const m = (href || '').match(/codteor=(\d+)/i); return m ? parseInt(m[1], 10) : 0; };
+          const sbt = Array.from(new DOMParser().parseFromString(htmlSbt, 'text/html').querySelectorAll('a[href*="codteor"]'))
+            .map(a => a.getAttribute('href') || '').filter(h => /filename[=+%]*(SBT|PRLP)/i.test(h))
+            .sort((a, b) => cod(b) - cod(a))[0];
+          if (sbt) {
+            console.log('[IA] Caso 3: DVS de dispositivo sem citar o texto — último substitutivo:', resolverUrlCamara(sbt));
+            const info = await buscarDocumento(resolverUrlCamara(sbt), { tipo: 'substitutivo', numArtigo, numInciso, numPar, referenciaLeg });
+            if (info) return info;
+          }
+        }
+      }
       console.log('[IA] Caso 3: DVS de dispositivo do PL original');
       const infoBase = { tipo: 'pl_original', numArtigo, numInciso, numPar, referenciaLeg };
 
@@ -2670,9 +2686,9 @@ DESTAQUE A ANALISAR:
 
 INSTRUÇÕES PARA CADA CAMPO DO JSON:
 
-"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = aprova o destaque (suprime/altera o dispositivo destacado).
+"votoSim": [máx. 15 palavras] Efeito prático de votar SIM. Em DVS: SIM = rejeita o destaque, mantém o texto do relator/substitutivo.
 
-"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = rejeita o destaque, mantém o texto do relator/substitutivo.
+"votoNao": [máx. 15 palavras] Efeito prático de votar NÃO. Em DVS: NÃO = aprova o destaque (suprime/altera o dispositivo destacado).
 
 "explicacao": ${instrucaoExplicacao}
 ${regraExplicacao}
