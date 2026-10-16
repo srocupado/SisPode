@@ -272,6 +272,9 @@ ok(conta(rRen) === '{"A":3,"B":3,"C":3}' && rRen.cortes.B === 1 && rRen.cortes.C
   'maiores médias sobre o voto líquido (A 1, B 4, C 4) e o excedente de A tirado da 9ª (B) e da 8ª (C): A 3, B 3, C 3 — o resultado do projeto');
 ok(conta(S.snDistritaoMisto(ren, Object.assign({}, opRen, { votoLiquido: false }))) === '{"A":4,"B":3,"C":2}', 'sem o voto líquido, a votação inteira daria A 4 (5 pela conta, mas só tem 4 candidatos), B 3, C 2');
 ok(S.snDistritaoMisto(ren, { pctMaisVotados: 0.5 }).nMais === 5, 'arredondado (padrão): 5 mais votados');
+const rFed = S.snDistritaoMisto(ren, Object.assign({}, opRen, { modelo: 'paralelo' }));
+ok(rFed.nLista === 5 && conta(rFed) === '{"A":4,"B":3,"C":2}' && rFed.vagas === 9,
+  'Federativo Misto (paralelo): os 4 mais votados (A 3, B 1) e as 5 vagas restantes pelas médias do voto líquido (C 14.000, B 12.000, C 7.000, B 6.000, A 5.000): A 4, B 3, C 2 — sem excedente');
 
 console.log('Cláusula com o voto partidário líquido');
 {
