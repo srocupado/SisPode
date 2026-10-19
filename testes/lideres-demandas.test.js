@@ -155,6 +155,19 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
      `conclusão de mérito e aprovação (${l3052.parecer})`);
   ok(l3052.anteriores === 'CCULT: aprovado em 28/05/2025 (pela aprovação, com substitutivo)', `CCULT anterior (${l3052.anteriores})`);
 
+  // Parecer que decide mais de uma coisa: vale a conclusão sobre a PRÓPRIA proposição
+  // (a primeira de mérito), não a última — que é sobre apensado ou substitutivo de outra
+  // comissão. Despachos reais (PL 5967/2023 na CSPCCO, PL 770/2015 na CCJC).
+  const conc = desp => L.tramiteDemanda({ siglaOrgao: 'X' }, [
+    T('2026-04-15', 'X', '320', 'Designação de Relator(a)', 'Designado Relator, Dep. Fulano (PL-MS).'),
+    T('2026-04-16', 'X', '322', 'Parecer do(a) Relator(a)', desp)]).parecer.conclusao;
+  ok(conc('Parecer do Relator, Dep. Rodolfo Nogueira (PL-MS), pela aprovação do PL 5967/2023 e do PL 876/2026, apensado, e pela rejeição do Substitutivo da CTASP, com Substitutivo.')
+    === 'pela aprovação, com substitutivo', 'PL 5967/2023: aprovação deste com substitutivo, não a rejeição do substitutivo da CTASP');
+  ok(conc('Parecer do Relator, Dep. Coronel Tadeu (PSL-SP), pela constitucionalidade, juridicidade, técnica legislativa e, no mérito, pela aprovação deste e dos Projetos de Lei nºs 2.307/2015 e 4.248/2019, apensados, com substitutivo; e pela constitucionalidade, injuridicidade, técnica legislativa e, no mérito, pela rejeição do PL 4.694/2016, apensado.')
+    === 'pela aprovação, com substitutivo', 'PL 770/2015: a rejeição de um apensado não vira a conclusão do parecer');
+  ok(conc('Parecer do Relator, Dep. Fulano (PL-MS), pela não implicação da matéria em aumento ou diminuição da receita e, no mérito, pela rejeição deste e pela aprovação do PL 1/2026, apensado.')
+    === 'pela rejeição', 'rejeição da própria proposição continua rejeição, mesmo com apensado aprovado');
+
   // PL 3932/2024: urgência aprovada direto no Plenário, nenhum relator.
   const l3932 = L.linhasTramite(L.tramiteDemanda({ regime: 'Urgência (Art. 155, RICD)', siglaOrgao: 'PLEN' }, [
     T('2024-11-04', 'PLEN', '196', 'Aprovação de Urgência (154, 155 ou 64 CF)', 'Aprovado o requerimento nº 4402/2024'),

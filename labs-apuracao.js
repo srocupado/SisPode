@@ -87,6 +87,17 @@ function apEleito(c) {
 }
 
 /**
+ * Votos anulados? O TSE diz a destinação dos votos de cada candidato (dvt):
+ * "Válido", "Anulado" ou "Anulado sub judice" (candidatura com recurso pendente).
+ * Devolve '' (válidos), 'anulado' ou 'sub judice'. Os votos aparecem, mas não
+ * contam para o partido nem para as vagas — e o candidato não entra em projeção.
+ */
+function apAnulado(c) {
+  const d = String(c.dvt || '');
+  return /anulad/i.test(d) ? (/sub\s*j[uú]dice/i.test(d) ? 'sub judice' : 'anulado') : '';
+}
+
+/**
  * Lê o arquivo de uma UF com TODOS os partidos e candidatos. Pura.
  * Durante a apuração o TSE não marca eleitos, mas informa as vagas que cada
  * agremiação (partido isolado ou federação) obtém no momento: os N mais votados
@@ -107,15 +118,16 @@ function apLerUFTodos(j, uf) {
       partidos.push({ numero: String(p.n), sigla: p.sg, nome: p.nm, nominais, legenda, total: nominais + legenda, vagas: vag, federacao: a.tp !== 'i' ? (a.nm || '') : '' });
       for (const c of p.cand || []) {
         doAgr.push({ numero: c.n, nome: c.nmu || c.nm, nomeCompleto: c.nm, partido: p.sg, partidoNum: String(p.n),
-          votos: apNum(c.vap), pct: apNum(c.pvap), eleito: apEleito(c), situacao: c.st || '', projetado: false });
+          votos: apNum(c.vap), pct: apNum(c.pvap), eleito: apEleito(c), situacao: c.st || '', projetado: false, anulado: apAnulado(c) });
       }
     }
     doAgr.sort((x, y) => y.votos - x.votos);
-    if (!majoritario) doAgr.forEach((c, i) => { c.projetado = !c.eleito && i < vag && c.votos > 0; });
+    // projeção só entre os de votos válidos (quem tem votos anulados não ocupa vaga)
+    if (!majoritario) doAgr.filter(c => !c.anulado).forEach((c, i) => { c.projetado = !c.eleito && i < vag && c.votos > 0; });
     candidatos.push(...doAgr);
   }
   candidatos.sort((x, y) => y.votos - x.votos || x.nome.localeCompare(y.nome));
-  if (majoritario && !candidatos.some(c => c.eleito)) candidatos.forEach((c, i) => { c.projetado = i < nv && c.votos > 0; });
+  if (majoritario && !candidatos.some(c => c.eleito)) candidatos.filter(c => !c.anulado).forEach((c, i) => { c.projetado = i < nv && c.votos > 0; });
   return {
     uf, nome: uf === 'br' ? 'Brasil' : (AP_UFS[uf] || uf.toUpperCase()), cargo: +cargo.cd, cargoNome: cargo.nmn || '', majoritario,
     secoes: apNum(s.ts), apuradas: apNum(s.st), pct: apNum(s.pst),
@@ -209,5 +221,5 @@ function apCor(pct) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apRetotalizando, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apCor, apNum };
+  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apRetotalizando, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apAnulado, apCor, apNum };
 }

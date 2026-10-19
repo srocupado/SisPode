@@ -143,12 +143,15 @@ function aoLeitorMunzona(cargo, numero) {
   const linha = aoCsv(['CD_MUNICIPIO', 'NM_MUNICIPIO', 'NR_ZONA', 'CD_CARGO', 'NR_CANDIDATO', 'NR_TURNO'], v => {
     if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
     const q = Number(v('QT_VOTOS_NOMINAIS_VALIDOS') || v('QT_VOTOS_NOMINAIS')) || 0;
+    // os votos do próprio candidato: todos os nominais (com votos anulados sub judice,
+    // os válidos são 0 — o relatório mostra os votos que ele recebeu, com a nota)
+    const qc = v('QT_VOTOS_NOMINAIS') !== '' ? Number(v('QT_VOTOS_NOMINAIS')) || 0 : q;
     const cd = v('CD_MUNICIPIO'), z = v('NR_ZONA'), kz = cd + '|' + z;
     const m = (mun[cd] = mun[cd] || { n: v('NM_MUNICIPIO'), v: 0, t: 0 });
     const zz = (zonas[kz] = zonas[kz] || { cd, n: m.n, z, v: 0, t: 0 });
     m.t += q; zz.t += q;
     if (v('NR_CANDIDATO') === String(numero)) {
-      m.v += q; zz.v += q; total += q;
+      m.v += qc; zz.v += qc; total += qc;
       if (!cand) cand = { nome: v('NM_URNA_CANDIDATO'), partido: v('SG_PARTIDO'), sit: v('DS_SIT_TOT_TURNO') };
     }
   });
@@ -282,7 +285,8 @@ function aoRelatorioHtml(r) {
   const kpi = (v, l) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`;
   const nLoc = sec ? locais.length : muns.length;
   let h = `<div class="ao-cab"><b>${saEsc(cand.nome)}</b> <span class="sigla">${saEsc(cand.partido)} · ${saEsc(cand.numero)}</span>
-      <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}</div></div>
+      <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}${cand.anulado ? ` · <span class="sit an">⚖ ${saAnuladoTxt(cand.anulado)}</span>` : ''}</div></div>
+    ${cand.anulado ? `<div class="ao-nota">⚖ ${saEsc(SA_NOTA_ANULADO[cand.anulado] || '')}</div>` : ''}
     <div class="cards ao-cards">${kpi(saFmt(total), 'votos no 1º turno')}${um && !sec
         // DF sem o detalhe por escola: a unidade é a zona eleitoral
         ? kpi(saFmt(zonas.length), 'zonas eleitorais com voto') + kpi(aoPct(muns[0] && muns[0].t ? total / muns[0].t : 0), 'dos votos nominais do cargo no DF')
@@ -414,7 +418,7 @@ async function aoMunzonaResultados(op, cargo, uf, numero) {
     feitos++;
     if (feitos % 10 === 0 || feitos === alvos.length) aoSt(`Resultados do TSE: ${feitos} de ${alvos.length} ${umSo ? 'zonas' : 'municípios'}…`);
     const x = d.candidatos.find(k => String(k.numero) === String(numero));
-    const t = d.candidatos.reduce((s, k) => s + k.votos, 0);
+    const t = d.candidatos.reduce((s, k) => s + (k.anulado ? 0 : k.votos), 0);   // votos nominais válidos do cargo ali
     const v = x ? x.votos : 0;
     if (x && !out.cand) out.cand = { nome: x.nome, partido: x.partido, sit: x.situacao };
     const mm = (out.mun[m.cd] = out.mun[m.cd] || { n: m.nm, cdi: m.cdi, v: 0, t: 0 });
@@ -445,6 +449,9 @@ async function aoCarregar(cand, uf, detalhar) {
     aoSt('Lendo o índice dos arquivos do TSE…');
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
+    // votos anulados (sub judice): vem do arquivo do estado, que o painel já leu
+    const doEstado = sa.dados[uf] && sa.dados[uf].candidatos.find(k => String(k.numero) === String(cand.numero));
+    if (doEstado && doEstado.anulado) r.cand.anulado = doEstado.anulado;
     // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
     const base = (await aoBaseArquivos(ano)) || AO_TSE, naExt = !!(await aoBaseArquivos(ano));   // naExt: lê os arquivos (extensão ou repasse)
     const ibgeP = aoIbge(uf).catch(() => null);

@@ -2441,7 +2441,14 @@ function _deputadoDoDespacho(desp) {
 /** O voto do parecer em poucas palavras: "pela aprovação, com substitutivo". */
 function _conclusaoParecer(desp) {
   const s = String(desp || '');
-  const merito = [...s.matchAll(/pela?\s+(aprova[çc][ãa]o|rejei[çc][ãa]o)/gi)].pop();
+  // A conclusão é a do mérito sobre a própria proposição: a PRIMEIRA aprovação/
+  // rejeição depois de "no mérito" (ou a primeira do texto). As seguintes costumam
+  // ser sobre apensados, emendas ou o substitutivo de outra comissão — PL 5967/2023,
+  // CSPCCO: "pela aprovação do PL 5967/2023 e do PL 876/2026, apensado, e pela
+  // rejeição do Substitutivo da CTASP" (com a última, saía "pela rejeição").
+  const im = s.search(/m[ée]rito/i);
+  const todas = [...s.matchAll(/pela?\s+(aprova[çc][ãa]o|rejei[çc][ãa]o)/gi)];
+  const merito = todas.find(m => im < 0 || m.index > im) || todas[0];
   if (!merito) return '';
   const voto = /rejei/i.test(merito[1]) ? 'pela rejeição' : 'pela aprovação';
   if (voto === 'pela rejeição' || !/substitutivo/i.test(s)) return voto;

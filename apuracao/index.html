@@ -85,7 +85,7 @@
   tr.el td { background: rgba(0,168,89,.13); }
   tr.pj td { background: rgba(255,210,74,.07); }
   td.pt { color: var(--dim); font-size: 12px; }
-  .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; } .sit.pj { color: var(--ama); font-weight: 600; }
+  .sit { font-size: 11px; color: var(--dim); } .sit.el { color: var(--verde2); font-weight: 700; } .sit.pj { color: var(--ama); font-weight: 600; } .sit.an { color: #e07a5f; font-weight: 600; cursor: help; }
   details summary { cursor: pointer; font-size: 12px; color: var(--dim); margin-top: 5px; }
   .vazio { font-size: 12.5px; color: var(--dim); padding: 4px 0; } .vazio.grande { padding: 24px 12px; text-align: center; background: var(--bg2); border: 1px dashed var(--borda); border-radius: 12px; }
   .cl-ok { color: var(--verde2); font-weight: 700; } .cl-nao { color: #ff7a6b; font-weight: 700; }
@@ -148,7 +148,7 @@
     #saImpressao .tab-rolagem { overflow: visible; }
     #saImpressao tr.el td { background: #e3f4ea; } #saImpressao tr.pj td { background: #fff6dc; } #saImpressao tr.cl-fora td { background: #fdecea; }
     #saImpressao .cl-ok, #saImpressao .sit.el { color: #0b8a4b; } #saImpressao .cl-nao, #saImpressao .cl-num.nao .v { color: #c0392b; }
-    #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; }
+    #saImpressao .sit.pj, #saImpressao .cl-quase { color: #9a6a00; } #saImpressao .sit.an { color: #b5452a; }
     #saImpressao .cl-num.ok .v { color: #0b8a4b; } #saImpressao .cl-num.ok { border-color: #9fd3b4; } #saImpressao .cl-num.nao { border-color: #efb3ab; }
     #saImpressao .num, #saImpressao td.pt, #saImpressao td.pos { color: #5b6b7b; }
     #saImpressao .card { background: #fff; border: 1px solid #cfd8e1; } #saImpressao .card .v { color: #0b5e3a; }
@@ -313,6 +313,17 @@ function apEleito(c) {
 }
 
 /**
+ * Votos anulados? O TSE diz a destinação dos votos de cada candidato (dvt):
+ * "Válido", "Anulado" ou "Anulado sub judice" (candidatura com recurso pendente).
+ * Devolve '' (válidos), 'anulado' ou 'sub judice'. Os votos aparecem, mas não
+ * contam para o partido nem para as vagas — e o candidato não entra em projeção.
+ */
+function apAnulado(c) {
+  const d = String(c.dvt || '');
+  return /anulad/i.test(d) ? (/sub\s*j[uú]dice/i.test(d) ? 'sub judice' : 'anulado') : '';
+}
+
+/**
  * Lê o arquivo de uma UF com TODOS os partidos e candidatos. Pura.
  * Durante a apuração o TSE não marca eleitos, mas informa as vagas que cada
  * agremiação (partido isolado ou federação) obtém no momento: os N mais votados
@@ -333,15 +344,16 @@ function apLerUFTodos(j, uf) {
       partidos.push({ numero: String(p.n), sigla: p.sg, nome: p.nm, nominais, legenda, total: nominais + legenda, vagas: vag, federacao: a.tp !== 'i' ? (a.nm || '') : '' });
       for (const c of p.cand || []) {
         doAgr.push({ numero: c.n, nome: c.nmu || c.nm, nomeCompleto: c.nm, partido: p.sg, partidoNum: String(p.n),
-          votos: apNum(c.vap), pct: apNum(c.pvap), eleito: apEleito(c), situacao: c.st || '', projetado: false });
+          votos: apNum(c.vap), pct: apNum(c.pvap), eleito: apEleito(c), situacao: c.st || '', projetado: false, anulado: apAnulado(c) });
       }
     }
     doAgr.sort((x, y) => y.votos - x.votos);
-    if (!majoritario) doAgr.forEach((c, i) => { c.projetado = !c.eleito && i < vag && c.votos > 0; });
+    // projeção só entre os de votos válidos (quem tem votos anulados não ocupa vaga)
+    if (!majoritario) doAgr.filter(c => !c.anulado).forEach((c, i) => { c.projetado = !c.eleito && i < vag && c.votos > 0; });
     candidatos.push(...doAgr);
   }
   candidatos.sort((x, y) => y.votos - x.votos || x.nome.localeCompare(y.nome));
-  if (majoritario && !candidatos.some(c => c.eleito)) candidatos.forEach((c, i) => { c.projetado = i < nv && c.votos > 0; });
+  if (majoritario && !candidatos.some(c => c.eleito)) candidatos.filter(c => !c.anulado).forEach((c, i) => { c.projetado = i < nv && c.votos > 0; });
   return {
     uf, nome: uf === 'br' ? 'Brasil' : (AP_UFS[uf] || uf.toUpperCase()), cargo: +cargo.cd, cargoNome: cargo.nmn || '', majoritario,
     secoes: apNum(s.ts), apuradas: apNum(s.st), pct: apNum(s.pst),
@@ -435,7 +447,7 @@ function apCor(pct) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apRetotalizando, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apCor, apNum };
+  module.exports = { apEleicoesGerais, apEleicaoInicial, apEleicaoReserva, apUrl, apLerUFTodos, apRetotalizando, apClausula, apClausulaRegra, AP_CLAUSULA, apEleito, apAnulado, apCor, apNum };
 }
 
 </script>
@@ -466,9 +478,18 @@ function zrLinhas(aoLer) {
 
 /** Índice de um zip remoto: { url, total, entradas }. */
 async function zrIndice(url) {
-  const total = await zrTamanhoRemoto(url);
-  const entradas = await zrEntradasZip(total, async (ini, n) => new Uint8Array(await (await zrFaixa(url, ini, ini + n - 1)).arrayBuffer()));
-  return { url, total, entradas };
+  // Uma resposta recusada pelo firewall do TSE pode chegar como página, não como
+  // pedaço do zip ("não é um zip válido"): lê o fim do arquivo de novo.
+  let ultimo;
+  for (let t = 0; t < 3; t++) {
+    if (t) await zrDormir(2000 * t);
+    try {
+      const total = await zrTamanhoRemoto(url);
+      const entradas = await zrEntradasZip(total, async (ini, n) => new Uint8Array(await (await zrFaixa(url, ini, ini + n - 1)).arrayBuffer()));
+      return { url, total, entradas };
+    } catch (e) { ultimo = e; if (!/zip válido/.test(e && e.message)) throw e; }
+  }
+  throw ultimo;
 }
 
 // O firewall do TSE recusa, de vez em quando, um pedido qualquer (403, ou — no
@@ -857,6 +878,7 @@ function lmnDistancia(a, b) {
 // que nenhuma regra de grafia resolve sozinha. Chave: "UF|nome TSE normalizado".
 const LMN_APELIDOS = {
   'AP|agua branca do amapari': 'Pedra Branca do Amapari',
+  'GO|bom jesus': 'Bom Jesus de Goiás',
   'PB|santarem': 'Joca Claudino',
   'PB|sao domingos de pombal': 'São Domingos',
   'RN|ares': 'Arez',
@@ -1323,12 +1345,15 @@ function aoLeitorMunzona(cargo, numero) {
   const linha = aoCsv(['CD_MUNICIPIO', 'NM_MUNICIPIO', 'NR_ZONA', 'CD_CARGO', 'NR_CANDIDATO', 'NR_TURNO'], v => {
     if (v('CD_CARGO') !== String(cargo) || v('NR_TURNO') !== '1') return;
     const q = Number(v('QT_VOTOS_NOMINAIS_VALIDOS') || v('QT_VOTOS_NOMINAIS')) || 0;
+    // os votos do próprio candidato: todos os nominais (com votos anulados sub judice,
+    // os válidos são 0 — o relatório mostra os votos que ele recebeu, com a nota)
+    const qc = v('QT_VOTOS_NOMINAIS') !== '' ? Number(v('QT_VOTOS_NOMINAIS')) || 0 : q;
     const cd = v('CD_MUNICIPIO'), z = v('NR_ZONA'), kz = cd + '|' + z;
     const m = (mun[cd] = mun[cd] || { n: v('NM_MUNICIPIO'), v: 0, t: 0 });
     const zz = (zonas[kz] = zonas[kz] || { cd, n: m.n, z, v: 0, t: 0 });
     m.t += q; zz.t += q;
     if (v('NR_CANDIDATO') === String(numero)) {
-      m.v += q; zz.v += q; total += q;
+      m.v += qc; zz.v += qc; total += qc;
       if (!cand) cand = { nome: v('NM_URNA_CANDIDATO'), partido: v('SG_PARTIDO'), sit: v('DS_SIT_TOT_TURNO') };
     }
   });
@@ -1462,7 +1487,8 @@ function aoRelatorioHtml(r) {
   const kpi = (v, l) => `<div class="card"><div class="v">${v}</div><div class="l">${l}</div></div>`;
   const nLoc = sec ? locais.length : muns.length;
   let h = `<div class="ao-cab"><b>${saEsc(cand.nome)}</b> <span class="sigla">${saEsc(cand.partido)} · ${saEsc(cand.numero)}</span>
-      <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}</div></div>
+      <div class="ao-sub">${saEsc(cargoNome)} · ${saEsc(uf.toUpperCase())} · eleição de ${saEsc(ano)}${cand.sit ? ' · ' + saEsc(cand.sit) : ''}${cand.anulado ? ` · <span class="sit an">⚖ ${saAnuladoTxt(cand.anulado)}</span>` : ''}</div></div>
+    ${cand.anulado ? `<div class="ao-nota">⚖ ${saEsc(SA_NOTA_ANULADO[cand.anulado] || '')}</div>` : ''}
     <div class="cards ao-cards">${kpi(saFmt(total), 'votos no 1º turno')}${um && !sec
         // DF sem o detalhe por escola: a unidade é a zona eleitoral
         ? kpi(saFmt(zonas.length), 'zonas eleitorais com voto') + kpi(aoPct(muns[0] && muns[0].t ? total / muns[0].t : 0), 'dos votos nominais do cargo no DF')
@@ -1594,7 +1620,7 @@ async function aoMunzonaResultados(op, cargo, uf, numero) {
     feitos++;
     if (feitos % 10 === 0 || feitos === alvos.length) aoSt(`Resultados do TSE: ${feitos} de ${alvos.length} ${umSo ? 'zonas' : 'municípios'}…`);
     const x = d.candidatos.find(k => String(k.numero) === String(numero));
-    const t = d.candidatos.reduce((s, k) => s + k.votos, 0);
+    const t = d.candidatos.reduce((s, k) => s + (k.anulado ? 0 : k.votos), 0);   // votos nominais válidos do cargo ali
     const v = x ? x.votos : 0;
     if (x && !out.cand) out.cand = { nome: x.nome, partido: x.partido, sit: x.situacao };
     const mm = (out.mun[m.cd] = out.mun[m.cd] || { n: m.nm, cdi: m.cdi, v: 0, t: 0 });
@@ -1625,6 +1651,9 @@ async function aoCarregar(cand, uf, detalhar) {
     aoSt('Lendo o índice dos arquivos do TSE…');
     const r = ao.atual && ao.atual.uf === uf && ao.atual.cand.numero === cand.numero && ao.atual.ano === ano && ao.atual.cargo === cargo ? ao.atual
       : { cand: Object.assign({}, cand), uf, ano, cargo, cargoNome };
+    // votos anulados (sub judice): vem do arquivo do estado, que o painel já leu
+    const doEstado = sa.dados[uf] && sa.dados[uf].candidatos.find(k => String(k.numero) === String(cand.numero));
+    if (doEstado && doEstado.anulado) r.cand.anulado = doEstado.anulado;
     // O mapa do IBGE é acessório: se ele não responder, o relatório sai só com as tabelas.
     const base = (await aoBaseArquivos(ano)) || AO_TSE, naExt = !!(await aoBaseArquivos(ano));   // naExt: lê os arquivos (extensão ou repasse)
     const ibgeP = aoIbge(uf).catch(() => null);
@@ -1894,8 +1923,15 @@ function saMapa() {
     <div class="dica">Toque nos estados para filtrar (pode marcar vários).</div>`;
 }
 
+// Nota de quem teve os votos anulados pelo TSE (a destinação "Anulado" / "Anulado sub judice").
+const SA_NOTA_ANULADO = {
+  'sub judice': 'Candidatura com recurso pendente na Justiça Eleitoral (sub judice). Os votos aparecem, mas não contam para o partido nem para o cálculo das vagas enquanto o recurso não for julgado; se a candidatura for deferida, o TSE retotaliza e o resultado pode mudar.',
+  anulado: 'O TSE anulou os votos deste(a) candidato(a): eles aparecem, mas não contam para o partido nem para o cálculo das vagas.',
+};
+function saAnuladoTxt(a) { return a === 'sub judice' ? 'votos anulados sub judice' : 'votos anulados'; }
 function saSit(c, maj) {
   if (c.eleito) return `<span class="sit el">${saEsc(c.situacao || 'Eleito')}</span>`;
+  if (c.anulado) return `<span class="sit an" title="${saEsc(SA_NOTA_ANULADO[c.anulado] || '')}">⚖ ${saAnuladoTxt(c.anulado)}</span>`;
   if (c.projetado) return `<span class="sit pj">${maj ? 'à frente' : 'eleito (projeção)'}</span>`;
   return c.situacao ? `<span class="sit">${saEsc(c.situacao)}</span>` : '';
 }
@@ -2061,7 +2097,8 @@ function saRender() {
   const secoes = usaBr ? sa.br.secoes : escopo.reduce((s, d) => s + d.secoes, 0);
   const apuradas = usaBr ? sa.br.apuradas : escopo.reduce((s, d) => s + d.apuradas, 0);
   const fontes = usaBr ? [sa.br] : escopo;
-  const votos = fontes.reduce((s, d) => s + d.candidatos.filter(saDoPartido).reduce((t, x) => t + x.votos, 0), 0);
+  // votos nominais VÁLIDOS: os anulados (sub judice) ficam de fora, como no TSE
+  const votos = fontes.reduce((s, d) => s + d.candidatos.filter(x => saDoPartido(x) && !x.anulado).reduce((t, x) => t + x.votos, 0), 0);
   const eleitos = fontes.reduce((s, d) => s + d.candidatos.filter(x => saDoPartido(x) && saEleitoOuProj(x)).length, 0);
   const onde = sa.sel.size ? [...sa.sel].map(u => u.toUpperCase()).join(', ') : 'Brasil';
   const card = (v, l, cls) => `<div class="card ${cls || ''}"><div class="v">${v}</div><div class="l">${l}</div></div>`;
