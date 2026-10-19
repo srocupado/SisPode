@@ -162,8 +162,15 @@ function saMapa() {
     <div class="dica">Toque nos estados para filtrar (pode marcar vários).</div>`;
 }
 
+// Nota de quem teve os votos anulados pelo TSE (a destinação "Anulado" / "Anulado sub judice").
+const SA_NOTA_ANULADO = {
+  'sub judice': 'Candidatura com recurso pendente na Justiça Eleitoral (sub judice). Os votos aparecem, mas não contam para o partido nem para o cálculo das vagas enquanto o recurso não for julgado; se a candidatura for deferida, o TSE retotaliza e o resultado pode mudar.',
+  anulado: 'O TSE anulou os votos deste(a) candidato(a): eles aparecem, mas não contam para o partido nem para o cálculo das vagas.',
+};
+function saAnuladoTxt(a) { return a === 'sub judice' ? 'votos anulados sub judice' : 'votos anulados'; }
 function saSit(c, maj) {
   if (c.eleito) return `<span class="sit el">${saEsc(c.situacao || 'Eleito')}</span>`;
+  if (c.anulado) return `<span class="sit an" title="${saEsc(SA_NOTA_ANULADO[c.anulado] || '')}">⚖ ${saAnuladoTxt(c.anulado)}</span>`;
   if (c.projetado) return `<span class="sit pj">${maj ? 'à frente' : 'eleito (projeção)'}</span>`;
   return c.situacao ? `<span class="sit">${saEsc(c.situacao)}</span>` : '';
 }
@@ -329,7 +336,8 @@ function saRender() {
   const secoes = usaBr ? sa.br.secoes : escopo.reduce((s, d) => s + d.secoes, 0);
   const apuradas = usaBr ? sa.br.apuradas : escopo.reduce((s, d) => s + d.apuradas, 0);
   const fontes = usaBr ? [sa.br] : escopo;
-  const votos = fontes.reduce((s, d) => s + d.candidatos.filter(saDoPartido).reduce((t, x) => t + x.votos, 0), 0);
+  // votos nominais VÁLIDOS: os anulados (sub judice) ficam de fora, como no TSE
+  const votos = fontes.reduce((s, d) => s + d.candidatos.filter(x => saDoPartido(x) && !x.anulado).reduce((t, x) => t + x.votos, 0), 0);
   const eleitos = fontes.reduce((s, d) => s + d.candidatos.filter(x => saDoPartido(x) && saEleitoOuProj(x)).length, 0);
   const onde = sa.sel.size ? [...sa.sel].map(u => u.toUpperCase()).join(', ') : 'Brasil';
   const card = (v, l, cls) => `<div class="card ${cls || ''}"><div class="v">${v}</div><div class="l">${l}</div></div>`;

@@ -84,6 +84,27 @@ ok(!A.apLerUFTodos(retotJ('n', '3', ''), 'pe').retotalizando, 'não final mas co
 ok(!A.apLerUFTodos(Object.assign(retotJ('n', '0', ''), { s: { ts: '10', st: '5', pst: '50,00' } }), 'pe').retotalizando, 'apuração em andamento (50%) não é retotalização');
 ok(A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: false }] }) && !A.apRetotalizando({ final: false, pct: 100, majoritario: true, partidos: [], candidatos: [{ eleito: true }] }),
   'retotalização também em cargo majoritário (sem eleito marcado com 100% apurado)');
+// Votos anulados (dvt do TSE): RJ, Deputado Federal, 2026 — Ricardo Abrão (PSDB, 63.730 votos, "Anulado sub judice",
+// "Não eleito") ficava como "eleito (projeção)" dentro das 4 vagas da federação, com o resultado já final.
+ok(A.apAnulado({ dvt: 'Válido' }) === '' && A.apAnulado({ dvt: 'Anulado sub judice' }) === 'sub judice' && A.apAnulado({ dvt: 'Anulado' }) === 'anulado' && A.apAnulado({}) === '',
+  'destinação dos votos: válido, anulado, anulado sub judice');
+const rjJ = { s: { ts: '10', st: '10', pst: '100,00' }, tf: 's', v: { vv: '1000' }, carg: [{ cd: '6', nv: '46', agr: [
+  { n: '45', nm: 'FEDERAÇÃO PSDB CIDADANIA', tp: 'f', vag: '2', par: [{ n: '45', sg: 'PSDB', tvtn: '300', tvtl: '0', cand: [
+    { n: '4500', nmu: 'ELEITO 1', vap: '120', dvt: 'Válido', e: 's', st: 'Eleito por QP' },
+    { n: '4545', nmu: 'RICARDO ABRÃO', vap: '110', dvt: 'Anulado sub judice', e: 'n', st: 'Não eleito' },
+    { n: '4511', nmu: 'ELEITO 2', vap: '100', dvt: 'Válido', e: 's', st: 'Eleito por média' },
+    { n: '4522', nmu: 'SUPLENTE', vap: '80', dvt: 'Válido', e: 'n', st: 'Suplente' }] }] }] }] };
+const rj = A.apLerUFTodos(rjJ, 'rj'), ab = rj.candidatos.find(x => x.numero === '4545');
+ok(ab.anulado === 'sub judice' && !ab.projetado && !ab.eleito && ab.votos === 110 && !rj.candidatos.some(x => x.projetado),
+  'votos anulados sub judice: o candidato aparece com os votos, marcado, e não entra em projeção (o resultado final fica com os 2 eleitos)');
+const rjP = A.apLerUFTodos(Object.assign({}, rjJ, { tf: 'n', s: { ts: '10', st: '5', pst: '50,00' },
+  carg: [{ cd: '6', nv: '46', agr: [{ n: '45', tp: 'f', vag: '2', par: [{ n: '45', sg: 'PSDB', tvtn: '300', tvtl: '0',
+    cand: rjJ.carg[0].agr[0].par[0].cand.map(x => Object.assign({}, x, { e: 'n', st: '' })) }] }] }] }), 'rj');
+ok(rjP.candidatos.filter(x => x.projetado).map(x => x.numero).join() === '4500,4511', 'na parcial, as vagas vão aos dois mais votados com votos válidos (o anulado é pulado)');
+const govA = A.apLerUFTodos({ s: { ts: '10', st: '5', pst: '50,00' }, carg: [{ cd: '3', nv: '1', agr: [
+  { n: '1', tp: 'i', par: [{ n: '20', sg: 'PODE', cand: [{ n: '20', nmu: 'A', vap: '10', dvt: 'Válido', e: 'n' }] }] },
+  { n: '2', tp: 'i', par: [{ n: '13', sg: 'PT', cand: [{ n: '13', nmu: 'B', vap: '20', dvt: 'Anulado sub judice', e: 'n' }] }] }] }] }, 'go');
+ok(govA.candidatos.find(x => x.numero === '20').projetado && !govA.candidatos.find(x => x.numero === '13').projetado, 'majoritário: quem tem votos anulados não fica "à frente"');
 // De onde vieram os votos (apuracao-onde.js): leitura dos arquivos de dados abertos do TSE
 const O = require(path.join(__dirname, '..', 'apuracao', 'apuracao-onde.js'));
 const MZ = O.aoLeitorMunzona('8', '20456');
@@ -107,6 +128,13 @@ ok(Math.abs(lo['9|1015'].la + 15.78) < 1e-9 && lo['9|1015'].bairro === 'CIDADE E
 ok(O.aoQuebras([0, 0.1, 0.2, 0.3, 0.4, 0.5]).length === 4 && Math.abs(O.aoConcentracao([{ v: 6 }, { v: 3 }, { v: 1 }], 10, 1) - 0.6) < 1e-9, 'quebras do mapa e concentração nos mais fortes');
 const mol = O.aoMoldura([{ la: -15.78, lo: -47.99 }, { la: -15.79, lo: -47.98 }]);
 ok(mol && mol.meia > 0.0074 && Math.abs(mol.la0 + 15.785) < 1e-9, 'moldura do detalhe cobre os locais do bairro com folga');
+// Candidato com votos anulados sub judice (SP, 2026: Dra. Merabe Muniz, 6.847 votos, 0 válidos): o relatório mostra os
+// votos que ele recebeu (QT_VOTOS_NOMINAIS); a fatia continua sobre os votos nominais VÁLIDOS do cargo.
+const MA = O.aoLeitorMunzona('6', '7007');
+['"CD_MUNICIPIO";"NM_MUNICIPIO";"NR_ZONA";"CD_CARGO";"NR_CANDIDATO";"NR_TURNO";"NM_URNA_CANDIDATO";"SG_PARTIDO";"DS_SIT_TOT_TURNO";"QT_VOTOS_NOMINAIS";"QT_VOTOS_NOMINAIS_VALIDOS"',
+  '"71072";"SÃO PAULO";"1";"6";"7007";"1";"DRA. MERABE MUNIZ";"X";"NÃO ELEITO";"40";"0"', '"71072";"SÃO PAULO";"1";"6";"2044";"1";"MARANGONI";"PODE";"SUPLENTE";"960";"960"'].forEach(l => MA.linha(l));
+const ma = MA.resultado();
+ok(ma.total === 40 && ma.mun['71072'].v === 40 && ma.mun['71072'].t === 960, 'votos anulados sub judice: os votos do candidato aparecem; a fatia é sobre os válidos do cargo');
 let errCsv = ''; try { O.aoLeitorMunzona('6', '1').linha('"A";"B"'); } catch (e) { errCsv = e.message; }
 ok(/fora do formato/.test(errCsv), 'arquivo do TSE fora do formato: erro claro');
 ok(A.apCor(0) === '#2b3440' && A.apCor(100) === '#00a859', 'cor do mapa: 0% cinza, 100% verde');
