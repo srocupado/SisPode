@@ -16,8 +16,8 @@
 const SI_COR_PODE = '#00a859', SI_COR_OUTROS = '#5b6b7b';
 // Paleta neutra por tamanho de bancada (sem cor "ideológica"); sem verdes: o verde é do partido em foco.
 const SI_PALETA = ['#3b82f6', '#ef4444', '#f59e0b', '#a855f7', '#22d3ee', '#ec4899', '#b45309', '#fda4af', '#6366f1', '#fde047', '#93c5fd', '#d8b4fe'];
-const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', distrital: 'Distrital misto' };
-const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', distrital: 'Distrital' };
+const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', misto2: 'Distritão misto (sem redução)', distrital: 'Distrital misto' };
+const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', misto2: 'D. misto s/ red.', distrital: 'Distrital' };
 const SI_IBGE = 'https://servicodados.ibge.gov.br/api';
 // Cores dos distritos no mapa (vizinhos nunca com a mesma).
 const SI_CORES_DIST = ['#3b82f6', '#f59e0b', '#a855f7', '#22d3ee', '#ef4444', '#84cc16', '#ec4899', '#f97316', '#14b8a6', '#eab308', '#6366f1', '#fb7185'];
@@ -54,6 +54,9 @@ function siSistemas() {
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
       arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
+    { id: 'misto2', nome: SI_NOMES.misto2, tipo: 'misto', op: {
+      pctMaisVotados: siNumero('nPct', 50) / 100, modelo: (($('nModelo').querySelector('.ativo') || {}).dataset || {}).m || 'paralelo', limiar: siNumero('nLim', 0) / 100,
+      arred: ($('nArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('nLiq').checked } },
     { id: 'distrital', nome: SI_NOMES.distrital, tipo: 'distrital', op: {
       pctDistrital: siNumero('dPct', 50) / 100,
       // estaduais nos distritos federais: vários eleitos por distrito, sempre os mais votados (regra do candidato)
@@ -233,9 +236,13 @@ function siDescricao(s, curta) {
 function siMarcarAlterados() {
   const ss = siSistemas();
   // pelo tipo, nunca pela posição na lista (a lista já mudou: saiu o distritão puro)
-  const P = ss.find(x => x.tipo === 'proporcional'), M = ss.find(x => x.tipo === 'misto'), D = ss.find(x => x.tipo === 'distrital');
+  const P = ss.find(x => x.id === 'proporcional'), M = ss.find(x => x.id === 'misto'), N = ss.find(x => x.id === 'misto2'), D = ss.find(x => x.id === 'distrital');
   $('siAltP').hidden = !siAlterado(P);
   $('siAltM').hidden = !siAlterado(M);
+  $('siAltN').hidden = !siAlterado(N);
+  $('nPctV').textContent = siPct(N.op.pctMaisVotados);
+  $('nPctL').textContent = siPct(1 - N.op.pctMaisVotados);
+  $('nLiqLin').classList.toggle('off', !$('nLiq').checked);
   $('mPctV').textContent = siPct(M.op.pctMaisVotados);
   $('mPctL').textContent = siPct(1 - M.op.pctMaisVotados);
   $('siAltD').hidden = !siAlterado(D);
@@ -260,7 +267,7 @@ function siMarcarAlterados() {
 }
 
 // ------------------------------------------------------------ faixa dos sistemas (os parâmetros, compactos)
-const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', distrital: '#14b8a6' };
+const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', misto2: '#ec4899', distrital: '#14b8a6' };
 /** Os partidos para as alianças: os do pleito lido, do mais ao menos votado no país. */
 function siPreencherPartidos() {
   const v = {};
@@ -279,8 +286,8 @@ function siFaixa(ss) {
   if (!el) return;
   ss = ss || siSistemas();
   el.innerHTML = ss.map(s => {
-    const temPar = true, aberto = si.abertoSis === s.tipo;
-    return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.tipo}"><div class="t"><i style="background:${SI_COR_SIS[s.tipo]}"></i>${siEsc(SI_NOMES[s.tipo])}`
+    const temPar = true, aberto = si.abertoSis === s.id;
+    return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.id}"><div class="t"><i style="background:${SI_COR_SIS[s.id]}"></i>${siEsc(SI_NOMES[s.id])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
       + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && (siEhReducaoV3(s.op) || siEhFederativo(s.op)))))}</div></div>`;
   }).join('');
@@ -290,8 +297,9 @@ function siFaixa(ss) {
 function siRegraVigente() {
   $('pQP').value = 10; $('pPart').value = 80; $('pCand').value = 20; $('pTerc').checked = true; $('pFed').checked = true;
   $('mPct').value = 50; $('mLim').value = 0; $('dPct').value = 50; $('dLim').value = 0; $('mLiq').checked = false;
-  for (const b of $('mArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
-  for (const id of ['mModelo', 'dModelo']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.m === 'paralelo');
+  $('nPct').value = 50; $('nLim').value = 0; $('nLiq').checked = false;
+  for (const id of ['mArr', 'nArr']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
+  for (const id of ['mModelo', 'nModelo', 'dModelo']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.m === 'paralelo');
   for (const b of $('dRegra').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.r === 'partido');
   for (const b of $('dBase').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.b === 'eleitorado');
   for (const b of $('dArr').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
@@ -1000,7 +1008,7 @@ function siPartes(impressao) {
   // Estado a estado
   P.estados = '';
   if (!umaUf) {
-    const curtos = res.sims.map(s => `<th class="n">${siEsc(SI_CURTOS[s.tipo] || s.nome)}</th>`).join('');
+    const curtos = res.sims.map(s => `<th class="n">${siEsc(SI_CURTOS[s.id] || SI_CURTOS[s.tipo] || s.nome)}</th>`).join('');
     h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Estado a estado <small>${impressao ? '' : 'clique num estado para ver quem entra e quem sai'}</small></h2><div class="tab-rolagem"><table class="compacta"><thead>`
       + `<tr><th rowspan="2">UF</th><th rowspan="2" class="n">Vagas</th><th rowspan="2" class="n">QE</th>`
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
@@ -1390,13 +1398,14 @@ function siDistritosEstadosHtml() {
 /** Método e fontes — vai no fim do relatório em PDF. */
 function siMetodoHtml() {
   const d = s => siEsc(siDescricao(s));
-  const sist = Object.fromEntries(si.sistemas.map(s => [s.tipo, s]));
+  const sist = Object.fromEntries(si.sistemas.map(s => [s.id, s]));
   const li = [];
   li.push(`<b>Votos.</b> ${si.op.fonte === 'resultados' ? `Servidor oficial de resultados do TSE (divulgação da eleição de ${si.op.ano}), um arquivo por estado` : `Dados abertos do TSE de ${si.op.ano} (votação por candidato e por partido, por município e zona)`}, lidos na hora. `
     + 'Votos válidos de cada candidato e de legenda de cada partido; candidato com voto anulado (sub judice) fica fora. A simulação mantém os votos como foram dados — noutro sistema, partidos, candidatos e eleitores agiriam de outro jeito.');
   if (sist.proporcional) li.push(`<b>Proporcional (atual)</b> — ${d(sist.proporcional)}. Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF nas ADIs 7228, 7263 e 7325: `
     + 'quociente eleitoral (fração acima de meio arredonda), quociente partidário com candidato de 10% do QE, sobras pelas maiores médias (agremiação com 80% do QE e candidato com 20%), 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. Com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs).');
   if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
+  if (sist.misto2) li.push(`<b>Distritão misto (sem redução)</b> — ${d(sist.misto2)}. As mesmas regras de cálculo do distritão misto acima, com os parâmetros deste card.`);
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
     + `tamanho por ${sist.distrital.op.base === 'populacao' ? 'população residente do Censo 2022 (IBGE), repartida entre as zonas pelos eleitores' : 'eleitores aptos (TSE)'}; bisseção recursiva em vários eixos e trocas na fronteira, distritos contíguos; fica o desenho de menor desvio. `
     + `Quem leva o distrito: ${sist.distrital.op.regra === 'candidato' ? 'o candidato mais votado nele' : sist.distrital.op.regra === 'partidoNominal' ? 'a agremiação com mais votos nominais nele (a legenda não conta), com o seu candidato mais votado ali — com um candidato por partido, os votos nominais do partido no distrito seriam os dele' : 'a agremiação mais votada nele, com o seu candidato mais votado ali'}; um candidato ganha um distrito só. A lista segue a regra do distritão misto. É um desenho possível entre muitos: outro mapa daria outro resultado.`);
@@ -2001,7 +2010,7 @@ async function siIniciar() {
   $('mFederativo').addEventListener('click', () => siRegraMisto('paralelo'));
   siLigarTolerancia();
   siLigarExcedente();
-  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a'], ['dEst', 'e']]) {
+  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['nModelo', 'm'], ['nArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a'], ['dEst', 'e']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);
       if (!b) return;
@@ -2022,7 +2031,7 @@ async function siIniciar() {
     si.aliancas.splice(Number(b.dataset.rm), 1);
     siParametrosMudaram();
   });
-  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'dPct', 'dLim', 'dAli', 'mLiq']) {
+  for (const id of ['pQP', 'pPart', 'pCand', 'pTerc', 'pFed', 'mPct', 'mLim', 'nPct', 'nLim', 'nLiq', 'dPct', 'dLim', 'dAli', 'mLiq']) {
     $(id).addEventListener('input', siParametrosMudaram);
     $(id).addEventListener('change', siParametrosMudaram);
   }
