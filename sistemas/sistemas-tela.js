@@ -27,7 +27,7 @@ const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abert
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito',
-  abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: { modo: '', sis: '' }, aliancas: [], partido: 'PODE', fedParceiro: '',
+  abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
 const $ = id => document.getElementById(id);
@@ -942,37 +942,45 @@ function siPartes(impressao) {
     + (ordem.some(sg => cores[sg] === SI_COR_OUTROS) ? `<span><i style="background:${SI_COR_OUTROS}"></i>demais partidos</span>` : '') + '</div>';
   P.hemisCorpo = h;
   P.hemis = `<h2>Composição em cada sistema <small>${siFmt(vagas)} cadeiras · mesma ordem de partidos em todos</small></h2>` + h;
-  // Tabela por partido (na tela, os 10 primeiros; "ver todos" abre o resto). Ordem
-  // (dropdown): padrão (a bancada oficial), maiores ganhos ou maiores perdas (Δ contra
-  // o oficial) no sistema escolhido — empate: a maior bancada oficial primeiro.
-  const ob = si.ordemBancadas, modo = temReal ? ob.modo : '';
-  const simOrd = modo ? (res.sims.find(s => s.id === ob.sis) || res.sims.find(s => s.tipo !== 'proporcional') || res.sims[0]) : null;
-  const ordemTab = simOrd ? ordem.map((sg, i) => ({ sg, i, d: (simOrd.porPartido[sg] || 0) - (real[sg] || 0) }))
-    .sort((a, b) => (modo === 'perdas' ? a.d - b.d : b.d - a.d) || a.i - b.i).map(x => x.sg) : ordem;
-  const seletor = temReal ? `<div class="ord-banc"><label>Ordenar <select id="siOrdModo">`
-    + [['', 'padrão (bancada oficial)'], ['ganhos', 'maiores ganhos'], ['perdas', 'maiores perdas']].map(([v, r]) => `<option value="${v}"${modo === v ? ' selected' : ''}>${r}</option>`).join('')
-    + '</select></label>'
-    + (modo ? `<label>no sistema <select id="siOrdSis">${res.sims.map(s => `<option value="${s.id}"${s === simOrd ? ' selected' : ''}>${siEsc(s.nome)}</option>`).join('')}</select></label>` : '')
-    + '</div>' : '';
-  const nomeOrdem = simOrd ? `${modo === 'perdas' ? 'maiores perdas' : 'maiores ganhos'} no ${simOrd.nome.toLowerCase()}` : '';
+  // Tabela por partido, todos os sistemas lado a lado (o PDF; na tela, a do
+  // padrão quando não há resultado oficial para comparar).
   const tabela = limite => {
     let t = `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>`
-      + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ${simOrd === s ? (modo === 'perdas' ? ' ▲' : ' ▼') : ''}</th>`).join('') + '</tr></thead><tbody>';
-    ordemTab.forEach((sg, i) => {
+      + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
+    ordem.forEach((sg, i) => {
       if (limite && i >= limite) return;
       t += `<tr${sg === si.partido ? ' class="pode"' : ''}><td><span class="sw" style="background:${cores[sg]}"></span>${siEsc(sg)}</td><td class="n">${temReal ? real[sg] || 0 : '—'}</td>`
         + res.sims.map(s => `<td class="n">${s.porPartido[sg] || 0}</td><td class="d">${temReal ? siDelta(s.porPartido[sg] || 0, real[sg] || 0) : ''}</td>`).join('') + '</tr>';
     });
-    if (limite && ordem.length > limite && !ordemTab.slice(0, limite).includes(si.partido)) {   // o partido em foco sempre aparece
+    if (limite && ordem.length > limite && !ordem.slice(0, limite).includes(si.partido)) {   // o partido em foco sempre aparece
       t += `<tr class="pode"><td><span class="sw" style="background:${cores[si.partido]}"></span>${si.partido}</td><td class="n">${temReal ? real[si.partido] || 0 : '—'}</td>`
         + res.sims.map(s => `<td class="n">${s.porPartido[si.partido] || 0}</td><td class="d">${temReal ? siDelta(s.porPartido[si.partido] || 0, real[si.partido] || 0) : ''}</td>`).join('') + '</tr>';
     }
     t += `<tr><td><b>Total</b></td><td class="n"><b>${temReal ? res.real.total : '—'}</b></td>` + res.sims.map(s => `<td class="n"><b>${s.total}</b></td><td></td>`).join('') + '</tr></tbody></table></div>';
     return t;
   };
-  P.bancadas = `<h2>Bancadas por partido <small>Δ = diferença para o resultado oficial${simOrd ? ` · em ordem de ${siEsc(nomeOrdem)}` : ''}</small></h2>` + tabela(0);
-  P.bancadasTela = seletor + tabela(si.todosPartidos ? 0 : 10)
-    + (ordem.length > 10 ? `<button class="ver" data-todos="1">${si.todosPartidos ? `Mostrar só os 10 ${simOrd ? 'primeiros' : 'maiores'} ▴` : `Ver os ${ordem.length} partidos ▾`}</button>` : '');
+  // Na tela: uma tabela por sistema, lado a lado, cada uma com a sua ordem (lista):
+  // padrão (a bancada oficial), maiores ganhos ou maiores perdas contra o oficial —
+  // empate: a maior bancada oficial primeiro. O proporcional igual ao oficial fica de fora.
+  const ORD = [['', 'padrão (bancada oficial)'], ['ganhos', 'maiores ganhos'], ['perdas', 'maiores perdas']];
+  const cartao = (s, limite) => {
+    const modo = si.ordemBancadas[s.id] || '';
+    const d = sg => (s.porPartido[sg] || 0) - (real[sg] || 0);
+    const l = modo ? ordem.map((sg, i) => ({ sg, i })).sort((a, b) => (modo === 'perdas' ? d(a.sg) - d(b.sg) : d(b.sg) - d(a.sg)) || a.i - b.i).map(x => x.sg) : ordem;
+    const linha = sg => `<tr${sg === si.partido ? ' class="pode"' : ''}><td><span class="sw" style="background:${cores[sg]}"></span>${siEsc(sg)}</td><td class="n">${real[sg] || 0}</td><td class="n">${s.porPartido[sg] || 0}</td><td class="d">${siDelta(s.porPartido[sg] || 0, real[sg] || 0)}</td></tr>`;
+    const ver = limite ? l.slice(0, limite) : l;
+    const ganham = ordem.filter(sg => d(sg) > 0).length, perdem = ordem.filter(sg => d(sg) < 0).length;
+    return `<div class="banc-sis"><div class="banc-cab"><b>${siEsc(s.nome)}</b><span class="igual">${ganham} ${ganham === 1 ? 'ganha' : 'ganham'} · ${perdem} ${perdem === 1 ? 'perde' : 'perdem'}</span>`
+      + `<select data-ordb="${siEsc(s.id)}" aria-label="Ordem da tabela do ${siEsc(s.nome)}">${ORD.map(([v, r]) => `<option value="${v}"${modo === v ? ' selected' : ''}>${r}</option>`).join('')}</select></div>`
+      + `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th><th class="n">${siEsc(s.nome)}</th><th class="n">Δ${modo === 'ganhos' ? ' ▼' : modo === 'perdas' ? ' ▲' : ''}</th></tr></thead><tbody>`
+      + ver.map(linha).join('') + (limite && !ver.includes(si.partido) && ordem.includes(si.partido) ? linha(si.partido) : '')
+      + `<tr><td><b>Total</b></td><td class="n"><b>${res.real.total}</b></td><td class="n"><b>${s.total}</b></td><td></td></tr></tbody></table></div></div>`;
+  };
+  const simsCartao = res.sims.filter(s => !(s.tipo === 'proporcional' && ordem.every(sg => (s.porPartido[sg] || 0) === (real[sg] || 0))));
+  P.bancadas = `<h2>Bancadas por partido <small>Δ = diferença para o resultado oficial</small></h2>` + tabela(0);
+  const lim = si.todosPartidos ? 0 : 10;
+  P.bancadasTela = (temReal && simsCartao.length ? `<div class="banc-grade">${simsCartao.map(s => cartao(s, lim)).join('')}</div>` : tabela(lim))
+    + (ordem.length > 10 ? `<button class="ver" data-todos="1">${si.todosPartidos ? 'Mostrar só os 10 primeiros ▴' : `Ver os ${ordem.length} partidos ▾`}</button>` : '');
   // Quem entra e quem sai no partido em foco
   P.entraSai = '';
   P.nEntra = 0; P.nSai = 0;
@@ -2040,8 +2048,9 @@ async function siIniciar() {
   $('siResultado').addEventListener('mousemove', siDicaMapa);
   $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('change', ev => {
-    if (ev.target.id !== 'siOrdModo' && ev.target.id !== 'siOrdSis') return;
-    si.ordemBancadas = ev.target.id === 'siOrdModo' ? { modo: ev.target.value, sis: si.ordemBancadas.sis } : { modo: si.ordemBancadas.modo, sis: ev.target.value };
+    const sel = ev.target.closest && ev.target.closest('select[data-ordb]');
+    if (!sel) return;
+    si.ordemBancadas[sel.dataset.ordb] = sel.value;
     $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
   });
   $('siResultado').addEventListener('click', ev => {
