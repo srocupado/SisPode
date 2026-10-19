@@ -292,9 +292,9 @@ function pcNotaHtml(nota) {
     ${nota.secoes.map(s => sec(s.titulo || 'Complemento', `<p>${ptEsc(s.texto)}</p>`)).join('')}
     ${nota.atencao.length ? sec('Pontos de atenção', `<ul>${nota.atencao.map(x => `<li>${ptEsc(x)}</li>`).join('')}</ul>`) : ''}
     ${nota.recomendacoes.length ? sec('Recomendações da assessoria', `<ul>${nota.recomendacoes.map(x => `<li>${ptEsc(x)}</li>`).join('')}</ul>`) : ''}
-    <div class="pn-rodape">Liderança do Podemos · Método: os temas saem da estrutura dos próprios atos; cada ato foi lido por inteiro e cada regra e cada mudança
+    <div class="pn-rodape">${PT_RODAPE_ASSINATURA}<span class="pn-rodape-tela"> · Método: os temas saem da estrutura dos próprios atos; cada ato foi lido por inteiro e cada regra e cada mudança
       só entrou com o trecho literal localizado no texto do ato (${descartadas} item(ns) descartado(s) na conferência${falhas ? `; ${falhas} parte(s) não lida(s) por falha da IA` : ''}).
-      Versões consolidadas trazem a redação vigente: quando a redação anterior de um dispositivo não está no conjunto, o "como era" fica em branco.</div>
+      Versões consolidadas trazem a redação vigente: quando a redação anterior de um dispositivo não está no conjunto, o "como era" fica em branco.</span></div>
   </div>`;
 }
 

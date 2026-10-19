@@ -2005,7 +2005,21 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
     conteudo.innerHTML = '<div class="an-progress"><span class="an-spinner"></span> Enviando ao provedor de IA...</div>';
 
-    const prompt   = montarPrompt(it, docs, instrucoesExtra);
+    // MPV com parecer/relatório: teor das acolhidas que o parecer não detalha, no Senado
+    let teorEmendas = null;
+    if (ehMPV(it) && docs.some(d => ['PAR_CMMPV', 'RELATORIO_CMMPV', 'PRLP'].includes(d.tipo))) {
+      btnGer.innerHTML = `<span class="an-spinner"></span> Conferindo o teor das emendas acolhidas...`;
+      try {
+        teorEmendas = await teorEmendasAcolhidas(it, docs, pdfBuffers,
+          (k, n) => { btnGer.innerHTML = `<span class="an-spinner"></span> Teor das emendas no Senado: ${k}/${n}...`; });
+      } catch (e) {
+        if (isAbortError(e)) throw e;
+        console.warn('Teor das emendas acolhidas não buscado:', e.message);
+      }
+      btnGer.innerHTML = `<span class="an-spinner"></span> Gerando análise...`;
+    }
+
+    const prompt   = montarPrompt(it, docs, instrucoesExtra, { teorEmendas });
     let { text: markdown, truncated } = await chamarIA({
       provedorId: state.config.provedor || 'gemini',
       apiKey:     state.config.apiKey,
@@ -2089,6 +2103,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       parecerKey:  parecerKey(it),
       promptCustom: promptNome || null,
       refsSuspeitas,
+      ...(teorEmendas ? { teorEmendas: { acolhidas: teorEmendas.acolhidas.length, doParecer: teorEmendas.doParecer,
+        doSenado: teorEmendas.doSenado.map(e => e.n), semTeor: teorEmendas.semTeor } } : {}),
     };
     it.analiseStatus = 'ok';
     it.desatualizacao = null;   // recém-gerada com os docs atuais — sem alerta
@@ -2582,7 +2598,7 @@ function parecerKey(it) {
   return 'inteiro-teor';
 }
 
-function montarPrompt(it, docs = [], instrucoesExtra = '') {
+function montarPrompt(it, docs = [], instrucoesExtra = '', extras = {}) {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
     const auts = (ap.autores || []).filter(a => a.isPodemos).map(a => a.nome).join(', ');
@@ -2801,13 +2817,22 @@ REGRAS RÍGIDAS:
   // texto do parecer (validarEmendasCitadas) e sinaliza o que não localizar.
   // Sem documento de PLV em mãos (só relatório), o texto fala em "texto
   // proposto pelo(a) relator(a)" — não se afirma um PLV que não foi anexado.
+  // Teor das acolhidas que o parecer não detalha, lido do texto da própria emenda (Senado/Congresso)
+  const teorSen = extras.teorEmendas?.doSenado || [];
+  const blocoTeorEmendas = teorSen.length ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TEOR DAS EMENDAS ACOLHIDAS — SENADO/CONGRESSO (texto das próprias emendas; o parecer só as cita por número)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${teorSen.map(e => `Emenda nº ${e.n}${e.autor ? ` — ${e.autor}${e.partido ? ` (${e.partido})` : ''}` : ''}:\n${e.texto}`).join('\n\n')}
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+` : '';
   const rotuloParecerMPV = has('PAR_CMMPV') ? 'Parecer da Comissão Mista' : has('RELATORIO_CMMPV') ? 'Relatório Legislativo da Comissão Mista' : 'parecer';
   const textoNovoMPV = hasPLV ? 'o PLV' : 'o PLV proposto pelo(a) relator(a) (anexo ao final do relatório)';
   const secaoMPV = mpv8b
     ? `
 ## Emendas acolhidas
-Com base exclusivamente na conclusão e no voto do(a) relator(a) constantes do documento "${rotuloParecerMPV}"${hasPRLP ? ' (e do parecer proferido em Plenário, se divergir)' : ''}, informe quais emendas ${hasPLV ? 'foram ACOLHIDAS (total ou parcialmente) e quais foram REJEITADAS' : 'o(a) relator(a) PROPÕE acolher (total ou parcialmente) e quais propõe rejeitar — escreva sempre no sentido de proposta, pois a Comissão Mista ainda não deliberou'}. Para as acolhidas, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <breve resumo do teor acolhido e do que ele produz n${hasPLV ? 'o PLV' : 'o texto proposto'}>", citando o número EXATAMENTE como consta do parecer. Se o parecer não detalhar o teor de uma emenda acolhida, escreva "teor não detalhado no parecer". As rejeitadas vão em um único parágrafo curto, só com os números (sem detalhar cada uma), salvo se o relatório destacar o motivo de alguma. Se o parecer não trouxer lista de emendas, diga isso explicitamente. NÃO deduza acolhimento comparando textos: só o que o parecer declarar.
-
+Com base exclusivamente na conclusão e no voto do(a) relator(a) constantes do documento "${rotuloParecerMPV}"${hasPRLP ? ' (e do parecer proferido em Plenário, se divergir)' : ''}, informe quais emendas ${hasPLV ? 'foram ACOLHIDAS (total ou parcialmente) e quais foram REJEITADAS' : 'o(a) relator(a) PROPÕE acolher (total ou parcialmente) e quais propõe rejeitar — escreva sempre no sentido de proposta, pois a Comissão Mista ainda não deliberou'}. Para as acolhidas, apresente **um tópico (item de lista com "-") por emenda**, no formato "Emenda nº N – <autor(a), se constar> – <breve resumo do teor acolhido e do que ele produz n${hasPLV ? 'o PLV' : 'o texto proposto'}>" (escreva o autor e o resumo sem os sinais "<" e ">"), citando o número EXATAMENTE como consta do parecer. ${blocoTeorEmendas ? 'Quando o parecer não detalhar o teor de uma emenda acolhida, use o texto da própria emenda no bloco "TEOR DAS EMENDAS ACOLHIDAS — SENADO/CONGRESSO" abaixo e resuma o que ela propõe; só se nenhum dos dois trouxer o teor, escreva "teor não detalhado".' : 'Se o parecer não detalhar o teor de uma emenda acolhida, escreva "teor não detalhado no parecer".'} As rejeitadas vão em um único parágrafo curto, só com os números (sem detalhar cada uma), salvo se o relatório destacar o motivo de alguma. Se o parecer não trouxer lista de emendas, diga isso explicitamente. NÃO deduza acolhimento comparando textos: só o que o parecer declarar.
+${blocoTeorEmendas}
 ## O que mudou em relação ao texto original da MPV
 Compare ${textoNovoMPV} com o texto original da Medida Provisória (documento "Texto original da Medida Provisória" anexado). Em parágrafos corridos e de forma resumida, aponte, em ordem de relevância, o que ${textoNovoMPV} INCLUIU, o que ALTEROU (com o sentido antes e depois) e o que SUPRIMIU em relação à MPV, citando os artigos afetados. Use o relatório do(a) relator(a) como guia do que mudou e por quê, mas confirme no cotejo dos dois textos; ao encontrar mudança que o relatório não explica, registre-a mesmo assim, anotando que o relatório não a justifica. Não repita aqui a lista de emendas da seção anterior.${hasPLV ? '' : ' Se o parecer não trouxer texto novo (concluir pela aprovação da MPV como editada) ou se o texto proposto não estiver no documento anexado, escreva que não há texto novo a cotejar — não descreva mudanças que você não conseguiu ler.'}
 `
@@ -3035,6 +3060,97 @@ function extrairNumerosEmendas(texto) {
     for (const n of run.match(/\d{1,3}/g) || []) nums.add(+n);
   }
   return nums;
+}
+
+// ── Teor das emendas acolhidas (MPV com parecer/relatório) ───────────────
+// Regra: o teor vem do PARECER do relator quando ele trata a emenda sozinho
+// ("a Emenda nº 8, do Dep. X, propõe…"); quando o parecer só a cita dentro de
+// uma lista de números ("acolhimento total ou parcial das Emendas nºs 1, 8,
+// 10…"), o teor é buscado no texto da própria emenda, no Senado/Congresso.
+// A lista de acolhidas tirada aqui serve SÓ para saber o que buscar: a IA
+// continua listando as acolhidas a partir do parecer (validarEmendasCitadas
+// confere); uma acolhida que esta leitura não pegue apenas fica sem o teor do
+// Senado — não some da nota.
+
+/** Números das emendas que o parecer ACOLHE (total ou parcialmente), pela frase em volta de cada lista. */
+function emendasAcolhidasNoParecer(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  const nums = new Set();
+  const re = /\bEmendas?\s+(?:de\s+)?(?:n[.º°o]*s?\.?\s*)?((?:\d{1,3}\b\s*(?:,|\be\b|\ba\b|\bat[ée]\b)?\s*)+)/gi;
+  const ultimo = (s, termos) => Math.max(...termos.map(x => s.lastIndexOf(x)));
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const antes = t.slice(Math.max(0, m.index - 160), m.index).toLowerCase()
+      .replace(/n[ãa]o\s+(acolh|acat|aprov)/g, 'rejei');
+    const depois = t.slice(m.index + m[0].length, m.index + m[0].length + 30).toLowerCase();
+    const pos = ultimo(antes, ['acolh', 'acat', 'aprova']);
+    const neg = ultimo(antes, ['rejei', 'inadmi', 'inadequa', 'exceção', 'excecao', 'prejudic', 'inconstitucional']);
+    if (/^\s*,?\s*(acolhid|acatad|aprovad)/.test(depois) || (pos >= 0 && pos > neg)) {
+      for (const n of extrairNumerosEmendas(m[0])) nums.add(n);
+    }
+  }
+  return nums;
+}
+
+/** O parecer trata a emenda N sozinha ("Emenda nº N", fora de uma lista de números)? Então traz o teor dela. */
+function teorDaEmendaNoParecer(texto, n) {
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  return new RegExp(`\\bEmenda\\s+(?:n[.º°o]*\\.?\\s*)?0*${n}\\b(?!\\s*(?:,|\\be\\b|\\ba\\b)\\s*\\d)`, 'i').test(t);
+}
+
+/** Texto da emenda (PDF do Senado) enxuto: o dispositivo e o começo da justificação, sem cabeçalho nem assinatura. */
+function resumirTextoEmenda(texto) {
+  let t = String(texto || '').replace(/\s+/g, ' ')
+    .replace(/(?:\.\s*){4,}/g, '… ')
+    .replace(/\*CD\d+\*/g, ' ')
+    .replace(/Assinad[oa] (?:eletronicamente|por chancela eletr[ôo]nica)\s+(?:pelo\(a\)|do\(a\))?.{0,80}?(?=Para verificar|\s*$)/gi, ' ')
+    .replace(/Para verificar a assinatura, acesse \S+/gi, ' ')
+    .replace(/\s+/g, ' ').trim();
+  const ini = t.search(/\(\s*[àa]\s+MPV[^)]*\)/i);
+  if (ini >= 0) t = t.slice(t.indexOf(')', ini) + 1).trim();
+  const j = t.search(/JUSTIFICA[ÇC][ÃA]O/i);
+  const disp = (j >= 0 ? t.slice(0, j) : t).trim().slice(0, 1500);
+  const just = j >= 0 ? t.slice(j).replace(/^JUSTIFICA[ÇC][ÃA]O\s*/i, '').trim().slice(0, 500) : '';
+  return disp + (just ? `\nJustificação (início): ${just}` : '');
+}
+
+/**
+ * Para a nota de MPV com parecer/relatório: quais acolhidas o parecer detalha e,
+ * das que não detalha, o texto da própria emenda (Senado/Congresso, até 6 PDFs
+ * por vez). Devolve { acolhidas, doParecer, doSenado:[{n,autor,partido,texto}], semTeor } ou null.
+ */
+async function teorEmendasAcolhidas(it, docs, pdfBuffers, progresso = () => {}) {
+  let parecer = '';
+  for (let i = 0; i < docs.length; i++) {
+    if (!['PAR_CMMPV', 'RELATORIO_CMMPV', 'PRLP'].includes(docs[i].tipo) || !pdfBuffers?.[i]) continue;
+    try { parecer += '\n' + await extrairTextoPdf(pdfBuffers[i].slice(0)); } catch (_) {}
+  }
+  const acolhidas = [...emendasAcolhidasNoParecer(parecer)].sort((a, b) => a - b);
+  if (!acolhidas.length) return null;
+  const doParecer = acolhidas.filter(n => teorDaEmendaNoParecer(parecer, n));
+  const faltam = acolhidas.filter(n => !doParecer.includes(n));
+  const out = { acolhidas, doParecer, doSenado: [], semTeor: [] };
+  if (!faltam.length) return out;
+  const codigo = await senadoCodigoMateria(it.sigla || 'MPV', it.numero, it.ano);
+  const porNum = new Map(codigo ? (await senadoEmendas(codigo)).map(e => [e.numero, e]) : []);
+  const fila = faltam.slice();
+  let feitas = 0;
+  const trabalhador = async () => {
+    while (fila.length) {
+      const n = fila.shift(), e = porNum.get(n);
+      if (!e || !e.url) { out.semTeor.push(n); continue; }
+      try {
+        const texto = resumirTextoEmenda(await extrairTextoPdf(await baixarPdf(e.url)));
+        if (texto.length > 40) out.doSenado.push({ n, autor: e.autor, partido: e.partido, texto });
+        else out.semTeor.push(n);
+      } catch (er) { if (isAbortError(er)) throw er; out.semTeor.push(n); }
+      progresso(++feitas, faltam.length);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(6, faltam.length) }, trabalhador));
+  out.doSenado.sort((a, b) => a.n - b.n);
+  out.semTeor.sort((a, b) => a - b);
+  return out;
 }
 
 function validarEmendasCitadas(markdown, textoParecer) {
