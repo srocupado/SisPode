@@ -99,6 +99,17 @@ for (const [excedente, extra] of [['cresce', {}], ['compensa', {}], ['compensa',
   const casa = rr.sims.map(x => x.total).join('/');
   ok(nao === 0 && n > 20, `${excedente}${extra.divisor ? ' + Sainte-Laguë' : ''}${extra.tetoExtra ? ' + teto' : ''}: as ${n} conferências batem (Casa ${casa})`);
 }
+console.log('Distrital misto com voto partidário líquido no memorial');
+{
+  const ssL = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf, votoLiquido: true } }];
+  const rL = S.snSimular(dados, ssL);
+  const mL = M.smMemorial({ dados, res: rL, sistemas: ssL, ind: S.snIndicadores(rL, dados), ordem: S.snOrdemPartidos(rL), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const cL = mL.conferencias['Distrital misto'], abaL = mL.abas.find(x => x.nome === 'Distrital misto');
+  const cel = abaL.linhas.flat().filter(c => c && typeof c === 'object' && c.f);
+  ok(cL.nao === 0 && cL.n > 5, `as ${cL.n} conferências do distrital com voto líquido batem`);
+  ok(abaL.linhas.some(l => /^Voto partidário líquido = votos da agremiação − votos que elegeram/.test(l[0] || '')) && cel.some(c => /^N\d+(\+N\d+)*$/.test(c.f)),
+    'voto líquido do distrital por fórmula: votos da agremiação menos os votos dos seus vencedores (coluna N de cada distrito)');
+}
 const ssl = [Object.assign({}, sistemas.find(x => x.id === 'mistoC'), { op: Object.assign({}, sistemas.find(x => x.id === 'mistoC').op, { divisor: 'sl' }) })], rsl = S.snSimular(dados, ssl);
 const msl = M.smMemorial({ dados, res: rsl, sistemas: ssl, ind: S.snIndicadores(rsl, dados), ordem: S.snOrdemPartidos(rsl), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
 ok(celulas(msl.abas.find(x => x.nome === 'Distritão misto comp.')).some(c => /^\$B\$\d+\/3-\$E\$\d+\*1E-9$/.test(c.f || '')), 'Sainte-Laguë: quociente votos ÷ 3 na 2ª coluna');
