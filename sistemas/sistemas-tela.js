@@ -26,7 +26,7 @@ const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
-  geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito',
+  geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito', ibgeCopia: {},
   abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
@@ -573,14 +573,14 @@ async function siLerGeo() {
       siProgresso(`Malha dos municípios (IBGE): ${siUfNome(uf)}`, feitos++ / ufs.length);
       const U = uf.toUpperCase();
       const [topo, lista] = await Promise.all([
-        zrJson(`${SI_IBGE}/v3/malhas/estados/${U}?formato=application/json&intrarregiao=municipio&qualidade=minima`),
-        zrJson(`${SI_IBGE}/v1/localidades/estados/${U}/municipios`)]);
+        siIbge(`${SI_IBGE}/v3/malhas/estados/${U}?formato=application/json&intrarregiao=municipio&qualidade=minima`, `malha de ${U}`),
+        siIbge(`${SI_IBGE}/v1/localidades/estados/${U}/municipios`, `municípios de ${U}`)]);
       const resolver = lmnResolvedor((lista || []).map(m => ({ id: m.id, nome: m.nome })), U);
       si.geo[siChaveGeo(uf)] = { mun: lidos[uf].mun, votos: lidos[uf].votos, malha: sdTopo(topo), resolver };
     }
     // contorno dos estados (IBGE), para o mapa do Brasil
     if (!si.malhaBr) {
-      try { si.malhaBr = sdTopo(await zrJson(`${SI_IBGE}/v3/malhas/paises/BR?formato=application/json&intrarregiao=UF&qualidade=minima`)); } catch (_) { /* o mapa sai sem o contorno */ }
+      try { si.malhaBr = sdTopo(await siIbge(`${SI_IBGE}/v3/malhas/paises/BR?formato=application/json&intrarregiao=UF&qualidade=minima`, 'contorno dos estados')); } catch (_) { /* o mapa sai sem o contorno */ }
     }
   } catch (e) {
     $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível ler os votos por município.</b> ${siEsc(e && e.message || e)} — tente de novo em instantes.</div>`;
@@ -805,11 +805,21 @@ async function siLerLocais(ufs) {
   siSimular();
 }
 
-/** População residente do Censo 2022 por município da UF (IBGE, lida na hora; guardada só na memória da página). */
+/**
+ * Leitura do IBGE com a cópia do Firebase por trás (ibge-cache.js): lida a resposta, a cópia
+ * é conferida e atualizada; com o IBGE fora do ar, vale a cópia — e a tela diz de quando ela é.
+ */
+async function siIbge(url, rotulo) {
+  const r = await icJson(url);
+  if (r.fonte === 'copia') si.ibgeCopia[rotulo] = r.em; else delete si.ibgeCopia[rotulo];
+  return r.dados;
+}
+
+/** População residente do Censo 2022 por município da UF (IBGE ou a cópia dele; guardada só na memória da página). */
 function siPopulacao(uf, g) {
   if (!si.pop[uf]) {
     const ibgeUf = (Object.keys(g.malha.feicoes)[0] || '').slice(0, 2);
-    si.pop[uf] = zrJson(sdUrlPopulacao(ibgeUf, SI_IBGE)).then(j => {
+    si.pop[uf] = siIbge(sdUrlPopulacao(ibgeUf, SI_IBGE), `população de ${uf.toUpperCase()}`).then(j => {
       const p = sdLerPopulacao(j);
       if (!Object.keys(p).length) throw new Error('o IBGE não devolveu a população dos municípios');
       return p;
@@ -856,6 +866,13 @@ function siAvisosHtml() {
   const sem = si.res.real.semReal.filter(uf => !ret.includes(uf) && !par.includes(uf));
   const lista = l => l.map(uf => uf.toUpperCase()).join(', ');
   let h = si.erroLocais ? `<div class="aviso erro"><b>Não foi possível ler os locais de votação</b> (${siEsc(si.erroLocais)}) — tente de novo em instantes.</div>` : '';
+  // IBGE fora do ar: malha, municípios ou população vieram da cópia guardada
+  const copias = Object.entries(si.ibgeCopia);
+  if (copias.length) {
+    const datas = [...new Set(copias.map(([, em]) => em ? new Date(em).toLocaleDateString('pt-BR') : 'data desconhecida'))];
+    h += `<div class="aviso"><b>O IBGE não respondeu: ${copias.length} ${copias.length === 1 ? 'arquivo veio' : 'arquivos vieram'} da cópia guardada</b> (gravada em ${siEsc(datas.join(', '))}) — `
+      + `${siEsc(copias.slice(0, 4).map(([k]) => k).join(', '))}${copias.length > 4 ? ` e mais ${copias.length - 4}` : ''}. Os dados são os mesmos do IBGE na data da cópia; a próxima leitura com o IBGE no ar confere e atualiza.</div>`;
+  }
   if (ret.length) h += `<div class="aviso"><b>Em retotalização: ${lista(ret)}.</b> O TSE reabriu a totalização e ainda não marcou os eleitos; `
     + `a simulação usa os votos publicados, mas ${ret.length === 1 ? 'o estado fica' : 'os estados ficam'} fora da comparação nacional até a conclusão.</div>`;
   if (par.length) h += `<div class="aviso"><b>Apuração em andamento: ${lista(par)}.</b> Os votos ainda vão mudar; ${si.res.real.semReal.length === ufs.length ? 'sem eleitos marcados, a comparação com o oficial fica para o fim da apuração' : 'sem o resultado final, a comparação é parcial'}.</div>`;
