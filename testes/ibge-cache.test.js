@@ -2,7 +2,7 @@
 // com o IBGE fora do ar, usa a cópia; sem cópia, devolve o erro do IBGE.
 // Uso: node testes/ibge-cache.test.js
 const path = require('path');
-const { icChave, icHash, icJson, IC_RAIZ } = require(path.join(__dirname, '..', 'ibge-cache.js'));
+const { icChave, icHash, icJson, icReiniciar, IC_RAIZ, IC_PAUSA_MS } = require(path.join(__dirname, '..', 'ibge-cache.js'));
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };
 
@@ -50,6 +50,13 @@ const MALHA = { type: 'Topology', objects: { x: { type: 'GeometryCollection', ge
   r = await icJson(URL, { ler: async () => { throw new Error('HTTP 502'); }, fetch: fb.f, base: 'http://fb' });
   ok(r.fonte === 'copia' && r.em === 1761000000000 && JSON.stringify(r.dados) === JSON.stringify(MALHA), 'usa a cópia e diz de quando ela é');
   ok(!fb.log.some(l => l.startsWith('PUT')), 'com a cópia, nada é gravado');
+  // depois da falha, as leituras seguintes vão direto à cópia, sem tentar o IBGE, até a pausa acabar
+  let tentou = 0, t0 = Date.now();
+  r = await icJson(URL, { ler: async () => { tentou++; return MALHA; }, fetch: fb.f, base: 'http://fb', agora: () => t0 + 1000 });
+  ok(tentou === 0 && r.fonte === 'copia', 'logo depois de uma falha: vai direto à cópia (sem esperar novas tentativas do IBGE)');
+  r = await icJson(URL, { ler: async () => { tentou++; return MALHA; }, fetch: fb.f, base: 'http://fb', agora: () => t0 + IC_PAUSA_MS + 1000 });
+  ok(tentou === 1 && r.fonte === 'ibge', 'passada a pausa: tenta o IBGE de novo');
+  icReiniciar();
   let erro = null;
   try { await icJson(URL, { ler: async () => { throw new Error('HTTP 502'); }, fetch: fbFalso().f, base: 'http://fb' }); } catch (e) { erro = e; }
   ok(erro && erro.message === 'HTTP 502', 'sem cópia: devolve o erro do IBGE');

@@ -12,6 +12,10 @@
 
 const IC_FIREBASE = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const IC_RAIZ = '/ibge_cache';
+// Depois de uma falha do IBGE, as leituras seguintes vão direto à cópia por um tempo: sem isso, cada arquivo
+// esperaria as novas tentativas do IBGE (dezenas de segundos), e uma leitura do país levaria muito mais.
+const IC_PAUSA_MS = 10 * 60 * 1000;
+let icForaAte = 0;
 
 /** Chave da cópia a partir do endereço do IBGE: o caminho e a consulta, sem caracteres proibidos no Firebase. */
 function icChave(url) {
@@ -34,7 +38,9 @@ function icHash(texto) {
 async function icJson(url, op = {}) {
   const ler = op.ler || (u => zrJson(u)), f = op.fetch || ((...a) => fetch(...a)), base = (op.base || IC_FIREBASE) + IC_RAIZ + '/' + icChave(url);
   let dados, erro;
-  try { dados = await ler(url); } catch (e) { erro = e; }
+  const agora = op.agora ? op.agora() : Date.now();
+  if (agora < icForaAte) erro = new Error('o IBGE não respondeu há pouco');
+  else try { dados = await ler(url); } catch (e) { erro = e; icForaAte = agora + IC_PAUSA_MS; }
   if (dados !== undefined && dados !== null) {
     const texto = JSON.stringify(dados), h = icHash(texto);
     // confere a cópia e regrava só se mudou (ou se não havia); falha aqui não atrapalha a leitura
@@ -58,4 +64,7 @@ async function icJson(url, op = {}) {
   throw erro || new Error('o IBGE não respondeu e não há cópia guardada');
 }
 
-if (typeof module !== 'undefined' && module.exports) module.exports = { icChave, icHash, icJson, IC_RAIZ };
+/** Esquece a falha recente do IBGE (testes; ou para tentar o IBGE de novo antes da pausa acabar). */
+function icReiniciar() { icForaAte = 0; }
+
+if (typeof module !== 'undefined' && module.exports) module.exports = { icChave, icHash, icJson, icReiniciar, IC_RAIZ, IC_PAUSA_MS };
