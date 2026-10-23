@@ -109,6 +109,13 @@ console.log('Distrital misto com voto partidário líquido no memorial');
   ok(cL.nao === 0 && cL.n > 5, `as ${cL.n} conferências do distrital com voto líquido batem`);
   ok(abaL.linhas.some(l => /^Voto partidário líquido = votos da agremiação − votos que elegeram/.test(l[0] || '')) && cel.some(c => /^N\d+(\+N\d+)*$/.test(c.f)),
     'voto líquido do distrital por fórmula: votos da agremiação menos os votos dos seus vencedores (coluna N de cada distrito)');
+  // com aliança no distrito e cláusula: a coluna N traz os votos da aliada, o desconto vale só os do vencedor
+  const sg = [...new Set(Object.values(dados).flatMap(d => d.agrs.map(a => a.siglas[0])))].slice(0, 2);
+  const ssA = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0.05, porUf, votoLiquido: true, aliancas: [sg] } }];
+  const rA = S.snSimular(dados, ssA);
+  const mA = M.smMemorial({ dados, res: rA, sistemas: ssA, ind: S.snIndicadores(rA, dados), ordem: S.snOrdemPartidos(rA), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const cA = mA.conferencias['Distrital misto'], celA = mA.abas.find(x => x.nome === 'Distrital misto').linhas.flat().filter(c => c && typeof c === 'object' && c.f);
+  ok(cA.nao === 0 && cA.n > 5 && !celA.some(c => /^N\d+(\+N\d+)*$/.test(c.f)), `com aliança (${sg.join(' + ')}) e cláusula: as ${cA.n} conferências batem, e o desconto usa os votos do próprio vencedor, não a coluna N`);
 }
 const ssl = [Object.assign({}, sistemas.find(x => x.id === 'mistoC'), { op: Object.assign({}, sistemas.find(x => x.id === 'mistoC').op, { divisor: 'sl' }) })], rsl = S.snSimular(dados, ssl);
 const msl = M.smMemorial({ dados, res: rsl, sistemas: ssl, ind: S.snIndicadores(rsl, dados), ordem: S.snOrdemPartidos(rsl), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
@@ -162,6 +169,14 @@ console.log('Distritão Misto com redução v3 e Versão Minuta no memorial');
   const linhasM = aM.linhas.filter(l => /^IF\(N\d+>=R\d+,/.test((l[10] || {}).f || ''));
   ok(linhasM.length === 5 && linhasM.every(l => l[10].v === 'CONFERE' && l[13] >= l[17]),
     `Versão Minuta: em cada distrito, o eleito contra o concorrente por fórmula (${linhasM.map(l => `${l[11]} ${l[13]} × ${l[15]} ${l[17]}`).join('; ')})`);
+  // distritos ao alcance na regra do candidato: o eleito contra o concorrente (colunas N e R da aba do distrital), não as agremiações
+  const alc = [...new Set(Object.values(dados).flatMap(d => d.agrs.flatMap(g => g.siglas)))].map(foco => {
+    const me = M.smMemorial({ dados, res: rrR, sistemas: ssR, ind: S.snIndicadores(rrR, dados), ordem: S.snOrdemPartidos(rrR), meta: { titulo: 'T', eleicao: 't', parametros: [] }, estrategia: { partido: foco } });
+    const ab = me.abas.find(x => x.nome === `Distritos ao alcance (${foco})`);
+    return { foco, cel: celulas(ab), nao: Object.values(me.conferencias).reduce((t2, x) => t2 + x.nao, 0), texto: ab.linhas[0][0] };
+  });
+  ok(alc.some(x => x.cel.some(c => /!\$N\$\d+$/.test(c.f || '')) && x.cel.some(c => /!\$R\$\d+$/.test(c.f || ''))) && alc.every(x => x.nao === 0 && !x.cel.some(c => /!\$[HJ]\$\d+$/.test(c.f || '')) && /concorrente/.test(x.texto)),
+    `Versão Minuta, distritos ao alcance: o eleito contra o concorrente (colunas N e R), não a 1ª contra a 2ª agremiação; tudo confere (${alc.map(x => x.foco).join(', ')})`);
   // A conferência pega o desenho errado: 2 distritos onde a regra dá 3.
   const ssErr = [Object.assign({}, ssR[1], { op: Object.assign({}, ssR[1].op, { porUf }) })];
   const rErr = S.snSimular(dados, ssErr);

@@ -166,6 +166,9 @@ ok(rp.distritos.every(x => x.segundo && x.segundo.agr !== x.vencedor.agr && x.ve
 const rliq = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensatorio', desenho: desE, base: baseE, votos, votoLiquido: true });
 ok(rliq.liquido.A === 360 && rliq.liquido.B === 240 && rcomp.liquido === null, 'voto líquido: desconta os votos de cada vencedor no seu distrito (não o total dele no estado)');
 ok(conta(rliq) === '{"A":3,"B":1}' && rliq.eleitos.length === 4 && rliq.eleitos.filter(x => x.fase !== 'lista').length === 2, 'voto líquido: o voto que elegeu no distrito não conta de novo na cota — A 3, B 1 (contra 2 a 2 sem ele)');
+const rliqA = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensatorio', desenho: desE, base: baseE, votos, votoLiquido: true, aliancas: [['PA', 'PB']] });
+ok(rliqA.distritos.map(x => x.vencedor.votos).sort().join() === '290,400' && rliqA.liquido.A === 360 && rliqA.liquido.B === 240,
+  'voto líquido com aliança no distrito: desconta só os votos do próprio vencedor (b1 leva o leste com 400, mas 200 vieram de A, cuja lista nunca foi de B)');
 
 console.log('Peso pela população (Censo 2022)');
 ok(SD.sdUrlPopulacao(35) === 'https://servicodados.ibge.gov.br/api/v3/agregados/4709/periodos/2022/variaveis/93?localidades=' + encodeURIComponent('N6[N3[35]]'), 'endereço do agregado 4709 (população residente), municípios da UF');

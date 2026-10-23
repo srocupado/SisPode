@@ -617,7 +617,8 @@ async function siPrepararDistritos(op, calc) {
     const k = modo === 'fed' ? kF : kE;
     // a tolerância só muda o desenho quando ele vai até ela
     const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${modo}|${k}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
-    if (!si.desenhos[chave]) {
+    let x = si.desenhos[chave];
+    if (!x) {
       // a barra diz de onde vem o que se lê: população do IBGE (lida na hora) ou o eleitorado do TSE (já na memória)
       siProgresso(op.base === 'populacao'
         ? `${si.pop[uf] ? '' : 'Lendo a população do Censo 2022 (IBGE) e '}desenhando os distritos por população: ${siUfNome(uf)} (${k})…`
@@ -655,34 +656,35 @@ async function siPrepararDistritos(op, calc) {
         desenho.descontos = descontos;
         desenho.popErro = popErro;
       }
-      // sem a população (IBGE fora do ar), o desenho fica pelo eleitorado e não vai para a memória
-      if (!popErro) si.desenhos[chave] = { desenho, base, k };
-      else { porUf[uf] = { desenho, base, votos: g.votos[siCargoArq(uf)] || {} }; i++; continue; }
+      // sem a população (IBGE fora do ar), o desenho fica pelo eleitorado e não vai para a memória (nem o afinado dele)
+      x = { desenho, base, k };
+      if (!popErro) si.desenhos[chave] = x;
     }
-    let x = si.desenhos[chave];
     // Afinação pelos locais de votação (lida a pedido): só onde o desenho passa da tolerância.
     // O desenho encaixado se afina distrito federal por distrito federal (sdAfinarAninhado):
     // as trocas ficam dentro de cada federal, e o encaixe não se desfaz.
     // O encaixe que não coube nas zonas se refaz sobre a base com as zonas divididas nos seus locais.
+    const x0 = x;   // o desenho sem a afinação (o encaixe e o federal de referência estão nele)
     const lc = si.locais[siChaveLocais(uf)], chLoc = chave + '|loc|' + siTolChave(op.tol);
     if (lc && x.desenho.metricas && (x.desenho.encaixeFalhou || !sdTolerancia(x.desenho.distritos, op.tol).ok)) {
-      if (!si.desenhos[chLoc]) {
+      if (!si.desenhos[chLoc] || x.desenho.popErro) {
         siProgresso(`Afinando os distritos com os locais de votação: ${siUfNome(uf)}…`, i / ufs.length);
         await new Promise(r => setTimeout(r, 0));
         if (calc !== si.calc) return null;
+        let y = null;
         if (x.desenho.encaixeFalhou || x.desenho.aninhado) {
           // encaixado: cada federal se afina sozinho (sdAfinarAninhado); se ainda passa da tolerância — ou se o
           // encaixe nem coube nas zonas —, o encaixe se refaz sobre a base com zonas e municípios divididos nos locais; fica o melhor
-          let y = null;
           if (x.desenho.aninhado) { const r = sdAfinarAninhado(x.base, x.desenho, lc.locais, { tol: op.tol }); y = r ? { desenho: r.desenho, base: r.base, k: x.k } : x; }
           if (!y || !sdTolerancia(y.desenho.distritos, op.tol).ok) {
             const z = siEncaixarLocais(x, lc.locais, kF, kE / kF, op.tol);
             if (z && (!y || siMelhorDesenho(z.desenho, y.desenho, op.tol))) y = z;
           }
-          si.desenhos[chLoc] = y || siAfinar(x, lc.locais, op.tol);
-        } else si.desenhos[chLoc] = siAfinar(x, lc.locais, op.tol);
-      }
-      x = si.desenhos[chLoc];
+          y = y || siAfinar(x, lc.locais, op.tol);
+        } else y = siAfinar(x, lc.locais, op.tol);
+        if (!x.desenho.popErro) si.desenhos[chLoc] = y;
+        x = y;
+      } else x = si.desenhos[chLoc];
     }
     const vz = g.votos[siCargoArq(uf)] || {};
     let desenho = x.desenho;
@@ -692,14 +694,14 @@ async function siPrepararDistritos(op, calc) {
     const somaVz = Object.values(vz).reduce((t, c) => t + Object.values(c.c).reduce((a, b) => a + b, 0) + Object.values(c.l).reduce((a, b) => a + b, 0), 0);
     // o modo que valeu: 'ani' só com o encaixe feito
     const modoEf = modo === 'ani' && !desenho.aninhado ? 'ind' : modo;
-    const extra = { retotalizando: snSituacao(d) === 'retotalizando', modoEstadual: modoEf, encaixeFalhou: modoEf !== modo ? (si.desenhos[chave] || x).desenho.encaixeFalhou || '' : '', kF, kE, vagasFederais: vF, cobertura: d.validos ? somaVz / d.validos : 1 };
+    const extra = { retotalizando: snSituacao(d) === 'retotalizando', modoEstadual: modoEf, encaixeFalhou: modoEf !== modo ? x0.desenho.encaixeFalhou || '' : '', kF, kE, vagasFederais: vF, cobertura: d.validos ? somaVz / d.validos : 1 };
     if (modo === 'fed' && desenho.distritos && desenho.distritos.length) {
       // cadeiras de cada distrito federal: as kE cadeiras distritais da Assembleia, na proporção do tamanho
       const n = sdCadeirasPorDistrito(desenho.distritos, kE);
       desenho = Object.assign({}, desenho, { distritos: desenho.distritos.map((dt, j) => Object.assign({}, dt, { cadeiras: n[j] })) });
       extra.capPartido = vF <= 20 ? 3 : 2;   // Minuta, art. 10, II
     }
-    const ref = (si.desenhos[chave] || x).desenho.federalRef;   // o afinado por locais não a carrega
+    const ref = x0.desenho.federalRef;   // o afinado por locais não a carrega
     if (modoEf === 'ind' && ref) {
       const U = new Map(x.base.unidades.map(u => [u.id, u]));
       extra.encaixe = sdCruzamentos(desenho.distritos, ref, U);
@@ -1302,7 +1304,7 @@ function siProximaHtml(impressao) {
     h += `<tr><td>${m.uf.toUpperCase()}</td><td class="n">${m.d.vagas}</td><td class="n">${siFmt(m.votos)} <span class="igual">(${siPct(m.pct)})</span></td>`
       + `<td class="n"><b>${m.atual.cadeiras}</b></td><td class="n">${num(m, m.atual, 'falta')}</td><td class="n${risco(m, m.atual) ? ' menos' : ''}">${num(m, m.atual, 'folga')}</td>`
       + `<td class="n"><b>${m.cota.cadeiras}</b></td><td class="n">${num(m, m.cota, 'falta')}</td><td class="n${risco(m, m.cota) ? ' menos' : ''}">${num(m, m.cota, 'folga')}</td>`
-      + (temD ? `<td class="n${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ' menos' : ''}">${m.efetivo == null ? '—' : m.efetivo}${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ` <span class="igual">(${siSinal(m.efetivo - m.cota.cadeiras)} pelo excedente)</span>` : ''}</td>` : '') + '</tr>';
+      + (temD ? `<td class="n${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ' menos' : ''}">${m.efetivo == null ? '—' : m.efetivo}${m.efetivo != null && m.efetivo < m.cota.cadeiras ? ` <span class="igual">(${siSinal(m.efetivo - m.cota.cadeiras)} pelo excedente${opD.votoLiquido ? ' ou o voto líquido' : ''})</span>` : ''}</td>` : '') + '</tr>';
   }
   const ta = l.reduce((t, x) => t + (x.a ? x.atual.cadeiras : 0), 0), tc = l.reduce((t, x) => t + (x.a ? x.cota.cadeiras : 0), 0), te = l.reduce((t, x) => t + (x.efetivo || 0), 0);
   h += `<tr><td colspan="3"><b>Total</b></td><td class="n"><b>${ta}</b></td><td></td><td></td><td class="n"><b>${tc}</b></td><td></td><td></td>${temD ? `<td class="n"><b>${te}</b></td>` : ''}</tr></tbody></table></div>`;
@@ -1312,7 +1314,7 @@ function siProximaHtml(impressao) {
     + (bc.n ? `<b>Crescer:</b> na cota do projeto, ${siFmt(bc.votos)} votos nos ${bc.n} estados mais baratos (${bc.ufs.join(', ')}) valem +${bc.n} cadeiras; na regra atual, ${siFmt(ba.votos)} votos (${ba.ufs.join(', ')}). ` : '')
     + (riscos.length ? `<b>Defender:</b> folga abaixo de 0,5% dos válidos na cota do projeto em ${riscos.join(', ')} — quem tem a última cadeira do estado é o primeiro a ser cortado pelo excedente dos outros. ` : '')
     + `Os votos entram (ou saem) como voto no partido, com os dos outros partidos parados; "faltam" = os votos a mais para a próxima cadeira; "folga" = os votos que pode perder sem perder a última. `
-    + `Regra atual: quociente eleitoral e sobras como no card do proporcional — voto só no partido não elege quem não tem candidato com 10% do quociente (1ª fase) ou 20% (sobras); nesses estados, só a 3ª fase dá a cadeira, e o número de votos fica alto. Projeto: a cota de cada partido pelas maiores médias sobre todas as vagas do estado (art. 105-B), antes dos cortes do excedente${temD ? '; "no distrital simulado", o que ficou depois deles' : ''}.`
+    + `Regra atual: quociente eleitoral e sobras como no card do proporcional — voto só no partido não elege quem não tem candidato com 10% do quociente (1ª fase) ou 20% (sobras); nesses estados, só a 3ª fase dá a cadeira, e o número de votos fica alto. Projeto: a cota de cada partido pelas maiores médias sobre todas as vagas do estado (art. 105-B), antes dos cortes do excedente${temD ? `; "no distrital simulado", o que ficou depois deles${opD.votoLiquido ? ' e do desconto do voto partidário líquido (a cota do projeto aqui é sobre a votação inteira)' : ''}` : ''}.`
     + (l.some(x => x.federada) ? ` O ${siEsc(si.partido)} é federado: as contas são da federação.` : '') + '</div>';
   return h;
 }
@@ -1379,10 +1381,21 @@ function siAlcance() {
       const d = si.dados[uf], a = siAgrFoco(d), x = sd.porUf[uf];
       if (!a || !x) continue;
       const nome = id => { const g = d.agrs.find(y => y.id === id); return g ? sdSiglas(g) : id; };
+      const doFoco = sg => (a.siglas || [si.partido]).includes(sg);
       for (const dt of x.distritos || []) {
-        const w = dt.vencedor, s2 = dt.segundo;
+        const w = dt.vencedor, s2 = dt.segundo, c = dt.concorrente;
         // distrito de várias cadeiras não tem "ao alcance" de 1º contra 2º
-        if (!w || !s2 || !dt.validos || (dt.cadeiras || 1) > 1) continue;
+        if (!w || !dt.validos || (dt.cadeiras || 1) > 1) continue;
+        // regra do candidato (Versão Minuta): leva o candidato mais votado — a disputa é a do eleito contra o concorrente
+        // (o mais votado ali que podia levar), não a soma das agremiações
+        if (dist.op.regra === 'candidato') {
+          if (!c) continue;
+          const margem = w.votos - c.votos, pct = margem / dt.validos;
+          if (w.agr === a.id) ganhos.push({ uf, dt, margem, pct, contra: `${c.nome} (${c.partido})`, meu: w.pct });
+          else if (doFoco(c.partido)) perto.push({ uf, dt, margem, pct, contra: `${w.nome} (${w.partido})`, meu: c.votos / dt.validos, deles: w.pct, excedente: ((x.excedentes || {})[w.agr] || 0) > 0 });
+          continue;
+        }
+        if (!s2) continue;
         if (w.agr === a.id) ganhos.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: s2.nome, meu: w.agrPct });
         else if (s2.agr === a.id) perto.push({ uf, dt, margem: w.agrVotos - s2.votos, pct: (w.agrVotos - s2.votos) / dt.validos, contra: nome(w.agr), meu: s2.pct, deles: w.agrPct,
           excedente: ((x.excedentes || {})[w.agr] || 0) > 0 });
@@ -1418,7 +1431,9 @@ function siAlcanceHtml(impressao) {
   } else h += `<div class="dica">O ${siEsc(siPNome())} não é o 2º colocado em nenhum distrito.</div>`;
   if (r.ganhos.length) h += `<h3 style="margin:12px 0 4px;font-size:13px">Distritos ganhos, da menor para a maior margem</h3><div class="tab-rolagem"><table class="compacta"><thead><tr><th>UF</th><th class="n">Distrito</th><th>Municípios</th><th class="n">${siEsc(si.partido)}</th><th>2º colocado</th><th class="n">Margem</th></tr></thead><tbody>`
     + r.ganhos.map(x => `<tr><td>${x.uf.toUpperCase()}</td><td class="n">${x.dt.id}</td><td style="white-space:normal">${muns(x.uf, x.dt.id)}</td><td class="n">${siPct(x.meu)}</td><td>${siEsc(x.contra)}</td><td class="n"><b>${siFmt(x.margem)}</b> <span class="igual">(${siDec(x.pct * 100, 1)} pts)</span></td></tr>`).join('') + '</tbody></table></div>';
-  return h + '<div class="dica">Pela votação de cada agremiação no distrito (nominais + legenda), com os distritos desenhados aqui. No compensatório, ganhar um distrito não aumenta a bancada — ela vem da cota —, mas tirar um distrito de quem passou da cota diminui o excedente e o corte nas listas, que costuma cair sobre a última cadeira do estado. '
+  return h + '<div class="dica">' + (dist.op.regra === 'candidato'
+    ? `Pelo voto no candidato (leva o distrito o candidato mais votado): o eleito contra o concorrente — o mais votado ali que podia levar (fora quem levou outro distrito); "${siEsc(si.partido)}" é a fatia do candidato dele. `
+    : 'Pela votação de cada agremiação no distrito (nominais + legenda). ') + 'Com os distritos desenhados aqui. No compensatório, ganhar um distrito não aumenta a bancada — ela vem da cota —, mas tirar um distrito de quem passou da cota diminui o excedente e o corte nas listas, que costuma cair sobre a última cadeira do estado. '
     + 'No paralelo, cada distrito ganho é uma cadeira a mais.</div>';
 }
 

@@ -1069,7 +1069,7 @@ function sdSegundoVoto(vd, d, op = {}) {
  */
 function sdDistritalMisto(d, op) {
   const vagas = op.vagas != null ? op.vagas : d.vagas;
-  const vd = sdSegundoVoto(sdVotosDistritos(d, op.desenho, op.base, op.votos), d, op);
+  const vd0 = sdVotosDistritos(d, op.desenho, op.base, op.votos), vd = sdSegundoVoto(vd0, d, op);
   const cand = new Map(), agr = new Map(d.agrs.map(a => [a.id, a]));
   for (const a of d.agrs) for (const c of a.cands) cand.set(String(c.sq), { a, c });
   const ganha = new Map(), usados = new Set();
@@ -1138,7 +1138,8 @@ function sdDistritalMisto(d, op) {
     const lid = lider[i];
     const ws = lista.map(sq => {
       const k = cand.get(sq);
-      primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id, pct: x.porCand[sq] / (x.validos || 1), votosDistrito: x.porCand[sq] });
+      // votosDistrito: os do próprio candidato ali (sem os que uma aliança trouxe — esses vêm de outra agremiação, cuja lista nunca os teve)
+      primeiros.push({ sq, agr: k.a.id, fase: 'distrito ' + dt.id, cand: k.c, distrito: dt.id, pct: x.porCand[sq] / (x.validos || 1), votosDistrito: vd0[i].porCand[sq] || 0 });
       return { sq, agr: k.a.id, nome: k.c.nome, partido: k.c.partido, votos: x.porCand[sq], pct: x.porCand[sq] / (x.validos || 1),
         agrNome: sdSiglas(k.a), agrVotos: porAgrD[i][k.a.id] || 0, agrPct: (porAgrD[i][k.a.id] || 0) / (x.validos || 1) };
     });
@@ -1150,14 +1151,14 @@ function sdDistritalMisto(d, op) {
       ...disputa(x, i, lista) };
   });
   // Voto partidário líquido (opcional): a cota de cada agremiação sai da votação dela menos os votos que
-  // elegeram os seus vencedores de distrito (os votos de cada um no seu distrito) — o voto que já elegeu
+  // elegeram os seus vencedores de distrito (os votos de cada um no seu distrito; com aliança, só os dele) — o voto que já elegeu
   // não conta de novo na lista, como no distritão misto.
   let dl = d, liquido = null;
   if (op.votoLiquido) {
     const usado = {};
     for (const p of primeiros) usado[p.agr] = (usado[p.agr] || 0) + (p.votosDistrito || 0);
     liquido = Object.fromEntries(d.agrs.map(a => [a.id, a.votos - (usado[a.id] || 0)]));
-    dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id] }) : a)) });
+    dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id], votosBrutos: a.votos }) : a)) });
   }
   const r = sdCompletarLista(dl, primeiros, vagas, op);
   // excedente que não leva (op.excedente 'naoLeva'): o distrito fica sem a cadeira do vencedor

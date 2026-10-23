@@ -182,6 +182,23 @@ ok(dzI.ganha && dzI.ganha.sg === 'PD' && dzI.ganha.d === 1 && dzI.perde.sg === '
 ok(indA.sims.p.gallagher === indA.real.gallagher && !indA.sims.p.ganha, 'proporcional vigente = oficial: mesmos indicadores, ninguém ganha');
 
 console.log('Distritão misto: teto e cláusula da lista');
+{
+  // empate de médias: leva a agremiação que vem antes no arquivo do TSE (como diz o memorial), mesmo com ids numéricos,
+  // que o JavaScript poria em ordem crescente (o '9' antes do '13'). 9: 400, 200…; 13: 200 — a 2ª vaga empata em 200
+  const t3 = S.snDhondt({ 13: 200, 9: 400 }, 2, {}, 0, null, 'dhondt', null, ['13', '9']), t0 = S.snDhondt({ 13: 200, 9: 400 }, 2);
+  ok(t3['13'] === 1 && t3['9'] === 1 && t0['13'] === 0 && t0['9'] === 2, 'desempate de médias pela ordem do arquivo (sem ela, a das chaves)');
+  const e = { uf: 'xx', vagas: 2, validos: 600, agrs: [agr('13', 200, [150, 50]), agr('9', 400, [300, 60, 40])] };
+  const r = S.snDistritaoMisto(e, { pctMaisVotados: 0, modelo: 'paralelo' });
+  ok(r.porAgr['13'] === 1 && r.porAgr['9'] === 1, 'na lista dos mistos, o mesmo desempate: a 2ª vaga vai à agremiação 13, que vem antes no arquivo');
+}
+{
+  // a cláusula mede a votação inteira, não o voto líquido: B tem 52% dos válidos, mas, descontados os votos dos seus
+  // eleitos na 1ª parte, sobram 4.700 (< 20% = 4.840) — barrado pelo líquido, deixaria 5 das 10 vagas sem ninguém
+  const ag = (id, leg, vs) => agr(id, leg + vs.reduce((s, v) => s + v, 0), vs);
+  const dC = uf(10, [ag('A', 500, [6000, 3000, 2000]), ag('B', 1000, [5000, 3000, 1500, 1000, 500, 400, 300])]);
+  const rC = S.snDistritaoMisto(dC, { pctMaisVotados: 0.5, modelo: 'paralelo', limiar: 0.2, votoLiquido: true });
+  ok(rC.liquido.B === 4700 && rC.eleitos.length === 10 && conta(rC) === '{"A":3,"B":7}', 'cláusula sobre a votação inteira (com o voto líquido, a de antes do desconto): nenhuma vaga fica vazia');
+}
 const poucos = uf(4, [agr('A', 900, [300, 200]), agr('B', 100, [90])]);
 const pt = S.snDistritaoMisto(poucos, { pctMaisVotados: 0.5, modelo: 'paralelo' });
 ok(pt.eleitos.length === 3 && conta(pt) === '{"A":2,"B":1}', 'agremiação sem candidatos bastantes cede a cadeira da lista à média seguinte');
