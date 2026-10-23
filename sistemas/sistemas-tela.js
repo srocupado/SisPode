@@ -27,7 +27,7 @@ const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abert
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito', ibgeCopia: {},
-  abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, aliancas: [], partido: 'PODE', fedParceiro: '',
+  abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, trocasSis: '', aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
 const $ = id => document.getElementById(id);
@@ -1051,7 +1051,7 @@ function siPartes(impressao) {
 function siRelatorioHtml(impressao) {
   const P = siPartes(impressao);
   // PDF: o relatório completo, na ordem de sempre
-  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados
+  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + siTrocasPartidosHtml(true)
     + siProximaHtml(true) + siFederacaoHtml(true) + siAlcanceHtml(true) + P.mapa + P.distritos + P.detalhe;
   // Tela: destaques → a Câmara em cada sistema → blocos recolhíveis → os distritos → bancadas
   let h = P.destaques;
@@ -1065,6 +1065,7 @@ function siRelatorioHtml(impressao) {
     + siAcordeao('resumo', 'Resumo em texto', 'O que muda em cada sistema, escrito a partir dos números', siSemH2(P.resumo))
     + siAcordeao('indicadores', 'Indicadores', 'Proporcionalidade (Gallagher), número efetivo de partidos, maior bancada, quem mais ganha e perde', siSemH2(P.indicadores))
     + siAcordeao('entrasai', 'Quem entra e quem sai do ' + siEsc(siPNome()), P.temReal ? `Os nomes, sistema a sistema · ${P.nEntra} entradas e ${P.nSai} saídas no total` : 'Sem eleitos oficiais para comparar', siSemH2(P.entraSai))
+    + siAcordeao('partidos', 'Quem entra e quem sai, partido a partido', siTrocasPartidosResumo(), siSemH2(siTrocasPartidosHtml(false)))
     + siAcordeao('proxima', `Próxima cadeira do ${siEsc(siPNome())}, estado a estado`, siProximaResumo(), siSemH2(siProximaHtml(false)))
     + siAcordeao('federacao', 'Federação hipotética', si.fedParceiro ? `${siEsc(siPNome())} + ${siEsc(si.fedParceiro)}: ${siFederacaoResumo()}` : `Escolha um parceiro e veja quantas cadeiras a soma daria ao ${siEsc(siPNome())}`, siSemH2(siFederacaoHtml(false)))
     + (s && s.op.porUf ? siAcordeao('alcance', `Distritos ao alcance do ${siEsc(siPNome())}`, siAlcanceResumo(), siSemH2(siAlcanceHtml(false))) : '')
@@ -1076,6 +1077,43 @@ function siRelatorioHtml(impressao) {
   else if (P.mapa) h += P.mapa;
   h += siCabSec('Partidos', 'Bancadas por partido', 'Cadeiras em cada sistema e a diferença (Δ) para o resultado oficial.') + `<div class="caixa tabela">${P.bancadasTela}</div>`;
   return h;
+}
+
+// ------------------------------------------------------------ quem entra e quem sai, partido a partido
+/** Os sistemas em que alguém entra ou sai (o proporcional vigente reproduz o oficial e fica de fora). */
+function siSimsComTrocas() { return si.res.real.total ? si.res.sims.filter(s => siTrocas(s, si.res.comparadas) > 0) : []; }
+function siSimTrocas() { const l = siSimsComTrocas(); return l.find(s => s.id === si.trocasSis) || l[0] || null; }
+function siTrocasPartidosResumo() {
+  const s = siSimTrocas();
+  if (!s) return si.res.real.total ? 'Nenhum sistema troca eleitos' : 'Sem eleitos oficiais para comparar';
+  const tp = snTrocasPorPartido(si.res, si.dados, s.id), n = siTrocas(s, si.res.comparadas);
+  return `${siEsc(s.nome)}: ${siFmt(n)} ${n === 1 ? 'cadeira muda' : 'cadeiras mudam'} de mãos · ${tp.length} partido${tp.length === 1 ? '' : 's'} com troca`;
+}
+/** Saldo por partido e os nomes de quem entra e de quem sai em cada um — um sistema na tela (seletor), todos os que trocam no PDF. */
+function siTrocasPartidosHtml(impressao) {
+  const res = si.res, sims = siSimsComTrocas();
+  if (!sims.length) return '';
+  const cores = siCores(snOrdemPartidos(res)), umaUf = Object.keys(si.dados).length === 1;
+  const bloco = s => {
+    const tp = snTrocasPorPartido(res, si.dados, s.id);
+    const mesmos = snOrdemPartidos(res).length - tp.length;
+    let h = `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th><th class="n">${siEsc(s.nome)}</th><th class="n">Entram</th><th class="n">Saem</th><th class="n">Saldo</th></tr></thead><tbody>`
+      + tp.map(t => `<tr${t.sg === si.partido ? ' class="pode"' : ''}><td><span class="sw" style="background:${cores[t.sg]}"></span>${siEsc(t.sg)}</td><td class="n">${t.oficial}</td><td class="n">${t.sistema}</td>`
+        + `<td class="n">${t.entram.length}</td><td class="n">${t.saem.length}</td><td class="d">${siDelta(t.sistema, t.oficial)}</td></tr>`).join('')
+      + '</tbody></table></div>' + (mesmos > 0 ? `<div class="dica">Os demais ${mesmos} partido${mesmos === 1 ? '' : 's'}: os mesmos eleitos do resultado oficial.</div>` : '');
+    const linha = (x, ent) => `<tr><td class="${ent ? 'ent' : 'sai'}">${ent ? 'entra' : 'sai'}</td><td>${siEsc(x.cand.nome)}</td>${umaUf ? '' : `<td>${x.uf.toUpperCase()}</td>`}`
+      + `<td class="n">${siFmt(x.cand.votos)}</td><td class="n" title="posição no estado, pelos votos nominais">${x.pos ? x.pos + 'º' : '—'}</td><td>${ent ? siEsc(x.fase || '') : ''}</td></tr>`;
+    const lista = t => `<div class="bloco"><h3><span class="sw" style="background:${cores[t.sg]}"></span>${siEsc(t.sg)} <small class="igual">${t.entram.length} entra${t.entram.length === 1 ? '' : 'm'} · ${t.saem.length} sa${t.saem.length === 1 ? 'i' : 'em'} · saldo</small> ${siDelta(t.sistema, t.oficial)}</h3>`
+      + `<table><thead><tr><th></th><th>Candidato</th>${umaUf ? '' : '<th>UF</th>'}<th class="n">Votos</th><th class="n">Posição</th><th>Entra pela</th></tr></thead><tbody>`
+      + t.entram.map(x => linha(x, true)).join('') + t.saem.map(x => linha(x, false)).join('') + '</tbody></table></div>';
+    return h + `<div class="duas" style="margin-top:10px">${tp.map(lista).join('')}</div>`;
+  };
+  const sub = 'em relação aos eleitos oficiais · posição = no estado, pelos votos nominais';
+  if (impressao) return sims.map(s => `<h2 class="imp-quebra">Quem entra e quem sai, partido a partido: ${siEsc(s.nome)} <small>${sub}</small></h2>` + bloco(s)).join('');
+  const s = siSimTrocas();
+  return `<h2>Quem entra e quem sai, partido a partido <small>${sub}</small></h2>`
+    + (sims.length > 1 ? `<div class="ctl" style="margin:4px 0 8px"><label class="rot">Sistema <select id="siTrocasSel">${sims.map(x => `<option value="${siEsc(x.id)}"${x === s ? ' selected' : ''}>${siEsc(x.nome)}</option>`).join('')}</select></label></div>` : '')
+    + bloco(s);
 }
 
 function siDetalheUfHtml(uf, impressao) {
@@ -2068,6 +2106,7 @@ async function siIniciar() {
     if (d.open) si.secAbertas.add(d.dataset.sec); else si.secAbertas.delete(d.dataset.sec);
   }, true);
   $('siResultado').addEventListener('change', ev => {
+    if (ev.target.id === 'siTrocasSel') { si.trocasSis = ev.target.value; si.secAbertas.add('partidos'); $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); return; }
     if (ev.target.id !== 'siFedSel') return;
     si.fedParceiro = ev.target.value;
     si.secAbertas.add('federacao');

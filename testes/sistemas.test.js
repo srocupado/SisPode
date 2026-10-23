@@ -154,6 +154,15 @@ ok(JSON.stringify(cmp.sims[1].porPartido) === '{"PA":3,"PC":1,"PD":1}', 'somas n
 ok(cmp.sims[1].porUf.xb.eleitos.length === 3 && !cmp.sims[1].porUf.xb.entram.length, 'a UF sem real ainda é simulada (sem entra/sai)');
 ok(S.snOrdemPartidos(cmp).join() === 'PA,PB,PC,PD', 'ordem: bancada oficial, depois a maior simulada');
 ok(cmp.sims[2].porUf.ya.nMais === 3 && cmp.sims[2].porUf.ya.nLista === 2, 'misto: partes registradas por UF');
+const tp = S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, 'd');
+ok(tp.map(t => t.sg).join() === 'PB,PD' && tp[0].oficial === 1 && tp[0].sistema === 0 && tp[1].oficial === 0 && tp[1].sistema === 1,
+  'trocas partido a partido: só quem tem troca, na ordem dos partidos, com a bancada oficial e a do sistema');
+ok(tp[1].entram.length === 1 && tp[1].entram[0].uf === 'ya' && tp[1].entram[0].cand.votos === 100 && tp[1].entram[0].fase === 'mais votados' && tp[1].entram[0].pos === 4,
+  'quem entra: estado, votos, por onde entra e posição no estado');
+ok(tp[0].saem.length === 1 && tp[0].saem[0].cand.votos === 18 && tp[0].saem[0].pos === 6 && !tp[0].entram.length, 'quem sai, com a posição no estado (a UF sem real fica fora)');
+ok(cmp.sims.every(s => S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, s.id).every(t => t.entram.length - t.saem.length === t.sistema - t.oficial)),
+  'saldo: entram − saem = bancada no sistema − bancada oficial, em todos os sistemas');
+ok(!S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, 'p').length && !S.snTrocasPorPartido(cmp, {}, 'x').length, 'proporcional vigente (ou sistema que não existe): ninguém troca');
 const todasSem = S.snSimular({ xb: ufB }, sist);
 ok(todasSem.comparadas.join() === 'xb' && todasSem.sims[1].total === 3, 'nenhuma UF com real (apuração em curso): as somas contam todas');
 ok(S.snSituacao({ final: true }) === 'final' && S.snSituacao({ final: false, pct: 100, eleitosReal: 0 }) === 'retotalizando' && S.snSituacao({ final: false, pct: 87, eleitosReal: 0 }) === 'parcial',

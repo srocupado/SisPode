@@ -462,6 +462,35 @@ function snOrdemPartidos(res) {
 }
 
 /**
+ * Quem entra e quem sai, partido a partido, num sistema (sobre as UFs comparáveis).
+ * Devolve [{ sg, oficial, sistema, entram: [{ uf, cand, fase, pos }], saem: [{ uf, cand, pos }] }]
+ * só com os partidos que têm alguma troca, na ordem de snOrdemPartidos; entram e saem
+ * em ordem de votos. pos = posição do candidato no estado, entre os votos nominais válidos;
+ * fase = por onde entra no sistema (mais votados, lista, distrito, QP, média…).
+ */
+function snTrocasPorPartido(res, dados, id) {
+  const s = res.sims.find(x => x.id === id);
+  if (!s) return [];
+  const pos = {};
+  const posicao = (uf, sq) => {
+    if (!pos[uf]) {
+      pos[uf] = {};
+      dados[uf].agrs.flatMap(a => a.cands.filter(c => c.valido)).sort((a, b) => b.votos - a.votos).forEach((c, i) => { pos[uf][c.sq] = i + 1; });
+    }
+    return pos[uf][sq] || null;
+  };
+  const por = {};
+  const de = sg => por[sg] || (por[sg] = { sg, oficial: res.real.porPartido[sg] || 0, sistema: s.porPartido[sg] || 0, entram: [], saem: [] });
+  for (const uf of res.comparadas) {
+    const u = s.porUf[uf];
+    for (const x of u.entram) de(x.cand.partido).entram.push({ uf, cand: x.cand, fase: x.fase, pos: posicao(uf, x.cand.sq) });
+    for (const x of u.saem) de(x.cand.partido).saem.push({ uf, cand: x.cand, pos: posicao(uf, x.cand.sq) });
+  }
+  const porVotos = (a, b) => b.cand.votos - a.cand.votos;
+  return snOrdemPartidos(res).filter(sg => por[sg]).map(sg => { por[sg].entram.sort(porVotos); por[sg].saem.sort(porVotos); return por[sg]; });
+}
+
+/**
  * Posições das cadeiras num hemiciclo (unidades: raio externo 1, centro na base),
  * da esquerda para a direita — a ordem em que se pintam os partidos. Devolve
  * { pontos: [{ x, y }], r } (r = raio de cada bolinha).
@@ -632,5 +661,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snVagasCamara, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snTrocasPorPartido, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }
