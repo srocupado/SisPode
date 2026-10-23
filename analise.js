@@ -3140,7 +3140,11 @@ async function teorEmendasAcolhidas(it, docs, pdfBuffers, progresso = () => {}) 
       const n = fila.shift(), e = porNum.get(n);
       if (!e || !e.url) { out.semTeor.push(n); continue; }
       try {
-        const texto = resumirTextoEmenda(await extrairTextoPdf(await baixarPdf(e.url)));
+        // o Senado recusa um pedido de vez em quando: o download tenta de novo uma vez antes de dar a emenda como sem teor
+        let pdf;
+        try { pdf = await baixarPdf(e.url); }
+        catch (er) { if (isAbortError(er)) throw er; await new Promise(r => setTimeout(r, 1500)); pdf = await baixarPdf(e.url); }
+        const texto = resumirTextoEmenda(await extrairTextoPdf(pdf));
         if (texto.length > 40) out.doSenado.push({ n, autor: e.autor, partido: e.partido, texto });
         else out.semTeor.push(n);
       } catch (er) { if (isAbortError(er)) throw er; out.semTeor.push(n); }
