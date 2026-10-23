@@ -1106,7 +1106,7 @@ function siTrocasPartidosHtml(impressao) {
     const lista = t => `<div class="bloco"><h3><span class="sw" style="background:${cores[t.sg]}"></span>${siEsc(t.sg)} <small class="igual">${t.entram.length} entra${t.entram.length === 1 ? '' : 'm'} · ${t.saem.length} sa${t.saem.length === 1 ? 'i' : 'em'} · saldo</small> ${siDelta(t.sistema, t.oficial)}</h3>`
       + `<table><thead><tr><th></th><th>Candidato</th>${umaUf ? '' : '<th>UF</th>'}<th class="n">Votos</th><th class="n">Posição</th><th>Entra pela</th></tr></thead><tbody>`
       + t.entram.map(x => linha(x, true)).join('') + t.saem.map(x => linha(x, false)).join('') + '</tbody></table></div>';
-    return h + `<div class="duas" style="margin-top:10px">${tp.map(lista).join('')}</div>`;
+    return h + `<div class="duas larga" style="margin-top:10px">${tp.map(lista).join('')}</div>`;
   };
   const sub = 'em relação aos eleitos oficiais · posição = no estado, pelos votos nominais';
   if (impressao) return sims.map(s => `<h2 class="imp-quebra">Quem entra e quem sai, partido a partido: ${siEsc(s.nome)} <small>${sub}</small></h2>` + bloco(s)).join('');
