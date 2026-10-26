@@ -2014,13 +2014,26 @@ bot.on('message:voice', async ctx => {
     // padroniza a qualidade e não consome a chave pessoal do analista.
     // Sem ela, cai no provedor do próprio usuário (Gemini/OpenAI aceitam
     // áudio; a API da Anthropic não).
-    let texto;
+    // Se o transcritor padrão falhar (chave revogada, projeto sem cota — o
+    // "free tier is not available for this project" de out/2026), o áudio
+    // cai na chave do próprio usuário em vez de morrer: a chave pessoal
+    // estava boa, e quem pagava a conta do erro era o analista.
+    let texto, erroPadrao = null;
     if (TRANSCRIBE_GEMINI_KEY) {
       // Modelo do /modelo do usuário quando for Gemini; senão o padrão do provedor
-      texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, modelo: perfil.modelo, buffer });
-    } else if (perfil.provedor === 'anthropic') {
-      return ctx.reply('Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY no .env). Envie por texto.');
-    } else {
+      try {
+        texto = await transcreverAudio({ provedor: 'gemini', apiKey: TRANSCRIBE_GEMINI_KEY, modelo: perfil.modelo, buffer });
+      } catch (e) {
+        erroPadrao = e;
+        console.warn('transcritor padrão (TRANSCRIBE_GEMINI_KEY) falhou; tentando a chave do usuário:', e.message);
+      }
+    }
+    if (!TRANSCRIBE_GEMINI_KEY || erroPadrao) {
+      if (perfil.provedor === 'anthropic') {
+        return ctx.reply(erroPadrao
+          ? `O transcritor padrão do bot falhou (${erroPadrao.message}) e seu provedor (Anthropic) não aceita áudio. Envie por texto — e avise o admin para trocar a TRANSCRIBE_GEMINI_KEY do .env.`
+          : 'Seu provedor (Anthropic) não aceita áudio e o bot está sem transcritor padrão configurado (TRANSCRIBE_GEMINI_KEY no .env). Envie por texto.');
+      }
       texto = await transcreverAudio({ provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo, buffer });
     }
     if (!texto) return ctx.reply('Não consegui transcrever o áudio — tente de novo ou envie por texto.');
