@@ -1042,7 +1042,7 @@ async function cmdAnalisar(ctx) {
   analisePendente.set(token, { pautaId: pauta.id, titulo: pauta.nome || pauta.titulo || pauta.id, ts: Date.now() });
   return ctx.reply(
     `Gerar as análises da pauta "${pauta.nome || pauta.titulo}" (${(pauta.itens || []).length} itens)?\n` +
-    'Itens que já têm nota são pulados; MPVs ficam de fora (edição manual). ' +
+    'Itens que já têm nota são pulados; MPVs entram também (cenários 8a/8b). ' +
     'As chamadas de IA rodam na SUA chave.',
     { reply_markup: new InlineKeyboard().text('🤖 Gerar análises', `ana:ok:${token}`).text('Cancelar', `ana:no:${token}`) });
 }
