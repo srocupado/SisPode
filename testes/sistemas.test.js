@@ -181,6 +181,26 @@ const dzI = indA.sims.d;
 ok(dzI.ganha && dzI.ganha.sg === 'PD' && dzI.ganha.d === 1 && dzI.perde.sg === 'PB' && dzI.perde.d === -1, 'quem mais ganha e quem mais perde contra o oficial');
 ok(indA.sims.p.gallagher === indA.real.gallagher && !indA.sims.p.ganha, 'proporcional vigente = oficial: mesmos indicadores, ninguém ganha');
 
+console.log('Método das sobras (art. 109; ADI 8.036): D\'Hondt, Sainte-Laguë, maiores restos');
+{
+  // 5 vagas, QE = 200. A 520 (QP 2, resto 0,6), B 320 (QP 1, resto 0,6), C 160 (QP 0, resto 0,8; 80% do QE: disputa as sobras).
+  //  · D'Hondt: A 520÷3 = 173 → A; depois B 320÷2 = 160 e C 160÷1 = 160 empatam → B (a mais votada): A 3, B 2, C 0
+  //  · Sainte-Laguë: C 160÷1 = 160 → C; depois B 320÷3 = 107 > A 520÷5 = 104 → B: A 2, B 2, C 1
+  //  · maiores restos: C 0,8 → C; depois A 0,6 e B 0,6 empatam → A (a mais votada): A 3, B 1, C 1
+  const mk = () => uf(5, [agr('A', 520, [130, 130, 104, 87, 65]), agr('B', 320, [107, 107, 80, 64]), agr('C', 160, [80, 53, 40])]);
+  const c = k => conta(S.snProporcional(mk(), { sobras: k }));
+  ok(c('dhondt') === '{"A":3,"B":2}' && c(undefined) === c('dhondt'), "D'Hondt (a lei, o padrão): A 3, B 2, C 0");
+  ok(c('sl') === '{"A":2,"B":2,"C":1}', 'Sainte-Laguë (÷ 1, 3, 5…): A 2, B 2, C 1');
+  ok(c('restos') === '{"A":3,"B":1,"C":1}', 'maiores restos (Hare, votos ÷ QE − lugares): A 3, B 1, C 1');
+  const fases = S.snProporcional(mk(), { sobras: 'restos' }).eleitos.map(x => x.fase);
+  ok(fases.filter(f => f === 'QP').length === 3 && fases.filter(f => f === 'maior resto').length === 2, 'as sobras pelos restos aparecem como "maior resto"');
+  // Quem ficou abaixo do QP por falta de candidato com 10% do QE recupera as suas pelo resto (SP 2026: PSOL/REDE).
+  // QE 200: A 700 = 3,5 quocientes, mas só 2 candidatos com 10% do QE → 2 no QP; B 300 = 1,5 → 1. Hare: A 3 + B 1
+  // pela parte inteira, e a 5ª vaga ao maior resto (A 0,5 × B 0,5, empate → A, a mais votada) → A 4, B 1.
+  // Uma sobra por partido a cada volta daria A 3, B 2 — tiraria de A uma cadeira da parte inteira do seu quociente.
+  const falta = uf(5, [agr('A', 700, [300, 30, 10, 5]), agr('B', 300, [150, 100, 50])]);
+  ok(conta(S.snProporcional(falta, { sobras: 'restos', pctPartido: 0, pctCandidato: 0 })) === '{"A":4,"B":1}', 'QP não preenchido por falta de candidato: o resto (3,5 − 2 = 1,5) devolve a cadeira da parte inteira, e a última vai ao maior resto');
+}
 console.log('Lista preordenada do partido (Versão Minuta, art. 105-D)');
 {
   const A = agr('A', 1800, [500, 400, 300, 200, 100]), B = agr('B', 1200, [450, 350, 250]);

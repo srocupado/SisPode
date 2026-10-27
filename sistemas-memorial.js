@@ -111,9 +111,13 @@ function smAbaProporcional(s, dados, ufs, res) {
   const op = s.op || {};
   const pctQP = op.pctQP != null ? op.pctQP : 0.10, pctP = op.pctPartido != null ? op.pctPartido : 0.80, pctC = op.pctCandidato != null ? op.pctCandidato : 0.20;
   const aberta = op.terceiraFaseAberta !== false;
+  // o método das sobras (art. 109 — a ADI 8.036 o questiona): a "média" de cada agremiação em cada rodada
+  const sob = op.sobras === 'sl' ? { nome: 'Sainte-Laguë', txt: 'média = votos ÷ (2 × lugares + 1)', f: (B, lug) => `${B}/${2 * lug + 1}`, v: (votos, lug) => votos / (2 * lug + 1) }
+    : op.sobras === 'restos' ? { nome: 'maiores restos (Hare)', txt: 'resto = votos ÷ QE − lugares', f: (B, lug, QE) => `${B}/${QE}-${lug}`, v: (votos, lug, qe) => votos / qe - lug }
+      : { nome: 'maiores médias (D\'Hondt)', txt: 'média = votos ÷ (lugares + 1)', f: (B, lug) => `${B}/${lug + 1}`, v: (votos, lug) => votos / (lug + 1) };
   const aba = smNovaAba(s.nome.slice(0, 31), [16, 14, 10, 12, 12, 12, 9, 10, 10, 10, 9]);
-  aba.add([`${s.nome}: quociente eleitoral, quociente partidário (art. 107, eleitos com ${Math.round(pctQP * 100)}% do QE — art. 108) e sobras pelas maiores médias (art. 109: agremiações com ${Math.round(pctP * 100)}% do QE e candidatos com ${Math.round(pctC * 100)}% do QE; depois, ${aberta ? 'todas as agremiações' : `só as de ${Math.round(pctP * 100)}%`}).`]);
-  aba.add(['Fórmulas: QE = válidos ÷ vagas (fração acima de meio arredonda para cima); QP = INT(votos ÷ QE); média = votos ÷ (lugares + 1). A coluna "Confere" compara a conta da planilha com o simulador.']);
+  aba.add([`${s.nome}: quociente eleitoral, quociente partidário (art. 107, eleitos com ${Math.round(pctQP * 100)}% do QE — art. 108) e sobras pelos ${sob.nome} (art. 109: agremiações com ${Math.round(pctP * 100)}% do QE e candidatos com ${Math.round(pctC * 100)}% do QE; depois, ${aberta ? 'todas as agremiações' : `só as de ${Math.round(pctP * 100)}%`}).`]);
+  aba.add([`Fórmulas: QE = válidos ÷ vagas (fração acima de meio arredonda para cima); QP = INT(votos ÷ QE); ${sob.txt}. A coluna "Confere" compara a conta da planilha com o simulador.`]);
   for (const uf of ufs) {
     const d = dados[uf], agrs = smAgrs(d, s).slice().sort((a, b) => b.votos - a.votos), sim = res.porUf[uf];
     if (!sim) continue;
@@ -146,9 +150,9 @@ function smAbaProporcional(s, dados, ufs, res) {
     // sobras, rodada a rodada (a ordem em que o simulador elegeu)
     const rodadas = eleitos.filter(x => x.fase !== 'QP');
     if (!rodadas.length) continue;
-    aba.add(['Sobras: média de cada agremiação que pode disputar a vaga da rodada = votos ÷ (lugares + 1); em branco, quem não pode (abaixo do mínimo ou sem candidato que o alcance).']);
+    aba.add([`Sobras (${sob.nome}): ${sob.txt}, para cada agremiação que pode disputar a vaga da rodada; em branco, quem não pode (abaixo do mínimo ou sem candidato que o alcance). Leva a maior; empate: a mais votada.`]);
     const rc = aba.prox();
-    aba.add(['Rodada', 'Fase', ...agrs.map(smSiglas), 'Eleita (simulador)', 'Maior média (fórmula)', 'Confere', 'Candidato eleito']);
+    aba.add(['Rodada', 'Fase', ...agrs.map(smSiglas), 'Eleita (simulador)', op.sobras === 'restos' ? 'Maior resto (fórmula)' : 'Maior média (fórmula)', 'Confere', 'Candidato eleito']);
     const c0 = 2, c1 = c0 + agrs.length - 1;
     const lug = {};
     for (const a of agrs) lug[a.id] = eleitos.filter(x => x.agr === a.id && x.fase === 'QP').length;
@@ -160,7 +164,7 @@ function smAbaProporcional(s, dados, ufs, res) {
         const podeAgr = terceira ? (aberta || a.votos >= pctP * qe) : a.votos >= pctP * qe;
         const tem = a.cands.some(c => c.valido && !ja.has(c.sq) && (terceira || c.votos >= pctC * qe));
         if (!podeAgr || !tem) return null;
-        return { f: `${smAbs(1, linha[a.id])}/${lug[a.id] + 1}`, v: a.votos / (lug[a.id] + 1) };
+        return { f: sob.f(smAbs(1, linha[a.id]), lug[a.id], QE), v: sob.v(a.votos, lug[a.id], qe) };
       });
       const vals = cel.map(c => (c ? c.v : -Infinity));
       const mx = Math.max(...vals), iMax = vals.indexOf(mx);

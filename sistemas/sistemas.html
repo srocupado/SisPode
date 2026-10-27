@@ -263,12 +263,14 @@
   <div class="sistemas fechado" id="siSistemas">
     <div class="sis" data-sis="proporcional">
       <h3><i style="background:#3b82f6"></i>Proporcional (atual)<span class="alterado" id="siAltP" hidden>parâmetros alterados</span></h3>
-      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111).</p>
+      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111) — ou por outro método, para simular a ADI 8.036.</p>
       <div class="lin"><span>Votos mínimos do candidato no QP (% do QE)</span><input type="number" id="pQP" min="0" max="100" step="1" value="10"></div>
       <div class="lin"><span>Sobras: agremiação com (% do QE)</span><input type="number" id="pPart" min="0" max="100" step="1" value="80"></div>
       <div class="lin"><span>Sobras: candidato com (% do QE)</span><input type="number" id="pCand" min="0" max="100" step="1" value="20"></div>
+      <div class="lin"><span>Método das sobras</span><div class="seg" id="pSob"><button data-s="dhondt" class="ativo" title="Maiores médias: votos ÷ (lugares + 1) — art. 109 do Código Eleitoral (a lei)">D'Hondt (a lei)</button><button data-s="sl" title="Sainte-Laguë: votos ÷ (2 × lugares + 1) — divisores 1, 3, 5…, mais neutro entre grandes e pequenos">Sainte-Laguë</button><button data-s="restos" title="Hare (maiores restos): a fração do quociente eleitoral que sobrou a cada agremiação, votos ÷ QE − lugares">Maiores restos</button></div></div>
       <div class="lin"><label><input type="checkbox" id="pTerc" checked> 3ª fase aberta a todas as agremiações (STF, ADIs 7228/7263/7325)</label></div>
       <div class="lin"><label><input type="checkbox" id="pFed" checked> Federações (desmarcado: cada partido sozinho)</label></div>
+      <div class="lin larga proj"><span>Cenário</span><span class="proj-b"><button id="pAdi" title="ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e das exigências de 80% e 20% do QE para as sobras (§ 2º), sem dizer o que entra no lugar: aqui, Sainte-Laguë nas sobras e sem o § 2º; quociente eleitoral e partidário como hoje">ADI 8.036 (PDT): Sainte-Laguë sem o § 2º</button></span></div>
     </div>
     <div class="sis" data-sis="misto">
       <h3><i style="background:#a855f7"></i>Distritão misto<span class="alterado" id="siAltM" hidden>parâmetros alterados</span></h3>

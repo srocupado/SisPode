@@ -50,7 +50,7 @@ function siSistemas() {
   return [
     { id: 'proporcional', nome: SI_NOMES.proporcional, tipo: 'proporcional', op: {
       pctQP: siNumero('pQP', 10) / 100, pctPartido: siNumero('pPart', 80) / 100, pctCandidato: siNumero('pCand', 20) / 100,
-      terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked } },
+      terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked, sobras: (($('pSob').querySelector('.ativo') || {}).dataset || {}).s || 'dhondt' } },
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
       arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
@@ -74,11 +74,16 @@ function siSistemas() {
 const siMapaEstadual = () => (($('dEst') && $('dEst').querySelector('.ativo')) || { dataset: {} }).dataset.e || 'proprio';
 function siAlterado(s) {
   const o = s.op;
-  if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes;
+  if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes || (o.sobras || 'dhondt') !== 'dhondt';
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0 || o.arred !== 'proximo' || !!o.votoLiquido;
   if (s.tipo === 'distrital') return (si.cargo !== '6' && o.mapaEstadual === 'federais') || o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o) || !!o.votoLiquido || (o.listasNomes || []).length > 0;
   return false;
 }
+/** O cenário da ADI 8.036 (PDT): Sainte-Laguë nas sobras e sem as exigências do § 2º do art. 109 (80% e 20% do QE); o resto como a lei. */
+function siEhAdi8036(o) {
+  return o.sobras === 'sl' && o.pctPartido === 0 && o.pctCandidato === 0 && o.pctQP === 0.1 && o.terceiraFaseAberta && o.federacoes;
+}
+const SI_SOBRAS = { dhondt: "maiores médias (D'Hondt)", sl: 'Sainte-Laguë', restos: 'maiores restos (Hare)' };
 /** Distritão misto com redução v3: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
 function siEhReducaoV3(o) {
   return o.pctMaisVotados === 0.5 && o.arred === 'baixo' && !!o.votoLiquido && o.modelo === 'compensatorio' && o.limiar === 0;
@@ -199,8 +204,11 @@ function siLigarTolerancia() {
 function siDescricao(s, curta) {
   const o = s.op;
   if (s.tipo === 'proporcional') {
-    if (curta) return siAlterado(s) ? 'parâmetros alterados' : 'regra vigente';
-    return siAlterado(s) ? `QP com candidato de ${siPct(o.pctQP)} do QE; sobras com agremiação de ${siPct(o.pctPartido)} e candidato de ${siPct(o.pctCandidato)}; `
+    const sob = o.sobras && o.sobras !== 'dhondt' ? o.sobras : '';
+    if (siEhAdi8036(o)) return curta ? 'ADI 8.036: Sainte-Laguë sem o § 2º'
+      : 'ADI 8.036 (PDT), na hipótese de Sainte-Laguë: quociente eleitoral e partidário como hoje; sobras por Sainte-Laguë (votos ÷ 1, 3, 5…), sem as exigências de 80% e 20% do QE do § 2º do art. 109; 3ª fase aberta; federações';
+    if (curta) return !siAlterado(s) ? 'regra vigente' : sob ? `sobras por ${SI_SOBRAS[sob]}` + (siAlterado(Object.assign({}, s, { op: Object.assign({}, o, { sobras: 'dhondt' }) })) ? ' · outros parâmetros' : '') : 'parâmetros alterados';
+    return siAlterado(s) ? `QP com candidato de ${siPct(o.pctQP)} do QE; sobras por ${SI_SOBRAS[o.sobras || 'dhondt']}, com agremiação de ${siPct(o.pctPartido)} e candidato de ${siPct(o.pctCandidato)}; `
       + `3ª fase ${o.terceiraFaseAberta ? 'aberta a todas' : 'só com as de ' + siPct(o.pctPartido)}; ${o.federacoes ? 'com' : 'sem'} federações` : 'regra vigente (10% · 80/20 · 3ª fase aberta · federações)';
   }
   if (s.tipo === 'misto') {
@@ -240,6 +248,7 @@ function siMarcarAlterados() {
   // pelo tipo, nunca pela posição na lista (a lista já mudou: saiu o distritão puro)
   const P = ss.find(x => x.id === 'proporcional'), M = ss.find(x => x.id === 'misto'), N = ss.find(x => x.id === 'misto2'), D = ss.find(x => x.id === 'distrital');
   $('siAltP').hidden = !siAlterado(P);
+  $('pAdi').classList.toggle('proj-ok', siEhAdi8036(P.op));
   $('siAltM').hidden = !siAlterado(M);
   $('siAltN').hidden = !siAlterado(N);
   $('nPctV').textContent = siPct(N.op.pctMaisVotados);
@@ -404,13 +413,14 @@ function siFaixa(ss) {
     const temPar = true, aberto = si.abertoSis === s.id;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.id}"><div class="t"><i style="background:${SI_COR_SIS[s.id]}"></i>${siEsc(SI_NOMES[s.id])}`
       + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && (siEhReducaoV3(s.op) || siEhFederativo(s.op)))))}</div></div>`;
+      + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && (siEhReducaoV3(s.op) || siEhFederativo(s.op))) || (s.tipo === 'proporcional' && siEhAdi8036(s.op))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
 }
 function siRegraVigente() {
   $('pQP').value = 10; $('pPart').value = 80; $('pCand').value = 20; $('pTerc').checked = true; $('pFed').checked = true;
+  for (const b of $('pSob').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.s === 'dhondt');
   $('mPct').value = 50; $('mLim').value = 0; $('dPct').value = 50; $('dLim').value = 0; $('mLiq').checked = false; $('dLiq').checked = false;
   $('nPct').value = 50; $('nLim').value = 0; $('nLiq').checked = false;
   for (const id of ['mArr', 'nArr']) for (const b of $(id).querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.a === 'proximo');
@@ -1166,7 +1176,7 @@ function siPartes(impressao) {
 function siRelatorioHtml(impressao) {
   const P = siPartes(impressao);
   // PDF: o relatório completo, na ordem de sempre
-  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + siTrocasPartidosHtml(true)
+  if (impressao) return P.resumo + P.podemos + P.indicadores + P.hemis + P.bancadas + P.entraSai + P.estados + siTrocasPartidosHtml(true) + siClausulaHtml(true)
     + siProximaHtml(true) + siFederacaoHtml(true) + siAlcanceHtml(true) + P.mapa + P.distritos + P.detalhe;
   // Tela: destaques → a Câmara em cada sistema → blocos recolhíveis → os distritos → bancadas
   let h = P.destaques;
@@ -1181,6 +1191,7 @@ function siRelatorioHtml(impressao) {
     + siAcordeao('indicadores', 'Indicadores', 'Proporcionalidade (Gallagher), número efetivo de partidos, maior bancada, quem mais ganha e perde', siSemH2(P.indicadores))
     + siAcordeao('entrasai', 'Quem entra e quem sai do ' + siEsc(siPNome()), P.temReal ? `Os nomes, sistema a sistema · ${P.nEntra} entradas e ${P.nSai} saídas no total` : 'Sem eleitos oficiais para comparar', siSemH2(P.entraSai))
     + siAcordeao('partidos', 'Quem entra e quem sai, partido a partido', siTrocasPartidosResumo(), siSemH2(siTrocasPartidosHtml(false)))
+    + siAcordeao('clausula', 'Cláusula de barreira em cada sistema', siClausulaResumo(), siSemH2(siClausulaHtml(false)))
     + siAcordeao('proxima', `Próxima cadeira do ${siEsc(siPNome())}, estado a estado`, siProximaResumo(), siSemH2(siProximaHtml(false)))
     + siAcordeao('federacao', 'Federação hipotética', si.fedParceiro ? `${siEsc(siPNome())} + ${siEsc(si.fedParceiro)}: ${siFederacaoResumo()}` : `Escolha um parceiro e veja quantas cadeiras a soma daria ao ${siEsc(siPNome())}`, siSemH2(siFederacaoHtml(false)))
     + (s && s.op.porUf ? siAcordeao('alcance', `Distritos ao alcance do ${siEsc(siPNome())}`, siAlcanceResumo(), siSemH2(siAlcanceHtml(false))) : '')
@@ -1550,6 +1561,64 @@ function siAlcanceHtml(impressao) {
     + 'No paralelo, cada distrito ganho é uma cadeira a mais.</div>';
 }
 
+// ------------------------------------------------------------ cláusula de barreira, em cada sistema
+/**
+ * A cláusula de desempenho (EC 97/2017; a mesma conta da aba de apuração, apClausula) no resultado oficial e em cada
+ * sistema simulado: o critério dos votos não muda (os votos são os mesmos); o dos deputados eleitos, sim.
+ * Só para deputado federal, com o país inteiro. Devolve null quando não se aplica.
+ */
+function siClausula() {
+  const res = si.res;
+  if (si.cargo !== '6' || !res || typeof apClausula !== 'function') return null;
+  const regra = apClausulaRegra(si.op.ano);
+  if (!regra || res.comparadas.length < Object.keys(AP_UFS).length) return null;
+  return siCache('clausula', () => {
+    const entrada = elPorUf => res.comparadas.map(uf => {
+      const d = si.dados[uf];
+      return { uf, validos: d.validos,
+        partidos: d.agrs.flatMap(a => Object.entries(a.porSigla && Object.keys(a.porSigla).length ? a.porSigla : { [a.siglas[0] || a.id]: a.votos })
+          .map(([sg, v]) => ({ sigla: sg, numero: sg, total: v, federacao: a.tipo === 'federacao' ? a.siglas.slice().sort().join('/') : null }))),
+        candidatos: (elPorUf(uf) || []).map(x => ({ eleito: true, partidoNum: x.cand.partido, votos: x.cand.votos, nome: x.cand.nome })) };
+    });
+    const sistemas = [{ id: 'real', nome: 'Oficial', l: apClausula(entrada(uf => (res.real.porUf[uf] || {}).eleitos), regra) },
+      ...res.sims.map(s => ({ id: s.id, nome: s.nome, l: apClausula(entrada(uf => s.porUf[uf].eleitos), regra) }))];
+    return { regra, sistemas };
+  });
+}
+function siClausulaResumo() {
+  const c = siClausula();
+  if (!c) return si.cargo !== '6' ? 'Só para deputado federal' : 'Leia o país inteiro (todos os estados) para conferir a cláusula';
+  const of = c.sistemas[0].l.filter(x => x.atinge).map(x => x.nome);
+  const muda = c.sistemas.slice(1).filter(s => { const n = s.l.filter(x => x.atinge).map(x => x.nome); return n.length !== of.length || n.some(x => !of.includes(x)); });
+  return `${of.length} partidos e federações cumprem no oficial · ${muda.length ? `muda em ${muda.map(s => siEsc(s.nome)).join(', ')}` : 'ninguém entra nem sai em nenhum sistema'}`;
+}
+function siClausulaHtml(impressao) {
+  const c = siClausula();
+  if (!c) return '';
+  const R = c.regra, of = new Map(c.sistemas[0].l.map(x => [x.nome, x]));
+  const nomes = c.sistemas[0].l.filter(x => c.sistemas.some(s => { const y = s.l.find(z => z.nome === x.nome); return y && (y.eleitos.length || y.atinge); }) || x.pct >= 1).map(x => x.nome);
+  const pct = x => x.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%';
+  let h = `<h2${impressao ? ' class="imp-quebra"' : ''}>Cláusula de barreira em cada sistema <small>deputados federais, ${si.op.ano}</small></h2>`
+    + `<div class="dica" style="margin:0 0 8px"><b>Regra (${siEsc(R.base)}):</b> cumpre o partido ou a federação que tiver ${String(R.pctBR).replace('.', ',')}% dos votos válidos do país, com ao menos ${String(R.pctUF).replace('.', ',')}% em ${R.ufs} estados, <b>ou</b> eleger ${R.eleitos} deputados federais em ao menos ${R.ufs} estados.</div>`
+    + `<div class="tab-rolagem"><table class="compacta"><thead><tr><th rowspan="2">Partido ou federação</th><th colspan="3" class="grupo">Pelos votos (igual em todos)</th>`
+    + c.sistemas.map(s => `<th rowspan="2" class="n">${siEsc(s.nome)}<br><span class="igual">eleitos (estados)</span></th>`).join('') + '</tr>'
+    + `<tr><th class="n">% do país</th><th class="n">Estados com ${String(R.pctUF).replace('.', ',')}%</th><th>Cumpre</th></tr></thead><tbody>`;
+  for (const nome of nomes) {
+    const x0 = of.get(nome), foco = (x0.siglas || []).includes(si.partido);
+    h += `<tr${foco ? ' class="pode"' : ''}><td>${siEsc(nome)}</td><td class="n">${pct(x0.pct)}</td><td class="n">${x0.ufsMin}</td><td>${x0.atingeA ? '<span class="mais">✓ cumpre</span>' : '—'}</td>`;
+    for (const s of c.sistemas) {
+      const y = s.l.find(z => z.nome === nome) || { eleitos: [], ufsEleitos: 0, atinge: false, atingeB: false };
+      const mudou = s.id !== 'real' && y.atinge !== x0.atinge;
+      const sit = y.atinge ? (y.atingeA ? '✓' : '✓ pelos eleitos') : '✗';
+      h += `<td class="n${mudou ? (y.atinge ? ' mais' : ' menos') : ''}" title="${y.atinge ? 'cumpre' : 'não cumpre'}${mudou ? (y.atinge ? ' — passa a cumprir' : ' — deixa de cumprir') : ''}">${y.eleitos.length} (${y.ufsEleitos}) ${mudou ? `<b>${y.atinge ? '✓ passa' : '✗ sai'}</b>` : `<span class="igual">${sit}</span>`}</td>`;
+    }
+    h += '</tr>';
+  }
+  h += '</tbody></table></div><div class="dica">Mesma conta da aba de apuração (federação conta como um partido). O critério dos votos não muda de um sistema para outro — os votos são os mesmos —; o dos deputados eleitos, sim: cada coluna conta os eleitos daquele sistema e em quantos estados. '
+    + `Em verde, quem passa a cumprir; em vermelho, quem deixa de cumprir, em relação ao oficial. Estão os partidos e federações com eleito em algum sistema ou com ao menos 1% dos votos.</div>`;
+  return h;
+}
+
 /** A conferência da tolerância (sdTolerancia) num texto curto: "dentro" ou o que passa. */
 function siToleranciaTxt(t) {
   const a = siPct(t.tol.pct), b = siPct(t.tol.exc), exc = t.tol.exc > t.tol.pct;
@@ -1624,6 +1693,7 @@ function siMetodoHtml() {
   if (sist.misto && siEhFederativo(sist.misto.op)) li.push('<b>Federativo Misto.</b> O distritão misto segue o projeto de lei do Sistema Federativo Misto (v2, 2026): metade das cadeiras da circunscrição, apurada pela parte inteira, aos candidatos mais votados (art. 10, § 3º, da Lei 9.504 proposto); '
     + 'o voto partidário é a votação do partido (nominais + legenda) menos os votos nominais dos seus eleitos na 1ª parte — o voto partidário líquido (art. 106, § 1º); só as cadeiras que restam depois da reserva majoritária são distribuídas pelas maiores médias sobre ele (art. 107), '
     + 'e cada partido fica com a soma das duas partes (art. 108) — não há excedente, nenhum eleito entre os mais votados perde a cadeira. Lista preordenada com alternância de sexo a cada três posições (aqui, na ordem de votos).');
+  if (sist.proporcional && (sist.proporcional.op.sobras || 'dhondt') !== 'dhondt') li.push(`<b>Método das sobras.</b> No proporcional, as vagas que o quociente partidário não preencheu vão ${sist.proporcional.op.sobras === 'sl' ? 'por Sainte-Laguë: a cada rodada, leva a agremiação com a maior votação ÷ (2 × lugares + 1) — divisores 1, 3, 5…' : 'pelos maiores restos (Hare): a cada rodada, leva a agremiação com o maior resto do quociente eleitoral, votos ÷ QE − lugares (quem ficou abaixo do quociente partidário por falta de candidato com 10% do QE recupera as suas antes)'}, em vez das maiores médias da lei (art. 109, votos ÷ (lugares + 1)); quociente eleitoral, quociente partidário e os requisitos de cada fase como no card. A ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e do § 2º (80% e 20% do QE), sem dizer o que entra no lugar: Sainte-Laguë e maiores restos são as alternativas clássicas.`);
   if (sist.distrital && (sist.distrital.op.listasNomes || []).length) li.push(`<b>Lista preordenada.</b> Nas listas dadas pelos partidos (${siEsc(sist.distrital.op.listasNomes.join(', '))}), as vagas de lista vão aos nomes na ordem do partido, como na Versão Minuta (art. 105-D); quem venceu distrito é pulado (art. 105-A, § 1º), e, se faltar nome, completa pela ordem de votos. Nos demais partidos e estados, a ordem de votos. A lista só muda quem ocupa as vagas, não quantas cada partido tem.`);
   if (sist.distrital && siEhMinuta(sist.distrital.op)) li.push('<b>Versão Minuta.</b> O distrital misto segue a minuta de projeto de lei de distrital misto de voto único (2025): voto único, dado ao candidato do distrito ou à legenda (art. 59, § 2º, proposto) — como nos dados do TSE; '
     + 'distritos em número igual à metade das vagas, arredondada para cima (art. 10, § 5º), por habitantes do último Censo com até ±5% (±10% em 1 distrito ou em 10% deles), contíguos e compactos; vence o distrito o candidato com mais votos nominais válidos (art. 105-A) — um por partido: aqui, o mais votado de cada partido no distrito, com os seus votos pessoais (a alternativa "Partido (só nominais)" supõe que todos os votos nominais do partido se juntariam no candidato único); '
@@ -2195,10 +2265,15 @@ async function siIniciar() {
   $('dMinuta').addEventListener('click', () => siRegraProjeto('minuta'));
   $('mReducaoV3').addEventListener('click', siReducaoV3);
   $('mFederativo').addEventListener('click', () => siRegraMisto('paralelo'));
+  $('pAdi').addEventListener('click', () => {   // ADI 8.036: Sainte-Laguë nas sobras, sem o § 2º; o resto como a lei
+    $('pQP').value = 10; $('pPart').value = 0; $('pCand').value = 0; $('pTerc').checked = true; $('pFed').checked = true;
+    for (const b of $('pSob').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.s === 'sl');
+    siParametrosMudaram();
+  });
   siLigarTolerancia();
   siLigarExcedente();
   siLigarListas();
-  for (const [id, attr] of [['mModelo', 'm'], ['mArr', 'a'], ['nModelo', 'm'], ['nArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a'], ['dEst', 'e']]) {
+  for (const [id, attr] of [['pSob', 's'], ['mModelo', 'm'], ['mArr', 'a'], ['nModelo', 'm'], ['nArr', 'a'], ['dModelo', 'm'], ['dRegra', 'r'], ['dBase', 'b'], ['dArr', 'a'], ['dEst', 'e']]) {
     $(id).addEventListener('click', ev => {
       const b = ev.target.closest(`button[data-${attr}]`);
       if (!b) return;
