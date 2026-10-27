@@ -300,14 +300,30 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
   }
   const eleitos = primeiros.slice();
   for (const a of d.agrs) {
-    const fila = a.cands.filter(c => c.valido && !ja.has(c.sq));
-    for (const c of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: c.sq, agr: a.id, fase: 'lista', cand: c });
+    const fila = snFilaLista(a, ja, (op.listaPre || {})[a.id]);
+    for (const x of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: x.c.sq, agr: a.id, fase: 'lista', cand: x.c, posLista: x.pos });
   }
   const porAgr = {};
   for (const a of d.agrs) porAgr[a.id] = 0;
   for (const x of eleitos) porAgr[x.agr] = (porAgr[x.agr] || 0) + 1;
   return { vagas: eleitos.length > N ? eleitos.length : N, extra: N - vagas, eleitos, porAgr, nLista: Math.max(0, nLista),
     excedentes, cortes, descobertos: descobertos.map(x => x.sq) };
+}
+
+/**
+ * A fila da lista de uma agremiação: os candidatos (válidos, ainda não eleitos) que ocupam as vagas de lista, em ordem.
+ * Sem lista preordenada, a ordem de votos. Com ela (pre = [sq] na ordem do partido — Versão Minuta, art. 105-D),
+ * primeiro os nomes dela (quem já venceu distrito é pulado: art. 105-A, § 1º); se faltar nome, completa pela ordem de votos.
+ * Devolve [{ c, pos }] — pos: a posição na lista do partido (1, 2, …), ou null quando veio da ordem de votos.
+ */
+function snFilaLista(a, ja, pre) {
+  const livres = a.cands.filter(c => c.valido && !ja.has(c.sq));
+  if (!pre || !pre.length) return livres.map(c => ({ c, pos: null }));
+  const porSq = new Map(livres.map(c => [String(c.sq), c]));
+  const naLista = [];
+  pre.forEach((sq, i) => { const c = porSq.get(String(sq)); if (c && !naLista.some(x => x.c === c)) naLista.push({ c, pos: i + 1 }); });
+  const dentro = new Set(naLista.map(x => x.c));
+  return naLista.concat(livres.filter(c => !dentro.has(c)).map(c => ({ c, pos: null })));
 }
 
 // ------------------------------------------------------------
@@ -378,10 +394,11 @@ function snSomar(alvo, eleitos) {
 const SN_TIPOS = {
   proporcional: (d, op) => snProporcional(d, op),
   misto: (d, op) => snDistritaoMisto(d, op),
-  // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado
+  // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado;
+  // op.listas[uf] = { agremiação: [sq] } — as listas preordenadas dadas pelos partidos (vazio: ordem de votos)
   distrital: (d, op) => {
     const f = typeof sdDistritalMisto === 'function' ? sdDistritalMisto : require('./sistemas-distrital.js').sdDistritalMisto;
-    return f(d, Object.assign({}, op, op.porUf[d.uf]));
+    return f(d, Object.assign({}, op, op.porUf[d.uf], { listaPre: (op.listas || {})[d.uf] || null }));
   },
 };
 
@@ -469,7 +486,7 @@ function snOrdemPartidos(res) {
 
 /**
  * Quem entra e quem sai, partido a partido, num sistema (sobre as UFs comparáveis).
- * Devolve [{ sg, oficial, sistema, entram: [{ uf, cand, fase, pos }], saem: [{ uf, cand, pos }] }]
+ * Devolve [{ sg, oficial, sistema, entram: [{ uf, cand, fase, posLista, pos }], saem: [{ uf, cand, pos }] }]
  * só com os partidos que têm alguma troca, na ordem de snOrdemPartidos; entram e saem
  * em ordem de votos. pos = posição do candidato no estado, entre os votos nominais válidos;
  * fase = por onde entra no sistema (mais votados, lista, distrito, QP, média…).
@@ -489,7 +506,7 @@ function snTrocasPorPartido(res, dados, id) {
   const de = sg => por[sg] || (por[sg] = { sg, oficial: res.real.porPartido[sg] || 0, sistema: s.porPartido[sg] || 0, entram: [], saem: [] });
   for (const uf of res.comparadas) {
     const u = s.porUf[uf];
-    for (const x of u.entram) de(x.cand.partido).entram.push({ uf, cand: x.cand, fase: x.fase, pos: posicao(uf, x.cand.sq) });
+    for (const x of u.entram) de(x.cand.partido).entram.push({ uf, cand: x.cand, fase: x.fase, posLista: x.posLista || null, pos: posicao(uf, x.cand.sq) });
     for (const x of u.saem) de(x.cand.partido).saem.push({ uf, cand: x.cand, pos: posicao(uf, x.cand.sq) });
   }
   const porVotos = (a, b) => b.cand.votos - a.cand.votos;
@@ -667,5 +684,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snVagasCamara, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snTrocasPorPartido, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, snFilaLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snTrocasPorPartido, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

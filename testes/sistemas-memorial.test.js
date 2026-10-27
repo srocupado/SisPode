@@ -99,6 +99,24 @@ for (const [excedente, extra] of [['cresce', {}], ['compensa', {}], ['compensa',
   const casa = rr.sims.map(x => x.total).join('/');
   ok(nao === 0 && n > 20, `${excedente}${extra.divisor ? ' + Sainte-Laguë' : ''}${extra.tetoExtra ? ' + teto' : ''}: as ${n} conferências batem (Casa ${casa})`);
 }
+console.log('Distrital misto com a lista preordenada de um partido no memorial');
+{
+  const op0 = { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf };
+  const r0 = S.snSimular(dados, [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: op0 }]);
+  // a 1ª UF e a agremiação com mais vagas de lista: a lista dela invertida (os menos votados na frente) e um vencedor de distrito no topo
+  const uf0 = Object.keys(porUf)[0], el = r0.sims[0].porUf[uf0].eleitos;
+  const ag = dados[uf0].agrs.slice().sort((p, q) => el.filter(e => e.agr === q.id && e.fase === 'lista').length - el.filter(e => e.agr === p.id && e.fase === 'lista').length)[0];
+  const venc = el.find(e => e.agr === ag.id && e.fase !== 'lista');
+  const lista = [...(venc ? [venc.sq] : []), ...ag.cands.filter(c => c.valido && !el.some(e => e.sq === c.sq && e.fase !== 'lista')).map(c => c.sq).reverse()];
+  const opL = Object.assign({}, op0, { listas: { [uf0]: { [ag.id]: lista } } }), ssL = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: opL }];
+  const rL = S.snSimular(dados, ssL);
+  const mL = M.smMemorial({ dados, res: rL, sistemas: ssL, ind: S.snIndicadores(rL, dados), ordem: S.snOrdemPartidos(rL), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const abaL = mL.abas.find(x => x.nome === 'Distrital misto'), linhas = abaL.linhas.filter(l => l[0] === (ag.siglas && ag.siglas.length ? ag.siglas.join('/') : ag.nome || ag.id) && typeof l[1] === 'number' && typeof l[5] === 'string');
+  const nLista = rL.sims[0].porUf[uf0].eleitos.filter(e => e.agr === ag.id && e.fase === 'lista').length;
+  ok(mL.conferencias['Distrital misto'].nao === 0 && abaL.linhas.some(l => /^Lista preordenada do partido \(Versão Minuta, art\. 105-D\)/.test(l[0] || ''))
+    && linhas.length === lista.length && linhas.filter(l => l[5] === 'eleito pela lista').length === nLista && (!venc || /pulado na lista/.test(linhas[0][5])),
+    `lista preordenada no memorial: cada nome na ordem e o que houve com ele (${nLista} pela lista${venc ? ', o vencedor de distrito pulado' : ''}, o resto suplente); as conferências batem`);
+}
 console.log('Distrital misto com voto partidário líquido no memorial');
 {
   const ssL = [{ id: 'distrital', nome: 'Distrital misto', tipo: 'distrital', op: { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf, votoLiquido: true } }];

@@ -400,7 +400,8 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
   if (ufs.some(uf => ['ani', 'ind', 'fed'].includes(((op.porUf || {})[uf] || {}).modoEstadual))) aba.add([`Deputados estaduais e distritais: a bancada federal de cada estado sai das vagas da Assembleia pelo art. 27 da Constituição (até 36 vagas: um terço; acima: vagas − 24; DF: 8). `
     + (algumFed ? 'Nos distritos federais (Versão Minuta, leitura com vários eleitos por distrito): as cadeiras distritais da Assembleia se repartem entre os distritos federais na proporção do tamanho (maiores restos, mínimo 1), e cada distrito elege os mais votados, até 3 da mesma agremiação nas UFs com até 20 deputados federais e até 2 nas demais.'
       : 'Mapa próprio: onde o nº de distritos estaduais é múltiplo do de federais, cada distrito federal se divide em estaduais (GT do TSE, 2019, critério 4(e)) e a coluna "Unidades fora dele" confere, pela aba de composição, que nenhuma unidade está em outro federal; nos demais estados, mapa independente.')]);
-  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de ${algumFed ? 'um ou mais eleitos' : 'um eleito'} (${op.regra === 'candidato' ? 'o candidato mais votado do distrito; quem é o mais votado em mais de um fica com aquele em que teve a maior proporção dos votos, e o outro distrito vai ao seguinte — a coluna do concorrente mostra quem o eleito precisava superar' : op.regra === 'partidoNominal' ? 'a agremiação com mais votos NOMINAIS leva (a legenda não conta), com o seu candidato mais votado ali' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.${op.votoLiquido ? ' Lista com o voto partidário LÍQUIDO: votos da agremiação menos os votos que elegeram os seus vencedores de distrito (os de cada um no seu distrito).' : ''}`]);
+  aba.add([`${s.nome}: ${Math.round((op.pctDistrital != null ? op.pctDistrital : 0.5) * 100)}% das vagas em distritos de ${algumFed ? 'um ou mais eleitos' : 'um eleito'} (${op.regra === 'candidato' ? 'o candidato mais votado do distrito; quem é o mais votado em mais de um fica com aquele em que teve a maior proporção dos votos, e o outro distrito vai ao seguinte — a coluna do concorrente mostra quem o eleito precisava superar' : op.regra === 'partidoNominal' ? 'a agremiação com mais votos NOMINAIS leva (a legenda não conta), com o seu candidato mais votado ali' : 'a agremiação mais votada leva, com o seu candidato mais votado ali'}), o resto pela lista, ${op.modelo === 'compensatorio' ? 'compensatório' : 'paralelo'}. Tamanho dos distritos: ${pop ? 'população (Censo 2022)' : 'eleitores aptos'}.${op.votoLiquido ? ' Lista com o voto partidário LÍQUIDO: votos da agremiação menos os votos que elegeram os seus vencedores de distrito (os de cada um no seu distrito).' : ''}`
+    + ` Vagas de lista: aos não eleitos da agremiação, na ordem de votos${Object.values(op.listas || {}).some(l => Object.keys(l).length) ? ' — ou, onde o partido deu uma lista preordenada, na ordem dela (logo abaixo da lista de cada estado)' : ''}.`]);
   const DC = smAbaRef('Distritos (composição)');
   for (const uf of ufs) {
     const d = dados[uf], sim = res.porUf[uf], x = (op.porUf || {})[uf];
@@ -428,7 +429,7 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
           : me === 'fed' ? ['Cadeiras distritais da Assembleia', nArr(d.vagas, `C${r0}`), 'Até da mesma agremiação por distrito (art. 10, II)', { f: `IF(L${r0}<=20,3,2)`, v: x.capPartido }]
           : ['Encaixe', x.encaixeFalhou ? `mapa próprio: o encaixe não coube (${x.encaixeFalhou}) — ler os locais de votação` : `mapa próprio: ${x.kE} não é múltiplo de ${x.kF}`])] : [])]);
     if (x.cobertura != null && x.cobertura < 0.95) aba.add([`ATENÇÃO: os votos por município e zona do TSE (dados abertos) cobrem só ${Math.round(x.cobertura * 1000) / 10}% dos válidos deste cargo em ${uf.toUpperCase()} — o arquivo publicado não traz os votos dos candidatos; os distritos não têm com o que eleger e as conferências abaixo divergem por isso.${x.retotalizando ? ' O estado está em retotalização, provável causa do arquivo incompleto.' : ''}`]);
-    if (!k) { smBlocoLista(aba, d, sim, op, []); continue; }
+    if (!k) { smBlocoLista(aba, d, sim, op, []); smBlocoListaPre(aba, d, sim, (op.listas || {})[uf]); continue; }
     const rc = aba.prox();
     const porCand = op.regra === 'candidato', multi = me === 'fed', ani = me === 'ani';
     const rD1p = aba.prox() + 1, rD2p = rD1p + k - 1;   // as linhas dos distritos (para as fórmulas de coluna)
@@ -513,8 +514,35 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
       dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: a.votos - usado[a.id], votosBrutos: a.votos }) : a)) });
     }
     smBlocoLista(aba, dl, sim, op, primeiros);
+    smBlocoListaPre(aba, d, sim, (op.listas || {})[uf]);
   }
   return aba;
+}
+
+/**
+ * As listas preordenadas dadas pelos partidos num estado (Versão Minuta, art. 105-D): cada nome na ordem, e o que
+ * houve com ele no simulador — eleito pela lista, eleito no distrito (pulado na lista: art. 105-A, § 1º) ou suplente
+ * (art. 105-A, § 3º, II). Quem entrou pela ordem de votos porque a lista acabou vai listado em seguida.
+ */
+function smBlocoListaPre(aba, d, sim, pre) {
+  if (!pre || !Object.keys(pre).length) return;
+  aba.add([]);
+  aba.add(['Lista preordenada do partido (Versão Minuta, art. 105-D): as vagas de lista da agremiação vão aos nomes na ordem dada; quem venceu distrito é pulado (art. 105-A, § 1º); se faltar nome, completa pela ordem de votos. Os nomes seguintes são os suplentes (art. 105-A, § 3º, II).']);
+  aba.add(['Agremiação', 'Posição', 'Candidato', 'Partido', 'Votos', 'No simulador']);
+  for (const [id, sqs] of Object.entries(pre)) {
+    const a = d.agrs.find(g => g.id === id);
+    if (!a) continue;
+    const porSq = new Map(a.cands.map(c => [String(c.sq), c]));
+    sqs.forEach((sq, i) => {
+      const c = porSq.get(String(sq)), e = sim.eleitos.find(x => String(x.sq) === String(sq));
+      aba.add([smSiglas(a), i + 1, c ? c.nome : String(sq), c ? c.partido : '', c ? c.votos : '',
+        !c ? 'não é candidato desta agremiação' : !c.valido ? 'votos anulados: não pode ser eleito' : !e ? 'suplente'
+          : e.fase === 'lista' ? 'eleito pela lista' : `eleito no ${e.fase} (pulado na lista)`]);
+    });
+    for (const x of sim.eleitos.filter(y => y.agr === id && y.fase === 'lista' && !y.posLista)) {
+      aba.add([smSiglas(a), '—', x.cand.nome, x.cand.partido, x.cand.votos, 'eleito pela lista: a lista acabou, completada pela ordem de votos']);
+    }
+  }
 }
 
 /** Composição dos distritos: cada unidade (município, zona eleitoral ou local de votação) e o seu peso. */

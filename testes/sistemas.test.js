@@ -181,6 +181,25 @@ const dzI = indA.sims.d;
 ok(dzI.ganha && dzI.ganha.sg === 'PD' && dzI.ganha.d === 1 && dzI.perde.sg === 'PB' && dzI.perde.d === -1, 'quem mais ganha e quem mais perde contra o oficial');
 ok(indA.sims.p.gallagher === indA.real.gallagher && !indA.sims.p.ganha, 'proporcional vigente = oficial: mesmos indicadores, ninguém ganha');
 
+console.log('Lista preordenada do partido (Versão Minuta, art. 105-D)');
+{
+  const A = agr('A', 1800, [500, 400, 300, 200, 100]), B = agr('B', 1200, [450, 350, 250]);
+  const [a1, a2, a3, a4, a5] = A.cands;
+  a5.valido = false;
+  const f = S.snFilaLista(A, new Set([a1.sq]), [a4.sq, a1.sq, 'nao-existe', a5.sq, a3.sq]);
+  ok(f.map(x => x.c.votos + ':' + x.pos).join() === '200:1,300:5,400:null',
+    'fila: os nomes da lista na ordem dada (pulando quem já venceu distrito, inválido e nome de fora), depois o resto pela ordem de votos');
+  ok(S.snFilaLista(A, new Set(), null).map(x => x.c.votos + ':' + x.pos).join() === '500:null,400:null,300:null,200:null', 'sem lista: a ordem de votos, como antes');
+  const dL = uf(5, [A, B]);
+  const prim = [{ sq: a1.sq, agr: 'A', fase: 'distrito 1', cand: a1 }];
+  const semL = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio' });
+  const comL = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio', listaPre: { A: [a4.sq, a1.sq, a3.sq] } });
+  const daLista = r => r.eleitos.filter(x => x.fase === 'lista' && x.agr === 'A').map(x => x.cand.votos + ':' + (x.posLista || '-')).join();
+  ok(daLista(semL) === '400:-,300:-' && daLista(comL) === '200:1,300:3', 'lista do partido: as vagas de lista de A vão a quem ela põe na frente (a ordem dela; quem venceu distrito é pulado)');
+  ok(JSON.stringify(semL.porAgr) === JSON.stringify(comL.porAgr) && comL.eleitos.length === 5, 'a lista só muda os nomes: as cadeiras de cada agremiação são as mesmas');
+  const curta = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio', listaPre: { A: [a3.sq] } });
+  ok(daLista(curta) === '300:1,400:-', 'lista mais curta que as vagas: completa pela ordem de votos');
+}
 console.log('Distritão misto: teto e cláusula da lista');
 {
   // empate de médias: leva a agremiação que vem antes no arquivo do TSE (como diz o memorial), mesmo com ids numéricos,
@@ -235,6 +254,18 @@ const [ca1, ca2, ca3] = ufD.agrs[0].cands, [cb1, cb2] = ufD.agrs[1].cands;
 const votosD = { 'w|1': { c: { [ca1.sq]: 250, [ca2.sq]: 50, [cb1.sq]: 60 }, l: {} }, 'e|1': { c: { [ca1.sq]: 50, [ca2.sq]: 150, [ca3.sq]: 100, [cb1.sq]: 190, [cb2.sq]: 150 }, l: {} } };
 const cmpD = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'Distrital misto', tipo: 'distrital', op: { regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } } } }]);
 ok(cmpD.sims[0].total === 4 && cmpD.sims[0].porUf.xx.nDistritos === 2 && cmpD.sims[0].porUf.xx.distritos.length === 2, 'distrital misto na comparação: vagas, distritos e vencedores por estado');
+{
+  // lista preordenada pela porta da tela (op.listas[uf][agremiação]): só muda quem ocupa as vagas de lista
+  const opL = l => ({ regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } }, listas: l });
+  const sem = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'D', tipo: 'distrital', op: opL({}) }]).sims[0].porUf.xx;
+  const naoEleitoA = ufD.agrs[0].cands.filter(c => !sem.eleitos.some(e => e.sq === c.sq)).map(c => c.sq);
+  const listaA = sem.eleitos.filter(e => e.agr === ufD.agrs[0].id && e.fase === 'lista');
+  const com = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'D', tipo: 'distrital', op: opL({ xx: { [ufD.agrs[0].id]: naoEleitoA.slice().reverse() } }) }]).sims[0].porUf.xx;
+  const listaA2 = com.eleitos.filter(e => e.agr === ufD.agrs[0].id && e.fase === 'lista');
+  ok(listaA.length > 0 && listaA2.length === listaA.length && listaA2.every(e => e.posLista >= 1) && listaA2[0].sq !== listaA[0].sq
+    && JSON.stringify(sem.porAgr) === JSON.stringify(com.porAgr),
+    `distrital com a lista do partido: as ${listaA.length} vaga(s) de lista de A seguem a ordem dada (posição ${listaA2.map(e => e.posLista).join(', ')}); as cadeiras não mudam`);
+}
 
 console.log('Excedente no compensatório (PL 9.212, PL 9.213, Alemanha) e divisor');
 // 6 vagas; A 600, B 300, C 100 → alvo pelas maiores médias: A 4, B 2, C 0.
