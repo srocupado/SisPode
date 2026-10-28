@@ -36,7 +36,7 @@ const RESUMO_TENTATIVAS_MIN = [0.5, 5, 10];
 // WhatsApp. Agora o resumo ESPERA o despacho (vigia leve de 45s) até este teto
 // e sai completo, numa mensagem só; passado o teto, sai como estiver e o
 // complemento continua valendo.
-const RESUMO_ESPERA_DESTINO_MS = 10 * 60e3;
+const RESUMO_ESPERA_DESTINO_MS = 3 * 60e3;   // 28/10: o despacho saiu ~2 min depois
 
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
