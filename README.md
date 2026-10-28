@@ -84,7 +84,7 @@ Sete relatórios — sobre votações nominais, produção legislativa, tramita�
 - Permite filtrar e detalhar o histórico de votos de um deputado específico, com **gráfico circular (donut)** de aderência por votação no detalhe expandido
 - Gráfico temporal da evolução da aderência no período
 - **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
-- Exporta o relatório completo em **Excel (.xlsx)**
+- Exporta o relatório completo em **Excel (.xlsx)** e, no padrão dos relatórios da Liderança, em **PDF** e **Word** — o período pedido, com membros da bancada e votações; período que atravessa anos sai ano a ano, com o resumo do período
 - **Relatório da legislatura (ano a ano)**: a mesma conta para cada ano da legislatura em curso (o 1º desde a posse, o último até hoje), em **PDF** e **Word** na identidade dos relatórios da Liderança — resumo da legislatura (indicadores, tabela por ano com a composição dos votos, aderência mês a mês), e para cada ano os membros da bancada (marcando quem está fora dela hoje) e as votações (proposição, ementa, orientação do Governo e votos da bancada), com a nota de método
 
 #### 3.2 Como votou o deputado

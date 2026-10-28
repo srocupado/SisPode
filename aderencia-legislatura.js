@@ -1,11 +1,14 @@
 'use strict';
 
-// ── RELATÓRIO DA LEGISLATURA, ANO A ANO ──────────────────────────────────────
-// A mesma conta do relatório de aderência (aderCalcular), rodada para cada ano
-// da legislatura em curso, num documento só: resumo da legislatura, e para cada
-// ano os membros da bancada e as votações, com gráficos. Sai em PDF (janela de
-// impressão, como o PDF do "Como votou") e em Word (docx). Identidade visual dos
-// relatórios da extensão: logo, linha da Liderança, filete de quatro cores.
+// ── RELATÓRIO EM DOCUMENTO: LEGISLATURA OU PERÍODO, ANO A ANO ───────────────
+// A mesma conta do relatório de aderência (aderCalcular) num documento: resumo,
+// e para cada ano os membros da bancada e as votações, com gráficos. Dois usos:
+//  - "Relatório da legislatura": cada ano da legislatura em curso;
+//  - PDF/Word do relatório comum: o período pedido, partido por ano quando
+//    atravessa anos (num ano só, sem o resumo repetido).
+// Sai em PDF (janela de impressão, como o PDF do "Como votou") e em Word (docx).
+// Identidade visual dos relatórios da extensão: logo, linha da Liderança, filete
+// de quatro cores.
 //
 // Cores da conduta: as do CV_COR (validadas para daltonismo), na ordem
 // Aderiu → Ausente → Divergiu — o âmbar entre o verde e o vermelho.
@@ -45,22 +48,37 @@ function legResumoDesc(s) {
   return String(s || '').replace(/\s*Sim:\s*\d.*$/i, '').trim();
 }
 
-/** O resumo de um ano a partir do contexto de aderCalcular. */
-function aderResumoAno(periodo, ctx) {
-  const vot = ctx.qualifying.map(e => {
+const legDataVot = e => String(e.votacao.dataHoraRegistro || e.votacao.data || '').slice(0, 10);
+
+/**
+ * O resumo de um ano a partir do contexto de aderCalcular. `recortar`: o contexto
+ * cobre mais que o período (relatório comum de vários anos) — fica só o que cai
+ * nele, e os deputados se recontam pela bancada de cada votação (e.membros), a
+ * mesma conta de aderCalcular.
+ */
+function aderResumoAno(periodo, ctx, recortar = false) {
+  const qual = recortar ? ctx.qualifying.filter(e => legDataVot(e) >= periodo.ini && legDataVot(e) <= periodo.fim) : ctx.qualifying;
+  const vot = qual.map(e => {
     const n = e.possiveis;
     const c = { a: e.adherentCount, d: e.divergentCount, x: e.ausenteCount };
     return {
-      id: String(e.votacao.id), data: String(e.votacao.dataHoraRegistro || e.votacao.data || '').slice(0, 10),
+      id: String(e.votacao.id), data: legDataVot(e),
       desc: legResumoDesc(e.votacao.descricao), objeto: e.votacao.proposicaoObjeto || '',
       gov: e.govOrient, c, n, pct: n ? 100 * c.a / n : 0,
     };
   }).sort((p, q) => p.data.localeCompare(q.data) || p.id.localeCompare(q.id));
-  const deps = ctx.depMetrics.map(m => ({
-    id: m.dep.id, nome: m.dep.nome, uf: m.dep.siglaUf, atual: m.naBancadaAtual,
-    n: m.votacoes, a: m.aderiu, d: m.divergiu, x: m.ausente, pct: m.pct,
-  })).sort((p, q) => q.pct - p.pct || q.n - p.n || String(p.nome).localeCompare(String(q.nome), 'pt-BR'));
-  const tot = { a: ctx.totalAderiu, d: ctx.totalDivergiu, x: ctx.totalAusente, n: ctx.totalPossivel };
+  const atual = new Map(ctx.depMetrics.map(m => [m.dep.id, m.naBancadaAtual]));
+  const porDep = new Map();
+  for (const e of qual) for (const m of e.membros) {
+    if (!porDep.has(m.id)) porDep.set(m.id, { id: m.id, nome: m.nome, uf: m.siglaUf, atual: !!atual.get(m.id), n: 0, a: 0, d: 0, x: 0 });
+    const d = porDep.get(m.id);
+    const s = classifyVote(m.tipoVoto, e.govOrient);
+    d.n++;
+    if (s === 'aderente') d.a++; else if (s === 'divergente') d.d++; else d.x++;
+  }
+  const deps = [...porDep.values()].map(d => Object.assign(d, { pct: 100 * d.a / d.n }))
+    .sort((p, q) => q.pct - p.pct || q.n - p.n || String(p.nome).localeCompare(String(q.nome), 'pt-BR'));
+  const tot = vot.reduce((t, v) => ({ a: t.a + v.c.a, d: t.d + v.c.d, x: t.x + v.c.x, n: t.n + v.n }), { a: 0, d: 0, x: 0, n: 0 });
   const meses = {};
   for (const v of vot) {
     const k = v.data.slice(0, 7);
@@ -72,6 +90,43 @@ function aderResumoAno(periodo, ctx) {
     meses: Object.values(meses).sort((p, q) => p.k.localeCompare(q.k)),
     desconsiderados: ctx.desconsiderados || [], falhasHistorico: ctx.falhasHistorico || 0,
   };
+}
+
+const legSomar = anos => anos.reduce((s, a) => ({ a: s.a + a.tot.a, d: s.d + a.tot.d, x: s.x + a.tot.x, n: s.n + a.tot.n, v: s.v + a.vot.length }),
+  { a: 0, d: 0, x: 0, n: 0, v: 0 });
+
+/** O documento do relatório comum (o período pedido), a partir do seu contexto. */
+function legDoRelatorio(ctx) {
+  const periodos = [];
+  for (let a = +ctx.dataIni.slice(0, 4); a <= +ctx.dataFim.slice(0, 4); a++) {
+    periodos.push({ ano: String(a), ini: a === +ctx.dataIni.slice(0, 4) ? ctx.dataIni : a + '-01-01',
+      fim: a === +ctx.dataFim.slice(0, 4) ? ctx.dataFim : a + '-12-31' });
+  }
+  const anos = periodos.map(p => aderResumoAno(p, ctx, true)).filter(a => a.vot.length);
+  return { modo: 'periodo', sigla: ctx.sigla, ini: ctx.dataIni, fim: ctx.dataFim, hoje: isoLocal(new Date()),
+    leg: aderLegislaturaDaData(ctx.dataFim), anos, todos: legSomar(anos),
+    desconsiderados: ctx.desconsiderados || [], falhasHistorico: ctx.falhasHistorico || 0 };
+}
+
+/** Os textos que mudam entre o documento da legislatura e o de um período. */
+function legRotulos(L) {
+  const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
+  if (L.modo === 'periodo') {
+    const per = `${legDataBR(L.ini)} a ${legDataBR(L.fim)}`;
+    return { escopo: per, sub: `Período de ${per}${L.anos.length > 1 ? ', ano a ano' : ''}`, resumo: 'Resumo do período',
+      kpiTotal: 'Aderência no período', linhaTotal: 'Período', periodoTotal: per, arquivo: `${L.ini}-a-${L.fim}` };
+  }
+  return { escopo: `${L.leg}ª legislatura`, sub: `${L.leg}ª legislatura, ano a ano (${legDataBR(ini)} a ${legDataBR(fim)})`,
+    resumo: 'Resumo da legislatura', kpiTotal: 'Aderência na legislatura', linhaTotal: 'Legislatura',
+    periodoTotal: `${LEG_MESES[+ini.slice(5, 7) - 1]}/${ini.slice(0, 4)} a ${LEG_MESES[+fim.slice(5, 7) - 1]}/${fim.slice(0, 4)}`,
+    arquivo: `${L.leg}a-legislatura-por-ano-${L.hoje}` };
+}
+
+/** As proposições só são buscadas quando o documento é pedido (e uma vez). */
+async function legGarantirProposicoes(L, aoAndar) {
+  if (L.comProposicoes) return;
+  await legBuscarProposicoes(L.anos, aoAndar);
+  L.comProposicoes = true;
 }
 
 /**
@@ -136,11 +191,9 @@ async function aderGerarLegislatura() {
       return;
     }
     await legBuscarProposicoes(anos, (f, t) => showStatus('Buscando as proposições votadas (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
-    const todos = anos.reduce((s, a) => ({ a: s.a + a.tot.a, d: s.d + a.tot.d, x: s.x + a.tot.x, n: s.n + a.tot.n, v: s.v + a.vot.length }),
-      { a: 0, d: 0, x: 0, n: 0, v: 0 });
     clearStatus();
-    const L = { sigla, leg, hoje, anos, todos, desconsiderados: legJuntarDesconsiderados(anos),
-      falhasHistorico: anos.reduce((s, a) => s + a.falhasHistorico, 0) };
+    const L = { modo: 'legislatura', sigla, leg, hoje, anos, todos: legSomar(anos), desconsiderados: legJuntarDesconsiderados(anos),
+      falhasHistorico: anos.reduce((s, a) => s + a.falhasHistorico, 0), comProposicoes: true };
     window._legislaturaCtx = L;
     legRenderTela(L);
   } catch (e) {
@@ -152,6 +205,7 @@ async function aderGerarLegislatura() {
 }
 
 function legPeriodoTxt(a, L) {
+  if (L.modo === 'periodo') return legDataBR(a.ini).slice(0, 5) + ' a ' + legDataBR(a.fim).slice(0, 5);
   const ultimo = a === L.anos[L.anos.length - 1];
   return LEG_MESES[+a.ini.slice(5, 7) - 1] + ' a ' + LEG_MESES[+a.fim.slice(5, 7) - 1] +
     (ultimo && a.fim === L.hoje ? ' (até ' + legDataBR(a.fim).slice(0, 5) + ')' : '');
@@ -181,7 +235,7 @@ function legRenderTela(L) {
       '</div>' +
     '</div>';
   document.getElementById('btnLegPdf').addEventListener('click', () => legExportarPDF(L));
-  document.getElementById('btnLegWord').addEventListener('click', () => legExportarWord(L));
+  document.getElementById('btnLegWord').addEventListener('click', ev => legExportarWord(L, ev.currentTarget));
 }
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
@@ -209,12 +263,14 @@ function legSvgMeses(meses, larg = 690, alt = 150, rotuloAno = false) {
   meses.forEach((m, i) => {
     const p = m.n ? 100 * m.a / m.n : 0, x = pad + i * w + w * 0.15, ww = w * 0.7;
     const mes = +m.k.slice(5, 7);
+    // o ano vira no 1º mês com votação (janeiro é recesso e quase nunca aparece)
+    const novoAno = i === 0 || m.k.slice(0, 4) !== meses[i - 1].k.slice(0, 4);
     s += `<rect x="${x.toFixed(1)}" y="${y(p).toFixed(1)}" width="${ww.toFixed(1)}" height="${(base - y(p)).toFixed(1)}" rx="2" fill="${LEG_COR.a}"><title>${LEG_MESES[mes - 1]}/${m.k.slice(0, 4)}: ${legPct(p)}</title></rect>`;
     if (n <= 14) s += `<text x="${(x + ww / 2).toFixed(1)}" y="${(y(p) - 3).toFixed(1)}" text-anchor="middle" font-size="7" fill="#1b2430">${Math.round(p)}%</text>`;
-    if (!rotuloAno || mes === 1 || i === 0 || (mes % 3 === 1 && i > 1)) {
-      s += `<text x="${(x + ww / 2).toFixed(1)}" y="${base + 10}" text-anchor="middle" font-size="7" fill="#5b6b7b">${LEG_MESES[mes - 1]}${rotuloAno && (mes === 1 || i === 0) ? '/' + m.k.slice(2, 4) : ''}</text>`;
+    if (!rotuloAno || n <= 14 || novoAno || (mes % 3 === 1 && i > 1)) {
+      s += `<text x="${(x + ww / 2).toFixed(1)}" y="${base + 10}" text-anchor="middle" font-size="7" fill="#5b6b7b">${LEG_MESES[mes - 1]}${rotuloAno && novoAno ? '/' + m.k.slice(2, 4) : ''}</text>`;
     }
-    if (rotuloAno && mes === 1 && i > 0) s += `<line x1="${(pad + i * w).toFixed(1)}" x2="${(pad + i * w).toFixed(1)}" y1="${topo}" y2="${base + 14}" stroke="#93a1b0" stroke-dasharray="2 2"/>`;
+    if (rotuloAno && novoAno && i > 0) s += `<line x1="${(pad + i * w).toFixed(1)}" x2="${(pad + i * w).toFixed(1)}" y1="${topo}" y2="${base + 14}" stroke="#93a1b0" stroke-dasharray="2 2"/>`;
   });
   return `<svg width="${larg}" height="${alt}" viewBox="0 0 ${larg} ${alt}" role="img" aria-label="aderência por mês">${s}</svg>`;
 }
@@ -229,31 +285,33 @@ function legTextoDesconsiderados(L) {
 function legNotaMetodo(L) {
   const P = legNomePartido(L.sigla);
   const itens = [
-    ['Fonte: ', 'dados abertos da Câmara dos Deputados — votações, votos nominais, orientações e histórico de partido e situação de cada deputado —, a mesma conta do relatório de aderência da extensão, feita ano a ano.'],
+    ['Fonte: ', 'dados abertos da Câmara dos Deputados — votações, votos nominais, orientações e histórico de partido e situação de cada deputado —, a mesma conta do relatório de aderência da extensão' + (L.anos.length > 1 ? ', feita ano a ano.' : '.')],
     ['Votações: ', 'as do Plenário, nominais, com orientação Sim ou Não do Governo e ao menos um voto Sim ou Não. Liberações e votações simbólicas ficam fora.'],
     ['Aderência: ', 'votos da bancada iguais à orientação do Governo ÷ votos possíveis da bancada (um por deputado da bancada em cada votação). Divergência: voto contrário à orientação. Ausência: não votou, absteve-se, obstruiu ou registrou "Art. 17".'],
     ['Bancada de cada votação: ', `quem era do ${P} naquele dia — para quem votou, a sigla registrada no voto; para quem não votou, o histórico de partido e situação (em exercício) na Câmara. Quem entrou ou saiu no meio do ano é medido só no período em que esteve no partido.`],
   ];
-  if (L.sigla === 'PODE' && L.leg === 57) {
+  const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
+  if (L.sigla === 'PODE' && fim >= '2023-08-22' && ini <= '2027-01-31') {
     itens.push(['Ex-PSC: ', 'os deputados eleitos pelo PSC passam a contar a partir de 22/08/2023, data em que a Câmara registrou a incorporação do PSC ao Podemos.']);
   }
   itens.push(['Registro transitório: ', `suplente que a Câmara registra como ${L.sigla} ao convocá-lo (caso de partido incorporado) e que passa a outro partido em até ${ADER_TRANSITORIO_DIAS} dias não conta como bancada nesse intervalo, embora os votos desses dias saiam com a sigla ${L.sigla}. ` +
     (L.desconsiderados.length ? 'Neste relatório: ' + legTextoDesconsiderados(L) + '.' : 'Nenhum caso neste relatório.')]);
   const ult = L.anos[L.anos.length - 1];
-  itens.push([ult.ano + ': ', `até ${legDataBR(ult.fim)}. "Fora da bancada hoje": deputado que fez parte da bancada no ano, mas não está nela na data deste relatório (saiu do partido, deixou o mandato ou era suplente).`]);
+  const fora = '"Fora da bancada hoje": deputado que fez parte da bancada no ano, mas não está nela na data deste relatório (saiu do partido, deixou o mandato ou era suplente).';
+  itens.push(ult.fim === L.hoje ? [ult.ano + ': ', `até ${legDataBR(ult.fim)}. ` + fora] : ['', fora]);
   return itens;
 }
 
 function legHtmlPDF(L, logo) {
-  const P = legNomePartido(L.sigla), T = L.todos;
-  const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
+  const P = legNomePartido(L.sigla), T = L.todos, RT = legRotulos(L);
+  const unico = L.anos.length === 1;   // um ano só: sem o resumo, que repetiria a seção do ano
   const hojeBR = legDataBR(L.hoje);
   const legenda = `<div class="leg">${[['a', 'Aderiu (votou como o Governo orientou)'], ['x', 'Ausente, abstenção ou obstrução'], ['d', 'Divergiu']]
     .map(([k, t]) => `<span><i style="background:${LEG_COR[k]}"></i>${t}</span>`).join('')}</div>`;
   const kpi = (t, n, s) => `<div class="kpi"><div class="t">${t}</div><div class="n">${n}</div><div class="s">${s}</div></div>`;
-  let h = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aderência ${legEsc(L.sigla)} — ${L.leg}ª legislatura</title><style>
+  let h = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aderência ${legEsc(L.sigla)} — ${legEsc(RT.escopo)}</title><style>
   @page { size: A4; margin: 13mm 12mm 15mm;
-    @bottom-left { content: "Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${L.leg}ª legislatura"; font-size: 7pt; color: #5b6b7b; font-family: Arial, sans-serif; }
+    @bottom-left { content: "Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${RT.escopo}"; font-size: 7pt; color: #5b6b7b; font-family: Arial, sans-serif; }
     @bottom-right { content: counter(page) " / " counter(pages); font-size: 7pt; color: #5b6b7b; font-family: Arial, sans-serif; } }
   * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body { font-family: "Segoe UI", "Helvetica Neue", Arial, sans-serif; color: #1b2430; margin: 0; font-size: 9pt; background: #fff; }
@@ -285,23 +343,23 @@ function legHtmlPDF(L, logo) {
 </style></head><body>
 <div class="cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="org">Liderança do Podemos na Câmara dos Deputados</div>
   <h1>Aderência da bancada do ${legEsc(P)} às orientações do Governo</h1>
-  <div class="sub">${L.leg}ª legislatura, ano a ano (${legDataBR(ini)} a ${legDataBR(fim)}) · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${hojeBR}</div></div></div>
+  <div class="sub">${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${hojeBR}</div></div></div>
 <div class="filete"></div>
-<h2>Resumo da legislatura</h2>
-<div class="kpis">${kpi('Aderência na legislatura', legPct(100 * T.a / T.n), 'dos votos possíveis da bancada')}${kpi('Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo')}${kpi('Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação')}${kpi('Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução')}</div>
+${unico ? '' : `<h2>${RT.resumo}</h2>
+<div class="kpis">${kpi(RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos possíveis da bancada')}${kpi('Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo')}${kpi('Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação')}${kpi('Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução')}</div>
 <table><thead><tr><th>Ano</th><th>Período</th><th class="n">Votações</th><th class="n">Deputados*</th><th>Composição dos votos</th><th class="n">Aderência</th><th class="n">Divergência</th><th class="n">Ausência</th></tr></thead><tbody>
 ${L.anos.map(a => `<tr><td><b>${a.ano}</b></td><td style="white-space:nowrap">${legPeriodoTxt(a, L)}</td><td class="n">${a.vot.length}</td><td class="n">${a.deps.length}</td><td class="cel-barra">${legSvgBarra(a.tot, a.tot.n, 120, 10)}</td><td class="n"><b>${legPct(100 * a.tot.a / a.tot.n)}</b></td><td class="n">${legPct(100 * a.tot.d / a.tot.n)}</td><td class="n">${legPct(100 * a.tot.x / a.tot.n)}</td></tr>`).join('')}
-<tr><td><b>Legislatura</b></td><td style="white-space:nowrap">${LEG_MESES[+ini.slice(5, 7) - 1]}/${ini.slice(0, 4)} a ${LEG_MESES[+fim.slice(5, 7) - 1]}/${fim.slice(0, 4)}</td><td class="n"><b>${T.v}</b></td><td class="n"></td><td class="cel-barra">${legSvgBarra(T, T.n, 120, 10)}</td><td class="n"><b>${legPct(100 * T.a / T.n)}</b></td><td class="n">${legPct(100 * T.d / T.n)}</td><td class="n">${legPct(100 * T.x / T.n)}</td></tr>
+<tr><td><b>${RT.linhaTotal}</b></td><td style="white-space:nowrap">${RT.periodoTotal}</td><td class="n"><b>${T.v}</b></td><td class="n"></td><td class="cel-barra">${legSvgBarra(T, T.n, 120, 10)}</td><td class="n"><b>${legPct(100 * T.a / T.n)}</b></td><td class="n">${legPct(100 * T.d / T.n)}</td><td class="n">${legPct(100 * T.x / T.n)}</td></tr>
 </tbody></table>
 ${legenda}
 <div class="nota">* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${legEsc(P)} e estava em exercício naquele dia).</div>
 <h3>Aderência mês a mês <small>votos que seguiram o Governo ÷ votos possíveis da bancada no mês</small></h3>
-<div class="caixa">${legSvgMeses(L.anos.flatMap(a => a.meses), 690, 160, true)}</div>
+<div class="caixa">${legSvgMeses(L.anos.flatMap(a => a.meses), 690, 160, true)}</div>`}
 ${L.desconsiderados.length ? `<div class="aviso"><b>Fora da bancada, embora a Câmara registre os votos como ${legEsc(L.sigla)}.</b> ${legEsc(legTextoDesconsiderados(L))}. Ver "Registro transitório" na nota de método.</div>` : ''}
 ${L.falhasHistorico ? `<div class="aviso">O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.</div>` : ''}
 `;
   for (const a of L.anos) {
-    h += `<div class="quebra"></div><h2>${a.ano} <small>${legDataBR(a.ini)} a ${legDataBR(a.fim)}</small></h2>
+    h += `${unico ? '' : '<div class="quebra"></div>'}<h2>${a.ano} <small>${legDataBR(a.ini)} a ${legDataBR(a.fim)}</small></h2>
 <div class="kpis">${kpi('Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} de ${legFmt(a.tot.n)} votos possíveis`)}${kpi('Votações', a.vot.length, `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`)}${kpi('Divergência', legPct(100 * a.tot.d / a.tot.n), `${legFmt(a.tot.d)} votos`)}${kpi('Deputados na bancada', a.deps.length, 'em ao menos uma votação')}</div>
 <h3>Aderência mês a mês</h3><div class="caixa">${legSvgMeses(a.meses, 690, 130)}</div>
 <h3>Membros da bancada <small>cada deputado medido só nas votações em que era do ${legEsc(P)}</small></h3>
@@ -338,6 +396,8 @@ async function legExportarPDF(L) {
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gerando PDF…</title></head>'
     + '<body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Montando o documento…</body></html>');
   win.document.close();
+  const aviso = win.document.body;
+  await legGarantirProposicoes(L, (f, n) => { if (!win.closed) aviso.textContent = 'Buscando as proposições votadas (' + f + '/' + n + ')…'; });
   const logo = await legLogoDataUrl();
   if (win.closed) return;
   win.document.open();
@@ -402,14 +462,15 @@ function legPngMeses(meses, rotuloAno = false, larg = 2070, alt = 480) {
   }
   meses.forEach((m, i) => {
     const p = m.n ? 100 * m.a / m.n : 0, x = pad + i * w + w * 0.15, ww = w * 0.7, mes = +m.k.slice(5, 7);
+    const novoAno = i === 0 || m.k.slice(0, 4) !== meses[i - 1].k.slice(0, 4);
     g.fillStyle = LEG_COR.a; legRetRedondo(g, x, y(p), ww, base - y(p), 5);
     g.textAlign = 'center';
     if (n <= 14) { g.fillStyle = '#1b2430'; g.textBaseline = 'bottom'; g.fillText(Math.round(p) + '%', x + ww / 2, y(p) - 6); }
-    if (!rotuloAno || mes === 1 || i === 0 || (mes % 3 === 1 && i > 1)) {
+    if (!rotuloAno || n <= 14 || novoAno || (mes % 3 === 1 && i > 1)) {
       g.fillStyle = '#5b6b7b'; g.textBaseline = 'top';
-      g.fillText(LEG_MESES[mes - 1] + (rotuloAno && (mes === 1 || i === 0) ? '/' + m.k.slice(2, 4) : ''), x + ww / 2, base + 12);
+      g.fillText(LEG_MESES[mes - 1] + (rotuloAno && novoAno ? '/' + m.k.slice(2, 4) : ''), x + ww / 2, base + 12);
     }
-    if (rotuloAno && mes === 1 && i > 0) {
+    if (rotuloAno && novoAno && i > 0) {
       const xx = pad + i * w;
       g.strokeStyle = '#93a1b0'; g.setLineDash([6, 6]); g.beginPath(); g.moveTo(xx, topo); g.lineTo(xx, base + 40); g.stroke(); g.setLineDash([]);
     }
@@ -433,10 +494,10 @@ function legPngQuadrado(cor) {
 async function legDocx(L) {
   const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell, WidthType, ShadingType, BorderStyle,
     AlignmentType, HeadingLevel, Footer, PageNumber, VerticalAlign, TableLayoutType, LevelFormat } = docx;
-  const P = legNomePartido(L.sigla), T = L.todos;
+  const P = legNomePartido(L.sigla), T = L.todos, RT = legRotulos(L);
+  const unico = L.anos.length === 1;   // um ano só: sem o resumo, que repetiria a seção do ano
   const VERDE = '0B8A4B', VERDE2 = '0B5E3A', CINZA = '5B6B7B', TEXTO = '1B2430', LINHA = 'E4E9EE', FUNDO = 'F6F9FB', BORDA = 'CFD8E1', FONTE = 'Arial';
   const LARG = 10546;   // A4 menos as margens de 680
-  const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
   const t = (text, o = {}) => new TextRun(Object.assign({ text: String(text), font: FONTE, size: 17, color: TEXTO }, o));
   const par = (runs, o = {}) => new Paragraph(Object.assign({ children: Array.isArray(runs) ? runs : [runs], spacing: { after: 60 } }, o));
   const img = (data, w, h) => new ImageRun({ type: 'png', data, transformation: { width: w, height: h } });
@@ -479,23 +540,25 @@ async function legDocx(L) {
     cel([par(logo ? img(logo, 96, 44) : t(''), { spacing: { after: 0 } })], 1650, { borders: semBorda }),
     cel([par(t('LIDERANÇA DO PODEMOS NA CÂMARA DOS DEPUTADOS', { size: 17, bold: true, color: VERDE }), { spacing: { after: 20 } }),
       par(t(`Aderência da bancada do ${P} às orientações do Governo`, { size: 29, bold: true }), { spacing: { after: 20 } }),
-      par(t(`${L.leg}ª legislatura, ano a ano (${legDataBR(ini)} a ${legDataBR(fim)}) · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${legDataBR(L.hoje)}`, { size: 16, color: CINZA }), { spacing: { after: 0 } })],
+      par(t(`${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${legDataBR(L.hoje)}`, { size: 16, color: CINZA }), { spacing: { after: 0 } })],
     LARG - 1650, { borders: semBorda })] })] }));
   filhos.push(par(img(legPngFilete(), 700, 4), { spacing: { before: 100, after: 160 } }));
-  filhos.push(titulo('Resumo da legislatura'));
-  filhos.push(kpis([['Aderência na legislatura', legPct(100 * T.a / T.n), 'dos votos possíveis da bancada'], ['Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo'],
-    ['Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação'], ['Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução']]));
-  filhos.push(par(t(''), { spacing: { after: 60 } }));
-  filhos.push(tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Composição dos votos', 'Aderência', 'Divergência', 'Ausência'],
-    [...L.anos.map(a => [t(a.ano, { bold: true }), t(legPeriodoTxt(a, L)), t(a.vot.length), t(a.deps.length), [par(img(legPngBarra(a.tot, a.tot.n), 150, 11), { spacing: { after: 0 } })],
-      t(legPct(100 * a.tot.a / a.tot.n), { bold: true }), t(legPct(100 * a.tot.d / a.tot.n)), t(legPct(100 * a.tot.x / a.tot.n))]),
-     [t('Legislatura', { bold: true }), t(`${LEG_MESES[+ini.slice(5, 7) - 1]}/${ini.slice(0, 4)} a ${LEG_MESES[+fim.slice(5, 7) - 1]}/${fim.slice(0, 4)}`), t(T.v, { bold: true }), t(''),
-      [par(img(legPngBarra(T, T.n), 150, 11), { spacing: { after: 0 } })], t(legPct(100 * T.a / T.n), { bold: true }), t(legPct(100 * T.d / T.n)), t(legPct(100 * T.x / T.n))]],
-    [1250, 1650, 1000, 1150, 2350, 1050, 1050, 1046], [E, E, R, R, E, R, R, R]));
-  filhos.push(legenda());
-  filhos.push(par(t(`* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${P} e estava em exercício naquele dia).`, { size: 15, color: '33414F' })));
-  filhos.push(subtit('Aderência mês a mês', 'votos que seguiram o Governo ÷ votos possíveis da bancada no mês'));
-  filhos.push(par(img(legPngMeses(L.anos.flatMap(a => a.meses), true), 690, 160), { spacing: { after: 120 } }));
+  if (!unico) {
+    filhos.push(titulo(RT.resumo));
+    filhos.push(kpis([[RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos possíveis da bancada'], ['Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo'],
+      ['Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação'], ['Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução']]));
+    filhos.push(par(t(''), { spacing: { after: 60 } }));
+    filhos.push(tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Composição dos votos', 'Aderência', 'Divergência', 'Ausência'],
+      [...L.anos.map(a => [t(a.ano, { bold: true }), t(legPeriodoTxt(a, L)), t(a.vot.length), t(a.deps.length), [par(img(legPngBarra(a.tot, a.tot.n), 150, 11), { spacing: { after: 0 } })],
+        t(legPct(100 * a.tot.a / a.tot.n), { bold: true }), t(legPct(100 * a.tot.d / a.tot.n)), t(legPct(100 * a.tot.x / a.tot.n))]),
+       [t(RT.linhaTotal, { bold: true }), t(RT.periodoTotal), t(T.v, { bold: true }), t(''),
+        [par(img(legPngBarra(T, T.n), 150, 11), { spacing: { after: 0 } })], t(legPct(100 * T.a / T.n), { bold: true }), t(legPct(100 * T.d / T.n)), t(legPct(100 * T.x / T.n))]],
+      [1250, 1650, 1000, 1150, 2350, 1050, 1050, 1046], [E, E, R, R, E, R, R, R]));
+    filhos.push(legenda());
+    filhos.push(par(t(`* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${P} e estava em exercício naquele dia).`, { size: 15, color: '33414F' })));
+    filhos.push(subtit('Aderência mês a mês', 'votos que seguiram o Governo ÷ votos possíveis da bancada no mês'));
+    filhos.push(par(img(legPngMeses(L.anos.flatMap(a => a.meses), true), 690, 160), { spacing: { after: 120 } }));
+  }
   if (L.desconsiderados.length) {
     filhos.push(aviso([t(`Fora da bancada, embora a Câmara registre os votos como ${L.sigla}. `, { bold: true, size: 16 }),
       t(legTextoDesconsiderados(L) + '. Ver "Registro transitório" na nota de método.', { size: 16 })]));
@@ -505,7 +568,7 @@ async function legDocx(L) {
   }
 
   for (const a of L.anos) {
-    filhos.push(titulo(a.ano, `${legDataBR(a.ini)} a ${legDataBR(a.fim)}`, true));
+    filhos.push(titulo(a.ano, `${legDataBR(a.ini)} a ${legDataBR(a.fim)}`, !unico));
     filhos.push(kpis([['Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} de ${legFmt(a.tot.n)} votos possíveis`],
       ['Votações', String(a.vot.length), `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`],
       ['Divergência', legPct(100 * a.tot.d / a.tot.n), `${legFmt(a.tot.d)} votos`], ['Deputados na bancada', String(a.deps.length), 'em ao menos uma votação']]));
@@ -533,7 +596,7 @@ async function legDocx(L) {
   const rodape = (txt) => t(txt, { size: 13, color: CINZA });
   return Packer.toBlob(new Document({
     creator: 'Liderança do Podemos na Câmara dos Deputados',
-    title: `Aderência da bancada do ${P} às orientações do Governo — ${L.leg}ª legislatura`,
+    title: `Aderência da bancada do ${P} às orientações do Governo — ${RT.escopo}`,
     styles: { default: { document: { run: { font: FONTE, size: 17, color: TEXTO } } },
       paragraphStyles: [
         { id: 'Heading1', name: 'Heading 1', basedOn: 'Normal', next: 'Normal', quickFormat: true, run: { font: FONTE, size: 26, bold: true, color: VERDE2 }, paragraph: { outlineLevel: 0 } },
@@ -541,21 +604,21 @@ async function legDocx(L) {
     numbering: { config: [{ reference: 'marcas', levels: [{ level: 0, format: LevelFormat.BULLET, text: '•', alignment: AlignmentType.LEFT, style: { paragraph: { indent: { left: 360, hanging: 240 } } } }] }] },
     sections: [{
       properties: { page: { size: { width: 11906, height: 16838 }, margin: { top: 740, bottom: 800, left: 680, right: 680, footer: 360 } } },
-      footers: { default: new Footer({ children: [par([rodape(`Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${L.leg}ª legislatura · página `),
+      footers: { default: new Footer({ children: [par([rodape(`Liderança do Podemos na Câmara dos Deputados · Aderência às orientações do Governo, ${RT.escopo} · página `),
         new TextRun({ children: [PageNumber.CURRENT], font: FONTE, size: 13, color: CINZA }), rodape(' de '),
         new TextRun({ children: [PageNumber.TOTAL_PAGES], font: FONTE, size: 13, color: CINZA })], { alignment: R })] }) },
       children: filhos }] }));
 }
 
 function legNomeArquivo(L, ext) {
-  return `Aderencia-${L.sigla}-${L.leg}a-legislatura-por-ano-${L.hoje}.${ext}`;
+  return `Aderencia-${L.sigla}-${legRotulos(L).arquivo}.${ext}`;
 }
 
-async function legExportarWord(L) {
-  const btn = document.getElementById('btnLegWord');
+async function legExportarWord(L, btn) {
   if (btn) btn.disabled = true;
-  showStatus('Montando o Word...', 'loading');
   try {
+    await legGarantirProposicoes(L, (f, n) => showStatus('Buscando as proposições votadas (' + f + '/' + n + ')...', 'loading', (f / n) * 100));
+    showStatus('Montando o Word...', 'loading');
     const blob = await legDocx(L);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

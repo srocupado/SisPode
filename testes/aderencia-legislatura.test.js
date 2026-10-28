@@ -162,6 +162,50 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
        'a nota de método e o aviso dizem quem foi tirado — sem nome fixo no código');
     ok(/Ex-PSC/.test(pdf), 'PODE na 57ª: a nota explica a incorporação do PSC');
     ok(!/<script/i.test(pdf.replace(/<script src=/g, '')), 'sem script inline (a janela herda a CSP da extensão)');
+
+    console.log('\n== o mesmo documento para o período pedido ==');
+    document.getElementById('dataIni').value = '2026-03-20';
+    document.getElementById('dataFim').value = '2026-04-10';
+    await av('gerarRelatorio()');
+    ok(document.getElementById('btnRelPdf') && document.getElementById('btnRelWord') && document.getElementById('btnExportar'),
+       'o relatório comum tem PDF e Word ao lado do Excel');
+    const um = av('legDoRelatorio(window._relatorioCtx)');
+    const c1 = av('window._relatorioCtx');
+    ok(um.modo === 'periodo' && um.anos.length === 1 && um.anos[0].ini === '2026-03-20' && um.anos[0].fim === '2026-04-10',
+       'período dentro de um ano: um ano, com as datas pedidas');
+    ok(um.todos.n === c1.totalPossivel && um.todos.a === c1.totalAderiu && um.todos.v === c1.qualifying.length, 'totais iguais aos da tela');
+    ok(JSON.stringify(um.anos[0].deps.map(d => [d.id, d.n, d.a, d.d, d.x])) ===
+       JSON.stringify(c1.depMetrics.map(m => [m.dep.id, m.votacoes, m.aderiu, m.divergiu, m.ausente])),
+       'deputados recontados pela bancada de cada votação: iguais ao ranking da tela');
+    ok(um.desconsiderados.length === 1 && um.desconsiderados[0].nome === 'Ilacir Bicalho', 'o ajuste do Ilacir vai junto');
+    ctx.__um = um;
+    await av('legGarantirProposicoes(__um)');
+    const p1 = av(`legHtmlPDF(__um, null)`);
+    ok(/Período de 20\/03\/2026 a 10\/04\/2026 ·/.test(p1) && /Aderência às orientações do Governo, 20\/03\/2026 a 10\/04\/2026/.test(p1),
+       'cabeçalho e rodapé com o período, não a legislatura');
+    ok(!/Resumo do período/.test(p1) && !/class="quebra"><\/div><h2>2026/.test(p1), 'num ano só, sem o resumo (repetiria a seção do ano) e sem página em branco');
+    ok(/PL 1\/2026/.test(p1), 'as votações com a proposição');
+    ok(av(`legNomeArquivo(__um, 'pdf')`) === 'Aderencia-PODE-2026-03-20-a-2026-04-10.pdf', 'nome do arquivo com o período');
+
+    // Período que atravessa o ano: dezembro de 2025 a abril de 2026.
+    V.push({ id: '300-1', data: '2025-12-10', dataHoraRegistro: '2025-12-10T19:00:00', siglaOrgao: 'PLEN', descricao: 'Aprovada a MPV', proposicaoObjeto: 'MPV 3/2025' });
+    VOTOS['300-1'] = [{ deputado_: dep(1, 'Ana', 'PODE'), tipoVoto: 'Não' }];
+    PROPS[300] = { siglaTipo: 'MPV', numero: 3, ano: 2025, ementa: 'Medida.' };
+    document.getElementById('dataIni').value = '2025-12-01';
+    await av('gerarRelatorio()');
+    const dois = av('legDoRelatorio(window._relatorioCtx)');
+    const c2 = av('window._relatorioCtx');
+    ok(dois.anos.map(a => a.ano + ':' + a.ini + '..' + a.fim).join() === '2025:2025-12-01..2025-12-31,2026:2026-01-01..2026-04-10',
+       `atravessa o ano: um bloco por ano, cortado no período (${dois.anos.map(a => a.ano + ':' + a.ini + '..' + a.fim)})`);
+    ok(dois.anos[0].vot.length === 1 && dois.anos[1].vot.length === 2 && dois.anos[0].deps[0].n === 1 && dois.anos[1].deps[0].n === 2,
+       'cada votação no seu ano, e cada deputado contado no ano');
+    ok(dois.todos.n === c2.totalPossivel && dois.todos.a === c2.totalAderiu, 'a soma dos anos é o total da tela');
+    ctx.__dois = dois;
+    await av('legGarantirProposicoes(__dois)');
+    const p2 = av(`legHtmlPDF(__dois, null)`);
+    ok(/Resumo do período/.test(p2) && /Período de 01\/12\/2025 a 10\/04\/2026, ano a ano/.test(p2) && /<td><b>Período<\/b><\/td>/.test(p2) && /01\/12 a 31\/12/.test(p2),
+       'mais de um ano: resumo do período, com a linha de cada ano e a do total');
+    ok(/MPV 3\/2025/.test(p2), 'a proposição de 2025 também é buscada');
   }
 
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo passou.');

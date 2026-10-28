@@ -788,7 +788,11 @@ function renderRelatorio(ctx) {
           '<div class="meta-item"><span class="v">' + totalPossivel + '</span><span class="l">Votos possíveis</span></div>' +
         '</div>' +
         '<div class="result-period">' + formatarData(dataIni) + ' a ' + formatarData(dataFim) + '</div>' +
-        '<button id="btnExportar" class="export-btn" type="button"><span class="icon">⬇</span> Exportar Excel</button>' +
+        '<div class="leg-acoes">' +
+          '<button id="btnExportar" class="export-btn" type="button"><span class="icon">⬇</span> Exportar Excel</button>' +
+          '<button id="btnRelPdf" class="export-btn" type="button" title="O relatório no padrão dos relatórios da Liderança; período de mais de um ano sai ano a ano"><span class="icon">⬇</span> PDF</button>' +
+          '<button id="btnRelWord" class="export-btn" type="button" title="O relatório no padrão dos relatórios da Liderança; período de mais de um ano sai ano a ano"><span class="icon">⬇</span> Word</button>' +
+        '</div>' +
       '</div>' +
     '</div>' +
 
@@ -816,6 +820,11 @@ function renderRelatorio(ctx) {
     '<div id="votingsList"></div>';
 
   document.getElementById('btnExportar').addEventListener('click', exportarExcel);
+  // PDF e Word no padrão dos relatórios (aderencia-legislatura.js); o documento se monta uma vez
+  let doc = null;
+  const documento = () => doc || (doc = legDoRelatorio(ctx));
+  document.getElementById('btnRelPdf').addEventListener('click', () => legExportarPDF(documento()));
+  document.getElementById('btnRelWord').addEventListener('click', ev => legExportarWord(documento(), ev.currentTarget));
 
   // Sortable ranking
   document.querySelectorAll('.sort-btn').forEach(btn => {
