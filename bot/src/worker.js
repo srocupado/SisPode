@@ -238,7 +238,10 @@ async function resumoSessao({ pautaId, dataISO }) {
       // agenda um complemento mais tarde.
       const destinos = (res.concluidos || []).filter(c => c.destino)
         .map(c => `${tipoLabel(c.sigla)} ${c.numero}/${c.ano} ➡️ ${c.destino}`);
-      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data), destinos };
+      // `semDestino`: matérias concluídas cujo despacho de destino ainda não
+      // saiu — o monitor segura o resumo um pouco à espera dele.
+      const semDestino = (res.concluidos || []).filter(c => !c.destino).length;
+      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data), destinos, semDestino };
     }, dataISO);
   } finally {
     await fecharNavegador();
