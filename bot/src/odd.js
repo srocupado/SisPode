@@ -41,7 +41,9 @@ function itemDaApi(x) {
     ementa:        p.ementa || '',
     autorTexto:    '',                 // a autoria é resolvida pela API (enriquecimento/perguntar)
     apensadosTexto: null,              // apensados são resolvidos pela cadeia da API
-    relator:       x.relator?.nome || null,
+    // Mesmo formato do parser da extensão ({ nome, partido, uf, data }): só o
+    // nome, como texto, saía na pauta como "Dep. (undefined-undefined)".
+    relator:       x.relator?.nome ? { nome: x.relator.nome, partido: x.relator.siglaPartido || '', uf: x.relator.siglaUf || '', data: '' } : null,
     temUrgencia:   !ehReq && /urg[êe]ncia/i.test(x.regime || ''),
     projetoUrgenciado: (ehReq && rel) ? {
       sigla:  (rel.siglaTipo || '').toUpperCase(),

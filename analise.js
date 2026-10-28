@@ -230,9 +230,31 @@ async function onPdfSelecionado(ev) {
 }
 
 
+/**
+ * Relator no formato da tela: { nome, partido, uf, data }. A Ordem do Dia que o
+ * bot importava (bot/src/odd.js, até 28/10/2026) gravava só o NOME, como texto —
+ * e a pauta mostrava "Relator: Dep. (undefined-undefined) — undefined" (PL
+ * 68/2025 e outros). Aceita os dois formatos; campo ausente vira ''.
+ */
+function normalizarRelator(r) {
+  if (!r) return null;
+  if (typeof r === 'string') return r.trim() ? { nome: r.trim(), partido: '', uf: '', data: '' } : null;
+  if (!r.nome) return null;
+  return { nome: r.nome, partido: r.partido || '', uf: r.uf || '', data: r.data || '' };
+}
+
+/** "Dep. Fulana (PT-RN)", com " — data" se houver; só as partes que existem. */
+function textoRelator(r, comData = false) {
+  r = normalizarRelator(r);
+  if (!r) return '';
+  const sigla = [r.partido, r.uf].filter(Boolean).join('-');
+  return `Dep. ${r.nome}${sigla ? ` (${sigla})` : ''}${comData && r.data ? ` — ${r.data}` : ''}`;
+}
+
 function normalizarItem(it) {
   return {
     ...it,
+    relator: normalizarRelator(it.relator),
     // Respeita uma chave já definida pelo parser (ex.: requerimento s/nº, cuja
     // identidade deriva do projeto urgenciado); senão usa a chave padrão.
     chave: it.chave || `${it.sigla}-${it.numero}-${it.ano}`,
@@ -478,7 +500,7 @@ function renderCard(it) {
         <div class="an-card-ementa">${escapeHtml(it.ementa)}</div>
         <div class="an-card-meta">
           <span data-role="autor-linha">${(it.autorTexto || (it.enriquecimento?.autores || []).length) ? `<b>Autor:</b> ${htmlAutorRealcado(it)}` : ''}</span>
-          ${it.relator ? `<span><b>Relator:</b> Dep. ${escapeHtml(it.relator.nome)} (${it.relator.partido}-${it.relator.uf}) — ${it.relator.data}</span>` : ''}
+          ${it.relator ? `<span><b>Relator:</b> ${escapeHtml(textoRelator(it.relator, true))}</span>` : ''}
           <span data-role="urg-linha">${htmlLinhaUrgencia(it)}</span>
         </div>
         <div class="an-badges" data-rolebadges>
@@ -4217,6 +4239,7 @@ async function carregarPautaPorId(id) {
       ...pauta,
       itens: (pauta.itens || []).map(it => ({
         ...it,
+        relator: normalizarRelator(it.relator),
         enriquecimento: { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
@@ -4450,6 +4473,7 @@ async function carregarUltimaPauta() {
       ...pauta,
       itens: pauta.itens.map(it => ({
         ...it,
+        relator: normalizarRelator(it.relator),
         enriquecimento: { status: 'pendente' },
         analise: null,
         analiseStatus: 'sem_analise',
@@ -4769,7 +4793,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
   const itensHtml = itens.map((it, i) => {
     const autor   = it.autorTexto || (it.enriquecimento?.autores || []).length;
     const autorHtml = htmlAutorRealcado(it);
-    const relator = it.relator ? ` · Relator: Dep. ${esc(it.relator.nome)} (${esc(it.relator.partido)}-${esc(it.relator.uf)})` : '';
+    const relator = it.relator ? ` · Relator: ${esc(textoRelator(it.relator))}` : '';
     const analista = it.analista || it.analise?.analista || '';
     const analistaHtml = analista ? `<div class="responsavel">Responsável: <b>${esc(analista)}</b></div>` : '';
     // Link para a ficha da proposição no portal da Câmara (logo abaixo do
@@ -5537,7 +5561,7 @@ async function exportarDocx() {
     const metaParts = [];
     const autor = it.autorTexto || (it.enriquecimento?.autores || []).map(a => a.nome).filter(Boolean).join(', ') || '';
     if (autor) metaParts.push('Autor: ' + autor);
-    if (it.relator) metaParts.push(`Relator: Dep. ${it.relator.nome} (${it.relator.partido}-${it.relator.uf})`);
+    if (it.relator) metaParts.push(`Relator: ${textoRelator(it.relator)}`);
     if (metaParts.length) filhos.push(new Paragraph({ spacing: { after: 20, ...L15 }, children: [new TextRun({ text: metaParts.join(' · '), size: 16, color: '555555' })] }));
     const badges = [];
     if (it.enriquecimento?.autoriaPodemos) badges.push(`★ ${rotuloAutoriaPodemos(it)} Podemos`);
