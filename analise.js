@@ -1158,6 +1158,19 @@ function _htmlCamaraValido(html) {
       || /<!doctype html|<html[\s>]/i.test(html.slice(0, 600));
 }
 
+// Tira os atributos de evento (onclick="", onkeypress="" …) do HTML da Câmara
+// antes de ele ir ao DOMParser: os links de inteiro teor da página de pareceres
+// vêm com `onclick=""`, e o Chrome registrava "Executing inline event handler
+// violates … Content Security Policy" em chrome://extensions a cada leitura
+// (28/10/2026, buscarPareceresPlenario). Nada era executado — era só ruído no
+// registro de erros —, e a leitura não usa esses atributos.
+function semEventosInline(html) {
+  // Só dentro das tags, atributo por atributo: um valor entre aspas é lido
+  // inteiro, então "… onda=1" dentro de um title não vira atributo.
+  return String(html).replace(/<[a-zA-Z](?:"[^"]*"|'[^']*'|[^'">])*>/g, tag =>
+    tag.replace(/(\s+)([^\s=>"'\/]+)(\s*=\s*(?:"[^"]*"|'[^']*'|[^\s>"']+))?/g, (m, _esp, nome) => (/^on/i.test(nome) ? '' : m)));
+}
+
 // Baixa o HTML de uma página do portal da Câmara. As páginas proposicoesWeb
 // nem sempre enviam cabeçalhos CORS, então o fetch direto pode falhar — nesse
 // caso tentamos o codetabs e, por fim, o worker próprio (como os demais
@@ -1176,7 +1189,7 @@ async function fetchHtmlCamara(url) {
     try {
       const r = await tentar();
       const html = r.ok ? await r.text() : '';
-      if (r.ok && _htmlCamaraValido(html)) return html;
+      if (r.ok && _htmlCamaraValido(html)) return semEventosInline(html);
       console.debug(`[análise] página Câmara via ${nome}: status=${r.status} len=${html.length} (inválido)`);
     } catch (e) {
       if (isAbortError(e)) break;
