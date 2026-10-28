@@ -77,7 +77,8 @@ Sete relatórios — sobre votações nominais, produção legislativa, tramita�
 Índice de aderência do partido às orientações do governo em qualquer período.
 
 - Selecione intervalo de datas e a sigla do partido
-- Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
+- Exibe o percentual geral de aderência, com contagem de votos aderentes, divergentes e ausências
+- **Aderência sobre os votos Sim e Não** da bancada: aderiu ÷ (aderiu + divergiu) — ausência, abstenção, obstrução e Art. 17 ficam fora da conta (decisão da Liderança, 28/10/2026; antes o denominador eram os votos possíveis). Vale para o número geral, o ranking, cada votação, o gráfico de evolução, o Excel e os documentos (PDF e Word, que não trazem as ausências)
 - A bancada é a de **cada votação**: quem era do partido e estava em exercício naquele dia (pelo registro do voto e, para quem não votou, pelo histórico do deputado) — não a bancada de hoje. Quem saiu do partido conta nas votações em que estava; quem entrou depois não é cobrado antes de entrar
 - **Registro transitório**: suplente que a Câmara registra na sigla ao convocá-lo (partido incorporado — os suplentes do PSC entram como PODE) e que passa a outro partido em até 30 dias não conta como bancada nesse intervalo, embora os votos desses dias saiam com a sigla; a tela, o Excel e o relatório da legislatura dizem quem foi tirado, de quando a quando e em quantas votações (na 57ª: Duarte Gonçalves Jr em 2024, Ilacir Bicalho em 2026)
 - O período inclui o último dia: a API perde quase todo o dia final do intervalo, então pede-se um dia a mais e descarta-se o excedente

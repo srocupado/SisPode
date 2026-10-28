@@ -173,7 +173,8 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
     const c1 = av('window._relatorioCtx');
     ok(um.modo === 'periodo' && um.anos.length === 1 && um.anos[0].ini === '2026-03-20' && um.anos[0].fim === '2026-04-10',
        'período dentro de um ano: um ano, com as datas pedidas');
-    ok(um.todos.n === c1.totalPossivel && um.todos.a === c1.totalAderiu && um.todos.v === c1.qualifying.length, 'totais iguais aos da tela');
+    ok(um.todos.n === c1.totalAderiu + c1.totalDivergiu && um.todos.a === c1.totalAderiu && um.todos.v === c1.qualifying.length
+       && Math.abs(100 * um.todos.a / um.todos.n - c1.overallPct) < 1e-9, 'totais e aderência iguais aos da tela');
     ok(JSON.stringify(um.anos[0].deps.map(d => [d.id, d.n, d.a, d.d, d.x])) ===
        JSON.stringify(c1.depMetrics.map(m => [m.dep.id, m.votacoes, m.aderiu, m.divergiu, m.ausente])),
        'deputados recontados pela bancada de cada votação: iguais ao ranking da tela');
@@ -185,6 +186,8 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
        'cabeçalho e rodapé com o período, não a legislatura');
     ok(!/Resumo do período/.test(p1) && !/class="quebra"><\/div><h2>2026/.test(p1), 'num ano só, sem o resumo (repetiria a seção do ano) e sem página em branco');
     ok(/PL 1\/2026/.test(p1), 'as votações com a proposição');
+    ok(!/Ausên|Ausente|possíveis/.test(p1) && /votos Sim e Não da bancada/.test(p1),
+       'aderência sobre os votos Sim e Não: sem ausência no documento, e a nota de método diz a conta');
     ok(av(`legNomeArquivo(__um, 'pdf')`) === 'Aderencia-PODE-2026-03-20-a-2026-04-10.pdf', 'nome do arquivo com o período');
 
     // Período que atravessa o ano: dezembro de 2025 a abril de 2026.
@@ -199,7 +202,7 @@ const HIST_ROMERO = [   // 160629: eleito pelo PSC, PODE desde a incorporação,
        `atravessa o ano: um bloco por ano, cortado no período (${dois.anos.map(a => a.ano + ':' + a.ini + '..' + a.fim)})`);
     ok(dois.anos[0].vot.length === 1 && dois.anos[1].vot.length === 2 && dois.anos[0].deps[0].n === 1 && dois.anos[1].deps[0].n === 2,
        'cada votação no seu ano, e cada deputado contado no ano');
-    ok(dois.todos.n === c2.totalPossivel && dois.todos.a === c2.totalAderiu, 'a soma dos anos é o total da tela');
+    ok(dois.todos.n === c2.totalAderiu + c2.totalDivergiu && dois.todos.a === c2.totalAderiu, 'a soma dos anos é o total da tela');
     ctx.__dois = dois;
     await av('legGarantirProposicoes(__dois)');
     const p2 = av(`legHtmlPDF(__dois, null)`);
