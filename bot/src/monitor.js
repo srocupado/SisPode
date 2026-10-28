@@ -29,6 +29,14 @@ const POLL_PAINEL_MS  = 10e3;   // itens/aberturas/encerramentos (portal é a fo
 // consolidarem, sem o resumo sair "por cima" do último resultado.
 // (Falha de ENVIO tem retry próprio de 5s/10s dentro de tentarResumo.)
 const RESUMO_TENTATIVAS_MIN = [0.5, 5, 10];
+// Matéria concluída ainda sem destino ("vai ao Senado", "vai à sanção"): a
+// Câmara publica o despacho minutos depois do fim da ODD (28/10/2026: resumo às
+// 16:53, despacho entre 16:54 e 16:55) e o resumo saía sem ele, com o
+// encaminhamento numa 2ª mensagem — a equipe já tinha levado o resumo ao
+// WhatsApp. Agora o resumo ESPERA o despacho (vigia leve de 45s) até este teto
+// e sai completo, numa mensagem só; passado o teto, sai como estiver e o
+// complemento continua valendo.
+const RESUMO_ESPERA_DESTINO_MS = 10 * 60e3;
 
 let _cfg = null;      // { api, destino(), admin, ensaio() , ligado }
 let _sessao = null;   // { id, dataISO, estado, falhasPainel, avisoFalhaDado, tickando }
@@ -1252,11 +1260,22 @@ function agendarResumo(s, origem) {
   }
 }
 
-async function tentarResumo(s, tentativa) {
-  if (s.estado.resumoEnviado) return;
+// `forcar`: envia mesmo com matéria sem destino (o despacho apareceu na vigia,
+// ou a espera acabou). Uma tentativa por vez: a vigia e as tentativas
+// agendadas podem coincidir, e duas em paralelo mandariam o resumo duas vezes.
+async function tentarResumo(s, tentativa, { forcar = false } = {}) {
+  if (s.estado.resumoEnviado || s._resumoEmCurso) return;
+  s._resumoEmCurso = true;
   try {
     const pauta = await pautaAtualImportada().catch(() => null);
     const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO: s.dataISO });
+    if (!r.vazio && r.semDestino > 0 && !forcar) {
+      if (!s._esperaDestinoAte) {
+        s._esperaDestinoAte = Date.now() + RESUMO_ESPERA_DESTINO_MS;
+        iniciarEsperaDestinos(s);
+      }
+      if (Date.now() < s._esperaDestinoAte) return;   // a vigia (ou a tentativa seguinte) envia
+    }
     if (r.vazio) {
       if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1) {
         await enviar(`ℹ️ A Câmara ainda não registrou as matérias apreciadas de ${s.dataISO.split('-').reverse().join('/')}. Peça depois com /resumo ${s.dataISO.split('-').reverse().join('/')} (ou pelo painel, botão "Resultado da Sessão").`);
@@ -1288,7 +1307,31 @@ async function tentarResumo(s, tentativa) {
     if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1 && _cfg.admin) {
       _cfg.api.sendMessage(_cfg.admin, `⚠️ Monitor: o resumo da sessão de ${s.dataISO} falhou nas ${RESUMO_TENTATIVAS_MIN.length} tentativas (${e.message}).`).catch(() => {});
     }
+  } finally {
+    s._resumoEmCurso = false;
   }
+}
+
+// Vigia da ESPERA do resumo (antes de ele sair): mesma checagem leve da vigia
+// de destinos. Despacho publicado → monta o resumo de novo, já com o destino,
+// e envia (se o envio falhar, tenta no próximo ciclo); teto da espera → última
+// tentativa, como estiver, e a vigia para (o aviso ao admin é só dessa).
+function iniciarEsperaDestinos(s) {
+  if (s._esperaDestinos) return;
+  console.log(`[monitor] resumo com matéria sem destino — esperando o despacho (até ${RESUMO_ESPERA_DESTINO_MS / 60e3} min).`);
+  const parar = () => { clearInterval(s._esperaDestinos); s._esperaDestinos = null; };
+  s._esperaDestinos = setInterval(async () => {
+    try {
+      if (s.estado.resumoEnviado) return parar();
+      if (s._resumoEmCurso) return;   // uma tentativa agendada está montando o resumo: decide no próximo ciclo
+      if (Date.now() >= s._esperaDestinoAte) {
+        parar();
+        await tentarResumo(s, RESUMO_TENTATIVAS_MIN.length - 1, { forcar: true });
+      } else if (await algumDespachoDeDestino(s)) {
+        await tentarResumo(s, 0, { forcar: true });
+      }
+    } catch (e) { console.warn('[monitor] espera do destino:', e.message); }
+  }, DESTINOS_POLL_MS);
 }
 
 // Vigia LEVE (HTTP puro, sem navegador) da publicação dos despachos de
