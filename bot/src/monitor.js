@@ -179,6 +179,16 @@ async function enviarFoto(foto, caption) {
 // ausentes ficam fora da conta e são reportados à parte).
 const ROTULO_VOTO = { sim: 'Sim', nao: 'Não', abstencao: 'Abstenção', obstrucao: 'Obstrução', art17: 'Art. 17' };
 
+// Só o que o desenho do print usa (svgVotacao) — o placar do portal traz mais.
+function placarDoPrint(pl) {
+  return {
+    sigla: pl.sigla, descricao: pl.descricao || '', proposicao: pl.proposicao || '', data: pl.data || '', hora: pl.hora || '',
+    orgao: pl.orgao || 'PLEN', quorum: pl.quorum || 0, global: pl.global, parcial: pl.parcial,
+    orientPartido: pl.orientPartido || '', orientGoverno: pl.orientGoverno || '',
+    bancada: (pl.bancada || []).map(d => ({ nome: d.nome, siglaUf: d.siglaUf || '', classe: d.classe })),
+  };
+}
+
 function legendaBancada(placar) {
   const bancada = placar.bancada || [];
   if (!bancada.length) return undefined;
@@ -1156,9 +1166,16 @@ async function tickPainel() {
           // a legenda acrescenta a LEITURA POLÍTICA: coesão da bancada e quem
           // divergiu da posição majoritária (sem falar em orientação — a
           // referência é a própria maioria da bancada).
-          await enviarFoto(png, legendaBancada(placar));
+          const legenda = legendaBancada(placar);
+          await enviarFoto(png, legenda);
           reg.encerramento = true;
-          marcar(_sessao.id, { [`itens/${item.id}/encerramento`]: true });
+          // O placar vai junto para o Firebase: a extensão (Painel de Votação,
+          // "Prints da sessão") desenha o MESMO print (imagem-svg.js) na hora.
+          // Poucos KB — o PNG (~400 KB) não vai.
+          marcar(_sessao.id, {
+            [`itens/${item.id}/encerramento`]: true,
+            [`prints/${item.id}`]: { ts: Date.now(), legenda: legenda || '', placar: placarDoPrint(placar) },
+          });
         }
       }
       } catch (eItem) {

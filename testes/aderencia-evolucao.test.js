@@ -11,6 +11,10 @@
 // perfeita. O denominador certo é o mesmo do número grande, bancada × votações
 // do período.
 //
+// 28/10/2026: a aderência passou a ser sobre os votos Sim e Não (aderiu ÷
+// (aderiu + divergiu)), decisão da Liderança — a barra continua batendo com o
+// número grande, agora com esse denominador.
+//
 // O segundo defeito, no mesmo lugar: a chave da semana saía de toISOString()
 // (UTC) e o rótulo, das partes locais da data. No fuso de Brasília, uma votação
 // registrada às 22h atravessa a meia-noite em UTC e abria um SEGUNDO balde para
@@ -86,10 +90,10 @@ function canvasFalso() {
     ok(g.count === 4, 'com as 4 votações no balde');
     ok(g.aderiu === 38, `38 aderências somadas (${g.aderiu})`);
     ok(g.possiveis === 108, `e 108 votos possíveis — bancada × votações (${g.possiveis})`);
-    ok(Math.abs(g.pct - 35.185) < 0.01, `a barra vale 35,2%, não 100% (${g.pct.toFixed(1)}%)`);
+    ok(Math.abs(g.pct - 55.072) < 0.01, `a barra vale 55,1% (38 de 69 votos Sim/Não), não 100% (${g.pct.toFixed(1)}%)`);
 
     // O número grande do topo, com a mesma conta: as duas têm de bater.
-    const geral = (38 / (27 * 4)) * 100;
+    const geral = (38 / (38 + 31)) * 100;
     ok(Math.abs(g.pct - geral) < 1e-9,
        'e é exatamente o número do cabeçalho, já que todas as votações caem na mesma semana');
 
@@ -99,7 +103,7 @@ function canvasFalso() {
     const { escritos, canvas } = canvasFalso();
     av('__draw = drawTemporalChart'); ctx.__canvas = canvas; ctx.__grupos = grupos;
     av('__draw(__canvas, __grupos)');
-    ok(escritos.includes('35%'), `o rótulo desenhado é 35% (${escritos.filter(t => /%/.test(t)).join(' ')})`);
+    ok(escritos.includes('55%'), `o rótulo desenhado é 55% (${escritos.filter(t => /%/.test(t)).join(' ')})`);
     ok(!escritos.includes('100%') || escritos.filter(t => t === '100%').length === 1,
        'o único "100%" que sobra é o da linha de grade do eixo');
     ok(escritos.includes('4v'), 'e o sub-rótulo continua dizendo quantas votações entraram');
@@ -130,8 +134,8 @@ function canvasFalso() {
     ok(grupos.length === 2, `duas semanas, duas barras (${grupos.length})`);
     ok(grupos[0].label === '03/08' && Math.abs(grupos[0].pct - 100) < 1e-9,
        'a semana em que a bancada inteira aderiu marca 100% — e agora isso quer dizer alguma coisa');
-    ok(grupos[1].label === '10/08' && Math.abs(grupos[1].pct - 50) < 1e-9,
-       `a semana seguinte, com 27 de 54 possíveis, marca 50% (${grupos[1].pct.toFixed(1)}%)`);
+    ok(grupos[1].label === '10/08' && Math.abs(grupos[1].pct - (27 / 47) * 100) < 1e-9,
+       `a semana seguinte, 27 aderências em 47 votos Sim/Não, marca 57,4% (${grupos[1].pct.toFixed(1)}%)`);
     ok(grupos[0].key < grupos[1].key, 'e a ordem cronológica se mantém');
   }
 
@@ -145,8 +149,8 @@ function canvasFalso() {
     const grupos = av(`agruparPorPeriodo(__q, '2026-06-01', '2026-08-31', 27)`);
     ok(grupos.length === 2, `junho e agosto (${grupos.length} baldes)`);
     ok(grupos[0].possiveis === 54, 'junho tem 2 votações: 54 votos possíveis');
-    ok(Math.abs(grupos[0].pct - (34 / 54) * 100) < 1e-9,
-       `e 34 aderências sobre 54 = ${((34 / 54) * 100).toFixed(1)}%`);
+    ok(Math.abs(grupos[0].pct - (34 / 48) * 100) < 1e-9,
+       `e 34 aderências em 48 votos Sim/Não = ${((34 / 48) * 100).toFixed(1)}%`);
     ok(grupos[1].possiveis === 27 && Math.abs(grupos[1].pct - 100) < 1e-9, 'agosto, com uma votação, 100%');
   }
 

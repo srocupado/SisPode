@@ -115,8 +115,10 @@ function fmtMs(ms) {
 function switchTab(tab) {
   document.getElementById('tab-historico').style.display = tab === 'historico' ? '' : 'none';
   document.getElementById('tab-portal').style.display    = tab === 'portal'    ? '' : 'none';
+  document.getElementById('tab-prints').style.display    = tab === 'prints'    ? '' : 'none';
   document.getElementById('tabHistorico').classList.toggle('active', tab === 'historico');
   document.getElementById('tabPortal').classList.toggle('active',    tab === 'portal');
+  document.getElementById('tabPrints').classList.toggle('active',    tab === 'prints');
 }
 
 /* ══════════════════════════════════════════
@@ -1345,6 +1347,7 @@ document.getElementById('btn-voltar-home').addEventListener('click', function ()
 // Abas
 document.getElementById('tabHistorico').addEventListener('click', function () { switchTab('historico'); });
 document.getElementById('tabPortal').addEventListener('click',    function () { switchTab('portal'); });
+document.getElementById('tabPrints').addEventListener('click',    function () { switchTab('prints'); });
 
 // Aba Dados Abertos
 document.getElementById('loadBtn').addEventListener('click', loadEvent);

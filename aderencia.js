@@ -128,8 +128,21 @@ function votoClass(tipo) {
 }
 
 function pctColor(pct) {
+  if (pct == null) return '#8da3a8';
   return pct >= 70 ? '#3ad97d' : (pct >= 40 ? '#f0c040' : '#f05454');
 }
+
+/**
+ * Aderência sobre os votos Sim e Não: aderiu ÷ (aderiu + divergiu). Ausência,
+ * abstenção, obstrução e Art. 17 ficam fora da conta (decisão da Liderança,
+ * 28/10/2026 — antes o denominador eram os votos possíveis da bancada, com as
+ * ausências). null quando não há voto Sim ou Não.
+ */
+function aderPct(aderiu, divergiu) {
+  const n = aderiu + divergiu;
+  return n > 0 ? (aderiu / n) * 100 : null;
+}
+const aderPctTxt = (pct, casas = 1) => pct == null ? '—' : pct.toFixed(casas) + '%';
 
 // ── STATUS / LOADING ──────────────────────────────────────────────────────────
 function showStatus(msg, tipo, progressPct) {
@@ -288,8 +301,9 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
       key   = d.getFullYear() + '-' + mm + '-' + dd;
       label = dd + '/' + mm;
     }
-    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, count: 0, possiveis: 0 };
+    if (!buckets[key]) buckets[key] = { key, label, aderiu: 0, divergiu: 0, count: 0, possiveis: 0 };
     buckets[key].aderiu += e.adherentCount;
+    buckets[key].divergiu += e.divergentCount || 0;
     // A bancada de CADA votação (quem era do partido naquele dia); o
     // partySize fixo fica só para quem chama sem essa informação.
     buckets[key].possiveis += (e.possiveis != null ? e.possiveis : partySize);
@@ -297,7 +311,7 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
   });
 
   return Object.values(buckets)
-    .map(b => ({ ...b, pct: b.possiveis > 0 ? (b.aderiu / b.possiveis) * 100 : 0 }))
+    .map(b => ({ ...b, pct: aderPct(b.aderiu, b.divergiu) || 0 }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -701,7 +715,7 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     e.adherentCount  = aderiu;
     e.divergentCount = divergiu;
     e.ausenteCount   = e.possiveis - (aderiu + divergiu);
-    e.specificPct    = e.possiveis > 0 ? (aderiu / e.possiveis) * 100 : 0;
+    e.specificPct    = aderPct(aderiu, divergiu);
   });
 
   // 7. Métricas 3-state por deputado — só nas votações em que ele era da
@@ -721,9 +735,10 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     });
     if (!n) continue;
     depMetrics.push({ dep: { id: c.id, nome: c.nome, siglaUf: c.siglaUf }, naBancadaAtual: c.naBancadaAtual,
-                      votacoes: n, aderiu, divergiu, ausente, pct: (aderiu / n) * 100 });
+                      votacoes: n, aderiu, divergiu, ausente, pct: aderPct(aderiu, divergiu) });
   }
-  depMetrics.sort((a, b) => b.pct - a.pct);
+  // sem voto Sim ou Não (só ausências): no fim do ranking
+  depMetrics.sort((a, b) => (b.pct == null ? -1 : b.pct) - (a.pct == null ? -1 : a.pct));
   const partySize = depMetrics.length;   // deputados que passaram pela bancada no período
 
   // 8. Totais gerais
@@ -731,7 +746,7 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
   const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
   const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
-  const overallPct    = totalPossivel > 0 ? (totalAderiu / totalPossivel) * 100 : 0;
+  const overallPct    = aderPct(totalAderiu, totalDivergiu) || 0;
 
   return {
     sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, desconsiderados,
@@ -785,7 +800,8 @@ function renderRelatorio(ctx) {
           '<div class="meta-item" title="Quem esteve no partido, em exercício, em ao menos uma votação do período">' +
             '<span class="v">' + partySize + '</span><span class="l">Deputados no período</span></div>' +
           '<div class="meta-item"><span class="v">' + qualifying.length + '</span><span class="l">Votações</span></div>' +
-          '<div class="meta-item"><span class="v">' + totalPossivel + '</span><span class="l">Votos possíveis</span></div>' +
+          '<div class="meta-item" title="A aderência é sobre os votos Sim e Não da bancada; ausência, abstenção, obstrução e Art. 17 ficam fora da conta">' +
+            '<span class="v">' + (totalAderiu + totalDivergiu) + '</span><span class="l">Votos Sim/Não</span></div>' +
         '</div>' +
         '<div class="result-period">' + formatarData(dataIni) + ' a ' + formatarData(dataFim) + '</div>' +
         '<div class="leg-acoes">' +
@@ -866,7 +882,7 @@ function renderRankingDeputados(sortKey) {
 
   items.forEach((m, rank) => {
     const col    = pctColor(m.pct);
-    const pctVal = m.pct.toFixed(1);
+    const pctVal = m.pct == null ? 0 : m.pct.toFixed(1);
 
     const row = document.createElement('div');
     row.className = 'ranking-row';
@@ -886,7 +902,7 @@ function renderRankingDeputados(sortKey) {
         '</div>' +
         '<div class="rank-pct-wrap">' +
           '<div class="rank-pct-bar"><div class="rank-pct-fill" style="width:' + pctVal + '%;background:' + col + '"></div></div>' +
-          '<span class="rank-pct-num" style="color:' + col + '">' + pctVal + '%</span>' +
+          '<span class="rank-pct-num" style="color:' + col + '">' + aderPctTxt(m.pct) + '</span>' +
         '</div>' +
         '<div class="rank-chevron">›</div>' +
       '</div>' +
@@ -961,7 +977,7 @@ function buildDepDetailHTML(m, ctx) {
 
   return '<div class="dep-individual">' +
     '<div class="dep-individual-pct">' +
-      '<span class="num" style="color:' + pctColor(m.pct) + '">' + m.pct.toFixed(1) + '%</span>' +
+      '<span class="num" style="color:' + pctColor(m.pct) + '">' + aderPctTxt(m.pct) + '</span>' +
       '<span class="lbl">Aderência ao Governo</span>' +
     '</div>' +
     '<div class="dep-individual-stats">' +
@@ -992,7 +1008,7 @@ function renderVotingsList(ctx) {
     row.innerHTML =
       '<div class="vote-summary">' +
         '<div class="vote-pct-mini" style="background:' + col + '22;color:' + col + ';border:2px solid ' + col + '">' +
-          Math.round(e.specificPct) + '%' +
+          aderPctTxt(e.specificPct, 0) +
         '</div>' +
         '<div class="vote-info">' +
           '<div class="vote-desc">' + cvEsc(desc) + '</div>' +
@@ -1043,7 +1059,7 @@ function renderVoteDetail(detailEl, e, ctx) {
     else                    ausente++;
   });
 
-  const pct      = merged.length > 0 ? (aderiu / merged.length) * 100 : 0;
+  const pct      = aderPct(aderiu, divergiu) || 0;
   const canvasId = 'det-canvas-' + e.votacao.id.replace(/[^a-zA-Z0-9]/g, '');
 
   let rowsHTML = '';
@@ -1090,7 +1106,8 @@ function exportarExcel() {
     ['Período', formatarData(dataIni) + ' a ' + formatarData(dataFim)],
     ['Deputados no período (passaram pela bancada)', partySize],
     ['Votações consideradas', qualifying.length],
-    ['Votos possíveis', totalPossivel],
+    ['Votos possíveis (bancada × votações)', totalPossivel],
+    ['Votos Sim/Não da bancada', totalAderiu + totalDivergiu],
     ['Votos aderentes (✓)', totalAderiu],
     ['Votos divergentes (✗)', totalDivergiu],
     ['Ausências (—)', totalAusente],
@@ -1100,6 +1117,7 @@ function exportarExcel() {
     ['- Apenas votações do Plenário (PLEN)'],
     ['- Apenas votações com pelo menos um voto Sim ou Não'],
     ['- Apenas votações em que o Governo orientou Sim ou Não'],
+    ['- Aderência = votos com o Governo ÷ votos Sim e Não da bancada (ausência, abstenção, obstrução e Art. 17 fora da conta)'],
     ['- Bancada de cada votação: quem era do partido e estava em exercício na data dela'],
     ['  (pelo registro do voto e, para quem não votou, pelo histórico do deputado)'],
     ...(ctx.desconsiderados || []).map(d => ['- Fora da bancada de ' + formatarData(d.de.slice(0, 10)) + ' a ' + formatarData(d.ate.slice(0, 10)) +
@@ -1113,9 +1131,9 @@ function exportarExcel() {
   // Aba 2 — Ranking de Deputados
   const rankHeader = ['Posição', 'Deputado', 'UF', 'Votações no partido', 'Aderiu (✓)', 'Divergiu (✗)', 'Ausente (—)', 'Aderência (%)', 'No partido hoje'];
   const rankRows   = [rankHeader];
-  depMetrics.slice().sort((a, b) => b.pct - a.pct).forEach((m, i) => {
+  depMetrics.forEach((m, i) => {   // já em ordem de aderência
     rankRows.push([i + 1, m.dep.nome || '', m.dep.siglaUf || '', m.votacoes, m.aderiu, m.divergiu, m.ausente,
-                   Number(m.pct.toFixed(2)), m.naBancadaAtual ? 'sim' : 'não']);
+                   m.pct == null ? '—' : Number(m.pct.toFixed(2)), m.naBancadaAtual ? 'sim' : 'não']);
   });
   const wsRanking = XLSX.utils.aoa_to_sheet(rankRows);
   wsRanking['!cols'] = [{ wch: 8 }, { wch: 32 }, { wch: 5 }, { wch: 12 }, { wch: 12 }, { wch: 14 }, { wch: 12 }, { wch: 14 }, { wch: 14 }];
@@ -1131,7 +1149,7 @@ function exportarExcel() {
       dt ? dt.toLocaleDateString('pt-BR') : '',
       dt ? dt.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }) : '',
       v.id, v.descricao || '', result, e.govOrient,
-      e.adherentCount, e.divergentCount, e.ausenteCount, e.possiveis, Number(e.specificPct.toFixed(2))
+      e.adherentCount, e.divergentCount, e.ausenteCount, e.possiveis, e.specificPct == null ? '—' : Number(e.specificPct.toFixed(2))
     ]);
   });
   const wsVot = XLSX.utils.aoa_to_sheet(votRows);

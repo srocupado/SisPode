@@ -10,17 +10,20 @@
 // Identidade visual dos relatórios da extensão: logo, linha da Liderança, filete
 // de quatro cores.
 //
-// Cores da conduta: as do CV_COR (validadas para daltonismo), na ordem
-// Aderiu → Ausente → Divergiu — o âmbar entre o verde e o vermelho.
+// Aderência sobre os votos Sim e Não (aderPct, aderencia.js): ausência,
+// abstenção, obstrução e Art. 17 ficam fora da conta e não aparecem nos
+// documentos. Cores: as do CV_COR.
 
 const btnLegislaturaEl = document.getElementById('btnLegislatura');
 const LEG_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
-const LEG_ORDEM = ['a', 'x', 'd'];   // aderiu, ausente, divergiu
-const LEG_COR = { a: CV_COR.aderente, x: CV_COR.ausente, d: CV_COR.divergente };
+const LEG_ORDEM = ['a', 'd'];   // aderiu, divergiu
+const LEG_COR = { a: CV_COR.aderente, d: CV_COR.divergente };
+const legDeputados = L => new Set(L.anos.flatMap(a => a.deps.map(d => d.id))).size;
 
 const legEsc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const legFmt = n => n.toLocaleString('pt-BR');
 const legPct = (n, c = 1) => n.toLocaleString('pt-BR', { minimumFractionDigits: c, maximumFractionDigits: c }) + '%';
+const legPctOu = (n, c = 1) => n == null ? '—' : legPct(n, c);   // sem voto Sim ou Não
 const legDataBR = iso => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4);
 const legNomePartido = sigla => sigla === 'PODE' ? 'Podemos' : sigla;
 
@@ -59,12 +62,12 @@ const legDataVot = e => String(e.votacao.dataHoraRegistro || e.votacao.data || '
 function aderResumoAno(periodo, ctx, recortar = false) {
   const qual = recortar ? ctx.qualifying.filter(e => legDataVot(e) >= periodo.ini && legDataVot(e) <= periodo.fim) : ctx.qualifying;
   const vot = qual.map(e => {
-    const n = e.possiveis;
     const c = { a: e.adherentCount, d: e.divergentCount, x: e.ausenteCount };
+    const n = c.a + c.d;   // votos Sim e Não da bancada
     return {
       id: String(e.votacao.id), data: legDataVot(e),
       desc: legResumoDesc(e.votacao.descricao), objeto: e.votacao.proposicaoObjeto || '',
-      gov: e.govOrient, c, n, pct: n ? 100 * c.a / n : 0,
+      gov: e.govOrient, c, n, pct: aderPct(c.a, c.d),
     };
   }).sort((p, q) => p.data.localeCompare(q.data) || p.id.localeCompare(q.id));
   const atual = new Map(ctx.depMetrics.map(m => [m.dep.id, m.naBancadaAtual]));
@@ -76,8 +79,8 @@ function aderResumoAno(periodo, ctx, recortar = false) {
     d.n++;
     if (s === 'aderente') d.a++; else if (s === 'divergente') d.d++; else d.x++;
   }
-  const deps = [...porDep.values()].map(d => Object.assign(d, { pct: 100 * d.a / d.n }))
-    .sort((p, q) => q.pct - p.pct || q.n - p.n || String(p.nome).localeCompare(String(q.nome), 'pt-BR'));
+  const deps = [...porDep.values()].map(d => Object.assign(d, { pct: aderPct(d.a, d.d) }))
+    .sort((p, q) => (q.pct == null ? -1 : q.pct) - (p.pct == null ? -1 : p.pct) || q.n - p.n || String(p.nome).localeCompare(String(q.nome), 'pt-BR'));
   const tot = vot.reduce((t, v) => ({ a: t.a + v.c.a, d: t.d + v.c.d, x: t.x + v.c.x, n: t.n + v.n }), { a: 0, d: 0, x: 0, n: 0 });
   const meses = {};
   for (const v of vot) {
@@ -224,9 +227,9 @@ function legRenderTela(L) {
       '<div class="result-body">' +
         '<div class="big-pct">' + (100 * T.a / T.n).toFixed(1) + '<span class="sign">%</span></div>' +
         '<div class="big-label">de aderência na legislatura · ' + T.v + ' votações</div>' +
-        '<table class="leg-tabela"><thead><tr><th>Ano</th><th>Período</th><th>Votações</th><th>Deputados</th><th>Aderência</th><th>Divergência</th><th>Ausência</th></tr></thead><tbody>' +
+        '<table class="leg-tabela"><thead><tr><th>Ano</th><th>Período</th><th>Votações</th><th>Deputados</th><th>Aderência</th><th>Divergência</th></tr></thead><tbody>' +
         L.anos.map(a => '<tr><td><b>' + a.ano + '</b></td><td>' + legPeriodoTxt(a, L) + '</td><td>' + a.vot.length + '</td><td>' + a.deps.length +
-          '</td><td><b>' + legPct(100 * a.tot.a / a.tot.n) + '</b></td><td>' + legPct(100 * a.tot.d / a.tot.n) + '</td><td>' + legPct(100 * a.tot.x / a.tot.n) + '</td></tr>').join('') +
+          '</td><td><b>' + legPct(100 * a.tot.a / a.tot.n) + '</b></td><td>' + legPct(100 * a.tot.d / a.tot.n) + '</td></tr>').join('') +
         '</tbody></table>' +
         '<div class="leg-acoes">' +
           '<button id="btnLegPdf" class="export-btn" type="button"><span class="icon">⬇</span> PDF</button>' +
@@ -240,7 +243,8 @@ function legRenderTela(L) {
 
 // ── PDF ──────────────────────────────────────────────────────────────────────
 /** Barra empilhada da conduta (SVG), com 1px de vão entre os segmentos. */
-function legSvgBarra(c, n, w = 118, h = 9) {
+function legSvgBarra(c, _n, w = 118, h = 9) {
+  const n = LEG_ORDEM.reduce((s, k) => s + (c[k] || 0), 0);   // aderiu + divergiu
   if (!n) return '';
   let x = 0, s = '';
   for (const k of LEG_ORDEM) {
@@ -248,7 +252,7 @@ function legSvgBarra(c, n, w = 118, h = 9) {
     if (ww > 0) s += `<rect x="${x.toFixed(2)}" y="0" width="${Math.max(0, ww - (x + ww < w - 0.01 ? 1 : 0)).toFixed(2)}" height="${h}" rx="1.5" fill="${LEG_COR[k]}"/>`;
     x += ww;
   }
-  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="aderiu ${c.a}, ausente ${c.x}, divergiu ${c.d}">${s}</svg>`;
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}" role="img" aria-label="aderiu ${c.a}, divergiu ${c.d}">${s}</svg>`;
 }
 
 /** Colunas da aderência mês a mês (SVG). `rotuloAno`: vários anos no mesmo eixo. */
@@ -287,7 +291,7 @@ function legNotaMetodo(L) {
   const itens = [
     ['Fonte: ', 'dados abertos da Câmara dos Deputados — votações, votos nominais, orientações e histórico de partido e situação de cada deputado —, a mesma conta do relatório de aderência da extensão' + (L.anos.length > 1 ? ', feita ano a ano.' : '.')],
     ['Votações: ', 'as do Plenário, nominais, com orientação Sim ou Não do Governo e ao menos um voto Sim ou Não. Liberações e votações simbólicas ficam fora.'],
-    ['Aderência: ', 'votos da bancada iguais à orientação do Governo ÷ votos possíveis da bancada (um por deputado da bancada em cada votação). Divergência: voto contrário à orientação. Ausência: não votou, absteve-se, obstruiu ou registrou "Art. 17".'],
+    ['Aderência: ', 'votos Sim ou Não da bancada iguais à orientação do Governo ÷ votos Sim e Não da bancada. Divergência: votos contrários à orientação ÷ o mesmo total.'],
     ['Bancada de cada votação: ', `quem era do ${P} naquele dia — para quem votou, a sigla registrada no voto; para quem não votou, o histórico de partido e situação (em exercício) na Câmara. Quem entrou ou saiu no meio do ano é medido só no período em que esteve no partido.`],
   ];
   const ini = L.anos[0].ini, fim = L.anos[L.anos.length - 1].fim;
@@ -306,7 +310,7 @@ function legHtmlPDF(L, logo) {
   const P = legNomePartido(L.sigla), T = L.todos, RT = legRotulos(L);
   const unico = L.anos.length === 1;   // um ano só: sem o resumo, que repetiria a seção do ano
   const hojeBR = legDataBR(L.hoje);
-  const legenda = `<div class="leg">${[['a', 'Aderiu (votou como o Governo orientou)'], ['x', 'Ausente, abstenção ou obstrução'], ['d', 'Divergiu']]
+  const legenda = `<div class="leg">${[['a', 'Aderiu (votou como o Governo orientou)'], ['d', 'Divergiu (votou contra a orientação)']]
     .map(([k, t]) => `<span><i style="background:${LEG_COR[k]}"></i>${t}</span>`).join('')}</div>`;
   const kpi = (t, n, s) => `<div class="kpi"><div class="t">${t}</div><div class="n">${n}</div><div class="s">${s}</div></div>`;
   let h = `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Aderência ${legEsc(L.sigla)} — ${legEsc(RT.escopo)}</title><style>
@@ -346,29 +350,29 @@ function legHtmlPDF(L, logo) {
   <div class="sub">${RT.sub} · votações nominais do Plenário com orientação Sim ou Não do Governo · fonte: Câmara dos Deputados (dados abertos) · gerado em ${hojeBR}</div></div></div>
 <div class="filete"></div>
 ${unico ? '' : `<h2>${RT.resumo}</h2>
-<div class="kpis">${kpi(RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos possíveis da bancada')}${kpi('Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo')}${kpi('Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação')}${kpi('Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução')}</div>
-<table><thead><tr><th>Ano</th><th>Período</th><th class="n">Votações</th><th class="n">Deputados*</th><th>Composição dos votos</th><th class="n">Aderência</th><th class="n">Divergência</th><th class="n">Ausência</th></tr></thead><tbody>
-${L.anos.map(a => `<tr><td><b>${a.ano}</b></td><td style="white-space:nowrap">${legPeriodoTxt(a, L)}</td><td class="n">${a.vot.length}</td><td class="n">${a.deps.length}</td><td class="cel-barra">${legSvgBarra(a.tot, a.tot.n, 120, 10)}</td><td class="n"><b>${legPct(100 * a.tot.a / a.tot.n)}</b></td><td class="n">${legPct(100 * a.tot.d / a.tot.n)}</td><td class="n">${legPct(100 * a.tot.x / a.tot.n)}</td></tr>`).join('')}
-<tr><td><b>${RT.linhaTotal}</b></td><td style="white-space:nowrap">${RT.periodoTotal}</td><td class="n"><b>${T.v}</b></td><td class="n"></td><td class="cel-barra">${legSvgBarra(T, T.n, 120, 10)}</td><td class="n"><b>${legPct(100 * T.a / T.n)}</b></td><td class="n">${legPct(100 * T.d / T.n)}</td><td class="n">${legPct(100 * T.x / T.n)}</td></tr>
+<div class="kpis">${kpi(RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos da bancada')}${kpi('Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo')}${kpi('Divergência', legPct(100 * T.d / T.n), 'votos contra a orientação')}${kpi('Deputados', legDeputados(L), 'passaram pela bancada')}</div>
+<table><thead><tr><th>Ano</th><th>Período</th><th class="n">Votações</th><th class="n">Deputados*</th><th>Aderiu × divergiu</th><th class="n">Aderência</th><th class="n">Divergência</th></tr></thead><tbody>
+${L.anos.map(a => `<tr><td><b>${a.ano}</b></td><td style="white-space:nowrap">${legPeriodoTxt(a, L)}</td><td class="n">${a.vot.length}</td><td class="n">${a.deps.length}</td><td class="cel-barra">${legSvgBarra(a.tot, a.tot.n, 120, 10)}</td><td class="n"><b>${legPct(100 * a.tot.a / a.tot.n)}</b></td><td class="n">${legPct(100 * a.tot.d / a.tot.n)}</td></tr>`).join('')}
+<tr><td><b>${RT.linhaTotal}</b></td><td style="white-space:nowrap">${RT.periodoTotal}</td><td class="n"><b>${T.v}</b></td><td class="n"></td><td class="cel-barra">${legSvgBarra(T, T.n, 120, 10)}</td><td class="n"><b>${legPct(100 * T.a / T.n)}</b></td><td class="n">${legPct(100 * T.d / T.n)}</td></tr>
 </tbody></table>
 ${legenda}
 <div class="nota">* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${legEsc(P)} e estava em exercício naquele dia).</div>
-<h3>Aderência mês a mês <small>votos que seguiram o Governo ÷ votos possíveis da bancada no mês</small></h3>
+<h3>Aderência mês a mês</h3>
 <div class="caixa">${legSvgMeses(L.anos.flatMap(a => a.meses), 690, 160, true)}</div>`}
 ${L.desconsiderados.length ? `<div class="aviso"><b>Fora da bancada, embora a Câmara registre os votos como ${legEsc(L.sigla)}.</b> ${legEsc(legTextoDesconsiderados(L))}. Ver "Registro transitório" na nota de método.</div>` : ''}
 ${L.falhasHistorico ? `<div class="aviso">O histórico de alguns deputados não pôde ser lido (${L.falhasHistorico} leitura(s)); nas votações em que eles não votaram, valeu a bancada de hoje.</div>` : ''}
 `;
   for (const a of L.anos) {
     h += `${unico ? '' : '<div class="quebra"></div>'}<h2>${a.ano} <small>${legDataBR(a.ini)} a ${legDataBR(a.fim)}</small></h2>
-<div class="kpis">${kpi('Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} de ${legFmt(a.tot.n)} votos possíveis`)}${kpi('Votações', a.vot.length, `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`)}${kpi('Divergência', legPct(100 * a.tot.d / a.tot.n), `${legFmt(a.tot.d)} votos`)}${kpi('Deputados na bancada', a.deps.length, 'em ao menos uma votação')}</div>
+<div class="kpis">${kpi('Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} votos com o Governo`)}${kpi('Votações', a.vot.length, `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`)}${kpi('Divergência', legPct(100 * a.tot.d / a.tot.n), `${legFmt(a.tot.d)} votos`)}${kpi('Deputados na bancada', a.deps.length, 'em ao menos uma votação')}</div>
 <h3>Aderência mês a mês</h3><div class="caixa">${legSvgMeses(a.meses, 690, 130)}</div>
 <h3>Membros da bancada <small>cada deputado medido só nas votações em que era do ${legEsc(P)}</small></h3>
-<table class="dep"><thead><tr><th>#</th><th>Deputado</th><th>UF</th><th class="n">Votações</th><th class="n">Aderiu</th><th class="n">Divergiu</th><th class="n">Ausente</th><th>Composição</th><th class="n">Aderência</th></tr></thead><tbody>
-${a.deps.map((d, i) => `<tr><td>${i + 1}</td><td><b>${legEsc(d.nome)}</b>${d.atual ? '' : ' <span class="fora">· fora da bancada hoje</span>'}</td><td>${legEsc(d.uf)}</td><td class="n">${d.n}</td><td class="n">${d.a}</td><td class="n">${d.d}</td><td class="n">${d.x}</td><td class="cel-barra">${legSvgBarra(d, d.n, 110, 9)}</td><td class="n"><b>${legPct(d.pct)}</b></td></tr>`).join('')}
+<table class="dep"><thead><tr><th>#</th><th>Deputado</th><th>UF</th><th class="n">Votações</th><th class="n">Aderiu</th><th class="n">Divergiu</th><th>Aderiu × divergiu</th><th class="n">Aderência</th></tr></thead><tbody>
+${a.deps.map((d, i) => `<tr><td>${i + 1}</td><td><b>${legEsc(d.nome)}</b>${d.atual ? '' : ' <span class="fora">· fora da bancada hoje</span>'}</td><td>${legEsc(d.uf)}</td><td class="n">${d.n}</td><td class="n">${d.a}</td><td class="n">${d.d}</td><td class="cel-barra">${legSvgBarra(d, d.n, 110, 9)}</td><td class="n"><b>${legPctOu(d.pct)}</b></td></tr>`).join('')}
 </tbody></table>${legenda}
 <h3>Votações <small>${a.vot.length} · a barra mostra os votos da bancada do ${legEsc(P)} naquela votação</small></h3>
-<table class="vot"><thead><tr><th>Data</th><th>Proposição e votação</th><th>Gov.</th><th>Bancada <small>(ader. · aus. · div.)</small></th><th class="n">Aderência</th></tr></thead><tbody>
-${a.vot.map(v => `<tr><td class="n">${legDataBR(v.data)}</td><td><span class="p">${legEsc(v.rotulo)}</span> — ${legEsc(v.desc)}${v.ementa ? `<br><span class="e">${legEsc(v.ementa)}</span>` : ''}</td><td>${legEsc(v.gov)}</td><td class="cel-barra">${legSvgBarra(v.c, v.n, 96, 9)}<span>${v.c.a} · ${v.c.x} · ${v.c.d}</span></td><td class="n"><b>${legPct(v.pct, 0)}</b></td></tr>`).join('')}
+<table class="vot"><thead><tr><th>Data</th><th>Proposição e votação</th><th>Gov.</th><th>Bancada <small>(aderiu · divergiu)</small></th><th class="n">Aderência</th></tr></thead><tbody>
+${a.vot.map(v => `<tr><td class="n">${legDataBR(v.data)}</td><td><span class="p">${legEsc(v.rotulo)}</span> — ${legEsc(v.desc)}${v.ementa ? `<br><span class="e">${legEsc(v.ementa)}</span>` : ''}</td><td>${legEsc(v.gov)}</td><td class="cel-barra">${legSvgBarra(v.c, v.n, 96, 9)}<span>${v.c.a} · ${v.c.d}</span></td><td class="n"><b>${legPctOu(v.pct, 0)}</b></td></tr>`).join('')}
 </tbody></table>`;
   }
   h += `<div class="quebra"></div><h2>Nota de método</h2><div class="nota"><ul>${legNotaMetodo(L).map(([b, t]) => `<li><b>${legEsc(b)}</b>${legEsc(t)}</li>`).join('')}</ul></div>`;
@@ -438,7 +442,8 @@ function legRetRedondo(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); g.fill();
 }
 
-function legPngBarra(c, n, w = 480, h = 36) {
+function legPngBarra(c, _n, w = 480, h = 36) {
+  const n = LEG_ORDEM.reduce((s, k) => s + (c[k] || 0), 0);   // aderiu + divergiu
   const cv = legCanvas(w, h), g = cv.getContext('2d');
   let x = 0;
   for (const k of LEG_ORDEM) {
@@ -525,10 +530,9 @@ async function legDocx(L) {
     children: [t(txt, { size: 26, bold: true, color: VERDE2 }), ...(sub ? [t('  ' + sub, { size: 17, color: CINZA })] : [])] });
   const subtit = (txt, sub) => new Paragraph({ heading: HeadingLevel.HEADING_2, keepNext: true, spacing: { before: 200, after: 80 },
     children: [t(txt, { size: 21, bold: true, color: VERDE2 }), ...(sub ? [t('  ' + sub, { size: 16, color: CINZA })] : [])] });
-  const quad = { a: legPngQuadrado(LEG_COR.a), x: legPngQuadrado(LEG_COR.x), d: legPngQuadrado(LEG_COR.d) };
+  const quad = { a: legPngQuadrado(LEG_COR.a), d: legPngQuadrado(LEG_COR.d) };
   const legenda = () => par([img(quad.a, 10, 8), t('  Aderiu (votou como o Governo orientou)     ', { size: 14, color: '33414F' }),
-    img(quad.x, 10, 8), t('  Ausente, abstenção ou obstrução     ', { size: 14, color: '33414F' }),
-    img(quad.d, 10, 8), t('  Divergiu', { size: 14, color: '33414F' })], { spacing: { before: 60, after: 80 } });
+    img(quad.d, 10, 8), t('  Divergiu (votou contra a orientação)', { size: 14, color: '33414F' })], { spacing: { before: 60, after: 80 } });
   const aviso = txt => new Table({ width: { size: LARG, type: WidthType.DXA }, columnWidths: [LARG], rows: [new TableRow({ children: [cel([par(txt, { spacing: { after: 0 } })], LARG,
     { borders: caixa('E0A030', 6), shading: { type: ShadingType.CLEAR, color: 'auto', fill: 'FFF8E6' }, margins: { top: 100, bottom: 100, left: 140, right: 140 } })] })] });
 
@@ -545,18 +549,18 @@ async function legDocx(L) {
   filhos.push(par(img(legPngFilete(), 700, 4), { spacing: { before: 100, after: 160 } }));
   if (!unico) {
     filhos.push(titulo(RT.resumo));
-    filhos.push(kpis([[RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos possíveis da bancada'], ['Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo'],
-      ['Divergência', legPct(100 * T.d / T.n), 'votou contra a orientação'], ['Ausência', legPct(100 * T.x / T.n), 'inclui abstenção e obstrução']]));
+    filhos.push(kpis([[RT.kpiTotal, legPct(100 * T.a / T.n), 'dos votos da bancada'], ['Votações analisadas', legFmt(T.v), 'nominais, com orientação do Governo'],
+      ['Divergência', legPct(100 * T.d / T.n), 'votos contra a orientação'], ['Deputados', String(legDeputados(L)), 'passaram pela bancada']]));
     filhos.push(par(t(''), { spacing: { after: 60 } }));
-    filhos.push(tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Composição dos votos', 'Aderência', 'Divergência', 'Ausência'],
+    filhos.push(tabela(['Ano', 'Período', 'Votações', 'Deputados*', 'Aderiu × divergiu', 'Aderência', 'Divergência'],
       [...L.anos.map(a => [t(a.ano, { bold: true }), t(legPeriodoTxt(a, L)), t(a.vot.length), t(a.deps.length), [par(img(legPngBarra(a.tot, a.tot.n), 150, 11), { spacing: { after: 0 } })],
-        t(legPct(100 * a.tot.a / a.tot.n), { bold: true }), t(legPct(100 * a.tot.d / a.tot.n)), t(legPct(100 * a.tot.x / a.tot.n))]),
+        t(legPct(100 * a.tot.a / a.tot.n), { bold: true }), t(legPct(100 * a.tot.d / a.tot.n))]),
        [t(RT.linhaTotal, { bold: true }), t(RT.periodoTotal), t(T.v, { bold: true }), t(''),
-        [par(img(legPngBarra(T, T.n), 150, 11), { spacing: { after: 0 } })], t(legPct(100 * T.a / T.n), { bold: true }), t(legPct(100 * T.d / T.n)), t(legPct(100 * T.x / T.n))]],
-      [1250, 1650, 1000, 1150, 2350, 1050, 1050, 1046], [E, E, R, R, E, R, R, R]));
+        [par(img(legPngBarra(T, T.n), 150, 11), { spacing: { after: 0 } })], t(legPct(100 * T.a / T.n), { bold: true }), t(legPct(100 * T.d / T.n))]],
+      [1350, 1750, 1100, 1250, 2700, 1200, 1196], [E, E, R, R, E, R, R]));
     filhos.push(legenda());
     filhos.push(par(t(`* Deputados que fizeram parte da bancada em ao menos uma votação do ano (a bancada é a de cada votação: quem era do ${P} e estava em exercício naquele dia).`, { size: 15, color: '33414F' })));
-    filhos.push(subtit('Aderência mês a mês', 'votos que seguiram o Governo ÷ votos possíveis da bancada no mês'));
+    filhos.push(subtit('Aderência mês a mês'));
     filhos.push(par(img(legPngMeses(L.anos.flatMap(a => a.meses), true), 690, 160), { spacing: { after: 120 } }));
   }
   if (L.desconsiderados.length) {
@@ -569,23 +573,23 @@ async function legDocx(L) {
 
   for (const a of L.anos) {
     filhos.push(titulo(a.ano, `${legDataBR(a.ini)} a ${legDataBR(a.fim)}`, !unico));
-    filhos.push(kpis([['Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} de ${legFmt(a.tot.n)} votos possíveis`],
+    filhos.push(kpis([['Aderência', legPct(100 * a.tot.a / a.tot.n), `${legFmt(a.tot.a)} votos com o Governo`],
       ['Votações', String(a.vot.length), `Governo orientou Sim em ${a.vot.filter(v => v.gov === 'Sim').length}`],
       ['Divergência', legPct(100 * a.tot.d / a.tot.n), `${legFmt(a.tot.d)} votos`], ['Deputados na bancada', String(a.deps.length), 'em ao menos uma votação']]));
     filhos.push(subtit('Aderência mês a mês'));
     filhos.push(par(img(legPngMeses(a.meses, false, 2070, 400), 690, 133), { spacing: { after: 80 } }));
     filhos.push(subtit('Membros da bancada', `cada deputado medido só nas votações em que era do ${P}`));
-    filhos.push(tabela(['#', 'Deputado', 'UF', 'Votações', 'Aderiu', 'Divergiu', 'Ausente', 'Composição', 'Aderência'],
+    filhos.push(tabela(['#', 'Deputado', 'UF', 'Votações', 'Aderiu', 'Divergiu', 'Aderiu × divergiu', 'Aderência'],
       a.deps.map((d, i) => [t(i + 1), [par([t(d.nome, { bold: true }), ...(d.atual ? [] : [t(' · fora da bancada hoje', { size: 14, color: CINZA })])], { spacing: { after: 0 } })],
-        t(d.uf), t(d.n), t(d.a), t(d.d), t(d.x), [par(img(legPngBarra(d, d.n), 110, 8), { spacing: { after: 0 } })], t(legPct(d.pct), { bold: true })]),
-      [450, 3300, 550, 1000, 850, 900, 900, 1600, 996], [E, E, E, R, R, R, R, E, R]));
+        t(d.uf), t(d.n), t(d.a), t(d.d), [par(img(legPngBarra(d, d.n), 110, 8), { spacing: { after: 0 } })], t(legPctOu(d.pct), { bold: true })]),
+      [450, 3600, 600, 1050, 900, 950, 1800, 1196], [E, E, E, R, R, R, E, R]));
     filhos.push(legenda());
     filhos.push(subtit('Votações', `${a.vot.length} · a barra mostra os votos da bancada do ${P} naquela votação`));
-    filhos.push(tabela(['Data', 'Proposição e votação', 'Gov.', 'Bancada (aderiu · ausente · divergiu)', 'Aderência'],
+    filhos.push(tabela(['Data', 'Proposição e votação', 'Gov.', 'Bancada (aderiu · divergiu)', 'Aderência'],
       a.vot.map(v => [t(legDataBR(v.data), { size: 15 }),
         [par([t(v.rotulo, { bold: true, size: 15 }), t(' — ' + v.desc, { size: 15 })], { spacing: { after: 0 } }), ...(v.ementa ? [par(t(v.ementa, { size: 14, color: CINZA }), { spacing: { after: 0 } })] : [])],
-        t(v.gov, { size: 15 }), [par([img(legPngBarra(v.c, v.n), 96, 7), t(`  ${v.c.a} · ${v.c.x} · ${v.c.d}`, { size: 13, color: CINZA })], { spacing: { after: 0 } })],
-        t(legPct(v.pct, 0), { bold: true, size: 15 })]),
+        t(v.gov, { size: 15 }), [par([img(legPngBarra(v.c, v.n), 96, 7), t(`  ${v.c.a} · ${v.c.d}`, { size: 13, color: CINZA })], { spacing: { after: 0 } })],
+        t(legPctOu(v.pct, 0), { bold: true, size: 15 })]),
       [1050, 5646, 550, 2200, 1100], [E, E, E, E, R]));
   }
   filhos.push(titulo('Nota de método', null, true));

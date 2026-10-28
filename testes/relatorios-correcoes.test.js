@@ -138,8 +138,8 @@ const HIST_ROMERO = [
     ok(e1.adherentCount === 1 && e1.divergentCount === 1 && e1.ausenteCount === 0, 'votação 1: 1 aderiu, 1 divergiu, 0 ausente');
     ok(e2.adherentCount === 1 && e2.ausenteCount === 1, 'votação 2: Caio aderiu, Ana ausente');
     ok(c.qualifying.every(e => e.ausenteCount >= 0), '"Ausente" nunca é negativo');
-    ok(c.totalPossivel === 4 && c.totalAderiu === 2 && Math.abs(c.overallPct - 50) < 1e-9,
-       `total: 2 aderências em 4 votos possíveis = 50% (${c.totalAderiu}/${c.totalPossivel})`);
+    ok(c.totalPossivel === 4 && c.totalAderiu === 2 && Math.abs(c.overallPct - 200 / 3) < 1e-9,
+       `total: 4 votos possíveis; aderência sobre os votos Sim/Não = 2 de 3 = 66,7% (${c.overallPct.toFixed(1)}%)`);
     ok(c.partySize === 3, `3 deputados passaram pela bancada no período (${c.partySize})`);
 
     const porDep = Object.fromEntries(c.depMetrics.map(m => [m.dep.id, m]));
