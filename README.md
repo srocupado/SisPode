@@ -78,12 +78,14 @@ Sete relatórios — sobre votações nominais, produção legislativa, tramita�
 - Selecione intervalo de datas e a sigla do partido
 - Exibe o percentual geral de aderência, com contagem de votações aderentes, divergentes e ausências
 - A bancada é a de **cada votação**: quem era do partido e estava em exercício naquele dia (pelo registro do voto e, para quem não votou, pelo histórico do deputado) — não a bancada de hoje. Quem saiu do partido conta nas votações em que estava; quem entrou depois não é cobrado antes de entrar
+- **Registro transitório**: suplente que a Câmara registra na sigla ao convocá-lo (partido incorporado — os suplentes do PSC entram como PODE) e que passa a outro partido em até 30 dias não conta como bancada nesse intervalo, embora os votos desses dias saiam com a sigla; a tela, o Excel e o relatório da legislatura dizem quem foi tirado, de quando a quando e em quantas votações (na 57ª: Duarte Gonçalves Jr em 2024, Ilacir Bicalho em 2026)
 - O período inclui o último dia: a API perde quase todo o dia final do intervalo, então pede-se um dia a mais e descarta-se o excedente
 - **Ranking individual** de deputados ordenável por aderência, divergência ou ausência
 - Permite filtrar e detalhar o histórico de votos de um deputado específico, com **gráfico circular (donut)** de aderência por votação no detalhe expandido
 - Gráfico temporal da evolução da aderência no período
 - **Cache** das votações (Firebase) para reabertura rápida sem reconsultar a API
 - Exporta o relatório completo em **Excel (.xlsx)**
+- **Relatório da legislatura (ano a ano)**: a mesma conta para cada ano da legislatura em curso (o 1º desde a posse, o último até hoje), em **PDF** e **Word** na identidade dos relatórios da Liderança — resumo da legislatura (indicadores, tabela por ano com a composição dos votos, aderência mês a mês), e para cada ano os membros da bancada (marcando quem está fora dela hoje) e as votações (proposição, ementa, orientação do Governo e votos da bancada), com a nota de método
 
 #### 3.2 Como votou o deputado
 
@@ -688,6 +690,7 @@ sispode/
 ├── panel.css                   # Estilos do painel principal
 ├── votacao.html / votacao.js      # Módulo: Painel de Votação
 ├── aderencia.html / aderencia.js  # Módulo: Relatórios — abas, aderência e "como votou o deputado"
+├── aderencia-legislatura.js       # Relatórios: aderência da legislatura ano a ano (PDF e Word)
 ├── producao.js                    # Relatórios · Produção legislativa
 ├── radar.js                       # Relatórios · Radar temático
 ├── leisaprovadas.js               # Relatórios · Leis aprovadas (lê o agregado do bot; upload manual como caminho alternativo)

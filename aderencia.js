@@ -475,6 +475,43 @@ function aderSituacaoNaData(historico, quando) {
 }
 
 /**
+ * Registro transitório na sigla: a Câmara registra o suplente eleito por um
+ * partido incorporado (o PSC, no Podemos) na sigla sucessora ao convocá-lo
+ * ("Alteração de partido" ainda CONVOCADO), e os votos dos primeiros dias saem
+ * com essa sigla — mesmo quando ele vai para outro partido dias depois. Casos
+ * de 57ª: Duarte Gonçalves Jr (PODE 22/02/2024 → REPUBLICANOS 12/03/2024) e
+ * Ilacir Bicalho (PODE 25/03/2026 → REPUBLICANOS 01/04/2026).
+ * Regra: entrada na sigla por alteração de partido feita na convocação e saída
+ * para outra sigla em até ADER_TRANSITORIO_DIAS → não conta como bancada nesse
+ * intervalo. Quem fica no partido (ou entrou já em exercício, como os eleitos
+ * do PSC em 22/08/2023) não é tocado.
+ */
+const ADER_TRANSITORIO_DIAS = 30;
+function aderRegistroTransitorio(historico, sigla) {
+  const porLeg = new Map();
+  for (const h of historico || []) {
+    const k = Number(h.idLegislatura);
+    if (!porLeg.has(k)) porLeg.set(k, []);
+    porLeg.get(k).push(h);
+  }
+  const janelas = [];
+  for (const lista of porLeg.values()) {
+    lista.sort((a, b) => String(a.dataHora).localeCompare(String(b.dataHora)));
+    lista.forEach((x, i) => {
+      if (x.siglaPartido !== sigla || !i || lista[i - 1].siglaPartido === sigla) return;
+      if (!/altera/i.test(x.descricaoStatus || '') || x.situacao !== 'CONVOCADO') return;
+      const saida = lista.slice(i + 1).find(y => y.siglaPartido && y.siglaPartido !== sigla);
+      if (!saida) return;
+      const dias = (new Date(String(saida.dataHora).slice(0, 16)) - new Date(String(x.dataHora).slice(0, 16))) / 864e5;
+      if (dias <= ADER_TRANSITORIO_DIAS) {
+        janelas.push({ de: String(x.dataHora).slice(0, 16), ate: String(saida.dataHora).slice(0, 16), para: saida.siglaPartido });
+      }
+    });
+  }
+  return janelas;
+}
+
+/**
  * Quem conta como bancada em cada votação. Candidatos: a bancada de hoje mais
  * todo deputado que votou pela sigla em alguma votação do período. Para cada
  * votação:
@@ -502,9 +539,13 @@ async function aderBancadaPorVotacao(sigla, bench, qualifying, aoAndar) {
   const lista = [...candidatos.values()];
   let falhasHistorico = 0;
   await mapLimit(lista, 8, async c => {
-    try { c.historico = (await fetchJson(API_DEPS + '/' + c.id + '/historico')).dados || []; }
+    try {
+      c.historico = (await fetchJson(API_DEPS + '/' + c.id + '/historico')).dados || [];
+      c.transitorio = aderRegistroTransitorio(c.historico, sigla);
+    }
     catch (e) { falhasHistorico++; }
   }, aoAndar);
+  const desconsiderados = new Map();
 
   for (const e of qualifying) {
     const votoDe = new Map();
@@ -518,10 +559,18 @@ async function aderBancadaPorVotacao(sigla, bench, qualifying, aoAndar) {
         const s = aderSituacaoNaData(c.historico, e.votacao.dataHoraRegistro);
         membro = !!s && s.partido === sigla && s.situacao === 'Exercício';
       } else membro = c.naBancadaAtual;
+      const t = String(e.votacao.dataHoraRegistro || e.votacao.data || '').slice(0, 16);
+      const j = membro && (c.transitorio || []).find(x => t >= x.de && t < x.ate);
+      if (j) {
+        membro = false;
+        const k = c.id + '|' + j.de;
+        if (!desconsiderados.has(k)) desconsiderados.set(k, { id: c.id, nome: c.nome, siglaUf: c.siglaUf, de: j.de, ate: j.ate, para: j.para, votacoes: 0 });
+        desconsiderados.get(k).votacoes++;
+      }
       if (membro) e.membros.push({ id: c.id, nome: c.nome, siglaUf: c.siglaUf, tipoVoto: v ? v.tipoVoto : null });
     }
   }
-  return { candidatos: lista, falhasHistorico };
+  return { candidatos: lista, falhasHistorico, desconsiderados: [...desconsiderados.values()] };
 }
 
 // ── GERAR RELATÓRIO ───────────────────────────────────────────────────────────
@@ -536,152 +585,12 @@ async function gerarRelatorio() {
 
   resultadoEl.innerHTML = '';
   btnGerar.disabled = true;
-  showStatus('Buscando votações do período...', 'loading');
 
   try {
-    // 1. Metadados das votações (leve)
-    const todas = await fetchVotacoesRange(dataIni, dataFim);
-    const plen  = todas.filter(v => v.siglaOrgao === 'PLEN');
-
-    if (plen.length === 0) {
-      clearStatus();
-      resultadoEl.innerHTML = '<div class="status">Nenhuma votação do Plenário no período.</div>';
-      return;
-    }
-
-    // 2. Verificar cache Firebase
-    showStatus('Verificando cache...', 'loading');
-    const cachedKeys = await cacheGetKeys();
-    const emCache = plen.filter(v => cachedKeys.has(sanitizeId(v.id))).length;
-    const aFetchar = plen.length - emCache;
-
-    showStatus(
-      'Carregando: ' + emCache + ' em cache · ' + aFetchar + ' da API...',
-      'loading', 0
-    );
-
-    // 3. Enriquece cada votação (cache-first)
-    const enriched = await mapLimit(plen, 5, async (v) => {
-      const key = sanitizeId(v.id);
-
-      if (cachedKeys.has(key)) {
-        const cached = await cacheGet(v.id);
-        if (cached) return { votacao: v, votos: cached.votos, orientacoes: cached.orientacoes, fromCache: true };
-      }
-
-      // Busca da API. Marca o sucesso de cada chamada para NÃO cachear
-      // resultado proveniente de falha (evita "envenenar" o cache com vazio
-      // por erro temporário da API, que ficaria preso e seria descartado
-      // silenciosamente nas próximas execuções).
-      const [votosR, orientR] = await Promise.all([
-        fetchJson(API + '/' + v.id + '/votos')
-          .then(j => ({ ok: true, dados: j.dados || [] }))
-          .catch(() => ({ ok: false, dados: [] })),
-        fetchJson(API + '/' + v.id + '/orientacoes')
-          .then(j => ({ ok: true, dados: j.dados || [] }))
-          .catch(() => ({ ok: false, dados: [] }))
-      ]);
-      // Só grava no cache quando ambas as chamadas retornaram com sucesso.
-      // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
-      // cacheado; um vazio por falha de rede/HTTP não.
-      if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
-      return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false };
-
-    }, (done, total) => {
-      showStatus(
-        'Carregando: ' + emCache + ' em cache · ' + aFetchar + ' da API (' + done + '/' + total + ')...',
-        'loading', (done / total) * 100
-      );
-    });
-
-    // 4. Filtra qualificadas: govOrient Sim/Não e pelo menos um voto Sim/Não
-    const qualifying = enriched.filter(e => {
-      if (!e || e.votos.length === 0) return false;
-      const temSimNao = e.votos.some(v => {
-        const t = (v.tipoVoto || '').toLowerCase();
-        return t === 'sim' || t === 'não' || t === 'nao';
-      });
-      if (!temSimNao) return false;
-      const gov = e.orientacoes.find(o => o.siglaPartidoBloco === 'Governo');
-      if (!gov) return false;
-      const go = normGov(gov.orientacaoVoto);
-      if (!go) return false;
-      e.govOrient = go;
-      return true;
-    });
-
-    if (qualifying.length === 0) {
-      clearStatus();
-      resultadoEl.innerHTML = '<div class="status">Nenhuma votação qualificada no período ' +
-        '(PLEN, nominal, com orientação Sim/Não do Governo).</div>';
-      return;
-    }
-
-    // 5. Bancada de hoje (ponto de partida dos candidatos) e bancada na data
-    //    de cada votação — ver aderBancadaPorVotacao.
-    showStatus('Carregando bancada do ' + sigla + '...', 'loading');
-    const benchJ = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
-    const bench  = benchJ.dados || [];
-    const { candidatos, falhasHistorico } = await aderBancadaPorVotacao(sigla, bench, qualifying, (f, t) =>
-      showStatus('Conferindo o partido de cada deputado na data de cada votação (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
-
-    if (!candidatos.length) {
-      clearStatus();
-      resultadoEl.innerHTML = '<div class="status error">Nenhum deputado encontrado para "' + sigla + '".</div>';
-      return;
-    }
-
-    // 6. Métricas 3-state por votação, sobre a bancada DAQUELA votação
-    qualifying.forEach(e => {
-      let aderiu = 0, divergiu = 0;
-      e.membros.forEach(m => {
-        const s = classifyVote(m.tipoVoto, e.govOrient);
-        if (s === 'aderente')  aderiu++;
-        if (s === 'divergente') divergiu++;
-      });
-      e.possiveis      = e.membros.length;
-      e.adherentCount  = aderiu;
-      e.divergentCount = divergiu;
-      e.ausenteCount   = e.possiveis - (aderiu + divergiu);
-      e.specificPct    = e.possiveis > 0 ? (aderiu / e.possiveis) * 100 : 0;
-    });
-
-    // 7. Métricas 3-state por deputado — só nas votações em que ele era da
-    //    bancada. Quem entrou ou saiu no meio do período é medido na parte em
-    //    que esteve, não cobrado pelo resto.
-    const depMetrics = [];
-    for (const c of candidatos) {
-      let aderiu = 0, divergiu = 0, ausente = 0, n = 0;
-      qualifying.forEach(e => {
-        const m = e.membros.find(x => x.id === c.id);
-        if (!m) return;
-        n++;
-        const s = classifyVote(m.tipoVoto, e.govOrient);
-        if (s === 'aderente')   aderiu++;
-        else if (s === 'divergente') divergiu++;
-        else                    ausente++;
-      });
-      if (!n) continue;
-      depMetrics.push({ dep: { id: c.id, nome: c.nome, siglaUf: c.siglaUf }, naBancadaAtual: c.naBancadaAtual,
-                        votacoes: n, aderiu, divergiu, ausente, pct: (aderiu / n) * 100 });
-    }
-    depMetrics.sort((a, b) => b.pct - a.pct);
-    const partySize = depMetrics.length;   // deputados que passaram pela bancada no período
-
-    // 8. Totais gerais
-    const totalAderiu   = qualifying.reduce((s, e) => s + e.adherentCount,  0);
-    const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
-    const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
-    const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
-    const overallPct    = totalPossivel > 0 ? (totalAderiu / totalPossivel) * 100 : 0;
-
+    const r = await aderCalcular(dataIni, dataFim, sigla);
     clearStatus();
-    renderRelatorio({
-      sigla, partySize, bench, qualifying, depMetrics, falhasHistorico,
-      overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
-      dataIni, dataFim, emCache, aFetchar
-    });
-
+    if (r.vazio) { resultadoEl.innerHTML = r.vazio; return; }
+    renderRelatorio(r);
   } catch (e) {
     showStatus('Erro: ' + e.message, 'error');
     console.error(e);
@@ -690,11 +599,163 @@ async function gerarRelatorio() {
   }
 }
 
+/**
+ * A conta do relatório, sem tela: busca, cache, votações qualificadas, bancada
+ * de cada votação e métricas. Devolve o contexto do relatório, ou { vazio: html }
+ * quando não há o que medir. `status(msg, tipo, pct)` mostra o andamento.
+ */
+async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
+  status('Buscando votações do período...', 'loading');
+
+  // 1. Metadados das votações (leve)
+  const todas = await fetchVotacoesRange(dataIni, dataFim);
+  const plen  = todas.filter(v => v.siglaOrgao === 'PLEN');
+
+  if (plen.length === 0) return { vazio: '<div class="status">Nenhuma votação do Plenário no período.</div>' };
+
+  // 2. Verificar cache Firebase
+  status('Verificando cache...', 'loading');
+  const cachedKeys = await cacheGetKeys();
+  const emCache = plen.filter(v => cachedKeys.has(sanitizeId(v.id))).length;
+  const aFetchar = plen.length - emCache;
+
+  status(
+    'Carregando: ' + emCache + ' em cache · ' + aFetchar + ' da API...',
+    'loading', 0
+  );
+
+  // 3. Enriquece cada votação (cache-first)
+  const enriched = await mapLimit(plen, 5, async (v) => {
+    const key = sanitizeId(v.id);
+
+    if (cachedKeys.has(key)) {
+      const cached = await cacheGet(v.id);
+      if (cached) return { votacao: v, votos: cached.votos, orientacoes: cached.orientacoes, fromCache: true };
+    }
+
+    // Busca da API. Marca o sucesso de cada chamada para NÃO cachear
+    // resultado proveniente de falha (evita "envenenar" o cache com vazio
+    // por erro temporário da API, que ficaria preso e seria descartado
+    // silenciosamente nas próximas execuções).
+    const [votosR, orientR] = await Promise.all([
+      fetchJson(API + '/' + v.id + '/votos')
+        .then(j => ({ ok: true, dados: j.dados || [] }))
+        .catch(() => ({ ok: false, dados: [] })),
+      fetchJson(API + '/' + v.id + '/orientacoes')
+        .then(j => ({ ok: true, dados: j.dados || [] }))
+        .catch(() => ({ ok: false, dados: [] }))
+    ]);
+    // Só grava no cache quando ambas as chamadas retornaram com sucesso.
+    // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
+    // cacheado; um vazio por falha de rede/HTTP não.
+    if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
+    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false };
+
+  }, (done, total) => {
+    status(
+      'Carregando: ' + emCache + ' em cache · ' + aFetchar + ' da API (' + done + '/' + total + ')...',
+      'loading', (done / total) * 100
+    );
+  });
+
+  // 4. Filtra qualificadas: govOrient Sim/Não e pelo menos um voto Sim/Não
+  const qualifying = enriched.filter(e => {
+    if (!e || e.votos.length === 0) return false;
+    const temSimNao = e.votos.some(v => {
+      const t = (v.tipoVoto || '').toLowerCase();
+      return t === 'sim' || t === 'não' || t === 'nao';
+    });
+    if (!temSimNao) return false;
+    const gov = e.orientacoes.find(o => o.siglaPartidoBloco === 'Governo');
+    if (!gov) return false;
+    const go = normGov(gov.orientacaoVoto);
+    if (!go) return false;
+    e.govOrient = go;
+    return true;
+  });
+
+  if (qualifying.length === 0) {
+    return { vazio: '<div class="status">Nenhuma votação qualificada no período ' +
+      '(PLEN, nominal, com orientação Sim/Não do Governo).</div>' };
+  }
+
+  // 5. Bancada de hoje (ponto de partida dos candidatos) e bancada na data
+  //    de cada votação — ver aderBancadaPorVotacao.
+  status('Carregando bancada do ' + sigla + '...', 'loading');
+  const benchJ = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
+  const bench  = benchJ.dados || [];
+  const { candidatos, falhasHistorico, desconsiderados } = await aderBancadaPorVotacao(sigla, bench, qualifying, (f, t) =>
+    status('Conferindo o partido de cada deputado na data de cada votação (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
+
+  if (!candidatos.length) return { vazio: '<div class="status error">Nenhum deputado encontrado para "' + sigla + '".</div>' };
+
+  // 6. Métricas 3-state por votação, sobre a bancada DAQUELA votação
+  qualifying.forEach(e => {
+    let aderiu = 0, divergiu = 0;
+    e.membros.forEach(m => {
+      const s = classifyVote(m.tipoVoto, e.govOrient);
+      if (s === 'aderente')  aderiu++;
+      if (s === 'divergente') divergiu++;
+    });
+    e.possiveis      = e.membros.length;
+    e.adherentCount  = aderiu;
+    e.divergentCount = divergiu;
+    e.ausenteCount   = e.possiveis - (aderiu + divergiu);
+    e.specificPct    = e.possiveis > 0 ? (aderiu / e.possiveis) * 100 : 0;
+  });
+
+  // 7. Métricas 3-state por deputado — só nas votações em que ele era da
+  //    bancada. Quem entrou ou saiu no meio do período é medido na parte em
+  //    que esteve, não cobrado pelo resto.
+  const depMetrics = [];
+  for (const c of candidatos) {
+    let aderiu = 0, divergiu = 0, ausente = 0, n = 0;
+    qualifying.forEach(e => {
+      const m = e.membros.find(x => x.id === c.id);
+      if (!m) return;
+      n++;
+      const s = classifyVote(m.tipoVoto, e.govOrient);
+      if (s === 'aderente')   aderiu++;
+      else if (s === 'divergente') divergiu++;
+      else                    ausente++;
+    });
+    if (!n) continue;
+    depMetrics.push({ dep: { id: c.id, nome: c.nome, siglaUf: c.siglaUf }, naBancadaAtual: c.naBancadaAtual,
+                      votacoes: n, aderiu, divergiu, ausente, pct: (aderiu / n) * 100 });
+  }
+  depMetrics.sort((a, b) => b.pct - a.pct);
+  const partySize = depMetrics.length;   // deputados que passaram pela bancada no período
+
+  // 8. Totais gerais
+  const totalAderiu   = qualifying.reduce((s, e) => s + e.adherentCount,  0);
+  const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
+  const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
+  const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
+  const overallPct    = totalPossivel > 0 ? (totalAderiu / totalPossivel) * 100 : 0;
+
+  return {
+    sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, desconsiderados,
+    overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
+    dataIni, dataFim, emCache, aFetchar
+  };
+}
+
+/** Aviso de quem a regra do registro transitório tirou da bancada (aderRegistroTransitorio). */
+function aderAvisoDesconsiderados(lista, sigla) {
+  if (!lista || !lista.length) return '';
+  const esc = s => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  return '<div class="cv-aviso">⚠ Fora da bancada, embora a Câmara registre os votos como ' + esc(sigla) + ': ' +
+    lista.map(d => '<b>' + esc(d.nome) + '</b> (' + esc(d.siglaUf) + '), de ' + formatarData(d.de.slice(0, 10)) +
+      ' a ' + formatarData(d.ate.slice(0, 10)) + ' — ' + d.votacoes + ' votaç' + (d.votacoes > 1 ? 'ões' : 'ão')).join('; ') +
+    '. Suplentes registrados na sigla ao serem convocados (incorporação de partido) que passaram a outro partido em até ' +
+    ADER_TRANSITORIO_DIAS + ' dias' + (lista.some(d => d.para) ? ' (' + [...new Set(lista.map(d => d.para))].map(esc).join(', ') + ')' : '') + '.</div>';
+}
+
 // ── RENDERIZAR RELATÓRIO ──────────────────────────────────────────────────────
 function renderRelatorio(ctx) {
   window._relatorioCtx = ctx;
   const {
-    sigla, partySize, qualifying, depMetrics, falhasHistorico,
+    sigla, partySize, qualifying, depMetrics, falhasHistorico, desconsiderados,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   } = ctx;
@@ -708,6 +769,7 @@ function renderRelatorio(ctx) {
       ? '<div class="cv-aviso">⚠ O histórico de ' + falhasHistorico + ' deputado(s) não pôde ser lido agora. ' +
         'Nas votações em que eles não votaram, foram considerados pela bancada de hoje. Refaça a busca para tentar de novo.</div>'
       : '') +
+    aderAvisoDesconsiderados(desconsiderados, sigla) +
     // ── Card resultado geral
     '<div class="result-card">' +
       '<div class="result-title-bar">Aderência geral ao Governo' + cacheBadge + '</div>' +
@@ -1030,7 +1092,10 @@ function exportarExcel() {
     ['- Apenas votações com pelo menos um voto Sim ou Não'],
     ['- Apenas votações em que o Governo orientou Sim ou Não'],
     ['- Bancada de cada votação: quem era do partido e estava em exercício na data dela'],
-    ['  (pelo registro do voto e, para quem não votou, pelo histórico do deputado)']
+    ['  (pelo registro do voto e, para quem não votou, pelo histórico do deputado)'],
+    ...(ctx.desconsiderados || []).map(d => ['- Fora da bancada de ' + formatarData(d.de.slice(0, 10)) + ' a ' + formatarData(d.ate.slice(0, 10)) +
+      ': ' + d.nome + ' (' + d.siglaUf + '), suplente registrado em ' + sigla + ' ao ser convocado que passou ao ' + d.para +
+      ' (' + d.votacoes + ' votação(ões))'])
   ];
   const wsResumo = XLSX.utils.aoa_to_sheet(resumoData);
   wsResumo['!cols'] = [{ wch: 42 }, { wch: 30 }];
