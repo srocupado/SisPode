@@ -693,6 +693,22 @@
 
   .btn-refresh:hover    { background: rgba(31,165,165,0.25); }
   .btn-refresh:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* ── PRINTS DA SESSÃO ── */
+  .tab-novos { margin-left: 6px; background: var(--sim); color: #0e1c1f; border-radius: 10px;
+               padding: 1px 7px; font-size: 11px; font-weight: 700; }
+  .print-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+                padding: 14px; margin-bottom: 14px; }
+  .print-card.novo { border-color: var(--accent); }
+  .print-cab { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; margin-bottom: 10px; }
+  .print-cab b { font-size: 13px; }
+  .print-cab span { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+  .print-img { display: block; width: 100%; border-radius: 8px; cursor: zoom-in; background: #0c1619; min-height: 120px; }
+  .print-legenda { font-size: 12px; color: var(--text-dim); margin-top: 10px; white-space: pre-line; line-height: 1.5; }
+  .print-acoes { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+  .print-acoes .btn { flex: 1; }
+  .print-acoes .btn-sec { background: transparent; border: 1px solid var(--accent); color: var(--accent-light); }
+  .print-acoes .btn-sec:hover { background: rgba(31,165,165,0.15); }
 </style>
 </head>
 <body>
@@ -706,6 +722,7 @@
   <div class="tab-bar">
     <button class="tab-btn active" id="tabHistorico">📂 Dados abertos</button>
     <button class="tab-btn" id="tabPortal">🌐 Link Portal</button>
+    <button class="tab-btn" id="tabPrints">🖼️ Prints da sessão<span class="tab-novos" id="printsNovos" hidden></span></button>
   </div>
 </div>
 
@@ -802,9 +819,27 @@
     </div>
   </div>
 
+  <!-- ══ TAB: PRINTS DA SESSÃO ══ -->
+  <div id="tab-prints" style="display:none">
+    <div class="input-section">
+      <label>Data da sessão</label>
+      <div class="input-row">
+        <input type="date" class="field" id="printsData" />
+      </div>
+      <p class="help-text" style="text-align:left;margin-top:10px;">
+        Os prints que o bot manda no grupo, a cada votação nominal encerrada — o mesmo desenho.
+        Na sessão de hoje, chegam sozinhos enquanto esta janela estiver aberta.
+      </p>
+    </div>
+    <div id="printsStatus" class="status"></div>
+    <div id="printsLista"></div>
+  </div>
+
 </div><!-- /container -->
 
 <script src="votacao.js"></script>
+<script src="bot/src/imagem-svg.js"></script>
+<script src="votacao-prints.js"></script>
 
 </body>
 </html>

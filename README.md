@@ -63,6 +63,7 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 - Filtra resultados pelo partido informado, com deduplicação robusta de deputados (normalização de nomes entre fontes diferentes) e **complementa a bancada** com os deputados ausentes da votação consultando a API
 - Mostra a orientação da bancada para cada votação
 - Gera **imagem da votação** em alta resolução para compartilhamento (via html2canvas)
+- **Prints da sessão**: os prints que o bot manda no grupo a cada votação nominal encerrada aparecem na aba na mesma hora, com o **mesmo desenho** (`bot/src/imagem-svg.js`, compartilhado com o bot) — **Copiar imagem** (cola direto no WhatsApp), Baixar e Copiar legenda; na sessão de hoje a aba se atualiza sozinha (Firebase, a cada 15 s) e marca quantos chegaram enquanto você estava em outra aba; outras datas pelo seletor. O bot grava só o placar (poucos KB) em `/bot/monitor_sessao/{evento}/prints`, não o PNG
 - **Fallback de código-fonte**: se o proxy CORS falhar ao ler a sessão ao vivo, permite colar o HTML da página manualmente
 
 ---
@@ -572,7 +573,7 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
 - Abertura do registro de presença/inscrições, **quórum** (ao atingir 257), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
 - **Votações simbólicas**: anúncio e resultado a partir do sinal do cosev (~12 s), com **autocorreção** — o resultado assumido ("Aprovado") é editado na própria mensagem se o carimbo oficial da página do evento divergir
-- **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência), destaques (DTQ) com a explicação do módulo de Destaques
+- **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência; o placar também vai ao Firebase, para a aba "Prints da sessão" do Painel de Votação), destaques (DTQ) com a explicação do módulo de Destaques
 - **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel) + encaminhamentos das matérias
 - **"Na tribuna"**: aviso quando um deputado do Podemos é chamado a discursar
 - Comandos ao vivo: `/quorum` (presença no painel), `/oradores [data] [filtro]` (quem falou/aguarda, por lista), `/faltamvotar` (na nominal aberta, quem do Podemos ainda não votou — presentes × fora da Casa, com rede de segurança automática)
@@ -689,6 +690,7 @@ sispode/
 ├── panel.html / panel.js       # Painel inicial + módulo: Destaques Legislativos
 ├── panel.css                   # Estilos do painel principal
 ├── votacao.html / votacao.js      # Módulo: Painel de Votação
+├── votacao-prints.js              # Painel de Votação: aba "Prints da sessão" (desenho em bot/src/imagem-svg.js)
 ├── aderencia.html / aderencia.js  # Módulo: Relatórios — abas, aderência e "como votou o deputado"
 ├── aderencia-legislatura.js       # Relatórios: aderência da legislatura ano a ano (PDF e Word)
 ├── producao.js                    # Relatórios · Produção legislativa

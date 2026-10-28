@@ -31,16 +31,8 @@ function addDays(dateStr, days) {
   return d.toISOString().slice(0, 10);
 }
 
-function votoClass(tipo) {
-  if (!tipo) return 'ausente';
-  const t = tipo.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
-  if (t === 'sim') return 'sim';
-  if (t === 'nao') return 'nao';
-  if (t.indexOf('abst')  !== -1) return 'abstencao';
-  if (t.indexOf('art')   !== -1) return 'art17';
-  if (t.indexOf('obstr') !== -1) return 'obstrucao';
-  return 'ausente';
-}
+// Classe do voto: a mesma do desenho do print (imagem-svg.js).
+const { votoClass } = require('./imagem-svg');
 
 /** Votações NOMINAIS do Plenário na data (ISO yyyy-mm-dd). */
 async function listarVotacoesDia(dataISO) {
