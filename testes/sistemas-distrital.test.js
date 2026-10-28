@@ -160,6 +160,15 @@ const rcomp = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensator
 const conta = r => { const o = {}; for (const x of r.eleitos) o[x.agr] = (o[x.agr] || 0) + 1; return JSON.stringify(o); };
 ok(conta(rcomp) === '{"A":2,"B":2}' && rcomp.eleitos.length === 4, 'compensatório: o total segue a proporção da votação');
 ok(rp.distritos.every(x => x.segundo && x.segundo.agr !== x.vencedor.agr && x.vencedor.agrPct > 0), 'segundo colocado (agremiação) e a fatia do vencedor no distrito');
+// Voto partidário líquido: a cota sai da votação menos os votos que elegeram os vencedores de distrito, cada um no seu
+// distrito (a1: 200 no oeste; b1: 200 no leste) — A 560 → 360, B 440 → 240; D'Hondt em 4: A 360, B 240, A 180, A 120 (empate
+// com B 120 vai à primeira agremiação, como no proporcional) → A 3 (1 distrito + 2 lista), B 1 (o distrito)
+const rliq = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensatorio', desenho: desE, base: baseE, votos, votoLiquido: true });
+ok(rliq.liquido.A === 360 && rliq.liquido.B === 240 && rcomp.liquido === null, 'voto líquido: desconta os votos de cada vencedor no seu distrito (não o total dele no estado)');
+ok(conta(rliq) === '{"A":3,"B":1}' && rliq.eleitos.length === 4 && rliq.eleitos.filter(x => x.fase !== 'lista').length === 2, 'voto líquido: o voto que elegeu no distrito não conta de novo na cota — A 3, B 1 (contra 2 a 2 sem ele)');
+const rliqA = SD.sdDistritalMisto(dEst, { regra: 'partido', modelo: 'compensatorio', desenho: desE, base: baseE, votos, votoLiquido: true, aliancas: [['PA', 'PB']] });
+ok(rliqA.distritos.map(x => x.vencedor.votos).sort().join() === '290,400' && rliqA.liquido.A === 360 && rliqA.liquido.B === 240,
+  'voto líquido com aliança no distrito: desconta só os votos do próprio vencedor (b1 leva o leste com 400, mas 200 vieram de A, cuja lista nunca foi de B)');
 
 console.log('Peso pela população (Censo 2022)');
 ok(SD.sdUrlPopulacao(35) === 'https://servicodados.ibge.gov.br/api/v3/agregados/4709/periodos/2022/variaveis/93?localidades=' + encodeURIComponent('N6[N3[35]]'), 'endereço do agregado 4709 (população residente), municípios da UF');

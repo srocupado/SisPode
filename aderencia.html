@@ -173,6 +173,16 @@
   .btn-gerar:hover { background: var(--accent-light); }
   .btn-gerar:active { transform: scale(0.99); }
   .btn-gerar:disabled { opacity: 0.5; cursor: not-allowed; }
+  .btn-gerar-sec { background: transparent; color: var(--accent-light); border: 1px solid var(--accent); margin-top: 8px; }
+  .btn-gerar-sec:hover { color: #fff; }
+
+  /* ── RELATÓRIO DA LEGISLATURA ── */
+  .leg-tabela { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 12px; }
+  .leg-tabela th { font-size: 10px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-dim); text-align: right;
+                   padding: 6px; border-bottom: 1px solid var(--border); font-weight: 600; }
+  .leg-tabela td { padding: 6px; text-align: right; border-bottom: 1px solid var(--border); }
+  .leg-tabela th:nth-child(-n+2), .leg-tabela td:nth-child(-n+2) { text-align: left; }
+  .leg-acoes { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; }
 
   /* ── STATUS / LOADING ── */
   .status {
@@ -933,6 +943,8 @@
       <label>Partido (sigla)</label>
       <input type="text" id="partido" class="field party-input" placeholder="Ex.: PODE, PL, PT, MDB" maxlength="15" value="PODE">
       <button id="btnGerar" class="btn-gerar">Gerar relatório</button>
+      <button id="btnLegislatura" class="btn-gerar btn-gerar-sec" type="button"
+        title="A legislatura em curso, um ano por vez, com membros da bancada e votações — em PDF e Word. As datas acima não se aplicam.">Relatório da legislatura (ano a ano)</button>
     </div>
 
     <div id="status"></div>
@@ -1240,6 +1252,8 @@
 
 <script src="libs/xlsx.full.min.js"></script>
 <script src="aderencia.js"></script>
+<script src="libs/docx.iife.js"></script>
+<script src="aderencia-legislatura.js"></script>
 <!-- Escopo global compartilhado (MV3, scripts clássicos): producao.js e radar.js
      reaproveitam fetchJson, mapLimit, formatarData, cvEsc, cvBuscarDeputados,
      API_PROP e CSS_PDF_VOTOS de aderencia.js, e por isso vêm DEPOIS dele. -->

@@ -154,6 +154,15 @@ ok(JSON.stringify(cmp.sims[1].porPartido) === '{"PA":3,"PC":1,"PD":1}', 'somas n
 ok(cmp.sims[1].porUf.xb.eleitos.length === 3 && !cmp.sims[1].porUf.xb.entram.length, 'a UF sem real ainda é simulada (sem entra/sai)');
 ok(S.snOrdemPartidos(cmp).join() === 'PA,PB,PC,PD', 'ordem: bancada oficial, depois a maior simulada');
 ok(cmp.sims[2].porUf.ya.nMais === 3 && cmp.sims[2].porUf.ya.nLista === 2, 'misto: partes registradas por UF');
+const tp = S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, 'd');
+ok(tp.map(t => t.sg).join() === 'PB,PD' && tp[0].oficial === 1 && tp[0].sistema === 0 && tp[1].oficial === 0 && tp[1].sistema === 1,
+  'trocas partido a partido: só quem tem troca, na ordem dos partidos, com a bancada oficial e a do sistema');
+ok(tp[1].entram.length === 1 && tp[1].entram[0].uf === 'ya' && tp[1].entram[0].cand.votos === 100 && tp[1].entram[0].fase === 'mais votados' && tp[1].entram[0].pos === 4,
+  'quem entra: estado, votos, por onde entra e posição no estado');
+ok(tp[0].saem.length === 1 && tp[0].saem[0].cand.votos === 18 && tp[0].saem[0].pos === 6 && !tp[0].entram.length, 'quem sai, com a posição no estado (a UF sem real fica fora)');
+ok(cmp.sims.every(s => S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, s.id).every(t => t.entram.length - t.saem.length === t.sistema - t.oficial)),
+  'saldo: entram − saem = bancada no sistema − bancada oficial, em todos os sistemas');
+ok(!S.snTrocasPorPartido(cmp, { ya: ufA, xb: ufB }, 'p').length && !S.snTrocasPorPartido(cmp, {}, 'x').length, 'proporcional vigente (ou sistema que não existe): ninguém troca');
 const todasSem = S.snSimular({ xb: ufB }, sist);
 ok(todasSem.comparadas.join() === 'xb' && todasSem.sims[1].total === 3, 'nenhuma UF com real (apuração em curso): as somas contam todas');
 ok(S.snSituacao({ final: true }) === 'final' && S.snSituacao({ final: false, pct: 100, eleitosReal: 0 }) === 'retotalizando' && S.snSituacao({ final: false, pct: 87, eleitosReal: 0 }) === 'parcial',
@@ -172,7 +181,63 @@ const dzI = indA.sims.d;
 ok(dzI.ganha && dzI.ganha.sg === 'PD' && dzI.ganha.d === 1 && dzI.perde.sg === 'PB' && dzI.perde.d === -1, 'quem mais ganha e quem mais perde contra o oficial');
 ok(indA.sims.p.gallagher === indA.real.gallagher && !indA.sims.p.ganha, 'proporcional vigente = oficial: mesmos indicadores, ninguém ganha');
 
+console.log('Método das sobras (art. 109; ADI 8.036): D\'Hondt, Sainte-Laguë, maiores restos');
+{
+  // 5 vagas, QE = 200. A 520 (QP 2, resto 0,6), B 320 (QP 1, resto 0,6), C 160 (QP 0, resto 0,8; 80% do QE: disputa as sobras).
+  //  · D'Hondt: A 520÷3 = 173 → A; depois B 320÷2 = 160 e C 160÷1 = 160 empatam → B (a mais votada): A 3, B 2, C 0
+  //  · Sainte-Laguë: C 160÷1 = 160 → C; depois B 320÷3 = 107 > A 520÷5 = 104 → B: A 2, B 2, C 1
+  //  · maiores restos: C 0,8 → C; depois A 0,6 e B 0,6 empatam → A (a mais votada): A 3, B 1, C 1
+  const mk = () => uf(5, [agr('A', 520, [130, 130, 104, 87, 65]), agr('B', 320, [107, 107, 80, 64]), agr('C', 160, [80, 53, 40])]);
+  const c = k => conta(S.snProporcional(mk(), { sobras: k }));
+  ok(c('dhondt') === '{"A":3,"B":2}' && c(undefined) === c('dhondt'), "D'Hondt (a lei, o padrão): A 3, B 2, C 0");
+  ok(c('sl') === '{"A":2,"B":2,"C":1}', 'Sainte-Laguë (÷ 1, 3, 5…): A 2, B 2, C 1');
+  ok(c('restos') === '{"A":3,"B":1,"C":1}', 'maiores restos (Hare, votos ÷ QE − lugares): A 3, B 1, C 1');
+  const fases = S.snProporcional(mk(), { sobras: 'restos' }).eleitos.map(x => x.fase);
+  ok(fases.filter(f => f === 'QP').length === 3 && fases.filter(f => f === 'maior resto').length === 2, 'as sobras pelos restos aparecem como "maior resto"');
+  // Quem ficou abaixo do QP por falta de candidato com 10% do QE recupera as suas pelo resto (SP 2026: PSOL/REDE).
+  // QE 200: A 700 = 3,5 quocientes, mas só 2 candidatos com 10% do QE → 2 no QP; B 300 = 1,5 → 1. Hare: A 3 + B 1
+  // pela parte inteira, e a 5ª vaga ao maior resto (A 0,5 × B 0,5, empate → A, a mais votada) → A 4, B 1.
+  // Uma sobra por partido a cada volta daria A 3, B 2 — tiraria de A uma cadeira da parte inteira do seu quociente.
+  const falta = uf(5, [agr('A', 700, [300, 30, 10, 5]), agr('B', 300, [150, 100, 50])]);
+  ok(conta(S.snProporcional(falta, { sobras: 'restos', pctPartido: 0, pctCandidato: 0 })) === '{"A":4,"B":1}', 'QP não preenchido por falta de candidato: o resto (3,5 − 2 = 1,5) devolve a cadeira da parte inteira, e a última vai ao maior resto');
+}
+console.log('Lista preordenada do partido (Versão Minuta, art. 105-D)');
+{
+  const A = agr('A', 1800, [500, 400, 300, 200, 100]), B = agr('B', 1200, [450, 350, 250]);
+  const [a1, a2, a3, a4, a5] = A.cands;
+  a5.valido = false;
+  const f = S.snFilaLista(A, new Set([a1.sq]), [a4.sq, a1.sq, 'nao-existe', a5.sq, a3.sq]);
+  ok(f.map(x => x.c.votos + ':' + x.pos).join() === '200:1,300:5,400:null',
+    'fila: os nomes da lista na ordem dada (pulando quem já venceu distrito, inválido e nome de fora), depois o resto pela ordem de votos');
+  ok(S.snFilaLista(A, new Set(), null).map(x => x.c.votos + ':' + x.pos).join() === '500:null,400:null,300:null,200:null', 'sem lista: a ordem de votos, como antes');
+  const dL = uf(5, [A, B]);
+  const prim = [{ sq: a1.sq, agr: 'A', fase: 'distrito 1', cand: a1 }];
+  const semL = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio' });
+  const comL = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio', listaPre: { A: [a4.sq, a1.sq, a3.sq] } });
+  const daLista = r => r.eleitos.filter(x => x.fase === 'lista' && x.agr === 'A').map(x => x.cand.votos + ':' + (x.posLista || '-')).join();
+  ok(daLista(semL) === '400:-,300:-' && daLista(comL) === '200:1,300:3', 'lista do partido: as vagas de lista de A vão a quem ela põe na frente (a ordem dela; quem venceu distrito é pulado)');
+  ok(JSON.stringify(semL.porAgr) === JSON.stringify(comL.porAgr) && comL.eleitos.length === 5, 'a lista só muda os nomes: as cadeiras de cada agremiação são as mesmas');
+  const curta = S.snCompletarLista(dL, prim, 5, { modelo: 'compensatorio', listaPre: { A: [a3.sq] } });
+  ok(daLista(curta) === '300:1,400:-', 'lista mais curta que as vagas: completa pela ordem de votos');
+}
 console.log('Distritão misto: teto e cláusula da lista');
+{
+  // empate de médias: leva a agremiação que vem antes no arquivo do TSE (como diz o memorial), mesmo com ids numéricos,
+  // que o JavaScript poria em ordem crescente (o '9' antes do '13'). 9: 400, 200…; 13: 200 — a 2ª vaga empata em 200
+  const t3 = S.snDhondt({ 13: 200, 9: 400 }, 2, {}, 0, null, 'dhondt', null, ['13', '9']), t0 = S.snDhondt({ 13: 200, 9: 400 }, 2);
+  ok(t3['13'] === 1 && t3['9'] === 1 && t0['13'] === 0 && t0['9'] === 2, 'desempate de médias pela ordem do arquivo (sem ela, a das chaves)');
+  const e = { uf: 'xx', vagas: 2, validos: 600, agrs: [agr('13', 200, [150, 50]), agr('9', 400, [300, 60, 40])] };
+  const r = S.snDistritaoMisto(e, { pctMaisVotados: 0, modelo: 'paralelo' });
+  ok(r.porAgr['13'] === 1 && r.porAgr['9'] === 1, 'na lista dos mistos, o mesmo desempate: a 2ª vaga vai à agremiação 13, que vem antes no arquivo');
+}
+{
+  // a cláusula mede a votação inteira, não o voto líquido: B tem 52% dos válidos, mas, descontados os votos dos seus
+  // eleitos na 1ª parte, sobram 4.700 (< 20% = 4.840) — barrado pelo líquido, deixaria 5 das 10 vagas sem ninguém
+  const ag = (id, leg, vs) => agr(id, leg + vs.reduce((s, v) => s + v, 0), vs);
+  const dC = uf(10, [ag('A', 500, [6000, 3000, 2000]), ag('B', 1000, [5000, 3000, 1500, 1000, 500, 400, 300])]);
+  const rC = S.snDistritaoMisto(dC, { pctMaisVotados: 0.5, modelo: 'paralelo', limiar: 0.2, votoLiquido: true });
+  ok(rC.liquido.B === 4700 && rC.eleitos.length === 10 && conta(rC) === '{"A":3,"B":7}', 'cláusula sobre a votação inteira (com o voto líquido, a de antes do desconto): nenhuma vaga fica vazia');
+}
 const poucos = uf(4, [agr('A', 900, [300, 200]), agr('B', 100, [90])]);
 const pt = S.snDistritaoMisto(poucos, { pctMaisVotados: 0.5, modelo: 'paralelo' });
 ok(pt.eleitos.length === 3 && conta(pt) === '{"A":2,"B":1}', 'agremiação sem candidatos bastantes cede a cadeira da lista à média seguinte');
@@ -209,6 +274,18 @@ const [ca1, ca2, ca3] = ufD.agrs[0].cands, [cb1, cb2] = ufD.agrs[1].cands;
 const votosD = { 'w|1': { c: { [ca1.sq]: 250, [ca2.sq]: 50, [cb1.sq]: 60 }, l: {} }, 'e|1': { c: { [ca1.sq]: 50, [ca2.sq]: 150, [ca3.sq]: 100, [cb1.sq]: 190, [cb2.sq]: 150 }, l: {} } };
 const cmpD = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'Distrital misto', tipo: 'distrital', op: { regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } } } }]);
 ok(cmpD.sims[0].total === 4 && cmpD.sims[0].porUf.xx.nDistritos === 2 && cmpD.sims[0].porUf.xx.distritos.length === 2, 'distrital misto na comparação: vagas, distritos e vencedores por estado');
+{
+  // lista preordenada pela porta da tela (op.listas[uf][agremiação]): só muda quem ocupa as vagas de lista
+  const opL = l => ({ regra: 'partido', modelo: 'paralelo', porUf: { xx: { desenho: SDx.sdDistritar(baseD, 2), base: baseD, votos: votosD } }, listas: l });
+  const sem = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'D', tipo: 'distrital', op: opL({}) }]).sims[0].porUf.xx;
+  const naoEleitoA = ufD.agrs[0].cands.filter(c => !sem.eleitos.some(e => e.sq === c.sq)).map(c => c.sq);
+  const listaA = sem.eleitos.filter(e => e.agr === ufD.agrs[0].id && e.fase === 'lista');
+  const com = S.snSimular({ xx: ufD }, [{ id: 'dm', nome: 'D', tipo: 'distrital', op: opL({ xx: { [ufD.agrs[0].id]: naoEleitoA.slice().reverse() } }) }]).sims[0].porUf.xx;
+  const listaA2 = com.eleitos.filter(e => e.agr === ufD.agrs[0].id && e.fase === 'lista');
+  ok(listaA.length > 0 && listaA2.length === listaA.length && listaA2.every(e => e.posLista >= 1) && listaA2[0].sq !== listaA[0].sq
+    && JSON.stringify(sem.porAgr) === JSON.stringify(com.porAgr),
+    `distrital com a lista do partido: as ${listaA.length} vaga(s) de lista de A seguem a ordem dada (posição ${listaA2.map(e => e.posLista).join(', ')}); as cadeiras não mudam`);
+}
 
 console.log('Excedente no compensatório (PL 9.212, PL 9.213, Alemanha) e divisor');
 // 6 vagas; A 600, B 300, C 100 → alvo pelas maiores médias: A 4, B 2, C 0.

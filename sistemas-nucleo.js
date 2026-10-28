@@ -78,7 +78,13 @@ function snQuociente(validos, vagas) {
 
 /**
  * Proporcional. op: { pctQP: 0.10, pctPartido: 0.80, pctCandidato: 0.20, terceiraFaseAberta: true,
- * federacoes: true, vagas, validos }. Devolve { qe, eleitos: [{ sq, agr, fase }], porAgr: { id: n }, fases }.
+ * federacoes: true, sobras: 'dhondt'|'sl'|'restos', vagas, validos }. Devolve { qe, eleitos: [{ sq, agr, fase }], porAgr: { id: n }, fases }.
+ * sobras — como se distribuem as vagas que o quociente partidário não preencheu (art. 109; ADI 8.036 questiona o método):
+ *  · 'dhondt' (a lei, maiores médias): votos ÷ (lugares + 1);
+ *  · 'sl' (Sainte-Laguë): votos ÷ (2 × lugares + 1);
+ *  · 'restos' (Hare, maiores restos): votos ÷ QE − lugares — a fração do quociente que sobrou (quem ficou abaixo
+ *    do QP por falta de candidato com 10% do QE disputa com o resto maior que 1).
+ * Em todos, os mesmos requisitos de cada fase (80/20 e a 3ª fase) e o mesmo desempate (a maior votação).
  * Com federacoes:false, cada partido da federação disputa sozinho (simulação sem federação).
  */
 function snProporcional(d, op = {}) {
@@ -107,7 +113,9 @@ function snProporcional(d, op = {}) {
     }
   }
   // 2ª fase: sobras entre quem tem 80% do QE, candidatos com 20%
-  const media = e => e.a.votos / (e.lugares + 1);
+  const sobras = op.sobras === 'sl' || op.sobras === 'restos' ? op.sobras : 'dhondt';
+  const media = sobras === 'sl' ? e => e.a.votos / (2 * e.lugares + 1) : sobras === 'restos' ? e => e.a.votos / qe - e.lugares : e => e.a.votos / (e.lugares + 1);
+  const nomeFase = sobras === 'restos' ? 'maior resto' : 'média';
   const rodada = (podeAgr, podeCand, fase) => {
     while (eleitos.length < vagas) {
       let melhor = null, cand = null;
@@ -121,9 +129,9 @@ function snProporcional(d, op = {}) {
       eleger(melhor, cand, fase);
     }
   };
-  rodada(e => e.a.votos >= pctP * qe, c => c.votos >= pctC * qe, 'média');
+  rodada(e => e.a.votos >= pctP * qe, c => c.votos >= pctC * qe, nomeFase);
   // 3ª fase: maiores médias, todas as agremiações (STF) — ou só as de 80% (texto da lei sem a decisão)
-  if (eleitos.length < vagas) rodada(e => aberta || e.a.votos >= pctP * qe, () => true, 'média (3ª fase)');
+  if (eleitos.length < vagas) rodada(e => aberta || e.a.votos >= pctP * qe, () => true, nomeFase + ' (3ª fase)');
   return snResultado(est, eleitos, qe, vagas);
 }
 
@@ -167,12 +175,14 @@ function snDistritao(d, op = {}) {
  */
 // Divisor da (k+1)-ésima cadeira: D'Hondt (1, 2, 3…) ou Sainte-Laguë (1, 3, 5…).
 const SN_DIV = { dhondt: k => k + 1, sl: k => 2 * k + 1 };
-function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt', base = null) {
+// ordem: as agremiações na ordem do arquivo do TSE — o desempate (em médias iguais, leva a que vem antes). Sem ela, a
+// das chaves de `votos`, que o JavaScript reordena quando a chave é um número (as agremiações do servidor de resultados).
+function snDhondt(votos, n, ja = {}, limiar = 0, teto = null, divisor = 'dhondt', base = null, ordem = null) {
   const dv = SN_DIV[divisor] || SN_DIV.dhondt;
   // base da cláusula: os votos válidos do estado (com o voto partidário líquido,
   // a soma das agremiações é menor que os válidos — a cláusula não pode encolher junto)
   const total = base != null ? base : Object.values(votos).reduce((s, v) => s + v, 0);
-  const ids = Object.keys(votos).filter(id => votos[id] > 0 && votos[id] >= limiar * total);
+  const ids = (ordem ? ordem.filter(id => id in votos) : Object.keys(votos)).filter(id => votos[id] > 0 && votos[id] >= limiar * total);
   const lugares = Object.fromEntries(ids.map(id => [id, ja[id] || 0]));
   const lista = Object.fromEntries(ids.map(id => [id, 0]));
   const cabe = id => !teto || lista[id] < (teto[id] || 0);
@@ -208,7 +218,7 @@ function snDistritaoMisto(d, op = {}) {
     const usado = {};
     for (const e of parte1.eleitos) usado[e.agr] = (usado[e.agr] || 0) + e.cand.votos;
     liquido = Object.fromEntries(d.agrs.map(a => [a.id, a.votos - (usado[a.id] || 0)]));
-    dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id] }) : a)) });
+    dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id], votosBrutos: a.votos }) : a)) });
   }
   const r = snCompletarLista(dl, parte1.eleitos.map(x => Object.assign({}, x, { fase: 'mais votados' })), vagas, op);
   return Object.assign(r, { nMais, corte: parte1.corte, liquido });
@@ -241,13 +251,17 @@ function snDistritaoMisto(d, op = {}) {
 function snCompletarLista(d, primeiros, vagas, op = {}) {
   const limiar = op.limiar || 0, div = op.divisor === 'sl' ? 'sl' : 'dhondt', dv = SN_DIV[div];
   const comp = op.modelo === 'compensatorio', exc = comp ? (op.excedente || 'corta') : 'corta';
-  const votos = Object.fromEntries(d.agrs.map(a => [a.id, a.votos]));
+  // cláusula sobre a votação inteira da agremiação (com o voto líquido, a de antes do desconto: o desconto tira o
+  // que já elegeu, não mede desempenho) e sobre os válidos do estado; quem passa divide as vagas com os votos dados
+  const total = d.validos != null ? d.validos : d.agrs.reduce((s, a) => s + (a.votosBrutos != null ? a.votosBrutos : a.votos), 0);
+  const votos = Object.fromEntries(d.agrs.filter(a => (a.votosBrutos != null ? a.votosBrutos : a.votos) >= limiar * total).map(a => [a.id, a.votos]));
+  const ordem = d.agrs.map(a => a.id);
   const contar = lista => { const n = {}; for (const x of lista) n[x.agr] = (n[x.agr] || 0) + 1; return n; };
   let p1 = contar(primeiros);
   const excedentes = {}, cortes = {}, descobertos = [];
   let N = vagas, alvo = null;
   if (comp) {
-    alvo = snDhondt(votos, vagas, {}, limiar, null, div, d.validos);
+    alvo = snDhondt(votos, vagas, {}, 0, null, div, null, ordem);
     for (const id of Object.keys(p1)) if (p1[id] > (alvo[id] || 0)) excedentes[id] = p1[id] - (alvo[id] || 0);
     const sobra = () => Object.keys(p1).reduce((s, id) => s + Math.max(0, p1[id] - (alvo[id] || 0)), 0);
     const cabe = op.tetoExtra == null ? 4 * vagas : Math.floor(vagas * op.tetoExtra + 1e-9);   // sem teto: até 4× (segurança)
@@ -260,7 +274,7 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
       primeiros = primeiros.filter(x => !fora.has(x.sq));
       p1 = contar(primeiros);
     } else if (exc === 'compensa') {
-      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, limiar, null, div, d.validos); }
+      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, 0, null, div, null, ordem); }
     } else if (exc === 'cresce') {
       N = vagas + Math.min(sobra(), cabe);
     }
@@ -278,7 +292,7 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
     const ultima = id => votos[id] / dv(n1(id) + lista[id] - 1);
     while (soma > nLista) {
       let pior = null;
-      for (const id of Object.keys(lista)) if (lista[id] > 0 && (!pior || ultima(id) < ultima(pior))) pior = id;
+      for (const id of ordem) if (lista[id] > 0 && (!pior || ultima(id) < ultima(pior))) pior = id;
       lista[pior]--; soma--;
       cortes[pior] = (cortes[pior] || 0) + 1;
     }
@@ -286,22 +300,38 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
     if (soma < nLista) {
       const tem = {}, resta = {};
       for (const id of Object.keys(votos)) { tem[id] = n1(id) + lista[id]; resta[id] = teto[id] - lista[id]; }
-      const mais = snDhondt(votos, nLista - soma, tem, limiar, resta, div, d.validos);
+      const mais = snDhondt(votos, nLista - soma, tem, 0, resta, div, null, ordem);
       for (const id of Object.keys(mais)) lista[id] += mais[id];
     }
   } else {
-    lista = snDhondt(votos, Math.max(0, nLista), {}, limiar, teto, div, d.validos);
+    lista = snDhondt(votos, Math.max(0, nLista), {}, 0, teto, div, null, ordem);
   }
   const eleitos = primeiros.slice();
   for (const a of d.agrs) {
-    const fila = a.cands.filter(c => c.valido && !ja.has(c.sq));
-    for (const c of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: c.sq, agr: a.id, fase: 'lista', cand: c });
+    const fila = snFilaLista(a, ja, (op.listaPre || {})[a.id]);
+    for (const x of fila.slice(0, lista[a.id] || 0)) eleitos.push({ sq: x.c.sq, agr: a.id, fase: 'lista', cand: x.c, posLista: x.pos });
   }
   const porAgr = {};
   for (const a of d.agrs) porAgr[a.id] = 0;
   for (const x of eleitos) porAgr[x.agr] = (porAgr[x.agr] || 0) + 1;
   return { vagas: eleitos.length > N ? eleitos.length : N, extra: N - vagas, eleitos, porAgr, nLista: Math.max(0, nLista),
     excedentes, cortes, descobertos: descobertos.map(x => x.sq) };
+}
+
+/**
+ * A fila da lista de uma agremiação: os candidatos (válidos, ainda não eleitos) que ocupam as vagas de lista, em ordem.
+ * Sem lista preordenada, a ordem de votos. Com ela (pre = [sq] na ordem do partido — Versão Minuta, art. 105-D),
+ * primeiro os nomes dela (quem já venceu distrito é pulado: art. 105-A, § 1º); se faltar nome, completa pela ordem de votos.
+ * Devolve [{ c, pos }] — pos: a posição na lista do partido (1, 2, …), ou null quando veio da ordem de votos.
+ */
+function snFilaLista(a, ja, pre) {
+  const livres = a.cands.filter(c => c.valido && !ja.has(c.sq));
+  if (!pre || !pre.length) return livres.map(c => ({ c, pos: null }));
+  const porSq = new Map(livres.map(c => [String(c.sq), c]));
+  const naLista = [];
+  pre.forEach((sq, i) => { const c = porSq.get(String(sq)); if (c && !naLista.some(x => x.c === c)) naLista.push({ c, pos: i + 1 }); });
+  const dentro = new Set(naLista.map(x => x.c));
+  return naLista.concat(livres.filter(c => !dentro.has(c)).map(c => ({ c, pos: null })));
 }
 
 // ------------------------------------------------------------
@@ -372,10 +402,11 @@ function snSomar(alvo, eleitos) {
 const SN_TIPOS = {
   proporcional: (d, op) => snProporcional(d, op),
   misto: (d, op) => snDistritaoMisto(d, op),
-  // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado
+  // distrital misto (sistemas-distrital.js): op.porUf[uf] = { desenho, base, votos } de cada estado;
+  // op.listas[uf] = { agremiação: [sq] } — as listas preordenadas dadas pelos partidos (vazio: ordem de votos)
   distrital: (d, op) => {
     const f = typeof sdDistritalMisto === 'function' ? sdDistritalMisto : require('./sistemas-distrital.js').sdDistritalMisto;
-    return f(d, Object.assign({}, op, op.porUf[d.uf]));
+    return f(d, Object.assign({}, op, op.porUf[d.uf], { listaPre: (op.listas || {})[d.uf] || null }));
   },
 };
 
@@ -459,6 +490,35 @@ function snOrdemPartidos(res) {
   const todas = new Set([...Object.keys(res.real.porPartido), ...res.sims.flatMap(s => Object.keys(s.porPartido))]);
   const max = sg => Math.max(0, ...res.sims.map(s => s.porPartido[sg] || 0));
   return [...todas].sort((a, b) => (res.real.porPartido[b] || 0) - (res.real.porPartido[a] || 0) || max(b) - max(a) || a.localeCompare(b));
+}
+
+/**
+ * Quem entra e quem sai, partido a partido, num sistema (sobre as UFs comparáveis).
+ * Devolve [{ sg, oficial, sistema, entram: [{ uf, cand, fase, posLista, pos }], saem: [{ uf, cand, pos }] }]
+ * só com os partidos que têm alguma troca, na ordem de snOrdemPartidos; entram e saem
+ * em ordem de votos. pos = posição do candidato no estado, entre os votos nominais válidos;
+ * fase = por onde entra no sistema (mais votados, lista, distrito, QP, média…).
+ */
+function snTrocasPorPartido(res, dados, id) {
+  const s = res.sims.find(x => x.id === id);
+  if (!s) return [];
+  const pos = {};
+  const posicao = (uf, sq) => {
+    if (!pos[uf]) {
+      pos[uf] = {};
+      dados[uf].agrs.flatMap(a => a.cands.filter(c => c.valido)).sort((a, b) => b.votos - a.votos).forEach((c, i) => { pos[uf][c.sq] = i + 1; });
+    }
+    return pos[uf][sq] || null;
+  };
+  const por = {};
+  const de = sg => por[sg] || (por[sg] = { sg, oficial: res.real.porPartido[sg] || 0, sistema: s.porPartido[sg] || 0, entram: [], saem: [] });
+  for (const uf of res.comparadas) {
+    const u = s.porUf[uf];
+    for (const x of u.entram) de(x.cand.partido).entram.push({ uf, cand: x.cand, fase: x.fase, posLista: x.posLista || null, pos: posicao(uf, x.cand.sq) });
+    for (const x of u.saem) de(x.cand.partido).saem.push({ uf, cand: x.cand, pos: posicao(uf, x.cand.sq) });
+  }
+  const porVotos = (a, b) => b.cand.votos - a.cand.votos;
+  return snOrdemPartidos(res).filter(sg => por[sg]).map(sg => { por[sg].entram.sort(porVotos); por[sg].saem.sort(porVotos); return por[sg]; });
 }
 
 /**
@@ -632,5 +692,5 @@ function snConferir(d, res) {
 
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { snCampos, snVagasAssembleia, snVagasCamara, snLeitorDadosAbertos, snNum, snLerUF, snSituacao, snQuociente, snProporcional, snSemFederacao, snDistritao, snDhondt,
-    snDistritaoMisto, snCompletarLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
+    snDistritaoMisto, snCompletarLista, snFilaLista, SN_DIV, snMargem, snFederar, snSimular, snIndicadores, snOrdemPartidos, snTrocasPorPartido, snHemiciclo, snEleicoes, snUrlsAbertos, snConferir };
 }

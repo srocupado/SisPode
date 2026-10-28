@@ -62,6 +62,7 @@
         "libs/html2canvas.min.js",
         "aderencia.html",
         "aderencia.js",
+        "aderencia-legislatura.js",
         "resumos.js",
         "defesa.js",
         "imprensa.js",

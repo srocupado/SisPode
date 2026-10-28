@@ -90,6 +90,8 @@
   .dlg-l.off .tog-c { opacity: .45; }
   .dlg .atalhos button { margin: 0 4px 4px 0; font-size: 12px; padding: 5px 9px; }
   .dlg-acoes { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  #lTxt { width: 100%; box-sizing: border-box; font: inherit; font-size: 13px; background: var(--bg); color: var(--texto); border: 1px solid var(--borda); border-radius: 8px; padding: 8px; resize: vertical; }
+  .lista-prev { max-height: 260px; overflow: auto; margin-top: 6px; } .lista-prev td { font-size: 12.5px; padding: 3px 6px; }
   .sis .alterado { color: var(--ama); font-size: 11px; font-weight: 600; margin-left: auto; }
   /* Resultado */
   h2 { font-size: 15px; margin: 18px 0 8px; }
@@ -182,6 +184,7 @@
   tr.clic { cursor: pointer; } tr.clic:hover td { background: rgba(255,255,255,.04); } tr.sel td { background: rgba(255,210,74,.10); }
   .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
   .duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
+  .duas.larga { grid-template-columns: repeat(auto-fill, minmax(400px, 1fr)); }
   .bloco { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 9px 11px; min-width: 0; }
   .bloco h3 { margin: 0 0 6px; font-size: 13.5px; }
   .bloco .vazio { color: var(--dim); font-size: 12.5px; }
@@ -260,12 +263,14 @@
   <div class="sistemas fechado" id="siSistemas">
     <div class="sis" data-sis="proporcional">
       <h3><i style="background:#3b82f6"></i>Proporcional (atual)<span class="alterado" id="siAltP" hidden>parâmetros alterados</span></h3>
-      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111).</p>
+      <p>Quociente eleitoral e partidário, sobras pelas maiores médias (Código Eleitoral, arts. 106 a 111) — ou por outro método, para simular a ADI 8.036.</p>
       <div class="lin"><span>Votos mínimos do candidato no QP (% do QE)</span><input type="number" id="pQP" min="0" max="100" step="1" value="10"></div>
       <div class="lin"><span>Sobras: agremiação com (% do QE)</span><input type="number" id="pPart" min="0" max="100" step="1" value="80"></div>
       <div class="lin"><span>Sobras: candidato com (% do QE)</span><input type="number" id="pCand" min="0" max="100" step="1" value="20"></div>
+      <div class="lin"><span>Método das sobras</span><div class="seg" id="pSob"><button data-s="dhondt" class="ativo" title="Maiores médias: votos ÷ (lugares + 1) — art. 109 do Código Eleitoral (a lei)">D'Hondt (a lei)</button><button data-s="sl" title="Sainte-Laguë: votos ÷ (2 × lugares + 1) — divisores 1, 3, 5…, mais neutro entre grandes e pequenos">Sainte-Laguë</button><button data-s="restos" title="Hare (maiores restos): a fração do quociente eleitoral que sobrou a cada agremiação, votos ÷ QE − lugares">Maiores restos</button></div></div>
       <div class="lin"><label><input type="checkbox" id="pTerc" checked> 3ª fase aberta a todas as agremiações (STF, ADIs 7228/7263/7325)</label></div>
       <div class="lin"><label><input type="checkbox" id="pFed" checked> Federações (desmarcado: cada partido sozinho)</label></div>
+      <div class="lin larga proj"><span>Cenário</span><span class="proj-b"><button id="pAdi" title="ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e das exigências de 80% e 20% do QE para as sobras (§ 2º), sem dizer o que entra no lugar: aqui, Sainte-Laguë nas sobras e sem o § 2º; quociente eleitoral e partidário como hoje">ADI 8.036 (PDT): Sainte-Laguë sem o § 2º</button></span></div>
     </div>
     <div class="sis" data-sis="misto">
       <h3><i style="background:#a855f7"></i>Distritão misto<span class="alterado" id="siAltM" hidden>parâmetros alterados</span></h3>
@@ -302,6 +307,8 @@
       <div class="lin"><span>Quem leva o distrito</span><div class="seg" id="dRegra"><button data-r="partido" class="ativo" title="A agremiação mais votada no distrito leva a vaga, com o seu candidato mais votado ali">Partido</button><button data-r="partidoNominal" title="A agremiação com mais votos NOMINAIS no distrito leva (a legenda não conta), com o seu candidato mais votado ali — a hipótese de que, com um candidato por partido, todos os votos nominais do partido iriam para ele">Partido (só nominais)</button><button data-r="candidato" title="O candidato mais votado no distrito">Candidato</button></div></div>
       <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
       <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
+      <div class="lin larga" id="dLiqLin"><span><label class="tog"><input type="checkbox" id="dLiq"><i></i>Voto partidário líquido</label></span><span class="tog-c">a cota de cada partido conta a votação dele menos os votos que elegeram os seus vencedores de distrito (os votos de cada um no seu distrito) — o voto que já elegeu não conta duas vezes</span></div>
+      <div class="lin"><span>Lista preordenada do partido</span><button id="dListaBtn" class="tol-btn" title="Os nomes que o partido põe na lista, na ordem (Versão Minuta, art. 105-D) — sem nomes, a lista segue a ordem de votos">ordem de votos ✎</button></div>
       <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
       <div class="lin"><span>Excedente e divisor</span><button id="dExcBtn" class="tol-btn" title="O que acontece quando um partido ganha mais distritos que a sua cota proporcional — abre o ajuste">corta das listas ✎</button></div>
       <div class="lin"><span>Tolerância de tamanho</span><button id="dTolBtn" class="tol-btn" title="Quanto cada distrito pode se afastar do tamanho-alvo — abre o ajuste">±5% ✎</button></div>
@@ -318,7 +325,7 @@
         <b>Versão Minuta</b>: voto único (como os dados do TSE); metade das vagas em distritos, arredondada para cima, por população com ±5%; vence o distrito o candidato com mais votos nominais — a legenda não conta; um por partido, o mais votado de cada partido ali —; cota pelas maiores médias e excedente sem aumentar a Casa. Simulada só para deputado federal. <b>Partido (só nominais)</b>: a alternativa em que todos os votos nominais do partido no distrito se juntam no candidato único.
         <b>Tolerância</b> e <b>excedente</b>: nos botões ✎.
         <br><b>Projeto do Senado</b> (PL 9.212/2017): metade das vagas em distritos (parte inteira), desenhados por habitantes com até ±5% do alvo (±10% em 1 distrito ou em 10% deles);
-        o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos.</div>
+        o total de cada partido sai das maiores médias sobre todas as vagas, e quem ganha mais distritos que isso fica com eles, tirando as últimas vagas da lista. Diferenças: o projeto tem dois votos (distrito e partido) e lista preordenada; aqui há um voto só, e a lista vai na ordem de votos — ou na lista que você der para um partido (<b>Lista preordenada do partido</b> ✎).</div>
     </div>
   </div>
   <div class="ctl faixa-pe"><div class="geo" id="siGeo"></div><div class="dir"><span class="dica">Os parâmetros recalculam na hora, sem ler o TSE de novo.</span><button id="siRegra">Voltar à regra vigente</button></div></div>
@@ -347,6 +354,19 @@
     <div class="dlg-acoes"><button type="button" id="tCancelar">Cancelar</button><button value="ok" id="tOk" class="pri">Aplicar</button></div>
   </form>
 </dialog>
+<dialog id="dListaDlg" class="dlg">
+  <form method="dialog">
+    <h4>Lista preordenada do partido</h4>
+    <p class="dlg-t">Na Versão Minuta, as vagas de lista de cada partido vão aos nomes da lista que ele registra, na ordem dada (art. 105-D). Um nome por linha: o nome de urna ou o número do candidato.</p>
+    <div class="dlg-l"><span>Estado</span><select id="lUf"></select></div>
+    <div class="dlg-l"><span>Partido ou federação</span><select id="lAgr"></select></div>
+    <p class="dlg-t" id="lInfo"></p>
+    <textarea id="lTxt" rows="8" spellcheck="false" placeholder="Um nome por linha, na ordem da lista&#10;RENATA ABREU&#10;1912"></textarea>
+    <div class="dlg-l"><span></span><span><button type="button" id="lVotos" title="Os candidatos da agremiação na ordem de votos — para editar a partir dela">Colar a ordem de votos</button> <button type="button" id="lLimpar">Limpar (volta à ordem de votos)</button></span></div>
+    <div id="lPrev" class="lista-prev"></div>
+    <div class="dlg-acoes"><button type="button" id="lCancelar">Cancelar</button><button value="ok" class="pri">Aplicar</button></div>
+  </form>
+</dialog>
 <dialog id="dExcDlg" class="dlg">
   <form method="dialog">
     <h4>Excedente e divisor</h4>
@@ -364,6 +384,7 @@
 </dialog>
 <script src="../labs-apuracao.js"></script>
 <script src="../zip-remoto.js"></script>
+<script src="../ibge-cache.js"></script>
 <script src="../labs-mapa-nucleo.js"></script>
 <script src="../sistemas-nucleo.js"></script>
 <script src="../sistemas-distrital.js"></script>
