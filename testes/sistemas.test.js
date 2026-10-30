@@ -200,6 +200,12 @@ console.log('Método das sobras (art. 109; ADI 8.036): D\'Hondt, Sainte-Laguë, 
   // Uma sobra por partido a cada volta daria A 3, B 2 — tiraria de A uma cadeira da parte inteira do seu quociente.
   const falta = uf(5, [agr('A', 700, [300, 30, 10, 5]), agr('B', 300, [150, 100, 50])]);
   ok(conta(S.snProporcional(falta, { sobras: 'restos', pctPartido: 0, pctCandidato: 0 })) === '{"A":4,"B":1}', 'QP não preenchido por falta de candidato: o resto (3,5 − 2 = 1,5) devolve a cadeira da parte inteira, e a última vai ao maior resto');
+  // Estudo do PDT para a ADI 8.036: maior resto, mas uma vaga por agremiação a cada volta — A leva uma, B leva a outra.
+  ok(conta(S.snProporcional(falta, { sobras: 'restos', umaPorRodada: true, pctPartido: 0, pctCandidato: 0 })) === '{"A":3,"B":2}', 'uma por agremiação a cada volta (estudo do PDT): A 3, B 2');
+  // a volta se repete esgotadas as agremiações: QE 167, A elege 2 no QP (só 2 com 10%), B 1; 3 sobras — A e B levam uma cada, e a 3ª volta a A
+  const volta = uf(6, [agr('A', 700, [300, 30, 10, 5]), agr('B', 300, [150, 100, 50])]);
+  ok(S.snProporcional(volta, { sobras: 'restos', umaPorRodada: true, pctPartido: 0, pctCandidato: 0 }).eleitos.filter(x => x.fase === 'maior resto').map(x => x.agr).join() === 'A,B,A',
+    'esgotadas as agremiações com candidato apto, a volta se repete');
 }
 console.log('Lista preordenada do partido (Versão Minuta, art. 105-D)');
 {

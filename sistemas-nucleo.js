@@ -84,6 +84,8 @@ function snQuociente(validos, vagas) {
  *  · 'sl' (Sainte-Laguë): votos ÷ (2 × lugares + 1);
  *  · 'restos' (Hare, maiores restos): votos ÷ QE − lugares — a fração do quociente que sobrou (quem ficou abaixo
  *    do QP por falta de candidato com 10% do QE disputa com o resto maior que 1).
+ * umaPorRodada: uma vaga por agremiação a cada volta, em ordem de média (ou resto); esgotadas as agremiações com
+ *    candidato apto, a volta se repete — o estudo do PDT para a ADI 8.036 (maior resto, sem os 80% da agremiação).
  * Em todos, os mesmos requisitos de cada fase (80/20 e a 3ª fase) e o mesmo desempate (a maior votação).
  * Com federacoes:false, cada partido da federação disputa sozinho (simulação sem federação).
  */
@@ -116,17 +118,25 @@ function snProporcional(d, op = {}) {
   const sobras = op.sobras === 'sl' || op.sobras === 'restos' ? op.sobras : 'dhondt';
   const media = sobras === 'sl' ? e => e.a.votos / (2 * e.lugares + 1) : sobras === 'restos' ? e => e.a.votos / qe - e.lugares : e => e.a.votos / (e.lugares + 1);
   const nomeFase = sobras === 'restos' ? 'maior resto' : 'média';
+  // umaPorRodada: uma vaga por agremiação a cada volta; esgotadas as que têm candidato apto, a volta se repete
+  const naVolta = new Set();
   const rodada = (podeAgr, podeCand, fase) => {
+    naVolta.clear();
     while (eleitos.length < vagas) {
       let melhor = null, cand = null;
       for (const e of est) {
-        if (!podeAgr(e)) continue;
+        if (!podeAgr(e) || naVolta.has(e)) continue;
         const c = restantes(e).find(podeCand);
         if (!c) continue;
         if (!melhor || media(e) > media(melhor) || (media(e) === media(melhor) && e.a.votos > melhor.a.votos)) { melhor = e; cand = c; }
       }
-      if (!melhor) return;
+      if (!melhor) {
+        if (!naVolta.size) return;
+        naVolta.clear();
+        continue;
+      }
       eleger(melhor, cand, fase);
+      if (op.umaPorRodada) naVolta.add(melhor);
     }
   };
   rodada(e => e.a.votos >= pctP * qe, c => c.votos >= pctC * qe, nomeFase);

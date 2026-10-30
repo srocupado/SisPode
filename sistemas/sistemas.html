@@ -45,7 +45,7 @@
   .aviso b { color: var(--aviso); }
   .erro { border-color: var(--verm); background: rgba(255,122,107,.08); } .erro b { color: var(--verm); }
   /* Sistemas e parâmetros */
-  .sistemas { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
+  .sistemas { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin-bottom: 12px; }
   .sis { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 10px 12px; font-size: 12.5px; line-height: 1.45; }
   .sis h3 { margin: 0 0 4px; font-size: 14px; display: flex; align-items: center; gap: 6px; }
   .sis h3 i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
@@ -111,7 +111,7 @@
   .mapa-d circle.z { stroke: #0b121a; stroke-width: .6; } .mapa-d text { fill: #fff; font-weight: 700; text-anchor: middle; dominant-baseline: central; paint-order: stroke; stroke: rgba(0,0,0,.7); stroke-width: 2.5px; pointer-events: none; }
 
   /* faixa dos sistemas: resumo sempre visível; os controles de um sistema abrem embaixo */
-  .faixa { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; }
+  .faixa { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; margin: 14px 0 0; }
   .fx { background: var(--bg2); border: 1px solid var(--borda); border-radius: 12px; padding: 11px 14px; }
   .fx.clic { cursor: pointer; } .fx.clic:hover { border-color: #3c4f63; }
   .fx .t { display: flex; align-items: center; gap: 8px; font-weight: 600; font-size: 13.5px; } .fx .t i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; flex: none; }
@@ -271,6 +271,12 @@
       <div class="lin"><label><input type="checkbox" id="pTerc" checked> 3ª fase aberta a todas as agremiações (STF, ADIs 7228/7263/7325)</label></div>
       <div class="lin"><label><input type="checkbox" id="pFed" checked> Federações (desmarcado: cada partido sozinho)</label></div>
       <div class="lin larga proj"><span>Cenário</span><span class="proj-b"><button id="pAdi" title="ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e das exigências de 80% e 20% do QE para as sobras (§ 2º), sem dizer o que entra no lugar: aqui, Sainte-Laguë nas sobras e sem o § 2º; quociente eleitoral e partidário como hoje">ADI 8.036 (PDT): Sainte-Laguë sem o § 2º</button></span></div>
+    </div>
+    <div class="sis" data-sis="adi8036">
+      <h3><i style="background:#f59e0b"></i>ADI 8.036 (PDT)</h3>
+      <p>A regra do estudo do PDT para a ADI 8.036 ("Sobras pelo maior resto, sem barreira de 80%"), ao lado do proporcional atual. Regra fixa, sem parâmetros.</p>
+      <div class="nota"><b>Quociente eleitoral e partidário</b>: como na lei (candidato com 10% do QE). <b>Sobras</b>: uma vaga por agremiação, em ordem decrescente de <b>resto</b> (votos − lugares × QE); esgotadas as agremiações com candidato apto, a volta se repete.
+        <b>Sem votação mínima</b> da agremiação (cai a exigência de 80% do QE); o candidato da sobra precisa de <b>20% do QE</b>. Sobre 2026, reproduz as 72 trocas do estudo (36 na Câmara, 36 nas Assembleias).</div>
     </div>
     <div class="sis" data-sis="misto">
       <h3><i style="background:#a855f7"></i>Distritão misto<span class="alterado" id="siAltM" hidden>parâmetros alterados</span></h3>
