@@ -46,6 +46,18 @@ for (const arq of casos) {
     const it = reqs.find(i => `${i.sigla}-${i.numero}-${i.ano}` === req);
     ok(it && chave(it.projetoUrgenciado) === alvo, `PDF: ${req} → ${alvo} (obtido: ${it ? chave(it.projetoUrgenciado) : 'REQ não encontrado'})`);
   }
+  // numeração da pauta sem buracos (o item que o parser não reconhece some em silêncio)
+  if (esp.ordens) {
+    const [a, b] = esp.ordens.split('-').map(Number);
+    const tem = r.itens.map(i => i.ordem).sort((x, y) => x - y).join();
+    ok(tem === Array.from({ length: b - a + 1 }, (_, k) => a + k).join(), `ordens ${esp.ordens} em sequência, sem pular item (obtido: ${tem})`);
+  }
+  // Recursos (REC) entram como requerimentos e não vazam para a ementa do item anterior
+  for (const rec of esp.recursos || []) {
+    const it = r.itens.find(i => i.tipoCategoria === 'requerimento' && `${i.sigla}-${i.numero}-${i.ano}` === rec);
+    ok(it && it.sigla === 'REC' && !it.projetoUrgenciado && it.autorTexto && /recorre contra/.test(it.ementa), `recurso ${rec} na pauta, com autor e ementa (sem "projeto da urgência")`);
+  }
+  if (esp.recursos) ok(reqs.every(i => !/Recurso nº/i.test(i.ementa) || i.sigla === 'REC'), 'a ementa de um requerimento não engole o texto do recurso seguinte');
   const projs = r.itens.filter(i => i.tipoCategoria !== 'requerimento').map(i => `${i.sigla}-${i.numero}-${i.ano}`);
   for (const p of esp.projetos || []) ok(projs.includes(p), `projeto ${p} na pauta`);
   // 2ª fonte: a ementa do requerimento nos Dados Abertos nomeia o projeto.
@@ -54,6 +66,12 @@ for (const arq of casos) {
     ok(chave(a) === esp.vinculos[req], `ficha do ${req}: ementa → ${esp.vinculos[req]} (obtido: ${chave(a)})`);
   }
 }
+
+console.log('\n== título do recurso ==');
+const titulo = new Function('tipoLabel', `${trecho(/function tituloVotacao\([\s\S]*?\n}/)}; return tituloVotacao;`)(sg => ({ PL: 'PL', REQ: 'REQ' }[sg] || sg));
+ok(titulo({ tipoCategoria: 'requerimento', sigla: 'REC', numero: '68', ano: '2019', projetoUrgenciado: { sigla: 'PL', numero: '2334', ano: '2019' } }) === 'Recurso 68/2019 (PL 2334/2019)', 'recurso com o projeto recorrido: "Recurso 68/2019 (PL 2334/2019)", não "Urgência ao PL…"');
+ok(titulo({ tipoCategoria: 'requerimento', sigla: 'REC', numero: '19', ano: '2022' }) === 'Recurso 19/2022', 'recurso sem projeto vinculado: só o recurso');
+ok(titulo({ tipoCategoria: 'requerimento', sigla: 'REQ', numero: '1', ano: '2026', projetoUrgenciado: { sigla: 'PL', numero: '9', ano: '2026' } }) === 'Urgência ao PL 9/2026', 'requerimento de urgência segue como antes');
 
 console.log('\n== decidirVinculo: prioridade e divergência ==');
 const pl = (n, a = '2026') => ({ sigla: 'PL', numero: String(n), ano: a });
