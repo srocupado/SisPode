@@ -16,7 +16,8 @@ ok(path.resolve(BOT_DIR, path.join('..', 'pauta-parser.js')) === path.resolve(BO
 const lista = [{ local: 'index.js' }, { local: 'package.json' }, { local: path.join('src', 'pauta.js') }, { local: path.join('..', 'pauta-parser.js') }];
 ok(!A.jaAplicado({ sha: 'abc', msg: 'x' }, 'abc', lista), 'mesmo commit, versão antiga sem a lista (gravada pelo /update anterior) → baixa de novo e traz o parser');
 ok(!A.jaAplicado({ sha: 'abc', arquivos: ['index.js', 'package.json', 'src/pauta.js'] }, 'abc', lista), 'mesmo commit, lista sem o parser → baixa de novo');
-ok(A.jaAplicado({ sha: 'abc', arquivos: ['index.js', 'package.json', 'src/pauta.js', '../pauta-parser.js'] }, 'abc', lista), 'mesmo commit com todos os arquivos → "já atualizado" (o /update reentregue não reinicia o bot em laço)');
+ok(A.jaAplicado({ sha: 'abc', arquivos: ['index.js', 'package.json', 'src/pauta.js', '../pauta-parser.js'], extensao: { gravados: 3 } }, 'abc', lista), 'mesmo commit com todos os arquivos e a extensão → "já atualizado" (o /update reentregue não reinicia o bot em laço)');
+ok(!A.jaAplicado({ sha: 'abc', arquivos: ['index.js', 'package.json', 'src/pauta.js', '../pauta-parser.js'] }, 'abc', lista), 'mesmo commit sem a extensão aplicada (versão de antes) → baixa de novo e traz a extensão');
 ok(!A.jaAplicado({ sha: 'velho', arquivos: ['index.js', 'package.json', 'src/pauta.js', '../pauta-parser.js'] }, 'abc', lista), 'commit novo → baixa');
 ok(!A.jaAplicado(null, 'abc', lista), 'sem versão gravada → baixa');
 console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');

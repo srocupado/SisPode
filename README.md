@@ -573,7 +573,7 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 - `/votacao` — votações do Plenário com imagem do placar da bancada
 - `/resumo [dd/mm/aaaa]` — resumo das matérias apreciadas na sessão (o monitor manda sozinho no fim; o comando cobre recuperação e dias anteriores)
 - `/ajuda` — lista os comandos disponíveis para o usuário
-- `/update` (admin) — autoatualização: baixa `index.js`, `package.json`, `src/*.js` e o `pauta-parser.js` da raiz (o parser da pauta que o bot usa) do `main`, valida com `node --check` antes de escrever
+- `/update` (admin) — autoatualização: baixa `index.js`, `package.json`, `src/*.js` e o `pauta-parser.js` da raiz (o parser da pauta que o bot usa) do `main`, e a **extensão** que o bot roda no navegador interno (a pasta-mãe do bot ou `BOT_EXT_DIR`; só os arquivos que mudaram, comparados pelo blob do git; nada dela é gravado se a pasta não tiver `manifest.json`), valida com `node --check` antes de escrever
 
 **Monitor de sessão ao vivo (Plenário)**
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
