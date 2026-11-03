@@ -301,6 +301,7 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 - Quando há **projeto(s) apensado(s) de autoria de deputado(a) do Podemos**, a extensão baixa o **inteiro teor** de cada um e a nota ganha uma seção **"Projetos apensados de autoria do Podemos"** (antes de "Argumentos favoráveis e contrários") com **um tópico por apensado** (sigla/nº, autor e breve resumo) — independentemente de haver substitutivo. Os apensados são **resolvidos sob demanda na geração** (não dependem do enriquecimento assíncrono ter concluído), e quando o **inteiro teor** não está disponível na API o resumo é feito pela **ementa**, de modo que um apensado identificado nunca fique sem resumo. Havendo **substitutivo/subemenda/redação final** em votação, cada tópico ganha uma **linha própria de avaliação de incorporação**, com um selo de status — **(Acolhido)**, **(Acolhido parcialmente)** ou **(Não acolhido)** — e o chip "Apensado Podemos" do card recebe esse mesmo status entre parênteses. ⚠ Esse status é **sensível**: aparece apenas na tela (card e nota), **nunca no PDF** distribuível, de onde a linha do marcador é removida na exportação
 - A detecção de apensados não depende do campo de relação do endpoint `/relacionadas` (que costuma vir vazio): segue a **cadeia de `uriPropPrincipal`** de cada proposição relacionada e considera apensadas as que compartilham a mesma raiz da matéria (cobrindo apensamento em cadeia)
 - Quando a **matéria é de autoria do Podemos**, o nome do(a) parlamentar aparece em **negrito + sublinhado** na linha de autoria da nota
+- **Apelido** de cada item (descrição curta usada no índice, no PDF e no WhatsApp): gerado por IA junto da nota, editável no card, com o botão **↻ Regerar**. Se a chamada do apelido falhar ao gerar a nota, o motivo vai para o console e a nota salva sem apelido ganha um em segundo plano quando é aberta (uma tentativa por item por sessão; grava só o campo do apelido)
 - No **índice do PDF**, cada item recebe os sufixos **A** (autoria Podemos) e/ou **AP** (apensado de autoria Podemos) após o apelido — ex.: `PL 1234/2056 (apelido) — A, AP`. Logo abaixo do título "Índice", uma **legenda** explica as marcas (`A = Autoria do Podemos · AP = Autoria do Podemos em apensado`), exibida apenas quando há ao menos um item com A ou AP
 - **Detecção de nota desatualizada** (sob demanda): marca com o badge **"⚠ Pode estar desatualizada"** as análises cujo **texto operativo** (PRLP/PRLE, SBT-A, SSP ou EMS) foi superado por um documento mais recente — comparando o que embasou a nota salva com a tramitação atual (por URL **e** data, para não dar falso positivo, ex.: PRLP anterior ao retorno do Senado). Pode ser disparada **por item** (botão "Verificar atualização" no card) ou para a pauta inteira (botão "Verificar atualizações" na barra). A checagem inclui EMS/SSP (cenários 5/6/7). O tooltip do badge indica qual documento novo apareceu; regerar a nota limpa o alerta
 
@@ -380,6 +381,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 **Exportação**
 - Gera **PDF institucional** da pauta consolidada, com cabeçalho da Liderança e todos os itens revisados
+- **Resumo executivo** (botão ao lado de Gerar PDF): leitura rápida da pauta para a liderança — visão geral (quantos itens, quantos comentados, os PDLs de rádio e TV de rotina, os itens sob relatoria ou autoria do Podemos), **tabela** dos itens comentados (tema, relator, parecer na CCJC e **potencial de debate** Baixo/Médio/Alto), um **bloco por item** (o que faz, tramitação nas outras comissões, parecer na CCJC, pontos de atenção) e a **leitura geral** (os itens de debate alto). As contagens saem dos dados; o texto de cada item sai da IA a partir da **nota já gerada** (nenhum documento novo é lido). O resumo fica guardado na pauta e só vai de novo à IA o item cuja análise mudou
 
 ---
 
@@ -732,6 +734,7 @@ sispode/
 ├── analise.css                    # Estilos dos cards de análise (usados também nas pautas de comissões)
 ├── ia-comum.js                    # Cliente de IA compartilhado (3 provedores, SSE, PDF, utilidades)
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
+├── ccjc-resumo.js                 # Pautas CCJC · resumo executivo da pauta (tabela, um bloco por item, leitura geral)
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (análise da lista + demandas + e-mail)
 ├── emendas.html / emendas.js      # Orçamento · Emendas da bancada (FNS + Transparência)

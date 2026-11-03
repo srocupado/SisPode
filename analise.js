@@ -550,6 +550,7 @@ function renderCard(it) {
       <div class="an-apelido-row" data-role="apelido-row" style="display:none">
         <label title="Descrição curta da matéria usada no índice, no PDF e nos botões de WhatsApp. Gerado por IA — edite se estiver impreciso.">Apelido</label>
         <input type="text" class="an-apelido-input" data-role="inp-apelido" placeholder="apelido curto da matéria (índice, PDF e WhatsApp)" maxlength="140">
+        <button class="btn btn-outline btn-sm" data-role="btn-regerar-apelido" title="Gerar o apelido de novo pela IA (substitui o atual)">↻ Regerar</button>
         <span class="an-analista-ok" data-role="apelido-ok" title="Apelido salvo">✓</span>
       </div>
       <div class="an-analise-conteudo" data-role="analise-conteudo"></div>
@@ -633,6 +634,29 @@ function renderCard(it) {
         .catch(e => console.warn('Falha ao salvar apelido:', e.message));
     }
     marcarSujo();
+  });
+
+  // Regerar o apelido pela IA (quando veio em branco ou impreciso). O apelido
+  // novo entra no campo e é salvo pelo mesmo caminho da edição manual.
+  const btnApelido = card.querySelector('[data-role=btn-regerar-apelido]');
+  btnApelido.addEventListener('click', async () => {
+    await carregarConfig();
+    if (!state.config?.apiKey) { mostrarToast('Configure a chave de API no painel principal (Configurações).', 'aviso'); return; }
+    const rotulo = btnApelido.textContent;
+    btnApelido.disabled = true;
+    btnApelido.textContent = '… gerando';
+    resetAbortAll();
+    try {
+      const ap = await gerarApelidoIA(it, { provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo });
+      if (!ap) throw new Error('a IA devolveu um apelido vazio');
+      inpApelido.value = ap;
+      inpApelido.dispatchEvent(new Event('change'));
+    } catch (e) {
+      if (!isAbortError(e)) { console.warn(`Apelido não gerado para ${it.chave}:`, e.message); mostrarToast('Apelido não gerado: ' + e.message, 'erro'); }
+    } finally {
+      btnApelido.disabled = false;
+      btnApelido.textContent = rotulo;
+    }
   });
 
   // O editor visual (Quill) é criado sob demanda em entrarEdicaoAnalise().
@@ -2133,6 +2157,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       if (cached) {
         it.analise = cached;
         if (!it.apelido && cached.apelido) it.apelido = cached.apelido;
+        completarApelidoFaltante(it);
         if (!it.analista && cached.analista) it.analista = cached.analista;
         it.analiseStatus = 'ok';
         renderAnaliseCard(it);
@@ -2249,7 +2274,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
         apiKey:     state.config.apiKey,
         modelo:     state.config.modelo,
       });
-    } catch (e) { if (isAbortError(e)) throw e; }
+    } catch (e) { if (isAbortError(e)) throw e; console.warn(`Apelido não gerado para ${it.chave}:`, e.message); }
     if (apelido) it.apelido = apelido;
 
     // Parlamentares com interesse na matéria — similaridade semântica (embeddings)
@@ -2291,7 +2316,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     it.desatualizacao = null;   // recém-gerada com os docs atuais — sem alerta
 
     renderAnaliseCard(it);
-    fbSalvarAnalise(it).catch(e => console.warn('Firebase save falhou:', e.message));
+    fbSalvarAnalise(it).then(() => { if (!it.analise.apelido) completarApelidoFaltante(it); })   // 2ª tentativa do apelido
+      .catch(e => console.warn('Firebase save falhou:', e.message));
     mostrarToast('✓ Análise gerada', 'sucesso');
   } catch (e) {
     if (isAbortError(e)) {
@@ -4442,7 +4468,7 @@ async function carregarPautaPorId(id) {
       fbCarregarAnalise(it).then(a => {
         // Chegada tardia (retry/rede lenta) com o item já em edição: não
         // sobrescrever a nota em curso nem re-renderizar (fecharia o editor).
-        if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); }
+        if (a && !_autosaveState.has(it.chave)) { it.analise = a; it.analiseStatus = 'ok'; renderAnaliseCard(it); completarApelidoFaltante(it); }
       }).catch(() => {});
       // Parecer de Especialista salvo nesta pauta: só a meta (poucos bytes) desce
       // agora; o documento inteiro desce ao clicar em "Abrir parecer".
@@ -4681,6 +4707,7 @@ async function carregarUltimaPauta() {
           it.analise = a;
           it.analiseStatus = 'ok';
           renderAnaliseCard(it);
+          completarApelidoFaltante(it);
         }
       }).catch(() => {});
     }
@@ -4903,6 +4930,38 @@ async function gerarApelidoIA(it, cfg) {
   const r = await chamarIA({ ...cfg, prompt: promptApelido(it), pdfBuffers: [] });
   const ap = (r.text || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim();
   return normalizarReferencias(ap);
+}
+
+// Nota salva com o apelido em branco: a chamada do apelido falhou quando a nota
+// foi gerada (o erro era engolido) e nada tentava de novo — o card ficava sem
+// apelido para sempre. MEDIDO em 03/11/2026: REQ 3.721/2026, nota das 12h10 com
+// apelido "", os demais itens da pauta com apelido. Aqui o apelido é gerado em
+// segundo plano e gravado só no campo `apelido` da nota (PATCH — não regrava a
+// nota inteira). Uma tentativa por item por sessão, uma chamada por vez. Nota
+// sem o campo (anterior ao apelido) fica como está: abrir uma pauta antiga não
+// pode disparar dezenas de chamadas.
+const _apelidoTentado = new Set();
+let _filaApelido = Promise.resolve();
+function completarApelidoFaltante(it) {
+  const a = it.analise;
+  if (!a || !('apelido' in a) || a.apelido || it.apelido || _apelidoTentado.has(it.chave)) return;
+  _apelidoTentado.add(it.chave);
+  _filaApelido = _filaApelido.then(async () => {
+    if (!state.config) await carregarConfig();
+    if (!state.config?.apiKey || it.analise !== a || a.apelido || it.apelido) return;
+    try {
+      const ap = await gerarApelidoIA(it, { provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo });
+      if (!ap || it.analise !== a || a.apelido || it.apelido) return;
+      it.apelido = ap;
+      a.apelido = ap;
+      const r = await fetch(caminhoAnalise(it), { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apelido: ap }) });
+      if (!r.ok) throw new Error(`Firebase HTTP ${r.status}`);
+      const inp = document.querySelector(`.an-card[data-chave="${it.chave}"] [data-role=inp-apelido]`);
+      if (inp && document.activeElement !== inp) inp.value = ap;
+    } catch (e) {
+      if (!isAbortError(e)) console.warn(`Apelido não gerado para ${it.chave} (nova tentativa):`, e.message);
+    }
+  });
 }
 
 // Garante it.apelido para todos os itens: gera por IA quando há chave; senão usa
