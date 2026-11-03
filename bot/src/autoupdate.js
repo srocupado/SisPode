@@ -64,7 +64,10 @@ async function commitMain() {
   return { sha: c.sha, msg: (c.commit?.message || '').split('\n')[0], data: c.commit?.committer?.date || null };
 }
 
-// index.js + package.json + todos os src/*.js do main.
+// index.js + package.json + todos os src/*.js do main + o parser da pauta,
+// que fica na RAIZ do repositório (bot/src/parser.js o lê de ../../pauta-parser.js:
+// a correção de um formato novo da pauta da Câmara chega ao bot pelo mesmo /update).
+// Antes de 03/11/2026 o parser ficava de fora e o bot seguia com o antigo.
 async function listarArquivos() {
   const src = await gh(`/repos/${REPO}/contents/bot/src?ref=${BRANCH}`);
   if (!Array.isArray(src)) throw new Error('não consegui listar bot/src');
@@ -73,7 +76,20 @@ async function listarArquivos() {
     { repo: 'bot/package.json', local: 'package.json' },
     ...src.filter(f => f.type === 'file' && f.name.endsWith('.js'))
           .map(f => ({ repo: `bot/src/${f.name}`, local: path.join('src', f.name) })),
+    { repo: 'pauta-parser.js', local: path.join('..', 'pauta-parser.js') },
   ];
+}
+
+/**
+ * Essa sha já foi aplicada COM todos os arquivos da lista? A versão gravada
+ * guarda a lista aplicada: quando a lista cresce (o parser da raiz entrou), o
+ * mesmo commit é baixado de novo para trazer o que faltou — sem isso, o /update
+ * seguinte ao que trouxe o código novo responderia "já atualizado".
+ */
+function jaAplicado(local, sha, lista) {
+  if (!local || local.sha !== sha) return false;
+  const feitos = new Set(local.arquivos || []);
+  return lista.every(a => feitos.has(a.local.replace(/\\/g, '/')));
 }
 
 function nodeCheck(arquivo) {
@@ -102,9 +118,8 @@ async function aplicarUpdate() {
   // primeira é bot.stop() no lugar de process.exit() cru, em index.js).
   let local = null;
   try { local = JSON.parse(await fsp.readFile(VERSAO_JSON, 'utf8')); } catch (_) {}
-  if (local && local.sha === sha) return { ok: true, jaAtualizado: true, sha, msg };
-
   const lista = await listarArquivos();
+  if (jaAplicado(local, sha, lista)) return { ok: true, jaAtualizado: true, sha, msg };
 
   // 1) baixa TUDO para memória (falha aqui = nada foi escrito)
   const baixados = [];
@@ -141,7 +156,8 @@ async function aplicarUpdate() {
   // 5) marca a versão aplicada
   try {
     await fsp.mkdir(path.dirname(VERSAO_JSON), { recursive: true });
-    await fsp.writeFile(VERSAO_JSON, JSON.stringify({ sha, msg, em: new Date().toISOString() }, null, 2));
+    await fsp.writeFile(VERSAO_JSON, JSON.stringify({ sha, msg, em: new Date().toISOString(),
+      arquivos: baixados.map(b => b.local.replace(/\\/g, '/')) }, null, 2));
   } catch (_) {}
 
   return { ok: true, sha, msg, arquivos: baixados.map(b => b.local), pkgMudou };
@@ -154,4 +170,4 @@ async function statusUpdate() {
   return { main: m, local, atualizado: !!(local && local.sha === m.sha) };
 }
 
-module.exports = { aplicarUpdate, statusUpdate, REPO, BRANCH };
+module.exports = { aplicarUpdate, statusUpdate, jaAplicado, REPO, BRANCH };
