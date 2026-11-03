@@ -381,6 +381,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 **Exportação**
 - Gera **PDF institucional** da pauta consolidada, com cabeçalho da Liderança e todos os itens revisados
+- **Servidor responsável pela pauta** (barra lateral, em "Pauta atual"): na CCJC um servidor responde por todos os projetos — diferente do Plenário, onde o responsável é por item. Salvo com a pauta; sai no PDF da pauta e no resumo executivo, na linha de contagem
 - **Resumo executivo** (botão ao lado de Gerar PDF): leitura rápida da pauta para a liderança — visão geral (quantos itens, quantos comentados, os PDLs de rádio e TV de rotina, os itens sob relatoria ou autoria do Podemos), **tabela** dos itens comentados (tema, relator, parecer na CCJC e **potencial de debate** Baixo/Médio/Alto), um **bloco por item** (o que faz, tramitação nas outras comissões, parecer na CCJC, pontos de atenção) e a **leitura geral** (os itens de debate alto). As contagens saem dos dados; o texto de cada item sai da IA a partir da **nota já gerada** (nenhum documento novo é lido). O resumo fica guardado na pauta e só vai de novo à IA o item cuja análise mudou
 
 ---
