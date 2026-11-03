@@ -86,6 +86,15 @@ function registrarEventos() {
   document.getElementById('btn-analisar-selecionados')?.addEventListener('click', analisarSelecionados);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
+  // Servidor responsável pela pauta: salvo com a pauta (Firebase + navegador) ao sair do campo
+  document.getElementById('pauta-responsavel').addEventListener('change', async ev => {
+    if (!app.pautaAtual) return;
+    app.pautaAtual.responsavel = ev.target.value.trim();
+    await salvarPauta();
+    const ok = document.getElementById('pauta-responsavel-ok');
+    ok.style.display = 'inline';
+    setTimeout(() => { ok.style.display = 'none'; }, 1500);
+  });
   document.getElementById('btn-resumo-executivo').addEventListener('click', () => gerarResumoExecutivo());   // ccjc-resumo.js
 
   // Perfis de prompt
@@ -2311,7 +2320,8 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
 
   const analisados = projetos.filter(p => p.resumoOriginal || p.statusAnalise === 'concluido').length;
   const meta = `${projetos.length} projeto(s) · ${analisados} com análise`
-    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '');
+    + (analisados < projetos.length ? ` · ${projetos.length - analisados} sem análise` : '')
+    + (pauta.responsavel ? ` · Servidor responsável: ${escHtml(pauta.responsavel)}` : '');
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -2405,13 +2415,19 @@ function atualizarSidebar() {
   const info    = document.getElementById('pauta-info');
   const secProj = document.getElementById('sidebar-projetos-section');
 
+  const respWrap = document.getElementById('pauta-responsavel-wrap');
   if (!pauta) {
     info.textContent = 'Nenhuma pauta carregada';
     info.classList.add('empty');
     secProj.style.display = 'none';
     document.getElementById('ccjc-progresso-wrap').style.display = 'none';
+    respWrap.style.display = 'none';
     return;
   }
+  // Servidor responsável: na CCJC, um por pauta (no Plenário é por item)
+  respWrap.style.display = 'block';
+  const inpResp = document.getElementById('pauta-responsavel');
+  if (document.activeElement !== inpResp) inpResp.value = pauta.responsavel || '';
 
   info.classList.remove('empty');
   info.innerHTML = `<strong>${esc(pauta.titulo)}</strong><br>

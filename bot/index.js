@@ -1443,7 +1443,9 @@ bot.command('update', async ctx => {
   // este corte, cada reentrega reiniciaria o bot outra vez, indefinidamente.
   if (r.jaAtualizado) return ctx.reply(`✅ Já está na última versão (*${r.sha.slice(0, 7)}*) — nada a fazer.`, { parse_mode: 'Markdown' });
   await ctx.reply(
-    `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) gravado(s).` +
+    `✅ Atualizado para *${r.sha.slice(0, 7)}* — ${(r.msg || '').slice(0, 60)}\n${r.arquivos.length} arquivo(s) do bot gravado(s).` +
+    (r.extensao?.ausente ? `\n🧩 Extensão não encontrada em ${r.extensao.dir} (sem manifest.json) — só o bot foi atualizado.`
+      : `\n🧩 Extensão: ${r.extensao?.gravados?.length || 0} arquivo(s) atualizado(s).`) +
     (r.pkgMudou ? '\n\n⚠️ O *package.json* mudou — rode `npm install` na pasta do bot (o restart sozinho não instala dependências).' : '') +
     '\n\n🔄 Reiniciando…', { parse_mode: 'Markdown' });
   console.log(`[update] aplicado (${r.sha.slice(0, 7)}) — parando o polling antes de reiniciar.`);

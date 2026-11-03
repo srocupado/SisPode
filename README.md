@@ -381,6 +381,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 **Exportação**
 - Gera **PDF institucional** da pauta consolidada, com cabeçalho da Liderança e todos os itens revisados
+- **Servidor responsável pela pauta** (barra lateral, em "Pauta atual"): na CCJC um servidor responde por todos os projetos — diferente do Plenário, onde o responsável é por item. Salvo com a pauta; sai no PDF da pauta e no resumo executivo, na linha de contagem
 - **Resumo executivo** (botão ao lado de Gerar PDF): leitura rápida da pauta para a liderança — visão geral (quantos itens, quantos comentados, os PDLs de rádio e TV de rotina, os itens sob relatoria ou autoria do Podemos), **tabela** dos itens comentados (tema, relator, parecer na CCJC e **potencial de debate** Baixo/Médio/Alto), um **bloco por item** (o que faz, tramitação nas outras comissões, parecer na CCJC, pontos de atenção) e a **leitura geral** (os itens de debate alto). As contagens saem dos dados; o texto de cada item sai da IA a partir da **nota já gerada** (nenhum documento novo é lido). O resumo fica guardado na pauta e só vai de novo à IA o item cuja análise mudou
 
 ---
@@ -572,7 +573,7 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 - `/votacao` — votações do Plenário com imagem do placar da bancada
 - `/resumo [dd/mm/aaaa]` — resumo das matérias apreciadas na sessão (o monitor manda sozinho no fim; o comando cobre recuperação e dias anteriores)
 - `/ajuda` — lista os comandos disponíveis para o usuário
-- `/update` (admin) — autoatualização: baixa `index.js`, `package.json` e `src/*.js` do `main`, valida com `node --check` antes de escrever
+- `/update` (admin) — autoatualização: baixa `index.js`, `package.json`, `src/*.js` e o `pauta-parser.js` da raiz (o parser da pauta que o bot usa) do `main`, e a **extensão** que o bot roda no navegador interno (a pasta-mãe do bot ou `BOT_EXT_DIR`; só os arquivos que mudaram, comparados pelo blob do git; nada dela é gravado se a pasta não tiver `manifest.json`), valida com `node --check` antes de escrever
 
 **Monitor de sessão ao vivo (Plenário)**
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:

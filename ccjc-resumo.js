@@ -183,7 +183,7 @@ function resumoHTML(pauta, res, logo) {
   @media print { body { padding:0; } .filete, .tab th, .tab td, .db, .par, .aten, .leit { -webkit-print-color-adjust:exact; print-color-adjust:exact; } }
   </style></head><body>
   <div class="cab"><div class="tx"><div class="org">LIDERANÇA DO PODEMOS NA CÂMARA DOS DEPUTADOS</div><h1>${escHtml(pauta.titulo)}</h1>
-    <div class="sub">Resumo executivo · ${(pauta.projetos || []).length} projeto(s) em pauta · ${g.com} com análise · ${g.sem} sem análise</div></div>
+    <div class="sub">Resumo executivo · ${(pauta.projetos || []).length} projeto(s) em pauta · ${g.com} com análise · ${g.sem} sem análise${pauta.responsavel ? ` · Servidor responsável: ${escHtml(pauta.responsavel)}` : ''}</div></div>
     ${logo ? `<img src="${logo}" alt="Podemos">` : ''}</div>
   <div class="filete"></div>
   <h2 class="sec">Visão geral</h2>
