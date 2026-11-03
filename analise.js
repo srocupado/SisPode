@@ -854,10 +854,14 @@ function htmlLinhaUrgencia(it) {
   const a = it.projetoUrgenciado, v = it.vinculo || {};
   const rot = it.sigla === 'REC' ? 'Recurso sobre' : 'Urgência p/';   // o recurso é contra a apreciação conclusiva de um projeto
   if (!a) return it.tipoCategoria === 'requerimento' && it.vinculo ? `<b>${rot} </b> <span class="an-vinc-sem">projeto não identificado</span>` : '';
+  // Recurso: o voto da CCJC que decide o documento da nota (ou o aviso, quando a nota cai no inteiro teor)
+  const rec = it.sigla === 'REC' ? (it.enriquecimento || {}).recurso : null;
+  const linhaRec = !rec ? '' : (rec.par ? ` <span class="an-vinc-fonte" title="${escapeHtml(rec.voto?.conclusao || '')}">· CCJC (PAR ${rec.par.seq}${rec.par.dataBR ? ' de ' + rec.par.dataBR : ''}): ${escapeHtml(rotuloVotoCCJC(rec))}</span>` : '')
+    + (rec.aviso ? ` <span class="an-vinc-div">⚠ ${escapeHtml(rec.aviso)}</span>` : '');
   const fonte = v.fonte ? ` <span class="an-vinc-fonte" title="De onde veio o vínculo">(${escapeHtml(ROTULO_FONTE_VINCULO[v.fonte] || v.fonte)})</span>` : '';
   const div = (v.divergencia || []).length
     ? ` <span class="an-vinc-div" title="As fontes discordam — confira e, se preciso, use 🔗 Vincular projeto">⚠ ${v.divergencia.map(x => `${escapeHtml(ROTULO_FONTE_VINCULO[x.fonte] || x.fonte)} diz ${escapeHtml(rotuloAlvo(x.alvo))}`).join('; ')}</span>` : '';
-  return `<b>${rot} </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}`;
+  return `<b>${rot} </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}${linhaRec}`;
 }
 
 async function enriquecerItem(it) {
@@ -960,6 +964,14 @@ async function enriquecerItem(it) {
       console.warn('Não encontrou Redação Final:', e.message);
       it.enriquecimento.urlRedacaoFinal = null;
     }
+  }
+
+  // Recurso: o último parecer da CCJC decide o documento da nota (apurarRecurso)
+  if (it.sigla === 'REC' && it.tipoCategoria === 'requerimento' && it.projetoUrgenciado) {
+    if (!itemAindaAtivo(it)) return;
+    try { it.enriquecimento.recurso = await apurarRecurso(prop.id); }
+    catch (e) { if (isAbortError(e)) throw e; console.warn('Recurso: parecer da CCJC não lido:', e.message); it.enriquecimento.recurso = { falha: true, aviso: 'parecer da CCJC não lido (' + e.message + ')' }; }
+    atualizarLinhaUrgencia(it);
   }
 
   it.enriquecimento.status = 'ok';
@@ -1466,6 +1478,138 @@ async function buscarRedacaoFinal(idProp) {
     return linkUrl;
   }
   return null;
+}
+
+// ============================================================
+//  RECURSO CONTRA APRECIAÇÃO CONCLUSIVA (REC)
+// ============================================================
+// O recurso leva ao Plenário um projeto que as comissões aprovaram (ou
+// rejeitaram) em caráter conclusivo. A nota analisa o texto que as comissões
+// aprovaram, lido no ÚLTIMO PARECER APROVADO DA CCJC (o PAR):
+//  · voto só pela constitucionalidade, juridicidade e técnica legislativa →
+//    o inteiro teor do projeto original;
+//  · aprovação "na forma do Substitutivo da Comissão X" (com ou sem mérito na
+//    CCJC) → o SBT-A da Comissão X, com a redação original para o cotejo;
+//  · aprovação com emendas de outra comissão → o inteiro teor e o parecer
+//    dessa comissão (onde estão as emendas);
+//  · parecer contrário (inconstitucionalidade, injuridicidade, rejeição) ou
+//    nenhum parecer da CCJC → o inteiro teor, com aviso no card.
+// O parecer da CCJC vai sempre junto. MEDIDO em 03/11/2026 (pauta do dia):
+// REC 68/2019 → PL 2.334/2019 ("opinou pela constitucionalidade, juridicidade
+// e técnica legislativa") e REC 19/2022 → PL 3.083/2019 ("concluiu pela
+// constitucionalidade, juridicidade, técnica legislativa e, no mérito, pela
+// aprovação … na forma do Substitutivo da Comissão de Trabalho…").
+
+/** A conclusão do PAR: "A Comissão …, em reunião …, opinou/concluiu pela …" até "nos termos do Parecer". */
+function conclusaoParecerComissao(texto) {
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  const m = t.match(/\b(?:opinou|concluiu|manifestou-se|deliberou)\b(?:\s+unanimemente)?\s+(?:pel[ao]s?\b[\s\S]*?)(?=,?\s+nos\s+termos\s+d[oa]|\.\s+(?:Estiveram|Registr|Compareceram|Sala\s+d)|$)/i);
+  return m ? m[0].trim() : '';
+}
+
+/**
+ * O voto aprovado pela CCJC e o documento que ele aponta.
+ * comissoes: [{ sigla, nome }] (das linhas "Parecer de Comissão" da página de pareceres).
+ * Devolve { tipo: 'cjtl'|'substitutivo'|'emendas'|'contrario'|'indefinido', comissao, conclusao }.
+ */
+function votoCCJC(texto, comissoes = []) {
+  const conclusao = conclusaoParecerComissao(texto);
+  const c = semAcento(conclusao).toLowerCase();
+  const out = (tipo, comissao = null) => ({ tipo, comissao, conclusao });
+  if (!c) return out('indefinido');
+  if ((/pel[ao]s?\s+(?:inconstitucionalidade|injuridicidade)/.test(c) && !/pela\s+constitucionalidade/.test(c))
+      || /merito,?\s+pela\s+rejeicao/.test(c)) return out('contrario');
+  // A comissão citada: pelo nome por extenso (o mais longo primeiro — "de
+  // Trabalho, de Administração…" contém vírgulas) ou pela sigla.
+  const citada = palavra => {
+    const lista = comissoes.slice().sort((a, b) => (b.nome || '').length - (a.nome || '').length);
+    for (const k of lista) {
+      const nome = semAcento(k.nome || '').toLowerCase();
+      if ((nome && c.includes(`${palavra} da ${nome}`)) || (nome && c.includes(`${palavra} adotado pela ${nome}`))
+          || new RegExp(`${palavra}s?\\s+d[ao]\\s+${k.sigla.toLowerCase()}\\b`).test(c)) return k.sigla;
+    }
+    return null;
+  };
+  if (/substitutivo/.test(c)) return out('substitutivo', citada('substitutivo') || 'CCJC');
+  if (/\b(?:sub)?emendas?\b/.test(c)) return out('emendas', citada('emenda') || 'CCJC');
+  if (/constitucionalidade/.test(c)) return out('cjtl');
+  return out('indefinido');
+}
+
+/** Linhas da página "Pareceres, substitutivos e votos": { sigla, seq, dono, nome, dataBR, data, url }. */
+function linhasPareceresCamara(html) {
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  for (const tr of doc.querySelectorAll('tr')) {
+    const tds = [...tr.querySelectorAll('td')].map(td => (td.textContent || '').replace(/\s+/g, ' ').trim());
+    if (tds.length < 3) continue;
+    const m = tds[0].match(/^([A-Z]{2,5}(?:-A)?)\s+(\d+)\s+([A-Za-zÀ-Ú0-9]+)/);
+    if (!m) continue;
+    const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
+    let url = a ? a.getAttribute('href') : null;
+    if (!url || url.startsWith('javascript:')) continue;
+    try { url = new URL(url, base).toString(); } catch (_) { continue; }
+    const dataBR = (tds.join(' ').match(/\b(\d{2}\/\d{2}\/\d{4})\b/) || [])[1] || null;
+    out.push({ sigla: m[1].toUpperCase(), seq: parseInt(m[2], 10), dono: m[3].toUpperCase(), nome: tds[3] || '',
+      dataBR, data: dataBR ? dataBR.split('/').reverse().join('-') : null, url });
+  }
+  return out;
+}
+
+/** Texto de um documento da Câmara: PDF (pdf.js) ou a página HTML dos pareceres antigos. */
+async function textoDocumentoCamara(buf) {
+  const ini = new Uint8Array(buf.slice(0, 5));
+  if (String.fromCharCode(...ini) === '%PDF-') return { pdf: true, texto: await extrairTextoPdf(buf.slice(0)) };
+  // Os PAR antigos (2019) vêm em HTML windows-1252.
+  const html = new TextDecoder('windows-1252').decode(buf);
+  return { pdf: false, texto: new DOMParser().parseFromString(html, 'text/html').body?.textContent || '' };
+}
+
+/**
+ * Apura o recurso: o último PAR da CCJC, o voto e o documento que ele aponta.
+ * Devolve { par, docCCJC, voto, alvo, aviso } ou { falha: true }.
+ */
+async function apurarRecurso(idProp) {
+  const html = await fetchHtmlCamara(`https://www.camara.leg.br/proposicoesWeb/prop_pareceres_substitutivos_votos?idProposicao=${idProp}`);
+  if (!html) return { falha: true, aviso: 'a página de pareceres da Câmara não respondeu' };
+  const linhas = linhasPareceresCamara(html);
+  const recente = l => l.slice().sort((a, b) => (b.data || '').localeCompare(a.data || '') || b.seq - a.seq)[0] || null;
+  const par = recente(linhas.filter(l => l.sigla === 'PAR' && l.dono === 'CCJC'));
+  if (!par) return { par: null, voto: null, aviso: 'sem parecer aprovado da CCJC — a nota usa o inteiro teor' };
+  const { pdf, texto } = await textoDocumentoCamara(await baixarPdf(par.url));
+  const comissoes = linhas.filter(l => l.sigla === 'PAR' && /^Comiss/i.test(l.nome)).map(l => ({ sigla: l.dono, nome: l.nome }));
+  const voto = votoCCJC(texto, comissoes);
+  // O PAR antigo em HTML não vai à IA (ela só lê PDF): vai o parecer do relator que a CCJC adotou.
+  const docCCJC = pdf ? { ...par, rotulo: `Parecer aprovado da CCJC (PAR ${par.seq}${par.dataBR ? ' de ' + par.dataBR : ''})` }
+    : (() => {
+      const prl = recente(linhas.filter(l => l.sigla === 'PRL' && l.dono === 'CCJC' && (!par.data || !l.data || l.data <= par.data)));
+      return prl ? { ...prl, rotulo: `Parecer do Relator na CCJC (PRL ${prl.seq}${prl.dataBR ? ' de ' + prl.dataBR : ''}), aprovado pela Comissão${par.dataBR ? ' em ' + par.dataBR : ''}` } : null;
+    })();
+  const nomeDe = sg => (comissoes.find(k => k.sigla === sg) || {}).nome || sg;
+  let alvo = null, aviso = '';
+  if (voto.tipo === 'substitutivo') {
+    const sbt = recente(linhas.filter(l => l.sigla === 'SBT-A' && l.dono === voto.comissao));
+    if (sbt) alvo = { tipo: 'SBT_A', url: sbt.url, rotulo: `Substitutivo adotado pela ${nomeDe(voto.comissao)} (SBT-A ${sbt.seq}${sbt.dataBR ? ' de ' + sbt.dataBR : ''}) — o texto aprovado, apontado no parecer da CCJC` };
+    else aviso = `o parecer da CCJC aponta o substitutivo da ${voto.comissao}, mas o SBT-A não foi localizado — a nota usa o inteiro teor`;
+  } else if (voto.tipo === 'emendas' && voto.comissao !== 'CCJC') {
+    const pc = recente(linhas.filter(l => l.sigla === 'PRL' && l.dono === voto.comissao));
+    if (pc) alvo = { tipo: 'PARECER_COMISSAO', url: pc.url, rotulo: `Parecer da Comissão ${voto.comissao}${pc.dataBR ? ' de ' + pc.dataBR : ''} — emendas apontadas no parecer da CCJC` };
+  } else if (voto.tipo === 'contrario') {
+    aviso = 'parecer da CCJC contrário (inconstitucionalidade, injuridicidade ou rejeição) — a nota usa o inteiro teor';
+  } else if (voto.tipo === 'indefinido') {
+    aviso = 'não consegui ler o voto no parecer da CCJC — a nota usa o inteiro teor';
+  }
+  return { par: { seq: par.seq, dataBR: par.dataBR, url: par.url }, docCCJC: docCCJC && { url: docCCJC.url, rotulo: docCCJC.rotulo }, voto, alvo, aviso };
+}
+
+/** O voto da CCJC numa frase curta, para o card. */
+function rotuloVotoCCJC(r) {
+  const v = r && r.voto;
+  if (!v) return '';
+  return { cjtl: 'só constitucionalidade, juridicidade e técnica legislativa', contrario: 'contrário',
+    substitutivo: `na forma do Substitutivo da ${v.comissao}`, emendas: `com emendas${v.comissao !== 'CCJC' ? ' da ' + v.comissao : ''}`,
+    indefinido: 'voto não identificado' }[v.tipo] || '';
 }
 
 function parseDataBR(s) {
@@ -2129,7 +2273,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       provedor:    state.config.provedor || 'gemini',
       modelo:      state.config.modelo,
       documentos:  docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
-      cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs) : '',
+      cenario:     it.tipoCategoria === 'projeto' ? classificarCenario(docs)
+        : it.sigla === 'REC' ? `Recurso — CCJC: ${rotuloVotoCCJC(it.enriquecimento?.recurso) || 'sem parecer'}` : '',
       apelido:     apelido || it.apelido || '',
       apensadosStatus: extrairStatusAcolhimento(markdown),
       interessados,
@@ -2501,6 +2646,21 @@ async function escolherDocumentos(it) {
         url: pc.url,
       });
     }
+  } else if (it.sigla === 'REC' && it.tipoCategoria === 'requerimento') {
+    // Recurso: o documento vem do último parecer aprovado da CCJC (apurarRecurso).
+    if (enr.recurso === undefined && enr.idProposicao) {
+      try { enr.recurso = await apurarRecurso(enr.idProposicao); }
+      catch (e) { if (isAbortError(e)) throw e; enr.recurso = { falha: true, aviso: 'parecer da CCJC não lido (' + e.message + ')' }; }
+    }
+    const r = enr.recurso || {};
+    if (r.alvo && r.alvo.tipo === 'SBT_A') {
+      docs.push({ tipo: 'SBT_A', rotulo: r.alvo.rotulo, url: r.alvo.url });
+      if (enr.urlInteiroTeor) docs.push({ tipo: 'REDACAO_ORIGINAL', rotulo: 'Redação original (inteiro teor)', url: enr.urlInteiroTeor });
+    } else if (enr.urlInteiroTeor) {
+      docs.push({ tipo: 'INTEIRO_TEOR', rotulo: 'Inteiro teor da proposição', url: enr.urlInteiroTeor });
+    }
+    if (r.docCCJC) docs.push({ tipo: 'PARECER_COMISSAO', rotulo: r.docCCJC.rotulo, url: r.docCCJC.url });
+    if (r.alvo && r.alvo.tipo === 'PARECER_COMISSAO') docs.push({ tipo: 'PARECER_COMISSAO', rotulo: r.alvo.rotulo, url: r.alvo.url });
   } else if (it.tipoCategoria === 'redacao_final') {
     // Redação Final: analisa o documento próprio (raspado da ficha de
     // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
@@ -2843,7 +3003,24 @@ REGRAS RÍGIDAS:
     tituloDisposicoes = 'Principais Disposições da proposição';
   }
 
-  const tipoDoc = it.tipoCategoria === 'requerimento'
+  // Recurso contra apreciação conclusiva: o que vai ao Plenário é o projeto, no texto que as comissões aprovaram
+  const rec = it.sigla === 'REC' && it.tipoCategoria === 'requerimento' ? (enr.recurso || {}) : null;
+  const alvoRec = rec && it.projetoUrgenciado ? `${tipoLabel(it.projetoUrgenciado.sigla)} ${it.projetoUrgenciado.numero}/${it.projetoUrgenciado.ano}` : 'o projeto';
+  if (rec) {
+    const ccjc = rec.voto?.conclusao
+      ? `Conclusão aprovada pela CCJC (PAR ${rec.par.seq}${rec.par.dataBR ? ' de ' + rec.par.dataBR : ''}): "${rec.voto.conclusao.slice(0, 900)}".`
+      : 'Não foi localizado parecer aprovado da CCJC.';
+    cenarioHint = `O item é o RECURSO ${it.numero}/${it.ano} contra a apreciação conclusiva das comissões sobre o ${alvoRec}: ele leva o projeto ao Plenário. ${ccjc} `
+      + (hasSBTA
+        ? 'O projeto foi aprovado na forma do substitutivo apontado nesse parecer (documento "Substitutivo adotado…" anexado): é esse o texto que o recurso leva ao Plenário. Traga o conteúdo do substitutivo, explique o que a CCJC decidiu e compare com a redação original.'
+        : rec.voto?.tipo === 'contrario'
+          ? 'O parecer da CCJC foi CONTRÁRIO: explique os fundamentos dele (documento do parecer da CCJC anexado) e traga o conteúdo do projeto original (inteiro teor), que é o que o recurso pede que o Plenário aprecie.'
+          : 'Traga o conteúdo do projeto original (inteiro teor anexado) e explique o que a CCJC decidiu.');
+  }
+
+  const tipoDoc = rec
+    ? `documentos do ${alvoRec}, objeto do recurso: o texto aprovado pelas comissões e o parecer da CCJC`
+    : it.tipoCategoria === 'requerimento'
     ? 'inteiro teor da proposição cuja urgência é solicitada'
     : 'documento(s) relevante(s) da proposição (parecer, substitutivo, emendas e/ou inteiro teor, conforme anexados)';
 
@@ -2876,7 +3053,7 @@ Compare ${textoNovoMPV} com o texto original da Medida Provisória (documento "T
 
   return `Você é um analista legislativo da Câmara dos Deputados especializado em análise de proposições legislativas. Sua tarefa é elaborar uma nota técnica sucinta, clara e objetiva, destinada a informar Deputados Federais sobre uma proposição legislativa.
 
-Analise o(s) documento(s) anexo(s) (${tipoDoc}) referente(s) à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**.
+Analise o(s) documento(s) anexo(s) (${tipoDoc}) referente(s) ${rec ? `ao **Recurso ${it.numero}/${it.ano}**, contra a apreciação conclusiva das comissões sobre o **${alvoRec}**` : `à proposição **${tipoLabel(it.sigla)} ${it.numero}/${it.ano}**`}.
 ${blocoDocs}
 
 Ementa/descrição extraída da Pauta:
