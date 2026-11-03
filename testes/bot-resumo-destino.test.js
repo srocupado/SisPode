@@ -5,7 +5,11 @@
 // mensagem às 16:55:31 — a equipe já tinha levado o resumo ao WhatsApp.
 // Regra: matéria concluída sem destino → o resumo espera o despacho (vigia de
 // 45s) até RESUMO_ESPERA_DESTINO_MS e sai completo; passado o teto, sai como
-// estiver e o complemento de sempre continua valendo.
+// estiver e a vigia segue para ATUALIZAR o resumo quando o despacho sair.
+// 03/11/2026: o resumo saiu só com as urgências; o PL 4674/2024 (aprovado às
+// 16:58) chegou depois, num "📍 Encaminhamento das matérias" à parte. Agora:
+// matéria aprovada sem proposição identificada também segura o resumo, e o que
+// chega depois EDITA a mensagem do resumo — o resultado numa mensagem só.
 //
 // Roda as funções de bot/src/monitor.js com relógio e dependências falsas.
 // Uso: node testes/bot-resumo-destino.test.js
@@ -32,7 +36,7 @@ function montar({ resumos, despacho = () => false, enviar = async () => {} }) {
     marcar: () => {},
     iniciarPollDestinos: () => { T.complemento++; },
     algumDespachoDeDestino: async () => despacho(T.agora),
-    _cfg: { admin: 1, api: { sendMessage: async (_d, t) => { T.admin.push(t); } } },
+    _cfg: { admin: 1, destino: () => 'grupo', api: { sendMessage: async (_d, t) => { T.admin.push(t); } } },
     console: { log: () => {}, warn: () => {} },
     setInterval: fn => { const h = { fn, vivo: true }; T.intervalos.push(h); return h; },
     clearInterval: h => { if (h) h.vivo = false; },
@@ -81,7 +85,7 @@ function montar({ resumos, despacho = () => false, enviar = async () => {} }) {
     ok(T.enviados.length === 0, `até o teto (${F.RESUMO_ESPERA_DESTINO_MS / 60e3} min), espera`);
     await ciclo();
     ok(T.enviados.length === 1 && !/➡️/.test(T.enviados[0]), 'no teto: o resumo sai como estiver');
-    ok(T.complemento === 1, 'e o complemento de encaminhamento continua valendo');
+    ok(T.complemento === 1, 'e a vigia segue, para atualizar o resumo quando o despacho sair');
     ok(T.intervalos.every(h => !h.vivo), 'a vigia da espera para');
   }
 
@@ -117,6 +121,74 @@ function montar({ resumos, despacho = () => false, enviar = async () => {} }) {
     for (let k = 0; k < 20; k++) await ciclo();
     ok(T.admin.length === 1 && /falhou/.test(T.admin[0]), 'no teto, a última tentativa falha: UM aviso ao admin');
     ok(T.intervalos.every(h => !h.vivo), 'e a vigia para — não insiste a cada 45 s');
+  }
+
+  console.log('\n== 03/11: matéria aprovada que os Dados Abertos ainda não apontam ==');
+  {
+    const SEM_PROP = { texto: '📌 Matérias apreciadas…\n▪️ *Urgência ao PL 504/2021*', destinos: [], semDestino: 0, semProposicao: 1 };
+    const COMPLETO = { texto: '📌 Matérias apreciadas…\n▪️ *Urgência ao PL 504/2021*\n▪️ *PL 4674/2024* (…)➡️ Vai ao Senado', destinos: ['PL 4674/2024 ➡️ Vai ao Senado'], semDestino: 0, semProposicao: 0 };
+    const { F, T, s, ciclo } = montar({ resumos: [SEM_PROP, COMPLETO], despacho: t => t >= 90e3 });
+    await F.tentarResumo(s, 0);
+    ok(T.enviados.length === 0 && T.intervalos.length === 1, 'votação aprovada sem proposição: o resumo espera, como pelo destino');
+    await ciclo(); await ciclo();
+    ok(T.enviados.length === 1 && /PL 4674\/2024.*Vai ao Senado/.test(T.enviados[0]), 'e sai numa mensagem só, com a matéria e o destino');
+  }
+
+  console.log('\n== resumo já enviado: o que chega depois edita a mesma mensagem ==');
+  {
+    const montarAtualizar = ({ resumos, editar = async () => {} }) => {
+      const T = { enviados: [], edicoes: [], marcas: [] };
+      let i = 0;
+      const deps = {
+        pautaAtualImportada: async () => null,
+        resumoSessao: async () => resumos[Math.min(i++, resumos.length - 1)],
+        enviarOuFalhar: async t => { T.enviados.push(t); return [{ message_id: 900 + T.enviados.length }]; },
+        marcar: (_id, p) => T.marcas.push(p),
+        fatiar: t => [t],
+        _cfg: { destino: () => 'grupo', api: { editMessageText: async (chat, id, t) => { await editar(chat, id, t); T.edicoes.push({ chat, id, t }); } } },
+        console: { log: () => {}, warn: () => {} },
+      };
+      const nomes = Object.keys(deps);
+      const F = new Function(...nomes, `${trecho(/async function atualizarResumoEnviado\([\s\S]*?\n}/)}; return atualizarResumoEnviado;`)(...nomes.map(n => deps[n]));
+      return { F, T };
+    };
+    const ANTES = '📌 …\n▪️ *Urgência ao PL 504/2021*';
+    const DEPOIS = { texto: ANTES + '\n▪️ *PL 4674/2024* (…)➡️ Vai ao Senado', destinos: ['x'], semDestino: 0, semProposicao: 0 };
+    let { F, T } = montarAtualizar({ resumos: [DEPOIS] });
+    const s = { id: 83141, estado: { resumoMsg: { chat: 'grupo', ids: [777], texto: ANTES } } };
+    await F(s);
+    ok(T.edicoes.length === 1 && T.edicoes[0].id === 777 && T.edicoes[0].t === DEPOIS.texto && T.enviados.length === 0, 'edita a mensagem do resumo com o texto completo — nenhuma mensagem nova');
+    ok(!T.enviados.some(t => /Encaminhamento/.test(t)), 'nada de "📍 Encaminhamento das matérias" à parte');
+    ok(s.estado.destinosEnviado && s.estado.resumoMsg.texto === DEPOIS.texto, 'completo: registra o texto novo e a vigia para');
+    ({ F, T } = montarAtualizar({ resumos: [DEPOIS], editar: async () => { throw { description: 'Bad Request: message to edit not found' }; } }));
+    const s2 = { id: 1, estado: { resumoMsg: { chat: 'grupo', ids: [777], texto: ANTES } } };
+    await F(s2);
+    ok(T.enviados.length === 1 && T.enviados[0] === DEPOIS.texto && s2.estado.resumoMsg.ids[0] === 901, 'mensagem que não dá para editar: manda o resumo COMPLETO de novo (e passa a editar a nova)');
+    ({ F, T } = montarAtualizar({ resumos: [{ ...DEPOIS, texto: ANTES, semDestino: 1 }] }));
+    const s3 = { id: 2, estado: { resumoMsg: { chat: 'grupo', ids: [777], texto: ANTES } } };
+    await F(s3);
+    ok(T.edicoes.length === 0 && T.enviados.length === 0 && !s3.estado.destinosEnviado, 'nada mudou: não mexe na mensagem e segue vigiando');
+  }
+
+  console.log('\n== a vigia só refaz o resumo quando aparece despacho novo ==');
+  {
+    const T = { chamadas: 0, intervalos: [] };
+    let despachos = 1;
+    const deps = {
+      algumDespachoDeDestino: async () => despachos,
+      atualizarResumoEnviado: async () => { T.chamadas++; },
+      setInterval: fn => { const h = { fn, vivo: true }; T.intervalos.push(h); return h; },
+      clearInterval: h => { if (h) h.vivo = false; },
+      Date: { now: () => 0 }, console: { log: () => {}, warn: () => {} },
+    };
+    const nomes = Object.keys(deps);
+    const F = new Function(...nomes, `${trecho(/const DESTINOS_POLL_MS = .*;/)}\n${trecho(/const DESTINOS_LIMITE_MS = .*;/)}\n${trecho(/function iniciarPollDestinos\([\s\S]*?\n}/)}; return iniciarPollDestinos;`)(...nomes.map(n => deps[n]));
+    const s = { estado: {} };
+    F(s);
+    for (let k = 0; k < 5; k++) await T.intervalos[0].fn();
+    ok(T.chamadas === 1, '5 ciclos com o mesmo despacho: o resumo é refeito UMA vez (não a cada 45 s)');
+    despachos = 2; await T.intervalos[0].fn();
+    ok(T.chamadas === 2, 'despacho novo publicado: refaz de novo');
   }
 
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo passou.');

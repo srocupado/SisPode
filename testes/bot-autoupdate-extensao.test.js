@@ -35,26 +35,27 @@ global.fetch = async url => {
   fs.copyFileSync(path.join(RAIZ, 'bot', 'src', 'autoupdate.js'), path.join(tmp, 'bot', 'src', 'autoupdate.js'));
   fs.writeFileSync(path.join(tmp, 'manifest.json'), '{"version":"4.1.8.1"}');                  // velho
   fs.writeFileSync(path.join(tmp, 'analise.js'), '// analise.js antigo\n');
-  fs.copyFileSync(path.join(RAIZ, 'panel.js'), path.join(tmp, 'panel.js'));                        // já em dia
+  fs.writeFileSync(path.join(tmp, 'panel.js'), blob(porCaminho['panel.js'].sha));                       // já em dia
   fs.writeFileSync(path.join(tmp, 'meu-arquivo.txt'), 'coisa da máquina');                           // não é do repo
   process.env.GH_TOKEN = 'x'; delete process.env.BOT_EXT_DIR;
   const U = require(path.join(tmp, 'bot', 'src', 'autoupdate.js'));
 
   console.log('== regras ==');
-  ok(U.blobSha(fs.readFileSync(path.join(RAIZ, 'panel.js'))) === porCaminho['panel.js'].sha, 'blob sha igual ao do git');
+  ok(U.blobSha(blob(porCaminho['panel.js'].sha)) === porCaminho['panel.js'].sha, 'blob sha igual ao do git');
   ok(['bot/index.js', 'testes/x.test.js', 'varredura/estado.json', 'docs/a.md', 'README.md', '.gitignore'].every(p => U.FORA_DA_EXTENSAO.test(p))
      && !['analise.js', 'libs/pdf.min.js', 'icons/podemos-logo.png', 'apuracao/index.html', 'manifest.json'].some(p => U.FORA_DA_EXTENSAO.test(p)), 'o que é e o que não é extensão');
 
   console.log('\n== 1º /update ==');
   const r = await U.aplicarUpdate();
   ok(r.ok && !r.jaAtualizado, `aplicado (${r.erro || 'ok'})`);
-  ok(fs.readFileSync(path.join(tmp, 'analise.js')).equals(fs.readFileSync(path.join(RAIZ, 'analise.js'))), 'analise.js da extensão atualizado');
-  ok(JSON.parse(fs.readFileSync(path.join(tmp, 'manifest.json'), 'utf8')).version === JSON.parse(fs.readFileSync(path.join(RAIZ, 'manifest.json'), 'utf8')).version, 'manifest.json atualizado');
-  ok(fs.readFileSync(path.join(tmp, 'icons', 'podemos-logo.png')).equals(fs.readFileSync(path.join(RAIZ, 'icons', 'podemos-logo.png'))), 'binário (PNG) chega íntegro, pelo blob em base64');
+  const doCommit = p => blob(porCaminho[p].sha);   // o que o GitHub serve (o commit), não a cópia de trabalho
+  ok(fs.readFileSync(path.join(tmp, 'analise.js')).equals(doCommit('analise.js')), 'analise.js da extensão atualizado');
+  ok(fs.readFileSync(path.join(tmp, 'manifest.json')).equals(doCommit('manifest.json')), 'manifest.json atualizado');
+  ok(fs.readFileSync(path.join(tmp, 'icons', 'podemos-logo.png')).equals(doCommit('icons/podemos-logo.png')), 'binário (PNG) chega íntegro, pelo blob em base64');
   ok(fs.existsSync(path.join(tmp, 'apuracao', 'index.html')) && fs.existsSync(path.join(tmp, 'libs', 'pdf.worker.min.js')), 'subpastas criadas (apuracao/, libs/)');
   ok(!r.extensao.gravados.includes('panel.js') && !r.extensao.gravados.some(p => U.FORA_DA_EXTENSAO.test(p)), 'o que já estava em dia e o que não é extensão não são baixados');
   ok(fs.readFileSync(path.join(tmp, 'meu-arquivo.txt'), 'utf8') === 'coisa da máquina', 'arquivo da máquina que não está no repo fica intacto');
-  ok(fs.readFileSync(path.join(tmp, 'pauta-parser.js')).equals(fs.readFileSync(path.join(RAIZ, 'pauta-parser.js'))) && fs.existsSync(path.join(tmp, 'bot', 'src', 'parser.js')), 'bot: src/*.js e o pauta-parser da raiz');
+  ok(fs.readFileSync(path.join(tmp, 'pauta-parser.js')).equals(doCommit('pauta-parser.js')) && fs.existsSync(path.join(tmp, 'bot', 'src', 'parser.js')), 'bot: src/*.js e o pauta-parser da raiz');
   const v = JSON.parse(fs.readFileSync(path.join(tmp, 'bot', 'dados', 'versao-bot.json'), 'utf8'));
   ok(v.sha === SHA && v.extensao && v.extensao.gravados === r.extensao.gravados.length, 'versão gravada com a lista e a extensão');
 

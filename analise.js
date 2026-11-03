@@ -5364,7 +5364,18 @@ async function propsDaVotacao(v) {
   if (mObj) return [{ sigla: mObj[1].toUpperCase(), numero: mObj[2].replace(/\./g, ''), ano: mObj[3], id: _idDeUri(v.uriProposicaoObjeto) }];
   try {
     const af = (await fetchJsonCamara(`${API_BASE}/votacoes/${v.id}`)).dados?.proposicoesAfetadas || [];
-    return af.map(p => ({ sigla: p.siglaTipo, numero: String(p.numero), ano: String(p.ano), id: _idDeUri(p.uri) }));
+    if (af.length) return af.map(p => ({ sigla: p.siglaTipo, numero: String(p.numero), ano: String(p.ano), id: _idDeUri(p.uri) }));
+  } catch (_) {}
+  // Nem objeto nem proposições afetadas: minutos depois da votação os Dados
+  // Abertos ainda não preencheram — e o resumo do bot sai minutos depois do fim
+  // da ODD. O id da votação começa pelo id da proposição votada ("2475487-76" →
+  // 2475487). MEDIDO em 03/11/2026: o resumo saiu só com as urgências e o
+  // PL 4674/2024 (aprovado às 16:58) chegou depois, numa mensagem à parte.
+  const id = String(v.id || '').split('-')[0];
+  if (!/^\d+$/.test(id)) return [];
+  try {
+    const d = (await fetchJsonCamara(`${API_BASE}/proposicoes/${id}`)).dados;
+    return d?.siglaTipo ? [{ sigla: String(d.siglaTipo).toUpperCase(), numero: String(d.numero), ano: String(d.ano), id }] : [];
   } catch (_) { return []; }
 }
 
@@ -5484,6 +5495,9 @@ async function coletarResumoSessao(dataISO) {
   // votação (que varia por rito).
   const votadasAsc = votacoes.filter(v => v.aprovacao === 1).sort(_ascVot);
   const propsPorVot = await _mapLimit(votadasAsc, 4, v => propsDaVotacao(v));
+  // Votação aprovada (fora as urgências) sem proposição identificada: a matéria
+  // ainda não pôde entrar — o bot segura o resumo por ela, como pelo destino.
+  const semProposicao = votadasAsc.filter((v, i) => !urgVot.includes(v) && !(propsPorVot[i] || []).length).length;
   const candidatas = [];
   const vistosC = new Set();
   for (const p of propsPorVot.flat()) {
@@ -5513,7 +5527,7 @@ async function coletarResumoSessao(dataISO) {
     return { ...c, ementa, destino };
   })).filter(Boolean);
 
-  return { encontrouSessao: true, urgencias, concluidos };
+  return { encontrouSessao: true, urgencias, concluidos, semProposicao };
 }
 
 // Apelido da matéria a partir do item da pauta correspondente (casado por
@@ -5572,7 +5586,7 @@ async function montarMensagemResumo(urgencias, concluidos, dataISO) {
     linhas.push(`▪️ ${b(rotulo)}${await descr(u.sigla, u.numero, u.ano, u.ementa)}`);
   }
   for (const c of concluidos) {
-    const seta = c.destino ? `➡️ ${c.destino}` : '';
+    const seta = c.destino ? ` ➡️ ${c.destino}` : '';
     linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${await descr(c.sigla, c.numero, c.ano, c.ementa)}${seta}`);
   }
   return linhas.join('\n');
