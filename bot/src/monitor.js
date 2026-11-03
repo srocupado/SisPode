@@ -87,11 +87,13 @@ async function enviar(texto, { md = false } = {}) {
   }
 }
 
-/** Envio ESTRITO: fatia e NÃO engole erro — usado onde a falha precisa acionar retry. */
+/** Envio ESTRITO: fatia e NÃO engole erro — usado onde a falha precisa acionar retry. Devolve as mensagens enviadas. */
 async function enviarOuFalhar(texto) {
   const destino = _cfg.destino();
   if (!destino) throw new Error('sem destino configurado (GRUPO_CHAT_ID/MONITOR_ENSAIO)');
-  for (const parte of fatiar(texto)) await _cfg.api.sendMessage(destino, parte);
+  const msgs = [];
+  for (const parte of fatiar(texto)) msgs.push(await _cfg.api.sendMessage(destino, parte));
+  return msgs;
 }
 // Grupo (ou destino de ensaio) + cópia ao admin, sem duplicar quando o
 // destino já É o admin (modo ensaio).
@@ -704,7 +706,8 @@ async function carregarEstado(eventoId) {
     oddFimAnunciado:  !!e.oddFimAnunciado,
     fimAnunciado:     !!e.fimAnunciado,
     resumoEnviado:    !!e.resumoEnviado,
-    destinosEnviado:  !!e.destinosEnviado,
+    destinosEnviado:  !!e.destinosEnviado,   // o resumo enviado já está completo (matérias e destinos)
+    resumoMsg:        e.resumoMsg || null,     // { chat, ids, texto } — a mensagem do resumo, para editar
     itens:            e.itens || {},
     discutidos:       e.discutidos || {},
     resultadosPag:    e.resultadosPag || {},   // resultado (página do evento) já anunciado, por chave
@@ -1286,7 +1289,7 @@ async function tentarResumo(s, tentativa, { forcar = false } = {}) {
   try {
     const pauta = await pautaAtualImportada().catch(() => null);
     const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO: s.dataISO });
-    if (!r.vazio && r.semDestino > 0 && !forcar) {
+    if (!r.vazio && (r.semDestino > 0 || r.semProposicao > 0) && !forcar) {
       if (!s._esperaDestinoAte) {
         s._esperaDestinoAte = Date.now() + RESUMO_ESPERA_DESTINO_MS;
         iniciarEsperaDestinos(s);
@@ -1305,20 +1308,22 @@ async function tentarResumo(s, tentativa, { forcar = false } = {}) {
     // Firebase e o resumo se perdia em silêncio (sessão de 07/07).
     // Texto idêntico ao do painel (negrito estilo WhatsApp) — sem parse_mode,
     // para a equipe copiar/encaminhar ao WhatsApp sem retoque.
-    let enviado = false, ultErr = null;
+    let enviado = false, ultErr = null, msgs = [];
     for (const espera of [0, 5000, 10000]) {
       if (espera) await new Promise(res => setTimeout(res, espera));
-      try { await enviarOuFalhar(r.texto); enviado = true; break; }
+      try { msgs = (await enviarOuFalhar(r.texto)) || []; enviado = true; break; }
       catch (e) { ultErr = e; console.warn('[monitor] envio do resumo falhou (retry):', e.message); }
     }
     if (!enviado) throw ultErr;
     s.estado.resumoEnviado = true;
-    marcar(s.id, { resumoEnviado: true });
-    // Encaminhamentos ("vai ao Senado", "vai à sanção"): a Câmara publica os
-    // despachos DEPOIS do resumo (que sai minutos após a ODD). Se saiu sem
-    // nenhum destino, vigia a publicação em poll leve — o complemento sai
-    // ~1 min depois de a Câmara publicar, seja quando for.
-    if (!(r.destinos || []).length && !s.estado.destinosEnviado) iniciarPollDestinos(s);
+    // A mensagem enviada fica registrada: o que chegar depois EDITA o resumo.
+    s.estado.resumoMsg = { chat: _cfg.destino(), ids: msgs.map(m => m && m.message_id).filter(x => x != null), texto: r.texto };
+    marcar(s.id, { resumoEnviado: true, resumoMsg: s.estado.resumoMsg });
+    // Matéria ou encaminhamento ("vai ao Senado", "vai à sanção") que a Câmara
+    // publica DEPOIS do resumo: vigia em poll leve e, quando sair, o resumo é
+    // atualizado na mesma mensagem (atualizarResumoEnviado).
+    const incompleto = !(r.destinos || []).length || r.semDestino > 0 || r.semProposicao > 0;
+    if (incompleto && !s.estado.destinosEnviado) iniciarPollDestinos(s);
   } catch (e) {
     console.warn(`[monitor] resumo (tentativa ${tentativa + 1}) falhou:`, e.message);
     if (tentativa === RESUMO_TENTATIVAS_MIN.length - 1 && _cfg.admin) {
@@ -1368,38 +1373,66 @@ function iniciarPollDestinos(s) {
       if (s.estado.destinosEnviado || Date.now() > fim) {
         clearInterval(s._pollDestinos); s._pollDestinos = null; return;
       }
-      if (await algumDespachoDeDestino(s)) await tentarComplementoDestinos(s);
+      const n = await algumDespachoDeDestino(s);
+      if (n > (s._despachosVistos || 0)) { s._despachosVistos = n; await atualizarResumoEnviado(s); }
     } catch (e) { console.warn('[monitor] vigia de destinos:', e.message); }
   }, DESTINOS_POLL_MS);
 }
 
+// Quantas matérias aprovadas na sessão já têm despacho de destino publicado
+// (0 = nenhuma). A vigia do resumo enviado só refaz o resumo quando o número
+// cresce — sem isso, uma matéria que nunca ganha despacho faria o worker (o
+// navegador inteiro) rodar a cada 45s por 2h.
 async function algumDespachoDeDestino(s) {
   const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
-  if (!r.ok) return false;
+  if (!r.ok) return 0;
   const ids = [...new Set(((await r.json()).dados || [])
     .filter(v => Number(v.aprovacao) === 1)
     .map(v => String(v.id || '').split('-')[0]).filter(Boolean))];
+  let n = 0;
   for (const id of ids.slice(0, 10)) {
     try {
       const t = await fetchTimeout(`${API}/proposicoes/${id}/tramitacoes`, 10000);
       const trs = (await t.json()).dados || [];
       if (trs.some(x => String(x.dataHora || '').slice(0, 10) >= s.dataISO &&
-        /^A\s+mat[ée]ria\s+(vai|retorna|volta|segue)|san[çc][ãa]o|promulga/i.test(x.despacho || ''))) return true;
+        /^A\s+mat[ée]ria\s+(vai|retorna|volta|segue)|san[çc][ãa]o|promulga/i.test(x.despacho || ''))) n++;
     } catch (_) {}
   }
-  return false;
+  return n;
 }
 
-// Reconsulta a sessão via worker e envia SÓ os encaminhamentos, uma vez.
-async function tentarComplementoDestinos(s) {
+// O resumo já saiu, mas faltava matéria ou destino: refaz o resumo e EDITA a
+// mensagem do grupo com o texto completo — o resultado da sessão numa mensagem
+// só. Antes de 03/11/2026 saía um "📍 Encaminhamento das matérias" à parte
+// (naquele dia, com o PL 4674/2024, que nem estava no resumo). Sem como editar
+// (resumo fatiado em várias mensagens, mensagem apagada ou sem registro), manda
+// o resumo COMPLETO de novo — nunca só os encaminhamentos.
+async function atualizarResumoEnviado(s) {
   if (s.estado.destinosEnviado) return;
   const pauta = await pautaAtualImportada().catch(() => null);
   const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO: s.dataISO });
-  if (r.vazio || !(r.destinos || []).length) return;
-  s.estado.destinosEnviado = true;
-  marcar(s.id, { destinosEnviado: true });
-  await enviar(`📍 *Encaminhamento das matérias:*\n${r.destinos.map(d => `▪️ ${d}`).join('\n')}`, { md: true });
-  console.log(`[monitor] complemento de destinos enviado (${r.destinos.length}).`);
+  if (r.vazio) return;
+  const msg = s.estado.resumoMsg;
+  if (!msg || r.texto !== msg.texto) {
+    let editado = false;
+    if (msg && (msg.ids || []).length === 1 && fatiar(r.texto).length === 1) {
+      try { await _cfg.api.editMessageText(msg.chat, msg.ids[0], r.texto); editado = true; }
+      catch (e) {
+        if (/not modified/i.test(e.description || e.message || '')) editado = true;
+        else console.warn('[monitor] não consegui editar o resumo — envio completo de novo:', e.description || e.message);
+      }
+    }
+    let novo = msg;
+    if (!editado) novo = { chat: _cfg.destino(), ids: ((await enviarOuFalhar(r.texto)) || []).map(m => m && m.message_id).filter(x => x != null) };
+    s.estado.resumoMsg = { ...novo, texto: r.texto };
+    marcar(s.id, { resumoMsg: s.estado.resumoMsg });
+    console.log(`[monitor] resumo atualizado ${editado ? 'na mesma mensagem' : 'em mensagem nova (completa)'}.`);
+  }
+  // Completo (toda matéria com proposição e destino): a vigia para.
+  if (!(r.semDestino > 0) && !(r.semProposicao > 0)) {
+    s.estado.destinosEnviado = true;
+    marcar(s.id, { destinosEnviado: true });
+  }
 }
 
 // ---------- API do módulo ----------

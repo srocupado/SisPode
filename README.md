@@ -582,7 +582,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - Abertura do registro de presença/inscrições, **quórum** (ao atingir 257), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
 - **Votações simbólicas**: anúncio e resultado a partir do sinal do cosev (~12 s), com **autocorreção** — o resultado assumido ("Aprovado") é editado na própria mensagem se o carimbo oficial da página do evento divergir
 - **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência; o placar também vai ao Firebase, para a aba "Prints da sessão" do Painel de Votação), destaques (DTQ) com a explicação do módulo de Destaques
-- **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel) + encaminhamentos das matérias
+- **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel), **numa mensagem só**: cada matéria com o seu encaminhamento ("➡️ Vai ao Senado"). O resumo espera até 3 min pela matéria aprovada que os Dados Abertos ainda não apontam e pelo despacho de destino; o que a Câmara publicar depois **edita a mensagem do resumo** (sem mensagem de encaminhamento à parte; se não der para editar, o resumo completo vai de novo)
 - **"Na tribuna"**: aviso quando um deputado do Podemos é chamado a discursar
 - Comandos ao vivo: `/quorum` (presença no painel), `/oradores [data] [filtro]` (quem falou/aguarda, por lista), `/faltamvotar` (na nominal aberta, quem do Podemos ainda não votou — presentes × fora da Casa, com rede de segurança automática)
 
