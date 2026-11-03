@@ -509,7 +509,7 @@ function registrarEventos() {
   // ficou para trás num bump e fez a instalação parecer 3.1.5 sendo 3.2.0.
   try {
     const el = document.getElementById('versao-local');
-    if (el) el.textContent = 'v' + chrome.runtime.getManifest().version;
+    if (el) { const mf = chrome.runtime.getManifest(); el.textContent = 'v' + (mf.version_name || mf.version); }   // version_name: "4.1.8-1" (o Chrome só aceita números em version)
   } catch (_) { /* fora da extensão, fica o texto do HTML */ }
   verificarVersao();
   // A checagem única na abertura deixa aba antiga sem aviso para sempre —
