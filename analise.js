@@ -5088,23 +5088,46 @@ function dataPautaCurta() {
   return m ? `${+m[1]}/${+m[2]}/${m[3]}` : (fonte.trim() || '—');
 }
 
-// Autoria para a mensagem: se é autoria do Podemos, lista os nomes dos autores
-// do Podemos; senão (ex.: item incluído por relatoria), usa o texto de autoria
-// da pauta — que traz o partido/UF do autor de outra legenda.
-function autoriaMsg(it) {
-  const enr = it.enriquecimento || {};
-  const nomesPode = (enr.autores || []).filter(a => a.isPodemos && a.nome).map(a => a.nome);
-  if (enr.autoriaPodemos && nomesPode.length) return nomesPode.join(', ');
-  if ((it.autorTexto || '').trim()) return it.autorTexto.replace(/\s+/g, ' ').trim();
-  const todos = (enr.autores || []).map(a => a.siglaPartido ? `${a.nome} - ${a.siglaPartido}` : a.nome).filter(Boolean);
-  return todos.join(', ') || '—';
+// Autores do Podemos separados pela ordem de assinatura: o 1º signatário é o
+// autor; do 2º em diante, coautores — o mesmo critério do badge "Coautoria"
+// (autoriaPrincipalPodemos). Sem a ordem (dados antigos), todos contam como autor.
+// MEDIDO em 03/11/2026: o PL 2475/2025 (1º signatário Célio Studart, PSD) saía
+// na mensagem com "Autoria: Delegado Bruno Lima, Felipe Becari", que assinam em
+// 6º e 4º, enquanto o badge já dizia "Coautoria".
+function autoresPodemosPorPapel(autores = []) {
+  const temOrdem = autores.some(a => Number.isFinite(Number(a.ordem)));
+  const pode = autores.filter(a => a.isPodemos && a.nome)
+    .sort((x, y) => (Number(x.ordem) || 999) - (Number(y.ordem) || 999));
+  if (!temOrdem) return { autor: pode.map(a => a.nome), coautores: [] };
+  return { autor: pode.filter(a => Number(a.ordem) === 1).map(a => a.nome),
+    coautores: pode.filter(a => Number(a.ordem) !== 1).map(a => a.nome) };
 }
 
-// Autoria de um apensado: nomes do Podemos quando houver, senão todos.
+/** As linhas "Autoria: …" / "Coautoria: …" dos autores do Podemos (vazio se não há). */
+function linhasAutoriaPodemos(autores) {
+  const { autor, coautores } = autoresPodemosPorPapel(autores);
+  return [autor.length ? `Autoria: ${autor.join(', ')}` : '', coautores.length ? `Coautoria: ${coautores.join(', ')}` : ''].filter(Boolean);
+}
+
+// Autoria para a mensagem: se é autoria do Podemos, os nomes do Podemos, como
+// autor (1º signatário) ou coautor; senão (ex.: item incluído por relatoria),
+// usa o texto de autoria da pauta — que traz o partido/UF do autor de outra legenda.
+// Devolve as linhas da mensagem.
+function autoriaMsg(it) {
+  const enr = it.enriquecimento || {};
+  const pode = enr.autoriaPodemos ? linhasAutoriaPodemos(enr.autores || []) : [];
+  if (pode.length) return pode;
+  if ((it.autorTexto || '').trim()) return [`Autoria: ${it.autorTexto.replace(/\s+/g, ' ').trim()}`];
+  const todos = (enr.autores || []).map(a => a.siglaPartido ? `${a.nome} - ${a.siglaPartido}` : a.nome).filter(Boolean);
+  return [`Autoria: ${todos.join(', ') || '—'}`];
+}
+
+// Autoria de um apensado: os nomes do Podemos (autor ou coautor) quando houver, senão todos.
 function autoriaApensadoMsg(ap) {
-  const pode = (ap.autores || []).filter(a => a.isPodemos && a.nome).map(a => a.nome);
-  if (pode.length) return pode.join(', ');
-  return (ap.autores || []).map(a => a.nome).filter(Boolean).join(', ');
+  const pode = linhasAutoriaPodemos(ap.autores || []);
+  if (pode.length) return pode;
+  const todos = (ap.autores || []).map(a => a.nome).filter(Boolean).join(', ');
+  return todos ? [`Autoria: ${todos}`] : [];
 }
 
 // Limpa a ementa para a mensagem: normaliza espaços e remove um parêntese
@@ -5127,7 +5150,7 @@ function montarMensagemPropPartido() {
     const apSuf = apelido ? ` (${apelido})` : '';
     linhas.push('');
     linhas.push(`${b(`▪️ Item ${it.ordem ?? '–'}. ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`)}${apSuf}`);
-    linhas.push(b(`Autoria: ${autoriaMsg(it)}`));
+    for (const l of autoriaMsg(it)) linhas.push(b(l));
     if (relatoriaPodemos(it) && it.relator?.nome) linhas.push(b(`Relatoria: ${it.relator.nome.replace(/\s+/g, ' ').trim()}`));
     const aps = it.enriquecimento?.apensadosPodemos || [];
     if (aps.length) {
@@ -5135,8 +5158,7 @@ function montarMensagemPropPartido() {
       for (const ap of aps) {
         const emAp = ementaLimpa(ap.ementa);   // apensados não têm apelido — usa a ementa
         linhas.push(`* ${b(`${ap.siglaTipo} ${ap.numero}/${ap.ano}`)}${emAp ? ` (${emAp})` : ''}`);
-        const autAp = autoriaApensadoMsg(ap);
-        if (autAp) linhas.push(`    ${b(`Autoria: ${autAp}`)}`);
+        for (const l of autoriaApensadoMsg(ap)) linhas.push(`    ${b(l)}`);
       }
     }
   }
