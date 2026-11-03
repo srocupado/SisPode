@@ -5,6 +5,9 @@
 // Uso: node testes/ccjc-resumo.test.js
 const path = require('path');
 global.escHtml = s => String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/\n/g, '<br>');
+// funções da posição do governo (ccjc-governo.js), globais na página
+const G = require(path.join(__dirname, '..', 'ccjc-governo.js'));
+Object.assign(global, { govPosicao: G.govPosicao, govBadge: G.govBadge, GOV_CSS: G.GOV_CSS });
 const R = require(path.join(__dirname, '..', 'ccjc-resumo.js'));
 let falhas = 0;
 const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else console.log('  ✓ ' + m); };

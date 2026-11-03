@@ -2429,6 +2429,7 @@ function atualizarSidebar() {
   const inpResp = document.getElementById('pauta-responsavel');
   if (document.activeElement !== inpResp) inpResp.value = pauta.responsavel || '';
 
+  if (typeof govAtualizarBotao === 'function') govAtualizarBotao();   // ccjc-governo.js
   info.classList.remove('empty');
   info.innerHTML = `<strong>${esc(pauta.titulo)}</strong><br>
     <span style="font-size:11px;color:var(--text-dim)">${pauta.projetos.length} projetos · ${new Date(pauta.criada).toLocaleDateString('pt-BR')}</span>`;

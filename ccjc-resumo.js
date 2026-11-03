@@ -12,6 +12,9 @@
 // nota JÁ GERADA (resumo do original, análise por comissão, argumentos) —
 // nenhum documento novo é lido. O resultado fica na pauta (resumoExecutivo) e
 // só é refeito quando alguma análise muda (assinatura = chave + data da análise).
+// A posição do governo (ccjc-governo.js), quando importada, entra na tabela, no
+// bloco de cada item e no destaque dos itens do Podemos — direto do PDF, sem IA.
+// Usa de ccjc-governo.js: govPosicao, govBadge, GOV_CSS.
 // Usa de ccjc.js: app, aiCall, mapLimit, carregarLogoCCJC, salvarPauta,
 // coletarEdicoesAtivas, mostrarToast, escHtml, NOME_PROVEDOR, _provedorEfetivo, _modeloAtualLabel.
 
@@ -91,6 +94,9 @@ async function resumoGerarItem(p) {
   };
 }
 
+const porChaveDe = pauta => Object.fromEntries((pauta.projetos || []).map(p => [p.chave, p]));
+const resumoDoPodemos = p => !!(p && (p.relatoria === 'pode' || p.autoria?.podemos));
+
 /** Visão geral e leitura geral: contagens dos dados, sem IA. */
 function resumoTextosGerais(pauta, dados) {
   const projs = pauta.projetos || [];
@@ -107,7 +113,9 @@ function resumoTextosGerais(pauta, dados) {
   if (outrosSem.length) p1.push(`Ainda sem análise: ${lista(outrosSem)}.`);
   // Podemos na pauta inteira, comentado ou não
   const rel = projs.filter(p => p.relatoria === 'pode'), aut = projs.filter(p => p.autoria?.podemos);
-  const doPode = (ps, papel) => ps.length ? `${ps.length === 1 ? `Há um item sob ${papel} do Podemos` : `Há ${ps.length} itens sob ${papel} do Podemos`}: ${ps.map(p => `<b>${escHtml(p.chave)}</b>${p.relator && papel === 'relatoria' ? ` (dep. ${escHtml(p.relator)})` : ''}${resumoEhRotina(p) ? ', de rádio e TV' : ''}`).join('; ')}.` : '';
+  // Itens do Podemos: com a posição do governo, quando importada
+  const posGov = p => { const g = govPosicao(pauta, p); return g ? ` — governo: ${govBadge(g.posicao)}` : ''; };
+  const doPode = (ps, papel) => ps.length ? `${ps.length === 1 ? `Há um item sob ${papel} do Podemos` : `Há ${ps.length} itens sob ${papel} do Podemos`}: ${ps.map(p => `<b>${escHtml(p.chave)}</b>${p.relator && papel === 'relatoria' ? ` (dep. ${escHtml(p.relator)})` : ''}${resumoEhRotina(p) ? ', de rádio e TV' : ''}${posGov(p)}`).join('; ')}.` : '';
   const p1b = [doPode(rel, 'relatoria'), doPode(aut, 'autoria')].filter(Boolean).join(' ');
 
   const pela = dados.filter(d => /^aprova/i.test(d.parecerCurto));
@@ -118,21 +126,35 @@ function resumoTextosGerais(pauta, dados) {
       + ' Os pontos de atenção são possíveis focos de debate, não argumentos registrados no parecer.'
     : '';
 
+  // Posição do governo nos itens comentados (contagem por posição, na ordem em que aparece)
+  let pGov = '';
+  if (pauta.governo) {
+    const conta = new Map();
+    let sem = 0;
+    for (const d of dados) {
+      const g = govPosicao(pauta, porChaveDe(pauta)[d.chave] || { chave: d.chave });
+      if (g) conta.set(g.posicao, (conta.get(g.posicao) || 0) + 1); else sem++;
+    }
+    pGov = conta.size ? `Posição do governo nos itens comentados: ${[...conta].map(([pos, k]) => `${escHtml(pos)} em ${k}`).join(', ').replace(/, ([^,]*)$/, ' e $1')}${sem ? `; ${sem} sem posição no documento do governo` : ''}.` : '';
+  }
+
   const altos = dados.filter(d => d.debate === 'Alto');
   const leitura = altos.length
     ? `${altos.length === 1 ? 'O item com maior potencial de debate é' : 'Os itens com maior potencial de debate são'} ${altos.map(d => `o <b>${escHtml(d.chave)}</b>${d.focoDebate ? ` (${escHtml(d.focoDebate)})` : ''}`).join(', ').replace(/, ([^,]*)$/, ' e $1')}.${altos.length < dados.length ? ' Os demais tendem a ter tramitação tranquila.' : ''}`
     : dados.length ? 'Nenhum item comentado tem potencial alto de debate.' : '';
-  return { p1: p1.join(' ') + (p1b ? ' ' + p1b : ''), p2, leitura, com: com.length, sem: sem.length };
+  return { p1: p1.join(' ') + (p1b ? ' ' + p1b : ''), p2: [p2, pGov].filter(Boolean).join(' '), leitura, com: com.length, sem: sem.length };
 }
 
 function resumoHTML(pauta, res, logo) {
   const dados = res.itens;
-  const porChave = Object.fromEntries((pauta.projetos || []).map(p => [p.chave, p]));
+  const porChave = porChaveDe(pauta);
   const g = resumoTextosGerais(pauta, dados);
+  const gov = !!pauta.governo;
+  const posDe = d => (govPosicao(pauta, porChave[d.chave] || { chave: d.chave }) || {}).posicao || '';
   const cor = { Baixo: 'b', 'Médio': 'm', Alto: 'a' };
-  const tabela = dados.length ? `<table class="tab"><thead><tr><th>Projeto</th><th>Tema</th><th>Relator(a)</th><th>Parecer na CCJC</th><th class="c">Debate</th></tr></thead><tbody>${dados.map(d =>
-    `<tr><td class="ch">${escHtml(d.chave)}</td><td>${escHtml(d.tema)}</td><td>${escHtml(porChave[d.chave]?.relator || '')}</td><td>${escHtml(d.parecerCurto)}</td><td class="c">${d.debate ? `<span class="db db-${cor[d.debate]}">${d.debate}</span>` : '—'}</td></tr>`).join('')}</tbody></table>
-    <p class="nota">Coluna "Debate": potencial de debate estimado pela IA a partir da nota da assessoria.</p>` : '';
+  const tabela = dados.length ? `<table class="tab"><thead><tr><th>Projeto</th><th>Tema</th><th>Relator(a)</th><th>Parecer na CCJC</th><th class="c">Debate</th>${gov ? '<th class="c">Governo</th>' : ''}</tr></thead><tbody>${dados.map(d =>
+    `<tr${resumoDoPodemos(porChave[d.chave]) ? ' class="tr-pode"' : ''}><td class="ch">${escHtml(d.chave)}${resumoDoPodemos(porChave[d.chave]) ? '<br><span class="pode">Podemos</span>' : ''}</td><td>${escHtml(d.tema)}</td><td>${escHtml(porChave[d.chave]?.relator || '')}</td><td>${escHtml(d.parecerCurto)}</td><td class="c">${d.debate ? `<span class="db db-${cor[d.debate]}">${d.debate}</span>` : '—'}</td>${gov ? `<td class="c">${govBadge(posDe(d))}</td>` : ''}</tr>`).join('')}</tbody></table>
+    <p class="nota">Coluna "Debate": potencial de debate estimado pela IA a partir da nota da assessoria.${gov ? ' Coluna "Governo": posição da Liderança do Governo na CD, do documento importado.' : ''}</p>` : '';
   const itens = dados.map((d, i) => {
     const p = porChave[d.chave] || {};
     const marcas = [p.autoria?.podemos ? (p.autoria.principal ? 'Autoria do Podemos' : 'Coautoria do Podemos') : '', p.relatoria === 'pode' ? 'Relatoria do Podemos' : ''].filter(Boolean);
@@ -142,6 +164,7 @@ function resumoHTML(pauta, res, logo) {
       <h3>O que faz</h3><p>${escHtml(d.oQueFaz)}</p>${d.oQueFazItens.length ? `<ul>${d.oQueFazItens.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}
       ${d.tramitacao ? `<h3>Tramitação</h3><p>${escHtml(d.tramitacao)}</p>` : ''}
       <h3>Parecer na CCJC</h3><div class="par">${escHtml(d.parecer || d.parecerCurto || 'não consta')}</div>
+      ${gov ? `<h3>Posição do governo</h3><p>${govBadge(posDe(d))}${posDe(d) ? '' : ' <span class="nota">sem posição no documento do governo</span>'}</p>` : ''}
       ${d.pontosAtencao ? `<div class="aten"><b>Pontos de atenção</b><p>${escHtml(d.pontosAtencao)}</p></div>` : ''}
     </section>`;
   }).join('');
@@ -171,7 +194,8 @@ function resumoHTML(pauta, res, logo) {
   .it-cab { display:flex; gap:16px; align-items:flex-start; justify-content:space-between; }
   .it-cab h2 { font-size:12.5pt; color:#0b5e3a; line-height:1.35; }
   .it-meta { font-size:8.5pt; color:#6b7280; text-align:right; min-width:170px; }
-  .pode { color:#0b8a4b; font-weight:700; }
+  .pode { color:#0b8a4b; font-weight:700; } .tab .pode { font-size:7.5pt; }
+  ${GOV_CSS}
   h3 { font-size:9.5pt; color:#1f2937; margin:10px 0 4px; border-left:3px solid #0b8a4b; padding-left:7px; }
   ul { margin:2px 0 8px 20px; } li { line-height:1.55; margin-bottom:2px; }
   .par { background:#f5f7fa; border-radius:6px; padding:8px 12px; line-height:1.55; }
@@ -191,7 +215,7 @@ function resumoHTML(pauta, res, logo) {
   ${tabela}${falhas}
   ${itens}
   ${g.leitura ? `<section class="item"><h2 class="sec" style="margin-top:0">Leitura geral da pauta</h2><div class="leit">${g.leitura}</div></section>` : ''}
-  <p class="nota" style="margin-top:12px">Fonte: notas da pauta da CCJC de ${escHtml(pauta.titulo.replace(/^.*?–\s*/, ''))} no SisPode${geradoEm ? ` · resumo gerado em ${geradoEm}${res.modelo ? ` (${escHtml(res.modelo)})` : ''}` : ''}.</p>
+  <p class="nota" style="margin-top:12px">Fonte: notas da pauta da CCJC de ${escHtml(pauta.titulo.replace(/^.*?–\s*/, ''))} no SisPode${geradoEm ? ` · resumo gerado em ${geradoEm}${res.modelo ? ` (${escHtml(res.modelo)})` : ''}` : ''}.${gov ? ` Posição do governo: Liderança do Governo na CD${pauta.governo.reuniao ? `, reunião de ${escHtml(pauta.governo.reuniao)}` : ''} (${escHtml(pauta.governo.arquivo || 'PDF')}, importado em ${new Date(pauta.governo.importadoEm).toLocaleString('pt-BR')}).` : ''}</p>
   <div class="rod">Resumo executivo elaborado a partir do SisPode · Liderança do Podemos · Câmara dos Deputados</div>
   </body></html>`;
 }
