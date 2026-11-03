@@ -380,6 +380,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 
 **Exportação**
 - Gera **PDF institucional** da pauta consolidada, com cabeçalho da Liderança e todos os itens revisados
+- **Resumo executivo** (botão ao lado de Gerar PDF): leitura rápida da pauta para a liderança — visão geral (quantos itens, quantos comentados, os PDLs de rádio e TV de rotina, os itens sob relatoria ou autoria do Podemos), **tabela** dos itens comentados (tema, relator, parecer na CCJC e **potencial de debate** Baixo/Médio/Alto), um **bloco por item** (o que faz, tramitação nas outras comissões, parecer na CCJC, pontos de atenção) e a **leitura geral** (os itens de debate alto). As contagens saem dos dados; o texto de cada item sai da IA a partir da **nota já gerada** (nenhum documento novo é lido). O resumo fica guardado na pauta e só vai de novo à IA o item cuja análise mudou
 
 ---
 
@@ -732,6 +733,7 @@ sispode/
 ├── analise.css                    # Estilos dos cards de análise (usados também nas pautas de comissões)
 ├── ia-comum.js                    # Cliente de IA compartilhado (3 provedores, SSE, PDF, utilidades)
 ├── ccjc.html / ccjc.js            # Módulo: Pautas CCJC
+├── ccjc-resumo.js                 # Pautas CCJC · resumo executivo da pauta (tabela, um bloco por item, leitura geral)
 ├── congresso.html / congresso.js  # Módulo: Pauta do Congresso Nacional (vetos + PLNs)
 ├── lideres.html / lideres.js      # Módulo: Reunião de Líderes (análise da lista + demandas + e-mail)
 ├── emendas.html / emendas.js      # Orçamento · Emendas da bancada (FNS + Transparência)

@@ -86,6 +86,7 @@ function registrarEventos() {
   document.getElementById('btn-analisar-selecionados')?.addEventListener('click', analisarSelecionados);
   document.getElementById('btn-salvar-pauta').addEventListener('click', salvarPauta);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
+  document.getElementById('btn-resumo-executivo').addEventListener('click', () => gerarResumoExecutivo());   // ccjc-resumo.js
 
   // Perfis de prompt
   document.getElementById('perfil-select')?.addEventListener('change', refletirSelecaoPerfil);
