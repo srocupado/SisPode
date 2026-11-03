@@ -109,6 +109,14 @@ for (const [k, re, nome] of [['sl', /^\$B\$\d+\/(1|3|5|7|9)$/, 'Sainte-Laguë: v
     ok(cP.nao === 0 && cP.n > 5 && cel.some(c => re.test(c.f || '')), `${nome}${sem2 ? ' (sem o § 2º)' : ''}: a conta de cada rodada por fórmula; as ${cP.n} conferências batem`);
   }
 }
+{
+  // estudo do PDT (ADI 8.036): uma vaga por agremiação a cada volta — quem já levou fica em branco na rodada
+  const ssP = [{ id: 'adi8036', nome: 'ADI 8.036 (PDT)', tipo: 'proporcional', op: { sobras: 'restos', umaPorRodada: true, pctPartido: 0, pctCandidato: 0.2 } }];
+  const rP = S.snSimular(dados, ssP);
+  const mP = M.smMemorial({ dados, res: rP, sistemas: ssP, ind: S.snIndicadores(rP, dados), ordem: S.snOrdemPartidos(rP), meta: { titulo: 'T', eleicao: 't', parametros: [] } });
+  const cP = mP.conferencias['ADI 8.036 (PDT)'];
+  ok(cP && cP.nao === 0 && cP.n > 5, `uma vaga por agremiação a cada volta (estudo do PDT): as ${cP && cP.n} conferências batem`);
+}
 console.log('Distrital misto com a lista preordenada de um partido no memorial');
 {
   const op0 = { pctDistrital: 0.5, arred: 'baixo', regra: 'partido', modelo: 'compensatorio', limiar: 0, porUf };

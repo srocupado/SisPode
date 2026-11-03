@@ -150,20 +150,25 @@ function smAbaProporcional(s, dados, ufs, res) {
     // sobras, rodada a rodada (a ordem em que o simulador elegeu)
     const rodadas = eleitos.filter(x => x.fase !== 'QP');
     if (!rodadas.length) continue;
-    aba.add([`Sobras (${sob.nome}): ${sob.txt}, para cada agremiação que pode disputar a vaga da rodada; em branco, quem não pode (abaixo do mínimo ou sem candidato que o alcance). Leva a maior; empate: a mais votada.`]);
+    aba.add([`Sobras (${sob.nome}): ${sob.txt}, para cada agremiação que pode disputar a vaga da rodada; em branco, quem não pode (abaixo do mínimo ou sem candidato que o alcance${op.umaPorRodada ? ', ou já levou uma vaga nesta volta — uma por agremiação a cada volta' : ''}). Leva a maior; empate: a mais votada.`]);
     const rc = aba.prox();
     aba.add(['Rodada', 'Fase', ...agrs.map(smSiglas), 'Eleita (simulador)', op.sobras === 'restos' ? 'Maior resto (fórmula)' : 'Maior média (fórmula)', 'Confere', 'Candidato eleito']);
     const c0 = 2, c1 = c0 + agrs.length - 1;
     const lug = {};
     for (const a of agrs) lug[a.id] = eleitos.filter(x => x.agr === a.id && x.fase === 'QP').length;
     const ja = new Set(eleitos.filter(x => x.fase === 'QP').map(x => x.sq));
+    // uma vaga por agremiação a cada volta (op.umaPorRodada): quem já levou nesta volta fica em branco
+    const naVolta = new Set();
+    let faseAnt = null;
     rodadas.forEach((x, k) => {
       const r = aba.prox();
       const terceira = /3ª/.test(x.fase);
+      const pode = a => (terceira ? (aberta || a.votos >= pctP * qe) : a.votos >= pctP * qe)
+        && a.cands.some(c => c.valido && !ja.has(c.sq) && (terceira || c.votos >= pctC * qe));
+      if (terceira !== faseAnt || (op.umaPorRodada && agrs.every(a => !pode(a) || naVolta.has(a.id)))) naVolta.clear();
+      faseAnt = terceira;
       const cel = agrs.map(a => {
-        const podeAgr = terceira ? (aberta || a.votos >= pctP * qe) : a.votos >= pctP * qe;
-        const tem = a.cands.some(c => c.valido && !ja.has(c.sq) && (terceira || c.votos >= pctC * qe));
-        if (!podeAgr || !tem) return null;
+        if (!pode(a) || naVolta.has(a.id)) return null;
         return { f: sob.f(smAbs(1, linha[a.id]), lug[a.id], QE), v: sob.v(a.votos, lug[a.id], qe) };
       });
       const vals = cel.map(c => (c ? c.v : -Infinity));
@@ -176,6 +181,7 @@ function smAbaProporcional(s, dados, ufs, res) {
         smFConfere(smRef(c1 + 1, r), smRef(c1 + 2, r), venc ? smSiglas(venc) : x.agr, maior), x.cand ? x.cand.nome : '']);
       lug[x.agr] = (lug[x.agr] || 0) + 1;
       ja.add(x.sq);
+      if (op.umaPorRodada) naVolta.add(x.agr);
     });
   }
   return aba;
