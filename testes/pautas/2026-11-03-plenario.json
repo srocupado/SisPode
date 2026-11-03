@@ -1,0 +1,22 @@
+{
+ "fonte": "Pauta do Plenário de 03/11/2026 (Sessão Deliberativa Extraordinária semipresencial, 13h55). Incidente: os itens 6 e 7 eram RECURSOS (Recurso nº 68, de 2019, e nº 19, de 2022, contra apreciação conclusiva de comissão) e o parser não os conhecia — a pauta pulava do 5 para o 8, em silêncio, e a ementa do requerimento 5 engolia o texto deles.",
+ "itens": 21,
+ "ordens": "1-21",
+ "vinculos": {
+  "REQ-3511-2026": "PL-504-2021",
+  "REQ-3721-2026": "PL-3507-2026",
+  "REQ-4057-2026": "PL-5086-2026"
+ },
+ "recursos": [
+  "REC-68-2019",
+  "REC-19-2022"
+ ],
+ "projetos": [
+  "PL-2879-2011",
+  "PL-1932-2021",
+  "PL-3099-2019",
+  "PL-79-2020",
+  "PL-2994-2020",
+  "PL-5902-2023"
+ ]
+}

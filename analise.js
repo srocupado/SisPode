@@ -424,7 +424,7 @@ function renderizarPauta() {
     rfs.forEach(it => cont.appendChild(renderCard(it)));
   }
   if (reqs.length) {
-    cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Requerimentos de Urgência (${reqs.length})</h2>`);
+    cont.insertAdjacentHTML('beforeend', `<h2 class="an-secao-titulo">Requerimentos de Urgência${reqs.some(i => i.sigla === 'REC') ? ' e Recursos' : ''} (${reqs.length})</h2>`);
     reqs.forEach(it => cont.appendChild(renderCard(it)));
   }
   if (projs.length) {
@@ -852,11 +852,12 @@ function atualizarLinhaUrgencia(it) {
 /** Linha "Urgência p/" do card, com a fonte e, se houver, a divergência. */
 function htmlLinhaUrgencia(it) {
   const a = it.projetoUrgenciado, v = it.vinculo || {};
-  if (!a) return it.tipoCategoria === 'requerimento' && it.vinculo ? '<b>Urgência p/ </b> <span class="an-vinc-sem">projeto não identificado</span>' : '';
+  const rot = it.sigla === 'REC' ? 'Recurso sobre' : 'Urgência p/';   // o recurso é contra a apreciação conclusiva de um projeto
+  if (!a) return it.tipoCategoria === 'requerimento' && it.vinculo ? `<b>${rot} </b> <span class="an-vinc-sem">projeto não identificado</span>` : '';
   const fonte = v.fonte ? ` <span class="an-vinc-fonte" title="De onde veio o vínculo">(${escapeHtml(ROTULO_FONTE_VINCULO[v.fonte] || v.fonte)})</span>` : '';
   const div = (v.divergencia || []).length
     ? ` <span class="an-vinc-div" title="As fontes discordam — confira e, se preciso, use 🔗 Vincular projeto">⚠ ${v.divergencia.map(x => `${escapeHtml(ROTULO_FONTE_VINCULO[x.fonte] || x.fonte)} diz ${escapeHtml(rotuloAlvo(x.alvo))}`).join('; ')}</span>` : '';
-  return `<b>Urgência p/ </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}`;
+  return `<b>${rot} </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}`;
 }
 
 async function enriquecerItem(it) {
@@ -4650,6 +4651,7 @@ function _alvoItem(it) {
 function tituloVotacao(it) {
   if (it.tipoCategoria === 'requerimento') {
     const a = it.projetoUrgenciado;
+    if (it.sigla === 'REC') return `Recurso ${it.numero}/${it.ano}` + (a ? ` (${tipoLabel(a.sigla)} ${a.numero}/${a.ano})` : '');
     return a ? `Urgência ao ${tipoLabel(a.sigla)} ${a.numero}/${a.ano}` : 'Requerimento de urgência';
   }
   if (it.tipoCategoria === 'redacao_final') return `Redação Final do ${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;

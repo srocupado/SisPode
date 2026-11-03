@@ -271,7 +271,7 @@ function parsearPautaExtenso(texto) {
   // cortado ali e os 8 requerimentos ficaram sem o projeto da urgência. As
   // grafias do cabeçalho ("Requerimento"/"REQUERIMENTO", "nº"/"Nº", "de"/"DE")
   // vão escritas por extenso no lugar da flag.
-  const reqRegex = /(\d{1,2})[ \t]?\.\s+(?:Requerimento|REQUERIMENTO)\s+(?:[nN]\s*[º°oO]\.?\s*)?(?:([\d.]+)|[sS]\/\s*[nN]\s*[º°oO]?)\s*,\s*(?:de|DE)\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+(?:Requerimento|REQUERIMENTO)|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/g;
+  const reqRegex = /(\d{1,2})[ \t]?\.\s+(?:Requerimento|REQUERIMENTO)\s+(?:[nN]\s*[º°oO]\.?\s*)?(?:([\d.]+)|[sS]\/\s*[nN]\s*[º°oO]?)\s*,\s*(?:de|DE)\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+(?:Requerimento|REQUERIMENTO|Recurso|RECURSO)|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/g;
   let m;
   while ((m = reqRegex.exec(texto)) !== null) {
     const ordem   = parseInt(m[1], 10);
@@ -307,6 +307,31 @@ function parsearPautaExtenso(texto) {
       ementa:   bloco.replace(/\s+/g, ' ').replace(/^[\s,;.]+/, '').trim().slice(0, 600),
       autorTexto: (autorMatch?.[0] || '').trim(),
       projetoUrgenciado: proj,
+      apensadosTexto: [],
+      relator: null,
+    });
+  }
+
+  // === RECURSOS (contra apreciação conclusiva de comissão) ===
+  // "6. Recurso nº 68, de 2019, do Sr. Alexandre Padilha, que recorre contra
+  // apreciação conclusiva de comissão ao Projeto de Lei nº 2.334, de 2019…".
+  // MEDIDO na pauta de 03/11/2026: os itens 6 e 7 eram Recursos, que o parser
+  // não conhecia — a pauta pulava do 5 para o 8, em silêncio, e a ementa do
+  // requerimento 5 engolia o texto deles. Entram como 'requerimento' de sigla
+  // REC, a convenção do parser compacto e da adição manual; o projeto de que se
+  // recorre NÃO é "projeto da urgência", então não vai em projetoUrgenciado.
+  const recRegex = /(\d{1,2})[ \t]?\.\s+(?:Recurso|RECURSO)\s+(?:[nN]\s*[º°oO]\.?\s*)?([\d.]+)\s*,\s*(?:de|DE)\s*(\d{4})([\s\S]{0,1500}?)(?=\n\d{1,2}[ \t]?\.\s+(?:Requerimento|REQUERIMENTO|Recurso|RECURSO)|\nURG[ÊE]NCIA|\n[A-ZÀ-Ú][A-ZÀ-Ú\s]{8,}\n|$)/g;
+  while ((m = recRegex.exec(texto)) !== null) {
+    const bloco = m[4];
+    const autorMatch = bloco.match(/d[oa]s?\s+(Sr\.|Sra\.|Senhor|Senhora)[^,.]{0,80}/i);
+    resultado.itens.push({
+      ordem:    parseInt(m[1], 10),
+      tipoCategoria: 'requerimento',
+      sigla:    'REC',
+      numero:   limpaNumero(m[2]),
+      ano:      m[3],
+      ementa:   bloco.replace(/\s+/g, ' ').replace(/^[\s,;.]+/, '').trim().slice(0, 600),
+      autorTexto: (autorMatch?.[0] || '').trim(),
       apensadosTexto: [],
       relator: null,
     });
