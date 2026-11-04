@@ -957,9 +957,20 @@ async function enriquecerItem(it) {
     // Apensados via API
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
-    const apensados = await resolverApensados(prop.id);
-    it.enriquecimento.apensados = apensados;
-    it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    // Apensados só existem na API: falha aqui (API fora) não derruba a autoria
+    // já apurada — o card mostrava "Autoria: não verificada" com a autoria
+    // lida no portal (PL 2475/2025, 04/11/2026). Fica marcada para o
+    // Reverificar; a geração tenta de novo sob demanda (escolherDocumentos).
+    try {
+      const apensados = await resolverApensados(prop.id);
+      it.enriquecimento.apensados = apensados;
+      it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+      delete it.enriquecimento.apensadosFalha;
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      console.warn(`Apensados de ${alvo.sigla} ${alvo.numero}/${alvo.ano} não consultados:`, e.message);
+      it.enriquecimento.apensadosFalha = e.message;
+    }
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
@@ -1228,6 +1239,61 @@ async function fetchAutoresPortal(idProp) {
 }
 
 async function fetchApensados(idProp) {
+  try {
+    return await fetchApensadosApi(idProp);
+  } catch (e) {
+    // API fora (ou detalhe de alguma relacionada sem resposta): árvore de
+    // apensadas pelo webservice do portal.
+    const alt = await fetchApensadosPortal(idProp).catch(() => null);
+    if (!alt) throw e;
+    console.warn(`[análise] apensados de ${idProp} lidos no portal (API: ${e.message}).`);
+    return alt;
+  }
+}
+
+/** Proposição pelo id no webservice do portal (SitCamaraWS/ObterProposicaoPorID). */
+async function obterProposicaoPortal(id) {
+  const r = await fetch(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicaoPorID?IdProp=${id}`,
+    (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
+  if (!r.ok) throw new Error(`HTTP ${r.status} no portal (proposição ${id})`);
+  const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+  const raiz = xml.documentElement;
+  const txt = tag => ([...raiz.children].find(c => c.tagName === tag)?.textContent || '').trim();
+  const nome = txt('nomeProposicao').match(/^(\S+)\s+(\d+)\/(\d{4})/);
+  const link = txt('LinkInteiroTeor');
+  const apensadas = [...(raiz.getElementsByTagName('apensadas')[0]?.getElementsByTagName('codProposicao') || [])]
+    .map(c => Number(c.textContent.trim())).filter(Boolean);
+  return {
+    id: Number(txt('idProposicao')) || Number(id),
+    siglaTipo: nome?.[1] || '', numero: nome?.[2] || '', ano: nome?.[3] || '',
+    ementa: txt('Ementa'),
+    urlInteiroTeor: link ? link.replace(/^https?:\/\/www\.camara\.gov\.br\//i, 'https://www.camara.leg.br/') : null,
+    apensadas,
+  };
+}
+
+/**
+ * Apensados pelo portal: o bloco <apensadas> do webservice já traz a árvore da
+ * principal (inclusive a apensada à apensada); percorre também as apensadas de
+ * cada uma, sem repetir, para cobrir cadeias. Mesmo formato de fetchApensadosApi.
+ */
+async function fetchApensadosPortal(idProp) {
+  const alvo = await obterProposicaoPortal(idProp);
+  const vistos = new Set([Number(idProp)]);
+  const fila = [...alvo.apensadas];
+  const out = [];
+  while (fila.length && out.length < 60) {
+    const id = fila.shift();
+    if (vistos.has(id)) continue;
+    vistos.add(id);
+    const d = await obterProposicaoPortal(id);
+    out.push({ id: d.id, siglaTipo: d.siglaTipo, numero: d.numero, ano: d.ano, ementa: d.ementa, urlInteiroTeor: d.urlInteiroTeor });
+    fila.push(...d.apensadas);
+  }
+  return out;
+}
+
+async function fetchApensadosApi(idProp) {
   const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/relacionadas`);
   const relacionadas = json.dados || [];
   if (!relacionadas.length) return [];
@@ -1240,11 +1306,11 @@ async function fetchApensados(idProp) {
   // resolvemos a RAIZ de cada candidata seguindo uriPropPrincipal até o topo e
   // só consideramos apensadas as que compartilham a mesma raiz da nossa matéria.
   const idDaUri = uri => uri ? Number(String(uri).split('/').pop()) : null;
+  // Detalhe que não veio NÃO pode virar "não é apensada" (a lista sairia
+  // incompleta em silêncio): a falha sobe e fetchApensados cai no portal.
   const detalhe = async (id) => {
     if (cacheDetalheProp.has(id)) return cacheDetalheProp.get(id);
-    let d = null;
-    try { d = (await fetchJson(`${API_BASE}/proposicoes/${id}`)).dados || null; }
-    catch (e) { d = null; }
+    const d = (await fetchJson(`${API_BASE}/proposicoes/${id}`)).dados || null;
     cacheDetalheProp.set(id, d);
     return d;
   };
@@ -1737,7 +1803,7 @@ function parseDataBR(s) {
 // Falha de fonte (API da Câmara fora do ar, deputado não consultado) deixa a
 // autoria "não verificada". Reverificar refaz o enriquecimento do item, sem
 // recarregar a pauta nem tocar nas análises.
-const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta));
+const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta || it.enriquecimento.apensadosFalha));
 
 function anexarBotaoReverificar(it, flag) {
   const b = document.createElement('button');
@@ -1842,6 +1908,11 @@ function atualizarBadgesCard(it) {
   }
   if (!enr.autoriaIncerta && (enr.autores || []).some(a => a.fonte === 'portal')) {
     flag.title = 'Autoria conferida no portal da Câmara (a API de Dados Abertos não respondeu); partido atual pela lista de deputados em exercício.';
+  }
+  if (enr.apensadosFalha && !enr.autoriaIncerta) {
+    // Autoria apurada, apensados não (só a API os informa): botão para tentar de novo.
+    flag.title = (flag.title ? flag.title + ' ' : '') + 'Apensados não consultados (API da Câmara fora do ar) — use ↻ Reverificar.';
+    anexarBotaoReverificar(it, flag);
   }
 
   // Relatoria do Podemos em Plenário (badge azul claro)
