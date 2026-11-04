@@ -302,7 +302,7 @@ async function secaoComissao(org, dataIso, partido, deputado, deps) {
       const ementa = (projeto.ementa || '').trim().replace(/\s+/g, ' ');
       let linha = `   • ${tag}${papelTxt}\n     autor: ${aut} · relator: ${relTxt}`;
       linha += voto ? `\n     🗳️ voto do relator: ${voto}` : `\n     🗳️ voto do relator: (ainda sem parecer na pauta)`;
-      linha += `\n     ${ementa.slice(0, 140)}`;
+      linha += `\n     ${ementa}`;   // inteira: o responderLongo divide a mensagem se passar do limite do Telegram
       linhas.push(linha);
     }
 
