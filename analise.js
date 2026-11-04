@@ -957,9 +957,20 @@ async function enriquecerItem(it) {
     // Apensados via API
     etapa = 'apensados';
     if (!itemAindaAtivo(it)) return;  // pauta trocada — evita a cadeia N+1 de relacionadas
-    const apensados = await resolverApensados(prop.id);
-    it.enriquecimento.apensados = apensados;
-    it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+    // Apensados só existem na API: falha aqui (API fora) não derruba a autoria
+    // já apurada — o card mostrava "Autoria: não verificada" com a autoria
+    // lida no portal (PL 2475/2025, 04/11/2026). Fica marcada para o
+    // Reverificar; a geração tenta de novo sob demanda (escolherDocumentos).
+    try {
+      const apensados = await resolverApensados(prop.id);
+      it.enriquecimento.apensados = apensados;
+      it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+      delete it.enriquecimento.apensadosFalha;
+    } catch (e) {
+      if (isAbortError(e)) throw e;
+      console.warn(`Apensados de ${alvo.sigla} ${alvo.numero}/${alvo.ano} não consultados:`, e.message);
+      it.enriquecimento.apensadosFalha = e.message;
+    }
   } catch (e) {
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
@@ -1737,7 +1748,7 @@ function parseDataBR(s) {
 // Falha de fonte (API da Câmara fora do ar, deputado não consultado) deixa a
 // autoria "não verificada". Reverificar refaz o enriquecimento do item, sem
 // recarregar a pauta nem tocar nas análises.
-const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta));
+const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta || it.enriquecimento.apensadosFalha));
 
 function anexarBotaoReverificar(it, flag) {
   const b = document.createElement('button');
@@ -1842,6 +1853,11 @@ function atualizarBadgesCard(it) {
   }
   if (!enr.autoriaIncerta && (enr.autores || []).some(a => a.fonte === 'portal')) {
     flag.title = 'Autoria conferida no portal da Câmara (a API de Dados Abertos não respondeu); partido atual pela lista de deputados em exercício.';
+  }
+  if (enr.apensadosFalha && !enr.autoriaIncerta) {
+    // Autoria apurada, apensados não (só a API os informa): botão para tentar de novo.
+    flag.title = (flag.title ? flag.title + ' ' : '') + 'Apensados não consultados (API da Câmara fora do ar) — use ↻ Reverificar.';
+    anexarBotaoReverificar(it, flag);
   }
 
   // Relatoria do Podemos em Plenário (badge azul claro)
