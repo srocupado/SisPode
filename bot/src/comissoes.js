@@ -287,17 +287,19 @@ async function secaoComissao(org, dataIso, partido, deputado, deps) {
       const papeis = [];
       if (autorHit) papeis.push('autoria');
       if (relatorHit) papeis.push('relatoria');
-      const tag = `${projeto.siglaTipo} ${projeto.numero}/${projeto.ano}`;
+      // Negrito no padrão do WhatsApp (*…*): o projeto e o autor/relator do partido
+      // procurado — o texto vai do Telegram para o WhatsApp sem retoque.
+      const neg = t => `*${t}*`;
+      const tag0 = `${projeto.siglaTipo} ${projeto.numero}/${projeto.ano}`;
+      const tag = papeis.length ? neg(tag0) : tag0;
       const papelTxt = papeis.length ? ` → ${papeis.join(' + ')}` : '';
       // Com filtro, mostra o(s) autor(es) que CASARAM primeiro (senão o autor do
       // partido some entre os 2 primeiros signatários exibidos).
+      const casa = ([nm, pt]) => matchPessoa(partido, deputado, nm, pt);
       let ordenados = autores;
-      if (alvo) {
-        const casa = ([nm, pt]) => matchPessoa(partido, deputado, nm, pt);
-        ordenados = [...autores.filter(casa), ...autores.filter(a => !casa(a))];
-      }
-      const aut = ordenados.slice(0, 2).map(([nm, pt]) => pt ? `${nm} (${pt})` : nm).join(', ') || '—';
-      const relTxt = relator ? `${relator} (${relPartido || '?'})` : '—';
+      if (alvo) ordenados = [...autores.filter(casa), ...autores.filter(a => !casa(a))];
+      const aut = ordenados.slice(0, 2).map(a => { const t = a[1] ? `${a[0]} (${a[1]})` : a[0]; return casa(a) ? neg(t) : t; }).join(', ') || '—';
+      const relTxt = relator ? (relatorHit ? neg(`${relator} (${relPartido || '?'})`) : `${relator} (${relPartido || '?'})`) : '—';
       const voto = extrairVoto(parecer);
       const ementa = (projeto.ementa || '').trim().replace(/\s+/g, ' ');
       let linha = `   • ${tag}${papelTxt}\n     autor: ${aut} · relator: ${relTxt}`;
