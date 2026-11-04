@@ -374,6 +374,7 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 - **Conferência automática de referências** (anti-alucinação): sinaliza Leis/Decretos/Emendas citados pela IA que não aparecem no documento-fonte
 - Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
 - Status visual por item: aguardando · processando · pronto · falha, com **badge "Redação Final"** nos itens desse bloco
+- **Adicionar projeto** aceita também **Redação Final** (caixa no modal, para todos os tipos menos REQ/REC): o item entra nessa categoria e a análise usa o documento da Redação Final
 
 **Revisão e edição**
 - Editor inline de cada análise, com gravação ao trocar de projeto ou ao salvar a pauta (Firebase + cache local)
