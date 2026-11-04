@@ -822,8 +822,19 @@ function arrayBufferToBase64(buffer) {
   return btoa(parts.join(''));
 }
 
+// Sem prazo, uma API que trava (em vez de responder erro) deixava o card em
+// "Verificando autoria..." indefinidamente (04/11/2026). 25 s e desiste; e,
+// depois de um timeout dos Dados Abertos, as chamadas seguintes falham na hora
+// por 60 s — senão cada etapa esperava os 25 s de novo (erro HTTP já é rápido).
+let _apiCamaraForaAte = 0;
+// Prazo do fetch (onde não há AbortSignal.timeout — ex.: sandbox dos testes —, sem prazo).
+const _comPrazo = ms => (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(ms) } : {};
 async function fetchJson(url) {
-  const res = await fetch(url);
+  const ehApi = /dadosabertos\.camara\.leg\.br/.test(url);
+  if (ehApi && Date.now() < _apiCamaraForaAte) throw new Error('API de Dados Abertos da Câmara fora do ar');
+  let res;
+  try { res = await fetch(url, _comPrazo(25000)); }
+  catch (e) { if (ehApi && e.name === 'TimeoutError') _apiCamaraForaAte = Date.now() + 60000; throw e; }
   if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
   return await res.json();
 }

@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
   document.getElementById('btn-recategorizar').addEventListener('click', abrirRecategorizar);
+  document.getElementById('btn-reverificar-falhas').addEventListener('click', reverificarFalhas);
   document.getElementById('btn-recat-auto').addEventListener('click', recatCorrigirAuto);
   document.getElementById('btn-recat-aplicar').addEventListener('click', aplicarRecategorizar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
@@ -760,7 +761,9 @@ async function enriquecerItens() {
         `Enriquecimento falhou para ${it.chave} (${it.sigla} ${it.numero}/${it.ano}): ${msg}`,
         '\n', e?.stack || ''
       );
-      it.enriquecimento = { status: 'erro', erro: msg };
+      // Mantém o que já foi apurado (id, inteiro teor): falhar na autoria não
+      // pode apagar o id e, com ele, a possibilidade de gerar a análise.
+      it.enriquecimento = { ...(it.enriquecimento || {}), status: 'erro', erro: msg };
       atualizarBadgesCard(it);
     });
   }
@@ -1062,17 +1065,27 @@ async function resolveProposicao(sigla, numero, ano) {
   if (cacheProp.has(ck)) return cacheProp.get(ck);
 
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
-  let hit = null;
-  for (const s of tentativas) {
-    const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
-    const json = await fetchJson(url);
-    hit = (json.dados || [])[0];
-    if (hit) break;
+  let hit = null, det;
+  try {
+    for (const s of tentativas) {
+      const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
+      const json = await fetchJson(url);
+      hit = (json.dados || [])[0];
+      if (hit) break;
+    }
+    if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
+    // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
+    det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
+  } catch (e) {
+    // API de Dados Abertos fora do ar: o id e o inteiro teor saem do webservice
+    // antigo, no portal (www.camara.leg.br). Com o id, pareceres, redação final
+    // e documentos vêm do portal como sempre — a análise não fica bloqueada.
+    const alt = await resolveProposicaoPortal(sigla, numero, ano).catch(() => null);
+    if (!alt) throw e;
+    console.warn(`[análise] API da Câmara falhou (${e.message}); ${sigla} ${numero}/${ano} resolvido pelo portal.`);
+    cacheProp.set(ck, alt);
+    return alt;
   }
-  if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
-
-  // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
-  const det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   const obj = {
     id:             hit.id,
     ementa:         det.dados?.ementa || hit.ementa || '',
@@ -1080,6 +1093,24 @@ async function resolveProposicao(sigla, numero, ano) {
   };
   cacheProp.set(ck, obj);
   return obj;
+}
+
+/** Webservice antigo do portal (SitCamaraWS/ObterProposicao): id, ementa e
+ *  inteiro teor — o mesmo codteor da API, com o domínio antigo (camara.gov.br). */
+async function resolveProposicaoPortal(sigla, numero, ano) {
+  const r = await fetch(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`,
+    (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
+  if (!r.ok) throw new Error(`HTTP ${r.status} no portal`);
+  const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+  const txt = tag => (xml.getElementsByTagName(tag)[0]?.textContent || '').trim();
+  const id = parseInt(txt('idProposicao'), 10);
+  if (!id) throw new Error('portal sem idProposicao');
+  const link = txt('LinkInteiroTeor');
+  return {
+    id,
+    ementa:         txt('Ementa'),
+    urlInteiroTeor: link ? link.replace(/^https?:\/\/www\.camara\.gov\.br\//i, 'https://www.camara.leg.br/') : null,
+  };
 }
 
 async function fetchAutoresProposicao(idProp) {
@@ -1641,7 +1672,69 @@ function parseDataBR(s) {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
+// ---------- Reverificar (enriquecimento que falhou) ----------
+// Falha de fonte (API da Câmara fora do ar, deputado não consultado) deixa a
+// autoria "não verificada". Reverificar refaz o enriquecimento do item, sem
+// recarregar a pauta nem tocar nas análises.
+const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta));
+
+function anexarBotaoReverificar(it, flag) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn btn-outline btn-sm';
+  b.dataset.role = 'badge-extra';           // removido junto com os badges ao recompor
+  b.style.cssText = 'padding:1px 8px;font-size:11px';
+  b.textContent = '↻ Reverificar';
+  b.title = 'Consultar a Câmara de novo para este item';
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Reverificando…';
+    const ok = await reverificarItem(it);
+    mostrarToast(ok ? `✓ ${tipoLabel(it.sigla)} ${it.numero}/${it.ano} verificado` : `A Câmara ainda não respondeu para o ${tipoLabel(it.sigla)} ${it.numero}/${it.ano} — tente mais tarde.`, ok ? 'sucesso' : 'aviso');
+  });
+  flag.after(b);
+}
+
+async function reverificarItem(it) {
+  if (typeof _apiCamaraForaAte !== 'undefined') _apiCamaraForaAte = 0;  // tentativa pedida: ignora a pausa da API
+  const antes = it.enriquecimento || {};
+  try {
+    await enriquecerItem(it);
+  } catch (e) {
+    // Mantém o que a verificação anterior já tinha apurado (id, inteiro teor…).
+    it.enriquecimento = { ...antes, ...(it.enriquecimento || {}), status: 'erro', erro: e?.message || String(e) };
+    atualizarBadgesCard(it);
+  }
+  return !enriquecimentoFalhou(it);
+}
+
+async function reverificarFalhas() {
+  const btn = document.getElementById('btn-reverificar-falhas');
+  const alvos = (state.pauta?.itens || []).filter(enriquecimentoFalhou);
+  if (!alvos.length) return atualizarBotaoReverificar();
+  btn.disabled = true;
+  let feitos = 0;
+  btn.textContent = `↻ Reverificando 0/${alvos.length}…`;
+  await _mapLimit(alvos, 2, async it => {
+    await reverificarItem(it);
+    btn.textContent = `↻ Reverificando ${++feitos}/${alvos.length}…`;
+  });
+  btn.disabled = false;
+  const restam = alvos.filter(enriquecimentoFalhou).length;
+  atualizarBotaoReverificar();
+  mostrarToast(restam ? `${alvos.length - restam} de ${alvos.length} verificados; ${restam} ainda sem resposta da Câmara.` : `✓ ${alvos.length} item(ns) verificados.`, restam ? 'aviso' : 'sucesso');
+}
+
+/** O botão da barra só aparece quando há item com verificação falha. */
+function atualizarBotaoReverificar() {
+  const btn = document.getElementById('btn-reverificar-falhas');
+  if (!btn || btn.disabled) return;   // em andamento: o próprio laço atualiza
+  const n = (state.pauta?.itens || []).filter(enriquecimentoFalhou).length;
+  btn.style.display = n ? '' : 'none';
+  btn.textContent = `↻ Reverificar falhas (${n})`;
+}
+
 function atualizarBadgesCard(it) {
+  atualizarBotaoReverificar();
   // Item de uma pauta que já foi trocada: não escreve no card (o seletor por
   // data-chave poderia casar com um item homônimo da pauta atual).
   if (!itemAindaAtivo(it)) return;
@@ -1653,6 +1746,7 @@ function atualizarBadgesCard(it) {
   const flag = cont.querySelector('[data-role=autoria-flag]');
   // Remove badges de apensados/podemos prévios para recompor
   cont.querySelectorAll('[data-role=badge-extra]').forEach(b => b.remove());
+  flag.title = '';
 
   const enr = it.enriquecimento;
   if (!enr || enr.status === 'pendente' || enr.status === 'carregando') {
@@ -1663,6 +1757,8 @@ function atualizarBadgesCard(it) {
   if (enr.status === 'erro') {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
+    flag.title = `A consulta à Câmara falhou: ${enr.erro || 'erro desconhecido'}`;
+    anexarBotaoReverificar(it, flag);
     return;
   }
   if (enr.semProjeto) {
@@ -1677,7 +1773,8 @@ function atualizarBadgesCard(it) {
   } else if (enr.autoriaIncerta) {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
-    flag.title = 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Gere de novo para tentar outra vez.';
+    flag.title = 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Use ↻ Reverificar para tentar outra vez.';
+    anexarBotaoReverificar(it, flag);
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
@@ -2520,8 +2617,22 @@ function desatualizacaoOperativa(it) {
 }
 
 async function escolherDocumentos(it) {
-  const enr  = it.enriquecimento || {};
+  const enr  = it.enriquecimento || (it.enriquecimento = {});
   const docs = [];
+
+  // O enriquecimento falhou antes de achar o id (API da Câmara fora do ar,
+  // 04/11/2026): resolve aqui — resolveProposicao cai no portal se a API não
+  // responder. Sem o id não há parecer, redação final nem inteiro teor.
+  if (!enr.idProposicao) {
+    const a = it.tipoCategoria === 'requerimento' && it.projetoUrgenciado ? it.projetoUrgenciado : it;
+    if (a.sigla !== 'REQ') {
+      try {
+        const prop = await resolveProposicao(a.sigla, a.numero, a.ano);
+        enr.idProposicao = prop.id;
+        if (!enr.urlInteiroTeor) enr.urlInteiroTeor = prop.urlInteiroTeor;
+      } catch (e) { if (isAbortError(e)) throw e; console.warn('Id da proposição não resolvido ao gerar:', e.message); }
+    }
+  }
 
   if (it.tipoCategoria === 'projeto') {
     // Corrida ao gerar logo após importar (ou com a pauta recém-carregada do
@@ -2530,9 +2641,14 @@ async function escolherDocumentos(it) {
     // item caía no ramo final e a nota saía sobre o inteiro teor, declarando
     // "Cenário 1 — sem parecer" quando havia PRLP/SBT-A. Resolve sob demanda,
     // como já se faz com MPV, EMS/SSP e apensados.
-    if (!enr.pareceresPlenario && enr.idProposicao) {
+    if ((!enr.pareceresPlenario || enr.pareceresPlenario.falha) && enr.idProposicao) {
       try { enr.pareceresPlenario = await buscarPareceresPlenario(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar pareceres de plenário sob demanda:', e.message); }
+    }
+    // Página de pareceres que não veio NÃO é "sem parecer": seguir daria uma
+    // nota de Cenário 1 sobre o inteiro teor com PRLP/SBT-A publicados.
+    if (enr.idProposicao && !ehMPV(it) && (!enr.pareceresPlenario || enr.pareceresPlenario.falha)) {
+      throw new Error('Não consegui ler a página de pareceres na Câmara — tente de novo em instantes (sem ela a nota sairia como "sem parecer").');
     }
     const par = enr.pareceresPlenario || {};
 
@@ -2691,6 +2807,11 @@ async function escolherDocumentos(it) {
     // Redação Final: analisa o documento próprio (raspado da ficha de
     // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
     // inteiro teor se a Redação Final ainda não estiver publicada.
+    if (enr.urlRedacaoFinal === undefined && enr.idProposicao) {
+      // Enriquecimento interrompido (API fora) antes desta etapa: busca agora.
+      try { enr.urlRedacaoFinal = await buscarRedacaoFinal(enr.idProposicao); }
+      catch (e) { if (isAbortError(e)) throw e; console.warn('Redação Final não buscada:', e.message); }
+    }
     if (enr.urlRedacaoFinal) {
       docs.push({ tipo: 'REDACAO_FINAL', rotulo: 'Redação Final', url: enr.urlRedacaoFinal });
     } else if (enr.urlInteiroTeor) {
@@ -5396,7 +5517,7 @@ async function fetchJsonCamara(url, tentativas = 4) {
   for (let i = 0; i < tentativas; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
       if (res.ok) return await res.json();
       if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
       throw new Error(`HTTP ${res.status} em ${url}`);

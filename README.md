@@ -374,6 +374,8 @@ Gere resumos e análises dos projetos de lei da **Comissão de Constituição e 
 - **Conferência automática de referências** (anti-alucinação): sinaliza Leis/Decretos/Emendas citados pela IA que não aparecem no documento-fonte
 - Suporte a **PDF nativo** (sem conversão de texto) preservando formatação
 - Status visual por item: aguardando · processando · pronto · falha, com **badge "Redação Final"** nos itens desse bloco
+- **API de Dados Abertos fora do ar**: as consultas à API desistem em 25 s (antes o card ficava em "Verificando autoria..." indefinidamente); o id e o inteiro teor da proposição passam a vir do webservice do portal (`SitCamaraWS/ObterProposicao`), e pareceres, redação final e documentos já vêm do portal — a análise é gerada mesmo com a autoria "não verificada". Se a página de pareceres não carregar, a geração para com aviso em vez de produzir uma nota "sem parecer"
+- **↻ Reverificar**: item com autoria "não verificada" (consulta à Câmara falhou) ganha o botão ao lado do badge, e a barra mostra **↻ Reverificar falhas (N)** enquanto houver itens assim — refaz a verificação (autoria, apensados, pareceres) sem recarregar a pauta nem tocar nas análises
 - **Adicionar projeto** aceita também **Redação Final** (caixa no modal, para todos os tipos menos REQ/REC): o item entra nessa categoria e a análise usa o documento da Redação Final
 
 **Revisão e edição**
