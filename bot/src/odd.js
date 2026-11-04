@@ -33,7 +33,8 @@ function itemDaApi(x) {
   const numero = String(p.numero || '');
   const ano    = String(p.ano || '');
   const ehReq  = /^(REQ|REC)$/.test(sigla);
-  const ehRF   = /reda[çc][ãa]o\s+final/i.test(`${x.topico || ''} ${x.regime || ''} ${x.titulo || ''}`);
+  // A API usa o plural no tópico: "Redações Finais (RICD, art. 83, I)".
+  const ehRF   = /reda[çc](?:[ãa]o|[õo]es)\s+fina(?:l|is)/i.test(`${x.topico || ''} ${x.regime || ''} ${x.titulo || ''}`);
   return {
     ordem:         x.ordem,
     tipoCategoria: ehReq ? 'requerimento' : (ehRF ? 'redacao_final' : 'projeto'),

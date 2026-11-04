@@ -6531,6 +6531,7 @@ function abrirModalAdicionar() {
   document.getElementById('add-ano').value = '';
   document.getElementById('add-ordem').value = '';
   document.getElementById('add-urgencia').value = '';
+  document.getElementById('add-rf').checked = false;
   document.getElementById('add-status').textContent = '';
   atualizarCampoUrgencia();
   document.getElementById('modal-adicionar').style.display = 'flex';
@@ -6550,10 +6551,12 @@ function ordenarItensPorOrdem() {
   });
 }
 
-/** O campo do projeto urgenciado só faz sentido para requerimento. */
+/** O campo do projeto urgenciado só faz sentido para requerimento; a marca de
+ *  Redação Final, para os demais tipos (REQ e REC não têm redação final). */
 function atualizarCampoUrgencia() {
-  const ehReq = document.getElementById('add-tipo').value === 'REQ';
-  document.getElementById('add-urgencia-wrap').style.display = ehReq ? '' : 'none';
+  const tipo = document.getElementById('add-tipo').value;
+  document.getElementById('add-urgencia-wrap').style.display = tipo === 'REQ' ? '' : 'none';
+  document.getElementById('add-rf-wrap').style.display = /^(REQ|REC)$/.test(tipo) ? 'none' : '';
 }
 
 /** "PL 1400/2015", "Projeto de Lei nº 1.400, de 2015", "…nº 1.400/2015" →
@@ -6576,6 +6579,7 @@ async function confirmarAdicionar() {
   const ano    = (document.getElementById('add-ano').value || '').trim();
   const ordem  = parseInt(document.getElementById('add-ordem').value, 10);
   const stEl   = document.getElementById('add-status');
+  const ehRF   = !/^(REQ|REC)$/.test(sigla) && document.getElementById('add-rf').checked;
 
   if (!numero || !/^\d{4}$/.test(ano)) {
     stEl.textContent = 'Informe número e ano (4 dígitos).';
@@ -6584,7 +6588,7 @@ async function confirmarAdicionar() {
 
   const chave = `${sigla}-${numero}-${ano}`;
   if (state.pauta.itens.some(it => it.chave === chave)) {
-    stEl.textContent = 'Este item já está na pauta.';
+    stEl.textContent = 'Este item já está na pauta (para mudar a categoria, use "Recategorizar").';
     return;
   }
   // Número já usado: avisa e deixa decidir. Renumerar os demais por conta
@@ -6628,7 +6632,7 @@ async function confirmarAdicionar() {
       ordem:         isNaN(ordem) ? null : ordem,
       // REC entra como 'requerimento', a mesma convenção do parser compacto —
       // não se inventa categoria nova, que ninguém mais no módulo entenderia.
-      tipoCategoria: (ehReq || sigla === 'REC') ? 'requerimento' : 'projeto',
+      tipoCategoria: (ehReq || sigla === 'REC') ? 'requerimento' : (ehRF ? 'redacao_final' : 'projeto'),
       sigla,
       numero,
       ano,
@@ -6654,7 +6658,7 @@ async function confirmarAdicionar() {
 
     document.getElementById('modal-adicionar').style.display = 'none';
     const alvo = novo.projetoUrgenciado;
-    mostrarToast(`✓ ${tipoLabel(sigla)} ${numero}/${ano} adicionado à pauta` +
+    mostrarToast(`✓ ${ehRF ? 'Redação Final do ' : ''}${tipoLabel(sigla)} ${numero}/${ano} adicionad${ehRF ? 'a' : 'o'} à pauta` +
       (ehReq ? (alvo ? ` — urgência do ${alvo.sigla} ${alvo.numero}/${alvo.ano}`
                      : ' — projeto da urgência não identificado; use "Vincular projeto" no card') : ''),
       ehReq && !alvo ? 'aviso' : 'sucesso');
