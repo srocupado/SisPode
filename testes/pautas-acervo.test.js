@@ -33,7 +33,8 @@ const ok = (c, m) => { if (!c) { falhas++; console.log('  ✗ ' + m); } else con
 const chave = a => (a ? `${a.sigla}-${a.numero}-${a.ano}` : '(nenhum)');
 
 const DIR = path.join(__dirname, 'pautas');
-const casos = fs.readdirSync(DIR).filter(f => f.endsWith('.txt')).sort();
+// Só as pautas com gabarito (.json): outros .txt da pasta são fixtures de outros testes (ex.: PDF do governo da CCJC).
+const casos = fs.readdirSync(DIR).filter(f => f.endsWith('.txt') && fs.existsSync(path.join(DIR, f.replace(/\.txt$/, '.json')))).sort();
 ok(casos.length > 0, `acervo com ${casos.length} pauta(s)`);
 
 for (const arq of casos) {
