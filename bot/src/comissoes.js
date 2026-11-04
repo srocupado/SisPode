@@ -229,7 +229,7 @@ function extrairVoto(parecer) {
   if ((parecer.siglaTipo || '').toUpperCase() !== 'PRL') return '';
   const e = (parecer.ementa || '').replace(/\s+/g, ' ').trim();
   const m = e.match(/\bpel[ao]\s+.+/i);
-  return m ? m[0].replace(/[.\s]+$/, '').slice(0, 170) : '';
+  return m ? m[0].replace(/[.\s]+$/, '') : '';   // inteiro: voto longo ("na forma do Substitutivo da Comissão…") era cortado em 170 caracteres
 }
 
 // ---------- Seção de UMA comissão ----------
