@@ -760,7 +760,9 @@ async function enriquecerItens() {
         `Enriquecimento falhou para ${it.chave} (${it.sigla} ${it.numero}/${it.ano}): ${msg}`,
         '\n', e?.stack || ''
       );
-      it.enriquecimento = { status: 'erro', erro: msg };
+      // Mantém o que já foi apurado (id, inteiro teor): falhar na autoria não
+      // pode apagar o id e, com ele, a possibilidade de gerar a análise.
+      it.enriquecimento = { ...(it.enriquecimento || {}), status: 'erro', erro: msg };
       atualizarBadgesCard(it);
     });
   }
@@ -1062,17 +1064,27 @@ async function resolveProposicao(sigla, numero, ano) {
   if (cacheProp.has(ck)) return cacheProp.get(ck);
 
   const tentativas = SIGLAS_EQUIVALENTES[sigla] || [sigla];
-  let hit = null;
-  for (const s of tentativas) {
-    const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
-    const json = await fetchJson(url);
-    hit = (json.dados || [])[0];
-    if (hit) break;
+  let hit = null, det;
+  try {
+    for (const s of tentativas) {
+      const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
+      const json = await fetchJson(url);
+      hit = (json.dados || [])[0];
+      if (hit) break;
+    }
+    if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
+    // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
+    det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
+  } catch (e) {
+    // API de Dados Abertos fora do ar: o id e o inteiro teor saem do webservice
+    // antigo, no portal (www.camara.leg.br). Com o id, pareceres, redação final
+    // e documentos vêm do portal como sempre — a análise não fica bloqueada.
+    const alt = await resolveProposicaoPortal(sigla, numero, ano).catch(() => null);
+    if (!alt) throw e;
+    console.warn(`[análise] API da Câmara falhou (${e.message}); ${sigla} ${numero}/${ano} resolvido pelo portal.`);
+    cacheProp.set(ck, alt);
+    return alt;
   }
-  if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
-
-  // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
-  const det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   const obj = {
     id:             hit.id,
     ementa:         det.dados?.ementa || hit.ementa || '',
@@ -1080,6 +1092,24 @@ async function resolveProposicao(sigla, numero, ano) {
   };
   cacheProp.set(ck, obj);
   return obj;
+}
+
+/** Webservice antigo do portal (SitCamaraWS/ObterProposicao): id, ementa e
+ *  inteiro teor — o mesmo codteor da API, com o domínio antigo (camara.gov.br). */
+async function resolveProposicaoPortal(sigla, numero, ano) {
+  const r = await fetch(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(sigla)}&numero=${numero}&ano=${ano}`,
+    (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
+  if (!r.ok) throw new Error(`HTTP ${r.status} no portal`);
+  const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+  const txt = tag => (xml.getElementsByTagName(tag)[0]?.textContent || '').trim();
+  const id = parseInt(txt('idProposicao'), 10);
+  if (!id) throw new Error('portal sem idProposicao');
+  const link = txt('LinkInteiroTeor');
+  return {
+    id,
+    ementa:         txt('Ementa'),
+    urlInteiroTeor: link ? link.replace(/^https?:\/\/www\.camara\.gov\.br\//i, 'https://www.camara.leg.br/') : null,
+  };
 }
 
 async function fetchAutoresProposicao(idProp) {
@@ -2520,8 +2550,22 @@ function desatualizacaoOperativa(it) {
 }
 
 async function escolherDocumentos(it) {
-  const enr  = it.enriquecimento || {};
+  const enr  = it.enriquecimento || (it.enriquecimento = {});
   const docs = [];
+
+  // O enriquecimento falhou antes de achar o id (API da Câmara fora do ar,
+  // 04/11/2026): resolve aqui — resolveProposicao cai no portal se a API não
+  // responder. Sem o id não há parecer, redação final nem inteiro teor.
+  if (!enr.idProposicao) {
+    const a = it.tipoCategoria === 'requerimento' && it.projetoUrgenciado ? it.projetoUrgenciado : it;
+    if (a.sigla !== 'REQ') {
+      try {
+        const prop = await resolveProposicao(a.sigla, a.numero, a.ano);
+        enr.idProposicao = prop.id;
+        if (!enr.urlInteiroTeor) enr.urlInteiroTeor = prop.urlInteiroTeor;
+      } catch (e) { if (isAbortError(e)) throw e; console.warn('Id da proposição não resolvido ao gerar:', e.message); }
+    }
+  }
 
   if (it.tipoCategoria === 'projeto') {
     // Corrida ao gerar logo após importar (ou com a pauta recém-carregada do
@@ -2530,9 +2574,14 @@ async function escolherDocumentos(it) {
     // item caía no ramo final e a nota saía sobre o inteiro teor, declarando
     // "Cenário 1 — sem parecer" quando havia PRLP/SBT-A. Resolve sob demanda,
     // como já se faz com MPV, EMS/SSP e apensados.
-    if (!enr.pareceresPlenario && enr.idProposicao) {
+    if ((!enr.pareceresPlenario || enr.pareceresPlenario.falha) && enr.idProposicao) {
       try { enr.pareceresPlenario = await buscarPareceresPlenario(enr.idProposicao); }
       catch (e) { console.warn('Falha ao buscar pareceres de plenário sob demanda:', e.message); }
+    }
+    // Página de pareceres que não veio NÃO é "sem parecer": seguir daria uma
+    // nota de Cenário 1 sobre o inteiro teor com PRLP/SBT-A publicados.
+    if (enr.idProposicao && !ehMPV(it) && (!enr.pareceresPlenario || enr.pareceresPlenario.falha)) {
+      throw new Error('Não consegui ler a página de pareceres na Câmara — tente de novo em instantes (sem ela a nota sairia como "sem parecer").');
     }
     const par = enr.pareceresPlenario || {};
 
@@ -2691,6 +2740,11 @@ async function escolherDocumentos(it) {
     // Redação Final: analisa o documento próprio (raspado da ficha de
     // tramitação na caixa "Documentos Anexos e Referenciados"). Cai no
     // inteiro teor se a Redação Final ainda não estiver publicada.
+    if (enr.urlRedacaoFinal === undefined && enr.idProposicao) {
+      // Enriquecimento interrompido (API fora) antes desta etapa: busca agora.
+      try { enr.urlRedacaoFinal = await buscarRedacaoFinal(enr.idProposicao); }
+      catch (e) { if (isAbortError(e)) throw e; console.warn('Redação Final não buscada:', e.message); }
+    }
     if (enr.urlRedacaoFinal) {
       docs.push({ tipo: 'REDACAO_FINAL', rotulo: 'Redação Final', url: enr.urlRedacaoFinal });
     } else if (enr.urlInteiroTeor) {
@@ -5396,7 +5450,7 @@ async function fetchJsonCamara(url, tentativas = 4) {
   for (let i = 0; i < tentativas; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 400 * i));
     try {
-      const res = await fetch(url);
+      const res = await fetch(url, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
       if (res.ok) return await res.json();
       if (res.status === 429 || res.status >= 500) { erro = new Error(`HTTP ${res.status}`); continue; }
       throw new Error(`HTTP ${res.status} em ${url}`);
