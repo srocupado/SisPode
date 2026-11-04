@@ -1114,7 +1114,16 @@ async function resolveProposicaoPortal(sigla, numero, ano) {
 }
 
 async function fetchAutoresProposicao(idProp) {
-  const json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
+  let json;
+  try {
+    json = await fetchJson(`${API_BASE}/proposicoes/${idProp}/autores`);
+  } catch (e) {
+    // API fora do ar: lista de autores pela página do portal.
+    const alt = await fetchAutoresPortal(idProp).catch(() => null);
+    if (!alt) throw e;
+    console.warn(`[análise] autores de ${idProp} lidos no portal (API: ${e.message}).`);
+    return alt;
+  }
   const autores = json.dados || [];
 
   // Para autores que são deputados, busca partido atual
@@ -1158,12 +1167,64 @@ async function fetchInfoDeputado(idDep) {
     state.cacheAutoria.set(idDep, info);
     return info;
   } catch (e) {
+    // API fora: partido ATUAL pela lista de deputados em exercício do portal.
+    const port = (await deputadosEmExercicioPortal().catch(() => null))?.get(String(idDep));
+    if (port) return port;
     // Um 429 ou 5xx transitório num único deputado não pode contaminar a
     // sessão inteira: a falha NÃO é cacheada (a próxima geração tenta de novo)
     // e volta marcada, para o chamador não a ler como "não é do Podemos".
     console.warn(`Não consegui consultar o deputado ${idDep}:`, e.message);
     return { falhou: true };
   }
+}
+
+// ---------- Autoria pelo portal (fallback da API de Dados Abertos) ----------
+// Deputados em exercício com o partido ATUAL (webservice SitCamaraWS/
+// ObterDeputados, uma chamada para os 513). O id (ideCadastro) é o mesmo da API.
+// Cacheado só o sucesso: falha volta a tentar na próxima consulta.
+let _deputadosPortal = null;
+async function deputadosEmExercicioPortal() {
+  if (_deputadosPortal) return _deputadosPortal;
+  const r = await fetch('https://www.camara.leg.br/SitCamaraWS/Deputados.asmx/ObterDeputados',
+    (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(30000) } : {});
+  if (!r.ok) throw new Error(`HTTP ${r.status} no portal (deputados)`);
+  const xml = new DOMParser().parseFromString(await r.text(), 'text/xml');
+  const mapa = new Map();
+  for (const d of xml.getElementsByTagName('deputado')) {
+    const t = tag => (d.getElementsByTagName(tag)[0]?.textContent || '').trim();
+    if (t('ideCadastro')) mapa.set(t('ideCadastro'), { nome: t('nomeParlamentar') || t('nome'), siglaPartido: t('partido'), siglaUf: t('uf'), fonte: 'portal' });
+  }
+  if (mapa.size < 400) throw new Error(`lista de deputados do portal incompleta (${mapa.size})`);
+  return (_deputadosPortal = mapa);
+}
+
+/**
+ * Autores pela página do portal (prop_autores), no mesmo formato de
+ * fetchAutoresProposicao. A ordem da lista é a de assinatura (1º = autor).
+ * O partido impresso na página é o DA ÉPOCA da autoria — o atual vem de
+ * deputadosEmExercicioPortal(); quem não está em exercício fica "não verificado".
+ */
+async function fetchAutoresPortal(idProp) {
+  const html = await fetchHtmlCamara(`https://www.camara.leg.br/proposicoesWeb/prop_autores?idProposicao=${idProp}`);
+  if (!html) throw new Error('página de autores do portal indisponível');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const lis = [...doc.querySelectorAll('#content ul li')].filter(li => li.textContent.trim());
+  if (!lis.length) throw new Error('página de autores do portal sem autores');
+  const atuais = await deputadosEmExercicioPortal().catch(() => null);
+  return lis.map((li, i) => {
+    const nomeTxt = li.textContent.replace(/\s+/g, ' ').trim();
+    const nome = nomeTxt.replace(/\s+-\s+[^-]+\/[A-Z]{2}$/, '');
+    const m = (li.querySelector('a')?.getAttribute('href') || '').match(/\/deputados\/(\d+)/);
+    if (!m) return { nome, tipo: '', ordem: i + 1, proponente: i === 0 ? 1 : 0, isPodemos: false, fonte: 'portal' };
+    const info = atuais?.get(m[1]);
+    return {
+      idDeputado: m[1], nome: info?.nome || nome, siglaPartido: info?.siglaPartido, siglaUf: info?.siglaUf,
+      tipo: 'Deputado', ordem: i + 1, proponente: i === 0 ? 1 : 0,
+      isPodemos: !!info && info.siglaPartido === SIGLA_PODEMOS,
+      autoriaIncerta: !info,
+      fonte: 'portal',
+    };
+  });
 }
 
 async function fetchApensados(idProp) {
@@ -1778,6 +1839,9 @@ function atualizarBadgesCard(it) {
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
+  }
+  if (!enr.autoriaIncerta && (enr.autores || []).some(a => a.fonte === 'portal')) {
+    flag.title = 'Autoria conferida no portal da Câmara (a API de Dados Abertos não respondeu); partido atual pela lista de deputados em exercício.';
   }
 
   // Relatoria do Podemos em Plenário (badge azul claro)
