@@ -364,6 +364,20 @@ function parsearPautaExtenso(texto) {
     });
   }
 
+  // Cabeçalho DENTRO do título de outro item não é item: "(DA COMISSÃO
+  // ESPECIAL DESTINADA A PROFERIR PARECER À\nMENSAGEM Nº 696, DE 2010, …)" no
+  // PDL 405/2022 (pautas de 02 e 03/06/2026) virava um item fantasma, sem nº de
+  // ordem. Sinal: parêntese aberto e não fechado na linha anterior E nenhum
+  // número de ordem antes. Sai antes do fatiamento, para o bloco do item
+  // verdadeiro não ser cortado no fantasma.
+  for (let i = headers.length - 1; i >= 0; i--) {
+    const h = headers[i];
+    const linhaAnt = (texto.slice(Math.max(0, h.idx - 300), h.idx).match(/([^\n]*)\n[ \t]*$/) || [])[1] || '';
+    const abertos = (linhaAnt.match(/\(/g) || []).length - (linhaAnt.match(/\)/g) || []).length;
+    const temOrdem = /(?:^|\n)[ \t]*\d(?:[ \t]*\d){0,2}[ \t]*\n[^\n]*$/.test(texto.slice(Math.max(0, h.idx - 60), h.idx));
+    if (abertos > 0 && !temOrdem) headers.splice(i, 1);
+  }
+
   for (let i = 0; i < headers.length; i++) {
     const h = headers[i];
     // Compara sem acento: o cabeçalho casado pode ter vindo do PDF sem crase,
@@ -787,9 +801,221 @@ function parsearPautaPlenarioExportada(texto) {
 }
 
 // ============================================================
+//  DETECTOR DE LACUNAS
+//  O parser reconhece cada item por regras de grafia; quando a Câmara muda a
+//  grafia (plural, "nº", tipo novo como Recurso), o item SUMIA EM SILÊNCIO —
+//  a pauta de 03/11/2026 pulava do 5 para o 8. Aqui a numeração é lida do
+//  próprio texto, sem depender da grafia do item: na pauta extensa os itens
+//  vêm como "N. Requerimento…" (matéria sobre a mesa) ou como o número sozinho
+//  numa linha seguido do título em maiúsculas (Ordem do Dia); na compacta, como
+//  "N SIGLA X/AAAA". Número que aparece no texto e não está entre os itens lidos
+//  é lacuna — e o trecho do texto onde ele está segue para a IA.
+// ============================================================
+// Depois de "AVISOS" vêm outras listas numeradas (recursos, emendas) que não
+// são itens da pauta.
+const FIM_ITENS_PAUTA = /\n\s*(?:AVISOS|PROPOSI[ÇC][ÕO]ES\s+EM\s+FASE\s+DE\s+RECEBIMENTO)\b/;
+const RE_ITEM_PONTO   = /^\s*(\d(?:\s?\d){0,2})[ \t]?\.\s+\S/;                 // "12. Requerimento…" / "1 2 . …"
+const RE_ITEM_SOZINHO = /^\s*(\d(?:\s?\d){0,2})\s*$/;                           // "14" (Ordem do Dia)
+const RE_ITEM_COMPACT = /^\s*(\d{1,3})\s+(?:REQ|REC|PLP|PEC|PDL|PDC|MPV|PRC|PLV|PL|MSC)\s+[\d.]+\/\d{4}\b/;
+const ehTituloMaiusculo = l => {
+  const letras = (l.match(/[A-Za-zÀ-ÿ]/g) || []).length;
+  const maius  = (l.match(/[A-ZÀ-Ý]/g) || []).length;
+  return letras >= 8 && maius / letras > 0.8 && !/^C[ÂA]MARA\s+DOS\s+DEPUTADOS/.test(l.trim());
+};
+
+/**
+ * Âncoras de item no texto: [{ ordem, pos }] em ordem crescente de número.
+ * A numeração é contínua (1..N): só aceita número MAIOR que o anterior e no
+ * máximo 6 adiante — página, artigo ou alínea soltos não viram item.
+ */
+function ancorasItensPauta(texto) {
+  const t = String(texto || '');
+  const fim = t.search(FIM_ITENS_PAUTA);
+  const corpo = fim > 0 ? t.slice(0, fim) : t;
+  const linhas = corpo.split('\n');
+  const out = [];
+  let ultimo = 0, pos = 0;
+  for (let i = 0; i < linhas.length; i++) {
+    const l = linhas[i];
+    let m = RE_ITEM_COMPACT.exec(l) || RE_ITEM_PONTO.exec(l);
+    if (!m) {
+      const s = RE_ITEM_SOZINHO.exec(l);
+      const prox = (linhas.slice(i + 1).find(x => x.trim()) || '');
+      if (s && ehTituloMaiusculo(prox)) m = s;
+    }
+    if (m) {
+      const n = parseInt(m[1].replace(/\s+/g, ''), 10);
+      if (n > ultimo && n <= ultimo + 6) { out.push({ ordem: n, pos }); ultimo = n; }
+    }
+    pos += l.length + 1;
+  }
+  return { ancoras: out, fimItens: corpo.length };
+}
+
+/**
+ * Números de item presentes no texto e ausentes da lista lida pelo parser.
+ * Devolve { total, faltando: [n], trechos: { n: texto } } — o trecho vai do
+ * item lido anterior ao seguinte (o pedaço onde o item perdido está), com teto
+ * de tamanho para a chamada de IA.
+ */
+function detectarLacunasPauta(texto, itens) {
+  const t = String(texto || '');
+  const { ancoras, fimItens } = ancorasItensPauta(t);
+  const lidos = new Set((itens || []).map(i => i.ordem).filter(n => Number.isFinite(n)));
+  const total = Math.max(0, ...ancoras.map(a => a.ordem), ...lidos);
+  const faltando = [];
+  for (let n = 1; n <= total; n++) if (!lidos.has(n)) faltando.push(n);
+  const posDe = new Map(ancoras.map(a => [a.ordem, a.pos]));
+  const trechos = {};
+  for (const n of faltando) {
+    // início: a âncora do próprio item ou a do item anterior mais próximo
+    let ini = posDe.get(n);
+    if (ini == null) { for (let k = n - 1; k >= 1; k--) if (posDe.has(k)) { ini = posDe.get(k); break; } }
+    if (ini == null) ini = 0;
+    // fim: a próxima âncora depois do item (ou o fim da lista de itens)
+    let fimT = fimItens;
+    for (const a of ancoras) if (a.ordem > n && a.pos > ini) { fimT = a.pos; break; }
+    trechos[n] = t.slice(ini, Math.min(fimT, ini + 8000));
+  }
+  return { total, faltando, trechos };
+}
+
+// ============================================================
+//  RECUPERAÇÃO DAS LACUNAS POR IA (extensão e bot)
+//  Só o trecho de cada item perdido vai para a IA. A resposta passa por duas
+//  travas antes de virar item: (1) o número e o ano lidos têm de estar escritos
+//  no próprio trecho — a IA não pode inventar proposição; (2) quem chama
+//  confirma a proposição na Câmara (confirmar). O que não passa vira pendência
+//  visível, nunca item silencioso.
+// ============================================================
+const SIGLAS_LACUNA = ['PL', 'PLP', 'PEC', 'PDL', 'MPV', 'PRC', 'MSC', 'PLV', 'REQ', 'REC'];
+
+function promptLacunasPauta(lac) {
+  const blocos = lac.faltando.map(n => `### ITEM ${n}\n${lac.trechos[n] || ''}`).join('\n\n');
+  return `Você lê a pauta do Plenário da Câmara dos Deputados. Abaixo estão trechos do texto da pauta; cada trecho contém o item indicado (pode conter também o fim do item anterior ou o começo do seguinte — ignore-os).
+
+Para cada item pedido, extraia SOMENTE o que está escrito no trecho:
+- "categoria": "redacao_final" (Redação Final), "requerimento" (requerimento, em geral de urgência), "recurso" (recurso contra apreciação conclusiva ou outro) ou "projeto" (proposição em discussão/votação: PL, PLP, PEC, PDL, MPV, PRC, MSC…).
+- "sigla", "numero", "ano": a proposição DO ITEM. Para redação final, a do projeto a que ela se refere. Para requerimento, "REQ" e o número do requerimento ("s/nº" se não tiver número). Para recurso, "REC" e o número do recurso. Número sem pontos ("1.234" → "1234").
+- "alvo": para requerimento de urgência, o projeto cuja urgência é pedida ({"sigla","numero","ano"}); para recurso, o projeto de que se recorre; senão null.
+- "ementa": o objeto do item em até 300 caracteres, copiado do texto.
+- "autor": o autor como escrito ("do Sr. Fulano"), ou "".
+Se o trecho não tiver o item, devolva o item com "sigla": null. Não invente nada.
+
+${blocos}
+
+Responda APENAS com JSON, sem cercas de código:
+[{"ordem": <número do item>, "categoria": "...", "sigla": "...", "numero": "...", "ano": "...", "alvo": null, "ementa": "...", "autor": "..."}]`;
+}
+
+/** Texto do trecho "compactado" para conferir números: o kerning do PDF separa dígitos ("2 0 2 6", "1 .234"). */
+function _compactaDigitos(t) {
+  return String(t || '').replace(/(\d)\s+(?=[\d.])/g, '$1').replace(/(\d)\.\s+(?=\d)/g, '$1.').replace(/\s+/g, ' ');
+}
+
+/** O número/ano da proposição aparece escrito no trecho? ("2.334" ou "2334"; "68"). */
+function numeroNoTrecho(trecho, numero, ano) {
+  const n = String(parseInt(String(numero).replace(/\D/g, ''), 10));
+  if (!n || n === 'NaN' || !/^\d{4}$/.test(String(ano))) return false;
+  const t = _compactaDigitos(trecho);
+  const comPonto = n.replace(/\B(?=(\d{3})+(?!\d))/g, '.').replace(/\./g, '\\.');
+  const reNum = new RegExp(`(^|[^\\d.])(?:${n}|${comPonto})(?![\\d])`);
+  return reNum.test(t) && new RegExp(`(^|\\D)${ano}(\\D|$)`).test(t);
+}
+
+/** Lista JSON da resposta da IA, tolerando cercas e texto em volta. */
+function _jsonListaIA(txt) {
+  let t = String(txt || '').replace(/```json/gi, '').replace(/```/g, '').trim();
+  const i = t.indexOf('['), f = t.lastIndexOf(']');
+  if (i >= 0 && f > i) t = t.slice(i, f + 1);
+  try { const j = JSON.parse(t); return Array.isArray(j) ? j : []; }
+  catch (_) {
+    try { const j = JSON.parse(t.replace(/,\s*([}\]])/g, '$1')); return Array.isArray(j) ? j : []; }
+    catch (__) { return null; }
+  }
+}
+
+/**
+ * Resposta da IA → { candidatos: [item no formato do parser], pendentes: [{ ordem, motivo, lido }] }.
+ * Só a trava (1), do texto; a confirmação na Câmara fica com recuperarLacunasPauta.
+ */
+function itensDaRespostaLacunas(resposta, lac) {
+  const lista = _jsonListaIA(resposta);
+  const candidatos = [], pendentes = [];
+  if (!lista) {
+    for (const n of lac.faltando) pendentes.push({ ordem: n, motivo: 'a IA não devolveu uma resposta legível', lido: null });
+    return { candidatos, pendentes };
+  }
+  for (const n of lac.faltando) {
+    const e = lista.find(x => Number(x && x.ordem) === n);
+    const trecho = lac.trechos[n] || '';
+    const sigla = String((e && e.sigla) || '').toUpperCase().replace(/[^A-Z]/g, '');
+    const lido = e && sigla ? `${sigla} ${e.numero}/${e.ano}` : null;
+    if (!e || !sigla) { pendentes.push({ ordem: n, motivo: 'a IA não encontrou o item no texto', lido: null }); continue; }
+    if (!SIGLAS_LACUNA.includes(sigla)) { pendentes.push({ ordem: n, motivo: `tipo "${sigla}" não reconhecido`, lido }); continue; }
+    const ano = String(e.ano || '').trim();
+    const semNumero = sigla === 'REQ' && /s\s*\/?\s*n/i.test(String(e.numero || ''));
+    const numero = semNumero ? 's/nº' : limpaNumero(String(e.numero || ''));
+    if (!/^\d{4}$/.test(ano) || (!semNumero && !/^\d+$/.test(numero))) { pendentes.push({ ordem: n, motivo: 'número ou ano ilegível na resposta da IA', lido }); continue; }
+    if (!semNumero && !numeroNoTrecho(trecho, numero, ano)) { pendentes.push({ ordem: n, motivo: 'o número lido pela IA não está no texto da pauta', lido }); continue; }
+
+    const cat = String(e.categoria || '').toLowerCase();
+    let alvo = null;
+    if (e.alvo && e.alvo.sigla && e.alvo.numero && e.alvo.ano) {
+      const a = { sigla: String(e.alvo.sigla).toUpperCase().replace(/[^A-Z]/g, ''), numero: limpaNumero(String(e.alvo.numero)), ano: String(e.alvo.ano) };
+      if (SIGLAS_LACUNA.includes(a.sigla) && numeroNoTrecho(trecho, a.numero, a.ano)) alvo = a;
+    }
+    if (semNumero && !alvo) { pendentes.push({ ordem: n, motivo: 'requerimento sem número e sem projeto identificável', lido }); continue; }
+    const item = {
+      ordem: n,
+      tipoCategoria: cat === 'redacao_final' ? 'redacao_final'
+        : (sigla === 'REQ' || sigla === 'REC' || cat === 'requerimento' || cat === 'recurso') ? 'requerimento' : 'projeto',
+      sigla, numero, ano,
+      ementa: String(e.ementa || '').replace(/\s+/g, ' ').trim().slice(0, 600),
+      autorTexto: String(e.autor || '').trim(),
+      apensadosTexto: [],
+      relator: null,
+      origemIA: true,
+    };
+    // Mesma convenção do parser: só o requerimento tem "projeto da urgência";
+    // o recurso aponta o projeto de que se recorre, que não é urgência.
+    if (sigla === 'REQ') item.projetoUrgenciado = alvo;
+    if (semNumero) item.chave = `REQ-sn-${alvo.sigla}${alvo.numero}-${alvo.ano}-${ano}`;
+    candidatos.push(item);
+  }
+  return { candidatos, pendentes };
+}
+
+/**
+ * Orquestra a recuperação: { chamarIA(prompt) → texto, confirmar(item) → bool }
+ * vêm de quem chama (extensão ou bot). Devolve { recuperados, pendentes }.
+ */
+async function recuperarLacunasPauta(lac, { chamarIA, confirmar }) {
+  if (!lac || !lac.faltando.length) return { recuperados: [], pendentes: [] };
+  let resposta;
+  try { resposta = await chamarIA(promptLacunasPauta(lac)); }
+  catch (e) {
+    return { recuperados: [], pendentes: lac.faltando.map(n => ({ ordem: n, motivo: `IA indisponível (${e.message})`, lido: null })) };
+  }
+  const { candidatos, pendentes } = itensDaRespostaLacunas(resposta, lac);
+  const recuperados = [];
+  for (const it of candidatos) {
+    // REQ sem número: confirma o projeto da urgência.
+    const ref = it.numero === 's/nº' ? it.projetoUrgenciado : it;
+    let ok = false;
+    try { ok = await confirmar(ref); } catch (_) { ok = false; }
+    if (ok) recuperados.push(it);
+    else pendentes.push({ ordem: it.ordem, motivo: 'a Câmara não confirmou a proposição lida', lido: `${it.sigla} ${it.numero}/${it.ano}`, noTexto: true });
+  }
+  pendentes.sort((a, b) => a.ordem - b.ordem);
+  return { recuperados, pendentes };
+}
+
+// ============================================================
 //  Export para Node.js (bot/). No navegador `module` não existe e
 //  este bloco é inerte — a extensão continua usando o escopo global.
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { parsearPauta, extrairTextoPdf, extrairSessao, TIPOS_PROPOSICAO, limpaNumero };
+  module.exports = { parsearPauta, extrairTextoPdf, extrairSessao, TIPOS_PROPOSICAO, limpaNumero, detectarLacunasPauta, ancorasItensPauta,
+    promptLacunasPauta, itensDaRespostaLacunas, recuperarLacunasPauta, numeroNoTrecho };
 }
