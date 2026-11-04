@@ -81,6 +81,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
   document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
   document.getElementById('btn-recategorizar').addEventListener('click', abrirRecategorizar);
+  document.getElementById('btn-reverificar-falhas').addEventListener('click', reverificarFalhas);
   document.getElementById('btn-recat-auto').addEventListener('click', recatCorrigirAuto);
   document.getElementById('btn-recat-aplicar').addEventListener('click', aplicarRecategorizar);
   document.getElementById('btn-confirmar-remover').addEventListener('click', confirmarRemover);
@@ -1671,7 +1672,69 @@ function parseDataBR(s) {
   return m ? `${m[3]}-${m[2]}-${m[1]}` : null;
 }
 
+// ---------- Reverificar (enriquecimento que falhou) ----------
+// Falha de fonte (API da Câmara fora do ar, deputado não consultado) deixa a
+// autoria "não verificada". Reverificar refaz o enriquecimento do item, sem
+// recarregar a pauta nem tocar nas análises.
+const enriquecimentoFalhou = it => !!(it.enriquecimento && (it.enriquecimento.status === 'erro' || it.enriquecimento.autoriaIncerta));
+
+function anexarBotaoReverificar(it, flag) {
+  const b = document.createElement('button');
+  b.type = 'button';
+  b.className = 'btn btn-outline btn-sm';
+  b.dataset.role = 'badge-extra';           // removido junto com os badges ao recompor
+  b.style.cssText = 'padding:1px 8px;font-size:11px';
+  b.textContent = '↻ Reverificar';
+  b.title = 'Consultar a Câmara de novo para este item';
+  b.addEventListener('click', async () => {
+    b.disabled = true; b.textContent = 'Reverificando…';
+    const ok = await reverificarItem(it);
+    mostrarToast(ok ? `✓ ${tipoLabel(it.sigla)} ${it.numero}/${it.ano} verificado` : `A Câmara ainda não respondeu para o ${tipoLabel(it.sigla)} ${it.numero}/${it.ano} — tente mais tarde.`, ok ? 'sucesso' : 'aviso');
+  });
+  flag.after(b);
+}
+
+async function reverificarItem(it) {
+  if (typeof _apiCamaraForaAte !== 'undefined') _apiCamaraForaAte = 0;  // tentativa pedida: ignora a pausa da API
+  const antes = it.enriquecimento || {};
+  try {
+    await enriquecerItem(it);
+  } catch (e) {
+    // Mantém o que a verificação anterior já tinha apurado (id, inteiro teor…).
+    it.enriquecimento = { ...antes, ...(it.enriquecimento || {}), status: 'erro', erro: e?.message || String(e) };
+    atualizarBadgesCard(it);
+  }
+  return !enriquecimentoFalhou(it);
+}
+
+async function reverificarFalhas() {
+  const btn = document.getElementById('btn-reverificar-falhas');
+  const alvos = (state.pauta?.itens || []).filter(enriquecimentoFalhou);
+  if (!alvos.length) return atualizarBotaoReverificar();
+  btn.disabled = true;
+  let feitos = 0;
+  btn.textContent = `↻ Reverificando 0/${alvos.length}…`;
+  await _mapLimit(alvos, 2, async it => {
+    await reverificarItem(it);
+    btn.textContent = `↻ Reverificando ${++feitos}/${alvos.length}…`;
+  });
+  btn.disabled = false;
+  const restam = alvos.filter(enriquecimentoFalhou).length;
+  atualizarBotaoReverificar();
+  mostrarToast(restam ? `${alvos.length - restam} de ${alvos.length} verificados; ${restam} ainda sem resposta da Câmara.` : `✓ ${alvos.length} item(ns) verificados.`, restam ? 'aviso' : 'sucesso');
+}
+
+/** O botão da barra só aparece quando há item com verificação falha. */
+function atualizarBotaoReverificar() {
+  const btn = document.getElementById('btn-reverificar-falhas');
+  if (!btn || btn.disabled) return;   // em andamento: o próprio laço atualiza
+  const n = (state.pauta?.itens || []).filter(enriquecimentoFalhou).length;
+  btn.style.display = n ? '' : 'none';
+  btn.textContent = `↻ Reverificar falhas (${n})`;
+}
+
 function atualizarBadgesCard(it) {
+  atualizarBotaoReverificar();
   // Item de uma pauta que já foi trocada: não escreve no card (o seletor por
   // data-chave poderia casar com um item homônimo da pauta atual).
   if (!itemAindaAtivo(it)) return;
@@ -1683,6 +1746,7 @@ function atualizarBadgesCard(it) {
   const flag = cont.querySelector('[data-role=autoria-flag]');
   // Remove badges de apensados/podemos prévios para recompor
   cont.querySelectorAll('[data-role=badge-extra]').forEach(b => b.remove());
+  flag.title = '';
 
   const enr = it.enriquecimento;
   if (!enr || enr.status === 'pendente' || enr.status === 'carregando') {
@@ -1693,6 +1757,8 @@ function atualizarBadgesCard(it) {
   if (enr.status === 'erro') {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
+    flag.title = `A consulta à Câmara falhou: ${enr.erro || 'erro desconhecido'}`;
+    anexarBotaoReverificar(it, flag);
     return;
   }
   if (enr.semProjeto) {
@@ -1707,7 +1773,8 @@ function atualizarBadgesCard(it) {
   } else if (enr.autoriaIncerta) {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
-    flag.title = 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Gere de novo para tentar outra vez.';
+    flag.title = 'A consulta ao cadastro do(a) deputado(a) na API da Câmara falhou. Use ↻ Reverificar para tentar outra vez.';
+    anexarBotaoReverificar(it, flag);
   } else {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não-Podemos';
