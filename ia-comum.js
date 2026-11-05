@@ -833,8 +833,12 @@ async function fetchJson(url) {
   const ehApi = /dadosabertos\.camara\.leg\.br/.test(url);
   if (ehApi && Date.now() < _apiCamaraForaAte) throw new Error('API de Dados Abertos da Câmara fora do ar');
   let res;
+  const t0 = Date.now();
   try { res = await fetch(url, _comPrazo(25000)); }
   catch (e) { if (ehApi && e.name === 'TimeoutError') _apiCamaraForaAte = Date.now() + 60000; throw e; }
+  // 504 que demora (gateway esperando o serviço caído) também é "fora do ar";
+  // 5xx rápido é falha pontual e não para as chamadas seguintes.
+  if (!res.ok && ehApi && res.status >= 500 && Date.now() - t0 > 8000) _apiCamaraForaAte = Date.now() + 60000;
   if (!res.ok) throw new Error(`HTTP ${res.status} em ${url}`);
   return await res.json();
 }

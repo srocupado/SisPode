@@ -1191,7 +1191,8 @@ async function resolveProposicao(sigla, numero, ano) {
     // API de Dados Abertos fora do ar: o id e o inteiro teor saem do webservice
     // antigo, no portal (www.camara.leg.br). Com o id, pareceres, redação final
     // e documentos vêm do portal como sempre — a análise não fica bloqueada.
-    const alt = await resolveProposicaoPortal(sigla, numero, ano).catch(() => null);
+    const alt = await resolveProposicaoBusca(sigla, numero, ano).catch(() => null)
+             || await resolveProposicaoPortal(sigla, numero, ano).catch(() => null);
     if (!alt) throw e;
     console.info(`[análise] API da Câmara falhou (${e.message}); ${sigla} ${numero}/${ano} resolvido pelo portal.`);
     cacheProp.set(ck, alt);
@@ -1208,21 +1209,73 @@ async function resolveProposicao(sigla, numero, ano) {
 
 /** XML do webservice do portal (SitCamaraWS), com 3 tentativas: o portal também
  *  oscila (conexão recusada, 5xx) quando a API está fora e todos correm para ele. */
+// Disjuntor: 504 lento ou timeout do webservice = serviço fora (05/11/2026:
+// 504 depois de 30 s, três vezes por item, ~95 s até o card desistir). Nos 60 s
+// seguintes as chamadas falham na hora e as outras fontes assumem.
+let _wsPortalForaAte = 0;
 async function fetchXmlPortal(url, tentativas = 3) {
+  if (Date.now() < _wsPortalForaAte) throw new Error('webservice do portal fora do ar');
   let erro = null;
   for (let i = 0; i < tentativas; i++) {
     if (i > 0) await new Promise(r => setTimeout(r, 1000 * i));
+    const t0 = Date.now();
     try {
-      const r = await fetch(url, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {});
+      const r = await fetch(url, (typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(20000) } : {});
       if (r.status === 404) throw Object.assign(new Error('HTTP 404 no portal'), { definitivo: true });
-      if (!r.ok) { erro = new Error(`HTTP ${r.status} no portal`); continue; }
+      if (!r.ok) {
+        erro = new Error(`HTTP ${r.status} no portal`);
+        if (r.status >= 500 && Date.now() - t0 > 8000) { _wsPortalForaAte = Date.now() + 60000; break; }
+        continue;
+      }
       return new DOMParser().parseFromString(await r.text(), 'text/xml');
     } catch (e) {
       if (e.definitivo) throw e;
       erro = e;
+      if (e.name === 'TimeoutError' || Date.now() - t0 > 8000) { _wsPortalForaAte = Date.now() + 60000; break; }
     }
   }
   throw erro || new Error('portal sem resposta');
+}
+
+// ---------- Busca do portal (busca-api) ----------
+// O índice de proposições da busca do site da Câmara: serviço à parte da API de
+// Dados Abertos e do SitCamaraWS — em 05/11/2026 os dois davam 504 e a busca
+// respondia em 1 s. Aceita consulta por campo (Elasticsearch).
+async function buscaPortalProposicoes(q) {
+  const r = await fetch('https://www.camara.leg.br/busca-api/api/v1/busca/proposicoes/_search', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order: 'relevancia', pagina: 1, q }),
+    ...((typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(15000) } : {}),
+  });
+  if (!r.ok) throw new Error(`HTTP ${r.status} na busca do portal`);
+  return (((await r.json()).hits || {}).hits || []).map(h => h._source || {});
+}
+const _urlTeor = cod => cod ? `https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=${cod}` : null;
+
+/** id, ementa e inteiro teor pela busca do portal (mesmo formato de resolveProposicao). */
+async function resolveProposicaoBusca(sigla, numero, ano) {
+  for (const sg of SIGLAS_EQUIVALENTES[sigla] || [sigla]) {
+    const hits = await buscaPortalProposicoes(`siglaProposicao:${sg} AND numero:${parseInt(numero, 10)} AND ano:${ano}`);
+    const x = hits.find(h => String(h.siglaProposicao).toUpperCase() === sg && Number(h.numero) === Number(numero) && Number(h.ano) === Number(ano));
+    if (x && x.id) return { id: x.id, ementa: x.ementa || '', urlInteiroTeor: _urlTeor(x.codArquivoTeor) };
+  }
+  throw new Error('proposição não achada na busca do portal');
+}
+
+/** Árvore de apensados pela busca do portal (codProposicaoApensadaPai), nível a nível. */
+async function fetchApensadosBusca(idProp) {
+  const vistos = new Set([Number(idProp)]), out = [];
+  let nivel = [Number(idProp)];
+  for (let prof = 0; prof < 6 && nivel.length && out.length < 60; prof++) {
+    const filhos = (await Promise.all(nivel.map(id => buscaPortalProposicoes(`codProposicaoApensadaPai:${id}`)))).flat();
+    nivel = [];
+    for (const x of filhos) {
+      if (!x.id || vistos.has(x.id)) continue;
+      vistos.add(x.id); nivel.push(x.id);
+      out.push({ id: x.id, siglaTipo: String(x.siglaProposicao || ''), numero: String(x.numero), ano: String(x.ano), ementa: x.ementa || '', urlInteiroTeor: _urlTeor(x.codArquivoTeor) });
+    }
+  }
+  return out;
 }
 
 /** Webservice antigo do portal (SitCamaraWS/ObterProposicao): id, ementa e
@@ -1316,7 +1369,30 @@ function deputadosEmExercicioPortal() {
   if (!_deputadosPortal) _deputadosPortal = _baixarDeputadosPortal().catch(e => { _deputadosPortal = null; throw e; });
   return _deputadosPortal;
 }
+// Cópia no Firebase da lista de deputados em exercício: o partido ATUAL só vem
+// da API ou do SitCamaraWS; com os dois fora (05/11/2026), vale a última cópia
+// (gravada a cada leitura bem-sucedida; aceita até 45 dias — troca de partido
+// fora da janela é rara, e a tela avisa a fonte).
+const _CACHE_DEPUTADOS = `${FIREBASE_URL}/cache_camara/deputados_exercicio.json`;
+let _cacheDeputadosGravado = false;
 async function _baixarDeputadosPortal() {
+  let mapa;
+  try {
+    mapa = await _baixarDeputadosWs();
+  } catch (e) {
+    const c = await fetch(_CACHE_DEPUTADOS).then(r => r.ok ? r.json() : null).catch(() => null);
+    if (!c || !Array.isArray(c.lista) || Date.now() - Date.parse(c.em) > 45 * 86400000) throw e;
+    console.info(`[análise] deputados em exercício pela cópia de ${c.em} (portal: ${e.message}).`);
+    return new Map(c.lista.map(([id, nome, partido, uf]) => [String(id), { nome, siglaPartido: partido, siglaUf: uf, fonte: 'portal' }]));
+  }
+  if (!_cacheDeputadosGravado) {
+    _cacheDeputadosGravado = true;
+    fetch(_CACHE_DEPUTADOS, { method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ em: new Date().toISOString(), lista: [...mapa].map(([id, d]) => [id, d.nome, d.siglaPartido, d.siglaUf]) }) }).catch(() => {});
+  }
+  return mapa;
+}
+async function _baixarDeputadosWs() {
   const xml = await fetchXmlPortal('https://www.camara.leg.br/SitCamaraWS/Deputados.asmx/ObterDeputados');
   const mapa = new Map();
   for (const d of xml.getElementsByTagName('deputado')) {
@@ -1342,6 +1418,31 @@ async function deputadoPortal(idDep) {
   return _deputadoPortalCache.get(id);
 }
 async function _detalheDeputadoPortal(id) {
+  // 1º a página do deputado (www.camara.leg.br/deputados/{id}): HTML comum,
+  // no ar quando API e SitCamaraWS caem (05/11/2026); traz "Partido: PODE - SP"
+  // de quem está em exercício e o último partido de quem saiu.
+  const pag = await _deputadoPaginaPortal(id);
+  if (pag) return pag;
+  const url = `${FIREBASE_URL}/cache_camara/deputados_detalhe/${encodeURIComponent(id)}.json`;
+  const info = await _detalheDeputadoWs(id);
+  if (info) { fetch(url, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...info, em: new Date().toISOString() }) }).catch(() => {}); return info; }
+  const c = await fetch(url).then(r => r.ok ? r.json() : null).catch(() => null);
+  return c && c.siglaPartido ? { nome: c.nome, siglaPartido: c.siglaPartido, siglaUf: c.siglaUf, fonte: 'portal' } : null;
+}
+async function _deputadoPaginaPortal(id) {
+  try {
+    const html = await fetchHtmlCamara(`https://www.camara.leg.br/deputados/${encodeURIComponent(id)}`);
+    if (!html) return null;
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    doc.querySelectorAll('script,style').forEach(n => n.remove());
+    const txt = (doc.body?.textContent || '').replace(/\s+/g, ' ');
+    const m = txt.match(/Partido:\s*([A-Za-zÀ-ÿ]{2,20})\s*-\s*([A-Z]{2})\b/);
+    if (!m) return null;
+    const nome = (doc.querySelector('h1, .nome-deputado')?.textContent || '').replace(/\s+/g, ' ').trim();
+    return { nome, siglaPartido: m[1], siglaUf: m[2], fonte: 'portal' };
+  } catch (_) { return null; }
+}
+async function _detalheDeputadoWs(id) {
   try {
     const xml = await fetchXmlPortal(`https://www.camara.leg.br/SitCamaraWS/Deputados.asmx/ObterDetalhesDeputado?ideCadastro=${id}&numLegislatura=`);
     // Um bloco <Deputado> POR LEGISLATURA, cada um com o partido daquela época
@@ -1389,7 +1490,8 @@ async function fetchApensados(idProp) {
   } catch (e) {
     // API fora (ou detalhe de alguma relacionada sem resposta): árvore de
     // apensadas pelo webservice do portal.
-    const alt = await fetchApensadosPortal(idProp).catch(() => null);
+    const alt = await fetchApensadosBusca(idProp).catch(() => null)
+             || await fetchApensadosPortal(idProp).catch(() => null);
     if (!alt) throw e;
     console.info(`[análise] apensados de ${idProp} lidos no portal (API: ${e.message}).`);
     return alt;
@@ -1965,6 +2067,7 @@ function anexarBotaoReverificar(it, flag) {
 
 async function reverificarItem(it) {
   if (typeof _apiCamaraForaAte !== 'undefined') _apiCamaraForaAte = 0;  // tentativa pedida: ignora a pausa da API
+  _wsPortalForaAte = 0;
   const antes = it.enriquecimento || {};
   try {
     await enriquecerItem(it);
