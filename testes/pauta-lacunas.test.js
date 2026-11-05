@@ -44,6 +44,19 @@ const ult = P.parsearPauta(t311); const maxO = Math.max(...ult.itens.map(i => i.
 ok(P.detectarLacunasPauta(t311, ult.itens.filter(i => i.ordem !== maxO)).faltando.join() === String(maxO), `último item (${maxO}) faltando é detectado`);
 ok(P.detectarLacunasPauta(t311, []).faltando.length === ult.itens.length, 'parser sem nenhum item → todos viram lacuna (a IA ainda pode ler)');
 
+console.log('\n== diagnóstico: por que o leitor não leu (título publicado + desvio) ==');
+const diag = (tx, n) => { const r = P.parsearPauta(tx); const L = P.detectarLacunasPauta(tx, r.itens); return { faltando: L.faltando, d: L.diagnosticos[n] || {} }; };
+let dg = diag(t311.replace(/1\.\s+Reda[çc][ãa]o Final ao/, '1. Redações Finais ao'), 1);
+ok(dg.faltando.join() === '1' && /plural/.test(dg.d.motivo) && /^1\. Redações Finais ao Projeto de Lei nº 2\.879/.test(dg.d.titulo), `"Redações Finais" → ${dg.d.motivo}`);
+dg = diag(t311.replace(/3\s?\.\s+Requerimento nº ([\d.]+), de (\d{4})/, '3. Requerimento nº $1/$2'), 3);
+ok(dg.faltando.join() === '3' && /"X\/AAAA"/.test(dg.d.motivo), `Requerimento nº X/AAAA → ${dg.d.motivo}`);
+dg = diag(t311.replace(/3\s?\.\s+Requerimento nº/, '3. Indicação nº'), 3);
+ok(/tipo de item não previsto/.test(dg.d.motivo) && /"Indicação"/.test(dg.d.motivo), `tipo novo na matéria sobre a mesa → ${dg.d.motivo}`);
+dg = diag(t311.replace('\nPROJETO DE LEI Nº 79, DE 2020', '\nPROJETO DE LEI DA CÂMARA Nº 79, DE 2020'), 9);
+ok(dg.faltando.join() === '9' && /tipo de proposição não previsto: "PROJETO DE LEI DA CÂMARA"/.test(dg.d.motivo), 'tipo novo na Ordem do Dia → tipo citado');
+dg = diag(t311.replace('\nPROJETO DE LEI Nº 79, DE 2020', '\nPROJETO DE LEI Nº 79/2020'), 9);
+ok(/"Nº X\/AAAA"/.test(dg.d.motivo) && dg.d.titulo === 'PROJETO DE LEI Nº 79/2020', `Ordem do Dia "Nº X/AAAA" → ${dg.d.motivo}`);
+
 console.log('\n== resposta da IA: travas ==');
 const resp = arr => JSON.stringify(arr);
 let r = P.itensDaRespostaLacunas('```json\n' + resp([

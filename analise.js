@@ -280,8 +280,24 @@ async function recuperarLacunasImportacao(texto, parsed) {
     faltando: lac.faltando,
     recuperados: novos.map(i => i.ordem),
     pendentes: r.pendentes.sort((a, b) => a.ordem - b.ordem),
+    // Título como saiu no PDF e o desvio provável do padrão — para reportar à Câmara.
+    diagnosticos: lac.diagnosticos,
     em: new Date().toISOString(),
   };
+}
+
+/** Texto para reportar a falta de padrão da pauta (botão "Copiar para reportar"). */
+function textoReporteLacunas(pauta) {
+  const L = pauta?.lacunas;
+  if (!L || !L.diagnosticos) return '';
+  const linhas = [`Pauta: ${pauta.nome || pauta.titulo || pauta.periodo || ''}${pauta.pdfNome ? ` (${pauta.pdfNome})` : ''}`,
+    'Itens fora do padrão de divulgação da pauta:'];
+  for (const n of L.faltando) {
+    const d = L.diagnosticos[n];
+    if (!d) continue;
+    linhas.push(`- Item ${n}: publicado como "${d.titulo}". Motivo: ${d.motivo}.`);
+  }
+  return linhas.join('\n');
 }
 
 /** Aviso no topo da pauta: itens lidos pela IA e itens ainda faltando. */
@@ -296,13 +312,28 @@ function atualizarAvisoLacunas() {
   if (!L || L.dispensado || (!pend.length && !recup.length)) { el.style.display = 'none'; el.innerHTML = ''; return; }
   const lista = ns => ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : String(ns[0]);
   const partes = [];
-  if (recup.length) partes.push(`🤖 <b>${recup.length > 1 ? 'Itens' : 'Item'} ${lista(recup)}</b> não ${recup.length > 1 ? 'foram reconhecidos' : 'foi reconhecido'} pelo leitor da pauta e ${recup.length > 1 ? 'foram lidos' : 'foi lido'} pela IA — confirmado${recup.length > 1 ? 's' : ''} na Câmara. Confira.`);
+  // Por que o leitor não leu: título publicado + desvio provável do padrão.
+  const porque = n => {
+    const d = L.diagnosticos?.[n];
+    return d ? `<div style="margin:2px 0 4px 18px;font-size:11.5px;color:var(--text-dim)">Publicado como <i>“${escapeHtml(d.titulo)}”</i><br>Motivo provável: ${escapeHtml(d.motivo)}.</div>` : '';
+  };
+  if (recup.length) {
+    partes.push(`🤖 <b>${recup.length > 1 ? 'Itens' : 'Item'} ${lista(recup)}</b> não ${recup.length > 1 ? 'foram reconhecidos' : 'foi reconhecido'} pelo leitor da pauta e ${recup.length > 1 ? 'foram lidos' : 'foi lido'} pela IA — confirmado${recup.length > 1 ? 's' : ''} na Câmara. Confira.` +
+      recup.map(n => L.diagnosticos?.[n] ? `<div style="margin-left:18px;font-size:11.5px"><b>Item ${n}</b></div>${porque(n)}` : '').join(''));
+  }
   for (const p of pend) {
     partes.push(`⚠ <b>Item ${p.ordem}</b> não entrou na pauta: ${escapeHtml(p.motivo)}${p.lido ? ` (a IA leu <b>${escapeHtml(p.lido)}</b>)` : ''}. ` +
-      `<button class="btn btn-outline btn-sm" data-lacuna-add="${p.ordem}" style="padding:1px 8px;font-size:11px">Adicionar à mão</button>`);
+      `<button class="btn btn-outline btn-sm" data-lacuna-add="${p.ordem}" style="padding:1px 8px;font-size:11px">Adicionar à mão</button>` + porque(p.ordem));
   }
+  const temDiag = L.faltando.some(n => L.diagnosticos?.[n]);
   el.innerHTML = partes.map(x => `<div>${x}</div>`).join('') +
-    `<div style="margin-top:4px"><button class="btn btn-ghost btn-sm" data-lacuna-dispensar style="padding:1px 8px;font-size:11px">Dispensar aviso</button></div>`;
+    `<div style="margin-top:4px">` +
+    (temDiag ? `<button class="btn btn-outline btn-sm" data-lacuna-reportar style="padding:1px 8px;font-size:11px" title="Copia data da pauta, títulos publicados e motivos — para reportar a falta de padrão na divulgação">📋 Copiar para reportar</button> ` : '') +
+    `<button class="btn btn-ghost btn-sm" data-lacuna-dispensar style="padding:1px 8px;font-size:11px">Dispensar aviso</button></div>`;
+  el.querySelector('[data-lacuna-reportar]')?.addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(textoReporteLacunas(state.pauta)); mostrarToast('Relatório copiado — cole no e-mail ou na mensagem para a Câmara.', 'sucesso'); }
+    catch (e) { mostrarToast('Não consegui copiar: ' + e.message, 'erro'); }
+  });
   el.style.display = '';
   el.querySelectorAll('[data-lacuna-add]').forEach(b => b.addEventListener('click', () => {
     const p = pend.find(x => x.ordem === Number(b.dataset.lacunaAdd));
