@@ -853,6 +853,55 @@ function ancorasItensPauta(texto) {
 }
 
 /**
+ * Por que o leitor não reconheceu o item n? Compara o título publicado com os
+ * formatos que o parser conhece (os mesmos das regex de parsearPautaExtenso)
+ * e devolve { titulo, motivo } — o título como saiu no PDF e o desvio
+ * provável. Serve para reportar à Câmara a falta de padrão na pauta.
+ */
+function diagnosticarLacuna(trecho, n) {
+  const linhas = String(trecho || '').split('\n').map(l => l.trim()).filter(Boolean);
+  const reNum = new RegExp(`^${String(n).split('').join('\\s?')}\\s?\\.\\s+`);
+  let titulo = '', formato = '';
+  const iMesa = linhas.findIndex(l => reNum.test(l));
+  const iSoz = linhas.findIndex((l, i) => new RegExp(`^${String(n).split('').join('\\s?')}$`).test(l) && linhas[i + 1]);
+  if (iMesa >= 0 && (iSoz < 0 || iMesa <= iSoz)) { formato = 'mesa'; titulo = (linhas[iMesa] + ' ' + (linhas[iMesa + 1] || '')).trim(); }
+  else if (iSoz >= 0) { formato = 'ordem'; titulo = linhas[iSoz + 1]; }
+  else titulo = linhas[0] || '';
+  titulo = titulo.replace(/\s+/g, ' ').slice(0, 180);
+  const semAc = semAcento(titulo).toUpperCase();
+  let motivo;
+
+  if (formato === 'mesa') {
+    const corpo = semAc.replace(/^\d(?:\s?\d)*\s?\.\s+/, '');
+    const palavra = (titulo.replace(/^\d(?:\s?\d)*\s?\.\s+/, '').match(/^[^\s,]+/) || [''])[0];
+    const temNum = /\bN\s*[º°O]?\.?\s*[\d.]+|\bS\s*\/\s*N/.test(corpo);
+    const temAno = /,?\s*DE\s+\d{4}\b/.test(corpo);
+    if (/^REDA[CÇ](?:OES|ÕES)\s+FINAIS/.test(corpo)) motivo = 'o tipo veio no plural ("Redações Finais") — o padrão é um item por redação: "N. Redação Final ao <Tipo> nº X, de AAAA"';
+    else if (/^REDA\s*[CÇ]\s*A\s*O\s+FINAL/.test(corpo) && !/^REDACAO\s+FINAL/.test(corpo)) motivo = 'a palavra "Redação" veio quebrada pela geração do PDF';
+    else if (/^REDACAO\s+FINAL/.test(corpo)) motivo = !/^REDACAO\s+FINAL\s+(?:A[OA]|A)\s/.test(corpo) ? 'falta o "ao/à" entre "Redação Final" e o tipo da proposição (padrão: "Redação Final ao Projeto de Lei nº X, de AAAA")'
+      : !temNum ? 'o número da proposição não vem como "nº X"' : !temAno ? 'o ano não vem como ", de AAAA"' : 'o título está fora do padrão "N. Redação Final ao <Tipo> nº X, de AAAA"';
+    else if (/^REQUERIMENTO/.test(corpo) || /^RECURSO/.test(corpo)) {
+      const t = /^REQUERIMENTO/.test(corpo) ? 'Requerimento' : 'Recurso';
+      motivo = /\d+\s*\/\s*\d{4}/.test(corpo) && !temAno ? `o número veio como "X/AAAA" — o padrão é "${t} nº X, de AAAA"`
+        : !temNum ? `o número do ${t.toLowerCase()} não vem como "nº X"` : !temAno ? 'o ano não vem como ", de AAAA"'
+        : `o título está fora do padrão "N. ${t} nº X, de AAAA, do(a) Sr(a). …"`;
+    } else motivo = `tipo de item não previsto: o título começa com "${palavra}" — o leitor conhece Redação Final, Requerimento e Recurso na matéria sobre a mesa`;
+  } else if (formato === 'ordem') {
+    const m = semAc.match(/^(.+?)\s+N\s*[º°O]?\.?\s*[\d.]+/);
+    const tipo = (m ? m[1] : semAc.split(/\s+N\s*[º°O]|,|\(/)[0]).trim();
+    const conhecido = TIPOS_PROPOSICAO.some(t => semAcento(t.prefixo).toUpperCase() === tipo);
+    motivo = !conhecido ? `tipo de proposição não previsto: "${titulo.split(/\s+N\s*[º°o]/i)[0].trim()}" — o leitor conhece ${TIPOS_PROPOSICAO.map(t => t.prefixo.toLowerCase()).join(', ')}`
+      : !/N\s*[º°O]?\.?\s*[\d.]+/.test(semAc) ? 'o número da proposição não vem como "Nº X"'
+      : /N\s*[º°O]?\.?\s*[\d.]+\s*\/\s*\d{4}/.test(semAc) && !/,?\s*DE\s+\d{4}/.test(semAc) ? 'o número veio como "Nº X/AAAA" — o padrão é "TIPO Nº X, DE AAAA"'
+      : !/,?\s*DE\s+\d{4}/.test(semAc) ? 'o ano não vem como ", DE AAAA"'
+      : 'o título está fora do padrão "TIPO Nº X, DE AAAA" (pode haver caractere quebrado pela geração do PDF)';
+  } else {
+    motivo = 'o número do item não aparece no formato dos demais ("N." ou o número sozinho antes do título)';
+  }
+  return { titulo, motivo };
+}
+
+/**
  * Números de item presentes no texto e ausentes da lista lida pelo parser.
  * Devolve { total, faltando: [n], trechos: { n: texto } } — o trecho vai do
  * item lido anterior ao seguinte (o pedaço onde o item perdido está), com teto
@@ -877,7 +926,9 @@ function detectarLacunasPauta(texto, itens) {
     for (const a of ancoras) if (a.ordem > n && a.pos > ini) { fimT = a.pos; break; }
     trechos[n] = t.slice(ini, Math.min(fimT, ini + 8000));
   }
-  return { total, faltando, trechos };
+  const diagnosticos = {};
+  for (const n of faltando) diagnosticos[n] = diagnosticarLacuna(trechos[n], n);
+  return { total, faltando, trechos, diagnosticos };
 }
 
 // ============================================================
@@ -1017,5 +1068,5 @@ async function recuperarLacunasPauta(lac, { chamarIA, confirmar }) {
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { parsearPauta, extrairTextoPdf, extrairSessao, TIPOS_PROPOSICAO, limpaNumero, detectarLacunasPauta, ancorasItensPauta,
-    promptLacunasPauta, itensDaRespostaLacunas, recuperarLacunasPauta, numeroNoTrecho };
+    promptLacunasPauta, itensDaRespostaLacunas, recuperarLacunasPauta, numeroNoTrecho, diagnosticarLacuna };
 }

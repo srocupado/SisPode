@@ -79,6 +79,7 @@ async function recuperarLacunasBot(texto, parsed, perfil) {
     faltando: lac.faltando,
     recuperados: novos.map(i => i.ordem),
     pendentes: r.pendentes.sort((a, b) => a.ordem - b.ordem),
+    diagnosticos: lac.diagnosticos,
     em: new Date().toISOString(),
   };
   return parsed.lacunas;
@@ -90,6 +91,11 @@ function textoLacunas(L) {
   const out = [];
   if (L.recuperados.length) out.push(`🤖 Item(ns) ${L.recuperados.join(', ')} não reconhecido(s) pelo leitor — lido(s) pela IA e confirmado(s) na Câmara. Confira no painel.`);
   for (const p of L.pendentes) out.push(`⚠️ Item ${p.ordem} NÃO entrou: ${p.motivo}${p.lido ? ` (a IA leu ${p.lido})` : ''}. Adicione pelo painel.`);
+  // Por que o leitor não leu — título publicado e desvio do padrão.
+  for (const n of L.faltando) {
+    const d = L.diagnosticos && L.diagnosticos[n];
+    if (d) out.push(`   • Item ${n} publicado como "${d.titulo.slice(0, 120)}" — ${d.motivo}.`);
+  }
   return out.length ? '\n' + out.join('\n') : '';
 }
 
