@@ -173,6 +173,11 @@ async function onPdfSelecionado(ev) {
     const texto       = await extrairTextoPdf(arrayBuffer);
     const parsed      = parsearPauta(texto);
 
+    // Item que o leitor não reconheceu (grafia nova da Câmara) não pode sumir
+    // em silêncio: a numeração do próprio texto acusa a lacuna e o trecho vai
+    // para a IA, com conferência no texto e na Câmara (pauta-parser.js).
+    const lacunas = await recuperarLacunasImportacao(texto, parsed);
+
     if (!parsed.itens.length) {
       mostrarToast('Não foi possível identificar itens na pauta.', 'aviso');
       return;
@@ -196,6 +201,7 @@ async function onPdfSelecionado(ev) {
       uploadedBy: state.config?.nomeUsuario || 'equipe',
       pdfNome:    file.name,
       itens:      parsed.itens.map(normalizarItem),
+      ...(lacunas ? { lacunas } : {}),
     };
 
     renderizarPauta();
@@ -213,7 +219,13 @@ async function onPdfSelecionado(ev) {
     state.dirty = false;
     atualizarStatusSync('ok');
 
-    mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
+    if (lacunas?.pendentes.length) {
+      mostrarToast(`⚠ ${parsed.itens.length} itens identificados — item(ns) ${lacunas.pendentes.map(p => p.ordem).join(', ')} ainda faltando: veja o aviso no topo da pauta.`, 'aviso');
+    } else if (lacunas) {
+      mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
+    } else {
+      mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
+    }
 
     // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
     enriquecerItens();
@@ -230,6 +242,91 @@ async function onPdfSelecionado(ev) {
   }
 }
 
+
+// ============================================================
+//  LACUNAS DA PAUTA (detector + IA)
+// ============================================================
+/**
+ * Detecta itens que o leitor não reconheceu e tenta recuperá-los pela IA.
+ * Acrescenta os recuperados em parsed.itens (em ordem) e devolve o registro
+ * que fica gravado na pauta — { faltando, recuperados, pendentes, em } — ou
+ * null quando não houve lacuna.
+ */
+async function recuperarLacunasImportacao(texto, parsed) {
+  const lac = detectarLacunasPauta(texto, parsed.itens);
+  if (!lac.faltando.length) return null;
+  await carregarConfig();
+  let r;
+  if (!state.config?.apiKey) {
+    r = { recuperados: [], pendentes: lac.faltando.map(n => ({ ordem: n, motivo: 'sem chave de IA configurada para recuperar', lido: null })) };
+  } else {
+    mostrarToast(`Item(ns) ${lac.faltando.join(', ')} não reconhecido(s) pelo leitor — recuperando com IA…`, 'info');
+    r = await recuperarLacunasPauta(lac, {
+      chamarIA: async prompt => (await chamarIA({
+        provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo,
+        prompt, pdfBuffers: [], opcoes: { maxSaida: 6000 },
+      })).text,
+      confirmar: async ref => { try { await resolveProposicao(ref.sigla, ref.numero, ref.ano); return true; } catch (_) { return false; } },
+    });
+  }
+  // Não duplica proposição que o leitor já trouxe em outro número.
+  const chaves = new Set(parsed.itens.map(i => i.chave || `${i.sigla}-${i.numero}-${i.ano}`));
+  const novos = r.recuperados.filter(i => !chaves.has(i.chave || `${i.sigla}-${i.numero}-${i.ano}`));
+  for (const i of r.recuperados) if (!novos.includes(i)) r.pendentes.push({ ordem: i.ordem, motivo: 'a IA leu uma proposição que já está em outro item', lido: `${i.sigla} ${i.numero}/${i.ano}` });
+  parsed.itens.push(...novos);
+  parsed.itens.sort((a, b) => (a.ordem ?? Infinity) - (b.ordem ?? Infinity));
+  console.info(`[pauta] lacunas ${lac.faltando.join(',')}: recuperadas ${novos.map(i => i.ordem).join(',') || '—'}; pendentes ${r.pendentes.map(p => p.ordem).join(',') || '—'}`);
+  return {
+    faltando: lac.faltando,
+    recuperados: novos.map(i => i.ordem),
+    pendentes: r.pendentes.sort((a, b) => a.ordem - b.ordem),
+    em: new Date().toISOString(),
+  };
+}
+
+/** Aviso no topo da pauta: itens lidos pela IA e itens ainda faltando. */
+function atualizarAvisoLacunas() {
+  const el = document.getElementById('an-aviso-lacunas');
+  if (!el) return;
+  const L = state.pauta?.lacunas;
+  const ordens = new Set((state.pauta?.itens || []).map(i => i.ordem));
+  // Pendência resolvida (o item foi adicionado à mão) sai do aviso.
+  const pend = (L?.pendentes || []).filter(p => !ordens.has(p.ordem));
+  const recup = (L?.recuperados || []).filter(n => ordens.has(n));
+  if (!L || L.dispensado || (!pend.length && !recup.length)) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const lista = ns => ns.length > 1 ? `${ns.slice(0, -1).join(', ')} e ${ns[ns.length - 1]}` : String(ns[0]);
+  const partes = [];
+  if (recup.length) partes.push(`🤖 <b>${recup.length > 1 ? 'Itens' : 'Item'} ${lista(recup)}</b> não ${recup.length > 1 ? 'foram reconhecidos' : 'foi reconhecido'} pelo leitor da pauta e ${recup.length > 1 ? 'foram lidos' : 'foi lido'} pela IA — confirmado${recup.length > 1 ? 's' : ''} na Câmara. Confira.`);
+  for (const p of pend) {
+    partes.push(`⚠ <b>Item ${p.ordem}</b> não entrou na pauta: ${escapeHtml(p.motivo)}${p.lido ? ` (a IA leu <b>${escapeHtml(p.lido)}</b>)` : ''}. ` +
+      `<button class="btn btn-outline btn-sm" data-lacuna-add="${p.ordem}" style="padding:1px 8px;font-size:11px">Adicionar à mão</button>`);
+  }
+  el.innerHTML = partes.map(x => `<div>${x}</div>`).join('') +
+    `<div style="margin-top:4px"><button class="btn btn-ghost btn-sm" data-lacuna-dispensar style="padding:1px 8px;font-size:11px">Dispensar aviso</button></div>`;
+  el.style.display = '';
+  el.querySelectorAll('[data-lacuna-add]').forEach(b => b.addEventListener('click', () => {
+    const p = pend.find(x => x.ordem === Number(b.dataset.lacunaAdd));
+    abrirModalAdicionar();
+    document.getElementById('add-ordem').value = String(p.ordem);
+    const m = /^([A-Z]+)\s+(\S+)\/(\d{4})$/.exec(p.lido || '');
+    if (m) {
+      const sel = document.getElementById('add-tipo');
+      if ([...sel.options].some(o => o.value === m[1])) sel.value = m[1];
+      // Número e ano só quando a leitura bateu com o texto da pauta (faltou só
+      // a confirmação na Câmara); número reprovado pela conferência não entra.
+      if (p.noTexto && m[2] !== 's/nº') {
+        document.getElementById('add-numero').value = m[2];
+        document.getElementById('add-ano').value = m[3];
+      }
+      atualizarCampoUrgencia();
+    }
+  }));
+  el.querySelector('[data-lacuna-dispensar]').addEventListener('click', () => {
+    L.dispensado = true;
+    atualizarAvisoLacunas();
+    marcarSujo();
+  });
+}
 
 /**
  * Relator no formato da tela: { nome, partido, uf, data }. A Ordem do Dia que o
@@ -403,7 +500,9 @@ function renderizarPauta() {
       <button class="btn btn-ghost btn-sm" id="an-sel-todos">Selecionar todos</button>
       <button class="btn btn-ghost btn-sm" id="an-sel-limpar">Limpar seleção</button>
     </div>
+    <div class="an-aviso-vinculo" id="an-aviso-lacunas" style="display:none"></div>
     <div class="an-aviso-vinculo" id="an-aviso-vinculo" style="display:none"></div>`);
+  atualizarAvisoLacunas();
   cont.querySelector('#an-sel-todos').addEventListener('click', () => {
     state.pauta.itens.forEach(it => state.selecionados.add(it.chave));
     document.querySelectorAll('.an-card').forEach(c => { const cb = c.querySelector('[data-role=sel-pdf]'); if (cb) { cb.checked = true; c.classList.add('sel-on'); } });
@@ -507,6 +606,7 @@ function renderCard(it) {
         <div class="an-badges" data-rolebadges>
           ${it.temUrgencia ? `<span class="an-badge an-badge--urg">Urgência aprovada</span>` : ''}
           ${it.urgenciaCondicional ? `<span class="an-badge an-badge--neutro" title="A pauta diz &quot;SE APROVADO O REQUERIMENTO DE URGÊNCIA&quot;: a urgência ainda depende da aprovação desse requerimento">Urgência pendente de aprovação</span>` : ''}
+          ${it.origemIA ? `<span class="an-badge an-badge--neutro" title="O leitor da pauta não reconheceu este item; ele foi lido pela IA no texto da pauta e confirmado na Câmara. Confira número e categoria.">🤖 Lido pela IA</span>` : ''}
           <span class="an-badge an-badge--neutro" data-role="autoria-flag">Verificando autoria...</span>
         </div>
       </div>
@@ -4893,6 +4993,7 @@ async function _fbSalvarPautaExec(pauta) {
           temUrgencia: it.temUrgencia, urgenciaCondicional: it.urgenciaCondicional || null,
           projetoUrgenciado: it.projetoUrgenciado || null,
           vinculo: it.vinculo || null,
+          origemIA: it.origemIA || null,
           chave: it.chave,
         })),
       }),

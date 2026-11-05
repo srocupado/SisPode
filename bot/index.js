@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { Bot, InlineKeyboard, InputFile } = require('grammy');
 
 const { BOT_TOKEN, GRUPO_CHAT_ID, ADMIN_USER_ID, CRON_MINUTOS, TRANSCRIBE_GEMINI_KEY, SENHA_ACESSO, MONITOR_ATIVO, MONITOR_ENSAIO, ALLOWED_USER_IDS } = require('./src/config');
-const { verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
+const { recuperarLacunasBot, textoLacunas, verificarPautaNova, resumoPauta, baixarPautaAtual, montarPautaFirebase, pautaJaExiste, gravarPauta, rotuloSituacao, rotuloPauta, ultimasPautas, pautaPorId, chavesComAnalise, contarAnalisesDaPauta, verificarJaImportada } = require('./src/pauta');
 const { getPerfil, setPerfil, removerChave, isAutorizado, autorizar, revogar, listarAutorizados } = require('./src/store');
 const { PROVEDORES, testarChave, transcreverAudio, listarModelos } = require('./src/ia');
 const { perguntar, limparConversa, listarDocumentos, agregarDocumentos, carregarAnaliseMaisRecente, mostrarNota, documentosParaBaixar, baixarDocumento } = require('./src/perguntar');
@@ -569,6 +569,8 @@ async function prepararImportacao(ctx) {
   await ctx.replyWithChatAction('typing');
   const parsed = await baixarPautaAtual();
   if (!parsed) return ctx.reply('Nenhuma pauta publicada no momento — nada para importar.');
+  // Item que o parser não reconheceu: detector de lacunas + IA (pauta-parser.js).
+  const lacunas = await recuperarLacunasBot(parsed.texto, parsed, getPerfil(ctx.from.id) || getPerfil(ADMIN_USER_ID)).catch(e => { console.error('lacunas:', e.message); return null; });
   if (!parsed.itens.length) {
     return ctx.reply('O PDF foi baixado mas o parser não identificou itens (o formato pode ter mudado). Importação recusada — verifique no painel.');
   }
@@ -580,11 +582,11 @@ async function prepararImportacao(ctx) {
   if (await pautaJaExiste(doc.id)) {
     return ctx.reply(
       `⚠️ Já existe a pauta "${doc.titulo}" no SisPode — ela pode ter edições da equipe ` +
-      `(itens adicionados/removidos, responsáveis, renomeação).${reaprov}\n\nSobrescrever?`,
+      `(itens adicionados/removidos, responsáveis, renomeação).${reaprov}${textoLacunas(lacunas)}\n\nSobrescrever?`,
       { reply_markup: new InlineKeyboard().text('⚠️ Sobrescrever', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
   }
   return ctx.reply(
-    `Importar "${doc.titulo}" (${doc.itens.length} itens) para o SisPode?${reaprov}`,
+    `Importar "${doc.titulo}" (${doc.itens.length} itens) para o SisPode?${reaprov}${textoLacunas(lacunas)}`,
     { reply_markup: new InlineKeyboard().text('✅ Confirmar', `imp:ok:${token}`).text('Cancelar', `imp:no:${token}`) });
 }
 bot.command('importar', prepararImportacao);
@@ -1123,6 +1125,7 @@ bot.on('message:document', async ctx => {
     if (!res.ok) throw new Error(`download: HTTP ${res.status}`);
     const texto  = await extrairTextoPdf(new Uint8Array(await res.arrayBuffer()));
     const parsed = parsearPauta(texto);
+    const lacunas = await recuperarLacunasBot(texto, parsed, getPerfil(ctx.from.id) || getPerfil(ADMIN_USER_ID)).catch(e => { console.error('lacunas:', e.message); return null; });
     if (!parsed.itens.length) {
       return ctx.reply('Não identifiquei itens nesse PDF — ele está num dos formatos de pauta conhecidos (oficial da Câmara ou dashboard da Liderança)?');
     }
@@ -1131,7 +1134,7 @@ bot.on('message:document', async ctx => {
     importPendente.set(token, { doc: docFb, ts: Date.now() });
     const reaprov = await avisoReaproveitamento(docFb);
 
-    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.${reaprov}`;
+    const cab = `📋 "${docFb.titulo}" — ${docFb.itens.length} itens identificados no PDF.${reaprov}${textoLacunas(lacunas)}`;
     if (await pautaJaExiste(docFb.id)) {
       return ctx.reply(
         `${cab}\n⚠️ Já existe pauta com esse período no SisPode (pode ter edições da equipe). Sobrescrever?`,

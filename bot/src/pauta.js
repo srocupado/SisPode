@@ -3,6 +3,8 @@ const crypto = require('crypto');
 const { PAUTA_URL } = require('./config');
 const { fbGet, fbQuery, fbPut } = require('./firebase');
 const { parsearPauta, extrairTextoPdf } = require('./parser');
+const { detectarLacunasPauta, recuperarLacunasPauta } = require('../../pauta-parser.js');
+const { chamarIAtexto } = require('./ia');
 
 const MONITOR_PATH = '/bot/pauta_monitor';
 
@@ -23,7 +25,66 @@ async function baixarPautaAtual() {
   // Identidade de reserva: quando o parser não acha o período (formato novo
   // do PDF), o hash do texto evita re-anunciar a mesma pauta a cada tick.
   const hash = crypto.createHash('sha256').update(texto).digest('hex').slice(0, 16);
-  return { ...parsed, hash };
+  return { ...parsed, hash, texto };
+}
+
+// ---------- Lacunas da pauta (mesmo detector e recuperação da extensão) ----------
+const API_CAMARA = 'https://dadosabertos.camara.leg.br/api/v2';
+const SIGLAS_EQUIV = { PDL: ['PDL', 'PDC'], PDC: ['PDC', 'PDL'] };
+async function getTimeout(url, ms = 20000) {
+  const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
+  try { return await fetch(url, { signal: ac.signal }); } finally { clearTimeout(t); }
+}
+/** A proposição existe na Câmara? API de Dados Abertos; fora do ar, o webservice do portal. */
+async function confirmarProposicaoCamara(ref) {
+  for (const s of SIGLAS_EQUIV[ref.sigla] || [ref.sigla]) {
+    try {
+      const r = await getTimeout(`${API_CAMARA}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
+      if (r.ok && ((await r.json()).dados || []).length) return true;
+    } catch (_) { /* tenta o portal */ }
+    try {
+      const r = await getTimeout(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(s)}&numero=${ref.numero}&ano=${ref.ano}`);
+      if (r.ok && /<idProposicao>\d+/.test(await r.text())) return true;
+    } catch (_) { /* próxima sigla */ }
+  }
+  return false;
+}
+
+/**
+ * Detecta itens que o parser não reconheceu e tenta recuperá-los pela IA do
+ * perfil (o de quem importa). Acrescenta os recuperados em parsed.itens e
+ * grava o registro em parsed.lacunas — a extensão mostra o aviso a partir dele.
+ */
+async function recuperarLacunasBot(texto, parsed, perfil) {
+  const lac = detectarLacunasPauta(texto, parsed.itens);
+  if (!lac.faltando.length) return null;
+  const r = perfil?.apiKey
+    ? await recuperarLacunasPauta(lac, {
+        chamarIA: prompt => chamarIAtexto({ provedor: perfil.provedor, apiKey: perfil.apiKey, modelo: perfil.modelo, prompt, maxTokens: 6000 }),
+        confirmar: confirmarProposicaoCamara,
+      })
+    : { recuperados: [], pendentes: lac.faltando.map(n => ({ ordem: n, motivo: 'sem chave de IA configurada para recuperar', lido: null })) };
+  const chaves = new Set(parsed.itens.map(i => i.chave || `${i.sigla}-${i.numero}-${i.ano}`));
+  const novos = r.recuperados.filter(i => !chaves.has(i.chave || `${i.sigla}-${i.numero}-${i.ano}`));
+  for (const i of r.recuperados) if (!novos.includes(i)) r.pendentes.push({ ordem: i.ordem, motivo: 'a IA leu uma proposição que já está em outro item', lido: `${i.sigla} ${i.numero}/${i.ano}` });
+  parsed.itens.push(...novos);
+  parsed.itens.sort((a, b) => (a.ordem ?? Infinity) - (b.ordem ?? Infinity));
+  parsed.lacunas = {
+    faltando: lac.faltando,
+    recuperados: novos.map(i => i.ordem),
+    pendentes: r.pendentes.sort((a, b) => a.ordem - b.ordem),
+    em: new Date().toISOString(),
+  };
+  return parsed.lacunas;
+}
+
+/** Linha para a mensagem do bot sobre as lacunas ('' se não houve). */
+function textoLacunas(L) {
+  if (!L) return '';
+  const out = [];
+  if (L.recuperados.length) out.push(`🤖 Item(ns) ${L.recuperados.join(', ')} não reconhecido(s) pelo leitor — lido(s) pela IA e confirmado(s) na Câmara. Confira no painel.`);
+  for (const p of L.pendentes) out.push(`⚠️ Item ${p.ordem} NÃO entrou: ${p.motivo}${p.lido ? ` (a IA leu ${p.lido})` : ''}. Adicione pelo painel.`);
+  return out.length ? '\n' + out.join('\n') : '';
 }
 
 // ---------- Período: a pauta cobre a semana em que estamos? ----------
@@ -264,8 +325,10 @@ function montarPautaFirebase(parsed, uploadedBy, pdfNome = 'pauta_s.pdf') {
       relator:           it.relator || null,
       temUrgencia:       !!it.temUrgencia,
       projetoUrgenciado: it.projetoUrgenciado || null,
+      origemIA:          it.origemIA || null,
       chave:             it.chave || `${it.sigla}-${it.numero}-${it.ano}`,
     })),
+    ...(parsed.lacunas ? { lacunas: parsed.lacunas } : {}),
   };
 }
 
@@ -344,6 +407,7 @@ async function pautaAtualImportada() {
 module.exports = {
   baixarPautaAtual, verificarPautaNova, resumoPauta, rotuloPauta,
   gerarIdPauta, montarPautaFirebase, pautaJaExiste, gravarPauta,
+  recuperarLacunasBot, textoLacunas, confirmarProposicaoCamara,
   pautaAtualImportada, ultimasPautas, pautaPorId,
   chavesComAnalise, contarAnalisesDaPauta,
   parsePeriodo, situacaoPeriodo, rotuloSituacao, verificarJaImportada,
