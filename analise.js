@@ -5978,18 +5978,108 @@ function extrairRefProposicao(texto) {
   return { sigla, numero: m[2].replace(/\./g, ''), ano: m[3] };
 }
 
+// Resumo da sessão: Dados Abertos primeiro; se a API falhar (05/11/2026: 504
+// em tudo), a página da sessão no portal — que traz as matérias analisadas, o
+// resultado e o "passo a passo" com o roteamento ("A matéria vai ao Senado").
 async function coletarResumoSessao(dataISO) {
+  let r = null, erroApi = null;
+  try { r = await coletarResumoSessaoApi(dataISO); } catch (e) { erroApi = e; }
+  if (r && !r.falhaApi) return r;
+  try {
+    const p = await coletarResumoSessaoPortal(dataISO);
+    if (p.encontrouSessao || !r) {
+      console.info(`[resumo] sessão de ${dataISO} lida no portal (API: ${erroApi ? erroApi.message : 'votações indisponíveis'}).`);
+      return p;
+    }
+  } catch (e) {
+    if (!r) throw erroApi || e;
+  }
+  return r;
+}
+
+/** Sessões deliberativas do Plenário no dia, pela agenda do portal: [{ id, nome }]. */
+async function acharSessoesPortal(dataISO) {
+  const br = dataISO.split('-').reverse().join('/');
+  const q = encodeURIComponent(br);
+  const html = await fetchHtmlCamara(`https://www.camara.leg.br/agenda?dataInicial__proxy=${q}&dataInicial=${q}&dataFinal__proxy=${q}&dataFinal=${q}&categorias=Plen%C3%A1rio`);
+  if (!html) throw new Error('agenda do portal indisponível');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [], vistos = new Set();
+  for (const a of doc.querySelectorAll('a[href*="evento-legislativo/"]')) {
+    const id = (a.getAttribute('href').match(/evento-legislativo\/(\d+)/) || [])[1];
+    const nome = (a.textContent || '').replace(/\s+/g, ' ').trim();
+    if (!id || vistos.has(id) || !/Sess[ãa]o\s+Deliberativa/i.test(nome) || /N[ãa]o\s+Deliberativa/i.test(nome)) continue;
+    vistos.add(id); out.push({ id, nome });
+  }
+  return out;
+}
+
+/** Matérias analisadas na página da sessão: [{ sigla, numero, ano, id, ementa, resultado, passos }]. */
+async function materiasAnalisadasPortal(eventoId) {
+  const html = await fetchHtmlCamara(`https://www.camara.leg.br/evento-legislativo/${eventoId}`);
+  if (!html) throw new Error('página da sessão indisponível');
+  const doc = new DOMParser().parseFromString(html, 'text/html');
+  const out = [];
+  for (const li of doc.querySelectorAll('.secao-ja-analisados li.l-pauta__item')) {
+    const a = li.querySelector('a.item-pauta__proposicao');
+    const m = (a?.textContent || '').replace(/\s+/g, ' ').match(/\b([A-Z]{2,4})\s+([\d.]+)\/(\d{4})/);
+    if (!m) continue;
+    const ementa = ((a.closest('.item-pauta')?.textContent || '').replace(a.textContent, '')).replace(/\s+/g, ' ').replace(/^\s*-\s*/, '').trim();
+    const resultado = (li.querySelector('.texto-link')?.textContent || '').replace(/\s+/g, ' ').trim();
+    const passos = [...li.querySelectorAll('.passo-a-passo__item p')].map(p => p.textContent.replace(/\s+/g, ' ').trim()).filter(Boolean);
+    const id = ((a.getAttribute('href') || '').match(/idProposicao=(\d+)/) || [])[1] || null;
+    out.push({ sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3], id, ementa, resultado, passos });
+  }
+  return out;
+}
+
+/** Mesmo formato de coletarResumoSessaoApi, a partir do portal. */
+async function coletarResumoSessaoPortal(dataISO) {
+  const sessoes = await acharSessoesPortal(dataISO);
+  if (!sessoes.length) return { encontrouSessao: false };
+  const materias = (await Promise.all(sessoes.map(s => materiasAnalisadasPortal(s.id)))).flat();
+  const aprovada = m => /^aprovad/i.test(m.resultado);
+
+  const urgencias = [], vistosU = new Set();
+  for (const m of materias.filter(m => m.sigla === 'REQ' && aprovada(m) && /urg[êe]ncia/i.test(m.ementa))) {
+    const ref = extrairRefProposicao(m.ementa);
+    if (ref) {
+      const k = `${ref.sigla}-${ref.numero}-${ref.ano}`;
+      if (vistosU.has(k)) continue;
+      vistosU.add(k);
+      let ementa = '';
+      try { ementa = (await resolveProposicaoBusca(ref.sigla, ref.numero, ref.ano)).ementa || ''; } catch (_) {}
+      urgencias.push({ ...ref, ementa, resolvido: true });
+    } else {
+      urgencias.push({ sigla: 'REQ', numero: m.numero, ano: m.ano, ementa: m.ementa, resolvido: false });
+    }
+  }
+
+  const concluidos = [], vistosC = new Set();
+  for (const m of materias) {
+    if (/^(REQ|REC)$/.test(m.sigla) || !aprovada(m)) continue;
+    const k = `${m.sigla}-${m.numero}-${m.ano}`;
+    if (vistosC.has(k)) continue;
+    vistosC.add(k);
+    concluidos.push({ sigla: m.sigla, numero: m.numero, ano: m.ano, id: m.id, ementa: m.ementa, destino: destinoDeConclusao(m.sigla, m.passos) || '' });
+  }
+  return { encontrouSessao: true, urgencias, concluidos, semProposicao: 0, fonte: 'portal' };
+}
+
+async function coletarResumoSessaoApi(dataISO) {
   const sessoes = await acharSessoesDeliberativas(dataISO);
   if (!sessoes.length) return { encontrouSessao: false };
 
   // Junta as votações de todas as sessões deliberativas do dia.
   const votacoes = [];
+  let falhaApi = false;
   for (const ev of sessoes) {
     try {
       const j = await fetchJsonCamara(`${API_BASE}/eventos/${ev.id}/votacoes`);
       votacoes.push(...(j.dados || []));
-    } catch (_) {}
+    } catch (_) { falhaApi = true; }
   }
+  if (falhaApi && !votacoes.length) return { encontrouSessao: true, urgencias: [], concluidos: [], semProposicao: 0, falhaApi: true };
 
   // --- Urgências aprovadas (REQ) → PL correspondente (via ementa do REQ) ---
   const urgVot = votacoes
