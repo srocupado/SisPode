@@ -42,6 +42,12 @@ async function confirmarProposicaoCamara(ref) {
       const r = await getTimeout(`${API_CAMARA}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
       if (r.ok && ((await r.json()).dados || []).length) return true;
     } catch (_) { /* tenta o portal */ }
+    try {   // busca do portal (busca-api): no ar quando API e SitCamaraWS caem
+      const r = await fetch('https://www.camara.leg.br/busca-api/api/v1/busca/proposicoes/_search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(15000),
+        body: JSON.stringify({ order: 'relevancia', pagina: 1, q: `siglaProposicao:${s} AND numero:${parseInt(ref.numero, 10)} AND ano:${ref.ano}` }) });
+      if (r.ok && (((await r.json()).hits || {}).hits || []).some(h => Number(h._source?.numero) === Number(ref.numero) && Number(h._source?.ano) === Number(ref.ano))) return true;
+    } catch (_) { /* tenta o webservice */ }
     try {
       const r = await getTimeout(`https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(s)}&numero=${ref.numero}&ano=${ref.ano}`);
       if (r.ok && /<idProposicao>\d+/.test(await r.text())) return true;
