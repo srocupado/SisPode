@@ -268,6 +268,16 @@ async function descricaoCurta(ref) {
       out = cortarNaPalavra((await r.json()).dados?.[0]?.ementa || '');
     } catch (_) {}
   }
+  // 4) API fora: ementa pela busca do portal (busca-api)
+  if (!out) {
+    try {
+      const r = await fetch('https://www.camara.leg.br/busca-api/api/v1/busca/proposicoes/_search', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(10000),
+        body: JSON.stringify({ order: 'relevancia', pagina: 1, q: `siglaProposicao:${ref.sigla} AND numero:${parseInt(ref.numero, 10)} AND ano:${ref.ano}` }) });
+      const h = (((await r.json()).hits || {}).hits || []).map(x => x._source || {}).find(x => Number(x.numero) === Number(ref.numero) && Number(x.ano) === Number(ref.ano));
+      out = cortarNaPalavra(h?.ementa || '');
+    } catch (_) {}
+  }
   _descrCache.set(k, out);
   return out;
 }
@@ -733,14 +743,54 @@ async function fetchTimeout(url, ms = 15000) {
   finally { clearTimeout(timer); }
 }
 
+// ---------- Eventos do dia pela agenda do portal (API fora do ar) ----------
+// 05/11/2026: a API de Dados Abertos em 504/timeout e o monitor não achava a
+// sessão — sem ela, nem abertura, nem fim da ODD, nem resumo. A agenda do
+// portal lista os eventos do Plenário com a situação AO VIVO ("em andamento",
+// "encerrada"); o id é o mesmo dos Dados Abertos. Devolve objetos no formato
+// que o resto do monitor usa ({ id, descricaoTipo, situacao, dataHoraInicio }).
+async function eventosDoDiaPortal(hoje) {
+  const q = encodeURIComponent(hoje.split('-').reverse().join('/'));
+  const r = await fetchTimeout(`https://www.camara.leg.br/agenda?dataInicial__proxy=${q}&dataInicial=${q}&dataFinal__proxy=${q}&dataFinal=${q}&categorias=Plen%C3%A1rio`, 20000);
+  if (!r.ok) throw new Error(`agenda do portal: HTTP ${r.status}`);
+  const html = await r.text();
+  const txt = h => h.replace(/<[^>]+>/g, '|').replace(/\s+/g, ' ').replace(/(\| ?)+/g, '|');
+  const ms = [...html.matchAll(/evento-legislativo\/(\d+)"[^>]*class="g-agenda__nome"[^>]*>([^<]*)/g)];
+  return ms.map((m, k) => {
+    const antes = txt(html.slice(Math.max(0, m.index - 400), m.index));
+    const depois = txt(html.slice(m.index + m[0].length, k + 1 < ms.length ? ms[k + 1].index : m.index + 2500));
+    const hora = (antes.match(/(\d{2})h(\d{2})(?!.*\d{2}h\d{2})/) || []);
+    const partes = depois.split('|').map(x => x.trim()).filter(Boolean);
+    const situacao = partes.find(x => /^(em andamento|encerrad|cancelad|suspens|convocad|agendad|adiad|realizad)/i.test(x)) || '';
+    const nome = m[2].replace(/\s+/g, ' ').trim();
+    return {
+      id: Number(m[1]),
+      descricaoTipo: `${nome} ${partes[0] || ''}`.trim(),
+      descricao: nome,
+      situacao: /^em andamento/i.test(situacao) ? 'Em Andamento' : situacao,
+      dataHoraInicio: hora[1] ? `${hoje}T${hora[1]}:${hora[2]}` : hoje,
+    };
+  });
+}
+let _eventosPeloPortal = false;   // só para não repetir o aviso no log a cada tick
+
 // ---------- Poll de eventos (sessão começou/terminou) ----------
 async function tickEventos() {
   if (!_cfg.ligado || !janelaAtiva()) return;
   try {
     const hoje = hojeSP();
-    const r = await fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`);
-    if (!r.ok) return;
-    const eventos = ((await r.json()).dados || [])
+    let lista;
+    try {
+      const r = await fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      lista = (await r.json()).dados || [];
+      _eventosPeloPortal = false;
+    } catch (e) {
+      lista = await eventosDoDiaPortal(hoje);
+      if (!_eventosPeloPortal) console.warn(`[monitor] eventos pela agenda do portal (API: ${e.message})`);
+      _eventosPeloPortal = true;
+    }
+    const eventos = lista
       .filter(e => /deliberativa/i.test(e.descricaoTipo || '') && !/não\s+deliberativa/i.test(e.descricaoTipo || ''));
 
     // Sessão ativa terminou?
@@ -1383,9 +1433,24 @@ function iniciarPollDestinos(s) {
 // (0 = nenhuma). A vigia do resumo enviado só refaz o resumo quando o número
 // cresce — sem isso, uma matéria que nunca ganha despacho faria o worker (o
 // navegador inteiro) rodar a cada 45s por 2h.
-async function algumDespachoDeDestino(s) {
-  const r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000);
+// Pela página da sessão no portal (API fora): matérias analisadas cujo passo a
+// passo já traz o roteamento ("A matéria vai ao Senado Federal").
+async function despachosDeDestinoPortal(s) {
+  const r = await fetchTimeout(`https://www.camara.leg.br/evento-legislativo/${s.id}`, 20000);
   if (!r.ok) return 0;
+  const html = await r.text();
+  const i = html.indexOf('secao-ja-analisados');
+  if (i < 0) return 0;
+  const fim = html.indexOf('<section class="bloco-empilhado', i + 10);
+  const itens = html.slice(i, fim > 0 ? fim : html.length).split('l-pauta__item').slice(1);
+  return itens.filter(t => /A\s+mat[ée]ria\s+(vai|retorna|volta|segue)|san[çc][ãa]o|promulga/i.test(t.replace(/<[^>]+>/g, ' '))).length;
+}
+
+async function algumDespachoDeDestino(s) {
+  let r;
+  try { r = await fetchTimeout(`${API}/votacoes?idEvento=${s.id}&itens=100`, 10000); }
+  catch (_) { return despachosDeDestinoPortal(s); }
+  if (!r.ok) return despachosDeDestinoPortal(s);
   const ids = [...new Set(((await r.json()).dados || [])
     .filter(v => Number(v.aprovacao) === 1)
     .map(v => String(v.id || '').split('-')[0]).filter(Boolean))];
