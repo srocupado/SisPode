@@ -14,6 +14,6 @@ Os scripts usam uma pasta de trabalho com `dados/`, `tse/`, `resultados/` e `pdf
 5. `rodar-ensemble.js UF,... [M]`: o desenho do simulador + M desenhos alternativos por UF (multi-início aleatório, semente fixa por UF). Em cada um, roda a Minuta (federal, estadual e federações) com o motor do simulador (`sistemas-distrital.js`, `sistemas-nucleo.js`).
 6. `agregar.js`: estudos 1 (robustez), 2, 3 e 5.
 7. `preparar-46.js`, depois `python3 estudo4_rd.py <resultados>` (regressão descontínua) e `python3 estudo6_perfil.py <resultados>` (regressão do perfil); depois `estudo4_oportunidades.js`.
-8. `gerar-pdf.js`: o PDF, na identidade visual dos relatórios do sistema (`pdf-base.js`).
+8. `metricas-extra.js` (qualidade dos desenhos, volatilidade, posições) e `gerar-artigo.js`: o artigo em PDF, na identidade visual dos relatórios do sistema (`pdf-base.js`). `gerar-pdf.js` gera a versão resumida, só com tabelas.
 
 Dependências: Node 22, Playwright com Chromium (passos 1, 2 e 8), Python 3 com numpy, pandas e statsmodels (passo 7).
