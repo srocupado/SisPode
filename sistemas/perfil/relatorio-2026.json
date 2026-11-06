@@ -304,5 +304,23 @@
    "p75": 1.04,
    "p90": 1.08
   }
+ },
+ "PR": {
+  "eleitoresPerfil": 8609026,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 11444380,
+  "popSemLocal": 0,
+  "setores": 23777,
+  "setoresSemCentro": 0,
+  "locais": 4821,
+  "zonasEmMunicipiosDivididos": 31,
+  "razaoPopEleitores": {
+   "p10": 0.93,
+   "p25": 0.95,
+   "mediana": 1,
+   "p75": 1.04,
+   "p90": 1.05
+  }
  }
 }

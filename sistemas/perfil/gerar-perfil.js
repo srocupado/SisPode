@@ -56,7 +56,11 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a);
 function baixar(url, destino) {
   if (fs.existsSync(destino) && fs.statSync(destino).size > 0) return;
   log('baixando', url);
-  execFileSync('curl', ['-s', '-f', '--retry', '3', '--max-time', '3600', '-o', destino + '.parcial', url], { stdio: 'inherit' });
+  // A conexão com o TSE cai no meio de arquivos grandes (curl 56): retoma de onde parou (-C -).
+  for (let t = 1; ; t++) {
+    try { execFileSync('curl', ['-s', '-f', '-C', '-', '--retry', '3', '--max-time', '3600', '-o', destino + '.parcial', url], { stdio: 'inherit' }); break; }
+    catch (e) { if (t >= 6) throw e; log(`download interrompido (tentativa ${t}): retomando`); }
+  }
   fs.renameSync(destino + '.parcial', destino);
 }
 
