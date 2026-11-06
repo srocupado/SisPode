@@ -123,7 +123,8 @@ function spQuantis(valores, k = 5) {
   const v = valores.filter(x => x != null).sort((a, b) => a - b);
   if (!v.length) return [];
   const out = [];
-  for (let j = 1; j < k; j++) out.push(v[Math.min(v.length - 1, Math.floor((j * v.length) / k))]);
+  // corte j = o maior valor da faixa j (com n ≤ k valores, cada um na sua faixa)
+  for (let j = 1; j < k; j++) out.push(v[Math.max(0, Math.ceil((j * v.length) / k) - 1)]);
   return out;
 }
 const spClasse = (x, cortes) => { if (x == null) return -1; let c = 0; while (c < cortes.length && x > cortes[c]) c++; return c; };

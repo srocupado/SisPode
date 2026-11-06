@@ -2253,7 +2253,9 @@ function siPerfilCores(uf, x) {
   const vals = x.desenho.distritos.map(d => [d.id, perf[d.id] ? spValor(P, perf[d.id], ind.id) : null]);
   // Nunca mais faixas que distritos com valor (DF: 4 distritos → 4 faixas); as cores se espalham pela rampa.
   const k = Math.min(SI_PERFIL_CORES.length, new Set(vals.map(v => v[1]).filter(y => y != null)).size);
-  const paleta = k <= 1 ? [SI_PERFIL_CORES[2]] : Array.from({ length: k }, (_, j) => SI_PERFIL_CORES[Math.round((j * (SI_PERFIL_CORES.length - 1)) / (k - 1))]);
+  // Na tela (fundo escuro), valor maior = mais claro; no papel (si.imprimindo), valor maior = mais escuro.
+  const rampa = si.imprimindo ? [...SI_PERFIL_CORES].reverse() : SI_PERFIL_CORES;
+  const paleta = k <= 1 ? [rampa[2]] : Array.from({ length: k }, (_, j) => rampa[Math.round((j * (rampa.length - 1)) / (k - 1))]);
   const cortes = spQuantis(vals.map(v => v[1]), k);
   const cor = {}, faixas = paleta.map(c => ({ cor: c, min: null, max: null }));
   for (const [id, y] of vals) {
@@ -2301,17 +2303,22 @@ function siPerfilDistritosHtml(uf, x, el, sd, impressao) {
   const total = [...P.mun.values()].reduce((a, v) => a.map((y, j) => y + v[j]), new Array(P.n).fill(0));
   const multi = x.modoEstadual === 'fed';
   let h = `<h3 id="siPerfil" style="margin-top:18px">Perfil dos distritos de ${siEsc(siUfNome(uf))}</h3>`;
-  // tabela
-  h += `<div class="tab-rolagem"><table><thead><tr><th class="n">Distrito</th><th>Eleito${multi ? 's' : ''}</th><th>Perfil do eleito</th>`
-    + SP_IND.map(i => `<th class="n" title="${siEsc(i.nome + (i.nota ? ' — ' + i.nota : '') + (i.fonte === 'tse' ? ' (TSE)' : ' (Censo 2022)'))}">${siEsc(i.curto)}</th>`).join('') + '</tr></thead><tbody>';
-  for (const d of x.desenho.distritos) {
-    const ws = siVencedoresDe(venc[d.id]), v = perf[d.id];
-    const pode = ws.some(w => w.partido === si.partido);
-    h += `<tr${pode ? ' class="pode"' : ''}><td class="n">${d.id}</td><td>${ws.map(w => `${siEsc(w.nome)} (${siEsc(w.partido)})`).join('<br>') || '—'}</td>`
-      + `<td>${ws.map(w => siEsc(siPerfilEleito(w.sq))).join('<br>') || '—'}</td>`
-      + SP_IND.map(i => `<td class="n">${v ? siPerfilFmt(i, spValor(P, v, i.id)) : '—'}</td>`).join('') + '</tr>';
-  }
-  h += `<tr class="tot"><td class="n">Estado</td><td></td><td></td>` + SP_IND.map(i => `<td class="n">${siPerfilFmt(i, spValor(P, total, i.id))}</td>`).join('') + '</tr></tbody></table></div>';
+  // tabela (no papel, em duas: eleitorado e população — as 14 colunas não cabem na largura do A4)
+  const tabela = (inds, comEleito) => {
+    let t = `<div class="tab-rolagem"><table><thead><tr><th class="n">Distrito</th>${comEleito ? `<th>Eleito${multi ? 's' : ''}</th><th>Perfil do eleito</th>` : ''}`
+      + inds.map(i => `<th class="n" title="${siEsc(i.nome + (i.nota ? ' — ' + i.nota : '') + (i.fonte === 'tse' ? ' (TSE)' : ' (Censo 2022)'))}">${siEsc(i.curto)}</th>`).join('') + '</tr></thead><tbody>';
+    for (const d of x.desenho.distritos) {
+      const ws = siVencedoresDe(venc[d.id]), v = perf[d.id];
+      const pode = ws.some(w => w.partido === si.partido);
+      t += `<tr${pode ? ' class="pode"' : ''}><td class="n">${d.id}</td>`
+        + (comEleito ? `<td>${ws.map(w => `${siEsc(w.nome)} (${siEsc(w.partido)})`).join('<br>') || '—'}</td><td>${ws.map(w => siEsc(siPerfilEleito(w.sq))).join('<br>') || '—'}</td>` : '')
+        + inds.map(i => `<td class="n">${v ? siPerfilFmt(i, spValor(P, v, i.id)) : '—'}</td>`).join('') + '</tr>';
+    }
+    return t + `<tr class="tot"><td class="n">Estado</td>${comEleito ? '<td></td><td></td>' : ''}` + inds.map(i => `<td class="n">${siPerfilFmt(i, spValor(P, total, i.id))}</td>`).join('') + '</tr></tbody></table></div>';
+  };
+  if (!impressao) h += tabela(SP_IND, true);
+  else h += '<h4 style="margin:10px 0 4px">Eleitorado (cadastro do TSE)</h4>' + tabela(SP_IND.filter(i => i.fonte === 'tse'), true)
+    + '<h4 style="margin:10px 0 4px">População e domicílios (Censo 2022)</h4>' + tabela(SP_IND.filter(i => i.fonte === 'censo'), false);
 
   // onde cada partido vence
   const ind = siPerfilInd();
@@ -2403,7 +2410,7 @@ async function siPdf() {
     ${si.sistemas.map(s => `<div class="imp-param"><b>${siEsc(s.nome)}:</b> ${siEsc(siDescricao(s))}</div>`).join('')}
     ${si.partido !== 'PODE' ? `<div class="imp-param"><b>Partido em foco:</b> ${siEsc(si.partido)}</div>` : ''}
     ${$('siAvisos').innerHTML}
-    ${siRelatorioHtml(true)}
+    ${(() => { si.imprimindo = true; try { return siRelatorioHtml(true); } finally { si.imprimindo = false; } })()}
     ${siMetodoHtml()}
     <div class="imp-rodape">As simulações mantêm os votos como foram dados — noutro sistema, eleitores e partidos se comportariam de outro jeito. O proporcional com a regra vigente
       reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
