@@ -2174,9 +2174,10 @@ function siDistritosHtml(uf, sd, impressao) {
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
   const temPerfil = !!si.perfil[siChaveGeo(uf)];
-  const botoes = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg" id="siMapaModo"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button>`
+  const legPerfil = modo === 'perfil' && temPerfil ? siPerfilLegenda(uf, x) : '';
+  const botoes = impressao ? legPerfil : `<div class="ctl" style="margin-bottom:6px"><div class="seg" id="siMapaModo"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button>`
     + (temPerfil ? `<button data-mm="perfil"${modo === 'perfil' ? ' class="ativo"' : ''}>Cor pelo perfil</button>` : '') + `</div>${modo === 'perfil' && temPerfil ? siPerfilSeletor() : ''}${siBotoesImagem(uf)}</div>`
-    + (modo === 'perfil' && temPerfil ? siPerfilLegenda(uf, x) : '');
+    + legPerfil;
   h += botoes + `<div class="mapas-d"><div class="mapa-d" data-zoom="${uf}">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${desenho.locais ? '; pontos menores = locais de votação' : ''}${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
     + (cap ? `<div class="mapa-d" data-zoom="${uf}:cap">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral${desenho.locais ? ' e local de votação' : ''}</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
   // tabela
