@@ -322,5 +322,167 @@
    "p75": 1.04,
    "p90": 1.05
   }
+ },
+ "RJ": {
+  "eleitoresPerfil": 12857000,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 16055174,
+  "popSemLocal": 0,
+  "setores": 41700,
+  "setoresSemCentro": 0,
+  "locais": 5061,
+  "zonasEmMunicipiosDivididos": 113,
+  "razaoPopEleitores": {
+   "p10": 0.81,
+   "p25": 0.89,
+   "mediana": 0.99,
+   "p75": 1.06,
+   "p90": 1.17
+  }
+ },
+ "RN": {
+  "eleitoresPerfil": 2660565,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 3302729,
+  "popSemLocal": 0,
+  "setores": 6095,
+  "setoresSemCentro": 0,
+  "locais": 1585,
+  "zonasEmMunicipiosDivididos": 7,
+  "razaoPopEleitores": {
+   "p10": 0.82,
+   "p25": 0.86,
+   "mediana": 0.99,
+   "p75": 1.19,
+   "p90": 1.22
+  }
+ },
+ "RO": {
+  "eleitoresPerfil": 1267105,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 1581196,
+  "popSemLocal": 0,
+  "setores": 3456,
+  "setoresSemCentro": 0,
+  "locais": 678,
+  "zonasEmMunicipiosDivididos": 6,
+  "razaoPopEleitores": {
+   "p10": 0.86,
+   "p25": 0.97,
+   "mediana": 0.99,
+   "p75": 1,
+   "p90": 1.25
+  }
+ },
+ "RR": {
+  "eleitoresPerfil": 401496,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 636707,
+  "popSemLocal": 0,
+  "setores": 1783,
+  "setoresSemCentro": 0,
+  "locais": 377,
+  "zonasEmMunicipiosDivididos": 2,
+  "razaoPopEleitores": {
+   "p10": 0.84,
+   "p25": 0.84,
+   "mediana": 1.18,
+   "p75": 1.18,
+   "p90": 1.18
+  }
+ },
+ "RS": {
+  "eleitoresPerfil": 8526233,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 10882965,
+  "popSemLocal": 0,
+  "setores": 25569,
+  "setoresSemCentro": 0,
+  "locais": 7814,
+  "zonasEmMunicipiosDivididos": 40,
+  "razaoPopEleitores": {
+   "p10": 0.91,
+   "p25": 0.94,
+   "mediana": 1,
+   "p75": 1.05,
+   "p90": 1.1
+  }
+ },
+ "SC": {
+  "eleitoresPerfil": 5725753,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 7610361,
+  "popSemLocal": 0,
+  "setores": 16736,
+  "setoresSemCentro": 0,
+  "locais": 3464,
+  "zonasEmMunicipiosDivididos": 34,
+  "razaoPopEleitores": {
+   "p10": 0.91,
+   "p25": 0.96,
+   "mediana": 1,
+   "p75": 1.04,
+   "p90": 1.09
+  }
+ },
+ "SE": {
+  "eleitoresPerfil": 1740124,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 2210004,
+  "popSemLocal": 0,
+  "setores": 5346,
+  "setoresSemCentro": 0,
+  "locais": 1213,
+  "zonasEmMunicipiosDivididos": 3,
+  "razaoPopEleitores": {
+   "p10": 0.84,
+   "p25": 0.84,
+   "mediana": 1,
+   "p75": 1.16,
+   "p90": 1.16
+  }
+ },
+ "SP": {
+  "eleitoresPerfil": 34104226,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 44411238,
+  "popSemLocal": 0,
+  "setores": 103319,
+  "setoresSemCentro": 0,
+  "locais": 11029,
+  "zonasEmMunicipiosDivididos": 176,
+  "razaoPopEleitores": {
+   "p10": 0.89,
+   "p25": 0.94,
+   "mediana": 0.99,
+   "p75": 1.06,
+   "p90": 1.1
+  }
+ },
+ "TO": {
+  "eleitoresPerfil": 1182307,
+  "eleitoresSemLocal": 0,
+  "eleitoresPeloLocalDoPerfil": 0,
+  "popCensoUf": 1511460,
+  "popSemLocal": 0,
+  "setores": 4117,
+  "setoresSemCentro": 0,
+  "locais": 932,
+  "zonasEmMunicipiosDivididos": 2,
+  "razaoPopEleitores": {
+   "p10": 0.93,
+   "p25": 0.93,
+   "mediana": 1.7,
+   "p75": 1.7,
+   "p90": 1.7
+  }
  }
 }
