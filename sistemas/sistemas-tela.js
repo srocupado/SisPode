@@ -2250,11 +2250,18 @@ function siPerfilCores(uf, x) {
   if (!P) return null;
   const ind = siPerfilInd(), perf = siPerfilDe(uf, x);
   const vals = x.desenho.distritos.map(d => [d.id, perf[d.id] ? spValor(P, perf[d.id], ind.id) : null]);
-  const cortes = spQuantis(vals.map(v => v[1]), SI_PERFIL_CORES.length);
-  const cor = {};
-  for (const [id, y] of vals) { const c = spClasse(y, cortes); if (c >= 0) cor[id] = SI_PERFIL_CORES[c]; }
-  const xs = vals.map(v => v[1]).filter(y => y != null);
-  return { cor, cortes, min: Math.min(...xs), max: Math.max(...xs), ind };
+  // Nunca mais faixas que distritos com valor (DF: 4 distritos → 4 faixas); as cores se espalham pela rampa.
+  const k = Math.min(SI_PERFIL_CORES.length, new Set(vals.map(v => v[1]).filter(y => y != null)).size);
+  const paleta = k <= 1 ? [SI_PERFIL_CORES[2]] : Array.from({ length: k }, (_, j) => SI_PERFIL_CORES[Math.round((j * (SI_PERFIL_CORES.length - 1)) / (k - 1))]);
+  const cortes = spQuantis(vals.map(v => v[1]), k);
+  const cor = {}, faixas = paleta.map(c => ({ cor: c, min: null, max: null }));
+  for (const [id, y] of vals) {
+    const c = spClasse(y, cortes);
+    if (c < 0) continue;
+    cor[id] = paleta[c];
+    const f = faixas[c]; f.min = f.min == null ? y : Math.min(f.min, y); f.max = f.max == null ? y : Math.max(f.max, y);
+  }
+  return { cor, faixas: faixas.filter(f => f.min != null), ind };
 }
 
 function siPerfilSeletor() {
@@ -2266,9 +2273,9 @@ function siPerfilSeletor() {
 function siPerfilLegenda(uf, x) {
   const pc = siPerfilCores(uf, x);
   if (!pc) return '';
-  const lim = [pc.min, ...pc.cortes, pc.max];
-  const faixas = SI_PERFIL_CORES.map((c, k) => `<span class="pleg"><i style="background:${c}"></i>${siPerfilFmt(pc.ind, lim[k])} a ${siPerfilFmt(pc.ind, lim[k + 1])}</span>`);
-  return `<div class="dica pleg-l"><b>${siEsc(pc.ind.nome)}</b>${pc.ind.nota ? ` <span class="igual">(${siEsc(pc.ind.nota)})</span>` : ''} — faixas com o mesmo número de distritos: ${faixas.join(' ')}</div>`;
+  // cada faixa: do menor ao maior valor dos distritos que caem nela
+  const faixas = pc.faixas.map(f => `<span class="pleg"><i style="background:${f.cor}"></i>${siPerfilFmt(pc.ind, f.min)}${f.max !== f.min ? ' a ' + siPerfilFmt(pc.ind, f.max) : ''}</span>`);
+  return `<div class="dica pleg-l"><b>${siEsc(pc.ind.nome)}</b>${pc.ind.nota ? ` <span class="igual">(${siEsc(pc.ind.nota)})</span>` : ''} — ${pc.faixas.length > 1 ? 'faixas com o mesmo número de distritos (quantis)' : 'um valor só'}: ${faixas.join(' ')}</div>`;
 }
 
 /** Vencedores de um distrito (um, ou vários no modo dos estaduais nos distritos federais). */
@@ -2312,6 +2319,7 @@ function siPerfilDistritosHtml(uf, x, el, sd, impressao) {
   h += `<h4 style="margin:14px 0 6px">Onde cada partido vence — ${siEsc(ind.nome)} ${impressao ? '' : siPerfilSeletor()}</h4>`;
   if (!t) h += '<div class="dica">Distritos de menos para separar em terços.</div>';
   else {
+    if (lista.length < 9) h += `<div class="dica">Com ${lista.length} distritos, cada terço tem um ou dois — a comparação diz pouco neste estado; vale olhar estados maiores ou o conjunto.</div>`;
     h += '<div class="tab-rolagem"><table><thead><tr><th>Terço dos distritos</th><th class="n">Faixa</th><th class="n">Vitórias</th>'
       + `<th class="n">${siEsc(siPNome())}</th><th>Quem mais vence</th></tr></thead><tbody>`;
     for (const g of t.tercos) {
