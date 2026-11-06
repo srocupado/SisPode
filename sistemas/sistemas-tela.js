@@ -31,6 +31,7 @@ const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abert
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito', ibgeCopia: {},
   perfil: {}, perfilInd: 'superior', cad: null, cadTentado: false,
+  relFora: new Set(),   // sistemas deixados de fora do PDF e do memorial (ids)
   abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, trocasSis: '', listas: {}, aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
@@ -990,7 +991,7 @@ async function siSimular() {
   siStatus(siResumoStatus());
   $('siAvisos').innerHTML = siAvisosHtml();
   $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
-  $('siPdf').disabled = false; $('siMemorial').disabled = false;
+  siSelRelPintar();
 }
 
 function siResumoStatus() {
@@ -1173,7 +1174,7 @@ function siPartes(impressao) {
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
     for (const uf of res.ufs) {
-      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf];
+      const d = si.dados[uf], r = res.real.porUf[uf], pp = porId('proporcional'), p = pp ? pp.porUf[uf] : { qe: d.qeTse };
       const podeUf = eleitos => eleitos.filter(x => x.cand.partido === si.partido).length;
       h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td>`
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
@@ -1264,10 +1265,10 @@ function siDetalheUfHtml(uf, impressao) {
   const real = r ? conta(r.eleitos) : {};
   const sims = res.sims.map(s => conta(s.porUf[uf].eleitos));
   const partidos = ordem.filter(sg => real[sg] || sims.some(o => o[sg]));
-  const pid = id => res.sims.find(x => x.id === id).porUf[uf];
-  const p = pid('proporcional'), m = pid('misto');
+  const pid = id => { const s = res.sims.find(x => x.id === id); return s ? s.porUf[uf] : null; };
+  const p = pid('proporcional') || { qe: d.qeTse }, m = pid('misto');
   let h = `<h2 id="siDetalhe"${impressao && Object.keys(si.dados).length > 1 ? ' class="imp-quebra"' : ''}>${siEsc(siUfNome(uf))} <small>${d.vagas} vagas · ${siFmt(d.validos)} votos válidos · QE ${siFmt(p.qe)}`
-    + ` · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
+    + (m ? ` · misto: ${m.nMais} mais votados + ${m.nLista} lista` : '') + '</small></h2>';
   const umaUf = Object.keys(si.dados).length === 1;   // com um estado só, a tabela por partido já está acima
   if (!umaUf) h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>` + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
   if (!umaUf) for (const sg of partidos) {
@@ -2370,12 +2371,38 @@ function siPerfilDistritosHtml(uf, x, el, sd, impressao) {
 }
 
 // ------------------------------------------------------------ PDF
+/** Sistemas escolhidos para o PDF e o memorial (a tela mostra todos). */
+const siSistemasRel = () => (si.sistemas || []).filter(s => !si.relFora.has(s.id));
+/**
+ * Roda fn com só os sistemas escolhidos: si.sistemas e si.res.sims filtrados (e um cache
+ * de estratégia novo, para o que se calcula com a seleção não valer depois na tela).
+ */
+function siComSelecao(fn) {
+  if (!si.relFora.size || !si.res) return fn();
+  const s0 = si.sistemas, r0 = si.res;
+  si.sistemas = siSistemasRel();
+  si.res = Object.assign({}, r0, { sims: r0.sims.filter(x => !si.relFora.has(x.id)), estr: undefined });
+  try { return fn(); } finally { si.sistemas = s0; si.res = r0; }
+}
+/** A lista de escolha (ao lado dos botões do PDF e do memorial). */
+function siSelRelPintar() {
+  const el = $('siSelRelLista'), sum = $('siSelRelResumo');
+  if (!el) return;
+  const ss = si.sistemas || [];
+  for (const id of [...si.relFora]) if (!ss.some(s => s.id === id)) si.relFora.delete(id);
+  const n = ss.length - si.relFora.size;
+  el.innerHTML = ss.map(s => `<label><input type="checkbox" data-relsis="${siEsc(s.id)}"${si.relFora.has(s.id) ? '' : ' checked'}> ${siEsc(s.nome)}</label>`).join('')
+    + '<div class="dica" style="margin:6px 0 0">O resultado oficial (TSE) sempre entra, como referência. A tela continua mostrando todos.</div>';
+  sum.textContent = ss.length ? `Sistemas no relatório: ${n === ss.length ? 'todos' : `${n} de ${ss.length}`}` : 'Sistemas no relatório';
+  $('siPdf').disabled = !si.res || !n; $('siMemorial').disabled = !si.res || !n;
+}
 /**
  * Memorial de cálculo: planilha (Excel) com cada conta refeita por fórmula a partir
  * dos votos de cada candidato e a coluna "Confere" contra o resultado do simulador.
  */
 /** Memorial de cálculo (planilha). federado: o do cenário da federação hipotética (arquivo à parte). */
-function siMemorial(federado) {
+const siMemorial = federado => siComSelecao(() => siMemorialSel(federado));
+function siMemorialSel(federado) {
   if (!si.res || typeof smMemorial !== 'function' || typeof XLSX === 'undefined') return;
   federado = federado === true && si.fedParceiro;
   const ufs = Object.keys(si.dados), alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
@@ -2403,7 +2430,7 @@ async function siPdf() {
   const ufs = Object.keys(si.dados);
   const alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
   const el = $('siImpressao');
-  el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
+  siComSelecao(() => { el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
       <h1>Sistemas eleitorais: relatório comparativo — ${siEsc(siCargoNome())}, ${si.op.ano} (${siEsc(alvo)})</h1>
       <div class="imp-sub">Os votos oficiais da eleição redistribuídos por sistema · fonte: TSE (${si.op.fonte === 'resultados' ? 'servidor oficial de resultados' : 'dados abertos'}) · gerado em ${siEsc(agora)}</div></div></div>
     <div class="imp-filete"></div>
@@ -2413,7 +2440,7 @@ async function siPdf() {
     ${(() => { si.imprimindo = true; try { return siRelatorioHtml(true); } finally { si.imprimindo = false; } })()}
     ${siMetodoHtml()}
     <div class="imp-rodape">As simulações mantêm os votos como foram dados — noutro sistema, eleitores e partidos se comportariam de outro jeito. O proporcional com a regra vigente
-      reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
+      reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`; });
   const titulo = document.title;
   document.title = `Sistemas eleitorais - ${si.cargo === '6' ? 'federal' : 'estadual'} ${si.op.ano} - ${alvo}`;
   const volta = () => { document.title = titulo; window.removeEventListener('afterprint', volta); };
@@ -2438,6 +2465,13 @@ async function siIniciar() {
     if (si.res) { $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); }
   });
   $('siMemorial').addEventListener('click', () => siMemorial(false));
+  $('siSelRelLista').addEventListener('change', ev => {
+    const c = ev.target.closest('input[data-relsis]');
+    if (!c) return;
+    if (c.checked) si.relFora.delete(c.dataset.relsis); else si.relFora.add(c.dataset.relsis);
+    siSelRelPintar();
+  });
+  document.addEventListener('click', ev => { const d = $('siSelRel'); if (d && d.open && !d.contains(ev.target)) d.open = false; });
   $('siRegra').addEventListener('click', siRegraVigente);
   $('siCargo').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-c]');
