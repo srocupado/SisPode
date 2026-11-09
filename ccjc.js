@@ -2189,6 +2189,9 @@ async function gerarPDF() {
   } catch (e) { console.warn('Apelidos:', e.message); }
   if (win.closed) return;
 
+  if (typeof garantirBlocosPauta === 'function') {
+    try { await garantirBlocosPauta(app.pautaAtual); } catch (e) { console.warn('Blocos da pauta:', e.message); }
+  }
   const logo = await carregarLogoCCJC();
   if (win.closed) return;
 
@@ -2241,8 +2244,22 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
     ? `Falha ao gerar a análise${proj.erroAnalise ? `: ${escHtml(proj.erroAnalise)}` : '.'}`
     : 'Análise não gerada.';
 
+  // Número oficial do item e bloco da pauta (ccjc-blocos.js), quando a pauta os tem;
+  // sem eles, a posição na lista, como antes.
+  const temBlocos = typeof pautaVisaoGeral === 'function' && (pauta.blocos || []).length > 0;
+  const numItem = (proj, idx) => (typeof numeroItem === 'function' ? numeroItem(proj, idx) : idx + 1);
+  const rotBloco = proj => {
+    if (!temBlocos) return '';
+    const b = blocoDe(pauta, proj);
+    return b ? blocoRotulo(b) : '';
+  };
+  const visao = temBlocos ? pautaVisaoGeral(pauta, {
+    comAnalise: p => !!(p.resumoOriginal || p.statusAnalise === 'concluido'),
+    rotina: typeof resumoEhRotina === 'function' ? resumoEhRotina : () => false,
+  }) : null;
+
   const html = projetos.map((proj, idx) => {
-    const numBase = idx + 1;
+    const numBase = numItem(proj, idx);
 
     const comissoesHtml = (proj.comissoes || []).map(com => {
       const titulo = com.nome && com.nome !== com.sigla ? `${com.nome} (${com.sigla})` : com.sigla;
@@ -2278,6 +2295,7 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
           ${proj.autores?.length ? `<span class="pi-autores">Autoria: ${escHtml(proj.autores.join(', '))}</span>` : ''}
           ${proj.relator ? `<span class="pi-autores">Relator(a): ${escHtml(proj.relator)}</span>` : ''}
         </div>
+        ${rotBloco(proj) ? `<div class="pi-bloco">Bloco ${escHtml(rotBloco(proj))}</div>` : ''}
         ${badgesImpressao(proj)}
         <p class="pi-ementa">${escHtml(proj.ementa || '')}</p>
 
@@ -2314,7 +2332,10 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
     <h2>Índice</h2>
     ${leg.length ? `<p class="pi-indice-legenda">${leg.join(' · ')}</p>` : ''}
     <ul>
-      ${projetos.map((p, i) => `<li><a href="#${ancora(p.chave)}"><span class="t">${i + 1}. ${escHtml(tituloComApelido(p))}${escHtml(sufixoMarcasIndice(p))}</span><span class="ld"></span></a></li>`).join('')}
+      ${projetos.map((p, i) => {
+        const b = rotBloco(p), antes = i ? rotBloco(projetos[i - 1]) : null;
+        return `${b && b !== antes ? `<li class="pi-indice-bloco">${escHtml(b)}</li>` : ''}<li><a href="#${ancora(p.chave)}"><span class="t">${numItem(p, i)}. ${escHtml(tituloComApelido(p))}${escHtml(sufixoMarcasIndice(p))}</span><span class="ld"></span></a></li>`;
+      }).join('')}
     </ul>
   </section>` : '';
 
@@ -2345,6 +2366,11 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
        target-counter, que só o paged.js resolve. Sem a lib, o índice sai
        clicável e sem número — degradação aceitável, nunca página em branco. */
     .pi-indice { break-after:page; page-break-after:always; }
+    .pi-visao { margin-bottom:18px; }
+    .pi-visao h2 { font-size:13pt; color:#003c1f; margin-bottom:6px; }
+    .pi-visao p { font-size:10.5pt; line-height:1.6; }
+    .pi-indice li.pi-indice-bloco { font-size:10.5pt; font-weight:700; color:#006633; margin:10px 0 4px; text-transform:none; }
+    .pi-bloco { font-size:9pt; color:#006633; font-weight:600; margin:-2px 0 4px; }
     .pi-indice h2 { font-size:13pt; color:#003c1f; margin-bottom:4px; }
     .pi-indice-legenda { font-size:9pt; font-style:italic; color:#555; margin:0 0 10px; }
     .pi-indice-legenda b { font-style:normal; color:#006633; }
@@ -2399,6 +2425,7 @@ function gerarHTMLImpressao(pauta, logoDataUrl = null) {
   <div class="pi-rule"></div>
   <div class="pi-meta">${meta}</div>
   <div class="pi-body">
+    ${visao ? `<section class="pi-visao"><h2>Visão geral</h2>${[visao.p1, visao.p2, visao.p3].filter(Boolean).map(t => `<p>${t}</p>`).join('')}</section>` : ''}
     ${indice}
     ${html || '<p>Pauta vazia.</p>'}
     <div class="pi-footer">Documento gerado pelo SisPode · Liderança do Podemos · Câmara dos Deputados</div>
@@ -3162,6 +3189,8 @@ function _parsearPautaJSON(itens) {
       autores:              [],
       relator:              item.relator?.nome || '',
       topico:               item.topico  || '',
+      item:                 Number(item.ordem) || null,   // nº do item na pauta (o mesmo da pauta oficial)
+      regime:               item.regime  || '',
       statusApi:            '',
       urlInteiroTeor:       null,
       resumoOriginal:       '',
@@ -3209,6 +3238,8 @@ function _parsearPautaXML(xmlText) {
     const titulo    = item.querySelector('titulo')?.textContent      || `${siglaTipo} ${numero}/${ano}`;
     const relNome   = item.querySelector('relator nome')?.textContent || '';
     const topico    = item.querySelector('topico')?.textContent       || '';
+    const ordem     = Number(item.querySelector('ordem')?.textContent) || null;
+    const regime    = item.querySelector('regime')?.textContent       || '';
 
     result.push({
       chave:                titulo,
@@ -3220,6 +3251,8 @@ function _parsearPautaXML(xmlText) {
       autores:              [],
       relator:              relNome,
       topico,
+      item:                 ordem,
+      regime,
       statusApi:            '',
       urlInteiroTeor:       null,
       resumoOriginal:       '',
@@ -3262,6 +3295,9 @@ async function carregarPautaDoCalendario() {
       origem:  { tipo: 'calendario', eventoId: ev.id, data: dia },
       projetos,
     };
+
+    // blocos (A – Redações Finais…) e números dos itens, da pauta oficial da reunião
+    if (typeof garantirBlocosPauta === 'function') await garantirBlocosPauta(pauta);
 
     app.pautaAtual   = pauta;
     app.projetoAtivo = null;
