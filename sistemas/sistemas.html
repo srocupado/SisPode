@@ -181,6 +181,13 @@
   th.grupo { text-align: center; border-bottom: 1px solid var(--borda); color: var(--texto); }
   td.d { text-align: right; font-size: 12px; width: 44px; }
   tr.pode td { background: rgba(0,168,89,.12); font-weight: 600; }
+  tr.tot td { border-top: 2px solid var(--borda); font-weight: 600; }
+  .pleg { display: inline-flex; align-items: center; gap: 4px; margin-right: 10px; white-space: nowrap; } .pleg i { width: 14px; height: 10px; border-radius: 2px; display: inline-block; }
+  .selrel { position: relative; } .selrel summary { cursor: pointer; font-size: 12px; padding: 6px 8px; border: 1px solid var(--borda); border-radius: 6px; list-style: none; white-space: nowrap; }
+  .selrel summary::-webkit-details-marker { display: none; } .selrel summary::after { content: ' ▾'; }
+  .selrel-lista { position: absolute; right: 0; top: calc(100% + 4px); z-index: 20; background: var(--bg2); border: 1px solid var(--borda); border-radius: 8px; padding: 8px 10px; min-width: 280px; box-shadow: 0 6px 18px rgba(0,0,0,.35); }
+  .selrel-lista label { display: flex; gap: 6px; align-items: center; font-size: 12px; padding: 3px 0; cursor: pointer; }
+  .pind select { font-size: 12px; background: var(--bg2); color: var(--texto); border: 1px solid var(--borda); border-radius: 6px; padding: 4px 6px; }
   tr.clic { cursor: pointer; } tr.clic:hover td { background: rgba(255,255,255,.04); } tr.sel td { background: rgba(255,210,74,.10); }
   .sw { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: 0; }
   .duas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 10px; }
@@ -254,7 +261,7 @@
     <label class="rot">Abrangência <select id="siUf"><option value="">Brasil (27 UFs)</option></select></label>
     <label class="rot" title="O partido dos destaques: os números grandes, a frase, quem entra e quem sai, a cor verde nos hemiciclos e no mapa, o resumo e o PDF">Partido em foco <select id="siFoco"><option value="PODE">PODE</option></select></label>
     <button id="siLer" class="pri">Ler dados do TSE</button>
-    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF: resumo, indicadores, composição, partido em foco, estados, distritos, método (imprimir → salvar como PDF)">Relatório em PDF</button><button id="siMemorial" disabled title="Planilha (Excel) com cada conta refeita por fórmula — quociente eleitoral, quociente partidário, sobras rodada a rodada, maiores médias das listas, distritos, bancadas e indicadores — e a coluna Confere contra o resultado do simulador">Memorial de cálculo</button></div>
+    <div class="dir"><button id="siPdf" disabled title="Relatório comparativo em PDF: resumo, indicadores, composição, partido em foco, estados, distritos, método (imprimir → salvar como PDF)">Relatório em PDF</button><button id="siMemorial" disabled title="Planilha (Excel) com cada conta refeita por fórmula — quociente eleitoral, quociente partidário, sobras rodada a rodada, maiores médias das listas, distritos, bancadas e indicadores — e a coluna Confere contra o resultado do simulador">Memorial de cálculo</button><details id="siSelRel" class="selrel"><summary id="siSelRelResumo">Sistemas no relatório</summary><div id="siSelRelLista" class="selrel-lista"></div></details></div>
   </div>
   <div class="status" id="siStatus"></div>
   <div id="siAvisos"></div>
@@ -394,6 +401,7 @@
 <script src="../labs-mapa-nucleo.js"></script>
 <script src="../sistemas-nucleo.js"></script>
 <script src="../sistemas-distrital.js"></script>
+<script src="../sistemas-perfil.js"></script>
 <script src="../libs/xlsx.full.min.js"></script>
 <script src="../sistemas-memorial.js"></script>
 <script src="sistemas-tela.js"></script>

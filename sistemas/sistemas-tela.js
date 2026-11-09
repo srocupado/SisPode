@@ -21,12 +21,17 @@ const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', adi8036: 'ADI 8.03
 const SI_IBGE = 'https://servicodados.ibge.gov.br/api';
 // Cores dos distritos no mapa (vizinhos nunca com a mesma).
 const SI_CORES_DIST = ['#3b82f6', '#f59e0b', '#a855f7', '#22d3ee', '#ef4444', '#84cc16', '#ec4899', '#f97316', '#14b8a6', '#eab308', '#6366f1', '#fb7185'];
+// Mapa pelo perfil dos distritos: rampa sequencial de um tom (azul), do valor baixo (escuro, some no fundo
+// do painel) ao alto (claro). Validada no modo escuro contra #16212c (dataviz/validate_palette.js --ordinal).
+const SI_PERFIL_CORES = ['#184f95', '#2a78d6', '#5598e7', '#86b6ef', '#cde2fb'];
 // Município com mais eleitores que esta fração de um distrito entra dividido nas zonas eleitorais.
 const SI_FRACAO_DIVIDE = 0.6;
 const SI_GRANDE = 150 * 1024 * 1024;   // acima disto, a leitura dos dados abertos pede confirmação
 
 const si = { eleicoes: [], cargo: '6', op: null, dados: null, conjunto: null, res: null, sistemas: null, ufSel: '', lendo: false, tempo: null,
   geo: {}, desenhos: {}, pop: {}, locais: {}, zoom: {}, calc: 0, mapaModo: 'distrito', ibgeCopia: {},
+  perfil: {}, perfilInd: 'superior', cad: null, cadTentado: false,
+  relFora: new Set(),   // sistemas deixados de fora do PDF e do memorial (ids)
   abertoSis: '', secAbertas: new Set(), todosPartidos: false, ordemBancadas: {}, trocasSis: '', listas: {}, aliancas: [], partido: 'PODE', fedParceiro: '',
   tol: Object.assign({}, SD_TOL_SENADO, { modo: 'conferir' }),
   exc: { regra: 'corta', teto: null, divisor: 'dhondt' } };
@@ -712,6 +717,7 @@ async function siLerGeo() {
         siIbge(`${SI_IBGE}/v1/localidades/estados/${U}/municipios`, `municípios de ${U}`)]);
       const resolver = lmnResolvedor((lista || []).map(m => ({ id: m.id, nome: m.nome })), U);
       si.geo[siChaveGeo(uf)] = { mun: lidos[uf].mun, votos: lidos[uf].votos, malha: sdTopo(topo), resolver };
+      await siCarregarPerfil(uf);
     }
     // contorno dos estados (IBGE), para o mapa do Brasil
     if (!si.malhaBr) {
@@ -985,7 +991,7 @@ async function siSimular() {
   siStatus(siResumoStatus());
   $('siAvisos').innerHTML = siAvisosHtml();
   $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
-  $('siPdf').disabled = false; $('siMemorial').disabled = false;
+  siSelRelPintar();
 }
 
 function siResumoStatus() {
@@ -1168,7 +1174,7 @@ function siPartes(impressao) {
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
     for (const uf of res.ufs) {
-      const d = si.dados[uf], r = res.real.porUf[uf], p = porId('proporcional').porUf[uf];
+      const d = si.dados[uf], r = res.real.porUf[uf], pp = porId('proporcional'), p = pp ? pp.porUf[uf] : { qe: d.qeTse };
       const podeUf = eleitos => eleitos.filter(x => x.cand.partido === si.partido).length;
       h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td>`
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
@@ -1259,10 +1265,10 @@ function siDetalheUfHtml(uf, impressao) {
   const real = r ? conta(r.eleitos) : {};
   const sims = res.sims.map(s => conta(s.porUf[uf].eleitos));
   const partidos = ordem.filter(sg => real[sg] || sims.some(o => o[sg]));
-  const pid = id => res.sims.find(x => x.id === id).porUf[uf];
-  const p = pid('proporcional'), m = pid('misto');
+  const pid = id => { const s = res.sims.find(x => x.id === id); return s ? s.porUf[uf] : null; };
+  const p = pid('proporcional') || { qe: d.qeTse }, m = pid('misto');
   let h = `<h2 id="siDetalhe"${impressao && Object.keys(si.dados).length > 1 ? ' class="imp-quebra"' : ''}>${siEsc(siUfNome(uf))} <small>${d.vagas} vagas · ${siFmt(d.validos)} votos válidos · QE ${siFmt(p.qe)}`
-    + ` · misto: ${m.nMais} mais votados + ${m.nLista} lista</small></h2>`;
+    + (m ? ` · misto: ${m.nMais} mais votados + ${m.nLista} lista` : '') + '</small></h2>';
   const umaUf = Object.keys(si.dados).length === 1;   // com um estado só, a tabela por partido já está acima
   if (!umaUf) h += `<div class="tab-rolagem"><table class="compacta"><thead><tr><th>Partido</th><th class="n">Oficial</th>` + res.sims.map(s => `<th class="n">${siEsc(s.nome)}</th><th class="n">Δ</th>`).join('') + '</tr></thead><tbody>';
   if (!umaUf) for (const sg of partidos) {
@@ -1755,7 +1761,9 @@ function siMapaSvg(uf, x, eleicao, modo, caixa, larg, semRotulo) {
   const cores = siCores(snOrdemPartidos(si.res));
   const venc = {};
   for (const d of eleicao.distritos || []) if (!d.semCadeira) venc[d.id] = d.vencedor;
-  const corDe = id => modo === 'partido' ? (venc[id] ? cores[venc[id].partido] || SI_COR_OUTROS : '#2a3a4a') : cor[id];
+  const corPerfil = modo === 'perfil' ? siPerfilCores(uf, x) : null;
+  const corDe = id => modo === 'partido' ? (venc[id] ? cores[venc[id].partido] || SI_COR_OUTROS : '#2a3a4a')
+    : modo === 'perfil' ? ((corPerfil && corPerfil.cor[id]) || '#2a3a4a') : cor[id];
   const porIbge = {};
   for (const u of base.unidades) if (u.ibge) (porIbge[u.ibge] = porIbge[u.ibge] || []).push(u);
   const aneis = {};
@@ -1962,6 +1970,14 @@ function siInfoDistrito(uf, id, mun) {
   if (mun) h += `<div class="m">${siEsc(mun)}</div>`;
   h += `<div>${siFmt(Math.round(dt.aptos))} ${pop ? 'habitantes' : 'eleitores'} · desvio ${dt.desvio >= 0 ? '+' : ''}${siPct(dt.desvio)}</div>`
     + `<div class="m">${lm.length} município${lm.length === 1 ? '' : 's'}: ${lm.slice(0, 5).map(([n]) => siEsc(n)).join(', ')}${lm.length > 5 ? ` e mais ${lm.length - 5}` : ''}</div>`;
+  const P = si.perfil[siChaveGeo(uf)];
+  if (P) {
+    const v = siPerfilDe(uf, x)[id];
+    if (v) {
+      const f = ind => { const y = spValor(P, v, ind); return y == null ? '—' : siPct(y); };
+      h += `<div class="m">Perfil: ${f('superior')} com superior · ${f('negros')} pretos e pardos · ${f('esgoto')} com esgoto na rede · ${f('rural')} rural</div>`;
+    }
+  }
   if (el && (el.vencedores || []).length > 1) {
     h += `<div class="m">${el.cadeiras} cadeiras neste distrito</div>` + el.vencedores.map(w =>
       `<div class="e${w.partido === si.partido ? ' pode' : ''}">${w.semCadeira ? 'Eleito, <b>sem cadeira</b> (excedente não leva)' : 'Eleito'}: <b>${siEsc(w.nome)}</b> (${siEsc(w.partido)}) — ${siFmt(w.votos)} votos (${siPct(w.pct)})</div>`).join('');
@@ -2153,12 +2169,16 @@ function siDistritosHtml(uf, sd, impressao) {
     + (x.encaixe ? `Contra um desenho federal de referência (mesmo método, mesma base): <b>${x.encaixe.atravessam} de ${x.encaixe.total}</b> distritos estaduais atravessam a fronteira de um distrito federal; em média, ${siPct(x.encaixe.foraMedia)} do tamanho de cada um fica fora do federal que mais o contém.` : '') + '</div>';
   else if (x.modoEstadual === 'fed') h += `<div class="dica"><b>Nos distritos federais</b> (Versão Minuta, leitura com vários eleitos por distrito): ${x.kF} distritos, os mesmos dos deputados federais, com as ${x.kE} cadeiras distritais da Assembleia repartidas na proporção do tamanho de cada um (maiores restos); em cada distrito, elegem-se os mais votados, até ${x.capPartido} da mesma agremiação (${x.vagasFederais} deputados federais: ${x.vagasFederais <= 20 ? 'até 20' : 'mais de 20'}).</div>`;
   if (desenho.locais) h += `<div class="dica">Afinado com os locais de votação: as zonas na fronteira entre distritos${m.municipiosDivididos ? ' (e, se preciso, os municípios)' : ''} se dividiram nos seus locais (pontos menores no mapa), cada um com os seus eleitores e os seus votos na votação por seção do TSE.</div>`;
-  else if (!siTolConf(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
+  else if (!impressao && !siTolConf(desenho.distritos).ok) h += siBotaoLocais(si.locais[siChaveLocais(uf)] ? [] : [uf]);
   if (pop) h += `<div class="dica">Tamanho pela população residente do Censo 2022 (IBGE). Num município dividido em zonas, a população se reparte entre elas na proporção dos eleitores (o censo não tem recorte por zona eleitoral).</div>`;
   if (ruim) h += `<div class="dica">Desvio acima de 15% (a referência alemã: até ±15%, e redesenho obrigatório acima de ±25%): as zonas eleitorais são grandes para distritos deste tamanho — a menor peça do desenho é a zona.</div>`;
   const cap = Object.keys(si.geo[siChaveGeo(uf)].malha.feicoes).length > 1 ? siCaixaCapital(uf, base) : null;
   const modo = si.mapaModo;
-  const botoes = impressao ? '' : `<div class="ctl" style="margin-bottom:6px"><div class="seg" id="siMapaModo"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button></div>${siBotoesImagem(uf)}</div>`;
+  const temPerfil = !!si.perfil[siChaveGeo(uf)];
+  const legPerfil = modo === 'perfil' && temPerfil ? siPerfilLegenda(uf, x) : '';
+  const botoes = impressao ? legPerfil : `<div class="ctl" style="margin-bottom:6px"><div class="seg" id="siMapaModo"><button data-mm="distrito"${modo === 'distrito' ? ' class="ativo"' : ''}>Cor por distrito</button><button data-mm="partido"${modo === 'partido' ? ' class="ativo"' : ''}>Cor pelo partido eleito</button>`
+    + (temPerfil ? `<button data-mm="perfil"${modo === 'perfil' ? ' class="ativo"' : ''}>Cor pelo perfil</button>` : '') + `</div>${modo === 'perfil' && temPerfil ? siPerfilSeletor() : ''}${siBotoesImagem(uf)}</div>`
+    + legPerfil;
   h += botoes + `<div class="mapas-d"><div class="mapa-d" data-zoom="${uf}">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(siUfNome(uf))}</b> · número = distrito; bolinhas = zonas eleitorais de município dividido${desenho.locais ? '; pontos menores = locais de votação' : ''}${cap ? ' (os distritos de ' + siEsc(cap.nome.toLowerCase().replace(/(^|\s)\S/g, c => c.toUpperCase())) + ' estão numerados no recorte)' : ''}</div>${siMapaSvg(uf, x, el, modo, null, 640, cap && cap.caixa)}</div>`
     + (cap ? `<div class="mapa-d" data-zoom="${uf}:cap">${impressao ? '' : siBotoesZoom()}<div class="t"><b>${siEsc(cap.nome)}</b> e arredores, por zona eleitoral${desenho.locais ? ' e local de votação' : ''}</div>${siMapaSvg(uf, x, el, modo, cap.caixa, 420)}</div>` : '<div></div>') + '</div>';
   // tabela
@@ -2191,16 +2211,198 @@ function siDistritosHtml(uf, sd, impressao) {
   }
   h += '</tbody></table></div><div class="dica">"Agremiação": a fatia da agremiação do eleito nos votos válidos do distrito (nominais + legenda). '
     + 'Os votos são os do proporcional: num distrital, cada partido lançaria um candidato por distrito — por isso o eleito pode ter poucos votos pessoais ali.</div>';
+  return h + siPerfilDistritosHtml(uf, x, el, sd, impressao);
+}
+
+// ------------------------------------------------------------ perfil dos distritos
+/**
+ * Perfil dos distritos (../sistemas-perfil.js): arquivos gerados uma vez por eleição
+ * (perfil/gerar-perfil.js e perfil/gerar-candidatos.js), lidos com a camada geográfica.
+ * Sem o arquivo do ano (só 2026 por ora), a seção não aparece.
+ */
+async function siCarregarPerfil(uf) {
+  const k = siChaveGeo(uf), ano = si.op && si.op.ano;
+  if (si.perfil[k] !== undefined) return;
+  si.perfil[k] = null;
+  try {
+    const r = await fetch(`perfil/perfil-${ano}-${uf.toUpperCase()}.json`);
+    if (r.ok) si.perfil[k] = spIndice(await r.json());
+  } catch (_) { /* sem perfil para este ano/estado */ }
+  if (!si.cadTentado && si.perfil[k]) {
+    si.cadTentado = true;
+    try { const r = await fetch(`perfil/candidatos-${ano}.json`); if (r.ok) si.cad = await r.json(); } catch (_) { /* sem o perfil dos eleitos */ }
+  }
+}
+
+// Perfil de cada distrito, guardado por desenho (o mesmo desenho volta sem recalcular).
+const _siPerfilCache = new WeakMap();
+function siPerfilDe(uf, x) {
+  const P = si.perfil[siChaveGeo(uf)];
+  if (!P || !x || !x.desenho) return {};
+  let c = _siPerfilCache.get(x.desenho);
+  if (!c || c.P !== P) { c = { P, v: spDistritos(P, x.base, x.desenho) }; _siPerfilCache.set(x.desenho, c); }
+  return c.v;
+}
+const siPerfilInd = () => SP_IND.find(i => i.id === si.perfilInd) || SP_IND[0];
+const siPerfilFmt = (ind, y) => y == null ? '—' : ind.tipo === 'pct' ? siPct(y) : siFmt(Math.round(y));
+
+/** Cor de cada distrito pelo indicador escolhido (5 faixas de quantis) e os cortes, para a legenda. */
+function siPerfilCores(uf, x) {
+  const P = si.perfil[siChaveGeo(uf)];
+  if (!P) return null;
+  const ind = siPerfilInd(), perf = siPerfilDe(uf, x);
+  const vals = x.desenho.distritos.map(d => [d.id, perf[d.id] ? spValor(P, perf[d.id], ind.id) : null]);
+  // Nunca mais faixas que distritos com valor (DF: 4 distritos → 4 faixas); as cores se espalham pela rampa.
+  const k = Math.min(SI_PERFIL_CORES.length, new Set(vals.map(v => v[1]).filter(y => y != null)).size);
+  // Na tela (fundo escuro), valor maior = mais claro; no papel (si.imprimindo), valor maior = mais escuro.
+  const rampa = si.imprimindo ? [...SI_PERFIL_CORES].reverse() : SI_PERFIL_CORES;
+  const paleta = k <= 1 ? [rampa[2]] : Array.from({ length: k }, (_, j) => rampa[Math.round((j * (rampa.length - 1)) / (k - 1))]);
+  const cortes = spQuantis(vals.map(v => v[1]), k);
+  const cor = {}, faixas = paleta.map(c => ({ cor: c, min: null, max: null }));
+  for (const [id, y] of vals) {
+    const c = spClasse(y, cortes);
+    if (c < 0) continue;
+    cor[id] = paleta[c];
+    const f = faixas[c]; f.min = f.min == null ? y : Math.min(f.min, y); f.max = f.max == null ? y : Math.max(f.max, y);
+  }
+  return { cor, faixas: faixas.filter(f => f.min != null), ind };
+}
+
+function siPerfilSeletor() {
+  const grupos = [['tse', 'Eleitorado (TSE)'], ['censo', 'População (Censo 2022)']];
+  return `<label class="pind" style="margin-left:8px">Indicador <select data-pind>${grupos.map(([f, n]) => `<optgroup label="${n}">${SP_IND.filter(i => i.fonte === f).map(i => `<option value="${i.id}"${i.id === si.perfilInd ? ' selected' : ''}>${siEsc(i.nome)}</option>`).join('')}</optgroup>`).join('')}</select></label>`;
+}
+
+/** Legenda do mapa pelo perfil: as 5 faixas, com os limites de cada uma. */
+function siPerfilLegenda(uf, x) {
+  const pc = siPerfilCores(uf, x);
+  if (!pc) return '';
+  // cada faixa: do menor ao maior valor dos distritos que caem nela
+  const faixas = pc.faixas.map(f => `<span class="pleg"><i style="background:${f.cor}"></i>${siPerfilFmt(pc.ind, f.min)}${f.max !== f.min ? ' a ' + siPerfilFmt(pc.ind, f.max) : ''}</span>`);
+  return `<div class="dica pleg-l"><b>${siEsc(pc.ind.nome)}</b>${pc.ind.nota ? ` <span class="igual">(${siEsc(pc.ind.nota)})</span>` : ''} — ${pc.faixas.length > 1 ? 'faixas com o mesmo número de distritos (quantis)' : 'um valor só'}: ${faixas.join(' ')}</div>`;
+}
+
+/** Vencedores de um distrito (um, ou vários no modo dos estaduais nos distritos federais). */
+const siVencedoresDe = v => (v && v.vencedores && v.vencedores.length ? v.vencedores : v && v.vencedor ? [v.vencedor] : []);
+
+/** Perfil do eleito pelo cadastro de candidaturas: "Mulher · parda · 52 anos · superior". */
+function siPerfilEleito(sq) {
+  const c = si.cad && si.cad.cand && si.cad.cand[String(sq)];
+  if (!c) return '—';
+  const esc = ['analfabeto', 'lê e escreve', 'fund. inc.', 'fund.', 'médio inc.', 'médio', 'sup. inc.', 'superior'];
+  return [c[0] === 'F' ? 'Mulher' : c[0] === 'M' ? 'Homem' : '', c[1], c[2] != null ? c[2] + ' anos' : '', c[3] != null ? esc[c[3]] : ''].filter(Boolean).join(' · ');
+}
+
+function siPerfilDistritosHtml(uf, x, el, sd, impressao) {
+  const P = si.perfil[siChaveGeo(uf)];
+  if (!P) {
+    return si.op && si.op.ano !== 2026 && String(si.op.ano) !== '2026'
+      ? '<div class="dica">Perfil dos distritos (escolaridade, idade, cor ou raça, saneamento…): por ora só para 2026.</div>' : '';
+  }
+  const perf = siPerfilDe(uf, x), venc = {};
+  for (const d of el.distritos || []) venc[d.id] = d;
+  const total = [...P.mun.values()].reduce((a, v) => a.map((y, j) => y + v[j]), new Array(P.n).fill(0));
+  const multi = x.modoEstadual === 'fed';
+  let h = `<h3 id="siPerfil" style="margin-top:18px">Perfil dos distritos de ${siEsc(siUfNome(uf))}</h3>`;
+  // tabela (no papel, em duas: eleitorado e população — as 14 colunas não cabem na largura do A4)
+  const tabela = (inds, comEleito) => {
+    let t = `<div class="tab-rolagem"><table><thead><tr><th class="n">Distrito</th>${comEleito ? `<th>Eleito${multi ? 's' : ''}</th><th>Perfil do eleito</th>` : ''}`
+      + inds.map(i => `<th class="n" title="${siEsc(i.nome + (i.nota ? ' — ' + i.nota : '') + (i.fonte === 'tse' ? ' (TSE)' : ' (Censo 2022)'))}">${siEsc(i.curto)}</th>`).join('') + '</tr></thead><tbody>';
+    for (const d of x.desenho.distritos) {
+      const ws = siVencedoresDe(venc[d.id]), v = perf[d.id];
+      const pode = ws.some(w => w.partido === si.partido);
+      t += `<tr${pode ? ' class="pode"' : ''}><td class="n">${d.id}</td>`
+        + (comEleito ? `<td>${ws.map(w => `${siEsc(w.nome)} (${siEsc(w.partido)})`).join('<br>') || '—'}</td><td>${ws.map(w => siEsc(siPerfilEleito(w.sq))).join('<br>') || '—'}</td>` : '')
+        + inds.map(i => `<td class="n">${v ? siPerfilFmt(i, spValor(P, v, i.id)) : '—'}</td>`).join('') + '</tr>';
+    }
+    return t + `<tr class="tot"><td class="n">Estado</td>${comEleito ? '<td></td><td></td>' : ''}` + inds.map(i => `<td class="n">${siPerfilFmt(i, spValor(P, total, i.id))}</td>`).join('') + '</tr></tbody></table></div>';
+  };
+  if (!impressao) h += tabela(SP_IND, true);
+  else h += '<h4 style="margin:10px 0 4px">Eleitorado (cadastro do TSE)</h4>' + tabela(SP_IND.filter(i => i.fonte === 'tse'), true)
+    + '<h4 style="margin:10px 0 4px">População e domicílios (Censo 2022)</h4>' + tabela(SP_IND.filter(i => i.fonte === 'censo'), false);
+
+  // onde cada partido vence
+  const ind = siPerfilInd();
+  const lista = x.desenho.distritos.flatMap(d => siVencedoresDe(venc[d.id]).filter(w => !w.semCadeira).map(w => ({ id: d.id, partido: w.partido })));
+  const t = spTercos(P, lista, perf, ind.id);
+  h += `<h4 style="margin:14px 0 6px">Onde cada partido vence — ${siEsc(ind.nome)} ${impressao ? '' : siPerfilSeletor()}</h4>`;
+  if (!t) h += '<div class="dica">Distritos de menos para separar em terços.</div>';
+  else {
+    if (lista.length < 9) h += `<div class="dica">Com ${lista.length} distritos, cada terço tem um ou dois — a comparação diz pouco neste estado; vale olhar estados maiores ou o conjunto.</div>`;
+    h += '<div class="tab-rolagem"><table><thead><tr><th>Terço dos distritos</th><th class="n">Faixa</th><th class="n">Vitórias</th>'
+      + `<th class="n">${siEsc(siPNome())}</th><th>Quem mais vence</th></tr></thead><tbody>`;
+    for (const g of t.tercos) {
+      const top = Object.entries(g.porPartido).sort((a, b) => b[1] - a[1]).slice(0, 4);
+      h += `<tr><td>${g.nome}</td><td class="n">${siPerfilFmt(ind, g.min)} a ${siPerfilFmt(ind, g.max)}</td><td class="n">${g.n}</td>`
+        + `<td class="n">${g.porPartido[si.partido] || 0}</td><td>${top.map(([p, n]) => `${siEsc(p)} ${n}`).join(' · ')}</td></tr>`;
+    }
+    h += '</tbody></table></div>';
+  }
+
+  // quem os distritos elegem: representação
+  if (si.cad) {
+    const real = si.res.real.porUf[uf], prop = si.res.sims.find(s => s.id === 'proporcional');
+    const elDist = ((sd.porUf[uf] || {}).eleitos || []);
+    const linhas = [
+      ['Eleitos nos distritos (distrital misto)', elDist.filter(e => /^distrito/.test(e.fase)).map(e => e.sq)],
+      ['Todos os eleitos do distrital misto (distritos + lista)', elDist.map(e => e.sq)],
+      ['Proporcional (regra vigente, simulado)', ((prop && prop.porUf[uf]) || {}).eleitos ? prop.porUf[uf].eleitos.map(e => e.sq) : []],
+      ['Resultado oficial', real ? real.eleitos.map(e => e.sq) : []],
+    ].filter(l => l[1].length);
+    const negrosPop = spValor(P, total, 'negros');
+    h += '<h4 style="margin:14px 0 6px">Quem os distritos elegem</h4><div class="tab-rolagem"><table><thead><tr><th></th><th class="n">Eleitos</th><th class="n">Mulheres</th><th class="n">Pretos e pardos</th><th class="n">Indígenas</th><th class="n">Superior completo</th><th class="n">Idade média</th></tr></thead><tbody>';
+    for (const [nome, sqs] of linhas) {
+      const o = spPerfilEleitos(si.cad, sqs);
+      const p = n => o.n ? siPct(n / o.n) : '—';
+      h += `<tr><td>${nome}</td><td class="n">${o.n}${o.semCadastro ? ` <span class="igual">(+${o.semCadastro} sem cadastro)</span>` : ''}</td><td class="n">${p(o.mulheres)}</td><td class="n">${p(o.negros)}</td><td class="n">${p(o.indigenas)}</td><td class="n">${p(o.superior)}</td><td class="n">${o.idadeMedia != null ? o.idadeMedia.toFixed(0) : '—'}</td></tr>`;
+    }
+    h += `</tbody></table></div><div class="dica">Perfil declarado no registro de candidatura (TSE). Para comparar: ${negrosPop != null ? siPct(negrosPop) : '—'} da população do estado é preta ou parda (Censo 2022).</div>`;
+  }
+
+  // método e ressalvas
+  const val = P.validacao || {}, rz = val.razaoPopEleitores || {};
+  h += '<div class="dica"><b>Como se mede.</b> '
+    + '<b>Eleitorado (TSE):</b> o perfil por seção do cadastro eleitoral de 2026, somado por local de votação — escolaridade e idade são as declaradas no cadastro (a escolaridade pode estar desatualizada). '
+    + '<b>População (Censo 2022, IBGE):</b> os agregados por setor censitário, cada setor no local de votação mais próximo do mesmo município, pelo centro do setor. O total de cada município é exato; '
+    + `a divisão entre zonas e locais de um município é uma aproximação (o TSE não publica o contorno das zonas)${rz.mediana != null ? ` — nas zonas dos municípios divididos, a fatia da população ÷ a fatia do eleitorado tem mediana ${String(rz.mediana).replace('.', ',')} (de ${String(rz.p10).replace('.', ',')} a ${String(rz.p90).replace('.', ',')} em 80% delas)` : ''}. `
+    + 'Valores que o IBGE omite por sigilo (X) contam como zero. '
+    + '<b>Ressalva:</b> o perfil é do distrito, não de quem votou no eleito — o voto é secreto. Os distritos são os desenhados por este simulador; outro mapa juntaria ou separaria bairros de outro jeito.</div>';
   return h;
 }
 
 // ------------------------------------------------------------ PDF
+/** Sistemas escolhidos para o PDF e o memorial (a tela mostra todos). */
+const siSistemasRel = () => (si.sistemas || []).filter(s => !si.relFora.has(s.id));
+/**
+ * Roda fn com só os sistemas escolhidos: si.sistemas e si.res.sims filtrados (e um cache
+ * de estratégia novo, para o que se calcula com a seleção não valer depois na tela).
+ */
+function siComSelecao(fn) {
+  if (!si.relFora.size || !si.res) return fn();
+  const s0 = si.sistemas, r0 = si.res;
+  si.sistemas = siSistemasRel();
+  si.res = Object.assign({}, r0, { sims: r0.sims.filter(x => !si.relFora.has(x.id)), estr: undefined });
+  try { return fn(); } finally { si.sistemas = s0; si.res = r0; }
+}
+/** A lista de escolha (ao lado dos botões do PDF e do memorial). */
+function siSelRelPintar() {
+  const el = $('siSelRelLista'), sum = $('siSelRelResumo');
+  if (!el) return;
+  const ss = si.sistemas || [];
+  for (const id of [...si.relFora]) if (!ss.some(s => s.id === id)) si.relFora.delete(id);
+  const n = ss.length - si.relFora.size;
+  el.innerHTML = ss.map(s => `<label><input type="checkbox" data-relsis="${siEsc(s.id)}"${si.relFora.has(s.id) ? '' : ' checked'}> ${siEsc(s.nome)}</label>`).join('')
+    + '<div class="dica" style="margin:6px 0 0">O resultado oficial (TSE) sempre entra, como referência. A tela continua mostrando todos.</div>';
+  sum.textContent = ss.length ? `Sistemas no relatório: ${n === ss.length ? 'todos' : `${n} de ${ss.length}`}` : 'Sistemas no relatório';
+  $('siPdf').disabled = !si.res || !n; $('siMemorial').disabled = !si.res || !n;
+}
 /**
  * Memorial de cálculo: planilha (Excel) com cada conta refeita por fórmula a partir
  * dos votos de cada candidato e a coluna "Confere" contra o resultado do simulador.
  */
 /** Memorial de cálculo (planilha). federado: o do cenário da federação hipotética (arquivo à parte). */
-function siMemorial(federado) {
+const siMemorial = federado => siComSelecao(() => siMemorialSel(federado));
+function siMemorialSel(federado) {
   if (!si.res || typeof smMemorial !== 'function' || typeof XLSX === 'undefined') return;
   federado = federado === true && si.fedParceiro;
   const ufs = Object.keys(si.dados), alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
@@ -2228,17 +2430,17 @@ async function siPdf() {
   const ufs = Object.keys(si.dados);
   const alvo = ufs.length === 1 ? siUfNome(ufs[0]) : 'Brasil';
   const el = $('siImpressao');
-  el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
+  siComSelecao(() => { el.innerHTML = `<div class="imp-cab">${logo ? `<img src="${logo}" alt="Podemos">` : ''}<div><div class="imp-org">Liderança do Podemos na Câmara dos Deputados</div>
       <h1>Sistemas eleitorais: relatório comparativo — ${siEsc(siCargoNome())}, ${si.op.ano} (${siEsc(alvo)})</h1>
       <div class="imp-sub">Os votos oficiais da eleição redistribuídos por sistema · fonte: TSE (${si.op.fonte === 'resultados' ? 'servidor oficial de resultados' : 'dados abertos'}) · gerado em ${siEsc(agora)}</div></div></div>
     <div class="imp-filete"></div>
     ${si.sistemas.map(s => `<div class="imp-param"><b>${siEsc(s.nome)}:</b> ${siEsc(siDescricao(s))}</div>`).join('')}
     ${si.partido !== 'PODE' ? `<div class="imp-param"><b>Partido em foco:</b> ${siEsc(si.partido)}</div>` : ''}
     ${$('siAvisos').innerHTML}
-    ${siRelatorioHtml(true)}
+    ${(() => { si.imprimindo = true; try { return siRelatorioHtml(true); } finally { si.imprimindo = false; } })()}
     ${siMetodoHtml()}
     <div class="imp-rodape">As simulações mantêm os votos como foram dados — noutro sistema, eleitores e partidos se comportariam de outro jeito. O proporcional com a regra vigente
-      reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`;
+      reproduz o resultado oficial do TSE. Painel desenvolvido pela Liderança do Podemos na Câmara dos Deputados.</div>`; });
   const titulo = document.title;
   document.title = `Sistemas eleitorais - ${si.cargo === '6' ? 'federal' : 'estadual'} ${si.op.ano} - ${alvo}`;
   const volta = () => { document.title = titulo; window.removeEventListener('afterprint', volta); };
@@ -2263,6 +2465,13 @@ async function siIniciar() {
     if (si.res) { $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); }
   });
   $('siMemorial').addEventListener('click', () => siMemorial(false));
+  $('siSelRelLista').addEventListener('change', ev => {
+    const c = ev.target.closest('input[data-relsis]');
+    if (!c) return;
+    if (c.checked) si.relFora.delete(c.dataset.relsis); else si.relFora.add(c.dataset.relsis);
+    siSelRelPintar();
+  });
+  document.addEventListener('click', ev => { const d = $('siSelRel'); if (d && d.open && !d.contains(ev.target)) d.open = false; });
   $('siRegra').addEventListener('click', siRegraVigente);
   $('siCargo').addEventListener('click', ev => {
     const b = ev.target.closest('button[data-c]');
@@ -2333,6 +2542,8 @@ async function siIniciar() {
   $('siResultado').addEventListener('mousemove', siDicaMapa);
   $('siResultado').addEventListener('mouseleave', siDicaMapa);
   $('siResultado').addEventListener('change', ev => {
+    const pind = ev.target.closest && ev.target.closest('select[data-pind]');
+    if (pind) { si.perfilInd = pind.value; $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom(); return; }
     const sel = ev.target.closest && ev.target.closest('select[data-ordb]');
     if (!sel) return;
     si.ordemBancadas[sel.dataset.ordb] = sel.value;

@@ -121,8 +121,8 @@ function resumoTextosGerais(pauta, dados) {
   const pela = dados.filter(d => /^aprova/i.test(d.parecerCurto));
   const p2 = dados.length
     ? (pela.length === dados.length
-      ? `Em ${dados.length === 1 ? 'o item comentado' : `todos os ${dados.length} itens comentados`}, o parecer do relator na CCJC é pela aprovação.`
-      : `Em ${pela.length} dos ${dados.length} itens comentados, o parecer do relator na CCJC é pela aprovação; ${lista(dados.filter(d => !pela.includes(d)))} ${dados.length - pela.length === 1 ? 'tem' : 'têm'} outra conclusão.`)
+      ? `Em ${dados.length === 1 ? 'o item comentado' : `todos os ${dados.length} itens comentados`}, o parecer do relator na CCJC é favorável.`
+      : `Em ${pela.length} dos ${dados.length} itens comentados, o parecer do relator na CCJC é favorável; ${lista(dados.filter(d => !pela.includes(d)))} ${dados.length - pela.length === 1 ? 'tem' : 'têm'} outra conclusão.`)
       + ' Os pontos de atenção são possíveis focos de debate, não argumentos registrados no parecer.'
     : '';
 
@@ -142,7 +142,13 @@ function resumoTextosGerais(pauta, dados) {
   const leitura = altos.length
     ? `${altos.length === 1 ? 'O item com maior potencial de debate é' : 'Os itens com maior potencial de debate são'} ${altos.map(d => `o <b>${escHtml(d.chave)}</b>${d.focoDebate ? ` (${escHtml(d.focoDebate)})` : ''}`).join(', ').replace(/, ([^,]*)$/, ' e $1')}.${altos.length < dados.length ? ' Os demais tendem a ter tramitação tranquila.' : ''}`
     : dados.length ? 'Nenhum item comentado tem potencial alto de debate.' : '';
-  return { p1: p1.join(' ') + (p1b ? ' ' + p1b : ''), p2: [p2, pGov].filter(Boolean).join(' '), leitura, com: com.length, sem: sem.length };
+  // Com os blocos e os números dos itens da pauta oficial (ccjc-blocos.js): os blocos, onde
+  // estão os comentados e os sem análise, e os itens do Podemos com número e bloco.
+  const v = typeof pautaVisaoGeral === 'function' ? pautaVisaoGeral(pauta, { comAnalise: resumoComAnalise, rotina: resumoEhRotina, posGov,
+    remissao: sem.length ? 'A relação completa está na seção “Itens sem análise”, ao final deste resumo.' : '' }) : null;
+  const pParecer = [p2, pGov].filter(Boolean).join(' ');
+  const abertura = v ? [v.p1, v.p2, v.p3, pParecer].filter(Boolean) : [p1.join(' ') + (p1b ? ' ' + p1b : ''), pParecer].filter(Boolean);
+  return { p1: p1.join(' ') + (p1b ? ' ' + p1b : ''), p2: pParecer, abertura, comBlocos: !!v, leitura, com: com.length, sem: sem.length };
 }
 
 function resumoHTML(pauta, res, logo) {
@@ -152,14 +158,15 @@ function resumoHTML(pauta, res, logo) {
   const gov = !!pauta.governo;
   const posDe = d => (govPosicao(pauta, porChave[d.chave] || { chave: d.chave }) || {}).posicao || '';
   const cor = { Baixo: 'b', 'Médio': 'm', Alto: 'a' };
+  const nItem = d => { const p = porChave[d.chave]; return p && Number.isFinite(p.item) ? p.item : null; };
   const tabela = dados.length ? `<table class="tab"><thead><tr><th>Projeto</th><th>Tema</th><th>Relator(a)</th><th>Parecer na CCJC</th><th class="c">Debate</th>${gov ? '<th class="c">Governo</th>' : ''}</tr></thead><tbody>${dados.map(d =>
-    `<tr${resumoDoPodemos(porChave[d.chave]) ? ' class="tr-pode"' : ''}><td class="ch">${escHtml(d.chave)}${resumoDoPodemos(porChave[d.chave]) ? '<br><span class="pode">Podemos</span>' : ''}</td><td>${escHtml(d.tema)}</td><td>${escHtml(porChave[d.chave]?.relator || '')}</td><td>${escHtml(d.parecerCurto)}</td><td class="c">${d.debate ? `<span class="db db-${cor[d.debate]}">${d.debate}</span>` : '—'}</td>${gov ? `<td class="c">${govBadge(posDe(d))}</td>` : ''}</tr>`).join('')}</tbody></table>
+    `<tr${resumoDoPodemos(porChave[d.chave]) ? ' class="tr-pode"' : ''}><td class="ch">${nItem(d) != null ? `<span class="ni">Item ${nItem(d)}</span><br>` : ''}${escHtml(d.chave)}${resumoDoPodemos(porChave[d.chave]) ? '<br><span class="pode">Podemos</span>' : ''}</td><td>${escHtml(d.tema)}</td><td>${escHtml(porChave[d.chave]?.relator || '')}</td><td>${escHtml(d.parecerCurto)}</td><td class="c">${d.debate ? `<span class="db db-${cor[d.debate]}">${d.debate}</span>` : '—'}</td>${gov ? `<td class="c">${govBadge(posDe(d))}</td>` : ''}</tr>`).join('')}</tbody></table>
     <p class="nota">Coluna "Debate": potencial de debate estimado pela IA a partir da nota da assessoria.${gov ? ' Coluna "Governo": posição da Liderança do Governo na CD, do documento importado.' : ''}</p>` : '';
   const itens = dados.map((d, i) => {
     const p = porChave[d.chave] || {};
     const marcas = [p.autoria?.podemos ? (p.autoria.principal ? 'Autoria do Podemos' : 'Coautoria do Podemos') : '', p.relatoria === 'pode' ? 'Relatoria do Podemos' : ''].filter(Boolean);
     return `<section class="item">
-      <div class="it-cab"><h2>${i + 1}. ${escHtml(d.chave)}${d.titulo ? ` – ${escHtml(d.titulo)}` : ''}</h2>
+      <div class="it-cab"><h2>${nItem(d) != null ? `Item ${nItem(d)} – ` : `${i + 1}. `}${escHtml(d.chave)}${d.titulo ? ` – ${escHtml(d.titulo)}` : ''}</h2>
         <div class="it-meta">${p.autores?.length ? `Autoria: ${escHtml(p.autores.join(', '))}<br>` : ''}${p.relator ? `Relator(a): ${escHtml(p.relator)}` : ''}${marcas.map(m => `<br><span class="pode">${m}</span>`).join('')}</div></div>
       <h3>O que faz</h3><p>${escHtml(d.oQueFaz)}</p>${d.oQueFazItens.length ? `<ul>${d.oQueFazItens.map(x => `<li>${escHtml(x)}</li>`).join('')}</ul>` : ''}
       ${d.tramitacao ? `<h3>Tramitação</h3><p>${escHtml(d.tramitacao)}</p>` : ''}
@@ -168,6 +175,16 @@ function resumoHTML(pauta, res, logo) {
       ${d.pontosAtencao ? `<div class="aten"><b>Pontos de atenção</b><p>${escHtml(d.pontosAtencao)}</p></div>` : ''}
     </section>`;
   }).join('');
+  // Itens sem análise: a relação completa, por bloco (é para onde a visão geral remete)
+  const semAn = (pauta.projetos || []).filter(p => !resumoComAnalise(p));
+  // na tabela, só a letra do bloco (os nomes vão na nota); bloco sem letra (tópico da API), pelo nome
+  const blocoTxt = p => { const bl = typeof blocoDe === 'function' ? blocoDe(pauta, p) : null; return bl ? (bl.letra || bl.nome) : ''; };
+  const legBlocos = (pauta.blocos || []).filter(x => x.letra).map(x => `${escHtml(x.letra)} – ${escHtml(x.nome)}`).join('; ');
+  const corta = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1).replace(/\s+\S*$/, '') + '…' : t; };
+  const semHTML = semAn.length && g.comBlocos ? `<section class="item"><h2 class="sec" style="margin-top:0">Itens sem análise</h2>
+    <p class="nota">${semAn.length} ${semAn.length === 1 ? 'item' : 'itens'} da pauta sem nota da assessoria, na ordem da pauta.${legBlocos ? ` Blocos: ${legBlocos}.` : ''}</p>
+    <table class="tab sem"><thead><tr><th class="c">Item</th><th>Proposição</th><th class="c">Bloco</th><th>Relator(a)</th><th>Ementa</th></tr></thead><tbody>${semAn.map(p =>
+      `<tr${resumoDoPodemos(p) ? ' class="tr-pode"' : ''}><td class="c">${Number.isFinite(p.item) ? p.item : ''}</td><td class="ch">${escHtml(p.chave)}${resumoDoPodemos(p) ? '<br><span class="pode">Podemos</span>' : ''}</td><td class="c">${escHtml(blocoTxt(p))}</td><td>${escHtml(p.relator || '')}</td><td>${escHtml(corta(p.ementa, 180))}</td></tr>`).join('')}</tbody></table></section>` : '';
   const falhas = res.falhas?.length ? `<p class="nota">Sem resumo (a IA falhou): ${res.falhas.map(escHtml).join(', ')} — gere de novo para tentar outra vez.</p>` : '';
   const geradoEm = res.geradoEm ? new Date(res.geradoEm).toLocaleString('pt-BR') : '';
   return `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="UTF-8"><title>${escHtml(pauta.titulo)} · Resumo executivo</title><style>
@@ -187,6 +204,8 @@ function resumoHTML(pauta, res, logo) {
   .tab td { padding:6px 8px; border-bottom:1px solid #e5e7eb; vertical-align:top; }
   .tab tr:nth-child(even) td { background:#f6f8f7; }
   .tab .ch { font-weight:700; white-space:nowrap; } .tab .c { text-align:center; }
+  .tab .ni { font-size:7.5pt; font-weight:600; color:#6b7280; }
+  .tab.sem { font-size:8pt; } .tab.sem td { padding:4px 6px; } .tab.sem tr { break-inside:avoid; }
   .db { display:inline-block; padding:1px 8px; border-radius:999px; font-size:8pt; font-weight:700; }
   .db-b { background:#e7f6ec; color:#1b7a3d; } .db-m { background:#fff4dc; color:#a16207; } .db-a { background:#fde8e8; color:#b42318; }
   .nota { font-size:8.5pt; font-style:italic; color:#6b7280; }
@@ -211,10 +230,11 @@ function resumoHTML(pauta, res, logo) {
     ${logo ? `<img src="${logo}" alt="Podemos">` : ''}</div>
   <div class="filete"></div>
   <h2 class="sec">Visão geral</h2>
-  <p>${g.p1}</p>${g.p2 ? `<p>${g.p2}</p>` : ''}
+  ${g.abertura.map(t => `<p>${t}</p>`).join('')}
   ${tabela}${falhas}
   ${itens}
   ${g.leitura ? `<section class="item"><h2 class="sec" style="margin-top:0">Leitura geral da pauta</h2><div class="leit">${g.leitura}</div></section>` : ''}
+  ${semHTML}
   <p class="nota" style="margin-top:12px">Fonte: notas da pauta da CCJC de ${escHtml(pauta.titulo.replace(/^.*?–\s*/, ''))} no SisPode${geradoEm ? ` · resumo gerado em ${geradoEm}${res.modelo ? ` (${escHtml(res.modelo)})` : ''}` : ''}.${gov ? ` Posição do governo: Liderança do Governo na CD${pauta.governo.reuniao ? `, reunião de ${escHtml(pauta.governo.reuniao)}` : ''} (${escHtml(pauta.governo.arquivo || 'PDF')}, importado em ${new Date(pauta.governo.importadoEm).toLocaleString('pt-BR')}).` : ''}</p>
   <div class="rod">Resumo executivo elaborado a partir do SisPode · Liderança do Podemos · Câmara dos Deputados</div>
   </body></html>`;
@@ -234,6 +254,9 @@ async function gerarResumoExecutivo() {
   const aviso = t => { try { win.document.body.textContent = t; } catch (_) {} };
   win.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Resumo executivo…</title></head><body style="font-family:Segoe UI,Arial,sans-serif;color:#555;padding:48px;font-size:14px">Preparando o resumo executivo…</body></html>');
   win.document.close();
+
+  // blocos e números dos itens da pauta oficial (pautas salvas antes desta versão)
+  if (typeof garantirBlocosPauta === 'function') { try { await garantirBlocosPauta(pauta); } catch (e) { console.warn('Blocos da pauta:', e.message); } }
 
   const assinatura = resumoAssinatura(itens);
   let res = pauta.resumoExecutivo;

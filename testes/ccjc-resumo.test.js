@@ -42,7 +42,7 @@ global.aiCall = async () => '```json\n' + JSON.stringify({ tema: 'Busca de desap
   const g = R.resumoTextosGerais(pauta, dados);
   ok(g.p1.startsWith('A pauta tem 122 itens, dos quais 7 foram comentados. Os outros 115 são PDLs de renovação ou autorização de rádio e TV, matéria de rotina.'), 'visão geral: contagens e os PDLs de rádio e TV');
   ok(/Há um item sob relatoria do Podemos: <b>PDL 415\/2026<\/b> \(dep\. Felipe Francischini\), de rádio e TV\./.test(g.p1), 'relatoria do Podemos na pauta inteira, inclusive entre os PDLs');
-  ok(/^Em 6 dos 7 itens comentados, o parecer do relator na CCJC é pela aprovação; <b>PL 2918\/2025<\/b> tem outra conclusão\./.test(g.p2), 'parecer: quantos pela aprovação e quem fugiu');
+  ok(/^Em 6 dos 7 itens comentados, o parecer do relator na CCJC é favorável; <b>PL 2918\/2025<\/b> tem outra conclusão\./.test(g.p2), 'parecer: quantos favoráveis e quem fugiu');
   ok(g.leitura === 'Os itens com maior potencial de debate são o <b>PL 182/2025</b> (complexidade e privacidade), o <b>PL 2500/2025</b> (política penal) e o <b>PL 2046/2011</b> (termos sobre sexualidade). Os demais tendem a ter tramitação tranquila.', 'leitura geral a partir dos itens de debate alto');
   const g2 = R.resumoTextosGerais({ titulo: 'x', projetos: [...comentados, radios[0], { chave: 'PL 9/2026', sigla: 'PL', ementa: 'x' }] }, dados.slice(0, 6));
   ok(/Dos 2 sem análise, 1 é PDL de renovação/.test(g2.p1) && /Ainda sem análise: <b>PL 9\/2026<\/b>\./.test(g2.p1) && /^Em todos os 6 itens comentados/.test(g2.p2), 'sem análise que não é rádio aparece pelo nome');
