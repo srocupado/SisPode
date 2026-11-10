@@ -138,6 +138,8 @@
       padding: 10px 20px; display: flex; align-items: center; justify-content: space-between; gap: 12px;
     }
     .lid-action-bar-right { display: flex; gap: 8px; flex-wrap: wrap; }
+    .lid-btn-excluir { color: #f05454; border-color: rgba(240,84,84,0.45); }
+    .lid-btn-excluir:hover { background: rgba(240,84,84,0.12); color: #f05454; }
     .lid-rolagem { display: flex; gap: 4px; }
     .lid-rolagem .btn { padding: 4px 10px; font-size: 12px; line-height: 1; }
     #lid-action-status { font-size: 12px; color: var(--text-dim); }
@@ -484,6 +486,13 @@
         Resumir Todas
       </button>
       <button id="btn-parar" class="btn btn-ghost" style="display:none">Parar</button>
+      <button id="btn-excluir-reuniao" class="btn btn-outline lid-btn-excluir" title="Excluir esta reunião (para toda a equipe)">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+          <path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+        </svg>
+        Excluir reunião
+      </button>
       <button id="btn-salvar" class="btn btn-outline">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>

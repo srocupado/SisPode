@@ -90,6 +90,7 @@ function registrarEventos() {
   document.getElementById('btn-resumir-selecionados').addEventListener('click', () => resumirLote([...app.selecionados]));
   document.getElementById('btn-parar').addEventListener('click', () => app.abortar?.abort());
   document.getElementById('btn-salvar').addEventListener('click', salvarReuniao);
+  document.getElementById('btn-excluir-reuniao').addEventListener('click', () => app.reuniao && apagarReuniao(app.reuniao.id, app.reuniao.titulo));
   document.getElementById('btn-exportar').addEventListener('click', exportarPlanilha);
   document.getElementById('btn-gerar-pdf').addEventListener('click', gerarPDF);
   document.getElementById('btn-whatsapp').addEventListener('click', copiarMensagemPodemos);
@@ -656,6 +657,7 @@ async function carregarDadosCamara(itens) {
     try {
       await carregarDadosDaProposicao(it);
       it.status = it.status === 'ok' ? 'ok' : 'dados';
+      it.erro = '';
     } catch (e) {
       it.erro = `Dados da Câmara: ${e.message}`;
       it.status = 'erro';
@@ -665,12 +667,31 @@ async function carregarDadosCamara(itens) {
   atualizarProgresso(0, 0);
 }
 
+// API de Dados Abertos FORA DO AR (10/11/2026: 503/504 o dia inteiro): a
+// primeira consulta de cada item falhava e TODO resumo morria antes da IA —
+// "peço para resumir e não vem nada". O webservice do portal
+// (SitCamaraWS/ObterProposicao, o mesmo que o módulo de Plenário usa) segue no
+// ar e dá o essencial para o resumo: id, ementa, autor com partido, situação e
+// o inteiro teor. O que só a API dá (tramitação, relatoria, pareceres,
+// apensados) fica declarado como NÃO APURADO, nunca como fato.
+let _apiForaAte = 0;   // depois de uma falha, 2 min direto pelo portal (sem esperar a API em cada item)
+const API_FORA_MS = 2 * 60e3;
+
 async function carregarDadosDaProposicao(it) {
-  const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${it.sigla}&numero=${it.numero}&ano=${it.ano}&itens=1`);
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  const item = (await res.json()).dados?.[0];
+  let item;
+  try {
+    if (Date.now() < _apiForaAte) throw new Error('API de Dados Abertos fora do ar');
+    const res = await fetch(`${API_BASE}/proposicoes?siglaTipo=${it.sigla}&numero=${it.numero}&ano=${it.ano}&itens=1`,
+      typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {});
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    item = (await res.json()).dados?.[0];
+  } catch (e) {
+    if (Date.now() >= _apiForaAte) _apiForaAte = Date.now() + API_FORA_MS;
+    return carregarDadosPeloPortal(it, e);
+  }
   if (!item) throw new Error('proposição não localizada');
   it.idCamara = item.id;
+  it.dadosPeloPortal = false;
 
   // O endpoint de LISTA não traz urlInteiroTeor nem statusProposicao; o DETALHE traz.
   let detalhe = item;
@@ -740,6 +761,161 @@ async function carregarDadosDaProposicao(it) {
     it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
   }
   it.relatorPodemos = ehRelatorPodemos(it.relatoria);
+}
+
+/** Ficha da proposição no webservice do portal → campos (texto XML, sem DOM: roda igual no teste). */
+function fichaDoPortal(xml) {
+  const tag = t => { const m = new RegExp(`<${t}(?:\\s[^>]*)?>([\\s\\S]*?)</${t}>`).exec(String(xml || '')); return m ? m[1].replace(/<[^>]+>/g, '').replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').trim() : ''; };
+  const link = tag('LinkInteiroTeor');
+  return {
+    id: parseInt(tag('idProposicao'), 10) || null,
+    ementa: tag('Ementa'), autor: tag('Autor'), partidoAutor: tag('partidoAutor'), ufAutor: tag('ufAutor'),
+    situacao: tag('Situacao'), regime: tag('RegimeTramitacao'),
+    despacho: tag('UltimoDespacho'), dataDespacho: (/<UltimoDespacho\s+Data="([^"]*)"/.exec(String(xml || '')) || [])[1] || '',
+    urlInteiroTeor: link ? link.replace(/^https?:\/\/www\.camara\.(?:gov|leg)\.br\//i, 'https://www.camara.leg.br/') : null,
+  };
+}
+
+// Busca do portal (busca-api, a mesma do módulo de Plenário): por proposição
+// traz o id, a ementa, o inteiro teor, os AUTORES com partido e ordem de
+// assinatura e o pai da apensação (codProposicaoApensadaPai) — o que permite
+// montar a árvore de apensados e achar os de autoria do Podemos sem a API.
+async function buscaPortal(q, { paginas = 1 } = {}) {
+  const out = [];
+  for (let pagina = 1; pagina <= paginas; pagina++) {
+    const r = await fetch('https://www.camara.leg.br/busca-api/api/v1/busca/proposicoes/_search', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ order: 'relevancia', pagina, q }),
+      ...(typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {}),
+    });
+    if (!r.ok) throw new Error(`HTTP ${r.status} na busca do portal`);
+    const j = await r.json();
+    const hits = ((j.hits || {}).hits || []).map(h => h._source || {});
+    out.push(...hits);
+    const total = Number(j.hits?.total?.value ?? j.hits?.total ?? 0);
+    if (!hits.length || out.length >= total) break;
+  }
+  return out;
+}
+/** "Apensado ao PL 678/2024" / "Apensada à PEC 82/2007" → "PL 678/2024" (a situação do portal). */
+const principalDaSituacao = sit => { const m = /^\s*apensad[oa]\s+(?:à|ao|a)\s+([A-Z]+\s+\d+\/\d{4})\s*$/i.exec(String(sit || '')); return m ? m[1].toUpperCase() : null; };
+const urlTeorPortal = cod => (cod ? `https://www.camara.leg.br/proposicoesWeb/prop_mostrarintegra?codteor=${cod}` : null);
+const autoresDaBusca = h => (h.autores || []).slice().sort((a, b) => (a.numSequencial || 99) - (b.numSequencial || 99));
+
+/** Filhos diretos na busca do portal. DOIS critérios, porque nenhum basta sozinho —
+ *  CONFERIDO em 10/11/2026: a PEC 17/2024 está "Apensada à PEC 82/2007", mas o
+ *  codProposicaoApensadaPai dela vem 0, e a busca por esse campo só achava a
+ *  PEC 452/2009; pela situação vêm as duas. */
+async function filhosNoPortal(h) {
+  const nome = `${String(h.siglaProposicao).toUpperCase()} ${h.numero}/${h.ano}`;
+  const [porPai, porSituacao] = await Promise.all([
+    buscaPortal(`codProposicaoApensadaPai:${h.id}`, { paginas: 5 }),
+    buscaPortal(`situacaoProposicao:"${nome}"`, { paginas: 5 }),
+  ]);
+  return [...porPai, ...porSituacao.filter(x => principalDaSituacao(x.situacaoProposicao) === nome)];
+}
+
+/** Árvore de apensados pela busca do portal (nível a nível, até 6 níveis / 80 proposições). */
+async function arvoreApensadosPortal(raiz) {
+  const vistos = new Set([Number(raiz.id)]), out = [];
+  let nivel = [raiz], truncado = false;
+  for (let prof = 0; prof < 6 && nivel.length; prof++) {
+    const filhos = (await Promise.all(nivel.map(filhosNoPortal))).flat();
+    nivel = [];
+    for (const h of filhos) {
+      if (!h.id || vistos.has(h.id)) continue;
+      if (out.length >= 80) { truncado = true; break; }
+      vistos.add(h.id); nivel.push(h); out.push(h);
+    }
+  }
+  return { apensados: out, truncado };
+}
+
+async function carregarDadosPeloPortal(it, erroApi) {
+  let hit = null;
+  try {
+    hit = (await buscaPortal(`siglaProposicao:${it.sigla} AND numero:${parseInt(it.numero, 10)} AND ano:${it.ano}`))
+      .find(h => String(h.siglaProposicao).toUpperCase() === it.sigla && Number(h.numero) === Number(it.numero) && Number(h.ano) === Number(it.ano)) || null;
+  } catch (_) { /* segunda via: o webservice */ }
+  let f = null;
+  if (!hit) {
+    const url = `https://www.camara.leg.br/SitCamaraWS/Proposicoes.asmx/ObterProposicao?tipo=${encodeURIComponent(it.sigla)}&numero=${it.numero}&ano=${it.ano}`;
+    try {
+      const r = await fetch(url, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {});
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      f = fichaDoPortal(await r.text());
+    } catch (e) {
+      throw new Error(`API da Câmara fora do ar (${erroApi.message}) e o portal também falhou (${e.message})`);
+    }
+    if (!f.id) throw new Error('proposição não localizada (API fora do ar; o portal não a encontrou)');
+  }
+  const naoApurado = 'Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar.';
+  it.situacao       = naoApurado;
+  it.situacaoFalhou = true;
+  it.relatoria      = it.relatoria || '';
+  it.despachos      = [];
+  it.parecerPlen = null; it.emendaSenado = null; it.sbtComissao = null; it.subemenda = null; it.especial = [];
+  it.relatorPodemos = false;
+  it.dadosPeloPortal = true;
+  it.apensadosPodemos = [];
+  it.apensadosVarreduraLimitada = false;
+
+  if (hit) {
+    it.idCamara       = hit.id;
+    it.ementa         = hit.ementa || '';
+    it.urlInteiroTeor = urlTeorPortal(hit.codArquivoTeor);
+    it.situacaoApi    = hit.situacaoProposicao || '';
+    const autores = autoresDaBusca(hit);
+    it.autoresApi     = autores.map(a => a.nome + (a.siglaPartido ? ` (${a.siglaPartido}${a.siglaUF ? '-' + a.siglaUF : ''})` : '')).filter(Boolean).slice(0, 5);
+    const pode = autores.filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS);
+    it.autoriaPodemos = pode.length > 0;
+    it.autoresPodemos = pode.map(a => a.nome);
+    // 1º signatário (numSequencial = 1) = autoria; assinou depois = coautoria — o mesmo critério da API.
+    it.autoriaPrincipalPodemos = pode.some(a => Number(a.numSequencial) === 1);
+    // Apensação e apensados do Podemos — apurados pela busca, como fato.
+    let apensacaoFato = '';
+    const principalSit = principalDaSituacao(hit.situacaoProposicao);
+    if (hit.codProposicaoApensadaPai || principalSit) {
+      it.papel = { apensada: true, principal: principalSit || (hit.txtNomeProposicaoApensadaPai || '').replace(/\s+/g, ' ').trim() || null };
+    } else {
+      let arv = null;
+      try { arv = await arvoreApensadosPortal(hit); } catch (_) { /* fica não apurado */ }
+      if (arv) {
+        it.papel = { apensada: false, temApensados: arv.apensados.length > 0 };
+        it.apensadosPodemos = arv.apensados
+          .map(h => ({ chave: `${String(h.siglaProposicao).toUpperCase()} ${h.numero}/${h.ano}`, autores: autoresDaBusca(h).filter(a => String(a.siglaPartido).toUpperCase() === SIGLA_PODEMOS).map(a => a.nome) }))
+          .filter(a => a.autores.length);
+        it.apensadosVarreduraLimitada = arv.truncado;
+      } else {
+        it.papel = { apensada: false, temApensados: false, naoApurado: true };
+        apensacaoFato = 'Apensados não apurados (API e busca do portal fora do ar).';
+      }
+    }
+    it.apensacao = [apensacaoFato || frasePapel(it),
+      it.apensadosPodemos.length ? `Apensado do Podemos: ${it.apensadosPodemos.map(a => `${a.chave} (${a.autores.join(', ')})`).join('; ')}.` : '',
+      it.apensadosVarreduraLimitada ? 'Varredura de apensados limitada às 80 primeiras.' : '',
+      '(Apensação pela busca do portal; API da Câmara fora do ar.)',
+    ].filter(Boolean).join('\n');
+  } else {
+    it.idCamara       = f.id;
+    it.ementa         = f.ementa;
+    it.urlInteiroTeor = f.urlInteiroTeor;
+    it.situacaoApi    = f.situacao;
+    it.autoresApi     = f.autor ? [f.autor + (f.partidoAutor ? ` (${f.partidoAutor}${f.ufAutor ? '-' + f.ufAutor : ''})` : '')] : [];
+    // O webservice só traz o 1º autor: Podemos nele é autoria; coautoria não é apurável aqui.
+    it.autoriaPodemos = it.autoriaPrincipalPodemos = String(f.partidoAutor).toUpperCase() === SIGLA_PODEMOS;
+    it.autoresPodemos = it.autoriaPodemos ? [f.autor] : [];
+    // O webservice deixa idProposicaoPrincipal vazio mesmo em apensada (conferido no
+    // PL 2561/2024): apensação NÃO se deduz daqui. Vai o último despacho, que é fato da fonte.
+    it.papel     = { apensada: false, temApensados: false, naoApurado: true };
+    it.apensacao = 'Apensação e apensados do Podemos NÃO apurados (API e busca do portal fora do ar).'
+      + (f.despacho ? ` Último despacho no portal${f.dataDespacho ? ` (${f.dataDespacho})` : ''}: ${f.despacho}` : '');
+  }
+  it.cenario      = cenarioDe(it, []);
+  it.cenarioNome  = NOME_CENARIO[it.cenario] || '';
+  it.parecerFato  = 'Não apurado (API fora do ar).';
+  it.senadoFato   = 'Não apurado (API fora do ar).';
+  if (!it.parecer) it.parecer = it.parecerFato;
+  if (!it.senado)  it.senado  = it.senadoFato;
 }
 
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
@@ -1709,7 +1885,8 @@ function extrairJSON(texto) {
 }
 
 async function resumirProposicao(it, signal) {
-  if (!it.idCamara) await carregarDadosDaProposicao(it);
+  // Item lido pelo portal (API fora): tenta de novo pela API — se ela voltou, os fatos passam a ser apurados.
+  if (!it.idCamara || it.dadosPeloPortal) await carregarDadosDaProposicao(it);
 
   const { docs, fonte, temOriginal } = await reunirDocumentos(it, signal);
   const resposta = await chamarIA(montarPrompt(it), docs, signal);
@@ -1727,6 +1904,7 @@ async function resumirProposicao(it, signal) {
   it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa} ${it.comparativo}`, fonte);
   const votacao = textoEmVotacao(it);
   const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
+  if (it.dadosPeloPortal) avisos.push('API da Câmara fora do ar: ementa, autores, apensação e inteiro teor vieram do portal; situação da urgência, relatoria e parecer NÃO apurados — refaça a busca quando a API voltar');
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
@@ -2414,22 +2592,31 @@ async function carregarHistorico() {
   lista.querySelectorAll('.hist-item').forEach(el => el.addEventListener('click', e => {
     if (!e.target.closest('.hist-item-delete')) restaurarReuniao(el.dataset.id, reunioes);
   }));
-  lista.querySelectorAll('.hist-item-delete').forEach(btn => btn.addEventListener('click', async e => {
+  lista.querySelectorAll('.hist-item-delete').forEach(btn => btn.addEventListener('click', e => {
     e.stopPropagation();
-    if (!confirm('Apagar esta reunião permanentemente?')) return;
-    const id = btn.dataset.id;
-    try { await fbApagar(id); } catch (_) {}
-    await localApagar(id);
-    if (app.reuniao?.id === id) {
-      app.reuniao = null;
-      app.selecionados.clear();
-      atualizarSidebar();
-      mostrarTela('tela-upload');
-      document.getElementById('lid-action-bar').style.display = 'none';
-    }
-    carregarHistorico();
-    mostrarToast('Reunião apagada.', '');
+    apagarReuniao(btn.dataset.id, reunioes.find(r => r.id === btn.dataset.id)?.titulo);
   }));
+}
+
+/** Exclui a reunião (Firebase da equipe + cópia local) — pela lixeira do histórico
+ *  ou pelo botão "Excluir reunião" da reunião aberta. Antes, a falha do Firebase
+ *  era engolida e a tela dizia "apagada", mas a reunião voltava na próxima carga. */
+async function apagarReuniao(id, titulo) {
+  if (app.processando) { mostrarToast('Aguarde o resumo em andamento terminar (ou clique em Parar).', 'aviso'); return; }
+  if (!confirm(`Excluir ${titulo ? `"${titulo}"` : 'esta reunião'} para toda a equipe? Não dá para desfazer.`)) return;
+  let erroFb = null;
+  try { await fbApagar(id); } catch (e) { erroFb = e; }
+  if (erroFb) { mostrarToast(`Não excluí: o Firebase falhou (${erroFb.message}). Tente de novo.`, 'erro'); return; }
+  await localApagar(id);
+  if (app.reuniao?.id === id) {
+    app.reuniao = null;
+    app.selecionados.clear();
+    atualizarSidebar();
+    mostrarTela('tela-upload');
+    document.getElementById('lid-action-bar').style.display = 'none';
+  }
+  carregarHistorico();
+  mostrarToast('Reunião excluída.', '');
 }
 
 function restaurarReuniao(id, reunioes) {
