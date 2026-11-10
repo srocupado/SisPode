@@ -227,6 +227,28 @@ async function tratarNaoAutorizado(ctx) {
   return ctx.reply(`Palavra-chave incorreta (${t.erros}/${MAX_TENTATIVAS} tentativas).`);
 }
 
+// O bot NÃO PODE TRAVAR numa consulta demorada. O grammY (bot.start) trata as
+// mensagens UMA POR VEZ e espera cada uma terminar: em 10/11/2026 a varredura
+// de comissões pelo portal levou 5 min e, nesse tempo, nem "Vivo ?" nem /quorum
+// tiveram resposta. Agora:
+//   · COMANDO (/…) e botão (callback) rodam na hora, em paralelo com o resto;
+//   · mensagem comum (texto, áudio, PDF) segue em FILA POR CONVERSA — a ordem
+//     importa nos fluxos com estado (anotações do /ata, /config esperando a
+//     chave, o agente), mas uma conversa não espera a outra.
+// Erro de handler que roda fora da espera do grammY é registrado aqui (o
+// bot.catch não o veria).
+const _filaConversa = new Map();   // chat.id → promessa da última mensagem comum
+function rodarSemTravar(ctx, next) {
+  const rodar = () => next().catch(e => console.error('Erro no bot:', e));
+  const txt = ctx.message?.text || ctx.message?.caption || '';
+  if (ctx.callbackQuery || /^\/[A-Za-z]/.test(txt) || !ctx.chat) { rodar(); return; }
+  const k = ctx.chat.id;
+  const p = (_filaConversa.get(k) || Promise.resolve()).then(rodar);
+  _filaConversa.set(k, p);
+  p.finally(() => { if (_filaConversa.get(k) === p) _filaConversa.delete(k); });
+}
+bot.use((ctx, next) => { rodarSemTravar(ctx, next); });
+
 bot.use(async (ctx, next) => {
   const id = String(ctx.from?.id || '');
   if (isAutorizado(id)) return next();
@@ -1633,7 +1655,7 @@ async function cmdComissoesReuniao(ctx, args) {
 bot.command('comissoeshoje', ctx => cmdComissoesReuniao(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
 
 async function cmdVarrerComissoes(ctx, args) {
-  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos (até 2 minutos se a API da Câmara estiver fora e eu tiver que ir pelo portal)…');
+  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos (até 2 minutos se a API da Câmara estiver fora e eu tiver que ir pelo portal). Enquanto isso, pode usar os outros comandos.');
   try {
     // Sem partido/deputado explícito, procura o Podemos (é o bot da bancada).
     const partido = args.partido || (args.deputado ? null : 'Podemos');

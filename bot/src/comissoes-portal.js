@@ -132,9 +132,13 @@ const ehDeliberativa = tipo => norm(tipo).includes('deliberativ');
 //     aos poucos a cada resposta boa: um pedido por vez ainda levou 13 respostas
 //     429 numa varredura de 20 comissões (medido em 10/11/2026: o portal aguenta
 //     umas 15 páginas por minuto);
-//   · página baixada fica guardada por 3 min: repetir a varredura, ou pedir a
-//     pauta de uma comissão logo depois, não baixa tudo de novo.
-const RITMO = { intervaloMs: 300, intervaloPos429Ms: 1500, intervaloMaxMs: 4000, esperasMs: [3000, 8000, 15000], tetoRetryAfterMs: 20000, cacheMs: 3 * 60e3 };
+//   · página baixada fica guardada por 10 min: repetir a varredura, ou pedir a
+//     pauta de uma comissão logo depois, só baixa o que faltou;
+//   · `ate` (prazo, em ms desde a época): pedido que só sairia depois dele, ou
+//     espera de 429 que passaria dele, desiste na hora — quem chama (a
+//     varredura) tem um teto de tempo total e lista o que ficou de fora.
+//     10/11/2026: sem teto, a varredura levou 5 min numa rede com mais 429.
+const RITMO = { intervaloMs: 300, intervaloPos429Ms: 1500, intervaloMaxMs: 4000, esperasMs: [3000, 8000, 15000], tetoRetryAfterMs: 20000, cacheMs: 10 * 60e3 };
 let _fila = Promise.resolve(), _livreEm = 0, _vez = 0, _intervalo = RITMO.intervaloMs;
 const _cache = new Map();   // url → { texto, em }
 const dormir = ms => new Promise(r => setTimeout(r, ms));
@@ -171,11 +175,16 @@ async function umPedido(url) {
 }
 
 /** GET de uma página do portal, na fila. `fresco`: ignora a página guardada (quem precisa ver a mudança na hora). */
-async function baixar(url, { fresco = false } = {}) {
+const SEM_TEMPO = 'portal da Câmara lento (limite de pedidos): passou do tempo da consulta';
+async function baixar(url, { fresco = false, ate = null } = {}) {
   const c = _cache.get(url);
   if (!fresco && c && Date.now() - c.em < RITMO.cacheMs) return c.texto;
   for (let t = 0; ; t++) {
-    const r = await naFila(() => umPedido(url));
+    if (ate && Math.max(Date.now(), _livreEm) > ate) throw new Error(SEM_TEMPO);
+    const r = await naFila(() => {
+      if (ate && Date.now() > ate) throw new Error(SEM_TEMPO);   // a vez chegou tarde demais
+      return umPedido(url);
+    });
     if (r.ok) {
       _intervalo = Math.max(RITMO.intervaloMs, Math.round(_intervalo * 0.85));
       _cache.set(url, { texto: r.texto, em: Date.now() });
@@ -186,6 +195,7 @@ async function baixar(url, { fresco = false } = {}) {
     if ((r.status === 429 || r.status === 503) && t < RITMO.esperasMs.length) {
       // a FILA inteira espera (o próximo pedido, de quem for, só sai depois)
       _livreEm = Math.max(_livreEm, Date.now() + (r.retryAfter ?? RITMO.esperasMs[t]));
+      if (ate && _livreEm > ate) throw new Error(SEM_TEMPO);
       continue;
     }
     throw new Error(`portal da Câmara: HTTP ${r.status}${r.status === 429 ? ' (pedidos demais, mesmo depois de esperar)' : ''}`);
@@ -193,12 +203,12 @@ async function baixar(url, { fresco = false } = {}) {
 }
 
 /** Todos os eventos do dia na agenda do portal (segue a paginação, até 8 páginas). */
-async function eventosDoDiaPortal(dataIso) {
+async function eventosDoDiaPortal(dataIso, opts) {
   const q = encodeURIComponent(dataIso.split('-').reverse().join('/'));
   let url = `${PORTAL}/agenda?dataInicial__proxy=${q}&dataInicial=${q}&dataFinal__proxy=${q}&dataFinal=${q}`;
   const out = [], vistos = new Set();
   for (let p = 0; p < 8 && url; p++) {
-    const html = await baixar(url);
+    const html = await baixar(url, opts);
     for (const e of parseAgendaPortal(html)) if (!vistos.has(e.id)) { vistos.add(e.id); out.push(e); }
     const prox = proximaPaginaAgenda(html);
     url = prox && prox !== url ? prox : null;
@@ -212,4 +222,4 @@ async function pautaEventoPortal(id, opts) {
 
 module.exports = { parseAgendaPortal, proximaPaginaAgenda, parseEventoPortal, parsePessoas, votoNaComissao, siglaNaPagina,
   ehPermanente, ehDeliberativa, eventosDoDiaPortal, pautaEventoPortal, decod, baixar,
-  RITMO, pedidosFeitos: () => _vez, limparCache: () => { _cache.clear(); _intervalo = RITMO.intervaloMs; } };   // RITMO e o contador: para o teste encurtar os tempos e contar
+  RITMO, SEM_TEMPO, pedidosFeitos: () => _vez, limparCache: () => { _cache.clear(); _intervalo = RITMO.intervaloMs; } };   // RITMO e o contador: para o teste encurtar os tempos e contar
