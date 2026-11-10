@@ -9,8 +9,13 @@
 //   varrerComissoesPartido(data, {partido,deputado})     — varre por autoria/relatoria de um partido/dep
 //
 // Sem LLM na coleta: a saída é enviada VERBATIM (não parafrasear dado oficial).
+//
+// API fora do ar (10/11/2026: tudo em HTTP 503): as três capacidades seguem pelo
+// PORTAL da Câmara (comissoes-portal.js) — a agenda do dia e a página de cada
+// reunião, que já trazem autor e relator com o partido. A resposta avisa a fonte.
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
+const PORTAL = require('./comissoes-portal');
 const HEADERS = { Accept: 'application/json', 'User-Agent': 'SisPode-Bot/1.0' };
 const RETRY_STATUS = new Set([500, 502, 503, 504]);
 const RETRIES = 3;
@@ -316,6 +321,60 @@ async function secaoComissao(org, dataIso, partido, deputado, deps) {
   return { tem: totalMatch > 0, texto: partes.join('\n') };
 }
 
+// ---------- Seção de UMA comissão, pelo PORTAL (API fora do ar) ----------
+// eventos: [{ id, hora ('14:30'), tipo }] — da agenda do portal ou da própria API (só a pauta falhou).
+// Mesmo texto da seção pela API; o autor e o relator vêm da página da reunião, já com o partido.
+async function secaoComissaoPortal(org, eventos, dataIso, partido, deputado) {
+  const alvo = partido || deputado;
+  const pautas = [];
+  for (const ev of eventos) pautas.push({ ev, pauta: await PORTAL.pautaEventoPortal(ev.id) });
+  const sigla = org.sigla || pautas.map(x => PORTAL.siglaNaPagina(x.pauta, org.nome)).find(Boolean) || '';
+  const partes = [`🏛️ ${org.nome}${sigla ? ` (${sigla})` : ''} — ${brData(dataIso)}`];
+  let totalMatch = 0;
+  for (const { ev, pauta } of pautas) {
+    const itens = pauta.itens.filter(it => it.sigla).slice().sort((a, b) => a.sigla.localeCompare(b.sigla) || (parseInt(a.numero, 10) || 0) - (parseInt(b.numero, 10) || 0));
+    const linhas = [];
+    for (const it of itens) {
+      const casa = ([nm, pt]) => matchPessoa(partido, deputado, nm, pt);
+      const autorHit = it.autores.some(casa);
+      const relatorHit = !!it.relator && matchPessoa(partido, deputado, it.relator, it.relPartido);
+      if (alvo && !(autorHit || relatorHit)) continue;
+      const papeis = [];
+      if (autorHit) papeis.push('autoria');
+      if (relatorHit) papeis.push('relatoria');
+      const neg = t => `*${t}*`;
+      const tag0 = `${it.sigla} ${it.numero}/${it.ano}`;
+      const tag = papeis.length ? neg(tag0) : tag0;
+      let ordenados = it.autores;
+      if (alvo) ordenados = [...it.autores.filter(casa), ...it.autores.filter(a => !casa(a))];
+      const aut = ordenados.slice(0, 2).map(a => { const t = a[1] ? `${a[0]} (${a[1]})` : a[0]; return casa(a) ? neg(t) : t; }).join(', ') || '—';
+      const relTxt = it.relator ? (relatorHit ? neg(`${it.relator} (${it.relPartido || '?'})`) : `${it.relator} (${it.relPartido || '?'})`) : '—';
+      const voto = PORTAL.votoNaComissao(it, org.nome);
+      let linha = `   • ${tag}${papeis.length ? ` → ${papeis.join(' + ')}` : ''}\n     autor: ${aut} · relator: ${relTxt}`;
+      linha += voto ? `\n     🗳️ voto do relator: ${voto}` : `\n     🗳️ voto do relator: (ainda sem parecer na pauta)`;
+      linha += `\n     ${it.ementa}`;
+      linhas.push(linha);
+    }
+    totalMatch += linhas.length;
+    const cab = `\n📋 ${ev.tipo || 'Reunião'} ${ev.hora || ''} — ${itens.length} projeto(s)`;
+    if (alvo && !linhas.length) partes.push(cab + `\n   • Nada de ${alvo} — nem autoria nem relatoria.`);
+    else { partes.push(cab + (alvo ? ` · ${linhas.length} de ${alvo}:` : ':')); partes.push(...linhas); }
+  }
+  return { tem: totalMatch > 0, texto: partes.join('\n') };
+}
+const AVISO_PORTAL = 'ℹ️ API de Dados Abertos da Câmara fora do ar — dados lidos do portal da Câmara (agenda do dia e página de cada reunião).';
+
+/** As comissões PERMANENTES com reunião deliberativa no dia, pela agenda do portal: [{ org: { nome, sigla: '' }, eventos }]. */
+async function deliberativasPortal(dataIso) {
+  const porOrg = new Map();
+  for (const e of await PORTAL.eventosDoDiaPortal(dataIso)) {
+    if (!PORTAL.ehPermanente(e.orgao) || !PORTAL.ehDeliberativa(e.tipo)) continue;
+    const g = porOrg.get(e.orgao) || { org: { nome: e.orgao, sigla: '' }, eventos: [] };
+    g.eventos.push(e); porOrg.set(e.orgao, g);
+  }
+  return [...porOrg.values()];
+}
+
 const hojeBRIso = (tz) => new Intl.DateTimeFormat('en-CA', { timeZone: tz }).format(new Date());
 
 // ---------- Capacidade 1: pauta de comissão(ões) nomeada(s) ----------
@@ -327,8 +386,9 @@ async function consultarPauta(comissoes, dataTexto, { partido = null, deputado =
   const d = parseData(dataTexto, hoje);
   if (!d) return "erro: não entendi a data (use DD/MM, AAAA-MM-DD, 'hoje', 'amanhã' ou '1º de julho').";
 
-  const catalogo = await ensureComissoes();
-  const deps = await ensureDeputados();
+  let catalogo, deps;
+  try { catalogo = await ensureComissoes(); deps = await ensureDeputados(); }
+  catch (e) { return consultarPautaPortal(comissoes, d, { partido, deputado }, e); }
   const secoes = [];
   for (const texto of comissoes) {
     const cands = resolverComissao(texto, catalogo);
@@ -337,9 +397,33 @@ async function consultarPauta(comissoes, dataTexto, { partido = null, deputado =
       const nomes = cands.slice(0, 6).map(c => `${c.sigla} (${c.nome})`).join('; ');
       secoes.push(`🏛️ “${texto}” — qual delas? ${nomes}`); continue;
     }
-    const { texto: t } = await secaoComissao(cands[0], d, partido, deputado, deps);
+    let t;
+    try { ({ texto: t } = await secaoComissao(cands[0], d, partido, deputado, deps)); }
+    catch (e) {
+      // a pauta pela API falhou: os eventos da comissão no dia pela agenda do portal
+      const evs = (await PORTAL.eventosDoDiaPortal(d)).filter(x => norm(x.orgao) === norm(cands[0].nome));
+      t = evs.length ? (await secaoComissaoPortal(cands[0], evs, d, partido, deputado)).texto + `\n${AVISO_PORTAL}`
+        : `🏛️ ${cands[0].nome} (${cands[0].sigla}) — sem reunião na agenda do portal em ${brData(d)} (API fora do ar: ${e.message}).`;
+    }
     secoes.push(t);
   }
+  return secoes.join('\n\n');
+}
+
+/** consultarPauta sem a API: as comissões vêm da agenda do dia no portal (só as que têm reunião). */
+async function consultarPautaPortal(comissoes, d, { partido, deputado }, erroApi) {
+  const evs = await PORTAL.eventosDoDiaPortal(d);
+  const porOrg = new Map();
+  for (const e of evs) if (e.orgao && !/^(plen[áa]rio|outros eventos)$/i.test(e.orgao)) (porOrg.get(e.orgao) || porOrg.set(e.orgao, []).get(e.orgao)).push(e);
+  const catalogo = [...porOrg.keys()].map(nome => ({ id: nome, sigla: '', nome, tokens: new Set(norm(nome).split(/\s+/).filter(t => t && !STOP.has(t))) }));
+  const secoes = [];
+  for (const texto of comissoes) {
+    const cands = resolverComissao(texto, catalogo);
+    if (!cands.length) { secoes.push(`🏛️ “${texto}” — sem reunião dessa comissão na agenda do portal em ${brData(d)}.`); continue; }
+    if (cands.length > 1) { secoes.push(`🏛️ “${texto}” — qual delas? ${cands.slice(0, 6).map(c => c.nome).join('; ')}`); continue; }
+    secoes.push((await secaoComissaoPortal(cands[0], porOrg.get(cands[0].nome), d, partido, deputado)).texto);
+  }
+  secoes.push(`${AVISO_PORTAL} (${erroApi.message})`);
   return secoes.join('\n\n');
 }
 
@@ -360,7 +444,20 @@ async function listarReunioesDeliberativas(dataTexto, { tz = 'America/Sao_Paulo'
   const d = parseData(dataTexto, hoje);
   if (!d) return "erro: não entendi a data (use DD/MM, AAAA-MM-DD, 'hoje', 'amanhã' ou '1º de julho').";
 
-  const eventos = await eventosDoDia(d);
+  let eventos;
+  try { eventos = await eventosDoDia(d); }
+  catch (e) {
+    const gs = await deliberativasPortal(d);
+    if (!gs.length) return `🏛️ Nenhuma comissão permanente com reunião deliberativa em ${brData(d)} na agenda do portal.\n${AVISO_PORTAL}`;
+    const linhas = [`🏛️ Comissões com reunião deliberativa — ${brData(d)}`];
+    for (const g of gs.sort((a, b) => a.org.nome.localeCompare(b.org.nome))) {
+      const horas = [...new Set(g.eventos.map(x => x.hora).filter(Boolean))].sort().map(fmtHora).join(', ') || 'horário a confirmar';
+      const sit = [...new Set(g.eventos.map(x => x.situacao).filter(x => /cancelad|adiad|suspens/i.test(x)))];
+      linhas.push(`• ${g.org.nome} — ${horas}${sit.length ? ` (${sit.join(', ')})` : ''}`);
+    }
+    linhas.push(`\n${AVISO_PORTAL} (${e.message})`);
+    return linhas.join('\n');
+  }
   const achados = new Map();   // id → { sigla, nome, horas[] }
   for (const ev of eventos) {
     if (!norm(ev.descricaoTipo || '').includes('deliberativ')) continue;
@@ -389,32 +486,51 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
   const d = parseData(dataTexto, hoje);
   if (!d) return "erro: não entendi a data (use DD/MM, AAAA-MM-DD, 'hoje', 'amanhã' ou '1º de julho').";
 
-  const deps = await ensureDeputados();
-  const eventos = await eventosDoDia(d);
-  const orgs = new Map();
-  for (const ev of eventos) {
-    if (!norm(ev.descricaoTipo || '').includes('deliberativ')) continue;
-    for (const o of (ev.orgaos || [])) {
-      if (o.codTipoOrgao !== 2) continue;
-      if (o.id && !orgs.has(o.id)) orgs.set(o.id, { id: o.id, sigla: o.sigla || '', nome: o.nome || '' });
+  let deps, eventos, peloPortal = null;
+  try { deps = await ensureDeputados(); eventos = await eventosDoDia(d); }
+  catch (e) { peloPortal = e; }
+  const orgs = new Map();   // id (ou nome, pelo portal) → { org, eventos }
+  if (peloPortal) {
+    for (const g of await deliberativasPortal(d)) orgs.set(g.org.nome, g);
+  } else {
+    for (const ev of eventos) {
+      if (!norm(ev.descricaoTipo || '').includes('deliberativ')) continue;
+      for (const o of (ev.orgaos || [])) {
+        if (o.codTipoOrgao !== 2 || !o.id) continue;
+        const g = orgs.get(o.id) || { org: { id: o.id, sigla: o.sigla || '', nome: o.nome || '' }, eventos: [] };
+        g.eventos.push({ id: ev.id, hora: (ev.dataHoraInicio || '').slice(11, 16), tipo: ev.descricaoTipo || 'Reunião' });
+        orgs.set(o.id, g);
+      }
     }
   }
-  if (!orgs.size) return `🏛️ Nenhuma comissão permanente com reunião deliberativa em ${brData(d)}.`;
+  if (!orgs.size) return `🏛️ Nenhuma comissão permanente com reunião deliberativa em ${brData(d)}.${peloPortal ? `\n${AVISO_PORTAL}` : ''}`;
 
-  const resultados = await mapLimit([...orgs.values()], VARREDURA_CONCURRENCY,
-    async org => { const { tem, texto } = await secaoComissao(org, d, partido, deputado, deps); return { org, tem, texto }; });
+  // Por comissão: a pauta pela API; se ela cair no meio da varredura, a da página da reunião no portal.
+  // Uma comissão que falhar pelos dois caminhos vai listada à parte — não derruba a varredura inteira.
+  let usouPortal = !!peloPortal;
+  const resultados = await mapLimit([...orgs.values()], VARREDURA_CONCURRENCY, async ({ org, eventos: evs }) => {
+    if (!peloPortal) {
+      try { const { tem, texto } = await secaoComissao(org, d, partido, deputado, deps); return { org, tem, texto }; }
+      catch (_) { /* segue pelo portal */ }
+    }
+    try { usouPortal = true; const { tem, texto } = await secaoComissaoPortal(org, evs, d, partido, deputado); return { org, tem, texto }; }
+    catch (e) { return { org, tem: false, falhou: e.message }; }
+  });
+  const falharam = resultados.filter(r => r.falhou);
 
-  const com = resultados.filter(r => r.tem).sort((a, b) => a.org.sigla.localeCompare(b.org.sigla));
-  const semNada = resultados.filter(r => !r.tem).map(r => r.org).sort((a, b) => a.sigla.localeCompare(b.sigla));
+  const com = resultados.filter(r => r.tem).sort((a, b) => (a.org.sigla || a.org.nome).localeCompare(b.org.sigla || b.org.nome));
+  const semNada = resultados.filter(r => !r.tem && !r.falhou).map(r => r.org).sort((a, b) => (a.sigla || a.nome).localeCompare(b.sigla || b.nome));
 
   const partes = [`🏛️ Reuniões deliberativas de ${brData(d)} — projetos (autoria/relatoria) de ${alvo}`];
   if (com.length) for (const r of com) partes.push('\n' + r.texto);
   else partes.push(`\nNenhuma das comissões com reunião deliberativa hoje tem projeto (autoria/relatoria) de ${alvo}.`);
-  if (semNada.length) partes.push(`\nSem nada de ${alvo} (${semNada.length}): ${semNada.map(o => o.sigla).join(', ')}`);
+  if (semNada.length) partes.push(`\nSem nada de ${alvo} (${semNada.length}): ${semNada.map(o => o.sigla || o.nome).join(', ')}`);
+  if (falharam.length) partes.push(`\n⚠️ Não consegui ler a pauta de ${falharam.length} comissão(ões), nem pela API nem pelo portal: ${falharam.map(r => r.org.sigla || r.org.nome).join(', ')} (${falharam[0].falhou}).`);
+  if (usouPortal) partes.push(`\n${AVISO_PORTAL}${peloPortal ? ` (${peloPortal.message})` : ''}`);
   return partes.join('\n');
 }
 
 module.exports = {
   consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido,
-  parseData, resolverComissao, ensureComissoes,   // exportados p/ teste
+  parseData, resolverComissao, ensureComissoes, secaoComissaoPortal,   // exportados p/ teste
 };

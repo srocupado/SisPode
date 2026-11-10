@@ -1021,6 +1021,65 @@ function sdVotosDistritos(d, desenho, base, votos) {
 }
 
 /**
+ * Votos dispersos de cada agremiação (voto único, um candidato por agremiação em cada distrito — ou até
+ * `nCand`, nos distritos com várias cadeiras da Versão Minuta): em cada distrito, os votos nominais da
+ * agremiação que foram para quem NÃO seria o seu candidato ali, isto é, tudo menos o(s) mais votado(s) dela
+ * no distrito. São os votos que, com um nome só por distrito, precisam ir para esse nome ou para a legenda.
+ * vd: sdVotosDistritos(...); d: os dados do estado. Devolve { agremiação: votos }.
+ */
+function sdDispersos(vd, d, nCand = 1) {
+  const dono = {};
+  for (const a of d.agrs) for (const c of a.cands) dono[String(c.sq)] = a.id;
+  const out = {};
+  for (const x of vd) {
+    const porAgr = {};
+    for (const sq in x.porCand) { const id = dono[sq]; if (id) (porAgr[id] = porAgr[id] || []).push(x.porCand[sq]); }
+    for (const [id, vs] of Object.entries(porAgr)) {
+      vs.sort((p, q) => q - p);
+      let fora = 0;
+      for (let k = Math.max(1, nCand); k < vs.length; k++) fora += vs[k];
+      out[id] = (out[id] || 0) + fora;
+    }
+  }
+  return out;
+}
+
+/**
+ * Ficha de candidatos nos distritos de um desenho: para cada sq pedido, o distrito em que teve mais votos,
+ * quanto dos seus votos está nele (concentração), a posição ali entre todos os candidatos (votos nominais),
+ * a distância ao último eleito do distrito (ou a vantagem sobre o primeiro de fora) em fração dos válidos
+ * do distrito, e se é o mais votado da sua agremiação ali (o nome dela no distrito, no voto único).
+ * Devolve [{ sq, nome, partido, agr, votos (no estado), nosDistritos, distrito, votosDistrito, concentracao,
+ *   pctDistrito, posicao, cadeiras, dentro, distancia, vantagem, rival: { nome, partido, votos },
+ *   nomeDaAgr (true = é o mais votado da agremiação ali), melhorDaAgr: { nome, votos }, segundo: { distrito, votos } }].
+ */
+function sdFichaCandidatos(d, desenho, base, votos, sqs) {
+  const vd = sdVotosDistritos(d, desenho, base, votos);
+  const cand = new Map();
+  for (const a of d.agrs) for (const c of a.cands) cand.set(String(c.sq), { a, c });
+  const ordem = vd.map(x => Object.entries(x.porCand).sort((p, q) => q[1] - p[1] || p[0].localeCompare(q[0])));
+  return sqs.map(String).filter(sq => cand.has(sq)).map(sq => {
+    const { a, c } = cand.get(sq);
+    const meus = vd.map((x, i) => [i, x.porCand[sq] || 0]).sort((p, q) => q[1] - p[1]);
+    const soma = meus.reduce((t, m) => t + m[1], 0);
+    const o = { sq, nome: c.nome, partido: c.partido, agr: a.id, votos: c.votos, nosDistritos: soma, distrito: null };
+    if (!soma) return o;
+    const [i, v] = meus[0], x = vd[i], dt = desenho.distritos[i], lista = ordem[i];
+    const cadeiras = Math.max(1, dt.cadeiras || 1), pos = lista.findIndex(e => e[0] === sq) + 1, val = x.validos || 1;
+    const info = e => (e ? { nome: cand.get(e[0]).c.nome, partido: cand.get(e[0]).c.partido, votos: e[1] } : null);
+    const dentro = pos <= cadeiras;
+    // dentro: a vantagem sobre o primeiro de fora; fora: a distância ao último eleito do distrito
+    const rival = dentro ? lista[cadeiras] : lista[cadeiras - 1];
+    const daAgr = lista.filter(e => cand.get(e[0]).a.id === a.id);
+    Object.assign(o, { distrito: dt.id, votosDistrito: v, concentracao: v / soma, pctDistrito: v / val, posicao: pos, cadeiras, dentro,
+      vantagem: dentro && rival ? (v - rival[1]) / val : dentro ? v / val : null, distancia: dentro ? null : (rival[1] - v) / val, rival: info(rival),
+      nomeDaAgr: daAgr[0][0] === sq, melhorDaAgr: daAgr[0][0] === sq ? null : info(daAgr[0]),
+      segundo: meus[1] && meus[1][1] > 0 ? { distrito: desenho.distritos[meus[1][0]].id, votos: meus[1][1] } : null });
+    return o;
+  });
+}
+
+/**
  * O segundo voto (cenário — os dados do TSE têm um voto só): com dois votos, parte do
  * eleitor vota no distrito diferente da lista. Só o voto do distrito muda; a lista
  * (voto partidário) segue a votação de cada agremiação.
@@ -1062,7 +1121,8 @@ function sdSegundoVoto(vd, d, op = {}) {
 }
 
 /**
- * Distrital misto num estado. op: { regra: 'partido'|'partidoNominal'|'candidato', modelo: 'paralelo'|'compensatorio', limiar, divisor, excedente, tetoExtra (snCompletarLista), votoLiquido }
+ * Distrital misto num estado. op: { regra: 'partido'|'partidoNominal'|'candidato', modelo: 'paralelo'|'compensatorio', limiar, divisor, excedente, tetoExtra (snCompletarLista), votoLiquido,
+ *   retencao (0–1: a fração dos votos dispersos que fica na agremiação — cenário do voto único; padrão 1) }
  * + desenho (sdDistritar), base (sdUnidades) e votos (geo.votos[cargo]).
  * Devolve como os outros sistemas ({ vagas, eleitos, porAgr, nLista }) e mais
  * nDistritos e distritos: [{ id, aptos, desvio, validos, vencedor: { sq, agr, votos, pct }, segundo: { agr, votos, pct } }].
@@ -1153,12 +1213,26 @@ function sdDistritalMisto(d, op) {
   // Voto partidário líquido (opcional): a cota de cada agremiação sai da votação dela menos os votos que
   // elegeram os seus vencedores de distrito (os votos de cada um no seu distrito; com aliança, só os dele) — o voto que já elegeu
   // não conta de novo na lista, como no distritão misto.
-  let dl = d, liquido = null;
+  // Retenção dos votos dispersos (cenário do voto único): só uma fração dos votos dados a quem não seria o
+  // candidato da agremiação no distrito fica com ela (no candidato do distrito ou na legenda, contando para a
+  // cota); o resto deixa de ser voto dela — e voto válido. Quem leva cada distrito não muda: os candidatos
+  // seguem com os seus votos pessoais. Com 100% (padrão), tudo fica, como nos dados do TSE.
+  const dispersos = sdDispersos(vd0, d, op.capPartido > 0 ? op.capPartido : 1);
+  const ret = op.retencao == null ? 1 : Math.min(1, Math.max(0, op.retencao));
+  let dr = d, retidos = null;
+  if (ret < 1) {
+    retidos = {};
+    let perdidos = 0;
+    for (const a of d.agrs) { const p = Math.min(a.votos, Math.round((1 - ret) * (dispersos[a.id] || 0))); retidos[a.id] = a.votos - p; perdidos += p; }
+    dr = Object.assign({}, d, { validos: d.validos != null ? d.validos - perdidos : d.validos,
+      agrs: d.agrs.map(a => (retidos[a.id] !== a.votos ? Object.assign({}, a, { votos: retidos[a.id] }) : a)) });
+  }
+  let dl = dr, liquido = null;
   if (op.votoLiquido) {
     const usado = {};
     for (const p of primeiros) usado[p.agr] = (usado[p.agr] || 0) + (p.votosDistrito || 0);
-    liquido = Object.fromEntries(d.agrs.map(a => [a.id, a.votos - (usado[a.id] || 0)]));
-    dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id], votosBrutos: a.votos }) : a)) });
+    liquido = Object.fromEntries(dr.agrs.map(a => [a.id, a.votos - (usado[a.id] || 0)]));
+    dl = Object.assign({}, dr, { agrs: dr.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: liquido[a.id], votosBrutos: a.votos }) : a)) });
   }
   const r = sdCompletarLista(dl, primeiros, vagas, op);
   // excedente que não leva (op.excedente 'naoLeva'): o distrito fica sem a cadeira do vencedor
@@ -1167,9 +1241,9 @@ function sdDistritalMisto(d, op) {
     for (const w of dt.vencedores) if (sem.has(w.sq)) w.semCadeira = true;
     if (dt.vencedor && dt.vencedor.semCadeira) dt.semCadeira = true;
   }
-  return Object.assign(r, { nDistritos: primeiros.length - sem.size, distritos, liquido });
+  return Object.assign(r, { nDistritos: primeiros.length - sem.size, distritos, liquido, dispersos, retidos });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdTolerancia, SD_TOL_SENADO, SD_TOL_CCJ, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais, sdCadeirasPorDistrito, sdDistritarAninhado, sdAfinarAninhado, sdCruzamentos, sdDividir, sdBaseLocais };
+  module.exports = { sdTopo, sdProjetor, sdAreaCentro, sdLeitorGeo, sdUnidades, sdComponentes, sdFila, sdDistritar, sdCortar, sdRefinar, sdMedir, sdVotosDistritos, sdDispersos, sdFichaCandidatos, sdDistritalMisto, sdUrlPopulacao, sdLerPopulacao, sdPesoPopulacao, sdNumeroDistritos, sdToleranciaSenado, sdTolerancia, SD_TOL_SENADO, SD_TOL_CCJ, SD_DESMEMBRADOS, sdSegundoVoto, sdUrlSecao, sdLeitorLocais, sdReparte, sdVotosLocais, sdEmendar, sdRefinarLocais, sdCadeirasPorDistrito, sdDistritarAninhado, sdAfinarAninhado, sdCruzamentos, sdDividir, sdBaseLocais };
 }

@@ -500,9 +500,30 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
       'Exceções permitidas', { f: temExc ? `MAX(${tol.excN || 0},INT(${tol.excFrac || 0}*${smAbs(4, r0)}+1E-9))` : '0', v: perm },
       'Estado na tolerância (fórmula)', { f: `IF(AND(G${rt}=0,E${rt}<=I${rt}),"sim","não")`, v: okF ? 'sim' : 'não' }, 'Simulador', okS ? 'sim' : 'não', smFConfere(`K${rt}`, `M${rt}`, okF ? 'sim' : 'não', okS ? 'sim' : 'não')]);
     const primeiros = sim.eleitos.filter(e => e.fase !== 'lista');
-    let dl = d;
+    // Retenção dos votos dispersos (cenário do voto único): a cota sai dos votos retidos. Os dispersos de cada
+    // agremiação (os votos nominais dados a quem não é o seu mais votado em cada distrito) vêm do simulador.
+    let dr = d;
+    const retLin = {};
+    if (op.retencao != null && op.retencao < 1 && sim.retidos) {
+      aba.add([]);
+      aba.add([`Retenção dos votos dispersos (cenário do voto único): só ${pc(op.retencao)} dos votos dispersos ficam com a agremiação e contam para a cota; o resto deixa de ser voto dela (e voto válido). Dispersos = em cada distrito, os votos nominais da agremiação menos os do(s) seu(s) mais votado(s) ali; quem leva cada distrito não muda.`]);
+      aba.add(['Agremiação (id)', 'Agremiação', 'Votos (aba Votos)', 'Votos dispersos (simulador)', 'Votos retidos (fórmula)', 'Votos retidos (simulador)', 'Confere']);
+      const ret = {};
+      let perdidos = 0;
+      for (const a of d.agrs) {
+        const r = aba.prox(), disp = (sim.dispersos || {})[a.id] || 0;
+        ret[a.id] = a.votos - Math.min(a.votos, Math.round((1 - op.retencao) * disp));
+        perdidos += a.votos - ret[a.id];
+        const simRet = sim.retidos[a.id] != null ? sim.retidos[a.id] : a.votos, vr = votosLinha && votosLinha[uf + '|' + a.id];
+        retLin[a.id] = r;
+        aba.add([a.id, smSiglas(a), vr ? { f: `${V}!$G$${vr}`, v: a.votos } : a.votos, disp,
+          { f: `C${r}-MIN(C${r},ROUND((1-${op.retencao})*D${r},0))`, v: ret[a.id] }, simRet, smFConfere(`E${r}`, `F${r}`, ret[a.id], simRet)]);
+      }
+      dr = Object.assign({}, d, { validos: d.validos != null ? d.validos - perdidos : d.validos, agrs: d.agrs.map(a => (ret[a.id] !== a.votos ? Object.assign({}, a, { votos: ret[a.id] }) : a)) });
+    }
+    let dl = dr;
     if (op.votoLiquido) {
-      // voto partidário líquido: votos da agremiação (aba Votos) − votos dos seus vencedores, cada um no seu distrito
+      // voto partidário líquido: votos da agremiação (aba Votos; com a retenção, os retidos) − votos dos seus vencedores, cada um no seu distrito
       // (coluna N da tabela dos distritos acima; com vários eleitos por distrito, o valor do simulador)
       const usado = {}, refs = {};
       for (const e of primeiros) {
@@ -513,15 +534,15 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
       }
       aba.add([]);
       aba.add(['Voto partidário líquido = votos da agremiação − votos que elegeram os seus vencedores de distrito (os de cada um no seu distrito)']);
-      aba.add(['Agremiação (id)', 'Agremiação', 'Votos (aba Votos)', 'Votos dos seus vencedores nos distritos', 'Voto líquido (fórmula)', 'Voto líquido (simulador)', 'Confere']);
-      for (const a of d.agrs) {
+      aba.add(['Agremiação (id)', 'Agremiação', Object.keys(retLin).length ? 'Votos retidos (acima)' : 'Votos (aba Votos)', 'Votos dos seus vencedores nos distritos', 'Voto líquido (fórmula)', 'Voto líquido (simulador)', 'Confere']);
+      for (const a of dr.agrs) {
         const r = aba.prox(), liq = a.votos - (usado[a.id] || 0), simLiq = sim.liquido && sim.liquido[a.id] != null ? sim.liquido[a.id] : a.votos;
         const vr = votosLinha && votosLinha[uf + '|' + a.id];
-        aba.add([a.id, smSiglas(a), vr ? { f: `${V}!$G$${vr}`, v: a.votos } : a.votos,
+        aba.add([a.id, smSiglas(a), retLin[a.id] ? { f: `E${retLin[a.id]}`, v: a.votos } : vr ? { f: `${V}!$G$${vr}`, v: a.votos } : a.votos,
           refs[a.id] ? { f: refs[a.id].join('+'), v: usado[a.id] } : 0,
           { f: `C${r}-D${r}`, v: liq }, simLiq, smFConfere(`E${r}`, `F${r}`, liq, simLiq)]);
       }
-      dl = Object.assign({}, d, { agrs: d.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: a.votos - usado[a.id], votosBrutos: a.votos }) : a)) });
+      dl = Object.assign({}, dr, { agrs: dr.agrs.map(a => (usado[a.id] ? Object.assign({}, a, { votos: a.votos - usado[a.id], votosBrutos: a.votos }) : a)) });
     }
     smBlocoLista(aba, dl, sim, op, primeiros);
     smBlocoListaPre(aba, d, sim, (op.listas || {})[uf]);

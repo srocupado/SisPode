@@ -447,7 +447,7 @@ function snSimular(dados, sistemas) {
       const r = SN_TIPOS[s.tipo](dados[uf], s.op || {});
       const ru = real.porUf[uf];
       const sim = new Set(r.eleitos.map(x => x.sq)), rs = new Set(ru ? ru.eleitos.map(x => x.sq) : []);
-      out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista, nDistritos: r.nDistritos, distritos: r.distritos, liquido: r.liquido,
+      out.porUf[uf] = { eleitos: r.eleitos, qe: r.qe, corte: r.corte, nMais: r.nMais, nLista: r.nLista, nDistritos: r.nDistritos, distritos: r.distritos, liquido: r.liquido, dispersos: r.dispersos, retidos: r.retidos,
         vagas: r.vagas, extra: r.extra || 0, excedentes: r.excedentes, cortes: r.cortes, descobertos: r.descobertos,
         entram: ru ? r.eleitos.filter(x => !rs.has(x.sq)).sort(porVotos) : [], saem: ru ? ru.eleitos.filter(x => !sim.has(x.sq)).sort(porVotos) : [] };
       if (comparadas.includes(uf)) snSomar(out, r.eleitos);
