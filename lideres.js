@@ -645,7 +645,10 @@ async function criarReuniao() {
   await carregarDadosCamara(app.reuniao.itens);
   renderizarTabela();
   atualizarSidebar();
-  mostrarToast('Dados carregados. Clique em "Resumir Todas" para gerar os resumos por IA.', 'sucesso');
+  // Salva já na importação: os dados apurados na Câmara (e o que veio da lista) não ficam só na tela.
+  const salvo = await salvarReuniao({ auto: true }).catch(e => ({ ok: false, erro: e.message }));
+  mostrarToast(`Dados carregados${salvo?.ok ? ' e reunião salva' : ''}. Clique em "Resumir Todas" para gerar os resumos por IA.`
+    + (salvo && !salvo.ok ? ` (Firebase: ${salvo.erro} — salva só neste navegador)` : ''), salvo?.ok ? 'sucesso' : 'aviso');
 }
 
 // ============================================================
@@ -718,7 +721,7 @@ async function carregarDadosDaProposicao(it) {
   if (!trams) {
     it.situacao  = 'Não apurada — a consulta de tramitação na Câmara falhou; refaça a busca antes de usar.';
     it.situacaoFalhou = true;
-    it.relatoria = it.relatoria || '';
+    it.relatoria = '';   // não apurada (a consulta falhou)
     it.despachos = it.despachos || [];
   } else {
     it.situacao  = situacaoDe(trams, it.regimePdf);
@@ -760,7 +763,8 @@ async function carregarDadosDaProposicao(it) {
   if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
     it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
   }
-  it.relatorPodemos = ehRelatorPodemos(it.relatoria);
+  it.relatoria = comporRelatoria(it, it.relatoria);
+  it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
 }
 
 /** Ficha da proposição no webservice do portal → campos (texto XML, sem DOM: roda igual no teste). */
@@ -856,6 +860,7 @@ function tramitacoesDaFicha(html) {
     const orgao = textoHtml(org[1]);
     const sigla = (/\(\s*([A-Z0-9-]+)\s*\)\s*$/.exec(orgao) || [])[1] || '';
     const despacho = lis.filter(Boolean).join(' ');
+    const teor = /href="([^"]*prop_mostrarintegra[^"]*)"/i.exec(tr);
     const chave = `${data[1]}|${sigla}|${despacho}`;
     if (!despacho || vistos.has(chave)) continue;   // a "Última Ação Legislativa" repete uma linha
     vistos.add(chave);
@@ -867,9 +872,34 @@ function tramitacoesDaFicha(html) {
       // e a regra pelo despacho exige texto sem ponto entre "requerimento" e "urgência").
       descricaoTramitacao: /^designad[oa]\s+relator/i.test(despacho) ? 'Designação de Relator'
         : /^aprovad[oa]\s+o\s+requerimento[\s\S]{0,200}?urg[êe]ncia/i.test(despacho) ? 'Aprovação de Urgência' : '',
+      url: teor ? new URL(teor[1].replace(/&amp;/g, '&'), 'https://www.camara.leg.br/proposicoesWeb/').toString() : null,
     });
   }
   return out.sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+}
+
+/** Peças da volta do Senado registradas na ficha, com o inteiro teor: EMS ("Apresentação da EMS n. …
+ *  (Emenda/Substitutivo do Senado)"), autógrafo ("Apresentação do Autógrafo") e redação final
+ *  ("Apresentação da RDF n. …") — conferido no PL 2979/2023. Os pareceres vêm do histórico de pareceres. */
+function documentosDaFicha(trams) {
+  const out = [];
+  for (const t of trams || []) {
+    if (!t.url) continue;
+    // A volta do Senado tem três redações na ficha (conferidas em 10/11/2026):
+    // "Apresentação da EMS n. …" (PL 2979/2023), "Recebido Ofício … que comunica que o
+    // Senado Federal aprovou, em revisão, nos termos do substitutivo em anexo" (PL 3099/2019)
+    // e "Apresentação do PL n. … pelo Senado Federal, que "Substitutivo do Senado …"" (PL 4558/2019).
+    const voltaDoSenado = /Apresenta[çc][ãa]o d[ao]\s+EMS\b/i.test(t.despacho)
+      || /Senado Federal aprovou[\s\S]{0,80}?(?:emenda|substitutivo)/i.test(t.despacho)
+      || /pelo Senado Federal,?\s+que\s*["“]?\s*(?:Emendas?|Substitutivo) do Senado/i.test(t.despacho);
+    const tipo = voltaDoSenado ? 'EMS'
+      : /Apresenta[çc][ãa]o do\s+Aut[óo]grafo/i.test(t.despacho) ? 'AA'
+      : /Apresenta[çc][ãa]o da\s+RDF\b/i.test(t.despacho) ? 'RDF' : null;
+    if (tipo) out.push({ tipo, data: t.dataHora, orgao: t.siglaOrgao, ementa: t.despacho, url: t.url, apresentacaoEms: /Apresenta[çc][ãa]o d[ao]\s+EMS\b/i.test(t.despacho) });
+  }
+  // No mesmo dia a ficha pode trazer o ofício do Senado E a "Apresentação da EMS"
+  // (PL 2979/2023, 16/07/2026): a peça a confrontar é a EMS, não o ofício.
+  return out.filter(d => d.tipo !== 'EMS' || d.apresentacaoEms || !out.some(x => x.apresentacaoEms && x.data === d.data));
 }
 
 /** Histórico de Pareceres, Substitutivos e Votos (HTML do portal) → documentos no formato de buscarDocumentosRelacionados. */
@@ -918,20 +948,28 @@ async function apurarFatosPeloPortal(it) {
   ]);
   const trams = ficha ? tramitacoesDaFicha(ficha) : null;
   const apurado = { tramitacao: !!(trams && trams.length), pareceres: pareceres != null };
+  // EMS/autógrafo/RDF (da ficha) + pareceres e substitutivos (do histórico): os documentos da API.
+  const docs = [...(apurado.pareceres ? documentosDaPaginaPareceres(pareceres) : []), ...(apurado.tramitacao ? documentosDaFicha(trams) : [])];
   if (apurado.tramitacao) {
     it.situacao       = situacaoDe(trams, it.regimePdf);
     it.situacaoFalhou = false;
     it.relatoria      = await relatoriaDe(trams, null);
     it.despachos      = despachosDeComissao(trams, null);
   }
+  if (apurado.tramitacao) {
+    it.emendaSenado = emendaSenadoDe(docs);
+    it.senadoFato   = fraseDaEmendaSenado(it.emendaSenado);
+    it.senado       = it.senadoFato;
+  }
+  if (apurado.tramitacao || apurado.pareceres) {
+    it.cenario     = cenarioDe(it, docs);
+    it.cenarioNome = NOME_CENARIO[it.cenario] || '';
+  }
   if (apurado.pareceres) {
-    const docs = documentosDaPaginaPareceres(pareceres);
     it.parecerPlen = parecerPlenarioDe(docs);
     it.sbtComissao = substitutivoComissaoDe(docs);
     it.subemenda   = subemendaDe(docs);
     it.especial    = it.sigla === 'PEC' ? comUrl(docs.filter(d => ehComissaoEspecial(d) && ['PRL', 'SBT-A', 'SBT'].includes(d.tipo))) : [];
-    it.cenario     = cenarioDe(it, docs);
-    it.cenarioNome = NOME_CENARIO[it.cenario] || '';
     it.parecerFato = fraseDoParecer(it.parecerPlen);
     it.parecer     = it.parecerFato;
     if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
@@ -963,7 +1001,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
   const naoApurado = 'Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar.';
   it.situacao       = naoApurado;
   it.situacaoFalhou = true;
-  it.relatoria      = it.relatoria || '';
+  it.relatoria      = '';   // não apurada até a ficha do portal responder
   it.despachos      = [];
   it.parecerPlen = null; it.emendaSenado = null; it.sbtComissao = null; it.subemenda = null; it.especial = [];
   it.relatorPodemos = false;
@@ -1027,11 +1065,13 @@ async function carregarDadosPeloPortal(it, erroApi) {
   it.parecerFato  = 'Não apurado (API fora do ar).';
   it.senadoFato   = 'Não apurado (API fora do ar).';
   it.parecer      = it.parecerFato;
-  if (!it.senado)  it.senado  = it.senadoFato;
+  it.senado       = it.senadoFato;
   // Situação da urgência, relatoria e parecer: contingência pela ficha e pelos pareceres do portal.
   let apurado = { tramitacao: false, pareceres: false };
   try { apurado = await apurarFatosPeloPortal(it); } catch (_) { /* ficam não apurados */ }
   it.portalApurou = apurado;
+  it.relatoria = comporRelatoria(it, it.relatoria);
+  it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
 }
 
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
@@ -1125,6 +1165,89 @@ async function apensadosDoPodemos(idCamara) {
 /** A relatoria já sai formatada com o partido entre parênteses — "(PODE-MG)"
  *  vindo da ficha, do despacho ou da ementa do parecer. */
 const ehRelatorPodemos = rel => /\(PODE(?:MOS)?\b/i.test(String(rel || ''));
+
+// ---------- RELATORIA: DESIGNADO × PEDIDO (coluna "Relator" da lista) ----------
+// Desde 10/11/2026 a lista traz a coluna Relator com dois tipos de informação
+// que NÃO se confundem: "DESIGNAÇÃO: Aliel Machado (PV-PR), em 07/10/2025" (o
+// relator já designado) e "PEDIDO: Julia Zanatta solicitou relatoria" /
+// "PEDIDO: PCdoB indicou Lídice da Mata" (alguém pediu a relatoria; ninguém
+// foi designado por isso). A coluna Relatoria de Plenário mostra os dois,
+// rotulados. O designado vem da Câmara (tramitação); da lista só se a Câmara
+// não tiver designação. A marca "Relatoria Podemos" olha SÓ o designado.
+function relatoriaDaLista(celula) {
+  const partes = String(celula || '').split(/\b(DESIGNA[ÇC][ÃA]O|PEDIDO)\s*:\s*/i);
+  const out = { designacao: '', pedidos: [], outros: [] };
+  // Sem DESIGNAÇÃO/PEDIDO: nas MPV a célula traz a COMISSÃO MISTA ("Presidente: Sen. … Relator: Dep. …")
+  // — não é relatoria de Plenário, vai rotulada à parte e não vira "designado".
+  const solto = String(partes[0] || '').replace(/\s+/g, ' ').trim();
+  if (solto) out.outros.push(/presidente:|relator:/i.test(solto) ? `Comissão mista — ${solto.replace(/\s+(Relator(?:a)?:)/i, ' · $1')}` : solto);
+  for (let i = 1; i < partes.length; i += 2) {
+    const txt = String(partes[i + 1] || '').replace(/\s+/g, ' ').replace(/\(\s*([A-Z]+)\s*-\s*([A-Z]{2})\s*\)/g, '($1-$2)').trim().replace(/[;.,]\s*$/, '');
+    if (!txt) continue;
+    if (/^designa/i.test(partes[i])) out.designacao = txt;
+    else out.pedidos.push(txt);
+  }
+  return out;
+}
+// ---------- COMISSÃO MISTA DE MPV com deputado do Podemos ----------
+// A célula da MPV traz só o nome ("Presidente: Dep. Nely Aquino Relator: Sen. Leany
+// Lemos"), sem partido: quem é do Podemos sai da BANCADA — pela API e, com ela fora,
+// pelo webservice do portal (SitCamaraWS/ObterDeputados). Presidência ou relatoria
+// de deputado do Podemos vira selo (pedido de 10/11/2026).
+let _bancadaPodemos = null;   // { em, nomes: Set } — 30 min
+const nomeChave = s => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
+async function bancadaPodemos() {
+  if (_bancadaPodemos && Date.now() - _bancadaPodemos.em < 30 * 60e3) return _bancadaPodemos.nomes;
+  let nomes = null;
+  try {
+    const r = await fetch(`${API_BASE}/deputados?siglaPartido=${SIGLA_PODEMOS}&itens=100`, typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(15000) } : {});
+    if (r.ok) nomes = ((await r.json()).dados || []).map(d => d.nome);
+  } catch (_) { /* webservice */ }
+  if (!nomes?.length) {
+    try {
+      const r = await fetch('https://www.camara.leg.br/SitCamaraWS/Deputados.asmx/ObterDeputados', typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(20000) } : {});
+      if (r.ok) nomes = String(await r.text()).split(/<deputado>/i).slice(1)
+        .filter(b => new RegExp(`<partido>\\s*${SIGLA_PODEMOS}\\s*</partido>`, 'i').test(b))
+        .map(b => (/<nomeParlamentar>([^<]*)</i.exec(b) || [])[1]).filter(Boolean);
+    } catch (_) { /* fica sem bancada */ }
+  }
+  if (!nomes?.length) return null;
+  _bancadaPodemos = { em: Date.now(), nomes: new Set(nomes.map(nomeChave)) };
+  return _bancadaPodemos.nomes;
+}
+/** "Comissão mista — Presidente: Dep. Nely Aquino · Relator: Sen. Leany Lemos" → [{ papel, nome }] dos deputados. */
+function papeisDeputadosComissaoMista(outros) {
+  const out = [];
+  for (const o of outros || []) {
+    for (const m of String(o).matchAll(/(Vice-?Presidente|Presidente|Relator(?:a)?(?:\s+Revisor(?:a)?)?)\s*:\s*Dep(?:utad[oa])?\.\s*(.+?)(?=\s*[·;]|\s+(?:Vice-?Presidente|Presidente|Relator)|$)/gi)) {
+      out.push({ papel: m[1].replace(/^vice-?presidente$/i, 'Vice-presidência').replace(/^presidente$/i, 'Presidência').replace(/^relator.*/i, 'Relatoria'), nome: m[2].trim() });
+    }
+  }
+  return out;
+}
+/** Papéis do Podemos na comissão mista; null se a bancada não pôde ser consultada (não afirma nada). */
+async function comissaoMistaPodemos(it) {
+  const papeis = papeisDeputadosComissaoMista(relatoriaDaLista(it.extrasPdf?.relator).outros);
+  if (!papeis.length) return [];
+  const bancada = await bancadaPodemos();
+  if (!bancada) return null;
+  return papeis.filter(p => bancada.has(nomeChave(p.nome)));
+}
+
+/** Texto da coluna a partir do fato apurado na Câmara (relatoriaDe: "Dep. X (P-UF)"; 'Sem indicação'; '' = não apurado). */
+function comporRelatoria(it, fato) {
+  const lista = relatoriaDaLista(it.extrasPdf?.relator);
+  let designado = fato && fato !== 'Sem indicação' ? fato : '';
+  if (!designado && lista.designacao) designado = `Dep. ${lista.designacao} (segundo a lista da reunião)`;
+  it.relatorDesignado = designado;
+  it.pedidosRelatoria = lista.pedidos;
+  it.relatorPodemos = ehRelatorPodemos(designado);
+  const linhas = [designado ? `Designado: ${designado}`
+    : fato === '' ? 'Designação não apurada (consulta à Câmara falhou)' : 'Sem relator designado'];
+  for (const p of lista.pedidos) linhas.push(`Pedido de relatoria: ${p}`);
+  for (const o of lista.outros) linhas.push(o);
+  return linhas.join('\n');
+}
 
 // ---------- DOCUMENTOS RELACIONADOS ----------
 // O texto que está em jogo raramente é o que foi apresentado. A proposição
@@ -2024,8 +2147,8 @@ async function resumirProposicao(it, signal) {
   const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
   if (it.dadosPeloPortal) {
     const ap = it.portalApurou || {};
-    const falta = [!ap.tramitacao && 'situação da urgência e relatoria', !ap.pareceres && 'parecer de Plenário', 'emendas do Senado'].filter(Boolean);
-    avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca); NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar`);
+    const falta = [!ap.tramitacao && 'situação da urgência, relatoria e emendas do Senado', !ap.pareceres && 'parecer de Plenário'].filter(Boolean);
+    avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca)${falta.length ? `; NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar` : ''}`);
   }
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
@@ -2088,9 +2211,13 @@ async function resumirLote(chaves) {
   coletarEdicoes();
   renderizarTabela();
 
-  if (app.abortar.signal.aborted) mostrarToast(`Interrompido. ${feitos} de ${alvo.length} concluídas.`, 'aviso');
-  else if (erros) mostrarToast(`${feitos - erros} resumidas, ${erros} com erro.`, 'aviso');
-  else mostrarToast(`${feitos} proposições resumidas.`, 'sucesso');
+  // Salvamento automático ao fim de todo lote (inclusive interrompido): um
+  // resumo que ficou só na tela se perdia ao fechar a aba.
+  const salvo = feitos ? await salvarReuniao({ auto: true }).catch(e => ({ ok: false, erro: e.message })) : null;
+  const sufixo = !salvo ? '' : salvo.ok ? ' Salvo automaticamente.' : ` Salvo só neste navegador (Firebase: ${salvo.erro}) — clique em Salvar depois.`;
+  if (app.abortar.signal.aborted) mostrarToast(`Interrompido. ${feitos} de ${alvo.length} concluídas.${sufixo}`, 'aviso');
+  else if (erros) mostrarToast(`${feitos - erros} resumidas, ${erros} com erro.${sufixo}`, 'aviso');
+  else mostrarToast(`${feitos} proposições resumidas.${sufixo}`, salvo && !salvo.ok ? 'aviso' : 'sucesso');
 }
 
 // ============================================================
@@ -2181,6 +2308,7 @@ function linhaHTML(it) {
   const badgesPode =
     (it.autoriaPodemos ? `<span class="lid-badge-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
     (it.relatorPodemos ? '<span class="lid-badge-rel">Relatoria Podemos</span>' : '') +
+    (it.comissaoMistaPodemos || []).map(p => `<span class="lid-badge-rel" title="Na célula Relator da lista">${esc(rotuloComissaoMista(p))}</span>`).join('') +
     (it.apensadosPodemos || []).map(a => `<span class="lid-badge-apens">Apensado Podemos: ${esc(a.chave)}</span>`).join('');
   const erro = it.erro ? `<span class="lid-erro-msg">${esc(it.erro)}</span>` : '';
   const avisoTxt = avisosDe(it);
@@ -2229,7 +2357,9 @@ function etiquetasDe(it) {
   if (it.marcador) out.push(it.marcador);
   const voltouDoSenado = it.cenario === 6 || it.cenario === 7;
   if (voltouDoSenado && !/EMS/.test(it.marcador || '')) out.push('EMS (apurado)');
-  if (/EMS/.test(it.marcador || '') && it.cenario && !voltouDoSenado) out.push('sem EMS nos dados abertos');
+  // Só afirma a ausência quando a fonte foi de fato consultada (com a API fora, a ficha do portal).
+  const consultou = !it.dadosPeloPortal || it.portalApurou?.tramitacao;
+  if (/EMS/.test(it.marcador || '') && it.cenario && !voltouDoSenado && consultou) out.push(`sem EMS ${it.dadosPeloPortal ? 'na ficha do portal' : 'nos dados abertos'}`);
   return out;
 }
 
@@ -2367,7 +2497,8 @@ function atualizarProgresso(feitos, total, rotulo = '') {
 //  MENSAGEM WHATSAPP — "Projetos do Podemos" (espelho do botão do Plenário)
 // ============================================================
 const itemDoPodemosLideres = it =>
-  !!it.autoriaPodemos || !!it.relatorPodemos || (it.apensadosPodemos || []).length > 0;
+  !!it.autoriaPodemos || !!it.relatorPodemos || (it.apensadosPodemos || []).length > 0 || (it.comissaoMistaPodemos || []).length > 0;
+const rotuloComissaoMista = p => `${p.papel} da comissão mista: ${p.nome} (Podemos)`;
 
 function montarMensagemPodemos() {
   const itens = app.reuniao?.itens || [];
@@ -2390,7 +2521,8 @@ function montarMensagemPodemos() {
     for (const a of (it.apensadosPodemos || [])) {
       linhas.push(`Apensado do Podemos: ${a.chave} (${a.autores.join(', ')})`);
     }
-    if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${it.relatoria}`);
+    if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${it.relatorDesignado || it.relatoria}`);
+    for (const p of (it.comissaoMistaPodemos || [])) linhas.push(rotuloComissaoMista(p));
     return linhas.join('\n');
   });
 
@@ -2460,7 +2592,8 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     const nomesAut = (it.autoresPodemos || []).join(', ');
     const selos =
       (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos${nomesAut ? ': ' + esc(nomesAut) : ''}</span>` : '') +
-      (it.relatorPodemos ? `<span class="selo-rel">Relatoria Podemos${it.relatoria ? ': ' + esc(it.relatoria) : ''}</span>` : '') +
+      (it.relatorPodemos ? `<span class="selo-rel">Relatoria Podemos${(it.relatorDesignado || it.relatoria) ? ': ' + esc(it.relatorDesignado || it.relatoria) : ''}</span>` : '') +
+      (it.comissaoMistaPodemos || []).map(p => `<span class="selo-rel">${esc(rotuloComissaoMista(p))}</span>`).join('') +
       (it.apensadosPodemos || []).map(a => `<span class="selo-apens">Apensado Podemos: ${esc(a.chave)}${a.autores?.length ? ' (' + esc(a.autores.join(', ')) + ')' : ''}</span>`).join('');
     return `<tr${doPode ? ' class="pode"' : ''}>
       <td class="c-num">${esc(it.numItem)}</td>
@@ -2653,18 +2786,24 @@ const localApagar = id => new Promise(res => chrome.storage.local.get('lideresRe
   chrome.storage.local.set({ lideresReunioes: m }, res);
 }));
 
-async function salvarReuniao() {
-  if (!app.reuniao) return;
+/** Salva (local + Firebase). `auto`: chamado pelo fim de um lote — não mostra toast próprio e
+ *  devolve o resultado para o toast do lote dizer se salvou. */
+async function salvarReuniao({ auto = false } = {}) {
+  if (!app.reuniao) return null;
   coletarEdicoes();
   app.reuniao.atualizada = new Date().toISOString();
   await localSalvar(app.reuniao);
+  let res;
   try {
     await fbSalvar(app.reuniao);
-    mostrarToast('Reunião salva e compartilhada com a equipe.', 'sucesso');
+    res = { ok: true };
+    if (!auto) mostrarToast('Reunião salva e compartilhada com a equipe.', 'sucesso');
   } catch (e) {
-    mostrarToast(`Salva localmente. Firebase indisponível: ${e.message}`, 'aviso');
+    res = { ok: false, erro: e.message };
+    if (!auto) mostrarToast(`Salva localmente. Firebase indisponível: ${e.message}`, 'aviso');
   }
   carregarHistorico();
+  return res;
 }
 
 /** O contenteditable só grava no blur; salvar com o cursor dentro de um campo
@@ -2762,7 +2901,10 @@ function restaurarReuniao(id, reunioes) {
 const camposNovosFaltando = it =>
   it.autoriaPodemos === undefined || it.apensadosPodemos === undefined || it.papel === undefined
   // marcada como autoria do Podemos antes de os NOMES serem guardados
-  || (it.autoriaPodemos === true && it.autoresPodemos === undefined);
+  || (it.autoriaPodemos === true && it.autoresPodemos === undefined)
+  // reunião importada antes de a coluna Relator da lista virar designado × pedido
+  // (e do selo da comissão mista de MPV) — 10/11/2026
+  || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined));
 
 async function completarDadosFaltantes() {
   if (app._completando) return app._completando;      // uma cura por vez
