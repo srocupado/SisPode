@@ -856,6 +856,7 @@ function tramitacoesDaFicha(html) {
     const orgao = textoHtml(org[1]);
     const sigla = (/\(\s*([A-Z0-9-]+)\s*\)\s*$/.exec(orgao) || [])[1] || '';
     const despacho = lis.filter(Boolean).join(' ');
+    const teor = /href="([^"]*prop_mostrarintegra[^"]*)"/i.exec(tr);
     const chave = `${data[1]}|${sigla}|${despacho}`;
     if (!despacho || vistos.has(chave)) continue;   // a "Última Ação Legislativa" repete uma linha
     vistos.add(chave);
@@ -867,9 +868,34 @@ function tramitacoesDaFicha(html) {
       // e a regra pelo despacho exige texto sem ponto entre "requerimento" e "urgência").
       descricaoTramitacao: /^designad[oa]\s+relator/i.test(despacho) ? 'Designação de Relator'
         : /^aprovad[oa]\s+o\s+requerimento[\s\S]{0,200}?urg[êe]ncia/i.test(despacho) ? 'Aprovação de Urgência' : '',
+      url: teor ? new URL(teor[1].replace(/&amp;/g, '&'), 'https://www.camara.leg.br/proposicoesWeb/').toString() : null,
     });
   }
   return out.sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+}
+
+/** Peças da volta do Senado registradas na ficha, com o inteiro teor: EMS ("Apresentação da EMS n. …
+ *  (Emenda/Substitutivo do Senado)"), autógrafo ("Apresentação do Autógrafo") e redação final
+ *  ("Apresentação da RDF n. …") — conferido no PL 2979/2023. Os pareceres vêm do histórico de pareceres. */
+function documentosDaFicha(trams) {
+  const out = [];
+  for (const t of trams || []) {
+    if (!t.url) continue;
+    // A volta do Senado tem três redações na ficha (conferidas em 10/11/2026):
+    // "Apresentação da EMS n. …" (PL 2979/2023), "Recebido Ofício … que comunica que o
+    // Senado Federal aprovou, em revisão, nos termos do substitutivo em anexo" (PL 3099/2019)
+    // e "Apresentação do PL n. … pelo Senado Federal, que "Substitutivo do Senado …"" (PL 4558/2019).
+    const voltaDoSenado = /Apresenta[çc][ãa]o d[ao]\s+EMS\b/i.test(t.despacho)
+      || /Senado Federal aprovou[\s\S]{0,80}?(?:emenda|substitutivo)/i.test(t.despacho)
+      || /pelo Senado Federal,?\s+que\s*["“]?\s*(?:Emendas?|Substitutivo) do Senado/i.test(t.despacho);
+    const tipo = voltaDoSenado ? 'EMS'
+      : /Apresenta[çc][ãa]o do\s+Aut[óo]grafo/i.test(t.despacho) ? 'AA'
+      : /Apresenta[çc][ãa]o da\s+RDF\b/i.test(t.despacho) ? 'RDF' : null;
+    if (tipo) out.push({ tipo, data: t.dataHora, orgao: t.siglaOrgao, ementa: t.despacho, url: t.url, apresentacaoEms: /Apresenta[çc][ãa]o d[ao]\s+EMS\b/i.test(t.despacho) });
+  }
+  // No mesmo dia a ficha pode trazer o ofício do Senado E a "Apresentação da EMS"
+  // (PL 2979/2023, 16/07/2026): a peça a confrontar é a EMS, não o ofício.
+  return out.filter(d => d.tipo !== 'EMS' || d.apresentacaoEms || !out.some(x => x.apresentacaoEms && x.data === d.data));
 }
 
 /** Histórico de Pareceres, Substitutivos e Votos (HTML do portal) → documentos no formato de buscarDocumentosRelacionados. */
@@ -918,20 +944,28 @@ async function apurarFatosPeloPortal(it) {
   ]);
   const trams = ficha ? tramitacoesDaFicha(ficha) : null;
   const apurado = { tramitacao: !!(trams && trams.length), pareceres: pareceres != null };
+  // EMS/autógrafo/RDF (da ficha) + pareceres e substitutivos (do histórico): os documentos da API.
+  const docs = [...(apurado.pareceres ? documentosDaPaginaPareceres(pareceres) : []), ...(apurado.tramitacao ? documentosDaFicha(trams) : [])];
   if (apurado.tramitacao) {
     it.situacao       = situacaoDe(trams, it.regimePdf);
     it.situacaoFalhou = false;
     it.relatoria      = await relatoriaDe(trams, null);
     it.despachos      = despachosDeComissao(trams, null);
   }
+  if (apurado.tramitacao) {
+    it.emendaSenado = emendaSenadoDe(docs);
+    it.senadoFato   = fraseDaEmendaSenado(it.emendaSenado);
+    it.senado       = it.senadoFato;
+  }
+  if (apurado.tramitacao || apurado.pareceres) {
+    it.cenario     = cenarioDe(it, docs);
+    it.cenarioNome = NOME_CENARIO[it.cenario] || '';
+  }
   if (apurado.pareceres) {
-    const docs = documentosDaPaginaPareceres(pareceres);
     it.parecerPlen = parecerPlenarioDe(docs);
     it.sbtComissao = substitutivoComissaoDe(docs);
     it.subemenda   = subemendaDe(docs);
     it.especial    = it.sigla === 'PEC' ? comUrl(docs.filter(d => ehComissaoEspecial(d) && ['PRL', 'SBT-A', 'SBT'].includes(d.tipo))) : [];
-    it.cenario     = cenarioDe(it, docs);
-    it.cenarioNome = NOME_CENARIO[it.cenario] || '';
     it.parecerFato = fraseDoParecer(it.parecerPlen);
     it.parecer     = it.parecerFato;
     if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
@@ -1027,7 +1061,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
   it.parecerFato  = 'Não apurado (API fora do ar).';
   it.senadoFato   = 'Não apurado (API fora do ar).';
   it.parecer      = it.parecerFato;
-  if (!it.senado)  it.senado  = it.senadoFato;
+  it.senado       = it.senadoFato;
   // Situação da urgência, relatoria e parecer: contingência pela ficha e pelos pareceres do portal.
   let apurado = { tramitacao: false, pareceres: false };
   try { apurado = await apurarFatosPeloPortal(it); } catch (_) { /* ficam não apurados */ }
@@ -2024,8 +2058,8 @@ async function resumirProposicao(it, signal) {
   const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
   if (it.dadosPeloPortal) {
     const ap = it.portalApurou || {};
-    const falta = [!ap.tramitacao && 'situação da urgência e relatoria', !ap.pareceres && 'parecer de Plenário', 'emendas do Senado'].filter(Boolean);
-    avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca); NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar`);
+    const falta = [!ap.tramitacao && 'situação da urgência, relatoria e emendas do Senado', !ap.pareceres && 'parecer de Plenário'].filter(Boolean);
+    avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca)${falta.length ? `; NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar` : ''}`);
   }
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
@@ -2229,7 +2263,9 @@ function etiquetasDe(it) {
   if (it.marcador) out.push(it.marcador);
   const voltouDoSenado = it.cenario === 6 || it.cenario === 7;
   if (voltouDoSenado && !/EMS/.test(it.marcador || '')) out.push('EMS (apurado)');
-  if (/EMS/.test(it.marcador || '') && it.cenario && !voltouDoSenado) out.push('sem EMS nos dados abertos');
+  // Só afirma a ausência quando a fonte foi de fato consultada (com a API fora, a ficha do portal).
+  const consultou = !it.dadosPeloPortal || it.portalApurou?.tramitacao;
+  if (/EMS/.test(it.marcador || '') && it.cenario && !voltouDoSenado && consultou) out.push(`sem EMS ${it.dadosPeloPortal ? 'na ficha do portal' : 'nos dados abertos'}`);
   return out;
 }
 

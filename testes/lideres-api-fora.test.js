@@ -70,7 +70,7 @@ const sandbox = {
     return { ok: false, status: 404 };
   },
 };
-const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app };`)(...Object.values(sandbox));
+const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app, tramitacoesDaFicha, documentosDaFicha, emendaSenadoDe, fraseDaEmendaSenado, etiquetasDe };`)(...Object.values(sandbox));
 const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano, celulaProp: '' }; await L.carregarDadosDaProposicao(it); return it; };
 
 (async () => {
@@ -102,6 +102,17 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
   ok(JSON.stringify(pl4675.portalApurou) === '{"tramitacao":true,"pareceres":true}', 'marca o que o portal apurou (o aviso do item lista só o que faltou)');
   const sem = await carregar('PL', 1403, 2026);   // páginas do portal indisponíveis (404) para este
   ok(/Não apurada/.test(sem.situacao) && /Não apurado/.test(sem.parecer) && JSON.stringify(sem.portalApurou) === '{"tramitacao":false,"pareceres":false}', 'sem as páginas do portal, continua NÃO apurado (nunca "não há")');
+
+  console.log('\n== emendas do Senado pela ficha (as três redações reais da volta do Senado) ==');
+  const senado = n => { const d = L.documentosDaFicha(L.tramitacoesDaFicha(WS(`ficha-PL-${n}.html`))); return L.fraseDaEmendaSenado(L.emendaSenadoDe(d)); };
+  ok(senado('2979-2023') === 'Emenda/Substitutivo do Senado recebido em 16/07/2026; texto que saiu da Câmara: autógrafo de 27/10/2025.', `"Apresentação da EMS": ${senado('2979-2023')}`);
+  ok(/^Emenda\/Substitutivo do Senado recebido em 14\/08\/2026; texto que saiu da Câmara: autógrafo de 26\/08\/2025/.test(senado('3099-2019')), `"Recebido Ofício … Senado Federal aprovou … substitutivo": ${senado('3099-2019')}`);
+  ok(/^Emenda\/Substitutivo do Senado recebido em 29\/05\/2025; texto que saiu da Câmara: autógrafo de 23\/08\/2023/.test(senado('4558-2019')), `"Apresentação do PL … pelo Senado Federal, que Substitutivo do Senado": ${senado('4558-2019')}`);
+  ok(senado('4675-2025') === 'Não há emenda do Senado.', 'proposição que não voltou do Senado: "Não há emenda do Senado."');
+  const es2979 = L.emendaSenadoDe(L.documentosDaFicha(L.tramitacoesDaFicha(WS('ficha-PL-2979-2023.html'))));
+  ok(/codteor=3163743/.test(es2979.ems.url) && /codteor=3023979/.test(es2979.autografo.url), 'confronto com a EMS (não o ofício do mesmo dia) e o autógrafo');
+  ok(JSON.stringify(L.etiquetasDe({ marcador: 'EMS', cenario: 1, dadosPeloPortal: true, portalApurou: { tramitacao: false } })) === '["EMS"]', 'ficha indisponível: não afirma "sem EMS"');
+  ok(JSON.stringify(L.etiquetasDe({ marcador: 'EMS', cenario: 1, dadosPeloPortal: true, portalApurou: { tramitacao: true } })) === '["EMS","sem EMS na ficha do portal"]', 'ficha lida e sem EMS: diz onde procurou');
 
   console.log('\n== busca do portal também fora: webservice (2ª via) ==');
   buscaFora = true;
