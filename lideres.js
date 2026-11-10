@@ -766,6 +766,7 @@ async function carregarDadosDaProposicao(it) {
   situacaoDaMpv(it);
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
+  it.solicitacaoPodemos = await solicitacaoPodemos(it);
 }
 
 /** Ficha da proposição no webservice do portal → campos (texto XML, sem DOM: roda igual no teste). */
@@ -1074,6 +1075,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
   situacaoDaMpv(it);
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
+  it.solicitacaoPodemos = await solicitacaoPodemos(it);
 }
 
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
@@ -1247,6 +1249,38 @@ function situacaoDaMpv(it) {
   it.situacao = SITUACAO_MPV;
   it.situacaoFalhou = false;
 }
+
+// ---------- SOLICITAÇÕES DE PAUTA (coluna da lista) ----------
+// A coluna "Solicitações de Pauta" diz quem pediu a matéria em pauta: partidos e
+// blocos ("PODEMOS", "Governo na CD", "Bancada Feminina"), deputados ("Julia
+// Zanatta") e, às vezes, presa a uma proposição do item ("PL 68/2025: Bancada
+// Feminina"). Pedido do Podemos — o partido ou um deputado da bancada — vira selo
+// azul (pedido de 10/11/2026). Deputado é conferido na bancada (bancadaPodemos).
+function solicitacoesDaLista(celula) {
+  return String(celula || '').split(/\s*;\s*/).map(e => e.replace(/\s+/g, ' ').trim()).filter(Boolean).map(e => {
+    const m = /^([A-Z]{2,5}\s+\d{1,5}\/\d{4})\s*:\s*(.+)$/.exec(e);
+    return m ? { prop: m[1], quem: m[2] } : { prop: '', quem: e };
+  });
+}
+const ehOPodemos = quem => /^(?:podemos|pode)$/i.test(nomeChave(quem)) || /\bpodemos\b/i.test(nomeChave(quem));
+/** Pedidos de pauta do Podemos: [{ quem, prop, deputado }]; [] se nenhum. Sem a bancada, só o nome do partido é reconhecido. */
+async function solicitacaoPodemos(it) {
+  const sol = solicitacoesDaLista(it.extrasPdf?.solicitacoes);
+  if (!sol.length) return [];
+  const doPartido = sol.filter(x => ehOPodemos(x.quem)).map(x => ({ ...x, deputado: false }));
+  const resto = sol.filter(x => !ehOPodemos(x.quem));
+  let deps = [];
+  if (resto.length) {
+    const bancada = await bancadaPodemos();
+    if (bancada) deps = resto.filter(x => bancada.has(nomeChave(x.quem))).map(x => ({ ...x, deputado: true }));
+  }
+  return [...doPartido, ...deps];
+}
+const rotuloPautaPodemos = lista => 'Pauta pedida pelo Podemos'
+  + (() => {
+    const det = lista.map(x => (x.deputado ? `Dep. ${x.quem}` : '') + (x.prop ? `${x.deputado ? ' ' : ''}(${x.prop})` : '')).filter(Boolean);
+    return det.length ? `: ${det.join('; ')}` : '';
+  })();
 
 /** Texto da coluna a partir do fato apurado na Câmara (relatoriaDe: "Dep. X (P-UF)"; 'Sem indicação'; '' = não apurado). */
 function comporRelatoria(it, fato) {
@@ -2323,6 +2357,7 @@ function linhaHTML(it) {
   const apenso = it.ehPrincipal ? '<span class="lid-apenso">principal</span>' : '';
   const etiquetas = etiquetasDe(it).map(t => `<span class="lid-marca">${esc(t)}</span>`).join('');
   const badgesPode =
+    ((it.solicitacaoPodemos || []).length ? `<span class="lid-badge-pauta" title="Coluna Solicitações de Pauta da lista: ${esc(it.extrasPdf?.solicitacoes || '')}">${esc(rotuloPautaPodemos(it.solicitacaoPodemos))}</span>` : '') +
     (it.autoriaPodemos ? `<span class="lid-badge-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos</span>` : '') +
     (it.relatorPodemos ? '<span class="lid-badge-rel">Relatoria Podemos</span>' : '') +
     (it.comissaoMistaPodemos || []).map(p => `<span class="lid-badge-rel" title="Na célula Relator da lista">${esc(rotuloComissaoMista(p))}</span>`).join('') +
@@ -2514,7 +2549,8 @@ function atualizarProgresso(feitos, total, rotulo = '') {
 //  MENSAGEM WHATSAPP — "Projetos do Podemos" (espelho do botão do Plenário)
 // ============================================================
 const itemDoPodemosLideres = it =>
-  !!it.autoriaPodemos || !!it.relatorPodemos || (it.apensadosPodemos || []).length > 0 || (it.comissaoMistaPodemos || []).length > 0;
+  !!it.autoriaPodemos || !!it.relatorPodemos || (it.apensadosPodemos || []).length > 0 || (it.comissaoMistaPodemos || []).length > 0
+  || (it.solicitacaoPodemos || []).length > 0;
 const rotuloComissaoMista = p => `${p.papel} da comissão mista: ${p.nome} (Podemos)`;
 
 function montarMensagemPodemos() {
@@ -2540,6 +2576,7 @@ function montarMensagemPodemos() {
     }
     if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${it.relatorDesignado || it.relatoria}`);
     for (const p of (it.comissaoMistaPodemos || [])) linhas.push(rotuloComissaoMista(p));
+    if ((it.solicitacaoPodemos || []).length) linhas.push(rotuloPautaPodemos(it.solicitacaoPodemos));
     return linhas.join('\n');
   });
 
@@ -2623,6 +2660,7 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     // sem nome obrigava a caçar na linha quem era.
     const nomesAut = (it.autoresPodemos || []).join(', ');
     const selos =
+      ((it.solicitacaoPodemos || []).length ? `<span class="selo-pauta">${esc(rotuloPautaPodemos(it.solicitacaoPodemos))}</span>` : '') +
       (it.autoriaPodemos ? `<span class="selo-pode">★ ${it.autoriaPrincipalPodemos === false ? 'Coautoria' : 'Autoria'} Podemos${nomesAut ? ': ' + esc(nomesAut) : ''}</span>` : '') +
       (it.relatorPodemos ? `<span class="selo-rel">Relatoria Podemos${(it.relatorDesignado || it.relatoria) ? ': ' + esc(it.relatorDesignado || it.relatoria) : ''}</span>` : '') +
       (it.comissaoMistaPodemos || []).map(p => `<span class="selo-rel">${esc(rotuloComissaoMista(p))}</span>`).join('') +
@@ -2670,10 +2708,11 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
     /* Sem zebra: linha branca por padrão, e só a tarja amarela do Podemos
        marca linha — a alternância verde/branca disputava atenção com ela. */
     tbody tr.pode td { background:#fff3bf; }
-    .selo-pode, .selo-rel, .selo-apens { display:block; width:fit-content; margin-top:3px; padding:0 5px;
+    .selo-pode, .selo-rel, .selo-apens, .selo-pauta { display:block; width:fit-content; margin-top:3px; padding:0 5px;
       border-radius:4px; font-size:6.5pt; font-weight:700; }
     .selo-pode { color:#b3261e; border:1px solid #b3261e; }
     .selo-rel  { color:#0a4a7a; border:1px solid #0a4a7a; }
+    .selo-pauta { color:#fff; background:#1d4ed8; border:1px solid #1d4ed8; }
     .selo-apens { color:#02484d; border:1px solid #02484d; }
     .c-num  { width:3%; text-align:center; color:#666; }
     .c-prop { width:8%; }
@@ -2938,7 +2977,9 @@ const camposNovosFaltando = it =>
   // (e do selo da comissão mista de MPV) — 10/11/2026
   || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined))
   // MPV gravada com "Não apurada" antes da regra da urgência constitucional (10/11/2026)
-  || (it.sigla === 'MPV' && it.situacao !== SITUACAO_MPV);
+  || (it.sigla === 'MPV' && it.situacao !== SITUACAO_MPV)
+  // antes do selo de pedido de pauta do Podemos (10/11/2026)
+  || (!!it.extrasPdf?.solicitacoes && it.solicitacaoPodemos === undefined);
 
 async function completarDadosFaltantes() {
   if (app._completando) return app._completando;      // uma cura por vez
