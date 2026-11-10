@@ -21,11 +21,11 @@ const RETRY_STATUS = new Set([500, 502, 503, 504]);
 const RETRIES = 3;
 const TTL = 12 * 60 * 60 * 1000;   // 12h de cache
 const CONCURRENCY = 8;             // autores por reunião, em paralelo
-// Teto da varredura pelo portal (as páginas vão uma por vez, no ritmo que o portal aceita).
-const PRAZO_VARREDURA_PORTAL_MS = 100e3;
-// O que o portal não liberou nesse teto continua em SEGUNDO PLANO, em rodadas,
-// até este limite, e sai numa segunda mensagem ("Complemento da varredura").
-const PRAZO_COMPLEMENTO_MS = 10 * 60e3;
+// Varredura pelo portal: as páginas vão uma por vez, no ritmo que o portal aceita;
+// o que ele recusar (limite de pedidos) é tentado de novo em RODADAS, com pausa,
+// até este teto. A resposta é UMA mensagem, só com tudo coletado (pedido de
+// 10/11/2026: nada de resposta parcial seguida de complemento).
+const PRAZO_VARREDURA_PORTAL_MS = 9 * 60e3;
 const PAUSA_ENTRE_RODADAS_MS = 45e3;
 // API marcada como fora: depois de uma falha (5xx/tempo esgotado), por este
 // tempo as consultas vão DIRETO ao portal. 10/11/2026: com a API em 504 o dia
@@ -497,12 +497,7 @@ async function listarReunioesDeliberativas(dataTexto, { tz = 'America/Sao_Paulo'
 }
 
 // ---------- Capacidade 3: varredura por partido/deputado ----------
-/**
- * `aoCompletar(texto)`: se dado, as comissões que o portal não liberou a tempo
- * (limite de pedidos/lentidão) continuam em segundo plano e o resultado delas
- * chega por esse callback, numa segunda mensagem.
- */
-async function varrerComissoesPartido(dataTexto, { partido = null, deputado = null, tz = 'America/Sao_Paulo', aoCompletar = null } = {}) {
+async function varrerComissoesPartido(dataTexto, { partido = null, deputado = null, tz = 'America/Sao_Paulo' } = {}) {
   const alvo = (partido || deputado || '').trim();
   if (!alvo) return 'erro: informe o partido ou o deputado pra varrer.';
   const hoje = hojeBRIso(tz);
@@ -529,24 +524,29 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
   if (!orgs.size) return `🏛️ Nenhuma comissão permanente com reunião deliberativa em ${brData(d)}.${peloPortal ? `\n${AVISO_PORTAL}` : ''}`;
 
   // Por comissão: a pauta pela API; se ela cair no meio da varredura, a da página da reunião no portal.
-  // Uma comissão que falhar pelos dois caminhos vai listada à parte — não derruba a varredura inteira.
-  // Pelo portal há um TETO de tempo (o portal limita os pedidos): passado ele, o que
-  // faltou vai listado e a resposta sai — 10/11/2026: sem teto, 5 min de espera.
+  // O que o portal recusar (limite de pedidos, lentidão, 5xx) volta em RODADAS, com pausa, até o
+  // teto — e a resposta sai uma vez só, com tudo. Falha que não é passageira não se repete.
   let usouPortal = !!peloPortal;
   const ate = Date.now() + PRAZO_VARREDURA_PORTAL_MS;
-  const resultados = await mapLimit([...orgs.values()], VARREDURA_CONCURRENCY, async ({ org, eventos: evs }) => {
+  const passageira = msg => /limite de pedidos|HTTP 429|HTTP 5\d\d|tempo esgotado|passou do tempo/i.test(msg || '');
+  const lerUma = async ({ org, eventos: evs }) => {
     if (!peloPortal && !apiForaRecente()) {
       try { const { tem, texto } = await secaoComissao(org, d, partido, deputado, deps); return { org, tem, texto }; }
       catch (_) { /* segue pelo portal */ }
     }
     try { usouPortal = true; const { tem, texto } = await secaoComissaoPortal(org, evs, d, partido, deputado, { ate }); return { org, tem, texto }; }
-    catch (e) { return { org, evs, tem: false, falhou: e.message }; }
-  });
-  // Falha passageira do portal (limite de pedidos, lentidão, 5xx) com quem receba o
-  // complemento: segue em segundo plano em vez de virar "não consegui".
-  const passageira = r => /limite de pedidos|HTTP 429|HTTP 5\d\d|tempo esgotado|passou do tempo/i.test(r.falhou || '');
-  const emSegundoPlano = aoCompletar ? resultados.filter(r => r.falhou && passageira(r)) : [];
-  const falharam = resultados.filter(r => r.falhou && !emSegundoPlano.includes(r));
+    catch (e) { return { org, eventos: evs, tem: false, falhou: e.message }; }
+  };
+  let resultados = await mapLimit([...orgs.values()], VARREDURA_CONCURRENCY, lerUma);
+  for (;;) {
+    const repetir = resultados.filter(r => r.falhou && passageira(r.falhou));
+    if (!repetir.length || Date.now() + PAUSA_ENTRE_RODADAS_MS >= ate) break;
+    await sleep(PAUSA_ENTRE_RODADAS_MS);
+    // uma por vez nas rodadas seguintes: é o ritmo que o portal aceita
+    const novos = await mapLimit(repetir, 1, lerUma);
+    resultados = resultados.map(r => (repetir.includes(r) ? novos[repetir.indexOf(r)] : r));
+  }
+  const falharam = resultados.filter(r => r.falhou);
 
   const com = resultados.filter(r => r.tem).sort((a, b) => (a.org.sigla || a.org.nome).localeCompare(b.org.sigla || b.org.nome));
   const semNada = resultados.filter(r => !r.tem && !r.falhou).map(r => r.org).sort((a, b) => (a.sigla || a.nome).localeCompare(b.sigla || b.nome));
@@ -555,54 +555,9 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
   if (com.length) for (const r of com) partes.push('\n' + r.texto);
   else partes.push(`\nNenhuma das comissões com reunião deliberativa hoje tem projeto (autoria/relatoria) de ${alvo}.`);
   if (semNada.length) partes.push(`\nSem nada de ${alvo} (${semNada.length}): ${semNada.map(o => o.sigla || o.nome).join(', ')}`);
-  if (falharam.length) {
-    const lento = falharam.some(r => /limite de pedidos|HTTP 429/.test(r.falhou));
-    partes.push(`\n⚠️ Não consegui ler a pauta de ${falharam.length} comissão(ões), nem pela API nem pelo portal: ${falharam.map(r => r.org.sigla || r.org.nome).join(', ')} (${falharam[0].falhou}).`
-      + (lento ? ' Peça a varredura de novo em alguns minutos: as comissões já lidas ficam guardadas por 10 min e só as que faltaram são buscadas.' : ''));
-  }
-  if (emSegundoPlano.length) {
-    partes.push(`\n⏳ Ainda lendo ${emSegundoPlano.length} comissão(ões) — o portal da Câmara está limitando os pedidos: ${emSegundoPlano.map(r => r.org.sigla || r.org.nome).join(', ')}. Mando o complemento aqui assim que terminar (até ~${Math.round(PRAZO_COMPLEMENTO_MS / 60e3)} min).`);
-    completarVarreduraEmSegundoPlano(emSegundoPlano, { d, partido, deputado, alvo, aoCompletar });
-  }
+  if (falharam.length) partes.push(`\n⚠️ Sem leitura (o portal da Câmara recusou os pedidos até o fim): ${falharam.map(r => r.org.sigla || r.org.nome).join(', ')}.`);
   if (usouPortal) partes.push(`\n${AVISO_PORTAL}${peloPortal ? ` (${peloPortal.message})` : ''}`);
   return partes.join('\n');
-}
-
-// Complementos em curso (uma por data+alvo): pedir a varredura de novo enquanto
-// um complemento roda não abre outro — o primeiro já vai responder.
-const _complementos = new Set();
-function completarVarreduraEmSegundoPlano(pendentes, { d, partido, deputado, alvo, aoCompletar }) {
-  const chave = `${d}|${norm(alvo)}`;
-  if (_complementos.has(chave)) return;
-  _complementos.add(chave);
-  (async () => {
-    const fim = Date.now() + PRAZO_COMPLEMENTO_MS;
-    let restantes = pendentes.map(r => ({ org: r.org, evs: r.evs || [] }));
-    const lidas = [];
-    let ultimoErro = '';
-    while (restantes.length && Date.now() < fim) {
-      const falhas = [];
-      for (const g of restantes) {   // uma por vez: é o ritmo que o portal aceita
-        try { lidas.push({ org: g.org, ...(await secaoComissaoPortal(g.org, g.evs, d, partido, deputado, { ate: fim })) }); }
-        catch (e) { falhas.push(g); ultimoErro = e.message; }
-      }
-      restantes = falhas;
-      if (restantes.length && Date.now() + PAUSA_ENTRE_RODADAS_MS < fim) await sleep(PAUSA_ENTRE_RODADAS_MS);
-      else break;
-    }
-    const ord = (a, b) => (a.sigla || a.nome).localeCompare(b.sigla || b.nome);
-    const com = lidas.filter(r => r.tem).sort((a, b) => ord(a.org, b.org));
-    const sem = lidas.filter(r => !r.tem).map(r => r.org).sort(ord);
-    const partes = [`🏛️ Complemento da varredura de ${brData(d)} — ${alvo} (as ${pendentes.length} comissão(ões) que faltaram)`];
-    for (const r of com) partes.push('\n' + r.texto);
-    if (!com.length && lidas.length) partes.push(`\nNenhuma delas tem projeto (autoria/relatoria) de ${alvo}.`);
-    if (com.length && sem.length) partes.push(`\nSem nada de ${alvo} (${sem.length}): ${sem.map(o => o.sigla || o.nome).join(', ')}`);
-    else if (!com.length && sem.length) partes.push(`Lidas: ${sem.map(o => o.sigla || o.nome).join(', ')}`);
-    if (restantes.length) partes.push(`\n⚠️ Mesmo assim não consegui ler: ${restantes.map(g => g.org.sigla || g.org.nome).join(', ')} (${ultimoErro}). O portal da Câmara segue recusando pedidos — tente mais tarde.`);
-    partes.push(`\n${AVISO_PORTAL}`);
-    await aoCompletar(partes.join('\n'));
-  })().catch(e => console.warn('[comissoes] complemento da varredura falhou:', e.message))
-    .finally(() => _complementos.delete(chave));
 }
 
 module.exports = {

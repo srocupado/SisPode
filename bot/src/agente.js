@@ -30,9 +30,9 @@ const OBS_MAX        = 12000;      // teto de caracteres de cada observação
 // "digitando" para sempre.
 const TIMEOUT_FERRAMENTA_MS = 90000;
 // A varredura de comissões pelo PORTAL (API fora) anda no ritmo que o portal
-// aguenta — ~15 páginas/min: 20 comissões levaram 101 s em 10/11/2026 e
-// estouravam os 90 s. Ela tem prazo próprio por página; aqui só um teto maior.
-const PRAZO_EXTRA_MS = { varrer_comissoes: 150000 };
+// aguenta e repete em rodadas o que ele recusar, até 9 min, para responder uma
+// vez só com tudo (10/11/2026). Ela tem prazo próprio; aqui só um teto acima dele.
+const PRAZO_EXTRA_MS = { varrer_comissoes: 9 * 60e3 };
 
 /** Promessa com prazo: rejeita se `p` não resolver a tempo. */
 function comPrazo(p, ms, nome) {
