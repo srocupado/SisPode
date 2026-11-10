@@ -119,16 +119,77 @@ function siglaNaPagina(ev, orgaoNome) {
 const ehPermanente = nome => /^comiss[ãa]o\s+d[aeo]s?\s/i.test(nome || '') && !/\b(especial|externa|mista|inqu[ée]rito|representativa)\b/i.test(nome);
 const ehDeliberativa = tipo => norm(tipo).includes('deliberativ');
 
-async function baixar(url) {
+// RITMO das chamadas ao portal. 10/11/2026: com a API fora, a varredura abriu
+// as páginas de ~20 reuniões em paralelo (5 de cada vez) e o portal respondeu
+// HTTP 429 (pedidos demais) a 15 delas. Agora:
+//   · os pedidos ao portal vão UM DE CADA VEZ (um só em voo), com um intervalo
+//     entre o fim de um e o início do seguinte — vale para todo o bot que passa
+//     por aqui: varredura, pauta de comissão, convocação do Plenário;
+//   · 429 (e 503) espera e tenta de novo — o tempo do Retry-After, se o portal
+//     mandar (até um teto), senão 3 s, 8 s, 15 s — e a espera vale para a FILA
+//     inteira, não só para quem levou o 429;
+//   · depois de um 429 o intervalo entre pedidos DOBRA (de 1,5 s até 4 s) e volta
+//     aos poucos a cada resposta boa: um pedido por vez ainda levou 13 respostas
+//     429 numa varredura de 20 comissões (medido em 10/11/2026: o portal aguenta
+//     umas 15 páginas por minuto);
+//   · página baixada fica guardada por 3 min: repetir a varredura, ou pedir a
+//     pauta de uma comissão logo depois, não baixa tudo de novo.
+const RITMO = { intervaloMs: 300, intervaloPos429Ms: 1500, intervaloMaxMs: 4000, esperasMs: [3000, 8000, 15000], tetoRetryAfterMs: 20000, cacheMs: 3 * 60e3 };
+let _fila = Promise.resolve(), _livreEm = 0, _vez = 0, _intervalo = RITMO.intervaloMs;
+const _cache = new Map();   // url → { texto, em }
+const dormir = ms => new Promise(r => setTimeout(r, ms));
+/** Roda `fn` na fila do portal: um pedido em voo por vez, com o intervalo e a espera pós-429 antes dele. */
+function naFila(fn) {
+  const minha = _fila.then(async () => {
+    const espera = _livreEm - Date.now();
+    if (espera > 0) await dormir(espera);
+    _vez++;
+    try { return await fn(); }
+    finally { _livreEm = Math.max(_livreEm, Date.now() + _intervalo); }
+  });
+  _fila = minha.then(() => {}, () => {});
+  return minha;
+}
+function retryAfterMs(r) {
+  const v = r.headers && typeof r.headers.get === 'function' ? r.headers.get('retry-after') : null;
+  if (!v) return null;
+  const s = Number(v);
+  const ms = Number.isFinite(s) ? s * 1000 : Date.parse(v) - Date.now();
+  return Number.isFinite(ms) && ms >= 0 ? Math.min(ms, RITMO.tetoRetryAfterMs) : null;
+}
+
+/** Um GET ao portal → { status, texto, retryAfter }. */
+async function umPedido(url) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), TIMEOUT_MS);
   try {
     const r = await fetch(url, { headers: UA, signal: ctrl.signal });
-    if (!r.ok) throw new Error(`portal da Câmara: HTTP ${r.status}`);
-    return await r.text();
+    return { status: r.status, ok: r.ok, retryAfter: retryAfterMs(r), texto: r.ok ? await r.text() : '' };
   } catch (e) {
     throw (e.name === 'AbortError' ? new Error(`portal da Câmara: tempo esgotado (${TIMEOUT_MS / 1000}s)`) : e);
   } finally { clearTimeout(timer); }
+}
+
+/** GET de uma página do portal, na fila. `fresco`: ignora a página guardada (quem precisa ver a mudança na hora). */
+async function baixar(url, { fresco = false } = {}) {
+  const c = _cache.get(url);
+  if (!fresco && c && Date.now() - c.em < RITMO.cacheMs) return c.texto;
+  for (let t = 0; ; t++) {
+    const r = await naFila(() => umPedido(url));
+    if (r.ok) {
+      _intervalo = Math.max(RITMO.intervaloMs, Math.round(_intervalo * 0.85));
+      _cache.set(url, { texto: r.texto, em: Date.now() });
+      if (_cache.size > 200) _cache.delete(_cache.keys().next().value);
+      return r.texto;
+    }
+    if (r.status === 429) _intervalo = Math.min(RITMO.intervaloMaxMs, Math.max(_intervalo * 2, RITMO.intervaloPos429Ms));
+    if ((r.status === 429 || r.status === 503) && t < RITMO.esperasMs.length) {
+      // a FILA inteira espera (o próximo pedido, de quem for, só sai depois)
+      _livreEm = Math.max(_livreEm, Date.now() + (r.retryAfter ?? RITMO.esperasMs[t]));
+      continue;
+    }
+    throw new Error(`portal da Câmara: HTTP ${r.status}${r.status === 429 ? ' (pedidos demais, mesmo depois de esperar)' : ''}`);
+  }
 }
 
 /** Todos os eventos do dia na agenda do portal (segue a paginação, até 8 páginas). */
@@ -145,9 +206,10 @@ async function eventosDoDiaPortal(dataIso) {
   return out;
 }
 /** A pauta de uma reunião pela página dela. */
-async function pautaEventoPortal(id) {
-  return parseEventoPortal(await baixar(`${PORTAL}/evento-legislativo/${id}`));
+async function pautaEventoPortal(id, opts) {
+  return parseEventoPortal(await baixar(`${PORTAL}/evento-legislativo/${id}`, opts));
 }
 
 module.exports = { parseAgendaPortal, proximaPaginaAgenda, parseEventoPortal, parsePessoas, votoNaComissao, siglaNaPagina,
-  ehPermanente, ehDeliberativa, eventosDoDiaPortal, pautaEventoPortal, decod };
+  ehPermanente, ehDeliberativa, eventosDoDiaPortal, pautaEventoPortal, decod, baixar,
+  RITMO, pedidosFeitos: () => _vez, limparCache: () => { _cache.clear(); _intervalo = RITMO.intervaloMs; } };   // RITMO e o contador: para o teste encurtar os tempos e contar

@@ -1633,7 +1633,7 @@ async function cmdComissoesReuniao(ctx, args) {
 bot.command('comissoeshoje', ctx => cmdComissoesReuniao(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
 
 async function cmdVarrerComissoes(ctx, args) {
-  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos…');
+  await ctx.reply('🔎 Varrendo as comissões com reunião deliberativa — leva alguns segundos (até 2 minutos se a API da Câmara estiver fora e eu tiver que ir pelo portal)…');
   try {
     // Sem partido/deputado explícito, procura o Podemos (é o bot da bancada).
     const partido = args.partido || (args.deputado ? null : 'Podemos');

@@ -172,9 +172,8 @@ async function sessoesProximas(hoje) {
   const br = iso => encodeURIComponent(iso.split('-').reverse().join('/'));
   try {
     const url = `https://www.camara.leg.br/agenda?dataInicial__proxy=${br(hoje)}&dataInicial=${br(hoje)}&dataFinal__proxy=${br(fim)}&dataFinal=${br(fim)}&categorias=Plen%C3%A1rio`;
-    const r = await fetch(url, { headers: { 'User-Agent': 'SisPode-Bot/1.0', Accept: 'text/html' }, signal: AbortSignal.timeout(20000) });
-    if (!r.ok) throw new Error(`HTTP ${r.status}`);
-    return PORTAL.parseAgendaPortal(await r.text()).filter(e => /plen[áa]rio/i.test(e.orgao))
+    // pela fila do portal (comissoes-portal.baixar): ritmo e nova tentativa em 429
+    return PORTAL.parseAgendaPortal(await PORTAL.baixar(url, { fresco: true })).filter(e => /plen[áa]rio/i.test(e.orgao))
       .map(e => ({ id: e.id, data: e.data, hora: e.hora, nome: e.tema, tipo: e.tipo, situacao: e.situacao }));
   } catch (ePortal) {
     const j = await getJson(`${API}/eventos?idOrgao=180&dataInicio=${hoje}&dataFim=${fim}&itens=100`)
@@ -187,7 +186,7 @@ async function sessoesProximas(hoje) {
 /** Itens da pauta da sessão (vazio = não publicada). Página da sessão; sem itens nela, a API. */
 async function pautaDaSessao(id) {
   let itens = [];
-  try { itens = itensDoPortal(await PORTAL.pautaEventoPortal(id)); } catch (_) {}
+  try { itens = itensDoPortal(await PORTAL.pautaEventoPortal(id, { fresco: true })); } catch (_) {}
   if (!itens.length) {
     try { itens = itensDaApi((await getJson(`${API}/eventos/${id}/pauta`)).dados); } catch (_) {}
   }

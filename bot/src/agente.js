@@ -29,6 +29,10 @@ const OBS_MAX        = 12000;      // teto de caracteres de cada observação
 // fica pendurada sem nenhum: sem ele, o laço inteiro travava e o usuário via
 // "digitando" para sempre.
 const TIMEOUT_FERRAMENTA_MS = 90000;
+// A varredura de comissões pelo PORTAL (API fora) anda no ritmo que o portal
+// aguenta — ~15 páginas/min: 20 comissões levaram 101 s em 10/11/2026 e
+// estouravam os 90 s. Ela tem prazo próprio por página; aqui só um teto maior.
+const PRAZO_EXTRA_MS = { varrer_comissoes: 150000 };
 
 /** Promessa com prazo: rejeita se `p` não resolver a tempo. */
 function comPrazo(p, ms, nome) {
@@ -287,7 +291,7 @@ async function conversar({ userId, perfil, texto, dados = {} }) {
     // (varredura de 15/09/2026).
     let resultado;
     try {
-      resultado = String(await comPrazo(fn(j.argumentos || {}), TIMEOUT_FERRAMENTA_MS, j.ferramenta) || '(vazio)').slice(0, OBS_MAX);
+      resultado = String(await comPrazo(fn(j.argumentos || {}), TIMEOUT_FERRAMENTA_MS + (PRAZO_EXTRA_MS[j.ferramenta] || 0), j.ferramenta) || '(vazio)').slice(0, OBS_MAX);
     } catch (e) { resultado = `ERRO: ${e.message}`; }
     observacoes.push({ ferramenta: j.ferramenta, argumentos: j.argumentos || {}, resultado });
   }
