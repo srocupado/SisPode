@@ -763,6 +763,7 @@ async function carregarDadosDaProposicao(it) {
   if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
     it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
   }
+  situacaoDaMpv(it);
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
 }
@@ -1070,6 +1071,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
   let apurado = { tramitacao: false, pareceres: false };
   try { apurado = await apurarFatosPeloPortal(it); } catch (_) { /* ficam não apurados */ }
   it.portalApurou = apurado;
+  situacaoDaMpv(it);
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
 }
@@ -1234,6 +1236,18 @@ async function comissaoMistaPodemos(it) {
   return papeis.filter(p => bancada.has(nomeChave(p.nome)));
 }
 
+// MEDIDA PROVISÓRIA não depende de requerimento: tramita em urgência
+// constitucional (art. 62, CF — o regime que o portal dá: "Urgência (Art. 62,
+// CF)"; na lista, "Urgência 62"). Buscar requerimento de urgência para MPV dava
+// "Não apurada" com a API fora (a ficha da MPV é do Congresso, outro formato) e,
+// com a API no ar, "sem requerimento localizado" — os dois errados (10/11/2026).
+const SITUACAO_MPV = 'Urgência constitucional (art. 62 da CF) — medida provisória';
+function situacaoDaMpv(it) {
+  if (it.sigla !== 'MPV') return;
+  it.situacao = SITUACAO_MPV;
+  it.situacaoFalhou = false;
+}
+
 /** Texto da coluna a partir do fato apurado na Câmara (relatoriaDe: "Dep. X (P-UF)"; 'Sem indicação'; '' = não apurado). */
 function comporRelatoria(it, fato) {
   const lista = relatoriaDaLista(it.extrasPdf?.relator);
@@ -1242,7 +1256,10 @@ function comporRelatoria(it, fato) {
   it.relatorDesignado = designado;
   it.pedidosRelatoria = lista.pedidos;
   it.relatorPodemos = ehRelatorPodemos(designado);
+  // MPV: a relatoria é da comissão mista (a lista traz "Presidente: … Relator: …").
+  const mpvComissao = it.sigla === 'MPV' && lista.outros.length;
   const linhas = [designado ? `Designado: ${designado}`
+    : mpvComissao ? 'Relatoria na comissão mista'
     : fato === '' ? 'Designação não apurada (consulta à Câmara falhou)' : 'Sem relator designado'];
   for (const p of lista.pedidos) linhas.push(`Pedido de relatoria: ${p}`);
   for (const o of lista.outros) linhas.push(o);
@@ -2147,7 +2164,7 @@ async function resumirProposicao(it, signal) {
   const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
   if (it.dadosPeloPortal) {
     const ap = it.portalApurou || {};
-    const falta = [!ap.tramitacao && 'situação da urgência, relatoria e emendas do Senado', !ap.pareceres && 'parecer de Plenário'].filter(Boolean);
+    const falta = [!ap.tramitacao && (it.sigla === 'MPV' ? 'relatoria de Plenário' : 'situação da urgência, relatoria e emendas do Senado'), !ap.pareceres && 'parecer de Plenário'].filter(Boolean);
     avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca)${falta.length ? `; NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar` : ''}`);
   }
   if (!temOriginal) {
@@ -2920,6 +2937,8 @@ const camposNovosFaltando = it =>
   // reunião importada antes de a coluna Relator da lista virar designado × pedido
   // (e do selo da comissão mista de MPV) — 10/11/2026
   || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined));
+  // MPV gravada com "Não apurada" antes da regra da urgência constitucional (10/11/2026)
+  || (it.sigla === 'MPV' && it.situacao !== SITUACAO_MPV);
 
 async function completarDadosFaltantes() {
   if (app._completando) return app._completando;      // uma cura por vez
