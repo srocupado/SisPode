@@ -225,7 +225,7 @@ async function resumoSessao({ pautaId, dataISO }) {
         if (typeof globalThis[fn] !== 'function') throw new Error(`A extensão mudou — função ${fn} não encontrada.`);
       }
       const res = await coletarResumoSessao(data);
-      if (!res.encontrouSessao || (!res.urgencias.length && !res.concluidos.length)) return { vazio: true };
+      if (!res.encontrouSessao || (!res.urgencias.length && !res.concluidos.length && !(res.recursos || []).length)) return { vazio: true };
       // Na rota do bot as análises dos itens ainda não carregaram — puxa antes,
       // para o apelido (usado nas descrições) existir em memória.
       try {
@@ -243,7 +243,8 @@ async function resumoSessao({ pautaId, dataISO }) {
       const semDestino = (res.concluidos || []).filter(c => !c.destino).length;
       // `semProposicao`: votação aprovada cuja matéria os Dados Abertos ainda não
       // apontam — também segura o resumo (ela entraria depois, à parte).
-      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data), destinos, semDestino, semProposicao: res.semProposicao || 0 };
+      // recursos (REC) votados entram no texto (aprovados ou rejeitados) — 10/11/2026
+      return { texto: await montarMensagemResumo(res.urgencias, res.concluidos, data, res.recursos || []), destinos, semDestino, semProposicao: res.semProposicao || 0 };
     }, dataISO);
   } finally {
     await fecharNavegador();
