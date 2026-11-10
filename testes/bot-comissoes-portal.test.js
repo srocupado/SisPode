@@ -72,6 +72,34 @@ const C = require(destino);
   const pn = await C.consultarPauta('Comissão de Turismo', '10/11/2026', {});
   ok(/“Comissão de Turismo” — sem reunião dessa comissão na agenda do portal em 10\/11\/2026/.test(pn), 'comissão sem reunião no dia: diz isso');
 
+  console.log('\n== portal respondendo 429 (pedidos demais) ==');
+  // 10/11/2026: 15 de ~20 reuniões voltaram "HTTP 429" porque as páginas eram
+  // abertas em paralelo. Agora vão uma por vez, e 429 espera e tenta de novo.
+  Object.assign(P.RITMO, { intervaloMs: 5, intervaloPos429Ms: 20, intervaloMaxMs: 40, esperasMs: [30, 60, 90] });
+  P.limparCache();   // as páginas da varredura anterior estão guardadas
+  let emVoo = 0, picoEmVoo = 0, n429 = 0;
+  const fetchNormal = global.fetch;
+  global.fetch = async (url, init) => {
+    emVoo++; picoEmVoo = Math.max(picoEmVoo, emVoo);
+    await new Promise(r => setTimeout(r, 5));
+    try {
+      if (/evento-legislativo\/\d+$/.test(String(url)) && n429 < 4) {
+        n429++;
+        return { ok: false, status: 429, headers: { get: h => (h === 'retry-after' && n429 === 1 ? '0.05' : null) }, text: async () => '' };
+      }
+      return await fetchNormal(url, init);
+    } finally { emVoo--; }
+  };
+  const v429 = await C.varrerComissoesPartido('2026-11-10', { partido: 'PT' });
+  ok(picoEmVoo === 1, `um pedido ao portal por vez (pico em voo: ${picoEmVoo})`);
+  ok(n429 === 4 && !/Não consegui ler/.test(v429) && /\*PL 4212\/2024\* → relatoria/.test(v429), 'os 429 esperam e repetem: a varredura sai completa');
+  const antes = P.pedidosFeitos();
+  await C.varrerComissoesPartido('2026-11-10', { partido: 'PT' });
+  ok(P.pedidosFeitos() === antes, 'repetir a varredura logo depois usa as páginas guardadas (nenhum pedido novo ao portal)');
+  global.fetch = async () => ({ ok: false, status: 429, headers: { get: () => null }, text: async () => '' });
+  let e429 = null; try { await P.baixar('https://www.camara.leg.br/evento-legislativo/1'); } catch (e) { e429 = e.message; }
+  ok(/HTTP 429 \(pedidos demais, mesmo depois de esperar\)/.test(e429 || ''), `429 que não passa: desiste depois das esperas e diz por quê (${e429})`);
+
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error('ERRO FATAL:', e); process.exit(1); });
