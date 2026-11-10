@@ -96,7 +96,7 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
   console.log('\n== situação da urgência, relatoria e parecer pelo portal (ficha e pareceres reais do PL 4675/2025) ==');
   const pl4675 = await (async () => { const it = { sigla: 'PL', numero: 4675, ano: 2025, celulaProp: '', regimePdf: 'Urgência aprovada em 18/03/2026' }; await L.carregarDadosDaProposicao(it); return it; })();
   ok(pl4675.situacao === 'Urgência aprovada (REQ. 4612/2025)' && !pl4675.situacaoFalhou, `situação pela ficha ("Aprovado o requerimento nº 4612/2025,do Sr. …"): ${pl4675.situacao}`);
-  ok(pl4675.relatoria === 'Dep. Aliel Machado (PV-PR)', `relatoria pela ficha ("Designado Relator"): ${pl4675.relatoria}`);
+  ok(pl4675.relatoria === 'Designado: Dep. Aliel Machado (PV-PR)' && pl4675.relatorDesignado === 'Dep. Aliel Machado (PV-PR)', `relatoria pela ficha ("Designado Relator"): ${pl4675.relatoria}`);
   ok(pl4675.parecerPlen && pl4675.parecerPlen.data === '2026-07-08' && /^Parecer proferido em Plenário em 08\/07\/2026, pelo relator Dep\. Aliel Machado/.test(pl4675.parecer), `parecer pelo histórico de pareceres: ${pl4675.parecer}`);
   ok(/codteor=3159491/.test(pl4675.parecerPlen.merito?.url || pl4675.parecerPlen.pareceres[0].url), 'o inteiro teor do PRLP vai para a IA');
   ok(JSON.stringify(pl4675.portalApurou) === '{"tramitacao":true,"pareceres":true}', 'marca o que o portal apurou (o aviso do item lista só o que faltou)');
