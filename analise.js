@@ -5978,6 +5978,24 @@ function extrairRefProposicao(texto) {
   return { sigla, numero: m[2].replace(/\./g, ''), ano: m[3] };
 }
 
+// RECURSO (REC) votado no Plenário — contra a apreciação conclusiva das
+// comissões ("Recurso contra tramitação conclusiva do Projeto de Lei nº …") ou
+// contra parecer terminativo. Decide o destino do projeto e ficava FORA do
+// resumo (só entravam urgências e matérias aprovadas; REC era descartado) —
+// 10/11/2026: "Rejeitado, simbolicamente, o Recurso 20/2024 (PL 2168/2021)" não
+// aparecia. Rejeitado, prevalece a decisão da comissão; aprovado, o projeto vai
+// ao Plenário. Com despacho de destino no dia ("Vai ao Senado"), vale ele.
+const tipoRecurso = ementa => (/terminativ/i.test(ementa || '') ? 'terminativo' : 'conclusivo');
+// Destino do PROJETO depois do recurso: só um roteamento concreto (Senado,
+// sanção, promulgação…). "A matéria segue a tramitação inicialmente prevista" (o
+// passo do REC 20/2024 rejeitado) cai em "Encaminhada (…)" e fica com a frase
+// do resultado, que diz o mesmo de forma clara.
+const destinoDoRecurso = (sigla, despachos) => { const d = destinoDeConclusao(sigla, despachos) || ''; return /^Encaminhada\b/.test(d) ? '' : d; };
+function fraseResultadoRecurso(aprovado, tipo) {
+  if (aprovado) return 'O projeto vai à apreciação do Plenário';
+  return tipo === 'terminativo' ? 'Prevalece o parecer terminativo da comissão' : 'Prevalece a apreciação conclusiva das comissões';
+}
+
 // Resumo da sessão: Dados Abertos primeiro; se a API falhar (05/11/2026: 504
 // em tudo), a página da sessão no portal — que traz as matérias analisadas, o
 // resultado e o "passo a passo" com o roteamento ("A matéria vai ao Senado").
@@ -6063,7 +6081,20 @@ async function coletarResumoSessaoPortal(dataISO) {
     vistosC.add(k);
     concluidos.push({ sigla: m.sigla, numero: m.numero, ano: m.ano, id: m.id, ementa: m.ementa, destino: destinoDeConclusao(m.sigla, m.passos) || '' });
   }
-  return { encontrouSessao: true, urgencias, concluidos, semProposicao: 0, fonte: 'portal' };
+
+  // Recursos votados (aprovados OU rejeitados): o projeto alvo vem da ementa do REC.
+  const recursos = [], vistosR = new Set();
+  for (const m of materias.filter(m => m.sigla === 'REC' && /^(aprovad|rejeitad)/i.test(m.resultado))) {
+    const k = `${m.numero}/${m.ano}`;
+    if (vistosR.has(k)) continue;
+    vistosR.add(k);
+    const alvo = extrairRefProposicao(m.ementa);
+    let ementa = '';
+    if (alvo) { try { ementa = (await resolveProposicaoBusca(alvo.sigla, alvo.numero, alvo.ano)).ementa || ''; } catch (_) {} }
+    recursos.push({ numero: m.numero, ano: m.ano, alvo, ementa: ementa || m.ementa, aprovado: /^aprovad/i.test(m.resultado),
+      tipo: tipoRecurso(m.ementa), destino: destinoDoRecurso(alvo?.sigla || 'PL', m.passos) });
+  }
+  return { encontrouSessao: true, urgencias, concluidos, recursos, semProposicao: 0, fonte: 'portal' };
 }
 
 async function coletarResumoSessaoApi(dataISO) {
@@ -6159,7 +6190,31 @@ async function coletarResumoSessaoApi(dataISO) {
     return { ...c, ementa, destino };
   })).filter(Boolean);
 
-  return { encontrouSessao: true, urgencias, concluidos, semProposicao };
+  // --- Recursos (REC) votados: aprovados OU rejeitados; a última votação de cada um vale ---
+  const ultimaPorRec = new Map();
+  for (const v of votacoes.slice().sort(_ascVot)) {
+    const m = String(v.proposicaoObjeto || '').match(/^\s*REC\s+([\d.]+)\/(\d{4})\b/i);
+    if (m) ultimaPorRec.set(`${m[1].replace(/\./g, '')}/${m[2]}`, { v, numero: m[1].replace(/\./g, ''), ano: m[2] });
+  }
+  const recursos = await _mapLimit([...ultimaPorRec.values()], 4, async ({ v, numero, ano }) => {
+    let ementaRec = '';
+    try { ementaRec = (await fetchJsonCamara(`${API_BASE}/proposicoes/${_idDeUri(v.uriProposicaoObjeto)}`)).dados?.ementa || ''; } catch (_) {}
+    const alvo = extrairRefProposicao(ementaRec);
+    let ementa = '', destino = '';
+    if (alvo) {
+      try {
+        const p = (await fetchJsonCamara(`${API_BASE}/proposicoes?siglaTipo=${alvo.sigla}&numero=${alvo.numero}&ano=${alvo.ano}`)).dados?.[0];
+        ementa = p?.ementa || '';
+        if (p?.id) {
+          const trs = (await fetchJsonCamara(`${API_BASE}/proposicoes/${p.id}/tramitacoes`)).dados || [];
+          destino = destinoDoRecurso(alvo.sigla, trs.filter(noDia).map(t => t.despacho || ''));
+        }
+      } catch (_) {}
+    }
+    return { numero, ano, alvo, ementa: ementa || ementaRec, aprovado: v.aprovacao === 1, tipo: tipoRecurso(ementaRec), destino };
+  });
+
+  return { encontrouSessao: true, urgencias, concluidos, recursos, semProposicao };
 }
 
 // Apelido da matéria a partir do item da pauta correspondente (casado por
@@ -6198,7 +6253,7 @@ async function apelidoDeAnalisePorRef(sigla, numero, ano) {
   } catch (_) { return ''; }
 }
 
-async function montarMensagemResumo(urgencias, concluidos, dataISO) {
+async function montarMensagemResumo(urgencias, concluidos, dataISO, recursos = []) {
   const b = s => `*${s}*`;   // negrito do WhatsApp (o "*" final não pode vir após espaço)
   // Cabeçalho com a DATA DA SESSÃO (não o período da pauta — o resumo é do dia).
   const dataBR = dataISO ? dataISO.split('-').reverse().join('/') : dataPautaCurta();
@@ -6217,6 +6272,11 @@ async function montarMensagemResumo(urgencias, concluidos, dataISO) {
       : `Urgência ao ${tipoLabel(u.sigla)} ${u.numero}/${u.ano}`;
     linhas.push(`▪️ ${b(rotulo)}${await descr(u.sigla, u.numero, u.ano, u.ementa)}`);
   }
+  for (const r of recursos || []) {
+    const alvo = r.alvo ? ` (${tipoLabel(r.alvo.sigla)} ${r.alvo.numero}/${r.alvo.ano})` : '';
+    const desc = r.alvo ? await descr(r.alvo.sigla, r.alvo.numero, r.alvo.ano, r.ementa) : '';
+    linhas.push(`▪️ ${b(`Recurso ${r.numero}/${r.ano}${alvo} ${r.aprovado ? 'aprovado' : 'rejeitado'}`)}${desc} ➡️ ${r.destino || fraseResultadoRecurso(r.aprovado, r.tipo)}`);
+  }
   for (const c of concluidos) {
     const seta = c.destino ? ` ➡️ ${c.destino}` : '';
     linhas.push(`▪️ ${b(`${tipoLabel(c.sigla)} ${c.numero}/${c.ano}`)}${await descr(c.sigla, c.numero, c.ano, c.ementa)}${seta}`);
@@ -6233,13 +6293,13 @@ async function copiarResumoSessao() {
   try { res = await coletarResumoSessao(dataISO); }
   catch (e) { mostrarToast('Erro ao buscar os resultados: ' + e.message, 'erro'); return; }
   if (!res.encontrouSessao) { mostrarToast(`Nenhuma sessão deliberativa do Plenário encontrada em ${dataPautaCurta()}.`, 'aviso'); return; }
-  if (!res.urgencias.length && !res.concluidos.length) { mostrarToast('A sessão não tem matérias apreciadas registradas (ainda).', 'aviso'); return; }
+  if (!res.urgencias.length && !res.concluidos.length && !(res.recursos || []).length) { mostrarToast('A sessão não tem matérias apreciadas registradas (ainda).', 'aviso'); return; }
   // Garante o apelido dos itens da pauta — o resumo usa o apelido (não a ementa)
   // quando a matéria está na pauta.
   try { await prepararApelidos(state.pauta.itens || []); } catch (_) {}
-  const texto = await montarMensagemResumo(res.urgencias, res.concluidos, dataISO);
+  const texto = await montarMensagemResumo(res.urgencias, res.concluidos, dataISO, res.recursos || []);
   const ok = await copiarParaAreaTransferencia(texto);
-  const tot = res.urgencias.length + res.concluidos.length;
+  const tot = res.urgencias.length + res.concluidos.length + (res.recursos || []).length;
   mostrarToast(
     ok ? `✓ Resumo da sessão (${tot} matéria(s)) copiado — cole no WhatsApp.`
        : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',

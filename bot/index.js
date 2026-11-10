@@ -486,7 +486,10 @@ async function ofertaOrdemDoDia() {
     }
     const kb = new InlineKeyboard().text('📥 Importar Ordem do Dia de hoje', `oddimp:${eventos[0].id}:${hoje}`);
     return { linha: `\n\n📌 Mas HOJE há sessão com Ordem do Dia publicada (${n} itens) — é a pauta do dia, mais atual que a semanal.`, kb };
-  } catch (_) { return null; }
+  } catch (e) {
+    // falha das fontes não pode sumir em silêncio (antes: a oferta simplesmente não aparecia)
+    return { linha: `\n\n⚠️ Não consegui verificar a Ordem do Dia de hoje (${e.message}). Tente /ordemdodia daqui a pouco.`, kb: null };
+  }
 }
 
 // ---------- /pauta — FIREBASE PRIMEIRO; busca on-line só sob demanda ----------
@@ -1616,7 +1619,8 @@ async function cmdOrdemDoDia(ctx) {
     if (r.vazio)     return ctx.reply('A sessão de hoje ainda não tem itens na Ordem do Dia.');
     const p = r.doc;
     return ctx.reply(
-      `📋 Ordem do Dia de hoje importada — ${(p.itens || []).length} itens. ` +
+      `📋 Ordem do Dia de hoje importada — ${(p.itens || []).length} itens` +
+      (p.fonte === 'portal' ? ' (lidos da página da sessão no portal: a API da Câmara está fora)' : '') + '. ' +
       'Agora é a pauta de referência do dia: use /listar, /perguntar, /analisar ou /exportar.');
   } catch (e) {
     console.error('/ordemdodia falhou:', e);
@@ -1880,7 +1884,8 @@ bot.callbackQuery(/^oddimp:(\d+):(\d{4}-\d{2}-\d{2})$/, async ctx => {
     if (!doc) return ctx.editMessageText('A Ordem do Dia dessa sessão ainda não tem itens.').catch(() => {});
     marcarOddImportada(eventoId);
     return ctx.editMessageText(
-      `📋 Ordem do Dia importada — ${(doc.itens || []).length} itens. ` +
+      `📋 Ordem do Dia importada — ${(doc.itens || []).length} itens` +
+      (doc.fonte === 'portal' ? ' (lidos da página da sessão no portal: a API da Câmara está fora)' : '') + '. ' +
       'Agora é a pauta de referência do dia: /listar, /perguntar, /analisar, /exportar.').catch(() => {});
   } catch (e) {
     console.error('oddimp falhou:', e);
