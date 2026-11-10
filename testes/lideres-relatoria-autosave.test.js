@@ -40,7 +40,7 @@ const sandbox = {
 };
 const L = new Function(...Object.keys(sandbox),
   `${fonte}\n; mostrarToast = (m, t) => __toasts.push([m, t]); renderizarTabela = () => {}; atualizarLinha = () => {}; atualizarSidebar = () => {}; atualizarProgresso = () => {}; atualizarBotaoSelecionadas = () => {};
-   return { situacaoDaMpv, relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
+   return { camposNovosFaltando, SITUACAO_MPV, situacaoDaMpv, relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
   .call(null, ...Object.values(sandbox));
 // mostrarToast etc. são declarações de função: reatribuí-las acima só funciona se forem `function` (são). O toast vai para `toasts`.
 
@@ -90,6 +90,8 @@ const L = new Function(...Object.keys(sandbox),
   L.situacaoDaMpv(pl);
   ok(pl.situacao === 'Urgência aprovada (REQ. 1/2026)', 'PL não é tocado');
   ok((fonte.match(/situacaoDaMpv\(it\);\n  it\.relatoria = comporRelatoria/g) || []).length === 2, 'vale nos dois caminhos (API e portal)');
+  const salva = { sigla: 'MPV', autoriaPodemos: false, apensadosPodemos: [], papel: {}, situacao: 'Não apurada — a API…' };
+  ok(L.camposNovosFaltando(salva) && !L.camposNovosFaltando({ ...salva, situacao: L.SITUACAO_MPV }), 'reunião salva com MPV "Não apurada" é recarregada ao abrir; corrigida, não');
 
   console.log('\n== salvamento automático ao fim do lote ==');
   L.app.config.apiKey = 'x';

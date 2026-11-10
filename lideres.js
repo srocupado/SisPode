@@ -2936,7 +2936,7 @@ const camposNovosFaltando = it =>
   || (it.autoriaPodemos === true && it.autoresPodemos === undefined)
   // reunião importada antes de a coluna Relator da lista virar designado × pedido
   // (e do selo da comissão mista de MPV) — 10/11/2026
-  || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined));
+  || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined))
   // MPV gravada com "Não apurada" antes da regra da urgência constitucional (10/11/2026)
   || (it.sigla === 'MPV' && it.situacao !== SITUACAO_MPV);
 
