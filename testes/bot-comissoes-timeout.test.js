@@ -57,6 +57,8 @@ function carregarComTemposCurtos(arquivo, substituicoes, exporta) {
     src = src.replace(de, para);
   }
   src = src.replace(/module\.exports = \{/, `module.exports = { ${exporta},`);
+  // a cópia roda fora de bot/src: os require relativos ('./comissoes-portal') apontam para lá
+  src = src.replace(/require\('\.\/([^']+)'\)/g, (_, m) => `require(${JSON.stringify(path.join(RAIZ, 'bot', 'src', m))})`);
   const destino = path.join(require('os').tmpdir(), `sispode-${arquivo}`);
   fs.writeFileSync(destino, src);
   delete require.cache[destino];
