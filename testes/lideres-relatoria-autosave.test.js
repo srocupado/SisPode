@@ -40,7 +40,7 @@ const sandbox = {
 };
 const L = new Function(...Object.keys(sandbox),
   `${fonte}\n; mostrarToast = (m, t) => __toasts.push([m, t]); renderizarTabela = () => {}; atualizarLinha = () => {}; atualizarSidebar = () => {}; atualizarProgresso = () => {}; atualizarBotaoSelecionadas = () => {};
-   return { relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
+   return { camposNovosFaltando, SITUACAO_MPV, situacaoDaMpv, relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
   .call(null, ...Object.values(sandbox));
 // mostrarToast etc. são declarações de função: reatribuí-las acima só funciona se forem `function` (são). O toast vai para `toasts`.
 
@@ -68,6 +68,7 @@ const L = new Function(...Object.keys(sandbox),
   const it6 = { extrasPdf: { relator: 'Presidente: Dep. Nely Aquino Relator: Sen. Leany Lemos' } };
   ok(L.comporRelatoria(it6, 'Sem indicação') === 'Sem relator designado\nComissão mista — Presidente: Dep. Nely Aquino · Relator: Sen. Leany Lemos' && !it6.relatorPodemos, 'MPV: comissão mista rotulada à parte, sem virar designado');
   ok(L.comporRelatoria({ extrasPdf: {} }, '') === 'Designação não apurada (consulta à Câmara falhou)', 'sem lista e sem consulta: "não apurada", nunca "sem relator"');
+  ok(L.comporRelatoria({ sigla: 'MPV', extrasPdf: { relator: 'Presidente: Sen. Renan Calheiros Relator: Dep. Paulo Pimenta' } }, '') === 'Relatoria na comissão mista\nComissão mista — Presidente: Sen. Renan Calheiros · Relator: Dep. Paulo Pimenta', 'MPV: "Relatoria na comissão mista" (nada de "não apurada")');
 
   console.log('\n== comissão mista de MPV com deputado do Podemos: selo ==');
   ok(JSON.stringify(L.papeisDeputadosComissaoMista(['Comissão mista — Presidente: Dep. Nely Aquino · Relator: Sen. Leany Lemos'])) === '[{"papel":"Presidência","nome":"Nely Aquino"}]', 'só deputados (o senador fica de fora)');
@@ -80,6 +81,17 @@ const L = new Function(...Object.keys(sandbox),
   const mpv2 = { extrasPdf: { relator: 'Presidente: Sen. Renan Calheiros Relator: Dep. Paulo Pimenta' } };
   ok(JSON.stringify(await L.comissaoMistaPodemos(mpv2)) === '[]', 'relator do PT: sem selo');
   ok(/comissaoMistaPodemos \|\| \[\]\)\.map\(p => `<span class="lid-badge-rel"/.test(fonte) && /for \(const p of \(it\.comissaoMistaPodemos \|\| \[\]\)\) linhas\.push\(rotuloComissaoMista\(p\)\)/.test(fonte), 'selo na tabela e linha na mensagem do Podemos');
+
+  console.log('\n== MPV: urgência constitucional, não requerimento ==');
+  const m = { sigla: 'MPV', situacao: 'Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar.', situacaoFalhou: true };
+  L.situacaoDaMpv(m);
+  ok(m.situacao === 'Urgência constitucional (art. 62 da CF) — medida provisória' && !m.situacaoFalhou, `MPV: ${m.situacao}`);
+  const pl = { sigla: 'PL', situacao: 'Urgência aprovada (REQ. 1/2026)' };
+  L.situacaoDaMpv(pl);
+  ok(pl.situacao === 'Urgência aprovada (REQ. 1/2026)', 'PL não é tocado');
+  ok((fonte.match(/situacaoDaMpv\(it\);\n  it\.relatoria = comporRelatoria/g) || []).length === 2, 'vale nos dois caminhos (API e portal)');
+  const salva = { sigla: 'MPV', autoriaPodemos: false, apensadosPodemos: [], papel: {}, situacao: 'Não apurada — a API…' };
+  ok(L.camposNovosFaltando(salva) && !L.camposNovosFaltando({ ...salva, situacao: L.SITUACAO_MPV }), 'reunião salva com MPV "Não apurada" é recarregada ao abrir; corrigida, não');
 
   console.log('\n== salvamento automático ao fim do lote ==');
   L.app.config.apiKey = 'x';
