@@ -37,7 +37,7 @@ function decod(s) {
 const texto = h => decod(String(h || '').replace(/<[^>]+>/g, ' ')).replace(/\s+/g, ' ').trim();
 
 /**
- * Agenda do dia → eventos: [{ id, orgao, tema, tipo, hora ('14:30'), situacao }].
+ * Agenda (um dia ou um intervalo) → eventos: [{ id, orgao, tema, tipo, hora ('14:30'), situacao, data ('2026-11-10') }].
  * Um <li class="g-agenda__evento"> por evento; o órgão vem em g-agenda__categoria.
  */
 function parseAgendaPortal(html) {
@@ -48,8 +48,9 @@ function parseAgendaPortal(html) {
     const id = /evento-legislativo\/(\d+)/.exec(bloco);
     if (!id) continue;
     const h = /(\d{1,2})h(\d{2})/.exec(pega('g-agenda__hora'));
+    const d = /(\d{2})\/(\d{2})\/(\d{4})/.exec(pega('g-agenda__data'));
     out.push({ id: Number(id[1]), orgao: pega('g-agenda__categoria'), tema: pega('g-agenda__nome'), tipo: pega('g-agenda__tipo'),
-      hora: h ? `${h[1].padStart(2, '0')}:${h[2]}` : '', situacao: pega('g-agenda__situacao') });
+      hora: h ? `${h[1].padStart(2, '0')}:${h[2]}` : '', situacao: pega('g-agenda__situacao'), data: d ? `${d[3]}-${d[2]}-${d[1]}` : '' });
   }
   return out;
 }

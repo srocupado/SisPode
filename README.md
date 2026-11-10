@@ -590,6 +590,8 @@ Bot em **Node.js** (grammY) que roda numa máquina da equipe e leva a pauta, as 
 - `/ajuda` — lista os comandos disponíveis para o usuário
 - `/update` (admin) — autoatualização: baixa `index.js`, `package.json`, `src/*.js` e o `pauta-parser.js` da raiz (o parser da pauta que o bot usa) do `main`, e a **extensão** que o bot roda no navegador interno (a pasta-mãe do bot ou `BOT_EXT_DIR`; só os arquivos que mudaram, comparados pelo blob do git; nada dela é gravado se a pasta não tiver `manifest.json`), valida com `node --check` antes de escrever
 
+**Formato do WhatsApp em todas as mensagens**: o bot envia tudo como texto puro com os marcadores do WhatsApp visíveis (`*negrito*`, `_itálico_`, `~tachado~`), para a equipe copiar do Telegram e colar no WhatsApp sem retoque — com formatação do Telegram a cópia perdia o negrito. Um ponto único (`bot/src/whatsapp.js`, no interceptador da API em `index.js`) converte o Markdown e o HTML do Telegram e o `**negrito**` das respostas de IA; links viram "texto (url)"
+
 **Monitor de sessão ao vivo (Plenário)**
 Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), descobertas por engenharia reversa do APK — sem navegador, sem autenticação. Dados Abertos ficam só onde a latência não importa. Durante a sessão o bot anuncia no grupo:
 - Abertura do registro de presença/inscrições, **quórum** (ao atingir 257), abertura e **encerramento da Ordem do Dia**, encerramento da sessão
@@ -597,6 +599,7 @@ Fonte primária: as **APIs públicas do app Infoleg** (cosev / ws-plenario), des
 - **Votações nominais**: anúncio + **imagem do placar** da bancada (com coesão/dissidência; o placar também vai ao Firebase, para a aba "Prints da sessão" do Painel de Votação), destaques (DTQ) com a explicação do módulo de Destaques
 - **Resumo da sessão** ao fim da Ordem do Dia (mesmo gerador do botão "Resultado da Sessão" do painel), **numa mensagem só**: cada matéria com o seu encaminhamento ("➡️ Vai ao Senado"). O resumo espera até 3 min pela matéria aprovada que os Dados Abertos ainda não apontam e pelo despacho de destino; o que a Câmara publicar depois **edita a mensagem do resumo** (sem mensagem de encaminhamento à parte; se não der para editar, o resumo completo vai de novo)
 - **"Na tribuna"**: aviso quando um deputado do Podemos é chamado a discursar
+- **Convocação de sessão deliberativa** (`bot/src/convocacao.js`, a cada 5 min): quando a agenda do portal publica uma sessão deliberativa convocada (de hoje a +7 dias; API de Dados Abertos se o portal falhar), o grupo recebe `❗ *CONVOCAÇÃO DE SESSÃO EXTRAORDINÁRIA – TERÇA-FEIRA (10/11) – 13h55*` com `🗒️  *Pauta*` e os itens ("1. PL 3220/2019 (apelido)", "2. Urgência ao PL 2167/2026 (apelido)") ou, sem pauta, `🗒️  *Pauta a ser divulgada oportunamente.*`. A pauta vem da página da sessão (e da API, se lá não houver itens); quando sai depois do aviso sem pauta, a convocação é reenviada uma vez com ela. Apelido: o salvo no SisPode (nota ou pauta importada), senão o da IA na chave do admin (o mesmo prompt da extensão), senão o de reserva tirado da ementa. Sessão já iniciada, encerrada ou cancelada não é anunciada; o registro fica em `/bot/convocacoes/{id}` e, sem conseguir lê-lo, o bot não envia (nada em dobro)
 - Comandos ao vivo: `/quorum` (presença no painel), `/oradores [data] [filtro]` (quem falou/aguarda, por lista), `/faltamvotar` (na nominal aberta, quem do Podemos ainda não votou — presentes × fora da Casa, com rede de segurança automática)
 
 **Imprensa e produção**
@@ -811,6 +814,8 @@ sispode/
     └── src/
         ├── agente.js               # Conversa natural (laço ReAct) + web oficial
         ├── monitor.js              # Monitor de sessão ao vivo (Plenário)
+        ├── convocacao.js           # Aviso de convocação de sessão deliberativa (com a pauta e os apelidos)
+        ├── whatsapp.js             # Toda mensagem no formato do WhatsApp (texto puro, *negrito*)
         ├── plenariocosev.js        # APIs públicas cosev/ws-plenario (app Infoleg)
         ├── oradores.js             # Oradores inscritos da sessão
         ├── faltamvotar.js          # Quem da bancada não votou na nominal aberta

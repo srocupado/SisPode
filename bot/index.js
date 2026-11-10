@@ -18,6 +18,8 @@ const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
+const { iniciarConvocacoes } = require('./src/convocacao');
+const { payloadWhatsApp } = require('./src/whatsapp');
 const { statusPlenario } = require('./src/plenariocosev');
 const { fazerBackup, listarBackups, restaurarFaltantes } = require('./src/backup');
 const { consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido } = require('./src/comissoes');
@@ -51,6 +53,12 @@ if (GRUPO_CHAT_ID) {
     return res;
   });
 }
+// Formato do WHATSAPP em TODA mensagem (pedido de 10/11/2026): texto puro com
+// *negrito*/_itálico_ visíveis, para a equipe copiar e colar sem retoque — ver
+// src/whatsapp.js. Instalado DEPOIS do registro acima, roda antes dele (o
+// grammY chama primeiro o último transformer): o /revisar_msg guarda o texto
+// já convertido.
+bot.api.config.use((prev, method, payload, signal) => prev(method, payloadWhatsApp(method, payload), signal));
 carregarMsgsGrupo();   // registro persistido (Firebase) — vale mesmo com o monitor desligado
 aquecerCorpus();       // pré-carrega o acervo de questões de ordem (busca instantânea depois)
 aquecerRegimento();    // pré-carrega o Regimento Interno (consulta instantânea depois)
@@ -2281,6 +2289,12 @@ if (MONITOR_ATIVO) {
   if (!MONITOR_ENSAIO && !GRUPO_CHAT_ID) {
     console.warn('Monitor em modo produção sem GRUPO_CHAT_ID — mensagens serão descartadas. Configure o grupo ou ligue MONITOR_ENSAIO=1.');
   }
+  // Convocação de sessão deliberativa (com a pauta e os apelidos) → mesmo destino do monitor.
+  iniciarConvocacoes({
+    api: bot.api,
+    destino: () => (MONITOR_ENSAIO ? ADMIN_USER_ID : GRUPO_CHAT_ID),
+    perfilIA: () => getPerfil(ADMIN_USER_ID),   // apelidos por IA na chave do admin
+  });
 } else {
   console.log('Monitor de sessão desativado (MONITOR_ATIVO=0).');
 }
