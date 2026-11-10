@@ -40,7 +40,7 @@ const sandbox = {
 };
 const L = new Function(...Object.keys(sandbox),
   `${fonte}\n; mostrarToast = (m, t) => __toasts.push([m, t]); renderizarTabela = () => {}; atualizarLinha = () => {}; atualizarSidebar = () => {}; atualizarProgresso = () => {}; atualizarBotaoSelecionadas = () => {};
-   return { camposNovosFaltando, SITUACAO_MPV, situacaoDaMpv, relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
+   return { solicitacoesDaLista, solicitacaoPodemos, rotuloPautaPodemos, _htmlImpressaoLideres, camposNovosFaltando, SITUACAO_MPV, situacaoDaMpv, relatoriaDaLista, comporRelatoria, resumirLote, salvarReuniao, app, papeisDeputadosComissaoMista, comissaoMistaPodemos, itemDoPodemosLideres, rotuloComissaoMista };`.replace('__toasts', 'toasts'))
   .call(null, ...Object.values(sandbox));
 // mostrarToast etc. são declarações de função: reatribuí-las acima só funciona se forem `function` (são). O toast vai para `toasts`.
 
@@ -81,6 +81,21 @@ const L = new Function(...Object.keys(sandbox),
   const mpv2 = { extrasPdf: { relator: 'Presidente: Sen. Renan Calheiros Relator: Dep. Paulo Pimenta' } };
   ok(JSON.stringify(await L.comissaoMistaPodemos(mpv2)) === '[]', 'relator do PT: sem selo');
   ok(/comissaoMistaPodemos \|\| \[\]\)\.map\(p => `<span class="lid-badge-rel"/.test(fonte) && /for \(const p of \(it\.comissaoMistaPodemos \|\| \[\]\)\) linhas\.push\(rotuloComissaoMista\(p\)\)/.test(fonte), 'selo na tabela e linha na mensagem do Podemos');
+
+  console.log('\n== Solicitações de Pauta: pedido do Podemos vira selo azul ==');
+  ok(JSON.stringify(L.solicitacoesDaLista('PL 68/2025: Bancada Feminina; PT')) === '[{"prop":"PL 68/2025","quem":"Bancada Feminina"},{"prop":"","quem":"PT"}]', 'coluna lida: entradas e a proposição a que a entrada se prende');
+  const p1 = { extrasPdf: { solicitacoes: 'PODEMOS' } };
+  p1.solicitacaoPodemos = await L.solicitacaoPodemos(p1);
+  ok(L.rotuloPautaPodemos(p1.solicitacaoPodemos) === 'Pauta pedida pelo Podemos' && L.itemDoPodemosLideres(p1), '"PODEMOS" (itens 29 e 30 da lista de 10/11): selo e item do Podemos');
+  wsDeputados = '<deputados><deputado><nomeParlamentar>Nely Aquino</nomeParlamentar><partido>PODE</partido></deputado><deputado><nomeParlamentar>Júlia Zanatta</nomeParlamentar><partido>PL</partido></deputado></deputados>';
+  const p2 = { extrasPdf: { solicitacoes: 'Julia Zanatta; PL 1446/2025: Nely Aquino; MDB' } };
+  p2.solicitacaoPodemos = await L.solicitacaoPodemos(p2);
+  ok(L.rotuloPautaPodemos(p2.solicitacaoPodemos) === 'Pauta pedida pelo Podemos: Dep. Nely Aquino (PL 1446/2025)', `deputado da bancada (pelo nome, sem acento): ${L.rotuloPautaPodemos(p2.solicitacaoPodemos)}`);
+  const p3 = { extrasPdf: { solicitacoes: 'Governo na CD; PDT; Julia Zanatta' } };
+  ok(JSON.stringify(await L.solicitacaoPodemos(p3)) === '[]', 'pedido de outros (Julia Zanatta é do PL): sem selo');
+  const html = L._htmlImpressaoLideres({ titulo: 'RL', itens: [{ numItem: '29', chave: 'PL 888/2025', solicitacaoPodemos: p1.solicitacaoPodemos, autoriaPodemos: true, autoresPodemos: ['X'] }] }, '');
+  ok(/<b>PL 888\/2025<\/b><span class="selo-pauta">Pauta pedida pelo Podemos<\/span><span class="selo-pode">/.test(html) && /class="pode"/.test(html), 'PDF: selo logo abaixo do nome, antes dos outros, com a tarja do Podemos');
+  ok(/\.selo-pauta \{ color:#fff; background:#1d4ed8/.test(fonte) && /lid-badge-pauta/.test(fonte), 'azul na tela e no PDF');
 
   console.log('\n== MPV: urgência constitucional, não requerimento ==');
   const m = { sigla: 'MPV', situacao: 'Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar.', situacaoFalhou: true };
