@@ -2769,15 +2769,19 @@ async function gerarPDF() {
   win.document.write(_htmlImpressaoLideres({ ...app.reuniao, itens }, logoDataUrl));
   win.document.close();
 
-  // Paged.js numera as páginas; sem ele, imprime do mesmo jeito.
-  let impresso = false;
-  const imprimir = () => { if (impresso || win.closed) return; impresso = true; try { win.focus(); win.print(); } catch (_) {} };
-  win.PagedConfig = { auto: true, after: imprimir };
-  const s = win.document.createElement('script');
-  s.src = chrome.runtime.getURL('libs/paged.polyfill.js');
-  s.onerror = imprimir;
-  win.document.head.appendChild(s);
-  setTimeout(imprimir, 15000);          // rede de segurança
+  // Impressão NATIVA do Chrome, sem Paged.js (10/11/2026): o Paged.js pagina
+  // sozinho e, ao partir a tabela, NÃO repete o cabeçalho das colunas — MEDIDO
+  // numa reunião de 52 itens: cabeçalho só na página 1 e 26 páginas. Nativo, o
+  // thead (display:table-header-group) repete em toda página, o número sai pelo
+  // @page @bottom-center (Chrome 131+) e o mesmo documento cabe em 14 páginas.
+  // Espera o logo carregar antes de abrir a impressão.
+  const imgs = [...win.document.images];
+  await Promise.race([
+    Promise.all(imgs.map(i => (i.complete ? null : new Promise(r => { i.onload = i.onerror = r; })))),
+    new Promise(r => setTimeout(r, 5000)),
+  ]);
+  if (win.closed) return;
+  try { win.focus(); win.print(); } catch (_) {}
   mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', '');
 }
 
