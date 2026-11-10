@@ -100,7 +100,7 @@
   .card { background: var(--bg2); border: 1px solid var(--borda); border-radius: 10px; padding: 9px 10px; text-align: center; }
   .card .t { font-size: 11px; text-transform: uppercase; letter-spacing: .4px; color: var(--dim); }
   .card .v { font-size: 26px; font-weight: 700; color: var(--verde2); line-height: 1.2; }
-  .card .d { font-size: 12px; font-weight: 600; } .mais { color: var(--verde2); } .menos { color: var(--verm); } .igual { color: var(--dim); }
+  .card .d { font-size: 12px; font-weight: 600; } .mais { color: var(--verde2); } .menos { color: var(--verm); } .igual { color: var(--dim); } .ama { color: var(--ama); }
   .card .l { font-size: 11px; color: var(--dim); margin-top: 2px; }
   .hemis { display: grid; grid-template-columns: repeat(var(--n, 4), minmax(0, 1fr)); gap: 10px; }
   /* Distritos: mapa e tabela */
@@ -236,7 +236,7 @@
     #siImpressao .hemi circle.vazio { fill: #e4e9ee; }
     #siImpressao .aviso { border-color: #e0a030; background: #fff8e6; color: #1b2430; }
     #siImpressao ul.resumo, #siImpressao ul.metodo { font-size: 9.5pt; color: #1b2430; } #siImpressao ul.resumo b { color: #0b5e3a; } #siImpressao ul.resumo li { break-inside: avoid; }
-    #siImpressao td.menos, #siImpressao .menos { color: #c0392b; }
+    #siImpressao td.menos, #siImpressao .menos { color: #c0392b; } #siImpressao .ama { color: #9a6a00; } #siImpressao .mais, #siImpressao .ent { color: #0b8a4b; }
     .imp-rodape { margin-top: 12px; padding-top: 6px; border-top: 1px solid #cfd8e1; font-size: 8pt; color: #5b6b7b; }
   }
 </style>
@@ -321,6 +321,7 @@
       <div class="lin"><span>Modelo</span><div class="seg" id="dModelo"><button data-m="paralelo" class="ativo">Paralelo</button><button data-m="compensatorio">Compensatório</button></div></div>
       <div class="lin"><span>Cláusula para a lista (% dos válidos do estado)</span><input type="number" id="dLim" min="0" max="50" step="0.5" value="0"></div>
       <div class="lin larga" id="dLiqLin"><span><label class="tog"><input type="checkbox" id="dLiq"><i></i>Voto partidário líquido</label></span><span class="tog-c">a cota de cada partido conta a votação dele menos os votos que elegeram os seus vencedores de distrito (os votos de cada um no seu distrito) — o voto que já elegeu não conta duas vezes</span></div>
+      <div class="lin" id="dRetLin" title="Cenário do voto único: com um candidato por partido em cada distrito, os votos hoje dados aos outros nomes do partido ali (os dispersos) precisam ir para esse candidato ou para a legenda. Aqui, a fração deles que fica com o partido e conta para a cota; o resto deixa de ser voto do partido. Quem leva cada distrito não muda."><span>Retenção dos votos dispersos <b id="dRetV">100%</b></span><input type="range" id="dRet" min="0" max="100" step="5" value="100"></div>
       <div class="lin"><span>Lista preordenada do partido</span><button id="dListaBtn" class="tol-btn" title="Os nomes que o partido põe na lista, na ordem (Versão Minuta, art. 105-D) — sem nomes, a lista segue a ordem de votos">ordem de votos ✎</button></div>
       <div class="lin"><span>Tamanho dos distritos</span><div class="seg" id="dBase"><button data-b="eleitorado" class="ativo" title="Eleitores aptos (TSE)">Eleitorado</button><button data-b="populacao" title="População residente do Censo 2022 (IBGE)">População (Censo 2022)</button></div></div>
       <div class="lin"><span>Excedente e divisor</span><button id="dExcBtn" class="tol-btn" title="O que acontece quando um partido ganha mais distritos que a sua cota proporcional — abre o ajuste">corta das listas ✎</button></div>

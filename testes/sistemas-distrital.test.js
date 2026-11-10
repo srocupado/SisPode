@@ -349,5 +349,47 @@ console.log('Deputados estaduais e distritais');
     'limite de 2 da mesma agremiação: o 3º do partido A cede a vaga ao mais votado livre de B, e aparece como barrado pelo limite');
 }
 
+console.log('Votos dispersos, retenção e ficha dos candidatos');
+{
+  // Dispersos = os votos nominais da agremiação em quem NÃO é o seu mais votado no distrito.
+  // No fixture acima: A — oeste 300 − 200 (a1) = 100; leste 200 − 100 = 100. B — oeste 90 − 50 = 40; leste 350 − 200 = 150.
+  const disp = SD.sdDispersos(vd, dEst);
+  ok(disp.A === 200 && disp.B === 190, `dispersos por agremiação: A 200, B 190 (${disp.A}, ${disp.B})`);
+  const disp2 = SD.sdDispersos(vd, dEst, 2);
+  ok(disp2.A === 0 && disp2.B === 30, 'com até 2 candidatos por agremiação no distrito (várias cadeiras), só conta do 3º em diante');
+  // Retenção: a cota muda, quem leva o distrito não. B tem 570 votos (200 dispersos) contra 500 de A (nenhum disperso);
+  // 3 vagas, compensatório: com tudo retido, B 2 × A 1; retendo metade dos dispersos (B fica com 470), A 2 × B 1.
+  const dR = { uf: 'xx', vagas: 3, validos: 1070, agrs: [
+    { id: 'A', nome: 'Partido A', siglas: ['PA'], votos: 500, cands: [cand('a1', 'PA', 300), cand('a2', 'PA', 200)] },
+    { id: 'B', nome: 'Partido B', siglas: ['PB'], votos: 570, cands: [cand('b1', 'PB', 120), cand('b2', 'PB', 100), cand('b3', 'PB', 250), cand('b4', 'PB', 100)] }] };
+  const vR = { 'w|1': { c: { a1: 300, b1: 120, b2: 100 }, l: {} }, 'e|1': { c: { a2: 200, b3: 250, b4: 100 }, l: {} } };
+  const opR = { regra: 'candidato', modelo: 'compensatorio', desenho: desE, base: baseE, votos: vR };
+  const r100 = SD.sdDistritalMisto(dR, opR), r50 = SD.sdDistritalMisto(dR, Object.assign({}, opR, { retencao: 0.5 }));
+  const cad = r => { const o = { A: 0, B: 0 }; for (const e of r.eleitos) o[e.agr]++; return `A${o.A} B${o.B}`; };
+  ok(r100.dispersos.A === 0 && r100.dispersos.B === 200 && r100.retidos === null && cad(r100) === 'A1 B2', `100% retido (padrão): como nos dados do TSE (${cad(r100)})`);
+  ok(r50.retidos.B === 470 && r50.retidos.A === 500 && cad(r50) === 'A2 B1', `50% retido: B fica com 470 e perde a cadeira para A (${cad(r50)})`);
+  ok(r50.distritos.map(x => x.vencedor.sq).sort().join() === r100.distritos.map(x => x.vencedor.sq).sort().join(), 'quem leva cada distrito não muda com a retenção');
+  const r0 = SD.sdDistritalMisto(dR, Object.assign({}, opR, { retencao: 0, limiar: 0.4 }));
+  ok(r0.retidos.B === 370 && r0.eleitos.filter(e => e.agr === 'B').length >= 1, 'a cláusula conta sobre os votos retidos e os válidos que restam (370 de 870 = 42,5%)');
+  const rl = SD.sdDistritalMisto(dR, Object.assign({}, opR, { retencao: 0.5, votoLiquido: true }));
+  ok(rl.liquido.B === 470 - 250 && rl.liquido.A === 500 - 300, 'com o voto líquido, o desconto sai dos votos já retidos');
+  // Ficha: o melhor distrito de cada um, a concentração, a posição e a distância
+  const f = Object.fromEntries(SD.sdFichaCandidatos(dR, desE, baseE, vR, ['b2', 'b3', 'a2', 'zz']).map(x => [x.sq, x]));
+  const dOeste = desE.distritos.find(x => x.unidades.includes('m:w')).id, dLeste = desE.distritos.find(x => x.unidades.includes('m:e')).id;
+  ok(!f.zz && f.b2.distrito === dOeste && f.b2.posicao === 3 && f.b2.concentracao === 1 && !f.b2.dentro && Math.abs(f.b2.distancia - 200 / 520) < 1e-12 && f.b2.rival.nome === 'Ca1'
+    && !f.b2.nomeDaAgr && f.b2.melhorDaAgr.nome === 'Cb1', 'b2: 3º no oeste, a 200 votos do eleito, e não é o nome do partido ali (b1 é)');
+  ok(f.b3.distrito === dLeste && f.b3.posicao === 1 && f.b3.dentro && Math.abs(f.b3.vantagem - 50 / 550) < 1e-12 && f.b3.rival.nome === 'Ca2' && f.b3.nomeDaAgr && f.b3.melhorDaAgr === null,
+    'b3: vence o leste com 50 votos de vantagem sobre o 2º');
+  ok(f.a2.posicao === 2 && !f.a2.dentro && Math.abs(f.a2.distancia - 50 / 550) < 1e-12 && f.a2.nomeDaAgr, 'a2: 2º no leste, a 50 votos');
+  // concentração com votos em dois distritos, e várias cadeiras no distrito
+  const vS = { 'w|1': { c: { a1: 300, b1: 120, b2: 100 }, l: {} }, 'e|1': { c: { a1: 100, a2: 200, b3: 250, b4: 100 }, l: {} } };
+  const fa = SD.sdFichaCandidatos(dR, desE, baseE, vS, ['a1'])[0];
+  ok(fa.concentracao === 0.75 && fa.nosDistritos === 400 && fa.segundo.distrito === dLeste && fa.segundo.votos === 100, 'a1: 75% dos votos no melhor distrito; o segundo melhor também vem');
+  const des2 = Object.assign({}, desE, { distritos: desE.distritos.map(x => Object.assign({}, x, { cadeiras: 2 })) });
+  const fm = SD.sdFichaCandidatos(dR, des2, baseE, vR, ['a2', 'b4'])[0 + 0], fb = SD.sdFichaCandidatos(dR, des2, baseE, vR, ['b4'])[0];
+  ok(fm.dentro && fm.cadeiras === 2 && Math.abs(fm.vantagem - 100 / 550) < 1e-12 && !fb.dentro && Math.abs(fb.distancia - 100 / 550) < 1e-12 && fb.rival.nome === 'Ca2',
+    'distrito de 2 cadeiras: o 2º está dentro (vantagem sobre o 3º); o 3º mede a distância ao último eleito');
+}
+
 console.log(falhas ? `\n${falhas} falha(s)` : '\nTodos os testes passaram');
 process.exit(falhas ? 1 : 0);
