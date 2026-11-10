@@ -1660,7 +1660,9 @@ async function cmdVarrerComissoes(ctx, args) {
     // Sem partido/deputado explícito, procura o Podemos (é o bot da bancada).
     const partido = args.partido || (args.deputado ? null : 'Podemos');
     return responderLongo(ctx, await varrerComissoesPartido(args.data || 'hoje',
-      { partido, deputado: args.deputado || null }));
+      { partido, deputado: args.deputado || null,
+        // o que o portal não liberou a tempo chega depois, numa 2ª mensagem
+        aoCompletar: texto => responderLongo(ctx, texto).catch(e => console.warn('complemento da varredura não enviado:', e.message)) }));
   } catch (e) { console.error('varredura comissões falhou:', e); return ctx.reply(`Erro na varredura: ${e.message}`); }
 }
 bot.command('varrercomissoes', ctx => cmdVarrerComissoes(ctx, { data: (ctx.match || '').trim() || 'hoje' }));
@@ -1921,7 +1923,7 @@ async function executarDecisao(ctx, decisao) {
 
 // Ferramentas de CONSULTA do agente que dependem de helpers daqui — cada uma
 // recebe argumentos e devolve STRING (vira observação para a IA continuar).
-function ferramentasDado(userId, perfil) {
+function ferramentasDado(userId, perfil, chatId = userId) {
   return {
     listar_itens: async () => {
       const pauta = await pautaDoUsuario(userId);
@@ -1952,6 +1954,8 @@ function ferramentasDado(userId, perfil) {
       varrerComissoesPartido(data || 'hoje', {
         partido: partido || (deputado ? null : 'Podemos'),
         deputado: deputado || null,
+        // complemento das comissões que o portal não liberou a tempo: direto na conversa
+        aoCompletar: texto => enviarLongo(bot.api, chatId, texto).catch(e => console.warn('complemento da varredura não enviado:', e.message)),
       }),
     faltam_votar: async () => formatarFaltantes(await faltamVotar('PODE'), { sigla: 'PODE' }),
     questao_ordem: async ({ termo, fase } = {}) =>
@@ -1977,7 +1981,7 @@ async function tratarLinguagemNatural(ctx, texto) {
   }
   await ctx.replyWithChatAction('typing');
   try {
-    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id, perfil) });
+    const r = await conversar({ userId: ctx.from.id, perfil, texto, dados: ferramentasDado(ctx.from.id, perfil, ctx.chat.id) });
     if (r.tipo === 'acao') return executarDecisao(ctx, { ferramenta: r.ferramenta, argumentos: r.argumentos });
     return responderLongo(ctx, r.texto, null, { md: true });
   } catch (e) {
