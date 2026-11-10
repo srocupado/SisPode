@@ -100,6 +100,33 @@ const C = require(destino);
   let e429 = null; try { await P.baixar('https://www.camara.leg.br/evento-legislativo/1'); } catch (e) { e429 = e.message; }
   ok(/HTTP 429 \(pedidos demais, mesmo depois de esperar\)/.test(e429 || ''), `429 que não passa: desiste depois das esperas e diz por quê (${e429})`);
 
+  // Teto de tempo: com o portal recusando, o pedido desiste no prazo em vez de esperar as 3 rodadas.
+  Object.assign(P.RITMO, { esperasMs: [400, 800, 1600] });
+  const t0 = Date.now();
+  let eAte = null; try { await P.baixar('https://www.camara.leg.br/evento-legislativo/2', { ate: Date.now() + 150 }); } catch (e) { eAte = e.message; }
+  ok(eAte === P.SEM_TEMPO && Date.now() - t0 < 1000, `com prazo, o 429 não segura além dele (${Date.now() - t0} ms): ${eAte}`);
+  const srcC = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'comissoes.js'), 'utf8');
+  ok(/const PRAZO_VARREDURA_PORTAL_MS = 100e3;/.test(srcC) && /secaoComissaoPortal\(org, evs, d, partido, deputado, \{ ate \}\)/.test(srcC), 'a varredura pelo portal tem teto de 100 s');
+
+  console.log('\n== o bot não trava numa consulta demorada ==');
+  // 10/11/2026: a varredura levou 5 min e "Vivo ?" e /quorum ficaram sem resposta.
+  const idx = fs.readFileSync(path.join(RAIZ, 'bot', 'index.js'), 'utf8');
+  const fonte = /const _filaConversa = new Map\(\);[^\n]*\n(function rodarSemTravar[\s\S]*?\n\})/.exec(idx);
+  ok(fonte && /bot\.use\(\(ctx, next\) => \{ rodarSemTravar\(ctx, next\); \}\);/.test(idx) && idx.indexOf('rodarSemTravar(ctx, next); });') < idx.indexOf('isAutorizado(id)'), 'index.js instala o despacho sem trava antes de tudo');
+  const rodarSemTravar = new Function('_filaConversa', `${fonte[1]}; return rodarSemTravar;`)(new Map());
+  const log = [];
+  const espera = ms => new Promise(r => setTimeout(r, ms));
+  const upd = (texto, ms, chat = 1) => rodarSemTravar({ chat: { id: chat }, message: { text: texto } }, async () => { await espera(ms); log.push(texto); });
+  upd('/varrercomissoes', 300);       // a consulta demorada
+  upd('Vivo ?', 10); upd('segunda', 5);   // mensagens comuns na mesma conversa
+  upd('/quorum', 20);
+  upd('outra conversa', 10, 2);
+  await espera(120);
+  ok(log.includes('/quorum') && log.includes('Vivo ?') && log.includes('outra conversa') && !log.includes('/varrercomissoes'), `com a varredura em curso, /quorum, a mensagem comum e outra conversa respondem (${log.join(' · ')})`);
+  ok(log.indexOf('Vivo ?') < log.indexOf('segunda'), 'mensagens comuns da mesma conversa mantêm a ordem');
+  await espera(250);
+  ok(log[log.length - 1] === '/varrercomissoes', 'a varredura termina depois, sem ter segurado ninguém');
+
   console.log(falhas ? `\n${falhas} FALHA(S)` : '\nTudo passou.');
   process.exit(falhas ? 1 : 0);
 })().catch(e => { console.error('ERRO FATAL:', e); process.exit(1); });

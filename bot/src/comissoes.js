@@ -21,6 +21,8 @@ const RETRY_STATUS = new Set([500, 502, 503, 504]);
 const RETRIES = 3;
 const TTL = 12 * 60 * 60 * 1000;   // 12h de cache
 const CONCURRENCY = 8;             // autores por reunião, em paralelo
+// Teto da varredura pelo portal (as páginas vão uma por vez, no ritmo que o portal aceita).
+const PRAZO_VARREDURA_PORTAL_MS = 100e3;
 const VARREDURA_CONCURRENCY = 5;   // comissões varridas em paralelo (não martelar a API)
 
 function norm(s) {
@@ -324,10 +326,10 @@ async function secaoComissao(org, dataIso, partido, deputado, deps) {
 // ---------- Seção de UMA comissão, pelo PORTAL (API fora do ar) ----------
 // eventos: [{ id, hora ('14:30'), tipo }] — da agenda do portal ou da própria API (só a pauta falhou).
 // Mesmo texto da seção pela API; o autor e o relator vêm da página da reunião, já com o partido.
-async function secaoComissaoPortal(org, eventos, dataIso, partido, deputado) {
+async function secaoComissaoPortal(org, eventos, dataIso, partido, deputado, opts) {
   const alvo = partido || deputado;
   const pautas = [];
-  for (const ev of eventos) pautas.push({ ev, pauta: await PORTAL.pautaEventoPortal(ev.id) });
+  for (const ev of eventos) pautas.push({ ev, pauta: await PORTAL.pautaEventoPortal(ev.id, opts) });
   const sigla = org.sigla || pautas.map(x => PORTAL.siglaNaPagina(x.pauta, org.nome)).find(Boolean) || '';
   const partes = [`🏛️ ${org.nome}${sigla ? ` (${sigla})` : ''} — ${brData(dataIso)}`];
   let totalMatch = 0;
@@ -507,13 +509,16 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
 
   // Por comissão: a pauta pela API; se ela cair no meio da varredura, a da página da reunião no portal.
   // Uma comissão que falhar pelos dois caminhos vai listada à parte — não derruba a varredura inteira.
+  // Pelo portal há um TETO de tempo (o portal limita os pedidos): passado ele, o que
+  // faltou vai listado e a resposta sai — 10/11/2026: sem teto, 5 min de espera.
   let usouPortal = !!peloPortal;
+  const ate = Date.now() + PRAZO_VARREDURA_PORTAL_MS;
   const resultados = await mapLimit([...orgs.values()], VARREDURA_CONCURRENCY, async ({ org, eventos: evs }) => {
     if (!peloPortal) {
       try { const { tem, texto } = await secaoComissao(org, d, partido, deputado, deps); return { org, tem, texto }; }
       catch (_) { /* segue pelo portal */ }
     }
-    try { usouPortal = true; const { tem, texto } = await secaoComissaoPortal(org, evs, d, partido, deputado); return { org, tem, texto }; }
+    try { usouPortal = true; const { tem, texto } = await secaoComissaoPortal(org, evs, d, partido, deputado, { ate }); return { org, tem, texto }; }
     catch (e) { return { org, tem: false, falhou: e.message }; }
   });
   const falharam = resultados.filter(r => r.falhou);
@@ -525,7 +530,11 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
   if (com.length) for (const r of com) partes.push('\n' + r.texto);
   else partes.push(`\nNenhuma das comissões com reunião deliberativa hoje tem projeto (autoria/relatoria) de ${alvo}.`);
   if (semNada.length) partes.push(`\nSem nada de ${alvo} (${semNada.length}): ${semNada.map(o => o.sigla || o.nome).join(', ')}`);
-  if (falharam.length) partes.push(`\n⚠️ Não consegui ler a pauta de ${falharam.length} comissão(ões), nem pela API nem pelo portal: ${falharam.map(r => r.org.sigla || r.org.nome).join(', ')} (${falharam[0].falhou}).`);
+  if (falharam.length) {
+    const lento = falharam.some(r => /limite de pedidos|HTTP 429/.test(r.falhou));
+    partes.push(`\n⚠️ Não consegui ler a pauta de ${falharam.length} comissão(ões), nem pela API nem pelo portal: ${falharam.map(r => r.org.sigla || r.org.nome).join(', ')} (${falharam[0].falhou}).`
+      + (lento ? ' Peça a varredura de novo em alguns minutos: as comissões já lidas ficam guardadas por 10 min e só as que faltaram são buscadas.' : ''));
+  }
   if (usouPortal) partes.push(`\n${AVISO_PORTAL}${peloPortal ? ` (${peloPortal.message})` : ''}`);
   return partes.join('\n');
 }
