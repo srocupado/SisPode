@@ -106,7 +106,7 @@ const C = require(destino);
   let eAte = null; try { await P.baixar('https://www.camara.leg.br/evento-legislativo/2', { ate: Date.now() + 150 }); } catch (e) { eAte = e.message; }
   ok(eAte === P.SEM_TEMPO && Date.now() - t0 < 1000, `com prazo, o 429 não segura além dele (${Date.now() - t0} ms): ${eAte}`);
   const srcC = fs.readFileSync(path.join(RAIZ, 'bot', 'src', 'comissoes.js'), 'utf8');
-  ok(/const PRAZO_VARREDURA_PORTAL_MS = 100e3;/.test(srcC) && /secaoComissaoPortal\(org, evs, d, partido, deputado, \{ ate \}\)/.test(srcC), 'a varredura pelo portal tem teto de 100 s');
+  ok(/const PRAZO_VARREDURA_PORTAL_MS = 9 \* 60e3;/.test(srcC) && /secaoComissaoPortal\(org, evs, d, partido, deputado, \{ ate \}\)/.test(srcC), 'a varredura pelo portal tem teto (9 min, com rodadas)');
 
   console.log('\n== o bot não trava numa consulta demorada ==');
   // 10/11/2026: a varredura levou 5 min e "Vivo ?" e /quorum ficaram sem resposta.
