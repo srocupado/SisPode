@@ -70,7 +70,7 @@ const sandbox = {
     return { ok: false, status: 404 };
   },
 };
-const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app, tramitacoesDaFicha, documentosDaFicha, emendaSenadoDe, fraseDaEmendaSenado, etiquetasDe, _htmlImpressaoLideres, semFalhaDeApi, avisosDe };`)(...Object.values(sandbox));
+const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app, tramitacoesDaFicha, documentosDaFicha, emendaSenadoDe, fraseDaEmendaSenado, etiquetasDe, _htmlImpressaoLideres, semFalhaDeApi, avisosDe, montarMensagemPodemos };`)(...Object.values(sandbox));
 const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano, celulaProp: '' }; await L.carregarDadosDaProposicao(it); return it; };
 
 (async () => {
@@ -140,6 +140,12 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
   ok(/Não apurada\./.test(corpo) && /Não apurado\./.test(corpo) && /Conferir no original: art\. 5º/.test(corpo), 'o que não foi apurado continua dito ("Não apurada.") e os demais alertas ficam');
   ok(/Designado: Dep\. Aliel Machado \(PV-PR\)/.test(corpo) && /Urgência aprovada \(REQ\. 4612\/2025\)/.test(corpo), 'os fatos apurados pelo portal saem normalmente');
   ok(/API da Câmara fora do ar/.test(L.avisosDe(pl4675)), 'na tela o aviso continua (a equipe precisa saber de onde veio o dado)');
+  L.app.reuniao = { itens: [
+    { numItem: '5', chave: 'PL 1403/2026', autoriaPodemos: true, ementa: 'e', situacao: 'Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar.' },
+    { numItem: '6', chave: 'PL 2/2026', relatorPodemos: true, relatorDesignado: 'Dep. Fulano (PODE-SP)', ementa: 'e', situacao: 'Urgência aprovada (REQ. 1/2026)' },
+  ] };
+  const msg = L.montarMensagemPodemos();
+  ok(!/API|fora do ar|refaça/i.test(msg) && /Situação: Não apurada\./.test(msg) && /Situação: Urgência aprovada \(REQ\. 1\/2026\)/.test(msg) && /Relatoria de Plenário: Dep\. Fulano \(PODE-SP\)/.test(msg), 'mensagem do WhatsApp: mesmo filtro do PDF');
 
   console.log('\n== excluir a reunião ==');
   ok(/id="btn-excluir-reuniao"[^>]*>[\s\S]*?Excluir reunião/.test(html), 'botão "Excluir reunião" na barra da reunião aberta');
