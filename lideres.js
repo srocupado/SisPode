@@ -193,11 +193,49 @@ const CHAVES_COLUNA = ['num', 'prop', 'aut', 'reg', 'desc'];
 // inteiro para dentro da descrição, sem erro nenhum aparecer.
 const COLUNAS_PADRAO = [38, 66, 129, 256, 333];
 
-/** Descobre onde começam as cinco colunas contando em que x o texto começa.
+// QUANTAS colunas a tabela tem vem do CABEÇALHO do próprio documento. MEDIDO:
+// a lista de 10/11/2026 passou a ter OITO colunas (… Descrição · Relator ·
+// Parecer · Solicitações de Pauta); com o número fixo em cinco, a detecção
+// elegia os x errados, caía na grade de reserva e o PDF inteiro virava zero
+// proposição ("não reconhece o PDF"). Os títulos ficam CENTRALIZADOS nas
+// colunas, então a posição deles não serve de borda — servem para contar e
+// nomear; as bordas continuam vindo dos x onde o texto começa.
+const ROTULOS_COLUNA = [
+  ['num', /^n(?:um|º|°|o)\b/i], ['prop', /^proposi/i], ['aut', /^autori/i], ['reg', /^regime/i], ['desc', /^descri/i],
+  ['relator', /^relator/i], ['parecer', /^parecer/i], ['solicitacoes', /^solicita/i],
+];
+/** Colunas nomeadas pelo cabeçalho da tabela ("Num. | Proposição | …"), da esquerda para a direita; null se não houver. */
+function chavesDoCabecalho(paginas) {
+  for (const items of paginas) {
+    const porY = new Map();
+    for (const it of items) {
+      const t = it.str.trim();
+      if (!t) continue;
+      const y = Math.round(it.transform[5]);
+      let k = y;
+      for (const c of porY.keys()) if (Math.abs(c - y) <= 2) { k = c; break; }
+      if (!porY.has(k)) porY.set(k, []);
+      porY.get(k).push({ x: it.transform[4], t });
+    }
+    for (const frags of porY.values()) {
+      if (!frags.some(f => /^proposi/i.test(f.t)) || !frags.some(f => /^descri/i.test(f.t))) continue;
+      // Rótulo = fragmento que começa com maiúscula ("de Pauta" é continuação de "Solicitações").
+      const rot = frags.filter(f => /^[A-ZÀ-Ú]/.test(f.t)).sort((a, b) => a.x - b.x);
+      if (rot.length < CHAVES_COLUNA.length) continue;
+      const chaves = rot.map((f, i) => (ROTULOS_COLUNA.find(([, re]) => re.test(f.t)) || [`col${i + 1}`])[0]);
+      if (CHAVES_COLUNA.every(k => chaves.includes(k))) return chaves;
+    }
+  }
+  return null;
+}
+
+/** A grade do documento: onde começa cada coluna (xs) e o nome dela (chaves).
  *  As colunas são de longe os x mais repetidos do documento — as quebras de
  *  linha da descrição ficam bem abaixo delas. Exige separação mínima para não
  *  eleger dois picos vizinhos da mesma coluna. */
-function detectarColunas(paginas) {
+function gradeDoDocumento(paginas) {
+  const chavesCab = chavesDoCabecalho(paginas);
+  const n = chavesCab ? chavesCab.length : CHAVES_COLUNA.length;
   const hist = new Map();
   for (const items of paginas) {
     for (const it of items) {
@@ -207,27 +245,29 @@ function detectarColunas(paginas) {
     }
   }
   const picos = [];
-  for (const [x, n] of [...hist].sort((a, b) => b[1] - a[1])) {
-    if (picos.length === CHAVES_COLUNA.length) break;
+  for (const [x] of [...hist].sort((a, b) => b[1] - a[1])) {
+    if (picos.length === n) break;
     if (picos.every(p => Math.abs(p - x) >= 20)) picos.push(x);
   }
   picos.sort((a, b) => a - b);
-  // Sem cinco colunas plausíveis o documento não é a tabela esperada; a grade
+  // Sem as colunas plausíveis o documento não é a tabela esperada; a grade
   // medida é melhor que uma detecção pela metade.
-  const plausivel = picos.length === CHAVES_COLUNA.length && picos[0] < 80
-    && picos[CHAVES_COLUNA.length - 1] > 200;
-  return plausivel ? picos : COLUNAS_PADRAO.slice();
+  const plausivel = picos.length === n && picos[0] < 80 && picos[n - 1] > 200;
+  return plausivel ? { xs: picos, chaves: chavesCab || CHAVES_COLUNA.slice() }
+    : { xs: COLUNAS_PADRAO.slice(), chaves: CHAVES_COLUNA.slice() };
 }
+/** Só os x da grade (compatível com quem já usava). */
+function detectarColunas(paginas) { return gradeDoDocumento(paginas).xs; }
 
 /** Agrupa os fragmentos de uma página em linhas e recorta cada linha nas cinco
  *  colunas da tabela. Cada fragmento cai na última coluna que começa à sua
  *  esquerda — é o que faz a continuação da descrição (bem à direita) voltar
  *  para a coluna de descrição. */
-function linhasDaPagina(items, colunas) {
+function linhasDaPagina(items, colunas, chaves = CHAVES_COLUNA) {
   const colunaDe = x => {
     let k = 0;
     for (let i = 0; i < colunas.length; i++) if (x >= colunas[i] - 2) k = i;
-    return CHAVES_COLUNA[k];
+    return chaves[k];
   };
   const porY = new Map();
   for (const it of items) {
@@ -242,7 +282,7 @@ function linhasDaPagina(items, colunas) {
   return [...porY.entries()].sort((a, b) => b[0] - a[0]).map(([y, frags]) => {
     frags.sort((a, b) => a.x - b.x);
     const cols = {};
-    for (const k of CHAVES_COLUNA) cols[k] = '';
+    for (const k of new Set([...CHAVES_COLUNA, ...chaves])) cols[k] = '';
     // Junta sem separador: o PDF já emite os espaços como fragmentos próprios,
     // e é assim que "Paulo Abi" + "-" + "Ackel" volta a ser "Paulo Abi-Ackel".
     for (const f of frags) cols[colunaDe(f.x)] += f.s;
@@ -259,10 +299,18 @@ function linhasDaPagina(items, colunas) {
 function partirEmItens(linhas) {
   // Âncora = a linha que traz o número do item. Exige conteúdo em outra coluna
   // para que um número de página solto não vire item.
-  const ehAncora = l => !l.separador && /^\s*\d{1,3}\s*$/.test(l.cols.num) &&
-    (l.cols.prop.trim() || l.cols.aut.trim());
+  // MEDIDO na lista de 10/11/2026: o número fica centralizado na vertical e a
+  // linha dele pode trazer só o regime (".") — por isso vale qualquer outra
+  // coluna com conteúdo OU o número que continua a sequência (n = anterior + 1).
+  // A numeração só cresce: página ou número solto fora de ordem não vira item.
   const ancoras = [];
-  linhas.forEach((l, i) => { if (ehAncora(l)) ancoras.push(i); });
+  let ultimo = 0;
+  linhas.forEach((l, i) => {
+    if (l.separador || !/^\s*\d{1,3}\s*$/.test(l.cols.num)) return;
+    const n = Number(l.cols.num);
+    const outra = Object.entries(l.cols).some(([k, v]) => k !== 'num' && v.trim());
+    if (n > ultimo && (n === ultimo + 1 || outra)) { ancoras.push(i); ultimo = n; }
+  });
   if (!ancoras.length) return [];
 
   // Distância até a linha seguinte. Quebra de página e cabeçalho repetido são
@@ -285,13 +333,22 @@ function partirEmItens(linhas) {
 
   return ancoras.map((iAncora, k) => {
     const bloco = linhas.slice(ini[k], fim[k]).filter(l => !l.separador);
-    const junta = key => bloco.map(l => l.cols[key]).filter(s => s.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    const junta = key => bloco.map(l => l.cols[key] || '').filter(s => s.trim()).join(' ').replace(/\s+/g, ' ').trim();
+    // Colunas além das cinco (Relator, Parecer, Solicitações de Pauta…): vão
+    // em `extras`, com o nome do cabeçalho — nada da lista se perde.
+    const extras = {};
+    for (const k of Object.keys(linhas[iAncora].cols)) {
+      if (CHAVES_COLUNA.includes(k)) continue;
+      const v = junta(k);
+      if (v) extras[k] = v;
+    }
     return {
       num:       linhas[iAncora].cols.num.trim(),
       prop:      junta('prop'),
       autoria:   junta('aut'),
       regime:    junta('reg'),
       descricao: junta('desc'),
+      extras,
     };
   });
 }
@@ -306,13 +363,100 @@ async function lerListaDoPDF(file) {
   for (let p = 1; p <= pdf.numPages; p++) {
     paginas.push((await (await pdf.getPage(p)).getTextContent()).items);
   }
-  const colunas = detectarColunas(paginas);
+  const grade = gradeDoDocumento(paginas);
 
   const linhas = [];
   paginas.forEach((items, i) => {
-    for (const l of linhasDaPagina(items, colunas)) linhas.push({ ...l, pagina: i + 1 });
+    for (const l of linhasDaPagina(items, grade.xs, grade.chaves)) linhas.push({ ...l, pagina: i + 1 });
   });
-  return partirEmItens(linhas);
+  const itens = partirEmItens(linhas);
+  // O texto corrido do documento, para a conferência por IA (recuperarComIA).
+  Object.defineProperty(itens, 'texto', { value: paginas.map(items => items.map(i => i.str + (i.hasEOL ? '\n' : '')).join('')).join('\n'), enumerable: false });
+  return itens;
+}
+
+/** Conferência da leitura — a ideia do módulo de Plenário: o documento diz o
+ *  que TEM de sair (itens numerados 1..N, cada um com proposição), e o que não
+ *  saiu vira aviso visível, nunca sumiço silencioso. Devolve a lista de
+ *  problemas (vazia = leitura conferida). */
+function conferirLeitura(itens) {
+  const problemas = [];
+  const nums = itens.map(i => Number(i.num)).filter(Number.isFinite);
+  const max = Math.max(0, ...nums);
+  const faltam = [];
+  for (let n = 1; n <= max; n++) if (!nums.includes(n)) faltam.push(n);
+  if (faltam.length) problemas.push(`item(ns) ${faltam.join(', ')} não lido(s)`);
+  const semProp = itens.filter(i => !proposicoesDoItem(i).length).map(i => i.num);
+  if (semProp.length) problemas.push(`sem proposição reconhecida no(s) item(ns) ${semProp.join(', ')}`);
+  return problemas;
+}
+
+const AVISO_LIDO_POR_IA = 'Item lido pela IA a partir do PDF (a leitura por colunas falhou) — confira com a lista';
+
+/** Números de item que a leitura não entregou direito: ausentes da sequência ou sem proposição. */
+function itensAConferir(itens) {
+  const nums = itens.map(i => Number(i.num)).filter(Number.isFinite);
+  const out = [];
+  for (let n = 1; n <= Math.max(0, ...nums); n++) if (!nums.includes(n)) out.push(n);
+  for (const i of itens) if (!proposicoesDoItem(i).length) out.push(Number(i.num));
+  return [...new Set(out)].sort((a, b) => a - b);
+}
+
+/** A proposição está ESCRITA no documento? ("PL 1234/2026" aceita "1.234/2026", "1234 / 2026"). Trava contra invenção da IA. */
+function proposicaoNoTexto(chave, texto) {
+  const m = /(\d+)\/(\d{4})$/.exec(chave);
+  if (!m) return false;
+  const t = String(texto || '').replace(/(\d)\.(?=\d{3}\b)/g, '$1').replace(/\s*\/\s*/g, '/');
+  return new RegExp(`(^|\\D)${parseInt(m[1], 10)}/${m[2]}(\\D|$)`).test(t);
+}
+
+/** Conferência por IA — a mesma ideia das lacunas da pauta do Plenário:
+ *  só os itens que a leitura não entregou vão para a IA, com o texto do PDF; a
+ *  resposta só vira item se cada proposição estiver ESCRITA no documento, e o
+ *  item volta marcado (lidoPorIA) para conferência. O que não passa continua
+ *  como pendência visível. Devolve { itens, recuperados: [n], pendentes: [n] }. */
+async function recuperarComIA(itens, faltam = itensAConferir(itens)) {
+  // Formato irreconhecível (nenhum item lido): a IA lê a lista INTEIRA — o
+  // remetente da lista não segue padrão, e o layout muda de uma reunião para outra.
+  const todos = !itens.length && !!String(itens.texto || '').trim();
+  if (!faltam.length && !todos) return { itens, recuperados: [], pendentes: [] };
+  const texto = String(itens.texto || '').slice(0, 60000);
+  const prompt = `Abaixo está o texto extraído do PDF da lista da Reunião de Líderes da Câmara dos Deputados: uma tabela de itens numerados (em geral com as colunas Num., Proposição, Autoria, Regime, Descrição, às vezes outras; a ordem e o número de colunas variam). ${todos ? 'A extração por colunas não reconheceu o formato.' : `A extração por colunas falhou nos itens ${faltam.join(', ')}.`}
+
+${todos ? 'Para CADA item numerado da tabela' : 'Para CADA um desses números de item'}, extraia SOMENTE o que está escrito no texto:
+- "num": o número do item;
+- "proposicoes": as proposições da célula Proposição, no formato "SIGLA NÚMERO/ANO" (ex.: "PL 1234/2026"; número sem pontos);
+- "autoria", "regime", "descricao": como escritos na linha do item ("" se não houver).
+Não invente nada; item que não estiver no texto fica de fora.
+
+TEXTO:
+${texto}
+
+Responda APENAS com JSON, sem cercas de código: [{"num": 5, "proposicoes": ["PL 724/2003"], "autoria": "...", "regime": "...", "descricao": "..."}]`;
+  let lista = [];
+  try { lista = extrairJSON(await chamarIA(prompt)) || []; } catch (e) { console.warn('[líderes] conferência por IA falhou:', e.message); }
+  if (!Array.isArray(lista)) lista = [];
+  const porNum = new Map(itens.map(i => [Number(i.num), i]));
+  const recuperados = [];
+  for (const r of lista) {
+    const n = Number(r && r.num);
+    if (!(todos ? Number.isInteger(n) && n > 0 && n < 1000 : faltam.includes(n)) || recuperados.includes(n)) continue;
+    const props = (Array.isArray(r.proposicoes) ? r.proposicoes : []).map(x => String(x).replace(/\s+/g, ' ').trim())
+      .filter(x => new RegExp(`^${RE_PROP.source}$`, 'i').test(x) && proposicaoNoTexto(x, itens.texto));
+    if (!props.length) continue;
+    const antigo = porNum.get(n);
+    porNum.set(n, {
+      num: String(n), prop: props.join(' '),
+      autoria: antigo?.autoria || String(r.autoria || '').trim(),
+      regime: antigo?.regime || String(r.regime || '').trim(),
+      descricao: antigo?.descricao || String(r.descricao || '').trim(),
+      extras: antigo?.extras || {}, lidoPorIA: true,
+    });
+    recuperados.push(n);
+  }
+  const novos = [...porNum.values()].sort((a, b) => Number(a.num) - Number(b.num));
+  Object.defineProperty(novos, 'texto', { value: itens.texto, enumerable: false });
+  return { itens: novos, recuperados, pendentes: todos ? itensAConferir(novos) : faltam.filter(n => !recuperados.includes(n)) };
 }
 
 // Espécies que podem aparecer na coluna "Proposição".
@@ -394,18 +538,30 @@ async function processarPDFModal(file) {
 
   label.textContent = '⏳ Lendo PDF...';
   try {
-    const itens = await lerListaDoPDF(file);
+    let itens = await lerListaDoPDF(file);
+    // O que a leitura por colunas não entregou vai para a IA (se houver chave), com trava contra invenção.
+    let viaIA = null;
+    if ((itensAConferir(itens).length || !itens.length) && app.config.apiKey) {
+      label.textContent = '⏳ Conferindo com a IA os itens que a leitura não entregou...';
+      viaIA = await recuperarComIA(itens);
+      itens = viaIA.itens;
+    }
     const props = itens.flatMap(it => proposicoesDoItem(it).map(p => ({ ...p, item: it })));
     _bufferPDF = { nome: file.name, itens, props };
 
     if (!props.length) {
-      label.textContent = '⚠ Nenhuma proposição encontrada no PDF';
+      label.textContent = app.config.apiKey ? '⚠ Nenhuma proposição encontrada no PDF (nem pela leitura por colunas, nem pela IA)'
+        : '⚠ Nenhuma proposição encontrada no PDF — formato não reconhecido. Com a chave de IA configurada (⚙ Configurações), a IA lê a lista';
       cx.style.display = 'none';
       document.getElementById('btn-criar-reuniao').disabled = true;
       return;
     }
 
-    label.textContent = `✓ ${file.name} — ${itens.length} itens, ${props.length} proposições`;
+    const problemas = conferirLeitura(itens);
+    const ia = viaIA?.recuperados.length ? ` · item(ns) ${viaIA.recuperados.join(', ')} lido(s) pela IA — confira` : '';
+    label.textContent = problemas.length
+      ? `⚠ ${file.name} — ${itens.length} itens, ${props.length} proposições${ia}. Confira: ${problemas.join('; ')}${app.config.apiKey ? '' : ' (com a chave de IA configurada, eu tentaria ler esses itens)'}`
+      : `${ia ? '⚠' : '✓'} ${file.name} — ${itens.length} itens, ${props.length} proposições${ia}`;
     lista.innerHTML = props.map(p => `<span class="lid-tag">${esc(p.chave)}</span>`).join('');
     cx.style.display = 'block';
     document.getElementById('btn-criar-reuniao').disabled = false;
@@ -448,6 +604,9 @@ async function criarReuniao() {
       autoriaPdf:    p.item.autoria,
       regimePdf:     p.item.regime,
       descricaoPdf:  p.item.descricao,
+      extrasPdf:     p.item.extras || {},   // Relator / Parecer / Solicitações de Pauta, quando a lista traz
+      lidoPorIA:     !!p.item.lidoPorIA,
+      avisoTeor:     p.item.lidoPorIA ? AVISO_LIDO_POR_IA : '',
       idCamara:      null,
       ementa:        '',
       autoresApi:    [],
@@ -1567,7 +1726,7 @@ async function resumirProposicao(it, signal) {
 
   it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa} ${it.comparativo}`, fonte);
   const votacao = textoEmVotacao(it);
-  const avisos = [];
+  const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
@@ -2117,6 +2276,7 @@ async function gerarPDF() {
   mostrarToast('Gerando PDF… escolha "Salvar como PDF" na janela.', '');
 }
 
+const ROTULO_EXTRA = { relator: 'Relator', parecer: 'Parecer', solicitacoes: 'Solicitações de Pauta' };
 function exportarPlanilha() {
   if (!app.reuniao?.itens?.length) { mostrarToast('Nada para exportar.', 'erro'); return; }
   if (typeof XLSX === 'undefined') { mostrarToast('Biblioteca de planilha não carregada.', 'erro'); return; }
@@ -2126,7 +2286,7 @@ function exportarPlanilha() {
   const cab = ['Nº', 'Proposição', 'Autoria', 'Objetivo', 'Justificativa', 'O que mudou',
                'Situação', 'Apensação e urgência', 'Comissões', 'Relatoria de Plenário', 'Parecer de Plenário', 'Emendas do Senado',
                'Cenário', 'Alertas', 'Ementa', 'Célula da lista (PDF)', 'Regime (PDF)',
-               'Inteiro teor', 'Texto em votação'];
+               'Inteiro teor', 'Texto em votação', 'Outras colunas da lista (PDF)'];
   const linhas = [cab, ...app.reuniao.itens.map(i => [
     i.numItem, [i.chave, ...etiquetasDe(i)].join(' – ') + (i.ehPrincipal ? ' (principal)' : ''),
     i.autoriaPdf || (i.autoresApi || []).join(', '),
@@ -2135,13 +2295,14 @@ function exportarPlanilha() {
     i.cenarioNome || '', avisosDe(i) || i.erro || '',
     i.ementa, i.celulaProp || '', i.regimePdf || '', i.urlInteiroTeor || '',
     textoEmVotacao(i)?.doc?.url || '',
+    Object.entries(i.extrasPdf || {}).map(([k, v]) => `${ROTULO_EXTRA[k] || k}: ${v}`).join(' · '),
   ])];
 
   const ws = XLSX.utils.aoa_to_sheet(linhas);
   ws['!cols'] = [{ wch: 5 }, { wch: 18 }, { wch: 28 }, { wch: 70 }, { wch: 70 }, { wch: 60 },
                  { wch: 34 }, { wch: 44 }, { wch: 40 }, { wch: 30 }, { wch: 50 }, { wch: 46 },
                  { wch: 34 }, { wch: 34 }, { wch: 60 }, { wch: 26 }, { wch: 24 },
-                 { wch: 46 }, { wch: 46 }];
+                 { wch: 46 }, { wch: 46 }, { wch: 60 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Reunião de Líderes');
 
