@@ -70,7 +70,7 @@ const sandbox = {
     return { ok: false, status: 404 };
   },
 };
-const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app, tramitacoesDaFicha, documentosDaFicha, emendaSenadoDe, fraseDaEmendaSenado, etiquetasDe };`)(...Object.values(sandbox));
+const L = new Function(...Object.keys(sandbox), `${fonte}\n; return { carregarDadosDaProposicao, fichaDoPortal, app, tramitacoesDaFicha, documentosDaFicha, emendaSenadoDe, fraseDaEmendaSenado, etiquetasDe, _htmlImpressaoLideres, semFalhaDeApi, avisosDe };`)(...Object.values(sandbox));
 const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano, celulaProp: '' }; await L.carregarDadosDaProposicao(it); return it; };
 
 (async () => {
@@ -128,6 +128,18 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
   console.log('\n== o resumo e o aviso ==');
   ok(/if \(!it\.idCamara \|\| it\.dadosPeloPortal\) await carregarDadosDaProposicao\(it\);/.test(fonte), 'item lido pelo portal é refeito pela API no próximo resumo');
   ok(/NÃO apurado: \$\{falta\.join\(', '\)\}/.test(fonte), 'o resumo leva o aviso do que não foi apurado');
+
+  console.log('\n== o PDF não leva mensagem de falha da API ==');
+  for (const it of [pl4675, sem, pec82, pl1403, pl2561]) {
+    it.avisoTeor = 'API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca); NÃO apurado: parecer de Plenário — refaça a busca quando a API voltar · Conferir no original: art. 5º';
+    it.numItem = '1'; it.objetivo = 'x'; it.justificativa = 'y'; it.comissoes = '';
+  }
+  const pdf = L._htmlImpressaoLideres({ titulo: 'RL 10/11', itens: [pl4675, sem, pec82, pl1403, pl2561] }, '');
+  const corpo = pdf.slice(pdf.indexOf('<tbody'));
+  ok(!/API|fora do ar|consulta à Câmara falhou|busca do portal/i.test(corpo), `nenhuma menção à falha da API no PDF${(corpo.match(/.{0,60}(API|fora do ar).{0,40}/i) || [''])[0] ? ': ' + (corpo.match(/.{0,60}(API|fora do ar).{0,40}/i) || [''])[0] : ''}`);
+  ok(/Não apurada\./.test(corpo) && /Não apurado\./.test(corpo) && /Conferir no original: art\. 5º/.test(corpo), 'o que não foi apurado continua dito ("Não apurada.") e os demais alertas ficam');
+  ok(/Designado: Dep\. Aliel Machado \(PV-PR\)/.test(corpo) && /Urgência aprovada \(REQ\. 4612\/2025\)/.test(corpo), 'os fatos apurados pelo portal saem normalmente');
+  ok(/API da Câmara fora do ar/.test(L.avisosDe(pl4675)), 'na tela o aviso continua (a equipe precisa saber de onde veio o dado)');
 
   console.log('\n== excluir a reunião ==');
   ok(/id="btn-excluir-reuniao"[^>]*>[\s\S]*?Excluir reunião/.test(html), 'botão "Excluir reunião" na barra da reunião aberta');
