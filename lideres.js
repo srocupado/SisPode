@@ -2570,11 +2570,12 @@ function montarMensagemPodemos() {
     const linhas = [`* *Item ${it.numItem} - ${it.celulaProp || it.chave}*`];
     linhas.push(`Autoria: ${it.autoriaPdf || (it.autoresApi || []).join(', ') || 'não informada'}`);
     linhas.push(`Ementa: ${it.ementa || it.descricaoPdf || '(sem ementa)'}`);
-    if (it.situacao) linhas.push(`Situação: ${it.situacao}`);
+    // Mensagem vai para fora da equipe: o mesmo filtro do PDF (sem a falha da API da Câmara).
+    if (it.situacao) linhas.push(`Situação: ${semFalhaDeApi(it.situacao)}`);
     for (const a of (it.apensadosPodemos || [])) {
       linhas.push(`Apensado do Podemos: ${a.chave} (${a.autores.join(', ')})`);
     }
-    if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${it.relatorDesignado || it.relatoria}`);
+    if (it.relatorPodemos) linhas.push(`Relatoria de Plenário: ${semFalhaDeApi(it.relatorDesignado || it.relatoria)}`);
     for (const p of (it.comissaoMistaPodemos || [])) linhas.push(rotuloComissaoMista(p));
     if ((it.solicitacaoPodemos || []).length) linhas.push(rotuloPautaPodemos(it.solicitacaoPodemos));
     return linhas.join('\n');
