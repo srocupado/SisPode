@@ -36,6 +36,7 @@ const BASE = [
   P(2641300, 'PL', 4555, 2026, { codProposicaoApensadaPai: 2641242, situacaoProposicao: 'Apensado ao PL 4554/2026', autores: [autor('Beltrano', 'PL', 'SP', 1), autor('Duda Ramos', 'PODE', 'RR', 2)] }),
   P(2556748, 'PL', 4399, 2025, { autores: [autor('Delegado Bruno Lima', 'PP', 'SP', 1)] }),
   P(2611932, 'PL', 1403, 2026, { autores: [autor('Renata Abreu', 'PODE', 'SP', 1)] }),
+  P(2562481, 'PL', 4675, 2025, { autores: [{ nome: 'Poder Executivo', numSequencial: 1 }] }),
 ];
 // Busca de mentira com a semântica da real: campo:valor, AND, aspas.
 function buscar(q) {
@@ -58,6 +59,8 @@ const sandbox = {
       const todos = buscar(q), pag = todos.slice((pagina - 1) * 2, pagina * 2);   // 2 por página: exercita a paginação
       return { ok: true, status: 200, json: async () => ({ hits: { total: { value: todos.length }, hits: pag.map(_source => ({ _source })) } }) };
     }
+    if (/fichadetramitacao\?idProposicao=2562481$/.test(url)) return { ok: true, status: 200, text: async () => WS('ficha-PL-4675-2025.html') };
+    if (/prop_pareceres_substitutivos_votos\?idProposicao=2562481$/.test(url)) return { ok: true, status: 200, text: async () => WS('pareceres-PL-4675-2025.html') };
     if (url.includes('SitCamaraWS')) {
       chamadas.ws++;
       const m = /tipo=(\w+)&numero=(\d+)&ano=(\d+)/.exec(url);
@@ -90,6 +93,16 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
   const pl4399 = await carregar('PL', 4399, 2025);
   ok(/^Sem apensação\./.test(pl4399.apensacao) && !pl4399.autoriaPodemos, 'sem apensados e sem Podemos: diz isso');
 
+  console.log('\n== situação da urgência, relatoria e parecer pelo portal (ficha e pareceres reais do PL 4675/2025) ==');
+  const pl4675 = await (async () => { const it = { sigla: 'PL', numero: 4675, ano: 2025, celulaProp: '', regimePdf: 'Urgência aprovada em 18/03/2026' }; await L.carregarDadosDaProposicao(it); return it; })();
+  ok(pl4675.situacao === 'Urgência aprovada (REQ. 4612/2025)' && !pl4675.situacaoFalhou, `situação pela ficha ("Aprovado o requerimento nº 4612/2025,do Sr. …"): ${pl4675.situacao}`);
+  ok(pl4675.relatoria === 'Dep. Aliel Machado (PV-PR)', `relatoria pela ficha ("Designado Relator"): ${pl4675.relatoria}`);
+  ok(pl4675.parecerPlen && pl4675.parecerPlen.data === '2026-07-08' && /^Parecer proferido em Plenário em 08\/07\/2026, pelo relator Dep\. Aliel Machado/.test(pl4675.parecer), `parecer pelo histórico de pareceres: ${pl4675.parecer}`);
+  ok(/codteor=3159491/.test(pl4675.parecerPlen.merito?.url || pl4675.parecerPlen.pareceres[0].url), 'o inteiro teor do PRLP vai para a IA');
+  ok(JSON.stringify(pl4675.portalApurou) === '{"tramitacao":true,"pareceres":true}', 'marca o que o portal apurou (o aviso do item lista só o que faltou)');
+  const sem = await carregar('PL', 1403, 2026);   // páginas do portal indisponíveis (404) para este
+  ok(/Não apurada/.test(sem.situacao) && /Não apurado/.test(sem.parecer) && JSON.stringify(sem.portalApurou) === '{"tramitacao":false,"pareceres":false}', 'sem as páginas do portal, continua NÃO apurado (nunca "não há")');
+
   console.log('\n== busca do portal também fora: webservice (2ª via) ==');
   buscaFora = true;
   const pl1403 = await carregar('PL', 1403, 2026);
@@ -103,7 +116,7 @@ const carregar = async (sigla, numero, ano) => { const it = { sigla, numero, ano
 
   console.log('\n== o resumo e o aviso ==');
   ok(/if \(!it\.idCamara \|\| it\.dadosPeloPortal\) await carregarDadosDaProposicao\(it\);/.test(fonte), 'item lido pelo portal é refeito pela API no próximo resumo');
-  ok(/if \(it\.dadosPeloPortal\) avisos\.push\('API da Câmara fora do ar: .*NÃO apurados/.test(fonte), 'o resumo leva o aviso do que não foi apurado');
+  ok(/NÃO apurado: \$\{falta\.join\(', '\)\}/.test(fonte), 'o resumo leva o aviso do que não foi apurado');
 
   console.log('\n== excluir a reunião ==');
   ok(/id="btn-excluir-reuniao"[^>]*>[\s\S]*?Excluir reunião/.test(html), 'botão "Excluir reunião" na barra da reunião aberta');

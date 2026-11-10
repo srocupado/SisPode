@@ -830,6 +830,118 @@ async function arvoreApensadosPortal(raiz) {
   return { apensados: out, truncado };
 }
 
+// ---------- Contingência dos FATOS pelo portal (API fora) ----------
+// Situação da urgência, relatoria de Plenário e parecer de Plenário saem das
+// MESMAS regras de sempre (situacaoDe, relatoriaDe, parecerPlenarioDe); muda
+// só a fonte: a ficha de tramitação e o histórico de pareceres do portal,
+// convertidos no formato da API. Conferido em 10/11/2026 no PL 4675/2025:
+// "18/03/2026 Plenário ( PLEN ) Aprovado o requerimento nº 4612/2025 …
+// urgência", "07/10/2025 Plenário ( PLEN ) Designado Relator, Dep. Aliel
+// Machado (PV-PR)." e "PRLP 1 => PL 4675/2025 · 08/07/2026 · Aliel Machado".
+const textoHtml = h => String(h || '').replace(/<!--[\s\S]*?-->/g, ' ').replace(/<[^>]+>/g, ' ')
+  .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(+d)).replace(/&#x([0-9a-f]+);/gi, (_, x) => String.fromCodePoint(parseInt(x, 16)))
+  .replace(/&nbsp;/g, ' ').replace(/&quot;/g, '"').replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+  .replace(/&([a-z]+);/gi, (m, n) => ({ aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', atilde: 'ã', otilde: 'õ', ccedil: 'ç', acirc: 'â', ecirc: 'ê', ocirc: 'ô', agrave: 'à', Aacute: 'Á', Eacute: 'É', Uacute: 'Ú', Ccedil: 'Ç', Atilde: 'Ã', ordm: 'º', amp: '&' })[n] || m)
+  .replace(/\s+/g, ' ').trim();
+const isoDeBR = d => { const m = /(\d{2})\/(\d{2})\/(\d{4})/.exec(d || ''); return m ? `${m[3]}-${m[2]}-${m[1]}` : ''; };
+
+/** Ficha de tramitação (HTML do portal) → tramitações no formato da API, em ordem cronológica. */
+function tramitacoesDaFicha(html) {
+  const out = [], vistos = new Set();
+  for (const tr of String(html || '').split(/<tr\b/i).slice(1)) {
+    const data = /<td[^>]*>\s*(\d{2}\/\d{2}\/\d{4})\s*<\/td>/i.exec(tr);
+    const org = /<strong>([\s\S]*?)<\/strong>/i.exec(tr);
+    const lis = [...tr.matchAll(/<li[^>]*class="[^"]*liTabelaTramitacoes[^"]*"[^>]*>([\s\S]*?)<\/li>/gi)].map(m => textoHtml(m[1].replace(/<a[\s\S]*?<\/a>/gi, ' ')));
+    if (!data || !org || !lis.length) continue;
+    const orgao = textoHtml(org[1]);
+    const sigla = (/\(\s*([A-Z0-9-]+)\s*\)\s*$/.exec(orgao) || [])[1] || '';
+    const despacho = lis.filter(Boolean).join(' ');
+    const chave = `${data[1]}|${sigla}|${despacho}`;
+    if (!despacho || vistos.has(chave)) continue;   // a "Última Ação Legislativa" repete uma linha
+    vistos.add(chave);
+    out.push({
+      dataHora: isoDeBR(data[1]), siglaOrgao: sigla, despacho,
+      // A API classifica cada tramitação; o portal só traz o texto. As regras
+      // de relatoria olham a classificação "Designação de Relator".
+      // ("Aprovado o requerimento nº 4612/2025,do Sr. Fulano, que solicita urgência" — o "Sr." tem ponto,
+      // e a regra pelo despacho exige texto sem ponto entre "requerimento" e "urgência").
+      descricaoTramitacao: /^designad[oa]\s+relator/i.test(despacho) ? 'Designação de Relator'
+        : /^aprovad[oa]\s+o\s+requerimento[\s\S]{0,200}?urg[êe]ncia/i.test(despacho) ? 'Aprovação de Urgência' : '',
+    });
+  }
+  return out.sort((a, b) => a.dataHora.localeCompare(b.dataHora));
+}
+
+/** Histórico de Pareceres, Substitutivos e Votos (HTML do portal) → documentos no formato de buscarDocumentosRelacionados. */
+function documentosDaPaginaPareceres(html) {
+  const out = [];
+  const secoes = String(html || '').split(/<h4[^>]*>/i).slice(1);
+  for (const sec of secoes) {
+    const titulo = textoHtml(sec.split(/<\/h4>/i)[0]);
+    const orgao = (/\(\s*([A-Z0-9-]+)\s*\)\s*$/.exec(titulo) || [])[1] || '';
+    for (const tr of sec.split(/<tr\b/i).slice(1)) {
+      const tds = [...tr.matchAll(/<td[^>]*>([\s\S]*?)<\/td>/gi)].map(m => m[1]);
+      if (tds.length < 5) continue;
+      const tipo = (/^([A-Z][A-Z-]*)\s+\d/.exec(textoHtml(tds[0])) || [])[1];
+      if (!tipo) continue;
+      const link = /href="([^"]*prop_mostrarintegra[^"]*)"/i.exec(tds[4]);
+      out.push({
+        tipo, orgao, data: isoDeBR(textoHtml(tds[2])), autor: textoHtml(tds[3]),
+        ementa: textoHtml(tds[4].replace(/<a[\s\S]*?<\/a>/gi, ' ')),
+        url: link ? new URL(link[1].replace(/&amp;/g, '&'), 'https://www.camara.leg.br/proposicoesWeb/').toString() : null,
+      });
+    }
+  }
+  return out;
+}
+
+/** HTML de uma página da Câmara: direto e, sem CORS, pelos proxies dos outros painéis. `valido` confere que é a página certa. */
+async function baixarHtmlCamara(url, valido) {
+  const vias = [() => fetch(url, { redirect: 'follow' }), () => fetch(WORKER + encodeURIComponent(url)), () => fetch(CODETABS + encodeURIComponent(url))];
+  for (const tentar of vias) {
+    try {
+      const r = await tentar();
+      if (!r.ok) continue;
+      const h = await r.text();
+      if (valido(h)) return h;
+    } catch (_) { /* próxima via */ }
+  }
+  return null;
+}
+
+/** Situação da urgência, relatoria e parecer de Plenário pelo portal. Devolve o que conseguiu apurar. */
+async function apurarFatosPeloPortal(it) {
+  const base = 'https://www.camara.leg.br/proposicoesWeb/';
+  const [ficha, pareceres] = await Promise.all([
+    baixarHtmlCamara(`${base}fichadetramitacao?idProposicao=${it.idCamara}`, h => /liTabelaTramitacoes/.test(h)),
+    baixarHtmlCamara(`${base}prop_pareceres_substitutivos_votos?idProposicao=${it.idCamara}`, h => /Pareceres, Substitutivos e Votos/i.test(textoHtml(h.slice(0, 200000)))),
+  ]);
+  const trams = ficha ? tramitacoesDaFicha(ficha) : null;
+  const apurado = { tramitacao: !!(trams && trams.length), pareceres: pareceres != null };
+  if (apurado.tramitacao) {
+    it.situacao       = situacaoDe(trams, it.regimePdf);
+    it.situacaoFalhou = false;
+    it.relatoria      = await relatoriaDe(trams, null);
+    it.despachos      = despachosDeComissao(trams, null);
+  }
+  if (apurado.pareceres) {
+    const docs = documentosDaPaginaPareceres(pareceres);
+    it.parecerPlen = parecerPlenarioDe(docs);
+    it.sbtComissao = substitutivoComissaoDe(docs);
+    it.subemenda   = subemendaDe(docs);
+    it.especial    = it.sigla === 'PEC' ? comUrl(docs.filter(d => ehComissaoEspecial(d) && ['PRL', 'SBT-A', 'SBT'].includes(d.tipo))) : [];
+    it.cenario     = cenarioDe(it, docs);
+    it.cenarioNome = NOME_CENARIO[it.cenario] || '';
+    it.parecerFato = fraseDoParecer(it.parecerPlen);
+    it.parecer     = it.parecerFato;
+    if (it.relatoria === 'Sem indicação' && it.parecerPlen?.relator) {
+      it.relatoria = `${it.parecerPlen.relator} (parecer de ${dataBR(it.parecerPlen.data)})`;
+    }
+  }
+  if (apurado.tramitacao || apurado.pareceres) it.relatorPodemos = ehRelatorPodemos(it.relatoria);
+  return apurado;
+}
+
 async function carregarDadosPeloPortal(it, erroApi) {
   let hit = null;
   try {
@@ -914,8 +1026,12 @@ async function carregarDadosPeloPortal(it, erroApi) {
   it.cenarioNome  = NOME_CENARIO[it.cenario] || '';
   it.parecerFato  = 'Não apurado (API fora do ar).';
   it.senadoFato   = 'Não apurado (API fora do ar).';
-  if (!it.parecer) it.parecer = it.parecerFato;
+  it.parecer      = it.parecerFato;
   if (!it.senado)  it.senado  = it.senadoFato;
+  // Situação da urgência, relatoria e parecer: contingência pela ficha e pelos pareceres do portal.
+  let apurado = { tramitacao: false, pareceres: false };
+  try { apurado = await apurarFatosPeloPortal(it); } catch (_) { /* ficam não apurados */ }
+  it.portalApurou = apurado;
 }
 
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
@@ -1182,7 +1298,9 @@ function relatorDaEmenta(pareceres) {
     const m = (p.ementa || '').match(/Relator(?:a)?,?\s*Dep\.?\s*([^(,;]+?)\s*\(([^)]+)\)/i);
     if (m) return `Dep. ${m[1].trim()} (${m[2].trim()})`;
   }
-  return '';
+  // Pelo portal (API fora), o relator vem na coluna Autor do histórico de pareceres.
+  const autor = pareceres.map(p => p.autor).find(Boolean);
+  return autor ? `Dep. ${autor}` : '';
 }
 
 const dataBR = iso => /^\d{4}-\d{2}-\d{2}$/.test(iso || '')
@@ -1904,7 +2022,11 @@ async function resumirProposicao(it, signal) {
   it.refsSuspeitas = validarReferencias(`${it.objetivo} ${it.justificativa} ${it.comparativo}`, fonte);
   const votacao = textoEmVotacao(it);
   const avisos = it.lidoPorIA ? [AVISO_LIDO_POR_IA] : [];
-  if (it.dadosPeloPortal) avisos.push('API da Câmara fora do ar: ementa, autores, apensação e inteiro teor vieram do portal; situação da urgência, relatoria e parecer NÃO apurados — refaça a busca quando a API voltar');
+  if (it.dadosPeloPortal) {
+    const ap = it.portalApurou || {};
+    const falta = [!ap.tramitacao && 'situação da urgência e relatoria', !ap.pareceres && 'parecer de Plenário', 'emendas do Senado'].filter(Boolean);
+    avisos.push(`API da Câmara fora do ar: dados lidos do portal da Câmara (ficha de tramitação, pareceres, busca); NÃO apurado: ${falta.join(', ')} — refaça a busca quando a API voltar`);
+  }
   if (!temOriginal) {
     it.justificativa = 'Justificativa não consta do inteiro teor disponível.';
     avisos.push('Inteiro teor indisponível — resumo feito só com ementa e tramitação.');
