@@ -12,6 +12,7 @@
 //   2. Urgência ao PL 2167/2026 (apelido)
 //
 // e, sem a pauta publicada, "🗒️  *Pauta a ser divulgada oportunamente.*".
+// Sessão semipresencial ganha, em seguida, o aviso do registro pelo app Infoleg.
 // Quando a pauta sai DEPOIS de um aviso sem pauta, a convocação é reenviada
 // uma vez, já com a pauta.
 //
@@ -73,6 +74,12 @@ function cabecalho(ev) {
   const h = horaBR(ev.hora);
   return `❗ *CONVOCAÇÃO DE ${tipoSessao(ev.nome)} – ${dia} (${String(d).padStart(2, '0')}/${String(m).padStart(2, '0')})${h ? ` – ${h}` : ''}*`;
 }
+// Sessão SEMIPRESENCIAL (pedido de 10/11/2026): logo depois da convocação, um
+// segundo aviso — presença e voto pelo app Infoleg. Vai só no 1º anúncio da
+// sessão (o reenvio com a pauta não repete).
+const AVISO_SEMIPRESENCIAL = '*ATENÇÃO*❗️\n\n*Registro de presença e participação pelo app Infoleg*';
+const ehSemipresencial = ev => /semipresencial/i.test(`${ev.nome || ''} ${ev.tipo || ''}`);
+
 /** A mensagem inteira. `linhas` vazio = pauta ainda não publicada. */
 function montarMensagem(ev, linhas) {
   return cabecalho(ev) + '\n\n' + (linhas && linhas.length
@@ -257,6 +264,10 @@ async function tickConvocacoes(cfg = _cfg) {
     const linhas = itens.length ? await linhasDaPauta(itens, { perfil: cfg.perfilIA ? cfg.perfilIA() : null, pautaImportada }) : [];
     const texto = montarMensagem(ev, linhas);
     await cfg.api.sendMessage(destino, texto);
+    if (!ja && ehSemipresencial(ev)) {
+      await cfg.api.sendMessage(destino, AVISO_SEMIPRESENCIAL)
+        .catch(e => console.warn(`[convocacao] aviso de semipresencial da sessão ${ev.id} falhou: ${e.message}`));
+    }
     await gravar(`/bot/convocacoes/${ev.id}`, { data: ev.data, hora: ev.hora, comPauta: linhas.length > 0, enviadaEm: new Date().toISOString() })
       .catch(e => console.warn(`[convocacao] registro da sessão ${ev.id} não foi salvo: ${e.message}`));
     enviadas.push(texto);
@@ -280,7 +291,7 @@ function iniciarConvocacoes(cfg) {
 }
 
 module.exports = {
-  iniciarConvocacoes, tickConvocacoes,
+  iniciarConvocacoes, tickConvocacoes, AVISO_SEMIPRESENCIAL, ehSemipresencial,
   ehSessaoDeliberativa, ehConvocada, tipoSessao, cabecalho, montarMensagem, itensDoPortal, itensDaApi, alvoDaUrgencia,
   linhaItem, apelidoFallback, promptApelido, normalizarReferencias, agoraSP,
 };

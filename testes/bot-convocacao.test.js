@@ -72,6 +72,9 @@ const cfg = {
 (async () => {
   let m = await C.tickConvocacoes(cfg);
   ok(m.length === 1 && env[0].chat === 'GRUPO' && /Pauta a ser divulgada oportunamente/.test(env[0].texto) && fb[83243] && fb[83243].comPauta === false, 'convocada sem pauta: avisa e registra');
+  ok(env.length === 2 && env[1].chat === 'GRUPO' && env[1].texto === '*ATENÇÃO*❗️\n\n*Registro de presença e participação pelo app Infoleg*', 'semipresencial: em seguida, o aviso do app Infoleg (texto exato)');
+  ok(!C.ehSemipresencial({ nome: 'Sessão Deliberativa Extraordinária', tipo: 'Sessão para a votação de propostas legislativas' }), 'presencial não recebe o aviso');
+  env.splice(1, 1);   // daqui em diante só as convocações
   m = await C.tickConvocacoes(cfg);
   ok(m.length === 0 && env.length === 1, 'o tick seguinte não repete');
   pagina = comPauta;   // a pauta saiu
@@ -80,7 +83,7 @@ const cfg = {
   ok(m.length === 1 && /^❗ \*CONVOCAÇÃO DE SESSÃO EXTRAORDINÁRIA – TERÇA-FEIRA \(10\/11\) – 13h55\*\n\n🗒️  \*Pauta\*\n1\. /.test(t || ''), 'a pauta saiu: reenvia a convocação com a pauta');
   ok(/^1\. Urgência ao PL 2167\/2026 \(Cria a Política Nacional de Cuidados Paliativos\)$/m.test(t || '') && /^5\. PL 5815\/2025 \(/m.test(t || ''), 'itens numerados com apelido (sem IA: o de reserva; urgência pela ementa do projeto)');
   m = await C.tickConvocacoes(cfg);
-  ok(m.length === 0 && env.length === 2 && fb[83243].comPauta === true, 'com pauta enviada, não manda mais');
+  ok(m.length === 0 && env.length === 2 && fb[83243].comPauta === true, 'com pauta enviada, não manda mais (e o reenvio com a pauta não repetiu o aviso do Infoleg)');
   const falhaFb = { ...cfg, fbGet: async () => { throw new Error('Firebase GET 503'); } };
   let erro = null; try { await C.tickConvocacoes({ ...falhaFb, agora: () => '2026-11-10T09:00' }); } catch (e) { erro = e.message; }
   ok(erro && env.length === 2, 'sem ler o registro, não envia (evita mensagem em dobro)');
