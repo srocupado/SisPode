@@ -2575,6 +2575,21 @@ async function carregarLogoDataUrl() {
 
 /** As mesmas colunas da interface, MENOS "Emendas do Senado" — ela lista os
  *  documentos considerados, que interessam à revisão, não à reunião. */
+/** O PDF vai para fora da equipe: nada de mensagem de falha da API da Câmara
+ *  (pedido de 10/11/2026). Sai o aviso "API da Câmara fora do ar…", a nota de
+ *  fonte da apensação e o "(API fora do ar)" dos campos não apurados — que
+ *  continuam ditos "Não apurado(a).". A tela e a planilha mantêm a explicação. */
+function semFalhaDeApi(txt) {
+  return String(txt || '')
+    .split(' · ').filter(a => !/^\s*API da Câmara fora do ar/i.test(a)).join(' · ')
+    .split('\n').filter(l => !/^\(Apensação pela busca do portal; API da Câmara fora do ar\.\)$/.test(l.trim())).join('\n')
+    .replace(/Não apurada — a API de Dados Abertos da Câmara está fora do ar; refaça a busca quando ela voltar, antes de usar\./g, 'Não apurada.')
+    .replace(/Não apurada — a consulta de tramitação na Câmara falhou; refaça a busca antes de usar\./g, 'Não apurada.')
+    .replace(/\s*\((?:API (?:e busca do portal )?fora do ar|consulta à Câmara falhou|principal não apurado — API fora do ar)\)/g, '')
+    .replace(/\s*\(API da Câmara fora do ar \([^)]*\) e o portal também falhou \([^)]*\)\)/g, '')
+    .trim();
+}
+
 function _htmlImpressaoLideres(reuniao, logoDataUrl) {
   const itens = reuniao.itens || [];
   const meta = `${esc(reuniao.titulo || '')} · ${itens.length} proposição(ões)`;
@@ -2582,11 +2597,11 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
   const linhas = itens.map(it => {
     const marcas = etiquetasDe(it).map(t => `<span class="marca">${esc(t)}</span>`).join('');
     const apenso = it.ehPrincipal ? '<span class="apenso">principal</span>' : '';
-    const avisoTxt = avisosDe(it);
+    const avisoTxt = semFalhaDeApi(avisosDe(it));
     const aviso  = avisoTxt ? `<div class="aviso">${esc(avisoTxt)}</div>` : '';
     // Tarja amarela para autoria/relatoria do Podemos, com o selo textual junto
     // — numa impressão em preto e branco a tarja some, o selo fica.
-    const doPode = it.autoriaPodemos || it.relatorPodemos || (it.apensadosPodemos || []).length;
+    const doPode = itemDoPodemosLideres(it);
     // Cada selo nomeia o(a) deputado(a) do Podemos que dá o atributo — o selo
     // sem nome obrigava a caçar na linha quem era.
     const nomesAut = (it.autoresPodemos || []).join(', ');
@@ -2602,11 +2617,11 @@ function _htmlImpressaoLideres(reuniao, logoDataUrl) {
       <td>${esc(it.objetivo)}</td>
       <td>${esc(it.justificativa)}</td>
       <td>${esc(it.comparativo || '')}</td>
-      <td>${esc(it.situacao)}</td>
-      <td>${esc(it.apensacao || '')}</td>
+      <td>${esc(semFalhaDeApi(it.situacao))}</td>
+      <td>${esc(semFalhaDeApi(it.apensacao))}</td>
       <td>${esc(it.comissoes)}</td>
-      <td>${esc(it.relatoria)}</td>
-      <td>${esc(it.parecer || '')}</td>
+      <td>${esc(semFalhaDeApi(it.relatoria))}</td>
+      <td>${esc(semFalhaDeApi(it.parecer))}</td>
     </tr>`;
   }).join('');
 
