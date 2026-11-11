@@ -360,8 +360,10 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       temperature: 0.2,
       max_output_tokens: maxSaida,
     };
-    // Modelos de raciocínio (o*, gpt-5*) não aceitam temperature e recebem o esforço.
-    if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { delete body.temperature; body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
+    // Modelos de raciocínio (o*, gpt-5*) não aceitam temperature — em NENHUMA chamada, não só nas de
+    // raciocínio alto (a nota comum, o apelido e o chat também iam com 0.2) — e recebem o esforço.
+    if (/^(o\d|gpt-5)/.test(m)) delete body.temperature;
+    if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
     if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
     if (pensarAlto) {
       body.stream = true;

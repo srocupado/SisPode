@@ -266,7 +266,8 @@ async function recuperarLacunasImportacao(texto, parsed) {
         provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo,
         prompt, pdfBuffers: [], opcoes: { maxSaida: 6000 },
       })).text,
-      confirmar: async ref => { try { await resolveProposicao(ref.sigla, ref.numero, ref.ano); return true; } catch (_) { return false; } },
+      // requerimento homônimo (vários com o mesmo número) existe: a ambiguidade não é "a Câmara não confirmou"
+      confirmar: async ref => { try { await resolveProposicao(ref.sigla, ref.numero, ref.ano); return true; } catch (e) { return !!e.ambiguo; } },
     });
   }
   // Não duplica proposição que o leitor já trouxe em outro número.
@@ -759,6 +760,7 @@ function renderCard(it) {
   inpApelido.addEventListener('change', () => {
     const v = inpApelido.value.trim();
     it.apelido = v;
+    it.apelidoManual = !!v;   // digitado pela equipe: vai gravado no item da pauta (o de reserva, da ementa, não)
     if (it.analise) {
       it.analise.apelido = v;
       fbSalvarAnalise(it)
@@ -953,7 +955,10 @@ function vinculosDoEvento(dataISO) {
         }
       }
       return mapa;
-    })().catch(() => { _vinculosEvento.delete(dataISO); return new Map(); });   // falha não fica no cache
+    })().catch(() => {   // falha não fica no cache — e volta MARCADA (não é "a sessão não tem o requerimento")
+      _vinculosEvento.delete(dataISO);
+      return Object.assign(new Map(), { falhou: true });
+    });
     _vinculosEvento.set(dataISO, p);
   }
   return _vinculosEvento.get(dataISO);
@@ -971,9 +976,13 @@ async function apurarVinculoReq(it) {
   let ficha = null, fichaFalhou = false;
   if (/^\d+$/.test(String(it.numero))) {
     try { ficha = detectarProjetoUrgenciado((await resolveProposicao(it.sigla, it.numero, it.ano)).ementa); }
-    catch (_) { fichaFalhou = true; }
+    // Fonte que FALHOU mantém o que ela já tinha dito: com a API e o portal fora, o vínculo apurado
+    // na véspera virava null, e o auto-save gravava o requerimento sem projeto para toda a equipe
+    // (revisão de 11/11/2026). Requerimento homônimo (ambíguo) não é falha de rede: fica sem ficha.
+    catch (e) { fichaFalhou = true; if (!e.ambiguo) ficha = v.ficha || null; }
   }
-  const evento = (await vinculosDoEvento(dataPautaISO())).get(`${it.sigla}-${it.numero}-${it.ano}`) || null;
+  const mapaEvento = await vinculosDoEvento(dataPautaISO());
+  const evento = mapaEvento.get(`${it.sigla}-${it.numero}-${it.ano}`) || (mapaEvento.falhou ? v.evento || null : null);
   const d = decidirVinculo({ evento, ficha, pdf });
   it.vinculo = { fonte: d.fonte, pdf, ficha, evento, divergencia: d.divergencia, fichaFalhou };
   if (d.alvo) {
@@ -1096,7 +1105,9 @@ async function enriquecerItem(it) {
       const apensados = await resolverApensados(prop.id);
       it.enriquecimento.apensados = apensados;
       it.enriquecimento.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
-      delete it.enriquecimento.apensadosFalha;
+      const incertos = apensados.filter(ap => ap.autoriaIncerta).length;
+      if (incertos) it.enriquecimento.apensadosFalha = `autoria de ${incertos} apensado(s) não verificada`;
+      else delete it.enriquecimento.apensadosFalha;
     } catch (e) {
       if (isAbortError(e)) throw e;
       console.warn(`Apensados de ${alvo.sigla} ${alvo.numero}/${alvo.ano} não consultados:`, e.message);
@@ -1210,15 +1221,26 @@ async function resolveProposicao(sigla, numero, ano) {
   let hit = null, det;
   try {
     for (const s of tentativas) {
-      const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}`;
+      const url = `${API_BASE}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${numero}&ano=${ano}&itens=100`;
       const json = await fetchJson(url);
-      hit = (json.dados || [])[0];
+      const dados = json.dados || [];
+      hit = dados[0];
+      // REQ: o mesmo número e ano existem em vários órgãos (MEDIDO em 11/11/2026: REQ 5/2026 devolve
+      // 15 — sessão solene, audiência pública, moção…). O da pauta do Plenário é o de urgência; sem
+      // exatamente um assim, a consulta é ambígua e NÃO escolhe (antes valia o primeiro da lista, e a
+      // ementa de um homônimo podia apontar o projeto errado, com prioridade sobre o texto do PDF).
+      if (s === 'REQ' && dados.length > 1) {
+        const urg = dados.filter(d => /urg[êe]ncia/i.test(d.ementa || ''));
+        if (urg.length !== 1) throw Object.assign(new Error(`${dados.length} requerimentos ${numero}/${ano} na Câmara — não dá para saber qual é o da pauta.`), { ambiguo: true });
+        hit = urg[0];
+      }
       if (hit) break;
     }
     if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
     // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
     det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   } catch (e) {
+    if (e.ambiguo) throw e;   // a API respondeu; o portal teria a mesma ambiguidade
     // API de Dados Abertos fora do ar: o id e o inteiro teor saem do webservice
     // antigo, no portal (www.camara.leg.br). Com o id, pareceres, redação final
     // e documentos vêm do portal como sempre — a análise não fica bloqueada.
@@ -1627,8 +1649,13 @@ async function resolverApensados(idProp) {
       const aps = await fetchAutoresProposicao(ap.id);
       ap.autores = aps;
       ap.autoriaPodemos = aps.some(a => a.isPodemos);
+      // nenhum autor do Podemos, mas algum não pôde ser consultado: fica NÃO VERIFICADA
+      ap.autoriaIncerta = !ap.autoriaPodemos && aps.some(a => a.autoriaIncerta);
     } catch (e) {
+      // "Não consegui apurar" não é "não é do Podemos": quem chama marca o item para o ↻ Reverificar
+      // (antes o apensado sumia do selo, da nota e da mensagem, sem aviso — revisão de 11/11/2026).
       ap.autoriaPodemos = false;
+      ap.autoriaIncerta = true;
     }
   }
   return apensados;
@@ -1800,7 +1827,10 @@ async function buscarEmendasSenadoESSP(idProp) {
   const base = 'https://www.camara.leg.br/proposicoesWeb/';
   for (const subst of [0, 1]) {
     const html = await fetchHtmlCamara(`${base}prop_emendas?idProposicao=${idProp}&subst=${subst}`);
-    if (!html) continue;
+    // `falha: true` distingue "página não veio" de "sem emendas do Senado", como em
+    // buscarPareceresPlenario: sem a marca, a falha ficava em cache como "sem EMS" e o projeto que
+    // voltou do Senado era analisado sobre o texto anterior (revisão de 11/11/2026).
+    if (!html) { out.falha = true; continue; }
     const doc = new DOMParser().parseFromString(html, 'text/html');
     for (const tr of doc.querySelectorAll('tr')) {
       const a = tr.querySelector('a[href*="prop_mostrarintegra"], a[href*="codteor"]');
@@ -2187,7 +2217,7 @@ function atualizarBadgesCard(it) {
   }
   if (enr.apensadosFalha && !enr.autoriaIncerta) {
     // Autoria apurada, apensados não (só a API os informa): botão para tentar de novo.
-    flag.title = (flag.title ? flag.title + ' ' : '') + 'Apensados não consultados (API da Câmara fora do ar) — use ↻ Reverificar.';
+    flag.title = (flag.title ? flag.title + ' ' : '') + `Apensados não verificados por inteiro (${enr.apensadosFalha}) — use ↻ Reverificar.`;
     anexarBotaoReverificar(it, flag);
   }
 
@@ -3031,7 +3061,9 @@ function desatualizacaoOperativa(it) {
     .sort();
   const dataMaxSalva = datasSalvas.length ? datasSalvas[datasSalvas.length - 1] : null;
   const novos = operativosAtuais(it).filter(d =>
-    d.url && !urlsSalvas.has(d.url) && (!dataMaxSalva || (d.data && d.data > dataMaxSalva))
+    // `>=`, não `>`: versão nova publicada no MESMO dia (PRLP 3 depois do PRLP 2, comum durante a
+    // sessão) tem URL nova e a mesma data — com `>` a verificação respondia "em dia" (revisão de 11/11/2026).
+    d.url && !urlsSalvas.has(d.url) && (!dataMaxSalva || (d.data && d.data >= dataMaxSalva))
   );
   return { novos };
 }
@@ -3075,9 +3107,14 @@ async function escolherDocumentos(it) {
     // Emendas do Senado (EMS) e Subemenda Substitutiva (SSP) vivem na página de
     // emendas — busca sob demanda (só ao gerar), com cache no próprio item.
     // PECs e PDLs seguem rito próprio (sem retorno do Senado).
-    if (it.sigla !== 'PEC' && !ehPDL(it) && !ehMPV(it) && enr.emendasSenado === undefined && enr.idProposicao) {
+    if (it.sigla !== 'PEC' && !ehPDL(it) && !ehMPV(it) && (enr.emendasSenado === undefined || enr.emendasSenado.falha) && enr.idProposicao) {
       try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
-      catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null }; }
+      catch (e) { console.warn('Falha ao buscar EMS/SSP:', e.message); enr.emendasSenado = { ems: null, ssp: null, falha: true }; }
+      // Página de emendas que não veio NÃO é "sem emendas do Senado": seguir daria uma nota sobre o
+      // texto anterior ao Senado. (Com a EMS em mãos o cenário já está definido, e a nota segue.)
+      if (enr.emendasSenado.falha && !enr.emendasSenado.ems) {
+        throw new Error('Não consegui ler a página de emendas na Câmara — tente de novo em instantes (sem ela, um projeto que voltou do Senado sairia analisado sobre o texto anterior).');
+      }
     }
     const { ems = null, ssp = null } = enr.emendasSenado || {};
 
@@ -3159,7 +3196,8 @@ async function escolherDocumentos(it) {
       //    resumo dá ao analista a percepção do que foi enviado. Quando não
       //    houver Autógrafo, cai no inteiro teor (texto original) como aproximação.
       // O PRLE NÃO é anexado neste caso (não é o documento operativo).
-      const prlpPosEMS = !!(par.prlp && par.prlp.data && ems.data && par.prlp.data > ems.data);
+      // `>=`: o parecer proferido no mesmo dia em que as emendas do Senado chegaram é o delas
+      const prlpPosEMS = !!(par.prlp && par.prlp.data && ems.data && par.prlp.data >= ems.data);
       docs.push({ tipo: 'EMS', rotulo: rotuloEMS, url: ems.url });
       if (prlpPosEMS) docs.push({ tipo: 'PRLP', rotulo: rotuloPRLP, url: par.prlp.url });
       if (par.autografo) {
@@ -3250,6 +3288,8 @@ async function escolherDocumentos(it) {
       const apensados = await resolverApensados(enr.idProposicao);
       enr.apensados = apensados;
       enr.apensadosPodemos = apensados.filter(ap => ap.autoriaPodemos);
+      const incertos = apensados.filter(ap => ap.autoriaIncerta).length;
+      if (incertos) enr.apensadosFalha = `autoria de ${incertos} apensado(s) não verificada`;
     } catch (e) { console.warn('Falha ao resolver apensados sob demanda:', e.message); }
   }
 
@@ -4709,8 +4749,12 @@ async function verificarAtualizacaoItem(it) {
     } else if (it.sigla !== 'PEC' && !ehPDL(it)) {
       // Recarrega SEMPRE (não só quando undefined): as emendas do Senado podem
       // ter chegado depois do cache. Falhou → mantém o cache, não zera.
-      try { enr.emendasSenado = await buscarEmendasSenadoESSP(enr.idProposicao); }
-      catch (_) { if (enr.emendasSenado === undefined) enr.emendasSenado = { ems: null, ssp: null }; }
+      // Página que não veio também é falha: a verificação fica inconclusiva em vez de "em dia".
+      try {
+        const es = await buscarEmendasSenadoESSP(enr.idProposicao);
+        if (es.falha) fonteIndisponivel = true;
+        if (!es.falha || es.ems || es.ssp || enr.emendasSenado === undefined) enr.emendasSenado = es;
+      } catch (_) { fonteIndisponivel = true; }
     }
   }
 
@@ -4869,7 +4913,9 @@ async function varrerAnalisesOrfas(verbose) {
   try {
     const [pautasRes, analisesRes] = await Promise.all([
       fetch(`${FIREBASE_URL}/pautas.json`),
-      fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=false`),
+      // shallow=true: só as chaves do 1º nível ({ chave: true }) — é tudo o que a varredura usa. Com
+      // shallow=false, cada abertura da página baixava o conteúdo de TODAS as notas da equipe.
+      fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=true`),
     ]);
     const pautas   = pautasRes.ok   ? (await pautasRes.json())   : null;
     const analises = analisesRes.ok ? (await analisesRes.json()) : null;
@@ -5128,6 +5174,13 @@ async function _fbSalvarPautaExec(pauta) {
           projetoUrgenciado: it.projetoUrgenciado || null,
           vinculo: it.vinculo || null,
           origemIA: it.origemIA || null,
+          // Digitados no card: sem eles aqui, o responsável e o apelido preenchidos ANTES de a nota
+          // existir sumiam ao recarregar, com o indicador dizendo "Sincronizado" (revisão de 11/11/2026).
+          // O apelido só vai quando foi digitado: o de reserva (da ementa) é cache da sessão, e gravado
+          // impediria a IA de gerar o definitivo depois.
+          analista: it.analista || null,
+          apelido: it.apelidoManual ? (it.apelido || null) : null,
+          apelidoManual: it.apelidoManual || null,
           chave: it.chave,
         })),
       }),
@@ -5723,12 +5776,23 @@ async function copiarPropPartido() {
   // gera por IA se configurado, ou usa o fallback a partir da ementa).
   try { await prepararApelidos((state.pauta.itens || []).filter(itemDoPodemos)); } catch (_) {}
   const { texto, total } = montarMensagemPropPartido();
-  if (!total) { mostrarToast('Nenhuma proposição do Podemos (autoria, apensado ou relatoria) nesta pauta.', 'aviso'); return; }
+  // Item cuja autoria ou cujos apensados NÃO foram verificados (consulta que falhou) pode ser do Podemos
+  // e estar fora da lista: a mensagem não pode sair como se a pauta inteira tivesse sido conferida
+  // (revisão de 11/11/2026).
+  const incertos = (state.pauta.itens || []).filter(enriquecimentoFalhou);
+  const avisoIncertos = incertos.length
+    ? ` ⚠ ${incertos.length} item(ns) com autoria ou apensados NÃO verificados — podem faltar na lista: ${incertos.map(it => `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`).join(', ')}. Use ↻ Reverificar e copie de novo.`
+    : '';
+  if (!total) {
+    mostrarToast(incertos.length ? 'Nenhuma proposição do Podemos confirmada nesta pauta.' + avisoIncertos
+      : 'Nenhuma proposição do Podemos (autoria, apensado ou relatoria) nesta pauta.', 'aviso');
+    return;
+  }
   const ok = await copiarParaAreaTransferencia(texto);
   mostrarToast(
-    ok ? `✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.`
+    ok ? `✓ ${total} item(ns) do Podemos copiados — cole no WhatsApp.` + avisoIncertos
        : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
-    ok ? 'sucesso' : 'erro');
+    ok ? (incertos.length ? 'aviso' : 'sucesso') : 'erro');
 }
 
 // ============================================================
@@ -7307,9 +7371,11 @@ async function confirmarAdicionar() {
   stEl.textContent = 'Buscando proposição na API da Câmara...';
 
   try {
-    const prop = await resolveProposicao(sigla, numero, ano);
+    // REQ com homônimos (o mesmo número em vários órgãos): entra sem ementa — o projeto da urgência
+    // vem do campo ao lado ou do "Vincular projeto", não da ementa de um requerimento qualquer.
+    const prop = await resolveProposicao(sigla, numero, ano).catch(e => { if (e.ambiguo) return null; throw e; });
     // Detalhe para ementa e autor
-    const det  = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
+    const det  = prop ? await fetchJson(`${API_BASE}/proposicoes/${prop.id}`) : { dados: {} };
     const dados = det.dados || {};
     const ementa = (dados.ementa || '').trim();
 
@@ -7550,7 +7616,8 @@ async function validarRefsPautaManual() {
       const det = await fetchJson(`${API_BASE}/proposicoes/${prop.id}`);
       ok.push({ ref, ementa: (det.dados?.ementa || '').trim() });
     } catch (e) {
-      erros.push({ ref, erro: e.message });
+      if (e.ambiguo) ok.push({ ref, ementa: '' });   // requerimento homônimo: existe, só não se sabe qual
+      else erros.push({ ref, erro: e.message });
     }
   });
   // devolve na ordem em que foram coladas — é a ordem da pauta
