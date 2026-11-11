@@ -11,7 +11,7 @@
 //   4. voto líquido com o excedente que não leva: o memorial desconta os mesmos
 //      vencedores que o simulador (todos, inclusive os que ficaram sem a cadeira);
 //   5. desenho com erro (estado sem unidades) não derruba a simulação: tudo pela lista;
-//   6. "regra atual" da Próxima cadeira = o card Proporcional, não a ADI 8.036;
+//   6. "regra atual" da Próxima cadeira = o card Proporcional (pelo id), não outro sistema de tipo proporcional;
 //   7. QE sem o card Proporcional vem do art. 106, não de `qeTse` (nulo nos dados abertos);
 //   8. a memória dos desenhos leva o nº de distritos federais (kF) na chave;
 //   9. leitura cancelada ou que falhou devolve o PDF e o memorial do resultado anterior;
@@ -174,20 +174,20 @@ console.log('\n== 6. Próxima cadeira: a regra atual é a do card Proporcional =
 {
   const xa = estado('xa', 5, [agr('A', 500, [260, 180, 45, 15]), agr('B', 250, [18, 12]), agr('C', 150, [140, 10]), agr('D', 100, [100])]);
   for (const x of S.snProporcional(xa).eleitos) x.cand.eleitoReal = true;
-  const ADI = { pctQP: 0.10, pctPartido: 0, pctCandidato: 0.20, terceiraFaseAberta: true, federacoes: true, sobras: 'restos', umaPorRodada: true };
+  const OUTRO = { pctQP: 0.10, pctPartido: 0, pctCandidato: 0.20, terceiraFaseAberta: true, federacoes: true, sobras: 'restos' };
   const opAtual = { pctQP: 0.1, pctPartido: 0.8, pctCandidato: 0.2, terceiraFaseAberta: true, federacoes: true, sobras: 'dhondt' };
-  // Proporcional FORA da seleção do relatório: a lista traz só a ADI 8.036 (também de tipo 'proporcional')
-  const ss = [{ id: 'adi8036', nome: 'ADI 8.036', tipo: 'proporcional', op: ADI }];
+  // Proporcional FORA da seleção do relatório, e outro sistema de tipo 'proporcional' na lista
+  const ss = [{ id: 'outro', nome: 'Outro proporcional', tipo: 'proporcional', op: OUTRO }];
   const usados = [];
   global.snMargem = S.snMargem; global.snDhondt = S.snDhondt;
   global.snProporcional = (d, op) => { usados.push(op); return S.snProporcional(d, op); };
   memorial({ xa }, ss, { estrategia: { partido: 'B', opAtual } });
-  ok(usados.length > 0 && usados.every(op => op === opAtual), `com as opções do card dadas pela tela, a regra atual usa elas (${usados.length} contas, nenhuma com as da ADI)`);
+  ok(usados.length > 0 && usados.every(op => op === opAtual), `com as opções do card dadas pela tela, a regra atual usa elas (${usados.length} contas, nenhuma com as do outro)`);
   usados.length = 0;
   memorial({ xa }, ss, { estrategia: { partido: 'B' } });
-  ok(usados.length > 0 && usados.every(op => op.sobras !== 'restos'), 'sem elas, vale a regra vigente padrão — nunca a primeira "proporcional" da lista (a ADI)');
+  ok(usados.length > 0 && usados.every(op => op.sobras !== 'restos'), 'sem elas, vale a regra vigente padrão — nunca a primeira "proporcional" da lista');
   usados.length = 0;
-  const comProp = [{ id: 'adi8036', nome: 'ADI 8.036', tipo: 'proporcional', op: ADI }, { id: 'proporcional', nome: 'Proporcional', tipo: 'proporcional', op: opAtual }];
+  const comProp = [{ id: 'outro', nome: 'Outro proporcional', tipo: 'proporcional', op: OUTRO }, { id: 'proporcional', nome: 'Proporcional', tipo: 'proporcional', op: opAtual }];
   memorial({ xa }, comProp, { estrategia: { partido: 'B' } });
   ok(usados.length > 0 && usados.every(op => op === opAtual), 'e com o card na lista, acha-o pelo id, esteja em que posição estiver');
   global.snProporcional = S.snProporcional;
@@ -197,7 +197,7 @@ console.log('\n== 6. Próxima cadeira: a regra atual é a do card Proporcional =
   const siOpAtual = new Function('si', 'return ' + tela.match(/const siOpAtual = (.*);/)[1])(si);
   ok(siOpAtual() === opAtual, 'tela: dentro da seleção do relatório, a regra atual vem da lista completa de sistemas');
   si.todosSistemas = null;
-  ok(JSON.stringify(siOpAtual()) === '{}', 'tela: sem o card em lugar nenhum, as opções padrão (não as da ADI)');
+  ok(JSON.stringify(siOpAtual()) === '{}', 'tela: sem o card em lugar nenhum, as opções padrão (não as do outro)');
   ok(/si\.todosSistemas = s0;/.test(tela) && /si\.todosSistemas = null; \}/.test(tela) && /const opP = siOpAtual\(\);/.test(tela) && /opAtual: siOpAtual\(\)/.test(tela),
     'tela: a seleção guarda a lista completa, a Próxima cadeira e o memorial usam siOpAtual');
 }
