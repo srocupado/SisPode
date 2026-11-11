@@ -597,10 +597,11 @@ async function siLer(forcar) {
   }
   siTravar(true);
   $('siPdf').disabled = true; $('siMemorial').disabled = true; $('siAvisos').innerHTML = '';
+  let trocou = false;   // os dados na tela mudaram? (senão, o resultado anterior continua valendo)
   try {
     const dados = op.fonte === 'resultados' ? await siLerResultados(op, si.cargo, ufs) : await siLerAbertos(op.ano, si.cargo, ufs);
     if (!dados) { siStatus(si.res ? siResumoStatus() : ''); return; }
-    si.op = op; si.dados = dados; si.ufSel = ufSel;
+    si.op = op; si.dados = dados; si.ufSel = ufSel; trocou = true;
     siPreencherPartidos();
     si.conjunto = { op: op.id, cargo: si.cargo, dados };
     siGeoStatus();
@@ -610,6 +611,9 @@ async function siLer(forcar) {
     $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível ler o TSE.</b> ${siEsc(e && e.message || e)} — tente de novo em instantes (o servidor do TSE recusa pedidos de vez em quando).</div>`;
   } finally {
     siTravar(false);
+    // leitura cancelada ou que falhou: o resultado que estava na tela continua lá, e o PDF e o memorial
+    // dele voltam a valer (ficavam desligados até a próxima leitura — revisão de 11/11/2026)
+    if (!trocou) siSelRelPintar();
   }
 }
 
@@ -759,7 +763,8 @@ async function siPrepararDistritos(op, calc) {
     const modo = !estadual ? 'u' : op.mapaEstadual === 'federais' ? 'fed' : (kF > 0 && kE > kF && kE % kF === 0) ? 'ani' : 'ind';
     const k = modo === 'fed' ? kF : kE;
     // a tolerância só muda o desenho quando ele vai até ela
-    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${modo}|${k}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
+    // estaduais com mapa próprio: o encaixe ('ani') e o federal de referência ('ind') dependem também de kF
+    const chave = `${si.op.ano}|${uf}|${siCargoArq(uf)}|${modo}|${k}${modo === 'ani' || modo === 'ind' ? '|f' + kF : ''}|${op.base}${op.tol.modo === 'desenhar' ? '|ate|' + siTolChave(op.tol) : ''}`;
     let x = si.desenhos[chave];
     if (!x) {
       // a barra diz de onde vem o que se lê: população do IBGE (lida na hora) ou o eleitorado do TSE (já na memória)
@@ -979,23 +984,33 @@ function siPopulacao(uf, g) {
 async function siSimular() {
   if (!si.dados) return;
   const calc = ++si.calc;
-  let sistemas = siSistemas();
-  const dist = sistemas.find(x => x.tipo === 'distrital');
-  if (siGeoPronto(Object.keys(si.dados))) {
-    const porUf = await siPrepararDistritos(dist.op, calc);
-    if (!porUf) return;
-    dist.op.porUf = porUf;
-  } else sistemas = sistemas.filter(x => x !== dist);
-  if (calc !== si.calc) return;
-  si.sistemas = sistemas;
-  si.res = snSimular(si.dados, si.sistemas);
-  siGeoStatus();
-  si.res.vagas = si.res.comparadas.reduce((s, uf) => s + si.dados[uf].vagas, 0);
-  if (si.ufSel && !si.dados[si.ufSel]) si.ufSel = '';
-  siStatus(siResumoStatus());
-  $('siAvisos').innerHTML = siAvisosHtml();
-  $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
-  siSelRelPintar();
+  try {
+    let sistemas = siSistemas();
+    const dist = sistemas.find(x => x.tipo === 'distrital');
+    if (siGeoPronto(Object.keys(si.dados))) {
+      const porUf = await siPrepararDistritos(dist.op, calc);
+      if (!porUf) return;
+      dist.op.porUf = porUf;
+    } else sistemas = sistemas.filter(x => x !== dist);
+    if (calc !== si.calc) return;
+    const res = snSimular(si.dados, sistemas);
+    si.sistemas = sistemas;
+    si.res = res;
+    siGeoStatus();
+    si.res.vagas = si.res.comparadas.reduce((s, uf) => s + si.dados[uf].vagas, 0);
+    if (si.ufSel && !si.dados[si.ufSel]) si.ufSel = '';
+    siStatus(siResumoStatus());
+    $('siAvisos').innerHTML = siAvisosHtml();
+    $('siResultado').innerHTML = siRelatorioHtml(false); siRestaurarZoom();
+    siSelRelPintar();
+  } catch (e) {
+    // Um erro aqui (um estado com dados incompletos, por exemplo) deixava a tela parada na barra de
+    // progresso, sem dizer nada (revisão de 11/11/2026). Outro cálculo já começou: o erro é do abandonado.
+    if (calc !== si.calc) return;
+    console.error(e);
+    siStatus('');
+    $('siAvisos').innerHTML = `<div class="aviso erro"><b>Não foi possível simular.</b> ${siEsc(e && e.message || e)}</div>`;
+  }
 }
 
 function siResumoStatus() {
@@ -1178,7 +1193,7 @@ function siPartes(impressao) {
       + `<th colspan="${res.sims.length + 1}" class="grupo">${siEsc(siPNome())}</th><th colspan="${res.sims.length}" class="grupo">Cadeiras que mudam de mãos</th></tr>`
       + `<tr><th class="n">Oficial</th>${curtos}${curtos}</tr></thead><tbody>`;
     for (const uf of res.ufs) {
-      const d = si.dados[uf], r = res.real.porUf[uf], pp = porId('proporcional'), p = pp ? pp.porUf[uf] : { qe: d.qeTse };
+      const d = si.dados[uf], r = res.real.porUf[uf], pp = porId('proporcional'), p = pp ? pp.porUf[uf] : { qe: siQe(d) };
       const podeUf = eleitos => eleitos.filter(x => x.cand.partido === si.partido).length;
       h += `<tr class="clic${uf === si.ufSel ? ' sel' : ''}" data-uf="${uf}"><td>${uf.toUpperCase()}</td><td class="n">${d.vagas}</td><td class="n">${siFmt(p.qe)}</td>`
         + `<td class="n">${r ? podeUf(r.eleitos) : '—'}</td>` + res.sims.map(s => `<td class="n">${podeUf(s.porUf[uf].eleitos)}</td>`).join('')
@@ -1271,7 +1286,7 @@ function siDetalheUfHtml(uf, impressao) {
   const sims = res.sims.map(s => conta(s.porUf[uf].eleitos));
   const partidos = ordem.filter(sg => real[sg] || sims.some(o => o[sg]));
   const pid = id => { const s = res.sims.find(x => x.id === id); return s ? s.porUf[uf] : null; };
-  const p = pid('proporcional') || { qe: d.qeTse }, m = pid('misto');
+  const p = pid('proporcional') || { qe: siQe(d) }, m = pid('misto');
   let h = `<h2 id="siDetalhe"${impressao && Object.keys(si.dados).length > 1 ? ' class="imp-quebra"' : ''}>${siEsc(siUfNome(uf))} <small>${d.vagas} vagas · ${siFmt(d.validos)} votos válidos · QE ${siFmt(p.qe)}`
     + (m ? ` · misto: ${m.nMais} mais votados + ${m.nLista} lista` : '') + '</small></h2>';
   const umaUf = Object.keys(si.dados).length === 1;   // com um estado só, a tabela por partido já está acima
@@ -1401,12 +1416,16 @@ function siIndicadoresHtml(ind) {
 // ------------------------------------------------------------ estratégia (o partido em foco)
 /** A agremiação do partido em foco num estado (a federação inteira, se ele é federado). */
 const siAgrFoco = d => d.agrs.find(a => (a.siglas || []).includes(si.partido));
+/** QE do estado sem depender do card "Proporcional" (fora da seleção do relatório): o do art. 106, pelos válidos — `qeTse` só existe no servidor de resultados, e nos dados abertos o QE saía 0 no PDF. */
+const siQe = d => snQuociente(d.validos, d.vagas);
+/** As opções do card "Proporcional" — a regra atual —, mesmo com ele fora da seleção do relatório. A ADI 8.036 também é de tipo 'proporcional': procurar pelo tipo trazia as regras dela. */
+const siOpAtual = () => ((si.todosSistemas || si.sistemas || []).find(x => x.id === 'proporcional') || {}).op || {};
 const siCache = (chave, f) => { const c = si.res.estr = si.res.estr || {}; if (!(chave in c)) c[chave] = f(); return c[chave]; };
 
 /** Estado a estado: as cadeiras do partido em foco, os votos que faltam para a próxima e a folga da última — na regra atual e na cota do projeto. */
 function siProxima() {
   return siCache('prox|' + si.partido, () => {
-    const opP = (si.sistemas.find(x => x.tipo === 'proporcional') || {}).op || {};
+    const opP = siOpAtual();
     const dist = si.sistemas.find(x => x.tipo === 'distrital'), opD = dist ? dist.op : {};
     const sd = si.res.sims.find(x => x.tipo === 'distrital');
     const linhas = [];
@@ -1475,7 +1494,7 @@ function siProximaHtml(impressao) {
       const rt = l.filter(retAlta).sort((x, y) => y.retMin - x.retMin).map(x => `${x.uf.toUpperCase()} (${siPct(x.retMin)})`);
       if (!temDisp) return '';
       return (rt.length ? `<b>Reter:</b> em ${rt.join(', ')}, a última cadeira da cota só se mantém se ao menos essa fração dos votos dispersos ficar com o partido. ` : '')
-        + `"Votos dispersos" = os votos nominais dados a quem não seria o candidato do partido no distrito (tudo menos o mais votado dele ali${opD.porUf && Object.values(opD.porUf).some(x => x.capPartido) ? ', ou os mais votados, até o limite de candidatos por distrito' : ''}); com o voto único, precisam ir para esse candidato ou para a legenda. Entre parênteses, a fração deles nos votos do partido e, para comparar, a de todos os partidos do estado: acima dela, o partido perde mais que os outros quando a retenção cai para todos (o controle "Retenção dos votos dispersos" do card vale para todos os partidos). `
+        + `"Votos dispersos" = os votos nominais dados a quem não seria o candidato do partido no distrito (o candidato dele ali é quem levou o distrito ou, onde o partido não venceu, o seu mais votado no distrito que não concorre em outro — cada candidato num distrito só${opD.porUf && Object.values(opD.porUf).some(x => x.capPartido) ? '; nos distritos de várias cadeiras, até o limite de candidatos por distrito' : ''}); com o voto único, precisam ir para esse candidato ou para a legenda. Entre parênteses, a fração deles nos votos do partido e, para comparar, a de todos os partidos do estado: acima dela, o partido perde mais que os outros quando a retenção cai para todos (o controle "Retenção dos votos dispersos" do card vale para todos os partidos). `
         + `"Retenção mínima" = 1 − folga ÷ votos dispersos: a menor fração deles que precisa ficar para a cota não cair no pior caso — só o partido perde votos, os dos outros ficam parados e o voto perdido sai da conta (se for para um concorrente, a exigência sobe); em vermelho a partir de ${siPct(SI_RET_ALTA)}. `
         + (opD.retencao < 1 ? `A folga e a cota desta tabela são as dos votos como foram dados (100% retidos); a coluna "no distrital simulado" já usa a retenção de ${siPct(opD.retencao)} do card. ` : '');
     })()
@@ -1810,7 +1829,7 @@ function siMetodoHtml() {
     + 'o voto partidário é a votação do partido (nominais + legenda) menos os votos nominais dos seus eleitos na 1ª parte — o voto partidário líquido (art. 106, § 1º); só as cadeiras que restam depois da reserva majoritária são distribuídas pelas maiores médias sobre ele (art. 107), '
     + 'e cada partido fica com a soma das duas partes (art. 108) — não há excedente, nenhum eleito entre os mais votados perde a cadeira. Lista preordenada com alternância de sexo a cada três posições (aqui, na ordem de votos).');
   if (sist.proporcional && (sist.proporcional.op.sobras || 'dhondt') !== 'dhondt') li.push(`<b>Método das sobras.</b> No proporcional, as vagas que o quociente partidário não preencheu vão ${sist.proporcional.op.sobras === 'sl' ? 'por Sainte-Laguë: a cada rodada, leva a agremiação com a maior votação ÷ (2 × lugares + 1) — divisores 1, 3, 5…' : 'pelos maiores restos (Hare): a cada rodada, leva a agremiação com o maior resto do quociente eleitoral, votos ÷ QE − lugares (quem ficou abaixo do quociente partidário por falta de candidato com 10% do QE recupera as suas antes)'}, em vez das maiores médias da lei (art. 109, votos ÷ (lugares + 1)); quociente eleitoral, quociente partidário e os requisitos de cada fase como no card. A ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e do § 2º (80% e 20% do QE), sem dizer o que entra no lugar: Sainte-Laguë e maiores restos são as alternativas clássicas.`);
-  if (sist.distrital && sist.distrital.op.porUf) li.push('<b>Votos dispersos e retenção.</b> Com o voto único e um candidato por partido em cada distrito, os votos nominais que hoje vão aos outros nomes do partido no distrito — os dispersos: tudo menos o mais votado dele ali (ou os mais votados, até o limite de candidatos por distrito, nos estaduais em distritos federais) — precisam ir para esse candidato ou para a legenda. '
+  if (sist.distrital && sist.distrital.op.porUf) li.push('<b>Votos dispersos e retenção.</b> Com o voto único e um candidato por partido em cada distrito, os votos nominais que hoje vão aos outros nomes do partido no distrito — os dispersos: tudo menos os votos do candidato dele ali, que é quem levou o distrito ou, onde o partido não venceu, o seu mais votado no distrito que não concorre em outro (cada candidato num distrito só; nos estaduais em distritos federais, até o limite de candidatos por distrito) — precisam ir para esse candidato ou para a legenda. '
     + `Por padrão, a simulação supõe que todos ficam com o partido. O controle "Retenção dos votos dispersos" do card (agora em ${siPct(sist.distrital.op.retencao == null ? 1 : sist.distrital.op.retencao)}) muda isso: só essa fração fica e conta para a cota; o resto deixa de ser voto do partido e voto válido. Vale para todos os partidos; quem leva cada distrito não muda (os candidatos seguem com os seus votos pessoais). `
     + 'A "retenção mínima" do bloco Próxima cadeira é a menor fração dos votos dispersos do partido em foco que mantém a sua cota, com os outros parados.');
   if (sist.distrital && (sist.distrital.op.listasNomes || []).length) li.push(`<b>Lista preordenada.</b> Nas listas dadas pelos partidos (${siEsc(sist.distrital.op.listasNomes.join(', '))}), as vagas de lista vão aos nomes na ordem do partido, como na Versão Minuta (art. 105-D); quem venceu distrito é pulado (art. 105-A, § 1º), e, se faltar nome, completa pela ordem de votos. Nos demais partidos e estados, a ordem de votos. A lista só muda quem ocupa as vagas, não quantas cada partido tem.`);
@@ -2245,8 +2264,8 @@ function siDistritosHtml(uf, sd, impressao) {
   const el = sd.porUf[uf] || {};
   const { desenho, base } = x;
   let h = `<h2${impressao ? ' class="imp-quebra"' : ''} id="siDistritos">Distritos de ${siEsc(siUfNome(uf))} <small>distrital misto · ${siEsc(siDescricao(si.sistemas.find(s => s.tipo === 'distrital'), true))}</small></h2>`;
-  if (!desenho.distritos.length) return h + '<div class="dica">Nenhuma vaga em distritos: todas pela lista.</div>';
   if (desenho.erro) return h + `<div class="aviso">${siEsc(desenho.erro)}</div>`;
+  if (!(desenho.distritos || []).length) return h + '<div class="dica">Nenhuma vaga em distritos: todas pela lista.</div>';
   const m = desenho.metricas, U = new Map(base.unidades.map(u => [u.id, u]));
   const pop = desenho.base === 'populacao';
   if (x.cobertura != null && x.cobertura < 0.95) h += `<div class="aviso erro">Os votos por município e zona do TSE (dados abertos) cobrem só ${siPct(x.cobertura)} dos votos válidos deste cargo em ${siEsc(siUfNome(uf))}: faltam os votos dos candidatos no arquivo publicado. Os distritos abaixo não têm com o que eleger — o resultado do distrital neste estado não vale.</div>`;
@@ -2482,8 +2501,9 @@ function siComSelecao(fn) {
   if (!si.relFora.size || !si.res) return fn();
   const s0 = si.sistemas, r0 = si.res;
   si.sistemas = siSistemasRel();
+  si.todosSistemas = s0;   // a regra atual (siOpAtual) vem do card "Proporcional" mesmo fora da seleção
   si.res = Object.assign({}, r0, { sims: r0.sims.filter(x => !si.relFora.has(x.id)), estr: undefined });
-  try { return fn(); } finally { si.sistemas = s0; si.res = r0; }
+  try { return fn(); } finally { si.sistemas = s0; si.res = r0; si.todosSistemas = null; }
 }
 /** A lista de escolha (ao lado dos botões do PDF e do memorial). */
 function siSelRelPintar() {
@@ -2511,7 +2531,7 @@ function siMemorialSel(federado) {
   const f = si.fedParceiro ? siFederacao() : null;
   const dados = federado ? snFederar(si.dados, si.partido, si.fedParceiro) : si.dados, res = federado ? f.res2 : si.res;
   const memo = smMemorial({ dados, res, sistemas: si.sistemas, ind: snIndicadores(res, dados), ordem: snOrdemPartidos(res),
-    estrategia: federado ? null : { partido: si.partido, parceiro: si.fedParceiro, dados2: f ? snFederar(si.dados, si.partido, si.fedParceiro) : null, res2: f ? f.res2 : null },
+    estrategia: federado ? null : { partido: si.partido, opAtual: siOpAtual(), parceiro: si.fedParceiro, dados2: f ? snFederar(si.dados, si.partido, si.fedParceiro) : null, res2: f ? f.res2 : null },
     meta: { titulo: `Memorial de cálculo — sistemas eleitorais${federado ? ` — cenário com a federação hipotética ${si.partido} + ${si.fedParceiro}` : ''}: ${siCargoNome()}, ${si.op.ano} (${alvo})`,
       eleicao: `${si.op.ano}, 1º turno`, cargo: siCargoNome(),
       fonte: si.op.fonte === 'resultados' ? 'TSE — servidor oficial de resultados (um arquivo por estado), lido na hora' : 'TSE — dados abertos (votação por candidato e por partido, por município e zona), lidos na hora',

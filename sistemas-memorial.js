@@ -501,23 +501,26 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
       'Estado na tolerância (fórmula)', { f: `IF(AND(G${rt}=0,E${rt}<=I${rt}),"sim","não")`, v: okF ? 'sim' : 'não' }, 'Simulador', okS ? 'sim' : 'não', smFConfere(`K${rt}`, `M${rt}`, okF ? 'sim' : 'não', okS ? 'sim' : 'não')]);
     const primeiros = sim.eleitos.filter(e => e.fase !== 'lista');
     // Retenção dos votos dispersos (cenário do voto único): a cota sai dos votos retidos. Os dispersos de cada
-    // agremiação (os votos nominais dados a quem não é o seu mais votado em cada distrito) vêm do simulador.
+    // agremiação (os votos nominais dados a quem não é o seu candidato em cada distrito) vêm do simulador.
+    // A fração que se perde entra em milionésimos (inteiro): com (1 − retenção) em ponto flutuante, o meio
+    // (x,5) arredondava para um lado aqui e para o outro no Excel (revisão de 11/11/2026).
     let dr = d;
     const retLin = {};
+    const perdeMil = Math.round((1 - (op.retencao == null ? 1 : Math.min(1, Math.max(0, op.retencao)))) * 1e6);
     if (op.retencao != null && op.retencao < 1 && sim.retidos) {
       aba.add([]);
-      aba.add([`Retenção dos votos dispersos (cenário do voto único): só ${pc(op.retencao)} dos votos dispersos ficam com a agremiação e contam para a cota; o resto deixa de ser voto dela (e voto válido). Dispersos = em cada distrito, os votos nominais da agremiação menos os do(s) seu(s) mais votado(s) ali; quem leva cada distrito não muda.`]);
+      aba.add([`Retenção dos votos dispersos (cenário do voto único): só ${pc(op.retencao)} dos votos dispersos ficam com a agremiação e contam para a cota; o resto deixa de ser voto dela (e voto válido). Dispersos = os votos nominais da agremiação menos os do(s) seu(s) candidato(s) em cada distrito — quem levou o distrito ou, onde ela não venceu, o seu mais votado ali que não concorre em outro distrito (cada candidato num distrito só); quem leva cada distrito não muda. Perdidos = arredondamento de ${perdeMil} × dispersos ÷ 1.000.000 (a fração não retida, em milionésimos).`]);
       aba.add(['Agremiação (id)', 'Agremiação', 'Votos (aba Votos)', 'Votos dispersos (simulador)', 'Votos retidos (fórmula)', 'Votos retidos (simulador)', 'Confere']);
       const ret = {};
       let perdidos = 0;
       for (const a of d.agrs) {
         const r = aba.prox(), disp = (sim.dispersos || {})[a.id] || 0;
-        ret[a.id] = a.votos - Math.min(a.votos, Math.round((1 - op.retencao) * disp));
+        ret[a.id] = a.votos - Math.min(a.votos, Math.round(perdeMil * disp / 1e6));
         perdidos += a.votos - ret[a.id];
         const simRet = sim.retidos[a.id] != null ? sim.retidos[a.id] : a.votos, vr = votosLinha && votosLinha[uf + '|' + a.id];
         retLin[a.id] = r;
         aba.add([a.id, smSiglas(a), vr ? { f: `${V}!$G$${vr}`, v: a.votos } : a.votos, disp,
-          { f: `C${r}-MIN(C${r},ROUND((1-${op.retencao})*D${r},0))`, v: ret[a.id] }, simRet, smFConfere(`E${r}`, `F${r}`, ret[a.id], simRet)]);
+          { f: `C${r}-MIN(C${r},ROUND(${perdeMil}*D${r}/1000000,0))`, v: ret[a.id] }, simRet, smFConfere(`E${r}`, `F${r}`, ret[a.id], simRet)]);
       }
       dr = Object.assign({}, d, { validos: d.validos != null ? d.validos - perdidos : d.validos, agrs: d.agrs.map(a => (ret[a.id] !== a.votos ? Object.assign({}, a, { votos: ret[a.id] }) : a)) });
     }
@@ -525,15 +528,21 @@ function smAbaDistrital(s, dados, ufs, res, votosLinha) {
     if (op.votoLiquido) {
       // voto partidário líquido: votos da agremiação (aba Votos; com a retenção, os retidos) − votos dos seus vencedores, cada um no seu distrito
       // (coluna N da tabela dos distritos acima; com vários eleitos por distrito, o valor do simulador)
+      // Todos os vencedores de distrito, inclusive os que o excedente deixou sem a cadeira ('naoLeva' — fora de
+      // sim.eleitos): é o que o simulador desconta, porque a cota sai antes de se saber quem fica sem. Somar só
+      // os que ficaram dava DIVERGE nessas linhas (revisão de 11/11/2026).
+      const venc = (sim.distritos || []).flatMap(dt => (dt.vencedores || []).map(w => ({ agr: w.agr, distrito: dt.id, votosDistrito: w.votosDistrito })));
+      const descontados = (sim.descobertos || []).length && venc.length && venc.every(w => w.votosDistrito != null) ? venc : primeiros;
       const usado = {}, refs = {};
-      for (const e of primeiros) {
+      for (const e of descontados) {
         usado[e.agr] = (usado[e.agr] || 0) + (e.votosDistrito || 0);
         const rr = aba.linhaDist[uf + '|' + e.distrito];
         // com aliança no distrito, a coluna N traz também os votos da aliada: vale o do próprio candidato (o do simulador)
         (refs[e.agr] = refs[e.agr] || []).push(!multi && rr && !(op.aliancas || []).length ? `N${rr}` : String(e.votosDistrito || 0));
       }
       aba.add([]);
-      aba.add(['Voto partidário líquido = votos da agremiação − votos que elegeram os seus vencedores de distrito (os de cada um no seu distrito)']);
+      aba.add(['Voto partidário líquido = votos da agremiação − votos que elegeram os seus vencedores de distrito (os de cada um no seu distrito)'
+        + (descontados !== primeiros ? '. Com o excedente que não leva, o desconto inclui os vencedores que ficaram sem a cadeira: a cota sai antes de se saber quem fica sem.' : '')]);
       aba.add(['Agremiação (id)', 'Agremiação', Object.keys(retLin).length ? 'Votos retidos (acima)' : 'Votos (aba Votos)', 'Votos dos seus vencedores nos distritos', 'Voto líquido (fórmula)', 'Voto líquido (simulador)', 'Confere']);
       for (const a of dr.agrs) {
         const r = aba.prox(), liq = a.votos - (usado[a.id] || 0), simLiq = sim.liquido && sim.liquido[a.id] != null ? sim.liquido[a.id] : a.votos;
@@ -615,10 +624,13 @@ function smMuda(d, id, x, sigla) {
  * folga = votos − (o (N − cota + 1)-ésimo maior das outras) × divisor da última, −1. Contra o simulador (snMargem).
  * Regra atual: sem conta fechada (o QE e as sobras mudam juntos) — a prova pelo simulador: com os votos que faltam, a cadeira vem; com um a menos, não.
  */
-function smAbaProxima(dados, ufs, sistemas, votosLinha, partido) {
+function smAbaProxima(dados, ufs, sistemas, votosLinha, partido, opAtual = null) {
   const N = smNucleo();
-  const dist = sistemas.find(s => s.tipo === 'distrital'), prop = sistemas.find(s => s.tipo === 'proporcional');
-  const opD = (dist && dist.op) || {}, opP = (prop && prop.op) || {}, sl = opD.divisor === 'sl', lim = opD.limiar || 0;
+  // A regra atual é a do card "Proporcional" (id 'proporcional'). A ADI 8.036 também é de tipo 'proporcional':
+  // com o Proporcional fora da seleção do relatório, procurar pelo tipo trazia as regras dela (revisão de
+  // 11/11/2026). opAtual: as opções do card, dadas pela tela mesmo com ele fora da seleção.
+  const dist = sistemas.find(s => s.tipo === 'distrital'), prop = sistemas.find(s => s.id === 'proporcional');
+  const opD = (dist && dist.op) || {}, opP = opAtual || (prop && prop.op) || {}, sl = opD.divisor === 'sl', lim = opD.limiar || 0;
   const div = k => (sl ? 2 * k - 1 : k), divF = e => (sl ? `(2*(${e})-1)` : `(${e})`);
   const aba = smNovaAba(`Próxima cadeira (${partido})`.slice(0, 31), [5, 6, 16, 12, 8, 11, 11, 8, 11, 11, 9, 9, 9, 9, 11, 11, 11, 11, 9, 11, 11, 9]);
   const V = smAbaRef('Votos');
@@ -881,7 +893,7 @@ function smMemorial(ent) {
   // estratégia do partido em foco (ent.estrategia = { partido, parceiro, dados2, res2 })
   const est = ent.estrategia;
   if (est && est.partido) {
-    abas.push(smAbaProxima(dados, ufs, sistemas, votos.linhaDe, est.partido));
+    abas.push(smAbaProxima(dados, ufs, sistemas, votos.linhaDe, est.partido, est.opAtual || null));
     if (abaDist) abas.push(smAbaAlcance(res, dados, ufs, abaDist, est.partido, (sistemas.find(s => s.tipo === 'distrital') || {}).op || {}));
     if (est.parceiro && est.dados2 && est.res2) abas.push(smAbaFederacao(dados, ufs, res, votos.linhaDe, est));
   }

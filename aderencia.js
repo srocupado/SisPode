@@ -53,23 +53,18 @@ function sleep(ms) {
 
 /** Fetch JSON com retry em 429/5xx */
 async function fetchJson(url, tentativa = 0) {
-  try {
-    const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!resp.ok) {
-      if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) {
-        await sleep(500 * (tentativa + 1));
-        return fetchJson(url, tentativa + 1);
-      }
-      throw new Error('HTTP ' + resp.status);
-    }
-    return await resp.json();
-  } catch (e) {
-    if (tentativa < 2) {
-      await sleep(500 * (tentativa + 1));
-      return fetchJson(url, tentativa + 1);
-    }
-    throw e;
+  const deNovo = async () => { await sleep(500 * (tentativa + 1)); return fetchJson(url, tentativa + 1); };
+  let resp;
+  try { resp = await fetch(url, { headers: { Accept: 'application/json' } }); }
+  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // falha de rede
+  if (!resp.ok) {
+    // Só 429 e 5xx se repetem. O `throw` daqui ficava DENTRO do try, e o catch — feito para a falha
+    // de rede — repetia também 400/404: todo 4xx custava três pedidos e 1,5 s (revisão de 11/11/2026).
+    if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) return deNovo();
+    throw new Error('HTTP ' + resp.status);
   }
+  try { return await resp.json(); }
+  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // corpo cortado no meio
 }
 
 /** Executa fn sobre items com no máximo limit promessas simultâneas */
@@ -258,7 +253,8 @@ function drawAdherenceDonut(canvas, pct, size) {
   ctx.font = 'bold ' + Math.round(size * 0.18) + 'px DM Sans, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(matched.toFixed(1) + '%', cx, cy);
+  // pct null = ninguém votou Sim ou Não (só ausências): "—", não 0,0%
+  ctx.fillText(pct == null ? '—' : matched.toFixed(1) + '%', cx, cy);
 }
 
 // ── CANVAS: GRÁFICO TEMPORAL ──────────────────────────────────────────────────
@@ -311,7 +307,8 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
   });
 
   return Object.values(buckets)
-    .map(b => ({ ...b, pct: aderPct(b.aderiu, b.divergiu) || 0 }))
+    // pct null = nenhum voto Sim ou Não no balde (só ausências): a barra sai "—", não 0%
+    .map(b => ({ ...b, pct: aderPct(b.aderiu, b.divergiu) }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -361,6 +358,7 @@ function drawTemporalChart(canvas, groups) {
     // virava barra cheia.
     const rawPct = Number.isFinite(g.pct) ? g.pct : 0;
     const pct    = Math.max(0, Math.min(100, rawPct));
+    const rotPct = g.pct == null ? '—' : Math.round(pct) + '%';   // sem voto Sim ou Não: sem número
     const barH   = chartH * (pct / 100);
     const x      = padL + slotW * i + slotW / 2 - barW / 2;
     const yTop   = padT + chartH - barH;
@@ -380,11 +378,11 @@ function drawTemporalChart(canvas, groups) {
     if (barH >= 18) {
       ctx.fillStyle    = '#fff';
       ctx.textBaseline = 'top';
-      ctx.fillText(Math.round(pct) + '%', x + barW / 2, yTop + 4);
+      ctx.fillText(rotPct, x + barW / 2, yTop + 4);
     } else {
-      ctx.fillStyle    = col;
+      ctx.fillStyle    = g.pct == null ? '#8da3a8' : col;
       ctx.textBaseline = 'bottom';
-      ctx.fillText(Math.round(pct) + '%', x + barW / 2, yTop - 2);
+      ctx.fillText(rotPct, x + barW / 2, yTop - 2);
     }
 
     // rótulo eixo X (período)
@@ -663,7 +661,7 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
     // cacheado; um vazio por falha de rede/HTTP não.
     if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
-    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false };
+    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false, falhou: !votosR.ok || !orientR.ok };
 
   }, (done, total) => {
     status(
@@ -672,9 +670,14 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     );
   });
 
+  // Votações cuja leitura falhou (votos ou orientações; `null` = o mapLimit engoliu um erro): ficam FORA
+  // do cálculo — sem os dois lados não há como medir —, mas contadas, para a tela e os documentos dizerem.
+  // Antes sumiam em silêncio e a aderência saía de menos votações sem aviso (revisão de 11/11/2026).
+  const falhasVotacoes = enriched.filter(e => !e || e.falhou).length;
+
   // 4. Filtra qualificadas: govOrient Sim/Não e pelo menos um voto Sim/Não
   const qualifying = enriched.filter(e => {
-    if (!e || e.votos.length === 0) return false;
+    if (!e || e.falhou || e.votos.length === 0) return false;
     const temSimNao = e.votos.some(v => {
       const t = (v.tipoVoto || '').toLowerCase();
       return t === 'sim' || t === 'não' || t === 'nao';
@@ -689,7 +692,8 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   });
 
   if (qualifying.length === 0) {
-    return { vazio: '<div class="status">Nenhuma votação qualificada no período ' +
+    return { falhasVotacoes, vazio: aderAvisoFalhasVotacoes(falhasVotacoes) +
+      '<div class="status">Nenhuma votação qualificada no período ' +
       '(PLEN, nominal, com orientação Sim/Não do Governo).</div>' };
   }
 
@@ -746,13 +750,21 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
   const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
   const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
-  const overallPct    = aderPct(totalAderiu, totalDivergiu) || 0;
+  // null = nenhum voto Sim ou Não da bancada no período (só ausências): a tela mostra "—", não 0,0%
+  const overallPct    = aderPct(totalAderiu, totalDivergiu);
 
   return {
-    sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, desconsiderados,
+    sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, falhasVotacoes, desconsiderados,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   };
+}
+
+/** Texto do aviso das votações que não puderam ser lidas (a tela e os documentos dizem o mesmo). */
+const aderTextoFalhasVotacoes = n => n + ' votação(ões) do Plenário no período não ' + (n > 1 ? 'puderam ser lidas' : 'pôde ser lida') +
+  ' na API da Câmara e ' + (n > 1 ? 'ficaram' : 'ficou') + ' fora do cálculo';
+function aderAvisoFalhasVotacoes(n) {
+  return n ? '<div class="cv-aviso">⚠ ' + aderTextoFalhasVotacoes(n) + '. Refaça a busca para tentar de novo.</div>' : '';
 }
 
 /** Aviso de quem a regra do registro transitório tirou da bancada (aderRegistroTransitorio). */
@@ -770,7 +782,7 @@ function aderAvisoDesconsiderados(lista, sigla) {
 function renderRelatorio(ctx) {
   window._relatorioCtx = ctx;
   const {
-    sigla, partySize, qualifying, depMetrics, falhasHistorico, desconsiderados,
+    sigla, partySize, qualifying, depMetrics, falhasHistorico, falhasVotacoes, desconsiderados,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   } = ctx;
@@ -780,6 +792,7 @@ function renderRelatorio(ctx) {
     : '';
 
   resultadoEl.innerHTML =
+    aderAvisoFalhasVotacoes(falhasVotacoes) +
     (falhasHistorico
       ? '<div class="cv-aviso">⚠ O histórico de ' + falhasHistorico + ' deputado(s) não pôde ser lido agora. ' +
         'Nas votações em que eles não votaram, foram considerados pela bancada de hoje. Refaça a busca para tentar de novo.</div>'
@@ -789,7 +802,7 @@ function renderRelatorio(ctx) {
     '<div class="result-card">' +
       '<div class="result-title-bar">Aderência geral ao Governo' + cacheBadge + '</div>' +
       '<div class="result-body">' +
-        '<div class="big-pct">' + overallPct.toFixed(1) + '<span class="sign">%</span></div>' +
+        '<div class="big-pct">' + (overallPct == null ? '—' : overallPct.toFixed(1) + '<span class="sign">%</span>') + '</div>' +
         '<div class="big-label">do partido ' + sigla + '</div>' +
         '<div class="result-3state">' +
           '<div class="state-item state-aderiu"><span class="state-v">' + totalAderiu + '</span><span class="state-l">✓ Aderiu</span></div>' +
@@ -964,12 +977,12 @@ function buildDepDetailHTML(m, ctx) {
 
     listHTML +=
       '<div class="item">' +
-        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' +
-          '<span class="rot">Voto:</span> ' + voto +
+        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + cvEsc(votoTit) + '">' +
+          '<span class="rot">Voto:</span> ' + cvEsc(voto) +
         '</div>' +
         '<div class="item-corpo">' +
           '<div class="desc">' + cvEsc(desc) + '</div>' +
-          '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +
+          '<div class="gov">Governo: ' + cvEsc(d.e.govOrient || '—') + ' · ' + cvEsc(hora) + '</div>' +
         '</div>' +
         '<span class="vote ' + d.status + '">' + veredito + '</span>' +
       '</div>';
@@ -1059,7 +1072,7 @@ function renderVoteDetail(detailEl, e, ctx) {
     else                    ausente++;
   });
 
-  const pct      = aderPct(aderiu, divergiu) || 0;
+  const pct      = aderPct(aderiu, divergiu);   // null: só ausências (a rosca mostra "—")
   const canvasId = 'det-canvas-' + e.votacao.id.replace(/[^a-zA-Z0-9]/g, '');
 
   let rowsHTML = '';
@@ -1071,7 +1084,7 @@ function renderVoteDetail(detailEl, e, ctx) {
       '<div class="dep-row">' +
         '<div class="match-mark ' + matchCls + '">' + matchSym + '</div>' +
         '<div class="dep-name">' + cvEsc(d.nome || '?') + '<span class="dep-uf">(' + cvEsc(d.siglaUf || '?') + ')</span></div>' +
-        '<span class="dep-vote ' + cls + '">' + (d.tipoVoto || 'Ausente') + '</span>' +
+        '<span class="dep-vote ' + cls + '">' + cvEsc(d.tipoVoto || 'Ausente') + '</span>' +
       '</div>';
   });
 
@@ -1111,7 +1124,7 @@ function exportarExcel() {
     ['Votos aderentes (✓)', totalAderiu],
     ['Votos divergentes (✗)', totalDivergiu],
     ['Ausências (—)', totalAusente],
-    ['Aderência geral (%)', Number(overallPct.toFixed(2))],
+    ['Aderência geral (%)', overallPct == null ? '—' : Number(overallPct.toFixed(2))],
     [],
     ['Critérios:'],
     ['- Apenas votações do Plenário (PLEN)'],

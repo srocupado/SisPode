@@ -284,7 +284,12 @@ function snCompletarLista(d, primeiros, vagas, op = {}) {
       primeiros = primeiros.filter(x => !fora.has(x.sq));
       p1 = contar(primeiros);
     } else if (exc === 'compensa') {
-      while (sobra() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, 0, null, div, null, ordem); }
+      // Só se compensa o excedente de quem disputa a lista. O vencedor de distrito de agremiação abaixo da
+      // cláusula (ou sem voto de lista: voto líquido zerado) guarda a cadeira, mas o alvo dela é 0 com a Casa
+      // de qualquer tamanho — contá-lo fazia a Casa crescer até o teto de segurança (10 vagas → 50) sem
+      // compensar nada (revisão de 11/11/2026). A cadeira dele sai das listas, como no excedente que corta.
+      const aCompensar = () => Object.keys(p1).reduce((s, id) => s + (votos[id] > 0 ? Math.max(0, p1[id] - (alvo[id] || 0)) : 0), 0);
+      while (aCompensar() > 0 && N - vagas < cabe) { N++; alvo = snDhondt(votos, N, {}, 0, null, div, null, ordem); }
     } else if (exc === 'cresce') {
       N = vagas + Math.min(sobra(), cabe);
     }
