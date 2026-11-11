@@ -24,8 +24,9 @@
 //  15. sem voto Sim/Não é "—", não 0% (número grande, gráfico temporal, rosca);
 //  16. o recorte dos documentos usa a mesma data da seleção (`data`), e período sem
 //      votação não derruba os rótulos;
-//  17. o fetchJson de aderencia.js não repete 4xx (testado isolado: na página, quem vale é o de
-//      ia-comum.js, carregado depois, que não repete nada — ver o relatório da revisão);
+//  17. nova tentativa nos Relatórios: a função tem nome próprio (fetchJsonRetry) — com o nome
+//      `fetchJson` ela era encoberta pela de ia-comum.js, carregada depois, e nada se repetia;
+//      429/5xx/rede repetem, 4xx não, e falha lenta (servidor fora) não repete e abre o disjuntor;
 //  18. texto vindo do cache aberto do Firebase é escapado antes de ir ao HTML.
 //
 // Uso: node testes/relatorios-revisao-2026-11-11.test.js
@@ -273,29 +274,53 @@ ctx.globalThis = ctx;
 vm.createContext(ctx);
 new vm.Script(scripts.map(s => ler(s)).join('\n;\n')).runInContext(ctx);
 const av = e => vm.runInContext(e, ctx);
+av('sleep = async () => {}');   // as esperas entre tentativas não interessam ao teste
 
 (async () => {
-  console.log('\n== 17. o fetchJson de aderencia.js não repete 4xx ==');
+  console.log('\n== 17. nova tentativa nos Relatórios (fetchJsonRetry) ==');
   {
-    // A função é testada ISOLADA: na página (e neste sandbox), o `fetchJson` global é o de ia-comum.js,
-    // carregado depois de aderencia.js — a de aderencia.js fica encoberta.
+    // Isolada, com rede, espera e relógio de mentira.
     const src = ler('aderencia.js');
-    const i0 = src.indexOf('async function fetchJson(url, tentativa = 0) {');
+    const i0 = src.indexOf('const _relForaAte = new Map();');
     const corpo = src.slice(i0, src.indexOf('\n}\n', i0) + 2);
-    let fila = [], pedidos = 0;
-    const fetchFalso = async () => { pedidos++; const r = fila.shift(); if (r instanceof Error) throw r; return r; };
-    const fj = new Function('fetch', 'sleep', corpo + '; return fetchJson;')(fetchFalso, async () => {});
-    let erro = null;
+    let fila = [], pedidos = 0, agora = 1e6, demora = 0;
+    const fetchFalso = async () => { pedidos++; agora += demora; const r = fila.shift(); if (r instanceof Error) throw r; return r; };
+    const novo = () => new Function('fetch', 'sleep', 'Date', corpo + '; return fetchJsonRetry;')(fetchFalso, async () => {}, { now: () => agora });
+    let fj = novo(), erro = null;
     fila = [resp({}, 404), resp({}, 404), resp({}, 404)]; pedidos = 0;
     try { await fj('https://x/nao-existe'); } catch (e) { erro = e; }
-    ok(erro && erro.message === 'HTTP 404' && pedidos === 1, `404: um pedido só, e o erro sobe (${pedidos} pedido(s); antes eram 3)`);
+    ok(erro && erro.message === 'HTTP 404' && pedidos === 1, `404: um pedido só, e o erro sobe (${pedidos} pedido(s))`);
     fila = [resp({}, 503), resp({}, 503), resp({}, 503)]; pedidos = 0; erro = null;
     try { await fj('https://x/fora'); } catch (e) { erro = e; }
-    ok(erro && erro.message === 'HTTP 503' && pedidos === 3, `503: três tentativas (${pedidos})`);
+    ok(erro && erro.message === 'HTTP 503' && pedidos === 3, `503 rápido: três tentativas (${pedidos})`);
     fila = [resp({}, 429), resp({ dados: [7] })]; pedidos = 0;
     ok((await fj('https://x/limite')).dados[0] === 7 && pedidos === 2, '429 e depois 200: lê na segunda');
     fila = [new Error('rede'), new Error('rede'), resp({ dados: [1] })]; pedidos = 0;
     ok((await fj('https://x/rede')).dados[0] === 1 && pedidos === 3, 'falha de rede: repete e lê na terceira');
+    // falha LENTA = servidor fora do ar: não repete, e os pedidos seguintes falham na hora por 60 s
+    fj = novo(); demora = 9000; fila = [resp({}, 504), resp({ dados: [1] })]; pedidos = 0; erro = null;
+    try { await fj('https://api.camara/x'); } catch (e) { erro = e; }
+    ok(erro && erro.message === 'HTTP 504' && pedidos === 1, `504 depois de 9 s: NÃO repete (${pedidos} pedido)`);
+    demora = 0; erro = null;
+    try { await fj('https://api.camara/y'); } catch (e) { erro = e; }
+    ok(erro && /fora do ar/.test(erro.message) && pedidos === 1, 'e o pedido seguinte ao mesmo servidor falha na hora, sem ir à rede');
+    fila = [resp({ dados: [3] })];
+    ok((await fj('https://outro.servidor/z')).dados[0] === 3, 'outro servidor não é afetado');
+    agora += 61000; fila = [resp({ dados: [2] })];
+    ok((await fj('https://api.camara/y')).dados[0] === 2, 'passados os 60 s, volta a consultar');
+    fj = novo(); fila = [Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }), resp({ dados: [1] })]; pedidos = 0; erro = null;
+    try { await fj('https://api.camara/x'); } catch (e) { erro = e; }
+    ok(erro && /não respondeu em 25 s/.test(erro.message) && pedidos === 1, 'prazo de 25 s estourado: não repete, e a mensagem diz o que houve');
+
+    // Na página: a função dos Relatórios não é mais encoberta pela de ia-comum.js
+    ok(av('typeof fetchJsonRetry') === 'function' && av('fetchJsonRetry !== fetchJson'), 'na página, fetchJsonRetry existe com nome próprio (o fetchJson de ia-comum.js não a encobre)');
+    for (const arq of ['aderencia.js', 'aderencia-legislatura.js', 'producao.js', 'radar.js', 'leisaprovadas.js']) {
+      const t = ler(arq).replace(/^\s*(\/\/|\*).*$/gm, '');
+      ok(!/(?<![\w.])fetchJson\(/.test(t), `${arq}: nenhuma chamada ao fetchJson sem nova tentativa`);
+    }
+    let n = 0;
+    rota = () => (++n < 3 ? resp({}, 503) : resp({ dados: [9] }));
+    ok((await av(`fetchJsonRetry('https://dadosabertos.camara.leg.br/api/v2/x')`)).dados[0] === 9 && n === 3, 'na página: dois 503 e depois 200 → lê na terceira');
   }
 
   // Partido X: Ana (1) e Caio (3). v1 lida; v2 com os votos fora do ar (404).
@@ -331,6 +356,12 @@ const av = e => vm.runInContext(e, ctx);
     ok(c && c.qualifying.length === 1 && c.falhasVotacoes === 1, `1 votação no cálculo e 1 contada como não lida (${c && c.qualifying.length}, ${c && c.falhasVotacoes})`);
     const tela = av('resultadoEl.innerHTML');
     ok(/1 votação\(ões\) do Plenário no período não pôde ser lida na API da Câmara e ficou fora do cálculo/.test(tela), 'a tela avisa que uma votação ficou fora do cálculo');
+    // 429 passageiro nos votos de v2: com a nova tentativa, a votação entra no cálculo
+    let batidas = 0;
+    const base = rotaAder(V, Object.assign({}, VOTOS, { v2: [{ deputado_: dep(1, 'Ana', 'X'), tipoVoto: 'Sim' }] }));
+    rota = u => (/\/votacoes\/v2\/votos/.test(u) && ++batidas === 1 ? resp({}, 429) : base(u));
+    const cr = await gerar('2026-08-10', '2026-08-12');
+    ok(cr && cr.qualifying.length === 2 && cr.falhasVotacoes === 0 && batidas === 2, `429 e depois 200 nos votos: as 2 votações contam, nenhuma "não lida" (${cr && cr.qualifying.length}, ${cr && cr.falhasVotacoes})`);
     // todas falharam: o "nenhuma votação qualificada" vem com o aviso, não sozinho
     rota = rotaAder(V, VOTOS, { v1: true, v2: true });
     await gerar('2026-08-10', '2026-08-12');

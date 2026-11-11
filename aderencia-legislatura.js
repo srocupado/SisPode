@@ -155,7 +155,7 @@ async function legBuscarProposicoes(anos, aoAndar) {
     if (p) props[id] = p; else faltam.push(id);
   }
   await mapLimit(faltam, 8, async id => {
-    const d = (await fetchJson(API_PROP + '/' + id)).dados;
+    const d = (await fetchJsonRetry(API_PROP + '/' + id)).dados;
     if (!d) return;
     props[id] = { sigla: d.siglaTipo, numero: d.numero, ano: d.ano, ementa: d.ementa || '' };
     try { localStorage.setItem(CHAVE + id, JSON.stringify(props[id])); } catch (_) {}

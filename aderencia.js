@@ -51,20 +51,45 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/** Fetch JSON com retry em 429/5xx */
-async function fetchJson(url, tentativa = 0) {
-  const deNovo = async () => { await sleep(500 * (tentativa + 1)); return fetchJson(url, tentativa + 1); };
+/**
+ * Fetch JSON dos Relatórios (API da Câmara), com nova tentativa em 429, 5xx e falha de rede.
+ *
+ * O NOME É PRÓPRIO DE PROPÓSITO. Até 11/11/2026 esta função se chamava `fetchJson` — o mesmo nome da
+ * de ia-comum.js, que esta página carrega DEPOIS: a declaração de lá substituía a daqui, e os
+ * relatórios (aderência, produção, radar, leis aprovadas) rodavam sem repetir pedido nenhum. Com
+ * centenas de pedidos em paralelo, um 429 passageiro virava votação ou proposição "não lida".
+ *
+ *  · 429, 5xx e falha de rede: mais 2 tentativas, com 0,5 s e 1 s de espera; 4xx não se repete.
+ *  · Cada tentativa tem prazo de 25 s. Falha LENTA — o prazo estourou, ou veio 5xx depois de 8 s —
+ *    é o servidor fora do ar: não se repete, e os pedidos seguintes ao mesmo servidor falham na hora
+ *    por 60 s. Sem isso, com a API fora, cada um das centenas de pedidos esperaria os 25 s, três vezes.
+ */
+const _relForaAte = new Map();   // servidor → até quando os pedidos falham na hora
+async function fetchJsonRetry(url, tentativa = 0) {
+  let host = '';
+  try { host = new URL(url).host; } catch (_) { /* URL relativa: sem disjuntor */ }
+  if (Date.now() < (_relForaAte.get(host) || 0)) throw new Error('servidor fora do ar (' + host + ') — tente de novo em um minuto');
+  const deNovo = async () => { await sleep(500 * (tentativa + 1)); return fetchJsonRetry(url, tentativa + 1); };
+  const t0 = Date.now();
+  const lento = () => Date.now() - t0 > 8000;
+  const fora = () => { if (host) _relForaAte.set(host, Date.now() + 60000); };
   let resp;
-  try { resp = await fetch(url, { headers: { Accept: 'application/json' } }); }
-  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // falha de rede
+  try {
+    resp = await fetch(url, { headers: { Accept: 'application/json' },
+      ...((typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {}) });
+  } catch (e) {
+    if (e && e.name === 'TimeoutError') { fora(); throw new Error('o servidor não respondeu em 25 s (' + host + ')'); }
+    if (lento()) { fora(); throw e; }
+    if (tentativa < 2) return deNovo();   // falha de rede
+    throw e;
+  }
   if (!resp.ok) {
-    // Só 429 e 5xx se repetem. O `throw` daqui ficava DENTRO do try, e o catch — feito para a falha
-    // de rede — repetia também 400/404: todo 4xx custava três pedidos e 1,5 s (revisão de 11/11/2026).
+    if (resp.status >= 500 && lento()) { fora(); throw new Error('HTTP ' + resp.status); }
     if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) return deNovo();
     throw new Error('HTTP ' + resp.status);
   }
   try { return await resp.json(); }
-  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // corpo cortado no meio
+  catch (e) { if (tentativa < 2 && !lento()) return deNovo(); throw e; }   // corpo cortado no meio
 }
 
 /** Executa fn sobre items com no máximo limit promessas simultâneas */
@@ -435,7 +460,7 @@ async function buscarVotacoesPeriodo(dataIni, dataFim, aoAndar) {
     let url = API + '?dataInicio=' + ini + '&dataFim=' + fimPedido + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
     let paginas = 0;
     while (url && paginas < 40) {
-      const json = await fetchJson(url);
+      const json = await fetchJsonRetry(url);
       for (const v of (json.dados || [])) if (!vistos.has(v.id)) { vistos.add(v.id); todas.push(v); }
       const next = (json.links || []).find(l => l.rel === 'next');
       url = next ? next.href : null;
@@ -552,7 +577,7 @@ async function aderBancadaPorVotacao(sigla, bench, qualifying, aoAndar) {
   let falhasHistorico = 0;
   await mapLimit(lista, 8, async c => {
     try {
-      c.historico = (await fetchJson(API_DEPS + '/' + c.id + '/historico')).dados || [];
+      c.historico = (await fetchJsonRetry(API_DEPS + '/' + c.id + '/historico')).dados || [];
       c.transitorio = aderRegistroTransitorio(c.historico, sigla);
     }
     catch (e) { falhasHistorico++; }
@@ -650,10 +675,10 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     // por erro temporário da API, que ficaria preso e seria descartado
     // silenciosamente nas próximas execuções).
     const [votosR, orientR] = await Promise.all([
-      fetchJson(API + '/' + v.id + '/votos')
+      fetchJsonRetry(API + '/' + v.id + '/votos')
         .then(j => ({ ok: true, dados: j.dados || [] }))
         .catch(() => ({ ok: false, dados: [] })),
-      fetchJson(API + '/' + v.id + '/orientacoes')
+      fetchJsonRetry(API + '/' + v.id + '/orientacoes')
         .then(j => ({ ok: true, dados: j.dados || [] }))
         .catch(() => ({ ok: false, dados: [] }))
     ]);
@@ -700,7 +725,7 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   // 5. Bancada de hoje (ponto de partida dos candidatos) e bancada na data
   //    de cada votação — ver aderBancadaPorVotacao.
   status('Carregando bancada do ' + sigla + '...', 'loading');
-  const benchJ = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
+  const benchJ = await fetchJsonRetry(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
   const bench  = benchJ.dados || [];
   const { candidatos, falhasHistorico, desconsiderados } = await aderBancadaPorVotacao(sigla, bench, qualifying, (f, t) =>
     status('Conferindo o partido de cada deputado na data de cada votação (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
@@ -1285,7 +1310,7 @@ function cvDiaSeguinte(iso) {
  * código — nome errado aqui contamina o relatório inteiro.
  */
 async function cvBuscarDeputados(nome) {
-  const j = await fetchJson(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
+  const j = await fetchJsonRetry(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
   return (j.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido, uf: d.siglaUf }));
 }
 
@@ -1367,8 +1392,8 @@ async function cvEnriquecer(votacoes, aoAndar) {
     const [votos, orients] = await Promise.all([
       // Atenção: /votos NÃO aceita ?itens= — devolve HTTP 400 e a leitura vira
       // "votação sem voto nominal", que é falso.
-      fetchJson(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
-      fetchJson(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJsonRetry(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJsonRetry(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
     ]);
     const gov = (orients.d || []).find(o => /governo/i.test(o.siglaPartidoBloco || ''));
     return {
@@ -1384,7 +1409,7 @@ async function cvEnriquecer(votacoes, aoAndar) {
 
 // ---------- as duas buscas ----------
 async function cvPorProposicao(sigla, numero, ano) {
-  const busca = await fetchJson(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
+  const busca = await fetchJsonRetry(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
   const prop = (busca.dados || [])[0];
   if (!prop) throw new Error(`${sigla} ${numero}/${ano} não foi localizado na base da Câmara.`);
 
@@ -1403,7 +1428,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   let urlV = API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro';
   let pag = 0;
   while (urlV && pag < 20) {
-    const j = await fetchJson(urlV);
+    const j = await fetchJsonRetry(urlV);
     vots.push(...(j.dados || []));
     const next = (j.links || []).find(l => l.rel === 'next');
     urlV = next ? next.href : null;
@@ -1432,7 +1457,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   }
   for (const [idp, lista] of porProp) {
     try {
-      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      const tram = (await fetchJsonRetry(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
       Object.assign(objetos, objetosDaTramitacao(lista, tram));
       // Destaque RETIRADO não foi votado — não há voto a registrar, e é
       // justamente por isso que ele precisa ser dito: o relatório mostraria
@@ -1454,7 +1479,7 @@ async function cvPorProposicao(sigla, numero, ano) {
     // objeto é a proposição em si, que identifica a matéria com precisão.
     if (idp !== String(prop.id) && lista.some(v => !objetos[v.id])) {
       try {
-        const p = (await fetchJson(API_PROP + '/' + idp)).dados;
+        const p = (await fetchJsonRetry(API_PROP + '/' + idp)).dados;
         if (p) {
           const rot = `${p.siglaTipo} ${p.numero}/${p.ano}` + (p.ementa ? ' — ' + String(p.ementa).replace(/\s+/g, ' ').slice(0, 180) : '');
           for (const v of lista) if (!objetos[v.id]) objetos[v.id] = rot;
@@ -1470,7 +1495,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   // então lê-se uma votação por dia de sessão e junta-se.
   let propDetalhada = prop;
   try {
-    const d = await fetchJson(API_PROP + '/' + prop.id);
+    const d = await fetchJsonRetry(API_PROP + '/' + prop.id);
     if (d.dados) propDetalhada = d.dados;
   } catch (e) { console.warn('[consulta] detalhe da proposição não lido:', e.message); }
 
@@ -1485,7 +1510,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   for (const v of vots) porDia.set(String(v.data), v);
   for (const v of porDia.values()) {
     try {
-      const d = await fetchJson(API + '/' + v.id);
+      const d = await fetchJsonRetry(API + '/' + v.id);
       for (const o of ((d.dados || {}).objetosPossiveis || [])) {
         if (!vistosObj.has(o.id)) { vistosObj.add(o.id); objetosPossiveis.push(o); }
       }
@@ -1529,7 +1554,7 @@ async function cvObjetosDeVarias(votacoes) {
   let lidas = 0;
   for (const [idp, lista] of porProp) {
     try {
-      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      const tram = (await fetchJsonRetry(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
       Object.assign(objetos, objetosDaTramitacao(lista, tram));
     } catch (e) {
       console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);

@@ -21,7 +21,7 @@
 //     ano, em vez de uma por item. Numa busca de 400 proposições isso é a
 //     diferença entre 2 chamadas e 400.
 //
-// Depende de aderencia.js (fetchJson, cvEsc, API_PROP) — carregado antes.
+// Depende de aderencia.js (fetchJsonRetry, cvEsc, API_PROP) — carregado antes.
 
 const RDR_PARTIDO = 'PODE';
 
@@ -65,7 +65,7 @@ function rdrStatus(msg, tipo) {
  */
 async function rdrCarregarTemas() {
   if (rdr.temas) return rdr.temas;
-  const j = await fetchJson('https://dadosabertos.camara.leg.br/api/v2/referencias/proposicoes/codTema');
+  const j = await fetchJsonRetry('https://dadosabertos.camara.leg.br/api/v2/referencias/proposicoes/codTema');
   rdr.temas = (j.dados || []).map(t => ({ cod: String(t.cod), nome: t.nome }))
     .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
   return rdr.temas;
@@ -92,7 +92,7 @@ async function rdrBuscarAno(base, ano) {
             + '&itens=100&ordem=DESC&ordenarPor=id';
     let p = 0;
     while (url && p < RDR_TETO_PAGINAS) {
-      const j = await fetchJson(url);
+      const j = await fetchJsonRetry(url);
       itens.push(...(j.dados || []));
       const next = (j.links || []).find(l => l.rel === 'next');
       url = next ? next.href : null;

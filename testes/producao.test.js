@@ -126,7 +126,7 @@ merito.forEach((p, i) => {
     // A ordem importa: os dois reaproveitam globais de aderencia.js.
     ok(html.indexOf('aderencia.js') < html.indexOf('producao.js')
        && html.indexOf('aderencia.js') < html.indexOf('radar.js'),
-       'e vêm DEPOIS de aderencia.js, de quem reaproveitam fetchJson, cvEsc e CSS_PDF_VOTOS');
+       'e vêm DEPOIS de aderencia.js, de quem reaproveitam fetchJsonRetry, cvEsc e CSS_PDF_VOTOS');
   }
 
   console.log('\n== a aba existe e troca ==');

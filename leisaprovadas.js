@@ -31,7 +31,7 @@
 // scripts clássicos da extensão não importam módulos do bot/. Mudar um sem o
 // outro desalinha a coleta pela extensão da coleta do bot.
 //
-// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJson, cvEsc) —
+// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJsonRetry, cvEsc) —
 // carregado antes deste arquivo.
 
 const LEA_ROOT = '/leis_aprovadas';
@@ -596,7 +596,7 @@ function leaLerArquivoLocal(file, onBytes) {
 async function leaBuscarRoster(idLegislatura) {
   const ITENS = 1000, out = [];
   for (let pagina = 1; pagina <= 10; pagina++) {
-    const j = await fetchJson(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`);
+    const j = await fetchJsonRetry(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`);
     const dados = j.dados || [];
     for (const d of dados) out.push({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' });
     if (dados.length < ITENS || !(j.links || []).some(l => l.rel === 'next')) break;
@@ -606,14 +606,14 @@ async function leaBuscarRoster(idLegislatura) {
 
 /** Autor fora do roster: cadastro avulso (partido/UF do último status). */
 async function leaBuscarDeputado(id) {
-  const j = await fetchJson(`${LEA_API}/deputados/${id}`);
+  const j = await fetchJsonRetry(`${LEA_API}/deputados/${id}`);
   const u = (j.dados && j.dados.ultimoStatus) || {};
   if (!u.nome) throw new Error('sem nome no cadastro');
   return { id, nome: u.nome, partido: u.siglaPartido || '', uf: u.siglaUf || '' };
 }
 
 async function leaBuscarAutores(idProposicao) {
-  const j = await fetchJson(`${LEA_API}/proposicoes/${idProposicao}/autores`);
+  const j = await fetchJsonRetry(`${LEA_API}/proposicoes/${idProposicao}/autores`);
   const autores = [];
   for (const a of j.dados || []) {
     if (a.codTipo !== 10000) continue; // 10000 = Deputado(a)
@@ -624,7 +624,7 @@ async function leaBuscarAutores(idProposicao) {
 }
 
 async function leaBuscarHistorico(idDeputado) {
-  const j = await fetchJson(`${LEA_API}/deputados/${idDeputado}/historico`);
+  const j = await fetchJsonRetry(`${LEA_API}/deputados/${idDeputado}/historico`);
   return j.dados || [];
 }
 
