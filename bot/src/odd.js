@@ -51,9 +51,7 @@ async function eventosDeliberativos(dataISO) {
     return (j.dados || []).filter(e => ehDeliberativa(e.descricaoTipo));
   } catch (eApi) {
     try {
-      const br = encodeURIComponent(dataISO.split('-').reverse().join('/'));
-      const html = await PORTAL.baixar(`https://www.camara.leg.br/agenda?dataInicial__proxy=${br}&dataInicial=${br}&dataFinal__proxy=${br}&dataFinal=${br}&categorias=Plen%C3%A1rio`, { fresco: true });
-      return PORTAL.parseAgendaPortal(html)
+      return (await PORTAL.agendaPortal({ de: dataISO, categoria: 'Plenário' }, { fresco: true }))
         .filter(e => /plen[áa]rio/i.test(e.orgao) && ehDeliberativa(`${e.tema} ${e.tipo}`))
         .map(e => ({ id: e.id, dataHoraInicio: `${e.data || dataISO}T${e.hora || '00:00'}`, descricaoTipo: e.tipo, descricao: e.tema, situacao: e.situacao, fonte: 'portal' }));
     } catch (ePortal) {
@@ -94,15 +92,8 @@ function itemDaApi(x) {
   };
 }
 
-// Proposição citada na ementa (o alvo da urgência ou do recurso): "Projeto de Lei nº 2.167, de 2026",
-// "PL nº 5072 de 2026", "PLP nº 226/2025".
-const SIGLAS = { 'projeto de lei complementar': 'PLP', 'projeto de lei': 'PL', 'proposta de emenda à constituição': 'PEC', 'projeto de decreto legislativo': 'PDL', 'medida provisória': 'MPV' };
-function alvoDaEmenta(ementa) {
-  const t = String(ementa || '').replace(/Projeto de Lei Complementar|Projeto de Lei|Proposta de Emenda [àa] Constitui[çc][ãa]o|Projeto de Decreto Legislativo|Medida Provis[óo]ria/gi,
-    m => SIGLAS[m.toLowerCase().replace('a constituicao', 'à constituição').replace('constituicao', 'constituição')] || SIGLAS[m.toLowerCase()] || m);
-  const m = /\b(PLP|PEC|PDL|MPV|PRC|PL)\s*n?[º°o.]*\s*([\d.]+)\s*(?:\/|,?\s*de\s+)(\d{4})/i.exec(t);
-  return m ? { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3], ementa: '' } : null;
-}
+// Proposição citada na ementa (o alvo da urgência ou do recurso): leitor único em comissoes-portal.
+const alvoDaEmenta = ementa => PORTAL.proposicaoCitada(ementa);
 
 /** Item da página da sessão (portal) → mesmo formato de itemDaApi. */
 function itemDoPortal(i, k) {

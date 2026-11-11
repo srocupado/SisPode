@@ -5985,13 +5985,17 @@ function extrairRefProposicao(texto) {
 // 10/11/2026: "Rejeitado, simbolicamente, o Recurso 20/2024 (PL 2168/2021)" não
 // aparecia. Rejeitado, prevalece a decisão da comissão; aprovado, o projeto vai
 // ao Plenário. Com despacho de destino no dia ("Vai ao Senado"), vale ele.
-const tipoRecurso = ementa => (/terminativ/i.test(ementa || '') ? 'terminativo' : 'conclusivo');
+// 'conclusivo' e 'terminativo' só quando a ementa DIZ; qualquer outro recurso (contra
+// decisão da Presidência em questão de ordem…) ou ementa não lida é 'outro' — e não
+// recebe frase de consequência, que seria falsa (revisão de 11/11/2026).
+const tipoRecurso = ementa => (/terminativ/i.test(ementa || '') ? 'terminativo' : /conclusiv/i.test(ementa || '') ? 'conclusivo' : 'outro');
 // Destino do PROJETO depois do recurso: só um roteamento concreto (Senado,
 // sanção, promulgação…). "A matéria segue a tramitação inicialmente prevista" (o
 // passo do REC 20/2024 rejeitado) cai em "Encaminhada (…)" e fica com a frase
 // do resultado, que diz o mesmo de forma clara.
 const destinoDoRecurso = (sigla, despachos) => { const d = destinoDeConclusao(sigla, despachos) || ''; return /^Encaminhada\b/.test(d) ? '' : d; };
 function fraseResultadoRecurso(aprovado, tipo) {
+  if (tipo !== 'conclusivo' && tipo !== 'terminativo') return '';
   if (aprovado) return 'O projeto vai à apreciação do Plenário';
   return tipo === 'terminativo' ? 'Prevalece o parecer terminativo da comissão' : 'Prevalece a apreciação conclusiva das comissões';
 }
@@ -6194,7 +6198,11 @@ async function coletarResumoSessaoApi(dataISO) {
   const ultimaPorRec = new Map();
   for (const v of votacoes.slice().sort(_ascVot)) {
     const m = String(v.proposicaoObjeto || '').match(/^\s*REC\s+([\d.]+)\/(\d{4})\b/i);
-    if (m) ultimaPorRec.set(`${m[1].replace(/\./g, '')}/${m[2]}`, { v, numero: m[1].replace(/\./g, ''), ano: m[2] });
+    // Só a votação DO RECURSO ("Aprovado/Rejeitado o Recurso nº …"), com resultado
+    // registrado: requerimento de retirada de pauta ou de adiamento sobre o mesmo REC
+    // não é o recurso (revisão de 11/11/2026).
+    if (!m || !/^\s*(?:Aprovad|Rejeitad)[oa]\s+o\s+Recurso\b/i.test(v.descricao || '') || (v.aprovacao !== 0 && v.aprovacao !== 1)) continue;
+    ultimaPorRec.set(`${m[1].replace(/\./g, '')}/${m[2]}`, { v, numero: m[1].replace(/\./g, ''), ano: m[2] });
   }
   const recursos = await _mapLimit([...ultimaPorRec.values()], 4, async ({ v, numero, ano }) => {
     let ementaRec = '';
@@ -6275,7 +6283,8 @@ async function montarMensagemResumo(urgencias, concluidos, dataISO, recursos = [
   for (const r of recursos || []) {
     const alvo = r.alvo ? ` (${tipoLabel(r.alvo.sigla)} ${r.alvo.numero}/${r.alvo.ano})` : '';
     const desc = r.alvo ? await descr(r.alvo.sigla, r.alvo.numero, r.alvo.ano, r.ementa) : '';
-    linhas.push(`▪️ ${b(`Recurso ${r.numero}/${r.ano}${alvo} ${r.aprovado ? 'aprovado' : 'rejeitado'}`)}${desc} ➡️ ${r.destino || fraseResultadoRecurso(r.aprovado, r.tipo)}`);
+    const consequencia = r.destino || fraseResultadoRecurso(r.aprovado, r.tipo);
+    linhas.push(`▪️ ${b(`Recurso ${r.numero}/${r.ano}${alvo} ${r.aprovado ? 'aprovado' : 'rejeitado'}`)}${desc}${consequencia ? ` ➡️ ${consequencia}` : ''}`);
   }
   for (const c of concluidos) {
     const seta = c.destino ? ` ➡️ ${c.destino}` : '';

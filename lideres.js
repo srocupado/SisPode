@@ -767,6 +767,7 @@ async function carregarDadosDaProposicao(it) {
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
   it.solicitacaoPodemos = await solicitacaoPodemos(it);
+  it.fatosV = FATOS_V;   // fatos apurados nesta versão (ver CURA DE REUNIÕES ANTIGAS)
 }
 
 /** Ficha da proposição no webservice do portal → campos (texto XML, sem DOM: roda igual no teste). */
@@ -1076,6 +1077,7 @@ async function carregarDadosPeloPortal(it, erroApi) {
   it.relatoria = comporRelatoria(it, it.relatoria);
   it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
   it.solicitacaoPodemos = await solicitacaoPodemos(it);
+  it.fatosV = FATOS_V;   // fatos apurados nesta versão (ver CURA DE REUNIÕES ANTIGAS)
 }
 
 // ---------- AUTORIA E RELATORIA DO PODEMOS ----------
@@ -2974,36 +2976,59 @@ function restaurarReuniao(id, reunioes) {
 // reuniões já consultadas na Câmara, e o "Resumir" não reconsulta quem já tem
 // idCamara — então, sem isto, badge, tarja do PDF e o botão de WhatsApp
 // falhavam em silêncio em reunião antiga: os campos simplesmente não existiam.
-const camposNovosFaltando = it =>
-  it.autoriaPodemos === undefined || it.apensadosPodemos === undefined || it.papel === undefined
+//
+// A detecção é por VERSÃO gravada no item (`fatosV`), não por "campo ausente":
+// o Firebase não guarda lista vazia nem null, e os campos do Podemos quase
+// sempre SÃO listas vazias (apensadosPodemos, comissaoMistaPodemos,
+// solicitacaoPodemos). Testar `=== undefined` fazia TODA reunião reaberta
+// parecer antiga: os itens eram reconsultados na Câmara a cada abertura e o que
+// o analista tinha editado em situação, relatoria, apensação e parecer era
+// sobrescrito (revisão de 11/11/2026). Suba FATOS_V quando um fato novo
+// precisar ser apurado em reunião já salva.
+const FATOS_V = 1;
+const camposNovosFaltando = it => (it.fatosV || 0) < FATOS_V;
+/** Faltam os fatos de BASE (só a Câmara dá)? Senão, basta completar o que se deriva da lista. */
+const precisaConsultarCamara = it =>
+  it.autoriaPodemos === undefined || it.papel === undefined
   // marcada como autoria do Podemos antes de os NOMES serem guardados
-  || (it.autoriaPodemos === true && it.autoresPodemos === undefined)
-  // reunião importada antes de a coluna Relator da lista virar designado × pedido
-  // (e do selo da comissão mista de MPV) — 10/11/2026
-  || (!!it.extrasPdf?.relator && (it.relatorDesignado === undefined || it.comissaoMistaPodemos === undefined))
-  // MPV gravada com "Não apurada" antes da regra da urgência constitucional (10/11/2026)
-  || (it.sigla === 'MPV' && it.situacao !== SITUACAO_MPV)
-  // antes do selo de pedido de pauta do Podemos (10/11/2026)
-  || (!!it.extrasPdf?.solicitacoes && it.solicitacaoPodemos === undefined);
+  || (it.autoriaPodemos === true && it.autoresPodemos === undefined);
+
+/** Cura LEVE: completa o que vem da lista da reunião, sem consultar a proposição na
+ *  Câmara e sem tocar em campo que o analista pode ter editado. */
+async function curaLeve(it) {
+  if (it.apensadosPodemos === undefined) it.apensadosPodemos = [];   // lista vazia que o Firebase não guardou
+  // relatoria ainda no formato antigo (o fato cru): passa a designado × pedido
+  if (it.relatorDesignado === undefined) it.relatoria = comporRelatoria(it, it.relatoria || '');
+  // MPV gravada com "Não apurada" antes da regra da urgência constitucional; situação editada fica
+  if (it.sigla === 'MPV' && /^Não apurada/.test(it.situacao || '')) situacaoDaMpv(it);
+  it.comissaoMistaPodemos = await comissaoMistaPodemos(it);
+  it.solicitacaoPodemos = await solicitacaoPodemos(it);
+  it.fatosV = FATOS_V;
+}
 
 async function completarDadosFaltantes() {
   if (app._completando) return app._completando;      // uma cura por vez
   const alvo = (app.reuniao?.itens || []).filter(camposNovosFaltando);
   if (!alvo.length) return null;
   app._completando = (async () => {
-    mostrarToast(`Reunião salva antes das marcações do Podemos — atualizando ${alvo.length} proposição(ões) na Câmara…`, '');
+    const pesados = alvo.filter(precisaConsultarCamara);
+    const leves = alvo.filter(it => !pesados.includes(it));
+    if (pesados.length) mostrarToast(`Reunião salva antes das marcações do Podemos — atualizando ${pesados.length} proposição(ões) na Câmara…`, '');
+    for (const it of leves) { try { await curaLeve(it); } catch (_) { /* tenta de novo na próxima abertura */ } }
     let feitos = 0;
-    await mapLimit(alvo, 6, async it => {
+    await mapLimit(pesados, 6, async it => {
       // Recarrega os FATOS (situação, relatoria, apensação, Podemos). Os campos
       // de IA e as edições de objetivo/justificativa não são tocados.
       try { await carregarDadosDaProposicao(it); } catch (_) { /* mantém o que há */ }
-      atualizarProgresso(++feitos, alvo.length, 'Atualizando dados');
+      atualizarProgresso(++feitos, pesados.length, 'Atualizando dados');
     });
     atualizarProgresso(0, 0);
     coletarEdicoes();
     renderizarTabela();
     atualizarSidebar();
-    mostrarToast('Marcações do Podemos atualizadas. Salve para compartilhar com a equipe.', 'sucesso');
+    // Grava a marca de versão: sem salvar, a cura rodaria de novo na próxima abertura.
+    const salvo = await salvarReuniao({ auto: true }).catch(() => null);
+    if (pesados.length) mostrarToast(`Marcações do Podemos atualizadas${salvo?.ok ? ' e salvas' : '. Salve para compartilhar com a equipe'}.`, 'sucesso');
   })().finally(() => { app._completando = null; });
   return app._completando;
 }

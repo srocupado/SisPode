@@ -202,18 +202,44 @@ async function baixar(url, { fresco = false, ate = null } = {}) {
   }
 }
 
-/** Todos os eventos do dia na agenda do portal (segue a paginação, até 8 páginas). */
-async function eventosDoDiaPortal(dataIso, opts) {
-  const q = encodeURIComponent(dataIso.split('-').reverse().join('/'));
-  let url = `${PORTAL}/agenda?dataInicial__proxy=${q}&dataInicial=${q}&dataFinal__proxy=${q}&dataFinal=${q}`;
-  const out = [], vistos = new Set();
-  for (let p = 0; p < 8 && url; p++) {
+/**
+ * Eventos da agenda do portal num intervalo (datas ISO; `categoria` opcional, ex.: 'Plenário').
+ * Segue a PAGINAÇÃO (até 8 páginas): a leitura só da 1ª página perdia a sessão que
+ * caísse na 2ª numa semana cheia (revisão de 11/11/2026) — é o caminho único da
+ * agenda para a varredura, a convocação e a Ordem do Dia.
+ */
+async function agendaPortal({ de, ate = de, categoria = '' }, opts) {
+  const br = iso => encodeURIComponent(iso.split('-').reverse().join('/'));
+  let url = `${PORTAL}/agenda?dataInicial__proxy=${br(de)}&dataInicial=${br(de)}&dataFinal__proxy=${br(ate)}&dataFinal=${br(ate)}`
+    + (categoria ? `&categorias=${encodeURIComponent(categoria)}` : '');
+  const out = [], vistos = new Set(), urls = new Set();
+  for (let p = 0; p < 8 && url && !urls.has(url); p++) {
+    urls.add(url);
     const html = await baixar(url, opts);
     for (const e of parseAgendaPortal(html)) if (!vistos.has(e.id)) { vistos.add(e.id); out.push(e); }
     const prox = proximaPaginaAgenda(html);
-    url = prox && prox !== url ? prox : null;
+    url = prox ? new URL(prox, url).toString() : null;   // o link da próxima página pode vir relativo
   }
   return out;
+}
+/** Todos os eventos do dia na agenda do portal. */
+const eventosDoDiaPortal = (dataIso, opts) => agendaPortal({ de: dataIso }, opts);
+
+// A proposição CITADA numa ementa — o projeto alvo de um requerimento de urgência ou de
+// um recurso. Um leitor só, para a convocação e a Ordem do Dia (antes eram dois, e o da
+// convocação não lia "PL nº 5072 de 2026" nem PDL/PEC por extenso). Formas reais:
+//   "Projeto de Lei nº 2.167, de 2026" · "PL nº 5072 de 2026" · "PLP nº 226/2025"
+//   "Projeto de Decreto Legislativo nº 123, de 2026" · "Proposta de Emenda à Constituição nº 3/2024"
+const POR_EXTENSO = [
+  [/Projeto\s+de\s+Lei\s+Complementar/gi, 'PLP'], [/Projeto\s+de\s+Lei\s+de\s+Convers[ãa]o/gi, 'PLV'], [/Projeto\s+de\s+Lei/gi, 'PL'],
+  [/Proposta\s+de\s+Emenda\s+[àa]\s+Constitui[çc][ãa]o/gi, 'PEC'], [/Projeto\s+de\s+Decreto\s+Legislativo/gi, 'PDL'],
+  [/Medida\s+Provis[óo]ria/gi, 'MPV'], [/Projeto\s+de\s+Resolu[çc][ãa]o/gi, 'PRC'],
+];
+function proposicaoCitada(texto) {
+  let t = String(texto || '');
+  for (const [re, sigla] of POR_EXTENSO) t = t.replace(re, sigla);
+  const m = /\b(PLP|PLV|PLN|PEC|PDL|PDC|MPV|PRC|PL)\s*n?[º°o.]*\s*([\d.]+)\s*(?:\/|,?\s*de\s+)\s*(\d{4})\b/i.exec(t);
+  return m ? { sigla: m[1].toUpperCase() === 'PDC' ? 'PDL' : m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3], ementa: '' } : null;
 }
 /** A pauta de uma reunião pela página dela. */
 async function pautaEventoPortal(id, opts) {
@@ -221,5 +247,5 @@ async function pautaEventoPortal(id, opts) {
 }
 
 module.exports = { parseAgendaPortal, proximaPaginaAgenda, parseEventoPortal, parsePessoas, votoNaComissao, siglaNaPagina,
-  ehPermanente, ehDeliberativa, eventosDoDiaPortal, pautaEventoPortal, decod, baixar,
+  ehPermanente, ehDeliberativa, eventosDoDiaPortal, agendaPortal, proposicaoCitada, pautaEventoPortal, decod, baixar,
   RITMO, SEM_TEMPO, pedidosFeitos: () => _vez, limparCache: () => { _cache.clear(); _intervalo = RITMO.intervaloMs; } };   // RITMO e o contador: para o teste encurtar os tempos e contar

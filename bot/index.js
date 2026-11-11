@@ -241,7 +241,11 @@ const _filaConversa = new Map();   // chat.id → promessa da última mensagem c
 function rodarSemTravar(ctx, next) {
   const rodar = () => next().catch(e => console.error('Erro no bot:', e));
   const txt = ctx.message?.text || ctx.message?.caption || '';
-  if (ctx.callbackQuery || /^\/[A-Za-z]/.test(txt) || !ctx.chat) { rodar(); return; }
+  // /ata (e /anotar) mexe no MESMO estado que as mensagens comuns da conversa: entra na
+  // fila, senão "/ata fim" passava na frente do áudio ainda em transcrição e a mensagem
+  // da bancada saía sem a última anotação (revisão de 11/11/2026).
+  const naFila = /^\/(?:ata|anotar)(?:@\w+)?(?:\s|$)/i.test(txt);
+  if (ctx.callbackQuery || (/^\/[A-Za-z]/.test(txt) && !naFila) || !ctx.chat) { rodar(); return; }
   const k = ctx.chat.id;
   const p = (_filaConversa.get(k) || Promise.resolve()).then(rodar);
   _filaConversa.set(k, p);
@@ -1097,9 +1101,11 @@ bot.callbackQuery(/^ana:(ok|no):([a-f0-9]+)$/, async ctx => {
   const perfil = getPerfil(ctx.from.id);
   if (!perfil?.apiKey) return ctx.answerCallbackQuery({ text: 'Configure sua chave com /config.', show_alert: true });
   if (_workerOcupado) return ctx.answerCallbackQuery({ text: 'Worker ocupado — tente em instantes.', show_alert: true });
-  await ctx.answerCallbackQuery();
+  // A trava fecha ANTES de qualquer await: com os comandos em paralelo, dois pedidos
+  // passavam pela checagem e um fechava o navegador do outro (revisão de 11/11/2026).
   _workerOcupado = true;
-  await ctx.editMessageText(`⚙️ Abrindo o painel no worker para "${pend.titulo}"…`);
+  await ctx.answerCallbackQuery().catch(() => {});
+  await ctx.editMessageText(`⚙️ Abrindo o painel no worker para "${pend.titulo}"…`).catch(() => {});
   try {
     const final = await analisarPauta({
       perfil, pautaId: pend.pautaId,
@@ -1122,12 +1128,13 @@ bot.callbackQuery(/^ana:(ok|no):([a-f0-9]+)$/, async ctx => {
 
 async function cmdExportar(ctx) {
   if (_workerOcupado) return ctx.reply('Já há uma geração/exportação em andamento — aguarde terminar.');
-  await ctx.replyWithChatAction('typing');
-  const pauta = await pautaDoUsuario(ctx.from.id);
-  if (!pauta) return ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
-  _workerOcupado = true;
-  const aviso = await ctx.reply(`📄 Gerando o PDF institucional de "${pauta.nome || pauta.titulo}"… (1–3 min)`);
+  _workerOcupado = true;   // antes de qualquer await (ver a trava em ana:ok)
+  let aviso = null;
   try {
+    await ctx.replyWithChatAction('typing');
+    const pauta = await pautaDoUsuario(ctx.from.id);
+    if (!pauta) return await ctx.reply('Nenhuma pauta importada no SisPode ainda. Use /importar.');
+    aviso = await ctx.reply(`📄 Gerando o PDF institucional de "${pauta.nome || pauta.titulo}"… (1–3 min)`);
     const r = await exportarPdfPauta({ perfil: getPerfil(ctx.from.id), pautaId: pauta.id });
     await ctx.replyWithChatAction('upload_document');
     await ctx.replyWithDocument(
@@ -1136,7 +1143,8 @@ async function cmdExportar(ctx) {
     await ctx.api.deleteMessage(aviso.chat.id, aviso.message_id).catch(() => {});
   } catch (e) {
     console.error('/exportar falhou:', e);
-    await ctx.api.editMessageText(aviso.chat.id, aviso.message_id, `Erro ao gerar o PDF: ${e.message}`).catch(() => {});
+    if (aviso) await ctx.api.editMessageText(aviso.chat.id, aviso.message_id, `Erro ao gerar o PDF: ${e.message}`).catch(() => {});
+    else await ctx.reply(`Erro ao gerar o PDF: ${e.message}`).catch(() => {});
   } finally {
     _workerOcupado = false;
   }
@@ -1678,9 +1686,9 @@ async function cmdResumo(ctx, texto) {
   const m = String(texto || '').match(/(\d{2})\/(\d{2})\/(\d{4})/);
   const dataISO = m ? `${m[3]}-${m[2]}-${m[1]}` : hojeBrasiliaISO();
   const dataBR  = dataISO.split('-').reverse().join('/');
-  await ctx.replyWithChatAction('typing');
-  _workerOcupado = true;
+  _workerOcupado = true;   // antes de qualquer await (ver a trava em ana:ok)
   try {
+    await ctx.replyWithChatAction('typing');
     const pauta = await pautaDoUsuario(ctx.from.id).catch(() => null);
     const r = await resumoSessao({ pautaId: pauta?.id || null, dataISO });
     if (r.vazio) {
