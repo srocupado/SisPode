@@ -317,6 +317,8 @@ async function buscarMetadadosTodos(projetos) {
       if (dados) {
         proj.idCamara       = dados.id;
         proj.ementa         = dados.ementa;
+        proj.ementaDetalhada = dados.ementaDetalhada || '';
+        proj.indexacao      = dados.indexacao || '';
         proj.autores        = dados.autores;
         proj.autoria        = dados.autoria;
         proj.statusApi      = dados.statusDesc;
@@ -353,6 +355,9 @@ async function buscarProposicaoAPI(sigla, numero, ano) {
   return {
     id:             item.id,
     ementa:         detalhe.ementa || item.ementa,
+    // o conteúdo, quando a ementa só cita o dispositivo alterado (para o apelido)
+    ementaDetalhada: detalhe.ementaDetalhada || '',
+    indexacao:      detalhe.keywords || '',
     // `autores` continua sendo lista de NOMES: é o que o prompt da IA e o
     // cabeçalho consomem. O juízo sobre o Podemos vai separado, em `autoria`.
     autores:        apurada.nomes.slice(0, 3),
@@ -460,7 +465,8 @@ async function apurarAutoria(idProp) {
  * referências antes — vale conferir lá um dia.)
  */
 function apelidoFallbackCCJC(proj) {
-  const e = String(proj.ementa || '').replace(/\s+/g, ' ').trim();
+  // a ementa detalhada da Câmara descreve o conteúdo; a oficial, muitas vezes, só o dispositivo alterado
+  const e = String(proj.ementaDetalhada || proj.ementa || '').replace(/\s+/g, ' ').trim();
   if (!e) return '';
   const fim = e.search(/[.;](?=\s|$)/);
   const corte = (fim > 0 ? e.slice(0, fim) : e).trim();
@@ -470,9 +476,30 @@ function apelidoFallbackCCJC(proj) {
   return (sp > max * 0.6 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
 }
 
+// ---- Prompt do apelido: o MESMO em analise.js, ccjc.js e bot/src/convocacao.js (testes/apelido-fontes.test.js
+// compara as três cópias). Até 11/11/2026 a IA recebia só a ementa oficial, e a ementa que só cita o dispositivo
+// ("Acrescenta inciso V ao art. 141 do Decreto-Lei nº 2.848, de 1940" — PL 215/2015) a obrigava a adivinhar:
+// saiu "Aumento de pena para crimes contra idosos" para um projeto sobre crimes contra a honra nas redes sociais.
+// Agora vão também a ementa detalhada e a indexação da Câmara e, quando houver, o resumo da nota técnica; e a IA
+// pode responder SEM_INFORMACAO em vez de inventar (quem chama cai no apelido de reserva).
+function textoPromptApelido(rotulo, f) {
+  const lim = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const fontes = [
+    ['Ementa oficial', lim(f.ementa, 500)],
+    ['Ementa detalhada (Câmara)', lim(f.ementaDetalhada, 500)],
+    ['Indexação (Câmara)', lim(f.indexacao, 300)],
+    ['Resumo da matéria (nota técnica)', lim(f.resumo, 900)],
+  ].filter(([, v]) => v);
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${rotulo}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final.\n\n`
+    + 'Use SOMENTE as informações abaixo. A ementa oficial muitas vezes só cita o dispositivo alterado (ex.: "Acrescenta inciso V ao art. 141 do Decreto-Lei nº 2.848, de 1940") e não diz o que muda: NÃO deduza o conteúdo pelo número do artigo nem pelo que você sabe da lei alterada. Se as informações abaixo não disserem o que a matéria faz, responda exatamente SEM_INFORMACAO.\n\n'
+    + 'Responda APENAS com o apelido (ou SEM_INFORMACAO).\n\n'
+    + fontes.map(([k, v]) => `${k}: "${v}"`).join('\n');
+}
+const APELIDO_SEM_INFORMACAO = /\bSEM[_\s-]?INFORMA[ÇC][ÃA]O\b/i;
+
 function promptApelidoCCJC(proj) {
-  const ementa = String(proj.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
-  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${proj.chave}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+  // o resumo do texto original (gerado pela IA a partir do inteiro teor) diz o conteúdo, quando já existe
+  return textoPromptApelido(proj.chave, { ementa: proj.ementa, ementaDetalhada: proj.ementaDetalhada, indexacao: proj.indexacao, resumo: proj.resumoOriginal });
 }
 
 /**
@@ -498,7 +525,8 @@ async function prepararApelidos(projetos, aoAndar) {
     try {
       const t = await aiCall(promptApelidoCCJC(p));
       const ap = String(t || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim();
-      if (ap) { p.apelido = ap; p.apelidoReserva = false; }
+      // SEM_INFORMACAO: as fontes não dizem o conteúdo — fica o de reserva (e nova chance na próxima vez)
+      if (ap && !APELIDO_SEM_INFORMACAO.test(ap)) { p.apelido = ap; p.apelidoReserva = false; }
       else { p.apelido = apelidoFallbackCCJC(p); p.apelidoReserva = true; reserva++; }
     } catch (e) {
       // Apelido é acessório: falhar a chamada não pode impedir o PDF de sair.

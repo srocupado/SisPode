@@ -782,7 +782,10 @@ function renderCard(it) {
     resetAbortAll();
     try {
       const ap = await gerarApelidoIA(it, { provedorId: state.config.provedor || 'gemini', apiKey: state.config.apiKey, modelo: state.config.modelo });
-      if (!ap) throw new Error('a IA devolveu um apelido vazio');
+      if (!ap) {
+        mostrarToast('A IA não achou o conteúdo da matéria nas fontes (a ementa só cita o dispositivo alterado) — gere a nota ou escreva o apelido à mão.', 'aviso');
+        return;
+      }
       inpApelido.value = ap;
       inpApelido.dispatchEvent(new Event('change'));
     } catch (e) {
@@ -1067,6 +1070,8 @@ async function enriquecerItem(it) {
     prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
     it.enriquecimento.idProposicao = prop.id;
     it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+    // ementa detalhada e indexação da Câmara (só pela API; pelo portal ficam por buscar — contextoApelido)
+    if (prop.ementaDetalhada != null) { it.enriquecimento.ementaDetalhada = prop.ementaDetalhada; it.enriquecimento.indexacao = prop.indexacao || ''; }
     // Para requerimento de urgência, guarda a ementa do PROJETO-ALVO no
     // projetoUrgenciado. Sem isso, o apelido era gerado a partir do texto do
     // próprio requerimento ("Requeiro urgência…") — daí o apelido errado.
@@ -1255,6 +1260,9 @@ async function resolveProposicao(sigla, numero, ano) {
     id:             hit.id,
     ementa:         det.dados?.ementa || hit.ementa || '',
     urlInteiroTeor: det.dados?.urlInteiroTeor || null,
+    // o conteúdo, quando a ementa só cita o dispositivo alterado (para o apelido)
+    ementaDetalhada: det.dados?.ementaDetalhada || '',
+    indexacao:      det.dados?.keywords || '',
   };
   cacheProp.set(ck, obj);
   return obj;
@@ -2820,7 +2828,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
         provedorId: state.config.provedor || 'gemini',
         apiKey:     state.config.apiKey,
         modelo:     state.config.modelo,
-      });
+      }, { nota: markdown });   // o objetivo da nota recém-gerada, lida dos documentos
     } catch (e) { if (isAbortError(e)) throw e; console.warn(`Apelido não gerado para ${it.chave}:`, e.message); }
     if (apelido) it.apelido = apelido;
 
@@ -5506,7 +5514,8 @@ function htmlAutorRealcado(it) {
 // Apelido de reserva (sem IA): primeira oração da ementa, encurtada e normalizada.
 function apelidoFallback(it) {
   const alvo = _alvoItem(it);
-  let e = normalizarReferencias((alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').trim());
+  // a ementa detalhada da Câmara descreve o conteúdo; a oficial, muitas vezes, só o dispositivo alterado
+  let e = normalizarReferencias((it.enriquecimento?.ementaDetalhada || alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').trim());
   if (!e) return '';
   const corte = (e.split(/[.;]/)[0] || e).trim();
   const max = 60;
@@ -5515,15 +5524,66 @@ function apelidoFallback(it) {
   return (sp > max * 0.6 ? c.slice(0, sp) : c).replace(/[\s,;.:-]+$/, '') + '…';
 }
 
-function promptApelido(it) {
+// ---- Prompt do apelido: o MESMO em analise.js, ccjc.js e bot/src/convocacao.js (testes/apelido-fontes.test.js
+// compara as três cópias). Até 11/11/2026 a IA recebia só a ementa oficial, e a ementa que só cita o dispositivo
+// ("Acrescenta inciso V ao art. 141 do Decreto-Lei nº 2.848, de 1940" — PL 215/2015) a obrigava a adivinhar:
+// saiu "Aumento de pena para crimes contra idosos" para um projeto sobre crimes contra a honra nas redes sociais.
+// Agora vão também a ementa detalhada e a indexação da Câmara e, quando houver, o resumo da nota técnica; e a IA
+// pode responder SEM_INFORMACAO em vez de inventar (quem chama cai no apelido de reserva).
+function textoPromptApelido(rotulo, f) {
+  const lim = (s, n) => String(s || '').replace(/\s+/g, ' ').trim().slice(0, n);
+  const fontes = [
+    ['Ementa oficial', lim(f.ementa, 500)],
+    ['Ementa detalhada (Câmara)', lim(f.ementaDetalhada, 500)],
+    ['Indexação (Câmara)', lim(f.indexacao, 300)],
+    ['Resumo da matéria (nota técnica)', lim(f.resumo, 900)],
+  ].filter(([, v]) => v);
+  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${rotulo}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final.\n\n`
+    + 'Use SOMENTE as informações abaixo. A ementa oficial muitas vezes só cita o dispositivo alterado (ex.: "Acrescenta inciso V ao art. 141 do Decreto-Lei nº 2.848, de 1940") e não diz o que muda: NÃO deduza o conteúdo pelo número do artigo nem pelo que você sabe da lei alterada. Se as informações abaixo não disserem o que a matéria faz, responda exatamente SEM_INFORMACAO.\n\n'
+    + 'Responda APENAS com o apelido (ou SEM_INFORMACAO).\n\n'
+    + fontes.map(([k, v]) => `${k}: "${v}"`).join('\n');
+}
+const APELIDO_SEM_INFORMACAO = /\bSEM[_\s-]?INFORMA[ÇC][ÃA]O\b/i;
+
+function promptApelido(it, ctx = {}) {
   const alvo = _alvoItem(it);
-  const ementa = (alvo.ementa || it.ementa || '').replace(/\s+/g, ' ').slice(0, 500);
-  return `Escreva um "apelido" curto (no máximo 8 palavras), em Português do Brasil, que capture o OBJETO/efeito principal da proposição ${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}, para uso entre parênteses num índice de pauta. Descreva em linguagem direta o que a matéria faz ou cria (ex.: "Institui a política Mulheres em Movimento", "Cota de aprendizes para pessoas com deficiência", "Regime disciplinar para presos de alta periculosidade"). NÃO cite números de lei nem de proposição (não escreva "Lei 7405/1985" nem "PL 3801/2024") — foque no conteúdo, não na norma alterada. Não use aspas nem ponto final. Responda APENAS com o apelido.\n\nEmenta: "${ementa}"`;
+  return textoPromptApelido(`${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}`, { ...ctx, ementa: alvo.ementa || it.ementa });
 }
 
-async function gerarApelidoIA(it, cfg) {
-  const r = await chamarIA({ ...cfg, prompt: promptApelido(it), pdfBuffers: [] });
+/** A seção "Objetivo" da nota técnica (o que a matéria faz, lido dos documentos), em texto corrido; '' se não houver. */
+function objetivoDaNota(texto) {
+  const t = String(texto || '').replace(/\[\[[^\]]{0,12}\]\]/g, '');
+  const m = t.match(/(?:^|\n)[ \t]*(?:#{1,3}[ \t]*)?Objetivo[ \t]*:?[ \t]*\n+([\s\S]*?)(?=\n[ \t]*(?:#{1,3}[ \t]*)?(?:Justificativa|Principais|Parecer|Argumentos|Contexto|Tramita|Conclus|Hist[oó]rico|Apensad|An[aá]lise)\b|\n#{1,3}[ \t]|$)/i);
+  return (m ? m[1] : '').replace(/\s+/g, ' ').trim();
+}
+
+/** O que vai à IA além da ementa: ementa detalhada e indexação (buscadas se faltarem) e o objetivo da nota. */
+async function contextoApelido(it, nota) {
+  const enr = it.enriquecimento || (it.enriquecimento = {});
+  if (enr.ementaDetalhada === undefined) {
+    try {
+      if (enr.idProposicao) {
+        const d = (await fetchJson(`${API_BASE}/proposicoes/${enr.idProposicao}`)).dados || {};
+        enr.ementaDetalhada = d.ementaDetalhada || ''; enr.indexacao = d.keywords || '';
+      } else {
+        const a = _alvoItem(it);
+        if (a.sigla && a.sigla !== 'REQ') {
+          const p = await resolveProposicao(a.sigla, a.numero, a.ano);
+          if (p.ementaDetalhada != null) { enr.ementaDetalhada = p.ementaDetalhada; enr.indexacao = p.indexacao || ''; }
+        }
+      }
+    } catch (e) { if (isAbortError(e)) throw e; /* sem a ficha: segue com o que há — e a IA pode responder SEM_INFORMACAO */ }
+  }
+  const texto = nota != null ? nota : (it.analise ? notaTextoPlano(it) : '');
+  return { ementaDetalhada: enr.ementaDetalhada || '', indexacao: enr.indexacao || '', resumo: objetivoDaNota(texto) };
+}
+
+/** Apelido pela IA; '' quando as fontes não dizem o conteúdo (SEM_INFORMACAO) — quem chama decide a reserva. */
+async function gerarApelidoIA(it, cfg, opts = {}) {
+  const ctx = await contextoApelido(it, opts.nota);
+  const r = await chamarIA({ ...cfg, prompt: promptApelido(it, ctx), pdfBuffers: [] });
   const ap = (r.text || '').replace(/^["'\s]+|["'\s.]+$/g, '').trim();
+  if (APELIDO_SEM_INFORMACAO.test(ap)) return '';
   return normalizarReferencias(ap);
 }
 
