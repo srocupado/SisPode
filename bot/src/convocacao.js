@@ -36,7 +36,6 @@ const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_MS = 5 * 60e3;
 const DIAS_A_FRENTE = 7;
 const DIAS = ['DOMINGO', 'SEGUNDA-FEIRA', 'TERÇA-FEIRA', 'QUARTA-FEIRA', 'QUINTA-FEIRA', 'SEXTA-FEIRA', 'SÁBADO'];
-const SIGLAS = 'PLP|PLN|PL|PEC|PDL|PDC|MPV|PRC|PLV';
 
 const isoSP = (d = new Date()) => new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(d);
 const somaDias = (iso, n) => new Date(Date.parse(iso + 'T12:00:00Z') + n * 864e5).toISOString().slice(0, 10);
@@ -95,11 +94,10 @@ function normalizarReferencias(t) {
     .replace(/\bLei\s+Complementar\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(?:\d{1,2}[ºo]?\s+de\s+\w+\s+de\s+)?(\d{4})/gi, (_, n, a) => `Lei Complementar ${n.replace(/\./g, '')}/${a}`)
     .replace(/\bLei\s+n?[º°o.\s]*([\d.]+)[,\s]+de\s+(?:\d{1,2}[ºo]?\s+de\s+\w+\s+de\s+)?(\d{4})/gi, (_, n, a) => `Lei ${n.replace(/\./g, '')}/${a}`);
 }
-/** Requerimento de URGÊNCIA → a proposição urgenciada, lida da ementa. */
+/** Requerimento de URGÊNCIA → a proposição urgenciada, lida da ementa (leitor único: comissoes-portal). */
 function alvoDaUrgencia(sigla, ementa) {
   if (sigla !== 'REQ' || !/urg[êe]ncia/i.test(ementa || '')) return null;
-  const m = new RegExp(`\\b(${SIGLAS})\\s*n?[º°]?\\s*([\\d.]+)\\/(\\d{4})`, 'i').exec(normalizarReferencias(ementa));
-  return m ? { sigla: m[1].toUpperCase(), numero: m[2].replace(/\./g, ''), ano: m[3], ementa: '' } : null;
+  return PORTAL.proposicaoCitada(ementa);
 }
 const ref = (sigla, numero, ano) => `${sigla} ${numero}/${ano}`;
 const chaveDe = r => `${r.sigla}-${r.numero}-${r.ano}`;
@@ -169,11 +167,9 @@ async function getJson(url, ms = 15000) {
 /** Sessões do Plenário de hoje a +DIAS_A_FRENTE: [{ id, data, hora, nome, tipo, situacao }]. Portal primeiro; API se ele falhar. */
 async function sessoesProximas(hoje) {
   const fim = somaDias(hoje, DIAS_A_FRENTE);
-  const br = iso => encodeURIComponent(iso.split('-').reverse().join('/'));
   try {
-    const url = `https://www.camara.leg.br/agenda?dataInicial__proxy=${br(hoje)}&dataInicial=${br(hoje)}&dataFinal__proxy=${br(fim)}&dataFinal=${br(fim)}&categorias=Plen%C3%A1rio`;
-    // pela fila do portal (comissoes-portal.baixar): ritmo e nova tentativa em 429
-    return PORTAL.parseAgendaPortal(await PORTAL.baixar(url, { fresco: true })).filter(e => /plen[áa]rio/i.test(e.orgao))
+    // agenda paginada, pela fila do portal (ritmo e nova tentativa em 429)
+    return (await PORTAL.agendaPortal({ de: hoje, ate: fim, categoria: 'Plenário' }, { fresco: true })).filter(e => /plen[áa]rio/i.test(e.orgao))
       .map(e => ({ id: e.id, data: e.data, hora: e.hora, nome: e.tema, tipo: e.tipo, situacao: e.situacao }));
   } catch (ePortal) {
     const j = await getJson(`${API}/eventos?idOrgao=180&dataInicio=${hoje}&dataFim=${fim}&itens=100`)
@@ -239,6 +235,10 @@ async function linhasDaPauta(itens, opts) {
 // ---------- Vigia ----------
 
 let _cfg = null, _timer = null, _rodando = false;
+// O que ESTE processo já anunciou: id → { comPauta }. O registro no Firebase cobre os
+// reinícios; este cobre a gravação que falha — sem ele, mensagem enviada + gravação
+// recusada = a mesma convocação de novo a cada 5 min (revisão de 11/11/2026).
+const _anunciadas = new Map();
 
 /**
  * Um ciclo: lê as sessões convocadas, envia o que falta. Devolve as mensagens
@@ -254,7 +254,7 @@ async function tickConvocacoes(cfg = _cfg) {
   const reg = (await ler('/bot/convocacoes')) || {};   // falha aqui = nada enviado neste tick
   const enviadas = [];
   for (const ev of sessoes) {
-    const ja = reg[ev.id];
+    const ja = reg[ev.id] || _anunciadas.get(String(ev.id));
     if (ja && ja.comPauta) continue;
     const itens = await pautaDaSessao(ev.id);
     if (ja && !itens.length) continue;   // já avisada sem pauta; a pauta ainda não saiu
@@ -263,6 +263,7 @@ async function tickConvocacoes(cfg = _cfg) {
     const linhas = itens.length ? await linhasDaPauta(itens, { perfil: cfg.perfilIA ? cfg.perfilIA() : null, pautaImportada }) : [];
     const texto = montarMensagem(ev, linhas);
     await cfg.api.sendMessage(destino, texto);
+    _anunciadas.set(String(ev.id), { comPauta: linhas.length > 0 });
     if (!ja && ehSemipresencial(ev)) {
       await cfg.api.sendMessage(destino, AVISO_SEMIPRESENCIAL)
         .catch(e => console.warn(`[convocacao] aviso de semipresencial da sessão ${ev.id} falhou: ${e.message}`));

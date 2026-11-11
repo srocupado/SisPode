@@ -105,8 +105,8 @@ const L = new Function(...Object.keys(sandbox),
   L.situacaoDaMpv(pl);
   ok(pl.situacao === 'Urgência aprovada (REQ. 1/2026)', 'PL não é tocado');
   ok((fonte.match(/situacaoDaMpv\(it\);\n  it\.relatoria = comporRelatoria/g) || []).length === 2, 'vale nos dois caminhos (API e portal)');
-  const salva = { sigla: 'MPV', autoriaPodemos: false, apensadosPodemos: [], papel: {}, situacao: 'Não apurada — a API…' };
-  ok(L.camposNovosFaltando(salva) && !L.camposNovosFaltando({ ...salva, situacao: L.SITUACAO_MPV }), 'reunião salva com MPV "Não apurada" é recarregada ao abrir; corrigida, não');
+  const salva = { sigla: 'MPV', autoriaPodemos: false, papel: {}, situacao: 'Não apurada — a API…' };
+  ok(L.camposNovosFaltando(salva) && !L.camposNovosFaltando({ ...salva, fatosV: 1 }), 'reunião salva antes da marca de versão é curada ao abrir; com a marca, não (ver testes/revisao-2026-11-11.test.js)');
 
   console.log('\n== salvamento automático ao fim do lote ==');
   L.app.config.apiKey = 'x';

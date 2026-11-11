@@ -110,9 +110,11 @@ async function ensureComissoes() {
       return { id: o.id, sigla, nome, tokens };
     });
     if (out.length) { _comissoes = out; _comissoesAt = Date.now(); }
-    _comissoesInflight = null;
     return _comissoes || [];
-  })();
+  })().finally(() => { _comissoesInflight = null; });
+  // (o `finally` solta a consulta em curso também quando ela FALHA: sem ele, a
+  // primeira queda da API ficava guardada e era devolvida para sempre — o bot
+  // seguia pelo portal mesmo com a API de volta, até reiniciar. Revisão de 11/11/2026.)
   return _comissoesInflight;
 }
 
@@ -128,9 +130,8 @@ async function ensureDeputados() {
       if (dados.length < 200) break;
     }
     if (mapa.size) { _deputados = mapa; _deputadosAt = Date.now(); }
-    _deputadosInflight = null;
     return _deputados || new Map();
-  })();
+  })().finally(() => { _deputadosInflight = null; });
   return _deputadosInflight;
 }
 
@@ -429,11 +430,39 @@ async function consultarPauta(comissoes, dataTexto, { partido = null, deputado =
 }
 
 /** consultarPauta sem a API: as comissões vêm da agenda do dia no portal (só as que têm reunião). */
+// Siglas das comissões PERMANENTES para o caminho do portal, onde a agenda só traz o
+// nome: sem elas, "/comissao CCJC" com a API fora respondia "sem reunião dessa comissão"
+// (revisão de 11/11/2026). Vale o catálogo da API se já foi lido (mesmo vencido); senão,
+// esta tabela (catálogo oficial de 2026).
+const SIGLAS_PERMANENTES = [
+  ['CAPADR', 'Comissão de Agricultura, Pecuária, Abastecimento e Desenvolvimento Rural'], ['CASP', 'Comissão de Administração e Serviço Público'],
+  ['CCJC', 'Comissão de Constituição e Justiça e de Cidadania'], ['CCOM', 'Comissão de Comunicação'], ['CCTI', 'Comissão de Ciência, Tecnologia e Inovação'],
+  ['CCULT', 'Comissão de Cultura'], ['CDC', 'Comissão de Defesa do Consumidor'], ['CDE', 'Comissão de Desenvolvimento Econômico'],
+  ['CDHMIR', 'Comissão de Direitos Humanos, Minorias e Igualdade Racial'], ['CDU', 'Comissão de Desenvolvimento Urbano'], ['CE', 'Comissão de Educação'],
+  ['CESPO', 'Comissão do Esporte'], ['CFFC', 'Comissão de Fiscalização Financeira e Controle'], ['CFT', 'Comissão de Finanças e Tributação'],
+  ['CICS', 'Comissão de Indústria, Comércio e Serviços'], ['CIDOSO', 'Comissão de Defesa dos Direitos da Pessoa Idosa'],
+  ['CINDRE', 'Comissão de Integração Nacional e Desenvolvimento Regional'], ['CLP', 'Comissão de Legislação Participativa'],
+  ['CMADS', 'Comissão de Meio Ambiente e Desenvolvimento Sustentável'], ['CME', 'Comissão de Minas e Energia'], ['CMULHER', 'Comissão de Defesa dos Direitos da Mulher'],
+  ['CPASF', 'Comissão de Previdência, Assistência Social, Infância, Adolescência e Família'], ['CPD', 'Comissão de Defesa dos Direitos das Pessoas com Deficiência'],
+  ['CPOVOS', 'Comissão da Amazônia e dos Povos Originários e Tradicionais'], ['CREDN', 'Comissão de Relações Exteriores e de Defesa Nacional'],
+  ['CSAUDE', 'Comissão de Saúde'], ['CSPCCO', 'Comissão de Segurança Pública e Combate ao Crime Organizado'], ['CTRAB', 'Comissão de Trabalho'],
+  ['CTUR', 'Comissão de Turismo'], ['CVT', 'Comissão de Viação e Transportes'],
+];
+function siglaDaComissao(nome) {
+  const n = norm(nome);
+  const daApi = (_comissoes || []).find(c => norm(c.nome) === n);
+  if (daApi?.sigla) return daApi.sigla;
+  return (SIGLAS_PERMANENTES.find(([, nm]) => norm(nm) === n) || [''])[0];
+}
+
 async function consultarPautaPortal(comissoes, d, { partido, deputado }, erroApi) {
   const evs = await PORTAL.eventosDoDiaPortal(d);
   const porOrg = new Map();
   for (const e of evs) if (e.orgao && !/^(plen[áa]rio|outros eventos)$/i.test(e.orgao)) (porOrg.get(e.orgao) || porOrg.set(e.orgao, []).get(e.orgao)).push(e);
-  const catalogo = [...porOrg.keys()].map(nome => ({ id: nome, sigla: '', nome, tokens: new Set(norm(nome).split(/\s+/).filter(t => t && !STOP.has(t))) }));
+  const catalogo = [...porOrg.keys()].map(nome => {
+    const sigla = siglaDaComissao(nome);
+    return { id: nome, sigla, nome, tokens: new Set(norm(`${sigla} ${nome}`).split(/\s+/).filter(t => t && !STOP.has(t))) };
+  });
   const secoes = [];
   for (const texto of comissoes) {
     const cands = resolverComissao(texto, catalogo);
@@ -562,5 +591,5 @@ async function varrerComissoesPartido(dataTexto, { partido = null, deputado = nu
 
 module.exports = {
   consultarPauta, listarReunioesDeliberativas, varrerComissoesPartido,
-  parseData, resolverComissao, ensureComissoes, secaoComissaoPortal, apiForaRecente,   // exportados p/ teste
+  parseData, resolverComissao, ensureComissoes, ensureDeputados, secaoComissaoPortal, apiForaRecente, siglaDaComissao,   // exportados p/ teste
 };

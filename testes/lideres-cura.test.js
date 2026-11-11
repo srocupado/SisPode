@@ -30,7 +30,7 @@ let falhas=0; const ok=(c,m)=>{ if(!c){falhas++;console.log('  ✗ '+m);}else co
     idCamara:2600030,situacao:'Urgência aprovada (REQ. 1258/2026)',apensacao:'Apensado ao PL 23/2026.',
     relatoria:'Sem indicação',objetivo:'texto da IA preservado',status:'ok'};
   const completoSemPode = {ordem:2,numItem:'20',chave:'PLP 230/2025',sigla:'PLP',numero:230,ano:2025,
-    celulaProp:'PLP 230/2025',autoriaPdf:'Juscelino Filho',idCamara:1,autoriaPodemos:false,apensadosPodemos:[],papel:{apensada:false},
+    celulaProp:'PLP 230/2025',autoriaPdf:'Juscelino Filho',idCamara:1,autoriaPodemos:false,apensadosPodemos:[],papel:{apensada:false},fatosV:1,
     situacao:'x',status:'ok'};
   L.app.reuniao={id:'t',titulo:'T',itens:[antigo,completoSemPode]};
 
