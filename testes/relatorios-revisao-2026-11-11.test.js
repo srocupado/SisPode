@@ -297,20 +297,30 @@ av('sleep = async () => {}');   // as esperas entre tentativas não interessam a
     ok((await fj('https://x/limite')).dados[0] === 7 && pedidos === 2, '429 e depois 200: lê na segunda');
     fila = [new Error('rede'), new Error('rede'), resp({ dados: [1] })]; pedidos = 0;
     ok((await fj('https://x/rede')).dados[0] === 1 && pedidos === 3, 'falha de rede: repete e lê na terceira');
-    // falha LENTA = servidor fora do ar: não repete, e os pedidos seguintes falham na hora por 60 s
-    fj = novo(); demora = 9000; fila = [resp({}, 504), resp({ dados: [1] })]; pedidos = 0; erro = null;
+    // Falha LENTA isolada também se repete. MEDIDO em 11/11/2026, com a API no ar: ~3% dos pedidos de
+    // votos em paralelo caíam com "connection reset" aos 10 s e respondiam em 0,5 s na tentativa seguinte.
+    fj = novo(); demora = 10000; fila = [new Error('Connection reset by peer'), resp({ dados: [5] })]; pedidos = 0;
+    ok((await fj('https://api.camara/votos')).dados[0] === 5 && pedidos === 2, 'conexão derrubada aos 10 s e depois 200: lê na segunda (uma falha lenta isolada não abre o disjuntor)');
+    // três falhas lentas SEGUIDAS = servidor fora do ar: os pedidos seguintes falham na hora por 60 s
+    fj = novo(); demora = 9000; fila = [resp({}, 504), resp({}, 504), resp({}, 504), resp({ dados: [1] })]; pedidos = 0; erro = null;
     try { await fj('https://api.camara/x'); } catch (e) { erro = e; }
-    ok(erro && erro.message === 'HTTP 504' && pedidos === 1, `504 depois de 9 s: NÃO repete (${pedidos} pedido)`);
+    ok(erro && pedidos === 3, `três 504 lentos seguidos: três tentativas e o erro sobe (${pedidos})`);
     demora = 0; erro = null;
     try { await fj('https://api.camara/y'); } catch (e) { erro = e; }
-    ok(erro && /fora do ar/.test(erro.message) && pedidos === 1, 'e o pedido seguinte ao mesmo servidor falha na hora, sem ir à rede');
+    ok(erro && /fora do ar/.test(erro.message) && pedidos === 3, 'a partir daí, o pedido ao mesmo servidor falha na hora, sem ir à rede');
     fila = [resp({ dados: [3] })];
     ok((await fj('https://outro.servidor/z')).dados[0] === 3, 'outro servidor não é afetado');
     agora += 61000; fila = [resp({ dados: [2] })];
     ok((await fj('https://api.camara/y')).dados[0] === 2, 'passados os 60 s, volta a consultar');
-    fj = novo(); fila = [Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }), resp({ dados: [1] })]; pedidos = 0; erro = null;
+    // uma resposta do servidor no meio zera a contagem: duas lentas, uma resposta, mais duas lentas → sem disjuntor
+    fj = novo(); pedidos = 0;
+    const lenta = () => { demora = 9000; return resp({}, 504); }, rapida = r => { demora = 0; return r; };
+    const fetchSeq = seq => { let i = 0; return new Function('fetch', 'sleep', 'Date', corpo + '; return fetchJsonRetry;')(async () => { pedidos++; const r = seq[i++](); agora += demora; return r; }, async () => {}, { now: () => agora }); };
+    const fs2 = fetchSeq([lenta, lenta, () => rapida(resp({ dados: [1] })), lenta, lenta, () => rapida(resp({ dados: [2] }))]);
+    ok((await fs2('https://api.camara/a')).dados[0] === 1 && (await fs2('https://api.camara/b')).dados[0] === 2, 'duas lentas, uma resposta, mais duas lentas: a contagem zera a cada resposta e nada é bloqueado');
+    fj = novo(); demora = 0; fila = [Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }), Object.assign(new Error('signal timed out'), { name: 'TimeoutError' }), Object.assign(new Error('signal timed out'), { name: 'TimeoutError' })]; pedidos = 0; erro = null;
     try { await fj('https://api.camara/x'); } catch (e) { erro = e; }
-    ok(erro && /não respondeu em 25 s/.test(erro.message) && pedidos === 1, 'prazo de 25 s estourado: não repete, e a mensagem diz o que houve');
+    ok(erro && /fora do ar|não respondeu em 25 s/.test(erro.message) && pedidos === 3, `prazo de 25 s estourado três vezes: desiste, com mensagem que diz o que houve ("${erro && erro.message.slice(0, 40)}…")`);
 
     // Na página: a função dos Relatórios não é mais encoberta pela de ia-comum.js
     ok(av('typeof fetchJsonRetry') === 'function' && av('fetchJsonRetry !== fetchJson'), 'na página, fetchJsonRetry existe com nome próprio (o fetchJson de ia-comum.js não a encobre)');
@@ -348,14 +358,25 @@ av('sleep = async () => {}');   // as esperas entre tentativas não interessam a
 
   console.log('\n== 13. votação que não pôde ser lida: fora do cálculo, contada e avisada ==');
   {
-    const V = [{ id: 'v1', data: '2026-08-10', dataHoraRegistro: '2026-08-10T15:00:00', siglaOrgao: 'PLEN', descricao: 'Votação 1' },
-      { id: 'v2', data: '2026-08-12', dataHoraRegistro: '2026-08-12T15:00:00', siglaOrgao: 'PLEN', descricao: 'Votação 2' }];
+    // a API descreve a votação nominal com o placar ("Sim: N; Não: N")
+    const V = [{ id: 'v1', data: '2026-08-10', dataHoraRegistro: '2026-08-10T15:00:00', siglaOrgao: 'PLEN', descricao: 'Aprovado o Projeto. Sim: 1; Não: 1; Total: 2.' },
+      { id: 'v2', data: '2026-08-12', dataHoraRegistro: '2026-08-12T15:00:00', siglaOrgao: 'PLEN', descricao: 'Rejeitado o Requerimento. Sim: 11; Não: 387; Total: 398.' }];
     const VOTOS = { v1: [{ deputado_: dep(1, 'Ana', 'X'), tipoVoto: 'Sim' }, { deputado_: dep(3, 'Caio', 'X'), tipoVoto: 'Não' }], v2: [] };
     rota = rotaAder(V, VOTOS, { v2: true });
     const c = await gerar('2026-08-10', '2026-08-12');
     ok(c && c.qualifying.length === 1 && c.falhasVotacoes === 1, `1 votação no cálculo e 1 contada como não lida (${c && c.qualifying.length}, ${c && c.falhasVotacoes})`);
     const tela = av('resultadoEl.innerHTML');
     ok(/1 votação\(ões\) do Plenário no período não pôde ser lida na API da Câmara e ficou fora do cálculo/.test(tela), 'a tela avisa que uma votação ficou fora do cálculo');
+    // 404 em votação SEM placar na descrição (administrativa/simbólica) não é "não lida". MEDIDO em
+    // 11/11/2026: 20 das 92 votações do Plenário da véspera estavam na lista da API e davam 404 no detalhe.
+    const VA = [V[0], { id: 'v3', data: '2026-08-12', dataHoraRegistro: '2026-08-12T16:00:00', siglaOrgao: 'PLEN', descricao: 'Alteração do Regime de Tramitação desta proposição.' }];
+    const baseA = rotaAder(VA, VOTOS);
+    rota = u => (/\/votacoes\/v3\//.test(u) ? resp({}, 404) : baseA(u));
+    const ca = await gerar('2026-08-10', '2026-08-12');
+    ok(ca && ca.qualifying.length === 1 && ca.falhasVotacoes === 0 && !/fora do cálculo/.test(av('resultadoEl.innerHTML')), `404 numa votação administrativa: sem aviso (${ca && ca.falhasVotacoes} contada(s))`);
+    rota = u => (/\/votacoes\/v3\//.test(u) ? resp({}, 503) : baseA(u));
+    const cb = await gerar('2026-08-10', '2026-08-12');
+    ok(cb && cb.falhasVotacoes === 1, 'mas falha que não é 404 (503, rede) conta mesmo sem placar: não dá para saber o que se perdeu');
     // 429 passageiro nos votos de v2: com a nova tentativa, a votação entra no cálculo
     let batidas = 0;
     const base = rotaAder(V, Object.assign({}, VOTOS, { v2: [{ deputado_: dep(1, 'Ana', 'X'), tipoVoto: 'Sim' }] }));

@@ -60,11 +60,15 @@ function sleep(ms) {
  * centenas de pedidos em paralelo, um 429 passageiro virava votação ou proposição "não lida".
  *
  *  · 429, 5xx e falha de rede: mais 2 tentativas, com 0,5 s e 1 s de espera; 4xx não se repete.
- *  · Cada tentativa tem prazo de 25 s. Falha LENTA — o prazo estourou, ou veio 5xx depois de 8 s —
- *    é o servidor fora do ar: não se repete, e os pedidos seguintes ao mesmo servidor falham na hora
- *    por 60 s. Sem isso, com a API fora, cada um das centenas de pedidos esperaria os 25 s, três vezes.
+ *  · Cada tentativa tem prazo de 25 s.
+ *  · Falha LENTA (prazo estourado, erro de rede ou 5xx depois de 8 s) também se repete: MEDIDO em
+ *    11/11/2026, com a API no ar, ~3% dos pedidos de /votacoes/{id}/votos em paralelo caíam com
+ *    "connection reset" aos 10 s e respondiam em 0,5 s na tentativa seguinte. Só na 3ª falha lenta
+ *    SEGUIDA (sem nenhuma resposta do servidor no meio) ele é dado como fora do ar, e os pedidos
+ *    seguintes falham na hora por 60 s — com a API fora, centenas de pedidos não esperam um a um.
  */
 const _relForaAte = new Map();   // servidor → até quando os pedidos falham na hora
+const _relLentas = new Map();    // servidor → falhas lentas seguidas (zera a cada resposta do servidor)
 async function fetchJsonRetry(url, tentativa = 0) {
   let host = '';
   try { host = new URL(url).host; } catch (_) { /* URL relativa: sem disjuntor */ }
@@ -72,24 +76,28 @@ async function fetchJsonRetry(url, tentativa = 0) {
   const deNovo = async () => { await sleep(500 * (tentativa + 1)); return fetchJsonRetry(url, tentativa + 1); };
   const t0 = Date.now();
   const lento = () => Date.now() - t0 > 8000;
-  const fora = () => { if (host) _relForaAte.set(host, Date.now() + 60000); };
+  const falhaLenta = () => {
+    const n = (_relLentas.get(host) || 0) + 1;
+    _relLentas.set(host, n);
+    if (host && n >= 3) _relForaAte.set(host, Date.now() + 60000);
+  };
   let resp;
   try {
     resp = await fetch(url, { headers: { Accept: 'application/json' },
       ...((typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {}) });
   } catch (e) {
-    if (e && e.name === 'TimeoutError') { fora(); throw new Error('o servidor não respondeu em 25 s (' + host + ')'); }
-    if (lento()) { fora(); throw e; }
-    if (tentativa < 2) return deNovo();   // falha de rede
-    throw e;
+    const prazo = !!e && e.name === 'TimeoutError';
+    if (prazo || lento()) falhaLenta();
+    if (tentativa < 2) return deNovo();   // falha de rede (com o servidor dado como fora, a nova tentativa falha na hora)
+    throw prazo ? new Error('o servidor não respondeu em 25 s (' + host + ')') : e;
   }
+  if (resp.status >= 500 && lento()) falhaLenta(); else _relLentas.delete(host);
   if (!resp.ok) {
-    if (resp.status >= 500 && lento()) { fora(); throw new Error('HTTP ' + resp.status); }
     if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) return deNovo();
     throw new Error('HTTP ' + resp.status);
   }
   try { return await resp.json(); }
-  catch (e) { if (tentativa < 2 && !lento()) return deNovo(); throw e; }   // corpo cortado no meio
+  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // corpo cortado no meio
 }
 
 /** Executa fn sobre items com no máximo limit promessas simultâneas */
@@ -674,19 +682,28 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     // resultado proveniente de falha (evita "envenenar" o cache com vazio
     // por erro temporário da API, que ficaria preso e seria descartado
     // silenciosamente nas próximas execuções).
+    const semDetalhe = e => ({ ok: false, dados: [], http404: /^HTTP 404\b/.test((e && e.message) || '') });
     const [votosR, orientR] = await Promise.all([
       fetchJsonRetry(API + '/' + v.id + '/votos')
         .then(j => ({ ok: true, dados: j.dados || [] }))
-        .catch(() => ({ ok: false, dados: [] })),
+        .catch(semDetalhe),
       fetchJsonRetry(API + '/' + v.id + '/orientacoes')
         .then(j => ({ ok: true, dados: j.dados || [] }))
-        .catch(() => ({ ok: false, dados: [] }))
+        .catch(semDetalhe)
     ]);
+    // 404 = a API LISTA a votação mas não tem o detalhe. MEDIDO em 11/11/2026: 20 das 92 votações do
+    // Plenário da véspera, todas administrativas ou simbólicas ("Alteração do Regime de Tramitação…").
+    // Só conta como "não lida" se a descrição traz o placar — é assim que a API descreve a votação
+    // nominal ("Rejeitado o Requerimento. Sim: 11; Não: 387; Total: 398.") —; as outras não entrariam
+    // no cálculo de qualquer jeito, e contá-las punha o aviso em quase todo relatório. Falha que não é
+    // 404 (rede, 5xx) conta sempre.
+    const nominal = /Sim:\s*\d/.test(v.descricao || '');
+    const falhou = [votosR, orientR].some(r => !r.ok && (nominal || !r.http404));
     // Só grava no cache quando ambas as chamadas retornaram com sucesso.
     // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
     // cacheado; um vazio por falha de rede/HTTP não.
     if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
-    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false, falhou: !votosR.ok || !orientR.ok };
+    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false, falhou };
 
   }, (done, total) => {
     status(
