@@ -78,6 +78,9 @@ ctx.globalThis = ctx;
 vm.createContext(ctx);
 new vm.Script(scripts.map(s => fs.readFileSync(path.join(RAIZ, s), 'utf8')).join('\n;\n')).runInContext(ctx);
 const av = e => vm.runInContext(e, ctx);
+// As rotas não previstas respondem 599: com a nova tentativa dos Relatórios (fetchJsonRetry), cada uma
+// esperaria 0,5 s + 1 s de verdade. As esperas não interessam a este teste.
+av('sleep = async () => {}');
 const clicar = sel => { const el = document.querySelector(sel); if (!el) return false;
                         el.dispatchEvent(new Event('click', { bubbles: true })); return true; };
 const telaCvBruto = () => document.getElementById('cvResultado').innerHTML;

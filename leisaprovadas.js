@@ -31,7 +31,7 @@
 // scripts clássicos da extensão não importam módulos do bot/. Mudar um sem o
 // outro desalinha a coleta pela extensão da coleta do bot.
 //
-// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJson, cvEsc) —
+// Depende de aderencia.js (FIREBASE_URL, mapLimit, fetchJsonRetry, cvEsc) —
 // carregado antes deste arquivo.
 
 const LEA_ROOT = '/leis_aprovadas';
@@ -113,6 +113,18 @@ function leaStatus(msg, tipo) {
 }
 
 /** Busca o agregado de uma legislatura no Firebase, com cache em memória da aba. */
+/**
+ * Roda `fn` sobre os itens (até `limite` de cada vez) e devolve as FALHAS: [{ item, erro }].
+ * O mapLimit engole a rejeição (devolve null): quem precisa saber se a leitura ou o apagamento
+ * no banco deu certo não pode usá-lo direto — a falha virava "sem dado" ou "apagado" (revisão de 11/11/2026).
+ */
+async function leaCadaUm(itens, limite, fn) {
+  const falhas = [];
+  await mapLimit(itens, limite, async item => { try { await fn(item); } catch (erro) { falhas.push({ item, erro }); } });
+  return falhas;
+}
+const leaTextoFalhas = falhas => falhas.map(f => f.item + 'ª (' + ((f.erro && f.erro.message) || f.erro) + ')').join(', ');
+
 async function leaCarregarLegislatura(leg) {
   if (lea.cache[leg] !== undefined) return lea.cache[leg];
   const res = await fetch(FIREBASE_URL + LEA_ROOT + '/' + leg + '.json');
@@ -183,8 +195,8 @@ function leaRenderEscolha(lista) {
   if (!el) return;
   if (!lista.length) { el.innerHTML = ''; return; }
   el.innerHTML = '<div class="cv-escolha"><div class="cv-escolha-tit">Sugestões — clique para escolher:</div>'
-    + lista.map(d => `<button class="cv-op" data-dep="${d.depId}">${cvEsc(d.nome)} <span class="p">(${cvEsc(d.partido)}-${cvEsc(d.uf)} · ${
-      d.legs.map(l => l + 'ª').join(', ')} · ${d.total} lei(s))</span></button>`).join('')
+    + lista.map(d => `<button class="cv-op" data-dep="${cvEsc(d.depId)}">${cvEsc(d.nome)} <span class="p">(${cvEsc(d.partido)}-${cvEsc(d.uf)} · ${
+      d.legs.map(l => cvEsc(l) + 'ª').join(', ')} · ${cvEsc(d.total)} lei(s))</span></button>`).join('')
     + '</div>';
   el.querySelectorAll('[data-dep]').forEach(b => {
     b.addEventListener('click', () => {
@@ -210,8 +222,8 @@ async function leaNomeDigitado() {
   if (leaNormNome(texto).length < 2 || !legs.length) { leaRenderEscolha([]); return; }
   const faltando = legs.filter(leg => lea.cache[leg] === undefined);
   if (faltando.length) {
-    try { await mapLimit(faltando, 5, leaCarregarLegislatura); }
-    catch (e) { return; } // sem sugestão; o filtro por texto continua funcionando
+    // sem sugestão quando a leitura falha; o filtro por texto continua funcionando
+    if ((await leaCadaUm(faltando, 5, leaCarregarLegislatura)).length) return;
   }
   if (leaEl.nome().value !== texto) return; // o usuário continuou digitando
   leaRenderEscolha(leaSugestoes(texto, legs));
@@ -247,7 +259,7 @@ function leaFiltradas() {
   return linhas;
 }
 
-const FICHA_URL = (id) => `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${id}`;
+const FICHA_URL = (id) => `https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=${encodeURIComponent(id == null ? '' : id)}`;
 
 function leaDetalheHtml(d) {
   if (!d.projetos.length) return '<div class="prd-dica" style="padding:10px 0">Nenhum projeto de autoria dele(a) virou lei nesta legislatura.</div>';
@@ -298,11 +310,11 @@ function leaRenderRanking() {
           <div class="rank-meta">${cvEsc(d.partido)}-${cvEsc(d.uf)} · ${cvEsc(d.rotulo)}${d.condicao !== '—' ? ' · ' + cvEsc(d.condicao) : ''}</div>
         </div>
         <div class="rank-pct-wrap" style="width:auto">
-          <span class="rank-pct-num" style="color:${d.total ? 'var(--accent-light)' : 'var(--text-dim)'}">${d.total}</span>
+          <span class="rank-pct-num" style="color:${d.total ? 'var(--accent-light)' : 'var(--text-dim)'}">${cvEsc(d.total)}</span>
         </div>
         <div class="rank-chevron">›</div>
       </div>
-      <div class="rank-detail" id="lea-detalhe-${d.depId}-${d.legislatura}"></div>`;
+      <div class="rank-detail" id="lea-detalhe-${cvEsc(d.depId)}-${cvEsc(d.legislatura)}"></div>`;
     const summary = row.querySelector('.ranking-summary');
     summary.addEventListener('click', () => {
       const aberta = row.classList.contains('open');
@@ -363,7 +375,9 @@ function leaAvisoDadoVelho(hoje) {
 async function leaLimparFirebaseLeg(leg) {
   const res = await fetch(FIREBASE_URL + LEA_ROOT + '/' + leg + '.json', { method: 'DELETE' });
   if (!res.ok) throw new Error('HTTP ' + res.status);
-  lea.cache[leg] = null;
+  // sai da memória (não fica "sem dado"): o próximo "Buscar" lê o banco de novo, e uma coleta feita
+  // depois do apagamento aparece — com null guardado, a tela dizia "sem dado" até recarregar a página
+  delete lea.cache[leg];
 }
 
 /**
@@ -383,10 +397,15 @@ async function leaLimparClick() {
   leaEl.limpar().disabled = true;
   try {
     leaStatus('Apagando…', 'loading');
-    await mapLimit(legsEscolhidas, 5, leaLimparFirebaseLeg);
-    leaStatus(`Apagado no banco de dados: ${legsEscolhidas.join(', ')}ª. Clique em "Buscar" para conferir.`);
+    const falhas = await leaCadaUm(legsEscolhidas, 5, leaLimparFirebaseLeg);
+    const apagadas = legsEscolhidas.filter(leg => !falhas.some(f => f.item === leg));
     lea.linhas = [];
     leaEl.resultado().innerHTML = '';
+    if (falhas.length) {
+      leaStatus(`NÃO foi possível apagar: ${leaTextoFalhas(falhas)}.` + (apagadas.length ? ` Apagado: ${apagadas.join(', ')}ª.` : '') + ' Tente de novo.', 'error');
+      return;
+    }
+    leaStatus(`Apagado no banco de dados: ${legsEscolhidas.join(', ')}ª. Clique em "Buscar" para conferir.`);
   } catch (e) {
     leaStatus('Erro ao apagar: ' + e.message, 'error');
     console.error(e);
@@ -409,7 +428,15 @@ async function leaConsultar() {
     leaStatus('Buscando o agregado no banco de dados…', 'loading');
     // A corrente entra sempre na busca — o aviso de dado velho depende dela.
     const faltando = [...new Set([...legsEscolhidas, leaLegislaturaAtual()])].filter(leg => lea.cache[leg] === undefined);
-    if (faltando.length) await mapLimit(faltando, 5, leaCarregarLegislatura);
+    const falhas = faltando.length ? await leaCadaUm(faltando, 5, leaCarregarLegislatura) : [];
+    // Falha de leitura de uma legislatura PEDIDA não é "ainda não coletada": parar e dizer, em vez de
+    // oferecer uma nova coleta para um dado que existe. (A corrente, quando não foi pedida, só serve ao
+    // aviso de dado velho: sem ela, a busca segue.)
+    const falhasPedidas = falhas.filter(f => legsEscolhidas.includes(f.item));
+    if (falhasPedidas.length) {
+      leaStatus(`Não foi possível ler o banco de dados: ${leaTextoFalhas(falhasPedidas)}. Tente de novo em instantes.`, 'error');
+      return;
+    }
 
     const semDado = legsEscolhidas.filter(leg => !lea.cache[leg]);
     lea.linhas = leaAchatar(legsEscolhidas);
@@ -569,7 +596,7 @@ function leaLerArquivoLocal(file, onBytes) {
 async function leaBuscarRoster(idLegislatura) {
   const ITENS = 1000, out = [];
   for (let pagina = 1; pagina <= 10; pagina++) {
-    const j = await fetchJson(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`);
+    const j = await fetchJsonRetry(`${LEA_API}/deputados?idLegislatura=${idLegislatura}&ordem=ASC&ordenarPor=nome&itens=${ITENS}&pagina=${pagina}`);
     const dados = j.dados || [];
     for (const d of dados) out.push({ id: d.id, nome: d.nome, partido: d.siglaPartido || '', uf: d.siglaUf || '' });
     if (dados.length < ITENS || !(j.links || []).some(l => l.rel === 'next')) break;
@@ -579,14 +606,14 @@ async function leaBuscarRoster(idLegislatura) {
 
 /** Autor fora do roster: cadastro avulso (partido/UF do último status). */
 async function leaBuscarDeputado(id) {
-  const j = await fetchJson(`${LEA_API}/deputados/${id}`);
+  const j = await fetchJsonRetry(`${LEA_API}/deputados/${id}`);
   const u = (j.dados && j.dados.ultimoStatus) || {};
   if (!u.nome) throw new Error('sem nome no cadastro');
   return { id, nome: u.nome, partido: u.siglaPartido || '', uf: u.siglaUf || '' };
 }
 
 async function leaBuscarAutores(idProposicao) {
-  const j = await fetchJson(`${LEA_API}/proposicoes/${idProposicao}/autores`);
+  const j = await fetchJsonRetry(`${LEA_API}/proposicoes/${idProposicao}/autores`);
   const autores = [];
   for (const a of j.dados || []) {
     if (a.codTipo !== 10000) continue; // 10000 = Deputado(a)
@@ -597,7 +624,7 @@ async function leaBuscarAutores(idProposicao) {
 }
 
 async function leaBuscarHistorico(idDeputado) {
-  const j = await fetchJson(`${LEA_API}/deputados/${idDeputado}/historico`);
+  const j = await fetchJsonRetry(`${LEA_API}/deputados/${idDeputado}/historico`);
   return j.dados || [];
 }
 

@@ -351,12 +351,17 @@ console.log('Deputados estaduais e distritais');
 
 console.log('Votos dispersos, retenção e ficha dos candidatos');
 {
-  // Dispersos = os votos nominais da agremiação em quem NÃO é o seu mais votado no distrito.
-  // No fixture acima: A — oeste 300 − 200 (a1) = 100; leste 200 − 100 = 100. B — oeste 90 − 50 = 40; leste 350 − 200 = 150.
+  // Dispersos = os votos nominais da agremiação em quem NÃO é o seu candidato no distrito — e cada candidato
+  // concorre num distrito só, onde é mais forte (revisão de 11/11/2026: antes b1, o mais votado de B nos dois
+  // distritos, contava como o nome dela em ambos, e B dava 190).
+  // No fixture acima: A — a1 no oeste (200), a3 no leste (100): 500 − 300 = 200.
+  // B — b1 no leste (200), e no oeste o nome é b2 (40), porque b1 já concorre no leste: 440 − 240 = 200.
   const disp = SD.sdDispersos(vd, dEst);
-  ok(disp.A === 200 && disp.B === 190, `dispersos por agremiação: A 200, B 190 (${disp.A}, ${disp.B})`);
+  ok(disp.A === 200 && disp.B === 200, `dispersos por agremiação: A 200, B 200 (${disp.A}, ${disp.B})`);
+  // Até 2 por agremiação no distrito: A — a1 e a2 no oeste, a3 no leste (os 100 de a1 no leste são dispersos);
+  // B — b1 e b2 no leste (os 90 dos dois no oeste e os 30 de b3 são dispersos).
   const disp2 = SD.sdDispersos(vd, dEst, 2);
-  ok(disp2.A === 0 && disp2.B === 30, 'com até 2 candidatos por agremiação no distrito (várias cadeiras), só conta do 3º em diante');
+  ok(disp2.A === 100 && disp2.B === 120, `com até 2 candidatos por agremiação no distrito, cada um ainda num distrito só (${disp2.A}, ${disp2.B})`);
   // Retenção: a cota muda, quem leva o distrito não. B tem 570 votos (200 dispersos) contra 500 de A (nenhum disperso);
   // 3 vagas, compensatório: com tudo retido, B 2 × A 1; retendo metade dos dispersos (B fica com 470), A 2 × B 1.
   const dR = { uf: 'xx', vagas: 3, validos: 1070, agrs: [

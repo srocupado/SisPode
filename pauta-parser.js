@@ -293,9 +293,14 @@ function parsearPautaExtenso(texto) {
     // ele urgencia (ou, em último caso, da ordem). Gera uma chave estável e
     // sem caracteres problemáticos (a "/" de "s/nº" não pode entrar na chave,
     // que vai para seletores de DOM e caminhos do Firebase).
+    // Sem projeto lido, a ordem sozinha se repetia de uma pauta para outra ("REQ-sn-ordem3-2026" na
+    // terça e na quarta) e, como a chave é o caminho da análise no Firebase, requerimentos diferentes
+    // dividiam a mesma nota (revisão de 11/11/2026). A data da pauta (e o ordinal da sessão, a partir
+    // da 2ª do dia) entram na chave; a mesma pauta reimportada dá a mesma chave.
+    const daPauta = (resultado.periodo || '').replace(/\D/g, '') + (resultado.sessao?.ordinal > 1 ? 's' + resultado.sessao.ordinal : '');
     const chave = temNum
       ? undefined
-      : `REQ-sn-${proj ? proj.sigla + proj.numero + '-' + proj.ano : 'ordem' + ordem}-${ano}`;
+      : `REQ-sn-${proj ? proj.sigla + proj.numero + '-' + proj.ano : 'ordem' + ordem + (daPauta ? '-d' + daPauta : '')}-${ano}`;
 
     resultado.itens.push({
       ordem,

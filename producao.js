@@ -17,7 +17,7 @@
 // uriPropPrincipal vem vazio e /relacionadas devolve nada. Dá para dizer em que
 // colegiado o parecer foi dado, não em qual projeto. O relatório diz isso.
 //
-// Depende de aderencia.js (fetchJson, mapLimit, formatarData, cvEsc,
+// Depende de aderencia.js (fetchJsonRetry, mapLimit, formatarData, cvEsc,
 // cvBuscarDeputados, API_PROP) — carregado antes deste arquivo.
 
 // ---------- a taxonomia ----------
@@ -135,7 +135,7 @@ async function prdColetar(idDep, ano) {
   const todas = [];
   let pag = 0;
   while (url && pag < PRD_TETO_PAGINAS) {
-    const j = await fetchJson(url);
+    const j = await fetchJsonRetry(url);
     todas.push(...(j.dados || []));
     const next = (j.links || []).find(l => l.rel === 'next');
     url = next ? next.href : null;
@@ -163,11 +163,11 @@ async function prdDetalhar(props) {
   return mapLimit(props, 5, async p => {
     let status = null, temas = [], falhou = false;
     try {
-      const d = await fetchJson(API_PROP + '/' + p.id);
+      const d = await fetchJsonRetry(API_PROP + '/' + p.id);
       status = (d.dados || {}).statusProposicao || null;
     } catch (e) { falhou = true; }
     try {
-      const t = await fetchJson(API_PROP + '/' + p.id + '/temas');
+      const t = await fetchJsonRetry(API_PROP + '/' + p.id + '/temas');
       temas = (t.dados || []).map(x => x.tema).filter(Boolean);
     } catch (e) { /* tema é acessório: sem ele o item continua válido */ }
     return { ...p, status, temas, falhou };

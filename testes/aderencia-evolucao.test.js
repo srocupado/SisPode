@@ -158,7 +158,8 @@ function canvasFalso() {
   {
     ctx.__q = [votacao('2026-08-12T15:00:00-03:00', 0, 0, 0)];
     const grupos = av(`agruparPorPeriodo(__q, '2026-08-01', '2026-08-31', 0)`);
-    ok(grupos.length === 1 && grupos[0].pct === 0, 'a barra vale 0%, não NaN');
+    // sem voto Sim ou Não no balde, a barra não tem porcentagem: sai "—", nem NaN nem 0% (revisão de 11/11/2026)
+    ok(grupos.length === 1 && grupos[0].pct === null, 'a barra fica sem número ("—"), não NaN');
     const { escritos, canvas } = canvasFalso();
     ctx.__canvas = canvas; ctx.__grupos = grupos;
     let erro = null; try { av('__draw(__canvas, __grupos)'); } catch (e) { erro = e; }

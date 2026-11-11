@@ -51,25 +51,53 @@ function sleep(ms) {
   return new Promise(r => setTimeout(r, ms));
 }
 
-/** Fetch JSON com retry em 429/5xx */
-async function fetchJson(url, tentativa = 0) {
+/**
+ * Fetch JSON dos Relatórios (API da Câmara), com nova tentativa em 429, 5xx e falha de rede.
+ *
+ * O NOME É PRÓPRIO DE PROPÓSITO. Até 11/11/2026 esta função se chamava `fetchJson` — o mesmo nome da
+ * de ia-comum.js, que esta página carrega DEPOIS: a declaração de lá substituía a daqui, e os
+ * relatórios (aderência, produção, radar, leis aprovadas) rodavam sem repetir pedido nenhum. Com
+ * centenas de pedidos em paralelo, um 429 passageiro virava votação ou proposição "não lida".
+ *
+ *  · 429, 5xx e falha de rede: mais 2 tentativas, com 0,5 s e 1 s de espera; 4xx não se repete.
+ *  · Cada tentativa tem prazo de 25 s.
+ *  · Falha LENTA (prazo estourado, erro de rede ou 5xx depois de 8 s) também se repete: MEDIDO em
+ *    11/11/2026, com a API no ar, ~3% dos pedidos de /votacoes/{id}/votos em paralelo caíam com
+ *    "connection reset" aos 10 s e respondiam em 0,5 s na tentativa seguinte. Só na 3ª falha lenta
+ *    SEGUIDA (sem nenhuma resposta do servidor no meio) ele é dado como fora do ar, e os pedidos
+ *    seguintes falham na hora por 60 s — com a API fora, centenas de pedidos não esperam um a um.
+ */
+const _relForaAte = new Map();   // servidor → até quando os pedidos falham na hora
+const _relLentas = new Map();    // servidor → falhas lentas seguidas (zera a cada resposta do servidor)
+async function fetchJsonRetry(url, tentativa = 0) {
+  let host = '';
+  try { host = new URL(url).host; } catch (_) { /* URL relativa: sem disjuntor */ }
+  if (Date.now() < (_relForaAte.get(host) || 0)) throw new Error('servidor fora do ar (' + host + ') — tente de novo em um minuto');
+  const deNovo = async () => { await sleep(500 * (tentativa + 1)); return fetchJsonRetry(url, tentativa + 1); };
+  const t0 = Date.now();
+  const lento = () => Date.now() - t0 > 8000;
+  const falhaLenta = () => {
+    const n = (_relLentas.get(host) || 0) + 1;
+    _relLentas.set(host, n);
+    if (host && n >= 3) _relForaAte.set(host, Date.now() + 60000);
+  };
+  let resp;
   try {
-    const resp = await fetch(url, { headers: { Accept: 'application/json' } });
-    if (!resp.ok) {
-      if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) {
-        await sleep(500 * (tentativa + 1));
-        return fetchJson(url, tentativa + 1);
-      }
-      throw new Error('HTTP ' + resp.status);
-    }
-    return await resp.json();
+    resp = await fetch(url, { headers: { Accept: 'application/json' },
+      ...((typeof AbortSignal !== 'undefined' && AbortSignal.timeout) ? { signal: AbortSignal.timeout(25000) } : {}) });
   } catch (e) {
-    if (tentativa < 2) {
-      await sleep(500 * (tentativa + 1));
-      return fetchJson(url, tentativa + 1);
-    }
-    throw e;
+    const prazo = !!e && e.name === 'TimeoutError';
+    if (prazo || lento()) falhaLenta();
+    if (tentativa < 2) return deNovo();   // falha de rede (com o servidor dado como fora, a nova tentativa falha na hora)
+    throw prazo ? new Error('o servidor não respondeu em 25 s (' + host + ')') : e;
   }
+  if (resp.status >= 500 && lento()) falhaLenta(); else _relLentas.delete(host);
+  if (!resp.ok) {
+    if ((resp.status === 429 || resp.status >= 500) && tentativa < 2) return deNovo();
+    throw new Error('HTTP ' + resp.status);
+  }
+  try { return await resp.json(); }
+  catch (e) { if (tentativa < 2) return deNovo(); throw e; }   // corpo cortado no meio
 }
 
 /** Executa fn sobre items com no máximo limit promessas simultâneas */
@@ -258,7 +286,8 @@ function drawAdherenceDonut(canvas, pct, size) {
   ctx.font = 'bold ' + Math.round(size * 0.18) + 'px DM Sans, sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText(matched.toFixed(1) + '%', cx, cy);
+  // pct null = ninguém votou Sim ou Não (só ausências): "—", não 0,0%
+  ctx.fillText(pct == null ? '—' : matched.toFixed(1) + '%', cx, cy);
 }
 
 // ── CANVAS: GRÁFICO TEMPORAL ──────────────────────────────────────────────────
@@ -311,7 +340,8 @@ function agruparPorPeriodo(qualifying, dataIni, dataFim, partySize) {
   });
 
   return Object.values(buckets)
-    .map(b => ({ ...b, pct: aderPct(b.aderiu, b.divergiu) || 0 }))
+    // pct null = nenhum voto Sim ou Não no balde (só ausências): a barra sai "—", não 0%
+    .map(b => ({ ...b, pct: aderPct(b.aderiu, b.divergiu) }))
     .sort((a, b) => a.key.localeCompare(b.key));
 }
 
@@ -361,6 +391,7 @@ function drawTemporalChart(canvas, groups) {
     // virava barra cheia.
     const rawPct = Number.isFinite(g.pct) ? g.pct : 0;
     const pct    = Math.max(0, Math.min(100, rawPct));
+    const rotPct = g.pct == null ? '—' : Math.round(pct) + '%';   // sem voto Sim ou Não: sem número
     const barH   = chartH * (pct / 100);
     const x      = padL + slotW * i + slotW / 2 - barW / 2;
     const yTop   = padT + chartH - barH;
@@ -380,11 +411,11 @@ function drawTemporalChart(canvas, groups) {
     if (barH >= 18) {
       ctx.fillStyle    = '#fff';
       ctx.textBaseline = 'top';
-      ctx.fillText(Math.round(pct) + '%', x + barW / 2, yTop + 4);
+      ctx.fillText(rotPct, x + barW / 2, yTop + 4);
     } else {
-      ctx.fillStyle    = col;
+      ctx.fillStyle    = g.pct == null ? '#8da3a8' : col;
       ctx.textBaseline = 'bottom';
-      ctx.fillText(Math.round(pct) + '%', x + barW / 2, yTop - 2);
+      ctx.fillText(rotPct, x + barW / 2, yTop - 2);
     }
 
     // rótulo eixo X (período)
@@ -437,7 +468,7 @@ async function buscarVotacoesPeriodo(dataIni, dataFim, aoAndar) {
     let url = API + '?dataInicio=' + ini + '&dataFim=' + fimPedido + '&itens=200&ordem=ASC&ordenarPor=dataHoraRegistro';
     let paginas = 0;
     while (url && paginas < 40) {
-      const json = await fetchJson(url);
+      const json = await fetchJsonRetry(url);
       for (const v of (json.dados || [])) if (!vistos.has(v.id)) { vistos.add(v.id); todas.push(v); }
       const next = (json.links || []).find(l => l.rel === 'next');
       url = next ? next.href : null;
@@ -554,7 +585,7 @@ async function aderBancadaPorVotacao(sigla, bench, qualifying, aoAndar) {
   let falhasHistorico = 0;
   await mapLimit(lista, 8, async c => {
     try {
-      c.historico = (await fetchJson(API_DEPS + '/' + c.id + '/historico')).dados || [];
+      c.historico = (await fetchJsonRetry(API_DEPS + '/' + c.id + '/historico')).dados || [];
       c.transitorio = aderRegistroTransitorio(c.historico, sigla);
     }
     catch (e) { falhasHistorico++; }
@@ -651,19 +682,28 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     // resultado proveniente de falha (evita "envenenar" o cache com vazio
     // por erro temporário da API, que ficaria preso e seria descartado
     // silenciosamente nas próximas execuções).
+    const semDetalhe = e => ({ ok: false, dados: [], http404: /^HTTP 404\b/.test((e && e.message) || '') });
     const [votosR, orientR] = await Promise.all([
-      fetchJson(API + '/' + v.id + '/votos')
+      fetchJsonRetry(API + '/' + v.id + '/votos')
         .then(j => ({ ok: true, dados: j.dados || [] }))
-        .catch(() => ({ ok: false, dados: [] })),
-      fetchJson(API + '/' + v.id + '/orientacoes')
+        .catch(semDetalhe),
+      fetchJsonRetry(API + '/' + v.id + '/orientacoes')
         .then(j => ({ ok: true, dados: j.dados || [] }))
-        .catch(() => ({ ok: false, dados: [] }))
+        .catch(semDetalhe)
     ]);
+    // 404 = a API LISTA a votação mas não tem o detalhe. MEDIDO em 11/11/2026: 20 das 92 votações do
+    // Plenário da véspera, todas administrativas ou simbólicas ("Alteração do Regime de Tramitação…").
+    // Só conta como "não lida" se a descrição traz o placar — é assim que a API descreve a votação
+    // nominal ("Rejeitado o Requerimento. Sim: 11; Não: 387; Total: 398.") —; as outras não entrariam
+    // no cálculo de qualquer jeito, e contá-las punha o aviso em quase todo relatório. Falha que não é
+    // 404 (rede, 5xx) conta sempre.
+    const nominal = /Sim:\s*\d/.test(v.descricao || '');
+    const falhou = [votosR, orientR].some(r => !r.ok && (nominal || !r.http404));
     // Só grava no cache quando ambas as chamadas retornaram com sucesso.
     // Um vazio "real" (votação sem votos nominais) é legítimo e pode ser
     // cacheado; um vazio por falha de rede/HTTP não.
     if (votosR.ok && orientR.ok) cacheSet(v.id, votosR.dados, orientR.dados);
-    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false };
+    return { votacao: v, votos: votosR.dados, orientacoes: orientR.dados, fromCache: false, falhou };
 
   }, (done, total) => {
     status(
@@ -672,9 +712,14 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
     );
   });
 
+  // Votações cuja leitura falhou (votos ou orientações; `null` = o mapLimit engoliu um erro): ficam FORA
+  // do cálculo — sem os dois lados não há como medir —, mas contadas, para a tela e os documentos dizerem.
+  // Antes sumiam em silêncio e a aderência saía de menos votações sem aviso (revisão de 11/11/2026).
+  const falhasVotacoes = enriched.filter(e => !e || e.falhou).length;
+
   // 4. Filtra qualificadas: govOrient Sim/Não e pelo menos um voto Sim/Não
   const qualifying = enriched.filter(e => {
-    if (!e || e.votos.length === 0) return false;
+    if (!e || e.falhou || e.votos.length === 0) return false;
     const temSimNao = e.votos.some(v => {
       const t = (v.tipoVoto || '').toLowerCase();
       return t === 'sim' || t === 'não' || t === 'nao';
@@ -689,14 +734,15 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   });
 
   if (qualifying.length === 0) {
-    return { vazio: '<div class="status">Nenhuma votação qualificada no período ' +
+    return { falhasVotacoes, vazio: aderAvisoFalhasVotacoes(falhasVotacoes) +
+      '<div class="status">Nenhuma votação qualificada no período ' +
       '(PLEN, nominal, com orientação Sim/Não do Governo).</div>' };
   }
 
   // 5. Bancada de hoje (ponto de partida dos candidatos) e bancada na data
   //    de cada votação — ver aderBancadaPorVotacao.
   status('Carregando bancada do ' + sigla + '...', 'loading');
-  const benchJ = await fetchJson(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
+  const benchJ = await fetchJsonRetry(API_DEPS + '?siglaPartido=' + encodeURIComponent(sigla) + '&ordem=ASC&ordenarPor=nome&itens=100');
   const bench  = benchJ.dados || [];
   const { candidatos, falhasHistorico, desconsiderados } = await aderBancadaPorVotacao(sigla, bench, qualifying, (f, t) =>
     status('Conferindo o partido de cada deputado na data de cada votação (' + f + '/' + t + ')...', 'loading', (f / t) * 100));
@@ -746,13 +792,21 @@ async function aderCalcular(dataIni, dataFim, sigla, status = showStatus) {
   const totalDivergiu = qualifying.reduce((s, e) => s + e.divergentCount, 0);
   const totalAusente  = qualifying.reduce((s, e) => s + e.ausenteCount,   0);
   const totalPossivel = qualifying.reduce((s, e) => s + e.possiveis,      0);
-  const overallPct    = aderPct(totalAderiu, totalDivergiu) || 0;
+  // null = nenhum voto Sim ou Não da bancada no período (só ausências): a tela mostra "—", não 0,0%
+  const overallPct    = aderPct(totalAderiu, totalDivergiu);
 
   return {
-    sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, desconsiderados,
+    sigla, partySize, bench, qualifying, depMetrics, falhasHistorico, falhasVotacoes, desconsiderados,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   };
+}
+
+/** Texto do aviso das votações que não puderam ser lidas (a tela e os documentos dizem o mesmo). */
+const aderTextoFalhasVotacoes = n => n + ' votação(ões) do Plenário no período não ' + (n > 1 ? 'puderam ser lidas' : 'pôde ser lida') +
+  ' na API da Câmara e ' + (n > 1 ? 'ficaram' : 'ficou') + ' fora do cálculo';
+function aderAvisoFalhasVotacoes(n) {
+  return n ? '<div class="cv-aviso">⚠ ' + aderTextoFalhasVotacoes(n) + '. Refaça a busca para tentar de novo.</div>' : '';
 }
 
 /** Aviso de quem a regra do registro transitório tirou da bancada (aderRegistroTransitorio). */
@@ -770,7 +824,7 @@ function aderAvisoDesconsiderados(lista, sigla) {
 function renderRelatorio(ctx) {
   window._relatorioCtx = ctx;
   const {
-    sigla, partySize, qualifying, depMetrics, falhasHistorico, desconsiderados,
+    sigla, partySize, qualifying, depMetrics, falhasHistorico, falhasVotacoes, desconsiderados,
     overallPct, totalAderiu, totalDivergiu, totalAusente, totalPossivel,
     dataIni, dataFim, emCache, aFetchar
   } = ctx;
@@ -780,6 +834,7 @@ function renderRelatorio(ctx) {
     : '';
 
   resultadoEl.innerHTML =
+    aderAvisoFalhasVotacoes(falhasVotacoes) +
     (falhasHistorico
       ? '<div class="cv-aviso">⚠ O histórico de ' + falhasHistorico + ' deputado(s) não pôde ser lido agora. ' +
         'Nas votações em que eles não votaram, foram considerados pela bancada de hoje. Refaça a busca para tentar de novo.</div>'
@@ -789,7 +844,7 @@ function renderRelatorio(ctx) {
     '<div class="result-card">' +
       '<div class="result-title-bar">Aderência geral ao Governo' + cacheBadge + '</div>' +
       '<div class="result-body">' +
-        '<div class="big-pct">' + overallPct.toFixed(1) + '<span class="sign">%</span></div>' +
+        '<div class="big-pct">' + (overallPct == null ? '—' : overallPct.toFixed(1) + '<span class="sign">%</span>') + '</div>' +
         '<div class="big-label">do partido ' + sigla + '</div>' +
         '<div class="result-3state">' +
           '<div class="state-item state-aderiu"><span class="state-v">' + totalAderiu + '</span><span class="state-l">✓ Aderiu</span></div>' +
@@ -964,12 +1019,12 @@ function buildDepDetailHTML(m, ctx) {
 
     listHTML +=
       '<div class="item">' +
-        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + votoTit + '">' +
-          '<span class="rot">Voto:</span> ' + voto +
+        '<div class="mark ' + votoClass(d.tipoVoto) + '" title="' + cvEsc(votoTit) + '">' +
+          '<span class="rot">Voto:</span> ' + cvEsc(voto) +
         '</div>' +
         '<div class="item-corpo">' +
           '<div class="desc">' + cvEsc(desc) + '</div>' +
-          '<div class="gov">Governo: ' + (d.e.govOrient || '—') + ' · ' + hora + '</div>' +
+          '<div class="gov">Governo: ' + cvEsc(d.e.govOrient || '—') + ' · ' + cvEsc(hora) + '</div>' +
         '</div>' +
         '<span class="vote ' + d.status + '">' + veredito + '</span>' +
       '</div>';
@@ -1059,7 +1114,7 @@ function renderVoteDetail(detailEl, e, ctx) {
     else                    ausente++;
   });
 
-  const pct      = aderPct(aderiu, divergiu) || 0;
+  const pct      = aderPct(aderiu, divergiu);   // null: só ausências (a rosca mostra "—")
   const canvasId = 'det-canvas-' + e.votacao.id.replace(/[^a-zA-Z0-9]/g, '');
 
   let rowsHTML = '';
@@ -1071,7 +1126,7 @@ function renderVoteDetail(detailEl, e, ctx) {
       '<div class="dep-row">' +
         '<div class="match-mark ' + matchCls + '">' + matchSym + '</div>' +
         '<div class="dep-name">' + cvEsc(d.nome || '?') + '<span class="dep-uf">(' + cvEsc(d.siglaUf || '?') + ')</span></div>' +
-        '<span class="dep-vote ' + cls + '">' + (d.tipoVoto || 'Ausente') + '</span>' +
+        '<span class="dep-vote ' + cls + '">' + cvEsc(d.tipoVoto || 'Ausente') + '</span>' +
       '</div>';
   });
 
@@ -1111,7 +1166,7 @@ function exportarExcel() {
     ['Votos aderentes (✓)', totalAderiu],
     ['Votos divergentes (✗)', totalDivergiu],
     ['Ausências (—)', totalAusente],
-    ['Aderência geral (%)', Number(overallPct.toFixed(2))],
+    ['Aderência geral (%)', overallPct == null ? '—' : Number(overallPct.toFixed(2))],
     [],
     ['Critérios:'],
     ['- Apenas votações do Plenário (PLEN)'],
@@ -1272,7 +1327,7 @@ function cvDiaSeguinte(iso) {
  * código — nome errado aqui contamina o relatório inteiro.
  */
 async function cvBuscarDeputados(nome) {
-  const j = await fetchJson(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
+  const j = await fetchJsonRetry(API_DEP + '?nome=' + encodeURIComponent(nome) + '&ordem=ASC&ordenarPor=nome&itens=30');
   return (j.dados || []).map(d => ({ id: d.id, nome: d.nome, partido: d.siglaPartido, uf: d.siglaUf }));
 }
 
@@ -1354,8 +1409,8 @@ async function cvEnriquecer(votacoes, aoAndar) {
     const [votos, orients] = await Promise.all([
       // Atenção: /votos NÃO aceita ?itens= — devolve HTTP 400 e a leitura vira
       // "votação sem voto nominal", que é falso.
-      fetchJson(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
-      fetchJson(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJsonRetry(API + '/' + v.id + '/votos').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
+      fetchJsonRetry(API + '/' + v.id + '/orientacoes').then(j => ({ ok: true, d: j.dados || [] })).catch(() => ({ ok: false, d: [] })),
     ]);
     const gov = (orients.d || []).find(o => /governo/i.test(o.siglaPartidoBloco || ''));
     return {
@@ -1371,7 +1426,7 @@ async function cvEnriquecer(votacoes, aoAndar) {
 
 // ---------- as duas buscas ----------
 async function cvPorProposicao(sigla, numero, ano) {
-  const busca = await fetchJson(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
+  const busca = await fetchJsonRetry(API_PROP + `?siglaTipo=${encodeURIComponent(sigla)}&numero=${encodeURIComponent(numero)}&ano=${encodeURIComponent(ano)}&itens=1`);
   const prop = (busca.dados || [])[0];
   if (!prop) throw new Error(`${sigla} ${numero}/${ano} não foi localizado na base da Câmara.`);
 
@@ -1390,7 +1445,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   let urlV = API_PROP + '/' + prop.id + '/votacoes?ordem=ASC&ordenarPor=dataHoraRegistro';
   let pag = 0;
   while (urlV && pag < 20) {
-    const j = await fetchJson(urlV);
+    const j = await fetchJsonRetry(urlV);
     vots.push(...(j.dados || []));
     const next = (j.links || []).find(l => l.rel === 'next');
     urlV = next ? next.href : null;
@@ -1419,7 +1474,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   }
   for (const [idp, lista] of porProp) {
     try {
-      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      const tram = (await fetchJsonRetry(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
       Object.assign(objetos, objetosDaTramitacao(lista, tram));
       // Destaque RETIRADO não foi votado — não há voto a registrar, e é
       // justamente por isso que ele precisa ser dito: o relatório mostraria
@@ -1441,7 +1496,7 @@ async function cvPorProposicao(sigla, numero, ano) {
     // objeto é a proposição em si, que identifica a matéria com precisão.
     if (idp !== String(prop.id) && lista.some(v => !objetos[v.id])) {
       try {
-        const p = (await fetchJson(API_PROP + '/' + idp)).dados;
+        const p = (await fetchJsonRetry(API_PROP + '/' + idp)).dados;
         if (p) {
           const rot = `${p.siglaTipo} ${p.numero}/${p.ano}` + (p.ementa ? ' — ' + String(p.ementa).replace(/\s+/g, ' ').slice(0, 180) : '');
           for (const v of lista) if (!objetos[v.id]) objetos[v.id] = rot;
@@ -1457,7 +1512,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   // então lê-se uma votação por dia de sessão e junta-se.
   let propDetalhada = prop;
   try {
-    const d = await fetchJson(API_PROP + '/' + prop.id);
+    const d = await fetchJsonRetry(API_PROP + '/' + prop.id);
     if (d.dados) propDetalhada = d.dados;
   } catch (e) { console.warn('[consulta] detalhe da proposição não lido:', e.message); }
 
@@ -1472,7 +1527,7 @@ async function cvPorProposicao(sigla, numero, ano) {
   for (const v of vots) porDia.set(String(v.data), v);
   for (const v of porDia.values()) {
     try {
-      const d = await fetchJson(API + '/' + v.id);
+      const d = await fetchJsonRetry(API + '/' + v.id);
       for (const o of ((d.dados || {}).objetosPossiveis || [])) {
         if (!vistosObj.has(o.id)) { vistosObj.add(o.id); objetosPossiveis.push(o); }
       }
@@ -1516,7 +1571,7 @@ async function cvObjetosDeVarias(votacoes) {
   let lidas = 0;
   for (const [idp, lista] of porProp) {
     try {
-      const tram = (await fetchJson(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
+      const tram = (await fetchJsonRetry(API_PROP + '/' + idp + '/tramitacoes')).dados || [];
       Object.assign(objetos, objetosDaTramitacao(lista, tram));
     } catch (e) {
       console.warn(`[consulta] tramitação de ${idp} não lida:`, e.message);
