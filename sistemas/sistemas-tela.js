@@ -16,8 +16,8 @@
 const SI_COR_PODE = '#00a859', SI_COR_OUTROS = '#5b6b7b';
 // Paleta neutra por tamanho de bancada (sem cor "ideológica"); sem verdes: o verde é do partido em foco.
 const SI_PALETA = ['#3b82f6', '#ef4444', '#f59e0b', '#a855f7', '#22d3ee', '#ec4899', '#b45309', '#fda4af', '#6366f1', '#fde047', '#93c5fd', '#d8b4fe'];
-const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', adi8036: 'ADI 8.036 (PDT)', misto2: 'Distritão misto (sem redução)', distrital: 'Distrital misto' };
-const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', adi8036: 'ADI 8.036', misto2: 'D. misto s/ red.', distrital: 'Distrital' };
+const SI_NOMES = { proporcional: 'Proporcional', misto: 'Distritão misto', misto2: 'Distritão misto (sem redução)', distrital: 'Distrital misto' };
+const SI_CURTOS = { proporcional: 'Prop.', misto: 'D. misto', misto2: 'D. misto s/ red.', distrital: 'Distrital' };
 const SI_IBGE = 'https://servicodados.ibge.gov.br/api';
 // Cores dos distritos no mapa (vizinhos nunca com a mesma).
 const SI_CORES_DIST = ['#3b82f6', '#f59e0b', '#a855f7', '#22d3ee', '#ef4444', '#84cc16', '#ec4899', '#f97316', '#14b8a6', '#eab308', '#6366f1', '#fb7185'];
@@ -58,7 +58,6 @@ function siSistemas() {
     { id: 'proporcional', nome: SI_NOMES.proporcional, tipo: 'proporcional', op: {
       pctQP: siNumero('pQP', 10) / 100, pctPartido: siNumero('pPart', 80) / 100, pctCandidato: siNumero('pCand', 20) / 100,
       terceiraFaseAberta: $('pTerc').checked, federacoes: $('pFed').checked, sobras: (($('pSob').querySelector('.ativo') || {}).dataset || {}).s || 'dhondt' } },
-    { id: 'adi8036', nome: SI_NOMES.adi8036, tipo: 'proporcional', op: Object.assign({}, SI_OP_ADI8036) },
     { id: 'misto', nome: SI_NOMES.misto, tipo: 'misto', op: {
       pctMaisVotados: siNumero('mPct', 50) / 100, modelo: modelo.m || 'paralelo', limiar: siNumero('mLim', 0) / 100,
       arred: ($('mArr').querySelector('.ativo') || {}).dataset.a || 'proximo', votoLiquido: $('mLiq').checked } },
@@ -82,22 +81,11 @@ function siSistemas() {
 const siMapaEstadual = () => (($('dEst') && $('dEst').querySelector('.ativo')) || { dataset: {} }).dataset.e || 'proprio';
 function siAlterado(s) {
   const o = s.op;
-  if (s.id === 'adi8036') return false;   // regra fixa: a do estudo do PDT
   if (s.tipo === 'proporcional') return o.pctQP !== 0.1 || o.pctPartido !== 0.8 || o.pctCandidato !== 0.2 || !o.terceiraFaseAberta || !o.federacoes || (o.sobras || 'dhondt') !== 'dhondt';
   if (s.tipo === 'misto') return o.pctMaisVotados !== 0.5 || o.modelo !== 'paralelo' || o.limiar !== 0 || o.arred !== 'proximo' || !!o.votoLiquido;
   if (s.tipo === 'distrital') return (si.cargo !== '6' && o.mapaEstadual === 'federais') || o.pctDistrital !== 0.5 || o.regra !== 'partido' || o.modelo !== 'paralelo' || o.limiar !== 0 || o.base !== 'eleitorado' || o.arred !== 'proximo' || o.aliancas.length > 0 || !siTolIgual(o.tol, SD_TOL_SENADO) || o.tol.modo !== 'conferir' || !siExcPadrao(o) || !!o.votoLiquido || (o.retencao != null && o.retencao < 1) || (o.listasNomes || []).length > 0;
   return false;
 }
-/** O cenário da ADI 8.036 (PDT): Sainte-Laguë nas sobras e sem as exigências do § 2º do art. 109 (80% e 20% do QE); o resto como a lei. */
-function siEhAdi8036(o) {
-  return o.sobras === 'sl' && o.pctPartido === 0 && o.pctCandidato === 0 && o.pctQP === 0.1 && o.terceiraFaseAberta && o.federacoes;
-}
-/**
- * A regra do estudo do PDT para a ADI 8.036 ("Sobras pelo maior resto · Efeitos sobre 2026"): QE e QP como hoje
- * (candidato com 10% do QE); sobras pelo maior resto (votos − lugares × QE), uma vaga por agremiação a cada volta,
- * sem os 80% da agremiação, com candidato de 20% do QE. Reproduz as 72 trocas do estudo em 2026 (36 + 36).
- */
-const SI_OP_ADI8036 = { pctQP: 0.10, pctPartido: 0, pctCandidato: 0.20, terceiraFaseAberta: true, federacoes: true, sobras: 'restos', umaPorRodada: true };
 const SI_SOBRAS = { dhondt: "maiores médias (D'Hondt)", sl: 'Sainte-Laguë', restos: 'maiores restos (Hare)' };
 /** Distritão misto com redução v3: metade (parte inteira) aos mais votados, voto partidário líquido, compensatório, sem cláusula. */
 function siEhReducaoV3(o) {
@@ -220,10 +208,6 @@ function siDescricao(s, curta) {
   const o = s.op;
   if (s.tipo === 'proporcional') {
     const sob = o.sobras && o.sobras !== 'dhondt' ? o.sobras : '';
-    if (s.id === 'adi8036') return curta ? 'maior resto, uma por agremiação · sem os 80% · candidato com 20%'
-      : 'estudo do PDT: QE e QP como hoje; sobras pelo maior resto, uma vaga por agremiação a cada volta, sem os 80% do QE da agremiação, com candidato de 20% do QE; federações';
-    if (siEhAdi8036(o)) return curta ? 'ADI 8.036: Sainte-Laguë sem o § 2º'
-      : 'ADI 8.036 (PDT), na hipótese de Sainte-Laguë: quociente eleitoral e partidário como hoje; sobras por Sainte-Laguë (votos ÷ 1, 3, 5…), sem as exigências de 80% e 20% do QE do § 2º do art. 109; 3ª fase aberta; federações';
     if (curta) return !siAlterado(s) ? 'regra vigente' : sob ? `sobras por ${SI_SOBRAS[sob]}` + (siAlterado(Object.assign({}, s, { op: Object.assign({}, o, { sobras: 'dhondt' }) })) ? ' · outros parâmetros' : '') : 'parâmetros alterados';
     return siAlterado(s) ? `QP com candidato de ${siPct(o.pctQP)} do QE; sobras por ${SI_SOBRAS[o.sobras || 'dhondt']}, com agremiação de ${siPct(o.pctPartido)} e candidato de ${siPct(o.pctCandidato)}; `
       + `3ª fase ${o.terceiraFaseAberta ? 'aberta a todas' : 'só com as de ' + siPct(o.pctPartido)}; ${o.federacoes ? 'com' : 'sem'} federações` : 'regra vigente (10% · 80/20 · 3ª fase aberta · federações)';
@@ -266,7 +250,6 @@ function siMarcarAlterados() {
   // pelo tipo, nunca pela posição na lista (a lista já mudou: saiu o distritão puro)
   const P = ss.find(x => x.id === 'proporcional'), M = ss.find(x => x.id === 'misto'), N = ss.find(x => x.id === 'misto2'), D = ss.find(x => x.id === 'distrital');
   $('siAltP').hidden = !siAlterado(P);
-  $('pAdi').classList.toggle('proj-ok', siEhAdi8036(P.op));
   $('siAltM').hidden = !siAlterado(M);
   $('siAltN').hidden = !siAlterado(N);
   $('nPctV').textContent = siPct(N.op.pctMaisVotados);
@@ -410,7 +393,7 @@ function siLigarListas() {
 }
 
 // ------------------------------------------------------------ faixa dos sistemas (os parâmetros, compactos)
-const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', misto2: '#ec4899', adi8036: '#f59e0b', distrital: '#14b8a6' };
+const SI_COR_SIS = { proporcional: '#3b82f6', misto: '#a855f7', misto2: '#ec4899', distrital: '#14b8a6' };
 /** Os partidos para as alianças: os do pleito lido, do mais ao menos votado no país. */
 function siPreencherPartidos() {
   const v = {};
@@ -431,8 +414,8 @@ function siFaixa(ss) {
   el.innerHTML = ss.map(s => {
     const temPar = true, aberto = si.abertoSis === s.id;
     return `<div class="fx${aberto ? ' aberto' : ''}${temPar ? ' clic' : ''}" data-fx="${s.id}"><div class="t"><i style="background:${SI_COR_SIS[s.id]}"></i>${siEsc(SI_NOMES[s.id])}`
-      + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : s.id === 'adi8036' ? 'Ver a regra ▾' : 'Ajustar ▾'}</a>` : ''}</div>`
-      + `<div class="x">${siEsc(siDescricao(s, s.id === 'adi8036' || (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && (siEhReducaoV3(s.op) || siEhFederativo(s.op))) || (s.tipo === 'proporcional' && siEhAdi8036(s.op))))}</div></div>`;
+      + `${siAlterado(s) ? '<span class="alt">alterado</span>' : ''}${temPar ? `<a>${aberto ? 'Fechar ▴' : 'Ajustar ▾'}</a>` : ''}</div>`
+      + `<div class="x">${siEsc(siDescricao(s, (s.tipo === 'distrital' && (siEhSenado(s.op) || siEhCcj(s.op) || siEh9213(s.op) || siEhMinuta(s.op))) || (s.tipo === 'misto' && (siEhReducaoV3(s.op) || siEhFederativo(s.op)))))}</div></div>`;
   }).join('');
   for (const c of document.querySelectorAll('#siSistemas .sis')) c.classList.toggle('aberto', c.dataset.sis === si.abertoSis);
   $('siSistemas').classList.toggle('fechado', !si.abertoSis);
@@ -1418,7 +1401,7 @@ function siIndicadoresHtml(ind) {
 const siAgrFoco = d => d.agrs.find(a => (a.siglas || []).includes(si.partido));
 /** QE do estado sem depender do card "Proporcional" (fora da seleção do relatório): o do art. 106, pelos válidos — `qeTse` só existe no servidor de resultados, e nos dados abertos o QE saía 0 no PDF. */
 const siQe = d => snQuociente(d.validos, d.vagas);
-/** As opções do card "Proporcional" — a regra atual —, mesmo com ele fora da seleção do relatório. A ADI 8.036 também é de tipo 'proporcional': procurar pelo tipo trazia as regras dela. */
+/** As opções do card "Proporcional" — a regra atual —, mesmo com ele fora da seleção do relatório (procurado pelo id, não pelo tipo). */
 const siOpAtual = () => ((si.todosSistemas || si.sistemas || []).find(x => x.id === 'proporcional') || {}).op || {};
 const siCache = (chave, f) => { const c = si.res.estr = si.res.estr || {}; if (!(chave in c)) c[chave] = f(); return c[chave]; };
 
@@ -1791,8 +1774,6 @@ function siMetodoHtml() {
     + 'Votos válidos de cada candidato e de legenda de cada partido; candidato com voto anulado (sub judice) fica fora. A simulação mantém os votos como foram dados — noutro sistema, partidos, candidatos e eleitores agiriam de outro jeito.');
   if (sist.proporcional) li.push(`<b>Proporcional (atual)</b> — ${d(sist.proporcional)}. Código Eleitoral, arts. 106 a 111, com a Lei 14.211/2021 e a decisão do STF nas ADIs 7228, 7263 e 7325: `
     + 'quociente eleitoral (fração acima de meio arredonda), quociente partidário com candidato de 10% do QE, sobras pelas maiores médias (agremiação com 80% do QE e candidato com 20%), 3ª fase aberta a todas, art. 111 se ninguém alcança o QE; federação conta como uma agremiação. Com a regra vigente reproduz o resultado oficial (conferido em 2026 e 2022, nas 27 UFs).');
-  if (sist.adi8036) li.push(`<b>ADI 8.036 (PDT)</b> — ${d(sist.adi8036)}. A regra do estudo do PDT para a ação ("Sobras pelo maior resto, sem barreira de 80%", 2026): `
-    + 'quociente eleitoral e partidário como na lei; as vagas que sobram vão uma por agremiação, em ordem decrescente de resto (votos − lugares × QE), e, esgotadas as agremiações com candidato de 20% do QE, a volta se repete; todas as agremiações disputam, sem votação mínima. Sobre 2026, reproduz as 72 trocas do estudo (36 na Câmara, 36 nas Assembleias).');
   if (sist.misto) li.push(`<b>Distritão misto</b> — ${d(sist.misto)}. A parte da lista vai pela votação da agremiação (nominal + legenda) pelas maiores médias (D'Hondt); paralelo: a lista divide só a sua parte; compensatório: a proporção vale para o total e a lista completa quem ficou abaixo (o total de vagas não muda). A lista é preenchida pelos candidatos ainda não eleitos, na ordem de votos.`);
   if (sist.misto2) li.push(`<b>Distritão misto (sem redução)</b> — ${d(sist.misto2)}. As mesmas regras de cálculo do distritão misto acima, com os parâmetros deste card.`);
   if (sist.distrital) li.push(`<b>Distrital misto</b> — ${d(sist.distrital)}. Distritos desenhados aqui (não existem no Brasil): unidades = municípios (malha do IBGE; vizinhança pelas divisas) e, no município grande demais para um distrito, as zonas eleitorais (posição pelos locais de votação); `
@@ -1828,7 +1809,7 @@ function siMetodoHtml() {
   if (sist.misto && siEhFederativo(sist.misto.op)) li.push('<b>Federativo Misto.</b> O distritão misto segue o projeto de lei do Sistema Federativo Misto (v2, 2026): metade das cadeiras da circunscrição, apurada pela parte inteira, aos candidatos mais votados (art. 10, § 3º, da Lei 9.504 proposto); '
     + 'o voto partidário é a votação do partido (nominais + legenda) menos os votos nominais dos seus eleitos na 1ª parte — o voto partidário líquido (art. 106, § 1º); só as cadeiras que restam depois da reserva majoritária são distribuídas pelas maiores médias sobre ele (art. 107), '
     + 'e cada partido fica com a soma das duas partes (art. 108) — não há excedente, nenhum eleito entre os mais votados perde a cadeira. Lista preordenada com alternância de sexo a cada três posições (aqui, na ordem de votos).');
-  if (sist.proporcional && (sist.proporcional.op.sobras || 'dhondt') !== 'dhondt') li.push(`<b>Método das sobras.</b> No proporcional, as vagas que o quociente partidário não preencheu vão ${sist.proporcional.op.sobras === 'sl' ? 'por Sainte-Laguë: a cada rodada, leva a agremiação com a maior votação ÷ (2 × lugares + 1) — divisores 1, 3, 5…' : 'pelos maiores restos (Hare): a cada rodada, leva a agremiação com o maior resto do quociente eleitoral, votos ÷ QE − lugares (quem ficou abaixo do quociente partidário por falta de candidato com 10% do QE recupera as suas antes)'}, em vez das maiores médias da lei (art. 109, votos ÷ (lugares + 1)); quociente eleitoral, quociente partidário e os requisitos de cada fase como no card. A ADI 8.036 (PDT, 2026) pede a inconstitucionalidade das maiores médias (art. 109, I a III) e do § 2º (80% e 20% do QE), sem dizer o que entra no lugar: Sainte-Laguë e maiores restos são as alternativas clássicas.`);
+  if (sist.proporcional && (sist.proporcional.op.sobras || 'dhondt') !== 'dhondt') li.push(`<b>Método das sobras.</b> No proporcional, as vagas que o quociente partidário não preencheu vão ${sist.proporcional.op.sobras === 'sl' ? 'por Sainte-Laguë: a cada rodada, leva a agremiação com a maior votação ÷ (2 × lugares + 1) — divisores 1, 3, 5…' : 'pelos maiores restos (Hare): a cada rodada, leva a agremiação com o maior resto do quociente eleitoral, votos ÷ QE − lugares (quem ficou abaixo do quociente partidário por falta de candidato com 10% do QE recupera as suas antes)'}, em vez das maiores médias da lei (art. 109, votos ÷ (lugares + 1)); quociente eleitoral, quociente partidário e os requisitos de cada fase como no card. Sainte-Laguë e maiores restos são as alternativas clássicas às maiores médias.`);
   if (sist.distrital && sist.distrital.op.porUf) li.push('<b>Votos dispersos e retenção.</b> Com o voto único e um candidato por partido em cada distrito, os votos nominais que hoje vão aos outros nomes do partido no distrito — os dispersos: tudo menos os votos do candidato dele ali, que é quem levou o distrito ou, onde o partido não venceu, o seu mais votado no distrito que não concorre em outro (cada candidato num distrito só; nos estaduais em distritos federais, até o limite de candidatos por distrito) — precisam ir para esse candidato ou para a legenda. '
     + `Por padrão, a simulação supõe que todos ficam com o partido. O controle "Retenção dos votos dispersos" do card (agora em ${siPct(sist.distrital.op.retencao == null ? 1 : sist.distrital.op.retencao)}) muda isso: só essa fração fica e conta para a cota; o resto deixa de ser voto do partido e voto válido. Vale para todos os partidos; quem leva cada distrito não muda (os candidatos seguem com os seus votos pessoais). `
     + 'A "retenção mínima" do bloco Próxima cadeira é a menor fração dos votos dispersos do partido em foco que mantém a sua cota, com os outros parados.');
@@ -2607,11 +2588,6 @@ async function siIniciar() {
   $('dMinuta').addEventListener('click', () => siRegraProjeto('minuta'));
   $('mReducaoV3').addEventListener('click', siReducaoV3);
   $('mFederativo').addEventListener('click', () => siRegraMisto('paralelo'));
-  $('pAdi').addEventListener('click', () => {   // ADI 8.036: Sainte-Laguë nas sobras, sem o § 2º; o resto como a lei
-    $('pQP').value = 10; $('pPart').value = 0; $('pCand').value = 0; $('pTerc').checked = true; $('pFed').checked = true;
-    for (const b of $('pSob').querySelectorAll('button')) b.classList.toggle('ativo', b.dataset.s === 'sl');
-    siParametrosMudaram();
-  });
   siLigarTolerancia();
   siLigarExcedente();
   siLigarListas();
