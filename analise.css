@@ -269,6 +269,14 @@
   font-size: 14px;
 }
 .an-analista-ok.show { opacity: 1; }
+.an-revisado {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--text-dim); cursor: pointer; user-select: none;
+}
+.an-revisado input { accent-color: #2fcf7a; cursor: pointer; }
+.an-revisado input:disabled { cursor: not-allowed; }
+.an-revisado:has(input:disabled) { opacity: .55; cursor: not-allowed; }
+.an-revisado.feito { color: #2fcf7a; font-weight: 600; }
 
 .an-analise {
   border-top: 1px solid var(--border);

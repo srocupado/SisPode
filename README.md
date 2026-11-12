@@ -275,6 +275,8 @@ Importe a Pauta da Semana e gere análise técnica por IA dos projetos, requerim
 - Adição/remoção manual de itens da pauta com link direto para a ficha da proposição. Aceita **projetos e requerimentos** (REQ/REC); no requerimento, o **projeto cuja urgência é pedida** pode ser informado ou é **lido da ementa** da API — é ele que a análise vai ler. O campo **"Nº na pauta"** insere o item **na posição certa** (útil para completar um item que faltou, sem reimportar o PDF e descartar as análises já geradas); número já ocupado é avisado, e nada é renumerado por conta própria
 - **Pauta Manual** (botão no cabeçalho): cria a pauta **sem PDF** — para quando a Câmara não divulga o documento. Dá nome à pauta e cola as proposições (várias de uma vez, em qualquer grafia: "pl4822/25"); cada referência é **validada na API** antes de entrar, e referência não localizada **bloqueia a criação** (nada é descartado em silêncio). A pauta criada é indistinguível de uma importada: análises, exportações, bot e histórico funcionam igual
 - Campo **"Responsável"** em cada card (ao lado de "Ver no portal"): texto livre com o nome do(a) analista, salvo junto da análise (e no item da pauta). Aparece na **meta do card** e, no **PDF** exportado, como linha própria **"Responsável: \<nome\>"** logo após os badges de autoria/apensado
+  - **Sorteio na importação**: ao importar o PDF da pauta, os itens sem responsável são distribuídos **aleatoriamente** entre os servidores, em partes iguais (diferença máxima de 1 item), e o nome já entra no campo. A lista é da equipe (Firebase `/plenario_servidores`), editável em **Configurações → Servidores responsáveis** (um nome por linha); sem lista gravada, valem Pedro Ribeiro, Daniel Roriz e Suellen Ali
+  - Caixa **"Revisada"** ao lado do Responsável: o servidor marca **à mão** depois de gerar e revisar a nota (só ativa com nota). **Salva no clique**, com ✓ próprio; se a gravação falhar, a caixa volta ao estado anterior e avisa. Fica na nota (quem marcou e quando, no título da caixa); nota regerada ou completada volta a "não revisada"
 
 **Geração de análise por IA (Gemini, OpenAI ou Anthropic)**
 
@@ -839,6 +841,7 @@ sispode/
 │   ├── sistemas-memorial.test.js   # Memorial de cálculo: abas, fórmulas (QE, QP, sobras, listas, excedente, distritos, bancadas, indicadores), conferências, xlsx
 │   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
 │   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
+│   ├── plenario-responsaveis.test.js  # Plenário: responsáveis sorteados na importação (aleatório, partes iguais, só quem não tem), lista de servidores da equipe, caixa Revisada (manual, salva no clique, desfaz se falhar, some com nota nova)
 │   ├── prints-download.test.js  # Aba Prints da sessão: carga inicial numa leitura; consulta de 15 s só com a lista de itens (shallow) e o placar só do print novo; página escondida não consulta
 │   ├── bot-congresso-nominal.test.js  # Bot: sessão do CN (órgão 111) só com as nominais — anúncio com o apelido da pauta do Congresso, print "Sessão Conjunta · votos dos deputados", sem simbólicas/ODD/fim; rótulos PLN/VETO do painel; a Câmara tem prioridade e segue como era
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha

@@ -371,6 +371,7 @@
         <div class="config-tabs">
           <button type="button" class="config-tab-btn is-active" data-config-tab="ia">Provedor de IA</button>
           <button type="button" class="config-tab-btn" data-config-tab="interesse">Temas de interesse</button>
+          <button type="button" class="config-tab-btn" data-config-tab="servidores">Servidores responsáveis</button>
         </div>
 
         <div data-config-panel="ia">
@@ -468,6 +469,23 @@
           </div>
           <button id="btn-salvar-interesse" class="btn btn-outline" style="margin-top:10px">Salvar temas de interesse</button>
           <div id="interesse-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
+        </div>
+        </div>
+
+        <div data-config-panel="servidores" style="display:none">
+        <div class="config-section">
+          <div class="config-section-title">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#1fa5a5" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+            Servidores responsáveis por análises
+          </div>
+          <p class="config-desc">
+            Ao importar o PDF da pauta, os itens são distribuídos <b>aleatoriamente</b> entre estes servidores, em partes
+            iguais, e o nome já entra no campo <b>Responsável</b> de cada card (dá para trocar no card). Um nome por linha.
+            Compartilhado com a equipe.
+          </p>
+          <textarea id="config-servidores" class="form-input" rows="7" style="font-family:inherit;resize:vertical" placeholder="Um nome por linha"></textarea>
+          <button id="btn-salvar-servidores" class="btn btn-outline" style="margin-top:10px">Salvar servidores</button>
+          <div id="servidores-status" style="font-size:11px;color:var(--text-dim);margin-top:6px;min-height:14px"></div>
         </div>
         </div>
 
