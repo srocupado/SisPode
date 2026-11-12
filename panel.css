@@ -1806,7 +1806,9 @@ body {
 
 /* Seção de PLNs/MPVs dentro de uma pauta de sessão */
 .cn-pln-secao { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
-.cn-pln-secao-tit { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent); padding: 6px 2px; border-top: 1px solid var(--border); }
+.cn-pln-secao-tit { font-size: 12px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--accent); padding: 6px 2px; border-top: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cn-pln-sel-todos { margin-left: auto; display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0; text-transform: none; color: var(--text-dim); cursor: pointer; }
+.cn-pln-sel-todos input { width: 15px; height: 15px; margin: 0; cursor: pointer; accent-color: var(--accent); }
 
 /* Ícone do calendário (input date) escuro por padrão some no tema escuro:
    invert(1) deixa o glyph branco e visível. */
