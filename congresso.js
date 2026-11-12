@@ -487,7 +487,76 @@ async function baixarArrayBuffer(url) {
  *   (retomada de onde parou). false = regera todos.
  * @returns {boolean} true se, ao final, todos os dispositivos têm resumo.
  */
-async function resumirVeto(veto, { silencioso = false, render = true, apenasFaltantes = true } = {}) {
+/** Os textos que a IA escreveu para o veto, numa string (muda quando algum muda). */
+function textosDoVeto(v) {
+  return [v.resumoProjeto, v.razoesProjeto, ...(v.razoesGrupos || []).map(g => g && g.resumo), ...(v.dispositivos || []).map(d => d.resumo)]
+    .filter(Boolean).join('\n');
+}
+
+/** Resume o veto e, se algum texto mudou (ou ainda não foi conferido), confere e verifica. */
+async function resumirVeto(veto, opcoes = {}) {
+  const antes = textosDoVeto(veto);
+  const r = await resumirVetoPartes(veto, opcoes);
+  const depois = textosDoVeto(veto);
+  if (depois && !_abort.signal.aborted && (depois !== antes || !veto.verificacaoIA)) {
+    try { await conferirEVerificarVeto(veto, opcoes); } catch (e) { if (!isAbort(e)) console.warn('Conferência do veto falhou:', e.message); }
+  }
+  return r;
+}
+
+/** (b) conferência sem IA + (e) verificação por IA dos textos do veto, contra as fontes que a IA recebeu. */
+async function conferirEVerificarVeto(veto, { render = true } = {}) {
+  try { await garantirRazoesTexto(veto); } catch (e) { if (isAbort(e)) throw e; }
+  const ctxProj = `${veto.materia || ''}\n${veto.assunto || ''}\n${veto.ementa || ''}`;
+  const descricoes = (veto.dispositivos || []).map(d => `${d.codigo} ${d.descricao || ''}`).join('\n');
+  const refs = [];
+  if (veto.resumoProjeto) refs.push(...conferirTextoCN(veto.resumoProjeto, ctxProj, 20).map(x => `Resumo do Projeto: ${x}`));
+  const razoes = [veto.razoesProjeto, ...(veto.razoesGrupos || []).map(g => g && g.resumo)].filter(Boolean).join('\n');
+  if (razoes && veto.razoesTexto) refs.push(...conferirTextoCN(razoes, `${veto.razoesTexto}\n${descricoes}\n${ctxProj}`).map(x => `Razões: ${x}`));
+  for (const d of veto.dispositivos || []) {
+    if (!d.resumo) continue;
+    refs.push(...conferirTextoCN(d.resumo, `${d.descricao || ''}\n${d.texto || ''}\n${veto.materia || ''}\n${veto.assunto || ''}`, 20).map(x => `Dispositivo ${d.codigo}: ${x}`));
+  }
+  veto.refsSuspeitas = refs;
+  delete veto.verificacaoIA;
+  await persistirResumo(veto);
+  if (render && !app.editando) renderLista();
+
+  // Verificação por IA, em lotes: (1) resumo do projeto + razões, contra ementa e Mensagem de veto;
+  // (2) resumos dos dispositivos, 40 por chamada, contra o texto vetado de cada um.
+  const instantaneo = textosDoVeto(veto);
+  const lotes = [];
+  const saidasPR = [];
+  if (veto.resumoProjeto) saidasPR.push({ onde: 'Resumo do Projeto', texto: veto.resumoProjeto });
+  if (veto.razoesProjeto) saidasPR.push({ onde: 'Razões do veto', texto: veto.razoesProjeto });
+  (veto.razoesGrupos || []).forEach(g => { if (g && g.resumo) saidasPR.push({ onde: `Razões (${(g.codigos || []).join(', ')})`, texto: g.resumo }); });
+  if (saidasPR.length) lotes.push({
+    fonteTexto: `Matéria: ${veto.materia || ''}\nAssunto: ${veto.assunto || ''}\nEmenta: ${veto.ementa || '(não disponível)'}\n\nDispositivos vetados:\n${descricoes}\n\nMensagem de veto (razões):\n${(veto.razoesTexto || '(não lida)').slice(0, 60000)}`,
+    saidas: saidasPR,
+  });
+  const comResumo = (veto.dispositivos || []).filter(d => d.resumo);
+  for (const grupo of chunk(comResumo, 40)) lotes.push({
+    fonteTexto: `Matéria: ${veto.materia || ''} (${veto.assunto || ''})\n\n` + grupo.map(d => `• ${d.codigo} — ${d.descricao || ''}\n  Texto vetado: "${String(d.texto || d.descricao || '').slice(0, 1500)}"`).join('\n\n'),
+    saidas: grupo.map(d => ({ onde: `Dispositivo ${d.codigo}`, texto: d.resumo })),
+  });
+  const itens = []; let modelo = '', falhou = '';
+  veto._verificando = true; if (render && !app.editando) renderLista();
+  try {
+    for (const l of lotes) {
+      const v = await verificarComIA({ ...l, pdfBuffers: [] });
+      if (!v) return;   // "Parar tudo"
+      modelo = v.modelo;
+      if (v.falhou) { falhou = v.falhou; break; }
+      itens.push(...(v.itens || []));
+    }
+  } finally { veto._verificando = false; if (render && !app.editando) renderLista(); }
+  if (textosDoVeto(veto) !== instantaneo) return;   // regerado/editado durante a verificação: o resultado é de outro texto
+  veto.verificacaoIA = falhou ? { modelo, em: new Date().toISOString(), falhou } : { modelo, em: new Date().toISOString(), itens: itens.slice(0, 20) };
+  await persistirResumo(veto);
+  if (render && !app.editando) renderLista();
+}
+
+async function resumirVetoPartes(veto, { silencioso = false, render = true, apenasFaltantes = true } = {}) {
   if (!app.config?.apiKey) {
     if (!silencioso) mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso');
     return false;
@@ -685,6 +754,9 @@ function setBtnGerar(rodando) {
     : '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.9 5.8L20 9l-4.9 3.6L17 18l-5-3.5L7 18l1.9-5.4L4 9l6.1-.2z"/></svg> Resumir todos';
 }
 
+// Regra comum dos prompts do módulo (mesmo princípio da nota do Plenário): só o que a fonte diz.
+const REGRA_FONTE_CN = 'Use SOMENTE as informações fornecidas. Não acrescente fatos, exemplos, órgãos, tributos, programas, siglas, valores, públicos ou efeitos que a fonte não traga — nem para explicar ou contextualizar; se a fonte não disser algo, não o diga.';
+
 function promptResumo(veto, dispositivos = veto.dispositivos) {
   const lista = dispositivos.map(d =>
     `• Código ${d.codigo} — Dispositivo: ${d.descricao}\n  Texto vetado: "${(d.texto || d.descricao).slice(0, 1200)}"`
@@ -694,7 +766,7 @@ function promptResumo(veto, dispositivos = veto.dispositivos) {
 
 Abaixo estão dispositivos vetados do ${veto.tipo === 'Total' ? 'Veto Total' : 'Veto Parcial'} nº ${veto.numero}, referente à matéria ${veto.materia} (${veto.assunto}).
 
-Para CADA dispositivo listado, escreva um resumo curto (1 a 2 frases), em português claro e objetivo, explicando o que o dispositivo vetado estabelecia — ou seja, o que deixa de valer com o veto. Use verbos normativos (estabelece, veda, autoriza, isenta, cria, altera...). Não recomende voto, não opine e não invente nada além do texto fornecido.
+Para CADA dispositivo listado, escreva um resumo curto (1 a 2 frases), em português claro e objetivo, explicando o que o dispositivo vetado estabelecia — ou seja, o que deixa de valer com o veto. Use verbos normativos (estabelece, veda, autoriza, isenta, cria, altera...). Não recomende voto, não opine e não invente nada além do texto fornecido. ${REGRA_FONTE_CN} Um inciso ou parágrafo isolado muitas vezes não diz a que órgão, tributo ou programa se refere: nesse caso, descreva só o que o texto diz, sem completar com o nome que você supõe.
 
 Responda EXCLUSIVAMENTE com um objeto JSON válido, sem cercas de código, no formato:
 {"${dispositivos[0]?.codigo || '00.00.000'}": "resumo do dispositivo", ...}
@@ -720,13 +792,17 @@ async function resumirProjeto(veto, { silencioso = false, force = false, render 
   if (veto.resumoProjeto && !force) return true;
   if (!veto.detalheCarregado) { try { await carregarDetalhe(veto); } catch (_) {} }
 
+  // Sem ementa, o "resumo" seria escrito a partir do assunto (duas ou três palavras): é inventar. Fica em branco
+  // para o analista escrever (✎).
+  if (!String(veto.ementa || '').trim()) return false;
   veto.resumindoProjeto = true;
   iaInc();
   if (render && !app.editando) renderLista();
   try {
     const texto = await chamarIAtexto({ ...app.config, prompt: promptProjeto(veto) });
-    const limpo = (texto || '').replace(/^["“]|["”]$/g, '').trim();
+    let limpo = (texto || '').replace(/^["“]|["”]$/g, '').trim();
     if (!limpo) throw new Error('a IA não retornou o resumo do projeto');
+    if (/\bSEM[_\s-]?INFORMA[ÇC][ÃA]O\b/i.test(limpo)) limpo = veto.ementa.trim();   // a ementa basta: vai ela, literal
     veto.resumoProjeto = limpo;
     veto.resumoMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
     await persistirResumo(veto);
@@ -747,7 +823,7 @@ function promptProjeto(veto) {
   const tam = total ? '3 a 4 linhas' : '1 a 2 linhas';
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
 
-Escreva um "Resumo do Projeto" MUITO sintético (${tam}), em português claro e direto, explicando o objetivo geral do projeto ${veto.materia} — o que ele cria/altera e a quem se destina. Foque no PROJETO como um todo (não nos dispositivos vetados). Não recomende voto, não opine e não invente nada além das informações abaixo.
+Escreva um "Resumo do Projeto" MUITO sintético (até ${tam}), em português claro e direto, explicando o objetivo geral do projeto ${veto.materia} com base APENAS na ementa e no assunto abaixo. Foque no PROJETO como um todo (não nos dispositivos vetados). Não recomende voto e não opine. ${REGRA_FONTE_CN} A ementa costuma ser curta: se ela não disser a quem o projeto se destina ou o que muda na prática, NÃO deduza — escreva menos, mesmo que fique em uma frase. Se a ementa só cita dispositivos ("Altera o art. 5º da Lei nº…") sem dizer o conteúdo, responda apenas SEM_INFORMACAO.
 Responda apenas com o texto do resumo, sem rótulos, sem aspas e sem listas.
 ${blocoPerfilPadrao()}
 Assunto: ${veto.assunto || '(não informado)'}
@@ -764,6 +840,194 @@ function blocoPerfilPadrao() {
   return t
     ? `\nINSTRUÇÕES ADICIONAIS DA EQUIPE (orientam a ênfase e o recorte, mas NÃO alteram o formato JSON nem as regras acima):\n${t}\n`
     : '';
+}
+
+// ---------- Conferência anti-alucinação (sem IA) ----------
+// O mesmo padrão do módulo de Plenário (analise.js: validarReferencias + conferirCitacoes), com o que pesa
+// aqui: VALORES EM R$ e códigos de AÇÃO orçamentária, que são o conteúdo das análises de PLN. Confere só o
+// que é citável — lei, parlamentar, proposição, trecho entre aspas, sigla, valor, ação — contra o texto da
+// fonte que a IA recebeu; palavras soltas não (no Plenário, 8 avisos falsos por nota).
+const _cnPlano = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/([a-z])-\s+([a-z])/g, '$1$2').replace(/[^a-z0-9]+/g, ' ');
+const _CN_TITULO_OU_LIGACAO = /^(deputad[oa]s?|dep|senador[a]?|sen|delegad[oa]|sargento|coronel|capit[aã]o|cabo|general|tenente|major|pastor[a]?|padre|professor[a]?|prof|dr[a]?|doutor[a]?|policial|bispo|de|da|do|dos|das|e)$/i;
+const _CN_SIGLAS_SISTEMA = /^(PLN|PLP|PLV|PEC|PDL|MPV|VET|CMO|LOA|LDO|PPA|RICD|LRF|PRLP|PRLE)$/;
+const _CN_ESCALA = { mil: 1e3, milhao: 1e6, milhoes: 1e6, bilhao: 1e9, bilhoes: 1e9, trilhao: 1e12, trilhoes: 1e12 };
+
+/** Valores monetários da fonte (em reais): "13.186.131,00", "R$ 185,5 bilhões", "1.234.567". */
+function cnValoresDaFonte(fonte) {
+  const t = String(fonte || '');
+  const vals = [];
+  const num = s => +String(s).replace(/\./g, '').replace(',', '.');
+  for (const m of t.matchAll(/(\d{1,3}(?:\.\d{3})+(?:,\d+)?|\d+,\d+|\d{4,})\s*(mil\b|milh[õo]es|milh[ãa]o|bilh[õo]es|bilh[ãa]o|trilh[õo]es|trilh[ãa]o)?/gi)) {
+    const esc = m[2] ? _CN_ESCALA[_cnPlano(m[2]).trim()] || 1 : 1;
+    vals.push(num(m[1]) * esc);
+  }
+  return vals;
+}
+
+/** "R$ 185,5 bilhões" bate com algum valor da fonte arredondado na precisão citada? */
+function cnValorNaFonte(txtNum, escala, valoresFonte) {
+  const escN = escala ? (_CN_ESCALA[_cnPlano(escala).trim()] || 1) : 1;
+  const v = +txtNum.replace(/\./g, '').replace(',', '.') * escN;
+  const dec = (txtNum.split(',')[1] || '').length;
+  const tol = escala ? 0.5 * escN / Math.pow(10, dec) + 1e-6 : 0.005;
+  return valoresFonte.some(f => Math.abs(f - v) <= tol);
+}
+
+/** A sigla é a abreviação de um nome que a fonte traz por extenso? ("Conselho Nacional de Educação" → CNE) */
+const _CN_LIGACAO = new Set(['de', 'da', 'do', 'das', 'dos', 'e', 'a', 'o', 'em', 'sobre', 'para', 'na', 'no', 'nas', 'nos']);
+function cnSiglaPorExtenso(sigla, palavrasFonte) {
+  const s = sigla.toLowerCase();
+  for (let i = 0; i < palavrasFonte.length; i++) {
+    if (palavrasFonte[i][0] !== s[0] || _CN_LIGACAO.has(palavrasFonte[i])) continue;
+    let k = 1, j = i + 1;
+    while (k < s.length && j < palavrasFonte.length && j - i < s.length * 3) {
+      const w = palavrasFonte[j++];
+      if (_CN_LIGACAO.has(w)) continue;
+      if (w[0] !== s[k]) break;
+      k++;
+    }
+    if (k === s.length) return true;
+  }
+  return false;
+}
+
+function conferirTextoCN(texto, fonte, minFonte = 80) {
+  if (!texto || !fonte || String(fonte).trim().length < minFonte) return [];
+  const t = String(texto);
+  const F = ' ' + _cnPlano(fonte) + ' ';
+  const out = [], vistos = new Set();
+  const add = s => { if (!vistos.has(s)) { vistos.add(s); out.push(s); } };
+  const numerosFonte = new Set((String(fonte).match(/\d[\d.]*\d|\d/g) || []).map(s => s.replace(/\./g, '')));
+  const palavrasFonte = F.trim().split(' ');
+  const setFonte = new Set(palavrasFonte);
+  // 1) lei/decreto/MP/EC pelo número (como no Plenário: "Projeto de Lei nº" não é lei)
+  for (const m of t.matchAll(/(?<!Projeto\s+de\s+)\b(Lei(?:\s+Complementar)?|Decreto(?:-Lei)?|Emenda\s+Constitucional|Medida\s+Provis[óo]ria)\s*(?:n?[º°o]?\.?\s*)?(\d[\d.]+\d|\d{3,})/gi)) {
+    const n = m[2].replace(/\./g, '');
+    if (n.length >= 4 && !numerosFonte.has(n)) add(`${m[1].replace(/\s+/g, ' ')} nº ${m[2]}`);
+  }
+  // 2) parlamentar: basta um dos nomes (fora títulos) estar na fonte
+  for (const m of t.matchAll(/\b(?:Deputad[oa]s?|Senador[a]?|Dep\.|Sen\.)\s+((?:[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+\s?){1,4})/g)) {
+    const nomes = m[1].trim().split(/\s+/).filter(x => x.length >= 3 && !_CN_TITULO_OU_LIGACAO.test(x));
+    if (nomes.length && !nomes.some(p => F.includes(' ' + _cnPlano(p).trim() + ' '))) add(m[0].trim());
+  }
+  // 3) proposição citada
+  for (const m of t.matchAll(/\b(PLN|PLP|PLV|PEC|PDL|MPV|PL)\s*(?:n[º°o.]*\s*)?(\d[\d.]*\d|\d)\s*(?:\/|,?\s*de\s+)(\d{2,4})\b/g)) {
+    const num = m[2].replace(/\./g, '');
+    if (!new RegExp(`(?<!\\d)${num.split('').join('\\.?')}(?!\\d)`).test(fonte)) add(`${m[1]} ${m[2]}/${m[3]}`);
+  }
+  // 4) aspas: as palavras do trecho têm de estar na fonte. Não se exige a sequência exata — nos PDFs do
+  // Congresso (colunas, quebra de página) a citação fiel sai partida: "ação “00X3 -" | cabeçalho | "Compensação…".
+  for (const m of t.matchAll(/[“"]([^”"\n]{6,200})[”"]/g)) {
+    const ws = _cnPlano(m[1]).trim().split(' ');
+    const faltam = ws.filter(w => w.length >= 4 && !setFonte.has(w));
+    if (ws.length >= 2 && faltam.length) add(`“${m[1].trim()}” (entre aspas, com termo que não está na fonte: ${faltam.slice(0, 3).join(', ')})`);
+  }
+  // 5) sigla
+  for (const s of new Set(t.match(/(?<![A-Za-zÀ-ÿ])[A-Z]{3,8}(?![A-Za-zÀ-ÿ])/g) || [])) {
+    if (/^[IVXLCDM]+$/.test(s) || _CN_SIGLAS_SISTEMA.test(s)) continue;
+    if (!new RegExp(`(?<![A-Za-z])${s}(?![A-Za-z])`).test(fonte) && !cnSiglaPorExtenso(s, palavrasFonte)) add(`sigla ${s}`);
+  }
+  // 6) valor em R$ (na precisão em que foi citado)
+  const valores = cnValoresDaFonte(fonte);
+  for (const m of t.matchAll(/R\$\s?(\d[\d.]*(?:,\d+)?)\s*(mil\b|milh[õo]es|milh[ãa]o|bilh[õo]es|bilh[ãa]o|trilh[õo]es|trilh[ãa]o)?/gi)) {
+    if (!cnValorNaFonte(m[1], m[2], valores)) add(`valor ${m[0].trim()}`);
+  }
+  // 7) código de ação orçamentária ("Ação 21H0", "ação 00SR")
+  for (const m of t.matchAll(/\ba[çc][ãa]o(?:\s+or[çc]ament[áa]ria)?\s+["“(]?([0-9][0-9A-Z]{3})\b/gi)) {
+    if (!new RegExp(`(?<![0-9A-Za-z])${m[1]}(?![0-9A-Za-z])`, 'i').test(fonte)) add(`ação ${m[1]}`);
+  }
+  return out;
+}
+
+// ---------- Verificação por IA (2ª chamada) ----------
+// Mesmo desenho do Plenário (analise.js: verificarNotaComIA): um segundo modelo lê a MESMA fonte e o texto
+// gerado e aponta o que não tem respaldo. Modelo: o de versão mais alta fora da faixa econômica
+// (escolherModelo, do parecer.js); sem a lista do provedor, o da configuração. Só ficam trechos que existem
+// literalmente no texto conferido — o verificador também pode inventar.
+let _modelosCN = null;
+async function modeloDaVerificacaoCN() {
+  const pid = app.config.provedor, padrao = app.config.modelo;
+  try {
+    if (!_modelosCN) _modelosCN = await PROVEDORES_META[pid].listar(app.config.apiKey);
+    const esc = escolherModelo((_modelosCN || []).map(m => (typeof m === 'string' ? m : m.id)), { padraoDoUsuario: padrao });
+    if (esc.modelo) return esc.modelo;
+  } catch (e) { if (isAbort(e)) throw e; }
+  return padrao;
+}
+
+function promptVerificacaoCN(fonteTexto, saidas) {
+  return `Você é revisor(a) de textos técnicos legislativos. Os TEXTOS GERADOS abaixo foram escritos por outro modelo a partir da FONTE (texto abaixo e/ou documento anexo). Aponte as afirmações dos textos gerados que NÃO têm respaldo na fonte.
+
+Aponte:
+- fatos, nomes, números, valores, datas, órgãos, tributos, programas, siglas, leis ou dispositivos que não constam da fonte;
+- exemplos, efeitos, públicos ou situações que o texto acrescenta e a fonte não menciona;
+- valores somados, arredondados ou convertidos que não batem com a fonte;
+- atribuições erradas (quem aprovou, propôs ou decidiu: relator × comissão × Plenário);
+- contradições com a fonte.
+Não aponte paráfrases fiéis nem conclusões que decorrem diretamente da fonte. Na dúvida, não aponte.
+
+FONTE:
+${fonteTexto}
+
+TEXTOS GERADOS:
+${saidas.map(s => `[${s.onde}]\n${s.texto}`).join('\n\n')}
+
+Responda SOMENTE com JSON, sem cercas de código, no formato {"itens":[{"onde":"...","trecho":"...","motivo":"..."}]}:
+- "onde": o rótulo entre colchetes do texto gerado em que está o trecho;
+- "trecho": copie LITERALMENTE o trecho sem respaldo (de 3 a 25 palavras), sem alterar nada;
+- "motivo": até 25 palavras, dizendo o que falta ou diverge na fonte.
+Se tudo tiver respaldo, responda {"itens":[]}.`;
+}
+
+/** Lê a resposta do verificador; só ficam trechos que existem em algum dos textos conferidos. */
+function lerVerificacaoCN(texto, saidas) {
+  const t = String(texto || '');
+  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
+  if (ini < 0 || fim < ini) throw new Error('resposta do verificador sem JSON');
+  const j = JSON.parse(t.slice(ini, fim + 1));
+  const planos = saidas.map(s => ({ onde: s.onde, p: ' ' + _cnPlano(s.texto) + ' ' }));
+  return (Array.isArray(j.itens) ? j.itens : []).map(x => {
+    const trecho = String(x?.trecho || '').trim().slice(0, 400), p = _cnPlano(trecho).trim();
+    if (p.length < 8) return null;
+    const alvo = planos.find(s => s.onde === x?.onde && s.p.includes(' ' + p + ' ')) || planos.find(s => s.p.includes(' ' + p + ' '));
+    return alvo ? { onde: alvo.onde, trecho, motivo: String(x?.motivo || '').trim().slice(0, 300) } : null;
+  }).filter(Boolean).slice(0, 10);
+}
+
+/** Uma chamada de verificação. Devolve { modelo, em, itens } | { modelo, em, falhou } | null ("Parar tudo"). */
+async function verificarComIA({ fonteTexto = '', saidas = [], pdfBuffers = [], marcar = () => {} }) {
+  if (!app.config?.apiKey || !saidas.length) return null;
+  let modelo = app.config.modelo;
+  marcar(true); iaInc();
+  try {
+    modelo = await modeloDaVerificacaoCN();
+    const prompt = promptVerificacaoCN(fonteTexto, saidas);
+    const cfg = { ...app.config, modelo, prompt };
+    // o raciocínio dos modelos maiores conta na saída: teto maior que o da análise, para o JSON não truncar
+    const resp = pdfBuffers.length ? await chamarIApdf({ ...cfg, pdfBuffers, maxSaida: 8000 }) : await chamarIAtexto(cfg);
+    return { modelo, em: new Date().toISOString(), itens: lerVerificacaoCN(resp, saidas) };
+  } catch (e) {
+    if (isAbort(e)) return null;
+    return { modelo, em: new Date().toISOString(), falhou: String(e.message || e).slice(0, 200) };
+  } finally { iaDec(); marcar(false); }
+}
+
+/** Avisos das duas camadas no card (veto ou PLN). */
+function avisosConferenciaHtml(x) {
+  const partes = [];
+  const refs = x.refsSuspeitas ? aArray(x.refsSuspeitas) : [];
+  if (refs.length) partes.push(`<div class="cn-aviso-conf">⚠ <strong>Conferência automática:</strong> ${refs.length === 1 ? 'o item a seguir não foi localizado' : 'os itens a seguir não foram localizados'} na fonte que a IA recebeu. Confira antes de usar (heurística; pode haver falso positivo): ${refs.map(escapeHtml).join('; ')}.</div>`);
+  const vf = x.verificacaoIA;
+  if (x._verificando) partes.push('<div class="cn-aviso-verif-info">Verificação por IA em andamento…</div>');
+  else if (vf && vf.falhou) partes.push(`<div class="cn-aviso-verif-info">Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''} não concluída: ${escapeHtml(vf.falhou)}. Gere de novo para tentar outra vez.</div>`);
+  else if (vf) {
+    const itens = vf.itens ? aArray(vf.itens) : [];
+    partes.push(itens.length
+      ? `<div class="cn-aviso-verif">⚠ <strong>Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}:</strong> ${itens.length === 1 ? 'trecho' : 'trechos'} sem respaldo na fonte, segundo o verificador. Confira antes de usar:<ul>${itens.map(i => `<li>${i.onde ? `<em>${escapeHtml(i.onde)}:</em> ` : ''}“${escapeHtml(i.trecho)}”${i.motivo ? ` — ${escapeHtml(i.motivo)}` : ''}</li>`).join('')}</ul></div>`
+      : `<div class="cn-aviso-verif-info">Verificação por IA${vf.modelo ? ` (${escapeHtml(vf.modelo)})` : ''}: nenhum trecho sem respaldo apontado.</div>`);
+  }
+  return partes.join('');
 }
 
 // ---------- RAZÕES DO VETO (PDF da Mensagem) ----------
@@ -853,7 +1117,7 @@ function promptRazoesGrupos(veto, dispositivos) {
 
 O documento abaixo (Mensagem de veto) contém as "Razões do veto" do ${veto.numero}. Cada parágrafo "Razões do veto" justifica o veto a UM ou MAIS dispositivos. Associe cada dispositivo da lista (pela descrição legal) ao trecho correspondente do documento.
 
-Tarefa: agrupe os dispositivos que compartilham a MESMA justificativa e, para cada grupo, escreva um resumo de 1 a 2 linhas das razões do veto, em português claro. Mencione "veto por arrastamento" quando o documento assim indicar. Não opine, não recomende voto e não invente nada além do documento.
+Tarefa: agrupe os dispositivos que compartilham a MESMA justificativa e, para cada grupo, escreva um resumo de 1 a 2 linhas das razões do veto, em português claro. Mencione "veto por arrastamento" quando o documento assim indicar. Não opine, não recomende voto e não invente nada além do documento. ${REGRA_FONTE_CN}
 
 Responda EXCLUSIVAMENTE com um array JSON válido, sem cercas de código, no formato:
 [{"codigos":["<código>","<código>"],"resumo":"<1 a 2 linhas>"}]
@@ -870,7 +1134,7 @@ function promptRazoesTotal(veto) {
   const razoes = (veto.razoesTexto || '').slice(0, 60000);
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
 
-O documento abaixo (Mensagem de veto) apresenta as razões do VETO TOTAL ao projeto ${veto.materia} (${veto.assunto}). Escreva um resumo de 3 a 4 linhas explicando, em português claro, os principais motivos do veto. Não opine, não recomende voto e não invente nada além do documento.
+O documento abaixo (Mensagem de veto) apresenta as razões do VETO TOTAL ao projeto ${veto.materia} (${veto.assunto}). Escreva um resumo de 3 a 4 linhas explicando, em português claro, os principais motivos do veto. Não opine, não recomende voto e não invente nada além do documento. ${REGRA_FONTE_CN}
 Responda apenas com o texto do resumo, sem rótulos nem aspas.
 ${blocoPerfilPadrao()}
 Documento (Razões do veto):
@@ -897,6 +1161,7 @@ async function chamarIAtexto({ provedor, apiKey, modelo, prompt }) {
   if (provedor === 'openai') {
     const m = modelo || 'gpt-4o';
     const body = { model: m, input: [{ role: 'user', content: [{ type: 'input_text', text: prompt }] }], temperature: 0.2, max_output_tokens: 8000 };
+    if (/^(o\d|gpt-5)/.test(m)) delete body.temperature;   // modelos de raciocínio recusam temperature (o verificador pode escolher um)
     const j = await fetchIA('https://api.openai.com/v1/responses', {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
@@ -1288,6 +1553,7 @@ function renderCorpo(v, termo) {
   }
 
   return `<div class="cn-veto-body">
+    ${avisosConferenciaHtml(v)}
     ${v.ementa ? `<div class="cn-veto-ementa"><strong>Ementa:</strong> ${marca(v.ementa, termo)}</div>` : ''}
     ${renderResumoProjeto(v, termo)}
     ${renderRazoesTotal(v, termo)}
@@ -1541,6 +1807,8 @@ async function fbSalvarResumo(veto) {
     razoesGrupos: (veto.razoesGrupos && veto.razoesGrupos.length) ? veto.razoesGrupos : null,
     razoesProjeto: veto.razoesProjeto || null,
     razoesPdfUrl: veto.razoesPdfUrl || null,
+    refsSuspeitas: (veto.refsSuspeitas && veto.refsSuspeitas.length) ? veto.refsSuspeitas : null,
+    verificacaoIA: veto.verificacaoIA || null,
     ...veto.resumoMeta,
   };
   const res = await fetch(`${FIREBASE_URL}/vetos_resumos/${veto.key}.json`, {
@@ -1571,6 +1839,8 @@ function aplicarResumoCompartilhado(v, reg) {
   if (reg.razoesProjeto && !v.razoesProjeto) v.razoesProjeto = reg.razoesProjeto;
   if (Array.isArray(reg.razoesGrupos) && !(v.razoesGrupos && v.razoesGrupos.length)) v.razoesGrupos = reg.razoesGrupos.filter(Boolean);
   if (reg.razoesPdfUrl && !v.razoesPdfUrl) v.razoesPdfUrl = reg.razoesPdfUrl;
+  if (reg.refsSuspeitas && !v.refsSuspeitas) v.refsSuspeitas = aArray(reg.refsSuspeitas);
+  if (reg.verificacaoIA && !v.verificacaoIA) v.verificacaoIA = reg.verificacaoIA;
   if (!reg.resumos) return;
   // Se ainda não temos os dispositivos (sem detalhe), guarda os resumos para aplicar depois.
   if (v.dispositivos.length) {
@@ -1795,11 +2065,11 @@ async function onPerfilPadraoToggle() {
 // ============================================================
 function leanVeto(v) {
   const { aberto, resumindo, resumindoProjeto, resumindoRazoes, carregandoDetalhe,
-          razoesTexto, _progresso, _resumosPendentes, ...rest } = v;
+          razoesTexto, _progresso, _resumosPendentes, _verificando, ...rest } = v;
   return rest;   // razoesTexto (PDF) é transitório — não vai pro Firebase/cache
 }
 function leanPln(p) {
-  const { resumindoAnalise, aberto, ...rest } = p;
+  const { resumindoAnalise, aberto, _verificando, ...rest } = p;
   return rest;
 }
 
@@ -2132,7 +2402,7 @@ async function materiaUrlNoSenado(sigla, num, ano) {
 function herdarDaPautaAnterior(item, antigo) {
   if (!antigo) return item;
   const arr = x => (Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []));
-  for (const c of ['analise', 'analiseMeta', 'resumoProjeto', 'razoesProjeto', 'razoesPdfUrl', 'resumoMeta']) {
+  for (const c of ['analise', 'analiseMeta', 'resumoProjeto', 'razoesProjeto', 'razoesPdfUrl', 'resumoMeta', 'refsSuspeitas', 'verificacaoIA']) {
     if (antigo[c] && !item[c]) item[c] = antigo[c];
   }
   if (!arr(item.interessados).length && arr(antigo.interessados).length) item.interessados = arr(antigo.interessados);
@@ -2148,16 +2418,21 @@ function herdarDaPautaAnterior(item, antigo) {
 async function parseMateria(url) {
   const doc = new DOMParser().parseFromString(await fetchHtml(url), 'text/html');
   const meta = n => (doc.querySelector(`meta[name="${n}"]`)?.getAttribute('content') || '').replace(/\s+/g, ' ').trim();
-  return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), apelido: meta('sf_apelido'), parecerUrl: acharParecerUrl(doc) };
+  const par = acharParecer(doc);
+  return { ementa: meta('sf_ementa'), autor: meta('sf_autor') || meta('sf_autor_resumido'), apelido: meta('sf_apelido'), parecerUrl: par.url, parecerRotulo: par.rotulo };
 }
 // Escolhe, entre os documentos da matéria, o de maior conteúdo de MÉRITO para
 // a IA analisar. Casa pelo rótulo do PRÓPRIO link (limpo: "Relatório
 // Legislativo", "Parecer de Plenário", "Calendário"…), evitando o contexto do
 // container, que "vazava" a palavra "parecer" do Calendário (cuja descrição
 // fala em "encaminhamento do parecer") — causando análises do documento errado.
-function acharParecerUrl(doc) {
+function acharParecerUrl(doc) { return acharParecer(doc).url; }
+/** O documento escolhido e o RÓTULO dele ("Parecer de Plenário", "Relatório Legislativo"…): o prompt do PLN
+ *  precisa saber se é parecer aprovado, parecer de Plenário ou relatório ainda não votado. */
+function acharParecer(doc) {
   const links = [...doc.querySelectorAll('a[href*="sdleg-getter/documento"]')];
-  if (!links.length) return '';
+  if (!links.length) return { url: '', rotulo: '' };
+  const rot = a => (a.textContent || '').replace(/\s+/g, ' ').trim();
   const txt = a => (a.textContent || '').replace(/\s+/g, ' ').trim().toLowerCase();
   // Nunca usar documentos procedimentais/sem mérito.
   const proibido = a => /calend[áa]rio|quadro comparativo|reda[çc][ãa]o/.test(txt(a));
@@ -2171,10 +2446,22 @@ function acharParecerUrl(doc) {
   ];
   for (const ok of criterios) {
     const alvo = links.find(a => !proibido(a) && ok(txt(a)));
-    if (alvo) return alvo.href;
+    if (alvo) return { url: alvo.href, rotulo: rot(alvo) };
   }
-  const alvo = links.find(a => !proibido(a));
-  return (alvo || links[0]).href;
+  const alvo = links.find(a => !proibido(a)) || links[0];
+  return { url: alvo.href, rotulo: rot(alvo) };
+}
+
+/** O que o documento do PLN É, para a análise não atribuir à CMO o que ela não decidiu. CASO PARALELO no
+ *  Plenário (PL 2475/2025): o parecer do relator em Plenário virou "a CCJC aprovou". */
+function naturezaDocPln(rotulo) {
+  const t = String(rotulo || '').toLowerCase();
+  if (/parecer de plen[áa]rio/.test(t)) return 'O documento é PARECER DE PLENÁRIO: proferido em Plenário pelo(a) relator(a), em nome da CMO, porque a comissão não votou a matéria. Escreva "o(a) relator(a), em Plenário, pela CMO, …" — nunca "a CMO aprovou".';
+  if (/\bparecer\b/.test(t)) return 'O documento é um PARECER. Diga que a CMO o aprovou SOMENTE se o próprio documento declarar a aprovação; caso contrário, atribua a conclusão ao(à) relator(a).';
+  if (/relat[óo]rio/.test(t)) return 'O documento é o RELATÓRIO do(a) relator(a), ainda não votado: trate tudo como PROPOSTA do(a) relator(a) ("o relator propõe") — nunca como decisão da CMO.';
+  if (/nota (informativa|t[ée]cnica)/.test(t)) return 'O documento é NOTA TÉCNICA/INFORMATIVA de consultoria, não parecer: não atribua posição a relator(a) nem à CMO.';
+  if (/projeto|texto inicial|avulso|^pln\b/.test(t)) return 'O documento é o TEXTO DO PROJETO (não há parecer anexado): descreva o que o projeto propõe, sem atribuir posição a relator(a) nem à CMO.';
+  return 'Não afirme que a CMO ou o Plenário aprovou algo que o documento não declare; o que for do(a) relator(a), atribua a ele(a).';
 }
 
 async function importarPauta(url) {
@@ -2280,11 +2567,27 @@ async function resumirPLN(pln, { silencioso = false } = {}) {
     const limpo = (texto || '').trim(); if (!limpo) throw new Error('a IA não retornou a análise');
     pln.analise = limpo;
     pln.analiseMeta = { provedor: app.config.provedor, modelo: app.config.modelo, atualizadoEm: new Date().toISOString() };
-    if (app.sessaoAtiva) {
+    let textoPdf = '';
+    try { textoPdf = await extrairTextoPdf(buf.slice(0)); } catch (_) {}
+    const fontePln = textoPdf.trim().length >= 300 ? `${textoPdf}\n${pln.sigla} ${pln.numero}\n${pln.ementa || ''}\n${pln.apelido || ''}\n${pln.parecerRotulo || ''}` : '';
+    pln.refsSuspeitas = conferirTextoCN(limpo, fontePln);
+    delete pln.verificacaoIA;
+    const salvarPln = async () => {
+      if (!app.sessaoAtiva) return;
       atualizarStatusSync('sincronizando');
       try { await fbSalvarPlnPauta(app.sessaoAtiva.id, pln); atualizarStatusSync('ok'); }
       catch (_) { atualizarStatusSync('offline'); }
-    }
+    };
+    await salvarPln();
+    pln.resumindoAnalise = false; if (!app.editando) renderLista();
+    // 2ª chamada: o verificador lê o MESMO documento e aponta o que a análise diz sem respaldo nele
+    const v = await verificarComIA({
+      pdfBuffers: [buf],
+      fonteTexto: `${pln.sigla} ${pln.numero}\nEmenta: ${pln.ementa || ''}\nApelido: ${pln.apelido || ''}\nDocumento anexo: ${pln.parecerRotulo || 'parecer/relatório'}`,
+      saidas: [{ onde: 'análise', texto: limpo }],
+      marcar: on => { pln._verificando = on; if (!app.editando) renderLista(); },
+    });
+    if (v && pln.analise === limpo) { pln.verificacaoIA = v; await salvarPln(); }
     if (!silencioso) mostrarToast(`✓ ${pln.sigla} ${pln.numero} analisado`, 'sucesso');
     return true;
   } catch (e) {
@@ -2298,27 +2601,28 @@ function promptPLN(pln) {
   const apel = (pln.apelido || '').replace(/\s+/g, ' ').trim();
   return `Você é assessor(a) técnico(a) legislativo(a) da Liderança do Podemos no Congresso Nacional.
 
-Analise o documento anexo (Parecer/Relatório do relator) referente ao ${pln.sigla} nº ${pln.numero}.
+Analise o documento anexo (${pln.parecerRotulo ? `"${pln.parecerRotulo}"` : 'Parecer/Relatório do relator'}) referente ao ${pln.sigla} nº ${pln.numero}.
 Ementa: ${pln.ementa || '(não disponível)'}${apel ? `\nApelido/tema da matéria: ${apel}` : ''}
 ${blocoPerfilPadrao()}
-Escreva um RESUMO TÉCNICO CURTO (1 a 2 parágrafos corridos, sem listas) explicando, com base no parecer: o que o crédito/alteração faz, os órgãos/programas e valores envolvidos, a fonte de recursos, e o principal ponto de atenção. Não recomende voto, não opine e não invente nada além do documento.
+Escreva um RESUMO TÉCNICO CURTO (1 a 2 parágrafos corridos, sem listas) explicando, com base no documento: o que o crédito/alteração faz, os órgãos/programas e valores envolvidos, a fonte de recursos, e o principal ponto de atenção. Não recomende voto, não opine e não invente nada além do documento. ${REGRA_FONTE_CN} Valores em reais: copie-os como estão no documento (sem somar, arredondar ou converter para "bilhões" por conta própria).
+${naturezaDocPln(pln.parecerRotulo)}
 Responda apenas com o texto do resumo, sem rótulos.`;
 }
 
-async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers }) {
+async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers, maxSaida = 4000 }) {
   const b64 = (pdfBuffers || []).map(arrayBufferToBase64);
   if (provedor === 'gemini') {
     const m = modelo || 'gemini-2.5-flash';
     const parts = b64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } })); parts.push({ text: prompt });
     const j = await fetchIA(`https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`,
-      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: 4000 } }) });
+      { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify({ contents: [{ parts }], generationConfig: { maxOutputTokens: maxSaida } }) });
     return j.candidates?.[0]?.content?.parts?.[0]?.text?.trim() || '';
   }
   if (provedor === 'openai') {
     const m = modelo || 'gpt-4o';
     const content = b64.map((d, i) => ({ type: 'input_file', filename: `doc_${i + 1}.pdf`, file_data: `data:application/pdf;base64,${d}` })); content.push({ type: 'input_text', text: prompt });
     const j = await fetchIA('https://api.openai.com/v1/responses',
-      { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, input: [{ role: 'user', content }], temperature: 0.2, max_output_tokens: 4000 }) });
+      { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, input: [{ role: 'user', content }], ...(/^(o\d|gpt-5)/.test(m) ? {} : { temperature: 0.2 }), max_output_tokens: maxSaida }) });
     if (j.output_text) return j.output_text.trim();
     for (const it of (j.output || [])) for (const c of (it.content || [])) if (c.type === 'output_text' && c.text) return c.text.trim();
     return '';
@@ -2327,7 +2631,7 @@ async function chamarIApdf({ provedor, apiKey, modelo, prompt, pdfBuffers }) {
     const m = modelo || 'claude-sonnet-4-6';
     const content = b64.map(d => ({ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: d } })); content.push({ type: 'text', text: prompt });
     const j = await fetchIA('https://api.anthropic.com/v1/messages',
-      { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, max_tokens: 4000, messages: [{ role: 'user', content }] }) });
+      { method: 'POST', headers: { 'x-api-key': apiKey, 'anthropic-version': ANTHROPIC_VER, 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' }, body: JSON.stringify({ model: m, max_tokens: maxSaida, messages: [{ role: 'user', content }] }) });
     for (const it of (j.content || [])) if (it.type === 'text' && it.text) return it.text.trim();
     return '';
   }
@@ -2397,9 +2701,10 @@ function renderPlnCard(p, termo) {
       <div class="cn-veto-acoes">
         ${botao}
         ${p.materiaUrl ? `<a class="btn btn-ghost btn-sm" href="${p.materiaUrl}" target="_blank" rel="noopener">Abrir matéria ↗</a>` : ''}
-        ${p.parecerUrl ? `<a class="btn btn-ghost btn-sm" href="${p.parecerUrl}" target="_blank" rel="noopener">Parecer (PDF) ↗</a>` : ''}
+        ${p.parecerUrl ? `<a class="btn btn-ghost btn-sm" href="${p.parecerUrl}" target="_blank" rel="noopener">${escapeHtml(p.parecerRotulo || 'Parecer')} (PDF) ↗</a>` : ''}
         ${meta}
       </div>
+      ${temAnalise && !p.resumindoAnalise ? avisosConferenciaHtml(p) : ''}
       ${analiseBloco}
     </div>
   </div>`;
