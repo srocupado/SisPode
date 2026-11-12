@@ -93,6 +93,8 @@ const ITENS = [
     await new Promise(r => setTimeout(r, 30));
     ok(T.sessao && T.sessao.id === 83280 && T.sessao.cn === true, 'sessão 83280 (órgão CN) ativa, marcada como do Congresso');
     ok(!reg.msgs.some(m => /ABERTA A SESS[ÃA]O|Importar a \*Ordem do Dia/.test(m)), 'sem "ABERTA A SESSÃO" e sem oferta de importar a Ordem do Dia');
+    ok(reg.patches.some(x => /monitor_sessao\/83280$/.test(x.p) && x.v.dataISO === '2026-11-12' && x.v.cn === true),
+      'grava a data da sessão (a aba "Prints da sessão" da extensão acha as sessões pela dataISO)');
 
     console.log('\n== 2. painel: anúncio da nominal + print; nada mais ==');
     await T.tickPainel();   // garante um tick completo (o da ativação pode ter corrido em paralelo)
