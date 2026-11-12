@@ -124,6 +124,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-varrer-orfaos').addEventListener('click', () => varrerAnalisesOrfas(true));
   document.getElementById('btn-salvar-interesse').addEventListener('click', salvarInteresse);
   document.getElementById('config-interesse-ativo').addEventListener('change', onToggleInteresseAtivo);
+  document.getElementById('btn-salvar-servidores').addEventListener('click', salvarServidores);
   document.getElementById('interesse-busca').addEventListener('input', filtrarInteresseBusca);
   document.querySelectorAll('.config-tab-btn').forEach(b => {
     b.addEventListener('click', () => selecionarAbaConfig(b.getAttribute('data-config-tab')));
@@ -148,10 +149,51 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Lista pautas no sidebar e carrega a mais recente
   await atualizarSidebarPautas();
   await carregarUltimaPauta();
+  carregarServidores().catch(() => {});
 
   // Varredura silenciosa de análises órfãs (sem bloquear UI)
   varrerAnalisesOrfas(false).catch(() => {});
 });
+
+// ============================================================
+//  SERVIDORES RESPONSÁVEIS POR ANÁLISES (distribuição na importação)
+// ============================================================
+// Pedido da equipe (12/11/2026): ao importar a pauta, os itens são distribuídos ALEATORIAMENTE entre os
+// servidores e o nome já entra no campo "Responsável". A lista é da equipe (Firebase), editável em
+// Configurações → "Servidores responsáveis"; sem lista gravada, valem os três nomes abaixo.
+const SERVIDORES_PADRAO = ['Pedro Ribeiro', 'Daniel Roriz', 'Suellen Ali'];
+const SERVIDORES_PATH = `${FIREBASE_URL}/plenario_servidores.json`;
+
+async function carregarServidores() {
+  try {
+    const r = await fetch(SERVIDORES_PATH);
+    const v = r.ok ? await r.json() : null;
+    const lista = (Array.isArray(v) ? v : Object.values(v || {})).map(s => String(s || '').trim()).filter(Boolean);
+    state.servidores = lista.length ? lista : SERVIDORES_PADRAO.slice();
+  } catch (_) {
+    state.servidores = state.servidores || SERVIDORES_PADRAO.slice();
+  }
+  return state.servidores;
+}
+
+/**
+ * Sorteia o responsável dos itens que ainda não têm um: embaralha os itens e reparte em rodízio sobre os
+ * servidores (também em ordem sorteada) — aleatório, com cargas iguais (diferença máxima de 1 item).
+ * `aleatorio` é injetável para teste. Devolve quantos itens receberam responsável.
+ */
+function distribuirResponsaveis(itens, servidores, aleatorio = Math.random) {
+  const nomes = [...new Set((servidores || []).map(s => String(s || '').trim()).filter(Boolean))];
+  const alvo = (itens || []).filter(it => !String(it.analista || '').trim());
+  if (!nomes.length || !alvo.length) return 0;
+  const embaralhar = arr => {
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(aleatorio() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+    return arr;
+  };
+  const ordem = embaralhar(alvo.slice());
+  const srv = embaralhar(nomes.slice());
+  ordem.forEach((it, k) => { it.analista = srv[k % srv.length]; });
+  return ordem.length;
+}
 
 async function carregarConfig() {
   state.config = await new Promise(r => {
@@ -203,6 +245,8 @@ async function onPdfSelecionado(ev) {
       itens:      parsed.itens.map(normalizarItem),
       ...(lacunas ? { lacunas } : {}),
     };
+    // Responsáveis sorteados entre os servidores da equipe (já gravados com a pauta, logo abaixo)
+    const distribuidos = distribuirResponsaveis(state.pauta.itens, await carregarServidores());
 
     renderizarPauta();
     document.getElementById('btn-exportar-pdf').disabled = false;
@@ -224,7 +268,7 @@ async function onPdfSelecionado(ev) {
     } else if (lacunas) {
       mostrarToast(`✓ ${parsed.itens.length} itens identificados (${lacunas.recuperados.length} recuperado(s) pela IA — confira)`, 'sucesso');
     } else {
-      mostrarToast(`✓ ${parsed.itens.length} itens identificados`, 'sucesso');
+      mostrarToast(`✓ ${parsed.itens.length} itens identificados${distribuidos ? ` · responsáveis sorteados entre ${state.servidores.length} servidores` : ''}`, 'sucesso');
     }
 
     // Enriquecimento assíncrono (autoria + apensados + parecer) para cada item
@@ -658,6 +702,10 @@ function renderCard(it) {
         <input type="text" class="an-analista-input" data-role="inp-analista" placeholder="nome do servidor">
       </label>
       <span class="an-analista-ok" data-role="analista-ok" title="Analista salvo">✓</span>
+      <label class="an-revisado" data-role="revisado-label" title="Gere a nota para marcar a revisão">
+        <input type="checkbox" data-role="chk-revisado" disabled> Revisada
+      </label>
+      <span class="an-analista-ok" data-role="revisado-ok" title="Revisão salva">✓</span>
       <button class="btn btn-ghost btn-sm" data-role="btn-remover" style="margin-left:auto;color:#ff8e8e" title="Remover item da pauta">
         <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
         Remover
@@ -750,6 +798,27 @@ function renderCard(it) {
         .catch(e => console.warn('Falha ao salvar analista:', e.message));
     }
     marcarSujo();
+  });
+
+  // "Revisada": o(a) responsável marca À MÃO depois de gerar e revisar a nota. Fica na própria nota
+  // (it.analise.revisado = { por, em }): nota regerada ou completada volta a "não revisada".
+  // SALVA NO CLIQUE (sem botão): o "✓" ao lado confirma a gravação; se ela falhar, a caixa volta ao
+  // estado anterior e um aviso diz por quê — a tela nunca mostra "Revisada" sem estar salvo.
+  const chkRevisado = card.querySelector('[data-role=chk-revisado]');
+  const okRevisado  = card.querySelector('[data-role=revisado-ok]');
+  chkRevisado.addEventListener('change', () => {
+    if (!it.analise) { chkRevisado.checked = false; return; }
+    const antes = it.analise.revisado;
+    if (chkRevisado.checked) it.analise.revisado = { por: state.config?.nomeUsuario || it.analista || '', em: new Date().toISOString() };
+    else delete it.analise.revisado;
+    atualizarRevisado(it, card);
+    fbSalvarAnalise(it)
+      .then(() => { okRevisado.classList.add('show'); setTimeout(() => okRevisado.classList.remove('show'), 1500); })
+      .catch(e => {
+        if (it.analise) { if (antes) it.analise.revisado = antes; else delete it.analise.revisado; }
+        atualizarRevisado(it, card);
+        mostrarToast('Não foi possível salvar a revisão (a marcação foi desfeita): ' + e.message, 'erro');
+      });
   });
 
   // Apelido da matéria (gerado por IA, editável). É a descrição curta usada no
@@ -2981,6 +3050,7 @@ async function completarAnalise(it) {
       editadoPor: state.config?.nomeUsuario || 'equipe',
     };
     delete it.analise.verificacaoIA;   // a verificação anterior era do texto truncado
+    delete it.analise.revisado;        // texto novo: a revisão anterior não o cobre
     renderAnaliseCard(it);
     await fbSalvarAnalise(it);
     mostrarToast(cont.truncated ? 'Continuação ainda truncada — clique de novo se quiser.' : '✓ Análise completada', cont.truncated ? 'aviso' : 'sucesso');
@@ -4195,6 +4265,20 @@ async function calcularEmendasSuspeitas(markdown, docs, pdfBuffers) {
   } catch (_) { return []; }
 }
 
+/** Estado da caixa "Revisada" do card: só com nota; o título diz quem marcou e quando. */
+function atualizarRevisado(it, card) {
+  const chk = card && card.querySelector('[data-role=chk-revisado]');
+  if (!chk) return;
+  const lbl = card.querySelector('[data-role=revisado-label]');
+  const rev = it.analise && it.analise.revisado;
+  chk.disabled = !it.analise;
+  chk.checked = !!rev;
+  lbl.classList.toggle('feito', !!rev);
+  lbl.title = !it.analise ? 'Gere a nota para marcar a revisão'
+    : rev ? `Revisada${rev.por ? ' por ' + rev.por : ''} em ${formatDataHora(rev.em)}`
+    : 'Marque depois de revisar a nota gerada';
+}
+
 function renderAnaliseCard(it) {
   // O item ainda é da pauta aberta? Leitura no Firebase e geração por IA duram
   // minutos, e a mesma proposição aparece em pautas de semanas diferentes: sem
@@ -4269,6 +4353,7 @@ function renderAnaliseCard(it) {
   if (analista) metaEl.innerHTML += ` · <span title="Servidor responsável pela nota">Servidor responsável: <b>${escapeHtml(analista)}</b></span>`;
   const inpAnalista = card.querySelector('[data-role=inp-analista]');
   if (inpAnalista && inpAnalista.value !== analista) inpAnalista.value = analista;
+  atualizarRevisado(it, card);
   // Campo do apelido (gerado por IA, editável) — mostra e sincroniza sem
   // atropelar o que o usuário estiver digitando.
   const inpApelido = card.querySelector('[data-role=inp-apelido]');
@@ -6949,6 +7034,7 @@ function abrirConfig() {
   onProvedorChange();
   popularSelectModelos(c.modelo);
   renderInteresseConfig();
+  carregarServidores().then(l => { document.getElementById('config-servidores').value = l.join('\n'); }).catch(() => {});
   selecionarAbaConfig('ia');
   document.getElementById('modal-configuracoes').style.display = 'flex';
   // Havendo chave, busca a lista AO VIVO em segundo plano. A lista de reserva
@@ -6956,6 +7042,20 @@ function abrirConfig() {
   // dela é oferecer um catálogo vencido — e foi assim que o modelo dele podia
   // ser trocado em silêncio ao salvar.
   if (c.apiKey) carregarModelos({ silencioso: true }).catch(() => {});
+}
+
+/** Grava a lista de servidores (um por linha) — vale para a equipe toda. */
+async function salvarServidores() {
+  const st = document.getElementById('servidores-status');
+  const lista = [...new Set(document.getElementById('config-servidores').value.split('\n').map(s => s.trim()).filter(Boolean))];
+  if (!lista.length) { st.textContent = 'Informe ao menos um nome.'; return; }
+  st.textContent = 'Salvando…';
+  try {
+    const r = await fetch(SERVIDORES_PATH, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(lista) });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    state.servidores = lista;
+    st.textContent = `✓ ${lista.length} servidor(es) salvos para a equipe.`;
+  } catch (e) { st.textContent = 'Não foi possível salvar: ' + e.message; }
 }
 
 // Alterna entre as abas do modal de Configurações (Provedor de IA / Temas).
