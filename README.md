@@ -63,7 +63,7 @@ Acompanhe os votos da bancada em votações nominais do Plenário.
 - Filtra resultados pelo partido informado, com deduplicação robusta de deputados (normalização de nomes entre fontes diferentes) e **complementa a bancada** com os deputados ausentes da votação consultando a API
 - Mostra a orientação da bancada para cada votação
 - Gera **imagem da votação** em alta resolução para compartilhamento (via html2canvas)
-- **Prints da sessão**: os prints que o bot manda no grupo a cada votação nominal encerrada aparecem na aba na mesma hora, com o **mesmo desenho** (`bot/src/imagem-svg.js`, compartilhado com o bot) — **Copiar imagem** (cola direto no WhatsApp), Baixar e Copiar legenda; na sessão de hoje a aba se atualiza sozinha (Firebase, a cada 15 s) e marca quantos chegaram enquanto você estava em outra aba; outras datas pelo seletor. O bot grava só o placar (poucos KB) em `/bot/monitor_sessao/{evento}/prints`, não o PNG
+- **Prints da sessão**: os prints que o bot manda no grupo a cada votação nominal encerrada aparecem na aba na mesma hora, com o **mesmo desenho** (`bot/src/imagem-svg.js`, compartilhado com o bot) — **Copiar imagem** (cola direto no WhatsApp), Baixar e Copiar legenda; na sessão de hoje a aba se atualiza sozinha (Firebase, a cada 15 s: só a lista de itens, e o placar apenas dos prints novos — cada print é baixado uma vez por analista; com a página escondida a consulta pausa) e marca quantos chegaram enquanto você estava em outra aba; outras datas pelo seletor. O bot grava só o placar (poucos KB) em `/bot/monitor_sessao/{evento}/prints`, não o PNG
 - **Fallback de código-fonte**: se o proxy CORS falhar ao ler a sessão ao vivo, permite colar o HTML da página manualmente
 
 ---
@@ -839,6 +839,7 @@ sispode/
 │   ├── sistemas-memorial.test.js   # Memorial de cálculo: abas, fórmulas (QE, QP, sobras, listas, excedente, distritos, bancadas, indicadores), conferências, xlsx
 │   ├── comissoes-cadastro.test.js  # Comissões: cadastro acompanha a bancada em exercício
 │   ├── portarias*.test.js          # Comparador de Portarias: leitura, sequência, comparação, notas
+│   ├── prints-download.test.js  # Aba Prints da sessão: carga inicial numa leitura; consulta de 15 s só com a lista de itens (shallow) e o placar só do print novo; página escondida não consulta
 │   ├── bot-congresso-nominal.test.js  # Bot: sessão do CN (órgão 111) só com as nominais — anúncio com o apelido da pauta do Congresso, print "Sessão Conjunta · votos dos deputados", sem simbólicas/ODD/fim; rótulos PLN/VETO do painel; a Câmara tem prioridade e segue como era
 │   └── bot-leis-aprovadas.test.js  # Coletor do bot: filtro por legislatura, crédito a coautores, tolerância a falha
 └── bot/                            # Bot do Telegram (Node.js — ver bot/INSTALACAO.md)
