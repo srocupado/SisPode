@@ -8,6 +8,13 @@
 // Na sessão de hoje, a aba consulta o Firebase a cada PRINTS_POLL_MS: o print
 // aparece aqui na mesma hora em que vai ao grupo, e a aba avisa quantos novos
 // chegaram enquanto você estava em outra.
+// DOWNLOAD (12/11/2026): a consulta lia de novo TODOS os prints da sessão a cada
+// 15 s (~2 KB cada; 20 nominais ≈ 40 KB por leitura, ~10 MB/h por analista com o
+// painel aberto, mesmo em segundo plano). Agora a carga inicial lê tudo uma vez;
+// depois, a cada 15 s, só a LISTA de itens (?shallow=true, dezenas de bytes) e o
+// placar apenas dos prints que ainda não estão na tela — cada print é baixado uma
+// vez por analista. Com a página escondida (outra aba, janela minimizada) a
+// consulta pausa e volta na hora em que ela reaparece.
 
 const PRINTS_FB = 'https://plenario-podemos-default-rtdb.firebaseio.com';
 const PRINTS_POLL_MS = 15000;
@@ -155,8 +162,18 @@ async function printsAtualizar(primeira) {
   }
   const lidos = [];
   for (const s of prints.sessoes) {
-    const ps = await printsFb(`/bot/monitor_sessao/${s}/prints`).catch(() => null);
-    for (const [item, p] of Object.entries(ps || {})) if (p && p.placar) lidos.push([s + '/' + item, p]);
+    if (primeira) {   // carga inicial: tudo de uma vez
+      const ps = await printsFb(`/bot/monitor_sessao/${s}/prints`).catch(() => null);
+      for (const [item, p] of Object.entries(ps || {})) if (p && p.placar) lidos.push([s + '/' + item, p]);
+      continue;
+    }
+    // consulta periódica: só as chaves; o placar, só dos que ainda não estão na tela
+    const chaves = Object.keys(await printsFb(`/bot/monitor_sessao/${s}/prints`, '?shallow=true').catch(() => null) || {});
+    for (const item of chaves) {
+      if (prints.vistos.has(s + '/' + item)) continue;
+      const p = await printsFb(`/bot/monitor_sessao/${s}/prints/${item}`).catch(() => null);
+      if (p && p.placar) lidos.push([s + '/' + item, p]);
+    }
   }
   if (seq !== prints.seq) return;   // a data mudou no meio da leitura
   const lista = document.getElementById('printsLista');
@@ -181,6 +198,13 @@ async function printsAtualizar(primeira) {
   }
 }
 
+/** Uma consulta periódica (só na data de hoje): uma por vez, e nada com a página escondida. */
+function printsConsultar() {
+  if (prints.ocupado || document.hidden || prints.data !== printsHoje()) return;
+  prints.ocupado = true;
+  printsAtualizar(false).catch(() => {}).finally(() => { prints.ocupado = false; });
+}
+
 function printsTrocarData(dataISO) {
   prints.data = dataISO;
   prints.seq++;
@@ -195,11 +219,7 @@ function printsTrocarData(dataISO) {
     .finally(() => { prints.ocupado = false; });
   if (dataISO === printsHoje()) {
     // uma leitura por vez: a anterior pode estar desenhando quando o relógio bate
-    prints.timer = setInterval(() => {
-      if (prints.ocupado) return;
-      prints.ocupado = true;
-      printsAtualizar(false).catch(() => {}).finally(() => { prints.ocupado = false; });
-    }, PRINTS_POLL_MS);
+    prints.timer = setInterval(printsConsultar, PRINTS_POLL_MS);
   }
 }
 
@@ -211,5 +231,7 @@ function printsTrocarData(dataISO) {
     printsMarcarNovos(0);
     setTimeout(() => document.querySelectorAll('.print-card.novo').forEach(c => c.classList.remove('novo')), 4000);
   });
+  // a página voltou a aparecer: atualiza na hora (a consulta estava pausada)
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) printsConsultar(); });
   printsTrocarData(dataEl.value);
 })();
