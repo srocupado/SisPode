@@ -2814,8 +2814,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     // no PDF) um item que parece analisado e está vazio.
     if (!markdown || !markdown.trim()) throw new Error('O provedor devolveu uma análise vazia. Nada foi salvo — tente de novo.');
 
+    const dadosPauta = dadosDaPautaParaConferencia(it, docs, { teorEmendas });
     const refsSuspeitas = [
-      ...await calcularRefsSuspeitas(markdown, pdfBuffers),
+      ...await calcularRefsSuspeitas(markdown, pdfBuffers, dadosPauta),
       ...await calcularEmendasSuspeitas(markdown, docs, pdfBuffers),
     ];
 
@@ -2872,7 +2873,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
 
     renderAnaliseCard(it);
     fbSalvarAnalise(it).then(() => { if (!it.analise.apelido) completarApelidoFaltante(it); })   // 2ª tentativa do apelido
-      .catch(e => console.warn('Firebase save falhou:', e.message));
+      .catch(e => console.warn('Firebase save falhou:', e.message))
+      .finally(() => verificarNotaComIA(it, pdfBuffers, dadosPauta));   // 2ª chamada: confere a nota contra os documentos
     mostrarToast('✓ Análise gerada', 'sucesso');
   } catch (e) {
     if (isAbortError(e)) {
@@ -2956,8 +2958,9 @@ async function completarAnalise(it) {
     });
 
     const markdownCompleto = costurarContinuacao(it.analise.markdown, cont.text);
+    const dadosPauta = dadosDaPautaParaConferencia(it, docs);
     const refsSuspeitas = [
-      ...await calcularRefsSuspeitas(markdownCompleto, pdfBuffers),
+      ...await calcularRefsSuspeitas(markdownCompleto, pdfBuffers, dadosPauta),
       ...await calcularEmendasSuspeitas(markdownCompleto, docs, pdfBuffers),
     ];
     // Nota já editada está em `formato: 'html'`, e é o html que a tela, o PDF e
@@ -2977,9 +2980,11 @@ async function completarAnalise(it) {
       editadoEm:  new Date().toISOString(),
       editadoPor: state.config?.nomeUsuario || 'equipe',
     };
+    delete it.analise.verificacaoIA;   // a verificação anterior era do texto truncado
     renderAnaliseCard(it);
     await fbSalvarAnalise(it);
     mostrarToast(cont.truncated ? 'Continuação ainda truncada — clique de novo se quiser.' : '✓ Análise completada', cont.truncated ? 'aviso' : 'sucesso');
+    verificarNotaComIA(it, pdfBuffers, dadosPauta);
   } catch (e) {
     if (isAbortError(e)) {
       mostrarToast('Continuação cancelada.', 'aviso');
@@ -3409,6 +3414,13 @@ function parecerKey(it) {
   return 'inteiro-teor';
 }
 
+// Seção "Argumentos favoráveis e contrários": é a única em que a nota pode ir além dos documentos — e era
+// por ela que entravam fatos inventados. CASO REAL (11/11/2026): a nota do PL 2475/2025 (maus-tratos a
+// animais) falou em "tração animal", que não aparece em nenhum dos 15 documentos da proposição; a emenda
+// em discussão falava em "práticas agropecuárias com animais de produção". O raciocínio pode ser geral; os
+// fatos, não.
+const REGRA_ARGUMENTOS = 'Construa os argumentos a partir do que os documentos trazem (justificação, pareceres, votos, emendas e seus fundamentos). Os contrapontos que os documentos não trazem podem ser de ordem geral (custo, eficácia, proporcionalidade, segurança jurídica, impacto sobre quem é atingido), mas **não introduza fatos, exemplos, atividades, práticas, setores, grupos, casos, dados ou números que não apareçam nos documentos**: se o documento fala de uma categoria ("práticas agropecuárias", "pequenas empresas"), use a mesma categoria, sem acrescentar exemplos que ele não cita. Apresente cada argumento como ponderação, não como fato.';
+
 function montarPrompt(it, docs = [], instrucoesExtra = '', extras = {}) {
   const enr = it.enriquecimento || {};
   const apensadosPodemos = (enr.apensadosPodemos || []).map(ap => {
@@ -3571,7 +3583,7 @@ REGRAS RÍGIDAS:
   // compará-los entre si para isolar a contribuição de cada comissão.
   const docsComissao = docs.filter(d => d.tipo === 'PARECER_COMISSAO');
   const secaoPareceresComissoes = docsComissao.length
-    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data, no formato: "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>". Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. Baseie-se exclusivamente nos documentos anexados.\n`
+    ? `\n## Pareceres das comissões\nApresente **um tópico (item de lista com "-") para cada comissão** por onde a proposição tramitou (documentos "Parecer da Comissão ..." anexados), em **ordem cronológica de tramitação**. Cada tópico deve começar nomeando a comissão e o(a) relator(a) e trazer a conclusão com a data, no formato: "A Comissão de <nome>, sob relatoria do(a) Deputado(a) <nome>, <aprovou a matéria | aprovou um substitutivo que…> em <data por extenso>, <descrição do que aquela comissão alterou em relação ao texto que recebeu>". Foque na **contribuição específica de cada comissão** (dispositivos que acrescentou, alterou ou suprimiu), comparando os pareceres/substitutivos entre si e SEM repetir o que já foi descrito para as comissões anteriores. Se uma comissão apenas aprovou sem mudanças de mérito, registre que aprovou na forma do texto recebido. **Não inclua nesta seção os pareceres proferidos em Plenário** (PRLP, PRLE — "Parecer de Plenário pelas Comissões…"): eles são do(a) relator(a) designado(a) em Plenário, não deliberação da comissão, e vão na seção "Pareceres e substitutivos". Comissão que só se manifesta por parecer de Plenário não "aprovou" nada: se quiser registrá-la aqui, diga que o parecer dela foi proferido em Plenário. Baseie-se exclusivamente nos documentos anexados.\n`
     : '';
 
   // Diretiva interna (NÃO deve ser reproduzida no texto): a partir dos
@@ -3597,6 +3609,12 @@ REGRAS RÍGIDAS:
     cenarioHint = `Trata-se de Proposta de Emenda à Constituição (PEC). A PEC recebe parecer apenas da CCJC (admissibilidade) e da Comissão Especial (mérito); o texto que vai a Plenário é o do parecer da Comissão Especial.${hasPRLESP ? ' O parecer do relator da Comissão Especial (PRL) está anexado — traga o conteúdo do voto e do substitutivo por ele aprovado.' : ''}${hasSBTAESP ? ' O substitutivo adotado pela Comissão Especial (SBT-A) está anexado — é o texto consolidado da PEC; baseie nele a descrição das disposições.' : ''} Descreva as alterações ao texto constitucional. Quando o parecer da CCJC estiver anexado, trate-o como juízo de admissibilidade, não de mérito.`;
   } else {
     cenarioHint = `A proposição não tem parecer preliminar de plenário nem substitutivo de comissão adotado. Traga o conteúdo do projeto original.`;
+  }
+
+  // PRLP/PRLE: CASO REAL (PL 2475/2025, 11/11/2026) — a nota disse que "a CCJC aprovou um substitutivo
+  // em 11/11", quando o PRLP 2 é o parecer do relator em Plenário PELAS comissões (CMADS e CCJC).
+  if (hasPRLP || hasPRLE) {
+    cenarioHint += ' ATENÇÃO À NATUREZA DO PARECER: o PRLP (parecer preliminar de plenário) e o PRLE (parecer às emendas de plenário) são pareceres do(a) relator(a) designado(a) em Plenário, proferidos em nome das comissões que ainda não se manifestaram ("Parecer de Plenário pelas Comissões de…"). A comissão NÃO deliberou nem aprovou esse parecer e o Plenário ainda vai votá-lo: escreva "o(a) relator(a), em Plenário, pelas Comissões de …, apresentou parecer / propôs substitutivo", nunca "a Comissão aprovou". O mesmo vale para o acolhimento ou a rejeição de emendas de plenário: é o parecer do(a) relator(a), não decisão da comissão.';
   }
 
   // Título da seção de disposições — adaptado ao que está efetivamente em
@@ -3693,7 +3711,7 @@ O que a proposição efetivamente muda ou cria? Quais são os pontos centrais do
   : ''}Descreva concretamente o que muda na prática, evitando frases genéricas.
 ${secaoMPV}${secaoApensados}
 ## Argumentos favoráveis e contrários
-Dois parágrafos corridos. O primeiro **começa exatamente com **Argumentos favoráveis:**** e reúne os argumentos que sustentam a aprovação; o segundo **começa exatamente com **Argumentos contrários:**** e reúne os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. **Nesta seção (e apenas nela) você pode recorrer a conhecimento geral e ao contexto do tema** para construir argumentos plausíveis — inclusive contra-argumentos que não constem nos documentos. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito, dos impactos e dos interesses afetados. Ainda assim, não invente fatos sobre o conteúdo do documento (números de lei, dispositivos ou dados) e apresente cada argumento como opinião/ponderação, não como fato.
+Dois parágrafos corridos. O primeiro **começa exatamente com **Argumentos favoráveis:**** e reúne os argumentos que sustentam a aprovação; o segundo **começa exatamente com **Argumentos contrários:**** e reúne os que sustentam a rejeição. **Apresente SEMPRE os dois lados**, ainda que os documentos tragam apenas um. Não escreva "não constam argumentos contrários": elabore os contrapontos prováveis a partir do mérito e dos impactos. ${REGRA_ARGUMENTOS}
 ${instrucoesExtra && instrucoesExtra.trim()
   ? `\nINSTRUÇÕES ADICIONAIS DO(A) ASSESSOR(A) (têm prioridade quanto à ênfase, à profundidade e aos recortes temáticos da análise, mas NÃO substituem a estrutura de seções acima nem as REGRAS RÍGIDAS abaixo):\n${instrucoesExtra.trim()}\n`
   : ''}
@@ -3704,8 +3722,9 @@ PRINCÍPIOS A SEREM OBSERVADOS:
 - Fundamentação: embasar afirmações em normas, dados ou no próprio documento.
 
 REGRAS RÍGIDAS:
-- Use apenas informação contida nos documentos anexos. Não invente fatos. (Exceção: a seção "Argumentos favoráveis e contrários", em que você pode usar conhecimento geral para construir a argumentação.)
+- Use apenas informação contida nos documentos anexos. Não invente fatos — nem na seção "Argumentos favoráveis e contrários", em que só o raciocínio pode ser geral (veja a regra daquela seção).
 - Se uma informação solicitada não constar nos documentos, escreva explicitamente "não consta no documento" em vez de supor ou recorrer a conhecimento externo. (Isso NÃO se aplica à seção "Argumentos favoráveis e contrários", que deve sempre trazer os dois lados.)
+- Não acrescente exemplos, atividades, setores, grupos ou situações que os documentos não mencionam, nem para ilustrar.
 - Não invente números de lei, artigos, decretos, datas, valores ou nomes. Só cite um dispositivo (lei, decreto, emenda, artigo) se ele aparecer literalmente nos documentos anexos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
 - NÃO mencione no texto qual "cenário" foi identificado, não classifique a proposição por número de cenário e não reproduza as instruções deste enunciado — escreva apenas a nota técnica.
@@ -3755,7 +3774,7 @@ O que o PDL pretende sustar (qual decreto/portaria/resolução e de qual órgão
 ## O ato que se pretende sustar
 Com base na justificação do PDL (no inteiro teor anexado), descreva o que o ato do Executivo determina e por que o autor entende que ele exorbita o poder regulamentar ou os limites legais.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da sustação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente SEMPRE os dois lados. Nesta seção (e apenas nela) você pode recorrer a conhecimento geral para construir a argumentação, sem inventar fatos sobre o conteúdo do documento.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da sustação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente SEMPRE os dois lados. ${REGRA_ARGUMENTOS}
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -3768,7 +3787,7 @@ O instrumento internacional aprovado (partes e objeto) e o que sua aprovação i
 ## Principais pontos do acordo
 Os compromissos centrais assumidos, conforme o texto/justificação anexados.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da aprovação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente sempre os dois lados.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:**** (a favor da aprovação); o segundo **começa exatamente com **Argumentos contrários:**** (contra). Apresente sempre os dois lados. ${REGRA_ARGUMENTOS}
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -3781,7 +3800,7 @@ O que o decreto legislativo dispõe e qual o seu efeito prático.
 ## Justificativa
 Por que a matéria é relevante, com base na justificação anexada.
 ${secaoParecer}## Argumentos favoráveis e contrários
-Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:****; o segundo **começa exatamente com **Argumentos contrários:****. Apresente sempre os dois lados.
+Dois parágrafos. O primeiro **começa exatamente com **Argumentos favoráveis:****; o segundo **começa exatamente com **Argumentos contrários:****. Apresente sempre os dois lados. ${REGRA_ARGUMENTOS}
 
 ## Pontos de atenção para o Podemos
 Um parágrafo sobre as implicações para a bancada.`;
@@ -3790,7 +3809,8 @@ Um parágrafo sobre as implicações para a bancada.`;
   const regras = `
 PRINCÍPIOS: clareza, objetividade, imparcialidade e fundamentação no próprio documento.
 REGRAS RÍGIDAS:
-- Use apenas informação contida nos documentos anexos. Não invente fatos. (Exceção: a seção "Argumentos favoráveis e contrários", em que pode usar conhecimento geral.)
+- Use apenas informação contida nos documentos anexos. Não invente fatos — nem na seção "Argumentos favoráveis e contrários", em que só o raciocínio pode ser geral (veja a regra daquela seção).
+- Não acrescente exemplos, atividades, setores, grupos ou situações que os documentos não mencionam, nem para ilustrar.
 - Se uma informação não constar, escreva "não consta no documento" em vez de supor.
 - Não invente números de lei, decreto, portaria, datas, valores ou nomes que não estejam nos documentos.
 - NÃO inclua recomendação de voto (favorável/contrário/abstenção).
@@ -3852,15 +3872,175 @@ function validarReferencias(markdown, textoFonte) {
 }
 
 // Extrai o texto dos PDFs já baixados (cópia do buffer para não interferir
-// com o pdf.js, que pode neutralizar o ArrayBuffer original).
-async function calcularRefsSuspeitas(markdown, pdfBuffers) {
+// com o pdf.js, que pode neutralizar o ArrayBuffer original). `dados`: o que a
+// nota também recebeu fora dos PDFs (ementa, pareceres da pauta, rótulos) —
+// conta como fonte, mas só quando os PDFs foram lidos: sem eles, a conferência
+// acusaria tudo e não acusa nada.
+async function calcularRefsSuspeitas(markdown, pdfBuffers, dados = '') {
   try {
     let fonte = '';
     for (const buf of (pdfBuffers || [])) {
       try { fonte += '\n' + await extrairTextoPdf(buf.slice(0)); } catch (_) {}
     }
-    return validarReferencias(markdown, fonte);
+    if (fonte.trim().length < 300) return [];
+    fonte += '\n' + (dados || '');
+    return [...validarReferencias(markdown, fonte), ...conferirCitacoes(markdown, fonte)];
   } catch (_) { return []; }
+}
+
+/** O que a nota recebeu além dos PDFs: entra na fonte das duas conferências. */
+function dadosDaPautaParaConferencia(it, docs = [], extras = {}) {
+  const enr = it.enriquecimento || {};
+  const txt = x => (x == null ? '' : typeof x === 'string' ? x : JSON.stringify(x));
+  const pu = it.projetoUrgenciado;
+  return [
+    `${it.sigla || ''} ${it.numero || ''}/${it.ano || ''}`, it.ementa, txt(it.autor), it.relator?.nome, enr.relator?.nome,
+    pu ? `${pu.sigla || ''} ${pu.numero || ''}/${pu.ano || ''} ${pu.ementa || ''}` : '',
+    ...(it.pareceresComissao || []).map(p => `Comissão de ${p.comissao || ''} — ${p.posicao || ''} ${p.relator || ''}`),
+    ...(enr.apensadosPodemos || []).map(ap => `${ap.siglaTipo || ''} ${ap.numero || ''}/${ap.ano || ''} ${(ap.autores || []).map(a => a.nome).join(', ')} ${ap.ementa || ''}`),
+    ...docs.map(d => d.rotulo),
+    ...(extras.teorEmendas?.doSenado || []).map(e => `Emenda nº ${e.n} ${e.autor || ''} ${e.partido || ''} ${e.texto || ''}`),
+    enr.recurso?.voto?.conclusao,
+  ].filter(Boolean).join('\n');
+}
+
+// ---------- Conferência de citações (2ª camada, sem IA) ----------
+// Medido em 12/11/2026 nas 187 notas salvas contra os 347 PDFs que cada uma leu:
+// conferir PALAVRAS soltas da nota contra a fonte não serve — 8 avisos por nota
+// (mediana), quase todos paráfrase ("respaldo", "maneira", "dezesseis"), e a
+// frequência no português não separa "tração" (zipf 3,6) de "condizente" (3,0).
+// O que tem ruído baixo é conferir o que é CITÁVEL: parlamentar citado(a),
+// proposição citada, trecho entre aspas e sigla. Assim, 162 das 186 notas não
+// acusam nada (p90 = 1 aviso), e os avisos são achados: o IPHAN trazido de fora
+// na nota do PL 3507/2026, aspas que não reproduzem o documento. A invenção de
+// conceito ("tração animal", PL 2475/2025) fica com a verificação por IA.
+const _planoTexto = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+  .replace(/([a-z])-\s+([a-z])/g, '$1$2').replace(/[^a-z0-9]+/g, ' ');
+const _TITULO_OU_LIGACAO = /^(deputad[oa]s?|dep|senador[a]?|delegad[oa]|sargento|coronel|capit[aã]o|cabo|general|tenente|subtenente|major|pastor[a]?|padre|professor[a]?|prof|dr[a]?|doutor[a]?|m[eé]dic[oa]|policial|soldado|bispo|mission[aá]ri[oa]|de|da|do|dos|das|e)$/i;
+
+const _SIGLAS_DO_SISTEMA = /^(PLP|PLV|PEC|PDL|MPV|PLN|REQ|PRC|REC|PRLP|PRLE|PRL|SSP|SBT|EMS|EMP|EMC|CCJC|CFT|LOA|LDO|PPA|RICD)$/;
+
+function conferirCitacoes(markdown, textoFonte) {
+  if (!textoFonte || textoFonte.length < 300) return [];
+  const F = ' ' + _planoTexto(textoFonte) + ' ';
+  const md = String(markdown || '').replace(/^#+.*$/gm, ' ').replace(/\[\[[^\]]*\]\]/g, ' ');
+  const out = [], vistos = new Set();
+  const add = s => { if (!vistos.has(s)) { vistos.add(s); out.push(s); } };
+  // 1) parlamentar: basta um dos nomes (fora títulos e ligações) estar na fonte
+  for (const m of md.matchAll(/\b(?:Deputad[oa]s?|Senador[a]?|Dep\.)\s+((?:[A-ZÁÉÍÓÚÂÊÔÃÕÇ][a-záéíóúâêôãõçü]+\s?){1,4})/g)) {
+    const nomes = m[1].trim().split(/\s+/).filter(x => x.length >= 3 && !_TITULO_OU_LIGACAO.test(x));
+    if (nomes.length && !nomes.some(p => F.includes(' ' + _planoTexto(p).trim() + ' '))) add(m[0].trim());
+  }
+  // 2) proposição citada: o número tem de aparecer na fonte (com ou sem ponto de milhar)
+  for (const m of md.matchAll(/\b(PLP|PLV|PEC|PDL|MPV|PLN|PL|REQ|PRC)\s*(?:n[º°o.]*\s*)?(\d[\d.]*\d|\d)\s*(?:\/|,?\s*de\s+)(\d{2,4})\b/g)) {
+    const num = m[2].replace(/\./g, '');
+    if (!new RegExp(`(?<!\\d)${num.split('').join('\\.?')}(?!\\d)`).test(textoFonte)) add(`${m[1]} ${m[2]}/${m[3]}`);
+  }
+  // 3) aspas: o que a nota põe entre aspas tem de estar assim na fonte
+  for (const m of md.matchAll(/[“"]([^”"\n]{6,200})[”"]/g)) {
+    const q = _planoTexto(m[1]).trim();
+    if (q.split(' ').length >= 2 && !F.includes(' ' + q + ' ')) add(`“${m[1].trim()}” (entre aspas, mas não está assim nos documentos)`);
+  }
+  // 4) sigla (3 a 8 maiúsculas) que a fonte não traz
+  for (const s of new Set(md.match(/(?<![A-Za-zÀ-ÿ])[A-Z]{3,8}(?![A-Za-zÀ-ÿ])/g) || [])) {
+    if (/^[IVXLCDM]+$/.test(s)) continue;   // numeral romano
+    if (_SIGLAS_DO_SISTEMA.test(s)) continue;   // as que o próprio prompt e os rótulos dos documentos usam
+    if (!new RegExp(`(?<![A-Za-z])${s}(?![A-Za-z])`).test(textoFonte)) add(`sigla ${s}`);
+  }
+  return out;
+}
+
+// ---------- Verificação por IA (2ª chamada) ----------
+// Um segundo modelo lê os MESMOS documentos e a nota pronta e aponta o que não
+// tem respaldo. CASO REAL (11/11/2026): a nota do PL 2475/2025 falou em "tração
+// animal", que não está em nenhum dos 15 documentos — nenhuma conferência de
+// texto pega invenção de conceito. O modelo é o de versão mais alta fora da faixa
+// econômica (escolherModelo, a mesma regra do Parecer); sem a lista do provedor,
+// o da configuração. Só ficam os trechos que existem literalmente na nota: o
+// verificador também pode inventar. Corre depois que a nota aparece e é salva;
+// não atrasa a nota nem a impede.
+function promptVerificacao(markdown, dados) {
+  return `Você é revisor(a) de notas técnicas legislativas. A NOTA abaixo foi escrita por outro modelo a partir dos documentos anexos (PDFs) e dos DADOS DA PAUTA transcritos em seguida. Sua tarefa é apontar as afirmações da nota que NÃO têm respaldo nesses documentos e dados.
+
+Aponte:
+- fatos, nomes, números, datas, valores, instituições, siglas, proposições ou dispositivos que não constam dos documentos;
+- exemplos, atividades, práticas, setores, grupos ou situações que a nota acrescenta e os documentos não mencionam;
+- atribuições erradas: quem apresentou, aprovou, propôs, acolheu ou rejeitou o quê (atenção: parecer do relator em Plenário não é deliberação de comissão);
+- trechos que contradizem os documentos.
+
+Não aponte: paráfrases fiéis; resumos e conclusões que decorrem dos documentos; na seção "Argumentos favoráveis e contrários", raciocínio geral (custo, eficácia, proporcionalidade, segurança jurídica, impacto) — nela, aponte só fatos, exemplos, instituições ou dados que não constam dos documentos. Na dúvida, não aponte.
+
+DADOS DA PAUTA:
+${(dados || '').slice(0, 6000)}
+
+NOTA:
+<<<
+${markdown}
+>>>
+
+Responda SOMENTE com JSON, sem cercas de código, no formato {"itens":[{"trecho":"...","motivo":"..."}]}:
+- "trecho": copie LITERALMENTE da nota o trecho sem respaldo (de 3 a 25 palavras), sem alterar nada;
+- "motivo": até 25 palavras, dizendo o que falta ou o que diverge nos documentos.
+Se nada faltar respaldo, responda {"itens":[]}.`;
+}
+
+/** Lê a resposta do verificador; só ficam trechos que existem na nota. */
+function lerVerificacao(texto, markdown) {
+  const t = String(texto || '');
+  const ini = t.indexOf('{'), fim = t.lastIndexOf('}');
+  if (ini < 0 || fim < ini) throw new Error('resposta do verificador sem JSON');
+  const j = JSON.parse(t.slice(ini, fim + 1));
+  const nota = ' ' + _planoTexto(markdown) + ' ';
+  return (Array.isArray(j.itens) ? j.itens : [])
+    .map(x => ({ trecho: String(x?.trecho || '').trim().slice(0, 400), motivo: String(x?.motivo || '').trim().slice(0, 300) }))
+    .filter(x => { const p = _planoTexto(x.trecho).trim(); return p.length >= 8 && nota.includes(' ' + p + ' '); })
+    .slice(0, 10);
+}
+
+async function modeloDaVerificacao(pid, padrao) {
+  try {
+    const lista = await listarModelosDoProvedor(pid);
+    const esc = escolherModelo((lista || []).map(m => (typeof m === 'string' ? m : m.id)), { padraoDoUsuario: padrao });
+    if (esc.modelo) return esc.modelo;
+  } catch (e) { if (isAbortError(e)) throw e; }
+  return padrao;
+}
+
+async function verificarNotaComIA(it, pdfBuffers, dados) {
+  const markdown = it.analise?.markdown;
+  if (!markdown || !state.config?.apiKey) return;
+  const pid = state.config.provedor || 'gemini';
+  it._verificando = true;
+  renderAnaliseCard(it);
+  let v, modelo = state.config.modelo;
+  iaInFlightInc();   // o "Parar tudo" aparece e alcança a verificação
+  try {
+    modelo = await modeloDaVerificacao(pid, state.config.modelo);
+    const { text } = await chamarIA({ provedorId: pid, apiKey: state.config.apiKey, modelo,
+      prompt: promptVerificacao(markdown, dados), pdfBuffers, opcoes: { maxSaida: 4000 } });
+    v = { modelo, em: new Date().toISOString(), itens: lerVerificacao(text, markdown) };
+  } catch (e) {
+    if (isAbortError(e)) { it._verificando = false; renderAnaliseCard(it); return; }
+    v = { modelo, em: new Date().toISOString(), falhou: String(e.message || e).slice(0, 200) };
+  } finally { iaInFlightDec(); }
+  it._verificando = false;
+  // a nota foi regerada ou completada enquanto a verificação corria: o resultado é de outro texto
+  if (!it.analise || it.analise.markdown !== markdown) return;
+  it.analise.verificacaoIA = v;
+  renderAnaliseCard(it);
+  fbSalvarAnalise(it).catch(e => console.warn('Firebase save (verificação) falhou:', e.message));
+}
+
+/** Avisos das duas camadas sobre a nota, no topo do card. */
+function avisoVerificacaoHtml(it) {
+  if (it._verificando) return '<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888;font-style:italic">Verificação por IA em andamento…</div>';
+  const vf = it.analise?.verificacaoIA;
+  if (!vf) return '';
+  const mod = vf.modelo ? ` (${escapeHtml(vf.modelo)})` : '';
+  if (vf.falhou) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod} não concluída: ${escapeHtml(vf.falhou)}. Gere a análise de novo para tentar outra vez.</div>`;
+  const itens = vf.itens || [];
+  if (!itens.length) return `<div class="an-aviso-verif" style="margin:0 0 12px;font-size:12px;color:#888">Verificação por IA${mod}: nenhum trecho sem respaldo apontado.</div>`;
+  return `<div class="an-aviso-verif" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #c0392b;background:#fdecea;border-radius:4px;font-size:13px;color:#611a15">⚠ <strong>Verificação por IA${mod}:</strong> ${itens.length === 1 ? 'o trecho a seguir não tem' : 'os trechos a seguir não têm'} respaldo nos documentos, segundo o verificador. Confira antes de usar:<ul style="margin:6px 0 0 18px;padding:0">${itens.map(x => `<li>“${escapeHtml(x.trecho)}”${x.motivo ? ` — ${escapeHtml(x.motivo)}` : ''}</li>`).join('')}</ul></div>`;
 }
 
 // ---------- MPV (8b): conferência das emendas citadas contra o parecer ----------
@@ -4101,9 +4281,9 @@ function renderAnaliseCard(it) {
 
   const refs = it.analise.refsSuspeitas || [];
   const avisoRefs = refs.length
-    ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto do documento analisado. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
+    ? `<div class="an-aviso-refs" style="margin:0 0 12px;padding:10px 12px;border-left:3px solid #d68a00;background:#fff8e6;border-radius:4px;font-size:13px;color:#5a4500">⚠ <strong>Conferência automática de referências:</strong> a IA citou ${refs.length === 1 ? 'a referência' : 'as referências'} a seguir, mas ${refs.length === 1 ? 'ela não foi localizada' : 'elas não foram localizadas'} no texto dos documentos analisados. Confirme na fonte antes de usar — esta é uma heurística e pode haver falso positivo: ${refs.map(escapeHtml).join('; ')}.</div>`
     : '';
-  conteudo.innerHTML = avisoRefs + notaDisplayHtml(it);
+  conteudo.innerHTML = avisoVerificacaoHtml(it) + avisoRefs + notaDisplayHtml(it);
   if (!emEdicao) {
     conteudo.style.display = '';
     card.querySelector('[data-role=quill-wrap]').style.display = 'none';
