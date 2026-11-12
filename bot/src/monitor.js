@@ -1099,6 +1099,10 @@ async function ativarSessao(ev) {
   console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})${ev.cn ? ' — Congresso Nacional: só as votações nominais' : ''}`);
   if (_sessao.cn) {
     // Sessão do CN: sem abertura nem oferta da Ordem do Dia — só o laço do painel (as nominais).
+    // A DATA é gravada como na sessão da Câmara: é por ela que a aba "Prints da sessão" da extensão acha a
+    // sessão (votacao-prints.js lê /bot/monitor_sessao/{evento}/dataISO). Sem ela, os prints do CN de
+    // 12/11/2026 ficaram no Firebase sem aparecer na extensão.
+    marcar(ev.id, { dataISO: _sessao.dataISO, tipo: ev.descricaoTipo || '', cn: true });
     clearInterval(_timerPainel);
     _timerPainel = setInterval(tickPainel, POLL_PAINEL_MS);
     tickPainel();
