@@ -21,6 +21,14 @@ const { InlineKeyboard } = require('grammy');
 
 const API = 'https://dadosabertos.camara.leg.br/api/v2';
 const POLL_EVENTOS_MS = 30e3;   // detecção de início/fim de sessão
+// SESSÃO DO CONGRESSO NACIONAL (12/11/2026): a sessão conjunta corre no Plenário da Câmara, com o painel
+// de votação no mesmo portal (votacao-portal?reuniao=…), mas nos Dados Abertos o evento é do órgão CN (111),
+// não do Plenário (180) — o monitor nunca a via, e as nominais saíam sem print. Decisão da Liderança: na
+// sessão do CN o bot manda SÓ o anúncio da votação nominal e o print (votos dos DEPUTADOS: os senadores
+// votam no sistema do Senado). Abertura, Ordem do Dia, simbólicas, oradores, fim e resumo ficam de fora —
+// são textos e sinais da Câmara. Limite: a agenda do portal não lista a sessão do CN; com a API de Dados
+// Abertos fora do ar, a sessão do CN não é achada.
+const ORGAO_CN = 111;
 const POLL_PAINEL_MS  = 10e3;   // itens/aberturas/encerramentos (portal é a fonte rápida)
 // Tentativas do RESUMO após o encerramento: os Dados Abertos levam ~5 min
 // para publicar as matérias apreciadas — por isso minutos, não segundos.
@@ -241,6 +249,24 @@ function cortarNaPalavra(s, n = 120) {
   const c = s.slice(0, n);
   const i = c.lastIndexOf(' ');
   return (i > n - 25 ? c.slice(0, i) : c) + '…';
+}
+
+// Apelido do PLN/MPV/veto na pauta da sessão salva pelo módulo de Congresso (o oficial, do site do
+// Congresso). Só para a sessão do CN; sem a pauta do dia importada, fica a ementa (descricaoCurta).
+async function apelidoDaPautaCN(ref, dataISO) {
+  if (!ref || !dataISO) return '';
+  try {
+    const meta = await fbGet('/congresso_pautas_meta');
+    const dataBR = dataISO.split('-').reverse().join('/');
+    const ids = Object.entries(meta || {}).filter(([, m]) => m && m.data === dataBR).map(([id]) => id);
+    for (const id of ids) {
+      const ap = ref.sigla === 'VET'
+        ? await fbGet(`/congresso_pautas/${id}/vetos/${Number(ref.numero)}-${ref.ano}/assunto`)   // o "apelido" do veto
+        : await fbGet(`/congresso_pautas/${id}/plns/${ref.sigla.toLowerCase()}-${Number(ref.numero)}-${ref.ano}/apelido`);
+      if (ap) return String(ap).trim();
+    }
+  } catch (_) {}
+  return '';
 }
 
 async function descricaoCurta(ref) {
@@ -781,9 +807,14 @@ async function tickEventos() {
     const hoje = hojeSP();
     let lista;
     try {
-      const r = await fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`);
+      const [r, rCN] = await Promise.all([
+        fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=180&itens=30`),
+        fetchTimeout(`${API}/eventos?dataInicio=${hoje}&dataFim=${hoje}&idOrgao=${ORGAO_CN}&itens=30`).catch(() => null),
+      ]);
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       lista = (await r.json()).dados || [];
+      // sessão do Congresso (órgão CN): marcada, para o monitor só dar as nominais
+      if (rCN && rCN.ok) lista = lista.concat(((await rCN.json().catch(() => ({}))).dados || []).map(e => ({ ...e, cn: true })));
       _eventosPeloPortal = false;
     } catch (e) {
       lista = await eventosDoDiaPortal(hoje);
@@ -803,7 +834,9 @@ async function tickEventos() {
     // Não reativa uma sessão que o cosev já encerrou (os Dados Abertos podem
     // seguir marcando "andamento" por lag depois do encerramento real).
     if (!_sessao) {
-      const ativa = eventos.find(e => /andamento|iniciad/i.test(e.situacao || '') && !_encerradas.has(e.id));
+      const emCurso = e => /andamento|iniciad/i.test(e.situacao || '') && !_encerradas.has(e.id);
+      // a sessão da Câmara tem prioridade; a do CN só quando não há sessão da Câmara em curso
+      const ativa = eventos.find(e => emCurso(e) && !e.cn) || eventos.find(e => emCurso(e) && e.cn);
       if (ativa) await ativarSessao(ativa);
     }
   } catch (e) {
@@ -943,7 +976,7 @@ async function tickAbertura() {
   // evento leva minutos. As três fontes dividem as chaves em `discutidos`
   // (anúncio) e `resultadosPag` (resultado): quem chegar primeiro fala, as
   // demais respeitam. Precisa da sessão monitorada carregada (o estado mora nela).
-  if (_sessao && _sessao.estado) {
+  if (_sessao && _sessao.estado && !_sessao.cn) {   // sessão do CN: só os prints (tickPainel)
     const est = _sessao.estado;
     const v = sess.votacao;
     const atualId = v && v.id != null ? v.id : null;
@@ -1061,8 +1094,16 @@ async function ativarSessao(ev) {
     id: ev.id, dataISO: String(ev.dataHoraInicio || hojeSP()).slice(0, 10),
     estado, falhasPainel: 0, avisoFalhaDado: false, tickando: false,
     painelMaterializou: false, avisoAquecimentoDado: false,
+    cn: !!ev.cn,
   };
-  console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})`);
+  console.log(`[monitor] sessão ${ev.id} ativa (${ev.descricaoTipo})${ev.cn ? ' — Congresso Nacional: só as votações nominais' : ''}`);
+  if (_sessao.cn) {
+    // Sessão do CN: sem abertura nem oferta da Ordem do Dia — só o laço do painel (as nominais).
+    clearInterval(_timerPainel);
+    _timerPainel = setInterval(tickPainel, POLL_PAINEL_MS);
+    tickPainel();
+    return;
+  }
   // ABERTURA FORMAL da sessão (o "martelo"). Calibrado ao vivo em 14/07: o
   // push do Infoleg "Início de Sessão Deliberativa às 15:55" bateu com o
   // evento dos Dados Abertos virando "Em Andamento" (15:55) — enquanto o
@@ -1129,7 +1170,7 @@ async function tickPainel() {
     // Início da ODD: PRIMÁRIO é o booleano indOrdemDoDiaIniciada do painel
     // público (app Infoleg) — mais confiável que "apareceram itens no portal",
     // que fica como fallback.
-    if (!est.oddAnunciado) {
+    if (!est.oddAnunciado && !_sessao.cn) {
       const st = await statusPlenario().catch(() => null);
       if ((st && st.oddIniciada) || itens.length) {
         await enviar('*INICIADA A ORDEM DO DIA*', { md: true });
@@ -1145,9 +1186,11 @@ async function tickPainel() {
       // embutida quando a equipe preparou material (sem voto sim/não, sem
       // orientação). O rótulo real do portal usa "DTQ" — o filtro antigo só
       // conhecia "DESTAQUE/DVS" e deixava o destaque cair no fluxo genérico.
+      // Sessão do CN: só as nominais (simbólicas não têm print e o anúncio delas é texto da Câmara).
+      if (_sessao.cn && !item.nominal) continue;
       const ehDestaque = REGEX_DESTAQUE.test(item.rotulo);
       let explicDestaque = '';
-      if (ehDestaque) {
+      if (ehDestaque && !_sessao.cn) {   // o módulo de Destaques é da Câmara
         const reg0 = est.itens[item.id] || (est.itens[item.id] = {});
         if (reg0._explic === undefined) {
           try {
@@ -1185,8 +1228,8 @@ async function tickPainel() {
         if (ehDestaque) {
           await enviar(`*VOTAÇÃO NOMINAL:*\n${linhaDoDestaque(item.rotulo)}${explicDestaque}`, { md: true });
         } else {
-          const desc = await descricaoCurta(ident.ref);
-          await enviar(`*VOTAÇÃO NOMINAL*\n\n${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
+          const desc = (_sessao.cn && await apelidoDaPautaCN(ident.ref, _sessao.dataISO)) || await descricaoCurta(ident.ref);
+          await enviar(`*VOTAÇÃO NOMINAL${_sessao.cn ? ' — SESSÃO DO CONGRESSO NACIONAL' : ''}*\n\n${ident.texto}${desc ? ` (${desc})` : ''}`, { md: true });
           // Matéria em votação NOMINAL: o resultado dela é o PLACAR (imagem) —
           // a página do evento não deve anunciá-la como simbólica.
           const rn = refDoRotulo(item.rotulo);
@@ -1211,7 +1254,10 @@ async function tickPainel() {
           continue;
         }
         const placar = await parsePlacarPortal(htmlItem, {
-          descricao: ident.texto.replace(/\*/g, ''),
+          // no CN, o print deixa claro que são os votos dos deputados numa sessão conjunta (curto: cabe numa linha)
+          descricao: _sessao.cn
+            ? 'Sessão Conjunta · votos dos deputados · ' + ident.texto.replace(/\*/g, '').replace(/^Votação d[oa]s?\s+/, '')
+            : ident.texto.replace(/\*/g, ''),
         });
         if (placar.temVotos) {
           const png = await imagemVotacao(placar);
@@ -1236,6 +1282,9 @@ async function tickPainel() {
         console.warn(`[monitor] item ${item.id} falhou neste tick:`, eItem.message);
       }
     }
+
+    // Sessão do CN: só as nominais — sem página do evento, oradores nem fim da Ordem do Dia.
+    if (_sessao.cn) return;
 
     // Página do evento (throttle próprio de 30s): ANÚNCIO da matéria que entrou
     // em apreciação + RESULTADO das apreciações simbólicas (situação por
@@ -1289,6 +1338,10 @@ async function encerrarSessao() {
   _encerradas.add(s.id);          // trava contra reativação por lag dos Dados Abertos
   clearInterval(_timerPainel);
   _timerPainel = null;
+  if (s.cn) {   // sessão do CN: sem "ENCERRADA A SESSÃO" nem resumo (são da Câmara)
+    console.log(`[monitor] sessão do Congresso ${s.id} encerrada.`);
+    return;
+  }
   console.log(`[monitor] sessão ${s.id} encerrada — agendando resumo`);
   // Backstop do fim da ORDEM DO DIA: o sinal oficial e tempestivo é o marcador
   // "não apreciada em face do encerramento da Ordem do Dia" nos itens não
