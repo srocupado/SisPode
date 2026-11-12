@@ -177,10 +177,14 @@ async function carregarServidores() {
 }
 
 /**
- * Sorteia o responsável dos itens que ainda não têm um: embaralha os itens e reparte em rodízio sobre os
- * servidores (também em ordem sorteada) — aleatório, com cargas iguais (diferença máxima de 1 item).
- * `aleatorio` é injetável para teste. Devolve quantos itens receberam responsável.
+ * Sorteia o responsável dos itens que ainda não têm um: embaralha os itens e entrega cada um ao servidor
+ * com MENOS itens até ali (empate desfeito por uma ordem sorteada dos servidores) — aleatório, com cargas
+ * iguais (diferença máxima de 1 item). MEDIDAS PROVISÓRIAS vão sempre para o servidor de MPV (Vinícius
+ * Lára), se ele estiver na lista — e ele SÓ analisa MPs: fica fora do sorteio dos demais itens. Fora da
+ * lista, a MPV entra no sorteio como qualquer item. `aleatorio` é injetável para teste.
+ * Devolve quantos itens receberam responsável.
  */
+const SERVIDOR_MPV = 'Vinícius Lára';
 function distribuirResponsaveis(itens, servidores, aleatorio = Math.random) {
   const nomes = [...new Set((servidores || []).map(s => String(s || '').trim()).filter(Boolean))];
   const alvo = (itens || []).filter(it => !String(it.analista || '').trim());
@@ -189,10 +193,24 @@ function distribuirResponsaveis(itens, servidores, aleatorio = Math.random) {
     for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(aleatorio() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
     return arr;
   };
-  const ordem = embaralhar(alvo.slice());
-  const srv = embaralhar(nomes.slice());
-  ordem.forEach((it, k) => { it.analista = srv[k % srv.length]; });
-  return ordem.length;
+  const chave = n => String(n).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/\s+/g, ' ').trim();
+  const doMpv = nomes.find(n => chave(n) === chave(SERVIDOR_MPV));   // como está escrito na lista
+  const restantes = [];
+  let feitos = 0;
+  for (const it of alvo) {
+    if (doMpv && String(it.sigla || '').toUpperCase() === 'MPV') { it.analista = doMpv; feitos++; }
+    else restantes.push(it);
+  }
+  // o servidor de MPV não entra no sorteio do resto
+  const srv = embaralhar(nomes.filter(n => n !== doMpv));
+  if (!srv.length) return feitos;   // só ele na lista: o resto fica sem responsável
+  const carga = new Map(srv.map(n => [n, 0]));
+  for (const it of embaralhar(restantes)) {
+    const menor = srv.reduce((a, b) => (carga.get(b) < carga.get(a) ? b : a));
+    it.analista = menor;
+    carga.set(menor, carga.get(menor) + 1);
+  }
+  return feitos + restantes.length;
 }
 
 async function carregarConfig() {

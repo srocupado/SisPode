@@ -2,7 +2,8 @@
 //
 // O que este teste trava:
 //   1. distribuirResponsaveis: aleatório (sorteios diferentes dão distribuições diferentes), em partes
-//      iguais (diferença máxima de 1 item), só nos itens sem responsável, sem nomes repetidos;
+//      iguais (diferença máxima de 1 item), só nos itens sem responsável, sem nomes repetidos; MPs sempre
+//      para o Vinícius Lára quando ele está na lista — e ele só analisa MPs (fora do sorteio do resto);
 //   2. a lista de servidores vem do Firebase (compartilhada); sem lista, os três nomes padrão;
 //      salvar grava a lista limpa (sem linha vazia nem repetição);
 //   3. a importação do PDF sorteia ANTES de desenhar e salvar a pauta (o nome vai com os itens);
@@ -29,6 +30,7 @@ const semente = s => () => { s = (s * 1103515245 + 12345) % 2147483648; return s
   const F = new Function('state', 'FIREBASE_URL', 'fetch', 'document', 'formatDataHora', `
     ${trecho(/const SERVIDORES_PADRAO = [^\n]+/)}
     ${trecho(/const SERVIDORES_PATH = [^\n]+/)}
+    ${trecho(/const SERVIDOR_MPV = [^\n]+/)}
     ${fn('carregarServidores')}
     ${fn('distribuirResponsaveis')}
     ${fn('salvarServidores')}
@@ -57,6 +59,29 @@ const semente = s => () => { s = (s * 1103515245 + 12345) % 2147483648; return s
   const quemTem4 = new Set();
   for (let s = 1; s < 40; s++) { const x = itens(10); F.distribuirResponsaveis(x, F.SERVIDORES_PADRAO, semente(s)); const m = {}; x.forEach(it => { m[it.analista] = (m[it.analista] || 0) + 1; }); Object.entries(m).forEach(([k, v]) => { if (v === 4) quemTem4.add(k); }); }
   ok(quemTem4.size === 3, 'o item a mais não cai sempre no mesmo servidor');
+
+  console.log('\n== 1b. MPs para o Vinícius Lára (se estiver na lista) ==');
+  const comMpv = () => [...itens(9), { chave: 'MPV-1376-2026', sigla: 'MPV', tipoCategoria: 'projeto' }, { chave: 'MPV-1380-2026', sigla: 'MPV', tipoCategoria: 'projeto' }];
+  const quatro = [...F.SERVIDORES_PADRAO, 'Vinícius Lára'];
+  for (let sd = 1; sd <= 30; sd++) {
+    const x = comMpv(); F.distribuirResponsaveis(x, quatro, semente(sd));
+    if (!x.filter(it => it.sigla === 'MPV').every(it => it.analista === 'Vinícius Lára')) { ok(false, `semente ${sd}: MPV fora do Vinícius`); break; }
+    if (sd === 30) ok(true, 'em 30 sorteios, as duas MPVs foram sempre para o Vinícius Lára');
+  }
+  const e = comMpv(); F.distribuirResponsaveis(e, quatro, semente(5));
+  ok(e.filter(it => it.analista === 'Vinícius Lára').length === 2 && JSON.stringify(carga(e.filter(it => it.sigla !== 'MPV'))) === '[3,3,3]',
+    `ele SÓ analisa MPs: fica fora do sorteio do resto (9 itens → 3/3/3 entre os outros) (${carga(e)})`);
+  let soMpv = true;
+  for (let sd = 1; sd <= 30; sd++) { const x = comMpv(); F.distribuirResponsaveis(x, quatro, semente(sd)); if (x.some(it => it.sigla !== 'MPV' && it.analista === 'Vinícius Lára')) soMpv = false; }
+  ok(soMpv, 'em 30 sorteios, nenhum item que não é MP foi para ele');
+  const so = comMpv();
+  ok(F.distribuirResponsaveis(so, ['Vinícius Lára'], semente(1)) === 2 && so.filter(it => !it.analista).length === 9, 'só ele na lista: recebe as MPs e o resto fica sem responsável');
+  const f = comMpv(); F.distribuirResponsaveis(f, [...F.SERVIDORES_PADRAO, 'vinicius lara'], semente(2));
+  ok(f.filter(it => it.sigla === 'MPV').every(it => it.analista === 'vinicius lara'), 'reconhece o nome sem acento/maiúscula e usa a grafia da lista');
+  const g = comMpv(); F.distribuirResponsaveis(g, F.SERVIDORES_PADRAO, semente(4));
+  ok(g.every(it => F.SERVIDORES_PADRAO.includes(it.analista)) && JSON.stringify(carga(g)) === '[3,4,4]', 'sem ele na lista, a MPV entra no sorteio comum');
+  const h = comMpv(); h[9].analista = 'Pedro Ribeiro'; F.distribuirResponsaveis(h, quatro, semente(6));
+  ok(h[9].analista === 'Pedro Ribeiro' && h[10].analista === 'Vinícius Lára', 'MPV que já tem responsável fica como está')
 
   console.log('\n== 2. lista de servidores ==');
   firebase = null;
