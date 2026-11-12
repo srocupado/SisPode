@@ -188,6 +188,7 @@ function wireEventos() {
   document.getElementById('btn-importar-url').addEventListener('click', () => importarPauta(document.getElementById('import-url').value.trim()));
   document.getElementById('import-data').addEventListener('change', e => listarSessoesPorData(e.target.value));
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
+  document.getElementById('btn-apelidos').addEventListener('click', copiarApelidos);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
 
   // Busca
@@ -1120,7 +1121,17 @@ function renderLista() {
   atualizarSelecaoUI();
 }
 
+function atualizarBotaoApelidos() {
+  const b = document.getElementById('btn-apelidos');
+  if (!b) return;
+  b.disabled = !app.sessaoAtiva;
+  const n = app.selecionados.size;
+  b.title = !app.sessaoAtiva ? 'Abra uma pauta de sessão: copia para o WhatsApp a lista dos itens com os apelidos'
+    : n ? `Copia para o WhatsApp os ${n} item(ns) marcados, com os apelidos` : 'Copia para o WhatsApp a lista dos itens da pauta, com os apelidos';
+}
+
 function atualizarBotaoWord() {
+  atualizarBotaoApelidos();
   const btn = document.getElementById('btn-exportar-docx');
   if (!btn) return;
   const n = app.selecionados.size;
@@ -2695,6 +2706,68 @@ async function carregarLogoBytes() {
 
 // Conjunto de itens a exportar (compartilhado por Word e PDF, garantindo
 // paridade): vetos marcados (ou os visíveis pelo filtro) + PLNs/MPVs da pauta.
+// ---------- Apelidos (WhatsApp), no formato do módulo de Plenário ----------
+// "▪️ *o que será votado* (apelido)", sem IA: o apelido é o oficial — o "Assunto" da lista de vetos do
+// Congresso e o apelido curado da página de cada PLN/MPV (sf_apelido), usados como estão.
+
+/** "Veto 14/2026 (parcial) ao PL 5582/2025" — o tipo e o projeto vetado, quando conhecidos. */
+function tituloVetoApelido(v) {
+  const tipo = /total/i.test(v.tipo || '') ? 'total' : /parcial/i.test(v.tipo || '') ? 'parcial' : '';
+  const mat = String(v.materia || '').replace(/\s+/g, ' ').trim();
+  const prep = /^(MPV|PEC)\b/i.test(mat) ? 'à' : 'ao';
+  return `Veto ${v.numero}${tipo ? ` (${tipo})` : ''}${mat ? ` ${prep} ${mat}` : ''}`;
+}
+
+/** O que o PLN/MPV faz, sem o valor: "crédito suplementar", "altera a LOA 2026"; '' quando o apelido já diz. */
+function tipoPlnApelido(p, apelido) {
+  const e = String(p.ementa || '').replace(/\s+/g, ' ');
+  const c = e.match(/cr[ée]ditos?\s+(suplementar|especial|extraordin[áa]rio)/i);
+  if (c) return 'crédito ' + c[1].toLowerCase();
+  const orc = (plnResumoOrcamentario({ ementa: e, apelido: '' }) || '').split(' · ')[0];
+  if (!orc || /\b(LOA|LDO|PPA)\b/i.test(apelido)) return '';
+  return orc.charAt(0).toLowerCase() + orc.slice(1);
+}
+
+/** A mensagem: vetos primeiro, depois PLNs/MPVs (a ordem da tela e do PDF). */
+function montarMensagemApelidos(vetos, plns) {
+  const linhas = [];
+  for (const v of vetos) {
+    const ap = String(v.assunto || '').replace(/\s+/g, ' ').trim();
+    linhas.push(`▪️ *${tituloVetoApelido(v)}*${ap && ap !== '(sem assunto)' ? ` (${ap})` : ''}`);
+  }
+  for (const p of plns) {
+    const ap = String(p.apelido || p.titulo || '').replace(/\s+/g, ' ').trim();
+    const tipo = tipoPlnApelido(p, ap);
+    linhas.push(`▪️ *${p.sigla} ${p.numero}*${tipo ? ` – ${tipo}` : ''}${ap ? ` (${ap})` : ''}`);
+  }
+  return { texto: linhas.join('\n'), total: linhas.length };
+}
+
+async function copiarParaAreaTransferencia(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; } catch (_) {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) { return false; }
+}
+
+/** Copia a lista: os itens marcados; sem marcação, os da pauta (com busca ativa, os visíveis). */
+async function copiarApelidos() {
+  if (!app.sessaoAtiva) { mostrarToast('Abra uma pauta de sessão para copiar os apelidos.', 'aviso'); return; }
+  const { vetos, plns } = _selecaoExport();
+  const { texto, total } = montarMensagemApelidos(vetos, plns);
+  if (!total) { mostrarToast('Nenhum item para copiar.', 'aviso'); return; }
+  const ok = await copiarParaAreaTransferencia(texto);
+  mostrarToast(ok ? `✓ ${total} apelido(s) copiados — cole no WhatsApp.` : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
+    ok ? 'sucesso' : 'erro');
+}
+
 function _selecaoExport() {
   const termo = app.busca;
   const temSelecao = app.selecionados.size > 0;

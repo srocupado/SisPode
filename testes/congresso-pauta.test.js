@@ -9,7 +9,9 @@
 //      Dados Abertos do Senado), e reimportar a mesma pauta não apaga as análises já feitas;
 //   3. a lista de sessões mostra a MAIS NOVA no topo (a data vem "dd/mm/aaaa"; o texto puro ordenava pelo dia);
 //   4. "Resumir todos" numa pauta de sessão inclui os PLNs/MPVs (antes: "todos os vetos já estão resumidos");
-//   5. a caixa "Selecionar todos os PLNs" marca e desmarca os PLNs da pauta.
+//   5. a caixa "Selecionar todos os PLNs" marca e desmarca os PLNs da pauta;
+//   6. o botão Apelidos copia para o WhatsApp "▪️ *o que será votado* (apelido)", no formato do Plenário, com o
+//      apelido oficial (assunto do veto, apelido do PLN no site do Congresso) — sem IA.
 // Uso: node testes/congresso-pauta.test.js
 const fs = require('fs'), path = require('path'), vm = require('vm');
 const RAIZ = path.join(__dirname, '..');
@@ -174,6 +176,49 @@ av('sleep = async () => {}');
     cx().checked = false; cx().dispatchEvent(new window.Event('change'));
     ok(av('app.selecionados.size') === 0, 'desmarcar: tira todos os PLNs da seleção');
     ok(/Selecionar todos os PLNs/.test(document.getElementById('cn-lista').innerHTML), 'o rótulo diz o que faz');
+  }
+
+  console.log('\n== 6. botão Apelidos (WhatsApp), no formato do Plenário ==');
+  {
+    // ementas e apelidos reais (pauta 596834) e vetos da pauta 574056
+    av(`app.busca = ''; app.selecionados.clear();
+      app.vetos = [
+        { key: '14-2026', numero: '14/2026', num: 14, ano: 2026, tipo: 'Parcial', materia: 'PL 5582/2025', assunto: 'Marco Legal do Combate ao Crime Organizado', dispositivos: [] },
+        { key: '10-2026', numero: '10/2026', num: 10, ano: 2026, tipo: 'Parcial', materia: 'MPV 1313/2025', assunto: 'Auxílio Gás do Povo', dispositivos: [] },
+        { key: '1-2026', numero: '1/2026', num: 1, ano: 2026, tipo: 'Total', materia: 'PL 1469/2020', assunto: 'Carreiras das Polícias Militares e dos Corpos de Bombeiros Militares', dispositivos: [] },
+        { key: '3-2026', numero: '3/2026', num: 3, ano: 2026, tipo: '', materia: '', assunto: '(sem assunto)', dispositivos: [] } ];
+      app.sessaoAtiva = { id: 'p', nome: 'x', plns: [
+        { key: 'pln-1-2026', sigla: 'PLN', numero: '1/2026', num: 1, ano: 2026, apelido: 'Receita Federal do Brasil e outros servidores federais', ementa: 'Altera o Anexo V à Lei nº 15.346, de 14 de janeiro de 2026, que estima a receita e fixa a despesa da União para o exercício financeiro de 2026.', interessados: [] },
+        { key: 'pln-3-2026', sigla: 'PLN', numero: '3/2026', num: 3, ano: 2026, apelido: 'Ministério da Ciência, Tecnologia e Inovação', ementa: 'Abre ao Orçamento Fiscal da União, em favor do Ministério da Ciência, Tecnologia e Inovação, crédito suplementar no valor de R$ 13.186.131,00, para reforço de dotação constante da Lei Orçamentária vigente.', interessados: [] },
+        { key: 'pln-7-2026', sigla: 'PLN', numero: '7/2026', num: 7, ano: 2026, apelido: 'Copa do Mundo Feminina da FIFA 2027 e Primeiro Hospital Inteligente do Brasil', ementa: 'Altera a Lei nº 15.321, de 31 de dezembro de 2025, que dispõe sobre as diretrizes para a elaboração e a execução da Lei Orçamentária de 2026.', interessados: [] },
+        { key: 'pln-18-2026', sigla: 'PLN', numero: '18/2026', num: 18, ano: 2026, apelido: 'Altera LOA 2026 - ajustar autorizações de suplementação e remanejamento', ementa: 'Altera o art. 4º da Lei nº 15.346, de 14 de janeiro de 2026, que estima a receita e fixa a despesa da União para o exercício financeiro de 2026.', interessados: [] },
+        { key: 'pln-8-2026', sigla: 'PLN', numero: '8/2026', num: 8, ano: 2026, apelido: '', titulo: '', ementa: 'Abre ao Orçamento da Seguridade Social da União, em favor das Justiças Federal e do Trabalho, crédito especial no valor de R$ 21.557.807,00, para os fins que especifica.', interessados: [] } ] };`);
+    const { texto, total } = av('montarMensagemApelidos(app.vetos, app.sessaoAtiva.plns)');
+    const L = texto.split('\n');
+    ok(total === 9 && L[0].startsWith('▪️ *Veto') && L[4].startsWith('▪️ *PLN'), 'vetos primeiro, depois os PLNs — uma linha por item');
+    ok(L[0] === '▪️ *Veto 14/2026 (parcial) ao PL 5582/2025* (Marco Legal do Combate ao Crime Organizado)', `veto: tipo e projeto vetado em negrito, o assunto oficial entre parênteses (${L[0]})`);
+    ok(L[1] === '▪️ *Veto 10/2026 (parcial) à MPV 1313/2025* (Auxílio Gás do Povo)' && L[2].startsWith('▪️ *Veto 1/2026 (total) ao PL 1469/2020*'), '"à MPV", "(total)"');
+    ok(L[3] === '▪️ *Veto 3/2026*', 'veto lido só do cabeçalho (sem tipo, matéria nem assunto): só o número, nada inventado');
+    ok(L[4] === '▪️ *PLN 1/2026* – altera a LOA 2026 (Receita Federal do Brasil e outros servidores federais)', `PLN que altera a LOA: o tipo antes do apelido oficial (${L[4]})`);
+    ok(L[5] === '▪️ *PLN 3/2026* – crédito suplementar (Ministério da Ciência, Tecnologia e Inovação)', 'PLN de crédito: "crédito suplementar", sem o valor');
+    ok(L[6] === '▪️ *PLN 7/2026* – altera a LDO 2026 (Copa do Mundo Feminina da FIFA 2027 e Primeiro Hospital Inteligente do Brasil)', 'PLN que altera a LDO');
+    ok(L[7] === '▪️ *PLN 18/2026* (Altera LOA 2026 - ajustar autorizações de suplementação e remanejamento)', 'o apelido que já diz "LOA" não ganha o tipo de novo (sem "altera a LOA 2026 (Altera LOA 2026…)")');
+    ok(L[8] === '▪️ *PLN 8/2026* – crédito especial', 'sem apelido: só o tipo, sem parênteses vazios');
+    // copiar: com marcação, só os marcados
+    const copiado = [];
+    ctx.navigator = { clipboard: { writeText: async t => { copiado.push(t); } } };
+    av(`app.selecionados.clear(); app.selecionados.add('pln-3-2026'); app.selecionados.add('14-2026');`);
+    toasts.length = 0;
+    await av('copiarApelidos()');
+    ok(copiado[0] === '▪️ *Veto 14/2026 (parcial) ao PL 5582/2025* (Marco Legal do Combate ao Crime Organizado)\n▪️ *PLN 3/2026* – crédito suplementar (Ministério da Ciência, Tecnologia e Inovação)'
+      && /✓ 2 apelido\(s\) copiados/.test(toasts[0].m), 'com itens marcados: copia só eles');
+    av('app.selecionados.clear()');
+    await av('copiarApelidos()');
+    ok(copiado[1].split('\n').length === 9, 'sem marcação: a pauta inteira');
+    av('renderLista()');
+    ok(document.getElementById('btn-apelidos').disabled === false, 'com uma pauta de sessão aberta, o botão fica ativo');
+    av('app.sessaoAtiva = null; renderLista()');
+    ok(document.getElementById('btn-apelidos').disabled === true, 'na lista de vetos ao vivo (sem pauta), o botão fica desligado');
   }
 
   console.log(falhas ? `\n${falhas} falha(s)` : '\nTudo passou.');
