@@ -188,6 +188,7 @@ function wireEventos() {
   document.getElementById('btn-importar-url').addEventListener('click', () => importarPauta(document.getElementById('import-url').value.trim()));
   document.getElementById('import-data').addEventListener('change', e => listarSessoesPorData(e.target.value));
   document.getElementById('btn-exportar-docx').addEventListener('click', exportarDocx);
+  document.getElementById('btn-apelidos').addEventListener('click', copiarApelidos);
   document.getElementById('btn-exportar-pdf').addEventListener('click', exportarPdf);
 
   // Busca
@@ -631,9 +632,20 @@ function toggleGerarTodos() {
 async function gerarTodosResumos() {
   if (!app.config?.apiKey) { mostrarToast('Configure a chave de API em ⚙ Configurações.', 'aviso'); return; }
   resetAbort();
-  const pendentes = app.vetos.filter(v =>
+  const vetosPend = app.vetos.filter(v =>
     v.detalheUrl && !(v.detalheCarregado && v.dispositivos.length && v.dispositivos.every(d => d.resumo)));
-  if (!pendentes.length) { mostrarToast('Todos os vetos já estão resumidos.', 'sucesso'); return; }
+  // Pauta de sessão: os PLNs/MPVs entram também (antes só os vetos — numa pauta só de PLNs, o botão dizia
+  // que não havia nada a resumir). Sem o parecer localizado, o PLN fica de fora (análise à mão).
+  const plnsSessao = app.sessaoAtiva ? (app.sessaoAtiva.plns || []) : [];
+  const plnsPend = plnsSessao.filter(p => !p.analise && p.parecerUrl);
+  const semParecer = plnsSessao.filter(p => !p.analise && !p.parecerUrl).length;
+  const avisoSemParecer = semParecer ? ` · ${semParecer} PLN/MPV sem parecer localizado (análise à mão)` : '';
+  const pendentes = [...vetosPend.map(v => ({ veto: v })), ...plnsPend.map(p => ({ pln: p }))];
+  if (!pendentes.length) {
+    mostrarToast((app.sessaoAtiva ? 'Nada a resumir: os vetos e os PLNs/MPVs da pauta já têm resumo ou análise' : 'Todos os vetos já estão resumidos') + avisoSemParecer + '.',
+      semParecer ? 'aviso' : 'sucesso');
+    return;
+  }
 
   _gerarTodos = { rodando: true, cancelar: false };
   setBtnGerar(true); atualizarBotaoParar();
@@ -645,10 +657,10 @@ async function gerarTodosResumos() {
   let ok = 0, falhas = 0;
   for (let i = 0; i < pendentes.length; i++) {
     if (_gerarTodos.cancelar) break;
-    const v = pendentes[i];
-    label.textContent = `Resumindo com IA… ${i + 1}/${pendentes.length} (VET ${v.numero})` + (falhas ? ` · ${falhas} falha(s)` : '');
+    const { veto: v, pln: p } = pendentes[i];
+    label.textContent = `Resumindo com IA… ${i + 1}/${pendentes.length} (${v ? 'VET ' + v.numero : p.sigla + ' ' + p.numero})` + (falhas ? ` · ${falhas} falha(s)` : '');
     try {
-      const r = await resumirVeto(v, { silencioso: true, render: false });
+      const r = v ? await resumirVeto(v, { silencioso: true, render: false }) : await resumirPLN(p, { silencioso: true });
       r ? ok++ : falhas++;
     } catch (e) { if (isAbort(e)) break; falhas++; }
     bar.style.width = `${Math.round(((i + 1) / pendentes.length) * 100)}%`;
@@ -662,7 +674,7 @@ async function gerarTodosResumos() {
   setBtnGerar(false); atualizarBotaoParar();
   wrap.style.display = 'none';
   if (!app.editando) renderLista();
-  mostrarToast(`✓ Resumos gerados (${ok})${falhas ? ` · ${falhas} falha(s)` : ''}`, falhas ? 'aviso' : 'sucesso');
+  mostrarToast(`✓ Resumos gerados (${ok})${falhas ? ` · ${falhas} falha(s)` : ''}${avisoSemParecer}`, falhas || semParecer ? 'aviso' : 'sucesso');
 }
 
 function setBtnGerar(rodando) {
@@ -1089,7 +1101,7 @@ function renderLista() {
   if (app.sessaoAtiva) html += renderPlnsSecao(termo);
   lista.innerHTML = html || '<div class="cn-empty">Nenhum item corresponde à busca.</div>';
   wireCards();
-  if (app.sessaoAtiva) wirePlnCards();
+  if (app.sessaoAtiva) { wirePlnCards(); wireSelecaoPlns(); }
   wireInteresse();
 
   // Controles de seleção (quando há vetos ou PLNs visíveis para exportar)
@@ -1109,7 +1121,17 @@ function renderLista() {
   atualizarSelecaoUI();
 }
 
+function atualizarBotaoApelidos() {
+  const b = document.getElementById('btn-apelidos');
+  if (!b) return;
+  b.disabled = !app.sessaoAtiva;
+  const n = app.selecionados.size;
+  b.title = !app.sessaoAtiva ? 'Abra uma pauta de sessão: copia para o WhatsApp a lista dos itens com os apelidos'
+    : n ? `Copia para o WhatsApp os ${n} item(ns) marcados, com os apelidos` : 'Copia para o WhatsApp a lista dos itens da pauta, com os apelidos';
+}
+
 function atualizarBotaoWord() {
+  atualizarBotaoApelidos();
   const btn = document.getElementById('btn-exportar-docx');
   if (!btn) return;
   const n = app.selecionados.size;
@@ -1787,7 +1809,16 @@ async function fbCarregarSessoes() {
   const data = res.ok ? await res.json() : null;
   if (!data) return [];
   return Object.entries(data).map(([id, s]) => ({ id, ...s }))
-    .sort((a, b) => (b.data || b.criadoEm || '').localeCompare(a.data || a.criadoEm || ''));
+    .sort((a, b) => chaveDataSessao(b).localeCompare(chaveDataSessao(a)) || String(b.criadoEm || '').localeCompare(String(a.criadoEm || '')));
+}
+/**
+ * Chave de ordenação da sessão: a data dela em AAAA-MM-DD. O campo `data` vem como "12/11/2026", e a
+ * comparação do texto puro ordenava pelo DIA — "18/06/2026" ficava acima de "12/11/2026" (a mais antiga no
+ * topo). Sem data, vale a de importação.
+ */
+function chaveDataSessao(s) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})/.exec(String(s.data || ''));
+  return m ? `${m[3]}-${m[2]}-${m[1]}` : String(s.data || s.criadoEm || '').slice(0, 10);
 }
 
 async function fbSalvarPauta(pauta) {
@@ -2032,7 +2063,86 @@ function parsePautaHtml(html) {
         titulo: labelAgenda(corpo), materiaUrl: g.querySelector('a[href*="/materia/"]')?.href || '' });
     }
   });
-  return { titulo, data, vetos, plns };
+  return { titulo, data, vetos, plns, cabecalho: itensDoCabecalho(doc.body.textContent, +(data.slice(-4)) || null) };
+}
+
+/**
+ * Itens da pauta pelo CABEÇALHO da sessão. A convocação prévia sai, às vezes, só com ele — "Destinada à
+ * deliberação dos Projetos de Lei do Congresso Nacional nºs 1, 3, 4, … 33 e 35 de 2026; e à eleição de membro
+ * do Conselho de Comunicação Social." (pauta 596834, 11/11/2026) —, e as matérias uma a uma entram depois.
+ * Formas medidas nas pautas 596834, 574056 e 538947: "do Veto nº 9 de 2023", "dos Vetos nºs 10 e 12 de 2024",
+ * faixas ("22 a 25"), anos diferentes no mesmo trecho ("5 e 29 de 2025 e 31 de 2024"), dispositivos entre
+ * parênteses (ignorados) e trecho sem o ano ("dos Vetos nºs 1, 2, 4 … 18;"), que fica com o ano do trecho
+ * seguinte do mesmo tipo — ou, sem nenhum, com o da sessão (listado em `deduzidos`).
+ * Devolve { vetos: [{ num, ano }], plns: [{ sigla, num, ano }], deduzidos: ['VET 1/2026', …] }.
+ */
+function itensDoCabecalho(texto, anoSessao) {
+  const out = { vetos: [], plns: [], deduzidos: [] };
+  const t = String(texto || '').replace(/\s+/g, ' ');
+  const m = t.match(/Destinad[ao]\s+[àa]\s+delibera[çc][ãa]o\s+(.*?)(?:\s×|\sSess[õo]es do Congresso|\.\s|$)/i);
+  if (!m) return out;
+  const pend = { veto: [], pln: [], mpv: [] };
+  const vistos = new Set();
+  const pôr = (tipo, num, ano, deduzido) => {
+    const k = `${tipo}-${num}-${ano}`;
+    if (vistos.has(k)) return;
+    vistos.add(k);
+    if (tipo === 'veto') out.vetos.push({ num, ano });
+    else out.plns.push({ sigla: tipo === 'mpv' ? 'MPV' : 'PLN', num, ano });
+    if (deduzido) out.deduzidos.push(`${tipo === 'veto' ? 'VET' : tipo.toUpperCase()} ${num}/${ano}`);
+  };
+  for (let trecho of m[1].split(';')) {
+    trecho = trecho.replace(/\([^)]*\)/g, ' ');   // "(dispositivos 1 a 3, 5 a 53 …)"
+    const tipo = /\bVetos?\b/i.test(trecho) ? 'veto' : /Projetos? de Lei do Congresso Nacional/i.test(trecho) ? 'pln'
+      : /Medidas? Provis[óo]rias?/i.test(trecho) ? 'mpv' : null;
+    if (!tipo) continue;   // "eleição de membro do Conselho de Comunicação Social" etc.
+    const re = /\bde\s+(\d{4})\b|(\d+)(?:\s+a\s+(\d+))?/g;
+    let x;
+    while ((x = re.exec(trecho))) {
+      if (x[1]) { for (const n of pend[tipo].splice(0)) pôr(tipo, n, +x[1], false); continue; }
+      const a = +x[2], b = x[3] ? +x[3] : a;
+      if (b >= a && b - a <= 200) for (let n = a; n <= b; n++) pend[tipo].push(n);
+    }
+  }
+  if (anoSessao) for (const tipo of Object.keys(pend)) for (const n of pend[tipo].splice(0)) pôr(tipo, n, anoSessao, true);
+  return out;
+}
+
+/** Endereço da matéria (PLN/MPV) no site do Congresso, pelo código dela nos Dados Abertos do Senado (é o mesmo id). */
+async function materiaUrlNoSenado(sigla, num, ano) {
+  const r = await fetch(`https://legis.senado.leg.br/dadosabertos/materia/pesquisa/lista?sigla=${encodeURIComponent(sigla)}&numero=${num}&ano=${ano}`,
+    { headers: { Accept: 'application/json' }, signal: _abort.signal });
+  if (!r.ok) throw new Error(`HTTP ${r.status} nos Dados Abertos do Senado`);
+  const achar = (o, k) => {
+    if (o && typeof o === 'object') {
+      if (k in o) return o[k];
+      for (const v of Object.values(o)) { const y = achar(v, k); if (y !== undefined) return y; }
+    }
+    return undefined;
+  };
+  const lista = [].concat(achar(await r.json(), 'Materia') || []);
+  const mat = lista.find(x => x && String(x.Sigla).toUpperCase() === sigla && +x.Numero === +num && +x.Ano === +ano);
+  return mat && mat.Codigo ? `https://www.congressonacional.leg.br/materias/pesquisa/-/materia/${mat.Codigo}` : '';
+}
+
+/**
+ * Reimportar a mesma pauta (a convocação prévia, depois a pauta completa) não pode apagar o que a equipe já
+ * fez nela: as análises dos PLNs, os resumos e razões dos vetos e os deputados interessados ficam.
+ */
+function herdarDaPautaAnterior(item, antigo) {
+  if (!antigo) return item;
+  const arr = x => (Array.isArray(x) ? x : (x && typeof x === 'object' ? Object.values(x) : []));
+  for (const c of ['analise', 'analiseMeta', 'resumoProjeto', 'razoesProjeto', 'razoesPdfUrl', 'resumoMeta']) {
+    if (antigo[c] && !item[c]) item[c] = antigo[c];
+  }
+  if (!arr(item.interessados).length && arr(antigo.interessados).length) item.interessados = arr(antigo.interessados);
+  if (!arr(item.razoesGrupos).length && arr(antigo.razoesGrupos).length) item.razoesGrupos = arr(antigo.razoesGrupos);
+  const resumos = new Map(arr(antigo.dispositivos).filter(d => d && d.resumo).map(d => [d.codigo, d.resumo]));
+  if (resumos.size) {
+    if (arr(item.dispositivos).length) item.dispositivos.forEach(d => { if (!d.resumo && resumos.has(d.codigo)) d.resumo = resumos.get(d.codigo); });
+    else { item.dispositivos = arr(antigo.dispositivos); if (antigo.detalheCarregado) item.detalheCarregado = true; }
+  }
+  return item;
 }
 
 async function parseMateria(url) {
@@ -2074,8 +2184,26 @@ async function importarPauta(url) {
   setImportStatus('Baixando a pauta…');
   try {
     const p = parsePautaHtml(await fetchHtml(PAUTA_BASE_URL + id));
-    if (!p.vetos.length && !p.plns.length) throw new Error('Nenhum veto/PLN encontrado nessa pauta (verifique se é uma Sessão Conjunta).');
+    // O cabeçalho completa o que a página ainda não lista uma a uma (convocação prévia).
+    const cab = p.cabecalho || { vetos: [], plns: [], deduzidos: [] };
+    let doCabecalho = 0;
+    for (const x of cab.vetos) {
+      if (p.vetos.some(v => v.num === x.num && v.ano === x.ano)) continue;
+      p.vetos.push({ numero: `${x.num}/${x.ano}`, num: x.num, ano: x.ano, tipo: '', detalheUrl: '', assunto: '' });
+      doCabecalho++;
+    }
+    for (const x of cab.plns) {
+      if (p.plns.some(q => q.sigla === x.sigla && q.num === x.num && q.ano === x.ano)) continue;
+      p.plns.push({ tipo: x.sigla.toLowerCase(), sigla: x.sigla, numero: `${x.num}/${x.ano}`, num: x.num, ano: x.ano,
+        key: `${x.sigla.toLowerCase()}-${x.num}-${x.ano}`, titulo: '', materiaUrl: '', doCabecalho: true });
+      doCabecalho++;
+    }
+    if (!p.vetos.length && !p.plns.length) throw new Error('Nenhum veto/PLN encontrado nessa pauta, nem no cabeçalho da sessão (verifique se é uma Sessão Conjunta).');
     const total = p.vetos.length + p.plns.length; let feito = 0;
+    // A mesma pauta já importada (a convocação prévia): o que a equipe fez nela fica.
+    let anterior = null;
+    try { const r = await fetch(`${FIREBASE_URL}/${PAUTAS_PATH}/p_${id}.json`); if (r.ok) anterior = await r.json(); } catch (_) {}
+    const antigoDe = (grupo, key) => (anterior && anterior[grupo] ? anterior[grupo][key] : null) || null;
 
     // A página da pauta não expõe a URL de detalhe do veto (só o link da
     // matéria, com id que NÃO serve ao /veto/detalhe). O Relatório oficial de
@@ -2111,22 +2239,32 @@ async function importarPauta(url) {
       aplicarResumoCompartilhado(v, resumosVivos[v.key]);   // herda o teor já analisado
       // Assunto do card derivado da ementa (a agenda não traz um rótulo curto p/ vetos).
       if ((!v.assunto || v.assunto === '(sem assunto)') && v.ementa) v.assunto = v.ementa.replace(/^Veto\s+(parcial|total|integral)\s+aposto\s+ao\s+/i, '').slice(0, 140);
+      herdarDaPautaAnterior(v, antigoDe('vetos', v.key));
       vetos.push(v);
     }
     const plns = [];
     for (const it of p.plns) {
       setImportStatus(`Carregando itens… ${++feito}/${total}`);
       const pln = { ...it, ementa: '', autor: '', parecerUrl: '', analise: '', analiseMeta: null, interessados: [], resumindoAnalise: false, aberto: false };
-      try { Object.assign(pln, await parseMateria(it.materiaUrl)); } catch (_) {}
+      // lida do cabeçalho: a página da matéria vem pelo código dela nos Dados Abertos do Senado
+      if (!pln.materiaUrl) { try { pln.materiaUrl = await materiaUrlNoSenado(pln.sigla, pln.num, pln.ano); } catch (e) { if (isAbort(e)) throw e; } }
+      if (pln.materiaUrl) { try { Object.assign(pln, await parseMateria(pln.materiaUrl)); } catch (_) {} }
+      herdarDaPautaAnterior(pln, antigoDe('plns', pln.key));
       plns.push(pln);
     }
     setImportStatus('Salvando…');
-    const pauta = { id: 'p_' + id, pautaId: id, nome: p.titulo + (p.data ? ` — ${p.data}` : ''), data: p.data, vetos, plns, criadoEm: new Date().toISOString() };
+    const pauta = { id: 'p_' + id, pautaId: id, nome: p.titulo + (p.data ? ` — ${p.data}` : ''), data: p.data, vetos, plns,
+      criadoEm: (anterior && anterior.criadoEm) || new Date().toISOString() };
     await fbSalvarPauta(pauta);
     await carregarSessoes();
     document.getElementById('modal-importar').style.display = 'none';
     await abrirPauta(pauta.id);
-    mostrarToast(`✓ Pauta importada: ${p.vetos.length} veto(s) + ${p.plns.length} PLN/MPV.`, 'sucesso');
+    const semMateria = plns.filter(q => !q.materiaUrl).map(q => `${q.sigla} ${q.numero}`);
+    mostrarToast(`✓ Pauta importada: ${p.vetos.length} veto(s) + ${p.plns.length} PLN/MPV`
+      + (doCabecalho ? ` — ${doCabecalho} lido(s) do cabeçalho da sessão (a página ainda não lista as matérias uma a uma; importe de novo quando listar)` : '')
+      + (cab.deduzidos.length ? ` · ano deduzido: ${cab.deduzidos.join(', ')}` : '')
+      + (semMateria.length ? ` · sem a página da matéria: ${semMateria.join(', ')}` : '') + '.',
+      doCabecalho || semMateria.length || cab.deduzidos.length ? 'aviso' : 'sucesso');
   } catch (e) { setImportStatus('Erro: ' + e.message, '#f05454'); }
 }
 
@@ -2217,7 +2355,22 @@ function plnCasaBusca(p, termo) {
 function renderPlnsSecao(termo) {
   const plns = (app.sessaoAtiva?.plns || []).filter(p => plnCasaBusca(p, termo));
   if (!plns.length) return '';
-  return `<div class="cn-pln-secao"><div class="cn-pln-secao-tit">Projetos de Lei (PLNs) e MPVs de crédito</div>${plns.map(p => renderPlnCard(p, termo)).join('')}</div>`;
+  // Caixa que marca/desmarca de uma vez os PLNs/MPVs da pauta (os visíveis, com busca ativa) para exportar.
+  const marcados = plns.filter(p => app.selecionados.has(p.key)).length;
+  const caixa = `<label class="cn-pln-sel-todos" title="Marcar ou desmarcar, para exportar, todos os PLNs/MPVs${termo ? ' visíveis' : ' da pauta'}">`
+    + `<input type="checkbox" id="cn-sel-plns" data-parcial="${marcados > 0 && marcados < plns.length ? '1' : ''}"${marcados === plns.length ? ' checked' : ''}> Selecionar todos os PLNs${termo ? ' visíveis' : ''}</label>`;
+  return `<div class="cn-pln-secao"><div class="cn-pln-secao-tit">Projetos de Lei (PLNs) e MPVs de crédito${caixa}</div>${plns.map(p => renderPlnCard(p, termo)).join('')}</div>`;
+}
+/** Liga a caixa "Selecionar todos os PLNs" (estado parcial quando só parte está marcada). */
+function wireSelecaoPlns() {
+  const cx = document.getElementById('cn-sel-plns');
+  if (!cx) return;
+  cx.indeterminate = cx.dataset.parcial === '1';
+  cx.addEventListener('change', () => {
+    const plns = (app.sessaoAtiva?.plns || []).filter(p => plnCasaBusca(p, app.busca));
+    plns.forEach(p => (cx.checked ? app.selecionados.add(p.key) : app.selecionados.delete(p.key)));
+    renderLista();
+  });
 }
 function renderPlnCard(p, termo) {
   const temAnalise = !!p.analise;
@@ -2553,6 +2706,68 @@ async function carregarLogoBytes() {
 
 // Conjunto de itens a exportar (compartilhado por Word e PDF, garantindo
 // paridade): vetos marcados (ou os visíveis pelo filtro) + PLNs/MPVs da pauta.
+// ---------- Apelidos (WhatsApp), no formato do módulo de Plenário ----------
+// "▪️ *o que será votado* (apelido)", sem IA: o apelido é o oficial — o "Assunto" da lista de vetos do
+// Congresso e o apelido curado da página de cada PLN/MPV (sf_apelido), usados como estão.
+
+/** "Veto 14/2026 (parcial) ao PL 5582/2025" — o tipo e o projeto vetado, quando conhecidos. */
+function tituloVetoApelido(v) {
+  const tipo = /total/i.test(v.tipo || '') ? 'total' : /parcial/i.test(v.tipo || '') ? 'parcial' : '';
+  const mat = String(v.materia || '').replace(/\s+/g, ' ').trim();
+  const prep = /^(MPV|PEC)\b/i.test(mat) ? 'à' : 'ao';
+  return `Veto ${v.numero}${tipo ? ` (${tipo})` : ''}${mat ? ` ${prep} ${mat}` : ''}`;
+}
+
+/** O que o PLN/MPV faz, sem o valor: "crédito suplementar", "altera a LOA 2026"; '' quando o apelido já diz. */
+function tipoPlnApelido(p, apelido) {
+  const e = String(p.ementa || '').replace(/\s+/g, ' ');
+  const c = e.match(/cr[ée]ditos?\s+(suplementar|especial|extraordin[áa]rio)/i);
+  if (c) return 'crédito ' + c[1].toLowerCase();
+  const orc = (plnResumoOrcamentario({ ementa: e, apelido: '' }) || '').split(' · ')[0];
+  if (!orc || /\b(LOA|LDO|PPA)\b/i.test(apelido)) return '';
+  return orc.charAt(0).toLowerCase() + orc.slice(1);
+}
+
+/** A mensagem: vetos primeiro, depois PLNs/MPVs (a ordem da tela e do PDF). */
+function montarMensagemApelidos(vetos, plns) {
+  const linhas = [];
+  for (const v of vetos) {
+    const ap = String(v.assunto || '').replace(/\s+/g, ' ').trim();
+    linhas.push(`▪️ *${tituloVetoApelido(v)}*${ap && ap !== '(sem assunto)' ? ` (${ap})` : ''}`);
+  }
+  for (const p of plns) {
+    const ap = String(p.apelido || p.titulo || '').replace(/\s+/g, ' ').trim();
+    const tipo = tipoPlnApelido(p, ap);
+    linhas.push(`▪️ *${p.sigla} ${p.numero}*${tipo ? ` – ${tipo}` : ''}${ap ? ` (${ap})` : ''}`);
+  }
+  return { texto: linhas.join('\n'), total: linhas.length };
+}
+
+async function copiarParaAreaTransferencia(texto) {
+  try { await navigator.clipboard.writeText(texto); return true; } catch (_) {}
+  try {
+    const ta = document.createElement('textarea');
+    ta.value = texto;
+    ta.style.position = 'fixed'; ta.style.top = '0'; ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.focus(); ta.select();
+    const ok = document.execCommand('copy');
+    document.body.removeChild(ta);
+    return ok;
+  } catch (_) { return false; }
+}
+
+/** Copia a lista: os itens marcados; sem marcação, os da pauta (com busca ativa, os visíveis). */
+async function copiarApelidos() {
+  if (!app.sessaoAtiva) { mostrarToast('Abra uma pauta de sessão para copiar os apelidos.', 'aviso'); return; }
+  const { vetos, plns } = _selecaoExport();
+  const { texto, total } = montarMensagemApelidos(vetos, plns);
+  if (!total) { mostrarToast('Nenhum item para copiar.', 'aviso'); return; }
+  const ok = await copiarParaAreaTransferencia(texto);
+  mostrarToast(ok ? `✓ ${total} apelido(s) copiados — cole no WhatsApp.` : 'Não foi possível copiar automaticamente. Verifique se a aba está ativa e tente de novo.',
+    ok ? 'sucesso' : 'erro');
+}
+
 function _selecaoExport() {
   const termo = app.busca;
   const temSelecao = app.selecionados.size > 0;

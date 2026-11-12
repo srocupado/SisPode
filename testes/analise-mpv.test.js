@@ -40,6 +40,7 @@ const A = new Function('console', 'resolverMPVDeclarando', 'buscarEmendasSenadoE
   ${trecho(/const CENARIO_MPV_8B = [^\n]+/)}
   ${trecho(/const CENARIO_MPV_8B_PROPOSTO = [^\n]+/)}
   ${trecho(/const TIPOS_MPV = [^\n]+/)}
+  ${trecho(/const REGRA_ARGUMENTOS = [^\n]+/)}
   ${trecho(/const TIPOS_OPERATIVOS = [^\n]+/)}
   ${trecho(/function tipoLabel\([\s\S]*?\n}/)}
   ${trecho(/function ehMPV\([\s\S]*?\n}/)}
