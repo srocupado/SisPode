@@ -168,9 +168,10 @@ async function parsePlacarPortal(html, { sigla = 'PODE', descricao = '' } = {}) 
 // ============================================================
 
 function refDoRotulo(texto) {
+  // PLN e VETO: matérias da sessão do Congresso, que usa o mesmo painel ("PLN  Nº 25/2026 - …", 12/11/2026)
   const m = String(texto || '').toUpperCase()
-    .match(/\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|PLV)\s*N?[º°O]?\s*([\d.]+)\s*\/\s*(\d{4})\b/);
-  return m ? { sigla: m[1], numero: m[2].replace(/\./g, ''), ano: m[3] } : null;
+    .match(/\b(PL|PLP|PEC|PDL|PDC|MPV|PRC|REQ|PLV|PLN|VETO|VET)\s*N?[º°O]?\s*([\d.]+)\s*\/\s*(\d{4})\b/);
+  return m ? { sigla: m[1] === 'VETO' ? 'VET' : m[1], numero: m[2].replace(/\./g, ''), ano: m[3] } : null;
 }
 
 /**
