@@ -16,7 +16,9 @@ const { descobrirSessaoPortal, paginaSessao, parseItens, parsePlacarPortal, iden
 const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, buscarOrdemDoDia } = require('./src/odd');
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
-const { analisarPauta, exportarPdfPauta, resumoSessao } = require('./src/worker');
+const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa } = require('./src/worker');
+const { entradaDoTexto, refDoPdf, resolverProposicao, rotuloProp, chaveProp } = require('./src/avulsa');
+const { fbPut } = require('./src/firebase');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
 const { iniciarConvocacoes } = require('./src/convocacao');
 const { payloadWhatsApp } = require('./src/whatsapp');
@@ -74,6 +76,7 @@ const TEXTO_AJUDA =
   '/listar — lista os itens da pauta em uso\n' +
   '/analisar — gera as notas técnicas da pauta importada (na sua chave; pede confirmação)\n' +
   '/exportar — gera o PDF institucional da pauta com as análises\n' +
+  '/avulsa PL 1234/2025 — nota técnica de proposição FORA da pauta, em PDF institucional (sem índice), para conteúdo avulso ao parlamentar. Aceita o número, o link da Câmara, ou /avulsa e depois o PDF da proposição (no privado; na sua chave; pede confirmação)\n' +
   '/perguntar PL 1234/2026 <pergunta> — pergunta sobre um item da pauta (usa a nota técnica e os documentos da matéria)\n' +
   '/perguntar <pergunta> — pergunta sobre a pauta em geral\n' +
   '/nota PL 1234/2026 — mostra a nota técnica COMO ESTÁ SALVA no painel (texto integral, sem a IA reprocessar)\n' +
@@ -1151,6 +1154,104 @@ async function cmdExportar(ctx) {
 }
 bot.command('exportar', cmdExportar);
 
+// ---------- /avulsa — nota técnica de proposição FORA da pauta (PDF institucional sem índice) ----------
+// O servidor manda o número, o link da Câmara ou o PDF da proposição; o bot identifica, mostra o que achou
+// e pede confirmação (a geração roda na chave dele, como o /analisar). A nota sai pelo worker, com o código
+// do painel; o registro em /analises_avulsas impede a varredura de órfãs de apagá-la (a proposição não
+// está em pauta nenhuma) e a deixa pronta se o projeto entrar numa pauta depois.
+const avulsaPendente = new Map();    // token  → { prop, userId, ts }
+const avulsaAguardaPdf = new Map();  // userId → ts   (/avulsa sem argumento: o próximo PDF é a proposição)
+
+async function oferecerAvulsa(ctx, entrada, origem) {
+  if (!entrada) {
+    return ctx.reply('Não reconheci a proposição. Mande o número (ex.: /avulsa PL 1234/2025), o link da Câmara ou o PDF da proposição.');
+  }
+  if (entrada.senado) {
+    return ctx.reply('Esse PDF é do Senado — o número do Senado não identifica a matéria na Câmara. Mande o número na Câmara (ex.: /avulsa PL 1234/2025) ou o link da ficha na Câmara.');
+  }
+  if (entrada.linkDesconhecido) {
+    return ctx.reply('Só reconheço links da Câmara (ficha de tramitação ou "propostas-legislativas"). Mande o link da Câmara ou o número.');
+  }
+  let prop;
+  try { prop = await resolverProposicao(entrada); }
+  catch (e) { return ctx.reply(`Não deu: ${e.message}`); }
+  const token = crypto.randomBytes(6).toString('hex');
+  avulsaPendente.set(token, { prop, userId: ctx.from.id, ts: Date.now() });
+  return ctx.reply(
+    `📄 ${rotuloProp(prop)}${origem ? ` (${origem})` : ''}\n${prop.ementa || '(sem ementa)'}\n\n` +
+    'Gerar a nota técnica avulsa em PDF? Usa os documentos da tramitação na Câmara, como as notas da pauta. ' +
+    'Se a equipe já tiver nota para o parecer atual, ela é aproveitada (sem custo); "Gerar nova" refaz na sua chave.',
+    { reply_markup: new InlineKeyboard().text('📄 Gerar nota', `av:ok:${token}`).text('🔄 Gerar nova', `av:nova:${token}`).row().text('Cancelar', `av:no:${token}`) });
+}
+
+async function cmdAvulsa(ctx) {
+  if (!ehPrivado(ctx)) return ctx.reply('O /avulsa é no privado comigo (o PDF vem para você e a geração usa a sua chave).');
+  if (!getPerfil(ctx.from.id)?.apiKey) return ctx.reply('O /avulsa gera a nota na SUA chave de IA — configure com /config.');
+  const arg = String(ctx.match || '').trim();
+  if (!arg) {
+    avulsaAguardaPdf.set(ctx.from.id, Date.now());
+    return ctx.reply('Mande agora o PDF da proposição (inteiro teor ou avulso da Câmara) — ou o número / link: /avulsa PL 1234/2025.');
+  }
+  await ctx.replyWithChatAction('typing');
+  return oferecerAvulsa(ctx, entradaDoTexto(arg));
+}
+bot.command('avulsa', cmdAvulsa);
+
+const FASES_AVULSA = {
+  documentos: '🔎 Lendo a tramitação e escolhendo os documentos…',
+  gerando: '🤖 Gerando a nota técnica…',
+  conferindo: '🔁 Há nota da equipe — conferindo se ela usa o parecer atual…',
+  verificando: '🧪 Conferindo a nota contra os documentos (verificação por IA)…',
+  pdf: '📄 Montando o PDF…',
+};
+
+bot.callbackQuery(/^av:(ok|nova|no):([a-f0-9]+)$/, async ctx => {
+  const [, acao, token] = ctx.match;
+  const pend = avulsaPendente.get(token);
+  avulsaPendente.delete(token);
+  if (!pend || Date.now() - pend.ts > IMPORT_TTL) {
+    return ctx.answerCallbackQuery({ text: 'Pedido expirado — use /avulsa de novo.', show_alert: true });
+  }
+  if (acao === 'no') { await ctx.answerCallbackQuery({ text: 'Cancelado.' }); return ctx.editMessageText('Nota avulsa cancelada.'); }
+  const perfil = getPerfil(ctx.from.id);
+  if (!perfil?.apiKey) return ctx.answerCallbackQuery({ text: 'Configure sua chave com /config.', show_alert: true });
+  if (_workerOcupado) return ctx.answerCallbackQuery({ text: 'Já há uma geração/exportação em andamento — tente em instantes.', show_alert: true });
+  _workerOcupado = true;   // antes de qualquer await (ver a trava em ana:ok)
+  const { prop } = pend;
+  const rot = rotuloProp(prop);
+  const solicitante = perfil.nome || nomeDe(ctx);
+  await ctx.answerCallbackQuery().catch(() => {});
+  const status = txt => ctx.editMessageText(`${rot} — ${txt}`).catch(() => {});
+  try {
+    // Registro ANTES de gerar: a nota é salva no meio do caminho, e uma varredura de órfãs aberta nesse
+    // intervalo (qualquer painel) a apagaria por não estar em pauta.
+    await fbPut(`/analises_avulsas/${chaveProp(prop)}`, { sigla: prop.sigla, numero: prop.numero, ano: prop.ano, idCamara: prop.id,
+      pedidoPor: solicitante, pedidoEm: new Date().toISOString() });
+    await status('⚙️ Abrindo o painel no worker… (2 a 5 min)');
+    const r = await notaAvulsa({ perfil, prop, forcar: acao === 'nova', solicitante, onProgress: f => status(FASES_AVULSA[f] || f) });
+    const avisos = [];
+    if (r.inconclusa) avisos.push('ℹ️ A nota da equipe foi aproveitada, mas a Câmara não respondeu na conferência de parecer novo — se a matéria andou nos últimos dias, use "Gerar nova".');
+    if (r.refs.length) avisos.push(`⚠️ Conferência automática — não localizado nos documentos: ${r.refs.slice(0, 6).join('; ')}${r.refs.length > 6 ? '…' : ''}`);
+    const vf = r.verificacao;
+    if (vf && vf.falhou) avisos.push(`ℹ️ Verificação por IA não concluída (${vf.falhou}).`);
+    else if (vf && (vf.itens || []).length) avisos.push(`⚠️ Verificação por IA (${vf.modelo}): ${(vf.itens || []).length} trecho(s) sem respaldo nos documentos — confira antes de enviar:\n` +
+      (vf.itens || []).slice(0, 5).map(x => `• "${String(x.trecho).slice(0, 140)}" — ${String(x.motivo || '').slice(0, 140)}`).join('\n'));
+    else if (vf) avisos.push(`✓ Verificação por IA (${vf.modelo}): nenhum trecho sem respaldo apontado.`);
+    await ctx.replyWithChatAction('upload_document');
+    await ctx.replyWithDocument(
+      new InputFile(r.pdf, `Nota tecnica - ${rot.replace(/\//g, '-')}.pdf`),
+      { caption: `${r.titulo}\n${r.regerada ? `Nota da equipe estava superada (${r.regerada}) — gerada de novo`
+        : r.nova ? 'Nota gerada agora' : 'Nota já existente da equipe, aproveitada (em dia com o parecer atual)'}${r.documentos.length ? ` · base: ${r.documentos.join('; ')}` : ''}`.slice(0, 1000) });
+    if (avisos.length) await responderLongo(ctx, avisos.join('\n\n'));
+    await ctx.deleteMessage().catch(() => {});
+  } catch (e) {
+    console.error('/avulsa falhou:', e);
+    await status(`❌ Erro: ${e.message}`);
+  } finally {
+    _workerOcupado = false;
+  }
+});
+
 // ---------- Receber a pauta em PDF pelo chat ----------
 bot.on('message:document', async ctx => {
   if (!ehPrivado(ctx)) return;   // só no privado
@@ -1158,6 +1259,9 @@ bot.on('message:document', async ctx => {
   const ehPdf = doc.mime_type === 'application/pdf' || /\.pdf$/i.test(doc.file_name || '');
   if (!ehPdf) return ctx.reply('Só sei importar pautas em PDF.');
   if (doc.file_size > 20 * 1024 * 1024) return ctx.reply('PDF acima de 20 MB — o Telegram não deixa o bot baixar. Importe pelo painel.');
+  // PDF da PROPOSIÇÃO para uma nota avulsa: logo depois de um /avulsa sem argumento, ou com a legenda "avulsa".
+  const espera = avulsaAguardaPdf.get(ctx.from.id);
+  const paraAvulsa = /\bavulsa\b/i.test(ctx.message.caption || '') || (espera && Date.now() - espera < IMPORT_TTL);
 
   await ctx.replyWithChatAction('typing');
   try {
@@ -1165,6 +1269,11 @@ bot.on('message:document', async ctx => {
     const res = await fetch(`https://api.telegram.org/file/bot${BOT_TOKEN}/${file.file_path}`);
     if (!res.ok) throw new Error(`download: HTTP ${res.status}`);
     const texto  = await extrairTextoPdf(new Uint8Array(await res.arrayBuffer()));
+    if (paraAvulsa) {
+      avulsaAguardaPdf.delete(ctx.from.id);
+      if (!getPerfil(ctx.from.id)?.apiKey) return ctx.reply('O /avulsa gera a nota na SUA chave de IA — configure com /config.');
+      return oferecerAvulsa(ctx, refDoPdf(texto), 'identificada no PDF');
+    }
     const parsed = parsearPauta(texto);
     const lacunas = await recuperarLacunasBot(texto, parsed, getPerfil(ctx.from.id) || getPerfil(ADMIN_USER_ID)).catch(e => { console.error('lacunas:', e.message); return null; });
     if (!parsed.itens.length) {
@@ -2377,6 +2486,7 @@ const MENU_COMANDOS = [
   { command: 'ordemdodia',     description: 'Importar a Ordem do Dia de hoje' },
   { command: 'analisar',       description: 'Gerar as notas técnicas (na sua chave)' },
   { command: 'exportar',       description: 'PDF institucional da pauta' },
+  { command: 'avulsa',         description: 'Nota técnica de proposição fora da pauta (PDF)' },
   { command: 'digest',         description: '📺 Radar de imprensa + minutas (assinantes)' },
   { command: 'rodaviva',       description: '📺 Resumo da entrevista do Roda Viva (segunda)' },
   { command: 'comissao',       description: 'Pauta de uma comissão (ex.: /comissao CCJ hoje)' },

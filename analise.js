@@ -2970,6 +2970,7 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     } else {
       console.error(e);
       it.analiseStatus = 'erro';
+      it.analiseErro = e.message;
       conteudo.innerHTML = `<div class="an-analise-erro">Erro: ${escapeHtml(e.message)}</div>`;
     }
     btnGer.disabled = false;
@@ -5202,12 +5203,20 @@ async function varrerAnalisesOrfas(verbose) {
   if (verbose && stEl) stEl.textContent = 'Coletando dados...';
 
   try {
-    const [pautasRes, analisesRes] = await Promise.all([
+    const [pautasRes, analisesRes, avulsasRes] = await Promise.all([
       fetch(`${FIREBASE_URL}/pautas.json`),
       // shallow=true: só as chaves do 1º nível ({ chave: true }) — é tudo o que a varredura usa. Com
       // shallow=false, cada abertura da página baixava o conteúdo de TODAS as notas da equipe.
       fetch(`${FIREBASE_URL}/analises_pauta.json?shallow=true`),
+      // Notas AVULSAS (bot, /avulsa): a proposição não está em pauta nenhuma, e a nota não é órfã — o
+      // registro em /analises_avulsas é a referência dela.
+      fetch(`${FIREBASE_URL}/analises_avulsas.json?shallow=true`),
     ]);
+    if (!avulsasRes.ok) {   // sem saber quais são avulsas, apagar seria apagar nota pedida por alguém
+      if (verbose && stEl) stEl.textContent = '⚠️ Varredura abortada: registro de notas avulsas ilegível — nada foi removido.';
+      return { removidas: 0, abortado: true };
+    }
+    const avulsas = (await avulsasRes.json()) || {};
     const pautas   = pautasRes.ok   ? (await pautasRes.json())   : null;
     const analises = analisesRes.ok ? (await analisesRes.json()) : null;
     if (!analises) {
@@ -5227,6 +5236,7 @@ async function varrerAnalisesOrfas(verbose) {
     // Referência por CHAVE (proposição), não por parecerKey.
     const refs = new Set();
     for (const p of listaPautas) for (const it of (p.itens || [])) if (it?.chave) refs.add(it.chave);
+    for (const ch of Object.keys(avulsas)) refs.add(ch);
 
     const chavesOrfas = Object.keys(analises).filter(ch => !refs.has(ch));
 
@@ -5428,6 +5438,9 @@ let _pautaSaveEmVoo = null;  // PUT em andamento — serializa gravações conco
 let _dirtySeq = 0;           // incrementado a cada edição; detecta edição durante o PUT
 
 async function fbSalvarPauta(pauta) {
+  // A "pauta" de uma nota avulsa (bot, /avulsa) existe só na memória do worker: gravá-la criaria na lista
+  // da equipe uma pauta de um item que ninguém importou.
+  if (pauta?.origem === 'avulsa') return;
   // Serializa: se já há um PUT em voo (autosave × chamada direta), espera-o
   // terminar antes de gravar — evita dois PUTs do documento inteiro se cruzando.
   while (_pautaSaveEmVoo) {
@@ -5937,17 +5950,20 @@ async function prepararApelidos(itens) {
 // HTML de impressão da pauta — cabeçalho institucional (padrão do módulo do
 // Congresso), índice clicável com nº de página (Paged.js / target-counter) e os
 // itens com título "o que será votado (apelido)".
-function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
+function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar, opts = {}) {
   const esc = escapeHtml;
   const bm  = chave => 'i_' + String(chave).replace(/[^\w]/g, '_');
+  // NOTA AVULSA (bot, /avulsa): uma proposição fora da pauta, pedida por um servidor para o parlamentar.
+  // Mesmo documento institucional, sem índice e sem o número de ordem — não há pauta.
+  const avulsa = !!opts.avulsa;
   // Numeração: ao exportar um subconjunto selecionado, renumera de 1; do
   // contrário usa o nº da tela (it.ordem).
-  const num = (it, i) => ((renumerar ? i + 1 : (it.ordem ?? i + 1)) + '. ');
+  const num = (it, i) => (avulsa ? '' : (renumerar ? i + 1 : (it.ordem ?? i + 1)) + '. ');
   const itens = pauta.itens || [];
   const placeholder = st => st === 'erro' ? 'Falha ao gerar análise.' : st === 'gerando' ? 'Análise em processamento.' : 'Análise não gerada.';
   // O título já inclui o período ("Pauta — <período>"); não repetir o período
   // nem o horário de geração.
-  const meta = `${esc(pauta.nome || pauta.titulo || '')} · ${itens.length} item(ns)`;
+  const meta = avulsa ? esc(opts.meta || '') : `${esc(pauta.nome || pauta.titulo || '')} · ${itens.length} item(ns)`;
 
   // Legenda das marcas — só lista as que de fato aparecem em algum item.
   const legItens = [];
@@ -5957,7 +5973,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
   if (itens.some(it => relatoriaPodemos(it))) legItens.push('<b>R</b> = Relatoria do Podemos em Plenário');
   const legenda = legItens.length ? `<p class="indice-legenda">${legItens.join(' · ')}</p>` : '';
 
-  const indice = itens.length ? `
+  const indice = itens.length && !avulsa ? `
     <section class="indice">
       <h2>Índice</h2>
       ${legenda}
@@ -5994,7 +6010,7 @@ function _htmlImpressaoPautaPlenario(pauta, logoDataUrl, renumerar) {
 ${CSS_IMPRESSAO_PLENARIO}  </style></head><body>
     <div class="cab">
       <div class="sp"></div>
-      <div class="tit"><h1>Pauta de Plenário</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
+      <div class="tit"><h1>${avulsa ? 'Nota Técnica' : 'Pauta de Plenário'}</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>
       ${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : '<div class="sp"></div>'}
     </div>
     <div class="rule"></div>
@@ -7992,6 +8008,34 @@ function habilitarBotoesPauta() {
    'btn-gerar-todas', 'btn-verificar-atualizacoes', 'btn-prop-partido', 'btn-resumo-sessao',
    'btn-apelidos', 'btn-recategorizar']
     .forEach(id => { const el = document.getElementById(id); if (el) el.disabled = false; });
+}
+
+/**
+ * NOTA AVULSA (bot, /avulsa): abre no painel uma "pauta" de um item só, em memória, para a proposição
+ * pedida — a nota sai pelo MESMO caminho de um item de pauta (enriquecimento, documentos, cenários,
+ * prompts, conferências, verificação por IA) e é salva em /analises_pauta como qualquer nota. A pauta
+ * não é gravada (fbSalvarPauta ignora origem 'avulsa'); quem impede a varredura de órfãs de apagar a
+ * nota é o registro em /analises_avulsas, que o bot grava ao confirmar o pedido.
+ * Devolve o item (já na tela, com o enriquecimento disparado).
+ */
+function abrirItemAvulso({ sigla, numero, ano, ementa = '', solicitante = '' }) {
+  const rotulo = `${tipoLabel(sigla)} ${numero}/${ano}`;
+  state.pauta = {
+    id: `avulsa-${sigla}-${numero}-${ano}`.toLowerCase(),
+    titulo: `Nota técnica — ${rotulo}`,
+    periodo: '',
+    uploadedAt: new Date().toISOString(),
+    uploadedBy: solicitante || state.config?.nomeUsuario || 'bot',
+    origem: 'avulsa',
+    itens: [normalizarItem({
+      ordem: 1, tipoCategoria: 'projeto', sigla, numero: String(numero), ano: String(ano), ementa,
+      autorTexto: '', apensadosTexto: [], relator: null, temUrgencia: false, adicionadoManualmente: true,
+      analista: solicitante || '',   // quem pediu é o responsável: sai no PDF e fica gravado na nota
+    })],
+  };
+  renderizarPauta();
+  enriquecerItens();
+  return state.pauta.itens[0];
 }
 
 async function criarPautaManual() {
