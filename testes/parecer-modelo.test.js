@@ -24,6 +24,16 @@ ok(P.escolherModelo(lista, { fixado: 'gemini-2.5-pro' }).modelo === 'gemini-2.5-
 ok(P.escolherModelo(lista, { fixado: 'gemini-3.8-flash-lite' }).modelo === 'gemini-3.8-flash', 'modelo fixado econômico é ignorado: cai no automático');
 const rk = P.ranquearModelos(lista);
 ok(rk[0].id === 'gemini-3.8-flash' && rk.every(m => m.faixa !== 'outra_modalidade') && rk.filter(m => !m.elegivel).every(m => /econômica/.test(m.motivoInelegivel)), 'ranking para o diálogo: elegíveis primeiro, imagem fora, econômicos com motivo');
+console.log('== faixa conhecida primeiro (16/11/2026: gemini-4-argon) ==');
+const comArgon = [...lista, 'gemini-4-argon'];
+ok(P.faixaDoModelo('gemini-4-argon') === 'nao_identificada', 'nome de código sem pro/flash/lite: faixa não identificada');
+ok(P.escolherModelo(comArgon, {}).modelo === 'gemini-3.8-flash', 'versão mais alta, mas faixa desconhecida: perde para o de faixa conhecida');
+ok(P.ranquearModelos(comArgon).findIndex(m => m.id === 'gemini-4-argon') > P.ranquearModelos(comArgon).findIndex(m => m.id === 'gemini-2.5-flash'), 'no ranking, o sem faixa vem depois de TODOS os de faixa conhecida');
+const soArgon = P.escolherModelo(['gemini-4-argon', 'gemini-3.1-flash-lite'], {});
+ok(soArgon.modelo === 'gemini-4-argon' && /nenhum de faixa conhecida/.test(soArgon.motivo) && /não foi identificada/.test(soArgon.ressalva || ''), 'sem alternativa: o de faixa desconhecida é usado, com motivo e ressalva');
+ok(P.escolherModelo(['gpt-5', 'gpt-5-pro', 'gpt-5-mini'], {}).modelo === 'gpt-5-pro', 'OpenAI: gpt-5-pro (superior) antes do gpt-5 (sem marca)');
+ok(P.escolherModelo(['gpt-5', 'gpt-5-mini'], {}).modelo === 'gpt-5', 'OpenAI só com gpt-5 e mini: gpt-5 (não econômico) segue elegível');
+ok(P.escolherModelo(comArgon, { fixado: 'gemini-4-argon' }).modelo === 'gemini-4-argon', 'fixado pelo usuário: vale mesmo sem faixa conhecida');
 const so = P.escolherModelo(['gemini-3.1-flash-lite', 'gpt-5-mini'], { padraoDoUsuario: 'gpt-5-mini' });
 ok(!!so.erro, 'só econômicos → recusa com erro: ' + so.erro);
 
