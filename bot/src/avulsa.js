@@ -64,26 +64,46 @@ function refDoPdf(texto) {
   return refDoTexto(ini);
 }
 
-async function getJson(url, fetchFn) {
-  const r = await fetchFn(url, { headers: { Accept: 'application/json' } });
-  if (!r.ok) throw new Error(`Câmara respondeu HTTP ${r.status}`);
-  return r.json();
+// A API da Câmara cai com frequência (504 depois de ~16 s, ou conexão pendurada — 16/11/2026: o
+// /avulsa PL 4675/2025 ficou sem resposta). Sem tempo-limite o servidor esperava calado; agora cada
+// chamada tem prazo, há UMA nova tentativa para falha do servidor (5xx, prazo, rede) e o erro final diz
+// o que houve. 404 é resposta (não existe), não falha: não se repete.
+const PRAZO_CAMARA_MS = 25000;
+class CamaraForaDoAr extends Error {}
+
+async function getJson(url, fetchFn, { tentativas = 2, esperaMs = 3000, prazoMs = PRAZO_CAMARA_MS } = {}) {
+  let ultimo = '';
+  for (let i = 0; i < tentativas; i++) {
+    if (i) await new Promise(r => setTimeout(r, esperaMs));
+    let r;
+    try {
+      r = await fetchFn(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(prazoMs) });
+    } catch (e) {
+      ultimo = /timeout|abort/i.test(`${e.name} ${e.message}`) ? `sem resposta em ${Math.round(prazoMs / 1000)} s` : `falha de rede (${e.message})`;
+      continue;
+    }
+    if (r.status === 404) return { dados: null };
+    if (r.ok) return r.json();
+    ultimo = `HTTP ${r.status}`;
+    if (r.status < 500) break;   // 4xx: repetir não muda nada
+  }
+  throw new CamaraForaDoAr(`a API da Câmara não está respondendo agora (${ultimo}). É instabilidade do lado da Câmara — tente de novo em alguns minutos.`);
 }
 
 /**
  * Resolve na API da Câmara. Devolve { id, sigla, numero, ano, ementa } ou lança erro com mensagem
  * para o servidor (não localizada, tipo sem nota técnica).
  */
-async function resolverProposicao(entrada, fetchFn = fetch) {
+async function resolverProposicao(entrada, fetchFn = fetch, opts = {}) {
   let d;
   if (entrada.id) {
-    d = (await getJson(`${API}/proposicoes/${entrada.id}`, fetchFn)).dados;
+    d = (await getJson(`${API}/proposicoes/${entrada.id}`, fetchFn, opts)).dados;
     if (!d) throw new Error('não encontrei essa proposição na Câmara.');
   } else {
     const q = `${API}/proposicoes?siglaTipo=${entrada.sigla}&numero=${entrada.numero}&ano=${entrada.ano}&itens=5`;
-    const lista = (await getJson(q, fetchFn)).dados || [];
+    const lista = (await getJson(q, fetchFn, opts)).dados || [];
     if (!lista.length) throw new Error(`não encontrei ${entrada.sigla} ${entrada.numero}/${entrada.ano} na Câmara.`);
-    d = (await getJson(`${API}/proposicoes/${lista[0].id}`, fetchFn)).dados || lista[0];
+    d = (await getJson(`${API}/proposicoes/${lista[0].id}`, fetchFn, opts)).dados || lista[0];
   }
   const sigla = String(d.siglaTipo || '').toUpperCase();
   if (!SIGLAS_AVULSA.includes(sigla)) {
@@ -92,7 +112,32 @@ async function resolverProposicao(entrada, fetchFn = fetch) {
   return { id: d.id, sigla, numero: Number(d.numero), ano: Number(d.ano), ementa: String(d.ementa || '').replace(/\s+/g, ' ').trim() };
 }
 
+/**
+ * Notas que a equipe já tem da proposição, a partir do nó /analises_pauta/{SIGLA-numero-ano} (uma nota por
+ * parecer: "inteiro-teor", "parecer-AAAA-MM-DD"). Serve para o servidor saber, ANTES de confirmar, que a
+ * nota existe e será aproveitada sem custo — o worker ainda confere se saiu parecer novo na Câmara.
+ * Devolve { n, chave, base, quando, por, verificada } da nota mais recente, ou null se não há nota com texto.
+ */
+function resumoNotasExistentes(no) {
+  const dataBR = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
+  const notas = Object.entries(no && typeof no === 'object' ? no : {})
+    .filter(([, a]) => a && typeof a === 'object' && String(a.markdown || '').trim())
+    .map(([k, a]) => ({
+      chave: k,
+      base: k === 'inteiro-teor' ? 'inteiro teor' : k === 'redacao-final' ? 'redação final'
+        : /^parecer-/.test(k) ? `parecer de ${dataBR(k.slice(8)) || k.slice(8)}` : k,
+      ordem: String(a.editadoEm || a.geradoEm || ''),
+      quando: dataBR(a.editadoEm || a.geradoEm),
+      por: String(a.geradoPor || '').trim(),
+      verificada: !!(a.verificacaoIA && !a.verificacaoIA.falhou),
+    }));
+  if (!notas.length) return null;
+  notas.sort((x, y) => y.ordem.localeCompare(x.ordem));
+  const { ordem, ...maisRecente } = notas[0];
+  return { n: notas.length, ...maisRecente };
+}
+
 const rotuloProp = p => `${p.sigla} ${p.numero}/${p.ano}`;
 const chaveProp = p => `${p.sigla}-${p.numero}-${p.ano}`;
 
-module.exports = { SIGLAS_AVULSA, refDoTexto, entradaDoTexto, refDoPdf, resolverProposicao, rotuloProp, chaveProp };
+module.exports = { SIGLAS_AVULSA, CamaraForaDoAr, refDoTexto, entradaDoTexto, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp };

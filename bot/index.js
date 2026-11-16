@@ -17,8 +17,8 @@ const { importarOrdemDoDiaDeHoje, importarOrdemDoDia, eventosDeliberativos, busc
 const { definirPautaAtiva, pautaDoUsuario } = require('./src/sessao');
 const { imagemVotacao } = require('./src/imagem');
 const { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa } = require('./src/worker');
-const { entradaDoTexto, refDoPdf, resolverProposicao, rotuloProp, chaveProp } = require('./src/avulsa');
-const { fbPut } = require('./src/firebase');
+const { entradaDoTexto, refDoPdf, resolverProposicao, resumoNotasExistentes, rotuloProp, chaveProp } = require('./src/avulsa');
+const { fbGet, fbPut } = require('./src/firebase');
 const { iniciarMonitor, setMonitorLigado, statusMonitor, marcarOddImportada, listarMsgsGrupo, revisarMsgGrupo, registrarMsgGrupo, carregarMsgsGrupo, setFaltantesAuto, getFaltantesAuto } = require('./src/monitor');
 const { iniciarConvocacoes } = require('./src/convocacao');
 const { payloadWhatsApp } = require('./src/whatsapp');
@@ -1172,16 +1172,37 @@ async function oferecerAvulsa(ctx, entrada, origem) {
   if (entrada.linkDesconhecido) {
     return ctx.reply('Só reconheço links da Câmara (ficha de tramitação ou "propostas-legislativas"). Mande o link da Câmara ou o número.');
   }
+  // Resposta IMEDIATA: a consulta à Câmara pode levar até ~1 min quando a API está instável, e o
+  // servidor não pode ficar sem saber se o bot recebeu o pedido. A mesma mensagem vira o resultado.
+  const alvo = entrada.id ? `a proposição do link (id ${entrada.id})` : rotuloProp(entrada);
+  const aviso = await ctx.reply(`🔎 Procurando ${alvo} na Câmara…`);
+  const responder = (txt, extra) => ctx.api.editMessageText(aviso.chat.id, aviso.message_id, txt, extra)
+    .catch(() => ctx.reply(txt, extra));
   let prop;
   try { prop = await resolverProposicao(entrada); }
-  catch (e) { return ctx.reply(`Não deu: ${e.message}`); }
+  catch (e) { return responder(`Não deu: ${e.message}`); }
+  // Nota que a equipe JÁ TEM (de uma pauta anterior ou de outro /avulsa): o servidor sabe antes de
+  // confirmar que ela será aproveitada sem gastar a chave. undefined = Firebase não respondeu (texto genérico).
+  let existente;
+  try { existente = resumoNotasExistentes(await fbGet(`/analises_pauta/${chaveProp(prop)}`)); }
+  catch (e) { console.warn('/avulsa: consulta da nota existente falhou:', e.message); }
   const token = crypto.randomBytes(6).toString('hex');
   avulsaPendente.set(token, { prop, userId: ctx.from.id, ts: Date.now() });
-  return ctx.reply(
+  const sobreNota = existente
+    ? `📚 A equipe já tem nota desta proposição (sobre o ${existente.base}${existente.quando ? `, de ${existente.quando}` : ''}` +
+      `${existente.por ? `, por ${existente.por}` : ''}${existente.verificada ? ', verificada por IA' : ''}).\n` +
+      '"Gerar nota" a aproveita, sem gastar a sua chave — antes, o bot confere na Câmara se saiu parecer novo; se saiu, gera de novo e avisa. ' +
+      '"Gerar nova" refaz do zero na sua chave.'
+    : existente === null
+      ? 'Não há nota da equipe para esta proposição: a nota é gerada do zero na sua chave (2 a 5 min), com os documentos da tramitação na Câmara, como as notas da pauta.'
+      : 'Usa os documentos da tramitação na Câmara, como as notas da pauta. Se a equipe já tiver nota para o parecer atual, ela é aproveitada (sem custo); "Gerar nova" refaz na sua chave.';
+  const teclado = new InlineKeyboard().text('📄 Gerar nota', `av:ok:${token}`);
+  if (existente !== null) teclado.text('🔄 Gerar nova', `av:nova:${token}`);
+  teclado.row().text('Cancelar', `av:no:${token}`);
+  return responder(
     `📄 ${rotuloProp(prop)}${origem ? ` (${origem})` : ''}\n${prop.ementa || '(sem ementa)'}\n\n` +
-    'Gerar a nota técnica avulsa em PDF? Usa os documentos da tramitação na Câmara, como as notas da pauta. ' +
-    'Se a equipe já tiver nota para o parecer atual, ela é aproveitada (sem custo); "Gerar nova" refaz na sua chave.',
-    { reply_markup: new InlineKeyboard().text('📄 Gerar nota', `av:ok:${token}`).text('🔄 Gerar nova', `av:nova:${token}`).row().text('Cancelar', `av:no:${token}`) });
+    `Gerar a nota técnica avulsa em PDF?\n${sobreNota}`,
+    { reply_markup: teclado });
 }
 
 async function cmdAvulsa(ctx) {

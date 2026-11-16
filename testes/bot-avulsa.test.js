@@ -66,6 +66,37 @@ const J = x => JSON.stringify(x);
   const erro = async p => { try { await p; return ''; } catch (e) { return e.message; } };
   ok(/não encontrei PL 9999\/2025/.test(await erro(A.resolverProposicao({ sigla: 'PL', numero: 9999, ano: 2025 }, falso))), 'não localizada: mensagem clara');
   ok(/não é um tipo com nota técnica/.test(await erro(A.resolverProposicao({ id: 111 }, falso))), 'REQ: recusado (a nota avulsa é de proposição)');
+  // API da Câmara fora do ar (16/11/2026: 504 em ~16 s em toda consulta): nova tentativa, depois mensagem clara
+  let n504 = 0;
+  const fora = async () => { n504++; return { ok: false, status: 504, json: async () => ({}) }; };
+  const msg504 = await erro(A.resolverProposicao({ sigla: 'PL', numero: 4675, ano: 2025 }, fora, { esperaMs: 0 }));
+  ok(/API da Câmara não está respondendo agora \(HTTP 504\)/.test(msg504) && n504 === 2, 'Câmara com 504: tenta 2 vezes e diz que é instabilidade da Câmara');
+  let nPend = 0;
+  const pendura = async (url, o) => { nPend++; return new Promise((_, rej) => o.signal.addEventListener('abort', () => rej(o.signal.reason))); };
+  const vivo = setInterval(() => {}, 1000);   // o timer do AbortSignal.timeout não segura o processo (no bot, o polling segura)
+  const msgPend = await erro(A.resolverProposicao({ id: 1 }, pendura, { esperaMs: 0, prazoMs: 50 }));
+  clearInterval(vivo);
+  ok(/API da Câmara não está respondendo agora \(sem resposta em/.test(msgPend) && nPend === 2, 'conexão pendurada: corta no prazo (não fica calado)');
+  let nOk = 0;
+  const volta = async url => (++nOk === 1 ? { ok: false, status: 502, json: async () => ({}) } : falso(url));
+  ok((await A.resolverProposicao({ id: 2515534 }, volta, { esperaMs: 0 })).id === 2515534, 'falha passageira: a 2ª tentativa resolve');
+  let n404 = 0;
+  const nao = async () => { n404++; return { ok: false, status: 404, json: async () => ({}) }; };
+  ok(/não encontrei essa proposição/.test(await erro(A.resolverProposicao({ id: 9 }, nao, { esperaMs: 0 }))) && n404 === 1, '404 é "não existe": sem repetir');
+  ok(/🔎 Procurando \$\{alvo\} na Câmara/.test(idx) && idx.indexOf('🔎 Procurando') < idx.indexOf('await resolverProposicao(entrada)'),
+    'o bot responde ANTES de consultar a Câmara (o servidor sabe que o pedido chegou)');
+  // nota que a equipe já tem: avisada ANTES da confirmação (pedido de 16/11/2026)
+  const ex = A.resumoNotasExistentes({
+    'inteiro-teor': { markdown: '## Nota antiga', geradoEm: '2026-03-01T10:00:00Z', geradoPor: 'Ana' },
+    'parecer-2026-04-22': { markdown: '## Nota', geradoEm: '2026-11-04T12:00:00Z', editadoEm: '2026-11-05T09:00:00Z', geradoPor: 'Pedro', verificacaoIA: { itens: [] } },
+    'parecer-2026-05-01': { markdown: '', manual: true, geradoEm: '2026-11-10T00:00:00Z' },
+  });
+  ok(ex && ex.n === 2 && ex.base === 'parecer de 22/04/2026' && ex.quando === '05/11/2026' && ex.por === 'Pedro' && ex.verificada,
+    'nota existente: a mais recente com texto (esqueleto vazio não conta), com parecer, data, autor e verificação');
+  ok(A.resumoNotasExistentes(null) === null && A.resumoNotasExistentes({ x: { markdown: '  ' } }) === null, 'sem nota com texto: null');
+  ok(A.resumoNotasExistentes({ 'inteiro-teor': { markdown: 'x', verificacaoIA: { falhou: 'HTTP 503' } } }).verificada === false, 'verificação que falhou não conta como verificada');
+  ok(idx.indexOf("fbGet(`/analises_pauta/${chaveProp(prop)}`)") > 0 && idx.indexOf("fbGet(`/analises_pauta/${chaveProp(prop)}`)") < idx.indexOf("av:ok:${token}"),
+    'o bot consulta a nota existente antes de oferecer os botões');
   ok(A.chaveProp({ sigla: 'PL', numero: 2475, ano: 2025 }) === 'PL-2475-2025' && /chave: it\.chave \|\| `\$\{it\.sigla\}-\$\{it\.numero\}-\$\{it\.ano\}`/.test(fn('normalizarItem')),
     'a chave do registro de avulsa é a mesma da nota no painel (SIGLA-numero-ano)');
 
