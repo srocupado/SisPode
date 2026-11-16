@@ -22,6 +22,8 @@ const PAGED_JS = path.join(EXT_DIR, 'libs', 'paged.polyfill.js');  // paginador 
 const FUNCOES_PAINEL = [
   'carregarPautaPorId', 'gerarTodasAsAnalises', '_htmlImpressaoPautaPlenario',
   'prepararApelidos', 'carregarLogoDataUrl', 'carregarConfig',
+  'abrirItemAvulso', 'gerarAnaliseItem', 'tituloComApelido',   // nota avulsa (/avulsa)
+  'verificarAtualizacaoItem', '_resumoNovos',
 ];
 
 let _browser = null;
@@ -191,19 +193,117 @@ async function exportarPdfPauta({ perfil, pautaId }) {
       titulo:   state.pauta.nome || state.pauta.titulo || state.pauta.id,
     }));
 
-    // Renderiza numa página branca + Paged.js (inlined do repositório) e imprime.
-    const pagina = await browser.newPage();
-    try {
-      await pagina.setContent(html, { waitUntil: 'domcontentloaded' });
-      await pagina.evaluate(() => { window.PagedConfig = { auto: true, after: () => { window.__pagedPronto = true; } }; });
-      await pagina.addScriptTag({ path: PAGED_JS });
-      await pagina.waitForFunction('window.__pagedPronto === true', { timeout: 90000 })
-        .catch(() => { /* imprime sem numeração de índice se o Paged travar */ });
-      const pdf = await pagina.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true });
-      return { pdf: Buffer.from(pdf), ...meta };
-    } finally {
-      await pagina.close().catch(() => {});
+    return { pdf: await imprimirHtml(browser, html), ...meta };
+  } finally {
+    await fecharNavegador();
+  }
+}
+
+/** Renderiza o HTML de impressão do painel numa página branca + Paged.js (inlined do repositório) e imprime. */
+async function imprimirHtml(browser, html) {
+  const pagina = await browser.newPage();
+  try {
+    await pagina.setContent(html, { waitUntil: 'domcontentloaded' });
+    await pagina.evaluate(() => { window.PagedConfig = { auto: true, after: () => { window.__pagedPronto = true; } }; });
+    await pagina.addScriptTag({ path: PAGED_JS });
+    await pagina.waitForFunction('window.__pagedPronto === true', { timeout: 90000 })
+      .catch(() => { /* imprime sem numeração se o Paged travar */ });
+    return Buffer.from(await pagina.pdf({ format: 'A4', printBackground: true, preferCSSPageSize: true }));
+  } finally {
+    await pagina.close().catch(() => {});
+  }
+}
+
+/**
+ * NOTA AVULSA (/avulsa): a nota técnica de UMA proposição fora da pauta, pelo MESMO caminho de um item de
+ * pauta — o painel abre um item avulso (abrirItemAvulso), gera com gerarAnaliseItem (documentos, cenário,
+ * prompt, conferências, verificação por IA) e imprime o PDF institucional SEM índice.
+ * `forcar`: gera de novo mesmo havendo nota da equipe para o parecer atual (sem ele, a nota salva é usada).
+ * onProgress(fase) recebe 'documentos' | 'gerando' | 'conferindo' | 'verificando' | 'pdf'.
+ * Devolve { pdf, titulo, apelido, nova, regerada, inconclusa, refs, verificacao, documentos, cenario }:
+ * `regerada` diz o documento novo que tornou superada a nota da equipe (e por isso ela foi refeita);
+ * `inconclusa`, que a fonte não respondeu na conferência da nota aproveitada. Lança erro com a causa.
+ */
+async function notaAvulsa({ perfil, prop, forcar = false, solicitante = '', onProgress, timeoutMin = 20 }) {
+  const { browser, page } = await abrirPainel({ perfil });
+  const fase = async f => { if (onProgress) { try { await onProgress(f); } catch (_) {} } };
+  try {
+    // O painel carrega sozinho a última pauta da equipe ao abrir; o item avulso só entra depois disso,
+    // senão a pauta carregada por último substituiria a avulsa no meio da geração.
+    await page.waitForFunction(() => typeof state === 'object' && state.pauta, { timeout: 20000 }).catch(() => {});
+    await new Promise(r => setTimeout(r, 1500));
+    await page.evaluate(({ prop, forcar, solicitante }) => {
+      window.__av = { fim: false, t0: Date.now() };
+      const it = abrirItemAvulso({ ...prop, solicitante });
+      window.__avIt = it;
+      gerarAnaliseItem(it, forcar).catch(e => { it.analiseErro = e.message; }).finally(() => { window.__av.fim = true; });
+    }, { prop, forcar, solicitante });
+
+    const estado = () => page.evaluate(() => {
+      const it = window.__avIt;
+      return {
+        fim: window.__av.fim, status: it.analiseStatus, erro: it.analiseErro || '',
+        enr: it.enriquecimento?.status, temNota: !!it.analise,
+        nova: !!(it.analise && new Date(it.analise.geradoEm).getTime() >= window.__av.t0 - 2000),
+        verif: !!it.analise?.verificacaoIA, verificando: !!it._verificando,
+        avulsa: state.pauta?.origem === 'avulsa',
+      };
+    });
+    const limite = Date.now() + timeoutMin * 60e3;
+    let ultima = '', fimEm = 0, st, conferida = false, regerada = '', inconclusa = false;
+    while (Date.now() < limite) {
+      await new Promise(r => setTimeout(r, 3000));
+      st = await estado();
+      if (!st.avulsa) throw new Error('o painel trocou de pauta no meio da geração — tente de novo.');
+      if (st.fim && (st.status !== 'ok' || !st.temNota)) throw new Error(st.erro || 'a nota não foi gerada.');
+      const f = st.fim ? (st.nova && !st.verif ? 'verificando' : (!st.nova && !conferida ? 'conferindo' : 'pdf'))
+        : (st.enr === 'ok' || st.enr === 'erro' ? 'gerando' : 'documentos');
+      if (f !== ultima) { ultima = f; await fase(f); }
+      if (!st.fim) continue;
+      if (st.status !== 'ok' || !st.temNota) throw new Error(st.erro || 'a nota não foi gerada.');
+      // Nota da equipe aproveitada: a chave dela é a do parecer que o item avulso conhece (sem o relator que
+      // a pauta traria, cai em "inteiro-teor"), e ela pode ter sido feita sobre um parecer já superado —
+      // CASO REAL no teste de 16/11/2026: PL 2475/2025, nota de 04/11 sobre o PRLP nº 1, com o PRLP nº 2 já
+      // publicado. A mesma conferência do botão "Verificar atualização" (reconsulta a fonte): documento
+      // operativo novo → gera de novo (é o que a confirmação promete: "nota para o parecer atual").
+      if (!st.nova && !conferida) {
+        conferida = true;
+        const d = await page.evaluate(async () => {
+          const r = await verificarAtualizacaoItem(window.__avIt);
+          if (r && r.novos && r.novos.length) {
+            const it = window.__avIt;
+            window.__av = { fim: false, t0: Date.now() };
+            gerarAnaliseItem(it, true).catch(e => { it.analiseErro = e.message; }).finally(() => { window.__av.fim = true; });
+            return { regerada: _resumoNovos(r.novos) };
+          }
+          return { inconclusa: !!(r && r.inconclusa) };
+        });
+        if (d.regerada) { regerada = d.regerada; ultima = ''; continue; }
+        inconclusa = d.inconclusa;
+      }
+      if (!fimEm) fimEm = Date.now();
+      // nota nova: espera a verificação por IA (corre depois de salvar), até 4 min; nota reaproveitada não tem
+      if (!st.nova || st.verif || Date.now() - fimEm > 240e3) break;
     }
+    if (!st || !st.fim) throw new Error(`tempo esgotado (${timeoutMin} min) — se a nota tiver sido gerada, ela está salva no SisPode.`);
+
+    const r = await page.evaluate(async (solicitante) => {
+      const it = window.__avIt;
+      try { await prepararApelidos(state.pauta.itens); } catch (_) {}
+      const logo = await carregarLogoDataUrl();
+      const quando = new Date().toLocaleDateString('pt-BR');
+      const meta = `Proposição fora da pauta · ${quando}`;   // quem pediu sai como "Responsável" do item
+      return {
+        html: _htmlImpressaoPautaPlenario(state.pauta, logo, false, { avulsa: true, meta }),
+        titulo: tituloComApelido(it),
+        apelido: it.apelido || it.analise.apelido || '',
+        refs: it.analise.refsSuspeitas || [],
+        verificacao: it.analise.verificacaoIA || null,
+        documentos: (it.analise.documentos || []).map(d => d.rotulo),
+        cenario: it.analise.cenario || '',
+      };
+    }, solicitante);
+    return { pdf: await imprimirHtml(browser, r.html), nova: st.nova, regerada, inconclusa, ...r, html: undefined };
   } finally {
     await fecharNavegador();
   }
@@ -251,4 +351,4 @@ async function resumoSessao({ pautaId, dataISO }) {
   }
 }
 
-module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, fecharNavegador };
+module.exports = { analisarPauta, exportarPdfPauta, resumoSessao, notaAvulsa, fecharNavegador };
