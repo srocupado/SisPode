@@ -104,14 +104,23 @@ const ORDEM_FAIXA = { superior: 3, nao_identificada: 2, intermediaria: 1, econom
  * preteria pelo 3.1-pro. A convenção de nomes envelheceu; a VERSÃO decide,
  * a faixa desempata, "preview" fica atrás do estável. A faixa econômica
  * continua fora (elegivel: false) — é a regra de faixa mínima da Liderança.
+ *
+ * FAIXA CONHECIDA PRIMEIRO (16/11/2026): a chave do Google passou a listar o
+ * "gemini-4-argon" — nome de código, sem pro/flash/lite — e ele ganhou a
+ * verificação por IA das notas só por ter a versão mais alta. Um modelo sem
+ * faixa identificada pode ser experimental, instável ou ser retirado sem
+ * aviso: entre os elegíveis, os de faixa conhecida (superior/intermediária)
+ * vêm antes; o de faixa não identificada só é escolhido quando não há outro.
+ * Dentro de cada grupo, a regra de 05/09 continua: a versão decide.
  */
 function ranquearModelos(lista = []) {
   const ids = (lista || []).map(m => (typeof m === 'string' ? m : m.id)).filter(Boolean);
   return ids
     .map(id => ({ id, faixa: faixaDoModelo(id), versao: versaoDoModelo(id), preview: /preview|exp/i.test(id) ? 1 : 0 }))
     .filter(m => m.faixa !== 'outra_modalidade')
-    .map(m => ({ ...m, elegivel: m.faixa !== 'economica', motivoInelegivel: m.faixa === 'economica' ? 'faixa econômica: o parecer exige faixa mínima intermediária' : null }))
-    .sort((a, b) => (b.elegivel - a.elegivel) || (b.versao - a.versao) || (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (a.preview - b.preview));
+    .map(m => ({ ...m, elegivel: m.faixa !== 'economica', conhecida: m.faixa === 'superior' || m.faixa === 'intermediaria' ? 1 : 0,
+      motivoInelegivel: m.faixa === 'economica' ? 'faixa econômica: o parecer exige faixa mínima intermediária' : null }))
+    .sort((a, b) => (b.elegivel - a.elegivel) || (b.conhecida - a.conhecida) || (b.versao - a.versao) || (ORDEM_FAIXA[b.faixa] - ORDEM_FAIXA[a.faixa]) || (a.preview - b.preview));
 }
 
 /**
@@ -151,7 +160,7 @@ function escolherModelo(lista = [], { padraoDoUsuario = null, fixado = null } = 
     modelo: alvo.id, faixa: alvo.faixa, ressalva,
     motivo: fix
       ? `Modelo fixado pelo usuário na configuração do parecer (${alvo.id}, faixa ${alvo.faixa}).`
-      : `Escolhido automaticamente: versão mais alta entre os modelos não econômicos do provedor (${alvo.id}, faixa ${alvo.faixa})${padraoDoUsuario && padraoDoUsuario !== alvo.id ? `; o padrão da nota comum (${padraoDoUsuario}) não é usado no parecer` : ''}.`,
+      : `Escolhido automaticamente: versão mais alta entre os modelos ${alvo.conhecida ? 'de faixa conhecida (superior ou intermediária)' : 'não econômicos — nenhum de faixa conhecida disponível'} do provedor (${alvo.id}, faixa ${alvo.faixa})${padraoDoUsuario && padraoDoUsuario !== alvo.id ? `; o padrão da nota comum (${padraoDoUsuario}) não é usado no parecer` : ''}.`,
   };
 }
 
