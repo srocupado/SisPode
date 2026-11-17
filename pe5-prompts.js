@@ -1,6 +1,6 @@
 // Parecer de Especialista (refeito em 17/11/2026) — OS PROMPTS.
 //
-// Seis chamadas, cada uma com um trabalho só e saída em JSON:
+// Sete chamadas, cada uma com um trabalho só e saída em JSON:
 //   leitura        lê os documentos e devolve o que eles dizem, com trecho literal de cada item
 //   debate         pesquisa quem se posicionou e o que argumenta (internet)
 //   internacional  pesquisa o que outros países fizeram e o que aconteceu (internet)
@@ -18,7 +18,8 @@
 const PE5_ESTILO = `COMO ESCREVER
 - Português direto, frase curta, verbo na voz ativa. Escreva para um assessor parlamentar que precisa entender e explicar a matéria.
 - Proibido juridiquês e enfeite: nada de "destarte", "outrossim", "novel", "no bojo", "resta consubstanciado", "hígido", "pecha", "plenário soberano", "no que tange", "em apreço", "ensejar".
-- Cada informação aparece UMA vez, na seção dela. Não repita valores, prazos e nomes de órgãos de seção em seção.
+- O documento é DETALHADO. O leitor quer o nome completo de cada órgão, cargo, documento, estudo e entidade, exatamente como está na base, e a enumeração inteira de critérios, requisitos e obrigações. Nunca troque o nome por um genérico ("uma unidade", "um estudo", "alguns critérios", "entidades do setor"): escreva o nome e enumere.
+- Cada informação é EXPLICADA uma vez, na seção dela. Fora da abertura, não reconte em outra seção o que já foi explicado.
 - Nunca recomende voto nem diga o que "deve" ser aprovado ou rejeitado. Mostre o texto, os argumentos e as consequências.
 - Todo número (valor, percentual, prazo, data, quantidade) tem de estar na BASE fornecida. Não arredonde para outro número, não estime, não complete de memória. Conta simples a partir da base (soma de prazos, multiplicação, conversão pelo câmbio fornecido) é permitida e deve ficar evidente na frase.
 - Quando algo não existir, diga ONDE procurou: "nos documentos lidos não há…", "nas fontes pesquisadas não foi localizado…". Nunca afirme ausência sem esse escopo.
@@ -84,6 +85,7 @@ O QUE DEVOLVER
  "estimativas": [ { "id": "S1", "o_que": "impacto, custo, renúncia, número de afetados", "valor": "como está no documento", "documento": "…", "trecho": "…" } ],
  "controversias": [ { "id": "C1", "questao": "ambiguidade, contradição interna ou ponto que o próprio documento registra como disputado", "explica": "…", "documento": "…", "trecho": "…" } ],
  "achados": [ { "id": "T1", "lente": "número da lente", "questao": "o ponto, em uma frase", "dispositivo": "art. …", "porque": "por que merece exame, em 1 a 3 frases, só com o que está no texto", "documento": "…", "trecho": "…", "gravidade": "alta | media | baixa" } ],
+ "referencias": [ { "id": "U1", "nome": "nome COMPLETO do documento, como está escrito (consulta pública, estudo, relatório, nota técnica, exposição de motivos, parecer, acórdão, tratado)", "o_que_e": "o que é e para que o texto o invoca, em 1 a 2 frases", "documento": "…", "trecho": "…" } ],
  "ausencias": [ { "id": "X1", "o_que": "o que se esperaria encontrar e não está", "onde_procurou": "em quais documentos" } ],
  "vigencia": { "clausula": "quando entra em vigor", "documento": "…", "trecho": "…" }
 }
@@ -93,6 +95,7 @@ ORIENTAÇÕES
 - "alteracoes": uma entrada por artigo ou grupo contíguo de artigos de lei em vigor que o texto altera, acrescenta ou revoga. Escreva o dispositivo com o número e o ano da lei.
 - "versoes": só se houver mais de uma versão entre os documentos (original e substitutivo, texto da Câmara e do Senado). Uma entrada por diferença relevante. Se o texto novo criou algo que não existia, deixe "trecho_antes" vazio.
 - "achados": percorra as lentes abaixo. Registre o que merece exame E TAMBÉM o que está regular quando isso for relevante para quem decide (por exemplo, iniciativa correta). Não registre pergunta que não se aplica à matéria. Um mesmo problema entra uma vez, na lente mais apropriada.
+- "referencias": TODO documento que a justificativa, a exposição de motivos, o relatório ou o voto invocam como base da proposta: consulta pública, tomada de subsídios, estudo, relatório de órgão, nota técnica, grupo de trabalho, decisão, norma estrangeira usada como modelo. Copie o nome e o número exatamente como aparecem. Se o texto citar "um estudo" sem dar o título, registre assim mesmo e diga que o título não consta: a pesquisa vai procurá-lo. Inclua a própria exposição de motivos, com o número.
 - "ausencias": estimativa de impacto, relatório ou voto do relator, estudo que a justificativa cita e não anexa, definição de termo central. Diga sempre onde procurou.
 - Se um documento estiver ilegível ou incompleto, registre em "ausencias".
 
@@ -201,6 +204,7 @@ ${PE5_SO_JSON}`;
 function pe5PromptContexto({ identificacao, ementa, leitura, hoje }) {
   const normas = [...new Set((leitura?.alteracoes || []).map(a => String(a.dispositivo).replace(/^arts?\.?[^d]*d[ae]\s+/i, '')))].join('; ');
   const pontos = (leitura?.achados || []).filter(a => a.gravidade !== 'baixa').map(a => `- ${a.questao} (${a.dispositivo})`).join('\n');
+  const refs = (leitura?.referencias || []).map(r => `- ${r.nome}: ${r.o_que_e}`).join('\n');
   return `Pesquise na internet o CONTEXTO JURÍDICO E DE FATO da proposição abaixo: decisões judiciais sobre regras parecidas, normas que já tratam do assunto, dados que dimensionam o alcance e o custo, e outras proposições sobre o mesmo tema.
 
 MATÉRIA: ${identificacao}
@@ -214,11 +218,16 @@ ${pe5FatosDoTexto(leitura)}
 PONTOS QUE A LEITURA DESTACOU (procure precedente e norma sobre eles):
 ${pontos || '(nenhum)'}
 
+DOCUMENTOS QUE A PROPOSIÇÃO CITA COMO BASE (localize cada um):
+${refs || '(nenhum identificado na leitura)'}
+
 O QUE PROCURAR
 - "jurisprudencia": de 2 a 6 decisões do STF, do STJ, do TCU ou de tribunais superiores sobre regra análoga. Identifique tribunal, órgão julgador, classe e número, relator e data. Diga O QUE A DECISÃO DECIDIU, por que interessa aqui e ONDE A ANALOGIA PARA (o que o caso tinha de diferente). Não atribua à decisão conclusão que ela não tomou. Se não tiver certeza do número ou do relator, não inclua.
 - "normas": leis, decretos, portarias e resoluções em vigor que já disciplinam a matéria ou serão afetados, com o que cada um dispõe.
 - "dados": números oficiais ou de estudo que dimensionem quem é afetado, quanto custa, quanto se arrecada ou se gasta. Diga quem produziu o número e se é parte interessada.
 - "correlatas": outras proposições no Congresso sobre o mesmo tema, com a situação.
+- "documentos_base": os documentos que deram origem à proposição — a consulta pública, o estudo, o relatório, a nota técnica, o grupo de trabalho. Para cada um da lista acima e para outros que encontrar: o TÍTULO COMPLETO, o órgão, a data, o que contém (número de contribuições, de propostas, conclusão principal) e o endereço onde está publicado. Se a proposição cita um estudo sem título, descubra qual é. Se não localizar, diga em "avisos".
+- "alcance": QUEM, PELO NOME, é alcançado pelos critérios do texto. Se o texto fixa um critério objetivo (faturamento, porte, número de usuários, setor), procure os dados públicos mais recentes de cada grupo, empresa, ente ou categoria que provavelmente o supera e liste um por um, com o número e a fonte. Inclua nacionais e estrangeiros. Só liste quem tiver número publicado; os demais vão para "avisos" ("receita no Brasil não divulgada"). Se o critério não permite nomear (alcança pessoas físicas em geral, por exemplo), procure a estimativa oficial de quantos são.
 
 ${PE5_REGRAS_PESQUISA}
 
@@ -228,7 +237,9 @@ O QUE DEVOLVER
  "normas": [ { "id": "M1", "norma": "…", "o_que_disciplina": "…", "relacao": "como se liga ao texto", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "dados": [ { "id": "F1", "dado": "…", "valor": "…", "quem_produziu": "…", "data_ref": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
  "correlatas": [ { "id": "K1", "proposicao": "PL 0000/0000", "casa": "…", "situacao": "…", "relacao": "…", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
- "avisos": [ "dado importante que não existe em fonte pública; decisão citada no debate e não localizada" ]
+ "documentos_base": [ { "id": "Y1", "documento": "título completo", "orgao": "…", "data": "dd/mm/aaaa", "o_que_e": "o que é, o que contém e como se liga à proposição", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "alcance": [ { "id": "Z1", "grupo": "nome", "atividade": "…", "piso": "qual critério do texto supera", "dado": "o número, com o período a que se refere", "fonte_nome": "…", "fonte_url": "https://…", "fonte_tipo": "…" } ],
+ "avisos": [ "dado importante que não existe em fonte pública; decisão citada no debate e não localizada; documento-base não encontrado" ]
 }
 
 ${PE5_SO_JSON}`;
@@ -244,7 +255,7 @@ function pe5Base({ leitura, pesquisa, coleta, alteracoes, cambio, leiIntegral })
 [G] DADOS DO PROGRAMA (tramitação, votações, bancada). Referência: "G".
 ${pe5ResumoColeta(coleta)}
 
-LEITURA DOS DOCUMENTOS (itens conferidos pelo programa; ids B, A, V, E, J, S, C, T, X):
+LEITURA DOS DOCUMENTOS (itens conferidos pelo programa; ids B, A, V, E, J, S, C, T, U, X):
 ${j(leitura || {})}
 
 LEI VIGENTE, artigo por artigo (lida pelo programa):
@@ -256,7 +267,7 @@ ${j(pesquisa?.debate || {})}
 PESQUISA INTERNACIONAL (ids W; fonte da internet):
 ${j(pesquisa?.internacional || {})}
 
-PESQUISA DE CONTEXTO (ids R, M, F, K; fonte da internet):
+PESQUISA DE CONTEXTO (ids R, M, F, K, Y, Z; fonte da internet):
 ${j(pesquisa?.contexto || {})}
 
 ${leiIntegral ? `LEI EM VIGOR, TEXTO INTEGRAL (lido pelo programa; use para verificar se a lei atual já tem regra parecida e cite o artigo):\n${leiIntegral}\n\n` : ''}CÂMBIO DO BANCO CENTRAL${cambio?.data ? ` em ${cambio.data}` : ''} (reais por unidade da moeda): ${cambio?.taxas ? Object.entries(cambio.taxas).map(([m, v]) => `${m} ${v}`).join('; ') : 'não obtido — não converta valores'}
@@ -271,7 +282,7 @@ function pe5PromptRedacao1(ctx) {
 MATÉRIA: ${ctx.identificacao}
 DATA DE HOJE: ${ctx.hoje}
 
-Escreva SÓ com o que está na base abaixo. O programa imprime por conta própria: a linha do tempo da tramitação, o placar das votações e o voto da bancada, a tabela "o que muda na legislação", a tabela de quem se posicionou e a lista de fontes. Não repita essas tabelas em texto: use os fatos delas quando ajudarem a explicar.
+Escreva SÓ com o que está na base abaixo. O programa imprime por conta própria: a linha do tempo da tramitação, o placar das votações e o voto da bancada, a tabela "o que muda na legislação" e os links das fontes. Não repita essas tabelas em texto: use os fatos delas quando ajudarem a explicar.
 
 ${PE5_ESTILO}
 
@@ -285,6 +296,7 @@ O QUE DEVOLVER
    "faz": [ { "titulo": "…", "dispositivos": "arts. …", "texto": "explicação completa desse conjunto de regras, em linguagem comum: o que muda para quem, prazos, valores, quem decide", "ev": ["B1"] } ],
    "origem": [ { "texto": "um parágrafo por etapa: quem propôs e por quê; por onde tramitou; o que o relator apresentou; o que está pendente", "ev": ["J1","G"] } ],
    "versoes": [ { "tema": "…", "original": "…", "atual": "…", "efeito": "o que a mudança significa na prática", "ev": ["V1"] } ],
+   "documentos": [ { "documento": "título completo e número", "o_que_e": "o que é, quem produziu, quando, o que contém e que papel tem na proposição", "onde": "onde está publicado ou em que documento vem anexo", "ev": ["U1","Y1"] } ],
    "contexto": [ { "titulo": "…", "texto": "o que já existe hoje sobre o assunto, outras proposições, fatores externos relevantes", "ev": ["M1"] } ]
  },
  "debate": {
@@ -292,6 +304,11 @@ O QUE DEVOLVER
        "favor": [ { "argumento": "…", "quem": "quem sustenta", "evidencia": "o que apresenta como prova, ou \\"Não apresentada na fonte.\\"" } ],
        "contra": [ { "argumento": "…", "quem": "…", "evidencia": "…" } ],
        "estado": "como a questão está resolvida, ou não, no texto em votação", "ev": ["Q1","Q7","V1"] } ],
+   "atores": [ { "ator": "nome da entidade ou pessoa, como na pesquisa", "quem_e": "o que é e quem representa", "posicao": "favorável | favorável com ressalvas | neutro | contrário com ressalvas | contrário", "data": "…", "versao": "texto original | texto em votação | não especificada",
+       "argumentos": [ { "tese": "o argumento, fiel à fonte", "evidencia": "o que o ator apresenta como prova; vazio se não apresenta",
+           "avaliacao": "procede | procede em parte | não procede | não verificável | questão de mérito",
+           "porque": "o que o texto em votação, a lei vigente e os dados da base mostram sobre esse argumento, com o artigo" } ],
+       "ev": ["Q1"] } ],
    "da_analise": [ { "lado": "favorável | contrário", "argumento": "argumento relevante que decorre do texto ou da comparação internacional e que NENHUM ator levantou", "ev": ["T5","W1"] } ]
  },
  "internacional": {
@@ -304,9 +321,11 @@ O QUE DEVOLVER
 
 ORIENTAÇÕES POR SEÇÃO
 - "faz": cubra o texto inteiro, em 4 a 9 blocos. Comece pelo que muda de mais importante. Explique o mecanismo, não transcreva artigos.
-- "origem": diga expressamente o que NÃO foi lido (relatório, voto, estudo citado), quando a leitura registrar a ausência.
+- "origem": nomeie os documentos (a exposição de motivos com o número, a consulta, o estudo). Diga expressamente o que NÃO foi lido (relatório, voto, estudo citado), quando a leitura registrar a ausência, e por quê.
+- "documentos": a relação taxativa dos documentos que embasam a proposição, para consulta posterior: o texto original, a justificativa ou exposição de motivos, cada consulta, estudo, relatório ou nota que a leitura (ids U) e a pesquisa (ids Y) identificaram, o parecer e o substitutivo. Título completo, como está na base. Documento que foi localizado e não lido leva essa informação em "o_que_e".
 - "versoes": uma linha por mudança relevante entre o texto anterior e o texto em votação. Omita a seção se houver uma versão só.
 - "controversias": é o coração do parecer. Para cada pergunta em disputa, os argumentos de um lado e do outro, com QUEM sustenta e QUE EVIDÊNCIA apresenta. Argumento sem evidência na fonte leva "Não apresentada na fonte.". Se um lado não tem argumento localizado, deixe a lista vazia. Em "estado", diga o que o texto em votação fez com a questão e o que ficou em aberto. Quando dois críticos se contradizem, diga.
+- "atores": TODOS os atores da pesquisa do debate, um por um, com cada argumento. Para cada argumento, confronte com a base e classifique: "procede" (o texto ou os dados confirmam), "procede em parte" (confirma uma parte; diga qual), "não procede" (o texto em votação ou a lei vigente dizem o contrário; cite o artigo), "não verificável" (previsão ou afirmação de fato sem dado na base), "questão de mérito" (juízo de valor, que não se resolve com o texto). Em "porque", diga o que o texto dispõe sobre o ponto, com o artigo; se o argumento foi feito sobre a versão original e o texto em votação mudou a regra, diga. A avaliação é do ARGUMENTO, não da proposição: não diga se ela deve ser aprovada. Não repita aqui, por extenso, o que "controversias" já explica — lá fica o confronto por pergunta; aqui, a posição de cada um e a checagem.
 - "da_analise": de 2 a 5 argumentos que a leitura do texto ou a comparação internacional sustentam e que ninguém levantou. São da assessoria e serão impressos como tal.
 - "jurisdicoes": um bloco por país, mais um bloco para os que recuaram ou adiaram, se houver.
 - "comparativo": a primeira coluna é sempre o Brasil. De 5 a 8 linhas com os parâmetros que permitem comparar (como funciona, quem é alcançado, duração, sanção, resultado até agora). Valor em moeda estrangeira vem acompanhado da conversão em reais pelo câmbio da base, com "cerca de".
@@ -350,9 +369,10 @@ O QUE DEVOLVER
  },
  "abertura": {
    "frase": "uma frase, até 260 caracteres: o que a proposição faz",
-   "decide": "o que está em decisão agora, de acordo com a fase, em até 600 caracteres",
-   "muda": [ "de 3 a 6 itens curtos: o que muda na prática" ],
-   "alcance": "quem é alcançado e quantos; se não há número, diga que não há e por quê",
+   "decide": "um parágrafo detalhado (de 900 a 1.600 caracteres): o que se vota agora e em que fase; qual é o texto (original, substitutivo, emendas do Senado), de quem, de quando; a escolha de fundo; e, havendo substitutivo, o que ele manteve e o que mudou em relação ao original, ponto por ponto",
+   "muda": [ "de 5 a 10 itens completos: cada mudança com o nome próprio do que cria, a enumeração dos critérios ou requisitos, os números, os prazos e o artigo" ],
+   "alcance": "quem é alcançado, como se chega a eles (os critérios, em ordem) e o que não se sabe; sem repetir a tabela abaixo",
+   "alcancados": [ { "grupo": "nome", "piso": "qual critério supera", "dado": "o número público, com o período; valor em moeda estrangeira com a conversão", "ev": ["Z1"] } ],
    "pontos": [ { "titulo": "…", "gravidade": "alta | media | baixa", "texto": "uma frase" } ],
    "falta": [ "o que falta saber para decidir" ]
  }
@@ -365,7 +385,9 @@ ORIENTAÇÕES POR SEÇÃO
 - "opcoes": as que existem NA FASE ATUAL, inclusive adiar, emendar e destacar, quando couber. Para cada uma, a consequência concreta. Sem recomendar.
 - "emendas": de 2 a 7, só para problema apontado na análise. Redija o dispositivo de verdade, na técnica da lei que se altera. Onde a escolha for política (um número, um prazo), deixe entre colchetes.
 - "perguntas": o que o parlamentar pode perguntar ao governo, ao relator ou ao órgão executor para obter o que falta.
-- "abertura": escreva por último. É o único lugar onde se resume o que já foi dito. "pontos": de 3 a 6, os que mais pesam, com a mesma gravidade usada na análise.
+- "abertura": escreva por último. É o único lugar onde se resume o que já foi dito — mas resumo DETALHADO: quem lê só a abertura tem de sair sabendo o que o texto cria, com os nomes. Órgão, cargo ou unidade novos vão com o NOME COMPLETO que o texto lhes dá e com a posição que ocupam na estrutura (não "uma unidade": "a Superintendência …, novo órgão do …"). Lista de critérios, requisitos ou condições vai ENUMERADA por inteiro (não "seis características": as seis). Em "decide", se o texto em votação é um substitutivo ou veio alterado da outra Casa, diga o que ele mudou.
+- "alcancados": se a pesquisa de contexto trouxe "alcance" (ids Z), liste TODOS, pelo nome, com o dado. Nunca escreva que o texto "alcança também" alguém sem dizer quem. Se não há como nomear, diga em "alcance" por quê e dê a estimativa de quantidade que houver.
+- "pontos": de 3 a 6, os que mais pesam, com a mesma gravidade usada na análise.
 
 ${PE5_SO_JSON}`;
 }
@@ -388,6 +410,8 @@ PROCURE
 7. Frase que recomenda voto, juridiquês, termo interno ("cenário", "lente", "achado") ou identificador da base no meio do texto.
 8. Afirmação de ausência ("não há", "não consta") sem dizer onde se procurou.
 9. Emenda cuja redação não corrige o problema apontado, ou que cita dispositivo inexistente.
+10. Avaliação de argumento ("procede", "não procede"…) que o texto em votação ou a lei vigente não sustentam, ou feita contra a versão errada do texto.
+11. Nome genérico onde a base traz o nome próprio (órgão, documento, estudo, entidade), ou enumeração anunciada e não feita ("seis critérios" sem dizer quais).
 
 ${pe5Base(ctx)}
 

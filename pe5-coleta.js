@@ -15,6 +15,8 @@ const PE5_PARTIDO = 'PODE';
 
 const pe5DataBR = iso => { const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${m[1]}` : ''; };
 const pe5Limpo = s => String(s || '').replace(/\s+/g, ' ').trim();
+/** Corta no fim de uma palavra e marca o corte (o texto da Câmara repete a ementa inteira em cada andamento). */
+const pe5Corta = (s, n) => { const t = pe5Limpo(s); if (t.length <= n) return t; const c = t.slice(0, n); return c.slice(0, Math.max(c.lastIndexOf(' '), n - 40)).replace(/[\s,;:("“-]+$/, '') + '…'; };
 
 async function pe5Json(url, fetchFn, { tentativas = 2, esperaMs = 1500 } = {}) {
   let ultimo = '';
@@ -94,7 +96,7 @@ function pe5Marcos(tramitacoes = [], max = 40) {
     const texto = pe5Limpo(`${t.descricaoTramitacao || ''} — ${t.despacho || ''}`);
     const m = PE5_MARCOS.find(([re]) => re.test(texto));
     if (!m) continue;
-    const fato = pe5Limpo(t.despacho || t.descricaoTramitacao).slice(0, 320);
+    const fato = pe5Corta(t.despacho || t.descricaoTramitacao, 320);
     const k = `${String(t.dataHora).slice(0, 10)}|${fato.slice(0, 80)}`;
     if (vistos.has(k)) continue; vistos.add(k);
     out.push({ data: pe5DataBR(t.dataHora), iso: String(t.dataHora || '').slice(0, 10), orgao: t.siglaOrgao || '', tipo: m[1], fato });
@@ -112,7 +114,7 @@ function pe5Urgencia(status = {}, tramitacoes = []) {
   const constitucional = /64/.test(reg) || /urg[êe]ncia constitucional/i.test(reg);
   if (!/urg[êe]ncia/i.test(reg) && !aprov) return { tem: false, regime: reg || 'não informado' };
   return { tem: true, regime: reg, tipo: constitucional ? 'urgência constitucional (art. 64, § 1º, da Constituição)' : (reg.match(/art\.?\s*(15[1-5])/i) ? `urgência regimental (art. ${reg.match(/art\.?\s*(15[1-5])/i)[1]} do Regimento Interno da Câmara)` : 'urgência'),
-    aprovadaEm: pe5DataBR(aprov?.dataHora), requerimento: pe5Limpo((aprov || apres)?.despacho).slice(0, 260), pedidaEm: pe5DataBR(apres?.dataHora) };
+    aprovadaEm: pe5DataBR(aprov?.dataHora), requerimento: pe5Corta((aprov || apres)?.despacho, 260), pedidaEm: pe5DataBR(apres?.dataHora) };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -139,7 +141,7 @@ async function pe5Votacoes(idProp, fetchFn) {
   const out = [];
   for (const v of lista) {
     const item = { id: v.id, data: pe5DataBR(v.data || v.dataHoraRegistro), iso: String(v.data || v.dataHoraRegistro || '').slice(0, 10), orgao: v.siglaOrgao || '',
-      descricao: pe5Limpo(v.descricao).slice(0, 300), aprovada: v.aprovacao === 1 ? true : v.aprovacao === 0 ? false : null, nominal: false };
+      descricao: pe5Corta(v.descricao, 300), aprovada: v.aprovacao === 1 ? true : v.aprovacao === 0 ? false : null, nominal: false };
     // Só o Plenário tem voto nominal que interessa à bancada; comissão fica com a descrição.
     if (/PLEN/i.test(item.orgao)) {
       try {
@@ -171,10 +173,10 @@ async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date() } = {})
     proposicao: { id: prop.id || idProp, sigla: prop.siglaTipo || '', numero: prop.numero || '', ano: prop.ano || '', ementa: pe5Limpo(prop.ementa),
       apresentacao: pe5DataBR(prop.dataApresentacao), autores: ordAut.slice(0, 6).map(a => pe5Limpo(a.nome)), totalAutores: ordAut.length },
     status: { data: pe5DataBR(status.dataHora), iso: String(status.dataHora || '').slice(0, 10), orgao: status.siglaOrgao || '', regime: pe5Limpo(status.regime),
-      situacao: pe5Limpo(status.descricaoSituacao), andamento: pe5Limpo(status.descricaoTramitacao), despacho: pe5Limpo(status.despacho).slice(0, 400) },
+      situacao: pe5Limpo(status.descricaoSituacao), andamento: pe5Limpo(status.descricaoTramitacao), despacho: pe5Corta(status.despacho, 400) },
     fase: pe5Fase(status, tram), urgencia: pe5Urgencia(status, tram), marcos: pe5Marcos(tram), votacoes,
     relacionadas: relacionadas.filter(r => r && r.siglaTipo && !/^(REQ|EMP|EMC|PRLP|PRLE|SBT|PAR|DTQ|MSC|OF|RDF|EMR|ESB|SSP|EMS|REL|VTS|DVT|PPP|PRL|EMA|EMD|ERD|RPD)$/i.test(r.siglaTipo))
-      .slice(0, 20).map(r => ({ rotulo: `${r.siglaTipo} ${r.numero}/${r.ano}`, ementa: pe5Limpo(r.ementa).slice(0, 220) })),
+      .slice(0, 20).map(r => ({ rotulo: `${r.siglaTipo} ${r.numero}/${r.ano}`, ementa: pe5Corta(r.ementa, 220) })),
     coletadoEm: hoje.toISOString(), avisos,
   };
 }
@@ -259,6 +261,6 @@ function pe5Inventario(documentos = [], disponiveis = []) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5ColetarTramitacao,
+  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Corta, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5ColetarTramitacao,
     pe5NumArtigo, pe5CabecalhosDeArtigo, pe5ArtigoVigente, pe5ArtigosAlterados, pe5Inventario };
 }

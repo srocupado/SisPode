@@ -16,7 +16,7 @@
 //   legislação    "o que vale hoje" começa pelo artigo certo e não se repete entre linhas
 //   atualidade    situação registrada há muito tempo; fórmula de sanção para espécie que não vai a sanção
 //
-// Nada aqui reprova o parecer: cada teste vira uma linha do relatório, e os críticos vão para a abertura.
+// Nada aqui reprova o parecer: cada teste vira uma linha do relatório de conferência, que sai em documento separado.
 // Script clássico (global na extensão) + module.exports para os testes.
 
 'use strict';
@@ -47,6 +47,8 @@ function pe5ExtensoParaDigitos(texto) {
 }
 
 // ---- extração de números com unidade ----
+const PE5_MESES = ['janeiro', 'fevereiro', 'marco', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
+const PE5_AVALIACOES = ['procede', 'procede em parte', 'não procede', 'não verificável', 'questão de mérito'];
 const PE5_MULT = { mil: 1e3, milhao: 1e6, milhoes: 1e6, bilhao: 1e9, bilhoes: 1e9, trilhao: 1e12, trilhoes: 1e12 };
 const pe5NumBR = s => { const t = String(s).trim(); if (/^\d{1,3}(\.\d{3})+(,\d+)?$/.test(t)) return Number(t.replace(/\./g, '').replace(',', '.')); return Number(t.replace(',', '.')); };
 /** [{ tipo: 'moeda'|'pct'|'prazo'|'qtd'|'data', moeda?, valor, unidade?, literal }] */
@@ -69,6 +71,8 @@ function pe5Numeros(texto) {
   while ((m = reQtd.exec(semMoeda)) !== null) out.push({ tipo: 'qtd', valor: pe5NumBR(m[1]) * (m[2] ? PE5_MULT[pe5SemAcento(m[2]).toLowerCase()] || 1 : 1), unidade: pe5SemAcento(m[3]).toLowerCase().slice(0, 5), literal: m[0] });
   const reData = /\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/g;
   while ((m = reData.exec(t)) !== null) out.push({ tipo: 'data', valor: Number(m[3]) * 10000 + Number(m[2]) * 100 + Number(m[1]), literal: m[0] });
+  const reDataExt = /\b(\d{1,2})\s*[ºo°]?\s+de\s+(janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\s+de\s+(\d{4})\b/gi;
+  while ((m = reDataExt.exec(t)) !== null) out.push({ tipo: 'data', valor: Number(m[3]) * 10000 + (PE5_MESES.indexOf(pe5SemAcento(m[2]).toLowerCase()) + 1) * 100 + Number(m[1]), literal: m[0] });
   return out;
 }
 
@@ -88,13 +92,17 @@ function pe5Blocos(doc = {}) {
   const add = (secao, o, campos, exigeEv = true) => { if (!o) return; const texto = campos.map(c => o[c]).filter(x => typeof x === 'string' && x.trim()).join(' '); if (texto.trim()) B.push({ secao, texto, ev: Array.isArray(o.ev) ? o.ev : [], exigeEv }); };
   const A = doc.abertura || {};
   add('abertura', { texto: [A.frase, A.decide, A.alcance, ...(A.muda || []), ...(A.falta || []), ...((A.pontos || []).map(p => `${p.titulo}. ${p.texto}`))].filter(Boolean).join(' ') }, ['texto'], false);
+  for (const x of A.alcancados || []) add('abertura', x, ['grupo', 'piso', 'dado']);
   for (const x of doc.materia?.faz || []) add('faz', x, ['texto', 'dispositivos']);
+  for (const x of doc.materia?.documentos || []) add('documentos', x, ['documento', 'o_que_e']);
   for (const x of doc.materia?.origem || []) add('origem', x, ['texto']);
   for (const x of doc.materia?.versoes || []) add('versoes', x, ['original', 'atual', 'efeito']);
   for (const x of doc.materia?.contexto || []) add('contexto', x, ['texto']);
   for (const c of doc.debate?.controversias || []) {
     add('debate', { texto: [c.questao, c.dispositivos, c.estado, ...(c.favor || []).flatMap(a => [a.argumento, a.evidencia]), ...(c.contra || []).flatMap(a => [a.argumento, a.evidencia])].filter(Boolean).join(' '), ev: c.ev }, ['texto']);
   }
+  // As posições por entidade retomam, de propósito, os argumentos das controvérsias: mesma seção para o teste de repetição.
+  for (const a of doc.debate?.atores || []) add('debate', { texto: (a.argumentos || []).flatMap(g => [g.tese, g.evidencia, g.porque]).filter(Boolean).join(' '), ev: a.ev }, ['texto']);
   for (const x of doc.debate?.da_analise || []) add('debate-analise', x, ['argumento']);
   for (const x of doc.internacional?.jurisdicoes || []) add('internacional', x, ['regra', 'aconteceu', 'criticas']);
   if (doc.internacional?.comparativo) add('comparativo', { texto: (doc.internacional.comparativo.linhas || []).flatMap(l => l.valores || []).join(' ') }, ['texto'], false);
@@ -115,7 +123,7 @@ const PE5_RE_JARGAO = /\bCen[áa]rio \d|\bn[íi]vel [ABC]\b|\bgates?\b|\brubrica
 const PE5_RE_JURIDIQUES = /\b(destarte|outrossim|novel\b|hodiern|mister se faz|faz-se mister|no bojo d|ex vi\b|in casu\b|data v[êe]nia|colend[oa]|egr[ée]gi[oa]|resta consubstanciad|consubstanci|pecha\b|h[íi]gid|higidez|ostenta\b|plen[áa]rio soberano|soberano plen[áa]rio|desiderato|[àa] guisa de|no que tange|no tocante a|em apre[çc]o|ensej(?:a|ando) a|supracitad|retromencionad|deveras|conspícu|extravagante)\b/i;
 const PE5_RE_VOTO = /\b(recomenda-se|recomendamos|sugere-se|sugerimos|orienta-se|orientamos)\s+(?:o voto|votar|a aprova[çc][ãa]o|a rejei[çc][ãa]o|aprovar|rejeitar)|\b(?:deve|devem|deveria)\s+ser\s+(?:aprovad|rejeitad)[oa]s?\b|\bvoto (?:favor[áa]vel|contr[áa]rio) (?:[ée]|seria) (?:o|a) (?:mais )?(?:adequad|recomend)/i;
 const PE5_RE_AUSENCIA = /\bn[ãa]o (?:h[áa]|existe|existem|consta|constam|foi apresentad[oa]|foram apresentad[oa]s|veio acompanhad[oa]|traz|trazem)\b/i;
-const PE5_RE_ESCOPO = /documentos? lidos?|nos documentos|nas fontes|no arquivo|localizad|no texto|na fonte|nos autos|exposi[çc][ãa]o de motivos|substitutivo|registr|regra|lei atual|pesquis|public/i;
+const PE5_RE_ESCOPO = /documentos?\b|\bo texto\b|nas fontes|no arquivo|localizad|no texto|na fonte|nos autos|exposi[çc][ãa]o de motivos|substitutivo|registr|regra|lei atual|pesquis|public/i;
 const PE5_PRIMARIA = /\.(jus|leg|gov|mp|def)\.br|europa\.eu|\.gov\.uk|\.go\.jp|\.gov\b|bundeskartellamt\.de|bundestag\.de|oecd\.org|un\.org|wto\.org|planalto|stf\.|stj\.|tcu\.|camara\.leg|senado\.leg/i;
 
 /**
@@ -136,11 +144,11 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
 
   // --- evidências ---
   const ids = new Set(['G']);
-  for (const k of ['blocos', 'alteracoes', 'versoes', 'emendas', 'justificativa', 'estimativas', 'controversias', 'achados', 'ausencias']) for (const x of L[k] || []) if (x && x.id) ids.add(x.id);
+  for (const k of ['blocos', 'alteracoes', 'versoes', 'emendas', 'justificativa', 'estimativas', 'controversias', 'achados', 'ausencias', 'referencias']) for (const x of L[k] || []) if (x && x.id) ids.add(x.id);
   for (const x of pq.debate?.atores || []) ids.add(x.id);
   for (const x of pq.debate?.controversias || []) ids.add(x.id);
   for (const x of pq.internacional?.jurisdicoes || []) ids.add(x.id);
-  for (const k of ['jurisprudencia', 'normas', 'dados', 'correlatas']) for (const x of pq.contexto?.[k] || []) ids.add(x.id);
+  for (const k of ['jurisprudencia', 'normas', 'dados', 'correlatas', 'documentos_base', 'alcance']) for (const x of pq.contexto?.[k] || []) ids.add(x.id);
   const semEv = blocos.filter(b => b.exigeEv && !b.ev.length);
   const evFalsa = [...new Set(blocos.flatMap(b => b.ev.filter(e => !ids.has(e))))];
   add('Cada bloco do parecer aponta para a base (documento, pesquisa ou dado do programa)', !semEv.length && !evFalsa.length,
@@ -207,19 +215,41 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   const A = doc.abertura || {};
   const probA = [];
   if (!A.frase) probA.push('falta a frase de abertura'); else if (A.frase.length > 280) probA.push(`a frase de abertura tem ${A.frase.length} caracteres (limite 280)`);
-  if (!A.decide) probA.push('falta "o que se decide"'); else if (A.decide.length > 700) probA.push('"o que se decide" passa de 700 caracteres');
+  if (!A.decide) probA.push('falta "o que se decide"'); else if (A.decide.length < 500) probA.push(`"o que se decide" está genérico (${A.decide.length} caracteres; espera-se a descrição detalhada do que se vota)`); else if (A.decide.length > 2200) probA.push('"o que se decide" passa de 2.200 caracteres');
+  if ((A.muda || []).length < 3) probA.push('falta detalhar "o que muda" (menos de três itens)');
+  if ((L.versoes || []).length && A.decide && !/substitutiv|emenda|senado|vers[ãa]o|texto original|relator/i.test(A.decide)) probA.push('há mais de uma versão do texto e "o que se decide" não diz qual se vota nem o que ela mudou');
   if ((A.pontos || []).length > 6) probA.push('mais de seis pontos de atenção');
   if (!(A.falta || []).length) probA.push('falta "o que falta saber"');
   if (!(doc.materia?.faz || []).length) probA.push('falta a explicação do que a proposição faz');
   if (!(doc.caminhos?.opcoes || []).length) probA.push('faltam as opções');
-  add('Abertura completa e dentro do tamanho', !probA.length, probA.join('; '), probA.some(x => /^falta/.test(x)));
+  add('Abertura completa e detalhada', !probA.length, probA.join('; '), probA.some(x => /^falta/.test(x)));
+
+  // --- quem é alcançado: se a pesquisa nomeou, a abertura lista ---
+  const alcP = pq.contexto?.alcance || [], alcD = A.alcancados || [];
+  const alcFalta = alcP.filter(z => !alcD.some(d => (d.ev || []).includes(z.id))).map(z => z.grupo);
+  const alcVago = !alcD.length && /alcan[çc]a (?:tamb[ée]m )?(?:grupos|empresas|entidades|setores)\b/i.test(A.alcance || '');
+  add('"Quem é alcançado" traz os nomes', !alcFalta.length && !alcVago,
+    alcFalta.length ? `A pesquisa identificou e a abertura não lista: ${alcFalta.slice(0, 6).join('; ')}.` : alcVago ? 'A abertura diz que o texto alcança grupos e não diz quais.' : alcD.length ? `${alcD.length} nome(s), com o dado público de cada um.` : 'A pesquisa não identificou nomes; a abertura explica o critério.');
+
+  // --- documentos que embasam a proposição ---
+  const refs = [...(L.referencias || []), ...(pq.contexto?.documentos_base || [])], docsD = doc.materia?.documentos || [];
+  const refsFora = refs.filter(r => !docsD.some(d => (d.ev || []).includes(r.id))).map(r => r.nome || r.documento);
+  add('Documentos que embasam a proposição estão relacionados pelo nome', !refsFora.length && (docsD.length > 0 || !refs.length),
+    refsFora.length ? `Identificado(s) na leitura ou na pesquisa e fora da relação: ${refsFora.slice(0, 5).join('; ')}.` : docsD.length ? `${docsD.length} documento(s) relacionado(s).` : 'Nenhum documento de base identificado na leitura nem na pesquisa.');
+
+  // --- posições, entidade por entidade, com a avaliação de cada argumento ---
+  const atP = pq.debate?.atores || [], atD = doc.debate?.atores || [];
+  const atFalta = atP.filter(q => !atD.some(d => (d.ev || []).includes(q.id))).map(q => q.ator);
+  const args = atD.flatMap(a => (a.argumentos || []).map(g => ({ ator: a.ator, ...g })));
+  const semAval = args.filter(g => !PE5_AVALIACOES.includes(String(g.avaliacao || '').toLowerCase()) || !String(g.porque || '').trim());
+  add('Cada entidade aparece com seus argumentos, e cada argumento foi confrontado com o texto', !atFalta.length && !semAval.length,
+    [atFalta.length ? `Na pesquisa e fora do parecer: ${atFalta.slice(0, 5).join('; ')}.` : '', semAval.length ? `${semAval.length} argumento(s) sem avaliação ou sem a razão dela, por exemplo de ${semAval[0].ator}.` : ''].filter(Boolean).join(' ') || `${atD.length} entidade(s), ${args.length} argumento(s) avaliado(s): ${PE5_AVALIACOES.map(v => [v, args.filter(g => String(g.avaliacao).toLowerCase() === v).length]).filter(x => x[1]).map(x => `${x[1]} "${x[0]}"`).join(', ')}.`);
 
   // --- fontes ---
   const atores = pq.debate?.atores || [], juris = pq.contexto?.jurisprudencia || [], jur = pq.internacional?.jurisdicoes || [];
   const semData = atores.filter(a => !a.data).map(a => a.ator), semFonte = [...atores, ...juris, ...jur].filter(x => !/^https?:\/\//.test(x.fonte_url || '')).map(x => x.ator || x.processo || x.lugar);
   const usados = new Set(blocos.flatMap(b => b.ev));
-  // (os atores saem todos na tabela "Quem é quem"; aqui interessa o que só apareceria se o texto usasse)
-  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
+  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
   const todas = [...atores, ...juris, ...jur].filter(x => x.fonte_url);
   const prim = todas.filter(x => PE5_PRIMARIA.test(x.fonte_url) || /prim[áa]ria/i.test(x.fonte_tipo || '')).length;
   const temporarios = todas.filter(x => /vertexaisearch|grounding-api-redirect|googleusercontent/.test(x.fonte_url) && !x.fonte_url_final).length;
@@ -237,7 +267,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Linguagem direta, sem juridiquês', !jurid.length, jurid.slice(0, 6).join('; '));
   add('Sem recomendação de voto', !voto.length, voto.slice(0, 3).join('; '), true);
   const ausSolta = [];
-  for (const b of blocos) for (const f of b.texto.split(/(?<=[.;])\s+/)) if (PE5_RE_AUSENCIA.test(f) && !PE5_RE_ESCOPO.test(f) && !PE5_RE_ESCOPO.test(b.texto.slice(Math.max(0, b.texto.indexOf(f) - 160), b.texto.indexOf(f)))) ausSolta.push(`"${f.slice(0, 80)}…" [${b.secao}]`);
+  for (const b of blocos.filter(x => x.secao !== 'emendas')) for (const f of b.texto.split(/(?<=[.;])\s+/)) if (PE5_RE_AUSENCIA.test(f) && !PE5_RE_ESCOPO.test(f) && !PE5_RE_ESCOPO.test(b.texto.slice(Math.max(0, b.texto.indexOf(f) - 160), b.texto.indexOf(f)))) ausSolta.push(`"${f.slice(0, 80)}…" [${b.secao}]`);
   add('Afirmações de ausência dizem onde se procurou', ausSolta.length <= 1, ausSolta.slice(0, 4).join('; '));
 
   // --- fase ---
@@ -275,5 +305,5 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { pe5Conferir, pe5Blocos, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
+  module.exports = { pe5Conferir, pe5Blocos, PE5_AVALIACOES, pe5Numeros, pe5ExtensoParaDigitos, pe5Norm, pe5Textos, PE5_RE_JARGAO, PE5_RE_JURIDIQUES, PE5_RE_VOTO };
 }

@@ -1,98 +1,421 @@
 {
-  "resumo": "O texto em votação dá ao Cade um poder novo: escolher, entre os grupos econômicos de faturamento muito alto, os que têm \"relevância sistêmica\" em mercados digitais e impor a cada um deles obrigações de conduta antes de qualquer infração, por até seis anos, com uma superintendência própria para instruir e fiscalizar.",
-  "blocos": [
-    { "id": "B1", "titulo": "Nova superintendência no Cade", "dispositivos": "arts. 5º, IV, 18-A e 18-B", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "Cria no Cade a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais, quarto órgão da autarquia. O titular é nomeado pelo Presidente da República depois de aprovado pelo Senado, tem mandato de dois anos com uma recondução e dedicação exclusiva. A superintendência instaura e instrui os processos de designação e de obrigações, fiscaliza o cumprimento e acompanha permanentemente os agentes de mercados digitais. Cartéis e atos de concentração continuam com a Superintendência-Geral.",
-      "trecho": "terá mandato de dois anos, permitida uma recondução" },
-    { "id": "B2", "titulo": "Quem pode ser designado", "dispositivos": "art. 47-C", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "Só pode ser designado o grupo econômico com faturamento bruto anual acima de R$ 50 bilhões no mundo ou acima de R$ 5 bilhões no Brasil. Passado esse piso, a designação depende da análise conjunta e fundamentada de seis características: atuação em mais de um mercado de múltiplos lados, poder de mercado associado a efeitos de rede, integração vertical ou presença em mercados adjacentes, posição da qual terceiros dependem, controle de quantidade significativa de dados e atuação como controlador de acesso de um ecossistema digital. Os pisos são corrigidos todo ano pelo IPCA, por ato da própria superintendência.",
-      "trecho": "a designação será condicionada à análise conjunta e fundamentada das seguintes características" },
-    { "id": "B3", "titulo": "Obrigações que o Cade pode impor", "dispositivos": "art. 47-E", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "A designação, sozinha, não cria obrigação. Em processo separado, o Cade pode impor ao designado três grupos de obrigações: de transparência (informar aquisições, divulgar termos de uso, critérios de ranqueamento e estrutura de preços), de fazer (portabilidade e interoperabilidade gratuitas, permitir a instalação de aplicativos de terceiros, dar acesso a dados aos usuários empresariais, telas de escolha, tratamento isonômico) e de não fazer (autopreferência, venda casada, restrição a que o vendedor alcance o cliente por outro canal, degradação de serviço de quem exerce os direitos). As obrigações valem para produtos ou serviços específicos e podem exigir mudança de termos de uso ou redesenho do produto.",
-      "trecho": "poderão ser implementadas por meio de alteração de termos e condições de uso dos serviços ofertados ou redesenho tecnológico de produtos e serviços digitais" },
-    { "id": "B4", "titulo": "Escritório no País e multa diária", "dispositivos": "arts. 43, parágrafo único, 44-A e 47-D", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "O designado deve manter escritório no Brasil e manter atualizados, no Cade, os endereços de notificação e os dados dos representantes legais. O descumprimento gera multa diária de R$ 20 mil, que pode ser aumentada em até cinquenta vezes conforme a situação econômica do infrator.",
-      "trecho": "multa diária de R$ 20.000,00 (vinte mil reais), a qual poderá ser aumentada em até cinquenta vezes" },
-    { "id": "B5", "titulo": "Como corre o processo", "dispositivos": "arts. 87-A a 87-H", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "A superintendência instaura o processo de ofício ou por representação. Se a representação vier do Tribunal do Cade, da Superintendência-Geral, da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais ou direitos difusos, a instauração é imediata. O representado tem trinta dias para se defender, prorrogáveis por dez. Há tomada de subsídios, manifestação preliminar submetida a audiência pública por trinta dias e manifestação final. Os autos sobem sozinhos ao Tribunal em 210 dias (designação) ou 240 dias (obrigações). No Tribunal, o relator tem 60 ou 120 dias para pautar; a vista é coletiva, de até trinta dias, e depois dela o voto do relator entra na pauta automaticamente.",
-      "trecho": "Os autos serão automaticamente encaminhados ao Tribunal após o decurso, contado da data de instauração, dos seguintes prazos máximos" },
-    { "id": "B6", "titulo": "Duração e revisão", "dispositivos": "arts. 87-A, §§ 1º e 4º, e 87-B, §§ 3º e 4º", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "A designação vale por até seis anos e pode ser renovada por novo processo. Pode ser revista depois de dois anos, se o mercado mudar de forma relevante. As obrigações começam a valer em até noventa dias da decisão e terminam com a designação.",
-      "trecho": "O prazo de vigência da designação será de até seis anos e poderá ser renovado por meio de novo procedimento" },
-    { "id": "B7", "titulo": "Fiscalização, sanções e proteção das decisões", "dispositivos": "arts. 47-G, 87-H, § 2º, e 87-I", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "Quem descumpre obrigação especial responde pelas mesmas sanções das infrações à ordem econômica (arts. 37 a 45 da Lei nº 12.529/2011). O designado entrega relatórios de conformidade e pode ser obrigado a pagar auditoria independente escolhida ou aprovada pelo Cade. As decisões de designação ficam sob o regime da Lei nº 8.437/1992, que restringe liminares contra o poder público.",
-      "trecho": "O disposto na Lei nº 8.437, de 30 de junho de 1992, aplica-se às decisões do Tribunal em processos de designação" },
-    { "id": "B8", "titulo": "Limites ao poder de regulamentar do Cade", "dispositivos": "arts. 18-A, caput, e 48, §§ 1º e 2º", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "O Cade só pode regulamentar prazos e procedimentos. Fica proibido de criar, por resolução, obrigações, sanções ou hipóteses de designação que a lei não preveja. Os regulamentos dos dois processos novos exigem consulta e audiência públicas.",
-      "trecho": "vedada a criação de obrigações, sanções ou hipóteses de designação não previstas em lei" },
-    { "id": "B9", "titulo": "Participação, transparência e conselho consultivo", "dispositivos": "arts. 87-C, 87-J, 87-K, 87-L e 87-M", "documento": "PRLP nº 1 de 08/07/2026",
-      "explica": "O representado pode propor voluntariamente como cumprir as obrigações. Quem participa de consultas e audiências deve declarar interesses, vínculos e financiamentos ligados a quem é afetado pela matéria. A superintendência pode abrir estudos de mercado sem caráter punitivo. O Cade pode criar um conselho consultivo, não remunerado, com pelo menos metade dos membros vinda da academia e de organizações sem fins lucrativos.",
-      "trecho": "bem como eventuais vínculos, financiamentos ou formas de apoio, inclusive material, vinculados à sua atuação" }
-  ],
-  "alteracoes": [
-    { "id": "A1", "dispositivo": "art. 5º da Lei nº 12.529/2011", "tipo": "altera", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Inclui a nova superintendência como quarto órgão do Cade.", "trecho": "IV - Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais" },
-    { "id": "A2", "dispositivo": "art. 9º da Lei nº 12.529/2011", "tipo": "altera", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Dá ao Plenário do Tribunal a decisão final sobre a designação, sobre as obrigações especiais e sobre as sanções por descumprimento.", "trecho": "XXI - aprovar a designação de agentes econômicos de relevância sistêmica em mercados digitais" },
-    { "id": "A3", "dispositivo": "arts. 18-A e 18-B da Lei nº 12.529/2011", "tipo": "acrescenta", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Cria a superintendência, o cargo de superintendente e suas competências.", "trecho": "Art. 18-A. O Cade terá em sua estrutura a Superintendência Especial de Relevância Sistêmica" },
-    { "id": "A4", "dispositivo": "art. 43 da Lei nº 12.529/2011", "tipo": "altera", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Estende a multa por informação enganosa ao designado que não mantiver atualizados endereços e dados dos representantes.", "trecho": "Incorre na mesma penalidade o agente econômico designado como de relevância sistêmica em mercados digitais que não mantiver atualizados" },
-    { "id": "A5", "dispositivo": "art. 44-A da Lei nº 12.529/2011", "tipo": "acrescenta", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Cria a multa diária por não manter escritório no País.", "trecho": "Art. 44-A. Deixar de manter escritório no País no prazo estabelecido pelo Cade" },
-    { "id": "A6", "dispositivo": "arts. 47-B, 47-C e 47-D da Lei nº 12.529/2011", "tipo": "acrescenta", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Define os objetivos do regime, os critérios de designação e o dever de manter escritório no País.", "trecho": "Somente poderão ser objeto de designação os grupos econômicos que, com base nas últimas demonstrações financeiras disponíveis" },
-    { "id": "A7", "dispositivo": "arts. 47-E, 47-F e 47-G da Lei nº 12.529/2011", "tipo": "acrescenta", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Lista as obrigações especiais, prevê cooperação com outros reguladores e remete o descumprimento às sanções da lei.", "trecho": "o Cade poderá determinar obrigações especiais ao agente econômico designado como de relevância sistêmica para mercados digitais" },
-    { "id": "A8", "dispositivo": "arts. 48, 49 e 50 da Lei nº 12.529/2011", "tipo": "altera", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Inclui os dois processos novos entre os procedimentos do Cade, limita o poder de regulamentar e admite como interveniente o órgão público que representou.", "trecho": "VII - processo administrativo para designação de agente econômico de relevância sistêmica em mercados digitais" },
-    { "id": "A9", "dispositivo": "arts. 87-A a 87-M da Lei nº 12.529/2011", "tipo": "acrescenta", "documento": "PRLP nº 1 de 08/07/2026", "muda": "Cria o capítulo com o rito dos processos de designação e de obrigações, os relatórios de conformidade, a participação social, os estudos de mercado e o conselho consultivo.", "trecho": "Art. 87-A. Compete à Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais instaurar processo administrativo" }
-  ],
-  "versoes": [
-    { "id": "V1", "tema": "Critérios qualitativos de designação", "antes": "Características consideradas \"de forma não cumulativa\" e \"dentre outras\": lista aberta, bastava uma.", "depois": "Lista fechada de seis características, com \"análise conjunta e fundamentada\".",
-      "trecho_antes": "consideradas, de forma não cumulativa, as seguintes características, dentre outras", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "a designação será condicionada à análise conjunta e fundamentada das seguintes características", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V2", "tema": "Quem altera os pisos de faturamento", "antes": "Os valores podiam ser \"adequados\" por ato conjunto dos ministros da Fazenda e da Justiça.", "depois": "Correção anual só pelo IPCA, por ato da superintendência.",
-      "trecho_antes": "poderão ser adequados em ato conjunto do Ministro de Estado da Fazenda e do Ministro de Estado da Justiça e Segurança Pública", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "serão ajustados anualmente, em ato da Superintendência Especial", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V3", "tema": "Duração da designação", "antes": "Até dez anos.", "depois": "Até seis anos, com revisão possível depois de dois.",
-      "trecho_antes": "O prazo de vigência da designação será de até dez anos", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "O prazo de vigência da designação será de até seis anos", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V4", "tema": "Aquisições feitas pelo designado", "antes": "O Cade podia obrigar o designado a submeter à sua análise qualquer ato de concentração, mesmo abaixo dos pisos gerais.", "depois": "O designado só dá conhecimento da operação, em caráter informativo; a análise continua com a Superintendência-Geral, pelas regras gerais.",
-      "trecho_antes": "a obrigação de submeter à análise do Cade os atos de concentração em que sejam partes, independentemente dos critérios", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "em caráter informativo, dos atos de concentração de que participe, ainda que não preenchidos os critérios de submissão obrigatória", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V5", "tema": "Poder de regulamentar do Cade", "antes": "Regulamentação complementar sem limite expresso.", "depois": "Regulamentação limitada a prazos e procedimentos, proibida a criação de obrigações, sanções ou hipóteses de designação.",
-      "trecho_antes": "O Cade poderá editar regulamentação complementar sobre os procedimentos administrativos de que trata este artigo, observadas as disposições desta Lei e do seu regimento interno", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "limitada à operacionalização dos prazos e procedimentos previstos nesta Lei", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V6", "tema": "Nome e alcance da superintendência", "antes": "Superintendência de Mercados Digitais.", "depois": "Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais.",
-      "trecho_antes": "criação da Superintendência de Mercados Digitais no âmbito do Conselho Administrativo de Defesa Econômica", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "cria a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais", "documento_depois": "PRLP nº 1 de 08/07/2026" },
-    { "id": "V7", "tema": "Instrumentos novos do substitutivo", "antes": "Não previa proposição voluntária do representado, declaração de vínculos de quem participa de consultas, estudos de mercado nem conselho consultivo.", "depois": "Prevê os quatro (arts. 87-C, 87-J, 87-K, 87-L e 87-M) e exige urgência demonstrada para conduzir os dois processos ao mesmo tempo.",
-      "trecho_antes": "", "documento_antes": "Redação original (inteiro teor)",
-      "trecho_depois": "desde que demonstrada a urgência para a promoção ou proteção da concorrência", "documento_depois": "PRLP nº 1 de 08/07/2026" }
-  ],
-  "emendas": [],
-  "justificativa": [
-    { "id": "J1", "objetivo": "Prevenir o exercício de poder econômico substancial por grandes plataformas digitais, sem negar os benefícios da economia digital.", "documento": "Redação original (inteiro teor)", "trecho": "admite-se a necessidade de prever mecanismos legais para prevenir o exercício de substancial poder econômico por grandes plataformas digitais" },
-    { "id": "J2", "objetivo": "Dar ao Cade instrumentos de prevenção rápidos, porque o estudo do governo concluiu que os atuais não alcançam a dinâmica dos mercados digitais.", "documento": "Redação original (inteiro teor)", "trecho": "dotar o Cade de instrumentos de prevenção céleres e tempestivos para lidar com as dinâmicas específicas dos mercados digitais" },
-    { "id": "J3", "objetivo": "Garantir acesso ao mercado a quem depende dos ecossistemas das plataformas.", "documento": "Redação original (inteiro teor)", "trecho": "propiciar um ambiente de justa concorrência e acesso ao mercado a todos os demais agentes econômicos que são dependentes dos ecossistemas" },
-    { "id": "J4", "objetivo": "O governo apresenta a proposta como resultado de estudo iniciado com tomada de subsídios, que recebeu 301 contribuições de 72 participantes e examinou dez países.", "documento": "Redação original (inteiro teor)", "trecho": "que coletou 301 contribuições de 72 participantes" },
-    { "id": "J5", "objetivo": "O governo situa o modelo ao lado do alemão, do japonês e do britânico, que deram novas competências aos órgãos de concorrência.", "documento": "Redação original (inteiro teor)", "trecho": "ao lado de sistemas jurídicos como o alemão, o japonês e britânico" },
-    { "id": "J6", "objetivo": "A exposição de motivos diz que os deveres especiais estão em rol exemplificativo e que órgãos federais podem provocar a instauração imediata e vinculante dos processos.", "documento": "Redação original (inteiro teor)", "trecho": "prerrogativa de provocar a instauração imediata e vinculante de processos de designação" }
-  ],
-  "estimativas": [],
-  "controversias": [
-    { "id": "C1", "questao": "A lista de obrigações do art. 47-E é fechada ou aberta?", "explica": "O caput diz que o Cade pode determinar obrigações especiais \"incluídas\" as listadas, redação herdada do texto original, cuja exposição de motivos fala em rol exemplificativo. O substitutivo, por outro lado, proíbe obrigação sem fundamento no art. 47-E e proíbe o Cade de criar obrigações não previstas em lei.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "incluídas, de forma cumulativa ou não, as seguintes" },
-    { "id": "C2", "questao": "As seis características do art. 47-C, § 2º, são cumulativas?", "explica": "O parágrafo exige \"análise conjunta\", mas a lista de incisos termina com \"ou\" antes do último item.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "inclusive entre diferentes produtos ou serviços; ou" }
-  ],
-  "achados": [
-    { "id": "T1", "lente": "3", "questao": "A criação de órgão e de cargo não vem acompanhada de estimativa de impacto orçamentário.", "dispositivo": "art. 18-A", "porque": "O texto cria uma superintendência permanente e um cargo de dedicação exclusiva. Nem o substitutivo nem a exposição de motivos trazem valor, estimativa trienal ou indicação da fonte de custeio.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "é de dedicação exclusiva, vedada qualquer acumulação, exceto as constitucionalmente permitidas", "gravidade": "alta" },
-    { "id": "T2", "lente": "1", "questao": "Órgãos do Executivo podem obrigar o Cade a abrir o processo de designação.", "dispositivo": "arts. 87-A, §§ 6º e 7º, e 87-B, §§ 6º e 7º", "porque": "A representação da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais leva à instauração imediata, sem juízo de admissibilidade da superintendência. Para os demais interessados, a superintendência pode arquivar a representação.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "ensejará a instauração imediata de processo administrativo de designação", "gravidade": "media" },
-    { "id": "T3", "lente": "1", "questao": "Decisões de designação ficam sob regime que restringe liminares.", "dispositivo": "art. 87-H, § 2º", "porque": "A remissão à Lei nº 8.437/1992 limita a concessão de medida cautelar contra a decisão e permite ao poder público pedir a suspensão de liminares ao presidente do tribunal.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "aplica-se às decisões do Tribunal em processos de designação de agente econômico detentor de relevância sistêmica", "gravidade": "media" },
-    { "id": "T4", "lente": "0", "questao": "A multa por falta de escritório depende de prazo que a lei não fixa.", "dispositivo": "arts. 44-A e 47-D", "porque": "O art. 44-A pune quem não mantiver escritório \"no prazo estabelecido pelo Cade\"; o art. 47-D impõe o dever sem dizer a partir de quando nem prazo mínimo.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "Deixar de manter escritório no País no prazo estabelecido pelo Cade", "gravidade": "baixa" },
-    { "id": "T5", "lente": "5A", "questao": "Os pisos são alternativos: basta faturar R$ 50 bilhões no mundo, ainda que a presença no Brasil seja pequena.", "dispositivo": "art. 47-C, § 1º", "porque": "Os dois incisos são ligados por \"ou\". O piso nacional de R$ 5 bilhões também alcança grupos brasileiros, e o texto não usa número de usuários como critério.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "Faturamento bruto anual global superior a R$ 50.000.000.000,00 (cinquenta bilhões de reais); ou", "gravidade": "media" },
-    { "id": "T6", "lente": "5A", "questao": "Conceitos centrais não têm definição legal.", "dispositivo": "art. 47-C, § 2º", "porque": "O texto usa \"mercados digitais\", \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" sem defini-los. A sanção por descumprimento de obrigação decorre de uma designação apoiada nesses conceitos.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "quantidade significativa de dados pessoais ou comerciais relevantes", "gravidade": "media" },
-    { "id": "T7", "lente": "0", "questao": "O prazo automático de remessa pode vencer com a audiência pública em curso.", "dispositivo": "arts. 87-E e 87-F, parágrafo único", "porque": "Somados os prazos de defesa, instrução, manifestação preliminar, audiência pública e manifestação final, o rito de obrigações pode encostar no teto de 240 dias; a remessa automática não ressalva diligência pendente.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "duzentos e quarenta dias, nos processos de estabelecimento ou de revisão de obrigações especiais", "gravidade": "baixa" },
-    { "id": "T8", "lente": "4A", "questao": "O mandato do superintendente é mais curto que a designação que ele fiscaliza.", "dispositivo": "arts. 18-A, § 2º, e 87-A, § 1º", "porque": "Mandato de dois anos com uma recondução soma no máximo quatro anos, contra designações de até seis. Na vacância, assume servidor indicado pelo próprio Tribunal.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "interinamente, servidor em exercício no Cade, conforme indicação do Tribunal Administrativo", "gravidade": "baixa" },
-    { "id": "T9", "lente": "1", "questao": "Iniciativa e competência estão regulares.", "dispositivo": "arts. 5º e 18-A", "porque": "O projeto é do Poder Executivo, a quem cabe propor lei que crie cargo e estruture autarquia federal, e a matéria é direito econômico, de competência da União. O substitutivo mantém o único cargo que o projeto original já criava e declara não remunerada a participação no conselho consultivo.", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "será considerada prestação de serviço público relevante, não remunerada", "gravidade": "baixa" }
-  ],
-  "ausencias": [
-    { "id": "X1", "o_que": "Estimativa de impacto orçamentário e financeiro da criação da superintendência e do cargo", "onde_procurou": "texto do substitutivo (PRLP nº 1) e exposição de motivos do projeto original" },
-    { "id": "X2", "o_que": "Relatório e voto do relator: o arquivo do PRLP nº 1 contém apenas o texto do substitutivo", "onde_procurou": "PRLP nº 1 de 08/07/2026" },
-    { "id": "X3", "o_que": "Análise de impacto regulatório ou estimativa do custo de conformidade para as empresas", "onde_procurou": "exposição de motivos do projeto original" },
-    { "id": "X4", "o_que": "Estimativa de quantos grupos econômicos passam dos pisos de faturamento", "onde_procurou": "texto do substitutivo e exposição de motivos" }
-  ],
-  "vigencia": { "clausula": "sessenta dias após a publicação", "documento": "PRLP nº 1 de 08/07/2026", "trecho": "Esta Lei entra em vigor sessenta dias após a data de sua publicação" }
+ "resumo": "O texto em votação dá ao Cade um poder novo: escolher, entre os grupos econômicos de faturamento muito alto, os que têm \"relevância sistêmica\" em mercados digitais e impor a cada um deles obrigações de conduta antes de qualquer infração, por até seis anos, com uma superintendência própria para instruir e fiscalizar.",
+ "blocos": [
+  {
+   "id": "B1",
+   "titulo": "Nova superintendência no Cade",
+   "dispositivos": "arts. 5º, IV, 18-A e 18-B",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "Cria no Cade a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais, quarto órgão da autarquia. O titular é nomeado pelo Presidente da República depois de aprovado pelo Senado, tem mandato de dois anos com uma recondução e dedicação exclusiva. A superintendência instaura e instrui os processos de designação e de obrigações, fiscaliza o cumprimento e acompanha permanentemente os agentes de mercados digitais. Cartéis e atos de concentração continuam com a Superintendência-Geral.",
+   "trecho": "terá mandato de dois anos, permitida uma recondução"
+  },
+  {
+   "id": "B2",
+   "titulo": "Quem pode ser designado",
+   "dispositivos": "art. 47-C",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "Só pode ser designado o grupo econômico com faturamento bruto anual acima de R$ 50 bilhões no mundo ou acima de R$ 5 bilhões no Brasil. Passado esse piso, a designação depende da análise conjunta e fundamentada de seis características: atuação em mais de um mercado de múltiplos lados, poder de mercado associado a efeitos de rede, integração vertical ou presença em mercados adjacentes, posição da qual terceiros dependem, controle de quantidade significativa de dados e atuação como controlador de acesso de um ecossistema digital. Os pisos são corrigidos todo ano pelo IPCA, por ato da própria superintendência.",
+   "trecho": "a designação será condicionada à análise conjunta e fundamentada das seguintes características"
+  },
+  {
+   "id": "B3",
+   "titulo": "Obrigações que o Cade pode impor",
+   "dispositivos": "art. 47-E",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "A designação, sozinha, não cria obrigação. Em processo separado, o Cade pode impor ao designado três grupos de obrigações: de transparência (informar aquisições, divulgar termos de uso, critérios de ranqueamento e estrutura de preços), de fazer (portabilidade e interoperabilidade gratuitas, permitir a instalação de aplicativos de terceiros, dar acesso a dados aos usuários empresariais, telas de escolha, tratamento isonômico) e de não fazer (autopreferência, venda casada, restrição a que o vendedor alcance o cliente por outro canal, degradação de serviço de quem exerce os direitos). As obrigações valem para produtos ou serviços específicos e podem exigir mudança de termos de uso ou redesenho do produto.",
+   "trecho": "poderão ser implementadas por meio de alteração de termos e condições de uso dos serviços ofertados ou redesenho tecnológico de produtos e serviços digitais"
+  },
+  {
+   "id": "B4",
+   "titulo": "Escritório no País e multa diária",
+   "dispositivos": "arts. 43, parágrafo único, 44-A e 47-D",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "O designado deve manter escritório no Brasil e manter atualizados, no Cade, os endereços de notificação e os dados dos representantes legais. O descumprimento gera multa diária de R$ 20 mil, que pode ser aumentada em até cinquenta vezes conforme a situação econômica do infrator.",
+   "trecho": "multa diária de R$ 20.000,00 (vinte mil reais), a qual poderá ser aumentada em até cinquenta vezes"
+  },
+  {
+   "id": "B5",
+   "titulo": "Como corre o processo",
+   "dispositivos": "arts. 87-A a 87-H",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "A superintendência instaura o processo de ofício ou por representação. Se a representação vier do Tribunal do Cade, da Superintendência-Geral, da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais ou direitos difusos, a instauração é imediata. O representado tem trinta dias para se defender, prorrogáveis por dez. Há tomada de subsídios, manifestação preliminar submetida a audiência pública por trinta dias e manifestação final. Os autos sobem sozinhos ao Tribunal em 210 dias (designação) ou 240 dias (obrigações). No Tribunal, o relator tem 60 ou 120 dias para pautar; a vista é coletiva, de até trinta dias, e depois dela o voto do relator entra na pauta automaticamente.",
+   "trecho": "Os autos serão automaticamente encaminhados ao Tribunal após o decurso, contado da data de instauração, dos seguintes prazos máximos"
+  },
+  {
+   "id": "B6",
+   "titulo": "Duração e revisão",
+   "dispositivos": "arts. 87-A, §§ 1º e 4º, e 87-B, §§ 3º e 4º",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "A designação vale por até seis anos e pode ser renovada por novo processo. Pode ser revista depois de dois anos, se o mercado mudar de forma relevante. As obrigações começam a valer em até noventa dias da decisão e terminam com a designação.",
+   "trecho": "O prazo de vigência da designação será de até seis anos e poderá ser renovado por meio de novo procedimento"
+  },
+  {
+   "id": "B7",
+   "titulo": "Fiscalização, sanções e proteção das decisões",
+   "dispositivos": "arts. 47-G, 87-H, § 2º, e 87-I",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "Quem descumpre obrigação especial responde pelas mesmas sanções das infrações à ordem econômica (arts. 37 a 45 da Lei nº 12.529/2011). O designado entrega relatórios de conformidade e pode ser obrigado a pagar auditoria independente escolhida ou aprovada pelo Cade. As decisões de designação ficam sob o regime da Lei nº 8.437/1992, que restringe liminares contra o poder público.",
+   "trecho": "O disposto na Lei nº 8.437, de 30 de junho de 1992, aplica-se às decisões do Tribunal em processos de designação"
+  },
+  {
+   "id": "B8",
+   "titulo": "Limites ao poder de regulamentar do Cade",
+   "dispositivos": "arts. 18-A, caput, e 48, §§ 1º e 2º",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "O Cade só pode regulamentar prazos e procedimentos. Fica proibido de criar, por resolução, obrigações, sanções ou hipóteses de designação que a lei não preveja. Os regulamentos dos dois processos novos exigem consulta e audiência públicas.",
+   "trecho": "vedada a criação de obrigações, sanções ou hipóteses de designação não previstas em lei"
+  },
+  {
+   "id": "B9",
+   "titulo": "Participação, transparência e conselho consultivo",
+   "dispositivos": "arts. 87-C, 87-J, 87-K, 87-L e 87-M",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "explica": "O representado pode propor voluntariamente como cumprir as obrigações. Quem participa de consultas e audiências deve declarar interesses, vínculos e financiamentos ligados a quem é afetado pela matéria. A superintendência pode abrir estudos de mercado sem caráter punitivo. O Cade pode criar um conselho consultivo, não remunerado, com pelo menos metade dos membros vinda da academia e de organizações sem fins lucrativos.",
+   "trecho": "bem como eventuais vínculos, financiamentos ou formas de apoio, inclusive material, vinculados à sua atuação"
+  }
+ ],
+ "alteracoes": [
+  {
+   "id": "A1",
+   "dispositivo": "art. 5º da Lei nº 12.529/2011",
+   "tipo": "altera",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Inclui a nova superintendência como quarto órgão do Cade.",
+   "trecho": "IV - Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais"
+  },
+  {
+   "id": "A2",
+   "dispositivo": "art. 9º da Lei nº 12.529/2011",
+   "tipo": "altera",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Dá ao Plenário do Tribunal a decisão final sobre a designação, sobre as obrigações especiais e sobre as sanções por descumprimento.",
+   "trecho": "XXI - aprovar a designação de agentes econômicos de relevância sistêmica em mercados digitais"
+  },
+  {
+   "id": "A3",
+   "dispositivo": "arts. 18-A e 18-B da Lei nº 12.529/2011",
+   "tipo": "acrescenta",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Cria a superintendência, o cargo de superintendente e suas competências.",
+   "trecho": "Art. 18-A. O Cade terá em sua estrutura a Superintendência Especial de Relevância Sistêmica"
+  },
+  {
+   "id": "A4",
+   "dispositivo": "art. 43 da Lei nº 12.529/2011",
+   "tipo": "altera",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Estende a multa por informação enganosa ao designado que não mantiver atualizados endereços e dados dos representantes.",
+   "trecho": "Incorre na mesma penalidade o agente econômico designado como de relevância sistêmica em mercados digitais que não mantiver atualizados"
+  },
+  {
+   "id": "A5",
+   "dispositivo": "art. 44-A da Lei nº 12.529/2011",
+   "tipo": "acrescenta",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Cria a multa diária por não manter escritório no País.",
+   "trecho": "Art. 44-A. Deixar de manter escritório no País no prazo estabelecido pelo Cade"
+  },
+  {
+   "id": "A6",
+   "dispositivo": "arts. 47-B, 47-C e 47-D da Lei nº 12.529/2011",
+   "tipo": "acrescenta",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Define os objetivos do regime, os critérios de designação e o dever de manter escritório no País.",
+   "trecho": "Somente poderão ser objeto de designação os grupos econômicos que, com base nas últimas demonstrações financeiras disponíveis"
+  },
+  {
+   "id": "A7",
+   "dispositivo": "arts. 47-E, 47-F e 47-G da Lei nº 12.529/2011",
+   "tipo": "acrescenta",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Lista as obrigações especiais, prevê cooperação com outros reguladores e remete o descumprimento às sanções da lei.",
+   "trecho": "o Cade poderá determinar obrigações especiais ao agente econômico designado como de relevância sistêmica para mercados digitais"
+  },
+  {
+   "id": "A8",
+   "dispositivo": "arts. 48, 49 e 50 da Lei nº 12.529/2011",
+   "tipo": "altera",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Inclui os dois processos novos entre os procedimentos do Cade, limita o poder de regulamentar e admite como interveniente o órgão público que representou.",
+   "trecho": "VII - processo administrativo para designação de agente econômico de relevância sistêmica em mercados digitais"
+  },
+  {
+   "id": "A9",
+   "dispositivo": "arts. 87-A a 87-M da Lei nº 12.529/2011",
+   "tipo": "acrescenta",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "muda": "Cria o capítulo com o rito dos processos de designação e de obrigações, os relatórios de conformidade, a participação social, os estudos de mercado e o conselho consultivo.",
+   "trecho": "Art. 87-A. Compete à Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais instaurar processo administrativo"
+  }
+ ],
+ "versoes": [
+  {
+   "id": "V1",
+   "tema": "Critérios qualitativos de designação",
+   "antes": "Características consideradas \"de forma não cumulativa\" e \"dentre outras\": lista aberta, bastava uma.",
+   "depois": "Lista fechada de seis características, com \"análise conjunta e fundamentada\".",
+   "trecho_antes": "consideradas, de forma não cumulativa, as seguintes características, dentre outras",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "a designação será condicionada à análise conjunta e fundamentada das seguintes características",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V2",
+   "tema": "Quem altera os pisos de faturamento",
+   "antes": "Os valores podiam ser \"adequados\" por ato conjunto dos ministros da Fazenda e da Justiça.",
+   "depois": "Correção anual só pelo IPCA, por ato da superintendência.",
+   "trecho_antes": "poderão ser adequados em ato conjunto do Ministro de Estado da Fazenda e do Ministro de Estado da Justiça e Segurança Pública",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "serão ajustados anualmente, em ato da Superintendência Especial",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V3",
+   "tema": "Duração da designação",
+   "antes": "Até dez anos.",
+   "depois": "Até seis anos, com revisão possível depois de dois.",
+   "trecho_antes": "O prazo de vigência da designação será de até dez anos",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "O prazo de vigência da designação será de até seis anos",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V4",
+   "tema": "Aquisições feitas pelo designado",
+   "antes": "O Cade podia obrigar o designado a submeter à sua análise qualquer ato de concentração, mesmo abaixo dos pisos gerais.",
+   "depois": "O designado só dá conhecimento da operação, em caráter informativo; a análise continua com a Superintendência-Geral, pelas regras gerais.",
+   "trecho_antes": "a obrigação de submeter à análise do Cade os atos de concentração em que sejam partes, independentemente dos critérios",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "em caráter informativo, dos atos de concentração de que participe, ainda que não preenchidos os critérios de submissão obrigatória",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V5",
+   "tema": "Poder de regulamentar do Cade",
+   "antes": "Regulamentação complementar sem limite expresso.",
+   "depois": "Regulamentação limitada a prazos e procedimentos, proibida a criação de obrigações, sanções ou hipóteses de designação.",
+   "trecho_antes": "O Cade poderá editar regulamentação complementar sobre os procedimentos administrativos de que trata este artigo, observadas as disposições desta Lei e do seu regimento interno",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "limitada à operacionalização dos prazos e procedimentos previstos nesta Lei",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V6",
+   "tema": "Nome e alcance da superintendência",
+   "antes": "Superintendência de Mercados Digitais.",
+   "depois": "Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais.",
+   "trecho_antes": "criação da Superintendência de Mercados Digitais no âmbito do Conselho Administrativo de Defesa Econômica",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "cria a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "V7",
+   "tema": "Instrumentos novos do substitutivo",
+   "antes": "Não previa proposição voluntária do representado, declaração de vínculos de quem participa de consultas, estudos de mercado nem conselho consultivo.",
+   "depois": "Prevê os quatro (arts. 87-C, 87-J, 87-K, 87-L e 87-M) e exige urgência demonstrada para conduzir os dois processos ao mesmo tempo.",
+   "trecho_antes": "",
+   "documento_antes": "Redação original (inteiro teor)",
+   "trecho_depois": "desde que demonstrada a urgência para a promoção ou proteção da concorrência",
+   "documento_depois": "PRLP nº 1 de 08/07/2026"
+  }
+ ],
+ "emendas": [],
+ "justificativa": [
+  {
+   "id": "J1",
+   "objetivo": "Prevenir o exercício de poder econômico substancial por grandes plataformas digitais, sem negar os benefícios da economia digital.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "admite-se a necessidade de prever mecanismos legais para prevenir o exercício de substancial poder econômico por grandes plataformas digitais"
+  },
+  {
+   "id": "J2",
+   "objetivo": "Dar ao Cade instrumentos de prevenção rápidos, porque o estudo do governo concluiu que os atuais não alcançam a dinâmica dos mercados digitais.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "dotar o Cade de instrumentos de prevenção céleres e tempestivos para lidar com as dinâmicas específicas dos mercados digitais"
+  },
+  {
+   "id": "J3",
+   "objetivo": "Garantir acesso ao mercado a quem depende dos ecossistemas das plataformas.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "propiciar um ambiente de justa concorrência e acesso ao mercado a todos os demais agentes econômicos que são dependentes dos ecossistemas"
+  },
+  {
+   "id": "J4",
+   "objetivo": "O governo apresenta a proposta como resultado de estudo iniciado com tomada de subsídios, que recebeu 301 contribuições de 72 participantes e examinou dez países.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "que coletou 301 contribuições de 72 participantes"
+  },
+  {
+   "id": "J5",
+   "objetivo": "O governo situa o modelo ao lado do alemão, do japonês e do britânico, que deram novas competências aos órgãos de concorrência.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "ao lado de sistemas jurídicos como o alemão, o japonês e britânico"
+  },
+  {
+   "id": "J6",
+   "objetivo": "A exposição de motivos diz que os deveres especiais estão em rol exemplificativo e que órgãos federais podem provocar a instauração imediata e vinculante dos processos.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "prerrogativa de provocar a instauração imediata e vinculante de processos de designação"
+  }
+ ],
+ "estimativas": [],
+ "controversias": [
+  {
+   "id": "C1",
+   "questao": "A lista de obrigações do art. 47-E é fechada ou aberta?",
+   "explica": "O caput diz que o Cade pode determinar obrigações especiais \"incluídas\" as listadas, redação herdada do texto original, cuja exposição de motivos fala em rol exemplificativo. O substitutivo, por outro lado, proíbe obrigação sem fundamento no art. 47-E e proíbe o Cade de criar obrigações não previstas em lei.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "incluídas, de forma cumulativa ou não, as seguintes"
+  },
+  {
+   "id": "C2",
+   "questao": "As seis características do art. 47-C, § 2º, são cumulativas?",
+   "explica": "O parágrafo exige \"análise conjunta\", mas a lista de incisos termina com \"ou\" antes do último item.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "inclusive entre diferentes produtos ou serviços; ou"
+  }
+ ],
+ "achados": [
+  {
+   "id": "T1",
+   "lente": "3",
+   "questao": "A criação de órgão e de cargo não vem acompanhada de estimativa de impacto orçamentário.",
+   "dispositivo": "art. 18-A",
+   "porque": "O texto cria uma superintendência permanente e um cargo de dedicação exclusiva. Nem o substitutivo nem a exposição de motivos trazem valor, estimativa trienal ou indicação da fonte de custeio.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "é de dedicação exclusiva, vedada qualquer acumulação, exceto as constitucionalmente permitidas",
+   "gravidade": "alta"
+  },
+  {
+   "id": "T2",
+   "lente": "1",
+   "questao": "Órgãos do Executivo podem obrigar o Cade a abrir o processo de designação.",
+   "dispositivo": "arts. 87-A, §§ 6º e 7º, e 87-B, §§ 6º e 7º",
+   "porque": "A representação da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais leva à instauração imediata, sem juízo de admissibilidade da superintendência. Para os demais interessados, a superintendência pode arquivar a representação.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "ensejará a instauração imediata de processo administrativo de designação",
+   "gravidade": "media"
+  },
+  {
+   "id": "T3",
+   "lente": "1",
+   "questao": "Decisões de designação ficam sob regime que restringe liminares.",
+   "dispositivo": "art. 87-H, § 2º",
+   "porque": "A remissão à Lei nº 8.437/1992 limita a concessão de medida cautelar contra a decisão e permite ao poder público pedir a suspensão de liminares ao presidente do tribunal.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "aplica-se às decisões do Tribunal em processos de designação de agente econômico detentor de relevância sistêmica",
+   "gravidade": "media"
+  },
+  {
+   "id": "T4",
+   "lente": "0",
+   "questao": "A multa por falta de escritório depende de prazo que a lei não fixa.",
+   "dispositivo": "arts. 44-A e 47-D",
+   "porque": "O art. 44-A pune quem não mantiver escritório \"no prazo estabelecido pelo Cade\"; o art. 47-D impõe o dever sem dizer a partir de quando nem prazo mínimo.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "Deixar de manter escritório no País no prazo estabelecido pelo Cade",
+   "gravidade": "baixa"
+  },
+  {
+   "id": "T5",
+   "lente": "5A",
+   "questao": "Os pisos são alternativos: basta faturar R$ 50 bilhões no mundo, ainda que a presença no Brasil seja pequena.",
+   "dispositivo": "art. 47-C, § 1º",
+   "porque": "Os dois incisos são ligados por \"ou\". O piso nacional de R$ 5 bilhões também alcança grupos brasileiros, e o texto não usa número de usuários como critério.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "Faturamento bruto anual global superior a R$ 50.000.000.000,00 (cinquenta bilhões de reais); ou",
+   "gravidade": "media"
+  },
+  {
+   "id": "T6",
+   "lente": "5A",
+   "questao": "Conceitos centrais não têm definição legal.",
+   "dispositivo": "art. 47-C, § 2º",
+   "porque": "O texto usa \"mercados digitais\", \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" sem defini-los. A sanção por descumprimento de obrigação decorre de uma designação apoiada nesses conceitos.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "quantidade significativa de dados pessoais ou comerciais relevantes",
+   "gravidade": "media"
+  },
+  {
+   "id": "T7",
+   "lente": "0",
+   "questao": "O prazo automático de remessa pode vencer com a audiência pública em curso.",
+   "dispositivo": "arts. 87-E e 87-F, parágrafo único",
+   "porque": "Somados os prazos de defesa, instrução, manifestação preliminar, audiência pública e manifestação final, o rito de obrigações pode encostar no teto de 240 dias; a remessa automática não ressalva diligência pendente.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "duzentos e quarenta dias, nos processos de estabelecimento ou de revisão de obrigações especiais",
+   "gravidade": "baixa"
+  },
+  {
+   "id": "T8",
+   "lente": "4A",
+   "questao": "O mandato do superintendente é mais curto que a designação que ele fiscaliza.",
+   "dispositivo": "arts. 18-A, § 2º, e 87-A, § 1º",
+   "porque": "Mandato de dois anos com uma recondução soma no máximo quatro anos, contra designações de até seis. Na vacância, assume servidor indicado pelo próprio Tribunal.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "interinamente, servidor em exercício no Cade, conforme indicação do Tribunal Administrativo",
+   "gravidade": "baixa"
+  },
+  {
+   "id": "T9",
+   "lente": "1",
+   "questao": "Iniciativa e competência estão regulares.",
+   "dispositivo": "arts. 5º e 18-A",
+   "porque": "O projeto é do Poder Executivo, a quem cabe propor lei que crie cargo e estruture autarquia federal, e a matéria é direito econômico, de competência da União. O substitutivo mantém o único cargo que o projeto original já criava e declara não remunerada a participação no conselho consultivo.",
+   "documento": "PRLP nº 1 de 08/07/2026",
+   "trecho": "será considerada prestação de serviço público relevante, não remunerada",
+   "gravidade": "baixa"
+  }
+ ],
+ "ausencias": [
+  {
+   "id": "X1",
+   "o_que": "Estimativa de impacto orçamentário e financeiro da criação da superintendência e do cargo",
+   "onde_procurou": "texto do substitutivo (PRLP nº 1) e exposição de motivos do projeto original"
+  },
+  {
+   "id": "X2",
+   "o_que": "Relatório e voto do relator: o arquivo do PRLP nº 1 contém apenas o texto do substitutivo",
+   "onde_procurou": "PRLP nº 1 de 08/07/2026"
+  },
+  {
+   "id": "X3",
+   "o_que": "Análise de impacto regulatório ou estimativa do custo de conformidade para as empresas",
+   "onde_procurou": "exposição de motivos do projeto original"
+  },
+  {
+   "id": "X4",
+   "o_que": "Estimativa de quantos grupos econômicos passam dos pisos de faturamento",
+   "onde_procurou": "texto do substitutivo e exposição de motivos"
+  }
+ ],
+ "vigencia": {
+  "clausula": "sessenta dias após a publicação",
+  "documento": "PRLP nº 1 de 08/07/2026",
+  "trecho": "Esta Lei entra em vigor sessenta dias após a data de sua publicação"
+ },
+ "referencias": [
+  {
+   "id": "U1",
+   "nome": "Tomada de Subsídios SRE/MF nº 1/2024",
+   "o_que_e": "Consulta pública da Secretaria de Reformas Econômicas do Ministério da Fazenda sobre plataformas digitais, que recebeu 301 contribuições de 72 participantes. A exposição de motivos a aponta como ponto de partida do projeto.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "iniciado com a Tomada de Subsídios SRE/MF nº 1/2024"
+  },
+  {
+   "id": "U2",
+   "nome": "Exposição de Motivos Interministerial nº 00099/2025 MJSP AGU MF MGI",
+   "o_que_e": "Justificativa do projeto, assinada pelos ministérios da Justiça e Segurança Pública, da Fazenda, da Gestão e pela Advocacia-Geral da União. Acompanha o projeto original.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "EMI nº 00099/2025 MJSP AGU MF MGI"
+  },
+  {
+   "id": "U3",
+   "nome": "Estudo do Ministério da Fazenda sobre plataformas digitais",
+   "o_que_e": "Estudo feito com o Ministério da Justiça e a Secretaria de Comunicação Social, que examinou dez países e concluiu que o Cade precisa de instrumentos de prevenção. A exposição de motivos o cita sem dar o título.",
+   "documento": "Redação original (inteiro teor)",
+   "trecho": "a partir da análise de iniciativas adotadas por outros 10 países na vanguarda do tema"
+  }
+ ]
 }

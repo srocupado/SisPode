@@ -58,7 +58,7 @@ function pe5ConferirTrechos(L, documentos, norm) {
     return outro ? outro.rotulo : null;
   };
   const out = { ...L }, recusados = []; let conferidos = 0;
-  for (const g of ['blocos', 'alteracoes', 'emendas', 'justificativa', 'estimativas', 'controversias', 'achados']) {
+  for (const g of ['blocos', 'alteracoes', 'emendas', 'justificativa', 'estimativas', 'controversias', 'achados', 'referencias']) {
     out[g] = (Array.isArray(L?.[g]) ? L[g] : []).filter(x => {
       if (!x || !x.id) return false;
       const d = onde(x.documento, x.trecho);
@@ -227,7 +227,7 @@ async function gerarParecerPE5(ctx, io) {
     const [deb, intl, cx] = await Promise.all([
       uma('pesquisa-debate', R.pe5PromptDebate(base), { atores: 'Q' }),
       uma('pesquisa-internacional', R.pe5PromptInternacional(base), { jurisdicoes: 'W' }),
-      uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K' }),
+      uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
     ]);
     pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];

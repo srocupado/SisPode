@@ -1,151 +1,1021 @@
 {
-  "materia": {
-    "faz": [
-      { "titulo": "Um poder novo para o Cade", "dispositivos": "arts. 47-B, 47-C e 47-E", "ev": ["B2", "B3", "J2"],
-        "texto": "Hoje o Cade age em dois momentos: quando empresas se fundem e quando alguém já cometeu infração. O texto acrescenta um terceiro. O Cade passa a poder escolher grupos econômicos com \"relevância sistêmica\" em mercados digitais e impor a cada um obrigações de conduta sem que tenha havido infração. São dois processos separados: primeiro a designação, depois as obrigações. A designação, sozinha, não obriga a nada." },
-      { "titulo": "Quem pode ser designado", "dispositivos": "art. 47-C", "ev": ["B2", "T5", "C2"],
-        "texto": "O primeiro filtro é o faturamento do grupo: mais de R$ 50 bilhões por ano no mundo ou mais de R$ 5 bilhões por ano no Brasil. Basta um dos dois. Quem passa do piso só é designado se o Cade demonstrar, em análise conjunta e fundamentada, seis características: atuar em mais de um mercado de múltiplos lados; ter poder de mercado ligado a efeitos de rede; ter integração vertical ou presença em mercados vizinhos; ocupar posição da qual terceiros dependem para chegar a usuários, dados ou infraestrutura; controlar quantidade significativa de dados; e funcionar como controlador de acesso de um ecossistema digital. Os pisos são corrigidos todo ano pelo IPCA, por ato da própria superintendência. A designação vale para o grupo econômico inteiro." },
-      { "titulo": "O que o Cade pode exigir do designado", "dispositivos": "art. 47-E", "ev": ["B3", "C1"],
-        "texto": "As obrigações se dividem em três grupos. De transparência: comunicar aquisições, divulgar termos de uso, critérios de ranqueamento e de exibição de ofertas e a estrutura de preços e taxas. De fazer: oferecer portabilidade de dados e interoperabilidade gratuitas, permitir a instalação de aplicativos de terceiros, dar aos vendedores acesso aos dados de desempenho de suas ofertas, oferecer telas de escolha de produtos concorrentes e tratar os usuários de forma isonômica. De não fazer: favorecer os próprios produtos, condicionar a compra de um produto à de outro, impedir que o vendedor alcance o cliente por outro canal e piorar o serviço de quem exerce esses direitos. Cada obrigação vale para produtos ou serviços determinados e pode exigir mudança de termos de uso ou redesenho do produto. Ao decidir, o Cade deve considerar segurança da informação, inovação e as demais obrigações legais do designado." },
-      { "titulo": "A nova superintendência", "dispositivos": "arts. 5º, IV, 18-A e 18-B", "ev": ["B1", "T8"],
-        "texto": "O Cade ganha um quarto órgão, a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais. O titular é nomeado pelo Presidente da República depois de aprovado pelo Senado, tem mandato de dois anos com uma recondução e dedicação exclusiva. A superintendência instaura e instrui os dois processos novos, fiscaliza o cumprimento das obrigações e acompanha permanentemente os agentes de mercados digitais. Cartéis e fusões continuam com a Superintendência-Geral, mesmo quando envolvem um designado. A decisão final é sempre do Tribunal do Cade." },
-      { "titulo": "O caminho do processo", "dispositivos": "arts. 87-A a 87-H", "ev": ["B5", "T2", "T7"],
-        "texto": "A superintendência abre o processo por conta própria ou a pedido de qualquer interessado, e pode arquivar pedido sem fundamento. Quando o pedido vem do Tribunal, da Superintendência-Geral, da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais ou direitos difusos, a abertura é imediata. O representado tem trinta dias para se defender, prorrogáveis por dez. Na designação há tomada de subsídios aberta a qualquer interessado. A manifestação preliminar da superintendência vai a audiência pública por trinta dias. Em 210 dias, na designação, ou 240 dias, nas obrigações, o processo sobe ao Tribunal, esteja ou não concluído. No Tribunal, o relator tem 60 ou 120 dias para pautar, o pedido de vista é coletivo e limitado a trinta dias, e depois dele o voto entra na pauta sem depender de devolução dos autos." },
-      { "titulo": "Duração, revisão e sanções", "dispositivos": "arts. 44-A, 47-D, 47-G, 87-A, 87-B e 87-I", "ev": ["B4", "B6", "B7"],
-        "texto": "A designação dura até seis anos e pode ser renovada por novo processo. Depois de dois anos, pode ser revista se o mercado mudar. As obrigações começam em até noventa dias da decisão e acabam com a designação. O designado deve manter escritório no Brasil; se não o fizer no prazo que o Cade fixar, paga multa de R$ 20 mil por dia, que pode ser multiplicada por até cinquenta. Quem descumpre obrigação especial responde pelas sanções que a lei já prevê para infrações à ordem econômica. O designado entrega relatórios de conformidade e pode ter de pagar auditoria independente." },
-      { "titulo": "Freios ao próprio Cade", "dispositivos": "arts. 18-A, 48, §§ 1º e 2º, 87-C, 87-J e 87-L", "ev": ["B8", "B9"],
-        "texto": "O Cade só pode regulamentar prazos e procedimentos: fica proibido de criar por resolução obrigações, sanções ou novas hipóteses de designação. Os regulamentos dos dois processos passam por consulta e audiência públicas. O representado pode propor como cumprir as obrigações. Quem participa de consultas e audiências precisa declarar vínculos e financiamentos ligados a empresas afetadas. O Cade pode criar um conselho consultivo, não remunerado, com pelo menos metade dos membros vinda da academia e de organizações sem fins lucrativos." }
+ "materia": {
+  "faz": [
+   {
+    "titulo": "Um poder novo para o Cade",
+    "dispositivos": "arts. 47-B, 47-C e 47-E",
+    "ev": [
+     "B2",
+     "B3",
+     "J2"
     ],
-    "origem": [
-      { "ev": ["J1", "J2", "J4", "J5", "G"],
-        "texto": "O projeto é do Poder Executivo e chegou à Câmara em 18/09/2025. A exposição de motivos, assinada pelos ministérios da Justiça, da Fazenda, da Gestão e pela Advocacia-Geral da União, apresenta a proposta como resultado de um estudo do Ministério da Fazenda iniciado com uma tomada de subsídios, que recebeu 301 contribuições de 72 participantes e examinou a experiência de dez países. A conclusão do estudo foi que o Cade precisa de instrumentos de prevenção mais rápidos para os mercados digitais. O governo situa o modelo ao lado do alemão, do japonês e do britânico." },
-      { "ev": ["G", "K2"],
-        "texto": "O projeto não passou por comissões. O relator de Plenário, deputado Aliel Machado (PV-PR), foi designado em 07/10/2025. Em 22/10/2025 a deputada Caroline de Toni (PL-SC) pediu a criação de uma comissão especial; o pedido não foi votado. Em 18/03/2026 o Plenário aprovou a urgência regimental, o que leva a matéria direto ao Plenário." },
-      { "ev": ["X2", "G"],
-        "texto": "Em 08/07/2026 o relator apresentou o Parecer Preliminar de Plenário nº 1, que é o texto em votação. O arquivo publicado contém apenas o substitutivo: não traz relatório nem voto. As razões do relator para cada mudança, portanto, não constam do documento lido; as que aparecem neste parecer vêm de declarações dele à imprensa. Não há emendas de Plenário registradas." },
-      { "ev": ["G", "Q2"],
-        "texto": "Em 12/08/2026 a Comissão de Desenvolvimento Econômico aprovou requerimento de audiência pública sobre os impactos econômicos do projeto. A matéria constou da pauta do Plenário de 13/11/2026, e o governo trabalha para votá-la ainda em novembro." }
+    "texto": "Hoje o Cade age em dois momentos: quando empresas se fundem e quando alguém já cometeu infração. O texto acrescenta um terceiro. O Cade passa a poder escolher grupos econômicos com \"relevância sistêmica\" em mercados digitais e impor a cada um obrigações de conduta sem que tenha havido infração. São dois processos separados: primeiro a designação, depois as obrigações. A designação, sozinha, não obriga a nada."
+   },
+   {
+    "titulo": "Quem pode ser designado",
+    "dispositivos": "art. 47-C",
+    "ev": [
+     "B2",
+     "T5",
+     "C2"
     ],
-    "versoes": [
-      { "tema": "Critérios qualitativos", "original": "Lista aberta: características consideradas de forma não cumulativa, \"dentre outras\".", "atual": "Lista fechada de seis características, em análise conjunta e fundamentada.", "efeito": "Reduz a margem do Cade para designar; aumenta o que o Cade precisa provar.", "ev": ["V1"] },
-      { "tema": "Pisos de faturamento", "original": "Podiam ser \"adequados\" por ato conjunto de dois ministros.", "atual": "Só correção anual pelo IPCA.", "efeito": "Tira do governo o poder de ampliar ou reduzir o alcance da lei sem passar pelo Congresso.", "ev": ["V2"] },
-      { "tema": "Duração da designação", "original": "Até dez anos.", "atual": "Até seis anos, com revisão depois de dois.", "efeito": "Encurta o período de supervisão.", "ev": ["V3"] },
-      { "tema": "Aquisições do designado", "original": "O Cade podia exigir análise prévia de qualquer aquisição, mesmo abaixo dos pisos gerais.", "atual": "O designado só comunica a operação; a análise segue as regras gerais.", "efeito": "Atende à crítica de que a regra travaria a compra de startups.", "ev": ["V4", "M1"] },
-      { "tema": "Poder de regulamentar", "original": "Sem limite expresso.", "atual": "Só prazos e procedimentos; proibido criar obrigações, sanções ou hipóteses de designação.", "efeito": "Fecha a porta à ampliação do regime por resolução.", "ev": ["V5"] },
-      { "tema": "Instrumentos novos", "original": "Não previa.", "atual": "Proposta voluntária do representado, declaração de vínculos em consultas, estudos de mercado, conselho consultivo e exigência de urgência para conduzir os dois processos ao mesmo tempo.", "efeito": "Acrescenta participação e transparência ao rito.", "ev": ["V7"] }
+    "texto": "O primeiro filtro é o faturamento do grupo: mais de R$ 50 bilhões por ano no mundo ou mais de R$ 5 bilhões por ano no Brasil. Basta um dos dois. Quem passa do piso só é designado se o Cade demonstrar, em análise conjunta e fundamentada, seis características: atuar em mais de um mercado de múltiplos lados; ter poder de mercado ligado a efeitos de rede; ter integração vertical ou presença em mercados vizinhos; ocupar posição da qual terceiros dependem para chegar a usuários, dados ou infraestrutura; controlar quantidade significativa de dados; e funcionar como controlador de acesso de um ecossistema digital. Os pisos são corrigidos todo ano pelo IPCA, por ato da própria superintendência. A designação vale para o grupo econômico inteiro."
+   },
+   {
+    "titulo": "O que o Cade pode exigir do designado",
+    "dispositivos": "art. 47-E",
+    "ev": [
+     "B3",
+     "C1"
     ],
-    "contexto": [
-      { "titulo": "O que o Cade já pode fazer hoje", "ev": ["M1", "F2"],
-        "texto": "A lei atual submete ao Cade as fusões e aquisições em que um grupo fatura ao menos R$ 750 milhões no Brasil e o outro ao menos R$ 75 milhões, e pune condutas anticompetitivas depois de apuradas. Foi por esse caminho que o Cade investigou a Apple por restrições a desenvolvedores e firmou com ela um acordo de cessação de conduta. Os críticos do projeto citam esse acordo como prova de que a lei atual funciona; os defensores respondem que esses processos levam anos." },
-      { "titulo": "Outras propostas sobre o tema", "ev": ["K1"],
-        "texto": "O PL 2768/2022 trata do mesmo assunto por outro caminho. Seu substitutivo trocou a Anatel pelo Cade como regulador e se aproximou do PL 4675/2025. A relatora, deputada Any Ortiz (PP-RS), é crítica do projeto do governo." },
-      { "titulo": "Quem apoia e quem se opõe", "ev": ["Q3", "Q5", "Q13", "Q14", "G"],
-        "texto": "O governo e o presidente da Câmara, deputado Hugo Motta, trabalham pela aprovação. Do lado dos setores, apoiam o texto os que dependem das plataformas ou concorrem com elas: bares e restaurantes (Abrasel), bancos (Febraban), instituições de pagamento (Abipag) e parte do varejo. Opõem-se as plataformas e suas entidades, a federação e a confederação do comércio (Fecomercio e CNC) e a bancada do PL, que associa o projeto ao controle das redes. Organizações de direitos digitais apoiam e dizem ver campanha coordenada de desinformação contra o texto. A votação da urgência, detalhada na abertura, mostra os partidos de centro divididos." },
-      { "titulo": "A pressão dos Estados Unidos", "ev": ["Q15"],
-        "texto": "Em 23/07/2026, vinte deputados republicanos norte-americanos pediram ao representante comercial dos Estados Unidos que o projeto seja tratado em qualquer negociação comercial com o Brasil. A carta cita a investigação aberta com base na Seção 301 da lei de comércio dos EUA. O Planalto classificou a iniciativa como tentativa de ingerência." }
+    "texto": "As obrigações se dividem em três grupos. De transparência: comunicar aquisições, divulgar termos de uso, critérios de ranqueamento e de exibição de ofertas e a estrutura de preços e taxas. De fazer: oferecer portabilidade de dados e interoperabilidade gratuitas, permitir a instalação de aplicativos de terceiros, dar aos vendedores acesso aos dados de desempenho de suas ofertas, oferecer telas de escolha de produtos concorrentes e tratar os usuários de forma isonômica. De não fazer: favorecer os próprios produtos, condicionar a compra de um produto à de outro, impedir que o vendedor alcance o cliente por outro canal e piorar o serviço de quem exerce esses direitos. Cada obrigação vale para produtos ou serviços determinados e pode exigir mudança de termos de uso ou redesenho do produto. Ao decidir, o Cade deve considerar segurança da informação, inovação e as demais obrigações legais do designado."
+   },
+   {
+    "titulo": "A nova superintendência",
+    "dispositivos": "arts. 5º, IV, 18-A e 18-B",
+    "ev": [
+     "B1",
+     "T8"
+    ],
+    "texto": "O Cade ganha um quarto órgão, a Superintendência Especial de Relevância Sistêmica, Livre Concorrência e Defesa do Consumidor em Mercados Digitais. O titular é nomeado pelo Presidente da República depois de aprovado pelo Senado, tem mandato de dois anos com uma recondução e dedicação exclusiva. A superintendência instaura e instrui os dois processos novos, fiscaliza o cumprimento das obrigações e acompanha permanentemente os agentes de mercados digitais. Cartéis e fusões continuam com a Superintendência-Geral, mesmo quando envolvem um designado. A decisão final é sempre do Tribunal do Cade."
+   },
+   {
+    "titulo": "O caminho do processo",
+    "dispositivos": "arts. 87-A a 87-H",
+    "ev": [
+     "B5",
+     "T2",
+     "T7"
+    ],
+    "texto": "A superintendência abre o processo por conta própria ou a pedido de qualquer interessado, e pode arquivar pedido sem fundamento. Quando o pedido vem do Tribunal, da Superintendência-Geral, da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais ou direitos difusos, a abertura é imediata. O representado tem trinta dias para se defender, prorrogáveis por dez. Na designação há tomada de subsídios aberta a qualquer interessado. A manifestação preliminar da superintendência vai a audiência pública por trinta dias. Em 210 dias, na designação, ou 240 dias, nas obrigações, o processo sobe ao Tribunal, esteja ou não concluído. No Tribunal, o relator tem 60 ou 120 dias para pautar, o pedido de vista é coletivo e limitado a trinta dias, e depois dele o voto entra na pauta sem depender de devolução dos autos."
+   },
+   {
+    "titulo": "Duração, revisão e sanções",
+    "dispositivos": "arts. 44-A, 47-D, 47-G, 87-A, 87-B e 87-I",
+    "ev": [
+     "B4",
+     "B6",
+     "B7"
+    ],
+    "texto": "A designação dura até seis anos e pode ser renovada por novo processo. Depois de dois anos, pode ser revista se o mercado mudar. As obrigações começam em até noventa dias da decisão e acabam com a designação. O designado deve manter escritório no Brasil; se não o fizer no prazo que o Cade fixar, paga multa de R$ 20 mil por dia, que pode ser multiplicada por até cinquenta. Quem descumpre obrigação especial responde pelas sanções que a lei já prevê para infrações à ordem econômica. O designado entrega relatórios de conformidade e pode ter de pagar auditoria independente."
+   },
+   {
+    "titulo": "Freios ao próprio Cade",
+    "dispositivos": "arts. 18-A, 48, §§ 1º e 2º, 87-C, 87-J e 87-L",
+    "ev": [
+     "B8",
+     "B9"
+    ],
+    "texto": "O Cade só pode regulamentar prazos e procedimentos: fica proibido de criar por resolução obrigações, sanções ou novas hipóteses de designação. Os regulamentos dos dois processos passam por consulta e audiência públicas. O representado pode propor como cumprir as obrigações. Quem participa de consultas e audiências precisa declarar vínculos e financiamentos ligados a empresas afetadas. O Cade pode criar um conselho consultivo, não remunerado, com pelo menos metade dos membros vinda da academia e de organizações sem fins lucrativos."
+   }
+  ],
+  "origem": [
+   {
+    "ev": [
+     "J1",
+     "J2",
+     "J4",
+     "J5",
+     "U1",
+     "U2",
+     "G"
+    ],
+    "texto": "O projeto é do Poder Executivo e chegou à Câmara em 18/09/2025, acompanhado da Exposição de Motivos Interministerial nº 00099/2025, assinada pelos ministérios da Justiça e Segurança Pública, da Fazenda, da Gestão e pela Advocacia-Geral da União. A exposição apresenta a proposta como resultado de estudo do Ministério da Fazenda iniciado com a Tomada de Subsídios SRE/MF nº 1/2024, que recebeu 301 contribuições de 72 participantes e examinou a experiência de dez países. A conclusão do estudo foi que o Cade precisa de instrumentos de prevenção mais rápidos para os mercados digitais. O governo situa o modelo ao lado do alemão, do japonês e do britânico."
+   },
+   {
+    "ev": [
+     "G",
+     "K2"
+    ],
+    "texto": "O projeto não passou por comissões. O relator de Plenário, deputado Aliel Machado (PV-PR), foi designado em 07/10/2025. Em 22/10/2025 a deputada Caroline de Toni (PL-SC) pediu a criação de uma comissão especial; o pedido não foi votado. Em 18/03/2026 o Plenário aprovou a urgência regimental, o que leva a matéria direto ao Plenário."
+   },
+   {
+    "ev": [
+     "X2",
+     "G"
+    ],
+    "texto": "Em 08/07/2026 o relator apresentou o Parecer Preliminar de Plenário nº 1, que é o texto em votação. A Câmara publica um único arquivo para esse parecer, e ele traz o texto do substitutivo, sem relatório e sem voto. Por isso, as razões do relator para cada mudança citadas neste parecer vêm das declarações dele à imprensa, e não de um voto escrito. Não há emendas de Plenário registradas."
+   },
+   {
+    "ev": [
+     "G",
+     "Q2"
+    ],
+    "texto": "Em 12/08/2026 a Comissão de Desenvolvimento Econômico aprovou requerimento de audiência pública sobre os impactos econômicos do projeto. A matéria constou da pauta do Plenário de 13/11/2026, e o governo trabalha para votá-la ainda em novembro."
+   }
+  ],
+  "versoes": [
+   {
+    "tema": "Critérios qualitativos",
+    "original": "Lista aberta: características consideradas de forma não cumulativa, \"dentre outras\".",
+    "atual": "Lista fechada de seis características, em análise conjunta e fundamentada.",
+    "efeito": "Reduz a margem do Cade para designar; aumenta o que o Cade precisa provar.",
+    "ev": [
+     "V1"
     ]
-  },
-  "debate": {
-    "controversias": [
-      { "questao": "É preciso uma regra preventiva, ou a lei atual basta?", "dispositivos": "arts. 47-C e 47-E", "ev": ["Q2", "Q4", "Q6", "Q8", "Q9", "Q12", "J2"],
-        "favor": [
-          { "argumento": "Os processos de infração do Cade levam anos e, em mercados digitais, a posição dominante se consolida antes da decisão. Agir antes é o único jeito de manter o mercado aberto.", "quem": "Governo, Artigo 19", "evidencia": "O iFood passou a ditar margens de bares e restaurantes; a Apple fica com 30% das compras feitas em aplicativos." },
-          { "argumento": "As medidas cautelares que o Cade já tem não substituem um regime permanente.", "quem": "Nicolo Zingales (FGV Direito Rio)", "evidencia": "Não apresentada na fonte." } ],
-        "contra": [
-          { "argumento": "Impor obrigações sem infração inverte a lógica da defesa da concorrência: \"é preciso provar que essas empresas realmente têm ação predatória\".", "quem": "Dep. Any Ortiz, Conselho Digital", "evidencia": "Não apresentada na fonte." },
-          { "argumento": "A lei atual já resolve: o acordo da Apple com o Cade mostra que há solução sem lei nova.", "quem": "Apple", "evidencia": "O próprio acordo de cessação de conduta." } ],
-        "estado": "É a divergência de fundo e não tem meio-termo no texto: o substitutivo manteve o modelo preventivo." },
-      { "questao": "Os critérios de designação dão segurança?", "dispositivos": "art. 47-C, §§ 1º e 2º", "ev": ["Q1", "Q7", "Q10", "V1", "C2", "T6"],
-        "favor": [
-          { "argumento": "O substitutivo fechou a lista de critérios, exigiu análise conjunta e fundamentada e deixou de fora empresas que são apenas usuárias das plataformas, como bancos e fintechs.", "quem": "Relator", "evidencia": "A mudança de redação do art. 47-C." } ],
-        "contra": [
-          { "argumento": "A lista é fechada, mas os conceitos são abertos: \"ecossistema digital\", \"dependência\", \"quantidade significativa de dados\". Quem decide o que significam é o regulador.", "quem": "ALAI", "evidencia": "Não apresentada na fonte." },
-          { "argumento": "A lei pune pelo porte, não pela conduta.", "quem": "Camara-e.net", "evidencia": "Não apresentada na fonte." } ],
-        "estado": "Parcialmente atendida pelo substitutivo. Restam a falta de definição legal dos conceitos e a dúvida sobre se as seis características são cumulativas." },
-      { "questao": "Quem paga o custo da regulação?", "dispositivos": "arts. 47-E e 87-I", "ev": ["Q4", "Q7", "Q11", "F1", "X3"],
-        "favor": [
-          { "argumento": "O custo recai sobre poucos grupos de faturamento muito alto, e quem ganha são os vendedores, restaurantes e desenvolvedores que hoje pagam taxas e aceitam condições impostas.", "quem": "Artigo 19", "evidencia": "Os exemplos do iFood e da comissão de 30% da Apple." } ],
-        "contra": [
-          { "argumento": "Parte do custo será repassada a consumidores e a pequenos negócios que vendem e anunciam nas plataformas.", "quem": "ALAI", "evidencia": "Estudo encomendado pela própria entidade estima custo entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos." },
-          { "argumento": "O governo não apresentou análise de impacto regulatório nem estudo econômico.", "quem": "Catorze entidades, Camara-e.net", "evidencia": "A exposição de motivos de fato não traz estimativa de custo." } ],
-        "estado": "Em aberto. O único número disponível vem de parte interessada; não há estimativa oficial nem independente." },
-      { "questao": "Houve debate suficiente?", "dispositivos": "—", "ev": ["Q4", "Q11", "J4", "G", "K2"],
-        "favor": [
-          { "argumento": "O texto resulta de tomada de subsídios e de mais de um ano de discussão técnica no Ministério da Fazenda; urgência não é atropelo.", "quem": "Artigo 19, Governo", "evidencia": "A tomada de subsídios recebeu 301 contribuições de 72 participantes." } ],
-        "contra": [
-          { "argumento": "O projeto não passou por nenhuma comissão da Câmara e o pedido de comissão especial não foi votado.", "quem": "Catorze entidades, Frente Parlamentar pelo Livre Mercado", "evidencia": "O registro de tramitação confirma: relator de Plenário designado dezenove dias depois da apresentação e urgência aprovada sem parecer de comissão." } ],
-        "estado": "Em aberto. A audiência pública aprovada na Comissão de Desenvolvimento Econômico em agosto é o único espaço formal de debate criado na Câmara." },
-      { "questao": "O projeto copia o modelo europeu?", "dispositivos": "arts. 47-C e 47-E", "ev": ["Q1", "Q7", "Q8", "Q15", "J5", "W1", "W2", "W3"],
-        "favor": [
-          { "argumento": "O desenho é o de duas etapas, com obrigações sob medida para cada empresa, como na Alemanha e no Reino Unido, e não o da lei europeia, em que as obrigações já vêm escritas e valem para todos.", "quem": "Governo (exposição de motivos)", "evidencia": "A estrutura do texto: designação e obrigações em processos separados." } ],
-        "contra": [
-          { "argumento": "O texto \"replicaria intencionalmente\" a lei europeia e traria seus problemas: pior experiência para o usuário e atraso de produtos.", "quem": "Deputados republicanos dos EUA, Apple", "evidencia": "Não apresentada na fonte." },
-          { "argumento": "O texto não segue nem o modelo europeu nem o britânico, e por isso não aproveita as correções que eles já fizeram.", "quem": "ALAI", "evidencia": "Não apresentada na fonte." } ],
-        "estado": "Os dois críticos se contradizem entre si: um diz que o texto copia a lei europeia, o outro que não a segue. A comparação da Parte III mostra que o desenho está mais próximo do alemão e do britânico." },
-      { "questao": "O projeto abre caminho para regular conteúdo das redes?", "dispositivos": "art. 47-E", "ev": ["Q1", "Q2", "Q13", "B3"],
-        "favor": [
-          { "argumento": "O texto trata só de concorrência; nenhuma obrigação diz respeito a moderação ou remoção de conteúdo.", "quem": "Governo, Relator", "evidencia": "A lista de obrigações do art. 47-E." } ],
-        "contra": [
-          { "argumento": "A intenção do governo seria regular as redes sociais.", "quem": "Deputados do PL", "evidencia": "Não apresentada na fonte." } ],
-        "estado": "O texto lido não contém obrigação sobre conteúdo. A obrigação de divulgar critérios de ranqueamento e de exibição é de transparência comercial." },
-      { "questao": "A abertura de sistemas compromete segurança e privacidade?", "dispositivos": "art. 47-E, II, e § 2º", "ev": ["Q8", "B3"],
-        "favor": [],
-        "contra": [
-          { "argumento": "Permitir aplicativos e pagamentos de fora da loja expõe o usuário a fraude e retira controles parentais.", "quem": "Apple", "evidencia": "Não apresentada na fonte." } ],
-        "estado": "O substitutivo manda o Cade considerar a segurança da informação ao fixar obrigações, mas não cria salvaguarda específica. Nenhum defensor do projeto respondeu a esse ponto nas fontes lidas." }
-    ],
-    "da_analise": [
-      { "lado": "contrário", "ev": ["T5", "W1", "W3"], "argumento": "O piso mundial de R$ 50 bilhões equivale a cerca de EUR 7,9 bilhões, valor próximo do que a lei europeia exige de faturamento só dentro da Europa, e é quase quatro vezes menor que o piso mundial britânico. Como basta o faturamento mundial, um grupo com presença pequena no Brasil passa pelo primeiro filtro. Nenhum dos críticos levantou esse ponto." },
-      { "lado": "contrário", "ev": ["T2", "J6"], "argumento": "A abertura imediata do processo a pedido de órgãos do Executivo permite ao governo escolher quem será investigado, sem filtro técnico da superintendência. Os críticos falam em discricionariedade do Cade, mas não nesse mecanismo." },
-      { "lado": "favorável", "ev": ["V2", "V5", "B8"], "argumento": "O substitutivo retirou do governo o poder de mudar os pisos e proibiu o Cade de ampliar o regime por resolução. Isso responde à crítica de \"poderes amplos\" melhor do que os defensores têm explorado." },
-      { "lado": "favorável", "ev": ["W3", "W4"], "argumento": "No Reino Unido e no Japão, a autoridade obteve mudanças de conduta por compromisso e diálogo, sem multa. O instrumento equivalente no texto é a proposta voluntária do representado." }
+   },
+   {
+    "tema": "Pisos de faturamento",
+    "original": "Podiam ser \"adequados\" por ato conjunto de dois ministros.",
+    "atual": "Só correção anual pelo IPCA.",
+    "efeito": "Tira do governo o poder de ampliar ou reduzir o alcance da lei sem passar pelo Congresso.",
+    "ev": [
+     "V2"
     ]
-  },
-  "internacional": {
-    "jurisdicoes": [
-      { "lugar": "União Europeia", "norma": "Lei dos Mercados Digitais (DMA), obrigações exigíveis desde março de 2024", "ev": ["W1"],
-        "regra": "É o modelo mais rígido. As obrigações estão escritas na lei e valem para todos os designados. É alcançada a empresa com faturamento de ao menos EUR 7,5 bilhões na Europa ou valor de mercado de ao menos EUR 75 bilhões que ofereça serviço com mais de 45 milhões de usuários mensais. A multa chega a 10% do faturamento mundial.",
-        "aconteceu": "Sete grupos foram designados: Alphabet, Amazon, Apple, Booking, ByteDance, Meta e Microsoft. Em abril de 2025 saíram as primeiras multas, de EUR 500 milhões para a Apple e EUR 200 milhões para a Meta. A primeira revisão oficial, de abril de 2026, concluiu que a lei é adequada e não precisa mudar por ora, mas reconheceu que os designados adotaram condutas que atrasam ou limitam os benefícios. Os efeitos mais visíveis são as telas de escolha de navegador e de buscador e a exigência de consentimento para cruzar dados entre serviços.",
-        "criticas": "De um lado, organizações de direitos digitais dizem que a aplicação é branda e sujeita a pressão política: a Apple ainda controla que aplicativos se instalam no iPhone. De outro, as empresas dizem que a lei piorou a experiência do usuário e atrasou produtos na Europa." },
-      { "lugar": "Alemanha", "norma": "Seção 19a da lei de concorrência, em vigor desde janeiro de 2021", "ev": ["W2"],
-        "regra": "É o modelo de duas etapas. A autoridade de concorrência primeiro declara que a empresa tem importância primordial para a concorrência entre mercados, por critérios qualitativos e sem piso de faturamento. Depois, pode proibir condutas específicas. A designação dura cinco anos.",
-        "aconteceu": "Cinco grupos foram designados entre 2022 e 2024: Alphabet, Meta, Amazon, Apple e Microsoft. O tribunal federal confirmou as designações de Amazon e Apple. A maioria dos casos terminou com mudança de conduta negociada, em tratamento de dados, mapas e rastreamento em aplicativos. Em fevereiro de 2026 veio a decisão mais dura: a proibição dos mecanismos de controle de preços da Amazon, com devolução de EUR 59 milhões.",
-        "criticas": "Nenhuma crítica específica foi localizada nas fontes lidas." },
-      { "lugar": "Reino Unido", "norma": "Lei de Mercados Digitais, Concorrência e Consumidores, em vigor desde janeiro de 2025", "ev": ["W3"],
-        "regra": "Também em duas etapas e sob medida. É alcançada a empresa com faturamento mundial acima de GBP 25 bilhões ou britânico acima de GBP 1 bilhão que tenha poder de mercado duradouro em uma atividade digital determinada. A designação é por atividade, não pelo grupo inteiro, e dura cinco anos.",
-        "aconteceu": "Em outubro de 2025 a autoridade designou o Google em buscas e Apple e Google em plataformas móveis. Em vez de impor exigências formais, aceitou compromissos das duas empresas sobre revisão e ranqueamento de aplicativos, uso de dados e interoperabilidade, válidos desde abril de 2026. Se não forem cumpridos, promete agir com exigências formais.",
-        "criticas": "Nenhuma crítica específica foi localizada nas fontes lidas." },
-      { "lugar": "Japão", "norma": "Lei de concorrência em softwares de smartphones, em vigor plena desde dezembro de 2025", "ev": ["W4"],
-        "regra": "É o modelo mais restrito: vale só para o celular. Alcança operadores de sistema operacional, loja de aplicativos, navegador e buscador com ao menos 40 milhões de usuários mensais. O critério é o número de usuários, não o faturamento. A multa chega a 20% do faturamento ligado à infração.",
-        "aconteceu": "Apple e Google foram designadas em março de 2025. O Google abriu sistemas de cobrança alternativos e reduziu taxas; a Apple passou a admitir lojas alternativas, com salvaguardas para menores. A autoridade publicou dois relatórios de conformidade em 2026 e mantém a linha de privilegiar o diálogo.",
-        "criticas": "A entidade de desenvolvedores Coalition for App Fairness diz que as empresas não cumprem a lei e cita pesquisa segundo a qual mais de 90% dos desenvolvedores não usam lojas nem pagamentos alternativos." },
-      { "lugar": "Países que recuaram ou adiaram", "norma": "Coreia do Sul, Índia e Austrália", "ev": ["W5", "W6"],
-        "regra": "Os três discutiram regras de designação prévia de plataformas e nenhum as aprovou.",
-        "aconteceu": "Na Coreia do Sul, a autoridade de concorrência desistiu da proposta em setembro de 2024, recuo atribuído em parte às negociações comerciais com os Estados Unidos. Na Índia, o projeto está parado enquanto o governo conduz estudo de mercado. Na Austrália, o regime está em minuta.",
-        "criticas": "As informações sobre esses três países vêm de fontes do setor e de análise jornalística, não de documentos oficiais." }
+   },
+   {
+    "tema": "Duração da designação",
+    "original": "Até dez anos.",
+    "atual": "Até seis anos, com revisão depois de dois.",
+    "efeito": "Encurta o período de supervisão.",
+    "ev": [
+     "V3"
+    ]
+   },
+   {
+    "tema": "Aquisições do designado",
+    "original": "O Cade podia exigir análise prévia de qualquer aquisição, mesmo abaixo dos pisos gerais.",
+    "atual": "O designado só comunica a operação; a análise segue as regras gerais.",
+    "efeito": "Atende à crítica de que a regra travaria a compra de startups.",
+    "ev": [
+     "V4",
+     "M1"
+    ]
+   },
+   {
+    "tema": "Poder de regulamentar",
+    "original": "Sem limite expresso.",
+    "atual": "Só prazos e procedimentos; proibido criar obrigações, sanções ou hipóteses de designação.",
+    "efeito": "Fecha a porta à ampliação do regime por resolução.",
+    "ev": [
+     "V5"
+    ]
+   },
+   {
+    "tema": "Instrumentos novos",
+    "original": "Não previa.",
+    "atual": "Proposta voluntária do representado, declaração de vínculos em consultas, estudos de mercado, conselho consultivo e exigência de urgência para conduzir os dois processos ao mesmo tempo.",
+    "efeito": "Acrescenta participação e transparência ao rito.",
+    "ev": [
+     "V7"
+    ]
+   }
+  ],
+  "contexto": [
+   {
+    "titulo": "O que o Cade já pode fazer hoje",
+    "ev": [
+     "M1",
+     "F2"
     ],
-    "comparativo": {
-      "colunas": ["Brasil (texto em votação)", "União Europeia", "Alemanha", "Reino Unido", "Japão"],
-      "linhas": [
-        { "parametro": "Como funciona", "valores": ["Duas etapas; obrigações sob medida", "Obrigações na lei, iguais para todos", "Duas etapas; proibições sob medida", "Duas etapas; exigências sob medida", "Obrigações na lei, só para celular"] },
-        { "parametro": "Piso de entrada", "valores": ["R$ 50 bilhões no mundo ou R$ 5 bilhões no País", "EUR 7,5 bilhões na Europa (cerca de R$ 47 bilhões) e 45 milhões de usuários", "Não há", "GBP 25 bilhões no mundo (cerca de R$ 189 bilhões) ou GBP 1 bilhão no país (cerca de R$ 7,6 bilhões)", "40 milhões de usuários mensais"] },
-        { "parametro": "Critério de usuários", "valores": ["Não", "Sim", "Não", "Não", "Sim"] },
-        { "parametro": "O que é designado", "valores": ["O grupo econômico inteiro", "Cada serviço", "A empresa", "Cada atividade digital", "Cada tipo de software"] },
-        { "parametro": "Duração", "valores": ["Até 6 anos", "Sem prazo; revisão a cada 3 anos", "5 anos", "5 anos", "Enquanto durar a designação"] },
-        { "parametro": "Multa máxima", "valores": ["As da lei de concorrência, mais multa diária por falta de escritório", "10% do faturamento mundial", "As da lei de concorrência", "10% do faturamento mundial", "20% do faturamento ligado à infração"] },
-        { "parametro": "Designados até agora", "valores": ["—", "7 grupos", "5 grupos", "2 grupos", "2 grupos"] }
-      ]
+    "texto": "A lei atual submete ao Cade as fusões e aquisições em que um grupo fatura ao menos R$ 750 milhões no Brasil e o outro ao menos R$ 75 milhões, e pune condutas anticompetitivas depois de apuradas. Foi por esse caminho que o Cade investigou a Apple por restrições a desenvolvedores e firmou com ela um acordo de cessação de conduta. Os críticos do projeto citam esse acordo como prova de que a lei atual funciona; os defensores respondem que esses processos levam anos."
+   },
+   {
+    "titulo": "Outras propostas sobre o tema",
+    "ev": [
+     "K1"
+    ],
+    "texto": "O PL 2768/2022 trata do mesmo assunto por outro caminho. Seu substitutivo trocou a Anatel pelo Cade como regulador e se aproximou do PL 4675/2025. A relatora, deputada Any Ortiz (PP-RS), é crítica do projeto do governo."
+   },
+   {
+    "titulo": "A pressão dos Estados Unidos",
+    "ev": [
+     "Q15"
+    ],
+    "texto": "Em 23/07/2026, vinte deputados republicanos norte-americanos pediram ao representante comercial dos Estados Unidos que o projeto seja tratado em qualquer negociação comercial com o Brasil. A carta cita a investigação aberta com base na Seção 301 da lei de comércio dos EUA. O Planalto classificou a iniciativa como tentativa de ingerência."
+   }
+  ],
+  "documentos": [
+   {
+    "documento": "Projeto de Lei nº 4.675/2025, texto original",
+    "o_que_e": "Proposta do Poder Executivo, apresentada em 18/09/2025.",
+    "onde": "Câmara dos Deputados, inteiro teor da proposição",
+    "ev": [
+     "G"
+    ]
+   },
+   {
+    "documento": "Exposição de Motivos Interministerial nº 00099/2025 MJSP AGU MF MGI",
+    "o_que_e": "Justificativa do governo. Explica os dois processos novos, a criação da superintendência e a origem da proposta.",
+    "onde": "Acompanha o texto original do projeto",
+    "ev": [
+     "U2"
+    ]
+   },
+   {
+    "documento": "Tomada de Subsídios SRE/MF nº 1/2024",
+    "o_que_e": "Consulta pública do Ministério da Fazenda, de janeiro a maio de 2024, que recebeu 301 contribuições de 72 participantes. É o ponto de partida declarado do projeto.",
+    "onde": "Plataforma Participa + Brasil, do governo federal",
+    "ev": [
+     "U1",
+     "Y2"
+    ]
+   },
+   {
+    "documento": "Relatório \"Plataformas Digitais: aspectos econômicos e concorrenciais e recomendações para aprimoramentos regulatórios no Brasil\"",
+    "o_que_e": "Relatório da Secretaria de Reformas Econômicas do Ministério da Fazenda, de 10/10/2024, com o resultado da tomada de subsídios. Traz 12 propostas de mudança legal e regulatória e indica o Cade como o órgão que deve cuidar do tema. É o estudo que a exposição de motivos cita sem dar o título.",
+    "onde": "Portal do Ministério da Fazenda",
+    "ev": [
+     "U3",
+     "Y1"
+    ]
+   },
+   {
+    "documento": "Contribuições do Cade ao Ministério da Fazenda",
+    "o_que_e": "Manifestação do Cade na tomada de subsídios. Foi localizada, mas não lida para este parecer.",
+    "onde": "Portal do Cade",
+    "ev": [
+     "Y3"
+    ]
+   },
+   {
+    "documento": "Parecer Preliminar de Plenário nº 1, com o substitutivo do relator",
+    "o_que_e": "Texto em votação, apresentado pelo deputado Aliel Machado em 08/07/2026.",
+    "onde": "Câmara dos Deputados, inteiro teor do parecer",
+    "ev": [
+     "B1",
+     "G"
+    ]
+   }
+  ]
+ },
+ "debate": {
+  "controversias": [
+   {
+    "questao": "É preciso uma regra preventiva, ou a lei atual basta?",
+    "dispositivos": "arts. 47-C e 47-E",
+    "ev": [
+     "Q2",
+     "Q4",
+     "Q6",
+     "Q8",
+     "Q9",
+     "Q12",
+     "J2"
+    ],
+    "favor": [
+     {
+      "argumento": "Os processos de infração do Cade levam anos e, em mercados digitais, a posição dominante se consolida antes da decisão. Agir antes é o único jeito de manter o mercado aberto.",
+      "quem": "Governo, Artigo 19",
+      "evidencia": "O iFood passou a ditar margens de bares e restaurantes; a Apple fica com 30% das compras feitas em aplicativos."
+     },
+     {
+      "argumento": "As medidas cautelares que o Cade já tem não substituem um regime permanente.",
+      "quem": "Nicolo Zingales (FGV Direito Rio)",
+      "evidencia": "Não apresentada na fonte."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "Impor obrigações sem infração inverte a lógica da defesa da concorrência: \"é preciso provar que essas empresas realmente têm ação predatória\".",
+      "quem": "Dep. Any Ortiz, Conselho Digital",
+      "evidencia": "Não apresentada na fonte."
+     },
+     {
+      "argumento": "A lei atual já resolve: o acordo da Apple com o Cade mostra que há solução sem lei nova.",
+      "quem": "Apple",
+      "evidencia": "O próprio acordo de cessação de conduta."
+     }
+    ],
+    "estado": "É a divergência de fundo e não tem meio-termo no texto: o substitutivo manteve o modelo preventivo."
+   },
+   {
+    "questao": "Os critérios de designação dão segurança?",
+    "dispositivos": "art. 47-C, §§ 1º e 2º",
+    "ev": [
+     "Q1",
+     "Q7",
+     "Q10",
+     "V1",
+     "C2",
+     "T6"
+    ],
+    "favor": [
+     {
+      "argumento": "O substitutivo fechou a lista de critérios, exigiu análise conjunta e fundamentada e deixou de fora empresas que são apenas usuárias das plataformas, como bancos e fintechs.",
+      "quem": "Relator",
+      "evidencia": "A mudança de redação do art. 47-C."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "A lista é fechada, mas os conceitos são abertos: \"ecossistema digital\", \"dependência\", \"quantidade significativa de dados\". Quem decide o que significam é o regulador.",
+      "quem": "ALAI",
+      "evidencia": "Não apresentada na fonte."
+     },
+     {
+      "argumento": "A lei pune pelo porte, não pela conduta.",
+      "quem": "Camara-e.net",
+      "evidencia": "Não apresentada na fonte."
+     }
+    ],
+    "estado": "Parcialmente atendida pelo substitutivo. Restam a falta de definição legal dos conceitos e a dúvida sobre se as seis características são cumulativas."
+   },
+   {
+    "questao": "Quem paga o custo da regulação?",
+    "dispositivos": "arts. 47-E e 87-I",
+    "ev": [
+     "Q4",
+     "Q7",
+     "Q11",
+     "F1",
+     "X3"
+    ],
+    "favor": [
+     {
+      "argumento": "O custo recai sobre poucos grupos de faturamento muito alto, e quem ganha são os vendedores, restaurantes e desenvolvedores que hoje pagam taxas e aceitam condições impostas.",
+      "quem": "Artigo 19",
+      "evidencia": "Os exemplos do iFood e da comissão de 30% da Apple."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "Parte do custo será repassada a consumidores e a pequenos negócios que vendem e anunciam nas plataformas.",
+      "quem": "ALAI",
+      "evidencia": "Estudo encomendado pela própria entidade estima custo entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos."
+     },
+     {
+      "argumento": "O governo não apresentou análise de impacto regulatório nem estudo econômico.",
+      "quem": "Catorze entidades, Camara-e.net",
+      "evidencia": "A exposição de motivos de fato não traz estimativa de custo."
+     }
+    ],
+    "estado": "Em aberto. O único número disponível vem de parte interessada; não há estimativa oficial nem independente."
+   },
+   {
+    "questao": "Houve debate suficiente?",
+    "dispositivos": "—",
+    "ev": [
+     "Q4",
+     "Q11",
+     "J4",
+     "G",
+     "K2"
+    ],
+    "favor": [
+     {
+      "argumento": "O texto resulta de tomada de subsídios e de mais de um ano de discussão técnica no Ministério da Fazenda; urgência não é atropelo.",
+      "quem": "Artigo 19, Governo",
+      "evidencia": "A tomada de subsídios recebeu 301 contribuições de 72 participantes."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "O projeto não passou por nenhuma comissão da Câmara e o pedido de comissão especial não foi votado.",
+      "quem": "Catorze entidades, Frente Parlamentar pelo Livre Mercado",
+      "evidencia": "O registro de tramitação confirma: relator de Plenário designado dezenove dias depois da apresentação e urgência aprovada sem parecer de comissão."
+     }
+    ],
+    "estado": "Em aberto. A audiência pública aprovada na Comissão de Desenvolvimento Econômico em agosto é o único espaço formal de debate criado na Câmara."
+   },
+   {
+    "questao": "O projeto copia o modelo europeu?",
+    "dispositivos": "arts. 47-C e 47-E",
+    "ev": [
+     "Q1",
+     "Q7",
+     "Q8",
+     "Q15",
+     "J5",
+     "W1",
+     "W2",
+     "W3"
+    ],
+    "favor": [
+     {
+      "argumento": "O desenho é o de duas etapas, com obrigações sob medida para cada empresa, como na Alemanha e no Reino Unido, e não o da lei europeia, em que as obrigações já vêm escritas e valem para todos.",
+      "quem": "Governo (exposição de motivos)",
+      "evidencia": "A estrutura do texto: designação e obrigações em processos separados."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "O texto \"replicaria intencionalmente\" a lei europeia e traria seus problemas: pior experiência para o usuário e atraso de produtos.",
+      "quem": "Deputados republicanos dos EUA, Apple",
+      "evidencia": "Não apresentada na fonte."
+     },
+     {
+      "argumento": "O texto não segue nem o modelo europeu nem o britânico, e por isso não aproveita as correções que eles já fizeram.",
+      "quem": "ALAI",
+      "evidencia": "Não apresentada na fonte."
+     }
+    ],
+    "estado": "Os dois críticos se contradizem entre si: um diz que o texto copia a lei europeia, o outro que não a segue. A comparação da Parte III mostra que o desenho está mais próximo do alemão e do britânico."
+   },
+   {
+    "questao": "O projeto abre caminho para regular conteúdo das redes?",
+    "dispositivos": "art. 47-E",
+    "ev": [
+     "Q1",
+     "Q2",
+     "Q13",
+     "B3"
+    ],
+    "favor": [
+     {
+      "argumento": "O texto trata só de concorrência; nenhuma obrigação diz respeito a moderação ou remoção de conteúdo.",
+      "quem": "Governo, Relator",
+      "evidencia": "A lista de obrigações do art. 47-E."
+     }
+    ],
+    "contra": [
+     {
+      "argumento": "A intenção do governo seria regular as redes sociais.",
+      "quem": "Deputados do PL",
+      "evidencia": "Não apresentada na fonte."
+     }
+    ],
+    "estado": "O texto lido não contém obrigação sobre conteúdo. A obrigação de divulgar critérios de ranqueamento e de exibição é de transparência comercial."
+   },
+   {
+    "questao": "A abertura de sistemas compromete segurança e privacidade?",
+    "dispositivos": "art. 47-E, II, e § 2º",
+    "ev": [
+     "Q8",
+     "B3"
+    ],
+    "favor": [],
+    "contra": [
+     {
+      "argumento": "Permitir aplicativos e pagamentos de fora da loja expõe o usuário a fraude e retira controles parentais.",
+      "quem": "Apple",
+      "evidencia": "Não apresentada na fonte."
+     }
+    ],
+    "estado": "O substitutivo manda o Cade considerar a segurança da informação ao fixar obrigações, mas não cria salvaguarda específica. Nenhum defensor do projeto respondeu a esse ponto nas fontes lidas."
+   }
+  ],
+  "da_analise": [
+   {
+    "lado": "contrário",
+    "ev": [
+     "T5",
+     "W1",
+     "W3"
+    ],
+    "argumento": "O piso mundial de R$ 50 bilhões equivale a cerca de EUR 7,9 bilhões, valor próximo do que a lei europeia exige de faturamento só dentro da Europa, e é quase quatro vezes menor que o piso mundial britânico. Como basta o faturamento mundial, um grupo com presença pequena no Brasil passa pelo primeiro filtro. Nenhum dos críticos levantou esse ponto."
+   },
+   {
+    "lado": "contrário",
+    "ev": [
+     "T2",
+     "J6"
+    ],
+    "argumento": "A abertura imediata do processo a pedido de órgãos do Executivo permite ao governo escolher quem será investigado, sem filtro técnico da superintendência. Os críticos falam em discricionariedade do Cade, mas não nesse mecanismo."
+   },
+   {
+    "lado": "favorável",
+    "ev": [
+     "V2",
+     "V5",
+     "B8"
+    ],
+    "argumento": "O substitutivo retirou do governo o poder de mudar os pisos e proibiu o Cade de ampliar o regime por resolução. Isso responde à crítica de \"poderes amplos\" melhor do que os defensores têm explorado."
+   },
+   {
+    "lado": "favorável",
+    "ev": [
+     "W3",
+     "W4"
+    ],
+    "argumento": "No Reino Unido e no Japão, a autoridade obteve mudanças de conduta por compromisso e diálogo, sem multa. O instrumento equivalente no texto é a proposta voluntária do representado."
+   }
+  ],
+  "atores": [
+   {
+    "ev": [
+     "Q1"
+    ],
+    "ator": "Relator, deputado Aliel Machado (PV-PR)",
+    "quem_e": "Relator de Plenário, vice-líder do governo e autor do substitutivo",
+    "posicao": "favorável",
+    "data": "11/08/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O substitutivo deixa claro que as obrigações não alcançam grandes empresas que são apenas usuárias das plataformas, como bancos e fintechs.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "O texto não traz exclusão expressa de bancos ou fintechs. O que ele diz é que as obrigações só valem para quem for designado (art. 47-E, § 1º, IV) e que a designação exige as seis características do art. 47-C, § 2º. Um grupo financeiro que passe do piso e reúna essas características pode, em tese, ser designado."
+     },
+     {
+      "tese": "A livre concorrência é princípio do art. 170 da Constituição, e o projeto a protege.",
+      "evidencia": "",
+      "avaliacao": "procede",
+      "porque": "É o fundamento que o próprio texto adota: os objetivos do art. 47-B são liberdade de escolha, redução de barreiras à entrada e proteção do processo competitivo. O argumento não responde, por si, se o instrumento escolhido é o adequado."
+     },
+     {
+      "tese": "As empresas não deixarão o País, porque o mercado brasileiro é grande demais.",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "É previsão. Nas fontes lidas sobre outros países não há registro de empresa que tenha saído do mercado por causa de lei semelhante."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q2"
+    ],
+    "ator": "Governo federal (Secretaria de Comunicação Social e Ministério da Fazenda)",
+    "quem_e": "Autor do projeto",
+    "posicao": "favorável",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O projeto trata de concorrência, não de conteúdo das redes sociais.",
+      "evidencia": "",
+      "avaliacao": "procede",
+      "porque": "Nenhuma das obrigações do art. 47-E trata de moderação ou remoção de conteúdo. A que mais se aproxima é a de divulgar critérios de ranqueamento e de exibição de ofertas, que é de transparência comercial."
+     },
+     {
+      "tese": "O Cade precisa agir antes da infração, porque seus processos levam anos.",
+      "evidencia": "Estudo do Ministério da Fazenda, citado na exposição de motivos.",
+      "avaliacao": "não verificável",
+      "porque": "A exposição de motivos afirma a necessidade de instrumentos mais rápidos, mas os documentos lidos não trazem o tempo médio dos processos do Cade em mercados digitais."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q3"
+    ],
+    "ator": "Presidente da Câmara, deputado Hugo Motta; Abrasel; Febraban; Abipag; parte do varejo",
+    "quem_e": "Presidência da Casa e setores que dependem das plataformas ou concorrem com elas: bares e restaurantes, bancos e instituições de pagamento",
+    "posicao": "favorável",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "Apoiam a aprovação. A fonte lida não detalha os argumentos de cada um.",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "A reportagem só registra o apoio."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q4"
+    ],
+    "ator": "Artigo 19 (Raquel da Cruz Lima)",
+    "quem_e": "Organização de defesa da liberdade de expressão",
+    "posicao": "favorável",
+    "data": "16/09/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "A urgência não atropela o debate: o texto nasceu de tomada de subsídios e de mais de um ano de discussão técnica.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "A tomada de subsídios existiu e está documentada, com 301 contribuições. Mas, na Câmara, o projeto não passou por nenhuma comissão, e o pedido de comissão especial não foi votado."
+     },
+     {
+      "tese": "A concentração já prejudica quem depende das plataformas.",
+      "evidencia": "O iFood passou a ditar preços e margens de bares e restaurantes; a Apple fica com 30% de cada compra feita em aplicativo.",
+      "avaliacao": "não verificável",
+      "porque": "Os exemplos são da entidade e não constam dos documentos do projeto."
+     },
+     {
+      "tese": "Os critérios valem para qualquer empresa, \"independentemente da nacionalidade\".",
+      "evidencia": "",
+      "avaliacao": "procede",
+      "porque": "Os pisos são de faturamento e não distinguem origem. O piso nacional alcança grupos brasileiros, como Magazine Luiza e iFood."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q5"
+    ],
+    "ator": "Data Privacy Brasil (Rafael Zanatta)",
+    "quem_e": "Organização de pesquisa em direitos digitais",
+    "posicao": "favorável",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "Há \"indícios de um movimento coordenado para espalhar desinformação sobre o projeto\".",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "É avaliação da entidade sobre a campanha contrária; não diz respeito ao texto."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q6"
+    ],
+    "ator": "Nicolo Zingales (FGV Direito Rio)",
+    "quem_e": "Professor de direito da concorrência",
+    "posicao": "favorável",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "É falácia dizer que a lei é desnecessária porque o Cade já pode adotar medidas cautelares.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "A lei atual prevê medida preventiva (art. 84), mas só dentro de inquérito ou processo por infração, quando há indício de dano. Ela não permite impor obrigações permanentes a uma empresa que não é investigada."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q7"
+    ],
+    "ator": "ALAI — Associação Latino-Americana de Internet",
+    "quem_e": "Entidade que reúne Google, Meta, X, Discord, Amazon e outras plataformas",
+    "posicao": "contrário",
+    "data": "03/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "Mesmo com a lista fechada, os critérios de relevância sistêmica continuam abertos à interpretação do regulador.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "A lista de características é fechada e exige análise conjunta e fundamentada. Mas \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" não têm definição no texto."
+     },
+     {
+      "tese": "As obrigações podem ser ampliadas com o tempo: \"uma estrutura regulatória rígida, sem qualquer garantia de proporcionalidade\".",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "As obrigações podem ser revistas depois de dois anos (art. 87-B, § 4º). Mas o Cade não pode impor obrigação fora da lista do art. 47-E (art. 48, § 1º), e cada decisão exige justificativa econômica (art. 87-B, § 1º)."
+     },
+     {
+      "tese": "O texto restringe práticas legítimas, como integração de serviços e programas de fidelidade, sem prova de dano à concorrência.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "É verdade que não se exige infração nem prova de dano: é a escolha central do projeto. O texto exige, porém, justificativa econômica e manda considerar o que melhora a funcionalidade do produto (art. 47-E, § 2º)."
+     },
+     {
+      "tese": "Seis anos de designação é mais do que o Cade costuma aplicar a medidas comportamentais.",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "Não há, nas fontes lidas, dado sobre a duração usual das medidas do Cade."
+     },
+     {
+      "tese": "Parte do custo será repassada a consumidores e a pequenos negócios.",
+      "evidencia": "Estudo encomendado pela entidade: custo entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos.",
+      "avaliacao": "não verificável",
+      "porque": "O número vem de parte interessada, e não há estimativa oficial nem independente para comparar."
+     },
+     {
+      "tese": "O Brasil importaria um modelo que seus próprios formuladores já reconsideram.",
+      "evidencia": "Segundo a entidade, mais de 75% dos que pedem acesso a dados sob a lei europeia não são empresas europeias.",
+      "avaliacao": "não procede",
+      "porque": "A revisão oficial da lei europeia, de abril de 2026, concluiu que ela é adequada e não precisa de mudança por ora. E o desenho brasileiro, em duas etapas, é mais próximo do alemão e do britânico que do europeu."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q8"
+    ],
+    "ator": "Apple",
+    "quem_e": "Dona de sistema operacional e loja de aplicativos; designada em outros países",
+    "posicao": "contrário",
+    "data": "10/07/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O projeto é \"desnecessário\" e importa o modelo europeu, que estaria fracassando.",
+      "evidencia": "",
+      "avaliacao": "não procede",
+      "porque": "O texto não copia a lei europeia: lá as obrigações estão escritas na lei e valem para todos; aqui são fixadas caso a caso, como na Alemanha e no Reino Unido. Sobre o fracasso, a revisão oficial europeia concluiu o contrário, embora reconheça atrasos no cumprimento."
+     },
+     {
+      "tese": "A abertura obrigatória enfraquece privacidade e segurança: pagamentos fora da loja e aplicativos baixados fora dela.",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "O texto permite essas obrigações (art. 47-E, II) e manda o Cade considerar a segurança da informação ao fixá-las (art. 47-E, § 2º, I), sem criar salvaguarda específica. O efeito sobre a segurança não está medido nas fontes lidas."
+     },
+     {
+      "tese": "O acordo que a empresa firmou com o Cade já é uma alternativa brasileira.",
+      "evidencia": "O próprio termo de compromisso firmado com o Cade.",
+      "avaliacao": "procede em parte",
+      "porque": "O acordo existe e resultou de investigação por infração. Ele vale para aquela empresa e aquela conduta; não cria regra para as demais."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q9"
+    ],
+    "ator": "Conselho Digital",
+    "quem_e": "Entidade com associados como Meta, Google, Amazon, OpenAI e TikTok",
+    "posicao": "contrário",
+    "data": "16/09/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O texto permite \"a imposição discricionária de obrigações estruturais, mesmo sem demonstração de dano concreto ou indícios de má conduta\".",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "Procede que não se exige dano nem má conduta. Não procede que as obrigações sejam estruturais: a lista do art. 47-E é de transparência, de fazer e de não fazer, e não inclui venda de ativos nem separação de empresas. Também não é livre: a lista é fechada para o Cade e a decisão exige justificativa econômica."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q10"
+    ],
+    "ator": "Camara-e.net (Igor Luna)",
+    "quem_e": "Câmara Brasileira da Economia Digital, entidade do comércio eletrônico",
+    "posicao": "contrário",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O projeto dá \"poderes amplos para intervir na economia digital e punir empresas pelo porte\".",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "O porte é só o primeiro filtro: a designação exige as seis características, e a sanção só vem do descumprimento de obrigação já imposta. Os poderes são amplos, mas o substitutivo proibiu o Cade de criar obrigações e sanções por resolução."
+     },
+     {
+      "tese": "Não houve estudo de impacto econômico.",
+      "evidencia": "",
+      "avaliacao": "procede",
+      "porque": "A exposição de motivos não traz estimativa de custo nem análise de impacto regulatório. O relatório da Fazenda de outubro de 2024 fundamenta a proposta, mas não foi lido para este parecer."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q11"
+    ],
+    "ator": "Catorze entidades e frentes parlamentares (Abes, ALAI, Amobitec, Camara-e.net, Fecomercio-SP, Instituto Livre Mercado, Frente Parlamentar pelo Livre Mercado e outras)",
+    "quem_e": "Setor de software, plataformas, mobilidade, comércio e frentes parlamentares",
+    "posicao": "contrário",
+    "data": "25/11/2025",
+    "versao": "projeto original",
+    "argumentos": [
+     {
+      "tese": "O tema exige comissão especial, porque o projeto não veio com análise de impacto regulatório nem estudo econômico.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "Procede que não há análise de impacto regulatório junto ao projeto. A comissão especial foi pedida em 22/10/2025 e não foi votada; a urgência aprovada em 18/03/2026 levou a matéria direto ao Plenário."
+     },
+     {
+      "tese": "Os efeitos vão além da tecnologia e alcançam indústria, comércio e serviços.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "O piso nacional de faturamento alcança, por exemplo, um varejista com marketplace. A designação, porém, depende das seis características, que descrevem plataformas."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q12"
+    ],
+    "ator": "Deputada Any Ortiz (PP-RS)",
+    "quem_e": "Relatora do PL 2768/2022, outro projeto sobre concorrência digital",
+    "posicao": "contrário",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "\"É preciso provar que essas empresas realmente têm ação predatória no mercado\" antes de impor obrigações.",
+      "evidencia": "",
+      "avaliacao": "questão de mérito",
+      "porque": "Não é ponto de fato: é a divergência central. O projeto dispensa a prova de infração de propósito; quem defende essa exigência defende o modelo atual."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q13"
+    ],
+    "ator": "Deputados do PL (Mário Frias, Nikolas Ferreira)",
+    "quem_e": "Oposição",
+    "posicao": "contrário",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O projeto seria um meio de regular as redes sociais.",
+      "evidencia": "",
+      "avaliacao": "não procede",
+      "porque": "O texto lido não contém obrigação sobre conteúdo, moderação ou remoção de publicações."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q14"
+    ],
+    "ator": "Fecomercio e CNC",
+    "quem_e": "Federação e confederação do comércio",
+    "posicao": "contrário",
+    "data": "14/11/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "Estão entre os opositores. A fonte lida não detalha os argumentos.",
+      "evidencia": "",
+      "avaliacao": "não verificável",
+      "porque": "A reportagem só registra a oposição."
+     }
+    ]
+   },
+   {
+    "ev": [
+     "Q15"
+    ],
+    "ator": "Vinte deputados republicanos dos Estados Unidos (Adrian Smith, Jim Jordan e outros)",
+    "quem_e": "Parlamentares norte-americanos; Jordan preside o Comitê Judiciário da Câmara dos EUA",
+    "posicao": "contrário",
+    "data": "23/07/2026",
+    "versao": "texto em votação",
+    "argumentos": [
+     {
+      "tese": "O projeto \"replicaria intencionalmente\" a lei europeia de mercados digitais.",
+      "evidencia": "",
+      "avaliacao": "não procede",
+      "porque": "O desenho é de duas etapas, com obrigações fixadas caso a caso; a lei europeia traz obrigações gerais escritas na própria lei."
+     },
+     {
+      "tese": "O regime seria discriminatório contra empresas americanas e custaria bilhões de dólares.",
+      "evidencia": "",
+      "avaliacao": "procede em parte",
+      "porque": "Os critérios são de faturamento e alcançam também grupos brasileiros e de outros países. Entre os quatro grupos acima do piso mundial listados neste parecer, três são norte-americanos. O custo não tem estimativa independente."
+     }
+    ]
+   }
+  ]
+ },
+ "internacional": {
+  "jurisdicoes": [
+   {
+    "lugar": "União Europeia",
+    "norma": "Lei dos Mercados Digitais (DMA), obrigações exigíveis desde março de 2024",
+    "ev": [
+     "W1"
+    ],
+    "regra": "É o modelo mais rígido. As obrigações estão escritas na lei e valem para todos os designados. É alcançada a empresa com faturamento de ao menos EUR 7,5 bilhões na Europa ou valor de mercado de ao menos EUR 75 bilhões que ofereça serviço com mais de 45 milhões de usuários mensais. A multa chega a 10% do faturamento mundial.",
+    "aconteceu": "Sete grupos foram designados: Alphabet, Amazon, Apple, Booking, ByteDance, Meta e Microsoft. Em abril de 2025 saíram as primeiras multas, de EUR 500 milhões para a Apple e EUR 200 milhões para a Meta. A primeira revisão oficial, de abril de 2026, concluiu que a lei é adequada e não precisa mudar por ora, mas reconheceu que os designados adotaram condutas que atrasam ou limitam os benefícios. Os efeitos mais visíveis são as telas de escolha de navegador e de buscador e a exigência de consentimento para cruzar dados entre serviços.",
+    "criticas": "De um lado, organizações de direitos digitais dizem que a aplicação é branda e sujeita a pressão política: a Apple ainda controla que aplicativos se instalam no iPhone. De outro, as empresas dizem que a lei piorou a experiência do usuário e atrasou produtos na Europa."
+   },
+   {
+    "lugar": "Alemanha",
+    "norma": "Seção 19a da lei de concorrência, em vigor desde janeiro de 2021",
+    "ev": [
+     "W2"
+    ],
+    "regra": "É o modelo de duas etapas. A autoridade de concorrência primeiro declara que a empresa tem importância primordial para a concorrência entre mercados, por critérios qualitativos e sem piso de faturamento. Depois, pode proibir condutas específicas. A designação dura cinco anos.",
+    "aconteceu": "Cinco grupos foram designados entre 2022 e 2024: Alphabet, Meta, Amazon, Apple e Microsoft. O tribunal federal confirmou as designações de Amazon e Apple. A maioria dos casos terminou com mudança de conduta negociada, em tratamento de dados, mapas e rastreamento em aplicativos. Em fevereiro de 2026 veio a decisão mais dura: a proibição dos mecanismos de controle de preços da Amazon, com devolução de EUR 59 milhões.",
+    "criticas": "Nenhuma crítica específica foi localizada nas fontes lidas."
+   },
+   {
+    "lugar": "Reino Unido",
+    "norma": "Lei de Mercados Digitais, Concorrência e Consumidores, em vigor desde janeiro de 2025",
+    "ev": [
+     "W3"
+    ],
+    "regra": "Também em duas etapas e sob medida. É alcançada a empresa com faturamento mundial acima de GBP 25 bilhões ou britânico acima de GBP 1 bilhão que tenha poder de mercado duradouro em uma atividade digital determinada. A designação é por atividade, não pelo grupo inteiro, e dura cinco anos.",
+    "aconteceu": "Em outubro de 2025 a autoridade designou o Google em buscas e Apple e Google em plataformas móveis. Em vez de impor exigências formais, aceitou compromissos das duas empresas sobre revisão e ranqueamento de aplicativos, uso de dados e interoperabilidade, válidos desde abril de 2026. Se não forem cumpridos, promete agir com exigências formais.",
+    "criticas": "Nenhuma crítica específica foi localizada nas fontes lidas."
+   },
+   {
+    "lugar": "Japão",
+    "norma": "Lei de concorrência em softwares de smartphones, em vigor plena desde dezembro de 2025",
+    "ev": [
+     "W4"
+    ],
+    "regra": "É o modelo mais restrito: vale só para o celular. Alcança operadores de sistema operacional, loja de aplicativos, navegador e buscador com ao menos 40 milhões de usuários mensais. O critério é o número de usuários, não o faturamento. A multa chega a 20% do faturamento ligado à infração.",
+    "aconteceu": "Apple e Google foram designadas em março de 2025. O Google abriu sistemas de cobrança alternativos e reduziu taxas; a Apple passou a admitir lojas alternativas, com salvaguardas para menores. A autoridade publicou dois relatórios de conformidade em 2026 e mantém a linha de privilegiar o diálogo.",
+    "criticas": "A entidade de desenvolvedores Coalition for App Fairness diz que as empresas não cumprem a lei e cita pesquisa segundo a qual mais de 90% dos desenvolvedores não usam lojas nem pagamentos alternativos."
+   },
+   {
+    "lugar": "Países que recuaram ou adiaram",
+    "norma": "Coreia do Sul, Índia e Austrália",
+    "ev": [
+     "W5",
+     "W6"
+    ],
+    "regra": "Os três discutiram regras de designação prévia de plataformas e nenhum as aprovou.",
+    "aconteceu": "Na Coreia do Sul, a autoridade de concorrência desistiu da proposta em setembro de 2024, recuo atribuído em parte às negociações comerciais com os Estados Unidos. Na Índia, o projeto está parado enquanto o governo conduz estudo de mercado. Na Austrália, o regime está em minuta.",
+    "criticas": "As informações sobre esses três países vêm de fontes do setor e de análise jornalística, não de documentos oficiais."
+   }
+  ],
+  "comparativo": {
+   "colunas": [
+    "Brasil (texto em votação)",
+    "União Europeia",
+    "Alemanha",
+    "Reino Unido",
+    "Japão"
+   ],
+   "linhas": [
+    {
+     "parametro": "Como funciona",
+     "valores": [
+      "Duas etapas; obrigações sob medida",
+      "Obrigações na lei, iguais para todos",
+      "Duas etapas; proibições sob medida",
+      "Duas etapas; exigências sob medida",
+      "Obrigações na lei, só para celular"
+     ]
     },
-    "licoes": [
-      { "ev": ["W2", "W3", "W4"], "texto": "Os três países de modelo sob medida obtiveram a maior parte das mudanças por negociação, não por multa. A lei serviu de base para acordos." },
-      { "ev": ["W1", "W4"], "texto": "Onde as obrigações são gerais, a queixa recorrente é o cumprimento apenas formal: a empresa muda a regra, mas mantém barreiras práticas. Na Europa e no Japão, isso é apontado por entidades de usuários e de desenvolvedores." },
-      { "ev": ["W1", "W2", "W3", "W4"], "texto": "O número de designados é pequeno em todos os lugares: de dois a sete grupos. Nenhuma das leis estrangeiras alcançou empresas locais de porte médio." },
-      { "ev": ["W5", "Q15"], "texto": "A pressão comercial dos Estados Unidos é fator real. Pesou no recuo da Coreia do Sul e já se manifestou contra o projeto brasileiro." }
+    {
+     "parametro": "Piso de entrada",
+     "valores": [
+      "R$ 50 bilhões no mundo ou R$ 5 bilhões no País",
+      "EUR 7,5 bilhões na Europa (cerca de R$ 47 bilhões) e 45 milhões de usuários",
+      "Não há",
+      "GBP 25 bilhões no mundo (cerca de R$ 189 bilhões) ou GBP 1 bilhão no país (cerca de R$ 7,6 bilhões)",
+      "40 milhões de usuários mensais"
+     ]
+    },
+    {
+     "parametro": "Critério de usuários",
+     "valores": [
+      "Não",
+      "Sim",
+      "Não",
+      "Não",
+      "Sim"
+     ]
+    },
+    {
+     "parametro": "O que é designado",
+     "valores": [
+      "O grupo econômico inteiro",
+      "Cada serviço",
+      "A empresa",
+      "Cada atividade digital",
+      "Cada tipo de software"
+     ]
+    },
+    {
+     "parametro": "Duração",
+     "valores": [
+      "Até 6 anos",
+      "Sem prazo; revisão a cada 3 anos",
+      "5 anos",
+      "5 anos",
+      "Enquanto durar a designação"
+     ]
+    },
+    {
+     "parametro": "Multa máxima",
+     "valores": [
+      "As da lei de concorrência, mais multa diária por falta de escritório",
+      "10% do faturamento mundial",
+      "As da lei de concorrência",
+      "10% do faturamento mundial",
+      "20% do faturamento ligado à infração"
+     ]
+    },
+    {
+     "parametro": "Designados até agora",
+     "valores": [
+      "—",
+      "7 grupos",
+      "5 grupos",
+      "2 grupos",
+      "2 grupos"
+     ]
+    }
+   ]
+  },
+  "licoes": [
+   {
+    "ev": [
+     "W2",
+     "W3",
+     "W4"
     ],
-    "limites": [
-      "O piso brasileiro de faturamento nacional não tem critério de usuários. Não é possível afirmar, pelas leis estrangeiras, que só duas a sete empresas seriam alcançadas aqui.",
-      "Nenhuma das fontes lidas mede o efeito dessas leis sobre preços, inovação ou entrada de concorrentes. O que há são contagens de casos e relatos das partes.",
-      "A lei europeia e a japonesa têm menos de três anos de aplicação; a britânica, menos de dois."
-    ]
-  }
+    "texto": "Os três países de modelo sob medida obtiveram a maior parte das mudanças por negociação, não por multa. A lei serviu de base para acordos."
+   },
+   {
+    "ev": [
+     "W1",
+     "W4"
+    ],
+    "texto": "Onde as obrigações são gerais, a queixa recorrente é o cumprimento apenas formal: a empresa muda a regra, mas mantém barreiras práticas. Na Europa e no Japão, isso é apontado por entidades de usuários e de desenvolvedores."
+   },
+   {
+    "ev": [
+     "W1",
+     "W2",
+     "W3",
+     "W4"
+    ],
+    "texto": "O número de designados é pequeno em todos os lugares: de dois a sete grupos. Nenhuma das leis estrangeiras alcançou empresas locais de porte médio."
+   },
+   {
+    "ev": [
+     "W5",
+     "Q15"
+    ],
+    "texto": "A pressão comercial dos Estados Unidos é fator real. Pesou no recuo da Coreia do Sul e já se manifestou contra o projeto brasileiro."
+   }
+  ],
+  "limites": [
+   "O piso brasileiro de faturamento nacional não tem critério de usuários. Não é possível afirmar, pelas leis estrangeiras, que só duas a sete empresas seriam alcançadas aqui.",
+   "Nenhuma das fontes lidas mede o efeito dessas leis sobre preços, inovação ou entrada de concorrentes. O que há são contagens de casos e relatos das partes.",
+   "A lei europeia e a japonesa têm menos de três anos de aplicação; a britânica, menos de dois."
+  ]
+ }
 }

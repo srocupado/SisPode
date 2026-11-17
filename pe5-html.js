@@ -19,8 +19,22 @@ const pe5DataHora = iso => { const d = new Date(iso); return isNaN(d) ? '' : `${
 
 const CSS_PE5 = `
   p, li, td, th { hyphens:manual !important; -webkit-hyphens:manual !important; }
-  p, li { text-align:left; }
+  p, li { text-align:justify; }
+  .pe-frase, .pe-ponto, .pe-arg, .pe-fonte, .pe-indice a, table.pe td, table.pe th, .pe-emenda .red { text-align:left; }
+  .pe-caixa p, .pe-caixa li { text-align:justify; }
   .pe-carimbo { text-align:center; font-size:8.5pt; color:#6b7280; margin:-6px 0 12px; }
+  .pe-cola { break-inside:avoid; page-break-inside:avoid; }
+  .pe-ator { margin:12px 0 16px; }
+  .pe-ator-cont { margin:-10px 0 16px; }
+  .pe-ator-cont .arg, .pe-ator .arg { border-left:3px solid #c8d0d8; padding:2px 0 2px 10px; margin:6px 0 9px; break-inside:avoid; page-break-inside:avoid; }
+  .pe-ator-cont .arg p { margin:2px 0; font-size:11pt; line-height:1.5; }
+  .pe-ator h3 { margin:0 0 2px; font-size:12pt; color:#0a2f4f; break-after:avoid; page-break-after:avoid; }
+  .pe-ator .quem { font-size:9.5pt; color:#555; margin:0 0 6px; text-align:left; }
+  .pe-ator .arg p { margin:2px 0; font-size:11pt; line-height:1.5; }
+  .pe-aval { display:inline-block; font-size:8pt; font-weight:700; padding:1px 7px; border-radius:999px; margin-right:6px; vertical-align:1px; text-transform:uppercase; }
+  .pe-aval.sim { background:#d9f2e3; color:#155724; } .pe-aval.parte { background:#fdf0cf; color:#7a5200; } .pe-aval.nao { background:#fde2e1; color:#8a1c16; } .pe-aval.nv { background:#e8ecef; color:#475057; }
+  .pe-pos { font-size:9pt; font-weight:700; text-transform:uppercase; letter-spacing:.3px; }
+  .pe-pos.favor { color:#155724; } .pe-pos.contra { color:#8a1c16; } .pe-pos.neutro { color:#475057; }
   .pe-frase { font-size:13.5pt; line-height:1.45; font-weight:600; color:#003c1f; margin:10px 0 12px; text-align:left; }
   .pe-caixa { border:1.5px solid #0a4a7a; background:#f4f8fc; border-radius:4px; padding:10px 14px; margin:10px 0; }
   .pe-caixa.junta { break-inside:avoid; page-break-inside:avoid; }
@@ -125,15 +139,54 @@ function pe5Fontes(p, esc) {
   for (const j of pq.contexto?.normas || []) add(j.norma, j);
   for (const j of pq.contexto?.dados || []) add(j.dado, j);
   for (const j of pq.contexto?.correlatas || []) add(j.proposicao, j);
+  for (const j of pq.contexto?.documentos_base || []) add(j.documento, j);
+  for (const j of pq.contexto?.alcance || []) add(`Receita: ${j.grupo}`, j);
   if (!linhas.length) return '';
   const vistos = new Set();
   const unicas = linhas.filter(l => { const k = l.tema + '|' + l.url; if (vistos.has(k)) return false; vistos.add(k); return true; });
   return `<table class="pe"><thead><tr><th style="width:36%">Assunto</th><th style="width:12%">Data</th><th style="width:12%">Tipo</th><th>Fonte</th></tr></thead><tbody>${unicas.map(l => `<tr><td>${esc(l.tema)}</td><td>${esc(l.data || '—')}</td><td>${esc(l.tipo || '—')}</td><td><a class="pe-link" href="${esc(l.urlFinal || l.url)}">${esc(l.nome)}</a></td></tr>`).join('')}</tbody></table>`;
 }
 
+/** Repete em cada célula a largura declarada no cabeçalho: quando a tabela quebra de página, a continuação não leva o cabeçalho e perderia as colunas. */
+function pe5LargurasFixas(html) {
+  return String(html).replace(/<table class="pe">[\s\S]*?<\/table>/g, tab => {
+    const ths = [...((tab.match(/<thead>[\s\S]*?<\/thead>/) || [''])[0]).matchAll(/<th(?=[\s>])(?:\s+style="width:([^"]+)")?[^>]*>/g)].map(m => m[1] || '');
+    if (!ths.some(Boolean)) return tab;
+    return tab.replace(/<tbody>[\s\S]*<\/tbody>/, corpo => corpo.replace(/<tr>[\s\S]*?<\/tr>/g, linha => { let i = 0; return linha.replace(/<td>/g, m => { const w = ths[i++]; return w ? `<td style="width:${w}">` : m; }); }));
+  });
+}
+
+/** Índice das referências da pesquisa por id (Q1, W2, R1, Y1, Z3…), para pôr a fonte junto do texto. */
+function pe5IndicePesquisa(pq = {}) {
+  const m = new Map();
+  for (const x of [...(pq.debate?.atores || []), ...(pq.internacional?.jurisdicoes || []), ...(pq.contexto?.jurisprudencia || []), ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || [])]) if (x && x.id) m.set(x.id, x);
+  return m;
+}
+function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" href="${esc(x.fonte_url_final || x.fonte_url)}">${esc(x.fonte_nome || 'fonte')}</a>` : ''; }
+const PE5_AVAL = { 'procede': ['sim', 'procede'], 'procede em parte': ['parte', 'procede em parte'], 'não procede': ['nao', 'não procede'], 'não verificável': ['nv', 'não verificável'], 'questão de mérito': ['nv', 'questão de mérito'] };
+
+/** "Quem se posicionou e como": entidade por entidade, com os argumentos e o que o texto e os dados mostram. */
+function pe5Posicoes(atores, idx, esc) {
+  if (!atores || !atores.length) return '';
+  const ordem = { 'favorável': 0, 'favorável com ressalvas': 1, 'neutro': 2, 'contrário com ressalvas': 3, 'contrário': 4 };
+  const arg = g => { const av = PE5_AVAL[String(g.avaliacao || '').toLowerCase()]; return `<div class="arg"><p><b>Argumento.</b> ${esc(g.tese)}</p>${g.evidencia ? `<p><b>Evidência apresentada.</b> ${esc(g.evidencia)}</p>` : ''}${g.porque ? `<p><b>O que o texto e os dados mostram.</b> ${av ? `<span class="pe-aval ${av[0]}">${esc(av[1])}</span>` : ''}${esc(g.porque)}</p>` : ''}</div>`; };
+  return [...atores].sort((a, b) => (ordem[a.posicao] ?? 2) - (ordem[b.posicao] ?? 2)).map((a, i) => {
+    const fonte = pe5LinkFonte((a.ev || []).map(e => idx.get(e)).find(Boolean), esc);
+    const cls = /favor/.test(a.posicao || '') ? 'favor' : /contr/.test(a.posicao || '') ? 'contra' : 'neutro';
+    const args = a.argumentos || [];
+    const cab = `<h3>${esc(a.ator)} <span class="pe-pos ${cls}">· ${esc(a.posicao || '')}</span></h3>
+      <p class="quem">${esc(a.quem_e || '')}${a.data ? ` · ${esc(a.data)}` : ''}${a.versao ? ` · sobre o ${esc(a.versao)}` : ''}${fonte ? ` · fonte: ${fonte}` : ''}</p>${args[0] ? arg(args[0]) : ''}`;
+    const resto = args.slice(1).map(arg).join('');
+    // O nome da entidade anda junto com o primeiro argumento; a primeira entidade, também com o título da seção.
+    return i === 0 ? `<!--cola--><div class="pe-ator">${cab}</div><!--/cola-->${resto ? `<div class="pe-ator-cont">${resto}</div>` : ''}`
+      : `<div class="pe-ator"><div class="pe-cola">${cab}</div>${resto}</div>`;
+  }).join('');
+}
+
 /** O parecer, pronto para o Paged.js. */
 function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
-  const esc = pe5Esc, D = p.doc || {}, G = p.coleta || {}, pq = p.pesquisa || {};
+  const esc = pe5Esc, D = p.doc || {}, G = p.coleta || {}, pq = p.pesquisa || {}, idx = pe5IndicePesquisa(pq);
+  const fonteDe = evs => pe5LinkFonte((evs || []).map(e => idx.get(e)).find(x => x && x.fonte_url), esc);
   const secoes = [];   // { id, titulo, html } — só entra o que tem conteúdo
   const sec = (id, titulo, html) => { if (html && String(html).replace(/<[^>]+>/g, '').trim()) secoes.push({ id, titulo, html }); };
   const paras = lista => (lista || []).filter(x => x && x.texto).map(x => `${x.titulo ? `<h3>${esc(x.titulo)}${x.dispositivos ? ` <span class="pe-disp">· ${esc(x.dispositivos)}</span>` : ''}</h3>` : ''}<p>${esc(x.texto)}</p>`).join('');
@@ -147,21 +200,23 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
   sec('muda', 'O que muda na legislação', pe5Alteracoes(p.alteracoes, esc)
     + (p.alteracoes?.length ? '<p class="pe-fonte">"O que vale hoje" é o artigo da lei em vigor, lido pelo programa na fonte indicada. "Não existe hoje" significa que o artigo é criado pelo texto.</p>' : ''));
   sec('origem', 'Origem e tramitação', paras(D.materia?.origem) + pe5Linha(G.marcos, esc));
+  sec('docs', 'Documentos que embasam a proposição', (D.materia?.documentos || []).length
+    ? `<table class="pe"><thead><tr><th style="width:34%">Documento</th><th>O que é</th><th style="width:22%">Onde encontrar</th></tr></thead><tbody>${D.materia.documentos.map(d => { const f = fonteDe(d.ev); return `<tr><td><b>${esc(d.documento)}</b></td><td>${esc(d.o_que_e)}</td><td>${esc(d.onde || '')}${f ? `<br>${f}` : ''}</td></tr>`; }).join('')}</tbody></table>` : '');
   sec('versoes', 'O que o texto em votação mudou em relação ao original', (D.materia?.versoes || []).length
     ? `<table class="pe"><thead><tr><th style="width:17%">Tema</th><th style="width:27%">Projeto original</th><th style="width:27%">Texto em votação</th><th>Efeito</th></tr></thead><tbody>${D.materia.versoes.map(v => `<tr><td><b>${esc(v.tema)}</b></td><td>${esc(v.original)}</td><td>${esc(v.atual)}</td><td>${esc(v.efeito)}</td></tr>`).join('')}</tbody></table>` : '');
   sec('contexto', 'Contexto', paras(D.materia?.contexto));
 
   // ---- II. O debate ----
-  parte('II', 'O debate', 'Esta parte vem de pesquisa na internet feita pelo modelo de IA. Cada posição traz a data e a fonte; o programa não leu as páginas. Use como mapa do debate e confira a fonte antes de citar.');
+  parte('II', 'O debate');
   sec('contro', 'Mapa de argumentos', (D.debate?.controversias || []).map(c => pe5Controversia(c, esc)).join(''));
+  sec('atores', 'Quem se posicionou e como', (D.debate?.atores || []).length ? pe5Posicoes(D.debate.atores, idx, esc) : pe5Atores(pq.debate?.atores, esc));
   sec('analise-arg', 'Argumentos que ninguém levantou', (D.debate?.da_analise || []).length
-    ? `<p class="pe-fonte">Estes argumentos são da assessoria, formulados a partir do texto e da comparação internacional. Não foram localizados nas manifestações públicas.</p>${D.debate.da_analise.map(a => `<p class="pe-ponto"><span class="pe-grav ${a.lado === 'favorável' ? 'baixa' : 'media'}">${a.lado === 'favorável' ? 'a favor' : 'contra'}</span>${esc(a.argumento)}</p>`).join('')}` : '');
-  sec('atores', 'Quem é quem', pe5Atores(pq.debate?.atores, esc));
+    ? `<p class="pe-fonte">Argumentos da assessoria, formulados a partir do texto e da comparação internacional. Não foram localizados nas manifestações públicas.</p>${D.debate.da_analise.map(a => `<p class="pe-ponto"><span class="pe-grav ${a.lado === 'favorável' ? 'baixa' : 'media'}">${a.lado === 'favorável' ? 'a favor' : 'contra'}</span>${esc(a.argumento)}</p>`).join('')}` : '');
 
   // ---- III. Experiência internacional ----
-  parte('III', 'Experiência internacional', 'Esta parte vem de pesquisa na internet feita pelo modelo de IA, com preferência por fontes oficiais. O programa não leu as páginas. Os valores em reais foram convertidos pelo câmbio do Banco Central indicado ao fim.');
+  parte('III', 'Experiência internacional');
   sec('juris', 'O que cada país fez e o que aconteceu', (D.internacional?.jurisdicoes || []).map(j => `<h3>${esc(j.lugar)} <span class="pe-disp">· ${esc(j.norma)}</span></h3>
-    <p><b>A regra.</b> ${esc(j.regra)}</p><p><b>O que aconteceu.</b> ${esc(j.aconteceu)}</p>${j.criticas ? `<p><b>Críticas.</b> ${esc(j.criticas)}</p>` : ''}`).join(''));
+    <p><b>A regra.</b> ${esc(j.regra)}</p><p><b>O que aconteceu.</b> ${esc(j.aconteceu)}</p>${j.criticas ? `<p><b>Críticas.</b> ${esc(j.criticas)}</p>` : ''}${fonteDe(j.ev) ? `<p class="pe-fonte">Fonte: ${(j.ev || []).map(e => pe5LinkFonte(idx.get(e), esc)).filter(Boolean).join(' · ')}</p>` : ''}`).join(''));
   const cmp = D.internacional?.comparativo;
   sec('compara', 'Quadro comparativo com o texto brasileiro', cmp && (cmp.linhas || []).length
     ? `<table class="pe"><thead><tr><th style="width:14%"></th>${cmp.colunas.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${cmp.linhas.map(l => `<tr><td><b>${esc(l.parametro)}</b></td>${l.valores.map(v => `<td>${esc(v)}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '');
@@ -175,7 +230,7 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
       <p>${esc(pt.exame)}</p>${pt.objecao ? `<p><b>O outro lado.</b> ${esc(pt.objecao)}</p>` : ''}${pt.saida ? `<p><b>O que resolveria.</b> ${esc(pt.saida)}</p>` : ''}</div>`).join('')}`).join('')
     + ((D.analise?.sem_achado || []).length ? `<p class="pe-fonte">Lentes examinadas sem ponto a registrar: ${esc(D.analise.sem_achado.join('; '))}.</p>` : ''));
   sec('jurisp', 'Decisões judiciais relacionadas', (D.analise?.jurisprudencia || []).length
-    ? `<p class="pe-fonte">Localizadas por pesquisa na internet e identificadas por número, relator e data. O inteiro teor não foi lido: confira antes de citar.</p><table class="pe"><thead><tr><th style="width:24%">Decisão</th><th style="width:30%">O que decidiu</th><th style="width:22%">Por que interessa</th><th>Onde a analogia para</th></tr></thead><tbody>${D.analise.jurisprudencia.map(j => `<tr><td><b>${esc(j.processo)}</b></td><td>${esc(j.decidiu)}</td><td>${esc(j.pertinencia)}</td><td>${esc(j.limite)}</td></tr>`).join('')}</tbody></table>` : '');
+    ? `<table class="pe"><thead><tr><th style="width:24%">Decisão</th><th style="width:30%">O que decidiu</th><th style="width:22%">Por que interessa</th><th>Onde a analogia para</th></tr></thead><tbody>${D.analise.jurisprudencia.map(j => `<tr><td><b>${esc(j.processo)}</b>${fonteDe(j.ev) ? `<br><small>${fonteDe(j.ev)}</small>` : ''}</td><td>${esc(j.decidiu)}</td><td>${esc(j.pertinencia)}</td><td>${esc(j.limite)}</td></tr>`).join('')}</tbody></table>` : '');
   const imp = D.analise?.impacto || {};
   sec('impacto', 'Impacto', [['Fiscal', imp.fiscal], ['Econômico', imp.economico], ['Implementação', imp.implementacao]].filter(([, l]) => (l || []).length)
     .map(([t, l]) => `<h3>${t}</h3>${l.map(x => `<p>${esc(x.texto)}</p>`).join('')}`).join(''));
@@ -189,34 +244,14 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
     ? `<table class="pe"><thead><tr><th style="width:18%">A quem</th><th style="width:44%">Pergunta</th><th>Por que importa</th></tr></thead><tbody>${D.caminhos.perguntas.map(q => `<tr><td><b>${esc(q.a_quem)}</b></td><td>${esc(q.pergunta)}</td><td>${esc(q.por_que)}</td></tr>`).join('')}</tbody></table>` : '');
   sec('acompanhar', 'O que acompanhar', lista(D.caminhos?.acompanhar));
 
-  // ---- VI. Fontes e limites ----
-  parte('VI', 'Fontes e limites');
-  const inv = p.inventario || { lidos: [], naoLidos: [] };
-  sec('lidos', 'O que foi lido', `<p>Documentos lidos na íntegra pelo modelo:</p><ul>${(inv.lidos || []).map(d => `<li>${esc(d.rotulo)}${d.caracteres ? ` — ${Math.round(d.caracteres / 1000)} mil caracteres` : ''}${d.legivel === false ? ' <span class="pe-atencao">(ilegível)</span>' : ''}</li>`).join('')}</ul>`
-    + ((inv.naoLidos || []).length ? `<p>Existem e <b>não</b> foram lidos:</p><ul>${inv.naoLidos.map(d => `<li>${esc(d.rotulo)} — ${esc(d.motivo)}</li>`).join('')}</ul>` : '')
-    + '<p>Quando este parecer diz que algo "não consta", refere-se a esses documentos. Tramitação, votações e texto da lei vigente foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</p>'
-    + ((p.leitura?.ausencias || []).length ? `<p>Não localizado nos documentos lidos:</p><ul>${p.leitura.ausencias.map(a => `<li>${esc(a.o_que)} <span class="pe-fonte">(procurado em: ${esc(a.onde_procurou)})</span></li>`).join('')}</ul>` : ''));
-  const avisos = [...(pq.debate?.avisos || []), ...(pq.internacional?.avisos || []), ...(pq.contexto?.avisos || [])];
-  sec('limites', 'Limites deste parecer', lista([
-    'Este parecer não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.',
-    'As Partes II e III e as decisões judiciais vêm de pesquisa na internet feita pelo modelo. As fontes estão listadas abaixo; o programa não leu as páginas.',
-    ...avisos,
-    ...(p.cambio ? [`Conversões para reais pelo câmbio de venda do Banco Central em ${p.cambio.data}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}.`] : []),
-  ]));
-  const conf = p.conferencia || {};
-  sec('conf', 'Conferência automática', (conf.itens || []).length
-    ? `<table class="pe"><thead><tr><th style="width:48%">Teste</th><th style="width:14%">Resultado</th><th>Detalhe</th></tr></thead><tbody>${conf.itens.map(i => `<tr><td>${esc(i.teste)}</td><td class="${i.ok ? 'pe-ok' : 'pe-atencao'}">${i.ok ? 'sem ressalva' : 'atenção'}</td><td>${esc(i.detalhe || '')}</td></tr>`).join('')}</tbody></table>` : '');
-  sec('fontes', 'Fontes da internet', pe5Fontes(p, esc));
-
   // ---- abertura ----
   const A = D.abertura || {};
-  const criticos = (p.conferencia?.itens || []).filter(i => !i.ok && i.critico);
+  const alc = (A.alcancados || []).filter(x => x && x.grupo);
   const abertura = `
     ${A.frase ? `<p class="pe-frase">${esc(A.frase)}</p>` : ''}
-    ${criticos.length ? `<div class="pe-alerta"><b>Atenção antes de usar.</b> A conferência automática apontou: ${criticos.map(c => esc(c.detalhe || c.teste)).join(' ')}</div>` : ''}
-    ${A.decide ? `<div class="pe-caixa junta"><h3>O que se decide</h3><p>${esc(A.decide)}</p></div>` : ''}
-    ${(A.muda || []).length ? `<div class="pe-caixa junta"><h3>O que muda</h3>${lista(A.muda)}</div>` : ''}
-    ${A.alcance ? `<div class="pe-caixa junta"><h3>Quem é alcançado</h3><p>${esc(A.alcance)}</p></div>` : ''}
+    ${A.decide ? `<div class="pe-caixa"><h3>O que se decide</h3><p>${esc(A.decide)}</p></div>` : ''}
+    ${(A.muda || []).length ? `<div class="pe-caixa"><h3>O que muda</h3>${lista(A.muda)}</div>` : ''}
+    ${A.alcance || alc.length ? `<div class="pe-caixa"><h3>Quem é alcançado</h3>${A.alcance ? `<p>${esc(A.alcance)}</p>` : ''}${alc.length ? `<table class="pe"><thead><tr><th style="width:34%">Grupo</th><th style="width:16%">Piso que supera</th><th>Dado público</th></tr></thead><tbody>${alc.map(x => `<tr><td><b>${esc(x.grupo)}</b></td><td>${esc(x.piso || '')}</td><td>${esc(x.dado || '')}${fonteDe(x.ev) ? ` <small>(${fonteDe(x.ev)})</small>` : ''}</td></tr>`).join('')}</tbody></table>` : ''}</div>` : ''}
     <div class="pe-caixa"><h3>Quadro político</h3>${pe5QuadroPolitico(G, esc)}</div>
     ${(A.pontos || []).length ? `<div class="pe-caixa"><h3>Pontos de atenção</h3>${A.pontos.map(pt => `<p class="pe-ponto"><span class="pe-grav ${esc(pt.gravidade || 'baixa')}">${esc(PE5_GRAV[pt.gravidade] || 'baixa')}</span><b>${esc(pt.titulo)}.</b> ${esc(pt.texto)}</p>`).join('')}</div>` : ''}
     ${(A.falta || []).length ? `<div class="pe-caixa junta"><h3>O que falta saber</h3>${lista(A.falta)}</div>` : ''}`;
@@ -228,41 +263,50 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
     const dentro = secoes.slice(pt.ini, fim);
     if (!dentro.length) return;
     corpo += `<div class="pe-parte" id="parte_${pt.num}">Parte ${pt.num} — ${esc(pt.titulo)}</div>${pt.nota ? `<p class="pe-nota">${esc(pt.nota)}</p>` : ''}`;
-    corpo += dentro.map(s => `<h2 class="item-h" id="s_${s.id}">${esc(s.titulo)}</h2>${s.html}`).join('');
+    corpo += dentro.map(s => {
+      const h = `<h2 class="item-h" id="s_${s.id}">${esc(s.titulo)}</h2>`, m = String(s.html).match(/^\s*(<!--cola-->[\s\S]*?<!--\/cola-->|<p[\s>][\s\S]*?<\/p>)/);
+      return m ? `<div class="pe-cola">${h}${m[1]}</div>${String(s.html).slice(m[0].length)}` : h + s.html;
+    }).join('');
   });
   const indice = `<div class="pe-indice">${partes.map((pt, i) => { const fim = i + 1 < partes.length ? partes[i + 1].ini : secoes.length; const dentro = secoes.slice(pt.ini, fim); return dentro.length ? `<a href="#parte_${pt.num}"><b>Parte ${pt.num} — ${esc(pt.titulo)}</b><span class="ld"></span></a>${dentro.map(s => `<a href="#s_${s.id}">${esc(s.titulo)}<span class="ld"></span></a>`).join('')}` : ''; }).join('')}</div>`;
 
-  const tok = (p.chamadas || []).reduce((s, c) => s + (c.tokens?.total || 0), 0);
-  const carimbo = [`Gerado em ${pe5DataHora(p.geradoEm)}`, p.modelo ? `modelo ${esc(p.modelo)}` : '', (p.chamadas || []).length ? `${p.chamadas.length} chamadas` : '', tok ? `${Math.round(tok / 1000)} mil tokens` : '', p.geradoPor ? `por ${esc(p.geradoPor)}` : ''].filter(Boolean).join(' · ');
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Parecer — ${esc(materia || p.materia || '')}</title>
+  return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Parecer — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
   <div class="cab">${logoDataUrl ? `<div class="sp"></div>` : ''}<div class="tit"><h1>Parecer de Especialista</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
   <div class="rule"></div>
-  <div class="meta">${esc(materia || p.materia || '')}${p.textoAnalisado ? ` · texto analisado: ${esc(p.textoAnalisado)}` : ''}</div>
-  <div class="pe-carimbo">${carimbo}</div>
+  <div class="meta">${esc(materia || p.materia || '')}${p.textoAnalisado ? ` · texto analisado: ${esc(p.textoAnalisado)}` : ''}${p.geradoEm ? ` · ${pe5DataHora(p.geradoEm)}` : ''}</div>
   ${p.ementa ? `<p class="pe-fonte" style="text-align:center;margin:-6px 0 10px">${esc(p.ementa)}</p>` : ''}
   ${abertura}
   <div style="break-inside:avoid;page-break-inside:avoid"><h2 class="item-h">Índice</h2>${indice}</div>
   ${corpo}
   <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
-</body></html>`;
+</body></html>`);
 }
 
 /** Relatório de conferência: o que o programa testou, o que saiu, o que a revisão mudou e quanto custou. */
 function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) {
   const esc = pe5Esc, conf = p.conferencia || { itens: [] }, tr = p.trechos || { conferidos: 0, recusados: [] }, rv = p.revisao || {};
-  const tab = (cab, linhas) => linhas.length ? `<table class="pe"><thead><tr>${cab.map(c => `<th>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="pe-vazio">Nada a registrar.</p>';
-  const mil = n => n ? `${Math.round(n / 100) / 10} mil` : '—';
+  const tab = (cab, linhas) => linhas.length ? `<table class="pe"><thead><tr>${cab.map(c => `<th${c === 'Resultado' ? ' style="width:16%"' : c === 'Teste' ? ' style="width:44%"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="pe-vazio">Nada a registrar.</p>';
+  const mil = n => n ? `${String(Math.round(n / 100) / 10).replace('.', ',')} mil` : '—';
   const c = p.consumo || {};
   const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência — ${esc(materia || p.materia || '')}</title>
+  return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
   <div class="cab">${logoDataUrl ? '<div class="sp"></div>' : ''}<div class="tit"><h1>Conferência do Parecer</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
   <div class="rule"></div>
-  <div class="meta">${esc(materia || p.materia || '')} · gerado em ${pe5DataHora(p.geradoEm)}${p.modelo ? ` · modelo ${esc(p.modelo)}` : ''}</div>
+  <div class="meta">${esc(materia || p.materia || '')}${p.textoAnalisado ? ` · texto analisado: ${esc(p.textoAnalisado)}` : ''}</div>
   <p class="pe-nota">Este relatório é para o analista. Mostra o que o programa testou no parecer, o que foi retirado ou corrigido antes de imprimir e o que cada etapa consumiu. ${esc(conf.resumo || '')}</p>
   ${p.escolha ? `<p class="pe-fonte">${esc(p.escolha.motivo || '')}${p.escolha.ressalva ? ' ' + esc(p.escolha.ressalva) : ''}</p>` : ''}
+  <p class="pe-fonte" style="text-align:center">Gerado em ${pe5DataHora(p.geradoEm)}${p.modelo ? ` · modelo ${esc(p.modelo)}` : ''}${(p.chamadas || []).length ? ` · ${p.chamadas.length} chamadas` : ''}${c.total ? ` · ${mil(c.total)} tokens` : ''}${p.geradoPor ? ` · por ${esc(p.geradoPor)}` : ''}</p>
+  <h2 class="item-h">Como o parecer foi produzido</h2>
+  <ul>
+    <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
+    <li>A avaliação de cada argumento ("procede", "procede em parte", "não procede", "não verificável") é do modelo, feita contra o texto analisado e os dados da base.</li>
+    <li>Tramitação, votações, voto da bancada e o texto da lei em vigor foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</li>
+    <li>Os valores em moeda estrangeira foram convertidos pelo câmbio de venda do Banco Central${p.cambio ? ` em ${esc(p.cambio.data)}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}` : ''}.</li>
+    <li>O parecer não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.</li>
+  </ul>
   <h2 class="item-h">Testes do programa</h2>
   ${tab(['Teste', 'Resultado', 'Detalhe'], (conf.itens || []).map(i => [esc(i.teste), `<span class="${i.ok ? 'pe-ok' : 'pe-atencao'}">${i.ok ? 'sem ressalva' : i.critico ? 'atenção (crítico)' : 'atenção'}</span>`, esc(i.detalhe || '')]))}
   <h2 class="item-h">Citações dos documentos</h2>
@@ -272,15 +316,24 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <p>${(rv.aplicadas || []).length} correção(ões) aplicada(s); ${(rv.ignoradas || []).length} não aplicada(s) por não localizar o trecho de forma única.</p>
   ${(rv.aplicadas || []).length ? tab(['Trecho', 'Passou a ser', 'Motivo'], rv.aplicadas.map(x => [esc(x.trecho), esc(x.novo || '(removido)'), esc(x.motivo)])) : ''}
   ${(rv.ignoradas || []).length ? tab(['Trecho apontado', 'Sugestão', 'Motivo', 'Por que não entrou'], rv.ignoradas.map(x => [esc(String(x.trecho || '').slice(0, 160)), esc(String(x.novo || '').slice(0, 160)), esc(x.motivo || ''), esc(x.razao || '')])) : ''}
+  <h2 class="item-h">O que foi lido</h2>
+  <p>Documentos lidos na íntegra pelo modelo:</p><ul>${((p.inventario || {}).lidos || []).map(d => `<li>${esc(d.rotulo)}${d.caracteres ? ` — ${Math.round(d.caracteres / 1000)} mil caracteres` : ''}${d.legivel === false ? ' <span class="pe-atencao">(ilegível)</span>' : ''}</li>`).join('')}</ul>
+  ${((p.inventario || {}).naoLidos || []).length ? `<p>Existem e <b>não</b> foram lidos:</p><ul>${p.inventario.naoLidos.map(d => `<li>${esc(d.rotulo)} — ${esc(d.motivo)}</li>`).join('')}</ul>` : ''}
+  <p>Quando o parecer diz que algo "não consta", refere-se a esses documentos.</p>
+  ${(p.leitura?.ausencias || []).length ? `<p>Não localizado nos documentos lidos:</p><ul>${p.leitura.ausencias.map(a => `<li>${esc(a.o_que)} <span class="pe-fonte">(procurado em: ${esc(a.onde_procurou)})</span></li>`).join('')}</ul>` : ''}
+  <h2 class="item-h">Limites e avisos da pesquisa</h2>
+  ${(() => { const av = [...(p.pesquisa?.debate?.avisos || []), ...(p.pesquisa?.internacional?.avisos || []), ...(p.pesquisa?.contexto?.avisos || [])]; return av.length ? `<ul>${av.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : '<p class="pe-vazio">Nenhum aviso.</p>'; })()}
+  <h2 class="item-h">Fontes da internet</h2>
+  ${pe5Fontes(p, esc) || '<p class="pe-vazio">Nenhuma fonte.</p>'}
   <h2 class="item-h">Roteiros de especialista usados na leitura</h2>
   ${tab(['Roteiro', 'Por que foi acionado'], (p.lentes || []).map(l => [esc(`${l.ordem}. ${l.rotulo}`), esc(l.motivo || '')]))}
   <h2 class="item-h">Tempo e consumo</h2>
   <p>Duração total: <b>${c.minutos != null ? String(c.minutos).replace('.', ',') : '—'} minutos</b>. Consumo informado pelo provedor: <b>${mil(c.total)} tokens</b> (${mil(c.entrada)} de entrada, ${mil(c.saida)} de saída, ${mil(c.raciocinio)} de raciocínio).${c.total ? '' : ' O provedor não informou o consumo.'}</p>
   ${tab(['Etapa', 'Internet', 'Tempo', 'Entrada', 'Saída', 'Raciocínio'], (p.chamadas || []).map(x => [esc(etapas[x.nome] || x.nome), x.web ? 'sim' : 'não', `${Math.round((x.ms || 0) / 1000)} s`, mil(x.tokens?.entrada), mil(x.tokens?.saida), mil(x.tokens?.raciocinio)]))}
   <div class="ft">Documento produzido pela Assessoria Técnica da Liderança do Podemos na Câmara dos Deputados</div>
-</body></html>`;
+</body></html>`);
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecerPE5, htmlConferenciaPE5, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
+  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Posicoes, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
 }
