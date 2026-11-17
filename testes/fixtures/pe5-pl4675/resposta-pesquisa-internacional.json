@@ -1,0 +1,67 @@
+{
+  "jurisdicoes": [
+    { "id": "W1", "lugar": "União Europeia", "norma": "Regulamento (UE) 2022/1925 — Lei dos Mercados Digitais (DMA)", "desde": "obrigações exigíveis desde março de 2024", "autoridade": "Comissão Europeia",
+      "quem_e_alcancado": "Empresa com faturamento anual no Espaço Econômico Europeu de pelo menos EUR 7,5 bilhões ou valor de mercado de pelo menos EUR 75 bilhões, que ofereça serviço com mais de 45 milhões de usuários finais ativos por mês e mais de 10 mil usuários profissionais por ano na União.",
+      "como_funciona": "As obrigações estão escritas na própria lei e valem para todos os designados, serviço por serviço; a autoridade pode detalhar como cumprir.",
+      "sancao": "Multa de até 10% do faturamento mundial; até 20% na reincidência.",
+      "duracao": "Sem prazo fixo; revisão ao menos a cada três anos.",
+      "aconteceu": [
+        { "fato": "Sete grupos designados: Alphabet, Amazon, Apple, Booking, ByteDance, Meta e Microsoft." },
+        { "fato": "Em abril de 2025 a Comissão multou a Apple em EUR 500 milhões e a Meta em EUR 200 milhões, as primeiras multas da lei.", "data": "23/04/2025" },
+        { "fato": "A primeira revisão oficial, de abril de 2026, concluiu que a lei é adequada e não precisa de mudança por ora, mas reconheceu que os designados adotaram condutas que atrasam ou limitam os benefícios; os próximos focos são inteligência artificial e computação em nuvem.", "data": "28/04/2026" },
+        { "fato": "Efeitos visíveis apontados: telas de escolha de navegador e de buscador nos celulares e exigência de consentimento para cruzar dados pessoais entre serviços." } ],
+      "criticas": [
+        { "critica": "Aplicação branda e sujeita a interferência política; a Apple ainda controla quais aplicativos se instalam no iPhone e o Google não deixa remover aplicativos pré-instalados.", "quem": "EDRi, rede europeia de direitos digitais", "data": "30/04/2026", "fonte_nome": "EDRi", "fonte_url": "https://edri.org/our-work/if-the-dma-is-fit-for-purpose-why-are-the-gatekeepers-winning/" },
+        { "critica": "A lei piora a experiência do usuário, desvia tráfego para intermediários e atrasa lançamentos de produtos na Europa.", "quem": "Apple e ALAI, em manifestações sobre o projeto brasileiro", "data": "03/11/2026", "fonte_nome": "Mercado & Consumo", "fonte_url": "https://mercadoeconsumo.com.br/03/11/2026/economia/big-techs-criticam-projeto-que-regula-concorrencia-digital-e-falam-em-inseguranca-juridica/" } ],
+      "fonte_nome": "Comissão Europeia — revisão da Lei dos Mercados Digitais, COM(2026) 178", "fonte_url": "https://digital-markets-act.ec.europa.eu/review-highlights-digital-markets-act-remains-fit-purpose-and-has-positive-impact-2026-04-28_en", "fonte_tipo": "primária" },
+    { "id": "W2", "lugar": "Alemanha", "norma": "Seção 19a da Lei contra Restrições à Concorrência (GWB)", "desde": "janeiro de 2021", "autoridade": "Bundeskartellamt (autoridade de concorrência)",
+      "quem_e_alcancado": "Empresa de \"importância primordial para a concorrência entre mercados\", definida caso a caso por critérios qualitativos; não há piso de faturamento.",
+      "como_funciona": "Duas etapas: primeiro a designação; depois, proibições específicas para aquela empresa.",
+      "sancao": "As sanções gerais da lei de concorrência; possibilidade de devolução do ganho econômico.",
+      "duracao": "Cinco anos.",
+      "aconteceu": [
+        { "fato": "Cinco grupos designados: Alphabet (05/01/2022), Meta (04/05/2022), Amazon (06/07/2022), Apple (05/04/2023) e Microsoft (30/09/2024)." },
+        { "fato": "O tribunal federal de justiça confirmou as designações de Amazon e Apple." },
+        { "fato": "Casos encerrados com mudanças de conduta em Google (tratamento de dados, vitrine de notícias, mapas e serviços automotivos), Meta (óculos de realidade virtual) e Apple (rastreamento em aplicativos)." },
+        { "fato": "Em fevereiro de 2026 a autoridade proibiu os mecanismos de controle de preços da Amazon e mandou devolver EUR 59 milhões de ganho econômico.", "data": "05/02/2026" } ],
+      "criticas": [],
+      "fonte_nome": "Bundeskartellamt — processos contra grandes empresas digitais", "fonte_url": "https://bundeskartellamt.de/EN/Digital_economy/proceedings_against_large_digital_companies/proceedings_against_large_digital_companies.html", "fonte_tipo": "primária" },
+    { "id": "W3", "lugar": "Reino Unido", "norma": "Lei de Mercados Digitais, Concorrência e Consumidores de 2024 (DMCC)", "desde": "janeiro de 2025", "autoridade": "Autoridade de Concorrência e Mercados (CMA), por uma unidade de mercados digitais",
+      "quem_e_alcancado": "Empresa com faturamento mundial acima de GBP 25 bilhões ou britânico acima de GBP 1 bilhão, com poder de mercado substancial e duradouro e posição estratégica em uma atividade digital específica.",
+      "como_funciona": "Duas etapas: designação por atividade e, depois, exigências de conduta feitas sob medida.",
+      "sancao": "Multa de até 10% do faturamento mundial.",
+      "duracao": "Cinco anos.",
+      "aconteceu": [
+        { "fato": "Google designado na atividade de busca e Apple e Google designados em plataformas móveis.", "data": "outubro de 2025" },
+        { "fato": "Em vez de exigências formais, a autoridade aceitou compromissos de Apple e Google sobre revisão e ranqueamento de aplicativos, uso de dados e pedidos de interoperabilidade, válidos desde abril de 2026; se não forem cumpridos, promete impor exigências formais.", "data": "10/02/2026" },
+        { "fato": "A autoridade estimou que os sistemas de Apple e Google estão em 90% a 100% dos celulares do país e que a economia de aplicativos equivale a 1,5% do PIB britânico." } ],
+      "criticas": [],
+      "fonte_nome": "Governo britânico — CMA", "fonte_url": "https://www.gov.uk/government/news/cma-secures-commitments-from-apple-and-google-to-improve-fairness-in-app-store-processes-and-enhance-ios-interoperability", "fonte_tipo": "primária" },
+    { "id": "W4", "lugar": "Japão", "norma": "Lei de Promoção da Concorrência em Softwares de Smartphones (Lei nº 58 de 2024)", "desde": "vigência plena em dezembro de 2025", "autoridade": "Comissão de Comércio Justo do Japão (JFTC)",
+      "quem_e_alcancado": "Operadores de sistema operacional, loja de aplicativos, navegador e buscador de celular com pelo menos 40 milhões de usuários mensais; o critério é número de usuários, não faturamento.",
+      "como_funciona": "Proibições e obrigações escritas na lei, restritas ao celular.",
+      "sancao": "Multa de até 20% do faturamento ligado à infração.",
+      "duracao": "Enquanto durar a designação.",
+      "aconteceu": [
+        { "fato": "Designadas Apple, iTunes e Google.", "data": "março de 2025" },
+        { "fato": "O Google abriu sistemas de cobrança alternativos e reduziu taxas; a Apple passou a admitir lojas alternativas no iPhone, com salvaguardas para menores." },
+        { "fato": "A autoridade publicou dois relatórios de conformidade (fevereiro e julho de 2026) e mantém a linha de privilegiar o diálogo.", "data": "27/07/2026" } ],
+      "criticas": [
+        { "critica": "Apple e Google não estariam cumprindo a lei; pesquisa de oito entidades de desenvolvedores indica que mais de 90% não usam lojas nem pagamentos alternativos.", "quem": "Coalition for App Fairness, entidade de desenvolvedores", "data": "21/08/2026", "fonte_nome": "Coalition for App Fairness", "fonte_url": "https://appfairness.org/?p=2190" } ],
+      "fonte_nome": "MLex — relatórios de conformidade da lei japonesa", "fonte_url": "https://www.mlex.com/mlex/articles/2505882/japan-publishes-second-apple-google-smartphone-law-compliance-reports", "fonte_tipo": "imprensa" },
+    { "id": "W5", "lugar": "Coreia do Sul", "norma": "Projeto de lei de concorrência em plataformas", "desde": "não aprovado", "autoridade": "Comissão de Comércio Justo da Coreia (KFTC)",
+      "quem_e_alcancado": "—", "como_funciona": "A autoridade desistiu, em setembro de 2024, de propor a designação prévia de plataformas; o debate continua no parlamento.", "sancao": "—", "duracao": "—",
+      "aconteceu": [ { "fato": "O recuo é atribuído em parte às negociações comerciais com os Estados Unidos." } ],
+      "criticas": [],
+      "fonte_nome": "Tech Policy Press", "fonte_url": "https://techpolicy.press/digital-regulation-is-no-longer-just-domestic-policy-as-korea-and-us-clash-over-new-law", "fonte_tipo": "terceiro" },
+    { "id": "W6", "lugar": "Índia e Austrália", "norma": "Projetos de regulação prévia de plataformas", "desde": "não aprovados", "autoridade": "—",
+      "quem_e_alcancado": "—", "como_funciona": "Na Índia o projeto está parado enquanto o governo conduz estudo de mercado; na Austrália o regime está em minuta.", "sancao": "—", "duracao": "—",
+      "aconteceu": [], "criticas": [],
+      "fonte_nome": "ACT | The App Association — relatório sobre a Ásia-Pacífico (entidade do setor)", "fonte_url": "https://actonline.org/2026/08/04/report-asia-pacific-is-at-a-crossroads/", "fonte_tipo": "terceiro" }
+  ],
+  "avisos": [
+    "Os números da revisão europeia (designações, processos e multas) vêm do comunicado da Comissão e de fontes secundárias; o relatório completo, COM(2026) 178, não foi lido.",
+    "A situação na Coreia do Sul, na Índia e na Austrália vem de fontes do setor e de análise jornalística, não de documentos oficiais.",
+    "Não foi localizado estudo independente que meça o efeito dessas leis sobre preços, inovação ou entrada de concorrentes."
+  ]
+}

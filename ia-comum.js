@@ -300,6 +300,16 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
   const pdfsBase64 = (pdfBuffers || []).map(b => arrayBufferToBase64(b));
   const maxSaida = opcoes.maxSaida || 12000;
   const pensarAlto = opcoes.pensar === 'alto';
+  // Níveis intermediários (Parecer de Especialista refeito, 17/11/2026): 'medio' e 'baixo' pedem menos
+  // raciocínio que 'alto' — o raciocínio é cobrado como saída e era a maior parte do custo do parecer.
+  // Sem `pensar`, nada muda: vale o padrão do modelo, como sempre foi.
+  const nivelPensar = ['alto', 'medio', 'baixo'].includes(opcoes.pensar) ? opcoes.pensar : '';
+  // Streaming: sempre no raciocínio alto (a resposta leva minutos); e quando quem chama pede (`stream`).
+  const emStream = pensarAlto || opcoes.stream === true;
+  // Consumo real da chamada, quando o provedor informa: { entrada, saida, raciocinio, total }.
+  const usoGemini = u => u ? { entrada: u.promptTokenCount || 0, saida: u.candidatesTokenCount || 0, raciocinio: u.thoughtsTokenCount || 0, total: u.totalTokenCount || 0 } : null;
+  const usoOpenAI = u => u ? { entrada: u.input_tokens || 0, saida: u.output_tokens || 0, raciocinio: u.output_tokens_details?.reasoning_tokens || 0, total: u.total_tokens || 0 } : null;
+  const usoAnthropic = u => u ? { entrada: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0), saida: u.output_tokens || 0, raciocinio: 0, total: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0) } : null;
   // Sempre presente, mesmo sem `web`: quem chama não precisa se defender de
   // campo ausente, e lista vazia diz "não buscou" com clareza.
   const proc = { fontes: [], buscas: [], trechos: [] };
@@ -308,7 +318,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const m = modelo || 'gemini-2.5-flash';
     // Com raciocínio (parecer) a resposta demora minutos; sem streaming o Chrome derruba a conexão
     // que fica sem receber byte algum. O streaming mantém bytes chegando; o texto é juntado no fim.
-    const url = pensarAlto
+    const url = emStream
       ? `https://generativelanguage.googleapis.com/v1beta/models/${m}:streamGenerateContent?alt=sse`
       : `https://generativelanguage.googleapis.com/v1beta/models/${m}:generateContent`;
     const parts = pdfsBase64.map(d => ({ inline_data: { mime_type: 'application/pdf', data: d } }));
@@ -316,23 +326,26 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     const body = {
       contents: [{ parts }],
       // Com raciocínio ligado, o pensamento conta dentro de maxOutputTokens: o teto sobe.
-      generationConfig: { maxOutputTokens: pensarAlto ? Math.min(65536, maxSaida * 2) : maxSaida },
+      generationConfig: { maxOutputTokens: pensarAlto ? Math.min(65536, maxSaida * 2) : nivelPensar ? Math.min(65536, Math.round(maxSaida * 1.5)) : maxSaida },
     };
     // Gemini 3: thinkingLevel. O Google deprecou thinkingBudget e os parâmetros de amostragem
     // (temperature/topP/topK) no Gemini — os 2.5 ficam com o raciocínio padrão deles.
     if (pensarAlto && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: 'high' };
+    // 'medium' só existe na linha flash; nos demais o degrau abaixo de 'high' é 'low'.
+    else if (nivelPensar && !/gemini-2\.5/.test(m)) body.generationConfig.thinkingConfig = { thinkingLevel: nivelPensar === 'medio' && /flash/.test(m) ? 'medium' : 'low' };
     if (web) body.tools = [{ google_search: {} }];   // grounding com Google Search
     const init = { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(body) };
-    if (pensarAlto) {
-      let texto = '', fim = '';
+    if (emStream) {
+      let texto = '', fim = '', uso = null;
       for (const ev of await fetchIASse(url, init)) {
         if (ev.dados?.error) throw new Error(ev.dados.error.message || 'erro do Gemini');
         const cand = ev.dados?.candidates?.[0];
         for (const pt of cand?.content?.parts || []) if (pt.text && !pt.thought) texto += pt.text;
         iaFontesGemini(cand?.groundingMetadata, proc);
         if (cand?.finishReason) fim = cand.finishReason;
+        if (ev.dados?.usageMetadata) uso = ev.dados.usageMetadata;   // o último evento traz o total
       }
-      return { text: exigirTexto(texto.trim(), fim), truncated: fim.toUpperCase() === 'MAX_TOKENS', ...proc };
+      return { text: exigirTexto(texto.trim(), fim), truncated: fim.toUpperCase() === 'MAX_TOKENS', usage: usoGemini(uso), ...proc };
     }
     const json = await fetchIA(url, init);
     const cand = json.candidates?.[0];
@@ -342,6 +355,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     return {
       text: exigirTexto(texto, json.promptFeedback?.blockReason || cand?.finishReason),
       truncated: (cand?.finishReason || '').toUpperCase() === 'MAX_TOKENS',
+      usage: usoGemini(json.usageMetadata),
       ...proc,
     };
   }
@@ -364,8 +378,9 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // raciocínio alto (a nota comum, o apelido e o chat também iam com 0.2) — e recebem o esforço.
     if (/^(o\d|gpt-5)/.test(m)) delete body.temperature;
     if (pensarAlto && /^(o\d|gpt-5)/.test(m)) { body.reasoning = { effort: 'high' }; body.max_output_tokens = maxSaida * 2; }   // o raciocínio conta no limite
+    else if (nivelPensar && /^(o\d|gpt-5)/.test(m)) { body.reasoning = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; body.max_output_tokens = Math.round(maxSaida * 1.5); }
     if (web) body.tools = [{ type: 'web_search' }];   // busca web na Responses API
-    if (pensarAlto) {
+    if (emStream) {
       body.stream = true;
       let texto = '', fim = null;
       for (const ev of await fetchIASse('https://api.openai.com/v1/responses', { method: 'POST', headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' }, body: JSON.stringify(body) })) {
@@ -381,6 +396,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       return {
         text: exigirTexto(texto.trim(), fim?.incomplete_details?.reason || fim?.status),
         truncated: fim?.status === 'incomplete' || fim?.incomplete_details?.reason === 'max_output_tokens',
+        usage: usoOpenAI(fim?.usage),
         ...proc,
       };
     }
@@ -403,7 +419,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
     // Recusa da OpenAI vem como bloco "refusal", sem output_text.
     const recusa = (json.output || []).some(i => (i.content || []).some(c => c.type === 'refusal'));
     iaFontesOpenAI(json.output, proc);
-    return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc, ...proc };
+    return { text: exigirTexto(texto, recusa ? 'refusal' : (json.incomplete_details?.reason || json.status)), truncated: trunc, usage: usoOpenAI(json.usage), ...proc };
   }
 
   if (provedorId === 'anthropic') {
@@ -425,13 +441,18 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: 'high' }; }
       else body.thinking = { type: 'enabled', budget_tokens: 16000 };
       body.max_tokens = maxSaida + 16000;
+    } else if (nivelPensar) {
+      const orc = nivelPensar === 'medio' ? 8000 : 4000;
+      if (raciocinioAdaptativo(m)) { body.thinking = { type: 'adaptive' }; body.output_config = { effort: nivelPensar === 'medio' ? 'medium' : 'low' }; }
+      else body.thinking = { type: 'enabled', budget_tokens: orc };
+      body.max_tokens = maxSaida + orc;
     }
     // Busca na web: tipo novo nos Claude 4.6 em diante; o básico nos anteriores.
     if (web) body.tools = [{ type: raciocinioAdaptativo(m) ? 'web_search_20260209' : 'web_search_20250305', name: 'web_search', max_uses: 5 }];
     const cab = { 'x-api-key': apiKey, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true', 'Content-Type': 'application/json' };
-    if (pensarAlto) {
+    if (emStream) {
       body.stream = true;
-      let texto = '', parada = null;
+      let texto = '', parada = null; const uso = {};
       for (const ev of await fetchIASse('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) })) {
         const d = ev.dados || {};
         if (ev.evento === 'error' || d.type === 'error') throw new Error(d.error?.message || 'erro da Anthropic');
@@ -440,9 +461,11 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
         // os deltas de texto acima não os carregam.
         if (d.type === 'content_block_start' && d.content_block) iaFontesAnthropic([d.content_block], proc);
         if (d.type === 'message_delta' && d.delta?.stop_reason) parada = d.delta.stop_reason;
+        if (d.type === 'message_start' && d.message?.usage) Object.assign(uso, d.message.usage);
+        if (d.type === 'message_delta' && d.usage) Object.assign(uso, d.usage);
       }
       if (parada === 'refusal') throw new Error('O modelo recusou a solicitação (stop_reason refusal).');
-      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens', ...proc };
+      return { text: exigirTexto(texto.trim(), parada), truncated: parada === 'max_tokens', usage: Object.keys(uso).length ? usoAnthropic(uso) : null, ...proc };
     }
     const json = await fetchIA('https://api.anthropic.com/v1/messages', { method: 'POST', headers: cab, body: JSON.stringify(body) });
     // Concatena todos os blocos de texto (com web search há blocos de busca no meio).
@@ -451,7 +474,7 @@ async function chamarIA({ provedorId, apiKey, modelo, prompt, pdfBuffers, web, o
       if (item.type === 'text' && item.text) texto += (texto ? '\n' : '') + item.text;
     }
     iaFontesAnthropic(json.content, proc);
-    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens', ...proc };
+    return { text: exigirTexto(texto.trim(), json.stop_reason), truncated: json.stop_reason === 'max_tokens', usage: usoAnthropic(json.usage), ...proc };
   }
 
   throw new Error(`Provedor desconhecido: ${provedorId}`);

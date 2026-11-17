@@ -1,0 +1,37 @@
+{
+  "jurisprudencia": [
+    { "id": "R1", "tribunal": "STF, Plenário", "processo": "ADI 4.874", "relator": "Min. Rosa Weber", "data": "01/02/2018",
+      "decidiu": "Ao examinar o poder da Anvisa de proibir aditivos em cigarros, o tribunal manteve a lei da agência e afirmou que a competência normativa de autarquia serve para especificar o que a lei já fixou, não para criar obrigações sem base legal.",
+      "pertinencia": "Dá parâmetro para os limites que o substitutivo impõe ao poder de regulamentar do Cade.",
+      "limite": "O caso tratava de agência reguladora de saúde e de norma geral; aqui a obrigação é imposta por decisão individual em processo administrativo.",
+      "fonte_nome": "Supremo Tribunal Federal — pesquisa de jurisprudência", "fonte_url": "https://jurisprudencia.stf.jus.br/pages/search?queryString=ADI%204874", "fonte_tipo": "primária" },
+    { "id": "R2", "tribunal": "STF, Primeira Turma", "processo": "RE 1.083.955 AgR", "relator": "Min. Luiz Fux", "data": "28/05/2019",
+      "decidiu": "O controle judicial das decisões do Cade limita-se à legalidade; o Judiciário deve deferência às avaliações técnicas da autarquia.",
+      "pertinencia": "Indica como os tribunais tendem a tratar a contestação judicial de uma designação.",
+      "limite": "O precedente é sobre punição de conduta já ocorrida, não sobre obrigação imposta antes de qualquer infração.",
+      "fonte_nome": "Supremo Tribunal Federal — pesquisa de jurisprudência", "fonte_url": "https://jurisprudencia.stf.jus.br/pages/search?queryString=RE%201083955", "fonte_tipo": "primária" },
+    { "id": "R3", "tribunal": "STF, Primeira Turma", "processo": "Pet 12.404 (referendo)", "relator": "Min. Alexandre de Moraes", "data": "02/09/2024",
+      "decidiu": "A turma manteve a suspensão de rede social que ficou sem representante legal no Brasil e deixou de cumprir ordens judiciais, condicionando a volta à indicação de representante.",
+      "pertinencia": "Mostra que a exigência de representação no País para receber ordens já foi aplicada a plataforma digital.",
+      "limite": "A base foi o Código Civil e o Marco Civil da Internet, em contexto de descumprimento de ordem judicial; o tribunal não examinou a obrigação de manter escritório como regra de concorrência.",
+      "fonte_nome": "Supremo Tribunal Federal — pesquisa de jurisprudência", "fonte_url": "https://jurisprudencia.stf.jus.br/pages/search?queryString=Pet%2012404", "fonte_tipo": "primária" }
+  ],
+  "normas": [
+    { "id": "M1", "norma": "Lei nº 12.529/2011, art. 88, e Portaria Interministerial MJ/MF nº 994/2012", "o_que_disciplina": "Hoje só vão ao Cade as fusões e aquisições em que um grupo fatura ao menos R$ 750 milhões no Brasil e o outro ao menos R$ 75 milhões.", "relacao": "É o piso geral que o projeto original afastava para os designados e que o substitutivo mantém.", "fonte_nome": "Planalto — Lei nº 12.529/2011", "fonte_url": "https://www.planalto.gov.br/ccivil_03/_ato2011-2014/2011/lei/l12529.htm", "fonte_tipo": "primária" },
+    { "id": "M2", "norma": "Lei nº 8.437/1992", "o_que_disciplina": "Restringe a concessão de liminares contra atos do poder público e permite pedir ao presidente do tribunal a suspensão de liminar que cause grave lesão à ordem ou à economia públicas.", "relacao": "O art. 87-H, § 2º, do substitutivo a aplica às decisões de designação.", "fonte_nome": "Planalto — Lei nº 8.437/1992", "fonte_url": "https://www.planalto.gov.br/ccivil_03/leis/l8437.htm", "fonte_tipo": "primária" },
+    { "id": "M3", "norma": "Constituição, art. 169, § 1º; ADCT, art. 113; Lei de Responsabilidade Fiscal, arts. 16 e 17", "o_que_disciplina": "Proposição que cria despesa obrigatória deve vir com estimativa do impacto orçamentário e financeiro; criação de cargo exige dotação e autorização na lei de diretrizes orçamentárias.", "relacao": "Aplicam-se à criação da superintendência e do cargo de superintendente.", "fonte_nome": "Planalto — Constituição Federal", "fonte_url": "https://www.planalto.gov.br/ccivil_03/constituicao/constituicao.htm", "fonte_tipo": "primária" }
+  ],
+  "dados": [
+    { "id": "F1", "dado": "Custo regulatório do projeto para as empresas, em dez anos", "valor": "entre R$ 2,7 bilhões e R$ 11,34 bilhões", "quem_produziu": "estudo encomendado pela ALAI, parte interessada", "data_ref": "2026", "fonte_nome": "Mercado & Consumo", "fonte_url": "https://mercadoeconsumo.com.br/03/11/2026/economia/big-techs-criticam-projeto-que-regula-concorrencia-digital-e-falam-em-inseguranca-juridica/", "fonte_tipo": "imprensa" },
+    { "id": "F2", "dado": "Acordo do Cade com a Apple", "valor": "termo de compromisso firmado depois de investigação sobre restrições a desenvolvedores, como o uso obrigatório do sistema de pagamentos da loja", "quem_produziu": "Cade", "data_ref": "2026", "fonte_nome": "Teletime", "fonte_url": "https://teletime.com.br/10/07/2026/apple-mercados-digitais-desnecessario/", "fonte_tipo": "imprensa" }
+  ],
+  "correlatas": [
+    { "id": "K1", "proposicao": "PL 2768/2022", "casa": "Câmara dos Deputados", "situacao": "Em tramitação; o substitutivo trocou a Anatel pelo Cade como regulador e se aproximou do PL 4675/2025. Relatora: dep. Any Ortiz (PP-RS).", "relacao": "Trata do mesmo tema por outro caminho; sua relatora é crítica do PL 4675/2025.", "fonte_nome": "DPL News", "fonte_url": "https://dplnews.com/?p=315864", "fonte_tipo": "imprensa" },
+    { "id": "K2", "proposicao": "REQ 4369/2025", "casa": "Câmara dos Deputados", "situacao": "Requerimento da dep. Caroline de Toni (PL-SC) para criar comissão especial sobre o projeto, apresentado em 22/10/2025.", "relacao": "É o instrumento dos que pedem mais debate antes da votação em Plenário.", "fonte_nome": "Teletime", "fonte_url": "https://teletime.com.br/25/11/2025/entidades-cobram-comissao-especial-para-discutir-pl-dos-mercados-digitais/", "fonte_tipo": "imprensa" }
+  ],
+  "avisos": [
+    "Não foi localizada estimativa oficial de quantos grupos econômicos passam dos pisos de R$ 50 bilhões e R$ 5 bilhões.",
+    "Não foram localizados o orçamento e o quadro de pessoal previstos para a nova superintendência.",
+    "As decisões do STF foram identificadas por número, relator e data; o inteiro teor não foi lido nesta pesquisa."
+  ]
+}

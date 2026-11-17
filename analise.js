@@ -8226,7 +8226,12 @@ async function listarModelosDoProvedor(pid) {
 // delas com busca na internet, 250 a 350 mil tokens (raciocínio incluído),
 // 7 a 12 minutos. O aviso do diálogo repete estes números; quando o pipeline
 // mudar, mude aqui.
-const AVISO_PARECER = { tempo: 'de 7 a 12 minutos', chamadas: '6 a 9 chamadas', tokens: '250 a 350 mil tokens' };
+//
+// 17/11/2026: os números acima envelheceram. Três pareceres medidos levaram 15, 22 e 33 minutos, e a
+// geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
+// documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
+// isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
+const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '7 chamadas ao modelo, três delas com busca na internet', tokens: 'da ordem de R$ 10 por parecer na medição de 17/11/2026' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,
@@ -8252,10 +8257,10 @@ function confirmarModeloParecer(it) {
       <div class="modal-header"><h3>Parecer de Especialista</h3><button class="modal-close" id="dlg-parecer-fechar">✕</button></div>
       <div class="modal-body">
         <p style="font-size:12.5px;color:var(--text-dim);margin:0 0 12px">${escapeHtml(`${it.sigla} ${it.numero}/${it.ano}`)} — ${escapeHtml((it.ementa || '').slice(0, 160))}${(it.ementa || '').length > 160 ? '…' : ''}</p>
-        <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> O parecer não é uma resposta rápida: o modelo lê os documentos, busca na internet, monta a tese, contesta a própria tese e só então redige.
+        <div class="aviso-custo"><b>⚠ Pesquisa longa e de alto consumo.</b> O parecer não é uma resposta rápida: o modelo lê os documentos, pesquisa na internet o debate, a experiência de outros países e o contexto jurídico, redige e revisa o próprio texto.
           <ul>
             <li><b>Tempo:</b> ${AVISO_PARECER.tempo}. Mantenha esta aba aberta.</li>
-            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas} com raciocínio alto, cerca de <b>${AVISO_PARECER.tokens}</b> da sua chave.</li>
+            <li><b>Consumo:</b> ${AVISO_PARECER.chamadas}. Custo <b>${AVISO_PARECER.tokens}</b>, no formato anterior; o consumo real desta geração fica registrado no relatório de conferência.</li>
           </ul>
         </div>
         <div class="form-group"><label>Provedor</label>
@@ -8263,7 +8268,7 @@ function confirmarModeloParecer(it) {
         <div class="form-group"><label>Modelo</label>
           <select id="dlg-parecer-modelo" class="form-input"><option value="">carregando a lista do provedor…</option></select>
           <div id="dlg-parecer-status" style="font-size:11.5px;color:var(--text-dim);margin-top:6px;line-height:1.5"></div>
-          <div style="font-size:11.5px;color:var(--text-dim);margin-top:4px;line-height:1.5">Estimativa para este modelo: <b style="color:var(--text)">${AVISO_PARECER.tempo} · ${AVISO_PARECER.tokens}</b>. O modelo e o motivo da escolha ficam registrados no relatório de conferência, não no parecer.</div></div>
+          <div style="font-size:11.5px;color:var(--text-dim);margin-top:4px;line-height:1.5">Estimativa: <b style="color:var(--text)">${AVISO_PARECER.tempo}</b>. O modelo, o motivo da escolha, o tempo e os tokens consumidos ficam registrados no relatório de conferência.</div></div>
       </div>
       <div class="modal-footer"><button class="btn btn-outline" id="dlg-parecer-cancelar">Cancelar</button><button class="btn btn-primary" id="dlg-parecer-gerar" disabled>Gerar mesmo assim</button></div>
     </div>`;
@@ -8336,7 +8341,7 @@ async function gerarParecerEspecialista(it) {
     if (!docsMeta.length) { mostrarToast('Nenhum documento localizado para esta matéria — o parecer não é gerado sem texto.', 'aviso'); return; }
     const docs = [];
     for (const d of docsMeta) {
-      try { docs.push({ rotulo: d.rotulo, buffer: await baixarPdf(d.url) }); }
+      try { docs.push({ rotulo: d.rotulo, url: d.url, buffer: await baixarPdf(d.url) }); }
       catch (e) { console.warn('Parecer: documento não baixado', d.rotulo, e.message); }
     }
     if (!docs.length) { mostrarToast('Nenhum documento pôde ser baixado.', 'aviso'); return; }
@@ -8355,7 +8360,7 @@ async function gerarParecerEspecialista(it) {
     }
     // Emendas anexadas (até 8, as mais recentes): o modelo sintetiza cada uma com trecho.
     for (const e of emendas.slice(-8)) {
-      try { docs.push({ rotulo: `Emenda — ${e.rotulo}`, buffer: await baixarPdf(e.url) }); e.anexada = true; }
+      try { docs.push({ rotulo: `Emenda — ${e.rotulo}`, url: e.url, buffer: await baixarPdf(e.url) }); e.anexada = true; }
       catch (err) { console.warn('Parecer: emenda não baixada', e.rotulo, err.message); }
     }
     const processo = {
@@ -8369,25 +8374,32 @@ async function gerarParecerEspecialista(it) {
       apensados: (enr.apensadosPodemos || []).map(ap => { const aut = (ap.autores || []).map(a => a.nome).filter(Boolean).join(', '); return `${ap.siglaTipo || ''} ${ap.numero || ''}/${ap.ano || ''}${aut ? ' — ' + aut : ''}`.trim(); }).filter(x => !/^\/$/.test(x)),
     };
 
-    // --- o pipeline (pipeline-parecer.js), com o fetch e o pdf.js da extensão -
+    // --- o pipeline NOVO (pe5-pipeline.js, 17/11/2026), com o fetch e o pdf.js da extensão ---------------
+    // O programa entrega tramitação, votações, voto da bancada, fase, lei vigente e câmbio; o modelo lê os
+    // documentos como TEXTO (uma vez), pesquisa o debate, a experiência internacional e o contexto, redige
+    // em blocos e revisa. O pipeline anterior (pipeline-parecer.js) segue no repositório só para abrir os
+    // pareceres já salvos.
+    const dataPauta = (String(state.pauta?.id || '').match(/^(\d{2})-(\d{2})-(\d{4})/) || []).slice(1).join('/');
     const ctx = {
       identificacao: `${it.sigla} ${it.numero}/${it.ano}`, sigla: it.sigla, numero: it.numero, ano: it.ano,
-      ementa: it.ementa || '', titulo: tituloComApelido(it) || '', autoria: it.autor, relator: it.enriquecimento?.relator?.nome,
-      situacao, temas, docs, processo, textoEmendas: docsMeta.map(d => d.rotulo).concat(emendas.map(e => e.rotulo)).join(' '), hoje: new Date(),
+      ementa: it.ementa || '', idProposicao: enr.idProposicao || null, docs, temas, hoje: new Date(),
+      textoEmVotacao: docsMeta[0]?.rotulo || '', geradoPor: cfg.nomeUsuario || 'equipe',
+      disponiveis: emendas.filter(e => !e.anexada).map(e => ({ rotulo: `Emenda — ${e.rotulo}`, url: e.url, motivo: 'emenda não incluída na leitura (são lidas as oito mais recentes)' })),
+      pauta: state.pauta ? { titulo: state.pauta.titulo || state.pauta.nome || '', data: dataPauta } : null,
     };
     const io = {
-      chamarModelo: ({ prompt, pdfBuffers, web }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: 'alto' } }),
+      // `pensar` vem do pipeline: alto na leitura e na redação, médio nas pesquisas e na revisão.
+      chamarModelo: ({ prompt, pdfBuffers, web, pensar }) => chamarIA({ provedorId: pid, apiKey: esc.apiKey, modelo: esc.modelo, prompt, pdfBuffers, web: !!web, opcoes: { maxSaida: 32000, pensar: pensar || 'medio', stream: true } }),
       fetchFn: (u, o) => fetch(u, o),
       lerPdf: b => extrairTextoPdf(b.slice(0)),
-      abrirXlsx: typeof XLSX !== 'undefined' ? (b => XLSX.read(new Uint8Array(b), { type: 'array' })) : null,
       onPasso: passo,
     };
-    const p = await gerarParecer(ctx, io);
+    const p = await gerarParecerPE5(ctx, io);
     if (p.erro) { mostrarToast(p.erro, 'aviso'); console.warn('Parecer:', p); return; }
-    p.carimbo = carimboDoParecer({ ...esc, lentes: p.lentes, por: cfg.nomeUsuario || 'equipe' });
-    p.geradoPor = cfg.nomeUsuario || 'equipe';
-    p.duracaoMs = Date.now() - t0;   // vai ao relatório de conferência
-    p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, pontos: (p.pontosDeAtencao || []).length };
+    p.modelo = esc.modelo;
+    p.escolha = { faixa: esc.faixa || '', motivo: esc.motivo || '', ressalva: esc.ressalva || '' };
+    p.processo = processo;                       // cenário e documentos, como o módulo de Plenário os vê
+    p.meta = { em: new Date().toISOString(), por: p.geradoPor, modelo: esc.modelo, pontos: p.conferencia?.atencao || 0, versao: 5 };
     it.parecer = p;
     it.parecerMeta = p.meta;
     // Um parecer custa de 7 a 12 minutos e centenas de milhares de tokens:
@@ -8407,6 +8419,12 @@ async function gerarParecerEspecialista(it) {
     atualizarBotaoParecer(it);
 
     abrirParecerEspecialista(it);
+    if (p.versao === 5) {
+      const c = p.conferencia || {}, cons = p.consumo || {};
+      mostrarToast(`Parecer gerado em ${String(cons.minutos ?? '?').replace('.', ',')} min${cons.total ? `, ${Math.round(cons.total / 1000)} mil tokens` : ''}. ${c.resumo || ''}${c.atencao ? ' Veja o relatório de conferência.' : ''}`, c.criticos ? 'aviso' : 'sucesso');
+      if (!salvoNoFirebase) mostrarToast(`ATENÇÃO: o parecer NÃO foi salvo no Firebase (${erroSalvar}). Ele está aberto nesta aba, mas some ao recarregar — exporte o PDF agora e tente gerar de novo mais tarde.`, 'erro');
+      return;
+    }
     const pontos = p.pontosDeAtencao || [];
     mostrarToast(pontos.length
       ? `Parecer gerado: ${p.lentes.length} lente(s), ${p.tese.afirmacoes.length} afirmação(ões) sustentadas. A conferência anotou ${pontos.length} ponto(s) de atenção (${pontos.map(x => x.codigo).join(', ')}) — veja no relatório de conferência.`
@@ -8434,7 +8452,8 @@ async function gerarParecerEspecialista(it) {
 async function abrirParecerEspecialista(it, documento = 'parecer') {
   const p = it.parecer;
   if (!p) return;
-  if (!p.ficha || !p.rubrica) { mostrarToast('Este parecer foi gerado por uma versão anterior; gere de novo.', 'aviso'); return; }
+  const novoFormato = p.versao === 5;          // pe5-*.js; os salvos antes de 17/11/2026 abrem pelo código antigo
+  if (!novoFormato && (!p.ficha || !p.rubrica)) { mostrarToast('Este parecer foi gerado por uma versão anterior; gere de novo.', 'aviso'); return; }
   const conferencia = documento === 'conferencia';
   const w = window.open('', '_blank', 'width=900,height=760');
   if (!w) { mostrarToast('Permita pop-ups para abrir o parecer.', 'aviso'); return; }
@@ -8446,7 +8465,7 @@ async function abrirParecerEspecialista(it, documento = 'parecer') {
   if (w.closed) return;
   const opts = { materia: `${it.sigla} ${it.numero}/${it.ano}`, logoDataUrl, css: CSS_IMPRESSAO_PLENARIO };
   w.document.open();
-  w.document.write(conferencia ? htmlConferencia(p, opts) : htmlParecer(p, opts));
+  w.document.write(novoFormato ? (conferencia ? htmlConferenciaPE5(p, opts) : htmlParecerPE5(p, opts)) : (conferencia ? htmlConferencia(p, opts) : htmlParecer(p, opts)));
   w.document.close();
 
   let impresso = false;

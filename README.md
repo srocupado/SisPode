@@ -322,21 +322,24 @@ O sistema identifica automaticamente o **cenário de tramitação** da proposiç
 - **Retry com backoff exponencial** (5 s / 15 s / 30 s) em respostas 429 (rate limit) e 5xx
 - Botão **Parar tudo** (vermelho) aparece quando há qualquer chamada de IA em voo (lote, individual ou Completar) — usa `AbortController` global para abortar fetches em andamento, sleeps de throttle e timers de retry
 
-**Parecer de Especialista** (documento longo, por item)
+**Parecer de Especialista** (dossiê da matéria, por item)
 
-Além da nota técnica, cada card pode gerar um **parecer de especialista**: um documento longo, com evidência rastreada, para subsidiar o analista em matéria que a bancada vai discutir a fundo. É um pipeline de **6 a 9 chamadas** ao modelo (7 a 12 minutos, 250 a 350 mil tokens) — o diálogo de geração avisa o custo antes de começar.
+Além da nota técnica, cada card pode gerar um **parecer de especialista**: um dossiê para o analista, que cobre a matéria inteira — o que o texto faz, o que muda na lei, a tramitação, **o debate (o que os favoráveis e os contrários argumentam)**, **a experiência de outros países**, a análise técnica, os caminhos possíveis e as fontes. Foi **refeito do zero em 17/11/2026** (`pe5-*.js`), depois de medir três pareceres do formato anterior: a conferência dava "aprovado, zero pontos" mesmo com a tabela de legislação errada, o texto repetia os mesmos números de seção em seção, linhas sumiam na quebra de página e a urgência, a votação nominal e o voto da bancada ficavam de fora.
 
-- **Etapas**: apuração (achados com o trecho exato do documento) → conferência de cada trecho no PDF, descartando o que não se localiza → dossiê (lei vigente, séries e estimativas oficiais) → ficha do objeto (regra vigente → regra proposta → data de efeito) → tese em JSON com identificadores de evidência → **contraditório** (revisor adversarial que refuta unidades da tese) → redação → portões e rubrica mecânica
-- **Lei vigente por cascata declarada**: Portal da Legislação da Câmara (LEGIN, texto atualizado) → Planalto (texto compilado) → LexML/Senado (texto publicado) → transcrição no próprio documento analisado. A **origem de cada texto vai impressa na ficha**, e texto original de norma já alterada não vale como regra vigente
-- **Seções do documento**: Síntese · Contexto e processo · Lei vigente e datas de efeito · Jurisprudência sobre normas análogas · O que se previu · O que aconteceu · Experiência de outros países e entes · Avaliação da política · Quem se posicionou e como · Implementação e custo de conformidade · Os dois lados · Quem disputa o quê · Opções e consequências · Aprimoramentos e sugestões de emenda · Prioridade e viabilidade · Respostas por lente · Conclusão. As condicionais só entram quando a tese as alimenta
-- **14 lentes** temáticas (processo legislativo, constitucional, tributário, orçamentário, administrativo, previdência, regulação, consumidor, penal, ambiental, saúde, educação, trabalho, digital) são acionadas pela ementa e pelos temas oficiais da matéria; as aplicadas e as descartadas ficam registradas
-- **Busca na internet** (quando o provedor oferece): experiência comparada de outros países e entes, jurisprudência de normas análogas, normas infralegais e posições públicas de atores. As fontes vão **nomeadas no texto e listadas ao fim do parecer**, com a ressalva de que não são conferidas pelo programa
-- **"Quem disputa o quê"**: a seção captura os **embates** — duas ou mais partes identificáveis querendo coisas incompatíveis do mesmo dispositivo — com o que cada lado quer, o que a tramitação fez com a disputa e seu estado (resolvido pelo substitutivo, aberto, deslocado para emenda, sem contraparte documentada). Cada emenda da tramitação tem de aparecer num embate ou ser declarada sem conflito
-- **O parecer nunca recomenda voto nem defende posição** e não atribui causalidade à medida: apresenta as opções, as consequências de cada uma e o que falta saber. Posição de terceiros entra como relato, sempre atribuída a quem a defendeu
-- **Dois documentos, dois leitores**: o **parecer** que circula (ficha do objeto, o que está em jogo, tramitação, o que muda na lei, as seções, limites e fontes — sem identificadores, sem jargão do método) e o **relatório de conferência**, de uso interno, aberto por botão próprio no card (rubrica M1–M14, tese com evidências, achados descartados, refutações do contraditório, lentes, chamadas, tokens e duração)
-- **Pontos de atenção**: os portões mecânicos que se resolvem sozinhos são aplicados ao texto, e a redação é refeita **uma vez** com as correções. O que persistir **não reprova o parecer** — vira ponto de atenção no relatório de conferência ("SEM RESSALVAS" / "COM RESSALVAS"), dizendo ao analista onde olhar. O parecer sai sempre
-- **Modelo**: exige ao menos a **faixa intermediária** do provedor — a faixa econômica tende a completar lacuna com o plausível, que num parecer técnico é o erro de maior consequência. A escolha (e qualquer ressalva sobre ela) fica registrada no relatório
-- Pareceres salvos no Firebase em `/pareceres/{chave}`, com a meta lida à parte para não baixar o documento inteiro ao abrir a pauta
+- **Quem faz o quê.** O **programa** entrega tudo o que é dado: tramitação, urgência, votações nominais com o voto da bancada, **fase** (em que Casa está e se a Câmara já votou), artigo vigente de cada dispositivo alterado, câmbio do Banco Central e lista de fontes. O **modelo** lê, pesquisa, redige e revisa
+- **Sete chamadas**: leitura dos documentos (como **texto**, uma única vez) → três pesquisas na internet, em paralelo (debate, experiência internacional, contexto jurídico e de fato) → redação em duas metades (a segunda recebe a primeira, para não repetir) → revisão adversarial, que devolve correções pontuais aplicadas pelo programa. Raciocínio alto só na leitura e na redação
+- **Trecho literal**: cada item da leitura traz um trecho copiado do documento; o programa procura o trecho e **descarta o item que não localizar**. Pesquisa sem fonte também sai; link temporário de redirecionamento é trocado pelo endereço final
+- **Documento em seis partes**, cada informação uma vez: I. A matéria (o que faz, o que muda na legislação, origem e tramitação, o que o texto em votação mudou em relação ao original, contexto) · II. O debate (**mapa de argumentos** por controvérsia — a favor e contra, quem sustenta, que evidência apresenta, como está no texto —, argumentos que ninguém levantou e "quem é quem", com interesse representado, data e versão do texto) · III. Experiência internacional (por país: a regra, o que aconteceu, as críticas; **quadro comparativo** com o texto brasileiro, com conversão para reais; o que a comparação não permite concluir) · IV. Análise técnica (pontos por campo, com o outro lado e o que resolveria; decisões judiciais com o limite da analogia; impacto) · V. Caminhos (opções **na fase atual**, **emendas redigidas**, perguntas a fazer, o que acompanhar) · VI. Fontes e limites (o que foi lido e o que não foi, conferência, fontes). A **abertura** resume: o que se decide, o que muda, quem é alcançado, quadro político, pontos de atenção e o que falta saber
+- **Seção sem conteúdo não é impressa**; campo de especialista sem ponto a registrar vira uma linha
+- **"O que vale hoje"** é o artigo lido pelo **cabeçalho** (`Art. N`), nunca pela primeira menção; artigo criado pelo texto aparece como **"não existe hoje"**
+- **14 roteiros de especialista** (processo legislativo, constitucional, tributário, orçamentário, administrativo, previdência, regulação, consumidor, penal, ambiental, saúde, educação, trabalho, digital), acionados pela ementa e pelos temas oficiais, orientam a leitura — o conteúdo é o da casa (`especialistas.js`)
+- **Conferência do programa** (`pe5-conferencia.js`), feita para apontar o que se viu falhar: citações localizadas; cada bloco apoiado na base; **valores, percentuais, prazos e datas** existentes na base (ou soma, produto, intervalo de datas ou conversão pelo câmbio); artigos citados existentes; **repetição** entre seções; abertura completa; posição sem data ou sem fonte; pesquisa coletada e não usada; peso das fontes oficiais; decisão judicial sem o limite da analogia; **jargão interno e juridiquês**; **recomendação de voto**; "não consta" sem dizer onde se procurou; **opções incompatíveis com a fase** (matéria já votada tratada como pendente); tabela de legislação com artigo errado; atualidade do último andamento. Nada reprova o parecer: cada teste é uma linha do relatório, e os **críticos vão para a primeira página**
+- **O parecer nunca recomenda voto**: apresenta o texto, os argumentos, as consequências de cada caminho e o que falta saber. A decisão é da Liderança
+- **Dois documentos**: o **parecer** e o **relatório de conferência** (testes, citações retiradas, correções da revisão, roteiros acionados, **tempo e tokens reais de cada etapa**), aberto por botão próprio no card
+- **PDF sem hifenização** (com ela o Paged.js perdia a linha inteira na quebra de página) e com data de geração e modelo no cabeçalho
+- **Modelo**: exige ao menos a **faixa intermediária** do provedor; na escolha automática, modelos de faixa conhecida vêm antes dos de nome de código. O diálogo de geração avisa tempo e custo; os números reais ficam gravados em cada parecer
+- **Caso de referência sem API**: `testes/fixtures/pe5-pl4675/` traz os documentos reais do PL 4675/2025 e as respostas de cada etapa, redigidas à mão; `node testes/pe5-referencia.js` roda o pipeline inteiro com elas no lugar do modelo
+- Pareceres salvos no Firebase em `/pareceres/{chave}`. Os gerados antes de 17/11/2026 continuam abrindo pelo código anterior (`pipeline-parecer.js`, `parecer-html.js`)
 
 **Biblioteca de prompts personalizados (Reanalisar com IA)**
 - Botão **Reanalisar com IA** em cada card abre o diálogo de prompts: escolha um prompt salvo na biblioteca ou escreva instruções avulsas
@@ -801,7 +804,8 @@ sispode/
 ├── ficha.js / serie.js            # Ficha de parâmetros do exercício e série histórica das cotas
 ├── mensagem.js / normas.js        # Tabelas e parâmetros da Mensagem; conferência de normas e valores
 ├── guia-emendas.js                # Cartilhas × áreas temáticas × relator setorial
-├── parecer.js / pipeline-parecer.js   # Parecer de Especialista: modelo e orquestração das etapas
+├── pe5-coleta.js / pe5-prompts.js / pe5-pipeline.js / pe5-conferencia.js / pe5-html.js   # Parecer de Especialista (refeito em 17/11/2026): dados do programa, prompts, etapas, conferência e PDF
+├── parecer.js / pipeline-parecer.js   # escolha do modelo do parecer; pipeline anterior (abre os pareceres já salvos)
 ├── especialistas.js               # As 14 lentes temáticas e seus roteiros
 ├── dossie.js / ficha-objeto.js    # Lei vigente, séries e estimativas; ficha do objeto
 ├── tese.js / gates.js             # Tese com evidências, contraditório, portões e rubrica M1–M14
@@ -822,7 +826,9 @@ sispode/
 │   ├── materia.test.js             # /colegio: camada factual e resumo por IA
 │   ├── ata.test.js                 # /ata: formato da mensagem, ciclo de vida, conferência
 │   ├── backup.test.js              # backup/restauração: ida e volta com Firebase falso
-│   ├── parecer-v3.test.js          # Parecer de Especialista: pipeline, tese, portões, rubrica
+│   ├── pe5.test.js                 # Parecer de Especialista novo: coleta (fase, bancada, artigo pelo cabeçalho), pipeline inteiro sem API, travas, conferência com defeitos injetados, documento, tela
+│   ├── pe5-referencia.js           # caso de referência (PL 4675/2025) com as respostas gravadas no lugar do modelo
+│   ├── parecer-v3.test.js          # Parecer de Especialista anterior: pipeline, tese, portões, rubrica
 │   ├── parecer-tela.test.js        # Parecer no escopo real da página (vm + linkedom)
 │   ├── parecer-modelo.test.js      # Escolha de modelo por faixa e recusa da faixa econômica
 │   ├── pautas-comissoes*.test.js   # Regras e tela das pautas de comissões (fixtures da Câmara)
@@ -914,7 +920,7 @@ Cada teste imprime linha a linha o que verificou e termina em "Tudo certo" / "Tu
 | [Diário Oficial da União](https://www.in.gov.br) | **Orçamento · Comparador de Portarias**: texto dos atos pelo link do DOU |
 | [Portal da Legislação da Câmara (LEGIN)](https://www2.camara.leg.br/legin) | Texto **atualizado** da lei alterada — primeira fonte da cascata da lei vigente |
 | [Planalto](https://www.planalto.gov.br) e [LexML/Senado](https://www.lexml.gov.br) | Texto compilado e texto publicado das normas — as duas fontes seguintes da cascata |
-| [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Séries de câmbio, IPCA e arrecadação para o dossiê do Parecer de Especialista |
+| [API do Banco Central (SGS)](https://api.bcb.gov.br) e [Receita Federal](https://www.gov.br/receitafederal) | Câmbio para a comparação internacional do Parecer de Especialista; séries de IPCA e arrecadação do pipeline anterior |
 | [Firebase Realtime Database](https://firebase.google.com) | Sincronização de sessões entre dispositivos |
 | [Google Gemini](https://aistudio.google.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |
 | [OpenAI](https://platform.openai.com) | Provedor de IA (chave do usuário) — todos os módulos com análise |

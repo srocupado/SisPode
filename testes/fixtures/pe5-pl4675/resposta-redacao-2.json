@@ -1,0 +1,142 @@
+{
+  "analise": {
+    "lentes": [
+      { "lente": "Orçamentário-financeiro", "pontos": [
+        { "questao": "Falta a estimativa de impacto da nova superintendência", "dispositivo": "art. 18-A", "gravidade": "alta", "ev": ["T1", "X1", "M3"],
+          "exame": "O texto cria um órgão permanente e um cargo de dedicação exclusiva, o que é despesa obrigatória de caráter continuado. A Constituição exige que a proposição venha com a estimativa do impacto orçamentário e financeiro, e a criação de cargo depende de dotação e de autorização na lei de diretrizes orçamentárias. Nos dois documentos lidos, o substitutivo e a exposição de motivos, não há valor, estimativa nem indicação de fonte.",
+          "objecao": "O governo pode ter enviado a estimativa em documento separado, não lido aqui; e o custo de um cargo e de uma unidade dentro de autarquia existente tende a ser pequeno.",
+          "saida": "Pedir a estimativa ao Ministério da Gestão ou à Consultoria de Orçamento da Câmara antes da votação. Uma emenda que condicione a instalação à dotação orçamentária atende à regra de criação de cargo, mas não substitui a estimativa." } ] },
+      { "lente": "Constitucional", "pontos": [
+        { "questao": "Abertura obrigatória do processo a pedido do Executivo", "dispositivo": "arts. 87-A, §§ 6º e 7º, e 87-B, §§ 6º e 7º", "gravidade": "media", "ev": ["T2", "J6"],
+          "exame": "Quando a representação vem da Secretaria de Acompanhamento Econômico ou de órgão federal com competência sobre mercados digitais, a superintendência é obrigada a abrir o processo. Para qualquer outro interessado, ela pode arquivar. O mecanismo já estava no projeto original, que o descrevia como instauração \"imediata e vinculante\". Ele retira da autarquia o juízo sobre quem investigar justamente nos casos em que o pedido vem do governo.",
+          "objecao": "Abrir o processo não é designar: a decisão continua com o Tribunal do Cade, depois de defesa e audiência pública. E a lei atual já tem regra parecida: o art. 66, § 6º, manda instaurar desde logo o inquérito quando a representação vem de comissão do Congresso, da Secretaria de Acompanhamento Econômico ou de agência reguladora.",
+          "saida": "Emenda que mantenha a prioridade dessas representações, mas preserve o juízo de admissibilidade da superintendência, com decisão fundamentada em prazo curto." },
+        { "questao": "Restrição a liminares contra a designação", "dispositivo": "art. 87-H, § 2º", "gravidade": "media", "ev": ["T3", "M2", "R2"],
+          "exame": "A remissão à Lei nº 8.437/1992 limita as liminares contra a decisão de designação e permite ao poder público pedir a suspensão das que forem concedidas. A designação, porém, não é punição nem cria obrigação por si; o efeito prático imediato é o dever de manter escritório e endereços atualizados.",
+          "objecao": "A Lei nº 8.437/1992 já se aplica a atos do poder público em geral, e os tribunais tendem a respeitar as avaliações técnicas do Cade. A remissão seria redundante, e não uma restrição nova.",
+          "saida": "Perguntar ao relator o que a remissão acrescenta. Se for redundante, pode sair sem perda; se não for, convém que o alcance fique claro." },
+        { "questao": "Iniciativa e competência", "dispositivo": "arts. 5º e 18-A", "gravidade": "baixa", "ev": ["T9"],
+          "exame": "Não há vício aparente. O projeto é do Poder Executivo, a quem cabe propor a criação de cargo e a estrutura de autarquia federal, e a matéria é de competência da União. O substitutivo não criou cargo além do que o projeto original já previa e declarou não remunerada a participação no conselho consultivo.",
+          "objecao": "",
+          "saida": "" } ] },
+      { "lente": "Regulação e concorrência", "pontos": [
+        { "questao": "Pisos alternativos e sem critério de usuários", "dispositivo": "art. 47-C, § 1º", "gravidade": "media", "ev": ["T5", "X4", "W1", "W3"],
+          "exame": "Basta um dos dois pisos. Um grupo que fature R$ 50 bilhões no mundo passa pelo primeiro filtro mesmo com operação pequena no Brasil; e o piso nacional de R$ 5 bilhões alcança também grupos brasileiros. O texto não usa número de usuários, critério que a lei europeia e a japonesa adotam. Nenhum documento lido estima quantos grupos passam dos pisos.",
+          "objecao": "O piso é só o primeiro filtro: a designação exige ainda as seis características qualitativas, e o relator afirma que empresas apenas usuárias das plataformas ficam de fora.",
+          "saida": "Pedir ao Ministério da Fazenda a lista ou o número de grupos que hoje passariam dos pisos. Avaliar emenda que acrescente um critério de usuários no País." },
+        { "questao": "Conceitos sem definição legal", "dispositivo": "art. 47-C, § 2º", "gravidade": "media", "ev": ["T6", "C2", "Q7"],
+          "exame": "\"Mercados digitais\", \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" não são definidos. Além disso, o parágrafo pede \"análise conjunta\" das seis características, mas a lista termina com \"ou\": não fica claro se todas precisam estar presentes.",
+          "objecao": "A lei de concorrência sempre trabalhou com conceitos abertos, como \"posição dominante\" e \"mercado relevante\", que o Cade e os tribunais concretizaram ao longo do tempo.",
+          "saida": "Emenda de redação que diga se as características são cumulativas. A definição dos conceitos pode ficar para a regulamentação, que o texto já submete a consulta pública." },
+        { "questao": "A lista de obrigações é fechada?", "dispositivo": "art. 47-E, caput", "gravidade": "media", "ev": ["C1", "J6", "B8"],
+          "exame": "O caput diz que o Cade pode determinar obrigações especiais, \"incluídas\" as listadas. A palavra vem do projeto original, cuja exposição de motivos falava em rol exemplificativo. O substitutivo proíbe o Cade de criar obrigação não prevista em lei, mas não alterou o caput. As duas regras convivem mal.",
+          "objecao": "Lidos em conjunto, os arts. 18-A e 48, § 1º, fecham a lista: nenhuma obrigação pode ser imposta sem fundamento no art. 47-E.",
+          "saida": "Emenda de redação no caput do art. 47-E, trocando \"incluídas\" por expressão que deixe a lista fechada." } ] },
+      { "lente": "Processo legislativo e técnica legislativa", "pontos": [
+        { "questao": "Multa diária sem prazo legal para instalar o escritório", "dispositivo": "arts. 44-A e 47-D", "gravidade": "baixa", "ev": ["T4", "B4"],
+          "exame": "A multa incide sobre quem não mantiver escritório \"no prazo estabelecido pelo Cade\". A lei não fixa prazo mínimo. Multiplicada por cinquenta, a multa chega a R$ 1 milhão por dia.",
+          "objecao": "O prazo fixado caso a caso permite ao Cade considerar a situação de cada grupo.",
+          "saida": "Emenda que fixe prazo mínimo em lei, contado da decisão de designação." },
+        { "questao": "Remessa automática ao Tribunal com atos pendentes", "dispositivo": "art. 87-F, parágrafo único", "gravidade": "baixa", "ev": ["T7"],
+          "exame": "O processo sobe ao Tribunal em 210 ou 240 dias, mesmo que a audiência pública ou alguma diligência ainda esteja em curso. Isso pode gerar alegação de cerceamento de defesa.",
+          "objecao": "O prazo fatal é o que impede o processo de se arrastar, problema que a lei quer resolver.",
+          "saida": "Emenda que admita uma única prorrogação, curta e fundamentada." },
+        { "questao": "Mandato do superintendente mais curto que a designação", "dispositivo": "arts. 18-A, § 2º, e 87-A, § 1º", "gravidade": "baixa", "ev": ["T8"],
+          "exame": "O mandato é de dois anos com uma recondução, quatro no máximo, contra designações de até seis. Cada designação passará por ao menos dois titulares. Na vacância, assume um servidor indicado pelo Tribunal.",
+          "objecao": "O mandato curto aumenta o controle do Senado sobre o cargo.",
+          "saida": "" } ] }
+    ],
+    "sem_achado": ["Tributário", "Administrativo e servidor público, além do que consta em Orçamentário-financeiro"],
+    "jurisprudencia": [
+      { "processo": "STF, ADI 4.874, Plenário, rel. Min. Rosa Weber, 01/02/2018", "ev": ["R1"],
+        "decidiu": "Ao manter a lei da Anvisa, o tribunal afirmou que o poder normativo de autarquia serve para especificar o que a lei já fixou.",
+        "pertinencia": "É o parâmetro para as travas que o substitutivo impôs ao poder de regulamentar do Cade.",
+        "limite": "Tratava de norma geral de agência de saúde, não de obrigação imposta a uma empresa em processo individual." },
+      { "processo": "STF, RE 1.083.955 AgR, Primeira Turma, rel. Min. Luiz Fux, 28/05/2019", "ev": ["R2"],
+        "decidiu": "O Judiciário controla a legalidade das decisões do Cade e deve respeito às suas avaliações técnicas.",
+        "pertinencia": "Indica como tende a ser tratada a contestação judicial de uma designação.",
+        "limite": "O caso era de punição por conduta já ocorrida, não de obrigação prévia." },
+      { "processo": "STF, Pet 12.404, Primeira Turma, rel. Min. Alexandre de Moraes, 02/09/2024", "ev": ["R3"],
+        "decidiu": "Manteve a suspensão de rede social que ficou sem representante legal no Brasil e descumpriu ordens judiciais.",
+        "pertinencia": "Mostra que a exigência de representação no País já foi aplicada a plataforma digital.",
+        "limite": "A base foram o Código Civil e o Marco Civil da Internet. O tribunal não examinou a obrigação de manter escritório como regra de concorrência." }
+    ],
+    "impacto": {
+      "fiscal": [
+        { "ev": ["X1", "T1"], "texto": "Não há estimativa nos documentos lidos. O custo certo é o do cargo de superintendente e da estrutura da nova unidade; o conselho consultivo não é remunerado. O valor deve ser pedido ao Ministério da Gestão." } ],
+      "economico": [
+        { "ev": ["F1", "X3"], "texto": "O único número disponível é o da ALAI, parte interessada: custo para as empresas entre R$ 2,7 bilhões e R$ 11,34 bilhões em dez anos. Não há estimativa oficial nem independente, nem do custo nem do ganho para vendedores, desenvolvedores e consumidores." },
+        { "ev": ["B3", "B7"], "texto": "Os custos diretos do designado são: escritório no País, ferramentas gratuitas de portabilidade e interoperabilidade, eventual redesenho de produtos, relatórios de conformidade e auditoria independente paga por ele." } ],
+      "implementacao": [
+        { "ev": ["B1", "T8"], "texto": "A lei entra em vigor sessenta dias depois de publicada, mas o superintendente depende de indicação e de sabatina no Senado. Até lá, o cargo é exercido por servidor indicado pelo Tribunal do Cade." },
+        { "ev": ["B8", "B2"], "texto": "Dependem de ato do Cade: as atribuições específicas da superintendência, a correção anual dos pisos, as regras de procedimento, que exigem consulta e audiência públicas, e o conselho consultivo." },
+        { "ev": ["B5", "B6"], "texto": "Somados os prazos máximos, uma designação leva até 270 dias e o processo de obrigações, até 360 dias, com mais noventa para elas começarem a valer. Se os dois processos correrem em sequência e usarem todo o prazo, as primeiras obrigações só valeriam cerca de dois anos depois de aberta a designação. Os dois podem correr juntos se houver urgência demonstrada." } ]
+    }
+  },
+  "caminhos": {
+    "opcoes": [
+      { "opcao": "Aprovar o substitutivo como está", "ev": ["V1", "V3", "V4", "X1"],
+        "consequencias": "Cria o regime com os ajustes que o relator já fez em relação ao projeto original. Ficam sem solução a falta de estimativa orçamentária e as três ambiguidades de redação. O texto segue ao Senado, onde pode ser alterado e voltar à Câmara." },
+      { "opcao": "Aprovar com emendas ou destaques", "ev": ["C1", "C2", "T4", "T2"],
+        "consequencias": "Permite corrigir os pontos de redação e os de mérito listados adiante sem rejeitar o regime. Em urgência, emenda de Plenário precisa do apoio de um quinto dos deputados ou de líderes que os representem; destaque de bancada permite votar um dispositivo em separado." },
+      { "opcao": "Adiar a votação", "ev": ["G", "K2", "X1"],
+        "consequencias": "Dá tempo para a audiência pública aprovada na Comissão de Desenvolvimento Econômico e para o governo apresentar a estimativa de impacto. O governo quer votar em novembro; os opositores pedem comissão especial desde 2025." },
+      { "opcao": "Rejeitar o substitutivo e votar o projeto original", "ev": ["V1", "V2", "V3", "V4", "V5"],
+        "consequencias": "Devolve a lista aberta de critérios, a designação por até dez anos, o poder dos ministros de mudar os pisos, a análise prévia de aquisições e o poder de regulamentar sem limite." },
+      { "opcao": "Rejeitar o projeto", "ev": ["M1", "F2"],
+        "consequencias": "Mantém o Cade com os instrumentos atuais: controle de fusões acima dos pisos gerais e punição de condutas depois de apuradas." }
+    ],
+    "emendas": [
+      { "dispositivo": "art. 47-E, caput", "problema": "A palavra \"incluídas\" permite ler a lista de obrigações como aberta.", "ev": ["C1"],
+        "redacao": "Art. 47-E. Observado o art. 47-B, o Cade poderá determinar ao agente econômico designado como de relevância sistêmica em mercados digitais, com vistas a promover e a proteger a concorrência, de forma cumulativa ou não, exclusivamente as seguintes obrigações especiais:" },
+      { "dispositivo": "art. 47-C, § 2º", "problema": "Não fica claro se as seis características são cumulativas.", "ev": ["C2"],
+        "redacao": "§ 2º Atendido o critério de faturamento previsto no § 1º, a designação dependerá de decisão fundamentada que demonstre a presença de ao menos [número] das seguintes características, examinadas em conjunto:" },
+      { "dispositivo": "art. 47-D", "problema": "A multa diária do art. 44-A depende de prazo que a lei não fixa.", "ev": ["T4"],
+        "redacao": "Parágrafo único. O prazo para o cumprimento do disposto no caput será fixado na decisão de designação e não será inferior a sessenta dias, contados de sua publicação." },
+      { "dispositivo": "arts. 87-A, § 7º, e 87-B, § 7º", "problema": "A representação de órgão do Executivo obriga a abertura do processo, sem juízo de admissibilidade.", "ev": ["T2"],
+        "redacao": "§ 7º A representação da Secretaria de Acompanhamento Econômico, ou de órgão ou entidade da administração pública federal que detenha competência sobre mercados digitais ou para a defesa de direitos difusos e coletivos, terá tramitação prioritária, e a Superintendência Especial decidirá sobre a instauração do processo administrativo, em despacho fundamentado, no prazo de trinta dias." },
+      { "dispositivo": "art. 87-F", "problema": "A remessa automática não ressalva audiência pública ou diligência em curso.", "ev": ["T7"],
+        "redacao": "§ 2º Os prazos do § 1º poderão ser prorrogados uma única vez, por até trinta dias, por decisão fundamentada do Presidente do Tribunal, a pedido da Superintendência Especial, quando indispensável à conclusão da audiência pública ou ao exercício do contraditório." },
+      { "dispositivo": "art. 18-A", "problema": "A criação do órgão e do cargo não traz condição orçamentária.", "ev": ["T1", "M3"],
+        "redacao": "§ 7º A instalação da Superintendência Especial e o provimento do cargo de que trata o § 1º ficam condicionados à existência de dotação orçamentária e à autorização na lei de diretrizes orçamentárias." }
+    ],
+    "perguntas": [
+      { "a_quem": "Ministério da Fazenda", "pergunta": "Quantos grupos econômicos passam hoje dos dois pisos de faturamento, e quantos deles são brasileiros?", "por_que": "É o dado que dimensiona o alcance da lei e não está em nenhum documento." },
+      { "a_quem": "Ministério da Gestão", "pergunta": "Qual é a estimativa de impacto orçamentário da nova superintendência e de onde virá o custeio?", "por_que": "A Constituição exige a estimativa e ela não foi localizada." },
+      { "a_quem": "Relator", "pergunta": "As seis características do art. 47-C, § 2º, são cumulativas? A lista do art. 47-E é fechada?", "por_que": "A resposta define o alcance do regime e pode ser resolvida por emenda de redação." },
+      { "a_quem": "Relator", "pergunta": "O que a remissão à Lei nº 8.437/1992 acrescenta ao que já vale para atos do poder público?", "por_que": "Se nada acrescenta, a remissão pode sair e eliminar uma frente de crítica." },
+      { "a_quem": "Cade", "pergunta": "Qual é o quadro de pessoal previsto para a superintendência e em quanto tempo ela consegue instruir a primeira designação?", "por_que": "A experiência estrangeira mostra que a aplicação depende de equipe especializada." }
+    ],
+    "acompanhar": [
+      "A data da audiência pública aprovada na Comissão de Desenvolvimento Econômico e se ela ocorrerá antes da votação.",
+      "A apresentação de novo parecer do relator: ele admitiu publicamente que o texto pode mudar.",
+      "A posição dos partidos que se dividiram na urgência, sobretudo União, PSD e MDB.",
+      "Os desdobramentos da investigação comercial dos Estados Unidos e a reação do governo norte-americano à votação."
+    ]
+  },
+  "abertura": {
+    "frase": "O projeto dá ao Cade o poder de escolher os grupos digitais de maior porte e impor a cada um obrigações de conduta antes de qualquer infração, por até seis anos.",
+    "decide": "O Plenário decide se cria esse regime preventivo, na forma do substitutivo do relator, ou se mantém o Cade apenas com os instrumentos de hoje: controle de fusões e punição de condutas já ocorridas. O substitutivo restringiu o projeto original em cinco pontos e, se aprovado, segue ao Senado.",
+    "muda": [
+      "O Cade ganha uma quarta unidade, com superintendente aprovado pelo Senado e mandato de dois anos.",
+      "Grupos com faturamento acima de R$ 50 bilhões no mundo ou R$ 5 bilhões no Brasil podem ser designados, se reunirem seis características de poder de mercado.",
+      "O designado pode ser obrigado a abrir sistemas, permitir aplicativos de terceiros, dar portabilidade de dados e não favorecer os próprios produtos.",
+      "Todo designado deve manter escritório no Brasil, sob multa diária de R$ 20 mil, multiplicável por até cinquenta.",
+      "O Cade fica proibido de criar obrigações ou sanções por resolução."
+    ],
+    "alcance": "Não há estimativa oficial de quantos grupos passam dos pisos. Nas leis estrangeiras semelhantes, os designados são de dois a sete; o piso nacional brasileiro, porém, alcança também grupos brasileiros e não usa número de usuários.",
+    "pontos": [
+      { "titulo": "Sem estimativa de impacto orçamentário", "gravidade": "alta", "texto": "O texto cria órgão e cargo, e a estimativa que a Constituição exige não está nos documentos lidos." },
+      { "titulo": "O governo pode obrigar a abertura do processo", "gravidade": "media", "texto": "Representação de órgão do Executivo leva à instauração imediata, sem filtro da superintendência." },
+      { "titulo": "Três ambiguidades de redação", "gravidade": "media", "texto": "Se a lista de obrigações é fechada, se as seis características são cumulativas e qual o prazo para instalar o escritório." },
+      { "titulo": "Pisos sem critério de usuários", "gravidade": "media", "texto": "Basta o faturamento mundial, e o valor é próximo do que a Europa exige só para o faturamento europeu." },
+      { "titulo": "Pressão comercial dos Estados Unidos", "gravidade": "media", "texto": "Vinte deputados norte-americanos pediram que o projeto entre nas negociações comerciais com o Brasil." }
+    ],
+    "falta": [
+      "Quantos grupos seriam alcançados, e quantos são brasileiros.",
+      "O custo da nova superintendência e a fonte de custeio.",
+      "Uma estimativa independente do custo para as empresas e do ganho para quem depende das plataformas.",
+      "O relatório e o voto do relator, que não estão no arquivo do parecer."
+    ]
+  }
+}
