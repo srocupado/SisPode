@@ -1,0 +1,101 @@
+{
+ "historico": [
+  {
+   "id": "H1",
+   "proposicao": "PL 2630/2020",
+   "casa": "Senado",
+   "ano": "2020",
+   "autor": "Senador Alessandro Vieira",
+   "o_que_propunha": "Lei Brasileira de Liberdade, Responsabilidade e Transparência na Internet: regras de transparência e de responsabilidade para redes sociais e serviços de mensagem. Trata de conteúdo das redes, não de concorrência.",
+   "desfecho": "aprovada em uma Casa",
+   "por_que": "Aprovado no Senado, o projeto teve a urgência aprovada na Câmara em 25/04/2023, mas o mérito não foi votado. Em 09/04/2024 o então presidente da Câmara, Arthur Lira, anunciou que o texto não iria a voto, por falta de consenso, e que um grupo de trabalho faria nova proposta.",
+   "data": "09/04/2024",
+   "fonte_nome": "O Povo (Agência Brasil)",
+   "fonte_url": "https://www.opovo.com.br/noticias/politica/2024/04/09/lira-anuncia-grupo-para-propor-nova-versao-do-pl-das-fake-news.html",
+   "fonte_tipo": "imprensa"
+  },
+  {
+   "id": "H2",
+   "proposicao": "PL 2768/2022",
+   "casa": "Câmara",
+   "ano": "2022",
+   "autor": "Deputado João Maia",
+   "o_que_propunha": "Organização, funcionamento e operação das plataformas digitais que oferecem serviços ao público brasileiro.",
+   "desfecho": "em tramitação",
+   "por_que": "Apresentado em 10/11/2022. A Comissão de Desenvolvimento Econômico aprovou o parecer em 01/07/2026. Em 12/11/2026 a situação registrada era pronta para pauta na Comissão de Comunicação, com parecer da relatora, deputada Any Ortiz (PP-RS), pela aprovação na forma do substitutivo da comissão anterior.",
+   "data": "12/11/2026",
+   "fonte_nome": "Câmara dos Deputados, ficha de tramitação",
+   "fonte_url": "https://www.camara.leg.br/proposicoesWeb/fichadetramitacao?idProposicao=2337417",
+   "fonte_tipo": "primária"
+  },
+  {
+   "id": "H3",
+   "proposicao": "PL 2768/2022",
+   "casa": "Câmara",
+   "ano": "2022",
+   "autor": "Deputado João Maia",
+   "o_que_propunha": "O texto original entregava à Anatel a regulação e a fiscalização das plataformas com \"poder de controle de acesso essencial\", como redes sociais, buscadores, marketplaces, sistemas operacionais e computação em nuvem, e criava um fundo de fiscalização custeado por taxa anual.",
+   "desfecho": "em tramitação",
+   "por_que": "Em 13/05/2026 a relatora, deputada Any Ortiz (PP-RS), apresentou substitutivo que troca a Anatel pelo Cade, retira o fundo e a taxa e cria no Cade um rito próprio, aberto por representação, com prazo máximo de 245 dias. A relatora afirmou: \"O regulador não criará restrições e regulações ex-ante sem que haja um problema real no setor\".",
+   "data": "13/05/2026",
+   "fonte_nome": "Teletime",
+   "fonte_url": "https://teletime.com.br/13/05/2026/pl-plataformas-troca-anatel-por-cade/",
+   "fonte_tipo": "imprensa"
+  }
+ ],
+ "outra_casa": [
+  {
+   "id": "N1",
+   "assunto": "posição de parlamentar",
+   "o_que": "O relator na Câmara disse acreditar na aprovação do projeto nas duas Casas ainda em 2026 e admitiu que o texto pode ser alterado para garantir a aprovação.",
+   "quem": "Deputado Aliel Machado (PV-PR), relator",
+   "data": "11/08/2026",
+   "fonte_nome": "Mobile Time",
+   "fonte_url": "https://www.mobiletime.com.br/noticias/11/08/2026/pl-4675-aliel/",
+   "fonte_tipo": "imprensa"
+  },
+  {
+   "id": "N2",
+   "assunto": "órgão consultivo do Congresso",
+   "o_que": "O Conselho de Comunicação Social do Congresso Nacional aprovou parecer sobre o projeto, a ser encaminhado ao presidente do Senado para orientar os parlamentares. O conselho é consultivo.",
+   "quem": "Conselho de Comunicação Social",
+   "data": "05/10/2026",
+   "fonte_nome": "Monitor do Mercado",
+   "fonte_url": "https://monitordomercado.com.br/noticias/cade-noticias/429671-ccs-aprova-parecer-sobre-pl-4675-25-que-cria-superintendencia-no-cade/",
+   "fonte_tipo": "imprensa"
+  }
+ ],
+ "judicializacao": [
+  {
+   "id": "L1",
+   "sinal": "parecer que aponta vício",
+   "quem": "Instituto dos Advogados Brasileiros, Comissão de Assuntos Regulatórios (relatores Rodrigo Ematné Gadben e Soraya Nouira y Maurity)",
+   "alvo": "Critérios de designação (art. 47-C), obrigações especiais (art. 47-E), multa por falta de escritório (art. 44-A) e a regra que restringe a tutela judicial de urgência contra decisões do Cade",
+   "fundamento": "O parecer considera o projeto, em tese, formal e materialmente constitucional, mas aponta \"potencial inconstitucionalidade\" em interpretação ampliativa desses dispositivos: critérios abertos de designação, delegação ampla a regulamento, obrigações sem teste obrigatório de proporcionalidade e restrição à tutela de urgência. Cita, entre outros, os arts. 5º, II, XXXV, LIV e LV, 37, 170 e 173, § 4º, da Constituição.",
+   "situacao": "Parecer opinativo, sobre o texto original do projeto, que previa designação de até dez anos. Parte dos pontos foi alterada pelo substitutivo.",
+   "data": "14/05/2026",
+   "fonte_nome": "Instituto dos Advogados Brasileiros",
+   "fonte_url": "https://iabnacional.org.br/wp-content/uploads/2026/05/Parecer-na-Indicacao-no-90_2025-Comissao-de-Assuntos-Regulatorios.pdf",
+   "fonte_tipo": "primária"
+  },
+  {
+   "id": "L2",
+   "sinal": "legitimado que se manifestou contra, sem anunciar ação",
+   "quem": "Partido Novo; deputado Mario Frias (PL-SP)",
+   "alvo": "O regime como um todo",
+   "fundamento": "O partido publicou texto intitulado \"PL do Apocalipse Digital\", que associa o projeto a censura e à ampliação dos poderes do Estado; o deputado Mario Frias chamou o projeto de \"PL da Censura 2.0\". A reportagem diz que a campanha repete argumentos usados na tramitação do PL das Fake News.",
+   "situacao": "Crítica pública. A reportagem não registra anúncio de ação judicial.",
+   "data": "12/11/2026",
+   "fonte_nome": "Agência Pública",
+   "fonte_url": "https://apublica.org/?p=270603",
+   "fonte_tipo": "imprensa"
+  }
+ ],
+ "avisos": [
+  "Não foram localizados projeto arquivado, veto ou medida provisória sobre concorrência em mercados digitais: com esse recorte, o tema chegou ao Congresso em 2022.",
+  "A data e o placar da aprovação do PL 2630/2020 no Senado não foram confirmados em fonte oficial nesta pesquisa.",
+  "Não foi localizada proposição correlata em tramitação no Senado, nem comissão ou relator definidos: o projeto ainda não chegou àquela Casa.",
+  "O parecer do Conselho de Comunicação Social não foi lido: a página da notícia não abriu, e a data vem do resumo da busca e da agenda do Senado.",
+  "Não foi localizada ação no Supremo Tribunal Federal contra lei federal de teor parecido, nem anúncio de partido, confederação ou entidade de que irá questionar o texto."
+ ]
+}

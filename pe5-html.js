@@ -24,6 +24,9 @@ const CSS_PE5 = `
   .pe-caixa p, .pe-caixa li { text-align:justify; }
   .pe-carimbo { text-align:center; font-size:8.5pt; color:#6b7280; margin:-6px 0 12px; }
   .pe-cola { break-inside:avoid; page-break-inside:avoid; }
+  .pe-risco { border-left:3px solid #c8d0d8; padding:2px 0 2px 10px; margin:8px 0 12px; break-inside:avoid; page-break-inside:avoid; }
+  .pe-risco h3 { margin:0 0 3px; font-size:11.5pt; color:#0a2f4f; }
+  .pe-risco p { margin:2px 0; }
   .pe-frase { font-size:13.5pt; line-height:1.45; font-weight:600; color:#003c1f; margin:10px 0 12px; text-align:left; }
   .pe-caixa { border:1.5px solid #0a4a7a; background:#f4f8fc; border-radius:4px; padding:10px 14px; margin:10px 0; }
   .pe-caixa.junta { break-inside:avoid; page-break-inside:avoid; }
@@ -79,11 +82,7 @@ function pe5QuadroPolitico(G, esc) {
   for (const v of nominais) {
     const b = v.bancada || {}, nomes = k => (b[k] || []).join(', ');
     const votoPode = b.total ? `<b>Podemos:</b> ${b.sim.length} sim, ${b.nao.length} não${b.abstencao.length + b.obstrucao.length + b.outros.length ? `, ${b.abstencao.length + b.obstrucao.length + b.outros.length} outros` : ''}.${b.nao.length && b.sim.length ? ` Votaram ${b.nao.length <= b.sim.length ? `não: ${esc(nomes('nao'))}` : `sim: ${esc(nomes('sim'))}`}.` : ''}` : '<b>Podemos:</b> sem voto registrado.';
-    const ori = (v.orientacoes || []).filter(o => o.orientacao).slice(0, 14).map(o => `${esc(o.quem)}: ${esc(o.orientacao)}`).join(' · ');
     L.push(`<p><b>Votação nominal de ${esc(v.data)}.</b> ${esc(v.descricao.replace(/\s*Sim:.*$/, ''))} Placar: <b>${v.sim} a ${v.nao}</b>. ${votoPode}</p>`);
-    const top = (v.partidos || []).slice(0, 10);
-    if (top.length) L.push(`<table class="pe"><thead><tr><th>Partido</th>${top.map(p => `<th>${esc(p.partido)}</th>`).join('')}</tr></thead><tbody><tr><td>Sim</td>${top.map(p => `<td>${p.sim}</td>`).join('')}</tr><tr><td>Não</td>${top.map(p => `<td>${p.nao}</td>`).join('')}</tr></tbody></table>`);
-    if (ori) L.push(`<p class="pe-fonte">Orientações: ${ori}.</p>`);
   }
   if (!nominais.length) L.push('<p><b>Votações.</b> Não há votação nominal de Plenário registrada para esta matéria.</p>');
   return L.join('');
@@ -130,6 +129,9 @@ function pe5Fontes(p, esc) {
   for (const j of pq.contexto?.correlatas || []) add(j.proposicao, j);
   for (const j of pq.contexto?.documentos_base || []) add(j.documento, j);
   for (const j of pq.contexto?.alcance || []) add(`Receita: ${j.grupo}`, j);
+  for (const j of pq.congresso?.historico || []) add(`Histórico: ${j.proposicao}`, j);
+  for (const j of pq.congresso?.outra_casa || []) add(`Próxima etapa: ${j.assunto || ''}${j.quem ? ' — ' + j.quem : ''}`, j);
+  for (const j of pq.congresso?.judicializacao || []) add(`Judicialização: ${j.alvo || j.sinal || ''}`, j);
   if (!linhas.length) return '';
   const vistos = new Set();
   const unicas = linhas.filter(l => { const k = l.tema + '|' + l.url; if (vistos.has(k)) return false; vistos.add(k); return true; });
@@ -148,10 +150,43 @@ function pe5LargurasFixas(html) {
 /** Índice das referências da pesquisa por id (Q1, W2, R1, Y1, Z3…), para pôr a fonte junto do texto. */
 function pe5IndicePesquisa(pq = {}) {
   const m = new Map();
-  for (const x of [...(pq.debate?.atores || []), ...(pq.internacional?.jurisdicoes || []), ...(pq.contexto?.jurisprudencia || []), ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || [])]) if (x && x.id) m.set(x.id, x);
+  for (const x of [...(pq.debate?.atores || []), ...(pq.internacional?.jurisdicoes || []), ...(pq.contexto?.jurisprudencia || []), ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.outra_casa || []), ...(pq.congresso?.judicializacao || [])]) if (x && x.id) m.set(x.id, x);
   return m;
 }
 function pe5LinkFonte(x, esc) { return x && x.fonte_url ? `<a class="pe-link" href="${esc(x.fonte_url_final || x.fonte_url)}">${esc(x.fonte_nome || 'fonte')}</a>` : ''; }
+/** Mapa de votos (dado do programa): quórum, a votação nominal mais recente por partido, quem se dividiu. Não projeta voto. */
+function pe5MapaHtml(G, esc) {
+  const M = G && G.mapa; if (!M) return '';
+  const q = M.quorum || {}, L = [];
+  L.push(`<p><b>Quórum para aprovar o mérito.</b> ${esc(q.regra ? q.regra.charAt(0).toUpperCase() + q.regra.slice(1) : '')} (${esc(q.base || '')}).${q.minimo ? ` São necessários ao menos ${q.minimo} votos sim.` : q.presenca ? ` A votação só vale com ${q.presenca} deputados presentes; aprova-se com mais votos sim do que não.` : ''}</p>`);
+  if (!M.votacao) { L.push('<p>Não há votação nominal desta matéria registrada em Plenário.</p>'); return L.join(''); }
+  const v = M.votacao;
+  L.push(`<p><b>Votação nominal mais recente em Plenário, em ${esc(v.data)}.</b> ${esc(String(v.descricao || '').replace(/\s*Sim:.*$/, ''))} Placar: ${v.sim} a ${v.nao}${v.outros ? `, com ${v.outros} abstenção, obstrução ou voto de outra espécie` : ''}; ${M.ausentes} deputados não registraram voto.${v.ehMerito ? '' : ' Não foi a votação do mérito: mostra a força de cada lado naquela data.'}</p>`);
+  if ((M.linhas || []).length) L.push(`<table class="pe"><thead><tr><th style="width:24%">Partido</th><th style="width:9%">Sim</th><th style="width:9%">Não</th><th style="width:10%">Outros</th><th style="width:26%">Orientação</th><th>Como votou</th></tr></thead><tbody>${M.linhas.map(l => `<tr><td><b>${esc(l.partido)}</b></td><td>${l.sim}</td><td>${l.nao}</td><td>${l.outros || 0}</td><td>${esc(l.orientacao)}${l.orientadoPor ? `<br><small>${esc(l.orientadoPor)}</small>` : ''}</td><td>${l.situacao === 'dividido' ? '<b>dividido</b>' : esc(l.situacao)}${l.contraOrientacao ? `<br><small>${l.contraOrientacao} contra a orientação</small>` : ''}</td></tr>`).join('')}</tbody></table>`);
+  const div = (M.divididos || []).filter(d => d.sim + d.nao >= 10);
+  if (div.length) L.push(`<p><b>Partidos divididos</b> (ao menos um quarto dos votos de cada lado, entre os que deram dez votos ou mais): ${div.map(d => `${esc(d.partido)}, ${d.sim} a ${d.nao}`).join('; ')}.</p>`);
+  const P = M.podemos;
+  if (P) L.push(`<p><b>Podemos.</b> ${P.orientacao ? `Orientação: ${esc(P.orientacao)}${P.orientadoPor ? ` (pelo ${esc(P.orientadoPor)})` : ''}.` : 'Sem orientação registrada para o partido naquela votação.'} A bancada deu ${P.sim} votos sim e ${P.nao} não.${(P.divergiram || []).length ? ` Votaram contra a orientação: ${esc(P.divergiram.join(', '))}.` : ''}</p>`);
+  L.push(`<p class="pe-fonte">Votos e orientações são os registrados nos dados abertos da Câmara${G.reservaVotacoes ? ` (lidos dos ${esc(G.reservaVotacoes.origem)}${G.reservaVotacoes.atualizadoEm ? `, atualizados em ${esc(G.reservaVotacoes.atualizadoEm)}` : ''})` : ''}. O quadro mostra como cada partido votou naquela data; não é previsão de voto.</p>`);
+  return L.join('');
+}
+
+/** O Podemos e a matéria: o texto do modelo e, do programa, quem atuou, os projetos da bancada e os votos em proposições correlatas. */
+function pe5PartidoHtml(doc, G, esc) {
+  const P = (G && G.partido) || {}, D = doc || {}, L = [];
+  L.push(pe5Prosa(D.texto, esc));
+  if ((P.acessorias || []).length) L.push(`<p><b>Iniciativas de deputados do Podemos nesta matéria</b></p><table class="pe"><thead><tr><th style="width:18%">Proposição</th><th style="width:26%">Autor</th><th>O que pede</th></tr></thead><tbody>${P.acessorias.map(a => `<tr><td><b>${esc(a.rotulo)}</b></td><td>${esc(a.autores.join(', '))}</td><td>${esc(a.ementa)}</td></tr>`).join('')}</tbody></table>`);
+  const esc2 = s => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const escolhidos = new Set((Array.isArray(D.projetos) ? D.projetos : []).map(esc2));
+  const proj = (P.projetos || []).filter(x => escolhidos.has(esc2(x.rotulo)));
+  if (proj.length) L.push(`<p><b>Projetos de deputados do Podemos sobre o tema</b></p><table class="pe"><thead><tr><th style="width:16%">Projeto</th><th style="width:22%">Autor</th><th>Ementa</th><th style="width:22%">Situação</th></tr></thead><tbody>${proj.map(x => `<tr><td><b>${esc(x.rotulo)}</b>${x.apresentacao ? `<br><small>${esc(x.apresentacao)}</small>` : ''}</td><td>${esc((x.autores || []).join(', ') || '—')}</td><td>${esc(x.ementa)}</td><td>${esc(x.situacao || '—')}</td></tr>`).join('')}</tbody></table>`);
+  const vc = (P.votacoesCorrelatas || []).filter(v => v.encontrada), comVoto = vc.filter(v => (v.nominais || []).length);
+  if (comVoto.length) L.push(`<p><b>Como a bancada votou em proposições correlatas</b></p><table class="pe"><thead><tr><th style="width:16%">Proposição</th><th style="width:12%">Data</th><th>Votação</th><th style="width:22%">Podemos</th></tr></thead><tbody>${comVoto.flatMap(v => v.nominais.map(n => `<tr><td><b>${esc(v.rotulo)}</b></td><td>${esc(n.data)}</td><td>${esc(String(n.descricao || '').replace(/\s*Sim:.*$/, ''))} Placar: ${n.sim} a ${n.nao}.</td><td>${n.podemosSim} sim, ${n.podemosNao} não${n.orientacao ? `<br><small>orientação: ${esc(n.orientacao)}${n.orientadoPor ? ` (${esc(n.orientadoPor)})` : ''}</small>` : ''}</td></tr>`)).join('')}</tbody></table>`);
+  const semVoto = vc.filter(v => !(v.nominais || []).length).map(v => v.rotulo);
+  if (semVoto.length) L.push(`<p class="pe-fonte">Sem votação nominal em Plenário registrada: ${esc(semVoto.join(', '))}.</p>`);
+  return L.join('');
+}
+
 /** Texto corrido, um parágrafo por item (é a forma do parecer original para "Quem se posicionou e como" e "Os dois lados"). */
 function pe5Prosa(itens, esc) { return (itens || []).map(x => typeof x === 'string' ? x : x && x.texto).filter(t => t && String(t).trim()).map(t => `<p>${esc(t)}</p>`).join(''); }
 
@@ -177,6 +212,8 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
   sec('versoes', 'O que o texto em votação mudou em relação ao original', (D.materia?.versoes || []).length
     ? `<table class="pe"><thead><tr><th style="width:17%">Tema</th><th style="width:27%">Projeto original</th><th style="width:27%">Texto em votação</th><th>Efeito</th></tr></thead><tbody>${D.materia.versoes.map(v => `<tr><td><b>${esc(v.tema)}</b></td><td>${esc(v.original)}</td><td>${esc(v.atual)}</td><td>${esc(v.efeito)}</td></tr>`).join('')}</tbody></table>` : '');
   sec('contexto', 'Contexto', paras(D.materia?.contexto));
+  sec('historico', 'Histórico do tema no Congresso', (D.materia?.historico || []).length
+    ? `<table class="pe"><thead><tr><th style="width:17%">Proposição</th><th style="width:27%">O que propunha</th><th style="width:20%">Desfecho</th><th>Por que não avançou ou como terminou</th></tr></thead><tbody>${D.materia.historico.map(h => { const f = fonteDe(h.ev); return `<tr><td><b>${esc(h.proposicao)}</b>${h.ano ? `<br><small>${esc(h.ano)}</small>` : ''}</td><td>${esc(h.o_que_propunha)}</td><td>${esc(h.desfecho)}</td><td>${esc(h.por_que || '')}${f ? `<br><small>${f}</small>` : ''}</td></tr>`; }).join('')}</tbody></table>` : '');
 
   // ---- II. O debate ----
   parte('II', 'O debate');
@@ -205,16 +242,23 @@ function htmlParecerPE5(p, { materia = '', logoDataUrl = null, css = '' } = {}) 
   sec('jurisp', 'Decisões judiciais relacionadas', (D.analise?.jurisprudencia || []).length
     ? `<table class="pe"><thead><tr><th style="width:24%">Decisão</th><th style="width:30%">O que decidiu</th><th style="width:22%">Por que interessa</th><th>Onde a analogia para</th></tr></thead><tbody>${D.analise.jurisprudencia.map(j => `<tr><td><b>${esc(j.processo)}</b>${fonteDe(j.ev) ? `<br><small>${fonteDe(j.ev)}</small>` : ''}</td><td>${esc(j.decidiu)}</td><td>${esc(j.pertinencia)}</td><td>${esc(j.limite)}</td></tr>`).join('')}</tbody></table>` : '');
   const imp = D.analise?.impacto || {};
+  // Em blocos, e não em tabela: cinco colunas de texto ficam estreitas e o cabeçalho sobrava sozinho no pé da página.
+  sec('judic', 'Risco de judicialização', (D.analise?.judicializacao || []).length
+    ? `<p class="pe-fonte">Onde a lei pode ser questionada na Justiça depois de aprovada, por quem e com que argumento. É exame de risco: não afirma que o texto seja inconstitucional.</p>${D.analise.judicializacao.map(j => { const f = fonteDe((j.ev || []).filter(e => /^L/.test(e))); return `<div class="pe-risco"><h3>${esc(j.alvo)}</h3>${j.quem ? `<p><b>Quem pode questionar.</b> ${esc(j.quem)}</p>` : ''}${j.fundamento ? `<p><b>Com que fundamento.</b> ${esc(j.fundamento)}</p>` : ''}${j.sinal ? `<p><b>O que existe de concreto.</b> ${esc(j.sinal)}${f ? ` <span class="pe-fonte">Fonte: ${f}</span>` : ''}</p>` : ''}${j.reduz ? `<p><b>O que reduz o risco.</b> ${esc(j.reduz)}</p>` : ''}</div>`; }).join('')}` : '');
   sec('impacto', 'Impacto', [['Fiscal', imp.fiscal], ['Econômico', imp.economico], ['Implementação', imp.implementacao]].filter(([, l]) => (l || []).length)
     .map(([t, l]) => `<h3>${t}</h3>${l.map(x => `<p>${esc(x.texto)}</p>`).join('')}`).join(''));
 
   // ---- V. Caminhos ----
   parte('V', 'Caminhos');
+  sec('votos', 'Mapa de votos', pe5MapaHtml(G, esc));
+  sec('partido', 'O Podemos e a matéria', (D.caminhos?.partido?.texto || []).length || (G.partido?.acessorias || []).length ? pe5PartidoHtml(D.caminhos?.partido, G, esc) : '');
   sec('opcoes', 'Opções na fase atual', (D.caminhos?.opcoes || []).length
     ? `<table class="pe"><thead><tr><th style="width:28%">Opção</th><th>Consequências</th></tr></thead><tbody>${D.caminhos.opcoes.map(o => `<tr><td><b>${esc(o.opcao)}</b></td><td>${esc(o.consequencias)}</td></tr>`).join('')}</tbody></table>` : '');
   sec('emendas', 'Emendas possíveis, com redação', (D.caminhos?.emendas || []).map(e => `<div class="pe-emenda"><p class="pe-ponto"><b>${esc(e.dispositivo)}</b>: ${esc(e.problema)}</p><div class="red">${esc(e.redacao)}</div></div>`).join(''));
   sec('perguntas', 'Perguntas a fazer', (D.caminhos?.perguntas || []).length
     ? `<table class="pe"><thead><tr><th style="width:18%">A quem</th><th style="width:44%">Pergunta</th><th>Por que importa</th></tr></thead><tbody>${D.caminhos.perguntas.map(q => `<tr><td><b>${esc(q.a_quem)}</b></td><td>${esc(q.pergunta)}</td><td>${esc(q.por_que)}</td></tr>`).join('')}</tbody></table>` : '');
+  { const f = G.fase || {}; const tit = f.codigo === 'senado' ? 'Depois do Senado' : f.revisao ? 'Depois desta votação' : /^camara/.test(f.codigo || '') ? 'O que espera a matéria no Senado' : 'Próxima etapa';
+    sec('proxima', tit, pe5Prosa(D.caminhos?.proxima_etapa, esc)); }
   sec('acompanhar', 'O que acompanhar', lista(D.caminhos?.acompanhar));
 
   // ---- abertura ----
@@ -263,7 +307,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   const tab = (cab, linhas) => linhas.length ? `<table class="pe"><thead><tr>${cab.map(c => `<th${c === 'Resultado' ? ' style="width:16%"' : c === 'Teste' ? ' style="width:44%"' : ''}>${esc(c)}</th>`).join('')}</tr></thead><tbody>${linhas.map(l => `<tr>${l.map(c => `<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>` : '<p class="pe-vazio">Nada a registrar.</p>';
   const mil = n => n ? `${String(Math.round(n / 100) / 10).replace('.', ',')} mil` : '—';
   const c = p.consumo || {};
-  const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
+  const etapas = { leitura: 'Leitura dos documentos', 'pesquisa-debate': 'Pesquisa do debate', 'pesquisa-internacional': 'Pesquisa internacional', 'pesquisa-contexto': 'Pesquisa de contexto', 'pesquisa-congresso': 'Pesquisa do histórico, da próxima etapa e da judicialização', 'redacao-1': 'Redação: matéria, debate e internacional', 'redacao-2': 'Redação: análise, caminhos e abertura', revisao: 'Revisão' };
   return pe5LargurasFixas(`<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Conferência — ${esc(materia || p.materia || '')}</title>
 <style>${css}${CSS_PE5}</style></head><body>
   <div class="cab">${logoDataUrl ? '<div class="sp"></div>' : ''}<div class="tit"><h1>Conferência do Parecer</h1><p>Liderança do Podemos na Câmara dos Deputados</p></div>${logoDataUrl ? `<img src="${logoDataUrl}" alt="">` : ''}</div>
@@ -276,6 +320,8 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <ul>
     <li>A Parte II (o debate), a Parte III (experiência internacional), as decisões judiciais e a relação de quem passa dos pisos vêm de <b>pesquisa na internet feita pelo modelo de IA</b>, com preferência por fontes oficiais. Cada item traz data e fonte; <b>o programa não leu as páginas</b>. Use como mapa e confira a fonte antes de citar.</li>
     <li>Em "Os dois lados", o que se diz sobre cada argumento ("confirma-se", "procede", "não procede") é avaliação do modelo, feita contra o texto analisado e os dados da base.</li>
+    <li>O histórico do tema no Congresso, o que espera a matéria na próxima etapa e os sinais de judicialização também vêm de pesquisa na internet feita pelo modelo. O risco de judicialização é exame de risco, não juízo sobre a constitucionalidade.</li>
+    <li>O mapa de votos, as iniciativas e os projetos de deputados do Podemos e o voto da bancada em proposições correlatas foram lidos pelo programa nos dados abertos da Câmara. Quais projetos tratam do mesmo assunto foi escolha do modelo, a partir de uma busca por palavra-chave.</li>
     <li>Tramitação, votações, voto da bancada e o texto da lei em vigor foram lidos pelo programa nos dados abertos da Câmara e nas fontes oficiais de legislação.</li>
     <li>Os valores em moeda estrangeira foram convertidos pelo câmbio de venda do Banco Central${p.cambio ? ` em ${esc(p.cambio.data)}: ${Object.entries(p.cambio.taxas || {}).map(([m, v]) => `${m} ${String(v).replace('.', ',')}`).join('; ')}` : ''}.</li>
     <li>O parecer não recomenda voto: apresenta o texto, o debate, a experiência de outros países, os pontos técnicos e os caminhos. A decisão é da Liderança.</li>
@@ -295,7 +341,7 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
   <p>Quando o parecer diz que algo "não consta", refere-se a esses documentos.</p>
   ${(p.leitura?.ausencias || []).length ? `<p>Não localizado nos documentos lidos:</p><ul>${p.leitura.ausencias.map(a => `<li>${esc(a.o_que)} <span class="pe-fonte">(procurado em: ${esc(a.onde_procurou)})</span></li>`).join('')}</ul>` : ''}
   <h2 class="item-h">Limites e avisos da pesquisa</h2>
-  ${(() => { const av = [...(p.pesquisa?.debate?.avisos || []), ...(p.pesquisa?.internacional?.avisos || []), ...(p.pesquisa?.contexto?.avisos || [])]; return av.length ? `<ul>${av.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : '<p class="pe-vazio">Nenhum aviso.</p>'; })()}
+  ${(() => { const av = [...(p.pesquisa?.debate?.avisos || []), ...(p.pesquisa?.internacional?.avisos || []), ...(p.pesquisa?.contexto?.avisos || []), ...(p.pesquisa?.congresso?.avisos || []), ...((p.coleta?.partido?.avisos || []).map(a => `Atuação da bancada: ${a}.`))]; return av.length ? `<ul>${av.map(a => `<li>${esc(a)}</li>`).join('')}</ul>` : '<p class="pe-vazio">Nenhum aviso.</p>'; })()}
   <h2 class="item-h">Fontes da internet</h2>
   ${pe5Fontes(p, esc) || '<p class="pe-vazio">Nenhuma fonte.</p>'}
   <h2 class="item-h">Roteiros de especialista usados na leitura</h2>
@@ -308,5 +354,5 @@ function htmlConferenciaPE5(p, { materia = '', logoDataUrl = null, css = '' } = 
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
+  module.exports = { htmlParecerPE5, htmlConferenciaPE5, pe5Prosa, pe5MapaHtml, pe5PartidoHtml, pe5IndicePesquisa, pe5LargurasFixas, CSS_PE5, pe5Esc, pe5Encurta, pe5QuadroPolitico, pe5Alteracoes, pe5Atores, pe5Controversia, pe5Fontes };
 }

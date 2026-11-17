@@ -96,7 +96,7 @@ const ESPECIALISTAS = [
       'Há emenda parlamentar que aumente despesa em projeto de iniciativa privativa do Executivo (art. 63, I) ou dos demais Poderes (art. 63, II)? Há emenda sem pertinência temática (RICD, art. 125; Resolução 1/2002-CN, art. 4º, § 4º, para MPs)?',
       'Sendo Medida Provisória: (a) a matéria está entre as vedações do art. 62, § 1º? (b) há emenda sem pertinência temática — "contrabando legislativo"? Precedente-líder: ADI 5.127, Pleno, red. p/ acórdão Min. Edson Fachin, j. 15/10/2015, com modulação prospectiva.',
       'Há retroatividade que atinja ato jurídico perfeito, direito adquirido ou coisa julgada (art. 5º, XXXVI)? Distinguir retroatividade própria (fato consumado) de retrospectividade (efeitos futuros de situação em curso) — o STF protege a primeira, não a segunda.',
-      'A proposição impõe despesa a Estados, DF ou Municípios sem prever transferência de recursos? Vedação do art. 167, XIV (EC 128/2022). É o ponto federativo mais recorrente em PLs de política pública.',
+      'A proposição impõe despesa a Estados, DF ou Municípios sem prever transferência de recursos? Vedação do art. 167, § 7º (EC 128/2022). É o ponto federativo mais recorrente em PLs de política pública; o exame completo fica na lente federativa, quando acionada.',
       'Sendo PEC: viola cláusula pétrea (art. 60, § 4º)? Está vigente intervenção federal, estado de defesa ou de sítio (§ 1º)?',
       'Sendo lei orçamentária (PPA, LDO, LOA, crédito): cabe controle concentrado (ADI 4.048-MC, Pleno, rel. Min. Gilmar Mendes, j. 14/05/2008). A análise formal fica nesta lente; a material vai para a lente 3.',
       'Existe precedente do STF sobre o dispositivo alterado ou sobre norma de teor equivalente (inclui leis estaduais idênticas)? Citar; não havendo, dizer que não se localizou.',
@@ -115,6 +115,49 @@ const ESPECIALISTAS = [
       'Supor que competência concorrente exclui atuação estadual.',
       'Confundir "lei federal" com "lei nacional": norma da União sobre os próprios órgãos não vincula os Estados; norma geral do art. 24 vincula.',
       'Esquecer que vício de iniciativa e de reserva de LC não se convalidam por sanção nem por conversão de MP.',
+    ],
+  },
+
+  // ==========================================================
+  // Federativa (17/11/2026): o que o texto faz com Estados, Distrito Federal e Municípios.
+  // Antes aparecia só de passagem na lente constitucional; em saúde, educação, segurança e
+  // tributação costuma ser o ponto que mais pesa para a bancada.
+  {
+    chave: 'federativo', ordem: '1B', rotulo: 'Federativa (Estados, Distrito Federal e Municípios)',
+    temas: [56, 46],
+    gatilhos: ['Estados', 'Municípios', 'Distrito Federal', 'entes federativos', 'ente federativo', 'entes federados',
+      'estadual', 'estaduais', 'municipal', 'municipais', 'distrital', 'prefeitura', 'prefeituras',
+      'ICMS', 'ISS', 'IPTU', 'IPVA', 'ITBI', 'ITCMD', 'IBS', 'Fundo de Participação', 'FPM', 'FPE', 'Fundeb',
+      'transferências voluntárias', 'transferência obrigatória', 'repartição de receitas', 'royalties', 'compensação financeira',
+      'convênio', 'consórcio público', 'regime de colaboração', 'pacto federativo', 'normas gerais',
+      'piso salarial', 'piso nacional', 'SUS', 'rede municipal', 'rede estadual', 'guarda municipal', 'polícia militar',
+      'polícia civil', 'dívida dos Estados', 'precatórios', 'regime próprio'],
+    perguntas: [
+      'De quem é a competência para legislar sobre a matéria: privativa da União (art. 22), concorrente (art. 24), comum (art. 23) ou local (art. 30, I e II; art. 25, § 1º)? Citar o inciso. Sendo concorrente, o texto fica em NORMAS GERAIS ou desce a detalhe que cabe ao Estado (art. 24, §§ 1º a 4º)?',
+      'O texto dispõe sobre órgãos, cargos, carreiras, remuneração ou processo administrativo de Estados e Municípios? Lei federal não organiza a administração de outro ente (arts. 18, 25 e 29) nem supre a iniciativa do chefe do Executivo local. Havendo precedente do STF sobre lei federal ou estadual de teor igual, citar com classe, número, relator e data.',
+      'Cria obrigação, programa, serviço, piso ou padrão mínimo a cargo de Estados ou Municípios? Qual a fonte de custeio ou a transferência prevista? Vedação do art. 167, § 7º (EC 128/2022): a lei não impõe nem transfere encargo de serviço público sem fonte orçamentária e financeira ou sem a transferência correspondente, salvo obrigação assumida espontaneamente e a que decorre do salário mínimo.',
+      'Reduz, isenta ou altera a base de tributo estadual ou municipal (ICMS, IPVA, ITCMD, ISS, IPTU, ITBI, IBS)? Isenção heterônoma é vedada (art. 151, III). Há compensação aos entes, e por quanto tempo?',
+      'Altera a repartição de receitas (arts. 157 a 159), o FPE, o FPM, o Fundeb, royalties ou outra transferência obrigatória? Quem ganha e quem perde entre os entes: produtores e consumidores, capitais e municípios pequenos, regiões? Existe estimativa POR ENTE?',
+      'Quem executa a política: a União, os Estados, os Municípios ou todos? Depende de adesão, convênio ou regulamentação local? Há prazo de adaptação compatível com a capacidade de município pequeno?',
+      'Há sanção ao ente que não cumprir (suspensão de transferência voluntária, vedação de operação de crédito, inscrição em cadastro)? Suspensão de transferência voluntária não alcança saúde, educação e assistência social (LRF, art. 25, § 3º).',
+      'Como a regra nova se compõe com leis estaduais e municipais já existentes sobre o assunto: revoga, suspende a eficácia (art. 24, § 4º) ou convive? Há Estados com regra mais protetiva ou mais ampla que deixará de valer?',
+      'As entidades que representam os entes se manifestaram (Confederação Nacional de Municípios, Frente Nacional de Prefeitos, Comsefaz, Fórum de Governadores, Conass, Conasems, Consed, Undime)? Qual a estimativa de impacto que apresentam e com que método?',
+      'Sendo matéria já em vigor ou com norma anterior parecida: o que aconteceu com a receita e a despesa dos entes depois dela (Siconfi/Finbra, relatórios do Tesouro Nacional)?',
+    ],
+    fontes: [
+      'CF, arts. 18, 21 a 25, 29 e 30 (competências e autonomia); arts. 145 a 162 (tributos e repartição de receitas); art. 167, § 7º (EC 128/2022)',
+      'LRF (LC 101/2000), arts. 11, 14, 16, 17 e 25',
+      'Siconfi e Finbra (Tesouro Nacional): receita e despesa por ente; Boletim de Finanças dos Entes Subnacionais',
+      'Notas e estudos da Confederação Nacional de Municípios, da Frente Nacional de Prefeitos e do Comsefaz — são partes interessadas: dizer quem produziu o número',
+      'Jurisprudência do STF sobre repartição de competências, citada por classe, número, órgão, relator e data',
+    ],
+    armadilhas: [
+      'Tratar toda lei federal como aplicável aos Estados e Municípios: norma da União sobre os próprios órgãos é lei FEDERAL e não os vincula; norma geral do art. 24 é lei NACIONAL e vincula.',
+      'Supor que competência concorrente exclui a atuação do Estado, ou que norma geral pode esgotar o assunto.',
+      'Somar o impacto "dos Estados e Municípios" em um número só: o efeito costuma ser desigual, e a média esconde quem perde.',
+      'Usar como dado oficial a estimativa de entidade de prefeitos, de governadores ou de secretários de fazenda sem dizer que é parte interessada.',
+      'Confundir transferência obrigatória (repartição constitucional, fundos) com voluntária (convênio): só a segunda pode ser suspensa como sanção.',
+      'Esquecer o Distrito Federal, que acumula competências de Estado e de Município (art. 32, § 1º).',
     ],
   },
 

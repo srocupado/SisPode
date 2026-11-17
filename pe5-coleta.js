@@ -158,15 +158,72 @@ async function pe5Votacoes(idProp, fetchFn) {
   return out;
 }
 
+// ---------------------------------------------------------------------------------------------
+// RESERVA: quando a API não entrega as votações, os mesmos dados estão nos arquivos que a Câmara
+// publica todo dia, de madrugada, em outro serviço (dadosabertos.camara.leg.br/arquivos). São quatro
+// arquivos por ano — ligação votação/proposição, votações, votos e orientações —, cerca de 3 MB
+// compactados. Vão até o fechamento do dia anterior.
+// ---------------------------------------------------------------------------------------------
+const PE5_ARQUIVOS = 'https://dadosabertos.camara.leg.br/arquivos';
+async function pe5Arquivo(conjunto, ano, fetchFn) {
+  const r = await fetchFn(`${PE5_ARQUIVOS}/${conjunto}/json/${conjunto}-${ano}.json`);
+  if (!r || !r.ok) throw new Error(`arquivo ${conjunto}-${ano} indisponível (HTTP ${r ? r.status : '?'})`);
+  const j = await r.json();
+  let mod = ''; try { mod = (r.headers && typeof r.headers.get === 'function' && r.headers.get('last-modified')) || ''; } catch (_) { /* sem cabeçalho */ }
+  return { dados: Array.isArray(j?.dados) ? j.dados : [], modificado: mod };
+}
+/** As votações de uma proposição, no mesmo formato de pe5Votacoes, lidas dos arquivos diários. */
+async function pe5VotacoesDoArquivo(idProp, anos, fetchFn) {
+  const out = []; let modificado = '';
+  for (const ano of anos) {
+    const lig = await pe5Arquivo('votacoesProposicoes', ano, fetchFn);
+    const ids = [...new Set(lig.dados.filter(x => String(x?.proposicao_?.id) === String(idProp)).map(x => String(x.idVotacao)))];
+    if (!ids.length) continue;
+    const quer = new Set(ids);
+    const vots = (await pe5Arquivo('votacoes', ano, fetchFn)).dados.filter(v => quer.has(String(v.id)));
+    const temPlenario = vots.some(v => /PLEN/i.test(v.siglaOrgao || '') && ((v.votosSim || 0) + (v.votosNao || 0)) > 0);
+    let votos = [], oris = [];
+    if (temPlenario) {
+      const av = await pe5Arquivo('votacoesVotos', ano, fetchFn); modificado = av.modificado || modificado;
+      votos = av.dados.filter(x => quer.has(String(x.idVotacao)));
+      try { oris = (await pe5Arquivo('votacoesOrientacoes', ano, fetchFn)).dados.filter(x => quer.has(String(x.idVotacao))); } catch (_) { oris = []; }
+    }
+    for (const v of vots) {
+      const item = { id: v.id, data: pe5DataBR(v.data || v.dataHoraRegistro), iso: String(v.data || v.dataHoraRegistro || '').slice(0, 10), orgao: v.siglaOrgao || '',
+        descricao: pe5Corta(v.descricao, 300), aprovada: v.aprovacao === 1 ? true : v.aprovacao === 0 ? false : null, nominal: false };
+      const meus = votos.filter(x => String(x.idVotacao) === String(v.id));
+      if (/PLEN/i.test(item.orgao) && meus.length) {
+        Object.assign(item, { nominal: true }, pe5ResumoVotos(meus.map(x => ({ tipoVoto: x.voto, deputado_: x.deputado_ }))));
+        item.orientacoes = oris.filter(o => String(o.idVotacao) === String(v.id)).map(o => ({ quem: o.siglaBancada, orientacao: o.orientacao })).filter(o => o.quem);
+      }
+      out.push(item);
+    }
+  }
+  out.sort((a, b) => String(a.iso).localeCompare(String(b.iso)));
+  return { votacoes: out, modificado };
+}
+
 /** Tudo o que a API da Câmara diz da tramitação. Falha parcial não derruba: vai em `avisos`. */
-async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date() } = {}) {
+async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date(), ano = null } = {}) {
   const avisos = [];
   const tenta = async (rotulo, fn, padrao) => { try { return await fn(); } catch (e) { avisos.push(`${rotulo}: ${e.message}`); return padrao; } };
   const prop = await tenta('proposição', async () => (await pe5Json(`${PE5_API}/proposicoes/${idProp}`, fetchFn)).dados || {}, {});
   const tram = await tenta('tramitações', async () => (await pe5Json(`${PE5_API}/proposicoes/${idProp}/tramitacoes`, fetchFn)).dados || [], []);
   const autores = await tenta('autores', async () => ((await pe5Json(`${PE5_API}/proposicoes/${idProp}/autores`, fetchFn)).dados || []), []);
   const relacionadas = await tenta('relacionadas', async () => ((await pe5Json(`${PE5_API}/proposicoes/${idProp}/relacionadas`, fetchFn)).dados || []), []);
-  const votacoes = await tenta('votações', () => pe5Votacoes(idProp, fetchFn), []);
+  let votacoes = await tenta('votações', () => pe5Votacoes(idProp, fetchFn), null);
+  let reserva = null;
+  // A API falhou na lista ou nos votos de alguma votação do Plenário: tenta os arquivos diários.
+  if (votacoes === null || votacoes.some(v => v.falha)) {
+    const atual = hoje.getFullYear(), ini = Math.max(Number(prop.ano || ano) || atual, atual - 2);
+    const anos = []; for (let a = ini; a <= atual; a++) anos.push(a);
+    try {
+      const r = await pe5VotacoesDoArquivo(idProp, anos, fetchFn);
+      votacoes = r.votacoes;
+      reserva = { origem: 'arquivos diários da Câmara', anos, atualizadoEm: r.modificado ? pe5DataBR(new Date(r.modificado).toISOString()) : '' };
+      const i = avisos.findIndex(a => /^votações:/.test(a)); if (i >= 0) avisos.splice(i, 1);
+    } catch (e) { if (votacoes === null) votacoes = []; avisos.push(`votações (arquivo diário): ${e.message}`); }
+  }
   const status = prop.statusProposicao || {};
   const ordAut = [...autores].sort((a, b) => (a.ordemAssinatura || 99) - (b.ordemAssinatura || 99));
   return {
@@ -177,8 +234,121 @@ async function pe5ColetarTramitacao(idProp, fetchFn, { hoje = new Date() } = {})
     fase: pe5Fase(status, tram), urgencia: pe5Urgencia(status, tram), marcos: pe5Marcos(tram), votacoes,
     relacionadas: relacionadas.filter(r => r && r.siglaTipo && !/^(REQ|EMP|EMC|PRLP|PRLE|SBT|PAR|DTQ|MSC|OF|RDF|EMR|ESB|SSP|EMS|REL|VTS|DVT|PPP|PRL|EMA|EMD|ERD|RPD)$/i.test(r.siglaTipo))
       .slice(0, 20).map(r => ({ rotulo: `${r.siglaTipo} ${r.numero}/${r.ano}`, ementa: pe5Corta(r.ementa, 220) })),
+    acessorias: relacionadas.filter(r => r && r.id && r.siglaTipo && !/^Vota[çc][ãa]o Nominal/i.test(r.ementa || ''))
+      .slice(0, 40).map(r => ({ id: r.id, rotulo: `${r.siglaTipo} ${r.numero}${Number(r.ano) ? '/' + r.ano : ''}`, ementa: pe5Corta(r.ementa, 200) })),
+    ...(reserva ? { reservaVotacoes: reserva } : {}),
     coletadoEm: hoje.toISOString(), avisos,
   };
+}
+
+// ---------------------------------------------------------------------------------------------
+// MAPA DE VOTOS: quórum da espécie, voto e orientação de cada partido, quem se dividiu.
+// ---------------------------------------------------------------------------------------------
+const PE5_DEPUTADOS = 513;
+/** Quórum para aprovar o mérito, pela espécie da proposição. */
+function pe5Quorum(sigla) {
+  const s = String(sigla || '').toUpperCase();
+  if (s === 'PEC') return { regra: 'três quintos dos deputados, em dois turnos', minimo: 308, base: 'art. 60, § 2º, da Constituição' };
+  if (s === 'PLP') return { regra: 'maioria absoluta dos deputados', minimo: 257, base: 'art. 69 da Constituição' };
+  return { regra: 'maioria simples, presente a maioria absoluta dos deputados', minimo: null, presenca: 257, base: 'art. 47 da Constituição' };
+}
+const pe5Sigla = s => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]/g, '');
+/** Orientação que vale para um partido: a dele; se não houver, a do bloco ou da federação em que aparece. */
+function pe5OrientacaoDe(partido, orientacoes = []) {
+  const alvo = pe5Sigla(partido);
+  const validas = orientacoes.filter(o => o && o.quem && String(o.orientacao || '').trim());
+  const propria = validas.find(o => pe5Sigla(o.quem) === alvo);
+  if (propria) return { orientacao: propria.orientacao, de: propria.quem };
+  for (const o of validas) {
+    if (!/^(Bl|Fdr)\b/i.test(o.quem)) continue;
+    // "Fdr PT-PCdoB-PV" vem separado por hífen; "Bl UniPpPsd..." vem colado, com inicial maiúscula e cortado
+    const nome = String(o.quem).replace(/^(Bl|Fdr)\s+/i, '').replace(/\.+$/, '');
+    const partes = nome.includes('-') ? nome.split('-') : (nome.match(/[A-ZÀ-Ú][a-zà-ú0-9]*/g) || []);
+    if (partes.map(pe5Sigla).some(t => t && (t === alvo || (t.length >= 3 && alvo.startsWith(t) && alvo.length - t.length >= 2)))) return { orientacao: o.orientacao, de: o.quem };
+  }
+  return { orientacao: '', de: '' };
+}
+/** Mapa da votação nominal mais recente em Plenário. Não projeta voto: mostra como cada partido votou e orientou. */
+function pe5MapaVotos(G) {
+  const nominais = (G?.votacoes || []).filter(v => v.nominal && (v.sim + v.nao) > 0);
+  const quorum = pe5Quorum(G?.proposicao?.sigla);
+  if (!nominais.length) return { quorum, votacao: null, linhas: [], divididos: [], podemos: null };
+  const v = [...nominais].sort((a, b) => String(a.iso).localeCompare(String(b.iso))).pop();
+  const linhas = (v.partidos || []).map(p => {
+    const o = pe5OrientacaoDe(p.partido, v.orientacoes), val = p.sim + p.nao, menor = Math.min(p.sim, p.nao);
+    const situacao = !val ? 'sem voto' : menor / val >= 0.25 ? 'dividido' : p.sim > p.nao ? 'a favor' : 'contra';
+    const ori = /^sim$/i.test(o.orientacao) ? 'sim' : /^n[ãa]o$/i.test(o.orientacao) ? 'nao' : '';
+    return { partido: p.partido, sim: p.sim, nao: p.nao, outros: p.outros || 0, orientacao: o.orientacao || '—', orientadoPor: o.de && pe5Sigla(o.de) !== pe5Sigla(p.partido) ? o.de : '', situacao,
+      contraOrientacao: ori === 'sim' ? p.nao : ori === 'nao' ? p.sim : 0 };
+  });
+  const b = v.bancada || {}, oriP = pe5OrientacaoDe(PE5_PARTIDO, v.orientacoes);
+  const divergiram = /^sim$/i.test(oriP.orientacao) ? (b.nao || []) : /^n[ãa]o$/i.test(oriP.orientacao) ? (b.sim || []) : [];
+  return { quorum,
+    votacao: { data: v.data, descricao: v.descricao, sim: v.sim, nao: v.nao, outros: v.outros || 0, total: v.total, ehMerito: !/requerimento|urg[êe]ncia|retirada|adiamento|destaque/i.test(v.descricao || '') },
+    linhas, divididos: linhas.filter(l => l.situacao === 'dividido').map(l => ({ partido: l.partido, sim: l.sim, nao: l.nao })),
+    ausentes: Math.max(0, PE5_DEPUTADOS - (v.total || 0)),
+    podemos: { orientacao: oriP.orientacao || '', orientadoPor: oriP.de || '', sim: (b.sim || []).length, nao: (b.nao || []).length, divergiram } };
+}
+
+// ---------------------------------------------------------------------------------------------
+// O PARTIDO E A MATÉRIA: quem da bancada atuou nela, projetos da bancada sobre o tema e como a
+// bancada votou em proposições correlatas. Tudo da API da Câmara; falha parcial vira aviso.
+// ---------------------------------------------------------------------------------------------
+async function pe5Lote(itens, n, fn) {
+  const out = new Array(itens.length); let i = 0;
+  await Promise.all(Array.from({ length: Math.min(n, itens.length) }, async () => { while (i < itens.length) { const k = i++; try { out[k] = await fn(itens[k], k); } catch (e) { out[k] = { erro: e.message }; } } }));
+  return out;
+}
+const pe5IdDeUri = u => (String(u || '').match(/\/deputados\/(\d+)/) || [])[1] || '';
+const pe5Rotulo = s => { const m = String(s || '').match(/\b(PL|PLP|PEC|MPV|PDL|PRC|PLN|PLV)\s*(?:n[ºo.]*\s*)?(\d{1,5})\s*\/\s*(\d{4})\b/i); return m ? { sigla: m[1].toUpperCase(), numero: Number(m[2]), ano: Number(m[3]), rotulo: `${m[1].toUpperCase()} ${Number(m[2])}/${m[3]}` } : null; };
+
+/**
+ * @param G          coleta da tramitação (usa proposicao.id e acessorias)
+ * @param palavras   termos de busca de uma palavra, vindos da leitura
+ * @param correlatas rótulos de proposições correlatas ("PL 2768/2022"), vindos da pesquisa
+ */
+async function pe5ColetarPartido(G, { palavras = [], correlatas = [] } = {}, fetchFn) {
+  const avisos = [], idProp = G?.proposicao?.id;
+  const tenta = async (rotulo, fn, padrao) => { try { return await fn(); } catch (e) { avisos.push(`${rotulo}: ${e.message}`); return padrao; } };
+  const deps = await tenta('bancada', async () => ((await pe5Json(`${PE5_API}/deputados?siglaPartido=${PE5_PARTIDO}&itens=100&ordem=ASC&ordenarPor=nome`, fetchFn)).dados || []), []);
+  const daBancada = new Map(deps.map(d => [String(d.id), d.nome]));
+  const doPartido = autores => (autores || []).map(a => daBancada.get(pe5IdDeUri(a.uri))).filter(Boolean);
+
+  // 1. Na própria matéria: autoria e proposições acessórias (requerimento, emenda, destaque) de deputado da bancada
+  const autoresProp = idProp ? await tenta('autores', async () => ((await pe5Json(`${PE5_API}/proposicoes/${idProp}/autores`, fetchFn)).dados || []), []) : [];
+  const acess = (G?.acessorias || []).slice(0, 30);
+  const autAcess = daBancada.size ? await pe5Lote(acess, 4, a => pe5Json(`${PE5_API}/proposicoes/${a.id}/autores`, fetchFn, { tentativas: 1 }).then(j => j.dados || [])) : [];
+  const acessorias = acess.map((a, i) => ({ rotulo: a.rotulo, ementa: a.ementa, autores: Array.isArray(autAcess[i]) ? doPartido(autAcess[i]) : [] })).filter(a => a.autores.length);
+  if (autAcess.some(x => x && x.erro)) avisos.push('autoria de parte das proposições acessórias não obtida');
+
+  // 2. Projetos de deputados da bancada indexados com os mesmos termos (o modelo escolhe os que tratam do assunto)
+  const termos = [...new Set((palavras || []).map(t => String(t || '').trim().split(/\s+/)[0]).filter(t => t.length >= 4))].slice(0, 5);
+  const achados = new Map();
+  for (const t of termos) {
+    const lista = await tenta(`busca "${t}"`, async () => ((await pe5Json(`${PE5_API}/proposicoes?siglaPartidoAutor=${PE5_PARTIDO}&keywords=${encodeURIComponent(t)}&siglaTipo=PL,PLP,PEC&ordem=DESC&ordenarPor=id&itens=20`, fetchFn)).dados || []), []);
+    for (const x of lista) if (x && x.id && String(x.id) !== String(idProp) && !achados.has(x.id)) achados.set(x.id, { id: x.id, rotulo: `${x.siglaTipo} ${x.numero}/${x.ano}`, ementa: pe5Corta(x.ementa, 260), termo: t });
+  }
+  const projetos = [...achados.values()].slice(0, 24);
+  const det = await pe5Lote(projetos, 4, async x => {
+    const [pr, au] = await Promise.all([pe5Json(`${PE5_API}/proposicoes/${x.id}`, fetchFn), pe5Json(`${PE5_API}/proposicoes/${x.id}/autores`, fetchFn)]);
+    return { situacao: pe5Limpo(pr.dados?.statusProposicao?.descricaoSituacao) || pe5Limpo(pr.dados?.statusProposicao?.descricaoTramitacao), apresentacao: pe5DataBR(pr.dados?.dataApresentacao), autores: doPartido(au.dados) };
+  });
+  projetos.forEach((x, i) => Object.assign(x, det[i] && !det[i].erro ? det[i] : { situacao: '', apresentacao: '', autores: [] }));
+
+  // 3. Como a bancada votou, em Plenário, nas proposições correlatas que a pesquisa identificou
+  const alvos = [...new Map((correlatas || []).map(pe5Rotulo).filter(Boolean).map(r => [r.rotulo, r])).values()].filter(r => !(G?.proposicao && r.sigla === G.proposicao.sigla && r.numero === Number(G.proposicao.numero) && r.ano === Number(G.proposicao.ano))).slice(0, 6);
+  const votacoesCorrelatas = [];
+  for (const r of alvos) {
+    await tenta(`votações de ${r.rotulo}`, async () => {
+      const lista = (await pe5Json(`${PE5_API}/proposicoes?siglaTipo=${r.sigla}&numero=${r.numero}&ano=${r.ano}`, fetchFn)).dados || [];
+      if (!lista[0]) { votacoesCorrelatas.push({ rotulo: r.rotulo, encontrada: false }); return; }
+      const vots = await pe5Votacoes(lista[0].id, fetchFn);
+      const nominais = vots.filter(v => v.nominal && (v.sim + v.nao) > 0);
+      votacoesCorrelatas.push({ rotulo: r.rotulo, encontrada: true, ementa: pe5Corta(lista[0].ementa, 200),
+        nominais: nominais.slice(-3).map(v => ({ data: v.data, descricao: v.descricao, sim: v.sim, nao: v.nao, podemosSim: (v.bancada?.sim || []).length, podemosNao: (v.bancada?.nao || []).length, votaramNao: v.bancada?.nao || [], votaramSim: v.bancada?.sim || [], orientacao: pe5OrientacaoDe(PE5_PARTIDO, v.orientacoes).orientacao, orientadoPor: (o => o.de && pe5Sigla(o.de) !== pe5Sigla(PE5_PARTIDO) ? o.de : '')(pe5OrientacaoDe(PE5_PARTIDO, v.orientacoes)) })) });
+    }, null);
+  }
+  return { partido: PE5_PARTIDO, deputados: daBancada.size, autoresDaMateria: doPartido(autoresProp), acessorias, termos, projetos, votacoesCorrelatas, avisos };
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -261,6 +431,6 @@ function pe5Inventario(documentos = [], disponiveis = []) {
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Corta, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5ColetarTramitacao,
+  module.exports = { PE5_API, pe5DataBR, pe5Limpo, pe5Corta, pe5Fase, pe5Marcos, pe5Urgencia, pe5ResumoVotos, pe5Votacoes, pe5VotacoesDoArquivo, pe5ColetarTramitacao, pe5Quorum, pe5OrientacaoDe, pe5MapaVotos, pe5ColetarPartido, pe5Rotulo,
     pe5NumArtigo, pe5CabecalhosDeArtigo, pe5ArtigoVigente, pe5ArtigosAlterados, pe5Inventario };
 }

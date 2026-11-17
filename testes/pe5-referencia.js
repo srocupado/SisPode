@@ -11,7 +11,7 @@ const ler = f => fs.readFileSync(path.join(FX, f), 'utf8');
 
 const RESPOSTAS = {
   'leitura': 'resposta-leitura.json', 'pesquisa-debate': 'resposta-pesquisa-debate.json', 'pesquisa-internacional': 'resposta-pesquisa-internacional.json',
-  'pesquisa-contexto': 'resposta-pesquisa-contexto.json', 'redacao-1': 'resposta-redacao-1.json', 'redacao-2': 'resposta-redacao-2.json',
+  'pesquisa-contexto': 'resposta-pesquisa-contexto.json', 'pesquisa-congresso': 'resposta-pesquisa-congresso.json', 'redacao-1': 'resposta-redacao-1.json', 'redacao-2': 'resposta-redacao-2.json',
 };
 
 function ioDeReferencia({ respostas = {}, onChamada = null } = {}) {

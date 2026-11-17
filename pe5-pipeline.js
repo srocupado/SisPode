@@ -27,8 +27,8 @@ const __pe5m = (typeof module !== 'undefined' && typeof require === 'function') 
 function _pe5Refs() {
   if (__pe5m) return { ...__pe5m.C, ...__pe5m.P, ...__pe5m.K, ESPECIALISTAS: __pe5m.E.ESPECIALISTAS, sugerirEspecialistas: __pe5m.E.sugerirEspecialistas, buscarTextoNorma: __pe5m.D.buscarTextoNorma };
   /* eslint-disable no-undef */
-  return { pe5ColetarTramitacao, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
-    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
+  return { pe5ColetarTramitacao, pe5MapaVotos, pe5ColetarPartido, pe5ArtigoVigente, pe5ArtigosAlterados, pe5CabecalhosDeArtigo, pe5Inventario, pe5DataBR,
+    pe5PromptLeitura, pe5PromptDebate, pe5PromptInternacional, pe5PromptContexto, pe5PromptCongresso, pe5PromptRedacao1, pe5PromptRedacao2, pe5PromptRevisao,
     pe5Conferir, pe5Norm, ESPECIALISTAS, sugerirEspecialistas, buscarTextoNorma };
   /* eslint-enable no-undef */
 }
@@ -194,13 +194,22 @@ async function gerarParecerPE5(ctx, io) {
   // --- programa: tramitação e câmbio ---
   passo('levantando tramitação, votações e bancada…');
   let coleta = ctx.coletaPronta || null;   // os testes entregam a coleta gravada
-  if (!coleta && ctx.idProposicao && io.fetchFn) { try { coleta = await R.pe5ColetarTramitacao(ctx.idProposicao, io.fetchFn, { hoje }); } catch (e) { coleta = null; } }
+  if (!coleta && ctx.idProposicao && io.fetchFn) { try { coleta = await R.pe5ColetarTramitacao(ctx.idProposicao, io.fetchFn, { hoje, ano: ctx.ano }); } catch (e) { coleta = null; } }
   if (coleta && ctx.pauta) coleta.pauta = ctx.pauta;       // a pauta do SisPode em que a matéria está
+  if (coleta && !coleta.mapa) { try { coleta.mapa = R.pe5MapaVotos(coleta); } catch (_) { /* sem mapa */ } }
   const cambio = io.fetchFn ? await pe5Cambio(io.fetchFn) : null;
 
   // --- IA 1: leitura ---
   const todas = R.sugerirEspecialistas({ temas: ctx.temas || [], ementa: `${ctx.ementa || ''}`, textoEmendas: documentos.map(d => d.rotulo).join(' ') });
   const lentes = todas.filter(l => l.confianca !== 'baixa');
+  // Lente federativa: a ementa raramente fala em Estados e Municípios; o texto em votação, sim.
+  if (!lentes.some(l => l.chave === 'federativo')) {
+    // conta PASSAGENS (menções a mais de 300 caracteres uma da outra): "Estados, Distrito Federal e Municípios" numa frase é uma só
+    let n = 0, ultima = -1000;
+    for (const m of String(legiveis[0]?.texto || '').matchAll(/(?:Estados?|Munic[íi]pios?|Distrito Federal|entes? federa(?:dos?|tivos?))(?![a-zà-ú])/g)) if (m.index - ultima > 300) { n++; ultima = m.index; }
+    const e = (R.ESPECIALISTAS || []).find(x => x.chave === 'federativo');
+    if (e && n >= 3) lentes.splice(Math.min(2, lentes.length), 0, { chave: e.chave, ordem: e.ordem, rotulo: e.rotulo, transversal: false, confianca: 'alta', gatilhos: [], motivo: `${n} passagens do texto em votação tratam de Estados, Distrito Federal ou Municípios`, perguntas: e.perguntas.length });
+  }
   passo(`lendo o texto com ${lentes.length} roteiros de especialista…`);
   const ilegiveis = documentos.filter(d => d.texto.trim().length < 400 && d.buffer).map(d => d.buffer);   // PDF de imagem vai anexado
   const r1 = await chamar('leitura', R.pe5PromptLeitura({ identificacao: ctx.identificacao, ementa: ctx.ementa, documentos: legiveis, coleta, lentes, catalogo: R.ESPECIALISTAS, textoEmVotacao }), { pensar: 'alto', pdfBuffers: ilegiveis });
@@ -215,26 +224,35 @@ async function gerarParecerPE5(ctx, io) {
   let lv = { alteracoes: [], avisos: [], textoBase: '', integrais: [] };
   try { lv = await pe5LeiVigente(leitura.alteracoes, io.fetchFn || null, R); } catch (e) { lv.avisos.push(`Lei vigente não lida: ${e.message}`); }
 
-  // --- IA 2-4: pesquisas ---
-  let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] } };
+  // --- IA 2-5: pesquisas ---
+  let pesquisa = { debate: { atores: [], controversias: [], avisos: [] }, internacional: { jurisdicoes: [], avisos: [] }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], avisos: [] }, congresso: { historico: [], outra_casa: [], judicializacao: [], avisos: [] } };
   if (io.semWeb !== true) {
-    passo('pesquisando o debate, a experiência de outros países e o contexto jurídico…');
+    passo('pesquisando o debate, a experiência de outros países, o contexto jurídico e o histórico no Congresso…');
     const base = { identificacao: ctx.identificacao, ementa: ctx.ementa, leitura, coleta, hoje: hojeBR };
     const uma = async (nome, prompt, grupos) => {
       try { const r = await chamar(nome, prompt, { web: true, pensar: 'medio' }); const j = pe5ExtrairJson(r.text); if (!j) return { avisos: [`A pesquisa (${nome}) não devolveu resultado utilizável.`] }; return await pe5LimparPesquisa(j, grupos, io.fetchFn || null); }
       catch (e) { return { avisos: [`A pesquisa (${nome}) falhou: ${e.message}`] }; }
     };
-    const [deb, intl, cx] = await Promise.all([
+    const [deb, intl, cx, cg] = await Promise.all([
       uma('pesquisa-debate', R.pe5PromptDebate(base), { atores: 'Q' }),
       uma('pesquisa-internacional', R.pe5PromptInternacional(base), { jurisdicoes: 'W' }),
       uma('pesquisa-contexto', R.pe5PromptContexto(base), { jurisprudencia: 'R', normas: 'M', dados: 'F', correlatas: 'K', documentos_base: 'Y', alcance: 'Z' }),
+      uma('pesquisa-congresso', R.pe5PromptCongresso(base), { historico: 'H', outra_casa: 'N', judicializacao: 'L' }),
     ]);
-    pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx } };
+    pesquisa = { debate: { atores: [], controversias: [], ...deb }, internacional: { jurisdicoes: [], ...intl }, contexto: { jurisprudencia: [], normas: [], dados: [], correlatas: [], ...cx }, congresso: { historico: [], outra_casa: [], judicializacao: [], ...cg } };
     if (!Array.isArray(pesquisa.debate.controversias)) pesquisa.debate.controversias = [];
     pesquisa.debate.controversias.forEach((c, i) => { if (c && !c.id) c.id = `D${i + 1}`; });
   }
 
-  // --- IA 5-6: redação ---
+  // --- programa: o partido e a matéria (depois da pesquisa, que diz quais são as proposições correlatas) ---
+  if (coleta && !coleta.partido && io.fetchFn && coleta.proposicao?.id) {
+    passo('levantando a atuação da bancada na matéria e em proposições correlatas…');
+    const correlatas = [...(pesquisa.contexto.correlatas || []).map(k => k.proposicao), ...(pesquisa.congresso.historico || []).filter(h => !/senado/i.test(h.casa || '')).map(h => h.proposicao)];
+    try { coleta.partido = await R.pe5ColetarPartido(coleta, { palavras: Array.isArray(leitura.termos_de_busca) ? leitura.termos_de_busca : [], correlatas }, io.fetchFn); }
+    catch (e) { coleta.partido = { avisos: [`atuação da bancada não levantada: ${e.message}`], projetos: [], acessorias: [], votacoesCorrelatas: [], autoresDaMateria: [] }; }
+  }
+
+  // --- IA 6-7: redação ---
   const baseRed = { identificacao: ctx.identificacao, hoje: hojeBR, leitura, pesquisa, coleta, alteracoes: lv.alteracoes, cambio };
   passo('redigindo a matéria, o debate e a experiência internacional…');
   const r5 = await chamar('redacao-1', R.pe5PromptRedacao1(baseRed), { pensar: 'alto' });
@@ -249,7 +267,7 @@ async function gerarParecerPE5(ctx, io) {
   if (!parte2 || typeof parte2 !== 'object') return { erro: r6.truncated ? 'A segunda metade da redação veio truncada.' : 'Não consegui interpretar a segunda metade da redação.', chamadas };
   const doc = { materia: parte1.materia || {}, debate: parte1.debate || {}, internacional: parte1.internacional || {}, analise: parte2.analise || {}, caminhos: parte2.caminhos || {}, abertura: parte2.abertura || {} };
 
-  // --- IA 7: revisão ---
+  // --- IA 8: revisão ---
   let revisao = { aplicadas: [], ignoradas: [], observacoes: [] };
   if (io.semRevisao !== true) {
     passo('revisão: procurando erros no texto…');

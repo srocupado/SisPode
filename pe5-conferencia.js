@@ -97,6 +97,7 @@ function pe5Blocos(doc = {}) {
   for (const x of doc.materia?.origem || []) add('origem', x, ['texto']);
   for (const x of doc.materia?.versoes || []) add('versoes', x, ['original', 'atual', 'efeito']);
   for (const x of doc.materia?.contexto || []) add('contexto', x, ['texto']);
+  for (const x of doc.materia?.historico || []) add('historico', x, ['proposicao', 'o_que_propunha', 'desfecho', 'por_que']);
   for (const c of doc.debate?.controversias || []) {
     add('debate', { texto: [c.questao, c.dispositivos, c.estado, ...(c.favor || []).flatMap(a => [a.argumento, a.evidencia]), ...(c.contra || []).flatMap(a => [a.argumento, a.evidencia])].filter(Boolean).join(' '), ev: c.ev }, ['texto']);
   }
@@ -110,11 +111,14 @@ function pe5Blocos(doc = {}) {
   for (const x of doc.internacional?.limites || []) add('licoes', { texto: x }, ['texto'], false);
   for (const l of doc.analise?.lentes || []) for (const x of l.pontos || []) add('analise', x, ['questao', 'dispositivo', 'exame', 'objecao', 'saida']);
   for (const x of doc.analise?.jurisprudencia || []) add('jurisprudencia', x, ['processo', 'decidiu', 'pertinencia', 'limite']);
+  for (const x of doc.analise?.judicializacao || []) add('judicializacao', x, ['alvo', 'quem', 'fundamento', 'sinal', 'reduz']);
   for (const k of ['fiscal', 'economico', 'implementacao']) for (const x of doc.analise?.impacto?.[k] || []) add('impacto', x, ['texto']);
   for (const x of doc.caminhos?.opcoes || []) add('opcoes', x, ['opcao', 'consequencias']);
   for (const x of doc.caminhos?.emendas || []) add('emendas', x, ['dispositivo', 'problema', 'redacao']);
   for (const x of doc.caminhos?.perguntas || []) add('perguntas', { texto: `${x.pergunta} ${x.por_que}` }, ['texto'], false);
   for (const x of doc.caminhos?.acompanhar || []) add('acompanhar', { texto: x }, ['texto'], false);
+  for (const x of doc.caminhos?.proxima_etapa || []) add('proxima-etapa', x, ['texto']);
+  for (const x of doc.caminhos?.partido?.texto || []) add('partido', x, ['texto']);
   return B;
 }
 
@@ -149,6 +153,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   for (const x of pq.debate?.controversias || []) ids.add(x.id);
   for (const x of pq.internacional?.jurisdicoes || []) ids.add(x.id);
   for (const k of ['jurisprudencia', 'normas', 'dados', 'correlatas', 'documentos_base', 'alcance']) for (const x of pq.contexto?.[k] || []) ids.add(x.id);
+  for (const k of ['historico', 'outra_casa', 'judicializacao']) for (const x of pq.congresso?.[k] || []) ids.add(x.id);
   const semEv = blocos.filter(b => b.exigeEv && !b.ev.length);
   const evFalsa = [...new Set(blocos.flatMap(b => b.ev.filter(e => !ids.has(e))))];
   add('Cada bloco do parecer aponta para a base (documento, pesquisa ou dado do programa)', !semEv.length && !evFalsa.length,
@@ -244,11 +249,35 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   add('Cada entidade da pesquisa tem seu parágrafo, e os dois lados trazem o argumento e o que a evidência diz', !atFalta.length && !ldFalta.length,
     [atFalta.length ? `Na pesquisa e fora de "Quem se posicionou e como": ${atFalta.slice(0, 5).join('; ')}.` : '', ldFalta.length ? `Em "Os dois lados", falta o argumento ou a avaliação de quem ${ldFalta.map(k => k === 'apoia' ? 'apoia' : 'se opõe').join(' e de quem ')}.` : ''].filter(Boolean).join(' ') || (atP.length ? `${atP.length} entidade(s) em ${posD.length} parágrafo(s).` : 'A pesquisa não localizou manifestações.'));
 
+  // --- judicialização: risco, nunca veredicto ---
+  const reDecreta = /(?:^|[^a-zà-ú])(?:[ée]|s[ãa]o|est[áa]|est[ãa]o|seria|mostra-se|revela-se|afigura-se|padece de)\s+(?:[a-zà-ú]+mente\s+)?(?:inconstitucion|v[íi]cio de inconstitucionalidade)|\b(?:viola|violam|ofende|ofendem|afronta|afrontam|fere|ferem)\s+(?:frontalmente\s+|diretamente\s+)?(?:a|o)\s+(?:Constitui[çc][ãa]o|art\.\s*\d+[ºo°]?\s*(?:,[^.]{0,30})?\s*da Constitui[çc][ãa]o)|\binconstitucionalidade\s+(?:flagrante|manifesta|evidente|patente)/i;
+  const decreta = [];
+  for (const b of blocos) for (const f of b.texto.split(/(?<=[.;])\s+/)) if (reDecreta.test(f) && !/\b(?:STF|Supremo|tribunal|decidiu|declarou|julgou|alega|alegam|sustenta|sustentam|afirma|afirmam|segundo|para (?:a|o|os|as)\b|tese|argument|pode(?:m|ria|riam)? ser|questiona)/i.test(f)) decreta.push(`"${f.slice(0, 90)}…" [${b.secao}]`);
+  add('O parecer não decreta inconstitucionalidade (só relata decisão ou alegação de alguém)', !decreta.length, decreta.slice(0, 3).join('; '), true);
+  const sinais = pq.congresso?.judicializacao || [], judD = doc.analise?.judicializacao || [];
+  const sinFora = sinais.filter(l => !judD.some(j => (j.ev || []).includes(l.id))).map(l => l.alvo || l.sinal);
+  const judInc = judD.filter(j => !String(j.alvo || '').trim() || !String(j.fundamento || '').trim() || !String(j.quem || '').trim()).length;
+  add('Risco de judicialização: cada sinal da pesquisa foi examinado, com alvo, legitimado e fundamento', !sinFora.length && !judInc,
+    [sinFora.length ? `Sinal(is) da pesquisa fora da seção: ${sinFora.slice(0, 4).join('; ')}.` : '', judInc ? `${judInc} item(ns) sem alvo, sem quem ou sem fundamento.` : ''].filter(Boolean).join(' ') || (judD.length ? `${judD.length} ponto(s) examinado(s); ${sinais.length} sinal(is) concreto(s) localizado(s) na pesquisa.` : 'Nenhum ponto com perfil de judicialização na análise nem na pesquisa.'));
+
+  // --- o partido e a matéria: o que o texto cita tem de estar nos dados da Câmara ---
+  const Pd = G.partido || {}, partD = doc.caminhos?.partido || {};
+  const rot = s => String(s || '').replace(/\s+/g, ' ').trim().toUpperCase();
+  const projBase = new Set((Pd.projetos || []).map(x => rot(x.rotulo)));
+  const projFalsos = (Array.isArray(partD.projetos) ? partD.projetos : []).filter(r => !projBase.has(rot(r)));
+  const citados = [...new Set((partD.texto || []).flatMap(x => [...String(x.texto || '').matchAll(/\b(PL|PLP|PEC|MPV|PDL)\s*(?:n[ºo.]*\s*)?(\d{1,5})\/(\d{4})\b/g)].map(m => `${m[1]} ${Number(m[2])}/${m[3]}`)))];
+  const conhecidos = new Set([...(Pd.projetos || []).map(x => rot(x.rotulo)), ...(Pd.votacoesCorrelatas || []).map(x => rot(x.rotulo)), ...(pq.contexto?.correlatas || []).map(x => rot(x.proposicao)), ...(pq.congresso?.historico || []).map(x => rot(String(x.proposicao || '').replace(/\s*\(.*$/, ''))), rot(`${G.proposicao?.sigla || ''} ${G.proposicao?.numero || ''}/${G.proposicao?.ano || ''}`)]);
+  const citFalsos = citados.filter(r => !conhecidos.has(rot(r)));
+  const nomesVoto = [...(G.mapa?.podemos?.divergiram || []), ...((G.votacoes || []).flatMap(v => [...(v.bancada?.sim || []), ...(v.bancada?.nao || [])]))];
+  add('O Podemos e a matéria: projetos e votos citados existem nos dados da Câmara', !projFalsos.length && !citFalsos.length,
+    [projFalsos.length ? `Projeto(s) indicado(s) e fora da busca do programa: ${projFalsos.slice(0, 5).join(', ')}.` : '', citFalsos.length ? `Proposição(ões) citada(s) no texto e ausente(s) da base: ${citFalsos.slice(0, 5).join(', ')}.` : ''].filter(Boolean).join(' ')
+      || (G.partido ? `${(Pd.acessorias || []).length} iniciativa(s) de deputado do partido na matéria; ${(Pd.projetos || []).length} projeto(s) localizado(s) por palavra-chave, ${(Array.isArray(partD.projetos) ? partD.projetos : []).length} apontado(s) como do mesmo assunto; ${(Pd.votacoesCorrelatas || []).filter(v => (v.nominais || []).length).length} proposição(ões) correlata(s) com voto nominal.` : 'Dados da atuação da bancada não levantados.'), projFalsos.length + citFalsos.length > 0 && nomesVoto.length >= 0);
+
   // --- fontes ---
   const atores = pq.debate?.atores || [], juris = pq.contexto?.jurisprudencia || [], jur = pq.internacional?.jurisdicoes || [];
   const semData = atores.filter(a => !a.data).map(a => a.ator), semFonte = [...atores, ...juris, ...jur].filter(x => !/^https?:\/\//.test(x.fonte_url || '')).map(x => x.ator || x.processo || x.lugar);
   const usados = new Set(blocos.flatMap(b => b.ev));
-  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
+  const naoUsados = [...juris, ...jur, ...(pq.contexto?.normas || []), ...(pq.contexto?.dados || []), ...(pq.contexto?.correlatas || []), ...(pq.contexto?.documentos_base || []), ...(pq.contexto?.alcance || []), ...(pq.congresso?.historico || []), ...(pq.congresso?.outra_casa || []), ...(pq.congresso?.judicializacao || [])].filter(x => x.id && !usados.has(x.id)).map(x => x.id);
   const todas = [...atores, ...juris, ...jur].filter(x => x.fonte_url);
   const prim = todas.filter(x => PE5_PRIMARIA.test(x.fonte_url) || /prim[áa]ria/i.test(x.fonte_tipo || '')).length;
   const temporarios = todas.filter(x => /vertexaisearch|grounding-api-redirect|googleusercontent/.test(x.fonte_url) && !x.fonte_url_final).length;
@@ -296,6 +325,7 @@ function pe5Conferir(p, { hoje = new Date() } = {}) {
   const sigla = String(G.proposicao?.sigla || p.sigla || '').toUpperCase();
   if (/^(PDL|PRC|PEC|PDC)$/.test(sigla) && blocos.some(b => /\bsan[çc](?:[ãa]o|ionad[oa])\b/i.test(b.texto) && !/san[çc][õo]es|san[çc][ãa]o (?:pecuni|administrativ|por|de multa)/i.test(b.texto))) probT.push(`${sigla} não vai a sanção presidencial, e o texto fala em sanção.`);
   for (const a of G.avisos || []) probT.push(`Dado da Câmara não obtido (${a}).`);
+  if (G.reservaVotacoes) probT.push(`A API da Câmara não entregou as votações; elas foram lidas dos ${G.reservaVotacoes.origem}${G.reservaVotacoes.atualizadoEm ? `, atualizados em ${G.reservaVotacoes.atualizadoEm}` : ''}. Votação posterior a essa data não aparece.`);
   add('Atualidade dos dados de tramitação', !probT.length, probT.join(' '));
 
   const atencao = itens.filter(i => !i.ok);

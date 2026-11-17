@@ -8231,7 +8231,7 @@ async function listarModelosDoProvedor(pid) {
 // geração custou em torno de R$ 10 cada. O parecer foi refeito (pe5-*.js): sete chamadas, três com busca,
 // documentos enviados como texto e uma só vez. O formato novo ainda não foi medido com chave real; por
 // isso o aviso dá uma faixa larga e remete ao consumo REAL, que agora fica gravado em cada parecer.
-const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '7 chamadas ao modelo, três delas com busca na internet', tokens: 'da ordem de R$ 10 por parecer na medição de 17/11/2026' };
+const AVISO_PARECER = { tempo: 'de 10 a 30 minutos', chamadas: '8 chamadas ao modelo, quatro delas com busca na internet', tokens: 'da ordem de R$ 10 por parecer na medição de 17/11/2026' };
 
 /**
  * Diálogo de confirmação do Parecer de Especialista: provedor e modelo,

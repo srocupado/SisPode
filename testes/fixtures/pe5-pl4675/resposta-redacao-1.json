@@ -171,13 +171,6 @@
     "texto": "A lei atual submete ao Cade as fusões e aquisições em que um grupo fatura ao menos R$ 750 milhões no Brasil e o outro ao menos R$ 75 milhões, e pune condutas anticompetitivas depois de apuradas. Foi por esse caminho que o Cade investigou a Apple por restrições a desenvolvedores e firmou com ela um acordo de cessação de conduta. Os críticos do projeto citam esse acordo como prova de que a lei atual funciona; os defensores respondem que esses processos levam anos."
    },
    {
-    "titulo": "Outras propostas sobre o tema",
-    "ev": [
-     "K1"
-    ],
-    "texto": "O PL 2768/2022 trata do mesmo assunto por outro caminho. Seu substitutivo trocou a Anatel pelo Cade como regulador e se aproximou do PL 4675/2025. A relatora, deputada Any Ortiz (PP-RS), é crítica do projeto do governo."
-   },
-   {
     "titulo": "A pressão dos Estados Unidos",
     "ev": [
      "Q15"
@@ -235,6 +228,32 @@
     "ev": [
      "B1",
      "G"
+    ]
+   }
+  ],
+  "historico": [
+   {
+    "proposicao": "PL 2630/2020 (Senado)",
+    "ano": "2020",
+    "o_que_propunha": "Lei Brasileira de Liberdade, Responsabilidade e Transparência na Internet, do senador Alessandro Vieira: regras de transparência e de responsabilidade para redes sociais e serviços de mensagem. Trata de conteúdo das redes, não de concorrência; entra neste quadro porque é o precedente a que os críticos associam o projeto atual, chamado de \"PL da Censura 2.0\" pelo deputado Mario Frias.",
+    "desfecho": "Aprovado no Senado e parado na Câmara.",
+    "por_que": "A Câmara aprovou a urgência em 25/04/2023, por 238 a 192, mas o mérito não foi votado. Em 09/04/2024 o então presidente da Casa, Arthur Lira, anunciou que o texto não iria a voto, por falta de consenso, e que um grupo de trabalho faria nova proposta.",
+    "ev": [
+     "H1",
+     "L2",
+     "G"
+    ]
+   },
+   {
+    "proposicao": "PL 2768/2022 (Câmara)",
+    "ano": "2022",
+    "o_que_propunha": "Do deputado João Maia. Entregava à Anatel a regulação das plataformas com \"poder de controle de acesso essencial\" e criava um fundo de fiscalização custeado por taxa anual. É o concorrente direto do projeto do governo.",
+    "desfecho": "Em tramitação: em 12/11/2026, pronto para pauta na Comissão de Comunicação.",
+    "por_que": "Ficou na Comissão de Desenvolvimento Econômico de 2022 a 2026. Em 13/05/2026 a relatora, deputada Any Ortiz (PP-RS), que é crítica do projeto do governo, apresentou substitutivo que troca a Anatel pelo Cade, retira o fundo e a taxa e cria um rito aberto por representação, com prazo máximo de 245 dias. A comissão aprovou o parecer em 01/07/2026.",
+    "ev": [
+     "H2",
+     "H3",
+     "K1"
     ]
    }
   ]

@@ -229,7 +229,53 @@
      "texto": "Somados os prazos máximos, uma designação leva até 270 dias e o processo de obrigações, até 360 dias, com mais noventa para elas começarem a valer. Se os dois processos correrem em sequência e usarem todo o prazo, as primeiras obrigações só valeriam cerca de dois anos depois de aberta a designação. Os dois podem correr juntos se houver urgência demonstrada."
     }
    ]
-  }
+  },
+  "judicializacao": [
+   {
+    "alvo": "Limite a liminares contra a decisão de designação (art. 87-H, § 2º)",
+    "quem": "O grupo designado, em ação própria; partido político com representação no Congresso ou confederação, em ação direta (art. 103 da Constituição).",
+    "fundamento": "Acesso à Justiça (art. 5º, XXXV, da Constituição): a tese seria a de que a lei não pode restringir a tutela de urgência contra ato administrativo que impõe deveres a uma empresa.",
+    "sinal": "O Instituto dos Advogados Brasileiros, em parecer de 14/05/2026 sobre o texto original, recomendou reavaliar a regra para não restringir em excesso a tutela de urgência. Nenhuma ação foi localizada nas fontes pesquisadas.",
+    "reduz": "Suprimir a remissão à Lei nº 8.437/1992 ou dizer expressamente o que ela acrescenta ao regime já aplicável a atos do poder público.",
+    "ev": [
+     "T3",
+     "L1"
+    ]
+   },
+   {
+    "alvo": "Critérios de designação sem definição legal (art. 47-C, § 2º)",
+    "quem": "O grupo designado, ao contestar a própria designação.",
+    "fundamento": "Legalidade e devido processo (art. 5º, II e LIV, da Constituição): a tese seria a de que \"ecossistema digital\", \"dependência de terceiros\" e \"quantidade significativa de dados\" deixam ao Cade o que caberia à lei definir.",
+    "sinal": "O mesmo parecer vê risco em interpretação ampliativa do artigo. O substitutivo fechou a lista de características e passou a exigir análise conjunta e fundamentada, o que responde a parte da crítica.",
+    "reduz": "Definir os três conceitos na lei.",
+    "ev": [
+     "T6",
+     "L1",
+     "V1"
+    ]
+   },
+   {
+    "alvo": "Criação de órgão e de cargo sem estimativa de impacto (art. 18-A)",
+    "quem": "Partido político com representação no Congresso (art. 103, VIII, da Constituição).",
+    "fundamento": "A tese seria a de falta da estimativa de impacto orçamentário e financeiro que a Constituição exige de proposição que cria despesa obrigatória.",
+    "sinal": "Nenhum sinal localizado nas fontes pesquisadas.",
+    "reduz": "Juntar a estimativa antes da votação.",
+    "ev": [
+     "T1"
+    ]
+   },
+   {
+    "alvo": "O regime como um todo",
+    "quem": "O Partido Novo, que tem legitimidade para ação direta (art. 103, VIII, da Constituição) e publicou texto contra o projeto.",
+    "fundamento": "O partido associa o projeto a censura e à ampliação dos poderes do Estado. O texto lido não contém obrigação sobre conteúdo, o que deixa a tese apoiada na livre iniciativa (art. 170 da Constituição).",
+    "sinal": "Crítica pública registrada em 12/11/2026, sem anúncio de ação judicial.",
+    "reduz": "Não depende de ajuste de redação: é divergência de mérito.",
+    "ev": [
+     "L2",
+     "B3"
+    ]
+   }
+  ]
  },
  "caminhos": {
   "opcoes": [
@@ -365,7 +411,56 @@
    "A apresentação de novo parecer do relator: ele admitiu publicamente que o texto pode mudar.",
    "A posição dos partidos que se dividiram na urgência, sobretudo União, PSD e MDB.",
    "Os desdobramentos da investigação comercial dos Estados Unidos e a reação do governo norte-americano à votação."
-  ]
+  ],
+  "proxima_etapa": [
+   {
+    "texto": "Se aprovado, o projeto segue ao Senado, que atua como Casa revisora; se os senadores alterarem o texto, ele volta à Câmara apenas para o exame das alterações. Nas fontes pesquisadas não foi localizada proposição correlata em tramitação no Senado, nem indicação de comissões ou de relator.",
+    "ev": [
+     "G"
+    ]
+   },
+   {
+    "texto": "O relator, deputado Aliel Machado, disse em 11/08/2026 acreditar na aprovação nas duas Casas ainda em 2026. O Conselho de Comunicação Social do Congresso Nacional, órgão consultivo, aprovou em 05/10/2026 parecer sobre o projeto, a ser encaminhado ao presidente do Senado para orientar os parlamentares; o conteúdo desse parecer não foi lido para este documento.",
+    "ev": [
+     "N1",
+     "N2"
+    ]
+   }
+  ],
+  "partido": {
+   "texto": [
+    {
+     "texto": "Na única votação nominal da matéria em Plenário, a da urgência, em 18/03/2026, a bancada do Podemos deu 14 votos sim e 2 não, dos deputados Rafael Fera e Sargento Portugal. Os dados da Câmara não registram orientação do partido naquela votação.",
+     "ev": [
+      "G"
+     ]
+    },
+    {
+     "texto": "Nenhum deputado do Podemos é autor do projeto, e nenhum apresentou requerimento, emenda ou destaque entre as 21 proposições acessórias registradas na Câmara para esta matéria.",
+     "ev": [
+      "G"
+     ]
+    },
+    {
+     "texto": "A busca por palavra-chave localizou 18 projetos de deputados do partido, todos do deputado Duda Ramos e apresentados em 2026. Três tratam do poder das plataformas sobre quem depende delas, que é o campo do texto em votação: o PL 4411/2026, que exige transparência para conteúdo patrocinado, impulsionamento pago e promoção comercial em ambientes digitais; o PL 4555/2026, que obriga as plataformas a avisar antes de alterar unilateralmente o serviço; e o PL 4371/2026, que cria deveres de diligência e de governança para serviços digitais de relevância econômica. Vão na mesma direção do projeto, a de impor obrigações a grandes serviços digitais, mas por outro instrumento: regra geral de conduta, válida para todos, em vez de designação caso a caso pelo Cade. Os demais tratam de direito do consumidor, pagamentos, compras públicas e serviços ao cidadão.",
+     "ev": [
+      "G"
+     ]
+    },
+    {
+     "texto": "Entre as proposições correlatas, só o PL 2630/2020 teve votação nominal em Plenário: a urgência, em 25/04/2023. O Podemos deu 1 voto sim e 9 não, contra a orientação do bloco de que fazia parte, que era sim. Naquela ocasião a maioria da bancada ficou contra acelerar um projeto sobre plataformas; na urgência do projeto atual, ficou a favor. Os dois textos tratam de assuntos diferentes: aquele, de conteúdo das redes; este, de concorrência. O PL 2768/2022 não teve votação nominal em Plenário.",
+     "ev": [
+      "G",
+      "H1"
+     ]
+    }
+   ],
+   "projetos": [
+    "PL 4411/2026",
+    "PL 4555/2026",
+    "PL 4371/2026"
+   ]
+  }
  },
  "abertura": {
   "frase": "O projeto dá ao Cade o poder de escolher os grupos digitais de maior porte e impor a cada um obrigações de conduta antes de qualquer infração, por até seis anos.",
