@@ -68,6 +68,40 @@ function prefixoTolerante(prefixo) {
     .replace(/Õ/g, '(?:Õ|O)').replace(/Ú/g, '(?:Ú|U)').replace(/Ç/g, '[ÇC]');
 }
 
+/**
+ * Título de item com letras e dígitos SEPARADOS pela geração do PDF.
+ * MEDIDO na pauta de 17/11/2026: o item 2 saiu "P ROJETO DE LEI COMPLEMENTAR Nº 2 99 , DE 20 26". As
+ * regex do leitor toleram espaço em pontos conhecidos ("N º", "5.229 - A"), mas não no meio da palavra
+ * nem do número, e o item sumia (a IA o recuperava, com custo e com um aviso de "tipo não previsto").
+ *
+ * Aqui a linha é comparada SEM espaços com cada tipo conhecido; casando, o título é reescrito na forma
+ * canônica ("PROJETO DE LEI COMPLEMENTAR Nº 299, DE 2026") e o resto da linha fica como está. Só mexe em
+ * linha toda em maiúsculas (título de item da Ordem do Dia) que ainda não casa com o padrão.
+ */
+const _TIPOS_COMPACTOS = TIPOS_PROPOSICAO.slice().sort((a, b) => b.prefixo.length - a.prefixo.length)
+  .map(t => ({ t, re: new RegExp('^' + semAcento(t.prefixo).toUpperCase().replace(/\s+/g, '') + 'N[º°O]?\\.?(\\d[\\d.]*)([-–—][A-Z]{1,3})?,?DE((?:19|20)\\d{2})(?!\\d)') }));
+function consertarTitulosQuebrados(texto) {
+  const t = String(texto || '');
+  if (!/\d/.test(t)) return t;
+  return t.split('\n').map(linha => {
+    if (linha.length > 200 || !/\d/.test(linha)) return linha;
+    if (TIPOS_PROPOSICAO.some(tp => tp.regex.test(linha))) return linha;           // já está no padrão
+    const pos = []; let compacta = '';
+    for (let i = 0; i < linha.length; i++) if (!/\s/.test(linha[i])) { pos.push(i); compacta += linha[i]; }
+    if (/[a-zà-ÿ]/.test(compacta.replace(/N[o]/g, 'N'))) return linha;              // título de item vem em maiúsculas
+    // semAcento troca caractere por caractere (Ç→C, Ã→A): o comprimento não muda e o mapa de posições vale
+    const sem = compacta.split('').map(c => semAcento(c) || c).join('').toUpperCase();
+    if (sem.length !== compacta.length) return linha;
+    for (const { t: tp, re } of _TIPOS_COMPACTOS) {
+      const m = re.exec(sem);
+      if (!m) continue;
+      const fim = pos[m[0].length - 1] + 1;
+      return `${tp.prefixo} Nº ${m[1]}${m[2] ? m[2].replace(/[–—]/, '-') : ''}, DE ${m[3]}${linha.slice(fim)}`;
+    }
+    return linha;
+  }).join('\n');
+}
+
 // pdf.js worker (só na extensão; no Node o bot fornece pdfjsLib sem chrome)
 if (typeof pdfjsLib !== 'undefined' && typeof chrome !== 'undefined') {
   pdfjsLib.GlobalWorkerOptions.workerSrc = chrome.runtime.getURL('libs/pdf.worker.min.js');
@@ -105,6 +139,7 @@ async function extrairTextoPdf(arrayBuffer) {
 //  PARSER DA PAUTA
 // ============================================================
 function parsearPauta(texto) {
+  texto = consertarTitulosQuebrados(texto);
   // Detecta o formato do PDF:
   //  - "compacto": dashboard da Liderança — "1 REQ 1180/2026", "9 PL 1625/2026"
   //  - "extenso": pauta oficial da Câmara — "PROJETO DE LEI Nº X, DE AAAA"
@@ -895,7 +930,10 @@ function diagnosticarLacuna(trecho, n) {
     const m = semAc.match(/^(.+?)\s+N\s*[º°O]?\.?\s*[\d.]+/);
     const tipo = (m ? m[1] : semAc.split(/\s+N\s*[º°O]|,|\(/)[0]).trim();
     const conhecido = TIPOS_PROPOSICAO.some(t => semAcento(t.prefixo).toUpperCase() === tipo);
-    motivo = !conhecido ? `tipo de proposição não previsto: "${titulo.split(/\s+N\s*[º°o]/i)[0].trim()}" — o leitor conhece ${TIPOS_PROPOSICAO.map(t => t.prefixo.toLowerCase()).join(', ')}`
+    // O tipo é conhecido, mas veio com as letras separadas ("P ROJETO DE LEI…"): o defeito é da geração do PDF.
+    const quebrado = !conhecido && TIPOS_PROPOSICAO.some(t => semAcento(t.prefixo).toUpperCase().replace(/\s+/g, '') === tipo.replace(/\s+/g, ''));
+    motivo = quebrado ? 'o título veio com letras ou números separados por espaços na geração do PDF (o tipo é conhecido; o leitor não conseguiu juntar as partes)'
+      : !conhecido ? `tipo de proposição não previsto: "${titulo.split(/\s+N\s*[º°o]/i)[0].trim()}" — o leitor conhece ${TIPOS_PROPOSICAO.map(t => t.prefixo.toLowerCase()).join(', ')}`
       : !/N\s*[º°O]?\.?\s*[\d.]+/.test(semAc) ? 'o número da proposição não vem como "Nº X"'
       : /N\s*[º°O]?\.?\s*[\d.]+\s*\/\s*\d{4}/.test(semAc) && !/,?\s*DE\s+\d{4}/.test(semAc) ? 'o número veio como "Nº X/AAAA" — o padrão é "TIPO Nº X, DE AAAA"'
       : !/,?\s*DE\s+\d{4}/.test(semAc) ? 'o ano não vem como ", DE AAAA"'
@@ -1060,7 +1098,11 @@ async function recuperarLacunasPauta(lac, { chamarIA, confirmar }) {
     const ref = it.numero === 's/nº' ? it.projetoUrgenciado : it;
     let ok = false;
     try { ok = await confirmar(ref); } catch (_) { ok = false; }
-    if (ok) recuperados.push(it);
+    // 'sem-registro': a Câmara RESPONDEU e não tem a proposição (matéria que ainda está no Senado, ou
+    // requerimento ainda não autuado). O número já foi conferido no texto da pauta; o item entra como
+    // provisório ("aguardando registro na Câmara") em vez de ficar de fora. Caso do PLP 299/2026, 17/11/2026.
+    if (ok === 'sem-registro') { it.provisorio = { desde: new Date().toISOString(), motivo: 'sem registro na Câmara' }; recuperados.push(it); }
+    else if (ok) recuperados.push(it);
     else pendentes.push({ ordem: it.ordem, motivo: 'a Câmara não confirmou a proposição lida', lido: `${it.sigla} ${it.numero}/${it.ano}`, noTexto: true });
   }
   pendentes.sort((a, b) => a.ordem - b.ordem);
@@ -1073,5 +1115,5 @@ async function recuperarLacunasPauta(lac, { chamarIA, confirmar }) {
 // ============================================================
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { parsearPauta, extrairTextoPdf, extrairSessao, TIPOS_PROPOSICAO, limpaNumero, detectarLacunasPauta, ancorasItensPauta,
-    promptLacunasPauta, itensDaRespostaLacunas, recuperarLacunasPauta, numeroNoTrecho, diagnosticarLacuna };
+    promptLacunasPauta, itensDaRespostaLacunas, recuperarLacunasPauta, numeroNoTrecho, diagnosticarLacuna, consertarTitulosQuebrados };
 }

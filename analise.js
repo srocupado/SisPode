@@ -79,6 +79,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   document.getElementById('btn-apelidos').addEventListener('click', copiarApelidos);
   document.getElementById('btn-parar-todas').addEventListener('click', pararTodasAnalises);
   document.getElementById('btn-confirmar-adicionar').addEventListener('click', confirmarAdicionar);
+  document.getElementById('btn-salvar-detalhes').addEventListener('click', salvarDetalhesItem);
   document.getElementById('btn-confirmar-vincular').addEventListener('click', confirmarVincular);
   document.getElementById('btn-recategorizar').addEventListener('click', abrirRecategorizar);
   document.getElementById('btn-reverificar-falhas').addEventListener('click', reverificarFalhas);
@@ -334,7 +335,8 @@ async function recuperarLacunasImportacao(texto, parsed) {
         prompt, pdfBuffers: [], opcoes: { maxSaida: 6000 },
       })).text,
       // requerimento homônimo (vários com o mesmo número) existe: a ambiguidade não é "a Câmara não confirmou"
-      confirmar: async ref => { try { await resolveProposicao(ref.sigla, ref.numero, ref.ano); return true; } catch (e) { return !!e.ambiguo; } },
+      // 'sem-registro': a Câmara respondeu e não tem a proposição — o item entra como provisório (pauta-parser.js)
+      confirmar: async ref => { try { await resolveProposicao(ref.sigla, ref.numero, ref.ano); return true; } catch (e) { return e.ambiguo ? true : e.naoEncontrada ? 'sem-registro' : false; } },
     });
   }
   // Não duplica proposição que o leitor já trouxe em outro número.
@@ -385,9 +387,13 @@ function atualizarAvisoLacunas() {
     const d = L.diagnosticos?.[n];
     return d ? `<div style="margin:2px 0 4px 18px;font-size:11.5px;color:var(--text-dim)">Publicado como <i>“${escapeHtml(d.titulo)}”</i><br>Motivo provável: ${escapeHtml(d.motivo)}.</div>` : '';
   };
-  if (recup.length) {
-    partes.push(`🤖 <b>${recup.length > 1 ? 'Itens' : 'Item'} ${lista(recup)}</b> não ${recup.length > 1 ? 'foram reconhecidos' : 'foi reconhecido'} pelo leitor da pauta e ${recup.length > 1 ? 'foram lidos' : 'foi lido'} pela IA — confirmado${recup.length > 1 ? 's' : ''} na Câmara. Confira.` +
-      recup.map(n => L.diagnosticos?.[n] ? `<div style="margin-left:18px;font-size:11.5px"><b>Item ${n}</b></div>${porque(n)}` : '').join(''));
+  // Lidos pela IA e ainda sem registro na Câmara entram como provisórios: o aviso diz isso, e não "confirmado".
+  const provis = new Set((state.pauta?.itens || []).filter(i => i.provisorio).map(i => i.ordem));
+  for (const [grupo, fim] of [[recup.filter(n => !provis.has(n)), g => `confirmado${g.length > 1 ? 's' : ''} na Câmara. Confira.`],
+                              [recup.filter(n => provis.has(n)), g => `a Câmara ainda não registrou ${g.length > 1 ? 'as proposições' : 'a proposição'}: ${g.length > 1 ? 'entraram' : 'entrou'} como "aguardando registro" (veja o card).`]]) {
+    if (!grupo.length) continue;
+    partes.push(`🤖 <b>${grupo.length > 1 ? 'Itens' : 'Item'} ${lista(grupo)}</b> não ${grupo.length > 1 ? 'foram reconhecidos' : 'foi reconhecido'} pelo leitor da pauta e ${grupo.length > 1 ? 'foram lidos' : 'foi lido'} pela IA — ${fim(grupo)}` +
+      grupo.map(n => L.diagnosticos?.[n] ? `<div style="margin-left:18px;font-size:11.5px"><b>Item ${n}</b></div>${porque(n)}` : '').join(''));
   }
   for (const p of pend) {
     partes.push(`⚠ <b>Item ${p.ordem}</b> não entrou na pauta: ${escapeHtml(p.motivo)}${p.lido ? ` (a IA leu <b>${escapeHtml(p.lido)}</b>)` : ''}. ` +
@@ -705,9 +711,10 @@ function renderCard(it) {
         <div class="an-badges" data-rolebadges>
           ${it.temUrgencia ? `<span class="an-badge an-badge--urg">Urgência aprovada</span>` : ''}
           ${it.urgenciaCondicional ? `<span class="an-badge an-badge--neutro" title="A pauta diz &quot;SE APROVADO O REQUERIMENTO DE URGÊNCIA&quot;: a urgência ainda depende da aprovação desse requerimento">Urgência pendente de aprovação</span>` : ''}
-          ${it.origemIA ? `<span class="an-badge an-badge--neutro" title="O leitor da pauta não reconheceu este item; ele foi lido pela IA no texto da pauta e confirmado na Câmara. Confira número e categoria.">🤖 Lido pela IA</span>` : ''}
+          ${it.origemIA ? `<span class="an-badge an-badge--neutro" title="O leitor da pauta não reconheceu este item; ele foi lido pela IA no texto da pauta${it.provisorio ? ', mas a Câmara ainda não registrou a proposição' : ' e confirmado na Câmara'}. Confira número e categoria.">🤖 Lido pela IA</span>` : ''}
           <span class="an-badge an-badge--neutro" data-role="autoria-flag">Verificando autoria...</span>
         </div>
+        <div class="an-prov" data-role="prov-linha" style="display:none"></div>
       </div>
     </div>
     <div class="an-card-actions">
@@ -913,6 +920,7 @@ function renderCard(it) {
     card.classList.toggle('sel-on', selPdf.checked);
     atualizarSelecaoPdf();
   });
+  atualizarProvisorioCard(it, card);
   return card;
 }
 
@@ -1129,6 +1137,134 @@ function htmlLinhaUrgencia(it) {
   return `<b>${rot} </b> ${escapeHtml(rotuloAlvo(a))}${fonte}${div}${linhaRec}`;
 }
 
+// ============================================================
+//  ITEM PROVISÓRIO: proposição que a Câmara ainda não registrou (senado-materia.js)
+//  Caso do PLP 299/2026, em 17/11/2026: estava na pauta do Plenário antes de o Senado terminar de
+//  votá-lo. O item entra na pauta como "aguardando registro na Câmara", com o que o Senado souber
+//  (ementa, autor, situação, documentos); a análise usa os documentos do Senado; e o vínculo com a
+//  Câmara é feito sozinho quando o registro aparecer (a cada carga da pauta, a cada 10 minutos com o
+//  painel aberto, e no botão "Verificar registro").
+// ============================================================
+/** A Câmara respondeu e não tem a proposição: marca o item e consulta o Senado. */
+async function tratarSemRegistro(it, alvo) {
+  const antes = it.provisorio || null;
+  const prov = { desde: antes?.desde || new Date().toISOString(), motivo: 'sem registro na Câmara', alvo: `${tipoLabel(alvo.sigla)} ${alvo.numero}/${alvo.ano}`, verificadoEm: new Date().toISOString() };
+  if (senadoTemSigla(alvo.sigla)) {
+    try { const sen = await senadoBuscar(alvo, fetchJson); if (sen) prov.senado = sen; }
+    catch (e) { if (isAbortError(e)) throw e; prov.senadoErro = e.message; if (antes?.senado) prov.senado = antes.senado; }
+  } else prov.semSenado = true;   // PRC, MSC, REQ, REC: não há o que consultar no Senado
+  if (!itemAindaAtivo(it)) return;
+  const ehReq = it.tipoCategoria === 'requerimento';
+  if (prov.senado) {
+    // Mesmo número não é garantia absoluta: se a ementa da pauta nada tem a ver com a do Senado, avisa.
+    const cmp = senadoMesmaMateria(ehReq ? '' : it.ementa, prov.senado.ementa);
+    if (!cmp.indefinido && !cmp.parecida) prov.conferir = true;
+    // Completa o que a pauta não trouxe. O que foi digitado à mão não é tocado.
+    if (!it.detalhesManuais) {
+      if (ehReq) { if (it.projetoUrgenciado && !it.projetoUrgenciado.ementa) it.projetoUrgenciado.ementa = prov.senado.ementa; }
+      else { if (!it.ementa) it.ementa = prov.senado.ementa; if (!it.autorTexto && prov.senado.autor) it.autorTexto = prov.senado.autor; }
+    }
+  }
+  const resumo = p => p ? [p.senado?.situacao, p.senado?.ultimoAndamento?.texto, (p.senado?.documentos || []).map(d => d.url).join('|'), !!p.conferir, !!p.senadoErro].join('§') : null;
+  const mudou = resumo(antes) !== resumo(prov);
+  it.provisorio = prov;
+  it.enriquecimento = { status: 'ok', semRegistro: true };
+  atualizarBadgesCard(it);
+  if (mudou) marcarSujo();
+  if (!antes) mostrarToast(`⏳ ${prov.alvo}: a Câmara ainda não registrou a proposição — item marcado como "aguardando registro"${prov.senado ? '; dados e documentos lidos no Senado' : '; edite os detalhes à mão e anexe o documento, ou aguarde o registro'}.`, 'aviso');
+}
+
+/** A proposição apareceu na Câmara: desfaz o estado provisório, sem perder a análise já feita. */
+function vincularRegistroCamara(it) {
+  const prov = it.provisorio;
+  if (!prov) return;
+  delete it.provisorio;
+  // Nota feita com documentos do Senado: fica marcada para conferência, porque o texto pode ter mudado.
+  if (it.analise?.docsDoSenado) it.desatualizacao = { novos: [{ rotulo: 'registro da matéria na Câmara (a nota foi feita com documentos do Senado)', data: new Date().toISOString().slice(0, 10) }] };
+  atualizarProvisorioCard(it);
+  marcarSujo();
+  mostrarToast(`✓ ${prov.alvo || `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`} foi registrado na Câmara — vínculo feito${it.analise?.docsDoSenado ? '; confira a nota, feita com documentos do Senado' : ''}.`, 'sucesso');
+}
+
+/** Linha do card do item provisório: o aviso, a situação no Senado e os botões. */
+function atualizarProvisorioCard(it, card) {
+  card = card || document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  const el = card?.querySelector('[data-role=prov-linha]');
+  if (!el) return;
+  const prov = it.provisorio;
+  if (!prov) { el.style.display = 'none'; el.innerHTML = ''; return; }
+  const id = prov.alvo || `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`;
+  const sen = prov.senado;
+  el.innerHTML = `<div>⏳ <b>${escapeHtml(PROVISORIO_ROTULO)}.</b> ${escapeHtml(provisorioAviso(prov, id))}</div>` +
+    (sen ? `<div style="margin-top:3px">${escapeHtml(senadoResumo(sen))}${sen.url ? ` · <a href="${escapeHtml(sen.url)}" target="_blank" rel="noopener">ver no Senado ↗</a>` : ''}</div>` : '') +
+    (prov.conferir ? '<div style="margin-top:3px;color:#ffcc66">⚠ A ementa do Senado não se parece com a da pauta: confira se é a mesma matéria antes de usar os documentos.</div>' : '') +
+    `<div style="margin-top:5px;display:flex;gap:6px;flex-wrap:wrap">
+      <button class="btn btn-outline btn-sm" data-role="btn-prov-editar" title="Corrigir ou completar à mão a ementa, o autor e o relator deste item">✎ Editar detalhes</button>
+      <button class="btn btn-outline btn-sm" data-role="btn-prov-verificar" title="Consulta de novo a Câmara e o Senado. O vínculo com a Câmara também é tentado sozinho, a cada 10 minutos e ao abrir a pauta.">↻ Verificar registro</button>
+    </div>`;
+  el.style.display = '';
+  // ementa e autor podem ter sido completados pelo Senado
+  const em = card.querySelector('.an-card-ementa'); if (em && it.ementa) em.textContent = it.ementa;
+  const al = card.querySelector('[data-role=autor-linha]'); if (al && it.autorTexto) al.innerHTML = `<b>Autor:</b> ${htmlAutorRealcado(it)}`;
+  el.querySelector('[data-role=btn-prov-editar]').addEventListener('click', () => abrirDetalhesItem(it));
+  el.querySelector('[data-role=btn-prov-verificar]').addEventListener('click', async ev => {
+    const b = ev.currentTarget; b.disabled = true; b.textContent = '… verificando';
+    try {
+      await enriquecerItem(it);
+      if (it.provisorio) mostrarToast(`${id}: ainda sem registro na Câmara${it.provisorio.senado ? '; dados do Senado atualizados' : ''}.`, 'info');
+    } catch (e) { if (!isAbortError(e)) mostrarToast(`Não consegui verificar ${id}: ${e.message}`, 'erro'); }
+    // o botão é redesenhado por atualizarProvisorioCard; se o item deixou de ser provisório, a linha some
+  });
+}
+
+/** Editar à mão ementa, autor e relator do item (para o que a Câmara ainda não registrou). */
+let _detItem = null;
+function abrirDetalhesItem(it) {
+  _detItem = it;
+  document.getElementById('det-alvo').textContent = `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}${it.ordem ? ` — item ${it.ordem}` : ''}`;
+  document.getElementById('det-ementa').value = it.ementa || '';
+  document.getElementById('det-autor').value = it.autorTexto || '';
+  document.getElementById('det-relator').value = it.relator ? textoRelator(it.relator, true) : '';
+  document.getElementById('modal-detalhes-item').style.display = 'flex';
+}
+function salvarDetalhesItem() {
+  const it = _detItem; if (!it) return;
+  it.ementa = document.getElementById('det-ementa').value.replace(/\s+/g, ' ').trim().slice(0, 1200);
+  it.autorTexto = document.getElementById('det-autor').value.replace(/\s+/g, ' ').trim().slice(0, 200);
+  const rel = document.getElementById('det-relator').value.replace(/\s+/g, ' ').trim().slice(0, 160);
+  // só troca o relator se o campo mudou: reescrever "Dep. Fulano (PARTIDO-UF)" como nome perderia partido e UF
+  if (rel !== (it.relator ? textoRelator(it.relator, true) : '')) it.relator = normalizarRelator(rel);
+  it.detalhesManuais = true;   // a consulta ao Senado não sobrescreve o que foi digitado
+  document.getElementById('modal-detalhes-item').style.display = 'none';
+  const card = document.querySelector(`.an-card[data-chave="${it.chave}"]`);
+  if (card) { card.replaceWith(renderCard(it)); atualizarBadgesCard(it); if (it.analise) renderAnaliseCard(it); }
+  marcarSujo();
+  mostrarToast('Detalhes do item salvos.', 'sucesso');
+}
+
+// Com o painel aberto, tenta o vínculo com a Câmara a cada 10 minutos (e atualiza a situação no Senado).
+if (typeof setInterval === 'function') {
+  const _tProv = setInterval(() => {
+    if (typeof state === 'undefined' || !state.pauta) return;
+    for (const it of state.pauta.itens) if (it.provisorio && it.enriquecimento?.status !== 'carregando') enriquecerItem(it).catch(() => {});
+  }, 10 * 60 * 1000);
+  if (_tProv && _tProv.unref) _tProv.unref();
+}
+
+/** Selo "pode estar desatualizada" (resultado de "Verificar atualização", ou do vínculo de um item provisório). */
+function _seloDesatualizada(it, cont) {
+  const desat = it.desatualizacao;
+  if (!desat?.novos?.length) return;
+  const badge = document.createElement('span');
+  badge.className = 'an-badge an-badge--desatual';
+  badge.dataset.role = 'badge-extra';
+  badge.title = 'Documento(s) mais recente(s) na tramitação: ' +
+    desat.novos.map(n => `${n.rotulo}${n.data ? ' de ' + n.data.split('-').reverse().join('/') : ''}`).join('; ') +
+    '. Considere regerar a análise.';
+  badge.textContent = '⚠ Pode estar desatualizada';
+  cont.appendChild(badge);
+}
+
 async function enriquecerItem(it) {
   if (!itemAindaAtivo(it)) return;
   it.enriquecimento = { status: 'carregando' };
@@ -1165,6 +1301,7 @@ async function enriquecerItem(it) {
     prop = await resolveProposicao(alvo.sigla, alvo.numero, alvo.ano);
     it.enriquecimento.idProposicao = prop.id;
     it.enriquecimento.urlInteiroTeor = prop.urlInteiroTeor;
+    if (it.provisorio) vincularRegistroCamara(it);   // estava aguardando registro: a Câmara agora tem a proposição
     // ementa detalhada e indexação da Câmara (só pela API; pelo portal ficam por buscar — contextoApelido)
     if (prop.ementaDetalhada != null) { it.enriquecimento.ementaDetalhada = prop.ementaDetalhada; it.enriquecimento.indexacao = prop.indexacao || ''; }
     // Para requerimento de urgência, guarda a ementa do PROJETO-ALVO no
@@ -1214,6 +1351,8 @@ async function enriquecerItem(it) {
       it.enriquecimento.apensadosFalha = e.message;
     }
   } catch (e) {
+    // A Câmara respondeu e não tem a proposição: o item fica provisório, com o que o Senado souber dela.
+    if (e.naoEncontrada && etapa === 'resolveProposicao') { await tratarSemRegistro(it, alvo); return; }
     // Anexa a etapa e a proposição-alvo à mensagem, sem perder o stack original.
     e.message = `[${etapa}] ${alvo.sigla} ${alvo.numero}/${alvo.ano}: ${e.message}`;
     throw e;
@@ -1336,7 +1475,9 @@ async function resolveProposicao(sigla, numero, ano) {
       }
       if (hit) break;
     }
-    if (!hit) throw new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`);
+    // naoEncontrada: a API RESPONDEU e não tem a proposição (diferente de API fora do ar) — é o que permite
+    // tratar o item como "aguardando registro na Câmara" em vez de erro.
+    if (!hit) throw Object.assign(new Error(`Proposição ${sigla} ${numero}/${ano} não encontrada na API.`), { naoEncontrada: true });
     // Busca detalhe para pegar urlInteiroTeor e a ementa (usada no apelido do alvo)
     det = await fetchJson(`${API_BASE}/proposicoes/${hit.id}`);
   } catch (e) {
@@ -2290,6 +2431,16 @@ function atualizarBadgesCard(it) {
     flag.textContent = enr?.status === 'carregando' ? 'Verificando autoria...' : 'Aguardando verificação';
     return;
   }
+  // Proposição que a Câmara ainda não registrou: não há autoria nem apensados a apurar lá.
+  if (it.provisorio) {
+    flag.className = 'an-badge an-badge--desatual';
+    flag.textContent = '⏳ ' + PROVISORIO_ROTULO;
+    flag.title = provisorioAviso(it.provisorio, it.provisorio.alvo);
+    atualizarProvisorioCard(it, card);
+    _seloDesatualizada(it, cont);
+    return;
+  }
+  atualizarProvisorioCard(it, card);   // deixou de ser provisório: a linha some
   if (enr.status === 'erro') {
     flag.className = 'an-badge an-badge--neutro';
     flag.textContent = 'Autoria: não verificada';
@@ -2366,17 +2517,7 @@ function atualizarBadgesCard(it) {
 
   // Badge de nota possivelmente desatualizada: só aparece após o analista rodar
   // "Verificar atualizações" (sob demanda) — o resultado fica em it.desatualizacao.
-  const desat = it.desatualizacao;
-  if (desat?.novos?.length) {
-    const badge = document.createElement('span');
-    badge.className = 'an-badge an-badge--desatual';
-    badge.dataset.role = 'badge-extra';
-    badge.title = 'Documento(s) mais recente(s) na tramitação: ' +
-      desat.novos.map(n => `${n.rotulo}${n.data ? ' de ' + n.data.split('-').reverse().join('/') : ''}`).join('; ') +
-      '. Considere regerar a análise.';
-    badge.textContent = '⚠ Pode estar desatualizada';
-    cont.appendChild(badge);
-  }
+  _seloDesatualizada(it, cont);
 }
 
 // ============================================================
@@ -2955,6 +3096,9 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
     const docs = opts.docsAnalista ? await documentosComAnalista(it, { docs: opts.docsAnalista, somarCamara: opts.somarCamara }) : await escolherDocumentos(it);
     const comAnalista = docs.some(d => d.doAnalista);
     if (comAnalista) instrucoesExtra = [docanInstrucao(docs, { naCamara: !!it.enriquecimento?.idProposicao, identificacao: `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}` }), instrucoesExtra].filter(x => x && x.trim()).join('\n\n');
+    // Documentos do Senado (matéria ainda sem registro na Câmara): a nota tem de dizer de onde vêm e que o texto pode mudar.
+    const doSenado = !comAnalista && docs.some(d => d.doSenado);
+    if (doSenado) instrucoesExtra = [senadoInstrucao(it.provisorio?.senado, it.provisorio?.alvo || `${tipoLabel(it.sigla)} ${it.numero}/${it.ano}`), instrucoesExtra].filter(x => x && x.trim()).join('\n\n');
     if (!docs.length && ehMPV(it)) {
       // Nem Câmara nem Senado entregaram documento algum da MPV: declara os
       // motivos e abre a edição livre (Cenário 8) em vez de fingir análise.
@@ -2966,7 +3110,12 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       it.analiseStatus = 'sem_analise';
       return iniciarAnaliseLivreMPV(it);
     }
-    if (!docs.length) { const e = new Error('A Câmara ainda não tem documento desta matéria (parecer ou inteiro teor).'); e.semDocumento = true; throw e; }
+    if (!docs.length) {
+      const e = new Error(it.provisorio
+        ? `A Câmara ainda não tem registro de ${it.provisorio.alvo || 'esta proposição'}${it.provisorio.senado ? ', e o Senado não tem documento dela que sirva à análise' : it.provisorio.senadoErro ? ', e a consulta ao Senado falhou' : it.provisorio.semSenado ? ', e este tipo de proposição não tramita no Senado' : ', e o Senado também não'}.`
+        : 'A Câmara ainda não tem documento desta matéria (parecer ou inteiro teor).');
+      e.semDocumento = true; throw e;
+    }
 
     // Requerimento de urgência e o projeto que ele urgencia costumam cair na
     // MESMA análise: o requerimento é sempre analisado sobre o inteiro teor do
@@ -3078,7 +3227,8 @@ async function gerarAnaliseItem(it, forcar = false, opts = {}) {
       modelo:      state.config.modelo,
       documentos:  comAnalista ? docanMetadados(docs) : docs.map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url })),
       ...(comAnalista ? { docsDoAnalista: true, somouCamara: docs.some(d => !d.doAnalista) } : {}),
-      cenario:     comAnalista ? docanCenario(docs) : it.tipoCategoria === 'projeto' ? classificarCenario(docs)
+      ...(doSenado ? { docsDoSenado: true } : {}),
+      cenario:     comAnalista ? docanCenario(docs) : doSenado ? SENADO_CENARIO : it.tipoCategoria === 'projeto' ? classificarCenario(docs)
         : it.sigla === 'REC' ? `Recurso — CCJC: ${rotuloVotoCCJC(it.enriquecimento?.recurso) || 'sem parecer'}` : '',
       apelido:     apelido || it.apelido || '',
       apensadosStatus: extrairStatusAcolhimento(markdown),
@@ -3336,6 +3486,12 @@ async function escolherDocumentos(it) {
         if (!enr.urlInteiroTeor) enr.urlInteiroTeor = prop.urlInteiroTeor;
       } catch (e) { if (isAbortError(e)) throw e; console.warn('Id da proposição não resolvido ao gerar:', e.message); }
     }
+  }
+
+  // Matéria que a Câmara ainda não registrou: os documentos são os do Senado (senado-materia.js). Sem
+  // eles, a lista vai vazia e a geração oferece anexar o documento ou escrever a nota à mão.
+  if (!enr.idProposicao && it.provisorio) {
+    return (it.provisorio.senado?.documentos || []).map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url, data: d.data, doSenado: true }));
   }
 
   if (it.tipoCategoria === 'projeto') {
@@ -5160,6 +5316,20 @@ function toggleGerarTodas() {
 async function verificarAtualizacaoItem(it) {
   // Análise sobre documento entregue pelo(a) analista não tem o que comparar na Câmara.
   if (it.tipoCategoria !== 'projeto' || !it.analise?.documentos || it.analise.docsDoAnalista) return null;
+  // Nota feita com documentos do Senado e matéria ainda sem registro: reconsulta (o que também tenta o
+  // vínculo com a Câmara) e compara com os documentos que o Senado tem agora.
+  if (it.provisorio && it.analise.docsDoSenado) {
+    await enriquecerItem(it).catch(() => {});
+    if (it.provisorio) {
+      const salvas = new Set(it.analise.documentos.map(d => d.url));
+      const novos = (it.provisorio.senado?.documentos || []).filter(d => d.url && !salvas.has(d.url)).map(d => ({ tipo: d.tipo, rotulo: d.rotulo, url: d.url, data: d.data }));
+      const desatSen = { novos };
+      if (it.provisorio.senadoErro && !novos.length) desatSen.inconclusa = true;
+      it.desatualizacao = desatSen;
+      atualizarBadgesCard(it);
+      return desatSen;
+    }
+  }
   const enr = it.enriquecimento || (it.enriquecimento = {});
 
   // RECONSULTA A FONTE antes de comparar. Até 12/08/2026 esta função comparava
@@ -5210,6 +5380,9 @@ async function verificarAtualizacaoItem(it) {
   // Fonte fora do ar e nada novo no cache: o resultado é INCONCLUSIVO — dizer
   // "em dia" sem ter olhado a fonte foi exatamente o defeito original.
   if (fonteIndisponivel && !desat.novos.length) desat.inconclusa = true;
+  // A nota foi feita com documentos do Senado e a matéria já está registrada na Câmara: mesmo sem parecer
+  // novo lá, o texto pode ter mudado no caminho — a nota segue marcada para conferência.
+  if (it.analise.docsDoSenado && !it.provisorio && !desat.novos.length && !desat.inconclusa) desat.novos = [{ rotulo: 'registro da matéria na Câmara (a nota foi feita com documentos do Senado)', data: '' }];
   it.desatualizacao = desat;
   atualizarBadgesCard(it);
   return desat;
@@ -5634,6 +5807,9 @@ async function _fbSalvarPautaExec(pauta) {
           projetoUrgenciado: it.projetoUrgenciado || null,
           vinculo: it.vinculo || null,
           origemIA: it.origemIA || null,
+          // Aguardando registro na Câmara (com o que o Senado informou) e detalhes digitados à mão.
+          provisorio: it.provisorio || null,
+          detalhesManuais: it.detalhesManuais || null,
           // Digitados no card: sem eles aqui, o responsável e o apelido preenchidos ANTES de a nota
           // existir sumiam ao recarregar, com o indicador dizendo "Sincronizado" (revisão de 11/11/2026).
           // O apelido só vai quando foi digitado: o de reserva (da ementa) é cache da sessão, e gravado
@@ -7903,7 +8079,10 @@ async function confirmarAdicionar() {
   try {
     // REQ com homônimos (o mesmo número em vários órgãos): entra sem ementa — o projeto da urgência
     // vem do campo ao lado ou do "Vincular projeto", não da ementa de um requerimento qualquer.
-    const prop = await resolveProposicao(sigla, numero, ano).catch(e => { if (e.ambiguo) return null; throw e; });
+    // Proposição que a Câmara ainda não registrou (matéria ainda no Senado) entra do mesmo jeito: o
+    // enriquecimento a marca como "aguardando registro" e busca os dados no Senado (tratarSemRegistro).
+    let semRegistro = false;
+    const prop = await resolveProposicao(sigla, numero, ano).catch(e => { if (e.ambiguo) return null; if (e.naoEncontrada) { semRegistro = true; return null; } throw e; });
     // Detalhe para ementa e autor
     const det  = prop ? await fetchJson(`${API_BASE}/proposicoes/${prop.id}`) : { dados: {} };
     const dados = det.dados || {};
@@ -7956,6 +8135,7 @@ async function confirmarAdicionar() {
     document.getElementById('modal-adicionar').style.display = 'none';
     const alvo = novo.projetoUrgenciado;
     mostrarToast(`✓ ${ehRF ? 'Redação Final do ' : ''}${tipoLabel(sigla)} ${numero}/${ano} adicionad${ehRF ? 'a' : 'o'} à pauta` +
+      (semRegistro ? ' — a Câmara ainda não registrou esta proposição: o item entrou como "aguardando registro"' : '') +
       (ehReq ? (alvo ? ` — urgência do ${alvo.sigla} ${alvo.numero}/${alvo.ano}`
                      : ' — projeto da urgência não identificado; use "Vincular projeto" no card') : ''),
       ehReq && !alvo ? 'aviso' : 'sucesso');
@@ -8526,7 +8706,7 @@ async function gerarParecerEspecialista(it) {
       catch (err) { console.warn('Parecer: emenda não baixada', e.rotulo, err.message); }
     }
     const processo = {
-      cenario: docsMeta.some(d => d.doAnalista) ? docanCenario(docsMeta) : it.tipoCategoria === 'projeto' ? classificarCenario(docsMeta) : '',
+      cenario: docsMeta.some(d => d.doAnalista) ? docanCenario(docsMeta) : docsMeta.some(d => d.doSenado) ? SENADO_CENARIO : it.tipoCategoria === 'projeto' ? classificarCenario(docsMeta) : '',
       textoEmVotacao: docsMeta[0]?.rotulo || '',
       relator: rel && rel.nome ? { nome: rel.nome, partido: rel.partido || '', uf: rel.uf || '', data: rel.data || '' } : null,
       documentos: docs.map(d => ({ rotulo: d.rotulo })),

@@ -216,6 +216,10 @@
 .an-badge--interesse { background: rgba(155,110,255,.20); color: #c3a6ff; border: 1px solid rgba(155,110,255,.45); }
 .an-badge--rel    { background: rgba(96,165,250,.22); color: #9ecbff; border: 1px solid rgba(96,165,250,.5); }
 .an-badge--desatual { background: rgba(214,138,0,.22); color: #ffcc66; border: 1px solid rgba(214,138,0,.55); cursor: help; }
+/* Item que a Câmara ainda não registrou: aviso, situação no Senado e botões (analise.js, atualizarProvisorioCard) */
+.an-prov { margin-top: 6px; padding: 7px 10px; font-size: 12px; line-height: 1.45; color: var(--text-dim); background: rgba(214,138,0,.08); border: 1px solid rgba(214,138,0,.35); border-radius: 6px; }
+.an-prov b { color: #ffcc66; }
+.an-prov a { color: #8fd0ff; }
 /* Sufixo de acolhimento no chip do apensado (status sensível — só na tela). */
 .an-badge--apens-acolhido  { background: rgba(0,168,89,.22);  color: #4fe39a; border-color: rgba(0,168,89,.5); }
 .an-badge--apens-parcial   { background: rgba(255,170,0,.20); color: #ffcc66; border-color: rgba(255,170,0,.5); }
