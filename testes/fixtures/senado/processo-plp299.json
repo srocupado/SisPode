@@ -1,0 +1,59 @@
+{
+ "id": 9127383,
+ "codigoMateria": 176328,
+ "identificacao": "PLP 299/2026",
+ "sigla": "PLP",
+ "numero": "299",
+ "ano": 2026,
+ "tramitando": "Sim",
+ "situacaoAtual": "INCLUÍDA EM ORDEM DO DIA",
+ "dataSituacaoAtual": "2026-11-17",
+ "siglaCasaIniciadora": "SF",
+ "conteudo": {
+  "ementa": "Altera a Lei Complementar nº 200, de 30 de agosto de 2023, para conferir ao Poder Executivo federal novos instrumentos de gestão com vistas a garantir a estabilidade macroeconômica do País e criar as condições adequadas ao crescimento socioeconômico; e dá outras providências."
+ },
+ "documento": {
+  "resumoAutoria": "Senador Jaques Wagner (PT/BA)"
+ },
+ "autuacoes": [
+  {
+   "informesLegislativos": [
+    {
+     "id": 2326013,
+     "data": "2026-11-11 16:59:17",
+     "descricao": "Autuado o Projeto de Lei Complementar nº 299/2026. O projeto vai à publicação."
+    },
+    {
+     "id": 2328440,
+     "data": "2026-11-17 16:44:21",
+     "descricao": "Recebida a Emenda nº 80, do Senador Wilder Morais, à Emenda nº 75 (Substitutivo), para o turno suplementar."
+    },
+    {
+     "id": 2328464,
+     "data": "2026-11-17 16:57:39",
+     "descricao": "Recebida a Emenda nº 81, do Senador Alessandro Vieira, à Emenda nº 75 (Substitutivo), para o turno suplementar. "
+    },
+    {
+     "id": 2328476,
+     "data": "2026-11-17 17:12:23",
+     "descricao": "Recebida a Emenda nº 82, do Senador Wilder Morais, à Emenda nº 75 (Substitutivo), para o turno suplementar."
+    },
+    {
+     "id": 2328467,
+     "data": "2026-11-17 17:29:13",
+     "descricao": "Recebida a Emenda nº 83, da Senadora Tereza Cristina, à Emenda nº 75 (Substitutivo), para o turno suplementar."
+    },
+    {
+     "id": 2328468,
+     "data": "2026-11-17 17:45:40",
+     "descricao": "(Sessão Deliberativa Ordinária - semipresencial - de 17 de novembro de 2026) \nMatéria não apreciada nesta sessão. "
+    },
+    {
+     "id": 2328496,
+     "data": "2026-11-17 18:07:27",
+     "descricao": "Incluído em Ordem do Dia da Sessão Deliberativa Ordinária Semipresencial de 18/11/2026.\nContinuação da votação, em turno único."
+    }
+   ]
+  }
+ ]
+}

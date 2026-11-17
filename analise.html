@@ -211,7 +211,7 @@
         <button class="modal-close" data-fecha="modal-adicionar">✕</button>
       </div>
       <div class="modal-body">
-        <p class="config-desc">Informe tipo, número e ano. A ementa, o autor e o relator serão buscados na API da Câmara automaticamente.</p>
+        <p class="config-desc">Informe tipo, número e ano. A ementa, o autor e o relator serão buscados na API da Câmara automaticamente. Se a Câmara ainda não tiver registrado a proposição (matéria que ainda está no Senado), o item entra como "aguardando registro" e os dados vêm do Senado, quando houver.</p>
         <div class="form-group">
           <label>Tipo de proposição</label>
           <select id="add-tipo" class="form-input">
@@ -253,6 +253,35 @@
       <div class="modal-footer">
         <button class="btn btn-ghost" data-fecha="modal-adicionar">Cancelar</button>
         <button id="btn-confirmar-adicionar" class="btn btn-primary">Adicionar</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== MODAL: DETALHES DO ITEM (proposição que a Câmara ainda não registrou) ===== -->
+  <div id="modal-detalhes-item" class="modal-overlay" style="display:none">
+    <div class="modal">
+      <div class="modal-header">
+        <h3>Editar detalhes do item</h3>
+        <button class="modal-close" data-fecha="modal-detalhes-item">✕</button>
+      </div>
+      <div class="modal-body">
+        <p class="config-desc"><b id="det-alvo"></b> — a Câmara ainda não registrou esta proposição. Corrija ou complete o que aparece no card. O que você digitar aqui não é sobrescrito pela consulta ao Senado. Para a análise, use os documentos do Senado (quando houver) ou anexe o documento em "Documento próprio".</p>
+        <div class="form-group">
+          <label>Ementa</label>
+          <textarea id="det-ementa" class="form-input" rows="5" maxlength="1200" placeholder="Do que trata a proposição"></textarea>
+        </div>
+        <div class="form-group">
+          <label>Autor</label>
+          <input type="text" id="det-autor" class="form-input" maxlength="200" placeholder="Ex: Senador Fulano (PARTIDO/UF) ou Poder Executivo">
+        </div>
+        <div class="form-group">
+          <label>Relator na Câmara (se já anunciado)</label>
+          <input type="text" id="det-relator" class="form-input" maxlength="160" placeholder="Ex: Dep. Fulano (PARTIDO-UF)">
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" data-fecha="modal-detalhes-item">Cancelar</button>
+        <button id="btn-salvar-detalhes" class="btn btn-primary">Salvar</button>
       </div>
     </div>
   </div>
@@ -612,6 +641,7 @@
   <script src="pe5-html.js"></script>
   <script src="ia-comum.js"></script>
   <script src="docs-analista.js"></script>
+  <script src="senado-materia.js"></script>
   <script src="analise.js"></script>
 </body>
 </html>

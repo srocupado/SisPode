@@ -276,7 +276,8 @@ const rejeita = async p => { try { await p; return null; } catch (e) { return e;
     cacheProp.clear();
     lista = [{ id: 10, siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'a' }, { id: 11, siglaTipo: 'PL', numero: 1, ano: 2026, ementa: 'b' }];
     ok((await Rp('PL', '1', '2026')).id === 10, 'outros tipos não mudam: o primeiro resultado');
-    ok(/catch \(e\) \{ return !!e\.ambiguo; \}/.test(src) && /if \(e\.ambiguo\) return null; throw e;/.test(src) && /if \(e\.ambiguo\) ok\.push\(\{ ref, ementa: '' \}\);/.test(src),
+    // (17/11/2026: as duas chamadas passaram a tratar também a proposição ainda sem registro na Câmara — item provisório)
+    ok(/catch \(e\) \{ return e\.ambiguo \? true : e\.naoEncontrada \? 'sem-registro' : false; \}/.test(src) && /if \(e\.ambiguo\) return null; if \(e\.naoEncontrada\) \{ semRegistro = true; return null; \} throw e;/.test(src) && /if \(e\.ambiguo\) ok\.push\(\{ ref, ementa: '' \}\);/.test(src),
       'quem só precisa saber se o requerimento EXISTE (lacunas, inclusão manual, pauta manual) aceita o homônimo');
   }
 

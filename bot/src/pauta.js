@@ -35,12 +35,18 @@ async function getTimeout(url, ms = 20000) {
   const ac = new AbortController(); const t = setTimeout(() => ac.abort(), ms);
   try { return await fetch(url, { signal: ac.signal }); } finally { clearTimeout(t); }
 }
-/** A proposição existe na Câmara? API de Dados Abertos; fora do ar, o webservice do portal. */
+/**
+ * A proposição existe na Câmara? API de Dados Abertos; fora do ar, o webservice do portal.
+ * Devolve true, false ou 'sem-registro' — este último quando a API RESPONDEU e não tem a proposição, nem
+ * as outras fontes a acharam (matéria que ainda está no Senado, como o PLP 299/2026 em 17/11/2026): o
+ * item entra na pauta como "aguardando registro na Câmara" (pauta-parser.js, recuperarLacunasPauta).
+ */
 async function confirmarProposicaoCamara(ref) {
+  let apiVazia = false;
   for (const s of SIGLAS_EQUIV[ref.sigla] || [ref.sigla]) {
     try {
       const r = await getTimeout(`${API_CAMARA}/proposicoes?siglaTipo=${encodeURIComponent(s)}&numero=${ref.numero}&ano=${ref.ano}&itens=1`);
-      if (r.ok && ((await r.json()).dados || []).length) return true;
+      if (r.ok) { if (((await r.json()).dados || []).length) return true; apiVazia = true; }
     } catch (_) { /* tenta o portal */ }
     try {   // busca do portal (busca-api): no ar quando API e SitCamaraWS caem
       const r = await fetch('https://www.camara.leg.br/busca-api/api/v1/busca/proposicoes/_search', {
@@ -53,7 +59,7 @@ async function confirmarProposicaoCamara(ref) {
       if (r.ok && /<idProposicao>\d+/.test(await r.text())) return true;
     } catch (_) { /* próxima sigla */ }
   }
-  return false;
+  return apiVazia ? 'sem-registro' : false;
 }
 
 /**
@@ -78,6 +84,8 @@ async function recuperarLacunasBot(texto, parsed, perfil) {
   parsed.lacunas = {
     faltando: lac.faltando,
     recuperados: novos.map(i => i.ordem),
+    // lidos pela IA cuja proposição a Câmara ainda não registrou: entram como "aguardando registro"
+    provisorios: novos.filter(i => i.provisorio).map(i => i.ordem),
     pendentes: r.pendentes.sort((a, b) => a.ordem - b.ordem),
     diagnosticos: lac.diagnosticos,
     em: new Date().toISOString(),
@@ -89,7 +97,9 @@ async function recuperarLacunasBot(texto, parsed, perfil) {
 function textoLacunas(L) {
   if (!L) return '';
   const out = [];
-  if (L.recuperados.length) out.push(`🤖 Item(ns) ${L.recuperados.join(', ')} não reconhecido(s) pelo leitor — lido(s) pela IA e confirmado(s) na Câmara. Confira no painel.`);
+  const prov = new Set(L.provisorios || []), conf = L.recuperados.filter(n => !prov.has(n));
+  if (conf.length) out.push(`🤖 Item(ns) ${conf.join(', ')} não reconhecido(s) pelo leitor — lido(s) pela IA e confirmado(s) na Câmara. Confira no painel.`);
+  if (prov.size) out.push(`⏳ Item(ns) ${[...prov].join(', ')} lido(s) pela IA; a Câmara ainda não registrou a proposição — entrou(aram) como "aguardando registro". O painel busca os dados e os documentos no Senado e faz o vínculo quando a Câmara registrar.`);
   for (const p of L.pendentes) out.push(`⚠️ Item ${p.ordem} NÃO entrou: ${p.motivo}${p.lido ? ` (a IA leu ${p.lido})` : ''}. Adicione pelo painel.`);
   // Por que o leitor não leu — título publicado e desvio do padrão.
   for (const n of L.faltando) {
@@ -338,6 +348,7 @@ function montarPautaFirebase(parsed, uploadedBy, pdfNome = 'pauta_s.pdf') {
       temUrgencia:       !!it.temUrgencia,
       projetoUrgenciado: it.projetoUrgenciado || null,
       origemIA:          it.origemIA || null,
+      provisorio:        it.provisorio || null,
       chave:             it.chave || `${it.sigla}-${it.numero}-${it.ano}`,
     })),
     ...(parsed.lacunas ? { lacunas: parsed.lacunas } : {}),
